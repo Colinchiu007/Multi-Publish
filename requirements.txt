@@ -1,0 +1,30 @@
+# PROJECT-003 依赖
+
+# Core
+fastapi>=0.110.0
+uvicorn>=0.27.0
+jinja2>=3.1.0
+python-multipart>=0.0.6
+
+# HTTP
+httpx>=0.27.0
+
+# Crypto
+cryptography>=42.0.0
+
+# Async
+aiofiles>=23.0.0
+
+# Logging
+loguru>=0.7.0
+
+# RPA (Phase 2+)
+playwright>=1.42.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# Utils
+python-dateutil>=2.8.2
+uuid6>=2023.5.2
