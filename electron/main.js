@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
+const playwright = require('./playwright-manager')
 
 let mainWindow = null
 
@@ -39,9 +40,17 @@ function createWindow () {
 ipcMain.handle('app:get-version', () => app.getVersion())
 ipcMain.handle('app:get-platform', () => process.platform)
 
-app.whenReady().then(createWindow)
+app.whenReady().then(async () => {
+  try {
+    await playwright.launchBrowser()
+  } catch (e) {
+    console.error('[App] Failed to launch Playwright:', e.message)
+  }
+  createWindow()
+})
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
+  await playwright.closeBrowser()
   if (process.platform !== 'darwin') {
     app.quit()
   }
