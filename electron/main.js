@@ -2,10 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const playwright = require('./playwright-manager')
 const pythonBridge = require('./python-bridge')
-const WeChatMPPublisher = require('./publishers/wechat-mp-rpa')
-const ZhihuPublisher = require('./publishers/zhihu-rpa')
-const WeiboPublisher = require('./publishers/weibo-rpa')
-const DouyinPublisher = require('./publishers/douyin-rpa')
+const { getPublisherClass } = require('./publishers/registry')
 const TaskQueue = require('./task-queue')
 const AccountManager = require('./publishers/account-manager')
 
@@ -14,68 +11,22 @@ const taskQueue = new TaskQueue({ maxConcurrent: 1 })
 
 // 注册执行器
 taskQueue.setExecutor(async (task) => {
-  if (task.platform === 'wechat_mp') {
-    const publisher = new WeChatMPPublisher()
-    const mainWindow = BrowserWindow.getAllWindows()[0]
+  const PublisherClass = getPublisherClass(task.platform)
+  const publisher = new PublisherClass()
+  const mainWindow = BrowserWindow.getAllWindows()[0]
 
-    publisher.onProgress(({ platform, stage }) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('publish:progress', { platform, stage, taskId: task.id })
-      }
-    })
+  publisher.onProgress(({ platform, stage }) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('publish:progress', { platform, stage, taskId: task.id })
+    }
+  })
 
-    try {
-      const result = await publisher.publishArticle(task.article)
-      return result
-    } finally {
-      await publisher.cleanup()
-    }
-  } else if (task.platform === 'zhihu') {
-    const publisher = new ZhihuPublisher()
-    const mainWindow = BrowserWindow.getAllWindows()[0]
-
-    publisher.onProgress(({ platform, stage }) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('publish:progress', { platform, stage, taskId: task.id })
-      }
-    })
-
-    try {
-      const result = await publisher.publishArticle(task.article)
-      return result
-    } finally {
-      await publisher.cleanup()
-    }
-  } else if (task.platform === 'weibo') {
-    const publisher = new WeiboPublisher()
-    const mainWindow = BrowserWindow.getAllWindows()[0]
-    publisher.onProgress(({ platform, stage }) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('publish:progress', { platform, stage, taskId: task.id })
-      }
-    })
-    try {
-      const result = await publisher.publishArticle(task.article)
-      return result
-    } finally {
-      await publisher.cleanup()
-    }
-  } else if (task.platform === 'douyin') {
-    const publisher = new DouyinPublisher()
-    const mainWindow = BrowserWindow.getAllWindows()[0]
-    publisher.onProgress(({ platform, stage }) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('publish:progress', { platform, stage, taskId: task.id })
-      }
-    })
-    try {
-      const result = await publisher.publishArticle(task.article)
-      return result
-    } finally {
-      await publisher.cleanup()
-    }
+  try {
+    const result = await publisher.publishArticle(task.article)
+    return result
+  } finally {
+    await publisher.cleanup()
   }
-  throw new Error(`Unsupported platform: ${task.platform}`)
 })
 
 taskQueue.on('task:success', (task) => {
