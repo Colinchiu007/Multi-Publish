@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const playwright = require('./playwright-manager')
+const pythonBridge = require('./python-bridge')
 
 let mainWindow = null
 
@@ -46,11 +47,17 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.error('[App] Failed to launch Playwright:', e.message)
   }
+  try {
+    await pythonBridge.startPythonBackend()
+  } catch (e) {
+    console.error('[App] Failed to start Python backend:', e.message)
+  }
   createWindow()
 })
 
 app.on('window-all-closed', async () => {
   await playwright.closeBrowser()
+  await pythonBridge.stopPythonBackend()
   if (process.platform !== 'darwin') {
     app.quit()
   }
