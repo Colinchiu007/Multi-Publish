@@ -17,14 +17,8 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout Multi-Publish
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Checkout shared modules
-        uses: actions/checkout@v4
-        with:
-          repository: Colinchiu007/content-aggregator-shared
-          path: shared-modules
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,16 +31,6 @@ jobs:
 
       - name: Build Vue frontend
         run: npm run build:vue
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python deps
-        run: |
-          pip install -e ./shared-modules
-          pip install -r python/requirements-runtime.txt
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
