@@ -6,13 +6,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 发布 API
   publishWechat: (articleData) => ipcRenderer.invoke('publish:wechat', articleData),
+  publishBatch: (platforms, article) => ipcRenderer.invoke('publish:batch', { platforms, article }),
   listAccounts: () => ipcRenderer.invoke('accounts:list'),
+
+  // 队列 API
+  queueStatus: () => ipcRenderer.invoke('queue:status'),
+  queueHistory: () => ipcRenderer.invoke('queue:history'),
+
+  // ─── 账号管理 API ─────────────────────
+  accountAdd: (platform) => ipcRenderer.invoke('account:add', platform),
+  accountDelete: (accountId) => ipcRenderer.invoke('account:delete', accountId),
+  accountCheckLogin: (platform, accountId) => ipcRenderer.invoke('account:check-login', { platform, accountId }),
+  accountList: () => ipcRenderer.invoke('account:list'),
 
   // 进度监听
   onProgress: (callback) => {
     const handler = (_, data) => callback(data)
     ipcRenderer.on('publish:progress', handler)
-    // 返回取消监听的函数
     return () => ipcRenderer.removeListener('publish:progress', handler)
   }
 })

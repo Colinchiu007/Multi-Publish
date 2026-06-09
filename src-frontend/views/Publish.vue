@@ -30,12 +30,7 @@
             </el-form-item>
 
             <el-form-item label="正文 (HTML)">
-              <el-input
-                v-model="article.content"
-                type="textarea"
-                :rows="12"
-                placeholder="支持 HTML 格式的正文内容"
-              />
+              <ArticleEditor v-model="article.content" />
             </el-form-item>
 
             <el-form-item label="封面图 URL">
@@ -125,6 +120,7 @@
 import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import { publishWechat, onProgress } from '@/api/publisher'
+import ArticleEditor from '@/components/ArticleEditor.vue'
 
 // 平台列表
 const platforms = [

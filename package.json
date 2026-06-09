@@ -11,22 +11,27 @@
     "build": "npm run build:vue && electron-builder",
     "preview": "vite preview"
   },
-  "keywords": ["multi-publish", "rpa", "wechat"],
+  "keywords": [
+    "multi-publish",
+    "rpa",
+    "wechat"
+  ],
   "license": "MIT",
   "dependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "@vueup/vue-quill": "^1.5.3",
     "element-plus": "^2.9.0",
     "pinia": "^2.3.0",
+    "vite": "^6.3.0",
     "vue": "^3.5.0",
-    "vue-router": "^4.5.0",
-    "@vitejs/plugin-vue": "^5.2.0",
-    "vite": "^6.3.0"
+    "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "concurrently": "^9.0.0",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
-    "concurrently": "^9.0.0",
-    "wait-on": "^8.0.0",
-    "playwright": "^1.52.0"
+    "playwright": "^1.52.0",
+    "wait-on": "^8.0.0"
   },
   "build": {
     "appId": "com.colinchiu.multi-publish",
