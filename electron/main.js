@@ -5,7 +5,8 @@ const pythonBridge = require('./python-bridge')
 const { getPublisherClass } = require('./publishers/registry')
 const TaskQueue = require('./task-queue')
 const AccountManager = require('./publishers/account-manager')
-
+const history = require('./publish-history')
+const AggregatorBridge = require('./aggregator-bridge')
 // ─── 任务队列 ─────────────────────────────
 const taskQueue = new TaskQueue({ maxConcurrent: 1 })
 
@@ -39,6 +40,14 @@ taskQueue.on('task:success', (task) => {
       result: task.result
     })
   }
+  // 写入发布历史
+  history.addRecord({
+    platform: task.platform,
+    title: task.article?.title || '',
+    taskId: task.id,
+    status: 'success',
+    result: task.result
+  })
 })
 
 taskQueue.on('task:failed', (task) => {
@@ -123,6 +132,22 @@ ipcMain.handle('queue:status', async () => {
 
 ipcMain.handle('queue:history', async () => {
   return { code: 0, data: taskQueue.getHistory() }
+})
+
+// ─── 发布历史 IPC ─────────────────────────────
+ipcMain.handle('history:list', async (event, opts) => {
+  try {
+    const result = history.listRecords(opts)
+    return { code: 0, data: result }
+  } catch (e) {
+    return { code: -1, message: e.message, data: { total: 0, records: [] } }
+  }
+})
+
+ipcMain.handle('history:get', async (event, id) => {
+  const record = history.getRecord(id)
+  if (!record) return { code: -1, message: '记录不存在' }
+  return { code: 0, data: record }
 })
 
 ipcMain.handle('accounts:list', async () => {

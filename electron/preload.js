@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   queueStatus: () => ipcRenderer.invoke('queue:status'),
   queueHistory: () => ipcRenderer.invoke('queue:history'),
 
+  // 发布历史 API
+  historyList: (opts) => ipcRenderer.invoke('history:list', opts),
+  historyGet: (id) => ipcRenderer.invoke('history:get', id),
+
   // ─── 账号管理 API ─────────────────────
   accountAdd: (platform) => ipcRenderer.invoke('account:add', platform),
   accountDelete: (accountId) => ipcRenderer.invoke('account:delete', accountId),
