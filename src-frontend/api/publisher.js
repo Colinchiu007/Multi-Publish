@@ -60,3 +60,21 @@ export async function dashboardStats () {
   if (!api) return { total: 0, success: 0, failed: 0, perPlatform: {}, daily: [] }
   return api.dashboardStats()
 }
+
+// ─── 自动更新 API ──────────────────────────
+export async function updateCheck () {
+  if (!api) return {}
+  return api.updateCheck()
+}
+export async function updateDownload () {
+  if (!api) return {}
+  return api.updateDownload()
+}
+export async function updateInstall () {
+  if (!api) return {}
+  return api.updateInstall()
+}
+export function onUpdateStatus (callback) {
+  if (!api) return () => {}
+  return api.onUpdateStatus(callback)
+}

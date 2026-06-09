@@ -8,6 +8,7 @@ const AccountManager = require('./publishers/account-manager')
 const history = require('./publish-history')
 const AggregatorBridge = require('./aggregator-bridge')
 const scheduler = require('./scheduler')
+const autoUpdater = require('./auto-updater')
 
 // ─── 任务队列 ─────────────────────────────
 const taskQueue = new TaskQueue({ maxConcurrent: 1 })
@@ -103,6 +104,11 @@ function createWindow () {
 
   mainWindow.once('ready-to-show', () => { mainWindow.show() })
   mainWindow.on('closed', () => { mainWindow = null })
+
+  // 初始化自动更新
+  autoUpdater.init(mainWindow, (status) => {
+    console.log('[auto-updater]', JSON.stringify(status))
+  })
 }
 
 // ─── IPC handlers ─────────────────────
@@ -160,6 +166,20 @@ ipcMain.handle('scheduler:list', async () => {
 ipcMain.handle('scheduler:cancel', async (event, id) => {
   scheduler.cancel(id)
   return { code: 0, message: '定时任务已取消' }
+})
+
+// ─── 自动更新 IPC ────────────────────────
+ipcMain.handle('update:check', async () => {
+  autoUpdater.check()
+  return { code: 0 }
+})
+ipcMain.handle('update:download', async () => {
+  autoUpdater.download()
+  return { code: 0 }
+})
+ipcMain.handle('update:install', async () => {
+  autoUpdater.quitAndInstall()
+  return { code: 0 }
 })
 
 // 账号 IPC
