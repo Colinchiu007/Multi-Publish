@@ -119,13 +119,13 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
-import { publishWechat, onProgress } from '@/api/publisher'
+import { publishWechat, publishBatch, onProgress } from '@/api/publisher'
 import ArticleEditor from '@/components/ArticleEditor.vue'
 
 // 平台列表
 const platforms = [
-  { id: 'wechat_mp', label: '微信公众号', icon: '📢', tag: '开发中', tagType: 'warning' }
-  // TODO: 后续添加 知乎/微博/抖音 等平台
+  { id: 'wechat_mp', label: '微信公众号', icon: '📢', tagType: 'success' },
+  { id: 'zhihu', label: '知乎', icon: '📝', tag: '新增', tagType: 'success' }
 ]
 
 const selectedPlatforms = ref(['wechat_mp'])
@@ -168,34 +168,35 @@ async function handlePublish () {
   })
 
   try {
-    for (const platform of selectedPlatforms.value) {
-      addProgress(`开始发布到 ${platform}...`, 'info')
+    // 使用批量发布 (任务队列)
+    const articleData = {
+      title: article.title,
+      content: article.content,
+      author: article.author || '',
+      cover_url: article.cover_url || ''
+    }
 
-      let res
-      if (platform === 'wechat_mp') {
-        res = await publishWechat({
-          title: article.title,
-          content: article.content,
-          author: article.author || '',
-          cover_url: article.cover_url || ''
-        })
-      } else {
-        res = { code: -1, message: `平台 ${platform} 暂未支持` }
-      }
-
+    if (selectedPlatforms.value.length === 1 && selectedPlatforms.value[0] === 'wechat_mp') {
+      // 单平台走原有 publish:wechat
+      addProgress('开始发布到 微信公众号...', 'info')
+      const res = await publishWechat(articleData)
       if (res.code === 0) {
-        addProgress(`✓ ${platform} 发布成功`, 'success')
-        result.value = {
-          success: true,
-          message: `已成功发布到 ${platform}`,
-          url: res.data?.url || ''
-        }
+        addProgress('✓ 微信公众号 发布成功', 'success')
+        result.value = { success: true, message: '任务已加入队列', url: '' }
       } else {
-        addProgress(`✗ ${platform} 发布失败: ${res.message}`, 'danger')
-        result.value = {
-          success: false,
-          message: res.message || '发布失败'
-        }
+        addProgress(`✗ 微信公众号 发布失败: ${res.message}`, 'danger')
+        result.value = { success: false, message: res.message }
+      }
+    } else {
+      // 多平台走 publish:batch (任务队列)
+      addProgress(`批量发布到 ${selectedPlatforms.value.length} 个平台...`, 'info')
+      const res = await publishBatch(selectedPlatforms.value, articleData)
+      if (res.code === 0) {
+        addProgress(`✓ 已添加 ${res.data?.taskIds?.length || ''} 个任务到队列`, 'success')
+        result.value = { success: true, message: res.message || '任务已加入队列', url: '' }
+      } else {
+        addProgress(`✗ 批量发布失败: ${res.message}`, 'danger')
+        result.value = { success: false, message: res.message }
       }
     }
   } catch (e) {

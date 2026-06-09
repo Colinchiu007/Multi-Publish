@@ -3,6 +3,7 @@ const path = require('path')
 const playwright = require('./playwright-manager')
 const pythonBridge = require('./python-bridge')
 const WeChatMPPublisher = require('./publishers/wechat-mp-rpa')
+const ZhihuPublisher = require('./publishers/zhihu-rpa')
 const TaskQueue = require('./task-queue')
 const AccountManager = require('./publishers/account-manager')
 
@@ -13,6 +14,22 @@ const taskQueue = new TaskQueue({ maxConcurrent: 1 })
 taskQueue.setExecutor(async (task) => {
   if (task.platform === 'wechat_mp') {
     const publisher = new WeChatMPPublisher()
+    const mainWindow = BrowserWindow.getAllWindows()[0]
+
+    publisher.onProgress(({ platform, stage }) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('publish:progress', { platform, stage, taskId: task.id })
+      }
+    })
+
+    try {
+      const result = await publisher.publishArticle(task.article)
+      return result
+    } finally {
+      await publisher.cleanup()
+    }
+  } else if (task.platform === 'zhihu') {
+    const publisher = new ZhihuPublisher()
     const mainWindow = BrowserWindow.getAllWindows()[0]
 
     publisher.onProgress(({ platform, stage }) => {
