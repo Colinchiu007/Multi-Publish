@@ -16,6 +16,10 @@
           <el-icon><Upload /></el-icon>
           <span>一键发布</span>
         </el-menu-item>
+        <el-menu-item index="/dashboard">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>统计看板</span>
+        </el-menu-item>
         <el-menu-item index="/accounts">
           <el-icon><User /></el-icon>
           <span>账号管理</span>
@@ -35,7 +39,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { Upload, User, InfoFilled } from '@element-plus/icons-vue'
+import { Upload, User, InfoFilled, DataAnalysis } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const currentRoute = computed(() => route.path)

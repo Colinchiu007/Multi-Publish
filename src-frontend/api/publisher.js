@@ -54,3 +54,9 @@ export async function accountList () {
   if (!api) return { code: 0, data: [] }
   return api.accountList()
 }
+
+// ─── 发布统计 API ──────────────────────────
+export async function dashboardStats () {
+  if (!api) return { total: 0, success: 0, failed: 0, perPlatform: {}, daily: [] }
+  return api.dashboardStats()
+}

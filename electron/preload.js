@@ -14,10 +14,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   queueHistory: () => ipcRenderer.invoke('queue:history'),
 
   // 发布历史 API
-    historyList: (opts) => ipcRenderer.invoke('history:list', opts),
-    historyGet: (id) => ipcRenderer.invoke('history:get', id),
+  historyList: (opts) => ipcRenderer.invoke('history:list', opts),
+  historyGet: (id) => ipcRenderer.invoke('history:get', id),
 
-    // 定时发布 API
+  // 发布统计 API
+  dashboardStats: () => ipcRenderer.invoke('dashboard:stats'),
+
+  // 定时发布 API
     schedulerCreate: (schedule) => ipcRenderer.invoke('scheduler:create', schedule),
     schedulerList: () => ipcRenderer.invoke('scheduler:list'),
     schedulerCancel: (id) => ipcRenderer.invoke('scheduler:cancel', id),
