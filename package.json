@@ -9,6 +9,8 @@
     "dev": "concurrently \"npm run dev:vue\" \"npm run dev:electron\"",
     "build:vue": "vite build",
     "build": "npm run build:vue && electron-builder",
+    "build:win": "npm run build:vue && electron-builder --win --x64",
+    "build:dir": "npm run build:vue && electron-builder --dir",
     "preview": "vite preview"
   },
   "keywords": [
@@ -29,7 +31,7 @@
   "devDependencies": {
     "concurrently": "^9.0.0",
     "electron": "^33.0.0",
-    "electron-builder": "^25.0.0",
+    "electron-builder": "^25.1.8",
     "playwright": "^1.52.0",
     "wait-on": "^8.0.0"
   },

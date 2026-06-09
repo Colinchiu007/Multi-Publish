@@ -128,8 +128,8 @@ function createWindow () {
     },
     show: false
   })
-
-  const isDev = process.env.NODE_ENV !== 'production' || !app.isPackaged
+  // 开发环境加载 Vite 开发服务器，生产加载打包文件
+  const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev') || !app.isPackaged
   if (isDev) {
     mainWindow.loadURL('http://localhost:5174')
     mainWindow.webContents.openDevTools()
