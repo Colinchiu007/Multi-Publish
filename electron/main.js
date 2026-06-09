@@ -144,6 +144,10 @@ ipcMain.handle('history:get', async (event, id) => {
   if (!record) return { code: -1, message: '记录不存在' }
   return { code: 0, data: record }
 })
+// ─── 发布统计 IPC ───────────
+ipcMain.handle('dashboard:stats', async () => {
+  return { code: 0, data: history.getStats() }
+})
 
 // 定时发布 IPC
 ipcMain.handle('scheduler:create', async (event, { platform, article, publishTime }) => {

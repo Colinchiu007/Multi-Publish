@@ -56,4 +56,61 @@ function getRecord (id) {
   return records.find(r => r.id === id) || null
 }
 
-module.exports = { addRecord, listRecords, getRecord }
+/**
+ * 获取发布统计
+ * @returns {object} { total, success, failed, perPlatform, daily }
+ */
+function getStats () {
+  const filePath = getHistoryPath()
+  if (!fs.existsSync(filePath)) {
+    return { total: 0, success: 0, failed: 0, perPlatform: {}, daily: [] }
+  }
+
+  const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
+  let records = lines.map(l => {
+    try { return JSON.parse(l) } catch { return null }
+  }).filter(Boolean)
+
+  const total = records.length
+  const success = records.filter(r => r.success !== false).length
+  const failed = total - success
+
+  // 按平台统计
+  const perPlatform = {}
+  for (const r of records) {
+    const p = r.platform || 'unknown'
+    if (!perPlatform[p]) perPlatform[p] = { total: 0, success: 0, failed: 0 }
+    perPlatform[p].total++
+    if (r.success !== false) perPlatform[p].success++
+    else perPlatform[p].failed++
+  }
+
+  // 按天统计（最近30天）
+  const dailyMap = {}
+  const now = new Date()
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now)
+    d.setDate(d.getDate() - i)
+    const key = d.toISOString().slice(0, 10)
+    dailyMap[key] = { date: key, total: 0, success: 0 }
+  }
+  for (const r of records) {
+    if (!r.timestamp) continue
+    const key = r.timestamp.slice(0, 10)
+    if (dailyMap[key]) {
+      dailyMap[key].total++
+      if (r.success !== false) dailyMap[key].success++
+    }
+  }
+
+  return {
+    total,
+    success,
+    failed,
+    successRate: total > 0 ? Math.round(success / total * 100) : 0,
+    perPlatform,
+    daily: Object.values(dailyMap)
+  }
+}
+
+module.exports = { addRecord, listRecords, getRecord, getStats }
