@@ -127,7 +127,8 @@ const platforms = [
   { id: 'wechat_mp', label: '微信公众号', icon: '📢', tagType: 'success' },
   { id: 'zhihu', label: '知乎', icon: '📝', tagType: 'success' },
   { id: 'weibo', label: '微博', icon: '📱', tag: '新增', tagType: 'success' },
-  { id: 'douyin', label: '抖音', icon: '🎵', tag: '新增', tagType: 'success' }
+  { id: 'douyin', label: '抖音', icon: '🎵', tag: '新增', tagType: 'success' },
+  { id: 'xiaohongshu', label: '小红书', icon: '📕', tag: '新增', tagType: 'warning' }
 ]
 
 const selectedPlatforms = ref(['wechat_mp'])
