@@ -43,6 +43,14 @@ account_store = AccountStore(str(STORAGE_PATH), master_password="")
 
 # ─── 数据模型 ─────────────────────────────────────────────
 
+class ArticleFromAggregator(BaseModel):
+    """来自 PROJECT-001 content-aggregator 的文章"""
+    title: str
+    content: str
+    author: str = ""
+    cover_url: str = ""
+    platforms: list[str] = ["wechat_mp", "zhihu", "weibo"]
+
 class PublishRequest(BaseModel):
     title: str
     content: str          # HTML 正文
@@ -212,20 +220,28 @@ def health():
         platform=platform.system()
     )
 
-@app.post("/api/publish/{platform}")
-def publish_article(platform: str, req: PublishRequest):
+
+@app.post("/api/publish-from-aggregator")
+def publish_from_aggregator(article: ArticleFromAggregator):
     """
-    发布文章到指定平台
-    实际 RPA 发布由 Electron Node.js 侧的 Playwright 执行
-    此 API 为后续扩展预留（纯 API 发布 + RPA 发布适配）
+    接收 PROJECT-001 content-aggregator 推送的文章
+    将文章写入队列文件, aggregator-bridge 轮询后执行发布
     """
+    queue_file = DATA_DIR / "publish_queue.jsonl"
+    record = {
+        "title": article.title,
+        "content": article.content,
+        "author": article.author,
+        "cover_url": article.cover_url,
+        "platforms": article.platforms,
+        "created_at": datetime.now().isoformat()
+    }
+    with open(queue_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
     return {
         "code": 0,
-        "message": f"Publish request received for {platform}",
-        "data": {
-            "title": req.title,
-            "platform": platform
-        }
+        "message": "文章已加入发布队列",
+        "data": {"title": article.title, "platforms": article.platforms}
     }
 
 
@@ -240,6 +256,7 @@ def main():
         port=port,
         log_level="info"
     )
+
 
 if __name__ == "__main__":
     main()
