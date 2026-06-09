@@ -80,7 +80,10 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { Upload, User, InfoFilled, DataAnalysis } from '@element-plus/icons-vue'
+<<<<<<< HEAD
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
+=======
+>>>>>>> origin/main
 
 const route = useRoute()
 const currentRoute = computed(() => route.path)
