@@ -4,6 +4,8 @@ const playwright = require('./playwright-manager')
 const pythonBridge = require('./python-bridge')
 const WeChatMPPublisher = require('./publishers/wechat-mp-rpa')
 const ZhihuPublisher = require('./publishers/zhihu-rpa')
+const WeiboPublisher = require('./publishers/weibo-rpa')
+const DouyinPublisher = require('./publishers/douyin-rpa')
 const TaskQueue = require('./task-queue')
 const AccountManager = require('./publishers/account-manager')
 
@@ -38,6 +40,34 @@ taskQueue.setExecutor(async (task) => {
       }
     })
 
+    try {
+      const result = await publisher.publishArticle(task.article)
+      return result
+    } finally {
+      await publisher.cleanup()
+    }
+  } else if (task.platform === 'weibo') {
+    const publisher = new WeiboPublisher()
+    const mainWindow = BrowserWindow.getAllWindows()[0]
+    publisher.onProgress(({ platform, stage }) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('publish:progress', { platform, stage, taskId: task.id })
+      }
+    })
+    try {
+      const result = await publisher.publishArticle(task.article)
+      return result
+    } finally {
+      await publisher.cleanup()
+    }
+  } else if (task.platform === 'douyin') {
+    const publisher = new DouyinPublisher()
+    const mainWindow = BrowserWindow.getAllWindows()[0]
+    publisher.onProgress(({ platform, stage }) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('publish:progress', { platform, stage, taskId: task.id })
+      }
+    })
     try {
       const result = await publisher.publishArticle(task.article)
       return result
@@ -98,8 +128,8 @@ function createWindow () {
     },
     show: false
   })
-
-  const isDev = process.env.NODE_ENV !== 'production' || !app.isPackaged
+  // 开发环境加载 Vite 开发服务器，生产加载打包文件
+  const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev') || !app.isPackaged
   if (isDev) {
     mainWindow.loadURL('http://localhost:5174')
     mainWindow.webContents.openDevTools()

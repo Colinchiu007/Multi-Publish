@@ -125,7 +125,9 @@ import ArticleEditor from '@/components/ArticleEditor.vue'
 // 平台列表
 const platforms = [
   { id: 'wechat_mp', label: '微信公众号', icon: '📢', tagType: 'success' },
-  { id: 'zhihu', label: '知乎', icon: '📝', tag: '新增', tagType: 'success' }
+  { id: 'zhihu', label: '知乎', icon: '📝', tagType: 'success' },
+  { id: 'weibo', label: '微博', icon: '📱', tag: '新增', tagType: 'success' },
+  { id: 'douyin', label: '抖音', icon: '🎵', tag: '新增', tagType: 'success' }
 ]
 
 const selectedPlatforms = ref(['wechat_mp'])

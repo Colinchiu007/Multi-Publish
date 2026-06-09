@@ -1,0 +1,48 @@
+appId: com.colinchiu.multi-publish
+productName: Multi-Publish
+copyright: Copyright © 2026 ColinChiu
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - electron/**/*
+  - package.json
+  - "!node_modules/**/electron/dist/**"
+
+extraResources:
+  - from: python
+    to: python
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!*.pyc"
+
+asar: true
+asarUnpack:
+  - electron/**
+  - python/**
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  shortcutName: Multi-Publish
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+publish:
+  provider: github
+  owner: Colinchiu007
+  repo: Multi-Publish
+  releaseType: release
