@@ -1,87 +1,138 @@
-"""
-PROJECT-003 项目说明
+# Multi-Publish
 
-多平台一键发布工具
+多平台内容一键发布桌面工具。支持微信公众号、知乎、微博、抖音等平台的 RPA 自动化发布。
 
-## 快速开始
+## 安装
 
 ```bash
-# 安装依赖
-pip install -r requirements.txt
+# 从 GitHub Release 下载（推荐）
+# 访问 https://github.com/Colinchiu007/Multi-Publish/releases
+# 下载 Multi-Publish Setup x.x.x.exe
 
-# 启动服务
-python -m uvicorn web.server:app --host 0.0.0.0 --port 8081
-
-# 访问 Web UI
-http://localhost:8081
+# 或者从源码构建
+git clone https://github.com/Colinchiu007/Multi-Publish.git
+cd Multi-Publish
+npm install
+npm run build:vue
+npx electron-builder --win --x64
 ```
 
-## 目录结构
+## 首次使用
+
+1. **下载安装包** — 从 [Releases](https://github.com/Colinchiu007/Multi-Publish/releases) 下载
+2. **安装 Python 后端依赖** — 首次运行自动安装（需 Python 3.12+ 已安装）
+3. **安装 Playwright 浏览器** — 首次运行自动检测并提示安装
+4. **登录平台账号** — 每个平台需要单独登录并保存 Cookie
+
+## 支持平台
+
+| 平台 | 状态 | 特性 |
+|:----:|:----:|------|
+| ✅ 微信公众号 | 已实现 | 草稿编辑 → 群发，支持富文本/封面/作者设置 |
+| ✅ 知乎 | 已实现 | 文章发布，支持话题标签 |
+| ✅ 微博 | 已实现 | 图文发布，支持长文 |
+| ✅ 抖音 | 已实现 | 图文发布 |
+| ⏳ 小红书 | 计划中 | |
+
+## 架构
 
 ```
-PROJECT-003-multi-publish/
-├── src/multi_publish/
-│   ├── __init__.py           # 顶层导出
-│   ├── crypto.py             # 凭证加密
-│   ├── models.py             # 数据模型
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── publisher_manager.py  # 发布器管理器
-│   │   ├── task_queue.py         # 任务队列（待实现）
-│   │   └── scheduler.py          # 调度器（待实现）
-│   ├── publishers/
-│   │   ├── __init__.py
-│   │   ├── base.py               # 基础发布器接口
-│   │   └ wechat_mp.py            # 微信公众号发布器
-│   ├── rpa/                      # RPA 引擎（待实现）
-│   └── formatters/               # 格式适配器（待实现）
-├── web/
-│   ├── server.py                 # FastAPI 服务（待创建）
-│   ├── templates/                # Jinja2 模板
-│   └── static/                   # 静态文件
-├── config/
-│   └ config.yaml                 # 配置文件（待创建）
-├── tests/                        # 测试
-├── PRD.md                        # 产品需求文档
-├── requirements.txt
-└── README.md
+┌──────────────────────────────────┐
+│  Electron Shell (Vue 3 + Vite)   │  ← 桌面 GUI
+├──────────────────────────────────┤
+│  IPC Bridge (preload.js)         │  ← 前后端通信
+├──────────┬──────────┬───────────┤
+│  Task    │ Scheduler│  History  │  ← 任务管理
+│  Queue   │ (定时)   │  (JSONL)  │
+├──────────┴──────────┴───────────┤
+│  Playwright RPA Engine           │  ← 浏览器自动化
+├──────────────────────────────────┤
+│  FastAPI Backend (:8299)         │  ← Python RPA 适配器
+├──────────────────────────────────┤
+│  4 Platform Publishers            │  ← 平台独立发布模块
+│  (WeChat / Zhihu / Weibo / Douyin)│
+└──────────────────────────────────┘
 ```
 
-## 当前进度
+## 使用场景
 
-- [x] 项目骨架创建
-- [x] PRD 文档
-- [x] 数据模型定义
-- [x] 基础发布器接口
-- [x] 凭证加密模块
-- [x] 微信公众号发布器（Phase 1）
-- [ ] 任务队列（Phase 1）
-- [ ] Web UI（Phase 1）
-- [ ] 知乎 RPA 发布器（Phase 2）
-- [ ] 微博/抖音发布器（Phase 3）
+### 多平台一键发布
+1. 在富文本编辑器撰写文章
+2. 勾选需要发布的平台
+3. 点击发布 → 自动执行各平台 RPA
 
-## 与 PROJECT-001 集成
+### 定时发布
+1. 撰写文章后选择「定时发布」
+2. 设定发布时间
+3. 到点时自动执行
 
-PROJECT-001 改写完成后，可通过以下方式使用 PROJECT-003：
+### PROJECT-001 集成
+通过 aggregator bridge 接收内容聚合器的文章，自动多平台发布。
 
-```python
-from multi_publish import PublisherManager, PlatformType, get_crypto
+## 开发
 
-# 初始化
-manager = PublisherManager()
+```bash
+# 启动开发服务器
+npm run dev
 
-# 注册微信公众号发布器
-from multi_publish.publishers import WeChatPublisher
-manager.register(PlatformType.WECHAT_MP, WeChatPublisher)
+# 构建前端
+npm run build:vue
 
-# 发布
-result = await manager.publish_to_platforms(
-    title="文章标题",
-    content="文章内容",
-    platforms=[PlatformType.WECHAT_MP],
-    wechat_mp_config={
-        "app_id": "YOUR_APP_ID",
-        "app_secret": "YOUR_APP_SECRET",
-    }
-)
+# 构建安装包
+npm run build:win
+
+# 构建（仅目录，快速测试）
+npm run build:dir
 ```
+
+### 后端服务
+
+```bash
+cd python
+pip install -r requirements-runtime.txt
+python server.py
+```
+
+服务运行在 `http://127.0.0.1:8299`
+
+## CI/CD
+
+GitHub Actions 自动构建 Windows (.exe) 和 Linux (.AppImage) 安装包。
+推送到 `main` 或打 `v*` tag 时触发。
+
+## 项目结构
+
+```
+electron/                  # Electron 主进程
+├── main.js               # 入口 + IPC
+├── preload.js            # 预加载桥
+├── playwright-manager.js # 浏览器管理器
+├── task-queue.js         # 任务队列
+├── scheduler.js          # 定时发布
+├── publish-history.js    # 发布历史
+├── aggregator-bridge.js  # 001 集成桥
+├── python-bridge.js      # Python 后端桥
+├── cookie-store.js       # Cookie 加密存储
+└── publishers/           # 平台发布器
+    ├── base-rpa-publisher.js
+    ├── registry.js
+    ├── wechat-mp-rpa.js
+    ├── zhihu-rpa.js
+    ├── weibo-rpa.js
+    └── douyin-rpa.js
+
+python/                   # Python 后端
+├── server.py             # FastAPI 服务
+└── publishers/           # RPA 适配器
+
+src-frontend/             # Vue 3 前端
+├── views/
+│   └── Publish.vue       # 发布页面
+└── router/               # 路由
+
+.github/workflows/        # CI 流水线
+```
+
+## License
+
+MIT

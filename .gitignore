@@ -8,3 +8,7 @@ python/__pycache__/
 *.pyc
 data/
 .DS_Store
+*.log
+# 冗余文件，配置统一在 package.json
+electron-builder.yml
+build/
