@@ -13,6 +13,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
+      fail-fast: false
 
     runs-on: ${{ matrix.os }}
 
@@ -31,15 +32,6 @@ jobs:
       - name: Build Vue frontend
         run: npm run build:vue
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python deps
-        working-directory: python
-        run: pip install -r requirements-runtime.txt
-
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
         run: npx electron-builder --win --x64
@@ -52,18 +44,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifact (Windows)
+      - name: Upload Windows artifact
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: Multi-Publish-Windows
-          path: dist-electron/*.exe
-          if-no-files-found: warn
+          path: dist-electron/Multi-Publish*.exe
 
-      - name: Upload artifact (Linux)
+      - name: Upload Linux artifact
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: Multi-Publish-Linux
-          path: dist/*.AppImage
-          if-no-files-found: warn
+          path: dist-electron/Multi-Publish*.AppImage
