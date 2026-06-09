@@ -13,11 +13,7 @@
     "build:dir": "npm run build:vue && electron-builder --dir",
     "preview": "vite preview"
   },
-  "keywords": [
-    "multi-publish",
-    "rpa",
-    "wechat"
-  ],
+  "keywords": ["multi-publish", "rpa", "wechat"],
   "license": "MIT",
   "dependencies": {
     "@vitejs/plugin-vue": "^5.2.0",
@@ -38,15 +34,8 @@
   "build": {
     "appId": "com.colinchiu.multi-publish",
     "productName": "Multi-Publish",
-    "directories": {
-      "output": "dist-electron"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "python/**/*",
-      "package.json"
-    ],
+    "directories": { "output": "dist-electron" },
+    "files": [ "dist/**/*", "electron/**/*", "python/**/*", "package.json" ],
     "win": {
       "target": "nsis",
       "icon": null
