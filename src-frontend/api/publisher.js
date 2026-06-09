@@ -78,3 +78,13 @@ export function onUpdateStatus (callback) {
   if (!api) return () => {}
   return api.onUpdateStatus(callback)
 }
+
+// ─── 首次运行引导 API ──────────────────────
+export async function firstRunCheck () {
+  if (!api) return { setupDone: false }
+  return api.firstRunCheck()
+}
+export function onFirstRunStatus (callback) {
+  if (!api) return () => {}
+  return api.onFirstRunStatus(callback)
+}

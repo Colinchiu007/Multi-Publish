@@ -7,6 +7,11 @@ const routes = [
     component: () => import('@/views/Home.vue')
   },
   {
+    path: '/first-run',
+    name: 'FirstRun',
+    component: () => import('@/views/FirstRun.vue')
+  },
+  {
     path: '/publish',
     name: 'Publish',
     component: () => import('@/views/Publish.vue')

@@ -21,7 +21,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dashboardStats: () => ipcRenderer.invoke('dashboard:stats'),
 
   // 定时发布 API
-<<<<<<< HEAD
   schedulerCreate: (schedule) => ipcRenderer.invoke('scheduler:create', schedule),
   schedulerList: () => ipcRenderer.invoke('scheduler:list'),
   schedulerCancel: (id) => ipcRenderer.invoke('scheduler:cancel', id),
@@ -35,11 +34,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('update:status', handler)
     return () => ipcRenderer.removeListener('update:status', handler)
   },
-=======
-    schedulerCreate: (schedule) => ipcRenderer.invoke('scheduler:create', schedule),
-    schedulerList: () => ipcRenderer.invoke('scheduler:list'),
-    schedulerCancel: (id) => ipcRenderer.invoke('scheduler:cancel', id),
->>>>>>> origin/main
+
+  // 首次运行引导 API
+  firstRunCheck: () => ipcRenderer.invoke('first-run:check'),
+  onFirstRunStatus: (callback) => {
+    const handler = (_event, payload) => callback(payload)
+    ipcRenderer.on('first-run:status', handler)
+    return () => ipcRenderer.removeListener('first-run:status', handler)
+  },
 
   // ─── 账号管理 API ─────────────────────
   accountAdd: (platform) => ipcRenderer.invoke('account:add', platform),

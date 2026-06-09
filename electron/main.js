@@ -9,6 +9,7 @@ const history = require('./publish-history')
 const AggregatorBridge = require('./aggregator-bridge')
 const scheduler = require('./scheduler')
 const autoUpdater = require('./auto-updater')
+const firstRun = require('./first-run')
 
 // ─── 任务队列 ─────────────────────────────
 const taskQueue = new TaskQueue({ maxConcurrent: 1 })
@@ -106,10 +107,13 @@ function createWindow () {
   mainWindow.on('closed', () => { mainWindow = null })
 
   // 初始化自动更新
-  autoUpdater.init(mainWindow, (status) => {
-    console.log('[auto-updater]', JSON.stringify(status))
-  })
-}
+    autoUpdater.init(mainWindow, (status) => {
+      console.log('[auto-updater]', JSON.stringify(status))
+    })
+
+    // 首次运行引导
+    firstRun.runSetup(mainWindow)
+  }
 
 // ─── IPC handlers ─────────────────────
 
@@ -180,6 +184,11 @@ ipcMain.handle('update:download', async () => {
 ipcMain.handle('update:install', async () => {
   autoUpdater.quitAndInstall()
   return { code: 0 }
+})
+
+// ─── 首次运行引导 IPC ─────────────────────
+ipcMain.handle('first-run:check', async () => {
+  return { code: 0, data: firstRun.checkDeps() }
 })
 
 // 账号 IPC

@@ -98,4 +98,32 @@ function _sendStatus (type, data) {
   }
 }
 
+const { execSync } = require('child_process')
+const fs = require('fs')
+const path = require('path')
+
+// ─── 首次运行引导 (安装依赖、Playwright) ──────────────────────
+async function firstRunSetup (mainWin) {
+  const markerPath = path.join(app.getPath('userData'), 'first-run-done')
+  if (fs.existsSync(markerPath)) {
+    return // 已完成
+  }
+
+  try {
+    mainWin.webContents.send('first-run:status', { type: 'checking' })
+    // Python 依赖
+    mainWin.webContents.send('first-run:status', { type: 'install', step: 'python' })
+    execSync('pip install -r python/requirements-runtime.txt', { stdio: 'inherit' })
+    // Playwright 浏览器
+    mainWin.webContents.send('first-run:status', { type: 'install', step: 'playwright' })
+    execSync('npx playwright install', { stdio: 'inherit' })
+    // 标记完成
+    fs.writeFileSync(markerPath, 'done')
+    mainWin.webContents.send('first-run:status', { type: 'done' })
+  } catch (e) {
+    console.error('[firstRunSetup] error:', e)
+    mainWin.webContents.send('first-run:status', { type: 'error', data: e.message })
+  }
+}
+
 module.exports = { init, check, download, quitAndInstall }
