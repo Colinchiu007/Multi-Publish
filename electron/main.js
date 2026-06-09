@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const playwright = require('./playwright-manager')
 const pythonBridge = require('./python-bridge')
+const WeChatMPPublisher = require('./publishers/wechat-mp-rpa')
 
 let mainWindow = null
 
@@ -40,6 +41,35 @@ function createWindow () {
 // IPC handlers
 ipcMain.handle('app:get-version', () => app.getVersion())
 ipcMain.handle('app:get-platform', () => process.platform)
+
+// 发布相关 IPC
+ipcMain.handle('publish:wechat', async (event, articleData) => {
+  const publisher = new WeChatMPPublisher()
+  const mainWindow = BrowserWindow.getAllWindows()[0]
+
+  publisher.onProgress(({ platform, stage }) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('publish:progress', { platform, stage })
+    }
+  })
+
+  try {
+    const result = await publisher.publishArticle(articleData)
+    return { code: 0, data: result }
+  } catch (e) {
+    return { code: -1, message: e.message }
+  } finally {
+    await publisher.cleanup()
+  }
+})
+
+ipcMain.handle('accounts:list', async () => {
+  try {
+    return await pythonBridge.requestBackend('GET', '/api/accounts')
+  } catch (e) {
+    return { code: -1, message: e.message, data: [] }
+  }
+})
 
 app.whenReady().then(async () => {
   try {

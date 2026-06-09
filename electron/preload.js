@@ -4,7 +4,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getVersion: () => ipcRenderer.invoke('app:get-version'),
   getPlatform: () => ipcRenderer.invoke('app:get-platform'),
 
-  // 占位：后续添加发布相关 API
-  // publish: (platform, articleData) => ipcRenderer.invoke('publish', platform, articleData),
-  // onProgress: (callback) => ipcRenderer.on('publish:progress', (_, data) => callback(data))
+  // 发布 API
+  publishWechat: (articleData) => ipcRenderer.invoke('publish:wechat', articleData),
+  listAccounts: () => ipcRenderer.invoke('accounts:list'),
+
+  // 进度监听
+  onProgress: (callback) => {
+    const handler = (_, data) => callback(data)
+    ipcRenderer.on('publish:progress', handler)
+    // 返回取消监听的函数
+    return () => ipcRenderer.removeListener('publish:progress', handler)
+  }
 })
