@@ -13,12 +13,12 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
+      fail-fast: false
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -26,7 +26,7 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Install Node dependencies
+      - name: Install dependencies
         run: npm ci
 
       - name: Build Vue frontend
@@ -44,18 +44,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifact (Windows)
+      - name: Upload Windows artifact
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: Multi-Publish-Windows
-          path: dist-electron/*.exe
-          if-no-files-found: warn
+          path: dist-electron/Multi-Publish*.exe
 
-      - name: Upload artifact (Linux)
+      - name: Upload Linux artifact
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: Multi-Publish-Linux
-          path: dist/*.AppImage
-          if-no-files-found: warn
+          path: dist-electron/Multi-Publish*.AppImage
