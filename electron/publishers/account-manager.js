@@ -12,16 +12,22 @@ const PLATFORM_LOGIN_URLS = {
   zhihu: 'https://www.zhihu.com/signin',
   weibo: 'https://weibo.com/login',
   douyin: 'https://www.douyin.com/',
-}
+  xiaohongshu: 'https://creator.xiaohongshu.com/',
+  tencent_video: 'https://channels.weixin.qq.com/',
+  kuaishou: 'https://cp.kuaishou.com/',
+  }
 
-/**
+  /**
  * 等待页面出现特定选择器，表示登录成功
  */
 const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
-  wechat_mp: '.weui-desktop-account__name',  // 公众号后台顶部账号名称
+  wechat_mp: '.weui-desktop-account__name',
   zhihu: '.AppHeader-profile',
   weibo: '.gn_nickname',
-  douyin: '.bd3c35b6',  // 抖音首页登录后特征
+  douyin: '.bd3c35b6',
+  xiaohongshu: '.user-info, [class*="avatar"]',
+  tencent_video: '.user-info, [class*="account"]',
+  kuaishou: '.user-info, [class*="avatar"]',
 }
 
 /**
@@ -29,11 +35,14 @@ const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
  */
 function getPlatformName (platform) {
   const names = {
-    wechat_mp: '微信公众号',
-    zhihu: '知乎',
-    weibo: '微博',
-    douyin: '抖音',
-  }
+      wechat_mp: '微信公众号',
+      zhihu: '知乎',
+      weibo: '微博',
+      douyin: '抖音',
+      xiaohongshu: '小红书',
+      tencent_video: '视频号',
+      kuaishou: '快手',
+    }
   return names[platform] || platform
 }
 

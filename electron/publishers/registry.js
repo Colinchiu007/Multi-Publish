@@ -7,6 +7,8 @@ const ZhihuPublisher = require('./zhihu-rpa')
 const WeiboPublisher = require('./weibo-rpa')
 const DouyinPublisher = require('./douyin-rpa')
 const XiaohongshuPublisher = require('./xiaohongshu-rpa')
+const TencentVideoPublisher = require('./tencent-video-rpa')
+const KuaishouPublisher = require('./kuaishou-rpa')
 
 const registry = {
   wechat_mp: WeChatMPPublisher,
@@ -14,6 +16,8 @@ const registry = {
   weibo: WeiboPublisher,
   douyin: DouyinPublisher,
   xiaohongshu: XiaohongshuPublisher,
+  tencent_video: TencentVideoPublisher,
+  kuaishou: KuaishouPublisher,
 }
 
 /**

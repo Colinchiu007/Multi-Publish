@@ -33,6 +33,23 @@
               <ArticleEditor v-model="article.content" />
             </el-form-item>
 
+            <!-- 视频上传（抖音/视频号/快手用） -->
+            <el-form-item label="视频文件" v-if="selectedPlatforms.some(p => ['douyin', 'tencent_video', 'kuaishou'].includes(p))">
+              <el-upload
+                drag
+                :auto-upload="false"
+                :limit="1"
+                accept="video/*"
+                :on-change="(file) => article.video_path = file.raw?.path || file.raw?.name || ''"
+              >
+                <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+                <div class="el-upload__text">拖拽视频文件到这里，或 <em>点击选择</em></div>
+                <template #tip>
+                  <div class="el-upload__tip">支持 mp4/mov/avi，最大 500MB</div>
+                </template>
+              </el-upload>
+            </el-form-item>
+
             <el-form-item label="封面图 URL">
               <el-input
                 v-model="article.cover_url"
@@ -119,6 +136,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
+import { UploadFilled } from '@element-plus/icons-vue'
 import { publishWechat, publishBatch, onProgress } from '@/api/publisher'
 import ArticleEditor from '@/components/ArticleEditor.vue'
 
@@ -128,7 +146,9 @@ const platforms = [
   { id: 'zhihu', label: '知乎', icon: '📝', tagType: 'success' },
   { id: 'weibo', label: '微博', icon: '📱', tag: '新增', tagType: 'success' },
   { id: 'douyin', label: '抖音', icon: '🎵', tag: '新增', tagType: 'success' },
-  { id: 'xiaohongshu', label: '小红书', icon: '📕', tag: '新增', tagType: 'warning' }
+  { id: 'xiaohongshu', label: '小红书', icon: '📕', tag: '新增', tagType: 'warning' },
+  { id: 'tencent_video', label: '视频号', icon: '🎬', tag: '新', tagType: 'success' },
+  { id: 'kuaishou', label: '快手', icon: '⚡', tag: '新', tagType: 'success' }
 ]
 
 const selectedPlatforms = ref(['wechat_mp'])
@@ -141,7 +161,8 @@ const article = reactive({
   title: '',
   content: '',
   author: '',
-  cover_url: ''
+  cover_url: '',
+  video_path: ''
 })
 
 function addProgress (text, type = 'primary') {
@@ -173,11 +194,12 @@ async function handlePublish () {
   try {
     // 使用批量发布 (任务队列)
     const articleData = {
-      title: article.title,
-      content: article.content,
-      author: article.author || '',
-      cover_url: article.cover_url || ''
-    }
+          title: article.title,
+          content: article.content,
+          author: article.author || '',
+          cover_url: article.cover_url || '',
+          video_path: article.video_path || ''
+        }
 
     if (selectedPlatforms.value.length === 1 && selectedPlatforms.value[0] === 'wechat_mp') {
       // 单平台走原有 publish:wechat
