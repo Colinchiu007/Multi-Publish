@@ -1,6 +1,6 @@
 /**
  * 首次运行引导
- * 自动安装 Python 依赖 + Playwright 浏览器
+ * 自动安装 Playwright 浏览器
  */
 const { execSync } = require('child_process')
 const { app } = require('electron')
@@ -9,27 +9,29 @@ const path = require('path')
 
 let _mainWin = null
 
-/**
- * 检查首次运行
- * @returns {boolean} true=已完成首次引导
- */
 function isSetupDone () {
-  const markerPath = path.join(app.getPath('userData'), 'first-run-done')
-  return fs.existsSync(markerPath)
+  return fs.existsSync(path.join(app.getPath('userData'), 'first-run-done'))
 }
 
-/**
- * 重置首次运行标记（用于调试）
- */
 function reset () {
-  const markerPath = path.join(app.getPath('userData'), 'first-run-done')
-  if (fs.existsSync(markerPath)) fs.unlinkSync(markerPath)
+  const p = path.join(app.getPath('userData'), 'first-run-done')
+  if (fs.existsSync(p)) fs.unlinkSync(p)
 }
 
 /**
- * 运行首次引导
- * @param {BrowserWindow} mainWin
+ * 找到 asar 内的 playwright 可执行文件路径
  */
+function getPlaywrightExe () {
+  // 在 asar 内 playwright 位于 app.asar/node_modules/.bin/playwright.cmd
+  const asarDir = path.join(process.resourcesDir, 'app.asar')
+  const isAsar = fs.existsSync(asarDir)
+  if (isAsar) {
+    return path.join(asarDir, 'node_modules', '.bin', 'playwright.cmd')
+  }
+  // 开发模式
+  return path.join(__dirname, '..', 'node_modules', '.bin', 'playwright.cmd')
+}
+
 async function runSetup (mainWin) {
   _mainWin = mainWin
 
@@ -38,29 +40,26 @@ async function runSetup (mainWin) {
     return
   }
 
-  const pythonDir = path.join(__dirname, '..', 'python')
-  const pipCmd = process.platform === 'win32' ? 'pip' : 'pip3'
-
   try {
-    // Python 依赖
-    mainWin.webContents.send('first-run:status', { type: 'step', step: 'python', message: '正在安装 Python 依赖...' })
-    execSync(`${pipCmd} install -r "${pythonDir}/requirements-runtime.txt"`, {
-      stdio: 'inherit',
-      windowsHide: true
+    mainWin.webContents.send('first-run:status', {
+      type: 'step', step: 'playwright', message: '正在安装 Playwright 浏览器...'
     })
 
-    // Playwright 浏览器
-    mainWin.webContents.send('first-run:status', { type: 'step', step: 'playwright', message: '正在安装 Playwright 浏览器...' })
-    execSync('npx playwright install chromium', {
+    const pwExe = getPlaywrightExe()
+    console.log('[firstRun] Playwright exe:', pwExe)
+    console.log('[firstRun] Exists:', fs.existsSync(pwExe))
+
+    execSync(`"${pwExe}" install chromium`, {
       stdio: 'inherit',
       windowsHide: true,
-      shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/bash'
+      shell: 'cmd.exe',
+      cwd: path.dirname(pwExe)
     })
 
-    // 标记完成
-    const markerPath = path.join(app.getPath('userData'), 'first-run-done')
-    fs.writeFileSync(markerPath, `done:${new Date().toISOString()}`)
-
+    fs.writeFileSync(
+      path.join(app.getPath('userData'), 'first-run-done'),
+      `done:${new Date().toISOString()}`
+    )
     mainWin.webContents.send('first-run:status', { type: 'done' })
     console.log('[firstRun] Setup complete')
   } catch (e) {
@@ -69,18 +68,8 @@ async function runSetup (mainWin) {
   }
 }
 
-/**
- * 检查依赖是否已安装（不执行安装）
- * @returns {{ python: boolean, playwright: boolean }}
- */
 function checkDeps () {
-  const pythonDir = path.join(__dirname, '..', 'python')
-  const reqFile = path.join(pythonDir, 'requirements-runtime.txt')
-  const markerPath = path.join(app.getPath('userData'), 'first-run-done')
-  return {
-    setupDone: fs.existsSync(markerPath),
-    reqFileExists: fs.existsSync(reqFile)
-  }
+  return { setupDone: isSetupDone() }
 }
 
 module.exports = { isSetupDone, runSetup, reset, checkDeps }
