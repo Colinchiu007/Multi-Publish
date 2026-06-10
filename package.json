@@ -1,6 +1,6 @@
 {
   "name": "multi-publish",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "多平台内容一键发布桌面工具 (Electron + Playwright)",
   "main": "electron/main.js",
   "scripts": {
