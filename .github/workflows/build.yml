@@ -80,6 +80,37 @@ jobs:
           name: Multi-Publish-Linux
           path: release-assets
 
+      - name: Generate latest.yml
+        run: |
+          set -e
+          cd release-assets
+          WIN_FILE=$(ls "Multi-Publish Setup"*.exe)
+          LINUX_FILE=$(ls *.AppImage)
+          VERSION='${{ github.ref_name }}'
+          VERSION=${VERSION#v}
+
+          WIN_SHA=$(sha256sum "$WIN_FILE" | cut -d' ' -f1)
+          LINUX_SHA=$(sha256sum "$LINUX_FILE" | cut -d' ' -f1)
+          WIN_SIZE=$(stat -c%s "$WIN_FILE")
+          LINUX_SIZE=$(stat -c%s "$LINUX_FILE")
+          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+
+          cat > latest.yml << EOF
+          version: ${VERSION}
+          releaseDate: ${RELEASE_DATE}
+          files:
+            - url: ${WIN_FILE}
+              sha256: ${WIN_SHA}
+              size: ${WIN_SIZE}
+            - url: ${LINUX_FILE}
+              sha256: ${LINUX_SHA}
+              size: ${LINUX_SIZE}
+          path: ${WIN_FILE}
+          sha256: ${WIN_SHA}
+          EOF
+          echo "=== latest.yml ==="
+          cat latest.yml
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -87,4 +118,6 @@ jobs:
           body_path: CHANGELOG.md
           draft: false
           prerelease: false
-          files: release-assets/*
+          files: |
+            release-assets/*
+            release-assets/latest.yml

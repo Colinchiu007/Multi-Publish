@@ -65,6 +65,11 @@ function init (win, onStatus) {
  */
 function check () {
   autoUpdater.checkForUpdates().catch(err => {
+    // 404 = 暂无最新版本（非错误）
+    if (err.message && err.message.includes('404')) {
+      _sendStatus('not-available', '当前已是最新版本')
+      return
+    }
     _sendStatus('error', err.message)
   })
 }
