@@ -130,7 +130,12 @@ function handleUpdateStatus (payload) {
 }
 
 function handleDownload () {
-  updateDownload()
+  downloading.value = true
+  updateDownload().catch(e => {
+    updateError.value = e.message || '下载失败'
+    showError.value = true
+    downloading.value = false
+  })
 }
 function handleInstall () {
   updateInstall()

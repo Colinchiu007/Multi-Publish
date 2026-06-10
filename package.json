@@ -38,6 +38,12 @@
     "directories": {
       "output": "dist-electron"
     },
+    "publish": {
+      "provider": "github",
+      "owner": "Colinchiu007",
+      "repo": "Multi-Publish",
+      "releaseType": "release"
+    },
     "files": [
       "dist/**/*",
       "electron/**/*",
