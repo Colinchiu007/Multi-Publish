@@ -84,10 +84,10 @@ jobs:
         run: |
           set -e
           cd release-assets
-          WIN_FILE=$(ls "Multi-Publish Setup"*.exe)
-          LINUX_FILE=$(ls *.AppImage)
-          VERSION='${{ github.ref_name }}'
-          VERSION=${VERSION#v}
+                    WIN_FILE=$(ls *.exe | head -1)
+                    LINUX_FILE=$(ls *.AppImage | head -1)
+                    VERSION='${{ github.ref_name }}'
+                    VERSION=${VERSION#v}
 
           WIN_SHA=$(sha256sum "$WIN_FILE" | cut -d' ' -f1)
           LINUX_SHA=$(sha256sum "$LINUX_FILE" | cut -d' ' -f1)
