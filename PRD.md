@@ -2,7 +2,7 @@
 
 > **立项日期**: 2026-06-03
 > **最后更新**: 2026-06-10
-> **当前版本**: v0.1.0
+> **当前版本**: v1.0.2
 > **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具
 > **目标用户**: 自媒体运营者、企业内容团队、SEO 运营
 
@@ -24,12 +24,14 @@
 
 | 范围 | 说明 |
 |------|------|
-| ✅ 微信公众号 | 使用 Playwright RPA，支持草稿编辑 → 群发 |
-| ✅ 知乎 | Playwright RPA，文章发布 + 话题标签 |
-| ✅ 微博 | Playwright RPA，图文发布 |
-| ✅ 抖音 | Playwright RPA，图文发布 |
-| ✅ 小红书 | Playwright RPA，标题+正文+标签 |
-| ❌ 不包含 | 掘金、CSDN、视频发布（由 PROJECT-002 负责）、内容创作（由 PROJECT-001 负责） |
+|| ✅ 微信公众号 | 使用 Playwright RPA，支持草稿编辑 → 群发 |
+|| ✅ 知乎 | Playwright RPA，文章发布 + 话题标签 |
+|| ✅ 微博 | Playwright RPA，图文发布 |
+|| ✅ 抖音 | Playwright RPA，图文/视频发布 |
+|| ✅ 小红书 | Playwright RPA，标题+正文+标签 |
+|| ✅ 视频号 | Playwright RPA，视频/图文发布 |
+|| ✅ 快手 | Playwright RPA，视频/图文发布 |
+|| ❌ 不包含 | 掘金、CSDN（由 PROJECT-002 负责）、内容创作（由 PROJECT-001 负责） |
 
 ---
 
@@ -39,11 +41,13 @@
 
 | 平台 | 优先级 | 技术路线 | 状态 |
 |------|--------|----------|------|
-| **微信公众号** | P0 | Playwright RPA | ✅ v0.1.0 已实现 |
-| **知乎** | P1 | Playwright RPA | ✅ v0.1.0 已实现 |
-| **微博** | P2 | Playwright RPA | ✅ v0.1.0 已实现 |
-| **抖音** | P2 | Playwright RPA | ✅ v0.1.0 已实现 |
-| **小红书** | P4 | Playwright RPA | ✅ v0.1.0 已实现 |
+| **微信公众号** | P0 | Playwright RPA | ✅ v1.0.0 已实现 |
+| **知乎** | P1 | Playwright RPA | ✅ v1.0.0 已实现 |
+| **微博** | P2 | Playwright RPA | ✅ v1.0.0 已实现 |
+| **抖音** | P2 | Playwright RPA | ✅ v1.0.0 已实现（图文+视频） |
+| **小红书** | P4 | Playwright RPA | ✅ v1.0.0 已实现 |
+| **视频号** | P1 | Playwright RPA | ✅ v1.0.2 已实现（视频+图文） |
+| **快手** | P1 | Playwright RPA | ✅ v1.0.2 已实现（视频+图文） |
 
 ### 2.2 技术路线
 

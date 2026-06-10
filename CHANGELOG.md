@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.0.2 (2026-06-10)
+
+### 新增
+- **视频号发布器** — Playwright RPA，支持视频上传 + 图文发布
+- **快手发布器** — Playwright RPA，支持视频上传 + 图文发布
+- **视频文件上传** — 发布页面支持拖拽上传 mp4/mov/avi（视频号/快手/抖音可用）
+- **账号管理 UI 增强** — 新增「新增账号」对话框，支持 7 平台选择
+
+### 修复
+- 首次运行引导 `first-run.js` — 修正 playwright 浏览器安装路径
+- 自动更新 `auto-updater.js` — 404 错误显示"当前已是最新版本"而非崩溃
+- CI `build.yml` — `--publish=never` 防止 Release 创建 403 错误
+- CI `release job` — 生成 `latest.yml` 供 electron-updater 使用
+- 打包 `package.json` — `playwright` 从 devDependencies → dependencies，`node_modules` 加入打包列表
+
+## v1.0.1 (2026-06-10)
+
+### 修复
+- 自动更新 `latest.yml` 生成 — CI release job 计算 SHA256 + 版本号
+- 自动更新 404 友好提示
+
 ## v1.0.0 (2026-06-10)
 
 🎉 **首个正式 Release！** 多平台内容一键发布桌面工具。
