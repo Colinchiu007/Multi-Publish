@@ -48,6 +48,9 @@
 | **小红书** | P4 | Playwright RPA | ✅ v1.0.0 已实现 |
 | **视频号** | P1 | Playwright RPA | ✅ v1.0.2 已实现（视频+图文） |
 | **快手** | P1 | Playwright RPA | ✅ v1.0.2 已实现（视频+图文） |
+| **今日头条** | P1 | Playwright RPA | ✅ v1.0.3 已实现（图文+视频） |
+| **YouTube** | P1 | Playwright RPA | ✅ v1.0.3 已实现（视频） |
+| **TikTok** | P1 | Playwright RPA | ✅ v1.0.3 已实现（视频） |
 
 ### 2.2 技术路线
 

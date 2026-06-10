@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.0.4 (2026-06-10)
+
+### 修复
+- **自动更新下载无反应** — `package.json` 添加 `publish` 配置（`provider: github`），`electron-updater` 才能解析下载 URL
+- **下载按钮无视觉反馈** — `handleDownload()` 立即设置 `downloading=true` + 错误捕获
+
+## v1.0.3 (2026-06-10)
+
+### 新增
+- **今日头条发布器** — Playwright RPA，支持图文 + 视频发布
+- **YouTube 发布器** — Playwright RPA，视频发布（标题+描述+上传）
+- **TikTok 发布器** — Playwright RPA，视频发布（标题+标签+上传）
+- **账号/发布页更新** — 10 平台完整列表
+
 ## v1.0.2 (2026-06-10)
 
 ### 新增
