@@ -1,6 +1,6 @@
 {
   "name": "multi-publish",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "多平台内容一键发布桌面工具 (Electron + Playwright)",
   "main": "electron/main.js",
   "scripts": {
@@ -49,9 +49,10 @@
       "package.json"
     ],
     "win": {
-      "target": "nsis",
-      "icon": null
-    },
+          "target": "nsis",
+          "icon": null,
+          "sign": false
+        },
     "nsis": {
           "oneClick": false,
           "allowToChangeInstallationDirectory": true

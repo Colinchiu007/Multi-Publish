@@ -34,13 +34,13 @@ jobs:
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
-        run: npx electron-builder --win --x64
+        run: npx electron-builder --win --x64 --publish=never
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Electron app (Linux)
         if: runner.os == 'Linux'
-        run: npx electron-builder --linux
+        run: npx electron-builder --linux --publish=never
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
