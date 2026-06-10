@@ -148,8 +148,11 @@ const platforms = [
   { id: 'douyin', label: '抖音', icon: '🎵', tag: '新增', tagType: 'success' },
   { id: 'xiaohongshu', label: '小红书', icon: '📕', tag: '新增', tagType: 'warning' },
   { id: 'tencent_video', label: '视频号', icon: '🎬', tag: '新', tagType: 'success' },
-  { id: 'kuaishou', label: '快手', icon: '⚡', tag: '新', tagType: 'success' }
-]
+  { id: 'kuaishou', label: '快手', icon: '⚡', tag: '新', tagType: 'success' },
+    { id: 'toutiao', label: '今日头条', icon: '📰', tag: '新', tagType: 'success' },
+    { id: 'youtube', label: 'YouTube', icon: '▶️', tag: '新', tagType: 'success' },
+    { id: 'tiktok', label: 'TikTok', icon: '🎶', tag: '新', tagType: 'success' }
+  ]
 
 const selectedPlatforms = ref(['wechat_mp'])
 const publishing = ref(false)

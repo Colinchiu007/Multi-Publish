@@ -83,6 +83,9 @@ const platformMap = {
   xiaohongshu: '小红书',
   tencent_video: '视频号',
   kuaishou: '快手',
+  toutiao: '今日头条',
+  youtube: 'YouTube',
+  tiktok: 'TikTok',
 }
 
 const availablePlatforms = Object.entries(platformMap).map(([id, label]) => ({ id, label }))

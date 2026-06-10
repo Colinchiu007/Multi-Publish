@@ -9,12 +9,15 @@ const pythonBridge = require('../python-bridge')
 // 平台登录 URL 映射
 const PLATFORM_LOGIN_URLS = {
   wechat_mp: 'https://mp.weixin.qq.com/',
-  zhihu: 'https://www.zhihu.com/signin',
-  weibo: 'https://weibo.com/login',
-  douyin: 'https://www.douyin.com/',
-  xiaohongshu: 'https://creator.xiaohongshu.com/',
-  tencent_video: 'https://channels.weixin.qq.com/',
-  kuaishou: 'https://cp.kuaishou.com/',
+    zhihu: 'https://www.zhihu.com/signin',
+    weibo: 'https://weibo.com/login',
+    douyin: 'https://www.douyin.com/',
+    xiaohongshu: 'https://creator.xiaohongshu.com/',
+    tencent_video: 'https://channels.weixin.qq.com/',
+    kuaishou: 'https://cp.kuaishou.com/',
+    toutiao: 'https://mp.toutiao.com/',
+    youtube: 'https://studio.youtube.com/',
+    tiktok: 'https://www.tiktok.com/upload/',
   }
 
   /**
@@ -28,6 +31,9 @@ const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
   xiaohongshu: '.user-info, [class*="avatar"]',
   tencent_video: '.user-info, [class*="account"]',
   kuaishou: '.user-info, [class*="avatar"]',
+  toutiao: '.user-avatar, .nickname, [class*="avatar"]',
+  youtube: '#avatar-btn, ytcp-avatar',
+  tiktok: '[data-testid="user-avatar"], [class*="avatar"]',
 }
 
 /**
@@ -42,6 +48,9 @@ function getPlatformName (platform) {
       xiaohongshu: '小红书',
       tencent_video: '视频号',
       kuaishou: '快手',
+      toutiao: '今日头条',
+      youtube: 'YouTube',
+      tiktok: 'TikTok',
     }
   return names[platform] || platform
 }

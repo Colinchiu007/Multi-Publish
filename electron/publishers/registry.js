@@ -9,6 +9,9 @@ const DouyinPublisher = require('./douyin-rpa')
 const XiaohongshuPublisher = require('./xiaohongshu-rpa')
 const TencentVideoPublisher = require('./tencent-video-rpa')
 const KuaishouPublisher = require('./kuaishou-rpa')
+const ToutiaoPublisher = require('./toutiao-rpa')
+const YouTubePublisher = require('./youtube-rpa')
+const TikTokPublisher = require('./tiktok-rpa')
 
 const registry = {
   wechat_mp: WeChatMPPublisher,
@@ -18,6 +21,9 @@ const registry = {
   xiaohongshu: XiaohongshuPublisher,
   tencent_video: TencentVideoPublisher,
   kuaishou: KuaishouPublisher,
+  toutiao: ToutiaoPublisher,
+  youtube: YouTubePublisher,
+  tiktok: TikTokPublisher,
 }
 
 /**
