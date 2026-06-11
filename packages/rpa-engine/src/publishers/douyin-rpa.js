@@ -5,6 +5,7 @@
  * 流程: 登录 → 创作中心 → 发布图文 → 填写内容 → 发布
  */
 const BaseRPAPublisher = require('./base-rpa-publisher')
+const { smartWait } = require('../playwright-manager')
 
 const DOUYIN_URL = 'https://www.douyin.com/'
 const DOUYIN_CREATOR_URL = 'https://creator.douyin.com/'
@@ -35,7 +36,7 @@ class DouyinPublisher extends BaseRPAPublisher {
   async publish (article) {
     this._progress('进入抖音创作中心...')
     await this.page.goto(DOUYIN_CREATOR_URL, { waitUntil: 'networkidle' })
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
 
     this._progress('填写标题...')
     await this._fillTitle(article.title)
@@ -53,7 +54,7 @@ class DouyinPublisher extends BaseRPAPublisher {
     if (titleInput) {
       await titleInput.click()
       await titleInput.fill(title)
-      await this.page.waitForTimeout(300)
+      await smartWait(this.page, null, 300)
     }
   }
 
@@ -67,7 +68,7 @@ class DouyinPublisher extends BaseRPAPublisher {
                     document.querySelector('[contenteditable="true"]')
         if (el) el.innerHTML = html
       }, contentHtml)
-      await this.page.waitForTimeout(500)
+      await smartWait(this.page, null, 500)
     }
   }
 
@@ -75,7 +76,7 @@ class DouyinPublisher extends BaseRPAPublisher {
     const publishBtn = await this.page.$('button:has-text("发布"), .publish-btn, .confirm-btn')
     if (publishBtn) {
       await publishBtn.click()
-      await this.page.waitForTimeout(3000)
+      await smartWait(this.page, null, 3000)
       return { success: true, url: this.page.url(), platform: 'douyin' }
     }
     return { success: true, url: this.page.url(), platform: 'douyin' }

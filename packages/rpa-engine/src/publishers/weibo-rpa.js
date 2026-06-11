@@ -5,6 +5,7 @@
  * 流程: 登录检查 → 创作中心 → 写文章 → 发布
  */
 const BaseRPAPublisher = require('./base-rpa-publisher')
+const { smartWait } = require('../playwright-manager')
 
 const WEIBO_URL = 'https://weibo.com/'
 const WEIBO_COMPOSE_URL = 'https://weibo.com/compose'
@@ -37,7 +38,7 @@ class WeiboPublisher extends BaseRPAPublisher {
   async publish (article) {
     this._progress('进入微博创作页...')
     await this.page.goto(WEIBO_COMPOSE_URL, { waitUntil: 'networkidle' })
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
 
     this._progress('填写微博内容...')
     await this._fillContent(article)
@@ -60,14 +61,14 @@ class WeiboPublisher extends BaseRPAPublisher {
       const truncated = fullText.length > maxLen ? fullText.slice(0, maxLen) : fullText
       await textarea.fill(truncated)
     }
-    await this.page.waitForTimeout(500)
+    await smartWait(this.page, null, 500)
   }
 
   async _doPublish () {
     const sendBtn = await this.page.$('a[node-type="submit"], .W_btn_b, button:has-text("发布")')
     if (sendBtn) {
       await sendBtn.click()
-      await this.page.waitForTimeout(3000)
+      await smartWait(this.page, null, 3000)
       return { success: true, url: this.page.url(), platform: 'weibo' }
     }
     return { success: true, url: this.page.url(), platform: 'weibo' }

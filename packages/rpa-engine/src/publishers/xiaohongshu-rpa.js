@@ -5,6 +5,7 @@
  * 流程: 登录检查 → 创作中心 → 发布图文 → 发布
  */
 const BaseRPAPublisher = require('./base-rpa-publisher')
+const { smartWait } = require('../playwright-manager')
 
 const CREATOR_URL = 'https://creator.xiaohongshu.com/'
 const PUBLISH_URL = 'https://creator.xiaohongshu.com/publish/publish'
@@ -17,7 +18,7 @@ class XiaohongshuPublisher extends BaseRPAPublisher {
 
   async checkLogin () {
     await this.page.goto(CREATOR_URL, { waitUntil: 'networkidle', timeout: 30000 })
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
     // 检查已登录标识（创作中心顶部头像/昵称）
     const avatar = await this.page.$('[class*="avatar"], [class*="userInfo"], .user-avatar, header img[alt]')
     if (avatar) return true
@@ -30,7 +31,7 @@ class XiaohongshuPublisher extends BaseRPAPublisher {
     // 小红书通常扫码登录，等待页面跳转到首页
     try {
       await this.page.waitForURL('**/creator.xiaohongshu.com/**', { timeout })
-      await this.page.waitForTimeout(2000)
+      await smartWait(this.page, null, 2000)
       const avatar = await this.page.$('[class*="avatar"], [class*="userInfo"]')
       return !!avatar
     } catch {
@@ -41,7 +42,7 @@ class XiaohongshuPublisher extends BaseRPAPublisher {
   async publish (article) {
     this._progress('进入小红书发布页...')
     await this.page.goto(PUBLISH_URL, { waitUntil: 'networkidle', timeout: 30000 })
-    await this.page.waitForTimeout(3000)
+    await smartWait(this.page, null, 3000)
 
     this._progress('填写标题...')
     await this._fillTitle(article.title || '')
@@ -66,7 +67,7 @@ class XiaohongshuPublisher extends BaseRPAPublisher {
       // 小红书标题最多20字
       const truncated = title.length > 20 ? title.slice(0, 20) : title
       await titleInput.fill(truncated)
-      await this.page.waitForTimeout(500)
+      await smartWait(this.page, null, 500)
     }
   }
 
@@ -82,7 +83,7 @@ class XiaohongshuPublisher extends BaseRPAPublisher {
     if (editor) {
       await editor.click()
       await editor.fill(truncated)
-      await this.page.waitForTimeout(500)
+      await smartWait(this.page, null, 500)
       return
     }
     // 尝试 textarea
@@ -90,7 +91,7 @@ class XiaohongshuPublisher extends BaseRPAPublisher {
     if (textarea) {
       await textarea.click()
       await textarea.fill(truncated)
-      await this.page.waitForTimeout(500)
+      await smartWait(this.page, null, 500)
     }
   }
 
@@ -101,12 +102,12 @@ class XiaohongshuPublisher extends BaseRPAPublisher {
       if (tagInput) {
         await tagInput.click()
         await tagInput.fill('')
-        await this.page.waitForTimeout(300)
+        await smartWait(this.page, null, 300)
         // 选择第一个推荐标签
         const firstTag = await this.page.$('[class*="suggest"] li:first-child, [class*="tagOption"]:first-child')
         if (firstTag) {
           await firstTag.click()
-          await this.page.waitForTimeout(300)
+          await smartWait(this.page, null, 300)
         }
       }
     } catch (e) {
@@ -119,7 +120,7 @@ class XiaohongshuPublisher extends BaseRPAPublisher {
     const publishBtn = await this.page.$('button:has-text("发布"), [class*="publish"] button, [class*="submit"]')
     if (publishBtn) {
       await publishBtn.click()
-      await this.page.waitForTimeout(5000)
+      await smartWait(this.page, null, 5000)
       return { success: true, url: this.page.url(), platform: 'xiaohongshu' }
     }
     return { success: true, url: this.page.url(), platform: 'xiaohongshu' }

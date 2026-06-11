@@ -5,6 +5,7 @@
  * 支持：视频发布（标题+描述+标签）
  */
 const BaseRPAPublisher = require('./base-rpa-publisher')
+const { smartWait } = require('../playwright-manager')
 
 const YOUTUBE_STUDIO_URL = 'https://studio.youtube.com/'
 const LOGIN_TIMEOUT = 180000
@@ -35,7 +36,7 @@ class YouTubePublisher extends BaseRPAPublisher {
   async publish (article) {
     this._progress('进入 YouTube Studio...')
     await this.page.goto(YOUTUBE_STUDIO_URL, { waitUntil: 'networkidle' })
-    await this.page.waitForTimeout(3000)
+    await smartWait(this.page, null, 3000)
 
     if (!article.video_path) {
       return { success: false, error: 'YouTube 发布需要视频文件', platform: 'youtube' }
@@ -51,13 +52,13 @@ class YouTubePublisher extends BaseRPAPublisher {
     const createBtn = await this.page.$('#create-icon, ytcp-button#create-icon, button[aria-label="创建视频"]')
     if (createBtn) {
       await createBtn.click()
-      await this.page.waitForTimeout(1000)
+      await smartWait(this.page, null, 1000)
     }
 
     // 选择"上传视频"
     const uploadOption = await this.page.$('tp-yt-paper-item:has-text("上传视频"), .ytcp-menu-item:has-text("上传视频")')
     if (uploadOption) await uploadOption.click()
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
 
     // 上传视频文件
     const fileInput = await this.page.$('input[type="file"]')
@@ -76,7 +77,7 @@ class YouTubePublisher extends BaseRPAPublisher {
     // 等待上传进度
     this._progress('等待视频上传处理中...')
     try {
-      await this.page.waitForTimeout(5000) // YouTube 先处理视频
+      await smartWait(this.page, null, 5000) // YouTube 先处理视频
       await this.page.waitForFunction(
         () => !document.querySelector('ytcp-video-upload-progress, [class*="uploadProgress"]'),
         { timeout: 300000, polling: 5000 }
@@ -99,7 +100,7 @@ class YouTubePublisher extends BaseRPAPublisher {
       if (titleInput) {
         await titleInput.click()
         await titleInput.fill(article.title.slice(0, 100))
-        await this.page.waitForTimeout(500)
+        await smartWait(this.page, null, 500)
       }
     }
 
@@ -111,7 +112,7 @@ class YouTubePublisher extends BaseRPAPublisher {
       if (desc) {
         await desc.click()
         await desc.fill(plain)
-        await this.page.waitForTimeout(300)
+        await smartWait(this.page, null, 300)
       }
     }
 
@@ -128,7 +129,7 @@ class YouTubePublisher extends BaseRPAPublisher {
         const nextBtn = await this.page.$('ytcp-button:has-text("下一步"), button:has-text("下一步"), #next-button')
         if (nextBtn) {
           await nextBtn.click()
-          await this.page.waitForTimeout(1500)
+          await smartWait(this.page, null, 1500)
         }
       } catch { break }
     }
@@ -139,7 +140,7 @@ class YouTubePublisher extends BaseRPAPublisher {
       const visibilityBtn = await this.page.$('tp-yt-paper-radio-button[name="PUBLIC"], #public-radio-button, [class*="public"]')
       if (visibilityBtn) {
         await visibilityBtn.click()
-        await this.page.waitForTimeout(500)
+        await smartWait(this.page, null, 500)
       }
     } catch { /* keep default */ }
 
@@ -148,7 +149,7 @@ class YouTubePublisher extends BaseRPAPublisher {
       const publishBtn = await this.page.$('ytcp-button:has-text("发布"), button:has-text("发布"), #done-button')
       if (publishBtn) {
         await publishBtn.click()
-        await this.page.waitForTimeout(5000)
+        await smartWait(this.page, null, 5000)
         return { success: true, url: YOUTUBE_STUDIO_URL, platform: 'youtube' }
       }
     } catch { /* 超时 */ }

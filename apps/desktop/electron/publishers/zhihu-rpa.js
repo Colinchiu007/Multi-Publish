@@ -5,6 +5,7 @@
  * 流程: 登录检查 → 创作中心 → 写文章 → 填写内容 → 保存草稿
  */
 const BaseRPAPublisher = require('./base-rpa-publisher')
+const { smartWait } = require('../playwright-manager')
 
 const ZHIHU_URL = 'https://www.zhihu.com/'
 const ZHIHU_WRITE_URL = 'https://zhuanlan.zhihu.com/write'
@@ -52,7 +53,7 @@ class ZhiHuPublisher extends BaseRPAPublisher {
   async publish (article) {
     this._progress('进入创作中心...')
     await this.page.goto(ZHIHU_WRITE_URL, { waitUntil: 'networkidle' })
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
 
     // 填写标题
     this._progress('填写标题...')
@@ -84,7 +85,7 @@ class ZhiHuPublisher extends BaseRPAPublisher {
         if (el) el.textContent = t
       }, title)
     }
-    await this.page.waitForTimeout(500)
+    await smartWait(this.page, null, 500)
   }
 
   async _fillContent (contentHtml) {
@@ -110,7 +111,7 @@ class ZhiHuPublisher extends BaseRPAPublisher {
     } else {
       throw new Error('无法定位知乎编辑器')
     }
-    await this.page.waitForTimeout(1000)
+    await smartWait(this.page, null, 1000)
   }
 
   async _saveDraft () {
@@ -118,7 +119,7 @@ class ZhiHuPublisher extends BaseRPAPublisher {
     const saveBtn = await this.page.$('button:has-text("保存草稿"), .WriteIndex-saveDraft, .PublishPanel-saveDraft')
     if (saveBtn) {
       await saveBtn.click()
-      await this.page.waitForTimeout(2000)
+      await smartWait(this.page, null, 2000)
 
       // 获取文章 URL
       const currentUrl = this.page.url()

@@ -5,6 +5,7 @@
  * 流程: 登录检查 → 新建图文 → 填写内容 → 保存草稿 → [群发]
  */
 const BaseRPAPublisher = require('./base-rpa-publisher')
+const { smartWait } = require('../playwright-manager')
 
 const WECHAT_MP_URL = 'https://mp.weixin.qq.com/'
 const LOGIN_TIMEOUT = 120000  // 扫码等待 2 分钟
@@ -67,7 +68,7 @@ class WeChatMPPublisher extends BaseRPAPublisher {
       'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit&action=edit&type=10&create=1',
       { waitUntil: 'networkidle' }
     )
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
   }
 
   async _fillTitle (title) {
@@ -81,7 +82,7 @@ class WeChatMPPublisher extends BaseRPAPublisher {
         if (el) el.value = t
       }, title)
     }
-    await this.page.waitForTimeout(500)
+    await smartWait(this.page, null, 500)
   }
 
   async _fillContent (contentHtml) {
@@ -93,7 +94,7 @@ class WeChatMPPublisher extends BaseRPAPublisher {
                      document.querySelector('[contenteditable="true"]')
       if (editor) editor.innerHTML = html
     }, contentHtml)
-    await this.page.waitForTimeout(1000)
+    await smartWait(this.page, null, 1000)
   }
 
   async _getEditorFrame () {
@@ -131,7 +132,7 @@ class WeChatMPPublisher extends BaseRPAPublisher {
     if (authorInput) {
       await authorInput.click()
       await authorInput.fill(author)
-      await this.page.waitForTimeout(300)
+      await smartWait(this.page, null, 300)
     }
   }
 
@@ -141,7 +142,7 @@ class WeChatMPPublisher extends BaseRPAPublisher {
       const checked = await agreeCheckbox.isChecked()
       if (!checked) {
         await agreeCheckbox.click()
-        await this.page.waitForTimeout(300)
+        await smartWait(this.page, null, 300)
       }
     }
     const saveBtn = await this.page.$('a[data-action="save"], a#js_sync_save, a:has-text("保存")')
@@ -151,12 +152,12 @@ class WeChatMPPublisher extends BaseRPAPublisher {
     await saveBtn.click()
     try {
       await this.page.waitForSelector('.weui-desktop-toast_wrp, .dialog_bd, .toast', { timeout: 10000 })
-      await this.page.waitForTimeout(1000)
+      await smartWait(this.page, null, 1000)
       const currentUrl = this.page.url()
       const mediaId = currentUrl.match(/appmsgid=(\d+)/)
       return { success: true, url: currentUrl, mediaId: mediaId ? mediaId[1] : null }
     } catch (e) {
-      await this.page.waitForTimeout(2000)
+      await smartWait(this.page, null, 2000)
       return { success: true, url: this.page.url(), mediaId: null }
     }
   }
@@ -166,7 +167,7 @@ class WeChatMPPublisher extends BaseRPAPublisher {
       'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_list&type=10&action=list',
       { waitUntil: 'networkidle' }
     )
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
     await this.page.evaluate((id) => {
       const row = document.querySelector(`[appmsgid="${id}"]`)
       if (row) row.click()
@@ -182,10 +183,10 @@ class WeChatMPPublisher extends BaseRPAPublisher {
     } else {
       await massBtn.click()
     }
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
     const confirmBtn = await this.page.$('.dialog_bd_btn a:has-text("确定"), .weui-desktop-btn:has-text("确定"), a:has-text("群发")')
     if (confirmBtn) await confirmBtn.click()
-    await this.page.waitForTimeout(3000)
+    await smartWait(this.page, null, 3000)
     return { success: true }
   }
 }

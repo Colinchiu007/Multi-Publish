@@ -105,6 +105,7 @@ function _sendStatus (type, data) {
 
 const fs = require('fs')
 const path = require('path')
+const log = require('../logger')
 
 // ─── 首次运行引导 (安装依赖、Playwright) ──────────────────────
 module.exports = { init, check, download, quitAndInstall }

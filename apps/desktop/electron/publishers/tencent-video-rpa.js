@@ -5,6 +5,7 @@
  * 支持：视频发布（需视频文件路径）
  */
 const BaseRPAPublisher = require('./base-rpa-publisher')
+const { smartWait } = require('../playwright-manager')
 
 const WX_VIDEO_URL = 'https://channels.weixin.qq.com/'
 const WX_VIDEO_LOGIN_URL = 'https://wx.qq.com/'
@@ -37,7 +38,7 @@ class TencentVideoPublisher extends BaseRPAPublisher {
   async publish (article) {
     this._progress('进入视频号创作平台...')
     await this.page.goto(WX_VIDEO_URL, { waitUntil: 'networkidle' })
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
 
     // 如果没有视频路径，只能发图文
     if (!article.video_path) {
@@ -58,7 +59,7 @@ class TencentVideoPublisher extends BaseRPAPublisher {
       'button:has-text("发表视频"), [class*="upload"], [class*="videoBtn"], a:has-text("发表视频")'
     )
     if (uploadBtn) await uploadBtn.click()
-    await this.page.waitForTimeout(1500)
+    await smartWait(this.page, null, 1500)
 
     // 上传视频文件
     const fileInput = await this.page.$('input[type="file"]')
@@ -105,7 +106,7 @@ class TencentVideoPublisher extends BaseRPAPublisher {
       'button:has-text("发表"), [class*="image"], a:has-text("发表图文")'
     )
     if (publishBtn) await publishBtn.click()
-    await this.page.waitForTimeout(1500)
+    await smartWait(this.page, null, 1500)
 
     if (article.title) await this._fillTitle(article.title)
     if (article.content) await this._fillDesc(article.content)
@@ -116,7 +117,7 @@ class TencentVideoPublisher extends BaseRPAPublisher {
   async _fillTitle (title) {
     const input = await this.page.$('input[placeholder*="标题"], [class*="title"] input, .title-input')
     if (input) await input.fill(title)
-    await this.page.waitForTimeout(300)
+    await smartWait(this.page, null, 300)
   }
 
   async _fillDesc (html) {
@@ -124,14 +125,14 @@ class TencentVideoPublisher extends BaseRPAPublisher {
     const plain = html.replace(/<[^>]+>/g, '').trim()
     const textarea = await this.page.$('textarea, [class*="desc"] input, [class*="desc"] textarea')
     if (textarea) await textarea.fill(plain)
-    await this.page.waitForTimeout(300)
+    await smartWait(this.page, null, 300)
   }
 
   async _doPublish () {
     const btn = await this.page.$('button:has-text("发布"), [class*="publish"] button, .submit-btn')
     if (btn) {
       await btn.click()
-      await this.page.waitForTimeout(3000)
+      await smartWait(this.page, null, 3000)
     }
     return { success: true, url: this.page.url(), platform: 'tencent_video' }
   }

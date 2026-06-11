@@ -5,6 +5,7 @@
  * 支持：视频发布（需视频文件路径）、图文
  */
 const BaseRPAPublisher = require('./base-rpa-publisher')
+const { smartWait } = require('../playwright-manager')
 
 const KUAISHOU_URL = 'https://cp.kuaishou.com/'
 const KUAISHOU_HOME = 'https://www.kuaishou.com/'
@@ -35,7 +36,7 @@ class KuaishouPublisher extends BaseRPAPublisher {
   async publish (article) {
     this._progress('进入快手创作者中心...')
     await this.page.goto(KUAISHOU_URL, { waitUntil: 'networkidle' })
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
 
     if (!article.video_path) {
       return await this._publishImage(article)
@@ -51,7 +52,7 @@ class KuaishouPublisher extends BaseRPAPublisher {
       'button:has-text("上传视频"), [class*="upload"], a:has-text("上传视频"), [class*="video-upload"]'
     )
     if (uploadBtn) await uploadBtn.click()
-    await this.page.waitForTimeout(1500)
+    await smartWait(this.page, null, 1500)
 
     const fileInput = await this.page.$('input[type="file"]')
     if (fileInput) {
@@ -89,7 +90,7 @@ class KuaishouPublisher extends BaseRPAPublisher {
     this._progress('发表图文...')
     const imgBtn = await this.page.$('button:has-text("图文"), [class*="image-upload"]')
     if (imgBtn) await imgBtn.click()
-    await this.page.waitForTimeout(1000)
+    await smartWait(this.page, null, 1000)
 
     if (article.title) await this._fillTitle(article.title)
     if (article.content) await this._fillDesc(article.content)
@@ -100,21 +101,21 @@ class KuaishouPublisher extends BaseRPAPublisher {
   async _fillTitle (title) {
     const input = await this.page.$('input[placeholder*="标题"], [class*="title"] input')
     if (input) await input.fill(title)
-    await this.page.waitForTimeout(300)
+    await smartWait(this.page, null, 300)
   }
 
   async _fillDesc (html) {
     const plain = html.replace(/<[^>]+>/g, '').trim().slice(0, 500)
     const input = await this.page.$('textarea, [class*="desc"] textarea, [class*="description"] input')
     if (input) await input.fill(plain)
-    await this.page.waitForTimeout(300)
+    await smartWait(this.page, null, 300)
   }
 
   async _doPublish () {
     const btn = await this.page.$('button:has-text("发布"), [class*="submit"], [class*="publish"] button')
     if (btn) {
       await btn.click()
-      await this.page.waitForTimeout(3000)
+      await smartWait(this.page, null, 3000)
     }
     return { success: true, url: this.page.url(), platform: 'kuaishou' }
   }

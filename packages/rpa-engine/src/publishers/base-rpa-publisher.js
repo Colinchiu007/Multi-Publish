@@ -73,7 +73,27 @@ class BaseRPAPublisher {
   /**
    * 完整的发布流程：检查登录 → 等待扫码 → 发布
    */
-  async publishArticle (article) {
+  async validateResult (result) {
+  if (!result || typeof result !== 'object') {
+    throw new Error('Publish result is empty');
+  }
+  if (result.error) {
+    throw new Error('Publish failed: ' + result.error);
+  }
+  if (this.page && !this.page.isClosed()) {
+    try {
+      var errorText = await this.page.evaluate(function() {
+        var el = document.querySelector('.toast_error, .error_msg, .alert-danger, [class*="error"]');
+        return el ? el.textContent.trim() : null;
+      });
+      if (errorText) result._pageError = errorText;
+    } catch (e) {}
+  }
+  result.verifiedAt = new Date().toISOString();
+  return result;
+}
+
+async publishArticle (article) {
     this._progress('启动浏览器...')
     await this.init()
 
@@ -98,6 +118,8 @@ class BaseRPAPublisher {
     this._progress('保存登录态...')
     await this._saveCookies()
 
+    this._progress('验证发布结果...')
+    result = await this.validateResult(result)
     this._progress('发布完成')
     return result
   }

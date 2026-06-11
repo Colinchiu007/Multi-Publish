@@ -5,6 +5,7 @@
  * 支持：视频发布（标题+标签）
  */
 const BaseRPAPublisher = require('./base-rpa-publisher')
+const { smartWait } = require('../playwright-manager')
 
 const TIKTOK_URL = 'https://www.tiktok.com/'
 const TIKTOK_UPLOAD_URL = 'https://www.tiktok.com/upload/'
@@ -37,7 +38,7 @@ class TikTokPublisher extends BaseRPAPublisher {
   async publish (article) {
     this._progress('进入 TikTok 上传页...')
     await this.page.goto(TIKTOK_UPLOAD_URL, { waitUntil: 'networkidle' })
-    await this.page.waitForTimeout(2000)
+    await smartWait(this.page, null, 2000)
 
     if (!article.video_path) {
       return { success: false, error: 'TikTok 发布需要视频文件', platform: 'tiktok' }
@@ -84,7 +85,7 @@ class TikTokPublisher extends BaseRPAPublisher {
         const plain = article.title + '\n' + article.content.replace(/<[^>]+>/g, '').trim()
         const text = plain.slice(0, 2200)
         await caption.fill(text)
-        await this.page.waitForTimeout(500)
+        await smartWait(this.page, null, 500)
       }
     }
 
@@ -98,7 +99,7 @@ class TikTokPublisher extends BaseRPAPublisher {
     const postBtn = await this.page.$('button:has-text("Post"), button:has-text("发布"), [class*="post"]')
     if (postBtn) {
       await postBtn.click()
-      await this.page.waitForTimeout(5000)
+      await smartWait(this.page, null, 5000)
       return { success: true, url: this.page.url(), platform: 'tiktok' }
     }
 

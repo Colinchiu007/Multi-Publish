@@ -3,24 +3,11 @@
  * 负责通过 Playwright 捕获平台 Cookie，并通过 Python API 持久化
  */
 const path = require('path')
+const log = require('../logger')
 const playwrightManager = require('../playwright-manager')
 const pythonBridge = require('../python-bridge')
 
-// 平台登录 URL 映射
-const PLATFORM_LOGIN_URLS = {
-  wechat_mp: 'https://mp.weixin.qq.com/',
-    zhihu: 'https://www.zhihu.com/signin',
-    weibo: 'https://weibo.com/login',
-    douyin: 'https://www.douyin.com/',
-    xiaohongshu: 'https://creator.xiaohongshu.com/',
-    tencent_video: 'https://channels.weixin.qq.com/',
-    kuaishou: 'https://cp.kuaishou.com/',
-    toutiao: 'https://mp.toutiao.com/',
-    youtube: 'https://studio.youtube.com/',
-    tiktok: 'https://www.tiktok.com/upload/',
-  }
-
-  /**
+// 平台登录 URL 映射 (已移至 packages/rpa-engine/src/platform-selectors.js)
  * 等待页面出现特定选择器，表示登录成功
  */
 const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
@@ -39,21 +26,7 @@ const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
 /**
  * 获取平台显示名称
  */
-function getPlatformName (platform) {
-  const names = {
-      wechat_mp: '微信公众号',
-      zhihu: '知乎',
-      weibo: '微博',
-      douyin: '抖音',
-      xiaohongshu: '小红书',
-      tencent_video: '视频号',
-      kuaishou: '快手',
-      toutiao: '今日头条',
-      youtube: 'YouTube',
-      tiktok: 'TikTok',
-    }
-  return names[platform] || platform
-}
+function getPlatformName (platform) { return PLATFORM_NAMES[platform] || platform; }
 
 /**
  * 打开 Playwright 页面，让用户登录平台，捕获 Cookie
@@ -136,7 +109,7 @@ async function captureCookies (platform, timeout = 300000) {
       }
 
       // 额外等待页面稳定
-      await page.waitForTimeout(3000)
+      await smartWait(page, successSelector, 3000)
     }
 
     // 获取所有 Cookie

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
+const log = require('../logger')
 const { launchBrowser: playwrightLaunch, closeBrowser: playwrightClose, getPublisherClass } = require('@multi-publish/rpa-engine')
 const { TaskQueue, AggregatorBridge } = require('@multi-publish/shared-utils')
 const pythonBridge = require('./python-bridge')
@@ -32,7 +33,7 @@ taskQueue.setExecutor(async (task) => {
     const result = await publisher.publishArticle(task.article)
     return result
   } catch (e) {
-    console.error('[Executor] Publish failed:', e.message);
+    log.error('Executor', 'Publish failed:', e.message);
     throw e;
   } finally {
     await publisher.cleanup()
@@ -109,7 +110,7 @@ function createWindow () {
 
   // 初始化自动更新
     autoUpdater.init(mainWindow, (status) => {
-      console.log('[auto-updater]', JSON.stringify(status))
+      log.info('auto-updater', JSON.stringify(status))
     })
 
     // 首次运行引导
@@ -228,17 +229,17 @@ const userDataDir = app.getPath('userData')
 
 app.whenReady().then(async () => {
   try { await playwrightLaunch(path.join(userDataDir, 'browser-data')) }
-  catch (e) { console.error('[App] Failed to launch Playwright:', e.message) }
+  catch (e) { log.error('App', 'Failed to launch Playwright:', e.message) }
   try { await pythonBridge.startPythonBackend() }
-  catch (e) { console.error('[App] Failed to start Python backend:', e.message) }
+  catch (e) { log.error('App', 'Failed to start Python backend:', e.message) }
   const restored = scheduler.restore()
   if (restored > 0) console.log(`[Scheduler] Restored ${restored} pending tasks`)
   createWindow()
 })
 
 app.on('window-all-closed', async () => {
-  try { await playwrightClose() } catch (e) { console.error('[App] Error closing Playwright:', e.message) }
-  try { await pythonBridge.stopPythonBackend() } catch (e) { console.error('[App] Error stopping Python:', e.message) }
+  try { await playwrightClose() } catch (e) { log.error('App', 'Error closing Playwright:', e.message) }
+  try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
   if (process.platform !== 'darwin') app.quit()
 })
 

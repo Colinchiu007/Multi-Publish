@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const log = require('../logger')
 const crypto = require('crypto')
 
 const ALGORITHM = 'aes-256-gcm'

@@ -6,6 +6,7 @@ const { spawnSync } = require('child_process')
 const { app } = require('electron')
 const fs = require('fs')
 const path = require('path')
+const log = require('../logger')
 
 let _mainWin = null
 
@@ -46,8 +47,8 @@ async function runSetup (mainWin) {
     })
 
     const pwExe = getPlaywrightExe()
-    console.log('[firstRun] Playwright exe:', pwExe)
-    console.log('[firstRun] Exists:', fs.existsSync(pwExe))
+    log.info('firstRun', 'Playwright exe:', pwExe)
+    log.info('firstRun', 'Exists:', fs.existsSync(pwExe))
 
     spawnSync(pwExe, ['install', 'chromium'], {
       stdio: 'inherit',
@@ -60,9 +61,9 @@ async function runSetup (mainWin) {
       `done:${new Date().toISOString()}`
     )
     mainWin.webContents.send('first-run:status', { type: 'done' })
-    console.log('[firstRun] Setup complete')
+    log.info('firstRun', 'Setup complete')
   } catch (e) {
-    console.error('[firstRun] Setup error:', e.message)
+    log.error('firstRun', 'Setup error:', e.message)
     mainWin.webContents.send('first-run:status', { type: 'error', data: e.message })
   }
 }

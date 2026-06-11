@@ -1,5 +1,6 @@
 const { chromium } = require('playwright')
 const path = require('path')
+const log = require('../logger')
 const { app } = require('electron')
 
 let browser = null
@@ -34,7 +35,7 @@ async function launchBrowser () {
 
   browser = context.browser()
 
-  console.log('[Playwright] Chromium instance started')
+  log.info('Playwright', 'Chromium instance started')
 
   return browser
 }
@@ -70,11 +71,27 @@ async function closeBrowser () {
     context = null
   }
   browser = null
-  console.log('[Playwright] Chromium closed')
+  log.info('Playwright', 'Chromium closed')
 }
 
-module.exports = {
-  launchBrowser,
+/**
+ * 智能等待 - 优先等待选择器，回退到随机等待
+ * @param {import('playwright').Page} page
+ * @param {string} selector - 目标选择器
+ * @param {number} [timeout=10000]
+ */
+async function smartWait(page, selector, timeout) {
+  timeout = timeout || 10000;
+  if (selector) {
+    try { await page.waitForSelector(selector, { timeout: Math.min(timeout, 5000) }); return; }
+    catch (e) { /* 回退到时间等待 */ }
+  }
+  var delay = Math.floor(Math.random() * 1500) + 500;
+  await page.waitForTimeout(delay);
+}
+
+module.exports = {,
+  smartWait,
   getContext,
   newPage,
   closeBrowser,

@@ -4,6 +4,7 @@
  */
 const { spawn, spawnSync } = require('child_process')
 const path = require('path')
+const log = require('../logger')
 const http = require('http')
 
 const BACKEND_PORT = parseInt(process.env.BACKEND_PORT || '8299', 10)
@@ -75,7 +76,7 @@ function startPythonBackend () {
       if (healthy) {
         clearInterval(interval)
         isRunning = true
-        console.log('[PythonBridge] Backend is ready')
+        log.info('PythonBridge', 'Backend is ready')
         resolve()
       } else if (Date.now() - startTime > HEALTH_CHECK_TIMEOUT) {
         clearInterval(interval)
@@ -116,7 +117,7 @@ function healthCheck () {
 async function stopPythonBackend () {
   if (!pythonProcess) return
 
-  console.log('[PythonBridge] Stopping Python backend...')
+  log.info('PythonBridge', 'Stopping Python backend...')
 
   if (process.platform === 'win32') {
     // Windows: 先发 SIGTERM (通过 taskkill)
@@ -133,7 +134,7 @@ async function stopPythonBackend () {
 
   pythonProcess = null
   isRunning = false
-  console.log('[PythonBridge] Backend stopped')
+  log.info('PythonBridge', 'Backend stopped')
 }
 
 /**
