@@ -2,7 +2,7 @@
  * 首次运行引导
  * 自动安装 Playwright 浏览器
  */
-const { execSync } = require('child_process')
+const { spawnSync } = require('child_process')
 const { app } = require('electron')
 const fs = require('fs')
 const path = require('path')
@@ -49,10 +49,9 @@ async function runSetup (mainWin) {
     console.log('[firstRun] Playwright exe:', pwExe)
     console.log('[firstRun] Exists:', fs.existsSync(pwExe))
 
-    execSync(`"${pwExe}" install chromium`, {
+    spawnSync(pwExe, ['install', 'chromium'], {
       stdio: 'inherit',
       windowsHide: true,
-      shell: 'cmd.exe',
       cwd: path.dirname(pwExe)
     })
 

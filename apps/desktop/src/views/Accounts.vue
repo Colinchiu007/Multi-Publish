@@ -58,7 +58,7 @@
             <span v-else class="cohere-tag cohere-tag-warning">未配置</span>
           </div>
           <div class="card-actions">
-            <button @click="checkLogin(acc)">打开</button>
+            <button @click="openPlatform(acc)">打开</button>
             <button @click="checkLogin(acc)">验证</button>
             <button class="danger" @click="removeAccount(acc)">删除</button>
           </div>
@@ -111,12 +111,8 @@ const platformMap = {
   tencent_video: '视频号',
   kuaishou: '快手',
   toutiao: '今日头条',
-  bilibili: 'B站',
-  baijiahao: '百家号',
-  yidian: '一点号',
   youtube: 'YouTube',
   tiktok: 'TikTok',
-  twitter: 'X (Twitter)',
 }
 
 const platformIconMap = {
@@ -128,18 +124,30 @@ const platformIconMap = {
   tencent_video: '▶',
   kuaishou: '🎬',
   toutiao: '📰',
-  bilibili: '📺',
-  baijiahao: '📖',
-  yidian: '📋',
   youtube: '▶',
   tiktok: '♪',
-  twitter: '✕',
 }
 
 const availablePlatforms = Object.entries(platformMap).map(([id, label]) => ({ id, label }))
 
 function platformLabel (id) {
   return platformMap[id] || id
+}
+
+function openPlatform (row) {
+  var url = {
+    wechat_mp: 'https://mp.weixin.qq.com/',
+    zhihu: 'https://www.zhihu.com/',
+    weibo: 'https://weibo.com/',
+    douyin: 'https://www.douyin.com/',
+    xiaohongshu: 'https://creator.xiaohongshu.com/',
+    tencent_video: 'https://channels.weixin.qq.com/',
+    kuaishou: 'https://cp.kuaishou.com/',
+    toutiao: 'https://mp.toutiao.com/',
+    youtube: 'https://studio.youtube.com/',
+    tiktok: 'https://www.tiktok.com/upload/'
+  }[row.platform];
+  if (url) window.open(url, '_blank');
 }
 
 function platformIcon (id) {

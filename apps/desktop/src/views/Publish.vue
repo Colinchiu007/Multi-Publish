@@ -44,7 +44,7 @@
                 :auto-upload="false"
                 :limit="1"
                 accept="video/*"
-                :on-change="(file) => article.video_path = file.raw?.path || file.raw?.name || ''"
+                :on-change="(file) => { article.video_path = (file.raw && (file.raw.path || file.raw.name)) || file.name || '' }"
               >
                 <el-icon class="el-icon--upload"><upload-filled /></el-icon>
                 <div class="el-upload__text">拖拽视频文件到这里，或 <em>点击选择</em></div>

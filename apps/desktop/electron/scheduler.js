@@ -35,7 +35,7 @@ function create (schedule) {
 
   // 持久化
   const filePath = getSchedulerPath()
-  fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf-8')
+  try { fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf-8'); } catch (e) { console.error('[Scheduler] Failed to persist task:', e.message); }
 
   // 注册定时器
   scheduleTimer(entry)

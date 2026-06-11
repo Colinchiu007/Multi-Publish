@@ -13,4 +13,5 @@ data/
 package-lock.json
 # 冗余文件，配置统一在 package.json
 electron-builder.yml
-build/
+build/*.exe
+latest.yml

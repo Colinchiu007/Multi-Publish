@@ -2,7 +2,7 @@
  * Python 后端子进程管理
  * Electron 主进程启动/停止 Python FastAPI 服务
  */
-const { spawn } = require('child_process')
+const { spawn, spawnSync } = require('child_process')
 const path = require('path')
 const http = require('http')
 
@@ -120,7 +120,7 @@ async function stopPythonBackend () {
 
   if (process.platform === 'win32') {
     // Windows: 先发 SIGTERM (通过 taskkill)
-    spawn('taskkill', ['/PID', String(pythonProcess.pid), '/F', '/T'])
+    spawnSync('taskkill', ['/PID', String(pythonProcess.pid), '/F', '/T'])
   } else {
     pythonProcess.kill('SIGTERM')
     // 等待 3s 后强制杀

@@ -31,6 +31,9 @@ taskQueue.setExecutor(async (task) => {
   try {
     const result = await publisher.publishArticle(task.article)
     return result
+  } catch (e) {
+    console.error('[Executor] Publish failed:', e.message);
+    throw e;
   } finally {
     await publisher.cleanup()
   }
@@ -120,13 +123,15 @@ ipcMain.handle('app:get-platform', () => process.platform)
 
 // 发布相关 IPC
 ipcMain.handle('publish:wechat', async (event, articleData) => {
-  const taskId = taskQueue.add({
+  try {
+    const taskId = taskQueue.add({
     platform: 'wechat_mp',
     article: articleData,
     retry: 2,
     timeout: 180000
   })
-  return { code: 0, data: { taskId }, message: '任务已加入队列' }
+    return { code: 0, data: { taskId }, message: '任务已加入队列' }
+  } catch (e) { return { code: -1, message: e.message } }
 })
 
 ipcMain.handle('publish:batch', async (event, { platforms, article }) => {
@@ -159,11 +164,13 @@ ipcMain.handle('dashboard:stats', async () => {
 
 // 定时发布 IPC
 ipcMain.handle('scheduler:create', async (event, { platform, article, publishTime }) => {
-  const entry = scheduler.create({ platform, article, publishTime })
-  return { code: 0, data: entry, message: '定时任务已创建' }
+  try {
+    const entry = scheduler.create({ platform, article, publishTime })
+    return { code: 0, data: entry, message: '定时任务已创建' }
+  } catch (e) { return { code: -1, message: e.message } }
 })
 ipcMain.handle('scheduler:list', async () => {
-  return { code: 0, data: scheduler.list() }
+  try { return { code: 0, data: scheduler.list() } } catch (e) { return { code: -1, message: e.message, data: [] } }
 })
 ipcMain.handle('scheduler:cancel', async (event, id) => {
   scheduler.cancel(id)
@@ -230,8 +237,8 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', async () => {
-  await playwrightClose()
-  await pythonBridge.stopPythonBackend()
+  try { await playwrightClose() } catch (e) { console.error('[App] Error closing Playwright:', e.message) }
+  try { await pythonBridge.stopPythonBackend() } catch (e) { console.error('[App] Error stopping Python:', e.message) }
   if (process.platform !== 'darwin') app.quit()
 })
 
