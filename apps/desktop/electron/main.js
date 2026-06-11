@@ -9,6 +9,10 @@ const scheduler = require('./scheduler')
 const history = require('./publish-history')
 const autoUpdater = require('./auto-updater')
 const firstRun = require('./first-run')
+const AuthViewManager = require('./auth-view-manager')
+
+// ─── AuthViewManager（内嵌浏览器登录）─────
+const authViewManager = new AuthViewManager()
 
 // ─── 任务队列 ─────────────────────────────
 const taskQueue = new TaskQueue({ maxConcurrent: 1 })
@@ -107,6 +111,10 @@ function createWindow () {
 
   mainWindow.once('ready-to-show', () => { mainWindow.show() })
   mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('resize', () => { authViewManager._onWindowResize() })
+
+  // 设置 AuthViewManager
+  authViewManager.setMainWindow(mainWindow)
 
   // 初始化自动更新
     autoUpdater.init(mainWindow, (status) => {
@@ -202,6 +210,46 @@ ipcMain.handle('accounts:list', async () => {
   try { return await pythonBridge.requestBackend('GET', '/api/accounts') }
   catch (e) { return { code: -1, message: e.message, data: [] } }
 })
+
+// 内嵌浏览器登录（替代 Playwright 弹出窗口）
+ipcMain.handle('auth:open-login', async (event, platform) => {
+  try {
+    const result = await authViewManager.openLogin(platform)
+    // 通过 Python API 保存账号
+    const saveResult = await pythonBridge.requestBackend('POST', '/api/accounts', {
+      platform,
+      name: result.name,
+      cookies: result.cookies,
+    })
+    if (saveResult.code !== 0) {
+      throw new Error(saveResult.message || '保存账号失败')
+    }
+    return { code: 0, data: { ...saveResult.data }, message: '账号添加成功' }
+  } catch (e) {
+    log.error('Auth', `Login failed for ${platform}: ${e.message}`)
+    return { code: -1, message: e.message }
+  }
+})
+
+ipcMain.handle('auth:close', async () => {
+  authViewManager.close()
+  return { code: 0 }
+})
+
+ipcMain.handle('auth:save-credentials', async (event, { accountId, cookies, localStorage }) => {
+  try {
+    const result = await pythonBridge.requestBackend('POST', '/api/auth', {
+      accountId,
+      cookies,
+      localStorage,
+    })
+    return result
+  } catch (e) {
+    return { code: -1, message: e.message }
+  }
+})
+
+// 向下兼容：account:add 仍然走旧的 Playwright 方式
 ipcMain.handle('account:add', async (event, platform) => {
   try {
     const account = await AccountManager.addAccount(platform)

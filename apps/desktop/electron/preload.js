@@ -49,6 +49,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   accountCheckLogin: (platform, accountId) => ipcRenderer.invoke('account:check-login', { platform, accountId }),
   accountList: () => ipcRenderer.invoke('account:list'),
 
+  // ─── 内嵌浏览器登录 API ──────────────
+  authOpenLogin: (platform) => ipcRenderer.invoke('auth:open-login', platform),
+  authClose: () => ipcRenderer.invoke('auth:close'),
+  authSaveCredentials: (data) => ipcRenderer.invoke('auth:save-credentials', data),
+  onAuthViewOpened: (callback) => {
+    const h = (_, data) => callback(data)
+    ipcRenderer.on('auth:view-opened', h)
+    return () => ipcRenderer.removeListener('auth:view-opened', h)
+  },
+  onAuthCompleted: (callback) => {
+    const h = (_, data) => callback(data)
+    ipcRenderer.on('auth:completed', h)
+    return () => ipcRenderer.removeListener('auth:completed', h)
+  },
+  onAuthViewClosed: (callback) => {
+    const h = () => callback()
+    ipcRenderer.on('auth:view-closed', h)
+    return () => ipcRenderer.removeListener('auth:view-closed', h)
+  },
+
   // 进度监听
   onProgress: (callback) => {
     const handler = (_, data) => callback(data)
