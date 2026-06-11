@@ -1,15 +1,13 @@
 /**
  * RPA 发布器基类
  * 所有平台 RPA 发布器继承此类
+ * P0-D6: 添加 validateResult 发布结果验证
  */
 const playwrightManager = require('../playwright-manager')
 const cookieStore = require('../cookie-store')
 const { app } = require('electron')
 
 class BaseRPAPublisher {
-  /**
-   * @param {string} platform - 平台标识
-   */
   constructor (platform) {
     this.platform = platform
     this.page = null
@@ -17,87 +15,54 @@ class BaseRPAPublisher {
     this._progressCallback = null
   }
 
-  /**
-   * 设置进度回调
-   * @param {Function} cb - (stage: string) => void
-   */
   onProgress (cb) {
     this._progressCallback = cb
   }
 
-  /**
-   * 发送进度消息
-   */
   _progress (stage) {
     if (this._progressCallback) {
       this._progressCallback({ platform: this.platform, stage })
     }
   }
 
-  /**
-   * 初始化：获取 Playwright page
-   */
   async init () {
     this.page = await playwrightManager.newPage()
     this.context = await playwrightManager.getContext()
   }
 
-  /**
-   * 检查登录状态 — 子类必须实现
-   * @returns {Promise<boolean>} true=已登录, false=需扫码
-   */
   async checkLogin () {
     throw new Error('checkLogin() must be implemented by subclass')
   }
 
-  /**
-   * 等待用户扫码 — 子类必须实现
-   * @param {number} timeout - 最长等待 (ms)
-   * @returns {Promise<boolean>} true=扫码成功
-   */
   async waitForLogin (timeout = 120000) {
     throw new Error('waitForLogin() must be implemented by subclass')
   }
 
-  /**
-   * 执行发布 — 子类必须实现
-   * @param {object} article - { title, content, coverUrl }
-   * @returns {Promise<object>} - { success, url, mediaId? }
-   */
   async publish (article) {
     throw new Error('publish() must be implemented by subclass')
   }
 
-  /**
-   * 完整的发布流程：检查登录 → 等待扫码 → 发布
-   */
-  /**
- * 验证发布结果 - 子类可覆盖
- * @param {object} result - publish() 返回的结果
- * @returns {object} 验证后的结果
- */
-async validateResult (result) {
-  if (!result || typeof result !== 'object') {
-    throw new Error('发布结果异常: 返回值为空');
+  async validateResult (result) {
+    if (!result || typeof result !== 'object') {
+      throw new Error('发布结果异常: 返回值为空')
+    }
+    if (result.error) {
+      throw new Error('发布失败: ' + result.error)
+    }
+    if (this.page && !this.page.isClosed()) {
+      try {
+        var errorText = await this.page.evaluate(function () {
+          var el = document.querySelector('.toast_error, .error_msg, .alert-danger, [class*="error"]')
+          return el ? el.textContent.trim() : null
+        })
+        if (errorText) result._pageError = errorText
+      } catch (e) { /* ignore */ }
+    }
+    result.verifiedAt = new Date().toISOString()
+    return result
   }
-  if (result.error) {
-    throw new Error('发布失败: ' + result.error);
-  }
-  // 检查页面是否有错误提示
-  if (this.page && !this.page.isClosed()) {
-    try {
-      var errorText = await this.page.evaluate(function() {
-        var el = document.querySelector('.toast_error, .error_msg, .alert-danger, [class*="error"]');
-        return el ? el.textContent.trim() : null;
-      });
-      if (errorText) result._pageError = errorText;
-    } catch (e) { /* 忽略页面检查失败 */ }
-  }
-  result.verifiedAt = new Date().toISOString();
-  return result;
-}
 
-async publishArticle (article) {
+  async publishArticle (article) {
     this._progress('启动浏览器...')
     await this.init()
 
@@ -110,14 +75,13 @@ async publishArticle (article) {
       if (!loginOk) {
         throw new Error('扫码登录超时')
       }
-      // 保存 Cookie
       await this._saveCookies()
     } else {
       this._progress('登录状态有效')
     }
 
     this._progress('正在发布文章...')
-    const result = await this.publish(article)
+    let result = await this.publish(article)
 
     this._progress('保存登录态...')
     await this._saveCookies()
@@ -128,9 +92,6 @@ async publishArticle (article) {
     return result
   }
 
-  /**
-   * 保存 Cookie 到加密文件
-   */
   async _saveCookies () {
     if (!this.context) return
     const cookies = await this.context.cookies()
@@ -138,9 +99,6 @@ async publishArticle (article) {
     cookieStore.saveCookies(this.platform, cookies, userDataDir)
   }
 
-  /**
-   * 加载 Cookie 到 browser context
-   */
   async _loadCookies () {
     if (!this.context) return
     const userDataDir = app.getPath('userData')
@@ -150,9 +108,6 @@ async publishArticle (article) {
     }
   }
 
-  /**
-   * 清理资源
-   */
   async cleanup () {
     if (this.page) {
       try { await this.page.close() } catch (e) { /* ignore */ }
