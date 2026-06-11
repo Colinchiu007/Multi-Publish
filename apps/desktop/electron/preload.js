@@ -43,6 +43,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('first-run:status', handler)
   },
 
+  // ─── 通知 ──────────────────────────
+  showNotification: (data) => ipcRenderer.invoke('show-notification', data),
+  onNotification: (cb) => {
+    const h = (_, data) => cb(data)
+    ipcRenderer.on('notification', h)
+    return () => ipcRenderer.removeListener('notification', h)
+  },
+
   // ─── 账号管理 API ─────────────────────
   accountAdd: (platform) => ipcRenderer.invoke('account:add', platform),
   accountDelete: (accountId) => ipcRenderer.invoke('account:delete', accountId),

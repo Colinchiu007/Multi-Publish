@@ -219,6 +219,18 @@ async function handlePublish () {
     result.value = { success: false, message: e.message }
   } finally {
     publishing.value = false
+    // 发送桌面通知
+    const resData = result.value
+    if (resData) {
+      const api = window.electronAPI
+      if (api?.showNotification) {
+        api.showNotification({
+          title: resData.success ? '🚀 发布成功' : '⚠️ 发布失败',
+          body: resData.message || (resData.success ? '任务已提交' : '请检查网络或账号状态'),
+          type: resData.success ? 'success' : 'error'
+        })
+      }
+    }
   }
 }
 </script>

@@ -13,6 +13,7 @@ const AuthViewManager = require('./auth-view-manager')
 
 // ─── AuthViewManager（内嵌浏览器登录）─────
 const authViewManager = new AuthViewManager()
+const PublishAlert = require('./publish-alert')
 
 // ─── 任务队列 ─────────────────────────────
 const taskQueue = new TaskQueue({ maxConcurrent: 1 })
@@ -206,6 +207,14 @@ ipcMain.handle('first-run:check', async () => {
 })
 
 // 账号 IPC
+ipcMain.handle('show-notification', async (_, data) => {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('notification', data)
+    }
+  } catch (e) { /* ignore */ }
+})
+
 ipcMain.handle('accounts:list', async () => {
   try { return await pythonBridge.requestBackend('GET', '/api/accounts') }
   catch (e) { return { code: -1, message: e.message, data: [] } }
