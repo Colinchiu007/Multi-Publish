@@ -30,17 +30,17 @@ jobs:
         run: npm ci
 
       - name: Build Vue frontend
-        run: npm run build:vue
+        run: npm run build:vue -w @multi-publish/desktop
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
-        run: npx electron-builder --win --x64 --publish=never
+        run: npm run build:win -w @multi-publish/desktop
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Electron app (Linux)
         if: runner.os == 'Linux'
-        run: npx electron-builder --linux --publish=never
+        run: npm run build -w @multi-publish/desktop -- --linux --x64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

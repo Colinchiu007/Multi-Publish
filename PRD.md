@@ -1,10 +1,11 @@
 # PROJECT-003：多平台一键发布 — PRD
 
 > **立项日期**: 2026-06-03
-> **最后更新**: 2026-06-10
-> **当前版本**: v1.0.2
+> **最后更新**: 2026-06-11
+> **当前版本**: v1.0.7（Monorepo 重构）
 > **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具
 > **目标用户**: 自媒体运营者、企业内容团队、SEO 运营
+> **技术架构**: Electron + Vue 3 + Playwright RPA + Python FastAPI 后端（Monorepo）
 
 ---
 
@@ -140,7 +141,8 @@
 
 ```
 ┌──────────────────────────────────────────────────┐
-│              Electron Shell (Vue 3 + Vite)        │
+│              apps/desktop/electron/               │
+│              Electron Shell + Vue 3 UI            │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
 │  │ 发布界面   │  │ 账号管理  │  │ 统计看板  │       │
 │  └─────┬────┘  └────┬─────┘  └─────┬────┘       │
@@ -151,17 +153,18 @@
 │                   │                              │
 │  ┌────────────────┼──────────────────────┐       │
 │  │    Task Queue  │    Scheduler         │       │
-│  │   (顺序执行+重试)│   (定时发布持久化)   │       │
-│  └────────────────┴──────────────────────┘       │
-│                   │                              │
-│  ┌────────────────┼──────────────────────┐       │
-│  │     Publisher Registry                  │       │
-│  │   WeChat │ Zhihu │ Weibo │ Douyin │ 小红书 │       │
+│  │  @multi-publish/shared-utils          │       │
 │  └────────────────┴──────────────────────┘       │
 │                   │                              │
 │  ┌────────────────┴──────────────────────┐       │
-│  │    Playwright RPA Engine (publishers/)│       │
-│  │    + Python Backend (:8299)           │       │
+│  │     Publisher Registry                  │       │
+│  │   10 platforms (WeChat|Zhihu|Weibo...)  │       │
+│  └────────────────┴──────────────────────┘       │
+│                   │                              │
+│  ┌────────────────┴──────────────────────┐       │
+│  │   @multi-publish/rpa-engine            │       │
+│  │   Playwright RPA Engine                │       │
+│  │   + Python Backend (:8299)             │       │
 │  └───────────────────────────────────────┘       │
 │                                                   │
 │  ┌──────────────────────────────────────┐        │
@@ -172,29 +175,55 @@
 └──────────────────────────────────────────────────┘
 ```
 
-### 4.2 核心模块
+### 4.2 Monorepo 目录结构
 
-| 模块 | 路径 | 职责 |
-|------|------|------|
-| Electron 主进程 | `electron/main.js` | 窗口管理、IPC 注册、模块初始化 |
-| 发布器注册中心 | `electron/publishers/registry.js` | 平台 ↔ 发布器类映射 |
-| 发布器基类 | `electron/publishers/base-rpa-publisher.js` | Playwright RPA 通用逻辑、进度回调 |
-| 公众号发布器 | `electron/publishers/wechat-mp-rpa.js` | 微信公众平台 RPA 自动化 |
-| 知乎发布器 | `electron/publishers/zhihu-rpa.js` | 知乎文章 RPA 自动化 |
-| 微博发布器 | `electron/publishers/weibo-rpa.js` | 微博图文 RPA 自动化 |
-| 抖音发布器 | `electron/publishers/douyin-rpa.js` | 抖音图文 RPA 自动化 |
-| 小红书发布器 | `electron/publishers/xiaohongshu-rpa.js` | 小红书笔记 RPA 自动化 |
-| 任务队列 | `electron/task-queue.js` | 顺序执行 + 自动重试 + 事件通知 |
-| 定时调度器 | `electron/scheduler.js` | 定时发布（JSON 持久化，重启恢复） |
-| 发布历史 | `electron/publish-history.js` | JSONL 文件存储发布记录 |
-| 账号管理 | `electron/publishers/account-manager.js` | Cookie 加密存储 + 登录状态检测 |
-| Python 桥接 | `electron/python-bridge.js` | 管理 Python 后端子进程 |
-| Playwright 管理器 | `electron/playwright-manager.js` | 浏览器实例生命周期 |
-| Aggregator 桥 | `electron/aggregator-bridge.js` | PROJECT-001 内容接收 |
-| 自动更新 | `electron/auto-updater.js` | electron-updater 封装 |
-| 首次运行 | `electron/first-run.js` | 依赖检测 + 自动安装 |
-| Python 后端 | `python/server.py` | FastAPI 服务，RPA 代理 |
-| 前端 Vue | `src-frontend/` | Vue 3 + Element Plus + Quill |
+```
+multi-publish/
+├── apps/desktop/                # Electron 桌面应用
+│   ├── electron/                # Electron 主进程 + IPC
+│   │   ├── main.js              # 入口：窗口管理、IPC 注册
+│   │   ├── preload.js           # 预加载脚本（contextBridge）
+│   │   ├── python-bridge.js     # Python 后端子进程管理
+│   │   ├── playwright-manager.js → packages/rpa-engine
+│   │   ├── task-queue.js → packages/shared-utils
+│   │   ├── scheduler.js         # 定时发布（路径注入）
+│   │   ├── publish-history.js   # 发布记录（路径注入）
+│   │   ├── cookie-store.js → packages/rpa-engine
+│   │   ├── aggregator-bridge.js → packages/shared-utils
+│   │   ├── auto-updater.js      # electron-updater
+│   │   ├── first-run.js         # 首次运行引导
+│   │   └── publishers/          # 账号管理 + 发布器注册
+│   │       └── account-manager.js
+│   ├── src/                     # Vue 3 前端
+│   │   ├── views/               # 页面：Home/Dashboard/Publish/Accounts/FirstRun
+│   │   ├── components/          # 组件：ArticleEditor
+│   │   ├── router/              # Vue Router
+│   │   ├── styles/              # Cohere 风格 CSS
+│   │   └── App.vue
+│   ├── vite.config.js           # Vite 构建
+│   └── package.json
+├── packages/
+│   ├── rpa-engine/              # RPA 引擎（独立 npm 包）
+│   │   ├── src/playwright-manager.js  # 浏览器管理（去 Electron 化）
+│   │   ├── src/cookie-store.js        # Cookie 加密存储
+│   │   ├── src/publishers/            # 10 个平台发布器
+│   │   │   ├── base-rpa-publisher.js  # 基类
+│   │   │   ├── registry.js            # 平台注册
+│   │   │   └── {wechat_mp|zhihu|...}.js
+│   │   └── package.json
+│   ├── shared-utils/          # 共享工具库（独立 npm 包）
+│   │   ├── src/task-queue.js    # 任务队列（顺序+重试）
+│   │   ├── src/aggregator-bridge.js  # PROJECT-001 集成
+│   │   └── package.json
+│   └── python-backend/        # Python 后端（FastAPI）
+│       ├── src/server.py        # FastAPI 入口
+│       ├── src/multi_publish/   # 核心模块
+│       │   ├── core/            # QueryWorker/TaskScheduler 等
+│       │   └── publishers/      # Python RPA 发布器
+│       └── pyproject.toml
+├── package.json               # 根 workspaces 配置
+└── .github/workflows/build.yml # CI/CD
+```
 
 ### 4.3 发布器接口规范
 
@@ -252,6 +281,14 @@ class BaseRpaPublisher {
 1. 撰写文章 + 选择平台
 2. 勾选「定时发布」→ 设置时间
 3. 到点时自动执行，支持 App 关闭后重启恢复
+4. 任务持久化在 `tasks/scheduled-tasks.jsonl`
+
+### 6.4 多平台批量发布（v1.1.0）
+
+1. 撰写一篇文章
+2. 勾选 2-10 个平台
+3. 点击发布 → 每个平台依次执行（队列顺序） → 失败自动重试 2 次 → 全部完成
+4. 发布失败平台不影响其他平台继续执行
 
 ---
 
@@ -299,18 +336,24 @@ Task Queue → 各平台发布器 → 发布完成
 
 ## 十、验收标准
 
-### v0.1.0 验收
+### v1.0.7 验收（当前）
 
-- [x] 可添加/删除 5 个平台的账号
-- [x] Cookie 加密存储，重启后仍有效
-- [x] 可在任意平台发布一篇文章
-- [x] 可批量发布到多个平台
-- [x] 定时发布可正常执行
+- [x] 10 个平台账号管理（添加/删除/登录状态检测）
+- [x] 单篇/批量发布到多平台
+- [x] 定时发布（持久化 + 重启恢复）
 - [x] 发布历史可查看、可筛选
 - [x] 统计看板数据正确
-- [x] 首次运行自动安装依赖
-- [x] Pending: 端到端测试（需真实账号凭证）
-- [x] Pending: 首个 GitHub Release 发布
+- [x] 首次运行自动安装 Python 依赖 + Playwright
+- [x] 自动更新（electron-updater + GitHub Release）
+- [x] Cookie AES-256 加密存储
+- [x] PROJECT-001 集成（Aggregator Bridge）
+- [x] Monorepo 结构（apps/desktop + packages/rpa-engine + packages/shared-utils + packages/python-backend）
+- [ ] Pending: 端到端测试（需真实账号凭证）
+- [ ] Pending: 首个正式版 Release（v1.1.0）
+
+### v1.1.0 目标（Roadmap）
+
+详见 `docs/roadmap-v1.1.0.md` — 产品稳定 → 运营启动 → 付费闭环 → 迭代增长
 
 ---
 

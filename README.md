@@ -1,138 +1,122 @@
 # Multi-Publish
 
-多平台内容一键发布桌面工具。支持微信公众号、知乎、微博、抖音等平台的 RPA 自动化发布。
+> 多平台内容一键发布桌面工具。支持 10 个平台的 RPA 自动化发布。
+>
+> **中文文档**: [README.md](README.md) | **Roadmap**: [docs/roadmap-v1.1.0.md](docs/roadmap-v1.1.0.md) | **PRD**: [PRD.md](PRD.md)
 
-## 安装
+---
+
+一键发布文章到 **微信公众号、知乎、微博、抖音、小红书、视频号、快手、今日头条、YouTube、TikTok**。
+
+## 📥 安装
+
+| 方式 | 说明 |
+|------|------|
+| **下载安装包** | [GitHub Releases](https://github.com/Colinchiu007/Multi-Publish/releases) → 下载 `.exe` |
+| **自动更新** | 打开 App 后自动检测新版本（electron-updater） |
+| **源码构建** | 见下方「开发」章节 |
+
+## 🚀 首次使用
+
+1. 下载安装包并安装
+2. 首次运行自动安装 Python 依赖 + Playwright Chromium
+3. 点击「账号管理」→ 选择平台 → 扫码/登录 → Cookie 加密保存
+4. 撰写文章 → 选择平台 → 点击发布
+
+## 🌐 支持平台（10 个）
+
+| 平台 | 类型 | 说明 |
+|------|------|------|
+| 微信公众号 | 图文 | 草稿编辑 → 群发 |
+| 知乎 | 图文 | 文章 + 话题标签 |
+| 微博 | 图文 | 支持长文 |
+| 抖音 | 图文 + 视频 | |
+| 小红书 | 图文 | |
+| 视频号 | 视频 + 图文 | |
+| 快手 | 视频 + 图文 | |
+| 今日头条 | 图文 + 视频 | |
+| YouTube | 视频 | |
+| TikTok | 视频 | |
+
+## 🏗️ 架构
+
+```
+┌──────────────────────────────────────────┐
+│  apps/desktop/                    ← Electron + Vue 3 UI
+│  ├── electron/                ← 主进程 + IPC
+│  └── src/                     ← 前端页面
+├──────────────────────────────────────────┤
+│  packages/rpa-engine/        ← Playwright RPA 引擎（10 平台）
+│  packages/shared-utils/      ← 任务队列 + 共享工具
+│  packages/python-backend/    ← FastAPI 后端
+└──────────────────────────────────────────┘
+```
+
+Monorepo 结构，独立 npm workspace 管理。
+
+## 🛠️ 开发
 
 ```bash
-# 从 GitHub Release 下载（推荐）
-# 访问 https://github.com/Colinchiu007/Multi-Publish/releases
-# 下载 Multi-Publish Setup x.x.x.exe
-
-# 或者从源码构建
-git clone https://github.com/Colinchiu007/Multi-Publish.git
-cd Multi-Publish
+# 安装依赖
 npm install
-npm run build:vue
-npx electron-builder --win --x64
-```
 
-## 首次使用
-
-1. **下载安装包** — 从 [Releases](https://github.com/Colinchiu007/Multi-Publish/releases) 下载
-2. **安装 Python 后端依赖** — 首次运行自动安装（需 Python 3.12+ 已安装）
-3. **安装 Playwright 浏览器** — 首次运行自动检测并提示安装
-4. **登录平台账号** — 每个平台需要单独登录并保存 Cookie
-
-## 支持平台
-
-| 平台 | 状态 | 特性 |
-|:----:|:----:|------|
-| ✅ 微信公众号 | 已实现 | 草稿编辑 → 群发，支持富文本/封面/作者设置 |
-| ✅ 知乎 | 已实现 | 文章发布，支持话题标签 |
-| ✅ 微博 | 已实现 | 图文发布，支持长文 |
-| ✅ 抖音 | 已实现 | 图文发布 |
-| ⏳ 小红书 | 计划中 | |
-
-## 架构
-
-```
-┌──────────────────────────────────┐
-│  Electron Shell (Vue 3 + Vite)   │  ← 桌面 GUI
-├──────────────────────────────────┤
-│  IPC Bridge (preload.js)         │  ← 前后端通信
-├──────────┬──────────┬───────────┤
-│  Task    │ Scheduler│  History  │  ← 任务管理
-│  Queue   │ (定时)   │  (JSONL)  │
-├──────────┴──────────┴───────────┤
-│  Playwright RPA Engine           │  ← 浏览器自动化
-├──────────────────────────────────┤
-│  FastAPI Backend (:8299)         │  ← Python RPA 适配器
-├──────────────────────────────────┤
-│  4 Platform Publishers            │  ← 平台独立发布模块
-│  (WeChat / Zhihu / Weibo / Douyin)│
-└──────────────────────────────────┘
-```
-
-## 使用场景
-
-### 多平台一键发布
-1. 在富文本编辑器撰写文章
-2. 勾选需要发布的平台
-3. 点击发布 → 自动执行各平台 RPA
-
-### 定时发布
-1. 撰写文章后选择「定时发布」
-2. 设定发布时间
-3. 到点时自动执行
-
-### PROJECT-001 集成
-通过 aggregator bridge 接收内容聚合器的文章，自动多平台发布。
-
-## 开发
-
-```bash
-# 启动开发服务器
+# 开发模式（Vue HMR + Electron）
 npm run dev
 
-# 构建前端
-npm run build:vue
-
-# 构建安装包
+# 构建 Windows 安装包
 npm run build:win
 
-# 构建（仅目录，快速测试）
+# 仅构建目录（快速测试）
 npm run build:dir
 ```
 
-### 后端服务
+### Python 后端
 
 ```bash
-cd python
-pip install -r requirements-runtime.txt
-python server.py
+cd packages/python-backend
+pip install -r src/requirements-runtime.txt
+python src/server.py  # http://127.0.0.1:8299
 ```
 
-服务运行在 `http://127.0.0.1:8299`
+## 📊 功能
 
-## CI/CD
+- ✅ 单篇/批量发布到多平台
+- ✅ 定时发布（持久化 + 重启恢复）
+- ✅ 发布历史 + 统计看板
+- ✅ Cookie AES-256 加密存储
+- ✅ 自动更新（GitHub Release）
+- ✅ PROJECT-001 集成（内容聚合 → 自动发布）
 
-GitHub Actions 自动构建 Windows (.exe) 和 Linux (.AppImage) 安装包。
-推送到 `main` 或打 `v*` tag 时触发。
+## 📄 文档
 
-## 项目结构
+| 文档 | 说明 |
+|------|------|
+| [PRD.md](PRD.md) | 产品需求文档 |
+| [docs/roadmap-v1.1.0.md](docs/roadmap-v1.1.0.md) | v1.1.0 路线图 |
+| [docs/pricing-strategy.md](docs/pricing-strategy.md) | 定价策略 |
+| [docs/user-manual.md](docs/user-manual.md) | 用户手册 |
+| [standards/coding-standards.md](standards/coding-standards.md) | 代码规范 |
+| [standards/git-workflow.md](standards/git-workflow.md) | Git 工作流 |
 
+## 📝 发布流程
+
+```bash
+# 1. 合并 develop → main
+git checkout main
+git merge develop
+
+# 2. 同步版本号
+# 编辑 package.json → version 字段
+
+# 3. 提交 + 打 tag
+git add -A
+git commit -m "chore: bump version 1.0.x → 1.1.0"
+git tag v1.1.0
+git push origin main
+git push origin v1.1.0
+# → CI 自动构建 + Release + auto-updater 生效
 ```
-electron/                  # Electron 主进程
-├── main.js               # 入口 + IPC
-├── preload.js            # 预加载桥
-├── playwright-manager.js # 浏览器管理器
-├── task-queue.js         # 任务队列
-├── scheduler.js          # 定时发布
-├── publish-history.js    # 发布历史
-├── aggregator-bridge.js  # 001 集成桥
-├── python-bridge.js      # Python 后端桥
-├── cookie-store.js       # Cookie 加密存储
-└── publishers/           # 平台发布器
-    ├── base-rpa-publisher.js
-    ├── registry.js
-    ├── wechat-mp-rpa.js
-    ├── zhihu-rpa.js
-    ├── weibo-rpa.js
-    └── douyin-rpa.js
 
-python/                   # Python 后端
-├── server.py             # FastAPI 服务
-└── publishers/           # RPA 适配器
-
-src-frontend/             # Vue 3 前端
-├── views/
-│   └── Publish.vue       # 发布页面
-└── router/               # 路由
-
-.github/workflows/        # CI 流水线
-```
-
-## License
+## 📄 License
 
 MIT

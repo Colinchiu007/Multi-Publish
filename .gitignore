@@ -9,6 +9,8 @@ python/__pycache__/
 data/
 .DS_Store
 *.log
+# Monorepo
+package-lock.json
 # 冗余文件，配置统一在 package.json
 electron-builder.yml
 build/

@@ -14,7 +14,7 @@
               display:'flex',alignItems:'flex-start',gap:'12px',
               padding:'var(--space-md)',
               borderRadius:'var(--r-sm)',
-              background: step.status === 'done' ? 'var(--pale-green)' :
+              background: step.status === 'done' ? 'var(--teal-soft)' :
                           step.status === 'active' ? 'var(--pale-blue)' :
                           step.status === 'error' ? '#fff0ed' : 'var(--soft-stone)',
               textAlign:'left'
@@ -37,7 +37,7 @@
         </div>
 
         <div v-if="allDone" style="margin-top:var(--space-xl)">
-          <p style="font-size:16px;color:#1a7d36;margin-bottom:var(--space-lg)">🎉 安装完成！</p>
+          <p style="font-size:16px;color:var(--action-blue);margin-bottom:var(--space-lg)">🎉 安装完成！</p>
           <button class="cohere-btn-primary" @click="$router.push('/publish')">
             开始使用 →
           </button>
