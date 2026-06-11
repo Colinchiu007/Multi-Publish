@@ -1,0 +1,11 @@
+version: 1.0.6
+releaseDate: 2026-06-10T16:26:19.000Z
+files:
+  - url: Multi-Publish.Setup.1.0.4.exe
+    sha256: a7a7cae48b9c6fd72e6eb13cecb85eed898140a27a39ed37bcb8d752a61f99fd
+    size: 99109351
+  - url: Multi-Publish-1.0.4.AppImage
+    sha256: c6d1a9c692d8acc561d9b781495c9e4c76df8c5d53f2c5d85d6afe27454cd5a9
+    size: 133809073
+path: Multi-Publish.Setup.1.0.4.exe
+sha256: a7a7cae48b9c6fd72e6eb13cecb85eed898140a27a39ed37bcb8d752a61f99fd
