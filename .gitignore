@@ -15,3 +15,5 @@ package-lock.json
 electron-builder.yml
 build/*.exe
 latest.yml
+*.exe
+latest.yml
