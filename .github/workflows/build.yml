@@ -28,21 +28,28 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 'true'
 
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
+
+      - name: Install electron for builder
+        run: npm install electron@33.0.0 --no-save
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
         run: npm run build:win -w @multi-publish/desktop
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_SKIP_BINARY_DOWNLOAD: ''
 
       - name: Build Electron app (Linux)
         if: runner.os == 'Linux'
         run: npm run build -w @multi-publish/desktop -- --linux --x64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_SKIP_BINARY_DOWNLOAD: ''
 
       - name: Upload Windows artifact
         if: runner.os == 'Windows'
@@ -50,6 +57,7 @@ jobs:
         with:
           name: Multi-Publish-Windows
           path: dist-electron/Multi-Publish*.exe
+          retention-days: 7
 
       - name: Upload Linux artifact
         if: runner.os == 'Linux'
@@ -57,6 +65,7 @@ jobs:
         with:
           name: Multi-Publish-Linux
           path: dist-electron/Multi-Publish*.AppImage
+          retention-days: 7
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -84,10 +93,10 @@ jobs:
         run: |
           set -e
           cd release-assets
-                    WIN_FILE=$(ls *.exe | head -1)
-                    LINUX_FILE=$(ls *.AppImage | head -1)
-                    VERSION='${{ github.ref_name }}'
-                    VERSION=${VERSION#v}
+          WIN_FILE=$(ls *.exe | head -1)
+          LINUX_FILE=$(ls *.AppImage | head -1)
+          VERSION='${{ github.ref_name }}'
+          VERSION=${VERSION#v}
 
           WIN_SHA=$(sha256sum "$WIN_FILE" | cut -d' ' -f1)
           LINUX_SHA=$(sha256sum "$LINUX_FILE" | cut -d' ' -f1)
