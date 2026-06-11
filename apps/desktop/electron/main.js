@@ -1,13 +1,11 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
-const playwright = require('./playwright-manager')
+const { launchBrowser: playwrightLaunch, closeBrowser: playwrightClose, getPublisherClass } = require('@multi-publish/rpa-engine')
+const { TaskQueue, AggregatorBridge } = require('@multi-publish/shared-utils')
 const pythonBridge = require('./python-bridge')
-const { getPublisherClass } = require('./publishers/registry')
-const TaskQueue = require('./task-queue')
 const AccountManager = require('./publishers/account-manager')
-const history = require('./publish-history')
-const AggregatorBridge = require('./aggregator-bridge')
 const scheduler = require('./scheduler')
+const history = require('./publish-history')
 const autoUpdater = require('./auto-updater')
 const firstRun = require('./first-run')
 
@@ -219,8 +217,10 @@ ipcMain.handle('account:list', async () => {
 
 // ─── 应用生命周期 ─────────────────────
 
+const userDataDir = app.getPath('userData')
+
 app.whenReady().then(async () => {
-  try { await playwright.launchBrowser() }
+  try { await playwrightLaunch(path.join(userDataDir, 'browser-data')) }
   catch (e) { console.error('[App] Failed to launch Playwright:', e.message) }
   try { await pythonBridge.startPythonBackend() }
   catch (e) { console.error('[App] Failed to start Python backend:', e.message) }
@@ -230,7 +230,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', async () => {
-  await playwright.closeBrowser()
+  await playwrightClose()
   await pythonBridge.stopPythonBackend()
   if (process.platform !== 'darwin') app.quit()
 })

@@ -1,0 +1,21 @@
+{
+  "name": "@multi-publish/rpa-engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright RPA 发布器引擎 — 多平台内容发布",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --experimental-vm-modules $(which jest || echo 'npx jest')"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  },
+  "peerDependencies": {
+    "electron": ">=33.0.0"
+  },
+  "peerDependenciesMeta": {
+    "electron": {
+      "optional": true
+    }
+  }
+}
