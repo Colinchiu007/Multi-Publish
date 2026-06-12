@@ -12,6 +12,12 @@
       <router-link to="/publish" class="nav-item" :class="{ active: route.path === '/publish' }">
         <span class="icon">↗</span> 一键发布
       </router-link>
+      <router-link to="/collection" class="nav-item" :class="{ active: route.path === '/collection' }">
+        <span class="icon">📋</span> 采集
+      </router-link>
+      <router-link to="/monitor" class="nav-item" :class="{ active: route.path.startsWith('/monitor') }">
+        <span class="icon">🖥</span> 监控
+      </router-link>
       <router-link to="/dashboard" class="nav-item" :class="{ active: route.path === '/dashboard' }">
         <span class="icon">◇</span> 数据看板
       </router-link>

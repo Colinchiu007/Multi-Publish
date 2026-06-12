@@ -25,7 +25,17 @@ const routes = [
     path: '/dashboard',
     name: 'Dashboard',
     component: () => import('@/views/Dashboard.vue')
-  }
+  },
+  {
+    path: '/collection',
+    name: 'Collection',
+    component: () => import('@/views/Collection.vue')
+  },
+  {
+    path: '/monitor',
+    name: 'Monitor',
+    component: () => import('@/views/Monitor.vue')
+  },
 ]
 
 const router = createRouter({
