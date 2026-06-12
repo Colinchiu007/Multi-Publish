@@ -173,3 +173,14 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - 单元测试（56 个）：覆盖核心业务逻辑 ✅
 - 本地打包验证：覆盖 require 链、文件包含、语法 ✅（新增）
 - 后续补充：main.js 启动测试（`node -e "require('./electron/main.js')"`）
+
+## 新增模块（蚁小二逆向工程集成）
+
+- `electron/account-state-restorer.js` — 账号登录状态持久化（JSONL）
+- `electron/credential-store.js` — localStorage + accountInfo 加密存储（AES-256-GCM）
+- `electron/publish-monitor.js` — 发布后状态自动查询（QueryStateTaskScheduler）
+- `electron/video-uploader.js` — 视频分片上传
+- `electron/system-tray.js` — 系统托盘（最小化到托盘 + 托盘菜单）
+- `electron/content-aggregator-bridge.js` — 内容采集引擎桥接（对接 shared_modules）
+- `electron/api-platform-adapter.js` — API 模式发布适配器（微博/抖音/B站/知乎）
+- `rpa-engine/api-mode-publisher.js` — API+RPA 混合发布器（自动回退）

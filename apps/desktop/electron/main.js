@@ -14,6 +14,11 @@ const AuthViewManager = require('./auth-view-manager')
 // ─── AuthViewManager（内嵌浏览器登录）─────
 const authViewManager = new AuthViewManager()
 const PublishAlert = require('./publish-alert')
+const publishMonitor = require('./publish-monitor')
+const systemTray = require('./system-tray')
+
+// ─── 系统托盘初始化 ──────────────────────────
+systemTray.registerIpcHandlers()
 
 // ─── 任务队列 ─────────────────────────────
 const taskQueue = new TaskQueue({ maxConcurrent: 1 })
@@ -62,6 +67,30 @@ taskQueue.on('task:success', (task) => {
     status: 'success',
     result: task.result
   })
+  
+  // 启动发布后状态监控（基于蚁小二逆向工程）
+  try {
+    const postId = task.result?.postId || task.result?.id
+    if (postId) {
+      publishMonitor.createMonitorTask({
+        postId,
+        platform: task.platform,
+        cookies: task.article?.cookies || '',
+        callback: (monitorResult) => {
+          log.info('PublishMonitor', `Monitor result for ${task.platform}:${postId}: ${monitorResult.status}`)
+          history.addRecord({
+            platform: task.platform,
+            title: task.article?.title || '',
+            taskId: task.id,
+            status: monitorResult.status,
+            result: monitorResult,
+          })
+        },
+      })
+    }
+  } catch (e) {
+    log.warn('PublishMonitor', `Failed to start monitor: ${e.message}`)
+  }
 })
 
 taskQueue.on('task:failed', (task) => {
@@ -116,6 +145,15 @@ function createWindow () {
 
   // 设置 AuthViewManager
   authViewManager.setMainWindow(mainWindow)
+
+  // 初始化系统托盘
+  systemTray.init(mainWindow)
+
+  // 最小化到托盘
+  mainWindow.on('minimize', (event) => {
+    event.preventDefault()
+    mainWindow.hide()
+  })
 
   // 初始化自动更新
     autoUpdater.init(mainWindow, (status) => {

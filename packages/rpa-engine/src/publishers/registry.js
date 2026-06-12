@@ -1,6 +1,11 @@
 /**
  * 发布器注册中心 — 平台 → 类映射
  * 加新平台只需要在这里注册一行
+ * 
+ * 支持 API 模式自动回退 RPA 的平台：
+ * - weibo (微博)
+ * - zhihu (知乎)
+ * - douyin (抖音)
  */
 const WeChatMPPublisher = require('./wechat-mp-rpa')
 const ZhihuPublisher = require('./zhihu-rpa')
@@ -12,12 +17,13 @@ const KuaishouPublisher = require('./kuaishou-rpa')
 const ToutiaoPublisher = require('./toutiao-rpa')
 const YouTubePublisher = require('./youtube-rpa')
 const TikTokPublisher = require('./tiktok-rpa')
+const { getApiModePublisher } = require('./api-mode-publisher')
 
 const registry = {
   wechat_mp: WeChatMPPublisher,
-  zhihu: ZhihuPublisher,
-  weibo: WeiboPublisher,
-  douyin: DouyinPublisher,
+  zhihu: getApiModePublisher('zhihu'),
+  weibo: getApiModePublisher('weibo'),
+  douyin: getApiModePublisher('douyin'),
   xiaohongshu: XiaohongshuPublisher,
   tencent_video: TencentVideoPublisher,
   kuaishou: KuaishouPublisher,

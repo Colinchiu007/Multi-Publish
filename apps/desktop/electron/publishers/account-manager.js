@@ -6,6 +6,8 @@ const path = require('path')
 const log = require('../logger')
 const playwrightManager = require('../playwright-manager')
 const pythonBridge = require('../python-bridge')
+const accountStateRestorer = require('../account-state-restorer')
+const credentialStore = require('../credential-store')
 
 // 平台登录 URL 映射
 const PLATFORM_LOGIN_URLS = {
@@ -53,6 +55,26 @@ const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
  * 获取平台显示名称
  */
 function getPlatformName (platform) { return PLATFORM_NAMES[platform] || platform; }
+
+/**
+ * Smart wait: navigate to URL then wait for selector or timeout
+ * @param {import('playwright').Page} page
+ * @param {string|null} successSelector
+ * @param {number} fallbackMs
+ * @returns {Promise<void>}
+ */
+async function smartWait (page, successSelector, fallbackMs = 3000) {
+  if (successSelector) {
+    try {
+      await page.waitForSelector(successSelector, { timeout: fallbackMs })
+    } catch {
+      // Selector not found — just wait a bit
+      await new Promise(r => setTimeout(r, fallbackMs))
+    }
+  } else {
+    await new Promise(r => setTimeout(r, fallbackMs))
+  }
+}
 
 /**
  * 打开 Playwright 页面，让用户登录平台，捕获 Cookie
@@ -156,7 +178,25 @@ async function captureCookies (platform, timeout = 300000) {
       // 忽略名称获取失败
     }
 
-    return { cookies, name: accountName }
+    // Also extract localStorage and account info
+    let localStorageData = {}
+    let accountInfo = {}
+    try {
+      localStorageData = await page.evaluate(() => {
+        const result = {}
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          result[key] = localStorage.getItem(key)
+        }
+        return result
+      })
+    } catch { /* ignore localStorage errors */ }
+
+    try {
+      accountInfo = await extractAccountInfo(page)
+    } catch { /* ignore account info errors */ }
+
+    return { cookies, name: accountName, localStorage: localStorageData, accountInfo }
   } finally {
     // 关闭页面，但保留浏览器上下文（其他页面可能还在用）
     await page.close().catch(() => {})
@@ -169,7 +209,7 @@ async function captureCookies (platform, timeout = 300000) {
  * @returns {Promise<Object>} 保存后的账号信息
  */
 async function addAccount (platform) {
-  const { cookies, name } = await captureCookies(platform)
+  const { cookies, name, localStorage: localStorageData, accountInfo } = await captureCookies(platform)
 
   // 通过 Python API 保存
   const result = await pythonBridge.requestBackend('POST', '/api/accounts', {
@@ -180,6 +220,34 @@ async function addAccount (platform) {
 
   if (result.code !== 0) {
     throw new Error(result.message || '保存账号失败')
+  }
+
+  // 本地持久化：localStorage + accountInfo + accountStateRecord
+  const accountId = result.data?.accountId || result.data?.id || platform + '-' + Date.now()
+  try {
+    const platformLoginUrl = PLATFORM_LOGIN_URLS[platform] || loginUrl
+    accountStateRestorer.saveAccountRecord({
+      accountId,
+      platform,
+      platformAccountId: accountInfo?.platformAccountId || '',
+      cookies,
+      localStorage: localStorageData,
+      accountInfo,
+      timestamp: Date.now(),
+    })
+    log.info('AccountManager', `Saved account state record for ${platform}:${accountId}`)
+  } catch (e) {
+    log.warn('AccountManager', `Failed to save account state record: ${e.message}`)
+  }
+
+  try {
+    credentialStore.saveCredential(accountId, {
+      localStorage: localStorageData,
+      accountInfo,
+    }, process.env.ELECTRON_USER_DATA_DIR || '.')
+    log.info('AccountManager', `Saved credential store for account ${accountId}`)
+  } catch (e) {
+    log.warn('AccountManager', `Failed to save credential: ${e.message}`)
   }
 
   console.log(`[AccountManager] 账号添加成功: ${name} (${platform})`)
@@ -270,6 +338,140 @@ async function checkLoginStatus (platform, accountId) {
   }
 }
 
+/**
+ * 从页面提取账号信息（昵称、头像、平台ID）
+ * 基于蚁小二逆向工程
+ */
+async function extractAccountInfo (page) {
+  try {
+    return await page.evaluate(() => {
+      const info = {}
+      // 尝试多种常见的账号信息选择器
+      const selectors = [
+        '[class*="nickname"]',
+        '[class*="username"]',
+        '[class*="account"]',
+        '[class*="user-name"]',
+        '.user-info',
+        '.profile-name',
+        '#nickname',
+        '#username',
+      ]
+      for (const sel of selectors) {
+        const el = document.querySelector(sel)
+        if (el && el.textContent && el.textContent.trim()) {
+          info.nickName = el.textContent.trim()
+          break
+        }
+      }
+      // 头像
+      const avatarEl = document.querySelector('[class*="avatar"] img, .avatar img, [class*="avatar-img"]')
+      if (avatarEl) {
+        info.avatar = avatarEl.src || avatarEl.getAttribute('data-src') || ''
+      }
+      // 平台用户ID
+      info.platformAccountId = document.querySelector('[data-user-id], [data-account-id], [data-user]')?.getAttribute('data-user-id') || ''
+      return info
+    })
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * 恢复 Cookie 到 Electron session
+ * 基于蚁小二逆向工程 restoreCookies
+ */
+function restoreCookies (session, cookies, baseUrl) {
+  const promises = cookies.map(cookie => {
+    try {
+      const { name, value, domain, path, secure, httpOnly, expirationDate, sameSite } = cookie
+      return session.cookies.set({
+        url: baseUrl || `https://${domain || 'localhost'}`,
+        name: name || '',
+        value: value || '',
+        domain: domain || undefined,
+        path: path || '/',
+        secure: secure !== false,
+        httpOnly: httpOnly || false,
+        expirationDate: expirationDate || undefined,
+        sameSite: sameSite || 'Unspecified',
+      }).catch(() => {})
+    } catch {
+      return Promise.resolve()
+    }
+  })
+  return Promise.all(promises)
+}
+
+/**
+ * 恢复 localStorage 到 webContents
+ * 基于蚁小二逆向工程 restoreLocalStorage
+ */
+function restoreLocalStorage (webContents, localStorageObj) {
+  if (!localStorageObj || typeof localStorageObj !== 'object') return Promise.resolve()
+  
+  const items = Object.entries(localStorageObj)
+  if (items.length === 0) return Promise.resolve()
+  
+  const sets = items.map(([key, value]) => {
+    const escapedKey = String(key).replace(/'/g, "\\'")
+    const escapedValue = String(value).replace(/'/g, "\\'")
+    return `localStorage.setItem('${escapedKey}', '${escapedValue}')`
+  }).join('\n')
+  
+  return webContents.executeJavaScript(sets).catch(() => {})
+}
+
+/**
+ * 打开已保存的账号（恢复登录状态）
+ * 基于蚁小二逆向工程 openSavedAccount
+ * 
+ * @param {string} accountId - 账号ID
+ * @param {string} platform - 平台
+ * @param {object} opts - { mainWindow?, session? }
+ * @returns {Promise<{view?, isLoggedIn: boolean}>}
+ */
+async function openSavedAccount (accountId, platform, opts = {}) {
+  const { mainWindow, session } = opts
+  
+  // 从本地存储加载完整凭证
+  const credentialData = credentialStore.loadCredential(accountId, process.env.ELECTRON_USER_DATA_DIR || '.')
+  const accountRecord = accountStateRestorer.getAccountRecord(platform, accountId)
+  
+  if (!credentialData && !accountRecord) {
+    log.info('AccountManager', `No saved credentials for ${platform}:${accountId}`)
+    return { isLoggedIn: false }
+  }
+  
+  const localStorageData = credentialData?.localStorage || accountRecord?.localStorage || {}
+  const cookies = accountRecord?.cookies || []
+  const accountInfo = credentialData?.accountInfo || accountRecord?.accountInfo || {}
+  const baseUrl = PLATFORM_LOGIN_URLS[platform] || ''
+  
+  if (!session) {
+    log.info('AccountManager', `Restoring credentials for ${platform}:${accountId}`)
+    return { isLoggedIn: true, accountInfo, localStorageData }
+  }
+  
+  // 有 session 时恢复 cookies
+  try {
+    await restoreCookies(session, cookies, baseUrl)
+  } catch (e) {
+    log.warn('AccountManager', `restoreCookies failed: ${e.message}`)
+  }
+  
+  return { isLoggedIn: true, accountInfo, localStorageData }
+}
+
+/**
+ * 检查本地是否有账号凭证
+ */
+function checkLocalCredentials (platform, accountId) {
+  return credentialStore.hasCredential(accountId, process.env.ELECTRON_USER_DATA_DIR || '.') ||
+         !!accountStateRestorer.getAccountRecord(platform, accountId)
+}
+
 module.exports = {
   addAccount,
   deleteAccount,
@@ -277,4 +479,13 @@ module.exports = {
   checkLoginStatus,
   captureCookies,
   PLATFORM_LOGIN_URLS,
+  PLATFORM_NAMES,
+  PLATFORM_LOGIN_SUCCESS_SELECTORS,
+  extractAccountInfo,
+  restoreCookies,
+  restoreLocalStorage,
+  openSavedAccount,
+  checkLocalCredentials,
+  accountStateRestorer,
+  credentialStore,
 }
