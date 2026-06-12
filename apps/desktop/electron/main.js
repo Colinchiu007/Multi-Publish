@@ -16,6 +16,7 @@ const QrCodeLogin = require('./qrcode-login')
 const Store = require('./store')
 const OAuthManager = require('./oauth-manager')
 const BatchManager = require('./batch-manager')
+const UrlCollector = require('./url-collector')
 
 // ─── AuthViewManager（内嵌浏览器登录）─────
 const authViewManager = new AuthViewManager()
@@ -31,6 +32,8 @@ const store = new Store()
 const oauthManager = new OAuthManager(store)
 // ─── BatchManager（批量发布）────────────────
 const batchManager = new BatchManager(store)
+// ─── UrlCollector（URL 内容采集）────────────
+const urlCollector = new UrlCollector()
 
 const PublishAlert = require('./publish-alert')
 const publishMonitor = require('./publish-monitor')
@@ -184,6 +187,9 @@ function createWindow () {
 
             // 设置 BatchManager（批量发布）
             batchManager.registerIpcHandlers()
+
+            // 设置 UrlCollector（URL 采集）
+            urlCollector.registerIpcHandlers()
 
   // 初始化系统托盘
   systemTray.init(mainWindow)

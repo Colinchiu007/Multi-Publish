@@ -171,4 +171,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       onBatchProgress: (cb) => {
         const h = (_, d) => cb(d); ipcRenderer.on('batch:progress', h); return () => ipcRenderer.removeListener('batch:progress', h)
       },
+
+      // ─── URL 采集 API ──────────────────────────
+      urlCollect: (url, opts) => ipcRenderer.invoke('url-collect:fetch', { url, ...opts }),
     })

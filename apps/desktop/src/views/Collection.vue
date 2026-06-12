@@ -12,6 +12,33 @@
     </div>
 
     <div class="cohere-content">
+      <!-- URL 采集输入 -->
+      <div class="cohere-card" style="padding:var(--space-md);margin-bottom:var(--space-lg)">
+        <div style="display:flex;gap:var(--space-sm);align-items:center">
+          <span style="font-size:1.2rem">🔗</span>
+          <input
+            v-model="linkUrl"
+            placeholder="输入文章链接，自动采集标题、正文、封面..."
+            style="flex:1;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px"
+            @keyup.enter="collectUrl"
+          />
+          <button class="cohere-btn-primary" @click="collectUrl" :disabled="collecting">
+            {{ collecting ? '采集中...' : '采集' }}
+          </button>
+        </div>
+        <div v-if="collectedResult" style="margin-top:var(--space-sm);padding:var(--space-sm);background:var(--soft-stone);border-radius:6px">
+          <div style="font-weight:600;margin-bottom:4px">✅ {{ collectedResult.title || '无标题' }}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">
+            {{ collectedResult.description ? collectedResult.description.slice(0, 120) + '...' : '' }}
+            <span v-if="collectedResult.coverImage"> · 有封面图</span>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <button class="cohere-btn-primary" @click="createFromCollected">创建草稿</button>
+            <button class="cohere-btn-secondary" @click="collectedResult = null">取消</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 快捷操作 -->
       <div class="cohere-stat-grid" style="margin-bottom:var(--space-lg)">
         <div class="cohere-stat-card" style="cursor:pointer" @click="createDraft">
@@ -70,6 +97,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const drafts = ref([])
+const linkUrl = ref('')
+const collecting = ref(false)
+const collectedResult = ref(null)
 
 onMounted(async () => {
   await loadDrafts()
@@ -149,5 +179,52 @@ async function deleteDraft (d) {
     saveDrafts()
     ElMessage.success('已删除')
   } catch (e) { /* 取消 */ }
+}
+
+async function collectUrl () {
+  const api = window.electronAPI
+  if (!api || !api.urlCollect) {
+    ElMessage.warning('采集功能不可用')
+    return
+  }
+  if (!linkUrl.value || !linkUrl.value.trim()) {
+    ElMessage.warning('请输入链接')
+    return
+  }
+  collecting.value = true
+  collectedResult.value = null
+  try {
+    const result = await api.urlCollect(linkUrl.value.trim())
+    if (result.code !== 0) {
+      ElMessage.error(result.message || '采集失败')
+      return
+    }
+    collectedResult.value = result.data
+    ElMessage.success('内容采集成功')
+  } catch (e) {
+    ElMessage.error('采集请求失败: ' + e.message)
+  } finally {
+    collecting.value = false
+  }
+}
+
+function createFromCollected () {
+  if (!collectedResult.value) return
+  const data = collectedResult.value
+  const draft = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    title: data.title || '',
+    content: data.content || data.description || '',
+    coverImage: data.coverImage || '',
+    source: data.source || 'url',
+    sourceUrl: linkUrl.value,
+    created_at: new Date().toLocaleString('zh-CN'),
+  }
+  drafts.value.unshift(draft)
+  saveDrafts()
+  collectedResult.value = null
+  linkUrl.value = ''
+  ElMessage.success('草稿已创建')
+  router.push('/publish?draft=' + draft.id)
 }
 </script>

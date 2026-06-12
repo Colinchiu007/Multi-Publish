@@ -1,0 +1,185 @@
+/**
+ * URL Collector — URL 内容采集引擎
+ *
+ * 输入 URL → 提取文章标题/正文/封面/发布时间
+ *
+ * 采集方式：
+ *   1. HTTP 请求 + Cheerio 解析（轻量，首选）
+ *   2. Playwright 渲染（JS 渲染页面 fallback）
+ *
+ * 文件位置: apps/desktop/electron/url-collector.js
+ */
+const { ipcMain } = require('electron')
+const log = require('./logger')
+
+class UrlCollector {
+  constructor () {
+    this._axios = null
+  }
+
+  /**
+   * 懒加载 axios
+   */
+  _getAxios () {
+    if (!this._axios) {
+      this._axios = require('axios')
+    }
+    return this._axios
+  }
+
+  /**
+   * 从 URL 采集内容
+   * @param {string} url
+   * @param {object} [options]
+   * @param {boolean} [options.useBrowser=false] - 是否使用 Playwright 渲染
+   * @returns {Promise<object>} { title, content, coverImage, description, publishTime, source, success }
+   */
+  async collect (url, options = {}) {
+    if (!url || typeof url !== 'string') {
+      return { success: false, error: '无效的 URL' }
+    }
+
+    // 校验 URL 格式
+    try {
+      new URL(url)
+    } catch (e) {
+      return { success: false, error: 'URL 格式不正确' }
+    }
+
+    try {
+      if (options.useBrowser) {
+        return await this._collectViaBrowser(url)
+      }
+      return await this._collectViaHttp(url)
+    } catch (e) {
+      log.warn('UrlCollector', `HTTP采集失败，尝试浏览器渲染: ${e.message}`)
+      try {
+        return await this._collectViaBrowser(url)
+      } catch (e2) {
+        return { success: false, error: `采集失败: ${e2.message}` }
+      }
+    }
+  }
+
+  /**
+   * HTTP 方式采集（Cheerio 解析）
+   */
+  async _collectViaHttp (url) {
+    const axios = this._getAxios()
+
+    const response = await axios.get(url, {
+      timeout: 15000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+      },
+      responseType: 'text',
+      maxRedirects: 5,
+    })
+
+    const html = response.data
+    return this._parseHtml(html, url)
+  }
+
+  /**
+   * 浏览器方式采集（处理 JS 渲染页面）
+   */
+  async _collectViaBrowser (url) {
+    const playwrightManager = require('../../packages/rpa-engine/src/playwright-manager')
+    const page = await playwrightManager.newPage()
+    try {
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+
+      const result = await page.evaluate(() => {
+        const getMeta = (name) => {
+          const el = document.querySelector(`meta[property="${name}"], meta[name="${name}"]`)
+          return el ? el.getAttribute('content') : null
+        }
+
+        // 提取正文
+        const article = document.querySelector('article')
+        const main = document.querySelector('main')
+        const content = article || main || document.body
+        const textContent = content ? content.innerText.trim().slice(0, 50000) : ''
+
+        return {
+          title: getMeta('og:title') || document.title || '',
+          description: getMeta('og:description') || getMeta('description') || '',
+          coverImage: getMeta('og:image') || '',
+          publishTime: getMeta('article:published_time') || getMeta('pubdate') || '',
+          source: getMeta('og:site_name') || new URL(url).hostname,
+          textContent,
+        }
+      })
+
+      await page.close()
+      return { ...result, success: true, content: result.textContent }
+    } catch (e) {
+      try { await page.close() } catch (e2) { /* ignore */ }
+      throw e
+    }
+  }
+
+  /**
+   * 解析 HTML（Cheerio）
+   */
+  _parseHtml (html, url) {
+    const cheerio = require('cheerio')
+    const $ = cheerio.load(html)
+
+    const getMeta = (name) => {
+      const el = $(`meta[property="${name}"], meta[name="${name}"]`).first()
+      return el.attr('content') || ''
+    }
+
+    // 提取标题
+    const title = getMeta('og:title') || $('title').first().text() || ''
+
+    // 提取描述
+    const description = getMeta('og:description') || getMeta('description') || ''
+
+    // 提取封面图
+    const coverImage = getMeta('og:image') || getMeta('twitter:image') || ''
+
+    // 提取发布时间
+    const publishTime = getMeta('article:published_time') ||
+                        getMeta('pubdate') ||
+                        $('time[datetime]').first().attr('datetime') || ''
+
+    // 提取站点名
+    const source = getMeta('og:site_name') || new URL(url).hostname
+
+    // 提取正文
+    const article = $('article').first()
+    const main = $('main').first()
+    const contentEl = article.length ? article : (main.length ? main : $('body'))
+    const textContent = contentEl.text().trim().replace(/\s+/g, ' ').slice(0, 50000)
+
+    return {
+      success: true,
+      title,
+      description,
+      content: textContent,
+      coverImage,
+      publishTime,
+      source,
+      url,
+    }
+  }
+
+  /**
+   * 注册 IPC 处理器
+   */
+  registerIpcHandlers () {
+    ipcMain.handle('url-collect:fetch', async (event, { url, useBrowser }) => {
+      try {
+        const result = await this.collect(url, { useBrowser })
+        return { code: result.success ? 0 : -1, data: result }
+      } catch (e) {
+        return { code: -1, message: e.message }
+      }
+    })
+  }
+}
+
+module.exports = UrlCollector
