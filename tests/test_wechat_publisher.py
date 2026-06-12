@@ -3,7 +3,6 @@ TESTS for wechat_publisher
 
 运行：pytest test_wechat_publisher.py -v
 """
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,7 +21,15 @@ from wechat_publisher import (
     publish_to_wechat,
 )
 
+import pytest
 
+
+# pytest-asyncio 模式下 httpx.Client 初始化会 hang
+# 已知问题：mock 测试在 asyncio 环境有 event loop 冲突
+pytestmark = pytest.mark.filterwarnings("ignore")
+
+
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Mock helpers（不调用真实 API）
 # ---------------------------------------------------------------------------
@@ -51,25 +58,28 @@ class MockResponse:
         self._json = json_data
 
     def json(self):
-        # 模拟 token 接口
-        if "token" in self._url:
-            return {"access_token": "mock_token_123", "expires_in": 7200}
+        url = str(self._url)
+        # 注意：检查顺序很重要 — URL 包含 "access_token=xxx" 也会匹配 "token"
+        # 所以先匹配业务接口，最后再匹配 token 接口
         # 模拟 draft.add 接口
-        if "draft/add" in self._url:
+        if "draft/add" in url:
             return {"media_id": "mock_media_id_456"}
         # 模拟 freepublish/submit 接口
-        if "freepublish/submit" in self._url:
+        if "freepublish/submit" in url:
             return {"publish_id": "mock_publish_id_789", "msg": "success"}
         # 模拟 freepublish/get 接口
-        if "freepublish/get" in self._url:
+        if "freepublish/get" in url:
             return {
                 "publish_id": "mock_publish_id_789",
                 "publish_status": 0,
                 "article_url": "https://mp.weixin.qq.com/s/mock",
             }
         # 模拟上传图片接口
-        if "add_material" in self._url or "uploadimg" in self._url:
+        if "add_material" in url or "uploadimg" in url:
             return {"media_id": "mock_thumb_id", "url": "https://example.com/mock.jpg"}
+        # 模拟 token 接口（放在最后，避免 access_token 参数误匹配）
+        if "token" in url and "access_token" not in url:
+            return {"access_token": "mock_token_123", "expires_in": 7200}
         # 默认成功
         return {"errcode": 0, "errmsg": "ok"}
 
@@ -158,16 +168,13 @@ def test_publish_flow_mock(monkeypatch):
     """完整发布流程（mock 网络请求）"""
     pub = WechatPublisher(appid="test", secret="test")
     pub._client = MockClient()
-    pub.TOKEN_CACHE["test"] = ("mock_token", time.time() + 7000)
+    pub.TOKEN_CACHE["test"] = ("mock_token", time.time() + 7200)
 
     art = Article(
         title="Mock 标题",
         content="<p>Mock 正文</p>",
         thumb_media_id="mock_thumb",
     )
-
-    # monkeypatch _get_access_token
-    monkeypatch.setattr(pub, "_get_access_token", lambda: "mock_token")
 
     result = pub.publish(art, wait_publish=False)
     assert result.success is True
@@ -186,7 +193,7 @@ def test_upload_image_not_found():
 def test_get_publish_status_mock(monkeypatch):
     pub = WechatPublisher(appid="test", secret="test")
     pub._client = MockClient()
-    monkeypatch.setattr(pub, "_get_access_token", lambda: "mock_token")
+    pub.TOKEN_CACHE["test"] = ("mock_token", time.time() + 7200)
 
     status = pub.get_publish_status("mock_publish_id_789")
     assert status["publish_status"] == 0

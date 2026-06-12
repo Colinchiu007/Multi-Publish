@@ -155,11 +155,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { publishBatch, onProgress } from '@/api/publisher'
 import ArticleEditor from '@/components/ArticleEditor.vue'
+
+const route = useRoute()
 
 const platforms = [
   { id: 'wechat_mp', label: '微信公众号', tag: null, tagClass: '' },
@@ -290,5 +293,24 @@ async function handleBatchPublish () {
 // 批量模式切换时初始化
 watch(batchMode, (val) => {
   if (val && articles.value.length === 0) addArticle()
+})
+
+// 草稿导入 — 从 Collection 页跳转时加载
+onMounted(async () => {
+  const draftId = route.query.draft
+  if (!draftId) return
+
+  const api = window.electronAPI
+  if (!api || !api.storeGetSetting) return
+
+  const raw = await api.storeGetSetting('drafts', '[]')
+  let drafts
+  try { drafts = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { drafts = [] }
+  const draft = drafts.find(d => d.id === draftId)
+  if (!draft) return
+
+  article.title = draft.title || ''
+  article.content = draft.content || ''
+  ElMessage.success('已加载草稿')
 })
 </script>
