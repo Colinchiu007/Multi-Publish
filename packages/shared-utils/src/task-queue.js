@@ -39,7 +39,7 @@ class TaskQueue extends EventEmitter {
       article: task.article,
       retry: task.retry ?? this.defaultRetry,
       timeout: task.timeout ?? this.defaultTimeout,
-      status: 'pending',    // pending | running | success | failed
+      status: 'pending',    // pending | running | success | failed | cancelled
       retriesLeft: task.retry ?? this.defaultRetry,
       createdAt: new Date().toISOString(),
       startedAt: null,
@@ -50,9 +50,118 @@ class TaskQueue extends EventEmitter {
 
     this._queue.push(entry)
     this.emit('task:added', entry)
+    this._saveState()
     this._processNext()
 
     return taskId
+  }
+
+  /**
+   * 取消等待中的任务
+   * @param {string} taskId
+   * @returns {boolean} 是否成功取消
+   */
+  cancel (taskId) {
+    const idx = this._queue.findIndex(t => t.id === taskId)
+    if (idx === -1) {
+      // 可能已经在执行中 — 标记为 cancelled，_executeTask 会检查
+      const running = this._running.get(taskId)
+      if (running) {
+        running.status = 'cancelled'
+        running.completedAt = new Date().toISOString()
+        this.emit('task:cancelled', running)
+        this._saveState()
+        return true
+      }
+      return false
+    }
+    const task = this._queue.splice(idx, 1)[0]
+    task.status = 'cancelled'
+    task.completedAt = new Date().toISOString()
+    this._history.push(task)
+    this.emit('task:cancelled', task)
+    this._saveState()
+    return true
+  }
+
+  /**
+   * 获取所有等待中的任务（用于持久化）
+   */
+  getPendingTasks () {
+    return this._queue.map(t => ({
+      id: t.id,
+      platform: t.platform,
+      article: t.article,
+      retry: t.retry,
+      timeout: t.timeout,
+      retriesLeft: t.retriesLeft,
+      createdAt: t.createdAt
+    }))
+  }
+
+  /**
+   * 序列化队列状态（用于崩溃恢复）
+   */
+  serialize () {
+    return JSON.stringify({
+      queue: this.getPendingTasks(),
+      running: Array.from(this._running.values()).map(t => ({
+        id: t.id,
+        platform: t.platform,
+        article: t.article,
+        retry: t.retry,
+        timeout: t.timeout,
+        retriesLeft: t.retriesLeft,
+        createdAt: t.createdAt,
+        startedAt: t.startedAt
+      }))
+    })
+  }
+
+  /**
+   * 从持久化状态恢复队列
+   * @param {string} jsonStr
+   * @returns {number} 恢复的任务数
+   */
+  deserialize (jsonStr) {
+    if (!jsonStr) return 0
+    try {
+      const state = JSON.parse(jsonStr)
+      let count = 0
+      // 恢复等待中的任务
+      if (state.queue) {
+        for (const t of state.queue) {
+          this._queue.push({
+            ...t,
+            status: 'pending',
+            startedAt: null,
+            completedAt: null,
+            result: null,
+            error: null
+          })
+          count++
+        }
+      }
+      // 恢复运行中被中断的任务 — 重新加入队列尾部重试
+      if (state.running) {
+        for (const t of state.running) {
+          this._queue.push({
+            ...t,
+            status: 'pending',
+            retriesLeft: Math.max(t.retriesLeft, 1),
+            startedAt: null,
+            completedAt: null,
+            result: null,
+            error: '进程中断恢复'
+          })
+          count++
+        }
+      }
+      if (count > 0) this._processNext()
+      return count
+    } catch (e) {
+      return 0
+    }
   }
 
   /**
@@ -111,6 +220,23 @@ class TaskQueue extends EventEmitter {
 
   // ─── 内部方法 ─────────────────────────────
 
+  /**
+   * 持久化当前队列状态（由外部注册存储回调）
+   */
+  _saveState () {
+    if (this._stateSaver) {
+      try { this._stateSaver(this.serialize()) } catch (e) { /* ignore */ }
+    }
+  }
+
+  /**
+   * 注册状态持久化回调
+   * @param {Function} fn - (jsonStr) => void
+   */
+  setStateSaver (fn) {
+    this._stateSaver = fn
+  }
+
   _processNext () {
     if (this._paused) return
     if (this._running.size >= this.maxConcurrent) return
@@ -125,6 +251,7 @@ class TaskQueue extends EventEmitter {
     task.startedAt = new Date().toISOString()
     this._running.set(task.id, task)
     this.emit('task:start', task)
+    this._saveState()
 
     // 创建超时 Promise
     const timeoutPromise = new Promise((_, reject) => {
@@ -142,6 +269,7 @@ class TaskQueue extends EventEmitter {
       task.result = result
       task.completedAt = new Date().toISOString()
       this.emit('task:success', task)
+      this._saveState()
     } catch (e) {
       task.error = e.message
 
@@ -156,6 +284,7 @@ class TaskQueue extends EventEmitter {
         task.completedAt = new Date().toISOString()
         this.emit('task:failed', task)
       }
+      this._saveState()
     } finally {
       this._running.delete(task.id)
       // 已完成的任务移入历史

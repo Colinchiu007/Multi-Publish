@@ -40,7 +40,7 @@ const systemTray = require('./system-tray')
 systemTray.registerIpcHandlers()
 
 // ─── 任务队列 ─────────────────────────────
-const taskQueue = new TaskQueue({ maxConcurrent: 1 })
+const taskQueue = new TaskQueue({ maxConcurrent: 3 })
 scheduler.setTaskQueue(taskQueue)
 BatchManager.setTaskQueue(taskQueue)
 
@@ -229,7 +229,10 @@ ipcMain.handle('publish:batch', async (event, { platforms, article }) => {
 // 队列 IPC
 ipcMain.handle('queue:status', async () => taskQueue.getStatus())
 ipcMain.handle('queue:history', async () => ({ code: 0, data: taskQueue.getHistory() }))
-
+ipcMain.handle('queue:cancel', async (event, taskId) => {
+  const ok = taskQueue.cancel(taskId)
+  return { code: ok ? 0 : -1, message: ok ? '任务已取消' : '任务不存在或已完成' }
+})
 // 发布历史 IPC
 ipcMain.handle('history:list', async (event, opts) => {
   try {
@@ -370,6 +373,11 @@ app.whenReady().then(async () => {
   // 初始化 SQLite 数据库
   store.init()
 
+  // 任务队列持久化 — 状态变更自动写入 Store
+  taskQueue.setStateSaver((jsonStr) => {
+    store.setSetting('task_queue_state', jsonStr)
+  })
+
   // 注册 Store IPC handlers
   ipcMain.handle('store:add-account', (_, account) => {
     const ok = store.addAccount(account)
@@ -436,6 +444,18 @@ app.whenReady().then(async () => {
 
   const restored = scheduler.restore()
   if (restored > 0) console.log(`[Scheduler] Restored ${restored} pending tasks`)
+
+  // 任务队列崩溃恢复
+  const savedState = store.getSetting('task_queue_state')
+  if (savedState) {
+    const recovered = taskQueue.deserialize(savedState)
+    if (recovered > 0) {
+      log.info('App', `Recovered ${recovered} tasks from queue state`)
+      // 恢复后清掉，避免下次重复恢复
+      store.setSetting('task_queue_state', null)
+    }
+  }
+
   createWindow()
 })
 

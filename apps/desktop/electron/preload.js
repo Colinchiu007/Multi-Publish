@@ -9,9 +9,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   publishBatch: (platforms, article) => ipcRenderer.invoke('publish:batch', { platforms, article }),
   listAccounts: () => ipcRenderer.invoke('accounts:list'),
 
-  // 队列 API
-  queueStatus: () => ipcRenderer.invoke('queue:status'),
-  queueHistory: () => ipcRenderer.invoke('queue:history'),
+  // ─── 队列 API ───────────────────────────────
+  getQueueStatus: () => ipcRenderer.invoke('queue:status'),
+  getQueueHistory: () => ipcRenderer.invoke('queue:history'),
+  cancelTask: (taskId) => ipcRenderer.invoke('queue:cancel', taskId),
 
   // 发布历史 API
   historyList: (opts) => ipcRenderer.invoke('history:list', opts),
