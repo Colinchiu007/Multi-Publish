@@ -17,6 +17,7 @@ const KuaishouPublisher = require('./kuaishou-rpa')
 const ToutiaoPublisher = require('./toutiao-rpa')
 const YouTubePublisher = require('./youtube-rpa')
 const TikTokPublisher = require('./tiktok-rpa')
+const BiliBiliPublisher = require('./bilibili-rpa')
 const { getApiModePublisher } = require('./api-mode-publisher')
 
 const registry = {
@@ -30,6 +31,7 @@ const registry = {
   toutiao: ToutiaoPublisher,
   youtube: YouTubePublisher,
   tiktok: TikTokPublisher,
+  bilibili: BiliBiliPublisher,
 }
 
 /**
