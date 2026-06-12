@@ -49,7 +49,10 @@
     ],
     "win": {
       "target": "nsis",
+      "icon": null,
       "sign": false,
+      "signAndEditExecutable": false,
+      "signDlls": false,
       "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
@@ -58,11 +61,6 @@
       "deleteAppDataOnUninstall": true,
       "artifactName": "${productName}.Setup.${version}.${ext}"
     },
-    "publish": {
-      "provider": "github",
-      "owner": "Colinchiu007",
-      "repo": "Multi-Publish",
-      "releaseType": "release"
-    }
+    "publish": null
   }
 }
