@@ -10,9 +10,16 @@ const history = require('./publish-history')
 const autoUpdater = require('./auto-updater')
 const firstRun = require('./first-run')
 const AuthViewManager = require('./auth-view-manager')
+const WebviewManager = require('./webview-manager')
+const CallbackServer = require('./callback-server')
 
 // ─── AuthViewManager（内嵌浏览器登录）─────
 const authViewManager = new AuthViewManager()
+// ─── WebviewManager（分屏监控）────────────
+const webviewManager = new WebviewManager()
+// ─── CallbackServer（实时回调）─────────────
+const callbackServer = new CallbackServer()
+
 const PublishAlert = require('./publish-alert')
 const publishMonitor = require('./publish-monitor')
 const systemTray = require('./system-tray')
@@ -141,10 +148,17 @@ function createWindow () {
 
   mainWindow.once('ready-to-show', () => { mainWindow.show() })
   mainWindow.on('closed', () => { mainWindow = null })
-  mainWindow.on('resize', () => { authViewManager._onWindowResize() })
+  mainWindow.on('resize', () => {
+    authViewManager._onWindowResize()
+    webviewManager.resize()
+  })
 
   // 设置 AuthViewManager
   authViewManager.setMainWindow(mainWindow)
+
+  // 设置 WebviewManager（分屏监控）
+  webviewManager.setMainWindow(mainWindow)
+  webviewManager.registerIpcHandlers()
 
   // 初始化系统托盘
   systemTray.init(mainWindow)
@@ -327,6 +341,19 @@ app.whenReady().then(async () => {
   catch (e) { log.error('App', 'Failed to launch Playwright:', e.message) }
   try { await pythonBridge.startPythonBackend() }
   catch (e) { log.error('App', 'Failed to start Python backend:', e.message) }
+
+  // 启动回调服务器（接收外部回调并转发到渲染进程）
+  try {
+    await callbackServer.start((data) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('callback:received', data)
+      }
+    })
+  } catch (e) {
+    log.warn('App', 'Callback server failed to start (port may be in use):', e.message)
+  }
+
   const restored = scheduler.restore()
   if (restored > 0) console.log(`[Scheduler] Restored ${restored} pending tasks`)
   createWindow()
@@ -335,6 +362,8 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', async () => {
   try { await playwrightClose() } catch (e) { log.error('App', 'Error closing Playwright:', e.message) }
   try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
+  webviewManager.closeAll()
+  callbackServer.stop()
   if (process.platform !== 'darwin') app.quit()
 })
 

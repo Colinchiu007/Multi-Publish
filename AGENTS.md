@@ -184,3 +184,6 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - `electron/content-aggregator-bridge.js` — 内容采集引擎桥接（对接 shared_modules）
 - `electron/api-platform-adapter.js` — API 模式发布适配器（微博/抖音/B站/知乎）
 - `rpa-engine/api-mode-publisher.js` — API+RPA 混合发布器（自动回退）
+- `electron/webview-manager.js` — **分屏监控**（P0，WebContentsView 多屏布局，支持2/3/4/6屏）
+- `electron/callback-server.js` — **实时回调服务器**（P1，HTTP POST回调 + 59s心跳，端口16521）
+- `electron/monitor-preload.js` — 分屏视图预加载脚本

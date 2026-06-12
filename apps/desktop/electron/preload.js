@@ -82,5 +82,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_, data) => callback(data)
     ipcRenderer.on('publish:progress', handler)
     return () => ipcRenderer.removeListener('publish:progress', handler)
+  },
+
+  // ─── 分屏监控 API ─────────────────────────
+  webviewSetLayout: (count) => ipcRenderer.invoke('webview:set-layout', count),
+  webviewOpenTab: (opts) => ipcRenderer.invoke('webview:open-tab', opts),
+  webviewCloseTab: (tabId) => ipcRenderer.invoke('webview:close-tab', tabId),
+  webviewCloseAll: () => ipcRenderer.invoke('webview:close-all'),
+  webviewListTabs: () => ipcRenderer.invoke('webview:list-tabs'),
+  onWebviewLayoutChanged: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('webview:layout-changed', h); return () => ipcRenderer.removeListener('webview:layout-changed', h)
+  },
+  onWebviewTabOpened: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('webview:tab-opened', h); return () => ipcRenderer.removeListener('webview:tab-opened', h)
+  },
+  onWebviewTabClosed: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('webview:tab-closed', h); return () => ipcRenderer.removeListener('webview:tab-closed', h)
+  },
+  onWebviewNav: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('webview:navigated', h); return () => ipcRenderer.removeListener('webview:navigated', h)
+  },
+  onWebviewAllClosed: (cb) => {
+    const h = () => cb(); ipcRenderer.on('webview:all-closed', h); return () => ipcRenderer.removeListener('webview:all-closed', h)
+  },
+
+  // ─── 回调服务器 API ─────────────────────
+  onCallbackReceived: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('callback:received', h); return () => ipcRenderer.removeListener('callback:received', h)
   }
 })
