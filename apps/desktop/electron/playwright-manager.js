@@ -90,7 +90,7 @@ async function smartWait(page, selector, timeout) {
   await page.waitForTimeout(delay);
 }
 
-module.exports = {,
+module.exports = {
   smartWait,
   getContext,
   newPage,
