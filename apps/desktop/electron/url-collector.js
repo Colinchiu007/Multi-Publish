@@ -85,7 +85,7 @@ class UrlCollector {
    * 浏览器方式采集（处理 JS 渲染页面）
    */
   async _collectViaBrowser (url) {
-    const playwrightManager = require('../../packages/rpa-engine/src/playwright-manager')
+    const playwrightManager = require('../../../packages/rpa-engine/src/playwright-manager')
     const page = await playwrightManager.newPage()
     try {
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })

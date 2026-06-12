@@ -177,9 +177,13 @@ class BatchManager {
       }
     })
 
-    ipcMain.handle('batch:execute', (_, batchId) => {
-      this.executeBatch(batchId)
-      return { code: 0 }
+    ipcMain.handle('batch:execute', async (_, batchId) => {
+      try {
+        await this.executeBatch(batchId)
+        return { code: 0 }
+      } catch (e) {
+        return { code: -1, message: e.message }
+      }
     })
 
     ipcMain.handle('batch:schedule', (_, batchId) => {

@@ -52,7 +52,7 @@ class BiliBiliPublisher extends BaseRPAPublisher {
   _extractCsrf (cookies) {
     if (!cookies) return null
     const biliJct = cookies.find(c => c.name === 'bili_jct')
-    return biliJct ? biliJct.value : null
+    return biliJct ? biliJct.value.slice(-16) : null
   }
 
   /**
