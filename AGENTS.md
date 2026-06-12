@@ -191,3 +191,4 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - `electron/auth-qrcode-preload.js` — 扫码登录视图预加载脚本
 - `electron/store.js` — **统一 SQLite 持久化**（P2，better-sqlite3，替代零散JSONL）
 - `electron/oauth-manager.js` — **OAuth 2.0 认证**（P2，YouTube/TikTok/微博/抖音 API Token 授权）
+- `electron/batch-manager.js` — **批量发布管理器**（批量编辑/排期/复制，支持多篇文章独立选平台+定时）

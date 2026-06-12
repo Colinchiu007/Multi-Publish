@@ -107,6 +107,17 @@ class Store {
       CREATE INDEX IF NOT EXISTS idx_history_created ON publish_history(created_at);
       CREATE INDEX IF NOT EXISTS idx_scheduled_time ON scheduled_tasks(publish_time);
       CREATE INDEX IF NOT EXISTS idx_callback_created ON callback_logs(created_at);
+
+      CREATE TABLE IF NOT EXISTS batch_jobs (
+        id            TEXT PRIMARY KEY,
+        name          TEXT,
+        articles      TEXT DEFAULT '[]',
+        total         INTEGER DEFAULT 0,
+        completed     INTEGER DEFAULT 0,
+        failed        INTEGER DEFAULT 0,
+        status        TEXT DEFAULT 'pending',
+        created_at    TEXT DEFAULT (datetime('now'))
+      );
     `)
   }
 
@@ -307,6 +318,57 @@ class Store {
   }
 
   // ─── 工具 ────────────────────────────────────
+
+  // ─── 批量任务 ────────────────────────────────
+
+  addBatchJob (job) {
+    if (!this._ready) return false
+    this.db.prepare(`
+      INSERT OR REPLACE INTO batch_jobs (id, name, articles, total, completed, failed, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(job.id, job.name, JSON.stringify(job.articles || []), job.total, job.completed || 0, job.failed || 0, job.status || 'pending')
+    return true
+  }
+
+  getBatchJob (id) {
+    if (!this._ready) return null
+    const row = this.db.prepare('SELECT * FROM batch_jobs WHERE id = ?').get(id)
+    if (!row) return null
+    try { row.articles = JSON.parse(row.articles) } catch (e) { row.articles = [] }
+    return row
+  }
+
+  listBatchJobs () {
+    if (!this._ready) return []
+    return this.db.prepare('SELECT * FROM batch_jobs ORDER BY created_at DESC').all().map(r => {
+      try { r.articles = JSON.parse(r.articles) } catch (e) { r.articles = [] }
+      return r
+    })
+  }
+
+  updateBatchJob (id, fields) {
+    if (!this._ready) return false
+    const sets = []
+    const vals = []
+    for (const [k, v] of Object.entries(fields)) {
+      if (k === 'articles') {
+        sets.push('articles = ?')
+        vals.push(JSON.stringify(v))
+      } else {
+        sets.push(`${k} = ?`)
+        vals.push(v)
+      }
+    }
+    vals.push(id)
+    this.db.prepare(`UPDATE batch_jobs SET ${sets.join(', ')} WHERE id = ?`).run(...vals)
+    return true
+  }
+
+  deleteBatchJob (id) {
+    if (!this._ready) return false
+    this.db.prepare('DELETE FROM batch_jobs WHERE id = ?').run(id)
+    return true
+  }
 
   _safeJson (str) {
     try { return JSON.parse(str) } catch (e) { return str }

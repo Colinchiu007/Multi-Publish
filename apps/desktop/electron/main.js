@@ -15,6 +15,7 @@ const CallbackServer = require('./callback-server')
 const QrCodeLogin = require('./qrcode-login')
 const Store = require('./store')
 const OAuthManager = require('./oauth-manager')
+const BatchManager = require('./batch-manager')
 
 // ─── AuthViewManager（内嵌浏览器登录）─────
 const authViewManager = new AuthViewManager()
@@ -28,6 +29,8 @@ const qrCodeLogin = new QrCodeLogin()
 const store = new Store()
 // ─── OAuthManager（OAuth 2.0 认证）─────────
 const oauthManager = new OAuthManager(store)
+// ─── BatchManager（批量发布）────────────────
+const batchManager = new BatchManager(store)
 
 const PublishAlert = require('./publish-alert')
 const publishMonitor = require('./publish-monitor')
@@ -39,6 +42,7 @@ systemTray.registerIpcHandlers()
 // ─── 任务队列 ─────────────────────────────
 const taskQueue = new TaskQueue({ maxConcurrent: 1 })
 scheduler.setTaskQueue(taskQueue)
+BatchManager.setTaskQueue(taskQueue)
 
 // ─── Aggregator Bridge ────────────────────
 const aggregatorBridge = new AggregatorBridge(taskQueue)
@@ -175,8 +179,11 @@ function createWindow () {
         qrCodeLogin.registerIpcHandlers()
 
         // 设置 OAuthManager（OAuth 认证）
-        oauthManager.setMainWindow(mainWindow)
-        oauthManager.registerIpcHandlers()
+            oauthManager.setMainWindow(mainWindow)
+            oauthManager.registerIpcHandlers()
+
+            // 设置 BatchManager（批量发布）
+            batchManager.registerIpcHandlers()
 
   // 初始化系统托盘
   systemTray.init(mainWindow)

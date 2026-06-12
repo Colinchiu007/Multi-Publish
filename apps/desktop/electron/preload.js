@@ -156,6 +156,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const h = (_, d) => cb(d); ipcRenderer.on('oauth:failed', h); return () => ipcRenderer.removeListener('oauth:failed', h)
     },
     onOAuthClosed: (cb) => {
-      const h = () => cb(); ipcRenderer.on('oauth:closed', h); return () => ipcRenderer.removeListener('oauth:closed', h)
-    },
-  })
+        const h = () => cb(); ipcRenderer.on('oauth:closed', h); return () => ipcRenderer.removeListener('oauth:closed', h)
+      },
+
+      // ─── 批量发布 API ────────────────────────────
+      batchCreate: (batch) => ipcRenderer.invoke('batch:create', batch),
+      batchExecute: (id) => ipcRenderer.invoke('batch:execute', id),
+      batchSchedule: (id) => ipcRenderer.invoke('batch:schedule', id),
+      batchList: () => ipcRenderer.invoke('batch:list'),
+      batchGet: (id) => ipcRenderer.invoke('batch:get', id),
+      batchDelete: (id) => ipcRenderer.invoke('batch:delete', id),
+      batchDuplicateArticle: (article) => ipcRenderer.invoke('batch:duplicate-article', article),
+      onBatchProgress: (cb) => {
+        const h = (_, d) => cb(d); ipcRenderer.on('batch:progress', h); return () => ipcRenderer.removeListener('batch:progress', h)
+      },
+    })

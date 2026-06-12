@@ -1,163 +1,190 @@
 <template>
   <div>
-    <!-- 页面头部 -->
     <div class="cohere-page-header">
-      <div>
-        <div class="page-title">一键发布</div>
-        <div class="page-subtitle">编辑内容并发布到多个平台</div>
+      <div style="display:flex;align-items:center;gap:var(--space-md);width:100%">
+        <div style="flex:1">
+          <div class="page-title">一键发布</div>
+          <div class="page-subtitle">{{ batchMode ? '批量编辑多篇文章，各平台独立发布' : '编辑内容并发布到多个平台' }}</div>
+        </div>
+        <label class="cohere-toggle" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)">
+          <input type="checkbox" v-model="batchMode" style="accent-color:var(--coral)" />
+          <span>批量模式</span>
+        </label>
       </div>
     </div>
 
-    <div class="cohere-content" style="display:flex;gap:var(--space-xl)">
-      <!-- 左侧：文章编辑 -->
-      <div style="flex:2;min-width:0">
-        <div class="cohere-card" style="cursor:default">
+    <!-- 批量模式：文章列表 -->
+    <template v-if="batchMode">
+      <div class="cohere-content" style="display:flex;flex-direction:column;gap:var(--space-md)">
+        <div v-for="(a, idx) in articles" :key="a._key" class="cohere-card" style="cursor:default;position:relative">
+          <!-- 文章编号 + 删除 -->
+          <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-md)">
+            <span class="cohere-tag cohere-tag-info">#{{ idx + 1 }}</span>
+            <span class="cohere-tag" v-if="a.publishTime" class="cohere-tag cohere-tag-warning">⏰ 定时</span>
+            <div style="flex:1"></div>
+            <button class="cohere-btn-ghost" @click="duplicateArticle(idx)" title="复制">📋</button>
+            <button class="cohere-btn-ghost" @click="removeArticle(idx)" v-if="articles.length > 1" title="删除" style="color:var(--coral)">✕</button>
+          </div>
+
+          <!-- 文章编辑 -->
           <div class="cohere-form">
             <div class="cohere-form-item">
               <label class="cohere-form-label">标题</label>
-              <input
-                class="cohere-input"
-                v-model="article.title"
-                placeholder="请输入文章标题"
-                maxlength="64"
-              />
-            </div>
-            <div class="cohere-form-item">
-              <label class="cohere-form-label">作者</label>
-              <input
-                class="cohere-input"
-                v-model="article.author"
-                placeholder="作者名称（选填）"
-                maxlength="20"
-                style="max-width:300px"
-              />
+              <input class="cohere-input" v-model="a.title" placeholder="请输入文章标题" maxlength="64" />
             </div>
             <div class="cohere-form-item">
               <label class="cohere-form-label">正文</label>
-              <ArticleEditor v-model="article.content" />
-            </div>
-            <!-- 视频上传 -->
-            <div class="cohere-form-item" v-if="selectedPlatforms.some(p => ['douyin', 'tencent_video', 'kuaishou'].includes(p))">
-              <label class="cohere-form-label">视频文件</label>
-              <el-upload
-                drag
-                :auto-upload="false"
-                :limit="1"
-                accept="video/*"
-                :on-change="(file) => { article.video_path = (file.raw && (file.raw.path || file.raw.name)) || file.name || '' }"
-              >
-                <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-                <div class="el-upload__text">拖拽视频文件到这里，或 <em>点击选择</em></div>
-                <template #tip>
-                  <div class="el-upload__tip">支持 mp4/mov/avi，最大 500MB</div>
-                </template>
-              </el-upload>
+              <textarea class="cohere-input" v-model="a.content" placeholder="请输入正文" rows="5" style="resize:vertical;font-family:inherit;line-height:1.6"></textarea>
             </div>
             <div class="cohere-form-item">
-              <label class="cohere-form-label">封面图 URL</label>
-              <input
-                class="cohere-input"
-                v-model="article.cover_url"
-                placeholder="封面图片链接（选填）"
-              />
+              <label class="cohere-form-label">发布目标</label>
+              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                <label v-for="p in platforms" :key="p.id" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px">
+                  <input type="checkbox" :value="p.id" v-model="a.platforms" style="accent-color:var(--coral)" />
+                  {{ p.label }}
+                </label>
+              </div>
+            </div>
+            <div class="cohere-form-item">
+              <label class="cohere-form-label">定时发布</label>
+              <input class="cohere-input" type="datetime-local" v-model="a.publishTime" style="max-width:260px" />
+              <span style="font-size:12px;color:var(--muted);margin-left:8px">留空 = 立即发布</span>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- 右侧：发布目标 + 操作 -->
-      <div style="flex:1;min-width:280px">
-        <div class="cohere-card" style="cursor:default">
-          <div class="cohere-form" style="gap:var(--space-md)">
-            <div class="cohere-form-label">发布目标</div>
-            <el-checkbox-group v-model="selectedPlatforms">
-              <div v-for="p in platforms" :key="p.id" style="margin-bottom:10px">
-                <el-checkbox :label="p.id" :disabled="p.disabled">
-                  <span style="margin-left:6px">{{ p.label }}</span>
-                  <span v-if="p.tag" class="cohere-tag" :class="p.tagClass" style="margin-left:8px">{{ p.tag }}</span>
-                </el-checkbox>
-              </div>
-            </el-checkbox-group>
-
-            <div class="cohere-divider"></div>
-
-            <button
-              class="cohere-btn-primary"
-              style="width:100%;justify-content:center"
-              :disabled="selectedPlatforms.length === 0 || publishing"
-              @click="handlePublish"
-            >
-              {{ publishing ? '发布中...' : '🚀 一键发布' }}
-            </button>
-          </div>
+        <!-- 操作 -->
+        <div style="display:flex;gap:var(--space-sm)">
+          <button class="cohere-btn-secondary" @click="addArticle">＋ 添加文章</button>
+          <div style="flex:1"></div>
+          <button class="cohere-btn-primary" @click="handleBatchPublish" :disabled="publishing || articles.length === 0">
+            {{ publishing ? '发布中...' : `🚀 批量发布 (${totalPlatformTasks} 个任务)` }}
+          </button>
         </div>
 
         <!-- 进度 -->
-        <div v-if="progress.length > 0" class="cohere-card" style="margin-top:16px;cursor:default">
+        <div v-if="batchProgress.length > 0" class="cohere-card" style="cursor:default">
+          <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-sm)">批量发布进度</div>
+          <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-sm)">
+            <span class="cohere-tag cohere-tag-success">✅ {{ batchDone }} 完成</span>
+            <span class="cohere-tag cohere-tag-danger">❌ {{ batchFail }} 失败</span>
+          </div>
           <ul class="cohere-timeline">
-            <li
-              v-for="(item, idx) in progress"
-              :key="idx"
-              class="cohere-timeline-item"
-              :class="item.type"
-            >
+            <li v-for="(item, idx) in batchProgress" :key="idx" class="cohere-timeline-item" :class="item.type">
               <span class="tl-time">{{ item.time }}</span>
               <span class="tl-text">{{ item.text }}</span>
             </li>
           </ul>
         </div>
+      </div>
+    </template>
 
-        <!-- 发布结果 -->
-        <div v-if="result" class="cohere-card" style="margin-top:16px;cursor:default">
-          <div :style="{ display:'flex', gap:'8px', alignItems:'center' }">
-            <span v-if="result.success" class="cohere-tag cohere-tag-success">✓ 发布成功</span>
-            <span v-else class="cohere-tag cohere-tag-danger">✗ 发布失败</span>
-            <span style="font-size:13px;color:var(--muted)">{{ result.message }}</span>
+    <!-- 非批量模式：原有界面 -->
+    <template v-else>
+      <div class="cohere-content" style="display:flex;gap:var(--space-xl)">
+        <div style="flex:2;min-width:0">
+          <div class="cohere-card" style="cursor:default">
+            <div class="cohere-form">
+              <div class="cohere-form-item">
+                <label class="cohere-form-label">标题</label>
+                <input class="cohere-input" v-model="article.title" placeholder="请输入文章标题" maxlength="64" />
+              </div>
+              <div class="cohere-form-item">
+                <label class="cohere-form-label">作者</label>
+                <input class="cohere-input" v-model="article.author" placeholder="作者名称（选填）" maxlength="20" style="max-width:300px" />
+              </div>
+              <div class="cohere-form-item">
+                <label class="cohere-form-label">正文</label>
+                <ArticleEditor v-model="article.content" />
+              </div>
+              <div class="cohere-form-item" v-if="hasVideoPlatforms">
+                <label class="cohere-form-label">视频文件</label>
+                <el-upload drag :auto-upload="false" :limit="1" accept="video/*" :on-change="(file) => { article.video_path = (file.raw && (file.raw.path || file.raw.name)) || file.name || '' }">
+                  <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+                  <div class="el-upload__text">拖拽视频文件到这里，或 <em>点击选择</em></div>
+                  <template #tip><div class="el-upload__tip">支持 mp4/mov/avi，最大 500MB</div></template>
+                </el-upload>
+              </div>
+              <div class="cohere-form-item">
+                <label class="cohere-form-label">封面图 URL</label>
+                <input class="cohere-input" v-model="article.cover_url" placeholder="封面图片链接（选填）" />
+              </div>
+            </div>
           </div>
-          <div v-if="result.url" style="margin-top:12px">
-            <a :href="result.url" target="_blank" style="font-size:13px;color:var(--action-blue);text-decoration:none">
-              查看文章 →
-            </a>
+        </div>
+        <div style="flex:1;min-width:280px">
+          <div class="cohere-card" style="cursor:default">
+            <div class="cohere-form" style="gap:var(--space-md)">
+              <div class="cohere-form-label">发布目标</div>
+              <el-checkbox-group v-model="selectedPlatforms">
+                <div v-for="p in platforms" :key="p.id" style="margin-bottom:10px">
+                  <el-checkbox :label="p.id" :disabled="p.disabled">
+                    <span style="margin-left:6px">{{ p.label }}</span>
+                    <span v-if="p.tag" class="cohere-tag" :class="p.tagClass" style="margin-left:8px">{{ p.tag }}</span>
+                  </el-checkbox>
+                </div>
+              </el-checkbox-group>
+              <div class="cohere-divider"></div>
+              <button class="cohere-btn-primary" style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
+                {{ publishing ? '发布中...' : '🚀 一键发布' }}
+              </button>
+            </div>
+          </div>
+          <div v-if="progress.length > 0" class="cohere-card" style="margin-top:16px;cursor:default">
+            <ul class="cohere-timeline">
+              <li v-for="(item, idx) in progress" :key="idx" class="cohere-timeline-item" :class="item.type">
+                <span class="tl-time">{{ item.time }}</span>
+                <span class="tl-text">{{ item.text }}</span>
+              </li>
+            </ul>
+          </div>
+          <div v-if="result" class="cohere-card" style="margin-top:16px;cursor:default">
+            <div :style="{ display:'flex', gap:'8px', alignItems:'center' }">
+              <span v-if="result.success" class="cohere-tag cohere-tag-success">✓ 发布成功</span>
+              <span v-else class="cohere-tag cohere-tag-danger">✗ 发布失败</span>
+              <span style="font-size:13px;color:var(--muted)">{{ result.message }}</span>
+            </div>
+            <div v-if="result.url" style="margin-top:12px">
+              <a :href="result.url" target="_blank" style="font-size:13px;color:var(--action-blue);text-decoration:none">查看文章 →</a>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { publishWechat, publishBatch, onProgress } from '@/api/publisher'
+import { publishBatch, onProgress } from '@/api/publisher'
 import ArticleEditor from '@/components/ArticleEditor.vue'
 
 const platforms = [
-  { id: 'wechat_mp', label: '微信公众号', icon: '💬', tag: null, tagClass: '' },
-  { id: 'zhihu', label: '知乎', icon: '❓', tag: null, tagClass: '' },
-  { id: 'weibo', label: '微博', icon: '✧', tag: '新增', tagClass: 'cohere-tag-success' },
-  { id: 'douyin', label: '抖音', icon: '🎵', tag: '新增', tagClass: 'cohere-tag-success' },
-  { id: 'xiaohongshu', label: '小红书', icon: '📕', tag: '新增', tagClass: 'cohere-tag-warning' },
-  { id: 'tencent_video', label: '视频号', icon: '▶', tag: '新', tagClass: 'cohere-tag-info' },
-  { id: 'kuaishou', label: '快手', icon: '🎬', tag: '新', tagClass: 'cohere-tag-success' },
-  { id: 'toutiao', label: '今日头条', icon: '📰', tag: '新', tagClass: 'cohere-tag-success' },
-  { id: 'youtube', label: 'YouTube', icon: '▶️', tag: '新', tagClass: 'cohere-tag-success' },
-  { id: 'tiktok', label: 'TikTok', icon: '🎶', tag: '新', tagClass: 'cohere-tag-success' },
+  { id: 'wechat_mp', label: '微信公众号', tag: null, tagClass: '' },
+  { id: 'zhihu', label: '知乎', tag: null, tagClass: '' },
+  { id: 'weibo', label: '微博', tag: '新增', tagClass: 'cohere-tag-success' },
+  { id: 'douyin', label: '抖音', tag: '新增', tagClass: 'cohere-tag-success' },
+  { id: 'xiaohongshu', label: '小红书', tag: '新增', tagClass: 'cohere-tag-warning' },
+  { id: 'tencent_video', label: '视频号', tag: '新', tagClass: 'cohere-tag-info' },
+  { id: 'kuaishou', label: '快手', tag: '新', tagClass: 'cohere-tag-success' },
+  { id: 'toutiao', label: '今日头条', tag: '新', tagClass: 'cohere-tag-success' },
+  { id: 'youtube', label: 'YouTube', tag: '新', tagClass: 'cohere-tag-success' },
+  { id: 'tiktok', label: 'TikTok', tag: '新', tagClass: 'cohere-tag-success' },
 ]
 
+// ── 非批量模式 ──────────────────────────
 const selectedPlatforms = ref(['wechat_mp'])
 const publishing = ref(false)
 const progress = ref([])
 const result = ref(null)
-const cancelListen = ref(null)
 
-const article = reactive({
-  title: '',
-  content: '',
-  author: '',
-  cover_url: '',
-  video_path: ''
-})
+const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '' })
+
+const hasVideoPlatforms = computed(() =>
+  selectedPlatforms.value.some(p => ['douyin', 'tencent_video', 'kuaishou'].includes(p))
+)
 
 function addProgress (text, type = 'primary') {
   const now = new Date()
@@ -166,71 +193,102 @@ function addProgress (text, type = 'primary') {
 }
 
 async function handlePublish () {
-  if (!article.title.trim()) {
-    ElMessage.warning('请输入文章标题')
-    return
-  }
-  if (!article.content.trim()) {
-    ElMessage.warning('请输入正文内容')
-    return
+  if (!article.title.trim()) { ElMessage.warning('请输入文章标题'); return }
+  if (!article.content.trim()) { ElMessage.warning('请输入正文内容'); return }
+  publishing.value = true; progress.value = []; result.value = null
+
+  const off = onProgress((data) => addProgress(`[${data.platform}] ${data.stage}`))
+  try {
+    const data = { title: article.title, content: article.content, author: article.author || '', cover_url: article.cover_url || '', video_path: article.video_path || '' }
+    addProgress(`批量发布到 ${selectedPlatforms.value.length} 个平台...`, 'info')
+    const res = await publishBatch(selectedPlatforms.value, data)
+    if (res.code === 0) { addProgress(`✓ 已添加 ${res.data?.taskIds?.length || ''} 个任务`, 'success'); result.value = { success: true, message: res.message || '任务已加入队列', url: '' } }
+    else { addProgress(`✗ 发布失败: ${res.message}`, 'danger'); result.value = { success: false, message: res.message } }
+  } catch (e) { addProgress(`✗ 错误: ${e.message}`, 'danger'); result.value = { success: false, message: e.message } }
+  finally { publishing.value = false; off() }
+}
+
+// ── 批量模式 ────────────────────────────
+const batchMode = ref(false)
+let _keyCounter = 1
+const articles = ref([])
+const batchProgress = ref([])
+const batchDone = computed(() => batchProgress.value.filter(p => p.type === 'success').length)
+const batchFail = computed(() => batchProgress.value.filter(p => p.type === 'danger').length)
+const totalPlatformTasks = computed(() => articles.value.reduce((s, a) => s + (a.platforms?.length || 0), 0))
+
+function freshKey () { return `a_${_keyCounter++}_${Date.now()}` }
+
+function addArticle () {
+  articles.value.push({ _key: freshKey(), title: '', content: '', platforms: [], publishTime: '' })
+}
+
+function removeArticle (idx) { articles.value.splice(idx, 1) }
+
+function duplicateArticle (idx) {
+  const orig = articles.value[idx]
+  articles.value.splice(idx + 1, 0, { ...orig, _key: freshKey(), title: orig.title + ' (复制)', publishTime: '' })
+}
+
+async function handleBatchPublish () {
+  for (const a of articles.value) {
+    if (!a.title.trim()) { ElMessage.warning('有文章缺少标题'); return }
+    if (!a.content.trim()) { ElMessage.warning('有文章缺少正文'); return }
+    if (!a.platforms || a.platforms.length === 0) { ElMessage.warning(`"${a.title.slice(0, 20)}" 未选择发布平台`); return }
   }
 
   publishing.value = true
-  progress.value = []
-  result.value = null
+  batchProgress.value = []
 
-  if (cancelListen.value) cancelListen.value()
-  cancelListen.value = onProgress((data) => {
-    addProgress(`[${data.platform}] ${data.stage}`)
+  const off = onProgress((data) => {
+    batchProgress.value.push({
+      text: `[${data.platform}] ${data.stage}`,
+      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      type: data.type || 'primary',
+    })
   })
 
-  try {
-    const articleData = {
-      title: article.title,
-      content: article.content,
-      author: article.author || '',
-      cover_url: article.cover_url || '',
-      video_path: article.video_path || ''
-    }
+  const api = window.electronAPI
 
-    if (selectedPlatforms.value.length === 1 && selectedPlatforms.value[0] === 'wechat_mp') {
-      addProgress('开始发布到 微信公众号...', 'info')
-      const res = await publishWechat(articleData)
-      if (res.code === 0) {
-        addProgress('✓ 微信公众号 发布成功', 'success')
-        result.value = { success: true, message: '任务已加入队列', url: '' }
-      } else {
-        addProgress(`✗ 微信公众号 发布失败: ${res.message}`, 'danger')
-        result.value = { success: false, message: res.message }
-      }
+  try {
+    // 创建批量任务
+    const createRes = await api.batchCreate({ name: `批量发布 ${new Date().toLocaleDateString('zh-CN')}`, articles: articles.value.map(a => ({
+      title: a.title, content: a.content, platforms: a.platforms, publishTime: a.publishTime || null,
+    })) })
+
+    if (createRes.code !== 0) { throw new Error(createRes.message) }
+
+    const batchId = createRes.data.id
+
+    // 检查是否有定时任务
+    const hasScheduled = articles.value.some(a => a.publishTime)
+    if (hasScheduled) {
+      await api.batchSchedule(batchId)
+      batchProgress.value.push({ text: `✅ 已排期 ${articles.value.length} 篇文章`, time: new Date().toLocaleTimeString('zh-CN'), type: 'success' })
     } else {
-      addProgress(`批量发布到 ${selectedPlatforms.value.length} 个平台...`, 'info')
-      const res = await publishBatch(selectedPlatforms.value, articleData)
-      if (res.code === 0) {
-        addProgress(`✓ 已添加 ${res.data?.taskIds?.length || ''} 个任务到队列`, 'success')
-        result.value = { success: true, message: res.message || '任务已加入队列', url: '' }
-      } else {
-        addProgress(`✗ 批量发布失败: ${res.message}`, 'danger')
-        result.value = { success: false, message: res.message }
-      }
+      // 接收批量进度
+      const off2 = api.onBatchProgress((data) => {
+        batchProgress.value.push({
+          text: data.ok ? `✅ [${data.platform}] ${data.title.slice(0, 20)}: 发布成功` : `❌ [${data.platform}] ${data.title.slice(0, 20)}: ${data.message}`,
+          time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          type: data.ok ? 'success' : 'danger',
+        })
+      })
+
+      await api.batchExecute(batchId)
+      batchProgress.value.push({ text: `🚀 ${articles.value.length} 篇文章已提交发布`, time: new Date().toLocaleTimeString('zh-CN'), type: 'primary' })
+      off2()
     }
   } catch (e) {
-    addProgress(`✗ 错误: ${e.message}`, 'danger')
-    result.value = { success: false, message: e.message }
+    batchProgress.value.push({ text: `❌ 批量发布失败: ${e.message}`, time: new Date().toLocaleTimeString('zh-CN'), type: 'danger' })
   } finally {
     publishing.value = false
-    // 发送桌面通知
-    const resData = result.value
-    if (resData) {
-      const api = window.electronAPI
-      if (api?.showNotification) {
-        api.showNotification({
-          title: resData.success ? '🚀 发布成功' : '⚠️ 发布失败',
-          body: resData.message || (resData.success ? '任务已提交' : '请检查网络或账号状态'),
-          type: resData.success ? 'success' : 'error'
-        })
-      }
-    }
+    off()
   }
 }
+
+// 批量模式切换时初始化
+watch(batchMode, (val) => {
+  if (val && articles.value.length === 0) addArticle()
+})
 </script>
