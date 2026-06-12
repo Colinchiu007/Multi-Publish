@@ -109,5 +109,53 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ─── 回调服务器 API ─────────────────────
   onCallbackReceived: (cb) => {
     const h = (_, d) => cb(d); ipcRenderer.on('callback:received', h); return () => ipcRenderer.removeListener('callback:received', h)
-  }
-})
+  },
+
+  // ─── 扫码登录 API ──────────────────────────
+  authOpenQrCodeLogin: (platform) => ipcRenderer.invoke('auth:open-qrcode-login', platform),
+  authQrCodeClose: () => ipcRenderer.invoke('auth:qrcode-close'),
+  onQrCodeOpened: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('qrcode:opened', h); return () => ipcRenderer.removeListener('qrcode:opened', h)
+  },
+  onQrCodeDetected: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('qrcode:detected', h); return () => ipcRenderer.removeListener('qrcode:detected', h)
+  },
+  onQrCodeCompleted: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('qrcode:completed', h); return () => ipcRenderer.removeListener('qrcode:completed', h)
+  },
+  onQrCodeClosed: (cb) => {
+    const h = () => cb(); ipcRenderer.on('qrcode:closed', h); return () => ipcRenderer.removeListener('qrcode:closed', h)
+  },
+
+  // ─── 统一数据存储 API ─────────────────────────
+  storeAddAccount: (account) => ipcRenderer.invoke('store:add-account', account),
+  storeGetAccount: (id) => ipcRenderer.invoke('store:get-account', id),
+  storeListAccounts: (platform) => ipcRenderer.invoke('store:list-accounts', platform),
+  storeDeleteAccount: (id) => ipcRenderer.invoke('store:delete-account', id),
+  storeAddPublishRecord: (record) => ipcRenderer.invoke('store:add-publish-record', record),
+  storeListPublishHistory: (opts) => ipcRenderer.invoke('store:list-publish-history', opts),
+  storeGetPublishStats: () => ipcRenderer.invoke('store:get-publish-stats'),
+  storeAddScheduledTask: (task) => ipcRenderer.invoke('store:add-scheduled-task', task),
+  storeListScheduledTasks: () => ipcRenderer.invoke('store:list-scheduled-tasks'),
+  storeDeleteTask: (id) => ipcRenderer.invoke('store:delete-task', id),
+  storeGetSetting: (key) => ipcRenderer.invoke('store:get-setting', key),
+  storeSetSetting: (key, value) => ipcRenderer.invoke('store:set-setting', key, value),
+  storeListCallbackLogs: (limit) => ipcRenderer.invoke('store:list-callback-logs', limit),
+
+    // ─── OAuth 认证 API ────────────────────────────
+    oauthStart: (opts) => ipcRenderer.invoke('oauth:start', opts),
+    oauthClose: () => ipcRenderer.invoke('oauth:close'),
+    oauthGetConfigs: () => ipcRenderer.invoke('oauth:get-configs'),
+    onOAuthOpened: (cb) => {
+      const h = (_, d) => cb(d); ipcRenderer.on('oauth:opened', h); return () => ipcRenderer.removeListener('oauth:opened', h)
+    },
+    onOAuthCompleted: (cb) => {
+      const h = (_, d) => cb(d); ipcRenderer.on('oauth:completed', h); return () => ipcRenderer.removeListener('oauth:completed', h)
+    },
+    onOAuthFailed: (cb) => {
+      const h = (_, d) => cb(d); ipcRenderer.on('oauth:failed', h); return () => ipcRenderer.removeListener('oauth:failed', h)
+    },
+    onOAuthClosed: (cb) => {
+      const h = () => cb(); ipcRenderer.on('oauth:closed', h); return () => ipcRenderer.removeListener('oauth:closed', h)
+    },
+  })

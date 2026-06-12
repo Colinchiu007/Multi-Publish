@@ -13,13 +13,18 @@
     "build:dir": "npm run build:vue && electron-builder --dir",
     "preview": "vite preview"
   },
-  "keywords": ["multi-publish", "rpa", "wechat"],
+  "keywords": [
+    "multi-publish",
+    "rpa",
+    "wechat"
+  ],
   "license": "MIT",
   "dependencies": {
     "@multi-publish/rpa-engine": "*",
     "@multi-publish/shared-utils": "*",
     "@vitejs/plugin-vue": "^5.2.0",
     "@vueup/vue-quill": "^1.5.3",
+    "better-sqlite3": "^12.10.0",
     "electron-updater": "^6.8.9",
     "element-plus": "^2.9.0",
     "pinia": "^2.3.0",

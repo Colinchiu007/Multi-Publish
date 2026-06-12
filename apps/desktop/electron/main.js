@@ -12,6 +12,9 @@ const firstRun = require('./first-run')
 const AuthViewManager = require('./auth-view-manager')
 const WebviewManager = require('./webview-manager')
 const CallbackServer = require('./callback-server')
+const QrCodeLogin = require('./qrcode-login')
+const Store = require('./store')
+const OAuthManager = require('./oauth-manager')
 
 // ─── AuthViewManager（内嵌浏览器登录）─────
 const authViewManager = new AuthViewManager()
@@ -19,6 +22,12 @@ const authViewManager = new AuthViewManager()
 const webviewManager = new WebviewManager()
 // ─── CallbackServer（实时回调）─────────────
 const callbackServer = new CallbackServer()
+// ─── QrCodeLogin（扫码登录）───────────────
+const qrCodeLogin = new QrCodeLogin()
+// ─── Store（统一 SQLite 持久化）────────────
+const store = new Store()
+// ─── OAuthManager（OAuth 2.0 认证）─────────
+const oauthManager = new OAuthManager(store)
 
 const PublishAlert = require('./publish-alert')
 const publishMonitor = require('./publish-monitor')
@@ -149,16 +158,25 @@ function createWindow () {
   mainWindow.once('ready-to-show', () => { mainWindow.show() })
   mainWindow.on('closed', () => { mainWindow = null })
   mainWindow.on('resize', () => {
-    authViewManager._onWindowResize()
-    webviewManager.resize()
-  })
+      authViewManager._onWindowResize()
+      webviewManager.resize()
+      qrCodeLogin._onWindowResize()
+    })
 
   // 设置 AuthViewManager
   authViewManager.setMainWindow(mainWindow)
 
   // 设置 WebviewManager（分屏监控）
-  webviewManager.setMainWindow(mainWindow)
-  webviewManager.registerIpcHandlers()
+    webviewManager.setMainWindow(mainWindow)
+    webviewManager.registerIpcHandlers()
+
+    // 设置 QrCodeLogin（扫码登录）
+        qrCodeLogin.setMainWindow(mainWindow)
+        qrCodeLogin.registerIpcHandlers()
+
+        // 设置 OAuthManager（OAuth 认证）
+        oauthManager.setMainWindow(mainWindow)
+        oauthManager.registerIpcHandlers()
 
   // 初始化系统托盘
   systemTray.init(mainWindow)
@@ -342,14 +360,69 @@ app.whenReady().then(async () => {
   try { await pythonBridge.startPythonBackend() }
   catch (e) { log.error('App', 'Failed to start Python backend:', e.message) }
 
+  // 初始化 SQLite 数据库
+  store.init()
+
+  // 注册 Store IPC handlers
+  ipcMain.handle('store:add-account', (_, account) => {
+    const ok = store.addAccount(account)
+    return { code: ok ? 0 : -1 }
+  })
+  ipcMain.handle('store:get-account', (_, id) => {
+    const account = store.getAccount(id)
+    return { code: account ? 0 : -1, data: account }
+  })
+  ipcMain.handle('store:list-accounts', (_, platform) => {
+    return { code: 0, data: store.listAccounts(platform) }
+  })
+  ipcMain.handle('store:delete-account', (_, id) => {
+    store.deleteAccount(id)
+    return { code: 0 }
+  })
+  ipcMain.handle('store:add-publish-record', (_, record) => {
+    const id = store.addPublishRecord(record)
+    return { code: id ? 0 : -1, data: { id } }
+  })
+  ipcMain.handle('store:list-publish-history', (_, opts) => {
+    return { code: 0, data: store.listPublishHistory(opts) }
+  })
+  ipcMain.handle('store:get-publish-stats', () => {
+    return { code: 0, data: store.getPublishStats() }
+  })
+  ipcMain.handle('store:add-scheduled-task', (_, task) => {
+    const id = store.addScheduledTask(task)
+    return { code: id ? 0 : -1, data: { id } }
+  })
+  ipcMain.handle('store:list-scheduled-tasks', () => {
+    return { code: 0, data: store.listScheduledTasks() }
+  })
+  ipcMain.handle('store:delete-task', (_, id) => {
+    store.deleteTask(id)
+    return { code: 0 }
+  })
+  ipcMain.handle('store:get-setting', (_, key) => {
+    return { code: 0, data: store.getSetting(key) }
+  })
+  ipcMain.handle('store:set-setting', (_, key, value) => {
+    store.setSetting(key, value)
+    return { code: 0 }
+  })
+  ipcMain.handle('store:list-callback-logs', (_, limit) => {
+    return { code: 0, data: store.listCallbackLogs(limit) }
+  })
+
   // 启动回调服务器（接收外部回调并转发到渲染进程）
   try {
-    await callbackServer.start((data) => {
-      const win = BrowserWindow.getAllWindows()[0]
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('callback:received', data)
-      }
-    })
+    callbackServer.start((data) => {
+          const win = BrowserWindow.getAllWindows()[0]
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('callback:received', data)
+          }
+          // 记录回调到 SQLite
+          if (data) {
+            store.addCallbackLog(data.type || 'unknown', data.source || data.platform, data)
+          }
+        })
   } catch (e) {
     log.warn('App', 'Callback server failed to start (port may be in use):', e.message)
   }
@@ -364,6 +437,7 @@ app.on('window-all-closed', async () => {
   try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
   webviewManager.closeAll()
   callbackServer.stop()
+  store.close()
   if (process.platform !== 'darwin') app.quit()
 })
 

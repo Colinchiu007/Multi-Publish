@@ -187,3 +187,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - `electron/webview-manager.js` — **分屏监控**（P0，WebContentsView 多屏布局，支持2/3/4/6屏）
 - `electron/callback-server.js` — **实时回调服务器**（P1，HTTP POST回调 + 59s心跳，端口16521）
 - `electron/monitor-preload.js` — 分屏视图预加载脚本
+- `electron/qrcode-login.js` — **二维码扫码登录**（P2，自动检测页面二维码，扫码即登录）
+- `electron/auth-qrcode-preload.js` — 扫码登录视图预加载脚本
+- `electron/store.js` — **统一 SQLite 持久化**（P2，better-sqlite3，替代零散JSONL）
+- `electron/oauth-manager.js` — **OAuth 2.0 认证**（P2，YouTube/TikTok/微博/抖音 API Token 授权）
