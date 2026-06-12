@@ -32,18 +32,16 @@ jobs:
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
-      - name: Install electron-builder globally + install electron locally
+      - name: Install exact versions for build
         run: |
           cd apps/desktop
-          npm install electron@33.0.0
-          npm install electron-builder@latest
+          npm install electron@33.4.0 electron-builder@25.1.8 --no-save
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
         run: cd apps/desktop && npx electron-builder --win --x64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ELECTRON_BUILDER_ALLOW_HARDENING_ISSUES: '1'
 
       - name: Build Electron app (Linux)
         if: runner.os == 'Linux'

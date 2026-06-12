@@ -133,3 +133,10 @@ CRITICAL 必须修复才能继续。
 - `DESIGN.md` — 设计规范
 
 > 本文件由 Hermes `professional-ai-coding-workflow` 技能转换生成，适配通用 AI 编码工具。
+
+---
+
+## 构建与发布
+
+- **打包**：`npm run dist:win`（需 node_modules 里有 electron@33.4.0 + electron-builder@25.1.8）
+- **CI**：.github/workflows/build.yml 使用 --no-save 安装精确版本，避免 CI 拉取 26.x 导致 schema 验证失败
