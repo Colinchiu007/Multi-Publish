@@ -14,6 +14,13 @@
     "apps/*",
     "packages/*"
   ],
-  "keywords": ["multi-publish", "rpa", "wechat"],
-  "license": "MIT"
+  "keywords": [
+    "multi-publish",
+    "rpa",
+    "wechat"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "electron": "^33.4.0"
+  }
 }

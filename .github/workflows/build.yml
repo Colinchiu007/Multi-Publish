@@ -27,15 +27,15 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci
 
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
-      - name: Install exact versions for build
+      - name: Install electron & builder for packager
         run: |
           cd apps/desktop
-          npm install electron@33.4.0 electron-builder@25.1.8 --no-save
+          npm install electron@33.4.0 electron-builder@25.1.8
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
