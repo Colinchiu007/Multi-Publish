@@ -6,7 +6,7 @@
  */
 const { spawn, spawnSync } = require('child_process')
 const path = require('path')
-const log = require('../logger')
+const log = require('./logger')
 const http = require('http')
 
 const BACKEND_PORT = parseInt(process.env.BACKEND_PORT || '8299', 10)

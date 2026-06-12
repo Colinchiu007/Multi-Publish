@@ -1,6 +1,6 @@
 const { chromium } = require('playwright')
 const path = require('path')
-const log = require('../logger')
+const log = require('./logger')
 const { app } = require('electron')
 
 let browser = null

@@ -45,8 +45,7 @@
       "dist/**/*",
       "electron/**/*",
       "node_modules/**/*",
-      "package.json",
-      "logger.js"
+      "package.json"
     ],
     "win": {
       "target": "nsis",

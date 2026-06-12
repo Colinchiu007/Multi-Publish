@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
-const log = require('../logger')
+const log = require('./logger')
 const { launchBrowser: playwrightLaunch, closeBrowser: playwrightClose, getPublisherClass } = require('@multi-publish/rpa-engine')
 const { TaskQueue, AggregatorBridge } = require('@multi-publish/shared-utils')
 const pythonBridge = require('./python-bridge')

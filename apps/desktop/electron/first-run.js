@@ -6,7 +6,7 @@ const { spawnSync } = require('child_process')
 const { app } = require('electron')
 const fs = require('fs')
 const path = require('path')
-const log = require('../logger')
+const log = require('./logger')
 
 let _mainWin = null
 
