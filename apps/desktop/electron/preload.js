@@ -57,6 +57,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   accountDelete: (accountId) => ipcRenderer.invoke('account:delete', accountId),
   accountCheckLogin: (platform, accountId) => ipcRenderer.invoke('account:check-login', { platform, accountId }),
   accountList: () => ipcRenderer.invoke('account:list'),
+  accountSetDefault: (platform, accountId) => ipcRenderer.invoke('store:set-default-account', { platform, accountId }),
+  accountGetDefault: (platform) => ipcRenderer.invoke('store:get-default-account', platform),
+  accountUpdate: (id, fields) => ipcRenderer.invoke('store:update-account', { id, fields }),
 
   // ─── 内嵌浏览器登录 API ──────────────
   authOpenLogin: (platform) => ipcRenderer.invoke('auth:open-login', platform),

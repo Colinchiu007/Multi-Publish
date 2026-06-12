@@ -55,6 +55,23 @@ const aggregatorBridge = new AggregatorBridge(taskQueue)
 taskQueue.setExecutor(async (task) => {
   const PublisherClass = getPublisherClass(task.platform)
   const publisher = new PublisherClass()
+
+  // 加载指定账号的 Cookie（如果传了 accountId）
+  const accountId = task.article?.accountId || task.accountId
+  if (accountId) {
+    const account = store.getAccount(accountId)
+    if (account && account.cookies && account.cookies.length > 0) {
+      // 注入到 article 中让 publisher 读取
+      task.article._cookies = account.cookies
+    }
+  } else {
+    // 没有指定账号，使用该平台的默认账号
+    const defaultAccount = store.getDefaultAccount(task.platform)
+    if (defaultAccount && defaultAccount.cookies) {
+      task.article._cookies = defaultAccount.cookies
+    }
+  }
+
   const mainWindow = BrowserWindow.getAllWindows()[0]
 
   publisher.onProgress(({ platform, stage }) => {
@@ -404,6 +421,18 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('store:delete-account', (_, id) => {
     store.deleteAccount(id)
+    return { code: 0 }
+  })
+  ipcMain.handle('store:set-default-account', (_, { platform, accountId }) => {
+    store.setDefaultAccount(platform, accountId)
+    return { code: 0 }
+  })
+  ipcMain.handle('store:get-default-account', (_, platform) => {
+    const account = store.getDefaultAccount(platform)
+    return { code: account ? 0 : -1, data: account }
+  })
+  ipcMain.handle('store:update-account', (_, { id, fields }) => {
+    store.updateAccount(id, fields)
     return { code: 0 }
   })
   ipcMain.handle('store:add-publish-record', (_, record) => {

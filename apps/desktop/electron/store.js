@@ -103,6 +103,8 @@ class Store {
       );
 
       CREATE INDEX IF NOT EXISTS idx_accounts_platform ON accounts(platform);
+      -- 多账号支持：添加 is_default 列（兼容已有表）
+      ALTER TABLE accounts ADD COLUMN is_default INTEGER DEFAULT 0;
       CREATE INDEX IF NOT EXISTS idx_history_platform ON publish_history(platform);
       CREATE INDEX IF NOT EXISTS idx_history_created ON publish_history(created_at);
       CREATE INDEX IF NOT EXISTS idx_scheduled_time ON scheduled_tasks(publish_time);
@@ -182,10 +184,42 @@ class Store {
     return true
   }
 
+  /**
+   * 设置平台的默认账号
+   */
+  setDefaultAccount (platform, accountId) {
+    if (!this._ready) return false
+    // 清除该平台所有账号的默认标记
+    this.db.prepare('UPDATE accounts SET is_default = 0 WHERE platform = ?').run(platform)
+    // 设置新的默认账号
+    this.db.prepare('UPDATE accounts SET is_default = 1 WHERE id = ?').run(accountId)
+    return true
+  }
+
   _parseAccount (row) {
     try { row.cookies = JSON.parse(row.cookies) } catch (e) { row.cookies = [] }
     try { row.localStorage = JSON.parse(row.localStorage) } catch (e) { row.localStorage = {} }
     return row
+  }
+
+  /**
+   * 获取平台的默认账号
+   */
+  getDefaultAccount (platform) {
+    if (!this._ready) return null
+    const row = this.db.prepare('SELECT * FROM accounts WHERE platform = ? AND is_default = 1 LIMIT 1').get(platform)
+    if (!row) {
+      // 没有默认账号，返回第一个
+      const first = this.db.prepare('SELECT * FROM accounts WHERE platform = ? ORDER BY created_at DESC LIMIT 1').get(platform)
+      return first ? this._parseAccount(first) : null
+    }
+    return this._parseAccount(row)
+  }
+
+  /**
+   * 获取平台的账号列表
+   */
+  listAccounts (platform) {
   }
 
   // ─── 发布历史 ────────────────────────────────

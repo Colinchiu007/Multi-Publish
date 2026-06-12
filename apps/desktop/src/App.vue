@@ -44,17 +44,33 @@
         <div class="cohere-sidebar-list">
           <div
             v-for="p in filteredPlatforms"
-            :key="p.id"
+            :key="p"
             class="cohere-platform-item"
-            :class="{ active: activePlatform === p.id }"
-            @click="activePlatform = p.id"
+            :class="{ active: activePlatform === p }"
+            @click="activePlatform = p"
           >
-            <div class="platform-icon">{{ p.icon }}</div>
+            <div class="platform-icon">{{ platformMeta[p].icon }}</div>
             <div style="flex:1;min-width:0">
-              <div class="platform-name">{{ p.label }}</div>
-              <div class="platform-account">{{ p.accountText }}</div>
+              <div class="platform-name">{{ platformMeta[p].label }}</div>
+              <div class="platform-account">
+                <template v-if="getAccountsForPlatform(p).length > 1">
+                  <select
+                    class="account-switcher"
+                    :value="(getDefaultAccount(p) || {}).id || ''"
+                    @click.stop
+                    @change.stop="switchAccount(p, $event.target.value)"
+                  >
+                    <option v-for="a in getAccountsForPlatform(p)" :key="a.id" :value="a.id">
+                      {{ a.name || a.id?.slice(0,8) }}
+                    </option>
+                  </select>
+                </template>
+                <template v-else>
+                  {{ getAccountText(p) }}
+                </template>
+              </div>
             </div>
-            <span class="platform-status" :class="p.statusClass"></span>
+            <span class="platform-status" :class="getStatusClass(p)"></span>
           </div>
         </div>
       </aside>
@@ -119,28 +135,86 @@ const router = useRouter()
 const platformSearch = ref('')
 const activePlatform = ref(null)
 
-const platforms = [
-  { id: 'wechat_mp', label: '微信公众号', icon: '💬', accountText: '产品实验室', statusClass: 'online' },
-  { id: 'zhihu', label: '知乎', icon: '❓', accountText: '产品观察', statusClass: 'online' },
-  { id: 'weibo', label: '微博', icon: '✧', accountText: '科技前线', statusClass: 'online' },
-  { id: 'douyin', label: '抖音', icon: '🎵', accountText: '产品实验室', statusClass: 'online' },
-  { id: 'xiaohongshu', label: '小红书', icon: '📕', accountText: '产品设计日记', statusClass: 'online' },
-  { id: 'tencent_video', label: '视频号', icon: '▶', accountText: '视频实验室', statusClass: 'online' },
-  { id: 'kuaishou', label: '快手', icon: '🎬', accountText: '未登录', statusClass: 'offline' },
-  { id: 'toutiao', label: '今日头条', icon: '📰', accountText: '未登录', statusClass: 'offline' },
-  { id: 'bilibili', label: 'B站', icon: '📺', accountText: '未登录', statusClass: 'offline' },
-  { id: 'baijiahao', label: '百家号', icon: '📖', accountText: '未登录', statusClass: 'offline' },
-  { id: 'yidian', label: '一点号', icon: '📋', accountText: '未登录', statusClass: 'offline' },
-  { id: 'youtube', label: 'YouTube', icon: '▶', accountText: '未登录', statusClass: 'offline' },
-  { id: 'tiktok', label: 'TikTok', icon: '♪', accountText: '未登录', statusClass: 'offline' },
-  { id: 'twitter', label: 'X (Twitter)', icon: '✕', accountText: '未登录', statusClass: 'offline' },
-]
+// 从 Store 加载多账号
+const platformAccounts = ref({})  // { platformId: [account, ...] }
+const loaded = ref(false)
+
+const platformMeta = {
+  wechat_mp: { label: '微信公众号', icon: '💬' },
+  zhihu: { label: '知乎', icon: '❓' },
+  weibo: { label: '微博', icon: '✧' },
+  douyin: { label: '抖音', icon: '🎵' },
+  xiaohongshu: { label: '小红书', icon: '📕' },
+  tencent_video: { label: '视频号', icon: '▶' },
+  kuaishou: { label: '快手', icon: '🎬' },
+  toutiao: { label: '今日头条', icon: '📰' },
+  bilibili: { label: 'B站', icon: '📺' },
+  baijiahao: { label: '百家号', icon: '📖' },
+  yidian: { label: '一点号', icon: '📋' },
+  youtube: { label: 'YouTube', icon: '▶' },
+  tiktok: { label: 'TikTok', icon: '♪' },
+  twitter: { label: 'X (Twitter)', icon: '✕' },
+}
+
+async function loadAccounts () {
+  const api = window.electronAPI
+  if (!api || !api.accountList) return
+  try {
+    const res = await api.accountList()
+    if (res.code === 0 && Array.isArray(res.data)) {
+      const grouped = {}
+      for (const acc of res.data) {
+        if (!grouped[acc.platform]) grouped[acc.platform] = []
+        grouped[acc.platform].push(acc)
+      }
+      platformAccounts.value = grouped
+    }
+    loaded.value = true
+  } catch (e) {
+    console.warn('Failed to load accounts:', e)
+    loaded.value = true
+  }
+}
+
+function getDefaultAccount (platform) {
+  const accounts = platformAccounts.value[platform]
+  if (!accounts || accounts.length === 0) return null
+  return accounts.find(a => a.is_default) || accounts[0]
+}
+
+function getAccountText (platform) {
+  const def = getDefaultAccount(platform)
+  return def ? def.name || '已登录' : '未登录'
+}
+
+function getStatusClass (platform) {
+  const def = getDefaultAccount(platform)
+  if (!def) return 'offline'
+  return def.status === 'active' || def.status === 'online' ? 'online' : 'offline'
+}
+
+function getAccountsForPlatform (platform) {
+  return platformAccounts.value[platform] || []
+}
+
+async function switchAccount (platform, accountId) {
+  const api = window.electronAPI
+  if (!api || !api.accountSetDefault) return
+  try {
+    await api.accountSetDefault(platform, accountId)
+    // 刷新列表
+    await loadAccounts()
+  } catch (e) {
+    console.warn('Failed to switch account:', e)
+  }
+}
 
 const filteredPlatforms = computed(() => {
-  if (!platformSearch.value) return platforms
+  const ids = Object.keys(platformMeta)
+  if (!platformSearch.value) return ids
   const q = platformSearch.value.toLowerCase()
-  return platforms.filter(p =>
-    p.label.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)
+  return ids.filter(id =>
+    platformMeta[id].label.toLowerCase().includes(q) || id.toLowerCase().includes(q)
   )
 })
 
@@ -201,6 +275,7 @@ function handleInstall () {
 }
 
 onMounted(() => {
+  loadAccounts()
   cancelUpdateListen = onUpdateStatus(handleUpdateStatus)
   setTimeout(() => updateCheck(), 3000)
 
@@ -220,4 +295,25 @@ onBeforeUnmount(() => {
 
 <style>
 body { margin: 0; padding: 0; }
+
+/* 侧栏账号切换器 */
+.account-switcher {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #666);
+  font-size: 11px;
+  width: 100%;
+  cursor: pointer;
+  outline: none;
+  padding: 0;
+  appearance: auto;
+  -webkit-appearance: auto;
+}
+.account-switcher:hover {
+  color: var(--text-primary, #333);
+}
+.account-switcher option {
+  font-size: 12px;
+  padding: 4px;
+}
 </style>
