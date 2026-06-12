@@ -7,9 +7,7 @@ const log = require('../logger')
 const playwrightManager = require('../playwright-manager')
 const pythonBridge = require('../python-bridge')
 
-// 平台登录 URL 映射 (已移至 packages/rpa-engine/src/platform-selectors.js)
- * 等待页面出现特定选择器，表示登录成功
- */
+// 平台登录成功选择器 (已移至 packages/rpa-engine/src/platform-selectors.js)
 const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
   wechat_mp: '.weui-desktop-account__name',
   zhihu: '.AppHeader-profile',
