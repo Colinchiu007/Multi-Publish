@@ -160,8 +160,10 @@ class AuthViewManager {
     const x = Math.max(0, Math.floor((bounds.width - VIEW_WIDTH) / 2))
     const y = 56 + Math.max(0, Math.floor((bounds.height - 56 - VIEW_HEIGHT) / 2))
     this.currentView.setBounds({ x, y, width: VIEW_WIDTH, height: VIEW_HEIGHT })
-    // 背景色
-    this.currentView.webContents.setBackgroundColor('#ffffff')
+    // 背景色 — WebContentsView 本身就有 setBackgroundColor
+    if (typeof this.currentView.setBackgroundColor === 'function') {
+      this.currentView.setBackgroundColor('#ffffff')
+    }
   }
 
   /**
