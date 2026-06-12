@@ -10,6 +10,7 @@
  */
 const { Tray, Menu, ipcMain, nativeImage, shell } = require('electron')
 const path = require('path')
+const fs = require('fs')
 const log = require('./logger')
 
 let tray = null
@@ -101,7 +102,7 @@ function flashTray (times = 3) {
 }
 
 // 需要 fs 模块
-const fs = require('fs')
+// (已移至文件顶部)
 
 /**
  * 设置托盘提示文字

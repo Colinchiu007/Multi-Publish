@@ -109,10 +109,11 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
 
 const route = useRoute()
+const router = useRouter()
 
 // 侧栏平台数据
 const platformSearch = ref('')
@@ -202,6 +203,14 @@ function handleInstall () {
 onMounted(() => {
   cancelUpdateListen = onUpdateStatus(handleUpdateStatus)
   setTimeout(() => updateCheck(), 3000)
+
+  // 全局快捷键导航
+  const api = window.electronAPI
+  if (api && api.onNavigate) {
+    api.onNavigate((route) => {
+      router.push(route)
+    })
+  }
 })
 
 onBeforeUnmount(() => {

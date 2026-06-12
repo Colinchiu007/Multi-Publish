@@ -172,6 +172,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         const h = (_, d) => cb(d); ipcRenderer.on('batch:progress', h); return () => ipcRenderer.removeListener('batch:progress', h)
       },
 
+      // ─── 全局导航（快捷键触发）──────────────
+      onNavigate: (cb) => {
+        const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
+      },
+
       // ─── URL 采集 API ──────────────────────────
       urlCollect: (url, opts) => ipcRenderer.invoke('url-collect:fetch', { url, ...opts }),
     })

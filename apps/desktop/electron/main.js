@@ -38,6 +38,7 @@ const urlCollector = new UrlCollector()
 const PublishAlert = require('./publish-alert')
 const publishMonitor = require('./publish-monitor')
 const systemTray = require('./system-tray')
+const hotkeys = require('./hotkeys')
 
 // ─── 系统托盘初始化 ──────────────────────────
 systemTray.registerIpcHandlers()
@@ -194,11 +195,11 @@ function createWindow () {
   // 初始化系统托盘
   systemTray.init(mainWindow)
 
-  // 最小化到托盘
-  mainWindow.on('minimize', (event) => {
-    event.preventDefault()
-    mainWindow.hide()
-  })
+  // 注册全局快捷键
+  hotkeys.register()
+
+  // 最小化到托盘 — 由 system-tray.js 管理，此处不重复绑定
+  // mainWindow.on('minimize', (...) => ...) 已由 systemTray.init() 注册
 
   // 初始化自动更新
     autoUpdater.init(mainWindow, (status) => {
@@ -285,6 +286,11 @@ ipcMain.handle('update:download', async () => {
 ipcMain.handle('update:install', async () => {
   autoUpdater.quitAndInstall()
   return { code: 0 }
+})
+
+// ─── 快捷键 IPC ───────────────────────────
+ipcMain.handle('hotkeys:list', async () => {
+  return { code: 0, data: hotkeys.getShortcuts() }
 })
 
 // ─── 首次运行引导 IPC ─────────────────────
@@ -466,6 +472,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', async () => {
+  hotkeys.unregister()
   try { await playwrightClose() } catch (e) { log.error('App', 'Error closing Playwright:', e.message) }
   try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
   webviewManager.closeAll()
