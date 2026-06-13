@@ -45,6 +45,13 @@ jobs:
           cd apps/desktop
           npx @electron/rebuild -f -w better-sqlite3
 
+      # 安装 Playwright Chromium 并捆绑到安装包（避免离线用户无法下载）
+      - name: Install Playwright chromium (bundled)
+        run: |
+          cd apps/desktop
+          mkdir -p .playwright-browsers
+          PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers npx playwright install chromium
+
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
         run: cd apps/desktop && npx electron-builder --win --x64 -p never

@@ -17,3 +17,6 @@ build/*.exe
 latest.yml
 *.exe
 latest.yml
+
+# Playwright browsers (bundled in installer)
+.playwright-browsers/

@@ -1,6 +1,13 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
+
+// ─── Playwright 浏览器路径 ──────────────────────
+// 打包后浏览器捆绑在 resources/playwright-browsers 中
+if (app.isPackaged) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(process.resourcesPath, 'playwright-browsers')
+}
+
 const { launchBrowser: playwrightLaunch, closeBrowser: playwrightClose, getPublisherClass } = require('@multi-publish/rpa-engine')
 const { TaskQueue, AggregatorBridge } = require('@multi-publish/shared-utils')
 const pythonBridge = require('./python-bridge')

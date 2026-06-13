@@ -46,8 +46,15 @@
       "output": "dist-electron"
     },
     "electronVersion": "33.4.11",
-        "npmRebuild": false,
-        "files": [
+    "npmRebuild": false,
+    "extraResources": [
+      {
+        "from": ".playwright-browsers",
+        "to": "playwright-browsers",
+        "filter": ["**/*"]
+      }
+    ],
+    "files": [
       "dist/**/*",
       "electron/**/*",
       "node_modules/**/*",

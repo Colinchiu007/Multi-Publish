@@ -1,12 +1,37 @@
 /**
  * Auto-updater — 自动更新
  * 使用 electron-updater 检查并安装 GitHub Release 更新
+ * 网络失败（GFW 场景）静默处理，不弹错误提示
  */
 const { autoUpdater } = require('electron-updater')
 const { BrowserWindow } = require('electron')
 
 let _mainWin = null
 let _statusCallback = null
+
+// 网络超时/阻断错误特征码（GFW 场景）
+const NETWORK_ERROR_PATTERNS = [
+  'ERR_INTERNET_DISCONNECTED',
+  'ERR_CONNECTION_TIMED_OUT',
+  'ERR_CONNECTION_RESET',
+  'ERR_CONNECTION_REFUSED',
+  'ERR_NAME_NOT_RESOLVED',
+  'ERR_NETWORK_CHANGED',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'request failed',
+  'getaddrinfo',
+  'connect ETIMEDOUT',
+  'connect ENETUNREACH',
+  'socket hang up'
+]
+
+function isNetworkError (err) {
+  const msg = (err && (err.message || err.toString() || ''))
+  return NETWORK_ERROR_PATTERNS.some(p => msg.includes(p))
+}
 
 /**
  * 初始化自动更新
@@ -17,9 +42,10 @@ function init (win, onStatus) {
   _mainWin = win
   _statusCallback = onStatus
 
-  // 日志
-  autoUpdater.logger = console
-  autoUpdater.logger.transports = { file: { level: 'info' }, console: { level: 'info' } }
+  // 日志（仅开发环境打印）
+  if (process.env.NODE_ENV === 'development') {
+    autoUpdater.logger = console
+  }
 
   // 自动下载
   autoUpdater.autoDownload = false
@@ -56,6 +82,11 @@ function init (win, onStatus) {
   })
 
   autoUpdater.on('error', (err) => {
+    // GFW 阻断：静默忽略，不弹错误
+    if (isNetworkError(err)) {
+      _sendStatus('not-available', '当前已是最新版本')
+      return
+    }
     _sendStatus('error', err.message || err.toString())
   })
 }
@@ -70,6 +101,11 @@ function check () {
       _sendStatus('not-available', '当前已是最新版本')
       return
     }
+    // GFW 阻断：静默忽略
+    if (isNetworkError(err)) {
+      _sendStatus('not-available', '当前已是最新版本')
+      return
+    }
     _sendStatus('error', err.message)
   })
 }
@@ -79,6 +115,10 @@ function check () {
  */
 function download () {
   autoUpdater.downloadUpdate().catch(err => {
+    if (isNetworkError(err)) {
+      _sendStatus('not-available', '当前已是最新版本')
+      return
+    }
     _sendStatus('error', err.message)
   })
 }
@@ -103,9 +143,4 @@ function _sendStatus (type, data) {
   }
 }
 
-const fs = require('fs')
-const path = require('path')
-const log = require('./logger')
-
-// ─── 首次运行引导 (安装依赖、Playwright) ──────────────────────
 module.exports = { init, check, download, quitAndInstall }
