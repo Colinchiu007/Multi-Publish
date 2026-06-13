@@ -1,11 +1,11 @@
 # PROJECT-003：多平台一键发布 — PRD
 
 > **立项日期**: 2026-06-03
-> **最后更新**: 2026-06-11
-> **当前版本**: v1.0.7（Monorepo 重构）
+> **最后更新**: 2026-06-13
+> **当前版本**: v1.0.13（蚁小二逆向工程集成 + 全功能补完）
 > **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具
-> **目标用户**: 自媒体运营者、企业内容团队、SEO 运营
-> **技术架构**: Electron + Vue 3 + Playwright RPA + Python FastAPI 后端（Monorepo）
+> **目标用户**: 自媒体运营者、MCN 机构、企业内容团队
+> **技术架构**: Electron 33 + Vue 3 + Playwright RPA + SQLite（Monorepo）
 
 ---
 
@@ -25,14 +25,18 @@
 
 | 范围 | 说明 |
 |------|------|
-|| ✅ 微信公众号 | 使用 Playwright RPA，支持草稿编辑 → 群发 |
-|| ✅ 知乎 | Playwright RPA，文章发布 + 话题标签 |
-|| ✅ 微博 | Playwright RPA，图文发布 |
-|| ✅ 抖音 | Playwright RPA，图文/视频发布 |
-|| ✅ 小红书 | Playwright RPA，标题+正文+标签 |
-|| ✅ 视频号 | Playwright RPA，视频/图文发布 |
-|| ✅ 快手 | Playwright RPA，视频/图文发布 |
-|| ❌ 不包含 | 掘金、CSDN（由 PROJECT-002 负责）、内容创作（由 PROJECT-001 负责） |
+||| ✅ 微信公众号 | 使用 Playwright RPA，支持草稿编辑 → 群发 |
+||| ✅ 知乎 | Playwright RPA，文章发布 + 话题标签 |
+||| ✅ 微博 | Playwright RPA，图文发布 |
+||| ✅ 抖音 | Playwright RPA，图文/视频发布 |
+||| ✅ 小红书 | Playwright RPA，标题+正文+标签 |
+||| ✅ 视频号 | Playwright RPA，视频/图文发布 |
+||| ✅ 快手 | Playwright RPA，视频/图文发布 |
+||| ✅ 今日头条 | Playwright RPA，图文/视频发布 |
+||| ✅ YouTube | Playwright RPA，视频发布 |
+||| ✅ TikTok | Playwright RPA，视频发布 |
+||| ✅ B站 | API+RPA 双模式，专栏/视频发布 |
+||| ✅ 不包含 | 掘金、CSDN（由 PROJECT-002 负责）、内容创作（由 PROJECT-001 负责） |
 
 ---
 
@@ -42,16 +46,17 @@
 
 | 平台 | 优先级 | 技术路线 | 状态 |
 |------|--------|----------|------|
-| **微信公众号** | P0 | Playwright RPA | ✅ v1.0.0 已实现 |
-| **知乎** | P1 | Playwright RPA | ✅ v1.0.0 已实现 |
-| **微博** | P2 | Playwright RPA | ✅ v1.0.0 已实现 |
-| **抖音** | P2 | Playwright RPA | ✅ v1.0.0 已实现（图文+视频） |
-| **小红书** | P4 | Playwright RPA | ✅ v1.0.0 已实现 |
-| **视频号** | P1 | Playwright RPA | ✅ v1.0.2 已实现（视频+图文） |
-| **快手** | P1 | Playwright RPA | ✅ v1.0.2 已实现（视频+图文） |
-| **今日头条** | P1 | Playwright RPA | ✅ v1.0.3 已实现（图文+视频） |
-| **YouTube** | P1 | Playwright RPA | ✅ v1.0.3 已实现（视频） |
-| **TikTok** | P1 | Playwright RPA | ✅ v1.0.3 已实现（视频） |
+| **微信公众号** | P0 | Playwright RPA | ✅ v1.0.0 |
+| **知乎** | P1 | Playwright RPA | ✅ v1.0.0 |
+| **微博** | P2 | Playwright RPA | ✅ v1.0.0 |
+| **抖音** | P2 | Playwright RPA | ✅ v1.0.0 |
+| **小红书** | P4 | Playwright RPA | ✅ v1.0.0 |
+| **视频号** | P1 | Playwright RPA | ✅ v1.0.2 |
+| **快手** | P1 | Playwright RPA | ✅ v1.0.2 |
+| **今日头条** | P1 | Playwright RPA | ✅ v1.0.3 |
+| **YouTube** | P1 | Playwright RPA | ✅ v1.0.3 |
+| **TikTok** | P1 | Playwright RPA | ✅ v1.0.3 |
+| **B站** | P1 | API+RPA 双模式 | ✅ v1.0.13 |
 
 ### 2.2 技术路线
 
@@ -68,70 +73,96 @@
 | 子功能 | 描述 | 状态 |
 |--------|------|------|
 | 添加平台 | 选择平台类型，打开浏览器窗口完成登录 | ✅ |
-| Cookie 加密 | 所有 Cookie 文件加密存储（AES-256） | ✅ |
+| Cookie 加密 | 所有 Cookie AES-256-GCM 加密存储 | ✅ |
 | 登录状态检测 | 定期检测 Cookie 是否过期，支持一键重新登录 | ✅ |
-| 多账号支持 | 同一平台管理多个账号 | ✅ |
+| 多账号支持 | **同平台管理多个账号**，侧栏下拉切换，发布时选账号 | ✅ |
+| 默认账号 | 每个平台可设默认账号，发布时自动使用 | ✅ |
+| 扫码登录 | 微信生态平台二维码自动检测+扫码登录（img/canvas 策略） | ✅ |
+| OAuth 2.0 认证 | YouTube/TikTok/微博/抖音 API Token 授权 | ✅ |
+| 内嵌浏览器登录 | WebContentsView 内嵌登录，无需弹出独立窗口 | ✅ |
 
 #### F2：内容发布
 
 | 子功能 | 描述 | 状态 |
 |--------|------|------|
-| 单篇发布 | 手动输入标题 + 内容 → 选择平台 → 发布 | ✅ |
+| 单篇发布 | 手动输入标题 + 内容 → 选择平台 + 账号 → 发布 | ✅ |
 | 批量发布 | 选择多平台 → 一次点击全部发布 | ✅ |
+| **多账号同时发** | **同平台选多个账号，一次发到所有账号** | ✅ |
 | 定时发布 | 设置发布时间 → 后台定时任务执行（持久化，重启恢复） | ✅ |
 | 富文本编辑器 | Quill 编辑器，支持格式、图片、排版 | ✅ |
+| 批量编辑模式 | 多篇文章同时编辑，每篇独立选平台+定时 | ✅ |
+| 批量复制 | 复制已有文章作为模板 | ✅ |
 
 #### F3：发布任务管理
 
 | 子功能 | 描述 | 状态 |
 |--------|------|------|
-| 任务队列 | 顺序执行 + 自动重试（可配置次数 2 次） | ✅ |
+| 任务队列 | 并发3任务执行 + 自动重试（可配置） | ✅ |
+| 任务中断恢复 | 进程崩溃后恢复未完成队列（JSON 持久化） | ✅ |
+| 任务取消 | 取消等待中或执行中的任务 | ✅ |
 | 实时进度 | IPC 推送发布进度（当前阶段/结果/错误） | ✅ |
-| 结果通知 | 成功/失败通知，失败原因记录 | ✅ |
+| 结果通知 | 成功/失败通知 + 托盘闪烁告警 | ✅ |
 | 重试机制 | 失败自动重试，通知重试进度 | ✅ |
 
-#### F4：发布历史与统计
+#### F4：分屏监控
 
 | 子功能 | 描述 | 状态 |
 |--------|------|------|
-| 历史记录 | JSONL 文件持久化，记录每次发布详情 | ✅ |
+| 多分屏布局 | 2/3/4/6 分屏实时监控多平台 | ✅ |
+| 独立 Session | 每个 tab 独立 Cookie/Session 隔离 | ✅ |
+| 实时回调 | HTTP POST 回调服务器（:16521），59s 心跳 | ✅ |
+| 评论/数据监控 | 回调记录自动写入 SQLite，前端实时展示 | ✅ |
+
+#### F5：内容采集
+
+| 子功能 | 描述 | 状态 |
+|--------|------|------|
+| 剪贴板导入 | 从剪贴板粘贴内容，自动提取标题+正文 | ✅ |
+| URL 内容采集 | 输入链接自动提取 og:title/description/image | ✅ |
+| 浏览器渲染采集 | HTTP 失败自动降级为 Playwright 渲染 | ✅ |
+| 草稿箱 | 保存/编辑/删除草稿，一键跳转到发布页 | ✅ |
+
+#### F6：发布历史与统计
+
+| 子功能 | 描述 | 状态 |
+|--------|------|------|
+| 历史记录 | SQLite 持久化发布历史 | ✅ |
 | 统计看板 | 总发布数、各平台分布、成功率、趋势图 | ✅ |
-| 历史筛选 | 按平台/时间/状态筛选历史记录 | ✅ |
-| 详情查看 | 查看单次发布的完整信息 | ✅ |
+| 历史筛选 | 按平台/时间/状态筛选 | ✅ |
+| 发布后监控 | 发布完成后自动轮询平台审核状态 | ✅ |
 
-#### F5：自动更新
-
-| 子功能 | 描述 | 状态 |
-|--------|------|------|
-| 更新检测 | 启动时自动检查 GitHub Release 新版本 | ✅ |
-| 后台下载 | 发现新版本自动下载安装包 | ✅ |
-| 静默安装 | 下载完毕后提示重启安装 | ✅ |
-
-#### F6：首次运行引导
+#### F7：数据存储（SQLite）
 
 | 子功能 | 描述 | 状态 |
 |--------|------|------|
-| Python 依赖自动安装 | 检测 pip + requirements-runtime.txt 并安装 | ✅ |
-| Playwright 浏览器检测 | 自动检测是否已安装 Chromium | ✅ |
-| 安装进度 UI | 显示依赖安装进度条 | ✅ |
+| 账号存储 | accounts 表（含多账号、默认标记） | ✅ |
+| 发布历史 | publish_history 表 | ✅ |
+| 定时任务 | scheduled_tasks 表 | ✅ |
+| 回调日志 | callback_logs 表 | ✅ |
+| 批量任务 | batch_jobs 表 | ✅ |
+| 设置存储 | settings 键值表（含队列状态持久化） | ✅ |
 
-#### F7：PROJECT-001 集成
+#### F8：系统功能
 
 | 子功能 | 描述 | 状态 |
 |--------|------|------|
-| Aggregator Bridge | 接收 PROJECT-001 内容聚合器的文章推送 | ✅ |
-| 自动发布 | 收到文章后自动加入任务队列批量发布 | ✅ |
+| 系统托盘 | 最小化到托盘，后台运行，托盘菜单 | ✅ |
+| 全局快捷键 | 6组快捷键：发布/监控/看板/采集/首页/退出 | ✅ |
+| 自动更新 | 启动检测 GitHub Release，后台下载静默安装 | ✅ |
+| 首次运行引导 | 自动检测 Python/Playwright 依赖 | ✅ |
+| 数据迁移 | JSONL → SQLite 迁移 | ✅ |
 
 ### 3.2 非功能需求
 
-| 需求 | 指标 | 状态 |
-|------|------|------|
-| 并发发布 | 支持同时发布到 5 个平台（顺序执行） | ✅ |
-| 数据加密 | Cookie 文件 AES-256 加密存储 | ✅ |
-| 发布历史 | JSONL 持久化，按平台/时间可追溯 | ✅ |
-| 跨平台 | Windows + Linux | ✅ |
-| 自动构建 | GitHub Actions 双平台 CI | ✅ |
-| 自动更新 | electron-updater，从 GitHub Release 拉取 | ✅ |
+|| 需求 | 指标 | 状态 |
+||------|------|------|
+|| 并发发布 | 3 任务并发执行（maxConcurrent=3） | ✅ |
+|| 任务持久化 | SQLite 持久化队列状态，崩溃自动恢复 | ✅ |
+|| 数据加密 | Cookie AES-256-GCM 加密存储 | ✅ |
+|| 存储引擎 | SQLite（better-sqlite3） | ✅ |
+|| 跨平台 | Windows + Linux（macOS 待支持） | ✅ |
+|| 自动构建 | GitHub Actions 双平台 CI + 自动 Release | ✅ |
+|| 自动更新 | electron-updater，从 GitHub Release 拉取 | ✅ |
 
 ---
 
@@ -143,35 +174,51 @@
 ┌──────────────────────────────────────────────────┐
 │              apps/desktop/electron/               │
 │              Electron Shell + Vue 3 UI            │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
-│  │ 发布界面   │  │ 账号管理  │  │ 统计看板  │       │
-│  └─────┬────┘  └────┬─────┘  └─────┬────┘       │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐
+│  │ 发布界面   │  │ 账号管理  │  │ 统计看板  │  │ 采集/监控  │
+│  └─────┬────┘  └────┬─────┘  └─────┬────┘  └──────┬────┘
 │        │            │              │              │
-│  ┌─────┴────────────┴──────────────┴─────┐       │
-│  │        IPC Bridge (preload.js)        │       │
-│  └────────────────┬──────────────────────┘       │
-│                   │                              │
-│  ┌────────────────┼──────────────────────┐       │
-│  │    Task Queue  │    Scheduler         │       │
-│  │  @multi-publish/shared-utils          │       │
-│  └────────────────┴──────────────────────┘       │
-│                   │                              │
-│  ┌────────────────┴──────────────────────┐       │
-│  │     Publisher Registry                  │       │
-│  │   10 platforms (WeChat|Zhihu|Weibo...)  │       │
-│  └────────────────┴──────────────────────┘       │
-│                   │                              │
-│  ┌────────────────┴──────────────────────┐       │
-│  │   @multi-publish/rpa-engine            │       │
-│  │   Playwright RPA Engine                │       │
-│  │   + Python Backend (:8299)             │       │
-│  └───────────────────────────────────────┘       │
-│                                                   │
-│  ┌──────────────────────────────────────┐        │
-│  │  Publish History (JSONL)             │        │
-│  │  Aggregator Bridge (001 集成)         │        │
-│  │  Auto Updater (electron-updater)     │        │
-│  └──────────────────────────────────────┘        │
+│  ┌─────┴────────────┴──────────────┴─────┐
+│  │        IPC Bridge (preload.js)        │
+│  └────────────────┬──────────────────────┘
+│                   │
+│  ┌────────────────┼──────────────────────┐
+│  │    Task Queue  │   Scheduler          │
+│  │  (并发3,持久化)  │  (定时/恢复)          │
+│  │  @shared-utils                        │
+│  └────────────────┴──────────────────────┘
+│                   │
+│  ┌────────────────┴──────────────────────┐
+│  │     Publisher Registry                 │
+│  │   11 platforms (+B站)                  │
+│  │   + API+RPA 双模式                     │
+│  │   + OAuth 2.0 (YT/TT)                 │
+│  └────────────────┴──────────────────────┘
+│                   │
+│  ┌────────────────┴──────────────────────┐
+│  │   Playwright RPA Engine               │
+│  │   + WebviewManager（分屏）             │
+│  │   + QrCodeLogin（扫码登录）            │
+│  │   + CallbackServer（回调 :16521）      │
+│  └───────────────────────────────────────┘
+│
+│  ┌──────────────────────────────────────┐
+│  │  SQLite (better-sqlite3)             │
+│  │  ├─ accounts（含多账号）               │
+│  │  ├─ publish_history                  │
+│  │  ├─ scheduled_tasks                  │
+│  │  ├─ batch_jobs                       │
+│  │  ├─ callback_logs                    │
+│  │  └─ settings（队列持久化）              │
+│  └──────────────────────────────────────┘
+│
+│  ┌──────────────────────────────────────┐
+│  │  System / UX                         │
+│  │  ├─ SystemTray（托盘）                │
+│  │  ├─ HotKeys（6组快捷键）               │
+│  │  ├─ AutoUpdater                      │
+│  │  └─ UrlCollector（URL采集）            │
+│  └──────────────────────────────────────┘
 └──────────────────────────────────────────────────┘
 ```
 
@@ -183,36 +230,49 @@ multi-publish/
 │   ├── electron/                # Electron 主进程 + IPC
 │   │   ├── main.js              # 入口：窗口管理、IPC 注册
 │   │   ├── preload.js           # 预加载脚本（contextBridge）
+│   │   ├── store.js             # SQLite 统一存储（better-sqlite3）
+│   │   ├── webview-manager.js   # 分屏监控（P0）
+│   │   ├── callback-server.js   # 实时回调（P1）
+│   │   ├── qrcode-login.js      # 扫码登录（P2）
+│   │   ├── oauth-manager.js     # OAuth 2.0 认证
+│   │   ├── batch-manager.js     # 批量发布管理器
+│   │   ├── url-collector.js     # URL 内容采集
+│   │   ├── hotkeys.js           # 全局快捷键
+│   │   ├── system-tray.js       # 系统托盘
 │   │   ├── python-bridge.js     # Python 后端子进程管理
-│   │   ├── playwright-manager.js → packages/rpa-engine
 │   │   ├── task-queue.js → packages/shared-utils
-│   │   ├── scheduler.js         # 定时发布（路径注入）
-│   │   ├── publish-history.js   # 发布记录（路径注入）
-│   │   ├── cookie-store.js → packages/rpa-engine
-│   │   ├── aggregator-bridge.js → packages/shared-utils
+│   │   ├── scheduler.js         # 定时发布
+│   │   ├── publish-history.js   # 发布记录
+│   │   ├── publish-monitor.js   # 发布后状态监控
+│   │   ├── account-state-restorer.js  # 账号状态恢复
+│   │   ├── credential-store.js  # 凭证加密存储
+│   │   ├── video-uploader.js    # 视频分片上传
+│   │   ├── content-aggregator-bridge.js  # 001 集成
+│   │   ├── api-platform-adapter.js  # API 模式适配器
 │   │   ├── auto-updater.js      # electron-updater
-│   │   ├── first-run.js         # 首次运行引导
-│   │   └── publishers/          # 账号管理 + 发布器注册
-│   │       └── account-manager.js
+│   │   └── first-run.js         # 首次运行引导
 │   ├── src/                     # Vue 3 前端
-│   │   ├── views/               # 页面：Home/Dashboard/Publish/Accounts/FirstRun
+│   │   ├── views/               # 页面：Home/Dashboard/Publish/Accounts/Collection/Monitor/FirstRun
 │   │   ├── components/          # 组件：ArticleEditor
+│   │   ├── api/                 # API 封装（publisher.js）
 │   │   ├── router/              # Vue Router
 │   │   ├── styles/              # Cohere 风格 CSS
 │   │   └── App.vue
-│   ├── vite.config.js           # Vite 构建
-│   └── package.json
 ├── packages/
 │   ├── rpa-engine/              # RPA 引擎（独立 npm 包）
-│   │   ├── src/playwright-manager.js  # 浏览器管理（去 Electron 化）
-│   │   ├── src/cookie-store.js        # Cookie 加密存储
-│   │   ├── src/publishers/            # 10 个平台发布器
+│   │   ├── src/playwright-manager.js  # 浏览器管理
+│   │   ├── src/cookie-store.js        # Cookie 存储
+│   │   ├── src/publishers/            # 11 个平台发布器
 │   │   │   ├── base-rpa-publisher.js  # 基类
 │   │   │   ├── registry.js            # 平台注册
-│   │   │   └── {wechat_mp|zhihu|...}.js
+│   │   │   └── {wechat-mp|zhihu|...|bilibili}.js
 │   │   └── package.json
-│   ├── shared-utils/          # 共享工具库（独立 npm 包）
-│   │   ├── src/task-queue.js    # 任务队列（顺序+重试）
+│   ├── shared-utils/          # 共享工具库
+│   │   ├── src/task-queue.js    # 任务队列（并发3+持久化）
+│   │   ├── src/aggregator-bridge.js  # 001 集成
+│   │   ├── src/format-adapter.js     # 格式适配器
+│   │   ├── src/cover-processor.js    # 封面处理
+│   │   └── package.json
 │   │   ├── src/aggregator-bridge.js  # PROJECT-001 集成
 │   │   └── package.json
 │   └── python-backend/        # Python 后端（FastAPI）
@@ -336,18 +396,30 @@ Task Queue → 各平台发布器 → 发布完成
 
 ## 十、验收标准
 
-### v1.0.7 验收（当前）
+### v1.0.13 验收（当前）
 
-- [x] 10 个平台账号管理（添加/删除/登录状态检测）
-- [x] 单篇/批量发布到多平台
-- [x] 定时发布（持久化 + 重启恢复）
-- [x] 发布历史可查看、可筛选
-- [x] 统计看板数据正确
-- [x] 首次运行自动安装 Python 依赖 + Playwright
-- [x] 自动更新（electron-updater + GitHub Release）
-- [x] Cookie AES-256 加密存储
-- [x] PROJECT-001 集成（Aggregator Bridge）
-- [x] Monorepo 结构（apps/desktop + packages/rpa-engine + packages/shared-utils + packages/python-backend）
+- [x] **11 个平台**：微信/知乎/微博/抖音/小红书/视频号/快手/头条/YouTube/TikTok/**B站**
+- [x] **多账号同平台**：侧栏切换 + 发布时选账号 + 同平台多账号同时发
+- [x] **分屏监控**：2/3/4/6 分屏实时监控，独立 Session
+- [x] **实时回调服务器**：HTTP POST 回调（:16521），自动记录到 SQLite
+- [x] **二维码扫码登录**：3 策略自动检测（img/canvas/轮询）
+- [x] **OAuth 2.0 认证**：YouTube/TikTok/微博/抖音
+- [x] **SQLite 统一存储**：6 表（账号/历史/定时/回调/批量/配置）
+- [x] **批量发布增强**：批量编辑/排期/复制，多账号同时发
+- [x] **URL 内容采集**：HTTP+浏览器双模式，og:meta 提取，一键创建草稿
+- [x] **并发 3 任务 + 崩溃恢复**：maxConcurrent=3，State 持久化 + 自动恢复
+- [x] **系统托盘**：最小化到托盘，托盘菜单
+- [x] **全局快捷键**：6 组 Ctrl+Alt+... 导航快捷键
+- [x] **发布后状态监控**：自动轮询平台审核状态
+- [x] **单篇/批量发布到多平台 + 多账号**
+- [x] **定时发布**（持久化 + 重启恢复）
+- [x] **富文本编辑器**（Quill）
+- [x] **发布历史 + 统计看板**
+- [x] **首次运行自动安装依赖**
+- [x] **自动更新**（electron-updater + GitHub Release）
+- [x] **Cookie AES-256-GCM 加密存储**
+- [x] **Monorepo**（apps/desktop + packages/*）
+- [x] **CI/CD**：GitHub Actions 自动构建 + 自动 Release
 - [ ] Pending: 端到端测试（需真实账号凭证）
 - [ ] Pending: 首个正式版 Release（v1.1.0）
 
@@ -361,11 +433,8 @@ Task Queue → 各平台发布器 → 发布完成
 
 | 阶段 | 内容 | 状态 |
 |------|------|------|
-| P0：Electron 骨架 + 微信发布 | 桌面应用框架、微信 RPA | ✅ |
-| P1：知乎 + 任务队列 + 多账号 | 知乎 RPA、富文本编辑器 | ✅ |
-| P2：微博 + 抖音 + 001 集成 + 打包 | 微博/抖音 RPA、Aggregator Bridge、Electron 打包 | ✅ |
-| P3：定时发布 + 群发 + 历史 | 定时调度、发布历史、统计看板 | ✅ |
-| P4：小红书 + 自动更新 | 小红书 RPA、electron-updater | ✅ |
+| P0-P3 | 基础发布 + 任务队列 + 定时 + 统计 | ✅ |
+| **蚁小二集成** | 分屏/回调/扫码/OAuth/SQLite/批量/B站/URL采集/托盘/快捷键/多账号 | ✅ |
 | **V1.0 发布** | 首版 Release、运营启动 | ⏳ 待进行 |
 | V1.1 格式适配 | Markdown → 各平台格式转换、封面图自动处理 | 📅 Phase 2 |
 | V2.0 商业版 | 定价策略、高级功能分离 | 📅 规划中 |

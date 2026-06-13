@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.0.13] - 2026-06-13
+
+### Added — 蚁小二逆向工程集成（全部 17 个模块）
+
+- **分屏监控** (WebviewManager) — 2/3/4/6 分屏实时监控，独立 Session/Cookie
+- **实时回调服务器** (CallbackServer) — HTTP POST 回调 + 59s 心跳，端口 16521
+- **扫码登录** (QrCodeLogin) — 3 策略自动检测微信生态平台二维码（img/canvas/轮询）
+- **OAuth 2.0 认证** (OAuthManager) — YouTube/TikTok/微博/抖音 API Token 授权
+- **SQLite 统一存储** (Store) — better-sqlite3，替代零散 JSONL，6 表
+- **批量发布管理器** (BatchManager) — 批量编辑/排期/复制
+- **URL 内容采集** (UrlCollector) — HTTP(Cheerio)+浏览器(Playwright)双模式，og:meta 提取
+- **系统托盘** (SystemTray) — 最小化到托盘，托盘菜单，闪烁告警
+- **全局快捷键** (HotKeys) — 6 组 Ctrl+Alt+P/M/D/C/H/Q
+- **B站发布器** (BiliBiliPublisher) — API+RPA 双模式，专栏/视频发布
+- **发布后状态监控** (PublishMonitor) — 自动轮询平台审核状态
+- **并发 3 任务 + 崩溃恢复** — maxConcurrent=3，serialize()/deserialize() 持久化
+- **任务取消** — cancel() 支持等待中/执行中任务
+- **多账号同平台切换** — Store + App.vue 侧栏下拉 + Publish.vue 发布时选账号
+- **多账号同时发布** — 同平台选不同账号，一次发到多个账号
+- **Accounts.vue 重写** — 按平台分组、默认标记、可编辑账号名、状态指示灯
+
+### Fixed
+
+- system-tray.js 重复 fs require 导致打包失败
+- main.js 重复 minimize handler 冲突
+- bilibili-rpa.js CSRF Token 提取按规范取后 16 位
+- url-collector.js playwright-manager require 路径错误
+- batch-manager.js async/await 未处理异常
+- test_wechat_publisher.py MockResponse URL 匹配优先级 bug
+- 各模块 require 路径验证通过
+
+### Changed
+
+- PRD 全面更新：11 平台矩阵、新版功能架构、新版验收标准
+- AGENTS.md 同步新增模块清单
+- CI auto-tag：构建成功后自动 bump patch + tag + release
+- task-queue executor 自动加载账号 Cookie
+- publish:batch IPC 支持 tasks[{platform,accountId}] 新格式
+
 ## [v1.0.7] - 2026-06-11
 
 ### Refactored
