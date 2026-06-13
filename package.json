@@ -21,6 +21,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "electron": "^33.4.0"
+    "electron": "^33.4.0",
+    "app-builder-bin": "5.0.0-alpha.10"
   }
 }
