@@ -46,7 +46,8 @@
       "output": "dist-electron"
     },
     "electronVersion": "33.4.11",
-    "files": [
+        "npmRebuild": false,
+        "files": [
       "dist/**/*",
       "electron/**/*",
       "node_modules/**/*",

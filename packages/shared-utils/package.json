@@ -8,6 +8,7 @@
     "test": "node --experimental-vm-modules $(which jest || echo 'npx jest')"
   },
   "dependencies": {
+    "js-yaml": "^4.2.0",
     "sharp": "^0.35.1"
   }
 }
