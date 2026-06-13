@@ -118,10 +118,29 @@
               <div class="cohere-form-label">发布目标</div>
               <el-checkbox-group v-model="selectedPlatforms">
                 <div v-for="p in platforms" :key="p.id" style="margin-bottom:10px">
-                  <el-checkbox :label="p.id" :disabled="p.disabled">
-                    <span style="margin-left:6px">{{ p.label }}</span>
-                    <span v-if="p.tag" class="cohere-tag" :class="p.tagClass" style="margin-left:8px">{{ p.tag }}</span>
-                  </el-checkbox>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <el-checkbox :label="p.id" :disabled="p.disabled">
+                      <span style="margin-left:6px">{{ p.label }}</span>
+                    </el-checkbox>
+                    <!-- 账号选择器（平台勾选后才显示） -->
+                    <template v-if="selectedPlatforms.includes(p.id)">
+                      <template v-if="getAccounts(p.id).length > 0">
+                        <select
+                          class="publish-account-select"
+                          :value="selectedAccounts[p.id] || ''"
+                          @change="selectedAccounts[p.id] = $event.target.value"
+                          @click.stop
+                        >
+                          <option
+                            v-for="a in getAccounts(p.id)"
+                            :key="a.id"
+                            :value="a.id"
+                          >{{ a.name || a.id?.slice(0,8) }}</option>
+                        </select>
+                      </template>
+                      <span v-else style="font-size:11px;color:var(--coral)">请先添加账号</span>
+                    </template>
+                  </div>
                 </div>
               </el-checkbox-group>
               <div class="cohere-divider"></div>
@@ -167,23 +186,79 @@ const route = useRoute()
 const platforms = [
   { id: 'wechat_mp', label: '微信公众号', tag: null, tagClass: '' },
   { id: 'zhihu', label: '知乎', tag: null, tagClass: '' },
-  { id: 'weibo', label: '微博', tag: '新增', tagClass: 'cohere-tag-success' },
-  { id: 'douyin', label: '抖音', tag: '新增', tagClass: 'cohere-tag-success' },
-  { id: 'xiaohongshu', label: '小红书', tag: '新增', tagClass: 'cohere-tag-warning' },
-  { id: 'tencent_video', label: '视频号', tag: '新', tagClass: 'cohere-tag-info' },
-  { id: 'kuaishou', label: '快手', tag: '新', tagClass: 'cohere-tag-success' },
-  { id: 'toutiao', label: '今日头条', tag: '新', tagClass: 'cohere-tag-success' },
-  { id: 'youtube', label: 'YouTube', tag: '新', tagClass: 'cohere-tag-success' },
-  { id: 'tiktok', label: 'TikTok', tag: '新', tagClass: 'cohere-tag-success' },
+  { id: 'weibo', label: '微博', tag: null, tagClass: '' },
+  { id: 'douyin', label: '抖音', tag: null, tagClass: '' },
+  { id: 'xiaohongshu', label: '小红书', tag: null, tagClass: '' },
+  { id: 'tencent_video', label: '视频号', tag: null, tagClass: '' },
+  { id: 'kuaishou', label: '快手', tag: null, tagClass: '' },
+  { id: 'toutiao', label: '今日头条', tag: null, tagClass: '' },
+  { id: 'bilibili', label: 'B站', tag: '新', tagClass: 'cohere-tag-success' },
+  { id: 'youtube', label: 'YouTube', tag: null, tagClass: '' },
+  { id: 'tiktok', label: 'TikTok', tag: null, tagClass: '' },
 ]
+
+// ── 多账号加载 ──────────────────────────
+const platformAccounts = ref({})  // { platformId: [account, ...] }
+
+async function loadAccounts () {
+  const api = window.electronAPI
+  if (!api || !api.accountList) return
+  try {
+    const res = await api.accountList()
+    if (res.code === 0 && Array.isArray(res.data)) {
+      const grouped = {}
+      for (const acc of res.data) {
+        if (!grouped[acc.platform]) grouped[acc.platform] = []
+        grouped[acc.platform].push(acc)
+      }
+      platformAccounts.value = grouped
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function getAccounts (platformId) {
+  return platformAccounts.value[platformId] || []
+}
+
+function getDefaultAccount (platformId) {
+  const accs = getAccounts(platformId)
+  if (accs.length === 0) return null
+  return accs.find(a => a.is_default) || accs[0]
+}
 
 // ── 非批量模式 ──────────────────────────
 const selectedPlatforms = ref(['wechat_mp'])
+const selectedAccounts = ref({})  // { platformId: accountId }
 const publishing = ref(false)
 const progress = ref([])
 const result = ref(null)
 
 const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '' })
+
+// 同步 selectedAccounts 默认值
+watch(selectedPlatforms, (newPlatforms, oldPlatforms) => {
+  for (const pid of newPlatforms) {
+    if (!selectedAccounts.value[pid]) {
+      const def = getDefaultAccount(pid)
+      if (def) selectedAccounts.value[pid] = def.id
+    }
+  }
+  // 清理已移除平台的账号
+  for (const pid of Object.keys(selectedAccounts.value)) {
+    if (!newPlatforms.includes(pid)) {
+      delete selectedAccounts.value[pid]
+    }
+  }
+}, { deep: true })
+
+function togglePlatform (platformId) {
+  const idx = selectedPlatforms.value.indexOf(platformId)
+  if (idx === -1) {
+    selectedPlatforms.value.push(platformId)
+  } else {
+    selectedPlatforms.value.splice(idx, 1)
+  }
+}
 
 const hasVideoPlatforms = computed(() =>
   selectedPlatforms.value.some(p => ['douyin', 'tencent_video', 'kuaishou'].includes(p))
@@ -203,8 +278,13 @@ async function handlePublish () {
   const off = onProgress((data) => addProgress(`[${data.platform}] ${data.stage}`))
   try {
     const data = { title: article.title, content: article.content, author: article.author || '', cover_url: article.cover_url || '', video_path: article.video_path || '' }
-    addProgress(`批量发布到 ${selectedPlatforms.value.length} 个平台...`, 'info')
-    const res = await publishBatch(selectedPlatforms.value, data)
+    // 构建带 accountId 的平台列表
+    const targets = selectedPlatforms.value.map(pid => ({
+      platform: pid,
+      accountId: selectedAccounts.value[pid] || null,
+    }))
+    addProgress(`发布到 ${targets.length} 个目标（含多账号）...`, 'info')
+    const res = await publishBatch(targets, data)
     if (res.code === 0) { addProgress(`✓ 已添加 ${res.data?.taskIds?.length || ''} 个任务`, 'success'); result.value = { success: true, message: res.message || '任务已加入队列', url: '' } }
     else { addProgress(`✗ 发布失败: ${res.message}`, 'danger'); result.value = { success: false, message: res.message } }
   } catch (e) { addProgress(`✗ 错误: ${e.message}`, 'danger'); result.value = { success: false, message: e.message } }
@@ -297,6 +377,12 @@ watch(batchMode, (val) => {
 
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
+  await loadAccounts()  // 加载多账号列表
+  // 初始化默认选中账号
+  for (const pid of selectedPlatforms.value) {
+    const def = getDefaultAccount(pid)
+    if (def) selectedAccounts.value[pid] = def.id
+  }
   const draftId = route.query.draft
   if (!draftId) return
 
@@ -314,3 +400,20 @@ onMounted(async () => {
   ElMessage.success('已加载草稿')
 })
 </script>
+
+<style scoped>
+.publish-account-select {
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--border, #e0e0e0);
+  border-radius: 4px;
+  background: var(--soft-stone, #f5f5f5);
+  color: var(--text-primary, #333);
+  cursor: pointer;
+  max-width: 120px;
+  outline: none;
+}
+.publish-account-select:hover {
+  border-color: var(--coral, #f56c6c);
+}
+</style>

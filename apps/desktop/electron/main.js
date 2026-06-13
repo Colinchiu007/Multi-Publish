@@ -246,8 +246,20 @@ ipcMain.handle('publish:wechat', async (event, articleData) => {
 })
 
 ipcMain.handle('publish:batch', async (event, { platforms, article }) => {
-  const taskIds = taskQueue.addBatch(platforms, article)
-  return { code: 0, data: { taskIds }, message: `已添加 ${platforms.length} 个任务` }
+  // 支持两种格式：
+  //   旧: { platforms: ['wechat_mp'], article: {...} }
+  //   新: { platforms: [{platform:'wechat_mp', accountId:'xxx'}], article: {...} }
+  const isObj = platforms && platforms.length > 0 && typeof platforms[0] === 'object'
+  const taskIds = platforms.map(p => {
+    const platform = isObj ? p.platform : p
+    const accountId = isObj ? p.accountId : null
+    return taskQueue.add({
+      platform,
+      article: { ...(article || {}), accountId },
+      accountId,
+    })
+  })
+  return { code: 0, data: { taskIds }, message: `已添加 ${taskIds.length} 个任务` }
 })
 
 // 队列 IPC

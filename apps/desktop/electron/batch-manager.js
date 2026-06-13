@@ -63,14 +63,19 @@ class BatchManager {
 
       for (const platform of article.platforms) {
         try {
+          // platform 可能是字符串或 {platform, accountId} 对象
+          const platformId = typeof platform === 'object' ? platform.platform : platform
+          const accountId = typeof platform === 'object' ? (platform.accountId || null) : null
+
           const taskId = _taskQueue.add({
-            platform,
+            platform: platformId,
             article: {
               title: article.title,
               content: article.content,
               author: article.author || '',
               cover_url: article.cover_url || '',
               video_path: article.video_path || '',
+              accountId,
             },
             batchId,
             retry: 2,
