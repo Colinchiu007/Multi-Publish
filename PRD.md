@@ -57,6 +57,7 @@
 | **YouTube** | P1 | Playwright RPA | ✅ v1.0.3 |
 | **TikTok** | P1 | Playwright RPA | ✅ v1.0.3 |
 | **B站** | P1 | API+RPA 双模式 | ✅ v1.0.13 |
+| **百家号** | P1 | Playwright RPA | ✅ v1.1.0 |
 
 ### 2.2 技术路线
 
