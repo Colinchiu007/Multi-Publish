@@ -22,21 +22,26 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+
+      # Linux 需要 libvips（sharp 依赖）和 C++ 编译工具（better-sqlite3）
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libvips libvips-dev build-essential python3
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
-      - name: Install electron & builder (with rebuild)
+      - name: Install Electron & rebuild native modules
         run: |
           cd apps/desktop
           npm install electron@33.4.0
           npm install electron-builder@25.1.8
-          npm install better-sqlite3
-          npm rebuild electron-builder
+          npx @electron/rebuild
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
@@ -52,7 +57,6 @@ jobs:
           path: apps/desktop/dist-electron/Multi-Publish*.exe
           retention-days: 30
 
-  # 自动打 tag — 每次 main 构建成功后自动 bump patch 版本 + 打 tag
   auto-tag:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: [build]
@@ -95,7 +99,6 @@ jobs:
           git tag "v${{ steps.bump.outputs.new_version }}"
           git push origin "v${{ steps.bump.outputs.new_version }}"
 
-  # Release — 标签触发，发布到 GitHub Releases
   release:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [build]
@@ -117,7 +120,6 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          # 从 CHANGELOG.md 提取对应版本的更新日志
           if [ -f CHANGELOG.md ]; then
             NOTES=$(awk "/^## v${VERSION}/,/^## /" CHANGELOG.md | head -n -1)
             echo "notes<<EOF" >> $GITHUB_OUTPUT
