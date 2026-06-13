@@ -47,6 +47,7 @@ jobs:
 
       # 安装 Playwright Chromium 并捆绑到安装包（避免离线用户无法下载）
       - name: Install Playwright chromium (bundled)
+        shell: bash
         run: |
           cd apps/desktop
           mkdir -p .playwright-browsers
@@ -94,7 +95,7 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
           if [ -f CHANGELOG.md ]; then
-            NOTES=$(awk "/^## \\[v${VERSION}\\]/,/^## /" CHANGELOG.md | head -n -1)
+            NOTES=$(awk "/^## \\\\[v${VERSION}\\\\]/,/^## /" CHANGELOG.md | head -n -1)
             echo "notes<<EOF" >> $GITHUB_OUTPUT
             echo "$NOTES" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
