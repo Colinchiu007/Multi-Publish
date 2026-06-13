@@ -32,12 +32,18 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libvips libvips-dev build-essential python3
 
-      # npm ci 触发所有 postinstall（electron、electron-builder、sharp 等都需要 postinstall 下载二进制）
       - name: Install dependencies
         run: npm ci
 
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
+
+      # 显式安装 @electron/rebuild 并重建原生模块
+      # app-builder-lib@25.1.8 缺少 remote-rebuild.js，内置 rebuilder 会失败
+      - name: Rebuild native modules
+        run: |
+          cd apps/desktop
+          npx @electron/rebuild -f -w better-sqlite3
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
