@@ -6,5 +6,8 @@
   "main": "src/index.js",
   "scripts": {
     "test": "node --experimental-vm-modules $(which jest || echo 'npx jest')"
+  },
+  "dependencies": {
+    "sharp": "^0.35.1"
   }
 }
