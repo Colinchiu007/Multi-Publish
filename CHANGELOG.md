@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.1.0] - 2026-06-13
+
+### Added — 正式版 Release
+
+- **格式适配器** (F1) — 11 平台格式转换（HTML 白名单/长度截断/#标签）
+- **封面图自动处理** (F2) — sharp 库中心裁剪+格式转换+质量自适应
+- **百家号 RPA 发布器** (F3.1) — 第 12 个平台
+- **平台 URL 配置化** (融媒宝 F1) — `config/platforms.yaml` 统一管理，PlatformConfig 加载器
+- **敏感词预检** (融媒宝 F2) — DFA 算法 + 内置开源词库，发布前自动弹窗
+- **数据同步系统** (融媒宝 F3) — 5 平台数据同步框架 + Dashboard 数据卡片
+- **评论统一管理** (融媒宝 F4) — WebContentsView 内嵌各平台评论页
+- **端到端测试** — 全部测试套件通过
+- **CI 自动 Release** — GitHub Actions auto-tag + auto-release
+
+### Changed
+
+- PRD v1.1：12 平台矩阵、新增融媒宝四阶段功能
+- platforms.yaml 统一管理平台配置，替代多处硬编码
+- rules.js/presets.js 改为从 PlatformConfig 加载
+
 ## [v1.0.13] - 2026-06-13
 
 ### Added — 蚁小二逆向工程集成（全部 17 个模块）
