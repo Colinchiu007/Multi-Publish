@@ -25,6 +25,16 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      # 让安装包文件名与 tag 版本号保持一致
+      # electron-builder 的 artifactName 模板用 package.json 的 version 字段
+      # 这里仅在 release job 触发时（v* tag）覆盖
+      - name: Sync package version with tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" apps/desktop/package.json
+          echo "📦 package version = $(node -p "require('./apps/desktop/package.json').version")"
+
       # Linux 需要 libvips（sharp 依赖）和 C++ 编译工具（better-sqlite3）
       - name: Install Linux system deps
         if: runner.os == 'Linux'
