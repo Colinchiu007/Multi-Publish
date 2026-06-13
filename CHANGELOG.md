@@ -18,6 +18,14 @@ All notable changes to this project will be documented in this file.
 - **Playwright 浏览器捆绑** — electron-builder extraResources 将 Chromium 捆入安装包，离线可用
 - **自动更新 GFW 静默** — 网络错误（超时/DNS 失败/断网）静默处理，不弹错误提示
 
+### Fixed
+
+- **CI 修复**（5 轮迭代）— electron-builder 25.1.8 内置 rebuilder 失败问题
+  - 显式声明 `app-builder-bin` 为根依赖（避免 devDep hoisting 被跳过）
+  - 单独执行 `npx @electron/rebuild -f -w better-sqlite3` + `npmRebuild: false`
+  - Windows runner Playwright 步骤强制 `shell: bash`（PowerShell 不认 ENV=val cmd）
+- **Release body 提取** — 改用 awk 显式块匹配，支持中文标题，自动附 CHANGELOG 链接
+
 ### Changed
 
 - PRD v1.1：12 平台矩阵、新增融媒宝四阶段功能

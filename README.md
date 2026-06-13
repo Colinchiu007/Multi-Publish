@@ -2,7 +2,7 @@
 
 > 多平台内容一键发布桌面工具。支持 **11 个平台** RPA 自动化发布 + 多账号切换 + 分屏监控。
 >
-> **最后更新**: 2026-06-13 | **版本**: v1.0.13
+> **最后更新**: 2026-06-13 | **版本**: v1.1.0
 
 ---
 
@@ -12,9 +12,13 @@
 
 | 方式 | 说明 |
 |------|------|
-| **下载安装包** | [GitHub Releases](https://github.com/Colinchiu007/Multi-Publish/releases) → 下载 `.exe` |
-| **自动更新** | 打开 App 后自动检测新版本（electron-updater） |
+| **GitHub 下载** | [GitHub Releases](https://github.com/Colinchiu007/Multi-Publish/releases) → 下载 `.exe` |
+| **Gitee 国内镜像** | [Gitee Releases](https://gitee.com/ColinChiu007/Multi-Publish/releases) — 国内 5MB/s |
+| **gh-proxy 加速** | `https://gh-proxy.com/https://github.com/Colinchiu007/Multi-Publish/releases/download/v1.1.0/Multi-Publish.Setup.1.1.0.exe` |
+| **自动更新** | 打开 App 后自动检测新版本（electron-updater，GFW 静默） |
 | **源码构建** | 见下方「开发」章节 |
+
+> 💡 **国内用户推荐走 Gitee**，330MB 文件从 GitHub 下载可能 2 小时，Gitee 通常 1-2 分钟。
 
 ## 🚀 首次使用
 

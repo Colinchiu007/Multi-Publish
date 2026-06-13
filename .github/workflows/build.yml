@@ -91,17 +91,32 @@ jobs:
 
       - name: Generate release notes
         id: notes
+        shell: bash
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
+          NOTES="## What's Changed in v${VERSION}"
+          NOTES="${NOTES}$(printf '\n\n')"
+          NOTES="${NOTES}Full changelog: https://github.com/${{ github.repository }}/compare/v${VERSION}...HEAD"
           if [ -f CHANGELOG.md ]; then
-            NOTES=$(awk "/^## \\\\[v${VERSION}\\\\]/,/^## /" CHANGELOG.md | head -n -1)
-            echo "notes<<EOF" >> $GITHUB_OUTPUT
-            echo "$NOTES" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "notes=Auto release v$VERSION" >> $GITHUB_OUTPUT
+            # extract from "## [vX.Y.Z]" up to next "## [" section
+            CHUNK=$(awk -v ver="$VERSION" '
+              BEGIN { capture=0 }
+              /^## \[v/ {
+                if (index($0, "v"ver"]") > 0) { capture=1; next }
+                if (capture==1) { capture=0 }
+              }
+              capture==1 { print }
+            ' CHANGELOG.md)
+            if [ -n "$CHUNK" ]; then
+              NOTES=$(printf '%s\n\n%s' "$NOTES" "$CHUNK")
+            fi
           fi
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -111,3 +126,29 @@ jobs:
           files: release-assets/*
           draft: false
           prerelease: false
+
+      # 同步 .exe 到 Gitee Release（国内加速，330MB 文件下载速度从 50KB/s → 5MB/s）
+      - name: Sync to Gitee Release
+        if: env.GITEE_TOKEN != ''
+        shell: bash
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: ColinChiu007
+          GITEE_REPO: Multi-Publish
+        run: |
+          set -e
+          TAG="${{ github.ref_name }}"
+          # 1) 确保 Gitee 仓库 release 存在
+          curl -fsS -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases" \
+            -H "Content-Type: application/json" \
+            -d "{\"access_token\":\"${GITEE_TOKEN}\",\"tag_name\":\"${TAG}\",\"name\":\"Multi-Publish ${TAG}\",\"body\":\"Gitee 镜像 — 完整内容请查看 GitHub Release: https://github.com/${GITEE_OWNER}/${GITEE_REPO}/releases/tag/${TAG}\"}" \
+            || echo "Gitee release may already exist, continuing"
+          # 2) 上传 .exe 到 Gitee release
+          for f in release-assets/*; do
+            echo "Uploading $f to Gitee..."
+            curl -fsS -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${TAG}/attach_files" \
+              -F "access_token=${GITEE_TOKEN}" \
+              -F "file=@${f}" \
+              || echo "Failed to upload ${f} to Gitee, skipping"
+          done
+          echo "✅ Gitee 同步完成"
