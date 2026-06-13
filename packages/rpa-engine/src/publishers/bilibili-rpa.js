@@ -17,7 +17,7 @@
  */
 const BaseRPAPublisher = require('./base-rpa-publisher')
 const cookieStore = require('../cookie-store')
-const log = require('../../../../apps/desktop/electron/logger')
+const log = require('@multi-publish/shared-utils/src/logger')
 
 // B站 API 端点
 const BILIBILI_API = {
