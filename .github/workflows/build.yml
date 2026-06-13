@@ -47,7 +47,7 @@ jobs:
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
-        run: cd apps/desktop && npx electron-builder --win --x64 -p never --config.win.sign=false
+        run: cd apps/desktop && npx electron-builder --win --x64 -p never
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
 
