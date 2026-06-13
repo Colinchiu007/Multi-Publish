@@ -37,12 +37,11 @@ jobs:
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
-      - name: Install Electron & rebuild native modules
+      - name: Install Electron & builder
         run: |
           cd apps/desktop
           npm install electron@33.4.0
           npm install electron-builder@25.1.8
-          npx @electron/rebuild
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
