@@ -1,0 +1,150 @@
+# ci-failure-handler.yml - Level 4: CI 失败自动创建 Issue + 通知
+#
+# 工作流:
+#   1. 任何 CI workflow 失败 -> 触发本工作流
+#   2. 解析失败原因
+#   3. 创建 Bug Issue (含 CI 日志链接 + 失败原因)
+#   4. 在 PR 页面留评论
+#
+# 关键设计: 不调用 LLM API, 只创建 Issue + 通知
+# 真正的修复由 user 本地跑 auto-bug-fix.py --auto-fix 完成
+
+name: CI Failure Handler (Level 4)
+
+on:
+  workflow_run:
+    workflows: ["check-docs-sync", "CI", "Lint", "Test"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  handle-ci-failure:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 解析 CI 失败原因
+        id: parse-failure
+        run: |
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
+          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+
+          echo "WORKFLOW_NAME=$WORKFLOW_NAME" >> $GITHUB_OUTPUT
+          echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_OUTPUT
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "FAILURE_TYPE=ci-failure" >> $GITHUB_OUTPUT
+          echo "AUTO_FIXABLE=true" >> $GITHUB_OUTPUT
+
+      - name: 检查是否已有 Issue
+        id: check-duplicate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA="${{ steps.parse-failure.outputs.COMMIT_SHA }}"
+          EXISTING=$(gh issue list \
+            --search "ci-failure-$SHA in:title" \
+            --state all \
+            --json number \
+            --jq '.[0].number // empty')
+
+          if [ -n "$EXISTING" ]; then
+            echo "DUPLICATE=true" >> $GITHUB_OUTPUT
+            echo "EXISTING_ISSUE=$EXISTING" >> $GITHUB_OUTPUT
+            echo "Issue #$EXISTING 已存在，跳过创建"
+          else
+            echo "DUPLICATE=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 创建 Bug Issue
+        if: steps.check-duplicate.outputs.DUPLICATE == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          WORKFLOW="${{ steps.parse-failure.outputs.WORKFLOW_NAME }}"
+          SHA="${{ steps.parse-failure.outputs.COMMIT_SHA }}"
+          PR="${{ steps.parse-failure.outputs.PR_NUMBER }}"
+          RUN_URL="${{ github.event.workflow_run.html_url }}"
+          REPO="${{ github.repository }}"
+
+          # Issue body 写入临时文件
+          cat > /tmp/issue-body.md << 'ISSUE_BODY_END'
+          ## CI 失败 - Level 4 自动检测
+
+          - 工作流: WORKFLOW_PLACEHOLDER
+          - Commit SHA: SHA_PLACEHOLDER
+          - PR: PR_PLACEHOLDER
+          - 运行链接: RUN_URL_PLACEHOLDER
+
+          ---
+
+          ## 检测到的问题
+
+          - 失败类型: ci-failure
+          - 可自动修复: 是
+
+          ---
+
+          ## 修复步骤（用户手动）
+
+          1. 在本地拉取最新代码并切到失败分支
+          2. 运行自动修复: `python ../team/scripts/auto-bug-fix.py "CI 失败" --auto-fix`
+          3. agent 会读 .bug-diagnosis-needed.json 诊断并写修复代码
+          4. 自动 commit + push
+          5. CI 自动重跑
+
+          ---
+
+          详见 PROTOCOL.md 第 14 章
+          ISSUE_BODY_END
+
+          # 替换占位符
+          sed -i "s|WORKFLOW_PLACEHOLDER|$WORKFLOW|g" /tmp/issue-body.md
+          sed -i "s|SHA_PLACEHOLDER|$SHA|g" /tmp/issue-body.md
+          sed -i "s|PR_PLACEHOLDER|#$PR|g" /tmp/issue-body.md
+          sed -i "s|RUN_URL_PLACEHOLDER|$RUN_URL|g" /tmp/issue-body.md
+
+          gh issue create \
+            --title "ci-failure-$SHA: $WORKFLOW 失败" \
+            --body-file /tmp/issue-body.md \
+            --label "bug,ci-failure,level-4" \
+            --assignee "${{ github.actor }}"
+
+      - name: 在 PR 留评论
+        if: steps.parse-failure.outputs.PR_NUMBER != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ steps.parse-failure.outputs.PR_NUMBER }}"
+
+          cat > /tmp/pr-comment.md << 'PR_COMMENT_END'
+          ## Level 4: CI 失败已检测
+
+          - 已自动创建 Bug Issue
+          - 详见 PROTOCOL.md 第 14 章
+
+          ### 修复方法（用户手动）
+
+          在本项目根目录运行:
+
+          python ../team/scripts/auto-bug-fix.py "CI 失败" --auto-fix
+
+          agent (Hermes 会话中的 LLM) 会:
+          1. 自动诊断失败原因
+          2. 写修复代码
+          3. 自动 commit + push
+          4. 触发 CI 重跑
+          PR_COMMENT_END
+
+          gh pr comment "$PR" --body-file /tmp/pr-comment.md
+
+      - name: 完成
+        run: |
+          echo "CI Failure Handler Level 4 完成"

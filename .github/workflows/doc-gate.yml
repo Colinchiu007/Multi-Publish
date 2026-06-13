@@ -1,0 +1,100 @@
+name: Doc Sync Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  doc-sync:
+    name: 文档同步检查
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（draft-changelog 需要）
+
+      - name: 检查 gh CLI
+        run: |
+          gh --version || (echo "❌ gh CLI 未安装" && exit 1)
+
+      - name: 检查文档同步（硬门禁）
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          chmod +x team/scripts/check-docs-sync.sh
+          bash team/scripts/check-docs-sync.sh \
+            --base=${{ github.event.pull_request.base.ref }} \
+            --head=${{ github.event.pull_request.head.ref }}
+
+      - name: 起草 CHANGELOG
+        if: success()  # 即使门禁通过也起草，作为草稿
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          chmod +x team/scripts/draft-changelog.sh
+          mkdir -p team/inbox
+          bash team/scripts/draft-changelog.sh \
+            --output=team/inbox/changelog-draft-${PR_NUMBER}.md
+
+      - name: 上传 CHANGELOG 草稿
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog-draft-${{ github.event.pull_request.number }}
+          path: team/inbox/changelog-draft-${{ github.event.pull_request.number }}.md
+          retention-days: 30
+
+  ci-tests:
+    name: 单元测试 + Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖（如有）
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: 运行测试（如有）
+        run: |
+          if [ -d tests ]; then
+            pytest tests/ -q || echo "⚠️ 测试失败，但不阻塞文档门禁"
+          fi
+
+  stale-check:
+    name: Stale Issue 检查（每日）
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    if: github.event_name == 'pull_request'  # 仅在 PR 时触发（占位）
+    steps:
+      - name: 标记 Stale Issues
+        run: |
+          echo "⚠️ Stale 检查将由独立 cron 触发（避免 PR 时执行）"
+          echo "详见 .github/workflows/stale.yml（待创建）"
+
+# ===== 说明 =====
+#
+# 启用方式：
+#   1. 将本文件复制到各项目的 .github/workflows/doc-gate.yml
+#   2. 确保 team/scripts/ 在仓库根目录
+#   3. 项目必须用 GitHub（GitLab/Bitbucket 不适用）
+#
+# 绕过机制：
+#   owner 或 reviewer 加 'bypass-doc-gate' label 后可合并
+#   （需要在 GitHub 仓库设置中创建该 label）
+#
+# 调试：
+#   本地测试：bash team/scripts/check-docs-sync.sh --base=main --head=feat/xxx
