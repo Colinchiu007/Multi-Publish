@@ -15,6 +15,8 @@ All notable changes to this project will be documented in this file.
 - **评论统一管理** (融媒宝 F4) — WebContentsView 内嵌各平台评论页
 - **端到端测试** — 全部测试套件通过
 - **CI 自动 Release** — GitHub Actions auto-tag + auto-release
+- **Playwright 浏览器捆绑** — electron-builder extraResources 将 Chromium 捆入安装包，离线可用
+- **自动更新 GFW 静默** — 网络错误（超时/DNS 失败/断网）静默处理，不弹错误提示
 
 ### Changed
 

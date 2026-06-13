@@ -139,7 +139,10 @@ CRITICAL 必须修复才能继续。
 ## 构建与发布
 
 - **打包**：`npm run dist:win`（需 node_modules 里有 electron@33.4.0 + electron-builder@25.1.8）
-- **CI**：.github/workflows/build.yml 使用 --no-save 安装精确版本，避免 CI 拉取 26.x 导致 schema 验证失败
+- **Playwright 浏览器捆绑**：打包前需执行 `cd apps/desktop && PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers npx playwright install chromium`，浏览器自动捆入 `extraResources`
+- **离线支持**：安装包自带 Chromium 浏览器（~170MB），无需代理；
+  自动更新模块内置 GFW 网络错误静默处理，无网络时静默失败不弹错
+- **CI**：.github/workflows/build.yml 自动完成 Playwright 安装 + 浏览器捆绑
 
 ## 强制质量门禁（MUST）
 
