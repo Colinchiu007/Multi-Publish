@@ -23,6 +23,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
 
       # Linux 需要 libvips（sharp 依赖）和 C++ 编译工具（better-sqlite3）
       - name: Install Linux system deps
@@ -31,32 +32,23 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libvips libvips-dev build-essential python3
 
+      # npm ci 会触发所有 postinstall（包括 app-builder-bin 下载、electron 下载）
       - name: Install dependencies
-        run: npm install
+        run: npm ci --ignore-scripts
+
+      # 手动触发 postinstall（electron-builder 需要下载 app-builder-bin）
+      - name: Trigger postinstall
+        run: npm run postinstall || true
+        working-directory: apps/desktop
 
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
-      - name: Install Electron & builder
-        run: |
-          cd apps/desktop
-          npm install electron@33.4.0
-          npm install electron-builder@25.1.8
-
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
-        shell: bash
-        run: cd apps/desktop && npx --no-install electron-builder --win --x64 -p never --config.win.sign=false 2>&1 | tee build-log.txt
+        run: cd apps/desktop && npx electron-builder --win --x64 -p never --config.win.sign=false
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
-
-      - name: Upload build log (if failed)
-        if: ${{ runner.os == 'Windows' && failure() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log-windows
-          path: apps/desktop/build-log.txt
-          retention-days: 1
 
       - name: Upload Windows artifact
         if: runner.os == 'Windows'
@@ -66,47 +58,11 @@ jobs:
           path: apps/desktop/dist-electron/Multi-Publish*.exe
           retention-days: 30
 
-  auto-tag:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    needs: [build]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      new_version: ${{ steps.bump.outputs.new_version }}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Auto bump patch version
-        id: bump
-        run: |
-          CUR=$(node -p "require('./apps/desktop/package.json').version")
-          echo "Current version: $CUR"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CUR"
-          PATCH=$((PATCH + 1))
-          NEW="$MAJOR.$MINOR.$PATCH"
-          echo "New version: $NEW"
-
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('./apps/desktop/package.json', 'utf8'));
-            pkg.version = '$NEW';
-            fs.writeFileSync('./apps/desktop/package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
-
-          echo "new_version=$NEW" >> $GITHUB_OUTPUT
-
-      - name: Commit and tag
-        run: |
-          git config user.name "Auto Release"
-          git config user.email "bot@multi-publish.app"
-          git add apps/desktop/package.json
-          git commit -m "chore: bump version to ${{ steps.bump.outputs.new_version }}"
-          git tag "v${{ steps.bump.outputs.new_version }}"
-          git push origin "v${{ steps.bump.outputs.new_version }}"
+      - name: Build Electron app (Linux)
+        if: runner.os == 'Linux'
+        run: cd apps/desktop && npx electron-builder --linux --x64 --dir
+        env:
+          NODE_OPTIONS: "--max_old_space_size=4096"
 
   release:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -130,7 +86,7 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
           if [ -f CHANGELOG.md ]; then
-            NOTES=$(awk "/^## v${VERSION}/,/^## /" CHANGELOG.md | head -n -1)
+            NOTES=$(awk "/^## \[v${VERSION}\]/,/^## /" CHANGELOG.md | head -n -1)
             echo "notes<<EOF" >> $GITHUB_OUTPUT
             echo "$NOTES" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
