@@ -44,7 +44,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('first-run:status', handler)
   },
 
-  // ─── 通知 ──────────────────────────
+  // ─── 平台配置 API ─────────────────────────
+  platformList: () => ipcRenderer.invoke('platform:list'),
+  platformGet: (id) => ipcRenderer.invoke('platform:get', id),
   showNotification: (data) => ipcRenderer.invoke('show-notification', data),
   onNotification: (cb) => {
     const h = (_, data) => cb(data)

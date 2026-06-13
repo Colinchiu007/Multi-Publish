@@ -322,6 +322,28 @@ ipcMain.handle('hotkeys:list', async () => {
   return { code: 0, data: hotkeys.getShortcuts() }
 })
 
+// ─── 平台配置 IPC ─────────────────────────
+const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
+const _platformConfig = (() => {
+  try {
+    const cfgPath = path.join(__dirname, '..', '..', 'config', 'platforms.yaml')
+    return new PlatformConfig(cfgPath)
+  } catch (e) {
+    log.warn('App', 'Failed to load platform config:', e.message)
+    return null
+  }
+})()
+
+ipcMain.handle('platform:list', async () => {
+  if (!_platformConfig) return { code: -1, message: '配置未加载', data: [] }
+  return { code: 0, data: _platformConfig.listPlatforms() }
+})
+ipcMain.handle('platform:get', async (_, id) => {
+  if (!_platformConfig) return { code: -1, message: '配置未加载' }
+  const p = _platformConfig.getPlatform(id)
+  return { code: p ? 0 : -1, data: p }
+})
+
 // ─── 首次运行引导 IPC ─────────────────────
 ipcMain.handle('first-run:check', async () => {
   return { code: 0, data: firstRun.checkDeps() }

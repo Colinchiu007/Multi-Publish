@@ -1,18 +1,28 @@
 /**
- * 各平台限制常量
+ * 各平台限制常量 — 从 PlatformConfig 加载
  */
-const LIMITS = {
-  wechat_mp: { maxTitle: 64, maxContent: 20000, coverSize: '900x500' },
-  zhihu:     { maxTitle: 120, maxContent: 100000, coverSize: '1280x720' },
-  weibo:     { maxTitle: 120, maxContent: 2000, coverSize: '980x550' },
-  douyin:    { maxTitle: 30, maxContent: 1000, coverSize: '1080x1440' },
-  xiaohongshu: { maxTitle: 20, maxContent: 1000, coverSize: '1080x1080' },
-  tencent_video: { maxTitle: 60, maxContent: 1000, coverSize: '1080x1080' },
-  kuaishou:  { maxTitle: 40, maxContent: 500, coverSize: '1080x1440' },
-  toutiao:   { maxTitle: 64, maxContent: 50000, coverSize: '1200x600' },
-  youtube:   { maxTitle: 100, maxContent: 5000, coverSize: '1280x720' },
-  tiktok:    { maxTitle: 30, maxContent: 500, coverSize: '1080x1440' },
-  bilibili:  { maxTitle: 80, maxContent: 20000, coverSize: '1146x717' },
+const path = require('path')
+const PlatformConfig = require('../platform-config')
+
+// 初始化配置（从 config/platforms.yaml 加载）
+const configPath = path.resolve(__dirname, '..', '..', '..', '..', 'config', 'platforms.yaml')
+let config = null
+try {
+  config = new PlatformConfig(configPath)
+} catch (e) {
+  console.error('[rules] Failed to load platform config:', e.message)
+}
+
+const LIMITS = {}
+
+if (config) {
+  for (const p of config.listPlatforms()) {
+    LIMITS[p.id] = {
+      maxTitle: p.max_title,
+      maxContent: p.max_content,
+      coverSize: p.cover_size || null,
+    }
+  }
 }
 
 module.exports = { LIMITS }
