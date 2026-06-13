@@ -67,12 +67,13 @@ class WebviewManager {
    * @param {string|null} [accountId] - 账号 ID（用于隔离 session）
    * @param {Array} [cookies] - 已保存的 Cookie 数组
    * @param {Object} [localStorage] - 已保存的 localStorage 数据
+   * @param {string} [customUrl] - 自定义 URL（覆盖默认仪表盘 URL）
    * @returns {string|null} tabId
    */
-  openTab (platform, accountId, cookies, localStorage) {
+  openTab (platform, accountId, cookies, localStorage, customUrl) {
     if (!this.mainWindow) return null
 
-    const url = PLATFORM_DASHBOARD_URLS[platform]
+    const url = customUrl || PLATFORM_DASHBOARD_URLS[platform]
     if (!url) {
       log.warn('WebviewManager', `No dashboard URL for platform: ${platform}`)
       return null
@@ -267,8 +268,8 @@ class WebviewManager {
       return { code: 0, data: { layout: count, tabCount: this.tabs.length } }
     })
 
-    ipcMain.handle('webview:open-tab', (_, { platform, accountId, cookies, localStorage }) => {
-      const tabId = this.openTab(platform, accountId, cookies, localStorage)
+    ipcMain.handle('webview:open-tab', (_, { platform, accountId, cookies, localStorage, url }) => {
+      const tabId = this.openTab(platform, accountId, cookies, localStorage, url)
       return tabId ? { code: 0, data: { tabId } } : { code: -1, message: `无法打开 ${platform}` }
     })
 

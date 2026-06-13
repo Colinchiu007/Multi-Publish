@@ -18,6 +18,9 @@
       <router-link to="/monitor" class="nav-item" :class="{ active: route.path.startsWith('/monitor') }">
         <span class="icon">🖥</span> 监控
       </router-link>
+      <router-link to="/comments" class="nav-item" :class="{ active: route.path === '/comments' }">
+        <span class="icon">💬</span> 评论
+      </router-link>
       <router-link to="/dashboard" class="nav-item" :class="{ active: route.path === '/dashboard' }">
         <span class="icon">◇</span> 数据看板
       </router-link>

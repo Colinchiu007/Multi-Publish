@@ -7,6 +7,11 @@ const routes = [
     component: () => import('@/views/Home.vue')
   },
   {
+    path: '/comments',
+    name: 'Comments',
+    component: () => import('@/views/Comments.vue')
+  },
+  {
     path: '/first-run',
     name: 'FirstRun',
     component: () => import('@/views/FirstRun.vue')
