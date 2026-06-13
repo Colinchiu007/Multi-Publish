@@ -4,30 +4,21 @@
     <div class="cohere-page-header">
       <div>
         <div class="page-title">账号管理</div>
-        <div class="page-subtitle">管理各平台发布账号，登录状态长期有效</div>
+        <div class="page-subtitle">管理各平台发布账号，支持多账号，登录状态长期有效</div>
       </div>
       <div class="page-actions">
-        <button class="cohere-btn-secondary" @click="refresh">刷新</button>
-        <button class="cohere-btn-primary" @click="showAddDialog = true">+ 添加账号</button>
+        <button class="cohere-btn-secondary" @click="refresh">⟳ 刷新</button>
+        <button class="cohere-btn-primary" @click="showAddDialog = true">＋ 添加账号</button>
       </div>
     </div>
 
     <!-- 过滤条 -->
     <div style="padding: var(--space-lg) var(--space-xxl) 0">
       <div class="cohere-filter-bar">
-        <button
-          class="cohere-filter-chip" :class="{ active: filter === 'all' }"
-          @click="filter = 'all'"
-        >全部</button>
-        <button
-          class="cohere-filter-chip" :class="{ active: filter === 'active' }"
-          @click="filter = 'active'"
-        >已登录</button>
-        <button
-          class="cohere-filter-chip" :class="{ active: filter === 'inactive' }"
-          @click="filter = 'inactive'"
-        >未登录</button>
-        <span class="cohere-filter-meta">共 {{ filteredAccounts.length }} 个平台</span>
+        <button class="cohere-filter-chip" :class="{ active: filter === 'all' }" @click="filter = 'all'">全部</button>
+        <button class="cohere-filter-chip" :class="{ active: filter === 'active' }" @click="filter = 'active'">已登录</button>
+        <button class="cohere-filter-chip" :class="{ active: filter === 'inactive' }" @click="filter = 'inactive'">未登录</button>
+        <span class="cohere-filter-meta">共 {{ groupedPlatforms.length }} 个平台 · {{ totalAccounts }} 个账号</span>
       </div>
     </div>
 
@@ -40,7 +31,6 @@
         </div>
         <div class="auth-modal-body">
           <p class="auth-hint">请在下方页面中完成登录，登录后账号自动保存</p>
-          <!-- WebContentsView 在此区域显示 -->
           <div class="auth-browser-placeholder"></div>
         </div>
       </div>
@@ -49,26 +39,58 @@
     <!-- 内容体 -->
     <div class="cohere-content">
       <div v-if="loading" style="text-align:center;padding:60px 0;color:var(--muted)">加载中...</div>
-      <div v-else-if="filteredAccounts.length === 0" class="cohere-empty">
+      <div v-else-if="groupedPlatforms.length === 0" class="cohere-empty">
         <div class="empty-icon">📭</div>
         <h3>暂无账号</h3>
         <p>点击右上角「添加账号」开始配置</p>
       </div>
+
+      <!-- 按平台分组展示 -->
       <div v-else class="cohere-card-grid">
-        <div v-for="acc in filteredAccounts" :key="acc.id" class="cohere-card">
-          <div class="card-top">
-            <div class="card-icon">{{ platformIcon(acc.platform) }}</div>
-            <div class="card-info">
-              <div class="card-platform">{{ platformLabel(acc.platform) }}</div>
-              <div class="card-account">{{ acc.account_name || '未命名' }}</div>
+        <div v-for="group in groupedPlatforms" :key="group.platform" class="cohere-card cohere-card-group">
+          <!-- 平台标题行 -->
+          <div class="card-group-header">
+            <div class="card-icon large">{{ platformIcon(group.platform) }}</div>
+            <div style="flex:1">
+              <div class="card-platform-name">{{ platformLabel(group.platform) }}</div>
+              <div class="card-platform-meta">
+                <span class="cohere-tag cohere-tag-success" v-if="group.activeCount > 0">{{ group.activeCount }} 个有效</span>
+                <span class="cohere-tag cohere-tag-warning" v-if="group.inactiveCount > 0">{{ group.inactiveCount }} 个离线</span>
+                <span style="font-size:12px;color:var(--muted);margin-left:8px">共 {{ group.accounts.length }} 个账号</span>
+              </div>
             </div>
-            <span v-if="acc.status === 'active'" class="cohere-tag cohere-tag-success">有效</span>
-            <span v-else class="cohere-tag cohere-tag-warning">未配置</span>
+            <button class="cohere-btn-ghost" @click="addAccountForPlatform(group.platform)" title="为此平台添加账号">＋</button>
           </div>
-          <div class="card-actions">
-            <button @click="openPlatform(acc)">打开</button>
-            <button @click="checkLogin(acc)">验证</button>
-            <button class="danger" @click="removeAccount(acc)">删除</button>
+
+          <!-- 账号列表 -->
+          <div v-for="acc in group.accounts" :key="acc.id" class="account-row" :class="{ 'is-default': acc.is_default }">
+            <div class="account-info">
+              <!-- 默认标记 -->
+              <span v-if="acc.is_default" class="default-badge" title="默认账号">★</span>
+              <span v-else class="default-badge muted" title="设为默认" @click="setDefault(acc)" style="cursor:pointer">☆</span>
+              <!-- 账号名（可编辑） -->
+              <input
+                class="account-name-input"
+                :value="acc.account_name || acc.name || '未命名'"
+                @blur="renameAccount(acc, $event.target.value)"
+                @keyup.enter="$event.target.blur()"
+                spellcheck="false"
+              />
+            </div>
+            <div class="account-meta">
+              <span class="account-status-dot" :class="acc.status === 'active' || acc.status === 'online' ? 'online' : 'offline'"></span>
+              <span style="font-size:12px;color:var(--text-secondary)">
+                {{ acc.status === 'active' || acc.status === 'online' ? '有效' : '离线' }}
+              </span>
+              <span style="font-size:11px;color:var(--muted);margin-left:8px">
+                {{ acc.created_at ? new Date(acc.created_at).toLocaleDateString('zh-CN') : '' }}
+              </span>
+            </div>
+            <div class="account-actions">
+              <button class="cohere-btn-ghost" @click="openPlatform(acc)">打开</button>
+              <button class="cohere-btn-ghost" @click="checkLogin(acc)">验证</button>
+              <button class="cohere-btn-ghost danger" @click="removeAccount(acc)">删除</button>
+            </div>
           </div>
         </div>
       </div>
@@ -79,18 +101,13 @@
       <el-form label-position="top">
         <el-form-item label="选择平台">
           <el-select v-model="newPlatform" placeholder="请选择平台" style="width: 100%">
-            <el-option
-              v-for="p in availablePlatforms" :key="p.id"
-              :label="p.label" :value="p.id"
-            />
+            <el-option v-for="p in allPlatforms" :key="p.id" :label="p.label" :value="p.id" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showAddDialog = false">取消</el-button>
-        <el-button type="primary" :loading="adding" @click="addAccount">
-          确认添加
-        </el-button>
+        <el-button type="primary" :loading="adding" @click="addAccount">确认添加</el-button>
       </template>
     </el-dialog>
   </div>
@@ -111,40 +128,46 @@ const authViewVisible = ref(false)
 const authPlatformName = ref('')
 
 const platformMap = {
-  wechat_mp: '微信公众号',
-  zhihu: '知乎',
-  weibo: '微博',
-  douyin: '抖音',
-  xiaohongshu: '小红书',
-  tencent_video: '视频号',
-  kuaishou: '快手',
-  toutiao: '今日头条',
-  youtube: 'YouTube',
-  tiktok: 'TikTok',
+  wechat_mp: '微信公众号', zhihu: '知乎', weibo: '微博', douyin: '抖音',
+  xiaohongshu: '小红书', tencent_video: '视频号', kuaishou: '快手',
+  toutiao: '今日头条', bilibili: 'B站', youtube: 'YouTube', tiktok: 'TikTok',
 }
 
 const platformIconMap = {
-  wechat_mp: '💬',
-  zhihu: '❓',
-  weibo: '✧',
-  douyin: '🎵',
-  xiaohongshu: '📕',
-  tencent_video: '▶',
-  kuaishou: '🎬',
-  toutiao: '📰',
-  youtube: '▶',
-  tiktok: '♪',
+  wechat_mp: '💬', zhihu: '❓', weibo: '✧', douyin: '🎵',
+  xiaohongshu: '📕', tencent_video: '▶', kuaishou: '🎬',
+  toutiao: '📰', bilibili: '📺', youtube: '▶', tiktok: '♪',
 }
 
-const availablePlatforms = Object.entries(platformMap).map(([id, label]) => ({ id, label }))
+const allPlatforms = Object.entries(platformMap).map(([id, label]) => ({ id, label }))
 
 function platformLabel (id) { return platformMap[id] || id }
 function platformIcon (id) { return platformIconMap[id] || '📦' }
 
-const filteredAccounts = computed(() => {
-  if (filter.value === 'all') return accounts.value
-  if (filter.value === 'active') return accounts.value.filter(a => a.status === 'active')
-  return accounts.value.filter(a => a.status !== 'active')
+const totalAccounts = computed(() => accounts.value.length)
+
+// 按平台分组
+const groupedPlatforms = computed(() => {
+  const filtered = accounts.value.filter(a => {
+    if (filter.value === 'all') return true
+    if (filter.value === 'active') return a.status === 'active' || a.status === 'online'
+    return a.status !== 'active' && a.status !== 'online'
+  })
+
+  const groups = {}
+  for (const acc of filtered) {
+    if (!groups[acc.platform]) {
+      groups[acc.platform] = { platform: acc.platform, accounts: [], activeCount: 0, inactiveCount: 0 }
+    }
+    groups[acc.platform].accounts.push(acc)
+    if (acc.status === 'active' || acc.status === 'online') {
+      groups[acc.platform].activeCount++
+    } else {
+      groups[acc.platform].inactiveCount++
+    }
+  }
+
+  return Object.values(groups).sort((a, b) => b.activeCount - a.activeCount || b.accounts.length - a.accounts.length)
 })
 
 // 监听内嵌浏览器事件
@@ -195,25 +218,18 @@ async function refresh () {
 }
 
 async function addAccount () {
-  if (!newPlatform.value) {
-    ElMessage.warning('请选择平台')
-    return
-  }
+  if (!newPlatform.value) { ElMessage.warning('请选择平台'); return }
   adding.value = true
   try {
     const api = window.electronAPI
-        if (api && api.authOpenLogin) {
-          // 使用内嵌浏览器登录
-          const platform = newPlatform.value
-          showAddDialog.value = false
-          newPlatform.value = ''
-          const res = await api.authOpenLogin(platform)
-          if (res.code !== 0) {
-            ElMessage.error(res.message || '添加失败')
-          }
-      // 登录完成后 auth:completed 事件会自动刷新列表
+    if (api && api.authOpenLogin) {
+      const platform = newPlatform.value
+      showAddDialog.value = false
+      newPlatform.value = ''
+      const res = await api.authOpenLogin(platform)
+      if (res.code !== 0) ElMessage.error(res.message || '添加失败')
+      // auth:completed 事件自动刷新
     } else {
-      // 降级：使用 Playwright 弹出窗口
       const res = await api.accountAdd(newPlatform.value)
       if (res.code === 0) {
         ElMessage.success('账号添加成功，请在弹出的浏览器窗口中完成登录')
@@ -231,12 +247,40 @@ async function addAccount () {
   }
 }
 
+function addAccountForPlatform (platform) {
+  newPlatform.value = platform
+  showAddDialog.value = true
+}
+
 async function closeAuthView () {
   const api = window.electronAPI
-  if (api && api.authClose) {
-    await api.authClose()
-  }
+  if (api && api.authClose) await api.authClose()
   authViewVisible.value = false
+}
+
+async function setDefault (acc) {
+  const api = window.electronAPI
+  if (!api || !api.accountSetDefault) return
+  try {
+    await api.accountSetDefault(acc.platform, acc.id)
+    ElMessage.success(`已设为 ${platformLabel(acc.platform)} 默认账号`)
+    refresh()
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
+}
+
+async function renameAccount (acc, newName) {
+  const name = newName.trim()
+  if (!name || name === (acc.account_name || acc.name)) return
+  const api = window.electronAPI
+  if (!api || !api.accountUpdate) return
+  try {
+    await api.accountUpdate(acc.id, { name })
+    refresh()
+  } catch (e) {
+    ElMessage.error('重命名失败: ' + e.message)
+  }
 }
 
 function openPlatform (row) {
@@ -245,7 +289,7 @@ function openPlatform (row) {
     weibo: 'https://weibo.com/', douyin: 'https://www.douyin.com/',
     xiaohongshu: 'https://creator.xiaohongshu.com/', tencent_video: 'https://channels.weixin.qq.com/',
     kuaishou: 'https://cp.kuaishou.com/', toutiao: 'https://mp.toutiao.com/',
-    youtube: 'https://studio.youtube.com/', tiktok: 'https://www.tiktok.com/upload/',
+    bilibili: 'https://www.bilibili.com/', youtube: 'https://studio.youtube.com/', tiktok: 'https://www.tiktok.com/upload/',
   }[row.platform]
   if (url) window.open(url, '_blank')
 }
@@ -267,7 +311,7 @@ async function checkLogin (row) {
 async function removeAccount (row) {
   try {
     await ElMessageBox.confirm(
-      `确定删除「${platformLabel(row.platform)}」账号「${row.account_name}」吗？`,
+      `确定删除「${platformLabel(row.platform)}」账号「${row.account_name || row.name || ''}」吗？`,
       '确认删除', { type: 'warning' }
     )
     const res = await accountDelete(row.id)
@@ -318,19 +362,67 @@ async function removeAccount (row) {
   border-radius: 6px;
 }
 .auth-close-btn:hover { background: #f5f5f7; }
-.auth-modal-body {
-  padding: 16px 20px 20px;
+.auth-modal-body { padding: 16px 20px 20px; }
+.auth-hint { font-size: 13px; color: #8e8e96; margin: 0 0 12px; }
+.auth-browser-placeholder { height: 400px; background: #f9f9fb; border: 1px dashed #d9d9dd; border-radius: 8px; }
+
+/* 平台分组卡片 */
+.card-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-md) var(--space-sm);
+  border-bottom: 1px solid var(--border, #eee);
+  margin-bottom: 0;
 }
-.auth-hint {
+.card-icon.large { font-size: 28px; }
+.card-platform-name { font-weight: 600; font-size: 15px; }
+.card-platform-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+
+/* 账号行 */
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 10px var(--space-md);
+  border-bottom: 1px solid var(--border-light, #f0f0f0);
+  transition: background 0.15s;
+}
+.account-row:last-child { border-bottom: none; }
+.account-row:hover { background: var(--soft-stone, #f8f8fa); }
+.account-row.is-default { background: #fefaf5; }
+
+.account-info { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.default-badge { font-size: 14px; color: #f5a623; }
+.default-badge.muted { color: #ccc; }
+.default-badge.muted:hover { color: #f5a623; }
+
+.account-name-input {
+  border: none;
+  background: transparent;
   font-size: 13px;
-  color: #8e8e96;
-  margin: 0 0 12px;
+  color: var(--text-primary, #333);
+  width: 140px;
+  outline: none;
+  padding: 2px 4px;
+  border-radius: 3px;
 }
-.auth-browser-placeholder {
-  height: 400px;
-  background: #f9f9fb;
-  border: 1px dashed #d9d9dd;
-  border-radius: 8px;
-  /* WebContentsView 通过 Electron 主进程直接嵌入到此区域 */
+.account-name-input:hover { background: rgba(0,0,0,0.03); }
+.account-name-input:focus { background: #fff; border: 1px solid var(--coral, #f56c6c); }
+
+.account-meta { display: flex; align-items: center; gap: 4px; min-width: 100px; }
+.account-status-dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
 }
+.account-status-dot.online { background: #52c41a; }
+.account-status-dot.offline { background: #d9d9d9; }
+
+.account-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.cohere-btn-ghost {
+  font-size: 12px; padding: 4px 8px; border: none; background: none;
+  cursor: pointer; border-radius: 4px; color: var(--action-blue, #1890ff);
+}
+.cohere-btn-ghost:hover { background: rgba(0,0,0,0.05); }
+.cohere-btn-ghost.danger { color: var(--coral, #f56c6c); }
+.cohere-btn-ghost.danger:hover { background: #fff1f0; }
 </style>
