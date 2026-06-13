@@ -96,8 +96,8 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
           NOTES="## What's Changed in v${VERSION}"
-          NOTES="${NOTES}$(printf '\n\n')"
-          NOTES="${NOTES}Full changelog: https://github.com/${{ github.repository }}/compare/v${VERSION}...HEAD"
+          printf -v NL '\n\n'
+          NOTES="${NOTES}${NL}Full changelog: https://github.com/${{ github.repository }}/compare/v${VERSION}...HEAD"
           if [ -f CHANGELOG.md ]; then
             # extract from "## [vX.Y.Z]" up to next "## [" section
             CHUNK=$(awk -v ver="$VERSION" '

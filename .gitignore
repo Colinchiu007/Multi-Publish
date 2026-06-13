@@ -20,3 +20,6 @@ latest.yml
 
 # Playwright browsers (bundled in installer)
 .playwright-browsers/
+
+# 临时文件
+*.part
