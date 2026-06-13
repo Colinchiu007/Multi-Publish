@@ -20,7 +20,7 @@
           <!-- 文章编号 + 删除 -->
           <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-md)">
             <span class="cohere-tag cohere-tag-info">#{{ idx + 1 }}</span>
-            <span class="cohere-tag" v-if="a.publishTime" class="cohere-tag cohere-tag-warning">⏰ 定时</span>
+            <span v-if="a.publishTime" class="cohere-tag cohere-tag-warning">⏰ 定时</span>
             <div style="flex:1"></div>
             <button class="cohere-btn-ghost" @click="duplicateArticle(idx)" title="复制">📋</button>
             <button class="cohere-btn-ghost" @click="removeArticle(idx)" v-if="articles.length > 1" title="删除" style="color:var(--coral)">✕</button>

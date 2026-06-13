@@ -43,7 +43,7 @@
       </div>
 
       <!-- 快速统计 -->
-      <div v-if="loaded" style="margin-top:var(--space-xl)" class="cohere-card" style="cursor:default">
+      <div v-if="loaded" class="cohere-card" style="margin-top:var(--space-xl);cursor:default">
         <div style="display:flex;gap:var(--space-lg);justify-content:space-around;text-align:center;padding:var(--space-md) 0">
           <div>
             <div style="font-size:24px;font-weight:700">{{ stats.total }}</div>
