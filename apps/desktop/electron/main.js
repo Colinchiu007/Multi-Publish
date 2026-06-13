@@ -324,8 +324,12 @@ ipcMain.handle('hotkeys:list', async () => {
 
 // ─── 平台配置 IPC ─────────────────────────
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
+
+// ─── 敏感词预检 + 数据同步 IPC ──────────────
 const SensitiveFilter = require('@multi-publish/shared-utils/src/sensitive-filter')
+const DataSyncService = require('@multi-publish/shared-utils/src/data-sync')
 const _sensitiveFilter = SensitiveFilter.createWithBuiltin()
+const _dataSync = new DataSyncService(store)
 const _platformConfig = (() => {
   try {
     const cfgPath = path.join(__dirname, '..', '..', 'config', 'platforms.yaml')
@@ -359,6 +363,32 @@ ipcMain.handle('sensitive:replace', async (_, { text }) => {
   try {
     const result = _sensitiveFilter.replace(text || '')
     return { code: 0, data: result }
+  } catch (e) {
+    return { code: -1, message: e.message }
+  }
+})
+
+// ─── 数据同步 IPC ───────────────────────────
+ipcMain.handle('sync:all', async () => {
+  try {
+    const results = await _dataSync.syncAll()
+    return { code: 0, data: results }
+  } catch (e) {
+    return { code: -1, message: e.message }
+  }
+})
+ipcMain.handle('sync:platform', async (_, platform) => {
+  try {
+    const result = await _dataSync.syncPlatform(platform)
+    return { code: 0, data: result }
+  } catch (e) {
+    return { code: -1, message: e.message }
+  }
+})
+ipcMain.handle('sync:cached', async () => {
+  try {
+    const data = _dataSync.getAllCachedData()
+    return { code: 0, data }
   } catch (e) {
     return { code: -1, message: e.message }
   }

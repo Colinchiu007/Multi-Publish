@@ -50,6 +50,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ─── 敏感词预检 API ───────────────────────
   sensitiveCheck: (text) => ipcRenderer.invoke('sensitive:check', { text }),
   sensitiveReplace: (text) => ipcRenderer.invoke('sensitive:replace', { text }),
+  // ─── 数据同步 API ─────────────────────────
+  syncAll: () => ipcRenderer.invoke('sync:all'),
+  syncPlatform: (platform) => ipcRenderer.invoke('sync:platform', platform),
+  syncCached: () => ipcRenderer.invoke('sync:cached'),
   showNotification: (data) => ipcRenderer.invoke('show-notification', data),
   onNotification: (cb) => {
     const h = (_, data) => cb(data)
