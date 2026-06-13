@@ -5,9 +5,11 @@ const TaskQueue = require('./task-queue')
 const AggregatorBridge = require('./aggregator-bridge')
 
 const formatAdapter = require('./format-adapter/index')
+const coverProcessor = require('./cover-processor/index')
 
 module.exports = {
   TaskQueue,
   AggregatorBridge,
   formatAdapter,
+  coverProcessor,
 }
