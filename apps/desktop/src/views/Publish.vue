@@ -176,7 +176,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { publishBatch, onProgress } from '@/api/publisher'
 import ArticleEditor from '@/components/ArticleEditor.vue'
@@ -273,6 +273,24 @@ function addProgress (text, type = 'primary') {
 async function handlePublish () {
   if (!article.title.trim()) { ElMessage.warning('请输入文章标题'); return }
   if (!article.content.trim()) { ElMessage.warning('请输入正文内容'); return }
+
+  // 敏感词预检
+  const api = window.electronAPI
+  if (api && api.sensitiveCheck) {
+    const titleResult = await api.sensitiveCheck(article.title)
+    const contentResult = await api.sensitiveCheck(article.content)
+    const allWords = [...(titleResult.data?.words || []), ...(contentResult.data?.words || [])]
+    if (allWords.length > 0) {
+      try {
+        await ElMessageBox.confirm(
+          `发布内容包含敏感词：${allWords.join('、')}，是否仍然发布？`,
+          '敏感词提示',
+          { confirmButtonText: '强制发布', cancelButtonText: '修改', type: 'warning' }
+        )
+      } catch (e) { return /* 用户取消 */ }
+    }
+  }
+
   publishing.value = true; progress.value = []; result.value = null
 
   const off = onProgress((data) => addProgress(`[${data.platform}] ${data.stage}`))

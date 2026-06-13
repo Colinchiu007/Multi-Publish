@@ -324,6 +324,8 @@ ipcMain.handle('hotkeys:list', async () => {
 
 // ─── 平台配置 IPC ─────────────────────────
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
+const SensitiveFilter = require('@multi-publish/shared-utils/src/sensitive-filter')
+const _sensitiveFilter = SensitiveFilter.createWithBuiltin()
 const _platformConfig = (() => {
   try {
     const cfgPath = path.join(__dirname, '..', '..', 'config', 'platforms.yaml')
@@ -342,6 +344,24 @@ ipcMain.handle('platform:get', async (_, id) => {
   if (!_platformConfig) return { code: -1, message: '配置未加载' }
   const p = _platformConfig.getPlatform(id)
   return { code: p ? 0 : -1, data: p }
+})
+
+// ─── 敏感词预检 IPC ───────────────────────
+ipcMain.handle('sensitive:check', async (_, { text }) => {
+  try {
+    const result = _sensitiveFilter.check(text || '')
+    return { code: 0, data: result }
+  } catch (e) {
+    return { code: -1, message: e.message }
+  }
+})
+ipcMain.handle('sensitive:replace', async (_, { text }) => {
+  try {
+    const result = _sensitiveFilter.replace(text || '')
+    return { code: 0, data: result }
+  } catch (e) {
+    return { code: -1, message: e.message }
+  }
 })
 
 // ─── 首次运行引导 IPC ─────────────────────
