@@ -32,14 +32,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libvips libvips-dev build-essential python3
 
-      # npm ci 会触发所有 postinstall（包括 app-builder-bin 下载、electron 下载）
+      # npm ci 触发所有 postinstall（electron、electron-builder、sharp 等都需要 postinstall 下载二进制）
       - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      # 手动触发 postinstall（electron-builder 需要下载 app-builder-bin）
-      - name: Trigger postinstall
-        run: npm run postinstall || true
-        working-directory: apps/desktop
+        run: npm ci
 
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
@@ -86,7 +81,7 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
           if [ -f CHANGELOG.md ]; then
-            NOTES=$(awk "/^## \[v${VERSION}\]/,/^## /" CHANGELOG.md | head -n -1)
+            NOTES=$(awk "/^## \\[v${VERSION}\\]/,/^## /" CHANGELOG.md | head -n -1)
             echo "notes<<EOF" >> $GITHUB_OUTPUT
             echo "$NOTES" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
