@@ -5,7 +5,7 @@
   "description": "共享工具库 — 任务队列、调度器、发布历史",
   "main": "src/index.js",
   "scripts": {
-    "test": "node --experimental-vm-modules $(which jest || echo 'npx jest')"
+    "test": "npx jest"
   },
   "dependencies": {
     "js-yaml": "^4.2.0",

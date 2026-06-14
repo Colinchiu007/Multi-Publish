@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.1.5] - 2026-06-14
+
+### Fixed — Asar 打包后 require 路径全面修复
+
+跨包相对路径（`../../../../apps/desktop/electron/xxx`）在 electron-builder 打包后的
+app.asar 内无法解析。全面修复如下：
+
+- **logger 模块** — `bilibili-rpa.js` 改用 `@multi-publish/shared-utils/src/logger`
+- **api-platform-adapter** — 复制到 `packages/rpa-engine/src/`，本地化引用
+- **python-bridge** — 复制到 `packages/rpa-engine/src/`，本地化引用
+- **api-mode-publisher** — 重构为无循环依赖版本（移除 registry 导入）
+- **registry** — API 平台改用 ApiModePublisher 子类工厂，避免循环依赖
+- **task-queue** — desktop 跨包引用改为 `@multi-publish/shared-utils/src/task-queue`
+- **CI 修复** — `Sync package version with tag` 步骤强制 `shell: bash`（PowerShell 不兼容）
+- **安装包文件名** — 跟随 tag 版本号（`Multi-Publish.Setup.1.1.5.exe`）
+
+### Changed
+
+- `apps/desktop/package.json` 补上 `author` 字段
+- CI workflow 更新：版本号同步、shell 策略
+
+### Removed
+
+- 旧的跨包相对路径引用全部消除
+- `.github/workflows/build.yml.part` 清理
+
 ## [v1.1.0] - 2026-06-13
 
 ### Added — 正式版 Release

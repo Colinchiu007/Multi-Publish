@@ -5,7 +5,7 @@
   "description": "Playwright RPA 发布器引擎 — 多平台内容发布",
   "main": "src/index.js",
   "scripts": {
-    "test": "node --experimental-vm-modules $(which jest || echo 'npx jest')"
+    "test": "npx jest"
   },
   "dependencies": {
     "playwright": "^1.52.0"

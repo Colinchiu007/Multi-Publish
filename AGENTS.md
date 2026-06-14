@@ -131,6 +131,43 @@ CRITICAL 必须修复才能继续。
 - `DEVELOPMENT_REPORT.md` — 开发报告
 - `CHANGELOG.md` — 变更日志
 - `DESIGN.md` — 设计规范
+- `INTEGRATION.md` — 集成说明
+
+## 目录结构
+
+```
+.
+├── apps/desktop/          # Electron 桌面应用
+├── packages/
+│   ├── rpa-engine/        # RPA 发布引擎
+│   └── shared-utils/      # 共享工具库
+├── team-workflow/scripts/ # 团队自动化脚本
+├── .hermes/plans/         # 实施计划存档
+├── .github/workflows/     # CI/CD 配置
+├── PRD.md / CHANGELOG.md / README.md / AGENTS.md / INTEGRATION.md
+└── ARCHITECTURE-PLAYWRIGHT.md / DESIGN.md / DEVELOPMENT_REPORT.md
+```
+
+## 打包验证（质量门禁 QM-1 补充）
+
+每次修改 `apps/desktop/electron/` 或 `packages/rpa-engine/` 下代码后：
+
+```bash
+cd apps/desktop
+rm -rf dist-electron
+npx electron-builder --win --dir --publish never
+
+# 验证 1：asar 文件清单
+npx asar list dist-electron/win-unpacked/resources/app.asar | grep "logger"
+
+# 验证 2：require 链测试
+npx asar extract dist-electron/win-unpacked/resources/app.asar /tmp/app-test
+node -e "require('/tmp/app-test/node_modules/@multi-publish/rpa-engine')"
+
+# 验证 3：启动测试（8 秒不崩溃）
+dist-electron/win-unpacked/Multi-Publish.exe &
+sleep 8 && kill $!
+```
 
 > 本文件由 Hermes `professional-ai-coding-workflow` 技能转换生成，适配通用 AI 编码工具。
 
