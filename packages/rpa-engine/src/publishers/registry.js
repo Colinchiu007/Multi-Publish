@@ -19,13 +19,24 @@ const YouTubePublisher = require('./youtube-rpa')
 const TikTokPublisher = require('./tiktok-rpa')
 const BiliBiliPublisher = require('./bilibili-rpa')
 const BaiJiaHaoPublisher = require('./baijiahao-rpa')
-const { getApiModePublisher } = require('./api-mode-publisher')
+const { ApiModePublisher } = require('./api-mode-publisher')
+
+/**
+ * 创建 API+RPA 混合发布器工厂
+ */
+function makeApiRpa (platform, RpaClass) {
+  return class extends ApiModePublisher {
+    constructor () {
+      super(platform, RpaClass)
+    }
+  }
+}
 
 const registry = {
   wechat_mp: WeChatMPPublisher,
-  zhihu: getApiModePublisher('zhihu'),
-  weibo: getApiModePublisher('weibo'),
-  douyin: getApiModePublisher('douyin'),
+  zhihu: makeApiRpa('zhihu', ZhihuPublisher),
+  weibo: makeApiRpa('weibo', WeiboPublisher),
+  douyin: makeApiRpa('douyin', DouyinPublisher),
   xiaohongshu: XiaohongshuPublisher,
   tencent_video: TencentVideoPublisher,
   kuaishou: KuaishouPublisher,
