@@ -34,7 +34,8 @@ jobs:
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" apps/desktop/package.json
-          echo "package version = $(node -p \"require('./apps/desktop/package.json').version\")"
+          VERSION_AFTER=$(node -p "require('./apps/desktop/package.json').version")
+          echo "package version = ${VERSION_AFTER}"
 
       # Linux 需要 libvips（sharp 依赖）和 C++ 编译工具（better-sqlite3）
       - name: Install Linux system deps
