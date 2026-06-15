@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.1.6] - 2026-06-15
+
+### Fixed — Cannot find module 'axios' 打包失败
+
+`electron/main.js` → `api-platform-adapter.js` → `require('axios')` 链条在 asar 打包后失灵。
+
+根因：`api-platform-adapter.js` 依赖 `axios`，但 desktop 的 `package.json` 依赖链中从未显式声明 axios（只存在于 workspace 根 node_modules/，打包时 files 配置的 hoist 路径在 asar 解析时不一致）。
+
+修复：
+- `apps/desktop/package.json` 显式声明 `axios: ^1.9.0` 和 `form-data: ^4.0.0`
+- 重新 `npm install` + 打包，三层验证（L1 asar 清单 / L2 require 链 / L3 Electron 启动）全部通过
+
 ## [v1.1.5] - 2026-06-14
 
 ### Fixed — Asar 打包后 require 路径全面修复
