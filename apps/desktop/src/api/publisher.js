@@ -1,7 +1,7 @@
 /**
  * 发布 API 封装 — 调用 Electron IPC
  */
-var _api = null; function _getApi() { if (!_api) _api = window.electronAPI || null; return _api; }
+var _api = null; function getApi() { if (!_api) _api = window.electronAPI || null; return _api; }
 
 export async function publishWechat (article) {
   if (!getApi()) throw new Error('electronAPI not available')

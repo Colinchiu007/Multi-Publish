@@ -96,6 +96,10 @@
       "deleteAppDataOnUninstall": true,
       "artifactName": "${productName}.Setup.${version}.${ext}"
     },
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "Colinchiu007",
+      "repo": "Multi-Publish"
+    }
   }
 }
