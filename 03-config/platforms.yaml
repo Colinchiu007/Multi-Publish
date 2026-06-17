@@ -1,0 +1,172 @@
+# 多平台发布 — 平台配置
+# 参考融媒宝 data/media_url_list.txt 设计
+# 新增平台只需在这里加一段配置
+
+platforms:
+  wechat_mp:
+    id: 1
+    name: 微信公众号
+    type: article
+    icon: 💬
+    category: 中文
+    publish_url: ""
+    data_url: "https://mp.weixin.qq.com/cgi-bin/message"
+    comment_url: "https://mp.weixin.qq.com/misc/appmsgcomment"
+    cover_size: 900x500
+    max_title: 64
+    max_content: 20000
+    has_api: false
+
+  zhihu:
+    id: 12
+    name: 知乎
+    type: article
+    icon: ❓
+    category: 中文
+    publish_url: "https://www.zhihu.com/creator"
+    data_url: ""
+    comment_url: ""
+    cover_size: 1280x720
+    max_title: 120
+    max_content: 100000
+    has_api: false
+
+  weibo:
+    id: 10
+    name: 微博
+    type: mixed
+    icon: ✧
+    category: 中文
+    publish_url: "https://weibo.com/"
+    data_url: ""
+    comment_url: ""
+    cover_size: 980x550
+    max_title: 120
+    max_content: 2000
+    has_api: true
+
+  douyin:
+    id: 36
+    name: 抖音
+    type: mixed
+    icon: 🎵
+    category: 中文
+    publish_url: "https://creator.douyin.com/"
+    data_url: "https://creator.douyin.com/studio/data"
+    comment_url: "https://creator.douyin.com/studio/comment"
+    cover_size: 1080x1440
+    max_title: 30
+    max_content: 1000
+    has_api: true
+
+  xiaohongshu:
+    id: 51
+    name: 小红书
+    type: mixed
+    icon: 📕
+    category: 中文
+    publish_url: "https://creator.xiaohongshu.com/"
+    data_url: "https://creator.xiaohongshu.com/creator/data-center"
+    comment_url: "https://creator.xiaohongshu.com/creator/comment"
+    cover_size: 1080x1080
+    max_title: 20
+    max_content: 1000
+    has_api: false
+
+  tencent_video:
+    id: 21
+    name: 视频号
+    type: mixed
+    icon: ▶
+    category: 中文
+    publish_url: "https://channels.weixin.qq.com/"
+    data_url: ""
+    comment_url: ""
+    cover_size: 1080x1080
+    max_title: 60
+    max_content: 1000
+    has_api: false
+
+  kuaishou:
+    id: 35
+    name: 快手
+    type: mixed
+    icon: 🎬
+    category: 中文
+    publish_url: "https://cp.kuaishou.com/"
+    data_url: ""
+    comment_url: ""
+    cover_size: 1080x1440
+    max_title: 40
+    max_content: 500
+    has_api: false
+
+  toutiao:
+    id: 3
+    name: 今日头条
+    type: mixed
+    icon: 📰
+    category: 中文
+    publish_url: "https://mp.toutiao.com/"
+    data_url: "https://mp.toutiao.com/profile_v4/analysis/works-overall/all"
+    comment_url: "https://mp.toutiao.com/profile_v4/manage/comment/all"
+    cover_size: 1200x600
+    max_title: 64
+    max_content: 50000
+    has_api: false
+
+  youtube:
+    id: 100
+    name: YouTube
+    type: video
+    icon: ▶
+    category: 海外
+    publish_url: "https://studio.youtube.com/"
+    data_url: "https://studio.youtube.com/channel/UC/analytics"
+    comment_url: "https://studio.youtube.com/channel/UC/comments"
+    cover_size: 1280x720
+    max_title: 100
+    max_content: 5000
+    has_api: true
+
+  tiktok:
+    id: 101
+    name: TikTok
+    type: video
+    icon: ♪
+    category: 海外
+    publish_url: "https://www.tiktok.com/upload/"
+    data_url: ""
+    comment_url: ""
+    cover_size: 1080x1440
+    max_title: 30
+    max_content: 500
+    has_api: true
+
+  bilibili:
+    id: 23
+    name: B站
+    type: mixed
+    icon: 📺
+    category: 中文
+    publish_url: "https://member.bilibili.com/"
+    data_url: "https://member.bilibili.com/platform/analysis"
+    comment_url: "https://member.bilibili.com/platform/comment"
+    cover_size: 1146x717
+    max_title: 80
+    max_content: 20000
+    has_api: true
+
+  baijiahao:
+    id: 4
+    name: 百家号
+    type: article
+    icon: 📖
+    category: 中文
+    publish_url: "https://baijiahao.baidu.com/"
+    data_url: ""
+    comment_url: ""
+    cover_size: 1200x675
+    max_title: 64
+    max_content: 50000
+    has_api: false

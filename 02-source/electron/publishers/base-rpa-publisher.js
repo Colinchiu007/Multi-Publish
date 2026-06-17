@@ -1,0 +1,119 @@
+/**
+ * RPA 发布器基类
+ * 所有平台 RPA 发布器继承此类
+ * P0-D6: 添加 validateResult 发布结果验证
+ */
+const playwrightManager = require('../playwright-manager')
+const cookieStore = require('../cookie-store')
+const { app } = require('electron')
+
+class BaseRPAPublisher {
+  constructor (platform) {
+    this.platform = platform
+    this.page = null
+    this.context = null
+    this._progressCallback = null
+  }
+
+  onProgress (cb) {
+    this._progressCallback = cb
+  }
+
+  _progress (stage) {
+    if (this._progressCallback) {
+      this._progressCallback({ platform: this.platform, stage })
+    }
+  }
+
+  async init () {
+    this.page = await playwrightManager.newPage()
+    this.context = await playwrightManager.getContext()
+  }
+
+  async checkLogin () {
+    throw new Error('checkLogin() must be implemented by subclass')
+  }
+
+  async waitForLogin (timeout = 120000) {
+    throw new Error('waitForLogin() must be implemented by subclass')
+  }
+
+  async publish (article) {
+    throw new Error('publish() must be implemented by subclass')
+  }
+
+  async validateResult (result) {
+    if (!result || typeof result !== 'object') {
+      throw new Error('发布结果异常: 返回值为空')
+    }
+    if (result.error) {
+      throw new Error('发布失败: ' + result.error)
+    }
+    if (this.page && !this.page.isClosed()) {
+      try {
+        var errorText = await this.page.evaluate(function () {
+          var el = document.querySelector('.toast_error, .error_msg, .alert-danger, [class*="error"]')
+          return el ? el.textContent.trim() : null
+        })
+        if (errorText) result._pageError = errorText
+      } catch (e) { /* ignore */ }
+    }
+    result.verifiedAt = new Date().toISOString()
+    return result
+  }
+
+  async publishArticle (article) {
+    this._progress('启动浏览器...')
+    await this.init()
+
+    this._progress('检查登录状态...')
+    const loggedIn = await this.checkLogin()
+
+    if (!loggedIn) {
+      this._progress('需要扫码登录，请扫描二维码...')
+      const loginOk = await this.waitForLogin()
+      if (!loginOk) {
+        throw new Error('扫码登录超时')
+      }
+      await this._saveCookies()
+    } else {
+      this._progress('登录状态有效')
+    }
+
+    this._progress('正在发布文章...')
+    let result = await this.publish(article)
+
+    this._progress('保存登录态...')
+    await this._saveCookies()
+
+    this._progress('验证发布结果...')
+    result = await this.validateResult(result)
+    this._progress('发布完成')
+    return result
+  }
+
+  async _saveCookies () {
+    if (!this.context) return
+    const cookies = await this.context.cookies()
+    const userDataDir = app.getPath('userData')
+    cookieStore.saveCookies(this.platform, cookies, userDataDir)
+  }
+
+  async _loadCookies () {
+    if (!this.context) return
+    const userDataDir = app.getPath('userData')
+    const cookies = cookieStore.loadCookies(this.platform, userDataDir)
+    if (cookies && cookies.length > 0) {
+      await this.context.addCookies(cookies)
+    }
+  }
+
+  async cleanup () {
+    if (this.page) {
+      try { await this.page.close() } catch (e) { /* ignore */ }
+      this.page = null
+    }
+  }
+}
+
+module.exports = BaseRPAPublisher
