@@ -1,0 +1,105 @@
+{
+  "name": "@multi-publish/desktop",
+  "version": "1.1.7",
+  "description": "多平台内容一键发布桌面工具 (Electron + Playwright)",
+  "author": "Colin Chiu <colin.chiu@colinchiu.com>",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev:vue": "vite",
+    "dev:electron": "wait-on http://localhost:5174 && electron .",
+    "dev": "concurrently \"npm run dev:vue\" \"npm run dev:electron\"",
+    "build:vue": "vite build",
+    "build": "npm run build:vue && electron-builder",
+    "build:win": "npm run build:vue && electron-builder --win --x64",
+    "build:dir": "npm run build:vue && electron-builder --dir",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "multi-publish",
+    "rpa",
+    "wechat"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.9.0",
+    "form-data": "^4.0.0",
+    "@multi-publish/rpa-engine": "*",
+    "@multi-publish/shared-utils": "*",
+    "@vitejs/plugin-vue": "^5.2.0",
+    "@vueup/vue-quill": "^1.5.3",
+    "better-sqlite3": "^12.10.0",
+    "electron-updater": "^6.8.9",
+    "element-plus": "^2.9.0",
+    "pinia": "^2.3.0",
+    "playwright": "^1.52.0",
+    "vite": "^6.3.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "electron": "33.4.0",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.colinchiu.multi-publish",
+    "productName": "Multi-Publish",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "electronVersion": "33.4.11",
+    "npmRebuild": false,
+    "extraResources": [
+      {
+        "from": ".playwright-browsers",
+        "to": "playwright-browsers",
+        "filter": ["**/*"]
+      }
+    ],
+    "files": [
+      "dist/**/*",
+      "electron/logger.js",
+      "electron/credential-store.js",
+      "electron/account-state-restorer.js",
+      "electron/store.js",
+      "electron/webview-manager.js",
+      "electron/monitor-preload.js",
+      "electron/auth-qrcode-preload.js",
+      "electron/qrcode-login.js",
+      "electron/oauth-manager.js",
+      "electron/batch-manager.js",
+      "electron/url-collector.js",
+      "electron/hotkeys.js",
+      "electron/system-tray.js",
+      "electron/publish-monitor.js",
+      "electron/video-uploader.js",
+      "electron/content-aggregator-bridge.js",
+      "electron/api-platform-adapter.js",
+      "electron/callback-server.js",
+      "electron/main.js",
+      "electron/preload.js",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": null,
+      "sign": false,
+      "signAndEditExecutable": false,
+      "signDlls": false,
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": true,
+      "artifactName": "${productName}.Setup.${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Colinchiu007",
+      "repo": "Multi-Publish"
+    }
+  }
+}

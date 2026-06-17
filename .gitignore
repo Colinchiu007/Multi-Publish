@@ -1,0 +1,25 @@
+﻿node_modules/
+dist/
+dist-electron/
+.vite/
+*.enc
+browser-data/
+python/__pycache__/
+*.pyc
+data/
+.DS_Store
+*.log
+# Monorepo
+package-lock.json
+# 冗余文件，配置统一在 package.json
+electron-builder.yml
+build/*.exe
+latest.yml
+*.exe
+latest.yml
+
+# Playwright browsers (bundled in installer)
+.playwright-browsers/
+
+# 临时文件
+*.part

@@ -1,0 +1,30 @@
+{
+  "name": "multi-publish",
+  "version": "1.1.7",
+  "private": true,
+  "description": "多平台内容一键发布 — Monorepo",
+  "scripts": {
+    "dev": "npm run dev -w @multi-publish/desktop",
+    "build": "npm run build -w @multi-publish/desktop",
+    "build:win": "npm run build:win -w @multi-publish/desktop",
+    "test": "npm run test -w @multi-publish/rpa-engine -w @multi-publish/shared-utils",
+    "clean": "rm -rf apps/*/node_modules packages/*/node_modules node_modules"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "keywords": [
+    "multi-publish",
+    "rpa",
+    "wechat"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "app-builder-bin": "5.0.0-alpha.10",
+    "electron": "^33.4.0"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2"
+  }
+}

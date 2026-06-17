@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Publish UI Prototype</title>
+<style>
+  /* ============================================
+     DESIGN SYSTEM — Cohere-inspired
+     Token: DESIGN.md (Cohere style)
+     Font: Unica77 → Inter → system-ui
+     ============================================ */
+  :root {
+    /* Colors */
+    --primary: #17171c;
+    --cohere-black: #000000;
+    --ink: #212121;
+    --deep-green: #003c33;
+    --dark-navy: #071829;
+    --canvas: #ffffff;
+    --soft-stone: #eeece7;
+    --pale-green: #edfce9;
+    --pale-blue: #f1f5ff;
+    --hairline: #d9d9dd;
+    --border-light: #e5e7eb;
+    --muted: #93939f;
+    --slate: #75758a;
+    --action-blue: #1863dc;
+    --coral: #ff7759;
+    --coral-soft: #ffad9b;
+    --on-primary: #ffffff;
+    --on-dark: #ffffff;
+    --error: #b30000;
+
+    /* Typography */
+    --font-display: 'CohereText', 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-body: 'Unica77 Cohere Web', 'Inter', Arial, ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'CohereMono', 'JetBrains Mono', 'Fira Code', monospace;
+
+    /* Radii */
+    --r-xs: 4px;
+    --r-sm: 8px;
+    --r-md: 16px;
+    --r-lg: 22px;
+    --r-xl: 30px;
+    --r-pill: 32px;
+    --r-full: 9999px;
+
+    /* Spacing */
+    --s-xxs: 2px;
+    --s-xs: 6px;
+    --s-sm: 8px;
+    --s-md: 12px;
+    --s-lg: 16px;
+    --s-xl: 24px;
+    --s-xxl: 32px;
+    --s-section: 80px;
+
+    /* Shadows */
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-panel: 0 2px 8px rgba(0,0,0,0.08);
+    --shadow-nav: 0 1px 0 var(--hairline);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--canvas);
+    color: var(--ink);
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  /* ============================================
+     LAYOUT: Top Nav + Content Split
+     ============================================ */
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+
+  /* --- Top Navigation Bar --- */
+  .top-nav {
+    display: flex;
+    align-items: center;
+    height: 56px;
+    padding: 0 var(--s-xl);
+    background: var(--canvas);
+    border-bottom: 1px solid var(--hairline);
+    flex-shrink: 0;
+    gap: var(--s-xl);
+  }
+
+  .nav-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--s-sm);
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: -0.3px;
+    color: var(--primary);
+    white-space: nowrap;
+  }
+
+  .nav-brand-icon {
+    width: 28px;
+    height: 28px;
+    background: var(--primary);
+    border-radius: var(--r-xs);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--on-primary);
+    font-size: 14px;
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: var(--s-xs);
+    flex: 1;
+  }
+
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: var(--s-xs);
+    padding: var(--s-sm) var(--s-lg);
+    border-radius: var(--r-xs);
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: none;
+    background: none;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .nav-link:hover {
+    color: var(--ink);
+    background: var(--soft-stone);
+  }
+
+  .nav-link.active {
+    color: var(--primary);
+    background: var(--soft-stone);
+    font-weight: 500;
+  }
+
+  .nav-link svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+
+  .nav-right {
+    display: flex;
+    align-items: center;
+    gap: var(--s-lg);
+    flex-shrink: 0;
+  }
+
+  /* Platform status dots */
+  .platform-indicators {
+    display: flex;
+    align-items: center;
+    gap: var(--s-sm);
+  }
+
+  .platform-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--r-full);
+    background: var(--hairline);
+    position: relative;
+  }
+  .platform-dot.online { background: #22c55e; }
+  .platform-dot.offline { background: var(--hairline); }
+  .platform-dot.error { background: var(--coral); }
+
+  .platform-dot::after {
+    content: attr(data-label);
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 2px;
+    font-size: 9px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .nav-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--r-full);
+    background: var(--soft-stone);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  /* --- Main Content: Split Screen --- */
+  .main-content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* Left Panel: Editor */
+  .editor-panel {
+    width: 420px;
+    min-width: 380px;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--hairline);
+    background: var(--canvas);
+    flex-shrink: 0;
+  }
+
+  .editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--s-lg) var(--s-xl);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .editor-header h2 {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--primary);
+  }
+
+  .editor-header-actions {
+    display: flex;
+    gap: var(--s-sm);
+  }
+
+  .editor-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--s-xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-lg);
+  }
+
+  /* --- Form Elements --- */
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-xs);
+  }
+
+  .form-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .form-input {
+    width: 100%;
+    padding: var(--s-sm) var(--s-md);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-xs);
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--ink);
+    background: var(--canvas);
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+
+  .form-input:focus {
+    border-color: var(--primary);
+  }
+
+  .form-textarea {
+    width: 100%;
+    min-height: 120px;
+    padding: var(--s-sm) var(--s-md);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-xs);
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--ink);
+    background: var(--canvas);
+    outline: none;
+    resize: vertical;
+    transition: border-color 0.15s ease;
+  }
+
+  .form-textarea:focus {
+    border-color: var(--primary);
+  }
+
+  /* --- Platform Tag Selector --- */
+  .platform-selector {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-xs);
+  }
+
+  .platform-tag {
+    display: flex;
+    align-items: center;
+    gap: var(--s-xs);
+    padding: var(--s-xs) var(--s-md);
+    border-radius: var(--r-pill);
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--hairline);
+    background: var(--canvas);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .platform-tag:hover {
+    border-color: var(--muted);
+    color: var(--ink);
+  }
+
+  .platform-tag.active {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: var(--on-primary);
+  }
+
+  .platform-tag .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--r-full);
+    background: currentColor;
+    opacity: 0.5;
+  }
+
+  .platform-tag.active .dot {
+    opacity: 1;
+  }
+
+  /* --- Buttons --- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-xs);
+    padding: var(--s-sm) var(--s-xl);
+    border-radius: var(--r-pill);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: none;
+    white-space: nowrap;
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: var(--on-primary);
+  }
+  .btn-primary:hover {
+    background: var(--cohere-black);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--ink);
+    padding: var(--s-sm) 0;
+    border-radius: 0;
+  }
+  .btn-secondary:hover {
+    color: var(--primary);
+    text-decoration: underline;
+  }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--hairline);
+  }
+  .btn-outline:hover {
+    border-color: var(--muted);
+  }
+
+  .btn-sm {
+    padding: 4px var(--s-md);
+    font-size: 12px;
+    border-radius: var(--r-pill);
+  }
+
+  .btn-publish {
+    background: var(--primary);
+    color: var(--on-primary);
+    padding: var(--s-sm) var(--s-xxl);
+    font-size: 14px;
+    width: 100%;
+  }
+  .btn-publish:hover {
+    background: var(--cohere-black);
+  }
+
+  /* --- Right Panel: Browser View --- */
+  .browser-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--soft-stone);
+  }
+
+  .browser-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--s-sm);
+    padding: var(--s-sm) var(--s-lg);
+    background: var(--canvas);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .browser-url-bar {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--s-xs);
+    padding: var(--s-xs) var(--s-md);
+    background: var(--soft-stone);
+    border-radius: var(--r-xs);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .browser-url-bar .lock-icon {
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .browser-url-bar .url {
+    color: var(--slate);
+  }
+
+  .browser-viewport {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--canvas);
+    margin: var(--s-md);
+    border-radius: var(--r-sm);
+    border: 1px solid var(--hairline);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .browser-placeholder {
+    text-align: center;
+    color: var(--muted);
+  }
+
+  .browser-placeholder .icon {
+    font-size: 48px;
+    margin-bottom: var(--s-lg);
+    opacity: 0.3;
+  }
+
+  .browser-placeholder p {
+    font-size: 14px;
+  }
+
+  .browser-placeholder .sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: var(--s-xs);
+  }
+
+  /* --- Status Bar --- */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 32px;
+    padding: 0 var(--s-lg);
+    background: var(--primary);
+    color: var(--on-dark);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .status-bar .left {
+    display: flex;
+    align-items: center;
+    gap: var(--s-lg);
+  }
+
+  .status-bar .right {
+    display: flex;
+    align-items: center;
+    gap: var(--s-lg);
+  }
+
+  .status-indicator {
+    display: flex;
+    align-items: center;
+    gap: var(--s-xs);
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--r-full);
+    background: #22c55e;
+  }
+  .status-dot.busy { background: #f59e0b; }
+  .status-dot.off { background: var(--muted); }
+
+  /* --- Action Bar (bottom of editor) --- */
+  .editor-footer {
+    padding: var(--s-lg) var(--s-xl);
+    border-top: 1px solid var(--hairline);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-sm);
+  }
+
+  .publish-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .publish-meta .schedule {
+    display: flex;
+    align-items: center;
+    gap: var(--s-xs);
+  }
+
+  /* --- Scrollbar --- */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: var(--r-full); }
+
+  /* --- Split Section Card --- */
+  .section-card {
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-sm);
+    overflow: hidden;
+  }
+
+  .section-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--s-md) var(--s-lg);
+    background: var(--soft-stone);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+
+  .section-card-body {
+    padding: var(--s-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-md);
+  }
+
+  /* --- Divider --- */
+  .divider {
+    height: 1px;
+    background: var(--hairline);
+    margin: var(--s-sm) 0;
+  }
+
+  /* --- Tabs inside editor --- */
+  .tab-bar {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .tab-item {
+    padding: var(--s-sm) var(--s-lg);
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s ease;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    font-family: var(--font-body);
+  }
+
+  .tab-item:hover { color: var(--ink); }
+  .tab-item.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+    font-weight: 500;
+  }
+
+  /* Platform select checkboxes inline */
+  .platform-check-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-xs);
+  }
+
+  /* Icons via inline SVG where possible, fallback text */
+  .icon { display: inline-flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══ Top Navigation Bar ═══ -->
+  <nav class="top-nav">
+    <div class="nav-brand">
+      <div class="nav-brand-icon">M</div>
+      Multi-Publish
+    </div>
+
+    <div class="nav-links">
+      <button class="nav-link active">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8L6 11L13 4"/></svg>
+        一键发布
+      </button>
+      <button class="nav-link">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M4 10L7 7L9 9L12 6"/></svg>
+        统计看板
+      </button>
+      <button class="nav-link">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="2.5"/><path d="M3 14c0-3 2.5-5 5-5s5 2 5 5"/></svg>
+        账号管理
+      </button>
+      <button class="nav-link">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v4M8 11v0"/></svg>
+        关于
+      </button>
+    </div>
+
+    <div class="nav-right">
+      <div class="platform-indicators">
+        <div class="platform-dot online" data-label="微信"></div>
+        <div class="platform-dot online" data-label="知乎"></div>
+        <div class="platform-dot offline" data-label="微博"></div>
+        <div class="platform-dot error" data-label="抖音"></div>
+        <div class="platform-dot online" data-label="小红书"></div>
+      </div>
+      <div class="nav-avatar">C</div>
+    </div>
+  </nav>
+
+  <!-- ═══ Main Content: Split Screen ═══ -->
+  <div class="main-content">
+
+    <!-- Left: Editor Panel -->
+    <div class="editor-panel">
+
+      <!-- Editor Tabs -->
+      <div class="tab-bar">
+        <button class="tab-item active">内容编辑</button>
+        <button class="tab-item">草稿箱</button>
+        <button class="tab-item">发布历史</button>
+      </div>
+
+      <div class="editor-header">
+        <h2>新建发布</h2>
+        <div class="editor-header-actions">
+          <button class="btn btn-outline btn-sm">存草稿</button>
+        </div>
+      </div>
+
+      <div class="editor-body">
+
+        <!-- Platform Selection -->
+        <div class="form-group">
+          <label class="form-label">发布平台</label>
+          <div class="platform-selector">
+            <button class="platform-tag active"><span class="dot"></span>微信</button>
+            <button class="platform-tag active"><span class="dot"></span>知乎</button>
+            <button class="platform-tag"><span class="dot"></span>微博</button>
+            <button class="platform-tag"><span class="dot"></span>抖音</button>
+            <button class="platform-tag active"><span class="dot"></span>小红书</button>
+          </div>
+        </div>
+
+        <!-- Title -->
+        <div class="form-group">
+          <label class="form-label">标题</label>
+          <input class="form-input" type="text" placeholder="输入文章标题..." value="基于 Cohere 风格设计的多平台发布工具">
+        </div>
+
+        <!-- Content -->
+        <div class="form-group">
+          <label class="form-label">正文内容</label>
+          <textarea class="form-textarea" placeholder="支持 Markdown 格式...">## 设计理念
+
+采用 Cohere 的严肃企业 AI 风格，深绿与黑色为主色调，
+白色画布上构建清晰的信息层级。
+
+## 核心功能
+
+- 多平台一键发布
+- 嵌入式浏览器实时预览
+- 分屏监控发布状态</textarea>
+        </div>
+
+        <!-- Media -->
+        <div class="section-card">
+          <div class="section-card-header">
+            <span>📎 附件</span>
+            <button class="btn btn-outline btn-sm">+ 添加</button>
+          </div>
+          <div class="section-card-body" style="text-align:center; padding:24px; color:var(--muted); font-size:13px;">
+            拖放图片或文件到这里，或点击添加
+          </div>
+        </div>
+
+        <!-- Schedule -->
+        <div class="form-group">
+          <label class="form-label">定时发布</label>
+          <div style="display:flex; gap:var(--s-sm); align-items:center;">
+            <input class="form-input" type="datetime-local" style="flex:1;" value="2026-06-11T10:00">
+            <button class="btn btn-outline btn-sm">清除</button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Editor Footer -->
+      <div class="editor-footer">
+        <div class="publish-meta">
+          <span>已选 3 个平台</span>
+          <span class="schedule">⏱ 定时 · 今天 10:00</span>
+        </div>
+        <button class="btn btn-publish">→ 一键发布</button>
+      </div>
+    </div>
+
+    <!-- Right: Browser View -->
+    <div class="browser-panel">
+
+      <!-- Browser Toolbar -->
+      <div class="browser-toolbar">
+        <div style="display:flex; gap:4px;">
+          <div style="width:10px;height:10px;border-radius:50%;background:#ef4444;"></div>
+          <div style="width:10px;height:10px;border-radius:50%;background:#f59e0b;"></div>
+          <div style="width:10px;height:10px;border-radius:50%;background:#22c55e;"></div>
+        </div>
+        <div class="browser-url-bar">
+          <span class="lock-icon">🔒</span>
+          <span class="url">mp.weixin.qq.com</span>
+        </div>
+        <button class="btn btn-outline btn-sm" style="padding:4px 10px;font-size:11px;">刷新</button>
+      </div>
+
+      <!-- Embedded Browser Viewport -->
+      <div class="browser-viewport">
+        <div class="browser-placeholder">
+          <div class="icon">🌐</div>
+          <p>WebContentsView 嵌入式浏览器</p>
+          <p class="sub">Playwright 渲染引擎 · 微信公众平台</p>
+        </div>
+      </div>
+
+      <!-- Split Screen Indicator -->
+      <div style="display:flex; gap:var(--s-sm); padding:0 var(--s-lg) var(--s-sm);">
+        <button class="btn btn-outline btn-sm" style="background:var(--canvas);">微信 · 已连接</button>
+        <button class="btn btn-outline btn-sm" style="opacity:0.5;">知乎</button>
+        <button class="btn btn-outline btn-sm" style="opacity:0.5;">小红书</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Status Bar ═══ -->
+  <div class="status-bar">
+    <div class="left">
+      <span class="status-indicator">
+        <span class="status-dot"></span>
+        运行中
+      </span>
+      <span>5 个平台 · 3 在线</span>
+    </div>
+    <div class="right">
+      <span>v1.0.0</span>
+      <span>最后发布: 10 分钟前</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,166 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: [v*]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+      fail-fast: false
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # 让安装包文件名与 tag 版本号保持一致
+      # electron-builder 的 artifactName 模板用 package.json 的 version 字段
+      # 这里仅在 tag 触发时覆盖（bash 兼容 Windows/Linux runner）
+      - name: Sync package version with tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" apps/desktop/package.json
+          VERSION_AFTER=$(node -p "require('./apps/desktop/package.json').version")
+          echo "package version = ${VERSION_AFTER}"
+
+      # Linux 需要 libvips（sharp 依赖）和 C++ 编译工具（better-sqlite3）
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libvips libvips-dev build-essential python3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Vue frontend
+        run: npm run build:vue -w @multi-publish/desktop
+
+      # 显式安装 @electron/rebuild 并重建原生模块
+      # app-builder-lib@25.1.8 缺少 remote-rebuild.js，内置 rebuilder 会失败
+      - name: Rebuild native modules
+        run: |
+          cd apps/desktop
+          npx @electron/rebuild -f -w better-sqlite3
+
+      # 安装 Playwright Chromium 并捆绑到安装包（避免离线用户无法下载）
+      - name: Install Playwright chromium (bundled)
+        shell: bash
+        run: |
+          cd apps/desktop
+          mkdir -p .playwright-browsers
+          PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers npx playwright install chromium
+
+      - name: Build Electron app (Windows)
+        if: runner.os == 'Windows'
+        run: cd apps/desktop && npx electron-builder --win --x64 -p never
+        env:
+          NODE_OPTIONS: "--max_old_space_size=4096"
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Multi-Publish-Windows
+          path: apps/desktop/dist-electron/Multi-Publish*.exe
+          retention-days: 30
+
+      - name: Build Electron app (Linux)
+        if: runner.os == 'Linux'
+        run: cd apps/desktop && npx electron-builder --linux --x64 --dir
+        env:
+          NODE_OPTIONS: "--max_old_space_size=4096"
+
+  release:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Windows asset
+        uses: actions/download-artifact@v4
+        with:
+          name: Multi-Publish-Windows
+          path: release-assets
+
+      - name: Generate release notes
+        id: notes
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          NOTES="## What's Changed in v${VERSION}"
+          printf -v NL '\n\n'
+          NOTES="${NOTES}${NL}Full changelog: https://github.com/${{ github.repository }}/compare/v${VERSION}...HEAD"
+          if [ -f CHANGELOG.md ]; then
+            # extract from "## [vX.Y.Z]" up to next "## [" section
+            CHUNK=$(awk -v ver="$VERSION" '
+              BEGIN { capture=0 }
+              /^## \[v/ {
+                if (index($0, "v"ver"]") > 0) { capture=1; next }
+                if (capture==1) { capture=0 }
+              }
+              capture==1 { print }
+            ' CHANGELOG.md)
+            if [ -n "$CHUNK" ]; then
+              NOTES=$(printf '%s\n\n%s' "$NOTES" "$CHUNK")
+            fi
+          fi
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Multi-Publish ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.notes }}
+          files: release-assets/*
+          draft: false
+          prerelease: false
+
+      # 同步 .exe 到 Gitee Release（国内加速，330MB 文件下载速度从 50KB/s → 5MB/s）
+      - name: Sync to Gitee Release
+        if: env.GITEE_TOKEN != ''
+        shell: bash
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: ColinChiu007
+          GITEE_REPO: Multi-Publish
+        run: |
+          set -e
+          TAG="${{ github.ref_name }}"
+          # 1) 确保 Gitee 仓库 release 存在
+          curl -fsS -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases" \
+            -H "Content-Type: application/json" \
+            -d "{\"access_token\":\"${GITEE_TOKEN}\",\"tag_name\":\"${TAG}\",\"name\":\"Multi-Publish ${TAG}\",\"body\":\"Gitee 镜像 — 完整内容请查看 GitHub Release: https://github.com/${GITEE_OWNER}/${GITEE_REPO}/releases/tag/${TAG}\"}" \
+            || echo "Gitee release may already exist, continuing"
+          # 2) 上传 .exe 到 Gitee release
+          for f in release-assets/*; do
+            echo "Uploading $f to Gitee..."
+            curl -fsS -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${TAG}/attach_files" \
+              -F "access_token=${GITEE_TOKEN}" \
+              -F "file=@${f}" \
+              || echo "Failed to upload ${f} to Gitee, skipping"
+          done
+          echo "✅ Gitee 同步完成"
