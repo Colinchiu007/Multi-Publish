@@ -1,6 +1,6 @@
 {
   "name": "@multi-publish/desktop",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "多平台内容一键发布桌面工具 (Electron + Playwright)",
   "author": "Colin Chiu <colin.chiu@colinchiu.com>",
   "main": "electron/main.js",
