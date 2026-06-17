@@ -81,8 +81,8 @@ class TikTokPublisher extends BaseRPAPublisher {
       const caption = await this.page.$('[class*="caption"] textarea, [class*="description"] textarea, #caption-input')
       if (caption) {
         await caption.click()
-        // TikTok 标题最多 2200 字符
-        const plain = article.title + '\n' + article.content.replace(/<[^>]+>/g, '').trim()
+        const contentText = (article.content || '').replace(/<[^>]+>/g, '').trim()
+        const plain = article.title + (contentText ? '\n' + contentText : '')
         const text = plain.slice(0, 2200)
         await caption.fill(text)
         await smartWait(this.page, null, 500)
@@ -95,7 +95,6 @@ class TikTokPublisher extends BaseRPAPublisher {
   async _doPublish () {
     this._progress('发布中...')
 
-    // 先找到"Post"按钮
     const postBtn = await this.page.$('button:has-text("Post"), button:has-text("发布"), [class*="post"]')
     if (postBtn) {
       await postBtn.click()
@@ -103,7 +102,7 @@ class TikTokPublisher extends BaseRPAPublisher {
       return { success: true, url: this.page.url(), platform: 'tiktok' }
     }
 
-    return { success: true, url: this.page.url(), platform: 'tiktok' }
+    return { success: false, error: '未找到TikTok发布按钮', url: this.page.url(), platform: 'tiktok' }
   }
 }
 

@@ -70,9 +70,11 @@ describe('TaskQueue', () => {
 
     queue.add({ platform: 'test', article: { title: 'T' } })
 
-    await new Promise(r => setTimeout(r, 150))
+    // 等待足够长让超时触发并完成
+    await new Promise(r => setTimeout(r, 300))
 
     const history = queue.getHistory()
+    expect(history.length).toBeGreaterThan(0)
     expect(history[0].status).toBe('failed')
     expect(history[0].error).toContain('timed out')
   })
@@ -82,8 +84,10 @@ describe('TaskQueue', () => {
     let executed = false
 
     queue.setExecutor(async () => { executed = true })
-    queue.add({ platform: 'test', article: { title: 'T' } })
+
+    // 先暂停，再添加任务
     queue.pause()
+    queue.add({ platform: 'test', article: { title: 'T' } })
 
     await new Promise(r => setTimeout(r, 100))
 

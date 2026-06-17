@@ -2,9 +2,11 @@
  * RPA 发布器基类 — 无 Electron 依赖
  * userDataDir 通过构造注入传入
  * P0-D6: 添加 validateResult 发布结果验证
+ * P0-D7: 集成 SelectorEngine 选择器降级
  */
 const playwrightManager = require('../playwright-manager')
 const cookieStore = require('../cookie-store')
+const { SelectorEngine } = require('../selector-engine')
 
 class BaseRPAPublisher {
   constructor (platform, options = {}) {
@@ -28,6 +30,17 @@ class BaseRPAPublisher {
   async init () {
     this.page = await playwrightManager.newPage()
     this.context = await playwrightManager.getContext()
+  }
+
+  /**
+   * 使用 SelectorEngine 查找元素（Level 1: 配置 → Level 2: 语义降级）
+   * @param {string} elementKey - 元素键名 (publish_btn, title_input, ...)
+   * @param {object} [options] - 选项
+   * @returns {Promise<import('playwright').Locator|null>}
+   */
+  async findElement (elementKey, options = {}) {
+    if (!this.page) throw new Error('Page not initialized. Call init() first.')
+    return SelectorEngine.find(this.page, this.platform, elementKey, options)
   }
 
   async checkLogin () {
@@ -63,6 +76,13 @@ class BaseRPAPublisher {
   }
 
   async publishArticle (article) {
+    if (!article || typeof article !== 'object') {
+      throw new Error('article 参数无效')
+    }
+    if (!article.title && !article.content && !article.video_path) {
+      throw new Error('article 必须包含 title、content 或 video_path')
+    }
+
     this._progress('启动浏览器...')
     await this.init()
 

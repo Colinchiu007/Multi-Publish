@@ -147,7 +147,7 @@ class WeChatMPPublisher extends BaseRPAPublisher {
     }
     const saveBtn = await this.page.$('a[data-action="save"], a#js_sync_save, a:has-text("保存")')
     if (!saveBtn) {
-      return { success: true, url: this.page.url(), mediaId: null }
+      return { success: false, error: '未找到微信公众号保存按钮', url: this.page.url(), mediaId: null }
     }
     await saveBtn.click()
     try {
@@ -158,7 +158,7 @@ class WeChatMPPublisher extends BaseRPAPublisher {
       return { success: true, url: currentUrl, mediaId: mediaId ? mediaId[1] : null }
     } catch (e) {
       await smartWait(this.page, null, 2000)
-      return { success: true, url: this.page.url(), mediaId: null }
+      return { success: false, error: '保存草稿超时', url: this.page.url(), mediaId: null }
     }
   }
 

@@ -3,8 +3,6 @@
  * 测试: progress 回调、子类必须实现方法、publishArticle 流程
  */
 
-const BaseRPAPublisher = require('../src/publishers/base-rpa-publisher')
-
 // Mock: 替换 playwrightManager.newPage
 jest.mock('../src/playwright-manager', () => ({
   newPage: jest.fn(() => Promise.resolve({ close: jest.fn() })),
@@ -16,6 +14,16 @@ jest.mock('../src/cookie-store', () => ({
   saveCookies: jest.fn(),
   loadCookies: jest.fn(() => null)
 }))
+
+// Mock: 替换 SelectorEngine
+jest.mock('../src/selector-engine', () => ({
+  SelectorEngine: {
+    find: jest.fn(() => Promise.resolve(null)),
+    findMultiple: jest.fn(() => Promise.resolve({}))
+  }
+}))
+
+const BaseRPAPublisher = require('../src/publishers/base-rpa-publisher')
 
 class MockPublisher extends BaseRPAPublisher {
   async init() {

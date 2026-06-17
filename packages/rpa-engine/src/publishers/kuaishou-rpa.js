@@ -116,8 +116,9 @@ class KuaishouPublisher extends BaseRPAPublisher {
     if (btn) {
       await btn.click()
       await smartWait(this.page, null, 3000)
+      return { success: true, url: this.page.url(), platform: 'kuaishou' }
     }
-    return { success: true, url: this.page.url(), platform: 'kuaishou' }
+    return { success: false, error: '未找到快手发布按钮', url: this.page.url(), platform: 'kuaishou' }
   }
 }
 

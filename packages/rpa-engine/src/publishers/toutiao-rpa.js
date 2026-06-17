@@ -124,8 +124,9 @@ class ToutiaoPublisher extends BaseRPAPublisher {
     if (btn) {
       await btn.click()
       await smartWait(this.page, null, 3000)
+      return { success: true, url: this.page.url(), platform: 'toutiao' }
     }
-    return { success: true, url: this.page.url(), platform: 'toutiao' }
+    return { success: false, error: '未找到头条发布按钮', url: this.page.url(), platform: 'toutiao' }
   }
 }
 

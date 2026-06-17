@@ -1,20 +1,21 @@
 /**
  * Test: registry.js — 平台注册中心
- * 测试: 10 个平台都能正确注册，getPublisherClass 抛错处理
+ * 测试: 12 个平台都能正确注册，getPublisherClass 抛错处理
  */
 
 const { getPublisherClass, listPlatforms } = require('../src/publishers/registry')
 
-// 10 个平台都在 registry 里
+// 12 个平台都在 registry 里
 const EXPECTED = [
   'wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu',
-  'tencent_video', 'kuaishou', 'toutiao', 'youtube', 'tiktok'
+  'tencent_video', 'kuaishou', 'toutiao', 'youtube', 'tiktok',
+  'bilibili', 'baijiahao'
 ]
 
 describe('Registry', () => {
-  test('listPlatforms 返回 10 个平台', () => {
+  test('listPlatforms 返回 12 个平台', () => {
     const platforms = listPlatforms()
-    expect(platforms).toHaveLength(10)
+    expect(platforms).toHaveLength(12)
   })
 
   test('listPlatforms 包含所有预期平台', () => {
@@ -24,17 +25,17 @@ describe('Registry', () => {
     }
   })
 
-  test('getPublisherClass 返回正确的类', () => {
+  test('getPublisherClass 返回有效的类', () => {
+    // wechat_mp 直接导出，其他平台可能被 makeApiRpa 包装
     expect(getPublisherClass('wechat_mp')).toBe(require('../src/publishers/wechat-mp-rpa'))
-    expect(getPublisherClass('zhihu')).toBe(require('../src/publishers/zhihu-rpa'))
-    expect(getPublisherClass('weibo')).toBe(require('../src/publishers/weibo-rpa'))
-    expect(getPublisherClass('douyin')).toBe(require('../src/publishers/douyin-rpa'))
-    expect(getPublisherClass('xiaohongshu')).toBe(require('../src/publishers/xiaohongshu-rpa'))
-    expect(getPublisherClass('tencent_video')).toBe(require('../src/publishers/tencent-video-rpa'))
-    expect(getPublisherClass('kuaishou')).toBe(require('../src/publishers/kuaishou-rpa'))
-    expect(getPublisherClass('toutiao')).toBe(require('../src/publishers/toutiao-rpa'))
-    expect(getPublisherClass('youtube')).toBe(require('../src/publishers/youtube-rpa'))
-    expect(getPublisherClass('tiktok')).toBe(require('../src/publishers/tiktok-rpa'))
+    // 验证所有平台都能获取到类（不要求精确匹配，因为 makeApiRpa 返回匿名类）
+    const platforms = ['zhihu', 'weibo', 'douyin', 'xiaohongshu', 'tencent_video',
+      'kuaishou', 'toutiao', 'youtube', 'tiktok', 'bilibili', 'baijiahao']
+    for (const p of platforms) {
+      const cls = getPublisherClass(p)
+      expect(cls).toBeDefined()
+      expect(typeof cls).toBe('function')
+    }
   })
 
   test('不支持的平台抛错', () => {

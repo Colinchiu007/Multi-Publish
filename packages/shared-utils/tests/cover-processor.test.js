@@ -1,61 +1,81 @@
 /**
  * Tests for CoverProcessor — 封面图自动处理
- * Tests: URL download, dimension parsing, platform specs
+ * Tests: preset lookup, cover size parsing, process flow
  */
-const CoverProcessor = require('../src/cover-processor')
+const { getPreset, parseCoverSize, processCover } = require('../src/cover-processor')
 const path = require('path')
 const fs = require('fs')
 
 describe('CoverProcessor', () => {
-  test('getCoverDir returns correct path', () => {
-    const dir = CoverProcessor.getCoverDir('/tmp/test-userdata')
-    expect(dir).toContain('test-userdata')
-    expect(dir).toContain('cover-cache')
+  test('getPreset returns correct preset for valid platform', () => {
+    const preset = getPreset('wechat_mp')
+    expect(preset).toBeDefined()
+    expect(preset.width).toBe(900)
+    expect(preset.height).toBe(500)
   })
 
-  test('process with empty URL throws', async () => {
-    await expect(CoverProcessor.process('', 'wechat_mp'))
-      .rejects.toThrow('封面图')
+  test('getPreset returns null for unknown platform', () => {
+    expect(getPreset('unknown_platform')).toBeNull()
   })
 
-  test('process with invalid URL throws', async () => {
-    await expect(CoverProcessor.process('https://nonexistent.example.com/img.jpg', 'wechat_mp'))
-      .rejects.toThrow()
+  test('parseCoverSize parses valid string', () => {
+    const dims = parseCoverSize('900x500')
+    expect(dims).toEqual({ width: 900, height: 500 })
   })
 
-  test('_getDimensions returns 0 for invalid file', async () => {
-    const dims = await CoverProcessor._getDimensions('/nonexistent/file.jpg')
-    expect(dims.width).toBe(0)
-    expect(dims.height).toBe(0)
+  test('parseCoverSize returns null for invalid input', () => {
+    expect(parseCoverSize(null)).toBeNull()
+    expect(parseCoverSize('')).toBeNull()
+    expect(parseCoverSize('invalid')).toBeNull()
   })
 
-  test('_downloadOnly saves file', async () => {
-    // Create a small valid JPEG
+  test('processCover throws on empty path', async () => {
+    await expect(processCover('', 'wechat_mp', '/tmp'))
+      .rejects.toThrow('输入路径不能为空')
+  })
+
+  test('processCover throws on nonexistent file', async () => {
+    await expect(processCover('/nonexistent/file.jpg', 'wechat_mp', '/tmp'))
+      .rejects.toThrow('文件不存在')
+  })
+
+  test('processCover with real image', async () => {
+    // Create a test image using sharp
     const testDir = path.join(__dirname, '.test-covers')
     fs.mkdirSync(testDir, { recursive: true })
-    // Write a minimal JPEG
-    const jpegHeader = Buffer.from([
-      0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46,
-      0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
-      0x00, 0x01, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43,
-    ])
-    const testFile = path.join(testDir, 'test-header.jpg')
-    fs.writeFileSync(testFile, jpegHeader)
+    const testFile = path.join(testDir, 'test.jpg')
 
-    // Test dimension parsing
-    const dims = await CoverProcessor._getDimensions(testFile)
-    expect(dims).toBeDefined()
+    try {
+      const sharp = require('sharp')
+      await sharp({
+        create: { width: 200, height: 150, channels: 3, background: { r: 255, g: 0, b: 0 } }
+      }).jpeg().toFile(testFile)
 
-    // Cleanup
-    fs.rmSync(testDir, { recursive: true, force: true })
+      const result = await processCover(testFile, 'wechat_mp', testDir)
+      expect(result).toBeDefined()
+      expect(result.path).toBeDefined()
+      expect(fs.existsSync(result.path)).toBe(true)
+    } catch (e) {
+      // sharp not available, skip
+      if (e.code === 'MODULE_NOT_FOUND') {
+        console.log('  ⚠️ sharp not installed, skipping processCover test')
+        return
+      }
+      throw e
+    } finally {
+      fs.rmSync(testDir, { recursive: true, force: true })
+    }
   })
 
-  test('platform specs defined for all 10 platforms', () => {
+  test('all platform presets defined', () => {
     const platforms = ['wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu',
-      'tencent_video', 'kuaishou', 'toutiao', 'youtube', 'tiktok']
+      'tencent_video', 'kuaishou', 'toutiao', 'youtube', 'tiktok',
+      'bilibili', 'baijiahao']
     for (const p of platforms) {
-      const filePath = __filename // Just test that CoverProcessor is imported
-      expect(CoverProcessor.getCoverDir).toBeDefined()
+      const preset = getPreset(p)
+      expect(preset).toBeDefined()
+      expect(preset.width).toBeGreaterThan(0)
+      expect(preset.height).toBeGreaterThan(0)
     }
   })
 })

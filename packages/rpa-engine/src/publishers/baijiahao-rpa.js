@@ -187,16 +187,21 @@ class BaiJiaHaoPublisher extends BaseRPAPublisher {
     )
     if (submitBtn) {
       await submitBtn.click()
+      await smartWait(this.page, null, 5000)
+      this._progress('发布完成')
+      return {
+        success: true,
+        platform: 'baijiahao',
+        url: this.page.url(),
+        message: '发布成功（等待审核）',
+      }
     }
 
-    // 等待发布结果
-    await new Promise(r => setTimeout(r, 5000))
-    this._progress('发布完成')
-
     return {
-      success: true,
+      success: false,
+      error: '未找到百家号发布按钮',
       platform: 'baijiahao',
-      message: '发布成功（等待审核）',
+      url: this.page.url(),
     }
   }
 

@@ -115,27 +115,20 @@ class ZhiHuPublisher extends BaseRPAPublisher {
   }
 
   async _saveDraft () {
-    // 点击"保存草稿"按钮
     const saveBtn = await this.page.$('button:has-text("保存草稿"), .WriteIndex-saveDraft, .PublishPanel-saveDraft')
     if (saveBtn) {
       await saveBtn.click()
       await smartWait(this.page, null, 2000)
-
-      // 获取文章 URL
       const currentUrl = this.page.url()
-      return {
-        success: true,
-        url: currentUrl,
-        platform: 'zhihu'
-      }
+      return { success: true, url: currentUrl, platform: 'zhihu' }
     }
-
-    // 如果没有保存按钮，可能已自动保存
-    return {
-      success: true,
-      url: this.page.url(),
-      platform: 'zhihu'
+    // 可能已自动保存，检查页面状态
+    const hasError = await this.page.$('.error-message, .toast-error, [class*="error"]')
+    if (hasError) {
+      const errorText = await hasError.textContent()
+      return { success: false, error: errorText || '保存失败', url: this.page.url(), platform: 'zhihu' }
     }
+    return { success: true, url: this.page.url(), platform: 'zhihu', note: '未找到保存按钮，可能已自动保存' }
   }
 }
 

@@ -49,18 +49,16 @@ class WeiboPublisher extends BaseRPAPublisher {
   }
 
   async _fillContent (article) {
-    // 微博发布框
     const textarea = await this.page.$('.publisher_text textarea, .W_input, textarea[node-type="textEl"]')
-    if (textarea) {
-      await textarea.click()
-      // 微博不支持 HTML，取纯文本
-      const plainText = article.content.replace(/<[^>]+>/g, '').trim()
-      const fullText = article.title ? `${article.title}\n\n${plainText}` : plainText
-      // 微博最多 2000 字
-      const maxLen = 2000
-      const truncated = fullText.length > maxLen ? fullText.slice(0, maxLen) : fullText
-      await textarea.fill(truncated)
+    if (!textarea) {
+      throw new Error('无法定位微博发布输入框')
     }
+    await textarea.click()
+    const plainText = (article.content || '').replace(/<[^>]+>/g, '').trim()
+    const fullText = article.title ? `${article.title}\n\n${plainText}` : plainText
+    const maxLen = 2000
+    const truncated = fullText.length > maxLen ? fullText.slice(0, maxLen) : fullText
+    await textarea.fill(truncated)
     await smartWait(this.page, null, 500)
   }
 
@@ -71,7 +69,7 @@ class WeiboPublisher extends BaseRPAPublisher {
       await smartWait(this.page, null, 3000)
       return { success: true, url: this.page.url(), platform: 'weibo' }
     }
-    return { success: true, url: this.page.url(), platform: 'weibo' }
+    return { success: false, error: '未找到微博发布按钮', url: this.page.url(), platform: 'weibo' }
   }
 }
 

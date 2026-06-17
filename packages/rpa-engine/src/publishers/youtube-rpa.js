@@ -154,7 +154,7 @@ class YouTubePublisher extends BaseRPAPublisher {
       }
     } catch { /* 超时 */ }
 
-    return { success: true, url: this.page.url(), platform: 'youtube' }
+    return { success: false, error: '未找到YouTube发布按钮', url: this.page.url(), platform: 'youtube' }
   }
 }
 

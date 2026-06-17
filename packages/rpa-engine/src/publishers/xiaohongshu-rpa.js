@@ -116,14 +116,13 @@ class XiaohongshuPublisher extends BaseRPAPublisher {
   }
 
   async _doPublish () {
-    // 发布按钮
     const publishBtn = await this.page.$('button:has-text("发布"), [class*="publish"] button, [class*="submit"]')
     if (publishBtn) {
       await publishBtn.click()
       await smartWait(this.page, null, 5000)
       return { success: true, url: this.page.url(), platform: 'xiaohongshu' }
     }
-    return { success: true, url: this.page.url(), platform: 'xiaohongshu' }
+    return { success: false, error: '未找到小红书发布按钮', url: this.page.url(), platform: 'xiaohongshu' }
   }
 }
 

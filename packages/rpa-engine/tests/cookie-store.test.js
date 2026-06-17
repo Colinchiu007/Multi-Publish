@@ -18,8 +18,9 @@ describe('CookieStore', () => {
   beforeEach(() => {
     // 每个测试前清空临时目录
     if (fs.existsSync(TEMP_DIR)) {
-      const { rimrafSync } = require('rimraf')
-      rimrafSync(TEMP_DIR)
+      const rimraf = require('rimraf')
+      const rm = rimraf.rimrafSync || rimraf.sync
+      rm(TEMP_DIR)
     }
   })
 
