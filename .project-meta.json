@@ -1,0 +1,14 @@
+{
+  "owner": "Colinchiu007",
+  "git_status_check": "strict",
+  "safe_to_delete": false,
+  "project_name": "Multi-Publish",
+  "project_type": "llm_app",
+  "created_at": "2026-06-21",
+  "critical_paths": {
+    "prompts": "src/prompts/",
+    "skills": "src/skills/",
+    "core_logic": "src/core/"
+  },
+  "description": "# Multi-Publish"
+}
