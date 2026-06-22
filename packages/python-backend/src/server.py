@@ -20,8 +20,8 @@ import uvicorn
 SHARED_MODULES = Path(__file__).parent.parent / '..' / 'shared_modules'
 sys.path.insert(0, str(SHARED_MODULES.resolve()))
 
-from wechat_mp.account_store import AccountStore
-from wechat_mp.models import PlatformAccount, PlatformType
+from content_aggregator_shared.shared.wechat_mp.account_store import AccountStore
+from content_aggregator_shared.shared.wechat_mp.models import PlatformAccount, PlatformType
 
 app = FastAPI(title="Multi-Publish Backend", version="0.1.0")
 

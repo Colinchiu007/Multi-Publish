@@ -1,0 +1,10 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+cryptography>=42.0.0
+httpx>=0.27.0
+loguru>=0.7.0
+content-aggregator-shared>=0.1.0
+
+[web]
+jinja2>=3.1
+pyyaml>=6.0

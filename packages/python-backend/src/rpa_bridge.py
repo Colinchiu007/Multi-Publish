@@ -10,9 +10,9 @@ from pathlib import Path
 SHARED_MODULES = Path(__file__).resolve().parent.parent.parent / 'shared_modules'
 sys.path.insert(0, str(SHARED_MODULES))
 
-from rpa_engine.base import BaseRPAPublisher
-from rpa_engine.browser_pool import BrowserPool
-from rpa_engine.cookie_manager import CookieManager
+from content_aggregator_shared.shared.rpa_engine.base import BaseRPAPublisher
+from content_aggregator_shared.shared.rpa_engine.browser_pool import BrowserPool
+from content_aggregator_shared.shared.rpa_engine.cookie_manager import CookieManager
 
 
 class RPABridge:

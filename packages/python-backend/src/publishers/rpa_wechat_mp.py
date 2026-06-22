@@ -8,9 +8,9 @@ from pathlib import Path
 
 # 尝试导入 shared_modules
 try:
-    from rpa_engine.base import BaseRPAPublisher
-    from rpa_engine.cookie_manager import CookieManager
-    from wechat_mp.models import PlatformType, PublishResult
+    from content_aggregator_shared.shared.rpa_engine.base import BaseRPAPublisher
+    from content_aggregator_shared.shared.rpa_engine.cookie_manager import CookieManager
+    from content_aggregator_shared.shared.wechat_mp.models import PlatformType, PublishResult
     HAS_SHARED = True
 except ImportError:
     HAS_SHARED = False
