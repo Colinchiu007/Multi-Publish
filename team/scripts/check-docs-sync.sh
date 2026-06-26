@@ -30,34 +30,24 @@ echo ""
 
 # ---- 在 CI 环境中确保 base 分支可用 ----
 # GitHub Actions checkout 只获取当前 ref，需显式获取 base 分支
-# 使用 git fetch origin 而非 git pull，避免 merge 冲突
 if ! git rev-parse --verify "origin/$BASE" >/dev/null 2>&1; then
-  git fetch origin "$BASE"
-  # fetch 会创建 FETCH_HEAD 但不会创建 origin/$BASE
-  # 需要显式创建本地跟踪分支
-  if ! git rev-parse --verify "origin/$BASE" >/dev/null 2>&1; then
-    echo "  origin/$BASE not found after fetch, fetching all refs..."
-    git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
-  fi
+  echo "  fetching origin/$BASE ..."
+  git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
 fi
 
 # ---- 获取变更文件列表 ----
 # 优先使用 merge-base（精确 PR diff），fallback 到直接 diff
 MERGE_BASE=""
-if git rev-parse --verify "HEAD" >/dev/null 2>&1; then
-  # HEAD 是 PR 的 merge commit 或 head commit
-  if git merge-base --is-ancestor "origin/$BASE" "HEAD" 2>/dev/null; then
-    MERGE_BASE=$(git merge-base "origin/$BASE" "HEAD")
-  fi
+if git merge-base --is-ancestor "origin/$BASE" "HEAD" 2>/dev/null; then
+  MERGE_BASE=$(git merge-base "origin/$BASE" "HEAD")
 fi
 
 if [ -n "$MERGE_BASE" ]; then
   CHANGED=$(git diff --name-only "$MERGE_BASE".."HEAD")
 else
-  # fallback: 直接比较与 origin/$BASE 的差异
   echo "  (using direct diff against origin/$BASE as fallback)"
   CHANGED=$(git diff --name-only "origin/$BASE".."HEAD" 2>/dev/null || \
-            git diff --name-only "FETCH_HEAD".."HEAD")
+            git diff --name-only "FETCH_HEAD".."HEAD" 2>/dev/null || true)
 fi
 
 if [ -z "$CHANGED" ]; then
@@ -70,18 +60,57 @@ echo "$CHANGED" | sed 's/^/  /'
 echo ""
 
 # ---- 文档正则 ----
-PRD_FILES="(PRD\.md|CHANGELOG\.md|docs/|01-docs/|README\.md)"
+PRD_PATTERN="(PRD\.md|CHANGELOG\.md|docs/|01-docs/|README\.md)"
 
 # ---- 第一阶段：检查文档是否已更新 ----
 DOCS_CHANGED=false
 while IFS= read -r file; do
-  if [[ "$file" =~ $PRD_FILES ]]; then
+  if [[ "$file" =~ $PRD_PATTERN ]]; then
     DOCS_CHANGED=true
     break
   fi
 done <<< "$CHANGED"
 
 # ---- 第二阶段：检查是否有「需要文档同步」的代码变更 ----
-# 排除：纯文档变更、git workflow、team/scripts、node_modules
 CODE_CHANGED=false
-while IFS= read
+while IFS= read -r file; do
+  # 跳过文档类
+  if [[ "$file" =~ $PRD_PATTERN ]]; then
+    continue
+  fi
+  # 跳过 CI 流程文件
+  if [[ "$file" =~ ^\.github/ ]]; then
+    continue
+  fi
+  # 跳过脚本工具
+  if [[ "$file" =~ ^team/scripts/ ]]; then
+    continue
+  fi
+  # 忽略 node_modules 和构建产物
+  if [[ "$file" =~ node_modules|dist/ ]]; then
+    continue
+  fi
+  CODE_CHANGED=true
+  break
+done <<< "$CHANGED"
+
+# ---- 判定 ----
+if [ "$CODE_CHANGED" = false ]; then
+  echo "✅ 仅文档/流程变更，无需额外同步"
+  exit 0
+fi
+
+if [ "$DOCS_CHANGED" = false ]; then
+  echo "❌ 代码/配置有变更，但未同步更新 PRD 或相关文档"
+  echo ""
+  echo "  请在 PR 中包含对应变更："
+  echo "    - 功能变更 → 更新 PRD.md 对应章节"
+  echo "    - 产品逻辑变更 → 更新 PRD.md 用户流程说明"
+  echo "    - 架构变更 → 更新 PRD.md 架构章节"
+  echo ""
+  echo "  如需绕过此门禁，请添加 'bypass-doc-gate' label"
+  exit 1
+fi
+
+echo "✅ 文档同步检查通过！"
+echo "  代码变更已同步更新文档。"
