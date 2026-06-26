@@ -163,8 +163,11 @@
               <span v-else class="cohere-tag cohere-tag-danger">✗ 发布失败</span>
               <span style="font-size:13px;color:var(--muted)">{{ result.message }}</span>
             </div>
-            <div v-if="result.url" style="margin-top:12px">
+            <div v-if="result.url" style="margin-top:12px;display:flex;align-items:center;gap:8px">
               <a :href="result.url" target="_blank" style="font-size:13px;color:var(--action-blue);text-decoration:none">查看文章 →</a>
+              <button @click="copyUrl(result.url)" style="background:none;border:1px solid var(--border,#e0e0e0);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;color:var(--muted,#999);transition:all .2s" :style="copied ? { background:'var(--cohere-green,#67c23a)', color:'#fff', borderColor:'var(--cohere-green,#67c23a)' } : {}">
+                {{ copied ? '✓ 已复制' : '复制链接' }}
+              </button>
             </div>
           </div>
         </div>
@@ -232,6 +235,7 @@ const selectedAccounts = ref({})  // { platformId: accountId }
 const publishing = ref(false)
 const progress = ref([])
 const result = ref(null)
+const copied = ref(false)  // P2-3: URL 复制反馈
 
 const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '' })
 
@@ -263,6 +267,24 @@ function togglePlatform (platformId) {
 const hasVideoPlatforms = computed(() =>
   selectedPlatforms.value.some(p => ['douyin', 'tencent_video', 'kuaishou'].includes(p))
 )
+
+// P2-3: URL 复制反馈
+function copyUrl (url) {
+  navigator.clipboard.writeText(url).then(() => {
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 2000)
+  }).catch(() => {
+    // fallback for older browsers
+    const ta = document.createElement('textarea')
+    ta.value = url
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 2000)
+  })
+}
 
 function addProgress (text, type = 'primary') {
   const now = new Date()

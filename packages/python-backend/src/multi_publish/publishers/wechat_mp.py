@@ -54,8 +54,9 @@ class WeChatPublisher(BasePublisher):
     流程：获取 access_token → 上传素材（图片）→ 新建草稿 → 发布
     """
 
-    def __init__(self, config: WeChatPublisherConfig):
+    def __init__(self, config: WeChatPublisherConfig, account_id: str | None = None):
         self.config = config
+        self.account_id: str | None = account_id
         self._access_token: str = ""
         self._token_expires_at: float = 0
         self._http: httpx.AsyncClient | None = None

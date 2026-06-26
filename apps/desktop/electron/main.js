@@ -18,6 +18,7 @@ const autoUpdater = require('./auto-updater')
 const firstRun = require('./first-run')
 const AuthViewManager = require('./auth-view-manager')
 const WebviewManager = require('./webview-manager')
+const RpaViewManager = require('./rpa-view-manager')
 const CallbackServer = require('./callback-server')
 const QrCodeLogin = require('./qrcode-login')
 const Store = require('./store')
@@ -27,6 +28,8 @@ const UrlCollector = require('./url-collector')
 
 // ─── AuthViewManager（内嵌浏览器登录）─────
 const authViewManager = new AuthViewManager()
+// ─── RpaViewManager（隐藏浏览器 executeJavaScript RPA）
+const rpaViewManager = new RpaViewManager()
 // ─── WebviewManager（分屏监控）────────────
 const webviewManager = new WebviewManager()
 // ─── CallbackServer（实时回调）─────────────
@@ -58,32 +61,137 @@ BatchManager.setTaskQueue(taskQueue)
 // ─── Aggregator Bridge ────────────────────
 const aggregatorBridge = new AggregatorBridge(taskQueue)
 
+// ─── 标记哪些平台使用 Python 后端 RPA（而非 Node.js RPA 引擎）─────
+// 这些平台的发布走 Python FastAPI + Playwright，不走 @multi-publish/rpa-engine
+const BACKEND_PLATFORMS = new Set([])
+
+// ─── 标记哪些平台使用 Electron executeJavaScript RPA ─────────────
+// 这些平台使用 RpaViewManager（隐藏 BrowserWindow + executeJavaScript）
+// 替代 Python Playwright 或 Node.js Playwright，减少进程开销
+const RPA_VM_PLATFORMS = new Set(['douyin'])
+
 // 注册执行器
 taskQueue.setExecutor(async (task) => {
-  const PublisherClass = getPublisherClass(task.platform)
+  const platform = task.platform
+
+  // 进度发射器（通用）
+  const emitProgress = (stage) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('publish:progress', { platform, stage, taskId: task.id })
+    }
+  }
+
+  // ── Python Backend 平台 ──────────────────────────────
+  if (BACKEND_PLATFORMS.has(platform)) {
+    emitProgress('正在通过 Python 后端发布...')
+
+    const body = {
+      title: task.article?.title || '',
+      content: task.article?.content || '',
+      platform,
+      media_paths: task.article?.video_path
+        ? [task.article.video_path]
+        : (task.article?.media_paths || []),
+      cover_path: task.article?.cover_url || task.article?.cover_path || null,
+      tags: task.article?.tags || [],
+      draft: task.article?.draft || false,
+    }
+
+    try {
+      const result = await pythonBridge.requestBackend('POST', '/api/publish', body)
+
+      if (result.code === 0 && result.data?.success) {
+        emitProgress('✓ 发布成功')
+        return {
+          success: true,
+          url: result.data.url || '',
+          postId: result.data.task_id || task.id,
+          platform,
+        }
+      } else {
+        throw new Error(result.message || (result.data?.error || '发布失败'))
+      }
+    } catch (e) {
+      log.error('Executor', `Python backend publish failed: ${e.message}`)
+      throw e
+    }
+  }
+
+  // ── Electron executeJavaScript RPA 平台 ─────────────
+  if (RPA_VM_PLATFORMS.has(platform)) {
+    emitProgress('正在通过隐藏浏览器 RPA 发布...')
+
+    // 加载账号 Cookie 作为 authData
+    const accountId = task.article?.accountId || task.accountId
+    let authData = { cookies: [] }
+    if (accountId) {
+      const account = store.getAccount(accountId)
+      if (account && account.cookies && account.cookies.length > 0) {
+        authData = { cookies: account.cookies, localStorage: account.local_storage }
+      }
+    } else {
+      const defaultAccount = store.getDefaultAccount(platform)
+      if (defaultAccount && defaultAccount.cookies) {
+        authData = { cookies: defaultAccount.cookies, localStorage: defaultAccount.local_storage }
+      }
+    }
+
+    rpaViewManager.onProgress(({ platform: p, stage }) => {
+      emitProgress(stage)
+    })
+
+    try {
+      const article = {
+        title: task.article?.title || '',
+        content: task.article?.content || '',
+        video_path: task.article?.video_path || (task.article?.media_paths ? task.article.media_paths[0] : null),
+        cover_path: task.article?.cover_url || task.article?.cover_path || null,
+        tags: task.article?.tags || [],
+        draft: task.article?.draft || false,
+      }
+
+      const result = await rpaViewManager.publish(platform, article, authData)
+
+      if (result.success) {
+        emitProgress('✓ 发布成功')
+        return {
+          success: true,
+          url: result.url || '',
+          postId: task.id,
+          platform,
+        }
+      } else {
+        throw new Error(result.error || 'RPA 发布失败')
+      }
+    } catch (e) {
+      log.error('Executor', `RPA VM publish failed: ${e.message}`)
+      throw e
+    }
+  }
+
+  // ── Node.js RPA 平台 ────────────────────────────────
+  const PublisherClass = getPublisherClass(platform)
   const publisher = new PublisherClass()
 
-  // 加载指定账号的 Cookie（如果传了 accountId）
+  // 加载指定账号的 Cookie
   const accountId = task.article?.accountId || task.accountId
   if (accountId) {
     const account = store.getAccount(accountId)
     if (account && account.cookies && account.cookies.length > 0) {
-      // 注入到 article 中让 publisher 读取
       task.article._cookies = account.cookies
     }
   } else {
-    // 没有指定账号，使用该平台的默认账号
-    const defaultAccount = store.getDefaultAccount(task.platform)
+    const defaultAccount = store.getDefaultAccount(platform)
     if (defaultAccount && defaultAccount.cookies) {
       task.article._cookies = defaultAccount.cookies
     }
   }
 
-  const mainWindow = BrowserWindow.getAllWindows()[0]
-
   publisher.onProgress(({ platform, stage }) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('publish:progress', { platform, stage, taskId: task.id })
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('publish:progress', { platform, stage, taskId: task.id })
     }
   })
 
@@ -91,8 +199,8 @@ taskQueue.setExecutor(async (task) => {
     const result = await publisher.publishArticle(task.article)
     return result
   } catch (e) {
-    log.error('Executor', 'Publish failed:', e.message);
-    throw e;
+    log.error('Executor', 'Publish failed:', e.message)
+    throw e
   } finally {
     await publisher.cleanup()
   }
@@ -197,6 +305,9 @@ function createWindow () {
 
   // 设置 AuthViewManager
   authViewManager.setMainWindow(mainWindow)
+
+  // 设置 RpaViewManager（隐藏浏览器 executeJavaScript RPA）
+  rpaViewManager.setMainWindow(mainWindow)
 
   // 设置 WebviewManager（分屏监控）
     webviewManager.setMainWindow(mainWindow)
@@ -423,6 +534,20 @@ ipcMain.handle('accounts:list', async () => {
 // 内嵌浏览器登录（替代 Playwright 弹出窗口）
 ipcMain.handle('auth:open-login', async (event, platform) => {
   try {
+    // Python 后端平台走 /api/login（打开系统浏览器，用户扫码）
+    if (BACKEND_PLATFORMS.has(platform)) {
+      const result = await pythonBridge.requestBackend('POST', '/api/login', { platform }, 180000)
+      if (result.code === 0) {
+        // 通知前端刷新账号列表
+        const win = BrowserWindow.getAllWindows()[0]
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('auth:completed', { platform, accountId: result.data?.account_id })
+        }
+        return { code: 0, data: result.data, message: '登录成功' }
+      }
+      return { code: -1, message: result.message || '登录失败' }
+    }
+
     const result = await authViewManager.openLogin(platform)
     // 通过 Python API 保存账号
     const saveResult = await pythonBridge.requestBackend('POST', '/api/accounts', {
@@ -437,6 +562,16 @@ ipcMain.handle('auth:open-login', async (event, platform) => {
   } catch (e) {
     log.error('Auth', `Login failed for ${platform}: ${e.message}`)
     return { code: -1, message: e.message }
+  }
+})
+
+// 静默登录验证（隐藏浏览器窗口，用于发布前账号检查）
+ipcMain.handle('auth:login-silent', async (event, { platform, cookies, localStorage }) => {
+  try {
+    const result = await authViewManager.loginSilent(platform, cookies, localStorage)
+    return { code: 0, data: result }
+  } catch (e) {
+    return { code: -1, message: e.message, data: { valid: false, accountName: null } }
   }
 })
 
@@ -466,11 +601,21 @@ ipcMain.handle('account:add', async (event, platform) => {
   } catch (e) { return { code: -1, message: e.message } }
 })
 ipcMain.handle('account:delete', async (event, accountId) => {
+  // Python 后端平台从 Python 删除（跨平台兼容：尝试两种方式）
+  try {
+    const result = await pythonBridge.requestBackend('DELETE', `/api/accounts/${accountId}`)
+    if (result.code === 0) return { code: 0, message: '账号已删除' }
+  } catch (e) { /* 可能不是 Python 后端管理的账号，fallthrough */ }
   try { await AccountManager.deleteAccount(accountId); return { code: 0, message: '账号已删除' } }
   catch (e) { return { code: -1, message: e.message } }
 })
 ipcMain.handle('account:check-login', async (event, { platform, accountId }) => {
   try {
+    // Python 后端平台走 /api/auth-status
+    if (BACKEND_PLATFORMS.has(platform)) {
+      const result = await pythonBridge.requestBackend('GET', `/api/auth-status/${platform}`)
+      return { code: 0, data: { valid: result.data?.valid === true } }
+    }
     const status = await AccountManager.checkLoginStatus(platform, accountId)
     return { code: 0, data: status }
   } catch (e) { return { code: -1, message: e.message, data: { valid: false } } }
@@ -585,8 +730,8 @@ app.whenReady().then(async () => {
       log.info('App', `Recovered ${recovered} tasks from queue state`)
       // 恢复后清掉，避免下次重复恢复
       store.setSetting('task_queue_state', null)
-    }
-  }
+    }  // end if (recovered > 0)
+  }  // end if (savedState)
 
   createWindow()
 })
@@ -596,6 +741,7 @@ app.on('window-all-closed', async () => {
   try { await playwrightClose() } catch (e) { log.error('App', 'Error closing Playwright:', e.message) }
   try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
   webviewManager.closeAll()
+  rpaViewManager.cleanup()
   callbackServer.stop()
   store.close()
   if (process.platform !== 'darwin') app.quit()

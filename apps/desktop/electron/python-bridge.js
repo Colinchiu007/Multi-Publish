@@ -27,7 +27,12 @@ let watchdogTimer = null
  * 获取 Python 后端工作目录
  */
 function getBackendDir () {
-  return path.join(__dirname, '..', 'python')
+  // 开发模式：packages/python-backend/src/
+  // 打包后：resources/python-backend/
+  if (process.resourcesPath && require('electron').app.isPackaged) {
+    return path.join(process.resourcesPath, 'python-backend')
+  }
+  return path.join(__dirname, '..', '..', '..', 'packages', 'python-backend', 'src')
 }
 
 /**
@@ -230,8 +235,12 @@ async function stopPythonBackend () {
 
 /**
  * 发送 HTTP 请求到 Python 后端
+ * @param {string} method - HTTP method
+ * @param {string} path - URL path
+ * @param {object|null} body - Request body
+ * @param {number} [timeout] - Request timeout in ms (default 30000, login 180000)
  */
-function requestBackend (method, path, body = null) {
+function requestBackend (method, path, body = null, timeout = 30000) {
   return new Promise((resolve, reject) => {
     if (!isRunning) {
       reject(new Error('Python backend is not running'))
@@ -244,7 +253,7 @@ function requestBackend (method, path, body = null) {
       path,
       method,
       headers: { 'Content-Type': 'application/json' },
-      timeout: 30000
+      timeout
     }
 
     const req = http.request(options, (res) => {

@@ -1,0 +1,4 @@
+{
+  "douyin": "multi_publish.publishers.douyin:DouyinPublisher",
+  "wechat_mp": "multi_publish.publishers.wechat_mp:WeChatPublisher"
+}

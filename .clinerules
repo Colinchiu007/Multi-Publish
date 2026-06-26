@@ -1,0 +1,6 @@
+# .clinerules — Multi-Publish 特定硬约束
+
+- rule: "发布平台凭证必须通过环境变量管理，禁止硬编码"
+- rule: "12 个平台的发布逻辑相互独立，一个平台失败不影响其他平台"
+- rule: "前端（Vue 3）组件必须实现 loading / error / empty 三态"
+- rule: "API 调用统一走封装的 service 层，组件不直接 fetch"

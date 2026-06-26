@@ -1,6 +1,6 @@
 {
   "name": "@multi-publish/shared-utils",
-  "version": "1.1.7",
+  "version": "1.2.0",
   "private": true,
   "description": "共享工具库 — 任务队列、调度器、发布历史",
   "main": "src/index.js",
