@@ -366,6 +366,90 @@ class AuthViewManager {
     this.mainWindow.webContents.send('auth:view-opened', { platform, accountId })
     log.info('AuthView', `Opened saved account ${accountId}`)
   }
+/**
+   * 静默登录验证（隐藏浏览器窗口）
+   *
+   * 使用 BrowserWindow + show: false 在不显示窗口的情况下
+   * 恢复已保存的登录态、验证登录是否有效。
+   *
+   * 适用于：
+   *   1. 启动时后台验证所有账号的登录状态
+   *   2. 发布前的静默登录态检查
+   *   3. Cookie/localStorage 批量恢复校验
+   *
+   * @param {string} platform - 平台标识
+   * @param {Array} cookies - 已保存的 Cookie
+   * @param {Object} [localStorage] - 已保存的 localStorage 数据
+   * @returns {Promise<{valid: boolean, accountName: string|null}>}
+   */
+  async loginSilent (platform, cookies, localStorage) {
+    const loginUrl = PLATFORM_LOGIN_URLS[platform]
+    if (!loginUrl) {
+      return { valid: false, accountName: null }
+    }
+
+    const win = new BrowserWindow({
+      show: false,
+      width: 1024,
+      height: 768,
+      webPreferences: {
+        session: session.fromPartition(`persist:silent-auth-${platform}-${Date.now()}`, { cache: true }),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    })
+
+    try {
+      // 恢复 Cookie（必须在导航前）
+      if (cookies && cookies.length > 0) {
+        for (const c of cookies) {
+          try { await win.webContents.session.cookies.set(c) } catch (e) { /* skip invalid */ }
+        }
+      }
+
+      // 导航到平台登录 URL
+      await win.webContents.loadURL(loginUrl)
+      await new Promise(r => setTimeout(r, 3000))
+
+      // 恢复 localStorage（需等页面加载完毕）
+      if (localStorage && Object.keys(localStorage).length > 0) {
+        const lsJson = JSON.stringify(localStorage)
+        try {
+          await win.webContents.executeJavaScript(`
+            (function() {
+              var data = ${lsJson};
+              Object.keys(data).forEach(function(k) {
+                try { localStorage.setItem(k, data[k]); } catch(e) {}
+              });
+            })()
+          `)
+        } catch (e) { /* ignore */ }
+      }
+
+      // 等待页面跳转稳定
+      await new Promise(r => setTimeout(r, 2000))
+
+      // 检查当前 URL 判断登录状态
+      const currentUrl = win.webContents.getURL()
+      const patterns = PLATFORM_LOGIN_SUCCESS_PATTERNS[platform]
+      const isValid = patterns
+        ? patterns.some(p => currentUrl.includes(p))
+        : !currentUrl.includes('login') && !currentUrl.includes('passport') && !currentUrl.includes('signin')
+
+      // 尝试获取账号名
+      let accountName = null
+      try {
+        accountName = await win.webContents.getTitle()
+      } catch (e) { /* ignore */ }
+
+      return { valid: isValid, accountName }
+    } catch (e) {
+      log.warn('AuthView', `Silent login failed for ${platform}: ${e.message}`)
+      return { valid: false, accountName: null }
+    } finally {
+      try { win.destroy() } catch (e) { /* ignore */ }
+    }
+  }
 }
 
 module.exports = AuthViewManager

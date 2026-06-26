@@ -2,7 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v1.1.6] - 2026-06-15
+## [v1.2.0] - 2026-06-26
+
+### Added — Electron 原生 RPA 引擎 + 平台分类
+
+**P0 核心功能（蚁小二逆向工程落地）：**
+
+- **RpaViewManager** — 隐藏 BrowserWindow + executeJavaScript RPA 引擎，替代 Playwright 执行发布
+  - CDP 文件上传：`DOM.setFileInputFiles` 绕过安全限制
+  - DOM 工具集：`_waitForElement` / `_fillInput` / `_click` / `_waitForCondition`
+  - 网络响应监控：webRequest.onCompleted 替代 Playwright response 监听
+  - 双文件上传策略：大文件 CDP，小文件 JS DataTransfer
+  - 每账号 Session 隔离：`session.fromPartition()` 独立 Cookie 分区
+  - 进度事件 IPC 上报（rpa:progress）
+- **平台分类** — `PlatformCategory` 枚举（VIDEO / IMAGE_TEXT / MIXED）
+  - 12 平台自动归类，API `/api/platforms` 透传 category 字段
+  - Python 后端 `PlatformCategory` enum + PLATFORM_META 映射
+- **隐藏 BrowserView** — `authViewManager.loginSilent()` 静默登录验证
+  - BrowserWindow({ show: false }) 后台恢复 Cookie 检测登录态
+  - 无需弹出窗口即可验证账号有效性
+
+### Changed
+
+- **main.js** — 新增 `RpaViewManager` 实例 + RPA_VM_PLATFORMS 路由分支
+- **publisher_manager.py** — API `list_platforms` 返回 category
+- **Route 重构**：三条发布路径（Python / Electron RPA / Node.js Playwright）
+  - BACKEND_PLATFORMS = []（预留）
+  - RPA_VM_PLATFORMS = ['douyin']
+  - 其余平台走 Playwright
+
+### Removed
+
+- `packages/python-backend/src/publishers/rpa_douyin.py` — 抖音发布已迁移至 Electron RPA
+- `packages/python-backend/src/publishers/rpa_*.py` — 5 个废弃的 Python RPA 发布器（已在 v1.1.6 前后被 Playwright 替代）
+
+## [v1.1.7] - 2026-06-17
+
+### Added — Playwright 浏览器打包到安装包
+
+- Chromium 捆绑到安装包内 `resources/playwright-browsers/`
+- 首次运行零等待：浏览器路径 `app.isPackaged` 判断自动切换
+- CI 打包脚本：postinstall 安装 → `npx playwright install chromium` → electron-builder extraResources 打包
 
 ### Fixed — Cannot find module 'axios' 打包失败
 
@@ -94,76 +134,4 @@ app.asar 内无法解析。全面修复如下：
 ### Fixed
 
 - system-tray.js 重复 fs require 导致打包失败
-- main.js 重复 minimize handler 冲突
-- bilibili-rpa.js CSRF Token 提取按规范取后 16 位
-- url-collector.js playwright-manager require 路径错误
-- batch-manager.js async/await 未处理异常
-- test_wechat_publisher.py MockResponse URL 匹配优先级 bug
-- 各模块 require 路径验证通过
-
-### Changed
-
-- PRD 全面更新：11 平台矩阵、新版功能架构、新版验收标准
-- AGENTS.md 同步新增模块清单
-- CI auto-tag：构建成功后自动 bump patch + tag + release
-- task-queue executor 自动加载账号 Cookie
-- publish:batch IPC 支持 tasks[{platform,accountId}] 新格式
-
-## [v1.0.7] - 2026-06-11
-
-### Refactored
-
-- **Monorepo 结构重构** — 拆分为 `apps/desktop/` + `packages/rpa-engine/` + `packages/shared-utils/` + `packages/python-backend/`
-- RPA 引擎去 Electron 依赖，路径通过构造注入
-- CI 工作流适配 Monorepo 路径
-- 旧目录 `src-frontend/`、根目录 `vite.config.js` 已清理
-
-### Changed
-
-- PRD 更新：架构、路径、版本号同步到 v1.0.7
-- README 更新：构建命令、目录结构
-- `.gitignore` 新增 `package-lock.json`
-
----
-
-## [v1.0.4] - 2026-06-10
-
-### Added
-
-- 今日头条、YouTube、TikTok 三个平台发布器（共 10 平台）
-- PRD/CHANGELOG 同步更新
-
-### Fixed
-
-- auto-updater 下载按钮无反应 — 添加 `publish` 配置
-- `artifactName` 含空格导致构建失败
-
----
-
-## [v1.0.2] - 2026-06-05
-
-### Added
-
-- 视频号（Tencent Video）RPA 发布器
-- 快手（Kuaishou）RPA 发布器
-- 视频上传组件（Publish 页面）
-
-### Updated
-
-- PRD 同步更新 v1.0.2
-
----
-
-## [v1.0.0] - 2026-06-03
-
-### Added
-
-- 微信公众号、知乎、微博、抖音、小红书 5 个平台 RPA 发布器
-- 富文本编辑器（Quill）
-- 账号管理 + Cookie 加密存储
-- 任务队列 + 定时发布
-- 发布历史 + 统计看板
-- 首次运行引导（自动安装依赖）
-- 自动更新（electron-updater）
-- PROJECT-001 集成（Aggregator Bridge）
-- GitHub Actions CI/CD
+- main.j

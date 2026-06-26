@@ -6,6 +6,7 @@ src/multi_publish/models.py
 src/multi_publish/core/__init__.py
 src/multi_publish/core/data_sync.py
 src/multi_publish/core/downloader.py
+src/multi_publish/core/logging_setup.py
 src/multi_publish/core/progress.py
 src/multi_publish/core/publisher_manager.py
 src/multi_publish/core/query_worker.py
@@ -14,6 +15,8 @@ src/multi_publish/core/task_queue.py
 src/multi_publish/core/task_scheduler.py
 src/multi_publish/publishers/__init__.py
 src/multi_publish/publishers/base.py
+src/multi_publish/publishers/douyin.py
+src/multi_publish/publishers/platform_registry.py
 src/multi_publish/publishers/wechat_mp.py
 src/multi_publish_backend.egg-info/PKG-INFO
 src/multi_publish_backend.egg-info/SOURCES.txt
