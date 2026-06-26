@@ -1,8 +1,8 @@
 {
   "name": "multi-publish",
-  "version": "1.3.0",
+  "version": "1.2.0",
   "private": true,
-  "description": "\u591a\u5e73\u53f0\u5185\u5bb9\u4e00\u952e\u53d1\u5e03 \u2014 Monorepo",
+  "description": "多平台内容一键发布 — Monorepo",
   "scripts": {
     "dev": "npm run dev -w @multi-publish/desktop",
     "build": "npm run build -w @multi-publish/desktop",
