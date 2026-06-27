@@ -1,21 +1,21 @@
 /**
  * Test: registry.js — 平台注册中心
- * 测试: 12 个平台都能正确注册，getPublisherClass 抛错处理
+ * 测试: 15 个平台都能正确注册，getPublisherClass 抛错处理
  */
 
 const { getPublisherClass, listPlatforms } = require('../src/publishers/registry')
 
-// 12 个平台都在 registry 里
+// 15 个平台都在 registry 里
 const EXPECTED = [
   'wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu',
   'tencent_video', 'kuaishou', 'toutiao', 'youtube', 'tiktok',
-  'bilibili', 'baijiahao'
+  'bilibili', 'baijiahao', 'twitter', 'instagram', 'facebook'
 ]
 
 describe('Registry', () => {
-  test('listPlatforms 返回 12 个平台', () => {
+  test('listPlatforms 返回 15 个平台', () => {
     const platforms = listPlatforms()
-    expect(platforms).toHaveLength(12)
+    expect(platforms).toHaveLength(15)
   })
 
   test('listPlatforms 包含所有预期平台', () => {
@@ -30,7 +30,8 @@ describe('Registry', () => {
     expect(getPublisherClass('wechat_mp')).toBe(require('../src/publishers/wechat-mp-rpa'))
     // 验证所有平台都能获取到类（不要求精确匹配，因为 makeApiRpa 返回匿名类）
     const platforms = ['zhihu', 'weibo', 'douyin', 'xiaohongshu', 'tencent_video',
-      'kuaishou', 'toutiao', 'youtube', 'tiktok', 'bilibili', 'baijiahao']
+      'kuaishou', 'toutiao', 'youtube', 'tiktok', 'bilibili', 'baijiahao',
+      'twitter', 'instagram', 'facebook']
     for (const p of platforms) {
       const cls = getPublisherClass(p)
       expect(cls).toBeDefined()

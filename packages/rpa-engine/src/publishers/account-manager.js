@@ -18,6 +18,8 @@ const PLATFORM_LOGIN_URLS = {
     toutiao: 'https://mp.toutiao.com/',
     youtube: 'https://studio.youtube.com/',
     tiktok: 'https://www.tiktok.com/upload/',
+    instagram: 'https://www.instagram.com/accounts/login/',
+    facebook: 'https://www.facebook.com/login/',
   }
 
   /**
@@ -34,6 +36,8 @@ const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
   toutiao: '.user-avatar, .nickname, [class*="avatar"]',
   youtube: '#avatar-btn, ytcp-avatar',
   tiktok: '[data-testid="user-avatar"], [class*="avatar"]',
+  instagram: 'svg[aria-label="Home"], nav[role="navigation"], section main article, a[href="/direct/inbox/"]',
+  facebook: 'a[aria-label*="profile"], a[aria-label*="Profile"], div[aria-label*="Account"], div[data-pagelet*="root"]',
 }
 
 /**
@@ -51,6 +55,8 @@ function getPlatformName (platform) {
       toutiao: '今日头条',
       youtube: 'YouTube',
       tiktok: 'TikTok',
+      instagram: 'Instagram',
+      facebook: 'Facebook',
     }
   return names[platform] || platform
 }

@@ -1,11 +1,11 @@
 # PROJECT-003：多平台一键发布 — PRD
 
 > **立项日期**: 2026-06-03
-> **最后更新**: 2026-06-13
-> **当前版本**: v1.1.0（首版正式 Release）
+> **最后更新**: 2026-06-27
+> **当前版本**: v1.3.0（Instagram + Facebook 海外平台扩展）
 > **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具
 > **目标用户**: 自媒体运营者、MCN 机构、企业内容团队
-> **技术架构**: Electron 33 + Vue 3 + Playwright RPA + SQLite（Monorepo）
+> **技术架构**: Electron 33 + Vue 3 + Python FastAPI + Playwright RPA（Monorepo）
 
 ---
 
@@ -20,6 +20,8 @@
 3. **异步队列**：后台批量发布，实时追踪状态
 4. **Cookie 管理**：安全存储各平台登录凭证
 5. **定时发布**：设定时间自动发布
+6. **平台分类**：短视频/图文/混合三类，发布策略自动适配
+7. **双 RPA 引擎**：Playwright（Node.js）+ executeJavaScript（Electron 原生）双引擎
 
 ### 1.2 产品边界
 
@@ -35,7 +37,10 @@
 ||| ✅ 今日头条 | Playwright RPA，图文/视频发布 |
 ||| ✅ YouTube | Playwright RPA，视频发布 |
 ||| ✅ TikTok | Playwright RPA，视频发布 |
+||| ✅ Twitter/X | Playwright RPA，图文发布 |
 ||| ✅ B站 | API+RPA 双模式，专栏/视频发布 |
+||| ✅ Instagram | Playwright RPA，图片/视频/Reels 发布 |
+||| ✅ Facebook | Playwright RPA，图文/视频/链接发布 |
 ||| ✅ 不包含 | 掘金、CSDN（由 PROJECT-002 负责）、内容创作（由 PROJECT-001 负责） |
 
 ---
@@ -47,6 +52,7 @@
 | 平台 | 优先级 | 技术路线 | 状态 |
 |------|--------|----------|------|
 | **微信公众号** | P0 | Playwright RPA | ✅ v1.0.0 |
+| **抖音** | P0 | API + RPA 双模式（API 优先，RPA 降级） | ✅ v1.2.0 |
 | **知乎** | P1 | Playwright RPA | ✅ v1.0.0 |
 | **微博** | P2 | Playwright RPA | ✅ v1.0.0 |
 | **抖音** | P2 | Playwright RPA | ✅ v1.0.0 |
@@ -56,12 +62,27 @@
 | **今日头条** | P1 | Playwright RPA | ✅ v1.0.3 |
 | **YouTube** | P1 | Playwright RPA | ✅ v1.0.3 |
 | **TikTok** | P1 | Playwright RPA | ✅ v1.0.3 |
+| **Twitter/X** | P2 | Playwright RPA | ✅ v1.3.0 |
 | **B站** | P1 | API+RPA 双模式 | ✅ v1.0.13 |
+| **Instagram** | P2 | Playwright RPA | ✅ v1.3.0 |
+| **Facebook** | P2 | Playwright RPA | ✅ v1.3.0 |
 | **百家号** | P1 | Playwright RPA | ✅ v1.1.0 |
 
 ### 2.2 技术路线
 
-所有平台均使用 **Playwright RPA** 模拟浏览器操作，通过 Cookie 保持登录状态。Python 后端作为 RPA 适配器执行浏览器自动化操作，Electron 主进程管理任务队列和平台调度。
+所有平台支持 **Playwright RPA**（Node.js）模拟浏览器操作，通过 Cookie 保持登录状态。
+部分平台（抖音）支持 **Electron executeJavaScript 原生 RPA**（隐藏 BrowserWindow），无需独立浏览器进程。
+Python 后端作为 RPA 适配器执行浏览器自动化操作，Electron 主进程管理任务队列和平台调度。
+
+**三种发布路由：**
+1. **Python 后端** — 预留，当前未启用
+2. **Electron executeJavaScript RPA** — 抖音（隐藏 BrowserWindow + CDP 文件上传）
+3. **Node.js Playwright RPA** — 其余 13 个平台
+
+**三种认证模式：**
+1. **内嵌 WebContentsView 登录** — 弹出式内嵌浏览器（AuthViewManager）
+2. **隐藏 BrowserWindow 静默验证** — 后台恢复 Cookie 检测登录态（loginSilent）
+3. **扫码登录** — 二维码自动检测（QrCodeLogin）
 
 ---
 
@@ -152,6 +173,29 @@
 | 自动更新 | 启动检测 GitHub Release，后台下载静默安装 | ✅ |
 | 首次运行引导 | 自动检测 Python/Playwright 依赖 | ✅ |
 | 数据迁移 | JSONL → SQLite 迁移 | ✅ |
+| 静默登录验证 | 隐藏 BrowserWindow 后台验证 Cookie 有效性（loginSilent） | ✅ |
+
+#### F9：平台分类（v1.2.0）
+
+| 子功能 | 描述 | 状态 |
+|--------|------|------|
+| 平台分类枚举 | `PlatformCategory`：VIDEO / IMAGE_TEXT / MIXED | ✅ |
+| 分类映射 | 14 平台自动归类到三类（抖音/快手/视频号/B站/YouTube/TikTok=video） | ✅ |
+| API 透传 | `/api/platforms` 返回 category 字段 | ✅ |
+| 前端显示 | 平台列表按分类分组展示 | ✅ |
+
+#### F10：Electron 原生 RPA 引擎（v1.2.0）
+
+| 子功能 | 描述 | 状态 |
+|--------|------|------|
+| RpaViewManager | 隐藏 BrowserWindow + executeJavaScript 替代 Playwright | ✅ |
+| CDP 文件上传 | `DOM.setFileInputFiles` 绕过浏览器安全限制上传文件 | ✅ |
+| DOM 操作工具集 | `_waitForElement` / `_fillInput` / `_click` / `_waitForCondition` | ✅ |
+| 网络响应监控 | webRequest.onCompleted 替代 Playwright response 监听 | ✅ |
+| 抖音发布迁移 | 从 Python Playwright → Electron executeJavaScript | ✅ |
+| 每账号 Session 隔离 | `session.fromPartition()` 独立 Cookie 分区 | ✅ |
+| 进度事件上报 | IPC rpa:progress → 前端实时展示 | ✅ |
+| CDP/JS 双文件上传 | 大文件走 CDP，小文件走 JS File API | ✅ |
 
 ### 3.2 非功能需求
 
@@ -192,16 +236,27 @@
 │                   │
 │  ┌────────────────┴──────────────────────┐
 │  │     Publisher Registry                 │
-│  │   11 platforms (+B站)                  │
+│  │   13 platforms (+B站)                  │
 │  │   + API+RPA 双模式                     │
 │  │   + OAuth 2.0 (YT/TT)                 │
 │  └────────────────┴──────────────────────┘
 │                   │
 │  ┌────────────────┴──────────────────────┐
-│  │   Playwright RPA Engine               │
-│  │   + WebviewManager（分屏）             │
-│  │   + QrCodeLogin（扫码登录）            │
-│  │   + CallbackServer（回调 :16521）      │
+│  │     RPA Engine（双引擎）                │
+│  │                                       │
+│  │  ┌─────────────────────────────┐      │
+│  │  │  Engine 1: Playwright (Node)│      │
+│  │  │  13 platforms (所有非抖音)   │      │
+│  │  └─────────────────────────────┘      │
+│  │  ┌─────────────────────────────┐      │
+│  │  │  Engine 2: executeJS (Elect)│      │
+│  │  │  抖音（隐藏 BrowserWindow）  │      │
+│  │  │  + RpaViewManager          │      │
+│  │  └─────────────────────────────┘      │
+│  │                                       │
+│  │  + WebviewManager（分屏）             │
+│  │  + QrCodeLogin（扫码登录）            │
+│  │  + CallbackServer（回调 :16521）      │
 │  └───────────────────────────────────────┘
 │
 │  ┌──────────────────────────────────────┐
@@ -234,6 +289,8 @@ multi-publish/
 │   │   ├── preload.js           # 预加载脚本（contextBridge）
 │   │   ├── store.js             # SQLite 统一存储（better-sqlite3）
 │   │   ├── webview-manager.js   # 分屏监控（P0）
+│   │   ├── auth-view-manager.js # 内嵌浏览器登录（WebContentsView）
+│   │   ├── rpa-view-manager.js  # executeJavaScript RPA 引擎（v1.2.0）
 │   │   ├── callback-server.js   # 实时回调（P1）
 │   │   ├── qrcode-login.js      # 扫码登录（P2）
 │   │   ├── oauth-manager.js     # OAuth 2.0 认证
@@ -264,7 +321,7 @@ multi-publish/
 │   ├── rpa-engine/              # RPA 引擎（独立 npm 包）
 │   │   ├── src/playwright-manager.js  # 浏览器管理
 │   │   ├── src/cookie-store.js        # Cookie 存储
-│   │   ├── src/publishers/            # 11 个平台发布器
+│   │   ├── src/publishers/            # 13 个平台发布器
 │   │   │   ├── base-rpa-publisher.js  # 基类
 │   │   │   ├── registry.js            # 平台注册
 │   │   │   └── {wechat-mp|zhihu|...|bilibili}.js
@@ -280,8 +337,13 @@ multi-publish/
 │   └── python-backend/        # Python 后端（FastAPI）
 │       ├── src/server.py        # FastAPI 入口
 │       ├── src/multi_publish/   # 核心模块
-│       │   ├── core/            # QueryWorker/TaskScheduler 等
-│       │   └── publishers/      # Python RPA 发布器
+│       │   ├── core/            # PublisherManager / QueryWorker / TaskScheduler
+│       │   └── publishers/      # Python 发布器（插件化）
+│       │       ├── platform_registry.py  # 动态注册表（JSON 驱动发现）
+│       │       ├── platforms.json        # 外部配置，新增平台只需加一行
+│       │       ├── base.py              # BasePublisher + async_retry
+│       │       ├── douyin.py            # 抖音（API+RPA 双模式）
+│       │       └── wechat_mp.py         # 微信公众号（RPA）
 │       └── pyproject.toml
 ├── package.json               # 根 workspaces 配置
 └── .github/workflows/build.yml # CI/CD
@@ -398,10 +460,20 @@ Task Queue → 各平台发布器 → 发布完成
 
 ## 十、验收标准
 
-### v1.1.0 验收（正式版）
+### v1.2.0 验收（Electron 原生 RPA + 平台分类）
 
-- [x] **12 个平台**：微信/知乎/微博/抖音/小红书/视频号/快手/头条/YouTube/TikTok/B站/**百家号**
-- [x] **格式适配器**：11 平台格式转换（HTML 白名单/截断/标签格式化）
+- [x] **平台分类**：12 平台分 VIDEO / IMAGE_TEXT / MIXED 三类，API 透传
+- [x] **RpaViewManager**：隐藏 BrowserWindow + executeJavaScript RPA 引擎
+- [x] **CDP 文件上传**：`DOM.setFileInputFiles` 替代 Playwright 上传
+- [x] **抖音发布迁移**：从 Python Playwright → Electron executeJavaScript
+- [x] **隐藏 BrowserView**：静默登录验证（loginSilent）
+- [x] **每账号 Session 隔离**：`session.fromPartition()` 独立分区
+- [x] **25 回归测试通过**：Python 后端全量通过
+- [x] **11 RpaViewManager 测试通过**：模块加载 + API 签名验证
+- [ ] 抖音发布选择器需实际页面验证（依赖真实抖音创作者后台）
+
+- [x] **15 个平台**：微信/知乎/微博/抖音/小红书/视频号/快手/头条/YouTube/TikTok/**Twitter/X**/B站/**百家号**/Instagram/Facebook
+- [x] **格式适配器**：14 平台格式转换（HTML 白名单/截断/标签格式化）
 - [x] **封面图自动处理**：sharp 中心裁剪 + 质量压缩 + 格式转换
 - [x] **平台 URL 配置化**：config/platforms.yaml 统一管理
 - [x] **敏感词预检**：DFA 算法 + 内置词库，发布前弹窗
@@ -425,5 +497,4 @@ Task Queue → 各平台发布器 → 发布完成
 | P0-P3 | 基础发布 + 任务队列 + 定时 + 统计 | ✅ |
 | **蚁小二集成** | 分屏/回调/扫码/OAuth/SQLite/批量/B站/URL采集/托盘/快捷键/多账号 | ✅ |
 | **V1.0 发布** | 首版 Release、运营启动 | ⏳ 待进行 |
-| V1.1 格式适配 | Markdown → 各平台格式转换、封面图自动处理 | 📅 Phase 2 |
-| V2.0 商业版 | 定价策略、高级功能分离 | 📅 规划中 |
+| V1.1 格式适配 | Markdown → 各平台格式转换、封面
