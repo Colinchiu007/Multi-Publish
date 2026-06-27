@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.3.0] - 2026-06-27
+
+### Added
+
+- **Instagram RPA Publisher** (instagram-rpa.js): Image carousel (up to 10), single image, Reels video
+  - 2200-char caption limit, 2FA detection with clear error message
+  - aria-label based selectors for stable DOM targeting
+- **Facebook RPA Publisher** (facebook-rpa.js): Text+image, text+video, link sharing
+  - Security challenge page handling
+  - Text content and aria-label selectors
+- **Twitter/X RPA Publisher** (twitter-rpa.js): Login detection, text/image publishing
+  - 280-char (free) / 4000-char (Premium) limit handling
+  - data-testid selector strategy for dynamic class names
+  - Cookie persistence across sessions
+- **Platform Registration**: Instagram (id=103), Facebook (id=104) in registry, config, selectors
+
+### Changed
+
+- platforms.yaml: Updated with Instagram and Facebook platform configs
+- 01-docs/PRD.md: Platform count updated to 15
+
 ## [v1.2.0] - 2026-06-26
 
 ### Added — Electron 原生 RPA 引擎 + 平台分类
