@@ -1,6 +1,7 @@
 /**
  * 首次运行引导
- * Playwright 浏览器已打包在 resources/playwright-browsers 中，无需安装
+ *
+ * P2-E: 移除了 Playwright 浏览器检查逻辑。RpaViewManager 无需额外浏览器资源。
  */
 const { app } = require('electron')
 const fs = require('fs')
@@ -27,16 +28,7 @@ async function runSetup (mainWin) {
   }
 
   try {
-    mainWin.webContents.send('first-run:status', {
-      type: 'step', step: 'playwright', message: '检查 Playwright 浏览器...'
-    })
-
-    const browsersPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'playwright-browsers')
-      : path.join(__dirname, '..', '.playwright-browsers')
-    log.info('firstRun', 'Browsers path:', browsersPath)
-    log.info('firstRun', 'Exists:', fs.existsSync(browsersPath))
-
+    // P2-E: 无需检查浏览器资源，直接标记首次运行完成
     fs.writeFileSync(
       path.join(app.getPath('userData'), 'first-run-done'),
       `done:${new Date().toISOString()}`

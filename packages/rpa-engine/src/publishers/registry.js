@@ -1,77 +1,38 @@
 /**
- * 发布器注册中心 — 平台 → 类映射
- * 加新平台只需要在这里注册一行
- * 
- * 支持 API 模式自动回退 RPA 的平台：
- * - weibo (微博)
- * - zhihu (知乎)
- * - douyin (抖音)
+ * 发布器注册中心（已废弃）
+ *
+ * P2-E: 所有平台已迁移到 RpaViewManager（executeJavaScript 引擎），
+ * 不再使用独立 *-rpa.js 文件发布器。
+ * 此模块仅保持 require 兼容，新代码请直接使用 RpaViewManager。
  */
-const WeChatMPPublisher = require('./wechat-mp-rpa')
-const ZhihuPublisher = require('./zhihu-rpa')
-const WeiboPublisher = require('./weibo-rpa')
-const DouyinPublisher = require('./douyin-rpa')
-const XiaohongshuPublisher = require('./xiaohongshu-rpa')
-const TencentVideoPublisher = require('./tencent-video-rpa')
-const KuaishouPublisher = require('./kuaishou-rpa')
-const ToutiaoPublisher = require('./toutiao-rpa')
-const YouTubePublisher = require('./youtube-rpa')
-const TikTokPublisher = require('./tiktok-rpa')
-const BiliBiliPublisher = require('./bilibili-rpa')
-const BaiJiaHaoPublisher = require('./baijiahao-rpa')
-const TwitterPublisher = require('./twitter-rpa')
-const InstagramPublisher = require('./instagram-rpa')
-const FacebookPublisher = require('./facebook-rpa')
 const { ApiModePublisher } = require('./api-mode-publisher')
 
-/**
- * 创建 API+RPA 混合发布器工厂
- */
-function makeApiRpa (platform, RpaClass) {
-  return class extends ApiModePublisher {
-    constructor () {
-      super(platform, RpaClass)
-    }
-  }
-}
-
 const registry = {
-  wechat_mp: WeChatMPPublisher,
-  zhihu: makeApiRpa('zhihu', ZhihuPublisher),
-  weibo: makeApiRpa('weibo', WeiboPublisher),
-  douyin: makeApiRpa('douyin', DouyinPublisher),
-  xiaohongshu: XiaohongshuPublisher,
-  tencent_video: TencentVideoPublisher,
-  kuaishou: KuaishouPublisher,
-  toutiao: ToutiaoPublisher,
-  youtube: YouTubePublisher,
-  tiktok: TikTokPublisher,
-  bilibili: BiliBiliPublisher,
-  baijiahao: BaiJiaHaoPublisher,
-  twitter: TwitterPublisher,
-  instagram: InstagramPublisher,
-  facebook: FacebookPublisher,
+  wechat_mp:    ApiModePublisher,
+  zhihu:        ApiModePublisher,
+  weibo:        ApiModePublisher,
+  douyin:       ApiModePublisher,
+  xiaohongshu:  ApiModePublisher,
+  tencent_video:ApiModePublisher,
+  kuaishou:     ApiModePublisher,
+  toutiao:      ApiModePublisher,
+  youtube:      ApiModePublisher,
+  tiktok:       ApiModePublisher,
+  bilibili:     ApiModePublisher,
+  baijiahao:    ApiModePublisher,
+  twitter:      ApiModePublisher,
+  instagram:    ApiModePublisher,
+  facebook:     ApiModePublisher,
 }
 
-/**
- * 获取指定平台的发布器类
- * @param {string} platform - 平台标识
- * @returns {typeof import('./base-rpa-publisher')} 发布器类
- */
 function getPublisherClass (platform) {
-  const cls = registry[platform]
-  if (!cls) {
-    throw new Error(`不支持的平台: ${platform}`)
-  }
-  return cls
+  const Cls = registry[platform]
+  if (!Cls) throw new Error(`未知平台: ${platform}`)
+  return Cls
 }
 
-/**
- * 获取所有已注册的平台 ID
- * @returns {string[]}
- */
 function listPlatforms () {
   return Object.keys(registry)
 }
 
-module.exports = { getPublisherClass, listPlatforms }
+module.exports = { registry, getPublisherClass, listPlatforms }

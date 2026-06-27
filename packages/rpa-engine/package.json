@@ -2,13 +2,10 @@
   "name": "@multi-publish/rpa-engine",
   "version": "1.2.0",
   "private": true,
-  "description": "Playwright RPA 发布器引擎 — 多平台内容发布",
+  "description": "RPA 发布器引擎 — 多平台内容发布（P2-E: 已迁移到 RpaViewManager）",
   "main": "src/index.js",
   "scripts": {
     "test": "npx jest"
-  },
-  "dependencies": {
-    "playwright": "^1.52.0"
   },
   "peerDependencies": {
     "electron": ">=33.0.0"

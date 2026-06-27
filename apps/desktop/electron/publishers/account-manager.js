@@ -58,7 +58,7 @@ function getPlatformName (platform) { return PLATFORM_NAMES[platform] || platfor
 
 /**
  * Smart wait: navigate to URL then wait for selector or timeout
- * @param {import('playwright').Page} page
+ * @param {object} page
  * @param {string|null} successSelector
  * @param {number} fallbackMs
  * @returns {Promise<void>}

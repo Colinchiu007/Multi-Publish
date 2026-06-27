@@ -23,6 +23,24 @@ All notable changes to this project will be documented in this file.
 - platforms.yaml: Updated with Instagram and Facebook platform configs
 - 01-docs/PRD.md: Platform count updated to 15
 
+### Removed
+
+- Playwright 15 个独立平台发布器 (wechat_mp/zhihu/weibo/douyin/xiaohongshu/tencent_video/
+  kuaishou/toutiao/bilibili/baijiahao/youtube/tiktok/twitter/instagram/facebook): 全部迁移到 RpaViewManager（P2-E）
+- playwright-manager.js: 浏览器管理模块已废弃
+- base-rpa-publisher.js: Playwright 发布器基类已废弃
+- manual-base-publisher.js: 手动发布器基类已废弃
+- playwright npm 依赖: 从 apps/desktop/package.json 和 packages/rpa-engine/package.json 移除
+- url-collector.js _collectViaBrowser(): Playwright 浏览器渲染采集方式移除
+- publisher-router.js: Playwright 发布路由全量切换到 rpa_vm 模式（15 平台 + B 站）
+- main.js: 移除 Playwright 浏览器初始化/关闭逻辑
+- registry.js: getPublisherClass 降级为 stub（所有平台通过 RpaViewManager 执行）
+
+### Changed
+
+- rpa-view-manager.js: 修复 orphaned `try {` bug（P2-D），新增平台适配器 (douyin/wechat_mp/youtube)
+- main.js: 清理所有 Playwright 引用和导入
+
 ## [v1.2.0] - 2026-06-26
 
 ### Added — Electron 原生 RPA 引擎 + 平台分类
