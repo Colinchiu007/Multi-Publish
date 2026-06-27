@@ -170,3 +170,44 @@ platforms:
     max_title: 64
     max_content: 50000
     has_api: false
+  twitter:
+    id: 102
+    name: Twitter/X
+    type: mixed
+    icon: ❤
+    category: 海外
+    publish_url: "https://twitter.com/compose/tweet"
+    data_url: "https://twitter.com/home"
+    comment_url: ""
+    cover_size: 1200x675
+    max_title: 70
+    max_content: 4000
+    has_api: false
+
+    has_api: false
+  instagram:
+    id: 103
+    name: Instagram
+    type: mixed
+    icon: 📷
+    category: 海外
+    publish_url: "https://www.instagram.com/"
+    data_url: ""
+    comment_url: ""
+    cover_size: 1080x1080
+    max_title: 70
+    max_content: 2200
+    has_api: false
+  facebook:
+    id: 104
+    name: Facebook
+    type: mixed
+    icon: 👍
+    category: 海外
+    publish_url: "https://www.facebook.com/"
+    data_url: ""
+    comment_url: ""
+    cover_size: 1200x630
+    max_title: 70
+    max_content: 63206
+    has_api: false
