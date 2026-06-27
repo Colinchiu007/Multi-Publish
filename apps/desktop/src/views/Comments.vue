@@ -28,7 +28,7 @@
       </aside>
 
       <!-- 右侧评论区域 -->
-      <div style="flex:1;position:relative;background:#f0f0f3;display:flex;align-items:center;justify-content:center">
+      <div style="flex:1;position:relative;background:var(--border-light,#f0f0f3);display:flex;align-items:center;justify-content:center">
         <div v-if="!activePlatform" class="cohere-empty">
           <div class="empty-icon">💬</div>
           <h3>选择平台</h3>

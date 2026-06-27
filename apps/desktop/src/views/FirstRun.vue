@@ -38,9 +38,9 @@
               :style="{
                 display:'flex',alignItems:'flex-start',gap:'12px',
                 padding:'12px',borderRadius:'8px',
-                background: step.status === 'done' ? '#e8f5e9' :
-                            step.status === 'active' ? '#e3f2fd' :
-                            step.status === 'error' ? '#ffebee' : '#f5f5f7',
+                background: step.status === 'done' ? 'var(--teal-soft,#e8f5e9)' :
+                            step.status === 'active' ? 'var(--pale-blue,#e3f2fd)' :
+                            step.status === 'error' ? 'var(--coral-soft,#ffebee)' : 'var(--soft-stone,#f5f5f7)',
                 textAlign:'left'
               }">
               <span style="font-size:20px;line-height:24px">
@@ -79,7 +79,7 @@
             <button v-for="p in quickPlatforms" :key="p.id"
               :style="{
                 padding:'14px 12px',border:'1px solid var(--hairline)',
-                borderRadius:'8px',background:'#fff',cursor:'pointer',
+                borderRadius:'8px',background:'var(--canvas,#fff)',cursor:'pointer',
                 fontSize:'14px',display:'flex',alignItems:'center',gap:'8px',
                 ...(addingPlatform === p.id ? {opacity:0.6} : {})
               }"
@@ -103,15 +103,15 @@
           </p>
 
           <div style="display:flex;flex-direction:column;gap:12px;text-align:left;max-width:400px;margin:0 auto var(--space-xl)">
-            <div style="display:flex;gap:12px;padding:12px;background:#f5f5f7;border-radius:8px">
+            <div style="display:flex;gap:12px;padding:12px;background:var(--soft-stone,#f5f5f7);border-radius:8px">
               <span>📝</span>
               <div><strong>写文章</strong><br><span style="font-size:13px;color:var(--muted)">在发布页面编辑标题和正文</span></div>
             </div>
-            <div style="display:flex;gap:12px;padding:12px;background:#f5f5f7;border-radius:8px">
+            <div style="display:flex;gap:12px;padding:12px;background:var(--soft-stone,#f5f5f7);border-radius:8px">
               <span>🎯</span>
               <div><strong>选平台</strong><br><span style="font-size:13px;color:var(--muted)">勾选要发布的平台</span></div>
             </div>
-            <div style="display:flex;gap:12px;padding:12px;background:#f5f5f7;border-radius:8px">
+            <div style="display:flex;gap:12px;padding:12px;background:var(--soft-stone,#f5f5f7);border-radius:8px">
               <span>🚀</span>
               <div><strong>一键发布</strong><br><span style="font-size:13px;color:var(--muted)">后台自动分发到所有选中的平台</span></div>
             </div>

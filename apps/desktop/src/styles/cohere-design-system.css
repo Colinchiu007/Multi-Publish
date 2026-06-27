@@ -29,6 +29,7 @@
   --error: #b30000;
   --teal: #0e7490;
   --teal-soft: #e0f2f7;
+  --canvas-tp: rgba(255,255,255,0.95);
 
   /* 间距 */
   --space-xxs: 2px;
@@ -1267,6 +1268,30 @@ body {
   gap: var(--space-sm);
 }
 
+
+/* --- 主题切换按钮 --- */
+.theme-toggle {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--r-full);
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.theme-toggle:hover {
+  background: var(--soft-stone);
+  color: var(--ink);
+}
+
+
 /* --- 响应式 --- */
 @media (max-width: 1024px) {
   .cohere-stat-grid {
@@ -1283,4 +1308,151 @@ body {
   .cohere-platform-grid { grid-template-columns: repeat(2, 1fr); }
   .cohere-modal { width: 90vw; height: 80vh; }
   .cohere-modal-sm { width: 90vw; }
+}
+
+/* ============================================
+   暗色主题 — [data-theme="dark"]
+   ============================================ */
+[data-theme="dark"] {
+  --canvas-tp: rgba(26,26,30,0.95);
+  --primary: #e8e8ed;
+  --cohere-black: #ffffff;
+  --ink: #e8e8ed;
+  --deep-green: #006653;
+  --dark-navy: #0d2b47;
+  --canvas: #1a1a1e;
+  --soft-stone: #2d2d35;
+  --pale-blue: #1e293b;
+  --hairline: #333338;
+  --border-light: #333338;
+  --card-border: #28282e;
+  --muted: #88889a;
+  --slate: #6b6b7d;
+  --body-muted: #9999a0;
+  --action-blue: #4c8bf5;
+  --focus-blue: #6b8cff;
+  --coral: #ff8866;
+  --coral-soft: #4a2018;
+  --form-focus: #b878c8;
+  --on-primary: #1a1a1e;
+  --on-dark: #e8e8ed;
+  --error: #ff4444;
+  --teal: #22a3c7;
+  --teal-soft: #1a3a42;
+
+  /* 覆盖 Element Plus 暗色底色 */
+  color-scheme: dark;
+}
+
+/* 暗色下 Element Plus 弹窗覆盖 */
+[data-theme="dark"] .el-dialog {
+  --el-dialog-bg-color: #23232a !important;
+  --el-dialog-title-font-size: 16px;
+}
+
+[data-theme="dark"] .cohere-modal {
+  background: var(--canvas);
+  border: 1px solid var(--border-light);
+}
+
+[data-theme="dark"] .cohere-card {
+  background: #23232a;
+}
+
+[data-theme="dark"] .cohere-card:hover {
+  background: #2a2a32;
+}
+
+[data-theme="dark"] .cohere-stat-card {
+  background: #23232a;
+}
+
+[data-theme="dark"] .cohere-platform-item .platform-icon {
+  background: #2d2d35;
+  border-color: var(--border-light);
+}
+
+[data-theme="dark"] .cohere-topnav {
+  background: #1a1a1e;
+  border-bottom-color: var(--hairline);
+}
+
+[data-theme="dark"] .cohere-sidebar {
+  background: #1a1a1e;
+  border-right-color: var(--border-light);
+}
+
+[data-theme="dark"] .cohere-sidebar-search input {
+  background: #23232a;
+  border-color: var(--border-light);
+  color: var(--ink);
+}
+
+[data-theme="dark"] .cohere-sidebar-search input::placeholder {
+  color: var(--muted);
+}
+
+[data-theme="dark"] .cohere-sidebar-search input:focus {
+  border-color: var(--form-focus);
+}
+
+[data-theme="dark"] .cohere-nav-item:hover,
+[data-theme="dark"] .cohere-platform-item:hover {
+  background: var(--soft-stone);
+}
+
+/* 暗色下按钮调整 */
+[data-theme="dark"] .cohere-btn-primary {
+  background: #4c8bf5;
+  color: #fff;
+}
+
+[data-theme="dark"] .cohere-btn-primary:hover {
+  background: #3a7be5;
+}
+
+[data-theme="dark"] .cohere-btn-outline {
+  border-color: var(--muted);
+  color: var(--ink);
+}
+
+[data-theme="dark"] .cohere-btn-outline:hover {
+  background: var(--soft-stone);
+  color: var(--ink);
+}
+
+/* 暗色下 El 组件适配 */
+[data-theme="dark"] .el-button--primary {
+  --el-button-bg-color: #4c8bf5;
+  --el-button-border-color: #4c8bf5;
+}
+
+[data-theme="dark"] .el-button--primary:hover {
+  --el-button-bg-color: #3a7be5;
+  --el-button-border-color: #3a7be5;
+}
+
+[data-theme="dark"] .el-alert {
+  --el-alert-bg-color: #23232a;
+}
+
+/* 暗色下提示条 */
+[data-theme="dark"] .cohere-tag-success {
+  background: #1a3a42;
+  color: #22a3c7;
+}
+
+[data-theme="dark"] .cohere-tag-danger {
+  background: #3a1818;
+  color: #ff7755;
+}
+
+[data-theme="dark"] .cohere-tag-info {
+  background: #1e293b;
+  color: #4c8bf5;
+}
+
+[data-theme="dark"] .cohere-tag-warning {
+  background: #3a2e14;
+  color: #e8a838;
 }

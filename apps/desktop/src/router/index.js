@@ -49,4 +49,18 @@ const routes = [
   {
     path: '/viral-analysis',
     name: 'ViralAnalysis',
-    component: () => import('@/views/ViralA
+    component: () => import('@/views/ViralAnalysis.vue')
+  },
+  {
+    path: '/providers',
+    name: 'Providers',
+    component: () => import('@/views/Providers.vue')
+  },
+]
+
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes
+})
+
+export default router
