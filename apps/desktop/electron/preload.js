@@ -140,6 +140,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const h = () => cb(); ipcRenderer.on('qrcode:closed', h); return () => ipcRenderer.removeListener('qrcode:closed', h)
   },
 
+  // ─── 快捷键 API ────────────────────────────────
+  hotkeysList: () => ipcRenderer.invoke('hotkeys:list'),
+
   // ─── 统一数据存储 API ─────────────────────────
   storeAddAccount: (account) => ipcRenderer.invoke('store:add-account', account),
   storeGetAccount: (id) => ipcRenderer.invoke('store:get-account', id),
@@ -207,4 +210,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ─── 爆款分析 API (v1.5.0) ───────────────────
   viralAnalyze: (articles, topic) => ipcRenderer.invoke('viral:analyze', { articles, topic }),
-  viralGenerate: (opts) => ipcRenderer.invoke('viral:generate', opts
+  viralGenerate: (opts) => ipcRenderer.invoke('viral:generate', opts),
+  viralTrending: (articles) => ipcRenderer.invoke('viral:trending', { articles }),
+
+  // ─── 影响力追踪 API ────────────────────────
+  impactGetActive: () => ipcRenderer.invoke('impact:get-active'),
+  impactGetRecentSnapshots: () => ipcRenderer.invoke('impact:get-recent-snapshots'),
+
+  // ─── 关键词背景监测 API ────────────────────
+  keywordStart: (keyword, opts) => ipcRenderer.invoke('keyword:start', { keyword, opts }),
+  keywordStop: (keyword) => ipcRenderer.invoke('keyword:stop', { keyword }),
+  keywordStatus: () => ipcRenderer.invoke('keyword:status'),
+  keywordHistory: (keyword) => ipcRenderer.invoke('keyword:history', { keyword }),
+  keywordStopAll: () => ipcRenderer.invoke('keyword:stop-all'),
+	// ─── Provider 配置 API (v1.6.0) ─────────────────
+	providerList: () => ipcRenderer.invoke('provider:list'),
+	providerCreate: (data) => ipcRenderer.invoke('provider:create', data),
+	providerUpdate: (name, data) => ipcRenderer.invoke('provider:update', name, data),
+	providerDelete: (name) => ipcRenderer.invoke('provider:delete', name),
+	providerTest: (name) => ipcRenderer.invoke('provider:test', name),
+	providerListUser: () => ipcRenderer.invoke('provider:list-user'),
+	providerSetUserKey: (name, apiKey, baseUrl) => ipcRenderer.invoke('provider:set-user-key', name, apiKey, baseUrl),
+	providerDeleteUserKey: (name) => ipcRenderer.invoke('provider:delete-user-key', name),
+})

@@ -23,6 +23,7 @@ const ViralEngine = require('./viral-engine')
 const ContentIntelligence = require('./content-intelligence')
 const PublishImpactTracker = require('./publish-impact-tracker')
 const KeywordMonitor = require('./keyword-monitor')
+const ProviderManager = require('./provider-manager')
 
 // ─── AuthViewManager（内嵌浏览器登录）─────
 const authViewManager = new AuthViewManager()
@@ -42,6 +43,7 @@ const contentIntelligence = new ContentIntelligence(store)
 const publishImpactTracker = new PublishImpactTracker(contentIntelligence)
 // ─── KeywordMonitor（关键词背景监测）─────────
 const keywordMonitor = new KeywordMonitor(contentIntelligence, store)
+const providerManager = new ProviderManager()
 // ─── OAuthManager（OAuth 2.0 认证）─────────
 const oauthManager = new OAuthManager(store)
 // ─── BatchManager（批量发布）────────────────
@@ -241,6 +243,7 @@ function createWindow () {
 
             // 设置 UrlCollector（URL 采集）
             urlCollector.registerIpcHandlers()
+		providerManager.registerIpcHandlers()
 
             // 设置 ViralEngine（爆款分析）
             viralEngine.registerIpcHandlers()
@@ -702,4 +705,15 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', async () => {
   hotkeys.unregister()
-  try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.mes
+  try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
+  webviewManager.closeAll()
+  rpaViewManager.cleanup()
+  keywordMonitor.stopAll()
+  callbackServer.stop()
+  store.close()
+  if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow()
+})

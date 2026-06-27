@@ -25,10 +25,18 @@
         <span class="icon">◇</span> 数据看板
       </router-link>
       <router-link to="/viral-analysis" class="nav-item" :class="{ active: route.path === '/viral-analysis' }">
+      <router-link to="/providers" class="nav-item" :class="{ active: route.path === '/providers' }">
+        <span class="icon">⚙</span> Provider 配置
+      </router-link>
         <span class="icon">🔥</span> 爆款分析
       </router-link>
       <div class="nav-spacer"></div>
       <div class="nav-right">
+        <button class="theme-toggle" @click="toggleTheme" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'"
+          :aria-label="isDark ? '切换到亮色模式' : '切换到暗色模式'">
+          <span v-if="isDark">☀️</span>
+          <span v-else>🌙</span>
+        </button>
         <div class="status-indicator">
           <span class="status-dot online"></span>
           服务运行中
@@ -126,16 +134,33 @@
     >
       <el-alert :title="'更新失败: ' + updateError" type="warning" show-icon :closable="true" @close="showError = false" />
     </div>
+  <!-- Cmd+K 全局搜索面板 -->
+  <CommandPalette :visible="showCommandPalette" @close="showCommandPalette = false" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
+import { useKeyboard } from '@/composables/useKeyboard'
+import { useTheme } from '@/composables/useTheme'
+import CommandPalette from '@/components/CommandPalette.vue'
 
 const route = useRoute()
 const router = useRouter()
+const showCommandPalette = ref(false)
+
+// ─── 暗色主题 ─────────────────────────---
+const { toggle: toggleTheme, isDark } = useTheme()
+
+// ─── 键盘快捷键系统 ─────────────────────---
+useKeyboard({
+  onSearch: () => { showCommandPalette.value = true },
+  onNewPublish: () => { router.push('/publish') },
+  onSettings: () => { router.push('/accounts') },
+  onEscape: () => { if (showCommandPalette.value) showCommandPalette.value = false },
+})
 
 // 侧栏平台数据
 const platformSearch = ref('')
@@ -312,4 +337,14 @@ body { margin: 0; padding: 0; }
   cursor: pointer;
   outline: none;
   padding: 0;
- 
+  appearance: auto;
+  -webkit-appearance: auto;
+}
+.account-switcher:hover {
+  color: var(--text-primary, #333);
+}
+.account-switcher option {
+  font-size: 12px;
+  padding: 4px;
+}
+</style>

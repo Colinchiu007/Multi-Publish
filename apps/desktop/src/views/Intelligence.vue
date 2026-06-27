@@ -123,7 +123,7 @@
             </span>
           </div>
         </div>
-        <div v-if="titleAnalysis.suggestion" class="intel-tip" style="background:#fff3e0;border-radius:8px;padding:12px;font-size:13px">
+        <div v-if="titleAnalysis.suggestion" class="intel-tip" style="background:var(--coral-soft,#fff3e0);border-radius:8px;padding:12px;font-size:13px">
           💡 {{ titleAnalysis.suggestion.tip }}
         </div>
       </div>
@@ -229,6 +229,6 @@ function insertRef (ref) {
   line-height: 1;
 }
 .intel-tip {
-  border-left: 3px solid #f57c00;
+  border-left: 3px solid var(--coral,#f57c00);
 }
 </style>

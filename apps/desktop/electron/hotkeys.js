@@ -22,6 +22,11 @@ const SHORTCUTS = {
   'CmdOrCtrl+Alt+D': { route: '/dashboard', label: '数据看板' },
   'CmdOrCtrl+Alt+C': { route: '/collection', label: '内容采集' },
   'CmdOrCtrl+Alt+H': { route: '/', label: '首页' },
+  'CmdOrCtrl+Alt+N': { route: '/publish', label: '新建发布' },
+  'CmdOrCtrl+Alt+A': { route: '/accounts', label: '账号管理' },
+  'CmdOrCtrl+Alt+K': { route: '/keywords', label: '关键词监测' },
+  'CmdOrCtrl+Alt+V': { route: '/viral-analysis', label: '爆款分析' },
+  'CmdOrCtrl+Comma': { route: '/accounts', label: '设置' },
   'CmdOrCtrl+Alt+Q': { route: '__quit__', label: '退出' },
 }
 
