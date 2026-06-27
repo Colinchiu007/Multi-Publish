@@ -20,6 +20,9 @@ module.exports = {
     tiktok: 'https://www.tiktok.com/upload/',
     bilibili: 'https://passport.bilibili.com/login',
     baijiahao: 'https://baijiahao.baidu.com/',
+    twitter: 'https://twitter.com/i/flow/login',
+    instagram: 'https://www.instagram.com/accounts/login/',
+    facebook: 'https://www.facebook.com/login/',
   },
 
   PLATFORM_LOGIN_SUCCESS_SELECTORS: {
@@ -35,6 +38,9 @@ module.exports = {
     tiktok: ['[data-testid="user-avatar"]', '[class*="avatar"]', '.user-avatar'],
     bilibili: [], // API 模式检查
     baijiahao: ['.user-info', '.user-avatar', '.nickname', '[class*="user"]'],
+    twitter: ['div[data-testid="primaryColumn"]', 'div[data-testid="SideNav_AccountSwitcher_Button"]', 'header[role="banner"]'],
+    instagram: ['svg[aria-label="Home"]', 'nav[role="navigation"]', 'section main article', 'a[href="/direct/inbox/"]'],
+    facebook: ['a[aria-label*="profile"]', 'a[aria-label*="Profile"]', 'div[aria-label*="Account"]', 'div[data-pagelet*="root"]'],
   },
 
   PLATFORM_PUBLISH_SELECTORS: {
@@ -113,7 +119,20 @@ module.exports = {
       desc_textarea: ['textarea[placeholder*="简介"]', '.video-desc textarea'],
       publish_btn: ['button:has-text("发布")', '.submit-btn', '[class*="submit"]'],
     },
-    baijiahao: {
+    twitter: {
+      textarea: ['div[data-testid="tweetTextarea_0"][role="textbox"]', 'div[aria-label*="Post"][role="textbox"]', 'div[aria-label*="Tweet"][role="textbox"]'],
+      publish_btn: ['div[data-testid="tweetButton"][role="button"]', 'button:has-text("Post")', 'div[role="button"]:has-text("Post")'],
+      media_btn: ['div[data-testid="mediaButton"]', 'div[aria-label="Media"][role="button"]'],
+      file_input: ['input[data-testid="fileInput"]', 'input[type="file"]'],
+    },
+    instagram: {
+      file_input: ['input[type="file"]', 'input[accept*="image"]', 'input[accept*="video"]'],
+      caption_textarea: ['div[aria-label*="caption"][role="textbox"]', 'textarea[aria-label*="caption"]', 'textarea[aria-label*="Caption"]', 'div[aria-label*="Write"][role="textbox"]'],
+      publish_btn: ['div[role="button"]:has-text("Share")', 'button:has-text("Share")', 'div[role="button"]:has-text("Post")', 'button:has-text("Post")', 'div[aria-label*="Share"][role="button"]'],
+      next_btn: ['div[role="button"]:has-text("Next")', 'button:has-text("Next")', 'div[aria-label*="Next"][role="button"]'],
+      create_btn: ['svg[aria-label="New post"]', 'svg[aria-label="Create"]', 'a[href*="create"]'],
+    },
+        baijiahao: {
       write_btn: ['a[href*="write"]', '[class*="write"]', '.publish-btn', 'button:has-text("写文章")'],
       title_input: ['input[placeholder*="标题"]', '.title-input input', '[class*="title"] input', '#title'],
       editor_frame: ['iframe[class*="editor"]', 'iframe[src*="editor"]'],
@@ -136,5 +155,8 @@ module.exports = {
     tiktok: 'TikTok',
     bilibili: 'B站',
     baijiahao: '百家号',
+    twitter: 'Twitter/X',
+    instagram: 'Instagram',
+    facebook: 'Facebook',
   },
 }

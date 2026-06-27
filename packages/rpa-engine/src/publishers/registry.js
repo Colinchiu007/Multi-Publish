@@ -19,6 +19,9 @@ const YouTubePublisher = require('./youtube-rpa')
 const TikTokPublisher = require('./tiktok-rpa')
 const BiliBiliPublisher = require('./bilibili-rpa')
 const BaiJiaHaoPublisher = require('./baijiahao-rpa')
+const TwitterPublisher = require('./twitter-rpa')
+const InstagramPublisher = require('./instagram-rpa')
+const FacebookPublisher = require('./facebook-rpa')
 const { ApiModePublisher } = require('./api-mode-publisher')
 
 /**
@@ -45,6 +48,9 @@ const registry = {
   tiktok: TikTokPublisher,
   bilibili: BiliBiliPublisher,
   baijiahao: BaiJiaHaoPublisher,
+  twitter: TwitterPublisher,
+  instagram: InstagramPublisher,
+  facebook: FacebookPublisher,
 }
 
 /**
