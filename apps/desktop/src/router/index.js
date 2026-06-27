@@ -46,11 +46,7 @@ const routes = [
     name: 'Keywords',
     component: () => import('@/views/KeywordMonitorView.vue')
   },
-]
-
-const router = createRouter({
-  history: createWebHashHistory(),
-  routes
-})
-
-export default router
+  {
+    path: '/viral-analysis',
+    name: 'ViralAnalysis',
+    component: () => import('@/views/ViralA

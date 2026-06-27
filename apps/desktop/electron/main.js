@@ -19,6 +19,7 @@ const Store = require('./store')
 const OAuthManager = require('./oauth-manager')
 const BatchManager = require('./batch-manager')
 const UrlCollector = require('./url-collector')
+const ViralEngine = require('./viral-engine')
 const ContentIntelligence = require('./content-intelligence')
 const PublishImpactTracker = require('./publish-impact-tracker')
 const KeywordMonitor = require('./keyword-monitor')
@@ -47,6 +48,8 @@ const oauthManager = new OAuthManager(store)
 const batchManager = new BatchManager(store)
 // ─── UrlCollector（URL 内容采集）────────────
 const urlCollector = new UrlCollector()
+// ─── ViralEngine（爆款分析）─────────────────
+const viralEngine = new ViralEngine()
 
 const PublishAlert = require('./publish-alert')
 const publishMonitor = require('./publish-monitor')
@@ -238,6 +241,9 @@ function createWindow () {
 
             // 设置 UrlCollector（URL 采集）
             urlCollector.registerIpcHandlers()
+
+            // 设置 ViralEngine（爆款分析）
+            viralEngine.registerIpcHandlers()
 
             // 设置 ContentIntelligence（内容情报引擎）
             contentIntelligence.registerIpcHandlers()
@@ -696,15 +702,4 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', async () => {
   hotkeys.unregister()
-  try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
-  webviewManager.closeAll()
-  rpaViewManager.cleanup()
-  keywordMonitor.stopAll()
-  callbackServer.stop()
-  store.close()
-  if (process.platform !== 'darwin') app.quit()
-})
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
-})
+  try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.mes

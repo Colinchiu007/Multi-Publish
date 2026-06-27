@@ -205,8 +205,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   intelligenceGetBenchmark: (title, opts) => ipcRenderer.invoke('intelligence:get-benchmark', { title, opts }),
   intelligenceGetOptimalTime: (keyword) => ipcRenderer.invoke('intelligence:get-optimal-time', { keyword }),
 
-  // ─── 影响力追踪 API ────────────────────────
-  impactGetActive: () => ipcRenderer.invoke('impact:get-active'),
-  impactGetRecentSnapshots: () => ipcRenderer.invoke('impact:get-recent-snapshots'),
-
-  
+  // ─── 爆款分析 API (v1.5.0) ───────────────────
+  viralAnalyze: (articles, topic) => ipcRenderer.invoke('viral:analyze', { articles, topic }),
+  viralGenerate: (opts) => ipcRenderer.invoke('viral:generate', opts
