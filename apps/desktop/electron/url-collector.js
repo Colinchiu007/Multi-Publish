@@ -5,8 +5,8 @@
  *
  * 采集方式：
  *   1. HTTP 请求 + Cheerio 解析（轻量，首选）
- *   2. Playwright 渲染（JS 渲染页面 fallback）
  *
+ * P2-E: 移除了 Playwright 浏览器渲染采集方式。
  * 文件位置: apps/desktop/electron/url-collector.js
  */
 const { ipcMain } = require('electron')
@@ -30,11 +30,9 @@ class UrlCollector {
   /**
    * 从 URL 采集内容
    * @param {string} url
-   * @param {object} [options]
-   * @param {boolean} [options.useBrowser=false] - 是否使用 Playwright 渲染
    * @returns {Promise<object>} { title, content, coverImage, description, publishTime, source, success }
    */
-  async collect (url, options = {}) {
+  async collect (url) {
     if (!url || typeof url !== 'string') {
       return { success: false, error: '无效的 URL' }
     }
@@ -47,17 +45,9 @@ class UrlCollector {
     }
 
     try {
-      if (options.useBrowser) {
-        return await this._collectViaBrowser(url)
-      }
       return await this._collectViaHttp(url)
     } catch (e) {
-      log.warn('UrlCollector', `HTTP采集失败，尝试浏览器渲染: ${e.message}`)
-      try {
-        return await this._collectViaBrowser(url)
-      } catch (e2) {
-        return { success: false, error: `采集失败: ${e2.message}` }
-      }
+      return { success: false, error: `采集失败: ${e.message}` }
     }
   }
 
@@ -79,45 +69,6 @@ class UrlCollector {
 
     const html = response.data
     return this._parseHtml(html, url)
-  }
-
-  /**
-   * 浏览器方式采集（处理 JS 渲染页面）
-   */
-  async _collectViaBrowser (url) {
-    const playwrightManager = require('../../../packages/rpa-engine/src/playwright-manager')
-    const page = await playwrightManager.newPage()
-    try {
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
-
-      const result = await page.evaluate(() => {
-        const getMeta = (name) => {
-          const el = document.querySelector(`meta[property="${name}"], meta[name="${name}"]`)
-          return el ? el.getAttribute('content') : null
-        }
-
-        // 提取正文
-        const article = document.querySelector('article')
-        const main = document.querySelector('main')
-        const content = article || main || document.body
-        const textContent = content ? content.innerText.trim().slice(0, 50000) : ''
-
-        return {
-          title: getMeta('og:title') || document.title || '',
-          description: getMeta('og:description') || getMeta('description') || '',
-          coverImage: getMeta('og:image') || '',
-          publishTime: getMeta('article:published_time') || getMeta('pubdate') || '',
-          source: getMeta('og:site_name') || new URL(url).hostname,
-          textContent,
-        }
-      })
-
-      await page.close()
-      return { ...result, success: true, content: result.textContent }
-    } catch (e) {
-      try { await page.close() } catch (e2) { /* ignore */ }
-      throw e
-    }
   }
 
   /**
@@ -171,9 +122,9 @@ class UrlCollector {
    * 注册 IPC 处理器
    */
   registerIpcHandlers () {
-    ipcMain.handle('url-collect:fetch', async (event, { url, useBrowser }) => {
+    ipcMain.handle('url-collect:fetch', async (event, { url }) => {
       try {
-        const result = await this.collect(url, { useBrowser })
+        const result = await this.collect(url)
         return { code: result.success ? 0 : -1, data: result }
       } catch (e) {
         return { code: -1, message: e.message }

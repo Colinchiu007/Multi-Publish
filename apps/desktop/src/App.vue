@@ -24,6 +24,9 @@
       <router-link to="/dashboard" class="nav-item" :class="{ active: route.path === '/dashboard' }">
         <span class="icon">◇</span> 数据看板
       </router-link>
+      <router-link to="/viral-analysis" class="nav-item" :class="{ active: route.path === '/viral-analysis' }">
+        <span class="icon">🔥</span> 爆款分析
+      </router-link>
       <div class="nav-spacer"></div>
       <div class="nav-right">
         <div class="status-indicator">
@@ -309,14 +312,4 @@ body { margin: 0; padding: 0; }
   cursor: pointer;
   outline: none;
   padding: 0;
-  appearance: auto;
-  -webkit-appearance: auto;
-}
-.account-switcher:hover {
-  color: var(--text-primary, #333);
-}
-.account-switcher option {
-  font-size: 12px;
-  padding: 4px;
-}
-</style>
+ 

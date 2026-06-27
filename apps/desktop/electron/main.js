@@ -2,7 +2,6 @@ const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
 
-const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { TaskQueue, AggregatorBridge } = require('@multi-publish/shared-utils')
 const pythonBridge = require('./python-bridge')
 const AccountManager = require('./publishers/account-manager')
@@ -20,6 +19,10 @@ const Store = require('./store')
 const OAuthManager = require('./oauth-manager')
 const BatchManager = require('./batch-manager')
 const UrlCollector = require('./url-collector')
+const ViralEngine = require('./viral-engine')
+const ContentIntelligence = require('./content-intelligence')
+const PublishImpactTracker = require('./publish-impact-tracker')
+const KeywordMonitor = require('./keyword-monitor')
 
 // ─── AuthViewManager（内嵌浏览器登录）─────
 const authViewManager = new AuthViewManager()
@@ -33,12 +36,20 @@ const callbackServer = new CallbackServer()
 const qrCodeLogin = new QrCodeLogin()
 // ─── Store（统一 SQLite 持久化）────────────
 const store = new Store()
+// ─── ContentIntelligence（跨源情报引擎）─────
+const contentIntelligence = new ContentIntelligence(store)
+// ─── PublishImpactTracker（影响力追踪）───────
+const publishImpactTracker = new PublishImpactTracker(contentIntelligence)
+// ─── KeywordMonitor（关键词背景监测）─────────
+const keywordMonitor = new KeywordMonitor(contentIntelligence, store)
 // ─── OAuthManager（OAuth 2.0 认证）─────────
 const oauthManager = new OAuthManager(store)
 // ─── BatchManager（批量发布）────────────────
 const batchManager = new BatchManager(store)
 // ─── UrlCollector（URL 内容采集）────────────
 const urlCollector = new UrlCollector()
+// ─── ViralEngine（爆款分析）─────────────────
+const viralEngine = new ViralEngine()
 
 const PublishAlert = require('./publish-alert')
 const publishMonitor = require('./publish-monitor')
@@ -135,6 +146,22 @@ taskQueue.on('task:success', (task) => {
   } catch (e) {
     log.warn('PublishMonitor', `Failed to start monitor: ${e.message}`)
   }
+
+  // 启动影响力追踪（发布后自动跟踪社交提及）
+  try {
+    const title = task.article?.title
+    const content = task.article?.content || title
+    if (title && content) {
+      publishImpactTracker.addTracking({
+        articleId: task.id,
+        title,
+        keywords: task.article?.keywords || [title],
+      })
+      log.info('ImpactTracker', `Started tracking "${title}"`)
+    }
+  } catch (e) {
+    log.warn('ImpactTracker', `Failed to start impact tracking: ${e.message}`)
+  }
 })
 
 taskQueue.on('task:failed', (task) => {
@@ -214,6 +241,15 @@ function createWindow () {
 
             // 设置 UrlCollector（URL 采集）
             urlCollector.registerIpcHandlers()
+
+            // 设置 ViralEngine（爆款分析）
+            viralEngine.registerIpcHandlers()
+
+            // 设置 ContentIntelligence（内容情报引擎）
+            contentIntelligence.registerIpcHandlers()
+
+            // 设置 PublishImpactTracker（影响力追踪）
+            publishImpactTracker.registerIpcHandlers()
 
   // 初始化系统托盘
   systemTray.init(mainWindow)
@@ -615,24 +651,55 @@ app.whenReady().then(async () => {
     const recovered = taskQueue.deserialize(savedState)
     if (recovered > 0) {
       log.info('App', `Recovered ${recovered} tasks from queue state`)
-      // 恢复后清掉，避免下次重复恢复
       store.setSetting('task_queue_state', null)
-    }  // end if (recovered > 0)
-  }  // end if (savedState)
+    }
+  }
+
+  // 关键词背景监测 IPC handlers
+  ipcMain.handle('keyword:start', async (_, { keyword, opts }) => {
+    const ok = keywordMonitor.startMonitoring(keyword, opts)
+    return { code: ok ? 0 : -1, data: { keyword } }
+  })
+  ipcMain.handle('keyword:stop', async (_, { keyword }) => {
+    const ok = keywordMonitor.stopMonitoring(keyword)
+    return { code: ok ? 0 : -1 }
+  })
+  ipcMain.handle('keyword:status', async () => {
+    return { code: 0, data: keywordMonitor.getStatus() }
+  })
+  ipcMain.handle('keyword:history', async (_, { keyword }) => {
+    return { code: 0, data: keywordMonitor.getHistory(keyword) }
+  })
+  ipcMain.handle('keyword:stop-all', async () => {
+    keywordMonitor.stopAll()
+    return { code: 0 }
+  })
+
+  keywordMonitor.onAlert((keyword, current, previous, ratio) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('notification', {
+        type: 'keyword-spike',
+        title: '[Spike] ' + keyword + ': ' + previous + ' -> ' + current + ' (' + ratio.toFixed(1) + 'x)',
+        keyword,
+        current,
+        previous,
+      })
+    }
+  })
+
+  setInterval(() => {
+    try {
+      const state = keywordMonitor.getAllHistories()
+      store.setSetting('keyword_monitor_state', JSON.stringify(state))
+    } catch (e) {
+      log.warn('App', 'Keyword monitor persist error: ' + e.message)
+    }
+  }, 5 * 60 * 1000)
 
   createWindow()
 })
 
 app.on('window-all-closed', async () => {
   hotkeys.unregister()
-  try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
-  webviewManager.closeAll()
-  rpaViewManager.cleanup()
-  callbackServer.stop()
-  store.close()
-  if (process.platform !== 'darwin') app.quit()
-})
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
-})
+  try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.mes
