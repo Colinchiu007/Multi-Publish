@@ -2,13 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
 
-// ─── Playwright 浏览器路径 ──────────────────────
-// 打包后浏览器捆绑在 resources/playwright-browsers 中
-if (app.isPackaged) {
-  process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(process.resourcesPath, 'playwright-browsers')
-}
-
-const { launchBrowser: playwrightLaunch, closeBrowser: playwrightClose, getPublisherClass } = require('@multi-publish/rpa-engine')
+const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { TaskQueue, AggregatorBridge } = require('@multi-publish/shared-utils')
 const pythonBridge = require('./python-bridge')
 const AccountManager = require('./publishers/account-manager')
@@ -19,6 +13,7 @@ const firstRun = require('./first-run')
 const AuthViewManager = require('./auth-view-manager')
 const WebviewManager = require('./webview-manager')
 const RpaViewManager = require('./rpa-view-manager')
+const { PublisherRouter } = require('./publisher-router')
 const CallbackServer = require('./callback-server')
 const QrCodeLogin = require('./qrcode-login')
 const Store = require('./store')
@@ -61,14 +56,9 @@ BatchManager.setTaskQueue(taskQueue)
 // ─── Aggregator Bridge ────────────────────
 const aggregatorBridge = new AggregatorBridge(taskQueue)
 
-// ─── 标记哪些平台使用 Python 后端 RPA（而非 Node.js RPA 引擎）─────
-// 这些平台的发布走 Python FastAPI + Playwright，不走 @multi-publish/rpa-engine
-const BACKEND_PLATFORMS = new Set([])
-
-// ─── 标记哪些平台使用 Electron executeJavaScript RPA ─────────────
-// 这些平台使用 RpaViewManager（隐藏 BrowserWindow + executeJavaScript）
-// 替代 Python Playwright 或 Node.js Playwright，减少进程开销
-const RPA_VM_PLATFORMS = new Set(['douyin'])
+// ─── PublisherRouter 统一发布路由 ────────────────
+// 替代三段 if/else 路由，从 config/platforms.yaml 读取平台路由配置
+const publisherRouter = new PublisherRouter()
 
 // 注册执行器
 taskQueue.setExecutor(async (task) => {
@@ -82,127 +72,25 @@ taskQueue.setExecutor(async (task) => {
     }
   }
 
-  // ── Python Backend 平台 ──────────────────────────────
-  if (BACKEND_PLATFORMS.has(platform)) {
-    emitProgress('正在通过 Python 后端发布...')
+  emitProgress('准备发布...')
 
-    const body = {
-      title: task.article?.title || '',
-      content: task.article?.content || '',
-      platform,
-      media_paths: task.article?.video_path
-        ? [task.article.video_path]
-        : (task.article?.media_paths || []),
-      cover_path: task.article?.cover_url || task.article?.cover_path || null,
-      tags: task.article?.tags || [],
-      draft: task.article?.draft || false,
-    }
-
-    try {
-      const result = await pythonBridge.requestBackend('POST', '/api/publish', body)
-
-      if (result.code === 0 && result.data?.success) {
-        emitProgress('✓ 发布成功')
-        return {
-          success: true,
-          url: result.data.url || '',
-          postId: result.data.task_id || task.id,
-          platform,
-        }
-      } else {
-        throw new Error(result.message || (result.data?.error || '发布失败'))
-      }
-    } catch (e) {
-      log.error('Executor', `Python backend publish failed: ${e.message}`)
-      throw e
-    }
-  }
-
-  // ── Electron executeJavaScript RPA 平台 ─────────────
-  if (RPA_VM_PLATFORMS.has(platform)) {
-    emitProgress('正在通过隐藏浏览器 RPA 发布...')
-
-    // 加载账号 Cookie 作为 authData
-    const accountId = task.article?.accountId || task.accountId
-    let authData = { cookies: [] }
-    if (accountId) {
-      const account = store.getAccount(accountId)
-      if (account && account.cookies && account.cookies.length > 0) {
-        authData = { cookies: account.cookies, localStorage: account.local_storage }
-      }
-    } else {
-      const defaultAccount = store.getDefaultAccount(platform)
-      if (defaultAccount && defaultAccount.cookies) {
-        authData = { cookies: defaultAccount.cookies, localStorage: defaultAccount.local_storage }
-      }
-    }
-
-    rpaViewManager.onProgress(({ platform: p, stage }) => {
-      emitProgress(stage)
-    })
-
-    try {
-      const article = {
-        title: task.article?.title || '',
-        content: task.article?.content || '',
-        video_path: task.article?.video_path || (task.article?.media_paths ? task.article.media_paths[0] : null),
-        cover_path: task.article?.cover_url || task.article?.cover_path || null,
-        tags: task.article?.tags || [],
-        draft: task.article?.draft || false,
-      }
-
-      const result = await rpaViewManager.publish(platform, article, authData)
-
-      if (result.success) {
-        emitProgress('✓ 发布成功')
-        return {
-          success: true,
-          url: result.url || '',
-          postId: task.id,
-          platform,
-        }
-      } else {
-        throw new Error(result.error || 'RPA 发布失败')
-      }
-    } catch (e) {
-      log.error('Executor', `RPA VM publish failed: ${e.message}`)
-      throw e
-    }
-  }
-
-  // ── Node.js RPA 平台 ────────────────────────────────
-  const PublisherClass = getPublisherClass(platform)
-  const publisher = new PublisherClass()
-
-  // 加载指定账号的 Cookie
-  const accountId = task.article?.accountId || task.accountId
-  if (accountId) {
-    const account = store.getAccount(accountId)
-    if (account && account.cookies && account.cookies.length > 0) {
-      task.article._cookies = account.cookies
-    }
-  } else {
-    const defaultAccount = store.getDefaultAccount(platform)
-    if (defaultAccount && defaultAccount.cookies) {
-      task.article._cookies = defaultAccount.cookies
-    }
-  }
-
-  publisher.onProgress(({ platform, stage }) => {
-    const win = BrowserWindow.getAllWindows()[0]
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('publish:progress', { platform, stage, taskId: task.id })
-    }
+  // ── 通过 PublisherRouter 创建发布器 ──────────
+  const publisher = publisherRouter.createPublisher(platform, {
+    rpaViewManager,
+    store,
+    pythonBridge,
   })
 
+  // 注册进度转发
+  rpaViewManager.onProgress(({ stage }) => { emitProgress(stage) })
+
   try {
-    const result = await publisher.publishArticle(task.article)
+    const result = await publisher.publish(task)
+    emitProgress('✓ 发布成功')
     return result
   } catch (e) {
-    log.error('Executor', 'Publish failed:', e.message)
+    log.error('Executor', `Publish failed for ${platform}: ${e.message}`)
     throw e
-  } finally {
-    await publisher.cleanup()
   }
 })
 
@@ -223,7 +111,7 @@ taskQueue.on('task:success', (task) => {
     status: 'success',
     result: task.result
   })
-  
+
   // 启动发布后状态监控（基于蚁小二逆向工程）
   try {
     const postId = task.result?.postId || task.result?.id
@@ -443,6 +331,9 @@ ipcMain.handle('hotkeys:list', async () => {
 // ─── 平台配置 IPC ─────────────────────────
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 
+// Python 后端平台列表（用于 auth router 判断）
+const BACKEND_PLATFORMS = new Set(['youtube', 'tiktok', 'twitter'])
+
 // ─── 敏感词预检 + 数据同步 IPC ──────────────
 const SensitiveFilter = require('@multi-publish/shared-utils/src/sensitive-filter')
 const DataSyncService = require('@multi-publish/shared-utils/src/data-sync')
@@ -450,7 +341,7 @@ const _sensitiveFilter = SensitiveFilter.createWithBuiltin()
 const _dataSync = new DataSyncService(store)
 const _platformConfig = (() => {
   try {
-    const cfgPath = path.join(__dirname, '..', '..', 'config', 'platforms.yaml')
+    const cfgPath = path.join(__dirname, '..', '..', '..', 'config', 'platforms.yaml')
     return new PlatformConfig(cfgPath)
   } catch (e) {
     log.warn('App', 'Failed to load platform config:', e.message)
@@ -627,11 +518,7 @@ ipcMain.handle('account:list', async () => {
 
 // ─── 应用生命周期 ─────────────────────
 
-const userDataDir = app.getPath('userData')
-
 app.whenReady().then(async () => {
-  try { await playwrightLaunch(path.join(userDataDir, 'browser-data')) }
-  catch (e) { log.error('App', 'Failed to launch Playwright:', e.message) }
   try { await pythonBridge.startPythonBackend() }
   catch (e) { log.error('App', 'Failed to start Python backend:', e.message) }
 
@@ -738,7 +625,6 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', async () => {
   hotkeys.unregister()
-  try { await playwrightClose() } catch (e) { log.error('App', 'Error closing Playwright:', e.message) }
   try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
   webviewManager.closeAll()
   rpaViewManager.cleanup()

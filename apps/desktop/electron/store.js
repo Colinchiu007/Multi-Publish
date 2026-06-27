@@ -216,12 +216,6 @@ class Store {
     return this._parseAccount(row)
   }
 
-  /**
-   * 获取平台的账号列表
-   */
-  listAccounts (platform) {
-  }
-
   // ─── 发布历史 ────────────────────────────────
 
   addPublishRecord (record) {

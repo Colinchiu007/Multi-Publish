@@ -1,901 +1,616 @@
 /**
- * RpaViewManager — executeJavaScript RPA 引擎
+ * RpaViewManager -- executeJavaScript RPA engine
  *
- * 使用 Electron 隐藏 BrowserWindow + webContents.executeJavaScript()
- * 替代 Playwright 进行 RPA 自动化发布。
- *
- * 核心思路：
- *   1. 创建隐藏 BrowserWindow（show: false），无弹出窗口
- *   2. 通过 executeJavaScript() 注入 JS 操作页面 DOM
- *   3. 通过 CDP 的 DOM.setFileInputFiles 处理文件上传
- *   4. 通过 webContents.session.webRequest 监听网络响应
- *   5. 每个账号独立 session 分区，Cookie/localStorage 互不干扰
- *
- * 参考：
- *   - auth-view-manager.js — WebContentsView + executeJavaScript 登录模式
- *   - Python douyin.py — 抖音发布流程（API 优先 + RPA 降级）
+ * P2-B: Generic publish engine with config-driven platform support.
  */
 const { BrowserWindow, session, ipcMain } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const log = require('./logger')
+const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
+const { platformSelectors } = require('@multi-publish/rpa-engine')
 
-// ─── 平台发布页 URL ────────────────────────────────────────
-const PLATFORM_PUBLISH_URLS = {
-  douyin: 'https://creator.douyin.com/creator-micro/content/upload',
-  wechat_mp: 'https://mp.weixin.qq.com/',
-  zhihu: 'https://www.zhihu.com/',
-  weibo: 'https://weibo.com/',
-  xiaohongshu: 'https://creator.xiaohongshu.com/',
-  shipinhao: 'https://channels.weixin.qq.com/',
-  kuaishou: 'https://cp.kuaishou.com/',
-  toutiao: 'https://mp.toutiao.com/',
-  youtube: 'https://studio.youtube.com/',
-  tiktok: 'https://www.tiktok.com/upload/',
-  bilibili: 'https://www.bilibili.com/',
-  baijiahao: 'https://baijiahao.baidu.com/',
+// ---- ProgressThrottle (Python base.py port) ----
+class ProgressThrottle {
+  constructor(minInterval, minPercentDelta) {
+    this._lastTime = 0; this._lastPercent = 0
+    this._minInterval = minInterval || 5000
+    this._minPercentDelta = minPercentDelta || 10
+  }
+  shouldReport(percent) {
+    if (percent === 100) return true
+    if (percent - this._lastPercent < this._minPercentDelta && Date.now() - this._lastTime < this._minInterval) return false
+    this._lastTime = Date.now(); this._lastPercent = percent; return true
+  }
+  reset() { this._lastTime = 0; this._lastPercent = 0 }
 }
 
-// ─── 发布成功 API 响应特征（各平台）────────────────────────
-const PLATFORM_SUCCESS_PATTERNS = {
+// ---- FieldRetryState (Python FieldRetryMap port) ----
+class FieldRetryState {
+  constructor(retryCount) { this._retryCount = retryCount || 3; this._map = {} }
+  addField(name) { if (!(name in this._map)) this._map[name] = 0 }
+  markDone(name) { this._map[name] = this._retryCount }
+  retry(name) { if (!(name in this._map)) return false; this._map[name]++; return this._map[name] < this._retryCount }
+  isDone(name) { return (this._map[name] || this._retryCount) >= this._retryCount }
+  get unfinishedFields() { var t=this; return Object.keys(this._map).filter(function(n){return t._map[n]<t._retryCount}) }
+  get hasUnfinished() { var t=this; return Object.values(this._map).some(function(c){return c<t._retryCount}) }
+  get allDone() { return !this.hasUnfinished }
+  get exhaustedFields() { var t=this; return Object.keys(this._map).filter(function(n){return t._map[n]===t._retryCount-1}) }
+}
+
+var PLATFORM_SUCCESS_PATTERNS = {
   douyin: ['aweme/create', 'aweme/post', 'upload/auth'],
+  weibo: ['publish/mblog', 'statuses/share'],
+  bilibili: ['video/recommend', 'archive/publish'],
+  youtube: ['/upload', 'youtubei/v1/upload'],
+  tiktok: ['/upload/', 'post/publish'],
 }
-
-// ─── 平台默认超时（毫秒）───────────────────────────────────
-const PLATFORM_TIMEOUTS = {
-  douyin: 300000,     // 5 min（含视频上传）
-  wechat_mp: 120000,
-  zhihu: 120000,
-  weibo: 120000,
-  xiaohongshu: 120000,
-  shipinhao: 300000,
-  kuaishou: 300000,
-  toutiao: 120000,
-  youtube: 300000,
-  tiktok: 300000,
-  bilibili: 300000,
-  baijiahao: 120000,
-}
-
+var _platformConfigInstance = null
 
 class RpaViewManager {
-  constructor () {
-    this.mainWindow = null
-    /** @type {Object<string, BrowserWindow>} */
-    this.windows = {}
-    this._nextId = 1
-    this._progressCallback = null
-    this._responseListeners = {}  // { windowKey: callback }
+  constructor() {
+    this.mainWindow = null; this.windows = {}; this._nextId = 1
+    this._progressCallback = null; this._responseListeners = {}
   }
+  setMainWindow(win) { this.mainWindow = win }
+  onProgress(cb) { this._progressCallback = cb }
 
-  /**
-   * 设置主窗口引用（用于发射进度事件）
-   */
-  setMainWindow (win) {
-    this.mainWindow = win
-  }
-
-  /**
-   * 注册进度回调
-   * @param {function} cb - 接收 { platform, stage, percent }
-   */
-  onProgress (cb) {
-    this._progressCallback = cb
-  }
-
-  /**
-   * 发射进度事件
-   */
-  _emitProgress (platform, stage, percent) {
-    const data = { platform, stage, percent: percent ?? 0 }
-    if (this._progressCallback) {
-      try { this._progressCallback(data) } catch (e) { /* ignore */ }
-    }
+  _emitProgress(platform, stage, percent) {
+    var data = { platform: platform, stage: stage, percent: percent || 0 }
+    if (this._progressCallback) { try { this._progressCallback(data) } catch(e) {} }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      try {
-        this.mainWindow.webContents.send('rpa:progress', data)
-      } catch (e) { /* ignore */ }
+      try { this.mainWindow.webContents.send('rpa:progress', data) } catch(e) {}
     }
-    log.info('RpaView', `[${platform}] ${stage}`)
+    log.info('RpaView', '[' + platform + '] ' + stage)
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // 浏览器窗口管理
-  // ═══════════════════════════════════════════════════════════
+  // ========== P2-B: Config loading ==========
+  _getPlatformConfig(platform) {
+    if (!_platformConfigInstance) {
+      _platformConfigInstance = new PlatformConfig(path.join(__dirname, '..', '..', '..', 'config', 'platforms.yaml'))
+    }
+    var cfg = _platformConfigInstance.getPlatform(platform)
+    if (!cfg) throw new Error('platform config not found: ' + platform)
+    var sel = (platformSelectors.PLATFORM_PUBLISH_SELECTORS && platformSelectors.PLATFORM_PUBLISH_SELECTORS[platform]) || {}
+    var rpa = cfg.rpa_config || {}
+    var patterns = (rpa.success_patterns && rpa.success_patterns.length > 0) ? rpa.success_patterns : (PLATFORM_SUCCESS_PATTERNS[platform]||[])
+    return { publish_url: cfg.publish_url||'', type: cfg.type||'article', has_api: cfg.has_api||false, selectors: sel, success_patterns: patterns, preFill: rpa.preFill||null, prePublishHook: rpa.prePublishHook||null, hookContext: rpa.hookContext||null, success_mode: rpa.success_mode||'url', success_selector: rpa.success_selector||null }
+  }
 
-  /**
-   * 创建一个隐藏的 BrowserWindow
-   * @param {string} partition - session 分区名
-   * @returns {BrowserWindow}
-   */
-  _createWindow (partition) {
-    const win = new BrowserWindow({
-      show: false,
-      width: 1280,
-      height: 800,
-      webPreferences: {
-        session: session.fromPartition(partition, { cache: true }),
-        contextIsolation: true,
-        nodeIntegration: false,
-        backgroundThrottling: false,
-      },
-    })
+  // ========== P2-B: Platform hooks ==========
+  async _execHook(win, hookName, context) {
+    switch (hookName) {
+      case 'switchIframe':
+        await this._waitForElement(win, (context&&context.iframeSelector)||'iframe', 10000); break
+      case 'clickCreate':
+        if (await this._click(win, (context&&context.createSelector)||'#create-icon')) {
+          await new Promise(function(r){setTimeout(r,2000)})
+          await this._click(win, (context&&context.uploadSelector)||'tp-yt-paper-item')
+        }; break
+      case 'clickWrite':
+        await this._click(win, (context&&context.writeSelector)||'button:has-text("写文章")')
+        await new Promise(function(r){setTimeout(r,2000)}); break
+      default: log.warn('RpaView', 'Unknown hook: ' + hookName)
+    }
+  }
 
-    // 抑制导航错误（RPA 中如遇 404 不应崩溃）
-    win.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-      log.warn('RpaView', `Page load failed: ${errorDescription} (${errorCode})`)
-    })
+  // ========== P2-D: Execute JavaScript in iframe context ==========
+  async _execInFrame(win, frameSelector, jsCode) {
+    var fs = JSON.stringify(frameSelector)
+    return await win.webContents.executeJavaScript([
+      '(function() {',
+      '  var frame = document.querySelector(' + fs + ');',
+      '  if (!frame) throw new Error("iframe not found");',
+      '  var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);',
+      '  if (!doc) throw new Error("iframe cross-origin");',
+      '  return (function() { ' + jsCode + ' }).call(doc);',
+      '})()',
+    ].join('\n'))
+  }
 
-    // 不显示控制台日志
-    win.webContents.on('console-message', () => {})
+  // ========== P2-D: Fill content inside iframe ==========
+  async _fillInFrame(win, frameSelector, innerSelector, content) {
+    var fs = JSON.stringify(frameSelector)
+    var is_ = JSON.stringify(innerSelector)
+    var sc = JSON.stringify(content)
+    return await this._execInFrame(win, frameSelector, [
+      'var el = document.querySelector(' + is_ + ');',
+      'if (!el) throw new Error("element not found in iframe");',
+      'if (el.getAttribute("contenteditable") === "true") {',
+      '  el.innerHTML = ' + sc + ';',
+      '} else {',
+      '  el.value = ' + sc + ';',
+      '}',
+      'el.dispatchEvent(new Event("input", { bubbles: true }));',
+      'el.dispatchEvent(new Event("change", { bubbles: true }));',
+      'return true;',
+    ].join(' '))
+  }
 
+  // ========== P2-B: Generic publish engine ==========
+  async _publish_generic(win, article, platform, publishConfig) {
+    var config = publishConfig || this._getPlatformConfig(platform)
+    var sel = config.selectors
+    var throttle = new ProgressThrottle(5000, 10)
+    var retry = new FieldRetryState(3)
+
+    if (!config.publish_url) return { success: false, error: platform+' no publish_url', platform: platform }
+
+    this._emitProgress(platform, 'navigating...', 5)
+    await this._navigateAndWait(win, config.publish_url, 3000)
+
+    var curUrl = win.webContents.getURL()
+    if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('signin'))
+      return { success: false, error: platform+' not logged in', platform: platform }
+
+    if (config.preFill) await this._execHook(win, config.preFill, config.hookContext)
+
+    // title
+    if (article.title && sel.title_input && sel.title_input.length > 0) {
+      retry.addField('title')
+      while (!retry.isDone('title')) {
+        try {
+          this._emitProgress(platform, 'filling title...', 20)
+          if (await this._waitForElement(win, sel.title_input[0], 10000)) {
+            await this._fillInput(win, sel.title_input[0], article.title); retry.markDone('title')
+          }
+        } catch(e) {
+          log.warn('RpaView', '['+platform+'] title: '+e.message)
+          if (!retry.retry('title')) break; await new Promise(function(r){setTimeout(r,1000)})
+        }
+      }
+    }
+
+    // content
+    var cs = sel.editor || sel.content_textarea || sel.textarea
+    if (article.content && cs && cs.length > 0) {
+      retry.addField('content')
+      while (!retry.isDone('content')) {
+        try {
+          this._emitProgress(platform, 'filling content...', 35)
+          if (await this._waitForElement(win, cs[0], 10000)) {
+            await this._fillInput(win, cs[0], article.content); retry.markDone('content')
+          }
+        } catch(e) {
+          log.warn('RpaView', '['+platform+'] content: '+e.message)
+          if (!retry.retry('content')) break; await new Promise(function(r){setTimeout(r,1000)})
+        }
+      }
+    }
+
+    // file upload
+    if (article.video_path && sel.file_input && sel.file_input.length > 0) {
+      retry.addField('file_upload')
+      while (!retry.isDone('file_upload')) {
+        try {
+          this._emitProgress(platform, 'uploading file...', 50)
+          if (await this._waitForElement(win, sel.file_input[0], 15000)) {
+            await this._setFileInput(win, article.video_path)
+            var done = await this._waitForCondition(win, 'function(){var p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');var s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
+            if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
+            retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 60)
+          }
+        } catch(e) {
+          log.warn('RpaView', '['+platform+'] upload: '+e.message)
+          if (!retry.retry('file_upload')) break; await new Promise(function(r){setTimeout(r,2000)})
+        }
+      }
+    }
+
+    // cover
+    if (article.cover_path && sel.cover_input) {
+      try { this._emitProgress(platform,'uploading cover...',65); await this._setFileInput(win,article.cover_path); await new Promise(function(r){setTimeout(r,2000)}) } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message) }
+    }
+
+    // tags
+    if (article.tags && article.tags.length>0 && sel.tag_input && sel.tag_input.length>0) {
+      for (var ti=0;ti<Math.min(article.tags.length,5);ti++) {
+        try {
+          this._emitProgress(platform,'adding tags...',72)
+          await this._waitForElement(win,sel.tag_input[0],5000)
+          await this._fillInput(win,sel.tag_input[0],article.tags[ti])
+          await win.webContents.executeJavaScript('(function(){var el=document.querySelector(\''+sel.tag_input[0]+'\');if(el)el.dispatchEvent(new KeyboardEvent(\'keydown\',{key:\'Enter\',code:\'Enter\',keyCode:13}))})()')
+          await new Promise(function(r){setTimeout(r,800)})
+        } catch(e) { log.warn('RpaView','['+platform+'] tag: '+e.message) }
+      }
+    }
+
+    if (config.prePublishHook) await this._execHook(win, config.prePublishHook, config.hookContext)
+
+    // publish button
+    if (sel.publish_btn && sel.publish_btn.length>0) {
+      retry.addField('publish')
+      while (!retry.isDone('publish')) {
+        try {
+          this._emitProgress(platform,'publishing...',85)
+          var rp = (config.has_api && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
+          if (!(await this._waitForElement(win,sel.publish_btn[0],10000))) throw new Error('publish btn not found')
+          await this._click(win,sel.publish_btn[0])
+          if (article.draft && sel.draft_btn) await this._click(win,sel.draft_btn)
+          retry.markDone('publish')
+          if (throttle.shouldReport(95)) this._emitProgress(platform,'verifying...',95)
+          return await this._verifyPublishSuccess(win,platform,config,rp)
+        } catch(e) {
+          log.warn('RpaView','['+platform+'] publish btn: '+e.message)
+          if (!retry.retry('publish')) return {success:false,error:e.message,platform:platform}
+          await new Promise(function(r){setTimeout(r,1500)})
+        }
+      }
+    }
+    return {success:false,error:platform+' no publish_btn selector',platform:platform}
+  }
+
+  // ========== Verify publish success ==========
+  async _verifyPublishSuccess(win, platform, config, responsePromise) {
+    var mode = config.success_mode || 'url'
+    // Mode: api — wait for matching API response
+    if (mode === 'api' && responsePromise) {
+      var r = await responsePromise
+      if (r) { this._emitProgress(platform,'API success',100); return { success:true, url:win.webContents.getURL()||'', platform:platform } }
+    }
+    // Mode: url — wait for URL to leave publish page
+    if (mode === 'url') {
+      try {
+        await new Promise(function(r){setTimeout(r,5000)})
+        var url = win.webContents.getURL(), pubUrl = config.publish_url||''
+        if (url && pubUrl && !url.includes(pubUrl) && !url.includes('login') && !url.includes('passport')) {
+          this._emitProgress(platform,'URL changed',100); return { success:true, url:url, platform:platform }
+        }
+      } catch(e) { log.warn('RpaView','['+platform+'] URL check: '+e.message) }
+    }
+    // Mode: dom — wait for success DOM selector
+    if (mode === 'dom') {
+      var sel = config.success_selector || (config.selectors && config.selectors.success_selector)
+      if (sel) {
+        try {
+          if (await this._waitForElement(win,sel,15000)) {
+            this._emitProgress(platform,'DOM success',100); return { success:true, url:win.webContents.getURL()||'', platform:platform }
+          }
+        } catch(e) { log.warn('RpaView','['+platform+'] DOM check: '+e.message) }
+      }
+    }
+    // Fallback: try all modes in order
+    if (responsePromise) {
+      var r = await responsePromise
+      if (r) { this._emitProgress(platform,'API success',100); return { success:true, url:win.webContents.getURL()||'', platform:platform } }
+    }
+    try {
+      await new Promise(function(r){setTimeout(r,5000)})
+      var url2 = win.webContents.getURL(), pubUrl2 = config.publish_url||''
+      if (url2 && pubUrl2 && !url2.includes(pubUrl2) && !url2.includes('login') && !url2.includes('passport')) {
+        this._emitProgress(platform,'URL fallback',100); return { success:true, url:url2, platform:platform }
+      }
+    } catch(e) { log.warn('RpaView','['+platform+'] URL fallback: '+e.message) }
+    return { success:false, error:'publish verification timeout', platform:platform }
+  }
+
+  // ========== Window management ==========
+  _createWindow(partition) {
+    var win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, backgroundThrottling:false } })
+    win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
+    win.webContents.on('console-message',function(){})
     return win
   }
+  _windowKey(platform, accountId) { return 'rpa-'+platform+'-'+(accountId||'default')+'-'+(this._nextId++) }
 
-  /**
-   * 获取窗口标识键
-   */
-  _windowKey (platform, accountId) {
-    return `rpa-${platform}-${accountId || 'default'}-${this._nextId++}`
+  // ========== Cookie / localStorage restore ==========
+  async _restoreCookies(win, cookies) {
+    if (!cookies||!cookies.length) return
+    for (var ci=0;ci<cookies.length;ci++) { try { await win.webContents.session.cookies.set(cookies[ci]) } catch(e) {} }
+    log.info('RpaView','Restored '+cookies.length+' cookies')
+  }
+  async _restoreLocalStorage(win, ls) {
+    if (!ls||!Object.keys(ls).length) return
+    var j = JSON.stringify(ls)
+    try { await win.webContents.executeJavaScript('(function(){var d='+j+';Object.keys(d).forEach(function(k){try{localStorage.setItem(k,d[k])}catch(e){}});return Object.keys(d).length})()'); log.info('RpaView','localStorage restored') } catch(e) { log.warn('RpaView','localStorage restore: '+e.message) }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Cookie / localStorage 恢复
-  // ═══════════════════════════════════════════════════════════
-
-  /**
-   * 恢复已保存的 Cookie（需在 loadURL 前调用）
-   */
-  async _restoreCookies (win, cookies) {
-    if (!cookies || cookies.length === 0) return
-    for (const c of cookies) {
-      try {
-        await win.webContents.session.cookies.set(c)
-      } catch (e) {
-        // 单个 cookie 失败不影响其他
-      }
-    }
-    log.info('RpaView', `Restored ${cookies.length} cookies`)
+  // ========== executeJavaScript utilities ==========
+  async _waitForElement(win, sel, timeout) {
+    timeout = timeout||30000
+    try { return await win.webContents.executeJavaScript('(function(){return new Promise(function(r){var e=document.querySelector(\''+sel+'\');if(e){r(true);return}var o=new MutationObserver(function(){var f=document.querySelector(\''+sel+'\');if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()') } catch(e) { return false }
+  }
+  async _waitForCondition(win, fn, timeout, interval) {
+    timeout=timeout||30000; interval=interval||500
+    try { return await win.webContents.executeJavaScript('(function(){var c='+fn+';return new Promise(function(r){if(c()){r(true);return}var ch=setInterval(function(){if(c()){clearInterval(ch);clearTimeout(t);r(true)}},'+interval+');var t=setTimeout(function(){clearInterval(ch);r(false)},'+timeout+')})})()') } catch(e) { return false }
+  }
+  async _fillInput(win, sel, val) {
+    var sv=JSON.stringify(val)
+    return await win.webContents.executeJavaScript('(function(){var el=document.querySelector(\''+sel+'\');if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){el.innerHTML='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));return}var ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
+  }
+  async _click(win, sel) {
+    return await win.webContents.executeJavaScript('(function(){var el=document.querySelector(\''+sel+'\');if(!el)throw new Error("not found: "+"'+sel+'");el.click();return true})()')
   }
 
-  /**
-   * 恢复 localStorage（需在页面加载后调用）
-   */
-  async _restoreLocalStorage (win, localStorageData) {
-    if (!localStorageData || Object.keys(localStorageData).length === 0) return
-
-    const lsJson = JSON.stringify(localStorageData)
+  // ========== CDP file upload ==========
+  async _setFileInput(win, filePath) {
+    if (!fs.existsSync(filePath)) throw new Error('File not found: '+filePath)
+    var dbg = win.webContents.debugger
+    try { await dbg.attach('1.3') } catch(e) {}
     try {
-      await win.webContents.executeJavaScript(`
-        (function() {
-          var data = ${lsJson};
-          Object.keys(data).forEach(function(k) {
-            try { localStorage.setItem(k, data[k]); } catch(e) {}
-          });
-          return Object.keys(data).length;
-        })()
-      `)
-      log.info('RpaView', `Restored localStorage items`)
-    } catch (e) {
-      log.warn('RpaView', `localStorage restore failed: ${e.message}`)
-    }
+      var fr = await dbg.sendCommand('Runtime.evaluate',{expression:'(function(){return document.querySelectorAll(\'input[type="file"]\').length>0?1:0})()',returnByValue:true})
+      if (fr.result.value!==1) throw new Error('No file input found')
+      var re = await dbg.sendCommand('Runtime.evaluate',{expression:'document.querySelector(\'input[type="file"]\')'})
+      var nd = await dbg.sendCommand('DOM.requestNode',{objectId:re.result.objectId})
+      await dbg.sendCommand('DOM.setFileInputFiles',{files:[path.resolve(filePath)],nodeId:nd.nodeId||nd})
+      log.info('RpaView','CDP file: '+path.basename(filePath)); return true
+    } finally { try { await dbg.detach() } catch(e) {} }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // executeJavaScript 工具方法
-  // ═══════════════════════════════════════════════════════════
-
-  /**
-   * 等待 DOM 元素出现
-   * @param {BrowserWindow} win
-   * @param {string} selector - CSS 选择器
-   * @param {number} timeout - 超时（毫秒）
-   * @returns {Promise<boolean>} 是否找到
-   */
-  async _waitForElement (win, selector, timeout = 30000) {
-    try {
-      return await win.webContents.executeJavaScript(`
-        (function() {
-          return new Promise(function(resolve) {
-            var el = document.querySelector('${selector}');
-            if (el) { resolve(true); return; }
-
-            var observer = new MutationObserver(function() {
-              var found = document.querySelector('${selector}');
-              if (found) { observer.disconnect(); resolve(true); }
-            });
-            observer.observe(document.body, { childList: true, subtree: true });
-
-            setTimeout(function() {
-              observer.disconnect();
-              resolve(false);
-            }, ${timeout});
-          });
-        })()
-      `)
-    } catch (e) {
-      return false
-    }
-  }
-
-  /**
-   * 等待任意条件函数返回 true
-   * @param {BrowserWindow} win
-   * @param {string} conditionFn - 条件函数体（字符串），return boolean
-   * @param {number} timeout - 超时（毫秒）
-   * @param {number} interval - 轮询间隔（毫秒）
-   * @returns {Promise<boolean>}
-   */
-  async _waitForCondition (win, conditionFn, timeout = 30000, interval = 500) {
-    try {
-      return await win.webContents.executeJavaScript(`
-        (function() {
-          var condition = ${conditionFn};
-          return new Promise(function(resolve) {
-            if (condition()) { resolve(true); return; }
-            var check = setInterval(function() {
-              if (condition()) { clearInterval(check); clearTimeout(timer); resolve(true); }
-            }, ${interval});
-            var timer = setTimeout(function() {
-              clearInterval(check);
-              resolve(false);
-            }, ${timeout});
-          });
-        })()
-      `)
-    } catch (e) {
-      return false
-    }
-  }
-
-  /**
-   * 填充输入框（触发 input/change 事件）
-   * @param {BrowserWindow} win
-   * @param {string} selector - CSS 选择器
-   * @param {string} value
-   */
-  async _fillInput (win, selector, value) {
-    const safeValue = JSON.stringify(value)
-    return await win.webContents.executeJavaScript(`
-      (function() {
-        var el = document.querySelector('${selector}');
-        if (!el) throw new Error('Input not found: ${selector}');
-
-        // 如果是 contenteditable，直接设 innerHTML
-        if (el.getAttribute('contenteditable') === 'true') {
-          el.innerHTML = ${safeValue};
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          return;
-        }
-
-        // 普通 input/textarea
-        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-          window.HTMLInputElement.prototype, 'value'
-        )?.set || Object.getOwnPropertyDescriptor(
-          window.HTMLTextAreaElement.prototype, 'value'
-        )?.set;
-
-        if (nativeInputValueSetter) {
-          nativeInputValueSetter.call(el, ${safeValue});
-        } else {
-          el.value = ${safeValue};
-        }
-
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
-      })()
-    `)
-  }
-
-  /**
-   * 点击元素
-   * @param {BrowserWindow} win
-   * @param {string} selector - CSS 选择器
-   */
-  async _click (win, selector) {
-    return await win.webContents.executeJavaScript(`
-      (function() {
-        var el = document.querySelector('${selector}');
-        if (!el) throw new Error('Element not found: ${selector}');
-        el.click();
-        return true;
-      })()
-    `)
-  }
-
-  /**
-   * 获取页面文本内容
-   */
-  async _getPageText (win, selector) {
-    try {
-      return await win.webContents.executeJavaScript(`
-        (function() {
-          var el = document.querySelector('${selector}');
-          return el ? el.textContent || el.innerText || '' : '';
-        })()
-      `)
-    } catch (e) {
-      return ''
-    }
-  }
-
-  /**
-   * 获取当前页面 URL
-   */
-  async _getUrl (win) {
-    return win.webContents.getURL()
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // CDP 文件上传（替代 Playwright set_input_files）
-  // ═══════════════════════════════════════════════════════════
-
-  /**
-   * 通过 CDP (Chrome DevTools Protocol) 设置文件输入
-   *
-   * 这是 Playwright 内部使用的方式，绕过浏览器安全限制。
-   * 使用 Electron 的 webContents.debugger 附加 CDP session。
-   *
-   * @param {BrowserWindow} win
-   * @param {string} filePath - 本地文件绝对路径
-   * @returns {Promise<boolean>}
-   */
-  async _setFileInput (win, filePath) {
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`File not found: ${filePath}`)
-    }
-
-    const debugger_ = win.webContents.debugger
-    try {
-      await debugger_.attach('1.3')
-    } catch (e) {
-      // 可能已 attach
-    }
-
-    try {
-      // 1. 在页面中查找文件输入元素
-      const findResult = await debugger_.sendCommand('Runtime.evaluate', {
-        expression: '(function() { var inputs = document.querySelectorAll(\'input[type="file"]\'); return inputs.length > 0 ? 1 : 0; })()',
-        returnByValue: true,
+  // ========== Network response monitor ==========
+  async _waitForResponse(win, patterns, timeout) {
+    timeout = timeout||60000
+    return new Promise(function(resolve) {
+      var t = setTimeout(function(){resolve(null)}, timeout)
+      var matched = []
+      win.webContents.session.webRequest.onCompleted({urls:['<all_urls>']}, function(d) {
+        var url = d.url||'', hit = false
+        for (var pi=0;pi<patterns.length;pi++){if(url.includes(patterns[pi])){hit=true;break}}
+        if (!hit) return
+        matched.push({url:url,statusCode:d.statusCode})
+        if (d.statusCode===200) { clearTimeout(t); resolve({url:url,statusCode:d.statusCode,matchedUrls:matched}) }
       })
-
-      if (findResult.result.value !== 1) {
-        throw new Error('No file input found on page')
-      }
-
-      // 2. 获取第一个文件输入
-      const { result } = await debugger_.sendCommand('Runtime.evaluate', {
-        expression: 'document.querySelector(\'input[type="file"]\')',
-      })
-
-      // 3. 获取 DOM nodeId
-      const { nodeId } = await debugger_.sendCommand('DOM.requestNode', {
-        objectId: result.objectId,
-      })
-
-      // 4. 设置文件（这是关键 — 绕过浏览器安全限制）
-      await debugger_.sendCommand('DOM.setFileInputFiles', {
-        files: [path.resolve(filePath)],
-        nodeId,
-      })
-
-      log.info('RpaView', `File set via CDP: ${path.basename(filePath)}`)
-      return true
-    } finally {
-      try { await debugger_.detach() } catch (e) { /* ignore */ }
-    }
-  }
-
-  /**
-   * 小文件上传（< 10MB）：通过 executeJavaScript 直接传 bytes
-   * 适用于封面图、小视频等
-   */
-  async _setFileInputViaJS (win, selector, filePath) {
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`File not found: ${filePath}`)
-    }
-
-    const stat = fs.statSync(filePath)
-    if (stat.size > 10 * 1024 * 1024) {
-      // 大文件走 CDP
-      return this._setFileInput(win, filePath)
-    }
-
-    const buffer = fs.readFileSync(filePath)
-    const ext = path.extname(filePath).toLowerCase()
-    const mimeMap = {
-      '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-      '.png': 'image/png', '.gif': 'image/gif',
-      '.webp': 'image/webp', '.mp4': 'video/mp4',
-      '.mov': 'video/quicktime', '.avi': 'video/x-msvideo',
-    }
-    const mimeType = mimeMap[ext] || 'application/octet-stream'
-    const fileName = path.basename(filePath)
-
-    // 将 buffer 转为逗号分隔的字节数组（避免 JSON 序列化大 buffer 的开销）
-    // 只对小文件使用此路径
-    const bytes = Array.from(buffer)
-    const chunkSize = 10000
-    let js = `
-      (function() {
-        var totalSize = ${bytes.length};
-        var chunks = [];
-    `
-
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.slice(i, i + chunkSize)
-      js += `chunks.push(${JSON.stringify(chunk)});`
-    }
-
-    js += `
-        var allBytes = [];
-        for (var c = 0; c < chunks.length; c++) {
-          allBytes = allBytes.concat(chunks[c]);
-        }
-        var uint8Array = new Uint8Array(allBytes);
-        var blob = new Blob([uint8Array], { type: '${mimeType}' });
-        var file = new File([blob], '${fileName}', { type: '${mimeType}' });
-
-        var input = document.querySelector('${selector}');
-        if (!input) throw new Error('File input not found: ${selector}');
-
-        var dt = new DataTransfer();
-        dt.items.add(file);
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files').set.call(input, dt.files);
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
-      })()
-    `
-
-    try {
-      await win.webContents.executeJavaScript(js)
-      log.info('RpaView', `File set via JS: ${fileName} (${bytes.length} bytes)`)
-      return true
-    } catch (e) {
-      log.warn('RpaView', `JS file upload failed, falling back to CDP: ${e.message}`)
-      return this._setFileInput(win, filePath)
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // 网络响应监控
-  // ═══════════════════════════════════════════════════════════
-
-  /**
-   * 监听网络响应，匹配特定 URL 模式
-   *
-   * 替代 Playwright 的 page.on("response") + ResponseMonitor。
-   * 使用 Electron 的 webRequest API，功能相同。
-   *
-   * @param {BrowserWindow} win
-   * @param {string[]} patterns - URL 子串匹配模式
-   * @param {number} timeout - 超时（毫秒）
-   * @returns {Promise<Object|null>} 匹配到的响应 { url, statusCode, body? }
-   */
-  async _waitForResponse (win, patterns, timeout = 60000) {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        if (win.webContents.session.webRequest) {
-          // 无法直接移除 webRequest 监听器，但超时后忽略即可
-        }
-        resolve(null)
-      }, timeout)
-
-      // 使用 webRequest.onCompleted 监听完成响应
-      // 注意：webRequest API 无法直接读取 response body，
-      // 但可以获取 URL 和 statusCode，足够判断 API 结果
-      const filter = { urls: ['<all_urls>'] }
-
-      // 保存匹配到的 URL
-      const matchedUrls = []
-
-      const handler = (details) => {
-        const url = details.url || ''
-        const matched = patterns.some(p => url.includes(p))
-        if (!matched) return
-
-        matchedUrls.push({ url, statusCode: details.statusCode })
-
-        // 抖音 API 返回 200 且 URL 包含 aweme/create 即为成功
-        if (details.statusCode === 200) {
-          clearTimeout(timer)
-          resolve({ url, statusCode: details.statusCode, matchedUrls })
-        }
-      }
-
-      win.webContents.session.webRequest.onCompleted(filter, handler)
-
-      // 兜底：超时但已有匹配 URL
-      // 实际 timer 清理由上面的 resolve 处理，但若超时：
-      // 如果有匹配 URL 也算成功
-      const originalTimer = timer
-      const fallbackTimer = setTimeout(() => {
-        if (matchedUrls.length > 0) {
-          resolve({ url: matchedUrls[0].url, statusCode: matchedUrls[0].statusCode, matchedUrls })
-        }
-      }, timeout + 1000)
-
-      // 清理
-      const cleanup = () => {
-        clearTimeout(originalTimer)
-        clearTimeout(fallbackTimer)
-      }
-      // 注意：Electron webRequest 不支持移除单个监听器
-      // 但 can be filtered by request filter
+      setTimeout(function(){if(matched.length>0)resolve({url:matched[0].url,statusCode:matched[0].statusCode,matchedUrls:matched})}, timeout+1000)
     })
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // 导航与等待
-  // ═══════════════════════════════════════════════════════════
-
-  /**
-   * 导航到 URL 并等待页面稳定
-   * @param {BrowserWindow} win
-   * @param {string} url
-   * @param {number} stabilizeMs - 加载后等待稳定的毫秒数
-   */
-  async _navigateAndWait (win, url, stabilizeMs = 3000) {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(`Navigation timeout: ${url}`))
-      }, 45000)
-
-      win.webContents.once('did-finish-load', async () => {
-        clearTimeout(timeout)
-        // 等待页面 JS 执行稳定
-        setTimeout(async () => {
-          try {
-            await win.webContents.executeJavaScript('void(0)')
-            resolve()
-          } catch (e) {
-            reject(e)
-          }
-        }, stabilizeMs)
-      })
-
-      win.webContents.once('did-fail-load', (event, errorCode, errorDesc) => {
-        clearTimeout(timeout)
-        // 某些页面局部资源加载失败不影响主流程
-        log.warn('RpaView', `Navigation warning: ${errorDesc}`)
-        setTimeout(resolve, stabilizeMs)
-      })
-
+  // ========== Navigation ==========
+  async _navigateAndWait(win, url, stabilizeMs) {
+    stabilizeMs = stabilizeMs||3000
+    return new Promise(function(resolve,reject) {
+      var t = setTimeout(function(){reject(new Error('nav timeout: '+url))},45000)
+      win.webContents.once('did-finish-load',function(){clearTimeout(t);setTimeout(function(){win.webContents.executeJavaScript('void(0)').then(resolve).catch(reject)},stabilizeMs)})
+      win.webContents.once('did-fail-load',function(e,code,desc){clearTimeout(t);log.warn('RpaView','nav warn: '+desc);setTimeout(resolve,stabilizeMs)})
       win.webContents.loadURL(url)
     })
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // 平台特定发布流程
-  // ═══════════════════════════════════════════════════════════
+  // ========== Platform-specific: douyin ==========
+  async _publish_douyin(win, article) {
+    var self = this
+    this._emitProgress('douyin','navigating...',5)
+    await this._navigateAndWait(win,'https://creator.douyin.com/creator-micro/content/upload')
+    if (win.webContents.getURL().includes('login')) return {success:false,error:'douyin not logged in',platform:'douyin'}
 
-  /**
-   * 抖音发布（executeJavaScript 版本）
-   *
-   * 对应 Python douyin.py 的 _do_publish 方法。
-   * 步骤：
-   *   1. 导航到上传页
-   *   2. 上传视频文件（CDP）
-   *   3. 填写标题
-   *   4. 上传封面（如提供）
-   *   5. 填写描述/标签
-   *   6. 点击发布
-   *   7. 验证发布成功（API 响应 + URL + DOM）
-   *
-   * @param {BrowserWindow} win
-   * @param {Object} article - { title, content, video_path, cover_path, tags, draft }
-   * @returns {Object} { success, url, error }
-   */
-  async _publish_douyin (win, article) {
-    this._emitProgress('douyin', '导航到上传页...', 5)
-
-    // 1. 导航到上传页
-    const uploadUrl = 'https://creator.douyin.com/creator-micro/content/upload'
-    await this._navigateAndWait(win, uploadUrl)
-
-    // 检查是否已登录（若被重定向到登录页则失败）
-    const currentUrl = win.webContents.getURL()
-    if (currentUrl.includes('login') || currentUrl.includes('passport')) {
-      return { success: false, error: '抖音未登录，请先登录', platform: 'douyin' }
-    }
-
-    // 2. 上传视频文件
     if (article.video_path) {
-      this._emitProgress('douyin', '上传视频...', 20)
-      // 等待文件输入出现
-      const inputReady = await this._waitForElement(win, 'input[type="file"]', 15000)
-      if (!inputReady) {
-        return { success: false, error: '未找到文件上传入口', platform: 'douyin' }
-      }
-      // 先用 CDP 方式（对大文件更可靠）
-      await this._setFileInput(win, article.video_path)
-
-      // 等待上传完成（检测进度条消失或上传成功提示）
-      this._emitProgress('douyin', '等待视频上传完成...', 30)
-      const uploadDone = await this._waitForCondition(win, `
-        function() {
-          var progress = document.querySelector('[class*="progress"]');
-          var success = document.querySelector('[class*="upload-success"], [class*="success"]');
-          // 若 progress 消失或 success 出现，视为完成
-          return !progress || success !== null;
-        }
-      `, 300000) // 大文件最多等 5 分钟
-
-      if (!uploadDone) {
-        log.warn('RpaView', 'douyin: Video upload wait timeout, continuing anyway')
-      }
-      this._emitProgress('douyin', '视频上传完成', 50)
+      this._emitProgress('douyin','uploading video...',20)
+      if (!(await this._waitForElement(win,'input[type="file"]',15000))) return {success:false,error:'no file input',platform:'douyin'}
+      await this._setFileInput(win,article.video_path)
+      this._emitProgress('douyin','waiting upload...',30)
+      var done = await this._waitForCondition(win,'function(){var p=document.querySelector(\'[class*="progress"]\');var s=document.querySelector(\'[class*="upload-success"],[class*="success"]\');return !p||s!==null}',300000)
+      if (!done) log.warn('RpaView','douyin: upload timeout')
+      this._emitProgress('douyin','video uploaded',50)
     }
 
-    // 3. 填写标题
     if (article.title) {
-      this._emitProgress('douyin', '填写标题...', 55)
-      const titleReady = await this._waitForElement(win, '[class*="input"], [class*="title"]', 10000)
-      if (titleReady) {
+      this._emitProgress('douyin','filling title...',55)
+      if (await this._waitForElement(win,'[class*="input"], [class*="title"]',10000)) {
         try {
-          await this._fillInput(win, '[class*="input"]', article.title)
-          // 抖音的标题输入比较特殊，可能需要触发更多事件
-          await win.webContents.executeJavaScript(`
-            (function() {
-              var inputs = document.querySelectorAll('[class*="input"], input, [contenteditable]');
-              for (var i = 0; i < inputs.length; i++) {
-                var el = inputs[i];
-                if (el.placeholder && el.placeholder.includes('标题')) {
-                  el.focus();
-                  var nativeSetter = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'value'
-                  )?.set;
-                  if (nativeSetter) nativeSetter.call(el, ${JSON.stringify(article.title)});
-                  else el.value = ${JSON.stringify(article.title)};
-                  el.dispatchEvent(new Event('input', { bubbles: true }));
-                  el.dispatchEvent(new Event('change', { bubbles: true }));
-                  break;
-                }
-              }
-            })()
-          `)
-        } catch (e) {
-          log.warn('RpaView', `douyin: Title fill failed: ${e.message}`)
-        }
+          await this._fillInput(win,'[class*="input"]',article.title)
+          await win.webContents.executeJavaScript('(function(){var inputs=document.querySelectorAll(\'[class*="input"],input,[contenteditable]\');for(var i=0;i<inputs.length;i++){var el=inputs[i];if(el.placeholder&&el.placeholder.indexOf("标题")!==-1){el.focus();var ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set;if(ns)ns.call(el,'+JSON.stringify(article.title)+');else el.value='+JSON.stringify(article.title)+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));break}}})()')
+        } catch(e) { log.warn('RpaView','douyin title: '+e.message) }
       }
     }
 
-    // 4. 填写描述（文章 content 作为描述）
     if (article.content) {
-      this._emitProgress('douyin', '填写描述...', 65)
+      this._emitProgress('douyin','filling desc...',65)
       try {
-        await win.webContents.executeJavaScript(`
-          (function() {
-            var allEls = document.querySelectorAll('textarea, [contenteditable="true"], [class*="description"], [class*="desc"]');
-            for (var i = 0; i < allEls.length; i++) {
-              var el = allEls[i];
-              if (el.tagName === 'TEXTAREA') {
-                el.value = ${JSON.stringify(article.content)};
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                break;
-              } else if (el.getAttribute('contenteditable') === 'true') {
-                el.innerHTML = ${JSON.stringify(article.content.replace(/\n/g, '<br>'))};
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                break;
-              }
-            }
-          })()
-        `)
-      } catch (e) {
-        log.warn('RpaView', `douyin: Content fill failed: ${e.message}`)
-      }
+        var dj=JSON.stringify(article.content)
+        await win.webContents.executeJavaScript('(function(){var els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for(var i=0;i<els.length;i++){var el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){el.innerHTML='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
+      } catch(e) { log.warn('RpaView','douyin desc: '+e.message) }
     }
 
-    // 5. 上传封面（如提供）
     if (article.cover_path) {
-      this._emitProgress('douyin', '上传封面...', 75)
-      try {
-        // 点击封面按钮
-        const coverClicked = await this._click(win, '[class*="cover"]')
-        if (coverClicked) {
-          await new Promise(r => setTimeout(r, 1000))
-          // 等待文件输入出现（封面选择器可能会弹出新 input）
-          await this._setFileInput(win, article.cover_path)
-          await new Promise(r => setTimeout(r, 2000))
-        }
-      } catch (e) {
-        log.warn('RpaView', `douyin: Cover upload failed: ${e.message}`)
-      }
+      this._emitProgress('douyin','uploading cover...',75)
+      try { if(await this._click(win,'[class*="cover"]')){await new Promise(function(r){setTimeout(r,1000)});await this._setFileInput(win,article.cover_path);await new Promise(function(r){setTimeout(r,2000)})} } catch(e) { log.warn('RpaView','douyin cover: '+e.message) }
     }
 
-    // 6. 填写标签
-    if (article.tags && article.tags.length > 0) {
-      this._emitProgress('douyin', '添加标签...', 80)
-      for (const tag of article.tags) {
+    if (article.tags && article.tags.length>0) {
+      this._emitProgress('douyin','adding tags...',80)
+      for (var ti=0;ti<article.tags.length;ti++) {
         try {
-          await win.webContents.executeJavaScript(`
-            (function() {
-              var tagInputs = document.querySelectorAll('[class*="tag"] input, input[placeholder*="tag"], input[placeholder*="标签"]');
-              if (tagInputs.length > 0) {
-                var input = tagInputs[0];
-                input.value = ${JSON.stringify(tag)};
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13 }));
-              }
-            })()
-          `)
-          await new Promise(r => setTimeout(r, 1000))
-        } catch (e) {
-          log.warn('RpaView', `douyin: Tag add failed: ${e.message}`)
-        }
+          await win.webContents.executeJavaScript('(function(){var ti=document.querySelectorAll(\'[class*="tag"] input,input[placeholder*="tag"],input[placeholder*="标签"]\');if(ti.length>0){var inp=ti[0];inp.value='+JSON.stringify(article.tags[ti])+';inp.dispatchEvent(new Event("input",{bubbles:true}));inp.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",keyCode:13}))}})()')
+          await new Promise(function(r){setTimeout(r,1000)})
+        } catch(e) { log.warn('RpaView','douyin tag: '+e.message) }
       }
     }
 
-    // 7. 点击发布
-    this._emitProgress('douyin', '正在发布...', 90)
+    this._emitProgress('douyin','publishing...',90)
     try {
-      // 等待网络响应（在点击发布前开始监听）
-      const responsePromise = this._waitForResponse(win, ['aweme/create', 'aweme/post'], 60000)
+      var rp = this._waitForResponse(win,['aweme/create','aweme/post'],60000)
+      if (article.draft) await this._click(win,'button:has-text("草稿"), [class*="draft"]')
+      else await this._click(win,'button:has-text("发布"), [class*="publish"]')
+      var resp = await rp
+      if (resp) { this._emitProgress('douyin','API success',100); return { success:true, url:win.webContents.getURL()||'', platform:'douyin' } }
+      await new Promise(function(r){setTimeout(r,5000)})
+      var fu=win.webContents.getURL()
+      if (fu.includes('success')||fu.includes('publish/success')) return { success:true, url:fu||'', platform:'douyin' }
+      return { success:false, error:'publish timeout', platform:'douyin' }
+    } catch(e) { log.error('RpaView','douyin publish: '+e.message); return { success:false, error:e.message, platform:'douyin' } }
+  }
 
-      // 点击发布按钮
-      if (article.draft) {
-        await this._click(win, 'button:has-text("草稿"), [class*="draft"]')
-      } else {
-        await this._click(win, 'button:has-text("发布"), [class*="publish"]')
+  async _publish_wechat_mp(win, article) { return {success:false,error:'wechat_mp RPA pending',platform:'wechat_mp'} }
+  // ========== P2-D: wechat_mp — iframe save-draft + mass-send ==========
+  async _publish_wechat_mp(win, article) {
+    this._emitProgress('wechat_mp','navigating to draft...',5)
+    // Direct draft edit URL
+    await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit&action=edit&type=10&create=1',3000)
+
+    var curUrl = win.webContents.getURL()
+    if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('connect'))
+      return { success:false, error:'wechat_mp not logged in', platform:'wechat_mp' }
+
+    // Fill title
+    if (article.title) {
+      this._emitProgress('wechat_mp','filling title...',20)
+      if (await this._waitForElement(win,'#title, input.weui-desktop-input',10000)) {
+        await this._fillInput(win,'#title',article.title)
       }
-
-      // 等待发布确认（API 响应或页面跳转）
-      const response = await responsePromise
-
-      // 8. 验证成功
-      let publishSuccess = false
-      let publishUrl = ''
-
-      if (response) {
-        publishSuccess = response.statusCode === 200
-        // 从响应 URL 或页面 URL 提取作品链接
-        publishUrl = win.webContents.getURL()
-        this._emitProgress('douyin', 'API 响应确认发布成功', 100)
-      } else {
-        // 兜底：检查 URL 变化
-        await new Promise(r => setTimeout(r, 5000))
-        const finalUrl = win.webContents.getURL()
-        if (finalUrl.includes('success') || finalUrl.includes('publish/success')) {
-          publishSuccess = true
-          publishUrl = finalUrl
-        }
-      }
-
-      if (publishSuccess) {
-        return { success: true, url: publishUrl || '', platform: 'douyin' }
-      } else {
-        return { success: false, error: '发布结果确认超时', platform: 'douyin' }
-      }
-    } catch (e) {
-      log.error('RpaView', `douyin: Publish failed: ${e.message}`)
-      return { success: false, error: e.message, platform: 'douyin' }
     }
+
+    // Fill content inside editor iframe
+    if (article.content) {
+      this._emitProgress('wechat_mp','filling content in iframe...',40)
+      var iframeSel = 'iframe#ueditor_0, iframe[src*="ueditor"]'
+      var contentSel = '#js_editor_content, .rich_media_area_primary_inner, [contenteditable="true"]'
+      try {
+        await this._waitForElement(win,iframeSel,15000)
+        await this._fillInFrame(win,iframeSel,contentSel,article.content)
+      } catch(e) {
+        log.warn('RpaView','wechat_mp iframe content failed: '+e.message)
+        // Fallback: try main frame editor
+        try { await this._fillInput(win,contentSel,article.content) } catch(e2) {}
+      }
+    }
+
+    // Fill author
+    if (article.author) {
+      try { await this._fillInput(win,'#author, input[name="author"]',article.author) } catch(e) {}
+    }
+
+    // Check agreement
+    this._emitProgress('wechat_mp','checking agreement...',60)
+    try {
+      await win.webContents.executeJavaScript("(function(){var cb=document.querySelector('.weui-desktop-btn_wrp .weui-desktop-checkbox input, input#js_agree');if(cb&&!cb.checked){cb.click()}})()")
+    } catch(e) { log.warn('RpaView','wechat_mp agree: '+e.message) }
+
+    // Save draft
+    this._emitProgress('wechat_mp','saving draft...',70)
+    try {
+      await this._click(win,'a[data-action="save"], a#js_sync_save')
+      await new Promise(function(r){setTimeout(r,3000)})
+      var finalUrl = win.webContents.getURL()
+      var mediaId = null
+      var match = finalUrl.match(/appmsgid=(\d+)/)
+      if (match) mediaId = match[1]
+    } catch(e) {
+      log.warn('RpaView','wechat_mp save: '+e.message)
+    }
+
+    // Mass send (群发)
+    if (article.massSend && mediaId) {
+      this._emitProgress('wechat_mp','mass sending...',85)
+      try {
+        await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_list&type=10&action=list',2000)
+        await win.webContents.executeJavaScript("(function(){var row=document.querySelector('[appmsgid=\"' + mediaId + '\"]');if(row)row.click();})()")
+        await new Promise(function(r){setTimeout(r,1000)})
+        await this._click(win,'a.btn_masssend, a[data-action="masssend"]')
+        await new Promise(function(r){setTimeout(r,2000)})
+        await this._click(win,'.dialog_bd_btn a:has-text("确定"), .weui-desktop-btn:has-text("确定")')
+        await new Promise(function(r){setTimeout(r,3000)})
+      } catch(e) { log.warn('RpaView','wechat_mp mass send: '+e.message) }
+    }
+
+    this._emitProgress('wechat_mp','done',100)
+    return { success:true, url:win.webContents.getURL()||'', platform:'wechat_mp' }
   }
 
-  /**
-   * 微信公众号发布（存根 — 待实现）
-   */
-  async _publish_wechat_mp (win, article) {
-    return { success: false, error: '微信公众号 RPA 待实现', platform: 'wechat_mp' }
+  // ========== P2-D: youtube — multi-step wizard ==========
+  async _publish_youtube(win, article) {
+    this._emitProgress('youtube','navigating to Studio...',5)
+    await this._navigateAndWait(win,'https://studio.youtube.com/',3000)
+
+    var curUrl = win.webContents.getURL()
+    if (curUrl.includes('signin')||curUrl.includes('login')||curUrl.includes('ServiceLogin'))
+      return { success:false, error:'youtube not logged in', platform:'youtube' }
+
+    if (!article.video_path)
+      return { success:false, error:'youtube needs video file', platform:'youtube' }
+
+    // Click Create → Upload video
+    this._emitProgress('youtube','clicking Create...',10)
+    var created = await this._click(win,'#create-icon, ytcp-button#create-icon')
+    await new Promise(function(r){setTimeout(r,2000)})
+    if (created) {
+      await this._click(win,'tp-yt-paper-item:has-text("上传视频"), .ytcp-menu-item:has-text("上传视频")')
+      await new Promise(function(r){setTimeout(r,2000)})
+    }
+
+    // Upload file
+    this._emitProgress('youtube','uploading video...',25)
+    if (await this._waitForElement(win,'input[type="file"]',15000)) {
+      await this._setFileInput(win,article.video_path)
+    }
+
+    // Wait for upload to complete
+    this._emitProgress('youtube','waiting for upload...',35)
+    var uploaded = await this._waitForCondition(win, 'function(){var progress=document.querySelector(\'#progress-bar, [class*="progress"]\');var done=document.querySelector(\'#done-button, ytcp-button:has-text("下一步")\');return !progress||(done&&!done.disabled)}', 300000)
+    if (!uploaded) log.warn('RpaView','youtube: upload wait timeout')
+    this._emitProgress('youtube','upload complete',50)
+
+    // Fill title
+    if (article.title) {
+      this._emitProgress('youtube','filling title...',55)
+      if (await this._waitForElement(win,'#title-textarea, [class*="title"] input',10000)) {
+        await this._fillInput(win,'#title-textarea, [class*="title"] input',article.title)
+      }
+    }
+
+    // Fill description
+    if (article.content) {
+      this._emitProgress('youtube','filling description...',65)
+      if (await this._waitForElement(win,'#description-textarea, [class*="description"] textarea',10000)) {
+        await this._fillInput(win,'#description-textarea, [class*="description"] textarea',article.content)
+      }
+    }
+
+    // Click Next (video elements)
+    this._emitProgress('youtube','next step (elements)...',75)
+    try {
+      await this._click(win,'ytcp-button:has-text("下一步"), #next-button')
+      await new Promise(function(r){setTimeout(r,3000)})
+    } catch(e) { log.warn('RpaView','youtube: next1: '+e.message) }
+
+    // Click Next (visibility/schedule)
+    try {
+      await this._click(win,'ytcp-button:has-text("下一步"), #next-button')
+      await new Promise(function(r){setTimeout(r,3000)})
+    } catch(e) { log.warn('RpaView','youtube: next2: '+e.message) }
+
+    // Set visibility to Public
+    try {
+      await this._click(win,'tp-yt-paper-radio-button[name="PUBLIC"], #public-radio-button')
+      await new Promise(function(r){setTimeout(r,1000)})
+    } catch(e) { log.warn('RpaView','youtube: visibility: '+e.message) }
+
+    // Click Publish
+    this._emitProgress('youtube','publishing...',90)
+    try {
+      await this._click(win,'ytcp-button:has-text("发布"), #done-button')
+      await new Promise(function(r){setTimeout(r,5000)})
+    } catch(e) { log.warn('RpaView','youtube: publish btn: '+e.message) }
+
+    this._emitProgress('youtube','done',100)
+    return { success:true, url:win.webContents.getURL()||'', platform:'youtube' }
   }
 
-  /**
-   * 小红书发布（存根 — 待实现）
-   */
-  async _publish_xiaohongshu (win, article) {
-    return { success: false, error: '小红书 RPA 待实现', platform: 'xiaohongshu' }
-  }
+  async _publish_xiaohongshu(win, article) { return {success:false,error:'xiaohongshu RPA pending',platform:'xiaohongshu'} }
 
-  /**
-   * 通用发布任务
-   *
-   * 根据 platform 自动路由到对应的 _publish_ 方法。
-   * 未实现的平台返回错误。
-   *
-   * @param {string} platform - 平台标识
-   * @param {Object} article - { title, content, video_path, cover_path, tags, draft }
-   * @param {Object} [authData] - { cookies, localStorage }
-   * @returns {Promise<Object>} { success, url, error, platform }
-   */
-  async publish (platform, article, authData) {
-    const key = this._windowKey(platform, article?.accountId)
-    const partition = `persist:rpa-${key}`
-
-    this._emitProgress(platform, '启动隐藏浏览器...', 0)
-
-    // 创建隐藏浏览器窗口
-    const win = this._createWindow(partition)
+  // ========== Main publish entry ==========
+  async publish(platform, article, authData, timeout) {
+    timeout = timeout||120000
+    var key = this._windowKey(platform, article&&article.accountId)
+    var partition = 'persist:rpa-'+key
+    this._emitProgress(platform,'starting browser...',0)
+    var win = this._createWindow(partition)
     this.windows[key] = win
-
-    // 保存窗口引用以便超时清理
-    const publishTimeout = PLATFORM_TIMEOUTS[platform] || 120000
-
     try {
-      // 恢复 Cookie（需在导航前）
-      if (authData?.cookies) {
-        await this._restoreCookies(win, authData.cookies)
-        this._emitProgress(platform, 'Cookie 已恢复', 2)
-      }
-
-      // 查找对应平台的发布方法
-      const methodName = `_publish_${platform}`
-      if (typeof this[methodName] !== 'function') {
-        throw new Error(`平台 ${platform} 的 RPA 发布脚本尚未实现`)
-      }
-
-      // 设置超时
-      const result = await Promise.race([
-        this[methodName](win, article),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`发布超时 (${publishTimeout / 1000}s)`)), publishTimeout)
-        ),
-      ])
-
-      return result
-    } catch (e) {
-      log.error('RpaView', `Publish error for ${platform}: ${e.message}`)
-      return { success: false, error: e.message, platform }
-    } finally {
-      // 清理窗口
-      try {
-        win.destroy()
-      } catch (e) { /* ignore */ }
-      delete this.windows[key]
-    }
+      if (authData&&authData.cookies) { await this._restoreCookies(win,authData.cookies); this._emitProgress(platform,'cookies restored',2) }
+      var mn = '_publish_'+platform
+      if (typeof this[mn]==='function') return await Promise.race([this[mn](win,article),new Promise(function(_,rj){setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout)})])
+      var cfg = this._getPlatformConfig(platform)
+      return await Promise.race([this._publish_generic(win,article,platform,cfg),new Promise(function(_,rj){setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout)})])
+    } catch(e) { log.error('RpaView','publish '+platform+': '+e.message); return { success:false, error:e.message, platform:platform } }
+    finally { try { win.destroy() } catch(e) {}; delete this.windows[key] }
   }
 
-  /**
-   * 检查平台登录状态（通过打开隐藏页面检测）
-   *
-   * @param {string} platform
-   * @param {Array} cookies
-   * @returns {Promise<boolean>}
-   */
-  async checkAuth (platform, cookies) {
-    const key = `rpa-check-${platform}-${Date.now()}`
-    const partition = `persist:rpa-check-${key}`
-    const win = this._createWindow(partition)
-
-    try {
-      if (cookies?.length > 0) {
-        await this._restoreCookies(win, cookies)
-      }
-
-      const url = PLATFORM_PUBLISH_URLS[platform]
-      if (!url) return false
-
-      await win.webContents.loadURL(url)
-      await new Promise(r => setTimeout(r, 5000))
-
-      const currentUrl = win.webContents.getURL()
-
-      // 如果还在原 URL（没有被重定向到登录页），则已登录
-      const isLoggedIn = (
-        currentUrl.includes(url) ||
-        !currentUrl.includes('login') && !currentUrl.includes('passport') && !currentUrl.includes('signin')
-      )
-
-      return isLoggedIn
-    } catch (e) {
-      return false
-    } finally {
-      try { win.destroy() } catch (e) { /* ignore */ }
-    }
-  }
-
-  /**
-   * 清理所有隐藏窗口
-   */
-  cleanup () {
-    for (const key of Object.keys(this.windows)) {
-      try {
-        this.windows[key].destroy()
-      } catch (e) { /* ignore */ }
-    }
-    this.windows = {}
-    log.info('RpaView', 'All RPA windows cleaned up')
+  cleanup() {
+    var ks = Object.keys(this.windows)
+    for (var ki=0;ki<ks.length;ki++) { try { this.windows[ks[ki]].destroy() } catch(e) {} }
+    this.windows = {}; log.info('RpaView','cleaned up')
   }
 }
 
 module.exports = RpaViewManager
+module.exports.ProgressThrottle = ProgressThrottle
+module.exports.FieldRetryState = FieldR
