@@ -113,6 +113,15 @@
           </div>
         </div>
         <div style="flex:1;min-width:280px">
+          <!-- 智能标签建议 -->
+          <TagSuggester v-if="showTagPanel && combinedContent.length > 3" :content="combinedContent" style="margin-bottom:var(--space-md)" @close="showTagPanel = false" />
+          <div v-if="!showTagPanel && combinedContent.length > 3" style="margin-bottom:var(--space-md);text-align:center">
+            <button class="cohere-btn-ghost" @click="showTagPanel = true" style="font-size:12px;padding:4px 12px"># 显示标签建议</button>
+          </div>
+
+          <!-- 最佳发布时间 -->
+          <OptimalTimeTip v-if="article.title.length > 2" :keyword="article.title" style="margin-bottom:var(--space-md)" />
+
           <div class="cohere-card" style="cursor:default">
             <div class="cohere-form" style="gap:var(--space-md)">
               <div class="cohere-form-label">发布目标</div>
@@ -182,6 +191,8 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { publishBatch, onProgress } from '@/api/publisher'
+import TagSuggester from '@/components/TagSuggester.vue'
+import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import ArticleEditor from '@/components/ArticleEditor.vue'
 
 const route = useRoute()
@@ -238,6 +249,8 @@ const result = ref(null)
 const copied = ref(false)  // P2-3: URL 复制反馈
 
 const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '' })
+const showTagPanel = ref(true)
+const combinedContent = computed(() => article.title + ' ' + article.content)
 
 // 同步 selectedAccounts 默认值
 watch(selectedPlatforms, (newPlatforms, oldPlatforms) => {

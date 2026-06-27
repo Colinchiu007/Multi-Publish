@@ -41,6 +41,11 @@ const routes = [
     name: 'Monitor',
     component: () => import('@/views/Monitor.vue')
   },
+  {
+    path: '/keywords',
+    name: 'Keywords',
+    component: () => import('@/views/KeywordMonitorView.vue')
+  },
 ]
 
 const router = createRouter({

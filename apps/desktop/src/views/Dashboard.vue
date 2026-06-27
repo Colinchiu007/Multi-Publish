@@ -61,11 +61,20 @@
         </div>
       </div>
     </div>
+
+    <!-- 内容基准比较 -->
+    <div class="cohere-section-title" style="margin-top: var(--space-xl);">📊 内容基准比较</div>
+    <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-md);align-items:center">
+      <input class="cohere-input" v-model="benchmarkTitle" placeholder="输入文章标题进行基准比较..." style="flex:1;font-size:14px" @keyup.enter="doBenchmark" />
+      <button class="cohere-btn-primary" @click="doBenchmark" :disabled="!benchmarkTitle.trim()">分析</button>
+    </div>
+    <BenchmarkChart v-if="benchmarkActiveTitle" :title="benchmarkActiveTitle" :key="benchmarkActiveTitle" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import BenchmarkChart from '@/components/BenchmarkChart.vue'
 
 const syncing = ref(false)
 const platformData = ref([])
@@ -114,6 +123,14 @@ async function loadCached () {
   } catch (e) {
     console.warn('Load cached failed:', e.message)
   }
+}
+
+const benchmarkTitle = ref('')
+const benchmarkActiveTitle = ref('')
+
+function doBenchmark () {
+  if (!benchmarkTitle.value.trim()) return
+  benchmarkActiveTitle.value = benchmarkTitle.value.trim()
 }
 
 onMounted(() => { loadCached() })

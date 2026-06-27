@@ -1,0 +1,177 @@
+<template>
+  <div class="cohere-card">
+    <!-- Header -->
+    <div class="cohere-page-header" style="margin-bottom: var(--space-md);">
+      <div style="font-size: 18px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px;">
+        <span>📊 内容基准比较</span>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div v-if="loading" style="padding: 32px 0; text-align: center; color: var(--muted); font-size: 14px;">
+      加载中...
+    </div>
+
+    <!-- Error / insufficient data -->
+    <div v-else-if="error || (data && data.error)" style="padding: 24px; text-align: center; color: var(--coral); font-size: 14px;">
+      ⚠️ {{ error || data.error }}
+    </div>
+
+    <!-- Not enough data -->
+    <div v-else-if="!data || !data.benchmark" style="padding: 24px; text-align: center;">
+      <div v-if="data && data.message" style="color: var(--muted); font-size: 14px;">
+        {{ data.message }}
+      </div>
+      <div v-else style="color: var(--muted); font-size: 14px;">
+        数据不足，无法进行基准比较
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div v-else>
+      <!-- Sample size badge -->
+      <div style="margin-bottom: var(--space-md);">
+        <span class="cohere-tag" style="background: #ecf5ff; color: var(--action-blue); border: 1px solid #d9ecff; padding: 2px 10px; border-radius: 4px; font-size: 12px;">
+          基于 {{ data.benchmark.sampleSize }} 条同类内容
+        </span>
+      </div>
+
+      <!-- Engagement stats grid -->
+      <div class="cohere-section-title" style="font-size: 14px; font-weight: 500; margin-bottom: var(--space-sm); color: var(--text);">
+        互动分统计
+      </div>
+      <div class="cohere-stat-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-sm); margin-bottom: var(--space-md);">
+        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">平均互动分</div>
+          <div style="font-size: 20px; font-weight: 600; color: var(--text);">{{ data.benchmark.engagement.avg.toFixed(1) }}</div>
+        </div>
+        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">中位互动分</div>
+          <div style="font-size: 20px; font-weight: 600; color: var(--text);">{{ data.benchmark.engagement.median.toFixed(1) }}</div>
+        </div>
+        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">Top 10%</div>
+          <div style="font-size: 20px; font-weight: 600; color: var(--cohere-green);">{{ data.benchmark.engagement.top10.toFixed(1) }}</div>
+        </div>
+        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">Top 25%</div>
+          <div style="font-size: 20px; font-weight: 600; color: #e6a23c;">{{ data.benchmark.engagement.top25.toFixed(1) }}</div>
+        </div>
+      </div>
+
+      <!-- Upvotes stats -->
+      <div class="cohere-section-title" style="font-size: 14px; font-weight: 500; margin-bottom: var(--space-sm); color: var(--text);">
+        点赞统计
+      </div>
+      <div class="cohere-stat-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-sm); margin-bottom: var(--space-md);">
+        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">平均</div>
+          <div style="font-size: 18px; font-weight: 600; color: var(--text);">{{ data.benchmark.upvotes.avg.toFixed(0) }}</div>
+        </div>
+        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">中位数</div>
+          <div style="font-size: 18px; font-weight: 600; color: var(--text);">{{ data.benchmark.upvotes.median.toFixed(0) }}</div>
+        </div>
+        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">Top 10%</div>
+          <div style="font-size: 18px; font-weight: 600; color: var(--cohere-green);">{{ data.benchmark.upvotes.top10.toFixed(0) }}</div>
+        </div>
+      </div>
+
+      <!-- Comments stats -->
+      <div class="cohere-section-title" style="font-size: 14px; font-weight: 500; margin-bottom: var(--space-sm); color: var(--text);">
+        评论统计
+      </div>
+      <div class="cohere-stat-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-sm); margin-bottom: var(--space-md);">
+        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">平均</div>
+          <div style="font-size: 18px; font-weight: 600; color: var(--text);">{{ data.benchmark.comments.avg.toFixed(0) }}</div>
+        </div>
+        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">中位数</div>
+          <div style="font-size: 18px; font-weight: 600; color: var(--text);">{{ data.benchmark.comments.median.toFixed(0) }}</div>
+        </div>
+        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">Top 10%</div>
+          <div style="font-size: 18px; font-weight: 600; color: var(--cohere-green);">{{ data.benchmark.comments.top10.toFixed(0) }}</div>
+        </div>
+      </div>
+
+      <!-- Top sources -->
+      <div v-if="data.benchmark.topSources && data.benchmark.topSources.length" style="margin-top: var(--space-md);">
+        <div style="font-size: 13px; color: var(--muted); margin-bottom: 6px;">热门来源</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <span
+            v-for="(src, i) in data.benchmark.topSources"
+            :key="i"
+            class="cohere-tag"
+            style="background: #f0f9eb; color: var(--cohere-green); border: 1px solid #e1f3d8; padding: 2px 10px; border-radius: 4px; font-size: 12px;"
+          >
+            {{ src }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Generated at -->
+      <div v-if="data.benchmark.generatedAt" style="margin-top: var(--space-md); font-size: 11px; color: var(--muted); text-align: right;">
+        生成时间: {{ data.benchmark.generatedAt }}
+      </div>
+    </div>
+
+    <div class="cohere-divider" style="margin: var(--space-sm) 0 0;"></div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted, watch } from 'vue'
+
+const props = defineProps({
+  title: {
+    type: String,
+    required: true
+  }
+})
+
+const data = ref(null)
+const loading = ref(false)
+const error = ref(null)
+
+async function fetchBenchmark() {
+  data.value = null
+  error.value = null
+
+  if (!props.title || props.title.trim().length < 4) {
+    error.value = '标题过短，无法分析'
+    return
+  }
+
+  loading.value = true
+  try {
+    const result = await window.electronAPI.intelligenceGetBenchmark(props.title, { sampleSize: 12 })
+    data.value = result
+    if (result?.error) {
+      error.value = result.error
+    }
+  } catch (err) {
+    error.value = err.message || '获取基准数据失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchBenchmark()
+})
+
+watch(() => props.title, () => {
+  fetchBenchmark()
+})
+</script>
+
+<style scoped>
+.cohere-card {
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: var(--space-xl);
+}
+</style>

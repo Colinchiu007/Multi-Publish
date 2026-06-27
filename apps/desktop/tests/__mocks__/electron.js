@@ -54,7 +54,7 @@ module.exports = {
   BrowserView: class {
     setBounds() {}
     setBackgroundColor() {}
-    webContents: { on: () => {}, loadURL: () => {} }
+    get webContents() { return { on: () => {}, loadURL: () => {} } }
   },
   globalShortcut: { register: () => true, unregisterAll: () => {} },
   powerSaveBlocker: { start: () => 1, stop: () => {} },

@@ -155,40 +155,58 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storeSetSetting: (key, value) => ipcRenderer.invoke('store:set-setting', key, value),
   storeListCallbackLogs: (limit) => ipcRenderer.invoke('store:list-callback-logs', limit),
 
-    // ─── OAuth 认证 API ────────────────────────────
-    oauthStart: (opts) => ipcRenderer.invoke('oauth:start', opts),
-    oauthClose: () => ipcRenderer.invoke('oauth:close'),
-    oauthGetConfigs: () => ipcRenderer.invoke('oauth:get-configs'),
-    onOAuthOpened: (cb) => {
-      const h = (_, d) => cb(d); ipcRenderer.on('oauth:opened', h); return () => ipcRenderer.removeListener('oauth:opened', h)
-    },
-    onOAuthCompleted: (cb) => {
-      const h = (_, d) => cb(d); ipcRenderer.on('oauth:completed', h); return () => ipcRenderer.removeListener('oauth:completed', h)
-    },
-    onOAuthFailed: (cb) => {
-      const h = (_, d) => cb(d); ipcRenderer.on('oauth:failed', h); return () => ipcRenderer.removeListener('oauth:failed', h)
-    },
-    onOAuthClosed: (cb) => {
-        const h = () => cb(); ipcRenderer.on('oauth:closed', h); return () => ipcRenderer.removeListener('oauth:closed', h)
-      },
+  // ─── OAuth 认证 API ────────────────────────────
+  oauthStart: (opts) => ipcRenderer.invoke('oauth:start', opts),
+  oauthClose: () => ipcRenderer.invoke('oauth:close'),
+  oauthGetConfigs: () => ipcRenderer.invoke('oauth:get-configs'),
+  onOAuthOpened: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('oauth:opened', h); return () => ipcRenderer.removeListener('oauth:opened', h)
+  },
+  onOAuthCompleted: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('oauth:completed', h); return () => ipcRenderer.removeListener('oauth:completed', h)
+  },
+  onOAuthFailed: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('oauth:failed', h); return () => ipcRenderer.removeListener('oauth:failed', h)
+  },
+  onOAuthClosed: (cb) => {
+    const h = () => cb(); ipcRenderer.on('oauth:closed', h); return () => ipcRenderer.removeListener('oauth:closed', h)
+  },
 
-      // ─── 批量发布 API ────────────────────────────
-      batchCreate: (batch) => ipcRenderer.invoke('batch:create', batch),
-      batchExecute: (id) => ipcRenderer.invoke('batch:execute', id),
-      batchSchedule: (id) => ipcRenderer.invoke('batch:schedule', id),
-      batchList: () => ipcRenderer.invoke('batch:list'),
-      batchGet: (id) => ipcRenderer.invoke('batch:get', id),
-      batchDelete: (id) => ipcRenderer.invoke('batch:delete', id),
-      batchDuplicateArticle: (article) => ipcRenderer.invoke('batch:duplicate-article', article),
-      onBatchProgress: (cb) => {
-        const h = (_, d) => cb(d); ipcRenderer.on('batch:progress', h); return () => ipcRenderer.removeListener('batch:progress', h)
-      },
+  // ─── 批量发布 API ────────────────────────────
+  batchCreate: (batch) => ipcRenderer.invoke('batch:create', batch),
+  batchExecute: (id) => ipcRenderer.invoke('batch:execute', id),
+  batchSchedule: (id) => ipcRenderer.invoke('batch:schedule', id),
+  batchList: () => ipcRenderer.invoke('batch:list'),
+  batchGet: (id) => ipcRenderer.invoke('batch:get', id),
+  batchDelete: (id) => ipcRenderer.invoke('batch:delete', id),
+  batchDuplicateArticle: (article) => ipcRenderer.invoke('batch:duplicate-article', article),
+  onBatchProgress: (cb) => {
+    const h = (_, d) => cb(d); ipcRenderer.on('batch:progress', h); return () => ipcRenderer.removeListener('batch:progress', h)
+  },
 
-      // ─── 全局导航（快捷键触发）──────────────
-      onNavigate: (cb) => {
-        const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
-      },
+  // ─── 全局导航（快捷键触发）──────────────
+  onNavigate: (cb) => {
+    const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
+  },
 
-      // ─── URL 采集 API ──────────────────────────
-      urlCollect: (url, opts) => ipcRenderer.invoke('url-collect:fetch', { url, ...opts }),
-    })
+  // ─── URL 采集 API ──────────────────────────
+  urlCollect: (url, opts) => ipcRenderer.invoke('url-collect:fetch', { url, ...opts }),
+
+  // ─── 内容情报 API ────────────────────────────
+  intelligenceSearch: (query, opts) => ipcRenderer.invoke('intelligence:search', { query, opts }),
+  intelligenceSearchTitles: (title, opts) => ipcRenderer.invoke('intelligence:search-titles', { title, opts }),
+  intelligenceSearchMentions: (keywords, opts) => ipcRenderer.invoke('intelligence:search-mentions', { keywords, opts }),
+  intelligenceSaveImpact: (articleId, title, keywords, snapshot) => ipcRenderer.invoke('intelligence:save-impact', { articleId, title, keywords, snapshot }),
+  intelligenceGetImpact: (articleId) => ipcRenderer.invoke('intelligence:get-impact', { articleId }),
+  // ── 6 深度集成新 API (v1.4.0) ──
+  intelligenceFetchTrending: (opts) => ipcRenderer.invoke('intelligence:fetch-trending', opts),
+  intelligenceSuggestTags: (content, opts) => ipcRenderer.invoke('intelligence:suggest-tags', { content, opts }),
+  intelligenceFindReferences: (text, opts) => ipcRenderer.invoke('intelligence:find-references', { text, opts }),
+  intelligenceGetBenchmark: (title, opts) => ipcRenderer.invoke('intelligence:get-benchmark', { title, opts }),
+  intelligenceGetOptimalTime: (keyword) => ipcRenderer.invoke('intelligence:get-optimal-time', { keyword }),
+
+  // ─── 影响力追踪 API ────────────────────────
+  impactGetActive: () => ipcRenderer.invoke('impact:get-active'),
+  impactGetRecentSnapshots: () => ipcRenderer.invoke('impact:get-recent-snapshots'),
+
+  
