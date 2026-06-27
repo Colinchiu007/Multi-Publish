@@ -12,7 +12,8 @@
     "build": "npm run build:vue && electron-builder",
     "build:win": "npm run build:vue && electron-builder --win --x64",
     "build:dir": "npm run build:vue && electron-builder --dir",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "jest --colors"
   },
   "keywords": [
     "multi-publish",
@@ -23,7 +24,6 @@
   "dependencies": {
     "axios": "^1.9.0",
     "form-data": "^4.0.0",
-    "@multi-publish/rpa-engine": "*",
     "@multi-publish/shared-utils": "*",
     "@vitejs/plugin-vue": "^5.2.0",
     "@vueup/vue-quill": "^1.5.3",
@@ -39,7 +39,8 @@
     "concurrently": "^9.0.0",
     "electron": "33.4.0",
     "electron-builder": "^25.1.8",
-    "wait-on": "^8.0.0"
+    "wait-on": "^8.0.0",
+    "jest": "^30.4.2"
   },
   "build": {
     "appId": "com.colinchiu.multi-publish",

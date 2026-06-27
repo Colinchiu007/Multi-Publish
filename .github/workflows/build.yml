@@ -47,6 +47,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 1. 启动冒烟测试 — 验证 require 路径、路由表、配置一致性
+      #    不依赖 Electron 运行时，在非 Electron 环境自动 mock
+      - name: Startup smoke test
+        run: npm run test -w @multi-publish/desktop
+
+      # 2. 依赖声明一致性检查 — 检测未声明/未使用的 dependencies
+      - name: Dependency check
+        continue-on-error: true
+        run: npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite
+
+      # 3. 循环依赖检查 — 防止模块间循环引用
+      - name: Circular dependency check
+        continue-on-error: true
+        run: npx madge --warning --circular apps/desktop/electron/main.js
+
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
@@ -153,14 +168,4 @@ jobs:
           # 1) 确保 Gitee 仓库 release 存在
           curl -fsS -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases" \
             -H "Content-Type: application/json" \
-            -d "{\"access_token\":\"${GITEE_TOKEN}\",\"tag_name\":\"${TAG}\",\"name\":\"Multi-Publish ${TAG}\",\"body\":\"Gitee 镜像 — 完整内容请查看 GitHub Release: https://github.com/${GITEE_OWNER}/${GITEE_REPO}/releases/tag/${TAG}\"}" \
-            || echo "Gitee release may already exist, continuing"
-          # 2) 上传 .exe 到 Gitee release
-          for f in release-assets/*; do
-            echo "Uploading $f to Gitee..."
-            curl -fsS -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${TAG}/attach_files" \
-              -F "access_token=${GITEE_TOKEN}" \
-              -F "file=@${f}" \
-              || echo "Failed to upload ${f} to Gitee, skipping"
-          done
-          echo "✅ Gitee 同步完成"
+            -d "{\"access_token\":\"${GITEE_TOKEN}\",\"tag_
