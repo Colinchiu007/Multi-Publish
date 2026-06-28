@@ -132,8 +132,9 @@ class AuthViewManager {
           }
         }
       }
-      this.mainWindow.webContents.on("keydown", escHandler)
+      view.webContents.on("before-input-event", escHandler)
       this._escHandler = escHandler
+      this._escView = view
 
       // 监听导航检测登录完成
       view.webContents.on('did-navigate', (event, url) => {
@@ -338,10 +339,11 @@ class AuthViewManager {
       try {
         this.currentView.webContents.close()
       // 移除 Escape 监听
-      if (this._escHandler && this.mainWindow) {
-        this.mainWindow.webContents.removeListener("keydown", this._escHandler)
-        this._escHandler = null
+      if (this._escView && this._escView.webContents) {
+        this._escView.webContents.removeListener("before-input-event", this._escHandler)
       }
+      this._escHandler = null
+      this._escView = null
       } catch (e) { /* ignore */ }
       this.currentView = null
     }
@@ -411,8 +413,9 @@ class AuthViewManager {
           }
         }
       }
-      this.mainWindow.webContents.on("keydown", escHandler)
+      view.webContents.on("before-input-event", escHandler)
       this._escHandler = escHandler
+      this._escView = view
 
     // 恢复 localStorage（需要页面加载后才能注入）
     if (localStorage && Object.keys(localStorage).length > 0) {
