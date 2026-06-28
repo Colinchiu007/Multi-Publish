@@ -5,25 +5,9 @@
  * 不再使用独立 *-rpa.js 文件发布器。
  * 此模块仅保持 require 兼容，新代码请直接使用 RpaViewManager。
  */
-const { ApiModePublisher } = require('./api-mode-publisher')
 
-const registry = {
-  wechat_mp:    ApiModePublisher,
-  zhihu:        ApiModePublisher,
-  weibo:        ApiModePublisher,
-  douyin:       ApiModePublisher,
-  xiaohongshu:  ApiModePublisher,
-  tencent_video:ApiModePublisher,
-  kuaishou:     ApiModePublisher,
-  toutiao:      ApiModePublisher,
-  youtube:      ApiModePublisher,
-  tiktok:       ApiModePublisher,
-  bilibili:     ApiModePublisher,
-  baijiahao:    ApiModePublisher,
-  twitter:      ApiModePublisher,
-  instagram:    ApiModePublisher,
-  facebook:     ApiModePublisher,
-}
+// ApiModePublisher 已在 P2-E 清理中移除，所有平台统一走 RpaViewManager
+const registry = {}
 
 function getPublisherClass (platform) {
   const Cls = registry[platform]
