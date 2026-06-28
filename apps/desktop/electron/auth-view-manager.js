@@ -363,7 +363,9 @@ class AuthViewManager {
     // 清理
     this._resolveLogin = null
     this._rejectLogin = null
-    // 注意：不自动 close()，由用户手动关闭，避免 IPC 死锁
+    // 蚁小二模式：fire-and-forget 关闭，不阻塞当前调用栈
+    // 避免 CDP 回调内同步 IPC 导致死锁
+    void this.close()
   }
 
   /**
