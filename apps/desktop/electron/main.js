@@ -483,6 +483,11 @@ ipcMain.handle('auth:open-login', async (event, platform) => {
       platform,
       name: result.name,
       cookies: result.cookies,
+      auth_data: {
+        cookies: result.cookies,
+        localStorage: result.localStorage || {},
+        indexedDB: result.indexedDB || {},
+      },
     })
     if (saveResult.code !== 0) {
       throw new Error(saveResult.message || '保存账号失败')

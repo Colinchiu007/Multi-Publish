@@ -246,6 +246,41 @@ class AuthViewManager {
       log.warn('AuthView', `localStorage extract failed: ${e.message}`)
     }
 
+    // 提取 IndexedDB（关键：抖音等平台的签名密钥存储在这里）
+    let indexedDB = {}
+    try {
+      indexedDB = await view.webContents.executeJavaScript(`
+        (async function() {
+          var result = {};
+          try {
+            var dbs = await indexedDB.databases();
+            for (var dbInfo of dbs) {
+              var db = await new Promise(function(resolve, reject) {
+                var req = indexedDB.open(dbInfo.name);
+                req.onsuccess = function() { resolve(req.result); };
+                req.onerror = function() { reject(req.error); };
+              });
+              for (var storeName of db.objectStoreNames) {
+                try {
+                  var store = db.transaction(storeName, 'readonly').objectStore(storeName);
+                  var items = await new Promise(function(resolve, reject) {
+                    var req = store.getAll();
+                    req.onsuccess = function() { resolve(req.result); };
+                    req.onerror = function() { reject(req.error); };
+                  });
+                  if (items.length > 0) result[dbInfo.name + '/' + storeName] = items;
+                } catch(e) {}
+              }
+              db.close();
+            }
+          } catch(e) {}
+          return result;
+        })()
+      `);
+    } catch (e) {
+      log.warn('AuthView', `IndexedDB extract failed: ${e.message}`)
+    }
+
     // 提取账号名称
     let accountName = this.currentPlatform
     try {
@@ -253,7 +288,7 @@ class AuthViewManager {
       if (title) accountName = this.currentPlatform + ' (' + title.slice(0, 20) + ')'
     } catch (e) { /* ignore */ }
 
-    return { cookies, localStorage, accountName }
+    return { cookies, localStorage, indexedDB, accountName }
   }
 
   /**
