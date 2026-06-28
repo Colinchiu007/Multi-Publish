@@ -43,8 +43,7 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   tiktok: ['tiktok.com'],
 }
 
-const VIEW_WIDTH = 480
-const VIEW_HEIGHT = 600
+const SIDEBAR_WIDTH = 280
 
 class AuthViewManager {
   constructor () {
@@ -159,9 +158,9 @@ class AuthViewManager {
   _positionView (bounds) {
     if (!this.currentView) return
     // 顶部留 56px 给导航栏
-    const x = Math.max(0, Math.floor((bounds.width - VIEW_WIDTH) / 2))
-    const y = 56 + Math.max(0, Math.floor((bounds.height - 56 - VIEW_HEIGHT) / 2))
-    this.currentView.setBounds({ x, y, width: VIEW_WIDTH, height: VIEW_HEIGHT })
+    const x = SIDEBAR_WIDTH
+    const y = 56
+    this.currentView.setBounds({ x, y, width: bounds.width - SIDEBAR_WIDTH, height: bounds.height - 56 })
     // 背景色 — WebContentsView 本身就有 setBackgroundColor
     if (typeof this.currentView.setBackgroundColor === 'function') {
       this.currentView.setBackgroundColor('#ffffff')
