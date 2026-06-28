@@ -173,8 +173,8 @@ class AuthViewManager {
     if (!this.currentView) return
     // 顶部留 56px 给导航栏
     const x = SIDEBAR_WIDTH
-    const y = 56
-    this.currentView.setBounds({ x, y, width: bounds.width - SIDEBAR_WIDTH, height: bounds.height - 56 })
+    const y = 120
+    this.currentView.setBounds({ x, y, width: bounds.width - SIDEBAR_WIDTH, height: bounds.height - 120 })
     // 背景色 — WebContentsView 本身就有 setBackgroundColor
     if (typeof this.currentView.setBackgroundColor === 'function') {
       this.currentView.setBackgroundColor('#ffffff')
