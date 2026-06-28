@@ -497,7 +497,7 @@ ipcMain.handle('auth:open-login', async (event, platform) => {
     if (platform === 'bilibili' || platform === 'douyin') {
       try {
         const http = require('http')
-        const orchestratorUrl = process.env.ORCHESTRATOR_URL || 'http://127.0.0.1:8000'
+        const orchestratorUrl = process.env.ORCHESTRATOR_URL || 'http://39.105.42.85'
         const token = process.env.ORCHESTRATOR_API_KEY || ''
         const postData = JSON.stringify({
           cookies: result.cookies.map(c => ({
