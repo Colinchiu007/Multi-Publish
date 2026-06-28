@@ -213,6 +213,7 @@ async function addAccount () {
       const platform = newPlatform.value
       showAddDialog.value = false
       newPlatform.value = ''
+      authViewVisible.value = true
       const res = await api.authOpenLogin(platform)
       if (res.code !== 0) ElMessage.error(res.message || '添加失败')
       // auth:completed 事件自动刷新
