@@ -1,4 +1,3 @@
-Warning: Permanently added '39.105.42.85' (ED25519) to the list of known hosts.
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
