@@ -613,4 +613,4 @@ class RpaViewManager {
 
 module.exports = RpaViewManager
 module.exports.ProgressThrottle = ProgressThrottle
-module.exports.FieldRetryState = FieldR
+module.exports.FieldRetryState = FieldRetryState
