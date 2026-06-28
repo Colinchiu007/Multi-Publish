@@ -122,6 +122,19 @@ class AuthViewManager {
       // 导航到登录页
       view.webContents.loadURL(loginUrl)
 
+      // Escape 键关闭登录视图
+      const escHandler = (e) => {
+        if (e.key === 'Escape') {
+          this.close()
+          if (this._resolveLogin) {
+            this._resolveLogin({ cancelled: true })
+            this._resolveLogin = null
+          }
+        }
+      }
+      this.mainWindow.webContents.on("keydown", escHandler)
+      this._escHandler = escHandler
+
       // 监听导航检测登录完成
       view.webContents.on('did-navigate', (event, url) => {
         this._checkLoginCompleted(url)
@@ -289,6 +302,11 @@ class AuthViewManager {
     if (this.currentView) {
       try {
         this.currentView.webContents.close()
+      // 移除 Escape 监听
+      if (this._escHandler && this.mainWindow) {
+        this.mainWindow.webContents.removeListener("keydown", this._escHandler)
+        this._escHandler = null
+      }
       } catch (e) { /* ignore */ }
       this.currentView = null
     }
@@ -347,6 +365,19 @@ class AuthViewManager {
     this.mainWindow.contentView.addChildView(view)
     view.setVisible(true)
     view.webContents.loadURL(loginUrl)
+
+      // Escape 键关闭登录视图
+      const escHandler = (e) => {
+        if (e.key === 'Escape') {
+          this.close()
+          if (this._resolveLogin) {
+            this._resolveLogin({ cancelled: true })
+            this._resolveLogin = null
+          }
+        }
+      }
+      this.mainWindow.webContents.on("keydown", escHandler)
+      this._escHandler = escHandler
 
     // 恢复 localStorage（需要页面加载后才能注入）
     if (localStorage && Object.keys(localStorage).length > 0) {
