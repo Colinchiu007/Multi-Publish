@@ -487,6 +487,42 @@ ipcMain.handle('auth:open-login', async (event, platform) => {
     if (saveResult.code !== 0) {
       throw new Error(saveResult.message || '保存账号失败')
     }
+
+    // B站/抖音登录后，推送 cookie 到 orchestrator 供 Story2Video 发布使用
+    if (platform === 'bilibili' || platform === 'douyin') {
+      try {
+        const http = require('http')
+        const orchestratorUrl = process.env.ORCHESTRATOR_URL || 'http://127.0.0.1:8000'
+        const token = process.env.ORCHESTRATOR_API_KEY || ''
+        const postData = JSON.stringify({
+          cookies: result.cookies.map(c => ({
+            name: c.name,
+            value: c.value,
+            domain: c.domain || '.bilibili.com',
+            path: c.path || '/',
+          })),
+          username: result.name || '',
+        })
+        const url = new URL(`${orchestratorUrl}/api/jobs/cookies/${platform}`)
+        const req = http.request({
+          hostname: url.hostname,
+          port: url.port,
+          path: url.pathname,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData),
+            ...(token ? { 'X-API-Key': token } : {}),
+          },
+        })
+        req.on('error', (e) => log.warn('Auth', `Orchestrator cookie push failed: ${e.message}`))
+        req.write(postData)
+        req.end()
+        log.info('Auth', `Pushed ${platform} cookies to orchestrator`)
+      } catch (e) {
+        log.warn('Auth', `Orchestrator cookie push failed: ${e.message}`)
+      }
+    }
     return { code: 0, data: { ...saveResult.data }, message: '账号添加成功' }
   } catch (e) {
     log.error('Auth', `Login failed for ${platform}: ${e.message}`)
