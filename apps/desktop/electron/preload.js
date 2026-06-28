@@ -233,3 +233,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	providerSetUserKey: (name, apiKey, baseUrl) => ipcRenderer.invoke('provider:set-user-key', name, apiKey, baseUrl),
 	providerDeleteUserKey: (name) => ipcRenderer.invoke('provider:delete-user-key', name),
 })
+  viralGenerate: (opts) => ipcRenderer.invoke('viral:generate', opts

@@ -253,7 +253,6 @@ function createWindow () {
 
             // 设置 PublishImpactTracker（影响力追踪）
             publishImpactTracker.registerIpcHandlers()
-
   // 初始化系统托盘
   systemTray.init(mainWindow)
 
