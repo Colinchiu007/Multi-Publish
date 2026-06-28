@@ -146,8 +146,8 @@ class AuthViewManager {
         view.webContents.debugger.attach()
         view.webContents.debugger.sendCommand('Fetch.enable', {
           patterns: [
-            { urlPattern: '*passport.bilibili.com/*', resourceType: 'XHR', requestStage: 'Response' },
-            { urlPattern: '*api.bilibili.com/x/member/*', resourceType: 'XHR', requestStage: 'Response' },
+            { urlPattern: '*passport.bilibili.com/login*', resourceType: 'XHR', requestStage: 'Response' },
+            { urlPattern: '*passport.bilibili.com/x/passport-login/web/*', resourceType: 'XHR', requestStage: 'Response' },
           ]
         })
         view.webContents.debugger.on('message', async (_, method, params) => {
@@ -158,7 +158,7 @@ class AuthViewManager {
             )
             const data = JSON.parse(base64Encoded ? Buffer.from(body, 'base64').toString() : body)
             // B站 API 登录成功信号
-            if (data.code === 0 || data.data?.isLogin === true) {
+            if ((data.code === 0 && data.data && (data.data.isLogin === true || data.data.dedeUserID || data.data.mid || data.data.access_token)) || data.data?.isLogin === true) {
               log.info('AuthView', 'CDP detected B站 login success')
               if (this._resolveLogin) {
                 setTimeout(async () => {
