@@ -324,8 +324,18 @@ class AuthViewManager {
     // 提取账号名称
     let accountName = this.currentPlatform
     try {
-      const title = await view.webContents.getTitle()
-      if (title) accountName = this.currentPlatform + ' (' + title.slice(0, 20) + ')'
+      // 尝试通过 B站 API 获取真实用户名
+      if (this.currentPlatform === 'bilibili') {
+        const navData = await view.webContents.executeJavaScript(
+          'fetch("https://api.bilibili.com/x/web-interface/nav").then(r=>r.json()).then(d=>({uname:d.data?.uname||"",isLogin:d.data?.isLogin||false}))'
+        )
+        if (navData && navData.isLogin && navData.uname) {
+          accountName = this.currentPlatform + ' (' + navData.uname + ')'
+        }
+      } else {
+        const title = await view.webContents.getTitle()
+        if (title) accountName = this.currentPlatform + ' (' + title.slice(0, 20) + ')'
+      }
     } catch (e) { /* ignore */ }
 
     return { cookies, localStorage, indexedDB, accountName }
