@@ -136,19 +136,49 @@ class AuthViewManager {
       this._escHandler = escHandler
       this._escView = view
 
-      // 导航完成后检查是否已在登录态（用户之前已登录 B站）
+      // URL pattern 检测（备用）
       view.webContents.on('did-navigate', (event, url) => {
         this._checkLoginCompleted(url)
       })
-      // 页面加载后延迟检查一次（防止首次导航未触发检测）
-      view.webContents.once('did-finish-load', () => {
-        setTimeout(() => {
-          if (this._resolveLogin) {
-            const url = view.webContents.getURL()
-            this._checkLoginCompleted(url)
-          }
-        }, 1000)
-      })
+
+      // CDP 网络拦截（主检测方式，蚁小二方案）
+      try {
+        view.webContents.debugger.attach()
+        view.webContents.debugger.sendCommand('Fetch.enable', {
+          patterns: [
+            { urlPattern: '*passport.bilibili.com/*', resourceType: 'XHR', requestStage: 'Response' },
+            { urlPattern: '*api.bilibili.com/x/member/*', resourceType: 'XHR', requestStage: 'Response' },
+          ]
+        })
+        view.webContents.debugger.on('message', async (_, method, params) => {
+          if (method !== 'Fetch.requestPaused') return
+          try {
+            const { body, base64Encoded } = await view.webContents.debugger.sendCommand(
+              'Fetch.getResponseBody', { requestId: params.requestId }
+            )
+            const data = JSON.parse(base64Encoded ? Buffer.from(body, 'base64').toString() : body)
+            // B站 API 登录成功信号
+            if (data.code === 0 || data.data?.isLogin === true) {
+              log.info('AuthView', 'CDP detected B站 login success')
+              if (this._resolveLogin) {
+                setTimeout(async () => {
+                  try {
+                    const authData = await this._extractAuthData()
+                    this._onLoginSuccess(authData)
+                  } catch (e) {
+                    this._onLoginSuccess({ cookies: [], localStorage: {}, accountName: this.currentPlatform })
+                  }
+                }, 1000)
+              }
+            }
+          } catch (e) { /* ignore parse errors */ }
+          try {
+            await view.webContents.debugger.sendCommand('Fetch.continueRequest', { requestId: params.requestId })
+          } catch (e) { /* ignore */ }
+        })
+      } catch (e) {
+        log.warn('AuthView', 'CDP attach failed, falling back to URL pattern: ' + e.message)
+      }
 
       // 监听同页面内导航（SPA 应用）
       view.webContents.on('did-navigate-in-page', (event, url) => {
