@@ -27,6 +27,7 @@ Warning: Permanently added '39.105.42.85' (ED25519) to the list of known hosts.
       </router-link>
       <div class="nav-spacer"></div>
       <div class="nav-right">
+        <button v-if="authViewVisible" @click="closeLogin" style="background:#e74c3c;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:13px;margin-right:12px">✕ 关闭登录</button>
         <div class="status-indicator">
           <span class="status-dot online"></span>
           服务运行中
@@ -133,6 +134,27 @@ import { useRoute, useRouter } from 'vue-router'
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
 
 const route = useRoute()
+const authViewVisible = ref(false)
+
+function closeLogin () {
+  const api = window.electronAPI
+  if (api && api.authClose) api.authClose()
+  authViewVisible.value = false
+}
+
+// 监听登录视图状态
+onMounted(() => {
+  const api = window.electronAPI
+  if (api && api.onAuthViewOpened) {
+    api.onAuthViewOpened(() => { authViewVisible.value = true })
+  }
+  if (api && api.onAuthViewClosed) {
+    api.onAuthViewClosed(() => { authViewVisible.value = false })
+  }
+  if (api && api.onAuthCompleted) {
+    api.onAuthCompleted(() => { authViewVisible.value = false })
+  }
+})
 const router = useRouter()
 
 // 侧栏平台数据
