@@ -23,6 +23,7 @@ const PLATFORM_LOGIN_URLS = {
   tencent_video: 'https://channels.weixin.qq.com/',
   kuaishou: 'https://cp.kuaishou.com/',
   toutiao: 'https://mp.toutiao.com/',
+  bilibili: 'https://passport.bilibili.com/login',
   youtube: 'https://studio.youtube.com/',
   tiktok: 'https://www.tiktok.com/upload/',
 }
@@ -37,6 +38,7 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   tencent_video: ['channels.weixin.qq.com'],
   kuaishou: ['cp.kuaishou.com'],
   toutiao: ['mp.toutiao.com'],
+  bilibili: ['passport.bilibili.com/login', 'bilibili.com'],
   youtube: ['studio.youtube.com'],
   tiktok: ['tiktok.com'],
 }
