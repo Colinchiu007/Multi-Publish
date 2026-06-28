@@ -24,6 +24,8 @@
     </div>
 
     <!-- 内容体 -->
+    <!-- 浮动关闭按钮（始终在 WebContentsView 之上） -->
+    <div v-if="authViewVisible" @click="closeAuthView" style="position:fixed;bottom:24px;right:24px;z-index:9999;background:#e74c3c;color:white;border:none;padding:12px 24px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px">✕ 关闭登录</div>
     <div class="cohere-content">
       <div v-if="loading" style="text-align:center;padding:60px 0;color:var(--muted)">加载中...</div>
       <div v-else-if="groupedPlatforms.length === 0" class="cohere-empty">
