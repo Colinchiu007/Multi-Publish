@@ -136,9 +136,18 @@ class AuthViewManager {
       this._escHandler = escHandler
       this._escView = view
 
-      // 监听导航检测登录完成
+      // 导航完成后检查是否已在登录态（用户之前已登录 B站）
       view.webContents.on('did-navigate', (event, url) => {
         this._checkLoginCompleted(url)
+      })
+      // 页面加载后延迟检查一次（防止首次导航未触发检测）
+      view.webContents.once('did-finish-load', () => {
+        setTimeout(() => {
+          if (this._resolveLogin) {
+            const url = view.webContents.getURL()
+            this._checkLoginCompleted(url)
+          }
+        }, 1000)
       })
 
       // 监听同页面内导航（SPA 应用）
