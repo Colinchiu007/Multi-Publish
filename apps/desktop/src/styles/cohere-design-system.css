@@ -480,8 +480,10 @@ body {
   padding: var(--space-xl);
   transition: all 0.15s;
   cursor: pointer;
+  overflow: hidden;
   border: 1px solid var(--border-light);
 }
+
 
 .cohere-card:hover {
   background: var(--soft-stone);
@@ -1361,6 +1363,7 @@ body {
   background: #23232a;
 }
 
+
 [data-theme="dark"] .cohere-card:hover {
   background: #2a2a32;
 }
@@ -1457,4 +1460,10 @@ body {
 [data-theme="dark"] .cohere-tag-warning {
   background: #3a2e14;
   color: #e8a838;
+}
+
+.cohere-card-group {
+  padding: 0;
+  cursor: default;
+  overflow: visible;
 }

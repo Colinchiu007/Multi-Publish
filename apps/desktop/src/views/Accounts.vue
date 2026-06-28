@@ -9,6 +9,7 @@
       <div class="page-actions">
         <button class="cohere-btn-secondary" @click="refresh">⟳ 刷新</button>
         <button class="cohere-btn-primary" @click="showAddDialog = true">＋ 添加账号</button>
+        <button v-if="authViewVisible" @click="closeAuthView" style="background:#e74c3c;color:white;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px">✕ 关闭登录</button>
       </div>
     </div>
 
@@ -19,20 +20,6 @@
         <button class="cohere-filter-chip" :class="{ active: filter === 'active' }" @click="filter = 'active'">已登录</button>
         <button class="cohere-filter-chip" :class="{ active: filter === 'inactive' }" @click="filter = 'inactive'">未登录</button>
         <span class="cohere-filter-meta">共 {{ groupedPlatforms.length }} 个平台 · {{ totalAccounts }} 个账号</span>
-      </div>
-    </div>
-
-    <!-- 内嵌浏览器遮罩（登录时显示） -->
-    <div v-if="authViewVisible" class="auth-overlay" @click.self="closeAuthView">
-      <div class="auth-modal">
-        <div class="auth-modal-header">
-          <span>登录 {{ authPlatformName }}</span>
-          <button class="auth-close-btn" @click="closeAuthView">✕</button>
-        </div>
-        <div class="auth-modal-body">
-          <p class="auth-hint">请在下方页面中完成登录，登录后账号自动保存</p>
-          <div class="auth-browser-placeholder"></div>
-        </div>
       </div>
     </div>
 
