@@ -123,8 +123,8 @@ class AuthViewManager {
       view.webContents.loadURL(loginUrl)
 
       // Escape 键关闭登录视图
-      const escHandler = (e) => {
-        if (e.key === 'Escape') {
+      const escHandler = (event, input) => {
+        if (input && input.type === 'keyDown' && input.key === 'Escape') {
           this.close()
           if (this._resolveLogin) {
             this._resolveLogin({ cancelled: true })
@@ -404,8 +404,8 @@ class AuthViewManager {
     view.webContents.loadURL(loginUrl)
 
       // Escape 键关闭登录视图
-      const escHandler = (e) => {
-        if (e.key === 'Escape') {
+      const escHandler = (event, input) => {
+        if (input && input.type === 'keyDown' && input.key === 'Escape') {
           this.close()
           if (this._resolveLogin) {
             this._resolveLogin({ cancelled: true })
