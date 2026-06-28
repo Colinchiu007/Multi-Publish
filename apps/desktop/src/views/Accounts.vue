@@ -208,14 +208,6 @@ async function refresh () {
 
 async function addAccount () {
   if (!newPlatform.value) { ElMessage.warning('请选择平台'); return }
-  // 检查是否已有该平台账号
-  const existingAccounts = groupedPlatforms.value.find(g => g.platform === newPlatform.value)
-  if (existingAccounts && existingAccounts.accounts.length > 0) {
-    ElMessage.info('该平台已有账号，无需重复添加')
-    showAddDialog.value = false
-    newPlatform.value = ''
-    return
-  }
   adding.value = true
   try {
     const api = window.electronAPI
