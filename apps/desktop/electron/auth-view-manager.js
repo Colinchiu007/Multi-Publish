@@ -363,6 +363,9 @@ class AuthViewManager {
     // 清理
     this._resolveLogin = null
     this._rejectLogin = null
+
+    // 关闭内嵌浏览器
+    this.close()
   }
 
   /**
