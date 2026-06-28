@@ -363,9 +363,7 @@ class AuthViewManager {
     // 清理
     this._resolveLogin = null
     this._rejectLogin = null
-
-    // 关闭内嵌浏览器
-    this.close()
+    // 注意：不自动 close()，由用户手动关闭，避免 IPC 死锁
   }
 
   /**
