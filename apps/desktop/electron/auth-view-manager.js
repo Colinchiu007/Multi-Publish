@@ -38,7 +38,7 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   tencent_video: ['channels.weixin.qq.com'],
   kuaishou: ['cp.kuaishou.com'],
   toutiao: ['mp.toutiao.com'],
-  bilibili: ['passport.bilibili.com/login', 'bilibili.com'],
+  bilibili: ['www.bilibili.com/'],
   youtube: ['studio.youtube.com'],
   tiktok: ['tiktok.com'],
 }
