@@ -216,6 +216,14 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 ## 新增模块（蚁小二逆向工程集成）
 
+### packages/shared-utils/src/（v1.6.0，蚁小二复用）
+
+- `chunked-uploader.js` — 通用分片上传器（init→upload chunks→complete, 进度回调, 取消）
+- `proxy-pool.js` — 代理池轮换 + 健康检查（round-robin, 自动移除失效, 事件通知）
+- `analytics-service.js` — 平台数据分析服务（provider 模式, 多平台并行, 指标归一化）
+
+### apps/desktop/electron/
+
 - `electron/account-state-restorer.js` — 账号登录状态持久化（JSONL）
 - `electron/credential-store.js` — localStorage + accountInfo 加密存储（AES-256-GCM）
 - `electron/publish-monitor.js` — 发布后状态自动查询（QueryStateTaskScheduler）

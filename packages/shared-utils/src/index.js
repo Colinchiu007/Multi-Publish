@@ -10,6 +10,10 @@ const coverProcessor = require('./cover-processor/index')
 const PlatformConfig = require('./platform-config')
 const SensitiveFilter = require('./sensitive-filter')
 
+const ChunkedUploader = require('./chunked-uploader')
+const ProxyPool = require('./proxy-pool')
+const AnalyticsService = require('./analytics-service')
+
 const DataSyncService = require('./data-sync')
 
 module.exports = {
@@ -19,5 +23,8 @@ module.exports = {
   coverProcessor,
   PlatformConfig,
   SensitiveFilter,
+  ChunkedUploader,
+  ProxyPool,
+  AnalyticsService,
   DataSyncService,
 }
