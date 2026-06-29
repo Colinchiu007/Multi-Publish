@@ -1,3 +1,37 @@
+## [v1.6.0] - 2026-06-29
+
+### Added — 蚁小二逆向工程复用（3 个共享工具模块）
+
+- **ChunkedUploader** (`packages/shared-utils/src/chunked-uploader.js`): 通用分片上传器
+  - 文件自动分片（可配置片大小，默认 5MB）
+  - 串行逐块上传（可配置并发数）
+  - 进度回调 + EventEmitter 事件（chunk:uploaded / upload:complete / upload:error）
+  - 支持取消（cancel()）
+  - 17 测试用例全部通过
+
+- **ProxyPool** (`packages/shared-utils/src/proxy-pool.js`): 代理池轮换 + 健康检查
+  - 添加/移除/批量添加代理
+  - Round-robin 轮换获取下一个可用代理
+  - 健康检查（真实 HTTP 连接测试 + 延迟记录）
+  - 自动移除失效代理（removeDead）
+  - EventEmitter 事件通知（proxy:added / proxy:removed / proxy:tested）
+  - 26 测试用例全部通过
+
+- **AnalyticsService** (`packages/shared-utils/src/analytics-service.js`): 平台数据分析服务
+  - Provider 模式注册各平台数据获取函数
+  - 单平台数据获取 + 多平台并行概览（fetchOverview）
+  - 指标归一化（normalizeMetrics / normalizeTrend）
+  - 错误隔离（一个平台失败不影响其他平台）
+  - EventEmitter 事件通知（data:fetched / data:error / provider:registered）
+  - 20 测试用例全部通过
+
+### Changed
+
+- packages/shared-utils/src/index.js: 新增 ChunkedUploader / ProxyPool / AnalyticsService 导出
+- 01-docs/PRD.md: 新增 F14 共享工具库新模块章节
+
+---
+
 # CHANGELOG
 
 All notable changes to this project will be documented in this file.

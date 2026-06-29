@@ -1,8 +1,8 @@
 # PROJECT-003：多平台一键发布 — PRD
 
 > **立项日期**: 2026-06-03
-> **最后更新**: 2026-06-27
-> **当前版本**: v1.4.0（Last30Days 内容情报深度集成）
+> **最后更新**: 2026-06-29
+> **当前版本**: v1.5.0（云端发布模块）
 > **产品定位**: 为内容生产者提供"策题 → 采集 → 优化 → 发布 → 追踪"全流程闭环的一键发布桌面工具
 > **目标用户**: 自媒体运营者、MCN 机构、企业内容团队
 > **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）
@@ -76,8 +76,15 @@
 Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 API 模式使用。
 
 **统一发布路由：**
-1. **RpaViewManager executeJavaScript RPA** — 所有平台（隐藏 BrowserWindow + CDP 文件上传）
-2. **Python 后端 API** — 预留，B 站 API 模式
+1. **本地 RPA** — 默认路径，所有平台走 RpaViewManager（隐藏 BrowserWindow + executeJavaScript + CDP 文件上传）
+2. **ECS 云端发布** — 通过 PublishPoller 轮询 orchestrator，下载视频后委托发布（vNext）
+3. **显式云端发布** — 通过 CloudPublish.vue 页面显式提交任务到 orchestrator，用于不依赖本地环境的发布（v1.5.0 F13 🆕）
+4. **Python 后端 API** — 预留，B 站 API 模式
+
+**选路策略（vNext）：**
+- `platforms.yaml` 中 `rpa: true` → 走本地 RPA 路径（当前默认值，向后兼容）
+- `rpa: false` 或缺失 → 走 ECS 云端发布（orchestrator 侧 API 模式）
+- 平台级覆盖：单个平台可独立设置 `rpa: true/false`
 
 **三种认证模式：**
 1. **内嵌 WebContentsView 登录** — 弹出式内嵌浏览器（AuthViewManager）
@@ -204,21 +211,55 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | 跨源搜索 | 通过 Reddit/HN/GitHub 免费 API 搜索主题讨论，log10 互动评分 | ✅ |
 | 标题优化 | 搜索同类标题互动数据，提取高频模式，生成优化建议 | ✅ |
 | 发布后影响力追踪 | 发布后 T+1min/1h/24h/72h 定时捕捉社交提及，Dashboard 展示 | ✅ |
-| 发布时机优化 | 聚合搜索结果的时间分布，推荐各平台最佳发布时间 | 🆕 |
-| 外部引用推荐 | 选中关键词，自动搜索权威来源/数据/讨论，一键插入正文 | 🆕 |
-| 智能标签建议 | 基于内容关键词 + 平台标签体系，自动生成各平台标签建议 | 🆕 |
-| 内容表现基准比较 | 同类内容互动数据聚合，对比自身表现给出差距分析 | 🆕 |
-| 热榜趋势发现 | 实时聚合 Reddit/HN/GitHub 热门内容，主动发现创作主题 | 🆕 |
-| 关键词背景监测 | 持续监测指定关键词的讨论热度变化，异常飙升时桌面通知 | 🆕 |
+| 发布时机优化 | 聚合搜索结果的时间分布，推荐各平台最佳发布时间 | ✅ |
+| 外部引用推荐 | 选中关键词，自动搜索权威来源/数据/讨论，一键插入正文 | ✅ |
+| 智能标签建议 | 基于内容关键词 + 平台标签体系，自动生成各平台标签建议 | ✅ |
+| 内容表现基准比较 | 同类内容互动数据聚合，对比自身表现给出差距分析 | ✅ |
+| 热榜趋势发现 | 实时聚合 Reddit/HN/GitHub 热门内容，主动发现创作主题 | ✅ |
+| 关键词背景监测 | 持续监测指定关键词的讨论热度变化，异常飙升时桌面通知 | ✅ |
+
+#### F12：ECS 云端发布集成（vNext）
+
+| 子功能 | 描述 | 状态 |
+|--------|------|------|
+| PublishPoller | 定时轮询 orchestrator GET /api/jobs/publish/pending | ✅ |
+| 视频下载 | 从 Supabase Storage 下载视频到本地临时目录 | ✅ |
+| 状态同步 | PUT /api/jobs/publish/{id}/status 同步下载/发布/成功/失败状态 | ✅ |
+| 选路决策 | `platforms.yaml` 中 `rpa: true/false` 控制本地 RPA vs 云端 | ✅ |
+| B站云端 API | orchestrator services/bilibili_publisher.py API 模式发布 | 🆕 |
+| 抖音云端 API | orchestrator services/douyin_publisher.py API 模式发布（预留） | 🆕 |
+
+#### F13：云端发布模块（v1.5.0）
+
+| 子功能 | 描述 | 状态 |
+|--------|------|------|
+| CloudPublisher 类 | Electron 主进程 HTTP 通信层，连接 orchestrator 提交/查询任务 | 🆕 |
+| 前端 CloudPublish.vue | 云端发布专属页面：提交表单 + 任务列表 + 进度轮询 | 🆕 |
+| mode 选路 | `POST /api/jobs/publish-video` 支持 `mode: "rpa"|"cloud"` 字段 | 🆕 |
+| PublishPoller 跳过 | `input_data.mode === "cloud"` 时 PublishPoller 跳过不处理 | 🆕 |
+| IPC handlers | `cloud-publisher:submit/list-tasks/get-task/platforms` 4个 IPC 通道 | 🆕 |
+|
+| orchestrator stub 后端 | `POST /publish-video` 支持 cloud 模式，stub 模拟 10s 延迟返回成功 | 🆕 |
+
+#### F14：共享工具库新模块（v1.6.0）
+
+| 子功能 | 描述 | 状态 |
+|--------|------|------|
+| ChunkedUploader (shared-utils) | 通用分片上传器，支持 init→upload chunks→complete 三步协议，进度回调/事件/取消 | 🆕 |
+| ProxyPool (shared-utils) | 代理池轮换 + 健康检查，round-robin 分发，自动移除失效代理 | 🆕 |
+| AnalyticsService (shared-utils) | 平台数据分析服务，provider 模式，支持多平台并行数据获取、指标归一化 | 🆕 |
 
 ### 3.2 非功能需求
-
 || 需求 | 指标 | 状态 |
 ||------|------|------|
 | 并发发布 | 3 任务并发执行（maxConcurrent=3） | ✅ |
 | 离线运行 | 安装包自带 Chromium，无需联网；自动更新网络失败静默 | ✅ |
 | 任务持久化 | SQLite 持久化队列状态，崩溃自动恢复 | ✅ |
 || 数据加密 | Cookie AES-256-GCM 加密存储 | ✅ |
+│
+│  │  └─ services/douyin_publisher.py     │
+│  └──────────────────────────────────────┘
+│
 || 存储引擎 | SQLite（better-sqlite3） | ✅ |
 || 跨平台 | Windows + Linux（macOS 待支持） | ✅ |
 || 自动构建 | GitHub Actions 双平台 CI + 自动 Release | ✅ |
@@ -272,6 +313,26 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 │  └───────────────────────────────────────┘
 │
 │  ┌──────────────────────────────────────┐
+│  │  PublishPoller（vNext）               │
+│  │  ├─ 定时轮询 orchestrator             │
+│  │  │  GET /api/jobs/publish/pending    │
+│  │  ├─ 下载视频 → delegate RPA          │
+│  │  ├─ PUT 状态同步                     │
+│  │  └─ 选路: platforms.yaml rpa:       │
+│  │     true=本地RPA / false=云端        │
+│  └──────────────┬───────────────────────┘
+│                 │
+│  ┌──────────────┴───────────────────────┐
+│  │  ECS Orchestrator (:8000)            │
+│  │  ├─ GET /api/jobs/publish/pending    │
+│  │  │  (FIFO video_publish 队列)        │
+│  │  ├─ PUT /api/jobs/publish/{id}/status│
+│  │  ├─ services/bilibili_publisher.py   │
+│  │  │  (bilibili-api-python + curl_cffi)│
+│  │  └─ services/douyin_publisher.py     │
+│  └──────────────────────────────────────┘
+│
+│  ┌──────────────────────────────────────┐
 │  │  SQLite (better-sqlite3)             │
 │  │  ├─ accounts（含多账号）               │
 │  │  ├─ publish_history                  │
@@ -305,6 +366,8 @@ multi-publish/
 │   │   ├── rpa-view-manager.js  # executeJavaScript RPA 引擎（v1.2.0）
 │   │   ├── callback-server.js   # 实时回调（P1）
 │   │   ├── qrcode-login.js      # 扫码登录（P2）
+│   │   ├── publish-poller.js    # ECS 轮询发布（vNext）
+│   │   ├── cloud-publisher.js   # 云端发布通信层（F13 🆕）
 │   │   ├── oauth-manager.js     # OAuth 2.0 认证
 │   │   ├── batch-manager.js     # 批量发布管理器
 │   │   ├── url-collector.js     # URL 内容采集
@@ -522,3 +585,4 @@ Task Queue → 各平台发布器 → 发布完成
 | **V1.0 发布** | 首版 Release、运营启动 | ⏳ 待进行 |
 | V1.1 格式适配 | Markdown → 各平台格式转换、封面
 - [ ] 抖音发布选择器需实际页面验证（依赖真实抖音创作者后
+    
