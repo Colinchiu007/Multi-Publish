@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
 
-const { TaskQueue, AggregatorBridge } = require('@multi-publish/shared-utils')
+const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require('@multi-publish/shared-utils')
 const pythonBridge = require('./python-bridge')
 const AccountManager = require('./publishers/account-manager')
 const scheduler = require('./scheduler')
@@ -24,6 +24,7 @@ const ContentIntelligence = require('./content-intelligence')
 const PublishImpactTracker = require('./publish-impact-tracker')
 const KeywordMonitor = require('./keyword-monitor')
 const ProviderManager = require('./provider-manager')
+const CloudPublisher = require('./cloud-publisher')
 
 // ─── AuthViewManager（内嵌浏览器登录）─────
 const authViewManager = new AuthViewManager()
@@ -52,6 +53,10 @@ const batchManager = new BatchManager(store)
 const urlCollector = new UrlCollector()
 // ─── ViralEngine（爆款分析）─────────────────
 const viralEngine = new ViralEngine()
+// ─── ProxyPool（代理池轮换）────────────────
+const proxyPool = new ProxyPool()
+// ─── AnalyticsService（跨平台数据分析）────────
+const analyticsService = new AnalyticsService()
 
 const PublishAlert = require('./publish-alert')
 const publishMonitor = require('./publish-monitor')
@@ -441,6 +446,101 @@ ipcMain.handle('sync:cached', async () => {
   }
 })
 
+// ─── Analytics IPC handlers ──────────────────
+ipcMain.handle('analytics:overview', async () => {
+  try {
+    const platforms = analyticsService.getRegisteredPlatforms()
+    if (platforms.length === 0) return { code: 0, data: [] }
+    const credentialsMap = {}
+    for (const p of platforms) {
+      const account = store.listAccounts(p)[0]
+      if (account?.cookies) {
+        try { credentialsMap[p] = { cookies: JSON.parse(account.cookies) } }
+        catch (e) { credentialsMap[p] = {} }
+      }
+    }
+    const data = await analyticsService.fetchOverview(platforms, credentialsMap)
+    return { code: 0, data }
+  } catch (e) {
+    return { code: -1, message: e.message }
+  }
+})
+ipcMain.handle('analytics:platform', async (_, { platform }) => {
+  try {
+    const account = store.listAccounts(platform)[0]
+    const credentials = account?.cookies ? { cookies: JSON.parse(account.cookies) } : {}
+    const data = await analyticsService.fetchPlatformData(platform, credentials)
+    return { code: 0, data }
+  } catch (e) {
+    return { code: -1, message: e.message }
+  }
+})
+ipcMain.handle('analytics:platforms', async () => {
+  try {
+    return { code: 0, data: analyticsService.getRegisteredPlatforms() }
+  } catch (e) {
+    return { code: -1, message: e.message, data: [] }
+  }
+})
+
+// ─── Proxy Pool IPC handlers ─────────────────
+ipcMain.handle('proxy:add', async (_, { host, port, type }) => {
+  try { const id = proxyPool.addProxy(host, port, type || 'http'); return { code: 0, data: { id } } }
+  catch (e) { return { code: -1, message: e.message } }
+})
+ipcMain.handle('proxy:add-batch', async (_, { proxies }) => {
+  try { proxyPool.addProxies(proxies); return { code: 0, data: { total: proxyPool.size() } } }
+  catch (e) { return { code: -1, message: e.message } }
+})
+ipcMain.handle('proxy:list', async () => {
+  try { return { code: 0, data: proxyPool.getProxies() } }
+  catch (e) { return { code: -1, message: e.message, data: [] } }
+})
+ipcMain.handle('proxy:remove', async (_, { id }) => {
+  try { const ok = proxyPool.remove(id); return { code: ok ? 0 : -1, message: ok ? '已移除' : '代理不存在' } }
+  catch (e) { return { code: -1, message: e.message } }
+})
+ipcMain.handle('proxy:test', async (_, { id, timeout }) => {
+  try { const result = await proxyPool.testProxy(id, { timeout }); return { code: 0, data: result } }
+  catch (e) { return { code: -1, message: e.message } }
+})
+ipcMain.handle('proxy:test-all', async (_, { timeout }) => {
+  try { const results = await proxyPool.testAll({ timeout }); return { code: 0, data: results } }
+  catch (e) { return { code: -1, message: e.message } }
+})
+ipcMain.handle('proxy:status', async () => {
+  try { return { code: 0, data: proxyPool.getStatus() } }
+  catch (e) { return { code: -1, message: e.message, data: { total: 0, alive: 0, dead: 0 } } }
+})
+ipcMain.handle('proxy:get-next', async () => {
+  try { const proxy = proxyPool.getNextProxy(); return { code: 0, data: proxy } }
+  catch (e) { return { code: -1, message: e.message } }
+})
+ipcMain.handle('proxy:reset', async () => {
+  try { proxyPool.reset(); return { code: 0 } }
+  catch (e) { return { code: -1, message: e.message } }
+})
+ipcMain.handle('proxy:remove-dead', async () => {
+  try { const removed = proxyPool.removeDead(); return { code: 0, data: { removed } } }
+  catch (e) { return { code: -1, message: e.message } }
+})
+
+// ─── ChunkedUploader IPC handlers ────────────
+const _chunkedUploader = new ChunkedUploader()
+ipcMain.handle('upload:chunked', async (_, { filePath, uploadChunkFn }) => {
+  try {
+    const result = await _chunkedUploader.upload(filePath, uploadChunkFn)
+    return { code: result.success ? 0 : -1, data: result }
+  } catch (e) {
+    return { code: -1, message: e.message }
+  }
+})
+ipcMain.handle('upload:cancel', async () => {
+  _chunkedUploader.cancel()
+  return { code: 0 }
+})
+
+
 // ─── 首次运行引导 IPC ─────────────────────
 ipcMain.handle('first-run:check', async () => {
   return { code: 0, data: firstRun.checkDeps() }
@@ -740,13 +840,30 @@ app.whenReady().then(async () => {
     }
   }, 5 * 60 * 1000)
 
+  // ─── Analytics Service 提供者注册 ────────────
+  try {
+    const { xiaohongshuProvider, douyinProvider } = require('./analytics-providers')
+    analyticsService.registerProvider('xiaohongshu', xiaohongshuProvider)
+    analyticsService.registerProvider('douyin', douyinProvider)
+    log.info('App', 'Analytics providers registered: xiaohongshu, douyin')
+  } catch (e) {
+    log.warn('App', 'Failed to register analytics providers: ' + e.message)
+  }
+
+  // 云端发布模块 IPC handlers
+  const cloudPublisher = new CloudPublisher({
+    orchestratorUrl: process.env.ORCHESTRATOR_URL || 'http://39.105.42.85',
+    store,
+  })
+  cloudPublisher.registerIpcHandlers()
+
   createWindow()
 })
 
 app.on('window-all-closed', async () => {
   hotkeys.unregister()
   try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
-  webviewManager.closeAll()
+    webviewManager.closeAll()
   rpaViewManager.cleanup()
   keywordMonitor.stopAll()
   callbackServer.stop()
