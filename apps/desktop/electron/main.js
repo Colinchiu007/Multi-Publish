@@ -3,6 +3,7 @@ const path = require('path')
 const log = require('./logger')
 
 const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require('@multi-publish/shared-utils')
+const PublishIntervalGuard = require('@multi-publish/shared-utils/src/publish-interval-guard')
 const pythonBridge = require('./python-bridge')
 const AccountManager = require('./publishers/account-manager')
 const scheduler = require('./scheduler')
@@ -67,7 +68,7 @@ const hotkeys = require('./hotkeys')
 systemTray.registerIpcHandlers()
 
 // ─── 任务队列 ─────────────────────────────
-const taskQueue = new TaskQueue({ maxConcurrent: 3 })
+const taskQueue = new TaskQueue({ maxConcurrent: 3, publishIntervalGuard })
 scheduler.setTaskQueue(taskQueue)
 BatchManager.setTaskQueue(taskQueue)
 
@@ -179,6 +180,19 @@ taskQueue.on('task:failed', (task) => {
       stage: `✗ 发布失败: ${task.error}`,
       taskId: task.id,
       error: task.error
+    })
+  }
+})
+
+taskQueue.on('publish:blocked', ({ task, remainingWait }) => {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (win && !win.isDestroyed()) {
+    const minutes = Math.ceil(remainingWait / 60000)
+    win.webContents.send('publish:progress', {
+      platform: task.platform,
+      stage: `⏳ 发布间隔限制，等待 ${minutes} 分钟后重试`,
+      taskId: task.id,
+      remainingWait,
     })
   }
 })
@@ -703,6 +717,13 @@ app.whenReady().then(async () => {
 
   // 初始化 SQLite 数据库
   store.init()
+
+  // ── 发布频率控制（跨会话持久化） ──────────
+  const publishGuardStore = {
+    get: (key) => store.getPublishTimeline(key),
+    set: (key, value) => store.setPublishTimeline(key, value),
+  }
+  const publishIntervalGuard = new PublishIntervalGuard({ store: publishGuardStore })
 
   // 任务队列持久化 — 状态变更自动写入 Store
   taskQueue.setStateSaver((jsonStr) => {

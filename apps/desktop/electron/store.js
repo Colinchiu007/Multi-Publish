@@ -110,6 +110,11 @@ class Store {
       CREATE INDEX IF NOT EXISTS idx_scheduled_time ON scheduled_tasks(publish_time);
       CREATE INDEX IF NOT EXISTS idx_callback_created ON callback_logs(created_at);
 
+      CREATE TABLE IF NOT EXISTS publish_timeline (
+        key             TEXT PRIMARY KEY,
+        last_publish_at INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS batch_jobs (
         id            TEXT PRIMARY KEY,
         name          TEXT,
@@ -396,6 +401,30 @@ class Store {
     if (!this._ready) return false
     this.db.prepare('DELETE FROM batch_jobs WHERE id = ?').run(id)
     return true
+  }
+
+  // ─── 发布频率控制 ─────────────────────────
+  /**
+   * 获取指定平台+账号的最后发布时间
+   * @param {string} key - "${platform}:${accountId}"
+   * @returns {number|null} 时间戳 (ms)，null 表示从未发布
+   */
+  getPublishTimeline (key) {
+    if (!this._ready) return null
+    const row = this.db.prepare('SELECT last_publish_at FROM publish_timeline WHERE key = ?').get(key)
+    return row ? row.last_publish_at : null
+  }
+
+  /**
+   * 设置指定平台+账号的最后发布时间
+   * @param {string} key - "${platform}:${accountId}"
+   * @param {number} timestamp - 时间戳 (ms)
+   */
+  setPublishTimeline (key, timestamp) {
+    if (!this._ready) return
+    this.db.prepare(
+      'INSERT OR REPLACE INTO publish_timeline (key, last_publish_at) VALUES (?, ?)'
+    ).run(key, timestamp)
   }
 
   _safeJson (str) {

@@ -23,7 +23,34 @@
   - 指标归一化（normalizeMetrics / normalizeTrend）
   - 错误隔离（一个平台失败不影响其他平台）
   - EventEmitter 事件通知（data:fetched / data:error / provider:registered）
+- **AnalyticsService** (`packages/shared-utils/src/analytics-service.js`): 平台数据分析服务
+  - Provider 模式注册各平台数据获取函数
+  - 单平台数据获取 + 多平台并行概览（fetchOverview）
+  - 指标归一化（normalizeMetrics / normalizeTrend）
+  - 错误隔离（一个平台失败不影响其他平台）
+  - EventEmitter 事件通知（data:fetched / data:error / provider:registered）
   - 20 测试用例全部通过
+
+### Added — F15 发布频率控制
+
+- **PublishIntervalGuard** (`packages/shared-utils/src/publish-interval-guard.js`): 同账号发布间隔限制
+  - `canPublish(platform, accountId)`: 检查是否达到 5 分钟间隔
+  - `recordPublish(platform, accountId, timestamp?)`: 记录发布时间
+  - `getRemainingWait(platform, accountId)`: 返回剩余等待时间
+  - 可插拔存储：默认 InMemoryStore，通过 `{ get, set }` 接口可替换为 SQLite/Redis
+  - 跨账号/跨平台隔离：同一账号不同平台互不影响，不同账号同平台互不影响
+  - 12 测试用例全部通过（包含边界、自定义间隔、外部存储）
+- **TaskQueue 集成**: 构造函数接收 `publishIntervalGuard` 选项
+  - 执行任务前检查间隔限制，被拦截时触发 `publish:blocked` 事件并自动延迟重试
+  - 发布成功后自动记录到 guard（`task.article.accountId` 作为账号标识）
+  - 无 guard 或无 accountId 时行为不变（向后兼容）
+  - 6 集成测试用例全部通过
+- **Store 持久化** (`apps/desktop/electron/store.js`): 新增 `publish_timeline` 表
+  - `getPublishTimeline(key)`: 查询最后发布时间
+  - `setPublishTimeline(key, timestamp)`: 记录发布时间
+  - 通过 Store 适配器注入 guard，重启 App 后间隔状态不丢失
+- **Main.js 集成**: 创建 Store 适配器 → PublishIntervalGuard → TaskQueue 串联
+  - `publish:blocked` 事件处理器向前端发送等待提示
 
 ### Changed
 
