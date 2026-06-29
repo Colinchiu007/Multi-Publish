@@ -15,6 +15,7 @@ class TaskQueue extends EventEmitter {
     this.maxConcurrent = options.maxConcurrent || 1
     this.defaultRetry = options.defaultRetry || 2
     this.defaultTimeout = options.defaultTimeout || 180000  // 3 min
+    this._publishIntervalGuard = options.publishIntervalGuard || null
     this._queue = []          // 等待队列
     this._running = new Map() // 正在执行的任务 { id -> task }
     this._history = []        // 已完成的任务历史
@@ -253,6 +254,27 @@ class TaskQueue extends EventEmitter {
     this.emit('task:start', task)
     this._saveState()
 
+    // ── 发布频率控制检查 ──
+    if (this._publishIntervalGuard) {
+      const accountId = task.article && task.article.accountId
+      if (accountId) {
+        const wait = this._publishIntervalGuard.getRemainingWait(task.platform, accountId)
+        if (wait > 0) {
+          task.status = 'pending'
+          task.startedAt = null
+          this._running.delete(task.id)
+          this.emit('publish:blocked', { task, remainingWait: wait })
+          this._saveState()
+          // 达到等待时间后重新加入队列
+          setTimeout(() => {
+            this._queue.unshift(task)
+            this._processNext()
+          }, wait)
+          return
+        }
+      }
+    }
+
     // 创建超时 Promise
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error(`Task timed out after ${task.timeout}ms`)), task.timeout)
@@ -270,6 +292,13 @@ class TaskQueue extends EventEmitter {
       task.completedAt = new Date().toISOString()
       this.emit('task:success', task)
       this._saveState()
+      // 记录发布到频率控制器
+      if (this._publishIntervalGuard) {
+        const accountId = task.article && task.article.accountId
+        if (accountId) {
+          this._publishIntervalGuard.recordPublish(task.platform, accountId)
+        }
+      }
     } catch (e) {
       task.error = e.message
 
