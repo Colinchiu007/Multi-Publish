@@ -26,9 +26,9 @@ const PLATFORM_API_CONFIG = {
   douyin: {
     name: '抖音',
     baseUrl: 'https://creator.douyin.com',
-    uploadUrl: 'https://creator.douyin.com/aweme/v1/upload/',
-    publishUrl: 'https://creator.douyin.com/aweme/v1/post/',
-    authHeader: 'X-Bogus',
+    uploadUrl: 'https://creator.douyin.com/web/api/media/upload/auth/v5/',
+    publishUrl: 'https://creator.douyin.com/web/api/media/aweme/post/',
+    authHeader: 'Cookie',
   },
   bilibili: {
     name: 'B站',

@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.2.1] - 2026-06-29
+
+### Fixed — 抖音 API 发布 X-Bogus → Cookie 认证切换
+
+`api-platform-adapter.js`（desktop + rpa-engine 两份）的抖音配置改用 cookie-based `/web/api/media/` 端点：
+
+- `authHeader`: `'X-Bogus'` → `'Cookie'` — 不再需要计算 X-Bogus 签名
+- `uploadUrl`: `/aweme/v1/upload/` → `/web/api/media/upload/auth/v5/`
+- `publishUrl`: `/aweme/v1/post/` → `/web/api/media/aweme/post/`
+
+### Fixed — orchestrator X-API-Key 认证头提取修复
+
+`middleware/auth.py` 中 `get_current_user_or_api_key` 的 `x_api_key` 参数改用 `Header(None, alias="X-API-Key")` 声明，
+修复了所有依赖该函数的端点的 X-API-Key 认证（含 Cookie 推送链路）。
+
 ## [v1.1.6] - 2026-06-15
 
 ### Fixed — Cannot find module 'axios' 打包失败
