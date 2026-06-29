@@ -226,28 +226,28 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | 视频下载 | 从 Supabase Storage 下载视频到本地临时目录 | ✅ |
 | 状态同步 | PUT /api/jobs/publish/{id}/status 同步下载/发布/成功/失败状态 | ✅ |
 | 选路决策 | `platforms.yaml` 中 `rpa: true/false` 控制本地 RPA vs 云端 | ✅ |
-| B站云端 API | orchestrator services/bilibili_publisher.py API 模式发布 | 🆕 |
-| 抖音云端 API | orchestrator services/douyin_publisher.py API 模式发布（预留） | 🆕 |
+| B站云端 API | orchestrator services/bilibili_publisher.py API 模式发布 | ✅ |
+| 抖音云端 API | orchestrator services/douyin_publisher.py API 模式发布 | ✅ |
 
 #### F13：云端发布模块（v1.5.0）
 
 | 子功能 | 描述 | 状态 |
 |--------|------|------|
-| CloudPublisher 类 | Electron 主进程 HTTP 通信层，连接 orchestrator 提交/查询任务 | 🆕 |
-| 前端 CloudPublish.vue | 云端发布专属页面：提交表单 + 任务列表 + 进度轮询 | 🆕 |
-| mode 选路 | `POST /api/jobs/publish-video` 支持 `mode: "rpa"|"cloud"` 字段 | 🆕 |
-| PublishPoller 跳过 | `input_data.mode === "cloud"` 时 PublishPoller 跳过不处理 | 🆕 |
-| IPC handlers | `cloud-publisher:submit/list-tasks/get-task/platforms` 4个 IPC 通道 | 🆕 |
+| CloudPublisher 类 | Electron 主进程 HTTP 通信层，连接 orchestrator 提交/查询任务 | ✅ |
+| 前端 CloudPublish.vue | 云端发布专属页面：提交表单 + 任务列表 + 进度轮询 | ✅ |
+| mode 选路 | `POST /api/jobs/publish-video` 支持 `mode: "rpa"|"cloud"` 字段 | ✅ |
+| PublishPoller 跳过 | `input_data.mode === "cloud"` 时 PublishPoller 跳过不处理 | ✅ |
+| IPC handlers | `cloud-publisher:submit/list-tasks/get-task/platforms` 4个 IPC 通道 | ✅ |
 |
-| orchestrator stub 后端 | `POST /publish-video` 支持 cloud 模式，stub 模拟 10s 延迟返回成功 | 🆕 |
+| orchestrator stub 后端 | `POST /publish-video` 支持 cloud 模式，stub 模拟 10s 延迟返回成功 | ✅ |
 
 #### F14：共享工具库新模块（v1.6.0）
 
 | 子功能 | 描述 | 状态 |
 |--------|------|------|
-| ChunkedUploader (shared-utils) | 通用分片上传器，支持 init→upload chunks→complete 三步协议，进度回调/事件/取消 | 🆕 |
-| ProxyPool (shared-utils) | 代理池轮换 + 健康检查，round-robin 分发，自动移除失效代理 | 🆕 |
-| AnalyticsService (shared-utils) | 平台数据分析服务，provider 模式，支持多平台并行数据获取、指标归一化 | 🆕 |
+| ChunkedUploader (shared-utils) | 通用分片上传器，支持 init→upload chunks→complete 三步协议，进度回调/事件/取消 | ✅ |
+| ProxyPool (shared-utils) | 代理池轮换 + 健康检查，round-robin 分发，自动移除失效代理 | ✅ |
+| AnalyticsService (shared-utils) | 平台数据分析服务，provider 模式，支持多平台并行数据获取、指标归一化 | ✅ |
 
 ### 3.2 非功能需求
 || 需求 | 指标 | 状态 |

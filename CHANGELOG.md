@@ -36,6 +36,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.5.0] - 2026-06-28
+
+### Added — 云端发布模块（F13）
+
+- **CloudPublisher 类** (`cloud-publisher.js`): Electron 主进程 HTTP 通信层，连接 orchestrator 提交/查询任务
+- **前端 CloudPublish.vue**: 云端发布专属页面：提交表单 + 任务列表 + 进度轮询
+- **mode 选路**: `POST /api/jobs/publish-video` 支持 `mode: "rpa"|"cloud"` 字段
+- **PublishPoller 跳过**: `input_data.mode === "cloud"` 时 PublishPoller 跳过不处理
+- **IPC handlers**: `cloud-publisher:submit/list-tasks/get-task/platforms` 4 个 IPC 通道
+- **orchestrator stub**: `POST /publish-video` 支持 cloud 模式，stub 模拟 10s 延迟返回成功
+
+### Added — ECS 云端 API（F12 · 🆕）
+
+- **B站云端 API** (`orchestrator/services/bilibili_publisher.py`): Cookie-based 直连发布，444 行
+- **抖音云端 API** (`orchestrator/services/douyin_publisher.py`): Cookie-based 直连发布，388 行
+
+
+## [v1.4.0] - 2026-06-28
+
+### Added — 内容情报引擎（F11）
+
+- **跨源搜索** (`content-intelligence.js`): Reddit/HN/GitHub 免费 API 搜索主题讨论，log10 互动评分排序
+- **标题优化**: 搜索同类标题互动数据，提取高频模式，生成优化建议
+- **发布后影响力追踪**: 发布后 T+1min/1h/24h/72h 定时捕捉社交提及，Dashboard 展示
+- **发布时机优化**: 聚合搜索结果的时间分布，推荐各平台最佳发布时间
+- **外部引用推荐**: 选中关键词，自动搜索权威来源/数据/讨论，一键插入正文
+- **智能标签建议**: 基于内容关键词 + 平台标签体系，自动生成各平台标签建议
+- **内容表现基准比较**: 同类内容互动数据聚合，对比自身表现给出差距分析
+- **热榜趋势发现**: 实时聚合 Reddit/HN/GitHub 热门内容，主动发现创作主题
+- **关键词背景监测** (`keyword-monitor.js`): 持续监测指定关键词的讨论热度变化，异常飙升时桌面通知
+
+### Added — 情报引擎前端
+
+- `ContentIntelligence.vue` — 策题/标题优化/标签建议/引用推荐/趋势发现/监测配置 6 个 Tab
+- `PublishImpactTracker.vue` — 发布后影响力追踪仪表盘
+- Sidebar 入口 + 路由注册
+
+## [v1.3.0] - 2026-06-27
+
+### Added
+
 ## [v1.3.0] - 2026-06-27
 
 ### Added
