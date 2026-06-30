@@ -51,19 +51,6 @@ try {
   }
 } catch (e) { console.log('❌ electron:', e.message.split('\n')[0]); }
 
-// 测试 4：检查 api-platform-adapter 的所有 require 能否解析
-const apiAdapterPath = path.join(electronDir, 'api-platform-adapter.js');
-const apiAdapterContent = fs.readFileSync(apiAdapterPath, 'utf8');
-const requires = [...apiAdapterContent.matchAll(/require\(['"]([^'"]+)['"]\)/g)].map(m => m[1]);
-console.log('\n--- api-platform-adapter require 链 ---');
-for (const r of requires) {
-  if (r === 'electron') { console.log('✅', r, '(Electron runtime — OK at runtime)'); continue; }
-  const resolved = path.join(nm, r);
-  const exists = fs.existsSync(resolved) || fs.existsSync(resolved + '.js') || fs.existsSync(resolved + '/index.js');
-  console.log(exists ? '✅' : '❌', r, exists ? '' : '(NOT in asar!)');
-}
-
-// 测试 5：检查 electron 目录下所有文件的关键 require
 console.log('\n--- electron/ 目录关键文件检查 ---');
 const criticalFiles = ['callback-server.js', 'publish-monitor.js', 'content-aggregator-bridge.js',
   'credential-store.js', 'account-state-restorer.js', 'video-uploader.js', 'system-tray.js'];

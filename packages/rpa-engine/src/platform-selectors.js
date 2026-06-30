@@ -65,8 +65,13 @@ module.exports = {
       publish_btn: ['a[node-type="submit"]', '.W_btn_b', 'button:has-text("发布")'],
     },
     douyin: {
+      upload_btn: ['button:has-text("上传视频")', '.upload-btn', '[class*="upload"]'],
+      file_input: ['input[type="file"]'],
       title_input: ['.publish-title-input', '.title-input', 'input[placeholder*="标题"]'],
+      desc_textarea: ['textarea[placeholder*="描述"]', 'textarea[placeholder*="简介"]', '[class*="desc"] textarea', '[class*="description"] textarea'],
       editor: ['.ql-editor', '.notranslate', '[contenteditable="true"]', '.DraftEditor-root'],
+      tag_input: ['input[placeholder*="话题"]', 'input[placeholder*="标签"]', '[class*="tag"] input'],
+      cover_selector: ['[class*="cover"]', '.cover-upload', '[class*="poster"]'],
       publish_btn: ['button:has-text("发布")', '.publish-btn', '.confirm-btn'],
     },
     xiaohongshu: {
