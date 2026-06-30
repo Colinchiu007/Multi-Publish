@@ -1,3 +1,17 @@
+## [v1.6.2] - 2026-06-30
+
+### Fixed — CI 跨平台构建修复
+
+- **macOS 构建**: `macos-latest` runner 为 ARM 架构，移除 `--x64` 标志改为 `--universal` 统一二进制构建（#57）
+- **Linux 构建**: `ubuntu-latest`（Ubuntu 24.04+）缺少 `libfuse2`，AppImage 打包依赖 FUSE2（#57）
+- **cloud-publisher.js**: 修复因 FUSE 截断导致文件未提交 git 的问题（#56）
+- **macOS sed 兼容性**: 替换 BSD sed 为 `node -e` JSON 编辑，跨平台一致（#56）
+
+### CI/CD
+
+- 三平台 matrix: `windows-latest`, `ubuntu-latest`, `macos-latest`
+- 构建产物: Windows (.exe), Linux (.AppImage), macOS (.dmg/.zip)
+
 ## [v1.6.0] - 2026-06-29
 
 ### Added — 蚁小二逆向工程复用（3 个共享工具模块）
