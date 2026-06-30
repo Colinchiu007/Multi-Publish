@@ -57,11 +57,23 @@
 - packages/shared-utils/src/index.js: 新增 ChunkedUploader / ProxyPool / AnalyticsService 导出
 - 01-docs/PRD.md: 新增 F14 共享工具库新模块章节
 
+### Added — 全平台 Release 支持
+
+- **macOS 构建**: 首次支持 macOS DMG/ZIP 构建（GitHub Actions + electron-builder）
+  - CI matrix 新增 macos-latest runner
+  - 自动产出的 DMG 安装包和 ZIP 便携版
+  - 无代码签名（需用户右键→打开以绕过 Gatekeeper）
+- **Linux AppImage**: 修复 Linux 构建，从 `--dir` 升级为完整 AppImage
+- **Release 工作流**: 三平台 artifacts 扁平化收集发布
+- **PRD 更新**: v1.x 发布状态标记为 ✅
+
+
 ---
 
 # CHANGELOG
 
 All notable changes to this project will be documented in this file.
+
 
 ## [v1.5.0] - 2026-06-28
 
