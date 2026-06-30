@@ -32,7 +32,7 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           node -e "
             const p = require('./apps/desktop/package.json');
-            p.version = process.env.VERSION;
+            p.version = '${VERSION}';
             require('fs').writeFileSync('./apps/desktop/package.json', JSON.stringify(p, null, 2) + '\n');
           "
           VERSION_AFTER=$(node -p "require('./apps/desktop/package.json').version")
