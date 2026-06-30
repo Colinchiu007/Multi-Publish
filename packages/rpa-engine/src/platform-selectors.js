@@ -145,6 +145,14 @@ module.exports = {
       tag_input: ['input[placeholder*="标签"]', '.tag-input input', '[class*="tag"] input'],
       publish_btn: ['button:has-text("发布")', 'button:has-text("提交")', '.submit-btn', '[class*="submit"]'],
     },
+    facebook: {
+      upload_btn: ['button:has-text("上传视频")', 'a[aria-label*="Create"][role="button"]', '[data-pagelet*="composer"] button', 'div[role="button"]:has-text("视频")'],
+      file_input: ['input[type="file"]'],
+      title_input: ['input[placeholder*="title"]', 'input[aria-label*="title"]', '[class*="title"] input', 'input[placeholder*="标题"]'],
+      desc_textarea: ['[aria-label*="description"] textarea', '[class*="description"] textarea', 'textarea[placeholder*="说明"]', '[data-pagelet*="composer"] textarea'],
+      tag_input: ['input[placeholder*="标签"]', '[aria-label*="tag"] input', '[class*="tag"] input'],
+      publish_btn: ['button:has-text("发布")', 'button:has-text("Publish")', 'div[aria-label="Publish"][role="button"]', 'div[aria-label="发布"][role="button"]', '[data-testid*="publish"]'],
+    },
   },
 
   PLATFORM_NAMES: {

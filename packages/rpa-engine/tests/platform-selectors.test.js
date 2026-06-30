@@ -57,7 +57,7 @@ describe('PLATFORM_LOGIN_SUCCESS_SELECTORS', () => {
 
 describe('PLATFORM_PUBLISH_SELECTORS', () => {
   // —— 存在性 ——
-  test.each(EXPECTED.filter(p => p !== 'facebook'))(
+  test.each(EXPECTED)(
     '%s 有发布选择器', (platform) => {
       const selectors = PLATFORM_PUBLISH_SELECTORS[platform]
       expect(selectors).toBeDefined()
@@ -65,9 +65,17 @@ describe('PLATFORM_PUBLISH_SELECTORS', () => {
     }
   )
 
-  // facebook 目前缺失 — 已知缺口
-  test('facebook 发布选择器缺失（已知缺口）', () => {
-    expect(PLATFORM_PUBLISH_SELECTORS.facebook).toBeUndefined()
+  // facebook 发布选择器已补齐（Meta Creator Studio）
+  test('facebook 发布选择器已定义', () => {
+    const sel = PLATFORM_PUBLISH_SELECTORS.facebook
+    expect(sel).toBeDefined()
+    expect(typeof sel).toBe('object')
+    expect(sel.upload_btn).toBeDefined()
+    expect(sel.file_input).toBeDefined()
+    expect(sel.publish_btn).toBeDefined()
+    expect(sel.upload_btn.length).toBeGreaterThan(0)
+    expect(sel.file_input.length).toBeGreaterThan(0)
+    expect(sel.publish_btn.length).toBeGreaterThan(0)
   })
 
   // —— 标题或正文输入字段 ——
@@ -79,14 +87,14 @@ describe('PLATFORM_PUBLISH_SELECTORS', () => {
     )
   }
 
-  test.each(EXPECTED.filter(p => p !== 'facebook'))(
+  test.each(EXPECTED)(
     '%s 有标题或正文输入字段', (platform) => {
       expect(hasTitleOrContent(platform)).toBe(true)
     }
   )
 
   // —— publish_btn ——
-  test.each(EXPECTED.filter(p => p !== 'facebook'))(
+  test.each(EXPECTED)(
     '%s 有 publish_btn', (platform) => {
       const sel = PLATFORM_PUBLISH_SELECTORS[platform]
       expect(sel.publish_btn).toBeDefined()

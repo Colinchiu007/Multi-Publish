@@ -1,45 +1,28 @@
 /**
- * Test: registry.js — 平台注册中心
- * 测试: 15 个平台都能正确注册，getPublisherClass 抛错处理
+ * Test: registry.js — 平台注册中心（已废弃）
+ *
+ * P2-E: 所有平台已迁移到 RpaViewManager（executeJavaScript 引擎），
+ * registry 保持空对象（仅向后 require 兼容），不注册任何平台。
+ *
+ * 测试验证废弃状态下的行为契约。
  */
 
 const { getPublisherClass, listPlatforms } = require('../src/publishers/registry')
 
-// 15 个平台都在 registry 里
-const EXPECTED = [
-  'wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu',
-  'tencent_video', 'kuaishou', 'toutiao', 'youtube', 'tiktok',
-  'bilibili', 'baijiahao', 'twitter', 'instagram', 'facebook'
-]
-
-describe('Registry', () => {
-  test('listPlatforms 返回 15 个平台', () => {
+describe('Registry（已废弃）', () => {
+  test('listPlatforms 返回空数组（注册中心已废弃）', () => {
     const platforms = listPlatforms()
-    expect(platforms).toHaveLength(15)
+    expect(platforms).toEqual([])
   })
 
-  test('listPlatforms 包含所有预期平台', () => {
-    const platforms = listPlatforms()
-    for (const p of EXPECTED) {
-      expect(platforms).toContain(p)
-    }
-  })
-
-  test('getPublisherClass 返回有效的类', () => {
-    // wechat_mp 直接导出，其他平台可能被 makeApiRpa 包装
-    expect(getPublisherClass('wechat_mp')).toBe(require('../src/publishers/wechat-mp-rpa'))
-    // 验证所有平台都能获取到类（不要求精确匹配，因为 makeApiRpa 返回匿名类）
-    const platforms = ['zhihu', 'weibo', 'douyin', 'xiaohongshu', 'tencent_video',
-      'kuaishou', 'toutiao', 'youtube', 'tiktok', 'bilibili', 'baijiahao',
-      'twitter', 'instagram', 'facebook']
+  test('getPublisherClass 对所有平台抛出未知平台错误', () => {
+    const platforms = [
+      'wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu',
+      'tencent_video', 'kuaishou', 'toutiao', 'youtube', 'tiktok',
+      'bilibili', 'baijiahao', 'twitter', 'instagram', 'facebook',
+    ]
     for (const p of platforms) {
-      const cls = getPublisherClass(p)
-      expect(cls).toBeDefined()
-      expect(typeof cls).toBe('function')
+      expect(() => getPublisherClass(p)).toThrow(`未知平台: ${p}`)
     }
-  })
-
-  test('不支持的平台抛错', () => {
-    expect(() => getPublisherClass('fake_platform')).toThrow('不支持的平台: fake_platform')
   })
 })

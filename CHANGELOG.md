@@ -13,6 +13,18 @@
 - ChunkedUploader / ProxyPool / AnalyticsService 共享工具库
 - 发布频率控制 (PublishIntervalGuard)
 
+## [v1.6.5] - 2026-06-30
+
+### Fixed
+
+- **facebook publish selectors**: 补齐 PLATFORM_PUBLISH_SELECTORS 缺失的 facebook 条目（upload_btn, file_input, title_input, desc_textarea, tag_input, publish_btn），基于 Meta Creator Studio 模式设计
+- **registry.test.js 失效修复**: registry 已废弃（P2-E 清理），更新测试验证空注册中心行为契约（listPlatforms=[]，getPublisherClass 对所有平台抛错）
+
+### Tests
+
+- **platform-selectors**: 移除 facebook skip 过滤器和"已知缺口"标记，facebook 纳入全平台存在性+字段验证（15/15 全绿）
+
+
 ## [v1.6.4] - 2026-06-30
 
 ### Improved — 代码质量
