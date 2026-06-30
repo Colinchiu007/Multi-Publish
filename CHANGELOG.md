@@ -13,6 +13,15 @@
 - ChunkedUploader / ProxyPool / AnalyticsService 共享工具库
 - 发布频率控制 (PublishIntervalGuard)
 
+## [v1.6.4] - 2026-06-30
+
+### Improved — 代码质量
+
+- **抖音选择器验证**: 补齐 douyin platform-selectors 缺失字段（upload_btn, file_input, desc_textarea, tag_input, cover_selector）
+- **platform-selectors 测试**: 新增 118 个单元测试覆盖全部 15 平台的登录 URL、成功选择器、发布选择器、中文名
+- **消除 api-platform-adapter.js 重复**: 删除 desktop 副本，规范源统一到 packages/rpa-engine/src/
+
+
 ## [v1.6.2] - 2026-06-30
 
 ### Fixed — CI 跨平台构建修复

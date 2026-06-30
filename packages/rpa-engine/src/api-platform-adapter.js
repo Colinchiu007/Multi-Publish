@@ -6,7 +6,7 @@
  * - 适用于微博、抖音、B站、知乎等提供 API 的平台
  * - 与 RPA 模式并行，根据平台配置自动选择
  * 
- * 文件位置: apps/desktop/electron/api-platform-adapter.js
+ * 文件位置: packages/rpa-engine/src/api-platform-adapter.js（规范源）
  */
 const axios = require('axios')
 const FormData = require('form-data')
