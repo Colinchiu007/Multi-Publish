@@ -11,7 +11,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
@@ -25,9 +25,6 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      # 让安装包文件名与 tag 版本号保持一致
-      # electron-builder 的 artifactName 模板用 package.json 的 version 字段
-      # 这里仅在 tag 触发时覆盖（bash 兼容 Windows/Linux runner）
       - name: Sync package version with tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -37,7 +34,6 @@ jobs:
           VERSION_AFTER=$(node -p "require('./apps/desktop/package.json').version")
           echo "package version = ${VERSION_AFTER}"
 
-      # Linux 需要 libvips（sharp 依赖）和 C++ 编译工具（better-sqlite3）
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |
@@ -47,17 +43,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # 1. 启动冒烟测试 — 验证 require 路径、路由表、配置一致性
-      #    不依赖 Electron 运行时，在非 Electron 环境自动 mock
       - name: Startup smoke test
         run: npm run test -w @multi-publish/desktop
 
-      # 2. 依赖声明一致性检查 — 检测未声明/未使用的 dependencies
       - name: Dependency check
         continue-on-error: true
         run: npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite
 
-      # 3. 循环依赖检查 — 防止模块间循环引用
       - name: Circular dependency check
         continue-on-error: true
         run: npx madge --warning --circular apps/desktop/electron/main.js
@@ -65,14 +57,11 @@ jobs:
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
-      # 显式安装 @electron/rebuild 并重建原生模块
-      # app-builder-lib@25.1.8 缺少 remote-rebuild.js，内置 rebuilder 会失败
       - name: Rebuild native modules
         run: |
           cd apps/desktop
           npx @electron/rebuild -f -w better-sqlite3
 
-      # 安装 Playwright Chromium 并捆绑到安装包（避免离线用户无法下载）
       - name: Install Playwright chromium (bundled)
         shell: bash
         run: |
@@ -96,9 +85,33 @@ jobs:
 
       - name: Build Electron app (Linux)
         if: runner.os == 'Linux'
-        run: cd apps/desktop && npx electron-builder --linux --x64 --dir
+        run: cd apps/desktop && npx electron-builder --linux --x64 -p never
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
+
+      - name: Upload Linux artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Multi-Publish-Linux
+          path: apps/desktop/dist-electron/Multi-Publish*.AppImage
+          retention-days: 30
+
+      - name: Build Electron app (macOS)
+        if: runner.os == 'macOS'
+        run: cd apps/desktop && npx electron-builder --mac --x64 -p never
+        env:
+          NODE_OPTIONS: "--max_old_space_size=4096"
+
+      - name: Upload macOS artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Multi-Publish-macOS
+          path: |
+            apps/desktop/dist-electron/Multi-Publish*.dmg
+            apps/desktop/dist-electron/Multi-Publish*.zip
+          retention-days: 30
 
   release:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -110,11 +123,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Windows asset
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: Multi-Publish-Windows
           path: release-assets
+
+      - name: Flatten artifact directories
+        shell: bash
+        run: |
+          find release-assets -type f -exec mv {} release-assets/ \;
+          find release-assets -type d -empty -delete
 
       - name: Generate release notes
         id: notes
@@ -126,7 +144,6 @@ jobs:
           printf -v NL '\n\n'
           NOTES="${NOTES}${NL}Full changelog: https://github.com/${{ github.repository }}/compare/v${VERSION}...HEAD"
           if [ -f CHANGELOG.md ]; then
-            # extract from "## [vX.Y.Z]" up to next "## [" section
             CHUNK=$(awk -v ver="$VERSION" '
               BEGIN { capture=0 }
               /^## \[v/ {
@@ -154,7 +171,6 @@ jobs:
           draft: false
           prerelease: false
 
-      # 同步 .exe 到 Gitee Release（国内加速，330MB 文件下载速度从 50KB/s → 5MB/s）
       - name: Sync to Gitee Release
         if: env.GITEE_TOKEN != ''
         shell: bash
@@ -165,7 +181,14 @@ jobs:
         run: |
           set -e
           TAG="${{ github.ref_name }}"
-          # 1) 确保 Gitee 仓库 release 存在
           curl -fsS -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases" \
             -H "Content-Type: application/json" \
-            -d "{\"access_token\":\"${GITEE_TOKEN}\",\"tag_
+            -d "{\"access_token\":\"${GITEE_TOKEN}\",\"tag_name\":\"${TAG}\",\"name\":\"Multi-Publish ${TAG}\"}" > /dev/null
+          # Upload Windows asset to Gitee
+          ASSET_PATH=$(ls release-assets/Multi-Publish.Setup.*.exe 2>/dev/null | head -1)
+          if [ -n "$ASSET_PATH" ]; then
+            curl -fsS -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/$(curl -s \"https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}\" | python3 -c \"import sys,json; print(json.load(sys.stdin)['id'])\")/attach_files" \
+              -H "Content-Type: multipart/form-data" \
+              -F "access_token=${GITEE_TOKEN}" \
+              -F "file=@${ASSET_PATH}"
+          fi

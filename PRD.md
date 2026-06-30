@@ -205,7 +205,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | 任务持久化 | SQLite 持久化队列状态，崩溃自动恢复 | ✅ |
 || 数据加密 | Cookie AES-256-GCM 加密存储 | ✅ |
 || 存储引擎 | SQLite（better-sqlite3） | ✅ |
-|| 跨平台 | Windows + Linux（macOS 待支持） | ✅ |
+|| 跨平台 | Windows + Linux + macOS | ✅ (v1.6.0) |
 || 自动构建 | GitHub Actions 双平台 CI + 自动 Release | ✅ |
 || 自动更新 | electron-updater，从 GitHub Release 拉取 | ✅ |
 
@@ -437,7 +437,7 @@ Task Queue → 各平台发布器 → 发布完成
 | 环节 | 说明 | 状态 |
 |------|------|------|
 | GitHub Actions | 推送 main/develop 触发构建 | ✅ |
-| 构建产物 | Windows (.exe) + Linux (.AppImage) | ✅ |
+| 构建产物 | Windows (.exe) + Linux (.AppImage) + macOS (.dmg/.zip) | ✅ (v1.6.0) |
 | 自动更新 | electron-updater + GitHub Release | ✅（待首次 Release） |
 
 ---
@@ -491,5 +491,5 @@ Task Queue → 各平台发布器 → 发布完成
 |------|------|------|
 | P0-P3 | 基础发布 + 任务队列 + 定时 + 统计 | ✅ |
 | **蚁小二集成** | 分屏/回调/扫码/OAuth/SQLite/批量/B站/URL采集/托盘/快捷键/多账号 | ✅ |
-| **V1.0 发布** | 首版 Release、运营启动 | ⏳ 待进行 |
+| **V1.0 发布** | 首版 Release、运营启动 | ✅ (v1.6.0) |
 | V1.1 格式适配 | Markdown → 各平台格式转换、封面

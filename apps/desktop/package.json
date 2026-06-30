@@ -76,6 +76,24 @@
       "provider": "github",
       "owner": "Colinchiu007",
       "repo": "Multi-Publish"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": null,
+      "artifactName": "${productName}-${version}-mac.${ext}",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": false
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": null,
+      "artifactName": "${productName}-${version}-${arch}.AppImage",
+      "category": "Network"
     }
   }
 }
