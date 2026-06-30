@@ -1,3 +1,18 @@
+## [v1.6.3] - 2026-06-30
+
+### Fixed — CI 标签构建修复
+
+- **VERSION 变量透传**: `process.env.VERSION` 在 CI runner 中不可用，改为 bash 插值 `${VERSION}` 注入 package.json（#58）
+- 修复自 v1.6.0 以来所有 tag 构建因 version 为 `undefined` 而失败的问题
+
+### Release 正式化
+
+- 全平台构建验证通过: Windows (.exe) / Linux (.AppImage) / macOS (.dmg)
+- 支持 12 平台内容发布（B站/抖音/小红书/视频号/微博/知乎/快手等）
+- 云端发布模块 (ECS) + RPA 桌面发布 (Electron)
+- ChunkedUploader / ProxyPool / AnalyticsService 共享工具库
+- 发布频率控制 (PublishIntervalGuard)
+
 ## [v1.6.2] - 2026-06-30
 
 ### Fixed — CI 跨平台构建修复
