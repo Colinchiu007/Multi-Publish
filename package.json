@@ -2,7 +2,7 @@
   "name": "multi-publish",
   "version": "1.2.0",
   "private": true,
-  "description": "多平台内容一键发布 — Monorepo",
+  "description": "\u591a\u5e73\u53f0\u5185\u5bb9\u4e00\u952e\u53d1\u5e03 \u2014 Monorepo",
   "scripts": {
     "dev": "npm run dev -w @multi-publish/desktop",
     "build": "npm run build -w @multi-publish/desktop",
@@ -29,6 +29,7 @@
   "devDependencies": {
     "jest": "^30.4.2",
     "depcheck": "^1.4.7",
-    "madge": "^8.0.0"
+    "madge": "^8.0.0",
+    "pinia": "^3.0.0"
   }
 }
