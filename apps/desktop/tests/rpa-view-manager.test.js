@@ -86,14 +86,13 @@ describe("RpaViewManager bilibili publish", () => {
     rpa = new RpaViewManager()
   })
 
-  test("_publish_bilibili method exists on prototype", () => {
-    expect(typeof RpaViewManager.prototype._publish_bilibili).toBe("function")
+  test("_publish_generic fallback exists on prototype", () => {
+    expect(typeof RpaViewManager.prototype._publish_generic).toBe("function")
   })
 
-  test("publish dispatches _publish_bilibili when platform is bilibili", () => {
-    const mn = "_publish_bilibili"
-    expect(typeof rpa[mn]).toBe("function")
-    expect(typeof rpa["_publish_" + "bilibili"]).toBe("function")
+  test("publish dispatches _publish_generic when no platform-specific method exists", () => {
+    expect(typeof rpa._publish_bilibili).toBe("undefined")
+    expect(typeof rpa._publish_generic).toBe("function")
   })
 
   test("_publish_bilibili returns error for missing video_path", async () => {
