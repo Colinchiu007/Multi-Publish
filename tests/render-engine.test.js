@@ -1,7 +1,7 @@
 /**
  * RenderEngine 单元测试
  */
-const RenderEngine = require('../electron/render-engine');
+const RenderEngine = require('../apps/desktop/electron/render-engine');
 
 describe('RenderEngine', () => {
   let engine;
@@ -52,6 +52,4 @@ describe('RenderEngine', () => {
       // 如果在 CI 环境没有 npx，返回错误但不崩溃
       expect(result).toHaveProperty('success');
       expect(typeof result.error).toBe('string');
-    });
-  });
-});
+    }
