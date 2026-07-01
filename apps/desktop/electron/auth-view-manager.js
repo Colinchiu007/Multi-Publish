@@ -12,36 +12,9 @@
 const { BrowserWindow, WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
+const { PLATFORM_LOGIN_URLS, PLATFORM_LOGIN_SUCCESS_PATTERNS } = require('@multi-publish/shared-utils/src/platform-definitions')
 
-// 平台登录 URL 映射
-const PLATFORM_LOGIN_URLS = {
-  wechat_mp: 'https://mp.weixin.qq.com/',
-  zhihu: 'https://www.zhihu.com/signin',
-  weibo: 'https://weibo.com/login',
-  douyin: 'https://www.douyin.com/',
-  xiaohongshu: 'https://creator.xiaohongshu.com/',
-  tencent_video: 'https://channels.weixin.qq.com/',
-  kuaishou: 'https://cp.kuaishou.com/',
-  toutiao: 'https://mp.toutiao.com/',
-  bilibili: 'https://passport.bilibili.com/login',
-  youtube: 'https://studio.youtube.com/',
-  tiktok: 'https://www.tiktok.com/upload/',
-}
-
-// 各平台登录成功后 URL 特征（用于检测登录完成）
-const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
-  wechat_mp: ['cgi-bin/home', 'cgi-bin/appmsg'],
-  zhihu: ['zhihu.com'],
-  weibo: ['weibo.com/home', 'weibo.com/u/'],
-  douyin: ['douyin.com'],
-  xiaohongshu: ['creator.xiaohongshu.com'],
-  tencent_video: ['channels.weixin.qq.com'],
-  kuaishou: ['cp.kuaishou.com'],
-  toutiao: ['mp.toutiao.com'],
-  bilibili: ['www.bilibili.com/'],
-  youtube: ['studio.youtube.com'],
-  tiktok: ['tiktok.com'],
-}
+// 平台登录 URL 映射 → @multi-publish/shared-utils/src/platform-definitions
 
 const SIDEBAR_WIDTH = 280
 

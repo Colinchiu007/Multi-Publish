@@ -74,22 +74,16 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { usePlatformStore } from '@/stores/platforms'
 import BenchmarkChart from '@/components/BenchmarkChart.vue'
 
 const syncing = ref(false)
 const platformData = ref([])
+const platformStore = usePlatformStore()
+platformStore.load()
 
-const platformNameMap = {
-  douyin: '抖音', bilibili: 'B站', xiaohongshu: '小红书',
-  tencent_video: '视频号', wechat_mp: '公众号',
-}
-const platformIconMap = {
-  douyin: '🎵', bilibili: '📺', xiaohongshu: '📕',
-  tencent_video: '▶', wechat_mp: '💬',
-}
-
-function platformName (id) { return platformNameMap[id] || id }
-function platformIcon (id) { return platformIconMap[id] || '📊' }
+function platformName (id) { return platformStore.getLabel(id) || id }
+function platformIcon (id) { return platformStore.getIcon(id) || '📊' }
 function formatTime (iso) {
   if (!iso) return ''
   return new Date(iso).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })

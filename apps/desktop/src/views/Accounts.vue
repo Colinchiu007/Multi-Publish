@@ -104,6 +104,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { usePlatformStore } from '@/stores/platforms'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listAccounts, accountDelete, accountCheckLogin } from '@/api/publisher'
 
@@ -113,25 +114,14 @@ const showAddDialog = ref(false)
 const adding = ref(false)
 const newPlatform = ref('')
 const filter = ref('all')
+const platformStore = usePlatformStore()
+platformStore.load()
 const authViewVisible = ref(false)
 const authPlatformName = ref('')
 
-const platformMap = {
-  wechat_mp: '微信公众号', zhihu: '知乎', weibo: '微博', douyin: '抖音',
-  xiaohongshu: '小红书', tencent_video: '视频号', kuaishou: '快手',
-  toutiao: '今日头条', bilibili: 'B站', youtube: 'YouTube', tiktok: 'TikTok',
-}
-
-const platformIconMap = {
-  wechat_mp: '💬', zhihu: '❓', weibo: '✧', douyin: '🎵',
-  xiaohongshu: '📕', tencent_video: '▶', kuaishou: '🎬',
-  toutiao: '📰', bilibili: '📺', youtube: '▶', tiktok: '♪',
-}
-
-const allPlatforms = Object.entries(platformMap).map(([id, label]) => ({ id, label }))
-
-function platformLabel (id) { return platformMap[id] || id }
-function platformIcon (id) { return platformIconMap[id] || '📦' }
+const allPlatforms = computed(() => platformStore.platforms.map(p => ({ id: p.id, label: p.label })))
+function platformLabel (id) { return platformStore.getLabel(id) || id }
+function platformIcon (id) { return platformStore.getIcon(id) || '📦' }
 
 const totalAccounts = computed(() => accounts.value.length)
 

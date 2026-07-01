@@ -16,15 +16,10 @@
 const { WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
+const { PLATFORM_LOGIN_URLS, QR_CODE_PLATFORMS } = require('@multi-publish/shared-utils/src/platform-definitions')
 
-// 各平台登录页 URL
-const PLATFORM_LOGIN_URLS = {
-  wechat_mp: 'https://mp.weixin.qq.com/',
-  tencent_video: 'https://channels.weixin.qq.com/',
-  zhihu: 'https://www.zhihu.com/signin',
-  weibo: 'https://weibo.com/login',
-  toutiao: 'https://mp.toutiao.com/',
-}
+// 各平台登录页 URL → @multi-publish/shared-utils/src/platform-definitions
+// 支持二维码登录的平台由 QR_CODE_PLATFORMS 定义
 
 // QR 码检测间隔
 const QR_SCAN_INTERVAL_MS = 2000

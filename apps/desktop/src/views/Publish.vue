@@ -196,20 +196,18 @@ import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import ArticleEditor from '@/components/ArticleEditor.vue'
 
 const route = useRoute()
+const platformStore = usePlatformStore()
+platformStore.load()
 
-const platforms = [
-  { id: 'wechat_mp', label: '微信公众号', tag: null, tagClass: '' },
-  { id: 'zhihu', label: '知乎', tag: null, tagClass: '' },
-  { id: 'weibo', label: '微博', tag: null, tagClass: '' },
-  { id: 'douyin', label: '抖音', tag: null, tagClass: '' },
-  { id: 'xiaohongshu', label: '小红书', tag: null, tagClass: '' },
-  { id: 'tencent_video', label: '视频号', tag: null, tagClass: '' },
-  { id: 'kuaishou', label: '快手', tag: null, tagClass: '' },
-  { id: 'toutiao', label: '今日头条', tag: null, tagClass: '' },
-  { id: 'bilibili', label: 'B站', tag: '新', tagClass: 'cohere-tag-success' },
-  { id: 'youtube', label: 'YouTube', tag: null, tagClass: '' },
-  { id: 'tiktok', label: 'TikTok', tag: null, tagClass: '' },
-]
+// platform data → usePlatformStore() + bilibili tag override
+const PLATFORM_TAGS = { bilibili: { tag: '新', tagClass: 'cohere-tag-success' } }
+const platforms = computed(() =>
+  platformStore.platforms.map(p => ({
+    id: p.id,
+    label: p.label,
+    ...(PLATFORM_TAGS[p.id] || { tag: null, tagClass: '' }),
+  }))
+)
 
 // ── 多账号加载 ──────────────────────────
 const platformAccounts = ref({})  // { platformId: [account, ...] }

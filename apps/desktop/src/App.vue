@@ -133,9 +133,12 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { usePlatformStore } from '@/stores/platforms'
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
 
 const route = useRoute()
+const platformStore = usePlatformStore()
+platformStore.load()
 const authViewVisible = ref(false)
 
 function closeLogin () {
@@ -167,22 +170,7 @@ const activePlatform = ref(null)
 const platformAccounts = ref({})  // { platformId: [account, ...] }
 const loaded = ref(false)
 
-const platformMeta = {
-  wechat_mp: { label: '微信公众号', icon: '💬' },
-  zhihu: { label: '知乎', icon: '❓' },
-  weibo: { label: '微博', icon: '✧' },
-  douyin: { label: '抖音', icon: '🎵' },
-  xiaohongshu: { label: '小红书', icon: '📕' },
-  tencent_video: { label: '视频号', icon: '▶' },
-  kuaishou: { label: '快手', icon: '🎬' },
-  toutiao: { label: '今日头条', icon: '📰' },
-  bilibili: { label: 'B站', icon: '📺' },
-  baijiahao: { label: '百家号', icon: '📖' },
-  yidian: { label: '一点号', icon: '📋' },
-  youtube: { label: 'YouTube', icon: '▶' },
-  tiktok: { label: 'TikTok', icon: '♪' },
-  twitter: { label: 'X (Twitter)', icon: '✕' },
-}
+// platformMeta → usePlatformStore()
 
 async function loadAccounts () {
   const api = window.electronAPI
@@ -238,11 +226,11 @@ async function switchAccount (platform, accountId) {
 }
 
 const filteredPlatforms = computed(() => {
-  const ids = Object.keys(platformMeta)
+  const ids = platformStore.platforms.map(p => p.id)
   if (!platformSearch.value) return ids
   const q = platformSearch.value.toLowerCase()
   return ids.filter(id =>
-    platformMeta[id].label.toLowerCase().includes(q) || id.toLowerCase().includes(q)
+    platformStore.getLabel(id).toLowerCase().includes(q) || id.toLowerCase().includes(q)
   )
 })
 
