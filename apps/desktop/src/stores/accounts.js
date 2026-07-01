@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { listAccounts } from '@/api/publisher'
 
 /**
  * 账号管理 Store
@@ -14,7 +15,7 @@ export const useAccountStore = defineStore('accounts', () => {
     loading.value = true
     error.value = null
     try {
-      const res = await window.electronAPI.listAccounts()
+      const res = await listAccounts()
       if (res && res.code === 0 && Array.isArray(res.data)) {
         accounts.value = res.data
       } else if (Array.isArray(res)) {

@@ -147,7 +147,7 @@ async function fetchBenchmark() {
 
   loading.value = true
   try {
-    const result = await window.electronAPI.intelligenceGetBenchmark(props.title, { sampleSize: 12 })
+    const result = await intelligenceGetBenchmark({ keyword: props.title, sampleSize: 12 })
     data.value = result
     if (result?.error) {
       error.value = result.error

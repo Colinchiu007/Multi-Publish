@@ -74,6 +74,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { syncAll, syncPlatform } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
 import BenchmarkChart from '@/components/BenchmarkChart.vue'
 
@@ -95,11 +96,10 @@ const totalComments = computed(() => platformData.value.filter(d => !d.error).re
 const totalFollowers = computed(() => platformData.value.filter(d => !d.error).reduce((s, d) => s + (d.followers || 0), 0))
 
 async function refreshSync () {
-  const api = window.electronAPI
-  if (!api || !api.syncAll) return
+  if (!syncAll) return
   syncing.value = true
   try {
-    await api.syncAll()
+    await syncAll()
     await loadCached()
   } catch (e) {
     console.warn('Sync failed:', e.message)

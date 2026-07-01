@@ -150,7 +150,7 @@ async function fetchTrending() {
   loading.value = true
   error.value = null
   try {
-    const result = await window.electronAPI.intelligenceFetchTrending({
+    const result = await intelligenceFetchTrending({
       sources: props.sources,
       limit: 20
     })
