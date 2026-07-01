@@ -1,5 +1,5 @@
 /**
- * Store — 统一数据存储（SQLite, better-sqlite3）
+ * Store — 统一数据存储（SQLite, sql.js via sqlite-wrapper）
  *
  * 替代零散 JSONL 文件，统一管理：
  *   - accounts    账号信息（Cookie/localStorage/账号名）
@@ -16,9 +16,9 @@ const log = require('./logger')
 
 let Database = null
 try {
-  Database = require('better-sqlite3')
+  Database = require('./sqlite-wrapper')
 } catch (e) {
-  log.error('Store', `better-sqlite3 failed to load: ${e.message}`)
+  log.error('Store', `sql.js failed to load: ${e.message}`)
 }
 
 class Store {

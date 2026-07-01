@@ -1,7 +1,7 @@
 {
   "name": "@multi-publish/desktop",
   "version": "1.2.0",
-  "description": "多平台内容一键发布桌面工具 (Electron + RpaViewManager)",
+  "description": "\u591a\u5e73\u53f0\u5185\u5bb9\u4e00\u952e\u53d1\u5e03\u684c\u9762\u5de5\u5177 (Electron + RpaViewManager)",
   "author": "Colin Chiu <colin.chiu@colinchiu.com>",
   "main": "electron/main.js",
   "scripts": {
@@ -26,7 +26,6 @@
     "@vitejs/plugin-vue": "^5.2.0",
     "@vueup/vue-quill": "^1.5.3",
     "axios": "^1.9.0",
-    "better-sqlite3": "^12.10.0",
     "electron-updater": "^6.8.9",
     "element-plus": "^2.9.0",
     "form-data": "^4.0.0",
@@ -34,7 +33,8 @@
     "pinia": "^2.3.0",
     "vite": "^6.3.0",
     "vue": "^3.5.0",
-    "vue-router": "^4.5.0"
+    "vue-router": "^4.5.0",
+    "sql.js": "^1.11.0"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
