@@ -56,7 +56,7 @@ export default {
     }
   },
   mounted() {
-    const state = this.$router.currentRoute?.query?.path || this.$route?.state?.result?.outputPath
+    const state = this.$route?.query?.path
     if (state) {
       this.videoPath = state
       this.videoSrc = `file://${state}`

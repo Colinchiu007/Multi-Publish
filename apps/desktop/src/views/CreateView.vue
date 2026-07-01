@@ -191,7 +191,7 @@ export default {
       this.rendering = false
     },
     viewResult() {
-      this.$router.push(`/result/${Date.now()}`, { state: { result: this.result } })
+      this.$router.push({ path: '/create/result', query: { path: this.result?.outputPath || '' } })
     },
   },
 }
