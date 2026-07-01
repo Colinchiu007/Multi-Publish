@@ -9,6 +9,7 @@ const fs = require('fs')
 const log = require('./logger')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
+const { STEALTH_SOURCE } = require('./stealth-helper')
 
 // ---- ProgressThrottle (Python base.py port) ----
 class ProgressThrottle {
@@ -289,6 +290,8 @@ class RpaViewManager {
     var win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, backgroundThrottling:false } })
     win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
     win.webContents.on('console-message',function(){})
+    // anti-detection: inject stealth on every navigation
+    win.webContents.on('did-finish-load',function(){ win.webContents.executeJavaScript(STEALTH_SOURCE).catch(function(){}) })
     return win
   }
   _windowKey(platform, accountId) { return 'rpa-'+platform+'-'+(accountId||'default')+'-'+(this._nextId++) }

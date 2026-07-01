@@ -6,10 +6,12 @@
  */
 const registry = require('./publishers/registry')
 const platformSelectors = require('./platform-selectors')
+const browserData = require('./browser-data')
 
 module.exports = {
   registry,
   platformSelectors,
+  browserData,
   // 便捷访问
   getPublisherClass: registry.getPublisherClass,
   listPlatforms: registry.listPlatforms,

@@ -47,6 +47,7 @@ const ELECTRON_FILES = [
   'publish-monitor.js',
   'video-uploader.js',
   'content-aggregator-bridge.js',
+  'api-platform-adapter.js',
   'callback-server.js',
 ];
 
