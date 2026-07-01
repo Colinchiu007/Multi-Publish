@@ -198,6 +198,7 @@ import ArticleEditor from '@/components/ArticleEditor.vue'
 const route = useRoute()
 const platformStore = usePlatformStore()
 platformStore.load()
+const accountStore = useAccountStore()
 
 // platform data → usePlatformStore() + bilibili tag override
 const PLATFORM_TAGS = { bilibili: { tag: '新', tagClass: 'cohere-tag-success' } }
@@ -210,32 +211,18 @@ const platforms = computed(() =>
 )
 
 // ── 多账号加载 ──────────────────────────
-const platformAccounts = ref({})  // { platformId: [account, ...] }
+
 
 async function loadAccounts () {
-  const api = window.electronAPI
-  if (!api || !api.accountList) return
-  try {
-    const res = await api.accountList()
-    if (res.code === 0 && Array.isArray(res.data)) {
-      const grouped = {}
-      for (const acc of res.data) {
-        if (!grouped[acc.platform]) grouped[acc.platform] = []
-        grouped[acc.platform].push(acc)
-      }
-      platformAccounts.value = grouped
-    }
-  } catch (e) { /* ignore */ }
+  await accountStore.load()
 }
 
 function getAccounts (platformId) {
-  return platformAccounts.value[platformId] || []
+  return accountStore.byPlatform[platformId] || []
 }
 
 function getDefaultAccount (platformId) {
-  const accs = getAccounts(platformId)
-  if (accs.length === 0) return null
-  return accs.find(a => a.is_default) || accs[0]
+  return accountStore.getDefault(platformId)
 }
 
 // ── 非批量模式 ──────────────────────────
