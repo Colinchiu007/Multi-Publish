@@ -21,6 +21,7 @@ const PLATFORM_LOGIN_URLS = {
   toutiao: 'https://mp.toutiao.com/',
   youtube: 'https://studio.youtube.com/',
   tiktok: 'https://www.tiktok.com/upload/',
+  bilibili: 'https://passport.bilibili.com/login',
 }
 
 // 平台显示名称
@@ -49,6 +50,7 @@ const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
   toutiao: '.user-avatar, .nickname, [class*="avatar"]',
   youtube: '#avatar-btn, ytcp-avatar',
   tiktok: '[data-testid="user-avatar"], [class*="avatar"]',
+  bilibili: '.header-info, .user-con, [class*="user"]',
 }
 
 /**
@@ -483,9 +485,4 @@ module.exports = {
   PLATFORM_LOGIN_SUCCESS_SELECTORS,
   extractAccountInfo,
   restoreCookies,
-  restoreLocalStorage,
-  openSavedAccount,
-  checkLocalCredentials,
-  accountStateRestorer,
-  credentialStore,
-}
+  rest
