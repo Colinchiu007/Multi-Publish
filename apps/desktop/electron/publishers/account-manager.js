@@ -47,8 +47,8 @@ async function captureCookies (platform, timeout = 300000) {
   const platformName = getPlatformName(platform)
   const successSelector = PLATFORM_LOGIN_SUCCESS_SELECTORS[platform]
 
-  console.log(`[AccountManager] 开始捕获 ${platformName} Cookie`)
-  console.log(`[AccountManager] 打开登录页面: ${loginUrl}`)
+  log.info('AccountManager', ` 开始捕获 ${platformName} Cookie`)
+  log.info('AccountManager', ` 打开登录页面: ${loginUrl}`)
 
   // 获取 Playwright 上下文
   const context = await playwrightManager.getContext()
@@ -69,16 +69,16 @@ async function captureCookies (platform, timeout = 300000) {
       try {
         await page.waitForSelector(successSelector, { timeout: 5000 })
         loggedIn = true
-        console.log(`[AccountManager] ${platformName} 已登录，直接捕获 Cookie`)
+        log.info('AccountManager', ` ${platformName} 已登录，直接捕获 Cookie`)
       } catch {
-        console.log(`[AccountManager] 等待用户在 ${platformName} 登录...`)
+        log.info('AccountManager', ` 等待用户在 ${platformName} 登录...`)
       }
     }
 
     if (!loggedIn) {
       // 等待用户手动登录 — 检测到成功选择器或 Cookie 变化
-      console.log(`[AccountManager] 请在弹出的浏览器窗口中登录 ${platformName}`)
-      console.log(`[AccountManager] 超时时间: ${Math.round(timeout / 1000 / 60)} 分钟`)
+      log.info('AccountManager', ` 请在弹出的浏览器窗口中登录 ${platformName}`)
+      log.info('AccountManager', ` 超时时间: ${Math.round(timeout / 1000 / 60)} 分钟`)
 
       const loginDetected = await Promise.race([
         // 方式1: 等待成功选择器出现
@@ -118,7 +118,7 @@ async function captureCookies (platform, timeout = 300000) {
 
     // 获取所有 Cookie
     const cookies = await context.cookies()
-    console.log(`[AccountManager] 捕获到 ${cookies.length} 个 Cookie`)
+    log.info('AccountManager', ` 捕获到 ${cookies.length} 个 Cookie`)
 
     // 尝试从页面获取账号名称
     let accountName = platformName
@@ -206,7 +206,7 @@ async function addAccount (platform) {
     log.warn('AccountManager', `Failed to save credential: ${e.message}`)
   }
 
-  console.log(`[AccountManager] 账号添加成功: ${name} (${platform})`)
+  log.info('AccountManager', ` 账号添加成功: ${name} (${platform})`)
   return result.data
 }
 
@@ -220,7 +220,7 @@ async function deleteAccount (accountId) {
   if (result.code !== 0) {
     throw new Error(result.message || '删除账号失败')
   }
-  console.log(`[AccountManager] 账号已删除: ${accountId}`)
+  log.info('AccountManager', ` 账号已删除: ${accountId}`)
   return true
 }
 

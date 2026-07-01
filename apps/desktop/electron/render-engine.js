@@ -149,7 +149,7 @@ class RenderEngine {
   }
 
   _cleanup(propsPath) {
-    try { fs.unlinkSync(propsPath); } catch {}
+    try { fs.unlinkSync(propsPath); } catch { /* ignore */ }
   }
 }
 

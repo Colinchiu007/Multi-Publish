@@ -58,9 +58,9 @@ class RpaViewManager {
 
   _emitProgress(platform, stage, percent) {
     var data = { platform: platform, stage: stage, percent: percent || 0 }
-    if (this._progressCallback) { try { this._progressCallback(data) } catch(e) {} }
+    if (this._progressCallback) { try { this._progressCallback(data) } catch (e) { /* ignore */ } }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      try { this.mainWindow.webContents.send('rpa:progress', data) } catch(e) {}
+      try { this.mainWindow.webContents.send('rpa:progress', data) } catch (e) { /* ignore */ }
     }
     log.info('RpaView', '[' + platform + '] ' + stage)
   }
@@ -291,7 +291,7 @@ class RpaViewManager {
     win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
     win.webContents.on('console-message',function(){})
     // anti-detection: inject stealth on every navigation
-    win.webContents.on('did-finish-load',function(){ win.webContents.executeJavaScript(STEALTH_SOURCE).catch(function(){}) })
+    win.webContents.on('did-finish-load',function(){ win.webContents.executeJavaScript(STEALTH_SOURCE).catch(e=>{}) })
     return win
   }
   _windowKey(platform, accountId) { return 'rpa-'+platform+'-'+(accountId||'default')+'-'+(this._nextId++) }
@@ -299,13 +299,13 @@ class RpaViewManager {
   // ========== Cookie / localStorage restore ==========
   async _restoreCookies(win, cookies) {
     if (!cookies||!cookies.length) return
-    for (var ci=0;ci<cookies.length;ci++) { try { await win.webContents.session.cookies.set(cookies[ci]) } catch(e) {} }
+    for (var ci=0;ci<cookies.length;ci++) { try { await win.webContents.session.cookies.set(cookies[ci]) } catch (e) { /* ignore */ } }
     log.info('RpaView','Restored '+cookies.length+' cookies')
   }
   async _restoreLocalStorage(win, ls) {
     if (!ls||!Object.keys(ls).length) return
     var j = JSON.stringify(ls)
-    try { await win.webContents.executeJavaScript('(function(){var d='+j+';Object.keys(d).forEach(function(k){try{localStorage.setItem(k,d[k])}catch(e){}});return Object.keys(d).length})()'); log.info('RpaView','localStorage restored') } catch(e) { log.warn('RpaView','localStorage restore: '+e.message) }
+    try { await win.webContents.executeJavaScript('(function(){var d='+j+';Object.keys(d).forEach(function(k){try{localStorage.setItem(k,d[k])}catch (e) { /* ignore */ }});return Object.keys(d).length})()'); log.info('RpaView','localStorage restored') } catch(e) { log.warn('RpaView','localStorage restore: '+e.message) }
   }
 
   // ========== executeJavaScript utilities ==========
@@ -329,7 +329,7 @@ class RpaViewManager {
   async _setFileInput(win, filePath) {
     if (!fs.existsSync(filePath)) throw new Error('File not found: '+filePath)
     var dbg = win.webContents.debugger
-    try { await dbg.attach('1.3') } catch(e) {}
+    try { await dbg.attach('1.3') } catch (e) { /* ignore */ }
     try {
       var fr = await dbg.sendCommand('Runtime.evaluate',{expression:'(function(){return document.querySelectorAll(\'input[type="file"]\').length>0?1:0})()',returnByValue:true})
       if (fr.result.value!==1) throw new Error('No file input found')
@@ -337,7 +337,7 @@ class RpaViewManager {
       var nd = await dbg.sendCommand('DOM.requestNode',{objectId:re.result.objectId})
       await dbg.sendCommand('DOM.setFileInputFiles',{files:[path.resolve(filePath)],nodeId:nd.nodeId||nd})
       log.info('RpaView','CDP file: '+path.basename(filePath)); return true
-    } finally { try { await dbg.detach() } catch(e) {} }
+    } finally { try { await dbg.detach() } catch (e) { /* ignore */ } }
   }
 
   // ========== Network response monitor ==========
@@ -462,13 +462,13 @@ class RpaViewManager {
       } catch(e) {
         log.warn('RpaView','wechat_mp iframe content failed: '+e.message)
         // Fallback: try main frame editor
-        try { await this._fillInput(win,contentSel,article.content) } catch(e2) {}
+        try { await this._fillInput(win,contentSel,article.content) } catch (e) { /* ignore */ }
       }
     }
 
     // Fill author
     if (article.author) {
-      try { await this._fillInput(win,'#author, input[name="author"]',article.author) } catch(e) {}
+      try { await this._fillInput(win,'#author, input[name="author"]',article.author) } catch (e) { /* ignore */ }
     }
 
     // Check agreement
@@ -604,12 +604,12 @@ class RpaViewManager {
       var cfg = this._getPlatformConfig(platform)
       return await Promise.race([this._publish_generic(win,article,platform,cfg),new Promise(function(_,rj){setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout)})])
     } catch(e) { log.error('RpaView','publish '+platform+': '+e.message); return { success:false, error:e.message, platform:platform } }
-    finally { try { win.destroy() } catch(e) {}; delete this.windows[key] }
+    finally { try { win.destroy() } catch (e) { /* ignore */ }; delete this.windows[key] }
   }
 
   cleanup() {
     var ks = Object.keys(this.windows)
-    for (var ki=0;ki<ks.length;ki++) { try { this.windows[ks[ki]].destroy() } catch(e) {} }
+    for (var ki=0;ki<ks.length;ki++) { try { this.windows[ks[ki]].destroy() } catch (e) { /* ignore */ } }
     this.windows = {}; log.info('RpaView','cleaned up')
   }
 }

@@ -52,4 +52,6 @@ describe('RenderEngine', () => {
       // 如果在 CI 环境没有 npx，返回错误但不崩溃
       expect(result).toHaveProperty('success');
       expect(typeof result.error).toBe('string');
-    }
+    });
+  });
+});

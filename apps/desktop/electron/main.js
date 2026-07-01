@@ -262,7 +262,7 @@ app.whenReady().then(async () => {
   }
 
   const restored = scheduler.restore()
-  if (restored > 0) console.log('[Scheduler] Restored ' + restored + ' pending tasks')
+  if (restored > 0) log.info('Scheduler', 'Restored ' + restored + ' pending tasks')
 
   const savedState = store.getSetting('task_queue_state')
   if (savedState) {
