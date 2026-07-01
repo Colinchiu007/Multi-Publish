@@ -220,6 +220,7 @@
 </template>
 
 <script>
+import { viralAnalyze, viralGenerate } from '@/api/publisher'
 export default {
   name: 'ViralAnalysis',
   data () {
