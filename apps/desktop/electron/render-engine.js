@@ -8,7 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-const COMPOSER_DIR = path.join(__dirname, '..', 'packages', 'remotion-composer');
+const COMPOSER_DIR = path.join(__dirname, '..', '..', '..', 'packages', 'remotion-composer');
 
 class RenderEngine {
   constructor() {
@@ -153,4 +153,4 @@ class RenderEngine {
   }
 }
 
-module.exports = RenderEngine;
+module.exports = Re
