@@ -200,7 +200,7 @@ class QrCodeLogin {
               try {
                 var dataUrl = canvases[i].toDataURL('image/png');
                 return { type: 'canvas', src: dataUrl, width: canvases[i].width, height: canvases[i].height };
-              } catch(e) {}
+              } catch (e) { /* ignore */ }
             }
           }
 
@@ -287,7 +287,7 @@ class QrCodeLogin {
           for (var i = 0; i < localStorage.length; i++) {
             var key = localStorage.key(i);
             if (key.startsWith('__') || key === 'devtools') continue;
-            try { result[key] = localStorage.getItem(key); } catch(e) {}
+            try { result[key] = localStorage.getItem(key); } catch (e) { /* ignore */ }
           }
           return result;
         })()

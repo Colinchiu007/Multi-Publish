@@ -133,14 +133,9 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { usePlatformStore } from '@/stores/platforms'
-import { useAccountStore } from '@/stores/accounts'
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
 
 const route = useRoute()
-const platformStore = usePlatformStore()
-const accountStore = useAccountStore()
-platformStore.load()
 const authViewVisible = ref(false)
 
 function closeLogin () {
@@ -168,33 +163,66 @@ const router = useRouter()
 const platformSearch = ref('')
 const activePlatform = ref(null)
 
-// 从 Store 加载账号（useAccountStore）
+// 从 Store 加载多账号
+const platformAccounts = ref({})  // { platformId: [account, ...] }
 const loaded = ref(false)
 
-// platformMeta → usePlatformStore()
+const platformMeta = {
+  wechat_mp: { label: '微信公众号', icon: '💬' },
+  zhihu: { label: '知乎', icon: '❓' },
+  weibo: { label: '微博', icon: '✧' },
+  douyin: { label: '抖音', icon: '🎵' },
+  xiaohongshu: { label: '小红书', icon: '📕' },
+  tencent_video: { label: '视频号', icon: '▶' },
+  kuaishou: { label: '快手', icon: '🎬' },
+  toutiao: { label: '今日头条', icon: '📰' },
+  bilibili: { label: 'B站', icon: '📺' },
+  baijiahao: { label: '百家号', icon: '📖' },
+  yidian: { label: '一点号', icon: '📋' },
+  youtube: { label: 'YouTube', icon: '▶' },
+  tiktok: { label: 'TikTok', icon: '♪' },
+  twitter: { label: 'X (Twitter)', icon: '✕' },
+}
 
 async function loadAccounts () {
-  await accountStore.load()
-  loaded.value = true
+  const api = window.electronAPI
+  if (!api || !api.accountList) return
+  try {
+    const res = await api.accountList()
+    if (res.code === 0 && Array.isArray(res.data)) {
+      const grouped = {}
+      for (const acc of res.data) {
+        if (!grouped[acc.platform]) grouped[acc.platform] = []
+        grouped[acc.platform].push(acc)
+      }
+      platformAccounts.value = grouped
+    }
+    loaded.value = true
+  } catch (e) {
+    console.warn('Failed to load accounts:', e)
+    loaded.value = true
+  }
 }
 
 function getDefaultAccount (platform) {
-  return accountStore.getDefault(platform)
+  const accounts = platformAccounts.value[platform]
+  if (!accounts || accounts.length === 0) return null
+  return accounts.find(a => a.is_default) || accounts[0]
 }
 
 function getAccountText (platform) {
-  const def = accountStore.getDefault(platform)
+  const def = getDefaultAccount(platform)
   return def ? def.name || '已登录' : '未登录'
 }
 
 function getStatusClass (platform) {
-  const def = accountStore.getDefault(platform)
+  const def = getDefaultAccount(platform)
   if (!def) return 'offline'
   return def.status === 'active' || def.status === 'online' ? 'online' : 'offline'
 }
 
 function getAccountsForPlatform (platform) {
-  return accountStore.byPlatform[platform] || []
+  return platformAccounts.value[platform] || []
 }
 
 async function switchAccount (platform, accountId) {
@@ -203,18 +231,18 @@ async function switchAccount (platform, accountId) {
   try {
     await api.accountSetDefault(platform, accountId)
     // 刷新列表
-    await accountStore.load()
+    await loadAccounts()
   } catch (e) {
     console.warn('Failed to switch account:', e)
   }
 }
 
 const filteredPlatforms = computed(() => {
-  const ids = platformStore.platforms.map(p => p.id)
+  const ids = Object.keys(platformMeta)
   if (!platformSearch.value) return ids
   const q = platformSearch.value.toLowerCase()
   return ids.filter(id =>
-    platformStore.getLabel(id).toLowerCase().includes(q) || id.toLowerCase().includes(q)
+    platformMeta[id].label.toLowerCase().includes(q) || id.toLowerCase().includes(q)
   )
 })
 
@@ -306,4 +334,9 @@ body { margin: 0; padding: 0; }
   cursor: pointer;
   outline: none;
   padding: 0;
-  appearance: aut                                                  
+  appearance: auto;
+}
+
+html, body { height: 100%; }
+#app { height: 100%; }
+</style>

@@ -103,7 +103,7 @@ class WebviewManager {
           (function() {
             var data = ${lsData};
             Object.keys(data).forEach(function(k) {
-              try { localStorage.setItem(k, data[k]); } catch(e) {}
+              try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }
             });
           })()
         `).catch(() => {})

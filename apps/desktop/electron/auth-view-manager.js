@@ -250,7 +250,7 @@ class AuthViewManager {
           for (var i = 0; i < localStorage.length; i++) {
             var key = localStorage.key(i);
             if (key.startsWith('__') || key === 'devtools') continue;
-            try { result[key] = localStorage.getItem(key); } catch(e) {}
+            try { result[key] = localStorage.getItem(key); } catch (e) { /* ignore */ }
           }
           return result;
         })()
@@ -282,11 +282,11 @@ class AuthViewManager {
                     req.onerror = function() { reject(req.error); };
                   });
                   if (items.length > 0) result[dbInfo.name + '/' + storeName] = items;
-                } catch(e) {}
+                } catch (e) { /* ignore */ }
               }
               db.close();
             }
-          } catch(e) {}
+          } catch (e) { /* ignore */ }
           return result;
         })()
       `);
@@ -450,7 +450,7 @@ class AuthViewManager {
             (function() {
               var data = ${JSON.stringify(localStorage)};
               Object.keys(data).forEach(function(k) {
-                try { localStorage.setItem(k, data[k]); } catch(e) {}
+                try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }
               });
             })()
           `)
@@ -514,7 +514,7 @@ class AuthViewManager {
             (function() {
               var data = ${lsJson};
               Object.keys(data).forEach(function(k) {
-                try { localStorage.setItem(k, data[k]); } catch(e) {}
+                try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }
               });
             })()
           `)

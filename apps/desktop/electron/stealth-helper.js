@@ -28,7 +28,7 @@ function STEALTH_SCRIPT() {
       writable: false,
       configurable: true,
     })
-  } catch (e) {}
+  } catch (e) { /* ignore */ }
 
   // 2. Override chrome.runtime to simulate extensions
   // 很多平台（如抖音创作者平台）会检测是否安装了特定扩展
@@ -48,7 +48,7 @@ function STEALTH_SCRIPT() {
       app: origChrome.app || { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
       webstore: origChrome.webstore || { onInstallStage: { addListener: function() {} } },
     }
-  } catch (e) {}
+  } catch (e) { /* ignore */ }
 
   // 3. Override navigator.plugins
   // 真实浏览器有 plugins 列表，CDP 检测器会检查长度
@@ -73,7 +73,7 @@ function STEALTH_SCRIPT() {
       },
       configurable: true,
     })
-  } catch (e) {}
+  } catch (e) { /* ignore */ }
 
   // 4. Override navigator.languages
   try {
@@ -81,7 +81,7 @@ function STEALTH_SCRIPT() {
       get: function() { return ['zh-CN', 'zh', 'en'] },
       configurable: true,
     })
-  } catch (e) {}
+  } catch (e) { /* ignore */ }
 
   // 5. Override Permission query to hide automation
   try {
@@ -92,7 +92,7 @@ function STEALTH_SCRIPT() {
       }
       return origQuery.call(window.navigator.permissions, perm)
     }
-  } catch (e) {}
+  } catch (e) { /* ignore */ }
 }
 
 module.exports = {
