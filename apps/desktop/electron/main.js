@@ -69,7 +69,7 @@ const hotkeys = require('./hotkeys')
 systemTray.registerIpcHandlers()
 
 // ─── 任务队列 ─────────────────────────────
-const taskQueue = new TaskQueue({ maxConcurrent: 3, publishIntervalGuard })
+const taskQueue = new TaskQueue({ maxConcurrent: 3 })
 scheduler.setTaskQueue(taskQueue)
 BatchManager.setTaskQueue(taskQueue)
 
@@ -920,3 +920,4 @@ app.on('window-all-closed', async () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow()
 })
+                      
