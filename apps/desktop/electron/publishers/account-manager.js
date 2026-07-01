@@ -127,7 +127,7 @@ async function captureCookies (platform, timeout = 300000) {
       console.log(`[AccountManager] 超时时间: ${Math.round(timeout / 1000 / 60)} 分钟`)
 
       const loginDetected = await Promise.race([
-        // 方式1: 等待成功选择器出现
+        // 方式1: 等待成功选择器出现（可靠方式）
         (async () => {
           if (successSelector) {
             try {
@@ -139,7 +139,7 @@ async function captureCookies (platform, timeout = 300000) {
           }
           return false
         })(),
-        // 方式2: 等待 URL 变化（非登录页）
+        // 方式2: URL 变化后额外验证 Cookie
         (async () => {
           try {
             await page.waitForFunction(
@@ -147,7 +147,33 @@ async function captureCookies (platform, timeout = 300000) {
               new URL(loginUrl).host,
               { timeout, polling: 2000 }
             )
-            return true
+            // URL 变了，等 2 秒让页面稳定，再验证是否真的有登录态
+            await new Promise(r => setTimeout(r, 2000))
+            if (successSelector) {
+              try {
+                await page.waitForSelector(successSelector, { timeout: 5000 })
+                return true
+              } catch {
+                // URL 变了但没有成功选择器——可能是跳转到其他页面，不是登录成功
+                console.log(`[AccountManager] URL 已变化但未检测到登录成功标记，等待继续登录`)
+                return false
+              }
+            }
+            // 没有 successSelector 时检查 Cookie 是否有 session
+            const checkCookies = await context.cookies()
+            const hasSession = checkCookies.some(c =>
+              c.name.toLowerCase().includes('session') ||
+              c.name.toLowerCase().includes('token') ||
+              c.name.toLowerCase().includes('passport') ||
+              c.name.includes('sid')
+            )
+            if (hasSession) {
+              console.log(`[AccountManager] URL 变化且检测到 session Cookie`)
+              return true
+            }
+            // Cookie 也没有——URL 变化但不是登录成功
+            console.log(`[AccountManager] URL 已变化但无 session Cookie，等待继续登录`)
+            return false
           } catch {
             return false
           }
@@ -441,48 +467,4 @@ async function openSavedAccount (accountId, platform, opts = {}) {
   const credentialData = credentialStore.loadCredential(accountId, process.env.ELECTRON_USER_DATA_DIR || '.')
   const accountRecord = accountStateRestorer.getAccountRecord(platform, accountId)
   
-  if (!credentialData && !accountRecord) {
-    log.info('AccountManager', `No saved credentials for ${platform}:${accountId}`)
-    return { isLoggedIn: false }
-  }
-  
-  const localStorageData = credentialData?.localStorage || accountRecord?.localStorage || {}
-  const cookies = accountRecord?.cookies || []
-  const accountInfo = credentialData?.accountInfo || accountRecord?.accountInfo || {}
-  const baseUrl = PLATFORM_LOGIN_URLS[platform] || ''
-  
-  if (!session) {
-    log.info('AccountManager', `Restoring credentials for ${platform}:${accountId}`)
-    return { isLoggedIn: true, accountInfo, localStorageData }
-  }
-  
-  // 有 session 时恢复 cookies
-  try {
-    await restoreCookies(session, cookies, baseUrl)
-  } catch (e) {
-    log.warn('AccountManager', `restoreCookies failed: ${e.message}`)
-  }
-  
-  return { isLoggedIn: true, accountInfo, localStorageData }
-}
-
-/**
- * 检查本地是否有账号凭证
- */
-function checkLocalCredentials (platform, accountId) {
-  return credentialStore.hasCredential(accountId, process.env.ELECTRON_USER_DATA_DIR || '.') ||
-         !!accountStateRestorer.getAccountRecord(platform, accountId)
-}
-
-module.exports = {
-  addAccount,
-  deleteAccount,
-  listAccounts,
-  checkLoginStatus,
-  captureCookies,
-  PLATFORM_LOGIN_URLS,
-  PLATFORM_NAMES,
-  PLATFORM_LOGIN_SUCCESS_SELECTORS,
-  extractAccountInfo,
-  restoreCookies,
-  rest
+  if (!
