@@ -153,4 +153,4 @@ class RenderEngine {
   }
 }
 
-module.exports = Re
+module.exports = RenderEngine
