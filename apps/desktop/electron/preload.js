@@ -30,7 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // 内容情报 API（预存未注册）
-  intelligenceSuggestTags: (content, opts) => ipcRenderer.invoke('intelligence:suggestTags', content, opts),
+  intelligenceSuggestTags: (content, opts) => ipcRenderer.invoke('intelligence:suggest-tags', { content, opts }),
   intelligenceGetOptimalTime: (keyword) => ipcRenderer.invoke('intelligence:get-optimal-time', { keyword }),
 
   // ─── 队列 API ───────────────────────────────
@@ -210,4 +210,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
       // ─── 全局导航（快捷键触发）──────────────
       onNavigate: (cb) => {
-        const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRe
+        const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => 
