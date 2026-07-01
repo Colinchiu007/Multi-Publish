@@ -84,6 +84,8 @@
 </template>
 
 <script>
+import { renderStart, renderCancel, renderGetStatus, onRenderProgress, onRenderComplete, onRenderError } from '@/api/publisher'
+
 export default {
   name: 'CreateView',
   data() {
