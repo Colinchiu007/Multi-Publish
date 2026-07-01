@@ -56,11 +56,8 @@ const routes = [
     name: 'Providers',
     component: () => import('@/views/Providers.vue')
   },
-]
-
-const router = createRouter({
-  history: createWebHashHistory(),
-  routes
-})
-
-export default router
+  // 🆕 视频创作
+  {
+    path: '/create',
+    name: 'Create',
+    component: () => import('@/view

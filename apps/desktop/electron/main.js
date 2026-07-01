@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
+const RenderEngine = require('./render-engine')
 
 const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require('@multi-publish/shared-utils')
 const PublishIntervalGuard = require('@multi-publish/shared-utils/src/publish-interval-guard')
@@ -294,6 +295,30 @@ function createWindow () {
 
 ipcMain.handle('app:get-version', () => app.getVersion())
 ipcMain.handle('app:get-platform', () => process.platform)
+
+// ─── 渲染 IPC 🆕 ─────────────────────────────
+const renderEngine = new RenderEngine()
+
+ipcMain.handle('render:start', async (event, data) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const onProgress = (percent, stage) => {
+    win?.webContents.send('render:progress', { percent, stage })
+  }
+  const result = await renderEngine.render(data, { onProgress })
+  if (result.success) {
+    win?.webContents.send('render:complete', result)
+  } else {
+    win?.webContents.send('render:error', result)
+  }
+  return result
+})
+
+ipcMain.handle('render:cancel', () => {
+  renderEngine.cancel()
+  return { success: true }
+})
+
+ipcMain.handle('render:status', () => renderEngine.getStatus())
 
 // 发布相关 IPC
 ipcMain.handle('publish:wechat', async (event, articleData) => {

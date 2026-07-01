@@ -24,6 +24,9 @@
       <router-link to="/dashboard" class="nav-item" :class="{ active: route.path === '/dashboard' }">
         <span class="icon">◇</span> 数据看板
       </router-link>
+      <router-link to="/create" class="nav-item" :class="{ active: route.path === '/create' }">
+        <span class="icon">🎬</span> 视频创作
+      </router-link>
       <div class="nav-spacer"></div>
       <div class="nav-right">
         <button v-if="authViewVisible" @click="closeLogin" style="background:#e74c3c;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:13px;margin-right:12px">✕ 关闭登录</button>
@@ -331,14 +334,4 @@ body { margin: 0; padding: 0; }
   cursor: pointer;
   outline: none;
   padding: 0;
-  appearance: auto;
-  -webkit-appearance: auto;
-}
-.account-switcher:hover {
-  color: var(--text-primary, #333);
-}
-.account-switcher option {
-  font-size: 12px;
-  padding: 4px;
-}
-</style>
+  appearance: aut

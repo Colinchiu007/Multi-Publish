@@ -9,6 +9,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   publishBatch: (platforms, article) => ipcRenderer.invoke('publish:batch', { platforms, article }),
   listAccounts: () => ipcRenderer.invoke('accounts:list'),
 
+  // ─── 渲染 API 🆕 ────────────────────────────
+  renderStart: (data) => ipcRenderer.invoke('render:start', data),
+  renderCancel: () => ipcRenderer.invoke('render:cancel'),
+  renderGetStatus: () => ipcRenderer.invoke('render:status'),
+  onRenderProgress: (callback) => {
+    const handler = (_e, payload) => callback(payload);
+    ipcRenderer.on('render:progress', handler);
+    return () => ipcRenderer.removeListener('render:progress', handler);
+  },
+  onRenderComplete: (callback) => {
+    const handler = (_e, payload) => callback(payload);
+    ipcRenderer.on('render:complete', handler);
+    return () => ipcRenderer.removeListener('render:complete', handler);
+  },
+  onRenderError: (callback) => {
+    const handler = (_e, payload) => callback(payload);
+    ipcRenderer.on('render:error', handler);
+    return () => ipcRenderer.removeListener('render:error', handler);
+  },
+
   // ─── 队列 API ───────────────────────────────
   getQueueStatus: () => ipcRenderer.invoke('queue:status'),
   getQueueHistory: () => ipcRenderer.invoke('queue:history'),
