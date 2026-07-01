@@ -29,6 +29,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('render:error', handler);
   },
 
+  // 内容情报 API（预存未注册）
+  intelligenceSuggestTags: (content, opts) => ipcRenderer.invoke('intelligence:suggestTags', content, opts),
+  intelligenceGetOptimalTime: (keyword) => ipcRenderer.invoke('intelligence:get-optimal-time', { keyword }),
+
   // ─── 队列 API ───────────────────────────────
   getQueueStatus: () => ipcRenderer.invoke('queue:status'),
   getQueueHistory: () => ipcRenderer.invoke('queue:history'),
@@ -206,9 +210,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
       // ─── 全局导航（快捷键触发）──────────────
       onNavigate: (cb) => {
-        const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
-      },
-
-      // ─── URL 采集 API ──────────────────────────
-      urlCollect: (url, opts) => ipcRenderer.invoke('url-collect:fetch', { url, ...opts }),
-    })
+        const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRe
