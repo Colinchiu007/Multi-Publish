@@ -210,5 +210,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
       // ─── 全局导航（快捷键触发）──────────────
       onNavigate: (cb) => {
-        const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () =>
+        const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
+      },
     })
