@@ -58,6 +58,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
+import { intelligenceSearchTitles } from '@/api/publisher'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -88,7 +89,7 @@ watch(() => props.title, (newVal) => {
     loading.value = true
     error.value = null
     try {
-      const res = await window.electronAPI.intelligenceSearchTitles(newVal, { limit: 6 })
+      const res = await intelligenceSearchTitles(newVal, { limit: 6 })
       if (res && res.titleAnalysis) {
         const analysis = res.titleAnalysis
         data.value = {

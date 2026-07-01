@@ -295,10 +295,9 @@ async function handlePublish () {
   if (!article.content.trim()) { ElMessage.warning('请输入正文内容'); return }
 
   // 敏感词预检
-  const api = window.electronAPI
-  if (api && api.sensitiveCheck) {
-    const titleResult = await api.sensitiveCheck(article.title)
-    const contentResult = await api.sensitiveCheck(article.content)
+  if (sensitiveCheck) {
+    const titleResult = await sensitiveCheck(article.title)
+    const contentResult = await sensitiveCheck(article.content)
     const allWords = [...(titleResult.data?.words || []), ...(contentResult.data?.words || [])]
     if (allWords.length > 0) {
       try {
@@ -369,11 +368,9 @@ async function handleBatchPublish () {
     })
   })
 
-  const api = window.electronAPI
-
   try {
     // 创建批量任务
-    const createRes = await api.batchCreate({ name: `批量发布 ${new Date().toLocaleDateString('zh-CN')}`, articles: articles.value.map(a => ({
+    const createRes = await batchCreate({ name: `批量发布 ${new Date().toLocaleDateString('zh-CN')}`, articles: articles.value.map(a => ({
       title: a.title, content: a.content, platforms: a.platforms, publishTime: a.publishTime || null,
     })) })
 
@@ -424,10 +421,9 @@ onMounted(async () => {
   const draftId = route.query.draft
   if (!draftId) return
 
-  const api = window.electronAPI
-  if (!api || !api.storeGetSetting) return
+  if (!storeGetSetting) return
 
-  const raw = await api.storeGetSetting('drafts', '[]')
+  const raw = await storeGetSetting('drafts', '[]')
   let drafts
   try { drafts = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { drafts = [] }
   const draft = drafts.find(d => d.id === draftId)

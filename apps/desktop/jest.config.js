@@ -5,8 +5,8 @@ module.exports = {
   testPathIgnorePatterns: [
     '/node_modules/',
   ],
-  // 模拟 Electron 模块，避免在非 Electron 环境中 require 失败
   moduleNameMapper: {
     '^electron$': '<rootDir>/tests/__mocks__/electron.js',
+    '^@multi-publish/shared-utils/src/(.*)$': '<rootDir>/../../packages/shared-utils/src/$1',
   },
 }

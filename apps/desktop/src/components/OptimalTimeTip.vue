@@ -111,7 +111,7 @@ watch(() => props.keyword, (newVal) => {
     data.value = null
     notEnoughData.value = false
     try {
-      const res = await window.electronAPI.intelligenceGetOptimalTime(newVal.trim())
+      const res = await intelligenceGetOptimalTime(newVal.trim())
       if (res && res.recommendation) {
         const rec = res.recommendation
         if (rec.topHours && rec.topHours.length > 0) {

@@ -102,6 +102,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { keywordStatus, keywordStart, keywordStop, keywordHistory } from '@/api/publisher'
 import { ElMessage, ElDialog } from 'element-plus'
 
 const newKeyword = ref('')
@@ -116,7 +117,7 @@ const historyKeyword = ref('')
 async function loadStatus() {
   loading.value = true
   try {
-    const result = await window.electronAPI.keywordStatus()
+    const result = await keywordStatus()
     if (result?.code === 0 && result?.data) {
       keywords.value = result.data
     }
@@ -143,7 +144,7 @@ async function addKeyword() {
   }
 
   try {
-    const result = await window.electronAPI.keywordStart(kw, { interval: 6, threshold: 50 })
+    const result = await keywordStart(kw, { interval: 6, threshold: 50 })
     if (result?.code === 0) {
       ElMessage.success('已添加监测: ' + kw)
       newKeyword.value = ''
@@ -158,7 +159,7 @@ async function addKeyword() {
 
 async function stopKeyword(kw) {
   try {
-    const result = await window.electronAPI.keywordStop(kw)
+    const result = await keywordStop(kw)
     if (result?.code === 0) {
       ElMessage.success('已停止监测: ' + kw)
       await loadStatus()
@@ -176,7 +177,7 @@ async function openHistory(kw) {
   historyLoading.value = true
   historyEntries.value = []
   try {
-    const result = await window.electronAPI.keywordHistory(kw)
+    const result = await keywordHistory(kw)
     if (result?.code === 0 && result?.data) {
       historyEntries.value = result.data
     }

@@ -118,22 +118,22 @@ export default {
   },
   methods: {
     checkStatus() {
-      if (window.electronAPI?.renderGetStatus) {
-        window.electronAPI.renderGetStatus().then(s => this.status = s)
+      if (renderGetStatus) {
+        renderGetStatus().then(s => this.status = s)
       }
     },
     setupListeners() {
       if (!window.electronAPI) return
-      this._unsubProgress = window.electronAPI.onRenderProgress(({ percent, stage }) => {
+      this._unsubProgress = onRenderProgress(({ percent, stage }) => {
         this.progress = percent
         this.stage = stage
       })
-      this._unsubComplete = window.electronAPI.onRenderComplete(({ outputPath }) => {
+      this._unsubComplete = onRenderComplete(({ outputPath }) => {
         this.rendering = false
         this.progress = 100
         this.result = { outputPath }
       })
-      this._unsubError = window.electronAPI.onRenderError(({ error }) => {
+      this._unsubError = onRenderError(({ error }) => {
         this.rendering = false
         this.error = error
       })
@@ -158,12 +158,13 @@ export default {
       this.result = null
 
       const props = this.buildProps()
-      if (!window.electronAPI) {
+      /* render APIs from @/api/publisher */
+  if (!window.electronAPI) {
         this.error = '渲染引擎不可用'
         this.rendering = false
         return
       }
-      window.electronAPI.renderStart(props)
+      renderStart(props)
     },
     buildProps() {
       const cuts = this.mode === 'text'
@@ -182,8 +183,8 @@ export default {
       }
     },
     cancelRender() {
-      if (window.electronAPI?.renderCancel) {
-        window.electronAPI.renderCancel()
+      if (renderCancel) {
+        renderCancel()
       }
       this.rendering = false
     },

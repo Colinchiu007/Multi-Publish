@@ -182,14 +182,14 @@ async function doSearch () {
   result.value = null
   titleAnalysis.value = null
   try {
-    const res = await window.electronAPI.intelligenceSearch(query.value.trim(), {
+    const res = await intelligenceSearch(query.value.trim(), {
       sources: selectedSources.value,
       limit: 10,
     })
     result.value = res
 
     // Also get title analysis
-    const titleRes = await window.electronAPI.intelligenceSearchTitles(query.value.trim(), {
+    const titleRes = await intelligenceSearchTitles(query.value.trim(), {
       sources: selectedSources.value,
     })
     titleAnalysis.value = titleRes.titleAnalysis || null

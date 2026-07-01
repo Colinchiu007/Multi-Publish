@@ -107,7 +107,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listAccounts, accountDelete, accountCheckLogin } from '@/api/publisher'
+import { listAccounts, accountDelete, accountCheckLogin, authOpenLogin, authClose, accountAdd, accountSetDefault, accountUpdate } from '@/api/publisher'
 
 const loading = ref(false)
 // accounts → useAccountStore()
@@ -158,10 +158,10 @@ let unlistenViewClosed = null
 
 onMounted(() => {
   refresh()
-  const api = window.electronAPI
-  if (!api) return
-  if (api.onAuthViewOpened) {
-    unlistenViewOpened = api.onAuthViewOpened((data) => {
+  if (!window.electronAPI) return
+  const { onAuthViewOpened } = window.electronAPI
+  if (onAuthViewOpened) {
+    unlistenViewOpened = onAuthViewOpened((data) => {
       authPlatformName.value = platformLabel(data.platform)
       authViewVisible.value = true
     })
@@ -201,8 +201,7 @@ async function addAccount () {
   if (!newPlatform.value) { ElMessage.warning('请选择平台'); return }
   adding.value = true
   try {
-    const api = window.electronAPI
-    if (api && api.authOpenLogin) {
+    if (authOpenLogin) {
       const platform = newPlatform.value
       showAddDialog.value = false
       newPlatform.value = ''
@@ -234,16 +233,14 @@ function addAccountForPlatform (platform) {
 }
 
 async function closeAuthView () {
-  const api = window.electronAPI
-  if (api && api.authClose) await api.authClose()
+  if (authClose) await authClose()
   authViewVisible.value = false
 }
 
 async function setDefault (acc) {
-  const api = window.electronAPI
-  if (!api || !api.accountSetDefault) return
+  if (!accountSetDefault) return
   try {
-    await api.accountSetDefault(acc.platform, acc.id)
+    await accountSetDefault(acc.platform, acc.id)
     ElMessage.success(`已设为 ${platformLabel(acc.platform)} 默认账号`)
     refresh()
   } catch (e) {
@@ -254,10 +251,9 @@ async function setDefault (acc) {
 async function renameAccount (acc, newName) {
   const name = newName.trim()
   if (!name || name === (acc.account_name || acc.name)) return
-  const api = window.electronAPI
-  if (!api || !api.accountUpdate) return
+  if (!accountUpdate) return
   try {
-    await api.accountUpdate(acc.id, { name })
+    await accountUpdate(acc.id, { name })
     refresh()
   } catch (e) {
     ElMessage.error('重命名失败: ' + e.message)

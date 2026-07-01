@@ -253,7 +253,7 @@ export default {
           articles = [{ title: this.topic, like_count: 100, comment_count: 10, platform_code: 'general' }]
         }
 
-        const res = await window.electronAPI.viralAnalyze(articles, this.topic)
+        const res = await viralAnalyze(articles, this.topic)
         if (res && res.success !== false) {
           this.result = res
         } else {
@@ -277,7 +277,7 @@ export default {
           task: 'titles',
           count: 5,
         }
-        const res = await window.electronAPI.viralGenerate(opts)
+        const res = await viralGenerate(opts)
         if (res && res.success !== false) {
           this.genResult = res
         }

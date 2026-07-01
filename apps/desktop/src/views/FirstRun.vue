@@ -219,6 +219,6 @@ function retryDeps () {
   depError.value = false
   depSteps.value.forEach(s => { if (s.status === 'error') s.status = 'pending'; s.message = '' })
   // Re-trigger setup
-  window.electronAPI?.firstRunCheck()
+  firstRunCheck()
 }
 </script>

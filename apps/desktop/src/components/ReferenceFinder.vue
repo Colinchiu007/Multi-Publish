@@ -130,7 +130,7 @@ async function doSearch () {
   searching.value = true
   searched.value = true
   try {
-    const res = await window.electronAPI.intelligenceFindReferences(query.value.trim(), { limit: 5 })
+    const res = await intelligenceFindReferences(query.value.trim(), { limit: 5 })
     results.value = (res && res.references) || []
   } catch (e) {
     console.error('Reference search failed:', e)
