@@ -1,7 +1,7 @@
 {
   "name": "@multi-publish/desktop",
   "version": "1.2.0",
-  "description": "\u591a\u5e73\u53f0\u5185\u5bb9\u4e00\u952e\u53d1\u5e03\u684c\u9762\u5de5\u5177 (Electron + RpaViewManager)",
+  "description": "多平台内容一键发布桌面工具 (Electron + RpaViewManager)",
   "author": "Colin Chiu <colin.chiu@colinchiu.com>",
   "main": "electron/main.js",
   "scripts": {
@@ -41,8 +41,7 @@
     "electron": "33.4.0",
     "electron-builder": "^25.1.8",
     "jest": "^30.4.2",
-    "wait-on": "^8.0.0",
-    "js-yaml": "^4.2.0"
+    "wait-on": "^8.0.0"
   },
   "build": {
     "appId": "com.colinchiu.multi-publish",
@@ -77,24 +76,6 @@
       "provider": "github",
       "owner": "Colinchiu007",
       "repo": "Multi-Publish"
-    },
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "icon": null,
-      "artifactName": "${productName}-${version}-mac.${ext}",
-      "category": "public.app-category.productivity",
-      "hardenedRuntime": false
-    },
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "icon": null,
-      "artifactName": "${productName}-${version}-${arch}.AppImage",
-      "category": "Network"
     }
   }
 }

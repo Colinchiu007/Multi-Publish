@@ -15,6 +15,7 @@ const ProxyPool = require('./proxy-pool')
 const AnalyticsService = require('./analytics-service')
 
 const DataSyncService = require('./data-sync')
+const ContentQualityGate = require('./content-quality-gate')
 
 module.exports = {
   TaskQueue,
@@ -27,5 +28,6 @@ module.exports = {
   ProxyPool,
   AnalyticsService,
   DataSyncService,
+  ContentQualityGate,
   PublishIntervalGuard,
 }

@@ -13,7 +13,7 @@
 
 const axios = require('axios')
 const { ipcMain } = require('electron')
-const log = require('./logger')
+const { log } = require('./logger')
 
 class CloudPublisher {
 
