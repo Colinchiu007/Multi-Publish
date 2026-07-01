@@ -17,20 +17,9 @@
 const { WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
+const { PLATFORM_DASHBOARD_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
 
-// 各平台创作者中心/后台 URL
-const PLATFORM_DASHBOARD_URLS = {
-  wechat_mp: 'https://mp.weixin.qq.com/',
-  zhihu: 'https://www.zhihu.com/',
-  weibo: 'https://weibo.com/',
-  douyin: 'https://creator.douyin.com/',
-  xiaohongshu: 'https://creator.xiaohongshu.com/',
-  tencent_video: 'https://channels.weixin.qq.com/',
-  kuaishou: 'https://cp.kuaishou.com/',
-  toutiao: 'https://mp.toutiao.com/',
-  youtube: 'https://studio.youtube.com/',
-  tiktok: 'https://www.tiktok.com/',
-}
+// 各平台创作者中心/后台 URL → @multi-publish/shared-utils/src/platform-definitions
 
 class WebviewManager {
   constructor () {

@@ -8,55 +8,9 @@ const playwrightManager = require('../playwright-manager')
 const pythonBridge = require('../python-bridge')
 const accountStateRestorer = require('../account-state-restorer')
 const credentialStore = require('../credential-store')
+const { PLATFORM_LOGIN_URLS, PLATFORM_NAMES, PLATFORM_LOGIN_SUCCESS_SELECTORS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 
-// 平台登录 URL 映射
-const PLATFORM_LOGIN_URLS = {
-  wechat_mp: 'https://mp.weixin.qq.com/',
-  zhihu: 'https://www.zhihu.com/signin',
-  weibo: 'https://weibo.com/login',
-  douyin: 'https://www.douyin.com/',
-  xiaohongshu: 'https://creator.xiaohongshu.com/',
-  tencent_video: 'https://channels.weixin.qq.com/',
-  kuaishou: 'https://cp.kuaishou.com/',
-  toutiao: 'https://mp.toutiao.com/',
-  youtube: 'https://studio.youtube.com/',
-  tiktok: 'https://www.tiktok.com/upload/',
-  bilibili: 'https://passport.bilibili.com/login',
-}
-
-// 平台显示名称
-const PLATFORM_NAMES = {
-  wechat_mp: '微信公众号',
-  zhihu: '知乎',
-  weibo: '微博',
-  douyin: '抖音',
-  xiaohongshu: '小红书',
-  tencent_video: '视频号',
-  kuaishou: '快手',
-  toutiao: '今日头条',
-  youtube: 'YouTube',
-  tiktok: 'TikTok',
-}
-
-// 平台登录成功选择器 (已移至 packages/rpa-engine/src/platform-selectors.js)
-const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
-  wechat_mp: '.weui-desktop-account__name',
-  zhihu: '.AppHeader-profile',
-  weibo: '.gn_nickname',
-  douyin: '.bd3c35b6',
-  xiaohongshu: '.user-info, [class*="avatar"]',
-  tencent_video: '.user-info, [class*="account"]',
-  kuaishou: '.user-info, [class*="avatar"]',
-  toutiao: '.user-avatar, .nickname, [class*="avatar"]',
-  youtube: '#avatar-btn, ytcp-avatar',
-  tiktok: '[data-testid="user-avatar"], [class*="avatar"]',
-  bilibili: '.header-info, .user-con, [class*="user"]',
-}
-
-/**
- * 获取平台显示名称
- */
-function getPlatformName (platform) { return PLATFORM_NAMES[platform] || platform; }
+// 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
 
 /**
  * Smart wait: navigate to URL then wait for selector or timeout
@@ -93,8 +47,8 @@ async function captureCookies (platform, timeout = 300000) {
   const platformName = getPlatformName(platform)
   const successSelector = PLATFORM_LOGIN_SUCCESS_SELECTORS[platform]
 
-  log.info(`[AccountManager] 开始捕获 ${platformName} Cookie`)
-  log.info(`[AccountManager] 打开登录页面: ${loginUrl}`)
+  console.log(`[AccountManager] 开始捕获 ${platformName} Cookie`)
+  console.log(`[AccountManager] 打开登录页面: ${loginUrl}`)
 
   // 获取 Playwright 上下文
   const context = await playwrightManager.getContext()
@@ -115,19 +69,19 @@ async function captureCookies (platform, timeout = 300000) {
       try {
         await page.waitForSelector(successSelector, { timeout: 5000 })
         loggedIn = true
-        log.info(`[AccountManager] ${platformName} 已登录，直接捕获 Cookie`)
+        console.log(`[AccountManager] ${platformName} 已登录，直接捕获 Cookie`)
       } catch {
-        log.info(`[AccountManager] 等待用户在 ${platformName} 登录...`)
+        console.log(`[AccountManager] 等待用户在 ${platformName} 登录...`)
       }
     }
 
     if (!loggedIn) {
       // 等待用户手动登录 — 检测到成功选择器或 Cookie 变化
-      log.info(`[AccountManager] 请在弹出的浏览器窗口中登录 ${platformName}`)
-      log.info(`[AccountManager] 超时时间: ${Math.round(timeout / 1000 / 60)} 分钟`)
+      console.log(`[AccountManager] 请在弹出的浏览器窗口中登录 ${platformName}`)
+      console.log(`[AccountManager] 超时时间: ${Math.round(timeout / 1000 / 60)} 分钟`)
 
       const loginDetected = await Promise.race([
-        // 方式1: 等待成功选择器出现（可靠方式）
+        // 方式1: 等待成功选择器出现
         (async () => {
           if (successSelector) {
             try {
@@ -139,7 +93,7 @@ async function captureCookies (platform, timeout = 300000) {
           }
           return false
         })(),
-        // 方式2: URL 变化后额外验证 Cookie
+        // 方式2: 等待 URL 变化（非登录页）
         (async () => {
           try {
             await page.waitForFunction(
@@ -147,35 +101,8 @@ async function captureCookies (platform, timeout = 300000) {
               new URL(loginUrl).host,
               { timeout, polling: 2000 }
             )
-            // URL 变了，等 2 秒让页面稳定，再验证是否真的有登录态
-            await new Promise(r => setTimeout(r, 2000))
-            if (successSelector) {
-              try {
-                await page.waitForSelector(successSelector, { timeout: 5000 })
-                return true
-              } catch {
-                // URL 变了但没有成功选择器——可能是跳转到其他页面，不是登录成功
-                log.info(`[AccountManager] URL 已变化但未检测到登录成功标记，等待继续登录`)
-                return false
-              }
-            }
-            // 没有 successSelector 时检查 Cookie 是否有 session
-            const checkCookies = await context.cookies()
-            const hasSession = checkCookies.some(c =>
-              c.name.toLowerCase().includes('session') ||
-              c.name.toLowerCase().includes('token') ||
-              c.name.toLowerCase().includes('passport') ||
-              c.name.includes('sid')
-            )
-            if (hasSession) {
-              log.info(`[AccountManager] URL 变化且检测到 session Cookie`)
-              return true
-            }
-            // Cookie 也没有——URL 变化但不是登录成功
-            log.info(`[AccountManager] URL 已变化但无 session Cookie，等待继续登录`)
-            return false
-          } catch (e) {
-            log.warn(`Login detection error: ${e.message}`)
+            return true
+          } catch {
             return false
           }
         })(),
@@ -191,7 +118,7 @@ async function captureCookies (platform, timeout = 300000) {
 
     // 获取所有 Cookie
     const cookies = await context.cookies()
-    log.info(`[AccountManager] 捕获到 ${cookies.length} 个 Cookie`)
+    console.log(`[AccountManager] 捕获到 ${cookies.length} 个 Cookie`)
 
     // 尝试从页面获取账号名称
     let accountName = platformName
@@ -279,7 +206,7 @@ async function addAccount (platform) {
     log.warn('AccountManager', `Failed to save credential: ${e.message}`)
   }
 
-  log.info(`[AccountManager] 账号添加成功: ${name} (${platform})`)
+  console.log(`[AccountManager] 账号添加成功: ${name} (${platform})`)
   return result.data
 }
 
@@ -293,7 +220,7 @@ async function deleteAccount (accountId) {
   if (result.code !== 0) {
     throw new Error(result.message || '删除账号失败')
   }
-  log.info(`[AccountManager] 账号已删除: ${accountId}`)
+  console.log(`[AccountManager] 账号已删除: ${accountId}`)
   return true
 }
 
@@ -468,4 +395,53 @@ async function openSavedAccount (accountId, platform, opts = {}) {
   const credentialData = credentialStore.loadCredential(accountId, process.env.ELECTRON_USER_DATA_DIR || '.')
   const accountRecord = accountStateRestorer.getAccountRecord(platform, accountId)
   
-  if (!
+  if (!credentialData && !accountRecord) {
+    log.info('AccountManager', `No saved credentials for ${platform}:${accountId}`)
+    return { isLoggedIn: false }
+  }
+  
+  const localStorageData = credentialData?.localStorage || accountRecord?.localStorage || {}
+  const cookies = accountRecord?.cookies || []
+  const accountInfo = credentialData?.accountInfo || accountRecord?.accountInfo || {}
+  const baseUrl = PLATFORM_LOGIN_URLS[platform] || ''
+  
+  if (!session) {
+    log.info('AccountManager', `Restoring credentials for ${platform}:${accountId}`)
+    return { isLoggedIn: true, accountInfo, localStorageData }
+  }
+  
+  // 有 session 时恢复 cookies
+  try {
+    await restoreCookies(session, cookies, baseUrl)
+  } catch (e) {
+    log.warn('AccountManager', `restoreCookies failed: ${e.message}`)
+  }
+  
+  return { isLoggedIn: true, accountInfo, localStorageData }
+}
+
+/**
+ * 检查本地是否有账号凭证
+ */
+function checkLocalCredentials (platform, accountId) {
+  return credentialStore.hasCredential(accountId, process.env.ELECTRON_USER_DATA_DIR || '.') ||
+         !!accountStateRestorer.getAccountRecord(platform, accountId)
+}
+
+module.exports = {
+  addAccount,
+  deleteAccount,
+  listAccounts,
+  checkLoginStatus,
+  captureCookies,
+  PLATFORM_LOGIN_URLS,
+  PLATFORM_NAMES,
+  PLATFORM_LOGIN_SUCCESS_SELECTORS,
+  extractAccountInfo,
+  restoreCookies,
+  restoreLocalStorage,
+  openSavedAccount,
+  checkLocalCredentials,
+  accountStateRestorer,
+  credentialStore,
+}

@@ -73,6 +73,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
+import { usePlatformStore } from '@/stores/platforms'
 import { ElMessage } from 'element-plus'
 
 const props = defineProps({
@@ -84,17 +85,11 @@ defineEmits(['close'])
 const loading = ref(false)
 const error = ref(null)
 const suggestions = ref(null)
-
-const platformLabels = {
-  zhihu: '知乎',
-  weibo: '微博',
-  xiaohongshu: '小红书',
-  bilibili: 'B站',
-  toutiao: '头条',
-}
+const platformStore = usePlatformStore()
+platformStore.load()
 
 function platformLabel (key) {
-  return platformLabels[key] || key
+  return platformStore.getLabel(key) || key
 }
 
 let debounceTimer = null
