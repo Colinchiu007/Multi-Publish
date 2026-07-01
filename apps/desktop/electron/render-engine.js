@@ -19,11 +19,9 @@ class RenderEngine {
   /** 检查环境是否就绪 */
   getStatus() {
     const composerExists = fs.existsSync(path.join(COMPOSER_DIR, 'package.json'));
-    const nodeModulesExist = fs.existsSync(path.join(COMPOSER_DIR, 'node_modules'));
     return {
-      ready: composerExists && nodeModulesExist,
+      ready: composerExists,
       composerExists,
-      nodeModulesExist,
       composerDir: COMPOSER_DIR,
     };
   }
