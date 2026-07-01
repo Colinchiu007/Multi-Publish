@@ -56,8 +56,31 @@ const routes = [
     name: 'Providers',
     component: () => import('@/views/Providers.vue')
   },
-  // 🆕 视频创作
   {
     path: '/create',
     name: 'Create',
-    component: () => import('@/view
+    component: () => import('@/views/CreateView.vue')
+  },
+  {
+    path: '/create/result',
+    name: 'CreateResult',
+    component: () => import('@/views/ResultView.vue')
+  },
+  {
+    path: '/cloud-publish',
+    name: 'CloudPublish',
+    component: () => import('@/views/CloudPublish.vue')
+  },
+  {
+    path: '/intelligence',
+    name: 'Intelligence',
+    component: () => import('@/views/Intelligence.vue')
+  },
+]
+
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes,
+})
+
+export default router
