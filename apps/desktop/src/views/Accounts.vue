@@ -105,16 +105,18 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { usePlatformStore } from '@/stores/platforms'
+import { useAccountStore } from '@/stores/accounts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listAccounts, accountDelete, accountCheckLogin } from '@/api/publisher'
 
 const loading = ref(false)
-const accounts = ref([])
+// accounts → useAccountStore()
 const showAddDialog = ref(false)
 const adding = ref(false)
 const newPlatform = ref('')
 const filter = ref('all')
 const platformStore = usePlatformStore()
+const accountStore = useAccountStore()
 platformStore.load()
 const authViewVisible = ref(false)
 const authPlatformName = ref('')
@@ -123,11 +125,11 @@ const allPlatforms = computed(() => platformStore.platforms.map(p => ({ id: p.id
 function platformLabel (id) { return platformStore.getLabel(id) || id }
 function platformIcon (id) { return platformStore.getIcon(id) || '📦' }
 
-const totalAccounts = computed(() => accounts.value.length)
+const totalAccounts = computed(() => accountStore.accounts.length)
 
 // 按平台分组
 const groupedPlatforms = computed(() => {
-  const filtered = accounts.value.filter(a => {
+  const filtered = accountStore.accounts.filter(a => {
     if (filter.value === 'all') return true
     if (filter.value === 'active') return a.status === 'active' || a.status === 'online'
     return a.status !== 'active' && a.status !== 'online'
@@ -187,8 +189,7 @@ onUnmounted(() => {
 async function refresh () {
   loading.value = true
   try {
-    const res = await listAccounts()
-    if (res.code === 0) accounts.value = res.data || []
+    await accountStore.load()
   } catch (e) {
     console.error('Failed to load accounts:', e)
   } finally {

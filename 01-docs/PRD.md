@@ -462,6 +462,26 @@ class BaseRpaPublisher {
 }
 // 所有平台发布器继承 BaseRpaPublisher，差异化部分覆盖
 ```
+---
+
+### 4.6 重构记录
+
+#### 2026-07-01: IPC handler 拆分 + 平台元数据统一
+
+**IPC handler 拆分（PR #68）**
+
+背景: main.js 从最初的 ~500 行增长到 922 行，74 个 ipcMain.handle 内联混杂。
+
+方案: 将全部 handler 按领域拆分为 14 个独立模块，通过 registerHandlers(ipcMain, deps) 模式注册。
+
+效果: main.js 922 行 → 358 行。新增模块均可独立测试。
+
+**平台元数据统一（PR #68 包含）**
+
+背景: 平台登录 URL、显示名称、选择器等元数据在 6+ 个文件中重复定义，覆盖范围不一致。
+
+方案: 新增 packages/shared-utils/src/platform-definitions.js 作为单一数据源，覆盖全部 15 个平台。去重：4 个 Electron 模块改为引用共享定义，5 个 Vue 组件替换为 usePlatformStore()。
+
 
 ---
 
