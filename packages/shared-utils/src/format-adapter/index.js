@@ -9,6 +9,7 @@
  *   const result = formatForPlatform('<h1>标题</h1><p>正文</p>', 'weibo')
  */
 const { sanitize, stripHtml } = require('./sanitize')
+const { markdownToHtml, detectMarkdown } = require('../md-converter')
 const FORMATTERS = require('./formatters')
 const { LIMITS } = require('./rules')
 
@@ -18,6 +19,11 @@ const { LIMITS } = require('./rules')
 function normalize (html) {
   if (!html) {
     return { title: '', content: '', images: [], tags: [], originalHtml: '' }
+  }
+
+  // Auto-detect Markdown input and convert to HTML
+  if (detectMarkdown(html)) {
+    html = markdownToHtml(html, { sanitize: false })
   }
 
   const originalHtml = html
