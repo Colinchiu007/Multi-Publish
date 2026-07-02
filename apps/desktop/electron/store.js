@@ -33,7 +33,7 @@ class Store {
   init () {
     if (this._ready) return true
     if (!Database) {
-      log.warn('Store', 'better-sqlite3 not available, store disabled')
+      log.warn('Store', 'sql.js not available, store disabled')
       return false
     }
 
