@@ -147,6 +147,11 @@ export async function renderGetStatus () {
   return getApi().renderGetStatus()
 }
 
+export async function renderInstallDeps () {
+  if (!getApi()) return { success: false, error: 'electronAPI not available' }
+  return getApi().renderInstallDeps()
+}
+
 export function onRenderProgress (callback) {
   if (!getApi()) return () => {}
   return getApi().onRenderProgress(callback)
@@ -160,6 +165,11 @@ export function onRenderComplete (callback) {
 export function onRenderError (callback) {
   if (!getApi()) return () => {}
   return getApi().onRenderError(callback)
+}
+
+export function onRenderInstallProgress (callback) {
+  if (!getApi()) return () => {}
+  return getApi().onRenderInstallProgress(callback)
 }
 
 // ─── 内容情报 API ────────────────────────
