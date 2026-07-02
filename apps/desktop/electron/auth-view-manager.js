@@ -357,6 +357,7 @@ class AuthViewManager {
    * 关闭内嵌浏览器
    */
   close () {
+    this._closed = true
     if (this._loginTimeout) {
       clearTimeout(this._loginTimeout)
       this._loginTimeout = null
