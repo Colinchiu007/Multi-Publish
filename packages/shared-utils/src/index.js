@@ -6,6 +6,7 @@ const AggregatorBridge = require('./aggregator-bridge')
 
 const formatAdapter = require('./format-adapter/index')
 const coverProcessor = require('./cover-processor/index')
+const coverGenerator = require('./cover-processor/cover-generator')
 
 const PlatformConfig = require('./platform-config')
 const SensitiveFilter = require('./sensitive-filter')
@@ -24,6 +25,7 @@ module.exports = {
   AggregatorBridge,
   formatAdapter,
   coverProcessor,
+  coverGenerator,
   PlatformConfig,
   SensitiveFilter,
   mdConverter,
