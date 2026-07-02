@@ -12,7 +12,7 @@
 const { BrowserWindow, WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
-const { PLATFORM_LOGIN_URLS, PLATFORM_LOGIN_SUCCESS_PATTERNS } = require('@multi-publish/shared-utils/src/platform-definitions')
+const { PLATFORM_LOGIN_URLS, PLATFORM_LOGIN_SUCCESS_PATTERNS, PLATFORM_LOGIN_SUCCESS_SELECTORS } = require('@multi-publish/shared-utils/src/platform-definitions')
 
 // 平台登录 URL 映射 → @multi-publish/shared-utils/src/platform-definitions
 
@@ -217,17 +217,36 @@ class AuthViewManager {
     log.info('AuthView', `Login detected for ${this.currentPlatform}: ${url}`)
 
     // 等待页面稳定
-    setTimeout(async () => {
+    const doCheck = async () => {
       if (this._closed) return
+      
+      const selectors = PLATFORM_LOGIN_SUCCESS_SELECTORS[this.currentPlatform]
+      if (selectors && selectors.length > 0 && this.currentView && !this.currentView.webContents.isDestroyed()) {
+        try {
+          const js = selectors.map(s => `document.querySelector('${s}')`).join(' || ')
+          const found = await this.currentView.webContents.executeJavaScript('(' + js + ') !== null')
+          if (found) {
+            const authData = await this._extractAuthData()
+            this._onLoginSuccess(authData)
+            return
+          }
+        } catch (e) { /* DOM check failed */ }
+      }
+
       try {
         const authData = await this._extractAuthData()
-        this._onLoginSuccess(authData)
+        if (authData.cookies && authData.cookies.length > 0) {
+          this._onLoginSuccess(authData)
+          return
+        }
       } catch (e) {
         log.error('AuthView', `Extract auth failed: ${e.message}`)
         if (this._closed) return
-        this._onLoginSuccess({ cookies: [], localStorage: {}, accountName: this.currentPlatform })
       }
-    }, 2000)
+      
+      if (!this._closed) setTimeout(doCheck, 2000)
+    }
+    setTimeout(doCheck, 2000)
   }
 
   /**
