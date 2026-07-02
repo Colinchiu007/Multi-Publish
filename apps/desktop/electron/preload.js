@@ -13,21 +13,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   renderStart: (data) => ipcRenderer.invoke('render:start', data),
   renderCancel: () => ipcRenderer.invoke('render:cancel'),
   renderGetStatus: () => ipcRenderer.invoke('render:status'),
-  onRenderProgress: (callback) => {
-    const handler = (_e, payload) => callback(payload);
-    ipcRenderer.on('render:progress', handler);
-    return () => ipcRenderer.removeListener('render:progress', handler);
-  },
-  onRenderComplete: (callback) => {
-    const handler = (_e, payload) => callback(payload);
-    ipcRenderer.on('render:complete', handler);
-    return () => ipcRenderer.removeListener('render:complete', handler);
-  },
-  onRenderError: (callback) => {
-    const handler = (_e, payload) => callback(payload);
-    ipcRenderer.on('render:error', handler);
-    return () => ipcRenderer.removeListener('render:error', handler);
-  },
+  renderInstallDeps: () => ipcRenderer.invoke('render:install-deps'),
+  onRenderProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:progress', h); return () => ipcRenderer.removeListener('render:progress', h); },
+  onRenderComplete: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:complete', h); return () => ipcRenderer.removeListener('render:complete', h); },
+  onRenderError: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:error', h); return () => ipcRenderer.removeListener('render:error', h); },
+  onRenderInstallProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:install-progress', h); return () => ipcRenderer.removeListener('render:install-progress', h); },
 
   // 内容情报 API（预存未注册）
   intelligenceSuggestTags: (content, opts) => ipcRenderer.invoke('intelligence:suggest-tags', { content, opts }),

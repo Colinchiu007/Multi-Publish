@@ -1,8 +1,5 @@
 /**
  * 渲染 IPC handlers
- * render:start → 启动渲染
- * render:cancel → 取消渲染
- * render:status → 查询渲染状态
  */
 
 function registerHandlers(ipcMain, deps) {
@@ -10,24 +7,20 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('render:start', async (event, data) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    const onProgress = (percent, stage) => {
-      win?.webContents.send('render:progress', { percent, stage })
-    }
-    const result = await renderEngine.render(data, { onProgress })
-    if (result.success) {
-      win?.webContents.send('render:complete', result)
-    } else {
-      win?.webContents.send('render:error', result)
-    }
+    const onProgress = (percent, stage) => { win?.webContents.send('render:progress', { percent, stage }) }
+    const result = await renderEngine.render(data.props || data, { onProgress, profile: data.profile })
+    if (result.success) win?.webContents.send('render:complete', result)
+    else win?.webContents.send('render:error', result)
     return result
   })
 
-  ipcMain.handle('render:cancel', () => {
-    renderEngine.cancel()
-    return { success: true }
-  })
-
+  ipcMain.handle('render:cancel', () => { renderEngine.cancel(); return { success: true } })
   ipcMain.handle('render:status', () => renderEngine.getStatus())
+
+  ipcMain.handle('render:install-deps', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return await renderEngine.installDeps((text) => win?.webContents.send('render:install-progress', { text }))
+  })
 }
 
 module.exports = registerHandlers
