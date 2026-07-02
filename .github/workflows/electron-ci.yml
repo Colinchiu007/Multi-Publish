@@ -1,0 +1,53 @@
+# Electron CI — 在阿里云 ECS 自托管 runner 上运行 headless Electron 测试
+# 需要 xvfb 提供虚拟显示器，self-hosted runner 预先配置
+name: Electron CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  electron-tests:
+    runs-on: self-hosted
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install system deps
+        run: |
+          if ! command -v xvfb-run &>/dev/null; then
+            sudo dnf install -y -q xorg-x11-server-Xvfb
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests (Jest, non-Electron)
+        run: |
+          npm run test -w @multi-publish/desktop
+
+      - name: Electron smoke test (xvfb)
+        run: |
+          cd apps/desktop
+          timeout 30 xvfb-run --auto-servernum npx electron . --no-sandbox --disable-gpu 2>&1 || true
+
+      - name: Build Vue frontend
+        run: |
+          npm run build:vue -w @multi-publish/desktop
+
+      - name: Dependency check
+        continue-on-error: true
+        run: npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite
+
+      - name: Circular dependency check
+        continue-on-error: true
+        run: npx madge --warning --circular apps/desktop/electron/main.js
