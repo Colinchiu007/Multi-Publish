@@ -188,6 +188,8 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { usePlatformStore } from '@/stores/platforms'
+import { useAccountStore } from '@/stores/accounts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { publishBatch, onProgress, sensitiveCheck, batchCreate, storeGetSetting } from '@/api/publisher'
