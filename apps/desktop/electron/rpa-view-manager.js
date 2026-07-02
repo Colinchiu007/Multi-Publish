@@ -45,6 +45,7 @@ var PLATFORM_SUCCESS_PATTERNS = {
   bilibili: ['video/recommend', 'archive/publish'],
   youtube: ['/upload', 'youtubei/v1/upload'],
   tiktok: ['/upload/', 'post/publish'],
+  zhihu: ['api/posts', 'publish/article', 'zhihu.com/creator'],
 }
 var _platformConfigInstance = null
 
@@ -588,6 +589,62 @@ class RpaViewManager {
   }
 
   async _publish_xiaohongshu(win, article) { return {success:false,error:'xiaohongshu RPA pending',platform:'xiaohongshu'} }
+
+  async _publish_zhihu(win, article) {
+    this._emitProgress('zhihu','navigating to write page...',5)
+    await this._navigateAndWait(win,'https://www.zhihu.com/creator/write')
+    if (win.webContents.getURL().includes('signin')||win.webContents.getURL().includes('login'))
+      return {success:false,error:'zhihu not logged in',platform:'zhihu'}
+    this._emitProgress('zhihu','waiting for editor...',15)
+    if (!(await this._waitForElement(win,'.WriteIndex-titleInput, .DraftEditor-title, .title-input, .Editable-title',15000)))
+      return {success:false,error:'zhihu: editor not loaded',platform:'zhihu'}
+    if (article.title) {
+      this._emitProgress('zhihu','filling title...',30)
+      try {
+        var tj = JSON.stringify(article.title)
+        await win.webContents.executeJavaScript("(function(){var ti=document.querySelector('.WriteIndex-titleInput, .DraftEditor-title, .title-input, .Editable-title');if(!ti)return false;ti.focus();ti.textContent="+tj+";ti.dispatchEvent(new Event('input',{bubbles:true}));ti.dispatchEvent(new Event('change',{bubbles:true}));return true;})()")
+      } catch(e) { log.warn('RpaView','zhihu title: '+e.message) }
+    }
+    if (article.content) {
+      this._emitProgress('zhihu','filling content...',50)
+      try {
+        var cj = JSON.stringify(article.content)
+        await win.webContents.executeJavaScript("(function(){var ed=document.querySelector('.DraftEditor-root, .Editable-editor, .ql-editor, [contenteditable=\u005c\u0022true\u005c\u0022]');if(!ed)return false;ed.innerHTML="+cj+";ed.dispatchEvent(new Event('input',{bubbles:true}));ed.dispatchEvent(new Event('change',{bubbles:true}));return true;})()")
+      } catch(e) { log.warn('RpaView','zhihu content: '+e.message) }
+    }
+    this._emitProgress('zhihu','publishing...',80)
+    try {
+      var pubBtn = "button:has-text('\u53d1\u5e03'), .PublishPanel-publish"
+      if (!(await this._waitForElement(win,pubBtn,10000)))
+        return {success:false,error:'zhihu: publish button not found',platform:'zhihu'}
+      if (article.draft) {
+        var saveBtn = "button:has-text('\u4fdd\u5b58\u8349\u7a3f'), .WriteIndex-saveDraft"
+        if (!(await this._waitForElement(win,saveBtn,5000)))
+          return {success:false,error:'zhihu: save draft btn not found',platform:'zhihu'}
+        await this._click(win,saveBtn)
+        await new Promise(function(r){setTimeout(r,2000)})
+        this._emitProgress('zhihu','draft saved',100)
+        return {success:true,url:win.webContents.getURL()||'',platform:'zhihu',draft:true}
+      }
+      await this._click(win,pubBtn)
+      this._emitProgress('zhihu','verifying...',95)
+      await new Promise(function(r){setTimeout(r,3000)})
+      var curUrl = win.webContents.getURL()
+      if (curUrl.includes('success')||curUrl.includes('publish')||curUrl.includes('article')) {
+        this._emitProgress('zhihu','published!',100)
+        return {success:true,url:curUrl,platform:'zhihu'}
+      }
+      var panelGone = await win.webContents.executeJavaScript("(function(){var pb=document.querySelector('button:has-text(\u005c\u0022\\u53d1\\u5e03\u005c\u0022), .PublishPanel-publish');return !pb||getComputedStyle(pb).display==='none';})()")
+      if (panelGone) {
+        this._emitProgress('zhihu','published!',100)
+        return {success:true,url:curUrl,platform:'zhihu'}
+      }
+      return {success:false,error:'zhihu: publish verification failed',platform:'zhihu'}
+    } catch(e) {
+      log.error('RpaView','zhihu publish: '+e.message)
+      return {success:false,error:e.message,platform:'zhihu'}
+    }
+  }
 
   // ========== Main publish entry ==========
   async publish(platform, article, authData, timeout) {
