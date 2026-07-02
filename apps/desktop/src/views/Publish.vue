@@ -325,7 +325,7 @@ async function handlePublish () {
   const off = onProgress((data) => addProgress(`[${data.platform}] ${data.stage}`))
   try {
         // Detect Markdown input and tag for platform-specific formatting
-    const isMarkdown = /^#\s|^\*\*|^\-\s|^>\s|^```|^\[.+\]\(.+\)|!\[/.+\]\(.+\)/m.test(article.content)
+    const isMarkdown = /^#\s|^\*\*|^>\s|^```/m.test(article.content) || /\[.+\]\(.+\)/.test(article.content)
     const data = { title: article.title, content: article.content, contentFormat: isMarkdown ? 'markdown' : 'html', author: article.author || '', cover_url: article.cover_url || '', video_path: article.video_path || '' }
     // 构建带 accountId 的平台列表
     const targets = selectedPlatforms.value.map(pid => ({
