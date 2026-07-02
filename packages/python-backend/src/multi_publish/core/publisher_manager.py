@@ -126,7 +126,7 @@ class PublisherManager:
                 )
         return results
 
-    async def login_to_platform(self, platform: PlatformType, account_id: str | None = None) -> bool:
+    async def login_to_platform(self, platform: PlatformType, account_id: str | None = None, proxy: dict | None = None) -> bool:
         """启动指定平台的登录流程"""
         publisher = await self.get_or_create(platform, account_id=account_id, proxy=proxy)
         return await publisher.login()

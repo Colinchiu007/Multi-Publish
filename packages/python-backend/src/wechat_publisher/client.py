@@ -247,8 +247,8 @@ class WechatPublisher:
                 if error_code in [41005, 41006, 45006] and retry_count < self.max_retries:
                     logger.warning(f"Upload error, retrying... (retry {retry_count + 1})")
                     time.sleep(2 * (retry_count + 1))
-                    return self._make_request(
-                        method, endpoint, params, data, files, json_data, retry_count + 1
+                return self._make_request(
+                    method, endpoint, params, data, files, json_data, retry_count + 1
                     )
 
                 # Raise appropriate error
@@ -257,16 +257,13 @@ class WechatPublisher:
             return result
 
         except httpx.HTTPStatusError as e:
-                if retry_count < self.max_retries:
-                    logger.warning(f"HTTP error {e.response.status_code}, retrying...")
-                    time.sleep(3 * (retry_count + 1))
-                    return self._make_request(
-                        method, endpoint, params, data, files, json_data, retry_count + 1
-                    )
-                raise WeChatNetworkError(f"HTTP error: {e}")
-            else:
-                raise WeChatNetworkError(f"HTTP error: {e}")
-
+            if retry_count < self.max_retries:
+                logger.warning(f"HTTP error {e.response.status_code}, retrying...")
+                time.sleep(3 * (retry_count + 1))
+                return self._make_request(
+                    method, endpoint, params, data, files, json_data, retry_count + 1
+                )
+            raise WeChatNetworkError(f"HTTP error: {e}")
         except httpx.HTTPError as e:
             if retry_count < self.max_retries:
                 logger.warning(f"Network error, retrying... ({retry_count + 1}/{self.max_retries})")
@@ -441,7 +438,7 @@ class WechatPublisher:
             
             media_id = result.get("media_id")
             if not media_id:
-                raise WeChatDraftError("Draft created 
+                raise WeChatDraftError("Draft created but no media_id returned")
             
             logger.info(f"Draft created: {media_id}")
             return Draft.from_api_response(result, article)

@@ -23,3 +23,17 @@ latest.yml
 
 # 临时文件
 *.part
+# Test artifacts
+gen_frames.py
+network-learning-animation.html
+neural-network-learning.mp4
+# Reports (not tracked)
+REFACTORING-REPORT.md
+TEST-REPORT.md
+docs/test-report-*.md
+# Memory artifacts
+memory/
+.handoff/
+# Test screenshots
+apps/desktop/tests/electron-gui-test.js
+apps/desktop/tests/screenshot-home.png
