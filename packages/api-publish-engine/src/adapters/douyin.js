@@ -1,4 +1,5 @@
 const { BasePlatformAdapter } = require("../base-adapter");
+const { getDouyinSignature } = require("../signer");
 
 class DouyinAdapter extends BasePlatformAdapter {
   constructor() {
@@ -27,12 +28,23 @@ class DouyinAdapter extends BasePlatformAdapter {
   }
 
   async publish(cookie, postData) {
-    // Douyin requires _signature parameter - extracted from ???
-    // First get user info to verify auth
     const h = this.getHeaders(cookie);
+    // Step 1: Verify auth
     const userResp = await this.http.get(this.apiBase + "/aweme/v1/creator/user/info/", { headers: h });
     if (userResp.status !== 200) return { success: false, error: "Auth failed", platform: "douyin" };
-    return { success: true, platform: "douyin", note: "API adapter - needs _signature from ??? bundle" };
+    
+    // Step 2: Get _signature from remote signer
+    const sig = await getDouyinSignature(this.apiBase + "/web/api/media/aweme/post/");
+    const params = sig ? { _signature: sig.signature || sig._signature || "" } : {};
+    
+    // Step 3: Publish
+    const resp = await this.http.post(this.apiBase + "/web/api/media/aweme/post/", postData, {
+      headers: h, params
+    });
+    if (resp.data?.code === 0 || resp.data?.status_code === 0) {
+      return { success: true, platform: "douyin", publishId: resp.data?.aweme_id || resp.data?.item_id };
+    }
+    return { success: false, error: resp.data?.msg || resp.data?.status_msg || "Publish failed", platform: "douyin" };
   }
 }
 module.exports = DouyinAdapter;

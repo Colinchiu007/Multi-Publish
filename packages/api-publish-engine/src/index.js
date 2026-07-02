@@ -4,6 +4,7 @@ const XiaohongshuAdapter = require("./adapters/xiaohongshu");
 const ShipinhaoAdapter = require("./adapters/shipinhao");
 const KuaishouAdapter = require("./adapters/kuaishou");
 const BaijiahaoAdapter = require("./adapters/baijiahao");
+const WechatMpAdapter = require("./adapters/wechat_mp");
 
 const REGISTRY = {
   zhihu: ZhihuAdapter,
@@ -12,6 +13,7 @@ const REGISTRY = {
   tencent_video: ShipinhaoAdapter,
   kuaishou: KuaishouAdapter,
   baijiahao: BaijiahaoAdapter,
+  wechat_mp: WechatMpAdapter,
 };
 
 function getAdapter(platform) {

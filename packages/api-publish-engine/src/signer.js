@@ -1,0 +1,88 @@
+/**
+ * 远程签名服务客户端
+ * 集成自蚁小二 qianming.yixiaoer.cn 签名服务
+ * 
+ * 各平台端口:
+ *   快手 5008-5011
+ *   抖音 5041-5042
+ *   小红书 5061-5063
+ *   百家号 5012
+ *   头条号 5031-5032
+ */
+
+const axios = require("axios");
+
+const SIGNER_BASE = "http://qianming.yixiaoer.cn";
+
+// 各平台签名端口映射
+const SIGNER_PORTS = {
+  douyin: 5042,
+  kuaishou: 5009,
+  xiaohongshu: 5062,
+  baijiahao: 5012,
+  toutiao: 5032,
+};
+
+/**
+ * 调用远程签名服务
+ * @param {string} platform - 平台标识
+ * @param {object} params - 签名参数
+ * @returns {Promise<object>} { signature, cookies, ... }
+ */
+async function getRemoteSign(platform, params = {}) {
+  const port = SIGNER_PORTS[platform];
+  if (!port) throw new Error("No signer port for platform: " + platform);
+  
+  try {
+    const resp = await axios.post(
+      SIGNER_BASE + ":" + port + "/Sign/GetSign",
+      params,
+      { timeout: 10000, validateStatus: () => true }
+    );
+    if (resp.status === 200 && resp.data) {
+      return resp.data;
+    }
+    console.warn("[signer] " + platform + " returned status " + resp.status);
+    return null;
+  } catch (err) {
+    console.warn("[signer] " + platform + " request failed: " + err.message);
+    return null;
+  }
+}
+
+/**
+ * 获取抖音 _signature
+ */
+async function getDouyinSignature(url) {
+  return getRemoteSign("douyin", { url, ts: Date.now() });
+}
+
+/**
+ * 获取快手 __NS_sig3
+ */
+async function getKuaishouSignature(path, body) {
+  return getRemoteSign("kuaishou", { path, body, ts: Date.now() });
+}
+
+/**
+ * 获取小红书 COS token
+ */
+async function getXiaohongshuToken() {
+  return getRemoteSign("xiaohongshu", { action: "getCosToken", ts: Date.now() });
+}
+
+/**
+ * 获取百家号签名
+ */
+async function getBaijiahaoSignature(params) {
+  return getRemoteSign("baijiahao", params);
+}
+
+module.exports = {
+  getRemoteSign,
+  getDouyinSignature,
+  getKuaishouSignature,
+  getXiaohongshuToken,
+  getBaijiahaoSignature,
+  SIGNER_PORTS,
+};

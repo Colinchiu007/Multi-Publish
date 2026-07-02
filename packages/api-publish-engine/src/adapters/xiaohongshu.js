@@ -1,4 +1,5 @@
 const { BasePlatformAdapter } = require("../base-adapter");
+const { getXiaohongshuToken } = require("../signer");
 
 class XiaohongshuAdapter extends BasePlatformAdapter {
   constructor() {
@@ -24,6 +25,9 @@ class XiaohongshuAdapter extends BasePlatformAdapter {
 
   async publish(cookie, postData) {
     const h = this.getHeaders(cookie);
+    // Verify auth by getting user info
+    const token = await getXiaohongshuToken();
+    
     const resp = await this.http.post(this.apiBase + "/api/v1/publish", postData, { headers: h });
     if (resp.data?.success) return { success: true, platform: "xiaohongshu", publishId: resp.data.id };
     return { success: false, error: resp.data?.msg || "Publish failed", platform: "xiaohongshu" };

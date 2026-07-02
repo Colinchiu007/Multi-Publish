@@ -8,5 +8,8 @@
   },
   "peerDependencies": {
     "@multi-publish/shared-utils": ">=0.1.0"
+  },
+  "scripts": {
+    "test": "node test/test-publish.js"
   }
 }
