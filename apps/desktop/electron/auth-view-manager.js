@@ -12,7 +12,7 @@
 const { BrowserWindow, WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
-const { PLATFORM_LOGIN_URLS, PLATFORM_LOGIN_SUCCESS_PATTERNS } = require('@multi-publish/shared-utils/src/platform-definitions')
+const { PLATFORM_LOGIN_URLS, PLATFORM_LOGIN_SUCCESS_PATTERNS, PLATFORM_LOGIN_SUCCESS_SELECTORS } = require('@multi-publish/shared-utils/src/platform-definitions')
 
 // 平台登录 URL 映射 → @multi-publish/shared-utils/src/platform-definitions
 
@@ -220,24 +220,21 @@ class AuthViewManager {
     const doCheck = async () => {
       if (this._closed) return
       
-      // Try DOM-based detection first (for platforms where login page URL == logged-in URL)
       const selectors = PLATFORM_LOGIN_SUCCESS_SELECTORS[this.currentPlatform]
       if (selectors && selectors.length > 0 && this.currentView && !this.currentView.webContents.isDestroyed()) {
         try {
-          const found = await this.currentView.webContents.executeJavaScript(
-            '(' + selectors.map(s => `document.querySelector('${s}')`).join(' || ') + ') !== null'
-          )
+          const js = selectors.map(s => `document.querySelector('${s}')`).join(' || ')
+          const found = await this.currentView.webContents.executeJavaScript('(' + js + ') !== null')
           if (found) {
             const authData = await this._extractAuthData()
             this._onLoginSuccess(authData)
             return
           }
-        } catch (e) { /* DOM check failed, fall through to cookie check */ }
+        } catch (e) { /* DOM check failed */ }
       }
 
       try {
         const authData = await this._extractAuthData()
-        // Only count as logged in if we got meaningful cookies
         if (authData.cookies && authData.cookies.length > 0) {
           this._onLoginSuccess(authData)
           return
@@ -247,10 +244,7 @@ class AuthViewManager {
         if (this._closed) return
       }
       
-      // Not logged in yet - check again after 2 seconds
-      if (!this._closed) {
-        setTimeout(doCheck, 2000)
-      }
+      if (!this._closed) setTimeout(doCheck, 2000)
     }
     setTimeout(doCheck, 2000)
   }
@@ -345,6 +339,11 @@ class AuthViewManager {
    */
   async _onLoginSuccess (authData) {
     if (this._closed) return
+    // 抖音登录页也会写匿名 cookie，需要判断是否有真实登录态
+    if (this.currentPlatform === 'douyin' && authData.cookies && authData.cookies.length < 3) {
+      log.info('AuthView', 'douyin has only anonymous cookies, not logged in yet')
+      return
+    }
     if (this._loginTimeout) {
       clearTimeout(this._loginTimeout)
       this._loginTimeout = null
