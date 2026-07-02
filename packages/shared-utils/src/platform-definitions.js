@@ -60,7 +60,7 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   wechat_mp: ['cgi-bin/home', 'cgi-bin/appmsg'],
   zhihu: ['zhihu.com/people', 'zhihu.com/home'],
   weibo: ['weibo.com/home', 'weibo.com/u/'],
-  douyin: ['creator.douyin.com'],
+  douyin: ['douyin.com'],
   xiaohongshu: ['creator.xiaohongshu.com'],
   tencent_video: ['channels.weixin.qq.com'],
   kuaishou: ['cp.kuaishou.com'],

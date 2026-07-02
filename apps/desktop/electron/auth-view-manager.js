@@ -320,6 +320,11 @@ class AuthViewManager {
    */
   async _onLoginSuccess (authData) {
     if (this._closed) return
+    // 抖音登录页也会写匿名 cookie，需要判断是否有真实登录态
+    if (this.currentPlatform === 'douyin' && authData.cookies && authData.cookies.length < 3) {
+      log.info('AuthView', 'douyin has only anonymous cookies, not logged in yet')
+      return
+    }
     if (this._loginTimeout) {
       clearTimeout(this._loginTimeout)
       this._loginTimeout = null
