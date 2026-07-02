@@ -1,0 +1,147 @@
+{
+    "mockAccounts":  [
+                         {
+                             "id":  1,
+                             "name":  "公众号小编",
+                             "account_name":  "公众号小编",
+                             "created_at":  "2026-01-15T08:00:00Z",
+                             "is_default":  true,
+                             "platform":  "wechat_mp",
+                             "status":  "active"
+                         },
+                         {
+                             "id":  2,
+                             "name":  "科技号",
+                             "account_name":  "科技号",
+                             "created_at":  "2026-02-20T08:00:00Z",
+                             "is_default":  false,
+                             "platform":  "wechat_mp",
+                             "status":  "active"
+                         },
+                         {
+                             "id":  3,
+                             "name":  "生活号",
+                             "account_name":  "生活号",
+                             "created_at":  "2026-03-10T08:00:00Z",
+                             "is_default":  false,
+                             "platform":  "wechat_mp",
+                             "status":  "inactive"
+                         },
+                         {
+                             "id":  4,
+                             "name":  "知乎主号",
+                             "account_name":  "知乎主号",
+                             "created_at":  "2026-01-20T08:00:00Z",
+                             "is_default":  true,
+                             "platform":  "zhihu",
+                             "status":  "active"
+                         },
+                         {
+                             "id":  5,
+                             "name":  "科技专栏号",
+                             "account_name":  "科技专栏号",
+                             "created_at":  "2026-04-05T08:00:00Z",
+                             "is_default":  false,
+                             "platform":  "zhihu",
+                             "status":  "inactive"
+                         },
+                         {
+                             "id":  6,
+                             "name":  "官方微博",
+                             "account_name":  "官方微博",
+                             "created_at":  "2026-01-10T08:00:00Z",
+                             "is_default":  true,
+                             "platform":  "weibo",
+                             "status":  "active"
+                         },
+                         {
+                             "id":  7,
+                             "name":  "抖音主号",
+                             "account_name":  "抖音主号",
+                             "created_at":  "2026-02-01T08:00:00Z",
+                             "is_default":  true,
+                             "platform":  "douyin",
+                             "status":  "active"
+                         },
+                         {
+                             "id":  8,
+                             "name":  "生活号",
+                             "account_name":  "生活号",
+                             "created_at":  "2026-03-15T08:00:00Z",
+                             "is_default":  false,
+                             "platform":  "douyin",
+                             "status":  "active"
+                         },
+                         {
+                             "id":  9,
+                             "name":  "主理人号",
+                             "account_name":  "主理人号",
+                             "created_at":  "2026-01-25T08:00:00Z",
+                             "is_default":  true,
+                             "platform":  "xiaohongshu",
+                             "status":  "active"
+                         },
+                         {
+                             "id":  10,
+                             "name":  "测评号",
+                             "account_name":  "测评号",
+                             "created_at":  "2026-05-01T08:00:00Z",
+                             "is_default":  false,
+                             "platform":  "xiaohongshu",
+                             "status":  "inactive"
+                         },
+                         {
+                             "id":  11,
+                             "name":  "B站主号",
+                             "account_name":  "B站主号",
+                             "created_at":  "2026-02-10T08:00:00Z",
+                             "is_default":  true,
+                             "platform":  "bilibili",
+                             "status":  "active"
+                         },
+                         {
+                             "id":  12,
+                             "name":  "游戏分号",
+                             "account_name":  "游戏分号",
+                             "created_at":  "2026-04-20T08:00:00Z",
+                             "is_default":  false,
+                             "platform":  "bilibili",
+                             "status":  "active"
+                         }
+                     ],
+    "urls":  {
+                 "electronExe":  "node_modules/electron/dist/electron.exe",
+                 "viteDevServer":  "http://127.0.0.1:5174/",
+                 "screenshotDir":  "apps/desktop/tests/screenshots",
+                 "electronMain":  "apps/desktop/electron/main.js"
+             },
+    "routes":  {
+                   "dashboard":  "/dashboard",
+                   "accounts":  "/accounts",
+                   "comments":  "/comments",
+                   "monitor":  "/monitor",
+                   "publish":  "/publish",
+                   "home":  "/",
+                   "collection":  "/collection"
+               },
+    "selectors":  {
+                      "accountRow":  ".account-row",
+                      "statusDot":  ".account-status-dot",
+                      "batchToggle":  "input[type=\u0027checkbox\u0027]",
+                      "platformGroup":  ".cohere-card-group",
+                      "emptyState":  ".cohere-empty",
+                      "filterChips":  "button.cohere-filter-chip",
+                      "deleteButton":  "button[title=\u0027删除\u0027]",
+                      "addAccountButton":  "button:has-text(\u0027添加账号\u0027)",
+                      "defaultBadge":  ".default-badge",
+                      "statCard":  ".cohere-stat-card",
+                      "copyButton":  "button[title=\u0027复制\u0027]",
+                      "pageTitle":  ".page-title",
+                      "statLabel":  ".stat-label",
+                      "platformName":  ".card-platform-name",
+                      "quillEditor":  ".ql-editor",
+                      "accountNameInput":  ".account-name-input",
+                      "pageSubtitle":  ".page-subtitle",
+                      "publishButton":  "button:has-text(\u0027一键发布\u0027)"
+                  }
+}
