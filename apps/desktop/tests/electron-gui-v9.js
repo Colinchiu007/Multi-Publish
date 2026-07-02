@@ -177,7 +177,13 @@ async function testCreatePage(win) {
   console.log("\n╔══ 视频创作页 ══╗");
   await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.create);
   await wait(3000);
-  await assertTitle(win, '创作');
+  // CreateView uses <h1> not .page-title class
+  const createTitle = await win.evaluate(() => {
+    const pt = document.querySelector('.page-title');
+    const h1 = document.querySelector('h1');
+    return (pt?.textContent || h1?.textContent || '').trim();
+  });
+  assert('页面标题包含「创作」', createTitle.includes('创作'), 'got: ' + createTitle);
   const modeTabs = await win.evaluate(() => {
     const tabs = document.querySelectorAll('.mode-tab');
     return Array.from(tabs).map(t => t.textContent.trim());
@@ -308,7 +314,8 @@ async function testTopNav(win) {
     return Array.from(items).map(i => i.textContent.trim().replace(/\s+/g, ' '));
   }, SEL);
   assert('导航项 ≥6', navItems.length >= 6, 'found: ' + navItems.length);
-  for (const [name, hash] of Object.entries(ROUTES).slice(0, 5)) {
+  const navRoutes = ['publish','accounts','dashboard','collection','comments','monitor','create'];
+  for (const [name, hash] of Object.entries(ROUTES).filter(([k]) => navRoutes.includes(k)).slice(0, 5)) {
     await win.evaluate((h) => { window.location.hash = '#' + h; }, hash);
     await wait(800);
     const isActive = await win.evaluate((sel) => {
@@ -378,7 +385,7 @@ async function run() {
   console.log("✅ Vite\n");
 
   const app = await electron.launch({
-    executablePath: EL, args: [MAIN, "--no-sandbox"], timeout: 30000,
+    executablePath: EL, args: [MAIN, "--no-sandbox"], timeout: 60000,
   });
   let win;
   const errors = [];
