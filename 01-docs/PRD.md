@@ -2,7 +2,7 @@
 
 > **立项日期**: 2026-06-03
 > **最后更新**: 2026-07-02
-> **当前版本**: v1.5.0（云端发布模块）
+> **当前版本**: v2.0.0（云端发布模块）
 > **产品定位**: 为内容生产者提供"策题 → 采集 → 优化 → 发布 → 追踪"全流程闭环的一键发布桌面工具
 > **目标用户**: 自媒体运营者、MCN 机构、企业内容团队
 > **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）
@@ -78,7 +78,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 **统一发布路由：**
 1. **本地 RPA** — 默认路径，所有平台走 RpaViewManager（隐藏 BrowserWindow + executeJavaScript + CDP 文件上传）
 2. **ECS 云端发布** — 通过 PublishPoller 轮询 orchestrator，下载视频后委托发布（vNext）
-3. **显式云端发布** — 通过 CloudPublish.vue 页面显式提交任务到 orchestrator，用于不依赖本地环境的发布（v1.5.0 F13 🆕）
+3. **显式云端发布** — 通过 CloudPublish.vue 页面显式提交任务到 orchestrator，用于不依赖本地环境的发布（v2.0.0 F13 🆕）
 4. **Python 后端 API** — 预留，B 站 API 模式
 
 **选路策略（vNext）：**
@@ -233,7 +233,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | B站云端 API | orchestrator services/bilibili_publisher.py API 模式发布 | ✅ |
 | 抖音云端 API | orchestrator services/douyin_publisher.py API 模式发布 | ✅ |
 
-#### F13：云端发布模块（v1.5.0）
+#### F13：云端发布模块（v2.0.0）
 
 | 子功能 | 描述 | 状态 |
 |--------|------|------|

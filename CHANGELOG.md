@@ -1,3 +1,34 @@
+## [v2.0.0] - 2026-07-02
+
+### Added — P1 用户体验 + 格式适配
+
+- **首次启动引导 v2**: 4 步 onboarding wizard — 平台选择 → 账号绑定 → 内容设置 → 完成
+- **发布失败告警**: 发布失败时弹窗通知 + 重试操作 + 失败原因展示
+- **i18n 国际化**: 中英文双语切换 (locales/zh.js + en.js)
+- **离线模式**: offline-manager.js — 断网缓存操作，网络恢复后自动同步
+- **Markdown 输入**: ArticleEditor.vue Markdown/富文本模式切换
+- **Markdown → HTML 转换**: md-converter.js — GFM 语法支持 + XSS 防护
+- **格式适配增强**: format-adapter 自动检测 Markdown 输入并转换
+- **封面模板生成器**: cover-generator.js — 从标题文字生成封面图 (solid/gradient/dark)
+- **GUI 测试框架**: selectors.json + test-helpers.js 配置化
+
+### Tests
+
+- 34 个 md-converter 测试 (detectMarkdown + markdownToHtml + htmlToMarkdown)
+- 9 个 format-adapter Markdown 集成测试
+- 19 个 cover-generator 测试 (wrapText/SVG/generateCover)
+- 16 个 format-adapter 原有测试 (无回归)
+
+### PRs Merged
+
+- #99: P1-M4 知乎 RPA 发布器 + 质量修复
+- #101: P0-3 Python Core 模块测试覆盖 + bug 修复
+- #102: 修复 CI build 失败 (package-lock.json)
+- #103: P0-4 平台端到端测试
+- #104: P1 用户体验 — 首次启动引导 + 发布失败告警
+- #105: P1-M7 Markdown 输入 + 各平台格式适配
+- #106: P1-M8 封面模板生成器
+
 ## [v1.6.3] - 2026-06-30
 
 ### Fixed — CI 标签构建修复
