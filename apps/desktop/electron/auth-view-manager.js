@@ -321,6 +321,7 @@ class AuthViewManager {
     if (this._loginTimeout) {
       clearTimeout(this._loginTimeout)
       this._loginTimeout = null
+    this._closed = false
     }
 
     const { cookies, localStorage, accountName } = authData
@@ -358,6 +359,7 @@ class AuthViewManager {
     if (this._loginTimeout) {
       clearTimeout(this._loginTimeout)
       this._loginTimeout = null
+    this._closed = false
     }
 
     if (this.currentView) {
