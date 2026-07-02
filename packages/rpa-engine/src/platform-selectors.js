@@ -55,8 +55,8 @@ module.exports = {
       publish_btn: ['a.btn_publish', 'a:has-text("发布")'],
     },
     zhihu: {
-      title_input: ['.WriteIndex-titleInput', '.DraftEditor-title', '.title-input', '.Editable-title'],
-      editor: ['.DraftEditor-root', '.Editable-editor', '.ql-editor', '[contenteditable="true"]'],
+      title_input: ['textarea[placeholder*="请输入标题"]', '.WriteIndex-titleInput', '.DraftEditor-title', '.title-input'],
+      editor: ['.DraftEditor-root', '.public-DraftEditor-content', '.DraftEditor-editorContainer', '[contenteditable="true"]'],
       save_btn: ['button:has-text("保存草稿")', '.WriteIndex-saveDraft', '.PublishPanel-saveDraft'],
       publish_btn: ['button:has-text("发布")', '.PublishPanel-publish'],
     },

@@ -23,7 +23,7 @@ platforms:
     type: article
     icon: ❓
     category: 中文
-    publish_url: "https://www.zhihu.com/creator/write"
+    publish_url: "https://zhuanlan.zhihu.com/write"
     data_url: ""
     comment_url: ""
     cover_size: 1280x720

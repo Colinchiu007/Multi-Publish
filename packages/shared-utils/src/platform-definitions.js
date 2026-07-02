@@ -58,7 +58,7 @@ const PLATFORM_DASHBOARD_URLS = {
 // auth-view-manager 使用 URL 变化检测登录完成
 const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   wechat_mp: ['cgi-bin/home', 'cgi-bin/appmsg'],
-  zhihu: ['zhihu.com/people', 'zhihu.com/home'],
+  zhihu: ['zhihu.com/people', 'zhihu.com/home', 'zhuanlan.zhihu.com', 'www.zhihu.com/creator'],
   weibo: ['weibo.com/home', 'weibo.com/u/'],
   douyin: ['douyin.com'],
   xiaohongshu: ['creator.xiaohongshu.com'],
@@ -78,7 +78,7 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
 // 用于 Playwright / RPA 引擎页面内检测登录状态
 const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
   wechat_mp: ['.index_main', '.menu_box', 'a[href*="cgi-bin/home"]'],
-  zhihu: ['.AppHeader-profileAvatar', '.ProfileHeader-avatar', 'img[alt="avatar"]'],
+  zhihu: ['.AppHeader-profileAvatar', '.ProfileHeader-avatar', 'img[alt="avatar"]', '[class*="ProfileHeader"]'],
   weibo: ['.gn_name', '.Avatar', '[node-type="userInfo"]'],
   douyin: ['.user-info', '.account-info', '.creator-header'],
   xiaohongshu: ['[class*="avatar"]', '[class*="userInfo"]', '.user-avatar'],
