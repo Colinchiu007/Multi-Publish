@@ -37,3 +37,5 @@ memory/
 # Test screenshots
 apps/desktop/tests/electron-gui-test.js
 apps/desktop/tests/screenshot-home.png
+
+.codex/
