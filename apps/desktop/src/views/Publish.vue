@@ -353,6 +353,7 @@ function duplicateArticle (idx) {
 }
 
 async function handleBatchPublish () {
+  const api = window.electronAPI
   for (const a of articles.value) {
     if (!a.title.trim()) { ElMessage.warning('有文章缺少标题'); return }
     if (!a.content.trim()) { ElMessage.warning('有文章缺少正文'); return }
