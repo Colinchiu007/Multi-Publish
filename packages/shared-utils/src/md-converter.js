@@ -2,20 +2,25 @@
  * Markdown -> HTML converter
  */
 let _marked = null
-let _markedReady = null
 
 function ensureMarked () {
   if (_marked) return
-  if (!_markedReady) {
-    _markedReady = import('marked').then(mod => {
-      _marked = mod.marked
-      _marked.setOptions({ gfm: true, breaks: true, smartLists: true })
-    })
-  }
+  // Try require first (Jest / CJS environments)
+  try {
+    _marked = require('marked').marked
+    _marked.setOptions({ gfm: true, breaks: true, smartLists: true })
+    return
+  } catch (_) {}
+  // Fallback to dynamic import (Electron with ESM-only marked)
+  try {
+    _marked = require('marked')
+    _marked.setOptions({ gfm: true, breaks: true, smartLists: true })
+    return
+  } catch (_) {}
 }
 
-// Kick off import immediately (non-blocking)
-ensureMarked()
+// Try sync init immediately; import() fallback handled at call time
+try { ensureMarked() } catch (_) {}
 
 /**
  * Detect if text is Markdown (not HTML)
@@ -54,7 +59,8 @@ function markdownToHtml (md, options) {
   options = options || {}
   if (!md || typeof md !== 'string') return ''
   var doSanitize = options.sanitize !== false
-  var html = _marked ? _marked.parse(md) : md.replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    if (!_marked) try { ensureMarked() } catch (_) {}
+  var html = _marked ? _marked.parse(md) : md.replace(/</g, '&lt;').replace(/>/g, '&gt;')
   if (doSanitize) {
     html = html.replace(/<script[\s\S]*?<\/script>/gi, '')
     html = html.replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
