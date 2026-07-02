@@ -1,7 +1,17 @@
 const ZhihuAdapter = require("./adapters/zhihu");
+const DouyinAdapter = require("./adapters/douyin");
+const XiaohongshuAdapter = require("./adapters/xiaohongshu");
+const ShipinhaoAdapter = require("./adapters/shipinhao");
+const KuaishouAdapter = require("./adapters/kuaishou");
+const BaijiahaoAdapter = require("./adapters/baijiahao");
 
 const REGISTRY = {
   zhihu: ZhihuAdapter,
+  douyin: DouyinAdapter,
+  xiaohongshu: XiaohongshuAdapter,
+  tencent_video: ShipinhaoAdapter,
+  kuaishou: KuaishouAdapter,
+  baijiahao: BaijiahaoAdapter,
 };
 
 function getAdapter(platform) {
