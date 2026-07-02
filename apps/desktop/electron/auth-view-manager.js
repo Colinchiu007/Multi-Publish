@@ -218,12 +218,13 @@ class AuthViewManager {
 
     // 等待页面稳定
     setTimeout(async () => {
+      if (this._closed) return
       try {
         const authData = await this._extractAuthData()
         this._onLoginSuccess(authData)
       } catch (e) {
         log.error('AuthView', `Extract auth failed: ${e.message}`)
-        // 即使提取失败，也认为登录成功了（至少有 Cookie）
+        if (this._closed) return
         this._onLoginSuccess({ cookies: [], localStorage: {}, accountName: this.currentPlatform })
       }
     }, 2000)
@@ -318,6 +319,7 @@ class AuthViewManager {
    * 登录成功处理
    */
   async _onLoginSuccess (authData) {
+    if (this._closed) return
     if (this._loginTimeout) {
       clearTimeout(this._loginTimeout)
       this._loginTimeout = null
