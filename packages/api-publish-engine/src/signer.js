@@ -11,6 +11,7 @@
  */
 
 const axios = require("axios");
+const { getCsdnSign, getXiaohongshuSign, buildDouyinParams, getKuaishouSign } = require("./signer-local");
 
 const SIGNER_BASE = "http://qianming.yixiaoer.cn";
 
@@ -53,22 +54,30 @@ async function getRemoteSign(platform, params = {}) {
 /**
  * 获取抖音 _signature
  */
-async function getDouyinSignature(url) {
-  return getRemoteSign("douyin", { url, ts: Date.now() });
+async function getDouyinSignature(url, userAgent) {
+  const remote = await getRemoteSign("douyin", { url, ts: Date.now() });
+  if (remote) return remote;
+  return buildDouyinParams(userAgent);
 }
 
 /**
  * 获取快手 __NS_sig3
  */
-async function getKuaishouSignature(path, body) {
-  return getRemoteSign("kuaishou", { path, body, ts: Date.now() });
+async function getKuaishouSignature(path, body, cookie) {
+  const remote = await getRemoteSign("kuaishou", { path, body, ts: Date.now() });
+  if (remote) return remote;
+  const phMatch = cookie && cookie.match(/kuaishou\.web\.cp\.api_ph=([^;]+)/);
+  const sig = getKuaishouSign(body, phMatch ? phMatch[1] : null);
+  return { signature: sig, __NS_sig3: sig };
 }
 
 /**
  * 获取小红书 COS token
  */
-async function getXiaohongshuToken() {
-  return getRemoteSign("xiaohongshu", { action: "getCosToken", ts: Date.now() });
+async function getXiaohongshuToken(path, body) {
+  const remote = await getRemoteSign("xiaohongshu", { action: "getCosToken", ts: Date.now() });
+  if (remote) return remote;
+  return getXiaohongshuSign(path, body);
 }
 
 /**
@@ -84,5 +93,7 @@ module.exports = {
   getKuaishouSignature,
   getXiaohongshuToken,
   getBaijiahaoSignature,
+  getCsdnSign,
+  getXiaohongshuSign,
   SIGNER_PORTS,
 };
