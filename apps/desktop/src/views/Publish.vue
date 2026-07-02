@@ -122,6 +122,12 @@
           <!-- 最佳发布时间 -->
           <OptimalTimeTip v-if="article.title.length > 2" :keyword="article.title" style="margin-bottom:var(--space-md)" />
 
+          <!-- 标题助手 -->
+          <TitleAssistantPanel :title="article.title" :visible="showTitlePanel" @close="showTitlePanel = false" style="margin-bottom:var(--space-md)" />
+          <div v-if="!showTitlePanel && article.title.length > 5" style="margin-bottom:var(--space-md);text-align:center">
+            <button class="cohere-btn-ghost" @click="showTitlePanel = true" style="font-size:12px;padding:4px 12px">📊 标题参考</button>
+          </div>
+
           <div class="cohere-card" style="cursor:default">
             <div class="cohere-form" style="gap:var(--space-md)">
               <div class="cohere-form-label">发布目标</div>
@@ -195,6 +201,7 @@ import { UploadFilled } from '@element-plus/icons-vue'
 import { publishBatch, onProgress, sensitiveCheck, batchCreate, storeGetSetting } from '@/api/publisher'
 import TagSuggester from '@/components/TagSuggester.vue'
 import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
+import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
 import ArticleEditor from '@/components/ArticleEditor.vue'
 
 const route = useRoute()
@@ -237,6 +244,7 @@ const copied = ref(false)  // P2-3: URL 复制反馈
 
 const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '' })
 const showTagPanel = ref(true)
+const showTitlePanel = ref(false)
 const combinedContent = computed(() => article.title + ' ' + article.content)
 
 // 同步 selectedAccounts 默认值
@@ -316,7 +324,9 @@ async function handlePublish () {
 
   const off = onProgress((data) => addProgress(`[${data.platform}] ${data.stage}`))
   try {
-    const data = { title: article.title, content: article.content, author: article.author || '', cover_url: article.cover_url || '', video_path: article.video_path || '' }
+        // Detect Markdown input and tag for platform-specific formatting
+    const isMarkdown = /^#\s|^\*\*|^>\s|^```/m.test(article.content) || /\[.+\]\(.+\)/.test(article.content)
+    const data = { title: article.title, content: article.content, contentFormat: isMarkdown ? 'markdown' : 'html', author: article.author || '', cover_url: article.cover_url || '', video_path: article.video_path || '' }
     // 构建带 accountId 的平台列表
     const targets = selectedPlatforms.value.map(pid => ({
       platform: pid,

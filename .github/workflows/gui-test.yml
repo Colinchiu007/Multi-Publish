@@ -1,0 +1,68 @@
+﻿name: GUI Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+  push:
+    branches: [codex/gui-test*, main]
+    paths:
+      - 'apps/desktop/**'
+  workflow_dispatch:
+
+jobs:
+  gui-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install system deps (Xvfb + libvips)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libvips libvips-dev build-essential python3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Vue frontend
+        run: npm run build:vue -w @multi-publish/desktop
+
+      - name: Rebuild native modules
+        run: |
+          cd apps/desktop
+          npx @electron/rebuild -f -w better-sqlite3
+
+      - name: Start Vite dev server
+        run: |
+          cd apps/desktop
+          npx vite --port 5174 &
+          # Wait for Vite to be ready
+          for i in $(seq 1 30); do
+            if curl -s http://127.0.0.1:5174/ > /dev/null 2>&1; then
+              echo "Vite ready"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run GUI tests (v9 — config-driven)
+        run: |
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+            node apps/desktop/tests/electron-gui-v9.js
+
+      - name: Upload test screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-test-screenshots
+          path: apps/desktop/tests/screenshots/*.png
+          retention-days: 7

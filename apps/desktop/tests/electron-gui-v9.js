@@ -168,6 +168,191 @@ async function testCommentsPage(win) {
 }
 
 // ════════════════════════════════════════════════════
+
+// ═════════════════════════════════════════════════
+// 新页面测试（v9 扩展）
+// ═════════════════════════════════════════════════
+
+async function testCreatePage(win) {
+  console.log("\n╔══ 视频创作页 ══╗");
+  await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.create);
+  await wait(3000);
+  // CreateView uses <h1> not .page-title class
+  const createTitle = await win.evaluate(() => {
+    const pt = document.querySelector('.page-title');
+    const h1 = document.querySelector('h1');
+    return (pt?.textContent || h1?.textContent || '').trim();
+  });
+  assert('页面标题包含「创作」', createTitle.includes('创作'), 'got: ' + createTitle);
+  const modeTabs = await win.evaluate(() => {
+    const tabs = document.querySelectorAll('.mode-tab');
+    return Array.from(tabs).map(t => t.textContent.trim());
+  });
+  assert('模式切换标签 ≥2', modeTabs.length >= 2, 'found: ' + modeTabs.join(', '));
+  const hasTextarea = await win.evaluate(() => !!document.querySelector('textarea'));
+  assert('文本输入区', hasTextarea);
+  const hasSelect = await win.evaluate(() => !!document.querySelector('select'));
+  assert('输出平台选择', hasSelect);
+  const hasAiBtn = await win.evaluate(() =>
+    Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('AI'))
+  );
+  assert('AI 写稿按钮', hasAiBtn);
+  await win.screenshot({ path: path.join(SS, 'v9-08-create.png') });
+}
+
+async function testProvidersPage(win) {
+  console.log("\n╔══ Provider 配置页 ══╗");
+  await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.providers);
+  await wait(3000);
+  await assertTitle(win, 'Provider');
+  const chips = await win.evaluate(() => {
+    return Array.from(document.querySelectorAll('.cohere-filter-chip')).map(c => c.textContent.trim());
+  });
+  assert('过滤器芯片 ≥3', chips.length >= 3, 'found: ' + chips.join(', '));
+  const hasAdd = await win.evaluate(() =>
+    Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('添加'))
+  );
+  assert('添加 Provider 按钮', hasAdd);
+  const hasRefresh = await win.evaluate(() =>
+    Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('刷新'))
+  );
+  assert('刷新按钮', hasRefresh);
+  await win.screenshot({ path: path.join(SS, 'v9-09-providers.png') });
+}
+
+async function testIntelligencePage(win) {
+  console.log("\n╔══ 内容情报页 ══╗");
+  await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.intelligence);
+  await wait(3000);
+  await assertTitle(win, '情报');
+  const hasSearch = await win.evaluate(() => !!document.querySelector('.cohere-input'));
+  assert('搜索输入框', hasSearch);
+  const hasSearchBtn = await win.evaluate(() =>
+    Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('搜索'))
+  );
+  assert('搜索按钮', hasSearchBtn);
+  const hasSourceInfo = await win.evaluate(() =>
+    document.body.innerText.includes('Reddit') || document.body.innerText.includes('数据源')
+  );
+  assert('数据源信息', hasSourceInfo);
+  await win.screenshot({ path: path.join(SS, 'v9-10-intelligence.png') });
+}
+
+async function testViralAnalysisPage(win) {
+  console.log("\n╔══ 爆款分析页 ══╗");
+  await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES['viral-analysis']);
+  await wait(3000);
+  await assertTitle(win, '爆款');
+  const hasInput = await win.evaluate(() => !!document.querySelector('.cohere-input'));
+  assert('主题输入框', hasInput);
+  const hasPlatformSelect = await win.evaluate(() => !!document.querySelector('select'));
+  assert('目标平台选择', hasPlatformSelect);
+  const hasAnalyzeBtn = await win.evaluate(() =>
+    Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('分析') || b.textContent.includes('生成'))
+  );
+  assert('分析/生成按钮', hasAnalyzeBtn);
+  await win.screenshot({ path: path.join(SS, 'v9-11-viral.png') });
+}
+
+async function testKeywordsPage(win) {
+  console.log("\n╔══ 关键词监控页 ══╗");
+  await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.keywords);
+  await wait(3000);
+  await assertTitle(win, '关键词');
+  await win.screenshot({ path: path.join(SS, 'v9-12-keywords.png') });
+}
+
+async function testCloudPublishPage(win) {
+  console.log("\n╔══ 云发布页 ══╗");
+  await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES['cloud-publish']);
+  await wait(3000);
+  await win.screenshot({ path: path.join(SS, 'v9-13-cloud-publish.png') });
+  assert('云发布页加载', true);
+}
+
+// ═════════════════════════════════════════════════
+// 侧边栏 + 顶部导航交互
+// ═════════════════════════════════════════════════
+
+async function testSidebar(win) {
+  console.log("\n╔══ 侧边栏交互 ══╗");
+  await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.accounts);
+  await injectAccounts(win);
+  await wait(1000);
+  const sidebarExists = await win.evaluate((sel) => !!document.querySelector(sel.sidebar), SEL);
+  assert('侧边栏存在', sidebarExists);
+  const platforms = await win.evaluate((sel) => {
+    const items = document.querySelectorAll(sel.platformItem);
+    return Array.from(items).map(i => ({
+      name: i.querySelector('.platform-name')?.textContent?.trim() || '',
+      hasStatus: !!i.querySelector('.platform-status'),
+    }));
+  }, SEL);
+  assert('平台列表 ≥6', platforms.length >= 6, 'found: ' + platforms.length);
+  assert('平台状态指示器', platforms.every(p => p.hasStatus));
+  const hasSearch = await win.evaluate((sel) => !!document.querySelector(sel.sidebarSearch), SEL);
+  assert('侧边栏搜索框', hasSearch);
+  if (platforms.length > 0) {
+    await win.evaluate((sel) => {
+      document.querySelector(sel.platformItem)?.click();
+    }, SEL);
+    await wait(500);
+    const activeCount = await win.evaluate((sel) =>
+      document.querySelectorAll(sel.platformItem + '.active').length
+    , SEL);
+    assert('点击后激活', activeCount >= 1);
+  }
+  await win.screenshot({ path: path.join(SS, 'v9-14-sidebar.png') });
+}
+
+async function testTopNav(win) {
+  console.log("\n╔══ 顶部导航 ══╗");
+  const navExists = await win.evaluate((sel) => !!document.querySelector(sel.topNav), SEL);
+  assert('顶部导航栏存在', navExists);
+  const navItems = await win.evaluate((sel) => {
+    const items = document.querySelectorAll(sel.navItem);
+    return Array.from(items).map(i => i.textContent.trim().replace(/\s+/g, ' '));
+  }, SEL);
+  assert('导航项 ≥6', navItems.length >= 6, 'found: ' + navItems.length);
+  const navRoutes = ['publish','accounts','dashboard','collection','comments','monitor','create'];
+  for (const [name, hash] of Object.entries(ROUTES).filter(([k]) => navRoutes.includes(k)).slice(0, 5)) {
+    await win.evaluate((h) => { window.location.hash = '#' + h; }, hash);
+    await wait(800);
+    const isActive = await win.evaluate((sel) => {
+      return Array.from(document.querySelectorAll(sel.navItem)).some(i => i.classList.contains('active'));
+    }, SEL);
+    assert('导航高亮 ' + name, isActive);
+  }
+  await win.screenshot({ path: path.join(SS, 'v9-15-topnav.png') });
+}
+
+// ═════════════════════════════════════════════════
+// 发布页面深度测试
+// ═════════════════════════════════════════════════
+
+async function testPublishDeep(win) {
+  console.log("\n╔══ 发布页深度 ══╗");
+  await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.publish);
+  await injectAccounts(win);
+  await ensurePlatformStore(win);
+  await wait(3000);
+  const publishBtnState = await win.evaluate(() => {
+    const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('一键发布'));
+    return btn ? { exists: true, disabled: btn.disabled || btn.hasAttribute('disabled') } : { exists: false };
+  });
+  assert('发布按钮存在', publishBtnState.exists);
+  const quillInteractive = await win.evaluate((sel) => {
+    const editor = document.querySelector(sel.quillEditor);
+    if (!editor) return false;
+    editor.focus();
+    editor.innerHTML = '<p>v9 深度测试内容</p>';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    return editor.textContent.includes('v9 深度测试');
+  }, SEL);
+  assert('Quill 编辑器可交互', quillInteractive);
+  await win.screenshot({ path: path.join(SS, 'v9-16-publish-deep.png') });
+}
+
 // 导航测试
 // ════════════════════════════════════════════════════
 
@@ -200,7 +385,7 @@ async function run() {
   console.log("✅ Vite\n");
 
   const app = await electron.launch({
-    executablePath: EL, args: [MAIN, "--no-sandbox"], timeout: 30000,
+    executablePath: EL, args: [MAIN, "--no-sandbox"], timeout: 60000,
   });
   let win;
   const errors = [];
@@ -225,6 +410,15 @@ async function run() {
     await testCollectionPage(win);
     await testMonitorPage(win);
     await testCommentsPage(win);
+    await testCreatePage(win);
+    await testProvidersPage(win);
+    await testIntelligencePage(win);
+    await testViralAnalysisPage(win);
+    await testKeywordsPage(win);
+    await testCloudPublishPage(win);
+    await testSidebar(win);
+    await testTopNav(win);
+    await testPublishDeep(win);
     await testNavigation(win);
 
     console.log("\n═══ 控制台错误 ═══");

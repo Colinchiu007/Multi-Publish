@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 通用 GUI 测试辅助模块
  * 从 selectors.json 加载配置，避免硬编码选择器
  */
@@ -6,11 +6,20 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 
-const PROJECT_ROOT = "D:/Data/projects/Multi-Publish";
+// Auto-detect project root: walk up from this file until package.json is found
+const PROJECT_ROOT = (function findRoot() {
+  let dir = __dirname;
+  while (dir !== path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(path.join(dir, 'apps', 'desktop'))) return dir.replace(/\\/g, '/');
+    dir = path.dirname(dir);
+  }
+  return path.resolve(__dirname, '..', '..').replace(/\\/g, '/');
+})();
 const config = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, "apps/desktop/tests/selectors.json"), "utf8"));
 
 // 配置常量
-const EL = path.join(PROJECT_ROOT, config.urls.electronExe);
+// electron package exports platform-appropriate binary path
+const EL = require('electron');
 const MAIN = path.join(PROJECT_ROOT, config.urls.electronMain);
 const SS = path.join(PROJECT_ROOT, config.urls.screenshotDir);
 const ROUTES = config.routes;
@@ -104,3 +113,4 @@ module.exports = {
   checkVite, findMainWindow, injectAccounts, ensurePlatformStore,
   setBatchMode, assertTitle,
 };
+
