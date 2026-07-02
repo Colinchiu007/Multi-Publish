@@ -1,9 +1,21 @@
 /**
  * Markdown -> HTML converter
  */
-const { marked } = require('marked')
+let _marked = null
+let _markedReady = null
 
-marked.setOptions({ gfm: true, breaks: true, smartLists: true })
+function ensureMarked () {
+  if (_marked) return
+  if (!_markedReady) {
+    _markedReady = import('marked').then(mod => {
+      _marked = mod.marked
+      _marked.setOptions({ gfm: true, breaks: true, smartLists: true })
+    })
+  }
+}
+
+// Kick off import immediately (non-blocking)
+ensureMarked()
 
 /**
  * Detect if text is Markdown (not HTML)
@@ -42,7 +54,7 @@ function markdownToHtml (md, options) {
   options = options || {}
   if (!md || typeof md !== 'string') return ''
   var doSanitize = options.sanitize !== false
-  var html = marked.parse(md)
+  var html = _marked ? _marked.parse(md) : md.replace(/</g, "&lt;").replace(/>/g, "&gt;")
   if (doSanitize) {
     html = html.replace(/<script[\s\S]*?<\/script>/gi, '')
     html = html.replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
