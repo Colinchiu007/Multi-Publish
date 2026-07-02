@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ─── 平台配置 API ─────────────────────────
   platformList: () => ipcRenderer.invoke('platform:list'),
   platformGet: (id) => ipcRenderer.invoke('platform:get', id),
+  getPlatformDefinitions: () => ipcRenderer.invoke('platform:definitions'),
   // ─── 敏感词预检 API ───────────────────────
   sensitiveCheck: (text) => ipcRenderer.invoke('sensitive:check', { text }),
   sensitiveReplace: (text) => ipcRenderer.invoke('sensitive:replace', { text }),

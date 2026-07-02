@@ -158,10 +158,10 @@ let unlistenViewClosed = null
 
 onMounted(() => {
   refresh()
-  if (!window.electronAPI) return
-  const { onAuthViewOpened } = window.electronAPI
-  if (onAuthViewOpened) {
-    unlistenViewOpened = onAuthViewOpened((data) => {
+  const api = window.electronAPI
+  if (!api) return
+  if (api.onAuthViewOpened) {
+    unlistenViewOpened = api.onAuthViewOpened((data) => {
       authPlatformName.value = platformLabel(data.platform)
       authViewVisible.value = true
     })
