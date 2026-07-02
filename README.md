@@ -1,8 +1,8 @@
 # Multi-Publish
 
-> 多平台内容一键发布桌面工具。支持 **12 个平台** RPA 自动化发布 + 多账号切换 + 分屏监控。
+> 多平台内容一键发布桌面工具。支持 **15 个平台** RPA 自动化发布 + 多账号切换 + 分屏监控。
 >
-> **最后更新**: 2026-06-26 | **版本**: v1.2.0
+> **最后更新**: 2026-07-02 | **版本**: v2.0.0
 
 ---
 
@@ -27,21 +27,21 @@
 3. 点击「账号管理」→ 选择平台 → 扫码/登录 → Cookie 加密保存
 4. 撰写文章 → 选择平台 + 选择账号 → 点击发布
 
-## 🌐 支持平台（12 个）
+## 🌐 支持平台（15 个）
 
 | 平台 | 类型 | 技术路线 | 多账号 |
 |------|------|----------|:------:|
-| 微信公众号 | 图文 | Playwright RPA | ✅ |
-| 知乎 | 图文 | Playwright RPA | ✅ |
-| 微博 | 图文 | Playwright RPA | ✅ |
-| 抖音 | 图文 + 视频 | Playwright RPA | ✅ |
-| 小红书 | 图文 | Playwright RPA | ✅ |
-| 视频号 | 视频 + 图文 | Playwright RPA | ✅ |
-| 快手 | 视频 + 图文 | Playwright RPA | ✅ |
-| 今日头条 | 图文 + 视频 | Playwright RPA | ✅ |
-| 百家号 | 图文 | Playwright RPA | ✅ |
-| YouTube | 视频 | Playwright RPA + OAuth 2.0 | ✅ |
-| TikTok | 视频 | Playwright RPA + OAuth 2.0 | ✅ |
+| 微信公众号 | 图文 | RpaViewManager RPA | ✅ |
+| 知乎 | 图文 | RpaViewManager RPA | ✅ |
+| 微博 | 图文 | RpaViewManager RPA | ✅ |
+| 抖音 | 图文 + 视频 | RpaViewManager RPA | ✅ |
+| 小红书 | 图文 | RpaViewManager RPA | ✅ |
+| 视频号 | 视频 + 图文 | RpaViewManager RPA | ✅ |
+| 快手 | 视频 + 图文 | RpaViewManager RPA | ✅ |
+| 今日头条 | 图文 + 视频 | RpaViewManager RPA | ✅ |
+| 百家号 | 图文 | RpaViewManager RPA | ✅ |
+| YouTube | 视频 | RpaViewManager RPA + OAuth 2.0 | ✅ |
+| TikTok | 视频 | RpaViewManager RPA + OAuth 2.0 | ✅ |
 | **B站** | **专栏 + 视频** | **API+RPA 双模式** | ✅ |
 
 ## ✨ 功能亮点
@@ -85,7 +85,7 @@
 │      ├── api/                 ← IPC 封装
 │      └── styles/              ← Cohere 设计系统
 ├──────────────────────────────────────────┤
-│  packages/rpa-engine/         ← Playwright RPA（12 平台）
+│  packages/rpa-engine/         ← RpaViewManager RPA（12 平台）
 │  │  ├── playwright-manager.js
 │  │  └── publishers/           ← 12 个平台发布器 + API 适配器
 │  packages/shared-utils/       ← 任务队列（并发3+持久化）

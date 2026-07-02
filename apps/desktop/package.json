@@ -1,7 +1,7 @@
 {
   "name": "@multi-publish/desktop",
-  "version": "1.2.0",
-  "description": "\u591a\u5e73\u53f0\u5185\u5bb9\u4e00\u952e\u53d1\u5e03\u684c\u9762\u5de5\u5177 (Electron + RpaViewManager)",
+  "version": "2.0.0",
+  "description": "多平台内容一键发布桌面工具 (Electron + RpaViewManager)",
   "author": "Colin Chiu <colin.chiu@colinchiu.com>",
   "main": "electron/main.js",
   "scripts": {
