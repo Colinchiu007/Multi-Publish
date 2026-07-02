@@ -1,3 +1,24 @@
+## [v2.1.0] - 2026-07-02
+
+### Added — V1.2 Smart Publishing
+
+- **Title Optimizer**: 6 template styles (number/question/howto/compare/story/trend) + scoring heuristics
+- **Title Assistant Panel**: Debounced search for high-engagement reference titles + keyword patterns
+- **Content Format Adaptation**: Auto-detect Markdown input in publish flow + contentFormat tag
+- **Platform-aware**: Title suggestions auto-trim to platform character limits
+
+### Added — Tests
+
+- 19 title optimizer tests (optimizeTitle/scoreTitle/templates/ranges)
+- GUI test framework v9: 14 pages + sidebar/nav interactions
+- GUI test workflow (gui-test.yml) for CI
+
+### PRs
+
+- #108: V1.2 title optimizer
+- #110: V1.2 intelligence integration
+- P0 session: GUI tests v6-v9 + CI workflow
+
 ## [v2.0.0] - 2026-07-02
 
 ### Added — P1 用户体验 + 格式适配
