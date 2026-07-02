@@ -217,17 +217,42 @@ class AuthViewManager {
     log.info('AuthView', `Login detected for ${this.currentPlatform}: ${url}`)
 
     // 等待页面稳定
-    setTimeout(async () => {
+    const doCheck = async () => {
       if (this._closed) return
+      
+      // Try DOM-based detection first (for platforms where login page URL == logged-in URL)
+      const selectors = PLATFORM_LOGIN_SUCCESS_SELECTORS[this.currentPlatform]
+      if (selectors && selectors.length > 0 && this.currentView && !this.currentView.webContents.isDestroyed()) {
+        try {
+          const found = await this.currentView.webContents.executeJavaScript(
+            '(' + selectors.map(s => `document.querySelector('${s}')`).join(' || ') + ') !== null'
+          )
+          if (found) {
+            const authData = await this._extractAuthData()
+            this._onLoginSuccess(authData)
+            return
+          }
+        } catch (e) { /* DOM check failed, fall through to cookie check */ }
+      }
+
       try {
         const authData = await this._extractAuthData()
-        this._onLoginSuccess(authData)
+        // Only count as logged in if we got meaningful cookies
+        if (authData.cookies && authData.cookies.length > 0) {
+          this._onLoginSuccess(authData)
+          return
+        }
       } catch (e) {
         log.error('AuthView', `Extract auth failed: ${e.message}`)
         if (this._closed) return
-        this._onLoginSuccess({ cookies: [], localStorage: {}, accountName: this.currentPlatform })
       }
-    }, 2000)
+      
+      // Not logged in yet - check again after 2 seconds
+      if (!this._closed) {
+        setTimeout(doCheck, 2000)
+      }
+    }
+    setTimeout(doCheck, 2000)
   }
 
   /**
@@ -320,11 +345,6 @@ class AuthViewManager {
    */
   async _onLoginSuccess (authData) {
     if (this._closed) return
-    // 抖音登录页也会写匿名 cookie，需要判断是否有真实登录态
-    if (this.currentPlatform === 'douyin' && authData.cookies && authData.cookies.length < 3) {
-      log.info('AuthView', 'douyin has only anonymous cookies, not logged in yet')
-      return
-    }
     if (this._loginTimeout) {
       clearTimeout(this._loginTimeout)
       this._loginTimeout = null
