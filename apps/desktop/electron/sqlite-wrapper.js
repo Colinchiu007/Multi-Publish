@@ -119,6 +119,11 @@ class Database {
     return new Statement(this._db, sql)
   }
 
+  pragma(sql) {
+    this._wait()
+    this._db.exec(`PRAGMA ${sql}`)
+  }
+
   close() {
     if (this._db && this._dbPath) {
       try {
