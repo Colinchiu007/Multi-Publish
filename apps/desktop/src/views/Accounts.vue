@@ -158,10 +158,10 @@ let unlistenViewClosed = null
 
 onMounted(() => {
   refresh()
-  if (!window.electronAPI) return
-  const { onAuthViewOpened } = window.electronAPI
-  if (onAuthViewOpened) {
-    unlistenViewOpened = onAuthViewOpened((data) => {
+  const api = window.electronAPI
+  if (!api) return
+  if (api.onAuthViewOpened) {
+    unlistenViewOpened = api.onAuthViewOpened((data) => {
       authPlatformName.value = platformLabel(data.platform)
       authViewVisible.value = true
     })
@@ -206,11 +206,11 @@ async function addAccount () {
       showAddDialog.value = false
       newPlatform.value = ''
       authViewVisible.value = true
-      const res = await api.authOpenLogin(platform)
+      const res = await authOpenLogin(platform)
       if (res.code !== 0) ElMessage.error(res.message || '添加失败')
       // auth:completed 事件自动刷新
     } else {
-      const res = await api.accountAdd(newPlatform.value)
+      const res = await accountAdd(newPlatform.value)
       if (res.code === 0) {
         ElMessage.success('账号添加成功，请在弹出的浏览器窗口中完成登录')
         showAddDialog.value = false
