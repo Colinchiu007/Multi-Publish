@@ -58,9 +58,9 @@ const PLATFORM_DASHBOARD_URLS = {
 // auth-view-manager 使用 URL 变化检测登录完成
 const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   wechat_mp: ['cgi-bin/home', 'cgi-bin/appmsg'],
-  zhihu: ['zhihu.com'],
+  zhihu: ['zhihu.com/people', 'zhihu.com/home'],
   weibo: ['weibo.com/home', 'weibo.com/u/'],
-  douyin: ['douyin.com'],
+  douyin: ['creator.douyin.com'],
   xiaohongshu: ['creator.xiaohongshu.com'],
   tencent_video: ['channels.weixin.qq.com'],
   kuaishou: ['cp.kuaishou.com'],
@@ -68,7 +68,7 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   bilibili: ['www.bilibili.com/'],
   baijiahao: ['baijiahao.baidu.com'],
   youtube: ['studio.youtube.com'],
-  tiktok: ['tiktok.com'],
+  tiktok: ['tiktok.com/upload'],
   twitter: ['twitter.com/home', 'twitter.com/explore'],
   instagram: ['instagram.com/'],
   facebook: ['facebook.com/'],
