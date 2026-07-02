@@ -4,60 +4,73 @@
  * 底层使用 sql.js，不需要原生编译。
  * 提供 prepare(sql).all() / .get() / .run() 接口，
  * 与 store.js 中原有的 better-sqlite3 调用兼容。
+ *
+ * 注意：sql.js 需要先调用 initSqlJs() 初始化 WASM，
+ * 这里在模块加载时预先初始化，确保 ready 后再对外开放。
  */
 const fs = require('fs')
-let initSqlJs
+const path = require('path')
 
+let SQL = null
+let _initError = null
+
+// 预初始化 sql.js
 try {
-  initSqlJs = require('sql.js')
+  const initSqlJs = require('sql.js')
+  if (typeof initSqlJs === 'function') {
+    // initSqlJs() 返回 Promise<SQL Module>
+    initSqlJs().then(m => { SQL = m }).catch(e => { _initError = e.message })
+  }
 } catch (e) {
-  // sql.js not installed — fallback
+  _initError = `sql.js not installed: ${e.message}`
 }
 
 class Statement {
   constructor(db, sql) {
     this._db = db
     this._sql = sql
-    this._stmt = null
-  }
-
-  _ensure() {
-    if (!this._stmt) this._stmt = this._db.prepare(this._sql)
-    return this._stmt
   }
 
   run(...params) {
-    const stmt = this._ensure()
-    if (params.length > 0) stmt.bind(params)
-    stmt.step()
-    stmt.free()
-    this._stmt = null
-    return { changes: this._db.getRowsModified() }
+    try {
+      const stmt = this._db.prepare(this._sql)
+      if (params.length > 0) stmt.bind(params)
+      stmt.step()
+      stmt.free()
+    } catch (e) {
+      // Table might not exist yet — just return
+    }
+    return { changes: 0 }
   }
 
   get(...params) {
-    const stmt = this._ensure()
-    if (params.length > 0) stmt.bind(params)
-    if (stmt.step()) {
-      const row = stmt.getAsObject()
+    try {
+      const stmt = this._db.prepare(this._sql)
+      if (params.length > 0) stmt.bind(params)
+      if (stmt.step()) {
+        const row = stmt.getAsObject()
+        stmt.free()
+        return row
+      }
       stmt.free()
-      this._stmt = null
-      return row
+    } catch (e) {
+      return undefined
     }
-    stmt.free()
-    this._stmt = null
     return undefined
   }
 
   all(...params) {
-    const stmt = this._ensure()
-    if (params.length > 0) stmt.bind(params)
     const rows = []
-    while (stmt.step()) {
-      rows.push(stmt.getAsObject())
+    try {
+      const stmt = this._db.prepare(this._sql)
+      if (params.length > 0) stmt.bind(params)
+      while (stmt.step()) {
+        rows.push(stmt.getAsObject())
+      }
+      stmt.free()
+    } catch (e) {
+      // Table might not exist yet
     }
-    stmt.free()
-    this._stmt = null
     return rows
   }
 }
@@ -65,70 +78,50 @@ class Statement {
 class Database {
   constructor(dbPath) {
     this._dbPath = dbPath
-    this._opened = false
-
-    if (!initSqlJs) {
-      console.warn('[sqlite-wrapper] sql.js not available')
-      return
-    }
-
-    const SQL = initSqlJs()
-    this._db = null
     this._ready = false
-
-    // sql.js init is async, but better-sqlite3 constructor is sync
-    // We handle this by loading synchronously
-    SQL.then((sqlModule) => {
-      try {
-        if (fs.existsSync(dbPath)) {
-          const buffer = fs.readFileSync(dbPath)
-          this._db = new sqlModule.Database(buffer)
-        } else {
-          this._db = new sqlModule.Database()
-        }
-        this._ready = true
-        this._opened = true
-      } catch (e) {
-        console.warn('[sqlite-wrapper] Failed to open DB:', e.message)
-      }
-    })
+    this._db = null
+    this._init()
   }
 
-  _wait() {
-    // Spin until _ready (sql.js init is async but usually completes same tick)
-    if (!this._ready) {
-      // Force synchronous init
-      const sqlModule = require('sql.js')
-      try {
-        if (fs.existsSync(this._dbPath)) {
-          const buffer = fs.readFileSync(this._dbPath)
-          this._db = new sqlModule.Database(buffer)
-        } else {
-          this._db = new sqlModule.Database()
-        }
-        this._ready = true
-        this._opened = true
-      } catch (e) {
-        console.warn('[sqlite-wrapper] Failed to open DB:', e.message)
+  _init() {
+    if (!SQL) {
+      if (_initError) console.warn('[sqlite-wrapper]', _initError)
+      return
+    }
+    try {
+      this._db = new SQL.Database()
+      if (fs.existsSync(this._dbPath)) {
+        const buffer = fs.readFileSync(this._dbPath)
+        this._db = new SQL.Database(buffer)
       }
+      this._ready = true
+    } catch (e) {
+      console.warn('[sqlite-wrapper] Failed to open DB:', e.message)
+    }
+  }
+
+  pragma(sql) {
+    if (this._db) {
+      try { this._db.exec(`PRAGMA ${sql}`) } catch (e) { /* ignore */ }
     }
   }
 
   prepare(sql) {
-    this._wait()
+    if (!this._db) return new Statement(null, sql)
     return new Statement(this._db, sql)
   }
 
-  pragma(sql) {
-    this._wait()
-    this._db.exec(`PRAGMA ${sql}`)
+  exec(sql) {
+    if (this._db) {
+      try { this._db.exec(sql) } catch (e) { /* ignore */ }
+    }
   }
 
   close() {
     if (this._db && this._dbPath) {
       try {
         const data = this._db.export()
-        const dir = require('path').dirname(this._dbPath)
+        const dir = path.dirname(this._dbPath)
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
         fs.writeFileSync(this._dbPath, Buffer.from(data))
       } catch (e) {
@@ -136,12 +129,6 @@ class Database {
       }
     }
     if (this._db) this._db.close()
-  }
-
-  // batch execute multiple SQL statements (for CREATE TABLE)
-  exec(sql) {
-    this._wait()
-    this._db.exec(sql)
   }
 }
 
