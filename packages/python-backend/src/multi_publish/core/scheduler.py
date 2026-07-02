@@ -201,7 +201,7 @@ class PublishScheduler:
                         from copy import deepcopy
                         task = deepcopy(info["task_template"])
                         task.id = f"{sid}-{info['run_count']}"
-                        await self.task_queue.add_task(task)
+                        self.task_queue.add_task(task)
 
                         info["run_count"] += 1
                         info["last_run_at"] = now
@@ -216,7 +216,7 @@ class PublishScheduler:
     async def _execute_once_task(self, schedule_id: str, info: dict):
         """执行一次性调度任务"""
         task = info["task"]
-        await self.task_queue.add_task(task)
+        self.task_queue.add_task(task)
 
     # ========== 便捷方法 ==========
 
