@@ -77,6 +77,38 @@ if (PublishApiServer) {
 
 
 
+
+
+  console.log('\n--- API Docs ---');
+  t('GET /api/v1/docs returns HTML', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var http = require("http");
+    var r = await new Promise(function(resolve, reject) {
+      http.get("http://127.0.0.1:" + port + "/api/v1/docs", function(res) {
+        var data = "";
+        res.on("data", function(c) { data += c; });
+        res.on("end", function() { resolve({ status: res.statusCode, headers: res.headers, body: data }); });
+      }).on("error", reject);
+    });
+    eq(r.status, 200);
+    eq(r.headers["content-type"].indexOf("text/html") >= 0, true);
+    eq(r.body.indexOf("PublishApiServer") >= 0, true);
+    eq(r.body.indexOf("/api/v1/platforms") >= 0, true);
+    await server.stop();
+  });
+  t('GET /api/v1/openapi.json returns valid spec', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var r = await request(port, "GET", "/api/v1/openapi.json");
+    eq(r.status, 200);
+    eq(typeof r.body.openapi, "string");
+    eq(typeof r.body.info, "object");
+    eq(typeof r.body.paths, "object");
+    eq(r.body.paths["/api/v1/platforms"] !== undefined, true);
+    await server.stop();
+  });
+
   console.log('\n--- Webhook routes ---');
   t('POST /api/v1/webhook registers webhook', async function() {
     var server = new PublishApiServer({ dryRun: true });
