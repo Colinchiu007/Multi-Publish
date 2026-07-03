@@ -34,58 +34,6 @@
   twitter: require("./adapters/twitter"),
 };
 
-function getAdapter(p) { var C = REGISTRY[p]; return C ? new C() : null; }
-function supportsApi(p) { return !!REGISTRY[p]; }
-
-async function publishViaApi(platform, taskData, cookie, opts) {
-  var adapter = getAdapter(platform);
-  if (!adapter) throw new Error("No API adapter for platform: " + platform);
-  var result = await adapter.execute(taskData, cookie, opts);
-  if (!result || !result.success) throw new Error((result && result.error) || "API publish failed for " + platform);
-  return result;
-}
-
-/**
- * 批量发布 — 逐个平台发布，遇失败继续
- * @param {string[]} platforms - 平台列表
- * @param {object} taskData - { title, content, tags }
- * @param {string} cookie
- * @param {object} [opts] - { dryRun, onProgress }
- * @returns {Promise<Array<{platform, success, error?, result?}>>}
- */
-async function batchPublish(platforms, taskData, cookie, opts) {
-  opts = opts || {};
-  var results = [];
-  var total = platforms.length;
-
-  for (var i = 0; i < total; i++) {
-    var plat = platforms[i];
-    var entry = { platform: plat };
-
-    try {
-      if (!supportsApi(plat)) {
-        entry.success = false;
-        entry.error = "No API adapter for platform: " + plat;
-      } else if (opts.dryRun) {
-        entry.success = true;
-        entry.dryRun = true;
-      } else {
-        entry.result = await publishViaApi(plat, taskData, cookie, opts);
-        entry.success = true;
-      }
-    } catch (e) {
-      entry.success = false;
-      entry.error = e.message;
-    }
-
-    results.push(entry);
-    if (opts.onProgress) {
-      opts.onProgress(Math.round((i + 1) / total * 100), plat);
-    }
-  }
-
-  return results;
-}
 
 const { ScheduledPublish } = require("./scheduled-publish");
 const { WebhookManager } = require("./webhook-manager");
