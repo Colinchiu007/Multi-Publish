@@ -10,6 +10,19 @@
 - 字体: Satoshi/DM Sans/Noto Serif SC/JetBrains Mono
 - 平台图标: emoji → PlatformIcon 色标
 
+
+## [v1.8.0] - 2026-07-03
+
+### Added — 插件系统 (V2.0 生态扩展 Level 1)
+
+- **PluginLoader 模块**: 本地文件加载式插件系统，零 npm 发布依赖
+  - 扫描 `plugins/` 目录，自动加载 `.js` 文件和 `index.js` 目录入口
+  - Plugin API: `platform`/`displayName`/`publish`/`publishViaApi`/`validate`
+  - 重复插件检测、错误隔离、元数据查询
+  - 向后兼容: 内置 32 适配器优先级高于插件
+- **集成**: `getAdapter`/`supportsApi`/`publishViaApi` 自动覆盖插件
+- **测试**: 17 单元测试 + 10 集成测试，全部通过
+
 ## [v1.7.0] - 2026-07-03
 
 ### Added — API 开放平台 (V2.0 生态扩展)

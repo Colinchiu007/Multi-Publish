@@ -93,8 +93,65 @@ const { AuditLog } = require("./audit-log");
 const { PublishingPlan } = require("./publish-plan");
 const { RateLimiter } = require("./rate-limiter");
 const { AccessLogger } = require("./access-log");
-module.exports = { getAdapter, supportsApi, publishViaApi, batchPublish, REGISTRY, ScheduledPublish, WebhookManager, AuditLog, PublishingPlan, RateLimiter, AccessLogger,
-  // P0-P2 API mode routing
+const PluginLoader = require("./plugin-loader");
+
+// ─── Plugin System Integration ───
+const pluginLoader = new PluginLoader();
+pluginLoader.loadAll();
+
+/** Get all platforms including plugins */
+function supportsApi(p) { return !!REGISTRY[p] || !!pluginLoader.get(p); }
+
+/** Get adapter (built-in or plugin) */
+function getAdapter(p) {
+  var C = REGISTRY[p];
+  if (C) return new C();
+  var plugin = pluginLoader.get(p);
+  return plugin || null;
+}
+
+async function publishViaApi(platform, taskData, cookie, opts) {
+  var adapter = getAdapter(platform);
+  if (!adapter) throw new Error("No API adapter for platform: " + platform);
+  if (typeof adapter.publishViaApi === "function") return adapter.publishViaApi(taskData, cookie, opts);
+  if (typeof adapter.publish === "function") return adapter.publish(taskData, cookie);
+  var result = await adapter.execute(taskData, cookie, opts);
+  if (!result || !result.success) throw new Error((result && result.error) || "API publish failed for " + platform);
+  return result;
+}
+
+async function batchPublish(platforms, taskData, cookie, opts) {
+  opts = opts || {};
+  var results = [];
+  var total = platforms.length;
+  for (var i = 0; i < total; i++) {
+    var plat = platforms[i];
+    var entry = { platform: plat };
+    try {
+      if (!supportsApi(plat)) {
+        entry.success = false;
+        entry.error = "No API adapter for platform: " + plat;
+      } else if (opts.dryRun) {
+        entry.success = true;
+        entry.dryRun = true;
+      } else {
+        entry.result = await publishViaApi(plat, taskData, cookie, opts);
+        entry.success = true;
+      }
+    } catch (e) {
+      entry.success = false;
+      entry.error = e.message;
+    }
+    results.push(entry);
+    if (opts.onProgress) opts.onProgress(Math.round((i + 1) / total * 100), plat);
+  }
+  return results;
+}
+
+module.exports = {
+  getAdapter, supportsApi, publishViaApi, batchPublish,
+  REGISTRY, pluginLoader,
+  ScheduledPublish, WebhookManager, AuditLog, PublishingPlan, RateLimiter, AccessLogger,
   apiRouter: require("./api-router"),
   batchPublishWithRouting: require("./api-router").batchPublishWithRouting,
   publishWithFallback: require("./api-router").publishWithFallback,
