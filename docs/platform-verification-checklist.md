@@ -9,6 +9,13 @@
 - `npm run test:platform-verify` — 使用 Playwright 访问各平台页面，检查选择器是否能匹配到元素
 - 注意：自动化只能验证**登录页面**（无需认证），发布页面需手动验证
 
+### E2E 端到端验证
+1. 复制 `config/e2e-credentials.template.json` 为 `config/e2e-credentials.json`
+2. 填写各平台真实 Cookie（通过浏览器开发者工具导出）
+3. 运行 `node scripts/run-e2e-tests.js` 自动化验证
+4. 如需交互式登录（扫码/短信），运行 `node scripts/run-e2e-tests.js --interactive`
+5. 在下方表格中标记验证结果
+
 ### 手动验证
 1. 在 Multi-Publish App 中添加对应平台账号
 2. 使用该账号登录平台后台
@@ -36,6 +43,32 @@
 | 15 | Facebook | `facebook` | https://www.facebook.com/login/ | 4 | 7 |
 
 ## 自动化验证结果
+
+> 运行 `node scripts/verify-platform-selectors.js` 获取选择器匹配结果
+> 运行 `node scripts/run-e2e-tests.js` 获取端到端测试结果（需配置 config/e2e-credentials.json）
+> 运行 `node scripts/run-e2e-tests.js --interactive` 进入交互式登录模式
+
+### E2E 测试状态
+
+| 平台 | 标识 | E2E 测试 | 上次验证 | 验证人 |
+|------|------|---------|---------|-------|
+| 微信公众号 | wechat_mp | ⏳ 待配置 | - | - |
+| 知乎 | zhihu | ⏳ 待配置 | - | - |
+| 微博 | weibo | ⏳ 待配置 | - | - |
+| 抖音 | douyin | ⏳ 待配置 | - | - |
+| 小红书 | xiaohongshu | ⏳ 待配置 | - | - |
+| 视频号 | tencent_video | ⏳ 待配置 | - | - |
+| 快手 | kuaishou | ⏳ 待配置 | - | - |
+| 今日头条 | toutiao | ⏳ 待配置 | - | - |
+| YouTube | youtube | ⏳ 待配置 | - | - |
+| TikTok | tiktok | ⏳ 待配置 | - | - |
+| B站 | bilibili | ⏳ 待配置 | - | - |
+| 百家号 | baijiahao | ⏳ 待配置 | - | - |
+| Twitter/X | twitter | ⏳ 待配置 | - | - |
+| Instagram | instagram | ⏳ 待配置 | - | - |
+| Facebook | facebook | ⏳ 待配置 | - | - |
+
+### 自动化验证结果（选择器）
 
 > 运行 `node scripts/verify-platform-selectors.js` 获取最新结果
 
@@ -116,23 +149,23 @@ console.log(selector, el ? '✅ FOUND' : '❌ NOT FOUND', el?.tagName);
 
 ## 发布页面选择器验证记录
 
-| 平台 | 验证日期 | 验证人 | title_input | editor/desc | publish_btn | file_input | 其他 | 状态 |
-|------|---------|-------|------------|------------|------------|------------|------|------|
-| wechat_mp | — | — | ⏳ | ⏳ | ⏳ | N/A | ⏳ | ⏳ |
-| zhihu | 2026-07-02 | Colin | ? textarea[ph:?????] | ? DraftEditor-root | ? button:has-text('??') | N/A | save_btn N/A(????) | ? ??? |
-| weibo | — | — | N/A | ⏳ | ⏳ | N/A | ⏳ | ⏳ |
-| douyin | 2026-07-02 | Colin | ? SPA?? | ? SPA?? | ? button:has-text('??') | ? SPA?? | cover_selector ?? ?? | ?? ????? |
-| xiaohongshu | 2026-07-02 | Colin | ? | ? | ? [class*='publish'] button | N/A | ? | ?? ????? |
-| tencent_video | 2026-07-02 | Colin | ? | ? | ? | ? | ? | ? ????? |
-| kuaishou | 2026-07-02 | Colin | ? | ? | ? [class*='publish'] button | ? input[type='file'] | upload_btn ?button:has-text | ?? ???? |
-| toutiao | 2026-07-02 | Colin | ? | ? | ? | N/A | ? | ? ????? |
-| youtube | — | — | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| tiktok | — | — | N/A | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| bilibili | — | — | ⏳ | ⏳ | ⏳ | N/A | ⏳ | ⏳ |
-| baijiahao | 2026-07-02 | Colin | ? | ? | ? | N/A | ? | ? ????? |
-| twitter | — | — | N/A | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| instagram | — | — | N/A | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| facebook | — | — | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 平台 | 验证日期 | 验证人 | title_input | editor/desc | publish_btn | file_input | 其他 | E2E 验证 | 状态 |
+|------|---------|-------|------------|------------|------------|------------|------|---------|------|⏳ 待配置|
+|wechat_mp|—|—|⏳|⏳|⏳|N/A|⏳|⏳|⏳ 待配置|
+|zhihu|2026-07-02|Colin|? textarea[ph:?????]|? DraftEditor-root|? button:has-text('??')|N/A|save_btn N/A(????)|? ???|⏳ 待配置|
+|weibo|—|—|N/A|⏳|⏳|N/A|⏳|⏳|⏳ 待配置|
+|douyin|2026-07-02|Colin|? SPA??|? SPA??|? button:has-text('??')|? SPA??|cover_selector ?? ??|?? ?????|⏳ 待配置|
+|xiaohongshu|2026-07-02|Colin|?|?|? [class*='publish'] button|N/A|?|?? ?????|⏳ 待配置|
+|tencent_video|2026-07-02|Colin|?|?|?|?|?|? ?????|⏳ 待配置|
+|kuaishou|2026-07-02|Colin|?|?|? [class*='publish'] button|? input[type='file']|upload_btn ?button:has-text|?? ????|⏳ 待配置|
+|toutiao|2026-07-02|Colin|?|?|?|N/A|?|? ?????|⏳ 待配置|
+|youtube|—|—|⏳|⏳|⏳|⏳|⏳|⏳|⏳ 待配置|
+|tiktok|—|—|N/A|⏳|⏳|⏳|⏳|⏳|⏳ 待配置|
+|bilibili|—|—|⏳|⏳|⏳|N/A|⏳|⏳|⏳ 待配置|
+|baijiahao|2026-07-02|Colin|?|?|?|N/A|?|? ?????|⏳ 待配置|
+|twitter|—|—|N/A|⏳|⏳|⏳|⏳|⏳|⏳ 待配置|
+|instagram|—|—|N/A|⏳|⏳|⏳|⏳|⏳|⏳ 待配置|
+|facebook|—|—|⏳|⏳|⏳|⏳|⏳|⏳|⏳ 待配置|
 
 ## 风险与注意事项
 
