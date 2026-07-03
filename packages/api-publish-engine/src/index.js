@@ -1,79 +1,44 @@
-const ZhihuAdapter = require("./adapters/zhihu");
-const DouyinAdapter = require("./adapters/douyin");
-const XiaohongshuAdapter = require("./adapters/xiaohongshu");
-const ShipinhaoAdapter = require("./adapters/shipinhao");
-const KuaishouAdapter = require("./adapters/kuaishou");
-const BaijiahaoAdapter = require("./adapters/baijiahao");
-const WechatMpAdapter = require("./adapters/wechat_mp");
-const BilibiliAdapter = require("./adapters/bilibili");
-const WeiboAdapter = require("./adapters/weibo");
-const ToutiaoAdapter = require("./adapters/toutiao");
-const AiqiyiAdapter = require("./adapters/aiqiyi");
-const DayuAdapter = require("./adapters/dayu");
-const QiehaoAdapter = require("./adapters/qiehao");
-const SouhuAdapter = require("./adapters/souhu");
-const WangyiAdapter = require("./adapters/wangyi");
-const TengxunShipinAdapter = require("./adapters/tengxun_shipin");
-const WeiShiAdapter = require("./adapters/weishi");
-const YiDianHaoAdapter = require("./adapters/yidianhao");
-const SouhuShipinAdapter = require("./adapters/souhu_shipin");
-const PiPiXiaAdapter = require("./adapters/pipixia");
-const MeiPaiAdapter = require("./adapters/meipai");
-const AcFunAdapter = require("./adapters/acfun");
-const DeWuAdapter = require("./adapters/dewu");
-const CheJiaHaoAdapter = require("./adapters/chejiahao");
-const YiCheHaoAdapter = require("./adapters/yichehao");
-const MeiYouAdapter = require("./adapters/meiyou");
-const XhsShangjiaAdapter = require("./adapters/xhs_shangjia");
-const XiGuaAdapter = require("./adapters/xigua");
-const DuoDuoAdapter = require("./adapters/duoduo");
-
 const REGISTRY = {
-  zhihu: ZhihuAdapter,
-  douyin: DouyinAdapter,
-  xiaohongshu: XiaohongshuAdapter,
-  tencent_video: ShipinhaoAdapter,
-  kuaishou: KuaishouAdapter,
-  baijiahao: BaijiahaoAdapter,
-  wechat_mp: WechatMpAdapter,
-  bilibili: BilibiliAdapter,
-  weibo: WeiboAdapter,
-  toutiao: ToutiaoAdapter,
-  aiqiyi: AiqiyiAdapter,
-  dayu: DayuAdapter,
-  qiehao: QiehaoAdapter,
-  souhu: SouhuAdapter,
-  wangyi: WangyiAdapter,
-  tengxun_shipin: TengxunShipinAdapter,
-  weishi: WeiShiAdapter,
-  yidianhao: YiDianHaoAdapter,
-  souhu_shipin: SouhuShipinAdapter,
-  pipixia: PiPiXiaAdapter,
-  meipai: MeiPaiAdapter,
-  acfun: AcFunAdapter,
-  dewu: DeWuAdapter,
-  chejiahao: CheJiaHaoAdapter,
-  yichehao: YiCheHaoAdapter,
-  meiyou: MeiYouAdapter,
-  xhs_shangjia: XhsShangjiaAdapter,
-  xigua: XiGuaAdapter,
-  duoduo: DuoDuoAdapter,
+  zhihu: require("./adapters/zhihu"),
+  douyin: require("./adapters/douyin"),
+  xiaohongshu: require("./adapters/xiaohongshu"),
+  tencent_video: require("./adapters/shipinhao"),
+  kuaishou: require("./adapters/kuaishou"),
+  baijiahao: require("./adapters/baijiahao"),
+  wechat_mp: require("./adapters/wechat_mp"),
+  bilibili: require("./adapters/bilibili"),
+  weibo: require("./adapters/weibo"),
+  toutiao: require("./adapters/toutiao"),
+  aiqiyi: require("./adapters/aiqiyi"),
+  dayu: require("./adapters/dayu"),
+  qiehao: require("./adapters/qiehao"),
+  souhu: require("./adapters/souhu"),
+  wangyi: require("./adapters/wangyi"),
+  tengxun_shipin: require("./adapters/tengxun_shipin"),
+  weishi: require("./adapters/weishi"),
+  yidianhao: require("./adapters/yidianhao"),
+  souhu_shipin: require("./adapters/souhu_shipin"),
+  pipixia: require("./adapters/pipixia"),
+  meipai: require("./adapters/meipai"),
+  acfun: require("./adapters/acfun"),
+  dewu: require("./adapters/dewu"),
+  chejiahao: require("./adapters/chejiahao"),
+  yichehao: require("./adapters/yichehao"),
+  meiyou: require("./adapters/meiyou"),
+  xhs_shangjia: require("./adapters/xhs_shangjia"),
+  xigua: require("./adapters/xigua"),
+  duoduo: require("./adapters/duoduo"),
 };
 
-function getAdapter(platform) {
-  const AdapterClass = REGISTRY[platform];
-  if (!AdapterClass) return null;
-  return new AdapterClass();
-}
-
-function supportsApi(platform) {
-  return !!REGISTRY[platform];
-}
+function getAdapter(p) { var C = REGISTRY[p]; return C ? new C() : null; }
+function supportsApi(p) { return !!REGISTRY[p]; }
 
 async function publishViaApi(platform, taskData, cookie, opts) {
-  const adapter = getAdapter(platform);
+  var adapter = getAdapter(platform);
   if (!adapter) throw new Error("No API adapter for platform: " + platform);
-  return adapter.execute(taskData, cookie, opts);
+  var result = await adapter.execute(taskData, cookie, opts);
+  if (!result || !result.success) throw new Error((result && result.error) || "API publish failed for " + platform);
+  return result;
 }
 
 module.exports = { getAdapter, supportsApi, publishViaApi, REGISTRY };
