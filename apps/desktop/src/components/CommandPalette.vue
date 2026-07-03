@@ -290,12 +290,12 @@ watch(() => props.visible, (val) => {
   align-items: center;
   gap: 10px;
   padding: 14px 18px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border);
 }
 
 .cp-search-icon {
   font-size: 20px;
-  color: #93939f;
+  color: var(--text-muted);
   line-height: 1;
   flex-shrink: 0;
 }
@@ -306,22 +306,22 @@ watch(() => props.visible, (val) => {
   outline: none;
   font-size: 16px;
   font-family: 'Inter', 'Arial', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  color: #212121;
+  color: var(--ink);
   background: transparent;
   line-height: 1.4;
 }
 
 .cp-input::placeholder {
-  color: #93939f;
+  color: var(--text-muted);
 }
 
 .cp-hint-key {
   font-size: 11px;
   padding: 2px 6px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  color: #93939f;
-  background: #f5f5f5;
+  color: var(--text-muted);
+  background: var(--bg);
   font-family: inherit;
   flex-shrink: 0;
 }
@@ -336,7 +336,7 @@ watch(() => props.visible, (val) => {
 .cp-empty {
   padding: 32px 18px;
   text-align: center;
-  color: #93939f;
+  color: var(--text-muted);
   font-size: 14px;
 }
 
@@ -347,7 +347,7 @@ watch(() => props.visible, (val) => {
 .cp-group-label {
   font-size: 11px;
   font-weight: 600;
-  color: #93939f;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   padding: 8px 18px 4px;
@@ -355,7 +355,7 @@ watch(() => props.visible, (val) => {
 
 .cp-divider {
   height: 1px;
-  background: #e5e7eb;
+  background: var(--border);
   margin: 4px 14px;
 }
 
@@ -370,8 +370,8 @@ watch(() => props.visible, (val) => {
 }
 
 .cp-item.active {
-  background: #f1f5ff;
-  border-left-color: #1863dc;
+  background: var(--primary-light);
+  border-left-color: var(--primary);
 }
 
 .cp-item-icon {
@@ -382,20 +382,20 @@ watch(() => props.visible, (val) => {
   justify-content: center;
   font-size: 16px;
   border-radius: 6px;
-  background: #f5f5f5;
+  background: var(--bg);
   flex-shrink: 0;
-  color: #555;
+  color: var(--text-muted);
 }
 
 .cp-item.active .cp-item-icon {
   background: #e0e8ff;
-  color: #1863dc;
+  color: var(--primary);
 }
 
 .cp-item-label {
   flex: 1;
   font-size: 14px;
-  color: #212121;
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -407,14 +407,14 @@ watch(() => props.visible, (val) => {
 
 .cp-item-meta {
   font-size: 12px;
-  color: #93939f;
+  color: var(--text-muted);
   font-family: 'SF Mono', 'JetBrains Mono', monospace;
 }
 
 .cp-shortcut {
   font-size: 11px;
   padding: 2px 6px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 4px;
   color: #75758a;
   background: #fafafa;
@@ -433,9 +433,9 @@ watch(() => props.visible, (val) => {
   justify-content: center;
   gap: 6px;
   padding: 8px 18px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border);
   font-size: 11px;
-  color: #93939f;
+  color: var(--text-muted);
 }
 
 .cp-dot {

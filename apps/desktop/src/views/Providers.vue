@@ -477,7 +477,7 @@ onMounted(() => {
 
 .provider-card {
   background: var(--canvas, #fff);
-  border: 1px solid var(--hairline, #e5e7eb);
+  border: 1px solid var(--hairline, var(--border));
   border-radius: 12px;
   overflow: hidden;
   transition: box-shadow 0.15s;
@@ -488,7 +488,7 @@ onMounted(() => {
 
 .card-top {
   padding: var(--space-lg);
-  border-bottom: 1px solid var(--hairline, #e5e7eb);
+  border-bottom: 1px solid var(--hairline, var(--border));
 }
 
 .card-header {
@@ -525,7 +525,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--hairline, #e5e7eb);
+  border: 1px solid var(--hairline, var(--border));
   border-radius: 6px;
   background: transparent;
   cursor: pointer;
@@ -639,7 +639,7 @@ onMounted(() => {
 
 .form-hint {
   font-size: 11px;
-  color: var(--muted, #999);
+  color: var(--muted, var(--text-muted));
   margin-top: 4px;
   line-height: 1.3;
 }

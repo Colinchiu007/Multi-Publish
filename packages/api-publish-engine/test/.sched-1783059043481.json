@@ -1,0 +1,25 @@
+[
+  {
+    "id": "sched-4-mr4jbf6u",
+    "platforms": [
+      "zhihu"
+    ],
+    "taskData": {
+      "title": "Auto",
+      "content": "Test",
+      "tags": []
+    },
+    "cookie": "",
+    "scheduledAt": "2026-07-03T06:10:38.494Z",
+    "status": "success",
+    "results": [
+      {
+        "platform": "zhihu",
+        "success": true,
+        "dryRun": true
+      }
+    ],
+    "error": null,
+    "createdAt": "2026-07-03T06:10:43.494Z"
+  }
+]

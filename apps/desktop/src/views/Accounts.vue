@@ -9,7 +9,7 @@
       <div class="page-actions">
         <button class="cohere-btn-secondary" @click="refresh">⟳ 刷新</button>
         <button class="cohere-btn-primary" @click="showAddDialog = true">＋ 添加账号</button>
-        <button v-if="authViewVisible" @click="closeAuthView" style="background:#e74c3c;color:white;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px">✕ 关闭登录</button>
+        <button v-if="authViewVisible" @click="closeAuthView" style="background:var(--error);color:white;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px">✕ 关闭登录</button>
       </div>
     </div>
 
@@ -25,7 +25,7 @@
 
     <!-- 内容体 -->
     <!-- 浮动关闭按钮（始终在 WebContentsView 之上） -->
-    <div v-if="authViewVisible" @click="closeAuthView" style="position:fixed;bottom:24px;right:24px;z-index:9999;background:#e74c3c;color:white;border:none;padding:12px 24px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px">✕ 关闭登录</div>
+    <div v-if="authViewVisible" @click="closeAuthView" style="position:fixed;bottom:24px;right:24px;z-index:9999;background:var(--error);color:white;border:none;padding:12px 24px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px">✕ 关闭登录</div>
     <div class="cohere-content">
       <div v-if="loading" style="text-align:center;padding:60px 0;color:var(--muted)">加载中...</div>
       <div v-else-if="groupedPlatforms.length === 0" class="cohere-empty">
@@ -370,9 +370,9 @@ async function removeAccount (row) {
 .account-row.is-default { background: var(--pale-blue,#fefaf5); }
 
 .account-info { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
-.default-badge { font-size: 14px; color: #f5a623; }
+.default-badge { font-size: 14px; color: var(--warning); }
 .default-badge.muted { color: var(--muted,#ccc); }
-.default-badge.muted:hover { color: #f5a623; }
+.default-badge.muted:hover { color: var(--warning); }
 
 .account-name-input {
   border: none;
@@ -391,8 +391,8 @@ async function removeAccount (row) {
 .account-status-dot {
   width: 8px; height: 8px; border-radius: 50%; display: inline-block;
 }
-.account-status-dot.online { background: #52c41a; }
-.account-status-dot.offline { background: #d9d9d9; }
+.account-status-dot.online { background: var(--success); }
+.account-status-dot.offline { background: var(--border); }
 
 .account-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .cohere-btn-ghost {

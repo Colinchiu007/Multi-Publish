@@ -1,0 +1,52 @@
+[
+  {
+    "name": "SESSDATA",
+    "value": "715f7ae5%2C1798555366%2C6aeae%2A71CjCsKYwGviCm8wkKcNDDnuWgfmAz7kQNHg1HU_Ex_eScFFREKiwiUwEvM8bpycX2LqoSVkl3M0ZMS29ZZGI2NmRIXzJDMkphcG1nUjNLVmZzZXdpTzBFV1AxVzJPb0pUeEl6Y0d3RWg5NzZoRWhjRlAtT1UwZTNrelJhUWNtaXFEUXlyS1gzUFlBIIEC",
+    "domain": ".bilibili.com",
+    "path": "/",
+    "expires": 1798555366.545273,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "bili_jct",
+    "value": "dc6ed9ae668bdce1ed98ed598fce5a28",
+    "domain": ".bilibili.com",
+    "path": "/",
+    "expires": 1798555366.545869,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "DedeUserID",
+    "value": "294210842",
+    "domain": ".bilibili.com",
+    "path": "/",
+    "expires": 1798555366.546156,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "DedeUserID__ckMd5",
+    "value": "af9c192b7ef91d06",
+    "domain": ".bilibili.com",
+    "path": "/",
+    "expires": 1798555366.546288,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "sid",
+    "value": "8aek4kb0",
+    "domain": ".bilibili.com",
+    "path": "/",
+    "expires": 1798555366.546388,
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  }
+]

@@ -172,7 +172,7 @@ function sourceColor (s) {
 function scoreColor (score) {
   if (score >= 2.0) return '#2e7d32'
   if (score >= 1.0) return '#f57c00'
-  return '#999'
+  return 'var(--text-muted)'
 }
 
 async function doSearch () {
@@ -220,7 +220,7 @@ function insertRef (ref) {
 
 <style scoped>
 .intel-item:hover {
-  background: var(--hover-bg, #f8f9fa);
+  background: var(--hover-bg, var(--bg));
   border-radius: 4px;
 }
 .engagement-score {
