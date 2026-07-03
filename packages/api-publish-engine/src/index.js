@@ -11,6 +11,9 @@ const ToutiaoAdapter = require("./adapters/toutiao");
 const AiqiyiAdapter = require("./adapters/aiqiyi");
 const DayuAdapter = require("./adapters/dayu");
 const QiehaoAdapter = require("./adapters/qiehao");
+const SouhuAdapter = require("./adapters/souhu");
+const WangyiAdapter = require("./adapters/wangyi");
+const TengxunShipinAdapter = require("./adapters/tengxun_shipin");
 
 const REGISTRY = {
   zhihu: ZhihuAdapter,
@@ -26,6 +29,9 @@ const REGISTRY = {
   aiqiyi: AiqiyiAdapter,
   dayu: DayuAdapter,
   qiehao: QiehaoAdapter,
+  souhu: SouhuAdapter,
+  wangyi: WangyiAdapter,
+  tengxun_shipin: TengxunShipinAdapter,
 };
 
 function getAdapter(platform) {
