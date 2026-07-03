@@ -1,5 +1,20 @@
 ## [v2.1.0] - 2026-07-02
 
+
+## [v1.6.1] — 2026-07-03
+
+### Added (api-publish-engine)
+
+- **Config 文件支持**: 三层配置优先级 (默认值 < JSON 配置 < 环境变量 < CLI 参数)
+- **PublishApiClient SDK**: 17 方法 HTTP 客户端，覆盖全部 API 端点
+- **CHANGELOG/package 元数据完善**: license, repository, keywords, engines, publishConfig
+
+### Changed
+
+- CLI 增强: 支持 --config 参数，自动发现 publish-api.config.json / config/publish-api.json
+- 版本 bump: @multi-publish/api-publish-engine v0.1.0 → v1.0.0
+
+---
 ### Added — V1.2 Smart Publishing
 
 - **Title Optimizer**: 6 template styles (number/question/howto/compare/story/trend) + scoring heuristics
