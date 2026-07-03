@@ -3,6 +3,7 @@ const { getAdapter, supportsApi, publishViaApi, batchPublish } = require("./inde
 const { ScheduledPublish } = require("./scheduled-publish");
 const { WebhookManager } = require("./webhook-manager");
 const { AuditLog } = require("./audit-log");
+const { PublishingPlan } = require("./publish-plan");
 
 class PublishApiServer {
   constructor(opts) {
@@ -12,6 +13,7 @@ class PublishApiServer {
     this._scheduler = null;
     this._webhookManager = new WebhookManager();
     this._auditLog = new AuditLog({ storageFile: this._opts.auditLogFile || null });
+    this._planManager = new PublishingPlan({ dryRun: this._opts.dryRun, storageFile: this._opts.planFile || null });
     if (this._opts.enableSchedule) {
       this._scheduler = new ScheduledPublish({
         dryRun: this._opts.dryRun,
@@ -223,6 +225,38 @@ class PublishApiServer {
         return;
       }
 
+      // --- Publishing Plan ---
+      if (url === "/api/v1/plan") {
+        if (method === "POST") {
+          var body = await this._parseBody(req);
+          try {
+            var plan = await this._planManager.create({ name: body.name, items: body.items });
+            this._json(res, 200, { success: true, plan: plan });
+          } catch (e) {
+            this._json(res, 400, { success: false, error: e.message });
+          }
+          return;
+        }
+        if (method === "GET") {
+          this._json(res, 200, { plans: this._planManager.list() });
+          return;
+        }
+      }
+      if (method === "POST" && url === "/api/v1/plan/execute") {
+        var body = await this._parseBody(req);
+        var result = await this._planManager.execute(body.id);
+        var plan = this._planManager.get(body.id);
+        if (plan) this._auditLog.log({ type: "plan", platform: plan.items.map(function(i){return i.platform}), title: plan.name, status: result.success ? "success" : "failed", details: result });
+        this._json(res, 200, result);
+        return;
+      }
+      if (method === "POST" && url === "/api/v1/plan/delete") {
+        var body = await this._parseBody(req);
+        var ok = this._planManager.delete(body.id);
+        this._json(res, 200, { success: ok });
+        return;
+      }
+
       // --- API Docs ---
       if (method === "GET" && url === "/api/v1/docs") {
         var html = `<!DOCTYPE html>
@@ -281,6 +315,9 @@ p{color:#6e6e73}
           "/api/v1/webhook": { post: { summary: "注册 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { url: { type: "string", format: "uri" }, events: { type: "array", items: { type: "string" } } }, required: ["url"] } } } }, responses: { "200": { description: "注册成功" } } }, get: { summary: "列出 webhook", responses: { "200": { description: "webhook 列表" } } } },
           "/api/v1/logs": { get: { summary: "获取发布日志" } },
           "/api/v1/logs/clear": { post: { summary: "清空发布日志" } },
+          "/api/v1/plan": { post: { summary: "创建发布计划" }, get: { summary: "列出发布计划" } },
+          "/api/v1/plan/execute": { post: { summary: "执行发布计划" } },
+          "/api/v1/plan/delete": { post: { summary: "删除发布计划" } },
           "/api/v1/webhook/remove": { post: { summary: "删除 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } } }, responses: { "200": { description: "删除结果" } } } }
         };
         spec.paths = pathItems;

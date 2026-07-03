@@ -81,6 +81,34 @@ if (PublishApiServer) {
 
 
 
+
+
+  console.log('\n--- Publishing Plan routes ---');
+  t('POST /api/v1/plan creates plan', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var r = await request(port, "POST", "/api/v1/plan", { name: "Test Plan", items: [{ platform: "zhihu", title: "Post", content: "C" }] });
+    eq(r.status, 200); eq(r.body.success, true); eq(r.body.plan.status, "draft");
+    await server.stop();
+  });
+  t('GET /api/v1/plan lists plans', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    await request(port, "POST", "/api/v1/plan", { name: "P1", items: [{ platform: "zhihu", title: "T", content: "C" }] });
+    await request(port, "POST", "/api/v1/plan", { name: "P2", items: [{ platform: "douyin", title: "T", content: "C" }] });
+    var r = await request(port, "GET", "/api/v1/plan");
+    eq(r.status, 200); eq(r.body.plans.length, 2);
+    await server.stop();
+  });
+  t('POST /api/v1/plan/execute runs plan items', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var c = await request(port, "POST", "/api/v1/plan", { name: "Exec", items: [{ platform: "zhihu", title: "T", content: "C" }] });
+    var r = await request(port, "POST", "/api/v1/plan/execute", { id: c.body.plan.id });
+    eq(r.status, 200); eq(r.body.success, true);
+    await server.stop();
+  });
+
   console.log('\n--- Audit Log routes ---');
   t('GET /api/v1/logs returns logs and stats', async function() {
     var server = new PublishApiServer({ dryRun: true });
