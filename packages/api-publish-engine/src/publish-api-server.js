@@ -4,6 +4,7 @@ const { ScheduledPublish } = require("./scheduled-publish");
 const { WebhookManager } = require("./webhook-manager");
 const { AuditLog } = require("./audit-log");
 const { PublishingPlan } = require("./publish-plan");
+const { RateLimiter } = require("./rate-limiter");
 
 class PublishApiServer {
   constructor(opts) {
@@ -14,6 +15,7 @@ class PublishApiServer {
     this._webhookManager = new WebhookManager();
     this._auditLog = new AuditLog({ storageFile: this._opts.auditLogFile || null });
     this._planManager = new PublishingPlan({ dryRun: this._opts.dryRun, storageFile: this._opts.planFile || null });
+    this._rateLimiter = this._opts.maxRpm ? new RateLimiter({ maxRequests: this._opts.maxRpm, windowMs: 60000 }) : null;
     if (this._opts.enableSchedule) {
       this._scheduler = new ScheduledPublish({
         dryRun: this._opts.dryRun,
@@ -82,6 +84,12 @@ class PublishApiServer {
     if (method === "OPTIONS") {
       res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" });
       res.end();
+      return;
+    }
+
+    // Rate limiting
+    if (this._rateLimiter && !this._rateLimiter.check(req.socket.remoteAddress || req.headers["x-forwarded-for"] || "unknown")) {
+      this._json(res, 429, { error: "Too Many Requests", message: "Rate limit exceeded. Try again later." });
       return;
     }
 
@@ -318,6 +326,7 @@ p{color:#6e6e73}
           "/api/v1/plan": { post: { summary: "创建发布计划" }, get: { summary: "列出发布计划" } },
           "/api/v1/plan/execute": { post: { summary: "执行发布计划" } },
           "/api/v1/plan/delete": { post: { summary: "删除发布计划" } },
+          "/api/v1/rate-limiter": { get: { summary: "获取当前限流状态" } },
           "/api/v1/webhook/remove": { post: { summary: "删除 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } } }, responses: { "200": { description: "删除结果" } } } }
         };
         spec.paths = pathItems;
