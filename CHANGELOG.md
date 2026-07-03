@@ -1,3 +1,14 @@
+
+
+## [v1.6.0] - 2026-07-03
+
+### 设计体系 (Breaking Change)
+- 新增 DESIGN.md: 奶油·薰衣草设计体系
+- 新增组件库: UiButton/UiCard/UiBadge/UiInput/UiModal/UiSelect/PlatformIcon (7 个)
+- CSS Design Token: 全部视图替换为变量
+- 完全移除 ElementPlus 依赖
+- 字体: Satoshi/DM Sans/Noto Serif SC/JetBrains Mono
+- 平台图标: emoji → PlatformIcon 色标
 ## [v2.1.0] - 2026-07-02
 
 
