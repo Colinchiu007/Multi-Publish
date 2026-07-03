@@ -27,7 +27,7 @@
           <div class="image-grid" v-else>
             <div v-for="(img, i) in images" :key="i" class="image-thumb">
               <img :src="img.preview" />
-              <button class="remove-btn" @click.stop="removeImage(i)">x</button>
+              <UiButton variant="ghost" size="sm" @click.stop="removeImage(i)">x</UiButton>
               <span class="image-index">{{ i + 1 }}</span>
             </div>
           </div>
@@ -37,26 +37,24 @@
       </div>
       <div class="form-group">
         <label>输出平台</label>
-        <select v-model="profile" class="form-input">
+        <UiSelect v-model="profile" :options="profiles.map(p => ({ value: p.id || p, label: p.name || p }))" />
           <option value="youtube-landscape">YouTube 横屏 (1920x1080)</option>
           <option value="youtube-shorts">YouTube Shorts (1080x1920)</option>
           <option value="tiktok">抖音/TikTok (1080x1920)</option>
           <option value="bilibili">B站 (1920x1080)</option>
           <option value="wechat">微信视频号 (1080x1920)</option>
           <option value="xiaohongshu">小红书 (1080x1440)</option>
-          <option value="generic-hd">通用 HD (1920x1080)</option>
-        </select>
+          
       </div>
       <div class="form-group">
         <label>视频主题</label>
-        <select v-model="theme" class="form-input">
+        <UiSelect v-model="theme" :options="themes.map(t => ({ value: t.id || t, label: t.name || t }))" />
           <option value="clean-professional">专业清晰</option>
           <option value="flat-motion-graphics">动感深色</option>
-          <option value="minimalist-diagram">极简图示</option>
-        </select>
+          
       </div>
       <div class="actions">
-        <button class="btn-primary" @click="startRender" :disabled="!canRender || rendering">{{ rendering ? '渲染中...' : '生成视频' }}</button>
+        <UiButton @click="startRender" :disabled="!canRender || rendering">{{ rendering ? '???...' : '????' }}</UiButton>
         <button v-if="rendering" class="btn-secondary" @click="cancelRender">取消</button>
       </div>
     </div>
@@ -64,7 +62,7 @@
       <div class="progress-bar"><div class="progress-fill" :style="{ width: progress + '%' }"></div></div>
       <p class="progress-text">{{ progress }}% — {{ stage }}</p>
     </div>
-    <div v-if="result" class="result-banner success"><p>视频渲染完成</p><button class="btn-primary" @click="viewResult">查看视频</button></div>
+    <div v-if="result" class="result-banner success"><p>视频渲染完成</p><UiButton @click="viewResult">查看视频</UiButton></div>
     <div v-if="error" class="result-banner error"><p>{{ error }}</p><button class="btn-secondary" @click="error = null">重试</button></div>
   </div>
 </template>
