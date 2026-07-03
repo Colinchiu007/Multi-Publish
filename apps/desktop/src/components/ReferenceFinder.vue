@@ -149,7 +149,5 @@ function insertReference (ref) {
 
 <style scoped>
 /* Dialog needs custom styling for the relevance bars */
-/* :deep(.el-dialog__body) removed - using UiModal */ {
-  padding-top: 8px;
-}
+/* :deep(.el-dialog__body) removed - using UiModal */
 </style>
