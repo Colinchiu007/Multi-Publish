@@ -8,12 +8,25 @@ const { PublishingPlan } = require("./publish-plan");
 const { RateLimiter } = require("./rate-limiter");
 const { AccessLogger } = require("./access-log");
 const { loadConfig } = require("./config-loader");
+const ApiKeyManager = require("./api-key-manager");
 
 class PublishApiServer {
   constructor(opts) {
     this._opts = opts || {};
     this._server = null;
-    this._apiKey = this._opts.apiKey || null;
+    this._apiKey = this._opts.apiKey || null
+    this._keyManager = new ApiKeyManager(this._opts.keysPath)
+    // If apiKey provided as string, migrate to key manager
+    if (this._apiKey && this._opts.autoMigrate !== false) {
+      this._keyManager.load()
+      const existing = this._keyManager.listKeys(false, true)
+      if (!existing.find((k) => k.key === this._apiKey)) {
+        this._keyManager.createKey("migrated-from-config", ["*"])
+        // Replace with the migrated key
+        const migrated = this._keyManager.listKeys(false, true)
+        this._apiKey = migrated[0].key
+      }
+    };
     this._scheduler = null;
     this._webhookManager = new WebhookManager();
     this._auditLog = new AuditLog({ storageFile: this._opts.auditLogFile || null });
@@ -89,11 +102,26 @@ class PublishApiServer {
     res.end(JSON.stringify(data));
   }
 
-  _checkAuth(req) {
-    if (!this._apiKey) return true;
-    if (req.url === "/api/v1/health") return true;
-    var auth = req.headers["authorization"] || "";
-    return auth === "Bearer " + this._apiKey;
+  _checkAuth(req, requiredScope) {
+    if (!this._apiKey && !this._keyManager._loaded) return { authorized: true }
+    if (req.url === "/api/v1/health") return { authorized: true }
+    const auth = (req.headers["authorization"] || "").trim()
+    const key = auth.startsWith("Bearer ") ? auth.slice(7) : ""
+
+    if (!key) {
+      if (!this._apiKey) return { authorized: true }
+      return { authorized: false, error: "Valid API key required via Authorization: Bearer <key>" }
+    }
+
+    this._keyManager.load()
+    const result = this._keyManager.validateKey(key, requiredScope)
+    if (result.valid) return { authorized: true, name: result.name, scopes: result.scopes }
+
+    if (this._apiKey && key === this._apiKey) {
+      return { authorized: true }
+    }
+
+    return { authorized: false, error: result.error || "Invalid API key" }
   }
 
   async _handle(req, res) {
@@ -117,8 +145,9 @@ class PublishApiServer {
       return;
     }
 
-    if (!this._checkAuth(req)) {
-      this._json(res, 401, { error: "Unauthorized", message: "Valid API key required via Authorization: Bearer <key>" });
+    const authResult = this._checkAuth(req)
+    if (!authResult.authorized) {
+      this._json(res, 401, { error: "Unauthorized", message: authResult.error || "Valid API key required" });
       return;
     }
 
