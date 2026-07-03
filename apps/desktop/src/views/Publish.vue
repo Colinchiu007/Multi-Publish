@@ -22,19 +22,19 @@
             <span class="cohere-tag cohere-tag-info">#{{ idx + 1 }}</span>
             <span v-if="a.publishTime" class="cohere-tag cohere-tag-warning">⏰ 定时</span>
             <div style="flex:1"></div>
-            <button class="cohere-btn-ghost" @click="duplicateArticle(idx)" title="复制">📋</button>
-            <button class="cohere-btn-ghost" @click="removeArticle(idx)" v-if="articles.length > 1" title="删除" style="color:var(--coral)">✕</button>
+            <UiButton variant="ghost" size="sm" @click="duplicateArticle(idx)" title="复制">📋</UiButton>
+            <UiButton variant="ghost" size="sm" @click="removeArticle(idx)" v-if="articles.length > 1" title="删除" style="color:var(--coral)">✕</UiButton>
           </div>
 
           <!-- 文章编辑 -->
           <div class="cohere-form">
             <div class="cohere-form-item">
               <label class="cohere-form-label">标题</label>
-              <input class="cohere-input" v-model="a.title" placeholder="请输入文章标题" maxlength="64" />
+              <UiInput v-model="a.title" placeholder="请输入文章标题" />
             </div>
             <div class="cohere-form-item">
               <label class="cohere-form-label">正文</label>
-              <textarea class="cohere-input" v-model="a.content" placeholder="请输入正文" rows="5" style="resize:vertical;font-family:inherit;line-height:1.6"></textarea>
+              <UiInput type="textarea" v-model="a.content" placeholder="请输入正文" :rows="5" />
             </div>
             <div class="cohere-form-item">
               <label class="cohere-form-label">发布目标</label>
@@ -47,7 +47,7 @@
             </div>
             <div class="cohere-form-item">
               <label class="cohere-form-label">定时发布</label>
-              <input class="cohere-input" type="datetime-local" v-model="a.publishTime" style="max-width:260px" />
+              <UiInput type="datetime-local" v-model="a.publishTime" style="max-width:260px" />
               <span style="font-size:12px;color:var(--muted);margin-left:8px">留空 = 立即发布</span>
             </div>
           </div>
@@ -55,9 +55,9 @@
 
         <!-- 操作 -->
         <div style="display:flex;gap:var(--space-sm)">
-          <button class="cohere-btn-secondary" @click="addArticle">＋ 添加文章</button>
+          <UiButton variant="secondary" @click="addArticle">＋ 添加文章</UiButton>
           <div style="flex:1"></div>
-          <button class="cohere-btn-primary" @click="handleBatchPublish" :disabled="publishing || articles.length === 0">
+          <UiButton @click="handleBatchPublish" :disabled="publishing || articles.length === 0">
             {{ publishing ? '发布中...' : `🚀 批量发布 (${totalPlatformTasks} 个任务)` }}
           </button>
         </div>
@@ -87,11 +87,11 @@
             <div class="cohere-form">
               <div class="cohere-form-item">
                 <label class="cohere-form-label">标题</label>
-                <input class="cohere-input" v-model="article.title" placeholder="请输入文章标题" maxlength="64" />
+                <UiInput v-model="article.title" placeholder="请输入文章标题" />
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">作者</label>
-                <input class="cohere-input" v-model="article.author" placeholder="作者名称（选填）" maxlength="20" style="max-width:300px" />
+                <UiInput v-model="article.author" placeholder="作者名称（选填）" style="max-width:300px" />
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">正文</label>
@@ -107,7 +107,7 @@
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">封面图 URL</label>
-                <input class="cohere-input" v-model="article.cover_url" placeholder="封面图片链接（选填）" />
+                <UiInput v-model="article.cover_url" placeholder="封面图片链接（选填）" />
               </div>
             </div>
           </div>
@@ -116,7 +116,7 @@
           <!-- 智能标签建议 -->
           <TagSuggester v-if="showTagPanel && combinedContent.length > 3" :content="combinedContent" style="margin-bottom:var(--space-md)" @close="showTagPanel = false" />
           <div v-if="!showTagPanel && combinedContent.length > 3" style="margin-bottom:var(--space-md);text-align:center">
-            <button class="cohere-btn-ghost" @click="showTagPanel = true" style="font-size:12px;padding:4px 12px"># 显示标签建议</button>
+            <UiButton variant="ghost" size="sm" @click="showTagPanel = true"># 显示标签建议</UiButton>
           </div>
 
           <!-- 最佳发布时间 -->
@@ -125,7 +125,7 @@
           <!-- 标题助手 -->
           <TitleAssistantPanel :title="article.title" :visible="showTitlePanel" @close="showTitlePanel = false" style="margin-bottom:var(--space-md)" />
           <div v-if="!showTitlePanel && article.title.length > 5" style="margin-bottom:var(--space-md);text-align:center">
-            <button class="cohere-btn-ghost" @click="showTitlePanel = true" style="font-size:12px;padding:4px 12px">📊 标题参考</button>
+            <UiButton variant="ghost" size="sm" @click="showTitlePanel = true">📊 标题参考</UiButton>
           </div>
 
           <div class="cohere-card" style="cursor:default">
@@ -159,7 +159,7 @@
                 </div>
               </el-checkbox-group>
               <div class="cohere-divider"></div>
-              <button class="cohere-btn-primary" style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
+              <UiButton style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
                 {{ publishing ? '发布中...' : '🚀 一键发布' }}
               </button>
             </div>
@@ -192,6 +192,8 @@
 </template>
 
 <script setup>
+import UiButton from "../components/UiButton.vue";
+import UiInput from "../components/UiInput.vue";
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { usePlatformStore } from '@/stores/platforms'
