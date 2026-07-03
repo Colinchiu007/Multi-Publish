@@ -5,6 +5,7 @@ const { WebhookManager } = require("./webhook-manager");
 const { AuditLog } = require("./audit-log");
 const { PublishingPlan } = require("./publish-plan");
 const { RateLimiter } = require("./rate-limiter");
+const { AccessLogger } = require("./access-log");
 
 class PublishApiServer {
   constructor(opts) {
@@ -16,6 +17,7 @@ class PublishApiServer {
     this._auditLog = new AuditLog({ storageFile: this._opts.auditLogFile || null });
     this._planManager = new PublishingPlan({ dryRun: this._opts.dryRun, storageFile: this._opts.planFile || null });
     this._rateLimiter = this._opts.maxRpm ? new RateLimiter({ maxRequests: this._opts.maxRpm, windowMs: 60000 }) : null;
+    this._accessLogger = new AccessLogger({ enabled: this._opts.accessLog !== false });
     if (this._opts.enableSchedule) {
       this._scheduler = new ScheduledPublish({
         dryRun: this._opts.dryRun,
@@ -80,6 +82,10 @@ class PublishApiServer {
   async _handle(req, res) {
     var url = req.url || "/";
     var method = req.method || "GET";
+    var _startTime = Date.now();
+    var _self = this;
+    var _origEnd = res.end;
+    res.end = function() { res.end = _origEnd; res.end.apply(res, arguments); if (_self._accessLogger) _self._accessLogger.log(req, res, _startTime); };
 
     if (method === "OPTIONS") {
       res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" });
@@ -327,6 +333,7 @@ p{color:#6e6e73}
           "/api/v1/plan/execute": { post: { summary: "执行发布计划" } },
           "/api/v1/plan/delete": { post: { summary: "删除发布计划" } },
           "/api/v1/rate-limiter": { get: { summary: "获取当前限流状态" } },
+          "/api/v1/access-log": { get: { summary: "Access 日志配置" } },
           "/api/v1/webhook/remove": { post: { summary: "删除 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } } }, responses: { "200": { description: "删除结果" } } } }
         };
         spec.paths = pathItems;
