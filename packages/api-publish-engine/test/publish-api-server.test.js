@@ -230,6 +230,21 @@ if (PublishApiServer) {
   t('schedule disabled by default', async function() {
     var server = new PublishApiServer({ dryRun: true });
 
+  console.log('\n--- Metrics ---');
+  t('GET /api/v1/metrics returns server stats', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var r = await request(port, 'GET', '/api/v1/metrics');
+    eq(r.status, 200);
+    eq(typeof r.body.uptime, 'number');
+    eq(typeof r.body.startedAt, 'string');
+    eq(typeof r.body.audit, 'object');
+    eq(Array.isArray(r.body.scheduled), true);
+    eq(Array.isArray(r.body.webhooks), true);
+    eq(Array.isArray(r.body.plans), true);
+    eq(typeof r.body.platforms, 'number');
+    await server.stop();
+  });
   console.log('\n--- Graceful Shutdown ---');
   t('stop() closes server', async function() {
     var server = new PublishApiServer({ dryRun: true });

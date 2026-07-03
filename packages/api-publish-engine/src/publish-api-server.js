@@ -16,6 +16,7 @@ class PublishApiServer {
     this._webhookManager = new WebhookManager();
     this._auditLog = new AuditLog({ storageFile: this._opts.auditLogFile || null });
     this._planManager = new PublishingPlan({ dryRun: this._opts.dryRun, storageFile: this._opts.planFile || null });
+    this._startedAt = null;
     this._rateLimiter = this._opts.maxRpm ? new RateLimiter({ maxRequests: this._opts.maxRpm, windowMs: 60000 }) : null;
     this._accessLogger = new AccessLogger({ enabled: this._opts.accessLog !== false });
     if (this._opts.enableSchedule) {
@@ -282,6 +283,20 @@ class PublishApiServer {
         var body = await this._parseBody(req);
         var ok = this._planManager.delete(body.id);
         this._json(res, 200, { success: ok });
+        return;
+      }
+
+      // --- Metrics ---
+      if (method === "GET" && url === "/api/v1/metrics") {
+        this._json(res, 200, {
+          uptime: this._startedAt ? Date.now() - new Date(this._startedAt).getTime() : 0,
+          startedAt: this._startedAt,
+          platforms: Object.keys(require("./index").REGISTRY).length,
+          audit: this._auditLog.stats(),
+          scheduled: this._scheduler ? this._scheduler.list() : [],
+          webhooks: this._webhookManager.list(),
+          plans: this._planManager.list()
+        });
         return;
       }
 
