@@ -37,6 +37,13 @@ class PublishApiServer {
       self._server.on("error", reject);
       self._server.listen(port, function() {
         if (self._scheduler) self._scheduler.start();
+        // Register process signal handlers for graceful shutdown
+        self._processSignals = [];
+        function onSig() { self.stop(); }
+        self._processSignals.push(["SIGTERM", onSig]);
+        self._processSignals.push(["SIGINT", onSig]);
+        process.on("SIGTERM", onSig);
+        process.on("SIGINT", onSig);
         resolve(self._server.address().port);
       });
     });
@@ -46,6 +53,13 @@ class PublishApiServer {
     var self = this;
     return new Promise(function(resolve) {
       if (self._scheduler) self._scheduler.stop();
+      if (self._rateLimiter) self._rateLimiter.stop();
+      if (self._processSignals) {
+        for (var i = 0; i < self._processSignals.length; i++) {
+          process.removeListener(self._processSignals[i][0], self._processSignals[i][1]);
+        }
+        self._processSignals = null;
+      }
       if (self._server) {
         self._server.close(function() { resolve(); });
         self._server = null;
@@ -347,5 +361,15 @@ p{color:#6e6e73}
     }
   }
 }
+
+PublishApiServer.registerShutdownSignals = function(server) {
+  var sig = function() { server.stop(); };
+  process.on("SIGTERM", sig);
+  process.on("SIGINT", sig);
+  return function() {
+    process.removeListener("SIGTERM", sig);
+    process.removeListener("SIGINT", sig);
+  };
+};
 
 module.exports = { PublishApiServer };
