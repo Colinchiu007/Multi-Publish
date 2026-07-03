@@ -61,6 +61,25 @@
   --nav-height: 56px;
   --sidebar-width: 240px;
 }
+
+/* --- ElementPlus 主题覆盖 (薰衣草紫) --- */
+:root {
+  --el-color-primary: #7c5cbf;
+  --el-color-primary-light-3: #a78bfa;
+  --el-color-primary-light-5: #c4b5fd;
+  --el-color-primary-light-7: #ddd6fe;
+  --el-color-primary-light-8: #ede9fe;
+  --el-color-primary-light-9: #f5f3ff;
+  --el-color-primary-dark-2: #6a4dab;
+  --el-color-success: #34d399;
+  --el-color-warning: #fbbf24;
+  --el-color-danger: #f87171;
+  --el-color-info: #7c7c9a;
+  --el-border-radius-base: 8px;
+  --el-font-size-base: 14px;
+  --el-font-family: "DM Sans", "阿里巴巴普惠体", "PingFang SC", sans-serif;
+}
+
 /* --- 基础重置 --- */
 *, *::before, *::after {
   box-sizing: border-box;

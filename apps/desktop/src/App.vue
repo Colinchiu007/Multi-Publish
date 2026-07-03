@@ -29,7 +29,7 @@
       </router-link>
       <div class="nav-spacer"></div>
       <div class="nav-right">
-        <button v-if="authViewVisible" @click="closeLogin" style="background:#e74c3c;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:13px;margin-right:12px">✕ 关闭登录</button>
+        <button v-if="authViewVisible" @click="closeLogin" class="btn-ghost-close">✕ 关闭登录</button>
         <div class="status-indicator">
           <span class="status-dot online"></span>
           服务运行中
@@ -104,7 +104,7 @@
       <div v-else-if="updateStatus === 'downloading'" style="text-align: center">
         <p>正在下载更新...</p>
         <el-progress :percentage="downloadPercent" :stroke-width="12" />
-        <p style="font-size: 12px; color: #999;">{{ downloadSpeed }}</p>
+        <p class="update-speed">{{ downloadSpeed }}</p>
       </div>
       <div v-else-if="updateStatus === 'downloaded'">
         <p>✅ 更新已下载完成</p>
@@ -339,4 +339,23 @@ body { margin: 0; padding: 0; }
 
 html, body { height: 100%; }
 #app { height: 100%; }
+
+/* ---- Design System Overrides ---- */
+.btn-ghost-close {
+  background: var(--error, #f87171);
+  color: white;
+  border: none;
+  padding: 4px 12px;
+  border-radius: var(--r-sm, 8px);
+  cursor: pointer;
+  font-size: 13px;
+  margin-right: 12px;
+  transition: opacity 150ms;
+}
+.btn-ghost-close:hover { opacity: 0.85; }
+
+.update-speed {
+  font-size: 12px;
+  color: var(--text-muted, #7c7c9a);
+}
 </style>
