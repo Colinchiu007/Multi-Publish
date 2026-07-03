@@ -43,8 +43,5 @@
   },
   "dependencies": {
     "axios": "^1.6.0"
-  },
-  "peerDependencies": {
-    "@multi-publish/shared-utils": ">=0.1.0"
   }
 }
