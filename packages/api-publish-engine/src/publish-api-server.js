@@ -206,6 +206,69 @@ class PublishApiServer {
         return;
       }
 
+      // --- API Docs ---
+      if (method === "GET" && url === "/api/v1/docs") {
+        var html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PublishApiServer - API Documentation</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:900px;margin:0 auto;padding:20px;background:#f5f5f7;color:#1d1d1f}
+h1{font-size:2em;margin-bottom:10px}
+h2{font-size:1.3em;margin-top:30px}
+p{color:#6e6e73}
+.endpoint{background:#fff;border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.method{display:inline-block;font-weight:600;padding:2px 8px;border-radius:4px;color:#fff;font-size:.8em;margin-right:8px}
+.method-GET{background:#34c759}
+.method-POST{background:#007aff}
+.path{font-family:Menlo,monospace;font-size:1em}
+.desc{color:#6e6e73;margin-top:6px;font-size:.9em}
+</style></head><body>
+<h1>PublishApiServer</h1>
+<p>Multi-platform publish HTTP API. All POST endpoints accept JSON body. Auth via <code>Authorization: Bearer &lt;key&gt;</code> header.</p>
+<h2>Endpoints</h2>`;
+        var endpoints = [
+          { m: "GET", p: "/api/v1/health", d: "Health check, no auth required" },
+          { m: "GET", p: "/api/v1/platforms", d: "List all supported platforms" },
+          { m: "POST", p: "/api/v1/publish", d: "Publish to one platform. Body: { platform, title, content, tags, cookie }" },
+          { m: "POST", p: "/api/v1/batch-publish", d: "Batch publish to multiple platforms. Body: { platforms, title, content, tags, cookie }" },
+          { m: "POST", p: "/api/v1/schedule", d: "Schedule a future publish. Body: { platforms, title, content, tags, cookie, scheduledAt }" },
+          { m: "GET", p: "/api/v1/schedule", d: "List all scheduled tasks" },
+          { m: "POST", p: "/api/v1/schedule/cancel", d: "Cancel a pending scheduled task. Body: { id }" },
+          { m: "POST", p: "/api/v1/webhook", d: "Register a webhook URL. Body: { url, events }" },
+          { m: "GET", p: "/api/v1/webhook", d: "List registered webhooks" },
+          { m: "POST", p: "/api/v1/webhook/remove", d: "Remove a webhook. Body: { id }" },
+          { m: "GET", p: "/api/v1/docs", d: "This page - API documentation" },
+          { m: "GET", p: "/api/v1/openapi.json", d: "OpenAPI 3.0 specification (JSON)" }
+        ];
+        for (var i = 0; i < endpoints.length; i++) {
+          var ep = endpoints[i];
+          html += "<div class=\'endpoint\'><span class=\'method method-" + ep.m + "\'>" + ep.m + "</span><span class=\'path\'>" + ep.p + "</span><div class=\'desc\'>" + ep.d + "</div></div>";
+        }
+        html += "<p style=\'margin-top:30px;text-align:center;font-size:.8em;color:#999\'>PublishApiServer v1.0.0</p></body></html>";
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(html);
+        return;
+      }
+
+      // --- OpenAPI ---
+      if (method === "GET" && url === "/api/v1/openapi.json") {
+        var spec = { openapi: "3.0.3", info: { title: "PublishApiServer", version: "1.0.0", description: "多平台一键发布 HTTP API" }, servers: [], paths: {} };
+        var pathItems = {
+          "/api/v1/health": { get: { summary: "健康检查", responses: { "200": { description: "OK", content: { "application/json": { schema: { type: "object", properties: { status: { type: "string" }, version: { type: "string" } } } } } } } } },
+          "/api/v1/platforms": { get: { summary: "平台列表", responses: { "200": { description: "平台列表" } } } },
+          "/api/v1/publish": { post: { summary: "单平台发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platform: { type: "string" }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" } }, required: ["platform"] } } } }, responses: { "200": { description: "发布结果" } } } },
+          "/api/v1/batch-publish": { post: { summary: "批量发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platforms: { type: "array", items: { type: "string" } }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" } }, required: ["platforms"] } } } }, responses: { "200": { description: "批量发布结果" } } } },
+          "/api/v1/schedule": { post: { summary: "创建定时发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platforms: { type: "array", items: { type: "string" } }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" }, scheduledAt: { type: "string", format: "date-time" } }, required: ["platforms", "scheduledAt"] } } } }, responses: { "200": { description: "创建成功" } } }, get: { summary: "列出定时任务", responses: { "200": { description: "任务列表" } } } },
+          "/api/v1/schedule/cancel": { post: { summary: "取消定时任务", requestBody: { content: { "application/json": { schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } } }, responses: { "200": { description: "取消结果" } } } },
+          "/api/v1/webhook": { post: { summary: "注册 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { url: { type: "string", format: "uri" }, events: { type: "array", items: { type: "string" } } }, required: ["url"] } } } }, responses: { "200": { description: "注册成功" } } }, get: { summary: "列出 webhook", responses: { "200": { description: "webhook 列表" } } } },
+          "/api/v1/webhook/remove": { post: { summary: "删除 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } } }, responses: { "200": { description: "删除结果" } } } }
+        };
+        spec.paths = pathItems;
+        this._json(res, 200, spec);
+        return;
+      }
+
       this._json(res, 404, { error: "Not found", path: url });
     } catch (e) {
       this._json(res, 500, { error: e.message });
