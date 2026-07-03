@@ -86,3 +86,5 @@ module.exports = {
 }
 
 // test: quality gate verification
+
+// test: verify branch protection blocks merge
