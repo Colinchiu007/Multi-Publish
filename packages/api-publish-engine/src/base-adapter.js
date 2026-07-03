@@ -1,4 +1,6 @@
 const axios = require("axios");
+const { CancelToken } = require("./cancel-token");
+const { ProgressEmitter, publishStatusEnum } = require("./progress-emitter");
 const HttpConfig = {
   userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   timeout: 60000,
@@ -38,6 +40,8 @@ class BasePlatformAdapter {
   async publish(cookie, postData, cancelToken) { throw new Error("subclass must implement publish()"); }
 
   async execute(taskData, cookie, opts) {
+    this._cancelToken = new CancelToken();
+    this._progress = new ProgressEmitter();
     const { cancelToken, onProgress } = opts || {};
     try {
       if (onProgress) onProgress(10, "Uploading video...");
@@ -63,4 +67,4 @@ class BasePlatformAdapter {
   }
 }
 
-module.exports = { BasePlatformAdapter, buildHeaders, HttpConfig };
+module.exports = { BasePlatformAdapter, buildHeaders, HttpConfig, CancelToken, ProgressEmitter, publishStatusEnum };
