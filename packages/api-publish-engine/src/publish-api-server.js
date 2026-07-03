@@ -1,6 +1,7 @@
 const http = require("http");
 const { getAdapter, supportsApi, publishViaApi, batchPublish } = require("./index");
 const { ScheduledPublish } = require("./scheduled-publish");
+const { WebhookManager } = require("./webhook-manager");
 
 class PublishApiServer {
   constructor(opts) {
@@ -8,11 +9,13 @@ class PublishApiServer {
     this._server = null;
     this._apiKey = this._opts.apiKey || null;
     this._scheduler = null;
+    this._webhookManager = new WebhookManager();
     if (this._opts.enableSchedule) {
       this._scheduler = new ScheduledPublish({
         dryRun: this._opts.dryRun,
         storageFile: this._opts.scheduleFile || null,
-        checkInterval: this._opts.scheduleCheckInterval || 10000
+        checkInterval: this._opts.scheduleCheckInterval || 10000,
+        webhookManager: this._webhookManager
       });
     }
   }
@@ -173,6 +176,32 @@ class PublishApiServer {
         }
         var body = await this._parseBody(req);
         var ok = this._scheduler.cancel(body.id);
+        this._json(res, 200, { success: ok });
+        return;
+      }
+
+            // --- Webhook ---
+      if (url === "/api/v1/webhook") {
+        if (method === "POST") {
+          var body = await this._parseBody(req);
+          try {
+            var wh = await this._webhookManager.register({ url: body.url, events: body.events });
+            this._json(res, 200, { success: true, webhook: wh });
+          } catch (e) {
+            this._json(res, 400, { success: false, error: e.message });
+          }
+          return;
+        }
+        if (method === "GET") {
+          this._json(res, 200, { webhooks: this._webhookManager.list() });
+          return;
+        }
+      }
+
+      // --- Webhook Remove ---
+      if (method === "POST" && url === "/api/v1/webhook/remove") {
+        var body = await this._parseBody(req);
+        var ok = this._webhookManager.remove(body.id);
         this._json(res, 200, { success: ok });
         return;
       }

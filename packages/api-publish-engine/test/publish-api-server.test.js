@@ -75,6 +75,43 @@ if (PublishApiServer) {
 }
 
 
+
+
+  console.log('\n--- Webhook routes ---');
+  t('POST /api/v1/webhook registers webhook', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var r = await request(port, 'POST', '/api/v1/webhook', { url: 'http://example.com/hook', events: ['schedule.completed'] });
+    eq(r.status, 200); eq(r.body.success, true); eq(typeof r.body.webhook.id, 'string');
+    await server.stop();
+  });
+  t('GET /api/v1/webhook lists webhooks', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    await request(port, 'POST', '/api/v1/webhook', { url: 'http://a.com/h1' });
+    await request(port, 'POST', '/api/v1/webhook', { url: 'http://b.com/h2' });
+    var r = await request(port, 'GET', '/api/v1/webhook');
+    eq(r.status, 200); eq(Array.isArray(r.body.webhooks), true); eq(r.body.webhooks.length, 2);
+    await server.stop();
+  });
+  t('POST /api/v1/webhook rejects invalid URL', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var r = await request(port, 'POST', '/api/v1/webhook', { url: 'not-a-url' });
+    eq(r.status, 400);
+    await server.stop();
+  });
+  t('POST /api/v1/webhook/remove deletes webhook', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var c = await request(port, 'POST', '/api/v1/webhook', { url: 'http://example.com/hook' });
+    var r = await request(port, 'POST', '/api/v1/webhook/remove', { id: c.body.webhook.id });
+    eq(r.status, 200); eq(r.body.success, true);
+    var list = await request(port, 'GET', '/api/v1/webhook');
+    eq(list.body.webhooks.length, 0);
+    await server.stop();
+  });
+
   console.log('\n--- Schedule routes ---');
   t('POST /api/v1/schedule creates entry', async function() {
     var server = new PublishApiServer({ dryRun: true, enableSchedule: true });

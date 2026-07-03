@@ -12,6 +12,7 @@ class ScheduledPublish {
     this._checkInterval = opts.checkInterval || 10000;
     this._entries = [];
     this._timer = null;
+    this._webhookManager = opts.webhookManager || null;
     this._running = false;
     if (this._storageFile) this._load();
   }
@@ -108,6 +109,18 @@ class ScheduledPublish {
       entry.error = e.message;
     }
     self._save();
+    // Fire webhook on completion
+    if (self._webhookManager) {
+      self._webhookManager.fire("schedule.completed", {
+        id: entry.id,
+        status: entry.status,
+        platforms: entry.platforms,
+        title: entry.taskData.title,
+        results: entry.results,
+        error: entry.error,
+        scheduledAt: entry.scheduledAt
+      });
+    }
   }
 
   stop() {
