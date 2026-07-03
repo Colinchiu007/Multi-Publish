@@ -1,4 +1,5 @@
 const { BasePlatformAdapter } = require("../base-adapter");
+const { upload } = require("../../upload/orchestrator");
 const { getKuaishouSignature } = require("../signer");
 
 class KuaishouAdapter extends BasePlatformAdapter {
@@ -16,8 +17,8 @@ class KuaishouAdapter extends BasePlatformAdapter {
     return h;
   }
 
-  async uploadVideo() { return null; }
-  async uploadCover() { return null; }
+  async uploadVideo(td, cookie) { const r = await upload({...td, platform: "kuaishou"}, cookie); return r?.video || null; }
+  async uploadCover(td, cookie) { const r = await upload({...td, platform: "kuaishou"}, cookie); return r?.cover || null; }
 
   buildPostData(taskData) {
     return { title: taskData.title || "", content: taskData.content || "", tags: taskData.tags || [] };

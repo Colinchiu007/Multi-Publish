@@ -1,4 +1,5 @@
 const { BasePlatformAdapter } = require("../base-adapter");
+const { upload } = require("../../upload/orchestrator");
 
 class WechatMpAdapter extends BasePlatformAdapter {
   constructor() {
@@ -16,8 +17,8 @@ class WechatMpAdapter extends BasePlatformAdapter {
     });
   }
 
-  async uploadVideo() { return null; }
-  async uploadCover() { return null; }
+  async uploadVideo(td, cookie) { const r = await upload({...td, platform: "wechat_mp"}, cookie); return r?.video || null; }
+  async uploadCover(td, cookie) { const r = await upload({...td, platform: "wechat_mp"}, cookie); return r?.cover || null; }
 
   buildPostData(taskData) {
     return {

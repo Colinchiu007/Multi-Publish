@@ -1,4 +1,5 @@
 const { BasePlatformAdapter } = require("../base-adapter");
+const { upload } = require("../../upload/orchestrator");
 const { getDouyinSignature } = require("../signer");
 
 class DouyinAdapter extends BasePlatformAdapter {
@@ -16,8 +17,8 @@ class DouyinAdapter extends BasePlatformAdapter {
     });
   }
 
-  async uploadVideo(taskData, cookie) { return null; }
-  async uploadCover(taskData, cookie) { return null; }
+  async uploadVideo(td, cookie) { const r = await upload({...td, platform: "douyin"}, cookie); return r?.video || null; }
+  async uploadCover(td, cookie) { const r = await upload({...td, platform: "douyin"}, cookie); return r?.cover || null; }
 
   buildPostData(taskData) {
     return {

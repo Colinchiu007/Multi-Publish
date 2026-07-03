@@ -1,4 +1,5 @@
 const { BasePlatformAdapter } = require("../base-adapter");
+const { upload } = require("../../upload/orchestrator");
 const qs = require("querystring");
 
 class BaijiahaoAdapter extends BasePlatformAdapter {
@@ -16,8 +17,8 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     });
   }
 
-  async uploadVideo() { return null; }
-  async uploadCover() { return null; }
+  async uploadVideo(td, cookie) { const r = await upload({...td, platform: "baijiahao"}, cookie); return r?.video || null; }
+  async uploadCover(td, cookie) { const r = await upload({...td, platform: "baijiahao"}, cookie); return r?.cover || null; }
 
   buildPostData(taskData) {
     return {

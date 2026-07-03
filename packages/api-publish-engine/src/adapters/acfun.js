@@ -1,4 +1,5 @@
 const { BasePlatformAdapter } = require("../base-adapter");
+const { upload } = require("../../upload/orchestrator");
 
 class AcFunAdapter extends BasePlatformAdapter {
   constructor() {
@@ -10,8 +11,8 @@ class AcFunAdapter extends BasePlatformAdapter {
   getHeaders(cookie, extra) {
     return super.getHeaders(cookie, { "Content-Type": "application/json", ...extra });
   }
-  async uploadVideo() { return null; }
-  async uploadCover() { return null; }
+  async uploadVideo(td, cookie) { const r = await upload({...td, platform: "acfun"}, cookie); return r?.video || null; }
+  async uploadCover(td, cookie) { const r = await upload({...td, platform: "acfun"}, cookie); return r?.cover || null; }
   buildPostData(t) {
     return { title: t.title || "", content: t.content || "", tags: t.tags || [] };
   }

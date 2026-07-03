@@ -1,4 +1,5 @@
 const { BasePlatformAdapter } = require("../base-adapter");
+const { upload } = require("../../upload/orchestrator");
 
 class WeiboAdapter extends BasePlatformAdapter {
   constructor() {
@@ -10,8 +11,8 @@ class WeiboAdapter extends BasePlatformAdapter {
   getHeaders(cookie, extra) {
     return super.getHeaders(cookie, { "Content-Type": "application/x-www-form-urlencoded", ...extra });
   }
-  async uploadVideo() { return null; }
-  async uploadCover() { return null; }
+  async uploadVideo(td, cookie) { const r = await upload({...td, platform: "weibo"}, cookie); return r?.video || null; }
+  async uploadCover(td, cookie) { const r = await upload({...td, platform: "weibo"}, cookie); return r?.cover || null; }
   buildPostData(t) {
     return { title: t.title || "", content: t.content || "", tags: (t.tags||[]).join(",") };
   }
