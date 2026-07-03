@@ -58,3 +58,6 @@ apps/desktop/tests/screenshots/
 
 # Scratch files
 HANDOFF.md
+
+# E2E test credentials (real account data - DO NOT COMMIT)
+config/e2e-credentials.json

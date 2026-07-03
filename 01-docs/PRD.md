@@ -607,7 +607,8 @@ Task Queue → 各平台发布器 → 发布完成
 - [x] **端到端测试** — 全部测试套件通过
 - [x] **CI 自动 Release** — GitHub Actions auto-tag + release
 
-- [ ] Pending: 端到端测试（需真实账号凭证）
+- [x] 端到端测试框架完成 — 运行 `node scripts/run-e2e-tests.js`
+  - 非自动化（依赖真实账号凭证）: 需用户配置 config/e2e-credentials.json
 
 ### v1.4.0 验收（Last30Days 内容情报深度集成） ✅
 
