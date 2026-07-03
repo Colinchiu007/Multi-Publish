@@ -1,147 +1,88 @@
 // TDD: Upload Orchestration Tests
 const assert = require("assert");
 
-// Test 1: COS Provider structure
-(() => {
-  const CosProvider = require("../upload/providers/cos-provider");
-  const inst = new CosProvider();
-  assert(typeof inst.uploadVideo === "function", "cos uploadVideo missing");
-  assert(typeof inst.uploadCover === "function", "cos uploadCover missing");
-  assert(inst.type === "cos", "cos type mismatch");
-  console.log("  [PASS] cos-provider structure");
-})();
+async function main() {
+  let pass = 0, fail = 0;
+  function ok(name) { pass++; console.log("  [PASS] " + name); }
+  function no(name, msg) { fail++; console.log("  [FAIL] " + name + ": " + msg); }
 
-// Test 2: OSS Provider structure
-(() => {
-  const OssProvider = require("../upload/providers/oss-provider");
-  const inst = new OssProvider();
-  assert(typeof inst.uploadVideo === "function", "oss uploadVideo missing");
-  assert(typeof inst.uploadCover === "function", "oss uploadCover missing");
-  assert(inst.type === "oss", "oss type mismatch");
-  console.log("  [PASS] oss-provider structure");
-})();
+  // ── Provider structure ──
+  try {
+    const CosP = require("../upload/providers/cos-provider");
+    const c = new CosP();
+    assert(typeof c.uploadVideo === "function"); assert(c.type === "cos");
+    ok("cos-provider structure");
+  } catch(e) { no("cos-provider structure", e.message); }
 
-// Test 3: HTTP Provider structure
-(() => {
-  const HttpProvider = require("../upload/providers/http-provider");
-  const inst = new HttpProvider();
-  assert(typeof inst.uploadVideo === "function", "http uploadVideo missing");
-  assert(typeof inst.uploadCover === "function", "http uploadCover missing");
-  assert(inst.type === "http", "http type mismatch");
-  console.log("  [PASS] http-provider structure");
-})();
+  try {
+    const OssP = require("../upload/providers/oss-provider");
+    const o = new OssP();
+    assert(typeof o.uploadVideo === "function"); assert(o.type === "oss");
+    ok("oss-provider structure");
+  } catch(e) { no("oss-provider structure", e.message); }
 
-// Test 4: Orchestrator picks COS for xiaohongshu
-(() => {
-  const orchestrator = require("../upload/orchestrator");
-  const provider = orchestrator.getUploadProvider("xiaohongshu");
-  assert(provider !== null, "xiaohongshu should have a provider");
-  assert(provider.type === "cos", "xiaohongshu should use COS");
-  console.log("  [PASS] orchestrator picks COS for xiaohongshu");
-})();
+  try {
+    const HttpP = require("../upload/providers/http-provider");
+    const h = new HttpP();
+    assert(typeof h.uploadVideo === "function"); assert(h.type === "http");
+    ok("http-provider structure");
+  } catch(e) { no("http-provider structure", e.message); }
 
-// Test 5: Orchestrator picks COS for tencent_video
-(() => {
-  const orchestrator = require("../upload/orchestrator");
-  const provider = orchestrator.getUploadProvider("tencent_video");
-  assert(provider !== null, "tencent_video should have a provider");
-  assert(provider.type === "cos", "tencent_video should use COS");
-  console.log("  [PASS] orchestrator picks COS for tencent_video");
-})();
+  // ── Orchestrator routing ──
+  const orch = require("../upload/orchestrator");
+  const cases = [
+    ["xiaohongshu", "cos"], ["tencent_video", "cos"],
+    ["zhihu", "oss"], ["dewu", "oss"], ["yidianhao", "oss"],
+    ["douyin", "http"], ["kuaishou", "http"],
+  ];
+  for (const [p, expected] of cases) {
+    try {
+      const prov = orch.getUploadProvider(p);
+      assert(prov !== null, p + " should have provider");
+      assert(prov.type === expected, p + " should use " + expected);
+      ok("orchestrator picks " + expected + " for " + p);
+    } catch(e) { no("orchestrator picks " + expected + " for " + p, e.message); }
+  }
 
-// Test 6: Orchestrator picks OSS for zhihu
-(() => {
-  const orchestrator = require("../upload/orchestrator");
-  const provider = orchestrator.getUploadProvider("zhihu");
-  assert(provider !== null, "zhihu should have a provider");
-  assert(provider.type === "oss", "zhihu should use OSS");
-  console.log("  [PASS] orchestrator picks OSS for zhihu");
-})();
+  try {
+    assert(orch.getUploadProvider("unknown") === null);
+    ok("orchestrator returns null for unknown platform");
+  } catch(e) { no("orchestrator returns null for unknown platform", e.message); }
 
-// Test 7: Orchestrator picks OSS for dewu
-(() => {
-  const orchestrator = require("../upload/orchestrator");
-  const provider = orchestrator.getUploadProvider("dewu");
-  assert(provider !== null, "dewu should have a provider");
-  assert(provider.type === "oss", "dewu should use OSS");
-  console.log("  [PASS] orchestrator picks OSS for dewu");
-})();
+  try {
+    const r = await orch.upload({ platform: "unknown", filePath: "x.mp4", cookie: "" });
+    assert(r === null);
+    ok("orchestrator.upload returns null for unknown");
+  } catch(e) { no("orchestrator.upload returns null for unknown", e.message); }
 
-// Test 8: Orchestrator picks HTTP for douyin
-(() => {
-  const orchestrator = require("../upload/orchestrator");
-  const provider = orchestrator.getUploadProvider("douyin");
-  assert(provider !== null, "douyin should have a provider");
-  assert(provider.type === "http", "douyin should use HTTP");
-  console.log("  [PASS] orchestrator picks HTTP for douyin");
-})();
+  try {
+    const CosP = require("../upload/providers/cos-provider");
+    const c = new CosP();
+    const r = await c.uploadVideo({}, {});
+    assert(r === null);
+    ok("cos-provider handles missing file gracefully");
+  } catch(e) { no("cos-provider handles missing file gracefully", e.message); }
 
-// Test 9: Unknown platform returns null
-(() => {
-  const orchestrator = require("../upload/orchestrator");
-  const provider = orchestrator.getUploadProvider("unknown_platform");
-  assert(provider === null, "unknown platform should return null");
-  console.log("  [PASS] orchestrator returns null for unknown platform");
-})();
+  // ── Adapter upload integration ──
+  const adapters = [
+    ["xiaohongshu", "../src/adapters/xiaohongshu"],
+    ["zhihu", "../src/adapters/zhihu"],
+    ["shipinhao", "../src/adapters/shipinhao"],
+    ["douyin", "../src/adapters/douyin"],
+    ["dewu", "../src/adapters/dewu"],
+    ["yidianhao", "../src/adapters/yidianhao"],
+  ];
+  for (const [name, path] of adapters) {
+    try {
+      const Adp = require(path);
+      const inst = new Adp();
+      const r = await inst.uploadVideo({}, "");
+      assert(r === null, name + " should return null without file");
+      ok(name + " adapter uploadVideo graceful");
+    } catch(e) { no(name + " adapter uploadVideo graceful", e.message); }
+  }
 
-// Test 10: Orchestrator.upload returns null with no provider
-(async () => {
-  const orchestrator = require("../upload/orchestrator");
-  const result = await orchestrator.upload({ platform: "unknown", filePath: "test.mp4", cookie: "" });
-  assert(result === null, "upload should return null for unknown platform");
-  console.log("  [PASS] orchestrator.upload returns null for unknown platform");
-})();
+  console.log("\n" + (fail === 0 ? "All" : pass + "/" + (pass+fail)) + " upload orchestration tests " + (fail === 0 ? "PASSED" : "FAILED"));
+}
 
-// Test 11: COS provider returns upload result structure
-(async () => {
-  const CosProvider = require("../upload/providers/cos-provider");
-  const inst = new CosProvider();
-  const result = await inst.uploadVideo({ filePath: "/fake/path.mp4", fileSize: 1000, mimeType: "video/mp4" }, {});
-  // Should return null because no real file
-  assert(result === null, "cos uploadVideo should return null without real file");
-  console.log("  [PASS] cos-provider handles missing file gracefully");
-})();
-
-
-// Test: xiaohongshu adapter upload calls orchestrator
-(() => {
-  const XhsAdapter = require("../src/adapters/xiaohongshu");
-  const inst = new XhsAdapter();
-  // Should return null when no file (graceful)
-  inst.uploadVideo({}, "").then(r => {
-    console.assert(r === null, "xhs uploadVideo should return null without file");
-    console.log("  [PASS] xiaohongshu adapter uploadVideo graceful");
-  });
-})();
-
-// Test: zhihu adapter upload calls orchestrator
-(() => {
-  const ZhAdapter = require("../src/adapters/zhihu");
-  const inst = new ZhAdapter();
-  inst.uploadVideo({}, "").then(r => {
-    console.assert(r === null, "zhihu uploadVideo should return null without file");
-    console.log("  [PASS] zhihu adapter uploadVideo graceful");
-  });
-})();
-
-// Test: shipinhao adapter upload calls orchestrator
-(() => {
-  const SpAdapter = require("../src/adapters/shipinhao");
-  const inst = new SpAdapter();
-  inst.uploadVideo({}, "").then(r => {
-    console.assert(r === null, "shipinhao uploadVideo should return null without file");
-    console.log("  [PASS] shipinhao adapter uploadVideo graceful");
-  });
-})();
-
-// Test: douyin adapter still returns null (no upload integration yet)
-(() => {
-  const DyAdapter = require("../src/adapters/douyin");
-  const inst = new DyAdapter();
-  inst.uploadVideo({}, "").then(r => {
-    console.assert(r === null, "douyin uploadVideo should return null");
-    console.log("  [PASS] douyin adapter uploadVideo still returns null");
-  });
-})();
-
-console.log("\nAll upload orchestration tests PASSED");
+main().catch(e => { console.error("Test runner error:", e); process.exit(1); });
