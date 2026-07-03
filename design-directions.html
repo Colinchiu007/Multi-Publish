@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>社媒管家 — 设计方向对比</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: "DM Sans", "Noto Sans SC", sans-serif; background: #f8f7f4; color: #1a1a1a; padding: 40px 24px; }
+h1 { font-size: 28px; font-weight: 600; margin-bottom: 8px; letter-spacing: -0.5px; }
+.subtitle { color: #666; font-size: 15px; margin-bottom: 40px; }
+.direction { background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.directions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.hero-area { padding: 40px 28px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.hero-area .dir-name { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.hero-area .dir-sub { font-size: 13px; opacity: 0.7; margin-bottom: 20px; }
+.dir-tag { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+.palette { display: flex; gap: 6px; margin-bottom: 16px; justify-content: center; }
+.swatch { width: 36px; height: 36px; border-radius: 8px; border: 2px solid rgba(0,0,0,0.04); }
+.type-sample { padding: 20px 28px; border-top: 1px solid #f0f0f0; }
+.type-sample .display { font-size: 28px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.5px; }
+.type-sample .body { font-size: 14px; line-height: 1.6; opacity: 0.7; }
+.ui-mockup { padding: 20px 28px; border-top: 1px solid #f0f0f0; }
+.mock-label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+.mock-sidebar { background: var(--bg); border-radius: 10px; padding: 12px; }
+.mock-sidebar .item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; margin-bottom: 2px; }
+.mock-sidebar .item.active { background: #fff; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.mock-card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 10px; }
+.mock-card .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.mock-card .label { font-size: 12px; opacity: 0.6; }
+.mock-card .value { font-size: 14px; font-weight: 600; }
+.mock-card .badge { font-size: 11px; padding: 2px 8px; border-radius: 12px; }
+.mock-btn { display: inline-block; padding: 8px 20px; border-radius: 10px; font-size: 13px; font-weight: 500; margin-top: 10px; margin-right: 8px; color: #fff; }
+.compare-section { margin-top: 48px; background: #fff; border-radius: 16px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+th { font-weight: 600; color: #666; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+td:first-child { font-weight: 500; }
+
+.dir-a .hero-area { background: linear-gradient(135deg, #fdf6f0 0%, #fff5ee 100%); }
+.dir-a .dir-name { color: #e07a5f; }
+.dir-a .palette .swatch:nth-child(1) { background: #fdf6f0; border-color: #e8d5c4; }
+.dir-a .palette .swatch:nth-child(2) { background: #e07a5f; }
+.dir-a .palette .swatch:nth-child(3) { background: #f4a261; }
+.dir-a .palette .swatch:nth-child(4) { background: #264653; }
+.dir-a .palette .swatch:nth-child(5) { background: #f8f7f4; }
+.dir-a .dir-tag { background: #fdf6f0; color: #e07a5f; }
+.dir-a .mock-sidebar { --bg: #fdf6f0; --border: #f0e0d5; }
+.dir-a .mock-card { --border: #f0e0d5; }
+.dir-a .mock-btn { background: #e07a5f; }
+
+.dir-b .hero-area { background: linear-gradient(135deg, #f8f4ff 0%, #fdf2f8 100%); }
+.dir-b .dir-name { color: #7c5cbf; }
+.dir-b .palette .swatch:nth-child(1) { background: #f8f4ff; border-color: #d8cef0; }
+.dir-b .palette .swatch:nth-child(2) { background: #7c5cbf; }
+.dir-b .palette .swatch:nth-child(3) { background: #f472b6; }
+.dir-b .palette .swatch:nth-child(4) { background: #1e1b4b; }
+.dir-b .palette .swatch:nth-child(5) { background: #fffbeb; }
+.dir-b .dir-tag { background: #f0ebff; color: #7c5cbf; }
+.dir-b .mock-sidebar { --bg: #f8f4ff; --border: #e0d8f0; }
+.dir-b .mock-card { --border: #e0d8f0; }
+.dir-b .mock-btn { background: #7c5cbf; }
+
+.dir-c .hero-area { background: #fafaf9; }
+.dir-c .dir-name { color: #444; }
+.dir-c .palette .swatch:nth-child(1) { background: #fafaf9; border-color: #e5e4e2; }
+.dir-c .palette .swatch:nth-child(2) { background: #444; }
+.dir-c .palette .swatch:nth-child(3) { background: #a8a29e; }
+.dir-c .palette .swatch:nth-child(4) { background: #292524; }
+.dir-c .palette .swatch:nth-child(5) { background: #f5f5f4; }
+.dir-c .dir-tag { background: #e5e4e2; color: #444; }
+.dir-c .mock-sidebar { --bg: #f5f5f4; --border: #e5e4e2; }
+.dir-c .mock-card { --border: #e5e4e2; }
+.dir-c .mock-btn { background: #444; }
+
+.dir-d .hero-area { background: linear-gradient(135deg, #faf3e0 0%, #f5e6c8 100%); }
+.dir-d .dir-name { color: #8b6914; }
+.dir-d .palette .swatch:nth-child(1) { background: #faf3e0; border-color: #d4c5a9; }
+.dir-d .palette .swatch:nth-child(2) { background: #8b6914; }
+.dir-d .palette .swatch:nth-child(3) { background: #c4956a; }
+.dir-d .palette .swatch:nth-child(4) { background: #3d2b1f; }
+.dir-d .palette .swatch:nth-child(5) { background: #fff8ee; }
+.dir-d .dir-tag { background: #f5e6c8; color: #8b6914; }
+.dir-d .mock-sidebar { --bg: #faf3e0; --border: #d4c5a9; }
+.dir-d .mock-card { --border: #d4c5a9; background: #fff8ee; }
+.dir-d .mock-btn { background: #8b6914; }
+.dir-d .type-sample .display { font-family: Georgia, serif; }
+
+.dir-e .hero-area { background: linear-gradient(135deg, rgba(167,139,250,0.08) 0%, rgba(196,181,253,0.12) 50%, rgba(255,255,255,0.9) 100%); }
+.dir-e .dir-name { color: #7c3aed; }
+.dir-e .palette .swatch:nth-child(1) { background: rgba(255,255,255,0.6); border-color: rgba(167,139,250,0.3); }
+.dir-e .palette .swatch:nth-child(2) { background: #7c3aed; }
+.dir-e .palette .swatch:nth-child(3) { background: #a78bfa; }
+.dir-e .palette .swatch:nth-child(4) { background: #1e1b4b; }
+.dir-e .palette .swatch:nth-child(5) { background: #f5f3ff; }
+.dir-e .dir-tag { background: rgba(167,139,250,0.15); color: #7c3aed; }
+.dir-e .mock-sidebar { --bg: rgba(255,255,255,0.7); --border: rgba(167,139,250,0.2); }
+.dir-e .mock-card { --border: rgba(167,139,250,0.2); background: rgba(255,255,255,0.8); }
+.dir-e .mock-btn { background: #7c3aed; }
+
+.dir-f .hero-area { background: #fafafa; }
+.dir-f .dir-name { color: #1e293b; }
+.dir-f .palette .swatch:nth-child(1) { background: #fafafa; border-color: #e2e8f0; }
+.dir-f .palette .swatch:nth-child(2) { background: #2563eb; }
+.dir-f .palette .swatch:nth-child(3) { background: #e2e8f0; }
+.dir-f .palette .swatch:nth-child(4) { background: #1e293b; }
+.dir-f .palette .swatch:nth-child(5) { background: #f8fafc; }
+.dir-f .dir-tag { background: #f1f5f9; color: #475569; }
+.dir-f .mock-sidebar { --bg: #f1f5f9; --border: #e2e8f0; }
+.dir-f .mock-card { --border: #e2e8f0; }
+.dir-f .mock-btn { background: #1e293b; }
+</style>
+</head>
+<body>
+
+<h1>🎨 社媒管家 — 设计方向探索</h1>
+<p class="subtitle">六个方向供你选择。每个方向展示色板、字体、侧栏和卡片样式。</p>
+
+<div class="directions">
+
+<div class="direction dir-a">
+  <div class="hero-area">
+    <div style="margin-bottom:16px;"><span style="font-size:48px;">✧</span></div>
+    <div class="dir-name">暖白 · 珊瑚</div>
+    <div class="dir-sub">温柔 · 活力 · 亲和</div>
+    <div class="palette"><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div></div>
+    <span class="dir-tag">推荐 · 最接近你的描述</span>
+  </div>
+  <div class="type-sample">
+    <div class="display" style="color:#e07a5f;">社媒管家</div>
+    <div class="body">一站式多平台发布，让内容创作回归愉悦。</div>
+  </div>
+  <div class="ui-mockup">
+    <div class="mock-label">界面示意</div>
+    <div class="mock-sidebar"><div class="item active"><span class="dot">●</span> 抖音</div><div class="item"><span class="dot">●</span> 小红书</div><div class="item"><span class="dot">●</span> 公众号</div></div>
+    <div class="mock-card"><div class="row"><span class="label">发布状态</span><span class="badge">待发布</span></div><div class="row"><span class="label">今日发布</span><span class="value">3 篇</span></div></div>
+    <div class="mock-btn">立即发布</div>
+  </div>
+</div>
+
+<div class="direction dir-b" style="border:2px solid #7c5cbf;">
+  <div class="hero-area">
+    <div style="margin-bottom:16px;"><span style="font-size:48px;">✦</span></div>
+    <div class="dir-name">奶油 · 薰衣草</div>
+    <div class="dir-sub">优雅 · 精致 · 艺术感</div>
+    <div class="palette"><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div></div>
+    <span class="dir-tag" style="background:#7c5cbf;color:#fff;">✓ 已选中</span>
+  </div>
+  <div class="type-sample">
+    <div class="display" style="color:#7c5cbf;">社媒管家</div>
+    <div class="body">不只是工具，更是你的内容创作空间。</div>
+  </div>
+  <div class="ui-mockup">
+    <div class="mock-label">界面示意</div>
+    <div class="mock-sidebar"><div class="item active"><span class="dot">●</span> 抖音</div><div class="item"><span class="dot">●</span> 小红书</div><div class="item"><span class="dot">●</span> 公众号</div></div>
+    <div class="mock-card"><div class="row"><span class="label">发布状态</span><span class="badge">待发布</span></div><div class="row"><span class="label">今日发布</span><span class="value">3 篇</span></div></div>
+    <div class="mock-btn">立即发布</div>
+  </div>
+</div>
+
+<div class="direction dir-c">
+  <div class="hero-area">
+    <div style="margin-bottom:16px;"><span style="font-size:48px;">○</span></div>
+    <div class="dir-name">极简 · 暖灰</div>
+    <div class="dir-sub">干净 · 专注 · 舒适</div>
+    <div class="palette"><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div></div>
+    <span class="dir-tag">最安全的选择</span>
+  </div>
+  <div class="type-sample">
+    <div class="display" style="color:#444;">社媒管家</div>
+    <div class="body">简洁高效，让工作更轻松。</div>
+  </div>
+  <div class="ui-mockup">
+    <div class="mock-label">界面示意</div>
+    <div class="mock-sidebar"><div class="item active"><span class="dot">●</span> 抖音</div><div class="item"><span class="dot">●</span> 小红书</div><div class="item"><span class="dot">●</span> 公众号</div></div>
+    <div class="mock-card"><div class="row"><span class="label">发布状态</span><span class="badge">待发布</span></div><div class="row"><span class="label">今日发布</span><span class="value">3 篇</span></div></div>
+    <div class="mock-btn">立即发布</div>
+  </div>
+</div>
+
+<div class="direction dir-d">
+  <div class="hero-area">
+    <div style="margin-bottom:16px;"><span style="font-size:48px;font-family:Georgia,serif;color:#8b6914;">M</span></div>
+    <div class="dir-name">复古 · 奶油调</div>
+    <div class="dir-sub">温暖 · 怀旧 · 文艺</div>
+    <div class="palette"><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div></div>
+    <span class="dir-tag">有文艺氛围</span>
+  </div>
+  <div class="type-sample">
+    <div class="display" style="color:#8b6914;font-family:Georgia,serif;">社媒管家</div>
+    <div class="body">用温度打造内容，用喂养心情。</div>
+  </div>
+  <div class="ui-mockup">
+    <div class="mock-label">界面示意</div>
+    <div class="mock-sidebar"><div class="item active"><span class="dot">●</span> 抖音</div><div class="item"><span class="dot">●</span> 小红书</div><div class="item"><span class="dot">●</span> 公众号</div></div>
+    <div class="mock-card"><div class="row"><span class="label">发布状态</span><span class="badge">待发布</span></div><div class="row"><span class="label">今日发布</span><span class="value">3 篇</span></div></div>
+    <div class="mock-btn">立即发布</div>
+  </div>
+</div>
+
+<div class="direction dir-e">
+  <div class="hero-area">
+    <div style="margin-bottom:16px;"><span style="font-size:48px;opacity:0.8;">◇</span></div>
+    <div class="dir-name">玻璃态 · 毛玻璃</div>
+    <div class="dir-sub">现代 · 透明 · 光彩</div>
+    <div class="palette"><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div></div>
+    <span class="dir-tag">最时尚</span>
+  </div>
+  <div class="type-sample">
+    <div class="display" style="color:#7c3aed;">社媒管家</div>
+    <div class="body">轻盈的界面，浓缩的功能。</div>
+  </div>
+  <div class="ui-mockup">
+    <div class="mock-label">界面示意</div>
+    <div class="mock-sidebar"><div class="item active"><span class="dot">●</span> 抖音</div><div class="item"><span class="dot">●</span> 小红书</div><div class="item"><span class="dot">●</span> 公众号</div></div>
+    <div class="mock-card"><div class="row"><span class="label">发布状态</span><span class="badge">待发布</span></div><div class="row"><span class="label">今日发布</span><span class="value">3 篇</span></div></div>
+    <div class="mock-btn">立即发布</div>
+  </div>
+</div>
+
+<div class="direction dir-f">
+  <div class="hero-area">
+    <div style="margin-bottom:16px;"><span style="font-size:48px;font-weight:100;color:#94a3b8;">|</span></div>
+    <div class="dir-name">日系 · 极简白</div>
+    <div class="dir-sub">干净 · 通透 · 专注</div>
+    <div class="palette"><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div><div class="swatch"></div></div>
+    <span class="dir-tag">最安静</span>
+  </div>
+  <div class="type-sample">
+    <div class="display" style="color:#1e293b;">社媒管家</div>
+    <div class="body">去掉噪音，只留下创作。</div>
+  </div>
+  <div class="ui-mockup">
+    <div class="mock-label">界面示意</div>
+    <div class="mock-sidebar"><div class="item active"><span class="dot">●</span> 抖音</div><div class="item"><span class="dot">●</span> 小红书</div><div class="item"><span class="dot">●</span> 公众号</div></div>
+    <div class="mock-card"><div class="row"><span class="label">发布状态</span><span class="badge">待发布</span></div><div class="row"><span class="label">今日发布</span><span class="value">3 篇</span></div></div>
+    <div class="mock-btn">立即发布</div>
+  </div>
+</div>
+
+</div>
+
+<div class="compare-section">
+  <h3>方向对比</h3>
+  <table>
+    <tr><th>维度</th><th>暖白·珊瑚</th><th>奶油·薰衣草</th><th>极简·暖灰</th><th>复古·奶油调</th><th>玻璃态·毛玻璃</th><th>日系·极简白</th></tr>
+    <tr><td>氛围</td><td>温柔活力</td><td>优雅精致</td><td>干净舒适</td><td>怀旧文艺</td><td>现代透明</td><td>干净专注</td></tr>
+    <tr><td>主色</td><td>珊瑚橙</td><td>薰衣草紫</td><td>深灰</td><td>古铜色</td><td>亮紫</td><td>蓝色</td></tr>
+    <tr><td>个性</td><td>★★★★★</td><td>★★★★</td><td>★★★</td><td>★★★★</td><td>★★★★★</td><td>★★★</td></tr>
+    <tr><td>风险</td><td>低</td><td>低-中</td><td>低</td><td>中</td><td>中-高</td><td>低</td></tr>
+    <tr><td>对你描述的匹配度</td><td>★★★★★</td><td>★★★★</td><td>★★★</td><td>★★★★</td><td>★★★★</td><td>★★★</td></tr>
+  </table>
+</div>
+
+</body>
+</html>
