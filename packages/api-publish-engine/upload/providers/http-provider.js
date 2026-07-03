@@ -1,7 +1,8 @@
-const axios = require("axios");
+﻿const axios = require("axios");
 const fs = require("fs");
 const { getPlatformConfig } = require("./http-config");
 const { buildDouyinParams } = require("../../src/signer-local");
+const { randomUA, randomDelay, randomizeHeaders } = require("../../src/anti-detect");
 
 let FormData = null;
 try { FormData = require("form-data"); } catch(e) {}
@@ -16,7 +17,7 @@ class HttpUploadProvider {
   }
 
   _getHeaders(cfg, cookie) {
-    const h = { Cookie: cookie, Referer: cfg.referer, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" };
+    const h = { Cookie: cookie, Referer: cfg.referer, "User-Agent": randomUA() };
     if (cfg.contentType && cfg.contentType !== "multipart/form-data") h["Content-Type"] = cfg.contentType;
     return h;
   }
@@ -36,8 +37,12 @@ class HttpUploadProvider {
       const cfg = getPlatformConfig(td.platform);
       if (!cfg) return null;
       const url = this._getUploadUrl(td.platform);
-      const headers = this._getHeaders(cfg, cookie);
+      var headers = this._getHeaders(cfg, cookie);
       const extra = this._addSigning(td.platform, headers, cookie);
+
+      // 反检测：随机延迟 + Header 随机化
+      await randomDelay(500, 1500);
+      headers = randomizeHeaders(headers);
 
       if (FormData && cfg.uploadType === "form") {
         const fd = new FormData();
