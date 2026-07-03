@@ -1,7 +1,7 @@
 <template>
-  <el-dialog
-    :model-value="visible"
-    @update:model-value="$emit('update:visible', $event)"
+  <UiModal
+    :visible="visible"
+    @close="$emit('update:visible', false)"
     title="🔗 引用查找"
     width="600px"
     :close-on-click-modal="false"
@@ -84,10 +84,11 @@
         </div>
       </div>
     </div>
-  </el-dialog>
+  </UiModal>
 </template>
 
 <script setup>
+import UiModal from "../components/UiModal.vue";
 import { ref, watch } from 'vue'
 import { ElDialog } from 'element-plus'
 

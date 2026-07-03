@@ -73,7 +73,9 @@
     </div>
 
     <!-- History Dialog -->
-    <el-dialog v-model="historyVisible" title="监测历史" width="520px" :close-on-click-modal="false">
+    <UiModal
+      :visible="historyVisible" title="监测历史" size="md"
+      @close="historyVisible = false">
       <div v-if="historyLoading" style="padding: 24px; text-align: center; color: var(--muted); font-size: 14px;">
         加载中...
       </div>
@@ -94,13 +96,14 @@
           </div>
         </div>
       </div>
-    </el-dialog>
+    </UiModal>
 
     <div class="cohere-divider" style="margin: var(--space-sm) 0 0;"></div>
   </div>
 </template>
 
 <script setup>
+import UiModal from "../components/UiModal.vue";
 import { ref, onMounted } from 'vue'
 import { keywordStatus, keywordStart, keywordStop, keywordHistory } from '@/api/publisher'
 import { ElMessage, ElDialog } from 'element-plus'

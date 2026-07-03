@@ -86,23 +86,30 @@
     </div>
 
     <!-- 新增账号对话框 -->
-    <el-dialog v-model="showAddDialog" title="添加账号" width="500px">
+        <UiModal
+      :visible="showAddDialog"
+      title="????"
+      size="sm"
+      @close="showAddDialog = false"
+    >
       <el-form label-position="top">
-        <el-form-item label="选择平台">
-          <el-select v-model="newPlatform" placeholder="请选择平台" style="width: 100%">
+        <el-form-item label="????">
+          <el-select v-model="newPlatform" placeholder="?????" style="width: 100%">
             <el-option v-for="p in allPlatforms" :key="p.id" :label="p.label" :value="p.id" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showAddDialog = false">取消</el-button>
-        <el-button type="primary" :loading="adding" @click="addAccount">确认添加</el-button>
+        <UiButton variant="ghost" @click="showAddDialog = false">??</UiButton>
+        <UiButton @click="addAccount" :disabled="adding">{{ adding ? '???...' : '????' }}</UiButton>
       </template>
-    </el-dialog>
+    </UiModal>
   </div>
 </template>
 
 <script setup>
+import UiModal from "../components/UiModal.vue";
+import UiButton from "../components/UiButton.vue";
 import UiButton from "@/components/UiButton.vue";
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { usePlatformStore } from '@/stores/platforms'
