@@ -229,6 +229,26 @@ if (PublishApiServer) {
   });
   t('schedule disabled by default', async function() {
     var server = new PublishApiServer({ dryRun: true });
+
+  console.log('\n--- Graceful Shutdown ---');
+  t('stop() closes server', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    var port = await server.start(0);
+    eq(typeof port, 'number');
+    await server.stop();
+    // stop() should not throw
+  });
+  t('registerShutdownSignals returns unregister function', function() {
+    var unreg = PublishApiServer.registerShutdownSignals({ stop: function() {} });
+    eq(typeof unreg, 'function');
+    unreg(); // clean up
+  });
+  t('stop() is idempotent', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0);
+    await server.stop();
+    await server.stop(); // second call should not throw
+  });
     await server.start(0); var port = server._server.address().port;
     var r = await request(port, 'POST', '/api/v1/schedule', { platforms: ['zhihu'], title: 'X', content: 'x', scheduledAt: new Date().toISOString() });
     eq(r.status, 400);
