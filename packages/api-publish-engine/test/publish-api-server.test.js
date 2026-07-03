@@ -79,6 +79,37 @@ if (PublishApiServer) {
 
 
 
+
+
+  console.log('\n--- Audit Log routes ---');
+  t('GET /api/v1/logs returns logs and stats', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var r = await request(port, "GET", "/api/v1/logs");
+    eq(r.status, 200); eq(Array.isArray(r.body.logs), true); eq(typeof r.body.stats, "object");
+    await server.stop();
+  });
+  t('publish creates audit log entry', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    await request(port, "POST", "/api/v1/publish", { platform: "zhihu", title: "AuditTest", content: "test" });
+    var r = await request(port, "GET", "/api/v1/logs");
+    eq(r.body.logs.length >= 1, true);
+    await server.stop();
+  });
+  t('POST /api/v1/logs/clear removes all logs', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    await request(port, "POST", "/api/v1/publish", { platform: "zhihu", title: "T", content: "c" });
+    var before = await request(port, "GET", "/api/v1/logs");
+    eq(before.body.logs.length >= 1, true);
+    var clr = await request(port, "POST", "/api/v1/logs/clear");
+    eq(clr.status, 200); eq(clr.body.success, true);
+    var after = await request(port, "GET", "/api/v1/logs");
+    eq(after.body.logs.length, 0);
+    await server.stop();
+  });
+
   console.log('\n--- API Docs ---');
   t('GET /api/v1/docs returns HTML', async function() {
     var server = new PublishApiServer({ dryRun: true });
