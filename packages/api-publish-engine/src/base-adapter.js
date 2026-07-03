@@ -80,4 +80,57 @@ class BasePlatformAdapter {
   }
 }
 
-module.exports = { BasePlatformAdapter, buildHeaders, HttpConfig, CancelToken, ProgressEmitter, publishStatusEnum };
+
+function isCookieExpired(response, platform) {
+  if (!response) return false;
+  if (response.status === 401 || response.status === 403) return true;
+  if (response.code === 401) return true;
+  switch (platform) {
+    case "douyin": return !!(response.code === 401 || (response.msg && response.msg.indexOf("\u767b\u5f55") >= 0));
+    case "kuaishou": return !!(response.data && response.data.result === 1);
+    case "zhihu": return !!(response.error && response.error.code === "not_logged_in");
+    case "xiaohongshu": return !!(response.msg && response.msg.indexOf("\u767b\u5f55") >= 0);
+    case "weibo": return !!(response.code === 0 && !response.data);
+    default: return false;
+  }
+}
+
+var UA_POOL = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+]
+
+function randomUA() {
+  return UA_POOL[Math.floor(Math.random() * UA_POOL.length)]
+}
+
+function randomDelay(min, max) {
+  min = min || 500
+  max = max || 2000
+  var ms = Math.floor(Math.random() * (max - min + 1)) + min
+  return new Promise(function(resolve) { setTimeout(resolve, ms) })
+}
+
+function buildBrowserFingerprint(ua) {
+  ua = ua || randomUA()
+  var isWin = ua.indexOf("Windows") >= 0
+  var match = ua.match(/Chrome\/(\d+)/)
+  var version = match ? match[1] : "120"
+  return {
+    cookie_enabled: "true",
+    screen_width: isWin ? "1920" : "1440",
+    screen_height: isWin ? "1080" : "900",
+    browser_language: "zh-CN",
+    browser_platform: isWin ? "Win32" : "MacIntel",
+    browser_name: "Chrome",
+    browser_version: version,
+    browser_online: "true",
+    timezone_name: "Asia/Shanghai",
+  }
+}
+
+module.exports = { BasePlatformAdapter, buildHeaders, HttpConfig, CancelToken, ProgressEmitter, publishStatusEnum, isCookieExpired, randomUA, randomDelay, buildBrowserFingerprint };

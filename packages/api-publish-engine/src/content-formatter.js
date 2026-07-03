@@ -105,4 +105,21 @@ function formatContent(platform, taskData) {
   return result;
 }
 
-module.exports = { formatContent, formatTags, truncateContent, truncateTitle };
+
+function replacePlaceholders(text, topics, mentions) {
+  if (!text) return { text: "", topics: [], mentions: [] }
+  var result = { text: text, topics: [], mentions: [] }
+  result.text = result.text.replace(/\{tmp_h_(\d+)\}/g, function(m, idx) {
+    var t = topics[parseInt(idx) - 1]
+    if (t) { result.topics.push(t); return "#" + t + "#" }
+    return m
+  })
+  result.text = result.text.replace(/\{tmp_f_(\d+)\}/g, function(m, idx) {
+    var u = mentions[parseInt(idx) - 1]
+    if (u) { result.mentions.push(u); return "@" + u }
+    return m
+  })
+  return result
+}
+
+module.exports = { formatContent, formatTags, truncateContent, truncateTitle, replacePlaceholders };
