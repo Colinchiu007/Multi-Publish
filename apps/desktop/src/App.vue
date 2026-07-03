@@ -131,6 +131,7 @@
 </template>
 
 <script setup>
+import UiButton from "./components/UiButton.vue";
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
@@ -341,18 +342,7 @@ html, body { height: 100%; }
 #app { height: 100%; }
 
 /* ---- Design System Overrides ---- */
-.btn-ghost-close {
-  background: var(--error, #f87171);
-  color: white;
-  border: none;
-  padding: 4px 12px;
-  border-radius: var(--r-sm, 8px);
-  cursor: pointer;
-  font-size: 13px;
-  margin-right: 12px;
-  transition: opacity 150ms;
-}
-.btn-ghost-close:hover { opacity: 0.85; }
+/* .btn-ghost-close removed, using UiButton */
 
 .update-speed {
   font-size: 12px;
