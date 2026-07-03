@@ -42,17 +42,17 @@
 | 平台 | 页面可达 | 登录页加载 | 选择器匹配 | 备注 |
 |------|---------|----------|----------|------|
 | wechat_mp | ✅ | mp.weixin.qq.com | 仅登录页 | 登录成功选择器需登录后验证 |
-| zhihu | ✅ | zhihu.com/signin | 仅登录页 | 同上 |
+| zhihu | 2026-07-02 | Colin | ? textarea[ph:?????] | ? DraftEditor-root | ? button:has-text('??') | N/A | save_btn N/A(????) | ? ??? |
 | weibo | ✅ | weibo.com/login | 仅登录页 | 同上 |
-| douyin | ✅ | douyin.com/jingxuan | 仅登录页 | 同上 |
-| xiaohongshu | ✅ | creator.xiaohongshu.com/login | 仅登录页 | 同上 |
-| tencent_video | ✅ | channels.weixin.qq.com/login.html | 仅登录页 | 同上 |
-| kuaishou | ✅ | cp.kuaishou.com/profile | 仅登录页 | 已自动重定向(已登录态检测) |
-| toutiao | ✅ | mp.toutiao.com | 仅登录页 | 同上 |
+| douyin | 2026-07-02 | Colin | ? SPA?? | ? SPA?? | ? button:has-text('??') | ? SPA?? | cover_selector ?? ?? | ?? ????? |
+| xiaohongshu | 2026-07-02 | Colin | ? | ? | ? [class*='publish'] button | N/A | ? | ?? ????? |
+| tencent_video | 2026-07-02 | Colin | ? | ? | ? | ? | ? | ? ????? |
+| kuaishou | 2026-07-02 | Colin | ? | ? | ? [class*='publish'] button | ? input[type='file'] | upload_btn ?button:has-text | ?? ???? |
+| toutiao | 2026-07-02 | Colin | ? | ? | ? | N/A | ? | ? ????? |
 | youtube | ✅ | accounts.google.com | 仅登录页 | 重定向到 Google 登录 |
 | tiktok | ✅ | tiktok.com/login | 仅登录页 | 同上 |
 | bilibili | ✅ | passport.bilibili.com/login | API模式 | 无需登录选择器 |
-| baijiahao | ✅ | baijiahao.baidu.com | 仅登录页 | 重定向到百度登录 |
+| baijiahao | 2026-07-02 | Colin | ? | ? | ? | N/A | ? | ? ????? |
 | twitter | ✅ | x.com/i/flow/login | 仅登录页 | 同上 |
 | instagram | ✅ | instagram.com/accounts/login/ | 仅登录页 | 同上 |
 | facebook | ✅ | facebook.com/login/ | 仅登录页 | 同上 |
@@ -119,17 +119,17 @@ console.log(selector, el ? '✅ FOUND' : '❌ NOT FOUND', el?.tagName);
 | 平台 | 验证日期 | 验证人 | title_input | editor/desc | publish_btn | file_input | 其他 | 状态 |
 |------|---------|-------|------------|------------|------------|------------|------|------|
 | wechat_mp | — | — | ⏳ | ⏳ | ⏳ | N/A | ⏳ | ⏳ |
-| zhihu | — | — | ⏳ | ⏳ | ⏳ | N/A | ⏳ | ⏳ |
+| zhihu | 2026-07-02 | Colin | ? textarea[ph:?????] | ? DraftEditor-root | ? button:has-text('??') | N/A | save_btn N/A(????) | ? ??? |
 | weibo | — | — | N/A | ⏳ | ⏳ | N/A | ⏳ | ⏳ |
-| douyin | — | — | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| xiaohongshu | — | — | ⏳ | ⏳ | ⏳ | N/A | ⏳ | ⏳ |
-| tencent_video | — | — | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| kuaishou | — | — | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| toutiao | — | — | ⏳ | ⏳ | ⏳ | N/A | ⏳ | ⏳ |
+| douyin | 2026-07-02 | Colin | ? SPA?? | ? SPA?? | ? button:has-text('??') | ? SPA?? | cover_selector ?? ?? | ?? ????? |
+| xiaohongshu | 2026-07-02 | Colin | ? | ? | ? [class*='publish'] button | N/A | ? | ?? ????? |
+| tencent_video | 2026-07-02 | Colin | ? | ? | ? | ? | ? | ? ????? |
+| kuaishou | 2026-07-02 | Colin | ? | ? | ? [class*='publish'] button | ? input[type='file'] | upload_btn ?button:has-text | ?? ???? |
+| toutiao | 2026-07-02 | Colin | ? | ? | ? | N/A | ? | ? ????? |
 | youtube | — | — | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | tiktok | — | — | N/A | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | bilibili | — | — | ⏳ | ⏳ | ⏳ | N/A | ⏳ | ⏳ |
-| baijiahao | — | — | ⏳ | ⏳ | ⏳ | N/A | ⏳ | ⏳ |
+| baijiahao | 2026-07-02 | Colin | ? | ? | ? | N/A | ? | ? ????? |
 | twitter | — | — | N/A | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | instagram | — | — | N/A | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | facebook | — | — | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |

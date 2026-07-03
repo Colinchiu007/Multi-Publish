@@ -9,6 +9,7 @@ const fs = require('fs')
 const log = require('./logger')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
+const { supportsApi, publishViaApi } = require('@multi-publish/api-publish-engine')
 const { STEALTH_SOURCE } = require('./stealth-helper')
 
 // ---- ProgressThrottle (Python base.py port) ----
@@ -649,6 +650,29 @@ class RpaViewManager {
   // ========== Main publish entry ==========
   async publish(platform, article, authData, timeout) {
     timeout = timeout||120000
+    // API-first: if we have an API adapter for this platform, use it (no browser needed)
+    if (supportsApi(platform)) {
+      this._emitProgress(platform,'using API publish engine...',5)
+      try {
+        const cookie = authData?.cookies
+          ? (Array.isArray(authData.cookies)
+            ? authData.cookies.map(c => c.name + '=' + c.value).join('; ')
+            : authData.cookies)
+          : '';
+        var apiResult = await Promise.race([
+          publishViaApi(platform, article, cookie, {
+            onProgress: (pct, msg) => this._emitProgress(platform, msg, pct)
+          }),
+          new Promise(function(_, rj) { setTimeout(function() { rj(new Error('API timeout (' + (timeout/1000) + 's)')) }, timeout) })
+        ]);
+        return apiResult;
+      } catch(e) {
+        log.error('RpaView', 'API publish ' + platform + ': ' + e.message);
+        // Fall back to RPA if API fails
+        log.warn('RpaView', 'API failed, falling back to RPA for ' + platform);
+      }
+    }
+    // RPA path (existing)
     var key = this._windowKey(platform, article&&article.accountId)
     var partition = 'persist:rpa-'+key
     this._emitProgress(platform,'starting browser...',0)

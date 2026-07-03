@@ -115,4 +115,28 @@ CRITICAL 必须修复才能继续。
   自动更新模块内置 GFW 网络错误静默处理，无网络时静默失败不弹错
 - **CI**：.github/workflows/build.yml 自动完成 Playwright 安装 + 浏览器捆绑
 
-## 强制质量门禁（MUST）
+## 强制质量门禁（MUST）## 强制质量流程
+
+本项目的所有需求变更、规划、开发、评审和测试，**必须**遵循质量节拍 skill 定义的流程。
+
+质量节拍的核心分层：
+```
+日常循环（每次编码必执行）：
+  source-driven-dev → TDD → incremental-impl → /review
+
+阶段检查（每 Phase / 里程碑结束时必执行）：
+  verification-before-completion → /health → documentation-and-adrs
+
+特殊场景（按需自动触发）：
+  /investigate | /cso | defense-in-depth | dispatching-parallel-agents | ...
+```
+
+详细定义文件：`.codex/skills/质量节拍/SKILL.md`
+
+斜杠命令（Claude Code / Cursor）：
+- `/质量节拍` — 加载并执行质量节拍流程
+
+违规后果：
+- 跳过 TDD 直接写代码 = 代码不被接受
+- 跳过 /review 直接合入 = 合入被拒绝
+- 跳过阶段检查直接进入下一 Phase = 项目暂停直到补完检查
