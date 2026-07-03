@@ -1,10 +1,11 @@
-﻿const http = require("http");
+const http = require("http");
 const { getAdapter, supportsApi, publishViaApi, batchPublish } = require("./index");
 
 class PublishApiServer {
   constructor(opts) {
     this._opts = opts || {};
     this._server = null;
+    this._apiKey = this._opts.apiKey || null;
   }
 
   start(port) {
@@ -49,6 +50,15 @@ class PublishApiServer {
     res.end(JSON.stringify(data));
   }
 
+  _checkAuth(req) {
+    // 未配置 apiKey 时不检查认证
+    if (!this._apiKey) return true;
+    // 健康检查无需认证
+    if (req.url === "/api/v1/health") return true;
+    var auth = req.headers["authorization"] || "";
+    return auth === "Bearer " + this._apiKey;
+  }
+
   async _handle(req, res) {
     var url = req.url || "/";
     var method = req.method || "GET";
@@ -56,6 +66,12 @@ class PublishApiServer {
     if (method === "OPTIONS") {
       res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" });
       res.end();
+      return;
+    }
+
+    // 认证检查
+    if (!this._checkAuth(req)) {
+      this._json(res, 401, { error: "Unauthorized", message: "Valid API key required via Authorization: Bearer <key>" });
       return;
     }
 
