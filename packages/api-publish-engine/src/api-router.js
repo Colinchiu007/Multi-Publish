@@ -30,6 +30,10 @@ function loadConfig() {
   }
 }
 
+function listAllAvailablePlatforms() {
+  try { return Object.keys(require("./index").REGISTRY); } catch(e) { return []; }
+}
+
 function reloadConfig() {
   _platforms = null;
   _apiPlatforms = null;
@@ -42,16 +46,10 @@ function shouldUseApi(platform) {
 }
 
 function supportsApi(platform) {
-  var KEYS = [
-    "zhihu", "douyin", "xiaohongshu", "tencent_video", "kuaishou",
-    "baijiahao", "wechat_mp", "bilibili", "weibo", "toutiao",
-    "aiqiyi", "dayu", "qiehao", "souhu", "wangyi", "tengxun_shipin",
-    "weishi", "yidianhao", "souhu_shipin", "pipixia", "meipai",
-    "acfun", "dewu", "chejiahao", "yichehao", "meiyou",
-    "xhs_shangjia", "xigua", "duoduo",
-    "youtube", "tiktok", "twitter",
-  ];
-  return KEYS.indexOf(platform) >= 0;
+  // ?????? REGISTRY ???????????
+  var REGISTRY;
+  try { REGISTRY = require("./index").REGISTRY; } catch(e) { REGISTRY = {}; }
+  return !!REGISTRY[platform];
 }
 
 function listApiPlatforms() {

@@ -38,6 +38,20 @@ function findConfigFile() {
 
 (function main() {
   var configFile = findConfigFile();
+  // ???? platforms.yaml???????????
+  var yamlPath = path.resolve(__dirname, "..", "..", "..", "config", "platforms.yaml");
+  try {
+    if (require("fs").statSync(yamlPath).isFile()) {
+      var yaml = require("js-yaml");
+      var raw = require("fs").readFileSync(yamlPath, "utf8");
+      var cfg = yaml.load(raw);
+      if (cfg && cfg.platforms) {
+        var apiCount = Object.values(cfg.platforms).filter(function(p) { return p && p.has_api; }).length;
+        var allCount = Object.keys(cfg.platforms).length;
+        console.log("[publish-api] Loaded platforms.yaml: " + allCount + " platforms, " + apiCount + " API-capable");
+      }
+    }
+  } catch(e) { /* platforms.yaml not available, that is OK */ }
   var config = loadConfig({
     configFile: configFile,
     readEnv: true,
