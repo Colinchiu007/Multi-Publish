@@ -2,66 +2,79 @@
 /**
  * publish-api — CLI 入口
  * 启动 PublishApiServer HTTP 服务
- * 使用: publish-api [--port 3000] [--dry-run] [--api-key xxx] [--max-rpm 100]
+ *
+ * 配置加载顺序（低 → 高）:
+ *   默认值 < 配置文件 < 环境变量 < CLI 参数
+ *
+ * 使用:
+ *   publish-api [--port 3000] [--dry-run] [--api-key xxx] [--max-rpm 100]
+ *   publish-api --config ./my-config.json
+ *
  * 环境变量: PORT, DRY_RUN, API_KEY, MAX_RPM, ENABLE_SCHEDULE
  */
 const { PublishApiServer } = require("../src/publish-api-server");
+const { loadConfig, parseCLI } = require("../src/config-loader");
+const path = require("path");
 
-function parseArgs() {
+function findConfigFile() {
+  // 检查 --config CLI 参数
   var args = process.argv.slice(2);
-  var opts = {
-    port: parseInt(process.env.PORT, 10) || 3000,
-    dryRun: process.env.DRY_RUN === "true",
-    apiKey: process.env.API_KEY || null,
-    maxRpm: process.env.MAX_RPM ? parseInt(process.env.MAX_RPM, 10) : null,
-    enableSchedule: process.env.ENABLE_SCHEDULE === "true"
-  };
-
   for (var i = 0; i < args.length; i++) {
-    if (args[i] === "--port" && i + 1 < args.length) opts.port = parseInt(args[i + 1], 10) || opts.port;
-    if (args[i] === "--dry-run") opts.dryRun = true;
-    if (args[i] === "--api-key" && i + 1 < args.length) opts.apiKey = args[i + 1];
-    if (args[i] === "--max-rpm" && i + 1 < args.length) opts.maxRpm = parseInt(args[i + 1], 10) || null;
-    if (args[i] === "--enable-schedule") opts.enableSchedule = true;
-    if (args[i] === "--help" || args[i] === "-h") {
-      console.log("publish-api — Multi-Publish API 服务");
-      console.log("");
-      console.log("  使用: publish-api [选项]");
-      console.log("");
-      console.log("  选项:");
-      console.log("    --port <port>        监听端口 (默认 3000, 环境变量 PORT)");
-      console.log("    --dry-run            模拟模式 (环境变量 DRY_RUN=true)");
-      console.log("    --api-key <key>      API key 认证 (环境变量 API_KEY)");
-      console.log("    --max-rpm <n>        每分钟最大请求数 (环境变量 MAX_RPM)");
-      console.log("    --enable-schedule    启用定时发布 (环境变量 ENABLE_SCHEDULE=true)");
-      console.log("    --help, -h           显示帮助");
-      process.exit(0);
+    if (args[i] === "--config" && i + 1 < args.length) {
+      return args[i + 1];
     }
   }
-  return opts;
+  // 检查默认路径
+  var candidates = [
+    path.resolve("publish-api.config.json"),
+    path.resolve("config/publish-api.json"),
+  ];
+  for (var j = 0; j < candidates.length; j++) {
+    try { if (require("fs").statSync(candidates[j]).isFile()) return candidates[j]; }
+    catch(e) { /* not found */ }
+  }
+  return null;
 }
 
-var opts = parseArgs();
-var server = new PublishApiServer({
-  dryRun: opts.dryRun,
-  apiKey: opts.apiKey,
-  maxRpm: opts.maxRpm,
-  enableSchedule: opts.enableSchedule
-});
+(function main() {
+  var configFile = findConfigFile();
+  var config = loadConfig({
+    configFile: configFile,
+    readEnv: true,
+    cliArgs: parseCLI()
+  });
 
-server.start(opts.port).then(function(actualPort) {
-  console.log("[publish-api] PublishApiServer 已启动");
-  console.log("[publish-api]   端口: " + actualPort);
-  console.log("[publish-api]   模式: " + (opts.dryRun ? "DRY-RUN" : "LIVE"));
-  console.log("[publish-api]   认证: " + (opts.apiKey ? "API Key (" + opts.apiKey.slice(0, 8) + "...)" : "无"));
-  console.log("[publish-api]   限流: " + (opts.maxRpm ? opts.maxRpm + " rpm" : "无"));
-  console.log("[publish-api]   定时: " + (opts.enableSchedule ? "已启用" : "未启用"));
-  console.log("[publish-api] 按 Ctrl+C 停止");
+  var server = new PublishApiServer({
+    dryRun: config.dryRun,
+    apiKey: config.apiKey,
+    maxRpm: config.maxRpm,
+    enableSchedule: config.enableSchedule,
+    auditLogFile: config.auditLogFile,
+    scheduleFile: config.scheduleFile,
+    planFile: config.planFile,
+    accessLog: config.accessLog,
+    scheduleCheckInterval: config.scheduleCheckInterval
+  });
 
-  // 注册优雅关闭
-  var cleanup = PublishApiServer.registerShutdownSignals(server);
-  process.on("beforeExit", cleanup);
-}).catch(function(err) {
-  console.error("[publish-api] 启动失败:", err.message);
-  process.exit(1);
-});
+  server.start(config.port).then(function(actualPort) {
+    var mode = config.dryRun ? "DRY-RUN" : "LIVE";
+    var auth = config.apiKey ? "API Key (" + config.apiKey.slice(0, 8) + "...)" : "无";
+    var rate = config.maxRpm ? config.maxRpm + " rpm" : "无";
+    var sched = config.enableSchedule ? "已启用" : "未启用";
+
+    console.log("[publish-api] PublishApiServer 已启动");
+    console.log("[publish-api]   配置文件: " + (configFile || "无"));
+    console.log("[publish-api]   端口: " + actualPort);
+    console.log("[publish-api]   模式: " + mode);
+    console.log("[publish-api]   认证: " + auth);
+    console.log("[publish-api]   限流: " + rate);
+    console.log("[publish-api]   定时: " + sched);
+    console.log("[publish-api] 按 Ctrl+C 停止");
+
+    var cleanup = PublishApiServer.registerShutdownSignals(server);
+    process.on("beforeExit", cleanup);
+  }).catch(function(err) {
+    console.error("[publish-api] 启动失败:", err.message);
+    process.exit(1);
+  });
+})();
