@@ -1,0 +1,1 @@
+module.exports = { getUploadProvider: require("./orchestrator").getUploadProvider, upload: require("./orchestrator").upload, CosProvider: require("./providers/cos-provider"), OssProvider: require("./providers/oss-provider"), HttpProvider: require("./providers/http-provider") };
