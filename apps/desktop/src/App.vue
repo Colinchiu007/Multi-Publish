@@ -7,25 +7,25 @@
         社媒管家
       </div>
       <router-link to="/accounts" class="nav-item" :class="{ active: route.path.startsWith('/accounts') }">
-        <span class="icon">○</span> 账号管理
+        账号管理
       </router-link>
       <router-link to="/publish" class="nav-item" :class="{ active: route.path === '/publish' }">
-        <span class="icon">↗</span> 一键发布
+        一键发布
       </router-link>
       <router-link to="/collection" class="nav-item" :class="{ active: route.path === '/collection' }">
-        <span class="icon">📋</span> 采集
+        采集
       </router-link>
       <router-link to="/monitor" class="nav-item" :class="{ active: route.path.startsWith('/monitor') }">
-        <span class="icon">🖥</span> 监控
+        监控
       </router-link>
       <router-link to="/comments" class="nav-item" :class="{ active: route.path === '/comments' }">
-        <span class="icon">💬</span> 评论
+        评论
       </router-link>
       <router-link to="/dashboard" class="nav-item" :class="{ active: route.path === '/dashboard' }">
-        <span class="icon">◇</span> 数据看板
+        数据看板
       </router-link>
       <router-link to="/create" class="nav-item" :class="{ active: route.path === '/create' }">
-        <span class="icon">🎬</span> 视频创作
+        视频创作
       </router-link>
       <div class="nav-spacer"></div>
       <div class="nav-right">
@@ -56,7 +56,7 @@
             :class="{ active: activePlatform === p }"
             @click="activePlatform = p"
           >
-            <div class="platform-icon">{{ platformMeta[p].icon }}</div>
+            <div class="platform-icon"><PlatformIcon :platform="p" size="sm" /></div>
             <div style="flex:1;min-width:0">
               <div class="platform-name">{{ platformMeta[p].label }}</div>
               <div class="platform-account">
@@ -132,6 +132,7 @@
 
 <script setup>
 import UiButton from "./components/UiButton.vue";
+import PlatformIcon from "./components/PlatformIcon.vue";
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
