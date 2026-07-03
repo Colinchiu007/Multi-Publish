@@ -6,6 +6,7 @@ const { AuditLog } = require("./audit-log");
 const { PublishingPlan } = require("./publish-plan");
 const { RateLimiter } = require("./rate-limiter");
 const { AccessLogger } = require("./access-log");
+const { loadConfig } = require("./config-loader");
 
 class PublishApiServer {
   constructor(opts) {
