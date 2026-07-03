@@ -1,142 +1,101 @@
-# PROJECT-003 Multi-Publish — 开发流程规范
+﻿# PROJECT-003 Multi-Publish 鈥?寮€鍙戞祦绋嬭鑼?
+鏈枃浠跺畾涔夋湰椤圭洰寮€鍙戠殑瀹屾暣 SOP銆傛敮鎸?`AGENTS.md` 鐨?AI 宸ュ叿锛圕ursor銆丆laude Code銆丆line銆乄indsurf銆丟itHub Copilot 绛夛級鍚姩鏃惰嚜鍔ㄨ鍙栵紝纭繚鎵€鏈?AI 鍗忎綔鎸夎鑼冩墽琛屻€?
+---
 
-本文件定义本项目开发的完整 SOP。支持 `AGENTS.md` 的 AI 工具（Cursor、Claude Code、Cline、Windsurf、GitHub Copilot 等）启动时自动读取，确保所有 AI 协作按规范执行。
+## 鏍稿績鍘熷垯
+
+- **鍏堟枃妗ｅ啀浠ｇ爜**锛氭病鏈?PRD 涓嶅姩鎵嬶紝娌℃湁鏋舵瀯璁捐涓嶅姩鎵?- **TDD**锛氭祴璇曞厛浜庝唬鐮侊紝鎻愪氦鍓嶅叏閮ㄦ祴璇曢€氳繃
+- **Code Review**锛氭瘡 2-3 涓姛鑳?review 涓€娆?- **git 鎻愪氦**锛氭墍鏈夊彉鏇村繀椤?commit锛屼笉鍏佽鏈窡韪唬鐮?- **閿欒澶勭悊**锛氭墍鏈夊叧閿矾寰勫繀椤绘湁閿欒澶勭悊
 
 ---
 
-## 核心原则
+## AI 瑙掕壊鍒嗗伐
 
-- **先文档再代码**：没有 PRD 不动手，没有架构设计不动手
-- **TDD**：测试先于代码，提交前全部测试通过
-- **Code Review**：每 2-3 个功能 review 一次
-- **git 提交**：所有变更必须 commit，不允许未跟踪代码
-- **错误处理**：所有关键路径必须有错误处理
-
----
-
-## AI 角色分工
-
-| 角色 | 阶段 | 产出物 |
+| 瑙掕壊 | 闃舵 | 浜у嚭鐗?|
 |------|------|--------|
-| **PM（产品经理）** | 需求分析 | PRD、用户故事、功能列表 |
-| **架构师** | 技术设计 | 架构图、技术选型、目录结构 |
-| **开发工程师** | 编码实现 | 功能代码、单元测试（TDD） |
-| **QA（测试）** | 质量验证 | 测试用例、测试报告 |
-| **CTO（技术总监）** | 代码评审 | 审查意见、安全审计 |
+| **PM锛堜骇鍝佺粡鐞嗭級** | 闇€姹傚垎鏋?| PRD銆佺敤鎴锋晠浜嬨€佸姛鑳藉垪琛?|
+| **鏋舵瀯甯?* | 鎶€鏈璁?| 鏋舵瀯鍥俱€佹妧鏈€夊瀷銆佺洰褰曠粨鏋?|
+| **寮€鍙戝伐绋嬪笀** | 缂栫爜瀹炵幇 | 鍔熻兘浠ｇ爜銆佸崟鍏冩祴璇曪紙TDD锛?|
+| **QA锛堟祴璇曪級** | 璐ㄩ噺楠岃瘉 | 娴嬭瘯鐢ㄤ緥銆佹祴璇曟姤鍛?|
+| **CTO锛堟妧鏈€荤洃锛?* | 浠ｇ爜璇勫 | 瀹℃煡鎰忚銆佸畨鍏ㄥ璁?|
 
-切换角色口令：
-> 「现在你作为 PM，写 PRD」
-> 「切换成架构师角色，设计技术方案」
-> 「作为 CTO，review 一下这段代码」
-
+鍒囨崲瑙掕壊鍙ｄ护锛?> 銆岀幇鍦ㄤ綘浣滀负 PM锛屽啓 PRD銆?> 銆屽垏鎹㈡垚鏋舵瀯甯堣鑹诧紝璁捐鎶€鏈柟妗堛€?> 銆屼綔涓?CTO锛宺eview 涓€涓嬭繖娈典唬鐮併€?
 ---
 
-## 7 阶段开发流程
+## 7 闃舵寮€鍙戞祦绋?
+### 闃舵 1锛氭兂娉曟緞娓咃紙CEO + COO锛?鎶婃ā绯婃兂娉曞彉鎴愪竴鍙ヨ瘽闇€姹傦紝纭锛氶」鐩悕绉般€佺洰鏍囩敤鎴枫€佹牳蹇冧环鍊笺€丮VP 鑼冨洿銆?
+### 闃舵 2锛歅RD锛圥M锛?浜у嚭锛歅RD锛屽寘鍚洰鏍囩敤鎴枫€丳0/P1/P2 鍔熻兘鍒楄〃銆侀獙鏀舵爣鍑嗐€侀潪鍔熻兘闇€姹傘€?**CEO 绛惧瓧纭鍚庢墠鑳借繘鍏ヤ笅涓€闃舵銆?*
 
-### 阶段 1：想法澄清（CEO + COO）
-把模糊想法变成一句话需求，确认：项目名称、目标用户、核心价值、MVP 范围。
+### 闃舵 3锛氭妧鏈灦鏋勶紙鏋舵瀯甯堬級
+浜у嚭锛?-3 涓柟妗堝姣斻€佹帹鑽愭柟妗堛€佺洰褰曠粨鏋勩€佹暟鎹祦銆?**鍘熷垯锛氶€夋渶绠€鍗曠殑鏂规锛岃兘涓嶇敤鏁版嵁搴撳氨涓嶇敤锛岃兘涓嶇敤绗笁鏂规湇鍔″氨涓嶇敤銆?*
 
-### 阶段 2：PRD（PM）
-产出：PRD，包含目标用户、P0/P1/P2 功能列表、验收标准、非功能需求。
-**CEO 签字确认后才能进入下一阶段。**
+### 闃舵 4锛氬紑鍙戣鍒掞紙PM锛?鎶?MVP 鎷嗘垚 鈮?h 鐨勪换鍔★紝鏍囨敞渚濊禆鍏崇郴锛屾爣娉ㄥ彲骞惰椤广€?
+### 闃舵 5锛氱紪鐮佸疄鐜帮紙寮€鍙?+ TDD锛?- 鍏堝啓娴嬭瘯锛屽啀鍐欎唬鐮?- 姣忔瀹屾垚鍋氭墜鍔ㄩ獙璇侊細鑳藉惎鍔?鉁?鏍稿績鍔熻兘 鉁?闈炴硶杈撳叆涓嶅穿婧?鉁?閿欒鎻愮ず鍙嬪ソ 鉁?
+### 闃舵 6锛氫唬鐮佽瘎瀹★紙CTO锛?鏁村簱鎵弿浠ヤ笅缁村害锛?- **瀹夊叏**锛氱‖缂栫爜瀵嗛挜銆丼hell 娉ㄥ叆銆乪val
+- **閿欒澶勭悊**锛歛sync vs .catch() 姣斾緥锛堝仴搴?鈮?:1锛?- **XSS**锛歷-html / dangerouslySetInnerHTML
+- **Electron 瀹夊叏**锛歝ontextIsolation銆乶odeIntegration銆乶o-sandbox
+- **鏃ュ織姹℃煋**锛歝onsole.log 鍦ㄧ敓浜т唬鐮佷腑
+- **纭紪鐮佺瓑寰?*锛歸aitForTimeout
 
-### 阶段 3：技术架构（架构师）
-产出：2-3 个方案对比、推荐方案、目录结构、数据流。
-**原则：选最简单的方案，能不用数据库就不用，能不用第三方服务就不用。**
-
-### 阶段 4：开发计划（PM）
-把 MVP 拆成 ≤4h 的任务，标注依赖关系，标注可并行项。
-
-### 阶段 5：编码实现（开发 + TDD）
-- 先写测试，再写代码
-- 每次完成做手动验证：能启动 ✅/核心功能 ✅/非法输入不崩溃 ✅/错误提示友好 ✅
-
-### 阶段 6：代码评审（CTO）
-整库扫描以下维度：
-- **安全**：硬编码密钥、Shell 注入、eval
-- **错误处理**：async vs .catch() 比例（健康 ≤5:1）
-- **XSS**：v-html / dangerouslySetInnerHTML
-- **Electron 安全**：contextIsolation、nodeIntegration、no-sandbox
-- **日志污染**：console.log 在生产代码中
-- **硬编码等待**：waitForTimeout
-
-分类输出：
+鍒嗙被杈撳嚭锛?```
+馃敶 CRITICAL | 鏂囦欢:琛屽彿 | 鎻忚堪 | 淇寤鸿
+馃煚 MAJOR   | 鏂囦欢:琛屽彿 | 鎻忚堪 | 淇寤鸿
+馃煝 MINOR   | 鏂囦欢:琛屽彿 | 鎻忚堪 | 淇寤鸿
 ```
-🔴 CRITICAL | 文件:行号 | 描述 | 修复建议
-🟠 MAJOR   | 文件:行号 | 描述 | 修复建议
-🟢 MINOR   | 文件:行号 | 描述 | 修复建议
-```
-CRITICAL 必须修复才能继续。
-
-### 阶段 7：发布（运维）
-打包/部署、生成安装包或部署指南、git tag。
-
+CRITICAL 蹇呴』淇鎵嶈兘缁х画銆?
+### 闃舵 7锛氬彂甯冿紙杩愮淮锛?鎵撳寘/閮ㄧ讲銆佺敓鎴愬畨瑁呭寘鎴栭儴缃叉寚鍗椼€乬it tag銆?
 ---
 
 
-## 详细规范
+## 璇︾粏瑙勮寖
 
-本文档只包含开发流程框架。详细规范已拆分到 `references/` 子目录：
+鏈枃妗ｅ彧鍖呭惈寮€鍙戞祦绋嬫鏋躲€傝缁嗚鑼冨凡鎷嗗垎鍒?`references/` 瀛愮洰褰曪細
 
-- **[references/quality-gates.md](references/quality-gates.md)** — 质量门禁详细说明
-- **[references/templates.md](references/templates.md)** — 沟通模板与避坑清单
-- **[references/build.md](references/build.md)** — 打包验证与构建发布
+- **[references/quality-gates.md](references/quality-gates.md)** 鈥?璐ㄩ噺闂ㄧ璇︾粏璇存槑
+- **[references/templates.md](references/templates.md)** 鈥?娌熼€氭ā鏉夸笌閬垮潙娓呭崟
+- **[references/build.md](references/build.md)** 鈥?鎵撳寘楠岃瘉涓庢瀯寤哄彂甯?
+## 鍙傝€冩枃浠?
+- `PRD.md` 鈥?浜у搧闇€姹傛枃妗?- `P0/P1/P2-IMPLEMENTATION-PLAN.md` 鈥?瀹炵幇璁″垝
+- `ARCHITECTURE-PLAYWRIGHT.md` 鈥?鏋舵瀯璁捐
+- `DEVELOPMENT_REPORT.md` 鈥?寮€鍙戞姤鍛?- `CHANGELOG.md` 鈥?鍙樻洿鏃ュ織
+- `DESIGN.md` 鈥?璁捐瑙勮寖
+- `INTEGRATION.md` 鈥?闆嗘垚璇存槑
 
-## 参考文件
-
-- `PRD.md` — 产品需求文档
-- `P0/P1/P2-IMPLEMENTATION-PLAN.md` — 实现计划
-- `ARCHITECTURE-PLAYWRIGHT.md` — 架构设计
-- `DEVELOPMENT_REPORT.md` — 开发报告
-- `CHANGELOG.md` — 变更日志
-- `DESIGN.md` — 设计规范
-- `INTEGRATION.md` — 集成说明
-
-## 目录结构
+## 鐩綍缁撴瀯
 
 ```
 .
-├── apps/desktop/          # Electron 桌面应用
-├── packages/
-│   ├── rpa-engine/        # RPA 发布引擎
-│   └── shared-utils/      # 共享工具库
-├── team-workflow/scripts/ # 团队自动化脚本
-├── .hermes/plans/         # 实施计划存档
-├── .github/workflows/     # CI/CD 配置
-├── PRD.md / CHANGELOG.md / README.md / AGENTS.md / INTEGRATION.md
-└── ARCHITECTURE-PLAYWRIGHT.md / DESIGN.md / DEVELOPMENT_REPORT.md
+鈹溾攢鈹€ apps/desktop/          # Electron 妗岄潰搴旂敤
+鈹溾攢鈹€ packages/
+鈹?  鈹溾攢鈹€ rpa-engine/        # RPA 鍙戝竷寮曟搸
+鈹?  鈹斺攢鈹€ shared-utils/      # 鍏变韩宸ュ叿搴?鈹溾攢鈹€ team-workflow/scripts/ # 鍥㈤槦鑷姩鍖栬剼鏈?鈹溾攢鈹€ .hermes/plans/         # 瀹炴柦璁″垝瀛樻。
+鈹溾攢鈹€ .github/workflows/     # CI/CD 閰嶇疆
+鈹溾攢鈹€ PRD.md / CHANGELOG.md / README.md / AGENTS.md / INTEGRATION.md
+鈹斺攢鈹€ ARCHITECTURE-PLAYWRIGHT.md / DESIGN.md / DEVELOPMENT_REPORT.md
 ```
 
-## 打包验证（质量门禁 QM-1 补充）
+## 鎵撳寘楠岃瘉锛堣川閲忛棬绂?QM-1 琛ュ厖锛?
+- **鎵撳寘**锛歚npm run dist:win`锛堥渶 node_modules 閲屾湁 electron@33.4.0 + electron-builder@25.1.8锛?- **Playwright 娴忚鍣ㄦ崋缁?*锛氭墦鍖呭墠闇€鎵ц `cd apps/desktop && PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers npx playwright install chromium`锛屾祻瑙堝櫒鑷姩鎹嗗叆 `extraResources`
+- **绂荤嚎鏀寔**锛氬畨瑁呭寘鑷甫 Chromium 娴忚鍣紙~170MB锛夛紝鏃犻渶浠ｇ悊锛?  鑷姩鏇存柊妯″潡鍐呯疆 GFW 缃戠粶閿欒闈欓粯澶勭悊锛屾棤缃戠粶鏃堕潤榛樺け璐ヤ笉寮归敊
+- **CI**锛?github/workflows/build.yml 鑷姩瀹屾垚 Playwright 瀹夎 + 娴忚鍣ㄦ崋缁?
+## 寮哄埗璐ㄩ噺闂ㄧ锛圡UST锛?# 寮哄埗璐ㄩ噺娴佺▼
 
-- **打包**：`npm run dist:win`（需 node_modules 里有 electron@33.4.0 + electron-builder@25.1.8）
-- **Playwright 浏览器捆绑**：打包前需执行 `cd apps/desktop && PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers npx playwright install chromium`，浏览器自动捆入 `extraResources`
-- **离线支持**：安装包自带 Chromium 浏览器（~170MB），无需代理；
-  自动更新模块内置 GFW 网络错误静默处理，无网络时静默失败不弹错
-- **CI**：.github/workflows/build.yml 自动完成 Playwright 安装 + 浏览器捆绑
-
-## 强制质量门禁（MUST）## 强制质量流程
-
-本项目的所有需求变更、规划、开发、评审和测试，**必须**遵循质量节拍 skill 定义的流程。
-
-质量节拍的核心分层：
+鏈」鐩殑鎵€鏈夐渶姹傚彉鏇淬€佽鍒掋€佸紑鍙戙€佽瘎瀹″拰娴嬭瘯锛?*蹇呴』**閬靛惊璐ㄩ噺鑺傛媿 skill 瀹氫箟鐨勬祦绋嬨€?
+璐ㄩ噺鑺傛媿鐨勬牳蹇冨垎灞傦細
 ```
-日常循环（每次编码必执行）：
-  source-driven-dev → TDD → incremental-impl → /review
+鏃ュ父寰幆锛堟瘡娆＄紪鐮佸繀鎵ц锛夛細
+  source-driven-dev 鈫?TDD 鈫?incremental-impl 鈫?/review
 
-阶段检查（每 Phase / 里程碑结束时必执行）：
-  verification-before-completion → /health → documentation-and-adrs
+闃舵妫€鏌ワ紙姣?Phase / 閲岀▼纰戠粨鏉熸椂蹇呮墽琛岋級锛?  verification-before-completion 鈫?/health 鈫?documentation-and-adrs
 
-特殊场景（按需自动触发）：
+鐗规畩鍦烘櫙锛堟寜闇€鑷姩瑙﹀彂锛夛細
   /investigate | /cso | defense-in-depth | dispatching-parallel-agents | ...
 ```
 
-详细定义文件：`.codex/skills/质量节拍/SKILL.md`
+璇︾粏瀹氫箟鏂囦欢锛歚.codex/skills/璐ㄩ噺鑺傛媿/SKILL.md`
 
-斜杠命令（Claude Code / Cursor）：
-- `/质量节拍` — 加载并执行质量节拍流程
+鏂滄潬鍛戒护锛圕laude Code / Cursor锛夛細
+- `/璐ㄩ噺鑺傛媿` 鈥?鍔犺浇骞舵墽琛岃川閲忚妭鎷嶆祦绋?
+杩濊鍚庢灉锛?- 璺宠繃 TDD 鐩存帴鍐欎唬鐮?= 浠ｇ爜涓嶈鎺ュ彈
+- 璺宠繃 /review 鐩存帴鍚堝叆 = 鍚堝叆琚嫆缁?- 璺宠繃闃舵妫€鏌ョ洿鎺ヨ繘鍏ヤ笅涓€ Phase = 椤圭洰鏆傚仠鐩村埌琛ュ畬妫€鏌?
 
-违规后果：
-- 跳过 TDD 直接写代码 = 代码不被接受
-- 跳过 /review 直接合入 = 合入被拒绝
-- 跳过阶段检查直接进入下一 Phase = 项目暂停直到补完检查
