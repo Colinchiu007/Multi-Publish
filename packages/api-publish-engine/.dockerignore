@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log
+test/
+docs/
+fix_ps.test.js
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+*.md
