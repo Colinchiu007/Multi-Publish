@@ -3,33 +3,40 @@
    用于 @import 或 <link> 引入
    ============================================ */
 
-/* --- 色彩 Tokens --- */
+/* --- 色彩 Tokens (社媒管家 · 奶油薰衣草) --- */
 :root {
-  --primary: #17171c;
-  --cohere-black: #000000;
-  --ink: #212121;
-  --deep-green: #003c33;
-  --dark-navy: #071829;
-  --canvas: #ffffff;
-  --soft-stone: #eeece7;
-  --pale-blue: #f1f5ff;
-  --hairline: #d9d9dd;
-  --border-light: #e5e7eb;
-  --card-border: #f2f2f2;
-  --muted: #93939f;
-  --slate: #75758a;
-  --body-muted: #616161;
-  --action-blue: #1863dc;
-  --focus-blue: #4c6ee6;
-  --coral: #ff7759;
-  --coral-soft: #ffad9b;
-  --form-focus: #9b60aa;
+  --primary: #7c5cbf;
+  --primary-hover: #6a4dab;
+  --primary-light: #f0ebff;
+  --secondary: #f472b6;
+  --secondary-light: #fce7f3;
+  --cohere-black: #1e1b4b;
+  --ink: #1e1b4b;
+  --text-muted: #7c7c9a;
+  --text-light: #a5a5c4;
+  --canvas: #f8f4ff;
+  --surface: #ffffff;
+  --soft-stone: #f8f4ff;
+  --pale-blue: #f0ebff;
+  --hairline: #e0d8f0;
+  --border-light: #f0ebff;
+  --card-border: #e0d8f0;
+  --muted: #7c7c9a;
+  --slate: #a5a5c4;
+  --body-muted: #7c7c9a;
+  --action-blue: #7c5cbf;
+  --focus-blue: #6a4dab;
+  --coral: #f472b6;
+  --coral-soft: #fce7f3;
+  --form-focus: #7c5cbf;
   --on-primary: #ffffff;
   --on-dark: #ffffff;
-  --error: #b30000;
-  --teal: #0e7490;
-  --teal-soft: #e0f2f7;
-  --canvas-tp: rgba(255,255,255,0.95);
+  --error: #f87171;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --teal: #34d399;
+  --teal-soft: #d1fae5;
+  --canvas-tp: rgba(248,244,255,0.95);
 
   /* 间距 */
   --space-xxs: 2px;
@@ -44,9 +51,9 @@
   /* 圆角 */
   --r-xs: 4px;
   --r-sm: 8px;
-  --r-md: 16px;
-  --r-lg: 22px;
-  --r-xl: 30px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
   --r-pill: 32px;
   --r-full: 9999px;
 
@@ -54,7 +61,6 @@
   --nav-height: 56px;
   --sidebar-width: 240px;
 }
-
 /* --- 基础重置 --- */
 *, *::before, *::after {
   box-sizing: border-box;
