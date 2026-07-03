@@ -85,9 +85,9 @@ export default {
 .loading-state, .empty-state { text-align: center; padding: 60px 0; color: #888; }
 .video-section { }
 .video-player { width: 100%; max-height: 70vh; border-radius: 8px; background: #000; }
-.video-info { margin: 12px 0; font-size: 13px; color: #666; }
+.video-info { margin: 12px 0; font-size: 13px; color: var(--text-muted); }
 .actions { display: flex; gap: 12px; margin-top: 16px; }
-.btn-primary { padding: 10px 24px; border: none; border-radius: 6px; background: #1a73e8; color: #fff; cursor: pointer; font-size: 14px; font-weight: 600; }
-.btn-secondary { padding: 8px 16px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; font-size: 13px; }
+.btn-primary { padding: 10px 24px; border: none; border-radius: 6px; background: #1a73e8; color: var(--surface); cursor: pointer; font-size: 14px; font-weight: 600; }
+.btn-secondary { padding: 8px 16px; border: 1px solid #ddd; border-radius: 6px; background: var(--surface); cursor: pointer; font-size: 13px; }
 .error-banner { margin-top: 16px; padding: 12px; background: #f8d7da; color: #721c24; border-radius: 8px; }
 </style>

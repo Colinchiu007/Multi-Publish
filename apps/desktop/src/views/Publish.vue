@@ -180,7 +180,7 @@
             </div>
             <div v-if="result.url" style="margin-top:12px;display:flex;align-items:center;gap:8px">
               <a :href="result.url" target="_blank" style="font-size:13px;color:var(--action-blue);text-decoration:none">查看文章 →</a>
-              <button @click="copyUrl(result.url)" style="background:none;border:1px solid var(--border,#e0e0e0);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;color:var(--muted,#999);transition:all .2s" :style="copied ? { background:'var(--cohere-green,#67c23a)', color:'#fff', borderColor:'var(--cohere-green,#67c23a)' } : {}">
+              <button @click="copyUrl(result.url)" style="background:none;border:1px solid var(--border,#e0e0e0);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;color:var(--muted,#999);transition:all .2s" :style="copied ? { background:'var(--cohere-green,#67c23a)', color:'var(--surface)', borderColor:'var(--cohere-green,#67c23a)' } : {}">
                 {{ copied ? '✓ 已复制' : '复制链接' }}
               </button>
             </div>
@@ -455,7 +455,7 @@ onMounted(async () => {
   border: 1px solid var(--border, #e0e0e0);
   border-radius: 4px;
   background: var(--soft-stone, #f5f5f5);
-  color: var(--text-primary, #333);
+  color: var(--text-primary, var(--ink));
   cursor: pointer;
   max-width: 120px;
   outline: none;

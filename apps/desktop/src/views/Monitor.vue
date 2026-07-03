@@ -8,7 +8,7 @@
           <div class="page-subtitle">多平台同时在线监控，实时查看发布状态</div>
         </div>
         <!-- 布局切换 -->
-        <div class="layout-toggle" style="display:flex;gap:4px;background:var(--soft-stone,#f5f5f7);border-radius:8px;padding:3px">
+        <div class="layout-toggle" style="display:flex;gap:4px;background:var(--soft-stone,var(--bg));border-radius:8px;padding:3px">
           <button v-for="l in layouts" :key="l.count"
             class="layout-btn"
             :class="{ active: currentLayout === l.count }"
@@ -24,7 +24,7 @@
     </div>
 
     <!-- 监控区域（WebContentsView 由 Electron 主进程渲染，此处仅做控制面板） -->
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--border-light,#f0f0f3);position:relative;overflow:hidden">
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--border-light,var(--border-light));position:relative;overflow:hidden">
       <!-- 无监控时显示引导 -->
       <div v-if="tabs.length === 0" class="cohere-empty" style="position:absolute">
         <div class="empty-icon">🖥️</div>
@@ -205,8 +205,8 @@ async function closeAllTabs () {
   text-align: center;
   transition: all 0.15s;
 }
-.layout-btn:hover { background: var(--hairline,#e8e8ec); }
-.layout-btn.active { background: var(--canvas,#fff); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.layout-btn:hover { background: var(--hairline,var(--border-light)); }
+.layout-btn.active { background: var(--canvas,var(--surface)); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 .monitor-status-bar {
   position: absolute;
   bottom: 0;
@@ -216,7 +216,7 @@ async function closeAllTabs () {
   gap: var(--space-sm);
   padding: 8px 16px;
   background: var(--canvas-tp, rgba(255,255,255,0.95));
-  border-top: 1px solid var(--hairline,#e8e8ec);
+  border-top: 1px solid var(--hairline,var(--border-light));
   font-size: 13px;
 }
 </style>

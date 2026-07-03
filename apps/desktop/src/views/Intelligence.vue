@@ -123,7 +123,7 @@
             </span>
           </div>
         </div>
-        <div v-if="titleAnalysis.suggestion" class="intel-tip" style="background:#fff3e0;border-radius:8px;padding:12px;font-size:13px">
+        <div v-if="titleAnalysis.suggestion" class="intel-tip" style="background:var(--surface)3e0;border-radius:8px;padding:12px;font-size:13px">
           💡 {{ titleAnalysis.suggestion.tip }}
         </div>
       </div>
@@ -165,8 +165,8 @@ function sourceLabel (s) {
 }
 
 function sourceColor (s) {
-  const map = { reddit: '#FF4500', hackernews: '#FF6600', github: '#333' }
-  return map[s] || '#666'
+  const map = { reddit: '#FF4500', hackernews: '#FF6600', github: 'var(--ink)' }
+  return map[s] || 'var(--text-muted)'
 }
 
 function scoreColor (score) {

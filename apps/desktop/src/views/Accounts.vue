@@ -313,7 +313,7 @@ async function removeAccount (row) {
   justify-content: center;
 }
 .auth-modal {
-  background: var(--canvas,#fff);
+  background: var(--canvas,var(--surface));
   border-radius: 12px;
   width: 520px;
   max-height: 80vh;
@@ -325,7 +325,7 @@ async function removeAccount (row) {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--hairline,#e8e8ec);
+  border-bottom: 1px solid var(--hairline,var(--border-light));
   font-weight: 600;
   font-size: 15px;
 }
@@ -334,13 +334,13 @@ async function removeAccount (row) {
   background: none;
   cursor: pointer;
   font-size: 18px;
-  color: var(--muted,#8e8e96);
+  color: var(--muted,var(--text-muted));
   padding: 4px 8px;
   border-radius: 6px;
 }
-.auth-close-btn:hover { background: var(--soft-stone,#f5f5f7); }
+.auth-close-btn:hover { background: var(--soft-stone,var(--bg)); }
 .auth-modal-body { padding: 16px 20px 20px; }
-.auth-hint { font-size: 13px; color: var(--muted,#8e8e96); margin: 0 0 12px; }
+.auth-hint { font-size: 13px; color: var(--muted,var(--text-muted)); margin: 0 0 12px; }
 .auth-browser-placeholder { height: 400px; background: var(--soft-stone,#f9f9fb); border: 1px dashed var(--hairline,#d9d9dd); border-radius: 8px; }
 
 /* 平台分组卡片 */
@@ -349,7 +349,7 @@ async function removeAccount (row) {
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-md) var(--space-md) var(--space-sm);
-  border-bottom: 1px solid var(--border, #eee);
+  border-bottom: 1px solid var(--border, var(--border));
   margin-bottom: 0;
 }
 .card-icon.large { font-size: 28px; }
@@ -362,7 +362,7 @@ async function removeAccount (row) {
   align-items: center;
   gap: var(--space-sm);
   padding: 10px var(--space-md);
-  border-bottom: 1px solid var(--border-light, #f0f0f0);
+  border-bottom: 1px solid var(--border-light, var(--border));
   transition: background 0.15s;
 }
 .account-row:last-child { border-bottom: none; }
@@ -378,14 +378,14 @@ async function removeAccount (row) {
   border: none;
   background: transparent;
   font-size: 13px;
-  color: var(--text-primary, #333);
+  color: var(--text-primary, var(--ink));
   width: 140px;
   outline: none;
   padding: 2px 4px;
   border-radius: 3px;
 }
 .account-name-input:hover { background: rgba(0,0,0,0.03); }
-.account-name-input:focus { background: var(--canvas,#fff); border: 1px solid var(--coral, #f56c6c); }
+.account-name-input:focus { background: var(--canvas,var(--surface)); border: 1px solid var(--coral, #f56c6c); }
 
 .account-meta { display: flex; align-items: center; gap: 4px; min-width: 100px; }
 .account-status-dot {
@@ -401,5 +401,5 @@ async function removeAccount (row) {
 }
 .cohere-btn-ghost:hover { background: rgba(0,0,0,0.05); }
 .cohere-btn-ghost.danger { color: var(--coral, #f56c6c); }
-.cohere-btn-ghost.danger:hover { background: var(--canvas,#fff)1f0; }
+.cohere-btn-ghost.danger:hover { background: var(--canvas,var(--surface))1f0; }
 </style>

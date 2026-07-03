@@ -118,7 +118,7 @@ const editorOptions = {
 }
 .mode-btn.active {
   background: var(--coral);
-  color: #fff;
+  color: var(--surface);
 }
 .md-editor {
   width: 100%;

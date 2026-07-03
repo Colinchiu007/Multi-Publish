@@ -27,7 +27,7 @@
     <!-- Results -->
     <div v-else-if="data">
       <!-- Best hour highlight -->
-      <div style="text-align:center;padding:var(--space-md);margin-bottom:var(--space-md);background:linear-gradient(135deg,#fff3e0,#ffe0b2);border-radius:10px">
+      <div style="text-align:center;padding:var(--space-md);margin-bottom:var(--space-md);background:linear-gradient(135deg,var(--surface)3e0,#ffe0b2);border-radius:10px">
         <div style="font-size:11px;color:var(--muted);margin-bottom:4px">推荐发布时段</div>
         <div style="font-size:36px;font-weight:800;color:#e65100;line-height:1.1">{{ data.bestHourCN }}:00</div>
         <div style="font-size:12px;color:var(--muted);margin-top:6px">

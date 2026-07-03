@@ -42,3 +42,19 @@ apps/desktop/tests/screenshot-home.png
 
 # 质量节拍 skill 文件（不受 .codex/ 忽略规则影响）
 !.codex/skills/质量节拍/
+
+# Temp scripts & artifacts
+fix_*.py
+fix_*.js
+gen_*.py
+test_*.py
+python_decode.py
+temp_*.py
+
+# Test artifacts
+*.sched-*.json
+test-*.js
+apps/desktop/tests/screenshots/
+
+# Scratch files
+HANDOFF.md

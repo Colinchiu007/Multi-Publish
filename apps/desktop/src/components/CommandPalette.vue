@@ -264,7 +264,7 @@ watch(() => props.visible, (val) => {
   width: 560px;
   max-width: 90vw;
   max-height: 60vh;
-  background: #fff;
+  background: var(--surface);
   border-radius: 16px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
   display: flex;
@@ -388,7 +388,7 @@ watch(() => props.visible, (val) => {
 }
 
 .cp-item.active .cp-item-icon {
-  background: #e0e8ff;
+  background: var(--primary-light);
   color: var(--primary);
 }
 
@@ -402,7 +402,7 @@ watch(() => props.visible, (val) => {
 }
 
 .cp-item-label-dim {
-  color: #616161;
+  color: var(--text-muted);
 }
 
 .cp-item-meta {
@@ -416,8 +416,8 @@ watch(() => props.visible, (val) => {
   padding: 2px 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  color: #75758a;
-  background: #fafafa;
+  color: var(--text-muted);
+  background: var(--bg);
   font-family: 'SF Mono', 'JetBrains Mono', monospace;
   flex-shrink: 0;
 }

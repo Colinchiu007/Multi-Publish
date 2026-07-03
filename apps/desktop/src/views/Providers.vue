@@ -476,7 +476,7 @@ onMounted(() => {
 }
 
 .provider-card {
-  background: var(--canvas, #fff);
+  background: var(--canvas, var(--surface));
   border: 1px solid var(--hairline, var(--border));
   border-radius: 12px;
   overflow: hidden;
@@ -506,8 +506,8 @@ onMounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-.type-llm { background: #e8f0fe; color: #1a73e8; }
-.type-video { background: #fce8e6; color: #d93025; }
+.type-llm { background: var(--primary-light); color: #1a73e8; }
+.type-video { background: var(--secondary-light); color: #d93025; }
 .type-image { background: #e6f4ea; color: #137333; }
 
 [data-theme="dark"] .type-llm { background: #1a3a5c; color: #8ab4f8; }
@@ -530,15 +530,15 @@ onMounted(() => {
   background: transparent;
   cursor: pointer;
   font-size: 14px;
-  color: var(--muted, #666);
+  color: var(--muted, var(--text-muted));
   transition: all 0.12s;
 }
 .cohere-icon-btn:hover {
-  background: var(--soft-stone, #f5f5f7);
+  background: var(--soft-stone, var(--bg));
   color: var(--ink, #222);
 }
 .cohere-icon-btn-danger:hover {
-  background: #fce8e6;
+  background: var(--secondary-light);
   color: #d93025;
 }
 
@@ -554,11 +554,11 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--muted, #666);
+  color: var(--muted, var(--text-muted));
 }
 .provider-id code {
   font-size: 12px;
-  background: var(--soft-stone, #f5f5f7);
+  background: var(--soft-stone, var(--bg));
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -583,7 +583,7 @@ onMounted(() => {
 .provider-field:last-child { margin-bottom: 0; }
 
 .field-label {
-  color: var(--muted, #666);
+  color: var(--muted, var(--text-muted));
   flex-shrink: 0;
   min-width: 70px;
 }
@@ -608,7 +608,7 @@ onMounted(() => {
   color: #137333;
 }
 .card-test-result.fail {
-  background: #fce8e6;
+  background: var(--secondary-light);
   color: #d93025;
 }
 [data-theme="dark"] .card-test-result.success {
@@ -647,7 +647,7 @@ onMounted(() => {
 .cohere-btn-danger {
   padding: 8px 20px;
   background: #d93025;
-  color: #fff;
+  color: var(--surface);
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -667,7 +667,7 @@ onMounted(() => {
 .cohere-empty {
   text-align: center;
   padding: 80px 20px;
-  color: var(--muted, #666);
+  color: var(--muted, var(--text-muted));
 }
 .cohere-empty .empty-icon {
   font-size: 48px;
@@ -677,7 +677,7 @@ onMounted(() => {
   font-size: 18px;
   font-weight: 500;
   margin: 0 0 8px;
-  color: var(--ink, #333);
+  color: var(--ink, var(--ink));
 }
 .cohere-empty p {
   font-size: 14px;

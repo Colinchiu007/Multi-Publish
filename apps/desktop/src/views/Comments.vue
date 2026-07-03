@@ -10,7 +10,7 @@
 
     <div style="flex:1;display:flex;overflow:hidden">
       <!-- 左侧平台列表 -->
-      <aside style="width:200px;flex-shrink:0;border-right:1px solid var(--border,#eee);background:var(--canvas,#fafafa);overflow-y:auto">
+      <aside style="width:200px;flex-shrink:0;border-right:1px solid var(--border,var(--border));background:var(--canvas,var(--bg));overflow-y:auto">
         <div
           v-for="p in platforms"
           :key="p.id"
@@ -28,7 +28,7 @@
       </aside>
 
       <!-- 右侧评论区域 -->
-      <div style="flex:1;position:relative;background:var(--border-light,#f0f0f3);display:flex;align-items:center;justify-content:center">
+      <div style="flex:1;position:relative;background:var(--border-light,var(--border-light));display:flex;align-items:center;justify-content:center">
         <div v-if="!activePlatform" class="cohere-empty">
           <div class="empty-icon">💬</div>
           <h3>选择平台</h3>
@@ -119,10 +119,10 @@ onBeforeUnmount(async () => {
   gap: 8px;
   padding: 12px 16px;
   cursor: pointer;
-  border-bottom: 1px solid var(--border-light, #f0f0f0);
+  border-bottom: 1px solid var(--border-light, var(--border));
   transition: background 0.15s;
 }
-.comment-platform-item:hover { background: var(--soft-stone, #f5f5f7); }
+.comment-platform-item:hover { background: var(--soft-stone, var(--bg)); }
 .comment-platform-item.active { background: var(--soft-stone, #f0f0f5); }
 .comment-platform-item .platform-icon { font-size: 20px; }
 .comment-platform-item .platform-name { font-size: 13px; font-weight: 500; }

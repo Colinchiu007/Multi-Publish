@@ -328,7 +328,7 @@ body { margin: 0; padding: 0; }
 .account-switcher {
   background: transparent;
   border: none;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary, var(--text-muted));
   font-size: 11px;
   width: 100%;
   cursor: pointer;

@@ -139,7 +139,7 @@
             <div style="font-size:14px;font-weight:600;margin-bottom:var(--space-sm)">🔑 上升关键词</div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <span v-for="kw in result.rising_keywords.slice(0,10)" :key="kw.word"
-                style="font-size:13px;padding:2px 10px;border-radius:4px;background:var(--coral-tag-bg, #fff0f0);color:var(--coral)"
+                style="font-size:13px;padding:2px 10px;border-radius:4px;background:var(--coral-tag-bg, var(--surface)0f0);color:var(--coral)"
               >
                 {{ kw.word }}
               </span>

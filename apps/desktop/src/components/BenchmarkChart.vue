@@ -41,19 +41,19 @@
         互动分统计
       </div>
       <div class="cohere-stat-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-sm); margin-bottom: var(--space-md);">
-        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+        <div class="cohere-stat-card" style="background: var(--bg); border-radius: 6px; padding: var(--space-md); text-align: center;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">平均互动分</div>
           <div style="font-size: 20px; font-weight: 600; color: var(--text);">{{ data.benchmark.engagement.avg.toFixed(1) }}</div>
         </div>
-        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+        <div class="cohere-stat-card" style="background: var(--bg); border-radius: 6px; padding: var(--space-md); text-align: center;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">中位互动分</div>
           <div style="font-size: 20px; font-weight: 600; color: var(--text);">{{ data.benchmark.engagement.median.toFixed(1) }}</div>
         </div>
-        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+        <div class="cohere-stat-card" style="background: var(--bg); border-radius: 6px; padding: var(--space-md); text-align: center;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">Top 10%</div>
           <div style="font-size: 20px; font-weight: 600; color: var(--cohere-green);">{{ data.benchmark.engagement.top10.toFixed(1) }}</div>
         </div>
-        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+        <div class="cohere-stat-card" style="background: var(--bg); border-radius: 6px; padding: var(--space-md); text-align: center;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">Top 25%</div>
           <div style="font-size: 20px; font-weight: 600; color: #e6a23c;">{{ data.benchmark.engagement.top25.toFixed(1) }}</div>
         </div>
@@ -64,15 +64,15 @@
         点赞统计
       </div>
       <div class="cohere-stat-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-sm); margin-bottom: var(--space-md);">
-        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+        <div class="cohere-stat-card" style="background: var(--bg); border-radius: 6px; padding: var(--space-md); text-align: center;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">平均</div>
           <div style="font-size: 18px; font-weight: 600; color: var(--text);">{{ data.benchmark.upvotes.avg.toFixed(0) }}</div>
         </div>
-        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+        <div class="cohere-stat-card" style="background: var(--bg); border-radius: 6px; padding: var(--space-md); text-align: center;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">中位数</div>
           <div style="font-size: 18px; font-weight: 600; color: var(--text);">{{ data.benchmark.upvotes.median.toFixed(0) }}</div>
         </div>
-        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+        <div class="cohere-stat-card" style="background: var(--bg); border-radius: 6px; padding: var(--space-md); text-align: center;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">Top 10%</div>
           <div style="font-size: 18px; font-weight: 600; color: var(--cohere-green);">{{ data.benchmark.upvotes.top10.toFixed(0) }}</div>
         </div>
@@ -83,15 +83,15 @@
         评论统计
       </div>
       <div class="cohere-stat-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-sm); margin-bottom: var(--space-md);">
-        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+        <div class="cohere-stat-card" style="background: var(--bg); border-radius: 6px; padding: var(--space-md); text-align: center;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">平均</div>
           <div style="font-size: 18px; font-weight: 600; color: var(--text);">{{ data.benchmark.comments.avg.toFixed(0) }}</div>
         </div>
-        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+        <div class="cohere-stat-card" style="background: var(--bg); border-radius: 6px; padding: var(--space-md); text-align: center;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">中位数</div>
           <div style="font-size: 18px; font-weight: 600; color: var(--text);">{{ data.benchmark.comments.median.toFixed(0) }}</div>
         </div>
-        <div class="cohere-stat-card" style="background: #f9f9f9; border-radius: 6px; padding: var(--space-md); text-align: center;">
+        <div class="cohere-stat-card" style="background: var(--bg); border-radius: 6px; padding: var(--space-md); text-align: center;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 4px;">Top 10%</div>
           <div style="font-size: 18px; font-weight: 600; color: var(--cohere-green);">{{ data.benchmark.comments.top10.toFixed(0) }}</div>
         </div>

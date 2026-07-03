@@ -45,7 +45,7 @@
         v-for="(item, idx) in filteredItems"
         :key="idx"
         style="border: 1px solid var(--border); border-radius: 6px; padding: var(--space-md); transition: background 0.15s;"
-        @mouseenter="($event) => $event.currentTarget.style.background = '#f9f9f9'"
+        @mouseenter="($event) => $event.currentTarget.style.background = 'var(--bg)'"
         @mouseleave="($event) => $event.currentTarget.style.background = 'transparent'"
       >
         <!-- Source badge -->
@@ -136,8 +136,8 @@ const filteredItems = computed(() => {
 })
 
 function sourceColor(source) {
-  const map = { reddit: '#FF4500', hackernews: '#FF6600', github: '#333' }
-  return map[source] || '#666'
+  const map = { reddit: '#FF4500', hackernews: '#FF6600', github: 'var(--ink)' }
+  return map[source] || 'var(--text-muted)'
 }
 
 function engagementColor(score) {

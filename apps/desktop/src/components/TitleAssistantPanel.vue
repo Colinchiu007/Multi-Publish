@@ -30,7 +30,7 @@
             :style="{
               fontSize: '11px',
               background: count >= 3 ? 'var(--coral)' : 'var(--border)',
-              color: count >= 3 ? '#fff' : 'var(--muted)',
+              color: count >= 3 ? 'var(--surface)' : 'var(--muted)',
               padding: '2px 6px',
               borderRadius: '4px'
             }">
@@ -116,7 +116,7 @@ watch(() => props.visible, (v) => {
 
 <style scoped>
 .title-assistant {
-  background: var(--card-bg, #fff);
+  background: var(--card-bg, var(--surface));
   border: 1px solid var(--border, #e0e0e0);
   border-radius: 8px;
   padding: 12px;
@@ -135,7 +135,7 @@ watch(() => props.visible, (v) => {
   margin-bottom: 10px;
 }
 .ta-tip {
-  background: #fff3e0;
+  background: var(--surface)3e0;
   border-left: 3px solid #f57c00;
   padding: 8px 10px;
   border-radius: 4px;
@@ -144,7 +144,7 @@ watch(() => props.visible, (v) => {
 }
 .ta-ref-item {
   padding: 6px 0;
-  border-bottom: 1px solid var(--border, #f0f0f0);
+  border-bottom: 1px solid var(--border, var(--border));
 }
 .ta-ref-item:last-child { border-bottom: none; }
 </style>
