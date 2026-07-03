@@ -1,4 +1,4 @@
-const REGISTRY = {
+﻿const REGISTRY = {
   zhihu: require("./adapters/zhihu"),
   douyin: require("./adapters/douyin"),
   xiaohongshu: require("./adapters/xiaohongshu"),
@@ -41,4 +41,46 @@ async function publishViaApi(platform, taskData, cookie, opts) {
   return result;
 }
 
-module.exports = { getAdapter, supportsApi, publishViaApi, REGISTRY };
+/**
+ * 批量发布 — 逐个平台发布，遇失败继续
+ * @param {string[]} platforms - 平台列表
+ * @param {object} taskData - { title, content, tags }
+ * @param {string} cookie
+ * @param {object} [opts] - { dryRun, onProgress }
+ * @returns {Promise<Array<{platform, success, error?, result?}>>}
+ */
+async function batchPublish(platforms, taskData, cookie, opts) {
+  opts = opts || {};
+  var results = [];
+  var total = platforms.length;
+
+  for (var i = 0; i < total; i++) {
+    var plat = platforms[i];
+    var entry = { platform: plat };
+
+    try {
+      if (!supportsApi(plat)) {
+        entry.success = false;
+        entry.error = "No API adapter for platform: " + plat;
+      } else if (opts.dryRun) {
+        entry.success = true;
+        entry.dryRun = true;
+      } else {
+        entry.result = await publishViaApi(plat, taskData, cookie, opts);
+        entry.success = true;
+      }
+    } catch (e) {
+      entry.success = false;
+      entry.error = e.message;
+    }
+
+    results.push(entry);
+    if (opts.onProgress) {
+      opts.onProgress(Math.round((i + 1) / total * 100), plat);
+    }
+  }
+
+  return results;
+}
+
+module.exports = { getAdapter, supportsApi, publishViaApi, batchPublish, REGISTRY };
