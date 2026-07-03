@@ -12,7 +12,7 @@
     <!-- 无结果 -->
     <div v-else-if="!videoPath" class="empty-state">
       <p>没有可预览的视频</p>
-      <button class="btn-primary" @click="$router.push('/create')">去创作</button>
+      <UiButton @click="$router.push('/create')">去创作</UiButton>
     </div>
 
     <!-- 视频播放器 -->
@@ -31,9 +31,9 @@
       </div>
 
       <div class="actions">
-        <button class="btn-primary" @click="download">下载视频</button>
-        <button class="btn-secondary" @click="$router.push('/publish')">去发布</button>
-        <button class="btn-secondary" @click="$router.push('/create')">重新创作</button>
+        <UiButton @click="download">下载视频</UiButton>
+        <UiButton variant="secondary" @click="$router.push('/publish')">去发布</UiButton>
+        <UiButton variant="secondary" @click="$router.push('/create')">重新创作</UiButton>
       </div>
     </div>
 

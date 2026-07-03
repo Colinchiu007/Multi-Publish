@@ -139,6 +139,8 @@
 </template>
 
 <script setup>
+import UiButton from "../components/UiButton.vue";
+import UiInput from "../components/UiInput.vue";
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { onFirstRunStatus, firstRunCheck } from '@/api/publisher'

@@ -73,6 +73,8 @@
 </template>
 
 <script setup>
+import UiButton from "../components/UiButton.vue";
+import UiInput from "../components/UiInput.vue";
 import { ref, computed, onMounted } from 'vue'
 import { syncAll, syncPlatform } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'

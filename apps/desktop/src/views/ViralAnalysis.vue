@@ -37,10 +37,10 @@
             </select>
           </div>
           <div style="display:flex;align-items:flex-end;gap:var(--space-sm)">
-            <button class="cohere-btn-primary" @click="doAnalyze" :disabled="!topic.trim() || loading">
+            <UiButton @click="doAnalyze" :disabled="!topic.trim() || loading">
               📊 爆款分析
             </button>
-            <button class="cohere-btn-primary" style="background:var(--coral);border-color:var(--coral)" @click="doGenerate" :disabled="!topic.trim() || loading">
+            <UiButton @click="doGenerate" :disabled="!topic.trim() || loading" style="background:var(--coral);border-color:var(--coral)">
               ✨ 生成文案
             </button>
           </div>

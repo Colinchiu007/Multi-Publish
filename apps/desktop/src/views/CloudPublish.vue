@@ -18,7 +18,7 @@
         <div class="cohere-form" @submit.prevent="handleSubmit">
           <div class="cohere-form-item">
             <label class="cohere-form-label">视频 URL</label>
-            <input class="cohere-input" v-model="form.videoUrl" placeholder="https://storage.example.com/videos/xxx.mp4" />
+            <UiInput v-model="form.videoUrl" placeholder="https://storage.example.com/videos/xxx.mp4" />
           </div>
 
           <div class="cohere-form-row" style="display:flex;gap:var(--space-md)">
@@ -30,18 +30,18 @@
             </div>
             <div class="cohere-form-item" style="flex:2">
               <label class="cohere-form-label">标题</label>
-              <input class="cohere-input" v-model="form.title" placeholder="视频标题" maxlength="80" />
+              <UiInput v-model="form.title" placeholder="视频标题" maxlength="80" />
             </div>
           </div>
 
           <div class="cohere-form-item">
             <label class="cohere-form-label">描述</label>
-            <textarea class="cohere-input" v-model="form.desc" placeholder="视频描述" rows="3" style="resize:vertical;font-family:inherit;line-height:1.6"></textarea>
+            <UiInput type="textarea" v-model="form.desc" placeholder="视频描述" rows="3" style="resize:vertical;font-family:inherit;line-height:1.6"/>
           </div>
 
           <div class="cohere-form-item">
             <label class="cohere-form-label">标签</label>
-            <input class="cohere-input" v-model="tagsInput" placeholder="标签（逗号分隔）" @keydown.enter.prevent="addTag" />
+            <UiInput v-model="tagsInput" placeholder="标签（逗号分隔）" @keydown.enter.prevent="addTag" />
             <div v-if="form.tags.length" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:var(--space-xs)">
               <span v-for="(tag, idx) in form.tags" :key="idx" class="cohere-tag cohere-tag-info" style="cursor:pointer" @click="form.tags.splice(idx, 1)">
                 {{ tag }} ✕
@@ -51,13 +51,13 @@
 
           <div class="cohere-form-item">
             <label class="cohere-form-label">封面 URL</label>
-            <input class="cohere-input" v-model="form.coverUrl" placeholder="https://storage.example.com/covers/xxx.jpg（可选）" />
+            <UiInput v-model="form.coverUrl" placeholder="https://storage.example.com/covers/xxx.jpg（可选）" />
           </div>
 
           <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md)">
-            <button class="cohere-btn cohere-btn-primary" @click="handleSubmit" :disabled="submitting">
+            <UiButton @click="handleSubmit" :disabled="submitting">
               {{ submitting ? '提交中...' : '提交云端发布' }}
-            </button>
+            </UiButton>
           </div>
 
           <div v-if="submitResult" class="cohere-form-item" style="margin-top:var(--space-sm)">

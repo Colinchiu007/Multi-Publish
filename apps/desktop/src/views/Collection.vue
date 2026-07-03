@@ -91,6 +91,8 @@
 </template>
 
 <script setup>
+import UiButton from "../components/UiButton.vue";
+import UiInput from "../components/UiInput.vue";
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
