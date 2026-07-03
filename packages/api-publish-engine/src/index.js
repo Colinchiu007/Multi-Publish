@@ -28,6 +28,10 @@
   xhs_shangjia: require("./adapters/xhs_shangjia"),
   xigua: require("./adapters/xigua"),
   duoduo: require("./adapters/duoduo"),
+  // P0: API mode adapters
+  youtube: require("./adapters/youtube"),
+  tiktok: require("./adapters/tiktok"),
+  twitter: require("./adapters/twitter"),
 };
 
 function getAdapter(p) { var C = REGISTRY[p]; return C ? new C() : null; }
@@ -89,4 +93,9 @@ const { AuditLog } = require("./audit-log");
 const { PublishingPlan } = require("./publish-plan");
 const { RateLimiter } = require("./rate-limiter");
 const { AccessLogger } = require("./access-log");
-module.exports = { getAdapter, supportsApi, publishViaApi, batchPublish, REGISTRY, ScheduledPublish, WebhookManager, AuditLog, PublishingPlan, RateLimiter, AccessLogger };
+module.exports = { getAdapter, supportsApi, publishViaApi, batchPublish, REGISTRY, ScheduledPublish, WebhookManager, AuditLog, PublishingPlan, RateLimiter, AccessLogger,
+  // P0-P2 API mode routing
+  apiRouter: require("./api-router"),
+  batchPublishWithRouting: require("./api-router").batchPublishWithRouting,
+  publishWithFallback: require("./api-router").publishWithFallback,
+};
