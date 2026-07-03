@@ -84,4 +84,5 @@ async function batchPublish(platforms, taskData, cookie, opts) {
 }
 
 const { ScheduledPublish } = require("./scheduled-publish");
-module.exports = { getAdapter, supportsApi, publishViaApi, batchPublish, REGISTRY, ScheduledPublish };
+const { WebhookManager } = require("./webhook-manager");
+module.exports = { getAdapter, supportsApi, publishViaApi, batchPublish, REGISTRY, ScheduledPublish, WebhookManager };
