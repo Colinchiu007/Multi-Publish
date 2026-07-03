@@ -13,7 +13,16 @@
  *   4. Ensure dev server is running (npm run dev)
  */
 
-const { chromium } = require('playwright');
+// --- Dependency Check ----------------------------------------------------
+let chromium;
+try {
+  chromium = require('playwright').chromium;
+} catch (_) {
+  console.error('❌ Playwright is not installed. Run: npm install playwright');
+  console.error('   Then: npx playwright install chromium');
+  process.exit(1);
+}
+
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
