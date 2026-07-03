@@ -103,6 +103,7 @@
 </template>
 
 <script setup>
+import UiButton from "@/components/UiButton.vue";
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
