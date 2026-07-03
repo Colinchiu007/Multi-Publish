@@ -1,0 +1,28 @@
+version: "3"
+
+services:
+  publish-api:
+    build: .
+    container_name: publish-api-server
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DRY_RUN=false
+      - API_KEY=
+      - MAX_RPM=100
+      - ENABLE_SCHEDULE=true
+      - SCHEDULE_FILE=/data/schedule.json
+      - AUDIT_LOG_FILE=/data/audit.json
+      - PLAN_FILE=/data/plans.json
+    volumes:
+      - publish-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/v1/health',function(r){process.exit(r.statusCode===200?0:1)}).on('error',function(){process.exit(1)})"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  publish-data:

@@ -2,40 +2,65 @@
 /**
  * publish-api — CLI 入口
  * 启动 PublishApiServer HTTP 服务
- * 使用: node bin/publish-api [--port 3000] [--dry-run]
+ * 使用: publish-api [--port 3000] [--dry-run] [--api-key xxx] [--max-rpm 100]
+ * 环境变量: PORT, DRY_RUN, API_KEY, MAX_RPM, ENABLE_SCHEDULE
  */
 const { PublishApiServer } = require("../src/publish-api-server");
 
-var args = process.argv.slice(2);
-var port = 3000;
-var dryRun = false;
+function parseArgs() {
+  var args = process.argv.slice(2);
+  var opts = {
+    port: parseInt(process.env.PORT, 10) || 3000,
+    dryRun: process.env.DRY_RUN === "true",
+    apiKey: process.env.API_KEY || null,
+    maxRpm: process.env.MAX_RPM ? parseInt(process.env.MAX_RPM, 10) : null,
+    enableSchedule: process.env.ENABLE_SCHEDULE === "true"
+  };
 
-for (var i = 0; i < args.length; i++) {
-  if (args[i] === "--port" && i + 1 < args.length) port = parseInt(args[i + 1], 10) || port;
-  if (args[i] === "--dry-run") dryRun = true;
-  if (args[i] === "--help" || args[i] === "-h") {
-    console.log("publish-api — Multi-Publish API 服务");
-    console.log("");
-    console.log("  使用: node bin/publish-api [选项]");
-    console.log("");
-    console.log("  选项:");
-    console.log("    --port <port>    监听端口 (默认 3000)");
-    console.log("    --dry-run        模拟模式 (不真实发布)");
-    console.log("    --help, -h       显示帮助");
-    process.exit(0);
+  for (var i = 0; i < args.length; i++) {
+    if (args[i] === "--port" && i + 1 < args.length) opts.port = parseInt(args[i + 1], 10) || opts.port;
+    if (args[i] === "--dry-run") opts.dryRun = true;
+    if (args[i] === "--api-key" && i + 1 < args.length) opts.apiKey = args[i + 1];
+    if (args[i] === "--max-rpm" && i + 1 < args.length) opts.maxRpm = parseInt(args[i + 1], 10) || null;
+    if (args[i] === "--enable-schedule") opts.enableSchedule = true;
+    if (args[i] === "--help" || args[i] === "-h") {
+      console.log("publish-api — Multi-Publish API 服务");
+      console.log("");
+      console.log("  使用: publish-api [选项]");
+      console.log("");
+      console.log("  选项:");
+      console.log("    --port <port>        监听端口 (默认 3000, 环境变量 PORT)");
+      console.log("    --dry-run            模拟模式 (环境变量 DRY_RUN=true)");
+      console.log("    --api-key <key>      API key 认证 (环境变量 API_KEY)");
+      console.log("    --max-rpm <n>        每分钟最大请求数 (环境变量 MAX_RPM)");
+      console.log("    --enable-schedule    启用定时发布 (环境变量 ENABLE_SCHEDULE=true)");
+      console.log("    --help, -h           显示帮助");
+      process.exit(0);
+    }
   }
+  return opts;
 }
 
-var server = new PublishApiServer({ dryRun: dryRun });
-server.start(port).then(function(actualPort) {
+var opts = parseArgs();
+var server = new PublishApiServer({
+  dryRun: opts.dryRun,
+  apiKey: opts.apiKey,
+  maxRpm: opts.maxRpm,
+  enableSchedule: opts.enableSchedule
+});
+
+server.start(opts.port).then(function(actualPort) {
   console.log("[publish-api] PublishApiServer 已启动");
   console.log("[publish-api]   端口: " + actualPort);
-  console.log("[publish-api]   模式: " + (dryRun ? "DRY-RUN" : "LIVE"));
-  console.log("[publish-api]   平台: GET /api/v1/platforms");
-  console.log("[publish-api]   发布: POST /api/v1/publish");
-  console.log("[publish-api]   批量: POST /api/v1/batch-publish");
-  console.log("[publish-api]   健康: GET /api/v1/health");
+  console.log("[publish-api]   模式: " + (opts.dryRun ? "DRY-RUN" : "LIVE"));
+  console.log("[publish-api]   认证: " + (opts.apiKey ? "API Key (" + opts.apiKey.slice(0, 8) + "...)" : "无"));
+  console.log("[publish-api]   限流: " + (opts.maxRpm ? opts.maxRpm + " rpm" : "无"));
+  console.log("[publish-api]   定时: " + (opts.enableSchedule ? "已启用" : "未启用"));
   console.log("[publish-api] 按 Ctrl+C 停止");
+
+  // 注册优雅关闭
+  var cleanup = PublishApiServer.registerShutdownSignals(server);
+  process.on("beforeExit", cleanup);
 }).catch(function(err) {
   console.error("[publish-api] 启动失败:", err.message);
   process.exit(1);
