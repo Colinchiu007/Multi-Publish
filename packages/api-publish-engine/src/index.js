@@ -14,6 +14,19 @@ const QiehaoAdapter = require("./adapters/qiehao");
 const SouhuAdapter = require("./adapters/souhu");
 const WangyiAdapter = require("./adapters/wangyi");
 const TengxunShipinAdapter = require("./adapters/tengxun_shipin");
+const WeiShiAdapter = require("./adapters/weishi");
+const YiDianHaoAdapter = require("./adapters/yidianhao");
+const SouhuShipinAdapter = require("./adapters/souhu_shipin");
+const PiPiXiaAdapter = require("./adapters/pipixia");
+const MeiPaiAdapter = require("./adapters/meipai");
+const AcFunAdapter = require("./adapters/acfun");
+const DeWuAdapter = require("./adapters/dewu");
+const CheJiaHaoAdapter = require("./adapters/chejiahao");
+const YiCheHaoAdapter = require("./adapters/yichehao");
+const MeiYouAdapter = require("./adapters/meiyou");
+const XhsShangjiaAdapter = require("./adapters/xhs_shangjia");
+const XiGuaAdapter = require("./adapters/xigua");
+const DuoDuoAdapter = require("./adapters/duoduo");
 
 const REGISTRY = {
   zhihu: ZhihuAdapter,
@@ -32,6 +45,19 @@ const REGISTRY = {
   souhu: SouhuAdapter,
   wangyi: WangyiAdapter,
   tengxun_shipin: TengxunShipinAdapter,
+  weishi: WeiShiAdapter,
+  yidianhao: YiDianHaoAdapter,
+  souhu_shipin: SouhuShipinAdapter,
+  pipixia: PiPiXiaAdapter,
+  meipai: MeiPaiAdapter,
+  acfun: AcFunAdapter,
+  dewu: DeWuAdapter,
+  chejiahao: CheJiaHaoAdapter,
+  yichehao: YiCheHaoAdapter,
+  meiyou: MeiYouAdapter,
+  xhs_shangjia: XhsShangjiaAdapter,
+  xigua: XiGuaAdapter,
+  duoduo: DuoDuoAdapter,
 };
 
 function getAdapter(platform) {
