@@ -46,26 +46,25 @@
     </div>
 
     <!-- 添加监控对话框 -->
-    <el-dialog v-model="showDialog" title="添加监控" width="480px">
-      <el-form label-position="top">
-        <el-form-item label="选择平台">
-          <el-select v-model="newPlatform" placeholder="请选择平台" style="width:100%">
-            <el-option v-for="p in platforms" :key="p.id" :label="p.label" :value="p.id" />
-          </el-select>
-        </el-form-item>
-        <div v-if="newPlatform" class="cohere-card" style="margin-bottom:12px;cursor:default;padding:12px">
-          <div style="font-size:13px;color:var(--muted)">将打开 {{ platformLabel(newPlatform) }} 的创作者中心页面，登录状态自动恢复</div>
-        </div>
-      </el-form>
+        <UiModal :visible="showDialog" title="????" size="sm" @close="showDialog = false">
+      <UiSelect
+        v-model="newPlatform"
+        label="????"
+        placeholder="?????"
+        :options="platforms.filter(p => p.id !== 'all').map(p => ({ value: p.id, label: p.label }))"
+      />
       <template #footer>
-        <el-button @click="showDialog = false">取消</el-button>
-        <el-button type="primary" :loading="adding" @click="confirmAdd">确认添加</el-button>
+        <UiButton variant="ghost" @click="showDialog = false">??</UiButton>
+        <UiButton @click="confirmAdd" :disabled="adding">{{ adding ? '???...' : '????' }}</UiButton>
       </template>
-    </el-dialog>
+    </UiModal>
   </div>
 </template>
 
 <script setup>
+import UiModal from "../components/UiModal.vue";
+import UiButton from "../components/UiButton.vue";
+import UiSelect from "../components/UiSelect.vue";
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 

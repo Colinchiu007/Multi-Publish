@@ -81,95 +81,26 @@
     </div>
 
     <!-- 创建/编辑对话框 -->
-    <el-dialog
-      v-model="showFormDialog"
-      :title="isEditing ? '编辑 Provider' : '添加 Provider'"
-      width="560px"
-      :close-on-click-modal="false"
-      @close="resetForm"
+        <UiModal
+      :visible="showFormDialog"
+      title="?????"
+      size="md"
+      @close="cancelEdit"
     >
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="formRules"
-        label-width="120px"
-        label-position="left"
-        size="default"
-      >
-        <el-form-item label="标识名" prop="name">
-          <el-input v-model="form.name" placeholder="如 openai, doubao" :disabled="isEditing" />
-          <div class="form-hint">唯一标识，创建后不可修改</div>
-        </el-form-item>
-
-        <el-form-item label="类型" prop="provider_type">
-          <el-select v-model="form.provider_type" style="width:100%">
-            <el-option label="LLM" value="llm" />
-            <el-option label="视频" value="video" />
-            <el-option label="图片" value="image" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item label="显示名称" prop="display_name">
-          <el-input v-model="form.display_name" placeholder="如 OpenAI, 豆包" />
-        </el-form-item>
-
-        <el-form-item label="Base URL" prop="base_url">
-          <el-input v-model="form.base_url" placeholder="https://api.openai.com/v1" />
-        </el-form-item>
-
-        <el-form-item label="API Key" prop="api_key">
-          <el-input
-            v-model="form.api_key"
-            type="password"
-            show-password
-            :placeholder="isEditing ? '留空则不修改' : 'sk-...'"
-          />
-          <div class="form-hint">{{ isEditing ? '编辑时留空表示不修改密钥' : '提供商 API 密钥' }}</div>
-        </el-form-item>
-
-        <el-form-item label="模型列表" prop="models">
-          <el-input
-            v-model="form.models"
-            type="textarea"
-            :rows="2"
-            placeholder="每行一个模型名，如 gpt-4o&#10;gpt-4o-mini"
-          />
-          <div class="form-hint">每行一个模型标识符</div>
-        </el-form-item>
-
-        <el-form-item label="启用">
-          <el-switch v-model="form.enabled" />
-        </el-form-item>
-
-        <el-form-item label="最低层级" prop="min_tier">
-          <el-select v-model="form.min_tier" style="width:100%">
-            <el-option :label="1" :value="1" />
-            <el-option :label="2" :value="2" />
-            <el-option :label="3" :value="3" />
-          </el-select>
-          <div class="form-hint">Tier 1 最高优先，Tier 3 最低优先</div>
-        </el-form-item>
-
-        <el-form-item label="配置" prop="config">
-          <el-input
-            v-model="form.config"
-            type="textarea"
-            :rows="3"
-            placeholder='{ "extra_param": "value" }'
-          />
-          <div class="form-hint">JSON 格式的额外配置（可选）</div>
-        </el-form-item>
-      </el-form>
-
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <label class="input-label">???</label>
+        <input class="input" v-model="form.name" placeholder="? openai, doubao" :disabled="isEditing" />
+        <label class="input-label">??</label>
+        <select class="input" v-model="form.provider_type" style="width:100%">
+          <option value="llm">LLM</option>
+          <option value="video">??</option>
+        </select>
+      </div>
       <template #footer>
-        <span class="dialog-footer">
-          <button class="cohere-btn-secondary" @click="showFormDialog = false">取消</button>
-          <button class="cohere-btn-primary" @click="submitForm" :disabled="submitting">
-            {{ submitting ? '保存中...' : '保存' }}
-          </button>
-        </span>
+        <UiButton variant="ghost" @click="cancelEdit">??</UiButton>
+        <UiButton @click="saveProvider" :disabled="saving">{{ saving ? '???...' : '??' }}</UiButton>
       </template>
-    </el-dialog>
+    </UiModal>
 
     <!-- 删除确认对话框 -->
     <el-dialog
@@ -217,6 +148,8 @@
 </template>
 
 <script setup>
+import UiModal from "../components/UiModal.vue";
+import UiButton from "../components/UiButton.vue";
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {

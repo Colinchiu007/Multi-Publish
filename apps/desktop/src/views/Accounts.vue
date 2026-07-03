@@ -92,13 +92,12 @@
       size="sm"
       @close="showAddDialog = false"
     >
-      <el-form label-position="top">
-        <el-form-item label="????">
-          <el-select v-model="newPlatform" placeholder="?????" style="width: 100%">
-            <el-option v-for="p in allPlatforms" :key="p.id" :label="p.label" :value="p.id" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <UiSelect
+        v-model="newPlatform"
+        label="????"
+        placeholder="?????"
+        :options="allPlatforms.map(p => ({ value: p.id, label: p.label }))"
+      />
       <template #footer>
         <UiButton variant="ghost" @click="showAddDialog = false">??</UiButton>
         <UiButton @click="addAccount" :disabled="adding">{{ adding ? '???...' : '????' }}</UiButton>
@@ -110,6 +109,7 @@
 <script setup>
 import UiModal from "../components/UiModal.vue";
 import UiButton from "../components/UiButton.vue";
+import UiSelect from "../components/UiSelect.vue";
 import UiButton from "@/components/UiButton.vue";
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { usePlatformStore } from '@/stores/platforms'
