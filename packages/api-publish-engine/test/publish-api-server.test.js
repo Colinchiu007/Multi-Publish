@@ -74,5 +74,37 @@ if (PublishApiServer) {
   });
 }
 
+
+  console.log('\n--- Schedule routes ---');
+  t('POST /api/v1/schedule creates entry', async function() {
+    var server = new PublishApiServer({ dryRun: true, enableSchedule: true });
+    await server.start(0); var port = server._server.address().port;
+    var r = await request(port, 'POST', '/api/v1/schedule', { platforms: ['zhihu'], title: 'Sched', content: 'Test', scheduledAt: new Date(Date.now() + 86400000).toISOString() });
+    eq(r.status, 200); eq(r.body.success, true); eq(r.body.entry.status, 'pending');
+    await server.stop();
+  });
+  t('GET /api/v1/schedule lists entries', async function() {
+    var server = new PublishApiServer({ dryRun: true, enableSchedule: true });
+    await server.start(0); var port = server._server.address().port;
+    await request(port, 'POST', '/api/v1/schedule', { platforms: ['douyin'], title: 'T', content: 'C', scheduledAt: new Date(Date.now() + 86400000).toISOString() });
+    var r = await request(port, 'GET', '/api/v1/schedule');
+    eq(r.status, 200); eq(Array.isArray(r.body.entries), true); eq(r.body.entries.length, 1);
+    await server.stop();
+  });
+  t('POST /api/v1/schedule/cancel cancels entry', async function() {
+    var server = new PublishApiServer({ dryRun: true, enableSchedule: true });
+    await server.start(0); var port = server._server.address().port;
+    var c = await request(port, 'POST', '/api/v1/schedule', { platforms: ['zhihu'], title: 'X', content: 'x', scheduledAt: new Date(Date.now() + 86400000).toISOString() });
+    var r = await request(port, 'POST', '/api/v1/schedule/cancel', { id: c.body.entry.id });
+    eq(r.status, 200); eq(r.body.success, true);
+    await server.stop();
+  });
+  t('schedule disabled by default', async function() {
+    var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var r = await request(port, 'POST', '/api/v1/schedule', { platforms: ['zhihu'], title: 'X', content: 'x', scheduledAt: new Date().toISOString() });
+    eq(r.status, 400);
+    await server.stop();
+  });
 console.log('\n========== Result: '+p+'/'+(p+f)+' ==========');
 if(f)process.exit(1);
