@@ -2,6 +2,7 @@ const http = require("http");
 const { getAdapter, supportsApi, publishViaApi, batchPublish } = require("./index");
 const { ScheduledPublish } = require("./scheduled-publish");
 const { WebhookManager } = require("./webhook-manager");
+const { AuditLog } = require("./audit-log");
 
 class PublishApiServer {
   constructor(opts) {
@@ -10,6 +11,7 @@ class PublishApiServer {
     this._apiKey = this._opts.apiKey || null;
     this._scheduler = null;
     this._webhookManager = new WebhookManager();
+    this._auditLog = new AuditLog({ storageFile: this._opts.auditLogFile || null });
     if (this._opts.enableSchedule) {
       this._scheduler = new ScheduledPublish({
         dryRun: this._opts.dryRun,
@@ -115,12 +117,15 @@ class PublishApiServer {
         try {
           if (this._opts.dryRun) {
             var supported = supportsApi(platform);
+            this._auditLog.log({ type: "publish", platform: platform, title: taskData.title, status: supported ? "success" : "failed", details: { dryRun: true } });
             this._json(res, 200, { success: supported, platform: platform, dryRun: true, error: supported ? undefined : "No API adapter for platform: " + platform });
           } else {
             var result = await publishViaApi(platform, taskData, cookie);
+            this._auditLog.log({ type: "publish", platform: platform, title: taskData.title, status: "success", publishId: result.publishId });
             this._json(res, 200, { success: true, platform: platform, url: result.url, publishId: result.publishId });
           }
         } catch (e) {
+          this._auditLog.log({ type: "publish", platform: platform, title: taskData.title, status: "failed", error: e.message });
           this._json(res, 200, { success: false, platform: platform, error: e.message });
         }
         return;
@@ -135,6 +140,7 @@ class PublishApiServer {
         var opts = {};
         if (this._opts.dryRun) opts.dryRun = true;
         var results = await batchPublish(platforms, taskData, cookie, opts);
+        this._auditLog.log({ type: "batch", platform: platforms, title: taskData.title, status: results.every(function(r){return r.success}) ? "success" : "failed", details: results });
         this._json(res, 200, results);
         return;
       }
@@ -206,6 +212,17 @@ class PublishApiServer {
         return;
       }
 
+      // --- Audit Log ---
+      if (method === "GET" && url === "/api/v1/logs") {
+        this._json(res, 200, { logs: this._auditLog.list(), stats: this._auditLog.stats() });
+        return;
+      }
+      if (method === "POST" && url === "/api/v1/logs/clear") {
+        this._auditLog.clear();
+        this._json(res, 200, { success: true });
+        return;
+      }
+
       // --- API Docs ---
       if (method === "GET" && url === "/api/v1/docs") {
         var html = `<!DOCTYPE html>
@@ -262,6 +279,8 @@ p{color:#6e6e73}
           "/api/v1/schedule": { post: { summary: "创建定时发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platforms: { type: "array", items: { type: "string" } }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" }, scheduledAt: { type: "string", format: "date-time" } }, required: ["platforms", "scheduledAt"] } } } }, responses: { "200": { description: "创建成功" } } }, get: { summary: "列出定时任务", responses: { "200": { description: "任务列表" } } } },
           "/api/v1/schedule/cancel": { post: { summary: "取消定时任务", requestBody: { content: { "application/json": { schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } } }, responses: { "200": { description: "取消结果" } } } },
           "/api/v1/webhook": { post: { summary: "注册 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { url: { type: "string", format: "uri" }, events: { type: "array", items: { type: "string" } } }, required: ["url"] } } } }, responses: { "200": { description: "注册成功" } } }, get: { summary: "列出 webhook", responses: { "200": { description: "webhook 列表" } } } },
+          "/api/v1/logs": { get: { summary: "获取发布日志" } },
+          "/api/v1/logs/clear": { post: { summary: "清空发布日志" } },
           "/api/v1/webhook/remove": { post: { summary: "删除 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } } }, responses: { "200": { description: "删除结果" } } } }
         };
         spec.paths = pathItems;
