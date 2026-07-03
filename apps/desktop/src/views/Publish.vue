@@ -59,7 +59,7 @@
           <div style="flex:1"></div>
           <UiButton @click="handleBatchPublish" :disabled="publishing || articles.length === 0">
             {{ publishing ? '发布中...' : `🚀 批量发布 (${totalPlatformTasks} 个任务)` }}
-          </button>
+          </UiButton>
         </div>
 
         <!-- 进度 -->
@@ -161,7 +161,7 @@
               <div class="cohere-divider"></div>
               <UiButton style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
                 {{ publishing ? '发布中...' : '🚀 一键发布' }}
-              </button>
+              </UiButton>
             </div>
           </div>
           <div v-if="progress.length > 0" class="cohere-card" style="margin-top:16px;cursor:default">
