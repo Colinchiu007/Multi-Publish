@@ -5,7 +5,7 @@ class RichTextProcessor {
     const segments = [];
     let idx = 0;
     let match;
-    const re = /(#([^#]+)#|@([\\u4e00-\\u9fa5\\w]+))/g;
+    const re = /(#([^#]+)#|@([\u4e00-\u9fa5\w]+))/g;
 
     while ((match = re.exec(html)) !== null) {
       if (match.index > idx) {
