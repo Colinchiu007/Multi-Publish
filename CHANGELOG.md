@@ -9,6 +9,23 @@
 - 完全移除 ElementPlus 依赖
 - 字体: Satoshi/DM Sans/Noto Serif SC/JetBrains Mono
 - 平台图标: emoji → PlatformIcon 色标
+
+## [v1.7.0] - 2026-07-03
+
+### Added — API 开放平台 (V2.0 生态扩展)
+
+- **ApiKeyManager 模块**: 多 API Key 管理 — create/revoke/list/validate + scope 权限控制
+  - 存储: JSON 文件 (config/api-keys.json)，密钥格式 `mp_` + 48 hex
+  - 支持通配符 scope (`*`) 和细粒度 scope (`publish:read`, `admin` 等)
+  - 自动迁移: 已有 `apiKey` 配置自动迁移到 key manager
+  - 持久化: 跨实例重启保持
+- **REST 管理端点**:
+  - `POST /api/v1/keys` — 创建新 Key (admin scope)
+  - `GET /api/v1/keys` — 列出 Key (admin scope, 默认不暴露 key 值)
+  - `DELETE /api/v1/keys/:key` — 吊销 Key (admin scope)
+- **增强认证中间件**: 支持 scope 检查、向后兼容单 key 模式
+- **测试**: 27 单元测试 + 7 集成测试，全部通过
+
 ## [v2.1.0] - 2026-07-02
 
 
