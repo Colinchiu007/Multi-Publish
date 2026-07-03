@@ -2,6 +2,8 @@
 const { CancelToken } = require("./cancel-token");
 const { ProgressEmitter, publishStatusEnum } = require("./progress-emitter");
 const { formatContent } = require("./content-formatter");
+const { errorCode, getMsg } = require("./error-codes");
+const { withRetry, withCache, withMiddleware } = require("./retry-middleware");
 const HttpConfig = {
   userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   timeout: 60000,
@@ -61,11 +63,19 @@ class BasePlatformAdapter {
       if (onProgress) onProgress(85, "Publishing...");
       const postData = this.buildPostData(taskData, { video: videoResult, cover: coverResult });
       const result = await this.publish(cookie, postData, cancelToken);
+      if (!result.code && !result.success) result.code = errorCode.request_error;
+      if (!result.code && result.success) result.code = errorCode.success;
       if (onProgress) onProgress(100, result.success ? "Published!" : "Failed: " + (result.error || "unknown"));
       return result;
     } catch (err) {
       if (onProgress) onProgress(100, "Error: " + err.message);
-      return { success: false, error: err.message, platform: this.name };
+      // ???????????????
+      var code = errorCode.unknown_error;
+      if (err.message && err.message.indexOf("timeout") >= 0) code = errorCode.request_error;
+      if (err.message && err.message.indexOf("parse") >= 0) code = errorCode.data_error;
+      if (err.message && err.message.indexOf("cancel") >= 0) code = errorCode.cancel_error;
+      if (err.code === "ECONNREFUSED" || err.code === "ENOTFOUND") code = errorCode.request_error;
+      return { success: false, error: err.message, code: code, platform: this.name };
     }
   }
 }
