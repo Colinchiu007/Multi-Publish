@@ -1,3 +1,42 @@
+## [1.3.0] — 2026-07-03
+
+### Added
+- **Plugin Level 2C — 配置注入 + 崩溃隔离**:
+  - getConfig(platform) — 读取 plugin.config.json
+  - getConfig() — 无参数返回所有插件配置
+  - setConfig(platform, config) — 写入 plugin.config.json
+  - 崩溃隔离: onLoad/onEnable/onDisable 异步错误不会崩溃主进程
+  - enable/disable 不会因 hook 抛出异常而中断
+
+### Testing
+- plugin-config-isolation.test.js: 9 test cases (14 assertions) all passed
+- Total: 99/99 assertions across 6 test suites
+
+## [1.2.1] — 2026-07-03
+
+### Fixed
+- **CI quality-gate**: Fixed duplicate function declarations in index.js
+  - Removed old getAdapter/supportsApi/publishViaApi/batchPublish
+  - Kept only plugin-aware versions (pluginLoader integration)
+  - Fixed "Identifier has already been declared" error
+
+## [1.2.0] — 2026-07-03
+
+### Added
+- **Plugin Level 2B — 动态 enable/disable/reload**:
+  - `disable(platform)` — 禁用插件，调用 onDisable hook
+  - `enable(platform)` — 重新启用插件，调用 onEnable hook
+  - `reload(platform)` — 清除 require cache 后重新加载
+  - `isEnabled(platform)` — 检查插件状态
+  - `getEnabled()` / `getDisabled()` — 分类列出
+  - `getPluginInfo()` 新增 isEnabled 字段
+  - `getAll()` 现在同时包含启用和禁用的插件
+
+### Testing
+- plugin-dynamic.test.js: 9 test cases (25 assertions) all passed
+- No regression: manifest 39/39, original loader 7/7, integration 5/5
+
+
 ## [1.1.0] — 2026-07-03
 
 ### Added

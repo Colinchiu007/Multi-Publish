@@ -47,6 +47,11 @@ const PluginLoader = require("./plugin-loader");
 const pluginLoader = new PluginLoader();
 pluginLoader.loadAll();
 
+/** 热重载所有插件 */
+function reloadPlugins() {
+  pluginLoader.loadAll();
+}
+
 /** Get all platforms including plugins */
 function supportsApi(p) { return !!REGISTRY[p] || !!pluginLoader.get(p); }
 
@@ -69,6 +74,12 @@ async function publishViaApi(platform, taskData, cookie, opts) {
 }
 
 async function batchPublish(platforms, taskData, cookie, opts) {
+  // Filter out disabled plugins
+  platforms = platforms.filter(function(p) {
+    var enabled = pluginLoader.isEnabled(p);
+    // pluginLoader returns null for non-plugin platforms (built-in adapters)
+    return enabled === null || enabled === true;
+  });
   opts = opts || {};
   var results = [];
   var total = platforms.length;
@@ -97,7 +108,7 @@ async function batchPublish(platforms, taskData, cookie, opts) {
 }
 
 module.exports = {
-  getAdapter, supportsApi, publishViaApi, batchPublish,
+  getAdapter, supportsApi, publishViaApi, batchPublish, reloadPlugins,
   REGISTRY, pluginLoader,
   ScheduledPublish, WebhookManager, AuditLog, PublishingPlan, RateLimiter, AccessLogger,
   apiRouter: require("./api-router"),
