@@ -1,127 +1,172 @@
 /**
- * PluginLoader — 本地文件插件加载器
- * 
+ * PluginLoader — 本地文件插件加载器 (Level 2A: manifest 标准化)
+ *
  * Plugin API:
  *   class MyPlugin {
- *     get platform()      // string, required — 唯一标识
- *     get displayName()   // string, optional — 显示名称
- *     async publish(postData, cookie) // optional — RPA 发布
- *     async publishViaApi(postData, config) // optional — API 发布
- *     async validate()    // optional — 启动时校验
+ *     get platform()      // string, required
+ *     get displayName()   // string, optional
+ *     async onLoad(ctx)        // optional
+ *     async onEnable(ctx)      // optional
+ *     async onDisable(ctx)     // optional
+ *     async onUnload(ctx)      // optional
+ *     async publish(postData, cookie)         // optional
+ *     async publishViaApi(postData, config)   // optional
+ *     async validate()         // optional
  *   }
- * 
- * 目录结构:
- *   plugins/
- *     my-plugin.js           → 单文件插件
- *     my-plugin/
- *       index.js             → 多文件插件的入口
- *       package.json         → 可选的元信息
+ *
+ * manifest.json:
+ *   name, version (required), minAppVersion, author, entry, permissions
  */
 const fs = require("fs");
 const path = require("path");
 
 class PluginLoader {
-  /**
-   * @param {string} [pluginsDir] — 插件目录，默认 apps/desktop/plugins
-   */
   constructor(pluginsDir) {
     this._pluginsDir = pluginsDir || path.join(__dirname, "..", "..", "..", "apps", "desktop", "plugins");
-    this._plugins = new Map();   // platform -> plugin instance
-    this._errors = [];           // { file, error }
+    this._plugins = new Map();
+    this._manifests = new Map();
+    this._legacy = new Set();
+    this._errors = [];
+    this._appVersion = "1.8.0";
   }
 
-  /** 加载所有插件 */
+  setAppVersion(version) {
+    this._appVersion = version;
+  }
+
   loadAll() {
     this._plugins.clear();
+    this._manifests.clear();
+    this._legacy.clear();
     this._errors = [];
 
     if (!fs.existsSync(this._pluginsDir)) {
-      try { fs.mkdirSync(this._pluginsDir, { recursive: true }); } catch (e) { /* ignore */ }
+      try { fs.mkdirSync(this._pluginsDir, { recursive: true }); } catch (e) {}
       return this._plugins;
     }
 
     const entries = fs.readdirSync(this._pluginsDir, { withFileTypes: true });
-
     for (const entry of entries) {
       try {
-        // 单文件: *.js
         if (entry.isFile() && entry.name.endsWith(".js")) {
           this._loadFile(path.join(this._pluginsDir, entry.name));
-        }
-        // 目录: my-plugin/index.js
-        else if (entry.isDirectory()) {
+        } else if (entry.isDirectory()) {
           const indexPath = path.join(this._pluginsDir, entry.name, "index.js");
-          if (fs.existsSync(indexPath)) {
-            this._loadFile(indexPath);
-          }
+          if (fs.existsSync(indexPath)) { this._loadFile(indexPath); }
         }
       } catch (e) {
         this._errors.push({ file: entry.name, error: e.message });
-        console.warn(`[PluginLoader] Failed to load ${entry.name}: ${e.message}`);
+        console.warn("[PluginLoader] Failed to load " + entry.name + ": " + e.message);
       }
     }
-
     return this._plugins;
   }
 
-  /** 加载单个文件 */
+  _findManifest(filepath) {
+    const dir = path.dirname(filepath);
+    const basename = path.basename(filepath, ".js");
+    const dirManifest = path.join(dir, "manifest.json");
+    if (fs.existsSync(dirManifest)) return this._parseManifest(dirManifest);
+    const fileManifest = path.join(dir, basename + ".manifest.json");
+    if (fs.existsSync(fileManifest)) return this._parseManifest(fileManifest);
+    return null;
+  }
+
+  _parseManifest(manifestPath) {
+    let raw;
+    try { raw = JSON.parse(fs.readFileSync(manifestPath, "utf-8")); }
+    catch (e) { throw new Error("Invalid manifest at " + manifestPath + ": " + e.message); }
+    if (!raw.name || typeof raw.name !== "string")
+      throw new Error("manifest at " + manifestPath + " missing name");
+    if (!raw.version || typeof raw.version !== "string")
+      throw new Error("manifest at " + manifestPath + " missing version");
+    return {
+      name: raw.name, version: raw.version,
+      minAppVersion: raw.minAppVersion || null,
+      author: raw.author || null, entry: raw.entry || null,
+      permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
+    };
+  }
+
+  _checkVersionCompatibility(manifest) {
+    if (!manifest.minAppVersion) return true;
+    return this._compareVersions(this._appVersion, manifest.minAppVersion) >= 0;
+  }
+
+  _compareVersions(a, b) {
+    const pa = a.split(".").map(Number);
+    const pb = b.split(".").map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const na = pa[i] || 0, nb = pb[i] || 0;
+      if (na !== nb) return na - nb;
+    }
+    return 0;
+  }
+
   _loadFile(filepath) {
+    const manifest = this._findManifest(filepath);
+    if (manifest && !this._checkVersionCompatibility(manifest)) {
+      throw new Error("Plugin " + manifest.name + " requires app >= " + manifest.minAppVersion + ", current=" + this._appVersion);
+    }
     const PluginClass = require(filepath);
-    // 支持 module.exports = class 和 module.exports = { MyPlugin }
     let Klass = PluginClass;
     if (typeof Klass !== "function") {
-      // 尝试取第一个导出的类
-      const keys = Object.keys(Klass);
-      for (const key of keys) {
-        if (typeof Klass[key] === "function" && Klass[key].prototype?.platform !== undefined) {
-          Klass = Klass[key];
-          break;
+      for (const key of Object.keys(Klass)) {
+        if (typeof Klass[key] === "function" && Klass[key].prototype && Klass[key].prototype.platform !== undefined) {
+          Klass = Klass[key]; break;
         }
       }
     }
-
-    if (typeof Klass !== "function") {
-      throw new Error(`Plugin file "${path.basename(filepath)}" does not export a valid plugin class`);
-    }
-
+    if (typeof Klass !== "function")
+      throw new Error("Plugin " + path.basename(filepath) + " does not export a valid class");
     const instance = new Klass();
-    if (!instance.platform || typeof instance.platform !== "string") {
-      throw new Error(`Plugin "${path.basename(filepath)}" must have a "platform" getter returning a string`);
-    }
-
-    if (this._plugins.has(instance.platform)) {
-      throw new Error(`Duplicate platform "${instance.platform}" from ${path.basename(filepath)}`);
-    }
-
+    if (!instance.platform || typeof instance.platform !== "string")
+      throw new Error("Plugin " + path.basename(filepath) + " must have platform getter");
+    if (this._plugins.has(instance.platform))
+      throw new Error("Duplicate platform " + instance.platform);
     this._plugins.set(instance.platform, instance);
-    console.log(`[PluginLoader] Loaded plugin: ${instance.platform} (${instance.displayName || instance.platform})`);
+    this._manifests.set(instance.platform, manifest);
+    if (!manifest) this._legacy.add(instance.platform);
+    if (typeof instance.onLoad === "function")
+      instance.onLoad({ config: {}, appVersion: this._appVersion }).catch(function() {});
+    console.log("[PluginLoader] Loaded: " + instance.platform + (manifest ? " [v" + manifest.version + "]" : " [legacy]"));
   }
 
-  /** 获取指定平台插件 */
-  get(platform) {
-    return this._plugins.get(platform) || null;
+  get(platform) { return this._plugins.get(platform) || null; }
+
+  getPluginInfo(platform) {
+    if (!this._plugins.has(platform)) return null;
+    const inst = this._plugins.get(platform);
+    const m = this._manifests.get(platform);
+    return {
+      platform: inst.platform,
+      displayName: inst.displayName || inst.platform,
+      hasPublish: typeof inst.publish === "function",
+      hasPublishViaApi: typeof inst.publishViaApi === "function",
+      hasOnLoad: typeof inst.onLoad === "function",
+      hasOnEnable: typeof inst.onEnable === "function",
+      hasOnDisable: typeof inst.onDisable === "function",
+      hasOnUnload: typeof inst.onUnload === "function",
+      manifest: m,
+      isLegacy: this._legacy.has(platform),
+    };
   }
 
-  /** 获取所有已加载插件 */
   getAll() {
     const result = {};
-    for (const [platform, instance] of this._plugins) {
+    for (const [platform] of this._plugins) {
+      const info = this.getPluginInfo(platform);
       result[platform] = {
-        platform: instance.platform,
-        displayName: instance.displayName || instance.platform,
-        hasPublish: typeof instance.publish === "function",
-        hasPublishViaApi: typeof instance.publishViaApi === "function",
+        platform: info.platform, displayName: info.displayName,
+        hasPublish: info.hasPublish, hasPublishViaApi: info.hasPublishViaApi,
+        manifestVersion: info.manifest ? info.manifest.version : null,
+        isLegacy: info.isLegacy,
       };
     }
     return result;
   }
 
-  /** 获取加载错误 */
-  getErrors() {
-    return [...this._errors];
-  }
-
-  /** 插件数量 */
+  getErrors() { return [...this._errors]; }
   get count() { return this._plugins.size; }
 }
 

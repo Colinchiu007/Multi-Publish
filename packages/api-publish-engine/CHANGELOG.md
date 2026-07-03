@@ -1,3 +1,24 @@
+## [1.1.0] — 2026-07-03
+
+### Added
+- **Plugin Level 2A — manifest.json standardization**:
+  - manifest.json auto-discovery (dir plugin or single-file plugin)
+  - Required fields: name, version
+  - Optional: minAppVersion, author, entry, permissions
+  - Version compatibility check (minAppVersion <= appVersion)
+  - Backward compatible: no-manifest plugins marked as [legacy]
+- **PluginLoader new API**:
+  - setAppVersion(version) — set app version for manifest checks
+  - getPluginInfo(platform) — returns full metadata including manifest
+- **Lifecycle hooks (Level 2 foundation)**:
+  - onLoad(ctx) — called automatically on plugin load
+  - onEnable/onDisable/onUnload — framework ready for Level 2B
+
+### Testing
+- plugin-manifest.test.js: 11 test cases (39 assertions) all passed
+- Backward compat: existing plugin-loader + integration tests all passed
+
+
 # Changelog
 
 ## [1.0.0] — 2026-07-03
