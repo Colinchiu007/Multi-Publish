@@ -39,3 +39,6 @@ apps/desktop/tests/electron-gui-test.js
 apps/desktop/tests/screenshot-home.png
 
 .codex/
+
+# 质量节拍 skill 文件（不受 .codex/ 忽略规则影响）
+!.codex/skills/质量节拍/
