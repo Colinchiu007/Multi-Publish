@@ -108,7 +108,6 @@
 
 <script setup>
 import UiModal from "../components/UiModal.vue";
-import UiButton from "../components/UiButton.vue";
 import UiSelect from "../components/UiSelect.vue";
 import UiButton from "@/components/UiButton.vue";
 import { ref, computed, onMounted, onUnmounted } from 'vue'
