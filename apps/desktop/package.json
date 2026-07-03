@@ -27,7 +27,6 @@
     "@vueup/vue-quill": "^1.5.3",
     "axios": "^1.9.0",
     "electron-updater": "^6.8.9",
-    "element-plus": "^2.9.0",
     "form-data": "^4.0.0",
     "fuse.js": "^7.4.2",
     "pinia": "^2.3.0",
