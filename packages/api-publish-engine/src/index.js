@@ -8,6 +8,9 @@ const WechatMpAdapter = require("./adapters/wechat_mp");
 const BilibiliAdapter = require("./adapters/bilibili");
 const WeiboAdapter = require("./adapters/weibo");
 const ToutiaoAdapter = require("./adapters/toutiao");
+const AiqiyiAdapter = require("./adapters/aiqiyi");
+const DayuAdapter = require("./adapters/dayu");
+const QiehaoAdapter = require("./adapters/qiehao");
 
 const REGISTRY = {
   zhihu: ZhihuAdapter,
@@ -20,6 +23,9 @@ const REGISTRY = {
   bilibili: BilibiliAdapter,
   weibo: WeiboAdapter,
   toutiao: ToutiaoAdapter,
+  aiqiyi: AiqiyiAdapter,
+  dayu: DayuAdapter,
+  qiehao: QiehaoAdapter,
 };
 
 function getAdapter(platform) {
