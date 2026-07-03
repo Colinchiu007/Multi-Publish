@@ -88,4 +88,5 @@ const { WebhookManager } = require("./webhook-manager");
 const { AuditLog } = require("./audit-log");
 const { PublishingPlan } = require("./publish-plan");
 const { RateLimiter } = require("./rate-limiter");
-module.exports = { getAdapter, supportsApi, publishViaApi, batchPublish, REGISTRY, ScheduledPublish, WebhookManager, AuditLog, PublishingPlan, RateLimiter };
+const { AccessLogger } = require("./access-log");
+module.exports = { getAdapter, supportsApi, publishViaApi, batchPublish, REGISTRY, ScheduledPublish, WebhookManager, AuditLog, PublishingPlan, RateLimiter, AccessLogger };
