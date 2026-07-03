@@ -1,10 +1,45 @@
 {
   "name": "@multi-publish/api-publish-engine",
-  "version": "0.1.0",
-  "description": "API-based publishing engine (replaces RPA browser automation)",
+  "version": "1.0.0",
+  "description": "Multi-platform publish HTTP API — 零依赖发布引擎，支持 29+ 平台",
   "main": "src/index.js",
   "bin": {
     "publish-api": "bin/publish-api"
+  },
+  "files": [
+    "src/",
+    "bin/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node test/*.test.js",
+    "start": "node bin/publish-api",
+    "prepublishOnly": "node -e \"require('./test/config-loader.test.js'); require('./test/publish-api-client.test.js')\""
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Colinchiu007/Multi-Publish.git",
+    "directory": "packages/api-publish-engine"
+  },
+  "keywords": [
+    "publish",
+    "multiplatform",
+    "api",
+    "content-publishing",
+    "social-media",
+    "rpa"
+  ],
+  "bugs": {
+    "url": "https://github.com/Colinchiu007/Multi-Publish/issues"
+  },
+  "homepage": "https://github.com/Colinchiu007/Multi-Publish/tree/main/packages/api-publish-engine",
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "axios": "^1.6.0"
