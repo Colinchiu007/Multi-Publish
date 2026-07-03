@@ -1,5 +1,5 @@
 /**
- * PluginLoader — 本地文件插件加载器 (Level 2A: manifest 标准化)
+ * PluginLoader — 本地文件插件加载器 (Level 2B: 动态 enable/disable/reload)
  *
  * Plugin API:
  *   class MyPlugin {
@@ -17,6 +17,7 @@
  * manifest.json:
  *   name, version (required), minAppVersion, author, entry, permissions
  */
+
 const fs = require("fs");
 const path = require("path");
 
@@ -26,6 +27,8 @@ class PluginLoader {
     this._plugins = new Map();
     this._manifests = new Map();
     this._legacy = new Set();
+    this._disabled = new Set();
+    this._pluginDirs = new Map();
     this._errors = [];
     this._appVersion = "1.8.0";
   }
@@ -38,6 +41,8 @@ class PluginLoader {
     this._plugins.clear();
     this._manifests.clear();
     this._legacy.clear();
+    this._disabled.clear();
+    this._pluginDirs.clear();
     this._errors = [];
 
     if (!fs.existsSync(this._pluginsDir)) {
@@ -125,7 +130,9 @@ class PluginLoader {
     if (this._plugins.has(instance.platform))
       throw new Error("Duplicate platform " + instance.platform);
     this._plugins.set(instance.platform, instance);
+    this._disabled.delete(instance.platform);
     this._manifests.set(instance.platform, manifest);
+    this._pluginDirs.set(instance.platform, filepath);
     if (!manifest) this._legacy.add(instance.platform);
     if (typeof instance.onLoad === "function")
       instance.onLoad({ config: {}, appVersion: this._appVersion }).catch(function() {});
@@ -135,39 +142,122 @@ class PluginLoader {
   get(platform) { return this._plugins.get(platform) || null; }
 
   getPluginInfo(platform) {
-    if (!this._plugins.has(platform)) return null;
+    if (!this._plugins.has(platform) && !this._disabled.has(platform)) return null;
     const inst = this._plugins.get(platform);
     const m = this._manifests.get(platform);
     return {
-      platform: inst.platform,
-      displayName: inst.displayName || inst.platform,
-      hasPublish: typeof inst.publish === "function",
-      hasPublishViaApi: typeof inst.publishViaApi === "function",
-      hasOnLoad: typeof inst.onLoad === "function",
-      hasOnEnable: typeof inst.onEnable === "function",
-      hasOnDisable: typeof inst.onDisable === "function",
-      hasOnUnload: typeof inst.onUnload === "function",
+      platform: inst ? inst.platform : platform,
+      displayName: inst ? (inst.displayName || inst.platform) : platform,
+      hasPublish: inst ? typeof inst.publish === "function" : false,
+      hasPublishViaApi: inst ? typeof inst.publishViaApi === "function" : false,
+      hasOnLoad: inst ? typeof inst.onLoad === "function" : false,
+      hasOnEnable: inst ? typeof inst.onEnable === "function" : false,
+      hasOnDisable: inst ? typeof inst.onDisable === "function" : false,
+      hasOnUnload: inst ? typeof inst.onUnload === "function" : false,
       manifest: m,
       isLegacy: this._legacy.has(platform),
+      isEnabled: !this._disabled.has(platform),
     };
   }
 
   getAll() {
     const result = {};
-    for (const [platform] of this._plugins) {
+    const addPlatform = (platform) => {
       const info = this.getPluginInfo(platform);
-      result[platform] = {
-        platform: info.platform, displayName: info.displayName,
-        hasPublish: info.hasPublish, hasPublishViaApi: info.hasPublishViaApi,
-        manifestVersion: info.manifest ? info.manifest.version : null,
-        isLegacy: info.isLegacy,
-      };
-    }
+      if (info) {
+        result[platform] = {
+          platform: info.platform,
+          displayName: info.displayName,
+          hasPublish: info.hasPublish,
+          hasPublishViaApi: info.hasPublishViaApi,
+          manifestVersion: info.manifest ? info.manifest.version : null,
+          isLegacy: info.isLegacy,
+          isEnabled: info.isEnabled,
+        };
+      }
+    };
+    for (const [platform] of this._plugins) addPlatform(platform);
+    for (const platform of this._disabled) addPlatform(platform);
     return result;
   }
 
   getErrors() { return [...this._errors]; }
-  get count() { return this._plugins.size; }
+  get count() { return this._plugins.size + this._disabled.size; }
+
+  isEnabled(platform) {
+    if (!this._plugins.has(platform) && !this._disabled.has(platform)) return null;
+    return !this._disabled.has(platform);
+  }
+
+  disable(platform) {
+    if (!this._plugins.has(platform) && !this._disabled.has(platform))
+      throw new Error("Unknown platform: " + platform);
+    if (this._disabled.has(platform)) return;
+    const inst = this._plugins.get(platform);
+    this._disabled.add(platform);
+    this._plugins.delete(platform);
+    if (inst && typeof inst.onDisable === "function")
+      inst.onDisable({ appVersion: this._appVersion }).catch(function() {});
+  }
+
+  enable(platform) {
+    if (!this._plugins.has(platform) && !this._disabled.has(platform))
+      throw new Error("Unknown platform: " + platform);
+    if (!this._disabled.has(platform)) return;
+    this._disabled.delete(platform);
+    const filepath = this._pluginDirs.get(platform);
+    if (filepath && fs.existsSync(filepath)) {
+      const manifest = this._findManifest(filepath);
+      const PluginClass = require(filepath);
+      let Klass = PluginClass;
+      if (typeof Klass !== "function") {
+        for (const key of Object.keys(Klass)) {
+          if (typeof Klass[key] === "function" && Klass[key].prototype && Klass[key].prototype.platform !== undefined) {
+            Klass = Klass[key]; break;
+          }
+        }
+      }
+      if (typeof Klass === "function") {
+        const instance = new Klass();
+        this._plugins.set(instance.platform, instance);
+        this._manifests.set(instance.platform, manifest);
+        this._pluginDirs.set(instance.platform, filepath);
+        if (typeof instance.onEnable === "function")
+          instance.onEnable({ appVersion: this._appVersion }).catch(function() {});
+        console.log("[PluginLoader] Re-enabled: " + instance.platform);
+      }
+    }
+  }
+
+  reload(platform) {
+    if (!this._plugins.has(platform) && !this._disabled.has(platform))
+      throw new Error("Unknown platform: " + platform);
+    const filepath = this._pluginDirs.get(platform);
+    if (!filepath) throw new Error("Cannot reload: filepath not tracked");
+    const resolved = require.resolve(filepath);
+    delete require.cache[resolved];
+    this._plugins.delete(platform);
+    this._manifests.delete(platform);
+    this._legacy.delete(platform);
+    this._disabled.delete(platform);
+    this._loadFile(filepath);
+  }
+
+  getEnabled() {
+    const result = {};
+    for (const [platform] of this._plugins) {
+      result[platform] = this.getPluginInfo(platform);
+    }
+    return result;
+  }
+
+  getDisabled() {
+    const result = {};
+    for (const platform of this._disabled) {
+      result[platform] = this.getPluginInfo(platform);
+    }
+    return result;
+  }
 }
 
 module.exports = PluginLoader;
