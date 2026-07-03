@@ -1,4 +1,5 @@
 const http = require("http");
+const zlib = require("zlib");
 const { getAdapter, supportsApi, publishViaApi, batchPublish } = require("./index");
 const { ScheduledPublish } = require("./scheduled-publish");
 const { WebhookManager } = require("./webhook-manager");
@@ -96,6 +97,7 @@ class PublishApiServer {
   }
 
   async _handle(req, res) {
+    this._currentReq = req;
     var url = req.url || "/";
     var method = req.method || "GET";
     var _startTime = Date.now();
