@@ -197,7 +197,7 @@ class PluginLoader {
     this._disabled.add(platform);
     this._plugins.delete(platform);
     if (inst && typeof inst.onDisable === "function")
-      inst.onDisable({ appVersion: this._appVersion }).catch(function() {});
+      try { inst.onDisable({ appVersion: this._appVersion }).catch(function() {}); } catch(e) {}
   }
 
   enable(platform) {
@@ -223,7 +223,7 @@ class PluginLoader {
         this._manifests.set(instance.platform, manifest);
         this._pluginDirs.set(instance.platform, filepath);
         if (typeof instance.onEnable === "function")
-          instance.onEnable({ appVersion: this._appVersion }).catch(function() {});
+          try { instance.onEnable({ appVersion: this._appVersion }).catch(function() {}); } catch(e) {}
         console.log("[PluginLoader] Re-enabled: " + instance.platform);
       }
     }
@@ -258,6 +258,45 @@ class PluginLoader {
     }
     return result;
   }
+  /** Get config for a plugin (or all configs if no platform specified) */
+  getConfig(platform) {
+    if (arguments.length === 0) {
+      // Return all configs
+      const result = {};
+      for (const [p] of this._plugins) {
+        const cfg = this.getConfig(p);
+        if (cfg) result[p] = cfg;
+      }
+      for (const p of this._disabled) {
+        if (!result[p]) {
+          const cfg = this.getConfig(p);
+          if (cfg) result[p] = cfg;
+        }
+      }
+      return result;
+    }
+    const dir = this._pluginDirs.get(platform);
+    if (!dir) return null;
+    const cfgPath = path.join(path.dirname(dir), "plugin.config.json");
+    try {
+      if (fs.existsSync(cfgPath)) {
+        return JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  /** Set config for a plugin */
+  setConfig(platform, config) {
+    if (!this._pluginDirs.has(platform) && !this._disabled.has(platform)) {
+      throw new Error("Unknown platform: " + platform);
+    }
+    const dir = this._pluginDirs.get(platform);
+    if (!dir) throw new Error("Platform filepath not found: " + platform);
+    const cfgPath = path.join(path.dirname(dir), "plugin.config.json");
+    fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2), "utf-8");
+  }
+
 }
 
 module.exports = PluginLoader;
