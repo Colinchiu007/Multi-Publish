@@ -39,10 +39,10 @@
           <div style="display:flex;align-items:flex-end;gap:var(--space-sm)">
             <UiButton @click="doAnalyze" :disabled="!topic.trim() || loading">
               📊 爆款分析
-            </button>
+            </UiButton>
             <UiButton @click="doGenerate" :disabled="!topic.trim() || loading" style="background:var(--coral);border-color:var(--coral)">
               ✨ 生成文案
-            </button>
+            </UiButton>
           </div>
         </div>
 

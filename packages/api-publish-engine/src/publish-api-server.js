@@ -1,6 +1,6 @@
 const http = require("http");
 const zlib = require("zlib");
-const { getAdapter, supportsApi, publishViaApi, batchPublish } = require("./index");
+const { getAdapter, supportsApi, publishViaApi, batchPublish, reloadPlugins, pluginLoader } = require("./index");
 const { ScheduledPublish } = require("./scheduled-publish");
 const { WebhookManager } = require("./webhook-manager");
 const { AuditLog } = require("./audit-log");
@@ -161,10 +161,39 @@ class PublishApiServer {
 
       // --- Health ---
       if (method === "GET" && url === "/api/v1/health") {
-        this._json(res, 200, { status: "ok", version: "1.0.0" });
+        this._json(res, 200, { status: "ok", version: "1.0.0", platforms: Object.keys(require("./index").REGISTRY).length });
         return;
       }
 
+      // --- Key Management ---
+      if (url === "/api/v1/keys") {
+        if (method === "GET") {
+          var includeRevoked = req.url.indexOf("?revoked=true") !== -1;
+          this._keyManager.load();
+          this._json(res, 200, { keys: this._keyManager.listKeys(includeRevoked), count: this._keyManager.listKeys(includeRevoked).length });
+          return;
+        }
+        if (method === "POST") {
+          var b = await this._parseBody(req);
+          if (!b || !b.name) { this._json(res, 400, { error: "name is required" }); return; }
+          try {
+            var k = this._keyManager.createKey(b.name, b.scopes);
+            this._json(res, 200, { success: true, key: k.key, name: k.name, scopes: k.scopes, createdAt: k.createdAt });
+          } catch(e) {
+            this._json(res, 400, { error: e.message });
+          }
+          return;
+        }
+      }
+      if (method === "POST" && url === "/api/v1/keys/revoke") {
+        var b = await this._parseBody(req);
+        if (!b || !b.key) { this._json(res, 400, { error: "key is required" }); return; }
+        this._keyManager.load();
+        var ok = this._keyManager.revokeKey(b.key);
+        if (!ok) { this._json(res, 404, { error: "Key not found" }); return; }
+        this._json(res, 200, { success: true });
+        return;
+      }
       // --- Publish ---
       if (method === "POST" && url === "/api/v1/publish") {
         var body = await this._parseBody(req);
@@ -332,6 +361,66 @@ class PublishApiServer {
         return;
       }
 
+      // --- Plugin Management ---
+      if (url === "/api/v1/plugins") {
+        if (method === "GET") {
+          var plugins = [];
+          try {
+            var all = pluginLoader.listAll ? pluginLoader.listAll() : [];
+            for (var i = 0; i < all.length; i++) {
+              var p = all[i];
+              plugins.push({
+                platform: p.platform || p.name,
+                name: p.displayName || p.platform || p.name,
+                enabled: pluginLoader.isEnabled ? pluginLoader.isEnabled(p.platform || p.name) : true,
+                version: p.version || (p.manifest && p.manifest.version) || "unknown"
+              });
+            }
+          } catch(e) { /* empty */ }
+          this._json(res, 200, { plugins: plugins, count: plugins.length });
+          return;
+        }
+      }
+      if (method === "POST" && url === "/api/v1/plugins/reload") {
+        try {
+          reloadPlugins();
+          this._json(res, 200, { success: true, reloaded: true, timestamp: new Date().toISOString() });
+        } catch(e) {
+          this._json(res, 500, { success: false, error: e.message });
+        }
+        return;
+      }
+
+      // --- Plugin Management ---
+      if (url === "/api/v1/plugins") {
+        if (method === "GET") {
+          var plugins = [];
+          try {
+            var all = pluginLoader.listAll ? pluginLoader.listAll() : [];
+            for (var i = 0; i < all.length; i++) {
+              var p = all[i];
+              plugins.push({
+                platform: p.platform || p.name,
+                name: p.displayName || p.platform || p.name,
+                enabled: pluginLoader.isEnabled ? pluginLoader.isEnabled(p.platform || p.name) : true,
+                version: p.version || (p.manifest && p.manifest.version) || "unknown"
+              });
+            }
+          } catch(e) { /* empty */ }
+          this._json(res, 200, { plugins: plugins, count: plugins.length });
+          return;
+        }
+      }
+      if (method === "POST" && url === "/api/v1/plugins/reload") {
+        try {
+          reloadPlugins();
+          this._json(res, 200, { success: true, reloaded: true, timestamp: new Date().toISOString() });
+        } catch(e) {
+          this._json(res, 500, { success: false, error: e.message });
+        }
+        return;
+      }
+
       // --- API Docs ---
       if (method === "GET" && url === "/api/v1/docs") {
         var html = `<!DOCTYPE html>
@@ -397,7 +486,22 @@ p{color:#6e6e73}
           "/api/v1/access-log": { get: { summary: "Access 日志配置" } },
           "/api/v1/webhook/remove": { post: { summary: "删除 webhook", requestBody: { content: { "application/json": { schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } } }, responses: { "200": { description: "删除结果" } } } }
         };
-        spec.paths = pathItems;
+        var openApiPaths = Object.assign({}, pathItems, {
+          "/api/v1/keys": {
+            get: { summary: "List API keys", responses: { "200": { description: "Key list" } }, security: [{ bearerAuth: [] }] },
+            post: { summary: "Create API key", requestBody: { content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" }, scopes: { type: "array", items: { type: "string" } } }, required: ["name"] } } } }, responses: { "200": { description: "Created key" } }, security: [{ bearerAuth: [] }] }
+          },
+          "/api/v1/keys/revoke": {
+            post: { summary: "Revoke API key", requestBody: { content: { "application/json": { schema: { type: "object", properties: { key: { type: "string" } }, required: ["key"] } } } }, responses: { "200": { description: "Revoked" } }, security: [{ bearerAuth: [] }] }
+          },
+          "/api/v1/plugins": {
+            get: { summary: "List plugins", responses: { "200": { description: "Plugin list" } } }
+          },
+          "/api/v1/plugins/reload": {
+            post: { summary: "Reload plugins", responses: { "200": { description: "Reloaded" } } }
+          }
+        });
+        spec.paths = openApiPaths;
         this._json(res, 200, spec);
         return;
       }

@@ -1,25 +1,25 @@
-# PublishApiServer ? ???????
-# ??: docker build -t publish-api-server -f packages/api-publish-engine/Dockerfile .
-# ??: docker run -p 3000:3000 -e API_KEY=xxx publish-api-server
+# syntax = docker/dockerfile:1.4
+FROM node:22-alpine AS base
 
-FROM node:22-alpine AS build
+FROM base AS deps
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
+COPY package.json package-lock.json* ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --only=production --ignore-scripts
 
-FROM node:22-alpine
+FROM base AS runner
 WORKDIR /app
-RUN apk add --no-cache tini ca-certificates
-COPY --from=build /app/node_modules ./node_modules
-COPY packages/api-publish-engine ./packages/api-publish-engine
-COPY config ./config
-
+RUN addgroup --system --gid 1001 publishapi && \
+    adduser --system --uid 1001 publishapi
+COPY --from=deps --chown=publishapi:publishapi /app/node_modules ./node_modules
+COPY --chown=publishapi:publishapi ./src ./src
+COPY --chown=publishapi:publishapi ./bin ./bin
+COPY --chown=publishapi:publishapi package.json .
+USER publishapi
 EXPOSE 3000
-ENV NODE_ENV=production
 ENV PORT=3000
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:3000/api/v1/health || exit 1
-
-ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["node", "packages/api-publish-engine/bin/publish-api", "--port", "3000"]
+ENV NODE_ENV=production
+ENV DRY_RUN=false
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/api/v1/health || exit 1
+ENTRYPOINT ["node", "bin/publish-api"]
