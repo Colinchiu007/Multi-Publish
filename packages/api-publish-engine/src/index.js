@@ -30,9 +30,17 @@ const REGISTRY = {
   duoduo: require("./adapters/duoduo"),
 };
 
+const { formatContent } = require("./content-formatter");
+
 function getAdapter(p) { var C = REGISTRY[p]; return C ? new C() : null; }
 function supportsApi(p) { return !!REGISTRY[p]; }
 
+async function formatAndPublishViaApi(platform, taskData, cookie, opts) {
+  var formatted = formatContent(taskData, platform);
+  return publishViaApi(platform, formatted, cookie, opts);
+}
+
+// Format content for platform then publish
 async function publishViaApi(platform, taskData, cookie, opts) {
   var adapter = getAdapter(platform);
   if (!adapter) throw new Error("No API adapter for platform: " + platform);
