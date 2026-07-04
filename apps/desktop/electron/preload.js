@@ -239,6 +239,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       paymentSimulate: (orderId) => ipcRenderer.invoke('payment:simulate', { orderId }),
       paymentCancel: (orderId) => ipcRenderer.invoke('payment:cancel', orderId),
 
+
       onNavigate: (cb) => {
         const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
       },
