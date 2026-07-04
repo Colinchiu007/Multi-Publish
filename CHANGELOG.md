@@ -16,6 +16,7 @@
 - **preload.js**: 暴露 payment* 系列 API
 - **测试**: 17 单元测试全部通过 (PaymentManager 15 + IPC 2)
 
+
 ### Added — P1 离线模式 (OfflineManager)
 - **OfflineManager 模块**: 网络状态检测 (electron.net online/offline)
   - 自动缓存发布任务到 userData/offline-publish-cache.json

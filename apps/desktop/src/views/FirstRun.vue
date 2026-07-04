@@ -1,5 +1,6 @@
 <template>
-  <div class="cohere-content" style="display:flex;align-items:center;justify-content:center">
+  <div v-if="showNotification" :style="{position:'fixed',top:'20px',right:'20px',zIndex:9999,padding:'12px 24px',borderRadius:'8px',color:'#fff',fontSize:'14px',boxShadow:'0 4px 12px rgba(0,0,0,0.15)',background:notificationType==='success'?'#34d399':'#f87171'}">{{ notificationMsg }}</div>
+<div class="cohere-content" style="display:flex;align-items:center;justify-content:center">
     <div style="max-width:600px;width:100%;margin:40px auto">
       <div class="cohere-card" style="cursor:default;padding:var(--space-xxl)">
 
@@ -142,7 +143,17 @@
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { ElMessage } from 'element-plus'
+// 简单通知
+const notificationMsg = ref('')
+const notificationType = ref('success')
+const showNotification = ref(false)
+
+function notify(msg, type = 'success') {
+  notificationMsg.value = msg
+  notificationType.value = type
+  showNotification.value = true
+  setTimeout(() => { showNotification.value = false }, 3000)
+}
 import { onFirstRunStatus, firstRunCheck } from '@/api/publisher'
 
 const currentStep = ref(0)
@@ -206,14 +217,14 @@ async function addAccount (platform) {
     const api = window.electronAPI
     if (api?.authOpenLogin) {
       const res = await api.authOpenLogin(platform)
-      if (res.code !== 0) ElMessage.error(res.message || '添加失败')
-      else ElMessage.success('账号添加成功，继续添加或进入下一步')
+      if (res.code !== 0) window.alert(res.message || '添加失败')
+      else window.alert('账号添加成功，继续添加或进入下一步')
     } else {
       const res = await api.accountAdd(platform)
-      if (res.code !== 0) ElMessage.error(res.message || '添加失败')
-      else ElMessage.success('请在弹出的浏览器窗口中完成登录')
+      if (res.code !== 0) window.alert(res.message || '添加失败')
+      else window.alert('请在弹出的浏览器窗口中完成登录')
     }
-  } catch (e) { ElMessage.error(e.message) }
+  } catch (e) { window.alert(e.message) }
   finally { addingPlatform.value = '' }
 }
 
