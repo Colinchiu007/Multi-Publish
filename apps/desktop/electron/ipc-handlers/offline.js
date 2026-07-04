@@ -3,18 +3,16 @@
  */
 function registerHandlers(ipcMain, deps) {
 
-  var EC = require('../error-codes').ERROR
+  let EC = require('../error-codes').ERROR
 
 
-  var offlineManager = require("../offline-manager")
+  let offlineManager = require("../offline-manager")
 
   ipcMain.handle("offline:status", async function() {
     try {
       return { code: 0, data: offlineManager.getStatus() }
 
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-
-    } catch (e) { return { code: -1, message: e.message } }
 
   })
 
@@ -37,8 +35,6 @@ function registerHandlers(ipcMain, deps) {
 
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
 
-    } catch (e) { return { code: -1, message: e.message } }
-
   })
 
   ipcMain.handle("offline:clear-cache", async function() {
@@ -47,8 +43,6 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, message: "已清理" }
 
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-
-    } catch (e) { return { code: -1, message: e.message } }
 
   })
 }
