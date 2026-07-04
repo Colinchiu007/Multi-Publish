@@ -1,0 +1,19 @@
+{ 
+  "name": "@multi-publish/ai-writer",
+  "version": "1.0.0",
+  "description": "AI 辅助写作模块 - 标题生成/摘要/内容润色，支持 CLI",
+  "main": "src/index.js",
+  "bin": { "ai-writer": "src/cli.js" },
+  "files": ["src/", "README.md"],
+  "scripts": {
+    "test": "jest --config jest.config.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "keywords": ["ai", "writing", "llm", "openai"],
+  "license": "MIT"
+}

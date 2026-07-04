@@ -1,5 +1,10 @@
 <template>
   <div>
+    <!-- 离线提示 -->
+    <div v-if="isOffline" class="offline-banner">
+      <span>📡 网络已断开 — 发布任务将被缓存，网络恢复后自动重试</span>
+      <span v-if="cachedTaskCount > 0" style="margin-left:8px;font-weight:600">({{ cachedTaskCount }} 个待发布)</span>
+    </div>
     <!-- 顶部导航 -->
     <nav class="cohere-topnav">
       <div class="brand">
@@ -154,6 +159,8 @@ const authViewVisible = ref(false)
 const showUpgradeModal = ref(false)
 const dismissBanner = ref(false)
 const licenseStore = useLicenseStore()
+const isOffline = ref(false)
+const cachedTaskCount = ref(0)
 
 function closeLogin () {
   const api = window.electronAPI
@@ -165,6 +172,22 @@ function closeLogin () {
 onMounted(() => {
   licenseStore.load()
   const api = window.electronAPI
+  if (api) {
+    if (api.offlineStatus) {
+      api.offlineStatus().then(function(res) {
+        if (res && res.code === 0) {
+          isOffline.value = res.data.offline
+          cachedTaskCount.value = res.data.cachedCount
+        }
+      })
+    }
+    if (api.onOfflineRestored) {
+      api.onOfflineRestored(function(data) {
+        isOffline.value = false
+        cachedTaskCount.value = data.cachedCount || 0
+      })
+    }
+  }
   if (api && api.onAuthViewOpened) {
     api.onAuthViewOpened(() => { authViewVisible.value = true })
   }
@@ -364,6 +387,23 @@ html, body { height: 100%; }
 .update-speed {
   font-size: 12px;
   color: var(--text-muted, #7c7c9a);
+}
+
+/* Offline banner */
+.offline-banner {
+  background: #fef3c7;
+  border-bottom: 1px solid #fbbf24;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: #92400e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: slideDown 0.3s ease-out;
+}
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 /* Custom progress bar (replaces el-progress) */

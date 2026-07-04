@@ -19,6 +19,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./templates')(ipcMain, deps)
   require('./license')(ipcMain, deps)
   require('./ai')(ipcMain, deps)
+  require('./offline')(ipcMain, deps)
+  require('./payment')(ipcMain, deps)
   require('./misc')(ipcMain, deps)
 }
 

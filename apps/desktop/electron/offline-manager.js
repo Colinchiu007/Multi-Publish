@@ -4,67 +4,99 @@
  * 功能：
  * 1. 检测网络状态
  * 2. 缓存发布任务
- * 3. 网络恢复后自动重试
+ * 3. 网络恢复后通知前端重试
+ * 4. 提供 IPC 接口供前端查询状态
  */
-const { app } = require('electron')
-const fs = require('fs')
-const path = require('path')
-const log = require('./logger')
 
-const OFFLINE_CACHE_FILE = 'offline-publish-cache.json'
-let _mainWin = null
-let _isOffline = false
-let _retryQueue = []
+var fs = require("fs")
+var path = require("path")
+var log = require("./logger")
 
-/**
- * 获取离线缓存路径
- */
-function getCachePath () {
-  return path.join(app.getPath('userData'), OFFLINE_CACHE_FILE)
+var OFFLINE_CACHE_FILE = "offline-publish-cache.json"
+var _isOffline = false
+var _retryQueue = []
+var _mainWin = null
+var _taskQueue = null
+
+function getCachePath() {
+  var userDataDir
+  try {
+    userDataDir = require("electron").app.getPath("userData")
+  } catch (e) {
+    userDataDir = process.env.USERPROFILE || "/tmp"
+  }
+  return path.join(userDataDir, OFFLINE_CACHE_FILE)
 }
 
-/**
- * 检查是否离线
- */
-function isOffline () {
+function getMainWindow() {
+  if (_mainWin && !_mainWin.isDestroyed()) return _mainWin
+  try {
+    var wins = require("electron").BrowserWindow.getAllWindows()
+    return wins[0] || null
+  } catch (e) {
+    return null
+  }
+}
+
+function setTaskQueue(tq) {
+  _taskQueue = tq
+}
+
+function processCachedTasks() {
+  if (!_taskQueue || _isOffline) return 0
+  var tasks = loadCache()
+  if (tasks.length === 0) return 0
+  var count = 0
+  tasks.forEach(function(task) {
+    if (task.platform && task.article) {
+      _taskQueue.add({
+        platform: task.platform,
+        article: task.article,
+        accountId: task.accountId || null,
+      })
+      count++
+    }
+  })
+  saveCache([])
+  log.info("offline", "Re-queued " + count + " cached tasks after network restored")
+  return count
+}
+
+function clearAllCached() {
+  saveCache([])
+}
+
+
+function isOffline() {
   return _isOffline
 }
 
-/**
- * 加载离线缓存
- */
-function loadCache () {
+function loadCache() {
   try {
-    const cachePath = getCachePath()
+    var cachePath = getCachePath()
     if (fs.existsSync(cachePath)) {
-      const data = fs.readFileSync(cachePath, 'utf8')
+      var data = fs.readFileSync(cachePath, "utf8")
       return JSON.parse(data)
     }
   } catch (e) {
-    log.error('offline', 'Failed to load cache:', e.message)
+    log.error("offline", "Failed to load cache: " + e.message)
   }
   return []
 }
 
-/**
- * 保存离线缓存
- */
-function saveCache (tasks) {
+function saveCache(tasks) {
   try {
-    const cachePath = getCachePath()
+    var cachePath = getCachePath()
     fs.writeFileSync(cachePath, JSON.stringify(tasks, null, 2))
     return true
   } catch (e) {
-    log.error('offline', 'Failed to save cache:', e.message)
+    log.error("offline", "Failed to save cache: " + e.message)
     return false
   }
 }
 
-/**
- * 添加任务到离线缓存
- */
-function addToCache (task) {
-  const tasks = loadCache()
+function addToCache(task) {
+  var tasks = loadCache()
   tasks.push({
     ...task,
     cachedAt: new Date().toISOString(),
@@ -72,67 +104,68 @@ function addToCache (task) {
   return saveCache(tasks)
 }
 
-/**
- * 清除已成功的任务
- */
-function clearSuccessfulTasks () {
-  const tasks = loadCache()
-  const pending = tasks.filter(t => !t.success)
+function clearSuccessfulTasks() {
+  var tasks = loadCache()
+  var pending = tasks.filter(function(t) { return !t.success })
   saveCache(pending)
   return pending
 }
 
-/**
- * 网络状态变化时调用
- */
-function onNetworkChange (isOffline) {
-  const wasOffline = _isOffline
+function onNetworkChange(isOffline) {
+  var wasOffline = _isOffline
   _isOffline = isOffline
-
   if (wasOffline && !isOffline) {
-    // 从离线恢复到在线
-    log.info('offline', 'Network restored, processing cached tasks')
-    retryCachedTasks()
+    log.info("offline", "Network restored, processing cached tasks")
+    processCachedTasks()
+    notifyFrontend()
   }
 }
 
-/**
- * 重试缓存的任务
- */
-async function retryCachedTasks () {
-  const tasks = loadCache()
-  if (tasks.length === 0) return
-
-  const win = BrowserWindow.getAllWindows()[0]
-  if (win && !win.isDestroyed()) {
-    win.webContents.send('offline:retry', {
-      count: tasks.length,
-      tasks: tasks,
-    })
+function notifyFrontend() {
+  var win = getMainWindow()
+  if (win) {
+    try {
+      win.webContents.send("offline:restored", {
+        cachedCount: loadCache().length,
+      })
+    } catch (e) {
+      log.warn("offline", "Failed to notify frontend: " + e.message)
+    }
   }
 }
 
-/**
- * 启动离线模式监控
- */
-function startMonitoring (mainWin) {
+function startMonitoring(mainWin) {
   _mainWin = mainWin
+  try {
+    var net = require("electron").net
+    if (net && typeof net.on === "function") {
+      net.on("online", function() { onNetworkChange(false) })
+      net.on("offline", function() { onNetworkChange(true) })
+    }
+    _isOffline = (typeof net.isConnected === "function") ? !net.isConnected() : false
+  } catch (e) {
+    _isOffline = false
+  }
+}
 
-  // 监听网络状态变化
-  const { net } = require('electron')
-  net.on('online', () => onNetworkChange(false))
-  net.on('offline', () => onNetworkChange(true))
-
-  // 初始状态
-  _isOffline = !net.isConnected()
+function getStatus() {
+  return {
+    offline: _isOffline,
+    cachedCount: loadCache().length,
+    cachedTasks: loadCache(),
+  }
 }
 
 module.exports = {
-  isOffline,
-  loadCache,
-  saveCache,
-  addToCache,
-  clearSuccessfulTasks,
-  onNetworkChange,
-  startMonitoring,
+  isOffline: isOffline,
+  loadCache: loadCache,
+  saveCache: saveCache,
+  addToCache: addToCache,
+  clearSuccessfulTasks: clearSuccessfulTasks,
+  clearAllCached: clearAllCached,
+  onNetworkChange: onNetworkChange,
+  startMonitoring: startMonitoring,
+  getStatus: getStatus,
+  setTaskQueue: setTaskQueue,
+  processCachedTasks: processCachedTasks,
 }
