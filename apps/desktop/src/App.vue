@@ -27,6 +27,9 @@
       <router-link to="/create" class="nav-item" :class="{ active: route.path === '/create' }">
         视频创作
       </router-link>
+      <router-link to="/calendar" class="nav-item" :class="{ active: route.path === '/calendar' }">
+        发布日历
+      </router-link>
       <div class="nav-spacer"></div>
       <div class="nav-right">
         <button v-if="authViewVisible" @click="closeLogin" class="btn-ghost-close">✕ 关闭登录</button>
