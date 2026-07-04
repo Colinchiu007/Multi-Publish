@@ -115,7 +115,7 @@ describe('UpgradeModal comprehensive', () => {
 });
 
 // Import mocked modules for per-test control
-import { paymentCreateOrder, paymentSimulate } from '@/api/publisher';
+import { paymentCreateOrder, paymentSimulate, paymentCancel } from '@/api/publisher';
 
 describe('UpgradeModal payment flow', () => {
   beforeEach(() => {
@@ -211,5 +211,114 @@ describe('UpgradeModal activation flow', () => {
     mockStore.deactivate.mockResolvedValue();
     const w = mount(UpgradeModal);
     var deactBtns = w.findAll('button').filter(function(b) { return b.text().includes("注销许可证"); });
+  });
+});
+
+// Additional coverage: simulatePayment failure paths
+describe('UpgradeModal simulation coverage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.activate.mockResolvedValue(false);
+    mockStore.activateTrial.mockResolvedValue(false);
+  });
+
+  it('simulatePayment fails when API returns error code', async () => {
+    paymentSimulate.mockResolvedValue({ code: 1, message: "支付失败" });
+    const w = mount(UpgradeModal);
+    await w.find('.upgrade-btn').trigger('click');
+    await w.vm.$nextTick();
+    // Start paying step
+    w.vm.$.setupState.paymentStep = 'paying';
+    w.vm.$.setupState.orderId = 'order-123';
+    await w.vm.$nextTick();
+    // Click simulate payment button
+    var simBtns = w.findAll('button').filter(function(b) { return b.text().includes("模拟支付"); });
+    if (simBtns.length > 0) {
+      await simBtns[0].trigger('click');
+    }
+    await w.vm.$nextTick();
+    expect(w.text()).toMatch(/失败|支付失败/);
+  });
+
+  it('simulatePayment fails with network error', async () => {
+    paymentSimulate.mockRejectedValue(new Error('支付服务异常'));
+    const w = mount(UpgradeModal);
+    await w.find('.upgrade-btn').trigger('click');
+    w.vm.$.setupState.paymentStep = 'paying';
+    w.vm.$.setupState.orderId = 'order-123';
+    await w.vm.$nextTick();
+    var simBtns = w.findAll('button').filter(function(b) { return b.text().includes("模拟支付"); });
+    if (simBtns.length > 0) {
+      await simBtns[0].trigger('click');
+    }
+    await w.vm.$nextTick();
+    expect(w.text()).toMatch(/失败|异常/);
+  });
+
+  it('cancelOrder resets payment flow', async () => {
+    paymentCancel.mockResolvedValue({});
+    const w = mount(UpgradeModal);
+    await w.find('.upgrade-btn').trigger('click');
+    w.vm.$.setupState.paymentStep = 'paying';
+    w.vm.$.setupState.orderId = 'order-123';
+    await w.vm.$nextTick();
+    var cancelBtns = w.findAll('button').filter(function(b) { return b.text().includes("取消订单"); });
+    if (cancelBtns.length > 0) {
+      await cancelBtns[0].trigger('click');
+    }
+    await w.vm.$nextTick();
+    expect(paymentCancel).toHaveBeenCalled();
+  });
+});
+
+describe('UpgradeModal activation edge cases', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.activate.mockResolvedValue(false);
+    mockStore.activateTrial.mockResolvedValue(false);
+  });
+
+  it('doActivate fails with invalid key', async () => {
+    mockStore.activate.mockResolvedValue(false);
+    const w = mount(UpgradeModal);
+    w.vm.licenseKey = 'invalid-key';
+    await w.vm.doActivate();
+    await w.vm.$nextTick();
+    expect(mockStore.activate).toHaveBeenCalledWith('invalid-key');
+    expect(w.text()).toContain("无效");
+  });
+
+  it('doTrial fails', async () => {
+    mockStore.activateTrial.mockResolvedValue(false);
+    const w = mount(UpgradeModal);
+    await w.vm.doTrial();
+    await w.vm.$nextTick();
+    expect(mockStore.activateTrial).toHaveBeenCalled();
+    expect(w.text()).toContain("失败");
+  });
+
+  it('doDeactivate calls store.deactivate', async () => {
+    mockStore.deactivate.mockResolvedValue();
+    const w = mount(UpgradeModal);
+    await w.vm.doDeactivate();
+    await w.vm.$nextTick();
+    expect(mockStore.deactivate).toHaveBeenCalled();
+  });
+});
+
+describe('UpgradeModal UX actions', () => {
+  it('close button emits close event', async () => {
+    const w = mount(UpgradeModal);
+    var closeBtn = w.findAll('button').filter(function(b) { return b.text().includes("\u2715"); });
+    if (closeBtn.length > 0) {
+      await closeBtn[0].trigger('click');
+    }
+    expect(w.emitted('close')).toBeTruthy();
+  });
+
+  it('overlay click emits close event', async () => {
+    const w = mount(UpgradeModal);
+    await w.find('.upgrade-overlay').trigger('click');
+    expect(w.emitted('close')).toBeTruthy();
   });
 });

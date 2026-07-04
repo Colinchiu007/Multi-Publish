@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="upgrade-overlay" @click.self="emit('close')">
     <div class="upgrade-modal">
       <div class="modal-header">
