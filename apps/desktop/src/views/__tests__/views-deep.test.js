@@ -199,3 +199,5 @@ describe("DashboardView (deep)", () => {
     expect(w.vm.benchmarkActiveTitle).toBe("Test");
   });
 });
+
+
