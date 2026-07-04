@@ -27,6 +27,7 @@ const PublishImpactTracker = require('./publish-impact-tracker')
 const KeywordMonitor = require('./keyword-monitor')
 const ProviderManager = require('./provider-manager')
 const CloudPublisher = require('./cloud-publisher')
+const flutterSkillBridge = require('./flutter-skill-bridge')
 
 // ─── 基础设施实例 ──────────────────────────
 const authViewManager = new AuthViewManager()
@@ -232,6 +233,8 @@ app.whenReady().then(async () => {
   try { await pythonBridge.startPythonBackend() }
   catch (e) { log.error('App', 'Failed to start Python backend:', e.message) }
 
+  flutterSkillBridge.start(mainWindow)
+
   store.init()
 
   // 发布频率控制
@@ -345,6 +348,7 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', async () => {
   hotkeys.unregister()
   try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
+  flutterSkillBridge.stop()
   webviewManager.closeAll()
   rpaViewManager.cleanup()
   keywordMonitor.stopAll()
