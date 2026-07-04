@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 const { getCsdnSign, getXiaohongshuSign, buildDouyinParams, getKuaishouSign } = require("../src/signer-local");
 
 let passed = 0, failed = 0;

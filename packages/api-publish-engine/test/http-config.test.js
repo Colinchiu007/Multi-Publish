@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 const { getPlatformConfig, PLATFORM_CONFIG } = require("../upload/providers/http-config");
 const HttpProvider = require("../upload/providers/http-provider");
 

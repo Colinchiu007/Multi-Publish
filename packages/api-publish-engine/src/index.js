@@ -1,4 +1,4 @@
-﻿const REGISTRY = {
+const REGISTRY = {
   zhihu: require("./adapters/zhihu"),
   douyin: require("./adapters/douyin"),
   xiaohongshu: require("./adapters/xiaohongshu"),

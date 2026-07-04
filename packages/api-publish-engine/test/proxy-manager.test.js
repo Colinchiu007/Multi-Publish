@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 const { createProxyAgent } = require("../src/proxy-manager");
 let passed = 0, failed = 0;
 function test(n, fn) { try { fn(); passed++; } catch(e) { failed++; console.error(n + ': ' + e.message); } }

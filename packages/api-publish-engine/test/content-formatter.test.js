@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 
 // ---- TDD stubs (module may not exist yet) ----
 let formatContent, formatTags, truncateContent, truncateTitle;

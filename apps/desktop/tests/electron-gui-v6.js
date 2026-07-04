@@ -1,4 +1,4 @@
-﻿const { _electron: electron } = require("playwright");
+const { _electron: electron } = require("playwright");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");

@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 const { BasePlatformAdapter, buildHeaders, HttpConfig } = require("../src/base-adapter");
 const { formatContent } = require("../src/content-formatter");
 

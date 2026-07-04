@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 const { createProxyAgent } = require("../src/proxy-manager");
 const { TaskPool } = require("../src/task-pool");
 const { videoPublishUrls, imagePublishUrls, getPublishUrl } = require("../src/platform-entries");

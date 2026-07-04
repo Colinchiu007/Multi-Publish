@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 const CosP = require("../upload/providers/cos-provider");
 const OssP = require("../upload/providers/oss-provider");
 const HttpP = require("../upload/providers/http-provider");

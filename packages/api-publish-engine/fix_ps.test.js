@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 let content = fs.readFileSync("test/publish-api-server.test.js", "utf8");
 content = content.replace(
   /function request\(server, method, path, body\) \{\s*return new Promise\(function\(resolve, reject\) \{\s*var addr = server\.address\(\);\s*var opts = \{ hostname: '127\.0\.0\.1', port: addr\.port, path: path, method: method, headers: \{ 'Content-Type': 'application\/json' \} \};/,
