@@ -392,7 +392,7 @@ class RpaViewManager {
       if (await this._waitForElement(win,'[class*="input"], [class*="title"]',10000)) {
         try {
           await this._fillInput(win,'[class*="input"]',article.title)
-          await win.webContents.executeJavaScript('(function(){var inputs=document.querySelectorAll(\'[class*="input"],input,[contenteditable]\');for (let i=0;i<inputs.length;i++){var el=inputs[i];if(el.placeholder&&el.placeholder.indexOf("标题")!==-1){el.focus();var ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set;if(ns)ns.call(el,'+JSON.stringify(article.title)+');else el.value='+JSON.stringify(article.title)+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));break}}})()')
+          await win.webContents.executeJavaScript('(function(){let inputs=document.querySelectorAll(\'[class*="input"],input,[contenteditable]\');for (let i=0;i<inputs.length;i++){let el=inputs[i];if(el.placeholder&&el.placeholder.indexOf("标题")!==-1){el.focus();let ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set;if(ns)ns.call(el,'+JSON.stringify(article.title)+');else el.value='+JSON.stringify(article.title)+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));break}}})()')
         } catch(e) { log.warn('RpaView','douyin title: '+e.message) }
       }
     }
@@ -401,7 +401,7 @@ class RpaViewManager {
       this._emitProgress('douyin','filling desc...',65)
       try {
         let dj=JSON.stringify(article.content)
-        await win.webContents.executeJavaScript('(function(){var els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for (let i=0;i<els.length;i++){var el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){el.innerHTML='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
+        await win.webContents.executeJavaScript('(function(){let els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for (let i=0;i<els.length;i++){let el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){el.innerHTML='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
       } catch(e) { log.warn('RpaView','douyin desc: '+e.message) }
     }
 
