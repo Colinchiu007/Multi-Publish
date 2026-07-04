@@ -22,11 +22,13 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
     "@multi-publish/shared-utils": "*",
     "@vitejs/plugin-vue": "^5.2.0",
     "@vueup/vue-quill": "^1.5.3",
     "axios": "^1.9.0",
     "electron-updater": "^6.8.9",
+    "element-plus": "^2.14.2",
     "form-data": "^4.0.0",
     "fuse.js": "^7.4.2",
     "pinia": "^2.3.0",
