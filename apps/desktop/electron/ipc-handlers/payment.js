@@ -9,6 +9,7 @@
  */
 
 function registerHandlers(ipcMain, deps) {
+  var EC = require('../error-codes').ERROR
   var PaymentManager = require('../payment-manager')
   var pm = new PaymentManager()
 
