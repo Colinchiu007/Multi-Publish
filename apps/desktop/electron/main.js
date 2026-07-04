@@ -28,6 +28,7 @@ const KeywordMonitor = require('./keyword-monitor')
 const ProviderManager = require('./provider-manager')
 const CloudPublisher = require('./cloud-publisher')
 const flutterSkillBridge = require('./flutter-skill-bridge')
+const UsageTracker = require('./usage-tracker')
 
 // ─── 基础设施实例 ──────────────────────────
 const authViewManager = new AuthViewManager()
@@ -91,6 +92,12 @@ taskQueue.setExecutor(async (task) => {
 })
 
 // ─── 任务事件 ──────────────────────────────
+  // 记录发布事件
+  if (typeof global.usageTracker !== 'undefined' && global.usageTracker) {
+    global.usageTracker.trackFeatureUsage('publish', 'success')
+    global.usageTracker.trackDaily('articles_published', 1)
+  }
+
 taskQueue.on('task:success', (task) => {
   const win = BrowserWindow.getAllWindows()[0]
   if (win && !win.isDestroyed()) {
@@ -235,6 +242,12 @@ app.whenReady().then(async () => {
 
   flutterSkillBridge.start(mainWindow)
 
+  // 启动使用量统计
+  const usageTracker = new UsageTracker()
+  usageTracker.load()
+  usageTracker.trackSession()
+  global.usageTracker = usageTracker
+
   store.init()
 
   // 发布频率控制
@@ -341,7 +354,20 @@ app.whenReady().then(async () => {
     BACKEND_PLATFORMS,
   })
 
-  createWindow()
+  // 使用量统计 IPC
+  ipcMain.handle('usage:stats', () => {
+    if (global.usageTracker) return global.usageTracker.getStats()
+    return { features: {}, events: [], sessions: 0 }
+  })
+  ipcMain.handle('usage:daily', () => {
+    if (global.usageTracker) return global.usageTracker.getDailyStats()
+    return {}
+  })
+  ipcMain.handle('usage:track', (event, args) => {
+    if (global.usageTracker) global.usageTracker.trackEvent(args.feature, args.action, args.detail)
+    return true
+  })
+    createWindow()
 })
 
 // ─── 窗口关闭 ──────────────────────────────
@@ -349,6 +375,7 @@ app.on('window-all-closed', async () => {
   hotkeys.unregister()
   try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
   flutterSkillBridge.stop()
+  if (global.usageTracker) { global.usageTracker.save() }
   webviewManager.closeAll()
   rpaViewManager.cleanup()
   keywordMonitor.stopAll()
