@@ -29,7 +29,12 @@
           <!-- 文章编辑 -->
           <div class="cohere-form">
             <div class="cohere-form-item">
-              <label class="cohere-form-label">标题</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                <label class="cohere-form-label" style="margin-bottom:0">标题</label>
+                <button class="cohere-btn-ghost" @click="showTemplatePicker = true; templateTargetIdx = idx" style="font-size:11px;padding:2px 8px;border:none;background:none;cursor:pointer;color:var(--coral)">
+                  📝 模板
+                </button>
+              </div>
               <UiInput v-model="a.title" placeholder="请输入文章标题" />
             </div>
             <div class="cohere-form-item">
@@ -51,6 +56,11 @@
               <span style="font-size:12px;color:var(--muted);margin-left:8px">留空 = 立即发布</span>
             </div>
           </div>
+        </div>
+
+        <!-- 模板面板 -->
+        <div v-if="showTemplatePicker && templateTargetIdx >= 0" style="margin-bottom:var(--space-md)">
+          <TemplatePicker @close="showTemplatePicker = false" @apply="applyTemplate" />
         </div>
 
         <!-- 操作 -->
@@ -86,8 +96,16 @@
           <div class="cohere-card" style="cursor:default">
             <div class="cohere-form">
               <div class="cohere-form-item">
-                <label class="cohere-form-label">标题</label>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                  <label class="cohere-form-label" style="margin-bottom:0">标题</label>
+                  <button class="cohere-btn-ghost" @click="showTemplatePicker = !showTemplatePicker; templateTargetIdx = -1" style="font-size:11px;padding:2px 8px;border:none;background:none;cursor:pointer;color:var(--coral)">
+                    {{ showTemplatePicker ? '✕ 关闭' : '📝 模板' }}
+                  </button>
+                </div>
                 <UiInput v-model="article.title" placeholder="请输入文章标题" />
+              </div>
+              <div v-if="showTemplatePicker && templateTargetIdx < 0" style="margin-bottom:var(--space-md)">
+                <TemplatePicker @close="showTemplatePicker = false" @apply="applyTemplate" />
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">作者</label>
@@ -205,6 +223,8 @@ import TagSuggester from '@/components/TagSuggester.vue'
 import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
 import ArticleEditor from '@/components/ArticleEditor.vue'
+import TemplatePicker from '@/components/TemplatePicker.vue'
+import { useTemplateStore } from '@/stores/templates'
 
 const route = useRoute()
 const platformStore = usePlatformStore()
@@ -347,6 +367,17 @@ const batchMode = ref(false)
 let _keyCounter = 1
 const articles = ref([])
 const batchProgress = ref([])
+function applyTemplate(data) {
+  if (batchMode.value && templateTargetIdx.value >= 0) {
+    const a = articles.value[templateTargetIdx.value]
+    if (a) { a.title = data.title; a.content = data.content }
+  } else {
+    article.title = data.title
+    article.content = data.content
+  }
+  showTemplatePicker.value = false
+}
+
 const batchDone = computed(() => batchProgress.value.filter(p => p.type === 'success').length)
 const batchFail = computed(() => batchProgress.value.filter(p => p.type === 'danger').length)
 const totalPlatformTasks = computed(() => articles.value.reduce((s, a) => s + (a.platforms?.length || 0), 0))
