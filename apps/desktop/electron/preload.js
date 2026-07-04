@@ -200,6 +200,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
       },
 
       // ─── 全局导航（快捷键触发）──────────────
+      // ??? ?? API ?????????????????????????????
+      templateList: () => ipcRenderer.invoke('template:list'),
+      templateGet: (id) => ipcRenderer.invoke('template:get', id),
+      templateAdd: (tpl) => ipcRenderer.invoke('template:add', tpl),
+      templateUpdate: (id, updates) => ipcRenderer.invoke('template:update', { id, updates }),
+      templateDelete: (id) => ipcRenderer.invoke('template:delete', id),
+      templateListByCategory: (category) => ipcRenderer.invoke('template:list-by-category', category),
+      templateGetPresets: () => ipcRenderer.invoke('template:get-presets'),
+
+      // ─── 许可证 API ────────────────────────────
+      licenseInfo: () => ipcRenderer.invoke('license:info'),
+      licenseActivate: (key) => ipcRenderer.invoke('license:activate', key),
+      licenseDeactivate: () => ipcRenderer.invoke('license:deactivate'),
+      licenseActivateTrial: () => ipcRenderer.invoke('license:activate-trial'),
+      licenseHasFeature: (name) => ipcRenderer.invoke('license:has-feature', name),
+      licenseFeatures: () => ipcRenderer.invoke('license:features'),
+
       onNavigate: (cb) => {
         const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
       },
