@@ -37,7 +37,7 @@
       </div>
       <div class="form-group">
         <label>输出平台</label>
-        <UiSelect v-model="profile" :options="profiles.map(p => ({ value: p.id || p, label: p.name || p }))" />
+        <UiSelect v-model="profile" :options="(this.profiles||[]).map(p => ({ value: p.id || p, label: p.name || p }))" />
           <option value="youtube-landscape">YouTube 横屏 (1920x1080)</option>
           <option value="youtube-shorts">YouTube Shorts (1080x1920)</option>
           <option value="tiktok">抖音/TikTok (1080x1920)</option>
@@ -48,7 +48,7 @@
       </div>
       <div class="form-group">
         <label>视频主题</label>
-        <UiSelect v-model="theme" :options="themes.map(t => ({ value: t.id || t, label: t.name || t }))" />
+        <UiSelect v-model="theme" :options="(this.themes||[]).map(t => ({ value: t.id || t, label: t.name || t }))" />
           <option value="clean-professional">专业清晰</option>
           <option value="flat-motion-graphics">动感深色</option>
           
@@ -70,7 +70,7 @@
 import { renderStart, renderCancel, renderGetStatus, renderInstallDeps, onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress } from '@/api/publisher'
 export default {
   name: 'CreateView',
-  data() { return { mode: 'text', text: '', theme: 'clean-professional', profile: 'youtube-landscape', images: [], rendering: false, progress: 0, stage: '', result: null, error: null, status: null, aiLoading: false, installing: false, installLog: '', modes: [{ value: 'text', label: '文案生成' }, { value: 'gallery', label: '图片轮播' }] } },
+  data() { return { mode: 'text', text: '', theme: 'clean-professional', profile: 'youtube-landscape', images: [], profiles: ['youtube-landscape','youtube-shorts','tiktok','bilibili','wechat','xiaohongshu'], themes: ['clean-professional','flat-motion-graphics'], rendering: false, progress: 0, stage: '', result: null, error: null, status: null, aiLoading: false, installing: false, installLog: '', modes: [{ value: 'text', label: '文案生成' }, { value: 'gallery', label: '图片轮播' }] } },
   computed: { canRender() { if (this.rendering) return false; if (this.mode === 'text') return this.text.trim().length > 0; if (this.mode === 'gallery') return this.images.length > 0; return false; } },
   mounted() { this.checkStatus(); this.setupListeners(); },
   beforeUnmount() { this.cleanup(); },
