@@ -30,6 +30,7 @@
       <div class="nav-spacer"></div>
       <div class="nav-right">
         <button v-if="authViewVisible" @click="closeLogin" class="btn-ghost-close">✕ 关闭登录</button>
+        <button v-if="!licenseStore.isPro" @click="showUpgradeModal = true" class="pro-btn">⭐ 升级 Pro</button>
         <div class="status-indicator">
           <span class="status-dot online"></span>
           服务运行中
@@ -141,9 +142,15 @@ import UiModal from "./components/UiModal.vue";
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
+import { useLicenseStore } from '@/stores/license'
+import UpgradeModal from '@/components/UpgradeModal.vue'
+import TrialBanner from '@/components/TrialBanner.vue'
 
 const route = useRoute()
 const authViewVisible = ref(false)
+const showUpgradeModal = ref(false)
+const dismissBanner = ref(false)
+const licenseStore = useLicenseStore()
 
 function closeLogin () {
   const api = window.electronAPI
@@ -153,6 +160,7 @@ function closeLogin () {
 
 // 监听登录视图状态
 onMounted(() => {
+  licenseStore.load()
   const api = window.electronAPI
   if (api && api.onAuthViewOpened) {
     api.onAuthViewOpened(() => { authViewVisible.value = true })

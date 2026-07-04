@@ -7,7 +7,7 @@
           <div class="page-subtitle">{{ batchMode ? '批量编辑多篇文章，各平台独立发布' : '编辑内容并发布到多个平台' }}</div>
         </div>
         <label class="cohere-toggle" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)">
-          <input type="checkbox" v-model="batchMode" style="accent-color:var(--coral)" />
+          <input type="checkbox" v-model="batchMode" style="accent-color:var(--coral)" @change="checkBatchAccess" />
           <span>批量模式</span>
         </label>
       </div>
@@ -225,6 +225,8 @@ import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
 import ArticleEditor from '@/components/ArticleEditor.vue'
 import TemplatePicker from '@/components/TemplatePicker.vue'
 import { useTemplateStore } from '@/stores/templates'
+import { useLicenseStore } from '@/stores/license'
+import UpgradeModal from '@/components/UpgradeModal.vue'
 
 const route = useRoute()
 const platformStore = usePlatformStore()
@@ -367,6 +369,13 @@ const batchMode = ref(false)
 let _keyCounter = 1
 const articles = ref([])
 const batchProgress = ref([])
+function checkBatchAccess() {
+  if (batchMode.value && !licenseStore.isPro) {
+    batchMode.value = false
+    showUpgradeModal.value = true
+  }
+}
+
 function applyTemplate(data) {
   if (batchMode.value && templateTargetIdx.value >= 0) {
     const a = articles.value[templateTargetIdx.value]
