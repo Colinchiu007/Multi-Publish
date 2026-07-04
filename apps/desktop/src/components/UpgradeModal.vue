@@ -1,9 +1,9 @@
 <template>
-  <div class="upgrade-overlay" @click.self="('close')">
+  <div class="upgrade-overlay" @click.self="emit('close')">
     <div class="upgrade-modal">
       <div class="modal-header">
         <span style="font-weight:600;font-size:16px">🚀 升级 Pro 版</span>
-        <button class="cohere-btn-ghost" @click="('close')" style="font-size:12px;padding:2px 6px">✕</button>
+        <button class="cohere-btn-ghost" @click="emit('close')" style="font-size:12px;padding:2px 6px">✕</button>
       </div>
 
       <div class="modal-body">
@@ -34,15 +34,76 @@
             <li>✓ API 开放平台</li>
           </ul>
           <div v-if="isPro" class="plan-badge active">已激活</div>
-          <button v-else class="upgrade-btn" @click="startUpgrade">立即升级</button>
+          <button v-else-if="!showPaymentFlow" class="upgrade-btn" @click="startPayment">立即升级</button>
         </div>
       </div>
 
-      <!-- Upgrade flow -->
-      <div v-if="showUpgradeFlow" class="upgrade-flow">
+      <!-- Payment flow -->
+      <div v-if="showPaymentFlow" class="payment-flow">
         <div class="cohere-divider"></div>
         <div style="padding:var(--space-md)">
-          <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-sm)">输入激活码</div>
+          <!-- Step 1: Select payment method -->
+          <div v-if="paymentStep === 'select'" style="text-align:center">
+            <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md)">选择支付方式</div>
+            <div class="payment-methods">
+              <div class="payment-method-card" :class="{ active: selectedMethod === 'alipay' }" @click="selectedMethod = 'alipay'">
+                <span style="font-size:28px">💳</span>
+                <span>支付宝</span>
+              </div>
+              <div class="payment-method-card" :class="{ active: selectedMethod === 'wechat' }" @click="selectedMethod = 'wechat'">
+                <span style="font-size:28px">💚</span>
+                <span>微信支付</span>
+              </div>
+            </div>
+            <button class="upgrade-btn" @click="submitOrder" :disabled="orderLoading" style="max-width:200px;margin:var(--space-md) auto">
+              {{ orderLoading ? '创建订单...' : '确认支付 ¥99' }}
+            </button>
+            <div style="margin-top:var(--space-sm)">
+              <button class="cohere-btn-ghost" @click="showPaymentFlow = false" style="font-size:12px">返回</button>
+            </div>
+          </div>
+
+          <!-- Step 2: QR code / simulated payment -->
+          <div v-if="paymentStep === 'paying'" style="text-align:center">
+            <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-sm)">扫码支付</div>
+            <div class="qr-placeholder">
+              <span style="font-size:48px">{{ selectedMethod === 'alipay' ? '💳' : '💚' }}</span>
+              <div style="font-size:12px;color:var(--muted);margin-top:8px">
+                请使用{{ selectedMethod === 'alipay' ? '支付宝' : '微信' }}扫码完成支付
+              </div>
+            </div>
+            <div style="margin-top:var(--space-md);display:flex;gap:8px;justify-content:center">
+              <button class="upgrade-btn" @click="simulatePayment" :disabled="simulating" style="max-width:160px">
+                {{ simulating ? '处理中...' : '✅ 模拟支付成功（开发模式）' }}
+              </button>
+            </div>
+            <div style="margin-top:var(--space-sm)">
+              <button class="cohere-btn-ghost" @click="cancelOrder" style="font-size:12px">取消订单</button>
+            </div>
+          </div>
+
+          <!-- Step 3: Success -->
+          <div v-if="paymentStep === 'success'" style="text-align:center;padding:var(--space-lg)">
+            <div style="font-size:48px;margin-bottom:var(--space-sm)">🎉</div>
+            <div style="font-weight:600;font-size:16px;color:var(--success)">支付成功！</div>
+            <div style="font-size:13px;color:var(--muted);margin-top:4px">Pro 版已激活，尽情使用全部功能</div>
+          </div>
+
+          <!-- Step 3: Failed -->
+          <div v-if="paymentStep === 'failed'" style="text-align:center;padding:var(--space-lg)">
+            <div style="font-size:48px;margin-bottom:var(--space-sm)">😞</div>
+            <div style="font-weight:600;font-size:16px;color:var(--coral)">支付失败</div>
+            <div style="font-size:13px;color:var(--muted);margin-top:4px">{{ paymentError || '请重试或选择其他支付方式' }}</div>
+            <button class="cohere-btn-ghost" @click="resetPayment" style="margin-top:var(--space-sm);font-size:12px">重新选择支付方式</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activation code section (existing) -->
+      <div v-if="!showPaymentFlow && !isPro" class="activate-section">
+        <div class="cohere-divider"></div>
+        <div style="padding:var(--space-md)">
+          <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-sm)">已有激活码？</div>
           <div style="display:flex;gap:8px;margin-bottom:var(--space-md)">
             <input
               v-model="licenseKey"
@@ -51,16 +112,12 @@
               style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:14px;outline:none"
               @keyup.enter="doActivate"
             />
-            <button class="upgrade-btn" @click="doActivate" :disabled="activating">
+            <button class="upgrade-btn" @click="doActivate" :disabled="activating" style="max-width:100px">
               {{ activating ? '验证中...' : '激活' }}
             </button>
           </div>
-          <div v-if="activateError" style="color:var(--coral);font-size:13px;margin-bottom:var(--space-sm)">
-            {{ activateError }}
-          </div>
-          <div v-if="activateSuccess" style="color:var(--success);font-size:13px;margin-bottom:var(--space-sm)">
-            ✅ 激活成功！
-          </div>
+          <div v-if="activateError" style="color:var(--coral);font-size:13px;margin-bottom:var(--space-sm)">{{ activateError }}</div>
+          <div v-if="activateSuccess" style="color:var(--success);font-size:13px;margin-bottom:var(--space-sm)">✅ 激活成功！</div>
           <div class="cohere-divider"></div>
           <div style="text-align:center;padding:var(--space-sm)">
             <button class="cohere-btn-ghost" @click="doTrial" :disabled="trialLoading" style="font-size:13px;color:var(--coral)">
@@ -70,7 +127,7 @@
         </div>
       </div>
 
-      <div v-if="isPro && showUpgradeFlow" class="modal-footer">
+      <div v-if="isPro && !showPaymentFlow" class="modal-footer">
         <button class="cohere-btn-ghost" @click="doDeactivate" style="font-size:12px;color:var(--coral)">注销许可证</button>
       </div>
     </div>
@@ -80,11 +137,19 @@
 <script setup>
 import { ref, computed, onMounted } from "vue"
 import { useLicenseStore } from "@/stores/license"
+import { paymentCreateOrder, paymentSimulate, paymentCancel } from "@/api/publisher"
 
 const emit = defineEmits(["close"])
 
 const store = useLicenseStore()
-const showUpgradeFlow = ref(false)
+const showPaymentFlow = ref(false)
+const selectedMethod = ref("alipay")
+const paymentStep = ref("select") // select | paying | success | failed
+const orderId = ref("")
+const orderLoading = ref(false)
+const simulating = ref(false)
+const paymentError = ref("")
+
 const licenseKey = ref("")
 const activating = ref(false)
 const trialLoading = ref(false)
@@ -94,10 +159,57 @@ const activateSuccess = ref(false)
 const licenseType = computed(() => store.licenseType)
 const isPro = computed(() => store.isPro)
 
-async function startUpgrade() {
-  showUpgradeFlow.value = true
-  activateError.value = ""
-  activateSuccess.value = false
+function startPayment() {
+  showPaymentFlow.value = true
+  paymentStep.value = "select"
+  selectedMethod.value = "alipay"
+}
+
+async function submitOrder() {
+  orderLoading.value = true
+  try {
+    var res = await paymentCreateOrder({ plan: "pro", method: selectedMethod.value })
+    if (res.code === 0) {
+      orderId.value = res.data.id
+      paymentStep.value = "paying"
+    } else {
+      paymentError.value = res.message
+      paymentStep.value = "failed"
+    }
+  } catch(e) {
+    paymentError.value = e.message
+    paymentStep.value = "failed"
+  }
+  orderLoading.value = false
+}
+
+async function simulatePayment() {
+  simulating.value = true
+  try {
+    var res = await paymentSimulate(orderId.value)
+    if (res.code === 0) {
+      paymentStep.value = "success"
+      await store.load()
+    } else {
+      paymentError.value = res.message
+      paymentStep.value = "failed"
+    }
+  } catch(e) {
+    paymentError.value = e.message
+    paymentStep.value = "failed"
+  }
+  simulating.value = false
+}
+
+async function cancelOrder() {
+  await paymentCancel(orderId.value)
+  resetPayment()
+}
+
+function resetPayment() {
+  paymentStep.value = "select"
+  orderId.value = ""
+  paymentError.value = ""
 }
 
 async function doActivate() {
@@ -108,7 +220,7 @@ async function doActivate() {
   activating.value = true
   activateError.value = ""
   activateSuccess.value = false
-  const ok = await store.activate(licenseKey.value.trim())
+  var ok = await store.activate(licenseKey.value.trim())
   activating.value = false
   if (ok) {
     activateSuccess.value = true
@@ -119,7 +231,7 @@ async function doActivate() {
 
 async function doTrial() {
   trialLoading.value = true
-  const ok = await store.activateTrial()
+  var ok = await store.activateTrial()
   trialLoading.value = false
   if (ok) {
     activateSuccess.value = true
@@ -130,7 +242,7 @@ async function doTrial() {
 
 async function doDeactivate() {
   await store.deactivate()
-  showUpgradeFlow.value = false
+  showPaymentFlow.value = false
 }
 
 onMounted(async () => {
@@ -182,44 +294,16 @@ onMounted(async () => {
   border-color: var(--coral);
   box-shadow: 0 0 0 1px var(--coral);
 }
-.plan-name {
-  font-weight: 600;
-  font-size: 15px;
-  margin-bottom: 4px;
-}
-.plan-price {
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: var(--space-sm);
-}
-.feature-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  font-size: 13px;
-  line-height: 2;
-}
-.feature-list li {
-  color: var(--text-primary);
-}
-.plan-badge {
-  display: inline-block;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  margin-top: var(--space-sm);
-}
-.plan-badge.current {
-  background: var(--soft-stone);
-  color: var(--muted);
-}
-.plan-badge.active {
-  background: var(--success-bg, #d1fae5);
-  color: var(--success, #059669);
-}
+.plan-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+.plan-price { font-size: 24px; font-weight: 700; margin-bottom: var(--space-sm); }
+.feature-list { list-style: none; padding: 0; margin: 0; font-size: 13px; line-height: 2; }
+.feature-list li { color: var(--text-primary); }
+.plan-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-top: var(--space-sm); }
+.plan-badge.current { background: var(--soft-stone); color: var(--muted); }
+.plan-badge.active { background: var(--success-bg, #d1fae5); color: var(--success, #059669); }
 .upgrade-btn {
-  width: 100%;
-  padding: 8px;
+  display: block;
+  padding: 8px 16px;
   background: var(--coral, #f56c6c);
   color: #fff;
   border: none;
@@ -227,19 +311,39 @@ onMounted(async () => {
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  margin-top: var(--space-sm);
   transition: opacity 0.15s;
+  width: 100%;
 }
 .upgrade-btn:hover { opacity: 0.9; }
 .upgrade-btn:disabled { opacity: 0.5; cursor: default; }
-.upgrade-flow {
-  padding: 0 var(--space-lg) var(--space-lg);
+.payment-flow, .activate-section { padding: 0 var(--space-lg) var(--space-lg); }
+.payment-methods { display: flex; gap: var(--space-md); justify-content: center; margin-bottom: var(--space-md); }
+.payment-method-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: var(--space-md) var(--space-lg);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 120px;
 }
-.upgrade-input:focus {
-  border-color: var(--coral) !important;
+.payment-method-card:hover { border-color: var(--coral-light, #f9a8a8); }
+.payment-method-card.active { border-color: var(--coral); background: var(--coral-bg, #fef2f2); }
+.qr-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 200px;
+  height: 200px;
+  margin: var(--space-md) auto;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  background: var(--bg, #f8f4ff);
 }
-.modal-footer {
-  padding: var(--space-sm) var(--space-lg);
-  text-align: center;
-}
+.upgrade-input:focus { border-color: var(--coral) !important; }
+.modal-footer { padding: var(--space-sm) var(--space-lg); text-align: center; }
 </style>

@@ -355,6 +355,27 @@ export function onBatchProgress (callback) {
   return getApi().onBatchProgress(callback)
 }
 
+// ─── 支付 API ─────────────────────────────
+export async function paymentCreateOrder (options) {
+  if (!getApi()) return { code: -1 }
+  return getApi().paymentCreateOrder(options)
+}
+
+export async function paymentListOrders () {
+  if (!getApi()) return { code: 0, data: [] }
+  return getApi().paymentListOrders()
+}
+
+export async function paymentGetOrder (orderId) {
+  if (!getApi()) return { code: -1 }
+  return getApi().paymentGetOrder(orderId)
+}
+
+export async function paymentSimulate (orderId) {
+  if (!getApi()) return { code: -1 }
+  return getApi().paymentSimulate(orderId)
+}
+
 // ─── 首次运行引导 API ──────────────────────
 export async function firstRunCheck () {
   if (!getApi()) return { setupDone: false }
