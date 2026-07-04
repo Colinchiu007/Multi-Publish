@@ -380,6 +380,13 @@ export async function paymentSimulate (orderId) {
   return getApi().paymentSimulate(orderId)
 }
 
+export async function paymentCancel(orderId) {
+  if (!getApi()) return { code: -1 }
+
+  return getApi().paymentCancel(orderId)
+}
+
+
 // ─── 首次运行引导 API ──────────────────────
 export async function firstRunCheck () {
   if (!getApi()) return { setupDone: false }

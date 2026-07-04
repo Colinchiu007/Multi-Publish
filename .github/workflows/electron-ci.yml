@@ -46,7 +46,7 @@ jobs:
 
       - name: Dependency check
         continue-on-error: true
-        run: npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite
+        run: npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite --ignores=app-builder-bin,electron
 
       - name: Circular dependency check
         continue-on-error: true
