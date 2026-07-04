@@ -1,10 +1,10 @@
-/**
- * 发布 API 封装 — 调用 Electron IPC
- * 所有 Vue 组件通过此文件访问 Electron IPC，不直接调用 window.electronAPI
+﻿/**
+ * 鍙戝竷 API 灏佽 鈥?璋冪敤 Electron IPC
+ * 鎵€鏈?Vue 缁勪欢閫氳繃姝ゆ枃浠惰闂?Electron IPC锛屼笉鐩存帴璋冪敤 window.electronAPI
  */
 var _api = null; function getApi() { if (!_api) _api = window.electronAPI || null; return _api; }
 
-// ─── 发布 API ─────────────────────────────
+// 鈹€鈹€鈹€ 鍙戝竷 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function publishWechat (article) {
   if (!getApi()) throw new Error('electronAPI not available')
   return getApi().publishWechat(article)
@@ -20,7 +20,7 @@ export function onProgress (callback) {
   return getApi().onProgress(callback)
 }
 
-// ─── 队列 API ─────────────────────────────
+// 鈹€鈹€鈹€ 闃熷垪 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function getQueueStatus () {
   if (!getApi()) return {}
   return getApi().getQueueStatus()
@@ -36,7 +36,7 @@ export async function cancelTask (taskId) {
   return getApi().cancelTask(taskId)
 }
 
-// ─── 发布历史 API ─────────────────────────
+// 鈹€鈹€鈹€ 鍙戝竷鍘嗗彶 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function historyList (opts) {
   if (!getApi()) return { code: 0, data: { total: 0, records: [] } }
   return getApi().historyList(opts)
@@ -47,13 +47,13 @@ export async function historyGet (id) {
   return getApi().historyGet(id)
 }
 
-// ─── 发布统计 API ──────────────────────────
+// 鈹€鈹€鈹€ 鍙戝竷缁熻 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function dashboardStats () {
   if (!getApi()) return { total: 0, success: 0, failed: 0, perPlatform: {}, daily: [] }
   return getApi().dashboardStats()
 }
 
-// ─── 定时发布 API ─────────────────────────
+// 鈹€鈹€鈹€ 瀹氭椂鍙戝竷 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function schedulerCreate (schedule) {
   if (!getApi()) return { code: -1 }
   return getApi().schedulerCreate(schedule)
@@ -69,7 +69,7 @@ export async function schedulerCancel (id) {
   return getApi().schedulerCancel(id)
 }
 
-// ─── 账号管理 API ─────────────────────────
+// 鈹€鈹€鈹€ 璐﹀彿绠＄悊 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function listAccounts () {
   if (!getApi()) return { code: 0, data: [] }
   return getApi().listAccounts()
@@ -105,7 +105,7 @@ export async function accountUpdate (id, fields) {
   return getApi().accountUpdate(id, fields)
 }
 
-// ─── 内嵌浏览器登录 API ──────────────────
+// 鈹€鈹€鈹€ 鍐呭祵娴忚鍣ㄧ櫥褰?API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function authOpenLogin (platform) {
   if (!getApi()) return { code: -1 }
   return getApi().authOpenLogin(platform)
@@ -131,7 +131,7 @@ export function onAuthViewClosed (callback) {
   return getApi().onAuthViewClosed(callback)
 }
 
-// ─── 渲染 API ────────────────────────────
+// 鈹€鈹€鈹€ 娓叉煋 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function renderStart (data) {
   if (!getApi()) throw new Error('electronAPI not available')
   return getApi().renderStart(data)
@@ -172,7 +172,7 @@ export function onRenderInstallProgress (callback) {
   return getApi().onRenderInstallProgress(callback)
 }
 
-// ─── 内容情报 API ────────────────────────
+// 鈹€鈹€鈹€ 鍐呭鎯呮姤 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function intelligenceSearch (query) {
   if (!getApi()) return { code: 0, data: [] }
   return getApi().intelligenceSearch(query)
@@ -208,7 +208,7 @@ export async function intelligenceGetBenchmark (opts) {
   return getApi().intelligenceGetBenchmark(opts)
 }
 
-// ─── 关键词监测 API ──────────────────────
+// 鈹€鈹€鈹€ 鍏抽敭璇嶇洃娴?API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function keywordStatus () {
   if (!getApi()) return { code: 0, data: {} }
   return getApi().keywordStatus()
@@ -229,7 +229,7 @@ export async function keywordHistory (keyword) {
   return getApi().keywordHistory(keyword)
 }
 
-// ─── 爆款分析 API ────────────────────────
+// 鈹€鈹€鈹€ 鐖嗘鍒嗘瀽 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function viralAnalyze (keyword) {
   if (!getApi()) return { code: -1 }
   return getApi().viralAnalyze(keyword)
@@ -240,7 +240,7 @@ export async function viralGenerate (opts) {
   return getApi().viralGenerate(opts)
 }
 
-// ─── 平台配置 API ────────────────────────
+// 鈹€鈹€鈹€ 骞冲彴閰嶇疆 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function platformList () {
   if (!getApi()) return { code: 0, data: [] }
   return getApi().platformList()
@@ -256,7 +256,7 @@ export async function getPlatformDefinitions () {
   return getApi().getPlatformDefinitions()
 }
 
-// ─── 敏感词 API ──────────────────────────
+// 鈹€鈹€鈹€ 鏁忔劅璇?API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function sensitiveCheck (text) {
   if (!getApi()) return { code: -1 }
   return getApi().sensitiveCheck(text)
@@ -267,7 +267,7 @@ export async function sensitiveReplace (text) {
   return getApi().sensitiveReplace(text)
 }
 
-// ─── 数据同步 API ────────────────────────
+// 鈹€鈹€鈹€ 鏁版嵁鍚屾 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function syncAll () {
   if (!getApi()) return { code: -1 }
   return getApi().syncAll()
@@ -278,7 +278,7 @@ export async function syncPlatform (platform) {
   return getApi().syncPlatform(platform)
 }
 
-// ─── 自动更新 API ──────────────────────────
+// 鈹€鈹€鈹€ 鑷姩鏇存柊 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function updateCheck () {
   if (!getApi()) return {}
   return getApi().updateCheck()
@@ -297,7 +297,7 @@ export function onUpdateStatus (callback) {
 }
 
 
-// ─── 全局存储 API ─────────────────────────
+// 鈹€鈹€鈹€ 鍏ㄥ眬瀛樺偍 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function storeGetSetting (key) {
   if (!getApi()) return null
   return getApi().storeGetSetting(key)
@@ -318,7 +318,7 @@ export async function storeListPublishHistory (opts) {
   return getApi().storeListPublishHistory(opts)
 }
 
-// ─── OAuth API ────────────────────────────
+// 鈹€鈹€鈹€ OAuth API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function oauthStart (opts) {
   if (!getApi()) return { code: -1 }
   return getApi().oauthStart(opts)
@@ -334,7 +334,7 @@ export function onOAuthCompleted (callback) {
   return getApi().onOAuthCompleted(callback)
 }
 
-// ─── 批量发布 API ─────────────────────────
+// 鈹€鈹€鈹€ 鎵归噺鍙戝竷 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function batchCreate (batch) {
   if (!getApi()) return { code: -1 }
   return getApi().batchCreate(batch)
@@ -355,7 +355,7 @@ export function onBatchProgress (callback) {
   return getApi().onBatchProgress(callback)
 }
 
-// ─── 支付 API ─────────────────────────────
+// 鈹€鈹€鈹€ 鏀粯 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function paymentCreateOrder (options) {
   if (!getApi()) return { code: -1 }
   return getApi().paymentCreateOrder(options)
@@ -372,9 +372,6 @@ export async function paymentGetOrder (orderId) {
 }
 
 
-export async function paymentCancel (orderId) {
-  return getApi().paymentCancel(orderId)
-}
 export async function paymentSimulate (orderId) {
   if (!getApi()) return { code: -1 }
   return getApi().paymentSimulate(orderId)
@@ -387,7 +384,7 @@ export async function paymentCancel(orderId) {
 }
 
 
-// ─── 首次运行引导 API ──────────────────────
+// 鈹€鈹€鈹€ 棣栨杩愯寮曞 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export async function firstRunCheck () {
   if (!getApi()) return { setupDone: false }
   return getApi().firstRunCheck()
@@ -397,8 +394,9 @@ export function onFirstRunStatus (callback) {
   return getApi().onFirstRunStatus(callback)
 }
 
-// ─── 通知 API ────────────────────────────
+// 鈹€鈹€鈹€ 閫氱煡 API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export function showNotification (data) {
   if (!getApi()) return
   return getApi().showNotification(data)
 }
+
