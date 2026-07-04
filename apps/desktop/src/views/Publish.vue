@@ -101,11 +101,22 @@
                   <button class="cohere-btn-ghost" @click="showTemplatePicker = !showTemplatePicker; templateTargetIdx = -1" style="font-size:11px;padding:2px 8px;border:none;background:none;cursor:pointer;color:var(--coral)">
                     {{ showTemplatePicker ? '✕ 关闭' : '📝 模板' }}
                   </button>
+                  <button class="cohere-btn-ghost" @click="showAiWriter = !showAiWriter" style="font-size:11px;padding:2px 8px;border:none;background:none;cursor:pointer;color:var(--coral)">
+                    {{ showAiWriter ? '✕ 关闭' : '🤖 AI' }}
+                  </button>
                 </div>
                 <UiInput v-model="article.title" placeholder="请输入文章标题" />
               </div>
               <div v-if="showTemplatePicker && templateTargetIdx < 0" style="margin-bottom:var(--space-md)">
                 <TemplatePicker @close="showTemplatePicker = false" @apply="applyTemplate" />
+              </div>
+              <div v-if="showAiWriter && templateTargetIdx < 0" style="margin-bottom:var(--space-md)">
+                <AiWriterPanel
+                  :sourceContent="article.content"
+                  @close="showAiWriter = false"
+                  @apply-title="article.title = $event; showAiWriter = false"
+                  @apply-content="article.content = $event + '\n'; showAiWriter = false"
+                />
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">作者</label>
@@ -227,6 +238,7 @@ import TemplatePicker from '@/components/TemplatePicker.vue'
 import { useTemplateStore } from '@/stores/templates'
 import { useLicenseStore } from '@/stores/license'
 import UpgradeModal from '@/components/UpgradeModal.vue'
+import AiWriterPanel from '@/components/AiWriterPanel.vue'
 
 const route = useRoute()
 const platformStore = usePlatformStore()
