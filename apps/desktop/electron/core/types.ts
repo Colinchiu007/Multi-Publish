@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Core type definitions for Electron main process
  * Layer 1: Core — zero external dependencies
  */
