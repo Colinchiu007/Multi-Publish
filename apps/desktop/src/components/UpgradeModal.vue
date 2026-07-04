@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="upgrade-overlay" @click.self="emit('close')">
     <div class="upgrade-modal">
       <div class="modal-header">
@@ -248,6 +248,8 @@ async function doDeactivate() {
 onMounted(async () => {
   await store.load()
 })
+
+defineExpose({ doActivate, doTrial, doDeactivate, licenseKey })
 </script>
 
 <style scoped>
