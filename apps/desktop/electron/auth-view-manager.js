@@ -266,9 +266,9 @@ class AuthViewManager {
     try {
       localStorage = await view.webContents.executeJavaScript(`
         (function() {
-          var result = {};
-          for (var i = 0; i < localStorage.length; i++) {
-            var key = localStorage.key(i);
+          let result = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            let key = localStorage.key(i);
             if (key.startsWith('__') || key === 'devtools') continue;
             try { result[key] = localStorage.getItem(key); } catch (e) { /* ignore */ }
           }
@@ -284,20 +284,20 @@ class AuthViewManager {
     try {
       indexedDB = await view.webContents.executeJavaScript(`
         (async function() {
-          var result = {};
+          let result = {};
           try {
-            var dbs = await indexedDB.databases();
-            for (var dbInfo of dbs) {
-              var db = await new Promise(function(resolve, reject) {
-                var req = indexedDB.open(dbInfo.name);
+            let dbs = await indexedDB.databases();
+            for (let dbInfo of dbs) {
+              let db = await new Promise(function(resolve, reject) {
+                let req = indexedDB.open(dbInfo.name);
                 req.onsuccess = function() { resolve(req.result); };
                 req.onerror = function() { reject(req.error); };
               });
-              for (var storeName of db.objectStoreNames) {
+              for (let storeName of db.objectStoreNames) {
                 try {
-                  var store = db.transaction(storeName, 'readonly').objectStore(storeName);
-                  var items = await new Promise(function(resolve, reject) {
-                    var req = store.getAll();
+                  let store = db.transaction(storeName, 'readonly').objectStore(storeName);
+                  let items = await new Promise(function(resolve, reject) {
+                    let req = store.getAll();
                     req.onsuccess = function() { resolve(req.result); };
                     req.onerror = function() { reject(req.error); };
                   });
@@ -475,7 +475,7 @@ class AuthViewManager {
         try {
           await view.webContents.executeJavaScript(`
             (function() {
-              var data = ${JSON.stringify(localStorage)};
+              let data = ${JSON.stringify(localStorage)};
               Object.keys(data).forEach(function(k) {
                 try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }
               });
@@ -539,7 +539,7 @@ class AuthViewManager {
         try {
           await win.webContents.executeJavaScript(`
             (function() {
-              var data = ${lsJson};
+              let data = ${lsJson};
               Object.keys(data).forEach(function(k) {
                 try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }
               });

@@ -12,14 +12,14 @@ const crypto = require("crypto")
 const { app } = require("electron")
 const log = require("./logger")
 
-var _instance = null
+let _instance = null
 
-var FREE_FEATURES = [
+let FREE_FEATURES = [
   "single-publish",
   "platform-basic",
 ]
 
-var PRO_FEATURES = [
+let PRO_FEATURES = [
   "single-publish",
   "batch-publish",
   "scheduled-publish",
@@ -30,7 +30,7 @@ var PRO_FEATURES = [
   "api-access",
 ]
 
-var TRIAL_DAYS = 7
+let TRIAL_DAYS = 7
 
 function getDataPath(dataPath) {
   return dataPath || path.join(app.getPath("userData"), "license.json")
@@ -38,9 +38,9 @@ function getDataPath(dataPath) {
 
 function obfuscate(str) {
   if (!str) return ""
-  var buf = Buffer.from(str, "utf-8")
-  var xor = Buffer.alloc(buf.length)
-  for (var i = 0; i < buf.length; i++) {
+  let buf = Buffer.from(str, "utf-8")
+  let xor = Buffer.alloc(buf.length)
+  for (let i = 0; i < buf.length; i++) {
     xor[i] = buf[i] ^ 0x4d
   }
   return xor.toString("base64")
@@ -49,9 +49,9 @@ function obfuscate(str) {
 function deobfuscate(encoded) {
   if (!encoded) return null
   try {
-    var xor = Buffer.from(encoded, "base64")
-    var buf = Buffer.alloc(xor.length)
-    for (var i = 0; i < xor.length; i++) {
+    let xor = Buffer.from(encoded, "base64")
+    let buf = Buffer.alloc(xor.length)
+    for (let i = 0; i < xor.length; i++) {
       buf[i] = xor[i] ^ 0x4d
     }
     return buf.toString("utf-8")
@@ -78,11 +78,11 @@ class LicenseManager {
   load() {
     try {
       if (fs.existsSync(this._dataPath)) {
-        var raw = fs.readFileSync(this._dataPath, "utf-8").trim()
+        let raw = fs.readFileSync(this._dataPath, "utf-8").trim()
         if (!raw) return
-        var decoded = deobfuscate(raw)
+        let decoded = deobfuscate(raw)
         if (decoded) {
-          var parsed = JSON.parse(decoded)
+          let parsed = JSON.parse(decoded)
           if (parsed && parsed.type) {
             this._data = parsed
             log.info("LicenseManager", "License loaded: " + this._data.type)
@@ -97,9 +97,9 @@ class LicenseManager {
 
   save() {
     try {
-      var dir = path.dirname(this._dataPath)
+      let dir = path.dirname(this._dataPath)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-      var encoded = obfuscate(JSON.stringify(this._data))
+      let encoded = obfuscate(JSON.stringify(this._data))
       fs.writeFileSync(this._dataPath, encoded, "utf-8")
     } catch (e) {
       log.warn("LicenseManager", "Failed to save: " + e.message)
@@ -110,7 +110,7 @@ class LicenseManager {
     if (!licenseKey) return false
     // Don't re-activate if already activated with same or different key
     if (this._data.type === "pro" || this._data.type === "lifetime") return false
-    var key = licenseKey.trim()
+    let key = licenseKey.trim()
     this._data.type = "pro"
     this._data.licenseKey = key
     this._data.activatedAt = new Date().toISOString()
@@ -125,7 +125,7 @@ class LicenseManager {
     if (this._data.type !== "free") return false
     this._data.type = "trial"
     this._data.activatedAt = new Date().toISOString()
-    var expires = new Date()
+    let expires = new Date()
     expires.setDate(expires.getDate() + TRIAL_DAYS)
     this._data.expiresAt = expires.toISOString()
     this._data.features = PRO_FEATURES.slice()
@@ -144,8 +144,8 @@ class LicenseManager {
     if (this._data.type === "pro" || this._data.type === "lifetime") return true
     if (this._data.type === "trial") {
       if (!this._data.expiresAt) return false
-      var now = new Date()
-      var expires = new Date(this._data.expiresAt)
+      let now = new Date()
+      let expires = new Date(this._data.expiresAt)
       return now < expires
     }
     return false
@@ -186,9 +186,9 @@ class LicenseManager {
 
   _daysRemaining() {
     if (this._data.type !== "trial" || !this._data.expiresAt) return 0
-    var now = new Date()
-    var expires = new Date(this._data.expiresAt)
-    var diff = expires.getTime() - now.getTime()
+    let now = new Date()
+    let expires = new Date(this._data.expiresAt)
+    let diff = expires.getTime() - now.getTime()
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)))
   }
 

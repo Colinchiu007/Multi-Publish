@@ -8,18 +8,18 @@
  * 4. 提供 IPC 接口供前端查询状态
  */
 
-var fs = require("fs")
-var path = require("path")
-var log = require("./logger")
+let fs = require("fs")
+let path = require("path")
+let log = require("./logger")
 
-var OFFLINE_CACHE_FILE = "offline-publish-cache.json"
-var _isOffline = false
-var _retryQueue = []
-var _mainWin = null
-var _taskQueue = null
+let OFFLINE_CACHE_FILE = "offline-publish-cache.json"
+let _isOffline = false
+let _retryQueue = []
+let _mainWin = null
+let _taskQueue = null
 
 function getCachePath() {
-  var userDataDir
+  let userDataDir
   try {
     userDataDir = require("electron").app.getPath("userData")
   } catch (e) {
@@ -31,7 +31,7 @@ function getCachePath() {
 function getMainWindow() {
   if (_mainWin && !_mainWin.isDestroyed()) return _mainWin
   try {
-    var wins = require("electron").BrowserWindow.getAllWindows()
+    let wins = require("electron").BrowserWindow.getAllWindows()
     return wins[0] || null
   } catch (e) {
     return null
@@ -44,9 +44,9 @@ function setTaskQueue(tq) {
 
 function processCachedTasks() {
   if (!_taskQueue || _isOffline) return 0
-  var tasks = loadCache()
+  let tasks = loadCache()
   if (tasks.length === 0) return 0
-  var count = 0
+  let count = 0
   tasks.forEach(function(task) {
     if (task.platform && task.article) {
       _taskQueue.add({
@@ -73,9 +73,9 @@ function isOffline() {
 
 function loadCache() {
   try {
-    var cachePath = getCachePath()
+    let cachePath = getCachePath()
     if (fs.existsSync(cachePath)) {
-      var data = fs.readFileSync(cachePath, "utf8")
+      let data = fs.readFileSync(cachePath, "utf8")
       return JSON.parse(data)
     }
   } catch (e) {
@@ -86,7 +86,7 @@ function loadCache() {
 
 function saveCache(tasks) {
   try {
-    var cachePath = getCachePath()
+    let cachePath = getCachePath()
     fs.writeFileSync(cachePath, JSON.stringify(tasks, null, 2))
     return true
   } catch (e) {
@@ -96,7 +96,7 @@ function saveCache(tasks) {
 }
 
 function addToCache(task) {
-  var tasks = loadCache()
+  let tasks = loadCache()
   tasks.push({
     ...task,
     cachedAt: new Date().toISOString(),
@@ -105,14 +105,14 @@ function addToCache(task) {
 }
 
 function clearSuccessfulTasks() {
-  var tasks = loadCache()
-  var pending = tasks.filter(function(t) { return !t.success })
+  let tasks = loadCache()
+  let pending = tasks.filter(function(t) { return !t.success })
   saveCache(pending)
   return pending
 }
 
 function onNetworkChange(isOffline) {
-  var wasOffline = _isOffline
+  let wasOffline = _isOffline
   _isOffline = isOffline
   if (wasOffline && !isOffline) {
     log.info("offline", "Network restored, processing cached tasks")
@@ -122,7 +122,7 @@ function onNetworkChange(isOffline) {
 }
 
 function notifyFrontend() {
-  var win = getMainWindow()
+  let win = getMainWindow()
   if (win) {
     try {
       win.webContents.send("offline:restored", {
@@ -137,7 +137,7 @@ function notifyFrontend() {
 function startMonitoring(mainWin) {
   _mainWin = mainWin
   try {
-    var net = require("electron").net
+    let net = require("electron").net
     if (net && typeof net.on === "function") {
       net.on("online", function() { onNetworkChange(false) })
       net.on("offline", function() { onNetworkChange(true) })

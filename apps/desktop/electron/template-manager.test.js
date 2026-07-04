@@ -22,9 +22,9 @@ jest.mock("../electron/logger", () => ({
 }))
 
 describe("TemplateManager", function() {
-  var TemplateManager
-  var manager
-  var sampleTemplate = {
+  let TemplateManager
+  let manager
+  let sampleTemplate = {
     id: "weekly-report",
     name: "周报模板",
     category: "report",
@@ -61,7 +61,7 @@ describe("TemplateManager", function() {
 
   test("get returns template by id", function() {
     manager.add(sampleTemplate)
-    var tpl = manager.get(sampleTemplate.id)
+    let tpl = manager.get(sampleTemplate.id)
     expect(tpl).toBeDefined()
     expect(tpl.name).toBe("周报模板")
   })
@@ -95,7 +95,7 @@ describe("TemplateManager", function() {
   })
 
   test("getPresets returns built-in templates", function() {
-    var presets = TemplateManager.getPresets()
+    let presets = TemplateManager.getPresets()
     expect(presets.length).toBeGreaterThan(0)
     expect(presets[0].id).toBeDefined()
     expect(presets[0].builtin).toBe(true)
@@ -107,14 +107,14 @@ describe("TemplateManager", function() {
   })
 
   test("save persists templates to disk", function() {
-    var fs = require("fs")
+    let fs = require("fs")
     manager.add(sampleTemplate)
     manager.save()
     expect(fs.writeFileSync).toHaveBeenCalled()
   })
 
   test("load reads from disk", function() {
-    var fs = require("fs")
+    let fs = require("fs")
     fs.existsSync.mockReturnValue(true)
     fs.readFileSync.mockReturnValue(JSON.stringify([sampleTemplate]))
     manager.load()

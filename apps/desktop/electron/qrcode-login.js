@@ -164,9 +164,9 @@ class QrCodeLogin {
       const result = await view.webContents.executeJavaScript(`
         (function() {
           // 策略1: 找包含 QR/qrcode/scan 关键字的 <img>
-          var imgs = document.querySelectorAll('img');
-          for (var i = 0; i < imgs.length; i++) {
-            var src = (imgs[i].src || '').toLowerCase();
+          let imgs = document.querySelectorAll('img');
+          for (let i = 0; i < imgs.length; i++) {
+            let src = (imgs[i].src || '').toLowerCase();
             if (
               src.indexOf('qrcode') !== -1 ||
               src.indexOf('qr_') !== -1 ||
@@ -181,12 +181,12 @@ class QrCodeLogin {
           }
 
           // 策略2: 找页面中最大的 <img>（登录页通常中间的二维码最大）
-          var largest = null;
-          var maxArea = 0;
-          for (var i = 0; i < imgs.length; i++) {
-            var w = imgs[i].naturalWidth || imgs[i].width || 0;
-            var h = imgs[i].naturalHeight || imgs[i].height || 0;
-            var area = w * h;
+          let largest = null;
+          let maxArea = 0;
+          for (let i = 0; i < imgs.length; i++) {
+            let w = imgs[i].naturalWidth || imgs[i].width || 0;
+            let h = imgs[i].naturalHeight || imgs[i].height || 0;
+            let area = w * h;
             if (area > maxArea && area > 5000) {  // > 70x70
               maxArea = area;
               largest = { type: 'img', src: imgs[i].src, width: w, height: h };
@@ -194,11 +194,11 @@ class QrCodeLogin {
           }
 
           // 策略3: 找 canvas 元素（有些平台通过 canvas 绘制二维码）
-          var canvases = document.querySelectorAll('canvas');
-          for (var i = 0; i < canvases.length; i++) {
+          let canvases = document.querySelectorAll('canvas');
+          for (let i = 0; i < canvases.length; i++) {
             if (canvases[i].width > 80 && canvases[i].height > 80) {
               try {
-                var dataUrl = canvases[i].toDataURL('image/png');
+                let dataUrl = canvases[i].toDataURL('image/png');
                 return { type: 'canvas', src: dataUrl, width: canvases[i].width, height: canvases[i].height };
               } catch (e) { /* ignore */ }
             }
@@ -283,9 +283,9 @@ class QrCodeLogin {
     try {
       localStorage = await view.webContents.executeJavaScript(`
         (function() {
-          var result = {};
-          for (var i = 0; i < localStorage.length; i++) {
-            var key = localStorage.key(i);
+          let result = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            let key = localStorage.key(i);
             if (key.startsWith('__') || key === 'devtools') continue;
             try { result[key] = localStorage.getItem(key); } catch (e) { /* ignore */ }
           }

@@ -29,7 +29,7 @@ function start(mainWindow, options) {
   options = options || {};
 
   // Feature flag: FLUTTER_SKILL_BRIDGE=1 or --flutter-skill flag
-  var enabled = options.enabled;
+  let enabled = options.enabled;
   if (enabled === undefined) {
     enabled = process.env.FLUTTER_SKILL_BRIDGE === '1' ||
               process.argv.includes('--flutter-skill');
@@ -41,7 +41,7 @@ function start(mainWindow, options) {
   }
 
   try {
-    var FlutterSkillElectron = require('../../packages/flutter-skill-bridge/flutter-skill-electron.js');
+    let FlutterSkillElectron = require('../../packages/flutter-skill-bridge/flutter-skill-electron.js');
     if (typeof FlutterSkillElectron === 'object' && FlutterSkillElectron.default) {
       FlutterSkillElectron = FlutterSkillElectron.default;
     }

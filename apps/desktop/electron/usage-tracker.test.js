@@ -20,8 +20,8 @@ jest.mock("../electron/logger", () => ({
 }))
 
 describe("UsageTracker", () => {
-  var UsageTracker
-  var tracker
+  let UsageTracker
+  let tracker
 
   beforeAll(function() {
     UsageTracker = require("../electron/usage-tracker")
@@ -60,7 +60,7 @@ describe("UsageTracker", () => {
   })
 
   test("trackDaily records per-day stats", function() {
-    var today = new Date().toISOString().split("T")[0]
+    let today = new Date().toISOString().split("T")[0]
     tracker.trackDaily("articles_published", 3)
     tracker.trackDaily("articles_published", 1)
     expect(tracker._data.daily[today].articles_published).toBe(4)
@@ -70,27 +70,27 @@ describe("UsageTracker", () => {
     tracker.trackFeatureUsage("publish", "click")
     tracker.trackFeatureUsage("login", "success")
     tracker.trackEvent("app", "start")
-    var stats = tracker.getStats()
+    let stats = tracker.getStats()
     expect(stats.features.publish.click).toBe(1)
     expect(stats.features.login.success).toBe(1)
     expect(stats.events).toBeDefined()
   })
 
   test("save persists data to disk", function() {
-    var fs = require("fs")
+    let fs = require("fs")
     tracker.trackFeatureUsage("test", "click")
     tracker.save()
     expect(fs.writeFileSync).toHaveBeenCalled()
-    var callArg = fs.writeFileSync.mock.calls[0][1]
-    var parsed = JSON.parse(callArg)
+    let callArg = fs.writeFileSync.mock.calls[0][1]
+    let parsed = JSON.parse(callArg)
     expect(parsed.features.test.click).toBe(1)
   })
 
   test("getDailyStats returns daily breakdown", function() {
-    var today = new Date().toISOString().split("T")[0]
+    let today = new Date().toISOString().split("T")[0]
     tracker.trackDaily("articles_published", 5)
     tracker.trackDaily("platforms_used", 3)
-    var daily = tracker.getDailyStats()
+    let daily = tracker.getDailyStats()
     expect(daily[today].articles_published).toBe(5)
     expect(daily[today].platforms_used).toBe(3)
   })
@@ -105,8 +105,8 @@ describe("UsageTracker", () => {
   })
 
   test("load reads from disk", function() {
-    var fs = require("fs")
-    var saved = { events: [{feature:"test",action:"load"}], features: {test:{load:1}}, daily: {}, sessions: 1, since: "2026-01-01" }
+    let fs = require("fs")
+    let saved = { events: [{feature:"test",action:"load"}], features: {test:{load:1}}, daily: {}, sessions: 1, since: "2026-01-01" }
     fs.existsSync.mockReturnValue(true)
     fs.readFileSync.mockReturnValue(JSON.stringify(saved))
     tracker.load()

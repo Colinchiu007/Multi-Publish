@@ -9,7 +9,7 @@ const path = require("path");
 const log = require("./logger");
 
 // ?????? api-publish-engine ???????
-var engine = null;
+let engine = null;
 try {
   engine = require("../../packages/api-publish-engine/src/index");
 } catch (e) {
@@ -33,18 +33,18 @@ async function publishViaApi(platform, params) {
     return { success: false, message: "API publish engine not loaded" };
   }
   try {
-    var adapter = engine.getAdapter(platform);
+    let adapter = engine.getAdapter(platform);
     if (!adapter) {
       return { success: false, message: "Unsupported API platform: " + platform };
     }
-    var taskData = {
+    let taskData = {
       title: params.title || "",
       content: params.content || "",
       tags: params.tags || [],
       images: params.images || [],
       video: params.video || null,
     };
-    var result = await adapter.execute(taskData, params.cookies || "");
+    let result = await adapter.execute(taskData, params.cookies || "");
     if (result && result.success) {
       log.info("APIPlatformAdapter", platform + " publish success, id=" + (result.publishId || result.url || ""));
       return {

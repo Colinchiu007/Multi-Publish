@@ -10,7 +10,7 @@ const path = require("path")
 const { app } = require("electron")
 const log = require("./logger")
 
-var _counter = 0
+let _counter = 0
 function _uid() {
   _counter++
   return "tpl_" + Date.now() + "_" + _counter
@@ -36,7 +36,7 @@ class TemplateManager {
 
   save() {
     try {
-      var dir = path.dirname(this._dataPath)
+      let dir = path.dirname(this._dataPath)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(this._dataPath, JSON.stringify(this._templates, null, 2), "utf-8")
     } catch (e) {
@@ -51,7 +51,7 @@ class TemplateManager {
 
   get(id) {
     if (!this._loaded) this.load()
-    for (var i = 0; i < this._templates.length; i++) {
+    for (let i = 0; i < this._templates.length; i++) {
       if (this._templates[i].id === id) return this._templates[i]
     }
     return null
@@ -59,9 +59,9 @@ class TemplateManager {
 
   add(tpl) {
     if (!this._loaded) this.load()
-    var template = {}
-    var keys = Object.keys(tpl)
-    for (var i = 0; i < keys.length; i++) {
+    let template = {}
+    let keys = Object.keys(tpl)
+    for (let i = 0; i < keys.length; i++) {
       template[keys[i]] = tpl[keys[i]]
     }
     if (!template.id) template.id = _uid()
@@ -74,10 +74,10 @@ class TemplateManager {
 
   update(id, updates) {
     if (!this._loaded) this.load()
-    for (var i = 0; i < this._templates.length; i++) {
+    for (let i = 0; i < this._templates.length; i++) {
       if (this._templates[i].id === id) {
-        var keys = Object.keys(updates)
-        for (var j = 0; j < keys.length; j++) {
+        let keys = Object.keys(updates)
+        for (let j = 0; j < keys.length; j++) {
           this._templates[i][keys[j]] = updates[keys[j]]
         }
         this._templates[i].updatedAt = new Date().toISOString()
@@ -90,9 +90,9 @@ class TemplateManager {
 
   remove(id) {
     if (!this._loaded) this.load()
-    var newList = []
-    var found = false
-    for (var i = 0; i < this._templates.length; i++) {
+    let newList = []
+    let found = false
+    for (let i = 0; i < this._templates.length; i++) {
       if (this._templates[i].id === id) {
         found = true
       } else {
@@ -112,8 +112,8 @@ class TemplateManager {
 
   listByCategory(category) {
     if (!this._loaded) this.load()
-    var result = []
-    for (var i = 0; i < this._templates.length; i++) {
+    let result = []
+    for (let i = 0; i < this._templates.length; i++) {
       if (this._templates[i].category === category) result.push(this._templates[i])
     }
     return result
@@ -122,8 +122,8 @@ class TemplateManager {
   seedDefaults() {
     if (!this._loaded) this.load()
     if (this._templates.length > 0) return
-    var presets = TemplateManager.getPresets()
-    for (var i = 0; i < presets.length; i++) {
+    let presets = TemplateManager.getPresets()
+    for (let i = 0; i < presets.length; i++) {
       this.add(presets[i])
     }
     this.save()

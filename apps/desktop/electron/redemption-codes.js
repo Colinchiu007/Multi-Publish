@@ -8,40 +8,40 @@
  * 验证: decode + verify HMAC 签名，检查过期
  */
 
-var crypto = require("crypto")
+let crypto = require("crypto")
 
-var SECRET = process.env.REDEMPTION_SECRET || "mp-redemption-seed-v1"
-var CODE_PREFIX = "MP"
-var SEGMENT_LENGTH = 4 // 每个段 4 字符
-var SIGNATURE_LENGTH = 4 // 签名短码 4 字符
+let SECRET = process.env.REDEMPTION_SECRET || "mp-redemption-seed-v1"
+let CODE_PREFIX = "MP"
+let SEGMENT_LENGTH = 4 // 每个段 4 字符
+let SIGNATURE_LENGTH = 4 // 签名短码 4 字符
 
 // ─── 内部工具 ─────────────────────────────
 
 function randomSegment(length) {
-  var chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // 去掉容易混淆的 I/O/0/1
-  var result = ""
-  var bytes
+  let chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // 去掉容易混淆的 I/O/0/1
+  let result = ""
+  let bytes
   try {
     bytes = crypto.randomBytes(length)
   } catch (e) {
     // fallback for test mock
     bytes = Buffer.alloc(length, 0x42)
   }
-  for (var i = 0; i < length; i++) {
+  for (let i = 0; i < length; i++) {
     result += chars[bytes[i] % chars.length]
   }
   return result
 }
 
 function computeSignature(payload) {
-  var hmac = crypto.createHmac("sha256", SECRET)
+  let hmac = crypto.createHmac("sha256", SECRET)
   hmac.update(payload)
   return hmac.digest("hex").toUpperCase().slice(0, SIGNATURE_LENGTH)
 }
 
 function encodeSegment(data) {
   // Convert data to base62-like short string
-  var hash = crypto.createHash("sha256").update(String(data) + SECRET).digest("hex")
+  let hash = crypto.createHash("sha256").update(String(data) + SECRET).digest("hex")
   return hash.slice(0, SEGMENT_LENGTH).toUpperCase()
 }
 
@@ -53,17 +53,17 @@ function encodeSegment(data) {
  * @returns {string} 兑换码
  */
 function generate(metadata) {
-  var rand = randomSegment(SEGMENT_LENGTH)
-  var extra = randomSegment(SEGMENT_LENGTH)
-  var payload = CODE_PREFIX + "-" + rand + "-" + extra
+  let rand = randomSegment(SEGMENT_LENGTH)
+  let extra = randomSegment(SEGMENT_LENGTH)
+  let payload = CODE_PREFIX + "-" + rand + "-" + extra
 
   // 如果有 metadata，签名时包含进去
   if (metadata) {
-    var metaStr = JSON.stringify(metadata)
+    let metaStr = JSON.stringify(metadata)
     payload += "-" + encodeSegment(metaStr)
   }
 
-  var sig = computeSignature(payload)
+  let sig = computeSignature(payload)
   return payload + "-" + sig
 }
 
@@ -77,7 +77,7 @@ function validate(code) {
     return { valid: false, reason: "invalid_format" }
   }
 
-  var parts = code.trim().split("-")
+  let parts = code.trim().split("-")
   if (parts.length < 4 || parts.length > 5) {
     return { valid: false, reason: "invalid_format" }
   }
@@ -88,13 +88,13 @@ function validate(code) {
   }
 
   // 分离签名
-  var sig = parts.pop()
-  var payload = parts.join("-")
+  let sig = parts.pop()
+  let payload = parts.join("-")
 
   // 验证签名
-  var expectedSig = computeSignature(payload)
-  var sigBuffer = Buffer.from(sig, "utf-8")
-  var expectedBuffer = Buffer.from(expectedSig, "utf-8")
+  let expectedSig = computeSignature(payload)
+  let sigBuffer = Buffer.from(sig, "utf-8")
+  let expectedBuffer = Buffer.from(expectedSig, "utf-8")
 
   if (sigBuffer.length !== expectedBuffer.length) {
     return { valid: false, reason: "invalid_signature" }
@@ -109,7 +109,7 @@ function validate(code) {
   }
 
   // 如果有第 5 段（metadata），尝试解码
-  var data = null
+  let data = null
   if (parts.length > 2) {
     // parts is now ["MP", "RAND", "EXTRA"] or ["MP", "RAND", "EXTRA", "META"]
     // metadata is the 4th element
@@ -127,8 +127,8 @@ function validate(code) {
  * @returns {string[]} 兑换码数组
  */
 function generateBatch(count, metadata) {
-  var codes = []
-  for (var i = 0; i < count; i++) {
+  let codes = []
+  for (let i = 0; i < count; i++) {
     codes.push(generate(metadata))
   }
   return codes

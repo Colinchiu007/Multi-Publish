@@ -5,7 +5,7 @@ function t(n,fn){try{fn();p++;console.log("  "+String.fromCodePoint(0x2705)+" "+
 function eq(a,b){assert.deepStrictEqual(a,b);}
 
 console.log("=== api-platform-adapter ===");
-var adapter;
+let adapter;
 try{adapter=require("../api-platform-adapter");}catch(e){console.log("  Skipped: non-Electron env");process.exit(0);}
 t("exports publishViaApi",function(){eq(typeof adapter.publishViaApi,"function");});
 t("exports isApiPlatform",function(){eq(typeof adapter.isApiPlatform,"function");});

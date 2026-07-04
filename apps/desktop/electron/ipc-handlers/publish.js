@@ -8,7 +8,7 @@
  */
 
 function registerHandlers(ipcMain, deps) {
-  var EC = require('../error-codes').ERROR
+  let EC = require('../core/error-codes').ERROR
   const { taskQueue, history, BrowserWindow, log } = deps
 
   ipcMain.handle('publish:wechat', async (event, articleData) => {

@@ -10,16 +10,16 @@
  * - 订单持久化到 userData/orders.json（加密存储）
  */
 
-var crypto = require('crypto')
-var fs = require('fs')
-var path = require('path')
-var log = require('./logger')
+let crypto = require('crypto')
+let fs = require('fs')
+let path = require('path')
+let log = require('./logger')
 
-var PLANS = {
+let PLANS = {
   pro: { amount: 99, licenseType: 'pro', features: 'all' },
 }
 
-var PAYMENT_METHODS = ['alipay', 'wechat']
+let PAYMENT_METHODS = ['alipay', 'wechat']
 
 function PaymentManager() {
   this._orders = []
@@ -35,7 +35,7 @@ function PaymentManager() {
 PaymentManager.prototype._loadOrders = function() {
   try {
     if (fs.existsSync(this._dataPath)) {
-      var raw = fs.readFileSync(this._dataPath, 'utf-8').trim()
+      let raw = fs.readFileSync(this._dataPath, 'utf-8').trim()
       if (raw) {
         this._orders = JSON.parse(raw)
         log.info('PaymentManager', 'Loaded ' + this._orders.length + ' orders')
@@ -49,7 +49,7 @@ PaymentManager.prototype._loadOrders = function() {
 
 PaymentManager.prototype._saveOrders = function() {
   try {
-    var dir = path.dirname(this._dataPath)
+    let dir = path.dirname(this._dataPath)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(this._dataPath, JSON.stringify(this._orders, null, 2), 'utf-8')
   } catch(e) {
@@ -61,7 +61,7 @@ PaymentManager.prototype.createOrder = function(plan, options) {
   if (!PLANS[plan]) throw new Error('Unknown plan: ' + plan)
   if (PAYMENT_METHODS.indexOf(options.method) === -1) throw new Error('Unsupported payment method: ' + options.method)
 
-  var order = {
+  let order = {
     id: crypto.randomUUID(),
     plan: plan,
     method: options.method,
@@ -80,7 +80,7 @@ PaymentManager.prototype.createOrder = function(plan, options) {
 }
 
 PaymentManager.prototype.getOrder = function(orderId) {
-  for (var i = 0; i < this._orders.length; i++) {
+  for (let i = 0; i < this._orders.length; i++) {
     if (this._orders[i].id === orderId) return this._orders[i]
   }
   return null
@@ -91,12 +91,12 @@ PaymentManager.prototype.listOrders = function() {
 }
 
 PaymentManager.prototype.getOrderStatus = function(orderId) {
-  var order = this.getOrder(orderId)
+  let order = this.getOrder(orderId)
   return order ? order.status : null
 }
 
 PaymentManager.prototype.completePayment = function(orderId, txnId) {
-  var order = this.getOrder(orderId)
+  let order = this.getOrder(orderId)
   if (!order) return false
   if (order.status !== 'pending') return false
 
@@ -107,8 +107,8 @@ PaymentManager.prototype.completePayment = function(orderId, txnId) {
 
   // Activate Pro license
   try {
-    var LicenseManager = require('./license-manager')
-    var lm = LicenseManager.getInstance()
+    let LicenseManager = require('./license-manager')
+    let lm = LicenseManager.getInstance()
     lm.activate('PAY-' + order.plan.toUpperCase() + '-' + order.id)
     log.info('PaymentManager', 'License activated for order: ' + order.id)
   } catch(e) {
@@ -119,7 +119,7 @@ PaymentManager.prototype.completePayment = function(orderId, txnId) {
 }
 
 PaymentManager.prototype.failPayment = function(orderId, errorMsg) {
-  var order = this.getOrder(orderId)
+  let order = this.getOrder(orderId)
   if (!order) return false
   if (order.status !== 'pending') return false
 
@@ -131,7 +131,7 @@ PaymentManager.prototype.failPayment = function(orderId, errorMsg) {
 }
 
 PaymentManager.prototype.cancelPayment = function(orderId) {
-  var order = this.getOrder(orderId)
+  let order = this.getOrder(orderId)
   if (!order) return false
   if (order.status !== 'pending') return false
 
