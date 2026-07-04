@@ -11,10 +11,10 @@
           当前为免费版，部分功能受限
         </template>
       </div>
-      <button class="banner-btn" @click="('upgrade')">
+      <button class="banner-btn" @click="$emit('upgrade')">
         {{ isTrial ? '立即购买' : '升级 Pro' }}
       </button>
-      <button class="banner-close" @click="('dismiss')">✕</button>
+      <button class="banner-close" @click="$emit('dismiss')">✕</button>
     </div>
   </div>
 </template>
