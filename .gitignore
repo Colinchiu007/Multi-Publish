@@ -70,3 +70,5 @@ scripts/*.js
 screenshot_script*.js
 temp_debug.txt
 coverage/
+# TypeScript compiled output
+dist-ts/

@@ -1,6 +1,7 @@
 module.exports = {
   testMatch: [
     '<rootDir>/tests/**/*.test.js',
+    '<rootDir>/electron/core/**/*.test.js',
   ],
   testPathIgnorePatterns: [
     '/node_modules/',
