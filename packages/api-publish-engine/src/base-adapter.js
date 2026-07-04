@@ -1,4 +1,4 @@
-﻿const axios = require("axios");
+const axios = require("axios");
 const { CancelToken } = require("./cancel-token");
 const { ProgressEmitter, publishStatusEnum } = require("./progress-emitter");
 const { formatContent } = require("./content-formatter");

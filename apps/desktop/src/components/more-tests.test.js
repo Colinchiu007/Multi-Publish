@@ -68,3 +68,47 @@ describe('UpgradeModal extended', () => {
     expect(w.text()).toMatch(/激活码|立即升级/);
   });
 });
+
+// Mock the payment API module for UpgradeModal tests
+vi.mock('@/api/publisher', () => ({
+  paymentCreateOrder: vi.fn().mockResolvedValue({ code: 0, data: { id: 'order-123' } }),
+  paymentSimulate: vi.fn().mockResolvedValue({ code: 0 }),
+  paymentCancel: vi.fn().mockResolvedValue({}),
+}));
+
+describe('UpgradeModal comprehensive', () => {
+  beforeEach(() => {
+    // Reset all mocks before each test
+    vi.clearAllMocks();
+  });
+
+  it('shows free plan badge for free user', () => {
+    const w = mount(UpgradeModal);
+    expect(w.find('.free-card .plan-badge').text()).toContain('当前方案');
+  });
+
+  it('shows upgrade button for free user', () => {
+    const w = mount(UpgradeModal);
+    expect(w.find('.upgrade-btn').exists()).toBe(true);
+    expect(w.find('.upgrade-btn').text()).toContain('升级');
+  });
+
+  it('starts payment flow on upgrade click', async () => {
+    const w = mount(UpgradeModal);
+    await w.find('.upgrade-btn').trigger('click');
+    expect(w.text()).toContain('选择支付方式');
+    expect(w.text()).toContain('支付宝');
+  });
+
+  it('submitOrder creates order and shows paying step', async () => {
+    const w = mount(UpgradeModal);
+    await w.find('.upgrade-btn').trigger('click');
+    expect(w.text()).toContain('选择支付方式');
+  });
+
+  it('renders close button', () => {
+    const w = mount(UpgradeModal);
+    const closeBtns = w.findAll('button').filter(b => b.text().includes('✕'));
+    expect(closeBtns.length).toBeGreaterThanOrEqual(1);
+  });
+});

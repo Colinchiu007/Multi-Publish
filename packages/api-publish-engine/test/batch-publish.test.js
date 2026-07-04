@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 
 // TDD: batchPublish 尚未实现，定义期望的接口
 let batchPublish;

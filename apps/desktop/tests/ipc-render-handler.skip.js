@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 let pass=0,fail=0;
 
 // async-aware test runner

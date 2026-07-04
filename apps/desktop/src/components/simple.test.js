@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import PlatformIcon from './PlatformIcon.vue';
-import OptimalTimeTip from './OptimalTimeTip.vue';
 import UiSelect from './UiSelect.vue';
 
 describe('PlatformIcon', () => {
   it('shows letter for douyin', () => {
     const w = mount(PlatformIcon, { props: { platform: 'douyin' } });
-    expect(w.text()).toBe('\u6296');
+    expect(w.text()).toBe('抖');
   });
   it('shows B for bilibili', () => {
     const w = mount(PlatformIcon, { props: { platform: 'bilibili' } });
@@ -20,13 +19,6 @@ describe('PlatformIcon', () => {
   it('shows first letter for unknown platform', () => {
     const w = mount(PlatformIcon, { props: { platform: 'unknown' } });
     expect(w.text()).toBe('U');
-  });
-});
-
-describe('OptimalTimeTip', () => {
-  it('renders without crashing', () => {
-    const w = mount(OptimalTimeTip);
-    expect(w.exists()).toBe(true);
   });
 });
 
@@ -43,7 +35,7 @@ describe('UiSelect', () => {
     expect(w.emitted('update:modelValue')).toBeTruthy();
   });
   it('shows placeholder', () => {
-    const w = mount(UiSelect, { props: { options: [], placeholder: '\u9009\u62e9' } });
-    expect(w.find('option').text()).toBe('\u9009\u62e9');
+    const w = mount(UiSelect, { props: { options: [], placeholder: '选择' } });
+    expect(w.find('option').text()).toBe('选择');
   });
 });

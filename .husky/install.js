@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 安装质量节拍 git hooks
  * 在项目根目录运行：node .husky/install.js
  */

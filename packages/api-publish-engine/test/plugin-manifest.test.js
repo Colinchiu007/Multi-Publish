@@ -1,4 +1,4 @@
-﻿/**
+/**
  * PluginLoader Level 2A — manifest.json 校验测试
  * 
  * 测试覆盖:

@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 const { randomUA, randomDelay, randomizeHeaders } = require("../src/anti-detect");
 
 let passed = 0, failed = 0;

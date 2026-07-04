@@ -1,4 +1,4 @@
-﻿/**
+/**
  * platform-selectors-cross-platform.test.js
  * V1.1: Cross-platform selector consistency checks
  * Runs independently from platform-selectors.test.js

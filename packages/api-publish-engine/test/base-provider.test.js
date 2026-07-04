@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 const Base = require("../upload/base-provider");
 
 let p=0,f=0;

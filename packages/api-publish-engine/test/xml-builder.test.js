@@ -1,4 +1,4 @@
-﻿const assert = require("assert");
+const assert = require("assert");
 const { FinderXmlBuilder } = require("../src/xml-builder");
 
 let passed = 0, failed = 0;
