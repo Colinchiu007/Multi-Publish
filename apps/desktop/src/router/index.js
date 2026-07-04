@@ -76,6 +76,11 @@ const routes = [
     name: 'Intelligence',
     component: () => import('@/views/Intelligence.vue')
   },
+  {
+    path: '/calendar',
+    name: 'Calendar',
+    component: () => import('@/views/Calendar.vue')
+  },
 ]
 
 const router = createRouter({
