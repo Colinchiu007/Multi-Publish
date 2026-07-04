@@ -217,6 +217,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       licenseHasFeature: (name) => ipcRenderer.invoke('license:has-feature', name),
       licenseFeatures: () => ipcRenderer.invoke('license:features'),
 
+      // ─── AI 写作 API ───────────────────────────
+      aiGenerateTitles: (topic) => ipcRenderer.invoke('ai:generate-titles', topic),
+      aiGenerateSummary: (content) => ipcRenderer.invoke('ai:generate-summary', content),
+      aiEnhanceContent: (content, style) => ipcRenderer.invoke('ai:enhance-content', content, style),
+      aiIsConfigured: () => ipcRenderer.invoke('ai:is-configured'),
+
       onNavigate: (cb) => {
         const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
       },
