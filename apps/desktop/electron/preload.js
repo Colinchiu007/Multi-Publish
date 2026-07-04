@@ -223,6 +223,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       aiEnhanceContent: (content, style) => ipcRenderer.invoke('ai:enhance-content', content, style),
       aiIsConfigured: () => ipcRenderer.invoke('ai:is-configured'),
 
+      // ─── 离线模式 API ─────────────────────────
+      offlineStatus: () => ipcRenderer.invoke('offline:status'),
+      offlineIsOffline: () => ipcRenderer.invoke('offline:is-offline'),
+      offlineCachedTasks: () => ipcRenderer.invoke('offline:cached-tasks'),
+      offlineAddToCache: (task) => ipcRenderer.invoke('offline:add-to-cache', task),
+      offlineClearCache: () => ipcRenderer.invoke('offline:clear-cache'),
+      onOfflineRestored: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('offline:restored', h); return () => ipcRenderer.removeListener('offline:restored', h); },
+
       onNavigate: (cb) => {
         const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
       },

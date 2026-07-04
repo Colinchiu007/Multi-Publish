@@ -4,6 +4,15 @@
 
 ## [v2.0.1] - 2026-07-04
 
+### Added
+### Added — P1 离线模式 (OfflineManager)
+- **OfflineManager 模块**: 网络状态检测 (electron.net online/offline)
+  - 自动缓存发布任务到 userData/offline-publish-cache.json
+  - 网络恢复后自动将缓存任务重新加入任务队列
+  - 前端离线横幅提示，显示待发布任务数
+  - IPC 接口: offline:status / offline:is-offline / offline:cached-tasks / offline:add-to-cache / offline:clear-cache
+- **publish:batch 离线感知**: 离线时自动缓存任务并提示"网络离线，任务已缓存"
+- **测试**: 11 单元测试全部通过
 ### Added — P2 支付接入 + 许可证系统 (LicenseManager)
 
 - **LicenseManager 模块**: 本地许可证管理（免费/试用/Pro）
