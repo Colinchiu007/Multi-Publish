@@ -1,5 +1,27 @@
 
 
+
+
+## [v2.0.1] - 2026-07-04
+
+### Added — P2 支付接入 + 许可证系统 (LicenseManager)
+
+- **LicenseManager 模块**: 本地许可证管理（免费/试用/Pro）
+  - 加密存储 license.json（XOR base64 防篡改）
+  - isPro/hasFeature/getFeatures 门控 API
+  - 7 天试用机制，过期自动降级
+- **IPC handlers**: license:info/activate/deactivate/activate-trial/has-feature/features
+- **Pinia store**: useLicenseStore — 许可证前端状态管理
+- **UpgradeModal 组件**: Pro 升级弹窗（方案对比 + 激活码输入 + 试用激活）
+- **测试**: 10 单元测试全部通过
+
+### Added — P3 内容模板 (TemplateManager 前端)
+
+- **IPC handlers**: template:list/get/add/update/delete/list-by-category/get-presets
+- **Pinia store**: useTemplateStore — 模板前端状态管理
+- **TemplatePicker 组件**: 模板选择面板（分类分组 + 内置标记 + 悬浮效果）
+- **Publish.vue 集成**: 非批量/批量模式均支持「📝 模板」按钮
+
 ## [v1.6.0] - 2026-07-03
 
 ### 设计体系 (Breaking Change)

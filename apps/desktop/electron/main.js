@@ -30,6 +30,7 @@ const CloudPublisher = require('./cloud-publisher')
 const flutterSkillBridge = require('./flutter-skill-bridge')
 const UsageTracker = require('./usage-tracker')
 const TemplateManager = require('./template-manager')
+const LicenseManager = require('./license-manager')
 
 // ─── 基础设施实例 ──────────────────────────
 const authViewManager = new AuthViewManager()
@@ -52,6 +53,7 @@ const analyticsService = new AnalyticsService()
 const PublishAlert = require('./publish-alert')
 const templateManager = new TemplateManager()
 templateManager.seedDefaults()
+const licenseManager = LicenseManager.getInstance()
 const publishMonitor = require('./publish-monitor')
 const systemTray = require('./system-tray')
 const hotkeys = require('./hotkeys')
@@ -356,6 +358,7 @@ app.whenReady().then(async () => {
     keywordMonitor,
     BACKEND_PLATFORMS,
     templateManager,
+    licenseManager,
   })
 
   // 使用量统计 IPC

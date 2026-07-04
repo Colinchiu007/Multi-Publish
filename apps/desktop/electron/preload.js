@@ -209,6 +209,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       templateListByCategory: (category) => ipcRenderer.invoke('template:list-by-category', category),
       templateGetPresets: () => ipcRenderer.invoke('template:get-presets'),
 
+      // ─── 许可证 API ────────────────────────────
+      licenseInfo: () => ipcRenderer.invoke('license:info'),
+      licenseActivate: (key) => ipcRenderer.invoke('license:activate', key),
+      licenseDeactivate: () => ipcRenderer.invoke('license:deactivate'),
+      licenseActivateTrial: () => ipcRenderer.invoke('license:activate-trial'),
+      licenseHasFeature: (name) => ipcRenderer.invoke('license:has-feature', name),
+      licenseFeatures: () => ipcRenderer.invoke('license:features'),
+
       onNavigate: (cb) => {
         const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
       },
