@@ -2,8 +2,8 @@
  * Offline IPC handlers
  */
 function registerHandlers(ipcMain, deps) {
-  var EC = require('../error-codes').ERROR
-  var offlineManager = require("../offline-manager")
+  let EC = require('../core/error-codes').ERROR
+  let offlineManager = require("../offline-manager")
 
   ipcMain.handle("offline:status", async function() {
     try {
@@ -25,7 +25,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle("offline:add-to-cache", async function(event, task) {
     try {
-      var ok = offlineManager.addToCache(task)
+      let ok = offlineManager.addToCache(task)
       return { code: ok ? 0 : -1, message: ok ? "已缓存" : "缓存失败" }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })

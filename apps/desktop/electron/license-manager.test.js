@@ -20,8 +20,8 @@ jest.mock("../electron/logger", () => ({
 }))
 
 describe("LicenseManager", function() {
-  var LicenseManager
-  var manager
+  let LicenseManager
+  let manager
 
   beforeAll(function() {
     LicenseManager = require("../electron/license-manager")
@@ -59,14 +59,14 @@ describe("LicenseManager", function() {
   })
 
   test("getFeatures returns free features for free users", function() {
-    var features = manager.getFeatures()
+    let features = manager.getFeatures()
     expect(Array.isArray(features)).toBe(true)
     expect(features).not.toContain("batch-publish")
   })
 
   test("getFeatures returns pro features for pro users", function() {
     manager.activate("PRO-KEY")
-    var features = manager.getFeatures()
+    let features = manager.getFeatures()
     expect(features).toContain("batch-publish")
   })
 
@@ -77,24 +77,24 @@ describe("LicenseManager", function() {
   })
 
   test("save persists to disk", function() {
-    var fs = require("fs")
+    let fs = require("fs")
     manager.activate("SAVE-TEST")
     manager.save()
     expect(fs.writeFileSync).toHaveBeenCalled()
   })
 
   test("load reads obfuscated data from disk", function() {
-    var fs = require("fs")
+    let fs = require("fs")
     fs.existsSync.mockReturnValue(true)
     // Use the LicenseManager's own obfuscation
-    var crypto = require("crypto")
-    var raw = JSON.stringify({
+    let crypto = require("crypto")
+    let raw = JSON.stringify({
       type: "pro",
       licenseKey: "LOADED-KEY",
       activatedAt: "2026-07-04T00:00:00Z",
     })
-    var buf = Buffer.from(raw, "utf-8")
-    var xor = Buffer.alloc(buf.length)
+    let buf = Buffer.from(raw, "utf-8")
+    let xor = Buffer.alloc(buf.length)
     for (var i = 0; i < buf.length; i++) xor[i] = buf[i] ^ 0x4d
     fs.readFileSync.mockReturnValue(xor.toString("base64"))
     manager.load()

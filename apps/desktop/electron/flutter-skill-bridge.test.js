@@ -32,26 +32,26 @@ describe("FlutterSkillBridge", () => {
   })
 
   test("isRunning returns false when not started", function() {
-    var bridge = require("../electron/flutter-skill-bridge")
+    let bridge = require("../electron/flutter-skill-bridge")
     expect(bridge.isRunning()).toBe(false)
   })
 
   test("start does nothing when disabled (no env var)", function() {
-    var bridge = require("../electron/flutter-skill-bridge")
+    let bridge = require("../electron/flutter-skill-bridge")
     bridge.start(null)
     expect(bridge.isRunning()).toBe(false)
   })
 
   test("start enables bridge when FLUTTER_SKILL_BRIDGE=1", function() {
     process.env.FLUTTER_SKILL_BRIDGE = "1"
-    var bridge = require("../electron/flutter-skill-bridge")
+    let bridge = require("../electron/flutter-skill-bridge")
     bridge.start({})
     expect(bridge.isRunning()).toBe(true)
   })
 
   test("stop sets isRunning to false", function() {
     process.env.FLUTTER_SKILL_BRIDGE = "1"
-    var bridge = require("../electron/flutter-skill-bridge")
+    let bridge = require("../electron/flutter-skill-bridge")
     bridge.start({})
     expect(bridge.isRunning()).toBe(true)
     bridge.stop()
@@ -60,11 +60,11 @@ describe("FlutterSkillBridge", () => {
 
   test("start with --flutter-skill arg flag", function() {
     process.argv.push("--flutter-skill")
-    var bridge = require("../electron/flutter-skill-bridge")
+    let bridge = require("../electron/flutter-skill-bridge")
     bridge.start({})
     expect(bridge.isRunning()).toBe(true)
     // Cleanup
-    var idx = process.argv.indexOf("--flutter-skill")
+    let idx = process.argv.indexOf("--flutter-skill")
     if (idx >= 0) process.argv.splice(idx, 1)
   })
 })

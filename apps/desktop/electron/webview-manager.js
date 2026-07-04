@@ -101,7 +101,7 @@ class WebviewManager {
       view.webContents.on('did-finish-load', () => {
         view.webContents.executeJavaScript(`
           (function() {
-            var data = ${lsData};
+            let data = ${lsData};
             Object.keys(data).forEach(function(k) {
               try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }
             });

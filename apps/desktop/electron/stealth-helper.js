@@ -33,7 +33,7 @@ function STEALTH_SCRIPT() {
   // 2. Override chrome.runtime to simulate extensions
   // 很多平台（如抖音创作者平台）会检测是否安装了特定扩展
   try {
-    var origChrome = window.chrome || {}
+    let origChrome = window.chrome || {}
     window.chrome = {
       runtime: {
         id: 'aohghmighlieiainnegkcijnfilokake', // Google Docs Offline
@@ -53,7 +53,7 @@ function STEALTH_SCRIPT() {
   // 3. Override navigator.plugins
   // 真实浏览器有 plugins 列表，CDP 检测器会检查长度
   try {
-    var fakePlugins = [
+    let fakePlugins = [
       { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
       { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
       { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
@@ -61,13 +61,13 @@ function STEALTH_SCRIPT() {
     // PluginArray.prototype 在部分 Electron 版本不可重写，用尽量安全的方案
     Object.defineProperty(navigator, 'plugins', {
       get: function() {
-        var arr = []
-        for (var i = 0; i < fakePlugins.length; i++) {
+        let arr = []
+        for (let i = 0; i < fakePlugins.length; i++) {
           arr[i] = fakePlugins[i]
         }
         arr.length = fakePlugins.length
         arr.item = function(i) { return this[i] || null }
-        arr.namedItem = function(n) { for (var j = 0; j < this.length; j++) { if (this[j].name === n) return this[j] } return null }
+        arr.namedItem = function(n) { for (let j = 0; j < this.length; j++) { if (this[j].name === n) return this[j] } return null }
         arr.refresh = function() {}
         return arr
       },
@@ -85,7 +85,7 @@ function STEALTH_SCRIPT() {
 
   // 5. Override Permission query to hide automation
   try {
-    var origQuery = window.navigator.permissions.query
+    let origQuery = window.navigator.permissions.query
     window.navigator.permissions.query = function(perm) {
       if (perm && perm.name === 'clipboard-read') {
         return Promise.resolve({ state: 'granted', onchange: null })
