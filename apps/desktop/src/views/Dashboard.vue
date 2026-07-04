@@ -36,6 +36,65 @@
         </div>
       </div>
 
+      <!-- 发布统计 -->
+      <div v-if="statsData" class="cohere-stat-grid" style="margin-bottom:var(--space-md)">
+        <div class="cohere-stat-card">
+          <div class="stat-value">{{ statsData.total }}</div>
+          <div class="stat-label">累计发布</div>
+        </div>
+        <div class="cohere-stat-card">
+          <div class="stat-value" style="color:var(--success)">{{ statsData.success }}</div>
+          <div class="stat-label">成功</div>
+        </div>
+        <div class="cohere-stat-card">
+          <div class="stat-value" style="color:var(--coral)">{{ statsData.failed }}</div>
+          <div class="stat-label">失败</div>
+        </div>
+        <div class="cohere-stat-card">
+          <div class="stat-value">{{ statsData.successRate || 0 }}%</div>
+          <div class="stat-label">成功率</div>
+        </div>
+      </div>
+
+      <!-- 发布趋势（最近 14 天） -->
+      <div v-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card" style="cursor:default;margin-bottom:var(--space-md);padding:16px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md)">📈 发布趋势（近 14 天）</div>
+        <div style="display:flex;align-items:flex-end;gap:4px;height:80px;padding:0 4px">
+          <div v-for="(d, i) in last14Days" :key="d.date" :title="d.date + ': ' + d.total + ' 篇'" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+            <div :style="{width:'100%', height: Math.max(4, (d.total / dailyMax) * 60) + 'px', background: d.total > 0 ? 'var(--coral, #f56c6c)' : 'var(--border, #e0e0e0)', borderRadius: '3px 3px 0 0', opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3, transition: 'height 0.3s'}"></div>
+            <span style="font-size:9px;color:var(--muted);white-space:nowrap">{{ d.date.slice(5) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 平台分布 -->
+      <div v-if="statsData && platformStats.length > 0" class="cohere-card" style="cursor:default;margin-bottom:var(--space-md);padding:16px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md)">📊 平台分布</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div v-for="p in platformStats" :key="p.platform" style="display:flex;align-items:center;gap:8px">
+            <span style="width:60px;font-size:12px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap">{{ platformName(p.platform) }}</span>
+            <div style="flex:1;height:16px;background:var(--border);border-radius:8px;overflow:hidden">
+              <div :style="{width: (p.total / maxPlatformTotal) * 100 + '%', height: '100%', background: 'var(--coral, #f56c6c)', borderRadius: '8px', opacity: 0.8, transition: 'width 0.3s'}"></div>
+            </div>
+            <span style="width:50px;text-align:right;font-size:12px;color:var(--muted)">{{ p.total }} 篇</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 最近发布 -->
+      <div v-if="recentPublishes.length > 0" class="cohere-card" style="cursor:default;margin-bottom:var(--space-md);padding:16px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md)">⚡ 最近发布</div>
+        <ul class="cohere-timeline">
+          <li v-for="r in recentPublishes" :key="r.id" class="cohere-timeline-item" :class="r.success !== false ? 'success' : 'danger'">
+            <span class="tl-time">{{ formatTime(r.timestamp) }}</span>
+            <span class="tl-text">
+              <span :style="{color: r.success !== false ? 'var(--success)' : 'var(--coral)'}">{{ r.success !== false ? '✅' : '❌' }}</span>
+              {{ platformName(r.platform) }}: {{ r.title || r.article?.title || '(无标题)' }}
+            </span>
+          </li>
+        </ul>
+      </div>
+
       <!-- 各平台数据 -->
       <div class="cohere-section-title">各平台数据</div>
       <div v-if="platformData.length === 0" class="cohere-empty">
@@ -89,6 +148,8 @@ const syncing = ref(false)
 const dismissBanner = ref(false)
 const showUpgradeModal = ref(false)
 const platformData = ref([])
+const statsData = ref(null)
+const recentPublishes = ref([])
 const platformStore = usePlatformStore()
 platformStore.load()
 
@@ -104,6 +165,29 @@ const totalViews = computed(() => platformData.value.filter(d => !d.error).reduc
 const totalComments = computed(() => platformData.value.filter(d => !d.error).reduce((s, d) => s + (d.comments || 0), 0))
 const totalFollowers = computed(() => platformData.value.filter(d => !d.error).reduce((s, d) => s + (d.followers || 0), 0))
 
+const last14Days = computed(() => {
+  if (!statsData.value || !statsData.value.daily) return []
+  return statsData.value.daily.slice(-14)
+})
+
+const dailyMax = computed(() => {
+  const days = last14Days.value
+  if (days.length === 0) return 1
+  return Math.max(1, ...days.map(d => d.total))
+})
+
+const platformStats = computed(() => {
+  if (!statsData.value || !statsData.value.perPlatform) return []
+  return Object.entries(statsData.value.perPlatform)
+    .map(([platform, data]) => ({ platform, ...data }))
+    .sort((a, b) => b.total - a.total)
+})
+
+const maxPlatformTotal = computed(() => {
+  if (platformStats.value.length === 0) return 1
+  return Math.max(1, ...platformStats.value.map(p => p.total))
+})
+
 async function refreshSync () {
   if (!syncAll) return
   syncing.value = true
@@ -115,6 +199,24 @@ async function refreshSync () {
   } finally {
     syncing.value = false
   }
+}
+
+async function loadStats () {
+  const api = window.electronAPI
+  if (!api || !api.dashboardStats) return
+  try {
+    const res = await api.dashboardStats()
+    if (res.code === 0) statsData.value = res.data
+  } catch (e) { /* ignore */ }
+}
+
+async function loadRecent () {
+  const api = window.electronAPI
+  if (!api || !api.historyList) return
+  try {
+    const res = await api.historyList({ limit: 5 })
+    if (res.code === 0) recentPublishes.value = (res.data && res.data.records) || []
+  } catch (e) { /* ignore */ }
 }
 
 async function loadCached () {
@@ -136,5 +238,5 @@ function doBenchmark () {
   benchmarkActiveTitle.value = benchmarkTitle.value.trim()
 }
 
-onMounted(() => { loadCached() })
+onMounted(() => { loadCached(); loadStats(); loadRecent() })
 </script>
