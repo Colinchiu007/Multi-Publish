@@ -37,7 +37,7 @@ Container.prototype.register = function(name, value) {
  * @param {Object} map ? { name: value, ... }
  */
 Container.prototype.registerMany = function(map) {
-  for (var key in map) {
+  for (let key in map) {
     if (map.hasOwnProperty(key)) this.register(key, map[key])
   }
 }
@@ -70,7 +70,7 @@ Container.prototype.has = function(name) {
  */
 Container.prototype.assertRequired = function(requiredNames) {
   let missing = []
-  for (var i = 0; i < requiredNames.length; i++) {
+  for (let i = 0; i < requiredNames.length; i++) {
     if (!this._registry[requiredNames[i]]) missing.push(requiredNames[i])
   }
   if (missing.length > 0) {
