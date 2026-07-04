@@ -8,6 +8,7 @@
  */
 
 function registerHandlers(ipcMain, deps) {
+  var EC = require('../error-codes').ERROR
   const { taskQueue, history, BrowserWindow, log } = deps
 
   ipcMain.handle('publish:wechat', async (event, articleData) => {
@@ -24,7 +25,7 @@ function registerHandlers(ipcMain, deps) {
         timeout: 180000,
       })
       return { code: 0, data: { taskId }, message: '任务已加入队列' }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('publish:batch', async (event, { platforms, article }) => {
