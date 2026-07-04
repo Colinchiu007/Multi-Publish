@@ -16,7 +16,7 @@
     "skipLibCheck": true
   },
   "include": [
-    "electron/core/**/*.ts", "electron/ipc-handlers/**/*.ts"
+    "electron/core/**/*.ts", "electron/ipc-handlers/**/*.ts", "electron/services/**/*.ts"
   ],
   "exclude": [
     "node_modules",
