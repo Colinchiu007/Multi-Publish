@@ -1,7 +1,7 @@
-{
+﻿{
     "name": "@multi-publish/desktop",
     "version": "2.0.0",
-    "description": "多平台内容一键发布桌面工�?(Electron + RpaViewManager)",
+    "description": "澶氬钩鍙板唴瀹逛竴閿彂甯冩闈㈠伐锟?(Electron + RpaViewManager)",
     "author": "Colin Chiu <colin.chiu@colinchiu.com>",
     "main": "electron/main.js",
     "scripts": {
@@ -46,6 +46,7 @@
         "electron-builder": "^25.1.8",
         "jest": "^30.4.2",
         "jsdom": "^29.1.1",
+        "typescript": "^6.0.3",
         "vitest": "^4.1.9",
         "wait-on": "^8.0.0"
     },
@@ -85,3 +86,4 @@
         }
     }
 }
+
