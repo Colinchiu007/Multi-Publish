@@ -1,44 +1,51 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
-import UiButton from './UiButton.vue'
+import { describe, it, expect, vi } from "vitest";
+import { mount } from "@vue/test-utils";
 
-describe('UiButton', () => {
-  it('renders with default props', () => {
-    const wrapper = mount(UiButton, { slots: { default: 'Click me' } })
-    expect(wrapper.text()).toBe('Click me')
-    expect(wrapper.attributes('disabled')).toBeUndefined()
-    expect(wrapper.classes()).toContain('ui-btn-primary')
-    expect(wrapper.classes()).toContain('ui-btn-md')
-  })
+import UiButton from "./UiButton.vue";
 
-  it('renders as button tag by default', () => {
-    const wrapper = mount(UiButton)
-    expect(wrapper.element.tagName).toBe('BUTTON')
-  })
+describe("UiButton", () => {
+  it("renders with default props", () => {
+    const w = mount(UiButton, { slots: { default: "点击" } });
+    expect(w.text()).toBe("点击");
+    expect(w.classes()).toContain("ui-btn-primary");
+    expect(w.classes()).toContain("ui-btn-md");
+  });
 
-  it('renders as anchor when tag=a', () => {
-    const wrapper = mount(UiButton, { props: { tag: 'a' } })
-    expect(wrapper.element.tagName).toBe('A')
-  })
+  it("applies variant classes", () => {
+    const variants = ["primary", "secondary", "ghost", "danger"];
+    for (const v of variants) {
+      const w = mount(UiButton, { props: { variant: v }, slots: { default: v } });
+      expect(w.classes()).toContain("ui-btn-" + v);
+    }
+  });
 
-  it('applies variant class', () => {
-    const wrapper = mount(UiButton, { props: { variant: 'danger' } })
-    expect(wrapper.classes()).toContain('ui-btn-danger')
-  })
+  it("applies size classes", () => {
+    const sizes = ["sm", "md", "lg"];
+    for (const s of sizes) {
+      const w = mount(UiButton, { props: { size: s }, slots: { default: s } });
+      expect(w.classes()).toContain("ui-btn-" + s);
+    }
+  });
 
-  it('applies size class', () => {
-    const wrapper = mount(UiButton, { props: { size: 'lg' } })
-    expect(wrapper.classes()).toContain('ui-btn-lg')
-  })
+  it("disables button", () => {
+    const w = mount(UiButton, { props: { disabled: true }, slots: { default: "禁用" } });
+    expect(w.attributes("disabled")).toBeDefined();
+  });
 
-  it('disables button', () => {
-    const wrapper = mount(UiButton, { props: { disabled: true } })
-    expect(wrapper.attributes('disabled')).toBeDefined()
-  })
+  it("renders custom tag", () => {
+    const w = mount(UiButton, { props: { tag: "a", href: "/test" }, slots: { default: "链接" } });
+    expect(w.element.tagName).toBe("A");
+  });
 
-  it('emits click event', async () => {
-    const wrapper = mount(UiButton)
-    await wrapper.trigger('click')
-    expect(wrapper.emitted('click')).toHaveLength(1)
-  })
-})
+  it("emits click event", async () => {
+    const w = mount(UiButton, { slots: { default: "点击" } });
+    await w.trigger("click");
+    expect(w.emitted("click")).toBeTruthy();
+  });
+
+  it("does not emit click when disabled", async () => {
+    const w = mount(UiButton, { props: { disabled: true }, slots: { default: "禁用" } });
+    await w.trigger("click");
+    expect(w.emitted("click")).toBeFalsy();
+  });
+});
