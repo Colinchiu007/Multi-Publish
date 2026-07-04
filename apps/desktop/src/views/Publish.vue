@@ -357,6 +357,7 @@ async function handlePublish () {
   }
 
   // 离线检测：网络断开时缓存到本地
+  const targets = selectedPlatforms.value.map(pid => ({ platform: pid, accountId: selectedAccounts.value[pid] || null }));
   const offlineRes = await offlineStatus()
   if (offlineRes.code === 0 && offlineRes.data.offline) {
     await offlineAddToCache({ targets, data: article })
@@ -373,10 +374,7 @@ async function handlePublish () {
     const isMarkdown = /^#\s|^\*\*|^>\s|^```/m.test(article.content) || /\[.+\]\(.+\)/.test(article.content)
     const data = { title: article.title, content: article.content, contentFormat: isMarkdown ? 'markdown' : 'html', author: article.author || '', cover_url: article.cover_url || '', video_path: article.video_path || '' }
     // 构建带 accountId 的平台列表
-    const targets = selectedPlatforms.value.map(pid => ({
-      platform: pid,
-      accountId: selectedAccounts.value[pid] || null,
-    }))
+    // targets already set above
     addProgress(`发布到 ${targets.length} 个目标（含多账号）...`, 'info')
     const res = await publishBatch(targets, data)
     if (res.code === 0) { addProgress(`✓ 已添加 ${res.data?.taskIds?.length || ''} 个任务`, 'success'); result.value = { success: true, message: res.message || '任务已加入队列', url: '' } }
