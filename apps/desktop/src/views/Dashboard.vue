@@ -12,6 +12,9 @@
       </div>
     </div>
 
+    <!-- 试用横幅 -->
+    <TrialBanner :dismissed="dismissBanner" @upgrade="showUpgradeModal = true" @dismiss="dismissBanner = true" />
+
     <div class="cohere-content">
       <!-- 汇总卡片 -->
       <div class="cohere-stat-grid">
@@ -79,8 +82,12 @@ import { ref, computed, onMounted } from 'vue'
 import { syncAll, syncPlatform } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
 import BenchmarkChart from '@/components/BenchmarkChart.vue'
+import TrialBanner from '@/components/TrialBanner.vue'
+import UpgradeModal from '@/components/UpgradeModal.vue'
 
 const syncing = ref(false)
+const dismissBanner = ref(false)
+const showUpgradeModal = ref(false)
 const platformData = ref([])
 const platformStore = usePlatformStore()
 platformStore.load()
