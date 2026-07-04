@@ -229,7 +229,7 @@ import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { publishBatch, onProgress, sensitiveCheck, batchCreate, storeGetSetting } from '@/api/publisher'
+import { publishBatch, onProgress, sensitiveCheck, batchCreate, storeGetSetting, offlineStatus, offlineAddToCache } from '@/api/publisher'
 import TagSuggester from '@/components/TagSuggester.vue'
 import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
@@ -356,6 +356,15 @@ async function handlePublish () {
     }
   }
 
+  // 离线检测：网络断开时缓存到本地
+  const offlineRes = await offlineStatus()
+  if (offlineRes.code === 0 && offlineRes.data.offline) {
+    await offlineAddToCache({ targets, data: article })
+    addProgress('📡 网络已断开，发布任务已缓存，网络恢复后自动重试', 'warning')
+    ElMessage.warning('网络已断开，任务已缓存')
+    publishing.value = false
+    return
+  }
   publishing.value = true; progress.value = []; result.value = null
 
   const off = onProgress((data) => addProgress(`[${data.platform}] ${data.stage}`))

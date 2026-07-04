@@ -2,7 +2,7 @@
  * 发布 API 封装 — 调用 Electron IPC
  * 所有 Vue 组件通过此文件访问 Electron IPC，不直接调用 window.electronAPI
  */
-var _api = null; function getApi() { if (!_api) _api = window.electronAPI || null; return _api; }
+function getApi() { return window.electronAPI || null; }
 
 // ─── 发布 API ─────────────────────────────
 export async function publishWechat (article) {
@@ -394,6 +394,28 @@ export function onFirstRunStatus (callback) {
 }
 
 // ─── 通知 API ────────────────────────────
+
+// ──── Offline API ──────────────────────────────────────────────
+export async function offlineStatus () {
+  if (!getApi()) return { code: -1, data: { offline: false, cachedCount: 0, cachedTasks: [] } }
+  return getApi().offlineStatus()
+}
+
+export async function offlineAddToCache (task) {
+  if (!getApi()) return { code: -1 }
+  return getApi().offlineAddToCache(task)
+}
+
+export async function offlineClearCache () {
+  if (!getApi()) return { code: -1 }
+  return getApi().offlineClearCache()
+}
+
+export function onOfflineRestored (callback) {
+  if (!getApi()) return () => {}
+  return getApi().onOfflineRestored(callback)
+}
+
 export function showNotification (data) {
   if (!getApi()) return
   return getApi().showNotification(data)
