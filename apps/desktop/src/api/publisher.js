@@ -371,6 +371,10 @@ export async function paymentGetOrder (orderId) {
   return getApi().paymentGetOrder(orderId)
 }
 
+
+export async function paymentCancel (orderId) {
+  return getApi().paymentCancel(orderId)
+}
 export async function paymentSimulate (orderId) {
   if (!getApi()) return { code: -1 }
   return getApi().paymentSimulate(orderId)
