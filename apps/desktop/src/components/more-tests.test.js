@@ -55,3 +55,16 @@ describe("UpgradeModal", () => {
     expect(planCards.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('UpgradeModal extended', () => {
+  it('shows payment flow when startPayment is triggered', async () => {
+    const w = mount(UpgradeModal);
+    await w.find('.upgrade-btn').trigger('click');
+    expect(w.text()).toContain('选择支付方式');
+  });
+
+  it('shows activate input section', async () => {
+    const w = mount(UpgradeModal);
+    expect(w.text()).toMatch(/激活码|立即升级/);
+  });
+});
