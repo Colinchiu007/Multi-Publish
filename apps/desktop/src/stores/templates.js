@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Templates Store — Pinia
  * Manages content templates state for the frontend
  */
