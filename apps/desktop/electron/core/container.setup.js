@@ -1,40 +1,40 @@
 /**
- * Container setup — 集中注册所有 Electron 主进程服务
- * 可作为逐步替换 main.js 直接 new 的中间步骤
+ * Container setup �?集中注册所�?Electron 主进程服�?
+ * 可作为逐步替换 main.js 直接 new 的中间步�?
  */
 'use strict';
 
 const Container = require("./container");
 
-// -- 本模块加载的依赖（最终目标是从 container 中获取） --
-const RenderEngine = require("../render-engine");
-const AuthViewManager = require("../auth-view-manager");
-const RpaViewManager = require("../rpa-view-manager");
-const WebviewManager = require("../webview-manager");
-const CallbackServer = require("../callback-server");
-const QrCodeLogin = require("../qrcode-login");
-const Store = require("../store");
-const ContentIntelligence = require("../content-intelligence");
-const PublishImpactTracker = require("../publish-impact-tracker");
-const KeywordMonitor = require("../keyword-monitor");
-const OAuthManager = require("../oauth-manager");
-const BatchManager = require("../batch-manager");
-const UrlCollector = require("../url-collector");
-const ViralEngine = require("../viral-engine");
-const ProviderManager = require("../provider-manager");
+// -- 本模块加载的依赖（最终目标是�?container 中获取） --
+const RenderEngine = require('../services/render-engine');
+const AuthViewManager = require('../services/auth-view-manager');
+const RpaViewManager = require('../services/rpa-view-manager');
+const WebviewManager = require('../services/webview-manager');
+const CallbackServer = require('../services/callback-server');
+const QrCodeLogin = require('../services/qrcode-login');
+const Store = require("../services/store");
+const ContentIntelligence = require('../services/content-intelligence');
+const PublishImpactTracker = require('../services/publish-impact-tracker');
+const KeywordMonitor = require('../services/keyword-monitor');
+const OAuthManager = require('../services/oauth-manager');
+const BatchManager = require('../services/batch-manager');
+const UrlCollector = require('../services/url-collector');
+const ViralEngine = require('../services/viral-engine');
+const ProviderManager = require('../services/provider-manager');
 const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require("@multi-publish/shared-utils");
 const PublishIntervalGuard = require("@multi-publish/shared-utils/src/publish-interval-guard");
-const TemplateManager = require("../template-manager");
-const AiWriter = require("../ai-writer");
-const PublisherRouter = require("../publisher-router");
-const UsageTracker = require("../usage-tracker");
+const TemplateManager = require('../services/template-manager');
+const AiWriter = require('../services/ai-writer');
+const PublisherRouter = require('../services/publisher-router');
+const UsageTracker = require('../services/usage-tracker');
 const DataSyncService = require("@multi-publish/shared-utils/src/data-sync");
 
 function createContainer(options) {
   var container = new Container();
   options = options || {};
 
-  // ---- 无依赖服务 ----
+  // ---- 无依赖服�?----
   container.register("authViewManager", function() { return new AuthViewManager(); });
   container.register("rpaViewManager", function() { return new RpaViewManager(); });
   container.register("webviewManager", function() { return new WebviewManager(); });
@@ -75,3 +75,4 @@ function createContainer(options) {
 }
 
 module.exports = { createContainer };
+

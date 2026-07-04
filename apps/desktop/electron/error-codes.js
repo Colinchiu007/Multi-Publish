@@ -1,1 +1,1 @@
-module.exports = require('./core/error-codes')
+module.exports = require('./services/error-codes')
