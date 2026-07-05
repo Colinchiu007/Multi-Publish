@@ -22,31 +22,35 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      # ?? ?? 1??????? ??
-      - name: "Gate 1 ? Tests must pass"
+      # --- Gate 1 ---
+      - name: "Gate 1 - Tests must pass"
         run: npm test
         continue-on-error: false
 
-      # ?? ?? 2??????? ??
-      - name: "Gate 2 ? Code quality scan"
+      # --- Gate 2 ---
+      - name: "Gate 2 - Code quality scan"
         run: |
           echo "checking for hardcoded secrets..."
           $hasSecret = Select-String -Path apps/desktop/electron/*.js -Pattern "(?i)(api[_-]?key|secret|token|password)\s*=\s*['""][a-zA-Z0-9_\-]{16,}" -Quiet
-          if ($hasSecret) { echo "? hardcoded secrets found"; exit 1 }
-          echo "checking console.log leftovers..."
-          echo "? code quality scan done"
+          if ($hasSecret) { echo "hardcoded secrets found"; exit 1 }
+          echo "code quality scan done"
 
-      # ?? ?? 3?????????? ??
-      - name: "Gate 3 ? Test coverage >= 60%"
-        run: echo "? coverage check placeholder"
+      # --- Gate 3 ---
+      - name: "Gate 3 - Test coverage >= 60%"
+        run: echo "coverage check placeholder"
 
-      # ?? ?? 4??????? ??
-      - name: "Gate 4 ? Quality rhythm compliance"
+      # --- Gate 4 ---
+      - name: "Gate 4 - Quality rhythm compliance"
         run: |
-          if (Test-Path ".quality-rhythm") { echo "? project under quality-rhythm governance" }
-          else { echo "?? missing .quality-rhythm marker" }
+          if (Test-Path ".quality-rhythm") { echo "project under quality-rhythm governance" }
+          else { echo "missing .quality-rhythm marker" }
 
-      # ?? ?? ??
+      # --- Gate 5 ---
+      - name: "Gate 5 - IPC bridge completeness"
+        run: node .github/scripts/check-ipc-bridge.js
+        continue-on-error: false
+
+      # --- Gate result ---
       - name: "Gate result"
         if: always()
         run: |
@@ -57,4 +61,5 @@ jobs:
           echo "code scan   : PASS"
           echo "coverage    : TBD"
           echo "compliance  : PASS"
+          echo "IPC bridge  : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
           echo "=============================="
