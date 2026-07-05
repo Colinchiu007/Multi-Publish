@@ -1,3 +1,20 @@
+## [v2.0.3] - 2026-07-05
+
+### Added — Accounts.vue 覆盖率提升 (31.32% → 65.66%)
+- **Accounts.vue 测试**: 从 5 个基础渲染测试扩展到 31 个完整测试
+  - platformLabel/Icon: 已知平台 + 未知平台
+  - addAccount: 空校验 / authOpenLogin 流程 / API 错误 / 异常捕获
+  - addAccountForPlatform: 设置新平台并打开对话框
+  - closeAuthView: 带 API / 无 API
+  - setDefault: 成功 + 异常
+  - renameAccount: 正常更新 / 同名跳过 / 空名跳过 / 异常
+  - openPlatform: 3 个已知平台 + 未知平台
+  - checkLogin: 有效 / 过期 / 异常
+  - removeAccount: 确认删除 / 删除失败 / 取消
+- 语句覆盖率: 31.32% → 65.66%
+- 分支覆盖率: 17.50% → 45.00%
+- 函数覆盖率: 9.30% → 41.86%
+
 ## [v2.0.2] - 2026-07-05
 
 ### Added — Monitor.vue 覆盖率提升 (39.53% → 82.55%)
