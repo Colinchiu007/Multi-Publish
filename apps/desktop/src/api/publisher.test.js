@@ -1,17 +1,249 @@
-import { describe, it, expect } from "vitest";
+/**
+ * api/publisher.js -- 完整测试
+ * 模式：每个函数都是 getApi() 的委托调用
+ * 测试策略：数据驱动，覆盖所有函数的 normal + fallback 路径
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-describe("publisher API", () => {
-  it("publisher module exports functions", async () => {
-    const pub = await import("./publisher.js");
-    expect(pub.publishBatch).toBeDefined();
-    expect(pub.offlineStatus).toBeDefined();
-    expect(pub.offlineAddToCache).toBeDefined();
-    expect(pub.onOfflineRestored).toBeDefined();
-    expect(pub.offlineClearCache).toBeDefined();
-  });
+const exportedNames = [
+  // 发布
+  "publishWechat", "publishBatch", "onProgress",
+  // 队列
+  "getQueueStatus", "getQueueHistory", "cancelTask",
+  // 发布历史
+  "historyList", "historyGet",
+  // 统计
+  "dashboardStats",
+  // 定时发布
+  "schedulerCreate", "schedulerList", "schedulerCancel",
+  // 账号管理
+  "listAccounts", "accountAdd", "accountDelete", "accountCheckLogin",
+  "accountList", "accountSetDefault", "accountUpdate",
+  // 内嵌浏览器登录
+  "authOpenLogin", "authClose", "onAuthViewOpened",
+  "onAuthCompleted", "onAuthViewClosed",
+  // 渲染
+  "renderStart", "renderCancel", "renderGetStatus", "renderInstallDeps",
+  "onRenderProgress", "onRenderComplete", "onRenderError", "onRenderInstallProgress",
+  // 内容情报
+  "intelligenceSearch", "intelligenceSearchTitles", "intelligenceFetchTrending",
+  "intelligenceSuggestTags", "intelligenceFindReferences",
+  "intelligenceGetOptimalTime", "intelligenceGetBenchmark",
+  // 关键词监测
+  "keywordStatus", "keywordStart", "keywordStop", "keywordHistory",
+  // 爆款分析
+  "viralAnalyze", "viralGenerate",
+  // 平台配置
+  "platformList", "platformGet", "getPlatformDefinitions",
+  // 敏感词
+  "sensitiveCheck", "sensitiveReplace",
+  // 数据同步
+  "syncAll", "syncPlatform",
+  // 自动更新
+  "updateCheck", "updateDownload", "updateInstall", "onUpdateStatus",
+  // 全局存储
+  "storeGetSetting", "storeSetSetting", "storeAddPublishRecord", "storeListPublishHistory",
+  // OAuth
+  "oauthStart", "oauthClose", "onOAuthCompleted",
+  // 批量发布
+  "batchCreate", "batchList", "batchDelete", "onBatchProgress",
+  // 支付
+  "paymentCreateOrder", "paymentListOrders", "paymentGetOrder",
+  "paymentSimulate", "paymentCancel",
+  // 首次运行
+  "firstRunCheck", "onFirstRunStatus",
+  // 离线
+  "offlineStatus", "offlineAddToCache", "offlineClearCache", "onOfflineRestored",
+  // 通知
+  "showNotification",
+];
 
-  it("offlineStatus exists", async () => {
+const apiMeta = {
+    // 渲染监听器
+  onRenderProgress:       { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onRenderComplete:       { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onRenderError:          { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onRenderInstallProgress: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  // 内容情报
+  intelligenceSearch:        { args: ["test"], fallback: { code: 0, data: [] }, returns: "object" },
+  intelligenceSearchTitles:  { args: ["test"], fallback: [], returns: "object" },
+  intelligenceFetchTrending: { args: [], fallback: [], returns: "object" },
+  intelligenceSuggestTags:   { args: ["content", {}], fallback: null, returns: "null" },
+  intelligenceFindReferences: { args: ["https://x.com"], fallback: [], returns: "object" },
+  intelligenceGetOptimalTime: { args: ["keyword"], fallback: null, returns: "null" },
+  intelligenceGetBenchmark:   { args: [{}], fallback: null, returns: "null" },
+  // 关键词监测
+  keywordStatus:   { args: [], fallback: { code: 0, data: {} }, returns: "object" },
+  keywordStart:    { args: ["kw", {}], fallback: { code: -1 }, returns: "object" },
+  keywordStop:     { args: ["kw"], fallback: { code: -1 }, returns: "object" },
+  keywordHistory:  { args: ["kw"], fallback: { code: 0, data: [] }, returns: "object" },
+  // 爆款分析
+  viralAnalyze:    { args: ["kw"], fallback: { code: -1 }, returns: "object" },
+  viralGenerate:   { args: [{}], fallback: { code: -1 }, returns: "object" },
+  // 平台配置
+  platformList:    { args: [], fallback: { code: 0, data: [] }, returns: "object" },
+  platformGet:     { args: ["wx"], fallback: { code: -1 }, returns: "object" },
+  getPlatformDefinitions: { args: [], fallback: { code: -1 }, returns: "object" },
+publishWechat: { args: [{ title: "t", content: "c" }], fallback: null, throws: true },
+  publishBatch: { args: [["wx"], { title: "t" }], fallback: { code: -1, message: "electronAPI not available" }, throws: false },
+  onProgress: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  getQueueStatus: { args: [], fallback: {}, returns: "object" },
+  getQueueHistory: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
+  cancelTask: { args: ["task-1"], fallback: { code: -1 }, returns: "object" },
+  historyList: { args: [{ page: 1 }], fallback: { code: 0, data: { total: 0, records: [] } }, returns: "object" },
+  historyGet: { args: ["id-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  dashboardStats: { args: [], fallback: { total: 0, success: 0, failed: 0, perPlatform: {}, daily: [] }, returns: "object" },
+  schedulerCreate: { args: [{ time: "2026-01-01" }], fallback: { code: -1 }, returns: "object" },
+  schedulerList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
+  schedulerCancel: { args: ["sched-1"], fallback: { code: -1 }, returns: "object" },
+  listAccounts: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
+  accountAdd: { args: ["wechat_mp"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  accountDelete: { args: ["acc-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  accountCheckLogin: { args: ["wechat_mp", "acc-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  accountList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
+  accountSetDefault: { args: ["wechat_mp", "acc-1"], fallback: undefined, returns: "undefined" },
+  accountUpdate: { args: ["acc-1", { name: "new" }], fallback: undefined, returns: "undefined" },
+  authOpenLogin: { args: ["weibo"], fallback: { code: -1 }, returns: "object" },
+  authClose: { args: [], fallback: undefined, returns: "undefined" },
+  onAuthViewOpened: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onAuthCompleted: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onAuthViewClosed: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  renderStart: { args: [{ type: "video" }], fallback: null, throws: true },
+  renderCancel: { args: [], fallback: {}, returns: "object" },
+  renderGetStatus: { args: [], fallback: {}, returns: "object" },
+  renderInstallDeps: { args: [], fallback: { success: false, error: "electronAPI not available" }, returns: "object" },
+  sensitiveCheck: { args: ["text"], fallback: { code: -1 }, returns: "object" },
+  sensitiveReplace: { args: ["text"], fallback: { code: -1 }, returns: "object" },
+  syncAll: { args: [], fallback: { code: -1 }, returns: "object" },
+  syncPlatform: { args: ["douyin"], fallback: { code: -1 }, returns: "object" },
+  updateCheck: { args: [], fallback: {}, returns: "object" },
+  updateDownload: { args: [], fallback: {}, returns: "object" },
+  updateInstall: { args: [], fallback: {}, returns: "object" },
+  onUpdateStatus: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  storeGetSetting: { args: ["theme"], fallback: null, returns: "null" },
+  storeSetSetting: { args: ["theme", "dark"], fallback: undefined, returns: "undefined" },
+  storeAddPublishRecord: { args: [{ id: "1" }], fallback: null, returns: "null" },
+  storeListPublishHistory: { args: [{ page: 1 }], fallback: { code: 0, data: [] }, returns: "object" },
+  oauthStart: { args: [{ platform: "twitter" }], fallback: { code: -1 }, returns: "object" },
+  oauthClose: { args: [], fallback: undefined, returns: "undefined" },
+  onOAuthCompleted: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  batchCreate: { args: [{ platforms: ["wx"] }], fallback: { code: -1 }, returns: "object" },
+  batchList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
+  batchDelete: { args: ["batch-1"], fallback: undefined, returns: "undefined" },
+  onBatchProgress: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  paymentCreateOrder: { args: [{ amount: 100 }], fallback: { code: -1 }, returns: "object" },
+  paymentListOrders: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
+  paymentGetOrder: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },
+  paymentSimulate: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },
+  paymentCancel: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },
+  firstRunCheck: { args: [], fallback: { setupDone: false }, returns: "object" },
+  onFirstRunStatus: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  offlineStatus: { args: [], fallback: { code: -1, data: { offline: false, cachedCount: 0, cachedTasks: [] } }, returns: "object" },
+  offlineAddToCache: { args: [{ task: "x" }], fallback: { code: -1 }, returns: "object" },
+  offlineClearCache: { args: [], fallback: { code: -1 }, returns: "object" },
+  onOfflineRestored: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  showNotification: { args: [{ title: "test" }], fallback: undefined, returns: "undefined" }
+};
+
+function createMockApi() {
+  const mock = {};
+  for (const name of exportedNames) {
+    mock[name] = vi.fn();
+  }
+  return mock;
+}
+
+describe("api/publisher -- 所有函数导出", () => {
+  it("导出 " + exportedNames.length + " 个函数", async () => {
     const pub = await import("./publisher.js");
-    expect(typeof pub.offlineStatus).toBe("function");
+    for (const name of exportedNames) {
+      expect(typeof pub[name]).toBe("function");
+    }
   });
 });
+
+describe("api/publisher -- normal 路径（electronAPI 存在）", () => {
+  let mockApi;
+  beforeEach(async () => {
+    vi.resetModules();
+    delete window.electronAPI;
+  });
+  function setupNormal(name) {
+    mockApi = createMockApi();
+    const resolvedValue = { success: true, name };
+    mockApi[name].mockResolvedValue(resolvedValue);
+    window.electronAPI = mockApi;
+    return resolvedValue;
+  }
+  for (const [name, meta] of Object.entries(apiMeta)) {
+    if (meta.returns === "function") continue;
+    it(name + " -- electronAPI 存在时调用委托", async () => {
+      const resolved = setupNormal(name);
+      const m = await import("./publisher.js");
+      const result = await m[name](...meta.args);
+      expect(mockApi[name]).toHaveBeenCalledWith(...meta.args);
+      expect(result).toEqual(resolved);
+    });
+  }
+  for (const [name, meta] of Object.entries(apiMeta)) {
+    if (meta.returns !== "function") continue;
+    it(name + " -- 注册 listener 返回注销函数", async () => {
+      mockApi = createMockApi();
+      mockApi[name].mockReturnValue(vi.fn());
+      window.electronAPI = mockApi;
+      const m = await import("./publisher.js");
+      const cb = vi.fn();
+      const cleanup = m[name](cb);
+      expect(mockApi[name]).toHaveBeenCalledWith(cb);
+      expect(typeof cleanup).toBe("function");
+    });
+  }
+});
+
+describe("api/publisher -- fallback 路径（electronAPI 不存在）", () => {
+  let pub;
+  beforeEach(async () => {
+    vi.resetModules();
+    delete window.electronAPI;
+    pub = await import("./publisher.js");
+  });
+  for (const [name, meta] of Object.entries(apiMeta)) {
+    if (meta.throws) {
+      it(name + " -- electronAPI 不存在时 throw", async () => {
+        await expect(pub[name](...meta.args)).rejects.toThrow("electronAPI not available");
+      });
+    } else if (meta.returns === "function") {
+      it(name + " -- electronAPI 不存在时返回空函数", () => {
+        const cb = vi.fn();
+        const result = pub[name](cb);
+        expect(typeof result).toBe("function");
+        expect(() => result()).not.toThrow();
+      });
+    } else if (meta.fallback !== undefined) {
+      it(name + " -- electronAPI 不存在时返回 fallback", async () => {
+        const result = await pub[name](...meta.args);
+        expect(result).toEqual(meta.fallback);
+      });
+    }
+  }
+});
+
+describe("api/publisher -- 边界条件", () => {
+  it("electronAPI 为 null 时正常返回 fallback", async () => {
+    vi.resetModules();
+    window.electronAPI = null;
+    const pub = await import("./publisher.js");
+    const result = await pub.offlineStatus();
+    expect(result).toBeDefined();
+  });
+  it("electronAPI 部分实现时仍可工作", async () => {
+    vi.resetModules();
+    window.electronAPI = { publishBatch: vi.fn().mockResolvedValue({ code: 0 }) };
+    const pub = await import("./publisher.js");
+    const result = await pub.publishBatch(["wx"], { t: "test" });
+    expect(result).toEqual({ code: 0 });
+    // 部分实现时未实现的方法会 TypeError（electronAPI 有对象但不含该方法）
+    // 这是预期行为 — electronAPI 要么全有要么全无
+  });
+});
+
