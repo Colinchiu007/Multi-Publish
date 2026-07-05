@@ -1,3 +1,15 @@
+## [v2.0.8] - 2026-07-05
+
+### Added — ViralAnalysis.vue 覆盖率提升 (47.25% → 87.91%)
+- **ViralAnalysis.vue 测试**: 从 1 个基础测试扩展到 14 个完整测试
+  - trendIcon / trendLabel: 全部方向 + 默认值
+  - scoreColor: 三种阈值
+  - doAnalyze: 空查询跳过 / 调 API / 解析文章数据 / 错误 / 异常
+  - doGenerate: 空查询跳过 / 调 API / 错误未设置结果 / 异常
+- 语句覆盖率: 47.25% → 87.91%
+- 分支覆盖率: ~27% → 62.29%
+- 函数覆盖率: ~20% → 45%
+
 ## [v2.0.7] - 2026-07-05
 
 ### Added — FirstRun.vue 覆盖率提升 (38.63% → 64.77%)
