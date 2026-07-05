@@ -132,6 +132,11 @@ class ProviderManager {
       return result
     })
 
+        ipcMain.handle('provider:get-user', async (event, name) => {
+      const result = await this.getUserProvider(name)
+      return result
+    })
+
     ipcMain.handle('provider:list-user', async () => {
       const result = await this.listUserProviders()
       return result
