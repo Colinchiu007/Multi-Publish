@@ -1,6 +1,7 @@
 /**
  * Offline IPC handlers
  */
+// eslint-disable-next-line no-unused-vars
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const offlineManager = require("../services/offline-manager")

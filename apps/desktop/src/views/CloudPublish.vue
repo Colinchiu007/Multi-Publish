@@ -110,6 +110,7 @@
 </template>
 
 <script>
+// eslint-disable-next-line no-unused-vars
 import { cloudPublishSubmit, cloudPublishListTasks, cloudPublishGetTask, cloudPublishPlatforms } from '../api/cloud-publisher'
 
 export default {
@@ -261,6 +262,7 @@ export default {
         const d = new Date(ts)
         const pad = n => String(n).padStart(2, '0')
         return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+      // eslint-disable-next-line no-unused-vars
       } catch (e) {
         return ts
       }

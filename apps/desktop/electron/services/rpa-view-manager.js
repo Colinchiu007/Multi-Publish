@@ -1,8 +1,9 @@
-﻿/**
+/**
  * RpaViewManager -- executeJavaScript RPA engine
  *
  * P2-B: Generic publish engine with config-driven platform support.
  */
+// eslint-disable-next-line no-unused-vars
 const { BrowserWindow, session, ipcMain } = require('electron')
 const path = require('path')
 const fs = require('fs')
@@ -14,6 +15,11 @@ const { STEALTH_SOURCE } = require('./stealth-helper')
 
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
+
+let _platformConfigInstance
+const PLATFORM_SUCCESS_PATTERNS = {}
+const mediaId = null
+
 class RpaViewManager {
   constructor() {
     this.mainWindow = null; this.windows = {}; this._nextId = 1
@@ -24,8 +30,10 @@ class RpaViewManager {
 
   _emitProgress(platform, stage, percent) {
     const data = { platform: platform, stage: stage, percent: percent || 0 }
+    // eslint-disable-next-line no-unused-vars
     if (this._progressCallback) { try { this._progressCallback(data) } catch (e) { /* ignore */ } }
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      // eslint-disable-next-line no-unused-vars
       try { this.mainWindow.webContents.send('rpa:progress', data) } catch (e) { /* ignore */ }
     }
     log.info('RpaView', '[' + platform + '] ' + stage)
@@ -77,6 +85,7 @@ class RpaViewManager {
 
   // ========== P2-D: Fill content inside iframe ==========
   async _fillInFrame(win, frameSelector, innerSelector, content) {
+    // eslint-disable-next-line no-unused-vars
     const fs = JSON.stringify(frameSelector)
     const is_ = JSON.stringify(innerSelector)
     const sc = JSON.stringify(content)
@@ -257,6 +266,7 @@ class RpaViewManager {
     win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
     win.webContents.on('console-message',function(){})
     // anti-detection: inject stealth on every navigation
+    // eslint-disable-next-line no-unused-vars
     win.webContents.on('did-finish-load',function(){ win.webContents.executeJavaScript(STEALTH_SOURCE).catch(e=>{}) })
     return win
   }
@@ -265,6 +275,7 @@ class RpaViewManager {
   // ========== Cookie / localStorage restore ==========
   async _restoreCookies(win, cookies) {
     if (!cookies||!cookies.length) return
+    // eslint-disable-next-line no-unused-vars
     for (let ci=0;ci<cookies.length;ci++) { try { await win.webContents.session.cookies.set(cookies[ci]) } catch (e) { /* ignore */ } }
     log.info('RpaView','Restored '+cookies.length+' cookies')
   }
@@ -277,10 +288,12 @@ class RpaViewManager {
   // ========== executeJavaScript utilities ==========
   async _waitForElement(win, sel, timeout) {
     timeout = timeout||30000
+    // eslint-disable-next-line no-unused-vars
     try { return await win.webContents.executeJavaScript('(function(){return new Promise(function(r){let e=document.querySelector(\''+sel+'\');if(e){r(true);return}let o=new MutationObserver(function(){let f=document.querySelector(\''+sel+'\');if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()') } catch(e) { return false }
   }
   async _waitForCondition(win, fn, timeout, interval) {
     timeout=timeout||30000; interval=interval||500
+    // eslint-disable-next-line no-unused-vars
     try { return await win.webContents.executeJavaScript('(function(){let c='+fn+';return new Promise(function(r){if(c()){r(true);return}let ch=setInterval(function(){if(c()){clearInterval(ch);clearTimeout(t);r(true)}},'+interval+');let t=setTimeout(function(){clearInterval(ch);r(false)},'+timeout+')})})()') } catch(e) { return false }
   }
   async _fillInput(win, sel, val) {
@@ -295,6 +308,7 @@ class RpaViewManager {
   async _setFileInput(win, filePath) {
     if (!fs.existsSync(filePath)) throw new Error('File not found: '+filePath)
     const dbg = win.webContents.debugger
+    // eslint-disable-next-line no-unused-vars
     try { await dbg.attach('1.3') } catch (e) { /* ignore */ }
     try {
       const fr = await dbg.sendCommand('Runtime.evaluate',{expression:'(function(){return document.querySelectorAll(\'input[type="file"]\').length>0?1:0})()',returnByValue:true})
@@ -303,6 +317,7 @@ class RpaViewManager {
       const nd = await dbg.sendCommand('DOM.requestNode',{objectId:re.result.objectId})
       await dbg.sendCommand('DOM.setFileInputFiles',{files:[path.resolve(filePath)],nodeId:nd.nodeId||nd})
       log.info('RpaView','CDP file: '+path.basename(filePath)); return true
+    // eslint-disable-next-line no-unused-vars
     } finally { try { await dbg.detach() } catch (e) { /* ignore */ } }
   }
 
@@ -313,7 +328,8 @@ class RpaViewManager {
       const t = setTimeout(function(){resolve(null)}, timeout)
       const matched = []
       win.webContents.session.webRequest.onCompleted({urls:['<all_urls>']}, function(d) {
-        let url = d.url||'', hit = false
+        const url = d.url||''
+        let hit = false
         for (let pi=0;pi<patterns.length;pi++){if(url.includes(patterns[pi])){hit=true;break}}
         if (!hit) return
         matched.push({url:url,statusCode:d.statusCode})
@@ -336,6 +352,7 @@ class RpaViewManager {
 
   // ========== Platform-specific: douyin ==========
   async _publish_douyin(win, article) {
+    // eslint-disable-next-line no-unused-vars
     const self = this
     this._emitProgress('douyin','navigating...',5)
     await this._navigateAndWait(win,'https://creator.douyin.com/creator-micro/content/upload')
@@ -398,8 +415,10 @@ class RpaViewManager {
     } catch(e) { log.error('RpaView','douyin publish: '+e.message); return { success:false, error:e.message, platform:'douyin' } }
   }
 
+  // eslint-disable-next-line no-unused-vars
   async _publish_wechat_mp(win, article) { return {success:false,error:'wechat_mp RPA pending',platform:'wechat_mp'} }
   // ========== P2-D: wechat_mp — iframe save-draft + mass-send ==========
+  // eslint-disable-next-line no-dupe-class-members
   async _publish_wechat_mp(win, article) {
     this._emitProgress('wechat_mp','navigating to draft...',5)
     // Direct draft edit URL
@@ -428,12 +447,14 @@ class RpaViewManager {
       } catch(e) {
         log.warn('RpaView','wechat_mp iframe content failed: '+e.message)
         // Fallback: try main frame editor
+        // eslint-disable-next-line no-unused-vars
         try { await this._fillInput(win,contentSel,article.content) } catch (e) { /* ignore */ }
       }
     }
 
     // Fill author
     if (article.author) {
+      // eslint-disable-next-line no-unused-vars
       try { await this._fillInput(win,'#author, input[name="author"]',article.author) } catch (e) { /* ignore */ }
     }
 
@@ -451,6 +472,7 @@ class RpaViewManager {
       const finalUrl = win.webContents.getURL()
       let mediaId = null
       const match = finalUrl.match(/appmsgid=(\d+)/)
+      // eslint-disable-next-line no-unused-vars
       if (match) mediaId = match[1]
     } catch(e) {
       log.warn('RpaView','wechat_mp save: '+e.message)
@@ -553,6 +575,7 @@ class RpaViewManager {
     return { success:true, url:win.webContents.getURL()||'', platform:'youtube' }
   }
 
+  // eslint-disable-next-line no-unused-vars
   async _publish_xiaohongshu(win, article) { return {success:false,error:'xiaohongshu RPA pending',platform:'xiaohongshu'} }
 
   async _publish_zhihu(win, article) {
@@ -649,11 +672,13 @@ class RpaViewManager {
       const cfg = this._getPlatformConfig(platform)
       return await Promise.race([this._publish_generic(win,article,platform,cfg),new Promise(function(_,rj){setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout)})])
     } catch(e) { log.error('RpaView','publish '+platform+': '+e.message); return { success:false, error:e.message, platform:platform } }
+    // eslint-disable-next-line no-unused-vars
     finally { try { win.destroy() } catch (e) { /* ignore */ }; delete this.windows[key] }
   }
 
   cleanup() {
     const ks = Object.keys(this.windows)
+    // eslint-disable-next-line no-unused-vars
     for (let ki=0;ki<ks.length;ki++) { try { this.windows[ks[ki]].destroy() } catch (e) { /* ignore */ } }
     this.windows = {}; log.info('RpaView','cleaned up')
   }

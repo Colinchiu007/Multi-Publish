@@ -75,6 +75,7 @@ class WebviewManager {
     // 恢复已保存 Cookie（必须在 loadURL 之前）
     if (cookies && cookies.length > 0) {
       for (const c of cookies) {
+        // eslint-disable-next-line no-unused-vars
         try { viewSession.cookies.set(c).catch(() => {}) } catch (e) { /* skip invalid */ }
       }
     }
@@ -136,6 +137,7 @@ class WebviewManager {
     try {
       this.mainWindow.contentView.removeChildView(tab.view)
       tab.view.webContents.destroy()
+    // eslint-disable-next-line no-unused-vars
     } catch (e) { /* already detached */ }
 
     this.tabs.splice(idx, 1)
@@ -152,6 +154,7 @@ class WebviewManager {
       try {
         this.mainWindow.contentView.removeChildView(tab.view)
         tab.view.webContents.destroy()
+      // eslint-disable-next-line no-unused-vars
       } catch (e) { /* ignore */ }
     }
     this.tabs = []

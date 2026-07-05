@@ -10,6 +10,7 @@
  */
 const path = require('path')
 const { app } = require('electron')
+// eslint-disable-next-line no-unused-vars
 const { TABLE_NAMES, SCHEMA_SQL, safeJsonParse, safeJsonStringify, buildUpdateQuery } = require('./store-schema')
 const log = require('./logger')
 
@@ -131,6 +132,7 @@ class Store {
   }
 
   _parseAccount (row) {
+    // eslint-disable-next-line no-unused-vars
     try { row.cookies = JSON.parse(row.cookies) } catch (e) { row.cookies = [] }
     row.localStorage = safeJsonParse(row.localStorage, {})
     return row
@@ -142,7 +144,8 @@ class Store {
     if (!this._ready) return null
     const row = this.db.prepare('SELECT * FROM accounts WHERE platform = ? AND is_default = 1 LIMIT 1').get(platform)
     if (!row) {
-      // 没有默认账号，返回第一�?      const first = this.db.prepare('SELECT * FROM accounts WHERE platform = ? ORDER BY created_at DESC LIMIT 1').get(platform)
+      // 没有默认账号，返回第一�?
+      const first = this.db.prepare('SELECT * FROM accounts WHERE platform = ? ORDER BY created_at DESC LIMIT 1').get(platform)
       return first ? this._parseAccount(first) : null
     }
     return this._parseAccount(row)
@@ -301,6 +304,7 @@ class Store {
   listBatchJobs () {
     if (!this._ready) return []
     return this.db.prepare('SELECT * FROM batch_jobs ORDER BY created_at DESC').all().map(r => {
+      // eslint-disable-next-line no-unused-vars
       try { r.articles = JSON.parse(r.articles) } catch (e) { r.articles = [] }
       return r
     })
@@ -343,6 +347,7 @@ class Store {
   }
 
   _safeJson (str) {
+    // eslint-disable-next-line no-unused-vars
     try { return JSON.parse(str) } catch (e) { return str }
   }
 
@@ -350,6 +355,7 @@ class Store {
    * 关闭数据�?   */
   close () {
     if (this.db) {
+      // eslint-disable-next-line no-unused-vars
       try { this.db.close() } catch (e) { /* ignore */ }
       this.db = null
       this._ready = false

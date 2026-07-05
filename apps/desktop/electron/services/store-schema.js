@@ -77,6 +77,7 @@ const SCHEMA_SQL = [
 
 function safeJsonParse(str, fallback = null) {
   if (!str || typeof str !== "string") return fallback;
+  // eslint-disable-next-line no-unused-vars
   try { return JSON.parse(str); } catch (e) { return fallback || str; }
 }
 

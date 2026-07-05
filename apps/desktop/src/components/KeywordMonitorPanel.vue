@@ -106,6 +106,7 @@
 import UiModal from "../components/UiModal.vue";
 import { ref, onMounted } from 'vue'
 import { keywordStatus, keywordStart, keywordStop, keywordHistory } from '@/api/publisher'
+// eslint-disable-next-line no-unused-vars
 import { ElMessage, ElDialog } from 'element-plus'
 
 const newKeyword = ref('')

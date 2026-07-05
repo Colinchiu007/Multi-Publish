@@ -26,6 +26,7 @@ function PaymentManager() {
   this._dataPath = null
   try {
     this._dataPath = path.join(require('electron').app.getPath('userData'), 'payment-orders.json')
+  // eslint-disable-next-line no-unused-vars
   } catch(e) {
     this._dataPath = path.join(process.env.USERPROFILE || '/tmp', 'payment-orders.json')
   }

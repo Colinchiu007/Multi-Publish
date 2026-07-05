@@ -8,6 +8,7 @@
 
 const fs = require("fs")
 const path = require("path")
+// eslint-disable-next-line no-unused-vars
 const crypto = require("crypto")
 const { app } = require("electron")
 const log = require("./logger")
@@ -55,11 +56,13 @@ function deobfuscate(encoded) {
       buf[i] = xor[i] ^ 0x4d
     }
     return buf.toString("utf-8")
+  // eslint-disable-next-line no-unused-vars
   } catch (e) {
     return null
   }
 }
 
+// eslint-disable-next-line no-unused-vars
 function validateCodeFormat(code) {
   if (!code || typeof code !== "string") return false
   return /^[A-Z0-9]{4,6}-[A-Z0-9]{4,6}-[A-Z0-9]{4,6}-[A-Z0-9]{4,6}$/.test(code.trim())

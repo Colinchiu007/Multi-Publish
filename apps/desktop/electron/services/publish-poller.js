@@ -202,6 +202,7 @@ class PublishPoller {
         if (videoPath) fs.unlinkSync(videoPath)
         if (coverPath) fs.unlinkSync(coverPath)
         fs.rmdirSync(tmpDir)
+      // eslint-disable-next-line no-unused-vars
       } catch (cleanupErr) {
         // ignore cleanup errors
       }

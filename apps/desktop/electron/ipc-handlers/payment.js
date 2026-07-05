@@ -8,7 +8,9 @@
  * payment:cancel     → 取消订单
  */
 
+// eslint-disable-next-line no-unused-vars
 function registerHandlers(ipcMain, deps) {
+  // eslint-disable-next-line no-unused-vars
   const EC = require('../core/error-codes').ERROR
   const PaymentManager = require('../services/payment-manager')
   const pm = new PaymentManager()

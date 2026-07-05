@@ -140,7 +140,9 @@
 </template>
 
 <script setup>
+// eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
+// eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 // 简单通知
@@ -148,6 +150,7 @@ const notificationMsg = ref('')
 const notificationType = ref('success')
 const showNotification = ref(false)
 
+// eslint-disable-next-line no-unused-vars
 function notify(msg, type = 'success') {
   notificationMsg.value = msg
   notificationType.value = type

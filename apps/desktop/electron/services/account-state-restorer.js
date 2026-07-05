@@ -84,6 +84,7 @@ function getAccountRecord (platform, accountId) {
         if (record.platform === platform && record.accountId === accountId) {
           return record
         }
+      // eslint-disable-next-line no-unused-vars
       } catch (e) { /* skip corrupt line */ }
     }
     return null

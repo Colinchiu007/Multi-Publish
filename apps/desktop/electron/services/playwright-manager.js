@@ -44,6 +44,7 @@ function createPage () {
      * @param {{ waitUntil?: string, timeout?: number }} [options]
      */
     async goto (url, options = {}) {
+      // eslint-disable-next-line no-unused-vars
       const { timeout = 30000 } = options
       if (_closed) throw new Error('Page already closed')
       await win.loadURL(url)
@@ -64,6 +65,7 @@ function createPage () {
             `document.querySelector(${JSON.stringify(selector)}) !== null`
           )
           if (found) return true
+        // eslint-disable-next-line no-unused-vars
         } catch (e) {
           // 页面可能还在加载，重试
         }
