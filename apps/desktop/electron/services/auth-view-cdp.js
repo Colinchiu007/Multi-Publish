@@ -21,12 +21,9 @@ function attachCdpDetection(view, onLoginSuccess) {
         )
         const data = JSON.parse(base64Encoded ? Buffer.from(body, 'base64').toString() : body)
         if (isLoginSuccess(data)) onLoginSuccess(data)
-      // eslint-disable-next-line no-unused-vars
       } catch (e) { /* ignore */ }
-      // eslint-disable-next-line no-unused-vars
       try { view.webContents.debugger.sendCommand('Fetch.continueRequest', { requestId: params.requestId }) } catch (e) { /* ignore */ }
     })
-  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* debugger may already be attached */ }
 }
 
