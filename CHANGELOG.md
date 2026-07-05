@@ -1,6 +1,16 @@
+## [v2.0.2] - 2026-07-05
 
-
-
+### Added — Monitor.vue 覆盖率提升 (39.53% → 82.55%)
+- **Monitor.vue 测试**: 从 2 个基础渲染测试扩展到 16 个完整测试
+  - layoutLabel: 覆盖全部 5 种布局 + 异常 fallback
+  - platformLabel: 已知平台 + 未知平台
+  - loadTabs: 正常加载 + API 缺失
+  - switchLayout: 带 API 调用 + 无 API
+  - confirmAdd: 空平台校验 / 成功 / API 错误 / 异常捕获
+  - closeAllTabs: 带 API 调用 + 无 API
+- 语句覆盖率: 39.53% → 82.55%
+- 分支覆盖率: ~30% → 79.10%
+- 函数覆盖率: ~20% → 60%
 
 ## [v2.0.1] - 2026-07-04
 
