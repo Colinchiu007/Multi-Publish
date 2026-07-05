@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div>
     <!-- 页面头部 -->
     <div class="cohere-page-header">
@@ -617,3 +617,4 @@ onMounted(() => {
   margin: 0;
 }
 </style>
+
