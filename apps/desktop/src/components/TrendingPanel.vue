@@ -109,6 +109,7 @@
 </template>
 
 <script setup>
+/* global intelligenceFetchTrending */
 import { ref, computed, onMounted } from 'vue'
 
 const props = defineProps({

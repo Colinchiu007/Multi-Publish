@@ -37,8 +37,8 @@ Container.prototype.register = function(name, value) {
  * @param {Object} map ? { name: value, ... }
  */
 Container.prototype.registerMany = function(map) {
-  for (let key in map) {
-    if (map.hasOwnProperty(key)) this.register(key, map[key])
+  for (const key in map) {
+    if (Object.hasOwn(map, key)) this.register(key, map[key])
   }
 }
 
@@ -48,7 +48,7 @@ Container.prototype.registerMany = function(map) {
  * @returns {*}
  */
 Container.prototype.get = function(name) {
-  let entry = this._registry[name]
+  const entry = this._registry[name]
   if (!entry) throw new Error("Service not registered: " + name)
   if (entry.factory && !entry.initialized) {
     entry.value = entry.factory(this)
@@ -69,7 +69,7 @@ Container.prototype.has = function(name) {
  * @param {string[]} requiredNames
  */
 Container.prototype.assertRequired = function(requiredNames) {
-  let missing = []
+  const missing = []
   for (let i = 0; i < requiredNames.length; i++) {
     if (!this._registry[requiredNames[i]]) missing.push(requiredNames[i])
   }

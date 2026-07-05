@@ -18,6 +18,7 @@ const ONBOARDING_STEPS = [
   { id: 'complete', title: '完成设置', description: '现在开始您的多平台发布之旅！' },
 ]
 
+// eslint-disable-next-line no-unused-vars
 let _mainWin = null
 
 /**

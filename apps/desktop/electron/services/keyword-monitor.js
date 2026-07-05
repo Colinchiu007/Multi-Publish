@@ -148,6 +148,7 @@ class KeywordMonitor {
    * Stop all watchers (app shutdown).
    */
   stopAll () {
+    // eslint-disable-next-line no-unused-vars
     for (const [keyword, w] of this._watchers) {
       clearInterval(w.timer)
     }

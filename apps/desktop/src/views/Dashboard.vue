@@ -60,7 +60,7 @@
       <div v-if="statsData && statsData.daily && statsData.daily.length > 0" class="cohere-card" style="cursor:default;margin-bottom:var(--space-md);padding:16px">
         <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-md)">📈 发布趋势（近 14 天）</div>
         <div style="display:flex;align-items:flex-end;gap:4px;height:80px;padding:0 4px">
-          <div v-for="(d, i) in last14Days" :key="d.date" :title="d.date + ': ' + d.total + ' 篇'" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+          <div v-for="d in last14Days" :key="d.date" :title="d.date + ': ' + d.total + ' 篇'" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
             <div :style="{width:'100%', height: Math.max(4, (d.total / dailyMax) * 60) + 'px', background: d.total > 0 ? 'var(--coral, #f56c6c)' : 'var(--border, #e0e0e0)', borderRadius: '3px 3px 0 0', opacity: d.total > 0 ? 0.7 + (d.total / dailyMax) * 0.3 : 0.3, transition: 'height 0.3s'}"></div>
             <span style="font-size:9px;color:var(--muted);white-space:nowrap">{{ d.date.slice(5) }}</span>
           </div>
@@ -135,13 +135,17 @@
 </template>
 
 <script setup>
+// eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
+// eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, computed, onMounted } from 'vue'
+// eslint-disable-next-line no-unused-vars
 import { syncAll, syncPlatform } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
 import BenchmarkChart from '@/components/BenchmarkChart.vue'
 import TrialBanner from '@/components/TrialBanner.vue'
+// eslint-disable-next-line no-unused-vars
 import UpgradeModal from '@/components/UpgradeModal.vue'
 
 const syncing = ref(false)
@@ -207,6 +211,7 @@ async function loadStats () {
   try {
     const res = await api.dashboardStats()
     if (res.code === 0) statsData.value = res.data
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 }
 
@@ -216,6 +221,7 @@ async function loadRecent () {
   try {
     const res = await api.historyList({ limit: 5 })
     if (res.code === 0) recentPublishes.value = (res.data && res.data.records) || []
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 }
 

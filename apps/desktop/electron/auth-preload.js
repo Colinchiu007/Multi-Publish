@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('__auth_helper__', {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
       if (key.startsWith('__') || key === 'devtools') continue
+      // eslint-disable-next-line no-unused-vars
       try { result[key] = localStorage.getItem(key) } catch (e) { /* ignore */ }
     }
     return result

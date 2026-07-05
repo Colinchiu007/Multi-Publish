@@ -100,6 +100,7 @@
 </template>
 
 <script setup>
+// eslint-disable-next-line no-unused-vars
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import Fuse from 'fuse.js'
@@ -228,6 +229,7 @@ async function loadShortcuts() {
       if (res.code === 0 && Array.isArray(res.data)) {
         shortcuts.value = res.data
       }
+    // eslint-disable-next-line no-unused-vars
     } catch (e) {
       // silent
     }

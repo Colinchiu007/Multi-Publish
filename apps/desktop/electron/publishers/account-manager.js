@@ -2,6 +2,7 @@
  * 账号管理器
  * 负责通过 Playwright 捕获平台 Cookie，并通过 Python API 持久化
  */
+// eslint-disable-next-line no-unused-vars
 const path = require('path')
 const log = require('../logger')
 const playwrightManager = require('../playwright-manager')
@@ -181,7 +182,8 @@ async function addAccount (platform) {
   // 本地持久化：localStorage + accountInfo + accountStateRecord
   const accountId = result.data?.accountId || result.data?.id || platform + '-' + Date.now()
   try {
-    const platformLoginUrl = PLATFORM_LOGIN_URLS[platform] || loginUrl
+    // eslint-disable-next-line no-unused-vars
+    const platformLoginUrl = PLATFORM_LOGIN_URLS[platform]
     accountStateRestorer.saveAccountRecord({
       accountId,
       platform,
@@ -389,6 +391,7 @@ function restoreLocalStorage (webContents, localStorageObj) {
  * @returns {Promise<{view?, isLoggedIn: boolean}>}
  */
 async function openSavedAccount (accountId, platform, opts = {}) {
+  // eslint-disable-next-line no-unused-vars
   const { mainWindow, session } = opts
   
   // 从本地存储加载完整凭证

@@ -4,11 +4,15 @@
  */
 const fs = require('fs')
 const path = require('path')
-const { app } = require('electron')
 
 const MAX_RECORDS = 500
 
 function getHistoryPath () {
+  // 测试时可通过环境变量注入路径，否则使用 Electron 的 userData
+  if (process.env.PH_TEST_DATA_DIR) {
+    return path.join(process.env.PH_TEST_DATA_DIR, 'publish-history.jsonl')
+  }
+  const { app } = require('electron')
   const userDataDir = app.getPath('userData')
   return path.join(userDataDir, 'publish-history.jsonl')
 }
@@ -67,7 +71,7 @@ function getStats () {
   }
 
   const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
-  let records = lines.map(l => {
+  const records = lines.map(l => {
     try { return JSON.parse(l) } catch { return null }
   }).filter(Boolean)
 
@@ -75,7 +79,6 @@ function getStats () {
   const success = records.filter(r => r.success !== false).length
   const failed = total - success
 
-  // 按平台统计
   const perPlatform = {}
   for (const r of records) {
     const p = r.platform || 'unknown'
@@ -85,7 +88,6 @@ function getStats () {
     else perPlatform[p].failed++
   }
 
-  // 按天统计（最近30天）
   const dailyMap = {}
   const now = new Date()
   for (let i = 29; i >= 0; i--) {

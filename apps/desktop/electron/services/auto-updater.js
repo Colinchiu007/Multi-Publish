@@ -4,6 +4,7 @@
  * 网络失败（GFW 场景）静默处理，不弹错误提示
  */
 const { autoUpdater } = require('electron-updater')
+// eslint-disable-next-line no-unused-vars
 const { BrowserWindow } = require('electron')
 
 let _mainWin = null

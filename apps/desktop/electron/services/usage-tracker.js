@@ -37,8 +37,8 @@ class UsageTracker {
   load() {
     try {
       if (fs.existsSync(this._dataPath)) {
-        let raw = fs.readFileSync(this._dataPath, "utf-8")
-        let parsed = JSON.parse(raw)
+        const raw = fs.readFileSync(this._dataPath, "utf-8")
+        const parsed = JSON.parse(raw)
         this._data = Object.assign(this._data, parsed)
       }
     } catch (e) {
@@ -53,7 +53,7 @@ class UsageTracker {
    */
   save() {
     try {
-      let dir = path.dirname(this._dataPath)
+      const dir = path.dirname(this._dataPath)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(this._dataPath, JSON.stringify(this._data, null, 2), "utf-8")
     } catch (e) {
@@ -101,7 +101,7 @@ class UsageTracker {
    */
   trackDaily(key, count) {
     if (!this._loaded) this.load()
-    let today = new Date().toISOString().split("T")[0]
+    const today = new Date().toISOString().split("T")[0]
     if (!this._data.daily[today]) this._data.daily[today] = {}
     this._data.daily[today][key] = (this._data.daily[today][key] || 0) + count
     this._autoSave()

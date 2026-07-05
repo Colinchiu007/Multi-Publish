@@ -1,9 +1,10 @@
 /**
  * Offline IPC handlers
  */
+// eslint-disable-next-line no-unused-vars
 function registerHandlers(ipcMain, deps) {
-  let EC = require('../core/error-codes').ERROR
-  let offlineManager = require("../services/offline-manager")
+  const EC = require('../core/error-codes').ERROR
+  const offlineManager = require("../services/offline-manager")
 
   ipcMain.handle("offline:status", async function() {
     try {
@@ -25,7 +26,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle("offline:add-to-cache", async function(event, task) {
     try {
-      let ok = offlineManager.addToCache(task)
+      const ok = offlineManager.addToCache(task)
       return { code: ok ? 0 : -1, message: ok ? "已缓存" : "缓存失败" }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })

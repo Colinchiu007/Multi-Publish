@@ -123,6 +123,7 @@
 </template>
 
 <script setup>
+/* global intelligenceGetBenchmark */
 import { ref, onMounted, watch } from 'vue'
 
 const props = defineProps({

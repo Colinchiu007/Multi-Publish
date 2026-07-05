@@ -168,7 +168,7 @@ function startPayment() {
 async function submitOrder() {
   orderLoading.value = true
   try {
-    var res = await paymentCreateOrder({ plan: "pro", method: selectedMethod.value })
+    const res = await paymentCreateOrder({ plan: "pro", method: selectedMethod.value })
     if (res.code === 0) {
       orderId.value = res.data.id
       paymentStep.value = "paying"
@@ -186,7 +186,7 @@ async function submitOrder() {
 async function simulatePayment() {
   simulating.value = true
   try {
-    var res = await paymentSimulate(orderId.value)
+    const res = await paymentSimulate(orderId.value)
     if (res.code === 0) {
       paymentStep.value = "success"
       await store.load()
@@ -220,7 +220,7 @@ async function doActivate() {
   activating.value = true
   activateError.value = ""
   activateSuccess.value = false
-  var ok = await store.activate(licenseKey.value.trim())
+  const ok = await store.activate(licenseKey.value.trim())
   activating.value = false
   if (ok) {
     activateSuccess.value = true
@@ -231,7 +231,7 @@ async function doActivate() {
 
 async function doTrial() {
   trialLoading.value = true
-  var ok = await store.activateTrial()
+  const ok = await store.activateTrial()
   trialLoading.value = false
   if (ok) {
     activateSuccess.value = true

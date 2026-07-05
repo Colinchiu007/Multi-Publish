@@ -28,12 +28,13 @@ function STEALTH_SCRIPT() {
       writable: false,
       configurable: true,
     })
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 
   // 2. Override chrome.runtime to simulate extensions
   // 很多平台（如抖音创作者平台）会检测是否安装了特定扩展
   try {
-    let origChrome = window.chrome || {}
+    const origChrome = window.chrome || {}
     window.chrome = {
       runtime: {
         id: 'aohghmighlieiainnegkcijnfilokake', // Google Docs Offline
@@ -48,12 +49,13 @@ function STEALTH_SCRIPT() {
       app: origChrome.app || { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
       webstore: origChrome.webstore || { onInstallStage: { addListener: function() {} } },
     }
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 
   // 3. Override navigator.plugins
   // 真实浏览器有 plugins 列表，CDP 检测器会检查长度
   try {
-    let fakePlugins = [
+    const fakePlugins = [
       { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
       { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
       { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
@@ -61,7 +63,7 @@ function STEALTH_SCRIPT() {
     // PluginArray.prototype 在部分 Electron 版本不可重写，用尽量安全的方案
     Object.defineProperty(navigator, 'plugins', {
       get: function() {
-        let arr = []
+        const arr = []
         for (let i = 0; i < fakePlugins.length; i++) {
           arr[i] = fakePlugins[i]
         }
@@ -73,6 +75,7 @@ function STEALTH_SCRIPT() {
       },
       configurable: true,
     })
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 
   // 4. Override navigator.languages
@@ -81,17 +84,19 @@ function STEALTH_SCRIPT() {
       get: function() { return ['zh-CN', 'zh', 'en'] },
       configurable: true,
     })
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 
   // 5. Override Permission query to hide automation
   try {
-    let origQuery = window.navigator.permissions.query
+    const origQuery = window.navigator.permissions.query
     window.navigator.permissions.query = function(perm) {
       if (perm && perm.name === 'clipboard-read') {
         return Promise.resolve({ state: 'granted', onchange: null })
       }
       return origQuery.call(window.navigator.permissions, perm)
     }
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 }
 

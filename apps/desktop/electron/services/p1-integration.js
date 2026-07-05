@@ -1,5 +1,8 @@
 // Onboarding and Publish Alert integration
 const onboarding = require('./onboarding')
+const { ipcMain } = require('electron')
+const taskQueue = require('./task-queue')
+const PublishAlert = require('./publish-alert')
 
 // ─── Onboarding IPC Handlers ─────────────
 ipcMain.handle('onboarding:get-steps', () => {

@@ -1,4 +1,5 @@
 function registerHandlers(ipcMain, deps) {
+  // eslint-disable-next-line no-unused-vars
   const { app, hotkeys, firstRun, BrowserWindow, log } = deps
 
   ipcMain.handle('app:get-version', () => app.getVersion())
@@ -18,6 +19,7 @@ function registerHandlers(ipcMain, deps) {
       if (win && !win.isDestroyed()) {
         win.webContents.send('notification', data)
       }
+    // eslint-disable-next-line no-unused-vars
     } catch (e) { /* ignore */ }
   })
 }

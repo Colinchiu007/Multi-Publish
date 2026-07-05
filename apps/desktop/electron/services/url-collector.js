@@ -10,6 +10,7 @@
  * 文件位置: apps/desktop/electron/url-collector.js
  */
 const { ipcMain } = require('electron')
+// eslint-disable-next-line no-unused-vars
 const log = require('./logger')
 
 class UrlCollector {
@@ -40,6 +41,7 @@ class UrlCollector {
     // 校验 URL 格式
     try {
       new URL(url)
+    // eslint-disable-next-line no-unused-vars
     } catch (e) {
       return { success: false, error: 'URL 格式不正确' }
     }

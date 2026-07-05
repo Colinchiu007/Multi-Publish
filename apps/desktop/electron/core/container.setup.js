@@ -32,7 +32,7 @@ const UsageTracker = require('../services/usage-tracker');
 const DataSyncService = require("@multi-publish/shared-utils/src/data-sync");
 
 function createContainer(options) {
-  var container = new Container();
+  const container = new Container();
   options = options || {};
 
   // ---- 无依赖服务 ----

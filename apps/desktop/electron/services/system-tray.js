@@ -8,12 +8,14 @@
  * 
  * 文件位置: apps/desktop/electron/system-tray.js
  */
+// eslint-disable-next-line no-unused-vars
 const { Tray, Menu, ipcMain, nativeImage, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const log = require('./logger')
 
 let tray = null
+// eslint-disable-next-line no-unused-vars
 let mainWindowRef = null
 
 /**
