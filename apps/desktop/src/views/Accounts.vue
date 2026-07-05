@@ -376,12 +376,13 @@ async function removeAccount (row) {
   padding: 10px var(--space-md);
   border-bottom: 1px solid var(--border-light, var(--border));
   transition: background 0.15s;
+  flex-wrap: wrap;
 }
 .account-row:last-child { border-bottom: none; }
 .account-row:hover { background: var(--soft-stone, #f8f8fa); }
 .account-row.is-default { background: var(--pale-blue,#fefaf5); }
 
-.account-info { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.account-info { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 160px; }
 .default-badge { font-size: 14px; color: var(--warning); }
 .default-badge.muted { color: var(--muted,#ccc); }
 .default-badge.muted:hover { color: var(--warning); }

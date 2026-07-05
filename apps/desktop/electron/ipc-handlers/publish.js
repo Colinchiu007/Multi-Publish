@@ -13,7 +13,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('publish:wechat', async (event, articleData) => {
     try {
-      const offlineManager = require('../offline-manager')
+      const offlineManager = require('../services/offline-manager')
       if (offlineManager.isOffline()) {
         offlineManager.addToCache({ platform: 'wechat_mp', article: articleData, accountId: null })
         return { code: 0, data: { cached: true }, message: '网络离线，任务已缓存，恢复后自动发布' }

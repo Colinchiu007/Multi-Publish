@@ -49,7 +49,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('template:get-presets', async () => {
     try {
-      const { TemplateManager } = require('../template-manager')
+      const { TemplateManager } = require('../services/template-manager')
       return { code: 0, data: TemplateManager.getPresets() }
     } catch (e) { return { code: -1, message: e.message, data: [] } }
   })

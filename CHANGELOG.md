@@ -1,5 +1,13 @@
 ## [v2.1.0] - 2026-07-05
 
+
+### Fixed — Accounts.vue 响应式布局修复
+- **Accounts.vue**: .account-row 添加 flex-wrap: wrap，.account-info min-width 0→160px，修复窄屏文字重叠 bug
+- **Accounts.test.js**: 新增 2 个 CSS 源码断言测试（vi.hoisted + fs.readFileSync 绕过 JSDOM 限制）
+- **tests/e2e-responsive-layout.js**: 新增 Playwright 响应式截图测试（desktop/tablet/mobile 三视口）
+- **review-checklist-enhanced.md**: P2 新增窄屏响应式布局检查项
+- 测试总数: 708 tests / 49 files / ALL GREEN
+
 ### P0 覆盖提升 4 项全完成
 - **stores/license.js**: 23.52% → 98.03%（16 测试，函数 100%）
 - **CreateView.vue**: 62.5% → 73.07%（9 测试，buildProps/gallery/canRender/viewResult）
@@ -9,6 +17,14 @@
 
 ### Fixed — Publish.vue 覆盖提升 + ref 声明修复
 ## [v2.1.0] - 2026-07-05
+
+
+### Fixed — Accounts.vue 响应式布局修复
+- **Accounts.vue**: .account-row 添加 flex-wrap: wrap，.account-info min-width 0→160px，修复窄屏文字重叠 bug
+- **Accounts.test.js**: 新增 2 个 CSS 源码断言测试（vi.hoisted + fs.readFileSync 绕过 JSDOM 限制）
+- **tests/e2e-responsive-layout.js**: 新增 Playwright 响应式截图测试（desktop/tablet/mobile 三视口）
+- **review-checklist-enhanced.md**: P2 新增窄屏响应式布局检查项
+- 测试总数: 708 tests / 49 files / ALL GREEN
 
 ### Fixed — Publish.vue 覆盖提升 + ref 声明修复
 - **Publish.vue 测试**: 11 个新增测试，覆盖 applyTemplate、handleBatchPublish 验证、totalPlatformTasks 等
@@ -37,6 +53,14 @@
 ### Added — ResultView.vue 覆盖率提升 (42.85% → 78.57%)
 
 ## [v2.1.0] - 2026-07-05
+
+
+### Fixed — Accounts.vue 响应式布局修复
+- **Accounts.vue**: .account-row 添加 flex-wrap: wrap，.account-info min-width 0→160px，修复窄屏文字重叠 bug
+- **Accounts.test.js**: 新增 2 个 CSS 源码断言测试（vi.hoisted + fs.readFileSync 绕过 JSDOM 限制）
+- **tests/e2e-responsive-layout.js**: 新增 Playwright 响应式截图测试（desktop/tablet/mobile 三视口）
+- **review-checklist-enhanced.md**: P2 新增窄屏响应式布局检查项
+- 测试总数: 708 tests / 49 files / ALL GREEN
 
 ### Added — ResultView.vue 覆盖率提升 (42.85% → 78.57%)
 - **ResultView.vue 测试**: 从 2 个基础测试扩展到 8 个完整测试

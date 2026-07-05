@@ -1,39 +1,43 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
-const log = require('./logger')
-const RenderEngine = require('./render-engine')
+const log = require('./services/logger')
+const RenderEngine = require('./services/render-engine')
 
 const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require('@multi-publish/shared-utils')
 const PublishIntervalGuard = require('@multi-publish/shared-utils/src/publish-interval-guard')
-const pythonBridge = require('./python-bridge')
+const pythonBridge = require('./services/python-bridge')
 const AccountManager = require('./publishers/account-manager')
-const scheduler = require('./scheduler')
-const history = require('./publish-history')
-const autoUpdater = require('./auto-updater')
-const firstRun = require('./first-run')
-const AuthViewManager = require('./auth-view-manager')
-const WebviewManager = require('./webview-manager')
-const RpaViewManager = require('./rpa-view-manager')
-const { PublisherRouter } = require('./publisher-router')
-const CallbackServer = require('./callback-server')
-const QrCodeLogin = require('./qrcode-login')
-const Store = require('./store')
-const OAuthManager = require('./oauth-manager')
-const BatchManager = require('./batch-manager')
-const UrlCollector = require('./url-collector')
-const ViralEngine = require('./viral-engine')
-const ContentIntelligence = require('./content-intelligence')
-const PublishImpactTracker = require('./publish-impact-tracker')
-const KeywordMonitor = require('./keyword-monitor')
-const ProviderManager = require('./provider-manager')
-const CloudPublisher = require('./cloud-publisher')
+const scheduler = require('./services/scheduler')
+const history = require('./services/publish-history')
+const autoUpdater = require('./services/auto-updater')
+const firstRun = require('./services/first-run')
+const AuthViewManager = require('./services/auth-view-manager')
+const WebviewManager = require('./services/webview-manager')
+const RpaViewManager = require('./services/rpa-view-manager')
+const { PublisherRouter } = require('./services/publisher-router')
+const CallbackServer = require('./services/callback-server')
+const QrCodeLogin = require('./services/qrcode-login')
+const Store = require('./services/store')
+const OAuthManager = require('./services/oauth-manager')
+const BatchManager = require('./services/batch-manager')
+const UrlCollector = require('./services/url-collector')
+const ViralEngine = require('./services/viral-engine')
+const ContentIntelligence = require('./services/content-intelligence')
+const PublishImpactTracker = require('./services/publish-impact-tracker')
+const KeywordMonitor = require('./services/keyword-monitor')
+const ProviderManager = require('./services/provider-manager')
+const CloudPublisher = require('./services/cloud-publisher')
 const { createContainer } = require('./core/container.setup');
 const container = createContainer();
-const flutterSkillBridge = require('./flutter-skill-bridge')
-const UsageTracker = require('./usage-tracker')
-const TemplateManager = require('./template-manager')
-const LicenseManager = require('./license-manager')
-const AiWriter = require('./ai-writer')
+const flutterSkillBridge = require('./services/flutter-skill-bridge')
+
+// ─── Helper ────────────────────────────────────────────────
+function getMainWin() { return BrowserWindow.getAllWindows()[0] }
+
+const UsageTracker = require('./services/usage-tracker')
+const TemplateManager = require('./services/template-manager')
+const LicenseManager = require('./services/license-manager')
+const AiWriter = require('./services/ai-writer')
 
 // ─── 基础设施实例 ──────────────────────────
 const authViewManager = new AuthViewManager()
@@ -53,16 +57,16 @@ const viralEngine = new ViralEngine()
 const proxyPool = new ProxyPool()
 const analyticsService = new AnalyticsService()
 
-const PublishAlert = require('./publish-alert')
+const PublishAlert = require('./services/publish-alert')
 const templateManager = new TemplateManager()
 templateManager.seedDefaults()
 const licenseManager = LicenseManager.getInstance()
 const aiWriter = new AiWriter()
-let offlineManager = require('./offline-manager')
+let offlineManager = require('./services/offline-manager')
 offlineManager.startMonitoring()
-const publishMonitor = require('./publish-monitor')
-const systemTray = require('./system-tray')
-const hotkeys = require('./hotkeys')
+const publishMonitor = require('./services/publish-monitor')
+const systemTray = require('./services/system-tray')
+const hotkeys = require('./services/hotkeys')
 
 // ─── 系统托盘 ──────────────────────────────
 systemTray.registerIpcHandlers()
@@ -83,7 +87,7 @@ const publisherRouter = new PublisherRouter()
 taskQueue.setExecutor(async (task) => {
   const platform = task.platform
   const emitProgress = (stage) => {
-    const win = BrowserWindow.getAllWindows()[0]
+    const win = getMainWin()
     if (win && !win.isDestroyed()) {
       win.webContents.send('publish:progress', { platform, stage, taskId: task.id })
     }
@@ -111,7 +115,7 @@ taskQueue.setExecutor(async (task) => {
   }
 
 taskQueue.on('task:success', (task) => {
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = getMainWin()
   if (win && !win.isDestroyed()) {
     win.webContents.send('publish:progress', {
       platform: task.platform, stage: '✓ 发布成功', taskId: task.id, result: task.result,
@@ -149,7 +153,7 @@ taskQueue.on('task:success', (task) => {
 })
 
 taskQueue.on('task:failed', (task) => {
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = getMainWin()
   if (win && !win.isDestroyed()) {
     win.webContents.send('publish:progress', {
       platform: task.platform, stage: '✗ 发布失败: ' + task.error, taskId: task.id, error: task.error,
@@ -158,7 +162,7 @@ taskQueue.on('task:failed', (task) => {
 })
 
 taskQueue.on('publish:blocked', ({ task, remainingWait }) => {
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = getMainWin()
   if (win && !win.isDestroyed()) {
     const minutes = Math.ceil(remainingWait / 60000)
     win.webContents.send('publish:progress', {
@@ -169,7 +173,7 @@ taskQueue.on('publish:blocked', ({ task, remainingWait }) => {
 })
 
 taskQueue.on('task:retry', (task) => {
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = getMainWin()
   if (win && !win.isDestroyed()) {
     win.webContents.send('publish:progress', {
       platform: task.platform, stage: '⟳ 重试中... (剩余 ' + task.retriesLeft + ' 次)', taskId: task.id,
@@ -277,7 +281,7 @@ app.whenReady().then(async () => {
   // 回调服务器
   try {
     callbackServer.start((data) => {
-      const win = BrowserWindow.getAllWindows()[0]
+      const win = getMainWin()
       if (win && !win.isDestroyed()) {
         win.webContents.send('callback:received', data)
       }
@@ -303,7 +307,7 @@ app.whenReady().then(async () => {
 
   // 关键词监测告警
   keywordMonitor.onAlert((keyword, current, previous, ratio) => {
-    const win = BrowserWindow.getAllWindows()[0]
+    const win = getMainWin()
     if (win && !win.isDestroyed()) {
       win.webContents.send('notification', {
         type: 'keyword-spike',
@@ -324,7 +328,7 @@ app.whenReady().then(async () => {
 
   // Analytics 提供者注册
   try {
-    const { xiaohongshuProvider, douyinProvider } = require('./analytics-providers')
+    const { xiaohongshuProvider, douyinProvider } = require('./services/analytics-providers')
     analyticsService.registerProvider('xiaohongshu', xiaohongshuProvider)
     analyticsService.registerProvider('douyin', douyinProvider)
     log.info('App', 'Analytics providers registered: xiaohongshu, douyin')
