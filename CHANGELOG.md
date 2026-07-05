@@ -1,3 +1,19 @@
+## [v2.0.4] - 2026-07-05
+
+### Added — Collection.vue 覆盖率提升 (41.05% → 91.57%)
+- **Collection.vue 测试**: 从 5 个基础测试扩展到 25 个完整测试
+  - loadDrafts: 正常加载 / API缺失 / JSON解析失败
+  - saveDrafts: 带 API / 无 API
+  - createDraft / importFromClipboard: 成功 / 失败 / 空剪贴板
+  - openCollection: 带 webview API / 无 API
+  - editDraft / goPublish: 导航
+  - deleteDraft: 确认删除 / 取消
+  - collectUrl: 空 URL / 无 API / 成功 / 失败 / 异常
+  - createFromCollected: 成功 / 无数据
+- 语句覆盖率: 41.05% → 91.57%
+- 分支覆盖率: 44.15% → 85.71%
+- 函数覆盖率: 28.57% → 61.90%
+
 ## [v2.0.3] - 2026-07-05
 
 ### Added — Accounts.vue 覆盖率提升 (31.32% → 65.66%)
