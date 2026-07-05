@@ -51,7 +51,7 @@ vi.mock("element-plus", () => ({
 vi.mock("@element-plus/icons-vue", () => ({ UploadFilled: { template: "<span>U</span>" } }));
 
 async function setupView(path) {
-  const mod = await import("@/views/" + path);
+  const mod = await import("./" + path);
   const { setActivePinia, createPinia } = await import("pinia");
   setActivePinia(createPinia());
   return { mod, pinia: createPinia() };
