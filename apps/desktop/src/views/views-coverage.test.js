@@ -52,7 +52,7 @@ describe("PublishView (coverage)", () => {
   beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); });
 
   async function mnt() {
-    const m = await import("@/views/Publish.vue");
+    const m = await import("./Publish.vue");
     return mount(m.default || m, {
       global: { plugins: [createPinia()],
         components: { UiButton: { template: "<button><slot/></button>" }, UiInput: { template: "<input/>" } },
@@ -110,7 +110,7 @@ describe("FirstRunView (coverage)", () => {
   });
 
   async function mnt() {
-    const m = await import("@/views/FirstRun.vue");
+    const m = await import("./FirstRun.vue");
     return mount(m.default || m, { global: { plugins: [createPinia()] } });
   }
 
@@ -134,7 +134,7 @@ describe("AccountsView (coverage)", () => {
   });
 
   async function mnt() {
-    const m = await import("@/views/Accounts.vue");
+    const m = await import("./Accounts.vue");
     return mount(m.default || m, { global: { plugins: [createPinia()],
       stubs: { "el-dialog": true, "el-input": true, "el-form": true, "el-form-item": true, UiButton: { template: "<button><slot/></button>" }, UiInput: { template: "<input/>" } }
     } });
@@ -154,7 +154,7 @@ describe("CollectionView (coverage)", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   async function mnt() {
-    const m = await import("@/views/Collection.vue");
+    const m = await import("./Collection.vue");
     return mount(m.default || m);
   }
 
@@ -175,7 +175,7 @@ describe("MonitorView (coverage)", () => {
   beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); window.electronAPI = {}; });
 
   async function mnt() {
-    const m = await import("@/views/Monitor.vue");
+    const m = await import("./Monitor.vue");
     return mount(m.default || m, { global: { plugins: [createPinia()] } });
   }
 
@@ -208,7 +208,7 @@ describe("CloudPublish (coverage)", () => {
   });
 
   async function mnt() {
-    const m = await import("@/views/CloudPublish.vue");
+    const m = await import("./CloudPublish.vue");
     return mount(m.default || m, {
       global: { plugins: [createPinia()],
         components: { UiButton: { template: "<button><slot/></button>" }, UiInput: { template: "<input/>" } },
