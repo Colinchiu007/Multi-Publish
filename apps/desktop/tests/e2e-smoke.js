@@ -55,7 +55,7 @@ async function run() {
 
   // 3. Credentials template
   console.log("\n3. 凭据配置");
-  const credPath = path.join(__dirname, "..", "..", "config", "e2e-credentials.template.json");
+  const credPath = path.join(__dirname, "..", "..", "..", "config", "e2e-credentials.template.json");
   try {
     const cred = JSON.parse(fs.readFileSync(credPath, "utf-8"));
     assert(!!cred.accounts, "accounts 存在");
