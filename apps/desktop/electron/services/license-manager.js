@@ -14,12 +14,12 @@ const log = require("./logger")
 
 let _instance = null
 
-let FREE_FEATURES = [
+const FREE_FEATURES = [
   "single-publish",
   "platform-basic",
 ]
 
-let PRO_FEATURES = [
+const PRO_FEATURES = [
   "single-publish",
   "batch-publish",
   "scheduled-publish",
@@ -30,7 +30,7 @@ let PRO_FEATURES = [
   "api-access",
 ]
 
-let TRIAL_DAYS = 7
+const TRIAL_DAYS = 7
 
 function getDataPath(dataPath) {
   return dataPath || path.join(app.getPath("userData"), "license.json")
@@ -38,8 +38,8 @@ function getDataPath(dataPath) {
 
 function obfuscate(str) {
   if (!str) return ""
-  let buf = Buffer.from(str, "utf-8")
-  let xor = Buffer.alloc(buf.length)
+  const buf = Buffer.from(str, "utf-8")
+  const xor = Buffer.alloc(buf.length)
   for (let i = 0; i < buf.length; i++) {
     xor[i] = buf[i] ^ 0x4d
   }
@@ -49,8 +49,8 @@ function obfuscate(str) {
 function deobfuscate(encoded) {
   if (!encoded) return null
   try {
-    let xor = Buffer.from(encoded, "base64")
-    let buf = Buffer.alloc(xor.length)
+    const xor = Buffer.from(encoded, "base64")
+    const buf = Buffer.alloc(xor.length)
     for (let i = 0; i < xor.length; i++) {
       buf[i] = xor[i] ^ 0x4d
     }
@@ -78,11 +78,11 @@ class LicenseManager {
   load() {
     try {
       if (fs.existsSync(this._dataPath)) {
-        let raw = fs.readFileSync(this._dataPath, "utf-8").trim()
+        const raw = fs.readFileSync(this._dataPath, "utf-8").trim()
         if (!raw) return
-        let decoded = deobfuscate(raw)
+        const decoded = deobfuscate(raw)
         if (decoded) {
-          let parsed = JSON.parse(decoded)
+          const parsed = JSON.parse(decoded)
           if (parsed && parsed.type) {
             this._data = parsed
             log.info("LicenseManager", "License loaded: " + this._data.type)
@@ -97,9 +97,9 @@ class LicenseManager {
 
   save() {
     try {
-      let dir = path.dirname(this._dataPath)
+      const dir = path.dirname(this._dataPath)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-      let encoded = obfuscate(JSON.stringify(this._data))
+      const encoded = obfuscate(JSON.stringify(this._data))
       fs.writeFileSync(this._dataPath, encoded, "utf-8")
     } catch (e) {
       log.warn("LicenseManager", "Failed to save: " + e.message)
@@ -110,7 +110,7 @@ class LicenseManager {
     if (!licenseKey) return false
     // Don't re-activate if already activated with same or different key
     if (this._data.type === "pro" || this._data.type === "lifetime") return false
-    let key = licenseKey.trim()
+    const key = licenseKey.trim()
     this._data.type = "pro"
     this._data.licenseKey = key
     this._data.activatedAt = new Date().toISOString()
@@ -125,7 +125,7 @@ class LicenseManager {
     if (this._data.type !== "free") return false
     this._data.type = "trial"
     this._data.activatedAt = new Date().toISOString()
-    let expires = new Date()
+    const expires = new Date()
     expires.setDate(expires.getDate() + TRIAL_DAYS)
     this._data.expiresAt = expires.toISOString()
     this._data.features = PRO_FEATURES.slice()
@@ -144,8 +144,8 @@ class LicenseManager {
     if (this._data.type === "pro" || this._data.type === "lifetime") return true
     if (this._data.type === "trial") {
       if (!this._data.expiresAt) return false
-      let now = new Date()
-      let expires = new Date(this._data.expiresAt)
+      const now = new Date()
+      const expires = new Date(this._data.expiresAt)
       return now < expires
     }
     return false
@@ -186,9 +186,9 @@ class LicenseManager {
 
   _daysRemaining() {
     if (this._data.type !== "trial" || !this._data.expiresAt) return 0
-    let now = new Date()
-    let expires = new Date(this._data.expiresAt)
-    let diff = expires.getTime() - now.getTime()
+    const now = new Date()
+    const expires = new Date(this._data.expiresAt)
+    const diff = expires.getTime() - now.getTime()
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)))
   }
 

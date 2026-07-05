@@ -11,7 +11,7 @@ const path = require('path')
 const fs = require('fs')
 const log = require('./logger')
 
-let soundCtx = null
+const soundCtx = null
 let lastAlertTime = 0
 const ALERT_COOLDOWN = 1000
 
