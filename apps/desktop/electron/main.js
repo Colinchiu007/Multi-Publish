@@ -30,6 +30,10 @@ const CloudPublisher = require('./cloud-publisher')
 const { createContainer } = require('./core/container.setup');
 const container = createContainer();
 const flutterSkillBridge = require('./flutter-skill-bridge')
+
+// ─── Helper ────────────────────────────────────────────────
+function getMainWin() { return BrowserWindow.getAllWindows()[0] }
+
 const UsageTracker = require('./usage-tracker')
 const TemplateManager = require('./template-manager')
 const LicenseManager = require('./license-manager')
@@ -83,7 +87,7 @@ const publisherRouter = new PublisherRouter()
 taskQueue.setExecutor(async (task) => {
   const platform = task.platform
   const emitProgress = (stage) => {
-    const win = BrowserWindow.getAllWindows()[0]
+    const win = getMainWin()
     if (win && !win.isDestroyed()) {
       win.webContents.send('publish:progress', { platform, stage, taskId: task.id })
     }
@@ -111,7 +115,7 @@ taskQueue.setExecutor(async (task) => {
   }
 
 taskQueue.on('task:success', (task) => {
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = getMainWin()
   if (win && !win.isDestroyed()) {
     win.webContents.send('publish:progress', {
       platform: task.platform, stage: '✓ 发布成功', taskId: task.id, result: task.result,
@@ -149,7 +153,7 @@ taskQueue.on('task:success', (task) => {
 })
 
 taskQueue.on('task:failed', (task) => {
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = getMainWin()
   if (win && !win.isDestroyed()) {
     win.webContents.send('publish:progress', {
       platform: task.platform, stage: '✗ 发布失败: ' + task.error, taskId: task.id, error: task.error,
@@ -158,7 +162,7 @@ taskQueue.on('task:failed', (task) => {
 })
 
 taskQueue.on('publish:blocked', ({ task, remainingWait }) => {
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = getMainWin()
   if (win && !win.isDestroyed()) {
     const minutes = Math.ceil(remainingWait / 60000)
     win.webContents.send('publish:progress', {
@@ -169,7 +173,7 @@ taskQueue.on('publish:blocked', ({ task, remainingWait }) => {
 })
 
 taskQueue.on('task:retry', (task) => {
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = getMainWin()
   if (win && !win.isDestroyed()) {
     win.webContents.send('publish:progress', {
       platform: task.platform, stage: '⟳ 重试中... (剩余 ' + task.retriesLeft + ' 次)', taskId: task.id,
@@ -277,7 +281,7 @@ app.whenReady().then(async () => {
   // 回调服务器
   try {
     callbackServer.start((data) => {
-      const win = BrowserWindow.getAllWindows()[0]
+      const win = getMainWin()
       if (win && !win.isDestroyed()) {
         win.webContents.send('callback:received', data)
       }
@@ -303,7 +307,7 @@ app.whenReady().then(async () => {
 
   // 关键词监测告警
   keywordMonitor.onAlert((keyword, current, previous, ratio) => {
-    const win = BrowserWindow.getAllWindows()[0]
+    const win = getMainWin()
     if (win && !win.isDestroyed()) {
       win.webContents.send('notification', {
         type: 'keyword-spike',
