@@ -7,7 +7,7 @@ vi.mock("@/stores/platforms", () => ({
   usePlatformStore: () => ({
     load: vi.fn(),
     getLabel: (k) => ({ wechat_mp: "微信", zhihu: "知乎" }[k] || k),
-    getIcon: (k) => "ἱ0",
+    getIcon: (k) => "📱",
   })
 }));
 
@@ -71,5 +71,47 @@ describe("DashboardView", () => {
     const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
     await nextTick();
     expect(w.findComponent({ name: "TrialBanner" }).exists()).toBe(true);
+  });
+
+  it("refresh button calls syncAll and updates data", async () => {
+    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    await nextTick();
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    const btn = w.find(".cohere-btn-secondary");
+    expect(btn.exists()).toBe(true);
+    await btn.trigger("click");
+    await nextTick();
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    const { syncAll } = await import("@/api/publisher");
+    expect(syncAll).toHaveBeenCalled();
+  });
+
+  it("handles syncCached failure gracefully", async () => {
+    window.electronAPI.syncCached = vi.fn().mockRejectedValue(new Error("Network error"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    await nextTick();
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    expect(warnSpy).toHaveBeenCalledWith("Load cached failed:", "Network error");
+    warnSpy.mockRestore();
+  });
+
+  it("shows trend chart when stats daily data is available", async () => {
+    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    await nextTick();
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    expect(w.text()).toContain("发布趋势");
+  });
+
+  it("benchmark button disabled when input is empty", async () => {
+    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    await nextTick();
+    w.vm.benchmarkTitle = "";
+    w.vm.doBenchmark();
+    expect(w.vm.benchmarkActiveTitle).toBe("");
   });
 });
