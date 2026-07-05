@@ -1,3 +1,20 @@
+## [v2.0.5] - 2026-07-05
+
+### Added — Providers.vue 覆盖率提升 (33.75% → 81.25%)
+- **Providers.vue 测试**: 从 2 个基础测试扩展到 24 个完整测试
+  - typeLabel: 全部 4 种类型 + 默认值
+  - modelList: 数组 / JSON 字符串 / 原始字符串 / null
+  - loadProviders: 正常加载 / API 错误 / 异常
+  - openCreate / openEdit: 表单初始化
+  - submitForm: 创建 / 更新 / API 错误
+  - testProvider: 成功 / 失败 / 异常
+  - confirmDelete / doDelete: 成功 / 失败 / 无 target
+  - filteredProviders / enabledCount: 过滤和计数逻辑
+  - openUserKey / saveUserKey: 成功 / 异常
+- 语句覆盖率: 33.75% → 81.25%
+- 分支覆盖率: ~20% → 70.80%
+- 函数覆盖率: ~15% → 51.06%
+
 ## [v2.0.4] - 2026-07-05
 
 ### Added — Collection.vue 覆盖率提升 (41.05% → 91.57%)
