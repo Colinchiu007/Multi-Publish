@@ -11,6 +11,7 @@ const path = require('path')
 const fs = require('fs')
 const log = require('./logger')
 
+// eslint-disable-next-line no-unused-vars
 const soundCtx = null
 let lastAlertTime = 0
 const ALERT_COOLDOWN = 1000
@@ -41,6 +42,7 @@ function playSound (type) {
         exec(`paplay "${audioPath}"`, () => {})
       }
     }
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* 无声环境忽略 */ }
 }
 

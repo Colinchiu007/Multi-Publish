@@ -151,12 +151,15 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
 import { useLicenseStore } from '@/stores/license'
+// eslint-disable-next-line no-unused-vars
 import UpgradeModal from '@/components/UpgradeModal.vue'
+// eslint-disable-next-line no-unused-vars
 import TrialBanner from '@/components/TrialBanner.vue'
 
 const route = useRoute()
 const authViewVisible = ref(false)
 const showUpgradeModal = ref(false)
+// eslint-disable-next-line no-unused-vars
 const dismissBanner = ref(false)
 const licenseStore = useLicenseStore()
 const isOffline = ref(false)

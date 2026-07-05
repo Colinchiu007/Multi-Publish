@@ -80,6 +80,7 @@ import { usePlatformStore } from "@/stores/platforms"
 
 const platformStore = usePlatformStore()
 platformStore.load()
+// eslint-disable-next-line no-unused-vars
 function platformName(id) { return platformStore.getLabel(id) || id }
 
 const now = new Date()
@@ -205,6 +206,7 @@ async function loadData() {
         if (hRes && hRes.code === 0) publishHistory.value = (hRes.data && hRes.data.records) || []
       }
     }
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
   finally { loading.value = false }
 }

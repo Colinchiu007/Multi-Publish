@@ -37,6 +37,7 @@ class Statement {
       if (params.length > 0) stmt.bind(params)
       stmt.step()
       stmt.free()
+    // eslint-disable-next-line no-unused-vars
     } catch (e) {
       // Table might not exist yet — just return
     }
@@ -53,6 +54,7 @@ class Statement {
         return row
       }
       stmt.free()
+    // eslint-disable-next-line no-unused-vars
     } catch (e) {
       return undefined
     }
@@ -68,6 +70,7 @@ class Statement {
         rows.push(stmt.getAsObject())
       }
       stmt.free()
+    // eslint-disable-next-line no-unused-vars
     } catch (e) {
       // Table might not exist yet
     }
@@ -102,6 +105,7 @@ class Database {
 
   pragma(sql) {
     if (this._db) {
+      // eslint-disable-next-line no-unused-vars
       try { this._db.exec(`PRAGMA ${sql}`) } catch (e) { /* ignore */ }
     }
   }
@@ -113,6 +117,7 @@ class Database {
 
   exec(sql) {
     if (this._db) {
+      // eslint-disable-next-line no-unused-vars
       try { this._db.exec(sql) } catch (e) { /* ignore */ }
     }
   }

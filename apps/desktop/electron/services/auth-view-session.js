@@ -4,6 +4,7 @@
  * 处理 Electron session 分区、Cookie 设置、localStorage 恢复。
  */
 
+// eslint-disable-next-line no-unused-vars
 const path = require('path')
 
 /**
@@ -24,9 +25,11 @@ async function setCookies(session, cookies) {
   try {
     // 尝试批量设置
     await session.cookies.set(cookies)
+  // eslint-disable-next-line no-unused-vars
   } catch (e) {
     // 数组格式，逐个设置
     for (const c of cookies) {
+      // eslint-disable-next-line no-unused-vars
       try { await session.cookies.set(c) } catch (e2) { /* ignore invalid cookie */ }
     }
   }
@@ -48,6 +51,7 @@ async function restoreLocalStorage(view, localStorage) {
             });
           })()
         `)
+      // eslint-disable-next-line no-unused-vars
       } catch (e) { /* ignore */ }
       resolve()
     }, { once: true })

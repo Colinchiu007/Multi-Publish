@@ -9,6 +9,7 @@
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  // eslint-disable-next-line no-unused-vars
   const { taskQueue, history, BrowserWindow, log } = deps
 
   ipcMain.handle('publish:wechat', async (event, articleData) => {

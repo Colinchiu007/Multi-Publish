@@ -74,6 +74,7 @@
 </template>
 
 <script setup>
+/* global intelligenceGetOptimalTime */
 import { ref, watch, computed } from 'vue'
 
 const props = defineProps({

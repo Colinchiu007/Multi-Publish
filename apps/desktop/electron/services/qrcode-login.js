@@ -16,6 +16,7 @@
 const { WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
+// eslint-disable-next-line no-unused-vars
 const { PLATFORM_LOGIN_URLS, QR_CODE_PLATFORMS } = require('@multi-publish/shared-utils/src/platform-definitions')
 
 // 各平台登录页 URL → @multi-publish/shared-utils/src/platform-definitions
@@ -23,6 +24,7 @@ const { PLATFORM_LOGIN_URLS, QR_CODE_PLATFORMS } = require('@multi-publish/share
 
 // QR 码检测间隔
 const QR_SCAN_INTERVAL_MS = 2000
+// eslint-disable-next-line no-unused-vars
 const QR_REFRESH_INTERVAL_MS = 30000  // 微信码 30s 过期刷新
 
 class QrCodeLogin {
@@ -301,6 +303,7 @@ class QrCodeLogin {
     try {
       const title = await view.webContents.getTitle()
       if (title) accountName = `${this.currentPlatform} (${title.slice(0, 20)})`
+    // eslint-disable-next-line no-unused-vars
     } catch (e) { /* ignore */ }
 
     return { cookies, localStorage, accountName }
@@ -358,8 +361,11 @@ class QrCodeLogin {
     }
 
     if (this.currentView) {
+      // eslint-disable-next-line no-unused-vars
       try { this.mainWindow.contentView.removeChildView(this.currentView) } catch (e) { /* ignore */ }
+      // eslint-disable-next-line no-unused-vars
       try { this.currentView.webContents.close() } catch (e) { /* ignore */ }
+      // eslint-disable-next-line no-unused-vars
       try { this.currentView.webContents.destroy() } catch (e) { /* ignore */ }
       this.currentView = null
     }

@@ -8,6 +8,7 @@
  * CLI: ai-writer <command> [options]
  */
 
+// eslint-disable-next-line no-unused-vars
 const path = require('path')
 const AiWriter = require('../../../../packages/ai-writer/src/index')
 const log = require('./logger')

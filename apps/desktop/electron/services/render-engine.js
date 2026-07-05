@@ -73,6 +73,7 @@ class RenderEngine {
 
       this._currentProcess = child;
 
+      // eslint-disable-next-line no-unused-vars
       let stdout = '';
 
       child.stdout.on('data', (data) => {

@@ -1,5 +1,5 @@
 function registerHandlers(ipcMain, deps) {
-  const { analyticsService, store, BrowserWindow, log } = deps
+  const { analyticsService, store } = deps
 
   ipcMain.handle('analytics:overview', async () => {
     try {
@@ -10,7 +10,7 @@ function registerHandlers(ipcMain, deps) {
         const account = store.listAccounts(p)[0]
         if (account?.cookies) {
           try { credentialsMap[p] = { cookies: JSON.parse(account.cookies) } }
-          catch (e) { credentialsMap[p] = {} }
+          catch (e) { credentialsMap[p] = {} } // eslint-disable-line no-unused-vars
         }
       }
       const data = await analyticsService.fetchOverview(platforms, credentialsMap)

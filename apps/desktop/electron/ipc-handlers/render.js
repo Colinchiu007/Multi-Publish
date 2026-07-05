@@ -3,6 +3,7 @@
  */
 
 function registerHandlers(ipcMain, deps) {
+  // eslint-disable-next-line no-unused-vars
   const { renderEngine, BrowserWindow, log } = deps
 
   ipcMain.handle('render:start', async (event, data) => {

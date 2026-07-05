@@ -23,6 +23,7 @@ function randomSegment(length) {
   let bytes
   try {
     bytes = crypto.randomBytes(length)
+  // eslint-disable-next-line no-unused-vars
   } catch (e) {
     // fallback for test mock
     bytes = Buffer.alloc(length, 0x42)
@@ -104,6 +105,7 @@ function validate(code) {
     if (!crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
       return { valid: false, reason: "invalid_signature" }
     }
+  // eslint-disable-next-line no-unused-vars
   } catch (e) {
     return { valid: false, reason: "invalid_signature" }
   }

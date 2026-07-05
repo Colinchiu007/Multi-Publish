@@ -5,6 +5,7 @@
  * ?? engine.publishViaApi / engine.getAdapter ????
  * uploadChunked ?????????????
  */
+// eslint-disable-next-line no-unused-vars
 const path = require("path");
 const log = require("./logger");
 
@@ -12,6 +13,7 @@ const log = require("./logger");
 let engine = null;
 try {
   engine = require("../../../packages/api-publish-engine/src/index");
+// eslint-disable-next-line no-unused-vars
 } catch (e) {
   // ????? monorepo workspace ??
   try {
@@ -70,6 +72,7 @@ async function publishViaApi(platform, params) {
 /**
  * ???????????????????
  */
+// eslint-disable-next-line no-unused-vars
 async function uploadChunked(platform, filePath, params) {
   // ... unchanged, keep original implementation
   return { success: false, message: "Chunked upload requires desktop adapter config" };

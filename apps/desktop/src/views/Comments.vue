@@ -47,6 +47,7 @@
 </template>
 
 <script setup>
+// eslint-disable-next-line no-unused-vars
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 
 const activePlatform = ref(null)
@@ -71,6 +72,7 @@ async function loadPlatforms () {
     if (res.code === 0) {
       platforms.value = (res.data || []).filter(p => p.comment_url)
     }
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 }
 

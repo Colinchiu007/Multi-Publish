@@ -151,6 +151,7 @@
 import UiModal from "../components/UiModal.vue";
 import UiButton from "../components/UiButton.vue";
 import { ref, computed, onMounted } from 'vue'
+// eslint-disable-next-line no-unused-vars
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   providerList,
@@ -206,6 +207,7 @@ const enabledCount = computed(() =>
 )
 
 // ─── 表单验证 ────────────────────────────────
+// eslint-disable-next-line no-unused-vars
 const formRules = {
   name: [
     { required: true, message: '请输入标识名', trigger: 'blur' },
@@ -283,10 +285,12 @@ function openEdit (provider) {
   showFormDialog.value = true
 }
 
+// eslint-disable-next-line no-unused-vars
 function resetForm () {
   formRef.value?.resetFields()
 }
 
+// eslint-disable-next-line no-unused-vars
 async function submitForm () {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
@@ -375,6 +379,7 @@ async function testProvider (name) {
 }
 
 // ─── 用户 Key 管理 ────────────────────────────
+// eslint-disable-next-line no-unused-vars
 function openUserKey (provider) {
   userKeyTarget.value = provider
   userKeyForm.value = { apiKey: '', baseUrl: '' }

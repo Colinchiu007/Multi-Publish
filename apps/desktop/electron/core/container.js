@@ -38,7 +38,7 @@ Container.prototype.register = function(name, value) {
  */
 Container.prototype.registerMany = function(map) {
   for (const key in map) {
-    if (map.hasOwnProperty(key)) this.register(key, map[key])
+    if (Object.hasOwn(map, key)) this.register(key, map[key])
   }
 }
 

@@ -14,7 +14,7 @@ describe("publish-history", () => {
 
   afterAll(() => {
     delete process.env.PH_TEST_DATA_DIR;
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
   it("exports all 4 functions", () => {
@@ -113,6 +113,6 @@ describe("publish-history", () => {
     const result = ph.listRecords();
     expect(result.total).toBe(0);
     expect(result.records).toEqual([]);
-    try { fs.rmSync(emptyDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(emptyDir, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 });

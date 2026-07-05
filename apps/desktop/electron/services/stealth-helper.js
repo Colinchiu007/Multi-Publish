@@ -28,6 +28,7 @@ function STEALTH_SCRIPT() {
       writable: false,
       configurable: true,
     })
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 
   // 2. Override chrome.runtime to simulate extensions
@@ -48,6 +49,7 @@ function STEALTH_SCRIPT() {
       app: origChrome.app || { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
       webstore: origChrome.webstore || { onInstallStage: { addListener: function() {} } },
     }
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 
   // 3. Override navigator.plugins
@@ -73,6 +75,7 @@ function STEALTH_SCRIPT() {
       },
       configurable: true,
     })
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 
   // 4. Override navigator.languages
@@ -81,6 +84,7 @@ function STEALTH_SCRIPT() {
       get: function() { return ['zh-CN', 'zh', 'en'] },
       configurable: true,
     })
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 
   // 5. Override Permission query to hide automation
@@ -92,6 +96,7 @@ function STEALTH_SCRIPT() {
       }
       return origQuery.call(window.navigator.permissions, perm)
     }
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* ignore */ }
 }
 

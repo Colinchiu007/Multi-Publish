@@ -6,6 +6,7 @@
  *   Publish: Playwright (保留，RPA 自动化)
  *   Cookie 桥接: WebContentsView 提取 → Python API 保存 → Playwright 加载
  */
+// eslint-disable-next-line no-unused-vars
 const { BrowserWindow, WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
@@ -111,6 +112,7 @@ class AuthViewManager {
   async _extractAuthData(view) {
     const cookies = await view.webContents.session.cookies.get({})
     let name = ''
+    // eslint-disable-next-line no-unused-vars
     try { name = await view.webContents.executeJavaScript('document.title || ""') } catch (e) { /* ignore */ }
     return { cookies, name }
   }
@@ -143,6 +145,7 @@ class AuthViewManager {
         this.mainWindow.contentView.removeChildView(this.currentView)
         this.currentView.webContents.close()
         this.currentView = null
+      // eslint-disable-next-line no-unused-vars
       } catch (e) { /* ignore */ }
     }
     this.currentPlatform = null
@@ -206,6 +209,7 @@ class AuthViewManager {
     try {
       if (cookies && cookies.length > 0) {
         for (const c of cookies) {
+          // eslint-disable-next-line no-unused-vars
           try { await win.webContents.session.cookies.set(c) } catch (e) { /* skip */ }
         }
       }
@@ -223,6 +227,7 @@ class AuthViewManager {
               });
             })()
           `)
+        // eslint-disable-next-line no-unused-vars
         } catch (e) { /* ignore */ }
       }
 
@@ -235,6 +240,7 @@ class AuthViewManager {
         : !currentUrl.includes('login') && !currentUrl.includes('passport') && !currentUrl.includes('signin')
 
       let accountName = null
+      // eslint-disable-next-line no-unused-vars
       try { accountName = await win.webContents.getTitle() } catch (e) { /* ignore */ }
 
       return { valid: isValid, accountName }
@@ -242,6 +248,7 @@ class AuthViewManager {
       log.warn('AuthView', `Silent login failed for ${platform}: ${e.message}`)
       return { valid: false, accountName: null }
     } finally {
+      // eslint-disable-next-line no-unused-vars
       try { win.destroy() } catch (e) { /* ignore */ }
     }
   }

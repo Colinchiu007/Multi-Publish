@@ -16,6 +16,7 @@ const { WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const http = require('http')
 const log = require('./logger')
+// eslint-disable-next-line no-unused-vars
 const Store = require('./store')
 
 // OAuth 平台配置
@@ -161,6 +162,7 @@ class OAuthManager {
 
       if (url.pathname === '/oauth/callback') {
         const code = url.searchParams.get('code')
+        // eslint-disable-next-line no-unused-vars
         const state = url.searchParams.get('state')
         const error = url.searchParams.get('error')
 
@@ -199,6 +201,7 @@ class OAuthManager {
 
   _stopCallbackServer () {
     if (this._callbackServer) {
+      // eslint-disable-next-line no-unused-vars
       try { this._callbackServer.close() } catch (e) { /* ignore */ }
       this._callbackServer = null
     }
@@ -242,6 +245,7 @@ class OAuthManager {
           let data = ''
           res.on('data', (chunk) => { data += chunk })
           res.on('end', () => {
+            // eslint-disable-next-line no-unused-vars
             try { resolve(JSON.parse(data)) } catch (e) { reject(new Error(`Token response: ${data.slice(0, 200)}`)) }
           })
         })
@@ -334,8 +338,11 @@ class OAuthManager {
     }
 
     if (this.currentView) {
+      // eslint-disable-next-line no-unused-vars
       try { this.mainWindow.contentView.removeChildView(this.currentView) } catch (e) { /* ignore */ }
+      // eslint-disable-next-line no-unused-vars
       try { this.currentView.webContents.close() } catch (e) { /* ignore */ }
+      // eslint-disable-next-line no-unused-vars
       try { this.currentView.webContents.destroy() } catch (e) { /* ignore */ }
       this.currentView = null
     }

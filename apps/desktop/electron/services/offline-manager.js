@@ -14,6 +14,7 @@ const log = require("./logger")
 
 const OFFLINE_CACHE_FILE = "offline-publish-cache.json"
 let _isOffline = false
+// eslint-disable-next-line no-unused-vars
 const _retryQueue = []
 let _mainWin = null
 let _taskQueue = null
@@ -22,6 +23,7 @@ function getCachePath() {
   let userDataDir
   try {
     userDataDir = require("electron").app.getPath("userData")
+  // eslint-disable-next-line no-unused-vars
   } catch (e) {
     userDataDir = process.env.USERPROFILE || "/tmp"
   }
@@ -33,6 +35,7 @@ function getMainWindow() {
   try {
     const wins = require("electron").BrowserWindow.getAllWindows()
     return wins[0] || null
+  // eslint-disable-next-line no-unused-vars
   } catch (e) {
     return null
   }
@@ -143,6 +146,7 @@ function startMonitoring(mainWin) {
       net.on("offline", function() { onNetworkChange(true) })
     }
     _isOffline = (typeof net.isConnected === "function") ? !net.isConnected() : false
+  // eslint-disable-next-line no-unused-vars
   } catch (e) {
     _isOffline = false
   }

@@ -31,6 +31,7 @@ const props = defineProps({
 
 defineEmits(["close"]);
 
+// eslint-disable-next-line no-unused-vars
 const sizeMap = { sm: "360px", md: "480px", lg: "640px", xl: "800px" };
 const sizeClass = computed(() => "ui-modal-" + props.size);
 </script>

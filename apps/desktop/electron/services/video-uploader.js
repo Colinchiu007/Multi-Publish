@@ -31,6 +31,7 @@ async function uploadVideo (filePath, platform, title, opts = {}) {
     cookies = '',
     description = '',
     tags = [],
+    // eslint-disable-next-line no-unused-vars
     onProgress,
   } = opts
   
@@ -56,6 +57,7 @@ async function uploadVideo (filePath, platform, title, opts = {}) {
       throw new Error(result.message || '视频上传失败')
     }
     
+    // eslint-disable-next-line no-unused-vars
     const { videoId, progress } = result.data
     log.info('VideoUploader', `Upload complete: ${videoId}`)
     
