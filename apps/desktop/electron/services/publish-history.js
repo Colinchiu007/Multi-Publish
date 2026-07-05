@@ -71,7 +71,7 @@ function getStats () {
   }
 
   const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
-  let records = lines.map(l => {
+  const records = lines.map(l => {
     try { return JSON.parse(l) } catch { return null }
   }).filter(Boolean)
 

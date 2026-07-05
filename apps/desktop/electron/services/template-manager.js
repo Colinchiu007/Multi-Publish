@@ -36,7 +36,7 @@ class TemplateManager {
 
   save() {
     try {
-      let dir = path.dirname(this._dataPath)
+      const dir = path.dirname(this._dataPath)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(this._dataPath, JSON.stringify(this._templates, null, 2), "utf-8")
     } catch (e) {
@@ -59,8 +59,8 @@ class TemplateManager {
 
   add(tpl) {
     if (!this._loaded) this.load()
-    let template = {}
-    let keys = Object.keys(tpl)
+    const template = {}
+    const keys = Object.keys(tpl)
     for (let i = 0; i < keys.length; i++) {
       template[keys[i]] = tpl[keys[i]]
     }
@@ -76,7 +76,7 @@ class TemplateManager {
     if (!this._loaded) this.load()
     for (let i = 0; i < this._templates.length; i++) {
       if (this._templates[i].id === id) {
-        let keys = Object.keys(updates)
+        const keys = Object.keys(updates)
         for (let j = 0; j < keys.length; j++) {
           this._templates[i][keys[j]] = updates[keys[j]]
         }
@@ -90,7 +90,7 @@ class TemplateManager {
 
   remove(id) {
     if (!this._loaded) this.load()
-    let newList = []
+    const newList = []
     let found = false
     for (let i = 0; i < this._templates.length; i++) {
       if (this._templates[i].id === id) {
@@ -112,7 +112,7 @@ class TemplateManager {
 
   listByCategory(category) {
     if (!this._loaded) this.load()
-    let result = []
+    const result = []
     for (let i = 0; i < this._templates.length; i++) {
       if (this._templates[i].category === category) result.push(this._templates[i])
     }
@@ -122,7 +122,7 @@ class TemplateManager {
   seedDefaults() {
     if (!this._loaded) this.load()
     if (this._templates.length > 0) return
-    let presets = TemplateManager.getPresets()
+    const presets = TemplateManager.getPresets()
     for (let i = 0; i < presets.length; i++) {
       this.add(presets[i])
     }

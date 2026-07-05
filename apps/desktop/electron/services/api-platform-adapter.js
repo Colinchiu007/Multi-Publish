@@ -33,18 +33,18 @@ async function publishViaApi(platform, params) {
     return { success: false, message: "API publish engine not loaded" };
   }
   try {
-    let adapter = engine.getAdapter(platform);
+    const adapter = engine.getAdapter(platform);
     if (!adapter) {
       return { success: false, message: "Unsupported API platform: " + platform };
     }
-    let taskData = {
+    const taskData = {
       title: params.title || "",
       content: params.content || "",
       tags: params.tags || [],
       images: params.images || [],
       video: params.video || null,
     };
-    let result = await adapter.execute(taskData, params.cookies || "");
+    const result = await adapter.execute(taskData, params.cookies || "");
     if (result && result.success) {
       log.info("APIPlatformAdapter", platform + " publish success, id=" + (result.publishId || result.url || ""));
       return {

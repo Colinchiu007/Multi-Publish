@@ -10,5 +10,6 @@
   "dependencies": {
     "js-yaml": "^4.2.0",
     "sharp": "^0.35.1"
-  }
+  },
+  "types": "index.d.ts"
 }
