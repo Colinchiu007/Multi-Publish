@@ -149,3 +149,78 @@ describe("FirstRunView", () => {
     expect(w.vm.allDepsDone).toBe(true);
   });
 });
+
+describe("FirstRunView — extra coverage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  it("onFirstRunStatus step type updates depStep", async () => {
+    const mocks = await import("@/api/publisher");
+    var cb = null;
+    mocks.onFirstRunStatus.mockImplementation(callback => { cb = callback; return vi.fn(); });
+    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    await nextTick();
+    cb({ type: "step", data: { step: "python", message: "installing..." } });
+    await nextTick();
+    expect(w.vm.depSteps[0].status).toBe("active");
+    expect(w.vm.depSteps[0].message).toBe("installing...");
+  });
+
+  it("onFirstRunStatus done type marks all done", async () => {
+    const mocks = await import("@/api/publisher");
+    var cb = null;
+    mocks.onFirstRunStatus.mockImplementation(callback => { cb = callback; return vi.fn(); });
+    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    await nextTick();
+    cb({ type: "done" });
+    await nextTick();
+    expect(w.vm.allDepsDone).toBe(true);
+    expect(w.vm.depSteps.every(s => s.status === "done")).toBe(true);
+  });
+
+  it("onFirstRunStatus error type sets depError", async () => {
+    const mocks = await import("@/api/publisher");
+    var cb = null;
+    mocks.onFirstRunStatus.mockImplementation(callback => { cb = callback; return vi.fn(); });
+    mocks.firstRunCheck.mockResolvedValue({ setupDone: false });
+    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    await nextTick();
+    // Set a step as active first so error handler finds it
+    w.vm.depSteps[0].status = "active";
+    cb({ type: "error", data: { data: "Connection failed" } });
+    await nextTick();
+    expect(w.vm.depError).toBe(true);
+    expect(w.vm.depErrorMessage).toBe("Connection failed");
+  });
+
+  it("firstRunCheck setupDone skips deps step", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.firstRunCheck.mockResolvedValue({ setupDone: true });
+    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    await nextTick();
+    await new Promise(r => setTimeout(r, 0));
+    await nextTick();
+    expect(w.vm.allDepsDone).toBe(true);
+    expect(w.vm.currentStep).toBe(1);
+  });
+
+  it("renders account step (step 2)", async () => {
+    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    await nextTick();
+    w.vm.currentStep = 2;
+    await nextTick();
+    expect(w.text()).toContain("添加账号");
+  });
+
+  it("renders quick publish tutorial step (step 3)", async () => {
+    const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
+    await nextTick();
+    w.vm.currentStep = 3;
+    await nextTick();
+    expect(w.text()).toContain("准备完毕");
+  });
+});
+

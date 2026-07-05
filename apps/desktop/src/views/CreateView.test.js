@@ -164,3 +164,96 @@ describe("CreateView", () => {
     expect(w.vm.progress).toBe(100);
   });
 });
+
+describe("CreateView — extra coverage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = { renderStart: vi.fn() };
+  });
+
+  it("buildProps for gallery mode returns image scenes", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.mode = "gallery";
+    w.vm.images = [{ path: "/img1.png", preview: "blob:1" }, { path: "/img2.png", preview: "blob:2" }];
+    const props = w.vm.buildProps();
+    expect(props.cuts.length).toBe(2);
+    expect(props.cuts[0].type).toBe("anime_scene");
+    expect(props.cuts[0].images[0]).toBe("/img1.png");
+  });
+
+  it("buildProps returns empty cuts for unknown mode", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.mode = "unknown";
+    const props = w.vm.buildProps();
+    expect(props.cuts).toEqual([]);
+  });
+
+  it("viewResult navigates to result page", async () => {
+    const push = vi.fn();
+    router.push = push;
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.result = { outputPath: "/tmp/video.mp4" };
+    w.vm.viewResult();
+    expect(push).toHaveBeenCalledWith({ path: "/create/result", query: { path: "/tmp/video.mp4" } });
+  });
+
+  it("canRender is false when rendering in progress", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.text = "test";
+    w.vm.rendering = true;
+    expect(w.vm.canRender).toBe(false);
+  });
+
+  it("canRender is false when gallery mode with no images", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.mode = "gallery";
+    expect(w.vm.canRender).toBe(false);
+  });
+
+  it("canRender is true when gallery has images", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.mode = "gallery";
+    w.vm.images = [{ path: "/img.png", preview: "blob:1" }];
+    expect(w.vm.canRender).toBe(true);
+  });
+
+  it("onRenderError sets error state", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.onRenderError.mockImplementation(cb => { cb({ error: "render failed" }); return vi.fn(); });
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    expect(w.vm.error).toBe("render failed");
+  });
+
+  it("onRenderInstallProgress updates installLog", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.onRenderInstallProgress.mockImplementation(cb => { cb({ text: "installing..." }); return vi.fn(); });
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    expect(w.vm.installLog).toContain("installing");
+  });
+});
+

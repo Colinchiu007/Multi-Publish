@@ -1,5 +1,15 @@
 ## [v2.1.0] - 2026-07-05
 
+### P0 覆盖提升 4 项全完成
+- **stores/license.js**: 23.52% → 98.03%（16 测试，函数 100%）
+- **CreateView.vue**: 62.5% → 73.07%（9 测试，buildProps/gallery/canRender/viewResult）
+- **CloudPublish.vue**: 62.92% → 79.77%（10 测试，retryTask/status/orchestrator offline/polling）
+- **FirstRun.vue**: 64.77% → 87.5%（6 测试，onFirstRunStatus 回调/step 渲染）
+- **整体项目**: 81.61% → **84.75%**（测试总数 610 → 650）
+
+### Fixed — Publish.vue 覆盖提升 + ref 声明修复
+## [v2.1.0] - 2026-07-05
+
 ### Fixed — Publish.vue 覆盖提升 + ref 声明修复
 - **Publish.vue 测试**: 11 个新增测试，覆盖 applyTemplate、handleBatchPublish 验证、totalPlatformTasks 等
 - **Bug 修复**: 补充 4 个缺失的 ref 声明 (showTemplatePicker, showAiWriter, templateTargetIdx, showUpgradeModal)
