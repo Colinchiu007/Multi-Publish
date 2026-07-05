@@ -25,13 +25,7 @@ const HIDDEN = new Set([
   'intelligence:search-mentions', 'intelligence:search-titles',
 ]);
 
-const GAPS = new Set([
-  'cloud-publisher:get-task', 'cloud-publisher:list-tasks',
-  'cloud-publisher:platforms', 'cloud-publisher:submit',
-  'onboarding:complete', 'onboarding:get-steps', 'onboarding:status',
-  'url-collect:fetch',
-  'viral:analyze', 'viral:generate', 'viral:trending',
-]);
+const GAPS = new Set([]);
 
 const RE1 = /ipcMain\.handle\s*\(\s*['"]([^'"]+)['"]/g;
 const RE2 = /ipcRenderer\.invoke\s*\(\s*['"]([^'"]+)['"]/g;

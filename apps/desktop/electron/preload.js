@@ -233,7 +233,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
       aiEnhanceContent: (content, style) => ipcRenderer.invoke('ai:enhance-content', content, style),
       aiIsConfigured: () => ipcRenderer.invoke('ai:is-configured'),
 
-      // ─── 离线模式 API ─────────────────────────
+      
+      // --- Cloud Publisher API ---
+      cloudPublishSubmit: (params) => ipcRenderer.invoke("cloud-publisher:submit", params),
+      cloudPublishListTasks: () => ipcRenderer.invoke("cloud-publisher:list-tasks"),
+      cloudPublishGetTask: (taskId) => ipcRenderer.invoke("cloud-publisher:get-task", taskId),
+      cloudPublishPlatforms: () => ipcRenderer.invoke("cloud-publisher:platforms"),
+
+      // --- Onboarding API ---
+      onboardingComplete: () => ipcRenderer.invoke("onboarding:complete"),
+      onboardingGetSteps: () => ipcRenderer.invoke("onboarding:get-steps"),
+      onboardingStatus: () => ipcRenderer.invoke("onboarding:status"),
+
+      // --- URL Collect API ---
+      urlCollectFetch: (url) => ipcRenderer.invoke("url-collect:fetch", url),
+
+      // --- Viral Analysis API ---
+      viralAnalyze: (content) => ipcRenderer.invoke("viral:analyze", content),
+      viralGenerate: (prompt) => ipcRenderer.invoke("viral:generate", prompt),
+      viralTrending: () => ipcRenderer.invoke("viral:trending"),
+// ─── 离线模式 API ─────────────────────────
       offlineStatus: () => ipcRenderer.invoke('offline:status'),
       offlineIsOffline: () => ipcRenderer.invoke('offline:is-offline'),
       offlineCachedTasks: () => ipcRenderer.invoke('offline:cached-tasks'),
