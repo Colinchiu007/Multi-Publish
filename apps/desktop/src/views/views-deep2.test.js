@@ -61,7 +61,7 @@ describe("PublishView (deep)", () => {
   beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); });
 
   async function mountPublish() {
-    const m = await import("@/views/Publish.vue");
+    const m = await import("./Publish.vue");
     return mount(m.default || m, {
       global: { plugins: [createPinia()],
         components: { UiButton: { template: "<button><slot/></button>" }, UiInput: { template: "<input/>" } },
@@ -92,7 +92,7 @@ describe("CreateView (deep)", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   async function mountCreate() {
-    const m = await import("@/views/CreateView.vue");
+    const m = await import("./CreateView.vue");
     return mount(m.default || m, {
       global: { components: { UiButton: { template: "<button><slot/></button>" }, UiSelect: { template: "<select><slot/></select>" } } }
     });
@@ -126,7 +126,7 @@ describe("CreateView (deep)", () => {
 // ResultView.vue
 describe("ResultView (deep)", () => {
   it("shows empty state", async () => {
-    const m = await import("@/views/ResultView.vue");
+    const m = await import("./ResultView.vue");
     const w = mount(m.default || m, {
       global: { components: { UiButton: { template: "<button><slot/></button>" } } }
     });

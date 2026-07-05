@@ -44,7 +44,7 @@ describe("IntelligenceView (coverage)", () => {
   });
 
   async function mnt() {
-    const m = await import("@/views/Intelligence.vue");
+    const m = await import("./Intelligence.vue");
     return mount(m.default || m, {
       global: { stubs: { TrendingPanel: { template: "<div>trending</div>" }, ReferenceFinder: { template: "<div>ref</div>" }, UiModal: { template: "<div v-if='visible'><slot/></div>", props: ["visible"] } } }
     });
@@ -84,7 +84,7 @@ describe("ProvidersView (coverage)", () => {
   beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); window.electronAPI = {}; });
 
   async function mnt() {
-    const m = await import("@/views/Providers.vue");
+    const m = await import("./Providers.vue");
     return mount(m.default || m, {
       global: { plugins: [createPinia()],
         stubs: { "el-dialog": { template: "<div v-if='visible'><slot/></div>", props: ["visible"] },
@@ -115,7 +115,7 @@ describe("ViralAnalysisView (coverage)", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   async function mnt() {
-    const m = await import("@/views/ViralAnalysis.vue");
+    const m = await import("./ViralAnalysis.vue");
     return mount(m.default || m, { global: { components: {} } });
   }
 
@@ -143,7 +143,7 @@ describe("CalendarView (coverage)", () => {
   });
 
   async function mnt() {
-    const m = await import("@/views/Calendar.vue");
+    const m = await import("./Calendar.vue");
     return mount(m.default || m, { global: { plugins: [createPinia()] } });
   }
 
