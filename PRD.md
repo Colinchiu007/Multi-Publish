@@ -1,8 +1,8 @@
 # PROJECT-003：多平台一键发布 — PRD
 
 > **立项日期**: 2026-06-03
-> **最后更新**: 2026-06-27
-> **当前版本**: v1.3.0（Instagram + Facebook 海外平台扩展）
+> **最后更新**: 2026-07-05
+> **当前版本**: v1.4.0（代码质量基建：ESLint/Prettier）
 > **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具
 > **目标用户**: 自媒体运营者、MCN 机构、企业内容团队
 > **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）
@@ -206,6 +206,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 || 数据加密 | Cookie AES-256-GCM 加密存储 | ✅ |
 || 存储引擎 | SQLite（better-sqlite3） | ✅ |
 || 跨平台 | Windows + Linux（macOS 待支持） | ✅ |
+|| 代码规范 | ESLint v9 flat config + Prettier，0 errors / 0 warnings | ✅ Phase C3 |
 || 自动构建 | GitHub Actions 双平台 CI + 自动 Release | ✅ |
 || 自动更新 | electron-updater，从 GitHub Release 拉取 | ✅ |
 
@@ -438,6 +439,7 @@ Task Queue → 各平台发布器 → 发布完成
 |------|------|------|
 | GitHub Actions | 推送 main/develop 触发构建 | ✅ |
 | 构建产物 | Windows (.exe) + Linux (.AppImage) | ✅ |
+| ESLint 检查 | GitHub Actions quality-gate PR 门禁，ESLint 0 errors | ✅ Phase C3 |
 | 自动更新 | electron-updater + GitHub Release | ✅（待首次 Release） |
 
 ---
@@ -491,5 +493,6 @@ Task Queue → 各平台发布器 → 发布完成
 |------|------|------|
 | P0-P3 | 基础发布 + 任务队列 + 定时 + 统计 | ✅ |
 | **蚁小二集成** | 分屏/回调/扫码/OAuth/SQLite/批量/B站/URL采集/托盘/快捷键/多账号 | ✅ |
+| **Phase C（代码质量）** | ESLint v9 flat config + Prettier，201 个问题修复 | ✅ Phase C3 |
 | **V1.0 发布** | 首版 Release、运营启动 | ⏳ 待进行 |
 | V1.1 格式适配 | Markdown → 各平台格式转换、封面

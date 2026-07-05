@@ -728,6 +728,23 @@ app.asar 内无法解析。全面修复如下：
 
 ---
 
+## [v1.4.0] - 2026-07-05
+
+### Added
+
+- ESLint v9 flat config（eslint.config.mjs）
+- Prettier 代码格式化配置
+- shared-utils 类型声明补充
+
+### Fixed
+
+- 修复 201 个 ESLint 问题（0 errors / 0 warnings）
+- rpa-view-manager.js 重复声明和编码清理
+- store.js 注释吞并代码行 bug 修复
+- 各文件未使用变量移除或 eslint-disable 标注
+
+---
+
 ## [v1.0.2] - 2026-06-05
 
 ### Added
