@@ -1,3 +1,14 @@
+## [v2.0.7] - 2026-07-05
+
+### Added — FirstRun.vue 覆盖率提升 (38.63% → 64.77%)
+- **FirstRun.vue 测试**: 从 2 个基础测试扩展到 12 个完整测试
+  - notify: 显示/自动隐藏/默认类型
+  - addAccount: authOpenLogin/accountAdd 降级/错误/异常
+  - retryDeps: 重置错误状态
+  - currentStep: 四步状态流转
+  - quickPlatforms: 默认平台列表
+- 语句覆盖率: 38.63% → 64.77%
+
 ## [v2.0.6] - 2026-07-05
 
 ### Added — Intelligence.vue 覆盖率提升 (42.64% → 89.70%)
