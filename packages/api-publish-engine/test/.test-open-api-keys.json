@@ -1,0 +1,22 @@
+[
+  {
+    "key": "mp_5c313851a16f772832773cdc0e4d6f7d82ed81bd45b212be",
+    "name": "test-key",
+    "scopes": [
+      "publish"
+    ],
+    "createdAt": "2026-07-05T08:36:22.727Z",
+    "revokedAt": null,
+    "lastUsed": null
+  },
+  {
+    "key": "mp_0745d670d1f168363c9c859789536ff5a639554d63e7b326",
+    "name": "revoke-me",
+    "scopes": [
+      "publish"
+    ],
+    "createdAt": "2026-07-05T08:36:22.740Z",
+    "revokedAt": null,
+    "lastUsed": null
+  }
+]

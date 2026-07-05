@@ -10,7 +10,7 @@
 
 function registerHandlers(ipcMain, deps) {
   let EC = require('../core/error-codes').ERROR
-  let PaymentManager = require('../payment-manager')
+  let PaymentManager = require('../services/payment-manager')
   let pm = new PaymentManager()
 
   ipcMain.handle('payment:create-order', async function(event, options) {
