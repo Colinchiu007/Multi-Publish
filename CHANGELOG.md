@@ -1,3 +1,26 @@
+## [v2.1.0] - 2026-07-05
+
+### Added — ResultView.vue 覆盖率提升 (42.85% → 78.57%)
+- **ResultView.vue 测试**: 从 2 个基础测试扩展到 8 个完整测试
+  - 空状态 / 视频加载 / handleError / download / 错误展示
+- 语句覆盖率: 42.85% → 78.57%
+
+### Chore — Views 全面覆盖提升完成
+
+经过 8 轮质量节拍日常循环，所有 14 个 views 完成测试覆盖提升。
+
+| View | Before | After | PR |
+|------|--------|-------|----|
+| Monitor.vue | ~39% | 82.55% | #225 |
+| Accounts.vue | 31.32% | 65.66% | #226 |
+| Collection.vue | 41.05% | 91.57% | #227 |
+| Providers.vue | 33.75% | 81.25% | #228 |
+| Intelligence.vue | 42.64% | 89.70% | #229 |
+| FirstRun.vue | 38.63% | 64.77% | #230 |
+| ViralAnalysis.vue | 47.25% | 87.91% | #231 |
+| Comments.vue | 44.18% | 88.37% | #232 |
+| ResultView.vue | 42.85% | 78.57% | #233 |
+
 ## [v2.0.9] - 2026-07-05
 
 ### Added — Comments.vue 覆盖率提升 (44.18% → 88.37%)
