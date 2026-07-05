@@ -10,7 +10,7 @@ function getSchedulerPath () {
   return path.join(app.getPath('userData'), 'scheduled-tasks.jsonl')
 }
 
-let _timers = {}  // id → timeout handle
+const _timers = {}  // id → timeout handle
 let _taskQueue = null
 
 function setTaskQueue (taskQueue) {

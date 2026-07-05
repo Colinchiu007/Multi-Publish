@@ -8,14 +8,16 @@
  * payment:cancel     → 取消订单
  */
 
+// eslint-disable-next-line no-unused-vars
 function registerHandlers(ipcMain, deps) {
-  let EC = require('../core/error-codes').ERROR
-  let PaymentManager = require('../services/payment-manager')
-  let pm = new PaymentManager()
+  // eslint-disable-next-line no-unused-vars
+  const EC = require('../core/error-codes').ERROR
+  const PaymentManager = require('../services/payment-manager')
+  const pm = new PaymentManager()
 
   ipcMain.handle('payment:create-order', async function(event, options) {
     try {
-      let order = pm.createOrder(options.plan, { method: options.method })
+      const order = pm.createOrder(options.plan, { method: options.method })
       return { code: 0, data: { id: order.id, amount: order.amount, method: order.method, status: order.status } }
     } catch(e) {
       return { code: -1, message: e.message }
@@ -32,7 +34,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('payment:get-order', async function(event, orderId) {
     try {
-      let order = pm.getOrder(orderId)
+      const order = pm.getOrder(orderId)
       if (!order) return { code: -1, message: '订单不存在' }
       return { code: 0, data: order }
     } catch(e) {
@@ -42,7 +44,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('payment:complete', async function(event, options) {
     try {
-      let ok = pm.completePayment(options.orderId, options.txnId)
+      const ok = pm.completePayment(options.orderId, options.txnId)
       return { code: ok ? 0 : -1, message: ok ? '支付完成，Pro 已激活' : '订单不可用或已完成' }
     } catch(e) {
       return { code: -1, message: e.message }
@@ -51,7 +53,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('payment:simulate', async function(event, options) {
     try {
-      let ok = pm.simulatePayment(options.orderId)
+      const ok = pm.simulatePayment(options.orderId)
       return { code: ok ? 0 : -1, message: ok ? '模拟支付成功，Pro 已激活' : '模拟支付失败' }
     } catch(e) {
       return { code: -1, message: e.message }
@@ -60,7 +62,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('payment:cancel', async function(event, orderId) {
     try {
-      let ok = pm.cancelPayment(orderId)
+      const ok = pm.cancelPayment(orderId)
       return { code: ok ? 0 : -1, message: ok ? '订单已取消' : '订单不可取消' }
     } catch(e) {
       return { code: -1, message: e.message }

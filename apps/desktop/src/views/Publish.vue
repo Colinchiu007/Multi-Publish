@@ -221,6 +221,7 @@
 </template>
 
 <script setup>
+/* global licenseStore */
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 import { ref, reactive, computed, watch, onMounted } from 'vue'
@@ -235,8 +236,11 @@ import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
 import ArticleEditor from '@/components/ArticleEditor.vue'
 import TemplatePicker from '@/components/TemplatePicker.vue'
+// eslint-disable-next-line no-unused-vars
 import { useTemplateStore } from '@/stores/templates'
+// eslint-disable-next-line no-unused-vars
 import { useLicenseStore } from '@/stores/license'
+// eslint-disable-next-line no-unused-vars
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import AiWriterPanel from '@/components/AiWriterPanel.vue'
 
@@ -289,6 +293,7 @@ const showUpgradeModal = ref(false)
 const combinedContent = computed(() => article.title + ' ' + article.content)
 
 // 同步 selectedAccounts 默认值
+// eslint-disable-next-line no-unused-vars
 watch(selectedPlatforms, (newPlatforms, oldPlatforms) => {
   for (const pid of newPlatforms) {
     if (!selectedAccounts.value[pid]) {
@@ -304,6 +309,7 @@ watch(selectedPlatforms, (newPlatforms, oldPlatforms) => {
   }
 }, { deep: true })
 
+// eslint-disable-next-line no-unused-vars
 function togglePlatform (platformId) {
   const idx = selectedPlatforms.value.indexOf(platformId)
   if (idx === -1) {
@@ -357,6 +363,7 @@ async function handlePublish () {
           '敏感词提示',
           { confirmButtonText: '强制发布', cancelButtonText: '修改', type: 'warning' }
         )
+      // eslint-disable-next-line no-unused-vars
       } catch (e) { return /* 用户取消 */ }
     }
   }

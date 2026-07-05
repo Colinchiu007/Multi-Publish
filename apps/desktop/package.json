@@ -15,7 +15,11 @@
     "preview": "vite preview",
     "test": "tsc && jest --colors",
     "test:vue": "vitest run",
-    "build:ts": "tsc"
+    "build:ts": "tsc",
+    "lint": "eslint electron/ src/ --no-ignore --max-warnings 300",
+    "lint:fix": "eslint electron/ src/ --no-ignore --fix --max-warnings 300",
+    "format": "prettier --check \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
+    "format:write": "prettier --write \"electron/**/*.js\" \"src/**/*.{js,vue}\""
   },
   "keywords": [
     "multi-publish",
@@ -40,13 +44,19 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.9",
     "@vue/test-utils": "^2.4.11",
     "concurrently": "^9.0.0",
     "electron": "33.4.0",
     "electron-builder": "^25.1.8",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.9.2",
+    "globals": "^17.7.0",
     "jest": "^30.4.2",
     "jsdom": "^29.1.1",
+    "prettier": "^3.9.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9",
     "wait-on": "^8.0.0"

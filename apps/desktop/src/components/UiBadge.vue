@@ -5,6 +5,7 @@
 </template>
 
 <script setup>
+// eslint-disable-next-line no-unused-vars
 const props = defineProps({
   variant: { type: String, default: "default" },
   size: { type: String, default: "md" },

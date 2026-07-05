@@ -1,1 +1,0 @@
-export { ERROR, getMessage } from "../core/error-codes";

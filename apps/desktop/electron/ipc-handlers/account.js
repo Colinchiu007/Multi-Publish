@@ -114,6 +114,7 @@ function registerHandlers(ipcMain, deps) {
     try {
       const result = await pythonBridge.requestBackend('DELETE', '/api/accounts/' + accountId)
       if (result.code === 0) return { code: 0, message: '账号已删除' }
+    // eslint-disable-next-line no-unused-vars
     } catch (e) { /* fallthrough */ }
     try { await AccountManager.deleteAccount(accountId); return { code: 0, message: '账号已删除' } }
     catch (e) { return { code: -1, message: e.message } }

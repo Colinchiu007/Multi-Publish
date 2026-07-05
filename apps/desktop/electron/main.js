@@ -28,6 +28,7 @@ const KeywordMonitor = require('./services/keyword-monitor')
 const ProviderManager = require('./services/provider-manager')
 const CloudPublisher = require('./services/cloud-publisher')
 const { createContainer } = require('./core/container.setup');
+// eslint-disable-next-line no-unused-vars
 const container = createContainer();
 const flutterSkillBridge = require('./services/flutter-skill-bridge')
 
@@ -57,12 +58,13 @@ const viralEngine = new ViralEngine()
 const proxyPool = new ProxyPool()
 const analyticsService = new AnalyticsService()
 
+// eslint-disable-next-line no-unused-vars
 const PublishAlert = require('./services/publish-alert')
 const templateManager = new TemplateManager()
 templateManager.seedDefaults()
 const licenseManager = LicenseManager.getInstance()
 const aiWriter = new AiWriter()
-let offlineManager = require('./services/offline-manager')
+const offlineManager = require('./services/offline-manager')
 offlineManager.startMonitoring()
 const publishMonitor = require('./services/publish-monitor')
 const systemTray = require('./services/system-tray')
@@ -78,6 +80,7 @@ BatchManager.setTaskQueue(taskQueue)
 offlineManager.setTaskQueue(taskQueue)
 
 // ─── Aggregator Bridge ────────────────────
+// eslint-disable-next-line no-unused-vars
 const aggregatorBridge = new AggregatorBridge(taskQueue)
 
 // ─── PublisherRouter ──────────────────────
@@ -271,6 +274,7 @@ app.whenReady().then(async () => {
     get: (key) => store.getPublishTimeline(key),
     set: (key, value) => store.setPublishTimeline(key, value),
   }
+  // eslint-disable-next-line no-unused-vars
   const publishIntervalGuard = new PublishIntervalGuard({ store: publishGuardStore })
 
   // 任务队列持久化

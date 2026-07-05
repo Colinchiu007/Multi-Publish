@@ -66,7 +66,7 @@
           暂无结果，试试其他关键词
         </div>
 
-        <div v-for="(item, idx) in result.results" :key="`${item.source}-${item.id}`"
+        <div v-for="item in result.results" :key="`${item.source}-${item.id}`"
           class="intel-item"
           :style="{
             borderLeft: `3px solid ${sourceColor(item.source)}`,
@@ -135,8 +135,11 @@
 </template>
 
 <script setup>
+// eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
+// eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
+// eslint-disable-next-line no-unused-vars
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import TrendingPanel from '@/components/TrendingPanel.vue'

@@ -16,6 +16,8 @@
  * 文件位置: apps/desktop/electron/content-intelligence.js
  */
 const { ipcMain } = require('electron')
+// eslint-disable-next-line no-unused-vars
+const { calculateStats, deduplicateResults, calculateHourDistribution } = require('./content-intelligence-utils')
 const log = require('./logger')
 
 class ContentIntelligence {
@@ -57,7 +59,7 @@ class ContentIntelligence {
   // "real engagement, not SEO"
 
   _engagementScore (source, upvotes, comments, extra) {
-    let score = 0
+    let score
     switch (source) {
       case 'reddit':
         score = Math.log10(Math.max(upvotes || 0, 1)) * 0.6
@@ -280,7 +282,7 @@ class ContentIntelligence {
     ])
 
     for (const r of highEng) {
-      const words = r.title.toLowerCase().split(/[\s,.\-!?/\\()\[\]{}":;]+/)
+      const words = r.title.toLowerCase().split(/[\s,.\-!?/\\()[\]{}":;]+/)
       for (const w of words) {
         if (w.length > 1 && !stopWords.has(w) && !/^\d+$/.test(w)) {
           wordFreq[w] = (wordFreq[w] || 0) + 1
@@ -711,13 +713,16 @@ class ContentIntelligence {
     const upvotesList = items.map(r => r.upvotes || 0)
     const commentsList = items.map(r => r.comments || 0)
 
+    // eslint-disable-next-line no-unused-vars
     const avg = (arr) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
     const sorted = (arr) => [...arr].sort((a, b) => a - b)
+    // eslint-disable-next-line no-unused-vars
     const median = (arr) => {
       if (arr.length === 0) return 0
       const s = sorted(arr)
       return s.length % 2 === 0 ? (s[s.length/2 - 1] + s[s.length/2]) / 2 : s[Math.floor(s.length/2)]
     }
+    // eslint-disable-next-line no-unused-vars
     const percentile = (arr, p) => {
       const s = sorted(arr)
       if (s.length === 0) return 0
@@ -727,22 +732,9 @@ class ContentIntelligence {
 
     const bench = {
       sampleSize: items.length,
-      engagement: {
-        avg: Math.round(avg(engagements) * 100) / 100,
-        median: Math.round(median(engagements) * 100) / 100,
-        top10: Math.round(percentile(engagements, 90) * 100) / 100,
-        top25: Math.round(percentile(engagements, 75) * 100) / 100,
-      },
-      upvotes: {
-        avg: Math.round(avg(upvotesList)),
-        median: Math.round(median(upvotesList)),
-        top10: Math.round(percentile(upvotesList, 90)),
-      },
-      comments: {
-        avg: Math.round(avg(commentsList)),
-        median: Math.round(median(commentsList)),
-        top10: Math.round(percentile(commentsList, 90)),
-      },
+      engagement: calculateStats(engagements),
+      upvotes: calculateStats(upvotesList),
+      comments: calculateStats(commentsList),
       topSources: [...new Set(items.map(r => r.source))],
       generatedAt: new Date().toISOString(),
     }

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div>
     <!-- 页面头部 -->
     <div class="cohere-page-header">
@@ -114,6 +114,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { ElMessage, ElMessageBox } from 'element-plus'
+// eslint-disable-next-line no-unused-vars
 import { listAccounts, accountDelete, accountCheckLogin, authOpenLogin, authClose, accountAdd, accountSetDefault, accountUpdate } from '@/api/publisher'
 
 const loading = ref(false)

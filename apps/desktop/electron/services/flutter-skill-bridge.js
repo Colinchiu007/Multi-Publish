@@ -13,6 +13,7 @@
  *   electron main.js --remote-debugging-port=9222
  */
 
+// eslint-disable-next-line no-unused-vars
 const path = require('path');
 const log = require('./logger');
 
@@ -62,6 +63,7 @@ function start(mainWindow, options) {
  */
 function stop() {
   if (bridge) {
+    // eslint-disable-next-line no-unused-vars
     try { bridge.stop(); } catch (e) { /* ignore */ }
     bridge = null;
     log.info('FlutterSkill', 'Bridge stopped');

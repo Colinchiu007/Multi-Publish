@@ -8,20 +8,21 @@
  * CLI: ai-writer <command> [options]
  */
 
-let path = require('path')
-let AiWriter = require('../../../../packages/ai-writer/src/index')
-let log = require('./logger')
+// eslint-disable-next-line no-unused-vars
+const path = require('path')
+const AiWriter = require('../../../../packages/ai-writer/src/index')
+const log = require('./logger')
 
 // 包装器 — 添加 Electron 日志
-let WrappedAiWriter = function(opts) {
+const WrappedAiWriter = function(opts) {
   AiWriter.call(this, opts)
 }
 WrappedAiWriter.prototype = Object.create(AiWriter.prototype)
 WrappedAiWriter.prototype.constructor = WrappedAiWriter
 
-let origGenerateTitles = AiWriter.prototype.generateTitles
-let origGenerateSummary = AiWriter.prototype.generateSummary
-let origEnhanceContent = AiWriter.prototype.enhanceContent
+const origGenerateTitles = AiWriter.prototype.generateTitles
+const origGenerateSummary = AiWriter.prototype.generateSummary
+const origEnhanceContent = AiWriter.prototype.enhanceContent
 
 WrappedAiWriter.prototype.generateTitles = async function(topic, count) {
   log.info('AiWriter', 'Generating titles for: ' + (topic || '').slice(0, 50))

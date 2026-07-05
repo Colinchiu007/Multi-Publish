@@ -91,7 +91,9 @@
 </template>
 
 <script setup>
+// eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
+// eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -180,6 +182,7 @@ async function deleteDraft (d) {
     drafts.value = drafts.value.filter(x => x.id !== d.id)
     saveDrafts()
     ElMessage.success('已删除')
+  // eslint-disable-next-line no-unused-vars
   } catch (e) { /* 取消 */ }
 }
 

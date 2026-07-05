@@ -65,6 +65,7 @@ const props = defineProps({
   visible: { type: Boolean, default: false },
 })
 
+// eslint-disable-next-line no-unused-vars
 const emit = defineEmits(['close'])
 
 const loading = ref(false)
