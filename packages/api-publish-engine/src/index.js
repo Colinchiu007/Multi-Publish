@@ -1,34 +1,13 @@
 const REGISTRY = {
+  // Complex adapters (custom publish logic)
   zhihu: require("./adapters/zhihu"),
   douyin: require("./adapters/douyin"),
-  xiaohongshu: require("./adapters/xiaohongshu"),
-  tencent_video: require("./adapters/shipinhao"),
   kuaishou: require("./adapters/kuaishou"),
   baijiahao: require("./adapters/baijiahao"),
   wechat_mp: require("./adapters/wechat_mp"),
-  bilibili: require("./adapters/bilibili"),
+  tencent_video: require("./adapters/shipinhao"),
   weibo: require("./adapters/weibo"),
-  toutiao: require("./adapters/toutiao"),
-  aiqiyi: require("./adapters/aiqiyi"),
-  dayu: require("./adapters/dayu"),
-  qiehao: require("./adapters/qiehao"),
-  souhu: require("./adapters/souhu"),
-  wangyi: require("./adapters/wangyi"),
-  tengxun_shipin: require("./adapters/tengxun_shipin"),
-  weishi: require("./adapters/weishi"),
-  yidianhao: require("./adapters/yidianhao"),
-  souhu_shipin: require("./adapters/souhu_shipin"),
-  pipixia: require("./adapters/pipixia"),
-  meipai: require("./adapters/meipai"),
-  acfun: require("./adapters/acfun"),
-  dewu: require("./adapters/dewu"),
-  chejiahao: require("./adapters/chejiahao"),
-  yichehao: require("./adapters/yichehao"),
-  meiyou: require("./adapters/meiyou"),
-  xhs_shangjia: require("./adapters/xhs_shangjia"),
-  xigua: require("./adapters/xigua"),
-  duoduo: require("./adapters/duoduo"),
-  // P0: API mode adapters
+  // API-mode adapters (no publish method)
   youtube: require("./adapters/youtube"),
   tiktok: require("./adapters/tiktok"),
   twitter: require("./adapters/twitter"),
@@ -59,6 +38,12 @@ function supportsApi(p) { return !!REGISTRY[p] || !!pluginLoader.get(p); }
 function getAdapter(p) {
   var C = REGISTRY[p];
   if (C) return new C();
+  // Try generic adapter for boilerplate platforms
+  try {
+    var { createAdapter } = require("./adapters/generic-adapter");
+    var adapter = createAdapter(p);
+    if (adapter) return adapter;
+  } catch(e) { /* generic-adapter not available */ }
   var plugin = pluginLoader.get(p);
   return plugin || null;
 }
