@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div>
     <!-- 页面头部 -->
     <div class="cohere-page-header">
@@ -305,7 +305,12 @@ async function removeAccount (row) {
     } else {
       ElMessage.error(res.message || '删除失败')
     }
-  } catch (e) { /* 用户取消 */ }
+  } catch (e) {
+    if (e !== 'cancel' && e?.message !== 'canceled') {
+      console.error('removeAccount error:', e)
+      ElMessage.error('操作失败: ' + (e.message || '未知错误'))
+    }
+  }
 }
 </script>
 
@@ -408,5 +413,5 @@ async function removeAccount (row) {
 }
 .cohere-btn-ghost:hover { background: rgba(0,0,0,0.05); }
 .cohere-btn-ghost.danger { color: var(--coral, #f56c6c); }
-.cohere-btn-ghost.danger:hover { background: var(--canvas,var(--surface))1f0; }
+.cohere-btn-ghost.danger:hover { background: rgba(245,108,108,0.08); }
 </style>
