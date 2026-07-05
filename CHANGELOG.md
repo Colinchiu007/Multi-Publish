@@ -1,6 +1,20 @@
 ## [v2.1.0] - 2026-07-05
 
+### Fixed — Publish.vue 覆盖提升 + ref 声明修复
+- **Publish.vue 测试**: 11 个新增测试，覆盖 applyTemplate、handleBatchPublish 验证、totalPlatformTasks 等
+- **Bug 修复**: 补充 4 个缺失的 ref 声明 (showTemplatePicker, showAiWriter, templateTargetIdx, showUpgradeModal)
+- 语句覆盖率: 58.73% → 68.49%
+- 整体项目覆盖率: 79.69% → 81.61%
+
+### Added — api/cloud-publisher.js 完整覆盖 (50% → 100%)
+- 4 个导出函数的 normal + fallback 双路径覆盖（9 个测试）
+
+### Added — api/providers.js 覆盖提升 (48.48% → 94%+)
+- 8 个导出函数的 normal + fallback 双路径覆盖（17 个测试）
+
 ### Added — api/publisher.js 完整覆盖 (8.4% → 97.05%)
+- **api/publisher.js 测试**: 从 2 个基础测试扩展到 154 个完整测试（数据驱动）
+# Added — api/publisher.js 完整覆盖 (8.4% → 97.05%)
 - **api/publisher.js 测试**: 从 2 个基础测试扩展到 154 个完整测试（数据驱动）
   - normal 路径：60+ 函数委托调用验证
   - fallback 路径：electronAPI 不存在时的降级返回

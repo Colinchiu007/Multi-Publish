@@ -281,6 +281,11 @@ const copied = ref(false)  // P2-3: URL 复制反馈
 const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '' })
 const showTagPanel = ref(true)
 const showTitlePanel = ref(false)
+const showTemplatePicker = ref(false)
+const showAiWriter = ref(false)
+const templateTargetIdx = ref(-1)
+const showUpgradeModal = ref(false)
+
 const combinedContent = computed(() => article.title + ' ' + article.content)
 
 // 同步 selectedAccounts 默认值

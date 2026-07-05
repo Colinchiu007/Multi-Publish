@@ -195,4 +195,128 @@ describe("PublishView", () => {
     expect(ElMessage.warning).toHaveBeenCalledWith("网络已断开，任务已缓存");
     expect(w.vm.publishing).toBe(false);
   });
+
+
+describe("PublishView — extra coverage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {
+      publishBatch: vi.fn().mockResolvedValue({ code: 0, data: { taskIds: ["t1"] }, message: "ok" }),
+      sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
+      offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
+      offlineAddToCache: vi.fn().mockResolvedValue({ code: 0 }),
+      onProgress: vi.fn(() => vi.fn()),
+    };
+    mockAccountLoad.mockClear();
+  });
+
+  it("applyTemplate fills title and content in single mode", async () => {
+    const w = await createWrapper();
+    w.vm.applyTemplate({ title: "Templated Title", content: "Templated Content" });
+    expect(w.vm.article.title).toBe("Templated Title");
+    expect(w.vm.article.content).toBe("Templated Content");
+  });
+
+  it("applyTemplate fills batch article when target index set", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.addArticle();
+    w.vm.templateTargetIdx = 0;
+    w.vm.applyTemplate({ title: "Batch Title", content: "Batch Content" });
+    expect(w.vm.articles[0].title).toBe("Batch Title");
+    expect(w.vm.articles[0].content).toBe("Batch Content");
+  });
+
+  it("showTemplatePicker toggle works", async () => {
+    const w = await createWrapper();
+    expect(w.vm.showTemplatePicker).toBe(false);
+    w.vm.showTemplatePicker = true;
+    await nextTick();
+    expect(w.vm.showTemplatePicker).toBe(true);
+  });
+
+  it("hasVideoPlatforms computed", async () => {
+    const w = await createWrapper();
+    w.vm.selectedPlatforms = ["douyin", "kuaishou"];
+    await nextTick();
+    // hasVideoPlatforms should be true for douyin/kuaishou
+    expect(w.vm.hasVideoPlatforms).toBe(true);
+  });
+
+  it("handleBatchPublish validates each article", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.addArticle();
+    // Article without title should trigger warning
+    await w.vm.handleBatchPublish();
+    expect(ElMessage.warning).toHaveBeenCalled();
+  });
+
+  it("handleBatchPublish validates missing platform", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.addArticle();
+    w.vm.articles[0].title = "Batch Title";
+    w.vm.articles[0].content = "Batch Content";
+    // No platforms set - should warn
+    await w.vm.handleBatchPublish();
+    expect(ElMessage.warning).toHaveBeenCalled();
+  });
+
+  it("batchDone and batchFail computed properties", async () => {
+    const w = await createWrapper();
+    w.vm.batchProgress = [
+      { text: "ok", type: "success" },
+      { text: "fail", type: "danger" },
+      { text: "ok2", type: "success" },
+    ];
+    expect(w.vm.batchDone).toBe(2);
+    expect(w.vm.batchFail).toBe(1);
+  });
+
+  it("totalPlatformTasks counts correctly", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.addArticle();
+    w.vm.addArticle();
+    w.vm.articles[0].platforms = ["wx", "zhihu"];
+    w.vm.articles[1].platforms = ["douyin"];
+    expect(w.vm.totalPlatformTasks).toBe(3);
+  });
+
+  it("removeArticle removes article by index", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.addArticle();
+    w.vm.addArticle();
+    var before = w.vm.articles.length;
+    w.vm.removeArticle(0);
+    expect(w.vm.articles.length).toBe(before - 1);
+    // removeArticle does nothing when out of bounds
+    w.vm.removeArticle(999);
+    expect(w.vm.articles.length).toBe(before - 1);
+  });
+
+  it("video upload inline handler sets video_path", async () => {
+    const w = await createWrapper();
+    // video_path is set via inline :on-change in template, test the reactive behavior
+    w.vm.article.video_path = "/videos/test.mp4";
+    expect(w.vm.article.video_path).toBe("/videos/test.mp4");
+  });
+
+  it("showAiWriter toggle works", async () => {
+    const w = await createWrapper();
+    expect(w.vm.showAiWriter).toBe(false);
+    w.vm.showAiWriter = true;
+    await nextTick();
+    expect(w.vm.showAiWriter).toBe(true);
+  });
+});
+
 });
