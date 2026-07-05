@@ -1,3 +1,14 @@
+## [v2.0.9] - 2026-07-05
+
+### Added — Comments.vue 覆盖率提升 (44.18% → 88.37%)
+- **Comments.vue 测试**: 从 2 个基础测试扩展到 11 个完整测试
+  - platformName: 已知平台 / 未知平台
+  - loadPlatforms: 正常加载 / API 缺失 / 异常
+  - openPlatform: 打开 tab / 关闭前一个 tab / 无 comment_url / 无 API
+- 语句覆盖率: 44.18% → 88.37%
+- 分支覆盖率: ~18% → 76.74%
+- 函数覆盖率: ~25% → 75%
+
 ## [v2.0.8] - 2026-07-05
 
 ### Added — ViralAnalysis.vue 覆盖率提升 (47.25% → 87.91%)
