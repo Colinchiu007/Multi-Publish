@@ -3,7 +3,7 @@ import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import { setActivePinia, createPinia } from "pinia";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 
 const routes = [
   { path: "/", name: "home", component: { template: "<div>home</div>" } },
@@ -136,6 +136,53 @@ describe("PublishView", () => {
     const w = await createWrapper();
     await w.vm.copyUrl("https://x.com/a");
     expect(clip).toHaveBeenCalledWith("https://x.com/a");
+  });
+
+
+  it("togglePlatform adds and removes platform", async () => {
+    const w = await createWrapper();
+    await nextTick();
+    // zhihu is not initially selected
+    w.vm.togglePlatform("zhihu");
+    expect(w.vm.selectedPlatforms).toContain("zhihu");
+    w.vm.togglePlatform("zhihu");
+    expect(w.vm.selectedPlatforms).not.toContain("zhihu");
+  });
+
+  it("handlePublish with markdown content sets contentFormat", async () => {
+    const w = await createWrapper();
+    await nextTick();
+    w.vm.article.title = "Markdown Test";
+    w.vm.article.content = "# Heading\n\n**bold** text and [link](https://example.com)";
+    await w.vm.handlePublish();
+    await nextTick();
+    expect(window.electronAPI.publishBatch).toHaveBeenCalled();
+  });
+
+  it("sensitiveCheck warns on sensitive words", async () => {
+    window.electronAPI.sensitiveCheck = vi.fn().mockResolvedValue({ code: 0, data: { words: ["badword"] } });
+    ElMessageBox.confirm = vi.fn().mockRejectedValue(new Error("cancel"));
+    const w = await createWrapper();
+    await nextTick();
+    w.vm.article.title = "Test";
+    w.vm.article.content = "Content with badword";
+    await w.vm.handlePublish();
+    await nextTick();
+    expect(ElMessageBox.confirm).toHaveBeenCalled();
+    expect(window.electronAPI.publishBatch).not.toHaveBeenCalled();
+  });
+
+  it("batch mode add/remove/duplicate articles", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    const count = w.vm.articles.length;
+    w.vm.addArticle();
+    expect(w.vm.articles.length).toBe(count + 1);
+    w.vm.duplicateArticle(0);
+    expect(w.vm.articles.length).toBe(count + 2);
+    w.vm.removeArticle(0);
+    expect(w.vm.articles.length).toBe(count + 1);
   });
 
   it("offline detection blocks publish when offline", async () => {
