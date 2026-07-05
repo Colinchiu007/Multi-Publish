@@ -1,3 +1,8 @@
+/**
+ * @deprecated 此文件是 TS 迁移产物，API 与生产使用的 JS 版不兼容。
+ * 请使用同目录的 logger.js (JS 版) 替代。
+ */
+
 export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
 const LOG_LEVELS: Record<LogLevel, number> = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };

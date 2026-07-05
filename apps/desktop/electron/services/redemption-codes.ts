@@ -1,3 +1,8 @@
+/**
+ * @deprecated 此文件是 TS 迁移产物，API 与生产使用的 JS 版不兼容。
+ * 请使用同目录的 redemption-codes.js (JS 版) 替代。
+ */
+
 import * as crypto from "crypto";
 
 const HMAC_KEY = "mp-redemption-secret-change-in-production";
