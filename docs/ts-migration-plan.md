@@ -23,9 +23,15 @@
 
 **迁移模式**: 混合模式 — TS 源码编译到 `dist-ts/`，JS 入口作为 wrapper 加载编译版，逐步减少 JS 负担。
 
-### Phase 2: IPC Handler 签名（计划中）
-- IPC handler 的函数签名适合用 TS 定义
-- 等待 Phase 1 稳定后再推进
+### Phase 2: IPC Handler 签名 ✅ 已完成
+| 文件 | 状态 | 说明 |
+|------|------|------|
+| `ipc-handlers/types.ts` | ✅ 新增 | 共享类型: `IpcHandlerDeps`, `IpcHandlerRegistration`, `IpcResponse` |
+| `ipc-handlers/index.ts` | ✅ 新增 | 类型化注册中心，引用 19 个 handler |
+| 19 个 handler `.ts` 文件 | ✅ | 均有 `export default registerHandlers` + 类型化 deps 参数 |
+| `tsc --noEmit` | ✅ | 所有 Phase 1 + 2 文件编译通过 |
+
+**说明**: 由于 `dist-ts/` 相对路径限制，运行时仍使用 `.js` 文件。TS 文件作为类型参考和 IDE 提示源。
 
 ### Phase 3: 业务服务（计划中）
 - 配置 TypeScript + JSDoc 渐进模式
@@ -39,3 +45,4 @@
 | 日期 | 变更 |
 |------|------|
 | 2026-07-05 | Phase 1 完成: error-codes.js 改为 wrapper，container.setup 已使用 TS Container，添加 build:ts |
+| 2026-07-05 | Phase 2 完成: 新增 ipc-handlers/types.ts + index.ts，19 个 handler 全部类型化 |
