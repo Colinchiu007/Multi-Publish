@@ -10,7 +10,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    include: ['src/**/*.test.{js,ts}', 'src/**/*.spec.{js,ts}'],
+    include: ['src/**/*.test.{js,ts}', 'src/**/*.spec.{js,ts}', 'electron/services/**/*.test.{js,ts}'],
     alias: {
       '@': path.resolve(__dirname, 'src')
     }
