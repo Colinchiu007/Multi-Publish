@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
+import fs from "fs";
 
 vi.mock("@/stores/platforms", () => ({
   usePlatformStore: () => ({
@@ -16,10 +17,13 @@ vi.mock("@/stores/platforms", () => ({
   })
 }));
 
+const _testAccounts = vi.hoisted(() => ([]));
+
 vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => ({
-    accounts: [],
-    load: vi.fn().mockResolvedValue(undefined),
+    get accounts() { return _testAccounts; },
+    set accounts(v) { _testAccounts.length = 0; _testAccounts.push(...v); },
+    load: vi.fn(),
     loading: false,
     error: null,
   })
@@ -66,6 +70,7 @@ async function mountView() {
 describe("AccountsView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _testAccounts.length = 0;
     setActivePinia(createPinia());
     window.electronAPI = {};
   });
@@ -349,4 +354,27 @@ describe("AccountsView", () => {
     await w.vm.removeAccount({ id: "a1", platform: "douyin" });
     expect(accountDelete).not.toHaveBeenCalled();
   });
+  it("account-row has flex-wrap for responsive layout", async () => {
+    _testAccounts.push({ id: "a1", platform: "zhihu", status: "active", account_name: "知乎账号" });
+    const w = mount(AccountsView, { global: { plugins: [createPinia()] } });
+    await nextTick(); await new Promise(r => setTimeout(r, 0)); await nextTick();
+    const rows = w.findAll(".account-row");
+    expect(rows.length).toBeGreaterThan(0);
+    // JSDOM does not apply Vue scoped CSS; check source CSS instead
+    const vueSrc = fs.readFileSync("./src/views/Accounts.vue", "utf8");
+    expect(vueSrc).toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  it("account-info has min-width 160px for responsive safety", async () => {
+    _testAccounts.length = 0;
+    _testAccounts.push({ id: "a1", platform: "zhihu", status: "active", account_name: "知乎账号" });
+    const w = mount(AccountsView, { global: { plugins: [createPinia()] } });
+    await nextTick(); await new Promise(r => setTimeout(r, 0)); await nextTick();
+    const info = w.find(".account-info");
+    expect(info.exists()).toBe(true);
+    // JSDOM does not apply Vue scoped CSS; check source CSS instead
+    const vueSrc = fs.readFileSync("./src/views/Accounts.vue", "utf8");
+    expect(vueSrc).toMatch(/min-width:\s*160px/);
+  });
+
 });
