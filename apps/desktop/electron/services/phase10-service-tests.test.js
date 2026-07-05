@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ---- Global mocks — must be at top level for hoisting ----
-vi.mock("../services/logger", () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+const { createMockLogger } = require("./test-helpers");
+vi.mock("../services/logger", () => createMockLogger());
 
 // ---- Offline Manager (JS implementation) ----
 describe("offline-manager", () => {
