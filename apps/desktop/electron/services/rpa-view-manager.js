@@ -262,12 +262,12 @@ class RpaViewManager {
 
   // ========== Window management ==========
   _createWindow(partition) {
-    const win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, backgroundThrottling:false } })
+    const win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, backgroundThrottling:false,preload:path.join(__dirname,'../stealth-preload.js') } })
     win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
     win.webContents.on('console-message',function(){})
     // anti-detection: inject stealth on every navigation
     // eslint-disable-next-line no-unused-vars
-    win.webContents.on('did-finish-load',function(){ win.webContents.executeJavaScript(STEALTH_SOURCE).catch(e=>{}) })
+    // stealth injected via preload script
     return win
   }
   _windowKey(platform, accountId) { return 'rpa-'+platform+'-'+(accountId||'default')+'-'+(this._nextId++) }

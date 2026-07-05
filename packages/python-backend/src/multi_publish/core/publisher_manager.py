@@ -1,12 +1,7 @@
-"""
-发布器管理器
+"""发布器管理器
 
 统一管理所有平台的发布器实例，支持动态注册、获取、关闭。
-
-使用 PlatformRegistry 实现插件化发现（取代硬编码 PUBLISHER_REGISTRY）：
-- 新增平台 -> 在 platforms.json 添加一行
-- 热更新 -> 调用 registry.reload()
-- 自动发现 -> 调用 registry.scan_publishers_package()
+集成 PreCheckEngine 发布前预检（可选）。
 """
 
 import asyncio
@@ -18,40 +13,58 @@ from multi_publish.publishers.platform_registry import registry
 
 
 class PublisherManager:
-    """
-    发布器管理器
+    """发布器管理器
 
     负责：
     1. 通过 PlatformRegistry 动态发现平台发布器
     2. 管理发布器生命周期（创建/关闭）
     3. 批量发布协调
+    4. 发布前预检（PreCheckEngine）— 可选
     """
 
     def __init__(self, data_dir: str = "./data"):
         self.data_dir = data_dir
-        self._publishers: dict[PlatformType, BasePublisher] = {}
+        self._publishers: dict = {}
+        self.precheck_enabled = False
+        self._precheck_engine = None
+
+    def enable_precheck(self, api_key: str = ""):
+        """开启发布前预检 — 当前已禁用（依赖 TikHub 付费 API）"""
+        from multi_publish.tikhub_bridge import TikHubBridge
+        from multi_publish.precheck import PreCheckEngine
+        bridge = TikHubBridge(api_key=api_key)
+        self._precheck_engine = PreCheckEngine(tikhub_bridge=bridge)
+        self.precheck_enabled = True
+        from loguru import logger
+        logger.warning("PreCheck 已启用但不可用：TikHub 付费 API 暂未启用，预检将跳过")
+
+    def disable_precheck(self):
+        """关闭发布前预检"""
+        self._precheck_engine = None
+        self.precheck_enabled = False
+
+    def get_precheck_status(self) -> dict:
+        """获取预检状态"""
+        if self._precheck_engine:
+            return {"enabled": True, "available": False, "message": "TikHub 付费 API 未启用，预检已跳过"}
+        return {"enabled": False, "available": False, "message": "预检未启用"}
 
     def is_supported(self, platform: PlatformType) -> bool:
-        """检查平台是否已注册（通过 registry）"""
         return registry.is_supported(platform)
 
     def get_available_platforms(self) -> list[PlatformType]:
-        """获取已注册的可用平台列表"""
         return registry.list_as_enum()
 
     def refresh_platforms(self):
-        """刷新平台列表（热更新用：修改 platforms.json 后调用）"""
         registry.reload()
         registry.scan_publishers_package()
 
     async def get_or_create(
         self, platform: PlatformType,
         account_id: str | None = None,
-        proxy: dict | None = None,  # P2-1
+        proxy: dict | None = None,
     ) -> BasePublisher:
-        """获取已初始化的发布器，未初始化则创建"""
         key = f"{platform.value}_{account_id}" if account_id else platform.value
-        # 同一平台但不同账号使用独立实例（per-account browser data 隔离）
         if key not in self._publishers:
             if not registry.is_supported(platform):
                 raise ValueError(
@@ -65,6 +78,19 @@ class PublisherManager:
             self._publishers[key] = publisher
         return self._publishers[key]
 
+    async def _run_precheck(self, platform: PlatformType, title: str) -> bool:
+        """执行发布前预检，返回 True=通过/False=阻断"""
+        if not self._precheck_engine:
+            return True
+        from multi_publish.precheck import DuplicateCheck
+        check = DuplicateCheck(title=title, platform=platform.value)
+        result = self._precheck_engine.check_duplicate(check)
+        if not result.passed:
+            from loguru import logger
+            logger.warning(f"预检阻断 [{platform.value}]: {result.message}")
+            return False
+        return True
+
     async def publish_to_platform(
         self,
         platform: PlatformType,
@@ -75,11 +101,18 @@ class PublisherManager:
         tags: list[str] | None = None,
         draft: bool = False,
         account_id: str | None = None,
-        proxy: dict | None = None,  # P2-1
+        proxy: dict | None = None,
         progress_callback: Callable[[PublishPhase, str, int], Coroutine] | None = None,
         **kwargs,
     ):
-        """发布到指定平台"""
+        """发布到指定平台（含可选预检）"""
+        if not await self._run_precheck(platform, title):
+            from multi_publish.models import PublishResult
+            return PublishResult(
+                success=False, platform=platform.value,
+                error=f"预检未通过: 平台 {platform.value} 上存在相似内容",
+            )
+
         publisher = await self.get_or_create(platform, account_id=account_id, proxy=proxy)
         if progress_callback:
             publisher.set_progress_callback(progress_callback)
@@ -100,13 +133,12 @@ class PublisherManager:
         account_id: str | None = None,
         **kwargs,
     ) -> dict[PlatformType, "PublishResult"]:
-        """批量发布到多个平台"""
         from multi_publish.models import PublishResult
         results: dict[PlatformType, PublishResult] = {}
         targets = platforms or self.get_available_platforms()
         for idx, platform in enumerate(targets):
             if idx > 0:
-                await asyncio.sleep(2)  # P2-2: 跨平台 2 秒间隔，防平台端限流
+                await asyncio.sleep(2)
             if not self.is_supported(platform):
                 results[platform] = PublishResult(
                     success=False, platform=platform.value,
@@ -127,12 +159,10 @@ class PublisherManager:
         return results
 
     async def login_to_platform(self, platform: PlatformType, account_id: str | None = None, proxy: dict | None = None) -> bool:
-        """启动指定平台的登录流程"""
         publisher = await self.get_or_create(platform, account_id=account_id, proxy=proxy)
         return await publisher.login()
 
     async def get_auth_status(self, platform: PlatformType) -> bool:
-        """检查平台认证状态"""
         try:
             publisher = await self.get_or_create(platform)
             return await publisher.check_auth()
@@ -140,7 +170,6 @@ class PublisherManager:
             return False
 
     async def close_all(self):
-        """关闭所有发布器实例"""
         for platform, publisher in self._publishers.items():
             try:
                 await publisher.close()
