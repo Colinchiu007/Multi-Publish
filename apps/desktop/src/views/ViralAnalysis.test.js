@@ -3,14 +3,167 @@ import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 
+vi.mock("@/api/publisher", () => ({
+  viralAnalyze: vi.fn().mockResolvedValue({ success: true, overall_score: 8.5, factors: [] }),
+  viralGenerate: vi.fn().mockResolvedValue({ success: true, task: "titles", data: { titles: [] } }),
+}));
+
 import ViralAnalysisView from "./ViralAnalysis.vue";
 
 describe("ViralAnalysisView", () => {
-  beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); window.electronAPI = {}; });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  function createView() {
+    return mount(ViralAnalysisView, { global: { plugins: [createPinia()] } });
+  }
 
   it("renders page title", async () => {
-    const w = mount(ViralAnalysisView, { global: { plugins: [createPinia()] } });
+    const w = createView();
     await nextTick();
-    expect(w.text()).toContain("爆款分析");
+    expect(w.text()).toContain("\u7206\u6b3e\u5206\u6790");
+  });
+
+  it("trendIcon returns correct icon for each direction", async () => {
+    const w = createView();
+    await nextTick();
+    expect(w.vm.trendIcon("rising")).toBe("\ud83d\udcc8");
+    expect(w.vm.trendIcon("declining")).toBe("\ud83d\udcc9");
+    expect(w.vm.trendIcon("stable")).toBe("\u27a1\ufe0f");
+    expect(w.vm.trendIcon("unknown")).toBe("\u27a1\ufe0f");
+  });
+
+  it("trendLabel returns correct label for each direction", async () => {
+    const w = createView();
+    await nextTick();
+    expect(w.vm.trendLabel("rising")).toBe("\u4e0a\u5347\u4e2d");
+    expect(w.vm.trendLabel("declining")).toBe("\u4e0b\u964d\u4e2d");
+    expect(w.vm.trendLabel("stable")).toBe("\u5e73\u7a33");
+    expect(w.vm.trendLabel("unknown")).toBe("unknown");
+  });
+
+  it("scoreColor returns color based on score threshold", async () => {
+    const w = createView();
+    await nextTick();
+    expect(w.vm.scoreColor(0.8)).toBe("#e74c3c");
+    expect(w.vm.scoreColor(0.7)).toBe("#e74c3c");
+    expect(w.vm.scoreColor(0.5)).toBe("#e67e22");
+    expect(w.vm.scoreColor(0.4)).toBe("#e67e22");
+    expect(w.vm.scoreColor(0.3)).toBe("#95a5a6");
+  });
+
+  it("doAnalyze validates non-empty topic", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "";
+    await w.vm.doAnalyze();
+    expect(viralAnalyze).not.toHaveBeenCalled();
+  });
+
+  it("doAnalyze calls viralAnalyze with articles", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    viralAnalyze.mockResolvedValue({ success: true, overall_score: 8.5, factors: [{ name: "test", label: "Test", score: 0.8 }] });
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI trends";
+    await w.vm.doAnalyze();
+    expect(viralAnalyze).toHaveBeenCalled();
+    expect(w.vm.result.overall_score).toBe(8.5);
+    expect(w.vm.loading).toBe(false);
+  });
+
+  it("doAnalyze parses custom article data", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI";
+    w.vm.articleData = '[{"title":"AI","like_count":500,"comment_count":30}]';
+    await w.vm.doAnalyze();
+    expect(viralAnalyze).toHaveBeenCalledWith(
+      [{ title: "AI", like_count: 500, comment_count: 30 }],
+      "AI"
+    );
+  });
+
+  it("doAnalyze handles API error", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    viralAnalyze.mockResolvedValue({ success: false, error: "analysis failed" });
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI";
+    await w.vm.doAnalyze();
+    expect(w.vm.result.error).toBe("analysis failed");
+  });
+
+  it("doAnalyze catches exception", async () => {
+    const { viralAnalyze } = await import("@/api/publisher");
+    viralAnalyze.mockRejectedValue(new Error("network error"));
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI";
+    await w.vm.doAnalyze();
+    expect(w.vm.result.error).toBe("network error");
+  });
+
+  it("doGenerate validates non-empty topic", async () => {
+    const { viralGenerate } = await import("@/api/publisher");
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "";
+    await w.vm.doGenerate();
+    expect(viralGenerate).not.toHaveBeenCalled();
+  });
+
+  it("doGenerate calls viralGenerate with options", async () => {
+    const { viralGenerate } = await import("@/api/publisher");
+    viralGenerate.mockResolvedValue({ success: true, task: "titles", data: { titles: [{ title: "Test Title", structure: "list", emotion: "curiosity" }] } });
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI tools";
+    w.vm.platform = "\u5c0f\u7ea2\u4e66";
+    await w.vm.doGenerate();
+    expect(viralGenerate).toHaveBeenCalledWith({
+      topic: "AI tools",
+      platform: "\u5c0f\u7ea2\u4e66",
+      task: "titles",
+      count: 5,
+    });
+    expect(w.vm.genResult).toBeTruthy();
+    expect(w.vm.loading).toBe(false);
+  });
+
+  it("doGenerate skips setting genResult on API error", async () => {
+    const { viralGenerate } = await import("@/api/publisher");
+    viralGenerate.mockResolvedValue({ success: false, error: "generate failed" });
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI";
+    await w.vm.doGenerate();
+    // genResult only set on success
+    expect(w.vm.genResult).toBeNull();
+  });
+
+  it("doGenerate catches exception", async () => {
+    const { viralGenerate } = await import("@/api/publisher");
+    viralGenerate.mockRejectedValue(new Error("network error"));
+    const w = createView();
+    await nextTick();
+    w.vm.topic = "AI";
+    await w.vm.doGenerate();
+    expect(w.vm.genResult.error).toBe("network error");
+  });
+
+  it("initial data values are correct", async () => {
+    const w = createView();
+    await nextTick();
+    expect(w.vm.topic).toBe("");
+    expect(w.vm.platform).toBe("\u901a\u7528");
+    expect(w.vm.loading).toBe(false);
+    expect(w.vm.result).toBeNull();
+    expect(w.vm.genResult).toBeNull();
   });
 });
