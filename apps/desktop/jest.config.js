@@ -5,6 +5,7 @@ module.exports = {
   ],
   testPathIgnorePatterns: [
     '/node_modules/',
+    '/tests/e2e/',
   ],
   moduleNameMapper: {
     '^electron$': '<rootDir>/tests/__mocks__/electron.js',
