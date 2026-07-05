@@ -1,4 +1,4 @@
-const { WebSocketServer } = require('ws');
+﻿const { WebSocketServer } = require('ws');
 const { BrowserWindow } = require('electron');
 const http = require('http');
 
@@ -131,10 +131,7 @@ class FlutterSkillElectron {
 
   // Resolve a key/selector/text to a CSS selector
   _resolveSelector(params) {
-    if (params.selector) return params.selector;
-    if (params.key) return `#${params.key}`;
-    if (params.element) return params.element;
-    return null;
+    return resolveSelector(params);
   }
 
   // Generate JavaScript code to find element by ref ID (semantic fingerprint system)
@@ -1313,3 +1310,5 @@ class FlutterSkillElectron {
 }
 
 module.exports = { FlutterSkillElectron };
+
+
