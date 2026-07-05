@@ -1,3 +1,8 @@
+/**
+ * @deprecated 此文件是 TS 迁移产物，API 与生产使用的 JS 版不兼容。
+ * 请使用同目录的 publish-alert.js (JS 版) 替代。
+ */
+
 export type AlertLevel = "info" | "success" | "warning" | "error";
 
 export interface Alert { id: string; level: AlertLevel; title: string; message: string; timestamp: number; read: boolean }

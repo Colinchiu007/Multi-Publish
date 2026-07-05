@@ -8,7 +8,6 @@
  * Integrate in main.js: create instance in app.whenReady(), stop in window-all-closed.
  */
 
-const axios = require('axios')
 const fs = require('fs')
 const path = require('path')
 const log = require('./logger')
@@ -23,6 +22,7 @@ class PublishPoller {
    * @param {object} opts.store - Store (SQLite) instance for account loading
    */
   constructor (opts) {
+    this._axios = opts.axios || require("axios")
     this.orchestratorUrl = opts.orchestratorUrl || process.env.ORCHESTRATOR_URL || 'http://39.105.42.85'
     this.pollInterval = opts.pollInterval || 2000
     this.publisherRouter = opts.publisherRouter
@@ -73,7 +73,7 @@ class PublishPoller {
    */
   async _poll () {
     try {
-      const resp = await axios.get(this.orchestratorUrl + '/api/jobs/publish/pending')
+      const resp = await this._axios.get(this.orchestratorUrl + '/api/jobs/publish/pending')
       const items = resp.data && resp.data.items
       if (!items || items.length === 0) return
 
@@ -127,7 +127,7 @@ class PublishPoller {
       videoPath = path.join(tmpDir, 'video' + ext)
 
       const writer = fs.createWriteStream(videoPath)
-      const downloadResp = await axios.get(videoUrl, { responseType: 'stream' })
+      const downloadResp = await this._axios.get(videoUrl, { responseType: 'stream' })
       downloadResp.data.pipe(writer)
 
       await new Promise(function (resolve, reject) {
@@ -141,7 +141,7 @@ class PublishPoller {
           const coverExt = path.extname(new URL(input.cover_url).pathname) || '.jpg'
           coverPath = path.join(tmpDir, 'cover' + coverExt)
           const coverWriter = fs.createWriteStream(coverPath)
-          const coverResp = await axios.get(input.cover_url, { responseType: 'stream' })
+          const coverResp = await this._axios.get(input.cover_url, { responseType: 'stream' })
           coverResp.data.pipe(coverWriter)
           await new Promise(function (resolve, reject) {
             coverWriter.on('finish', resolve)
@@ -215,7 +215,7 @@ class PublishPoller {
     const body = { status: status }
     if (output) body.output = output
     if (error) body.error = error
-    await axios.put(this.orchestratorUrl + '/api/jobs/publish/' + taskId + '/status', body)
+    await this._axios.put(this.orchestratorUrl + '/api/jobs/publish/' + taskId + '/status', body)
   }
 }
 

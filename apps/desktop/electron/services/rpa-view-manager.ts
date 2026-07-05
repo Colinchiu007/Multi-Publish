@@ -1,3 +1,8 @@
+/**
+ * @deprecated 此文件是 TS 迁移产物，API 与生产使用的 JS 版不兼容。
+ * 请使用同目录的 rpa-view-manager.js (JS 版) 替代。
+ */
+
 import { BrowserWindow, session, ipcMain } from "electron";
 import * as path from "path";
 import * as fs from "fs";

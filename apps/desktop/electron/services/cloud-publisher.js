@@ -11,8 +11,6 @@
  *   cloud-publisher:platforms  → getSupportedPlatforms
  */
 
-const axios = require('axios')
-const { ipcMain } = require('electron')
 const { log } = require('./logger')
 
 class CloudPublisher {
@@ -23,6 +21,7 @@ class CloudPublisher {
    * @param {Object} opts.store - Electron store instance (reserved for future use)
    */
   constructor (opts) {
+    this._axios = opts.axios || require("axios")
     this._orchestratorUrl = opts.orchestratorUrl || 'http://39.105.42.85'
     this._store = opts.store || null
   }
@@ -42,7 +41,7 @@ class CloudPublisher {
    * @returns {Promise<Object>} orchestrator response: { task_id, status, platform }
    */
   async submitTask ({ videoUrl, platform, title, desc, tags, coverUrl }) {
-    const resp = await axios.post(this._orchestratorUrl + '/api/jobs/publish-video', {
+    const resp = await this._axios.post(this._orchestratorUrl + '/api/jobs/publish-video', {
       video_url: videoUrl,
       platform: platform,
       title: title,
@@ -62,7 +61,7 @@ class CloudPublisher {
    * @returns {Promise<{items: Array}>}
    */
   async listTasks () {
-    const resp = await axios.get(this._orchestratorUrl + '/api/jobs/publish')
+    const resp = await this._axios.get(this._orchestratorUrl + '/api/jobs/publish')
     return resp.data
   }
 
@@ -75,7 +74,7 @@ class CloudPublisher {
    * @returns {Promise<Object>}
    */
   async getTask (taskId) {
-    const resp = await axios.get(this._orchestratorUrl + '/api/jobs/publish/' + taskId)
+    const resp = await this._axios.get(this._orchestratorUrl + '/api/jobs/publish/' + taskId)
     return resp.data
   }
 
@@ -95,6 +94,7 @@ class CloudPublisher {
    * 注册 IPC handlers
    */
   registerIpcHandlers () {
+    const { ipcMain } = require("electron")
     ipcMain.handle('cloud-publisher:submit', async (_event, params) => {
       try {
         const result = await this.submitTask(params)

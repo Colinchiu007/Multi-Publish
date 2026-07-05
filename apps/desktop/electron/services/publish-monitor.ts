@@ -1,3 +1,8 @@
+/**
+ * @deprecated 此文件是 TS 迁移产物，API 与生产使用的 JS 版不兼容。
+ * 请使用同目录的 publish-monitor.js (JS 版) 替代。
+ */
+
 export interface PublishTask { id: string; platform: string; status: "pending" | "running" | "success" | "failed"; title?: string }
 
 const _tasks: PublishTask[] = [];

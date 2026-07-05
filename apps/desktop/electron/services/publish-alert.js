@@ -7,7 +7,6 @@
  * 3. 通知历史记录
  * 4. 通知冷却期（避免重复弹出）
  */
-const { app, Notification, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const log = require('./logger')
@@ -49,16 +48,13 @@ function playSound (type) {
  * 发送系统通知
  */
 function sendNotification (title, body) {
-  if (!Notification.isSupported()) return
-
-  const notification = new Notification({
-    title,
-    body,
-    silent: true, // 我们自己处理声音
-  })
-
-  notification.show()
-  log.info('publishAlert', `${title}: ${body}`)
+  try {
+    const { Notification } = require('electron')
+    if (!Notification.isSupported()) return
+    const notification = new Notification({ title, body, silent: true })
+    notification.show()
+    log.info('publishAlert', `${title}: ${body}`)
+  } catch { /* 非 Electron 环境忽略 */ }
 }
 
 /**
