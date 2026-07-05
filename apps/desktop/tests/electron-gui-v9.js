@@ -391,7 +391,25 @@ async function run() {
   const errors = [];
 
   try {
-    win = await findMainWindow(app);
+        win = await findMainWindow(app);
+    if (!win) {
+      const debugInfo = { windows: app.windows().length, pid: app.process().pid };
+      // Try to get any console output from the app
+      try {
+        const allWins = app.windows();
+        debugInfo.windowList = allWins.map(w => {
+          try { return { url: w.url().substring(0,100), title: w.title() }; }
+          catch(e) { return { error: e.message }; }
+        });
+      } catch(_) {}
+      console.error("\n❌ 未找到主窗口:", JSON.stringify(debugInfo, null, 2));
+      // Take screenshot of any window available
+      const firstWin = app.windows()[0];
+      if (firstWin) {
+        try { await firstWin.screenshot({ path: path.join(SS, "v9-error-firstwin.png") }); } catch(_) {}
+      }
+      throw new Error("Electron 未创建窗口或 Vite 未就绪");
+    }
     await win.waitForLoadState("networkidle");
     await wait(3000);
     win.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
