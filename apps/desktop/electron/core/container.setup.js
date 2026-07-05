@@ -1,13 +1,13 @@
 /**
- * Container setup �?集中注册所�?Electron 主进程服�?
- * 可作为逐步替换 main.js 直接 new 的中间步�?
+ * Container setup — 集中注册所有 Electron 主进程服务
+ * 可作为逐步替换 main.js 直接 new 的中间步骤
  */
 'use strict';
 
 // TS 迁移: 使用编译后的 TypeScript 版本
 const Container = require("../../dist-ts/core/container");
 
-// -- 本模块加载的依赖（最终目标是�?container 中获取） --
+// -- 本模块加载的依赖（最终目标是到 container 中获取） --
 const RenderEngine = require('../services/render-engine');
 const AuthViewManager = require('../services/auth-view-manager');
 const RpaViewManager = require('../services/rpa-view-manager');
@@ -35,7 +35,7 @@ function createContainer(options) {
   var container = new Container();
   options = options || {};
 
-  // ---- 无依赖服�?----
+  // ---- 无依赖服务 ----
   container.register("authViewManager", function() { return new AuthViewManager(); });
   container.register("rpaViewManager", function() { return new RpaViewManager(); });
   container.register("webviewManager", function() { return new WebviewManager(); });
@@ -76,4 +76,3 @@ function createContainer(options) {
 }
 
 module.exports = { createContainer };
-

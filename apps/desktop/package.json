@@ -14,7 +14,8 @@
     "build:dir": "npm run build:vue && electron-builder --dir",
     "preview": "vite preview",
     "test": "tsc && jest --colors",
-    "test:vue": "vitest run"
+    "test:vue": "vitest run",
+    "build:ts": "tsc"
   },
   "keywords": [
     "multi-publish",
