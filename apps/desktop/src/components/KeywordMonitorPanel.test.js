@@ -101,4 +101,81 @@ describe("KeywordMonitorPanel", () => {
 
     expect(keywordHistory).toHaveBeenCalledWith("测试关键词");
   });
+
+
+describe("KeywordMonitorPanel — extra coverage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("addKeyword warns on empty input", async () => {
+    keywordStatus.mockResolvedValue({ code: 0, data: [] });
+    const { ElMessage } = await import("element-plus");
+    const w = mount(KeywordMonitorPanel);
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    // Add empty keyword
+    w.vm.addKeyword();
+    expect(ElMessage.warning).toHaveBeenCalledWith("请输入关键词");
+  });
+
+  it("addKeyword warns on duplicate keyword", async () => {
+    keywordStatus.mockResolvedValue({ code: 0, data: [{ keyword: "existing" }] });
+    const { ElMessage } = await import("element-plus");
+    const w = mount(KeywordMonitorPanel);
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    w.vm.newKeyword = "existing";
+    await w.vm.addKeyword();
+    expect(ElMessage.warning).toHaveBeenCalledWith("该关键词已在监测列表中");
+  });
+
+  it("addKeyword warns when max 20 reached", async () => {
+    const manyKeywords = Array.from({ length: 20 }, (_, i) => ({ keyword: "kw" + i }));
+    keywordStatus.mockResolvedValue({ code: 0, data: manyKeywords });
+    const { ElMessage } = await import("element-plus");
+    const w = mount(KeywordMonitorPanel);
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    w.vm.newKeyword = "overflow";
+    await w.vm.addKeyword();
+    expect(ElMessage.warning).toHaveBeenCalledWith("最多添加 20 个关键词");
+  });
+
+  it("addKeyword handles API error", async () => {
+    keywordStatus.mockResolvedValue({ code: 0, data: [] });
+    keywordStart.mockRejectedValue(new Error("API timeout"));
+    const { ElMessage } = await import("element-plus");
+    const w = mount(KeywordMonitorPanel);
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    w.vm.newKeyword = "test";
+    await w.vm.addKeyword();
+    expect(ElMessage.error).toHaveBeenCalled();
+  });
+
+  it("stopKeyword calls keywordStop", async () => {
+    keywordStatus.mockResolvedValue({ code: 0, data: [{ keyword: "test" }] });
+    keywordStart.mockResolvedValue({ code: 0 });
+    const mocks = await import("@/api/publisher");
+    mocks.keywordStop.mockResolvedValue({ code: 0 });
+    const w = mount(KeywordMonitorPanel);
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    await w.vm.stopKeyword("test");
+    expect(mocks.keywordStop).toHaveBeenCalledWith("test");
+  });
+
+  it("openHistory with empty result shows empty state", async () => {
+    keywordStatus.mockResolvedValue({ code: 0, data: [{ keyword: "test" }] });
+    keywordHistory.mockResolvedValue({ code: 0, data: [] });
+    const w = mount(KeywordMonitorPanel);
+    await new Promise(r => setTimeout(r, 10));
+    await nextTick();
+    await w.vm.openHistory("test");
+    expect(w.vm.historyVisible).toBe(true);
+    expect(w.vm.historyEntries).toEqual([]);
+  });
+});
+
 });
