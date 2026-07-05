@@ -1,3 +1,18 @@
+## [v2.0.6] - 2026-07-05
+
+### Added — Intelligence.vue 覆盖率提升 (42.64% → 89.70%)
+- **Intelligence.vue 测试**: 从 2 个基础测试扩展到 16 个完整测试
+  - formatTime: 正常时间 / null / undefined / 无效输入
+  - sourceLabel / sourceColor: 全部 3 种来源 + 未知
+  - scoreColor: 高/中/低 三种阈值
+  - selectedSources: 默认全选
+  - doSearch: 空查询跳过 / 调 API 成功 / 设置结果 / 异常处理
+  - clearSearch: 清除查询和结果
+  - useAsReference / insertRef: 引用功能
+- 语句覆盖率: 42.64% → 89.70%
+- 分支覆盖率: ~33% → 91.22%
+- 函数覆盖率: ~12% → 64.70%
+
 ## [v2.0.5] - 2026-07-05
 
 ### Added — Providers.vue 覆盖率提升 (33.75% → 81.25%)
