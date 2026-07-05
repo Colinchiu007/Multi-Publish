@@ -16,6 +16,7 @@
  * 文件位置: apps/desktop/electron/content-intelligence.js
  */
 const { ipcMain } = require('electron')
+const { calculateStats, deduplicateResults, calculateHourDistribution } = require('./content-intelligence-utils')
 const log = require('./logger')
 
 class ContentIntelligence {
@@ -727,22 +728,9 @@ class ContentIntelligence {
 
     const bench = {
       sampleSize: items.length,
-      engagement: {
-        avg: Math.round(avg(engagements) * 100) / 100,
-        median: Math.round(median(engagements) * 100) / 100,
-        top10: Math.round(percentile(engagements, 90) * 100) / 100,
-        top25: Math.round(percentile(engagements, 75) * 100) / 100,
-      },
-      upvotes: {
-        avg: Math.round(avg(upvotesList)),
-        median: Math.round(median(upvotesList)),
-        top10: Math.round(percentile(upvotesList, 90)),
-      },
-      comments: {
-        avg: Math.round(avg(commentsList)),
-        median: Math.round(median(commentsList)),
-        top10: Math.round(percentile(commentsList, 90)),
-      },
+      engagement: calculateStats(engagements),
+      upvotes: calculateStats(upvotesList),
+      comments: calculateStats(commentsList),
       topSources: [...new Set(items.map(r => r.source))],
       generatedAt: new Date().toISOString(),
     }
