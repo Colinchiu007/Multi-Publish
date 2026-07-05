@@ -1,4 +1,4 @@
-# Review Checklist（增强版）
+﻿# Review Checklist（增强版）
 
 ## P0
 
@@ -27,6 +27,3 @@
 ### 测试计数基线
 - 当前 696 tests，CI 跟踪变化
 
-### 窄屏响应式布局
-- 修改涉及布局的组件时，检查窄屏下内容是否重叠或溢出
-- 使用 flex-wrap / min-width / media query 等响应式方案
