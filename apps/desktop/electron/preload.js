@@ -217,6 +217,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       licenseHasFeature: (name) => ipcRenderer.invoke('license:has-feature', name),
       licenseFeatures: () => ipcRenderer.invoke('license:features'),
 
+      // --- Provider API ---
+      providerList: () => ipcRenderer.invoke("provider:list"),
+      providerCreate: (data) => ipcRenderer.invoke("provider:create", data),
+      providerUpdate: (name, data) => ipcRenderer.invoke("provider:update", name, data),
+      providerDelete: (name) => ipcRenderer.invoke("provider:delete", name),
+      providerTest: (name) => ipcRenderer.invoke("provider:test", name),
+      providerListUser: () => ipcRenderer.invoke("provider:list-user"),
+      providerGetUser: (name) => ipcRenderer.invoke("provider:get-user", name),
+      providerSetUserKey: (name, apiKey, baseUrl) => ipcRenderer.invoke("provider:set-user-key", name, apiKey, baseUrl),
+      providerDeleteUserKey: (name) => ipcRenderer.invoke("provider:delete-user-key", name),
       // ─── AI 写作 API ───────────────────────────
       aiGenerateTitles: (topic) => ipcRenderer.invoke('ai:generate-titles', topic),
       aiGenerateSummary: (content) => ipcRenderer.invoke('ai:generate-summary', content),
