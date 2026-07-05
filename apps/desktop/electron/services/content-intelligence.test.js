@@ -32,7 +32,6 @@ describe("ContentIntelligence", () => {
       get: vi.fn().mockResolvedValue({ data: { data: { children: [] } } }),
       post: vi.fn().mockResolvedValue({ data: {} }),
     };
-    // Override _getAxios to return our mock
     ci._getAxios = () => mockAxios;
   });
 
@@ -52,34 +51,43 @@ describe("ContentIntelligence", () => {
       const cached = { results: ["item1"], timestamp: Date.now() };
       ci._searchCache.set("search:test:reddit,hackernews,github:10", cached);
       const result = await ci.search("test");
-      expect(result).toEqual([cached.results]);
+      expect(result).toEqual(cached.results);
       expect(mockAxios.get).not.toHaveBeenCalled();
     });
 
-    it("returns empty array for null query", async () => {
+    it("returns structured object for null query", async () => {
       const result = await ci.search(null);
-      // search returns structured object; empty query produces empty sources
-      expect(Array.isArray(result)).toBe(true);
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty("results");
+      expect(result).toHaveProperty("total");
+      expect(result).toHaveProperty("sources");
     });
 
-    it("returns empty array for empty query", async () => {
+    it("returns structured object for empty query", async () => {
       const result = await ci.search("");
-      expect(Array.isArray(result)).toBe(true);
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty("results");
+      expect(result).toHaveProperty("total");
+      expect(result).toHaveProperty("sources");
     });
   });
 
   describe("fetchTrending", () => {
-    it("returns empty array when no sources specified", async () => {
+    it("returns structured object when no sources specified", async () => {
       const result = await ci.fetchTrending({ sources: [] });
-      expect(result).toEqual([]);
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty("total", 0);
+      expect(result).toHaveProperty("results");
+      expect(result).toHaveProperty("bySource");
     });
   });
 
   describe("getOptimalTime", () => {
-    it("returns default slots when no keyword provided", async () => {
+    it("returns error object when no keyword provided", async () => {
       const result = await ci.getOptimalTime(null);
       expect(result).toBeDefined();
-      expect(Array.isArray(result)).toBe(true);
+      expect(result).toHaveProperty("error");
+      expect(result).toHaveProperty("recommendation");
     });
   });
 
