@@ -3,7 +3,7 @@
  */
 function registerHandlers(ipcMain, deps) {
   let EC = require('../core/error-codes').ERROR
-  let offlineManager = require("../offline-manager")
+  let offlineManager = require("../services/offline-manager")
 
   ipcMain.handle("offline:status", async function() {
     try {
