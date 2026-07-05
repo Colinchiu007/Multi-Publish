@@ -384,7 +384,7 @@ async function handlePublish () {
   try {
         // Detect Markdown input and tag for platform-specific formatting
     const isMarkdown = /^#\s|^\*\*|^>\s|^```/m.test(article.content) || /\[.+\]\(.+\)/.test(article.content)
-    const data = { title: article.title, content: article.content, contentFormat: isMarkdown ? 'markdown' : 'html', author: article.author || '', cover_url: article.cover_url || '', video_path: article.video_path || '' }
+    const data = { title: article.title, content: article.content, contentFormat: isMarkdown ? 'markdown' : 'html', author: article.author || '', cover_url: article.cover_url || '', video_path: article.video_path || '', precheck: precheckEnabled.value }
     // 构建带 accountId 的平台列表
     // targets already set above
     addProgress(`发布到 ${targets.length} 个目标（含多账号）...`, 'info')
@@ -397,6 +397,7 @@ async function handlePublish () {
 
 // ── 批量模式 ────────────────────────────
 const batchMode = ref(false)
+const precheckEnabled = ref(false)
 let _keyCounter = 1
 const articles = ref([])
 const batchProgress = ref([])
@@ -457,7 +458,7 @@ async function handleBatchPublish () {
   try {
     // 创建批量任务
     const createRes = await batchCreate({ name: `批量发布 ${new Date().toLocaleDateString('zh-CN')}`, articles: articles.value.map(a => ({
-      title: a.title, content: a.content, platforms: a.platforms, publishTime: a.publishTime || null,
+      title: a.title, content: a.content, platforms: a.platforms, publishTime: a.publishTime || null, precheck: precheckEnabled.value,
     })) })
 
     if (createRes.code !== 0) { throw new Error(createRes.message) }
@@ -496,6 +497,12 @@ watch(batchMode, (val) => {
   if (val && articles.value.length === 0) addArticle()
 })
 
+// 持久化预检开关状态
+watch(precheckEnabled, (val) => {
+  const api = window.electronAPI;
+  if (api && api.storeSetSetting) api.storeSetSetting("precheckEnabled", val);
+})
+
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
   await loadAccounts()  // 加载多账号列表
@@ -504,6 +511,7 @@ onMounted(async () => {
     const def = getDefaultAccount(pid)
     if (def) selectedAccounts.value[pid] = def.id
   }
+  const precheckVal = await storeGetSetting('precheckEnabled', 'false'); precheckEnabled.value = precheckVal === 'true' || precheckVal === true;
   const draftId = route.query.draft
   if (!draftId) return
 

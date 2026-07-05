@@ -1,5 +1,4 @@
-"""
-发布器模块
+﻿"""发布器模块
 
 各平台发布器实现。
 
@@ -23,6 +22,8 @@ from multi_publish.publishers.base import (
 from multi_publish.publishers.platform_registry import PlatformRegistry, registry
 from multi_publish.publishers.wechat_mp import WeChatPublisher
 from multi_publish.publishers.douyin import DouyinPublisher
+from multi_publish.publishers.xiaohongshu import XiaoHongShuPublisher
+from multi_publish.publishers.bilibili import BilibiliPublisher
 
 __all__ = [
     "BasePublisher",
@@ -38,4 +39,6 @@ __all__ = [
     "PlatformRegistry",
     "WeChatPublisher",
     "DouyinPublisher",
+    "XiaoHongShuPublisher",
+    "BilibiliPublisher",
 ]
