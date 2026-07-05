@@ -12,44 +12,8 @@ const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { supportsApi, publishViaApi } = require('@multi-publish/api-publish-engine')
 const { STEALTH_SOURCE } = require('./stealth-helper')
 
-// ---- ProgressThrottle (Python base.py port) ----
-class ProgressThrottle {
-  constructor(minInterval, minPercentDelta) {
-    this._lastTime = 0; this._lastPercent = 0
-    this._minInterval = minInterval || 5000
-    this._minPercentDelta = minPercentDelta || 10
-  }
-  shouldReport(percent) {
-    if (percent === 100) return true
-    if (percent - this._lastPercent < this._minPercentDelta && Date.now() - this._lastTime < this._minInterval) return false
-    this._lastTime = Date.now(); this._lastPercent = percent; return true
-  }
-  reset() { this._lastTime = 0; this._lastPercent = 0 }
-}
-
-// ---- FieldRetryState (Python FieldRetryMap port) ----
-class FieldRetryState {
-  constructor(retryCount) { this._retryCount = retryCount || 3; this._map = {} }
-  addField(name) { if (!(name in this._map)) this._map[name] = 0 }
-  markDone(name) { this._map[name] = this._retryCount }
-  retry(name) { if (!(name in this._map)) return false; this._map[name]++; return this._map[name] < this._retryCount }
-  isDone(name) { return (this._map[name] || this._retryCount) >= this._retryCount }
-  get unfinishedFields() { let t=this; return Object.keys(this._map).filter(function(n){return t._map[n]<t._retryCount}) }
-  get hasUnfinished() { let t=this; return Object.values(this._map).some(function(c){return c<t._retryCount}) }
-  get allDone() { return !this.hasUnfinished }
-  get exhaustedFields() { let t=this; return Object.keys(this._map).filter(function(n){return t._map[n]===t._retryCount-1}) }
-}
-
-let PLATFORM_SUCCESS_PATTERNS = {
-  douyin: ['aweme/create', 'aweme/post', 'upload/auth'],
-  weibo: ['publish/mblog', 'statuses/share'],
-  bilibili: ['video/recommend', 'archive/publish'],
-  youtube: ['/upload', 'youtubei/v1/upload'],
-  tiktok: ['/upload/', 'post/publish'],
-  zhihu: ['api/posts', 'publish/article', 'zhihu.com/creator'],
-}
-let _platformConfigInstance = null
-
+const { ProgressThrottle } = require('./rpa-progress-throttle')
+const { FieldRetryState } = require('./rpa-field-retry')
 class RpaViewManager {
   constructor() {
     this.mainWindow = null; this.windows = {}; this._nextId = 1
