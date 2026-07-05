@@ -1,4 +1,6 @@
 {
   "douyin": "multi_publish.publishers.douyin:DouyinPublisher",
-  "wechat_mp": "multi_publish.publishers.wechat_mp:WeChatPublisher"
+  "wechat_mp": "multi_publish.publishers.wechat_mp:WeChatPublisher",
+  "xiaohongshu": "multi_publish.publishers.xiaohongshu:XiaoHongShuPublisher",
+  "bilibili": "multi_publish.publishers.bilibili:BilibiliPublisher"
 }
