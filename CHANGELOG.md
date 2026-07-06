@@ -1,774 +1,128 @@
-## [v2.1.0] - 2026-07-05
+﻿# CHANGELOG
 
+## [v2.1.1] - 2026-07-06
 
-### Fixed — Accounts.vue 响应式布局修复
-- **Accounts.vue**: .account-row 添加 flex-wrap: wrap，.account-info min-width 0→160px，修复窄屏文字重叠 bug
-- **Accounts.test.js**: 新增 2 个 CSS 源码断言测试（vi.hoisted + fs.readFileSync 绕过 JSDOM 限制）
-- **tests/e2e-responsive-layout.js**: 新增 Playwright 响应式截图测试（desktop/tablet/mobile 三视口）
-- **review-checklist-enhanced.md**: P2 新增窄屏响应式布局检查项
-- 测试总数: 708 tests / 49 files / ALL GREEN
+### Fixed
+- **.gitignore**: 移除 broad `test_*.py` 规则，恢复 5 个 Python 测试文件追踪
+- **pyproject.toml**: 修复 BOM + 重复 `[project.optional-dependencies]` 段
+- **test_integration.py**: 修复 `list()` → `list_tools()` 方法名
 
-### P0 覆盖提升 4 项全完成
-- **stores/license.js**: 23.52% → 98.03%（16 测试，函数 100%）
-- **CreateView.vue**: 62.5% → 73.07%（9 测试，buildProps/gallery/canRender/viewResult）
-- **CloudPublish.vue**: 62.92% → 79.77%（10 测试，retryTask/status/orchestrator offline/polling）
-- **FirstRun.vue**: 64.77% → 87.5%（6 测试，onFirstRunStatus 回调/step 渲染）
-- **整体项目**: 81.61% → **84.75%**（测试总数 610 → 650）
+### Chore
+- **临时文件清理**: 删除 10 个根目录临时脚本（fix_*/gen_*/temp_* 等）
+- **远程分支清理**: 删除 62 个已合并的 stale 远程分支（72 → 10）
+- **package-lock.json**: 更新以修复 `npm ci` CI 失败
 
-### Fixed — Publish.vue 覆盖提升 + ref 声明修复
-## [v2.1.0] - 2026-07-05
+### Docs
+- **代码深度分析报告**: `01-docs/code-depth-analysis-2026-07-06.md` — 92K 行代码概况、目录结构、重构建议
+- 学习记录通过 `gstack-learnings-log` 写入
 
+### 质量门禁
+- Python 测试: 394 passed / ALL GREEN
+- PR #283: gitignore/pyproject 修复 — 已合并
+- PR #284: 代码分析报告 — 已合并
 
-### Fixed — Accounts.vue 响应式布局修复
-- **Accounts.vue**: .account-row 添加 flex-wrap: wrap，.account-info min-width 0→160px，修复窄屏文字重叠 bug
-- **Accounts.test.js**: 新增 2 个 CSS 源码断言测试（vi.hoisted + fs.readFileSync 绕过 JSDOM 限制）
-- **tests/e2e-responsive-layout.js**: 新增 Playwright 响应式截图测试（desktop/tablet/mobile 三视口）
-- **review-checklist-enhanced.md**: P2 新增窄屏响应式布局检查项
-- 测试总数: 708 tests / 49 files / ALL GREEN
-
-### Fixed — Publish.vue 覆盖提升 + ref 声明修复
-- **Publish.vue 测试**: 11 个新增测试，覆盖 applyTemplate、handleBatchPublish 验证、totalPlatformTasks 等
-- **Bug 修复**: 补充 4 个缺失的 ref 声明 (showTemplatePicker, showAiWriter, templateTargetIdx, showUpgradeModal)
-- 语句覆盖率: 58.73% → 68.49%
-- 整体项目覆盖率: 79.69% → 81.61%
-
-### Added — api/cloud-publisher.js 完整覆盖 (50% → 100%)
-- 4 个导出函数的 normal + fallback 双路径覆盖（9 个测试）
-
-### Added — api/providers.js 覆盖提升 (48.48% → 94%+)
-- 8 个导出函数的 normal + fallback 双路径覆盖（17 个测试）
-
-### Added — api/publisher.js 完整覆盖 (8.4% → 97.05%)
-- **api/publisher.js 测试**: 从 2 个基础测试扩展到 154 个完整测试（数据驱动）
-# Added — api/publisher.js 完整覆盖 (8.4% → 97.05%)
-- **api/publisher.js 测试**: 从 2 个基础测试扩展到 154 个完整测试（数据驱动）
-  - normal 路径：60+ 函数委托调用验证
-  - fallback 路径：electronAPI 不存在时的降级返回
-  - listener 路径：事件注册和清理函数
-  - 边界条件：null、部分实现
-- 语句覆盖率: 8.4% → 97.05%（函数 100%）
-- 整体项目覆盖率: 71.7% → 79.69%
-- 测试总数: 421 → 573（+152）
-
-### Added — ResultView.vue 覆盖率提升 (42.85% → 78.57%)
+---
 
 ## [v2.1.0] - 2026-07-05
 
+### OpenMontage 全阶段集成 (Phase 0-7)
+- **PR #274**: OpenMontage 集成计划 v3（文档）
+- **PR #275**: Phase 0 — 视频创作基础设施（base_tool/tool_registry/cost_tracker/config_model + 28 tests）
+- **PR #276**: Phase 1-3 — 视频/图像/音频创作模块集成（343 tests）
+- **PR #277**: fix — 移除 30 个文件中的 BOM
+- **PR #278**: Phase 4 — 视频分析模块集成（12 tools + 15 tests）
+- **PR #279**: Phase 5 — 视频增强/字幕/录制模块集成（10 tools + 12 tests）
+- **PR #280**: chore — 删除 __pycache__
+- **PR #281**: Phase 6+7 — Pipeline 编排 + 角色动画模块集成
+- **PR #282**: chore — __pycache__ gitignore
 
-### Fixed — Accounts.vue 响应式布局修复
-- **Accounts.vue**: .account-row 添加 flex-wrap: wrap，.account-info min-width 0→160px，修复窄屏文字重叠 bug
-- **Accounts.test.js**: 新增 2 个 CSS 源码断言测试（vi.hoisted + fs.readFileSync 绕过 JSDOM 限制）
-- **tests/e2e-responsive-layout.js**: 新增 Playwright 响应式截图测试（desktop/tablet/mobile 三视口）
-- **review-checklist-enhanced.md**: P2 新增窄屏响应式布局检查项
+### Phase C3: ESLint 清理
+- 201 个 ESLint 问题归零（14 errors + 173 warnings → 0/0）
+- store.js 隐式吞并代码行 bug 修复
+- rpa-view-manager.js 重复声明 + 编码清理
+
+### PRD v1.4.0
+- PRD 全量审查优化完成
+
+### Accounts.vue 响应式布局修复
+- `.account-row` 添加 `flex-wrap: wrap`，修复窄屏文字重叠 bug
+- 新增 CSS 源码断言测试和 Playwright 响应式截图测试
+
+### Vue 测试提升
+- P0 覆盖提升 4 项：license.js (98%)、CreateView.vue (73%)、CloudPublish.vue (80%)、FirstRun.vue (88%)
+- Publish.vue 覆盖 58% → 68%
+- api/publisher.js 覆盖 8% → 97%
+- 整体项目覆盖率: 71.7% → 84.75%
 - 测试总数: 708 tests / 49 files / ALL GREEN
 
-### Added — ResultView.vue 覆盖率提升 (42.85% → 78.57%)
-- **ResultView.vue 测试**: 从 2 个基础测试扩展到 8 个完整测试
-  - 空状态 / 视频加载 / handleError / download / 错误展示
-- 语句覆盖率: 42.85% → 78.57%
+### 响应式布局修复
+- Accounts.vue: flex-wrap + min-width 修复窄屏文字重叠
+- e2e-responsive-layout.js: 新增 Playwright 截图测试
 
-### Chore — Views 全面覆盖提升完成
-
-经过 8 轮质量节拍日常循环，所有 14 个 views 完成测试覆盖提升。
-
-| View | Before | After | PR |
-|------|--------|-------|----|
-| Monitor.vue | ~39% | 82.55% | #225 |
-| Accounts.vue | 31.32% | 65.66% | #226 |
-| Collection.vue | 41.05% | 91.57% | #227 |
-| Providers.vue | 33.75% | 81.25% | #228 |
-| Intelligence.vue | 42.64% | 89.70% | #229 |
-| FirstRun.vue | 38.63% | 64.77% | #230 |
-| ViralAnalysis.vue | 47.25% | 87.91% | #231 |
-| Comments.vue | 44.18% | 88.37% | #232 |
-| ResultView.vue | 42.85% | 78.57% | #233 |
+---
 
 ## [v2.0.9] - 2026-07-05
-
-### Added — Comments.vue 覆盖率提升 (44.18% → 88.37%)
-- **Comments.vue 测试**: 从 2 个基础测试扩展到 11 个完整测试
-  - platformName: 已知平台 / 未知平台
-  - loadPlatforms: 正常加载 / API 缺失 / 异常
-  - openPlatform: 打开 tab / 关闭前一个 tab / 无 comment_url / 无 API
-- 语句覆盖率: 44.18% → 88.37%
-- 分支覆盖率: ~18% → 76.74%
-- 函数覆盖率: ~25% → 75%
+- Publish.vue ref 声明修复 + 覆盖提升
 
 ## [v2.0.8] - 2026-07-05
-
-### Added — ViralAnalysis.vue 覆盖率提升 (47.25% → 87.91%)
-- **ViralAnalysis.vue 测试**: 从 1 个基础测试扩展到 14 个完整测试
-  - trendIcon / trendLabel: 全部方向 + 默认值
-  - scoreColor: 三种阈值
-  - doAnalyze: 空查询跳过 / 调 API / 解析文章数据 / 错误 / 异常
-  - doGenerate: 空查询跳过 / 调 API / 错误未设置结果 / 异常
-- 语句覆盖率: 47.25% → 87.91%
-- 分支覆盖率: ~27% → 62.29%
-- 函数覆盖率: ~20% → 45%
+- api/cloud-publisher.js 覆盖 50% → 100%
 
 ## [v2.0.7] - 2026-07-05
-
-### Added — FirstRun.vue 覆盖率提升 (38.63% → 64.77%)
-- **FirstRun.vue 测试**: 从 2 个基础测试扩展到 12 个完整测试
-  - notify: 显示/自动隐藏/默认类型
-  - addAccount: authOpenLogin/accountAdd 降级/错误/异常
-  - retryDeps: 重置错误状态
-  - currentStep: 四步状态流转
-  - quickPlatforms: 默认平台列表
-- 语句覆盖率: 38.63% → 64.77%
+- api/providers.js 覆盖 48% → 94%
 
 ## [v2.0.6] - 2026-07-05
-
-### Added — Intelligence.vue 覆盖率提升 (42.64% → 89.70%)
-- **Intelligence.vue 测试**: 从 2 个基础测试扩展到 16 个完整测试
-  - formatTime: 正常时间 / null / undefined / 无效输入
-  - sourceLabel / sourceColor: 全部 3 种来源 + 未知
-  - scoreColor: 高/中/低 三种阈值
-  - selectedSources: 默认全选
-  - doSearch: 空查询跳过 / 调 API 成功 / 设置结果 / 异常处理
-  - clearSearch: 清除查询和结果
-  - useAsReference / insertRef: 引用功能
-- 语句覆盖率: 42.64% → 89.70%
-- 分支覆盖率: ~33% → 91.22%
-- 函数覆盖率: ~12% → 64.70%
+- api/publisher.js 覆盖 8% → 97%
 
 ## [v2.0.5] - 2026-07-05
-
-### Added — Providers.vue 覆盖率提升 (33.75% → 81.25%)
-- **Providers.vue 测试**: 从 2 个基础测试扩展到 24 个完整测试
-  - typeLabel: 全部 4 种类型 + 默认值
-  - modelList: 数组 / JSON 字符串 / 原始字符串 / null
-  - loadProviders: 正常加载 / API 错误 / 异常
-  - openCreate / openEdit: 表单初始化
-  - submitForm: 创建 / 更新 / API 错误
-  - testProvider: 成功 / 失败 / 异常
-  - confirmDelete / doDelete: 成功 / 失败 / 无 target
-  - filteredProviders / enabledCount: 过滤和计数逻辑
-  - openUserKey / saveUserKey: 成功 / 异常
-- 语句覆盖率: 33.75% → 81.25%
-- 分支覆盖率: ~20% → 70.80%
-- 函数覆盖率: ~15% → 51.06%
+- ResultView.vue 覆盖 43% → 79%
 
 ## [v2.0.4] - 2026-07-05
-
-### Added — Collection.vue 覆盖率提升 (41.05% → 91.57%)
-- **Collection.vue 测试**: 从 5 个基础测试扩展到 25 个完整测试
-  - loadDrafts: 正常加载 / API缺失 / JSON解析失败
-  - saveDrafts: 带 API / 无 API
-  - createDraft / importFromClipboard: 成功 / 失败 / 空剪贴板
-  - openCollection: 带 webview API / 无 API
-  - editDraft / goPublish: 导航
-  - deleteDraft: 确认删除 / 取消
-  - collectUrl: 空 URL / 无 API / 成功 / 失败 / 异常
-  - createFromCollected: 成功 / 无数据
-- 语句覆盖率: 41.05% → 91.57%
-- 分支覆盖率: 44.15% → 85.71%
-- 函数覆盖率: 28.57% → 61.90%
+- Views 全面覆盖提升完成（14 个 views 全部达标）
 
 ## [v2.0.3] - 2026-07-05
-
-### Added — Accounts.vue 覆盖率提升 (31.32% → 65.66%)
-- **Accounts.vue 测试**: 从 5 个基础渲染测试扩展到 31 个完整测试
-  - platformLabel/Icon: 已知平台 + 未知平台
-  - addAccount: 空校验 / authOpenLogin 流程 / API 错误 / 异常捕获
-  - addAccountForPlatform: 设置新平台并打开对话框
-  - closeAuthView: 带 API / 无 API
-  - setDefault: 成功 + 异常
-  - renameAccount: 正常更新 / 同名跳过 / 空名跳过 / 异常
-  - openPlatform: 3 个已知平台 + 未知平台
-  - checkLogin: 有效 / 过期 / 异常
-  - removeAccount: 确认删除 / 删除失败 / 取消
-- 语句覆盖率: 31.32% → 65.66%
-- 分支覆盖率: 17.50% → 45.00%
-- 函数覆盖率: 9.30% → 41.86%
+- 注释标准化修复（70+ 文件）
 
 ## [v2.0.2] - 2026-07-05
-
-### Added — Monitor.vue 覆盖率提升 (39.53% → 82.55%)
-- **Monitor.vue 测试**: 从 2 个基础渲染测试扩展到 16 个完整测试
-  - layoutLabel: 覆盖全部 5 种布局 + 异常 fallback
-  - platformLabel: 已知平台 + 未知平台
-  - loadTabs: 正常加载 + API 缺失
-  - switchLayout: 带 API 调用 + 无 API
-  - confirmAdd: 空平台校验 / 成功 / API 错误 / 异常捕获
-  - closeAllTabs: 带 API 调用 + 无 API
-- 语句覆盖率: 39.53% → 82.55%
-- 分支覆盖率: ~30% → 79.10%
-- 函数覆盖率: ~20% → 60%
+- store.js 多实例测试 + 同步回调安全
 
 ## [v2.0.1] - 2026-07-04
-
-### Added
-### Added — P2 支付接入 (PaymentManager)
-- **PaymentManager 模块**: 支付订单全生命周期管理 (create/complete/fail/cancel)
-  - 支持支付宝/微信支付两种方式
-  - 支付完成后自动激活 LicenseManager Pro 许可
-  - 订单持久化到 userData/payment-orders.json
-  - 开发模式模拟支付 (simulatePayment)
-- **IPC handlers**: payment:create-order/list-orders/get-order/complete/simulate/cancel
-- **UpgradeModal.vue 升级**: 支付方式选择界面 (Alipay/WeChat) + 扫码区域 + 模拟支付按钮
-- **preload.js**: 暴露 payment* 系列 API
-- **测试**: 17 单元测试全部通过 (PaymentManager 15 + IPC 2)
-
-
-### Added — P1 离线模式 (OfflineManager)
-- **OfflineManager 模块**: 网络状态检测 (electron.net online/offline)
-  - 自动缓存发布任务到 userData/offline-publish-cache.json
-  - 网络恢复后自动将缓存任务重新加入任务队列
-  - 前端离线横幅提示，显示待发布任务数
-  - IPC 接口: offline:status / offline:is-offline / offline:cached-tasks / offline:add-to-cache / offline:clear-cache
-- **publish:batch 离线感知**: 离线时自动缓存任务并提示"网络离线，任务已缓存"
-- **测试**: 11 单元测试全部通过
-### Added — P2 支付接入 + 许可证系统 (LicenseManager)
-
-- **LicenseManager 模块**: 本地许可证管理（免费/试用/Pro）
-  - 加密存储 license.json（XOR base64 防篡改）
-  - isPro/hasFeature/getFeatures 门控 API
-  - 7 天试用机制，过期自动降级
-- **IPC handlers**: license:info/activate/deactivate/activate-trial/has-feature/features
-- **Pinia store**: useLicenseStore — 许可证前端状态管理
-- **UpgradeModal 组件**: Pro 升级弹窗（方案对比 + 激活码输入 + 试用激活）
-- **测试**: 10 单元测试全部通过
-
-### Added — P3 内容模板 (TemplateManager 前端)
-
-- **IPC handlers**: template:list/get/add/update/delete/list-by-category/get-presets
-- **Pinia store**: useTemplateStore — 模板前端状态管理
-- **TemplatePicker 组件**: 模板选择面板（分类分组 + 内置标记 + 悬浮效果）
-- **Publish.vue 集成**: 非批量/批量模式均支持「📝 模板」按钮
-
-## [v1.6.0] - 2026-07-03
-
-### 设计体系 (Breaking Change)
-- 新增 DESIGN.md: 奶油·薰衣草设计体系
-- 新增组件库: UiButton/UiCard/UiBadge/UiInput/UiModal/UiSelect/PlatformIcon (7 个)
-- CSS Design Token: 全部视图替换为变量
-- 完全移除 ElementPlus 依赖
-- 字体: Satoshi/DM Sans/Noto Serif SC/JetBrains Mono
-- 平台图标: emoji → PlatformIcon 色标
-
-
-## [v1.8.0] - 2026-07-03
-
-### Added — 插件系统 (V2.0 生态扩展 Level 1)
-
-- **PluginLoader 模块**: 本地文件加载式插件系统，零 npm 发布依赖
-  - 扫描 `plugins/` 目录，自动加载 `.js` 文件和 `index.js` 目录入口
-  - Plugin API: `platform`/`displayName`/`publish`/`publishViaApi`/`validate`
-  - 重复插件检测、错误隔离、元数据查询
-  - 向后兼容: 内置 32 适配器优先级高于插件
-- **集成**: `getAdapter`/`supportsApi`/`publishViaApi` 自动覆盖插件
-- **测试**: 17 单元测试 + 10 集成测试，全部通过
-
-## [v1.7.0] - 2026-07-03
-
-### Added — API 开放平台 (V2.0 生态扩展)
-
-- **ApiKeyManager 模块**: 多 API Key 管理 — create/revoke/list/validate + scope 权限控制
-  - 存储: JSON 文件 (config/api-keys.json)，密钥格式 `mp_` + 48 hex
-  - 支持通配符 scope (`*`) 和细粒度 scope (`publish:read`, `admin` 等)
-  - 自动迁移: 已有 `apiKey` 配置自动迁移到 key manager
-  - 持久化: 跨实例重启保持
-- **REST 管理端点**:
-  - `POST /api/v1/keys` — 创建新 Key (admin scope)
-  - `GET /api/v1/keys` — 列出 Key (admin scope, 默认不暴露 key 值)
-  - `DELETE /api/v1/keys/:key` — 吊销 Key (admin scope)
-- **增强认证中间件**: 支持 scope 检查、向后兼容单 key 模式
-- **测试**: 27 单元测试 + 7 集成测试，全部通过
-
-## [v2.1.0] - 2026-07-02
-
-
-## [v1.6.1] — 2026-07-03
-
-### Added (api-publish-engine)
-
-- **Config 文件支持**: 三层配置优先级 (默认值 < JSON 配置 < 环境变量 < CLI 参数)
-- **PublishApiClient SDK**: 17 方法 HTTP 客户端，覆盖全部 API 端点
-- **CHANGELOG/package 元数据完善**: license, repository, keywords, engines, publishConfig
-
-### Changed
-
-- CLI 增强: 支持 --config 参数，自动发现 publish-api.config.json / config/publish-api.json
-- 版本 bump: @multi-publish/api-publish-engine v0.1.0 → v1.0.0
-
----
-### Added — V1.2 Smart Publishing
-
-- **Title Optimizer**: 6 template styles (number/question/howto/compare/story/trend) + scoring heuristics
-- **Title Assistant Panel**: Debounced search for high-engagement reference titles + keyword patterns
-- **Content Format Adaptation**: Auto-detect Markdown input in publish flow + contentFormat tag
-- **Platform-aware**: Title suggestions auto-trim to platform character limits
-
-### Added — Tests
-
-- 19 title optimizer tests (optimizeTitle/scoreTitle/templates/ranges)
-- GUI test framework v9: 14 pages + sidebar/nav interactions
-- GUI test workflow (gui-test.yml) for CI
-
-### PRs
-
-- #108: V1.2 title optimizer
-- #110: V1.2 intelligence integration
-- P0 session: GUI tests v6-v9 + CI workflow
+- TS 迁移 Phase 3 (Batch 10-12) + Vue 测试增强
 
 ## [v2.0.0] - 2026-07-02
+- 里程碑: v2.0.0 发布
+- PRD、架构、定价策略等文档体系完善
 
-### Added — P1 用户体验 + 格式适配
+## [v1.8.0] - 2026-07-03
+- Plugin Level 2B Dynamic + CI Fix
 
-- **首次启动引导 v2**: 4 步 onboarding wizard — 平台选择 → 账号绑定 → 内容设置 → 完成
-- **发布失败告警**: 发布失败时弹窗通知 + 重试操作 + 失败原因展示
-- **i18n 国际化**: 中英文双语切换 (locales/zh.js + en.js)
-- **离线模式**: offline-manager.js — 断网缓存操作，网络恢复后自动同步
-- **Markdown 输入**: ArticleEditor.vue Markdown/富文本模式切换
-- **Markdown → HTML 转换**: md-converter.js — GFM 语法支持 + XSS 防护
-- **格式适配增强**: format-adapter 自动检测 Markdown 输入并转换
-- **封面模板生成器**: cover-generator.js — 从标题文字生成封面图 (solid/gradient/dark)
-- **GUI 测试框架**: selectors.json + test-helpers.js 配置化
+## [v1.7.0] - 2026-07-03
+- 设计体系落地
 
-### Tests
-
-- 34 个 md-converter 测试 (detectMarkdown + markdownToHtml + htmlToMarkdown)
-- 9 个 format-adapter Markdown 集成测试
-- 19 个 cover-generator 测试 (wrapText/SVG/generateCover)
-- 16 个 format-adapter 原有测试 (无回归)
-
-### PRs Merged
-
-- #99: P1-M4 知乎 RPA 发布器 + 质量修复
-- #101: P0-3 Python Core 模块测试覆盖 + bug 修复
-- #102: 修复 CI build 失败 (package-lock.json)
-- #103: P0-4 平台端到端测试
-- #104: P1 用户体验 — 首次启动引导 + 发布失败告警
-- #105: P1-M7 Markdown 输入 + 各平台格式适配
-- #106: P1-M8 封面模板生成器
-
-## [v1.6.3] - 2026-06-30
-
-### Fixed — CI 标签构建修复
-
-- **VERSION 变量透传**: `process.env.VERSION` 在 CI runner 中不可用，改为 bash 插值 `${VERSION}` 注入 package.json（#58）
-- 修复自 v1.6.0 以来所有 tag 构建因 version 为 `undefined` 而失败的问题
-
-### Release 正式化
-
-- 全平台构建验证通过: Windows (.exe) / Linux (.AppImage) / macOS (.dmg)
-- 支持 12 平台内容发布（B站/抖音/小红书/视频号/微博/知乎/快手等）
-- 云端发布模块 (ECS) + RPA 桌面发布 (Electron)
-- ChunkedUploader / ProxyPool / AnalyticsService 共享工具库
-- 发布频率控制 (PublishIntervalGuard)
-
-## [v1.6.5] - 2026-06-30
-
-### Fixed
-
-- **facebook publish selectors**: 补齐 PLATFORM_PUBLISH_SELECTORS 缺失的 facebook 条目（upload_btn, file_input, title_input, desc_textarea, tag_input, publish_btn），基于 Meta Creator Studio 模式设计
-- **registry.test.js 失效修复**: registry 已废弃（P2-E 清理），更新测试验证空注册中心行为契约（listPlatforms=[]，getPublisherClass 对所有平台抛错）
-
-### Tests
-
-- **platform-selectors**: 移除 facebook skip 过滤器和"已知缺口"标记，facebook 纳入全平台存在性+字段验证（15/15 全绿）
-
-
-## [v1.6.4] - 2026-06-30
-
-### Improved — 代码质量
-
-- **抖音选择器验证**: 补齐 douyin platform-selectors 缺失字段（upload_btn, file_input, desc_textarea, tag_input, cover_selector）
-- **platform-selectors 测试**: 新增 118 个单元测试覆盖全部 15 平台的登录 URL、成功选择器、发布选择器、中文名
-- **消除 api-platform-adapter.js 重复**: 删除 desktop 副本，规范源统一到 packages/rpa-engine/src/
-
-
-## [v1.6.2] - 2026-06-30
-
-### Fixed — CI 跨平台构建修复
-
-- **macOS 构建**: `macos-latest` runner 为 ARM 架构，移除 `--x64` 标志改为 `--universal` 统一二进制构建（#57）
-- **Linux 构建**: `ubuntu-latest`（Ubuntu 24.04+）缺少 `libfuse2`，AppImage 打包依赖 FUSE2（#57）
-- **cloud-publisher.js**: 修复因 FUSE 截断导致文件未提交 git 的问题（#56）
-- **macOS sed 兼容性**: 替换 BSD sed 为 `node -e` JSON 编辑，跨平台一致（#56）
-
-### CI/CD
-
-- 三平台 matrix: `windows-latest`, `ubuntu-latest`, `macos-latest`
-- 构建产物: Windows (.exe), Linux (.AppImage), macOS (.dmg/.zip)
-
-## [v1.6.0] - 2026-06-29
-
-### Added — 蚁小二逆向工程复用（3 个共享工具模块）
-
-- **ChunkedUploader** (`packages/shared-utils/src/chunked-uploader.js`): 通用分片上传器
-  - 文件自动分片（可配置片大小，默认 5MB）
-  - 串行逐块上传（可配置并发数）
-  - 进度回调 + EventEmitter 事件（chunk:uploaded / upload:complete / upload:error）
-  - 支持取消（cancel()）
-  - 17 测试用例全部通过
-
-- **ProxyPool** (`packages/shared-utils/src/proxy-pool.js`): 代理池轮换 + 健康检查
-  - 添加/移除/批量添加代理
-  - Round-robin 轮换获取下一个可用代理
-  - 健康检查（真实 HTTP 连接测试 + 延迟记录）
-  - 自动移除失效代理（removeDead）
-  - EventEmitter 事件通知（proxy:added / proxy:removed / proxy:tested）
-  - 26 测试用例全部通过
-
-- **AnalyticsService** (`packages/shared-utils/src/analytics-service.js`): 平台数据分析服务
-  - Provider 模式注册各平台数据获取函数
-  - 单平台数据获取 + 多平台并行概览（fetchOverview）
-  - 指标归一化（normalizeMetrics / normalizeTrend）
-  - 错误隔离（一个平台失败不影响其他平台）
-  - EventEmitter 事件通知（data:fetched / data:error / provider:registered）
-- **AnalyticsService** (`packages/shared-utils/src/analytics-service.js`): 平台数据分析服务
-  - Provider 模式注册各平台数据获取函数
-  - 单平台数据获取 + 多平台并行概览（fetchOverview）
-  - 指标归一化（normalizeMetrics / normalizeTrend）
-  - 错误隔离（一个平台失败不影响其他平台）
-  - EventEmitter 事件通知（data:fetched / data:error / provider:registered）
-  - 20 测试用例全部通过
-
-### Added — F15 发布频率控制
-
-- **PublishIntervalGuard** (`packages/shared-utils/src/publish-interval-guard.js`): 同账号发布间隔限制
-  - `canPublish(platform, accountId)`: 检查是否达到 5 分钟间隔
-  - `recordPublish(platform, accountId, timestamp?)`: 记录发布时间
-  - `getRemainingWait(platform, accountId)`: 返回剩余等待时间
-  - 可插拔存储：默认 InMemoryStore，通过 `{ get, set }` 接口可替换为 SQLite/Redis
-  - 跨账号/跨平台隔离：同一账号不同平台互不影响，不同账号同平台互不影响
-  - 12 测试用例全部通过（包含边界、自定义间隔、外部存储）
-- **TaskQueue 集成**: 构造函数接收 `publishIntervalGuard` 选项
-  - 执行任务前检查间隔限制，被拦截时触发 `publish:blocked` 事件并自动延迟重试
-  - 发布成功后自动记录到 guard（`task.article.accountId` 作为账号标识）
-  - 无 guard 或无 accountId 时行为不变（向后兼容）
-  - 6 集成测试用例全部通过
-- **Store 持久化** (`apps/desktop/electron/store.js`): 新增 `publish_timeline` 表
-  - `getPublishTimeline(key)`: 查询最后发布时间
-  - `setPublishTimeline(key, timestamp)`: 记录发布时间
-  - 通过 Store 适配器注入 guard，重启 App 后间隔状态不丢失
-- **Main.js 集成**: 创建 Store 适配器 → PublishIntervalGuard → TaskQueue 串联
-  - `publish:blocked` 事件处理器向前端发送等待提示
-
-### Changed
-
-- packages/shared-utils/src/index.js: 新增 ChunkedUploader / ProxyPool / AnalyticsService 导出
-- 01-docs/PRD.md: 新增 F14 共享工具库新模块章节
-
-### Added — 全平台 Release 支持
-
-- **macOS 构建**: 首次支持 macOS DMG/ZIP 构建（GitHub Actions + electron-builder）
-  - CI matrix 新增 macos-latest runner
-  - 自动产出的 DMG 安装包和 ZIP 便携版
-  - 无代码签名（需用户右键→打开以绕过 Gatekeeper）
-- **Linux AppImage**: 修复 Linux 构建，从 `--dir` 升级为完整 AppImage
-- **Release 工作流**: 三平台 artifacts 扁平化收集发布
-- **PRD 更新**: v1.x 发布状态标记为 ✅
-
-
----
-
-# CHANGELOG
-
-All notable changes to this project will be documented in this file.
-
+## [v1.6.x] - 2026-06-29 ~ 2026-07-03
+- api-publish-engine 架构 & 开发经验
+- Config 文件支持 + Client SDK
+- 质量节拍第 30 轮完成
 
 ## [v1.5.0] - 2026-06-28
-
-### Added — 云端发布模块（F13）
-
-- **CloudPublisher 类** (`cloud-publisher.js`): Electron 主进程 HTTP 通信层，连接 orchestrator 提交/查询任务
-- **前端 CloudPublish.vue**: 云端发布专属页面：提交表单 + 任务列表 + 进度轮询
-- **mode 选路**: `POST /api/jobs/publish-video` 支持 `mode: "rpa"|"cloud"` 字段
-- **PublishPoller 跳过**: `input_data.mode === "cloud"` 时 PublishPoller 跳过不处理
-- **IPC handlers**: `cloud-publisher:submit/list-tasks/get-task/platforms` 4 个 IPC 通道
-- **orchestrator stub**: `POST /publish-video` 支持 cloud 模式，stub 模拟 10s 延迟返回成功
-
-### Added — ECS 云端 API（F12 · 🆕）
-
-- **B站云端 API** (`orchestrator/services/bilibili_publisher.py`): Cookie-based 直连发布，444 行
-- **抖音云端 API** (`orchestrator/services/douyin_publisher.py`): Cookie-based 直连发布，388 行
-
+- 小红书/Bilibili RPA 发布器实现
 
 ## [v1.4.0] - 2026-06-28
-
-### Added — 内容情报引擎（F11）
-
-- **跨源搜索** (`content-intelligence.js`): Reddit/HN/GitHub 免费 API 搜索主题讨论，log10 互动评分排序
-- **标题优化**: 搜索同类标题互动数据，提取高频模式，生成优化建议
-- **发布后影响力追踪**: 发布后 T+1min/1h/24h/72h 定时捕捉社交提及，Dashboard 展示
-- **发布时机优化**: 聚合搜索结果的时间分布，推荐各平台最佳发布时间
-- **外部引用推荐**: 选中关键词，自动搜索权威来源/数据/讨论，一键插入正文
-- **智能标签建议**: 基于内容关键词 + 平台标签体系，自动生成各平台标签建议
-- **内容表现基准比较**: 同类内容互动数据聚合，对比自身表现给出差距分析
-- **热榜趋势发现**: 实时聚合 Reddit/HN/GitHub 热门内容，主动发现创作主题
-- **关键词背景监测** (`keyword-monitor.js`): 持续监测指定关键词的讨论热度变化，异常飙升时桌面通知
-
-### Added — 情报引擎前端
-
-- `ContentIntelligence.vue` — 策题/标题优化/标签建议/引用推荐/趋势发现/监测配置 6 个 Tab
-- `PublishImpactTracker.vue` — 发布后影响力追踪仪表盘
-- Sidebar 入口 + 路由注册
+- PreCheck 前端开关 + platforms.json 外部化
 
 ## [v1.3.0] - 2026-06-27
-
-### Added
-
-## [v1.3.0] - 2026-06-27
-
-### Added
-
-- **Instagram RPA Publisher** (instagram-rpa.js): Image carousel (up to 10), single image, Reels video
-  - 2200-char caption limit, 2FA detection with clear error message
-  - aria-label based selectors for stable DOM targeting
-- **Facebook RPA Publisher** (facebook-rpa.js): Text+image, text+video, link sharing
-  - Security challenge page handling
-  - Text content and aria-label selectors
-- **Twitter/X RPA Publisher** (twitter-rpa.js): Login detection, text/image publishing
-  - 280-char (free) / 4000-char (Premium) limit handling
-  - data-testid selector strategy for dynamic class names
-  - Cookie persistence across sessions
-- **Platform Registration**: Instagram (id=103), Facebook (id=104) in registry, config, selectors
-
-### Changed
-
-- platforms.yaml: Updated with Instagram and Facebook platform configs
-- 01-docs/PRD.md: Platform count updated to 15
-
-### Removed
-
-- Playwright 15 个独立平台发布器 (wechat_mp/zhihu/weibo/douyin/xiaohongshu/tencent_video/
-  kuaishou/toutiao/bilibili/baijiahao/youtube/tiktok/twitter/instagram/facebook): 全部迁移到 RpaViewManager（P2-E）
-- playwright-manager.js: 浏览器管理模块已废弃
-- base-rpa-publisher.js: Playwright 发布器基类已废弃
-- manual-base-publisher.js: 手动发布器基类已废弃
-- playwright npm 依赖: 从 apps/desktop/package.json 和 packages/rpa-engine/package.json 移除
-- url-collector.js _collectViaBrowser(): Playwright 浏览器渲染采集方式移除
-- publisher-router.js: Playwright 发布路由全量切换到 rpa_vm 模式（15 平台 + B 站）
-- main.js: 移除 Playwright 浏览器初始化/关闭逻辑
-- registry.js: getPublisherClass 降级为 stub（所有平台通过 RpaViewManager 执行）
-
-### Changed
-
-- rpa-view-manager.js: 修复 orphaned `try {` bug（P2-D），新增平台适配器 (douyin/wechat_mp/youtube)
-- main.js: 清理所有 Playwright 引用和导入
+- AI 内容创作功能（AI Writer, 标题助手等）
 
 ## [v1.2.0] - 2026-06-26
+- 插件系统 + 定时发布 + 评论管理
 
-### Added — Electron 原生 RPA 引擎 + 平台分类
+## [v1.1.x] - 2026-06-13 ~ 2026-06-17
+- CLI 工具 + 内容格式化 + Docker 支持
 
-**P0 核心功能（蚁小二逆向工程落地）：**
-
-- **RpaViewManager** — 隐藏 BrowserWindow + executeJavaScript RPA 引擎，替代 Playwright 执行发布
-  - CDP 文件上传：`DOM.setFileInputFiles` 绕过安全限制
-  - DOM 工具集：`_waitForElement` / `_fillInput` / `_click` / `_waitForCondition`
-  - 网络响应监控：webRequest.onCompleted 替代 Playwright response 监听
-  - 双文件上传策略：大文件 CDP，小文件 JS DataTransfer
-  - 每账号 Session 隔离：`session.fromPartition()` 独立 Cookie 分区
-  - 进度事件 IPC 上报（rpa:progress）
-- **平台分类** — `PlatformCategory` 枚举（VIDEO / IMAGE_TEXT / MIXED）
-  - 12 平台自动归类，API `/api/platforms` 透传 category 字段
-  - Python 后端 `PlatformCategory` enum + PLATFORM_META 映射
-- **隐藏 BrowserView** — `authViewManager.loginSilent()` 静默登录验证
-  - BrowserWindow({ show: false }) 后台恢复 Cookie 检测登录态
-  - 无需弹出窗口即可验证账号有效性
-
-### Changed
-
-- **main.js** — 新增 `RpaViewManager` 实例 + RPA_VM_PLATFORMS 路由分支
-- **publisher_manager.py** — API `list_platforms` 返回 category
-- **Route 重构**：三条发布路径（Python / Electron RPA / Node.js Playwright）
-  - BACKEND_PLATFORMS = []（预留）
-  - RPA_VM_PLATFORMS = ['douyin']
-  - 其余平台走 Playwright
-
-### Removed
-
-- `packages/python-backend/src/publishers/rpa_douyin.py` — 抖音发布已迁移至 Electron RPA
-- `packages/python-backend/src/publishers/rpa_*.py` — 5 个废弃的 Python RPA 发布器（已在 v1.1.6 前后被 Playwright 替代）
-
-## [v1.1.7] - 2026-06-17
-
-### Added — Playwright 浏览器打包到安装包
-
-- Chromium 捆绑到安装包内 `resources/playwright-browsers/`
-- 首次运行零等待：浏览器路径 `app.isPackaged` 判断自动切换
-- CI 打包脚本：postinstall 安装 → `npx playwright install chromium` → electron-builder extraResources 打包
-
-### Fixed — Cannot find module 'axios' 打包失败
-
-`electron/main.js` → `api-platform-adapter.js` → `require('axios')` 链条在 asar 打包后失灵。
-
-根因：`api-platform-adapter.js` 依赖 `axios`，但 desktop 的 `package.json` 依赖链中从未显式声明 axios（只存在于 workspace 根 node_modules/，打包时 files 配置的 hoist 路径在 asar 解析时不一致）。
-
-修复：
-- `apps/desktop/package.json` 显式声明 `axios: ^1.9.0` 和 `form-data: ^4.0.0`
-- 重新 `npm install` + 打包，三层验证（L1 asar 清单 / L2 require 链 / L3 Electron 启动）全部通过
-
-## [v1.1.5] - 2026-06-14
-
-### Fixed — Asar 打包后 require 路径全面修复
-
-跨包相对路径（`../../../../apps/desktop/electron/xxx`）在 electron-builder 打包后的
-app.asar 内无法解析。全面修复如下：
-
-- **logger 模块** — `bilibili-rpa.js` 改用 `@multi-publish/shared-utils/src/logger`
-- **api-platform-adapter** — 复制到 `packages/rpa-engine/src/`，本地化引用
-- **python-bridge** — 复制到 `packages/rpa-engine/src/`，本地化引用
-- **api-mode-publisher** — 重构为无循环依赖版本（移除 registry 导入）
-- **registry** — API 平台改用 ApiModePublisher 子类工厂，避免循环依赖
-- **task-queue** — desktop 跨包引用改为 `@multi-publish/shared-utils/src/task-queue`
-- **CI 修复** — `Sync package version with tag` 步骤强制 `shell: bash`（PowerShell 不兼容）
-- **安装包文件名** — 跟随 tag 版本号（`Multi-Publish.Setup.1.1.5.exe`）
-
-### Changed
-
-- `apps/desktop/package.json` 补上 `author` 字段
-- CI workflow 更新：版本号同步、shell 策略
-
-### Removed
-
-- 旧的跨包相对路径引用全部消除
-- `.github/workflows/build.yml.part` 清理
-
-## [v1.1.0] - 2026-06-13
-
-### Added — 正式版 Release
-
-- **格式适配器** (F1) — 11 平台格式转换（HTML 白名单/长度截断/#标签）
-- **封面图自动处理** (F2) — sharp 库中心裁剪+格式转换+质量自适应
-- **百家号 RPA 发布器** (F3.1) — 第 12 个平台
-- **平台 URL 配置化** (融媒宝 F1) — `config/platforms.yaml` 统一管理，PlatformConfig 加载器
-- **敏感词预检** (融媒宝 F2) — DFA 算法 + 内置开源词库，发布前自动弹窗
-- **数据同步系统** (融媒宝 F3) — 5 平台数据同步框架 + Dashboard 数据卡片
-- **评论统一管理** (融媒宝 F4) — WebContentsView 内嵌各平台评论页
-- **端到端测试** — 全部测试套件通过
-- **CI 自动 Release** — GitHub Actions auto-tag + auto-release
-- **Playwright 浏览器捆绑** — electron-builder extraResources 将 Chromium 捆入安装包，离线可用
-- **自动更新 GFW 静默** — 网络错误（超时/DNS 失败/断网）静默处理，不弹错误提示
-
-### Fixed
-
-- **CI 修复**（5 轮迭代）— electron-builder 25.1.8 内置 rebuilder 失败问题
-  - 显式声明 `app-builder-bin` 为根依赖（避免 devDep hoisting 被跳过）
-  - 单独执行 `npx @electron/rebuild -f -w better-sqlite3` + `npmRebuild: false`
-  - Windows runner Playwright 步骤强制 `shell: bash`（PowerShell 不认 ENV=val cmd）
-- **Release body 提取** — 改用 awk 显式块匹配，支持中文标题，自动附 CHANGELOG 链接
-
-### Changed
-
-- PRD v1.1：12 平台矩阵、新增融媒宝四阶段功能
-- platforms.yaml 统一管理平台配置，替代多处硬编码
-- rules.js/presets.js 改为从 PlatformConfig 加载
-
-## [v1.0.13] - 2026-06-13
-
-### Added — 蚁小二逆向工程集成（全部 17 个模块）
-
-- **分屏监控** (WebviewManager) — 2/3/4/6 分屏实时监控，独立 Session/Cookie
-- **实时回调服务器** (CallbackServer) — HTTP POST 回调 + 59s 心跳，端口 16521
-- **扫码登录** (QrCodeLogin) — 3 策略自动检测微信生态平台二维码（img/canvas/轮询）
-- **OAuth 2.0 认证** (OAuthManager) — YouTube/TikTok/微博/抖音 API Token 授权
-- **SQLite 统一存储** (Store) — better-sqlite3，替代零散 JSONL，6 表
-- **批量发布管理器** (BatchManager) — 批量编辑/排期/复制
-- **URL 内容采集** (UrlCollector) — HTTP(Cheerio)+浏览器(Playwright)双模式，og:meta 提取
-- **系统托盘** (SystemTray) — 最小化到托盘，托盘菜单，闪烁告警
-- **全局快捷键** (HotKeys) — 6 组 Ctrl+Alt+P/M/D/C/H/Q
-- **B站发布器** (BiliBiliPublisher) — API+RPA 双模式，专栏/视频发布
-- **发布后状态监控** (PublishMonitor) — 自动轮询平台审核状态
-- **并发 3 任务 + 崩溃恢复** — maxConcurrent=3，serialize()/deserialize() 持久化
-- **任务取消** — cancel() 支持等待中/执行中任务
-- **多账号同平台切换** — Store + App.vue 侧栏下拉 + Publish.vue 发布时选账号
-- **多账号同时发布** — 同平台选不同账号，一次发到多个账号
-- **Accounts.vue 重写** — 按平台分组、默认标记、可编辑账号名、状态指示灯
-
-### Fixed
-
-- system-tray.js 重复 fs require 导致打包失败
-- main.js 重复 minimize handler 冲突
-- bilibili-rpa.js CSRF Token 提取按规范取后 16 位
-- url-collector.js playwright-manager require 路径错误
-- batch-manager.js async/await 未处理异常
-- test_wechat_publisher.py MockResponse URL 匹配优先级 bug
-- 各模块 require 路径验证通过
-
-### Changed
-
-- PRD 全面更新：11 平台矩阵、新版功能架构、新版验收标准
-- AGENTS.md 同步新增模块清单
-- CI auto-tag：构建成功后自动 bump patch + tag + release
-- task-queue executor 自动加载账号 Cookie
-- publish:batch IPC 支持 tasks[{platform,accountId}] 新格式
-
-## [v1.0.7] - 2026-06-11
-
-### Refactored
-
-- **Monorepo 结构重构** — 拆分为 `apps/desktop/` + `packages/rpa-engine/` + `packages/shared-utils/` + `packages/python-backend/`
-- RPA 引擎去 Electron 依赖，路径通过构造注入
-- CI 工作流适配 Monorepo 路径
-- 旧目录 `src-frontend/`、根目录 `vite.config.js` 已清理
-
-### Changed
-
-- PRD 更新：架构、路径、版本号同步到 v1.0.7
-- README 更新：构建命令、目录结构
-- `.gitignore` 新增 `package-lock.json`
+## [v1.0.x] - 2026-06-03 ~ 2026-06-13
+- 初始版本：Electron 桌面端 + FastAPI 后端
+- 15 平台发布器
+- 账号管理（Cookie 加密）
+- 内容智能分析
 
 ---
 
-## [v1.0.4] - 2026-06-10
-
-### Added
-
-- 今日头条、YouTube、TikTok 三个平台发布器（共 10 平台）
-- PRD/CHANGELOG 同步更新
-
-### Fixed
-
-- auto-updater 下载按钮无反应 — 添加 `publish` 配置
-- `artifactName` 含空格导致构建失败
-
----
-
-## [v1.4.0] - 2026-07-05
-
-### Added
-
-- ESLint v9 flat config（eslint.config.mjs）
-- Prettier 代码格式化配置
-- shared-utils 类型声明补充
-
-### Fixed
-
-- 修复 201 个 ESLint 问题（0 errors / 0 warnings）
-- rpa-view-manager.js 重复声明和编码清理
-- store.js 注释吞并代码行 bug 修复
-- 各文件未使用变量移除或 eslint-disable 标注
-
----
-
-## [v1.0.2] - 2026-06-05
-
-### Added
-
-- 视频号（Tencent Video）RPA 发布器
-- 快手（Kuaishou）RPA 发布器
-- 视频上传组件（Publish 页面）
-
-### Updated
-
-- PRD 同步更新 v1.0.2
-
----
-
-## [v1.0.0] - 2026-06-03
-
-### Added
-
-- 微信公众号、知乎、微博、抖音、小红书 5 个平台 RPA 发布器
-- 富文本编辑器（Quill）
-- 账号管理 + Cookie 加密存储
-- 任务队列 + 定时发布
-- 发布历史 + 统计看板
-- 首次运行引导（自动安装依赖）
-- 自动更新（electron-updater）
-- PROJECT-001 集成（Aggregator Bridge）
-- GitHub Actions CI/CD
