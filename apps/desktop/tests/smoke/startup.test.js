@@ -64,7 +64,7 @@ describe('PublisherRouter', () => {
 
   test('getRoute throws for unknown platform', () => {
     expect(() => publisherRouter.getRoute('nonexistent_platform'))
-      .toThrow(/平台未配置/)
+.toThrow(/Platform not configured/)
   })
 
   test('listPlatforms returns all platform ids', () => {

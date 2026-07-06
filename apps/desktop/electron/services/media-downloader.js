@@ -1,4 +1,5 @@
-﻿/**
+﻿// @ts-check
+/**
  * MediaDownloader ? ????????
  *
  * ? MediaTrace ipc.ts ??????????
@@ -227,3 +228,4 @@ module.exports = {
   ensureUniqueFilePath,
   downloadMedia,
 };
+

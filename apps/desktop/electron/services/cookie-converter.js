@@ -1,4 +1,5 @@
-﻿/**
+﻿// @ts-check
+/**
  * CookieConverter — Cookie ↔ Playwright 格式转换工具
  *
  * 适配自 MediaTrace (MIT) 的 normalizeCookieForPlaywright / parseCookieString / trySetStoredCookiesToContext。
@@ -138,3 +139,4 @@ module.exports = {
   serializeCookiesFromContext,
   restoreCookiesToSession,
 }
+

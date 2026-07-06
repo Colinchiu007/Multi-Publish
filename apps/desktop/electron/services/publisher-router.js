@@ -1,22 +1,23 @@
+// @ts-check
 /**
- * PublisherRouter — 统一发布路由
+ * PublisherRouter 鈥?缁熶竴鍙戝竷璺敱
  *
- * 替代 main.js 三段 if/else 路由，集中管理平台到发布引擎的映射。
- * 平台信息从 config/platforms.yaml 加载（单数据源）。
+ * 鏇夸唬 main.js 涓夋 if/else 璺敱锛岄泦涓鐞嗗钩鍙板埌鍙戝竷寮曟搸鐨勬槧灏勩€?
+ * 骞冲彴淇℃伅浠?config/platforms.yaml 鍔犺浇锛堝崟鏁版嵁婧愶級銆?
  *
- * 发布模式：
- *   rpa_vm     — RpaViewManager（executeJavaScript 隐藏浏览器）
- *   backend    — Python FastAPI 后端（预留）
+ * 鍙戝竷妯″紡锛?
+ *   rpa_vm     鈥?RpaViewManager锛坋xecuteJavaScript 闅愯棌娴忚鍣級
+ *   backend    鈥?Python FastAPI 鍚庣锛堥鐣欙級
  *
- * 文件位置: apps/desktop/electron/publisher-router.js
+ * 鏂囦欢浣嶇疆: apps/desktop/electron/publisher-router.js
  */
 const path = require('path')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 
-// ─── 路由表（硬约束）────────────────────────────────────
-// mode: 发布引擎
-//   'rpa_vm'  → RpaViewManager（executeJavaScript 引擎，当前唯一模式）
-//   'backend' → Python 后端（预留）
+// 鈹€鈹€鈹€ 璺敱琛紙纭害鏉燂級鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// mode: 鍙戝竷寮曟搸
+//   'rpa_vm'  鈫?RpaViewManager锛坋xecuteJavaScript 寮曟搸锛屽綋鍓嶅敮涓€妯″紡锛?
+//   'backend' 鈫?Python 鍚庣锛堥鐣欙級
 const ROUTE_TABLE = {
   wechat_mp:    { mode: 'rpa_vm', timeout: 120000 },
   zhihu:        { mode: 'rpa_vm', timeout: 120000 },
@@ -33,11 +34,11 @@ const ROUTE_TABLE = {
   twitter:      { mode: 'rpa_vm', timeout: 120000 },
   instagram:    { mode: 'rpa_vm', timeout: 120000 },
   facebook:     { mode: 'rpa_vm', timeout: 120000 },
-  // ── 预留 ──
+  // 鈹€鈹€ 棰勭暀 鈹€鈹€
   // shipinhao: { mode: 'backend', timeout: 300000 },
 }
 
-// ─── 两种 Publisher 策略 ─────────────────────────────────
+// 鈹€鈹€鈹€ 涓ょ Publisher 绛栫暐 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 class RpaVmPublisher {
   constructor (route, deps) {
@@ -49,7 +50,7 @@ class RpaVmPublisher {
   async publish (task) {
     const platform = this.route.platform
 
-    // 加载账号 Cookie
+    // 鍔犺浇璐﹀彿 Cookie
     const accountId = task.article?.accountId || task.accountId
     let authData = { cookies: [] }
     if (accountId) {
@@ -77,7 +78,7 @@ class RpaVmPublisher {
     if (result.success) {
       return { success: true, url: result.url || '', postId: task.id, platform }
     }
-    throw new Error(result.error || 'RPA 发布失败')
+    throw new Error(result.error || 'RPA 鍙戝竷澶辫触')
   }
 }
 
@@ -105,15 +106,15 @@ class BackendPublisher {
     if (result.code === 0 && result.data?.success) {
       return { success: true, url: result.data.url || '', postId: result.data.task_id || task.id, platform }
     }
-    throw new Error(result.message || (result.data?.error || '发布失败'))
+    throw new Error(result.message || (result.data?.error || '鍙戝竷澶辫触'))
   }
 }
 
-// ─── Router 主类 ─────────────────────────────────────────
+// 鈹€鈹€鈹€ Router 涓荤被 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 class PublisherRouter {
   /**
-   * @param {string} [configPath] - platforms.yaml 路径，默认从项目根目录加载
+   * @param {string} [configPath] - platforms.yaml 璺緞锛岄粯璁や粠椤圭洰鏍圭洰褰曞姞杞?
    */
   constructor (configPath) {
     const resolvedPath = configPath || path.join(__dirname, '..', '..', '..', '..', 'config', 'platforms.yaml')
@@ -122,16 +123,16 @@ class PublisherRouter {
   }
 
   /**
-   * 获取平台的路由信息
+   * 鑾峰彇骞冲彴鐨勮矾鐢变俊鎭?
    * @param {string} platform
    * @returns {{ platform: string, mode: string, timeout: number, type: string, publishUrl: string }}
    */
   getRoute (platform) {
     const cfg = this._platformConfig.getPlatform(platform)
-    if (!cfg) throw new Error(`平台未配置: ${platform}`)
+    if (!cfg) throw new Error("Platform not configured: " + platform)
 
     const route = this._routeTable[platform]
-    if (!route) throw new Error(`平台 ${platform} 无路由定义，请在 ROUTE_TABLE 中添加`)
+    if (!route) throw new Error('Platform ' + platform + ' no route defined, please add in ROUTE_TABLE')
 
     return {
       platform,
@@ -143,21 +144,21 @@ class PublisherRouter {
   }
 
   /**
-   * 获取平台配置
+   * 鑾峰彇骞冲彴閰嶇疆
    */
   getPlatformConfig (platform) {
     return this._platformConfig.getPlatform(platform)
   }
 
   /**
-   * 列出所有平台
+   * 鍒楀嚭鎵€鏈夊钩鍙?
    */
   listPlatforms () {
     return this._platformConfig.listPlatforms()
   }
 
   /**
-   * 创建平台对应的发布器实例
+   * 鍒涘缓骞冲彴瀵瑰簲鐨勫彂甯冨櫒瀹炰緥
    *
    * @param {string} platform
    * @param {object} deps - { rpaViewManager, store, pythonBridge }
@@ -172,12 +173,12 @@ class PublisherRouter {
       case 'backend':
         return new BackendPublisher(route, deps)
       default:
-        throw new Error(`未知发布模式: ${route.mode} (${platform})`)
+        throw new Error("Unknown publish mode: " + route.mode + " (" + platform + ")")
     }
   }
 
   /**
-   * 获取路由表（只读，用于调试）
+   * 鑾峰彇璺敱琛紙鍙锛岀敤浜庤皟璇曪級
    */
   getRouteTable () {
     return { ...this._routeTable }
@@ -185,3 +186,5 @@ class PublisherRouter {
 }
 
 module.exports = { PublisherRouter, ROUTE_TABLE }
+
+

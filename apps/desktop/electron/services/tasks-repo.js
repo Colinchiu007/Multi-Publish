@@ -1,15 +1,16 @@
+﻿// @ts-check
 /**
- * TasksRepo — 持久化任务仓库
+ * TasksRepo 鈥?鎸佷箙鍖栦换鍔′粨搴?
  *
- * 从 MediaTrace TasksRepo 移植：
- * - 6 种状态: pending/running/completed/failed/canceled/paused
- * - 调度策略: 一次性(once)/循环(interval)
- * - findDueSchedules() — 查找到期的定时任务
- * - 持久化进度统计
- * - updateStatus() 部分更新模式
+ * 浠?MediaTrace TasksRepo 绉绘锛?
+ * - 6 绉嶇姸鎬? pending/running/completed/failed/canceled/paused
+ * - 璋冨害绛栫暐: 涓€娆℃€?once)/寰幆(interval)
+ * - findDueSchedules() 鈥?鏌ユ壘鍒版湡鐨勫畾鏃朵换鍔?
+ * - 鎸佷箙鍖栬繘搴︾粺璁?
+ * - updateStatus() 閮ㄥ垎鏇存柊妯″紡
  *
- * 文件位置: apps/desktop/electron/services/tasks-repo.js
- * 注意: 直接使用 sql.js（非 sqlite-wrapper），避免异步初始化问题
+ * 鏂囦欢浣嶇疆: apps/desktop/electron/services/tasks-repo.js
+ * 娉ㄦ剰: 鐩存帴浣跨敤 sql.js锛堥潪 sqlite-wrapper锛夛紝閬垮厤寮傛鍒濆鍖栭棶棰?
  */
 
 const path = require("path");
@@ -45,7 +46,7 @@ const CREATE_TABLE_SQL = `
 
 class TasksRepo {
   /**
-   * @param {string} dbPath - SQLite 数据库文件路径
+   * @param {string} dbPath - SQLite 鏁版嵁搴撴枃浠惰矾寰?
    */
   constructor(dbPath) {
     this.dbPath = dbPath;
@@ -55,7 +56,7 @@ class TasksRepo {
   }
 
   /**
-   * 初始化数据库连接和表结构（幂等）
+   * 鍒濆鍖栨暟鎹簱杩炴帴鍜岃〃缁撴瀯锛堝箓绛夛級
    */
   async init() {
     if (this._ready) return;
@@ -70,13 +71,13 @@ class TasksRepo {
       const initSqlJs = require("sql.js");
       const SQL = await initSqlJs();
 
-      // 加载或创建数据库
+      // 鍔犺浇鎴栧垱寤烘暟鎹簱
       if (fs.existsSync(this.dbPath)) {
         const buffer = fs.readFileSync(this.dbPath);
         this._db = new SQL.Database(buffer);
       } else {
         this._db = new SQL.Database();
-        // 确保目录存在
+        // 纭繚鐩綍瀛樺湪
         const dir = path.dirname(this.dbPath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
@@ -93,7 +94,7 @@ class TasksRepo {
   }
 
   /**
-   * 保存到磁盘并关闭连接
+   * 淇濆瓨鍒扮鐩樺苟鍏抽棴杩炴帴
    */
   close() {
     if (this._db) {
@@ -112,12 +113,12 @@ class TasksRepo {
     this._initPromise = null;
   }
 
-  // ─── CRUD ─────────────────────────────────────────────
+  // 鈹€鈹€鈹€ CRUD 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   /**
-   * 创建任务
+   * 鍒涘缓浠诲姟
    * @param {object} fields - { type, platform, payload, schedule }
-   * @returns {object} 创建的任务
+   * @returns {object} 鍒涘缓鐨勪换鍔?
    */
   create(fields) {
     this._ensureReady();
@@ -135,7 +136,7 @@ class TasksRepo {
   }
 
   /**
-   * 根据 ID 获取任务
+   * 鏍规嵁 ID 鑾峰彇浠诲姟
    * @param {string} id
    * @returns {object|null}
    */
@@ -153,7 +154,7 @@ class TasksRepo {
   }
 
   /**
-   * 列出任务，支持筛选
+   * 鍒楀嚭浠诲姟锛屾敮鎸佺瓫閫?
    * @param {object} [filters] - { status, type }
    * @returns {object[]}
    */
@@ -184,12 +185,12 @@ class TasksRepo {
   }
 
   /**
-   * 移除任务
+   * 绉婚櫎浠诲姟
    * @param {string} id
    * @returns {boolean}
    */
   /**
-   * 移除任务
+   * 绉婚櫎浠诲姟
    * @param {string} id
    * @returns {boolean}
    */
@@ -199,10 +200,10 @@ class TasksRepo {
     return this._db.getRowsModified() > 0;
   }
 
-  // ─── 状态管理 ─────────────────────────────────────────
+  // 鈹€鈹€鈹€ 鐘舵€佺鐞?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   /**
-   * 更新任务状态（部分更新模式）
+   * 鏇存柊浠诲姟鐘舵€侊紙閮ㄥ垎鏇存柊妯″紡锛?
    * @param {string} id
    * @param {string} status
    * @param {object} [extra] - { progress, message, result, stats, nextRun }
@@ -238,7 +239,7 @@ class TasksRepo {
   }
 
   /**
-   * 取消任务
+   * 鍙栨秷浠诲姟
    * @param {string} id
    * @returns {boolean}
    */
@@ -251,7 +252,7 @@ class TasksRepo {
   }
 
   /**
-   * 暂停运行中的任务
+   * 鏆傚仠杩愯涓殑浠诲姟
    * @param {string} id
    * @returns {boolean}
    */
@@ -263,7 +264,7 @@ class TasksRepo {
   }
 
   /**
-   * 恢复被暂停的任务
+   * 鎭㈠琚殏鍋滅殑浠诲姟
    * @param {string} id
    * @returns {boolean}
    */
@@ -274,10 +275,10 @@ class TasksRepo {
     return true;
   }
 
-  // ─── 调度 ─────────────────────────────────────────────
+  // 鈹€鈹€鈹€ 璋冨害 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   /**
-   * 查找到期需执行的任务
+   * 鏌ユ壘鍒版湡闇€鎵ц鐨勪换鍔?
    * @returns {object[]}
    */
   findDueSchedules() {
@@ -301,10 +302,10 @@ class TasksRepo {
     return rows;
   }
 
-  // ─── 统计 ─────────────────────────────────────────────
+  // 鈹€鈹€鈹€ 缁熻 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   /**
-   * 任务统计
+   * 浠诲姟缁熻
    * @returns {{ total: number, by_status: object }}
    */
   statistics() {
@@ -321,14 +322,14 @@ class TasksRepo {
     return { total, by_status: byStatus };
   }
 
-  // ─── 内部 ─────────────────────────────────────────────
+  // 鈹€鈹€鈹€ 鍐呴儴 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   _ensureReady() {
     if (!this._ready || !this._db) throw new Error("TasksRepo not initialized. Call init() first.");
   }
 }
 
-// ─── 内部帮助函数 ──────────────────────────────────────
+// 鈹€鈹€鈹€ 鍐呴儴甯姪鍑芥暟 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 function _generateId() {
   return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
