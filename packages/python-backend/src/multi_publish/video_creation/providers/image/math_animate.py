@@ -1,4 +1,4 @@
-﻿"""Mathematical animation tool via ManimCE.
+"""Mathematical animation tool via ManimCE.
 
 Generates animated math/science/explainer videos from Python scene code
 using the Manim Community Edition engine. Free, local, no API key required.

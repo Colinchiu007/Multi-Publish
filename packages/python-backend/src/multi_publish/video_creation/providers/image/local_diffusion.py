@@ -1,4 +1,4 @@
-﻿"""Local Stable Diffusion image generation via diffusers.
+"""Local Stable Diffusion image generation via diffusers.
 
 Adapted from OpenMontage tools/graphics/local_diffusion.py.
 """

@@ -1,4 +1,4 @@
-﻿"""Top-level audio capability selector.
+"""Top-level audio capability selector.
 
 Chooses the appropriate audio provider tool based on the requested
 capability (tts, music_generation, music_search, music_library).

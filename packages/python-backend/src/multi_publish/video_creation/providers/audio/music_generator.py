@@ -1,4 +1,4 @@
-﻿"""Music generation tool via ElevenLabs Music API.
+"""Music generation tool via ElevenLabs Music API.
 
 Adapted from OpenMontage tools/audio/music_gen.py.
 Generates background music for video production.

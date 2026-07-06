@@ -1,4 +1,4 @@
-﻿"""Music search and download from Freesound.org (free with API key).
+"""Music search and download from Freesound.org (free with API key).
 
 Adapted from OpenMontage tools/audio/freesound_music.py.
 Searches Freesound library of Creative Commons audio.

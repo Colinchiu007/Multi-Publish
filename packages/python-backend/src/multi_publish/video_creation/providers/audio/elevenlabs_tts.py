@@ -1,4 +1,4 @@
-﻿"""ElevenLabs text-to-speech provider tool.
+"""ElevenLabs text-to-speech provider tool.
 
 Adapted from OpenMontage tools/audio/elevenlabs_tts.py.
 """

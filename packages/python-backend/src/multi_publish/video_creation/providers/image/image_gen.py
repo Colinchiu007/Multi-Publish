@@ -1,4 +1,4 @@
-﻿"""Image generation tool (deprecated - use per-provider tools instead).
+"""Image generation tool (deprecated - use per-provider tools instead).
 
 Adapted from OpenMontage tools/graphics/image_gen.py.
 Kept for backwards compatibility; new code should use specific providers.

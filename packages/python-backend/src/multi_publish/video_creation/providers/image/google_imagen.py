@@ -1,4 +1,4 @@
-﻿"""Google Imagen image generation via Gemini/Vertex AI API.
+"""Google Imagen image generation via Gemini/Vertex AI API.
 
 Adapted from OpenMontage tools/graphics/google_imagen.py.
 Inline google_credentials helpers to avoid external dependency.

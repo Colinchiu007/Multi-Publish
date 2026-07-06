@@ -1,4 +1,4 @@
-﻿"""OpenAI GPT Image generation (gpt-image-1 / DALL-E 3).
+"""OpenAI GPT Image generation (gpt-image-1 / DALL-E 3).
 
 Adapted from OpenMontage tools/graphics/openai_image.py.
 """

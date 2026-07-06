@@ -1,4 +1,4 @@
-﻿"""Suno AI music generation via sunoapi.org REST API.
+"""Suno AI music generation via sunoapi.org REST API.
 
 Adapted from OpenMontage tools/audio/suno_music.py.
 Async flow: submit -> poll -> download.

@@ -1,4 +1,4 @@
-﻿"""Diagram generation tool using Mermaid CLI, Cairo/Pillow, or Graphviz.
+"""Diagram generation tool using Mermaid CLI, Cairo/Pillow, or Graphviz.
 
 Adapted from OpenMontage tools/graphics/diagram_gen.py.
 """

@@ -1,4 +1,4 @@
-﻿"""Music search and download from Pixabay Music (free, no API key).
+"""Music search and download from Pixabay Music (free, no API key).
 
 Adapted from OpenMontage tools/audio/pixabay_music.py.
 Scrapes Pixabay music section. No API key required.

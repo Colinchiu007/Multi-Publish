@@ -1,4 +1,4 @@
-﻿"""Shared utilities for audio/TTS providers.
+"""Shared utilities for audio/TTS providers.
 
 Adapted from OpenMontage tools/analysis/audio_probe.py and
 tools/google_credentials.py.

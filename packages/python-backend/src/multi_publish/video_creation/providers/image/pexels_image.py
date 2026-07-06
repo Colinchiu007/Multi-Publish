@@ -1,4 +1,4 @@
-﻿"""Stock image acquisition from Pexels API (free).
+"""Stock image acquisition from Pexels API (free).
 
 Adapted from OpenMontage tools/graphics/pexels_image.py.
 """
