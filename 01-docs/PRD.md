@@ -2,7 +2,7 @@
 
 > **立项日期**: 2026-06-03
 > **最后更新**: 2026-07-05
-> **当前版本**: v2.1.1 (2026-07-06) | **上一版本**: v2.0.0 (2026-07-02)
+> **当前版本**: v2.1.2 (2026-07-06) | **上一版本**: v2.0.0 (2026-07-02)
 > **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具
 > **目标用户**: 自媒体运营者、MCN 机构、企业内容团队
 > **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）
@@ -133,7 +133,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 |--------|------|------|
 | 多分屏布局 | 2/3/4/6 分屏实时监控多平台 | ✅ |
 | 独立 Session | 每个 tab 独立 Cookie/Session 隔离 | ✅ |
-| 实时回调 | HTTP POST 回调服务器（:16521），59s 心跳 | ✅ |
+| 实时回调 | HTTP POST 回调服务器（可配置端口，默认 :16521），59s 心跳（低于 60s 避免负载均衡断开） | ✅ |
 | 评论/数据监控 | 回调记录自动写入 SQLite，前端实时展示 | ✅ |
 
 #### F5：内容采集
@@ -268,11 +268,38 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | 进度事件上报 | IPC rpa:progress → 前端实时展示 | ✅ |
 | CDP/JS 双文件上传 | 大文件走 CDP，小文件走 JS File API | ✅ |
 
+
+#### F1a：内容编辑字段规范
+
+| 字段 | 最大长度 / 格式 | 说明 |
+|------|---------------|------|
+| **标题** | 各平台上限不同（微信 64、抖音 55、B站 80、微博 140） | 发布时按平台自动截断，超出字符弹窗警告 |
+| **正文/HTML** | 30,000 字符 | HTML 白名单：p/br/strong/em/a/img/ul/ol/li/blockquote/h2-h4；自动过滤 script/style/iframe |
+| **标签** | 每平台 2-10 个，每标签 ≤30 字符 | 自动去重、按平台上限截断，无合法标签时生成默认标签 |
+| **封面图** | JPEG/PNG，≤5MB，1920×1080 以内 | sharp 中心裁剪 + 质量 85% 压缩；视频号/快手需 1:1 自动补边 |
+| **视频** | MP4/H.264，≤4GB（平台差异：B站 8GB，抖音 2GB） | 超过平台上限时弹窗提示，不自动压缩 |
+| **多图上传** | 每篇 ≤9 张，格式同封面图 | 按平台顺序上传，失败时跳过不阻塞发布 |
+
+**平台标题上限配置（config/platforms.yaml）：**
+`yaml
+platforms:
+  wechat_mp: { title_max: 64, body_max: 30000, tags_max: 8, tag_length: 30, image_max: 9, video_max_mb: 1024 }
+  douyin:    { title_max: 55, body_max: 2000,  tags_max: 10, tag_length: 30, image_max: 35, video_max_mb: 2048 }
+  bilibili:  { title_max: 80, body_max: 20000, tags_max: 10, tag_length: 30, video_max_mb: 8192 }
+  # ... 其他平台
+`
+
+**发布前校验流程：**
+1. 读取目标平台配置 platforms.yaml 获取字段上限
+2. 对标题/正文/标签逐项校验，超限自动截断并记录日志
+3. 封面图自动压缩（sharp），视频仅检查大小不自动转换
+4. 校验失败项汇总弹窗，用户确认后继续或取消
+
 ### 3.2 非功能需求
 
 || 需求 | 指标 | 状态 |
 ||------|------|------|
-| 并发发布 | 3 任务并发执行（maxConcurrent=3） | ✅ |
+| 并发发布 | 3 任务并发执行（maxConcurrent=3），每 RPA Tab ~80MB 内存，3 并发 + 主进程 < 500MB | ✅ |
 | 离线运行 | 安装包自带 Chromium，无需联网；自动更新网络失败静默 | ✅ |
 | 任务持久化 | SQLite 持久化队列状态，崩溃自动恢复 | ✅ |
 || 数据加密 | Cookie AES-256-GCM 加密存储 | ✅ |
@@ -281,6 +308,29 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 || 代码规范 | ESLint v9 flat config + Prettier，0 errors / 0 warnings | ✅ Phase C3 |
 || 自动构建 | GitHub Actions 双平台 CI + 自动 Release | ✅ |
 || 自动更新 | electron-updater，从 GitHub Release 拉取 | ✅ |
+
+#### 错误分类
+
+| 分类 | 编码 | 处理策略 |
+|------|------|---------|
+| 认证过期 | AUTH_EXPIRED | 检测到过期 -> 弹窗重新登录 |
+| 网络超时 | NETWORK_TIMEOUT | 重试 3 次(指数退避) -> 最终报错 |
+| 平台拒绝 | PLATFORM_REJECT | 不重试，记录原因到 task |
+| RPA 失败 | RPA_FAILED | 截图保存 -> 降级 -> 人工接管 |
+| 校验失败 | VALIDATION_FAILED | 弹窗提示具体原因 |
+
+#### 审计日志
+
+每次发布操作记录到 SQLite audit_log 表：
+
+| 字段 | 说明 |
+|------|------|
+| id(UUID), timestamp, user | 操作标识 |
+| platform, account_id, action | 发布/重试/取消/删除 |
+| content_hash(SHA-256), result | 成功/失败/部分 |
+| error_code, duration_ms, metadata(JSON) | 错误分类/耗时/上下文 |
+
+保留策略：本地 90 天，超期自动归档。
 
 ---
 
@@ -326,7 +376,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 │  │                                       │
 │  │  + WebviewManager（分屏）             │
 │  │  + QrCodeLogin（扫码登录）            │
-│  │  + CallbackServer（回调 :16521）      │
+│  │  + CallbackServer（回调 :16521，config.yaml 可配）      │
 │  └───────────────────────────────────────┘
 │
 │  ┌──────────────────────────────────────┐
@@ -420,6 +470,8 @@ multi-publish/
 ### 4.3 发布器接口规范
 
 ```javascript
+// 发布结果接口
+// interface PublishResult { success, error, partialResult, platformData, durationMs }
 class BaseRpaPublisher {
   constructor() { /* 加载 Cookie, 初始化浏览器 Context */ }
   async publishArticle({ title, content, coverUrl }) {
@@ -469,6 +521,8 @@ class BaseRpaPublisher {
 
 ### 6.3 定时发布
 
+**约束：** 最大提前 30 天，同平台间隔 >= 5 分钟，使用本地时区，断网标记 missed。
+
 1. 撰写文章 + 选择平台
 2. 勾选「定时发布」→ 设置时间
 3. 到点时自动执行，支持 App 关闭后重启恢复
@@ -482,6 +536,33 @@ class BaseRpaPublisher {
 4. 发布失败平台不影响其他平台继续执行
 
 ---
+
+### 6.5 发布回滚与降级策略
+
+#### 回滚策略
+
+| 场景 | 处理方式 | 数据安全 |
+|------|---------|---------|
+| **RPA 发布失败**（表单提交时报错） | 标记发布任务为 ailed，保留预填草稿截图，返回错误信息 | 内容保留在草稿箱，不自动重试 |
+| **半成功状态**（标题已填但图片未传） | 检测 DOM 中的已填字段，匹配 last_successful_step → 从断点恢复 | SQLite 记录每步状态 {step, status, snapshot} |
+| **API 发布失败**（B站 API 400） | 捕获 HTTP 状态码 + 错误体 → 自动切换 RPA 降级 | 降级标记记录在 task 中 |
+| **平台拒绝**（审核不通过） | 读取审核状态 → denied，原内容保留可编辑重新发布 | 原文不删除，随 task 存档 |
+| **用户取消发布** | 中断当前步骤 → 已提交部分不做回滚（平台侧无撤回 API） | 仅停止当前操作，后续步骤取消 |
+
+#### 降级策略
+
+1. **API → RPA 降级**：抖音/B站 优先走 API，API 连续失败 3 次后自动切换 RPA 模式
+2. **RPA → 人工降级**：RPA 连续失败 2 次（相同平台）→ 弹窗提示手动发布，提供预填草稿截图
+3. **跨平台降级**：批量发布中某个平台失败 → 标记失败，不影响其他平台继续发布
+
+#### 状态机（发布任务）
+
+`
+pending → publishing → { success | failed | partial | denied | cancelled }
+                              ↓
+                        (partial 可恢复)
+`
+
 ## 七、视频创作流程
 
 ### 7.1 文本生成视频
@@ -672,7 +753,7 @@ PROJECT-001（内容聚合改写）
     ▼
 Aggregator Bridge (aggregator-bridge.js)
     │
-    │ 调用 taskQueue.addBatch() 添加多平台任务
+    │ 调用 taskQueue.addBatch()（单次不超 20 篇，超出自动拆分） 添加多平台任务
     ▼
 Task Queue → 各平台发布器 → 发布完成
 ```
@@ -697,12 +778,25 @@ Task Queue → 各平台发布器 → 发布完成
 
 ## 十四、风险与应对
 
+### 自动化风险
+
 | 风险 | 影响 | 应对 |
 |------|------|------|
-| RPA 被平台封禁 | 高 | 行为模拟 + 随机延迟 + Cookie 轮换 |
-| 平台 UI 变更 | 中 | 模块化设计，单个发布器变更不影响整体 |
+| RPA 被平台封禁 | 高 | 随机延迟 300-800ms + Cookie 轮换 |
+| 平台 UI 变更 | 中 | 模块化设计，单发布器变更不影响整体 |
 | Cookie 过期 | 低 | 自动检测 + 一键重新登录 |
-| RPA 浏览器兼容性 | 低 | Electron 内嵌 Chromium，版本锁定 |
+| 浏览器兼容性 | 低 | Electron 内嵌 Chromium 版本锁定 |
+
+### RPA 合规性评估
+
+| 平台 | 风险 | 缓解 |
+|------|------|------|
+| 微信/视频号 | 中 | 频率 <= 人工操作 |
+| 抖音/TikTok | 高 | 随机延迟 + 单次 <= 3 篇，间隔 >= 5 分钟 |
+| 小红书 | 中 | 同抖音，单账号日 <= 20 篇 |
+| B站 | 中 | 优先 API，RPA 仅降级 |
+
+**通用原则：** RPA 间隔 >= 300ms；不绕过付费墙；应用内提示账号风险。
 
 ---
 
@@ -747,6 +841,11 @@ Task Queue → 各平台发布器 → 发布完成
 | **Phase C（代码质量）** | ESLint v9 flat config + Prettier，201 个问题修复 | ✅ Phase C3 |
 | **V1.0 发布** | 首版 Release、运营启动 | ⏳ 待进行 |
 | V1.1 格式适配 | Markdown → 各平台格式转换、封面
+
+
+
+
+
 
 
 

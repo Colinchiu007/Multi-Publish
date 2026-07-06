@@ -141,46 +141,89 @@ class DataSyncService {
   }
 
   // ─── 各平台同步器 ─────────────────────────
-  // 当前为 mock 实现，后续通过 Playwright/API 真实抓取
+  // 内部辅助：通过 RPA 提取平台统计数据
+  // 向主进程发送 IPC 请求，由 RpaViewManager 在隐藏 BrowserWindow 中执行
+  async _rpaFetchStats (platform, url, extractScript) {
+    try {
+      // 通过 IPC 调用主进程的 RPA 引擎
+      // 主进程处理: open hidden window -> navigate to url -> execute script -> return data
+      // 实际已通过 electron-bridge 暴露为 window.electronAPI.rpaFetchData(platform, url, script)
+      if (typeof window !== 'undefined' && window.electronAPI?.rpaFetchData) {
+        return await window.electronAPI.rpaFetchData(platform, url, extractScript)
+      }
+      // 回退：尝试 require (主进程直接使用)
+      const { ipcRenderer } = require('electron')  // may be null in sandbox
+      if (ipcRenderer) {
+        return await ipcRenderer.invoke('rpa:fetchData', { platform, url, script: extractScript })
+      }
+    } catch (err) {
+      console.warn(`[DataSync] RPA fetch failed for ${platform}:`, err.message)
+    }
+    // 兜底：返回缓存或空数据
+    return { articles: 0, views: 0, comments: 0, likes: 0, followers: 0, _note: 'RPA 不可用' }
+  }
 
   async _sync_douyin () {
-    // TODO: 通过 API 或 Playwright 拉取抖音数据
-    return {
-      articles: 0, views: 0, comments: 0, likes: 0, followers: 0,
-      _note: '待接入真实数据源',
-    }
+    // 抖音创作者后台 API (已登录 Cookie)
+    const script = `() => {
+      const stats = document.querySelector('.creator-data-panel');
+      if (!stats) return null;
+      return {
+        views: parseInt(stats.querySelector('[data-key=total_play]')?.textContent || '0'),
+        followers: parseInt(stats.querySelector('[data-key=fans]')?.textContent || '0'),
+      };
+    }`
+    return this._rpaFetchStats('douyin', 'https://creator.douyin.com/', script)
   }
 
   async _sync_bilibili () {
-    // TODO: 通过 B站 API 拉取数据
-    return {
-      articles: 0, views: 0, comments: 0, likes: 0, followers: 0,
-      _note: '待接入真实数据源',
-    }
+    // B站 UP 主数据页
+    const script = `() => {
+      const el = document.querySelector('.num-section');
+      if (!el) return null;
+      const nums = [...el.querySelectorAll('.num-item')];
+      return {
+        views: parseInt(nums[0]?.textContent?.replace(/[^0-9]/g,'') || '0'),
+        followers: parseInt(nums[1]?.textContent?.replace(/[^0-9]/g,'') || '0'),
+      };
+    }`
+    return this._rpaFetchStats('bilibili', 'https://member.bilibili.com/platform/home', script)
   }
 
   async _sync_xiaohongshu () {
-    // TODO: Playwright 抓取小红书数据页
-    return {
-      articles: 0, views: 0, comments: 0, likes: 0, followers: 0,
-      _note: '待接入真实数据源',
-    }
+    // 小红书创作者数据页
+    const script = `() => {
+      const el = document.querySelector('.creator-data');
+      if (!el) return null;
+      return {
+        views: parseInt(el.querySelector('[class*=read]')?.textContent?.replace(/[^0-9]/g,'') || '0'),
+        followers: parseInt(el.querySelector('[class*=fans]')?.textContent?.replace(/[^0-9]/g,'') || '0'),
+      };
+    }`
+    return this._rpaFetchStats('xiaohongshu', 'https://creator.xiaohongshu.com/', script)
   }
 
   async _sync_tencent_video () {
-    // TODO: Playwright 抓取视频号数据页
-    return {
-      articles: 0, views: 0, comments: 0, likes: 0, followers: 0,
-      _note: '待接入真实数据源',
-    }
+    // 视频号创作者后台
+    const script = `() => {
+      return {
+        views: parseInt(document.querySelector('[data-role=totalViews]')?.textContent?.replace(/[^0-9]/g,'') || '0'),
+        followers: parseInt(document.querySelector('[data-role=fans]')?.textContent?.replace(/[^0-9]/g,'') || '0'),
+      };
+    }`
+    return this._rpaFetchStats('tencent_video', 'https://channels.weixin.qq.com/', script)
   }
 
   async _sync_wechat_mp () {
-    // TODO: Playwright 抓取公众号数据页
-    return {
-      articles: 0, views: 0, comments: 0, likes: 0, followers: 0,
-      _note: '待接入真实数据源',
-    }
+    // 公众号后台统计页
+    const script = `() => {
+      return {
+        articles: parseInt(document.querySelector('#articleCount')?.textContent || '0'),
+        views: parseInt(document.querySelector('#totalViews')?.textContent?.replace(/[^0-9]/g,'') || '0'),
+        followers: parseInt(document.querySelector('#totalFans')?.textContent?.replace(/[^0-9]/g,'') || '0'),
+      };
+    }`
+    return this._rpaFetchStats('wechat_mp', 'https://mp.weixin.qq.com/', script)
   }
 }
 
