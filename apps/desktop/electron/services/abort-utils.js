@@ -16,10 +16,10 @@
  * @returns {{ signal: AbortSignal, abort: Function, cleanup: Function }}
  */
 function createAbort(timeoutMs) {
-  var controller = new AbortController();
+  const controller = new AbortController();
 
   /** @type {ReturnType<typeof setTimeout>|null} */
-  var timeoutId = null;
+  let timeoutId = null;
   if (timeoutMs && timeoutMs > 0) {
     timeoutId = setTimeout(function () {
       controller.abort(new Error("Operation timed out after " + timeoutMs + "ms"));
@@ -71,7 +71,7 @@ function checkAborted(signal, message) {
 function wrapWithAbort(fn, signal, options) {
   options = options || {};
   return function () {
-    var args = arguments;
+    const args = arguments;
     checkAborted(signal, options.abortMessage);
     return fn.apply(null, args);
   };
@@ -106,7 +106,7 @@ function raceWithSignal(promise, signal) {
     return Promise.reject(new Error("Operation aborted"));
   }
   /** @type {Promise<any>} */
-  var abortPromise_ = new Promise(function (resolve, reject) {
+  const abortPromise_ = new Promise(function (resolve, reject) {
     signal.addEventListener("abort", function () {
       reject(new Error(signal.reason || "Operation aborted"));
     }, { once: true });

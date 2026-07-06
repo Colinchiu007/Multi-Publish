@@ -9,7 +9,7 @@ const fs = require('fs')
 const path = require('path')
 const log = require('./logger')
 
-// eslint-disable-next-line no-unused-vars
+ 
 let _mainWin = null
 
 function isSetupDone () {

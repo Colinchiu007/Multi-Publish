@@ -1,5 +1,5 @@
 // @ts-check
-﻿/**
+/**
  * content-intelligence-utils — 内容情报纯计算函数
  * 从 content-intelligence.js 提取，纯逻辑可测试。
  */

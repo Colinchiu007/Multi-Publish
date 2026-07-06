@@ -1,5 +1,5 @@
 // @ts-check
-﻿/**
+/**
  * RpaViewManager -- executeJavaScript RPA engine
  *
  * P2-B: Generic publish engine with config-driven platform support.
@@ -12,7 +12,7 @@ const log = require('./logger')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { supportsApi, publishViaApi } = require('@multi-publish/api-publish-engine')
-const { STEALTH_SOURCE } = require('./stealth-helper')
+const { STEALTH_SOURCE: _STEALTH_SOURCE } = require('./stealth-helper')
 
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
@@ -267,7 +267,7 @@ class RpaViewManager {
     win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
     win.webContents.on('console-message',function(){})
     // anti-detection: inject stealth on every navigation
-    // eslint-disable-next-line no-unused-vars
+     
     // stealth injected via preload script
     return win
   }

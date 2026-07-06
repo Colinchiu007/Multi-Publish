@@ -22,10 +22,10 @@ function attachCdpDetection(view, onLoginSuccess) {
         )
         const data = JSON.parse(base64Encoded ? Buffer.from(body, 'base64').toString() : body)
         if (isLoginSuccess(data)) onLoginSuccess(data)
-      } catch (e) { /* ignore */ }
-      try { view.webContents.debugger.sendCommand('Fetch.continueRequest', { requestId: params.requestId }) } catch (e) { /* ignore */ }
+      } catch (_e) { /* ignore */ }
+      try { view.webContents.debugger.sendCommand('Fetch.continueRequest', { requestId: params.requestId }) } catch (_e) { /* ignore */ }
     })
-  } catch (e) { /* debugger may already be attached */ }
+  } catch (_e) { /* debugger may already be attached */ }
 }
 
 /**

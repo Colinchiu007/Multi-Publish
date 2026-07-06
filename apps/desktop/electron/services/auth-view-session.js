@@ -5,7 +5,7 @@
  * 处理 Electron session 分区、Cookie 设置、localStorage 恢复。
  */
 
-const path = require('path')
+const _path = require('path')
 
 /**
  * 创建隔离的 Session 分区
@@ -25,10 +25,10 @@ async function setCookies(session, cookies) {
   try {
     // 尝试批量设置
     await session.cookies.set(cookies)
-  } catch (e) {
+  } catch (_e) {
     // 数组格式，逐个设置
     for (const c of cookies) {
-      try { await session.cookies.set(c) } catch (e2) { /* ignore invalid cookie */ }
+      try { await session.cookies.set(c) } catch (_e2) { /* ignore invalid cookie */ }
     }
   }
 }
@@ -45,11 +45,11 @@ async function restoreLocalStorage(view, localStorage) {
           (function() {
             let data = ${JSON.stringify(localStorage)};
             Object.keys(data).forEach(function(k) {
-              try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }
+              try { localStorage.setItem(k, data[k]); } catch (_e) { /* ignore */ }
             });
           })()
         `)
-      } catch (e) { /* ignore */ }
+      } catch (_e) { /* ignore */ }
       resolve()
     }, { once: true })
   })

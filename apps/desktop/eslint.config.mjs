@@ -1,4 +1,4 @@
-﻿import js from "@eslint/js";
+import js from "@eslint/js";
 import pluginVue from "eslint-plugin-vue";
 import globals from "globals";
 import prettier from "eslint-config-prettier";
@@ -18,7 +18,7 @@ export default [
     },
     rules: {
       ...js.configs.recommended.rules,
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
       "no-console": "off",
       "prefer-const": "warn",
       "no-var": "warn",
@@ -36,7 +36,7 @@ export default [
     },
     rules: {
       ...js.configs.recommended.rules,
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
       "no-console": "off",
     },
   },
@@ -52,7 +52,7 @@ export default [
       ...js.configs.recommended.rules,
       ...vueEssential[1].rules,
       ...vueEssential[2].rules,
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
       "prefer-const": "warn",
       "no-var": "warn",
       eqeqeq: ["warn", "smart"],

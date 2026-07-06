@@ -1,5 +1,5 @@
 // @ts-check
-﻿'use strict';
+'use strict';
 
 /**
  * Error codes — inline copy, not from dist-ts.

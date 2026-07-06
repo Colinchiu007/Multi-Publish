@@ -1,5 +1,5 @@
 // @ts-check
-﻿/**
+/**
  * store-schema — Store 的 SQL schema 定义 + 帮助函数
  * 从 store.js 提取，可独立测试。
  */

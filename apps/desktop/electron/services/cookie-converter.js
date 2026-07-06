@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * CookieConverter — Cookie ↔ Playwright 格式转换工具
  *
@@ -128,7 +128,7 @@ async function restoreCookiesToSession (session, cookieStr, url) {
         httpOnly: false,
         secure: false,
       })
-    } catch (e) { /* ignore individual cookie failures */ }
+    } catch (_e) { /* ignore individual cookie failures */ }
   }
 }
 

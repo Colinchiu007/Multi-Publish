@@ -15,7 +15,7 @@ const log = require("./logger")
 
 const OFFLINE_CACHE_FILE = "offline-publish-cache.json"
 let _isOffline = false
-// eslint-disable-next-line no-unused-vars
+ 
 const _retryQueue = []
 let _mainWin = null
 let _taskQueue = null

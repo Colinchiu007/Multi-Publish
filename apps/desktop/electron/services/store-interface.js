@@ -22,7 +22,7 @@ const log = require("./logger");
  */
 function createStore(opts) {
   opts = opts || {};
-  var type = opts.type || "sqlite";
+  const type = opts.type || "sqlite";
 
   switch (type) {
     case "sqlite":
@@ -37,17 +37,17 @@ function createStore(opts) {
  * @returns {any}
  */
 function _createSqliteStore(opts) {
-  var Store = require("./store");
+  const Store = require("./store");
   /** @type {any} */
-  var instance = new Store();
+  const instance = new Store();
 
   if (opts.dbPath) {
     instance._customDbPath = opts.dbPath;
-    var origInit = instance.init.bind(instance);
+    const origInit = instance.init.bind(instance);
     instance.init = function () {
       if (this._customDbPath) {
-        var electron = require("electron");
-        var origGetPath = /** @type {Function} */(electron.app.getPath);
+        const electron = require("electron");
+        const origGetPath = /** @type {Function} */(electron.app.getPath);
         electron.app.getPath = function (name) {
           if (name === "userData") return /** @type {string} */(opts.dbPath);
           return origGetPath.call(electron.app, name);
@@ -68,7 +68,7 @@ function _createSqliteStore(opts) {
  */
 function isValidStore(instance) {
   if (!instance || typeof instance !== "object") return false;
-  var required = ["init", "close", "addAccount", "getAccount", "listAccounts",
+  const required = ["init", "close", "addAccount", "getAccount", "listAccounts",
     "addHistory", "listHistory", "getSetting", "setSetting"];
   return required.every(function (method) {
     return typeof instance[method] === "function";

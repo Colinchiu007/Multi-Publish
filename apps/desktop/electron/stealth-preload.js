@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Stealth Preload — 在页面 JS 执行前注入反检测脚本
  *
  * 等价于 Playwright 的 context.addInitScript()。
@@ -15,7 +15,7 @@ try {
     writable: false,
     configurable: true,
   })
-} catch (e) { /* ignore */ }
+} catch (_e) { /* ignore */ }
 
 try {
   // 2. Simulate chrome.runtime
@@ -34,7 +34,7 @@ try {
     app: origChrome.app || { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
     webstore: origChrome.webstore || { onInstallStage: { addListener: function() {} } },
   }
-} catch (e) { /* ignore */ }
+} catch (_e) { /* ignore */ }
 
 try {
   // 3. Override navigator.plugins
@@ -55,7 +55,7 @@ try {
     },
     configurable: true,
   })
-} catch (e) { /* ignore */ }
+} catch (_e) { /* ignore */ }
 
 try {
   // 4. Override navigator.languages
@@ -63,7 +63,7 @@ try {
     get: function() { return ['zh-CN', 'zh', 'en'] },
     configurable: true,
   })
-} catch (e) { /* ignore */ }
+} catch (_e) { /* ignore */ }
 
 try {
   // 5. Permission query fix
@@ -74,4 +74,4 @@ try {
     }
     return origQuery.call(window.navigator.permissions, perm)
   }
-} catch (e) { /* ignore */ }
+} catch (_e) { /* ignore */ }
