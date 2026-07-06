@@ -88,3 +88,9 @@ __pycache__/
 
 # Test artifacts
 .sched-*
+
+# Windows NUL device
+NUL
+
+# Test auto-generated keys
+packages/api-publish-engine/test/.test-open-api-keys.json
