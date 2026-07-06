@@ -136,7 +136,8 @@
 ### D-015: QueryWorker 抽象接口加固 + VideoStitch 测试覆盖
 - **类型**: 代码质量/测试
 - **决策**: QueryWorker 的 5 个核心接口标记为 @abstractmethod，强制子类实现；为 video_stitch.py 新增 23 个单元测试
-- **理由**: 原代码用 aise NotImplementedError 不在编译期检查，子类遗漏实现只在运行时报错；VideoStitch 660+ 行代码无任何测试覆盖
+- **理由**: 原代码用 
+aise NotImplementedError 不在编译期检查，子类遗漏实现只在运行时报错；VideoStitch 660+ 行代码无任何测试覆盖
 - **替代方案**: 保持现状（运行时才发现问题）
 - **影响**: 低 - 纯代码加固 + 测试补充，419 测试全部通过
 - **PR**: #292
@@ -157,6 +158,7 @@
 - **影响**: 低 - PRD 650→690 行，5 文件 +333/-52，419 测试全部通过
 - **PR**: #294
 
+
 ### D-018: 大文件拆分收尾 — 恢复 video_compose.py 4个缺失委托方法
 - **类型**: 修复/代码质量
 - **决策**: 恢复因不完整拆分遗漏的 4 个委托方法，清理旧直接导入
@@ -170,3 +172,17 @@
 - **根因**: 前次大文件拆分直接从类中删除了 static/class 方法，但未添加 _cu 委托包装，运行时 AttributeError
 - **影响**: 低 - +24/-38 行，VideoCompose 29 方法回归正确数量，419 测试全部通过
 - **分支**: fix/video-compose-missing-methods
+
+### D-019: Phase A 基础设施清理 — 删除 8 个已合并远程分支
+- **类型**: 代码清理
+- **决策**: 删除 8 个已合并到 main 的远程特性分支
+- **删除清单**:
+  - chore/merge-phase1-phase2-2026-07-05
+  - feat/eslint-auto-fix, feat/eslint-prettier-setup
+  - feat/openmontage-analysis-v2, feat/openmontage-phase0, feat/openmontage-reuse-phase1
+  - feat/video-creation-phase0
+  - fix/responsive-layout-account-row
+- **保留分支**:
+  - docs/changelog-sync-v2.1.2（PR #297，待合并）
+  - fix/video-compose-missing-methods（PR #296，待合并）
+- **影响**: 低 - 仅删除已合并分支，419/419 测试通过
