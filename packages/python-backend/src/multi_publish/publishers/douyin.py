@@ -32,6 +32,14 @@ from typing import Any
 from loguru import logger
 
 from multi_publish.models import PLATFORM_META, PlatformType, PublishResult, PublishPhase
+from multi_publish.publishers.douyin_rpa_fields import (
+    rpa_do_video_upload,
+    rpa_do_field_title,
+    rpa_do_field_cover,
+    rpa_do_field_tags,
+    rpa_do_field_desc,
+    rpa_do_publish_click,
+)
 from multi_publish.publishers.base import (
     BasePublisher,
     FieldRetryMap,
@@ -843,30 +851,30 @@ class DouyinPublisher(BasePublisher):
             for field in list(fields.unfinished_fields):
                 try:
                     if field == "video":
-                        await self._rpa_do_video_upload(video_path, file_size_mb, throttle)
+                        await rpa_do_video_upload(self._page, self._selectors, self._report_progress, video_path, file_size_mb, throttle, self._upload_wait_timeout)
                         fields.mark_done("video")
 
                     elif field == "title":
-                        await self._rpa_do_field_title(title, fields, throttle)
+                        await rpa_do_field_title(self._page, self._selectors, self._report_progress, title, fields, throttle)
                         fields.mark_done("title")
 
                     elif field == "cover":
                         if cover_path and os.path.exists(cover_path):
-                            await self._rpa_do_field_cover(cover_path, fields, throttle)
+                            await rpa_do_field_cover(self._page, self._selectors, self._report_progress, cover_path, fields, throttle)
                         fields.mark_done("cover")
 
                     elif field == "tags":
                         if tags:
-                            await self._rpa_do_field_tags(tags, fields, throttle)
+                            await rpa_do_field_tags(self._page, self._selectors, self._report_progress, tags, fields, throttle)
                         fields.mark_done("tags")
 
                     elif field == "description":
                         if content:
-                            await self._rpa_do_field_desc(content, fields, throttle)
+                            await rpa_do_field_desc(self._page, self._selectors, self._report_progress, content, fields, throttle)
                         fields.mark_done("description")
 
                     elif field == "publish_button":
-                        await self._rpa_do_publish_click(draft, fields, monitor, throttle)
+                        await rpa_do_publish_click(self._page, self._selectors, self._report_progress, draft, fields, monitor, throttle)
                         fields.mark_done("publish_button")
 
                 except Exception as e:
@@ -948,98 +956,7 @@ class DouyinPublisher(BasePublisher):
                 duration=duration,
             )
 
-    # ── RPA 子操作（每个对应 per-field 重试状态机的一个字段）─────
-
-    async def _rpa_do_video_upload(self, video_path: str, file_size_mb: float, throttle: ProgressThrottle):
-        """P0-2: 视频上传字段操作"""
-        await self._report_progress(PublishPhase.UPLOADING, f"上传视频 ({file_size_mb:.0f} MB)...", 30)
-        file_input = self._page.locator(self._selectors["upload_input"]).first
-        await file_input.set_input_files(video_path)
-
-        await self._report_progress(PublishPhase.UPLOADING, "等待上传完成...", 50)
-        try:
-            await self._page.wait_for_selector(
-                self._selectors["upload_complete"],
-                timeout=self._upload_wait_timeout * 1000,
-            )
-        except Exception:
-            logger.warning("未检测到上传完成标志，等待 30 秒...")
-            await asyncio.sleep(30)
-
-    async def _rpa_do_field_title(self, title: str, fields: FieldRetryMap, throttle: ProgressThrottle):
-        """P0-2: 标题字段操作"""
-        if throttle.should_report(70):
-            await self._report_progress(PublishPhase.PUBLISHING, "填写标题...", 70)
-        title_input = self._page.locator(self._selectors["title_input"]).first
-        await title_input.fill(title)
-        logger.info(f"标题已填写: {title[:40]}...")
-
-    async def _rpa_do_field_cover(self, cover_path: str, fields: FieldRetryMap, throttle: ProgressThrottle):
-        """P0-2: 封面上传字段操作"""
-        cover_btn = self._page.locator(self._selectors["cover_upload"]).first
-        await cover_btn.click()
-        await asyncio.sleep(2)
-        cover_input = self._page.locator(self._selectors["cover_input"]).first
-        await cover_input.set_input_files(cover_path)
-        logger.info("封面图已上传")
-
-    async def _rpa_do_field_tags(self, tags: list[str], fields: FieldRetryMap, throttle: ProgressThrottle):
-        """P0-2: 标签字段操作"""
-        tag_input = self._page.locator(self._selectors["tag_input"]).first
-        for tag in tags[:3]:
-            await tag_input.fill(tag)
-            await asyncio.sleep(1)
-            tag_item = self._page.locator(self._selectors["tag_item"]).first
-            if await tag_item.count() > 0:
-                await tag_item.click()
-            await asyncio.sleep(0.5)
-        logger.info(f"标签已添加: {tags[:3]}")
-
-    async def _rpa_do_field_desc(self, content: str, fields: FieldRetryMap, throttle: ProgressThrottle):
-        """P0-2: 简介字段操作"""
-        desc_input = self._page.locator(self._selectors["description_textarea"]).first
-        if await desc_input.count() > 0:
-            await desc_input.fill(content)
-            logger.info(f"简介已填写 ({len(content)} chars)")
-
-    async def _rpa_do_publish_click(
-        self, draft: bool, fields: FieldRetryMap,
-        monitor: ResponseMonitor, throttle: ProgressThrottle,
-    ):
-        """P0-2: 发布按钮点击 + P0-1: 响应监控确认"""
-        await self._report_progress(PublishPhase.PUBLISHING, "点击发布...", 90)
-
-        if draft:
-            draft_btn = self._page.locator(self._selectors["draft_button"])
-            if await draft_btn.count() > 0:
-                await draft_btn.first.click()
-            else:
-                publish_btn = self._page.locator(self._selectors["publish_button"]).first
-                await publish_btn.click()
-        else:
-            try:
-                publish_btn = self._page.locator(self._selectors["publish_button"]).first
-                await publish_btn.click(timeout=10000)
-            except Exception:
-                publish_btn_alt = self._page.locator(self._selectors["publish_button_alt"]).first
-                if await publish_btn_alt.count() > 0:
-                    await publish_btn_alt.click()
-                else:
-                    raise
-
-        # P0-1: 等待 API 响应确认（60 秒超时）
-        logger.info("等待 API 确认发布结果...")
-        result = await monitor.wait_for_response(timeout=60, predicate=lambda d: d.get("code") == 0)
-        if result:
-            item_id = result.get("data", {}).get("item_id", result.get("data", {}).get("aweme_id", ""))
-            logger.success(f"API 确认发布成功: item_id={item_id}")
-        else:
-            logger.info("API 响应超时，后续将通过 DOM 二次确认")
-
-    # ═══════════════════════════════════════════════════════════════
-    # RPA 原始回退（无响应拦截 + 无 Per-Field 重试）
-    # ═══════════════════════════════════════════════════════════════
-
+        # RPA 子操作已提取到 douyin_rpa_fields.py
     async def _do_publish_legacy(
         self,
         title: str,
