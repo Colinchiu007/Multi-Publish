@@ -1,22 +1,24 @@
+﻿// @ts-check
 /**
- * AbortUtils — 取消信号工具集
+ * AbortUtils 鈥?鍙栨秷淇″彿宸ュ叿闆?
  *
- * 从 MediaTrace 移植的标准 AbortSignal 模式：
- * - 所有循环点检查 signal.aborted
- * - AbortController 生命周期管理
- * - 超时自动取消
+ * 浠?MediaTrace 绉绘鐨勬爣鍑?AbortSignal 妯″紡锛?
+ * - 鎵€鏈夊惊鐜偣妫€鏌?signal.aborted
+ * - AbortController 鐢熷懡鍛ㄦ湡绠＄悊
+ * - 瓒呮椂鑷姩鍙栨秷
  *
- * 文件位置: apps/desktop/electron/services/abort-utils.js
+ * 鏂囦欢浣嶇疆: apps/desktop/electron/services/abort-utils.js
  */
 
 /**
- * 创建受管理的 AbortController
- * @param {number} [timeoutMs] - 超时毫秒（可选）
+ * 鍒涘缓鍙楃鐞嗙殑 AbortController
+ * @param {number} [timeoutMs] - 瓒呮椂姣锛堝彲閫夛級
  * @returns {{ signal: AbortSignal, abort: Function, cleanup: Function }}
  */
 function createAbort(timeoutMs) {
   var controller = new AbortController();
 
+  /** @type {ReturnType<typeof setTimeout>|null} */
   var timeoutId = null;
   if (timeoutMs && timeoutMs > 0) {
     timeoutId = setTimeout(function () {
@@ -27,6 +29,7 @@ function createAbort(timeoutMs) {
   return {
     signal: controller.signal,
 
+    /** @param {any} [reason] */
     abort: function (reason) {
       controller.abort(reason || new Error("Operation cancelled by user"));
       if (timeoutId) {
@@ -45,10 +48,10 @@ function createAbort(timeoutMs) {
 }
 
 /**
- * 检查信号是否已中止，如是则抛出
+ * 妫€鏌ヤ俊鍙锋槸鍚﹀凡涓锛屽鏄垯鎶涘嚭
  * @param {AbortSignal} [signal]
  * @param {string} [message]
- * @throws {Error} 如果已中止
+ * @throws {Error} 濡傛灉宸蹭腑姝?
  */
 function checkAborted(signal, message) {
   if (!signal) return;
@@ -58,12 +61,12 @@ function checkAborted(signal, message) {
 }
 
 /**
- * 将异步函数包装为可中止版本
- * @param {Function} fn - 异步函数
+ * 灏嗗紓姝ュ嚱鏁板寘瑁呬负鍙腑姝㈢増鏈?
+ * @param {Function} fn - 寮傛鍑芥暟
  * @param {AbortSignal} signal
  * @param {object} [options]
  * @param {string} [options.abortMessage]
- * @returns {Function} 包装后的函数
+ * @returns {(...args: any[]) => any} 鍖呰鍚庣殑鍑芥暟
  */
 function wrapWithAbort(fn, signal, options) {
   options = options || {};
@@ -75,9 +78,9 @@ function wrapWithAbort(fn, signal, options) {
 }
 
 /**
- * 创建一个 promise 在信号中止时 reject
+ * 鍒涘缓涓€涓?promise 鍦ㄤ俊鍙蜂腑姝㈡椂 reject
  * @param {AbortSignal} signal
- * @returns {Promise} 永不 resolve，仅在中止时 reject
+ * @returns {Promise<never>} 姘镐笉 resolve锛屼粎鍦ㄤ腑姝㈡椂 reject
  */
 function abortPromise(signal) {
   return new Promise(function (resolve, reject) {
@@ -93,15 +96,16 @@ function abortPromise(signal) {
 }
 
 /**
- * 在 Promise 数组中并入取消信号
- * @param {Promise} promise - 主要 promise
+ * 鍦?Promise 鏁扮粍涓苟鍏ュ彇娑堜俊鍙?
+ * @param {Promise<any>} promise - 涓昏 promise
  * @param {AbortSignal} signal
- * @returns {Promise} 谁先完成就采用谁的结果
+ * @returns {Promise<any>} 璋佸厛瀹屾垚灏遍噰鐢ㄨ皝鐨勭粨鏋?
  */
 function raceWithSignal(promise, signal) {
   if (!signal || signal.aborted) {
     return Promise.reject(new Error("Operation aborted"));
   }
+  /** @type {Promise<any>} */
   var abortPromise_ = new Promise(function (resolve, reject) {
     signal.addEventListener("abort", function () {
       reject(new Error(signal.reason || "Operation aborted"));

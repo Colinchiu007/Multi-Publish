@@ -36,7 +36,7 @@ async function runSetup (mainWin) {
     )
     mainWin.webContents.send('first-run:status', { type: 'done' })
     log.info('firstRun', 'Setup complete')
-  } catch (e) {
+  } catch (/** @type {any} */ e) {
     log.error('firstRun', 'Setup error:', e.message)
     mainWin.webContents.send('first-run:status', { type: 'error', data: e.message })
   }
