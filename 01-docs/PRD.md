@@ -1,9 +1,9 @@
-# PROJECT-003：多平台一键发布 — PRD
+﻿# PROJECT-003：多平台一键发布 — PRD
 
 > **立项日期**: 2026-06-03
-> **最后更新**: 2026-07-02
-> **当前版本**: v1.5.0（云端发布模块）
-> **产品定位**: 为内容生产者提供"策题 → 采集 → 优化 → 发布 → 追踪"全流程闭环的一键发布桌面工具
+> **最后更新**: 2026-07-05
+> **当前版本**: v2.1.1 (2026-07-06) | **上一版本**: v2.0.0 (2026-07-02)
+> **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具
 > **目标用户**: 自媒体运营者、MCN 机构、企业内容团队
 > **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）
 
@@ -16,8 +16,7 @@
 内容生产者每天需要在多个平台发布相同或相似的内容。手动操作耗时、易出错、格式不统一。PROJECT-003 提供：
 
 1. **统一入口**：一个桌面应用管理所有平台的发布
-2. **内容情报**：发布前策题/标题/标签优化，发布后影响力追踪
-3. **自动适配**：通过 RPA 自动化填表发布，适配各平台 UI
+2. **自动适配**：通过 RPA 自动化填表发布，适配各平台 UI
 3. **异步队列**：后台批量发布，实时追踪状态
 4. **Cookie 管理**：安全存储各平台登录凭证
 5. **定时发布**：设定时间自动发布
@@ -76,15 +75,8 @@
 Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 API 模式使用。
 
 **统一发布路由：**
-1. **本地 RPA** — 默认路径，所有平台走 RpaViewManager（隐藏 BrowserWindow + executeJavaScript + CDP 文件上传）
-2. **ECS 云端发布** — 通过 PublishPoller 轮询 orchestrator，下载视频后委托发布（vNext）
-3. **显式云端发布** — 通过 CloudPublish.vue 页面显式提交任务到 orchestrator，用于不依赖本地环境的发布（v1.5.0 F13 🆕）
-4. **Python 后端 API** — 预留，B 站 API 模式
-
-**选路策略（vNext）：**
-- `platforms.yaml` 中 `rpa: true` → 走本地 RPA 路径（当前默认值，向后兼容）
-- `rpa: false` 或缺失 → 走 ECS 云端发布（orchestrator 侧 API 模式）
-- 平台级覆盖：单个平台可独立设置 `rpa: true/false`
+1. **RpaViewManager executeJavaScript RPA** — 所有平台（隐藏 BrowserWindow + CDP 文件上传）
+2. **Python 后端 API** — 预留，B 站 API 模式
 
 **三种认证模式：**
 1. **内嵌 WebContentsView 登录** — 弹出式内嵌浏览器（AuthViewManager）
@@ -181,10 +173,6 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | 首次运行引导 | 自动检测 Python 依赖 | ✅ |
 | 数据迁移 | JSONL → SQLite 迁移 | ✅ |
 | 静默登录验证 | 隐藏 BrowserWindow 后台验证 Cookie 有效性（loginSilent） | ✅ |
-| **首次启动引导 v2** | **4 步 onboarding wizard：平台选择 → 账号绑定 → 内容设置 → 完成** | ✅ |
-| **发布失败告警** | **发布失败时弹窗通知 + 重试操作 + 失败原因展示** | ✅ |
-| **i18n 国际化** | **中英文双语切换，locale 资源文件架构（zh.js / en.js）** | ✅ |
-| **离线模式** | **offline-manager.js：断网缓存操作，网络恢复后自动同步** | ✅ |
 
 #### F9：平台分类（v1.2.0）
 
@@ -208,88 +196,17 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | 进度事件上报 | IPC rpa:progress → 前端实时展示 | ✅ |
 | CDP/JS 双文件上传 | 大文件走 CDP，小文件走 JS File API | ✅ |
 
-#### F11：内容情报引擎（v1.4.0）
-
-| 子功能 | 描述 | 状态 |
-|--------|------|------|
-| 跨源搜索 | 通过 Reddit/HN/GitHub 免费 API 搜索主题讨论，log10 互动评分 | ✅ |
-| 标题优化 | 搜索同类标题互动数据，提取高频模式，生成优化建议 | ✅ |
-| 发布后影响力追踪 | 发布后 T+1min/1h/24h/72h 定时捕捉社交提及，Dashboard 展示 | ✅ |
-| 发布时机优化 | 聚合搜索结果的时间分布，推荐各平台最佳发布时间 | ✅ |
-| 外部引用推荐 | 选中关键词，自动搜索权威来源/数据/讨论，一键插入正文 | ✅ |
-| 智能标签建议 | 基于内容关键词 + 平台标签体系，自动生成各平台标签建议 | ✅ |
-| 内容表现基准比较 | 同类内容互动数据聚合，对比自身表现给出差距分析 | ✅ |
-| 热榜趋势发现 | 实时聚合 Reddit/HN/GitHub 热门内容，主动发现创作主题 | ✅ |
-| 关键词背景监测 | 持续监测指定关键词的讨论热度变化，异常飙升时桌面通知 | ✅ |
-
-#### F12：ECS 云端发布集成（vNext）
-
-| 子功能 | 描述 | 状态 |
-|--------|------|------|
-| PublishPoller | 定时轮询 orchestrator GET /api/jobs/publish/pending | ✅ |
-| 视频下载 | 从 Supabase Storage 下载视频到本地临时目录 | ✅ |
-| 状态同步 | PUT /api/jobs/publish/{id}/status 同步下载/发布/成功/失败状态 | ✅ |
-| 选路决策 | `platforms.yaml` 中 `rpa: true/false` 控制本地 RPA vs 云端 | ✅ |
-| B站云端 API | orchestrator services/bilibili_publisher.py API 模式发布 | ✅ |
-| 抖音云端 API | orchestrator services/douyin_publisher.py API 模式发布 | ✅ |
-
-#### F13：云端发布模块（v1.5.0）
-
-| 子功能 | 描述 | 状态 |
-|--------|------|------|
-| CloudPublisher 类 | Electron 主进程 HTTP 通信层，连接 orchestrator 提交/查询任务 | ✅ |
-| 前端 CloudPublish.vue | 云端发布专属页面：提交表单 + 任务列表 + 进度轮询 | ✅ |
-| mode 选路 | `POST /api/jobs/publish-video` 支持 `mode: "rpa"|"cloud"` 字段 | ✅ |
-| PublishPoller 跳过 | `input_data.mode === "cloud"` 时 PublishPoller 跳过不处理 | ✅ |
-| IPC handlers | `cloud-publisher:submit/list-tasks/get-task/platforms` 4个 IPC 通道 | ✅ |
-|
-| orchestrator stub 后端 | `POST /publish-video` 支持 cloud 模式，stub 模拟 10s 延迟返回成功 | ✅ |
-
-#### F14：共享工具库新模块（v1.6.0）
-
-| 子功能 | 描述 | 状态 |
-|--------|------|------|
-| ChunkedUploader (shared-utils) | 通用分片上传器，支持 init→upload chunks→complete 三步协议，进度回调/事件/取消 | ✅ |
-| ProxyPool (shared-utils) | 代理池轮换 + 健康检查，round-robin 分发，自动移除失效代理 | ✅ |
-| AnalyticsService (shared-utils) | 平台数据分析服务，provider 模式，支持多平台并行数据获取、指标归一化 | ✅ |
-
-#### F15：发布频率控制（v1.6.0）
-
-| 子功能 | 描述 | 状态 |
-|--------|------|------|
-| 同账号发布间隔 | 同一平台同一账号的两次发布操作（手动/自动/定时）之间至少间隔 5 分钟 | ✅ v1.6.0 |
-| 队列预检 | 任务加入队列时检查该账号上次发布时间，不足 5 分钟则排队等待 | ✅ v1.6.0 |
-| 定时任务对齐 | 定时发布任务若与前一次发布时间 < 5min，自动推迟到满足间隔后执行 | ✅ v1.6.0 |
-| 批量发布间隔 | 多平台批量发布时，每个平台完成后等待 5 分钟再执行下一个 | ✅ v1.6.0 |
-| 前端提示 | 用户点击发布时若距上次不足 5 分钟，显示提示"发布过于频繁，请稍后再试"并显示剩余等待时间 | ✅ v1.6.0 |
-| 跨会话持久化 | 上次发布时间记录写入 SQLite，重启 App 后仍能正确计算间隔 | ✅ v1.6.0 |
-| 目的 | 规避平台反机器人检测，模拟真人发布节奏 | - |
-
-#### F16：内容质量门禁（v1.6.0）
-
-| 子功能 | 描述 | 状态 |
-|--------|------|------|
-| ContentQualityGate 类 | 13 条通过标准（权重 4-20）+ 11 条失败信号（高/中/低三级），支持 failFast | ✅ |
-| PC-1 ~ PC-13 通过标准 | 标题结构(15)/内容完整性(20)/标题-内容对齐(10)/平台格式合规(10)/内容丰富度(10)/可读性与分享性(8)/原创性与去重(8)/媒体资产(5)/敏感性(5)/发布间隔(5)/标签合规(4)/跨平台一致性(5)/观众匹配(5) | ✅ |
-| FS-1 ~ FS-11 失败信号 | 标题异常/AI 腔调(27 模式词)/话题模糊/标签违规/标题-内容不匹配/内容浅薄/关键词堆砌/格式乱码(8 模式)/信息过载/风格不一致/低分享性 | ✅ |
-| 平台格式校验 | Twitter 280 字符 / B 站 50 字符 / WeChat 200 字符 / Instagram 需图片附件 | ✅ |
-| 跨平台一致性检查 | Jaccard 相似度检测不同平台内容差异 < 0.8 | ✅ |
-| 集成方式 | 已注册到 shared-utils/index.js 导出 | ✅ |
-
-
 ### 3.2 非功能需求
+
 || 需求 | 指标 | 状态 |
 ||------|------|------|
 | 并发发布 | 3 任务并发执行（maxConcurrent=3） | ✅ |
 | 离线运行 | 安装包自带 Chromium，无需联网；自动更新网络失败静默 | ✅ |
 | 任务持久化 | SQLite 持久化队列状态，崩溃自动恢复 | ✅ |
 || 数据加密 | Cookie AES-256-GCM 加密存储 | ✅ |
-│
-│  │  └─ services/douyin_publisher.py     │
-│  └──────────────────────────────────────┘
-│
 || 存储引擎 | SQLite（better-sqlite3） | ✅ |
 || 跨平台 | Windows + Linux（macOS 待支持） | ✅ |
+|| 代码规范 | ESLint v9 flat config + Prettier，0 errors / 0 warnings | ✅ Phase C3 |
 || 自动构建 | GitHub Actions 双平台 CI + 自动 Release | ✅ |
 || 自动更新 | electron-updater，从 GitHub Release 拉取 | ✅ |
 
@@ -341,26 +258,6 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 │  └───────────────────────────────────────┘
 │
 │  ┌──────────────────────────────────────┐
-│  │  PublishPoller（vNext）               │
-│  │  ├─ 定时轮询 orchestrator             │
-│  │  │  GET /api/jobs/publish/pending    │
-│  │  ├─ 下载视频 → delegate RPA          │
-│  │  ├─ PUT 状态同步                     │
-│  │  └─ 选路: platforms.yaml rpa:       │
-│  │     true=本地RPA / false=云端        │
-│  └──────────────┬───────────────────────┘
-│                 │
-│  ┌──────────────┴───────────────────────┐
-│  │  ECS Orchestrator (:8000)            │
-│  │  ├─ GET /api/jobs/publish/pending    │
-│  │  │  (FIFO video_publish 队列)        │
-│  │  ├─ PUT /api/jobs/publish/{id}/status│
-│  │  ├─ services/bilibili_publisher.py   │
-│  │  │  (bilibili-api-python + curl_cffi)│
-│  │  └─ services/douyin_publisher.py     │
-│  └──────────────────────────────────────┘
-│
-│  ┌──────────────────────────────────────┐
 │  │  SQLite (better-sqlite3)             │
 │  │  ├─ accounts（含多账号）               │
 │  │  ├─ publish_history                  │
@@ -394,8 +291,6 @@ multi-publish/
 │   │   ├── rpa-view-manager.js  # executeJavaScript RPA 引擎（v1.2.0）
 │   │   ├── callback-server.js   # 实时回调（P1）
 │   │   ├── qrcode-login.js      # 扫码登录（P2）
-│   │   ├── publish-poller.js    # ECS 轮询发布（vNext）
-│   │   ├── cloud-publisher.js   # 云端发布通信层（F13 🆕）
 │   │   ├── oauth-manager.js     # OAuth 2.0 认证
 │   │   ├── batch-manager.js     # 批量发布管理器
 │   │   ├── url-collector.js     # URL 内容采集
@@ -411,8 +306,6 @@ multi-publish/
 │   │   ├── video-uploader.js    # 视频分片上传
 │   │   ├── content-aggregator-bridge.js  # 001 集成
 │   │   ├── api-platform-adapter.js  # API 模式适配器
-│   │   ├── content-intelligence.js  # 跨源情报引擎（Reddit/HN/GitHub）🆕
-│   │   ├── keyword-monitor.js       # 关键词背景监测 🆕
 │   │   ├── auto-updater.js      # electron-updater
 │   │   └── first-run.js         # 首次运行引导
 │   ├── src/                     # Vue 3 前端
@@ -466,26 +359,6 @@ class BaseRpaPublisher {
 }
 // 所有平台发布器继承 BaseRpaPublisher，差异化部分覆盖
 ```
----
-
-### 4.6 重构记录
-
-#### 2026-07-01: IPC handler 拆分 + 平台元数据统一
-
-**IPC handler 拆分（PR #68）**
-
-背景: main.js 从最初的 ~500 行增长到 922 行，74 个 ipcMain.handle 内联混杂。
-
-方案: 将全部 handler 按领域拆分为 14 个独立模块，通过 registerHandlers(ipcMain, deps) 模式注册。
-
-效果: main.js 922 行 → 358 行。新增模块均可独立测试。
-
-**平台元数据统一（PR #68 包含）**
-
-背景: 平台登录 URL、显示名称、选择器等元数据在 6+ 个文件中重复定义，覆盖范围不一致。
-
-方案: 新增 packages/shared-utils/src/platform-definitions.js 作为单一数据源，覆盖全部 15 个平台。去重：4 个 Electron 模块改为引用共享定义，5 个 Vue 组件替换为 usePlatformStore()。
-
 
 ---
 
@@ -537,8 +410,6 @@ class BaseRpaPublisher {
 3. 点击发布 → 每个平台依次执行（队列顺序） → 失败自动重试 2 次 → 全部完成
 4. 发布失败平台不影响其他平台继续执行
 
-> **发布间隔保护**：所有发布操作（手动/批量/定时）执行后，同一平台同一账号需等待至少 5 分钟才能再次发布。若距上次发布时间不足 5 分钟，任务将被排队等待，前端会提示剩余等待时间。此举旨在规避平台反机器人检测机制。
-
 ---
 
 ## 七、与 PROJECT-001 的集成
@@ -568,6 +439,7 @@ Task Queue → 各平台发布器 → 发布完成
 |------|------|------|
 | GitHub Actions | 推送 main/develop 触发构建 | ✅ |
 | 构建产物 | Windows (.exe) + Linux (.AppImage) | ✅ |
+| ESLint 检查 | GitHub Actions quality-gate PR 门禁，ESLint 0 errors | ✅ Phase C3 |
 | 自动更新 | electron-updater + GitHub Release | ✅（待首次 Release） |
 
 ---
@@ -576,7 +448,7 @@ Task Queue → 各平台发布器 → 发布完成
 
 | 风险 | 影响 | 应对 |
 |------|------|------|
-| RPA 被平台封禁 | 高 | 行为模拟 + 随机延迟 + Cookie 轮换 + **5 分钟发布间隔** |
+| RPA 被平台封禁 | 高 | 行为模拟 + 随机延迟 + Cookie 轮换 |
 | 平台 UI 变更 | 中 | 模块化设计，单个发布器变更不影响整体 |
 | Cookie 过期 | 低 | 自动检测 + 一键重新登录 |
 | RPA 浏览器兼容性 | 低 | Electron 内嵌 Chromium，版本锁定 |
@@ -607,19 +479,7 @@ Task Queue → 各平台发布器 → 发布完成
 - [x] **端到端测试** — 全部测试套件通过
 - [x] **CI 自动 Release** — GitHub Actions auto-tag + release
 
-- [x] 端到端测试框架完成 — 运行 `node scripts/run-e2e-tests.js`
-  - 非自动化（依赖真实账号凭证）: 需用户配置 config/e2e-credentials.json
-
-### v1.4.0 验收（Last30Days 内容情报深度集成） ✅
-
-- [x] **热榜趋势发现**：情报面板新增趋势页面，聚合 Reddit hot + HN frontpage + GitHub trending
-- [x] **智能标签建议**：编辑器中根据内容自动生成各平台标签建议
-- [x] **关键词背景监测**：支持添加关键词监测，6h 轮询，异常飙升通知
-- [x] **外部引用推荐**：选中关键词可搜索权威来源/讨论，一键插入正文
-- [x] **内容基准比较**：Dashboard 展示同类内容互动基准对比
-- [x] **发布时间优化**：编辑器中根据搜索数据推荐最佳发布时间
-- [x] **全部 6 个 IPC handler 注册通过**：`intelligence:*` 系列
-- [x] **content-intelligence.js 单元测试通过**：缓存/评分/6 新方法
+- [ ] Pending: 端到端测试（需真实账号凭证）
 
 ### v1.1.0 目标（Roadmap）
 
@@ -633,16 +493,6 @@ Task Queue → 各平台发布器 → 发布完成
 |------|------|------|
 | P0-P3 | 基础发布 + 任务队列 + 定时 + 统计 | ✅ |
 | **蚁小二集成** | 分屏/回调/扫码/OAuth/SQLite/批量/B站/URL采集/托盘/快捷键/多账号 | ✅ |
-| P1-M1~M5 | 用户体验：首次引导 + 告警 + i18n + 离线模式 | ✅ |
-| P1-M4 | 知乎 RPA 发布器 + 质量修复 | ✅ |
-| P1-M7 | Markdown 输入 + 各平台格式适配 | ✅ |
-| P1-M8 | 封面模板生成器 | ✅ |
-| **V1.0 发布** | 首版 Release、运营启动 | ✅ v1.0.0~v1.6.0 |
-| **设计体系落地** | 奶油·薰衣草设计系统 + 7组件 + ElementPlus移除 | ✅ v1.6.0 |
-| V1.1 平台验证 | 各平台 RPA 选择器实际页面验证 | ✅ v11-platform-verify |
-| V1.2 智能发布 | AI 标题优化 + 发布时机推荐 + 内容适配 | ⌛ 部分完成 |
-| V2.0 生态扩展 | API 开放平台 + 插件系统 + 团队协作 | ⏳ 规划中 |
-
-### 已知问题
-
-- [ ] 抖音发布选择器需实际页面验证（依赖真实抖音创作者后台）
+| **Phase C（代码质量）** | ESLint v9 flat config + Prettier，201 个问题修复 | ✅ Phase C3 |
+| **V1.0 发布** | 首版 Release、运营启动 | ⏳ 待进行 |
+| V1.1 格式适配 | Markdown → 各平台格式转换、封面
