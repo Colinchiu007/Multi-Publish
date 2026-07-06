@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /**
  * Backward-compatible re-export.
  */

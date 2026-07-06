@@ -72,7 +72,7 @@ function generate(metadata) {
 /**
  * 验证并解码兑换码
  * @param {string} code - 完整兑换码
- * @returns {{ valid: boolean, expired?: boolean, data?: Object }}
+ * @returns {{ valid: boolean, expired?: boolean, data?: Object, reason?: string }}
  */
 function validate(code) {
   if (!code || typeof code !== "string") {

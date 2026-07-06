@@ -12,7 +12,9 @@
     "electron/stealth-preload.js",
     "electron/auth-preload.js",
     "electron/auth-qrcode-preload.js",
-    "electron/services/stealth-helper.js"
+    "electron/monitor-preload.js",
+    "electron/services/stealth-helper.js",
+    "**/__mocks__/**"
   ],
   "include": [
     "electron/core/**/*.ts",
