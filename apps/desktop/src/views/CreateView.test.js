@@ -51,7 +51,7 @@ describe("CreateView", () => {
     });
     await nextTick();
     const tabs = w.findAll(".mode-tab");
-    expect(tabs.length).toBe(2);
+    expect(tabs.length).toBe(3);
     await tabs[1].trigger("click");
     await nextTick();
     expect(w.text()).toContain("上传图片");
