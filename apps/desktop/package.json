@@ -1,101 +1,101 @@
 {
-  "name": "@multi-publish/desktop",
-  "version": "2.0.0",
-  "description": "澶氬钩鍙板唴瀹逛竴閿彂甯冩闈㈠伐锟?(Electron + RpaViewManager)",
-  "author": "Colin Chiu <colin.chiu@colinchiu.com>",
-  "main": "electron/main.js",
-  "scripts": {
-    "dev:vue": "vite",
-    "dev:electron": "wait-on http://localhost:5174 && electron .",
-    "dev": "concurrently \"npm run dev:vue\" \"npm run dev:electron\"",
-    "build:vue": "vite build",
-    "build": "npm run build:vue && electron-builder",
-    "build:win": "npm run build:vue && electron-builder --win --x64",
-    "build:dir": "npm run build:vue && electron-builder --dir",
-    "preview": "vite preview",
-    "test": "tsc && jest --colors",
-    "test:vue": "vitest run",
-    "build:ts": "tsc",
-    "lint": "eslint electron/ src/ --no-ignore --max-warnings 300",
-    "lint:fix": "eslint electron/ src/ --no-ignore --fix --max-warnings 300",
-    "format": "prettier --check \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
-    "format:write": "prettier --write \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
-    "check:ts": "tsc -p tsconfig.check.json --noEmit",
-    "check:all": "npm run check:ts && npm run lint && npm run test:vue"
-  },
-  "keywords": [
-    "multi-publish",
-    "rpa",
-    "wechat"
-  ],
-  "license": "MIT",
-  "dependencies": {
-    "@element-plus/icons-vue": "^2.3.2",
-    "@multi-publish/shared-utils": "*",
-    "@vitejs/plugin-vue": "^5.2.0",
-    "@vueup/vue-quill": "^1.5.3",
-    "axios": "^1.9.0",
-    "electron-updater": "^6.8.9",
-    "element-plus": "^2.14.2",
-    "form-data": "^4.0.0",
-    "fuse.js": "^7.4.2",
-    "pinia": "^2.3.0",
-    "sql.js": "^1.11.0",
-    "vite": "^6.3.0",
-    "vue": "^3.5.0",
-    "vue-router": "^4.5.0"
-  },
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@vitest/coverage-v8": "^4.1.9",
-    "@vue/test-utils": "^2.4.11",
-    "concurrently": "^9.0.0",
-    "electron": "33.4.0",
-    "electron-builder": "^25.1.8",
-    "eslint": "^9.39.4",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-vue": "^10.9.2",
-    "globals": "^17.7.0",
-    "jest": "^30.4.2",
-    "jsdom": "^29.1.1",
-    "prettier": "^3.9.4",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9",
-    "wait-on": "^8.0.0"
-  },
-  "build": {
-    "appId": "com.colinchiu.multi-publish",
-    "productName": "Multi-Publish",
-    "directories": {
-      "output": "dist-electron"
-    },
-    "electronVersion": "33.4.0",
-    "npmRebuild": false,
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "config/**/*",
-      "node_modules/**/*",
-      "package.json"
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": null,
-      "sign": false,
-      "signAndEditExecutable": false,
-      "signDlls": false,
-      "requestedExecutionLevel": "asInvoker"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": true,
-      "artifactName": "${productName}.Setup.${version}.${ext}"
-    },
-    "publish": {
-      "provider": "github",
-      "owner": "Colinchiu007",
-      "repo": "Multi-Publish"
-    }
-  }
+    "name":  "@multi-publish/desktop",
+    "version":  "2.0.0",
+    "description":  "婢舵艾閽╅崣鏉垮敶鐎归€涚闁款喖褰傜敮鍐╊攽闂堛垹浼愰敓?(Electron + RpaViewManager)",
+    "author":  "Colin Chiu \u003ccolin.chiu@colinchiu.com\u003e",
+    "main":  "electron/main.js",
+    "scripts":  {
+                    "dev:vue":  "vite",
+                    "dev:electron":  "wait-on http://localhost:5174 \u0026\u0026 electron .",
+                    "dev":  "concurrently \"npm run dev:vue\" \"npm run dev:electron\"",
+                    "build:vue":  "vite build",
+                    "build":  "npm run build:vue \u0026\u0026 electron-builder",
+                    "build:win":  "npm run build:vue \u0026\u0026 electron-builder --win --x64",
+                    "build:dir":  "npm run build:vue \u0026\u0026 electron-builder --dir",
+                    "preview":  "vite preview",
+                    "test":  "tsc \u0026\u0026 jest --colors",
+                    "test:vue":  "vitest run",
+                    "build:ts":  "tsc",
+                    "lint":  "eslint electron/ src/ --no-ignore --max-warnings 300",
+                    "lint:fix":  "eslint electron/ src/ --no-ignore --fix --max-warnings 300",
+                    "format":  "prettier --check \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
+                    "format:write":  "prettier --write \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
+                    "check:ts":  "tsc -p tsconfig.check.json --noEmit",
+                    "check:all":  "npm run check:ts \u0026\u0026 npm run lint \u0026\u0026 npm run test:vue"
+                },
+    "keywords":  [
+                     "multi-publish",
+                     "rpa",
+                     "wechat"
+                 ],
+    "license":  "MIT",
+    "dependencies":  {
+                         "@element-plus/icons-vue":  "^2.3.2",
+                         "@multi-publish/shared-utils":  "*",
+                         "@vitejs/plugin-vue":  "^5.2.0",
+                         "@vueup/vue-quill":  "^1.5.3",
+                         "axios":  "^1.9.0",
+                         "electron-updater":  "^6.8.9",
+                         "element-plus":  "^2.14.2",
+                         "form-data":  "^4.0.0",
+                         "fuse.js":  "^7.4.2",
+                         "pinia":  "^2.3.0",
+                         "sql.js":  "^1.11.0",
+                         "vite":  "^6.3.0",
+                         "vue":  "^3.5.0",
+                         "vue-router":  "^4.5.0"
+                     },
+    "devDependencies":  {
+                            "@eslint/js":  "^10.0.1",
+                            "@vitest/coverage-v8":  "^4.1.9",
+                            "@vue/test-utils":  "^2.4.11",
+                            "concurrently":  "^9.0.0",
+                            "electron":  "33.4.0",
+                            "electron-builder":  "^25.1.8",
+                            "eslint":  "^9.39.4",
+                            "eslint-config-prettier":  "^10.1.8",
+                            "eslint-plugin-vue":  "^10.9.2",
+                            "globals":  "^17.7.0",
+                            "jest":  "^30.4.2",
+                            "jsdom":  "^29.1.1",
+                            "prettier":  "^3.9.4",
+                            "typescript":  "^6.0.3",
+                            "vitest":  "^4.1.9",
+                            "wait-on":  "^8.0.0"
+                        },
+    "build":  {
+                  "appId":  "com.colinchiu.multi-publish",
+                  "productName":  "Multi-Publish",
+                  "directories":  {
+                                      "output":  "dist-electron"
+                                  },
+                  "electronVersion":  "33.4.0",
+                  "npmRebuild":  false,
+                  "files":  [
+                                "dist/**/*",
+                                "electron/**/*",
+                                "config/**/*",
+                                "node_modules/**/*",
+                                "package.json"
+                            ],
+                  "win":  {
+                              "target":  "nsis",
+                              "icon":  null,
+                              "sign":  false,
+                              "signAndEditExecutable":  false,
+                              "signDlls":  false,
+                              "requestedExecutionLevel":  "asInvoker"
+                          },
+                  "nsis":  {
+                               "oneClick":  false,
+                               "allowToChangeInstallationDirectory":  true,
+                               "deleteAppDataOnUninstall":  true,
+                               "artifactName":  "${productName}.Setup.${version}.${ext}"
+                           },
+                  "publish":  {
+                                  "provider":  "github",
+                                  "owner":  "Colinchiu007",
+                                  "repo":  "Multi-Publish"
+                              }
+              }
 }

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * PublishAlert — 发布结果告警系统（改进版）
  *
