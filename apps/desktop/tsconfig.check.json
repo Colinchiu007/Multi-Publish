@@ -1,14 +1,15 @@
-﻿{
+{
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
     "declaration": false,
-    "checkJs": false
+    "checkJs": true, "strict": false
   },
+  "exclude": ["**/*.test.js"],
   "include": [
     "electron/core/**/*.ts",
     "electron/ipc-handlers/**/*.ts",
     "electron/services/**/*.ts",
-    "electron/services/**/*.js"
+    "electron/**/*.js"
   ]
 }
