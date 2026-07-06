@@ -145,6 +145,7 @@ class QueryWorker(ABC):
 
     # ========== 核心接口 ==========
 
+    @abstractmethod
     async def get_user_info(self) -> dict:
         """
         获取用户信息
@@ -152,8 +153,9 @@ class QueryWorker(ABC):
         Returns:
             { code, msg, yixiaoerId, yixiaoerName, yixiaoerImageUrl, ... }
         """
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     async def check_account_alive(self) -> int:
         """
         检查账号登录状态
@@ -161,8 +163,9 @@ class QueryWorker(ABC):
         Returns:
             0 = 有效, 1 = 已过期, -1 = 异常
         """
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     async def check_audit_status(
         self,
         publish_id: str,
@@ -180,8 +183,9 @@ class QueryWorker(ABC):
         Returns:
             AuditStatus
         """
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     async def delete_content(
         self,
         doc_id: str,
@@ -194,8 +198,9 @@ class QueryWorker(ABC):
         Returns:
             { code, msg }
         """
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     async def search_topic(
         self,
         keyword: str,
@@ -208,7 +213,7 @@ class QueryWorker(ABC):
         Returns:
             [TopicInfo, ...]
         """
-        raise NotImplementedError
+        ...
 
     # ========== 可选接口 ==========
 
