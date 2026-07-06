@@ -46,3 +46,17 @@
 |------|------|
 | 2026-07-05 | Phase 1 完成: error-codes.js 改为 wrapper，container.setup 已使用 TS Container，添加 build:ts |
 | 2026-07-05 | Phase 2 完成: 新增 ipc-handlers/types.ts + index.ts，19 个 handler 全部类型化 |
+
+### Phase 3: 业务服务（✅ 已完成）
+| 文件 | 状态 | 说明 |
+|------|------|------|
+| `tsconfig.check.json` | ✅ 新增 | JSDoc 渐进类型化专用配置，extends 主 tsconfig，checkJs:false + noEmit |
+| `logger.js` | ✅ `// @ts-check` | 完整 JSDoc 类型注解：LogLevel typedef + 函数签名 |
+| `store-interface.js` | ✅ `// @ts-check` | 修复 @param {any} + @returns 类型，修复 _customDbPath 动态属性 |
+| `cookie-converter.js` | ⏳ 待处理 | 已有 JSDoc 但 @param {object} 缺少索引签名，需后续统一修复 |
+| `check:ts` 脚本 | ✅ 新增 | `tsc -p tsconfig.check.json --noEmit`，已集成到 `check:all` |
+| `build:ts` | ✅ 验证 | 主 tsconfig 编译正常（core + ipc-handlers） |
+| `tsc --noEmit` | ✅ 验证 | TS 编译 + JSDoc 检查均通过 |
+
+**说明**: 采用 JSDoc 渐进模式（`checkJs:false` + `// @ts-check` 逐文件启用），
+不更改文件扩展名，不影响运行时。3 个已类型化文件通过 `npx tsc -p tsconfig.check.json --noEmit` 验证。
