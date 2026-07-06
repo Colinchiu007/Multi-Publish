@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 dist/
 dist-electron/
 .vite/
@@ -44,12 +44,7 @@ apps/desktop/tests/screenshot-home.png
 !.codex/skills/质量节拍/
 
 # Temp scripts & artifacts
-fix_*.py
 fix_*.js
-gen_*.py
-test_*.py
-python_decode.py
-temp_*.py
 
 # Test artifacts
 *.sched-*.json
@@ -72,3 +67,8 @@ temp_debug.txt
 coverage/
 # TypeScript compiled output
 dist-ts/
+
+# Temp scripts (specific files, not directories)
+temp_*.py
+fix_*.py
+gen_*.py
