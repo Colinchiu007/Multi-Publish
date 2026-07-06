@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * PublishImpactTracker — 发布后影响力追踪（方案 C）
  *

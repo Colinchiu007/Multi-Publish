@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * ContentAggregatorBridge — 内容采集桥接
  * 

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * RedemptionCodes — 兑换码生成/验证工具
  *

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * AI Writer IPC handlers
  * 桥接 AiWriter 模块到前端

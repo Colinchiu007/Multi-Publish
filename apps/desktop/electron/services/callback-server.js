@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * CallbackServer — 实时回调服务器
  *

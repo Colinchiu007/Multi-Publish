@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * OAuthManager — OAuth 2.0 认证管理器
  *

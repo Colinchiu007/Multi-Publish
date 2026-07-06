@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * OfflineManager — 离线模式管理器
  *

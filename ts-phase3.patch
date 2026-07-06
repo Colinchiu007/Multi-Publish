@@ -1,0 +1,683 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index fa3f79a..562026e 100755
+Binary files a/CHANGELOG.md and b/CHANGELOG.md differ
+diff --git a/apps/desktop/electron/core/container.js b/apps/desktop/electron/core/container.js
+index 61f4a9a..a634bd4 100644
+--- a/apps/desktop/electron/core/container.js
++++ b/apps/desktop/electron/core/container.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Container ? ????????
+  *
+diff --git a/apps/desktop/electron/core/container.setup.js b/apps/desktop/electron/core/container.setup.js
+index bc2f6f6..7cf8f25 100644
+--- a/apps/desktop/electron/core/container.setup.js
++++ b/apps/desktop/electron/core/container.setup.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Container setup — 集中注册所有 Electron 主进程服务
+  * 可作为逐步替换 main.js 直接 new 的中间步骤
+diff --git a/apps/desktop/electron/core/error-codes.js b/apps/desktop/electron/core/error-codes.js
+index 122e19a..259b373 100644
+--- a/apps/desktop/electron/core/error-codes.js
++++ b/apps/desktop/electron/core/error-codes.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ ﻿'use strict';
+ 
+ /**
+diff --git a/apps/desktop/electron/ipc-handlers/account.js b/apps/desktop/electron/ipc-handlers/account.js
+index 0eb6890..d701d94 100755
+--- a/apps/desktop/electron/ipc-handlers/account.js
++++ b/apps/desktop/electron/ipc-handlers/account.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   const { authViewManager, pythonBridge, AccountManager, BACKEND_PLATFORMS, log, BrowserWindow } = deps
+ 
+diff --git a/apps/desktop/electron/ipc-handlers/ai.js b/apps/desktop/electron/ipc-handlers/ai.js
+index 1d8d16b..9a1589e 100644
+--- a/apps/desktop/electron/ipc-handlers/ai.js
++++ b/apps/desktop/electron/ipc-handlers/ai.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * AI Writer IPC handlers
+  * 桥接 AiWriter 模块到前端
+diff --git a/apps/desktop/electron/ipc-handlers/analytics.js b/apps/desktop/electron/ipc-handlers/analytics.js
+index df36c0f..6230893 100755
+--- a/apps/desktop/electron/ipc-handlers/analytics.js
++++ b/apps/desktop/electron/ipc-handlers/analytics.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   const { analyticsService, store } = deps
+ 
+diff --git a/apps/desktop/electron/ipc-handlers/index.js b/apps/desktop/electron/ipc-handlers/index.js
+index ea35092..199f645 100755
+--- a/apps/desktop/electron/ipc-handlers/index.js
++++ b/apps/desktop/electron/ipc-handlers/index.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * IPC handlers 注册中心
+  * 将所有 ipcMain.handle 调用从 main.js 拆分到独立模块
+diff --git a/apps/desktop/electron/ipc-handlers/keyword.js b/apps/desktop/electron/ipc-handlers/keyword.js
+index 3964505..675d304 100755
+--- a/apps/desktop/electron/ipc-handlers/keyword.js
++++ b/apps/desktop/electron/ipc-handlers/keyword.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   const { keywordMonitor } = deps
+ 
+diff --git a/apps/desktop/electron/ipc-handlers/license.js b/apps/desktop/electron/ipc-handlers/license.js
+index 63be860..a6a0a7e 100644
+--- a/apps/desktop/electron/ipc-handlers/license.js
++++ b/apps/desktop/electron/ipc-handlers/license.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * License IPC handlers
+  * License/Pro features management
+diff --git a/apps/desktop/electron/ipc-handlers/misc.js b/apps/desktop/electron/ipc-handlers/misc.js
+index 94e3bbf..ed6981e 100755
+--- a/apps/desktop/electron/ipc-handlers/misc.js
++++ b/apps/desktop/electron/ipc-handlers/misc.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   // eslint-disable-next-line no-unused-vars
+   const { app, hotkeys, firstRun, BrowserWindow, log } = deps
+diff --git a/apps/desktop/electron/ipc-handlers/offline.js b/apps/desktop/electron/ipc-handlers/offline.js
+index 649ca6f..3120a91 100644
+--- a/apps/desktop/electron/ipc-handlers/offline.js
++++ b/apps/desktop/electron/ipc-handlers/offline.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Offline IPC handlers
+  */
+diff --git a/apps/desktop/electron/ipc-handlers/payment.js b/apps/desktop/electron/ipc-handlers/payment.js
+index 721768a..32a5809 100644
+--- a/apps/desktop/electron/ipc-handlers/payment.js
++++ b/apps/desktop/electron/ipc-handlers/payment.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /** 
+  * Payment IPC handlers
+  * payment:create-order → 创建订单
+diff --git a/apps/desktop/electron/ipc-handlers/platform.js b/apps/desktop/electron/ipc-handlers/platform.js
+index ce8fa60..735a529 100755
+--- a/apps/desktop/electron/ipc-handlers/platform.js
++++ b/apps/desktop/electron/ipc-handlers/platform.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ const definitions = require('@multi-publish/shared-utils/src/platform-definitions')
+ 
+ function registerHandlers(ipcMain, deps) {
+diff --git a/apps/desktop/electron/ipc-handlers/proxy.js b/apps/desktop/electron/ipc-handlers/proxy.js
+index 6d84c9e..152928a 100755
+--- a/apps/desktop/electron/ipc-handlers/proxy.js
++++ b/apps/desktop/electron/ipc-handlers/proxy.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   const { proxyPool } = deps
+ 
+diff --git a/apps/desktop/electron/ipc-handlers/publish.js b/apps/desktop/electron/ipc-handlers/publish.js
+index b544c40..ad58f15 100755
+--- a/apps/desktop/electron/ipc-handlers/publish.js
++++ b/apps/desktop/electron/ipc-handlers/publish.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * 发布 & 队列 & 历史 IPC handlers
+  * publish:wechat → 微信发布
+diff --git a/apps/desktop/electron/ipc-handlers/render.js b/apps/desktop/electron/ipc-handlers/render.js
+index 9f2e6a0..e4c9dfb 100644
+--- a/apps/desktop/electron/ipc-handlers/render.js
++++ b/apps/desktop/electron/ipc-handlers/render.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * 渲染 IPC handlers
+  */
+diff --git a/apps/desktop/electron/ipc-handlers/scheduler.js b/apps/desktop/electron/ipc-handlers/scheduler.js
+index e509bb4..913a757 100755
+--- a/apps/desktop/electron/ipc-handlers/scheduler.js
++++ b/apps/desktop/electron/ipc-handlers/scheduler.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   const { scheduler } = deps
+ 
+diff --git a/apps/desktop/electron/ipc-handlers/sensitive.js b/apps/desktop/electron/ipc-handlers/sensitive.js
+index 980e599..767932a 100755
+--- a/apps/desktop/electron/ipc-handlers/sensitive.js
++++ b/apps/desktop/electron/ipc-handlers/sensitive.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   const { _sensitiveFilter } = deps
+ 
+diff --git a/apps/desktop/electron/ipc-handlers/store.js b/apps/desktop/electron/ipc-handlers/store.js
+index 13fba6f..9161a2c 100755
+--- a/apps/desktop/electron/ipc-handlers/store.js
++++ b/apps/desktop/electron/ipc-handlers/store.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   const { store } = deps
+ 
+diff --git a/apps/desktop/electron/ipc-handlers/sync.js b/apps/desktop/electron/ipc-handlers/sync.js
+index ad3fedc..1801c50 100755
+--- a/apps/desktop/electron/ipc-handlers/sync.js
++++ b/apps/desktop/electron/ipc-handlers/sync.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   const { _dataSync } = deps
+ 
+diff --git a/apps/desktop/electron/ipc-handlers/templates.js b/apps/desktop/electron/ipc-handlers/templates.js
+index ad31cfa..f5f318f 100644
+--- a/apps/desktop/electron/ipc-handlers/templates.js
++++ b/apps/desktop/electron/ipc-handlers/templates.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Template IPC handlers
+  * CRUD for content templates via TemplateManager
+diff --git a/apps/desktop/electron/ipc-handlers/update.js b/apps/desktop/electron/ipc-handlers/update.js
+index 8eb9a03..2e9a331 100755
+--- a/apps/desktop/electron/ipc-handlers/update.js
++++ b/apps/desktop/electron/ipc-handlers/update.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   const { autoUpdater } = deps
+ 
+diff --git a/apps/desktop/electron/ipc-handlers/upload.js b/apps/desktop/electron/ipc-handlers/upload.js
+index 7a5fd47..609b7d6 100755
+--- a/apps/desktop/electron/ipc-handlers/upload.js
++++ b/apps/desktop/electron/ipc-handlers/upload.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ function registerHandlers(ipcMain, deps) {
+   const { _chunkedUploader } = deps
+ 
+diff --git a/apps/desktop/electron/publishers/account-manager.js b/apps/desktop/electron/publishers/account-manager.js
+index 98d1004..e38edb8 100755
+--- a/apps/desktop/electron/publishers/account-manager.js
++++ b/apps/desktop/electron/publishers/account-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * 账号管理器
+  * 负责通过 Playwright 捕获平台 Cookie，并通过 Python API 持久化
+diff --git a/apps/desktop/electron/publishers/playwright-manager.js b/apps/desktop/electron/publishers/playwright-manager.js
+index b3e7d05..e3ce608 100644
+--- a/apps/desktop/electron/publishers/playwright-manager.js
++++ b/apps/desktop/electron/publishers/playwright-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ ﻿/**
+  * Backward-compatible re-export.
+  */
+diff --git a/apps/desktop/electron/services/account-state-restorer.js b/apps/desktop/electron/services/account-state-restorer.js
+index a520eba..cee3b6d 100644
+--- a/apps/desktop/electron/services/account-state-restorer.js
++++ b/apps/desktop/electron/services/account-state-restorer.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * AccountStateRestorer — 账号登录状态恢复
+  * 
+diff --git a/apps/desktop/electron/services/ai-writer.js b/apps/desktop/electron/services/ai-writer.js
+index a6914bd..86a5fb1 100644
+--- a/apps/desktop/electron/services/ai-writer.js
++++ b/apps/desktop/electron/services/ai-writer.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /** 
+  * AiWriter — AI 辅助写作模块
+  *
+diff --git a/apps/desktop/electron/services/analytics-providers.js b/apps/desktop/electron/services/analytics-providers.js
+index 2331770..a26e6dd 100644
+--- a/apps/desktop/electron/services/analytics-providers.js
++++ b/apps/desktop/electron/services/analytics-providers.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * analytics-providers.js — AnalyticsService 平台数据提供者
+  *
+diff --git a/apps/desktop/electron/services/api-platform-adapter.js b/apps/desktop/electron/services/api-platform-adapter.js
+index 4b64c86..115d1e2 100644
+--- a/apps/desktop/electron/services/api-platform-adapter.js
++++ b/apps/desktop/electron/services/api-platform-adapter.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * APIPlatformAdapter ? API ???????
+  *
+diff --git a/apps/desktop/electron/services/auth-view-cdp.js b/apps/desktop/electron/services/auth-view-cdp.js
+index e108b92..34c414e 100644
+--- a/apps/desktop/electron/services/auth-view-cdp.js
++++ b/apps/desktop/electron/services/auth-view-cdp.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * AuthView CDP 鈥?WebContentsView 璋冭瘯鍣ㄦ娴嬫ā鍧? */
+ 
+diff --git a/apps/desktop/electron/services/auth-view-manager.js b/apps/desktop/electron/services/auth-view-manager.js
+index bca456d..9ae4c5d 100644
+--- a/apps/desktop/electron/services/auth-view-manager.js
++++ b/apps/desktop/electron/services/auth-view-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * AuthViewManager — WebContentsView 内嵌浏览器登录管理器
+  *
+diff --git a/apps/desktop/electron/services/auth-view-session.js b/apps/desktop/electron/services/auth-view-session.js
+index 7f5d4b7..e5e73dd 100644
+--- a/apps/desktop/electron/services/auth-view-session.js
++++ b/apps/desktop/electron/services/auth-view-session.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * AuthView Session — 登录 Session / Cookie 管理
+  *
+diff --git a/apps/desktop/electron/services/auto-updater.js b/apps/desktop/electron/services/auto-updater.js
+index dcce270..64e773b 100644
+--- a/apps/desktop/electron/services/auto-updater.js
++++ b/apps/desktop/electron/services/auto-updater.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Auto-updater — 自动更新
+  * 使用 electron-updater 检查并安装 GitHub Release 更新
+diff --git a/apps/desktop/electron/services/batch-manager.js b/apps/desktop/electron/services/batch-manager.js
+index 6e58a74..7e965f3 100644
+--- a/apps/desktop/electron/services/batch-manager.js
++++ b/apps/desktop/electron/services/batch-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * BatchManager — 批量发布管理器
+  *
+diff --git a/apps/desktop/electron/services/callback-server.js b/apps/desktop/electron/services/callback-server.js
+index fcb28b3..903058d 100644
+--- a/apps/desktop/electron/services/callback-server.js
++++ b/apps/desktop/electron/services/callback-server.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * CallbackServer — 实时回调服务器
+  *
+diff --git a/apps/desktop/electron/services/cloud-publisher.js b/apps/desktop/electron/services/cloud-publisher.js
+index f8631dd..bf7ea5f 100644
+--- a/apps/desktop/electron/services/cloud-publisher.js
++++ b/apps/desktop/electron/services/cloud-publisher.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * CloudPublisher — Orchestrator HTTP client for cloud-based publishing (F13)
+  *
+diff --git a/apps/desktop/electron/services/content-aggregator-bridge.js b/apps/desktop/electron/services/content-aggregator-bridge.js
+index e98dc27..9ba42a3 100644
+--- a/apps/desktop/electron/services/content-aggregator-bridge.js
++++ b/apps/desktop/electron/services/content-aggregator-bridge.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * ContentAggregatorBridge — 内容采集桥接
+  * 
+diff --git a/apps/desktop/electron/services/content-intelligence-utils.js b/apps/desktop/electron/services/content-intelligence-utils.js
+index b5cd435..b6d3bae 100644
+--- a/apps/desktop/electron/services/content-intelligence-utils.js
++++ b/apps/desktop/electron/services/content-intelligence-utils.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ ﻿/**
+  * content-intelligence-utils — 内容情报纯计算函数
+  * 从 content-intelligence.js 提取，纯逻辑可测试。
+diff --git a/apps/desktop/electron/services/content-intelligence.js b/apps/desktop/electron/services/content-intelligence.js
+index 49da416..ae392b3 100644
+--- a/apps/desktop/electron/services/content-intelligence.js
++++ b/apps/desktop/electron/services/content-intelligence.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Content Intelligence — 跨平台内容情报引擎
+  *
+diff --git a/apps/desktop/electron/services/credential-store.js b/apps/desktop/electron/services/credential-store.js
+index 3828810..c91b1bf 100644
+--- a/apps/desktop/electron/services/credential-store.js
++++ b/apps/desktop/electron/services/credential-store.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * CredentialStore — 凭证双层存储
+  * 
+diff --git a/apps/desktop/electron/services/error-codes.js b/apps/desktop/electron/services/error-codes.js
+index 1fe7a71..3d91ea1 100644
+--- a/apps/desktop/electron/services/error-codes.js
++++ b/apps/desktop/electron/services/error-codes.js
+@@ -1,6 +1,7 @@
++// @ts-check
+ /**
+- * Error codes - ͨ�� core/error-codes ͳһ�ṩ
+- * Layer 2: Services �� ���� Layer 1 Core
++ * Error codes - ͨ�� core/error-codes ͳһ�ṩ
++ * Layer 2: Services �� ���� Layer 1 Core
+  */
+ const core = require('../core/error-codes')
+ module.exports = { ERROR: core.ERROR, getMessage: core.getMessage }
+diff --git a/apps/desktop/electron/services/first-run.js b/apps/desktop/electron/services/first-run.js
+index a69130b..f04ef55 100644
+--- a/apps/desktop/electron/services/first-run.js
++++ b/apps/desktop/electron/services/first-run.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * 首次运行引导
+  *
+diff --git a/apps/desktop/electron/services/flutter-skill-bridge.js b/apps/desktop/electron/services/flutter-skill-bridge.js
+index 3bd5da4..b3048ae 100644
+--- a/apps/desktop/electron/services/flutter-skill-bridge.js
++++ b/apps/desktop/electron/services/flutter-skill-bridge.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * flutter-skill-bridge.js — AI E2E testing bridge integration
+  *
+diff --git a/apps/desktop/electron/services/keyword-monitor.js b/apps/desktop/electron/services/keyword-monitor.js
+index 6f42233..238a504 100644
+--- a/apps/desktop/electron/services/keyword-monitor.js
++++ b/apps/desktop/electron/services/keyword-monitor.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * KeywordMonitor — 关键词背景监测（方案 D.6）
+  *
+diff --git a/apps/desktop/electron/services/license-manager.js b/apps/desktop/electron/services/license-manager.js
+index 8591db9..682ff77 100644
+--- a/apps/desktop/electron/services/license-manager.js
++++ b/apps/desktop/electron/services/license-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * LicenseManager — 许可证管理器
+  *
+diff --git a/apps/desktop/electron/services/oauth-manager.js b/apps/desktop/electron/services/oauth-manager.js
+index cd50318..759d147 100644
+--- a/apps/desktop/electron/services/oauth-manager.js
++++ b/apps/desktop/electron/services/oauth-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * OAuthManager — OAuth 2.0 认证管理器
+  *
+diff --git a/apps/desktop/electron/services/offline-manager.js b/apps/desktop/electron/services/offline-manager.js
+index a86c093..b92a103 100644
+--- a/apps/desktop/electron/services/offline-manager.js
++++ b/apps/desktop/electron/services/offline-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * OfflineManager — 离线模式管理器
+  *
+diff --git a/apps/desktop/electron/services/onboarding.js b/apps/desktop/electron/services/onboarding.js
+index 64960aa..b8edc5a 100644
+--- a/apps/desktop/electron/services/onboarding.js
++++ b/apps/desktop/electron/services/onboarding.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Onboarding — 首次启动引导管理器
+  *
+diff --git a/apps/desktop/electron/services/p1-integration.js b/apps/desktop/electron/services/p1-integration.js
+index 99ba3af..fa47605 100644
+--- a/apps/desktop/electron/services/p1-integration.js
++++ b/apps/desktop/electron/services/p1-integration.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ // Onboarding and Publish Alert integration
+ const onboarding = require('./onboarding')
+ const { ipcMain } = require('electron')
+diff --git a/apps/desktop/electron/services/payment-manager.js b/apps/desktop/electron/services/payment-manager.js
+index 4ce28c7..87da93f 100644
+--- a/apps/desktop/electron/services/payment-manager.js
++++ b/apps/desktop/electron/services/payment-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /** 
+  * PaymentManager — 支付管理器
+  *
+diff --git a/apps/desktop/electron/services/playwright-manager.js b/apps/desktop/electron/services/playwright-manager.js
+index 9b4e251..b88ff4f 100644
+--- a/apps/desktop/electron/services/playwright-manager.js
++++ b/apps/desktop/electron/services/playwright-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Playwright 兼容层（Electron 原生替代）
+  *
+diff --git a/apps/desktop/electron/services/provider-manager.js b/apps/desktop/electron/services/provider-manager.js
+index c95f73c..f746b4c 100644
+--- a/apps/desktop/electron/services/provider-manager.js
++++ b/apps/desktop/electron/services/provider-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Provider Manager — LLM Provider 配置管理 (Electron 主进程模块)
+  *
+diff --git a/apps/desktop/electron/services/publish-history.js b/apps/desktop/electron/services/publish-history.js
+index 10e0074..e0aa6ac 100644
+--- a/apps/desktop/electron/services/publish-history.js
++++ b/apps/desktop/electron/services/publish-history.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * 发布历史 — 持久化每次发布记录
+  * 使用 JSONL 文件存储，无需额外数据库
+diff --git a/apps/desktop/electron/services/publish-impact-tracker.js b/apps/desktop/electron/services/publish-impact-tracker.js
+index e18b71e..14fd71f 100644
+--- a/apps/desktop/electron/services/publish-impact-tracker.js
++++ b/apps/desktop/electron/services/publish-impact-tracker.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * PublishImpactTracker — 发布后影响力追踪（方案 C）
+  *
+diff --git a/apps/desktop/electron/services/publish-monitor.js b/apps/desktop/electron/services/publish-monitor.js
+index c88c13f..49a6fd7 100644
+--- a/apps/desktop/electron/services/publish-monitor.js
++++ b/apps/desktop/electron/services/publish-monitor.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * PublishMonitor — 发布后状态监控
+  * 
+diff --git a/apps/desktop/electron/services/publish-poller.js b/apps/desktop/electron/services/publish-poller.js
+index 137f0dc..e6befbb 100644
+--- a/apps/desktop/electron/services/publish-poller.js
++++ b/apps/desktop/electron/services/publish-poller.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * PublishPoller — orchestrator-driven publish poller (Plan B)
+  *
+diff --git a/apps/desktop/electron/services/python-bridge.js b/apps/desktop/electron/services/python-bridge.js
+index 2b9780e..0105c6a 100644
+--- a/apps/desktop/electron/services/python-bridge.js
++++ b/apps/desktop/electron/services/python-bridge.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Python 后端子进程管理
+  * Electron 主进程启动/停止 Python FastAPI 服务
+diff --git a/apps/desktop/electron/services/qrcode-login.js b/apps/desktop/electron/services/qrcode-login.js
+index f59ea0d..cf15980 100644
+--- a/apps/desktop/electron/services/qrcode-login.js
++++ b/apps/desktop/electron/services/qrcode-login.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * QrCodeLogin — 二维码扫码登录管理器
+  *
+diff --git a/apps/desktop/electron/services/redemption-codes.js b/apps/desktop/electron/services/redemption-codes.js
+index 140263b..3fa49d2 100644
+--- a/apps/desktop/electron/services/redemption-codes.js
++++ b/apps/desktop/electron/services/redemption-codes.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * RedemptionCodes — 兑换码生成/验证工具
+  *
+diff --git a/apps/desktop/electron/services/render-engine.js b/apps/desktop/electron/services/render-engine.js
+index 1f5b2ac..43669c1 100644
+--- a/apps/desktop/electron/services/render-engine.js
++++ b/apps/desktop/electron/services/render-engine.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * RenderEngine — Electron 主进程模块
+  * 管理 Remotion 子进程：启动、进度解析、取消
+diff --git a/apps/desktop/electron/services/rpa-field-retry.js b/apps/desktop/electron/services/rpa-field-retry.js
+index 82ffe32..4d958ca 100644
+--- a/apps/desktop/electron/services/rpa-field-retry.js
++++ b/apps/desktop/electron/services/rpa-field-retry.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ ﻿/**
+  * FieldRetryState — 字段重试状态追踪
+  * 从 rpa-view-manager.js 提取，纯逻辑可测试。
+diff --git a/apps/desktop/electron/services/rpa-progress-throttle.js b/apps/desktop/electron/services/rpa-progress-throttle.js
+index d31f37a..d9d170b 100644
+--- a/apps/desktop/electron/services/rpa-progress-throttle.js
++++ b/apps/desktop/electron/services/rpa-progress-throttle.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ ﻿/**
+  * ProgressThrottle — 发布进度节流
+  * 从 rpa-view-manager.js 提取，纯逻辑可测试。
+diff --git a/apps/desktop/electron/services/rpa-view-manager.js b/apps/desktop/electron/services/rpa-view-manager.js
+index e676af0..b288b4b 100644
+--- a/apps/desktop/electron/services/rpa-view-manager.js
++++ b/apps/desktop/electron/services/rpa-view-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ ﻿/**
+  * RpaViewManager -- executeJavaScript RPA engine
+  *
+diff --git a/apps/desktop/electron/services/scheduler.js b/apps/desktop/electron/services/scheduler.js
+index 3cd1b98..cbaeb5b 100644
+--- a/apps/desktop/electron/services/scheduler.js
++++ b/apps/desktop/electron/services/scheduler.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Scheduler — 定时发布
+  * 持久化存储定时任务，到点自动提交到任务队列
+diff --git a/apps/desktop/electron/services/sqlite-wrapper.js b/apps/desktop/electron/services/sqlite-wrapper.js
+index 983bc41..afbfc63 100644
+--- a/apps/desktop/electron/services/sqlite-wrapper.js
++++ b/apps/desktop/electron/services/sqlite-wrapper.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * SQLite Wrapper — 兼容 better-sqlite3 API 的纯 JS 实现
+  *
+diff --git a/apps/desktop/electron/services/stealth-helper.js b/apps/desktop/electron/services/stealth-helper.js
+index 12bb5c7..52e0b59 100644
+--- a/apps/desktop/electron/services/stealth-helper.js
++++ b/apps/desktop/electron/services/stealth-helper.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * StealthHelper — 反浏览器指纹检测辅助
+  *
+diff --git a/apps/desktop/electron/services/store-schema.js b/apps/desktop/electron/services/store-schema.js
+index 4d20f5a..1dc8c3f 100644
+--- a/apps/desktop/electron/services/store-schema.js
++++ b/apps/desktop/electron/services/store-schema.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ ﻿/**
+  * store-schema — Store 的 SQL schema 定义 + 帮助函数
+  * 从 store.js 提取，可独立测试。
+diff --git a/apps/desktop/electron/services/store.js b/apps/desktop/electron/services/store.js
+index 3d9d4e8..ddf2c31 100644
+--- a/apps/desktop/electron/services/store.js
++++ b/apps/desktop/electron/services/store.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Store �?统一数据存储（SQLite, sql.js via sqlite-wrapper�? *
+  * 替代零散 JSONL 文件，统一管理�? *   - accounts    账号信息（Cookie/localStorage/账号名）
+diff --git a/apps/desktop/electron/services/system-tray.js b/apps/desktop/electron/services/system-tray.js
+index 310b0ea..8358a7f 100644
+--- a/apps/desktop/electron/services/system-tray.js
++++ b/apps/desktop/electron/services/system-tray.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * SystemTray — 系统托盘管理
+  * 
+diff --git a/apps/desktop/electron/services/task-queue.js b/apps/desktop/electron/services/task-queue.js
+index 83a368a..7d64363 100644
+--- a/apps/desktop/electron/services/task-queue.js
++++ b/apps/desktop/electron/services/task-queue.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Task Queue - re-export from @multi-publish/shared-utils
+  */
+diff --git a/apps/desktop/electron/services/template-manager.js b/apps/desktop/electron/services/template-manager.js
+index 47d94b8..2fe0d3c 100644
+--- a/apps/desktop/electron/services/template-manager.js
++++ b/apps/desktop/electron/services/template-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * TemplateManager - Content Template Manager
+  *
+diff --git a/apps/desktop/electron/services/url-collector.js b/apps/desktop/electron/services/url-collector.js
+index 773f4b7..ed6d808 100644
+--- a/apps/desktop/electron/services/url-collector.js
++++ b/apps/desktop/electron/services/url-collector.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * URL Collector — URL 内容采集引擎
+  *
+diff --git a/apps/desktop/electron/services/usage-tracker.js b/apps/desktop/electron/services/usage-tracker.js
+index a6cb15d..1e5b7ff 100644
+--- a/apps/desktop/electron/services/usage-tracker.js
++++ b/apps/desktop/electron/services/usage-tracker.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * UsageTracker — 桌面端使用量统计模块
+  *
+diff --git a/apps/desktop/electron/services/viral-engine.js b/apps/desktop/electron/services/viral-engine.js
+index 82991da..9f7c5ea 100644
+--- a/apps/desktop/electron/services/viral-engine.js
++++ b/apps/desktop/electron/services/viral-engine.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * Viral Engine — 爆款分析引擎 (Electron 主进程模块)
+  *
+diff --git a/apps/desktop/electron/services/webview-manager.js b/apps/desktop/electron/services/webview-manager.js
+index b9c8a1b..29be632 100644
+--- a/apps/desktop/electron/services/webview-manager.js
++++ b/apps/desktop/electron/services/webview-manager.js
+@@ -1,3 +1,4 @@
++// @ts-check
+ /**
+  * WebviewManager — 分屏监控管理器
+  *

@@ -1,3 +1,4 @@
+// @ts-check
 function registerHandlers(ipcMain, deps) {
   const { authViewManager, pythonBridge, AccountManager, BACKEND_PLATFORMS, log, BrowserWindow } = deps
 

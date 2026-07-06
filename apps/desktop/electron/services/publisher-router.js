@@ -129,7 +129,7 @@ class PublisherRouter {
    */
   getRoute (platform) {
     const cfg = this._platformConfig.getPlatform(platform)
-    if (!cfg) throw new Error("Platform not configured: " + platform)
+    if (!cfg) throw new Error("平台未配置: " + platform)
 
     const route = this._routeTable[platform]
     if (!route) throw new Error('Platform ' + platform + ' no route defined, please add in ROUTE_TABLE')

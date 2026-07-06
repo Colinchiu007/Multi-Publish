@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * AccountStateRestorer — 账号登录状态恢复
  * 

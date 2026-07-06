@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Python 后端子进程管理
  * Electron 主进程启动/停止 Python FastAPI 服务

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * PublishMonitor — 发布后状态监控
  * 

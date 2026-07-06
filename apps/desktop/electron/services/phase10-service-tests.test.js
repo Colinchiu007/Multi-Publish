@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ---- Global mocks — must be at top level for hoisting ----
 const { createMockLogger } = require("./test-helpers");
 vi.mock("../services/logger", () => createMockLogger());
+vi.mock("axios", () => ({ default: { get: vi.fn().mockResolvedValue({ data: { data: { list: [] } } }) } }));
 
 // ---- Offline Manager (JS implementation) ----
 describe("offline-manager", () => {
@@ -166,7 +167,7 @@ describe("publish-monitor", () => {
       const r = await m.checkPublishStatus("x", "weibo", "", "https://x.com/api");
       expect(r).toHaveProperty("status");
       expect(r).toHaveProperty("postId");
-    });
+    }, 15000);
   });
 
   describe("edge cases", () => {

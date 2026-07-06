@@ -1,3 +1,4 @@
+// @ts-check
 ﻿/**
  * FieldRetryState — 字段重试状态追踪
  * 从 rpa-view-manager.js 提取，纯逻辑可测试。

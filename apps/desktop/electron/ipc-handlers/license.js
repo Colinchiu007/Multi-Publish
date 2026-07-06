@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * License IPC handlers
  * License/Pro features management

@@ -1,3 +1,4 @@
+// @ts-check
 ﻿/**
  * RpaViewManager -- executeJavaScript RPA engine
  *

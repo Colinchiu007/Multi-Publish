@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Task Queue - re-export from @multi-publish/shared-utils
  */

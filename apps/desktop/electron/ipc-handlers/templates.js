@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Template IPC handlers
  * CRUD for content templates via TemplateManager

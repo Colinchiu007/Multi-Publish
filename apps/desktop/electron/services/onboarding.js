@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Onboarding — 首次启动引导管理器
  *

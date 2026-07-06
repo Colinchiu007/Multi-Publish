@@ -52,7 +52,7 @@ describe("PublisherRouter", () => {
     });
     it("throws for unconfigured platform", () => {
       const r = new PublisherRouter();
-      expect(() => r.getRoute("unknown")).toThrow("平台未配置");
+      expect(() => r.getRoute("unknown")).toThrow("平台未配置: ");
     });
     it("throws for platform not in route table", () => {
       const r = new PublisherRouter();

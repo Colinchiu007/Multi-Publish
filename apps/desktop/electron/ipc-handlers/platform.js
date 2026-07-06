@@ -1,3 +1,4 @@
+// @ts-check
 const definitions = require('@multi-publish/shared-utils/src/platform-definitions')
 
 function registerHandlers(ipcMain, deps) {

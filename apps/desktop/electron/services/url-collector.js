@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * URL Collector — URL 内容采集引擎
  *

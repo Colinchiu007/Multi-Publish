@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * IPC handlers 注册中心
  * 将所有 ipcMain.handle 调用从 main.js 拆分到独立模块

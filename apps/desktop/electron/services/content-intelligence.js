@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Content Intelligence — 跨平台内容情报引擎
  *

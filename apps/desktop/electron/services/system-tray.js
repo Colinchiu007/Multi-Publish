@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * SystemTray — 系统托盘管理
  * 

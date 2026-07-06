@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * AuthView Session — 登录 Session / Cookie 管理
  *

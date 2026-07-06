@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Auto-updater — 自动更新
  * 使用 electron-updater 检查并安装 GitHub Release 更新

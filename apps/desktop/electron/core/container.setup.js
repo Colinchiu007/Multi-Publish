@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Container setup — 集中注册所有 Electron 主进程服务
  * 可作为逐步替换 main.js 直接 new 的中间步骤

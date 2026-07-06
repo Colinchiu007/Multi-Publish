@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * TemplateManager - Content Template Manager
  *

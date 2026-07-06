@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * AuthView CDP 鈥?WebContentsView 璋冭瘯鍣ㄦ娴嬫ā鍧? */
 

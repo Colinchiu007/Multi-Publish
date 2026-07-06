@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * BatchManager — 批量发布管理器
  *

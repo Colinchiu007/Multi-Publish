@@ -1,3 +1,4 @@
+// @ts-check
 /** 
  * AiWriter — AI 辅助写作模块
  *

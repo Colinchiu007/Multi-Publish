@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Provider Manager — LLM Provider 配置管理 (Electron 主进程模块)
  *

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * UsageTracker — 桌面端使用量统计模块
  *

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 账号管理器
  * 负责通过 Playwright 捕获平台 Cookie，并通过 Python API 持久化

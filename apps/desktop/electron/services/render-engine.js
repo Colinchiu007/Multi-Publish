@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * RenderEngine — Electron 主进程模块
  * 管理 Remotion 子进程：启动、进度解析、取消

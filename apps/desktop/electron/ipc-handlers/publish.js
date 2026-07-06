@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 发布 & 队列 & 历史 IPC handlers
  * publish:wechat → 微信发布

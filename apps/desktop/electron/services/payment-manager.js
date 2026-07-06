@@ -1,3 +1,4 @@
+// @ts-check
 /** 
  * PaymentManager — 支付管理器
  *

@@ -1,3 +1,4 @@
+// @ts-check
 /** 
  * Payment IPC handlers
  * payment:create-order → 创建订单

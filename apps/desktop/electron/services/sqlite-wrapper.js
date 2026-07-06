@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * SQLite Wrapper — 兼容 better-sqlite3 API 的纯 JS 实现
  *

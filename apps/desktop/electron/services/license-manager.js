@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * LicenseManager — 许可证管理器
  *

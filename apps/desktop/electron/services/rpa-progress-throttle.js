@@ -1,3 +1,4 @@
+// @ts-check
 ﻿/**
  * ProgressThrottle — 发布进度节流
  * 从 rpa-view-manager.js 提取，纯逻辑可测试。

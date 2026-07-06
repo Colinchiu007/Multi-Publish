@@ -1,3 +1,4 @@
+// @ts-check
 function registerHandlers(ipcMain, deps) {
   const { proxyPool } = deps
 

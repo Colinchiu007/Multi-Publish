@@ -1,6 +1,7 @@
+// @ts-check
 /**
- * Error codes - 通过 core/error-codes 统一提供
- * Layer 2: Services — 依赖 Layer 1 Core
+ * Error codes - 通锟斤拷 core/error-codes 统一锟结供
+ * Layer 2: Services 锟斤拷 锟斤拷锟斤拷 Layer 1 Core
  */
 const core = require('../core/error-codes')
 module.exports = { ERROR: core.ERROR, getMessage: core.getMessage }

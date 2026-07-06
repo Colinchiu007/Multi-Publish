@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Viral Engine — 爆款分析引擎 (Electron 主进程模块)
  *

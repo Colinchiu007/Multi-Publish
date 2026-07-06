@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * AuthViewManager — WebContentsView 内嵌浏览器登录管理器
  *

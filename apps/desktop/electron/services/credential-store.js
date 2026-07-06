@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * CredentialStore — 凭证双层存储
  * 

@@ -1,3 +1,4 @@
+// @ts-check
 function registerHandlers(ipcMain, deps) {
   // eslint-disable-next-line no-unused-vars
   const { app, hotkeys, firstRun, BrowserWindow, log } = deps

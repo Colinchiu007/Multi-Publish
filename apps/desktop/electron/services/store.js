@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Store �?统一数据存储（SQLite, sql.js via sqlite-wrapper�? *
  * 替代零散 JSONL 文件，统一管理�? *   - accounts    账号信息（Cookie/localStorage/账号名）

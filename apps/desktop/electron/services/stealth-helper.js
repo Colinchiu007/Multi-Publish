@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * StealthHelper — 反浏览器指纹检测辅助
  *
