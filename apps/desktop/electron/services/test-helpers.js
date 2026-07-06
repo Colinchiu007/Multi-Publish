@@ -1,4 +1,5 @@
-﻿/**
+﻿// @ts-check
+/**
  * test-helpers — Electron services 测试辅助工具
  * 提供标准 mock 工厂函数，减少测试文件中的重复代码。
  * 注意：不使用 vi.fn()，由 vi.mock() 自动封装。
@@ -39,6 +40,7 @@ function createMockAxios() {
 /**
  * 设置 axios.get 返回指定数据（需要 vi 环境）
  */
+/** @param {any} axios @param {any} data */
 function mockAxiosGet(axios, data) {
   axios.get = () => Promise.resolve(data);
 }
@@ -65,3 +67,4 @@ module.exports = {
   createMockLogger, createMockElectron,
   createMockAxios, mockAxiosGet, createMockStore,
 };
+
