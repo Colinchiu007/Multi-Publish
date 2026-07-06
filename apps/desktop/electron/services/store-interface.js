@@ -1,3 +1,4 @@
+﻿// @ts-check
 /**
  * Store 接口定义 + Factory 工厂
  *
@@ -10,18 +11,13 @@
  *   const { createStore } = require("./store-interface");
  *   const store = createStore({ type: "sqlite" });
  *   store.init();
- *
- * 文件位置: apps/desktop/electron/services/store-interface.js
  */
 
 const log = require("./logger");
 
 /**
  * Factory: 创建 Store 实例
- *
- * @param {object} [opts]
- * @param {string} [opts.type="sqlite"] - 存储类型
- * @param {string} [opts.dbPath] - SQLite 数据库路径
+ * @param {{ type?: string, dbPath?: string }} [opts]
  * @returns {object} Store 实例
  */
 function createStore(opts) {
@@ -36,8 +32,13 @@ function createStore(opts) {
   }
 }
 
+/**
+ * @param {{ type?: string, dbPath?: string }} opts
+ * @returns {any}
+ */
 function _createSqliteStore(opts) {
   var Store = require("./store");
+  /** @type {any} */
   var instance = new Store();
 
   if (opts.dbPath) {
@@ -46,9 +47,9 @@ function _createSqliteStore(opts) {
     instance.init = function () {
       if (this._customDbPath) {
         var electron = require("electron");
-        var origGetPath = electron.app.getPath;
+        var origGetPath = /** @type {Function} */(electron.app.getPath);
         electron.app.getPath = function (name) {
-          if (name === "userData") return opts.dbPath;
+          if (name === "userData") return /** @type {string} */(opts.dbPath);
           return origGetPath.call(electron.app, name);
         };
       }
@@ -62,7 +63,7 @@ function _createSqliteStore(opts) {
 
 /**
  * 通用 Store 接口检查
- * @param {object} instance
+ * @param {any} instance
  * @returns {boolean}
  */
 function isValidStore(instance) {

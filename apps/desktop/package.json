@@ -19,7 +19,9 @@
     "lint": "eslint electron/ src/ --no-ignore --max-warnings 300",
     "lint:fix": "eslint electron/ src/ --no-ignore --fix --max-warnings 300",
     "format": "prettier --check \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
-    "format:write": "prettier --write \"electron/**/*.js\" \"src/**/*.{js,vue}\""
+    "format:write": "prettier --write \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
+    "check:ts": "tsc -p tsconfig.check.json --noEmit",
+    "check:all": "npm run check:ts && npm run lint && npm run test:vue"
   },
   "keywords": [
     "multi-publish",
