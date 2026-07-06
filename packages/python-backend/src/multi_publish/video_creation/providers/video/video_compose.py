@@ -35,6 +35,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from multi_publish.video_creation.providers.video import compose_utils as _cu
 from multi_publish.video_creation.base_tool import (
     BaseTool,
     Determinism,
@@ -46,17 +47,6 @@ from multi_publish.video_creation.base_tool import (
     ToolStability,
     ToolTier,
 )
-
-from multi_publish.video_creation.providers.video.compose_utils import (
-    build_atempo,
-    build_subtitle_style,
-    has_audio_stream,
-    is_image,
-    parse_probe_fps,
-    read_text_file,
-    tokenize,
-)
-
 
 class VideoCompose(BaseTool):
     name = "video_compose"
@@ -350,16 +340,14 @@ class VideoCompose(BaseTool):
 
     @staticmethod
     def _is_image(path: Path) -> bool:
-        
-        """Check if a file is a still image (routes to Remotion, not FFmpeg)."""
-        return is_image(path)
-    
+        """Delegated to compose_utils."""
+        return _cu.is_image(path)
+
     @staticmethod
     def _has_audio_stream(path: Path) -> bool:
-        
-        """Return True iff ffprobe reports at least one audio stream."""
-        return has_audio_stream(path)
-    
+        """Delegated to compose_utils."""
+        return _cu.has_audio_stream(path)
+
     def _compose(self, inputs: dict[str, Any]) -> ToolResult:
         """FFmpeg composition: concat video cuts, add audio, burn subtitles.
 
@@ -1778,15 +1766,14 @@ class VideoCompose(BaseTool):
     @staticmethod
     def _read_text_file(path: str | Path | None) -> str | None:
         
-        """Read a small text file if given a path; None-safe and exception-safe."""
-        return read_text_file(path)
-    
+        """Delegated to compose_utils."""
+        return _cu.read_text_file(path)
+
     @classmethod
     def _tokenize(cls, text: str) -> list[str]:
-        
-        """Split text into comparable word tokens."""
-        return tokenize(text)
-    
+        """Delegated to compose_utils."""
+        return _cu.tokenize(text)
+
     @classmethod
     def _compare_transcript_to_script(
         cls,
@@ -2311,9 +2298,10 @@ class VideoCompose(BaseTool):
     @staticmethod
     def _parse_probe_fps(fps_str: str) -> float:
         
-        """Parse ffprobe fps string like "30/1" or "24000/1001"."""
-        return parse_probe_fps(fps_str)
-    
+        """Delegated to compose_utils."""
+        return _cu.parse_probe_fps(fps_str)
+
+
     def _burn_subtitles(self, inputs: dict[str, Any]) -> ToolResult:
         """Burn subtitle file into video."""
         input_path = Path(inputs["input_path"])
@@ -2350,6 +2338,11 @@ class VideoCompose(BaseTool):
             },
             artifacts=[str(output_path)],
         )
+
+    @staticmethod
+    def _build_atempo(factor: float) -> str:
+        """Delegated to compose_utils."""
+        return _cu.build_atempo(factor)
 
     def _overlay(self, inputs: dict[str, Any]) -> ToolResult:
         """Composite overlay images/videos on top of base video."""
@@ -2519,12 +2512,5 @@ class VideoCompose(BaseTool):
     @staticmethod
     def _build_subtitle_style(style: dict) -> str:
         
-        """Build ASS force_style string from style dict."""
-        return build_subtitle_style(style)
-    
-    @staticmethod
-    def _build_atempo(factor: float) -> str:
-        
-        """Build atempo filter chain for audio speed adjustment."""
-        return build_atempo(factor)
-    
+        """Delegated to compose_utils."""
+        return _cu.build_subtitle_style(style)
