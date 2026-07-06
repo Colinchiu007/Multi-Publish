@@ -43,8 +43,22 @@ def clean_html(content: str, keep_tags: Optional[List[str]] = None) -> str:
     # Remove comments
     content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
 
-    # Remove unsupported tags 
-    # TODO: Implement proper tag filtering based on keep_tags
+    # Remove unsupported tags - keep only whitelisted tags
+    # Build regex: remove all tags except those in keep_tags and self-closing variants
+    keep_set = set(tag.lower() for tag in keep_tags)
+    def _filter_tag(m):
+        tag_name = m.group(1).lower().split()[0].rstrip(">/")
+        # Strip attributes for comparison
+        tag_name = tag_name.split()[0].rstrip(">/")
+        if tag_name in keep_set or tag_name.startswith("/"):
+            return m.group(0)
+        return ""
+    content = re.sub(r"</?([a-zA-Z][a-zA-Z0-9]*)[^>]*>", _filter_tag, content)
+    # Clean up empty lines left by removed tags
+    content = re.sub(r"
+\s*
+", "
+", content)
     
     # Ensure <img> tags have proper format for WeChat
     content = re.sub(
