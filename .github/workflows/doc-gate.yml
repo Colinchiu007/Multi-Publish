@@ -27,8 +27,8 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          chmod +x team/scripts/check-docs-sync.sh
-          bash team/scripts/check-docs-sync.sh \
+          chmod +x scripts/check-docs-sync.sh
+          bash scripts/check-docs-sync.sh \
             --base=${{ github.event.pull_request.base.ref }} \
             --head=${{ github.event.pull_request.head.ref }}
 
@@ -37,9 +37,9 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          chmod +x team/scripts/draft-changelog.sh
+          chmod +x scripts/draft-changelog.sh
           mkdir -p team/inbox
-          bash team/scripts/draft-changelog.sh \
+          bash scripts/draft-changelog.sh \
             --output=team/inbox/changelog-draft-${PR_NUMBER}.md
 
       - name: 上传 CHANGELOG 草稿
@@ -97,4 +97,4 @@ jobs:
 #   （需要在 GitHub 仓库设置中创建该 label）
 #
 # 调试：
-#   本地测试：bash team/scripts/check-docs-sync.sh --base=main --head=feat/xxx
+#   本地测试：bash scripts/check-docs-sync.sh --base=main --head=feat/xxx
