@@ -107,3 +107,37 @@ A: mp4、mov、avi。文件大小建议不超过 500MB。
 
 **Q: 能否同时在多台电脑使用？**
 A: 免费版限 1 台，Pro 版限 3 台，企业版不限。
+## 9. 视频创作管线
+
+> 功能状态: 🧪 Beta — 需 Python 后端运行
+
+### 9.1 进入创作模式
+
+在主界面点击「视频创作」进入 PipelineBrowser 管线浏览器，可以看到所有可用的视频制作管线。
+
+### 9.2 选择管线
+
+管线按类型分类（动画、解说、口播等），每张卡片显示：
+- **类别标签**：动画/解说/口播/AI 生成等
+- **管线名称**：如 animated-explainer、talking-head
+- **描述**：管线功能简介
+- **稳定性**：experimental / stable / deprecated
+
+点击卡片开始配置该管线的参数。
+
+### 9.3 管线类型
+
+| 管线 | 说明 | 稳定性 |
+|------|------|--------|
+| animated-explainer | AI 动画解说视频 | stable |
+| talking-head | 数字人口播视频 | experimental |
+| clip-montage | 素材混剪 | experimental |
+| hyper-lapse | 延时摄影 | experimental |
+| slideshow | 幻灯展示 | experimental |
+| tutorial-capture | 教程录屏 | experimental |
+
+### 9.4 技术要求
+
+- Python 后端需要在本地运行（默认端口 8299）
+- 部分 AI 管线需要 API Key（在设置中配置）
+- 渲染视频会占用 CPU/GPU 资源
