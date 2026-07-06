@@ -38,6 +38,16 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
+from multi_publish.video_creation.providers.video.hf_utils import (
+    compute_total_duration,
+    escape_text,
+    is_inside,
+    node_major_version,
+    parse_json_output,
+    rel_from_workspace,
+    require_workspace,
+)
+
 
 log = logging.getLogger("hyperframes_compose")
 
@@ -229,24 +239,8 @@ class HyperFramesCompose(BaseTool):
 
     @classmethod
     def _node_major_version(cls) -> Optional[int]:
-        """Return Node.js major version, or None if node isn't installed."""
-        node = shutil.which("node")
-        if not node:
-            return None
-        try:
-            out = subprocess.run(
-                [node, "--version"], capture_output=True, text=True, timeout=5
-            )
-            if out.returncode != 0:
-                return None
-            match = re.match(r"v?(\d+)\.", out.stdout.strip())
-            if not match:
-                return None
-            return int(match.group(1))
-        except (OSError, subprocess.SubprocessError):
-            return None
-
-    @classmethod
+        """Return the major Node version (e.g. 18) or None if not found."""
+        return node_major_version()
     def _resolve_npm_package(cls) -> dict[str, str]:
         """Verify the `hyperframes` npm package actually resolves.
 
@@ -754,11 +748,8 @@ class HyperFramesCompose(BaseTool):
 
     @staticmethod
     def _require_workspace(inputs: dict[str, Any]) -> Path:
-        raw = inputs.get("workspace_path")
-        if not raw:
-            raise ValueError("workspace_path is required for this operation")
-        return Path(raw).resolve()
-
+        """Resolve workspace path from inputs."""
+        return require_workspace(inputs)
     @staticmethod
     def _resolve_dimensions(
         profile_name: Optional[str], fps_in: int
@@ -775,9 +766,8 @@ class HyperFramesCompose(BaseTool):
 
     @staticmethod
     def _compute_total_duration(cuts: list[dict]) -> float:
-        if not cuts:
-            return 0.0
-        return max(float(c.get("out_seconds", 0) or 0) for c in cuts)
+        """Compute total duration from a list of cut dicts."""
+        return compute_total_duration(cuts)
 
     def _resolve_and_stage_assets(
         self,
@@ -865,11 +855,8 @@ class HyperFramesCompose(BaseTool):
 
     @staticmethod
     def _is_inside(path: Path, root: Path) -> bool:
-        try:
-            path.resolve().relative_to(root.resolve())
-            return True
-        except ValueError:
-            return False
+        """Check if path is inside root."""
+        return is_inside(path, root)
 
     def _style_bridge(
         self,
@@ -1156,49 +1143,22 @@ class HyperFramesCompose(BaseTool):
 
     @staticmethod
     def _parse_json_output(stdout: str) -> Optional[Any]:
-        """Parse a `--json` report, tolerating surrounding banner lines."""
-        if not stdout:
-            return None
-        start = stdout.find("{")
-        end = stdout.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            return None
-        try:
-            return json.loads(stdout[start : end + 1])
-        except json.JSONDecodeError:
-            return None
-
+        """Parse JSON from stdout, handling artifacts."""
+        return parse_json_output(stdout)
     @staticmethod
     def _f(v: float) -> str:
-        return f"{float(v):.3f}".rstrip("0").rstrip(".")
-
+        """Format a float with zero-decimal rule for CSS."""
+        return _f(v)
     @staticmethod
     def _escape_text(s: str) -> str:
-        return (
-            s.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-        )
-
+        """Escape text for HTML."""
+        return escape_text(s)
     @staticmethod
     def _escape_attr(s: str) -> str:
         return HyperFramesCompose._escape_text(s).replace('"', "&quot;")
 
     @staticmethod
     def _rel_from_workspace(path: str) -> str:
-        """HyperFrames resolves src= relative to index.html. Our asset files
-        live under workspace/assets/, so when we stage a copy we know the
-        relative path is `assets/<name>`. For files already in the workspace
-        tree, fall back to the file name.
-        """
-        p = Path(path)
-        # If it's already a relative path starting with assets/, keep as-is.
-        if not p.is_absolute():
-            return str(p).replace("\\", "/")
-        parts = p.parts
-        for anchor in ("assets", "compositions"):
-            if anchor in parts:
-                index = len(parts) - 1 - list(reversed(parts)).index(anchor)
-                return "/".join(parts[index:])
-        # Otherwise emit just the basename under assets/.
+        """Convert an absolute path to a workspace-relative path."""
+        return rel_from_workspace(path)
         return f"assets/{p.name}"

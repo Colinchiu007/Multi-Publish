@@ -1,4 +1,4 @@
-node_modules/
+﻿node_modules/
 dist/
 dist-electron/
 .vite/
@@ -11,17 +11,16 @@ data/
 *.log
 # Monorepo
 package-lock.json
-# 冗余文件，配置统一在 package.json
+# 鍐椾綑鏂囦欢锛岄厤缃粺涓€鍦?package.json
 electron-builder.yml
 build/*.exe
 latest.yml
 *.exe
-latest.yml
 
 # Playwright browsers (bundled in installer)
 .playwright-browsers/
 
-# 临时文件
+# 涓存椂鏂囦欢
 *.part
 # Test artifacts
 gen_frames.py
@@ -40,8 +39,8 @@ apps/desktop/tests/screenshot-home.png
 
 .codex/
 
-# 质量节拍 skill 文件（不受 .codex/ 忽略规则影响）
-!.codex/skills/质量节拍/
+# 璐ㄩ噺鑺傛媿 skill 鏂囦欢锛堜笉鍙?.codex/ 蹇界暐瑙勫垯褰卞搷锛?
+!.codex/skills/璐ㄩ噺鑺傛媿/
 
 # Temp scripts & artifacts
 fix_*.js
@@ -60,7 +59,7 @@ config/e2e-credentials.json
 # E2E test results (screenshots, reports)
 test-results/
 
-# 临时脚本和截图
+# 涓存椂鑴氭湰鍜屾埅鍥?
 scripts/*.js
 screenshot_script*.js
 temp_debug.txt
@@ -75,3 +74,13 @@ gen_*.py
 
 # Test artifacts
 *.png
+
+# Python build artifacts
+.pytest_cache/
+__pycache__/
+*.egg-info/
+
+# Build output
+*.exe
+*.dmg
+*.AppImage

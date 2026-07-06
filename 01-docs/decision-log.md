@@ -67,3 +67,68 @@
 ---
 
 *日志格式: D-{序号}: {决策标题}*
+
+---
+
+## 2026-07-06
+
+### D-008: PRD 使用流程章节补充
+- **类型**: 文档
+- **决策**: 补充 6 个缺失的使用流程章节（视频创作/内容采集/内容智能/发布日历/云端发布/引导流程），修正 1.2 产品边界
+- **理由**: PRD 功能清单齐全但使用流程仅有发布流程，新增流程覆盖全部 16 个视图/路由
+- **替代方案**: 保持现状，仅靠代码注释说明流程
+- **影响**: 低 - 纯文档变更，PRD 从 27KB → 约 30KB，新增约 300 行
+- **覆盖范围**: 16 个路由页面全部映射到 PRD 对应章节
+
+
+---
+
+## 2026-07-06 (续)
+
+### D-009: 文档去重策略 — 01-docs 为源
+- **类型**: 文档/基础设施
+- **决策**: 以 01-docs/ 为文档源，根目录同名文件改为引用或同步
+- **执行**: PRD.md 已同步（root→01-docs, 751行0差异），CHANGELOG.md 已精简为引用
+- **理由**: 根目录与 01-docs/ 的重复文档长期不同步导致混乱，统一源后维护单点
+- **替代方案**: 保持双副本手动同步（不可持续）、全部移到根目录（违背项目结构约定）
+- **影响**: 低 - 纯文档重构
+
+### D-010: .gitignore 修复
+- **类型**: 基础设施
+- **决策**: 去重 latest.yml 行、补充 .pytest_cache/ / __pycache__/ / *.egg-info/
+- **理由**: 重复行导致混淆，Python 构建产物未被忽略
+- **影响**: 低 - 纯配置变更
+
+
+### D-011: video_compose.py 拆分 — 提取 compose_utils.py
+- **类型**: 重构/代码质量
+- **决策**: 从 VideoCompose 类提取 7 个无依赖工具函数到独立文件 compose_utils.py
+- **理由**: video_compose.py 2575 行是项目最大文件，提取工具函数是拆分的第一步
+- **方法**: 原方法保留为代理（delegation wrapper），调用方无需修改
+- **影响**: 低 - 纯代码重组，行为不变。52/52 测试通过
+- **下一步**: 继续拆分 hyperframes_compose.py (1204行) / douyin.py (1202行)
+
+### D-012: hyperframes_compose.py 拆分 — 提取 hf_utils.py
+- **类型**: 重构/代码质量
+- **决策**: 从 HyperFramesCompose 提取 8 个无依赖工具函数到 hf_utils.py
+- **影响**: 低 - hyperframes_compose.py 1204→1164行 (-40), 64/64 测试通过
+
+### D-013: 删除死桩 lib/scoring.py
+- **类型**: 代码清理
+- **决策**: 删除 video_creation/providers/video/lib/scoring.py（16 行桩代码）
+- **理由**: 该 stub 未被任何代码引用，真实实现在 video_creation/scoring.py（556 行）
+- **影响**: 低 - 删除未引用代码, 394/394 测试通过
+
+### D-014: OpenMontage 6 个桩代码全部移植为真实实现
+- **类型**: 功能完善
+- **决策**: 从 D:/Projects/OpenMontage/lib/ 复制 6 个模块替换 video_creation/providers/video/lib/ 中的桩代码
+- **替换清单**:
+  - clip_embedder.py: 16→136 行 (CLIP 嵌入)
+  - corpus.py: 34→424 行 (语料库)
+  - delivery_promise.py: 14→247 行 (交付承诺)
+  - hyperframes_style_bridge.py: 6→194 行 (超帧样式桥)
+  - media_profiles.py: 20→165 行 (媒体配置)
+  - slideshow_risk.py: 6→255 行 (幻灯片风险评估)
+- **影响**: 低 - 无 import 路径依赖, 394/394 测试通过
+- **注意**: 文件从 OpenMontage 直接复制，无 	ools. 内部依赖，无需路径重写
+

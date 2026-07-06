@@ -47,6 +47,16 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
+from multi_publish.video_creation.providers.video.compose_utils import (
+    build_atempo,
+    build_subtitle_style,
+    has_audio_stream,
+    is_image,
+    parse_probe_fps,
+    read_text_file,
+    tokenize,
+)
+
 
 class VideoCompose(BaseTool):
     name = "video_compose"
@@ -340,35 +350,16 @@ class VideoCompose(BaseTool):
 
     @staticmethod
     def _is_image(path: Path) -> bool:
+        
         """Check if a file is a still image (routes to Remotion, not FFmpeg)."""
-        return path.suffix.lower() in VideoCompose._IMAGE_EXTENSIONS
-
+        return is_image(path)
+    
     @staticmethod
     def _has_audio_stream(path: Path) -> bool:
-        """Return True iff ffprobe reports at least one audio stream.
-
-        Many stock video clips (especially from Pexels) ship with no audio
-        stream at all. If we blindly tell ffmpeg to transcode the 0:a stream
-        on such a file it errors out. This helper lets the segment builder
-        branch on stream presence so it can synthesize a silent track when
-        needed, keeping the concat segment layout consistent.
-        """
-        try:
-            out = subprocess.check_output(
-                [
-                    "ffprobe", "-v", "error",
-                    "-select_streams", "a",
-                    "-show_entries", "stream=codec_type",
-                    "-of", "default=nw=1:nk=1",
-                    str(path),
-                ],
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-            return "audio" in out
-        except Exception:
-            return False
-
+        
+        """Return True iff ffprobe reports at least one audio stream."""
+        return has_audio_stream(path)
+    
     def _compose(self, inputs: dict[str, Any]) -> ToolResult:
         """FFmpeg composition: concat video cuts, add audio, burn subtitles.
 
@@ -1786,25 +1777,16 @@ class VideoCompose(BaseTool):
 
     @staticmethod
     def _read_text_file(path: str | Path | None) -> str | None:
+        
         """Read a small text file if given a path; None-safe and exception-safe."""
-        if not path:
-            return None
-        try:
-            return Path(path).read_text(encoding="utf-8")
-        except Exception:
-            return None
-
+        return read_text_file(path)
+    
     @classmethod
     def _tokenize(cls, text: str) -> list[str]:
-        """Split text into comparable word tokens (lowercased, punctuation
-        stripped, numeric-word-aware). Empty tokens dropped."""
-        import re
-
-        # Preserve hyphenated words as single tokens ("many-worlds" -> "many-worlds").
-        # Drop everything except letters, digits, hyphens, apostrophes.
-        cleaned = re.sub(r"[^A-Za-z0-9\-' ]+", " ", text.lower())
-        return [t for t in cleaned.split() if t and t != "-"]
-
+        
+        """Split text into comparable word tokens."""
+        return tokenize(text)
+    
     @classmethod
     def _compare_transcript_to_script(
         cls,
@@ -2328,15 +2310,10 @@ class VideoCompose(BaseTool):
 
     @staticmethod
     def _parse_probe_fps(fps_str: str) -> float:
-        """Parse ffprobe fps string like '30/1' or '24000/1001'."""
-        try:
-            if "/" in fps_str:
-                num, den = fps_str.split("/")
-                return round(int(num) / max(int(den), 1), 2)
-            return float(fps_str)
-        except (ValueError, ZeroDivisionError):
-            return 0.0
-
+        
+        """Parse ffprobe fps string like "30/1" or "24000/1001"."""
+        return parse_probe_fps(fps_str)
+    
     def _burn_subtitles(self, inputs: dict[str, Any]) -> ToolResult:
         """Burn subtitle file into video."""
         input_path = Path(inputs["input_path"])
@@ -2541,35 +2518,13 @@ class VideoCompose(BaseTool):
 
     @staticmethod
     def _build_subtitle_style(style: dict) -> str:
+        
         """Build ASS force_style string from style dict."""
-        parts = []
-        parts.append(f"FontName={style.get('font', 'Inter')}")
-        parts.append(f"FontSize={style.get('font_size', 28)}")
-        parts.append(f"Bold={1 if style.get('bold', True) else 0}")
-        if style.get("primary_color"):
-            parts.append(f"PrimaryColour={style['primary_color']}")
-        if style.get("outline_color"):
-            parts.append(f"OutlineColour={style['outline_color']}")
-        if style.get("back_color"):
-            parts.append(f"BackColour={style['back_color']}")
-        border_style = style.get("border_style", 1)
-        parts.append(f"BorderStyle={border_style}")
-        parts.append(f"Outline={style.get('outline_width', 2)}")
-        parts.append(f"Shadow={style.get('shadow', 0)}")
-        parts.append(f"MarginV={style.get('margin_v', 40)}")
-        parts.append(f"Alignment={style.get('alignment', 2)}")
-        return ",".join(parts)
-
+        return build_subtitle_style(style)
+    
     @staticmethod
     def _build_atempo(factor: float) -> str:
+        
         """Build atempo filter chain for audio speed adjustment."""
-        filters = []
-        remaining = factor
-        while remaining > 100.0:
-            filters.append("atempo=100.0")
-            remaining /= 100.0
-        while remaining < 0.5:
-            filters.append("atempo=0.5")
-            remaining /= 0.5
-        filters.append(f"atempo={remaining:.4f}")
-        return ",".join(filters)
+        return build_atempo(factor)
+    

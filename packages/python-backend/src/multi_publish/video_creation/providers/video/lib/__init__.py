@@ -1,1 +1,1 @@
-"""Stub lib package for OpenMontage compatibility."""
+﻿"""OpenMontage compatibility library — ported real implementations."""
