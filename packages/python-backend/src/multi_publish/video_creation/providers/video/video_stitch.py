@@ -1,4 +1,4 @@
-"""Video stitch tool wrapping FFmpeg.
+﻿"""Video stitch tool wrapping FFmpeg.
 
 Multi-clip assembly with validation, transitions, and spatial layouts.
 Supports sequential concatenation (TikTok-style stitch), crossfade/fade
@@ -146,7 +146,7 @@ class VideoStitch(BaseTool):
     ]
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
-        operation = inputs["operation"]
+        operation = inputs.get("operation", "")
         start = time.time()
 
         if inputs.get("dry_run"):
@@ -960,3 +960,5 @@ class VideoStitch(BaseTool):
                 temp_dir.rmdir()
             except OSError:
                 pass
+
+
