@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * AuthViewManager — WebContentsView 内嵌浏览器登录管理器
  *
@@ -144,7 +144,7 @@ class AuthViewManager {
   async _extractAuthData(view) {
     const cookies = await view.webContents.session.cookies.get({})
     let name = ''
-    try { name = await view.webContents.executeJavaScript('document.title || ""') } catch (e) { /* ignore */ }
+    try { name = await view.webContents.executeJavaScript('document.title || ""') } catch (_e) { /* ignore */ }
     return { cookies, name }
   }
 
@@ -184,7 +184,7 @@ class AuthViewManager {
         }
         this.currentView.webContents.close()
         this.currentView = null
-      } catch (e) { /* ignore */ }
+      } catch (_e) { /* ignore */ }
     }
     this.currentPlatform = null
     this.currentAccountId = null
@@ -263,7 +263,7 @@ class AuthViewManager {
     try {
       if (cookies && cookies.length > 0) {
         for (const c of cookies) {
-          try { await win.webContents.session.cookies.set(c) } catch (e) { /* skip */ }
+          try { await win.webContents.session.cookies.set(c) } catch (_e) { /* skip */ }
         }
       }
 
@@ -276,11 +276,11 @@ class AuthViewManager {
             (function() {
               let data = ${JSON.stringify(localStorage)};
               Object.keys(data).forEach(function(k) {
-                try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }
+                try { localStorage.setItem(k, data[k]); } catch (_e) { /* ignore */ }
               });
             })()
           `)
-        } catch (e) { /* ignore */ }
+        } catch (_e) { /* ignore */ }
       }
 
       await new Promise(r => setTimeout(r, 2000))
@@ -292,14 +292,14 @@ class AuthViewManager {
         : !currentUrl.includes('login') && !currentUrl.includes('passport') && !currentUrl.includes('signin')
 
       let accountName = null
-      try { accountName = await win.webContents.getTitle() } catch (e) { /* ignore */ }
+      try { accountName = await win.webContents.getTitle() } catch (_e) { /* ignore */ }
 
       return { valid: isValid, accountName }
     } catch (e) {
       log.warn('AuthView', `Silent login failed for ${platform}: ${e instanceof Error ? e.message : String(e)}`)
       return { valid: false, accountName: null }
     } finally {
-      try { win.destroy() } catch (e) { /* ignore */ }
+      try { win.destroy() } catch (_e) { /* ignore */ }
     }
   }
 }

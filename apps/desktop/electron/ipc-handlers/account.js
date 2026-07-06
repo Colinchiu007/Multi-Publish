@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * @param {import('electron').IpcMain} ipcMain
  * @param {{
@@ -129,7 +129,7 @@ function registerHandlers(ipcMain, deps) {
     try {
       const result = await pythonBridge.requestBackend('DELETE', '/api/accounts/' + accountId)
       if (result.code === 0) return { code: 0, message: '账号已删除' }
-    } catch (e) { /* fallthrough */ }
+    } catch (_e) { /* fallthrough */ }
     try { await AccountManager.deleteAccount(accountId); return { code: 0, message: '账号已删除' } }
     catch (e) { return { code: -1, message: e instanceof Error ? e.message : String(e) } }
   })
