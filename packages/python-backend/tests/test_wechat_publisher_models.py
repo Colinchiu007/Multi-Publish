@@ -1,4 +1,4 @@
-﻿"""Tests for wechat_publisher models and exceptions."""
+"""Tests for wechat_publisher models and exceptions."""
 
 import sys
 from pathlib import Path

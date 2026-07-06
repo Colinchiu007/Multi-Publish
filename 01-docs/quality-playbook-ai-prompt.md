@@ -1,4 +1,4 @@
-﻿# OpenMontage → Multi-Publish 迁移质量路线图
+# OpenMontage → Multi-Publish 迁移质量路线图
 ## AI 会话启动提示词模板
 
 > **用法**: 每次开始一个新的编码会话时，将这份提示词粘贴给 AI，让它自动按路线图执行。

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * API 灏佽灞傛祴璇?
  * 楠岃瘉 @/api/publisher 鎵€鏈夊鍑哄嚱鏁板畾涔夋纭?
  * 浣跨敤鏂囦欢瑙ｆ瀽鏂瑰紡锛坧ublisher.js 浣跨敤 ESM export锛孞est 闇€ transform锛?

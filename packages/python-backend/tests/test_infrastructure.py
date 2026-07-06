@@ -1,4 +1,4 @@
-﻿"""Tests for MultiPublish error hierarchy and retry/rate-limit infrastructure."""
+"""Tests for MultiPublish error hierarchy and retry/rate-limit infrastructure."""
 
 import pytest
 import time

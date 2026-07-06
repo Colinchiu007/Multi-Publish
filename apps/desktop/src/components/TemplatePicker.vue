@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="cohere-card" style="cursor:default;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border)">
       <span style="font-weight:600;font-size:14px">📝 内容模板</span>

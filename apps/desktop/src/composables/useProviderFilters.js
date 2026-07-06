@@ -1,4 +1,4 @@
-﻿/**
+/**
  * useProviderFilters — provider 过滤/格式化纯函数
  * 从 Providers.vue 提取，不含 Vue reactivity，可直接测试。
  */

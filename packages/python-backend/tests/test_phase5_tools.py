@@ -1,4 +1,4 @@
-﻿"""Tests for Phase 5: Enhancement, Subtitle, and Capture tools."""
+"""Tests for Phase 5: Enhancement, Subtitle, and Capture tools."""
 from __future__ import annotations
 
 import pytest

@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * test-helpers — Electron services 测试辅助工具
  * 提供标准 mock 工厂函数，减少测试文件中的重复代码。

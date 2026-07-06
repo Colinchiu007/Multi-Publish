@@ -1,4 +1,4 @@
-﻿"""Tests for AI Audio/TTS/Music Integration Providers (Phase 3)."""
+"""Tests for AI Audio/TTS/Music Integration Providers (Phase 3)."""
 from __future__ import annotations
 
 import os

@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * Aggregator Bridge 鈥?PROJECT-001 闆嗘垚妗ユ帴
  * 鎺ユ敹 content-aggregator 鎺ㄩ€佺殑鏂囩珷骞跺姞鍏ュ彂甯冮槦鍒?

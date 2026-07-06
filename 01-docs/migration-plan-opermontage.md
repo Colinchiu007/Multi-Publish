@@ -1,4 +1,4 @@
-﻿# OpenMontage → Multi-Publish 迁移计划
+# OpenMontage → Multi-Publish 迁移计划
 
 > **版本**: v1.0  
 > **日期**: 2026-07-03  

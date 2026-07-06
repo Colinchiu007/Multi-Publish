@@ -1,4 +1,4 @@
-﻿"""Tests for AI Image Generation Providers (Phase 2)."""
+"""Tests for AI Image Generation Providers (Phase 2)."""
 from __future__ import annotations
 
 import os

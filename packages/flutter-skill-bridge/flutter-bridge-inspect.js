@@ -1,4 +1,4 @@
-﻿// flutter-bridge-inspect.js — DOM element inspection helpers (no Electron dependency)
+// flutter-bridge-inspect.js — DOM element inspection helpers (no Electron dependency)
 
 /**
  * Classify an HTML element by its tag and type.

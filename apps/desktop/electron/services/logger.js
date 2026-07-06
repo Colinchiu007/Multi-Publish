@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * Logger service
  * Layer 2: Services — 基础日志工具

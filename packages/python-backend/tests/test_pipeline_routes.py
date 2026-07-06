@@ -1,4 +1,4 @@
-﻿"""Pipeline API 路由测试"""
+"""Pipeline API 路由测试"""
 from fastapi.testclient import TestClient
 from server import app
 

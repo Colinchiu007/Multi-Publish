@@ -1,1 +1,1 @@
-﻿"""OpenMontage compatibility library — ported real implementations."""
+"""OpenMontage compatibility library — ported real implementations."""

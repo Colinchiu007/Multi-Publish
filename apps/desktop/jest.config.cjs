@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Jest 配置 — 仅运行 tests/ 目录下的 E2E + 集成测试
  * 单元测试使用 vitest (npm run test:vue)
  *

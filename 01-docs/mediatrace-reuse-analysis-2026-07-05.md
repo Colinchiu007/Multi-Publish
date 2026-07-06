@@ -1,4 +1,4 @@
-﻿# MediaTrace 技术复用分析报告
+# MediaTrace 技术复用分析报告
 
 **日期**: 2026-07-05
 **项目**: [mediaTrace/MediaTrace](https://github.com/mediaTrace/MediaTrace)

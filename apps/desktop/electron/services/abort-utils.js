@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * AbortUtils 鈥?鍙栨秷淇″彿宸ュ叿闆?
  *

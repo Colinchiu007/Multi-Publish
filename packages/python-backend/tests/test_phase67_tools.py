@@ -1,4 +1,4 @@
-﻿"""Tests for Phase 6: Pipeline orchestration and Phase 7: Character animation."""
+"""Tests for Phase 6: Pipeline orchestration and Phase 7: Character animation."""
 from __future__ import annotations
 
 import pytest

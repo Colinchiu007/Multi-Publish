@@ -1,4 +1,4 @@
-﻿# OpenMontage 深度复用分析报告 v2
+# OpenMontage 深度复用分析报告 v2
 
 **日期**: 2026-07-06
 **范围**: OpenMontage 全部 144 个核心 Python 文件（40,681 行）+ 15 个目录的逐模块审查

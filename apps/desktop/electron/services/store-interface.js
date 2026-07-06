@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * Store 接口定义 + Factory 工厂
  *

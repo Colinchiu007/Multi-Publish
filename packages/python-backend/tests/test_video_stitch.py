@@ -1,4 +1,4 @@
-﻿"""Tests for VideoStitch tool.
+"""Tests for VideoStitch tool.
 
 Tests the input validation, dry-run, schema checking, and error handling
 paths of VideoStitch without requiring an actual FFmpeg installation.

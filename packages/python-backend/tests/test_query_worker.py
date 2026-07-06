@@ -1,4 +1,4 @@
-﻿"""Tests for QueryWorker — real API v4"""
+"""Tests for QueryWorker — real API v4"""
 import pytest
 from multi_publish.core.query_worker import (
     QueryWorker, QueryWorkerFactory,

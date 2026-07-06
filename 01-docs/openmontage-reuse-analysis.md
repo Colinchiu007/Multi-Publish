@@ -1,4 +1,4 @@
-﻿# OpenMontage 代码复用分析报告
+# OpenMontage 代码复用分析报告
 
 **日期**: 2026-07-06
 **分支**: main

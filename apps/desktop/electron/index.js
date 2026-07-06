@@ -1,4 +1,4 @@
-﻿/**
+/**
  * electron/index.js - backward-compatible entry for nativeRequire.
  * Enables resolve of relative paths like ./playwright-manager.
  */

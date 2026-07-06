@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 
 describe("pipeline IPC handlers", () => {
   const mockIpcMain = {

@@ -1,4 +1,4 @@
-﻿// flutter-bridge-config.js — Bridge configuration constants
+// flutter-bridge-config.js — Bridge configuration constants
 const DEFAULT_PORT = 18118;
 const SDK_VERSION = "1.0.0";
 

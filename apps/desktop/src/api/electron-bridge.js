@@ -1,4 +1,4 @@
-﻿/**
+/**
  * electron-bridge — 统一的 Electron IPC 桥接层
  *
  * 所有 Vue 组件通过此模块访问 Electron IPC，不直接调用 window.electronAPI。

@@ -1,4 +1,4 @@
-﻿"""平台发布器注册表 — 支持运行时发现与插件化加载"""
+"""平台发布器注册表 — 支持运行时发现与插件化加载"""
 from __future__ import annotations
 import importlib
 import json

@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * 视频创作管线 IPC handlers
  * 通过 Python 后端 HTTP API 调用管线系统

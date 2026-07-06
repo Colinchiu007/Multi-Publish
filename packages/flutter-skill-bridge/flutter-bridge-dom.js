@@ -1,4 +1,4 @@
-﻿// flutter-bridge-dom.js — DOM interaction helpers (no Electron dependency)
+// flutter-bridge-dom.js — DOM interaction helpers (no Electron dependency)
 
 const { KEY_MAP } = require("./flutter-bridge-config");
 

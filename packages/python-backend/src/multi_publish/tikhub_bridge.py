@@ -1,4 +1,4 @@
-﻿"""TikHubBridge — TikHub SDK 桥接层（已注释：付费 API 暂不使用）
+"""TikHubBridge — TikHub SDK 桥接层（已注释：付费 API 暂不使用）
 
 保留类结构作为文档参考和未来扩展点。
 启用时需要：pip install tikhub + 有效的 API key。

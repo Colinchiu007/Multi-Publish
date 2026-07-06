@@ -1,4 +1,4 @@
-﻿/**
+/**
  * E2E 测试 — 账号删除流程
  *
  * 运行：E2E=1 npx vitest run tests/e2e/

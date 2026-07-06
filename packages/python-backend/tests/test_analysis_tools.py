@@ -1,4 +1,4 @@
-﻿"""Tests for Phase 4: Video Analysis tools."""
+"""Tests for Phase 4: Video Analysis tools."""
 from __future__ import annotations
 
 import pytest

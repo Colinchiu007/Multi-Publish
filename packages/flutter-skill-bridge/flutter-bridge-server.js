@@ -1,4 +1,4 @@
-﻿// flutter-bridge-server.js — HTTP/WebSocket server lifecycle
+// flutter-bridge-server.js — HTTP/WebSocket server lifecycle
 
 const http = require("http");
 const { WebSocketServer } = require("ws");

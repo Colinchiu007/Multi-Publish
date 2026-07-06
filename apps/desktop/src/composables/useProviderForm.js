@@ -1,4 +1,4 @@
-﻿/**
+/**
  * useProviderForm — provider 表单状态/提交纯函数
  * 从 Providers.vue 提取，不含 Vue reactivity。
  */

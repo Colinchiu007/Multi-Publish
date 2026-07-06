@@ -1,4 +1,4 @@
-﻿const { WebSocketServer } = require('ws');
+const { WebSocketServer } = require('ws');
 const { BrowserWindow } = require('electron');
 const http = require('http');
 

@@ -1,4 +1,4 @@
-﻿"""Integration tests for video creation pipeline (Phase 0-7)."""
+"""Integration tests for video creation pipeline (Phase 0-7)."""
 from __future__ import annotations
 
 import pytest

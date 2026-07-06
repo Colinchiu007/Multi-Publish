@@ -1,4 +1,4 @@
-﻿/**
+/**
  * P1-M7: Markdown -> HTML 转换器测试
  */
 const assert = require('assert')

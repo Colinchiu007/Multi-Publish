@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ws mock for flutter-skill-bridge tests
  */
 const mock = {

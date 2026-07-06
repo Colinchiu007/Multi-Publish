@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * VideoUploader 鈥?瑙嗛鍒嗙墖涓婁紶
  * 

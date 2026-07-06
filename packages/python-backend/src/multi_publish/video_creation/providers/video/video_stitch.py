@@ -1,4 +1,4 @@
-﻿"""Video stitch tool wrapping FFmpeg.
+"""Video stitch tool wrapping FFmpeg.
 
 Multi-clip assembly with validation, transitions, and spatial layouts.
 Supports sequential concatenation (TikTok-style stitch), crossfade/fade

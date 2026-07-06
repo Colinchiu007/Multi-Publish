@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @multi-publish/rpa-engine auto-mock for cross-package jest tests
  */
 const mockPlatformSelectors = {

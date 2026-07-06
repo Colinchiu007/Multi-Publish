@@ -1,4 +1,4 @@
-﻿# PROJECT-003 Multi-Publish — 视频创作模块 PRD
+# PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
 > **版本**: v1.0  
 > **日期**: 2026-07-03  

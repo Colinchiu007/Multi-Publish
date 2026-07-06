@@ -1,4 +1,4 @@
-﻿# ADR-001: RenderEngine 扩展方案
+# ADR-001: RenderEngine 扩展方案
 
 ## 日期
 2026-07-03
