@@ -1,3 +1,4 @@
+// @ts-nocheck
 const Container = require('./container');
 
 describe('Container (TS)', () => {

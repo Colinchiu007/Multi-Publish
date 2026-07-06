@@ -63,7 +63,7 @@ class SensitiveFilter {
   /**
    * 检查文本中是否包含敏感词
    * @param {string} text
-   * @returns {{ hasSensitive: boolean, words: string[], positions: Array<{word: string, index: number}> }}
+   * @returns {{ hasSensitive: boolean, words: string[], positions: Array<{word: string, index: number, length: number}> }}
    */
   check (text) {
     if (!text || typeof text !== 'string') {

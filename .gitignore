@@ -94,3 +94,9 @@ NUL
 
 # Test auto-generated keys
 packages/api-publish-engine/test/.test-open-api-keys.json
+
+# Analysis temp files
+_py_*.txt
+_qw.txt
+_scoring.txt
+_bigfiles.txt

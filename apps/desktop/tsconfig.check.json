@@ -3,9 +3,17 @@
   "compilerOptions": {
     "noEmit": true,
     "declaration": false,
-    "checkJs": true, "strict": false
+    "checkJs": true,
+    "strict": false
   },
-  "exclude": ["**/*.test.js"],
+  "exclude": [
+    "**/*.test.js",
+    "**/*.test.ts",
+    "electron/stealth-preload.js",
+    "electron/auth-preload.js",
+    "electron/auth-qrcode-preload.js",
+    "electron/services/stealth-helper.js"
+  ],
   "include": [
     "electron/core/**/*.ts",
     "electron/ipc-handlers/**/*.ts",

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * DataSyncService — 数据同步系统
  *

@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * UsageTracker — 桌面端使用量统计模块
+ * UsageTracker - 桌面端使用量统计模块
  *
  * 追踪用户在 Multi-Publish 中的功能使用情况
  * 存储: JSON 文件 (userData/usage-data.json)
@@ -64,9 +64,9 @@ class UsageTracker {
 
   /**
    * 记录一个功能事件
-   * @param {string} feature — 功能名称 (如 "publish", "login", "settings")
-   * @param {string} action — 动作 (如 "click", "success", "fail")
-   * @param {object} [detail] — 附加信息
+   * @param {string} feature - 功能名称 (如 "publish", "login", "settings")
+   * @param {string} action - 动作 (如 "click", "success", "fail")
+   * @param {object} [detail] - 附加信息
    */
   trackEvent(feature, action, detail) {
     if (!this._loaded) this.load()
@@ -85,8 +85,8 @@ class UsageTracker {
 
   /**
    * 记录功能使用次数
-   * @param {string} feature — 功能名称
-   * @param {string} action — 动作类型
+   * @param {string} feature - 功能名称
+   * @param {string} action - 动作类型
    */
   trackFeatureUsage(feature, action) {
     if (!this._loaded) this.load()
@@ -97,8 +97,8 @@ class UsageTracker {
 
   /**
    * 记录每日统计
-   * @param {string} key — 统计项 (如 "articles_published", "platforms_used")
-   * @param {number} count — 数量
+   * @param {string} key - 统计项 (如 "articles_published", "platforms_used")
+   * @param {number} count - 数量
    */
   trackDaily(key, count) {
     if (!this._loaded) this.load()
