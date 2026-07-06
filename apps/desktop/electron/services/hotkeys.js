@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * HotKeys — 全局快捷键
  *
@@ -58,7 +59,7 @@ function register () {
         win.webContents.send('app:navigate', config.route)
         log.info('HotKeys', `${accelerator} → ${config.label}`)
       })
-    } catch (e) {
+    } catch (/** @type {any} */ e) {
       log.warn('HotKeys', `Failed to register ${accelerator}: ${e.message}`)
     }
   }
