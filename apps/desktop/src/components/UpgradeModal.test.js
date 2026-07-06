@@ -61,7 +61,7 @@ describe("UpgradeModal", () => {
     const confirmBtn = w.findAll("button").filter(b => b.text().includes("确认支付"));
     if (confirmBtn.length > 0) {
       await confirmBtn[0].trigger("click");
-      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
       expect(w.text()).toContain("扫码支付");
       expect(mockPayment.paymentCreateOrder).toHaveBeenCalled();
     }
