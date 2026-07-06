@@ -156,10 +156,10 @@ multi-publish/
 | [PRD.md](PRD.md) | 产品需求文档（完整功能架构 + 验收标准） |
 | [AGENTS.md](AGENTS.md) | 开发流程规范（7 阶段 + 质量门禁） |
 | [CHANGELOG.md](CHANGELOG.md) | 变更日志 |
-| [docs/roadmap-v1.1.0.md](docs/roadmap-v1.1.0.md) | v1.1.0 路线图 |
-| [docs/pricing-strategy.md](docs/pricing-strategy.md) | 定价策略 |
-| [docs/user-manual.md](docs/user-manual.md) | 用户手册 |
-| [docs/rpa-verification-report.md](docs/rpa-verification-report.md) | RPA 验证报告 |
+| [docs/roadmap-v1.1.0.md](01-docs/roadmap-v1.1.0.md) | v1.1.0 路线图 |
+| [docs/pricing-strategy.md](01-docs/pricing-strategy.md) | 定价策略 |
+| [docs/user-manual.md](01-docs/user-manual.md) | 用户手册 |
+| [docs/rpa-verification-report.md](01-docs/rpa-verification-report.md) | RPA 验证报告 |
 
 ## 📝 发布流程
 
