@@ -84,3 +84,6 @@ __pycache__/
 *.exe
 *.dmg
 *.AppImage
+
+# Test artifacts
+.sched-*
