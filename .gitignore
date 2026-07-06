@@ -72,3 +72,6 @@ dist-ts/
 temp_*.py
 fix_*.py
 gen_*.py
+
+# Test artifacts
+*.png
