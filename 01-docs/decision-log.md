@@ -156,3 +156,17 @@
   - data-sync.js: 5 平台改 RPA 桥接、utils.py: tag 过滤、E2E 测试体
 - **影响**: 低 - PRD 650→690 行，5 文件 +333/-52，419 测试全部通过
 - **PR**: #294
+
+### D-018: 大文件拆分收尾 — 恢复 video_compose.py 4个缺失委托方法
+- **类型**: 修复/代码质量
+- **决策**: 恢复因不完整拆分遗漏的 4 个委托方法，清理旧直接导入
+- **修复清单**:
+  - _has_audio_stream: 恢复为 _cu.has_audio_stream() 委托
+  - _tokenize: 恢复为 _cu.tokenize() 委托
+  - _build_atempo: 恢复为 _cu.build_atempo() 委托
+  - _burn_subtitles: 完整恢复（依赖 self.run_command()，不能委托）
+  - 移除重复 import compose_utils
+  - 移除 7 个旧直接导入（已由 _cu 别名替代）
+- **根因**: 前次大文件拆分直接从类中删除了 static/class 方法，但未添加 _cu 委托包装，运行时 AttributeError
+- **影响**: 低 - +24/-38 行，VideoCompose 29 方法回归正确数量，419 测试全部通过
+- **分支**: fix/video-compose-missing-methods
