@@ -1,4 +1,4 @@
-﻿"""AI audio and TTS providers."""
+"""AI audio and TTS providers."""
 from __future__ import annotations
 
 from multi_publish.video_creation.providers.audio.elevenlabs_tts import ElevenLabsTTS

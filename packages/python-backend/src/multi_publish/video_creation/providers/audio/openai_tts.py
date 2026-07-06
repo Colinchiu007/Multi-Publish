@@ -1,4 +1,4 @@
-﻿"""OpenAI text-to-speech provider tool.
+"""OpenAI text-to-speech provider tool.
 
 Adapted from OpenMontage tools/audio/openai_tts.py.
 """

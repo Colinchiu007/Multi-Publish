@@ -1,4 +1,4 @@
-﻿"""Tool registry for video creation module.
+"""Tool registry for video creation module.
 
 Adapted from OpenMontage tools/tool_registry.py.
 Central registry for discovering and querying tools/providers.

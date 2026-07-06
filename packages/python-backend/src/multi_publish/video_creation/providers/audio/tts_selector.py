@@ -1,4 +1,4 @@
-﻿"""Capability-level text-to-speech selector that chooses among provider tools.
+"""Capability-level text-to-speech selector that chooses among provider tools.
 
 Adapted from OpenMontage tools/audio/tts_selector.py.
 Provider discovery uses the local ToolRegistry.

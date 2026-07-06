@@ -1,4 +1,4 @@
-﻿"""AI image generation providers."""
+"""AI image generation providers."""
 from multi_publish.video_creation.providers.image.flux_image import FluxImage
 from multi_publish.video_creation.providers.image.openai_image import OpenAIImage
 from multi_publish.video_creation.providers.image.google_imagen import GoogleImagen

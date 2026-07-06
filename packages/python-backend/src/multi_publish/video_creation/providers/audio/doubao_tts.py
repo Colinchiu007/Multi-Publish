@@ -1,4 +1,4 @@
-﻿"""Doubao Speech text-to-speech provider tool (Volcengine).
+"""Doubao Speech text-to-speech provider tool (Volcengine).
 
 Adapted from OpenMontage tools/audio/doubao_tts.py.
 Async flow: submit -> poll -> download.

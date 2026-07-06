@@ -1,4 +1,4 @@
-﻿"""Piper local text-to-speech provider tool.
+"""Piper local text-to-speech provider tool.
 
 Adapted from OpenMontage tools/audio/piper_tts.py.
 Fully offline TTS using Piper.

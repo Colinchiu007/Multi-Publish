@@ -1,4 +1,4 @@
-﻿"""ComfyUI image generation via a local or remote ComfyUI server.
+"""ComfyUI image generation via a local or remote ComfyUI server.
 
 Simplified adapter - connects to a running ComfyUI server without
 the OpenMontage-specific client library. Requires manual workflow setup.

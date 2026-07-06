@@ -1,4 +1,4 @@
-﻿"""Code snippet renderer for overlay images.
+"""Code snippet renderer for overlay images.
 
 Generates styled code screenshots using Pygments for syntax
 highlighting and Pillow for rendering. No external services required.

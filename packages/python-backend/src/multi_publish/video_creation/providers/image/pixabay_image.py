@@ -1,4 +1,4 @@
-﻿"""Stock image acquisition from Pixabay API (free).
+"""Stock image acquisition from Pixabay API (free).
 
 Adapted from OpenMontage tools/graphics/pixabay_image.py.
 """

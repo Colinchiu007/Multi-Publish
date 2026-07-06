@@ -1,4 +1,4 @@
-﻿"""Capability-level image selector that routes between generation and stock providers.
+"""Capability-level image selector that routes between generation and stock providers.
 
 Simplified adapter - uses basic heuristic scoring instead of the full
 scoring library. Adapted from OpenMontage tools/graphics/image_selector.py.

@@ -1,4 +1,4 @@
-﻿"""xAI Grok image generation and editing.
+"""xAI Grok image generation and editing.
 
 Adapted from OpenMontage tools/graphics/grok_image.py.
 """

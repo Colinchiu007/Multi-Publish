@@ -1,4 +1,4 @@
-﻿"""Google Cloud Text-to-Speech provider tool.
+"""Google Cloud Text-to-Speech provider tool.
 
 Adapted from OpenMontage tools/audio/google_tts.py.
 Offers 700+ voices across 50+ languages.

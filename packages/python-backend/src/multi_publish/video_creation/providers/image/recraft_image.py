@@ -1,4 +1,4 @@
-﻿"""Recraft V4 image generation via fal.ai API.
+"""Recraft V4 image generation via fal.ai API.
 
 Best for logos, brand assets, SVG vectors, and images with accurate text rendering.
 Adapted from OpenMontage tools/graphics/recraft_image.py.

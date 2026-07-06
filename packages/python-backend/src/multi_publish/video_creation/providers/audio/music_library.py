@@ -1,4 +1,4 @@
-﻿"""User music library — local royalty-free track discovery.
+"""User music library — local royalty-free track discovery.
 
 Adapted from OpenMontage tools/audio/music_library.py.
 Surfaces tracks from a local music_library/ folder at proposal stage.

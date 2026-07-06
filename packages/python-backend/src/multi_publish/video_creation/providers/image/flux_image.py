@@ -1,4 +1,4 @@
-﻿"""FLUX image generation via fal.ai API.
+"""FLUX image generation via fal.ai API.
 
 Adapted from OpenMontage tools/graphics/flux_image.py.
 """
