@@ -132,3 +132,17 @@
 - **影响**: 低 - 无 import 路径依赖, 394/394 测试通过
 - **注意**: 文件从 OpenMontage 直接复制，无 	ools. 内部依赖，无需路径重写
 
+
+### D-015: QueryWorker 抽象接口加固 + VideoStitch 测试覆盖
+- **类型**: 代码质量/测试
+- **决策**: QueryWorker 的 5 个核心接口标记为 @abstractmethod，强制子类实现；为 video_stitch.py 新增 23 个单元测试
+- **理由**: 原代码用 aise NotImplementedError 不在编译期检查，子类遗漏实现只在运行时报错；VideoStitch 660+ 行代码无任何测试覆盖
+- **替代方案**: 保持现状（运行时才发现问题）
+- **影响**: 低 - 纯代码加固 + 测试补充，419 测试全部通过
+- **PR**: #292
+
+### D-016: video_stitch.py execute() KeyError 防护
+- **类型**: 代码质量
+- **决策**: 将 inputs["operation"] 改为 inputs.get("operation", "")，在 try/except 保护范围内处理
+- **理由**: 原始代码中 KeyError 在 try 块外抛出，导致 execute({}) 直接崩溃而非返回 ToolResult
+- **影响**: 低 - 单行变更，测试覆盖验证
