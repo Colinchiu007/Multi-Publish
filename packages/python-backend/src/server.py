@@ -22,6 +22,7 @@ from pydantic import BaseModel
 import uvicorn
 
 from multi_publish.models import PlatformType, PLATFORM_META, PublishPhase
+from multi_publish.video_creation.pipeline.loader import list_pipelines, load_pipeline
 from multi_publish.core.publisher_manager import PublisherManager
 
 app = FastAPI(title="Multi-Publish Backend", version="1.0.0")
@@ -431,6 +432,41 @@ def publish_progress(task_id: str):
         return {"code": 0, "data": {"task_id": task_id, "phase": task.get("status", "unknown"), "percent": 0, "message": ""}}
     return {"code": 0, "data": progress}
 
+
+# ─── 视频创作管线路由 ─────────────────────────────────────
+
+@app.get("/api/pipelines")
+def get_pipelines():
+    """列出所有可用管线"""
+    try:
+        names = list_pipelines()
+        pipelines = []
+        for name in names:
+            try:
+                info = load_pipeline(name)
+                pipelines.append({
+                    "name": name,
+                    "description": info.get("description", ""),
+                    "version": info.get("version", ""),
+                    "category": info.get("category", ""),
+                    "stability": info.get("stability", ""),
+                })
+            except Exception:
+                pipelines.append({"name": name, "description": "", "version": "", "category": "", "stability": ""})
+        return {"code": 0, "data": pipelines}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/pipelines/{name}")
+def get_pipeline_detail(name: str):
+    """获取单个管线详情"""
+    try:
+        info = load_pipeline(name)
+        return {"code": 0, "data": info}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"管线未找到: {name}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ─── 其他路由 ───────────────────────────────────────────────
 

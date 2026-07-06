@@ -28,6 +28,7 @@ const HIDDEN = new Set([
   'keyword:stop', 'keyword:stop-all',
   'show-notification', 'hotkeys:list',
   'impact:get-active', 'impact:get-recent-snapshots',
+  'pipelines:list', 'pipelines:get',
   'intelligence:fetch-trending', 'intelligence:find-references',
   'intelligence:get-benchmark', 'intelligence:get-impact',
   'intelligence:save-impact', 'intelligence:search',
