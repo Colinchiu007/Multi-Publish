@@ -2,16 +2,37 @@
 
 /**
  * Error codes — inline copy, not from dist-ts.
- * dist-ts/ is .gitignore'd so CI would fail if we re-export from there.
+ * Kept in sync with error-codes.ts.
  */
+
 const ERROR = {
-  REQUEST_ERROR: -100,
-  AUTH_ERROR: -200,
-  TIMEOUT: -300,
-  VALIDATION_ERROR: -400,
-  NOT_FOUND: -500,
-  RATE_LIMIT: -600,
-  SERVER_ERROR: -700,
+  SUCCESS: 0,
+  REQUEST_ERROR: -1,
+  VALIDATION_ERROR: -2,
+  AUTH_ERROR: -3,
+  NOT_FOUND: -4,
+  TIMEOUT_ERROR: -5,
+  NETWORK_ERROR: -6,
+  IO_ERROR: -7,
+  TASK_CANCELLED: -999,
+  UNKNOWN_ERROR: -99,
 };
 
-module.exports = { ERROR };
+const MESSAGES = {
+  [ERROR.SUCCESS]: 'Success',
+  [ERROR.REQUEST_ERROR]: 'Request failed',
+  [ERROR.VALIDATION_ERROR]: 'Validation error',
+  [ERROR.AUTH_ERROR]: 'Authentication failed',
+  [ERROR.NOT_FOUND]: 'Resource not found',
+  [ERROR.TIMEOUT_ERROR]: 'Request timed out',
+  [ERROR.NETWORK_ERROR]: 'Network error',
+  [ERROR.IO_ERROR]: 'IO error',
+  [ERROR.TASK_CANCELLED]: 'Task cancelled',
+  [ERROR.UNKNOWN_ERROR]: 'Unknown error',
+};
+
+function getMessage(code) {
+  return MESSAGES[code] || 'Unknown error';
+}
+
+module.exports = { ERROR, getMessage };

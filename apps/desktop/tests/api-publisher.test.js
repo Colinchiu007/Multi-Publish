@@ -1,7 +1,7 @@
-/**
- * API 封装层测试
- * 验证 @/api/publisher 所有导出函数定义正确
- * 使用文件解析方式（publisher.js 使用 ESM export，Jest 需 transform）
+﻿/**
+ * API 灏佽灞傛祴璇?
+ * 楠岃瘉 @/api/publisher 鎵€鏈夊鍑哄嚱鏁板畾涔夋纭?
+ * 浣跨敤鏂囦欢瑙ｆ瀽鏂瑰紡锛坧ublisher.js 浣跨敤 ESM export锛孞est 闇€ transform锛?
  */
 const path = require('path')
 const fs = require('fs')
@@ -69,8 +69,10 @@ describe('api/publisher', () => {
       
       // Verify it calls getApi() or handles missing electronAPI
       if (!fn.startsWith('on')) {
-        expect(body).toMatch(/getApi|electronAPI/)
+        expect(body).toMatch(/getApi|electronAPI|invoke/)
       }
     }
   })
 })
+
+

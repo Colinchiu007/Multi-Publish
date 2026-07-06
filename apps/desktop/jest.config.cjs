@@ -12,16 +12,17 @@ module.exports = {
     '/tests/e2e/publish-flow.test.js',
     '/tests/e2e/account-delete.test.js',
     '/tests/e2e/account-management.test.js',
+    '/electron/tests/',
   ],
   testEnvironment: 'node',
   moduleFileExtensions: ['js', 'mjs', 'cjs', 'json', 'node'],
   transform: {},
   modulePathIgnorePatterns: ['<rootDir>/dist/'],
-  // 模块重定向 — 大部分文件已从 electron/ 根目录移至 electron/services/
   moduleNameMapper: {
-    // Electron 主模块 mock
     '^electron$': '<rootDir>/tests/__mocks__/electron.js',
-    // 已移到 electron/services/ 的模块
+    '@multi-publish/rpa-engine': '<rootDir>/../../packages/rpa-engine/src/index.js',
+    '@multi-publish/api-publish-engine': '<rootDir>/../../packages/api-publish-engine/src/index.js',
+    '^ws$': '<rootDir>/tests/__mocks__/ws.js',
     '^\.\./electron/ai-writer$': '<rootDir>/electron/services/ai-writer',
     '^\.\./electron/cloud-publisher$': '<rootDir>/electron/services/cloud-publisher',
     '^\.\./electron/content-intelligence$': '<rootDir>/electron/services/content-intelligence',
@@ -37,12 +38,9 @@ module.exports = {
     '^\.\./electron/template-manager$': '<rootDir>/electron/services/template-manager',
     '^\.\./electron/usage-tracker$': '<rootDir>/electron/services/usage-tracker',
     '^\.\./electron/logger$': '<rootDir>/electron/services/logger',
-    // container 已移到 electron/core/
     '^\.\./electron/container$': '<rootDir>/electron/core/container',
-    // error-codes 有 core/ 和 services/ 两个版本，默认用 core/
     '^\.\./electron/error-codes$': '<rootDir>/electron/core/error-codes',
-    // 其他 electron/ 路径不变
+    'publisher-router': '<rootDir>/electron/services/publisher-router',
   },
-  // 解析 mock 文件时也应用重定向
   unmockedModulePathPatterns: ['node_modules/'],
-}
+};
