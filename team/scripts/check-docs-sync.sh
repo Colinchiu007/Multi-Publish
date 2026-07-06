@@ -86,6 +86,16 @@ while IFS= read -r file; do
   if [[ "$file" =~ ^team/scripts/ ]]; then
     continue
   fi
+  # 跳过配置文件（无需文档同步）
+  if [[ "$file" =~ \.(gitignore|gitattributes|npmrc|editorconfig)$ ]]; then
+    continue
+  fi
+  if [[ "$file" =~ ^(pyproject\.toml|package-lock\.json)$ ]]; then
+    continue
+  fi
+  if [[ "$file" =~ ^CHANGELOG\.md$ ]]; then
+    continue
+  fi
   # 忽略 node_modules 和构建产物
   if [[ "$file" =~ node_modules|dist/ ]]; then
     continue
@@ -114,3 +124,4 @@ fi
 
 echo "✅ 文档同步检查通过！"
 echo "  代码变更已同步更新文档。"
+
