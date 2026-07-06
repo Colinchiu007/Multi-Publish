@@ -156,3 +156,17 @@
   - data-sync.js: 5 平台改 RPA 桥接、utils.py: tag 过滤、E2E 测试体
 - **影响**: 低 - PRD 650→690 行，5 文件 +333/-52，419 测试全部通过
 - **PR**: #294
+
+### D-019: Phase A 基础设施清理 — 删除 8 个已合并远程分支
+- **类型**: 代码清理
+- **决策**: 删除 8 个已合并到 main 的远程特性分支
+- **删除清单**:
+  - chore/merge-phase1-phase2-2026-07-05
+  - feat/eslint-auto-fix, feat/eslint-prettier-setup
+  - feat/openmontage-analysis-v2, feat/openmontage-phase0, feat/openmontage-reuse-phase1
+  - feat/video-creation-phase0
+  - fix/responsive-layout-account-row
+- **保留分支**:
+  - docs/changelog-sync-v2.1.2（PR #297，待合并）
+  - fix/video-compose-missing-methods（PR #296，待合并）
+- **影响**: 低 - 仅删除已合并分支，419/419 测试通过
