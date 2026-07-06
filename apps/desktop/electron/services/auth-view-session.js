@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * AuthView Session — 登录 Session / Cookie 管理
  *
@@ -10,6 +10,7 @@ const _path = require('path')
 /**
  * 创建隔离的 Session 分区
  * @param {string} accountId - 账号 ID
+ * @param {{ fromPartition: Function }} sessionModule
  * @returns {import("electron").Session}
  */
 function createSession(accountId, sessionModule) {
@@ -19,6 +20,8 @@ function createSession(accountId, sessionModule) {
 
 /**
  * 设置 Cookie（支持单个或数组）
+ * @param {import("electron").Session} session
+ * @param {any} cookies
  */
 async function setCookies(session, cookies) {
   if (!cookies || cookies.length === 0) return
@@ -35,11 +38,15 @@ async function setCookies(session, cookies) {
 
 /**
  * 在页面加载完成后恢复 localStorage
+ * @param {import('electron').WebContentsView} view
+ * @param {Record<string, string>} localStorage
+ * @returns {Promise<void>}
  */
 async function restoreLocalStorage(view, localStorage) {
   if (!localStorage || Object.keys(localStorage).length === 0) return
-  return new Promise((resolve) => {
-    view.webContents.on('did-finish-load', async () => {
+  /** @type {Promise<void>} */
+  const p = new Promise((resolve) => {
+    view.webContents.once('did-finish-load', async () => {
       try {
         await view.webContents.executeJavaScript(`
           (function() {
@@ -51,12 +58,16 @@ async function restoreLocalStorage(view, localStorage) {
         `)
       } catch (_e) { /* ignore */ }
       resolve()
-    }, { once: true })
+    })
   })
+  return p
 }
 
 /**
  * 创建并配置 WebContentsView
+ * @param {string} accountId
+ * @param {string} preloadPath
+ * @param {import('electron').Session} sessionInstance
  */
 function createAuthView(accountId, preloadPath, sessionInstance) {
   const { WebContentsView } = require('electron')
@@ -71,3 +82,4 @@ function createAuthView(accountId, preloadPath, sessionInstance) {
 }
 
 module.exports = { createSession, setCookies, restoreLocalStorage, createAuthView }
+

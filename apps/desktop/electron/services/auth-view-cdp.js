@@ -1,9 +1,12 @@
-// @ts-check
+﻿// @ts-check
 /**
- * AuthView CDP 鈥?WebContentsView 璋冭瘯鍣ㄦ娴嬫ā鍧? */
+ * AuthView CDP — WebContentsView 调试器检测模块
+ */
 
 /**
- * 涓?View 闄勫姞 CDP 鐧诲綍妫€娴嬶紙铓佸皬浜屾柟妗堬級
+ * 为 View 附加 CDP 登录检测（蚂蚁搬家公司方案）
+ * @param {import('electron').WebContentsView} view
+ * @param {Function} onLoginSuccess
  */
 function attachCdpDetection(view, onLoginSuccess) {
   try {
@@ -14,7 +17,7 @@ function attachCdpDetection(view, onLoginSuccess) {
         { urlPattern: '*passport.bilibili.com/x/passport-login/web/*', resourceType: 'XHR', requestStage: 'Response' },
       ]
     })
-    view.webContents.debugger.on('message', async (_, method, params) => {
+    view.webContents.debugger.on('message', async (/** @type {any} */ _, /** @type {string} */ method, /** @type {any} */ params) => {
       if (method !== 'Fetch.requestPaused') return
       try {
         const { body, base64Encoded } = await view.webContents.debugger.sendCommand(
@@ -29,7 +32,10 @@ function attachCdpDetection(view, onLoginSuccess) {
 }
 
 /**
- * 鍒ゆ柇 API 鍝嶅簲鏄惁涓虹櫥褰曟垚鍔熶俊鍙? */
+ * 判断 API 响应是否为登录成功信号
+ * @param {any} data
+ * @returns {boolean}
+ */
 function isLoginSuccess(data) {
   if (!data || !data.data) return false
   return (data.code === 0 && (

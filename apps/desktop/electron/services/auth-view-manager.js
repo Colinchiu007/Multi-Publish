@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * AuthViewManager — WebContentsView 内嵌浏览器登录管理器
  *
@@ -19,20 +19,36 @@ const SIDEBAR_WIDTH = 280
 
 class AuthViewManager {
   constructor() {
+    /** @type {import('electron').BrowserWindow | null} */
     this.mainWindow = null
+    /** @type {import('electron').WebContentsView | null} */
     this.currentView = null
+    /** @type {string | null} */
     this.currentPlatform = null
+    /** @type {string | null} */
     this.currentAccountId = null
+    /** @type {((data: any) => void) | null} */
     this._resolveLogin = null
+    /** @type {((err: Error) => void) | null} */
     this._rejectLogin = null
+    /** @type {Function | null} */
+    this._escHandler = null
+    /** @type {import('electron').WebContentsView | null} */
+    this._escView = null
   }
 
+  /**
+   * @param {import('electron').BrowserWindow} win
+   */
   setMainWindow(win) { this.mainWindow = win }
 
   _getPreloadPath() {
     return path.join(__dirname, '..', 'auth-preload.js')
   }
 
+  /**
+   * @param {{ width: number, height: number }} bounds
+   */
   _positionView(bounds) {
     if (!this.currentView) return
     this.currentView.setBounds({
@@ -45,11 +61,15 @@ class AuthViewManager {
 
   _getNavHeight() { return 56 }
 
+  /**
+   * @param {string} platform
+   * @param {number} [timeout]
+   */
   openLogin(platform, timeout = 300000) {
     return new Promise((resolve, reject) => {
       if (!this.mainWindow) { reject(new Error("主窗口未初始化")); return }
 
-      const loginUrl = PLATFORM_LOGIN_URLS[platform]
+      const loginUrl = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
       if (!loginUrl) { reject(new Error(`不支持的平台: ${platform}`)); return }
 
       const accountId = `auth-${platform}-${Date.now()}`
@@ -68,11 +88,17 @@ class AuthViewManager {
       view.webContents.loadURL(loginUrl)
 
       // Escape 键关闭
+      /**
+       * @param {import('electron').Event} event
+       * @param {{ type: string, key: string }} input
+       */
       const escHandler = (event, input) => {
         if (input && input.type === 'keyDown' && input.key === 'Escape') {
           this.close()
-          this._resolveLogin?.({ cancelled: true })
-          this._resolveLogin = null
+          if (this._resolveLogin) {
+            this._resolveLogin({ cancelled: true })
+            this._resolveLogin = null
+          }
         }
       }
       view.webContents.on("before-input-event", escHandler)
@@ -80,7 +106,7 @@ class AuthViewManager {
       this._escView = view
 
       // URL 检测（备用）
-      view.webContents.on('did-navigate', (_, url) => this._checkLoginCompleted(url))
+      view.webContents.on('did-navigate', (/** @type {any} */ _, /** @type {string} */ url) => this._checkLoginCompleted(url))
 
       // CDP 检测（主检测方式）
       attachCdpDetection(view, () => {
@@ -88,11 +114,13 @@ class AuthViewManager {
         setTimeout(async () => {
           try {
             const authData = await this._extractAuthData(view)
-            this._resolveLogin?.(authData)
-            this._resolveLogin = null
+            if (this._resolveLogin) {
+              this._resolveLogin(authData)
+              this._resolveLogin = null
+            }
             this.close()
           } catch (e) {
-            log.warn('AuthView', 'Failed to extract auth data: ' + e.message)
+            log.warn('AuthView', 'Failed to extract auth data: ' + (e instanceof Error ? e.message : String(e)))
           }
         }, 3000)
       })
@@ -110,28 +138,35 @@ class AuthViewManager {
     })
   }
 
+  /**
+   * @param {import('electron').WebContentsView} view
+   */
   async _extractAuthData(view) {
     const cookies = await view.webContents.session.cookies.get({})
     let name = ''
-    // eslint-disable-next-line no-unused-vars
     try { name = await view.webContents.executeJavaScript('document.title || ""') } catch (e) { /* ignore */ }
     return { cookies, name }
   }
 
+  /**
+   * @param {string} url
+   */
   _checkLoginCompleted(url) {
     if (!this.currentPlatform || !this._resolveLogin) return
-    const patterns = PLATFORM_LOGIN_SUCCESS_PATTERNS[this.currentPlatform]
+    const patterns = /** @type {Record<string, string[]>} */ (PLATFORM_LOGIN_SUCCESS_PATTERNS)[this.currentPlatform]
     if (!patterns) return
     if (patterns.some(p => url.includes(p))) {
       log.info('AuthView', 'URL pattern detected login success: ' + this.currentPlatform)
       setTimeout(async () => {
         try {
-          const authData = await this._extractAuthData(this.currentView)
-          this._resolveLogin(authData)
-          this._resolveLogin = null
+          const authData = this.currentView ? await this._extractAuthData(this.currentView) : { cookies: [], name: "" }
+          if (this._resolveLogin) {
+            this._resolveLogin(authData)
+            this._resolveLogin = null
+          }
           this.close()
         } catch (e) {
-          log.warn('AuthView', 'Extract error: ' + e.message)
+          log.warn('AuthView', 'Extract error: ' + (e instanceof Error ? e.message : String(e)))
         }
       }, 3000)
     }
@@ -141,12 +176,14 @@ class AuthViewManager {
     if (this.currentView) {
       try {
         if (this._escHandler && this._escView) {
+          // @ts-expect-error Electron types missing before-input-event
           this._escView.webContents.removeListener("before-input-event", this._escHandler)
         }
-        this.mainWindow.contentView.removeChildView(this.currentView)
+        if (this.mainWindow && this.currentView) {
+          this.mainWindow.contentView.removeChildView(this.currentView)
+        }
         this.currentView.webContents.close()
         this.currentView = null
-      // eslint-disable-next-line no-unused-vars
       } catch (e) { /* ignore */ }
     }
     this.currentPlatform = null
@@ -155,8 +192,13 @@ class AuthViewManager {
     this._rejectLogin = null
   }
 
+  /**
+   * @param {string} platform
+   * @param {any[]} cookies
+   * @param {Record<string, string>} [localStorage]
+   */
   async openSavedAccount(platform, cookies, localStorage) {
-    const loginUrl = PLATFORM_LOGIN_URLS[platform]
+    const loginUrl = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
     if (!loginUrl) return
     if (!this.mainWindow) return
 
@@ -175,11 +217,17 @@ class AuthViewManager {
     view.setVisible(true)
     view.webContents.loadURL(loginUrl)
 
+    /**
+     * @param {import('electron').Event} event
+     * @param {{ type: string, key: string }} input
+     */
     const escHandler = (event, input) => {
       if (input && input.type === 'keyDown' && input.key === 'Escape') {
         this.close()
-        this._resolveLogin?.({ cancelled: true })
-        this._resolveLogin = null
+        if (this._resolveLogin) {
+          this._resolveLogin({ cancelled: true })
+          this._resolveLogin = null
+        }
       }
     }
     view.webContents.on("before-input-event", escHandler)
@@ -194,8 +242,13 @@ class AuthViewManager {
     log.info('AuthView', `Opened saved account ${accountId}`)
   }
 
+  /**
+   * @param {string} platform
+   * @param {any[]} [cookies]
+   * @param {Record<string, string>} [localStorage]
+   */
   async loginSilent(platform, cookies, localStorage) {
-    const loginUrl = PLATFORM_LOGIN_URLS[platform]
+    const loginUrl = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
     if (!loginUrl) return { valid: false, accountName: null }
 
     const win = new BrowserWindow({
@@ -210,7 +263,6 @@ class AuthViewManager {
     try {
       if (cookies && cookies.length > 0) {
         for (const c of cookies) {
-          // eslint-disable-next-line no-unused-vars
           try { await win.webContents.session.cookies.set(c) } catch (e) { /* skip */ }
         }
       }
@@ -228,31 +280,30 @@ class AuthViewManager {
               });
             })()
           `)
-        // eslint-disable-next-line no-unused-vars
         } catch (e) { /* ignore */ }
       }
 
       await new Promise(r => setTimeout(r, 2000))
 
       const currentUrl = win.webContents.getURL()
-      const patterns = PLATFORM_LOGIN_SUCCESS_PATTERNS[platform]
+      const patterns = /** @type {Record<string, string[]>} */ (PLATFORM_LOGIN_SUCCESS_PATTERNS)[platform]
       const isValid = patterns
         ? patterns.some(p => currentUrl.includes(p))
         : !currentUrl.includes('login') && !currentUrl.includes('passport') && !currentUrl.includes('signin')
 
       let accountName = null
-      // eslint-disable-next-line no-unused-vars
       try { accountName = await win.webContents.getTitle() } catch (e) { /* ignore */ }
 
       return { valid: isValid, accountName }
     } catch (e) {
-      log.warn('AuthView', `Silent login failed for ${platform}: ${e.message}`)
+      log.warn('AuthView', `Silent login failed for ${platform}: ${e instanceof Error ? e.message : String(e)}`)
       return { valid: false, accountName: null }
     } finally {
-      // eslint-disable-next-line no-unused-vars
       try { win.destroy() } catch (e) { /* ignore */ }
     }
   }
 }
 
 module.exports = AuthViewManager
+
+

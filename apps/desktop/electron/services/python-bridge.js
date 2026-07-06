@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * Python 后端子进程管理
  * Electron 主进程启动/停止 Python FastAPI 服务
@@ -18,10 +18,12 @@ const WATCHDOG_INTERVAL = 30000     // 守护检查间隔 30s
 const MAX_RESTARTS = 3              // 最大重启次数
 const PORT_FALLBACK_COUNT = 5       // 端口冲突时尝试后续端口的次数
 
+/** @type {import('child_process').ChildProcess | null} */
 let pythonProcess = null
 let isRunning = false
 let currentPort = BACKEND_PORT
 let restartCount = 0
+/** @type {NodeJS.Timeout | null} */
 let watchdogTimer = null
 
 /**
@@ -38,6 +40,8 @@ function getBackendDir () {
 
 /**
  * 启动 Python 后端子进程（含自动重试 + 端口回退）
+ * @param {number} port
+ * @returns {Promise<import('child_process').ChildProcess>}
  */
 function launchProcess (port) {
   return new Promise((resolve, reject) => {
@@ -109,7 +113,7 @@ async function startPythonBackend () {
       log.info('PythonBridge', `Backend ready on port ${port}`)
       return
     } catch (e) {
-      if (e.message === 'PORT_IN_USE') {
+      if (e instanceof Error && e.message === 'PORT_IN_USE') {
         log.warn('PythonBridge', `Port ${port} in use, trying ${port + 1}`)
         lastErr = e
         continue
@@ -123,9 +127,11 @@ async function startPythonBackend () {
 
 /**
  * 等待后端就绪
+ * @returns {Promise<void>}
  */
 function waitForHealthy () {
-  return new Promise((resolve, reject) => {
+  /** @type {Promise<void>} */
+  const p = new Promise((resolve, reject) => {
     const startTime = Date.now()
     const interval = setInterval(async () => {
       const healthy = await _healthCheck()
@@ -138,6 +144,7 @@ function waitForHealthy () {
       }
     }, HEALTH_CHECK_INTERVAL)
   })
+  return p
 }
 
 /**
@@ -155,7 +162,7 @@ function startWatchdog () {
         try {
           await startPythonBackend()
         } catch (e) {
-          log.error('PythonBridge', `Restart failed: ${e.message}`)
+          log.error('PythonBridge', `Restart failed: ${e instanceof Error ? e.message : String(e)}`)
         }
       } else {
         log.error('PythonBridge', `Max restarts (${MAX_RESTARTS}) reached, giving up`)
@@ -185,16 +192,18 @@ function scheduleRestart () {
     try {
       await startPythonBackend()
     } catch (e) {
-      log.error('PythonBridge', `Restart #${restartCount} failed: ${e.message}`)
+      log.error('PythonBridge', `Restart #${restartCount} failed: ${e instanceof Error ? e.message : String(e)}`)
     }
   }, delay)
 }
 
 /**
  * 健康检查 — 调用 GET /api/health
+ * @returns {Promise<boolean>}
  */
 function _healthCheck () {
-  return new Promise((resolve) => {
+  /** @type {Promise<boolean>} */
+  const p = new Promise((resolve) => {
     const req = http.get(`http://${BACKEND_HOST}:${currentPort}/api/health`, { timeout: 2000 }, (res) => {
       let data = ''
       res.on('data', chunk => { data += chunk })
@@ -210,6 +219,7 @@ function _healthCheck () {
     req.on('error', () => resolve(false))
     req.on('timeout', () => { req.destroy(); resolve(false) })
   })
+  return p
 }
 
 /**

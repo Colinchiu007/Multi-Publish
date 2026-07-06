@@ -64,17 +64,23 @@
     </div>
     <div v-if="result" class="result-banner success"><p>视频渲染完成</p><UiButton @click="viewResult">查看视频</UiButton></div>
     <div v-if="error" class="result-banner error"><p>{{ error }}</p><button class="btn-secondary" @click="error = null">重试</button></div>
+      <PipelineBrowser v-if="mode === 'browse-pipelines'" @select="onPipelineSelect" />
   </div>
 </template>
 <script>
+import PipelineBrowser from "@/components/PipelineBrowser.vue"
 import { renderStart, renderCancel, renderGetStatus, renderInstallDeps, onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress } from '@/api/publisher'
 export default {
   name: 'CreateView',
-  data() { return { mode: 'text', text: '', theme: 'clean-professional', profile: 'youtube-landscape', images: [], profiles: ['youtube-landscape','youtube-shorts','tiktok','bilibili','wechat','xiaohongshu'], themes: ['clean-professional','flat-motion-graphics'], rendering: false, progress: 0, stage: '', result: null, error: null, status: null, aiLoading: false, installing: false, installLog: '', modes: [{ value: 'text', label: '文案生成' }, { value: 'gallery', label: '图片轮播' }] } },
+  components: { PipelineBrowser },
+  data() { return { mode: 'text', text: '', theme: 'clean-professional', profile: 'youtube-landscape', images: [], profiles: ['youtube-landscape','youtube-shorts','tiktok','bilibili','wechat','xiaohongshu'], themes: ['clean-professional','flat-motion-graphics'], rendering: false, progress: 0, stage: '', result: null, error: null, status: null, aiLoading: false, installing: false, installLog: '', modes: [{ value: 'text', label: '文案生成' }, { value: 'gallery', label: '图片轮播' }, { value: 'browse-pipelines', label: '浏览管线' }] } },
   computed: { canRender() { if (this.rendering) return false; if (this.mode === 'text') return this.text.trim().length > 0; if (this.mode === 'gallery') return this.images.length > 0; return false; } },
   mounted() { this.checkStatus(); this.setupListeners(); },
   beforeUnmount() { this.cleanup(); },
   methods: {
+    onPipelineSelect(p) {
+      this.$router.push({ name: "CreateResult", query: { pipeline: p.name } })
+    },
     checkStatus() { if (renderGetStatus) renderGetStatus().then(s => this.status = s); },
     setupListeners() {
       if (!window.electronAPI) return;

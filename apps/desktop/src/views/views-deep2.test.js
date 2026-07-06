@@ -101,7 +101,7 @@ describe("CreateView (deep)", () => {
   it("shows mode tabs", async () => {
     const w = await mountCreate();
     const tabs = w.findAll(".mode-tab");
-    expect(tabs.length).toBe(2);
+    expect(tabs.length).toBe(3);
   });
 
   it("canRender changes with text", async () => {

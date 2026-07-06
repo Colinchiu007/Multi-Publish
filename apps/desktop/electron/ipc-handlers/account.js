@@ -1,10 +1,24 @@
-// @ts-check
+﻿// @ts-check
+/**
+ * @param {import('electron').IpcMain} ipcMain
+ * @param {{
+ *   authViewManager: import('../services/auth-view-manager'),
+ *   pythonBridge: import('../services/python-bridge'),
+ *   AccountManager: any,
+ *   BACKEND_PLATFORMS: Set<string>,
+ *   log: { info: Function, warn: Function, error: Function },
+ *   BrowserWindow: typeof import('electron').BrowserWindow
+ * }} deps
+ */
 function registerHandlers(ipcMain, deps) {
   const { authViewManager, pythonBridge, AccountManager, BACKEND_PLATFORMS, log, BrowserWindow } = deps
 
   ipcMain.handle('accounts:list', async () => {
-    try { return await pythonBridge.requestBackend('GET', '/api/accounts') }
-    catch (e) { return { code: -1, message: e.message, data: [] } }
+    try {
+      return await pythonBridge.requestBackend('GET', '/api/accounts')
+    } catch (e) {
+      return { code: -1, message: e instanceof Error ? e.message : String(e), data: [] }
+    }
   })
 
   ipcMain.handle('auth:open-login', async (event, platform) => {
@@ -42,7 +56,7 @@ function registerHandlers(ipcMain, deps) {
           const orchestratorUrl = process.env.ORCHESTRATOR_URL || 'http://39.105.42.85'
           const token = process.env.ORCHESTRATOR_API_KEY || ''
           const postData = JSON.stringify({
-            cookies: result.cookies.map(c => ({
+            cookies: result.cookies.map(/** @param {{ name: string, value: string, domain?: string, path?: string }} c */ (c) => ({
               name: c.name,
               value: c.value,
               domain: c.domain || '.bilibili.com',
@@ -62,18 +76,18 @@ function registerHandlers(ipcMain, deps) {
               ...(token ? { 'X-API-Key': token } : {}),
             },
           })
-          req.on('error', (e) => log.warn('Auth', 'Orchestrator cookie push failed: ' + e.message))
+          req.on('error', (e) => log.warn('Auth', 'Orchestrator cookie push failed: ' + (e instanceof Error ? e.message : String(e))))
           req.write(postData)
           req.end()
           log.info('Auth', 'Pushed ' + platform + ' cookies to orchestrator')
         } catch (e) {
-          log.warn('Auth', 'Orchestrator cookie push failed: ' + e.message)
+          log.warn('Auth', 'Orchestrator cookie push failed: ' + (e instanceof Error ? e.message : String(e)))
         }
       }
       return { code: 0, data: { ...saveResult.data }, message: '账号添加成功' }
     } catch (e) {
-      log.error('Auth', 'Login failed for ' + platform + ': ' + e.message)
-      return { code: -1, message: e.message }
+      log.error('Auth', 'Login failed for ' + platform + ': ' + (e instanceof Error ? e.message : String(e)))
+      return { code: -1, message: e instanceof Error ? e.message : String(e) }
     }
   })
 
@@ -82,7 +96,7 @@ function registerHandlers(ipcMain, deps) {
       const result = await authViewManager.loginSilent(platform, cookies, localStorage)
       return { code: 0, data: result }
     } catch (e) {
-      return { code: -1, message: e.message, data: { valid: false, accountName: null } }
+      return { code: -1, message: e instanceof Error ? e.message : String(e), data: { valid: false, accountName: null } }
     }
   })
 
@@ -100,7 +114,7 @@ function registerHandlers(ipcMain, deps) {
       })
       return result
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: -1, message: e instanceof Error ? e.message : String(e) }
     }
   })
 
@@ -108,17 +122,16 @@ function registerHandlers(ipcMain, deps) {
     try {
       const account = await AccountManager.addAccount(platform)
       return { code: 0, data: account, message: '账号添加成功' }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { return { code: -1, message: e instanceof Error ? e.message : String(e) } }
   })
 
   ipcMain.handle('account:delete', async (event, accountId) => {
     try {
       const result = await pythonBridge.requestBackend('DELETE', '/api/accounts/' + accountId)
       if (result.code === 0) return { code: 0, message: '账号已删除' }
-    // eslint-disable-next-line no-unused-vars
     } catch (e) { /* fallthrough */ }
     try { await AccountManager.deleteAccount(accountId); return { code: 0, message: '账号已删除' } }
-    catch (e) { return { code: -1, message: e.message } }
+    catch (e) { return { code: -1, message: e instanceof Error ? e.message : String(e) } }
   })
 
   ipcMain.handle('account:check-login', async (event, { platform, accountId }) => {
@@ -129,13 +142,14 @@ function registerHandlers(ipcMain, deps) {
       }
       const status = await AccountManager.checkLoginStatus(platform, accountId)
       return { code: 0, data: status }
-    } catch (e) { return { code: -1, message: e.message, data: { valid: false } } }
+    } catch (e) { return { code: -1, message: e instanceof Error ? e.message : String(e), data: { valid: false } } }
   })
 
   ipcMain.handle('account:list', async () => {
     try { const accounts = await AccountManager.listAccounts(); return { code: 0, data: accounts } }
-    catch (e) { return { code: -1, message: e.message, data: [] } }
+    catch (e) { return { code: -1, message: e instanceof Error ? e.message : String(e), data: [] } }
   })
 }
 
 module.exports = registerHandlers
+
