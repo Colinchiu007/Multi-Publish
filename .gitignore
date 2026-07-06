@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 dist/
 dist-electron/
 .vite/
@@ -70,6 +70,7 @@ dist-ts/
 # Temp scripts (specific files, not directories)
 temp_*.py
 fix_*.py
+_fix_*.py
 gen_*.py
 
 # Test artifacts
