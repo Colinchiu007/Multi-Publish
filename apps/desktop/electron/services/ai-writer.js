@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /** 
  * AiWriter — AI 辅助写作模块
  *

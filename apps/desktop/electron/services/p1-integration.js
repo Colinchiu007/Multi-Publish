@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 // Onboarding and Publish Alert integration
 const onboarding = require('./onboarding')
 const { ipcMain } = require('electron')

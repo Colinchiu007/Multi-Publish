@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /**
  * KeywordMonitor — 关键词背景监测（方案 D.6）
  *

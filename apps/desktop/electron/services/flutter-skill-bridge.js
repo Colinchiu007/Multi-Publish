@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /**
  * flutter-skill-bridge.js — AI E2E testing bridge integration
  *

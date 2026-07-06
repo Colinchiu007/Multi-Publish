@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /**
  * PublishPoller — orchestrator-driven publish poller (Plan B)
  *

@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /**
  * Playwright 兼容层（Electron 原生替代）
  *

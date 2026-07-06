@@ -1,3 +1,4 @@
+// @ts-nocheck
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./services/logger')

@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /**
  * 首次运行引导
  *

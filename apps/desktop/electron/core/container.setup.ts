@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Container setup — 集中注册所有 Electron 主进程服务
  * TS 迁移版

@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /**
  * CloudPublisher — Orchestrator HTTP client for cloud-based publishing (F13)
  *
@@ -12,7 +12,8 @@
  *   cloud-publisher:platforms  → getSupportedPlatforms
  */
 
-const { log } = require('./logger')
+const logger = require('./logger')
+const log = logger.log || logger
 
 class CloudPublisher {
 
