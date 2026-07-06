@@ -7,16 +7,16 @@ from multi_publish.video_creation.providers.video.kling_video import KlingVideo
 from multi_publish.video_creation.providers.video.runway_video import RunwayVideo
 from multi_publish.video_creation.providers.video.veo_video import VeoVideo
 from multi_publish.video_creation.providers.video.wan_video import WanVideo
-from multi_publish.video_creation.providers.video.cogvideo_video import CogvideoVideo
-from multi_publish.video_creation.providers.video.minimax_video import MinimaxVideo
+from multi_publish.video_creation.providers.video.cogvideo_video import CogVideoVideo
+from multi_publish.video_creation.providers.video.minimax_video import MiniMaxVideo
 from multi_publish.video_creation.providers.video.grok_video import GrokVideo
 from multi_publish.video_creation.providers.video.heygen_video import HeyGenVideo
 from multi_publish.video_creation.providers.video.seedance_video import SeedanceVideo
 from multi_publish.video_creation.providers.video.seedance_replicate import SeedanceReplicate
-from multi_publish.video_creation.providers.video.ltx_video_local import LtxVideoLocal
-from multi_publish.video_creation.providers.video.ltx_video_modal import LtxVideoModal
-from multi_publish.video_creation.providers.video.higgsfield_video import HiggsfieldVideo
-from multi_publish.video_creation.providers.video.hyperframes_compose import HyperframesCompose
+from multi_publish.video_creation.providers.video.ltx_video_local import LTXVideoLocal
+from multi_publish.video_creation.providers.video.ltx_video_modal import LTXVideoModal
+from multi_publish.video_creation.providers.video.higgsfield_video import HiggsFieldVideo
+from multi_publish.video_creation.providers.video.hyperframes_compose import HyperFramesCompose
 
 # Processing tools
 from multi_publish.video_creation.providers.video.video_compose import VideoCompose
@@ -59,9 +59,9 @@ from multi_publish.video_creation.providers.video.stock_sources.base import Cand
 __all__ = [
     # AI Providers
     "HunyuanVideo", "KlingVideo", "RunwayVideo", "VeoVideo", "WanVideo",
-    "CogvideoVideo", "MinimaxVideo", "GrokVideo", "HeyGenVideo",
-    "SeedanceVideo", "SeedanceReplicate", "LtxVideoLocal", "LtxVideoModal",
-    "HiggsfieldVideo", "HyperframesCompose",
+    "CogVideoVideo", "MiniMaxVideo", "GrokVideo", "HeyGenVideo",
+    "SeedanceVideo", "SeedanceReplicate", "LTXVideoLocal", "LTXVideoModal",
+    "HiggsFieldVideo", "HyperFramesCompose",
     # Processing
     "VideoCompose", "VideoSelector", "VideoStitch", "VideoTrimmer",
     "AutoReframe", "SilenceCutter", "RemotionCaptionBurn", "ShowcaseCard",

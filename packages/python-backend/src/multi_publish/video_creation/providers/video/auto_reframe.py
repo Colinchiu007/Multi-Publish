@@ -1,5 +1,49 @@
+"""Auto-reframe tool for aspect ratio conversion with face tracking.
+
+Converts video between aspect ratios (e.g. 16:9 → 9:16 for Instagram Reels)
+while keeping the speaker's face centered in frame. Uses face_tracker data
+for smooth, content-aware cropping.
+
+Primary use: converting talking-head footage shot in landscape to vertical
+format for social media (TikTok, Reels, Shorts).
+
+Approach: MediaPipe/OpenCV face detection → smoothed bounding box trajectory
+→ FFmpeg crop filter. No GPU required.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+from typing import Any
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    RetryPolicy,
+    ResumeSupport,
+    ToolResult,
+    ToolStability,
+    ToolTier,
+)
+
+
+# Common target aspect ratios
+ASPECT_PRESETS = {
+    "portrait": (9, 16),       # Instagram Reels, TikTok, YouTube Shorts
+    "square": (1, 1),          # Instagram Feed
+    "landscape": (16, 9),      # YouTube, LinkedIn
+    "cinematic": (21, 9),      # Ultra-wide
+    "vertical_4_5": (4, 5),    # Instagram portrait post
+}
+
+
 class AutoReframe(BaseTool):
     name = "auto_reframe"
+    version = "0.1.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "ffmpeg"
@@ -8,10 +52,81 @@ class AutoReframe(BaseTool):
     determinism = Determinism.DETERMINISTIC
 
     dependencies = ["cmd:ffmpeg"]
+    install_instructions = (
+        "FFmpeg is required. For face-tracked reframing, also install:\n"
+        "pip install mediapipe opencv-python\n\n"
+        "Without MediaPipe/OpenCV, falls back to center-crop."
+    )
+    agent_skills = ["ffmpeg"]
 
+    capabilities = [
+        "aspect_ratio_conversion",
+        "face_tracked_crop",
+        "smart_reframe",
+        "center_crop",
+    ]
+
+    input_schema = {
+        "type": "object",
+        "required": ["input_path"],
+        "properties": {
+            "input_path": {"type": "string"},
+            "output_path": {"type": "string"},
+            "target_aspect": {
+                "type": "string",
+                "enum": list(ASPECT_PRESETS.keys()),
+                "default": "portrait",
+                "description": "Target aspect ratio preset",
+            },
+            "target_width": {
+                "type": "integer",
+                "description": "Explicit target width (overrides preset)",
+            },
+            "target_height": {
+                "type": "integer",
+                "description": "Explicit target height (overrides preset)",
+            },
+            "face_tracking_json": {
+                "type": "string",
+                "description": "Path to pre-computed face_tracker JSON. If omitted, runs face detection internally.",
+            },
+            "smoothing_window": {
+                "type": "integer",
+                "default": 15,
+                "minimum": 1,
+                "description": "Number of frames for position smoothing (higher = smoother pan, lower = more responsive)",
+            },
+            "face_padding": {
+                "type": "number",
+                "default": 0.4,
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Extra space around face as fraction of face size (0.4 = 40% padding)",
+            },
+            "sample_fps": {
+                "type": "number",
+                "default": 5,
+                "description": "Face detection sample rate (only used if no face_tracking_json)",
+            },
+            "codec": {"type": "string", "default": "libx264"},
+            "crf": {"type": "integer", "default": 18},
+        },
+    }
 
     resource_profile = ResourceProfile(
+        cpu_cores=4, ram_mb=2048, vram_mb=0, disk_mb=4000, network_required=False
+    )
+    retry_policy = RetryPolicy(max_retries=1, retryable_errors=["FFmpeg error"])
+    resume_support = ResumeSupport.FROM_START
     idempotency_key_fields = [
+        "input_path", "target_aspect", "target_width", "target_height",
+        "smoothing_window", "face_padding",
+    ]
+    side_effects = ["writes reframed video to output_path"]
+    user_visible_verification = [
+        "Play reframed output — verify face stays centered and framing is smooth",
+        "Check that no important content is cropped out",
+    ]
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         input_path = Path(inputs["input_path"])
@@ -110,6 +225,7 @@ class AutoReframe(BaseTool):
             "-select_streams", "v:0",
             "-show_entries", "stream=width,height,r_frame_rate",
             "-of", "json", str(path),
+        ]
         try:
             result = self.run_command(cmd)
             data = json.loads(result.stdout)
@@ -195,7 +311,7 @@ class AutoReframe(BaseTool):
 
         # Try to run face_tracker internally
         try:
-            from tools.analysis.face_tracker import FaceTracker
+            from multi_publish.video_creation.analysis.face_tracker import FaceTracker
             tracker = FaceTracker()
             if tracker.get_status().name == "UNAVAILABLE":
                 return []
@@ -311,6 +427,7 @@ class AutoReframe(BaseTool):
             "-c:v", codec, "-crf", str(crf), "-preset", "fast",
             "-c:a", "aac", "-b:a", "192k",
             str(output_path),
+        ]
 
         try:
             self.run_command(cmd, timeout=600)
@@ -380,6 +497,7 @@ class AutoReframe(BaseTool):
             "-c:v", codec, "-crf", str(crf), "-preset", "fast",
             "-c:a", "aac", "-b:a", "192k",
             str(output_path),
+        ]
 
         try:
             self.run_command(cmd, timeout=600)

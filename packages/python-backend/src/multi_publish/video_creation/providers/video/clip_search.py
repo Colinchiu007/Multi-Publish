@@ -1,5 +1,58 @@
+"""Clip search: unified retrieval interface over a local clip corpus.
+
+This is the tool the documentary-montage director calls at edit time.
+It loads a corpus built by `corpus_builder` and exposes every
+retrieval operation the agent needs through a single dispatch
+interface.
+
+Operations
+----------
+- **rank_for_slot**: embed a text description of a scene slot and
+  return the top-k clips by fused visual+tag similarity. The agent's
+  main building block — "for this slot in the montage, what clips
+  match?"
+- **find_similar_set**: given one seed clip, return N clips that share
+  the seed's visual register but are diverse from each other (MMR).
+  Used for "collection" shots — all the doorways, all the footsteps,
+  all the keys-in-locks.
+- **diversify**: given a pre-selected list of clip_ids, greedily keep
+  the most mutually-dissimilar subset. Used at arrangement time to
+  prevent visually-redundant adjacent cuts.
+- **get**: look up one clip_id and return its full provenance dict.
+- **stats**: summary counts (rows, per-source breakdown, mean motion).
+
+All operations return JSON-serialisable dicts so the tool contract
+stays clean across process boundaries. ClipRecords are converted via
+`dataclasses.asdict`.
+
+The corpus is loaded fresh on every call. This keeps the tool
+stateless — the agent can call it from multiple stages without
+worrying about caches drifting out of sync. For a 1000-row corpus
+the load cost is <50 ms.
+"""
+from __future__ import annotations
+
+import time
+from dataclasses import asdict
+from pathlib import Path
+from typing import Any, Optional
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    ToolResult,
+    ToolRuntime,
+    ToolStability,
+    ToolStatus,
+    ToolTier,
+)
+
+
 class ClipSearch(BaseTool):
     name = "clip_search"
+    version = "0.1.0"
     tier = ToolTier.ANALYZE
     capability = "clip_retrieval"
     provider = "openmontage"
@@ -9,9 +62,110 @@ class ClipSearch(BaseTool):
     runtime = ToolRuntime.LOCAL
 
     dependencies = [
+        "python:numpy",
+        "python:transformers",
+        "python:torch",
+    ]
+    install_instructions = (
+        "pip install numpy transformers torch\n"
+        "Requires a corpus built by corpus_builder at <corpus_dir>."
+    )
+    agent_skills = []
 
+    capabilities = [
+        "text_to_clip_ranking",
+        "visual_knn",
+        "mmr_diversification",
+        "provenance_lookup",
+    ]
+    supports = {
+        "fused_visual_tag_scoring": True,
+        "motion_filter": True,
+        "kind_filter": True,
+        "exclude_list": True,
+    }
+    best_for = [
+        "picking clips for a specific slot in a montage",
+        "finding collection-style sets from one seed clip",
+        "de-duplicating a candidate list before edit arrangement",
+    ]
+    not_good_for = [
+        "searching the internet (use corpus_builder to populate first)",
+        "editing or composing video (use video_compose)",
+    ]
+
+    input_schema = {
+        "type": "object",
+        "required": ["operation", "corpus_dir"],
+        "properties": {
+            "operation": {
+                "type": "string",
+                "enum": [
+                    "rank_for_slot",
+                    "find_similar_set",
+                    "diversify",
+                    "get",
+                    "stats",
+                ],
+            },
+            "corpus_dir": {
+                "type": "string",
+                "description": "Path to the corpus built by corpus_builder.",
+            },
+            # rank_for_slot
+            "query_text": {
+                "type": "string",
+                "description": "Text description of the scene slot. "
+                               "Embedded by CLIP for similarity ranking.",
+            },
+            "k": {"type": "integer", "default": 10, "minimum": 1},
+            "tag_weight": {
+                "type": "number",
+                "default": 0.3,
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Blend between visual (1-w) and tag (w) channels.",
+            },
+            "motion_min": {
+                "type": "number",
+                "description": "Reject clips with motion_score below this. "
+                               "Use ~1.5 to filter dead-still clips.",
+            },
+            "kind": {
+                "type": "string",
+                "enum": ["video", "image"],
+                "description": "Filter to only one media type.",
+            },
+            "exclude_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Clip ids to skip (already used in this edit).",
+            },
+            # find_similar_set
+            "seed_clip_id": {"type": "string"},
+            "n": {"type": "integer", "default": 5, "minimum": 1},
+            "diversity": {
+                "type": "number",
+                "default": 0.3,
+                "minimum": 0.0,
+                "maximum": 1.0,
+            },
+            "candidate_pool": {"type": "integer", "default": 30},
+            # diversify
+            "candidate_ids": {"type": "array", "items": {"type": "string"}},
+            # get
+            "clip_id": {"type": "string"},
+        },
+    }
 
     resource_profile = ResourceProfile(
+        cpu_cores=1, ram_mb=1024, vram_mb=0, disk_mb=50, network_required=False
+    )
+    side_effects = []
+    user_visible_verification = [
+        "Inspect returned clip_ids and visit thumb_dir/frame_02.jpg "
+        "to verify the retrieval matches the slot description.",
+    ]
 
     def get_status(self) -> ToolStatus:
         try:
@@ -74,9 +228,11 @@ class ClipSearch(BaseTool):
                 error=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}",
             )
 
+
 # ----------------------------------------------------------------------
 # Operations
 # ----------------------------------------------------------------------
+
 
 def _op_stats(corp) -> dict[str, Any]:
     """Summary counts and per-source breakdown.
@@ -114,6 +270,7 @@ def _op_stats(corp) -> dict[str, Any]:
         "mean_duration": float(np.mean(durations)) if durations else 0.0,
     }
 
+
 def _op_rank_for_slot(corp, inputs: dict[str, Any]) -> dict[str, Any]:
     """Embed `query_text` and return top-k clips by fused similarity.
 
@@ -143,7 +300,9 @@ def _op_rank_for_slot(corp, inputs: dict[str, Any]) -> dict[str, Any]:
         "results": [
             {"score": score, "record": asdict(rec)}
             for rec, score in results
+        ],
     }
+
 
 def _op_find_similar_set(corp, inputs: dict[str, Any]) -> dict[str, Any]:
     """MMR-based similar-set retrieval from one seed clip."""
@@ -163,7 +322,9 @@ def _op_find_similar_set(corp, inputs: dict[str, Any]) -> dict[str, Any]:
         "results": [
             {"score": score, "record": asdict(rec)}
             for rec, score in results
+        ],
     }
+
 
 def _op_diversify(corp, inputs: dict[str, Any]) -> dict[str, Any]:
     """Pick the most mutually-dissimilar subset of a candidate list."""
@@ -181,6 +342,7 @@ def _op_diversify(corp, inputs: dict[str, Any]) -> dict[str, Any]:
         "kept_count": len(kept),
         "kept_ids": kept,
     }
+
 
 def _op_get(corp, inputs: dict[str, Any]) -> dict[str, Any]:
     """Look up one clip_id and return its full record."""

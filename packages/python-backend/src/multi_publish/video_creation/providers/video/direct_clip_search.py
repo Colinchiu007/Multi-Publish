@@ -1,5 +1,61 @@
+"""Direct clip search: lightweight provider-agnostic stock footage acquisition.
+
+This tool replaces the heavy corpus_builder → clip_search pipeline when
+you already know what you want and just need clips downloaded fast. It
+uses the same StockSource adapter protocol (Pexels, Archive.org, NASA,
+Wikimedia, Unsplash, ...) but skips CLIP embeddings, motion scoring,
+index.jsonl, and .npy files entirely.
+
+When to use this instead of corpus_builder
+------------------------------------------
+- You have a shot list and know the queries for each slot.
+- You want clips downloaded in minutes, not tens of minutes.
+- You plan to inspect thumbnails yourself (or via a sub-agent) rather
+  than relying on CLIP similarity ranking.
+- You are doing act-by-act production and can reuse clips across acts
+  by pointing at previously downloaded directories.
+
+When to use corpus_builder instead
+----------------------------------
+- You need CLIP-based semantic ranking (clip_search.rank_for_slot).
+- You have 50+ slots and want automated diversification.
+- The visual match between query text and actual footage matters more
+  than speed.
+
+What it does per query
+----------------------
+1. Fan out across all available (or specified) StockSource adapters.
+2. Download up to `clips_per_query` clips per query.
+3. Extract one thumbnail per clip via ffmpeg (for visual inspection).
+4. Return full metadata: paths, durations, sources, thumbnails.
+
+No CLIP model. No embeddings. No corpus index. Just files on disk.
+"""
+from __future__ import annotations
+
+import subprocess
+import time
+import urllib.parse
+from pathlib import Path
+from typing import Any, Optional
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    RetryPolicy,
+    ToolResult,
+    ToolRuntime,
+    ToolStability,
+    ToolStatus,
+    ToolTier,
+)
+
+
 class DirectClipSearch(BaseTool):
     name = "direct_clip_search"
+    version = "0.1.0"
     tier = ToolTier.SOURCE
     capability = "clip_acquisition"
     provider = "openmontage"
@@ -9,13 +65,139 @@ class DirectClipSearch(BaseTool):
     runtime = ToolRuntime.HYBRID  # local disk + network APIs
 
     dependencies = [
+        "python:requests",
+    ]
+    install_instructions = (
+        "At least one stock source must be configured:\n"
+        "  PEXELS_API_KEY for Pexels (free at https://www.pexels.com/api/)\n"
+        "  UNSPLASH_ACCESS_KEY for Unsplash (see https://unsplash.com/documentation)\n"
+        "  archive.org, nasa, and wikimedia work without API keys"
+    )
+    agent_skills = []
 
+    capabilities = [
+        "multi_source_search",
+        "clip_download",
+        "thumbnail_extraction",
+    ]
+    supports = {
+        "multi_source": True,
+        "video_and_image": True,
+        "provider_agnostic": True,
+        "cross_act_reuse": True,
+    }
+    best_for = [
+        "act-by-act documentary production with manual clip selection",
+        "fast B-roll acquisition when you know what you need",
+        "downloading clips from multiple providers in one call",
+        "building clip libraries without CLIP embedding overhead",
+    ]
+    not_good_for = [
+        "semantic similarity ranking (use corpus_builder + clip_search)",
+        "automated slot filling without human review",
+    ]
+    fallback_tools = ["corpus_builder", "pexels_video"]
+
+    input_schema = {
+        "type": "object",
+        "required": ["output_dir", "queries"],
+        "properties": {
+            "output_dir": {
+                "type": "string",
+                "description": (
+                    "Directory where clips and thumbnails are saved. "
+                    "e.g. projects/foo/assets/video/raw_act2"
+                ),
+            },
+            "queries": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "required": ["query"],
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search term for stock APIs",
+                        },
+                        "slot_id": {
+                            "type": "string",
+                            "description": (
+                                "Optional slot reference (e.g. 'slot_03'). "
+                                "Used to organize output and track provenance."
+                            ),
+                        },
+                        "kind": {
+                            "type": "string",
+                            "enum": ["video", "image", "any"],
+                            "default": "video",
+                        },
+                    },
+                },
+            },
+            "sources": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Source adapter names to search (e.g. ['pexels','archive_org']). "
+                    "Defaults to all available sources."
+                ),
+            },
+            "clips_per_query": {
+                "type": "integer",
+                "default": 3,
+                "minimum": 1,
+                "maximum": 20,
+                "description": (
+                    "How many clips to download per query (across all sources). "
+                    "Lower = faster. 2-3 is enough for manual selection."
+                ),
+            },
+            "filters": {
+                "type": "object",
+                "properties": {
+                    "min_duration": {"type": "number"},
+                    "max_duration": {"type": "number"},
+                    "orientation": {
+                        "type": "string",
+                        "enum": ["landscape", "portrait", "square"],
+                    },
+                    "min_width": {"type": "integer"},
+                },
+            },
+            "extract_thumbnails": {
+                "type": "boolean",
+                "default": True,
+                "description": (
+                    "Extract a mid-frame thumbnail from each video for visual "
+                    "inspection. Uses ffmpeg, not CLIP."
+                ),
+            },
+            "skip_existing": {
+                "type": "boolean",
+                "default": True,
+                "description": "Skip download if a file with the same clip_id already exists.",
+            },
+        },
+    }
 
     resource_profile = ResourceProfile(
+        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=2000, network_required=True
+    )
+    retry_policy = RetryPolicy(max_retries=1, retryable_errors=["timeout", "rate_limit"])
+    side_effects = [
+        "downloads clips to <output_dir>/clips/",
+        "extracts thumbnails to <output_dir>/thumbnails/",
+        "calls external stock APIs",
+    ]
+    user_visible_verification = [
+        "Browse <output_dir>/thumbnails/ to visually verify clip matches",
+        "Play clips from <output_dir>/clips/ to check quality",
+    ]
 
     def get_status(self) -> ToolStatus:
         try:
-            from tools.video.stock_sources import available_sources
+            from multi_publish.video_creation.video.stock_sources import available_sources
         except Exception:
             return ToolStatus.UNAVAILABLE
         if len(available_sources()) == 0:
@@ -25,7 +207,7 @@ class DirectClipSearch(BaseTool):
     def get_info(self) -> dict[str, Any]:
         info = super().get_info()
         try:
-            from tools.video.stock_sources import source_catalog, source_summary
+            from multi_publish.video_creation.video.stock_sources import source_catalog, source_summary
             info["source_provider_menu"] = source_catalog()
             info["source_provider_summary"] = source_summary()
         except Exception:
@@ -48,7 +230,7 @@ class DirectClipSearch(BaseTool):
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         start = time.time()
         try:
-            from tools.video.stock_sources import (
+            from multi_publish.video_creation.video.stock_sources import (
                 SearchFilters,
                 all_sources,
                 available_sources,
@@ -263,9 +445,11 @@ class DirectClipSearch(BaseTool):
                 error=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}",
             )
 
+
 # ----------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------
+
 
 def _guess_ext(cand) -> str:
     """Extract a sensible file extension from a candidate's URL."""
@@ -276,6 +460,7 @@ def _guess_ext(cand) -> str:
     if ext in known:
         return ".jpg" if ext == ".jpeg" else ext
     return ".mp4" if cand.kind == "video" else ".jpg"
+
 
 def _extract_mid_thumbnail(video_path: Path, thumb_path: Path) -> None:
     """Extract a single frame from the middle of the video via ffmpeg.
@@ -292,6 +477,7 @@ def _extract_mid_thumbnail(video_path: Path, thumb_path: Path) -> None:
         "-show_entries", "format=duration",
         "-of", "csv=p=0",
         str(video_path),
+    ]
     try:
         result = subprocess.run(
             probe_cmd, capture_output=True, text=True, timeout=10
@@ -310,6 +496,7 @@ def _extract_mid_thumbnail(video_path: Path, thumb_path: Path) -> None:
         "-frames:v", "1",
         "-q:v", "3",
         str(thumb_path),
+    ]
     subprocess.run(
         extract_cmd, capture_output=True, timeout=15,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),

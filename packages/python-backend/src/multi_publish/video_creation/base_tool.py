@@ -24,6 +24,24 @@ class Determinism(str, Enum):
     DETERMINISTIC = "deterministic"; SEEDED = "seeded"; STOCHASTIC = "stochastic"
 
 @dataclass
+
+
+class ResumeSupport(str, Enum):
+    """Checkpoint resume strategy."""
+    NONE = "none"
+    FROM_START = "from_start"
+    FROM_CHECKPOINT = "from_checkpoint"
+
+
+@dataclass
+class RetryPolicy:
+    """Safe retry behavior for a tool."""
+    max_retries: int = 0
+    backoff_seconds: float = 1.0
+    retryable_errors: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ResourceProfile:
     cpu_cores: int = 1
     ram_mb: int = 512

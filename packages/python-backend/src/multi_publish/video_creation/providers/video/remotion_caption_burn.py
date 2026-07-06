@@ -1,5 +1,57 @@
+"""Remotion caption burn tool — **runtime-specific (Remotion-only)**.
+
+Renders animated word-by-word captions onto a talking-head video using
+the Remotion CaptionOverlay component. Falls back to FFmpeg subtitle
+burning if Remotion is not available.
+
+The tool:
+1. Converts word-level transcript segments to Remotion WordCaption JSON
+2. Writes a props file for the TalkingHead composition
+3. Renders via ``npx remotion render``
+4. Returns the captioned video path
+
+Fallback: if Remotion is unavailable, burns subtitles at the bottom of
+the frame using FFmpeg's ``subtitles`` filter with bold styling.
+
+## Runtime scope
+
+This tool is **Remotion-specific** and deliberately has no HyperFrames
+counterpart in Phase 1. Word-level caption burn parity on the HyperFrames
+runtime is explicitly deferred work (see ``skills/core/hyperframes.md`` →
+"What stays Remotion-only in Phase 1").
+
+If a brief requires word-level/karaoke captions, lock
+``render_runtime="remotion"`` at proposal even if the rest of the
+composition would otherwise be a good fit for HyperFrames. Do NOT attempt
+to bolt this tool onto a HyperFrames workspace — the TalkingHead
+composition ID and ``WordCaption`` prop shape it emits are tied to the
+React scene stack in ``remotion-composer/``.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+import shutil
+import time
+from pathlib import Path
+from typing import Any
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    ToolResult,
+    ToolStability,
+    ToolTier,
+)
+
+
 class RemotionCaptionBurn(BaseTool):
     name = "remotion_caption_burn"
+    version = "0.1.0"
     tier = ToolTier.CORE
     capability = "subtitle"
     provider = "remotion"
@@ -8,10 +60,95 @@ class RemotionCaptionBurn(BaseTool):
     determinism = Determinism.DETERMINISTIC
 
     dependencies = ["cmd:ffmpeg", "cmd:ffprobe"]
+    install_instructions = (
+        "Remotion (optional, preferred): npm install in remotion-composer/\n"
+        "FFmpeg (required for fallback): https://ffmpeg.org/download.html"
+    )
+    agent_skills = ["remotion-best-practices", "ffmpeg"]
 
+    capabilities = [
+        "burn_remotion_captions",
+        "burn_ffmpeg_captions_fallback",
+    ]
+
+    input_schema = {
+        "type": "object",
+        "required": ["input_path", "output_path"],
+        "properties": {
+            "input_path": {
+                "type": "string",
+                "description": "Path to the input video (enhanced talking-head footage).",
+            },
+            "output_path": {
+                "type": "string",
+                "description": "Path for the output video with captions burned in.",
+            },
+            "segments": {
+                "type": "array",
+                "description": (
+                    "Word-level transcript segments from transcriber tool. "
+                    "Each segment has 'words' array with {word, start, end}."
+                ),
+            },
+            "srt_path": {
+                "type": "string",
+                "description": (
+                    "Path to an SRT file. Used as an alternative to segments. "
+                    "If both provided, segments take priority."
+                ),
+            },
+            "words_per_page": {
+                "type": "integer",
+                "default": 4,
+                "description": "Words shown at once in the caption overlay.",
+            },
+            "font_size": {
+                "type": "integer",
+                "default": 52,
+                "description": "Font size for captions.",
+            },
+            "highlight_color": {
+                "type": "string",
+                "default": "#22D3EE",
+                "description": "Highlight color for the active word (hex).",
+            },
+            "corrections": {
+                "type": "object",
+                "description": (
+                    "Dictionary of word corrections for common misrecognitions. "
+                    "Keys are the wrong word (case-insensitive), values are the "
+                    "correct replacement. Example: {\"cloud\": \"Claude\"}."
+                ),
+            },
+            "overlays": {
+                "type": "array",
+                "description": (
+                    "Array of overlay objects to render on top of the video. "
+                    "Each overlay has: type (text_card, stat_card, callout, "
+                    "comparison, bar_chart, line_chart, pie_chart, kpi_grid, "
+                    "hero_title, section_title, stat_reveal), in_seconds, "
+                    "out_seconds, position (lower_third, upper_third, "
+                    "left_panel, right_panel, full_overlay), and component-"
+                    "specific props (text, stat, chartData, etc.). "
+                    "See asset_manifest overlays from the asset-director."
+                ),
+            },
+            "force_ffmpeg": {
+                "type": "boolean",
+                "default": False,
+                "description": "Force FFmpeg fallback even if Remotion is available.",
+            },
+        },
+    }
 
     resource_profile = ResourceProfile(cpu_cores=4, ram_mb=2048, vram_mb=0, disk_mb=500)
     idempotency_key_fields = ["input_path", "segments", "srt_path"]
+    side_effects = ["writes captioned video to output_path"]
+    user_visible_verification = [
+        "Play the output video and verify captions appear at the bottom of the frame",
+        "Check that the active word is highlighted in the specified color",
+        "Verify face is not occluded by caption text",
+    ]
 
     # ------------------------------------------------------------------ #
     #  Remotion detection
@@ -46,7 +183,6 @@ class RemotionCaptionBurn(BaseTool):
         self, segments: list[dict], corrections: dict[str, str] | None = None
     ) -> list[dict]:
         """Convert transcriber segments to [{word, startMs, endMs}, ...]."""
-        ]
         captions: list[dict] = []
         corr = {k.lower(): v for k, v in (corrections or {}).items()}
 
@@ -84,7 +220,6 @@ class RemotionCaptionBurn(BaseTool):
         self, srt_path: str, corrections: dict[str, str] | None = None
     ) -> list[dict]:
         """Parse SRT file into word captions."""
-        ]
         content = Path(srt_path).read_text(encoding="utf-8")
         blocks = re.split(r"\n\n+", content.strip())
         corr = {k.lower(): v for k, v in (corrections or {}).items()}

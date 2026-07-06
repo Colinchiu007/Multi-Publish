@@ -1,5 +1,55 @@
+"""HyperFrames composition tool — HTML/CSS/GSAP render path.
+
+Sibling to `video_compose` (FFmpeg + Remotion). This tool owns the HyperFrames
+runtime end-to-end: workspace materialization, `hyperframes lint`,
+`hyperframes validate`, and `hyperframes render`. It is invoked by
+`video_compose` when `edit_decisions.render_runtime == "hyperframes"`, and
+can also be called directly by pipelines that want HyperFrames-specific
+operations (lint-only, validate-only, scaffold-only).
+
+This tool deliberately does NOT attempt parity with every Remotion scene
+component. See `skills/core/hyperframes.md` for what is in scope in Phase 1
+and what remains Remotion-only.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import shutil
+import subprocess
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    ResumeSupport,
+    RetryPolicy,
+    ToolResult,
+    ToolRuntime,
+    ToolStability,
+    ToolStatus,
+    ToolTier,
+)
+
+
+log = logging.getLogger("hyperframes_compose")
+
+
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp", ".gif"}
+_VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".mkv", ".m4v"}
+_AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
+
+
 class HyperFramesCompose(BaseTool):
     name = "hyperframes_compose"
+    version = "0.1.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "hyperframes"
@@ -9,26 +59,177 @@ class HyperFramesCompose(BaseTool):
     runtime = ToolRuntime.LOCAL
 
     dependencies = ["cmd:npx", "cmd:ffmpeg"]
+    install_instructions = (
+        "Requires Node.js >= 22 (https://nodejs.org/) and FFmpeg "
+        "(https://ffmpeg.org/download.html). The HyperFrames CLI is fetched "
+        "on first use via `npx hyperframes` (npm package: `hyperframes`). "
+        "Note: the upstream monorepo develops the package as `@hyperframes/cli`, "
+        "but it publishes to npm as `hyperframes`. `npx @hyperframes/cli` "
+        "returns 404 -- do NOT use that form. Verify setup with "
+        "`npx hyperframes doctor` or run the `doctor` operation on this tool."
+    )
+    agent_skills = [
+        "hyperframes",
+        "hyperframes-cli",
+        "hyperframes-registry",
+        "website-to-hyperframes",
+        "gsap-core",
+        "gsap-timeline",
+    ]
 
+    capabilities = [
+        "hyperframes_render",
+        "hyperframes_lint",
+        "hyperframes_validate",
+        "hyperframes_doctor",
+        "scaffold_workspace",
+        "add_block",
+    ]
 
+    best_for = [
+        "HTML/CSS/GSAP composition: kinetic typography, product promos, launch reels",
+        "Motion-graphics-heavy briefs where the scene library in remotion-composer/ doesn't fit",
+        "Website-to-video / UI-driven compositions",
+        "Registry-block-driven scenes (hyperframes add data-chart, grain-overlay, etc.)",
+    ]
+    not_good_for = [
+        "Word-level caption burn (stays on Remotion in Phase 1)",
+        "Avatar / lip-sync presenter (stays on Remotion in Phase 1)",
+        "Existing React scene stack (text_card, stat_card, chart, comparison): reuse Remotion",
+    ]
+    fallback_tools = ["video_compose"]
+
+    input_schema = {
+        "type": "object",
+        "required": ["operation"],
+        "properties": {
+            "operation": {
+                "type": "string",
+                "enum": [
+                    "render",
+                    "lint",
+                    "validate",
+                    "doctor",
+                    "scaffold_workspace",
+                    "add_block",
+                ],
+                "description": (
+                    "render: materialize workspace + lint + validate + render to MP4. "
+                    "lint: run `hyperframes lint` on an existing workspace. "
+                    "validate: run `hyperframes validate` (browser-based). "
+                    "doctor: run `hyperframes doctor` to check environment. "
+                    "scaffold_workspace: materialize HTML/CSS/assets but do not render. "
+                    "add_block: run `hyperframes add <name>` to install a registry "
+                    "block or component into an existing workspace."
+                ),
+            },
+            "block_name": {
+                "type": "string",
+                "description": (
+                    "Registry block or component name for operation='add_block' "
+                    "(e.g. 'data-chart', 'grain-overlay', 'shimmer-sweep'). "
+                    "See https://hyperframes.heygen.com/catalog for the list."
+                ),
+            },
+            "workspace_path": {
+                "type": "string",
+                "description": (
+                    "Target HyperFrames workspace directory. Typically "
+                    "`projects/<name>/hyperframes/`. Required for every op "
+                    "except doctor."
+                ),
+            },
+            "output_path": {
+                "type": "string",
+                "description": "Output MP4 path. Used by operation='render'.",
+            },
+            "edit_decisions": {
+                "type": "object",
+                "description": (
+                    "Full edit_decisions artifact — required for render and "
+                    "scaffold_workspace. Used to generate index.html + CSS."
+                ),
+            },
+            "asset_manifest": {
+                "type": "object",
+                "description": (
+                    "Full asset_manifest artifact — required for render and "
+                    "scaffold_workspace. Used to resolve asset IDs to file paths."
+                ),
+            },
+            "playbook": {
+                "type": "object",
+                "description": (
+                    "Loaded playbook dict. Used to drive the style bridge "
+                    "(CSS custom properties, typography, motion defaults)."
+                ),
+            },
+            "profile": {
+                "type": "string",
+                "description": "Media profile name (youtube_landscape, tiktok_vertical, etc.).",
+            },
+            "quality": {
+                "type": "string",
+                "enum": ["draft", "standard", "high"],
+                "default": "standard",
+                "description": "Render quality. `draft` for iterating, `high` for delivery.",
+            },
+            "fps": {
+                "type": "integer",
+                "enum": [24, 30, 60],
+                "default": 30,
+            },
+            "strict": {
+                "type": "boolean",
+                "default": False,
+                "description": (
+                    "If true, fail the render on any lint error. Matches "
+                    "`hyperframes render --strict`."
+                ),
+            },
+            "skip_contrast": {
+                "type": "boolean",
+                "default": False,
+                "description": (
+                    "Skip the WCAG contrast audit during validate. Acceptable "
+                    "while iterating; forbidden for final delivery."
+                ),
+            },
+        },
+    }
 
     resource_profile = ResourceProfile(
+        cpu_cores=4, ram_mb=3072, vram_mb=0, disk_mb=2000, network_required=False
+    )
+    retry_policy = RetryPolicy(max_retries=0)
+    resume_support = ResumeSupport.FROM_START
     idempotency_key_fields = ["operation", "workspace_path", "edit_decisions"]
+    side_effects = [
+        "writes HTML/CSS/JS files into workspace_path",
+        "copies asset files into workspace_path/assets/",
+        "writes MP4 to output_path",
+    ]
+    user_visible_verification = [
+        "Play the rendered MP4 and verify scene pacing, typography, and audio",
+        "Inspect workspace_path/index.html in a browser via `npx hyperframes preview`",
+    ]
 
     # ------------------------------------------------------------------
     # Status / availability
     # ------------------------------------------------------------------
 
+    _NODE_FLOOR_MAJOR = 22
+    _NPM_PACKAGE = "hyperframes"  # published npm name (NOT @hyperframes/cli — that's 404)
     # Process-level cache for the npm resolve check. Shape:
     #   {"version": "0.4.5"}   → package resolves
     #   {"error": "<short>"}   → resolution failed (offline, unpublished, etc.)
     # We cache per-process so the first call pays ~2-5s and subsequent calls
     # (get_info spam from the registry) are free.
+    _npm_resolve_cache: Optional[dict[str, str]] = None
 
+    @classmethod
     def _node_major_version(cls) -> Optional[int]:
-        user_visible_verification = [
         """Return Node.js major version, or None if node isn't installed."""
-        ]
         node = shutil.which("node")
         if not node:
             return None
@@ -47,9 +248,7 @@ class HyperFramesCompose(BaseTool):
 
     @classmethod
     def _resolve_npm_package(cls) -> dict[str, str]:
-        user_visible_verification = [
         """Verify the `hyperframes` npm package actually resolves.
-        ]
 
         `_runtime_check` previously only verified that node/ffmpeg/npx existed
         on PATH, which meant `runtime_available: True` on any machine with
@@ -103,9 +302,7 @@ class HyperFramesCompose(BaseTool):
         return cls._npm_resolve_cache
 
     def _runtime_check(self) -> dict[str, Any]:
-        user_visible_verification = [
         """Return availability state for the HyperFrames runtime.
-        ]
 
         Checks BOTH local binaries (node >= 22, ffmpeg, npx) AND that the
         `hyperframes` npm package actually resolves. A missing/404 package
@@ -220,9 +417,7 @@ class HyperFramesCompose(BaseTool):
     # ------------------------------------------------------------------
 
     def _doctor(self, inputs: dict[str, Any]) -> ToolResult:
-        user_visible_verification = [
         """Probe the environment. Reports node/ffmpeg/npx plus CLI doctor output."""
-        ]
         check = self._runtime_check()
         out: dict[str, Any] = {"runtime_check": check}
 
@@ -260,9 +455,7 @@ class HyperFramesCompose(BaseTool):
             )
 
     def _scaffold(self, inputs: dict[str, Any]) -> ToolResult:
-        user_visible_verification = [
         """Materialize the HyperFrames workspace from OpenMontage artifacts.
-        ]
 
         This does NOT call `hyperframes init` — we want full control over the
         generated files so they map cleanly to edit_decisions. `init` is
@@ -400,9 +593,7 @@ class HyperFramesCompose(BaseTool):
         )
 
     def _add_block(self, inputs: dict[str, Any]) -> ToolResult:
-        user_visible_verification = [
         """Install a registry block or component via `hyperframes add`.
-        ]
 
         Blocks are standalone sub-compositions (own dimensions, duration, timeline)
         that land at `compositions/<name>.html`. Components are effect snippets
@@ -448,9 +639,7 @@ class HyperFramesCompose(BaseTool):
         )
 
     def _render(self, inputs: dict[str, Any]) -> ToolResult:
-        user_visible_verification = [
         """Full pipeline: scaffold → lint → validate → render."""
-        ]
         runtime_ok = self._runtime_check()
         if not runtime_ok["runtime_available"]:
             return ToolResult(
@@ -574,9 +763,7 @@ class HyperFramesCompose(BaseTool):
     def _resolve_dimensions(
         profile_name: Optional[str], fps_in: int
     ) -> tuple[int, int, int]:
-        user_visible_verification = [
         """Resolve output dimensions from the media profile, with a safe default."""
-        ]
         if profile_name:
             try:
                 from lib.media_profiles import get_profile  # type: ignore
@@ -598,9 +785,7 @@ class HyperFramesCompose(BaseTool):
         assets: list[dict],
         workspace: Path,
     ) -> tuple[list[dict], list[dict[str, str]]]:
-        user_visible_verification = [
         """Resolve asset IDs in cuts[].source, copy files into workspace/assets/.
-        ]
 
         HyperFrames resolves `src=` relative to the composition HTML file, so
         every asset must live inside the workspace tree. Copying is simpler
@@ -632,9 +817,7 @@ class HyperFramesCompose(BaseTool):
         assets: list[dict],
         workspace: Path,
     ) -> dict[str, Any]:
-        user_visible_verification = [
         """Resolve narration / music asset IDs and stage them."""
-        ]
         asset_lookup = {a["id"]: a for a in assets if "id" in a}
         assets_dir = workspace / "assets"
         out: dict[str, Any] = {"narration": [], "music": None}
@@ -693,9 +876,7 @@ class HyperFramesCompose(BaseTool):
         playbook: dict[str, Any],
         edit_decisions: dict[str, Any],
     ) -> tuple[dict[str, str], str]:
-        user_visible_verification = [
         """Bridge OpenMontage playbook → HyperFrames CSS vars + DESIGN.md.
-        ]
 
         Delegates to `lib/hyperframes_style_bridge.py` so the logic is
         shareable and testable. Falls back to a safe built-in default when
@@ -851,9 +1032,7 @@ class HyperFramesCompose(BaseTool):
     def _cut_to_html(
         self, index: int, cut: dict, width: int, height: int
     ) -> tuple[str, Optional[str]]:
-        user_visible_verification = [
         """Render one cut + its entrance tween. Returns (html, tween or None)."""
-        ]
         cut_id = f"cut-{index}"
         in_s = float(cut.get("in_seconds", 0) or 0)
         out_s = float(cut.get("out_seconds", 0) or 0)
@@ -977,9 +1156,7 @@ class HyperFramesCompose(BaseTool):
 
     @staticmethod
     def _parse_json_output(stdout: str) -> Optional[Any]:
-        user_visible_verification = [
         """Parse a `--json` report, tolerating surrounding banner lines."""
-        ]
         if not stdout:
             return None
         start = stdout.find("{")

@@ -1,5 +1,39 @@
+"""Silence cutter tool for automatic jump cuts.
+
+Detects silent segments in talking-head footage and removes them,
+creating tight jump cuts. Uses FFmpeg's silencedetect filter — no
+external dependencies beyond FFmpeg.
+
+Modes:
+  - remove: Cut out silent segments entirely (jump cut)
+  - speed_up: Speed up silent segments instead of cutting (less jarring)
+  - mark: Don't cut — just output silence timestamps for manual review
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import time
+from pathlib import Path
+from typing import Any
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    RetryPolicy,
+    ResumeSupport,
+    ToolResult,
+    ToolStability,
+    ToolTier,
+)
+
+
 class SilenceCutter(BaseTool):
     name = "silence_cutter"
+    version = "0.1.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "ffmpeg"
@@ -8,10 +42,71 @@ class SilenceCutter(BaseTool):
     determinism = Determinism.DETERMINISTIC
 
     dependencies = ["cmd:ffmpeg"]
+    install_instructions = "Install FFmpeg: https://ffmpeg.org/download.html"
+    agent_skills = ["ffmpeg"]
 
+    capabilities = [
+        "silence_detection",
+        "jump_cut",
+        "silence_removal",
+        "silence_speedup",
+    ]
+
+    input_schema = {
+        "type": "object",
+        "required": ["input_path"],
+        "properties": {
+            "input_path": {"type": "string"},
+            "output_path": {"type": "string"},
+            "mode": {
+                "type": "string",
+                "enum": ["remove", "speed_up", "mark"],
+                "default": "remove",
+                "description": "remove=jump cut, speed_up=fast-forward silence, mark=detect only",
+            },
+            "silence_threshold_db": {
+                "type": "number",
+                "default": -35,
+                "description": "Audio level below this (in dB) is considered silence. Lower = more sensitive.",
+            },
+            "min_silence_duration": {
+                "type": "number",
+                "default": 0.5,
+                "minimum": 0.1,
+                "description": "Minimum silence duration in seconds to trigger a cut",
+            },
+            "padding_seconds": {
+                "type": "number",
+                "default": 0.08,
+                "minimum": 0.0,
+                "description": "Seconds of silence to keep on each side of speech (prevents clipped words)",
+            },
+            "silence_speed_factor": {
+                "type": "number",
+                "default": 6.0,
+                "minimum": 1.5,
+                "maximum": 100.0,
+                "description": "Speed multiplier for silent segments (only used in speed_up mode)",
+            },
+            "codec": {"type": "string", "default": "libx264"},
+            "crf": {"type": "integer", "default": 18},
+        },
+    }
 
     resource_profile = ResourceProfile(
+        cpu_cores=4, ram_mb=2048, vram_mb=0, disk_mb=4000, network_required=False
+    )
+    retry_policy = RetryPolicy(max_retries=1, retryable_errors=["FFmpeg error"])
+    resume_support = ResumeSupport.FROM_START
     idempotency_key_fields = [
+        "input_path", "mode", "silence_threshold_db",
+        "min_silence_duration", "padding_seconds",
+    ]
+    side_effects = ["writes cut video to output_path"]
+    user_visible_verification = [
+        "Watch output for unnaturally clipped words at cut points",
+        "Compare duration: output should be noticeably shorter than input",
+    ]
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         input_path = Path(inputs["input_path"])
@@ -131,6 +226,7 @@ class SilenceCutter(BaseTool):
             "-i", str(input_path),
             "-af", f"silencedetect=noise={threshold_db}dB:d={min_duration}",
             "-f", "null", "-",
+        ]
 
         try:
             result = self.run_command(cmd, timeout=300)
@@ -162,6 +258,7 @@ class SilenceCutter(BaseTool):
             "ffprobe", "-v", "quiet",
             "-show_entries", "format=duration",
             "-of", "json", str(input_path),
+        ]
         try:
             result = self.run_command(cmd)
             data = json.loads(result.stdout)
@@ -226,6 +323,7 @@ class SilenceCutter(BaseTool):
                     # Force keyframe at start for clean cuts
                     "-force_key_frames", f"{seg['start']:.3f}",
                     str(seg_path),
+                ]
                 self.run_command(cmd, timeout=120)
                 if seg_path.exists() and seg_path.stat().st_size > 0:
                     seg_files.append(seg_path)
@@ -246,6 +344,7 @@ class SilenceCutter(BaseTool):
                 "-i", str(list_path),
                 "-c", "copy",
                 str(output_path),
+            ]
             self.run_command(cmd, timeout=120)
 
             return ToolResult(success=True)
@@ -310,6 +409,7 @@ class SilenceCutter(BaseTool):
                         "-c:v", codec, "-crf", str(crf), "-preset", "fast",
                         "-c:a", "aac", "-b:a", "192k",
                         str(seg_path),
+                    ]
                 else:
                     # Speed up
                     pts = 1.0 / seg["speed"]
@@ -324,6 +424,7 @@ class SilenceCutter(BaseTool):
                         "-c:v", codec, "-crf", str(crf), "-preset", "fast",
                         "-c:a", "aac", "-b:a", "192k",
                         str(seg_path),
+                    ]
 
                 self.run_command(cmd, timeout=120)
                 if seg_path.exists() and seg_path.stat().st_size > 0:
@@ -345,6 +446,7 @@ class SilenceCutter(BaseTool):
                 "-i", str(list_path),
                 "-c", "copy",
                 str(output_path),
+            ]
             self.run_command(cmd, timeout=120)
 
             return ToolResult(success=True)

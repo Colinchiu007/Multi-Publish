@@ -1,5 +1,56 @@
+"""Video composition tool — FFmpeg + Remotion + HyperFrames (runtime-aware).
+
+Pipeline-facing orchestration surface for composition. Takes `edit_decisions`,
+`asset_manifest`, and audio, and delegates to the technical runtime chosen
+at proposal stage.
+
+Routing is driven by `edit_decisions.render_runtime` (locked at proposal):
+
+- `remotion`   → React-based frame-accurate render via `npx remotion render`.
+                 Handles the existing scene-component stack, word-level captions,
+                 TalkingHead/CinematicRenderer. Current default.
+- `hyperframes` → HTML/CSS/GSAP render via `hyperframes_compose`.
+                 Handles kinetic typography, product promos, website-to-video,
+                 registry blocks. Added in the parallel-runtime initiative.
+- `ffmpeg`     → FFmpeg concat/trim. Used only for simple video cuts without
+                 composition, or when the approved path explicitly names FFmpeg.
+
+Authoring mode is orthogonal to runtime. Setting
+`edit_decisions.composition_mode = "atelier"` (or `renderer_family="bespoke"`)
+routes to a hand-authored, project-local Remotion composition that BYPASSES the
+cut-schema and the stock scene-type registry entirely — the "hand-stitched
+every time" path for hero/bespoke pieces. See `_render_via_atelier`.
+
+Silent runtime swaps are forbidden by governance. If the chosen runtime is
+unavailable or fails, this tool surfaces a structured blocker and waits for
+the agent to re-ask the user rather than substituting a different engine.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import subprocess
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    RetryPolicy,
+    ResumeSupport,
+    ToolResult,
+    ToolStability,
+    ToolTier,
+)
+
+
 class VideoCompose(BaseTool):
     name = "video_compose"
+    version = "0.1.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "ffmpeg"
@@ -8,13 +59,161 @@ class VideoCompose(BaseTool):
     determinism = Determinism.DETERMINISTIC
 
     dependencies = ["cmd:ffmpeg"]
+    install_instructions = "Install FFmpeg: https://ffmpeg.org/download.html"
+    agent_skills = ["remotion-best-practices", "remotion", "ffmpeg"]
 
+    capabilities = [
+        "compose_cuts",
+        "burn_subtitles",
+        "overlay_assets",
+        "encode_profile",
+        "remotion_render",
+    ]
+
+    input_schema = {
+        "type": "object",
+        "required": ["operation"],
+        "properties": {
+            "operation": {
+                "type": "string",
+                "enum": ["compose", "render", "remotion_render", "burn_subtitles", "overlay", "encode"],
+                "description": (
+                    "compose: low-level concat cuts + audio + subtitles. "
+                    "render: high-level — resolves asset IDs, auto-routes to Remotion "
+                    "for images/animations or FFmpeg for video-only. Preferred for compose-director. "
+                    "remotion_render: render via Remotion (Node.js). "
+                    "burn_subtitles: burn subtitle file into existing video. "
+                    "overlay: composite overlays onto base video. "
+                    "encode: re-encode to a target profile/codec."
+                ),
+            },
+            "input_path": {"type": "string"},
+            "output_path": {"type": "string"},
+            "edit_decisions": {
+                "type": "object",
+                "description": "Full edit_decisions artifact (required for compose/render)",
+            },
+            "asset_manifest": {
+                "type": "object",
+                "description": (
+                    "Full asset_manifest artifact (required for render). "
+                    "Used to resolve asset IDs in cuts[].source to file paths."
+                ),
+            },
+            "proposal_packet": {
+                "type": "object",
+                "description": (
+                    "Full proposal_packet artifact. Optional but STRONGLY "
+                    "recommended — when present, final_review compares "
+                    "proposal_packet.production_plan.render_runtime against "
+                    "edit_decisions.render_runtime and flags runtime_swap_detected. "
+                    "Without it, runtime-swap detection falls back to checking "
+                    "edit_decisions.metadata.proposal_render_runtime."
+                ),
+            },
+            "narration_transcript_path": {
+                "type": "string",
+                "description": (
+                    "Path to a word-level transcript JSON (from `transcriber` "
+                    "tool output). Optional but STRONGLY recommended: when "
+                    "combined with script_path/script_text, final_review "
+                    "runs transcript_comparison and catches TTS failures "
+                    "like 'Chirp3-HD reads ... as the word dot'. Without "
+                    "it, content-level audio bugs ship silently."
+                ),
+            },
+            "script_path": {
+                "type": "string",
+                "description": (
+                    "Path to the source narration script (plain text). "
+                    "Used by transcript_comparison to diff against the "
+                    "transcribed audio. Provide this OR script_text."
+                ),
+            },
+            "script_text": {
+                "type": "string",
+                "description": (
+                    "Inline source narration script. Used by "
+                    "transcript_comparison when a file path is unavailable."
+                ),
+            },
+            "subtitle_path": {"type": "string"},
+            "subtitle_style": {
+                "type": "object",
+                "description": "ASS subtitle styling. Also extracted from edit_decisions.subtitles if not provided.",
+                "properties": {
+                    "font": {"type": "string", "default": "Arial"},
+                    "font_size": {"type": "integer", "default": 24},
+                    "primary_color": {"type": "string", "default": "&HFFFFFF"},
+                    "outline_color": {"type": "string", "default": "&H000000"},
+                    "outline_width": {"type": "number", "default": 2},
+                    "margin_v": {"type": "integer", "default": 40},
+                    "alignment": {"type": "integer", "default": 2},
+                },
+            },
+            "overlays": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "asset_path": {"type": "string"},
+                        "x": {"type": "number"},
+                        "y": {"type": "number"},
+                        "width": {"type": "number"},
+                        "height": {"type": "number"},
+                        "start_seconds": {"type": "number"},
+                        "end_seconds": {"type": "number"},
+                        "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                    },
+                },
+            },
+            "audio_path": {"type": "string", "description": "Mixed audio to mux into output"},
+            "profile": {
+                "type": "string",
+                "description": (
+                    "Media profile name from media_profiles.py "
+                    "(e.g. youtube_landscape, tiktok, instagram_reels). "
+                    "Applied in render and encode operations."
+                ),
+            },
+            "options": {
+                "type": "object",
+                "description": "Render options (used by the render operation)",
+                "properties": {
+                    "subtitle_burn": {"type": "boolean", "default": True},
+                    "two_pass_encode": {"type": "boolean", "default": False},
+                },
+            },
+            "codec": {"type": "string", "default": "libx264"},
+            "crf": {"type": "integer", "default": 23},
+            "preset": {"type": "string", "default": "medium"},
+        },
+    }
 
     resource_profile = ResourceProfile(
+        cpu_cores=4, ram_mb=2048, vram_mb=0, disk_mb=5000, network_required=False
+    )
 
     # Remotion scene types that trigger React-based rendering
+    _REMOTION_COMPONENTS = [
+        "text_card", "stat_card", "callout", "comparison",
+        "progress", "chart", "bar_chart", "line_chart", "pie_chart", "kpi_grid",
+    ]
 
+    best_for = [
+        "Final render for explainer and animation pipelines",
+        "Image-to-video with spring animations (Remotion)",
+        "Animated text cards, stat cards, charts (Remotion)",
+        "Complex transitions between scenes (Remotion)",
+        "Pure video concat and trim (FFmpeg)",
+    ]
+    retry_policy = RetryPolicy(max_retries=1, retryable_errors=["Conversion failed"])
+    resume_support = ResumeSupport.FROM_START
     idempotency_key_fields = ["operation", "input_path", "edit_decisions"]
+    side_effects = ["writes video file to output_path"]
+    user_visible_verification = [
+        "Play the composed output and verify cuts, subtitles, and overlays",
+    ]
 
     def _remotion_available(self) -> bool:
         """Check if Remotion rendering is available (requires npx + composer project + node_modules)."""
@@ -38,7 +237,7 @@ class VideoCompose(BaseTool):
         one place (node 22 floor, ffmpeg + npx on PATH).
         """
         try:
-            from tools.video.hyperframes_compose import HyperFramesCompose
+            from multi_publish.video_creation.video.hyperframes_compose import HyperFramesCompose
             return bool(HyperFramesCompose()._runtime_check()["runtime_available"])
         except Exception:
             return False
@@ -48,6 +247,7 @@ class VideoCompose(BaseTool):
 
         Preflight reports each runtime's availability separately so the agent
         can choose an appropriate `render_runtime` at proposal stage. Silent
+        fallback between runtimes is forbidden.
         """
         info = super().get_info()
         remotion_ok = self._remotion_available()
@@ -161,6 +361,7 @@ class VideoCompose(BaseTool):
                     "-show_entries", "stream=codec_type",
                     "-of", "default=nw=1:nk=1",
                     str(path),
+                ],
                 stderr=subprocess.STDOUT,
                 text=True,
             )
@@ -283,6 +484,7 @@ class VideoCompose(BaseTool):
                         "-ss", str(in_s),
                         "-t", str(duration),
                         "-i", str(source),
+                    ]
 
                     # Normalize every segment to a consistent container so the
                     # concat-copy step is always safe. The concat demuxer with
@@ -299,10 +501,12 @@ class VideoCompose(BaseTool):
                         geom = [
                             f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase",
                             f"crop={target_w}:{target_h}",
+                        ]
                     else:
                         geom = [
                             f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease",
                             f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black",
+                        ]
                     vf_parts: list[str] = [*geom, "setsar=1", "fps=30"]
                     af_parts: list[str] = []
                     if speed != 1.0:
@@ -319,6 +523,7 @@ class VideoCompose(BaseTool):
                         "-preset", preset,
                         "-pix_fmt", "yuv420p",
                         "-r", "30",
+                    ])
 
                     # Audio handling: some source clips have no audio stream
                     # (Pexels stock often ships silent). If we unconditionally
@@ -342,6 +547,7 @@ class VideoCompose(BaseTool):
                             "-t", str(duration),
                             "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
                             "-filter:v", ",".join(vf_parts),
+                        ]
                         if af_parts:
                             cmd.extend(["-filter:a", ",".join(af_parts)])
                         cmd.extend([
@@ -356,6 +562,7 @@ class VideoCompose(BaseTool):
                             "-b:a", "192k",
                             "-ar", "48000",
                             "-ac", "2",
+                        ])
 
                     cmd.append(str(seg_path))
                     self.run_command(cmd)
@@ -376,6 +583,7 @@ class VideoCompose(BaseTool):
                 "-i", str(concat_path),
                 "-c", "copy",
                 str(concat_out),
+            ]
             self.run_command(cmd)
 
             # Step 3: Apply subtitles and/or replace audio
@@ -1016,6 +1224,7 @@ class VideoCompose(BaseTool):
                     "hero_moment": c.get("hero_moment", False),
                 }
                 for c in resolved_cuts
+            ]
 
         if scenes:
             try:
@@ -1288,7 +1497,7 @@ class VideoCompose(BaseTool):
             )
 
         try:
-            from tools.video.hyperframes_compose import HyperFramesCompose
+            from multi_publish.video_creation.video.hyperframes_compose import HyperFramesCompose
         except Exception as e:
             return ToolResult(
                 success=False,
@@ -1517,6 +1726,7 @@ class VideoCompose(BaseTool):
             # with "neither valid JSON nor a file path". The equals form is the
             # API Remotion recommends for file paths and is cross-platform safe.
             f"--props={props_path}",
+        ]
 
         # Apply media profile dimensions
         profile_name = inputs.get("profile")
@@ -1647,6 +1857,7 @@ class VideoCompose(BaseTool):
 
         transcript_words = [
             w.get("word", "").strip() for w in transcript_data.get("word_timestamps", [])
+        ]
         transcript_tokens = cls._tokenize(" ".join(transcript_words))
         script_tokens = cls._tokenize(script_text)
 
@@ -1673,6 +1884,7 @@ class VideoCompose(BaseTool):
             )
             result["spurious_punctuation_words"] = [
                 {"word": w, "count": n} for w, n in leak_occurrences.items()
+            ]
             result["issues"].append(
                 f"TTS punctuation leak: transcript contains {formatted} — "
                 f"these words are NOT in the script, which means the voice "
@@ -1736,6 +1948,7 @@ class VideoCompose(BaseTool):
             cmd = [
                 "ffprobe", "-v", "quiet", "-print_format", "json",
                 "-show_format", "-show_streams", str(output_path),
+            ]
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if proc.returncode == 0:
                 probe_data = json.loads(proc.stdout)
@@ -1830,6 +2043,7 @@ class VideoCompose(BaseTool):
                         "-i", str(output_path),
                         "-frames:v", "1", "-q:v", "2",
                         str(frame_path),
+                    ]
                     subprocess.run(cmd, capture_output=True, timeout=15)
                     if frame_path.exists():
                         frame_paths.append(str(frame_path))
@@ -1870,6 +2084,7 @@ class VideoCompose(BaseTool):
                 cmd = [
                     "ffmpeg", "-i", str(output_path),
                     "-af", "volumedetect", "-f", "null", "-",
+                ]
                 proc = subprocess.run(
                     cmd, capture_output=True, text=True, timeout=60
                 )
@@ -2024,6 +2239,7 @@ class VideoCompose(BaseTool):
                         "ffprobe", "-v", "quiet", "-print_format", "json",
                         "-show_streams", "-select_streams", "s",
                         str(output_path),
+                    ]
                     proc = subprocess.run(
                         cmd, capture_output=True, text=True, timeout=15
                     )
@@ -2070,6 +2286,8 @@ class VideoCompose(BaseTool):
                 "silent downgrade", "delivery promise violation",
                 "effectively silent", "ffprobe failed", "suspiciously short",
                 "tts punctuation leak",  # reading literal punctuation aloud
+            ])
+        ]
 
         if critical_issues:
             status = "revise"
@@ -2143,6 +2361,7 @@ class VideoCompose(BaseTool):
             "-c:v", codec, "-crf", str(crf),
             "-c:a", "copy",
             str(output_path),
+        ]
 
         self.run_command(cmd)
 
@@ -2242,6 +2461,7 @@ class VideoCompose(BaseTool):
             "-i", str(input_path),
             "-c:v", codec, "-crf", str(crf), "-preset", preset,
             "-c:a", "aac", "-b:a", "192k",
+        ]
 
         # Apply media profile if specified
         if profile_name:

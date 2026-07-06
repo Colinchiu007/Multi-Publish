@@ -1,5 +1,31 @@
+"""Showcase card tool wrapping FFmpeg.
+
+Creates a presentation-ready 9:16 card from a source video: letterboxes
+the content, adds a bold title at the top, a subtitle description at the
+bottom, and a dark background.  Designed for Instagram Reels / TikTok
+showcase segments.
+"""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Any
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    ToolResult,
+    ToolStability,
+    ToolTier,
+)
+
+
 class ShowcaseCard(BaseTool):
     name = "showcase_card"
+    version = "0.1.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "ffmpeg"
@@ -8,10 +34,82 @@ class ShowcaseCard(BaseTool):
     determinism = Determinism.DETERMINISTIC
 
     dependencies = ["cmd:ffmpeg", "cmd:ffprobe"]
+    install_instructions = "Install FFmpeg: https://ffmpeg.org/download.html"
+    agent_skills = ["ffmpeg", "video-toolkit"]
 
+    capabilities = ["create_showcase_card"]
+
+    input_schema = {
+        "type": "object",
+        "required": ["input_path", "output_path", "title"],
+        "properties": {
+            "input_path": {
+                "type": "string",
+                "description": "Path to the source video.",
+            },
+            "output_path": {
+                "type": "string",
+                "description": "Path for the output showcase card video.",
+            },
+            "title": {
+                "type": "string",
+                "description": "Bold title text displayed at the top of the card.",
+            },
+            "subtitle": {
+                "type": "string",
+                "default": "",
+                "description": "Subtitle text displayed at the bottom of the card.",
+            },
+            "output_width": {
+                "type": "integer",
+                "default": 1080,
+                "description": "Output width in pixels.",
+            },
+            "output_height": {
+                "type": "integer",
+                "default": 1920,
+                "description": "Output height in pixels.",
+            },
+            "background_color": {
+                "type": "string",
+                "default": "0x0A0F1A",
+                "description": "Background color in hex (FFmpeg format, e.g. 0x0A0F1A).",
+            },
+            "title_font": {
+                "type": "string",
+                "default": "segoeuib.ttf",
+                "description": "Font file for the title. Uses system font lookup.",
+            },
+            "title_font_size": {
+                "type": "integer",
+                "default": 52,
+                "description": "Font size for the title.",
+            },
+            "subtitle_font_size": {
+                "type": "integer",
+                "default": 28,
+                "description": "Font size for the subtitle.",
+            },
+            "title_color": {
+                "type": "string",
+                "default": "white",
+                "description": "Title text color.",
+            },
+            "watermark": {
+                "type": "string",
+                "default": "",
+                "description": "Optional watermark text overlaid on the video (e.g. brand name).",
+            },
+        },
+    }
 
     resource_profile = ResourceProfile(cpu_cores=2, ram_mb=1024, vram_mb=0, disk_mb=500)
     idempotency_key_fields = ["input_path", "title", "subtitle"]
+    side_effects = ["writes showcase card video to output_path"]
+    user_visible_verification = [
+        "Play output and verify title, subtitle, and video are positioned correctly",
+        "Verify the video content is fully visible (not cropped)",
+    ]
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         input_path = inputs["input_path"]
@@ -40,6 +138,7 @@ class ShowcaseCard(BaseTool):
             "-show_entries", "stream=width,height",
             "-of", "csv=p=0",
             input_path,
+        ]
         probe_out = self.run_command(probe_cmd).stdout.strip()
         src_w, src_h = [int(x.strip()) for x in probe_out.split(",")[:2]]
 
@@ -55,6 +154,7 @@ class ShowcaseCard(BaseTool):
         filters = [
             f"scale={out_w}:{scaled_h}",
             f"pad={out_w}:{out_h}:0:{pad_y}:color={bg_color}",
+        ]
 
         # Title text at top
         title_escaped = title.replace("'", "\\'").replace(":", "\\:")
@@ -99,6 +199,7 @@ class ShowcaseCard(BaseTool):
             "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "192k",
             output_path,
+        ]
 
         try:
             self.run_command(cmd)

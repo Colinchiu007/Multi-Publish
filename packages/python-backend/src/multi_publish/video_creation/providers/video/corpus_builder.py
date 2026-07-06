@@ -1,5 +1,79 @@
+"""Corpus builder: fan out across stock sources, download, thumb, embed, index.
+
+This is the tool the agent calls to populate a local clip corpus for
+the documentary-montage pipeline. It is deliberately the ONLY place
+where adapters, embedding, and the `Corpus` class meet — everything
+downstream (retrieval, selection, edit planning) reads from the corpus
+on disk and never touches sources directly.
+
+What it does, per query, per source, per candidate
+---------------------------------------------------
+1. Call `source.search(query, filters)` to get a flat list of
+   `Candidate`s normalised across sources.
+2. Skip candidates whose `clip_id` is already in the corpus (unless
+   `skip_existing=false`).
+3. Download the file to ``<corpus_dir>/clips/<clip_id>.<ext>``.
+4. For videos: extract N evenly-spaced frames to
+   ``<corpus_dir>/thumbnails/<clip_id>/frame_NN.jpg``, probe real
+   dimensions and duration, and compute a cheap motion score
+   (mean-abs-diff between first and middle frame).
+5. For images: copy the image as ``frame_00.jpg`` in the same thumb
+   directory so the embedder has a consistent input.
+6. Run CLIP on the thumbnails, pool frames to one 512-d vector for the
+   visual channel. Run CLIP on `source_tags` (falling back to the
+   query itself) for the tag channel.
+7. Materialise a `ClipRecord` with every provenance field and append
+   it to the corpus via `Corpus.add()`.
+8. After ALL candidates are processed, call `Corpus.save()` once. Per-
+   add saves would burn disk I/O for large runs.
+
+Caps
+----
+- `max_new_clips` halts the whole run once that many new rows have
+  been added. The remaining candidates in the current loop iteration
+  are discarded.
+- Per-source search errors and per-candidate processing errors are
+  caught and collected into `errors` in the return payload. One flaky
+  URL or one broken codec must not poison the whole run.
+
+Idempotence
+-----------
+Re-running with the same inputs is safe. `skip_existing=True` (default)
+causes the tool to short-circuit on any `clip_id` already in the
+corpus JSONL. Crash-recovery is handled by `Corpus.load()`, which
+truncates the in-memory state to the shorter of the JSONL and the
+`.npy` lengths.
+
+Agent surface
+-------------
+Input schema keeps the agent's decisions at the top: WHAT to search
+for (`queries`), WHERE to search (`sources`), WHAT to filter
+(`filters`), and HOW MUCH (`max_new_clips`). Everything else has
+sensible defaults.
+"""
+from __future__ import annotations
+
+import time
+import urllib.parse
+from pathlib import Path
+from typing import Any, Optional
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    ToolResult,
+    ToolRuntime,
+    ToolStability,
+    ToolStatus,
+    ToolTier,
+)
+
+
 class CorpusBuilder(BaseTool):
     name = "corpus_builder"
+    version = "0.1.0"
     tier = ToolTier.SOURCE
     capability = "corpus_population"
     provider = "openmontage"
@@ -9,13 +83,126 @@ class CorpusBuilder(BaseTool):
     runtime = ToolRuntime.HYBRID  # local compute + network APIs
 
     dependencies = [
+        "python:cv2",
+        "python:numpy",
+        "python:requests",
+        "python:PIL",
+        "python:transformers",
+        "python:torch",
+    ]
+    install_instructions = (
+        "pip install opencv-python numpy requests pillow transformers torch\n"
+        "At least one stock source must be configured:\n"
+        "  PEXELS_API_KEY for Pexels (free at https://www.pexels.com/api/)\n"
+        "  UNSPLASH_ACCESS_KEY for Unsplash (see https://unsplash.com/documentation)\n"
+        "  archive.org, nasa, and wikimedia work without API keys"
+    )
+    agent_skills = []
 
+    capabilities = [
+        "stock_fanout_search",
+        "corpus_population",
+        "clip_indexing",
+        "clip_embedding",
+    ]
+    supports = {
+        "multi_source": True,
+        "video_and_image": True,
+        "append_only": True,
+        "resumable": True,
+    }
+    best_for = [
+        "documentary-montage retrieval corpora",
+        "topic-based offline clip indexing",
+        "collecting candidate B-roll without repeated API calls per edit",
+    ]
+    not_good_for = [
+        "single-clip downloads (use pexels_video instead)",
+        "semantic retrieval itself (use clip_search)",
+    ]
+    fallback_tools = []
+
+    input_schema = {
+        "type": "object",
+        "required": ["corpus_dir", "queries"],
+        "properties": {
+            "corpus_dir": {
+                "type": "string",
+                "description": "Project-local corpus directory, e.g. projects/foo/corpus",
+            },
+            "queries": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "required": ["query"],
+                    "properties": {
+                        "query": {"type": "string"},
+                        "kind": {
+                            "type": "string",
+                            "enum": ["video", "image", "any"],
+                            "default": "video",
+                        },
+                        "per_source": {
+                            "type": "integer",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 80,
+                        },
+                    },
+                },
+            },
+            "sources": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Source names to use (e.g. ['pexels','archive_org']). "
+                               "Defaults to all available.",
+            },
+            "filters": {
+                "type": "object",
+                "properties": {
+                    "min_duration": {"type": "number"},
+                    "max_duration": {"type": "number"},
+                    "orientation": {
+                        "type": "string",
+                        "enum": ["landscape", "portrait", "square"],
+                    },
+                    "min_width": {"type": "integer"},
+                },
+            },
+            "max_new_clips": {
+                "type": "integer",
+                "default": 100,
+                "minimum": 1,
+                "description": "Halt after this many NEW rows have been added.",
+            },
+            "skip_existing": {"type": "boolean", "default": True},
+            "thumbs_per_video": {
+                "type": "integer",
+                "default": 5,
+                "minimum": 1,
+                "maximum": 20,
+            },
+        },
+    }
 
     resource_profile = ResourceProfile(
+        cpu_cores=2, ram_mb=2048, vram_mb=0, disk_mb=4000, network_required=True
+    )
+    side_effects = [
+        "downloads clips to <corpus_dir>/clips",
+        "writes thumbnails under <corpus_dir>/thumbnails",
+        "appends rows to <corpus_dir>/index.jsonl + embedding .npy files",
+        "calls external stock APIs",
+    ]
+    user_visible_verification = [
+        "Open <corpus_dir>/index.jsonl and inspect a few added rows",
+        "Open <corpus_dir>/thumbnails/<some_clip_id>/frame_02.jpg visually",
+    ]
 
     def get_status(self) -> ToolStatus:
         try:
-            from tools.video.stock_sources import all_sources, available_sources
+            from multi_publish.video_creation.video.stock_sources import all_sources, available_sources
         except Exception:
             return ToolStatus.UNAVAILABLE
         total = len(all_sources())
@@ -29,7 +216,7 @@ class CorpusBuilder(BaseTool):
     def get_info(self) -> dict[str, Any]:
         info = super().get_info()
         try:
-            from tools.video.stock_sources import source_catalog, source_summary
+            from multi_publish.video_creation.video.stock_sources import source_catalog, source_summary
             info["source_provider_menu"] = source_catalog()
             info["source_provider_summary"] = source_summary()
         except Exception:
@@ -53,8 +240,8 @@ class CorpusBuilder(BaseTool):
         start = time.time()
         try:
             from lib.corpus import Corpus
-            from tools.video.clip_cache import get_default_cache
-            from tools.video.stock_sources import (
+            from multi_publish.video_creation.video.clip_cache import get_default_cache
+            from multi_publish.video_creation.video.stock_sources import (
                 SearchFilters,
                 all_sources,
                 available_sources,
@@ -394,9 +581,11 @@ class CorpusBuilder(BaseTool):
         corp.add(rec, clip_vec, tag_vec)
         return rec
 
+
 # ----------------------------------------------------------------------
 # Module-level helpers (kept outside the class so tests can hit them)
 # ----------------------------------------------------------------------
+
 
 def _guess_ext(cand) -> str:
     """Extract a sensible file extension from a candidate's URL."""
@@ -408,6 +597,7 @@ def _guess_ext(cand) -> str:
         # Normalise .jpeg→.jpg for consistent clip paths
         return ".jpg" if ext == ".jpeg" else ext
     return ".mp4" if cand.kind == "video" else ".jpg"
+
 
 def _extract_video_thumbs(
     video_path: Path, out_dir: Path, n_frames: int
@@ -466,6 +656,7 @@ def _extract_video_thumbs(
         "duration": duration,
         "motion_score": motion,
     }
+
 
 def _save_as_jpeg(src_path: Path, dst_path: Path) -> bool:
     """Load an arbitrary image file and re-save as JPEG.

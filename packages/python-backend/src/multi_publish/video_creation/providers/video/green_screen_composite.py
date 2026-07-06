@@ -1,5 +1,40 @@
+"""Green screen composite tool for talking-head pipeline.
+
+Composites a keyed speaker (dark/solid background) over a Remotion
+background video with layout presets. Supports news anchor, full behind,
+picture-in-picture, and split layouts.
+
+Uses PIL/numpy for frame-level alpha compositing and FFmpeg for
+frame extraction, encoding, and audio muxing.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import time
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+from PIL import Image
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    RetryPolicy,
+    ResumeSupport,
+    ToolResult,
+    ToolStability,
+    ToolTier,
+)
+
+
 class GreenScreenComposite(BaseTool):
     name = "green_screen_composite"
+    version = "0.1.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "ffmpeg"
@@ -8,10 +43,83 @@ class GreenScreenComposite(BaseTool):
     determinism = Determinism.DETERMINISTIC
 
     dependencies = ["cmd:ffmpeg", "python:numpy", "python:PIL"]
+    install_instructions = (
+        "Install FFmpeg: https://ffmpeg.org/download.html — "
+        "pip install numpy Pillow"
+    )
+    agent_skills = ["ffmpeg"]
 
+    capabilities = [
+        "green_screen_composite",
+        "speaker_overlay",
+        "layout_preset",
+        "alpha_composite",
+    ]
+
+    input_schema = {
+        "type": "object",
+        "required": ["speaker_path", "background_path", "output_path"],
+        "properties": {
+            "speaker_path": {
+                "type": "string",
+                "description": "Path to keyed speaker video (dark bg, from green_screen_processor)",
+            },
+            "background_path": {
+                "type": "string",
+                "description": "Path to Remotion background video",
+            },
+            "output_path": {
+                "type": "string",
+                "description": "Output composite video path",
+            },
+            "original_audio_path": {
+                "type": "string",
+                "description": "Path to original footage to extract audio from",
+            },
+            "layout": {
+                "type": "string",
+                "enum": ["news_anchor", "full_behind", "pip", "split"],
+                "default": "news_anchor",
+                "description": (
+                    "news_anchor=speaker bottom-center over shifted bg, "
+                    "full_behind=speaker full-frame on bg, "
+                    "pip=speaker 30% bottom-right, "
+                    "split=speaker left 50% bg right 50%"
+                ),
+            },
+            "speaker_scale": {
+                "type": "number",
+                "default": 0.65,
+                "description": "Scale factor for speaker layer",
+            },
+            "bg_shift_up": {
+                "type": "integer",
+                "default": 300,
+                "description": "Pixels to shift background content upward",
+            },
+            "bg_color_hex": {
+                "type": "string",
+                "default": "#0E172A",
+                "description": "The keyed speaker's background color for alpha creation",
+            },
+        },
+    }
 
     resource_profile = ResourceProfile(
+        cpu_cores=4, ram_mb=4096, vram_mb=0, disk_mb=8000, network_required=False
+    )
+    retry_policy = RetryPolicy(max_retries=1, retryable_errors=["FFmpeg error"])
+    resume_support = ResumeSupport.FROM_START
     idempotency_key_fields = [
+        "speaker_path", "background_path", "layout",
+        "speaker_scale", "bg_shift_up", "bg_color_hex",
+    ]
+    side_effects = ["writes composite video to output_path"]
+    user_visible_verification = [
+        "Watch output — speaker should be cleanly composited without color fringing",
+        "Check layout positioning matches the chosen preset",
+        "Verify audio is synced if original_audio_path was provided",
+    ]
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         speaker_path = Path(inputs["speaker_path"])
@@ -148,7 +256,6 @@ class GreenScreenComposite(BaseTool):
 
     def _probe_video(self, path: Path) -> dict[str, Any] | None:
         """Probe a video for fps, duration, and dimensions."""
-        ]
         cmd = [
             "ffprobe", "-v", "quiet",
             "-print_format", "json",

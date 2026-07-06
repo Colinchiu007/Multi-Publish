@@ -34,7 +34,7 @@ class VideoSelector(BaseTool):
 
     def _providers(self) -> list[BaseTool]:
         """Auto-discover video generation providers from the registry."""
-        from tools.tool_registry import registry
+        from multi_publish.video_creation.tool_registry import ToolRegistry; registry = ToolRegistry()
         registry.ensure_discovered()
         return [t for t in registry.get_by_capability("video_generation")
                 if t.name != self.name]
@@ -73,7 +73,7 @@ class VideoSelector(BaseTool):
         return tool.estimate_runtime(inputs) if tool else 0.0
 
     def execute(self, inputs: dict[str, object]) -> ToolResult:
-        from lib.scoring import rank_providers
+        from multi_publish.video_creation.scoring import rank_providers
 
         candidates = self._providers()
 
@@ -141,7 +141,7 @@ class VideoSelector(BaseTool):
         Respects preferred_provider and environment hints as tie-breakers,
         but the scoring engine drives the primary selection.
         """
-        from lib.scoring import rank_providers, ProviderScore
+        from multi_publish.video_creation.scoring import rank_providers, ProviderScore
 
         preferred = inputs.get("preferred_provider", "auto")
         allowed = set(inputs.get("allowed_providers") or [])
@@ -184,7 +184,7 @@ class VideoSelector(BaseTool):
         return None, None
 
     def _prepare_task_context(self, inputs: dict[str, object]) -> dict[str, object]:
-        from lib.scoring import normalize_task_context
+        from multi_publish.video_creation.scoring import normalize_task_context
 
         return normalize_task_context(
             inputs.get("task_context", {}),

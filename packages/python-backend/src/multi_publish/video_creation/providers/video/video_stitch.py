@@ -1,5 +1,34 @@
+"""Video stitch tool wrapping FFmpeg.
+
+Multi-clip assembly with validation, transitions, and spatial layouts.
+Supports sequential concatenation (TikTok-style stitch), crossfade/fade
+transitions, and spatial compositions (side-by-side, vertical stack,
+picture-in-picture) for duet-style content.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    RetryPolicy,
+    ResumeSupport,
+    ToolResult,
+    ToolStability,
+    ToolTier,
+)
+
+
 class VideoStitch(BaseTool):
     name = "video_stitch"
+    version = "0.1.0"
     tier = ToolTier.CORE
     capability = "video_post"
     provider = "ffmpeg"
@@ -8,10 +37,113 @@ class VideoStitch(BaseTool):
     determinism = Determinism.DETERMINISTIC
 
     dependencies = ["cmd:ffmpeg", "cmd:ffprobe"]
+    install_instructions = (
+        "Install FFmpeg: https://ffmpeg.org/download.html\n"
+        "Windows: winget install FFmpeg\n"
+        "macOS: brew install ffmpeg\n"
+        "Linux: sudo apt install ffmpeg"
+    )
+    agent_skills = ["ffmpeg", "video-toolkit"]
 
+    capabilities = [
+        "validate_clips",
+        "stitch",
+        "crossfade",
+        "fade_through_black",
+        "preview_stitch",
+        "spatial_side_by_side",
+        "spatial_vertical_stack",
+        "spatial_picture_in_picture",
+    ]
+
+    input_schema = {
+        "type": "object",
+        "required": ["operation"],
+        "properties": {
+            "operation": {
+                "type": "string",
+                "enum": ["validate", "stitch", "preview_stitch", "spatial"],
+            },
+            "clips": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of input video file paths",
+            },
+            "output_path": {"type": "string"},
+            "transition": {
+                "type": "string",
+                "enum": ["cut", "crossfade", "fade"],
+                "default": "cut",
+                "description": "Transition type: cut (default), crossfade, or fade (fade-through-black)",
+            },
+            "transition_duration": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 5.0,
+                "default": 0.5,
+                "description": "Transition duration in seconds",
+            },
+            "auto_normalize": {
+                "type": "boolean",
+                "default": False,
+                "description": "Re-encode clips to a common format before concat if they differ",
+            },
+            "target_resolution": {
+                "type": "string",
+                "description": "Target resolution for normalization (e.g. '1920x1080')",
+            },
+            "target_fps": {
+                "type": "integer",
+                "description": "Target FPS for normalization",
+            },
+            "codec": {"type": "string", "default": "libx264"},
+            "crf": {"type": "integer", "default": 23},
+            "preset": {"type": "string", "default": "medium"},
+            "profile": {
+                "type": "string",
+                "description": "Media profile name from media_profiles.py",
+            },
+            "layout": {
+                "type": "string",
+                "enum": ["side_by_side", "vertical_stack", "picture_in_picture"],
+                "description": "Spatial layout for the spatial operation",
+            },
+            "pip_position": {
+                "type": "string",
+                "enum": ["top_left", "top_right", "bottom_left", "bottom_right"],
+                "default": "bottom_right",
+                "description": "Position of the PiP overlay",
+            },
+            "pip_scale": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 0.5,
+                "default": 0.3,
+                "description": "Scale of PiP overlay relative to base video",
+            },
+            "pip_margin": {
+                "type": "integer",
+                "default": 10,
+                "description": "Margin in pixels for PiP overlay from edges",
+            },
+            "dry_run": {
+                "type": "boolean",
+                "default": False,
+                "description": "If true, return what would be done without executing",
+            },
+        },
+    }
 
     resource_profile = ResourceProfile(
+        cpu_cores=4, ram_mb=2048, vram_mb=0, disk_mb=5000, network_required=False
+    )
+    retry_policy = RetryPolicy(max_retries=1, retryable_errors=["Conversion failed"])
+    resume_support = ResumeSupport.FROM_START
     idempotency_key_fields = ["operation", "clips", "transition", "layout"]
+    side_effects = ["writes video file to output_path"]
+    user_visible_verification = [
+        "Play the stitched output and verify clip ordering, transitions, and A/V sync",
+    ]
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         operation = inputs["operation"]
@@ -77,6 +209,7 @@ class VideoStitch(BaseTool):
             "-show_entries", "stream=codec_type",
             "-of", "json",
             str(clip_path),
+        ]
         try:
             proc = self.run_command(cmd)
             data = json.loads(proc.stdout)
@@ -110,6 +243,7 @@ class VideoStitch(BaseTool):
                     "-c:a", "aac",
                     "-shortest",
                     str(augmented),
+                ]
                 self.run_command(cmd)
                 temp_files.append(augmented)
                 result.append(str(augmented))
@@ -127,6 +261,7 @@ class VideoStitch(BaseTool):
             "-show_streams",
             "-show_format",
             str(clip_path),
+        ]
         try:
             proc = self.run_command(cmd)
             data = json.loads(proc.stdout)
@@ -223,6 +358,7 @@ class VideoStitch(BaseTool):
             ("audio_codec", "audio codec"),
             ("sample_rate", "audio sample rate"),
             ("audio_channels", "audio channels"),
+        ]
 
         for i, probe in enumerate(probes[1:], start=1):
             clip_mismatches: list[str] = []
@@ -324,6 +460,7 @@ class VideoStitch(BaseTool):
             "-c:a", audio_codec, "-ar", "44100", "-ac", "2",
             "-pix_fmt", "yuv420p",
             str(output_path),
+        ]
         self.run_command(cmd)
 
     def _needs_normalization(self, probes: list[dict[str, Any]]) -> bool:
@@ -465,6 +602,7 @@ class VideoStitch(BaseTool):
             "-i", str(concat_list),
             "-c", "copy",
             str(output_path),
+        ]
         self.run_command(cmd)
         return {"method": "concat_demuxer"}
 
@@ -487,6 +625,7 @@ class VideoStitch(BaseTool):
                 f"[0:a][1:a]acrossfade=d={duration}[a]",
                 "-map", "[v]", "-map", "[a]",
                 str(output_path),
+            ]
             self.run_command(cmd)
         else:
             # Chain crossfades for N clips
@@ -511,6 +650,7 @@ class VideoStitch(BaseTool):
                 f"[0:a][1:a]acrossfade=d={duration}[a]",
                 "-map", "[v]", "-map", "[a]",
                 str(output_path),
+            ]
             self.run_command(cmd)
         else:
             self._chain_xfade(clips, output_path, duration, probes, transition="fadeblack")
@@ -730,6 +870,7 @@ class VideoStitch(BaseTool):
             "-c:a", "aac",
             "-shortest",
             str(output_path),
+        ])
         self.run_command(cmd)
 
     def _spatial_vertical_stack(
@@ -756,6 +897,7 @@ class VideoStitch(BaseTool):
             "-c:a", "aac",
             "-shortest",
             str(output_path),
+        ])
         self.run_command(cmd)
 
     def _spatial_pip(
@@ -797,6 +939,7 @@ class VideoStitch(BaseTool):
             "-c:a", "aac",
             "-shortest",
             str(output_path),
+        ])
         self.run_command(cmd)
 
     # ------------------------------------------------------------------
