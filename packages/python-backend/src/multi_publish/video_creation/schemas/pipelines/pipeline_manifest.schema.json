@@ -1,0 +1,154 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Pipeline Manifest",
+  "type": "object",
+  "required": [
+    "name",
+    "version",
+    "stages"
+  ],
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "stability": {
+      "type": "string"
+    },
+    "default_checkpoint_policy": {
+      "type": "string"
+    },
+    "reference_input": {
+      "type": "object",
+      "properties": {
+        "supported": {
+          "type": "boolean"
+        },
+        "analysis_depth": {
+          "type": "string"
+        },
+        "analysis_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "properties": {
+        "custom_scripts": {
+          "type": "boolean"
+        },
+        "custom_playbooks": {
+          "type": "boolean"
+        },
+        "custom_skills": {
+          "type": "boolean"
+        },
+        "custom_tools": {
+          "type": "boolean"
+        }
+      }
+    },
+    "required_skills": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "orchestration": {
+      "type": "object"
+    },
+    "compatible_playbooks": {
+      "type": "object",
+      "properties": {
+        "recommended": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "also_works": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "custom_allowed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "preferred_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fallback_tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tools_available": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "review_focus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skill": {
+            "type": "string"
+          },
+          "condition": {
+            "type": "string"
+          },
+          "sub_stages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "tools_available": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
