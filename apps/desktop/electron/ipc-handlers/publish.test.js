@@ -67,7 +67,7 @@ describe("publish IPC handlers", () => {
     it("returns error code when taskQueue.add throws", async () => {
       deps.taskQueue.add.mockImplementation(() => { throw new Error("queue full"); });
       const result = await ipcMain._callHandler("publish:wechat", { title: "test" });
-      expect(result.code).toBe(-100);
+      expect(result.code).toBe(-1);
       expect(result.message).toBe("queue full");
     });
   });
@@ -150,3 +150,4 @@ describe("publish IPC handlers", () => {
     });
   });
 });
+
