@@ -21,6 +21,13 @@ web = [
     "jinja2>=3.1",
     "pyyaml>=6.0",
 ]
+video = [
+    "pyyaml>=6.0",
+    "jsonschema>=4.20",
+]
+all = [
+    "multi-publish-backend[web,video]",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
