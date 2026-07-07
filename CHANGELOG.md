@@ -1,3 +1,14 @@
+## [v2.3.29] - 2026-07-07
+
+### 测试 -- hf_utils 24 例 (32%->68% 覆盖率)
+- _f() 浮点格式化 / escape_text() HTML 转义
+- parse_json_output() 多行 JSON 解析
+- compute_total_duration() cut 时长计算
+- is_inside() 路径包含检查
+- 测试总数: 1125+24=1149
+
+### 验证
+- hf_utils 覆盖率: 32%->68%
 ## [v2.3.28] - 2026-07-07
 
 ### 测试 -- upscale 10 例 + bg_remove 2 例
