@@ -1,3 +1,13 @@
+## [v2.3.16] - 2026-07-07
+
+### 代码质量 -- Python lint unsafe fixes (27) + vitest config CJS
+- 27 项 unsafe-fixes lint (UP042 StrEnum, UP045/UP046 类型标注, B905 zip strict, B007/N806 命名)
+- vitest.config.js: ESM import/export -> CJS require/module.exports (兼容非 type=module 包)
+
+### 验证
+- Python: 869 passed
+- ESLint: 0 errors
+- TypeScript: 0 errors
 ## [v2.3.15] - 2026-07-07
 
 ### 代码质量 -- Python lint 增量清理 (17 auto-fixed)
