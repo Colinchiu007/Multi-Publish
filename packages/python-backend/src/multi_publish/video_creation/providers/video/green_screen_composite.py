@@ -20,8 +20,6 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-logger = logging.getLogger(__name__)
-
 from multi_publish.video_creation.base_tool import (
     BaseTool,
     Determinism,
@@ -34,6 +32,7 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
+logger = logging.getLogger(__name__)
 
 class GreenScreenComposite(BaseTool):
     name = "green_screen_composite"

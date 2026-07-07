@@ -383,6 +383,7 @@ class BasePublisher(ABC):
         """返回发布器对应的平台类型"""
         pass
 
+    @abstractmethod
     async def initialize(self):
         """
         初始化资源

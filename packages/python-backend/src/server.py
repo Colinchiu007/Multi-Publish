@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from multi_publish.core.logging_setup import setup_logging
 from multi_publish.core.publisher_manager import PublisherManager
 from multi_publish.models import PLATFORM_META, PlatformType, PublishPhase
 from multi_publish.video_creation.pipeline.loader import list_pipelines, load_pipeline
@@ -35,13 +36,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ─── 全局状态 ───────────────────────────────────────────────
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 LOG_DIR = DATA_DIR.parent / "logs"
-
-from multi_publish.core.logging_setup import setup_logging
 
 setup_logging(log_dir=str(LOG_DIR))
 

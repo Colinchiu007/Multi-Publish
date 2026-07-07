@@ -20,8 +20,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from multi_publish.video_creation.base_tool import (
     BaseTool,
     Determinism,
@@ -32,6 +30,7 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
+logger = logging.getLogger(__name__)
 
 class GreenScreenProcessor(BaseTool):
     name = "green_screen_processor"
