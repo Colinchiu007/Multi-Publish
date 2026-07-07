@@ -1,4 +1,13 @@
 ﻿# Multi-Publish 变更日志
+## [v2.3.2] - 2026-07-07
+### 测试
+- 补充 pagination 分页工具单元测试（13 tests）
+  - OffsetPaginator: build_params/has_next/next_page
+  - CursorPaginator: build_params/has_more
+  - Page: 默认值/自定义构造
+
+### 验证
+- Python 测试: 621 passed (+13)
 ## [v2.3.0] - 2026-07-07
 ### 测试
 - 补充 HttpClient HTTP 客户端单元测试（12 tests）
@@ -298,6 +307,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 
