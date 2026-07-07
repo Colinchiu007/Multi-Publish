@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onRenderError: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:error', h); return () => ipcRenderer.removeListener('render:error', h); },
   onRenderInstallProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:install-progress', h); return () => ipcRenderer.removeListener('render:install-progress', h); },
 
+  // ─── 管线 API ──────────────────────────────
+  pipelines: {
+    list: () => ipcRenderer.invoke('pipelines:list'),
+    get: (name) => ipcRenderer.invoke('pipelines:get', name),
+  },
+
   // 内容情报 API（预存未注册）
   intelligenceSuggestTags: (content, opts) => ipcRenderer.invoke('intelligence:suggest-tags', { content, opts }),
   intelligenceGetOptimalTime: (keyword) => ipcRenderer.invoke('intelligence:get-optimal-time', { keyword }),
