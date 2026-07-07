@@ -1,3 +1,4 @@
+﻿const logger = require('./logger')
 // @ts-check
 /**
  * Scheduler — 定时发布
@@ -36,7 +37,7 @@ function create (schedule) {
 
   // 持久化
   const filePath = getSchedulerPath()
-  try { fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf-8'); } catch (e) { console.error('[Scheduler] Failed to persist task:', e.message); }
+  try { fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf-8'); } catch (e) { logger.error('Scheduler', 'Failed to persist task: ' + e.message); }
 
   // 注册定时器
   scheduleTimer(entry)

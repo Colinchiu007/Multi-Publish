@@ -1,3 +1,4 @@
+﻿const logger = require('../logger')
 /**
  * 各平台限制常量 — 从 PlatformConfig 加载
  */
@@ -10,7 +11,7 @@ let config = null
 try {
   config = new PlatformConfig(configPath)
 } catch (e) {
-  console.error('[rules] Failed to load platform config:', e.message)
+  logger.error('rules', 'Failed to load platform config: ' + e.message)
 }
 
 const LIMITS = {}

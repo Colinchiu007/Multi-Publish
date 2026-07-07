@@ -1,3 +1,4 @@
+﻿const logger = require('./logger')
 /**
  * API Router ? P0/P1/P2 API mode routing
  *
@@ -23,7 +24,7 @@ function loadConfig() {
       .map(function(e) { return e[0]; });
     return _platforms;
   } catch (e) {
-    console.error("[api-router] Failed to load platforms.yaml:", e.message);
+    logger.error('api-router', 'Failed to load platforms.yaml: ' + e.message);
     _platforms = {};
     _apiPlatforms = [];
     return _platforms;

@@ -1,3 +1,4 @@
+﻿const logger = require('../logger')
 /**
  * 各平台封面图预设 — 从 PlatformConfig 加载
  */
@@ -9,7 +10,7 @@ let config = null
 try {
   config = new PlatformConfig(configPath)
 } catch (e) {
-  console.error('[presets] Failed to load platform config:', e.message)
+  logger.error('presets', 'Failed to load platform config: ' + e.message)
 }
 
 const PRESETS = {}
