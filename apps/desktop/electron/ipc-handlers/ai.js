@@ -1,36 +1,43 @@
-// @ts-check
+﻿// @ts-check
 /**
- * AI Writer IPC handlers
- * 桥接 AiWriter 模块到前端
+ * AI 生成 IPC handlers
  */
+
 function registerHandlers(ipcMain, deps) {
-  const aiWriter = deps.aiWriter
+  const { aiGenerator, BrowserWindow, log } = deps
 
-  ipcMain.handle("ai:generate-titles", async function(event, topic) {
-    try {
-      const titles = await aiWriter.generateTitles(topic)
-      return { code: 0, data: titles }
-    } catch (e) { return { code: -1, message: e.message, data: [] } }
+  ipcMain.handle('ai:list-providers', (_event, type) => {
+    return aiGenerator.listProviders(type || null);
   })
 
-  ipcMain.handle("ai:generate-summary", async function(event, content) {
-    try {
-      const summary = await aiWriter.generateSummary(content)
-      return { code: 0, data: summary }
-    } catch (e) { return { code: -1, message: e.message, data: "" } }
+  ipcMain.handle('ai:get-config', (_event, providerId) => {
+    return aiGenerator.getProviderConfig(providerId);
   })
 
-  ipcMain.handle("ai:enhance-content", async function(event, content, style) {
-    try {
-      const result = await aiWriter.enhanceContent(content, style)
-      return { code: 0, data: result }
-    } catch (e) { return { code: -1, message: e.message, data: content } }
+  ipcMain.handle('ai:list-models', (_event, providerId) => {
+    return aiGenerator.listModels(providerId);
   })
 
-  ipcMain.handle("ai:is-configured", async function() {
+  ipcMain.handle('ai:generate', async (event, { type, provider, params }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const onProgress = (p) => win?.webContents.send('ai:progress', p)
     try {
-      return { code: 0, data: aiWriter.isConfigured() }
-    } catch (e) { return { code: -1, message: e.message, data: false } }
+      const result = await aiGenerator.generate(type, provider, params, onProgress)
+      win?.webContents.send('ai:complete', result)
+      return result
+    } catch (e) {
+      const err = { success: false, error: e.message }
+      win?.webContents.send('ai:error', err)
+      return err
+    }
+  })
+
+  ipcMain.handle('ai:test-connection', async (_event, providerId) => {
+    return await aiGenerator.testConnection(providerId)
+  })
+
+  ipcMain.handle('ai:save-config', (_event, providerId, config) => {
+    return aiGenerator.updateProviderConfig(providerId, config)
   })
 }
 

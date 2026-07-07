@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron')
+﻿const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getVersion: () => ipcRenderer.invoke('app:get-version'),
@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onRenderComplete: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:complete', h); return () => ipcRenderer.removeListener('render:complete', h); },
   onRenderError: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:error', h); return () => ipcRenderer.removeListener('render:error', h); },
   onRenderInstallProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:install-progress', h); return () => ipcRenderer.removeListener('render:install-progress', h); },
+  renderListCompositions: () => ipcRenderer.invoke('render:list-compositions'),
+  renderGetComposition: (id) => ipcRenderer.invoke('render:get-composition', id),
+  renderValidateProps: (compositionId, props) => ipcRenderer.invoke('render:validate-props', compositionId, props),
 
   // ─── 管线 API ──────────────────────────────
   pipelines: {
@@ -239,6 +242,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
       aiEnhanceContent: (content, style) => ipcRenderer.invoke('ai:enhance-content', content, style),
       aiIsConfigured: () => ipcRenderer.invoke('ai:is-configured'),
 
+  // ─── AI 生成 API（Phase 2）────────────────────
+  aiListProviders: (type) => ipcRenderer.invoke('ai:list-providers', type),
+  aiGetConfig: (providerId) => ipcRenderer.invoke('ai:get-config', providerId),
+  aiListModels: (providerId) => ipcRenderer.invoke('ai:list-models', providerId),
+  aiGenerate: (type, provider, params) => ipcRenderer.invoke('ai:generate', { type, provider, params }),
+  aiTestConnection: (providerId) => ipcRenderer.invoke('ai:test-connection', providerId),
+  aiSaveConfig: (providerId, config) => ipcRenderer.invoke('ai:save-config', providerId, config),
+  onAIProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:progress', h); return () => ipcRenderer.removeListener('ai:progress', h); },
+  onAIComplete: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:complete', h); return () => ipcRenderer.removeListener('ai:complete', h); },
+  onAIError: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:error', h); return () => ipcRenderer.removeListener('ai:error', h); },
+
+  // ─── 视频处理 API（Phase 2）──────────────────
+  videoStatus: () => ipcRenderer.invoke('video:status'),
+  videoListProcessTypes: () => ipcRenderer.invoke('video:list-process-types'),
+  videoListAnalyzeTypes: () => ipcRenderer.invoke('video:list-analyze-types'),
+  videoListStockSources: () => ipcRenderer.invoke('video:list-stock-sources'),
+  videoProcess: (type, params) => ipcRenderer.invoke('video:process', { type, params }),
+  videoAnalyze: (type, filePath) => ipcRenderer.invoke('video:analyze', type, filePath),
+  videoMixAudio: (params) => ipcRenderer.invoke('video:mix-audio', params),
+  videoSearchStock: (query, source, limit) => ipcRenderer.invoke('video:search-stock', query, source, limit),
+  videoGenerateSubtitle: (audioPath, language) => ipcRenderer.invoke('video:generate-subtitle', audioPath, language),
+  onVideoProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('video:progress', h); return () => ipcRenderer.removeListener('video:progress', h); },
+  onVideoComplete: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('video:complete', h); return () => ipcRenderer.removeListener('video:complete', h); },
+  onVideoError: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('video:error', h); return () => ipcRenderer.removeListener('video:error', h); },
+
+  // ─── Pipeline 管线 API（Phase 3）────────────────
+  pipelineList: () => ipcRenderer.invoke('pipeline:list'),
+  pipelineGet: (name) => ipcRenderer.invoke('pipeline:get', name),
+  pipelineStart: (name, params) => ipcRenderer.invoke('pipeline:start', name, params),
+  pipelinePause: () => ipcRenderer.invoke('pipeline:pause'),
+  pipelineResume: () => ipcRenderer.invoke('pipeline:resume'),
+  pipelineCancel: () => ipcRenderer.invoke('pipeline:cancel'),
+  pipelineStatus: (name) => ipcRenderer.invoke('pipeline:status', name),
+  pipelineAdvance: () => ipcRenderer.invoke('pipeline:advance'),
+  pipelineHistory: () => ipcRenderer.invoke('pipeline:history'),
+  pipelineFetch: (name) => ipcRenderer.invoke('pipeline:fetch', name),
       
       // --- Cloud Publisher API ---
       cloudPublishSubmit: (params) => ipcRenderer.invoke("cloud-publisher:submit", params),

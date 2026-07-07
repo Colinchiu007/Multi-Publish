@@ -1,5 +1,54 @@
-﻿
+﻿# CHANGELOG
 
+## [v2.3.41] - 2026-07-08
+
+### 新增
+- Phase 1 — OpenMontage 视频集成：composition-manager.js
+  - 管理 7 个 Remotion Composition（Explainer / TalkingHead / CinematicRenderer / CollageBurst / TitledVideo / LyricOverlay / HeroTitle）
+  - text/gallery/video 三种模式 props 生成
+  - props 完整性校验
+- render-engine.js 扩展：listCompositions / getComposition / validateProps
+- IPC 端点：render:list-compositions / render:get-composition / render:validate-props
+- preload.js 暴露 composition API 到渲染进程
+- container.setup.js 注册 compositionManager
+
+### 文档
+- 01-docs/architecture-video-integration.md — OpenMontage 集成架构方案 v2.0
+
+### 测试
+- composition-manager.test.js: 7/7 通过
+
+
+### 新增
+- Phase 2 — AI + 视频工具桥接：ai-generator.js + video-engine.js
+  - ai-generator.js：管理 18+ AI Provider（视频/图像/音频/TTS）
+  - video-engine.js：10 种视频处理 + 5 种分析 + 10 素材源
+  - 通过 python-bridge.js 调用 Python 后端 API
+- IPC 端点：ai:list-providers / ai:generate / ai:save-config 等
+- IPC 端点：video:process / video:analyze / video:mix-audio 等
+- Python 后端 API 端点：/api/ai/* + /api/video/*（7 个新路由）
+- preload.js 暴露 AI + Video API 到渲染进程
+- container.setup.js 注册 aiGenerator + videoEngine
+
+### 测试
+- ai-generator.test.js: 8/8 通过
+- video-engine.test.js: 5/5 通过
+
+
+### 新增
+- Phase 3 — Pipeline 管线编排：pipeline-engine.js
+  - 13 条内容管线（animated-explainer / cinematic / talking-head 等）
+  - 执行状态机：start / pause / resume / cancel / advance
+  - 阶段进度跟踪 + 检查点确认
+  - 执行历史记录
+- IPC 端点：pipeline:list/get/start/pause/resume/cancel/status/advance/history/fetch
+- preload.js 暴露 11 个 Pipeline API 到渲染进程
+- container.setup.js 注册 pipelineEngine
+- Python 后端已在 Phase 2 提供 /api/pipelines 和 /api/pipelines/{name}
+
+### 测试
+- pipeline-engine.test.js: 11/11 通过
+- 全量 4 个新模块 31/31 测试通过
 ## [v2.3.40] - 2026-07-07
 
 ### 修复

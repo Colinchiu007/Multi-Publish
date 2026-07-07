@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * 渲染 IPC handlers
  */
@@ -22,6 +22,19 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('render:install-deps', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     return await renderEngine.installDeps((text) => win?.webContents.send('render:install-progress', { text }))
+  })
+
+  // --- Composition 管理（Phase 1）---
+  ipcMain.handle('render:list-compositions', () => {
+    return renderEngine.listCompositions();
+  })
+
+  ipcMain.handle('render:get-composition', (_event, id) => {
+    return renderEngine.getComposition(id);
+  })
+
+  ipcMain.handle('render:validate-props', (_event, compositionId, props) => {
+    return renderEngine.validateProps(compositionId, props);
   })
 }
 

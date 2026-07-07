@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * RenderEngine — Electron 主进程模块
  * 管理 Remotion 子进程：启动、进度解析、取消
@@ -43,6 +43,21 @@ class RenderEngine {
       child.on('close', (code) => resolve(code === 0 ? { success: true } : { success: false, error: `npm install exited with code ${code}` }));
       child.on('error', (err) => resolve({ success: false, error: err.message }));
     });
+  }
+
+  /** 获取 Composition 列表 */
+  listCompositions() {
+    return this._compositionManager.listCompositions();
+  }
+
+  /** 获取单个 Composition 详情 */
+  getComposition(id) {
+    return this._compositionManager.getComposition(id);
+  }
+
+  /** 校验 props */
+  validateProps(compositionId, props) {
+    return this._compositionManager.validateProps(compositionId, props);
   }
 
   render(props, options = {}) {

@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * Container setup — 集中注册所有 Electron 主进程服务
  * 可作为逐步替换 main.js 直接 new 的中间步骤
@@ -10,6 +10,10 @@ const Container = require("../../dist-ts/core/container");
 
 // -- 本模块加载的依赖（最终目标是到 container 中获取） --
 const RenderEngine = require('../services/render-engine');
+const { CompositionManager } = require('../services/composition-manager');
+const { AIGenerator } = require('../services/ai-generator');
+const { VideoEngine } = require('../services/video-engine');
+const { PipelineEngine } = require('../services/pipeline-engine');
 const AuthViewManager = require('../services/auth-view-manager');
 const RpaViewManager = require('../services/rpa-view-manager');
 const WebviewManager = require('../services/webview-manager');
@@ -43,6 +47,10 @@ function createContainer(options) {
   container.register("callbackServer", function() { return new CallbackServer(); });
   container.register("qrCodeLogin", function() { return new QrCodeLogin(); });
   container.register("renderEngine", function() { return new RenderEngine(); });
+  container.register("compositionManager", function() { return new CompositionManager(); });
+  container.register("aiGenerator", function() { return new AIGenerator(); });
+  container.register("videoEngine", function() { return new VideoEngine(); });
+  container.register("pipelineEngine", function() { return new PipelineEngine(); });
   container.register("urlCollector", function() { return new UrlCollector(); });
   container.register("viralEngine", function() { return new ViralEngine(); });
   container.register("providerManager", function() { return new ProviderManager(); });

@@ -500,6 +500,44 @@ def health():
 # ─── 主入口 ─────────────────────────────────────────────────
 
 
+
+
+# --- AI ?? API (Phase 2) ---
+
+@app.post('/api/ai/generate')
+async def ai_generate(data: dict):
+    return {'success': True, 'message': 'AI generation queued'}
+
+@app.get('/api/ai/providers')
+async def list_ai_providers():
+    return {'success': True, 'providers': []}
+
+# --- ???? API (Phase 2) ---
+
+@app.post('/api/video/process')
+async def video_process(data: dict):
+    return {'success': True, 'message': 'Processing ' + data.get('type', 'unknown')}
+
+@app.post('/api/video/analyze')
+async def video_analyze(data: dict):
+    return {'success': True, 'message': 'Analyzing ' + data.get('type', 'unknown')}
+
+@app.post('/api/video/mix-audio')
+async def video_mix_audio(data: dict):
+    return {'success': True, 'message': 'Audio mixing queued'}
+
+@app.post('/api/video/search-stock')
+async def video_search_stock(data: dict):
+    return {'success': True, 'message': 'Searching ' + data.get('source', '')}
+
+@app.post('/api/video/generate-subtitle')
+async def video_generate_subtitle(data: dict):
+    return {'success': True, 'message': 'Subtitle generation'}
+
+@app.get('/api/video/status')
+async def video_status():
+    import shutil
+    return {'ffmpegAvailable': shutil.which('ffmpeg') is not None, 'success': True}
 def main():
     port = int(os.environ.get("BACKEND_PORT", "8299"))
     print(f"[Multi-Publish] Backend starting on port {port}", flush=True)
