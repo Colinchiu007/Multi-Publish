@@ -850,4 +850,49 @@ Task Queue 鈫?鍚勫钩鍙板彂甯冨櫒 鈫?鍙戝竷瀹屾垚
 
 
 
+## 2.5 User Auth & Account Management
+
+| Feature | Description | Priority | Status |
+| Platform Binding | Cookie/Token/OAuth account binding | P0 | Done |
+| Secure Storage | AES-256-GCM encrypted store | P0 | Done |
+| OAuth 2.0 | YouTube/TikTok OAuth flow | P2 | Done |
+| QR Login | Auto-detect + scan to login | P2 | Done |
+| Multi-account | Multiple accounts per platform | P1 | Done |
+| Expiry Monitor | Auto-detect cookie expiration | P1 | Done |
+| Re-login | One-click re-login flow | P1 | Done |
+
+## 4.3 Content Field Specification
+
+| Field | Max Length | Format | Per-Platform Notes |
+|-------|-----------|--------|-------------------|
+| Title | 64 chars | Plain text, no HTML | WeChat(64), Weibo(140), Bilibili(80) |
+| Content | 10000 chars | Markdown or HTML | WeChat public(20000), Weibo(10000) |
+| Tags | 10 per article | Comma-separated | Douyin(10), Weibo(2), Bilibili(12) |
+| Cover | 10MB max | JPG/PNG/WebP 16:9 | Douyin(9:16), WeChat(16:9) |
+| Video | 500MB max | MP4/H.264 | Douyin(15min), Bilibili(4h) |
+
+### Content Format Rules
+- HTML allowed tags: p, br, strong, em, a, img, blockquote
+- Script/iframe/object tags stripped before publish
+- External images auto-download and re-upload to platform CDN
+- Markdown converted to per-platform format via format-adapter
+
+### 3.3 Concurrency & Resource Constraints
+
+| Resource | Limit | Notes |
+|----------|-------|-------|
+| Concurrent RPA tabs | Max 6 | 2/3/4/6 layout, ~400MB RAM per tab |
+| Concurrent tasks | Max 3 per run | TaskQueue maxConcurrent=3 |
+| Publish interval | 5 min min | Configurable per platform |
+| Batch queue | No hard limit | Memory-bound, ~1MB per task |
+| Electron main mem | ~200MB idle | Chromium + 25 services |
+| WebSocket port | 16521 | Single instance, fallback on conflict |
+| API timeout | Default 120s | Video platforms 300s |
+
+### Rate Limiting
+- Per-platform: max 10 publishes/minute
+- Accounts: max 3 logins/minute per platform
+- API calls: respect upstream rate limits (TikHub, etc.)
+- Queue: tasks wait if limit exceeded
+
 
