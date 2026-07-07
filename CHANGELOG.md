@@ -1,3 +1,14 @@
+## [v2.3.26] - 2026-07-07
+
+### 测试 -- face_enhance 14 例 (48%->95% 覆盖率)
+- PRESETS 数据结构验证 (9 个预设全检查)
+- list_presets() / _build_filter() 全分支覆盖
+  - custom_vf 优先 / presets 数组 / 单个 preset / 默认值 / 未知值
+- execute() 错误路径 (文件不存在/无 preset)
+- 测试总数: 1084+14=1098
+
+### 验证
+- face_enhance 覆盖率: 48%->95%（剩余 3 行 FFmpeg 调用）
 ## [v2.3.25] - 2026-07-07
 
 ### 测试 -- character_animation_utils 63% + publisher_manager 50%
