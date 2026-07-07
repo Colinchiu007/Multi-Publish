@@ -77,6 +77,67 @@ async function run() {
     assert(false, "test-helpers.js 加载失败: " + e.message);
   }
 
+
+  // 5. PipelineBrowser component
+  console.log('\x35. 管线浏览器组件');
+  try {
+    const pbPath = path.join(__dirname, '..', 'src', 'components', 'PipelineBrowser.vue');
+    const pbExists = fs.existsSync(pbPath);
+    assert(pbExists, 'PipelineBrowser.vue 存在');
+    if (pbExists) {
+      const pbContent = fs.readFileSync(pbPath, 'utf-8');
+      assert(pbContent.includes('pipeline-browser'), '组件包含 pipeline-browser class');
+      assert(pbContent.includes('pipeline-card'), '组件包含 pipeline-card class');
+    }
+  } catch (e) {
+    assert(false, 'PipelineBrowser 检查失败: ' + e.message);
+  }
+
+  // 6. Pipeline IPC handlers
+  console.log('\x36. 管线 IPC 处理器');
+  try {
+    const pipelinePath = path.join(__dirname, '..', 'electron', 'ipc-handlers', 'pipeline.js');
+    const pipelineExists = fs.existsSync(pipelinePath);
+    assert(pipelineExists, 'pipeline.js handler 存在');
+    if (pipelineExists) {
+      const pipelineContent = fs.readFileSync(pipelinePath, 'utf-8');
+      assert(pipelineContent.includes('pipelines:list'), '注册 pipelines:list handler');
+      assert(pipelineContent.includes('pipelines:get'), '注册 pipelines:get handler');
+    }
+  } catch (e) {
+    assert(false, 'Pipeline IPC 检查失败: ' + e.message);
+  }
+
+  // 7. Preload bridge
+  console.log('\x37. IPC 桥接完整性');
+  try {
+    const preloadPath = path.join(__dirname, '..', 'electron', 'preload.js');
+    const preloadExists = fs.existsSync(preloadPath);
+    assert(preloadExists, 'preload.js 存在');
+    if (preloadExists) {
+      const preloadContent = fs.readFileSync(preloadPath, 'utf-8');
+      assert(preloadContent.includes('pipelines:list'), 'preload 暴露 pipelines:list');
+      assert(preloadContent.includes('pipelines:get'), 'preload 暴露 pipelines:get');
+    }
+  } catch (e) {
+    assert(false, 'Preload 检查失败: ' + e.message);
+  }
+
+  // 8. CreateView integration
+  console.log('\x38. CreateView 集成');
+  try {
+    const cvPath = path.join(__dirname, '..', 'src', 'views', 'CreateView.vue');
+    const cvExists = fs.existsSync(cvPath);
+    assert(cvExists, 'CreateView.vue 存在');
+    if (cvExists) {
+      const cvContent = fs.readFileSync(cvPath, 'utf-8');
+      assert(cvContent.includes('PipelineBrowser'), 'CreateView 引用 PipelineBrowser');
+      assert(cvContent.includes('browse-pipelines'), '有 browse-pipelines 模式');
+    }
+  } catch (e) {
+    assert(false, 'CreateView 检查失败: ' + e.message);
+  }
+
   // Results
   console.log("\n" + "=".repeat(40));
   console.log("结果: " + pass + "/" + (pass + fail) + " 通过");
