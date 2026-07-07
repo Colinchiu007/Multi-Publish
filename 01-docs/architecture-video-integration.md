@@ -166,10 +166,10 @@ class CompositionManager {
 
 #### 质量门禁
 
-- [ ] `render:list-compositions` 返回 7 个 Composition
+- [x] `render:list-compositions` 返回 7 个 Composition (7/7 测试通过)
 - [ ] 每个 Composition 可渲染出 mp4 文件
-- [ ] 旧调用（默认 Explainer）向后兼容
-- [ ] composition-manager.test.js 覆盖全部接口
+- [x] 旧调用（默认 Explainer）向后兼容
+- [x] composition-manager.test.js 覆盖全部接口 (31 测试全通过)
 
 ---
 
@@ -355,3 +355,4 @@ class PipelineEngine {
 - 不加载任何视频创作相关 Service
 - 侧边栏不显示"创作"入口
 - 不影响现有发布流程
+

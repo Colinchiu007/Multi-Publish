@@ -1,4 +1,18 @@
 ﻿
+## [v2.3.42] - 2026-07-08
+
+### 修复
+- render-engine.js: 新增 CompositionManager 初始化 — 修复 listCompositions/getComposition/validateProps 运行时崩溃
+- 之前 _compositionManager 未在构造函数中创建，导致渲染引擎无法获取 Composition 列表
+
+### 测试
+- composition-manager.test.js: 7/7 全部通过（listCompositions / getComposition / buildRenderProps / edge cases）
+
+### 集成状态
+- OpenMontage Phase 1: CompositionManager + render-engine 接线完成 ✅
+- container.setup.js: 25 服务已注册（renderEngine/compositionManager/aiGenerator/videoEngine/pipelineEngine）
+- 待 Phase 2: ai-generator.js + video-engine.js IPC 桥接
+
 
 ## [v2.3.40] - 2026-07-07
 
@@ -735,6 +749,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 

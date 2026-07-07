@@ -8,6 +8,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { CompositionManager } = require('./composition-manager');
 
 const COMPOSER_DIR = path.join(__dirname, '..', '..', '..', '..', 'packages', 'remotion-composer');
 
@@ -27,6 +28,7 @@ class RenderEngine {
   constructor() {
     this._currentProcess = null;
     this._canceled = false;
+    this._compositionManager = new CompositionManager();
   }
 
   getStatus() {

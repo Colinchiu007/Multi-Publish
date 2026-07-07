@@ -1,8 +1,12 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./services/logger')
 const RenderEngine = require('./services/render-engine')
+const { CompositionManager } = require('./services/composition-manager')
+const AIGenerator = require('./services/ai-generator')
+const VideoEngine = require('./services/video-engine')
+const PipelineEngine = require('./services/pipeline-engine')
 
 const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require('@multi-publish/shared-utils')
 const PublishIntervalGuard = require('@multi-publish/shared-utils/src/publish-interval-guard')
@@ -187,6 +191,10 @@ taskQueue.on('task:retry', (task) => {
 
 // ─── 渲染引擎实例 ──────────────────────────
 const renderEngine = new RenderEngine()
+const compositionManager = new CompositionManager()
+const aiGenerator = new AIGenerator()
+const videoEngine = new VideoEngine()
+const pipelineEngine = new PipelineEngine()
 
 // ─── 平台、敏感词、数据同步等基础设施 ────────
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
@@ -376,6 +384,10 @@ app.whenReady().then(async () => {
     templateManager,
     licenseManager,
     aiWriter,
+    compositionManager,
+    aiGenerator,
+    videoEngine,
+    pipelineEngine,
   })
 
   // 使用量统计 IPC
