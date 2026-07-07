@@ -1,4 +1,17 @@
 ﻿# Multi-Publish 变更日志
+## [v2.3.0] - 2026-07-07
+### 测试
+- 补充 HttpClient HTTP 客户端单元测试（12 tests）
+  - 认证管理: set_auth/clear_auth/空token
+  - HTTP 请求: GET/POST 成功
+  - 错误映射: 404/500 → MultiPublishHTTPError
+  - 重试逻辑: 超时/连接错误/500→200恢复
+  - Authorization header 验证
+  - 使用 respx mock 框架模拟 HTTP
+
+### 验证
+- Python 测试: 590 passed (+12)
+- Jest 测试: 207 passed
 ## [v2.2.9] - 2026-07-07
 ### 测试
 - 补充核心数据模型 models.py 单元测试（19 tests）
@@ -285,6 +298,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 
