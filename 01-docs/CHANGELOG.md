@@ -1,3 +1,115 @@
+## [v2.3.29] - 2026-07-07
+
+### 测试 -- hf_utils 24 例 (32%->68% 覆盖率)
+- _f() 浮点格式化 / escape_text() HTML 转义
+- parse_json_output() 多行 JSON 解析
+- compute_total_duration() cut 时长计算
+- is_inside() 路径包含检查
+- 测试总数: 1125+24=1149
+
+### 验证
+- hf_utils 覆盖率: 32%->68%
+## [v2.3.28] - 2026-07-07
+
+### 测试 -- upscale 10 例 + bg_remove 2 例
+- upscale: MODELS 数据验证 / VIDEO_EXTENSIONS / get_status / 输入不存在错误路径
+- bg_remove: get_status (rembg 未安装) / 输入不存在错误路径
+- 测试总数: 1113+12=1125
+
+### 验证
+- upscale: ~15%->32%
+- bg_remove: 49%->56%
+## [v2.3.27] - 2026-07-07
+
+### 测试 -- color_grade 15 例 (~30%->77% 覆盖率)
+- PROFILES 数据结构验证 (7 个预设全检查)
+- list_profiles() / _build_filter() 全分支覆盖
+  - custom_vf / lut_path / profile / intensity blend
+- execute() 错误路径 (文件不存在)
+- 测试总数: 1098+15=1113
+
+### 验证
+- color_grade 覆盖率: ~30%->77%（剩余 14 行 FFmpeg 调用/LUT 路径）
+## [v2.3.26] - 2026-07-07
+
+### 测试 -- face_enhance 14 例 (48%->95% 覆盖率)
+- PRESETS 数据结构验证 (9 个预设全检查)
+- list_presets() / _build_filter() 全分支覆盖
+  - custom_vf 优先 / presets 数组 / 单个 preset / 默认值 / 未知值
+- execute() 错误路径 (文件不存在/无 preset)
+- 测试总数: 1084+14=1098
+
+### 验证
+- face_enhance 覆盖率: 48%->95%（剩余 3 行 FFmpeg 调用）
+## [v2.3.25] - 2026-07-07
+
+### 测试 -- character_animation_utils 63% + publisher_manager 50%
+- character_animation_utils.py: 27 例 (_slug/_character_color/_normalize_style/_write_json)
+- publisher_manager.py: 11 例 (init/precheck/registry 委托/get_or_create/close_all)
+- 测试总数: 1046+38=1084
+
+### 验证
+- 新测试: 186/186 passed (所有近期新增)
+- character_animation_utils 覆盖率: 44%->63%
+- publisher_manager 覆盖率: 38%->50%
+## [v2.3.24] - 2026-07-07
+
+### 测试 -- compose_utils.py 41 例 (21%->88% 覆盖率)
+- is_image: 15 种扩展名全覆盖
+- tokenize: 标点/数字/Unicode/大小写混合
+- parse_probe_fps: 分数/浮点/边界值
+- build_subtitle_style: 默认/自定义/边框/对齐
+- read_text_file: 文件读取/路径对象/不存在
+- 测试总数: 1005+41=1046
+
+### 验证
+- Python: 1046/1046 passed
+- compose_utils.py 覆盖率: 21%->88%（剩余 ffprobe 依赖行）
+## [v2.3.23] - 2026-07-07
+
+### 测试 -- video_trimmer 60% + logging_setup 75% (21%->60% / 47%->75%)
+- P0-2: video_trimmer.py 21 例 (_build_atempo_chain + 错误路径全覆盖)
+- P0-2: logging_setup.py 8 例 (get_publisher_logger + log_call 装饰器同步/异步)
+- 测试总数: 976+29=1005
+- 项目总覆盖率: 36%->37%
+
+### Bug 修复 -- _concat 的 finally 块 list_path 未初始化 (后测试驱动发现的 bug)
+- video_trimmer.py _concat(): list_path 初始化 None + finally 判 None 保护
+- logging_setup.py log_call(): asyncio.iscoroutinefunction 判断使装饰器同时支持同步/异步函数
+
+### 验证
+- Python: 1005/1005 passed
+## [v2.3.22] - 2026-07-07
+
+### 测试 -- delivery_promise + hyperframes_style_bridge (0%->100% 覆盖率)
+- P0-2: delivery_promise.py 46 例 (纯数据+逻辑, PromiseType/validate_cuts/classify_from_brief)
+- P0-2: hyperframes_style_bridge.py 31 例 (纯函数, _first/_font/_motion_easing/style_bridge)
+- 测试总数: 898+77=975
+- Python lint: 13->8 (5 个自动修复)
+
+### 验证
+- Python: 975/975 passed
+## [v2.3.21] - 2026-07-07
+
+### 测试 -- media_profiles 11 例 (0%->100% 覆盖率)
+- P0-2: 补充 media_profiles 模块单元测试 11 例
+- 覆盖 AspectRatio/MediaProfile/get_profile/ffmpeg_output_args
+- 测试总数: 887+11=898
+
+### 验证
+- Python: 898/898 passed
+
+## [v2.3.20] - 2026-07-07
+
+### 测试 -- slideshow_risk 18 例 (0%->93% 覆盖率)
+- P0-2: 补充 slideshow_risk 模块单元测试 18 例
+- 覆盖 6 个评分维度 + 主函数全部路径
+- 测试总数: 869+18=887
+- 项目总覆盖率: 34%->35%
+
+### 验证
+- Python: 887/887 passed
+
 ## [v2.3.19] - 2026-07-07
 
 ### 代码质量 -- N803 参数命名清零 (3->0)
