@@ -145,16 +145,21 @@ def log_call(logger_instance=None):
     """
 
     def decorator(func):
+        import asyncio
         import functools
         import time
 
         log = logger_instance or logger
+        is_async = asyncio.iscoroutinefunction(func)
 
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
             start = time.time()
             try:
-                result = await func(*args, **kwargs)
+                if is_async:
+                    result = await func(*args, **kwargs)
+                else:
+                    result = func(*args, **kwargs)
                 elapsed = time.time() - start
                 log.info(f"{func.__name__} 完成 ({elapsed:.2f}s)")
                 return result

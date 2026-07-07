@@ -159,6 +159,7 @@ class VideoTrimmer(BaseTool):
         temp_files: list[Path] = []
         temp_dir = output_path.parent / ".concat_tmp"
         temp_dir.mkdir(parents=True, exist_ok=True)
+        list_path = None
 
         try:
             for i, seg in enumerate(segments):
@@ -219,7 +220,7 @@ class VideoTrimmer(BaseTool):
             for tf in temp_files:
                 if tf.parent == temp_dir and tf.exists():
                     tf.unlink()
-            if list_path.exists():
+            if list_path is not None and list_path.exists():
                 list_path.unlink()
             if temp_dir.exists():
                 try:

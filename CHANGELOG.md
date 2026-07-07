@@ -1,3 +1,17 @@
+## [v2.3.23] - 2026-07-07
+
+### 测试 -- video_trimmer 60% + logging_setup 75% (21%->60% / 47%->75%)
+- P0-2: video_trimmer.py 21 例 (_build_atempo_chain + 错误路径全覆盖)
+- P0-2: logging_setup.py 8 例 (get_publisher_logger + log_call 装饰器同步/异步)
+- 测试总数: 976+29=1005
+- 项目总覆盖率: 36%->37%
+
+### Bug 修复 -- _concat 的 finally 块 list_path 未初始化 (后测试驱动发现的 bug)
+- video_trimmer.py _concat(): list_path 初始化 None + finally 判 None 保护
+- logging_setup.py log_call(): asyncio.iscoroutinefunction 判断使装饰器同时支持同步/异步函数
+
+### 验证
+- Python: 1005/1005 passed
 ## [v2.3.22] - 2026-07-07
 
 ### 测试 -- delivery_promise + hyperframes_style_bridge (0%->100% 覆盖率)
