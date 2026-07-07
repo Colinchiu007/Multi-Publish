@@ -1,3 +1,16 @@
+## [v2.3.24] - 2026-07-07
+
+### 测试 -- compose_utils.py 41 例 (21%->88% 覆盖率)
+- is_image: 15 种扩展名全覆盖
+- tokenize: 标点/数字/Unicode/大小写混合
+- parse_probe_fps: 分数/浮点/边界值
+- build_subtitle_style: 默认/自定义/边框/对齐
+- read_text_file: 文件读取/路径对象/不存在
+- 测试总数: 1005+41=1046
+
+### 验证
+- Python: 1046/1046 passed
+- compose_utils.py 覆盖率: 21%->88%（剩余 ffprobe 依赖行）
 ## [v2.3.23] - 2026-07-07
 
 ### 测试 -- video_trimmer 60% + logging_setup 75% (21%->60% / 47%->75%)
