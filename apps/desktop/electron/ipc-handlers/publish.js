@@ -31,6 +31,7 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('publish:batch', async (event, { platforms, article }) => {
+    try {
     const isObj = platforms && platforms.length > 0 && typeof platforms[0] === 'object'
     const taskIds = platforms.map(p => {
       const platform = isObj ? p.platform : p
@@ -41,7 +42,8 @@ function registerHandlers(ipcMain, deps) {
         accountId,
       })
     })
-    return { code: 0, data: { taskIds }, message: `已添加 ${taskIds.length} 个任务` }
+      return { code: 0, data: { taskIds }, message: taskIds.length + " tasks added" }
+    } catch (e) { return { code: 500, message: e.message } }
   })
 
   ipcMain.handle('queue:status', async () => taskQueue.getStatus())
