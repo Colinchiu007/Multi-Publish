@@ -1,6 +1,8 @@
 """Tests for DownloadManager ? merged (new + legacy)"""
 
+import os
 import tempfile
+from unittest.mock import patch
 
 import pytest
 
@@ -87,3 +89,128 @@ def test_format_size(dl_manager):
 
 def test_concurrent_limit(dl_manager):
     assert dl_manager._semaphore._value == 3
+
+
+# ========== _guess_ext ==========
+
+class TestGuessExt:
+    def test_url_with_ext(self):
+        dm = DownloadManager()
+        assert dm._guess_ext("https://example.com/video.mp4", "mp4") == ".mp4"
+
+    def test_url_with_query_params(self):
+        dm = DownloadManager()
+        assert dm._guess_ext("https://example.com/video.mp4?token=abc&exp=123", "mp4") == ".mp4"
+
+    def test_no_ext_falls_back(self):
+        dm = DownloadManager()
+        assert dm._guess_ext("https://example.com/video", "mp4") == ".mp4"
+
+    def test_unknown_type_fallback(self):
+        dm = DownloadManager()
+        result = dm._guess_ext("https://example.com/file", "text/html")
+        assert result.startswith(".")
+
+
+# ========== _get_sub_dir ==========
+
+class TestGetSubDir:
+    def test_video_type(self):
+        dm = DownloadManager()
+        path = dm._get_sub_dir("mp4")
+        assert path.endswith("videos")
+
+    def test_image_type(self):
+        dm = DownloadManager()
+        path = dm._get_sub_dir("png")
+        assert path.endswith("images")
+
+    def test_cover_type(self):
+        dm = DownloadManager()
+        path = dm._get_sub_dir("cover")
+        assert path.endswith("covers")
+
+    def test_unknown_type(self):
+        dm = DownloadManager()
+        path = dm._get_sub_dir("unknown")
+        assert path.endswith("temp")
+
+
+# ========== format_size ==========
+
+class TestFormatSize:
+    def test_bytes(self):
+        assert DownloadManager.format_size(100) == "100B"
+
+    def test_kilobytes(self):
+        result = DownloadManager.format_size(2048)
+        assert "KB" in result
+
+    def test_megabytes(self):
+        result = DownloadManager.format_size(5 * 1024 * 1024)
+        assert "MB" in result
+
+
+# ========== http property ==========
+
+class TestHttpProperty:
+    def test_lazy_init(self):
+        dm = DownloadManager()
+        client = dm.http
+        assert client is not None
+        assert dm._http is client
+
+    def test_same_instance(self):
+        dm = DownloadManager()
+        c1 = dm.http
+        c2 = dm.http
+        assert c1 is c2
+
+
+# ========== close ==========
+
+@pytest.mark.asyncio
+async def test_close(dl_manager):
+    _ = dl_manager.http
+    await dl_manager.close()
+    assert dl_manager._http is None
+
+
+# ========== download local path ==========
+
+@pytest.mark.asyncio
+async def test_download_local_path():
+    dm = DownloadManager()
+    result = await dm.download("/tmp/local-file.mp4")
+    assert result.state == 1
+    assert result.local_path == "/tmp/local-file.mp4"
+
+
+# ========== download cache hit ==========
+
+@pytest.mark.asyncio
+async def test_download_cache_hit(dl_manager):
+    from multi_publish.core.downloader import DownloadResult
+    url = "https://example.com/cached-video.mp4"
+    cached = DownloadResult(source_url=url, local_path="/tmp/cached-video.mp4", state=1)
+    dl_manager._cache["my-cache-key"] = cached
+    with patch("multi_publish.core.downloader.os.path.exists", return_value=True):
+        result = await dl_manager.download(url, key="my-cache-key")
+    assert result is cached
+    assert result.state == 1
+
+
+# ========== download with key ==========
+
+@pytest.mark.asyncio
+async def test_download_with_custom_key():
+    dm = DownloadManager()
+    result = await dm.download("", key="custom-key")
+    assert result.source_url == ""
+
+
+# ========== cache after failed attempt ==========
+
+def test_cache_failed_retry(dl_manager):
+    cached = dl_manager._cache.get("nonexistent-key")
+    assert cached is None

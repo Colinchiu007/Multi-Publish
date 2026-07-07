@@ -109,3 +109,7 @@ _bigfiles.txt
 # coverage annotate output
 *.py,cover
 "logs/" 
+
+# Artifacts from test runs
+*.log.gz
+heygen_video_exec_*.mp4
