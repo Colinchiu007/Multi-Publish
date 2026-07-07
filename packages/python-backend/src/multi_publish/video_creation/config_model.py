@@ -1,4 +1,4 @@
-"""Runtime configuration model for video creation module.
+﻿"""Runtime configuration model for video creation module.
 
 Adapted from OpenMontage lib/config_model.py.
 """
@@ -47,13 +47,24 @@ class VideoCreationConfig:
     paths: PathsConfig = field(default_factory=PathsConfig)
 
     @classmethod
+    def _from_dict(cls, data: dict) -> VideoCreationConfig:
+        """从嵌套 dict 构建配置，递归转换子 dataclass。"""
+        if "budget" in data and isinstance(data["budget"], dict):
+            data["budget"] = BudgetConfig(**data["budget"])
+        if "output" in data and isinstance(data["output"], dict):
+            data["output"] = OutputConfig(**data["output"])
+        if "paths" in data and isinstance(data["paths"], dict):
+            data["paths"] = PathsConfig(**data["paths"])
+        return cls(**data)
+
+    @classmethod
     def load(cls, config_path: Path | None = None) -> VideoCreationConfig:
         if config_path is None:
             config_path = Path.cwd() / "config" / "video_creation.yaml"
         if config_path.exists():
             with open(config_path) as f:
                 raw = yaml.safe_load(f) or {}
-            return cls(**raw)
+            return cls._from_dict(raw)
         return cls()
 
     def resolve_path(self, key: str, project_root: Path | None = None) -> Path:
