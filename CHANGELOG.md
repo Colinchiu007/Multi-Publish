@@ -1,4 +1,21 @@
 ﻿# Multi-Publish 变更日志
+## [v2.3.11] - 2026-07-07
+
+### 代码质量 — Python F-level lint 清零
+- 修复全部 23 个 F-level lint 问题 (F821/F841/F401/F811)
+- **修复 3 个真实 bug**:
+  - hyperframes_compose.py: _f 静态方法自我递归调用 (应实现 CSS 浮点格式化)
+  - video_selector.py: supports 未定义变量 (移除无效引用)
+  - video_stitch.py: 清理 ideo_codec/codec 变量名不一致
+- **补充缺失导入**: hunyuan_video.py 补充 	yping.Any, publisher_manager.py 提升 PublishResult 导入
+- **清理**: eye_enhance.py/green_screen_processor.py 未使用变量替换为 _
+
+### 验证
+- Python: 835 passed ✅
+- Jest: 207 passed (23 suites) ✅
+- F-level lint: 0 errors ✅
+- E/W lint: 31 (仅 E501 行长度，低优先)
+
 ## [v2.3.10] - 2026-07-07
 
 ### 修复
@@ -403,6 +420,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 
