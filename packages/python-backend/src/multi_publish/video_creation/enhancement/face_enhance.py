@@ -1,7 +1,7 @@
-"""Face enhancement tool wrapping FFmpeg filters.
+﻿"""Face enhancement tool wrapping FFmpeg filters.
 
 Applies skin smoothing, sharpening, and lighting correction presets
-to talking-head footage. All presets are FFmpeg filter chains — no GPU
+to talking-head footage. All presets are FFmpeg filter chains 鈥?no GPU
 or external models required.
 """
 
@@ -45,11 +45,11 @@ PRESETS = {
         "vf": "curves=all='0/0 0.25/0.20 0.5/0.5 0.75/0.80 1/1'",
     },
     "warm": {
-        "description": "Warm skin tones — slight orange shift",
+        "description": "Warm skin tones 鈥?slight orange shift",
         "vf": "colorbalance=rs=0.05:gs=0.0:bs=-0.05:rm=0.05:gm=0.0:bm=-0.03",
     },
     "cool": {
-        "description": "Cool tones — slight blue shift",
+        "description": "Cool tones 鈥?slight blue shift",
         "vf": "colorbalance=rs=-0.03:gs=0.0:bs=0.05:rm=-0.02:gm=0.0:bm=0.03",
     },
     "denoise": {
@@ -70,7 +70,7 @@ PRESETS = {
 class FaceEnhance(BaseTool):
     name = "face_enhance"
     version = "0.1.0"
-    tier = ToolTier.CORE
+    tier = ToolTier.ENHANCE
     capability = "enhancement"
     provider = "ffmpeg"
     stability = ToolStability.EXPERIMENTAL

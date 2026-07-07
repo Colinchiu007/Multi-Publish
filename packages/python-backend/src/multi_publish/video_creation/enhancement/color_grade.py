@@ -1,4 +1,4 @@
-"""Color grading tool wrapping FFmpeg LUT and filter chains.
+﻿"""Color grading tool wrapping FFmpeg LUT and filter chains.
 
 Applies cinematic color grading profiles to video. Supports both
 built-in profile presets and external .cube LUT files.
@@ -69,7 +69,7 @@ PROFILES = {
         ),
     },
     "neutral": {
-        "description": "Minimal correction — normalize levels and light contrast",
+        "description": "Minimal correction 鈥?normalize levels and light contrast",
         "vf": "eq=contrast=1.02:saturation=1.02:brightness=0.01",
     },
 }
@@ -78,7 +78,7 @@ PROFILES = {
 class ColorGrade(BaseTool):
     name = "color_grade"
     version = "0.1.0"
-    tier = ToolTier.CORE
+    tier = ToolTier.ENHANCE
     capability = "enhancement"
     provider = "ffmpeg"
     stability = ToolStability.EXPERIMENTAL
