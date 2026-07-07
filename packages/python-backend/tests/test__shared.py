@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from multi_publish.video_creation.base_tool import ToolResult, ToolStatus
@@ -24,6 +26,10 @@ from multi_publish.video_creation.providers.video._shared import (
     local_generation_status,
     local_install_instructions,
     probe_output,
+    poll_heygen,
+    upload_image_fal,
+    upload_image_heygen,
+
 )
 
 
@@ -270,3 +276,176 @@ class TestProbeOutput:
             result = probe_output(Path(str(f)))
         assert result["file_size_bytes"] == 3
         assert "duration_seconds" not in result
+
+# ??????????????????????????????????????????????
+# poll_heygen (respx mock for httpx)
+# ??????????????????????????????????????????????
+
+class TestPollHeygen:
+    def test_completed_returns_video_url(self, respx_mock):
+        respx_mock.get("https://api.heygen.com/v1/workflows/executions/exec_123").respond(
+            json={"data": {"status": "completed", "output": {"video_url": "https://cdn.heygen.com/video.mp4"}}}
+        )
+        result = poll_heygen("exec_123", "test_key", timeout=10)
+        assert result == "https://cdn.heygen.com/video.mp4"
+
+    def test_completed_output_video_key(self, respx_mock):
+        respx_mock.get("https://api.heygen.com/v1/workflows/executions/exec_123").respond(
+            json={"data": {"status": "completed", "output": {"video": {"video_url": "https://cdn.heygen.com/v2.mp4"}}}}
+        )
+        result = poll_heygen("exec_123", "test_key", timeout=10)
+        assert result == "https://cdn.heygen.com/v2.mp4"
+
+    def test_failed_status_raises(self, respx_mock):
+        respx_mock.get("https://api.heygen.com/v1/workflows/executions/exec_123").respond(
+            json={"data": {"status": "failed", "error": "Model error"}}
+        )
+        with pytest.raises(RuntimeError, match="failed"):
+            poll_heygen("exec_123", "test_key", timeout=10)
+
+    def test_completed_no_video_url_raises(self, respx_mock):
+        respx_mock.get("https://api.heygen.com/v1/workflows/executions/exec_123").respond(
+            json={"data": {"status": "completed", "output": {}}}
+        )
+        with pytest.raises(RuntimeError, match="no video_url"):
+            poll_heygen("exec_123", "test_key", timeout=10)
+
+    def test_http_error_raises(self, respx_mock):
+        respx_mock.get("https://api.heygen.com/v1/workflows/executions/exec_123").respond(status_code=401)
+        with pytest.raises(Exception):
+            poll_heygen("exec_123", "test_key", timeout=10)
+
+    def test_timeout_after_deadline(self, respx_mock):
+        respx_mock.get("https://api.heygen.com/v1/workflows/executions/exec_123").respond(
+            json={"data": {"status": "processing"}}
+        )
+        with pytest.raises(TimeoutError, match="timed out"):
+            poll_heygen("exec_123", "test_key", timeout=0)
+
+    @patch("multi_publish.video_creation.providers.video._shared.time.sleep")
+    def test_processing_then_completed(self, mock_sleep, respx_mock):
+        route = respx_mock.get("https://api.heygen.com/v1/workflows/executions/exec_123")
+        route.side_effect = [
+            httpx.Response(200, json={"data": {"status": "processing"}}),
+            httpx.Response(200, json={"data": {"status": "completed", "output": {"video_url": "https://cdn.heygen.com/final.mp4"}}}),
+        ]
+        result = poll_heygen("exec_123", "test_key", timeout=30)
+        assert result == "https://cdn.heygen.com/final.mp4"
+        assert route.call_count == 2
+
+    def test_error_status_raises(self, respx_mock):
+        respx_mock.get("https://api.heygen.com/v1/workflows/executions/exec_123").respond(
+            json={"data": {"status": "error", "error": "Internal error"}}
+        )
+        with pytest.raises(RuntimeError, match="failed"):
+            poll_heygen("exec_123", "test_key", timeout=10)
+
+
+class TestUploadImageFal:
+    @patch.dict(os.environ, {}, clear=True)
+    def test_missing_api_key(self):
+        with pytest.raises(RuntimeError, match="FAL_KEY or FAL_AI_API_KEY"):
+            upload_image_fal("/tmp/nonexistent.png")
+
+    @patch.dict(os.environ, {"FAL_KEY": "test_fal_key"})
+    @patch("multi_publish.video_creation.providers.video._shared.Path.exists", return_value=False)
+    def test_file_not_found(self, mock_exists):
+        with pytest.raises(FileNotFoundError, match="not found"):
+            upload_image_fal("/tmp/nonexistent.png")
+
+    @patch.dict(os.environ, {"FAL_KEY": "test_fal_key"})
+    def test_successful_upload(self, respx_mock):
+        respx_mock.post("https://rest.alpha.fal.ai/storage/upload/initiate").respond(
+            json={"upload_url": "https://fal.ai/upload/abc", "file_url": "https://fal.ai/files/test.png"}
+        )
+        respx_mock.put("https://fal.ai/upload/abc").respond(status_code=200)
+        with (
+            patch("multi_publish.video_creation.providers.video._shared.Path.exists", return_value=True),
+            patch("multi_publish.video_creation.providers.video._shared.Path.read_bytes", return_value=b"fake_image_bytes"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.suffix", new_callable=lambda: ".png"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.name", new_callable=lambda: "test.png"),
+        ):
+            result = upload_image_fal("/tmp/test.png")
+        assert result == "https://fal.ai/files/test.png"
+
+    @patch.dict(os.environ, {"FAL_AI_API_KEY": "fallback_key"})
+    def test_fallback_api_key_env(self, respx_mock):
+        respx_mock.post("https://rest.alpha.fal.ai/storage/upload/initiate").respond(
+            json={"upload_url": "https://fal.ai/upload/xyz", "file_url": "https://fal.ai/files/photo.jpg"}
+        )
+        respx_mock.put("https://fal.ai/upload/xyz").respond(status_code=200)
+        with (
+            patch("multi_publish.video_creation.providers.video._shared.Path.exists", return_value=True),
+            patch("multi_publish.video_creation.providers.video._shared.Path.read_bytes", return_value=b"data"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.suffix", new_callable=lambda: ".jpg"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.name", new_callable=lambda: "photo.jpg"),
+        ):
+            result = upload_image_fal("/tmp/photo.jpg")
+        assert result == "https://fal.ai/files/photo.jpg"
+
+    @patch.dict(os.environ, {"FAL_KEY": "test_key"})
+    def test_webp_content_type(self, respx_mock):
+        respx_mock.post("https://rest.alpha.fal.ai/storage/upload/initiate").respond(
+            json={"upload_url": "https://fal.ai/upload/webp", "file_url": "https://fal.ai/files/img.webp"}
+        )
+        respx_mock.put("https://fal.ai/upload/webp").respond(status_code=200)
+        with (
+            patch("multi_publish.video_creation.providers.video._shared.Path.exists", return_value=True),
+            patch("multi_publish.video_creation.providers.video._shared.Path.read_bytes", return_value=b"data"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.suffix", new_callable=lambda: ".webp"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.name", new_callable=lambda: "img.webp"),
+        ):
+            upload_image_fal("/tmp/img.webp")
+
+
+class TestUploadImageHeygen:
+    @patch("multi_publish.video_creation.providers.video._shared.Path.exists", return_value=False)
+    def test_file_not_found(self, mock_exists):
+        with pytest.raises(FileNotFoundError, match="not found"):
+            upload_image_heygen("/tmp/nonexistent.png", "test_key")
+
+    def test_v2_success(self, respx_mock):
+        respx_mock.post("https://api.heygen.com/v2/assets/upload").respond(
+            json={"data": {"upload_url": "https://heygen.com/upload/abc", "url": "https://heygen.com/files/test.png"}}
+        )
+        respx_mock.put("https://heygen.com/upload/abc").respond(status_code=200)
+        with (
+            patch("multi_publish.video_creation.providers.video._shared.Path.exists", return_value=True),
+            patch("multi_publish.video_creation.providers.video._shared.Path.read_bytes", return_value=b"data"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.suffix", new_callable=lambda: ".png"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.name", new_callable=lambda: "test.png"),
+        ):
+            result = upload_image_heygen("/tmp/test.png", "test_key")
+        assert result == "https://heygen.com/files/test.png"
+
+    def test_v2_404_fallback_to_fal(self, respx_mock):
+        respx_mock.post("https://api.heygen.com/v2/assets/upload").respond(status_code=404)
+        respx_mock.post("https://rest.alpha.fal.ai/storage/upload/initiate").respond(
+            json={"upload_url": "https://fal.ai/upload/fallback", "file_url": "https://fal.ai/files/fallback.png"}
+        )
+        respx_mock.put("https://fal.ai/upload/fallback").respond(status_code=200)
+        with (
+            patch.dict(os.environ, {"FAL_KEY": "fal_fallback_key"}),
+            patch("multi_publish.video_creation.providers.video._shared.Path.exists", return_value=True),
+            patch("multi_publish.video_creation.providers.video._shared.Path.read_bytes", return_value=b"data"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.suffix", new_callable=lambda: ".png"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.name", new_callable=lambda: "test.png"),
+        ):
+            result = upload_image_heygen("/tmp/test.png", "test_key")
+        assert result == "https://fal.ai/files/fallback.png"
+
+    def test_v2_500_fallback_to_fal(self, respx_mock):
+        respx_mock.post("https://api.heygen.com/v2/assets/upload").respond(status_code=500)
+        respx_mock.post("https://rest.alpha.fal.ai/storage/upload/initiate").respond(
+            json={"upload_url": "https://fal.ai/upload/fb", "file_url": "https://fal.ai/files/fb.png"}
+        )
+        respx_mock.put("https://fal.ai/upload/fb").respond(status_code=200)
+        with (
+            patch.dict(os.environ, {"FAL_KEY": "fal_fb"}),
+            patch("multi_publish.video_creation.providers.video._shared.Path.exists", return_value=True),
+            patch("multi_publish.video_creation.providers.video._shared.Path.read_bytes", return_value=b"data"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.suffix", new_callable=lambda: ".png"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.name", new_callable=lambda: "test.png"),
+        ):
+            result = upload_image_heygen("/tmp/test.png", "test_key")
+        assert result == "https://fal.ai/files/fb.png"
