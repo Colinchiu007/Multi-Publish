@@ -100,3 +100,7 @@ _py_*.txt
 _qw.txt
 _scoring.txt
 _bigfiles.txt
+
+# Environment
+.env
+.env.local
