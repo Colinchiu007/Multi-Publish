@@ -355,12 +355,6 @@ class BasePublisher(ABC):
         """获取代理配置（Playwright 格式），P2-1: SOCKS5 per-tab"""
         return self.config.proxy
 
-    @property
-    @abstractmethod
-    def platform(self) -> PlatformType:
-        """返回发布器对应的平台类型"""
-        pass
-
     def set_progress_callback(self, callback: Callable[[PublishPhase, str, int], Coroutine] | None):
         """设置进度回调（由 PublisherManager 调用）"""
         self._progress_callback = callback

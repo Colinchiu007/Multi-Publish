@@ -257,14 +257,14 @@ class VideoSelector(BaseTool):
             props = getattr(tool, "input_schema", {}).get("properties", {})
 
             if operation == "image_to_video":
-                if supports.get("image_to_video") or "image_url" in props or "reference_image_url" in props:
+                if "image_url" in props or "reference_image_url" in props:
                     matched_operation = True
                     if self._operation_ready(tool, "image_to_video"):
                         filtered.append(tool)
                 continue
 
             if operation == "reference_to_video":
-                if supports.get("reference_to_video") or "reference_image_urls" in props:
+                if "reference_image_urls" in props:
                     matched_operation = True
                     filtered.append(tool)
                 continue
@@ -298,7 +298,7 @@ class VideoSelector(BaseTool):
             return False
         if not inputs.get("output_node"):
             return False
-        if not supports.get("custom_workflow"):
+        if not inputs.get("custom_workflow"):
             return False
         return tool.get_status() != ToolStatus.UNAVAILABLE
 

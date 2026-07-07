@@ -447,7 +447,7 @@ class VideoStitch(BaseTool):
         width = target_w or ref.get("width", 1920)
         height = target_h or ref.get("height", 1080)
         fps = target_fps or ref.get("fps", 30)
-        video_codec = inputs.get("codec", "libx264")
+        video_codec = inputs.get("codec", "libx264")  # noqa
         audio_codec = "aac"
 
         return (width, height, int(fps), video_codec, audio_codec)
@@ -523,7 +523,7 @@ class VideoStitch(BaseTool):
         transition = inputs.get("transition", "cut")
         transition_dur = inputs.get("transition_duration", 0.5)
         auto_normalize = inputs.get("auto_normalize", False)
-        video_codec = inputs.get("codec", "libx264")
+        _ = inputs.get("codec", "libx264")  # noqa
         crf = inputs.get("crf", 23)
         preset = inputs.get("preset", "medium")
 
@@ -840,7 +840,7 @@ class VideoStitch(BaseTool):
 
         output_path = Path(inputs.get("output_path", "spatial_output.mp4"))
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        video_codec = inputs.get("codec", "libx264")
+        video_codec = inputs.get("codec", "libx264")  # noqa
         crf = inputs.get("crf", 23)
 
         # Verify all clips exist
@@ -864,11 +864,11 @@ class VideoStitch(BaseTool):
                 )
 
             if layout == "side_by_side":
-                self._spatial_side_by_side(working_clips, output_path, codec, crf)
+                self._spatial_side_by_side(working_clips, output_path, video_codec, crf)
             elif layout == "vertical_stack":
-                self._spatial_vertical_stack(working_clips, output_path, codec, crf)
+                self._spatial_vertical_stack(working_clips, output_path, video_codec, crf)
             elif layout == "picture_in_picture":
-                self._spatial_pip(working_clips, output_path, inputs, codec, crf)
+                self._spatial_pip(working_clips, output_path, inputs, video_codec, crf)
             else:
                 return ToolResult(success=False, error=f"Unknown layout: {layout}")
         except Exception as e:

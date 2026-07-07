@@ -11,6 +11,8 @@ from multi_publish.models import PlatformType, PublishPhase
 from multi_publish.publishers.base import BasePublisher, PublisherConfig
 from multi_publish.publishers.platform_registry import registry
 
+from multi_publish.models import PublishResult
+
 
 class PublisherManager:
     """发布器管理器
@@ -109,8 +111,7 @@ class PublisherManager:
     ):
         """发布到指定平台（含可选预检）"""
         if not await self._run_precheck(platform, title):
-            from multi_publish.models import PublishResult
-
+    
             return PublishResult(
                 success=False,
                 platform=platform.value,
@@ -143,7 +144,6 @@ class PublisherManager:
         account_id: str | None = None,
         **kwargs,
     ) -> dict[PlatformType, "PublishResult"]:
-        from multi_publish.models import PublishResult
 
         results: dict[PlatformType, PublishResult] = {}
         targets = platforms or self.get_available_platforms()

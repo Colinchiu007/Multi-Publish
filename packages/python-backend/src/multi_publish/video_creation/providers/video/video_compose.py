@@ -2504,7 +2504,7 @@ class VideoCompose(BaseTool):
         # Apply media profile if specified
         if profile_name:
             try:
-                from lib.media_profiles import ffmpeg_output_args, get_profile
+                from lib.media_profiles import get_profile
 
                 profile = get_profile(profile_name)
                 cmd.extend(["-s", f"{profile.width}x{profile.height}"])

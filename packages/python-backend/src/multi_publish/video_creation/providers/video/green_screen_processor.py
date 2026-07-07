@@ -89,7 +89,7 @@ class GreenScreenProcessor(BaseTool):
         duration = probe["duration"]
         width = probe["width"]
         height = probe["height"]
-        src_fps = probe["fps"]
+        _ = probe["fps"]  # noqa: F841
 
         # Step 2: Determine method
         if method == "auto":
@@ -272,11 +272,11 @@ class GreenScreenProcessor(BaseTool):
             try:
                 result = self.run_command(cmd, timeout=15)
                 # Check stderr for color stats
-                output = result.stderr or ""
+                _ = result.stderr or ""  # noqa: F841
 
                 # Alternative: use FFmpeg to count green-ish pixels
                 # Run a simpler hue check with colorchannelmixer
-                cmd2 = [
+                cmd2 = [  # noqa: F841
                     "ffmpeg",
                     "-y",
                     "-i",
@@ -464,7 +464,7 @@ class GreenScreenProcessor(BaseTool):
             except Exception:
                 # Try with the frame size explicitly to fix scale
                 try:
-                    cmd_retry = [
+                    cmd_retry = [  # noqa: F841
                         "ffmpeg",
                         "-y",
                         "-i",

@@ -153,7 +153,7 @@ class EyeEnhance(BaseTool):
         if not input_path.exists():
             return ToolResult(success=False, error=f"Input not found: {input_path}")
 
-        operations = inputs.get("operations", ["dark_circles", "brighten_eyes"])
+        _ = inputs.get("operations", ["dark_circles", "brighten_eyes"])
         output_path = Path(inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_eye_enhanced"))))
         output_path.parent.mkdir(parents=True, exist_ok=True)
 

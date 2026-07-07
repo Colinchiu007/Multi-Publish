@@ -1129,7 +1129,7 @@ class HyperFramesCompose(BaseTool):
     @staticmethod
     def _f(v: float) -> str:
         """Format a float with zero-decimal rule for CSS."""
-        return _f(v)
+        return f"{v:.0f}" if v == int(v) else f"{v}"
 
     @staticmethod
     def _escape_text(s: str) -> str:
@@ -1144,4 +1144,3 @@ class HyperFramesCompose(BaseTool):
     def _rel_from_workspace(path: str) -> str:
         """Convert an absolute path to a workspace-relative path."""
         return rel_from_workspace(path)
-        return f"assets/{p.name}"
