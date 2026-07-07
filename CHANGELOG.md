@@ -1,4 +1,16 @@
 ﻿# Multi-Publish 变更日志
+## [v2.3.12] - 2026-07-07
+
+### 测试
+- 补充 _rate_limit 扩展测试 11 例 (覆盖率 89% → 94%)
+  - parse_retry_after: Unix 时间戳模式、reset 秒数、无效回退、大小写
+  - parse_rate_limit_limit: 正常/异常/缺失/大小写
+  - parse_rate_limit_remaining: 大小写变体
+
+### 验证
+- Python: 846 passed ✅ (835 + 11)
+- Jest: 207 passed ✅
+
 ## [v2.3.11] - 2026-07-07
 
 ### 代码质量 — Python F-level lint 清零
@@ -420,6 +432,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 
