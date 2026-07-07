@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="create-page">
     <div class="page-header">
       <h1>视频创作</h1>
@@ -37,24 +37,14 @@
       </div>
       <div class="form-group">
         <label>输出平台</label>
-        <UiSelect v-model="profile" :options="(this.profiles||[]).map(p => ({ value: p.id || p, label: p.name || p }))" />
-          <option value="youtube-landscape">YouTube 横屏 (1920x1080)</option>
-          <option value="youtube-shorts">YouTube Shorts (1080x1920)</option>
-          <option value="tiktok">抖音/TikTok (1080x1920)</option>
-          <option value="bilibili">B站 (1920x1080)</option>
-          <option value="wechat">微信视频号 (1080x1920)</option>
-          <option value="xiaohongshu">小红书 (1080x1440)</option>
-          
+        <UiSelect v-model="profile" :options="profileOptions" />
       </div>
       <div class="form-group">
         <label>视频主题</label>
-        <UiSelect v-model="theme" :options="(this.themes||[]).map(t => ({ value: t.id || t, label: t.name || t }))" />
-          <option value="clean-professional">专业清晰</option>
-          <option value="flat-motion-graphics">动感深色</option>
-          
+        <UiSelect v-model="theme" :options="themeOptions" />
       </div>
       <div class="actions">
-        <UiButton @click="startRender" :disabled="!canRender || rendering">{{ rendering ? '???...' : '????' }}</UiButton>
+        <UiButton @click="startRender" :disabled="!canRender || rendering">{{ rendering ? '渲染中...' : '开始渲染' }}</UiButton>
         <button v-if="rendering" class="btn-secondary" @click="cancelRender">取消</button>
       </div>
     </div>
@@ -67,35 +57,63 @@
       <PipelineBrowser v-if="mode === 'browse-pipelines'" @select="onPipelineSelect" />
   </div>
 </template>
+
 <script>
 import PipelineBrowser from "@/components/PipelineBrowser.vue"
 import { renderStart, renderCancel, renderGetStatus, renderInstallDeps, onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress } from '@/api/publisher'
 export default {
   name: 'CreateView',
   components: { PipelineBrowser },
-  data() { return { mode: 'text', text: '', theme: 'clean-professional', profile: 'youtube-landscape', images: [], profiles: ['youtube-landscape','youtube-shorts','tiktok','bilibili','wechat','xiaohongshu'], themes: ['clean-professional','flat-motion-graphics'], rendering: false, progress: 0, stage: '', result: null, error: null, status: null, aiLoading: false, installing: false, installLog: '', modes: [{ value: 'text', label: '文案生成' }, { value: 'gallery', label: '图片轮播' }, { value: 'browse-pipelines', label: '浏览管线' }] } },
-  computed: { canRender() { if (this.rendering) return false; if (this.mode === 'text') return this.text.trim().length > 0; if (this.mode === 'gallery') return this.images.length > 0; return false; } },
+  data() { return {
+    mode: 'text', text: '', theme: 'clean-professional', profile: 'youtube-landscape',
+    images: [], rendering: false, progress: 0, stage: '', result: null, error: null,
+    status: null, aiLoading: false, installing: false, installLog: '',
+    modes: [
+      { value: 'text', label: '文案生成' },
+      { value: 'gallery', label: '图片轮播' },
+      { value: 'browse-pipelines', label: '浏览管线' },
+    ],
+  }},
+  computed: {
+    canRender() {
+      if (this.rendering) return false;
+      if (this.mode === 'text') return this.text.trim().length > 0;
+      if (this.mode === 'gallery') return this.images.length > 0;
+      return false;
+    },
+    profileOptions() {
+      return [
+        { value: 'youtube-landscape', label: 'YouTube 横屏 (1920x1080)' },
+        { value: 'youtube-shorts', label: 'YouTube Shorts (1080x1920)' },
+        { value: 'tiktok', label: '抖音/TikTok (1080x1920)' },
+        { value: 'bilibili', label: 'B站 (1920x1080)' },
+        { value: 'wechat', label: '微信视频号 (1080x1920)' },
+        { value: 'xiaohongshu', label: '小红书 (1080x1440)' },
+      ];
+    },
+    themeOptions() {
+      return [
+        { value: 'clean-professional', label: '专业清晰' },
+        { value: 'flat-motion-graphics', label: '动感深色' },
+      ];
+    },
+  },
   mounted() { this.checkStatus(); this.setupListeners(); },
   beforeUnmount() { this.cleanup(); },
   methods: {
-    onPipelineSelect(p) {
-      this.$router.push({ name: "CreateResult", query: { pipeline: p.name } })
-    },
     checkStatus() { if (renderGetStatus) renderGetStatus().then(s => this.status = s); },
     setupListeners() {
-      if (!window.electronAPI) return;
-      this._unsubProgress = onRenderProgress(({ percent, stage }) => { this.progress = percent; this.stage = stage; });
-      this._unsubComplete = onRenderComplete(({ outputPath }) => { this.rendering = false; this.progress = 100; this.result = { outputPath }; });
-      this._unsubError = onRenderError(({ error }) => { this.rendering = false; this.error = error; });
-      this._unsubInstall = onRenderInstallProgress(({ text }) => { this.installLog += text; });
+      this._unsubProgress = onRenderProgress(p => { this.progress = p.percent ?? p; this.stage = p.stage ?? ''; });
+      this._unsubComplete = onRenderComplete(r => { this.rendering = false; this.result = r; });
+      this._unsubError = onRenderError(e => { this.rendering = false; this.error = e.error || e.message || '渲染失败'; });
+      this._unsubInstall = onRenderInstallProgress(t => { this.installLog += t.text ?? t; });
     },
     cleanup() { this._unsubProgress?.(); this._unsubComplete?.(); this._unsubError?.(); this._unsubInstall?.(); },
     async installDeps() { this.installing = true; this.installLog = ''; const r = await renderInstallDeps(); this.installing = false; if (r?.success) this.checkStatus(); },
-    async aiWrite() { this.aiLoading = true; await new Promise(r => setTimeout(r, 1000)); this.text = '这是 AI 自动生成的文案。\n\n人工智能正在改变我们创作视频的方式。'; this.aiLoading = false; },
-    triggerUpload() { this.$refs.fileInput?.click(); },
-    handleFiles(e) { this.addImages(Array.from(e.target.files || [])); },
-    handleDrop(e) { this.addImages(Array.from(e.dataTransfer?.files || []).filter(f => f.type.startsWith('image/'))); },
-    addImages(files) { for (const file of files) this.images.push({ file, preview: URL.createObjectURL(file), path: file.path || URL.createObjectURL(file) }); },
+    triggerUpload() { this.$refs.fileInput.click(); },
+    handleFiles(e) { this.addImages(Array.from(e.target.files)); },
+    handleDrop(e) { this.addImages(Array.from(e.dataTransfer.files)); },
+    addImages(files) { for (const file of files) { this.images.push({ preview: URL.createObjectURL(file), path: file.path || URL.createObjectURL(file) }); } },
     removeImage(i) { URL.revokeObjectURL(this.images[i].preview); this.images.splice(i, 1); },
     async startRender() {
       this.rendering = true; this.progress = 0; this.stage = '准备中'; this.error = null; this.result = null;
@@ -104,13 +122,23 @@ export default {
     },
     buildProps() {
       let cuts;
-      if (this.mode === 'text') cuts = this.text.split('\n').filter(l => l.trim()).map((t, i) => ({ id: `scene-${i}`, type: 'text_card', text: t.trim(), in_seconds: i * 8, out_seconds: (i + 1) * 8 - 0.5 }));
-      else if (this.mode === 'gallery') cuts = this.images.map((img, i) => ({ id: `scene-${i}`, type: 'anime_scene', images: [img.path || img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 }));
+      if (this.mode === 'text') cuts = this.text.split('\n').filter(l => l.trim()).map((t, i) => ({ id: 'scene-' + i, type: 'text_card', text: t.trim(), in_seconds: i * 8, out_seconds: (i + 1) * 8 - 0.5 }));
+      else if (this.mode === 'gallery') cuts = this.images.map((img, i) => ({ id: 'scene-' + i, type: 'anime_scene', images: [img.path || img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 }));
       else cuts = [];
       return { cuts, theme: this.theme, renderer_family: 'explainer-data' };
     },
     cancelRender() { if (renderCancel) renderCancel(); this.rendering = false; },
     viewResult() { this.$router.push({ path: '/create/result', query: { path: this.result?.outputPath || '' } }); },
+    async aiWrite() {
+    onPipelineSelect(pipeline) { this.mode = 'text'; this.text = 'Pipeline: ' + (pipeline?.name || pipeline || '') + '\n'; },
+      this.aiLoading = true;
+      try {
+        const { aiGenerate } = await import('@/api/publisher');
+        const r = await aiGenerate('text', 'openai', { prompt: '为短视频写一个30秒文案，风格：' + this.theme });
+        if (r?.success && r?.text) this.text = r.text;
+      } catch (e) { /* AI write failed silently */ }
+      this.aiLoading = false;
+    },
   },
 }
 </script>
@@ -154,3 +182,8 @@ select.form-input { height: 40px; }
 .success { background: #d4edda; color: #155724; }
 .error { background: #f8d7da; color: #721c24; }
 </style>
+
+
+
+
+
