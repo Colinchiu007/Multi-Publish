@@ -1,3 +1,14 @@
+## [v2.3.25] - 2026-07-07
+
+### 测试 -- character_animation_utils 63% + publisher_manager 50%
+- character_animation_utils.py: 27 例 (_slug/_character_color/_normalize_style/_write_json)
+- publisher_manager.py: 11 例 (init/precheck/registry 委托/get_or_create/close_all)
+- 测试总数: 1046+38=1084
+
+### 验证
+- 新测试: 186/186 passed (所有近期新增)
+- character_animation_utils 覆盖率: 44%->63%
+- publisher_manager 覆盖率: 38%->50%
 ## [v2.3.24] - 2026-07-07
 
 ### 测试 -- compose_utils.py 41 例 (21%->88% 覆盖率)
