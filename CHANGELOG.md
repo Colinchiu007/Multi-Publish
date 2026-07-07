@@ -1,3 +1,14 @@
+## [v2.3.19] - 2026-07-07
+
+### 代码质量 -- N803 参数命名清零 (3->0)
+- query_worker.py: localStorage -> local_storage (参数/属性/方法)
+- lint 从 14 降至 11 (剩余 E402/N801/N806/B027/N802/N818)
+
+### 验证
+- Python: 869 passed
+- ESLint: 0 errors
+- TypeScript: 0 errors
+
 ## [v2.3.18] - 2026-07-07
 
 ### 代码质量 -- B017 + PRD 版本同步
