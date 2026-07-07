@@ -8,6 +8,7 @@ Multi-Publish Python Backend — FastAPI 服务
 - 发布流程（Playwright RPA / API）
 - 健康检查
 """
+
 import json
 import os
 import platform as platform_module
@@ -35,10 +36,10 @@ app.add_middleware(
 )
 
 # ─── 全局状态 ───────────────────────────────────────────────
-DATA_DIR = Path(__file__).parent / 'data'
+DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-LOG_DIR = DATA_DIR.parent / 'logs'
+LOG_DIR = DATA_DIR.parent / "logs"
 
 from multi_publish.core.logging_setup import setup_logging
 
@@ -67,6 +68,7 @@ async def _progress_callback(task_id: str, platform: str, phase: PublishPhase, m
 
 # ─── 数据模型 ───────────────────────────────────────────────
 
+
 class AccountCreateRequest(BaseModel):
     platform: str
     name: str
@@ -82,8 +84,8 @@ class PublishRequest(BaseModel):
     cover_path: str | None = None
     tags: list[str] = []
     draft: bool = False
-    account_id: str | None = None      # P1-2: Per-Account Session 隔离
-    proxy: dict | None = None          # P2-1: SOCKS5 代理配置 {server, username?, password?}
+    account_id: str | None = None  # P1-2: Per-Account Session 隔离
+    proxy: dict | None = None  # P2-1: SOCKS5 代理配置 {server, username?, password?}
 
 
 class LoginRequest(BaseModel):
@@ -98,7 +100,7 @@ class HealthResponse(BaseModel):
 
 # ─── 简易 AccountStore（JSON 文件存储）──────────────────────
 
-ACCOUNTS_FILE = DATA_DIR / 'accounts.json'
+ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 
 
 def _load_accounts() -> dict[str, dict]:
@@ -127,33 +129,34 @@ def _account_to_dict(a: dict) -> dict:
 
 # ─── 平台路由 ───────────────────────────────────────────────
 
+
 @app.get("/api/platforms")
 def list_platforms():
     """列出所有支持的平台及状态"""
     results = []
     for ptype, meta in PLATFORM_META.items():
         supported = publisher_mgr.is_supported(ptype)
-        results.append({
-            "key": ptype.value,
-            "name": meta["name"],
-            "tech": meta["tech"],
-            "publish_type": meta["publish_type"],
-            "category": meta.get("category", "unknown"),
-            "supported": supported,
-        })
+        results.append(
+            {
+                "key": ptype.value,
+                "name": meta["name"],
+                "tech": meta["tech"],
+                "publish_type": meta["publish_type"],
+                "category": meta.get("category", "unknown"),
+                "supported": supported,
+            }
+        )
     return {"code": 0, "data": results}
 
 
 # ─── 账号 CRUD 路由 ────────────────────────────────────────
 
+
 @app.get("/api/accounts")
 def list_accounts():
     """返回已配置的账号列表"""
     accounts = _load_accounts()
-    return {
-        "code": 0,
-        "data": [_account_to_dict(a) for a in accounts.values()]
-    }
+    return {"code": 0, "data": [_account_to_dict(a) for a in accounts.values()]}
 
 
 @app.post("/api/accounts")
@@ -226,6 +229,7 @@ def delete_account(account_id: str):
 
 # ─── 登录路由 ───────────────────────────────────────────────
 
+
 @app.post("/api/login")
 async def login(req: LoginRequest):
     """
@@ -282,7 +286,11 @@ async def login(req: LoginRequest):
     _save_accounts(accounts)
 
     ls_count = len(auth_data.get("local_storage", {})) if auth_data else 0
-    idb_count = sum(len(v) for v in auth_data.get("indexed_db", {}).values()) if auth_data and auth_data.get("indexed_db") else 0
+    idb_count = (
+        sum(len(v) for v in auth_data.get("indexed_db", {}).values())
+        if auth_data and auth_data.get("indexed_db")
+        else 0
+    )
 
     return {
         "code": 0,
@@ -310,6 +318,7 @@ async def auth_status(platform: str):
 
 
 # ─── 发布路由 ───────────────────────────────────────────────
+
 
 @app.post("/api/publish")
 async def publish(req: PublishRequest):
@@ -429,11 +438,15 @@ def publish_progress(task_id: str):
         task = _publish_tasks.get(task_id)
         if not task:
             raise HTTPException(status_code=404, detail="任务不存在")
-        return {"code": 0, "data": {"task_id": task_id, "phase": task.get("status", "unknown"), "percent": 0, "message": ""}}
+        return {
+            "code": 0,
+            "data": {"task_id": task_id, "phase": task.get("status", "unknown"), "percent": 0, "message": ""},
+        }
     return {"code": 0, "data": progress}
 
 
 # ─── 视频创作管线路由 ─────────────────────────────────────
+
 
 @app.get("/api/pipelines")
 def get_pipelines():
@@ -444,18 +457,21 @@ def get_pipelines():
         for name in names:
             try:
                 info = load_pipeline(name)
-                pipelines.append({
-                    "name": name,
-                    "description": info.get("description", ""),
-                    "version": info.get("version", ""),
-                    "category": info.get("category", ""),
-                    "stability": info.get("stability", ""),
-                })
+                pipelines.append(
+                    {
+                        "name": name,
+                        "description": info.get("description", ""),
+                        "version": info.get("version", ""),
+                        "category": info.get("category", ""),
+                        "stability": info.get("stability", ""),
+                    }
+                )
             except Exception:
                 pipelines.append({"name": name, "description": "", "version": "", "category": "", "stability": ""})
         return {"code": 0, "data": pipelines}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/pipelines/{name}")
 def get_pipeline_detail(name: str):
@@ -468,7 +484,9 @@ def get_pipeline_detail(name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ─── 其他路由 ───────────────────────────────────────────────
+
 
 @app.get("/api/health", response_model=HealthResponse)
 def health():
@@ -480,6 +498,7 @@ def health():
 
 
 # ─── 主入口 ─────────────────────────────────────────────────
+
 
 def main():
     port = int(os.environ.get("BACKEND_PORT", "8299"))

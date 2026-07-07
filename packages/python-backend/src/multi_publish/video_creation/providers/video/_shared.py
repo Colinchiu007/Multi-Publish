@@ -397,9 +397,8 @@ def poll_heygen(execution_id: str, api_key: str, timeout: int = 600) -> str:
         status = data.get("status", "")
 
         if status == "completed":
-            video_url = (
-                data.get("output", {}).get("video", {}).get("video_url")
-                or data.get("output", {}).get("video_url")
+            video_url = data.get("output", {}).get("video", {}).get("video_url") or data.get("output", {}).get(
+                "video_url"
             )
             if video_url:
                 return video_url

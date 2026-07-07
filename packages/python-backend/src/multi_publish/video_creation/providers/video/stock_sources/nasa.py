@@ -33,6 +33,7 @@ Earth at human scale. For a "walking home" montage this adapter will
 contribute atmosphere shots at best (sunrise over Earth, city lights
 from orbit) — the core material comes from Pexels and Archive.org.
 """
+
 from __future__ import annotations
 
 import re
@@ -111,7 +112,7 @@ class NasaSource:
         r = httpx.get(_SEARCH_URL, params=params, timeout=30)
         r.raise_for_status()
         data = r.json()
-        items = ((data.get("collection") or {}).get("items") or [])
+        items = (data.get("collection") or {}).get("items") or []
 
         out: list[Candidate] = []
         for item in items:
@@ -128,16 +129,12 @@ class NasaSource:
         import httpx  # lazy
 
         if not candidate.download_url:
-            raise ValueError(
-                f"Candidate {candidate.clip_id} has no download_url"
-            )
+            raise ValueError(f"Candidate {candidate.clip_id} has no download_url")
 
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with httpx.get(
-            candidate.download_url, stream=True, timeout=300
-        ) as r:
+        with httpx.get(candidate.download_url, stream=True, timeout=300) as r:
             r.raise_for_status()
             with open(out_path, "wb") as f:
                 for chunk in r.iter_bytes(1 << 16):
@@ -149,9 +146,7 @@ class NasaSource:
     # Internals
     # ------------------------------------------------------------------
 
-    def _hydrate_candidate(
-        self, item: dict, filters: SearchFilters
-    ) -> Candidate | None:
+    def _hydrate_candidate(self, item: dict, filters: SearchFilters) -> Candidate | None:
         """Turn a search-result item into a Candidate with a download URL.
 
         Fetches the per-item asset manifest (``item['href']`` is a
@@ -214,9 +209,7 @@ class NasaSource:
             kw_text = " ".join(str(k) for k in keywords if k)
         else:
             kw_text = str(keywords)
-        source_tags = " ".join(
-            s for s in (title, description, kw_text) if s
-        ).strip()
+        source_tags = " ".join(s for s in (title, description, kw_text) if s).strip()
         if len(source_tags) > 500:
             source_tags = source_tags[:500]
 
@@ -348,6 +341,7 @@ def _encode_url_path(url: str) -> str:
 
 class NasaVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "nasa"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -382,7 +376,7 @@ class NasaVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -416,7 +410,7 @@ class NasaVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -426,6 +420,7 @@ class NasaVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

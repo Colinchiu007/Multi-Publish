@@ -17,36 +17,40 @@ from multi_publish.models import PlatformType
 # 数据模型
 # ============================================================
 
+
 @dataclass
 class AuditStatus:
     """发布审核状态"""
-    publish_id: str = ""            # 平台侧发布 ID
-    doc_id: str = ""                # 文档/作品 ID
-    status: str = "unknown"         # inAudit | published | denied | draft | waitExecute
-    open_url: str = ""              # 发布后的访问链接
+
+    publish_id: str = ""  # 平台侧发布 ID
+    doc_id: str = ""  # 文档/作品 ID
+    status: str = "unknown"  # inAudit | published | denied | draft | waitExecute
+    open_url: str = ""  # 发布后的访问链接
     open_urls: list[str] = field(default_factory=list)  # 多图/多视频链接
-    msg: str = ""                   # 状态描述/失败原因
-    code: int = 0                   # 0=正常, 其他=异常
-    audit_status: str = "unknown"   # 原始审核状态码
+    msg: str = ""  # 状态描述/失败原因
+    code: int = 0  # 0=正常, 其他=异常
+    audit_status: str = "unknown"  # 原始审核状态码
 
 
 class AuditStatusEnum:
     """审核状态枚举（与蚁小二对齐）"""
-    IN_AUDIT = "inAudit"            # 审核中
-    PUBLISHED = "published"         # 已发布
-    DENIED = "denied"               # 审核不通过
-    DRAFT = "draft"                 # 草稿
-    PRE_PUBLISH = "prePublish"      # 预发布/定时发布
-    WAIT_EXECUTE = "waitExecute"    # 等待执行
-    NOT_PUBLIC = "notPublic"        # 不公开
-    NOT_SUITABLE = "notSuitable"    # 不适合公开
-    WITHDRAWN = "withdrawn"         # 已撤回
-    UNKNOWN = "unknown"             # 未知
+
+    IN_AUDIT = "inAudit"  # 审核中
+    PUBLISHED = "published"  # 已发布
+    DENIED = "denied"  # 审核不通过
+    DRAFT = "draft"  # 草稿
+    PRE_PUBLISH = "prePublish"  # 预发布/定时发布
+    WAIT_EXECUTE = "waitExecute"  # 等待执行
+    NOT_PUBLIC = "notPublic"  # 不公开
+    NOT_SUITABLE = "notSuitable"  # 不适合公开
+    WITHDRAWN = "withdrawn"  # 已撤回
+    UNKNOWN = "unknown"  # 未知
 
 
 @dataclass
 class PlatformUserInfo:
     """平台用户信息"""
+
     platform: str
     account_id: str = ""
     nick_name: str = ""
@@ -59,6 +63,7 @@ class PlatformUserInfo:
 @dataclass
 class TopicInfo:
     """话题标签"""
+
     name: str
     id: str = ""
     hot: int = 0
@@ -67,6 +72,7 @@ class TopicInfo:
 @dataclass
 class MusicInfo:
     """音乐素材"""
+
     id: str = ""
     title: str = ""
     artist: str = ""
@@ -77,6 +83,7 @@ class MusicInfo:
 @dataclass
 class LocationInfo:
     """位置/城市信息"""
+
     id: str = ""
     name: str = ""
     address: str = ""
@@ -87,10 +94,11 @@ class LocationInfo:
 @dataclass
 class ContentItem:
     """已发布内容条目"""
+
     id: str = ""
     title: str = ""
     cover: str = ""
-    type: str = "article"           # article | video | image
+    type: str = "article"  # article | video | image
     status: str = ""
     create_time: str = ""
     page_url: str = ""
@@ -102,6 +110,7 @@ class ContentItem:
 @dataclass
 class AccountOverview:
     """账号概览数据"""
+
     platform: str = ""
     fans_count: int = 0
     total_views: int = 0
@@ -114,6 +123,7 @@ class AccountOverview:
 # ============================================================
 # 抽象基类
 # ============================================================
+
 
 class QueryWorker(ABC):
     """
@@ -259,6 +269,7 @@ class QueryWorker(ABC):
 # Factory
 # ============================================================
 
+
 class QueryWorkerFactory:
     """QueryWorker 工厂 — 根据平台类型创建对应的 Worker"""
 
@@ -267,9 +278,11 @@ class QueryWorkerFactory:
     @classmethod
     def register(cls, platform: str):
         """注册 Worker 类"""
+
         def wrapper(worker_cls: type[QueryWorker]):
             cls._registry[platform] = worker_cls
             return worker_cls
+
         return wrapper
 
     @classmethod

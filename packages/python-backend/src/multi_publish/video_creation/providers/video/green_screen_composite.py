@@ -46,10 +46,7 @@ class GreenScreenComposite(BaseTool):
     determinism = Determinism.DETERMINISTIC
 
     dependencies = ["cmd:ffmpeg", "python:numpy", "python:PIL"]
-    install_instructions = (
-        "Install FFmpeg: https://ffmpeg.org/download.html — "
-        "pip install numpy Pillow"
-    )
+    install_instructions = "Install FFmpeg: https://ffmpeg.org/download.html — pip install numpy Pillow"
     agent_skills = ["ffmpeg"]
 
     capabilities = [
@@ -108,14 +105,16 @@ class GreenScreenComposite(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=4, ram_mb=4096, vram_mb=0, disk_mb=8000, network_required=False
-    )
+    resource_profile = ResourceProfile(cpu_cores=4, ram_mb=4096, vram_mb=0, disk_mb=8000, network_required=False)
     retry_policy = RetryPolicy(max_retries=1, retryable_errors=["FFmpeg error"])
     resume_support = ResumeSupport.FROM_START
     idempotency_key_fields = [
-        "speaker_path", "background_path", "layout",
-        "speaker_scale", "bg_shift_up", "bg_color_hex",
+        "speaker_path",
+        "background_path",
+        "layout",
+        "speaker_scale",
+        "bg_shift_up",
+        "bg_color_hex",
     ]
     side_effects = ["writes composite video to output_path"]
     user_visible_verification = [
@@ -204,7 +203,9 @@ class GreenScreenComposite(BaseTool):
                 bg_img = Image.open(bg_frames[i]).convert("RGB")
 
                 comp = self._composite_frame(
-                    speaker_img, bg_img, bg_color,
+                    speaker_img,
+                    bg_img,
+                    bg_color,
                     layout=layout,
                     speaker_scale=speaker_scale,
                     bg_shift_up=bg_shift_up,
@@ -260,9 +261,13 @@ class GreenScreenComposite(BaseTool):
     def _probe_video(self, path: Path) -> dict[str, Any] | None:
         """Probe a video for fps, duration, and dimensions."""
         cmd = [
-            "ffprobe", "-v", "quiet",
-            "-print_format", "json",
-            "-show_format", "-show_streams",
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
             str(path),
         ]
         try:
@@ -301,9 +306,12 @@ class GreenScreenComposite(BaseTool):
     def _extract_frames(self, video_path: Path, output_dir: Path, fps: float) -> None:
         """Extract frames from a video at the given fps."""
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(video_path),
-            "-vf", f"fps={fps}",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vf",
+            f"fps={fps}",
             str(output_dir / "frame_%06d.png"),
         ]
         self.run_command(cmd, timeout=600)
@@ -388,33 +396,50 @@ class GreenScreenComposite(BaseTool):
         # Convert to RGB for output
         return canvas.convert("RGB")
 
-    def _encode_frames(
-        self, frames_dir: Path, output_path: Path, fps: float, width: int, height: int
-    ) -> None:
+    def _encode_frames(self, frames_dir: Path, output_path: Path, fps: float, width: int, height: int) -> None:
         """Encode PNG frames to an MP4 video."""
         cmd = [
-            "ffmpeg", "-y",
-            "-framerate", str(fps),
-            "-i", str(frames_dir / "frame_%06d.png"),
-            "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-            "-pix_fmt", "yuv420p",
-            "-vf", f"scale={width}:{height}",
+            "ffmpeg",
+            "-y",
+            "-framerate",
+            str(fps),
+            "-i",
+            str(frames_dir / "frame_%06d.png"),
+            "-c:v",
+            "libx264",
+            "-crf",
+            "18",
+            "-preset",
+            "fast",
+            "-pix_fmt",
+            "yuv420p",
+            "-vf",
+            f"scale={width}:{height}",
             str(output_path),
         ]
         self.run_command(cmd, timeout=600)
 
-    def _mux_audio(
-        self, video_path: Path, audio_source: Path, output_path: Path, duration: float
-    ) -> None:
+    def _mux_audio(self, video_path: Path, audio_source: Path, output_path: Path, duration: float) -> None:
         """Mux audio from the original source into the composite video."""
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(video_path),
-            "-i", str(audio_source),
-            "-t", f"{duration:.3f}",
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
-            "-map", "0:v:0", "-map", "1:a:0",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(audio_source),
+            "-t",
+            f"{duration:.3f}",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
             "-shortest",
             str(output_path),
         ]

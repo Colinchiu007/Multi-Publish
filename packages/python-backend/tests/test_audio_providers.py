@@ -1,4 +1,5 @@
 """Tests for AI Audio/TTS/Music Integration Providers (Phase 3)."""
+
 from __future__ import annotations
 
 import os
@@ -10,30 +11,25 @@ import pytest
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
     ToolResult,
-    ToolTier,
+    ToolRuntime,
     ToolStability,
     ToolStatus,
-    ToolRuntime,
-    ExecutionMode,
-    Determinism,
-    ResourceProfile,
+    ToolTier,
+)
+from multi_publish.video_creation.providers.audio import (
+    DoubaoTTS,
+    ElevenLabsTTS,
+    GoogleTTS,
+    OpenAITTS,
+    PiperTTS,
+    PixabayMusic,
+    SunoMusic,
 )
 
-from multi_publish.video_creation.providers.audio import (
-    ElevenLabsTTS,
-    OpenAITTS,
-    DoubaoTTS,
-    GoogleTTS,
-    PiperTTS,
-    TTSSelector,
-    SunoMusic,
-    PixabayMusic,
-    FreesoundMusic,
-    MusicLibrary,
-    MusicGenerator,
-    AudioSelector,
-)
 
 @pytest.fixture
 def temp_output() -> Path:
@@ -114,8 +110,12 @@ class TestElevenLabsTTS:
     def setup_method(self):
         self.tool = ElevenLabsTTS()
 
-    def test_metadata(self): _check_tool_metadata(self.tool)
-    def test_get_info(self): _check_get_info(self.tool)
+    def test_metadata(self):
+        _check_tool_metadata(self.tool)
+
+    def test_get_info(self):
+        _check_get_info(self.tool)
+
     def test_get_status(self):
         os.environ.pop("ELEVENLABS_API_KEY", None)
         assert self.tool.get_status() == ToolStatus.UNAVAILABLE
@@ -124,8 +124,11 @@ class TestElevenLabsTTS:
         os.environ.pop("ELEVENLABS_API_KEY", None)
         _check_execute_fails_without_key(self.tool, sample_tts_inputs)
 
-    def test_dry_run(self): _check_dry_run(self.tool)
-    def test_idempotency(self): _check_idempotency(self.tool)
+    def test_dry_run(self):
+        _check_dry_run(self.tool)
+
+    def test_idempotency(self):
+        _check_idempotency(self.tool)
 
     def test_estimate_cost(self):
         cost = self.tool.estimate_cost({"text": "Hello world"})
@@ -142,8 +145,12 @@ class TestOpenAITTS:
     def setup_method(self):
         self.tool = OpenAITTS()
 
-    def test_metadata(self): _check_tool_metadata(self.tool)
-    def test_get_info(self): _check_get_info(self.tool)
+    def test_metadata(self):
+        _check_tool_metadata(self.tool)
+
+    def test_get_info(self):
+        _check_get_info(self.tool)
+
     def test_get_status(self):
         os.environ.pop("OPENAI_API_KEY", None)
         assert self.tool.get_status() == ToolStatus.UNAVAILABLE
@@ -152,8 +159,11 @@ class TestOpenAITTS:
         os.environ.pop("OPENAI_API_KEY", None)
         _check_execute_fails_without_key(self.tool, sample_tts_inputs)
 
-    def test_dry_run(self): _check_dry_run(self.tool)
-    def test_idempotency(self): _check_idempotency(self.tool)
+    def test_dry_run(self):
+        _check_dry_run(self.tool)
+
+    def test_idempotency(self):
+        _check_idempotency(self.tool)
 
     def test_estimate_cost(self):
         assert self.tool.estimate_cost({"text": "Hello"}) >= 0
@@ -167,8 +177,12 @@ class TestDoubaoTTS:
     def setup_method(self):
         self.tool = DoubaoTTS()
 
-    def test_metadata(self): _check_tool_metadata(self.tool)
-    def test_get_info(self): _check_get_info(self.tool)
+    def test_metadata(self):
+        _check_tool_metadata(self.tool)
+
+    def test_get_info(self):
+        _check_get_info(self.tool)
+
     def test_get_status(self):
         os.environ.pop("DOUBAO_SPEECH_API_KEY", None)
         assert self.tool.get_status() == ToolStatus.UNAVAILABLE
@@ -177,8 +191,11 @@ class TestDoubaoTTS:
         os.environ.pop("DOUBAO_SPEECH_API_KEY", None)
         _check_execute_fails_without_key(self.tool, sample_tts_inputs)
 
-    def test_dry_run(self): _check_dry_run(self.tool)
-    def test_idempotency(self): _check_idempotency(self.tool)
+    def test_dry_run(self):
+        _check_dry_run(self.tool)
+
+    def test_idempotency(self):
+        _check_idempotency(self.tool)
 
     def test_async_execution_mode(self):
         assert self.tool.execution_mode == ExecutionMode.ASYNC
@@ -211,19 +228,30 @@ class TestGoogleTTS:
     def setup_method(self):
         self.tool = GoogleTTS()
 
-    def test_metadata(self): _check_tool_metadata(self.tool)
-    def test_get_info(self): _check_get_info(self.tool)
+    def test_metadata(self):
+        _check_tool_metadata(self.tool)
+
+    def test_get_info(self):
+        _check_get_info(self.tool)
+
     def test_get_status(self):
-        os.environ.pop("GOOGLE_API_KEY", None); os.environ.pop("GEMINI_API_KEY", None)
+        os.environ.pop("GOOGLE_API_KEY", None)
+        os.environ.pop("GEMINI_API_KEY", None)
         assert self.tool.get_status() == ToolStatus.UNAVAILABLE
 
     def test_execute_fails_without_key(self, sample_tts_inputs):
-        os.environ.pop("GOOGLE_API_KEY", None); os.environ.pop("GEMINI_API_KEY", None)
+        os.environ.pop("GOOGLE_API_KEY", None)
+        os.environ.pop("GEMINI_API_KEY", None)
         _check_execute_fails_without_key(self.tool, sample_tts_inputs)
 
-    def test_dry_run(self): _check_dry_run(self.tool)
-    def test_idempotency(self): _check_idempotency(self.tool)
-    def test_stability_beta(self): assert self.tool.stability == ToolStability.BETA
+    def test_dry_run(self):
+        _check_dry_run(self.tool)
+
+    def test_idempotency(self):
+        _check_idempotency(self.tool)
+
+    def test_stability_beta(self):
+        assert self.tool.stability == ToolStability.BETA
 
     def test_needs_beta_api(self):
         assert self.tool._needs_beta_api("en-US-Chirp3-HD-Orus") is True
@@ -242,13 +270,27 @@ class TestPiperTTS:
     def setup_method(self):
         self.tool = PiperTTS()
 
-    def test_metadata(self): _check_tool_metadata(self.tool)
-    def test_get_info(self): _check_get_info(self.tool)
-    def test_dry_run(self): _check_dry_run(self.tool)
-    def test_idempotency(self): _check_idempotency(self.tool)
-    def test_local_runtime(self): assert self.tool.runtime == ToolRuntime.LOCAL
-    def test_offline_capability(self): assert "offline_generation" in self.tool.capabilities
-    def test_estimate_cost_zero(self): assert self.tool.estimate_cost({}) == 0.0
+    def test_metadata(self):
+        _check_tool_metadata(self.tool)
+
+    def test_get_info(self):
+        _check_get_info(self.tool)
+
+    def test_dry_run(self):
+        _check_dry_run(self.tool)
+
+    def test_idempotency(self):
+        _check_idempotency(self.tool)
+
+    def test_local_runtime(self):
+        assert self.tool.runtime == ToolRuntime.LOCAL
+
+    def test_offline_capability(self):
+        assert "offline_generation" in self.tool.capabilities
+
+    def test_estimate_cost_zero(self):
+        assert self.tool.estimate_cost({}) == 0.0
+
     def test_resource_profile_low(self):
         rp = self.tool.resource_profile
         assert rp.network_required is False and rp.cpu_cores >= 1
@@ -258,8 +300,12 @@ class TestSunoMusic:
     def setup_method(self):
         self.tool = SunoMusic()
 
-    def test_metadata(self): _check_tool_metadata(self.tool)
-    def test_get_info(self): _check_get_info(self.tool)
+    def test_metadata(self):
+        _check_tool_metadata(self.tool)
+
+    def test_get_info(self):
+        _check_get_info(self.tool)
+
     def test_get_status(self):
         os.environ.pop("SUNO_API_KEY", None)
         assert self.tool.get_status() == ToolStatus.UNAVAILABLE
@@ -268,23 +314,43 @@ class TestSunoMusic:
         os.environ.pop("SUNO_API_KEY", None)
         _check_execute_fails_without_key(self.tool, sample_music_inputs)
 
-    def test_dry_run(self): _check_dry_run(self.tool)
-    def test_idempotency(self): _check_idempotency(self.tool)
-    def test_beta_stability(self): assert self.tool.stability == ToolStability.BETA
-    def test_estimate_cost(self): assert self.tool.estimate_cost({}) == 0.05
+    def test_dry_run(self):
+        _check_dry_run(self.tool)
+
+    def test_idempotency(self):
+        _check_idempotency(self.tool)
+
+    def test_beta_stability(self):
+        assert self.tool.stability == ToolStability.BETA
+
+    def test_estimate_cost(self):
+        assert self.tool.estimate_cost({}) == 0.05
 
 
 class TestPixabayMusic:
     def setup_method(self):
         self.tool = PixabayMusic()
 
-    def test_metadata(self): _check_tool_metadata(self.tool)
-    def test_get_info(self): _check_get_info(self.tool)
-    def test_get_status(self): assert self.tool.get_status() == ToolStatus.AVAILABLE
-    def test_dry_run(self): _check_dry_run(self.tool)
-    def test_idempotency(self): _check_idempotency(self.tool)
-    def test_estimate_cost_zero(self): assert self.tool.estimate_cost({}) == 0.0
-    def test_experimental_stability(self): assert self.tool.stability == ToolStability.EXPERIMENTAL
+    def test_metadata(self):
+        _check_tool_metadata(self.tool)
+
+    def test_get_info(self):
+        _check_get_info(self.tool)
+
+    def test_get_status(self):
+        assert self.tool.get_status() == ToolStatus.AVAILABLE
+
+    def test_dry_run(self):
+        _check_dry_run(self.tool)
+
+    def test_idempotency(self):
+        _check_idempotency(self.tool)
+
+    def test_estimate_cost_zero(self):
+        assert self.tool.estimate_cost({}) == 0.0
+
+    def test_experimental_stability(self):
+        assert self.tool.stability == ToolStability.EXPERIMENTAL
 
     def test_execute_fails_without_query(self):
         result = self.tool.execute({})

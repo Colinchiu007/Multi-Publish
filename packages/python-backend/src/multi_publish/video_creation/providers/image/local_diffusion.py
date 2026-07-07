@@ -2,6 +2,7 @@
 
 Adapted from OpenMontage tools/graphics/local_diffusion.py.
 """
+
 from __future__ import annotations
 
 import time
@@ -34,8 +35,7 @@ class LocalDiffusion(BaseTool):
 
     dependencies = []
     install_instructions = (
-        "Install diffusers for local Stable Diffusion:\n"
-        "  pip install diffusers transformers accelerate torch"
+        "Install diffusers for local Stable Diffusion:\n  pip install diffusers transformers accelerate torch"
     )
 
     capabilities = ["generate_image", "generate_illustration", "text_to_image"]
@@ -49,14 +49,13 @@ class LocalDiffusion(BaseTool):
         "highest quality output (API models are better)",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=2, ram_mb=8000, vram_mb=4000, disk_mb=5000, network_required=False
-    )
+    resource_profile = ResourceProfile(cpu_cores=2, ram_mb=8000, vram_mb=4000, disk_mb=5000, network_required=False)
     idempotency_key_fields = ["prompt", "width", "height", "seed", "model"]
 
     def get_status(self) -> ToolStatus:
         try:
             import diffusers  # noqa: F401
+
             return ToolStatus.AVAILABLE
         except ImportError:
             return ToolStatus.UNAVAILABLE

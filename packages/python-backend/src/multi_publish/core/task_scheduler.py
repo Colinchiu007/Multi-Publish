@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # 调度任务
 # ============================================================
 
+
 @dataclass
 class StateQueryTask:
     """
@@ -37,15 +38,16 @@ class StateQueryTask:
         last_result: 上次查询结果
         status: 任务状态
     """
+
     task_id: str
     key: str
     callback: Callable[[], Coroutine[Any, Any, Any]]
     execute_at: datetime = field(default_factory=datetime.now)
     retry_count: int = 0
     max_retries: int = 10
-    retry_delay_base: int = 60       # 基础延迟 1 分钟
+    retry_delay_base: int = 60  # 基础延迟 1 分钟
     last_result: Any = None
-    status: str = "pending"           # pending | running | completed | failed
+    status: str = "pending"  # pending | running | completed | failed
 
 
 class StateQueryScheduler:
@@ -64,8 +66,8 @@ class StateQueryScheduler:
     """
 
     def __init__(self, max_concurrent: int = 5):
-        self._tasks: dict[str, StateQueryTask] = {}   # task_id → task
-        self._keys: dict[str, str] = {}                # key → task_id
+        self._tasks: dict[str, StateQueryTask] = {}  # task_id → task
+        self._keys: dict[str, str] = {}  # key → task_id
         self._running = False
         self._worker_task: asyncio.Task | None = None
         self._semaphore = asyncio.Semaphore(max_concurrent)
@@ -197,7 +199,7 @@ class StateQueryScheduler:
                     # 动态延迟：首次 1 分钟，后续每次 +1 分钟，最大 10 分钟
                     delay = min(
                         task.retry_delay_base * task.retry_count,
-                        600  # 最大 10 分钟
+                        600,  # 最大 10 分钟
                     )
                     task.execute_at = datetime.now() + timedelta(seconds=delay)
                     task.status = "pending"

@@ -1,7 +1,6 @@
-﻿"""Tests for pagination utilities."""
+"""Tests for pagination utilities."""
 
-import pytest
-from multi_publish._pagination import OffsetPaginator, CursorPaginator, Page
+from multi_publish._pagination import CursorPaginator, OffsetPaginator, Page
 
 
 class TestOffsetPaginator:
@@ -26,6 +25,7 @@ class TestOffsetPaginator:
         assert OffsetPaginator().next_page(page=1) == 2
         assert OffsetPaginator().next_page(page=5) == 6
 
+
 class TestCursorPaginator:
     def test_build_params_no_cursor(self):
         p = CursorPaginator()
@@ -43,6 +43,7 @@ class TestCursorPaginator:
 
     def test_has_more_false_empty(self):
         assert not CursorPaginator().has_more("")
+
 
 class TestPage:
     def test_defaults(self):

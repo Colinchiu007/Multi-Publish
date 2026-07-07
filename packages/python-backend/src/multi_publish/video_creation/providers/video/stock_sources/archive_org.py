@@ -32,6 +32,7 @@ Prelinger collection items are public domain. Broader
 collection and `licenseurl` (when present) so the agent can attribute
 correctly if it wants to, but no attribution is legally required.
 """
+
 from __future__ import annotations
 
 import re
@@ -65,12 +66,12 @@ _DEFAULT_COLLECTIONS = ("prelinger", "opensource_movies", "home_movies")
 # upload through a derivative pipeline so most items have multiple
 # renditions — we want the best mp4 we can afford under the size cap.
 _VIDEO_FORMAT_PRIORITY = (
-    "h.264",                  # mp4, usually 480p or 720p
-    "MPEG4",                  # older mp4 encoding
-    "h.264 HD",               # less common, but best quality
-    "512Kb MPEG4",            # last resort — lowest quality derivative
-    "Matroska",               # mkv
-    "WebM",                   # webm
+    "h.264",  # mp4, usually 480p or 720p
+    "MPEG4",  # older mp4 encoding
+    "h.264 HD",  # less common, but best quality
+    "512Kb MPEG4",  # last resort — lowest quality derivative
+    "Matroska",  # mkv
+    "WebM",  # webm
 )
 
 # Skip any rendition bigger than this at pick time so we never queue
@@ -91,18 +92,46 @@ _DEFAULT_MAX_DURATION_SECONDS = 180.0
 # before the query cascade so they don't dilute Solr relevance. Kept
 # small and deliberate — we're only killing words that reliably hurt
 # documentary-style searches.
-_STOP_WORDS = frozenset({
-    "the", "and", "for", "with", "that", "this", "from", "into",
-    "its", "their", "about", "over", "under", "while", "during",
-    "your", "you", "our", "are", "was", "were", "have", "has",
-})
+_STOP_WORDS = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "from",
+        "into",
+        "its",
+        "their",
+        "about",
+        "over",
+        "under",
+        "while",
+        "during",
+        "your",
+        "you",
+        "our",
+        "are",
+        "was",
+        "were",
+        "have",
+        "has",
+    }
+)
 
 # Tokens that are redundant with the collection filter — including them
 # in the search body just matches item descriptions that happen to say
 # "from the prelinger archives" and not much else. Strip them.
-_SOURCE_HINT_TOKENS = frozenset({
-    "prelinger", "archive", "archives", "stock", "footage",
-})
+_SOURCE_HINT_TOKENS = frozenset(
+    {
+        "prelinger",
+        "archive",
+        "archives",
+        "stock",
+        "footage",
+    }
+)
 
 
 class ArchiveOrgSource:
@@ -115,9 +144,7 @@ class ArchiveOrgSource:
     display_name = "Archive.org"
     provider = "archive_org"
     priority = 20
-    install_instructions = (
-        "No setup required. Archive.org is available without API keys."
-    )
+    install_instructions = "No setup required. Archive.org is available without API keys."
 
     def is_available(self) -> bool:
         # No API key, no config. As long as the network is up, we're
@@ -198,16 +225,12 @@ class ArchiveOrgSource:
         import httpx  # lazy
 
         if not candidate.download_url:
-            raise ValueError(
-                f"Candidate {candidate.clip_id} has no download_url"
-            )
+            raise ValueError(f"Candidate {candidate.clip_id} has no download_url")
 
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with httpx.get(
-            candidate.download_url, stream=True, timeout=300
-        ) as r:
+        with httpx.get(candidate.download_url, stream=True, timeout=300) as r:
             r.raise_for_status()
             with open(out_path, "wb") as f:
                 for chunk in r.iter_bytes(1 << 16):
@@ -266,18 +289,19 @@ class ArchiveOrgSource:
             return [("default", f"mediatype:movies AND ({coll})")]
 
         tokens = [
-            t for t in re.split(r"\s+", user)
-            if len(t) >= 3
-            and t.lower() not in _STOP_WORDS
-            and t.lower() not in _SOURCE_HINT_TOKENS
+            t
+            for t in re.split(r"\s+", user)
+            if len(t) >= 3 and t.lower() not in _STOP_WORDS and t.lower() not in _SOURCE_HINT_TOKENS
         ]
         if not tokens:
             # Nothing meaningful survived filtering — fall back to a
             # quoted phrase search so we don't ship an empty query.
-            return [(
-                "quoted_fallback",
-                f'mediatype:movies AND ({coll}) AND ("{user}")',
-            )]
+            return [
+                (
+                    "quoted_fallback",
+                    f'mediatype:movies AND ({coll}) AND ("{user}")',
+                )
+            ]
 
         queries: list[tuple[str, str]] = []
 
@@ -285,41 +309,47 @@ class ArchiveOrgSource:
         # sequence (not the raw query) so stop words don't pollute the
         # phrase match.
         clean_phrase = " ".join(tokens)
-        queries.append((
-            "phrase_prox_10",
-            f'mediatype:movies AND ({coll}) AND ("{clean_phrase}"~10)',
-        ))
+        queries.append(
+            (
+                "phrase_prox_10",
+                f'mediatype:movies AND ({coll}) AND ("{clean_phrase}"~10)',
+            )
+        )
 
         # Strategy 2: top-2 longest non-year tokens AND-joined.
         non_year = [t for t in tokens if not _looks_like_year(t)]
         if len(non_year) >= 2:
             distinctive = sorted(non_year, key=lambda t: -len(t))[:2]
             and_q = " AND ".join(distinctive)
-            queries.append((
-                "distinctive_and",
-                f"mediatype:movies AND ({coll}) AND ({and_q})",
-            ))
+            queries.append(
+                (
+                    "distinctive_and",
+                    f"mediatype:movies AND ({coll}) AND ({and_q})",
+                )
+            )
         elif len(non_year) == 1:
             # Single non-year token — wrap in a simple term query.
-            queries.append((
-                "single_term",
-                f"mediatype:movies AND ({coll}) AND ({non_year[0]})",
-            ))
+            queries.append(
+                (
+                    "single_term",
+                    f"mediatype:movies AND ({coll}) AND ({non_year[0]})",
+                )
+            )
 
         # Strategy 3: top-3 longest tokens OR-joined. Last-resort
         # fallback that accepts noise in exchange for non-empty results.
         top_tokens = sorted(tokens, key=lambda t: -len(t))[:3]
         or_q = " OR ".join(top_tokens)
-        queries.append((
-            "distinctive_or",
-            f"mediatype:movies AND ({coll}) AND ({or_q})",
-        ))
+        queries.append(
+            (
+                "distinctive_or",
+                f"mediatype:movies AND ({coll}) AND ({or_q})",
+            )
+        )
 
         return queries
 
-    def _hydrate_candidate(
-        self, doc: dict, filters: SearchFilters
-    ) -> Candidate | None:
+    def _hydrate_candidate(self, doc: dict, filters: SearchFilters) -> Candidate | None:
         """Turn a search-doc identifier into a full Candidate.
 
         Fetches the item's file list and picks the best playable
@@ -359,11 +389,7 @@ class ArchiveOrgSource:
         if effective_max_duration is None:
             effective_max_duration = _DEFAULT_MAX_DURATION_SECONDS
 
-        if (
-            filters.min_duration is not None
-            and duration
-            and duration < filters.min_duration
-        ):
+        if filters.min_duration is not None and duration and duration < filters.min_duration:
             return None
         # duration == 0 means "unknown" — pass through and let the
         # corpus builder's post-download ffprobe decide. Known-too-long
@@ -387,9 +413,7 @@ class ArchiveOrgSource:
         title = _to_text(doc.get("title"))
         description = _to_text(doc.get("description"))
         subject = _to_text(doc.get("subject"))
-        source_tags = " ".join(
-            s for s in (title, description, subject) if s
-        ).strip()
+        source_tags = " ".join(s for s in (title, description, subject) if s).strip()
         if len(source_tags) > 500:
             source_tags = source_tags[:500]
 
@@ -471,17 +495,12 @@ def _pick_video_file(files: list[dict]) -> dict | None:
         bucket = by_format.get(fmt)
         if not bucket:
             continue
-        affordable = [
-            f for f in bucket
-            if 0 < _safe_int(f.get("size")) <= _MAX_FILE_SIZE_BYTES
-        ]
+        affordable = [f for f in bucket if 0 < _safe_int(f.get("size")) <= _MAX_FILE_SIZE_BYTES]
         if not affordable:
             # Every rendition in this format is either too big or has
             # no reported size. Fall through to the next format.
             continue
-        affordable.sort(
-            key=lambda f: _safe_int(f.get("size")), reverse=True
-        )
+        affordable.sort(key=lambda f: _safe_int(f.get("size")), reverse=True)
         return affordable[0]
     return None
 
@@ -561,6 +580,7 @@ def _license_from_collection(collection: str) -> str:
 
 class ArchiveOrgVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "archive_org"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -595,7 +615,7 @@ class ArchiveOrgVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -629,7 +649,7 @@ class ArchiveOrgVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -639,6 +659,7 @@ class ArchiveOrgVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

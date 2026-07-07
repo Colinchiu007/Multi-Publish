@@ -32,10 +32,12 @@ class PublisherManager:
         """开启发布前预检 — 当前已禁用（依赖 TikHub 付费 API）"""
         from multi_publish.precheck import PreCheckEngine
         from multi_publish.tikhub_bridge import TikHubBridge
+
         bridge = TikHubBridge(api_key=api_key)
         self._precheck_engine = PreCheckEngine(tikhub_bridge=bridge)
         self.precheck_enabled = True
         from loguru import logger
+
         logger.warning("PreCheck 已启用但不可用：TikHub 付费 API 暂未启用，预检将跳过")
 
     def disable_precheck(self):
@@ -60,17 +62,15 @@ class PublisherManager:
         registry.scan_publishers_package()
 
     async def get_or_create(
-        self, platform: PlatformType,
+        self,
+        platform: PlatformType,
         account_id: str | None = None,
         proxy: dict | None = None,
     ) -> BasePublisher:
         key = f"{platform.value}_{account_id}" if account_id else platform.value
         if key not in self._publishers:
             if not registry.is_supported(platform):
-                raise ValueError(
-                    f"不支持的平台: {platform}，"
-                    f"可用平台: {registry.list_platforms()}"
-                )
+                raise ValueError(f"不支持的平台: {platform}，可用平台: {registry.list_platforms()}")
             cls = registry.get(platform)
             config = PublisherConfig(platform=platform, data_dir=self.data_dir, proxy=proxy)
             publisher = cls(config=config, account_id=account_id)
@@ -83,10 +83,12 @@ class PublisherManager:
         if not self._precheck_engine:
             return True
         from multi_publish.precheck import DuplicateCheck
+
         check = DuplicateCheck(title=title, platform=platform.value)
         result = self._precheck_engine.check_duplicate(check)
         if not result.passed:
             from loguru import logger
+
             logger.warning(f"预检阻断 [{platform.value}]: {result.message}")
             return False
         return True
@@ -108,8 +110,10 @@ class PublisherManager:
         """发布到指定平台（含可选预检）"""
         if not await self._run_precheck(platform, title):
             from multi_publish.models import PublishResult
+
             return PublishResult(
-                success=False, platform=platform.value,
+                success=False,
+                platform=platform.value,
                 error=f"预检未通过: 平台 {platform.value} 上存在相似内容",
             )
 
@@ -117,14 +121,20 @@ class PublisherManager:
         if progress_callback:
             publisher.set_progress_callback(progress_callback)
         result = await publisher.publish(
-            title=title, content=content,
-            media_paths=media_paths, cover_path=cover_path,
-            tags=tags, draft=draft, **kwargs,
+            title=title,
+            content=content,
+            media_paths=media_paths,
+            cover_path=cover_path,
+            tags=tags,
+            draft=draft,
+            **kwargs,
         )
         return result
 
     async def publish_to_platforms(
-        self, title: str, content: str = "",
+        self,
+        title: str,
+        content: str = "",
         platforms: list[PlatformType] | None = None,
         media_paths: list[str] | None = None,
         cover_path: str | None = None,
@@ -134,6 +144,7 @@ class PublisherManager:
         **kwargs,
     ) -> dict[PlatformType, "PublishResult"]:
         from multi_publish.models import PublishResult
+
         results: dict[PlatformType, PublishResult] = {}
         targets = platforms or self.get_available_platforms()
         for idx, platform in enumerate(targets):
@@ -141,24 +152,35 @@ class PublisherManager:
                 await asyncio.sleep(2)
             if not self.is_supported(platform):
                 results[platform] = PublishResult(
-                    success=False, platform=platform.value,
+                    success=False,
+                    platform=platform.value,
                     error=f"平台 {platform.value} 暂未实现",
                 )
                 continue
             try:
                 result = await self.publish_to_platform(
-                    platform=platform, title=title, content=content,
-                    media_paths=media_paths, cover_path=cover_path,
-                    tags=tags, draft=draft, account_id=account_id, **kwargs,
+                    platform=platform,
+                    title=title,
+                    content=content,
+                    media_paths=media_paths,
+                    cover_path=cover_path,
+                    tags=tags,
+                    draft=draft,
+                    account_id=account_id,
+                    **kwargs,
                 )
                 results[platform] = result
             except Exception as e:
                 results[platform] = PublishResult(
-                    success=False, platform=platform.value, error=str(e),
+                    success=False,
+                    platform=platform.value,
+                    error=str(e),
                 )
         return results
 
-    async def login_to_platform(self, platform: PlatformType, account_id: str | None = None, proxy: dict | None = None) -> bool:
+    async def login_to_platform(
+        self, platform: PlatformType, account_id: str | None = None, proxy: dict | None = None
+    ) -> bool:
         publisher = await self.get_or_create(platform, account_id=account_id, proxy=proxy)
         return await publisher.login()
 

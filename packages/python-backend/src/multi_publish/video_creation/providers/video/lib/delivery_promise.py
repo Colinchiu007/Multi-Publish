@@ -86,8 +86,8 @@ class DeliveryPromise:
     promise_type: PromiseType
     motion_required: bool
     source_required: bool
-    tone_mode: str          # "cinematic", "educational", "corporate", "playful", "raw"
-    quality_floor: str      # "draft", "presentable", "broadcast"
+    tone_mode: str  # "cinematic", "educational", "corporate", "playful", "raw"
+    quality_floor: str  # "draft", "presentable", "broadcast"
     approved_fallback: str | None = None  # "animatic", "still_led", or None
 
     def to_dict(self) -> dict[str, Any]:
@@ -125,11 +125,20 @@ class DeliveryPromise:
         # Only real video/animation/avatar footage counts as motion.
         # Remotion component scenes (text_card, chart, kpi_grid, etc.) are
         # "animated slides" — they have transitions but are NOT real motion.
-        _SLIDE_GRAMMAR_TYPES = frozenset({
-            "text_card", "stat_card", "chart", "bar_chart",
-            "line_chart", "pie_chart", "kpi_grid", "comparison",
-            "progress", "callout",
-        })
+        _SLIDE_GRAMMAR_TYPES = frozenset(
+            {
+                "text_card",
+                "stat_card",
+                "chart",
+                "bar_chart",
+                "line_chart",
+                "pie_chart",
+                "kpi_grid",
+                "comparison",
+                "progress",
+                "callout",
+            }
+        )
         _REAL_MOTION_TYPES = frozenset({"video", "animation", "avatar"})
 
         motion_cuts = 0
@@ -227,9 +236,14 @@ def classify_from_brief(
     if user_intent.get("motion_required") is False and promise_type == PromiseType.MOTION_LED:
         promise_type = PromiseType.HYBRID
 
-    motion_required = user_intent.get("motion_required", promise_type in (
-        PromiseType.MOTION_LED, PromiseType.AVATAR_PRESENTER,
-    ))
+    motion_required = user_intent.get(
+        "motion_required",
+        promise_type
+        in (
+            PromiseType.MOTION_LED,
+            PromiseType.AVATAR_PRESENTER,
+        ),
+    )
 
     source_required = user_intent.get("has_footage", False)
     if source_required and promise_type not in (PromiseType.SOURCE_LED, PromiseType.LOCALIZATION):

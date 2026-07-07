@@ -1,15 +1,14 @@
-﻿"""
+"""
 WeChat Publisher Utilities
 
 Utility functions for WeChat Official Account publisher module.
 """
 
+import hashlib
 import mimetypes
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import base64
-import hashlib
 
 
 def clean_html(content: str, keep_tags: Optional[List[str]] = None) -> str:
@@ -26,26 +25,46 @@ def clean_html(content: str, keep_tags: Optional[List[str]] = None) -> str:
     if keep_tags is None:
         # WeChat-supported tags
         keep_tags = [
-            'p', 'br', 'div', 'span', 'strong', 'b', 'em', 'i', 'u',
-            'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-            'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
-            'img', 'a', 'section', 'xml', 'mpchecktext'
+            "p",
+            "br",
+            "div",
+            "span",
+            "strong",
+            "b",
+            "em",
+            "i",
+            "u",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "ul",
+            "ol",
+            "li",
+            "blockquote",
+            "pre",
+            "code",
+            "img",
+            "a",
+            "section",
+            "xml",
+            "mpchecktext",
         ]
 
     # Remove script and style tags with content
     content = re.sub(
-        r'<(script|style|iframe|frame|object|embed)[^>]*>.*?</\1>',
-        '',
-        content,
-        flags=re.DOTALL | re.IGNORECASE
+        r"<(script|style|iframe|frame|object|embed)[^>]*>.*?</\1>", "", content, flags=re.DOTALL | re.IGNORECASE
     )
 
     # Remove comments
-    content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
+    content = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
 
     # Remove unsupported tags - keep only whitelisted tags
     # Build regex: remove all tags except those in keep_tags and self-closing variants
     keep_set = set(tag.lower() for tag in keep_tags)
+
     def _filter_tag(m):
         tag_name = m.group(1).lower().split()[0].rstrip(">/")
         # Strip attributes for comparison
@@ -53,22 +72,19 @@ def clean_html(content: str, keep_tags: Optional[List[str]] = None) -> str:
         if tag_name in keep_set or tag_name.startswith("/"):
             return m.group(0)
         return ""
+
     content = re.sub(r"</?([a-zA-Z][a-zA-Z0-9]*)[^>]*>", _filter_tag, content)
     # Clean up empty lines left by removed tags
     content = re.sub(r"\n\s*\n", "\n", content)
-    
+
     # Ensure <img> tags have proper format for WeChat
-    content = re.sub(
-        r'<img[^>]*src="([^"]+)"[^>]*>',
-        r'<img src="\1" />',
-        content
-    )
+    content = re.sub(r'<img[^>]*src="([^"]+)"[^>]*>', r'<img src="\1" />', content)
 
     # Remove empty paragraphs
-    content = re.sub(r'<p>\s*</p>', '', content)
+    content = re.sub(r"<p>\s*</p>", "", content)
 
     # Normalize whitespace
-    content = re.sub(r'\s+', ' ', content)
+    content = re.sub(r"\s+", " ", content)
     content = content.strip()
 
     return content
@@ -93,7 +109,7 @@ def extract_images_from_html(content: str) -> List[str]:
     images.extend(re.findall(img_pattern_single, content, re.IGNORECASE))
 
     # Filter out data URIs
-    images = [img for img in images if not img.startswith('data:')]
+    images = [img for img in images if not img.startswith("data:")]
 
     return list(set(images))  # Remove duplicates
 
@@ -124,7 +140,7 @@ def get_file_extension(filename: str) -> str:
     Returns:
         File extension (lowercase, without dot)
     """
-    return Path(filename).suffix.lower().lstrip('.')
+    return Path(filename).suffix.lower().lstrip(".")
 
 
 def get_mime_type(filename: str) -> str:
@@ -138,7 +154,7 @@ def get_mime_type(filename: str) -> str:
         MIME type string
     """
     mime_type, _ = mimetypes.guess_type(filename)
-    return mime_type or 'application/octet-stream'
+    return mime_type or "application/octet-stream"
 
 
 def is_valid_image_file(file_path: Path) -> bool:
@@ -160,7 +176,7 @@ def is_valid_image_file(file_path: Path) -> bool:
         return False
 
     # Check file extension
-    valid_extensions = {'jpg', 'jpeg', 'png', 'gif', 'bmp'}
+    valid_extensions = {"jpg", "jpeg", "png", "gif", "bmp"}
     ext = get_file_extension(file_path.name)
     return ext in valid_extensions
 
@@ -179,14 +195,14 @@ def is_valid_html_content(content: str) -> bool:
         return False
 
     # Check if content has HTML tags
-    has_tags = bool(re.search(r'<[^>]+>', content))
-    
+    has_tags = bool(re.search(r"<[^>]+>", content))
+
     # WeChat requires at least some HTML structure
     # (plain text is also acceptable, will be wrapped in <p>)
     return True
 
 
-def truncate_text(text: str, max_length: int, suffix: str = '...') -> str:
+def truncate_text(text: str, max_length: int, suffix: str = "...") -> str:
     """
     Truncate text to max length, adding suffix if truncated.
 
@@ -201,7 +217,7 @@ def truncate_text(text: str, max_length: int, suffix: str = '...') -> str:
     if len(text) <= max_length:
         return text
 
-    return text[:max_length - len(suffix)] + suffix
+    return text[: max_length - len(suffix)] + suffix
 
 
 def generate_filename(base: str, extension: str, timestamp: bool = True) -> str:
@@ -219,7 +235,8 @@ def generate_filename(base: str, extension: str, timestamp: bool = True) -> str:
     extension = extension.lstrip(".")
     if timestamp:
         from datetime import datetime
-        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{base}_{ts}.{extension}"
     else:
         return f"{base}.{extension}"
@@ -235,9 +252,9 @@ def parse_wechat_error(response_data: Dict[str, Any]) -> Tuple[Optional[int], Op
     Returns:
         Tuple of (error_code, error_message) or (None, None) if no error
     """
-    if 'errcode' in response_data and response_data['errcode'] != 0:
-        error_code = response_data.get('errcode')
-        error_msg = response_data.get('errmsg', 'Unknown error')
+    if "errcode" in response_data and response_data["errcode"] != 0:
+        error_code = response_data.get("errcode")
+        error_msg = response_data.get("errmsg", "Unknown error")
         return error_code, error_msg
 
     return None, None
@@ -263,7 +280,7 @@ def build_api_url(base_url: str, params: Dict[str, Any]) -> str:
         return base_url
 
     query_string = urllib.parse.urlencode(params)
-    separator = '&' if '?' in base_url else '?'
+    separator = "&" if "?" in base_url else "?"
     return f"{base_url}{separator}{query_string}"
 
 
@@ -278,8 +295,8 @@ def calculate_file_hash(file_path: Path) -> str:
         SHA256 hash hex digest
     """
     sha256_hash = hashlib.sha256()
-    with open(file_path, 'rb') as f:
-        for byte_block in iter(lambda: f.read(4096), b''):
+    with open(file_path, "rb") as f:
+        for byte_block in iter(lambda: f.read(4096), b""):
             sha256_hash.update(byte_block)
     return sha256_hash.hexdigest()
 
@@ -295,12 +312,13 @@ def is_url(string: str) -> bool:
         True if valid URL
     """
     url_pattern = re.compile(
-        r'^(https?)://'  # http:// or https://
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain
-        r'localhost|'  # localhost
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # or ip
-        r'(?::\d+)?'  # optional port
-        r'(?:/?|[/?]\S+)$', re.IGNORECASE
+        r"^(https?)://"  # http:// or https://
+        r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|"  # domain
+        r"localhost|"  # localhost
+        r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"  # or ip
+        r"(?::\d+)?"  # optional port
+        r"(?:/?|[/?]\S+)$",
+        re.IGNORECASE,
     )
     return bool(url_pattern.match(string))
 
@@ -323,12 +341,7 @@ def download_image(url: str, save_path: Path) -> Path:
     raise NotImplementedError("Use WechatPublisher.download_image() instead")
 
 
-def resize_image_if_needed(
-    image_path: Path,
-    max_width: int = 1920,
-    max_height: int = 1080,
-    quality: int = 85
-) -> Path:
+def resize_image_if_needed(image_path: Path, max_width: int = 1920, max_height: int = 1080, quality: int = 85) -> Path:
     """
     Resize image if it exceeds maximum dimensions.
 
@@ -364,4 +377,3 @@ def resize_image_if_needed(
     img.save(output_path, quality=quality)
 
     return output_path
-

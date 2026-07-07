@@ -1,18 +1,17 @@
 """Tests for TaskQueue (migrated from legacy)"""
+
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
-from multi_publish.core.task_queue import TaskQueue, QueueStats
-from multi_publish.models import PublishTask, PlatformType, TaskStatus, PublishResult
+
+from multi_publish.core.task_queue import QueueStats, TaskQueue
+from multi_publish.models import PlatformType, PublishResult, PublishTask, TaskStatus
 
 
 @pytest.fixture
 def mock_publisher():
     p = AsyncMock()
-    p.publish.return_value = PublishResult(
-        success=True, platform="weibo", url="https://weibo.com/123"
-    )
+    p.publish.return_value = PublishResult(success=True, platform="weibo", url="https://weibo.com/123")
     return p
 
 

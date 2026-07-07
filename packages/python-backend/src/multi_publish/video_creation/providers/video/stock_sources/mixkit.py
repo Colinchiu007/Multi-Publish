@@ -14,6 +14,7 @@ What Mixkit is good for
 - No-attribution-needed clips for quick gap-fills
 - Nature and landscape establishing shots
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,6 +55,7 @@ class MixkitSource:
     def is_available(self) -> bool:
         try:
             import bs4  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -86,7 +88,7 @@ class MixkitSource:
 
         # Mixkit lists video cards with preview videos and download links
         cards = soup.select(".item-grid__item, .video-item, article, [class*='VideoCard']")
-        for card in cards[:filters.per_page]:
+        for card in cards[: filters.per_page]:
             link_el = card.select_one("a[href]")
             if not link_el:
                 continue
@@ -162,7 +164,8 @@ class MixkitSource:
 
         try:
             r = httpx.get(
-                detail_url, timeout=30,
+                detail_url,
+                timeout=30,
                 headers={"User-Agent": "OpenMontage/1.0"},
             )
             r.raise_for_status()
@@ -214,7 +217,9 @@ class MixkitSource:
         import httpx
 
         with httpx.get(
-            url, stream=True, timeout=120,
+            url,
+            stream=True,
+            timeout=120,
             headers={"User-Agent": "OpenMontage/1.0"},
         ) as r:
             r.raise_for_status()
@@ -227,6 +232,7 @@ class MixkitSource:
 
 class MixkitVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "mixkit"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -261,7 +267,7 @@ class MixkitVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -295,7 +301,7 @@ class MixkitVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -305,6 +311,7 @@ class MixkitVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

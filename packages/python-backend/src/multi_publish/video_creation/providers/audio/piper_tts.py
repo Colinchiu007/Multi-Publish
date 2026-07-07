@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/audio/piper_tts.py.
 Fully offline TTS using Piper.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -57,9 +58,7 @@ class PiperTTS(BaseTool):
         "voice clone matching",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=2, ram_mb=512, vram_mb=0, disk_mb=200, network_required=False
-    )
+    resource_profile = ResourceProfile(cpu_cores=2, ram_mb=512, vram_mb=0, disk_mb=200, network_required=False)
     idempotency_key_fields = ["text", "model", "speaker_id", "length_scale"]
 
     def get_status(self) -> ToolStatus:
@@ -67,6 +66,7 @@ class PiperTTS(BaseTool):
             return ToolStatus.AVAILABLE
         try:
             import piper  # noqa: F401
+
             return ToolStatus.AVAILABLE
         except ImportError:
             return ToolStatus.UNAVAILABLE
@@ -94,11 +94,16 @@ class PiperTTS(BaseTool):
         proc = subprocess.run(
             [
                 "piper",
-                "--model", inputs.get("model", "en_US-lessac-medium"),
-                "--speaker", str(inputs.get("speaker_id", 0)),
-                "--length-scale", str(inputs.get("length_scale", 1.0)),
-                "--sentence-silence", str(inputs.get("sentence_silence", 0.3)),
-                "--output_file", str(output_path),
+                "--model",
+                inputs.get("model", "en_US-lessac-medium"),
+                "--speaker",
+                str(inputs.get("speaker_id", 0)),
+                "--length-scale",
+                str(inputs.get("length_scale", 1.0)),
+                "--sentence-silence",
+                str(inputs.get("sentence_silence", 0.3)),
+                "--output_file",
+                str(output_path),
             ],
             input=inputs["text"],
             capture_output=True,

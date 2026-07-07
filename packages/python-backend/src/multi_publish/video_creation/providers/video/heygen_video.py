@@ -52,7 +52,6 @@ class HeyGenVideo(BaseTool):
         "free local-first production",
     ]
 
-
     resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True)
     idempotency_key_fields = ["prompt", "provider_variant", "aspect_ratio"]
 
@@ -69,7 +68,9 @@ class HeyGenVideo(BaseTool):
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         if self.get_status() != ToolStatus.AVAILABLE:
-            return ToolResult(success=False, error="HeyGen video generation is unavailable. " + self.install_instructions)
+            return ToolResult(
+                success=False, error="HeyGen video generation is unavailable. " + self.install_instructions
+            )
         start = time.time()
         try:
             result = generate_heygen_video(inputs)
@@ -78,4 +79,3 @@ class HeyGenVideo(BaseTool):
         result.duration_seconds = round(time.time() - start, 2)
         result.cost_usd = self.estimate_cost(inputs)
         return result
-

@@ -27,6 +27,7 @@ infrastructure — no judgment calls, no creative decisions. The agent
 picks WHAT to search for and WHICH results to accept; this class only
 implements the operations the agent names.
 """
+
 from __future__ import annotations
 
 import json
@@ -48,25 +49,26 @@ class ClipRecord:
     fields default to None/empty so adapters can populate only what
     they know.
     """
-    clip_id: str                       # unique within corpus: "<source>_<source_id>"
-    source: str                        # "pexels", "archive_org", "nasa", ...
+
+    clip_id: str  # unique within corpus: "<source>_<source_id>"
+    source: str  # "pexels", "archive_org", "nasa", ...
     source_id: str
     source_url: str
-    local_path: str                    # relative to corpus_dir
-    kind: str = "video"                # "video" or "image"
-    thumb_dir: str = ""                # relative to corpus_dir
-    query: str = ""                    # the search query that surfaced this clip
+    local_path: str  # relative to corpus_dir
+    kind: str = "video"  # "video" or "image"
+    thumb_dir: str = ""  # relative to corpus_dir
+    query: str = ""  # the search query that surfaced this clip
     creator: str = ""
     license: str = ""
-    duration: float = 0.0              # seconds (0 for images)
+    duration: float = 0.0  # seconds (0 for images)
     width: int = 0
     height: int = 0
-    motion_score: float = 0.0          # residual optical flow magnitude
+    motion_score: float = 0.0  # residual optical flow magnitude
     dominant_colors: list[list[int]] = field(default_factory=list)
-    source_tags: str = ""              # raw tags/description from the API
-    shot_type: str = ""                # wide/medium/close (optional, may be empty)
-    time_of_day: str = ""              # day/golden/night (optional)
-    added_at: float = 0.0              # unix timestamp
+    source_tags: str = ""  # raw tags/description from the API
+    shot_type: str = ""  # wide/medium/close (optional, may be empty)
+    time_of_day: str = ""  # day/golden/night (optional)
+    added_at: float = 0.0  # unix timestamp
 
 
 class Corpus:
@@ -196,13 +198,9 @@ class Corpus:
         if record.clip_id in self._id_to_row:
             return
         if clip_embedding.shape != (EMBED_DIM,):
-            raise ValueError(
-                f"clip_embedding must be ({EMBED_DIM},), got {clip_embedding.shape}"
-            )
+            raise ValueError(f"clip_embedding must be ({EMBED_DIM},), got {clip_embedding.shape}")
         if tag_embedding.shape != (EMBED_DIM,):
-            raise ValueError(
-                f"tag_embedding must be ({EMBED_DIM},), got {tag_embedding.shape}"
-            )
+            raise ValueError(f"tag_embedding must be ({EMBED_DIM},), got {tag_embedding.shape}")
         if record.added_at == 0.0:
             record.added_at = time.time()
 
@@ -210,12 +208,8 @@ class Corpus:
         self.records.append(record)
         self._id_to_row[record.clip_id] = idx
 
-        self.clip_embeddings = np.vstack(
-            [self.clip_embeddings, clip_embedding.reshape(1, -1).astype(np.float32)]
-        )
-        self.tag_embeddings = np.vstack(
-            [self.tag_embeddings, tag_embedding.reshape(1, -1).astype(np.float32)]
-        )
+        self.clip_embeddings = np.vstack([self.clip_embeddings, clip_embedding.reshape(1, -1).astype(np.float32)])
+        self.tag_embeddings = np.vstack([self.tag_embeddings, tag_embedding.reshape(1, -1).astype(np.float32)])
 
     def get(self, clip_id: str) -> ClipRecord | None:
         idx = self._id_to_row.get(clip_id)

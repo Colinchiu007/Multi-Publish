@@ -4,6 +4,7 @@ Unsplash is image-only in this pipeline. It widens the corpus for
 modern, polished, lifestyle, and product-adjacent scenes where a
 high-quality still can still be valuable to the edit.
 """
+
 from __future__ import annotations
 
 import os
@@ -38,8 +39,7 @@ class UnsplashSource:
     provider = "unsplash"
     priority = 18
     install_instructions = (
-        "Set UNSPLASH_ACCESS_KEY in .env to enable Unsplash image search "
-        "(see https://unsplash.com/documentation)."
+        "Set UNSPLASH_ACCESS_KEY in .env to enable Unsplash image search (see https://unsplash.com/documentation)."
     )
 
     def is_available(self) -> bool:
@@ -196,6 +196,7 @@ def _build_download_url(raw_url: str, target_width: int) -> str:
 
 class UnsplashVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "unsplash"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -230,7 +231,7 @@ class UnsplashVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -264,7 +265,7 @@ class UnsplashVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -274,6 +275,7 @@ class UnsplashVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

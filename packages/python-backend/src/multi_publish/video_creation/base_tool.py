@@ -1,6 +1,7 @@
 """Base tool class for video creation module.
 Adapted from OpenMontage tools/base_tool.py.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -16,24 +17,49 @@ from typing import Any
 
 
 class ToolTier(str, Enum):
-    CORE = "core"; VOICE = "voice"; ENHANCE = "enhance"
-    GENERATE = "generate"; SOURCE = "source"; ANALYZE = "analyze"; PUBLISH = "publish"
+    CORE = "core"
+    VOICE = "voice"
+    ENHANCE = "enhance"
+    GENERATE = "generate"
+    SOURCE = "source"
+    ANALYZE = "analyze"
+    PUBLISH = "publish"
+
+
 class ToolStability(str, Enum):
-    EXPERIMENTAL = "experimental"; BETA = "beta"; PRODUCTION = "production"
+    EXPERIMENTAL = "experimental"
+    BETA = "beta"
+    PRODUCTION = "production"
+
+
 class ToolStatus(str, Enum):
-    AVAILABLE = "available"; UNAVAILABLE = "unavailable"; DEGRADED = "degraded"
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    DEGRADED = "degraded"
+
+
 class ToolRuntime(str, Enum):
-    LOCAL = "local"; LOCAL_GPU = "local_gpu"; API = "api"; HYBRID = "hybrid"
+    LOCAL = "local"
+    LOCAL_GPU = "local_gpu"
+    API = "api"
+    HYBRID = "hybrid"
+
+
 class ExecutionMode(str, Enum):
-    SYNC = "sync"; ASYNC = "async"
+    SYNC = "sync"
+    ASYNC = "async"
+
+
 class Determinism(str, Enum):
-    DETERMINISTIC = "deterministic"; SEEDED = "seeded"; STOCHASTIC = "stochastic"
+    DETERMINISTIC = "deterministic"
+    SEEDED = "seeded"
+    STOCHASTIC = "stochastic"
+
 
 @dataclass
-
-
 class ResumeSupport(str, Enum):
     """Checkpoint resume strategy."""
+
     NONE = "none"
     FROM_START = "from_start"
     FROM_CHECKPOINT = "from_checkpoint"
@@ -42,6 +68,7 @@ class ResumeSupport(str, Enum):
 @dataclass
 class RetryPolicy:
     """Safe retry behavior for a tool."""
+
     max_retries: int = 0
     backoff_seconds: float = 1.0
     retryable_errors: list[str] = field(default_factory=list)
@@ -55,6 +82,7 @@ class ResourceProfile:
     disk_mb: int = 100
     network_required: bool = False
 
+
 @dataclass
 class ToolResult:
     success: bool
@@ -65,6 +93,7 @@ class ToolResult:
     duration_seconds: float = 0.0
     seed: int | None = None
     model: str | None = None
+
 
 class BaseTool(ABC):
     name: str = ""
@@ -89,16 +118,22 @@ class BaseTool(ABC):
 
     def get_info(self) -> dict[str, Any]:
         return {
-            "name": self.name, "version": self.version,
-            "tier": self.tier.value, "capability": self.capability,
-            "provider": self.provider, "stability": self.stability.value,
+            "name": self.name,
+            "version": self.version,
+            "tier": self.tier.value,
+            "capability": self.capability,
+            "provider": self.provider,
+            "stability": self.stability.value,
             "execution_mode": self.execution_mode.value,
-            "determinism": self.determinism.value, "runtime": self.runtime.value,
-            "dependencies": self.dependencies, "capabilities": self.capabilities,
-            "best_for": self.best_for, "not_good_for": self.not_good_for,
+            "determinism": self.determinism.value,
+            "runtime": self.runtime.value,
+            "dependencies": self.dependencies,
+            "capabilities": self.capabilities,
+            "best_for": self.best_for,
+            "not_good_for": self.not_good_for,
             "resource_profile": {
                 k: getattr(self.resource_profile, k)
-                for k in ["cpu_cores","ram_mb","vram_mb","disk_mb","network_required"]
+                for k in ["cpu_cores", "ram_mb", "vram_mb", "disk_mb", "network_required"]
             },
         }
 
@@ -113,8 +148,7 @@ class BaseTool(ABC):
         return hashlib.sha256(json.dumps(kd, sort_keys=True).encode()).hexdigest()[:16]
 
     @abstractmethod
-    def execute(self, inputs: dict[str, Any]) -> ToolResult:
-        ...
+    def execute(self, inputs: dict[str, Any]) -> ToolResult: ...
 
     def dry_run(self, inputs: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -124,12 +158,25 @@ class BaseTool(ABC):
             "would_execute": True,
         }
 
-    def run_command(self, cmd: list[str], *, timeout: int | None = None, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    def run_command(
+        self, cmd: list[str], *, timeout: int | None = None, cwd: Path | None = None
+    ) -> subprocess.CompletedProcess:
         rcmd = list(cmd)
         if platform.system() == "Windows" and rcmd:
             exe = shutil.which(rcmd[0])
-            if exe: rcmd[0] = exe
-        return subprocess.run(rcmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, cwd=cwd, check=True)
+            if exe:
+                rcmd[0] = exe
+        return subprocess.run(
+            rcmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            cwd=cwd,
+            check=True,
+        )
+
 
 class DependencyError(Exception):
     pass

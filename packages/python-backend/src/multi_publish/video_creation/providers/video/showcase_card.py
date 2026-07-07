@@ -133,10 +133,15 @@ class ShowcaseCard(BaseTool):
 
         # Get source dimensions
         probe_cmd = [
-            "ffprobe", "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height",
-            "-of", "csv=p=0",
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0",
             input_path,
         ]
         probe_out = self.run_command(probe_cmd).stdout.strip()
@@ -192,12 +197,24 @@ class ShowcaseCard(BaseTool):
         vf = ",".join(filters)
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", input_path,
-            "-vf", vf,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "192k",
+            "ffmpeg",
+            "-y",
+            "-i",
+            input_path,
+            "-vf",
+            vf,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
             output_path,
         ]
 

@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/audio/music_gen.py.
 Generates background music for video production.
 """
+
 from __future__ import annotations
 
 import os
@@ -55,9 +56,7 @@ class MusicGenerator(BaseTool):
         "searching existing tracks (use freesound_music / pixabay_music)",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True)
     idempotency_key_fields = ["prompt", "duration_seconds"]
 
     def get_status(self) -> ToolStatus:
@@ -68,9 +67,7 @@ class MusicGenerator(BaseTool):
     def estimate_cost(self, inputs: dict[str, Any]) -> float:
         duration = inputs.get("duration_seconds")
         if duration is None:
-            raise ValueError(
-                "music_generator.estimate_cost: duration_seconds is required."
-            )
+            raise ValueError("music_generator.estimate_cost: duration_seconds is required.")
         return round(duration / 30 * 0.05, 4)
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:

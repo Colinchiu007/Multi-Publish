@@ -17,6 +17,7 @@ What ESA is good for
 - ISS footage (European contributions)
 - Ariane rocket launches
 """
+
 from __future__ import annotations
 
 import logging
@@ -59,6 +60,7 @@ class ESASource:
     def is_available(self) -> bool:
         try:
             import bs4  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -91,7 +93,7 @@ class ESASource:
 
         # Find video/image cards on the search results page
         cards = soup.select(".grid-item, .media-item, .search-result-item, article")
-        for card in cards[:filters.per_page]:
+        for card in cards[: filters.per_page]:
             link_el = card.select_one("a[href]")
             if not link_el:
                 continue
@@ -202,7 +204,9 @@ class ESASource:
         import httpx
 
         with httpx.get(
-            url, stream=True, timeout=180,
+            url,
+            stream=True,
+            timeout=180,
             headers={"User-Agent": "OpenMontage/1.0"},
         ) as r:
             r.raise_for_status()
@@ -215,6 +219,7 @@ class ESASource:
 
 class EsaVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "esa"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -249,7 +254,7 @@ class EsaVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -283,7 +288,7 @@ class EsaVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -293,6 +298,7 @@ class EsaVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

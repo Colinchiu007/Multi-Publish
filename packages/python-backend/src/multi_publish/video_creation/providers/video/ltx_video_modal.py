@@ -39,7 +39,6 @@ class LTXVideoModal(BaseTool):
     best_for = ["self-hosted cloud GPU rendering for LTX without local workstation dependence"]
     not_good_for = ["zero-setup local workflows"]
 
-
     resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True)
     idempotency_key_fields = ["prompt", "aspect_ratio", "num_frames", "seed"]
 
@@ -54,7 +53,9 @@ class LTXVideoModal(BaseTool):
 
     def execute(self, inputs: dict[str, object]) -> ToolResult:
         if self.get_status() != ToolStatus.AVAILABLE:
-            return ToolResult(success=False, error="Modal LTX video generation is unavailable. " + self.install_instructions)
+            return ToolResult(
+                success=False, error="Modal LTX video generation is unavailable. " + self.install_instructions
+            )
         start = time.time()
         try:
             result = generate_ltx_modal_video(inputs)
@@ -63,4 +64,3 @@ class LTXVideoModal(BaseTool):
         result.duration_seconds = round(time.time() - start, 2)
         result.cost_usd = self.estimate_cost(inputs)
         return result
-

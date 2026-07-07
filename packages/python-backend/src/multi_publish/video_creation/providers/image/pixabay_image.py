@@ -2,6 +2,7 @@
 
 Adapted from OpenMontage tools/graphics/pixabay_image.py.
 """
+
 from __future__ import annotations
 
 import os
@@ -35,8 +36,7 @@ class PixabayImage(BaseTool):
 
     dependencies = []
     install_instructions = (
-        "Set PIXABAY_API_KEY to your Pixabay API key.\n"
-        "  Get one free at https://pixabay.com/api/docs/"
+        "Set PIXABAY_API_KEY to your Pixabay API key.\n  Get one free at https://pixabay.com/api/docs/"
     )
 
     capabilities = ["search_image", "download_image", "stock_image"]
@@ -51,9 +51,7 @@ class PixabayImage(BaseTool):
         "offline use",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True)
     idempotency_key_fields = ["query", "image_type", "orientation", "category", "page"]
 
     def get_status(self) -> ToolStatus:

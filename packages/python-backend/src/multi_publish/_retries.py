@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import random
@@ -22,7 +21,15 @@ class RetryPolicy:
     def should_retry(self, exc, attempt):
         if attempt >= self.max_retries:
             return False
-        return isinstance(exc, (MultiPublishConnectionError, MultiPublishServerError, MultiPublishUpstreamError, MultiPublishRateLimitError))
+        return isinstance(
+            exc,
+            (
+                MultiPublishConnectionError,
+                MultiPublishServerError,
+                MultiPublishUpstreamError,
+                MultiPublishRateLimitError,
+            ),
+        )
 
     def sleep_for(self, exc, attempt):
         if isinstance(exc, MultiPublishRateLimitError) and exc.retry_after is not None:
@@ -32,6 +39,7 @@ class RetryPolicy:
         if self.jitter:
             delay *= 1.0 + random.uniform(-self.jitter, self.jitter)
         return delay
+
 
 DEFAULT_RETRY = RetryPolicy()
 AGGRESSIVE_RETRY = RetryPolicy(max_retries=5, backoff_base=0.3, backoff_max=60.0)

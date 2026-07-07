@@ -29,9 +29,21 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".webm"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp"}
 
 SCENE_CATEGORIES = [
-    "indoor", "outdoor", "landscape", "cityscape", "portrait",
-    "action", "close-up", "aerial", "underwater", "night",
-    "studio", "nature", "urban", "abstract", "text-overlay",
+    "indoor",
+    "outdoor",
+    "landscape",
+    "cityscape",
+    "portrait",
+    "action",
+    "close-up",
+    "aerial",
+    "underwater",
+    "night",
+    "studio",
+    "nature",
+    "urban",
+    "abstract",
+    "text-overlay",
 ]
 
 
@@ -47,9 +59,7 @@ class VideoUnderstand(BaseTool):
     runtime = ToolRuntime.LOCAL_GPU
 
     dependencies = ["python:transformers", "python:torch"]
-    install_instructions = (
-        "pip install transformers torch  # For CLIP/BLIP-2 visual understanding"
-    )
+    install_instructions = "pip install transformers torch  # For CLIP/BLIP-2 visual understanding"
     agent_skills = ["video-understand"]
 
     capabilities = [
@@ -91,8 +101,7 @@ class VideoUnderstand(BaseTool):
                 "type": "array",
                 "items": {"type": "integer"},
                 "description": (
-                    "For video input, which frames to analyze. "
-                    "If not provided, samples key frames at even intervals."
+                    "For video input, which frames to analyze. If not provided, samples key frames at even intervals."
                 ),
             },
             "max_frames": {
@@ -137,6 +146,7 @@ class VideoUnderstand(BaseTool):
         try:
             import torch  # noqa: F401
             import transformers  # noqa: F401
+
             return ToolStatus.AVAILABLE
         except ImportError:
             return ToolStatus.UNAVAILABLE
@@ -170,10 +180,7 @@ class VideoUnderstand(BaseTool):
         if not is_video and not is_image:
             return ToolResult(
                 success=False,
-                error=(
-                    f"Unsupported file type: {suffix}. "
-                    f"Supported: {sorted(VIDEO_EXTENSIONS | IMAGE_EXTENSIONS)}"
-                ),
+                error=(f"Unsupported file type: {suffix}. Supported: {sorted(VIDEO_EXTENSIONS | IMAGE_EXTENSIONS)}"),
             )
 
         if mode == "qa" and not query:
@@ -186,9 +193,7 @@ class VideoUnderstand(BaseTool):
 
         # --- Load frames ---
         try:
-            frames = self._load_frames(
-                input_path, is_video, frame_indices, max_frames
-            )
+            frames = self._load_frames(input_path, is_video, frame_indices, max_frames)
         except Exception as e:
             return ToolResult(success=False, error=f"Failed to load frames: {e}")
 
@@ -267,30 +272,48 @@ class VideoUnderstand(BaseTool):
             if frame_indices:
                 # Extract specific frames using select filter
                 frames_to_extract = frame_indices[:max_frames]
-                select_expr = "+".join(
-                    f"eq(n\\,{idx})" for idx in frames_to_extract
-                )
+                select_expr = "+".join(f"eq(n\\,{idx})" for idx in frames_to_extract)
                 cmd = [
-                    "ffmpeg", "-i", str(video_path),
-                    "-vf", f"select='{select_expr}'",
-                    "-vsync", "vfr",
+                    "ffmpeg",
+                    "-i",
+                    str(video_path),
+                    "-vf",
+                    f"select='{select_expr}'",
+                    "-vsync",
+                    "vfr",
                     str(tmp / "frame_%04d.png"),
-                    "-y", "-loglevel", "error",
+                    "-y",
+                    "-loglevel",
+                    "error",
                 ]
             else:
                 # Get total frame count first
                 probe_cmd = [
-                    "ffmpeg", "-i", str(video_path),
-                    "-map", "0:v:0", "-c", "copy", "-f", "null", "-",
+                    "ffmpeg",
+                    "-i",
+                    str(video_path),
+                    "-map",
+                    "0:v:0",
+                    "-c",
+                    "copy",
+                    "-f",
+                    "null",
+                    "-",
                 ]
                 # Sample at even intervals using fps filter
                 # Use a select filter that picks frames at even intervals
                 cmd = [
-                    "ffmpeg", "-i", str(video_path),
-                    "-frames:v", str(max_frames),
-                    "-vf", f"thumbnail={max_frames}",
+                    "ffmpeg",
+                    "-i",
+                    str(video_path),
+                    "-frames:v",
+                    str(max_frames),
+                    "-vf",
+                    f"thumbnail={max_frames}",
                     str(tmp / "frame_%04d.png"),
-                    "-y", "-loglevel", "error",
+                    "-y",
+                    "-loglevel",
+                    "error",
                 ]
 
             subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -320,6 +343,7 @@ class VideoUnderstand(BaseTool):
             # Manual Laplacian approximation using numpy
             laplacian_kernel = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]])
             from scipy.signal import convolve2d
+
             laplacian = convolve2d(gray, laplacian_kernel, mode="valid")
             blur_score = float(np.var(laplacian))
 
@@ -342,15 +366,17 @@ class VideoUnderstand(BaseTool):
 
             quality_label = "good" if not quality_issues else "issues_detected"
 
-            results.append({
-                "frame_index": i,
-                "blur_score": round(blur_score, 2),
-                "brightness": round(brightness, 2),
-                "contrast": round(contrast, 2),
-                "quality": quality_label,
-                "issues": quality_issues,
-                "resolution": f"{img.width}x{img.height}",
-            })
+            results.append(
+                {
+                    "frame_index": i,
+                    "blur_score": round(blur_score, 2),
+                    "brightness": round(brightness, 2),
+                    "contrast": round(contrast, 2),
+                    "quality": quality_label,
+                    "issues": quality_issues,
+                    "resolution": f"{img.width}x{img.height}",
+                }
+            )
 
         return results
 
@@ -396,9 +422,7 @@ class VideoUnderstand(BaseTool):
 
         raise ValueError(f"Unknown model: {model_name}")
 
-    def _analyze_describe(
-        self, frames: list, model_name: str
-    ) -> list[dict[str, Any]]:
+    def _analyze_describe(self, frames: list, model_name: str) -> list[dict[str, Any]]:
         """Generate captions for each frame."""
         import torch
 
@@ -410,44 +434,48 @@ class VideoUnderstand(BaseTool):
                 # CLIP is not a captioning model; use zero-shot classification
                 # with generic scene descriptions as a caption proxy
                 candidate_texts = [
-                    "a photo of a person", "a photo of a landscape",
-                    "a photo of an object", "a photo of text",
-                    "a photo of an animal", "a photo of a building",
-                    "a photo of food", "a photo of a vehicle",
-                    "an abstract image", "a dark scene", "a bright scene",
+                    "a photo of a person",
+                    "a photo of a landscape",
+                    "a photo of an object",
+                    "a photo of text",
+                    "a photo of an animal",
+                    "a photo of a building",
+                    "a photo of food",
+                    "a photo of a vehicle",
+                    "an abstract image",
+                    "a dark scene",
+                    "a bright scene",
                 ]
-                clip_inputs = processor(
-                    text=candidate_texts, images=img, return_tensors="pt", padding=True
-                ).to(device)
+                clip_inputs = processor(text=candidate_texts, images=img, return_tensors="pt", padding=True).to(device)
                 with torch.no_grad():
                     outputs = model(**clip_inputs)
                 probs = outputs.logits_per_image.softmax(dim=1)[0]
                 top_idx = probs.argmax().item()
                 caption = candidate_texts[top_idx]
                 confidence = round(probs[top_idx].item(), 3)
-                results.append({
-                    "frame_index": i,
-                    "description": caption,
-                    "confidence": confidence,
-                })
+                results.append(
+                    {
+                        "frame_index": i,
+                        "description": caption,
+                        "confidence": confidence,
+                    }
+                )
 
             elif model_name in ("blip2", "llava"):
                 inputs = processor(images=img, return_tensors="pt").to(device)
                 with torch.no_grad():
                     generated_ids = model.generate(**inputs, max_new_tokens=50)
-                caption = processor.batch_decode(
-                    generated_ids, skip_special_tokens=True
-                )[0].strip()
-                results.append({
-                    "frame_index": i,
-                    "description": caption,
-                })
+                caption = processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
+                results.append(
+                    {
+                        "frame_index": i,
+                        "description": caption,
+                    }
+                )
 
         return results
 
-    def _analyze_qa(
-        self, frames: list, model_name: str, query: str
-    ) -> list[dict[str, Any]]:
+    def _analyze_qa(self, frames: list, model_name: str, query: str) -> list[dict[str, Any]]:
         """Answer a question about each frame."""
         import torch
 
@@ -458,44 +486,40 @@ class VideoUnderstand(BaseTool):
             if model_name == "clip":
                 # Use query as one candidate and its negation as another
                 candidates = [query, f"not {query}"]
-                clip_inputs = processor(
-                    text=candidates, images=img, return_tensors="pt", padding=True
-                ).to(device)
+                clip_inputs = processor(text=candidates, images=img, return_tensors="pt", padding=True).to(device)
                 with torch.no_grad():
                     outputs = model(**clip_inputs)
                 probs = outputs.logits_per_image.softmax(dim=1)[0]
                 yes_prob = probs[0].item()
-                results.append({
-                    "frame_index": i,
-                    "query": query,
-                    "answer": "yes" if yes_prob > 0.5 else "no",
-                    "confidence": round(max(yes_prob, 1 - yes_prob), 3),
-                })
+                results.append(
+                    {
+                        "frame_index": i,
+                        "query": query,
+                        "answer": "yes" if yes_prob > 0.5 else "no",
+                        "confidence": round(max(yes_prob, 1 - yes_prob), 3),
+                    }
+                )
 
             elif model_name in ("blip2", "llava"):
                 prompt = f"Question: {query} Answer:"
-                inputs = processor(
-                    images=img, text=prompt, return_tensors="pt"
-                ).to(device)
+                inputs = processor(images=img, text=prompt, return_tensors="pt").to(device)
                 with torch.no_grad():
                     generated_ids = model.generate(**inputs, max_new_tokens=50)
-                answer = processor.batch_decode(
-                    generated_ids, skip_special_tokens=True
-                )[0].strip()
+                answer = processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
                 # Remove the prompt echo if present
                 if answer.startswith(prompt):
-                    answer = answer[len(prompt):].strip()
-                results.append({
-                    "frame_index": i,
-                    "query": query,
-                    "answer": answer,
-                })
+                    answer = answer[len(prompt) :].strip()
+                results.append(
+                    {
+                        "frame_index": i,
+                        "query": query,
+                        "answer": answer,
+                    }
+                )
 
         return results
 
-    def _analyze_classify(
-        self, frames: list, model_name: str
-    ) -> list[dict[str, Any]]:
+    def _analyze_classify(self, frames: list, model_name: str) -> list[dict[str, Any]]:
         """Classify each frame into scene categories."""
         import torch
 
@@ -505,9 +529,7 @@ class VideoUnderstand(BaseTool):
         for i, img in enumerate(frames):
             if model_name == "clip":
                 candidate_texts = [f"a {cat} scene" for cat in SCENE_CATEGORIES]
-                clip_inputs = processor(
-                    text=candidate_texts, images=img, return_tensors="pt", padding=True
-                ).to(device)
+                clip_inputs = processor(text=candidate_texts, images=img, return_tensors="pt", padding=True).to(device)
                 with torch.no_grad():
                     outputs = model(**clip_inputs)
                 probs = outputs.logits_per_image.softmax(dim=1)[0]
@@ -517,36 +539,31 @@ class VideoUnderstand(BaseTool):
                     key=lambda x: x[1],
                     reverse=True,
                 )
-                results.append({
-                    "frame_index": i,
-                    "top_category": scored[0][0],
-                    "confidence": round(scored[0][1], 3),
-                    "categories": [
-                        {"label": label, "score": round(score, 3)}
-                        for label, score in scored[:5]
-                    ],
-                })
+                results.append(
+                    {
+                        "frame_index": i,
+                        "top_category": scored[0][0],
+                        "confidence": round(scored[0][1], 3),
+                        "categories": [{"label": label, "score": round(score, 3)} for label, score in scored[:5]],
+                    }
+                )
 
             elif model_name in ("blip2", "llava"):
                 prompt = (
-                    "Classify this image into one of these categories: "
-                    + ", ".join(SCENE_CATEGORIES)
-                    + ". Category:"
+                    "Classify this image into one of these categories: " + ", ".join(SCENE_CATEGORIES) + ". Category:"
                 )
-                inputs = processor(
-                    images=img, text=prompt, return_tensors="pt"
-                ).to(device)
+                inputs = processor(images=img, text=prompt, return_tensors="pt").to(device)
                 with torch.no_grad():
                     generated_ids = model.generate(**inputs, max_new_tokens=20)
-                category = processor.batch_decode(
-                    generated_ids, skip_special_tokens=True
-                )[0].strip()
+                category = processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
                 if category.startswith(prompt):
-                    category = category[len(prompt):].strip()
-                results.append({
-                    "frame_index": i,
-                    "top_category": category,
-                })
+                    category = category[len(prompt) :].strip()
+                results.append(
+                    {
+                        "frame_index": i,
+                        "top_category": category,
+                    }
+                )
 
         return results
 
@@ -554,9 +571,7 @@ class VideoUnderstand(BaseTool):
     # Summary
     # ------------------------------------------------------------------
 
-    def _build_summary(
-        self, frame_results: list[dict[str, Any]], mode: str
-    ) -> str:
+    def _build_summary(self, frame_results: list[dict[str, Any]], mode: str) -> str:
         """Build a human-readable summary from per-frame results."""
         n = len(frame_results)
 
@@ -579,17 +594,12 @@ class VideoUnderstand(BaseTool):
             if not issues_all:
                 return f"All {n} frame(s) passed quality checks."
             unique_issues = sorted(set(issues_all))
-            return (
-                f"Analyzed {n} frame(s). Issues found: {', '.join(unique_issues)}."
-            )
+            return f"Analyzed {n} frame(s). Issues found: {', '.join(unique_issues)}."
 
         if mode == "classify":
             categories = [r.get("top_category", "unknown") for r in frame_results]
             if n == 1:
                 return f"Scene classified as: {categories[0]}"
-            return (
-                f"Analyzed {n} frames. Scene categories: "
-                + ", ".join(categories)
-            )
+            return f"Analyzed {n} frames. Scene categories: " + ", ".join(categories)
 
         return f"Analyzed {n} frame(s)."

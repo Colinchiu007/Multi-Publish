@@ -1,4 +1,5 @@
 """Video providers package - adapted from OpenMontage."""
+
 from __future__ import annotations
 
 from multi_publish.video_creation.providers.video.auto_reframe import AutoReframe
@@ -58,20 +59,54 @@ from multi_publish.video_creation.providers.video.wan_video import WanVideo
 
 __all__ = [
     # AI Providers
-    "HunyuanVideo", "KlingVideo", "RunwayVideo", "VeoVideo", "WanVideo",
-    "CogVideoVideo", "MiniMaxVideo", "GrokVideo", "HeyGenVideo",
-    "SeedanceVideo", "SeedanceReplicate", "LTXVideoLocal", "LTXVideoModal",
-    "HiggsFieldVideo", "HyperFramesCompose",
+    "HunyuanVideo",
+    "KlingVideo",
+    "RunwayVideo",
+    "VeoVideo",
+    "WanVideo",
+    "CogVideoVideo",
+    "MiniMaxVideo",
+    "GrokVideo",
+    "HeyGenVideo",
+    "SeedanceVideo",
+    "SeedanceReplicate",
+    "LTXVideoLocal",
+    "LTXVideoModal",
+    "HiggsFieldVideo",
+    "HyperFramesCompose",
     # Processing
-    "VideoCompose", "VideoSelector", "VideoStitch", "VideoTrimmer",
-    "AutoReframe", "SilenceCutter", "RemotionCaptionBurn", "ShowcaseCard",
-    "GreenScreenProcessor", "GreenScreenComposite", "ClipCache",
-    "ClipSearch", "CorpusBuilder", "DirectClipSearch",
+    "VideoCompose",
+    "VideoSelector",
+    "VideoStitch",
+    "VideoTrimmer",
+    "AutoReframe",
+    "SilenceCutter",
+    "RemotionCaptionBurn",
+    "ShowcaseCard",
+    "GreenScreenProcessor",
+    "GreenScreenComposite",
+    "ClipCache",
+    "ClipSearch",
+    "CorpusBuilder",
+    "DirectClipSearch",
     # Stock sources
-    "ArchiveOrgVideo", "CoverrVideo", "DarefulVideo", "EsaVideo",
-    "JaxaVideo", "LocVideo", "MixkitVideo", "NaraVideo", "NasaVideo",
-    "NoaaVideo", "PexelsVideo", "PixabayVideo", "Pond5PdVideo",
-    "UnsplashVideo", "VidevoVideo", "WikimediaVideo",
+    "ArchiveOrgVideo",
+    "CoverrVideo",
+    "DarefulVideo",
+    "EsaVideo",
+    "JaxaVideo",
+    "LocVideo",
+    "MixkitVideo",
+    "NaraVideo",
+    "NasaVideo",
+    "NoaaVideo",
+    "PexelsVideo",
+    "PixabayVideo",
+    "Pond5PdVideo",
+    "UnsplashVideo",
+    "VidevoVideo",
+    "WikimediaVideo",
     # Base
-    "Candidate", "SearchFilters",
+    "Candidate",
+    "SearchFilters",
 ]

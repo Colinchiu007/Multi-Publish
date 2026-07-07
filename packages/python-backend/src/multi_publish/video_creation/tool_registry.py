@@ -98,12 +98,14 @@ class ToolRegistry:
 
         capabilities: list[dict[str, Any]] = []
         for cap, bucket in buckets.items():
-            capabilities.append({
-                "capability": cap,
-                "available": len(bucket["available"]),
-                "unavailable": len(bucket["unavailable"]),
-                "available_providers": sorted({e["provider"] for e in bucket["available"]} - {None}),
-            })
+            capabilities.append(
+                {
+                    "capability": cap,
+                    "available": len(bucket["available"]),
+                    "unavailable": len(bucket["unavailable"]),
+                    "available_providers": sorted({e["provider"] for e in bucket["available"]} - {None}),
+                }
+            )
         return {"capabilities": capabilities, "total_tools": len(self._tools)}
 
 

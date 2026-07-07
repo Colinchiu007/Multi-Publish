@@ -1,11 +1,19 @@
-﻿"""Tests for pipeline manifest loader (Phase 6)."""
+"""Tests for pipeline manifest loader (Phase 6)."""
+
 from __future__ import annotations
+
 import pytest
+
 from multi_publish.video_creation.pipeline.loader import (
-    get_stage_order, get_required_tools, get_stage_skill,
-    get_stage_review_focus, get_reference_input_config,
-    pipeline_supports_reference_input, check_extension_permitted,
-    get_permitted_extensions, _condition_is_active,
+    _condition_is_active,
+    check_extension_permitted,
+    get_permitted_extensions,
+    get_reference_input_config,
+    get_required_tools,
+    get_stage_order,
+    get_stage_review_focus,
+    get_stage_skill,
+    pipeline_supports_reference_input,
 )
 
 SAMPLE_MANIFEST = {
@@ -13,13 +21,16 @@ SAMPLE_MANIFEST = {
     "version": "1.0",
     "stages": [
         {"name": "analysis", "preferred_tools": ["transcriber"], "review_focus": ["accuracy"]},
-        {"name": "generation", "preferred_tools": ["hunyuan"], "fallback_tools": ["kling"],
-         "sub_stages": [
-             {"name": "draft", "condition": "user_prefers_draft"},
-             {"name": "final", "condition": None},
-         ]},
-        {"name": "review", "skill": "agent-skills:code-review-and-quality",
-         "review_focus": ["quality", "style"]},
+        {
+            "name": "generation",
+            "preferred_tools": ["hunyuan"],
+            "fallback_tools": ["kling"],
+            "sub_stages": [
+                {"name": "draft", "condition": "user_prefers_draft"},
+                {"name": "final", "condition": None},
+            ],
+        },
+        {"name": "review", "skill": "agent-skills:code-review-and-quality", "review_focus": ["quality", "style"]},
     ],
     "reference_input": {"supported": True, "max_duration": 60},
     "extensions": {"custom_scripts": True, "custom_playbooks": False},

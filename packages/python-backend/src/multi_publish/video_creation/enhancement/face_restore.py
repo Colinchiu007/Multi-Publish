@@ -71,9 +71,7 @@ class FaceRestore(BaseTool):
             "fidelity": {
                 "type": "number",
                 "default": 0.5,
-                "description": (
-                    "0 = max quality, 1 = max fidelity to input (CodeFormer only)"
-                ),
+                "description": ("0 = max quality, 1 = max fidelity to input (CodeFormer only)"),
             },
             "upscale": {
                 "type": "integer",
@@ -88,9 +86,7 @@ class FaceRestore(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=2, ram_mb=2048, vram_mb=2048, disk_mb=1000
-    )
+    resource_profile = ResourceProfile(cpu_cores=2, ram_mb=2048, vram_mb=2048, disk_mb=1000)
     idempotency_key_fields = ["input_path", "model", "fidelity", "upscale"]
     side_effects = ["writes restored image to output_path"]
     user_visible_verification = [
@@ -101,6 +97,7 @@ class FaceRestore(BaseTool):
     def get_status(self) -> ToolStatus:
         try:
             import gfpgan  # noqa: F401
+
             return ToolStatus.AVAILABLE
         except ImportError:
             return ToolStatus.UNAVAILABLE
@@ -147,14 +144,17 @@ class FaceRestore(BaseTool):
                 from realesrgan import RealESRGANer
 
                 realesrgan_model = RRDBNet(
-                    num_in_ch=3, num_out_ch=3, num_feat=64,
-                    num_block=23, num_grow_ch=32, scale=2,
+                    num_in_ch=3,
+                    num_out_ch=3,
+                    num_feat=64,
+                    num_block=23,
+                    num_grow_ch=32,
+                    scale=2,
                 )
                 bg_kwargs: dict = {
                     "scale": 2,
                     "model_path": (
-                        "https://github.com/xinntao/Real-ESRGAN/releases/download/"
-                        "v0.2.1/RealESRGAN_x2plus.pth"
+                        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth"
                     ),
                     "model": realesrgan_model,
                     "tile": 400,
@@ -171,16 +171,10 @@ class FaceRestore(BaseTool):
 
         # Select model path based on model choice
         if model_name == "CodeFormer":
-            model_path = (
-                "https://github.com/sczhou/CodeFormer/releases/download/"
-                "v0.1.0/codeformer.pth"
-            )
+            model_path = "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer.pth"
             arch = "CodeFormer"
         else:
-            model_path = (
-                "https://github.com/TencentARC/GFPGAN/releases/download/"
-                "v1.3.0/GFPGANv1.3.pth"
-            )
+            model_path = "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth"
             arch = "clean"
 
         # Instantiate restorer
@@ -196,16 +190,12 @@ class FaceRestore(BaseTool):
                 restorer_kwargs["device"] = torch.device(_device)
             restorer = GFPGANer(**restorer_kwargs)
         except Exception as e:
-            return ToolResult(
-                success=False, error=f"Failed to load {model_name} model: {e}"
-            )
+            return ToolResult(success=False, error=f"Failed to load {model_name} model: {e}")
 
         # Read input image
         input_img = cv2.imread(str(input_path), cv2.IMREAD_COLOR)
         if input_img is None:
-            return ToolResult(
-                success=False, error=f"Failed to read image: {input_path}"
-            )
+            return ToolResult(success=False, error=f"Failed to read image: {input_path}")
 
         # Run restoration
         try:
@@ -220,9 +210,7 @@ class FaceRestore(BaseTool):
             return ToolResult(success=False, error=f"Restoration failed: {e}")
 
         if restored_img is None:
-            return ToolResult(
-                success=False, error="Restoration produced no output"
-            )
+            return ToolResult(success=False, error="Restoration produced no output")
 
         # Save restored output
         output_path.parent.mkdir(parents=True, exist_ok=True)

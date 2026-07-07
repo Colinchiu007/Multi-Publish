@@ -21,6 +21,7 @@ normalised 512-d float32 vectors that can be cosine-compared.
 This file does NOT decide what to embed or how to use the embeddings.
 That intelligence lives in the corpus manager and retrieval skills.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

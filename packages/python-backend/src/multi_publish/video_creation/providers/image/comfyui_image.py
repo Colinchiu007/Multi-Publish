@@ -4,6 +4,7 @@ Simplified adapter - connects to a running ComfyUI server without
 the OpenMontage-specific client library. Requires manual workflow setup.
 Adapted from OpenMontage tools/graphics/comfyui_image.py.
 """
+
 from __future__ import annotations
 
 import os
@@ -53,7 +54,11 @@ class ComfyUIImage(BaseTool):
     ]
 
     resource_profile = ResourceProfile(
-        cpu_cores=2, ram_mb=8000, vram_mb=8000, disk_mb=500, network_required=False,
+        cpu_cores=2,
+        ram_mb=8000,
+        vram_mb=8000,
+        disk_mb=500,
+        network_required=False,
     )
     idempotency_key_fields = ["prompt", "width", "height", "steps", "seed"]
 
@@ -64,6 +69,7 @@ class ComfyUIImage(BaseTool):
         """Check if the ComfyUI server is reachable via the /system/stats endpoint."""
         try:
             import requests
+
             resp = requests.get(f"{self._server_url()}/system/stats", timeout=5)
             if resp.status_code == 200:
                 return ToolStatus.AVAILABLE

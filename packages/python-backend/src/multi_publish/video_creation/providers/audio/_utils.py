@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/analysis/audio_probe.py and
 tools/google_credentials.py.
 """
+
 from __future__ import annotations
 
 import os
@@ -18,9 +19,12 @@ def probe_duration(audio_path: Path) -> float | None:
         result = subprocess.run(
             [
                 "ffprobe",
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
                 str(audio_path),
             ],
             capture_output=True,
@@ -54,8 +58,7 @@ def get_access_token() -> tuple[str, str | None]:
         from google.oauth2 import service_account
     except ImportError:
         raise RuntimeError(
-            "Service-account auth requires the 'google-auth' package. "
-            "Install it with: pip install google-auth"
+            "Service-account auth requires the 'google-auth' package. Install it with: pip install google-auth"
         )
 
     path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
@@ -87,6 +90,7 @@ def resolve_project_id() -> str | None:
     if creds_path and os.path.exists(creds_path):
         try:
             import json
+
             with open(creds_path, encoding="utf-8") as f:
                 key_data = json.load(f)
             return key_data.get("project_id")

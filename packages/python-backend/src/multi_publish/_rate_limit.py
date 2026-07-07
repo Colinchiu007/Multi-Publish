@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import time
@@ -22,6 +21,7 @@ def parse_retry_after(headers):
         return max(0.0, rv)
     return None
 
+
 def parse_rate_limit_remaining(headers):
     val = headers.get("x-ratelimit-remaining") or headers.get("X-RateLimit-Remaining")
     if val is not None:
@@ -30,6 +30,7 @@ def parse_rate_limit_remaining(headers):
         except (TypeError, ValueError):
             pass
     return None
+
 
 def parse_rate_limit_limit(headers):
     val = headers.get("x-ratelimit-limit") or headers.get("X-RateLimit-Limit")

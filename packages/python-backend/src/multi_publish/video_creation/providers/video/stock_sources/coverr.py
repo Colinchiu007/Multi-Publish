@@ -15,6 +15,7 @@ What Coverr is good for
 - High production quality (curated library)
 - Quick establishing shots and mood-setters
 """
+
 from __future__ import annotations
 
 import os
@@ -94,11 +95,7 @@ class CoverrSource:
             # Coverr provides multiple URLs for different qualities
             urls = v.get("urls", {}) or {}
             download_url = (
-                urls.get("mp4_download")
-                or urls.get("mp4_1080")
-                or urls.get("mp4_720")
-                or urls.get("mp4_preview")
-                or ""
+                urls.get("mp4_download") or urls.get("mp4_1080") or urls.get("mp4_720") or urls.get("mp4_preview") or ""
             )
             if not download_url:
                 continue
@@ -142,9 +139,7 @@ class CoverrSource:
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with httpx.get(
-            candidate.download_url, stream=True, timeout=120
-        ) as r:
+        with httpx.get(candidate.download_url, stream=True, timeout=120) as r:
             r.raise_for_status()
             with open(out_path, "wb") as f:
                 for chunk in r.iter_bytes(1 << 16):
@@ -155,6 +150,7 @@ class CoverrSource:
 
 class CoverrVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "coverr"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -189,7 +185,7 @@ class CoverrVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -223,7 +219,7 @@ class CoverrVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -233,6 +229,7 @@ class CoverrVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

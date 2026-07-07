@@ -15,6 +15,7 @@ What Videvo is good for
 - Modern HD/4K footage
 - Complements Pexels with a different contributor base
 """
+
 from __future__ import annotations
 
 import logging
@@ -51,8 +52,7 @@ class VidevoSource:
     provider = "videvo"
     priority = 22
     install_instructions = (
-        "Set VIDEVO_API_KEY in .env to enable Videvo stock search "
-        "(get API access at https://www.videvo.net/api/)."
+        "Set VIDEVO_API_KEY in .env to enable Videvo stock search (get API access at https://www.videvo.net/api/)."
     )
 
     def is_available(self) -> bool:
@@ -166,9 +166,7 @@ class VidevoSource:
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with httpx.get(
-            candidate.download_url, stream=True, timeout=120
-        ) as r:
+        with httpx.get(candidate.download_url, stream=True, timeout=120) as r:
             r.raise_for_status()
             with open(out_path, "wb") as f:
                 for chunk in r.iter_bytes(1 << 16):
@@ -179,6 +177,7 @@ class VidevoSource:
 
 class VidevoVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "videvo"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -213,7 +212,7 @@ class VidevoVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -247,7 +246,7 @@ class VidevoVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -257,6 +256,7 @@ class VidevoVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

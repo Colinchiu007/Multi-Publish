@@ -57,10 +57,7 @@ class GrokVideo(BaseTool):
     runtime = ToolRuntime.API
 
     dependencies = []
-    install_instructions = (
-        "Set XAI_API_KEY to your xAI API key.\n"
-        "  Get one from the xAI developer console"
-    )
+    install_instructions = "Set XAI_API_KEY to your xAI API key.\n  Get one from the xAI developer console"
 
     capabilities = ["text_to_video", "image_to_video", "reference_to_video"]
     best_for = [
@@ -71,10 +68,7 @@ class GrokVideo(BaseTool):
     ]
     not_good_for = ["offline generation"]
 
-
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True)
     idempotency_key_fields = ["prompt", "operation", "model", "duration", "aspect_ratio", "resolution"]
 
     def get_status(self) -> ToolStatus:
@@ -131,14 +125,9 @@ class GrokVideo(BaseTool):
             payload["image"] = image
         elif operation == "reference_to_video":
             refs = [{"url": url} for url in (inputs.get("reference_image_urls") or [])]
-            refs.extend(
-                {"url": _file_to_data_uri(path)}
-                for path in (inputs.get("reference_image_paths") or [])
-            )
+            refs.extend({"url": _file_to_data_uri(path)} for path in (inputs.get("reference_image_paths") or []))
             if not refs:
-                raise ValueError(
-                    "reference_to_video requires reference_image_urls or reference_image_paths"
-                )
+                raise ValueError("reference_to_video requires reference_image_urls or reference_image_paths")
             payload["reference_images"] = refs
             payload["duration"] = int(inputs.get("duration", 5))
             if inputs.get("aspect_ratio"):

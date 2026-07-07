@@ -2,6 +2,7 @@
 
 Adapted from OpenMontage tools/graphics/grok_image.py.
 """
+
 from __future__ import annotations
 
 import base64
@@ -56,14 +57,14 @@ class GrokImage(BaseTool):
     runtime = ToolRuntime.API
 
     dependencies = []
-    install_instructions = (
-        "Set XAI_API_KEY to your xAI API key.\n"
-        "  Get one from the xAI developer console"
-    )
+    install_instructions = "Set XAI_API_KEY to your xAI API key.\n  Get one from the xAI developer console"
 
     capabilities = [
-        "generate_image", "edit_image", "text_to_image",
-        "image_to_image", "style_transfer",
+        "generate_image",
+        "edit_image",
+        "text_to_image",
+        "image_to_image",
+        "style_transfer",
     ]
     best_for = [
         "single-image edits and style transfers",
@@ -72,9 +73,7 @@ class GrokImage(BaseTool):
     ]
     not_good_for = ["offline generation", "strict seeded reproducibility"]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True)
     idempotency_key_fields = ["prompt", "generation_mode", "model", "aspect_ratio", "resolution", "n"]
 
     def get_status(self) -> ToolStatus:
@@ -118,13 +117,9 @@ class GrokImage(BaseTool):
             payload["n"] = inputs["n"]
 
         primary_image = _normalize_image_input(inputs.get("image_url"), inputs.get("image_path"))
-        extra_images = [
-            {"url": url, "type": "image_url"}
-            for url in (inputs.get("image_urls") or [])
-        ]
+        extra_images = [{"url": url, "type": "image_url"} for url in (inputs.get("image_urls") or [])]
         extra_images.extend(
-            {"url": _file_to_data_uri(path), "type": "image_url"}
-            for path in (inputs.get("image_paths") or [])
+            {"url": _file_to_data_uri(path), "type": "image_url"} for path in (inputs.get("image_paths") or [])
         )
 
         if primary_image or extra_images:
@@ -140,9 +135,7 @@ class GrokImage(BaseTool):
                     images.append(primary_image)
                 images.extend(extra_images)
                 if not images:
-                    raise ValueError(
-                        "Edit mode requires image_url/image_path or image_urls/image_paths"
-                    )
+                    raise ValueError("Edit mode requires image_url/image_path or image_urls/image_paths")
                 payload["images"] = images
         else:
             endpoint = "https://api.x.ai/v1/images/generations"

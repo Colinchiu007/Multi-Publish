@@ -13,6 +13,7 @@ __all__ = ["TikHubBridge", "TikHubBridgeError"]
 
 class TikHubBridgeError(Exception):
     """TikHubBridge 操作异常"""
+
     pass
 
 
@@ -43,11 +44,8 @@ class TikHubBridge:
 
     def get_resource(self, platform: str) -> Any:
         raise TikHubBridgeError(
-            "TikHub 付费 API 暂未启用。需要时请取消注释 tikhub_bridge.py 中的实现，"
-            "并配置有效的 API key。"
+            "TikHub 付费 API 暂未启用。需要时请取消注释 tikhub_bridge.py 中的实现，并配置有效的 API key。"
         )
 
     async def async_get_resource(self, platform: str) -> Any:
-        raise TikHubBridgeError(
-            "TikHub 付费 API 暂未启用。"
-        )
+        raise TikHubBridgeError("TikHub 付费 API 暂未启用。")

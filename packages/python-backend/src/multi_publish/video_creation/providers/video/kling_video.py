@@ -35,10 +35,7 @@ class KlingVideo(BaseTool):
     runtime = ToolRuntime.API
 
     dependencies = []
-    install_instructions = (
-        "Set FAL_KEY to your fal.ai API key.\n"
-        "  Get one at https://fal.ai/dashboard/keys"
-    )
+    install_instructions = "Set FAL_KEY to your fal.ai API key.\n  Get one at https://fal.ai/dashboard/keys"
 
     capabilities = ["text_to_video", "image_to_video"]
     best_for = [
@@ -48,10 +45,7 @@ class KlingVideo(BaseTool):
     ]
     not_good_for = ["budget-constrained projects", "offline generation", "quick iteration"]
 
-
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True)
     idempotency_key_fields = ["prompt", "model_variant", "operation", "duration"]
 
     def _get_api_key(self) -> str | None:

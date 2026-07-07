@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import asyncio
@@ -17,15 +16,24 @@ from multi_publish._errors import (
 )
 from multi_publish._retries import DEFAULT_RETRY, RetryPolicy
 
-_HTTPX_TIMEOUT_EX = (httpx.TimeoutException, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout)
+_HTTPX_TIMEOUT_EX = (
+    httpx.TimeoutException,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+)
 _HTTPX_PROXY_EX = (httpx.ProxyError,)
 _HTTPX_CONN_EX = (httpx.ConnectError, httpx.RemoteProtocolError, httpx.LocalProtocolError)
+
 
 @dataclass
 class HttpClient:
     base_url: str = ""
     default_timeout: float = 30.0
-    default_headers: dict = field(default_factory=lambda: {"User-Agent": "Multi-Publish/1.0", "Accept": "application/json"})
+    default_headers: dict = field(
+        default_factory=lambda: {"User-Agent": "Multi-Publish/1.0", "Accept": "application/json"}
+    )
     retry_policy: RetryPolicy = DEFAULT_RETRY
 
     def __post_init__(self):
@@ -75,7 +83,15 @@ class HttpClient:
             client = self._ensure_sync()
             start = time.time()
             try:
-                response = client.request(method=method, url=url, params=params, json=json, content=data, headers=merged_headers, timeout=timeout or self.default_timeout)
+                response = client.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                    json=json,
+                    content=data,
+                    headers=merged_headers,
+                    timeout=timeout or self.default_timeout,
+                )
                 if response.status_code >= 400:
                     self._raise_for_status(response, method=method, url=url, params=params, request_body=json or data)
                 return response
@@ -107,14 +123,24 @@ class HttpClient:
                 raise wrapped from exc
         raise MultiPublishConnectionError(f"Request failed after {policy.max_retries} retries")
 
-    async def async_request(self, method, url, *, params=None, json=None, data=None, headers=None, retry_policy=None, timeout=None):
+    async def async_request(
+        self, method, url, *, params=None, json=None, data=None, headers=None, retry_policy=None, timeout=None
+    ):
         policy = retry_policy or self.retry_policy
         merged_headers = {**self.default_headers, **self._get_auth_header(), **(headers or {})}
         for attempt in range(1, policy.max_retries + 1):
             client = self._ensure_async()
             start = time.time()
             try:
-                response = await client.request(method=method, url=url, params=params, json=json, content=data, headers=merged_headers, timeout=timeout or self.default_timeout)
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                    json=json,
+                    content=data,
+                    headers=merged_headers,
+                    timeout=timeout or self.default_timeout,
+                )
                 if response.status_code >= 400:
                     self._raise_for_status(response, method=method, url=url, params=params, request_body=json or data)
                 return response
@@ -146,14 +172,29 @@ class HttpClient:
                 raise wrapped from exc
         raise MultiPublishConnectionError(f"Request failed after {policy.max_retries} retries")
 
-    def get(self, url, **kw): return self.request("GET", url, **kw)
-    def post(self, url, **kw): return self.request("POST", url, **kw)
-    def put(self, url, **kw): return self.request("PUT", url, **kw)
-    def delete(self, url, **kw): return self.request("DELETE", url, **kw)
-    async def async_get(self, url, **kw): return await self.async_request("GET", url, **kw)
-    async def async_post(self, url, **kw): return await self.async_request("POST", url, **kw)
-    async def async_put(self, url, **kw): return await self.async_request("PUT", url, **kw)
-    async def async_delete(self, url, **kw): return await self.async_request("DELETE", url, **kw)
+    def get(self, url, **kw):
+        return self.request("GET", url, **kw)
+
+    def post(self, url, **kw):
+        return self.request("POST", url, **kw)
+
+    def put(self, url, **kw):
+        return self.request("PUT", url, **kw)
+
+    def delete(self, url, **kw):
+        return self.request("DELETE", url, **kw)
+
+    async def async_get(self, url, **kw):
+        return await self.async_request("GET", url, **kw)
+
+    async def async_post(self, url, **kw):
+        return await self.async_request("POST", url, **kw)
+
+    async def async_put(self, url, **kw):
+        return await self.async_request("PUT", url, **kw)
+
+    async def async_delete(self, url, **kw):
+        return await self.async_request("DELETE", url, **kw)
 
     def _raise_for_status(self, response, *, method, url, params=None, request_body=None):
         try:
@@ -161,7 +202,16 @@ class HttpClient:
         except Exception:
             body = response.text
         rid = response.headers.get("x-request-id") or response.headers.get("X-Request-Id")
-        raise http_error_for_status(body, status_code=response.status_code, method=method, url=url, params=params, request_body=request_body, request_id=rid, headers=dict(response.headers))
+        raise http_error_for_status(
+            body,
+            status_code=response.status_code,
+            method=method,
+            url=url,
+            params=params,
+            request_body=request_body,
+            request_id=rid,
+            headers=dict(response.headers),
+        )
 
     def _map_httpx_error(self, exc, *, method, url):
         try:
@@ -169,4 +219,11 @@ class HttpClient:
         except Exception:
             body = exc.response.text
         rid = exc.response.headers.get("x-request-id") or exc.response.headers.get("X-Request-Id")
-        return http_error_for_status(body, status_code=exc.response.status_code, method=method, url=url, request_id=rid, headers=dict(exc.response.headers))
+        return http_error_for_status(
+            body,
+            status_code=exc.response.status_code,
+            method=method,
+            url=url,
+            request_id=rid,
+            headers=dict(exc.response.headers),
+        )

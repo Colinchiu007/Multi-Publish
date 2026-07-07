@@ -3,6 +3,7 @@
 Chooses the appropriate audio provider tool based on the requested
 capability (tts, music_generation, music_search, music_library).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -39,9 +40,9 @@ class AudioSelector(BaseTool):
     def _providers_by_capability(self, capability: str) -> list[BaseTool]:
         """Discover providers for a given capability from the registry."""
         return [
-            t for t in registry.list_tools()
-            if t.capability == capability
-            and t.name not in ("audio_selector", "tts_selector")
+            t
+            for t in registry.list_tools()
+            if t.capability == capability and t.name not in ("audio_selector", "tts_selector")
         ]
 
     def get_capability_summary(self) -> dict[str, Any]:
@@ -73,8 +74,7 @@ class AudioSelector(BaseTool):
                     "audio_selector": True,
                     "capability_summary": self.get_capability_summary(),
                     "message": (
-                        "Specify a 'capability' to route: tts, music_generation, "
-                        "music_search, or music_library."
+                        "Specify a 'capability' to route: tts, music_generation, music_search, or music_library."
                     ),
                 },
             )
@@ -121,8 +121,6 @@ class AudioSelector(BaseTool):
             result.data["routed_by"] = self.name
             result.data["routed_capability"] = sub_capability
             result.data["selected_provider"] = selected.provider
-            result.data["alternatives"] = [
-                t.provider for t in available if t.name != selected.name
-            ]
+            result.data["alternatives"] = [t.provider for t in available if t.name != selected.name]
 
         return result

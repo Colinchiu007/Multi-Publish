@@ -1,5 +1,7 @@
 """Tests for DataSyncService — real API v2"""
+
 import pytest
+
 from multi_publish.core.data_sync import DataSyncService, SyncType, get_data_sync_service
 
 
@@ -22,8 +24,7 @@ def test_data_sync_init():
 
 def test_push_data_sync():
     dss = DataSyncService()
-    dss.push("weibo", "acc_01", "微博A", "cookie",
-             SyncType.ACCOUNT_OVERVIEW, lambda a, b, c: None)
+    dss.push("weibo", "acc_01", "微博A", "cookie", SyncType.ACCOUNT_OVERVIEW, lambda a, b, c: None)
     assert len(dss._tasks) > 0
 
 

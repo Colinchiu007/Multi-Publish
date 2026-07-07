@@ -98,6 +98,7 @@ class Transcriber(BaseTool):
     def get_status(self) -> ToolStatus:
         try:
             import faster_whisper  # noqa: F401
+
             return ToolStatus.AVAILABLE
         except ImportError:
             return ToolStatus.UNAVAILABLE
@@ -105,6 +106,7 @@ class Transcriber(BaseTool):
     def _has_diarization(self) -> bool:
         try:
             import whisperx  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -138,6 +140,7 @@ class Transcriber(BaseTool):
         # Load model (CPU by default, CUDA if available)
         try:
             import torch
+
             device = "cuda" if torch.cuda.is_available() else "cpu"
             compute_type = "float16" if device == "cuda" else "int8"
         except ImportError:
@@ -185,9 +188,7 @@ class Transcriber(BaseTool):
 
         # Optional diarization pass
         if diarize and self._has_diarization():
-            segments = self._apply_diarization(
-                str(input_path), segments, detected_language
-            )
+            segments = self._apply_diarization(str(input_path), segments, detected_language)
 
         elapsed = time.time() - start
 
@@ -225,23 +226,18 @@ class Transcriber(BaseTool):
             audio = whisperx.load_audio(audio_path)
 
             # Align segments with word timestamps
-            align_model, align_metadata = whisperx.load_align_model(
-                language_code=language, device="cpu"
-            )
-            aligned = whisperx.align(
-                segments, align_model, align_metadata, audio, device="cpu"
-            )
+            align_model, align_metadata = whisperx.load_align_model(language_code=language, device="cpu")
+            aligned = whisperx.align(segments, align_model, align_metadata, audio, device="cpu")
 
             # Diarize
             import os
+
             hf_token = os.environ.get("HF_TOKEN")
             if not hf_token:
                 # Can't diarize without HuggingFace token for pyannote
                 return segments
 
-            diarize_model = whisperx.DiarizationPipeline(
-                use_auth_token=hf_token, device="cpu"
-            )
+            diarize_model = whisperx.DiarizationPipeline(use_auth_token=hf_token, device="cpu")
             diarize_segments = diarize_model(audio)
             result = whisperx.assign_word_speakers(diarize_segments, aligned)
 

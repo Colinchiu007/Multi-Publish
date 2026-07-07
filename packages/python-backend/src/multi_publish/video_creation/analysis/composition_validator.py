@@ -81,9 +81,7 @@ class CompositionValidator(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=64, vram_mb=0, disk_mb=0, network_required=False
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=64, vram_mb=0, disk_mb=0, network_required=False)
     side_effects = []
 
     def get_status(self) -> ToolStatus:
@@ -109,11 +107,7 @@ class CompositionValidator(BaseTool):
         # composition JSON itself (edit_decisions.render_runtime).
         explicit_root = inputs.get("assets_root") or ""
         assets_root = Path(explicit_root) if explicit_root else None
-        runtime = (
-            inputs.get("render_runtime")
-            or comp.get("render_runtime")
-            or ""
-        ).strip().lower()
+        runtime = (inputs.get("render_runtime") or comp.get("render_runtime") or "").strip().lower()
 
         if assets_root is None or not assets_root.is_dir():
             if runtime == "hyperframes":
@@ -176,9 +170,7 @@ class CompositionValidator(BaseTool):
             in_s = cut.get("in_seconds", 0)
             out_s = cut.get("out_seconds", 0)
             if out_s <= in_s:
-                errors.append(
-                    f"Cut '{cut.get('id', i)}': out_seconds ({out_s}) <= in_seconds ({in_s})"
-                )
+                errors.append(f"Cut '{cut.get('id', i)}': out_seconds ({out_s}) <= in_seconds ({in_s})")
 
         # --- Check 4: Asset files exist ---
         for cut in cuts:
@@ -232,8 +224,7 @@ class CompositionValidator(BaseTool):
                     info.append(f"Music duration: {music_dur:.1f}s")
                     if music_dur < video_duration:
                         warnings.append(
-                            f"Music ({music_dur:.1f}s) is shorter than video ({video_duration}s) "
-                            f"— will end early"
+                            f"Music ({music_dur:.1f}s) is shorter than video ({video_duration}s) — will end early"
                         )
 
         # --- Check 7: No audio at all ---

@@ -1,6 +1,7 @@
-﻿"""Tests for CredentialCrypto — 凭证加密模块."""
+"""Tests for CredentialCrypto — 凭证加密模块."""
 
 import pytest
+
 from multi_publish.crypto import CredentialCrypto, get_crypto
 
 

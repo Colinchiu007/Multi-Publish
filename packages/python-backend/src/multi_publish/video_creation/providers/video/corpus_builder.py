@@ -51,6 +51,7 @@ for (`queries`), WHERE to search (`sources`), WHAT to filter
 (`filters`), and HOW MUCH (`max_new_clips`). Everything else has
 sensible defaults.
 """
+
 from __future__ import annotations
 
 import time
@@ -155,8 +156,7 @@ class CorpusBuilder(BaseTool):
             "sources": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Source names to use (e.g. ['pexels','archive_org']). "
-                               "Defaults to all available.",
+                "description": "Source names to use (e.g. ['pexels','archive_org']). Defaults to all available.",
             },
             "filters": {
                 "type": "object",
@@ -186,9 +186,7 @@ class CorpusBuilder(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=2, ram_mb=2048, vram_mb=0, disk_mb=4000, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=2, ram_mb=2048, vram_mb=0, disk_mb=4000, network_required=True)
     side_effects = [
         "downloads clips to <corpus_dir>/clips",
         "writes thumbnails under <corpus_dir>/thumbnails",
@@ -217,6 +215,7 @@ class CorpusBuilder(BaseTool):
         info = super().get_info()
         try:
             from multi_publish.video_creation.video.stock_sources import source_catalog, source_summary
+
             info["source_provider_menu"] = source_catalog()
             info["source_provider_summary"] = source_summary()
         except Exception:
@@ -340,12 +339,14 @@ class CorpusBuilder(BaseTool):
                     try:
                         cands = src.search(query, f)
                     except Exception as e:
-                        errors.append({
-                            "phase": "search",
-                            "source": src.name,
-                            "query": query,
-                            "error": f"{type(e).__name__}: {e}",
-                        })
+                        errors.append(
+                            {
+                                "phase": "search",
+                                "source": src.name,
+                                "query": query,
+                                "error": f"{type(e).__name__}: {e}",
+                            }
+                        )
                         continue
 
                     candidates_seen += len(cands)
@@ -369,11 +370,13 @@ class CorpusBuilder(BaseTool):
                             )
                         except Exception as e:
                             failed += 1
-                            errors.append({
-                                "phase": "process",
-                                "clip_id": cand.clip_id,
-                                "error": f"{type(e).__name__}: {e}",
-                            })
+                            errors.append(
+                                {
+                                    "phase": "process",
+                                    "clip_id": cand.clip_id,
+                                    "error": f"{type(e).__name__}: {e}",
+                                }
+                            )
                             continue
 
                         if rec is None:
@@ -422,6 +425,7 @@ class CorpusBuilder(BaseTool):
             )
         except Exception as e:
             import traceback
+
             return ToolResult(
                 success=False,
                 error=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}",
@@ -529,9 +533,7 @@ class CorpusBuilder(BaseTool):
         motion_score = 0.0
 
         if cand.kind == "video":
-            thumb_paths, probe = _extract_video_thumbs(
-                local_abs, thumb_dir_abs, thumbs_per_video
-            )
+            thumb_paths, probe = _extract_video_thumbs(local_abs, thumb_dir_abs, thumbs_per_video)
             if not thumb_paths:
                 return None
             if probe:
@@ -589,8 +591,7 @@ class CorpusBuilder(BaseTool):
 
 def _guess_ext(cand) -> str:
     """Extract a sensible file extension from a candidate's URL."""
-    known = {".mp4", ".mov", ".mkv", ".webm", ".ogv", ".m4v",
-             ".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+    known = {".mp4", ".mov", ".mkv", ".webm", ".ogv", ".m4v", ".jpg", ".jpeg", ".png", ".tif", ".tiff"}
     path = urllib.parse.urlparse(cand.download_url).path
     ext = Path(path).suffix.lower()
     if ext in known:
@@ -599,9 +600,7 @@ def _guess_ext(cand) -> str:
     return ".mp4" if cand.kind == "video" else ".jpg"
 
 
-def _extract_video_thumbs(
-    video_path: Path, out_dir: Path, n_frames: int
-) -> tuple[list[Path], dict]:
+def _extract_video_thumbs(video_path: Path, out_dir: Path, n_frames: int) -> tuple[list[Path], dict]:
     """Extract `n` evenly-spaced JPEG thumbnails from a video.
 
     Returns ``(thumb_paths, probe_dict)``. The probe dict carries the
@@ -646,6 +645,7 @@ def _extract_video_thumbs(
     motion = 0.0
     if len(captured) >= 2:
         import numpy as np
+
         a = cv2.cvtColor(captured[0], cv2.COLOR_BGR2GRAY).astype(np.float32)
         b = cv2.cvtColor(captured[len(captured) // 2], cv2.COLOR_BGR2GRAY).astype(np.float32)
         motion = float(np.abs(a - b).mean())

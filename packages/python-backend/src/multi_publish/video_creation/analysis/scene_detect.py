@@ -34,8 +34,7 @@ class SceneDetect(BaseTool):
 
     dependencies = ["cmd:ffmpeg"]
     install_instructions = (
-        "FFmpeg is required. For better detection install PySceneDetect:\n"
-        "pip install scenedetect[opencv]"
+        "FFmpeg is required. For better detection install PySceneDetect:\npip install scenedetect[opencv]"
     )
     agent_skills = ["ffmpeg"]
 
@@ -78,6 +77,7 @@ class SceneDetect(BaseTool):
     def _has_pyscenedetect(self) -> bool:
         try:
             import scenedetect  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -99,9 +99,7 @@ class SceneDetect(BaseTool):
         elapsed = time.time() - start
 
         # Write scene list
-        output_path = Path(
-            inputs.get("output_path", str(input_path.with_suffix(".scenes.json")))
-        )
+        output_path = Path(inputs.get("output_path", str(input_path.with_suffix(".scenes.json"))))
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps({"scenes": scenes}, indent=2), encoding="utf-8")
 
@@ -154,14 +152,14 @@ class SceneDetect(BaseTool):
 
         scenes = []
         for i, (scene_start, scene_end) in enumerate(scene_list):
-            scenes.append({
-                "index": i,
-                "start_seconds": round(scene_start.get_seconds(), 3),
-                "end_seconds": round(scene_end.get_seconds(), 3),
-                "duration_seconds": round(
-                    scene_end.get_seconds() - scene_start.get_seconds(), 3
-                ),
-            })
+            scenes.append(
+                {
+                    "index": i,
+                    "start_seconds": round(scene_start.get_seconds(), 3),
+                    "end_seconds": round(scene_end.get_seconds(), 3),
+                    "duration_seconds": round(scene_end.get_seconds() - scene_start.get_seconds(), 3),
+                }
+            )
 
         return scenes
 
@@ -173,11 +171,15 @@ class SceneDetect(BaseTool):
 
         cmd = [
             "ffprobe",
-            "-v", "quiet",
-            "-show_entries", "frame=pts_time",
-            "-of", "json",
-            "-f", "lavfi",
-            f"movie='{input_path.replace(chr(92), '/').replace(':', chr(92)+':')}',select='gt(scene,{threshold})'",
+            "-v",
+            "quiet",
+            "-show_entries",
+            "frame=pts_time",
+            "-of",
+            "json",
+            "-f",
+            "lavfi",
+            f"movie='{input_path.replace(chr(92), '/').replace(':', chr(92) + ':')}',select='gt(scene,{threshold})'",
         ]
 
         try:
@@ -195,9 +197,14 @@ class SceneDetect(BaseTool):
 
         # Get total duration
         dur_cmd = [
-            "ffprobe", "-v", "quiet",
-            "-show_entries", "format=duration",
-            "-of", "json", input_path,
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            input_path,
         ]
         dur_result = self.run_command(dur_cmd)
         total_dur = float(json.loads(dur_result.stdout)["format"]["duration"])
@@ -207,23 +214,28 @@ class SceneDetect(BaseTool):
         for i in range(len(change_points) - 1):
             start = change_points[i]
             end = change_points[i + 1]
-            scenes.append({
-                "index": i,
-                "start_seconds": round(start, 3),
-                "end_seconds": round(end, 3),
-                "duration_seconds": round(end - start, 3),
-            })
+            scenes.append(
+                {
+                    "index": i,
+                    "start_seconds": round(start, 3),
+                    "end_seconds": round(end, 3),
+                    "duration_seconds": round(end - start, 3),
+                }
+            )
 
         return scenes
 
-    def _detect_ffmpeg_simple(
-        self, input_path: str, threshold: float, min_scene_len: float
-    ) -> list[dict]:
+    def _detect_ffmpeg_simple(self, input_path: str, threshold: float, min_scene_len: float) -> list[dict]:
         """Simplest fallback: split into uniform segments."""
         dur_cmd = [
-            "ffprobe", "-v", "quiet",
-            "-show_entries", "format=duration",
-            "-of", "json", input_path,
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            input_path,
         ]
         dur_result = self.run_command(dur_cmd)
         total_dur = float(json.loads(dur_result.stdout)["format"]["duration"])
@@ -231,9 +243,13 @@ class SceneDetect(BaseTool):
         # Use select filter to find scene changes via stdout
         cmd = [
             "ffmpeg",
-            "-i", input_path,
-            "-vf", f"select='gt(scene,{threshold})',showinfo",
-            "-f", "null", "-",
+            "-i",
+            input_path,
+            "-vf",
+            f"select='gt(scene,{threshold})',showinfo",
+            "-f",
+            "null",
+            "-",
         ]
         try:
             result = self.run_command(cmd, timeout=120)
@@ -242,6 +258,7 @@ class SceneDetect(BaseTool):
             output = ""
 
         import re
+
         change_points = [0.0]
         for match in re.finditer(r"pts_time:(\d+\.?\d*)", output):
             ts = float(match.group(1))
@@ -253,11 +270,13 @@ class SceneDetect(BaseTool):
         for i in range(len(change_points) - 1):
             start = change_points[i]
             end = change_points[i + 1]
-            scenes.append({
-                "index": i,
-                "start_seconds": round(start, 3),
-                "end_seconds": round(end, 3),
-                "duration_seconds": round(end - start, 3),
-            })
+            scenes.append(
+                {
+                    "index": i,
+                    "start_seconds": round(start, 3),
+                    "end_seconds": round(end, 3),
+                    "duration_seconds": round(end - start, 3),
+                }
+            )
 
         return scenes

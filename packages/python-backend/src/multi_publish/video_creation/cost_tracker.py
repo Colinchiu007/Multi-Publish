@@ -56,7 +56,11 @@ class CostTracker:
 
     @property
     def budget_spent_usd(self) -> float:
-        return sum(e.get("actual_usd", 0.0) for e in self.entries if e["status"] in (EntryStatus.COMPLETED.value, EntryStatus.FAILED.value))
+        return sum(
+            e.get("actual_usd", 0.0)
+            for e in self.entries
+            if e["status"] in (EntryStatus.COMPLETED.value, EntryStatus.FAILED.value)
+        )
 
     @property
     def budget_remaining_usd(self) -> float:
@@ -76,16 +80,18 @@ class CostTracker:
 
     def estimate(self, tool: str, operation: str, estimated_usd: float) -> str:
         entry_id = uuid.uuid4().hex[:12]
-        self.entries.append({
-            "id": entry_id,
-            "tool": tool,
-            "operation": operation,
-            "status": EntryStatus.ESTIMATED.value,
-            "estimated_usd": round(estimated_usd, 4),
-            "reserved_usd": 0.0,
-            "actual_usd": 0.0,
-            "timestamp": datetime.now(UTC).isoformat(),
-        })
+        self.entries.append(
+            {
+                "id": entry_id,
+                "tool": tool,
+                "operation": operation,
+                "status": EntryStatus.ESTIMATED.value,
+                "estimated_usd": round(estimated_usd, 4),
+                "reserved_usd": 0.0,
+                "actual_usd": 0.0,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
         self._save()
         return entry_id
 
@@ -94,7 +100,9 @@ class CostTracker:
         estimated = entry["estimated_usd"]
         if estimated > self.single_action_approval_usd:
             if self.mode != BudgetMode.OBSERVE:
-                raise ApprovalRequiredError(f"Action costs ${estimated:.2f}, exceeds threshold ${self.single_action_approval_usd:.2f}")
+                raise ApprovalRequiredError(
+                    f"Action costs ${estimated:.2f}, exceeds threshold ${self.single_action_approval_usd:.2f}"
+                )
         if estimated > self.usable_budget_usd:
             if self.mode == BudgetMode.CAP:
                 raise BudgetExceededError(f"Action costs ${estimated:.2f}, only ${self.usable_budget_usd:.2f} usable")

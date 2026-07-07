@@ -15,6 +15,7 @@ from multi_publish.models import PublishTask, TaskStatus
 @dataclass
 class QueueStats:
     """队列统计"""
+
     total: int = 0
     pending: int = 0
     running: int = 0
@@ -179,6 +180,7 @@ class TaskQueue:
 
                     except Exception as e:
                         from multi_publish.models import PublishResult
+
                         task.results[platform] = PublishResult(
                             success=False,
                             platform=platform.value,

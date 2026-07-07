@@ -7,12 +7,13 @@ Tests cover:
 """
 
 import pytest
+
 from multi_publish.core.scoring import (
     ContentQualityScore,
     PlatformFitScore,
+    ScoreDimension,
     score_content_quality,
     score_platform_fit,
-    ScoreDimension,
 )
 
 
@@ -41,13 +42,16 @@ class TestContentQualityScore:
         score = ContentQualityScore(title_clarity=1.5)
         assert score.title_clarity == 1.0
 
-    @pytest.mark.parametrize("dim,expected", [
-        (ScoreDimension.TITLE_CLARITY, 0.25),
-        (ScoreDimension.CONTENT_DEPTH, 0.20),
-        (ScoreDimension.READABILITY, 0.20),
-        (ScoreDimension.SEO_FRIENDLINESS, 0.15),
-        (ScoreDimension.ENGAGEMENT_POTENTIAL, 0.20),
-    ])
+    @pytest.mark.parametrize(
+        "dim,expected",
+        [
+            (ScoreDimension.TITLE_CLARITY, 0.25),
+            (ScoreDimension.CONTENT_DEPTH, 0.20),
+            (ScoreDimension.READABILITY, 0.20),
+            (ScoreDimension.SEO_FRIENDLINESS, 0.15),
+            (ScoreDimension.ENGAGEMENT_POTENTIAL, 0.20),
+        ],
+    )
     def test_dimension_weights(self, dim, expected):
         assert dim.weight == expected
 

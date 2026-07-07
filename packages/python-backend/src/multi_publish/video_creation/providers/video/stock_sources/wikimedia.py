@@ -5,6 +5,7 @@ MediaWiki API. Commons is a uniquely useful documentary source because
 it mixes public-domain historical imagery, recent CC-licensed videos,
 and educational media under one searchable catalogue.
 """
+
 from __future__ import annotations
 
 import html
@@ -34,19 +35,47 @@ _HTML_TAG_RE = re.compile(r"<[^>]+>")
 # Stop words stripped from multi-term queries before the cascade runs.
 # Commons' CirrusSearch defaults to AND semantics across multi-word
 # queries, so each extra common token shrinks the result set fast.
-_STOP_WORDS = frozenset({
-    "the", "and", "for", "with", "that", "this", "from", "into",
-    "its", "their", "about", "over", "under", "while", "during",
-    "your", "you", "our", "are", "was", "were", "have", "has",
-})
+_STOP_WORDS = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "from",
+        "into",
+        "its",
+        "their",
+        "about",
+        "over",
+        "under",
+        "while",
+        "during",
+        "your",
+        "you",
+        "our",
+        "are",
+        "was",
+        "were",
+        "have",
+        "has",
+    }
+)
 
 # Tokens that refer to other stock archives — useless on Commons and
 # will poison the cascade if they end up in top2_or because Commons
 # file names don't reference Prelinger or other archives. Keeps the
 # cascade parallel to ``archive_org.py``'s own source-hint stripping.
-_SOURCE_HINT_TOKENS = frozenset({
-    "prelinger", "archive", "archives", "stock", "footage",
-})
+_SOURCE_HINT_TOKENS = frozenset(
+    {
+        "prelinger",
+        "archive",
+        "archives",
+        "stock",
+        "footage",
+    }
+)
 
 
 class WikimediaSource:
@@ -56,9 +85,7 @@ class WikimediaSource:
     display_name = "Wikimedia Commons"
     provider = "wikimedia"
     priority = 25
-    install_instructions = (
-        "No setup required. Wikimedia Commons media search works without API keys."
-    )
+    install_instructions = "No setup required. Wikimedia Commons media search works without API keys."
 
     def is_available(self) -> bool:
         return True
@@ -166,9 +193,7 @@ def _build_search_queries(query: str, kind: str) -> list[tuple[str, str]]:
     user_query = query.strip()
     kind_l = (kind or "video").lower()
 
-    prefix = "filetype:video" if kind_l == "video" else (
-        "filetype:image" if kind_l == "image" else ""
-    )
+    prefix = "filetype:video" if kind_l == "video" else ("filetype:image" if kind_l == "image" else "")
 
     def _wrap(text: str) -> str:
         return f"{prefix} {text}".strip() if prefix else text
@@ -177,10 +202,9 @@ def _build_search_queries(query: str, kind: str) -> list[tuple[str, str]]:
         return [("default", _wrap(""))]
 
     tokens = [
-        t for t in user_query.split()
-        if len(t) >= 3
-        and t.lower() not in _STOP_WORDS
-        and t.lower() not in _SOURCE_HINT_TOKENS
+        t
+        for t in user_query.split()
+        if len(t) >= 3 and t.lower() not in _STOP_WORDS and t.lower() not in _SOURCE_HINT_TOKENS
     ]
     non_year = [t for t in tokens if not _looks_like_year(t)]
 
@@ -296,6 +320,7 @@ def _meta_value(meta: dict[str, Any], key: str) -> str:
 
 class WikimediaVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "wikimedia"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -330,7 +355,7 @@ class WikimediaVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -364,7 +389,7 @@ class WikimediaVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -374,6 +399,7 @@ class WikimediaVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

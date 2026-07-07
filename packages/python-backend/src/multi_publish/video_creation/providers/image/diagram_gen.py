@@ -2,6 +2,7 @@
 
 Adapted from OpenMontage tools/graphics/diagram_gen.py.
 """
+
 from __future__ import annotations
 
 import json
@@ -65,6 +66,7 @@ class DiagramGen(BaseTool):
     def _has_pillow(self) -> bool:
         try:
             from PIL import Image  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -106,14 +108,21 @@ class DiagramGen(BaseTool):
             config_path = output_path.with_suffix(".json")
             config_path.write_text(json.dumps(config), encoding="utf-8")
 
-            self.run_command([
-                "mmdc",
-                "-i", str(temp_mmd),
-                "-o", str(output_path),
-                "-w", str(inputs.get("width", 1200)),
-                "-H", str(inputs.get("height", 800)),
-                "-c", str(config_path),
-            ])
+            self.run_command(
+                [
+                    "mmdc",
+                    "-i",
+                    str(temp_mmd),
+                    "-o",
+                    str(output_path),
+                    "-w",
+                    str(inputs.get("width", 1200)),
+                    "-H",
+                    str(inputs.get("height", 800)),
+                    "-c",
+                    str(config_path),
+                ]
+            )
 
             temp_mmd.unlink(missing_ok=True)
             config_path.unlink(missing_ok=True)
@@ -187,7 +196,10 @@ class DiagramGen(BaseTool):
             fill = box.get("color", box_default)
             draw.rounded_rectangle(
                 [(x, y), (x + box_w, y + box_h)],
-                radius=8, fill=fill, outline=line_color, width=2,
+                radius=8,
+                fill=fill,
+                outline=line_color,
+                width=2,
             )
 
             label = box.get("label", f"Box {i}")
@@ -212,8 +224,11 @@ class DiagramGen(BaseTool):
             draw.line([(start_x, start_y), (end_x, end_y)], fill=line_color, width=2)
             arrow_size = 8
             draw.polygon(
-                [(end_x, end_y), (end_x - arrow_size, end_y - arrow_size * 2),
-                 (end_x + arrow_size, end_y - arrow_size * 2)],
+                [
+                    (end_x, end_y),
+                    (end_x - arrow_size, end_y - arrow_size * 2),
+                    (end_x + arrow_size, end_y - arrow_size * 2),
+                ],
                 fill=line_color,
             )
 

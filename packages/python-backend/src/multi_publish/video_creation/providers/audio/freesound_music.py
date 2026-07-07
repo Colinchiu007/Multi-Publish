@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/audio/freesound_music.py.
 Searches Freesound library of Creative Commons audio.
 """
+
 from __future__ import annotations
 
 import json
@@ -57,9 +58,7 @@ class FreesoundMusic(BaseTool):
         "offline use",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True)
     idempotency_key_fields = ["query", "min_duration", "max_duration"]
 
     _BASE_URL = "https://freesound.org/apiv2"
@@ -115,8 +114,7 @@ class FreesoundMusic(BaseTool):
                 "format": "mp3",
                 "license": "Creative Commons (check individual sound license)",
                 "freesound_url": (
-                    f"https://freesound.org/people/{sound.get('username', '')}/"
-                    f"sounds/{sound.get('id', '')}/"
+                    f"https://freesound.org/people/{sound.get('username', '')}/sounds/{sound.get('id', '')}/"
                 ),
                 "results_found": len(search_result),
             },
@@ -130,14 +128,16 @@ class FreesoundMusic(BaseTool):
         min_dur = inputs.get("min_duration", 30)
         max_dur = inputs.get("max_duration", 120)
 
-        params = urllib.parse.urlencode({
-            "query": query,
-            "filter": f"duration:[{min_dur} TO {max_dur}]",
-            "sort": "rating_desc",
-            "fields": "id,name,duration,previews,tags,avg_rating,username",
-            "token": api_key,
-            "page_size": 15,
-        })
+        params = urllib.parse.urlencode(
+            {
+                "query": query,
+                "filter": f"duration:[{min_dur} TO {max_dur}]",
+                "sort": "rating_desc",
+                "fields": "id,name,duration,previews,tags,avg_rating,username",
+                "token": api_key,
+                "page_size": 15,
+            }
+        )
 
         url = f"{self._BASE_URL}/search/text/?{params}"
 
@@ -156,9 +156,7 @@ class FreesoundMusic(BaseTool):
         audio_url = previews.get("preview-hq-mp3") or previews.get("preview-lq-mp3")
 
         if not audio_url:
-            raise RuntimeError(
-                f"No preview URL available for sound {sound.get('id')} ({sound.get('name')})"
-            )
+            raise RuntimeError(f"No preview URL available for sound {sound.get('id')} ({sound.get('name')})")
 
         sound_name = sound.get("name", f"freesound_{sound.get('id', 'unknown')}")
         safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in sound_name)

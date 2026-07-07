@@ -1,4 +1,4 @@
-﻿"""Runtime configuration model for video creation module.
+"""Runtime configuration model for video creation module.
 
 Adapted from OpenMontage lib/config_model.py.
 """

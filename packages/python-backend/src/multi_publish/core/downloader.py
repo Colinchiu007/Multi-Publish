@@ -24,21 +24,24 @@ logger = logging.getLogger(__name__)
 # 下载结果
 # ============================================================
 
+
 @dataclass
 class DownloadResult:
     """下载结果"""
-    source_url: str                          # 原始 URL
-    local_path: str = ""                     # 本地文件路径
-    state: int = 0                           # 0=下载中, 1=已完成, -1=失败
-    msg: str = ""                            # 错误信息
-    file_size: int = 0                       # 文件大小（字节）
-    file_type: str = "mp4"                   # 文件类型
-    duration: float = 0.0                    # 下载耗时
+
+    source_url: str  # 原始 URL
+    local_path: str = ""  # 本地文件路径
+    state: int = 0  # 0=下载中, 1=已完成, -1=失败
+    msg: str = ""  # 错误信息
+    file_size: int = 0  # 文件大小（字节）
+    file_type: str = "mp4"  # 文件类型
+    duration: float = 0.0  # 下载耗时
 
 
 # ============================================================
 # 下载管理器
 # ============================================================
+
 
 class DownloadManager:
     """
@@ -74,9 +77,7 @@ class DownloadManager:
             max_retries: 最大重试次数
             timeout: 单次下载超时（秒）
         """
-        self.download_dir = download_dir or os.path.join(
-            tempfile.gettempdir(), "multi-publish-downloads"
-        )
+        self.download_dir = download_dir or os.path.join(tempfile.gettempdir(), "multi-publish-downloads")
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
         self.timeout = timeout
@@ -241,15 +242,15 @@ class DownloadManager:
                         result.state = 1
                         result.file_size = downloaded
                         result.duration = time.time() - start_time
-                        logger.info(f"下载完成: {url} → {local_path} ({downloaded/1024:.1f}KB)")
+                        logger.info(f"下载完成: {url} → {local_path} ({downloaded / 1024:.1f}KB)")
                         return result
 
             except (httpx.TimeoutException, httpx.HTTPError, OSError) as e:
                 last_error = str(e)
-                logger.warning(f"下载失败 (attempt {attempt+1}/{self.max_retries}): {url}, error={e}")
+                logger.warning(f"下载失败 (attempt {attempt + 1}/{self.max_retries}): {url}, error={e}")
                 if attempt < self.max_retries - 1:
                     # 指数退避
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(2**attempt)
                 # 清理临时文件
                 temp_path = local_path + ".downloading"
                 if os.path.exists(temp_path):
@@ -283,9 +284,14 @@ class DownloadManager:
     def _get_sub_dir(self, file_type: str) -> str:
         """根据文件类型获取存储目录"""
         type_map = {
-            "jpg": "images", "jpeg": "images", "png": "images",
-            "gif": "images", "webp": "images",
-            "mp4": "videos", "mov": "videos", "avi": "videos",
+            "jpg": "images",
+            "jpeg": "images",
+            "png": "images",
+            "gif": "images",
+            "webp": "images",
+            "mp4": "videos",
+            "mov": "videos",
+            "avi": "videos",
             "cover": "covers",
         }
         sub = type_map.get(file_type.lower(), "temp")
@@ -320,6 +326,6 @@ class DownloadManager:
         if size_bytes < 1024:
             return f"{size_bytes}B"
         elif size_bytes < 1024 * 1024:
-            return f"{size_bytes/1024:.1f}KB"
+            return f"{size_bytes / 1024:.1f}KB"
         else:
-            return f"{size_bytes/1024/1024:.1f}MB"
+            return f"{size_bytes / 1024 / 1024:.1f}MB"

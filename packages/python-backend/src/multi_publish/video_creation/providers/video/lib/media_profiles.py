@@ -21,6 +21,7 @@ class AspectRatio(str, Enum):
 @dataclass(frozen=True)
 class MediaProfile:
     """A named render profile for a target platform/format."""
+
     name: str
     width: int
     height: int
@@ -40,27 +41,39 @@ class MediaProfile:
 
 YOUTUBE_LANDSCAPE = MediaProfile(
     name="youtube_landscape",
-    width=1920, height=1080,
+    width=1920,
+    height=1080,
     aspect_ratio=AspectRatio.LANDSCAPE_16_9,
-    fps=30, codec="libx264", audio_codec="aac", crf=18,
+    fps=30,
+    codec="libx264",
+    audio_codec="aac",
+    crf=18,
     caption_format="srt",
     notes="YouTube standard HD upload",
 )
 
 YOUTUBE_4K = MediaProfile(
     name="youtube_4k",
-    width=3840, height=2160,
+    width=3840,
+    height=2160,
     aspect_ratio=AspectRatio.LANDSCAPE_16_9,
-    fps=30, codec="libx264", audio_codec="aac", crf=18,
+    fps=30,
+    codec="libx264",
+    audio_codec="aac",
+    crf=18,
     caption_format="srt",
     notes="YouTube 4K upload",
 )
 
 YOUTUBE_SHORTS = MediaProfile(
     name="youtube_shorts",
-    width=1080, height=1920,
+    width=1080,
+    height=1920,
     aspect_ratio=AspectRatio.PORTRAIT_9_16,
-    fps=30, codec="libx264", audio_codec="aac", crf=20,
+    fps=30,
+    codec="libx264",
+    audio_codec="aac",
+    crf=20,
     max_duration_seconds=60,
     caption_format="srt",
     notes="YouTube Shorts (max 60s, vertical)",
@@ -68,9 +81,13 @@ YOUTUBE_SHORTS = MediaProfile(
 
 INSTAGRAM_REELS = MediaProfile(
     name="instagram_reels",
-    width=1080, height=1920,
+    width=1080,
+    height=1920,
     aspect_ratio=AspectRatio.PORTRAIT_9_16,
-    fps=30, codec="libx264", audio_codec="aac", crf=20,
+    fps=30,
+    codec="libx264",
+    audio_codec="aac",
+    crf=20,
     max_file_size_mb=250,
     max_duration_seconds=90,
     caption_format="srt",
@@ -79,9 +96,13 @@ INSTAGRAM_REELS = MediaProfile(
 
 INSTAGRAM_FEED = MediaProfile(
     name="instagram_feed",
-    width=1080, height=1080,
+    width=1080,
+    height=1080,
     aspect_ratio=AspectRatio.SQUARE_1_1,
-    fps=30, codec="libx264", audio_codec="aac", crf=20,
+    fps=30,
+    codec="libx264",
+    audio_codec="aac",
+    crf=20,
     max_file_size_mb=250,
     max_duration_seconds=60,
     notes="Instagram feed video (square)",
@@ -89,9 +110,13 @@ INSTAGRAM_FEED = MediaProfile(
 
 TIKTOK = MediaProfile(
     name="tiktok",
-    width=1080, height=1920,
+    width=1080,
+    height=1920,
     aspect_ratio=AspectRatio.PORTRAIT_9_16,
-    fps=30, codec="libx264", audio_codec="aac", crf=20,
+    fps=30,
+    codec="libx264",
+    audio_codec="aac",
+    crf=20,
     max_file_size_mb=287,
     max_duration_seconds=600,
     caption_format="srt",
@@ -100,9 +125,13 @@ TIKTOK = MediaProfile(
 
 LINKEDIN = MediaProfile(
     name="linkedin",
-    width=1920, height=1080,
+    width=1920,
+    height=1080,
     aspect_ratio=AspectRatio.LANDSCAPE_16_9,
-    fps=30, codec="libx264", audio_codec="aac", crf=20,
+    fps=30,
+    codec="libx264",
+    audio_codec="aac",
+    crf=20,
     max_file_size_mb=5120,
     max_duration_seconds=600,
     caption_format="srt",
@@ -111,17 +140,25 @@ LINKEDIN = MediaProfile(
 
 CINEMATIC = MediaProfile(
     name="cinematic",
-    width=2560, height=1080,
+    width=2560,
+    height=1080,
     aspect_ratio=AspectRatio.CINEMATIC_21_9,
-    fps=24, codec="libx264", audio_codec="aac", crf=16,
+    fps=24,
+    codec="libx264",
+    audio_codec="aac",
+    crf=16,
     notes="Cinematic ultra-wide format",
 )
 
 GENERIC_HD = MediaProfile(
     name="generic_hd",
-    width=1920, height=1080,
+    width=1920,
+    height=1080,
     aspect_ratio=AspectRatio.LANDSCAPE_16_9,
-    fps=30, codec="libx264", audio_codec="aac", crf=23,
+    fps=30,
+    codec="libx264",
+    audio_codec="aac",
+    crf=23,
     caption_format="srt",
     notes="Generic HD output (no platform-specific constraints)",
 )
@@ -130,10 +167,17 @@ GENERIC_HD = MediaProfile(
 # ---- Profile registry ----
 
 ALL_PROFILES: dict[str, MediaProfile] = {
-    p.name: p for p in [
-        YOUTUBE_LANDSCAPE, YOUTUBE_4K, YOUTUBE_SHORTS,
-        INSTAGRAM_REELS, INSTAGRAM_FEED,
-        TIKTOK, LINKEDIN, CINEMATIC, GENERIC_HD,
+    p.name: p
+    for p in [
+        YOUTUBE_LANDSCAPE,
+        YOUTUBE_4K,
+        YOUTUBE_SHORTS,
+        INSTAGRAM_REELS,
+        INSTAGRAM_FEED,
+        TIKTOK,
+        LINKEDIN,
+        CINEMATIC,
+        GENERIC_HD,
     ]
 }
 
@@ -154,11 +198,17 @@ def get_profiles_for_platform(platform: str) -> list[MediaProfile]:
 def ffmpeg_output_args(profile: MediaProfile) -> list[str]:
     """Generate FFmpeg output arguments for a media profile."""
     args = [
-        "-c:v", profile.codec,
-        "-c:a", profile.audio_codec,
-        "-crf", str(profile.crf),
-        "-pix_fmt", profile.pixel_format,
-        "-r", str(profile.fps),
-        "-vf", f"scale={profile.width}:{profile.height}",
+        "-c:v",
+        profile.codec,
+        "-c:a",
+        profile.audio_codec,
+        "-crf",
+        str(profile.crf),
+        "-pix_fmt",
+        profile.pixel_format,
+        "-r",
+        str(profile.fps),
+        "-vf",
+        f"scale={profile.width}:{profile.height}",
     ]
     return args

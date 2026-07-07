@@ -2,6 +2,7 @@
 
 Adapted from OpenMontage tools/audio/elevenlabs_tts.py.
 """
+
 from __future__ import annotations
 
 import os
@@ -56,12 +57,16 @@ class ElevenLabsTTS(BaseTool):
         "privacy-constrained local-only workflows",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True)
     idempotency_key_fields = [
-        "text", "voice_id", "model_id", "stability",
-        "similarity_boost", "style", "speed", "use_speaker_boost",
+        "text",
+        "voice_id",
+        "model_id",
+        "stability",
+        "similarity_boost",
+        "style",
+        "speed",
+        "use_speaker_boost",
     ]
 
     DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"

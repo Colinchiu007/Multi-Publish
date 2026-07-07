@@ -97,15 +97,17 @@ class AccountStore:
             accounts_data = []
             for account in self._accounts.values():
                 encrypted_config = self._crypto.encrypt_dict(account.config)
-                accounts_data.append({
-                    "id": account.id,
-                    "platform": account.platform.value,
-                    "name": account.name,
-                    "config": encrypted_config,  # 加密存储
-                    "is_active": account.is_active,
-                    "last_validated": account.last_validated.isoformat() if account.last_validated else None,
-                    "created_at": account.created_at.isoformat(),
-                })
+                accounts_data.append(
+                    {
+                        "id": account.id,
+                        "platform": account.platform.value,
+                        "name": account.name,
+                        "config": encrypted_config,  # 加密存储
+                        "is_active": account.is_active,
+                        "last_validated": account.last_validated.isoformat() if account.last_validated else None,
+                        "created_at": account.created_at.isoformat(),
+                    }
+                )
 
             data = {
                 "version": "1.0",

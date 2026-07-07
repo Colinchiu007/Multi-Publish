@@ -8,6 +8,7 @@
   - 函数签名统一 (page, selectors, ...) 便于测试和复用
   - 每函数对应 per-field 重试状态机的一个字段
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,8 +20,12 @@ from multi_publish.publishers.base import FieldRetryMap, ProgressThrottle, Publi
 
 
 async def rpa_do_video_upload(
-    page: Any, selectors: dict, report_progress: Any,
-    video_path: str, file_size_mb: float, throttle: ProgressThrottle,
+    page: Any,
+    selectors: dict,
+    report_progress: Any,
+    video_path: str,
+    file_size_mb: float,
+    throttle: ProgressThrottle,
     upload_wait_timeout: int = 300,
 ):
     """视频上传字段操作"""
@@ -40,8 +45,12 @@ async def rpa_do_video_upload(
 
 
 async def rpa_do_field_title(
-    page: Any, selectors: dict, report_progress: Any,
-    title: str, fields: FieldRetryMap, throttle: ProgressThrottle,
+    page: Any,
+    selectors: dict,
+    report_progress: Any,
+    title: str,
+    fields: FieldRetryMap,
+    throttle: ProgressThrottle,
 ):
     """标题字段操作"""
     if throttle.should_report(70):
@@ -52,8 +61,12 @@ async def rpa_do_field_title(
 
 
 async def rpa_do_field_cover(
-    page: Any, selectors: dict, report_progress: Any,
-    cover_path: str, fields: FieldRetryMap, throttle: ProgressThrottle,
+    page: Any,
+    selectors: dict,
+    report_progress: Any,
+    cover_path: str,
+    fields: FieldRetryMap,
+    throttle: ProgressThrottle,
 ):
     """封面上传字段操作"""
     cover_btn = page.locator(selectors["cover_upload"]).first
@@ -65,8 +78,12 @@ async def rpa_do_field_cover(
 
 
 async def rpa_do_field_tags(
-    page: Any, selectors: dict, report_progress: Any,
-    tags: list[str], fields: FieldRetryMap, throttle: ProgressThrottle,
+    page: Any,
+    selectors: dict,
+    report_progress: Any,
+    tags: list[str],
+    fields: FieldRetryMap,
+    throttle: ProgressThrottle,
 ):
     """标签字段操作"""
     tag_input = page.locator(selectors["tag_input"]).first
@@ -81,8 +98,12 @@ async def rpa_do_field_tags(
 
 
 async def rpa_do_field_desc(
-    page: Any, selectors: dict, report_progress: Any,
-    content: str, fields: FieldRetryMap, throttle: ProgressThrottle,
+    page: Any,
+    selectors: dict,
+    report_progress: Any,
+    content: str,
+    fields: FieldRetryMap,
+    throttle: ProgressThrottle,
 ):
     """简介字段操作"""
     desc_input = page.locator(selectors["description_textarea"]).first
@@ -92,9 +113,13 @@ async def rpa_do_field_desc(
 
 
 async def rpa_do_publish_click(
-    page: Any, selectors: dict, report_progress: Any,
-    draft: bool, fields: FieldRetryMap,
-    monitor: ResponseMonitor, throttle: ProgressThrottle,
+    page: Any,
+    selectors: dict,
+    report_progress: Any,
+    draft: bool,
+    fields: FieldRetryMap,
+    monitor: ResponseMonitor,
+    throttle: ProgressThrottle,
 ):
     """发布按钮点击 + API 响应监控确认"""
     await report_progress(PublishPhase.PUBLISHING, "点击发布...", 90)

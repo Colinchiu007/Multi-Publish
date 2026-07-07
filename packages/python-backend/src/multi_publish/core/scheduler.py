@@ -89,7 +89,6 @@ class PublishScheduler:
             self._schedule_counter += 1
             schedule_id = f"sched-{self._schedule_counter:04d}"
 
-
         self._schedules[schedule_id] = {
             "task_template": task,
             "type": "interval",
@@ -197,6 +196,7 @@ class PublishScheduler:
                             continue
 
                         from copy import deepcopy
+
                         task = deepcopy(info["task_template"])
                         task.id = f"{sid}-{info['run_count']}"
                         self.task_queue.add_task(task)
@@ -266,6 +266,4 @@ class PublishScheduler:
             content=content,
             platforms=platforms,
         )
-        return self.add_interval_schedule(
-            task, interval_seconds, start_after_seconds, max_runs
-        )
+        return self.add_interval_schedule(task, interval_seconds, start_after_seconds, max_runs)

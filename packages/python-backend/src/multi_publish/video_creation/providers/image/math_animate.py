@@ -4,6 +4,7 @@ Generates animated math/science/explainer videos from Python scene code
 using the Manim Community Edition engine. Free, local, no API key required.
 Adapted from OpenMontage tools/graphics/math_animate.py.
 """
+
 from __future__ import annotations
 
 import os
@@ -66,9 +67,7 @@ class MathAnimate(BaseTool):
         "real-time animation",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=2, ram_mb=1024, vram_mb=0, disk_mb=500, network_required=False
-    )
+    resource_profile = ResourceProfile(cpu_cores=2, ram_mb=1024, vram_mb=0, disk_mb=500, network_required=False)
     idempotency_key_fields = ["scene_code", "scene_name", "quality"]
 
     def get_status(self) -> ToolStatus:
@@ -82,7 +81,11 @@ class MathAnimate(BaseTool):
     def estimate_runtime(self, inputs: dict[str, Any]) -> float:
         quality = inputs.get("quality", "medium")
         estimates = {
-            "low": 5.0, "medium": 15.0, "high": 45.0, "4k": 120.0, "preview": 3.0,
+            "low": 5.0,
+            "medium": 15.0,
+            "high": 45.0,
+            "4k": 120.0,
+            "preview": 3.0,
         }
         return estimates.get(quality, 15.0)
 
@@ -196,6 +199,7 @@ class MathAnimate(BaseTool):
 
     def _detect_scene_name(self, code: str) -> str | None:
         import re
+
         pattern = r"class\s+(\w+)\s*\(\s*(?:Scene|ThreeDScene|MovingCameraScene|ZoomedScene)\s*\)"
         matches = re.findall(pattern, code)
         if len(matches) == 1:
@@ -226,15 +230,22 @@ class MathAnimate(BaseTool):
         try:
             proc = subprocess.run(
                 [
-                    "ffprobe", "-v", "quiet",
-                    "-print_format", "json",
-                    "-show_format", "-show_streams",
+                    "ffprobe",
+                    "-v",
+                    "quiet",
+                    "-print_format",
+                    "json",
+                    "-show_format",
+                    "-show_streams",
                     str(path),
                 ],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             if proc.returncode == 0:
                 import json
+
                 probe = json.loads(proc.stdout)
                 fmt = probe.get("format", {})
                 info["duration_seconds"] = float(fmt.get("duration", 0))

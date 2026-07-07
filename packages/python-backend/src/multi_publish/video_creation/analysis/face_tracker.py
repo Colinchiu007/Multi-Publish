@@ -117,6 +117,7 @@ class FaceTracker(BaseTool):
     def _has_mediapipe(self) -> bool:
         try:
             import mediapipe  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -124,6 +125,7 @@ class FaceTracker(BaseTool):
     def _has_opencv(self) -> bool:
         try:
             import cv2  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -148,9 +150,7 @@ class FaceTracker(BaseTool):
                 error="opencv-python is required. Install: pip install opencv-python",
             )
 
-        output_path = Path(
-            inputs.get("output_path", str(input_path.with_suffix(".faces.json")))
-        )
+        output_path = Path(inputs.get("output_path", str(input_path.with_suffix(".faces.json"))))
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         sample_fps = inputs.get("sample_fps", 5)
@@ -183,9 +183,7 @@ class FaceTracker(BaseTool):
             duration_seconds=round(elapsed, 2),
         )
 
-    def _track_mediapipe(
-        self, input_path: Path, sample_fps: float, confidence: float
-    ) -> dict:
+    def _track_mediapipe(self, input_path: Path, sample_fps: float, confidence: float) -> dict:
         import cv2
         import mediapipe as mp
 
@@ -226,17 +224,19 @@ class FaceTracker(BaseTool):
                             key=lambda d: d.score[0],
                         )
                         bbox = det.location_data.relative_bounding_box
-                        faces_data.append({
-                            "frame_index": frame_idx,
-                            "timestamp_seconds": round(frame_idx / video_fps, 3),
-                            "confidence": round(det.score[0], 3),
-                            "bbox": {
-                                "x": round(bbox.xmin, 4),
-                                "y": round(bbox.ymin, 4),
-                                "width": round(bbox.width, 4),
-                                "height": round(bbox.height, 4),
-                            },
-                        })
+                        faces_data.append(
+                            {
+                                "frame_index": frame_idx,
+                                "timestamp_seconds": round(frame_idx / video_fps, 3),
+                                "confidence": round(det.score[0], 3),
+                                "bbox": {
+                                    "x": round(bbox.xmin, 4),
+                                    "y": round(bbox.ymin, 4),
+                                    "width": round(bbox.width, 4),
+                                    "height": round(bbox.height, 4),
+                                },
+                            }
+                        )
 
                 frame_idx += 1
 
@@ -280,26 +280,26 @@ class FaceTracker(BaseTool):
             if frame_idx % sample_interval == 0:
                 sampled += 1
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                detected = cascade.detectMultiScale(
-                    gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
-                )
+                detected = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
 
                 if len(detected) > 0:
                     # Pick largest face
                     areas = [w * h for (_, _, w, h) in detected]
                     best_idx = areas.index(max(areas))
                     x, y, w, h = detected[best_idx]
-                    faces_data.append({
-                        "frame_index": frame_idx,
-                        "timestamp_seconds": round(frame_idx / video_fps, 3),
-                        "confidence": 0.0,  # Haar doesn't provide confidence
-                        "bbox": {
-                            "x": round(x / video_w, 4),
-                            "y": round(y / video_h, 4),
-                            "width": round(w / video_w, 4),
-                            "height": round(h / video_h, 4),
-                        },
-                    })
+                    faces_data.append(
+                        {
+                            "frame_index": frame_idx,
+                            "timestamp_seconds": round(frame_idx / video_fps, 3),
+                            "confidence": 0.0,  # Haar doesn't provide confidence
+                            "bbox": {
+                                "x": round(x / video_w, 4),
+                                "y": round(y / video_h, 4),
+                                "width": round(w / video_w, 4),
+                                "height": round(h / video_h, 4),
+                            },
+                        }
+                    )
 
             frame_idx += 1
 

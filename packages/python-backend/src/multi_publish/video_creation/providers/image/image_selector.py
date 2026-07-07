@@ -3,6 +3,7 @@
 Simplified adapter - uses basic heuristic scoring instead of the full
 scoring library. Adapted from OpenMontage tools/graphics/image_selector.py.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -34,8 +35,12 @@ class ImageSelector(BaseTool):
     dependencies = []
 
     capabilities = [
-        "generate_image", "search_image", "download_image",
-        "provider_selection", "text_to_image", "stock_image",
+        "generate_image",
+        "search_image",
+        "download_image",
+        "provider_selection",
+        "text_to_image",
+        "stock_image",
     ]
     best_for = [
         "preflight routing - pick the best image provider for the task",
@@ -45,7 +50,11 @@ class ImageSelector(BaseTool):
     not_good_for = ["direct execution (use specific provider tools)"]
 
     resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=False,
+        cpu_cores=1,
+        ram_mb=256,
+        vram_mb=0,
+        disk_mb=50,
+        network_required=False,
     )
     idempotency_key_fields = ["prompt", "preferred_provider", "operation"]
 
@@ -132,18 +141,23 @@ class ImageSelector(BaseTool):
         operation = inputs.get("operation", "generate")
 
         from multi_publish.video_creation.tool_registry import registry
-        image_tools = [t for t in registry.list_tools() if t.capability == "image_generation" and t.provider != "selector"]
+
+        image_tools = [
+            t for t in registry.list_tools() if t.capability == "image_generation" and t.provider != "selector"
+        ]
 
         if operation == "rank":
             rankings = []
             for tool in image_tools:
                 score = self._score_provider(tool.name, inputs.get("prompt", ""))
-                rankings.append({
-                    "provider": tool.provider,
-                    "tool_name": tool.name,
-                    "score": score,
-                    "status": str(tool.get_status()),
-                })
+                rankings.append(
+                    {
+                        "provider": tool.provider,
+                        "tool_name": tool.name,
+                        "score": score,
+                        "status": str(tool.get_status()),
+                    }
+                )
             rankings.sort(key=lambda x: x["score"], reverse=True)
             return ToolResult(
                 success=True,

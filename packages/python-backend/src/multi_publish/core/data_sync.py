@@ -30,15 +30,18 @@ logger = logging.getLogger(__name__)
 # 同步类型
 # ============================================================
 
+
 class SyncType:
     """同步类型枚举"""
-    ACCOUNT_OVERVIEW = "accountOverView"    # 账号概览
-    CONTENT_LIST = "contentList"             # 内容列表
+
+    ACCOUNT_OVERVIEW = "accountOverView"  # 账号概览
+    CONTENT_LIST = "contentList"  # 内容列表
 
 
 # ============================================================
 # 数据模型
 # ============================================================
+
 
 @dataclass
 class SyncTask:
@@ -57,6 +60,7 @@ class SyncTask:
         max_retries: 最大重试次数
         status: 任务状态
     """
+
     platform: str
     account_id: str
     account_name: str
@@ -72,6 +76,7 @@ class SyncTask:
 @dataclass
 class SyncResult:
     """同步结果"""
+
     platform: str = ""
     account_id: str = ""
     sync_type: str = ""
@@ -84,6 +89,7 @@ class SyncResult:
 # ============================================================
 # 数据同步器
 # ============================================================
+
 
 class DataSyncService:
     """
@@ -227,10 +233,7 @@ class DataSyncService:
 
             # 清理已完成的任务
             self._tasks = [t for t in self._tasks if t.status == "pending"]
-            self._dedup = {
-                k: v for k, v in self._dedup.items()
-                if v.status == "pending"
-            }
+            self._dedup = {k: v for k, v in self._dedup.items() if v.status == "pending"}
 
             await asyncio.sleep(self.check_interval)
 
@@ -272,10 +275,7 @@ class DataSyncService:
                         except Exception as cb_err:
                             logger.error(f"内容列表回调错误: {cb_err}")
 
-                    logger.info(
-                        f"同步内容列表完成: {task.platform}/{task.account_name}"
-                        f", 共 {len(content_list)} 条"
-                    )
+                    logger.info(f"同步内容列表完成: {task.platform}/{task.account_name}, 共 {len(content_list)} 条")
                     task.status = "completed"
 
                 else:

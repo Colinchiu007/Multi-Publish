@@ -29,6 +29,7 @@ from multi_publish.publishers.base import BasePublisher, PublisherConfig
 @dataclass
 class WeChatPublisherConfig(PublisherConfig):
     """微信公众号发布器配置"""
+
     app_id: str = ""
     app_secret: str = ""
     ip_white_list: list[str] | None = None  # 可选，API 需要
@@ -37,6 +38,7 @@ class WeChatPublisherConfig(PublisherConfig):
 @dataclass
 class WeChatArticle:
     """公众号文章"""
+
     title: str
     author: str = ""
     digest: str = ""  # 摘要
@@ -202,10 +204,7 @@ class WeChatPublisher(BasePublisher):
             error_msg = data.get("errmsg", "未知错误")
             # 检查是否是权限问题
             if "invalid permission" in error_msg or "permission" in error_msg:
-                raise RuntimeError(
-                    f"发布失败：权限不足。需要企业认证公众号才有 publish 接口权限。"
-                    f"错误: {error_msg}"
-                )
+                raise RuntimeError(f"发布失败：权限不足。需要企业认证公众号才有 publish 接口权限。错误: {error_msg}")
             raise RuntimeError(f"发布草稿失败: {error_msg}")
 
         # 发布成功，返回文章 URL

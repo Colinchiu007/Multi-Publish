@@ -94,9 +94,7 @@ class TalkingHead(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=2, ram_mb=4096, vram_mb=4096, disk_mb=2000
-    )
+    resource_profile = ResourceProfile(cpu_cores=2, ram_mb=4096, vram_mb=4096, disk_mb=2000)
     idempotency_key_fields = ["image_path", "audio_path", "model", "expression_scale", "still_mode"]
     side_effects = ["writes video file to output_path"]
     user_visible_verification = [
@@ -118,6 +116,7 @@ class TalkingHead(BaseTool):
         # 2. Installed as a Python package
         try:
             import sadtalker  # noqa: F401
+
             return ToolStatus.AVAILABLE
         except ImportError:
             pass
@@ -199,12 +198,18 @@ class TalkingHead(BaseTool):
 
         # Build SadTalker inference command
         cmd = [
-            "python", str(sadtalker_dir / "inference.py"),
-            "--driven_audio", str(audio_path),
-            "--source_image", str(image_path),
-            "--result_dir", str(result_dir),
-            "--expression_scale", str(expression_scale),
-            "--preprocess", preprocess,
+            "python",
+            str(sadtalker_dir / "inference.py"),
+            "--driven_audio",
+            str(audio_path),
+            "--source_image",
+            str(image_path),
+            "--result_dir",
+            str(result_dir),
+            "--expression_scale",
+            str(expression_scale),
+            "--preprocess",
+            preprocess,
         ]
 
         if still_mode:
@@ -253,8 +258,5 @@ class TalkingHead(BaseTool):
         """MuseTalk support — placeholder for future implementation."""
         return ToolResult(
             success=False,
-            error=(
-                "MuseTalk support is not yet implemented. "
-                "Use model='sadtalker' instead."
-            ),
+            error=("MuseTalk support is not yet implemented. Use model='sadtalker' instead."),
         )

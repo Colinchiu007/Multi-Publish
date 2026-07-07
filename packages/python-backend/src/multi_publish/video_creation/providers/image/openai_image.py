@@ -2,6 +2,7 @@
 
 Adapted from OpenMontage tools/graphics/openai_image.py.
 """
+
 from __future__ import annotations
 
 import base64
@@ -35,10 +36,7 @@ class OpenAIImage(BaseTool):
     runtime = ToolRuntime.API
 
     dependencies = []
-    install_instructions = (
-        "Set OPENAI_API_KEY to your OpenAI API key.\n"
-        "  pip install openai"
-    )
+    install_instructions = "Set OPENAI_API_KEY to your OpenAI API key.\n  pip install openai"
 
     capabilities = ["generate_image", "generate_illustration", "text_to_image"]
     best_for = [
@@ -48,9 +46,7 @@ class OpenAIImage(BaseTool):
     ]
     not_good_for = ["offline generation", "budget-constrained projects at high quality"]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True)
     idempotency_key_fields = ["prompt", "size", "quality", "model"]
 
     def get_status(self) -> ToolStatus:

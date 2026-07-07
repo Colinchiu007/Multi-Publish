@@ -1,11 +1,14 @@
 """Tests for StateQueryScheduler — real API v3"""
+
 import pytest
+
 from multi_publish.core.task_scheduler import StateQueryScheduler, StateQueryTask
 
 
 def test_state_query_task():
     async def mock_cb():
         pass
+
     t = StateQueryTask(task_id="t1", key="weibo:acc_01", callback=mock_cb)
     assert t.task_id == "t1"
     assert t.key == "weibo:acc_01"
@@ -14,8 +17,10 @@ def test_state_query_task():
 
 def test_push_task():
     s = StateQueryScheduler()
+
     async def mock_cb():
         pass
+
     t = StateQueryTask(task_id="t1", key="weibo:acc_01", callback=mock_cb)
     s.push(t)
     assert len(s._tasks) > 0

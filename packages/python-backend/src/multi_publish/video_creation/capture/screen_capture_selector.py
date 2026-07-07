@@ -120,7 +120,11 @@ class ScreenCaptureSelector(BaseTool):
     }
 
     resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=64, vram_mb=0, disk_mb=0, network_required=False,
+        cpu_cores=1,
+        ram_mb=64,
+        vram_mb=0,
+        disk_mb=0,
+        network_required=False,
     )
 
     side_effects = []
@@ -128,6 +132,7 @@ class ScreenCaptureSelector(BaseTool):
     def _providers(self) -> dict[str, BaseTool]:
         """Auto-discover screen_capture providers from the registry."""
         from multi_publish.video_creation.tool_registry import registry
+
         registry.ensure_discovered()
         tools = registry.get_by_capability("screen_capture")
         return {t.provider: t for t in tools if t.name != self.name}
@@ -169,26 +174,28 @@ class ScreenCaptureSelector(BaseTool):
         # FFmpeg option — always available if ffmpeg is installed
         if ffmpeg_tool:
             ffmpeg_status = ffmpeg_tool.get_status()
-            options.append({
-                "provider": "ffmpeg",
-                "tool": "screen_recorder",
-                "label": "Quick Recording (FFmpeg)",
-                "available": ffmpeg_status == ToolStatus.AVAILABLE,
-                "setup_required": ffmpeg_status != ToolStatus.AVAILABLE,
-                "strengths": [
-                    "Ready immediately — no additional install",
-                    "CLI-driven — works in automated pipelines",
-                    "Full screen or region capture",
-                    "System + microphone audio",
-                ],
-                "limitations": [
-                    "No webcam overlay (picture-in-picture)",
-                    "No cursor highlight or click effects",
-                    "No built-in editor or captions",
-                    "Raw capture — no polish",
-                ],
-                "best_when": "You need a quick recording or automated capture",
-            })
+            options.append(
+                {
+                    "provider": "ffmpeg",
+                    "tool": "screen_recorder",
+                    "label": "Quick Recording (FFmpeg)",
+                    "available": ffmpeg_status == ToolStatus.AVAILABLE,
+                    "setup_required": ffmpeg_status != ToolStatus.AVAILABLE,
+                    "strengths": [
+                        "Ready immediately — no additional install",
+                        "CLI-driven — works in automated pipelines",
+                        "Full screen or region capture",
+                        "System + microphone audio",
+                    ],
+                    "limitations": [
+                        "No webcam overlay (picture-in-picture)",
+                        "No cursor highlight or click effects",
+                        "No built-in editor or captions",
+                        "Raw capture — no polish",
+                    ],
+                    "best_when": "You need a quick recording or automated capture",
+                }
+            )
 
         # Cap option — may need install
         if cap_tool:
@@ -197,30 +204,32 @@ class ScreenCaptureSelector(BaseTool):
             cap_running = cap_detect.data.get("running", False) if cap_detect.success else False
 
             status_label = "Running" if cap_running else ("Installed" if cap_installed else "Not installed")
-            options.append({
-                "provider": "cap",
-                "tool": "cap_recorder",
-                "label": "Pro Recording (Cap)",
-                "available": cap_installed,
-                "running": cap_running,
-                "status": status_label,
-                "setup_required": not cap_installed,
-                "strengths": [
-                    "Webcam overlay (picture-in-picture)",
-                    "Cursor highlight and click effects",
-                    "GPU-accelerated capture",
-                    "Built-in editor with auto-captions",
-                    "Clean system audio capture",
-                    "Polished, professional output",
-                ],
-                "limitations": [
-                    "Requires separate install (~2 min)",
-                    "User must interact with Cap's UI to record",
-                    "Cannot be fully automated from CLI",
-                ],
-                "best_when": "You want professional, polished screen recordings",
-                "setup_time": "~2 minutes" if not cap_installed else None,
-            })
+            options.append(
+                {
+                    "provider": "cap",
+                    "tool": "cap_recorder",
+                    "label": "Pro Recording (Cap)",
+                    "available": cap_installed,
+                    "running": cap_running,
+                    "status": status_label,
+                    "setup_required": not cap_installed,
+                    "strengths": [
+                        "Webcam overlay (picture-in-picture)",
+                        "Cursor highlight and click effects",
+                        "GPU-accelerated capture",
+                        "Built-in editor with auto-captions",
+                        "Clean system audio capture",
+                        "Polished, professional output",
+                    ],
+                    "limitations": [
+                        "Requires separate install (~2 min)",
+                        "User must interact with Cap's UI to record",
+                        "Cannot be fully automated from CLI",
+                    ],
+                    "best_when": "You want professional, polished screen recordings",
+                    "setup_time": "~2 minutes" if not cap_installed else None,
+                }
+            )
 
         # Determine recommendation
         preferred = inputs.get("preferred_provider", "auto")
@@ -289,23 +298,27 @@ class ScreenCaptureSelector(BaseTool):
         if preferred == "ffmpeg" or preferred == "auto":
             tool = providers.get("ffmpeg")
             if tool and tool.get_status() == ToolStatus.AVAILABLE:
-                return tool.execute({
-                    "output_path": inputs.get("output_path", "recording.mp4"),
-                    "duration_seconds": inputs.get("duration_seconds", 60),
-                    "fps": inputs.get("fps", 30),
-                    "capture_audio": inputs.get("capture_audio", True),
-                    "region": inputs.get("region"),
-                })
+                return tool.execute(
+                    {
+                        "output_path": inputs.get("output_path", "recording.mp4"),
+                        "duration_seconds": inputs.get("duration_seconds", 60),
+                        "fps": inputs.get("fps", 30),
+                        "capture_audio": inputs.get("capture_audio", True),
+                        "region": inputs.get("region"),
+                    }
+                )
 
             # FFmpeg not available — try Cap
             cap_tool = providers.get("cap")
             if cap_tool:
                 cap_detect = cap_tool.execute({"operation": "detect"})
                 if cap_detect.success and cap_detect.data.get("running"):
-                    return cap_tool.execute({
-                        "operation": "pick_latest",
-                        "output_dir": inputs.get("output_path"),
-                    })
+                    return cap_tool.execute(
+                        {
+                            "operation": "pick_latest",
+                            "output_dir": inputs.get("output_path"),
+                        }
+                    )
 
             return ToolResult(
                 success=False,
@@ -322,10 +335,12 @@ class ScreenCaptureSelector(BaseTool):
         # Try Cap first (more likely to have user-initiated recordings)
         cap_tool = providers.get("cap")
         if cap_tool:
-            result = cap_tool.execute({
-                "operation": "find_recordings",
-                "since_minutes": since,
-            })
+            result = cap_tool.execute(
+                {
+                    "operation": "find_recordings",
+                    "since_minutes": since,
+                }
+            )
             if result.success and result.data.get("recordings"):
                 latest = result.data["recordings"][0]
                 return ToolResult(

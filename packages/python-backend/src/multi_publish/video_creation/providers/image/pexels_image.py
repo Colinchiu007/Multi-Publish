@@ -2,6 +2,7 @@
 
 Adapted from OpenMontage tools/graphics/pexels_image.py.
 """
+
 from __future__ import annotations
 
 import os
@@ -34,10 +35,7 @@ class PexelsImage(BaseTool):
     runtime = ToolRuntime.API
 
     dependencies = []
-    install_instructions = (
-        "Set PEXELS_API_KEY to your Pexels API key.\n"
-        "  Get one free at https://www.pexels.com/api/"
-    )
+    install_instructions = "Set PEXELS_API_KEY to your Pexels API key.\n  Get one free at https://www.pexels.com/api/"
 
     capabilities = ["search_image", "download_image", "stock_image"]
     best_for = [
@@ -51,9 +49,7 @@ class PexelsImage(BaseTool):
         "offline use",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True)
     idempotency_key_fields = ["query", "orientation", "size", "color", "page"]
 
     def get_status(self) -> ToolStatus:

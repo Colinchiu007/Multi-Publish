@@ -111,7 +111,10 @@ class VideoDownloader(BaseTool):
     }
 
     resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=2000,
+        cpu_cores=1,
+        ram_mb=512,
+        vram_mb=0,
+        disk_mb=2000,
         network_required=True,
     )
     idempotency_key_fields = ["url", "format", "max_resolution"]
@@ -220,9 +223,7 @@ class VideoDownloader(BaseTool):
 
         try:
             if dl_format == "video":
-                video_path, audio_path = self._download_video(
-                    url, output_dir, max_res
-                )
+                video_path, audio_path = self._download_video(url, output_dir, max_res)
             elif dl_format == "audio_only":
                 audio_path = self._download_audio(url, output_dir)
             elif dl_format == "subtitles_only":
@@ -252,9 +253,7 @@ class VideoDownloader(BaseTool):
             duration_seconds=round(elapsed, 2),
         )
 
-    def _download_video(
-        self, url: str, output_dir: Path, max_res: str
-    ) -> tuple[str | None, str | None]:
+    def _download_video(self, url: str, output_dir: Path, max_res: str) -> tuple[str | None, str | None]:
         """Download video + extract audio track."""
         import yt_dlp
 
@@ -281,12 +280,17 @@ class VideoDownloader(BaseTool):
             audio_out = output_dir / "reference_audio.wav"
             try:
                 audio_cmd = [
-                    "ffmpeg", "-y",
-                    "-i", video_path,
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    video_path,
                     "-vn",
-                    "-acodec", "pcm_s16le",
-                    "-ar", "16000",
-                    "-ac", "1",
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
                     str(audio_out),
                 ]
                 self.run_command(audio_cmd, timeout=120)
@@ -304,11 +308,13 @@ class VideoDownloader(BaseTool):
         audio_out = str(output_dir / "reference_audio.%(ext)s")
         ydl_opts = {
             "format": "bestaudio/best",
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "wav",
-                "preferredquality": "0",
-            }],
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "wav",
+                    "preferredquality": "0",
+                }
+            ],
             "outtmpl": audio_out,
             "noplaylist": True,
             "quiet": True,
@@ -341,9 +347,7 @@ class VideoDownloader(BaseTool):
             pass
         return self._find_downloaded(output_dir, "reference_subs", ["srt", "vtt", "ass"])
 
-    def _find_downloaded(
-        self, output_dir: Path, prefix: str, extensions: list[str]
-    ) -> str | None:
+    def _find_downloaded(self, output_dir: Path, prefix: str, extensions: list[str]) -> str | None:
         """Find a downloaded file by prefix and possible extensions."""
         for ext in extensions:
             candidates = list(output_dir.glob(f"{prefix}*.{ext}"))

@@ -93,8 +93,7 @@ class RemotionCaptionBurn(BaseTool):
             "srt_path": {
                 "type": "string",
                 "description": (
-                    "Path to an SRT file. Used as an alternative to segments. "
-                    "If both provided, segments take priority."
+                    "Path to an SRT file. Used as an alternative to segments. If both provided, segments take priority."
                 ),
             },
             "words_per_page": {
@@ -117,7 +116,7 @@ class RemotionCaptionBurn(BaseTool):
                 "description": (
                     "Dictionary of word corrections for common misrecognitions. "
                     "Keys are the wrong word (case-insensitive), values are the "
-                    "correct replacement. Example: {\"cloud\": \"Claude\"}."
+                    'correct replacement. Example: {"cloud": "Claude"}.'
                 ),
             },
             "overlays": {
@@ -161,27 +160,18 @@ class RemotionCaptionBurn(BaseTool):
             Path(__file__).resolve().parent.parent.parent / "remotion-composer",
         ]
         for p in candidates:
-            if (
-                p.is_dir()
-                and (p / "package.json").exists()
-                and (p / "node_modules").is_dir()
-            ):
+            if p.is_dir() and (p / "package.json").exists() and (p / "node_modules").is_dir():
                 return p
         return None
 
     def _remotion_available(self) -> bool:
-        return (
-            shutil.which("npx") is not None
-            and self._find_remotion_root() is not None
-        )
+        return shutil.which("npx") is not None and self._find_remotion_root() is not None
 
     # ------------------------------------------------------------------ #
     #  Word caption conversion
     # ------------------------------------------------------------------ #
 
-    def _segments_to_word_captions(
-        self, segments: list[dict], corrections: dict[str, str] | None = None
-    ) -> list[dict]:
+    def _segments_to_word_captions(self, segments: list[dict], corrections: dict[str, str] | None = None) -> list[dict]:
         """Convert transcriber segments to [{word, startMs, endMs}, ...]."""
         captions: list[dict] = []
         corr = {k.lower(): v for k, v in (corrections or {}).items()}
@@ -198,27 +188,29 @@ class RemotionCaptionBurn(BaseTool):
                         trailing = raw[-1]
                     if fixed != raw and not fixed.endswith(trailing):
                         fixed = fixed + trailing
-                    captions.append({
-                        "word": fixed,
-                        "startMs": int(w["start"] * 1000),
-                        "endMs": int(w["end"] * 1000),
-                    })
+                    captions.append(
+                        {
+                            "word": fixed,
+                            "startMs": int(w["start"] * 1000),
+                            "endMs": int(w["end"] * 1000),
+                        }
+                    )
             elif "text" in seg:
                 text_words = seg["text"].strip().split()
                 dur = seg["end"] - seg["start"]
                 per_word = dur / max(len(text_words), 1)
                 for i, tw in enumerate(text_words):
                     fixed = corr.get(tw.lower().strip(".,!?;:"), tw)
-                    captions.append({
-                        "word": fixed,
-                        "startMs": int((seg["start"] + i * per_word) * 1000),
-                        "endMs": int((seg["start"] + (i + 1) * per_word) * 1000),
-                    })
+                    captions.append(
+                        {
+                            "word": fixed,
+                            "startMs": int((seg["start"] + i * per_word) * 1000),
+                            "endMs": int((seg["start"] + (i + 1) * per_word) * 1000),
+                        }
+                    )
         return captions
 
-    def _srt_to_word_captions(
-        self, srt_path: str, corrections: dict[str, str] | None = None
-    ) -> list[dict]:
+    def _srt_to_word_captions(self, srt_path: str, corrections: dict[str, str] | None = None) -> list[dict]:
         """Parse SRT file into word captions."""
         content = Path(srt_path).read_text(encoding="utf-8")
         blocks = re.split(r"\n\n+", content.strip())
@@ -236,28 +228,20 @@ class RemotionCaptionBurn(BaseTool):
             )
             if not m:
                 continue
-            start_ms = (
-                int(m.group(1)) * 3600000
-                + int(m.group(2)) * 60000
-                + int(m.group(3)) * 1000
-                + int(m.group(4))
-            )
-            end_ms = (
-                int(m.group(5)) * 3600000
-                + int(m.group(6)) * 60000
-                + int(m.group(7)) * 1000
-                + int(m.group(8))
-            )
+            start_ms = int(m.group(1)) * 3600000 + int(m.group(2)) * 60000 + int(m.group(3)) * 1000 + int(m.group(4))
+            end_ms = int(m.group(5)) * 3600000 + int(m.group(6)) * 60000 + int(m.group(7)) * 1000 + int(m.group(8))
             text = " ".join(lines[2:]).strip()
             words = text.split()
             per_word = (end_ms - start_ms) / max(len(words), 1)
             for i, w in enumerate(words):
                 fixed = corr.get(w.lower().strip(".,!?;:"), w)
-                captions.append({
-                    "word": fixed,
-                    "startMs": int(start_ms + i * per_word),
-                    "endMs": int(start_ms + (i + 1) * per_word),
-                })
+                captions.append(
+                    {
+                        "word": fixed,
+                        "startMs": int(start_ms + i * per_word),
+                        "endMs": int(start_ms + (i + 1) * per_word),
+                    }
+                )
         return captions
 
     # ------------------------------------------------------------------ #
@@ -280,9 +264,13 @@ class RemotionCaptionBurn(BaseTool):
 
         # Get video duration in frames
         dur_cmd = [
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "csv=p=0",
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
             input_path,
         ]
         dur_result = self.run_command(dur_cmd)
@@ -292,10 +280,15 @@ class RemotionCaptionBurn(BaseTool):
 
         # Detect video dimensions
         dim_cmd = [
-            "ffprobe", "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height",
-            "-of", "csv=p=0:s=x",
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0:s=x",
             input_path,
         ]
         dim_result = self.run_command(dim_cmd)
@@ -326,14 +319,20 @@ class RemotionCaptionBurn(BaseTool):
 
         # Render (use npx.cmd on Windows for subprocess compatibility)
         import sys
+
         npx_bin = "npx.cmd" if sys.platform == "win32" else "npx"
         render_cmd = [
-            npx_bin, "remotion", "render",
+            npx_bin,
+            "remotion",
+            "render",
             "TalkingHead",
             f"--props={props_file.relative_to(root)}",
-            f"--width={width}", f"--height={height}", "--fps=30",
+            f"--width={width}",
+            f"--height={height}",
+            "--fps=30",
             f"--frames=0-{total_frames - 1}",
-            "--codec=h264", "--crf=18",
+            "--codec=h264",
+            "--crf=18",
             f"--output={str(Path(output_path).resolve())}",
         ]
         self.run_command(render_cmd, cwd=str(root))
@@ -380,9 +379,7 @@ class RemotionCaptionBurn(BaseTool):
             start = page[0]["startMs"]
             end = page[-1]["endMs"]
             srt_lines.append(str(idx))
-            srt_lines.append(
-                f"{self._ms_to_srt(start)} --> {self._ms_to_srt(end)}"
-            )
+            srt_lines.append(f"{self._ms_to_srt(start)} --> {self._ms_to_srt(end)}")
             srt_lines.append(text)
             srt_lines.append("")
             idx += 1
@@ -393,17 +390,27 @@ class RemotionCaptionBurn(BaseTool):
         srt_escaped = str(tmp_srt).replace("\\", "/").replace(":", "\\:")
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", input_path,
-            "-vf", (
+            "ffmpeg",
+            "-y",
+            "-i",
+            input_path,
+            "-vf",
+            (
                 f"subtitles='{srt_escaped}'"
                 ":force_style='FontName=Segoe UI,FontSize=24,Bold=1,"
                 "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
                 "Outline=3,Shadow=2,Alignment=2,MarginV=100'"
             ),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "copy",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "copy",
             output_path,
         ]
         self.run_command(cmd)
@@ -477,8 +484,12 @@ class RemotionCaptionBurn(BaseTool):
         # Choose render method
         if not force_ffmpeg and self._remotion_available():
             result = self._render_remotion(
-                input_path, output_path, captions,
-                words_per_page, font_size, highlight_color,
+                input_path,
+                output_path,
+                captions,
+                words_per_page,
+                font_size,
+                highlight_color,
                 overlays=overlays,
             )
         else:

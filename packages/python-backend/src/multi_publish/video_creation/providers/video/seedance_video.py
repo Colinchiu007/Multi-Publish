@@ -36,10 +36,7 @@ class SeedanceVideo(BaseTool):
     runtime = ToolRuntime.API
 
     dependencies = []
-    install_instructions = (
-        "Set FAL_KEY to your fal.ai API key.\n"
-        "  Get one at https://fal.ai/dashboard/keys"
-    )
+    install_instructions = "Set FAL_KEY to your fal.ai API key.\n  Get one at https://fal.ai/dashboard/keys"
 
     capabilities = ["text_to_video", "image_to_video", "reference_to_video"]
     best_for = [
@@ -54,10 +51,7 @@ class SeedanceVideo(BaseTool):
     # Premium model — beat out "experimental stability" baseline. The scoring
     # engine reads quality_score directly when present (see lib/scoring.py).
 
-
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True)
     idempotency_key_fields = ["prompt", "model_variant", "operation", "duration", "seed"]
 
     def _get_api_key(self) -> str | None:
@@ -117,6 +111,7 @@ class SeedanceVideo(BaseTool):
                 payload["image_url"] = inputs["image_url"]
             elif inputs.get("image_path"):
                 from multi_publish.video_creation.providers.video._shared import upload_image_fal
+
                 payload["image_url"] = upload_image_fal(inputs["image_path"])
             if inputs.get("end_image_url"):
                 payload["end_image_url"] = inputs["end_image_url"]
@@ -125,6 +120,7 @@ class SeedanceVideo(BaseTool):
             ref_image_urls = list(inputs.get("reference_image_urls") or [])
             for local_path in inputs.get("reference_image_paths") or []:
                 from multi_publish.video_creation.providers.video._shared import upload_image_fal
+
                 ref_image_urls.append(upload_image_fal(local_path))
             # Seedance 2.0 reference-to-video ceilings: 9 images + 3 video + 3 audio.
             if len(ref_image_urls) > 9:

@@ -21,6 +21,7 @@ What Pond5 Public Domain is good for
 - Space race and early NASA footage
 - Historical speeches (JFK, Churchill, MLK)
 """
+
 from __future__ import annotations
 
 import logging
@@ -85,6 +86,7 @@ class Pond5PublicDomainSource:
             params["mt"] = "photos"
 
         import os
+
         headers: dict[str, str] = {
             "User-Agent": "OpenMontage/1.0 (stock source adapter)",
         }
@@ -108,9 +110,7 @@ class Pond5PublicDomainSource:
         results = data.get("results", []) or data.get("items", []) or []
         return self._parse_results(results, kind, filters)
 
-    def _parse_results(
-        self, results: list[dict], kind: str, filters: SearchFilters
-    ) -> list[Candidate]:
+    def _parse_results(self, results: list[dict], kind: str, filters: SearchFilters) -> list[Candidate]:
         out: list[Candidate] = []
         for item in results:
             item_id = str(item.get("id", "") or "")
@@ -132,12 +132,7 @@ class Pond5PublicDomainSource:
                     continue
 
             # Preview/download URL
-            preview_url = (
-                item.get("v", "")
-                or item.get("preview_url", "")
-                or item.get("icon_url", "")
-                or ""
-            )
+            preview_url = item.get("v", "") or item.get("preview_url", "") or item.get("icon_url", "") or ""
             thumb_url = item.get("ic", "") or item.get("thumbnail_url", "") or ""
 
             if not preview_url:
@@ -171,9 +166,7 @@ class Pond5PublicDomainSource:
             )
         return out
 
-    def _search_web_fallback(
-        self, query: str, kind: str, filters: SearchFilters
-    ) -> list[Candidate]:
+    def _search_web_fallback(self, query: str, kind: str, filters: SearchFilters) -> list[Candidate]:
         """Fallback: parse Pond5 free page HTML for public domain clips.
 
         Used when the API endpoint is unavailable or returns errors.
@@ -188,9 +181,7 @@ class Pond5PublicDomainSource:
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with httpx.get(
-            candidate.download_url, stream=True, timeout=180
-        ) as r:
+        with httpx.get(candidate.download_url, stream=True, timeout=180) as r:
             r.raise_for_status()
             with open(out_path, "wb") as f:
                 for chunk in r.iter_bytes(1 << 16):
@@ -201,6 +192,7 @@ class Pond5PublicDomainSource:
 
 class Pond5PdVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "pond5_pd"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -235,7 +227,7 @@ class Pond5PdVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -269,7 +261,7 @@ class Pond5PdVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -279,6 +271,7 @@ class Pond5PdVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

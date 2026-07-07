@@ -1,7 +1,8 @@
-﻿"""Tests for AccountStore — 账号持久化存储."""
+"""Tests for AccountStore — 账号持久化存储."""
+
 
 import pytest
-from pathlib import Path
+
 from multi_publish.account_store import AccountStore
 from multi_publish.models import PlatformAccount, PlatformType
 

@@ -179,9 +179,7 @@ class SvgRigBuilder(BaseTool):
                 }
                 for part_id, kind, _, _, pivot in base_parts
             }
-            required_poses = sorted(
-                set(["idle", "blink", "look_left", "look_right", "surprised"] + actions)
-            )
+            required_poses = sorted(set(["idle", "blink", "look_left", "look_right", "surprised"] + actions))
             rig_characters.append(
                 {
                     "character_id": cid,
@@ -346,11 +344,7 @@ class ActionTimelineCompiler(BaseTool):
                             "duration_seconds": duration * 0.35,
                             "character_id": character_id,
                             "action": "perform" if is_primary else "follow",
-                            "pose": (
-                                "surprised"
-                                if scene.get("hero_moment") or not is_primary
-                                else "look_right"
-                            ),
+                            "pose": ("surprised" if scene.get("hero_moment") or not is_primary else "look_right"),
                             "easing": "back.out",
                             "notes": scene.get("description", ""),
                         },
@@ -456,9 +450,7 @@ class CharacterRigRenderer(BaseTool):
                 for action in scene.get("actions", [])
                 if action.get("character_id")
             }
-            rig_characters = [{"character_id": cid} for cid in sorted(seen_ids)] or [
-                {"character_id": "main_character"}
-            ]
+            rig_characters = [{"character_id": cid} for cid in sorted(seen_ids)] or [{"character_id": "main_character"}]
         count = len(rig_characters)
         spacing = 620 / max(count, 1)
         character_svgs = []
@@ -500,7 +492,7 @@ class CharacterRigRenderer(BaseTool):
 <body>
   <div id=\"stage\">
     <svg viewBox=\"0 0 640 640\" role=\"img\" aria-label=\"Character preview\">
-{''.join(character_svgs)}
+{"".join(character_svgs)}
     </svg>
   </div>
   <div id=\"note\">Local character preview. Characters: <span id=\"characters\"></span> · Scenes: <span id=\"count\"></span></div>
@@ -533,16 +525,10 @@ class CharacterRigRenderer(BaseTool):
 """
         output_path.write_text(html, encoding="utf-8")
         total_duration = max(
-            [
-                float(scene.get("end_seconds", 0) or 0)
-                for scene in inputs["action_timeline"].get("scenes", [])
-            ]
+            [float(scene.get("end_seconds", 0) or 0) for scene in inputs["action_timeline"].get("scenes", [])]
             or [float(inputs.get("duration_seconds", 3))]
         )
-        workspace_path = Path(
-            inputs.get("workspace_path")
-            or output_path.parent / "hyperframes"
-        )
+        workspace_path = Path(inputs.get("workspace_path") or output_path.parent / "hyperframes")
         composition_dir = workspace_path / "compositions"
         composition_dir.mkdir(parents=True, exist_ok=True)
         (workspace_path / "assets").mkdir(parents=True, exist_ok=True)
@@ -579,7 +565,7 @@ class CharacterRigRenderer(BaseTool):
       [data-composition-id=\"character-scene\"] .outline {{ stroke: #202632; stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; }}
     </style>
     <svg viewBox=\"0 0 640 640\" role=\"img\" aria-label=\"Character animation scene\">
-{''.join(character_svgs)}
+{"".join(character_svgs)}
     </svg>
     <script src=\"https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js\"></script>
     <script>
@@ -652,10 +638,7 @@ class CharacterRigRenderer(BaseTool):
         artifacts = [str(output_path), str(workspace_path / "hyperframes.json"), str(composition_path)]
         render_video = bool(inputs.get("render_video") or inputs.get("video_output_path"))
         if render_video:
-            video_path = Path(
-                inputs.get("video_output_path")
-                or output_path.with_suffix(".mp4")
-            )
+            video_path = Path(inputs.get("video_output_path") or output_path.with_suffix(".mp4"))
             video_path.parent.mkdir(parents=True, exist_ok=True)
             duration_seconds = float(inputs.get("duration_seconds", 3))
             fps = int(inputs.get("fps", 12))
@@ -757,18 +740,11 @@ class CharacterAnimationReviewer(BaseTool):
         elif not Path(preview_path).exists():
             assets_exist = False
             issues.append(f"Preview path does not exist: {preview_path}")
-        pivots_defined = all(
-            bool(character.get("joints"))
-            for character in rig.get("characters", [])
-        ) if rig else False
-        poses_defined = all(
-            bool(character.get("poses"))
-            for character in poses.get("characters", [])
-        ) if poses else False
-        actions_timed = all(
-            bool(scene.get("actions"))
-            for scene in timeline.get("scenes", [])
-        ) if timeline else False
+        pivots_defined = all(bool(character.get("joints")) for character in rig.get("characters", [])) if rig else False
+        poses_defined = (
+            all(bool(character.get("poses")) for character in poses.get("characters", [])) if poses else False
+        )
+        actions_timed = all(bool(scene.get("actions")) for scene in timeline.get("scenes", [])) if timeline else False
         if not pivots_defined:
             issues.append("Rig plan is missing joints/pivots for one or more characters.")
         if not poses_defined:

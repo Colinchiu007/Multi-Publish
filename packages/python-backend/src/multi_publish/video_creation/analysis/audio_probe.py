@@ -41,8 +41,10 @@ def probe_duration(file_path: str | Path) -> float | None:
         result = subprocess.run(
             [
                 ffprobe,
-                "-v", "quiet",
-                "-print_format", "json",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_format",
                 str(file_path),
             ],
@@ -93,9 +95,7 @@ class AudioProbe(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=64, vram_mb=0, disk_mb=0, network_required=False
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=64, vram_mb=0, disk_mb=0, network_required=False)
     retry_policy = RetryPolicy(max_retries=0, retryable_errors=[])
     idempotency_key_fields = ["input_path"]
     side_effects = []
@@ -123,8 +123,10 @@ class AudioProbe(BaseTool):
             result = subprocess.run(
                 [
                     ffprobe,
-                    "-v", "quiet",
-                    "-print_format", "json",
+                    "-v",
+                    "quiet",
+                    "-print_format",
+                    "json",
                     "-show_format",
                     "-show_streams",
                     str(input_path),

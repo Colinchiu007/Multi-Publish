@@ -1,10 +1,14 @@
-﻿"""Tests for video_creation config_model."""
+"""Tests for video_creation config_model."""
 
-import pytest
-import yaml
 from pathlib import Path
+
+import yaml
+
 from multi_publish.video_creation.config_model import (
-    BudgetMode, BudgetConfig, OutputConfig, PathsConfig,
+    BudgetConfig,
+    BudgetMode,
+    OutputConfig,
+    PathsConfig,
     VideoCreationConfig,
 )
 
@@ -14,6 +18,7 @@ class TestBudgetMode:
         assert BudgetMode.OBSERVE.value == "observe"
         assert BudgetMode.WARN.value == "warn"
         assert BudgetMode.CAP.value == "cap"
+
 
 class TestBudgetConfig:
     def test_defaults(self):
@@ -28,6 +33,7 @@ class TestBudgetConfig:
         assert c.mode == BudgetMode.CAP
         assert c.total_usd == 5.0
 
+
 class TestOutputConfig:
     def test_defaults(self):
         c = OutputConfig()
@@ -35,12 +41,14 @@ class TestOutputConfig:
         assert c.default_resolution == "1920x1080"
         assert c.default_fps == 30
 
+
 class TestPathsConfig:
     def test_defaults(self):
         c = PathsConfig()
         assert c.output_dir == "output"
         assert c.cache_dir == "cache"
         assert c.temp_dir == "temp"
+
 
 class TestVideoCreationConfig:
     def test_defaults(self):

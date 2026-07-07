@@ -1,4 +1,5 @@
 """AI image generation providers."""
+
 from multi_publish.video_creation.providers.image.code_snippet import CodeSnippet
 from multi_publish.video_creation.providers.image.comfyui_image import ComfyUIImage
 from multi_publish.video_creation.providers.image.diagram_gen import DiagramGen
@@ -15,7 +16,18 @@ from multi_publish.video_creation.providers.image.pixabay_image import PixabayIm
 from multi_publish.video_creation.providers.image.recraft_image import RecraftImage
 
 __all__ = [
-    "FluxImage", "OpenAIImage", "GoogleImagen", "GrokImage", "RecraftImage",
-    "PixabayImage", "PexelsImage", "ComfyUIImage", "LocalDiffusion",
-    "ImageGen", "ImageSelector", "DiagramGen", "CodeSnippet", "MathAnimate",
+    "FluxImage",
+    "OpenAIImage",
+    "GoogleImagen",
+    "GrokImage",
+    "RecraftImage",
+    "PixabayImage",
+    "PexelsImage",
+    "ComfyUIImage",
+    "LocalDiffusion",
+    "ImageGen",
+    "ImageSelector",
+    "DiagramGen",
+    "CodeSnippet",
+    "MathAnimate",
 ]

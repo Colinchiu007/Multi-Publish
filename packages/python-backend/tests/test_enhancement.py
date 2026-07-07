@@ -1,11 +1,17 @@
-﻿"""Tests for video creation enhancement tools (Phase 5 - OpenMontage integration).
-"""
+"""Tests for video creation enhancement tools (Phase 5 - OpenMontage integration)."""
+
 from __future__ import annotations
-from pathlib import Path
+
 import pytest
-from multi_publish.video_creation.base_tool import ToolTier, ToolStability
+
+from multi_publish.video_creation.base_tool import ToolStability, ToolTier
 from multi_publish.video_creation.enhancement import (
-    BgRemove, ColorGrade, EyeEnhance, FaceEnhance, FaceRestore, Upscale,
+    BgRemove,
+    ColorGrade,
+    EyeEnhance,
+    FaceEnhance,
+    FaceRestore,
+    Upscale,
 )
 
 
@@ -51,12 +57,21 @@ class TestColorGrade:
 
     def test_all_profiles_defined(self):
         from multi_publish.video_creation.enhancement.color_grade import PROFILES
-        expected = {"cinematic_warm", "cinematic_cool", "moody_dark", "bright_clean",
-                     "vintage_film", "high_contrast", "neutral"}
+
+        expected = {
+            "cinematic_warm",
+            "cinematic_cool",
+            "moody_dark",
+            "bright_clean",
+            "vintage_film",
+            "high_contrast",
+            "neutral",
+        }
         assert set(PROFILES.keys()) == expected
 
     def test_each_profile_has_description_and_filter(self):
         from multi_publish.video_creation.enhancement.color_grade import PROFILES
+
         for name, profile in PROFILES.items():
             assert "description" in profile, f"Profile {name} missing description"
             assert "vf" in profile, f"Profile {name} missing filter chain"

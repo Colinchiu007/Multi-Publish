@@ -34,9 +34,7 @@ class FrameSampler(BaseTool):
     determinism = Determinism.DETERMINISTIC
 
     dependencies = ["cmd:ffmpeg"]
-    install_instructions = (
-        "Install FFmpeg: https://ffmpeg.org/download.html"
-    )
+    install_instructions = "Install FFmpeg: https://ffmpeg.org/download.html"
     agent_skills = ["ffmpeg"]
 
     capabilities = [
@@ -151,9 +149,12 @@ class FrameSampler(BaseTool):
         output_pattern = str(output_dir / f"frame_%04d.{fmt}")
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-vf", f"fps=1/{interval}",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_path),
+            "-vf",
+            f"fps=1/{interval}",
         ]
         if fmt == "jpg":
             cmd.extend(["-qscale:v", str(quality)])
@@ -180,10 +181,14 @@ class FrameSampler(BaseTool):
         output_pattern = str(output_dir / f"frame_%04d.{fmt}")
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-vf", f"fps=1/{interval}",
-            "-frames:v", str(count),
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_path),
+            "-vf",
+            f"fps=1/{interval}",
+            "-frames:v",
+            str(count),
         ]
         if fmt == "jpg":
             cmd.extend(["-qscale:v", str(quality)])
@@ -207,10 +212,14 @@ class FrameSampler(BaseTool):
         for i, ts in enumerate(timestamps):
             output_file = output_dir / f"frame_{i:04d}.{fmt}"
             cmd = [
-                "ffmpeg", "-y",
-                "-ss", str(ts),
-                "-i", str(input_path),
-                "-frames:v", "1",
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(ts),
+                "-i",
+                str(input_path),
+                "-frames:v",
+                "1",
             ]
             if fmt == "jpg":
                 cmd.extend(["-qscale:v", str(quality)])
@@ -219,11 +228,13 @@ class FrameSampler(BaseTool):
             self.run_command(cmd)
 
             if output_file.exists():
-                frames.append({
-                    "path": str(output_file),
-                    "timestamp_seconds": ts,
-                    "index": i,
-                })
+                frames.append(
+                    {
+                        "path": str(output_file),
+                        "timestamp_seconds": ts,
+                        "index": i,
+                    }
+                )
 
         return frames
 
@@ -246,9 +257,15 @@ class FrameSampler(BaseTool):
 
         if not scene_boundaries:
             # No scene data — fall back to count-based
-            return self._extract_count(input_path, output_dir, fmt, quality, {
-                "count": min(max_frames, 15),
-            })
+            return self._extract_count(
+                input_path,
+                output_dir,
+                fmt,
+                quality,
+                {
+                    "count": min(max_frames, 15),
+                },
+            )
 
         # Compute timestamps: first frame + midpoint for long scenes
         timestamps = []
@@ -271,33 +288,34 @@ class FrameSampler(BaseTool):
             timestamps = [timestamps[int(i * step)] for i in range(max_frames)]
 
         # Extract via timestamps strategy
-        return self._extract_timestamps(
-            input_path, output_dir, fmt, quality, {"timestamps": timestamps}
-        )
+        return self._extract_timestamps(input_path, output_dir, fmt, quality, {"timestamps": timestamps})
 
     def _get_duration(self, input_path: Path) -> float:
         """Get video duration in seconds via ffprobe."""
         cmd = [
             "ffprobe",
-            "-v", "quiet",
-            "-show_entries", "format=duration",
-            "-of", "json",
+            "-v",
+            "quiet",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
             str(input_path),
         ]
         result = self.run_command(cmd)
         data = json.loads(result.stdout)
         return float(data.get("format", {}).get("duration", 0))
 
-    def _collect_frames(
-        self, output_dir: Path, fmt: str, interval: float
-    ) -> list[dict]:
+    def _collect_frames(self, output_dir: Path, fmt: str, interval: float) -> list[dict]:
         """Collect extracted frame files and build metadata."""
         frames = []
         pattern = f"frame_*.{fmt}"
         for i, path in enumerate(sorted(output_dir.glob(pattern))):
-            frames.append({
-                "path": str(path),
-                "timestamp_seconds": round(i * interval, 3),
-                "index": i,
-            })
+            frames.append(
+                {
+                    "path": str(path),
+                    "timestamp_seconds": round(i * interval, 3),
+                    "index": i,
+                }
+            )
         return frames

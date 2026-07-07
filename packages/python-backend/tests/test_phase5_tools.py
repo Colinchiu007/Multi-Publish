@@ -1,9 +1,11 @@
 """Tests for Phase 5: Enhancement, Subtitle, and Capture tools."""
+
 from __future__ import annotations
 
-import pytest
-
-from multi_publish.video_creation.base_tool import ToolTier
+# Capture
+from multi_publish.video_creation.capture.cap_recorder import CapRecorder
+from multi_publish.video_creation.capture.screen_capture_selector import ScreenCaptureSelector
+from multi_publish.video_creation.capture.screen_recorder import ScreenRecorder
 
 # Enhancement
 from multi_publish.video_creation.enhancement.bg_remove import BgRemove
@@ -15,11 +17,6 @@ from multi_publish.video_creation.enhancement.upscale import Upscale
 
 # Subtitle
 from multi_publish.video_creation.subtitle.subtitle_gen import SubtitleGen
-
-# Capture
-from multi_publish.video_creation.capture.cap_recorder import CapRecorder
-from multi_publish.video_creation.capture.screen_capture_selector import ScreenCaptureSelector
-from multi_publish.video_creation.capture.screen_recorder import ScreenRecorder
 
 
 class TestEnhancementTools:

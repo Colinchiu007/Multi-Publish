@@ -1,10 +1,16 @@
-﻿"""Tests for wechat_publisher/utils ? pure logic functions."""
-import pytest
-from pathlib import Path
+"""Tests for wechat_publisher/utils ? pure logic functions."""
+
 from wechat_publisher.utils import (
-    clean_html, extract_images_from_html, replace_image_urls,
-    get_file_extension, get_mime_type, is_valid_html_content,
-    truncate_text, generate_filename, is_url, parse_wechat_error,
+    clean_html,
+    extract_images_from_html,
+    generate_filename,
+    get_file_extension,
+    get_mime_type,
+    is_url,
+    is_valid_html_content,
+    parse_wechat_error,
+    replace_image_urls,
+    truncate_text,
 )
 
 
@@ -168,4 +174,3 @@ class TestParseWechatError:
     def test_empty_dict(self):
         errcode, errmsg = parse_wechat_error({})
         assert errcode is None
-    

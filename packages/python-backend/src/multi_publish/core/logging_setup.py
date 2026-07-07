@@ -60,9 +60,9 @@ def setup_logging(log_dir: str | Path = "./logs", level: str = "INFO"):
     logger.add(
         log_path / "multi_publish_{time:YYYY-MM-DD}.log",
         format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
-        rotation="3 MB",       # 3MB 轮转
-        retention="15 days",   # 保留 15 天
-        compression="gz",      # 压缩归档
+        rotation="3 MB",  # 3MB 轮转
+        retention="15 days",  # 保留 15 天
+        compression="gz",  # 压缩归档
         level="DEBUG",
         enqueue=True,
     )
@@ -109,13 +109,12 @@ def _add_module_logger(
         compression="gz",
         level=level,
         enqueue=True,
-        filter=lambda record, kw=module_keywords: any(
-            kw in record["name"] for kw in kw
-        ),
+        filter=lambda record, kw=module_keywords: any(kw in record["name"] for kw in kw),
     )
 
 
 # ─── 快捷获取 per-module logger ─────────────────────────────
+
 
 def get_publisher_logger(platform: str):
     """
@@ -132,6 +131,7 @@ def get_publisher_logger(platform: str):
 
 # ─── 装饰器：记录函数调用日志 ──────────────────────────────
 
+
 def log_call(logger_instance=None):
     """
     函数调用日志装饰器
@@ -143,6 +143,7 @@ def log_call(logger_instance=None):
         async def publish(self, title, content):
             ...
     """
+
     def decorator(func):
         import functools
         import time
@@ -163,4 +164,5 @@ def log_call(logger_instance=None):
                 raise
 
         return async_wrapper
+
     return decorator

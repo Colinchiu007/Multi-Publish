@@ -12,52 +12,57 @@ from typing import Any
 
 class PlatformCategory(Enum):
     """平台内容分类（决定发布策略和UI展示）"""
-    VIDEO = "video"          # 短视频平台（抖音、快手、视频号、B站、YouTube、TikTok）
+
+    VIDEO = "video"  # 短视频平台（抖音、快手、视频号、B站、YouTube、TikTok）
     IMAGE_TEXT = "image_text"  # 图文平台（公众号、知乎、微博、头条、百家号）
-    MIXED = "mixed"          # 混合平台（小红书，支持图文+视频）
+    MIXED = "mixed"  # 混合平台（小红书，支持图文+视频）
 
 
 class PlatformType(Enum):
     """支持的平台类型"""
-    WECHAT_MP = "wechat_mp"          # 微信公众号
-    ZHIHU = "zhihu"                  # 知乎
-    WEIBO = "weibo"                  # 微博
-    DOUYIN = "douyin"                # 抖音
-    XIAOHONGSHU = "xiaohongshu"      # 小红书
-    SHIPINHAO = "shipinhao"          # 视频号
-    KUAISHOU = "kuaishou"            # 快手
-    TOUTIAO = "toutiao"              # 今日头条
-    YOUTUBE = "youtube"              # YouTube
-    TIKTOK = "tiktok"                # TikTok
-    BILIBILI = "bilibili"            # B站
-    BAJIAHAO = "baijiahao"           # 百家号
+
+    WECHAT_MP = "wechat_mp"  # 微信公众号
+    ZHIHU = "zhihu"  # 知乎
+    WEIBO = "weibo"  # 微博
+    DOUYIN = "douyin"  # 抖音
+    XIAOHONGSHU = "xiaohongshu"  # 小红书
+    SHIPINHAO = "shipinhao"  # 视频号
+    KUAISHOU = "kuaishou"  # 快手
+    TOUTIAO = "toutiao"  # 今日头条
+    YOUTUBE = "youtube"  # YouTube
+    TIKTOK = "tiktok"  # TikTok
+    BILIBILI = "bilibili"  # B站
+    BAJIAHAO = "baijiahao"  # 百家号
 
 
 class TaskStatus(Enum):
     """任务状态"""
-    PENDING = "pending"              # 等待执行
-    QUEUED = "queued"                # 已入队
-    RUNNING = "running"              # 执行中
-    SUCCESS = "success"              # 成功
-    FAILED = "failed"                # 失败
-    CANCELLED = "cancelled"          # 已取消
+
+    PENDING = "pending"  # 等待执行
+    QUEUED = "queued"  # 已入队
+    RUNNING = "running"  # 执行中
+    SUCCESS = "success"  # 成功
+    FAILED = "failed"  # 失败
+    CANCELLED = "cancelled"  # 已取消
 
 
 class PublishMode(Enum):
     """发布模式"""
-    DRAFT = "draft"                  # 仅保存草稿
-    PUBLISH = "publish"              # 正式发布
-    SCHEDULE = "schedule"            # 定时发布
+
+    DRAFT = "draft"  # 仅保存草稿
+    PUBLISH = "publish"  # 正式发布
+    SCHEDULE = "schedule"  # 定时发布
 
 
 class PublishPhase(Enum):
     """发布阶段（蚁小二风格进度管理）"""
-    PREPARING = "preparing"          # 准备中
+
+    PREPARING = "preparing"  # 准备中
     AUTHENTICATING = "authenticating"  # 验证登录态
-    UPLOADING = "uploading"          # 上传中
-    PUBLISHING = "publishing"         # 发布中
-    DONE = "done"                    # 完成
-    FAILED = "failed"                # 失败
+    UPLOADING = "uploading"  # 上传中
+    PUBLISHING = "publishing"  # 发布中
+    DONE = "done"  # 完成
+    FAILED = "failed"  # 失败
 
 
 @dataclass
@@ -68,6 +73,7 @@ class AuthData:
     从蚁小二反编译发现，仅保存 cookies 不足以维持抖音登录态，
     必须同步保存 localStorage 中的 security-sdk/* 值和 IndexedDB secure-store 数据。
     """
+
     cookies: list[dict] = field(default_factory=list)
     local_storage: dict[str, str] = field(default_factory=dict)
     indexed_db: dict[str, dict] = field(default_factory=dict)
@@ -98,6 +104,7 @@ class PublishProgress:
 
     与前端通信的进度数据结构，包含当前阶段、百分比、消息。
     """
+
     task_id: str
     phase: PublishPhase = PublishPhase.PREPARING
     percent: int = 0
@@ -118,6 +125,7 @@ class PublishResult:
         error: 错误信息
         duration: 耗时（秒）
     """
+
     success: bool
     platform: str
     article_id: str | None = None
@@ -145,6 +153,7 @@ class PublishTask:
         media_paths: 媒体文件路径列表（视频/图片）
         metadata: 额外元数据（封面图、标签、分类等）
     """
+
     id: str
     title: str
     content: str
@@ -194,6 +203,7 @@ class ProxyConfig:
         username: 代理认证用户名（可选）
         password: 代理认证密码（可选）
     """
+
     server: str
     username: str | None = None
     password: str | None = None
@@ -247,6 +257,7 @@ class PlatformAccount:
         last_validated: 最后验证时间
         created_at: 创建时间
     """
+
     id: str
     platform: PlatformType
     name: str
@@ -255,6 +266,7 @@ class PlatformAccount:
     is_active: bool = True
     last_validated: datetime | None = None
     created_at: datetime = field(default_factory=datetime.now)
+
 
 # ─── 平台元数据 ─────────────────────────────────────────────
 
@@ -268,7 +280,7 @@ PLATFORM_META: dict[PlatformType, dict] = {
     },
     PlatformType.DOUYIN: {
         "name": "抖音",
-        "tech": "api_rpa",            # dual mode: try API first, fallback to RPA
+        "tech": "api_rpa",  # dual mode: try API first, fallback to RPA
         "publish_type": "video",
         "category": "video",
         "homepage": "https://creator.douyin.com/",

@@ -42,8 +42,7 @@ class SeedanceReplicate(BaseTool):
 
     dependencies = []
     install_instructions = (
-        "Set REPLICATE_API_TOKEN to your Replicate API token.\n"
-        "  Get one at https://replicate.com/account/api-tokens"
+        "Set REPLICATE_API_TOKEN to your Replicate API token.\n  Get one at https://replicate.com/account/api-tokens"
     )
 
     capabilities = ["text_to_video", "image_to_video"]
@@ -56,10 +55,7 @@ class SeedanceReplicate(BaseTool):
     ]
     not_good_for = ["offline generation", "budget-constrained projects"]
 
-
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True)
     idempotency_key_fields = ["prompt", "model_variant", "operation", "duration", "seed"]
 
     def _get_api_token(self) -> str | None:
@@ -91,9 +87,7 @@ class SeedanceReplicate(BaseTool):
 
         start = time.time()
         variant = inputs.get("model_variant", "standard")
-        model_slug = (
-            "bytedance/seedance-2.0-fast" if variant == "fast" else "bytedance/seedance-2.0"
-        )
+        model_slug = "bytedance/seedance-2.0-fast" if variant == "fast" else "bytedance/seedance-2.0"
 
         payload_input: dict[str, Any] = {"prompt": inputs["prompt"]}
         if inputs.get("duration") and inputs["duration"] != "auto":

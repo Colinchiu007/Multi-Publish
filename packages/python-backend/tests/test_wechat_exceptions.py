@@ -1,9 +1,18 @@
 """Tests for wechat_publisher/exceptions."""
+
 import pytest
+
 from wechat_publisher.exceptions import (
-    WeChatError, WeChatAuthError, WeChatAPIError, WeChatUploadError,
-    WeChatPublishError, WeChatDraftError, WeChatConfigError,
-    WeChatRateLimitError, WeChatNetworkError, raise_for_error_code,
+    WeChatAPIError,
+    WeChatAuthError,
+    WeChatConfigError,
+    WeChatDraftError,
+    WeChatError,
+    WeChatNetworkError,
+    WeChatPublishError,
+    WeChatRateLimitError,
+    WeChatUploadError,
+    raise_for_error_code,
 )
 
 
@@ -47,9 +56,16 @@ class TestErrorHierarchy:
         assert issubclass(WeChatNetworkError, WeChatError)
 
     def test_all_distinct(self):
-        classes = [WeChatAuthError, WeChatAPIError, WeChatUploadError,
-                   WeChatPublishError, WeChatDraftError, WeChatConfigError,
-                   WeChatRateLimitError, WeChatNetworkError]
+        classes = [
+            WeChatAuthError,
+            WeChatAPIError,
+            WeChatUploadError,
+            WeChatPublishError,
+            WeChatDraftError,
+            WeChatConfigError,
+            WeChatRateLimitError,
+            WeChatNetworkError,
+        ]
         assert len(set(classes)) == len(classes)
 
 

@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/audio/suno_music.py.
 Async flow: submit -> poll -> download.
 """
+
 from __future__ import annotations
 
 import os
@@ -58,9 +59,7 @@ class SunoMusic(BaseTool):
         "offline generation",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=100, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=100, network_required=True)
     idempotency_key_fields = ["prompt", "style", "instrumental", "model"]
 
     _BASE_URL = "https://api.sunoapi.org/api/v1"
@@ -193,13 +192,13 @@ class SunoMusic(BaseTool):
             if status == "SUCCESS":
                 return result.get("data", result)
             elif status in (
-                "CREATE_TASK_FAILED", "GENERATE_AUDIO_FAILED", "SENSITIVE_WORD_ERROR",
+                "CREATE_TASK_FAILED",
+                "GENERATE_AUDIO_FAILED",
+                "SENSITIVE_WORD_ERROR",
             ):
                 raise RuntimeError(f"Suno generation failed with status: {status}")
 
-        raise TimeoutError(
-            f"Suno generation timed out after {self._MAX_WAIT}s (taskId: {task_id})"
-        )
+        raise TimeoutError(f"Suno generation timed out after {self._MAX_WAIT}s (taskId: {task_id})")
 
     def _download(self, audio_url: str, inputs: dict[str, Any], api_key: str) -> Path:
         import requests

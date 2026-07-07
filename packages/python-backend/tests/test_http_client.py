@@ -1,15 +1,18 @@
-﻿"""Tests for HttpClient."""
+"""Tests for HttpClient."""
 
-import pytest
+
 import httpx
+import pytest
 import respx
-import dataclasses
+
+from multi_publish._errors import (
+    MultiPublishConfigError,
+    MultiPublishConnectionError,
+    MultiPublishHTTPError,
+    MultiPublishTimeoutError,
+)
 from multi_publish._http_client import HttpClient
 from multi_publish._retries import RetryPolicy
-from multi_publish._errors import (
-    MultiPublishHTTPError, MultiPublishTimeoutError,
-    MultiPublishConnectionError, MultiPublishConfigError,
-)
 
 
 class TestHttpClientInit:
@@ -87,4 +90,3 @@ class TestHttpClientRequests:
             c.set_auth_token("secret")
             c.get("https://example.com/me")
             assert route.calls.last.request.headers["Authorization"] == "Bearer secret"
-

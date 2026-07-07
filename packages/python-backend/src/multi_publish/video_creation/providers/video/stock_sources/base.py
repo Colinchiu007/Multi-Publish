@@ -33,6 +33,7 @@ Adding a new source
    metadata such as `display_name`, `install_instructions`, `supports`,
    and `priority`. The package auto-discovers concrete adapters.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -67,18 +68,18 @@ class Candidate:
     populate as much as they cheaply can and leave the rest alone.
     """
 
-    source: str                             # adapter name, e.g. "pexels"
-    source_id: str                          # unique within that source
-    source_url: str                         # landing page (human readable)
-    download_url: str                       # direct file URL
-    kind: str                               # "video" or "image"
+    source: str  # adapter name, e.g. "pexels"
+    source_id: str  # unique within that source
+    source_url: str  # landing page (human readable)
+    download_url: str  # direct file URL
+    kind: str  # "video" or "image"
     width: int = 0
     height: int = 0
-    duration: float = 0.0                   # seconds (0 for images)
-    creator: str = ""                       # attribution name
-    license: str = ""                       # licence string or URL
-    source_tags: str = ""                   # title + description + tags joined
-    thumbnail_url: str = ""                 # for previews and image-fallback embeds
+    duration: float = 0.0  # seconds (0 for images)
+    creator: str = ""  # attribution name
+    license: str = ""  # licence string or URL
+    source_tags: str = ""  # title + description + tags joined
+    thumbnail_url: str = ""  # for previews and image-fallback embeds
     extra: dict[str, Any] = field(default_factory=dict)  # source-specific junk
 
     @property
@@ -102,11 +103,11 @@ class SearchFilters:
     missing filters are caught later by the agent at retrieval time.
     """
 
-    kind: str = "video"                     # "video", "image", or "any"
-    min_duration: float | None = None    # seconds; None = no floor
-    max_duration: float | None = None    # seconds; None = no ceiling
-    orientation: str | None = None       # "landscape" | "portrait" | "square"
-    min_width: int | None = None         # resolution floor in pixels
+    kind: str = "video"  # "video", "image", or "any"
+    min_duration: float | None = None  # seconds; None = no floor
+    max_duration: float | None = None  # seconds; None = no ceiling
+    orientation: str | None = None  # "landscape" | "portrait" | "square"
+    min_width: int | None = None  # resolution floor in pixels
     per_page: int = 20
     page: int = 1
 
@@ -155,6 +156,7 @@ class StockSource(Protocol):
 
 class StockSourceTool(BaseTool):
     """Base class for stock media source tools."""
+
     name = "stock_source"
     version = "0.1.0"
     tier = ToolTier.SOURCE

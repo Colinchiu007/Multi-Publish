@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/graphics/google_imagen.py.
 Inline google_credentials helpers to avoid external dependency.
 """
+
 from __future__ import annotations
 
 import base64
@@ -111,9 +112,7 @@ class GoogleImagen(BaseTool):
         "offline generation",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True)
     idempotency_key_fields = ["prompt", "aspect_ratio", "model"]
 
     def _get_api_key(self) -> str | None:
@@ -186,10 +185,7 @@ class GoogleImagen(BaseTool):
                 "Authorization": f"Bearer {bearer_token}",
             }
         else:
-            url = (
-                f"https://generativelanguage.googleapis.com/v1beta/models/"
-                f"{model}:predict"
-            )
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"
             headers = {
                 "Content-Type": "application/json",
                 "x-goog-api-key": api_key,

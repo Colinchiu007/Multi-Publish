@@ -4,10 +4,7 @@ Tests the input validation, dry-run, schema checking, and error handling
 paths of VideoStitch without requiring an actual FFmpeg installation.
 """
 
-import pytest
-import json
-from pathlib import Path
-from multi_publish.video_creation.base_tool import ToolResult, ToolTier, ToolStability
+from multi_publish.video_creation.base_tool import ToolStability, ToolTier
 from multi_publish.video_creation.providers.video.video_stitch import VideoStitch
 
 
@@ -188,4 +185,3 @@ class TestVideoStitchCleanup:
         assert info["stability"] == "experimental"
         assert info["capability"] == "video_post"
         assert "cmd:ffmpeg" in info.get("dependencies", [])
-

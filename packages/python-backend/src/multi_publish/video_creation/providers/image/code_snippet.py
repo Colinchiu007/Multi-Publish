@@ -4,6 +4,7 @@ Generates styled code screenshots using Pygments for syntax
 highlighting and Pillow for rendering. No external services required.
 Adapted from OpenMontage tools/graphics/code_snippet.py.
 """
+
 from __future__ import annotations
 
 import time
@@ -89,6 +90,7 @@ class CodeSnippet(BaseTool):
         try:
             import pygments  # noqa: F401
             from PIL import Image  # noqa: F401
+
             return ToolStatus.AVAILABLE
         except ImportError:
             return ToolStatus.UNAVAILABLE

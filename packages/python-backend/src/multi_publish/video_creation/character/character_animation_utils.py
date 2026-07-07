@@ -2,6 +2,7 @@
 
 Extracted from character_animation.py to reduce file size.
 """
+
 from __future__ import annotations
 
 import json

@@ -37,8 +37,7 @@ class BgRemove(BaseTool):
 
     dependencies = ["python:rembg", "python:PIL"]
     install_instructions = (
-        "pip install rembg       # CPU mode\n"
-        "pip install rembg[gpu]  # GPU mode (requires CUDA + onnxruntime-gpu)"
+        "pip install rembg       # CPU mode\npip install rembg[gpu]  # GPU mode (requires CUDA + onnxruntime-gpu)"
     )
     agent_skills = ["ffmpeg"]
 
@@ -78,9 +77,7 @@ class BgRemove(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=2, ram_mb=2048, vram_mb=0, disk_mb=500
-    )
+    resource_profile = ResourceProfile(cpu_cores=2, ram_mb=2048, vram_mb=0, disk_mb=500)
 
     idempotency_key_fields = ["input_path", "model", "bg_color", "alpha_matting"]
     side_effects = ["writes background-removed image to output_path"]
@@ -92,6 +89,7 @@ class BgRemove(BaseTool):
     def get_status(self) -> ToolStatus:
         try:
             import rembg  # noqa: F401
+
             return ToolStatus.AVAILABLE
         except ImportError:
             return ToolStatus.UNAVAILABLE

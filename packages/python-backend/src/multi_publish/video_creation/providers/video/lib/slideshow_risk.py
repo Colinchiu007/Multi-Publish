@@ -94,6 +94,7 @@ def _score_repetition(scenes: list[dict]) -> dict[str, Any]:
 
     # Check for repeated scene types
     from collections import Counter
+
     types = Counter(s.get("type", "unknown") for s in scenes)
     most_common_type, most_common_count = types.most_common(1)[0]
     type_ratio = most_common_count / len(scenes)
@@ -196,10 +197,7 @@ def _score_weak_intent(scenes: list[dict]) -> dict[str, Any]:
 
 def _score_typography(scenes: list[dict]) -> dict[str, Any]:
     """Score text-first overreliance."""
-    text_scenes = sum(
-        1 for s in scenes
-        if s.get("type") in ("text_card", "stat_card", "kpi_grid")
-    )
+    text_scenes = sum(1 for s in scenes if s.get("type") in ("text_card", "stat_card", "kpi_grid"))
     ratio = text_scenes / len(scenes)
 
     if ratio > 0.6:
@@ -235,17 +233,11 @@ def _score_cinematic_claims(
     if hero_count == 0:
         issues.append("Claims cinematic but has no hero_moment defined")
 
-    has_movement = sum(
-        1 for s in scenes
-        if s.get("shot_language", {}).get("camera_movement", "static") != "static"
-    )
+    has_movement = sum(1 for s in scenes if s.get("shot_language", {}).get("camera_movement", "static") != "static")
     if has_movement < len(scenes) * 0.3:
         issues.append(f"Claims cinematic but only {has_movement}/{len(scenes)} scenes have camera movement")
 
-    has_lighting = sum(
-        1 for s in scenes
-        if s.get("shot_language", {}).get("lighting_key")
-    )
+    has_lighting = sum(1 for s in scenes if s.get("shot_language", {}).get("lighting_key"))
     if has_lighting < len(scenes) * 0.3:
         issues.append(f"Claims cinematic but only {has_lighting}/{len(scenes)} scenes define lighting")
 

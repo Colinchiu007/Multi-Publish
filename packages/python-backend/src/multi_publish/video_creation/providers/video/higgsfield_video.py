@@ -58,10 +58,7 @@ class HiggsFieldVideo(BaseTool):
     ]
     not_good_for = ["offline generation", "fine-grained model control", "budget projects without subscription"]
 
-
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True)
     idempotency_key_fields = ["prompt", "model", "operation", "duration"]
 
     def _get_credentials(self) -> tuple[str, str] | None:

@@ -21,6 +21,7 @@ What Library of Congress is good for
 - Cultural recordings, folk traditions
 - Government and civic footage
 """
+
 from __future__ import annotations
 
 import logging
@@ -58,10 +59,7 @@ class LibraryOfCongressSource:
     display_name = "Library of Congress"
     provider = "loc"
     priority = 40
-    install_instructions = (
-        "Library of Congress works without an API key. "
-        "No setup needed."
-    )
+    install_instructions = "Library of Congress works without an API key. No setup needed."
 
     def is_available(self) -> bool:
         return True
@@ -106,9 +104,7 @@ class LibraryOfCongressSource:
 
         return out
 
-    def _extract_candidates(
-        self, item: dict, kind: str, filters: SearchFilters
-    ) -> list[Candidate]:
+    def _extract_candidates(self, item: dict, kind: str, filters: SearchFilters) -> list[Candidate]:
         """Extract downloadable candidates from a LoC search result."""
         item_id = item.get("id", "") or ""
         if not item_id:
@@ -166,12 +162,10 @@ class LibraryOfCongressSource:
                         continue
 
                     is_video = "video" in mime or any(
-                        url.lower().endswith(ext)
-                        for ext in (".mp4", ".mov", ".avi", ".webm")
+                        url.lower().endswith(ext) for ext in (".mp4", ".mov", ".avi", ".webm")
                     )
                     is_image = "image" in mime or any(
-                        url.lower().endswith(ext)
-                        for ext in (".jpg", ".jpeg", ".png", ".tif")
+                        url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".tif")
                     )
 
                     if kind == "video" and not is_video:
@@ -233,9 +227,7 @@ class LibraryOfCongressSource:
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with httpx.get(
-            candidate.download_url, stream=True, timeout=180
-        ) as r:
+        with httpx.get(candidate.download_url, stream=True, timeout=180) as r:
             r.raise_for_status()
             with open(out_path, "wb") as f:
                 for chunk in r.iter_bytes(1 << 16):
@@ -246,6 +238,7 @@ class LibraryOfCongressSource:
 
 class LocVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "loc"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -280,7 +273,7 @@ class LocVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -314,7 +307,7 @@ class LocVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -324,6 +317,7 @@ class LocVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

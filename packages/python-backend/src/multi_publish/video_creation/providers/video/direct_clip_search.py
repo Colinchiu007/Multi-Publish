@@ -31,6 +31,7 @@ What it does per query
 
 No CLIP model. No embeddings. No corpus index. Just files on disk.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -105,8 +106,7 @@ class DirectClipSearch(BaseTool):
             "output_dir": {
                 "type": "string",
                 "description": (
-                    "Directory where clips and thumbnails are saved. "
-                    "e.g. projects/foo/assets/video/raw_act2"
+                    "Directory where clips and thumbnails are saved. e.g. projects/foo/assets/video/raw_act2"
                 ),
             },
             "queries": {
@@ -139,8 +139,7 @@ class DirectClipSearch(BaseTool):
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "Source adapter names to search (e.g. ['pexels','archive_org']). "
-                    "Defaults to all available sources."
+                    "Source adapter names to search (e.g. ['pexels','archive_org']). Defaults to all available sources."
                 ),
             },
             "clips_per_query": {
@@ -169,8 +168,7 @@ class DirectClipSearch(BaseTool):
                 "type": "boolean",
                 "default": True,
                 "description": (
-                    "Extract a mid-frame thumbnail from each video for visual "
-                    "inspection. Uses ffmpeg, not CLIP."
+                    "Extract a mid-frame thumbnail from each video for visual inspection. Uses ffmpeg, not CLIP."
                 ),
             },
             "skip_existing": {
@@ -181,9 +179,7 @@ class DirectClipSearch(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=2000, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=2000, network_required=True)
     retry_policy = RetryPolicy(max_retries=1, retryable_errors=["timeout", "rate_limit"])
     side_effects = [
         "downloads clips to <output_dir>/clips/",
@@ -208,6 +204,7 @@ class DirectClipSearch(BaseTool):
         info = super().get_info()
         try:
             from multi_publish.video_creation.video.stock_sources import source_catalog, source_summary
+
             info["source_provider_menu"] = source_catalog()
             info["source_provider_summary"] = source_summary()
         except Exception:
@@ -266,7 +263,7 @@ class DirectClipSearch(BaseTool):
                             return ToolResult(
                                 success=False,
                                 error=f"Unknown stock source: {name!r}. "
-                                      f"Available: {[src.name for src in all_sources()]}",
+                                f"Available: {[src.name for src in all_sources()]}",
                             )
                     if s.is_available():
                         sources.append(s)
@@ -318,12 +315,14 @@ class DirectClipSearch(BaseTool):
                     try:
                         candidates = src.search(query, filters)
                     except Exception as e:
-                        errors.append({
-                            "phase": "search",
-                            "source": src.name,
-                            "query": query,
-                            "error": f"{type(e).__name__}: {e}",
-                        })
+                        errors.append(
+                            {
+                                "phase": "search",
+                                "source": src.name,
+                                "query": query,
+                                "error": f"{type(e).__name__}: {e}",
+                            }
+                        )
                         continue
 
                     for cand in candidates:
@@ -339,24 +338,26 @@ class DirectClipSearch(BaseTool):
                             skipped += 1
                             # Still record it in results so the agent knows it's there
                             thumb_path = thumbs_dir / f"{clip_id}.jpg"
-                            downloaded.append({
-                                "clip_id": clip_id,
-                                "source": cand.source,
-                                "source_id": cand.source_id,
-                                "source_url": cand.source_url,
-                                "query": query,
-                                "slot_id": slot_id,
-                                "kind": cand.kind,
-                                "path": str(clip_path),
-                                "thumbnail": str(thumb_path) if thumb_path.exists() else "",
-                                "duration": cand.duration,
-                                "width": cand.width,
-                                "height": cand.height,
-                                "creator": cand.creator,
-                                "license": cand.license,
-                                "source_tags": cand.source_tags,
-                                "skipped_existing": True,
-                            })
+                            downloaded.append(
+                                {
+                                    "clip_id": clip_id,
+                                    "source": cand.source,
+                                    "source_id": cand.source_id,
+                                    "source_url": cand.source_url,
+                                    "query": query,
+                                    "slot_id": slot_id,
+                                    "kind": cand.kind,
+                                    "path": str(clip_path),
+                                    "thumbnail": str(thumb_path) if thumb_path.exists() else "",
+                                    "duration": cand.duration,
+                                    "width": cand.width,
+                                    "height": cand.height,
+                                    "creator": cand.creator,
+                                    "license": cand.license,
+                                    "source_tags": cand.source_tags,
+                                    "skipped_existing": True,
+                                }
+                            )
                             collected_for_query += 1
                             continue
 
@@ -364,21 +365,25 @@ class DirectClipSearch(BaseTool):
                         try:
                             src.download(cand, clip_path)
                         except Exception as e:
-                            errors.append({
-                                "phase": "download",
-                                "clip_id": clip_id,
-                                "source": src.name,
-                                "error": f"{type(e).__name__}: {e}",
-                            })
+                            errors.append(
+                                {
+                                    "phase": "download",
+                                    "clip_id": clip_id,
+                                    "source": src.name,
+                                    "error": f"{type(e).__name__}: {e}",
+                                }
+                            )
                             continue
 
                         if not clip_path.exists() or clip_path.stat().st_size < 1024:
-                            errors.append({
-                                "phase": "download",
-                                "clip_id": clip_id,
-                                "source": src.name,
-                                "error": "Download produced empty or tiny file",
-                            })
+                            errors.append(
+                                {
+                                    "phase": "download",
+                                    "clip_id": clip_id,
+                                    "source": src.name,
+                                    "error": "Download produced empty or tiny file",
+                                }
+                            )
                             try:
                                 if clip_path.exists():
                                     clip_path.unlink()
@@ -400,24 +405,26 @@ class DirectClipSearch(BaseTool):
                         per_source_counts[src.name] = per_source_counts.get(src.name, 0) + 1
                         collected_for_query += 1
 
-                        downloaded.append({
-                            "clip_id": clip_id,
-                            "source": cand.source,
-                            "source_id": cand.source_id,
-                            "source_url": cand.source_url,
-                            "query": query,
-                            "slot_id": slot_id,
-                            "kind": cand.kind,
-                            "path": str(clip_path),
-                            "thumbnail": thumb_path_str,
-                            "duration": cand.duration,
-                            "width": cand.width,
-                            "height": cand.height,
-                            "creator": cand.creator,
-                            "license": cand.license,
-                            "source_tags": cand.source_tags,
-                            "skipped_existing": False,
-                        })
+                        downloaded.append(
+                            {
+                                "clip_id": clip_id,
+                                "source": cand.source,
+                                "source_id": cand.source_id,
+                                "source_url": cand.source_url,
+                                "query": query,
+                                "slot_id": slot_id,
+                                "kind": cand.kind,
+                                "path": str(clip_path),
+                                "thumbnail": thumb_path_str,
+                                "duration": cand.duration,
+                                "width": cand.width,
+                                "height": cand.height,
+                                "creator": cand.creator,
+                                "license": cand.license,
+                                "source_tags": cand.source_tags,
+                                "skipped_existing": False,
+                            }
+                        )
 
             elapsed = time.time() - start
 
@@ -440,6 +447,7 @@ class DirectClipSearch(BaseTool):
 
         except Exception as e:
             import traceback
+
             return ToolResult(
                 success=False,
                 error=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}",
@@ -453,8 +461,7 @@ class DirectClipSearch(BaseTool):
 
 def _guess_ext(cand) -> str:
     """Extract a sensible file extension from a candidate's URL."""
-    known = {".mp4", ".mov", ".mkv", ".webm", ".ogv", ".m4v",
-             ".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+    known = {".mp4", ".mov", ".mkv", ".webm", ".ogv", ".m4v", ".jpg", ".jpeg", ".png", ".tif", ".tiff"}
     path = urllib.parse.urlparse(cand.download_url).path
     ext = Path(path).suffix.lower()
     if ext in known:
@@ -473,15 +480,17 @@ def _extract_mid_thumbnail(video_path: Path, thumb_path: Path) -> None:
 
     # Probe duration first
     probe_cmd = [
-        "ffprobe", "-v", "quiet",
-        "-show_entries", "format=duration",
-        "-of", "csv=p=0",
+        "ffprobe",
+        "-v",
+        "quiet",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "csv=p=0",
         str(video_path),
     ]
     try:
-        result = subprocess.run(
-            probe_cmd, capture_output=True, text=True, timeout=10
-        )
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
         duration = float(result.stdout.strip() or "0")
     except (ValueError, subprocess.TimeoutExpired, FileNotFoundError):
         duration = 0
@@ -490,14 +499,21 @@ def _extract_mid_thumbnail(video_path: Path, thumb_path: Path) -> None:
     seek_time = max(0.5, duration / 2) if duration > 1 else 2.0
 
     extract_cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(round(seek_time, 2)),
-        "-i", str(video_path),
-        "-frames:v", "1",
-        "-q:v", "3",
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(round(seek_time, 2)),
+        "-i",
+        str(video_path),
+        "-frames:v",
+        "1",
+        "-q:v",
+        "3",
         str(thumb_path),
     ]
     subprocess.run(
-        extract_cmd, capture_output=True, timeout=15,
+        extract_cmd,
+        capture_output=True,
+        timeout=15,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )

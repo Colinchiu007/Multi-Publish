@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/audio/google_tts.py.
 Offers 700+ voices across 50+ languages.
 """
+
 from __future__ import annotations
 
 import base64
@@ -64,16 +65,22 @@ class GoogleTTS(BaseTool):
         "fully offline production",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True)
     idempotency_key_fields = [
-        "text", "input_type", "voice", "language_code", "speaking_rate", "pitch",
+        "text",
+        "input_type",
+        "voice",
+        "language_code",
+        "speaking_rate",
+        "pitch",
     ]
 
     _EXT_MAP = {
-        "MP3": "mp3", "LINEAR16": "wav", "OGG_OPUS": "ogg",
-        "MULAW": "wav", "ALAW": "wav",
+        "MP3": "mp3",
+        "LINEAR16": "wav",
+        "OGG_OPUS": "ogg",
+        "MULAW": "wav",
+        "ALAW": "wav",
     }
 
     def _get_api_key(self) -> str | None:
@@ -129,7 +136,8 @@ class GoogleTTS(BaseTool):
         return result
 
     def _generate(
-        self, inputs: dict[str, Any],
+        self,
+        inputs: dict[str, Any],
         api_key: str | None = None,
         bearer_token: str | None = None,
     ) -> ToolResult:

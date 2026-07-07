@@ -44,7 +44,6 @@ class HunyuanVideo(BaseTool):
     ]
     not_good_for = ["CPU-only machines"]
 
-
     resource_profile = ResourceProfile(cpu_cores=2, ram_mb=16000, vram_mb=14000, disk_mb=4000, network_required=False)
     idempotency_key_fields = ["prompt", "model_variant", "operation", "seed"]
 
@@ -59,10 +58,14 @@ class HunyuanVideo(BaseTool):
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         if self.get_status() != ToolStatus.AVAILABLE:
-            return ToolResult(success=False, error="Hunyuan local video generation is unavailable. " + self.install_instructions)
+            return ToolResult(
+                success=False, error="Hunyuan local video generation is unavailable. " + self.install_instructions
+            )
         start = time.time()
         try:
-            result = generate_local_video(tool_name=self.name, variants=HUNYUAN_VARIANTS, default_variant="hunyuan-1.5", inputs=inputs)
+            result = generate_local_video(
+                tool_name=self.name, variants=HUNYUAN_VARIANTS, default_variant="hunyuan-1.5", inputs=inputs
+            )
         except Exception as exc:
             return ToolResult(success=False, error=f"Hunyuan video generation failed: {exc}")
         result.duration_seconds = round(time.time() - start, 2)

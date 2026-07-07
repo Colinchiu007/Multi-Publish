@@ -15,6 +15,7 @@ from enum import Enum
 
 class ScoreDimension(Enum):
     """Scoring dimensions with their weights."""
+
     TITLE_CLARITY = "title_clarity"
     CONTENT_DEPTH = "content_depth"
     READABILITY = "readability"
@@ -42,6 +43,7 @@ def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
 @dataclass
 class ContentQualityScore:
     """Multi-dimensional score for content quality pre-publish gate."""
+
     title_clarity: float = 0.0
     content_depth: float = 0.0
     readability: float = 0.0
@@ -55,21 +57,16 @@ class ContentQualityScore:
 
     @property
     def overall(self) -> float:
-        return sum(
-            getattr(self, dim.value) * dim.weight
-            for dim in ScoreDimension
-        )
+        return sum(getattr(self, dim.value) * dim.weight for dim in ScoreDimension)
 
     def to_dict(self) -> dict[str, float]:
-        return {
-            dim.value: getattr(self, dim.value)
-            for dim in ScoreDimension
-        } | {"overall": self.overall}
+        return {dim.value: getattr(self, dim.value) for dim in ScoreDimension} | {"overall": self.overall}
 
 
 @dataclass
 class PlatformFitScore:
     """Multi-dimensional score for platform-content fit."""
+
     text_compatibility: float = 0.0
     media_compatibility: float = 0.0
     audience_relevance: float = 0.0
@@ -78,8 +75,11 @@ class PlatformFitScore:
 
     def __post_init__(self):
         for field_name in [
-            "text_compatibility", "media_compatibility",
-            "audience_relevance", "timing_fitness", "historical_performance",
+            "text_compatibility",
+            "media_compatibility",
+            "audience_relevance",
+            "timing_fitness",
+            "historical_performance",
         ]:
             setattr(self, field_name, _clamp(getattr(self, field_name)))
 
@@ -141,7 +141,7 @@ def score_content_quality(
     else:
         depth_score = 0.1
 
-    sentences = re.split(r'[。！？.!?]', content) if content else []
+    sentences = re.split(r"[。！？.!?]", content) if content else []
     if sentences:
         valid = [s for s in sentences if s.strip()]
         avg_sentence_len = sum(len(s) for s in valid) / max(len(valid), 1)
@@ -154,8 +154,8 @@ def score_content_quality(
     else:
         readability_score = 0.3
 
-    has_headings = bool(re.search(r'^#|^##|^###', content, re.MULTILINE)) if content else False
-    has_keywords = len(set(re.findall(r'[\w]+', title))) >= 3 if title else False
+    has_headings = bool(re.search(r"^#|^##|^###", content, re.MULTILINE)) if content else False
+    has_keywords = len(set(re.findall(r"[\w]+", title))) >= 3 if title else False
     seo_score = 0.0
     if has_headings:
         seo_score += 0.4
@@ -164,7 +164,7 @@ def score_content_quality(
     if content_len >= 300:
         seo_score += 0.3
 
-    has_emoji = bool(re.search(r'[\U0001F300-\U0001FFFF]', title + content))
+    has_emoji = bool(re.search(r"[\U0001F300-\U0001FFFF]", title + content))
     has_questions = "?" in content or "？" in content
     engagement = 0.3
     if has_emoji:

@@ -44,7 +44,6 @@ class LTXVideoLocal(BaseTool):
     ]
     not_good_for = ["CPU-only machines"]
 
-
     resource_profile = ResourceProfile(cpu_cores=2, ram_mb=16000, vram_mb=12000, disk_mb=4000, network_required=False)
     idempotency_key_fields = ["prompt", "model_variant", "operation", "seed"]
 
@@ -59,12 +58,15 @@ class LTXVideoLocal(BaseTool):
 
     def execute(self, inputs: dict[str, object]) -> ToolResult:
         if self.get_status() != ToolStatus.AVAILABLE:
-            return ToolResult(success=False, error="Local LTX video generation is unavailable. " + self.install_instructions)
+            return ToolResult(
+                success=False, error="Local LTX video generation is unavailable. " + self.install_instructions
+            )
         start = time.time()
         try:
-            result = generate_local_video(tool_name=self.name, variants=LTX_LOCAL_VARIANTS, default_variant="ltx2-local", inputs=inputs)
+            result = generate_local_video(
+                tool_name=self.name, variants=LTX_LOCAL_VARIANTS, default_variant="ltx2-local", inputs=inputs
+            )
         except Exception as exc:
             return ToolResult(success=False, error=f"Local LTX video generation failed: {exc}")
         result.duration_seconds = round(time.time() - start, 2)
         return result
-

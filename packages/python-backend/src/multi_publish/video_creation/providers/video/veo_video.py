@@ -40,8 +40,7 @@ class VeoVideo(BaseTool):
 
     dependencies = []
     install_instructions = (
-        "Set FAL_KEY or FAL_AI_API_KEY to your fal.ai API key.\n"
-        "  Get one at https://fal.ai/dashboard/keys"
+        "Set FAL_KEY or FAL_AI_API_KEY to your fal.ai API key.\n  Get one at https://fal.ai/dashboard/keys"
     )
 
     capabilities = ["text_to_video", "image_to_video", "reference_to_video", "first_last_frame_to_video"]
@@ -52,10 +51,7 @@ class VeoVideo(BaseTool):
     ]
     not_good_for = ["budget projects", "offline generation", "quick iteration"]
 
-
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=500, network_required=True)
     idempotency_key_fields = ["prompt", "model_variant", "operation", "duration"]
 
     def _get_api_key(self) -> str | None:
@@ -126,7 +122,11 @@ class VeoVideo(BaseTool):
         duration = inputs.get("duration", "8s")
 
         # Current fal Veo 3.1 image-guided endpoints only accept 8-second clips.
-        if variant == "veo3.1" and operation in {"reference_to_video", "first_last_frame_to_video"} and duration != "8s":
+        if (
+            variant == "veo3.1"
+            and operation in {"reference_to_video", "first_last_frame_to_video"}
+            and duration != "8s"
+        ):
             return ToolResult(
                 success=False,
                 error=(
@@ -184,12 +184,8 @@ class VeoVideo(BaseTool):
             payload["image_urls"] = normalized
 
         if operation == "first_last_frame_to_video":
-            first_frame = self._normalize_file_input(
-                inputs.get("first_frame_url"), inputs.get("first_frame_path")
-            )
-            last_frame = self._normalize_file_input(
-                inputs.get("last_frame_url"), inputs.get("last_frame_path")
-            )
+            first_frame = self._normalize_file_input(inputs.get("first_frame_url"), inputs.get("first_frame_path"))
+            last_frame = self._normalize_file_input(inputs.get("last_frame_url"), inputs.get("last_frame_path"))
             if not first_frame or not last_frame:
                 return ToolResult(
                     success=False,

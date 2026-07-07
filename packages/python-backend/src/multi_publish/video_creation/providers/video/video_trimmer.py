@@ -42,10 +42,7 @@ class VideoTrimmer(BaseTool):
 
     capabilities = ["cut", "trim", "speed_adjust", "concat"]
 
-
-    resource_profile = ResourceProfile(
-        cpu_cores=2, ram_mb=1024, vram_mb=0, disk_mb=2000, network_required=False
-    )
+    resource_profile = ResourceProfile(cpu_cores=2, ram_mb=1024, vram_mb=0, disk_mb=2000, network_required=False)
     idempotency_key_fields = ["operation", "input_path", "start_seconds", "end_seconds", "speed_factor"]
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
@@ -75,14 +72,15 @@ class VideoTrimmer(BaseTool):
         start_s = inputs.get("start_seconds", 0)
         end_s = inputs.get("end_seconds")
         codec = inputs.get("codec", "copy")
-        output_path = Path(
-            inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_cut")))
-        )
+        output_path = Path(inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_cut"))))
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-ss", str(start_s),
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_path),
+            "-ss",
+            str(start_s),
         ]
         if end_s is not None:
             cmd.extend(["-to", str(end_s)])
@@ -112,22 +110,28 @@ class VideoTrimmer(BaseTool):
             return ToolResult(success=False, error=f"Input not found: {input_path}")
 
         factor = inputs.get("speed_factor", 1.0)
-        output_path = Path(
-            inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_speed")))
-        )
+        output_path = Path(inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_speed"))))
 
         # Video: setpts adjusts presentation timestamps (inverse of speed)
         # Audio: atempo adjusts audio speed (must chain for >2x)
-        video_filter = f"setpts={1.0/factor}*PTS"
+        video_filter = f"setpts={1.0 / factor}*PTS"
         audio_filters = self._build_atempo_chain(factor)
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-filter:v", video_filter,
-            "-filter:a", audio_filters,
-            "-c:v", "libx264", "-preset", "fast",
-            "-c:a", "aac",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_path),
+            "-filter:v",
+            video_filter,
+            "-filter:a",
+            audio_filters,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-c:a",
+            "aac",
             str(output_path),
         ]
 
@@ -187,10 +191,16 @@ class VideoTrimmer(BaseTool):
                     f.write(f"file '{safe_path}'\n")
 
             cmd = [
-                "ffmpeg", "-y",
-                "-f", "concat", "-safe", "0",
-                "-i", str(list_path),
-                "-c", "copy",
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_path),
+                "-c",
+                "copy",
                 str(output_path),
             ]
             self.run_command(cmd)

@@ -30,6 +30,7 @@ stateless — the agent can call it from multiple stages without
 worrying about caches drifting out of sync. For a 1000-row corpus
 the load cost is <50 ms.
 """
+
 from __future__ import annotations
 
 import time
@@ -67,8 +68,7 @@ class ClipSearch(BaseTool):
         "python:torch",
     ]
     install_instructions = (
-        "pip install numpy transformers torch\n"
-        "Requires a corpus built by corpus_builder at <corpus_dir>."
+        "pip install numpy transformers torch\nRequires a corpus built by corpus_builder at <corpus_dir>."
     )
     agent_skills = []
 
@@ -115,8 +115,7 @@ class ClipSearch(BaseTool):
             # rank_for_slot
             "query_text": {
                 "type": "string",
-                "description": "Text description of the scene slot. "
-                               "Embedded by CLIP for similarity ranking.",
+                "description": "Text description of the scene slot. Embedded by CLIP for similarity ranking.",
             },
             "k": {"type": "integer", "default": 10, "minimum": 1},
             "tag_weight": {
@@ -128,8 +127,7 @@ class ClipSearch(BaseTool):
             },
             "motion_min": {
                 "type": "number",
-                "description": "Reject clips with motion_score below this. "
-                               "Use ~1.5 to filter dead-still clips.",
+                "description": "Reject clips with motion_score below this. Use ~1.5 to filter dead-still clips.",
             },
             "kind": {
                 "type": "string",
@@ -158,9 +156,7 @@ class ClipSearch(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=1024, vram_mb=0, disk_mb=50, network_required=False
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=1024, vram_mb=0, disk_mb=50, network_required=False)
     side_effects = []
     user_visible_verification = [
         "Inspect returned clip_ids and visit thumb_dir/frame_02.jpg "
@@ -223,6 +219,7 @@ class ClipSearch(BaseTool):
             )
         except Exception as e:
             import traceback
+
             return ToolResult(
                 success=False,
                 error=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}",
@@ -297,10 +294,7 @@ def _op_rank_for_slot(corp, inputs: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "query_text": query_text,
-        "results": [
-            {"score": score, "record": asdict(rec)}
-            for rec, score in results
-        ],
+        "results": [{"score": score, "record": asdict(rec)} for rec, score in results],
     }
 
 
@@ -319,10 +313,7 @@ def _op_find_similar_set(corp, inputs: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "seed_clip_id": seed,
-        "results": [
-            {"score": score, "record": asdict(rec)}
-            for rec, score in results
-        ],
+        "results": [{"score": score, "record": asdict(rec)} for rec, score in results],
     }
 
 

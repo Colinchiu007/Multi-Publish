@@ -32,11 +32,11 @@ from multi_publish.video_creation.base_tool import (
 
 # Common target aspect ratios
 ASPECT_PRESETS = {
-    "portrait": (9, 16),       # Instagram Reels, TikTok, YouTube Shorts
-    "square": (1, 1),          # Instagram Feed
-    "landscape": (16, 9),      # YouTube, LinkedIn
-    "cinematic": (21, 9),      # Ultra-wide
-    "vertical_4_5": (4, 5),    # Instagram portrait post
+    "portrait": (9, 16),  # Instagram Reels, TikTok, YouTube Shorts
+    "square": (1, 1),  # Instagram Feed
+    "landscape": (16, 9),  # YouTube, LinkedIn
+    "cinematic": (21, 9),  # Ultra-wide
+    "vertical_4_5": (4, 5),  # Instagram portrait post
 }
 
 
@@ -112,14 +112,16 @@ class AutoReframe(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=4, ram_mb=2048, vram_mb=0, disk_mb=4000, network_required=False
-    )
+    resource_profile = ResourceProfile(cpu_cores=4, ram_mb=2048, vram_mb=0, disk_mb=4000, network_required=False)
     retry_policy = RetryPolicy(max_retries=1, retryable_errors=["FFmpeg error"])
     resume_support = ResumeSupport.FROM_START
     idempotency_key_fields = [
-        "input_path", "target_aspect", "target_width", "target_height",
-        "smoothing_window", "face_padding",
+        "input_path",
+        "target_aspect",
+        "target_width",
+        "target_height",
+        "smoothing_window",
+        "face_padding",
     ]
     side_effects = ["writes reframed video to output_path"]
     user_visible_verification = [
@@ -156,7 +158,11 @@ class AutoReframe(BaseTool):
         # Compute per-frame crop positions
         if face_data and len(face_data) > 0:
             crop_x, crop_y = self._compute_face_tracked_crop(
-                face_data, src_w, src_h, target_w, target_h,
+                face_data,
+                src_w,
+                src_h,
+                target_w,
+                target_h,
                 src_fps,
                 inputs.get("smoothing_window", 15),
                 inputs.get("face_padding", 0.4),
@@ -173,9 +179,7 @@ class AutoReframe(BaseTool):
 
         # Build output path
         aspect_name = inputs.get("target_aspect", "portrait")
-        output_path = Path(
-            inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_{aspect_name}")))
-        )
+        output_path = Path(inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_{aspect_name}"))))
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Render via FFmpeg
@@ -185,16 +189,31 @@ class AutoReframe(BaseTool):
         if method == "face_tracked" and isinstance(crop_x, list):
             # Dynamic crop: write crop coordinates to a file and use sendcmd
             result = self._render_dynamic_crop(
-                input_path, output_path, crop_x, crop_y,
-                target_w, target_h, out_w, out_h,
-                src_fps, codec, crf,
+                input_path,
+                output_path,
+                crop_x,
+                crop_y,
+                target_w,
+                target_h,
+                out_w,
+                out_h,
+                src_fps,
+                codec,
+                crf,
             )
         else:
             # Static crop
             result = self._render_static_crop(
-                input_path, output_path,
-                crop_x, crop_y, target_w, target_h,
-                out_w, out_h, codec, crf,
+                input_path,
+                output_path,
+                crop_x,
+                crop_y,
+                target_w,
+                target_h,
+                out_w,
+                out_h,
+                codec,
+                crf,
             )
 
         if not result.success:
@@ -220,10 +239,16 @@ class AutoReframe(BaseTool):
     def _get_video_info(self, path: Path) -> tuple[int, int, float]:
         """Get video width, height, fps via ffprobe."""
         cmd = [
-            "ffprobe", "-v", "quiet",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,r_frame_rate",
-            "-of", "json", str(path),
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,r_frame_rate",
+            "-of",
+            "json",
+            str(path),
         ]
         try:
             result = self.run_command(cmd)
@@ -238,9 +263,7 @@ class AutoReframe(BaseTool):
         except Exception:
             return 0, 0, 30.0
 
-    def _compute_crop_size(
-        self, inputs: dict[str, Any], src_w: int, src_h: int
-    ) -> tuple[int, int]:
+    def _compute_crop_size(self, inputs: dict[str, Any], src_w: int, src_h: int) -> tuple[int, int]:
         """Compute crop dimensions in source pixel space that match the target aspect ratio."""
         if "target_width" in inputs and "target_height" in inputs:
             # Explicit dimensions — compute crop in source space matching this ratio
@@ -268,9 +291,12 @@ class AutoReframe(BaseTool):
         return crop_w, crop_h
 
     def _compute_output_resolution(
-        self, inputs: dict[str, Any],
-        crop_w: int, crop_h: int,
-        src_w: int, src_h: int,
+        self,
+        inputs: dict[str, Any],
+        crop_w: int,
+        crop_h: int,
+        src_w: int,
+        src_h: int,
     ) -> tuple[int, int]:
         """Determine final output resolution. Scales to standard sizes."""
         if "target_width" in inputs and "target_height" in inputs:
@@ -296,9 +322,7 @@ class AutoReframe(BaseTool):
         out_h = out_h - (out_h % 2)
         return out_w, out_h
 
-    def _get_face_data(
-        self, inputs: dict[str, Any], input_path: Path, src_fps: float
-    ) -> list[dict]:
+    def _get_face_data(self, inputs: dict[str, Any], input_path: Path, src_fps: float) -> list[dict]:
         """Get face tracking data — from pre-computed JSON or by running detection."""
         # Check for pre-computed tracking data
         tracking_json = inputs.get("face_tracking_json")
@@ -311,14 +335,17 @@ class AutoReframe(BaseTool):
         # Try to run face_tracker internally
         try:
             from multi_publish.video_creation.analysis.face_tracker import FaceTracker
+
             tracker = FaceTracker()
             if tracker.get_status().name == "UNAVAILABLE":
                 return []
             sample_fps = inputs.get("sample_fps", 5)
-            result = tracker.execute({
-                "input_path": str(input_path),
-                "sample_fps": sample_fps,
-            })
+            result = tracker.execute(
+                {
+                    "input_path": str(input_path),
+                    "sample_fps": sample_fps,
+                }
+            )
             if result.success and result.data:
                 # Read the generated JSON
                 output_file = result.data.get("output")
@@ -333,8 +360,10 @@ class AutoReframe(BaseTool):
     def _compute_face_tracked_crop(
         self,
         faces: list[dict],
-        src_w: int, src_h: int,
-        crop_w: int, crop_h: int,
+        src_w: int,
+        src_h: int,
+        crop_w: int,
+        crop_h: int,
         fps: float,
         smoothing_window: int,
         face_padding: float,
@@ -410,21 +439,37 @@ class AutoReframe(BaseTool):
 
     def _render_static_crop(
         self,
-        input_path: Path, output_path: Path,
-        crop_x: int, crop_y: int,
-        crop_w: int, crop_h: int,
-        out_w: int, out_h: int,
-        codec: str, crf: int,
+        input_path: Path,
+        output_path: Path,
+        crop_x: int,
+        crop_y: int,
+        crop_w: int,
+        crop_h: int,
+        out_w: int,
+        out_h: int,
+        codec: str,
+        crf: int,
     ) -> ToolResult:
         """Render with a static crop position."""
         vf = f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},scale={out_w}:{out_h}"
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-vf", vf,
-            "-c:v", codec, "-crf", str(crf), "-preset", "fast",
-            "-c:a", "aac", "-b:a", "192k",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_path),
+            "-vf",
+            vf,
+            "-c:v",
+            codec,
+            "-crf",
+            str(crf),
+            "-preset",
+            "fast",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
             str(output_path),
         ]
 
@@ -437,12 +482,17 @@ class AutoReframe(BaseTool):
 
     def _render_dynamic_crop(
         self,
-        input_path: Path, output_path: Path,
-        crop_xs: list[int], crop_ys: list[int],
-        crop_w: int, crop_h: int,
-        out_w: int, out_h: int,
+        input_path: Path,
+        output_path: Path,
+        crop_xs: list[int],
+        crop_ys: list[int],
+        crop_w: int,
+        crop_h: int,
+        out_w: int,
+        out_h: int,
         fps: float,
-        codec: str, crf: int,
+        codec: str,
+        crf: int,
     ) -> ToolResult:
         """Render with dynamic crop positions that follow the face.
 
@@ -460,8 +510,16 @@ class AutoReframe(BaseTool):
             avg_x = int(sum(crop_xs) / len(crop_xs))
             avg_y = int(sum(crop_ys) / len(crop_ys))
             return self._render_static_crop(
-                input_path, output_path, avg_x, avg_y,
-                crop_w, crop_h, out_w, out_h, codec, crf,
+                input_path,
+                output_path,
+                avg_x,
+                avg_y,
+                crop_w,
+                crop_h,
+                out_w,
+                out_h,
+                codec,
+                crf,
             )
 
         # Build sendcmd script for crop filter position updates
@@ -490,11 +548,22 @@ class AutoReframe(BaseTool):
         )
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-vf", vf,
-            "-c:v", codec, "-crf", str(crf), "-preset", "fast",
-            "-c:a", "aac", "-b:a", "192k",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_path),
+            "-vf",
+            vf,
+            "-c:v",
+            codec,
+            "-crf",
+            str(crf),
+            "-preset",
+            "fast",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
             str(output_path),
         ]
 
@@ -505,8 +574,16 @@ class AutoReframe(BaseTool):
             avg_x = int(sum(crop_xs) / len(crop_xs))
             avg_y = int(sum(crop_ys) / len(crop_ys))
             result = self._render_static_crop(
-                input_path, output_path, avg_x, avg_y,
-                crop_w, crop_h, out_w, out_h, codec, crf,
+                input_path,
+                output_path,
+                avg_x,
+                avg_y,
+                crop_w,
+                crop_h,
+                out_w,
+                out_h,
+                codec,
+                crf,
             )
             if result.success:
                 result.data = result.data or {}
@@ -530,7 +607,4 @@ class AutoReframe(BaseTool):
     @staticmethod
     def list_presets() -> dict[str, str]:
         """Return available aspect ratio presets."""
-        return {
-            name: f"{w}:{h}"
-            for name, (w, h) in ASPECT_PRESETS.items()
-        }
+        return {name: f"{w}:{h}" for name, (w, h) in ASPECT_PRESETS.items()}

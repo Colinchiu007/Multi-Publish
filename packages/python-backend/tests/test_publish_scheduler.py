@@ -1,9 +1,12 @@
 """Tests for PublishScheduler (migrated from legacy)"""
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+
 from datetime import datetime, timedelta
+from unittest.mock import MagicMock
+
+import pytest
+
 from multi_publish.core.scheduler import PublishScheduler
-from multi_publish.models import PublishTask, PlatformType, TaskStatus
+from multi_publish.models import PlatformType, PublishTask
 
 
 @pytest.fixture

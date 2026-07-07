@@ -68,8 +68,7 @@ class WechatPublisher:
 
         if not self.appid or not self.secret:
             raise WeChatConfigError(
-                "WECHAT_APPID and WECHAT_APPSECRET must be provided "
-                "or set as environment variables"
+                "WECHAT_APPID and WECHAT_APPSECRET must be provided or set as environment variables"
             )
 
         # HTTP client
@@ -90,6 +89,7 @@ class WechatPublisher:
     def _get_env(self, key: str) -> str | None:
         """Get environment variable."""
         import os
+
         return os.getenv(key)
 
     @property
@@ -217,9 +217,7 @@ class WechatPublisher:
                     if self.auto_refresh_token and retry_count < self.max_retries:
                         logger.warning(f"Token error detected, refreshing... (retry {retry_count + 1})")
                         self._refresh_access_token()
-                        return self._make_request(
-                            method, endpoint, params, data, files, json_data, retry_count + 1
-                        )
+                        return self._make_request(method, endpoint, params, data, files, json_data, retry_count + 1)
 
                 # Handle rate limiting
                 if error_code == 45009:
@@ -227,9 +225,7 @@ class WechatPublisher:
                         retry_after = 5 * (retry_count + 1)  # Exponential backoff
                         logger.warning(f"Rate limited, retrying after {retry_after}s...")
                         time.sleep(retry_after)
-                        return self._make_request(
-                            method, endpoint, params, data, files, json_data, retry_count + 1
-                        )
+                        return self._make_request(method, endpoint, params, data, files, json_data, retry_count + 1)
                     else:
                         raise WeChatRateLimitError(
                             f"Rate limit exceeded after {self.max_retries} retries",
@@ -241,9 +237,7 @@ class WechatPublisher:
                 if error_code in [41005, 41006, 45006] and retry_count < self.max_retries:
                     logger.warning(f"Upload error, retrying... (retry {retry_count + 1})")
                     time.sleep(2 * (retry_count + 1))
-                return self._make_request(
-                    method, endpoint, params, data, files, json_data, retry_count + 1
-                    )
+                return self._make_request(method, endpoint, params, data, files, json_data, retry_count + 1)
 
                 # Raise appropriate error
                 raise_for_error_code(error_code, error_msg)
@@ -254,17 +248,13 @@ class WechatPublisher:
             if retry_count < self.max_retries:
                 logger.warning(f"HTTP error {e.response.status_code}, retrying...")
                 time.sleep(3 * (retry_count + 1))
-                return self._make_request(
-                    method, endpoint, params, data, files, json_data, retry_count + 1
-                )
+                return self._make_request(method, endpoint, params, data, files, json_data, retry_count + 1)
             raise WeChatNetworkError(f"HTTP error: {e}")
         except httpx.HTTPError as e:
             if retry_count < self.max_retries:
                 logger.warning(f"Network error, retrying... ({retry_count + 1}/{self.max_retries})")
-                time.sleep(2 ** retry_count)
-                return self._make_request(
-                    method, endpoint, params, data, files, json_data, retry_count + 1
-                )
+                time.sleep(2**retry_count)
+                return self._make_request(method, endpoint, params, data, files, json_data, retry_count + 1)
             raise WeChatNetworkError(f"Network error after {self.max_retries} retries: {e}")
 
         except WeChatAPIError:
@@ -318,7 +308,7 @@ class WechatPublisher:
 
                         if error_code in [41005, 41006] and attempt < self.max_retries - 1:
                             logger.warning(f"Upload failed, retrying... (attempt {attempt + 1})")
-                            time.sleep(2 ** attempt)
+                            time.sleep(2**attempt)
                             continue
 
                         raise_for_error_code(error_code, error_msg)
@@ -334,7 +324,7 @@ class WechatPublisher:
                 if attempt == self.max_retries - 1:
                     raise WeChatUploadError(f"Failed to upload cover image: {e}")
                 logger.warning(f"Upload attempt {attempt + 1} failed: {e}")
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
 
         raise WeChatUploadError("Upload failed after all retries")
 
@@ -505,7 +495,7 @@ class WechatPublisher:
         except Exception as e:
             logger.error(f"Free publish failed: {e}")
             return PublishResult.error_result(
-                error_code=getattr(e, 'error_code', -1),
+                error_code=getattr(e, "error_code", -1),
                 error_message=str(e),
             )
 
@@ -547,7 +537,7 @@ class WechatPublisher:
         except Exception as e:
             logger.error(f"Mass publish failed: {e}")
             return PublishResult.error_result(
-                error_code=getattr(e, 'error_code', -1),
+                error_code=getattr(e, "error_code", -1),
                 error_message=str(e),
             )
 

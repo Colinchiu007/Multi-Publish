@@ -89,9 +89,7 @@ class AudioEnergy(BaseTool):
         },
     }
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=128, vram_mb=0, disk_mb=0, network_required=False
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=128, vram_mb=0, disk_mb=0, network_required=False)
     retry_policy = RetryPolicy(max_retries=0, retryable_errors=[])
     idempotency_key_fields = ["input_path"]
     side_effects = []
@@ -128,10 +126,17 @@ class AudioEnergy(BaseTool):
         try:
             probe_result = subprocess.run(
                 [
-                    ffprobe, "-v", "quiet", "-print_format", "json",
-                    "-show_format", str(input_path),
+                    ffprobe,
+                    "-v",
+                    "quiet",
+                    "-print_format",
+                    "json",
+                    "-show_format",
+                    str(input_path),
                 ],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             probe_data = json.loads(probe_result.stdout)
             audio_duration = float(probe_data["format"]["duration"])
@@ -145,11 +150,18 @@ class AudioEnergy(BaseTool):
         try:
             result = subprocess.run(
                 [
-                    ffmpeg, "-i", str(input_path),
-                    "-af", "ebur128",
-                    "-f", "null", "-",
+                    ffmpeg,
+                    "-i",
+                    str(input_path),
+                    "-af",
+                    "ebur128",
+                    "-f",
+                    "null",
+                    "-",
                 ],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
             stderr = result.stderr
         except subprocess.TimeoutExpired:
@@ -184,7 +196,8 @@ class AudioEnergy(BaseTool):
         for sec in range(max_sec):
             # Collect all 100ms points within this second
             points_in_sec = [
-                m for t, m in raw_points
+                m
+                for t, m in raw_points
                 if sec <= t < sec + 1 and m > -120  # -120 = silence marker
             ]
 
@@ -193,11 +206,13 @@ class AudioEnergy(BaseTool):
             else:
                 avg_lufs = -120.0
 
-            energy_profile.append({
-                "time_seconds": sec,
-                "loudness_lufs": round(avg_lufs, 1),
-                "active": avg_lufs > threshold_lufs,
-            })
+            energy_profile.append(
+                {
+                    "time_seconds": sec,
+                    "loudness_lufs": round(avg_lufs, 1),
+                    "active": avg_lufs > threshold_lufs,
+                }
+            )
 
         # ------------------------------------------------------------------
         # Step 5: Find key moments
@@ -223,17 +238,11 @@ class AudioEnergy(BaseTool):
         # Step 6: Find best window for video duration
         # ------------------------------------------------------------------
         recommended_offset = first_active_sec
-        offset_reason = (
-            f"First active music at {first_active_sec}s "
-            f"(threshold: {threshold_lufs} LUFS)"
-        )
+        offset_reason = f"First active music at {first_active_sec}s (threshold: {threshold_lufs} LUFS)"
 
         if video_duration and video_duration < audio_duration:
             window_size = int(video_duration)
-            loudness_values = [
-                s["loudness_lufs"] if s["loudness_lufs"] > -120 else -60
-                for s in energy_profile
-            ]
+            loudness_values = [s["loudness_lufs"] if s["loudness_lufs"] > -120 else -60 for s in energy_profile]
 
             if len(loudness_values) >= window_size:
                 best_avg = -999.0
@@ -248,8 +257,7 @@ class AudioEnergy(BaseTool):
 
                 recommended_offset = float(best_start)
                 offset_reason = (
-                    f"Best {window_size}s window starts at {best_start}s "
-                    f"(avg loudness: {round(best_avg, 1)} LUFS)"
+                    f"Best {window_size}s window starts at {best_start}s (avg loudness: {round(best_avg, 1)} LUFS)"
                 )
 
         # ------------------------------------------------------------------
@@ -264,9 +272,7 @@ class AudioEnergy(BaseTool):
                 loop_info = {
                     "music_available_from_offset": round(available_from_offset, 1),
                     "video_duration": round(video_duration, 1),
-                    "shortfall_seconds": round(
-                        video_duration - available_from_offset, 1
-                    ),
+                    "shortfall_seconds": round(video_duration - available_from_offset, 1),
                     "recommendation": (
                         f"Music from offset {recommended_offset}s provides only "
                         f"{round(available_from_offset, 1)}s but video is "

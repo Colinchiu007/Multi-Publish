@@ -29,8 +29,12 @@ class VideoSelector(BaseTool):
     runtime = ToolRuntime.HYBRID
 
     capabilities = [
-        "text_to_video", "image_to_video", "stock_video",
-        "provider_selection", "search_video", "download_video",
+        "text_to_video",
+        "image_to_video",
+        "stock_video",
+        "provider_selection",
+        "search_video",
+        "download_video",
     ]
     best_for = [
         "preflight routing",
@@ -38,13 +42,13 @@ class VideoSelector(BaseTool):
         "switching between cloud, local, and stock video tools",
     ]
 
-
     def _providers(self) -> list[BaseTool]:
         """Auto-discover video generation providers from the registry."""
-        from multi_publish.video_creation.tool_registry import ToolRegistry; registry = ToolRegistry()
+        from multi_publish.video_creation.tool_registry import ToolRegistry
+
+        registry = ToolRegistry()
         registry.ensure_discovered()
-        return [t for t in registry.get_by_capability("video_generation")
-                if t.name != self.name]
+        return [t for t in registry.get_by_capability("video_generation") if t.name != self.name]
 
     @property
     def fallback_tools(self) -> list[str]:
@@ -107,7 +111,7 @@ class VideoSelector(BaseTool):
 
         # Adapt input keys: stock tools use 'query' while generators use 'prompt'
         adapted = dict(inputs)
-        if hasattr(tool, 'input_schema'):
+        if hasattr(tool, "input_schema"):
             required = tool.input_schema.get("properties", {})
             if "query" in required and "query" not in adapted:
                 adapted["query"] = adapted.get("prompt", "")
@@ -119,6 +123,7 @@ class VideoSelector(BaseTool):
             if "image_url" in tool_props and "image_url" not in adapted:
                 try:
                     from multi_publish.video_creation.providers.video._shared import upload_image_fal
+
                     adapted["image_url"] = upload_image_fal(adapted["reference_image_path"])
                 except Exception as e:
                     return ToolResult(success=False, error=f"Failed to upload reference image: {e}")
@@ -132,8 +137,7 @@ class VideoSelector(BaseTool):
                 result.data["provider_score"] = score.to_dict()
             result.data.update(self._tool_context_payload(tool))
             result.data["alternatives_considered"] = [
-                t.name for t in candidates
-                if t.name != tool.name and t.get_status().value == "available"
+                t.name for t in candidates if t.name != tool.name and t.get_status().value == "available"
             ]
         return result
 

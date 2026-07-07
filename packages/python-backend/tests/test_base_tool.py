@@ -1,9 +1,17 @@
 """Tests for video_creation/base_tool ? enums, dataclasses, BaseTool basics."""
-import pytest
+
 from multi_publish.video_creation.base_tool import (
-    ToolTier, ToolStability, ToolStatus, ToolRuntime,
-    ExecutionMode, Determinism, ResumeSupport,
-    ResourceProfile, RetryPolicy, ToolResult, BaseTool,
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    ResumeSupport,
+    RetryPolicy,
+    ToolResult,
+    ToolRuntime,
+    ToolStability,
+    ToolStatus,
+    ToolTier,
 )
 
 
@@ -12,60 +20,74 @@ class TestToolTier:
         assert ToolTier.CORE.value == "core"
         assert ToolTier.GENERATE.value == "generate"
 
+
 class TestToolStability:
     def test_values(self):
         assert ToolStability.EXPERIMENTAL.value == "experimental"
         assert ToolStability.PRODUCTION.value == "production"
 
+
 class TestToolStatus:
     def test_values(self):
         assert ToolStatus.AVAILABLE.value == "available"
+
 
 class TestToolRuntime:
     def test_values(self):
         assert ToolRuntime.LOCAL.value == "local"
 
+
 class TestExecutionMode:
     def test_values(self):
         assert ExecutionMode.SYNC.value == "sync"
+
 
 class TestDeterminism:
     def test_values(self):
         assert Determinism.SEEDED.value == "seeded"
 
+
 class TestResumeSupport:
     def test_values(self):
         assert ResumeSupport.NONE.value == "none"
+
 
 class TestResourceProfile:
     def test_defaults(self):
         p = ResourceProfile()
         assert p.cpu_cores == 1
 
+
 class TestRetryPolicy:
     def test_defaults(self):
         p = RetryPolicy()
         assert p.max_retries == 0
 
+
 class TestToolResult:
     def test_success(self):
         r = ToolResult(success=True)
         assert r.success and r.cost_usd == 0.0
+
     def test_failure(self):
         r = ToolResult(success=False, error="fail")
         assert r.error == "fail"
+
     def test_with_data(self):
         r = ToolResult(success=True, data={"url": "x"}, cost_usd=0.05)
         assert r.data["url"] == "x"
+
     def test_with_artifacts(self):
         r = ToolResult(success=True, artifacts=["/tmp/f"])
         assert len(r.artifacts) == 1
+
 
 class TestBaseTool:
     class ConcreteTool(BaseTool):
         name = "test_tool"
         capability = "video"
         provider = "test_provider"
+
         def execute(self, inputs):
             return ToolResult(success=True, data={"echo": inputs})
 
@@ -102,8 +124,11 @@ class TestBaseTool:
     def test_get_status_override(self):
         class UT(BaseTool):
             name = "u"
+
             def get_status(self):
                 return ToolStatus.UNAVAILABLE
+
             def execute(self, inputs):
                 return ToolResult(success=False, error="u")
+
         assert UT().get_status() == ToolStatus.UNAVAILABLE

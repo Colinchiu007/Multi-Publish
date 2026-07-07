@@ -2,6 +2,7 @@
 
 Adapted from OpenMontage tools/audio/openai_tts.py.
 """
+
 from __future__ import annotations
 
 import os
@@ -54,11 +55,15 @@ class OpenAITTS(BaseTool):
         "fully offline production",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True)
     idempotency_key_fields = [
-        "text", "voice", "model", "format", "response_format", "instructions", "speed",
+        "text",
+        "voice",
+        "model",
+        "format",
+        "response_format",
+        "instructions",
+        "speed",
     ]
 
     def get_status(self) -> ToolStatus:

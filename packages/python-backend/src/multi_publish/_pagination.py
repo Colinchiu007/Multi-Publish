@@ -60,6 +60,7 @@ class Page(Generic[T]):
         page_size: ????
         has_more: ????????
     """
+
     items: list[T] = field(default_factory=list)
     total: int | None = None
     page: int = 1

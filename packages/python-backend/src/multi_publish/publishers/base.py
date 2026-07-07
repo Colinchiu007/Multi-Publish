@@ -16,6 +16,7 @@ from multi_publish.models import PlatformType, PublishPhase, PublishResult
 # P1: 进度节流阀（蚁小二 UploadEmitGate）
 # ═══════════════════════════════════════════════════════════════
 
+
 class ProgressThrottle:
     """
     进度事件节流阀（蚁小二 UploadEmitGate 风格）
@@ -46,9 +47,11 @@ class ProgressThrottle:
             return True  # 完成必须上报
         if percent - self._last_percent < self._min_percent_delta:
             import time
+
             if time.time() - self._last_time < self._min_interval:
                 return False
         import time
+
         self._last_time = time.time()
         self._last_percent = percent
         return True
@@ -62,6 +65,7 @@ class ProgressThrottle:
 # ═══════════════════════════════════════════════════════════════
 # P0: CDP/Playwright 网络响应拦截（替代 DOM 轮询）
 # ═══════════════════════════════════════════════════════════════
+
 
 class ResponseMonitor:
     """
@@ -92,6 +96,7 @@ class ResponseMonitor:
     async def _on_response(self, response):
         """Playwright response event handler（异步版本）"""
         from loguru import logger
+
         url = response.url
         if not any(p in url for p in self._patterns):
             return
@@ -100,6 +105,7 @@ class ResponseMonitor:
             # Playwright 的 response.text() 可多次调用，不影响页面
             text = await response.text()
             import json
+
             try:
                 data = json.loads(text)
                 self._responses.append({"url": url, "data": data})
@@ -156,6 +162,7 @@ class ResponseMonitor:
 # 重试工具（蚁小二风格）
 # ═══════════════════════════════════════════════════════════════
 
+
 async def async_retry(fn: Callable[[], Coroutine], max_retries: int = 5, interval: float = 1.0) -> Any:
     """
     异步重试工具
@@ -172,6 +179,7 @@ async def async_retry(fn: Callable[[], Coroutine], max_retries: int = 5, interva
         最后一次尝试的异常（所有重试都失败时）
     """
     import asyncio
+
     last_exc = None
     for attempt in range(max_retries):
         try:
@@ -184,6 +192,7 @@ async def async_retry(fn: Callable[[], Coroutine], max_retries: int = 5, interva
 
 
 # ─── Per-Field 重试状态机（蚁小二 renderTaskMap 风格）───────────
+
 
 class FieldRetryMap:
     """
@@ -311,10 +320,11 @@ function dispatchFileToInput(inputElement, file) {
 @dataclass
 class PublisherConfig:
     """发布器配置基类"""
+
     platform: PlatformType
-    data_dir: str = "./data"           # 数据存储目录（Cookie、配置等）
-    headless: bool = False             # 是否无头模式
-    proxy: dict | None = None          # P2-1: SOCKS5 代理配置（Playwright 格式）
+    data_dir: str = "./data"  # 数据存储目录（Cookie、配置等）
+    headless: bool = False  # 是否无头模式
+    proxy: dict | None = None  # P2-1: SOCKS5 代理配置（Playwright 格式）
 
 
 class BasePublisher(ABC):
@@ -370,6 +380,7 @@ class BasePublisher(ABC):
             except Exception:
                 pass
         from loguru import logger
+
         logger.info(f"[{self.platform.value}] {phase.value}: {message} ({percent}%)")
 
     @property

@@ -34,9 +34,7 @@ class TranscriptFetcher(BaseTool):
     runtime = ToolRuntime.LOCAL
 
     dependencies = ["python:youtube_transcript_api"]
-    install_instructions = (
-        "Install youtube-transcript-api: pip install youtube-transcript-api"
-    )
+    install_instructions = "Install youtube-transcript-api: pip install youtube-transcript-api"
     agent_skills = []
 
     capabilities = [
@@ -101,7 +99,10 @@ class TranscriptFetcher(BaseTool):
     }
 
     resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=10,
+        cpu_cores=1,
+        ram_mb=256,
+        vram_mb=0,
+        disk_mb=10,
         network_required=True,
     )
     idempotency_key_fields = ["url_or_video_id", "languages"]
@@ -148,11 +149,13 @@ class TranscriptFetcher(BaseTool):
             segments = []
             full_text_parts = []
             for snippet in transcript_result.snippets:
-                segments.append({
-                    "text": snippet.text,
-                    "start": round(snippet.start, 3),
-                    "duration": round(snippet.duration, 3),
-                })
+                segments.append(
+                    {
+                        "text": snippet.text,
+                        "start": round(snippet.start, 3),
+                        "duration": round(snippet.duration, 3),
+                    }
+                )
                 full_text_parts.append(snippet.text)
 
             full_text = " ".join(full_text_parts)

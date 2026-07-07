@@ -84,12 +84,7 @@ def style_bridge(
     playbook_name = ""
 
     if playbook:
-        playbook_name = str(
-            playbook.get("name")
-            or playbook.get("id")
-            or playbook.get("display_name")
-            or ""
-        )
+        playbook_name = str(playbook.get("name") or playbook.get("id") or playbook.get("display_name") or "")
         vl = playbook.get("visual_language", {}) or {}
         palette = vl.get("color_palette", {}) or {}
         typo = playbook.get("typography", {}) or {}
@@ -140,9 +135,7 @@ def style_bridge(
     return css, design_md
 
 
-def _render_design_md(
-    css: dict[str, str], source_note: str, playbook_name: str
-) -> str:
+def _render_design_md(css: dict[str, str], source_note: str, playbook_name: str) -> str:
     title = f"# DESIGN — {playbook_name}" if playbook_name else "# DESIGN"
     lines = [
         title,

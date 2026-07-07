@@ -22,6 +22,7 @@ What NARA is good for
 - Government program footage and newsreels
 - Any "march of history" documentary sequence
 """
+
 from __future__ import annotations
 
 import logging
@@ -56,10 +57,7 @@ class NARASource:
     display_name = "U.S. National Archives"
     provider = "nara"
     priority = 35
-    install_instructions = (
-        "NARA works without an API key. "
-        "Set NARA_API_KEY in .env for higher rate limits."
-    )
+    install_instructions = "NARA works without an API key. Set NARA_API_KEY in .env for higher rate limits."
 
     def is_available(self) -> bool:
         # NARA is always available (no key required)
@@ -109,9 +107,7 @@ class NARASource:
 
         return out
 
-    def _extract_candidates(
-        self, item: dict, kind: str, filters: SearchFilters
-    ) -> list[Candidate]:
+    def _extract_candidates(self, item: dict, kind: str, filters: SearchFilters) -> list[Candidate]:
         """Extract downloadable candidates from a NARA catalog record."""
         naid = str(item.get("naId", "") or "")
         if not naid:
@@ -139,14 +135,8 @@ class NARASource:
             mime = (obj.get("mimeType", "") or "").lower()
             ext = file_url.rsplit(".", 1)[-1].lower() if "." in file_url else ""
 
-            is_video = (
-                "video" in mime
-                or ext in ("mp4", "mov", "avi", "wmv", "mkv", "webm")
-            )
-            is_image = (
-                "image" in mime
-                or ext in ("jpg", "jpeg", "png", "tif", "tiff", "gif")
-            )
+            is_video = "video" in mime or ext in ("mp4", "mov", "avi", "wmv", "mkv", "webm")
+            is_image = "image" in mime or ext in ("jpg", "jpeg", "png", "tif", "tiff", "gif")
 
             if kind == "video" and not is_video:
                 continue
@@ -197,9 +187,7 @@ class NARASource:
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with httpx.get(
-            candidate.download_url, stream=True, timeout=180
-        ) as r:
+        with httpx.get(candidate.download_url, stream=True, timeout=180) as r:
             r.raise_for_status()
             with open(out_path, "wb") as f:
                 for chunk in r.iter_bytes(1 << 16):
@@ -210,6 +198,7 @@ class NARASource:
 
 class NaraVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "nara"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -244,7 +233,7 @@ class NaraVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -278,7 +267,7 @@ class NaraVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -288,6 +277,7 @@ class NaraVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

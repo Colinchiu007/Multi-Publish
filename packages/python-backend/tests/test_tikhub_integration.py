@@ -1,10 +1,12 @@
 """Tests for auth middleware, pagination, TikHubBridge, and precheck."""
-import pytest
+
 import httpx
-from multi_publish._auth import BearerAuth, AuthMiddleware
+import pytest
+
+from multi_publish._auth import AuthMiddleware, BearerAuth
 from multi_publish._pagination import CursorPaginator, OffsetPaginator, Page
+from multi_publish.precheck import DuplicateCheck, PreCheckEngine
 from multi_publish.tikhub_bridge import TikHubBridge, TikHubBridgeError
-from multi_publish.precheck import PreCheckEngine, DuplicateCheck
 
 
 class TestAuthMiddleware:

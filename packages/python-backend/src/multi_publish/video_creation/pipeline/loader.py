@@ -13,12 +13,7 @@ import jsonschema
 import yaml
 
 PIPELINE_DEFS_DIR = Path(__file__).resolve().parent / "definitions"
-SCHEMA_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "schemas"
-    / "pipelines"
-    / "pipeline_manifest.schema.json"
-)
+SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "pipelines" / "pipeline_manifest.schema.json"
 
 
 def _load_manifest_schema() -> dict:
@@ -94,11 +89,7 @@ def get_stage_sub_stages(
         sub_stages = list(stage.get("sub_stages", []))
         if include_inactive:
             return sub_stages
-        return [
-            sub_stage
-            for sub_stage in sub_stages
-            if _condition_is_active(sub_stage.get("condition"), context)
-        ]
+        return [sub_stage for sub_stage in sub_stages if _condition_is_active(sub_stage.get("condition"), context)]
     return []
 
 
@@ -162,6 +153,7 @@ def get_stage_review_focus(manifest: dict, stage_name: str) -> list[str]:
 # Capability-Extension Enforcement
 # ---------------------------------------------------------------------------
 
+
 class ExtensionNotPermitted(PermissionError):
     """Raised when a capability extension is used but not permitted by the pipeline."""
 
@@ -182,10 +174,7 @@ def check_extension_permitted(
     """
     valid_extensions = {"custom_scripts", "custom_playbooks", "custom_skills", "custom_tools"}
     if extension_type not in valid_extensions:
-        raise ValueError(
-            f"Unknown extension type {extension_type!r}. "
-            f"Valid types: {sorted(valid_extensions)}"
-        )
+        raise ValueError(f"Unknown extension type {extension_type!r}. Valid types: {sorted(valid_extensions)}")
 
     extensions = manifest.get("extensions", {})
     if not extensions.get(extension_type, False):

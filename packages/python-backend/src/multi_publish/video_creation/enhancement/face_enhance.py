@@ -1,4 +1,4 @@
-﻿"""Face enhancement tool wrapping FFmpeg filters.
+"""Face enhancement tool wrapping FFmpeg filters.
 
 Applies skin smoothing, sharpening, and lighting correction presets
 to talking-head footage. All presets are FFmpeg filter chains 鈥?no GPU
@@ -127,9 +127,7 @@ class FaceEnhance(BaseTool):
         if not input_path.exists():
             return ToolResult(success=False, error=f"Input not found: {input_path}")
 
-        output_path = Path(
-            inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_enhanced")))
-        )
+        output_path = Path(inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_enhanced"))))
         codec = inputs.get("codec", "libx264")
         crf = inputs.get("crf", 20)
 
@@ -141,11 +139,18 @@ class FaceEnhance(BaseTool):
         start = time.time()
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-vf", vf,
-            "-c:v", codec, "-crf", str(crf),
-            "-c:a", "copy",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_path),
+            "-vf",
+            vf,
+            "-c:v",
+            codec,
+            "-crf",
+            str(crf),
+            "-c:a",
+            "copy",
             str(output_path),
         ]
 

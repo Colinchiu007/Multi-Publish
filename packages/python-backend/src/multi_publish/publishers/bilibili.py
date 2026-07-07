@@ -61,6 +61,7 @@ class BilibiliPublisher(BasePublisher):
         if self._page:
             return
         from playwright.async_api import async_playwright
+
         self._playwright_app = await async_playwright().start()
         self._context = await self._playwright_app.chromium.launch_persistent_context(
             user_data_dir=os.path.join(self.config.data_dir, "browser_data"),
@@ -97,7 +98,9 @@ class BilibiliPublisher(BasePublisher):
         except Exception:
             return False
 
-    async def publish(self, title: str, content: str = "", media_paths=None, cover_path=None, tags=None, draft=False, **kwargs) -> PublishResult:
+    async def publish(
+        self, title: str, content: str = "", media_paths=None, cover_path=None, tags=None, draft=False, **kwargs
+    ) -> PublishResult:
         """发布视频到 B站"""
         logger.info(f"[B站] 开始发布: {title}")
         if not title:
@@ -105,9 +108,12 @@ class BilibiliPublisher(BasePublisher):
         await self._report_progress(PublishPhase.PREPARING, "准备发布...", 5)
         try:
             return await self._do_publish_rpa(
-                title=title, content=content,
+                title=title,
+                content=content,
                 media_paths=media_paths or [],
-                cover_path=cover_path, tags=tags or [], draft=draft,
+                cover_path=cover_path,
+                tags=tags or [],
+                draft=draft,
             )
         except Exception as e:
             logger.error(f"[B站] 发布失败: {e}")
@@ -117,6 +123,7 @@ class BilibiliPublisher(BasePublisher):
         """RPA 发布核心流程"""
         await self._report_progress(PublishPhase.AUTHENTICATING, "启动浏览器...", 10)
         from playwright.async_api import async_playwright
+
         self._playwright_app = await async_playwright().start()
         self._context = await self._playwright_app.chromium.launch_persistent_context(
             user_data_dir=os.path.join(self.config.data_dir, "browser_data"),
@@ -147,7 +154,9 @@ class BilibiliPublisher(BasePublisher):
 
         await self._report_progress(PublishPhase.UPLOADING, "等待上传完成...", 50)
         try:
-            await self._page.wait_for_selector(self.selectors["upload_complete"], timeout=self._upload_wait_timeout * 1000)
+            await self._page.wait_for_selector(
+                self.selectors["upload_complete"], timeout=self._upload_wait_timeout * 1000
+            )
         except Exception:
             logger.warning("未检测到上传完成标志，等待 30 秒...")
             await asyncio.sleep(30)
@@ -206,7 +215,12 @@ class BilibiliPublisher(BasePublisher):
             cookies = await self._context.cookies()
             ls = await self._page.evaluate("JSON.stringify(localStorage)")
             import json
-            data = {"cookies": cookies, "local_storage": json.loads(ls) if ls else {}, "captured_at": __import__("time").time()}
+
+            data = {
+                "cookies": cookies,
+                "local_storage": json.loads(ls) if ls else {},
+                "captured_at": __import__("time").time(),
+            }
             os.makedirs(os.path.dirname(self._auth_data_path), exist_ok=True)
             with open(self._auth_data_path, "w", encoding="utf-8") as f:
                 json.dump(data, f)
@@ -216,6 +230,7 @@ class BilibiliPublisher(BasePublisher):
 
     async def _restore_auth_data(self) -> bool:
         import json
+
         if not os.path.exists(self._auth_data_path):
             if not os.path.exists(self._cookie_path):
                 return False
@@ -239,6 +254,7 @@ class BilibiliPublisher(BasePublisher):
 
     async def _restore_cookies_legacy(self) -> bool:
         import json
+
         try:
             with open(self._cookie_path, encoding="utf-8") as f:
                 cookies = json.load(f)

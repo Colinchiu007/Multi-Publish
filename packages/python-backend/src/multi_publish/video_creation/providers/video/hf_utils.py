@@ -1,4 +1,5 @@
 """Standalone utility functions extracted from HyperFramesCompose."""
+
 from __future__ import annotations
 
 import json
@@ -53,12 +54,7 @@ def _f(v: float) -> str:
 
 def escape_text(s: str) -> str:
     """Escape text for HTML."""
-    return (
-        s.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 def rel_from_workspace(path: str) -> str:

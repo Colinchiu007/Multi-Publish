@@ -66,7 +66,7 @@ class SubtitleGen(BaseTool):
                     "Dictionary of word corrections for common ASR misrecognitions. "
                     "Keys are the wrong word (case-insensitive), values are the "
                     "correct replacement. Applied before generating subtitles. "
-                    "Example: {\"cloud\": \"Claude\", \"co-pilot\": \"Copilot\"}."
+                    'Example: {"cloud": "Claude", "co-pilot": "Copilot"}.'
                 ),
             },
         },
@@ -131,9 +131,7 @@ class SubtitleGen(BaseTool):
         )
 
     @staticmethod
-    def _apply_corrections(
-        segments: list[dict], corrections: dict[str, str]
-    ) -> list[dict]:
+    def _apply_corrections(segments: list[dict], corrections: dict[str, str]) -> list[dict]:
         """Apply word-level corrections to transcript segments.
 
         Handles case-insensitive matching and preserves punctuation.
@@ -150,7 +148,7 @@ class SubtitleGen(BaseTool):
                 # Strip punctuation for lookup, preserve it
                 stripped = raw.lower().rstrip(".,!?;:'\"")
                 if stripped in corr:
-                    trailing = raw[len(stripped):]
+                    trailing = raw[len(stripped) :]
                     w["word"] = corr[stripped] + trailing
             # Also fix segment-level text
             if "text" in seg and words:
@@ -158,6 +156,7 @@ class SubtitleGen(BaseTool):
             elif "text" in seg:
                 for wrong, right in corr.items():
                     import re as _re
+
                     seg["text"] = _re.sub(
                         r"\b" + _re.escape(wrong) + r"\b",
                         right,
@@ -167,9 +166,7 @@ class SubtitleGen(BaseTool):
 
         return result
 
-    def _build_cues(
-        self, segments: list[dict], max_words: int, max_chars: int
-    ) -> list[dict]:
+    def _build_cues(self, segments: list[dict], max_words: int, max_chars: int) -> list[dict]:
         """Group words into display cues respecting max_words and max_chars."""
         # Collect all words with timestamps
         all_words = []
@@ -179,11 +176,13 @@ class SubtitleGen(BaseTool):
                 all_words.extend(words)
             elif "text" in seg:
                 # Fallback: segment-level only (no word timestamps)
-                all_words.append({
-                    "word": seg["text"],
-                    "start": seg["start"],
-                    "end": seg["end"],
-                })
+                all_words.append(
+                    {
+                        "word": seg["text"],
+                        "start": seg["start"],
+                        "end": seg["end"],
+                    }
+                )
 
         if not all_words:
             return []
@@ -197,16 +196,15 @@ class SubtitleGen(BaseTool):
             candidate = f"{buf_text} {word_text}".strip() if buf_text else word_text
 
             if buf and (len(buf) >= max_words or len(candidate) > max_chars):
-                cues.append({
-                    "index": len(cues) + 1,
-                    "start": buf[0]["start"],
-                    "end": buf[-1]["end"],
-                    "text": buf_text,
-                    "words": [
-                        {"word": b["word"].strip(), "start": b["start"], "end": b["end"]}
-                        for b in buf
-                    ],
-                })
+                cues.append(
+                    {
+                        "index": len(cues) + 1,
+                        "start": buf[0]["start"],
+                        "end": buf[-1]["end"],
+                        "text": buf_text,
+                        "words": [{"word": b["word"].strip(), "start": b["start"], "end": b["end"]} for b in buf],
+                    }
+                )
                 buf = []
                 buf_text = ""
 
@@ -215,16 +213,15 @@ class SubtitleGen(BaseTool):
 
         # Flush remaining
         if buf:
-            cues.append({
-                "index": len(cues) + 1,
-                "start": buf[0]["start"],
-                "end": buf[-1]["end"],
-                "text": buf_text,
-                "words": [
-                    {"word": b["word"].strip(), "start": b["start"], "end": b["end"]}
-                    for b in buf
-                ],
-            })
+            cues.append(
+                {
+                    "index": len(cues) + 1,
+                    "start": buf[0]["start"],
+                    "end": buf[-1]["end"],
+                    "text": buf_text,
+                    "words": [{"word": b["word"].strip(), "start": b["start"], "end": b["end"]} for b in buf],
+                }
+            )
 
         return cues
 
@@ -236,9 +233,7 @@ class SubtitleGen(BaseTool):
             for cue in cues:
                 for word_info in cue.get("words", []):
                     lines.append(str(idx))
-                    lines.append(
-                        f"{self._ts_srt(word_info['start'])} --> {self._ts_srt(word_info['end'])}"
-                    )
+                    lines.append(f"{self._ts_srt(word_info['start'])} --> {self._ts_srt(word_info['end'])}")
                     lines.append(word_info["word"])
                     lines.append("")
                     idx += 1
@@ -254,9 +249,7 @@ class SubtitleGen(BaseTool):
                     continue
                 for wi, word_info in enumerate(words):
                     lines.append(str(cue["index"] * 100 + wi))
-                    lines.append(
-                        f"{self._ts_srt(word_info['start'])} --> {self._ts_srt(word_info['end'])}"
-                    )
+                    lines.append(f"{self._ts_srt(word_info['start'])} --> {self._ts_srt(word_info['end'])}")
                     parts = []
                     for wj, w in enumerate(words):
                         if wj == wi:
@@ -278,9 +271,7 @@ class SubtitleGen(BaseTool):
         if highlight_style == "word_by_word":
             for cue in cues:
                 for word_info in cue.get("words", []):
-                    lines.append(
-                        f"{self._ts_vtt(word_info['start'])} --> {self._ts_vtt(word_info['end'])}"
-                    )
+                    lines.append(f"{self._ts_vtt(word_info['start'])} --> {self._ts_vtt(word_info['end'])}")
                     lines.append(word_info["word"])
                     lines.append("")
         elif highlight_style == "karaoke":
@@ -292,9 +283,7 @@ class SubtitleGen(BaseTool):
                     lines.append("")
                     continue
                 for wi, word_info in enumerate(words):
-                    lines.append(
-                        f"{self._ts_vtt(word_info['start'])} --> {self._ts_vtt(word_info['end'])}"
-                    )
+                    lines.append(f"{self._ts_vtt(word_info['start'])} --> {self._ts_vtt(word_info['end'])}")
                     parts = []
                     for wj, w in enumerate(words):
                         if wj == wi:

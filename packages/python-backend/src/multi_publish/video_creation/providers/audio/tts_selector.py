@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/audio/tts_selector.py.
 Provider discovery uses the local ToolRegistry.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -89,8 +90,7 @@ class TTSSelector(BaseTool):
             result.data["selected_provider"] = tool.provider
             result.data["selection_reason"] = self._selection_reason(tool)
             result.data["alternatives_considered"] = [
-                t.name for t in candidates
-                if t.name != tool.name and t.get_status() == ToolStatus.AVAILABLE
+                t.name for t in candidates if t.name != tool.name and t.get_status() == ToolStatus.AVAILABLE
             ]
         return result
 
@@ -128,19 +128,20 @@ class TTSSelector(BaseTool):
     @staticmethod
     def _selection_reason(tool: BaseTool) -> str:
         return (
-            f"Selected {tool.provider} ({tool.name}) — "
-            f"stability: {tool.stability.value}, runtime: {tool.runtime.value}"
+            f"Selected {tool.provider} ({tool.name}) — stability: {tool.stability.value}, runtime: {tool.runtime.value}"
         )
 
     def _serialize_providers(self, candidates: list[BaseTool]) -> list[dict[str, Any]]:
         serialized: list[dict[str, Any]] = []
         for tool in candidates:
             info = tool.get_info()
-            serialized.append({
-                "name": tool.name,
-                "provider": tool.provider,
-                "status": str(tool.get_status()),
-                "stability": info.get("stability"),
-                "best_for": info.get("best_for", []),
-            })
+            serialized.append(
+                {
+                    "name": tool.name,
+                    "provider": tool.provider,
+                    "status": str(tool.get_status()),
+                    "stability": info.get("stability"),
+                    "best_for": info.get("best_for", []),
+                }
+            )
         return serialized

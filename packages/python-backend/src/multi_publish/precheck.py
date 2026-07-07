@@ -22,6 +22,7 @@ class CheckSeverity(Enum):
 @dataclass
 class CheckResult:
     """预检结果"""
+
     passed: bool
     severity: CheckSeverity = CheckSeverity.PASS
     message: str = ""
@@ -31,6 +32,7 @@ class CheckResult:
 @dataclass
 class DuplicateCheck:
     """重复检查配置"""
+
     title: str
     platform: str
     content_hash: str | None = None
@@ -51,6 +53,7 @@ class PreCheckEngine:
 
     def __init__(self, tikhub_bridge):
         from multi_publish.tikhub_bridge import TikHubBridge
+
         if not isinstance(tikhub_bridge, TikHubBridge):
             raise TypeError("tikhub_bridge must be a TikHubBridge instance")
         self._bridge = tikhub_bridge
@@ -62,6 +65,7 @@ class PreCheckEngine:
     def check_duplicate(self, check: DuplicateCheck) -> CheckResult:
         """预检已禁用，始终返回通过"""
         return CheckResult(
-            passed=True, severity=CheckSeverity.PASS,
+            passed=True,
+            severity=CheckSeverity.PASS,
             message="预检已禁用（TikHub 付费 API 未启用）",
         )

@@ -1,20 +1,30 @@
 """Tests for infrastructure modules: _errors, _rate_limit, _retries, _auth."""
-import pytest
-from multi_publish._errors import (
-    MultiPublishError, MultiPublishConfigError, MultiPublishConnectionError,
-    MultiPublishTimeoutError, MultiPublishProxyError,
-    MultiPublishHTTPError, MultiPublishAuthError, MultiPublishPermissionError,
-    MultiPublishNotFoundError, MultiPublishBadRequestError,
-    MultiPublishValidationError, MultiPublishRateLimitError,
-    MultiPublishServerError, MultiPublishUpstreamError,
-    MultiPublishPlatformError, http_error_for_status, _redact_headers,
-)
-from multi_publish._rate_limit import parse_retry_after, parse_rate_limit_remaining, parse_rate_limit_limit
-from multi_publish._retries import RetryPolicy, DEFAULT_RETRY, AGGRESSIVE_RETRY, FAST_RETRY
-from multi_publish._auth import BearerAuth, AuthMiddleware
 
+import pytest
+
+from multi_publish._auth import AuthMiddleware, BearerAuth
+from multi_publish._errors import (
+    MultiPublishAuthError,
+    MultiPublishBadRequestError,
+    MultiPublishConfigError,
+    MultiPublishConnectionError,
+    MultiPublishError,
+    MultiPublishHTTPError,
+    MultiPublishNotFoundError,
+    MultiPublishPermissionError,
+    MultiPublishPlatformError,
+    MultiPublishRateLimitError,
+    MultiPublishServerError,
+    MultiPublishUpstreamError,
+    MultiPublishValidationError,
+    _redact_headers,
+    http_error_for_status,
+)
+from multi_publish._rate_limit import parse_rate_limit_limit, parse_rate_limit_remaining, parse_retry_after
+from multi_publish._retries import AGGRESSIVE_RETRY, DEFAULT_RETRY, FAST_RETRY, RetryPolicy
 
 # ===== _errors Tests =====
+
 
 class TestErrorHierarchy:
     def test_base_error(self):
@@ -137,6 +147,7 @@ class TestHttpErrorForStatus:
 
 # ===== _rate_limit Tests =====
 
+
 class TestParseRetryAfter:
     def test_retry_after_header(self):
         assert parse_retry_after({"retry-after": "30"}) == 30.0
@@ -146,6 +157,7 @@ class TestParseRetryAfter:
 
     def test_x_ratelimit_reset(self):
         import time
+
         future = time.time() + 120
         r = parse_retry_after({"x-ratelimit-reset": str(int(future))})
         assert r is not None and 110 <= r <= 130
@@ -185,6 +197,7 @@ class TestParseRateLimitLimit:
 
 # ===== _retries Tests =====
 
+
 class TestRetryPolicy:
     def test_defaults(self):
         p = RetryPolicy()
@@ -221,6 +234,7 @@ class TestRetryPolicy:
 
 # ===== _auth Tests =====
 
+
 class TestBearerAuth:
     def test_init(self):
         a = BearerAuth("tok")
@@ -236,6 +250,7 @@ class TestBearerAuth:
 
     def test_auth_flow_sets_header(self):
         import httpx
+
         a = BearerAuth("my-token")
         req = httpx.Request("GET", "https://example.com")
         result = list(a.auth_flow(req))
@@ -244,6 +259,7 @@ class TestBearerAuth:
 
     def test_custom_scheme(self):
         import httpx
+
         a = BearerAuth("tok", scheme="Token")
         req = httpx.Request("GET", "https://example.com")
         result = list(a.auth_flow(req))

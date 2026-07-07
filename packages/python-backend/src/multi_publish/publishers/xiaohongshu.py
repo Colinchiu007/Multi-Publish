@@ -47,14 +47,8 @@ class XiaoHongShuPublisher(BasePublisher):
         self._login_timeout = 120
         self._publish_timeout = 300
         self._upload_wait_timeout = 600
-        self._auth_data_path = os.path.join(
-            config.data_dir,
-            f"auth_{self.platform.value}.json"
-        )
-        self._cookie_path = os.path.join(
-            config.data_dir,
-            f"cookies_{self.platform.value}.json"
-        )
+        self._auth_data_path = os.path.join(config.data_dir, f"auth_{self.platform.value}.json")
+        self._cookie_path = os.path.join(config.data_dir, f"cookies_{self.platform.value}.json")
 
     @property
     def platform(self) -> PlatformType:
@@ -67,6 +61,7 @@ class XiaoHongShuPublisher(BasePublisher):
         if self._page:
             return
         from playwright.async_api import async_playwright
+
         self._playwright_app = await async_playwright().start()
         self._context = await self._playwright_app.chromium.launch_persistent_context(
             user_data_dir=os.path.join(self.config.data_dir, "browser_data"),
@@ -119,22 +114,31 @@ class XiaoHongShuPublisher(BasePublisher):
         await self._report_progress(PublishPhase.PREPARING, "准备发布...", 5)
         try:
             return await self._do_publish_rpa(
-                title=title, content=content,
+                title=title,
+                content=content,
                 media_paths=media_paths or [],
-                cover_path=cover_path, tags=tags or [], draft=draft,
+                cover_path=cover_path,
+                tags=tags or [],
+                draft=draft,
             )
         except Exception as e:
             logger.error(f"[小红书] 发布失败: {e}")
             return PublishResult(success=False, platform="xiaohongshu", error=f"发布失败: {e}")
 
     async def _do_publish_rpa(
-        self, title: str, content: str, media_paths: list[str],
-        cover_path: str | None, tags: list[str], draft: bool,
+        self,
+        title: str,
+        content: str,
+        media_paths: list[str],
+        cover_path: str | None,
+        tags: list[str],
+        draft: bool,
     ) -> PublishResult:
         """RPA 发布核心流程"""
         await self._report_progress(PublishPhase.AUTHENTICATING, "启动浏览器...", 10)
 
         from playwright.async_api import async_playwright
+
         self._playwright_app = await async_playwright().start()
         self._context = await self._playwright_app.chromium.launch_persistent_context(
             user_data_dir=os.path.join(self.config.data_dir, "browser_data"),
@@ -147,7 +151,8 @@ class XiaoHongShuPublisher(BasePublisher):
         auth_ok = await self._restore_auth_data()
         if not auth_ok:
             return PublishResult(
-                success=False, platform="xiaohongshu",
+                success=False,
+                platform="xiaohongshu",
                 error="认证数据不存在或已过期，请先登录",
             )
 
@@ -158,7 +163,8 @@ class XiaoHongShuPublisher(BasePublisher):
 
         if "/login" in self._page.url:
             return PublishResult(
-                success=False, platform="xiaohongshu",
+                success=False,
+                platform="xiaohongshu",
                 error="认证已过期，请重新登录",
             )
 
@@ -169,7 +175,8 @@ class XiaoHongShuPublisher(BasePublisher):
                 await file_input.set_input_files(media_paths)
         except Exception as e:
             return PublishResult(
-                success=False, platform="xiaohongshu",
+                success=False,
+                platform="xiaohongshu",
                 error=f"媒体上传失败: {e}",
             )
 
@@ -189,7 +196,8 @@ class XiaoHongShuPublisher(BasePublisher):
             await title_input.fill(title)
         except Exception as e:
             return PublishResult(
-                success=False, platform="xiaohongshu",
+                success=False,
+                platform="xiaohongshu",
                 error=f"填写标题失败: {e}",
             )
 
@@ -238,7 +246,8 @@ class XiaoHongShuPublisher(BasePublisher):
         logger.info(f"[小红书] RPA 发布完成: {title}")
 
         return PublishResult(
-            success=True, platform="xiaohongshu",
+            success=True,
+            platform="xiaohongshu",
             url="https://creator.xiaohongshu.com/",
         )
 
@@ -249,6 +258,7 @@ class XiaoHongShuPublisher(BasePublisher):
             cookies = await self._context.cookies()
             local_storage = await self._page.evaluate("JSON.stringify(localStorage)")
             import json
+
             data = {
                 "cookies": cookies,
                 "local_storage": json.loads(local_storage) if local_storage else {},
@@ -263,6 +273,7 @@ class XiaoHongShuPublisher(BasePublisher):
 
     async def _restore_auth_data(self) -> bool:
         import json
+
         if not os.path.exists(self._auth_data_path):
             if not os.path.exists(self._cookie_path):
                 return False
@@ -275,9 +286,7 @@ class XiaoHongShuPublisher(BasePublisher):
             if data.get("local_storage") and self._page:
                 for key, value in data["local_storage"].items():
                     try:
-                        await self._page.evaluate(
-                            "localStorage.setItem(arguments[0], arguments[1])", key, value
-                        )
+                        await self._page.evaluate("localStorage.setItem(arguments[0], arguments[1])", key, value)
                     except Exception:
                         pass
             logger.info("认证数据已恢复")
@@ -288,6 +297,7 @@ class XiaoHongShuPublisher(BasePublisher):
 
     async def _restore_cookies_legacy(self) -> bool:
         import json
+
         try:
             with open(self._cookie_path, encoding="utf-8") as f:
                 cookies = json.load(f)

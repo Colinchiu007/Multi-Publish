@@ -57,6 +57,7 @@ Non-goals (intentional for Phase 1)
 - **No cross-machine sync.** Cache lives on one filesystem; there is
   no S3 / Dropbox / rsync story. A future phase can add that.
 """
+
 from __future__ import annotations
 
 import json
@@ -72,6 +73,7 @@ from typing import Any
 
 try:
     import filelock  # type: ignore
+
     _HAVE_FILELOCK = True
 except ImportError:
     _HAVE_FILELOCK = False
@@ -135,7 +137,7 @@ class CacheEntry:
     """
 
     clip_id: str
-    file_name: str          # relative to cache_dir, e.g. "pexels_10039002.mp4"
+    file_name: str  # relative to cache_dir, e.g. "pexels_10039002.mp4"
     size_bytes: int
     added_at: float
     last_access_at: float
@@ -158,9 +160,7 @@ class CacheEntry:
             file_name=str(d["file_name"]),
             size_bytes=int(d.get("size_bytes", 0) or 0),
             added_at=float(d.get("added_at", 0.0) or 0.0),
-            last_access_at=float(
-                d.get("last_access_at", d.get("added_at", 0.0)) or 0.0
-            ),
+            last_access_at=float(d.get("last_access_at", d.get("added_at", 0.0)) or 0.0),
             source=str(d.get("source", "") or ""),
             source_id=str(d.get("source_id", "") or ""),
             source_url=str(d.get("source_url", "") or ""),
@@ -191,11 +191,7 @@ class ClipCache:
         max_total_bytes: int | None = None,
     ):
         self.cache_dir = Path(cache_dir) if cache_dir else default_cache_dir()
-        self.max_total_bytes = (
-            int(max_total_bytes)
-            if max_total_bytes is not None
-            else default_max_total_bytes()
-        )
+        self.max_total_bytes = int(max_total_bytes) if max_total_bytes is not None else default_max_total_bytes()
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.manifest_path = self.cache_dir / self.MANIFEST_NAME
         self.lock_path = self.cache_dir / self.LOCK_NAME
@@ -243,10 +239,7 @@ class ClipCache:
             except FileExistsError:
                 time.sleep(0.05)
         if not acquired:
-            raise TimeoutError(
-                f"ClipCache: could not acquire lock at {self.lock_path} "
-                f"after {timeout}s"
-            )
+            raise TimeoutError(f"ClipCache: could not acquire lock at {self.lock_path} after {timeout}s")
         try:
             yield
         finally:
@@ -295,9 +288,7 @@ class ClipCache:
         atomic on both POSIX and Windows. A crash between write and
         replace leaves the old manifest intact.
         """
-        tmp_fd, tmp_name = tempfile.mkstemp(
-            prefix="cache_manifest.", suffix=".tmp", dir=str(self.cache_dir)
-        )
+        tmp_fd, tmp_name = tempfile.mkstemp(prefix="cache_manifest.", suffix=".tmp", dir=str(self.cache_dir))
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 for entry in entries.values():
@@ -399,9 +390,7 @@ class ClipCache:
             entries = self._read_manifest()
 
             # Already cached → just bump last_access and return.
-            if clip_id in entries and (
-                self.cache_dir / entries[clip_id].file_name
-            ).exists():
+            if clip_id in entries and (self.cache_dir / entries[clip_id].file_name).exists():
                 entries[clip_id].last_access_at = time.time()
                 self._write_manifest(entries)
                 return True
@@ -460,11 +449,8 @@ class ClipCache:
             "total_bytes": total_bytes,
             "total_mb": round(total_bytes / (1024 * 1024), 1),
             "max_total_bytes": self.max_total_bytes,
-            "max_total_gb": round(self.max_total_bytes / (1024 ** 3), 2),
-            "usage_fraction": (
-                round(total_bytes / self.max_total_bytes, 3)
-                if self.max_total_bytes > 0 else 0.0
-            ),
+            "max_total_gb": round(self.max_total_bytes / (1024**3), 2),
+            "usage_fraction": (round(total_bytes / self.max_total_bytes, 3) if self.max_total_bytes > 0 else 0.0),
             "hits_this_session": self.hits,
             "misses_this_session": self.misses,
             "evictions_this_session": self.evictions_count,
@@ -476,9 +462,7 @@ class ClipCache:
     # LRU eviction (caller holds the lock)
     # ------------------------------------------------------------------
 
-    def _evict_to_fit_locked(
-        self, entries: dict[str, CacheEntry], needed_bytes: int
-    ) -> None:
+    def _evict_to_fit_locked(self, entries: dict[str, CacheEntry], needed_bytes: int) -> None:
         """Evict least-recently-accessed entries until ``needed_bytes`` fits.
 
         Mutates ``entries`` in place. Silently skips victims whose
@@ -492,9 +476,7 @@ class ClipCache:
             return
 
         # Oldest first.
-        sorted_victims = sorted(
-            entries.values(), key=lambda e: e.last_access_at
-        )
+        sorted_victims = sorted(entries.values(), key=lambda e: e.last_access_at)
         for victim in sorted_victims:
             if current_bytes + needed_bytes <= self.max_total_bytes:
                 break

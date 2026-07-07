@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/audio/doubao_tts.py.
 Async flow: submit -> poll -> download.
 """
+
 from __future__ import annotations
 
 import json
@@ -61,12 +62,15 @@ class DoubaoTTS(BaseTool):
         "real-time interactive speech playback",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True)
     idempotency_key_fields = [
-        "text", "voice_id", "resource_id", "format",
-        "sample_rate", "speech_rate", "enable_timestamp",
+        "text",
+        "voice_id",
+        "resource_id",
+        "format",
+        "sample_rate",
+        "speech_rate",
+        "enable_timestamp",
     ]
 
     SUBMIT_URL = "https://openspeech.bytedance.com/api/v1/tts/async/submit"
@@ -110,9 +114,7 @@ class DoubaoTTS(BaseTool):
 
         ext = self._extension_for_format(fmt)
         output_path = Path(inputs.get("output_path", f"doubao_tts_output.{ext}"))
-        metadata_path = Path(
-            inputs.get("metadata_path") or output_path.with_suffix(output_path.suffix + ".json")
-        )
+        metadata_path = Path(inputs.get("metadata_path") or output_path.with_suffix(output_path.suffix + ".json"))
         output_path.parent.mkdir(parents=True, exist_ok=True)
         metadata_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -215,19 +217,30 @@ class DoubaoTTS(BaseTool):
         }
 
     def _poll_query(
-        self, *, requests_module: Any, api_key: str, resource_id: str,
-        task_id: str, return_usage: bool, poll_interval: float,
+        self,
+        *,
+        requests_module: Any,
+        api_key: str,
+        resource_id: str,
+        task_id: str,
+        return_usage: bool,
+        poll_interval: float,
         timeout_seconds: int,
     ) -> dict[str, Any]:
         deadline = time.time() + timeout_seconds
         while time.time() < deadline:
             time.sleep(poll_interval)
             headers = self._headers(
-                api_key=api_key, resource_id=resource_id,
-                request_id=str(uuid.uuid4()), return_usage=return_usage,
+                api_key=api_key,
+                resource_id=resource_id,
+                request_id=str(uuid.uuid4()),
+                return_usage=return_usage,
             )
             response = requests_module.post(
-                self.QUERY_URL, headers=headers, json={"task_id": task_id}, timeout=(10, 60),
+                self.QUERY_URL,
+                headers=headers,
+                json={"task_id": task_id},
+                timeout=(10, 60),
             )
             query_data = self._json_or_raise(response)
             self._raise_for_doubao_error(response.status_code, query_data)

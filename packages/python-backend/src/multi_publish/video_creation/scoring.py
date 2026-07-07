@@ -17,19 +17,20 @@ from typing import Any
 # Provider Score
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ProviderScore:
     """Scored evaluation of a provider against a specific task context."""
 
     tool_name: str
     provider: str
-    task_fit: float = 0.0       # 0-1: best fit for this exact asset class
+    task_fit: float = 0.0  # 0-1: best fit for this exact asset class
     output_quality: float = 0.0  # 0-1: expected fidelity for the brief
-    control: float = 0.0        # 0-1: reference/style directability
-    reliability: float = 0.0    # 0-1: runtime confidence
+    control: float = 0.0  # 0-1: reference/style directability
+    reliability: float = 0.0  # 0-1: runtime confidence
     cost_efficiency: float = 0.0  # 0-1: quality per dollar
-    latency: float = 0.0        # 0-1: acceptable turnaround
-    continuity: float = 0.0     # 0-1: fits already locked decisions
+    latency: float = 0.0  # 0-1: acceptable turnaround
+    continuity: float = 0.0  # 0-1: fits already locked decisions
 
     @property
     def weighted_score(self) -> float:
@@ -73,6 +74,7 @@ class ProviderScore:
 # Production Path Score
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ProductionPathScore:
     """Scored evaluation of an entire production path."""
@@ -109,6 +111,7 @@ class ProductionPathScore:
 # ---------------------------------------------------------------------------
 # Scoring Functions
 # ---------------------------------------------------------------------------
+
 
 def _keyword_overlap(set_a: set[str], set_b: set[str]) -> float:
     """Overlap coefficient between two keyword sets.
@@ -191,6 +194,7 @@ _IMAGE_EDIT_TERMS = {
 
 def _tokenize_text(value: str) -> list[str]:
     return _TOKEN_RE.findall((value or "").lower())
+
 
 def _expand_synonyms(words: set[str]) -> set[str]:
     """Expand a word set with synonyms from known clusters."""
@@ -320,11 +324,7 @@ def normalize_task_context(
     if not context.get("intent"):
         context["intent"] = combined_text
 
-    style_keywords = {
-        str(item).lower().strip()
-        for item in (context.get("style_keywords") or [])
-        if str(item).strip()
-    }
+    style_keywords = {str(item).lower().strip() for item in (context.get("style_keywords") or []) if str(item).strip()}
     for source in [context.get("style"), context.get("platform"), *needs]:
         if isinstance(source, str):
             style_keywords.update(_tokenize_text(source))
@@ -348,12 +348,8 @@ def normalize_task_context(
 
     text_tokens = set(_tokenize_text(combined_text))
     context["prefers_generated_visuals"] = bool(text_tokens & _GENERATED_VISUAL_TERMS)
-    context["wants_reference_conditioning"] = (
-        operation == "reference_to_video" or bool(text_tokens & _REFERENCE_TERMS)
-    )
-    context["wants_image_editing"] = (
-        operation == "edit" or bool(text_tokens & _IMAGE_EDIT_TERMS)
-    )
+    context["wants_reference_conditioning"] = operation == "reference_to_video" or bool(text_tokens & _REFERENCE_TERMS)
+    context["wants_image_editing"] = operation == "edit" or bool(text_tokens & _IMAGE_EDIT_TERMS)
 
     return context
 
@@ -416,9 +412,7 @@ def score_provider(tool, task_context: dict[str, Any]) -> ProviderScore:
         estimated_cost = tool.estimate_cost(task_context)
     except Exception:
         estimated_cost = 0.0
-    cost_efficiency = _compute_cost_efficiency(
-        estimated_cost, task_context.get("budget_remaining_usd")
-    )
+    cost_efficiency = _compute_cost_efficiency(estimated_cost, task_context.get("budget_remaining_usd"))
 
     # Latency: uses measured p50 latency if available, else runtime class heuristic.
     measured_p50 = info.get("latency_p50_seconds")  # historical median
@@ -478,7 +472,11 @@ def score_provider(tool, task_context: dict[str, Any]) -> ProviderScore:
         output_quality *= 0.85
 
     if task_context.get("wants_reference_conditioning") and asset_type == "video":
-        if supports.get("reference_to_video") or supports.get("reference_image") or supports.get("multiple_reference_images"):
+        if (
+            supports.get("reference_to_video")
+            or supports.get("reference_image")
+            or supports.get("multiple_reference_images")
+        ):
             task_fit = min(1.0, task_fit + 0.18)
             control = min(1.0, control + 0.12)
         else:

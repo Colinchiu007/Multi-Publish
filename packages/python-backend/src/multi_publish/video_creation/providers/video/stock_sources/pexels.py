@@ -13,6 +13,7 @@ corpus builder never branches on kind.
 Uses `PEXELS_API_KEY` from the environment. `.env` is loaded at process
 start by `tools.base_tool._load_dotenv`.
 """
+
 from __future__ import annotations
 
 import os
@@ -51,8 +52,7 @@ class PexelsSource:
     provider = "pexels"
     priority = 10
     install_instructions = (
-        "Set PEXELS_API_KEY in .env to enable Pexels stock search "
-        "(free key at https://www.pexels.com/api/)."
+        "Set PEXELS_API_KEY in .env to enable Pexels stock search (free key at https://www.pexels.com/api/)."
     )
 
     def is_available(self) -> bool:
@@ -89,16 +89,12 @@ class PexelsSource:
         import httpx  # lazy — avoid pulling requests at import time
 
         if not candidate.download_url:
-            raise ValueError(
-                f"Candidate {candidate.clip_id} has no download_url"
-            )
+            raise ValueError(f"Candidate {candidate.clip_id} has no download_url")
 
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with httpx.get(
-            candidate.download_url, stream=True, timeout=120
-        ) as r:
+        with httpx.get(candidate.download_url, stream=True, timeout=120) as r:
             r.raise_for_status()
             with open(out_path, "wb") as f:
                 for chunk in r.iter_bytes(1 << 16):
@@ -114,14 +110,11 @@ class PexelsSource:
         key = os.environ.get("PEXELS_API_KEY")
         if not key:
             raise RuntimeError(
-                "PEXELS_API_KEY not set. Get a free key at "
-                "https://www.pexels.com/api/ and add it to .env."
+                "PEXELS_API_KEY not set. Get a free key at https://www.pexels.com/api/ and add it to .env."
             )
         return {"Authorization": key}
 
-    def _search_videos(
-        self, query: str, filters: SearchFilters
-    ) -> list[Candidate]:
+    def _search_videos(self, query: str, filters: SearchFilters) -> list[Candidate]:
         import httpx  # lazy
 
         params: dict[str, Any] = {
@@ -187,9 +180,7 @@ class PexelsSource:
             )
         return out
 
-    def _search_images(
-        self, query: str, filters: SearchFilters
-    ) -> list[Candidate]:
+    def _search_images(self, query: str, filters: SearchFilters) -> list[Candidate]:
         import httpx  # lazy
 
         params: dict[str, Any] = {
@@ -268,7 +259,8 @@ def _pick_video_rendition(
     scale to 720p anyway.
     """
     candidates = [
-        f for f in video_files
+        f
+        for f in video_files
         if (f.get("file_type", "") or "").startswith("video/")
         and min_width <= int(f.get("width") or 0) <= max_width
         and f.get("link")
@@ -309,6 +301,7 @@ def _slug_tags_from_url(url: str) -> str:
 
 class PexelsVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "pexels"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -343,7 +336,7 @@ class PexelsVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -377,7 +370,7 @@ class PexelsVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -387,6 +380,7 @@ class PexelsVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/audio/pixabay_music.py.
 Scrapes Pixabay music section. No API key required.
 """
+
 from __future__ import annotations
 
 import json
@@ -56,9 +57,7 @@ class PixabayMusic(BaseTool):
         "offline use",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=256, vram_mb=0, disk_mb=50, network_required=True)
     idempotency_key_fields = ["query", "min_duration", "max_duration"]
 
     _USER_AGENT = (
@@ -68,10 +67,7 @@ class PixabayMusic(BaseTool):
     )
 
     _BROWSER_HEADERS = {
-        "Accept": (
-            "text/html,application/xhtml+xml,application/xml;"
-            "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
-        ),
+        "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"),
         "Accept-Language": "en-US,en;q=0.9",
         "Sec-Ch-Ua": '"Chromium";v="131", "Not_A Brand";v="24"',
         "Sec-Ch-Ua-Mobile": "?0",
@@ -154,10 +150,7 @@ class PixabayMusic(BaseTool):
     def _filter_by_duration(self, tracks: list[dict], inputs: dict[str, Any]) -> list[dict]:
         min_dur = inputs.get("min_duration", 30)
         max_dur = inputs.get("max_duration", 120)
-        filtered = [
-            t for t in tracks
-            if t.get("duration") is None or (min_dur <= t["duration"] <= max_dur)
-        ]
+        filtered = [t for t in tracks if t.get("duration") is None or (min_dur <= t["duration"] <= max_dur)]
         return filtered or tracks
 
     def _parse_bootstrap(self, html: str, referer: str, opener: urllib.request.OpenerDirector) -> list[dict]:
@@ -194,15 +187,17 @@ class PixabayMusic(BaseTool):
             if not audio_url:
                 continue
             user = item.get("user", {}) or {}
-            tracks.append({
-                "title": item.get("name") or sources.get("filename", "Unknown"),
-                "audio_url": audio_url,
-                "duration": item.get("duration"),
-                "artist": user.get("username", "Unknown"),
-                "rating": item.get("rating"),
-                "download_count": item.get("downloadCount"),
-                "pixabay_id": item.get("id"),
-            })
+            tracks.append(
+                {
+                    "title": item.get("name") or sources.get("filename", "Unknown"),
+                    "audio_url": audio_url,
+                    "duration": item.get("duration"),
+                    "artist": user.get("username", "Unknown"),
+                    "rating": item.get("rating"),
+                    "download_count": item.get("downloadCount"),
+                    "pixabay_id": item.get("id"),
+                }
+            )
 
         return tracks
 
@@ -216,12 +211,14 @@ class PixabayMusic(BaseTool):
         for url in mp3_urls:
             if url not in seen:
                 seen.add(url)
-                tracks.append({
-                    "title": "Unknown",
-                    "audio_url": url,
-                    "duration": None,
-                    "artist": "Unknown",
-                })
+                tracks.append(
+                    {
+                        "title": "Unknown",
+                        "audio_url": url,
+                        "duration": None,
+                        "artist": "Unknown",
+                    }
+                )
         return tracks
 
     def _download(self, track: dict, inputs: dict[str, Any]) -> Path:

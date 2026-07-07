@@ -22,21 +22,23 @@ from typing import Any
 # 状态定义
 # ============================================================
 
+
 class PublishStage(str, Enum):
     """发布阶段"""
-    INIT = "init"                    # 初始化
-    PREPARE = "prepare"              # 准备中
-    UPLOADING = "uploading"          # 上传中
-    UPLOAD_SUCCESS = "uploadSuccess" # 上传完成
-    UPLOAD_FAIL = "uploadFail"       # 上传失败
-    PUSHING = "pushing"              # 推送中
-    PUSH_SUCCESS = "pushSuccess"     # 推送成功
-    PUSH_FAIL = "pushFail"           # 推送失败
-    AUDIT_WAITING = "auditWaiting"   # 等待审核
-    AUDIT_PASS = "auditPass"         # 审核通过
-    AUDIT_DENY = "auditDeny"         # 审核驳回
-    COMPLETED = "completed"          # 完成
-    FAILED = "failed"                # 失败
+
+    INIT = "init"  # 初始化
+    PREPARE = "prepare"  # 准备中
+    UPLOADING = "uploading"  # 上传中
+    UPLOAD_SUCCESS = "uploadSuccess"  # 上传完成
+    UPLOAD_FAIL = "uploadFail"  # 上传失败
+    PUSHING = "pushing"  # 推送中
+    PUSH_SUCCESS = "pushSuccess"  # 推送成功
+    PUSH_FAIL = "pushFail"  # 推送失败
+    AUDIT_WAITING = "auditWaiting"  # 等待审核
+    AUDIT_PASS = "auditPass"  # 审核通过
+    AUDIT_DENY = "auditDeny"  # 审核驳回
+    COMPLETED = "completed"  # 完成
+    FAILED = "failed"  # 失败
 
 
 STAGE_ORDER = [
@@ -77,15 +79,17 @@ STAGE_WEIGHTS: dict[PublishStage, int] = {
 # 进度事件
 # ============================================================
 
+
 @dataclass
 class ProgressEvent:
     """进度事件"""
-    task_id: str                     # 发布任务 ID
-    platform: str                    # 平台名称
-    stage: PublishStage              # 当前阶段
-    percent: int                     # 整体进度 (0-100)
-    message: str                     # 中文描述
-    detail: str = ""                 # 详细说明
+
+    task_id: str  # 发布任务 ID
+    platform: str  # 平台名称
+    stage: PublishStage  # 当前阶段
+    percent: int  # 整体进度 (0-100)
+    message: str  # 中文描述
+    detail: str = ""  # 详细说明
     timestamp: datetime = field(default_factory=datetime.now)
 
     def to_dict(self) -> dict:
@@ -171,6 +175,7 @@ class ProgressReporter:
                 cb(event)
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).error(f"Progress callback error: {e}")
 
     # ========== 便捷方法 ==========
@@ -246,6 +251,7 @@ class ProgressReporter:
 # IPC 桥接（Electron 专用）
 # ============================================================
 
+
 def create_ipc_progress_callback(send_ipc: Callable[[str, Any], None]) -> ProgressCallback:
     """
     创建 IPC 进度回调
@@ -262,6 +268,8 @@ def create_ipc_progress_callback(send_ipc: Callable[[str, Any], None]) -> Progre
             callbacks=[create_ipc_progress_callback(mainWindow.webContents.send)]
         )
     """
+
     def callback(event: ProgressEvent):
         send_ipc("publish:progress", event.to_dict())
+
     return callback

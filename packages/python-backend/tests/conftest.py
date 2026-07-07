@@ -1,4 +1,5 @@
 """Test configuration — add src to Python path"""
+
 import sys
 from pathlib import Path
 

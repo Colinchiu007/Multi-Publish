@@ -109,15 +109,9 @@ class DouyinPublisher(BasePublisher):
         self._upload_wait_timeout = 600
 
         # 兼容旧的 cookie 文件路径
-        self._cookie_path = os.path.join(
-            config.data_dir,
-            f"cookies_{self.platform.value}.json"
-        )
+        self._cookie_path = os.path.join(config.data_dir, f"cookies_{self.platform.value}.json")
         # 新的完整认证数据文件路径
-        self._auth_data_path = os.path.join(
-            config.data_dir,
-            f"auth_{self.platform.value}.json"
-        )
+        self._auth_data_path = os.path.join(config.data_dir, f"auth_{self.platform.value}.json")
 
     @property
     def platform(self) -> PlatformType:
@@ -128,9 +122,7 @@ class DouyinPublisher(BasePublisher):
         try:
             from playwright.async_api import async_playwright
         except ImportError:
-            raise ImportError(
-                "需要安装 Playwright: pip install playwright && playwright install chromium"
-            )
+            raise ImportError("需要安装 Playwright: pip install playwright && playwright install chromium")
 
         self._playwright_app = await async_playwright().start()
         logger.info("抖音发布器初始化完成")
@@ -207,9 +199,7 @@ class DouyinPublisher(BasePublisher):
         ls_count = len(local_storage)
         idb_count = sum(len(v) for v in indexed_db.values()) if indexed_db else 0
         logger.info(
-            f"认证数据已保存: {len(cookies)} cookies, "
-            f"{ls_count} localStorage items, "
-            f"{idb_count} IndexedDB items"
+            f"认证数据已保存: {len(cookies)} cookies, {ls_count} localStorage items, {idb_count} IndexedDB items"
         )
 
         await self._context.close()
@@ -385,18 +375,22 @@ class DouyinPublisher(BasePublisher):
             # 2. 恢复 localStorage
             if auth_data.get("local_storage"):
                 try:
-                    await self._page.evaluate("""(data) => {
+                    await self._page.evaluate(
+                        """(data) => {
                         for (const [key, value] of Object.entries(data)) {
                             try { localStorage.setItem(key, value); } catch(e) {}
                         }
-                    }""", auth_data["local_storage"])
+                    }""",
+                        auth_data["local_storage"],
+                    )
                 except Exception as e:
                     logger.warning(f"localStorage 恢复失败（不影响发布）: {e}")
 
             # 3. 恢复 IndexedDB
             if auth_data.get("indexed_db"):
                 try:
-                    await self._page.evaluate("""(data) => {
+                    await self._page.evaluate(
+                        """(data) => {
                         return new Promise((resolve) => {
                             const allPromises = [];
                             for (const [dbName, stores] of Object.entries(data)) {
@@ -433,7 +427,9 @@ class DouyinPublisher(BasePublisher):
                             }
                             Promise.all(allPromises).then(() => resolve());
                         });
-                    }""", auth_data["indexed_db"])
+                    }""",
+                        auth_data["indexed_db"],
+                    )
                 except Exception as e:
                     logger.warning(f"IndexedDB 恢复失败（不影响发布）: {e}")
 
@@ -649,7 +645,6 @@ class DouyinPublisher(BasePublisher):
             follow_redirects=True,
             timeout=60.0,
         ) as client:
-
             # ── Step 1: 获取上传授权 ──────────────────────
             await self._report_progress(PublishPhase.UPLOADING, "获取上传授权...", 20)
 
@@ -748,10 +743,7 @@ class DouyinPublisher(BasePublisher):
                     article_id=video_id,
                 )
             else:
-                raise RuntimeError(
-                    f"发布 API 返回异常: HTTP {create_resp.status_code}, "
-                    f"body: {create_resp.text[:200]}"
-                )
+                raise RuntimeError(f"发布 API 返回异常: HTTP {create_resp.status_code}, body: {create_resp.text[:200]}")
 
     # ── Browser data dir (P1-2: Per-Account Session 隔离) ─────────
 
@@ -810,11 +802,13 @@ class DouyinPublisher(BasePublisher):
 
         # ── 初始化 API 响应监控（P0-1: 替代 DOM 轮询）
         monitor = ResponseMonitor(self._page)
-        monitor.watch_patterns([
-            "aweme/create",
-            "aweme/post",
-            "upload/auth",
-        ])
+        monitor.watch_patterns(
+            [
+                "aweme/create",
+                "aweme/post",
+                "upload/auth",
+            ]
+        )
 
         # ── 初始化进度节流阀（P1-1）
         throttle = ProgressThrottle()
@@ -847,30 +841,48 @@ class DouyinPublisher(BasePublisher):
             for field in list(fields.unfinished_fields):
                 try:
                     if field == "video":
-                        await rpa_do_video_upload(self._page, self._selectors, self._report_progress, video_path, file_size_mb, throttle, self._upload_wait_timeout)
+                        await rpa_do_video_upload(
+                            self._page,
+                            self._selectors,
+                            self._report_progress,
+                            video_path,
+                            file_size_mb,
+                            throttle,
+                            self._upload_wait_timeout,
+                        )
                         fields.mark_done("video")
 
                     elif field == "title":
-                        await rpa_do_field_title(self._page, self._selectors, self._report_progress, title, fields, throttle)
+                        await rpa_do_field_title(
+                            self._page, self._selectors, self._report_progress, title, fields, throttle
+                        )
                         fields.mark_done("title")
 
                     elif field == "cover":
                         if cover_path and os.path.exists(cover_path):
-                            await rpa_do_field_cover(self._page, self._selectors, self._report_progress, cover_path, fields, throttle)
+                            await rpa_do_field_cover(
+                                self._page, self._selectors, self._report_progress, cover_path, fields, throttle
+                            )
                         fields.mark_done("cover")
 
                     elif field == "tags":
                         if tags:
-                            await rpa_do_field_tags(self._page, self._selectors, self._report_progress, tags, fields, throttle)
+                            await rpa_do_field_tags(
+                                self._page, self._selectors, self._report_progress, tags, fields, throttle
+                            )
                         fields.mark_done("tags")
 
                     elif field == "description":
                         if content:
-                            await rpa_do_field_desc(self._page, self._selectors, self._report_progress, content, fields, throttle)
+                            await rpa_do_field_desc(
+                                self._page, self._selectors, self._report_progress, content, fields, throttle
+                            )
                         fields.mark_done("description")
 
                     elif field == "publish_button":
-                        await rpa_do_publish_click(self._page, self._selectors, self._report_progress, draft, fields, monitor, throttle)
+                        await rpa_do_publish_click(
+                            self._page, self._selectors, self._report_progress, draft, fields, monitor, throttle
+                        )
                         fields.mark_done("publish_button")
 
                 except Exception as e:
@@ -953,6 +965,7 @@ class DouyinPublisher(BasePublisher):
             )
 
         # RPA 子操作已提取到 douyin_rpa_fields.py
+
     async def _do_publish_legacy(
         self,
         title: str,

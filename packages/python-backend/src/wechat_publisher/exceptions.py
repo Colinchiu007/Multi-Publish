@@ -10,12 +10,7 @@ from typing import Any
 class WeChatError(Exception):
     """Base exception for all WeChat publisher errors."""
 
-    def __init__(
-        self,
-        message: str,
-        error_code: int | None = None,
-        error_info: dict[str, Any] | None = None
-    ):
+    def __init__(self, message: str, error_code: int | None = None, error_info: dict[str, Any] | None = None):
         self.message = message
         self.error_code = error_code
         self.error_info = error_info or {}
@@ -66,12 +61,7 @@ class WeChatConfigError(WeChatError):
 class WeChatRateLimitError(WeChatError):
     """Raised when API rate limit is exceeded."""
 
-    def __init__(
-        self,
-        message: str = "Rate limit exceeded",
-        retry_after: int | None = None,
-        **kwargs: Any
-    ):
+    def __init__(self, message: str = "Rate limit exceeded", retry_after: int | None = None, **kwargs: Any):
         super().__init__(message, **kwargs)
         self.retry_after = retry_after
 
@@ -109,9 +99,7 @@ def raise_for_error_code(error_code: int, error_message: str) -> None:
     # Rate limiting
     if error_code == 45009:
         raise WeChatRateLimitError(
-            f"Rate limit exceeded: {error_message}",
-            error_code=error_code,
-            error_info={"error": error_message}
+            f"Rate limit exceeded: {error_message}", error_code=error_code, error_info={"error": error_message}
         )
 
     # Authentication errors
@@ -119,12 +107,10 @@ def raise_for_error_code(error_code: int, error_message: str) -> None:
         raise WeChatAuthError(
             f"{auth_error_codes.get(error_code, 'Authentication failed')}: {error_message}",
             error_code=error_code,
-            error_info={"error": error_message}
+            error_info={"error": error_message},
         )
 
     # Generic API error
     raise WeChatAPIError(
-        f"WeChat API error: {error_message}",
-        error_code=error_code,
-        error_info={"error": error_message}
+        f"WeChat API error: {error_message}", error_code=error_code, error_info={"error": error_message}
     )

@@ -59,8 +59,9 @@ class Article:
         if not self.digest:
             # Strip HTML tags and take first 64 chars
             import re
-            text = re.sub(r'<[^>]+>', '', self.content)
-            text = ' '.join(text.split())  # Normalize whitespace
+
+            text = re.sub(r"<[^>]+>", "", self.content)
+            text = " ".join(text.split())  # Normalize whitespace
             self.digest = text[:64] if text else "No description"
 
     def to_api_dict(self) -> dict[str, Any]:
@@ -127,7 +128,7 @@ class PublishResult:
         article_url: str | None = None,
         media_id: str | None = None,
         publish_id: str | None = None,
-        data: dict[str, Any] | None = None
+        data: dict[str, Any] | None = None,
     ) -> "PublishResult":
         """Create a success result."""
         return cls(
@@ -137,23 +138,13 @@ class PublishResult:
             media_id=media_id,
             publish_id=publish_id,
             data=data or {},
-            published_at=datetime.now()
+            published_at=datetime.now(),
         )
 
     @classmethod
-    def error_result(
-        cls,
-        error_code: int,
-        error_message: str,
-        data: dict[str, Any] | None = None
-    ) -> "PublishResult":
+    def error_result(cls, error_code: int, error_message: str, data: dict[str, Any] | None = None) -> "PublishResult":
         """Create an error result."""
-        return cls(
-            success=False,
-            error_code=error_code,
-            error_message=error_message,
-            data=data or {}
-        )
+        return cls(success=False, error_code=error_code, error_message=error_message, data=data or {})
 
     def __str__(self) -> str:
         if self.success:
@@ -187,11 +178,7 @@ class Draft:
     @classmethod
     def from_api_response(cls, response_data: dict[str, Any], content: Article) -> "Draft":
         """Create Draft from WeChat API response."""
-        return cls(
-            media_id=response_data.get("media_id", ""),
-            content=content,
-            created_at=datetime.now()
-        )
+        return cls(media_id=response_data.get("media_id", ""), content=content, created_at=datetime.now())
 
 
 @dataclass

@@ -3,6 +3,7 @@
 Adapted from OpenMontage tools/graphics/image_gen.py.
 Kept for backwards compatibility; new code should use specific providers.
 """
+
 from __future__ import annotations
 
 import os
@@ -51,9 +52,7 @@ class ImageGen(BaseTool):
         "New production code - use specific provider tools instead",
     ]
 
-    resource_profile = ResourceProfile(
-        cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True
-    )
+    resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True)
     idempotency_key_fields = ["prompt", "width", "height", "seed"]
 
     def get_status(self) -> ToolStatus:
@@ -69,6 +68,7 @@ class ImageGen(BaseTool):
             return "flux"
         try:
             import diffusers  # noqa: F401
+
             return "local"
         except ImportError:
             pass
@@ -119,7 +119,11 @@ class ImageGen(BaseTool):
         model = inputs.get("model", "dall-e-3")
 
         response = client.images.generate(
-            model=model, prompt=prompt, size=size, n=1, response_format="b64_json",
+            model=model,
+            prompt=prompt,
+            size=size,
+            n=1,
+            response_format="b64_json",
         )
         image_data = base64.b64decode(response.data[0].b64_json)
         output_path = Path(inputs.get("output_path", "generated_image.png"))
@@ -149,7 +153,8 @@ class ImageGen(BaseTool):
         response = requests.post(
             "https://fal.run/fal-ai/flux/dev",
             headers={"Authorization": f"Key {api_key}", "Content-Type": "application/json"},
-            json=payload, timeout=120,
+            json=payload,
+            timeout=120,
         )
         response.raise_for_status()
         data = response.json()

@@ -1,4 +1,4 @@
-﻿"""Color grading tool wrapping FFmpeg LUT and filter chains.
+"""Color grading tool wrapping FFmpeg LUT and filter chains.
 
 Applies cinematic color grading profiles to video. Supports both
 built-in profile presets and external .cube LUT files.
@@ -41,15 +41,13 @@ PROFILES = {
     "moody_dark": {
         "description": "Crushed blacks, desaturated midtones, dark atmosphere",
         "vf": (
-            "curves=all='0/0.05 0.15/0.12 0.5/0.45 0.85/0.82 1/0.95',"
-            "eq=contrast=1.12:saturation=0.8:brightness=-0.03"
+            "curves=all='0/0.05 0.15/0.12 0.5/0.45 0.85/0.82 1/0.95',eq=contrast=1.12:saturation=0.8:brightness=-0.03"
         ),
     },
     "bright_clean": {
         "description": "Bright, clean look with lifted shadows and vivid color",
         "vf": (
-            "curves=all='0/0.05 0.25/0.30 0.5/0.55 0.75/0.80 1/1.0',"
-            "eq=contrast=1.0:saturation=1.15:brightness=0.02"
+            "curves=all='0/0.05 0.25/0.30 0.5/0.55 0.75/0.80 1/1.0',eq=contrast=1.0:saturation=1.15:brightness=0.02"
         ),
     },
     "vintage_film": {
@@ -62,10 +60,7 @@ PROFILES = {
     },
     "high_contrast": {
         "description": "Punchy high-contrast grade for dynamic content",
-        "vf": (
-            "curves=all='0/0 0.20/0.12 0.5/0.50 0.80/0.88 1/1',"
-            "eq=contrast=1.2:saturation=1.1"
-        ),
+        "vf": ("curves=all='0/0 0.20/0.12 0.5/0.50 0.80/0.88 1/1',eq=contrast=1.2:saturation=1.1"),
     },
     "neutral": {
         "description": "Minimal correction 鈥?normalize levels and light contrast",
@@ -135,9 +130,7 @@ class ColorGrade(BaseTool):
         if not input_path.exists():
             return ToolResult(success=False, error=f"Input not found: {input_path}")
 
-        output_path = Path(
-            inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_graded")))
-        )
+        output_path = Path(inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_graded"))))
         codec = inputs.get("codec", "libx264")
         crf = inputs.get("crf", 20)
 
@@ -148,11 +141,18 @@ class ColorGrade(BaseTool):
         start = time.time()
 
         cmd = [
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-vf", vf,
-            "-c:v", codec, "-crf", str(crf),
-            "-c:a", "copy",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_path),
+            "-vf",
+            vf,
+            "-c:v",
+            codec,
+            "-crf",
+            str(crf),
+            "-c:a",
+            "copy",
             str(output_path),
         ]
 

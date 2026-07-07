@@ -17,6 +17,7 @@ What NOAA is good for
 - Weather satellite imagery
 - Coastal and oceanic research footage
 """
+
 from __future__ import annotations
 
 import logging
@@ -58,6 +59,7 @@ class NOAASource:
     def is_available(self) -> bool:
         try:
             import bs4  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -85,7 +87,7 @@ class NOAASource:
             soup = BeautifulSoup(r.text, "html.parser")
 
             cards = soup.select(".views-row, .search-result, article, .media-item")
-            for card in cards[:filters.per_page]:
+            for card in cards[: filters.per_page]:
                 link_el = card.select_one("a[href]")
                 if not link_el:
                     continue
@@ -150,7 +152,8 @@ class NOAASource:
         # Scrape detail page
         try:
             r = httpx.get(
-                detail_url, timeout=30,
+                detail_url,
+                timeout=30,
                 headers={"User-Agent": "OpenMontage/1.0"},
             )
             r.raise_for_status()
@@ -196,7 +199,9 @@ class NOAASource:
         import httpx
 
         with httpx.get(
-            url, stream=True, timeout=180,
+            url,
+            stream=True,
+            timeout=180,
             headers={"User-Agent": "OpenMontage/1.0"},
         ) as r:
             r.raise_for_status()
@@ -209,6 +214,7 @@ class NOAASource:
 
 class NoaaVideo(BaseTool):
     """Stock media source adapter wrapped as a BaseTool."""
+
     name = "noaa"
     version = "0.1.0"
     tier = ToolTier.SOURCE
@@ -243,7 +249,7 @@ class NoaaVideo(BaseTool):
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
-        
+
         Operations:
         - search: Search for stock media by query
         - download: Download a specific candidate by source_id
@@ -277,7 +283,7 @@ class NoaaVideo(BaseTool):
                         "results": [r.__dict__ for r in results],
                         "count": len(results),
                         "source": self.name,
-                    }
+                    },
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
@@ -287,6 +293,7 @@ class NoaaVideo(BaseTool):
             output_path = Path(inputs.get("output_path", "download.mp4"))
             if candidate_dict:
                 from .base import Candidate
+
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")

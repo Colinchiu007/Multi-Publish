@@ -1,7 +1,5 @@
-﻿"""Tests for base publisher infrastructure - ProgressThrottle."""
+"""Tests for base publisher infrastructure - ProgressThrottle."""
 
-import time
-import pytest
 from multi_publish.publishers.base import ProgressThrottle
 
 
