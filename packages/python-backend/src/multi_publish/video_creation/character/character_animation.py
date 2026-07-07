@@ -760,7 +760,7 @@ class CharacterAnimationReviewer(BaseTool):
             if not artifact:
                 continue
             try:
-                None  # validate_artifact skipped (replaced inline)
+                pass  # validate_artifact skipped (replaced inline)
             except Exception as exc:
                 schema_valid = False
                 issues.append(f"{artifact_name} schema validation failed: {exc}")

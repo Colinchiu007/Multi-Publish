@@ -122,7 +122,7 @@ class DouyinPublisher(BasePublisher):
         try:
             from playwright.async_api import async_playwright
         except ImportError:
-            raise ImportError("需要安装 Playwright: pip install playwright && playwright install chromium")
+            raise ImportError("需要安装 Playwright: pip install playwright && playwright install chromium") from None
 
         self._playwright_app = await async_playwright().start()
         logger.info("抖音发布器初始化完成")

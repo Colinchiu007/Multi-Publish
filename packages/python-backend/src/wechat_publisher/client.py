@@ -147,11 +147,11 @@ class WechatPublisher:
             logger.info("Access token refreshed successfully")
 
         except httpx.HTTPError as e:
-            raise WeChatNetworkError(f"Failed to refresh access token: {e}")
+            raise WeChatNetworkError(f"Failed to refresh access token: {e}") from e
         except WeChatAuthError:
             raise
         except Exception as e:
-            raise WeChatAuthError(f"Unexpected error refreshing token: {e}")
+            raise WeChatAuthError(f"Unexpected error refreshing token: {e}") from e
 
     def _make_request(
         self,
@@ -249,18 +249,18 @@ class WechatPublisher:
                 logger.warning(f"HTTP error {e.response.status_code}, retrying...")
                 time.sleep(3 * (retry_count + 1))
                 return self._make_request(method, endpoint, params, data, files, json_data, retry_count + 1)
-            raise WeChatNetworkError(f"HTTP error: {e}")
+            raise WeChatNetworkError(f"HTTP error: {e}") from e
         except httpx.HTTPError as e:
             if retry_count < self.max_retries:
                 logger.warning(f"Network error, retrying... ({retry_count + 1}/{self.max_retries})")
                 time.sleep(2**retry_count)
                 return self._make_request(method, endpoint, params, data, files, json_data, retry_count + 1)
-            raise WeChatNetworkError(f"Network error after {self.max_retries} retries: {e}")
+            raise WeChatNetworkError(f"Network error after {self.max_retries} retries: {e}") from e
 
         except WeChatAPIError:
             raise
         except Exception as e:
-            raise WeChatAPIError(f"Unexpected error: {e}")
+            raise WeChatAPIError(f"Unexpected error: {e}") from e
 
     def upload_cover(
         self,
@@ -322,7 +322,7 @@ class WechatPublisher:
 
             except Exception as e:
                 if attempt == self.max_retries - 1:
-                    raise WeChatUploadError(f"Failed to upload cover image: {e}")
+                    raise WeChatUploadError(f"Failed to upload cover image: {e}") from e
                 logger.warning(f"Upload attempt {attempt + 1} failed: {e}")
                 time.sleep(2**attempt)
 
@@ -365,7 +365,7 @@ class WechatPublisher:
                 return image_url
 
         except Exception as e:
-            raise WeChatUploadError(f"Failed to upload image: {e}")
+            raise WeChatUploadError(f"Failed to upload image: {e}") from e
 
     def _download_image(self, url: str) -> Path:
         """
@@ -428,7 +428,7 @@ class WechatPublisher:
             return Draft.from_api_response(result, article)
 
         except Exception as e:
-            raise WeChatDraftError(f"Failed to create draft: {e}")
+            raise WeChatDraftError(f"Failed to create draft: {e}") from e
 
     def publish(
         self,

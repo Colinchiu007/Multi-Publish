@@ -166,7 +166,7 @@ def create_account(req: AccountCreateRequest):
     try:
         pt = PlatformType(req.platform)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}")
+        raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}") from None
 
     account_id = str(uuid.uuid4())[:8]
     accounts = _load_accounts()
@@ -245,7 +245,7 @@ async def login(req: LoginRequest):
     try:
         pt = PlatformType(req.platform)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}")
+        raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}") from None
 
     if not publisher_mgr.is_supported(pt):
         raise HTTPException(status_code=400, detail=f"平台 {pt.value} 暂不支持 RPA 登录")
@@ -311,7 +311,7 @@ async def auth_status(platform: str):
     try:
         pt = PlatformType(platform)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"不支持的平台: {platform}")
+        raise HTTPException(status_code=400, detail=f"不支持的平台: {platform}") from None
 
     ok = await publisher_mgr.get_auth_status(pt)
     return {"code": 0, "data": {"platform": platform, "valid": ok}}
@@ -335,7 +335,7 @@ async def publish(req: PublishRequest):
     try:
         pt = PlatformType(req.platform)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}")
+        raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}") from None
 
     if not publisher_mgr.is_supported(pt):
         raise HTTPException(status_code=400, detail=f"平台 {pt.value} 暂不支持发布")
@@ -417,7 +417,7 @@ async def publish(req: PublishRequest):
 
     except Exception as e:
         _publish_tasks[task_id] = {"status": "failed", "platform": req.platform, "error": str(e)}
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/publish/{task_id}/status")
@@ -470,7 +470,7 @@ def get_pipelines():
                 pipelines.append({"name": name, "description": "", "version": "", "category": "", "stability": ""})
         return {"code": 0, "data": pipelines}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/pipelines/{name}")
@@ -480,9 +480,9 @@ def get_pipeline_detail(name: str):
         info = load_pipeline(name)
         return {"code": 0, "data": info}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"管线未找到: {name}")
+        raise HTTPException(status_code=404, detail=f"管线未找到: {name}") from None
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ─── 其他路由 ───────────────────────────────────────────────
