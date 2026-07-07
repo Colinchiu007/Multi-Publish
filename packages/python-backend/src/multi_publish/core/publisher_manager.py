@@ -111,7 +111,7 @@ class PublisherManager:
     ):
         """发布到指定平台（含可选预检）"""
         if not await self._run_precheck(platform, title):
-    
+
             return PublishResult(
                 success=False,
                 platform=platform.value,
