@@ -54,5 +54,5 @@ class TestCredentialCrypto:
         c1 = CredentialCrypto(master_password="key1")
         c2 = CredentialCrypto(master_password="key2")
         encrypted = c1.encrypt("secret")
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             c2.decrypt(encrypted)
