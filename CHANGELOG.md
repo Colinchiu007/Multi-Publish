@@ -1,4 +1,18 @@
 ﻿
+
+## [v2.3.40] - 2026-07-07
+
+### 修复
+- test_e2e_api.py: 断言修复 (platforms key)
+- UAT-005: console.error -> logger (4 files)
+
+### 测试
+- Python: 1367 passed, 0 failed
+
+### 推送
+- GitHub main synced
+
+
 ## [v2.3.39] - 2026-07-07
 
 ### UAT ? ????????
