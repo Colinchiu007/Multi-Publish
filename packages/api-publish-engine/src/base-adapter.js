@@ -33,6 +33,8 @@ class BasePlatformAdapter {
     this.http = axios.create({ timeout: HttpConfig.timeout, validateStatus: () => true });
   }
 
+  /** @returns {string} */
+  /** @returns {string} */
   getReferer() { throw new Error("subclass must implement getReferer()"); }
   getOrigin() { return new URL(this.getReferer()).origin; }
   getHeaders(cookie, extra) { return buildHeaders(cookie, this.getReferer(), this.getOrigin(), extra); }
@@ -40,7 +42,10 @@ class BasePlatformAdapter {
   async uploadVideo(taskData, cookie, cancelToken) { throw new Error("subclass must implement uploadVideo()"); }
   async uploadCover(taskData, cookie, cancelToken) { throw new Error("subclass must implement uploadCover()"); }
   buildPostData(taskData, uploadResult) { throw new Error("subclass must implement buildPostData()"); }
-  async publish(cookie, postData, cancelToken) { throw new Error("subclass must implement publish()"); }
+  /**
+   * @returns {Promise<{success: boolean, platform?: string, publishId?: string, error?: string, code?: number}>}
+   */
+  async publish(cookie, postData, cancelToken) { throw new Error('subclass must implement publish()'); }
 
   async execute(taskData, cookie, opts) {
     // 自动应用内容格式化（标签风格 / 截断）

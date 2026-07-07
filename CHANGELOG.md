@@ -1,4 +1,19 @@
-﻿# Multi-Publish 变更日志
+## [v2.3.14] - 2026-07-07
+
+### 代码质量 -- api-publish-engine TS 类型错误清零 (24-0)
+- 修复 24 个 TypeScript 类型错误 (JSDoc 标注增强)
+- BasePlatformAdapter: 添加 publish() @returns JSDoc, 消除 7 个 TS2416 继承签名不兼容
+- BasePlatformAdapter.getReferer(): 添加 @returns {string} 标注, 消除 void|string 转换错误
+- cancel-token.js: 添加 throwIfCancelled() @type 标注, 消除 isCanceled/Code 属性不存在错误
+- retry-middleware.js: 添加 circuit breaker @type 标注, 消除 err.code 错误
+- upload/base-provider.js: 添加 _doUpload() 抽象方法桩 + JSDoc 类型标注
+- upload/http-provider.js, anti-detect.js: 添加 @returns 标注, 修复类型推断为 空对象 问题
+
+### 验证
+- TypeScript: 0 errors  (原 24 errors)
+- ESLint: 0 errors 
+- Python: 869 passed 
+- Jest: 已知 ESM 兼容问题 (预存, 非本次引入)
 ## [v2.3.13] - 2026-07-07
 
 ### 测试
@@ -32,8 +47,8 @@
 - **修复 3 个真实 bug**:
   - hyperframes_compose.py: _f 静态方法自我递归调用 (应实现 CSS 浮点格式化)
   - video_selector.py: supports 未定义变量 (移除无效引用)
-  - video_stitch.py: 清理 ideo_codec/codec 变量名不一致
-- **补充缺失导入**: hunyuan_video.py 补充 	yping.Any, publisher_manager.py 提升 PublishResult 导入
+  - video_stitch.py: 清理 ideo_codec/codec 变量名不一致
+- **补充缺失导入**: hunyuan_video.py 补充 yping.Any, publisher_manager.py 提升 PublishResult 导入
 - **清理**: eye_enhance.py/green_screen_processor.py 未使用变量替换为 _
 
 ### 验证
@@ -46,7 +61,7 @@
 
 ### 修复
 - Python 后端 11 个文件中的 F841/F821 真实 bug
-- video_stitch.py: 修复 ideo_video_codec → ideo_codec 变量名双写 bug (影响 _resolve_normalization_target)
+- video_stitch.py: 修复 ideo_video_codec → ideo_codec 变量名双写 bug (影响 _resolve_normalization_target)
 
 ### 代码质量
 - 未使用变量替换: start/ls/include_auto/opacity/msg_data_id/has_tags → _

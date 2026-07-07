@@ -57,6 +57,7 @@ async function withRetry(fn, opts) {
   var circuitKey = opts.circuitKey || "default";
 
   if (isCircuitOpen(circuitKey)) {
+    /** @type {Error & {code?: string, status?: number}} */
     var err = new Error("Circuit breaker open for: " + circuitKey);
     err.code = "CIRCUIT_OPEN";
     throw err;
@@ -75,7 +76,8 @@ async function withRetry(fn, opts) {
     } catch (err) {
       lastErr = err;
       // ???????
-      if (err.code === "CIRCUIT_OPEN") throw err;
+      /** @type {Error & {code?: string, status?: number}} */
+      if (err.code === 'CIRCUIT_OPEN') throw err;
       if (err.status === 401 || err.status === 403) throw err; // ???????
       if (err.status && err.status < 500 && err.status !== 429) throw err; // 4xx ?????????429 ?????
       recordFailure(circuitKey);

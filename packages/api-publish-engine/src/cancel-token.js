@@ -13,6 +13,7 @@ class CancelToken {
 
   throwIfCancelled() {
     if (this.isCancelled) {
+      /** @type {Error & {isCanceled?: boolean, code?: number}} */
       const err = new Error("Task cancelled");
       err.isCanceled = true;
       err.code = -999;

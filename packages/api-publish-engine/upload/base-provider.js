@@ -1,5 +1,7 @@
 const axios = require("axios");
 class BaseUploadProvider {
+  /** @param {any} td @param {any} cookie @returns {Promise<any>} */
+  async _doUpload(td, cookie) { throw new Error("subclass must implement _doUpload()"); }
   constructor(type) { this.type = type; }
   async _post(url, cookie, ref) {
     return axios.post(url, {}, { headers: { Cookie: cookie, Referer: ref, "Content-Type": "application/json" }, validateStatus: () => true });

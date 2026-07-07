@@ -19,6 +19,7 @@ function randomDelay(min, max) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+/** @param {any} headers @returns {any} */
 function randomizeHeaders(headers) {
   // 随机打乱Header顺序 (通过Object.assign重建)
   const keys = Object.keys(headers);

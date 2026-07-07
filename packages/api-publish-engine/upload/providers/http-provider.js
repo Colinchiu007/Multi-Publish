@@ -16,6 +16,7 @@ class HttpUploadProvider {
     return "https://" + cfg.apiDomain + cfg.uploadPath;
   }
 
+  /** @returns {{Cookie: string, Referer: string, 'User-Agent': string}} */
   _getHeaders(cfg, cookie) {
     const h = { Cookie: cookie, Referer: cfg.referer, "User-Agent": randomUA() };
     if (cfg.contentType && cfg.contentType !== "multipart/form-data") h["Content-Type"] = cfg.contentType;
