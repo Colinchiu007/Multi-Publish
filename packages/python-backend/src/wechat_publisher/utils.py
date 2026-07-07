@@ -1,4 +1,4 @@
-"""
+﻿"""
 WeChat Publisher Utilities
 
 Utility functions for WeChat Official Account publisher module.
@@ -55,10 +55,7 @@ def clean_html(content: str, keep_tags: Optional[List[str]] = None) -> str:
         return ""
     content = re.sub(r"</?([a-zA-Z][a-zA-Z0-9]*)[^>]*>", _filter_tag, content)
     # Clean up empty lines left by removed tags
-    content = re.sub(r"
-\s*
-", "
-", content)
+    content = re.sub(r"\n\s*\n", "\n", content)
     
     # Ensure <img> tags have proper format for WeChat
     content = re.sub(
@@ -366,3 +363,4 @@ def resize_image_if_needed(
     img.save(output_path, quality=quality)
 
     return output_path
+
