@@ -1,15 +1,14 @@
 """Tests for slideshow_risk.py — 0% coverage → full coverage"""
 
 from multi_publish.video_creation.providers.video.lib.slideshow_risk import (
-    score_slideshow_risk,
-    _score_repetition,
-    _score_decorative,
-    _score_weak_motion,
-    _score_weak_intent,
-    _score_typography,
     _score_cinematic_claims,
+    _score_decorative,
+    _score_repetition,
+    _score_typography,
+    _score_weak_intent,
+    _score_weak_motion,
+    score_slideshow_risk,
 )
-
 
 # ====== score_slideshow_risk ======
 

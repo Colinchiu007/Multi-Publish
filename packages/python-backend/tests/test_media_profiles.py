@@ -1,14 +1,12 @@
 """Tests for media_profiles.py — 0% coverage"""
 
 from multi_publish.video_creation.providers.video.lib.media_profiles import (
-    AspectRatio,
-    MediaProfile,
     ALL_PROFILES,
+    AspectRatio,
+    ffmpeg_output_args,
     get_profile,
     get_profiles_for_platform,
-    ffmpeg_output_args,
 )
-
 
 # ====== AspectRatio enum ======
 

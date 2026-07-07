@@ -1,3 +1,13 @@
+## [v2.3.22] - 2026-07-07
+
+### 测试 -- delivery_promise + hyperframes_style_bridge (0%->100% 覆盖率)
+- P0-2: delivery_promise.py 46 例 (纯数据+逻辑, PromiseType/validate_cuts/classify_from_brief)
+- P0-2: hyperframes_style_bridge.py 31 例 (纯函数, _first/_font/_motion_easing/style_bridge)
+- 测试总数: 898+77=975
+- Python lint: 13->8 (5 个自动修复)
+
+### 验证
+- Python: 975/975 passed
 ## [v2.3.21] - 2026-07-07
 
 ### 测试 -- media_profiles 11 例 (0%->100% 覆盖率)

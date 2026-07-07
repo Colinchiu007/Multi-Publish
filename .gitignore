@@ -105,3 +105,6 @@ _bigfiles.txt
 .env
 .env.local
 .coverage
+
+# coverage annotate output
+*.py,cover
