@@ -97,6 +97,37 @@ class TestPublishTask:
         assert d["id"] == "t1"
         assert d["platforms"] == ["douyin"]
 
+
+    def test_all_expected_platforms_exist(self):
+        expected = ['WECHAT_MP', 'ZHIHU', 'WEIBO', 'DOUYIN', 'XIAOHONGSHU',
+                    'SHIPINHAO', 'KUAISHOU', 'TOUTIAO', 'YOUTUBE', 'TIKTOK',
+                    'BILIBILI', 'BAJIAHAO']
+        for name in expected:
+            assert hasattr(PlatformType, name), f'Missing platform: {name}'
+    def test_no_extra_platforms(self):
+        expected = {'WECHAT_MP', 'ZHIHU', 'WEIBO', 'DOUYIN', 'XIAOHONGSHU',
+                    'SHIPINHAO', 'KUAISHOU', 'TOUTIAO', 'YOUTUBE', 'TIKTOK',
+                    'BILIBILI', 'BAJIAHAO'}
+        pts = set(pt.name for pt in PlatformType)
+        assert pts == expected
+    def test_zhihu_value(self):
+        assert PlatformType.ZHIHU.value == 'zhihu'
+    def test_wechat_mp_value(self):
+        assert PlatformType.WECHAT_MP.value == 'wechat_mp'
+    def test_shipinhao_value(self):
+        assert PlatformType.SHIPINHAO.value == 'shipinhao'
+
+class TestPublishResultLegacy:
+    def test_asdict(self):
+        from dataclasses import asdict
+        r = PublishResult(success=True, platform='zhihu', url='https://zhihu.com/article/1')
+        d = asdict(r)
+        assert d['success'] is True
+        assert d['platform'] == 'zhihu'
+    def test_default_error_is_none(self):
+        r = PublishResult(success=True, platform='weibo')
+        assert r.error is None
+
 class TestProxyConfig:
     def test_defaults(self):
         p = ProxyConfig(server="socks5://127.0.0.1:1080")
