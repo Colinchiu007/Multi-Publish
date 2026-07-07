@@ -11,7 +11,6 @@ from typing import Any
 
 from multi_publish.video_creation.base_tool import ToolResult, ToolStatus
 
-
 HEYGEN_PROVIDERS = {
     "veo_3_1": {"name": "Google VEO 3.1", "quality": "highest", "speed": "slow"},
     "veo_3_1_fast": {"name": "Google VEO 3.1 Fast", "quality": "high", "speed": "medium"},

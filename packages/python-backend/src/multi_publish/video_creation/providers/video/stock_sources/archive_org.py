@@ -34,6 +34,10 @@ correctly if it wants to, but no attribution is legally required.
 """
 from __future__ import annotations
 
+import re
+from pathlib import Path
+from typing import Any
+
 from multi_publish.video_creation.base_tool import (
     BaseTool,
     Determinism,
@@ -46,12 +50,7 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
-import re
-from pathlib import Path
-from typing import Any, Optional
-
 from .base import Candidate, SearchFilters
-
 
 _SEARCH_URL = "https://archive.org/advancedsearch.php"
 _METADATA_URL = "https://archive.org/metadata"
@@ -320,7 +319,7 @@ class ArchiveOrgSource:
 
     def _hydrate_candidate(
         self, doc: dict, filters: SearchFilters
-    ) -> Optional[Candidate]:
+    ) -> Candidate | None:
         """Turn a search-doc identifier into a full Candidate.
 
         Fetches the item's file list and picks the best playable
@@ -439,7 +438,7 @@ def _looks_like_year(token: str) -> bool:
     return bare.isdigit() and len(bare) == 4
 
 
-def _pick_video_file(files: list[dict]) -> Optional[dict]:
+def _pick_video_file(files: list[dict]) -> dict | None:
     """Pick the best playable video file from an Archive.org files list.
 
     Preference order is defined by `_VIDEO_FORMAT_PRIORITY`. Within a
@@ -571,28 +570,28 @@ class ArchiveOrgVideo(BaseTool):
     execution_mode = ExecutionMode.SYNC
     determinism = Determinism.DETERMINISTIC
     runtime = ToolRuntime.API
-    
+
     dependencies = []
     install_instructions = ""
-    
+
     capabilities = ["search", "download"]
     best_for = ["stock footage search and download"]
     not_good_for: list[str] = []
     resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True)
-    
+
     def get_status(self) -> ToolStatus:
         try:
             source = ArchiveOrgSource()
             return ToolStatus.AVAILABLE if source.is_available() else ToolStatus.UNAVAILABLE
         except Exception:
             return ToolStatus.UNAVAILABLE
-    
+
     def estimate_cost(self, inputs: dict) -> float:
         return 0.0
-    
+
     def estimate_runtime(self, inputs: dict) -> float:
         return 10.0
-    
+
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
@@ -603,7 +602,7 @@ class ArchiveOrgVideo(BaseTool):
         """
         operation = inputs.get("operation", "search")
         source = ArchiveOrgSource()
-        
+
         if operation == "search":
             query = inputs.get("query", "")
             filters = SearchFilters(
@@ -619,7 +618,7 @@ class ArchiveOrgVideo(BaseTool):
                 filters.orientation = inputs["orientation"]
             if "min_width" in inputs:
                 filters.min_width = inputs["min_width"]
-            
+
             try:
                 results = source.search(query, filters)
                 return ToolResult(
@@ -634,7 +633,7 @@ class ArchiveOrgVideo(BaseTool):
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
-        
+
         elif operation == "download":
             candidate_dict = inputs.get("candidate")
             output_path = Path(inputs.get("output_path", "download.mp4"))
@@ -643,7 +642,7 @@ class ArchiveOrgVideo(BaseTool):
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")
-            
+
             try:
                 result_path = source.download(cand, output_path)
                 return ToolResult(
@@ -657,5 +656,5 @@ class ArchiveOrgVideo(BaseTool):
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Download failed: {e}")
-        
+
         return ToolResult(success=False, error=f"Unknown operation: {operation}")

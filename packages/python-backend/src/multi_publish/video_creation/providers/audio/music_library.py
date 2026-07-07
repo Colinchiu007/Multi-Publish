@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,
@@ -65,7 +65,7 @@ class MusicLibrary(BaseTool):
         cpu_cores=1, ram_mb=64, vram_mb=0, disk_mb=0, network_required=False
     )
 
-    def _library_dir(self, inputs: Optional[dict[str, Any]] = None) -> Path:
+    def _library_dir(self, inputs: dict[str, Any] | None = None) -> Path:
         if inputs and inputs.get("library_dir"):
             return Path(inputs["library_dir"]).expanduser()
         env_dir = os.environ.get("MUSIC_LIBRARY_DIR")
@@ -83,7 +83,7 @@ class MusicLibrary(BaseTool):
         return sorted(tracks, key=lambda p: p.as_posix().lower())
 
     @staticmethod
-    def _probe_duration(path: Path) -> Optional[float]:
+    def _probe_duration(path: Path) -> float | None:
         if shutil.which("ffprobe") is None:
             return None
         try:

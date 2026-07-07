@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from multi_publish.video_creation.config_model import BudgetMode
 
@@ -39,7 +39,7 @@ class CostTracker:
         reserve_pct: float = 0.10,
         single_action_approval_usd: float = 50.0,
         mode: BudgetMode = BudgetMode.WARN,
-        cost_log_path: Optional[Path] = None,
+        cost_log_path: Path | None = None,
     ) -> None:
         self.budget_total_usd = budget_total_usd
         self.reserve_pct = reserve_pct
@@ -84,7 +84,7 @@ class CostTracker:
             "estimated_usd": round(estimated_usd, 4),
             "reserved_usd": 0.0,
             "actual_usd": 0.0,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         })
         self._save()
         return entry_id

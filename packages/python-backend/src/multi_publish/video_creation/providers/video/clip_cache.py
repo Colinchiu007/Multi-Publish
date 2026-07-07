@@ -64,10 +64,11 @@ import os
 import shutil
 import tempfile
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any
 
 try:
     import filelock  # type: ignore
@@ -149,7 +150,7 @@ class CacheEntry:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "CacheEntry":
+    def from_dict(cls, d: dict[str, Any]) -> CacheEntry:
         # Tolerate extra fields from future schema evolution — only
         # read the ones we know about. Missing fields default.
         return cls(
@@ -186,8 +187,8 @@ class ClipCache:
 
     def __init__(
         self,
-        cache_dir: Optional[Path] = None,
-        max_total_bytes: Optional[int] = None,
+        cache_dir: Path | None = None,
+        max_total_bytes: int | None = None,
     ):
         self.cache_dir = Path(cache_dir) if cache_dir else default_cache_dir()
         self.max_total_bytes = (
@@ -269,7 +270,7 @@ class ClipCache:
         if not self.manifest_path.exists():
             return entries
         try:
-            with open(self.manifest_path, "r", encoding="utf-8") as f:
+            with open(self.manifest_path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -368,7 +369,7 @@ class ClipCache:
         self,
         clip_id: str,
         source_path: Path,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Copy/link a freshly downloaded clip file into the cache.
 
@@ -548,7 +549,7 @@ def _link_or_copy(src: Path, dst: Path) -> bool:
 # ----------------------------------------------------------------------
 
 
-_DEFAULT_CACHE: Optional[ClipCache] = None
+_DEFAULT_CACHE: ClipCache | None = None
 
 
 def get_default_cache() -> ClipCache:

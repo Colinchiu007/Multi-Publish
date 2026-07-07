@@ -25,7 +25,6 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
-
 # Model checkpoint filenames by variant
 MODEL_CHECKPOINTS = {
     "wav2lip": "wav2lip.pth",

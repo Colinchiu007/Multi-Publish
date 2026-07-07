@@ -23,8 +23,8 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 from multi_publish.video_creation.providers.audio._utils import (
-    service_account_configured,
     get_access_token,
+    service_account_configured,
 )
 
 

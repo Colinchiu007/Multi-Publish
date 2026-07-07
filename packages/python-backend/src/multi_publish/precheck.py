@@ -5,9 +5,10 @@
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 __all__ = ["PreCheckEngine", "DuplicateCheck", "CheckResult", "CheckSeverity"]
 
@@ -32,7 +33,7 @@ class DuplicateCheck:
     """重复检查配置"""
     title: str
     platform: str
-    content_hash: Optional[str] = None
+    content_hash: str | None = None
     threshold: float = 0.8
 
 

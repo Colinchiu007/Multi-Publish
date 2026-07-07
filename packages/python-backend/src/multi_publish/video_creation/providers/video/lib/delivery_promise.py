@@ -10,7 +10,7 @@ stage can't honor it, the system must stop and ask — not silently substitute.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
@@ -96,7 +96,7 @@ class DeliveryPromise:
         return d
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DeliveryPromise":
+    def from_dict(cls, data: dict[str, Any]) -> DeliveryPromise:
         return cls(
             promise_type=PromiseType(data["promise_type"]),
             motion_required=data.get("motion_required", False),

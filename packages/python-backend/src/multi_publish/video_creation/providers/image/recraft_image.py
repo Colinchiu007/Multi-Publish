@@ -82,7 +82,7 @@ class RecraftImage(BaseTool):
         model = inputs.get("model", "v4")
         prompt = inputs["prompt"]
 
-        model_path = f"recraft/v4/text-to-image"
+        model_path = "recraft/v4/text-to-image"
         if model == "v4-pro":
             model_path = "recraft/v4/pro/text-to-image"
 

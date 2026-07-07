@@ -5,7 +5,6 @@
 """
 
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -65,7 +64,7 @@ class AccountStore:
             return
 
         try:
-            with open(self.storage_path, "r", encoding="utf-8") as f:
+            with open(self.storage_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             accounts_data = data.get("accounts", [])

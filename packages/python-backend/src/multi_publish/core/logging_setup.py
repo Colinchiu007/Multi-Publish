@@ -16,10 +16,8 @@ Per-Module 结构化日志 + 轮转（P1-3）
     logger.info("消息")  # 自动路由到对应模块的日志文件
 """
 
-import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
@@ -146,7 +144,6 @@ def log_call(logger_instance=None):
             ...
     """
     def decorator(func):
-        import asyncio
         import functools
         import time
 

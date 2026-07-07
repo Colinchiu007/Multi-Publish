@@ -4,7 +4,7 @@ WeChat Publisher Exceptions
 Custom exceptions for WeChat Official Account publisher module.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class WeChatError(Exception):
@@ -13,8 +13,8 @@ class WeChatError(Exception):
     def __init__(
         self,
         message: str,
-        error_code: Optional[int] = None,
-        error_info: Optional[Dict[str, Any]] = None
+        error_code: int | None = None,
+        error_info: dict[str, Any] | None = None
     ):
         self.message = message
         self.error_code = error_code
@@ -69,7 +69,7 @@ class WeChatRateLimitError(WeChatError):
     def __init__(
         self,
         message: str = "Rate limit exceeded",
-        retry_after: Optional[int] = None,
+        retry_after: int | None = None,
         **kwargs: Any
     ):
         super().__init__(message, **kwargs)

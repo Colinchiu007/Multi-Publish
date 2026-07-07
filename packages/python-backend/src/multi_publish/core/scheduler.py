@@ -6,7 +6,6 @@
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Callable
 
 from multi_publish.core.task_queue import TaskQueue
 from multi_publish.models import PublishTask, TaskStatus
@@ -90,7 +89,6 @@ class PublishScheduler:
             self._schedule_counter += 1
             schedule_id = f"sched-{self._schedule_counter:04d}"
 
-        from copy import deepcopy
 
         self._schedules[schedule_id] = {
             "task_template": task,
@@ -234,7 +232,7 @@ class PublishScheduler:
         Returns:
             调度ID
         """
-        from multi_publish.models import PlatformType, PublishTask
+        from multi_publish.models import PublishTask
 
         task = PublishTask(
             id=f"task-{datetime.now().strftime('%Y%m%d%H%M%S')}",
@@ -260,7 +258,7 @@ class PublishScheduler:
         Returns:
             调度ID
         """
-        from multi_publish.models import PlatformType, PublishTask
+        from multi_publish.models import PublishTask
 
         task = PublishTask(
             id=f"task-{datetime.now().strftime('%Y%m%d%H%M%S')}",

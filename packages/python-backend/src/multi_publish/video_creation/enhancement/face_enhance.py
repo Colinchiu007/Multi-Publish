@@ -21,7 +21,6 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
-
 # Named presets mapping to FFmpeg filter chains
 PRESETS = {
     "soft_skin": {

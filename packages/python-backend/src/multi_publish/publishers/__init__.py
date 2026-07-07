@@ -9,9 +9,9 @@
 """
 
 from multi_publish.publishers.base import (
-    BasePublisher,
     DOM_FILE_UPLOAD_UTILITIES,
     DOM_XPATH_UTILITIES,
+    BasePublisher,
     FieldRetryMap,
     ProgressThrottle,
     PublisherConfig,
@@ -19,11 +19,11 @@ from multi_publish.publishers.base import (
     ResponseMonitor,
     async_retry,
 )
+from multi_publish.publishers.bilibili import BilibiliPublisher
+from multi_publish.publishers.douyin import DouyinPublisher
 from multi_publish.publishers.platform_registry import PlatformRegistry, registry
 from multi_publish.publishers.wechat_mp import WeChatPublisher
-from multi_publish.publishers.douyin import DouyinPublisher
 from multi_publish.publishers.xiaohongshu import XiaoHongShuPublisher
-from multi_publish.publishers.bilibili import BilibiliPublisher
 
 __all__ = [
     "BasePublisher",

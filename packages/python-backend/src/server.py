@@ -14,16 +14,15 @@ import platform as platform_module
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import uvicorn
 
-from multi_publish.models import PlatformType, PLATFORM_META, PublishPhase
-from multi_publish.video_creation.pipeline.loader import list_pipelines, load_pipeline
 from multi_publish.core.publisher_manager import PublisherManager
+from multi_publish.models import PLATFORM_META, PlatformType, PublishPhase
+from multi_publish.video_creation.pipeline.loader import list_pipelines, load_pipeline
 
 app = FastAPI(title="Multi-Publish Backend", version="1.0.0")
 
@@ -42,6 +41,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR = DATA_DIR.parent / 'logs'
 
 from multi_publish.core.logging_setup import setup_logging
+
 setup_logging(log_dir=str(LOG_DIR))
 
 publisher_mgr = PublisherManager(data_dir=str(DATA_DIR))

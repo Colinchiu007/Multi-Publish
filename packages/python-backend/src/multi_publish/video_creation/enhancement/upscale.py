@@ -25,7 +25,6 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
-
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi"}
 
 MODELS = {

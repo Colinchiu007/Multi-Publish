@@ -6,8 +6,7 @@ Data models for WeChat Official Account publisher module.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
-from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -30,11 +29,11 @@ class Article:
 
     title: str
     content: str
-    author: Optional[str] = None
-    digest: Optional[str] = None
-    content_source_url: Optional[str] = None
-    thumb_media_id: Optional[str] = None
-    thumb_url: Optional[str] = None
+    author: str | None = None
+    digest: str | None = None
+    content_source_url: str | None = None
+    thumb_media_id: str | None = None
+    thumb_url: str | None = None
     need_open_comment: int = 0
     only_fans_can_comment: int = 0
     show_cover_pic: int = 1
@@ -64,7 +63,7 @@ class Article:
             text = ' '.join(text.split())  # Normalize whitespace
             self.digest = text[:64] if text else "No description"
 
-    def to_api_dict(self) -> Dict[str, Any]:
+    def to_api_dict(self) -> dict[str, Any]:
         """
         Convert article to WeChat API dictionary format.
 
@@ -112,23 +111,23 @@ class PublishResult:
     """
 
     success: bool
-    article_id: Optional[str] = None
-    article_url: Optional[str] = None
-    media_id: Optional[str] = None
-    publish_id: Optional[str] = None
-    error_code: Optional[int] = None
-    error_message: Optional[str] = None
-    data: Dict[str, Any] = field(default_factory=dict)
-    published_at: Optional[datetime] = None
+    article_id: str | None = None
+    article_url: str | None = None
+    media_id: str | None = None
+    publish_id: str | None = None
+    error_code: int | None = None
+    error_message: str | None = None
+    data: dict[str, Any] = field(default_factory=dict)
+    published_at: datetime | None = None
 
     @classmethod
     def success_result(
         cls,
-        article_id: Optional[str] = None,
-        article_url: Optional[str] = None,
-        media_id: Optional[str] = None,
-        publish_id: Optional[str] = None,
-        data: Optional[Dict[str, Any]] = None
+        article_id: str | None = None,
+        article_url: str | None = None,
+        media_id: str | None = None,
+        publish_id: str | None = None,
+        data: dict[str, Any] | None = None
     ) -> "PublishResult":
         """Create a success result."""
         return cls(
@@ -146,7 +145,7 @@ class PublishResult:
         cls,
         error_code: int,
         error_message: str,
-        data: Optional[Dict[str, Any]] = None
+        data: dict[str, Any] | None = None
     ) -> "PublishResult":
         """Create an error result."""
         return cls(
@@ -182,11 +181,11 @@ class Draft:
 
     media_id: str
     content: Article
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     @classmethod
-    def from_api_response(cls, response_data: Dict[str, Any], content: Article) -> "Draft":
+    def from_api_response(cls, response_data: dict[str, Any], content: Article) -> "Draft":
         """Create Draft from WeChat API response."""
         return cls(
             media_id=response_data.get("media_id", ""),
@@ -211,10 +210,10 @@ class PublishStatus:
 
     publish_id: str
     status: int  # 0=publishing, 1=success, 2=failed
-    article_id: Optional[str] = None
-    article_url: Optional[str] = None
-    fail_reason: Optional[str] = None
-    publish_time: Optional[datetime] = None
+    article_id: str | None = None
+    article_url: str | None = None
+    fail_reason: str | None = None
+    publish_time: datetime | None = None
 
     @property
     def is_publishing(self) -> bool:

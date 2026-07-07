@@ -100,8 +100,8 @@ class CodeSnippet(BaseTool):
         try:
             from PIL import Image, ImageDraw, ImageFont
             from pygments import highlight
-            from pygments.lexers import get_lexer_by_name, guess_lexer
             from pygments.formatters import ImageFormatter
+            from pygments.lexers import get_lexer_by_name, guess_lexer
         except ImportError:
             return ToolResult(
                 success=False,
@@ -175,7 +175,7 @@ class CodeSnippet(BaseTool):
 
         try:
             font = ImageFont.truetype("arial.ttf", font_size - 4)
-        except (IOError, OSError):
+        except OSError:
             font = ImageFont.load_default()
 
         bbox = draw.textbbox((0, 0), title, font=font)

@@ -156,7 +156,7 @@ class DiagramGen(BaseTool):
         try:
             font = ImageFont.truetype("arial.ttf", 18)
             title_font = ImageFont.truetype("arial.ttf", 24)
-        except (IOError, OSError):
+        except OSError:
             font = ImageFont.load_default()
             title_font = font
 
@@ -250,7 +250,7 @@ class DiagramGen(BaseTool):
 
         try:
             font = ImageFont.truetype("consola.ttf", 16)
-        except (IOError, OSError):
+        except OSError:
             font = ImageFont.load_default()
 
         lines = text.split("\n")

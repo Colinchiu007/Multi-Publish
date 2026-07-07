@@ -37,7 +37,7 @@ import subprocess
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,
@@ -240,7 +240,7 @@ class DirectClipSearch(BaseTool):
 
             output_dir = Path(inputs["output_dir"])
             queries: list[dict] = list(inputs["queries"])
-            source_names: Optional[list[str]] = inputs.get("sources")
+            source_names: list[str] | None = inputs.get("sources")
             filters_in: dict = inputs.get("filters") or {}
             clips_per_query = int(inputs.get("clips_per_query", 3))
             extract_thumbs = bool(inputs.get("extract_thumbnails", True))

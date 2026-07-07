@@ -2,12 +2,18 @@
 Adapted from OpenMontage tools/base_tool.py.
 """
 from __future__ import annotations
-import hashlib, json, platform, subprocess, shutil
+
+import hashlib
+import json
+import platform
+import shutil
+import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
 
 class ToolTier(str, Enum):
     CORE = "core"; VOICE = "voice"; ENHANCE = "enhance"

@@ -6,11 +6,11 @@
 
 import asyncio
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
+from typing import Any
 
-from multi_publish.models import PlatformType, PublishResult, PublishPhase
-
+from multi_publish.models import PlatformType, PublishPhase, PublishResult
 
 # ═══════════════════════════════════════════════════════════════
 # P1: 进度节流阀（蚁小二 UploadEmitGate）
@@ -138,7 +138,7 @@ class ResponseMonitor:
         """
         try:
             await asyncio.wait_for(self._done.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
         for r in self._responses:

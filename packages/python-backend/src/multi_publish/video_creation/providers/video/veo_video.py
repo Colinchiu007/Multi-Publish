@@ -7,9 +7,9 @@ raw text prompts.
 
 from __future__ import annotations
 
-import os
-import mimetypes
 import base64
+import mimetypes
+import os
 import time
 from pathlib import Path
 from typing import Any

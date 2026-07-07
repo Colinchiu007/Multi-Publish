@@ -1,12 +1,12 @@
 """平台发布器注册表 — 支持运行时发现与插件化加载"""
 from __future__ import annotations
+
 import importlib
 import json
 import os
-import pkgutil
-from pathlib import Path
-from typing import Type
+
 from loguru import logger
+
 from multi_publish.models import PlatformType
 from multi_publish.publishers.base import BasePublisher
 
@@ -24,7 +24,7 @@ class PlatformRegistry:
     def __init__(self, config_path: str | None = None):
         self._config_path = config_path or self._default_config_path()
         self._entries: dict[str, str] = {}
-        self._cache: dict[str, Type[BasePublisher]] = {}
+        self._cache: dict[str, type[BasePublisher]] = {}
         self._loaded = False
 
     @staticmethod
@@ -62,7 +62,7 @@ class PlatformRegistry:
         self._entries.pop(platform_key, None)
         self._cache.pop(platform_key, None)
 
-    def get(self, platform: PlatformType) -> Type[BasePublisher]:
+    def get(self, platform: PlatformType) -> type[BasePublisher]:
         self.load()
         key = platform.value
         if key in self._cache:
@@ -74,7 +74,7 @@ class PlatformRegistry:
         self._cache[key] = cls
         return cls
 
-    def get_by_key(self, key: str) -> Type[BasePublisher]:
+    def get_by_key(self, key: str) -> type[BasePublisher]:
         try:
             pt = PlatformType(key)
             return self.get(pt)
@@ -136,7 +136,7 @@ class PlatformRegistry:
         return discovered
 
     @staticmethod
-    def _import_class(entry_point: str) -> Type:
+    def _import_class(entry_point: str) -> type:
         module_path, class_name = entry_point.split(":", 1)
         module = importlib.import_module(module_path)
         return getattr(module, class_name)

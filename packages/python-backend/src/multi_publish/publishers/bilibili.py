@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
 
 from loguru import logger
 
-from multi_publish.models import PlatformType, PublishResult, PublishPhase
+from multi_publish.models import PlatformType, PublishPhase, PublishResult
 from multi_publish.publishers.base import BasePublisher, PublisherConfig
 
 DEFAULT_SELECTORS = {
@@ -222,7 +221,7 @@ class BilibiliPublisher(BasePublisher):
                 return False
             return await self._restore_cookies_legacy()
         try:
-            with open(self._auth_data_path, "r", encoding="utf-8") as f:
+            with open(self._auth_data_path, encoding="utf-8") as f:
                 data = json.load(f)
             if data.get("cookies"):
                 await self._context.add_cookies(data["cookies"])
@@ -241,7 +240,7 @@ class BilibiliPublisher(BasePublisher):
     async def _restore_cookies_legacy(self) -> bool:
         import json
         try:
-            with open(self._cookie_path, "r", encoding="utf-8") as f:
+            with open(self._cookie_path, encoding="utf-8") as f:
                 cookies = json.load(f)
             await self._context.add_cookies(cookies)
             logger.info("Cookie 已恢复（旧格式）")

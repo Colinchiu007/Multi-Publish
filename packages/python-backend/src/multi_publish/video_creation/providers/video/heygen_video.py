@@ -17,7 +17,12 @@ from multi_publish.video_creation.base_tool import (
     ToolStatus,
     ToolTier,
 )
-from multi_publish.video_creation.providers.video._shared import HEYGEN_PROVIDERS, estimate_quality_cost, estimate_speed_runtime, generate_heygen_video
+from multi_publish.video_creation.providers.video._shared import (
+    HEYGEN_PROVIDERS,
+    estimate_quality_cost,
+    estimate_speed_runtime,
+    generate_heygen_video,
+)
 
 
 class HeyGenVideo(BaseTool):

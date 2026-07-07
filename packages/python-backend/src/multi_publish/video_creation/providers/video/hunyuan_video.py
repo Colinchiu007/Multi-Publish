@@ -15,7 +15,13 @@ from multi_publish.video_creation.base_tool import (
     ToolStatus,
     ToolTier,
 )
-from multi_publish.video_creation.providers.video._shared import HUNYUAN_VARIANTS, estimate_local_runtime, generate_local_video, local_generation_status, local_install_instructions
+from multi_publish.video_creation.providers.video._shared import (
+    HUNYUAN_VARIANTS,
+    estimate_local_runtime,
+    generate_local_video,
+    local_generation_status,
+    local_install_instructions,
+)
 
 
 class HunyuanVideo(BaseTool):

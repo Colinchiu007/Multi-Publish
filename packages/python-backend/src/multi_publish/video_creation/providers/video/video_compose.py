@@ -33,20 +33,21 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from multi_publish.video_creation.providers.video import compose_utils as _cu
 from multi_publish.video_creation.base_tool import (
     BaseTool,
     Determinism,
     ExecutionMode,
     ResourceProfile,
-    RetryPolicy,
     ResumeSupport,
+    RetryPolicy,
     ToolResult,
     ToolStability,
     ToolTier,
 )
+from multi_publish.video_creation.providers.video import compose_utils as _cu
+
 
 class VideoCompose(BaseTool):
     name = "video_compose"
@@ -1071,8 +1072,8 @@ class VideoCompose(BaseTool):
             theme["captionHighlightColor"] = primary
             # Caption background: semi-transparent version of the bg color
             theme["captionBackgroundColor"] = (
-                f"rgba(255, 255, 255, 0.85)" if bg.upper() in ("#FFFFFF", "#FAFAFA", "#F9FAFB")
-                else f"rgba(15, 23, 42, 0.75)"
+                "rgba(255, 255, 255, 0.85)" if bg.upper() in ("#FFFFFF", "#FAFAFA", "#F9FAFB")
+                else "rgba(15, 23, 42, 0.75)"
             )
 
             # Motion style from playbook
@@ -1453,7 +1454,7 @@ class VideoCompose(BaseTool):
         asset_manifest: dict[str, Any],
         resolved_cuts: list[dict],
         output_path: Path,
-        profile: Optional[str],
+        profile: str | None,
     ) -> ToolResult:
         """Delegate to hyperframes_compose and run the mandatory final self-review.
 
@@ -1570,7 +1571,7 @@ class VideoCompose(BaseTool):
         edit_decisions: dict[str, Any],
         resolved_cuts: list[dict],
         output_path: Path,
-        profile: Optional[str],
+        profile: str | None,
     ) -> ToolResult:
         """Explicit FFmpeg-only render path.
 
@@ -1765,7 +1766,7 @@ class VideoCompose(BaseTool):
 
     @staticmethod
     def _read_text_file(path: str | Path | None) -> str | None:
-        
+
         """Delegated to compose_utils."""
         return _cu.read_text_file(path)
 
@@ -2297,7 +2298,7 @@ class VideoCompose(BaseTool):
 
     @staticmethod
     def _parse_probe_fps(fps_str: str) -> float:
-        
+
         """Delegated to compose_utils."""
         return _cu.parse_probe_fps(fps_str)
 
@@ -2436,7 +2437,7 @@ class VideoCompose(BaseTool):
         # Apply media profile if specified
         if profile_name:
             try:
-                from lib.media_profiles import get_profile, ffmpeg_output_args
+                from lib.media_profiles import ffmpeg_output_args, get_profile
                 profile = get_profile(profile_name)
                 cmd.extend(["-s", f"{profile.width}x{profile.height}"])
                 cmd.extend(["-r", str(profile.fps)])
@@ -2511,6 +2512,6 @@ class VideoCompose(BaseTool):
 
     @staticmethod
     def _build_subtitle_style(style: dict) -> str:
-        
+
         """Delegated to compose_utils."""
         return _cu.build_subtitle_style(style)

@@ -21,7 +21,6 @@ from multi_publish.video_creation.enhancement.upscale import (
     Upscale,
 )
 
-
 __all__ = [
     "BgRemove",
     "ColorGrade",

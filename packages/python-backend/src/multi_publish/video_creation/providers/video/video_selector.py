@@ -9,7 +9,14 @@ from __future__ import annotations
 
 import os
 
-from multi_publish.video_creation.base_tool import BaseTool, ToolResult, ToolRuntime, ToolStability, ToolStatus, ToolTier
+from multi_publish.video_creation.base_tool import (
+    BaseTool,
+    ToolResult,
+    ToolRuntime,
+    ToolStability,
+    ToolStatus,
+    ToolTier,
+)
 
 
 class VideoSelector(BaseTool):
@@ -141,7 +148,7 @@ class VideoSelector(BaseTool):
         Respects preferred_provider and environment hints as tie-breakers,
         but the scoring engine drives the primary selection.
         """
-        from multi_publish.video_creation.scoring import rank_providers, ProviderScore
+        from multi_publish.video_creation.scoring import rank_providers
 
         preferred = inputs.get("preferred_provider", "auto")
         allowed = set(inputs.get("allowed_providers") or [])

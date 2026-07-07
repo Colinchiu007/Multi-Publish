@@ -20,7 +20,6 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
-
 # Built-in grading profiles using FFmpeg colorbalance/curves/eq filters
 PROFILES = {
     "cinematic_warm": {

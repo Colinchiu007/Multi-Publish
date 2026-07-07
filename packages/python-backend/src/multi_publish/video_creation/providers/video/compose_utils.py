@@ -1,8 +1,9 @@
 """Standalone utility functions extracted from VideoCompose."""
 from __future__ import annotations
-import re, subprocess
+
+import re
+import subprocess
 from pathlib import Path
-from typing import Optional
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp"}
 
@@ -19,7 +20,7 @@ def has_audio_stream(path: Path) -> bool:
     except Exception:
         return False
 
-def read_text_file(path: str | Path | None) -> Optional[str]:
+def read_text_file(path: str | Path | None) -> str | None:
     if not path: return None
     try: return Path(path).read_text(encoding="utf-8")
     except Exception: return None

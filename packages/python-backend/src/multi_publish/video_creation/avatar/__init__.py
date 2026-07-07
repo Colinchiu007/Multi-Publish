@@ -9,7 +9,6 @@ from multi_publish.video_creation.avatar.talking_head import (
     TalkingHead,
 )
 
-
 __all__ = [
     "LipSync",
     "TalkingHead",

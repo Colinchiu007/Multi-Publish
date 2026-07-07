@@ -21,31 +21,27 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 import time
-import uuid
-from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
-from multi_publish.models import PLATFORM_META, PlatformType, PublishResult, PublishPhase
-from multi_publish.publishers.douyin_rpa_fields import (
-    rpa_do_video_upload,
-    rpa_do_field_title,
-    rpa_do_field_cover,
-    rpa_do_field_tags,
-    rpa_do_field_desc,
-    rpa_do_publish_click,
-)
+from multi_publish.models import PlatformType, PublishPhase, PublishResult
 from multi_publish.publishers.base import (
     BasePublisher,
     FieldRetryMap,
     ProgressThrottle,
     PublisherConfig,
     ResponseMonitor,
+)
+from multi_publish.publishers.douyin_rpa_fields import (
+    rpa_do_field_cover,
+    rpa_do_field_desc,
+    rpa_do_field_tags,
+    rpa_do_field_title,
+    rpa_do_publish_click,
+    rpa_do_video_upload,
 )
 
 # ─── 默认选择器 ─────────────────────────────────────────────
@@ -559,7 +555,7 @@ class DouyinPublisher(BasePublisher):
             return result
         except Exception as api_err:
             logger.warning(f"API 模式发布失败，降级到 RPA 模式: {api_err}")
-            await self._report_progress(PublishPhase.PREPARING, f"API 模式失败，准备 RPA 降级...", 5)
+            await self._report_progress(PublishPhase.PREPARING, "API 模式失败，准备 RPA 降级...", 5)
 
         # ─── 策略 2: RPA 模式（降级） ───────────────────
         try:

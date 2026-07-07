@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
 
 import yaml
 
@@ -48,7 +47,7 @@ class VideoCreationConfig:
     paths: PathsConfig = field(default_factory=PathsConfig)
 
     @classmethod
-    def load(cls, config_path: Optional[Path] = None) -> "VideoCreationConfig":
+    def load(cls, config_path: Path | None = None) -> VideoCreationConfig:
         if config_path is None:
             config_path = Path.cwd() / "config" / "video_creation.yaml"
         if config_path.exists():
@@ -57,7 +56,7 @@ class VideoCreationConfig:
             return cls(**raw)
         return cls()
 
-    def resolve_path(self, key: str, project_root: Optional[Path] = None) -> Path:
+    def resolve_path(self, key: str, project_root: Path | None = None) -> Path:
         if project_root is None:
             project_root = Path.cwd()
         return (project_root / getattr(self.paths, key)).resolve()

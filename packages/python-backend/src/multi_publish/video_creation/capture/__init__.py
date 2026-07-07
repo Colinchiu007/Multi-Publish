@@ -18,7 +18,6 @@ from multi_publish.video_creation.capture.screen_recorder import (
     _detect_audio_device_windows,
 )
 
-
 __all__ = [
     "CapRecorder",
     "ScreenCaptureSelector",

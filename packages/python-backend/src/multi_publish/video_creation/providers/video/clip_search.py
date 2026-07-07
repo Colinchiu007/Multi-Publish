@@ -35,7 +35,7 @@ from __future__ import annotations
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,

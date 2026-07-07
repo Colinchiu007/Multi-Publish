@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 
 class AspectRatio(str, Enum):
@@ -31,8 +30,8 @@ class MediaProfile:
     audio_codec: str
     crf: int
     pixel_format: str = "yuv420p"
-    max_file_size_mb: Optional[float] = None
-    max_duration_seconds: Optional[float] = None
+    max_file_size_mb: float | None = None
+    max_duration_seconds: float | None = None
     caption_format: str = "srt"
     notes: str = ""
 

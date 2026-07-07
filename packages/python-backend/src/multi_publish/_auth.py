@@ -6,8 +6,8 @@
 """
 
 from __future__ import annotations
+
 import httpx
-from typing import Optional
 
 __all__ = ["BearerAuth", "AuthMiddleware"]
 
@@ -40,7 +40,7 @@ class AuthMiddleware:
     ?? API token ??? scheme??????/???
     """
 
-    def __init__(self, token: Optional[str] = None, scheme: str = "Bearer"):
+    def __init__(self, token: str | None = None, scheme: str = "Bearer"):
         self.token = token
         self.scheme = scheme
 

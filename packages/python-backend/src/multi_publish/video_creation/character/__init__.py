@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from multi_publish.video_creation.character.character_animation import (
-    CharacterSpecGenerator,
-    SvgRigBuilder,
-    PoseLibraryBuilder,
     ActionTimelineCompiler,
-    CharacterRigRenderer,
     CharacterAnimationReviewer,
+    CharacterRigRenderer,
+    CharacterSpecGenerator,
+    PoseLibraryBuilder,
+    SvgRigBuilder,
 )
 
 __all__ = [

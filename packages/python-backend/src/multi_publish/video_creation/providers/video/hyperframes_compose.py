@@ -17,12 +17,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,
@@ -37,7 +36,6 @@ from multi_publish.video_creation.base_tool import (
     ToolStatus,
     ToolTier,
 )
-
 from multi_publish.video_creation.providers.video.hf_utils import (
     compute_total_duration,
     escape_text,
@@ -47,7 +45,6 @@ from multi_publish.video_creation.providers.video.hf_utils import (
     rel_from_workspace,
     require_workspace,
 )
-
 
 log = logging.getLogger("hyperframes_compose")
 
@@ -235,10 +232,10 @@ class HyperFramesCompose(BaseTool):
     #   {"error": "<short>"}   → resolution failed (offline, unpublished, etc.)
     # We cache per-process so the first call pays ~2-5s and subsequent calls
     # (get_info spam from the registry) are free.
-    _npm_resolve_cache: Optional[dict[str, str]] = None
+    _npm_resolve_cache: dict[str, str] | None = None
 
     @classmethod
-    def _node_major_version(cls) -> Optional[int]:
+    def _node_major_version(cls) -> int | None:
         """Return the major Node version (e.g. 18) or None if not found."""
         return node_major_version()
     def _resolve_npm_package(cls) -> dict[str, str]:
@@ -752,7 +749,7 @@ class HyperFramesCompose(BaseTool):
         return require_workspace(inputs)
     @staticmethod
     def _resolve_dimensions(
-        profile_name: Optional[str], fps_in: int
+        profile_name: str | None, fps_in: int
     ) -> tuple[int, int, int]:
         """Resolve output dimensions from the media profile, with a safe default."""
         if profile_name:
@@ -1018,7 +1015,7 @@ class HyperFramesCompose(BaseTool):
 
     def _cut_to_html(
         self, index: int, cut: dict, width: int, height: int
-    ) -> tuple[str, Optional[str]]:
+    ) -> tuple[str, str | None]:
         """Render one cut + its entrance tween. Returns (html, tween or None)."""
         cut_id = f"cut-{index}"
         in_s = float(cut.get("in_seconds", 0) or 0)
@@ -1105,7 +1102,7 @@ class HyperFramesCompose(BaseTool):
         self,
         args: list[str],
         *,
-        cwd: Optional[Path],
+        cwd: Path | None,
         timeout: int,
         check: bool,
     ) -> subprocess.CompletedProcess:
@@ -1142,7 +1139,7 @@ class HyperFramesCompose(BaseTool):
             )
 
     @staticmethod
-    def _parse_json_output(stdout: str) -> Optional[Any]:
+    def _parse_json_output(stdout: str) -> Any | None:
         """Parse JSON from stdout, handling artifacts."""
         return parse_json_output(stdout)
     @staticmethod

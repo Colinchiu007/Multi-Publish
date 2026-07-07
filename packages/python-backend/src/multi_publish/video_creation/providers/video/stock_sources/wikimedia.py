@@ -7,6 +7,11 @@ and educational media under one searchable catalogue.
 """
 from __future__ import annotations
 
+import html
+import re
+from pathlib import Path
+from typing import Any
+
 from multi_publish.video_creation.base_tool import (
     BaseTool,
     Determinism,
@@ -19,13 +24,7 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
-import html
-import re
-from pathlib import Path
-from typing import Any
-
 from .base import Candidate, SearchFilters
-
 
 _API_URL = "https://commons.wikimedia.org/w/api.php"
 _USER_AGENT = "OpenMontageBot/0.1 (https://github.com/calesthio/OpenMontage)"
@@ -306,28 +305,28 @@ class WikimediaVideo(BaseTool):
     execution_mode = ExecutionMode.SYNC
     determinism = Determinism.DETERMINISTIC
     runtime = ToolRuntime.API
-    
+
     dependencies = []
     install_instructions = ""
-    
+
     capabilities = ["search", "download"]
     best_for = ["stock footage search and download"]
     not_good_for: list[str] = []
     resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True)
-    
+
     def get_status(self) -> ToolStatus:
         try:
             source = WikimediaSource()
             return ToolStatus.AVAILABLE if source.is_available() else ToolStatus.UNAVAILABLE
         except Exception:
             return ToolStatus.UNAVAILABLE
-    
+
     def estimate_cost(self, inputs: dict) -> float:
         return 0.0
-    
+
     def estimate_runtime(self, inputs: dict) -> float:
         return 10.0
-    
+
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
@@ -338,7 +337,7 @@ class WikimediaVideo(BaseTool):
         """
         operation = inputs.get("operation", "search")
         source = WikimediaSource()
-        
+
         if operation == "search":
             query = inputs.get("query", "")
             filters = SearchFilters(
@@ -354,7 +353,7 @@ class WikimediaVideo(BaseTool):
                 filters.orientation = inputs["orientation"]
             if "min_width" in inputs:
                 filters.min_width = inputs["min_width"]
-            
+
             try:
                 results = source.search(query, filters)
                 return ToolResult(
@@ -369,7 +368,7 @@ class WikimediaVideo(BaseTool):
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
-        
+
         elif operation == "download":
             candidate_dict = inputs.get("candidate")
             output_path = Path(inputs.get("output_path", "download.mp4"))
@@ -378,7 +377,7 @@ class WikimediaVideo(BaseTool):
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")
-            
+
             try:
                 result_path = source.download(cand, output_path)
                 return ToolResult(
@@ -392,5 +391,5 @@ class WikimediaVideo(BaseTool):
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Download failed: {e}")
-        
+
         return ToolResult(success=False, error=f"Unknown operation: {operation}")

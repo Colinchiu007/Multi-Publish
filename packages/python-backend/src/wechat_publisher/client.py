@@ -4,34 +4,28 @@ WeChat Official Account Publisher Client
 Core client for interacting with WeChat Official Account API.
 """
 
-import json
 import logging
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 import httpx
 
 from .exceptions import (
-    WeChatAuthError,
     WeChatAPIError,
-    WeChatUploadError,
-    WeChatPublishError,
-    WeChatDraftError,
+    WeChatAuthError,
     WeChatConfigError,
-    WeChatRateLimitError,
+    WeChatDraftError,
     WeChatNetworkError,
+    WeChatPublishError,
+    WeChatRateLimitError,
+    WeChatUploadError,
     raise_for_error_code,
 )
-from .models import Article, PublishResult, Draft, PublishStatus
+from .models import Article, Draft, PublishResult, PublishStatus
 from .utils import (
-    clean_html,
-    extract_images_from_html,
-    replace_image_urls,
     is_valid_image_file,
-    parse_wechat_error,
-    build_api_url,
-    is_url,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -50,9 +44,9 @@ class WechatPublisher:
 
     def __init__(
         self,
-        appid: Optional[str] = None,
-        secret: Optional[str] = None,
-        access_token: Optional[str] = None,
+        appid: str | None = None,
+        secret: str | None = None,
+        access_token: str | None = None,
         auto_refresh_token: bool = True,
         max_retries: int = 3,
         timeout: int = 30,
@@ -84,8 +78,8 @@ class WechatPublisher:
         self.timeout = timeout
 
         # Token management
-        self._access_token: Optional[str] = access_token
-        self._token_expires_at: Optional[datetime] = None
+        self._access_token: str | None = access_token
+        self._token_expires_at: datetime | None = None
         self.auto_refresh_token = auto_refresh_token
 
         # API base URL
@@ -93,7 +87,7 @@ class WechatPublisher:
 
         logger.info(f"WechatPublisher initialized for appid: {self.appid[:8]}...")
 
-    def _get_env(self, key: str) -> Optional[str]:
+    def _get_env(self, key: str) -> str | None:
         """Get environment variable."""
         import os
         return os.getenv(key)
@@ -163,12 +157,12 @@ class WechatPublisher:
         self,
         method: str,
         endpoint: str,
-        params: Optional[Dict[str, Any]] = None,
-        data: Optional[Any] = None,
-        files: Optional[Dict[str, Any]] = None,
-        json_data: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        data: Any | None = None,
+        files: dict[str, Any] | None = None,
+        json_data: dict[str, Any] | None = None,
         retry_count: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Make authenticated request to WeChat API with retry logic.
 
@@ -280,8 +274,8 @@ class WechatPublisher:
 
     def upload_cover(
         self,
-        image_path: Optional[Path] = None,
-        image_url: Optional[str] = None,
+        image_path: Path | None = None,
+        image_url: str | None = None,
     ) -> str:
         """
         Upload cover image and get thumb_media_id.
@@ -402,7 +396,7 @@ class WechatPublisher:
         ext = ".jpg"
         if "." in url.split("/")[-1]:
             ext = "." + url.split("/")[-1].split(".")[-1][:4]
-        
+
         # Save to temp file
         temp_dir = Path(tempfile.gettempdir()) / "wechat_publisher"
         temp_dir.mkdir(exist_ok=True)
@@ -427,19 +421,19 @@ class WechatPublisher:
             WeChatDraftError: If draft creation fails
         """
         endpoint = "/cgi-bin/draft/add"
-        
+
         # Prepare articles array (WeChat supports multiple articles per draft)
         articles_data = [article.to_api_dict()]
-        
+
         data = {"articles": articles_data}
 
         try:
             result = self._make_request("POST", endpoint, json_data=data)
-            
+
             media_id = result.get("media_id")
             if not media_id:
                 raise WeChatDraftError("Draft created but no media_id returned")
-            
+
             logger.info(f"Draft created: {media_id}")
             return Draft.from_api_response(result, article)
 
@@ -448,8 +442,8 @@ class WechatPublisher:
 
     def publish(
         self,
-        article: Optional[Article] = None,
-        draft_id: Optional[str] = None,
+        article: Article | None = None,
+        draft_id: str | None = None,
         publish_type: str = "free",
     ) -> PublishResult:
         """
@@ -497,11 +491,11 @@ class WechatPublisher:
 
         try:
             result = self._make_request("POST", endpoint, json_data=data)
-            
+
             publish_id = result.get("publish_id")
-            
+
             logger.info(f"Article submitted for publishing: {publish_id}")
-            
+
             return PublishResult.success_result(
                 publish_id=publish_id,
                 media_id=draft_id,
@@ -528,7 +522,7 @@ class WechatPublisher:
             PublishResult object
         """
         endpoint = "/cgi-bin/message/mass/sendall"
-        
+
         # Mass send configuration
         data = {
             "filter": {"is_to_all": True},
@@ -538,12 +532,12 @@ class WechatPublisher:
 
         try:
             result = self._make_request("POST", endpoint, json_data=data)
-            
+
             msg_id = result.get("msg_id")
             msg_data_id = result.get("msg_data_id")
-            
+
             logger.info(f"Mass publish submitted: msg_id={msg_id}")
-            
+
             return PublishResult.success_result(
                 article_id=msg_id,
                 media_id=draft_id,
@@ -572,11 +566,11 @@ class WechatPublisher:
 
         try:
             result = self._make_request("POST", endpoint, json_data=data)
-            
+
             status = result.get("publish_status", 0)
             article_id = result.get("article_id")
             article_url = result.get("article_url")
-            
+
             return PublishStatus(
                 publish_id=publish_id,
                 status=status,

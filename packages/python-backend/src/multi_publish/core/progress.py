@@ -12,11 +12,11 @@ Progress Callback — 发布进度上报状态机
 架构参考：蚁小二 SetProgressEvent + publishStatusEnum
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable
-
+from typing import Any
 
 # ============================================================
 # 状态定义

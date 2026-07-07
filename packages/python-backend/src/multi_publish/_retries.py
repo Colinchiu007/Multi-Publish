@@ -1,11 +1,16 @@
 
 from __future__ import annotations
+
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
 from multi_publish._errors import (
-    MultiPublishConnectionError, MultiPublishRateLimitError,
-    MultiPublishServerError, MultiPublishUpstreamError,
+    MultiPublishConnectionError,
+    MultiPublishRateLimitError,
+    MultiPublishServerError,
+    MultiPublishUpstreamError,
 )
+
 
 @dataclass(frozen=True)
 class RetryPolicy:

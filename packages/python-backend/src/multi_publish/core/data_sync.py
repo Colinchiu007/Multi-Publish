@@ -12,9 +12,10 @@
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Callable, Coroutine
+from typing import Any
 
 from multi_publish.core.query_worker import (
     AccountOverview,

@@ -35,6 +35,10 @@ Adding a new source
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
+
 from multi_publish.video_creation.base_tool import (
     BaseTool,
     Determinism,
@@ -46,10 +50,6 @@ from multi_publish.video_creation.base_tool import (
     ToolStatus,
     ToolTier,
 )
-
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Optional, Protocol, runtime_checkable
 
 
 @dataclass
@@ -103,10 +103,10 @@ class SearchFilters:
     """
 
     kind: str = "video"                     # "video", "image", or "any"
-    min_duration: Optional[float] = None    # seconds; None = no floor
-    max_duration: Optional[float] = None    # seconds; None = no ceiling
-    orientation: Optional[str] = None       # "landscape" | "portrait" | "square"
-    min_width: Optional[int] = None         # resolution floor in pixels
+    min_duration: float | None = None    # seconds; None = no floor
+    max_duration: float | None = None    # seconds; None = no ceiling
+    orientation: str | None = None       # "landscape" | "portrait" | "square"
+    min_width: int | None = None         # resolution floor in pixels
     per_page: int = 20
     page: int = 1
 

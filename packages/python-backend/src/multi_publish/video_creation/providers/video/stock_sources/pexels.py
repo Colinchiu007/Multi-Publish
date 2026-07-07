@@ -15,6 +15,10 @@ start by `tools.base_tool._load_dotenv`.
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
+from typing import Any
+
 from multi_publish.video_creation.base_tool import (
     BaseTool,
     Determinism,
@@ -27,12 +31,7 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
-import os
-from pathlib import Path
-from typing import Any, Optional
-
 from .base import Candidate, SearchFilters
-
 
 _VIDEO_SEARCH_URL = "https://api.pexels.com/videos/search"
 _IMAGE_SEARCH_URL = "https://api.pexels.com/v1/search"
@@ -260,7 +259,7 @@ def _pick_video_rendition(
     video_files: list[dict],
     min_width: int = 0,
     max_width: int = 1920,
-) -> Optional[dict]:
+) -> dict | None:
     """Pick the largest mp4/mov rendition within [min_width, max_width].
 
     Pexels returns HLS, SD, HD, and sometimes UHD renditions per video.
@@ -319,28 +318,28 @@ class PexelsVideo(BaseTool):
     execution_mode = ExecutionMode.SYNC
     determinism = Determinism.DETERMINISTIC
     runtime = ToolRuntime.API
-    
+
     dependencies = []
     install_instructions = ""
-    
+
     capabilities = ["search", "download"]
     best_for = ["stock footage search and download"]
     not_good_for: list[str] = []
     resource_profile = ResourceProfile(cpu_cores=1, ram_mb=512, vram_mb=0, disk_mb=100, network_required=True)
-    
+
     def get_status(self) -> ToolStatus:
         try:
             source = PexelsSource()
             return ToolStatus.AVAILABLE if source.is_available() else ToolStatus.UNAVAILABLE
         except Exception:
             return ToolStatus.UNAVAILABLE
-    
+
     def estimate_cost(self, inputs: dict) -> float:
         return 0.0
-    
+
     def estimate_runtime(self, inputs: dict) -> float:
         return 10.0
-    
+
     def execute(self, inputs: dict) -> ToolResult:
         """
         Execute search or download operation.
@@ -351,7 +350,7 @@ class PexelsVideo(BaseTool):
         """
         operation = inputs.get("operation", "search")
         source = PexelsSource()
-        
+
         if operation == "search":
             query = inputs.get("query", "")
             filters = SearchFilters(
@@ -367,7 +366,7 @@ class PexelsVideo(BaseTool):
                 filters.orientation = inputs["orientation"]
             if "min_width" in inputs:
                 filters.min_width = inputs["min_width"]
-            
+
             try:
                 results = source.search(query, filters)
                 return ToolResult(
@@ -382,7 +381,7 @@ class PexelsVideo(BaseTool):
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Search failed: {e}")
-        
+
         elif operation == "download":
             candidate_dict = inputs.get("candidate")
             output_path = Path(inputs.get("output_path", "download.mp4"))
@@ -391,7 +390,7 @@ class PexelsVideo(BaseTool):
                 cand = Candidate(**candidate_dict)
             else:
                 return ToolResult(success=False, error="download requires 'candidate' dict")
-            
+
             try:
                 result_path = source.download(cand, output_path)
                 return ToolResult(
@@ -405,5 +404,5 @@ class PexelsVideo(BaseTool):
                 )
             except Exception as e:
                 return ToolResult(success=False, error=f"Download failed: {e}")
-        
+
         return ToolResult(success=False, error=f"Unknown operation: {operation}")

@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
 
 
 def probe_duration(audio_path: Path) -> float | None:

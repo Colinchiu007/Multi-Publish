@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 _FALLBACK_CSS_VARS = {
     "--color-bg": "#0B0F1A",
     "--color-fg": "#F5F5F5",

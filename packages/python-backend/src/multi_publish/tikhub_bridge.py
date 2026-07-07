@@ -5,7 +5,8 @@
 """
 
 from __future__ import annotations
-from typing import Any, Optional
+
+from typing import Any
 
 __all__ = ["TikHubBridge", "TikHubBridgeError"]
 
@@ -24,7 +25,7 @@ class TikHubBridge:
         3. available 返回 True
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or ""
         self._client: Any = None
 

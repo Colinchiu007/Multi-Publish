@@ -135,8 +135,8 @@ class VideoUnderstand(BaseTool):
     def get_status(self) -> ToolStatus:
         """Check if transformers and torch are both importable."""
         try:
-            import transformers  # noqa: F401
             import torch  # noqa: F401
+            import transformers  # noqa: F401
             return ToolStatus.AVAILABLE
         except ImportError:
             return ToolStatus.UNAVAILABLE
@@ -362,14 +362,12 @@ class VideoUnderstand(BaseTool):
         """Load the requested vision-language model and processor."""
         import torch
         from transformers import (
-            CLIPProcessor,
-            CLIPModel,
-            BlipProcessor,
-            BlipForConditionalGeneration,
-            Blip2Processor,
-            Blip2ForConditionalGeneration,
-            AutoProcessor,
             AutoModelForCausalLM,
+            AutoProcessor,
+            Blip2ForConditionalGeneration,
+            Blip2Processor,
+            CLIPModel,
+            CLIPProcessor,
         )
 
         device = "cuda" if torch.cuda.is_available() else "cpu"

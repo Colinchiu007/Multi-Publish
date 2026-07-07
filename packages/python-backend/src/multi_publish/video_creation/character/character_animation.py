@@ -9,8 +9,6 @@ preview/review outputs.
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -25,9 +23,14 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 
-
 # Utility functions extracted to character_animation_utils.py
-from multi_publish.video_creation.character.character_animation_utils import ( _write_json, _slug, _character_color, _normalize_style, _render_preview_mp4 )
+from multi_publish.video_creation.character.character_animation_utils import (
+    _character_color,
+    _normalize_style,
+    _render_preview_mp4,
+    _slug,
+    _write_json,
+)
 
 
 class CharacterSpecGenerator(BaseTool):

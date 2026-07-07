@@ -56,7 +56,7 @@ from __future__ import annotations
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,
@@ -240,6 +240,7 @@ class CorpusBuilder(BaseTool):
         start = time.time()
         try:
             from lib.corpus import Corpus
+
             from multi_publish.video_creation.video.clip_cache import get_default_cache
             from multi_publish.video_creation.video.stock_sources import (
                 SearchFilters,
@@ -251,7 +252,7 @@ class CorpusBuilder(BaseTool):
 
             corpus_dir = Path(inputs["corpus_dir"])
             queries: list[dict] = list(inputs["queries"])
-            source_names: Optional[list[str]] = inputs.get("sources")
+            source_names: list[str] | None = inputs.get("sources")
             filters_in: dict = inputs.get("filters") or {}
             max_new = int(inputs.get("max_new_clips", 100))
             skip_existing = bool(inputs.get("skip_existing", True))
@@ -456,7 +457,6 @@ class CorpusBuilder(BaseTool):
         they degrade gracefully to normal downloads.
         """
         import cv2
-
         from lib.clip_embedder import embed_images, embed_texts, pool_frames
         from lib.corpus import ClipRecord
 

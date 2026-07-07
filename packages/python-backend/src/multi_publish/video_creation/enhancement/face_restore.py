@@ -122,10 +122,12 @@ class FaceRestore(BaseTool):
         bg_upsampler_flag = inputs.get("bg_upsampler", False)
 
         try:
-            import cv2
             import inspect
-            from gfpgan import GFPGANer
+
+            import cv2
             import torch
+            from gfpgan import GFPGANer
+
             from multi_publish.video_creation.video._shared import get_torch_device as _get_device
         except ImportError as e:
             return ToolResult(

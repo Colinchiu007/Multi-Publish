@@ -109,8 +109,9 @@ class ImageGen(BaseTool):
         return result
 
     def _generate_openai(self, inputs: dict[str, Any]) -> ToolResult:
-        from openai import OpenAI
         import base64
+
+        from openai import OpenAI
 
         client = OpenAI()
         prompt = inputs["prompt"]

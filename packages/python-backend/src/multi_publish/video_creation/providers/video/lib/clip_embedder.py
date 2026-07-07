@@ -23,8 +23,8 @@ That intelligence lives in the corpus manager and retrieval skills.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Iterable, Sequence, Union
 
 import numpy as np
 
@@ -61,7 +61,7 @@ def model_info() -> dict:
     }
 
 
-def embed_images(image_paths: Sequence[Union[str, Path]]) -> np.ndarray:
+def embed_images(image_paths: Sequence[str | Path]) -> np.ndarray:
     """Embed a list of image files into a (N, 512) float32 matrix.
 
     Each row is L2-normalised.

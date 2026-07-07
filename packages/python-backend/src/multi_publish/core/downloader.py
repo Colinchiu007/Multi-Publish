@@ -12,9 +12,8 @@ import logging
 import os
 import tempfile
 import time
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
 
 import httpx
 
@@ -163,7 +162,7 @@ class DownloadManager:
             logger.debug(f"等待已有下载完成: {url}")
             try:
                 return await asyncio.wait_for(waiter, timeout=self.timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return DownloadResult(source_url=url, state=-1, msg="等待下载超时")
 
         # === 发起下载 ===

@@ -11,15 +11,15 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,
     Determinism,
     ExecutionMode,
     ResourceProfile,
-    RetryPolicy,
     ResumeSupport,
+    RetryPolicy,
     ToolResult,
     ToolStability,
     ToolTier,
@@ -253,7 +253,7 @@ class VideoStitch(BaseTool):
     # Probe helper
     # ------------------------------------------------------------------
 
-    def _probe_clip(self, clip_path: str) -> Optional[dict[str, Any]]:
+    def _probe_clip(self, clip_path: str) -> dict[str, Any] | None:
         """Probe a single clip with ffprobe and return metadata dict."""
         cmd = [
             "ffprobe", "-v", "quiet",

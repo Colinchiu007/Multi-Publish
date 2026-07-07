@@ -18,7 +18,6 @@ from multi_publish.video_creation.base_tool import (
     ResourceProfile,
     ToolResult,
     ToolStability,
-    ToolStatus,
     ToolTier,
 )
 
@@ -120,8 +119,8 @@ class SceneDetect(BaseTool):
 
     def _detect_pyscenedetect(self, inputs: dict[str, Any]) -> list[dict]:
         """Use PySceneDetect for scene detection."""
-        from scenedetect import open_video, SceneManager
-        from scenedetect.detectors import ContentDetector, ThresholdDetector, AdaptiveDetector
+        from scenedetect import SceneManager, open_video
+        from scenedetect.detectors import AdaptiveDetector, ContentDetector, ThresholdDetector
 
         input_path = str(inputs["input_path"])
         method = inputs.get("method", "content")

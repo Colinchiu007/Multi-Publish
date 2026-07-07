@@ -10,15 +10,15 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,
     Determinism,
     ExecutionMode,
     ResourceProfile,
-    RetryPolicy,
     ResumeSupport,
+    RetryPolicy,
     ToolResult,
     ToolStability,
     ToolStatus,

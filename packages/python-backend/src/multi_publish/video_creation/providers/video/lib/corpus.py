@@ -31,12 +31,11 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Optional
 
 import numpy as np
-
 
 EMBED_DIM = 512
 
@@ -218,7 +217,7 @@ class Corpus:
             [self.tag_embeddings, tag_embedding.reshape(1, -1).astype(np.float32)]
         )
 
-    def get(self, clip_id: str) -> Optional[ClipRecord]:
+    def get(self, clip_id: str) -> ClipRecord | None:
         idx = self._id_to_row.get(clip_id)
         if idx is None:
             return None
@@ -249,9 +248,9 @@ class Corpus:
         query_embedding: np.ndarray,
         k: int = 20,
         tag_weight: float = 0.3,
-        motion_min: Optional[float] = None,
-        kind: Optional[str] = None,
-        exclude_ids: Optional[Iterable[str]] = None,
+        motion_min: float | None = None,
+        kind: str | None = None,
+        exclude_ids: Iterable[str] | None = None,
     ) -> list[tuple[ClipRecord, float]]:
         """Return the top-k records scored against an embedded text query.
 
@@ -289,7 +288,7 @@ class Corpus:
         self,
         clip_id: str,
         k: int = 5,
-        exclude_ids: Optional[Iterable[str]] = None,
+        exclude_ids: Iterable[str] | None = None,
     ) -> list[tuple[ClipRecord, float]]:
         """Pure k-nearest-neighbours against the visual channel only.
 
@@ -320,7 +319,7 @@ class Corpus:
         n: int = 5,
         diversity: float = 0.3,
         candidate_pool: int = 30,
-        exclude_ids: Optional[Iterable[str]] = None,
+        exclude_ids: Iterable[str] | None = None,
     ) -> list[tuple[ClipRecord, float]]:
         """Collection-style retrieval: `n` clips that share the seed's
         visual register but don't duplicate each other.

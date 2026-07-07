@@ -1,11 +1,13 @@
 """Standalone utility functions extracted from HyperFramesCompose."""
 from __future__ import annotations
-import json, re, subprocess
+
+import json
+import subprocess
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
-def node_major_version() -> Optional[int]:
+def node_major_version() -> int | None:
     """Return the major Node version (e.g. 18) or None if not found."""
     try:
         out = subprocess.check_output(["node", "--version"], text=True).strip()
@@ -34,7 +36,7 @@ def is_inside(path: Path, root: Path) -> bool:
         return False
 
 
-def parse_json_output(stdout: str) -> Optional[Any]:
+def parse_json_output(stdout: str) -> Any | None:
     """Parse JSON from stdout, handling artifacts."""
     for line in stdout.splitlines():
         line = line.strip()

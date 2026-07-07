@@ -1,7 +1,8 @@
 
 from __future__ import annotations
+
 import time
-from collections.abc import Mapping
+
 
 def parse_retry_after(headers):
     ra = headers.get("retry-after") or headers.get("Retry-After")

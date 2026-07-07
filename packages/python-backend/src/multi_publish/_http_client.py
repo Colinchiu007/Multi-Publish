@@ -1,18 +1,20 @@
 
 from __future__ import annotations
-import time
+
 import asyncio
-from collections.abc import Mapping
-from typing import Any
-import httpx
+import time
 from dataclasses import dataclass, field
 
+import httpx
+
 from multi_publish._errors import (
-    MultiPublishConfigError, MultiPublishConnectionError, MultiPublishHTTPError,
-    MultiPublishProxyError, MultiPublishTimeoutError, MultiPublishRateLimitError,
+    MultiPublishConfigError,
+    MultiPublishConnectionError,
+    MultiPublishHTTPError,
+    MultiPublishProxyError,
+    MultiPublishTimeoutError,
     http_error_for_status,
 )
-from multi_publish._rate_limit import parse_retry_after
 from multi_publish._retries import DEFAULT_RETRY, RetryPolicy
 
 _HTTPX_TIMEOUT_EX = (httpx.TimeoutException, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout)
@@ -86,19 +88,19 @@ class HttpClient:
                         continue
                 raise
             except _HTTPX_TIMEOUT_EX as exc:
-                wrapped = MultiPublishTimeoutError(f"Request timed out", cause=exc)
+                wrapped = MultiPublishTimeoutError("Request timed out", cause=exc)
                 if policy.should_retry(wrapped, attempt):
                     time.sleep(policy.sleep_for(wrapped, attempt))
                     continue
                 raise wrapped from exc
             except _HTTPX_PROXY_EX as exc:
-                wrapped = MultiPublishProxyError(f"Proxy error", cause=exc)
+                wrapped = MultiPublishProxyError("Proxy error", cause=exc)
                 if policy.should_retry(wrapped, attempt):
                     time.sleep(policy.sleep_for(wrapped, attempt))
                     continue
                 raise wrapped from exc
             except _HTTPX_CONN_EX as exc:
-                wrapped = MultiPublishConnectionError(f"Connection error", cause=exc)
+                wrapped = MultiPublishConnectionError("Connection error", cause=exc)
                 if policy.should_retry(wrapped, attempt):
                     time.sleep(policy.sleep_for(wrapped, attempt))
                     continue
@@ -125,19 +127,19 @@ class HttpClient:
                         continue
                 raise
             except _HTTPX_TIMEOUT_EX as exc:
-                wrapped = MultiPublishTimeoutError(f"Request timed out", cause=exc)
+                wrapped = MultiPublishTimeoutError("Request timed out", cause=exc)
                 if policy.should_retry(wrapped, attempt):
                     await asyncio.sleep(policy.sleep_for(wrapped, attempt))
                     continue
                 raise wrapped from exc
             except _HTTPX_PROXY_EX as exc:
-                wrapped = MultiPublishProxyError(f"Proxy error", cause=exc)
+                wrapped = MultiPublishProxyError("Proxy error", cause=exc)
                 if policy.should_retry(wrapped, attempt):
                     await asyncio.sleep(policy.sleep_for(wrapped, attempt))
                     continue
                 raise wrapped from exc
             except _HTTPX_CONN_EX as exc:
-                wrapped = MultiPublishConnectionError(f"Connection error", cause=exc)
+                wrapped = MultiPublishConnectionError("Connection error", cause=exc)
                 if policy.should_retry(wrapped, attempt):
                     await asyncio.sleep(policy.sleep_for(wrapped, attempt))
                     continue

@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-import yaml
 import jsonschema
+import yaml
 
 PIPELINE_DEFS_DIR = Path(__file__).resolve().parent / "definitions"
 SCHEMA_PATH = (
@@ -26,7 +26,7 @@ def _load_manifest_schema() -> dict:
         return json.load(f)
 
 
-def load_pipeline(name: str, defs_dir: Optional[Path] = None) -> dict[str, Any]:
+def load_pipeline(name: str, defs_dir: Path | None = None) -> dict[str, Any]:
     """Load and validate a pipeline manifest by name.
 
     Args:
@@ -50,13 +50,13 @@ def load_pipeline(name: str, defs_dir: Optional[Path] = None) -> dict[str, Any]:
     return manifest
 
 
-def list_pipelines(defs_dir: Optional[Path] = None) -> list[str]:
+def list_pipelines(defs_dir: Path | None = None) -> list[str]:
     """List all available pipeline manifest names."""
     defs_dir = defs_dir or PIPELINE_DEFS_DIR
     return [p.stem for p in defs_dir.glob("*.yaml")]
 
 
-def _condition_is_active(condition: Optional[str], context: Optional[dict[str, Any]]) -> bool:
+def _condition_is_active(condition: str | None, context: dict[str, Any] | None) -> bool:
     """Evaluate a simple manifest condition against runtime context."""
     if not condition:
         return True
@@ -79,7 +79,7 @@ def get_stage_sub_stages(
     manifest: dict,
     stage_name: str,
     *,
-    context: Optional[dict[str, Any]] = None,
+    context: dict[str, Any] | None = None,
     include_inactive: bool = True,
 ) -> list[dict[str, Any]]:
     """Return sub-stage definitions for a stage.
@@ -106,7 +106,7 @@ def get_stage_order(
     manifest: dict,
     *,
     include_sub_stages: bool = False,
-    context: Optional[dict[str, Any]] = None,
+    context: dict[str, Any] | None = None,
 ) -> list[str]:
     """Extract the ordered list of stage names from a manifest.
 
@@ -142,7 +142,7 @@ def get_required_tools(manifest: dict) -> set[str]:
     return tools
 
 
-def get_stage_skill(manifest: dict, stage_name: str) -> Optional[str]:
+def get_stage_skill(manifest: dict, stage_name: str) -> str | None:
     """Get the skill path for an instruction-driven stage."""
     for stage in manifest["stages"]:
         if stage["name"] == stage_name:

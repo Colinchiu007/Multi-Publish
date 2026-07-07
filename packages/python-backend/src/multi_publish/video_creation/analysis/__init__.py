@@ -40,7 +40,6 @@ from multi_publish.video_creation.analysis.visual_qa import (
     VisualQA,
 )
 
-
 __all__ = [
     "AudioEnergy",
     "AudioProbe",

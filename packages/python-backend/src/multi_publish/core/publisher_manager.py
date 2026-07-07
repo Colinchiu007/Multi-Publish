@@ -5,7 +5,7 @@
 """
 
 import asyncio
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
 
 from multi_publish.models import PlatformType, PublishPhase
 from multi_publish.publishers.base import BasePublisher, PublisherConfig
@@ -30,8 +30,8 @@ class PublisherManager:
 
     def enable_precheck(self, api_key: str = ""):
         """开启发布前预检 — 当前已禁用（依赖 TikHub 付费 API）"""
-        from multi_publish.tikhub_bridge import TikHubBridge
         from multi_publish.precheck import PreCheckEngine
+        from multi_publish.tikhub_bridge import TikHubBridge
         bridge = TikHubBridge(api_key=api_key)
         self._precheck_engine = PreCheckEngine(tikhub_bridge=bridge)
         self.precheck_enabled = True

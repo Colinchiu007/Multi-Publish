@@ -7,8 +7,9 @@
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 T = TypeVar("T")
 
@@ -37,13 +38,13 @@ class CursorPaginator:
     API ?? cursor ?????????
     """
 
-    def build_params(self, cursor: Optional[str] = None, page_size: int = 20) -> dict[str, Any]:
+    def build_params(self, cursor: str | None = None, page_size: int = 20) -> dict[str, Any]:
         params: dict[str, Any] = {"page_size": page_size}
         if cursor is not None:
             params["cursor"] = cursor
         return params
 
-    def has_more(self, cursor: Optional[str]) -> bool:
+    def has_more(self, cursor: str | None) -> bool:
         return cursor is not None and cursor != ""
 
 
@@ -60,8 +61,8 @@ class Page(Generic[T]):
         has_more: ????????
     """
     items: list[T] = field(default_factory=list)
-    total: Optional[int] = None
+    total: int | None = None
     page: int = 1
-    cursor: Optional[str] = None
+    cursor: str | None = None
     page_size: int = 20
     has_more: bool = False
