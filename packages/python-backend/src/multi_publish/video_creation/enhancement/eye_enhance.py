@@ -1,4 +1,4 @@
-"""Eye enhancement tool using MediaPipe Face Mesh + OpenCV.
+﻿"""Eye enhancement tool using MediaPipe Face Mesh + OpenCV.
 
 Targets the eye region for talking-head footage:
 - Under-eye dark circle brightening
@@ -119,7 +119,7 @@ class EyeEnhance(BaseTool):
     ]
     side_effects = ["writes enhanced video to output_path"]
     user_visible_verification = [
-        "Compare eyes in before/after — enhancement should be subtle and natural",
+        "Compare eyes in before/after 鈥?enhancement should be subtle and natural",
         "Check for artifacts around eye region (halos, color shifts)",
         "Verify enhancement doesn't make eyes look unnatural",
     ]
@@ -182,7 +182,7 @@ class EyeEnhance(BaseTool):
         dark_intensity = inputs.get("dark_circle_intensity", 0.4)
         brighten_intensity = inputs.get("eye_brighten_intensity", 0.3)
         sharpen_intensity = inputs.get("sharpen_intensity", 0.3)
-        codec_fourcc = inputs.get("codec", "libx264")
+        _ = inputs.get("codec", "libx264")
         crf = inputs.get("crf", 18)
 
         mp_face_mesh = mp.solutions.face_mesh
@@ -191,7 +191,7 @@ class EyeEnhance(BaseTool):
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        _ = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # Write to temp file, then mux audio via FFmpeg
         temp_video = output_path.parent / f".{output_path.stem}_temp.mp4"
@@ -604,3 +604,4 @@ class EyeEnhance(BaseTool):
     def estimate_runtime(self, inputs: dict[str, Any]) -> float:
         """Eye enhancement is roughly 0.5x-1x realtime depending on resolution."""
         return 90.0
+

@@ -1,4 +1,4 @@
-"""Video stitch tool wrapping FFmpeg.
+﻿"""Video stitch tool wrapping FFmpeg.
 
 Multi-clip assembly with validation, transitions, and spatial layouts.
 Supports sequential concatenation (TikTok-style stitch), crossfade/fade
@@ -523,7 +523,7 @@ class VideoStitch(BaseTool):
         transition = inputs.get("transition", "cut")
         transition_dur = inputs.get("transition_duration", 0.5)
         auto_normalize = inputs.get("auto_normalize", False)
-        codec = inputs.get("codec", "libx264")
+        video_codec = inputs.get("codec", "libx264")
         crf = inputs.get("crf", 23)
         preset = inputs.get("preset", "medium")
 
@@ -840,7 +840,7 @@ class VideoStitch(BaseTool):
 
         output_path = Path(inputs.get("output_path", "spatial_output.mp4"))
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        codec = inputs.get("codec", "libx264")
+        video_codec = inputs.get("codec", "libx264")
         crf = inputs.get("crf", 23)
 
         # Verify all clips exist
@@ -1030,3 +1030,4 @@ class VideoStitch(BaseTool):
                 temp_dir.rmdir()
             except OSError:
                 pass
+

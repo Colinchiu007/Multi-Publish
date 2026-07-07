@@ -2433,7 +2433,7 @@ class VideoCompose(BaseTool):
             y = int(ov.get("y", 0))
             start = ov.get("start_seconds", 0)
             end = ov.get("end_seconds")
-            opacity = ov.get("opacity", 1.0)
+            _ = ov.get("opacity", 1.0)
 
             overlay_input = f"{i + 1}:v"
 

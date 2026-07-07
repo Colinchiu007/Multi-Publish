@@ -622,7 +622,7 @@ class DouyinPublisher(BasePublisher):
                 cookie_dict[name] = value
 
         # 从 localStorage 提取关键安全值用于请求头
-        ls = auth_data.get("local_storage", {})
+        _ = auth_data.get("local_storage", {})
         csrf_token = cookie_dict.get("csrf_session_id", "")
 
         headers = {

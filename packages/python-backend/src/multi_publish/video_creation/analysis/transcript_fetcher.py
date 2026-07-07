@@ -133,7 +133,7 @@ class TranscriptFetcher(BaseTool):
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         video_id = self._extract_video_id(inputs["url_or_video_id"])
         languages = inputs.get("languages", ["en"])
-        include_auto = inputs.get("include_auto_generated", True)
+        _ = inputs.get("include_auto_generated", True)
 
         start = time.time()
 

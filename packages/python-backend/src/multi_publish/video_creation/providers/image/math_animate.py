@@ -1,4 +1,4 @@
-"""Mathematical animation tool via ManimCE.
+﻿"""Mathematical animation tool via ManimCE.
 
 Generates animated math/science/explainer videos from Python scene code
 using the Manim Community Edition engine. Free, local, no API key required.
@@ -96,7 +96,7 @@ class MathAnimate(BaseTool):
                 error="Manim not installed. " + self.install_instructions,
             )
 
-        start = time.time()
+        _ = time.time()
         scene_code = inputs["scene_code"]
         quality = inputs.get("quality", "medium")
         output_format = inputs.get("format", "mp4")
@@ -266,3 +266,4 @@ class MathAnimate(BaseTool):
             shutil.rmtree(str(work_dir), ignore_errors=True)
         except Exception:
             pass
+

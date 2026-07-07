@@ -195,7 +195,7 @@ def is_valid_html_content(content: str) -> bool:
         return False
 
     # Check if content has HTML tags
-    has_tags = bool(re.search(r"<[^>]+>", content))
+    _ = bool(re.search(r"<[^>]+>", content))
 
     # WeChat requires at least some HTML structure
     # (plain text is also acceptable, will be wrapped in <p>)

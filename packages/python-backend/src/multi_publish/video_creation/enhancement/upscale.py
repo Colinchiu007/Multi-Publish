@@ -344,7 +344,7 @@ class Upscale(BaseTool):
 
             face_enhancer = GFPGANer(**face_kwargs)
             # Monkey-patch so the caller can use the same interface
-            original_enhance = upsampler.enhance
+            _ = upsampler.enhance
 
             def enhance_with_face(img, outscale=scale):
                 _, _, output = face_enhancer.enhance(

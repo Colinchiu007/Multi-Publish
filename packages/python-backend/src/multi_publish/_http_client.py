@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import time
@@ -81,7 +81,7 @@ class HttpClient:
         merged_headers = {**self.default_headers, **self._get_auth_header(), **(headers or {})}
         for attempt in range(1, policy.max_retries + 1):
             client = self._ensure_sync()
-            start = time.time()
+            _ = time.time()
             try:
                 response = client.request(
                     method=method,
@@ -130,7 +130,7 @@ class HttpClient:
         merged_headers = {**self.default_headers, **self._get_auth_header(), **(headers or {})}
         for attempt in range(1, policy.max_retries + 1):
             client = self._ensure_async()
-            start = time.time()
+            _ = time.time()
             try:
                 response = await client.request(
                     method=method,

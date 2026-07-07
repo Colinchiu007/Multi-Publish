@@ -288,18 +288,8 @@ class VideoUnderstand(BaseTool):
                 ]
             else:
                 # Get total frame count first
-                probe_cmd = [
-                    "ffmpeg",
-                    "-i",
-                    str(video_path),
-                    "-map",
-                    "0:v:0",
-                    "-c",
-                    "copy",
-                    "-f",
-                    "null",
-                    "-",
-                ]
+                # probe_cmd = [  # noqa: F841
+
                 # Sample at even intervals using fps filter
                 # Use a select filter that picks frames at even intervals
                 cmd = [

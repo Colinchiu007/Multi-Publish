@@ -524,7 +524,7 @@ class WechatPublisher:
             result = self._make_request("POST", endpoint, json_data=data)
 
             msg_id = result.get("msg_id")
-            msg_data_id = result.get("msg_data_id")
+            _ = result.get("msg_data_id")
 
             logger.info(f"Mass publish submitted: msg_id={msg_id}")
 
