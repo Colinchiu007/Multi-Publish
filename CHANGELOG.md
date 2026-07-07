@@ -1,3 +1,13 @@
+## [v2.3.21] - 2026-07-07
+
+### 测试 -- media_profiles 11 例 (0%->100% 覆盖率)
+- P0-2: 补充 media_profiles 模块单元测试 11 例
+- 覆盖 AspectRatio/MediaProfile/get_profile/ffmpeg_output_args
+- 测试总数: 887+11=898
+
+### 验证
+- Python: 898/898 passed
+
 ## [v2.3.20] - 2026-07-07
 
 ### 测试 -- slideshow_risk 18 例 (0%->93% 覆盖率)
