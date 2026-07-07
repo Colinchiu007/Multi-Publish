@@ -11,6 +11,7 @@ Methods:
 """
 
 from __future__ import annotations
+import logging
 
 import json
 import os
@@ -19,6 +20,8 @@ import shutil
 import time
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,
@@ -389,7 +392,7 @@ class GreenScreenProcessor(BaseTool):
         if count > 0:
             # Log progress for large frame counts
             if count > 100:
-                print(f"[green_screen_processor] Extracted {count} frames")
+                logger.info(f"Extracted {count} frames")
 
         return count
 
@@ -459,9 +462,7 @@ class GreenScreenProcessor(BaseTool):
                     continue
 
             if frame_count > 100 and (i + 1) % 50 == 0:
-                print(
-                    f"[green_screen_processor] Chromakey: {i + 1}/{frame_count} frames"
-                )
+                logger.info("Processing frame batch")
 
         return processed > 0
 
@@ -519,9 +520,7 @@ class GreenScreenProcessor(BaseTool):
                 continue
 
             if frame_count > 100 and (i + 1) % 50 == 0:
-                print(
-                    f"[green_screen_processor] rembg: {i + 1}/{frame_count} frames"
-                )
+                logger.info("Processing frame batch")
 
         return processed > 0
 

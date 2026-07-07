@@ -9,6 +9,7 @@ frame extraction, encoding, and audio muxing.
 """
 
 from __future__ import annotations
+import logging
 
 import json
 import shutil
@@ -18,6 +19,8 @@ from typing import Any
 
 import numpy as np
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,
@@ -195,7 +198,7 @@ class GreenScreenComposite(BaseTool):
             # Step 4: Composite each frame pair
             for i in range(frame_count):
                 if i % log_interval == 0:
-                    print(f"[green_screen_composite] Compositing frame {i + 1}/{frame_count}")
+                    logger.info(f"Compositing frame {i + 1}/{frame_count}")
 
                 speaker_img = Image.open(speaker_frames[i]).convert("RGB")
                 bg_img = Image.open(bg_frames[i]).convert("RGB")
@@ -210,7 +213,7 @@ class GreenScreenComposite(BaseTool):
                 )
                 comp.save(comp_frames_dir / f"frame_{i:06d}.png")
 
-            print(f"[green_screen_composite] All {frame_count} frames composited")
+            logger.info(f"All {frame_count} frames composited")
 
             # Step 5: Encode composite frames to video
             no_audio_path = output_path if not original_audio_path else temp_dir / "no_audio.mp4"
@@ -424,7 +427,7 @@ class GreenScreenComposite(BaseTool):
                 shutil.rmtree(temp_dir)
             except OSError:
                 # Best-effort cleanup; log but don't fail
-                print(f"[green_screen_composite] Warning: could not fully clean {temp_dir}")
+                logger.info(f"Warning: could not fully clean {temp_dir}")
 
     def estimate_runtime(self, inputs: dict[str, Any]) -> float:
         return 120.0
