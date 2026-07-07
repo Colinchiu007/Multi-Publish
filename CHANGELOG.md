@@ -1,4 +1,19 @@
 ﻿# Multi-Publish 变更日志
+## [v2.3.10] - 2026-07-07
+
+### 修复
+- Python 后端 11 个文件中的 F841/F821 真实 bug
+- video_stitch.py: 修复 ideo_video_codec → ideo_codec 变量名双写 bug (影响 _resolve_normalization_target)
+
+### 代码质量
+- 未使用变量替换: start/ls/include_auto/opacity/msg_data_id/has_tags → _
+- 注释掉无用代码块: probe_cmd (video_understand.py)
+- 恢复 eye_enhance.py 中 operations 变量的正常使用
+
+### 验证
+- Python: 835 passed ✅
+- Jest: 207 passed (23 suites) ✅
+
 ## [v2.3.9] - 2026-07-07
 
 ### 代码质量
@@ -388,6 +403,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 
