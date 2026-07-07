@@ -125,7 +125,7 @@ class DeliveryPromise:
         # Only real video/animation/avatar footage counts as motion.
         # Remotion component scenes (text_card, chart, kpi_grid, etc.) are
         # "animated slides" — they have transitions but are NOT real motion.
-        _SLIDE_GRAMMAR_TYPES = frozenset(
+        _slide_grammar_types = frozenset(
             {
                 "text_card",
                 "stat_card",
@@ -139,7 +139,7 @@ class DeliveryPromise:
                 "callout",
             }
         )
-        _REAL_MOTION_TYPES = frozenset({"video", "animation", "avatar"})
+        _real_motion_types = frozenset({"video", "animation", "avatar"})
 
         motion_cuts = 0
         slide_cuts = 0
@@ -156,9 +156,9 @@ class DeliveryPromise:
                 ext = source.rsplit(".", 1)[-1].lower() if "." in source else ""
                 if ext in ("mp4", "mov", "webm", "avi", "mkv"):
                     is_motion = True
-            if cut_type in _REAL_MOTION_TYPES:
+            if cut_type in _real_motion_types:
                 is_motion = True
-            elif cut_type in _SLIDE_GRAMMAR_TYPES:
+            elif cut_type in _slide_grammar_types:
                 is_slide = True
 
             if is_motion:
