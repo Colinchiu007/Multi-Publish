@@ -1,3 +1,14 @@
+## [v2.3.27] - 2026-07-07
+
+### 测试 -- color_grade 15 例 (~30%->77% 覆盖率)
+- PROFILES 数据结构验证 (7 个预设全检查)
+- list_profiles() / _build_filter() 全分支覆盖
+  - custom_vf / lut_path / profile / intensity blend
+- execute() 错误路径 (文件不存在)
+- 测试总数: 1098+15=1113
+
+### 验证
+- color_grade 覆盖率: ~30%->77%（剩余 14 行 FFmpeg 调用/LUT 路径）
 ## [v2.3.26] - 2026-07-07
 
 ### 测试 -- face_enhance 14 例 (48%->95% 覆盖率)
