@@ -1,4 +1,18 @@
 ﻿# Multi-Publish 变更日志
+## [v2.3.13] - 2026-07-07
+
+### 测试
+- 补充 HttpClient 扩展测试 23 例 (覆盖率 58% → 88%)
+  - HTTP 方法助手: put/delete/async_get/async_post/async_put/async_delete
+  - 客户端生命周期: close_sync/close_async 幂等性
+  - 错误路径: 代理错误、重试耗尽、_map_httpx_error
+  - 深层异步: timeout/proxy/connection/HTTP 错误路径
+
+### 验证
+- Python: 869 passed ✅ (原 846 + 23)
+- Jest: 207 passed ✅
+- _http_client 覆盖率: 88% (原 58%)
+
 ## [v2.3.12] - 2026-07-07
 
 ### 测试
@@ -432,6 +446,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 
