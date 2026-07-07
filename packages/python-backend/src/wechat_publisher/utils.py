@@ -216,6 +216,7 @@ def generate_filename(base: str, extension: str, timestamp: bool = True) -> str:
     Returns:
         Generated filename
     """
+    extension = extension.lstrip(".")
     if timestamp:
         from datetime import datetime
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
