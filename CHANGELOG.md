@@ -1,3 +1,16 @@
+## [v2.3.17] - 2026-07-07
+
+### 代码质量 -- B904 异常链清零 (19->0) + B018
+- 19 处 B904 raise-without-from-inside-except 全部修复
+- 1 处 B018 useless-expression (None -> pass)
+- server.py/client.py/douyin.py/_utils.py 共 5 文件
+- Python lint 从 71 降至 15 (剩余 E402/N803/N801 等命名风格)
+
+### 验证
+- Python: 869 passed
+- ESLint: 0 errors
+- TypeScript: 0 errors
+
 ## [v2.3.16] - 2026-07-07
 
 ### 代码质量 -- Python lint unsafe fixes (27) + vitest config CJS
