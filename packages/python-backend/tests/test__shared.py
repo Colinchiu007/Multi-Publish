@@ -29,7 +29,8 @@ from multi_publish.video_creation.providers.video._shared import (
     poll_heygen,
     upload_image_fal,
     upload_image_heygen,
-
+    generate_heygen_video,
+    generate_ltx_modal_video,
 )
 
 
@@ -449,3 +450,163 @@ class TestUploadImageHeygen:
         ):
             result = upload_image_heygen("/tmp/test.png", "test_key")
         assert result == "https://fal.ai/files/fb.png"
+
+# -----------------------------------------------
+# generate_heygen_video
+# -----------------------------------------------
+
+class TestGenerateHeygenVideo:
+    @patch.dict(os.environ, {}, clear=True)
+    def test_missing_api_key(self):
+        result = generate_heygen_video({"prompt": "test"})
+        assert result.success is False
+        assert "HEYGEN_API_KEY" in result.error
+
+    @patch.dict(os.environ, {"HEYGEN_API_KEY": "test_key"})
+    def test_unknown_provider_variant(self):
+        result = generate_heygen_video({"prompt": "test", "provider_variant": "nonexistent"})
+        assert result.success is False
+        assert "Unknown provider_variant" in result.error
+
+    @patch.dict(os.environ, {"HEYGEN_API_KEY": "test_key"})
+    def test_image_to_video_no_ref(self):
+        result = generate_heygen_video({"prompt": "test", "provider_variant": "veo_3_1", "operation": "image_to_video"})
+        assert result.success is False
+        assert "requires" in result.error
+
+    @patch.dict(os.environ, {"HEYGEN_API_KEY": "test_key"})
+    def test_no_execution_id(self, respx_mock):
+        respx_mock.post("https://api.heygen.com/v1/workflows/executions").respond(json={"data": {}})
+        result = generate_heygen_video({"prompt": "test", "provider_variant": "veo_3_1"})
+        assert result.success is False
+        assert "execution_id" in result.error
+
+    @patch.dict(os.environ, {"HEYGEN_API_KEY": "test_key"})
+    def test_text_to_video_success(self, respx_mock):
+        respx_mock.post("https://api.heygen.com/v1/workflows/executions").respond(
+            json={"data": {"execution_id": "exec_456"}}
+        )
+        with patch("multi_publish.video_creation.providers.video._shared.poll_heygen", return_value="https://cdn.heygen.com/video.mp4"):
+            respx_mock.get("https://cdn.heygen.com/video.mp4").respond(content=b"fake_video_bytes")
+            result = generate_heygen_video({"prompt": "test", "provider_variant": "veo_3_1"})
+        assert result.success is True
+        assert result.data["execution_id"] == "exec_456"
+        assert result.data["mode"] == "api"
+
+    @patch.dict(os.environ, {"HEYGEN_API_KEY": "test_key"})
+    def test_image_to_video_with_ref_url(self, respx_mock):
+        respx_mock.post("https://api.heygen.com/v1/workflows/executions").respond(
+            json={"data": {"execution_id": "exec_789"}}
+        )
+        with patch("multi_publish.video_creation.providers.video._shared.poll_heygen", return_value="https://cdn.heygen.com/v2.mp4"):
+            respx_mock.get("https://cdn.heygen.com/v2.mp4").respond(content=b"data")
+            result = generate_heygen_video({
+                "prompt": "test", "provider_variant": "veo_3_1",
+                "operation": "image_to_video", "reference_image_url": "https://example.com/img.png"
+            })
+        assert result.success is True
+        assert result.data["operation"] == "image_to_video"
+
+    @patch.dict(os.environ, {"HEYGEN_API_KEY": "test_key"})
+    @patch("multi_publish.video_creation.providers.video._shared.upload_image_heygen", return_value="https://heygen.com/uploaded.png")
+    def test_image_to_video_with_ref_path(self, mock_upload, respx_mock):
+        respx_mock.post("https://api.heygen.com/v1/workflows/executions").respond(
+            json={"data": {"execution_id": "exec_101"}}
+        )
+        with patch("multi_publish.video_creation.providers.video._shared.poll_heygen", return_value="https://cdn.heygen.com/v3.mp4"):
+            respx_mock.get("https://cdn.heygen.com/v3.mp4").respond(content=b"data")
+            result = generate_heygen_video({
+                "prompt": "test", "provider_variant": "veo_3_1",
+                "operation": "image_to_video", "reference_image_path": "/tmp/img.png"
+            })
+        assert result.success is True
+        mock_upload.assert_called_once_with("/tmp/img.png", "test_key")
+
+    @patch.dict(os.environ, {"HEYGEN_API_KEY": "test_key"})
+    def test_http_error_raises(self, respx_mock):
+        respx_mock.post("https://api.heygen.com/v1/workflows/executions").respond(status_code=401)
+        with pytest.raises(Exception):
+            generate_heygen_video({"prompt": "test", "provider_variant": "veo_3_1"})
+
+
+# -----------------------------------------------
+# generate_ltx_modal_video
+# -----------------------------------------------
+
+class TestGenerateLtxModalVideo:
+    @patch.dict(os.environ, {}, clear=True)
+    def test_missing_endpoint_url(self):
+        result = generate_ltx_modal_video({"prompt": "test"})
+        assert result.success is False
+        assert "MODAL_LTX2_ENDPOINT_URL" in result.error
+
+    @patch.dict(os.environ, {"MODAL_LTX2_ENDPOINT_URL": "https://modal.example.com/generate"})
+    def test_image_to_video_no_ref(self):
+        result = generate_ltx_modal_video({"prompt": "test", "operation": "image_to_video"})
+        assert result.success is False
+        assert "requires" in result.error
+
+    @patch.dict(os.environ, {"MODAL_LTX2_ENDPOINT_URL": "https://modal.example.com/generate"})
+    def test_text_to_video_direct_video(self, respx_mock):
+        respx_mock.post("https://modal.example.com/generate").respond(
+            content=b"fake_mp4_data", headers={"content-type": "video/mp4"}
+        )
+        with patch("multi_publish.video_creation.providers.video._shared.Path.write_bytes"):
+            result = generate_ltx_modal_video({"prompt": "test"})
+        assert result.success is True
+        assert result.data["provider"] == "ltx-modal"
+
+    @patch.dict(os.environ, {"MODAL_LTX2_ENDPOINT_URL": "https://modal.example.com/generate"})
+    def test_text_to_video_json_response(self, respx_mock):
+        respx_mock.post("https://modal.example.com/generate").respond(
+            json={"video_url": "https://modal.example.com/video.mp4"}
+        )
+        respx_mock.get("https://modal.example.com/video.mp4").respond(content=b"data")
+        with patch("multi_publish.video_creation.providers.video._shared.Path.write_bytes"):
+            result = generate_ltx_modal_video({"prompt": "test"})
+        assert result.success is True
+
+    @patch.dict(os.environ, {"MODAL_LTX2_ENDPOINT_URL": "https://modal.example.com/generate"})
+    def test_image_to_video_with_ref_path(self, respx_mock):
+        respx_mock.post("https://modal.example.com/generate").respond(
+            content=b"data", headers={"content-type": "video/mp4"}
+        )
+        with (
+            patch("multi_publish.video_creation.providers.video._shared.Path.exists", return_value=True),
+            patch("multi_publish.video_creation.providers.video._shared.Path.read_bytes", return_value=b"img_data"),
+            patch("multi_publish.video_creation.providers.video._shared.Path.write_bytes"),
+        ):
+            result = generate_ltx_modal_video({
+                "prompt": "test", "operation": "image_to_video",
+                "reference_image_path": "/tmp/img.png"
+            })
+        assert result.success is True
+
+    @patch.dict(os.environ, {"MODAL_LTX2_ENDPOINT_URL": "https://modal.example.com/generate"})
+    def test_image_to_video_with_ref_url(self, respx_mock):
+        respx_mock.post("https://modal.example.com/generate").respond(
+            content=b"data", headers={"content-type": "video/mp4"}
+        )
+        with patch("multi_publish.video_creation.providers.video._shared.Path.write_bytes"):
+            result = generate_ltx_modal_video({
+                "prompt": "test", "operation": "image_to_video",
+                "reference_image_url": "https://example.com/img.png"
+            })
+        assert result.success is True
+
+    @patch.dict(os.environ, {"MODAL_LTX2_ENDPOINT_URL": "https://modal.example.com/generate"})
+    def test_square_aspect_ratio(self, respx_mock):
+        respx_mock.post("https://modal.example.com/generate").respond(
+            content=b"data", headers={"content-type": "video/mp4"}
+        )
+        with patch("multi_publish.video_creation.providers.video._shared.Path.write_bytes"):
+            result = generate_ltx_modal_video({"prompt": "test", "aspect_ratio": "1:1"})
+        assert result.success is True
+
+    @patch.dict(os.environ, {"MODAL_LTX2_ENDPOINT_URL": "https://modal.example.com/generate"})
+    def test_json_no_video_url(self, respx_mock):
+        respx_mock.post("https://modal.example.com/generate").respond(
+            json={"status": "error"}
+        )
+        result = generate_ltx_modal_video({"prompt": "test"})
+        assert result.success is False
