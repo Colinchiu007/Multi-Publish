@@ -1,4 +1,17 @@
 ﻿# Multi-Publish 变更日志
+## [v2.2.9] - 2026-07-07
+### 测试
+- 补充核心数据模型 models.py 单元测试（19 tests）
+  - 5 个 Enum: PlatformCategory/PlatformType/TaskStatus/PublishMode/PublishPhase
+  - PLATFORM_META 完整性: 12 平台全覆盖
+  - AuthData: is_empty/to_dict/from_dict roundtrip
+  - PublishResult: success/failure 路径
+  - PublishTask: 初始化/is_finished/to_dict
+  - ProxyConfig: to_dict/from_dict roundtrip
+  - PlatformAccount: 初始化/代理配置
+
+### 验证
+- Python 测试: 578 passed (+19)
 ## [v2.2.8] - 2026-07-07
 ### 测试
 - 补充 config_model 配置模型单元测试（9 tests）— BudgetMode/BudgetConfig/OutputConfig/PathsConfig/VideoCreationConfig load/resolve
@@ -272,6 +285,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 
