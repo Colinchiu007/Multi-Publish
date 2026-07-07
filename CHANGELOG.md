@@ -1,3 +1,18 @@
+﻿
+## [v2.3.30] - 2026-07-07
+
+### 测试 -- _shared.py 43 例 (11%->26% 覆盖率)
+- HEYGEN_PROVIDERS / WAN_VARIANTS / HUNYUAN_VARIANTS 等数据字典结构验证
+- estimate_quality_cost / estimate_speed_runtime / estimate_local_runtime 纯函数
+- get_torch_device: cuda/MPS/cpu 多场景
+- local_generation_enabled/status: 环境变量控制
+- local_install_instructions: 文档内容验证
+- probe_output: ffprobe 成功/失败/无 ffprobe
+- 测试总数: 1165+43=1208
+
+### 验证
+- _shared.py 覆盖率: 11%->26%
+- 全部 1208 测试通过
 ## [v2.3.29] - 2026-07-07
 
 ### 测试 -- hf_utils 24 例 (32%->68% 覆盖率)
@@ -629,6 +644,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 
