@@ -1,3 +1,13 @@
+## [v2.3.28] - 2026-07-07
+
+### 测试 -- upscale 10 例 + bg_remove 2 例
+- upscale: MODELS 数据验证 / VIDEO_EXTENSIONS / get_status / 输入不存在错误路径
+- bg_remove: get_status (rembg 未安装) / 输入不存在错误路径
+- 测试总数: 1113+12=1125
+
+### 验证
+- upscale: ~15%->32%
+- bg_remove: 49%->56%
 ## [v2.3.27] - 2026-07-07
 
 ### 测试 -- color_grade 15 例 (~30%->77% 覆盖率)
