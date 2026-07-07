@@ -108,3 +108,4 @@ _bigfiles.txt
 
 # coverage annotate output
 *.py,cover
+"logs/" 
