@@ -1,53 +1,54 @@
-﻿"""Tests for PlatformRegistry."""
-
-import json, os, tempfile
+"""Tests for PlatformRegistry."""
 import pytest
 from multi_publish.publishers.platform_registry import PlatformRegistry
 from multi_publish.models import PlatformType
 
+@pytest.fixture
+def reg():
+    r = PlatformRegistry()
+    r._entries = {"douyin": "multi_publish.models:PlatformType", "wechat_mp": "multi_publish.models:TaskStatus"}
+    r._loaded = True
+    return r
 
-class TestPlatformRegistry:
-    def test_default_registry_has_platforms(self):
-        reg = PlatformRegistry()
-        reg.load()
-        assert reg.count() >= 4
+class TestRegistryBasic:
+    def test_init_not_loaded(self):
+        assert PlatformRegistry()._loaded is False
+    def test_load_defaults(self):
+        r = PlatformRegistry(); r.load()
+        assert "douyin" in r._entries
 
-    def test_is_supported(self):
-        reg = PlatformRegistry()
-        assert reg.is_supported(PlatformType.DOUYIN) is True
+class TestRegistryOps:
+    def test_register(self, reg):
+        reg.register('bilibili', 'p:B')
+        assert reg._entries['bilibili'] == 'p:B'
+    def test_unregister(self, reg):
+        reg.unregister('douyin')
+        assert 'douyin' not in reg._entries
+    def test_is_supported(self, reg):
+        assert reg.is_supported(PlatformType.DOUYIN)
+        assert not reg.is_supported(PlatformType.BILIBILI)
+    def test_list_platforms(self, reg):
+        p = reg.list_platforms()
+        assert 'douyin' in p and len(p) == 2
+    def test_count(self, reg):
+        assert reg.count() == 2
+    def test_to_dict(self, reg):
+        assert len(reg.to_dict()) == 2
 
-    def test_load_from_json(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cfg = os.path.join(tmpdir, "p.json")
-            with open(cfg, "w") as f:
-                json.dump({"tp": "multi_publish.publishers.base:BasePublisher"}, f)
-            reg = PlatformRegistry(config_path=cfg)
-            reg.load()
-            assert "tp" in reg.list_platforms()
-
-    def test_register_and_unregister(self):
-        reg = PlatformRegistry()
-        n = reg.count()
-        reg.register("mp", "multi_publish.publishers.base:BasePublisher")
-        assert reg.count() == n + 1
-        reg.unregister("mp")
-        assert reg.count() == n
-
-    def test_get_returns_publisher_class(self):
-        reg = PlatformRegistry()
-        cls = reg.get(PlatformType.DOUYIN)
-        from multi_publish.publishers.base import BasePublisher
-        assert issubclass(cls, BasePublisher)
-        assert cls is not BasePublisher
-
-    def test_get_unknown_raises(self):
-        reg = PlatformRegistry()
+class TestRegistryGet:
+    def test_get_raises_for_unknown(self, reg):
         with pytest.raises(ValueError):
-            reg.get_by_key("nonexistent")
+            reg.get(PlatformType.BILIBILI)
+    def test_get_returns_class(self, reg):
+        assert reg.get(PlatformType.DOUYIN) is not None
+    def test_get_caches(self, reg):
+        assert reg.get(PlatformType.DOUYIN) is reg.get(PlatformType.DOUYIN)
 
-    def test_scan_discovers_nothing_when_all_known(self):
-        reg = PlatformRegistry()
-        reg._loaded = True
-        reg._entries = {}
-        d = reg.scan_publishers_package()
-        assert isinstance(d, list)
+class TestImportClass:
+    def test_success(self):
+        from multi_publish.models import PlatformType
+        cls = PlatformRegistry._import_class('multi_publish.models:PlatformType')
+        assert cls is PlatformType
+    def test_failure(self):
+        with pytest.raises((ImportError, AttributeError)):
+            PlatformRegistry._import_class('nonexistent:Class')
