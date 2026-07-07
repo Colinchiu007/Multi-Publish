@@ -1,4 +1,72 @@
 ﻿# Multi-Publish 变更日志
+## [v2.3.8] - 2026-07-07
+
+### 测试 (今日累计 +130，总 751)
+- 遗留 47 个测试迁移到 packages/python-backend/tests/ → +55
+- video_creation/scoring.py 评分引擎测试 → +23
+- precheck.py PreCheck 引擎测试 → +8
+- tikhub_bridge.py 桥接层测试 → +8
+- _errors/_rate_limit/_retries/_auth 基础设施测试 → +54
+
+### 清理
+- 删除根目录 tests/ 中已迁移的遗留文件
+- gitignore .coverage 文件
+
+### 质量门禁
+- ✅ Python: 751 passed (原 621, +130)
+- ✅ 全部已推送 GitHub (main)
+
+## [v2.3.7] - 2026-07-07
+
+### 测试
+- 补充 _errors/_rate_limit/_retries/_auth 基础设施模块单元测试 (54 tests)
+- _error: 错误体系层级 / 脱敏 / HTTP状态映射
+- _rate_limit: 限流header解析
+- _retries: 重试策略/退避计算
+- _auth: BearerAuth/AuthMiddleware
+
+### 验证
+- Python 测试: 751 passed
+
+## [v2.3.6] - 2026-07-07
+
+### 测试
+- 补充 TikHubBridge 桩模块单元测试 (8 tests)
+- 覆盖: 初始化/可用性/平台/资源方法/异步异常
+
+### 验证
+- Python 测试: 715 passed
+
+## [v2.3.5] - 2026-07-07
+
+### 测试
+- 补充 PreCheck 引擎单元测试 (8 tests)
+- 覆盖: CheckSeverity/CheckResult/DuplicateCheck/PreCheckEngine
+
+### 验证
+- Python 测试: 707 passed
+
+## [v2.3.4] - 2026-07-07
+
+### 测试
+- 补充 video_creation/scoring.py 单元测试 (23 tests)
+- 覆盖: ProviderScore/ProductionPathScore/_keyword_overlap 等
+
+### 验证
+- Python 测试: 699 passed
+
+## [v2.3.3] - 2026-07-07
+
+### 测试迁移
+- 将根目录 tests/ 中 47 个遗留测试迁移到 packages/python-backend/tests/
+- test_core_progress → test_progress 合并
+- test_core_downloader → test_downloader 合并
+- test_core_scheduler → test_publish_scheduler 新建
+- test_core_task_queue → test_task_queue 新建
+- test_platform_e2e → test_models 合并
+
+### 验证
+- Python 测试: 676 passed (+55)
 ## [v2.3.2] - 2026-07-07
 ### 测试
 - 补充 pagination 分页工具单元测试（13 tests）
@@ -307,6 +375,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 
