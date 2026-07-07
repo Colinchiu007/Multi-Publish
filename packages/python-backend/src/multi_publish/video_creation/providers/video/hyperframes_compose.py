@@ -234,7 +234,7 @@ class HyperFramesCompose(BaseTool):
         """Return the major Node version (e.g. 18) or None if not found."""
         return node_major_version()
 
-    def _resolve_npm_package(cls) -> dict[str, str]:
+    def _resolve_npm_package(self) -> dict[str, str]:
         """Verify the `hyperframes` npm package actually resolves.
 
         `_runtime_check` previously only verified that node/ffmpeg/npx existed
@@ -247,44 +247,44 @@ class HyperFramesCompose(BaseTool):
         Returns {"version": "X.Y.Z"} on success, {"error": "<short>"} on any
         failure (404, timeout, network error, npm missing). Never raises.
         """
-        if cls._npm_resolve_cache is not None:
-            return cls._npm_resolve_cache
+        if self._npm_resolve_cache is not None:
+            return self._npm_resolve_cache
 
         npm = shutil.which("npm")
         if not npm:
-            cls._npm_resolve_cache = {"error": "npm not on PATH"}
-            return cls._npm_resolve_cache
+            self._npm_resolve_cache = {"error": "npm not on PATH"}
+            return self._npm_resolve_cache
 
         try:
             proc = subprocess.run(
-                [npm, "view", cls._NPM_PACKAGE, "version"],
+                [npm, "view", self._NPM_PACKAGE, "version"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
         except subprocess.TimeoutExpired:
-            cls._npm_resolve_cache = {"error": "timeout (5s) — offline or slow registry"}
-            return cls._npm_resolve_cache
+            self._npm_resolve_cache = {"error": "timeout (5s) — offline or slow registry"}
+            return self._npm_resolve_cache
         except (OSError, subprocess.SubprocessError) as e:
-            cls._npm_resolve_cache = {"error": f"npm view failed: {type(e).__name__}"}
-            return cls._npm_resolve_cache
+            self._npm_resolve_cache = {"error": f"npm view failed: {type(e).__name__}"}
+            return self._npm_resolve_cache
 
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
             # Most common failure is 404 (package unpublished or name wrong).
             if "404" in stderr or "E404" in stderr:
-                cls._npm_resolve_cache = {"error": f"npm package `{cls._NPM_PACKAGE}` not found (404)"}
+                self._npm_resolve_cache = {"error": f"npm package `{self._NPM_PACKAGE}` not found (404)"}
             else:
                 tail = stderr.splitlines()[-1][:200] if stderr else f"exit {proc.returncode}"
-                cls._npm_resolve_cache = {"error": f"npm view failed: {tail}"}
-            return cls._npm_resolve_cache
+                self._npm_resolve_cache = {"error": f"npm view failed: {tail}"}
+            return self._npm_resolve_cache
 
         version = (proc.stdout or "").strip()
         if not version:
-            cls._npm_resolve_cache = {"error": "npm view returned empty version"}
+            self._npm_resolve_cache = {"error": "npm view returned empty version"}
         else:
-            cls._npm_resolve_cache = {"version": version}
-        return cls._npm_resolve_cache
+            self._npm_resolve_cache = {"version": version}
+        return self._npm_resolve_cache
 
     def _runtime_check(self) -> dict[str, Any]:
         """Return availability state for the HyperFrames runtime.

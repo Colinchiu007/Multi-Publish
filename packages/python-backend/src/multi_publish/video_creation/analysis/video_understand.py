@@ -525,7 +525,7 @@ class VideoUnderstand(BaseTool):
                 probs = outputs.logits_per_image.softmax(dim=1)[0]
 
                 scored = sorted(
-                    zip(SCENE_CATEGORIES, probs.tolist()),
+                    zip(SCENE_CATEGORIES, probs.tolist(), strict=False),
                     key=lambda x: x[1],
                     reverse=True,
                 )

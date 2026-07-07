@@ -201,7 +201,7 @@ class GrokImage(BaseTool):
             artifacts: list[str] = []
             outputs: list[str] = []
 
-            for item, output_path in zip(items, output_paths):
+            for item, output_path in zip(items, output_paths, strict=False):
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 if item.get("b64_json"):
                     output_path.write_bytes(base64.b64decode(item["b64_json"]))

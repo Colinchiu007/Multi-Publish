@@ -446,7 +446,7 @@ class VideoAnalyzer(BaseTool):
         if video_path and scenes:
             try:
                 motion_results = self._classify_scene_motion(video_path, scenes)
-                for bs, mr in zip(brief["structure_analysis"]["scenes"], motion_results):
+                for bs, mr in zip(brief["structure_analysis"]["scenes"], motion_results, strict=False):
                     bs["motion_type"] = mr["motion_type"]
                     bs["flow_variance"] = mr["flow_variance"]
                 steps_completed.append("motion_classification")

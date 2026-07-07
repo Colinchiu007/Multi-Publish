@@ -190,7 +190,7 @@ class PublisherManager:
             return False
 
     async def close_all(self):
-        for platform, publisher in self._publishers.items():
+        for _platform, publisher in self._publishers.items():
             try:
                 await publisher.close()
             except Exception:

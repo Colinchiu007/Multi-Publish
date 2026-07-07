@@ -7,10 +7,10 @@ so the composer and publisher agents can format output correctly.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class AspectRatio(str, Enum):
+class AspectRatio(StrEnum):
     LANDSCAPE_16_9 = "16:9"
     PORTRAIT_9_16 = "9:16"
     SQUARE_1_1 = "1:1"

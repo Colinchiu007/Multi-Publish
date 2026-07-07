@@ -418,7 +418,7 @@ class AutoReframe(BaseTool):
         # Convert to crop positions (top-left corner), clamped
         crop_xs = []
         crop_ys = []
-        for sx, sy in zip(smoothed_x, smoothed_y):
+        for sx, sy in zip(smoothed_x, smoothed_y, strict=False):
             cx = int(sx - crop_w / 2)
             cy = int(sy - crop_h * 0.35)
             cx = max(0, min(cx, src_w - crop_w))
@@ -533,7 +533,7 @@ class AutoReframe(BaseTool):
         sample_interval = 1.0 / (fps / max(1, int(fps / 5)))  # Approximate
 
         lines = []
-        for i, (cx, cy) in enumerate(zip(crop_xs, crop_ys)):
+        for i, (cx, cy) in enumerate(zip(crop_xs, crop_ys, strict=False)):
             ts = i * sample_interval
             lines.append(f"{ts:.3f} [enter] crop x {cx};")
             lines.append(f"{ts:.3f} [enter] crop y {cy};")

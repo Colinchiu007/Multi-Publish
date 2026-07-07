@@ -15,7 +15,7 @@ Progress Callback — 发布进度上报状态机
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 # ============================================================
@@ -23,7 +23,7 @@ from typing import Any
 # ============================================================
 
 
-class PublishStage(str, Enum):
+class PublishStage(StrEnum):
     """发布阶段"""
 
     INIT = "init"  # 初始化

@@ -189,7 +189,7 @@ class ComfyUIImage(BaseTool):
 
             # Try to download the generated image
             downloaded = False
-            for node_id, node_output in outputs.items():
+            for _node_id, node_output in outputs.items():
                 for img_data in node_output.get("images", []):
                     img_filename = img_data.get("filename")
                     if img_filename:

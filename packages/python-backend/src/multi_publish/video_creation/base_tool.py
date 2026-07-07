@@ -11,12 +11,12 @@ import shutil
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 
-class ToolTier(str, Enum):
+class ToolTier(StrEnum):
     CORE = "core"
     VOICE = "voice"
     ENHANCE = "enhance"
@@ -26,38 +26,38 @@ class ToolTier(str, Enum):
     PUBLISH = "publish"
 
 
-class ToolStability(str, Enum):
+class ToolStability(StrEnum):
     EXPERIMENTAL = "experimental"
     BETA = "beta"
     PRODUCTION = "production"
 
 
-class ToolStatus(str, Enum):
+class ToolStatus(StrEnum):
     AVAILABLE = "available"
     UNAVAILABLE = "unavailable"
     DEGRADED = "degraded"
 
 
-class ToolRuntime(str, Enum):
+class ToolRuntime(StrEnum):
     LOCAL = "local"
     LOCAL_GPU = "local_gpu"
     API = "api"
     HYBRID = "hybrid"
 
 
-class ExecutionMode(str, Enum):
+class ExecutionMode(StrEnum):
     SYNC = "sync"
     ASYNC = "async"
 
 
-class Determinism(str, Enum):
+class Determinism(StrEnum):
     DETERMINISTIC = "deterministic"
     SEEDED = "seeded"
     STOCHASTIC = "stochastic"
 
 
 @dataclass
-class ResumeSupport(str, Enum):
+class ResumeSupport(StrEnum):
     """Checkpoint resume strategy."""
 
     NONE = "none"

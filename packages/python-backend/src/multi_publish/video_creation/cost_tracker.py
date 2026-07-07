@@ -9,14 +9,14 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from multi_publish.video_creation.config_model import BudgetMode
 
 
-class EntryStatus(str, Enum):
+class EntryStatus(StrEnum):
     ESTIMATED = "estimated"
     RESERVED = "reserved"
     COMPLETED = "completed"

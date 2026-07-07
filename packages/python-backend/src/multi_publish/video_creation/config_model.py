@@ -6,13 +6,13 @@ Adapted from OpenMontage lib/config_model.py.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 import yaml
 
 
-class BudgetMode(str, Enum):
+class BudgetMode(StrEnum):
     OBSERVE = "observe"
     WARN = "warn"
     CAP = "cap"

@@ -372,7 +372,7 @@ class Corpus:
             picked_scores.append(best_score)
             pool.remove(best_i)
 
-        return [(self.records[i], s) for i, s in zip(picked, picked_scores)]
+        return [(self.records[i], s) for i, s in zip(picked, picked_scores, strict=False)]
 
     def diversify(
         self,
