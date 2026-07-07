@@ -1,3 +1,14 @@
+## [v2.3.18] - 2026-07-07
+
+### 代码质量 -- B017 + PRD 版本同步
+- B017: pytest.raises(Exception)->ValueError
+- PRD 版本更新 v2.3.8 -> v2.3.17
+
+### 验证
+- Python: 869 passed
+- ESLint: 0 errors
+- TypeScript: 0 errors
+
 ## [v2.3.17] - 2026-07-07
 
 ### 代码质量 -- B904 异常链清零 (19->0) + B018
