@@ -1,11 +1,8 @@
-import { defineConfig } from 'vitest/config'
-import vue from '@vitejs/plugin-vue'
-import path from 'path'
-import { fileURLToPath } from 'url'
+const { defineConfig } = require('vitest/config');
+const vue = require('@vitejs/plugin-vue');
+const path = require('path');
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-
-export default defineConfig({
+module.exports = defineConfig({
   plugins: [vue()],
   test: {
     environment: 'jsdom',
@@ -21,4 +18,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src')
     }
   }
-})
+});
