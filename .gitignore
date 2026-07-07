@@ -104,3 +104,4 @@ _bigfiles.txt
 # Environment
 .env
 .env.local
+.coverage
