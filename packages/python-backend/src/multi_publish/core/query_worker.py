@@ -135,9 +135,9 @@ class QueryWorker(ABC):
       - QueryWorker: 查询信息、验证状态
     """
 
-    def __init__(self, cookie: str, localStorage: dict | None = None):
+    def __init__(self, cookie: str, local_storage: dict | None = None):
         self.cookie = cookie
-        self.localStorage = localStorage or {}
+        self.local_storage = local_storage or {}
 
     @property
     @abstractmethod
@@ -145,11 +145,11 @@ class QueryWorker(ABC):
         """返回平台类型"""
         ...
 
-    def refresh_cookie(self, cookie: str, localStorage: dict | None = None):
+    def refresh_cookie(self, cookie: str, local_storage: dict | None = None):
         """刷新登录凭证"""
         self.cookie = cookie
-        if localStorage:
-            self.localStorage = localStorage
+        if local_storage:
+            self.local_storage = local_storage
 
     # ========== 核心接口 ==========
 
@@ -290,7 +290,7 @@ class QueryWorkerFactory:
         cls,
         platform: str,
         cookie: str,
-        localStorage: dict | None = None,
+        local_storage: dict | None = None,
     ) -> QueryWorker:
         """
         创建平台对应的 QueryWorker
@@ -311,7 +311,7 @@ class QueryWorkerFactory:
             # 返回默认的不支持提示
             raise ValueError(f"不支持的平台: {platform}")
 
-        return worker_cls(cookie, localStorage)
+        return worker_cls(cookie, local_storage)
 
     @classmethod
     def supports(cls, platform: str) -> bool:
