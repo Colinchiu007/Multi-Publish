@@ -7,7 +7,6 @@ from multi_publish._errors import (
     MultiPublishConnectionError,
     MultiPublishHTTPError,
     MultiPublishProxyError,
-    MultiPublishTimeoutError,
 )
 from multi_publish._http_client import HttpClient
 from multi_publish._retries import RetryPolicy

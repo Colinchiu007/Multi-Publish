@@ -1,10 +1,10 @@
 ﻿"""Test rate_limit module edge cases."""
 import time
-import pytest
+
 from multi_publish._rate_limit import (
-    parse_retry_after,
-    parse_rate_limit_remaining,
     parse_rate_limit_limit,
+    parse_rate_limit_remaining,
+    parse_retry_after,
 )
 
 

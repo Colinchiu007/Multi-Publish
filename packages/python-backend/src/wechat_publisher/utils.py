@@ -8,10 +8,10 @@ import hashlib
 import mimetypes
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
-def clean_html(content: str, keep_tags: Optional[List[str]] = None) -> str:
+def clean_html(content: str, keep_tags: list[str] | None = None) -> str:
     """
     Clean HTML content for WeChat publishing.
 
@@ -90,7 +90,7 @@ def clean_html(content: str, keep_tags: Optional[List[str]] = None) -> str:
     return content
 
 
-def extract_images_from_html(content: str) -> List[str]:
+def extract_images_from_html(content: str) -> list[str]:
     """
     Extract image URLs from HTML content.
 
@@ -114,7 +114,7 @@ def extract_images_from_html(content: str) -> List[str]:
     return list(set(images))  # Remove duplicates
 
 
-def replace_image_urls(content: str, url_map: Dict[str, str]) -> str:
+def replace_image_urls(content: str, url_map: dict[str, str]) -> str:
     """
     Replace image URLs in HTML content with new URLs.
 
@@ -242,7 +242,7 @@ def generate_filename(base: str, extension: str, timestamp: bool = True) -> str:
         return f"{base}.{extension}"
 
 
-def parse_wechat_error(response_data: Dict[str, Any]) -> Tuple[Optional[int], Optional[str]]:
+def parse_wechat_error(response_data: dict[str, Any]) -> tuple[int | None, str | None]:
     """
     Parse WeChat API error from response data.
 
@@ -260,7 +260,7 @@ def parse_wechat_error(response_data: Dict[str, Any]) -> Tuple[Optional[int], Op
     return None, None
 
 
-def build_api_url(base_url: str, params: Dict[str, Any]) -> str:
+def build_api_url(base_url: str, params: dict[str, Any]) -> str:
     """
     Build WeChat API URL with query parameters.
 

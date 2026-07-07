@@ -1,5 +1,4 @@
 """Update douyin.py with per-account browser data dir"""
-import re
 
 with open('/sessions/sleepy-determined-dijkstra/mnt/projects/Multi-Publish/packages/python-backend/src/multi_publish/publishers/douyin.py') as f:
     content = f.read()

@@ -7,11 +7,9 @@
 import asyncio
 from collections.abc import Callable, Coroutine
 
-from multi_publish.models import PlatformType, PublishPhase
+from multi_publish.models import PlatformType, PublishPhase, PublishResult
 from multi_publish.publishers.base import BasePublisher, PublisherConfig
 from multi_publish.publishers.platform_registry import registry
-
-from multi_publish.models import PublishResult
 
 
 class PublisherManager:

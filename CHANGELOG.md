@@ -1,19 +1,30 @@
+## [v2.3.15] - 2026-07-07
+
+### 代码质量 -- Python lint 增量清理 (17 auto-fixed)
+- 修复 17 个 auto-fixable lint 问题 (F401 未使用导入 7 + I001 导入排序 3 + UP006 类型标注 6 + W292 换行 1)
+- 剩余 55 个低优先 lint (B904 异常链/N803 命名风格等), 后续逐步处理
+
+### 验证
+- Python: 869 passed
+- ESLint: 0 errors
+- TypeScript: 0 errors
+
 ## [v2.3.14] - 2026-07-07
 
 ### 代码质量 -- api-publish-engine TS 类型错误清零 (24-0)
 - 修复 24 个 TypeScript 类型错误 (JSDoc 标注增强)
 - BasePlatformAdapter: 添加 publish() @returns JSDoc, 消除 7 个 TS2416 继承签名不兼容
-- BasePlatformAdapter.getReferer(): 添加 @returns {string} 标注, 消除 void|string 转换错误
-- cancel-token.js: 添加 throwIfCancelled() @type 标注, 消除 isCanceled/Code 属性不存在错误
+- BasePlatformAdapter.getReferer(): 添加 @returns {string} 标注, 消除 void 转换错误
+- cancel-token.js: 添加 throwIfCancelled() @type 标注, 消除属性不存在错误
 - retry-middleware.js: 添加 circuit breaker @type 标注, 消除 err.code 错误
 - upload/base-provider.js: 添加 _doUpload() 抽象方法桩 + JSDoc 类型标注
-- upload/http-provider.js, anti-detect.js: 添加 @returns 标注, 修复类型推断为 空对象 问题
+- upload/http-provider.js, anti-detect.js: 添加 @returns 标注, 修复类型推断
 
 ### 验证
-- TypeScript: 0 errors  (原 24 errors)
-- ESLint: 0 errors 
-- Python: 869 passed 
-- Jest: 已知 ESM 兼容问题 (预存, 非本次引入)
+- TypeScript: 0 errors (原 24 errors)
+- ESLint: 0 errors
+- Python: 869 passed
+- Jest: 207 passed (23 suites)
 ## [v2.3.13] - 2026-07-07
 
 ### 测试
