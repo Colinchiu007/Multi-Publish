@@ -1,12 +1,12 @@
 # Multi-Publish
 
-> 多平台内容一键发布桌面工具。支持 **11 个平台** RPA 自动化发布 + 多账号切换 + 分屏监控。
+> 多平台内容一键发布桌面工具。支持 **15 个平台** RPA 自动化发布 + 多账号切换 + 分屏监控。
 >
-> **最后更新**: 2026-06-14 | **版本**: v1.1.5
+> **最后更新**: 2026-07-02 | **版本**: v2.0.0
 
 ---
 
-一键发布文章到 **微信公众号、知乎、微博、抖音、小红书、视频号、快手、今日头条、YouTube、TikTok、B站**。支持同平台多账号同时发布。
+一键发布文章到 **微信公众号、知乎、微博、抖音、小红书、视频号、快手、今日头条、百家号、YouTube、TikTok、B站**。支持同平台多账号同时发布。
 
 ## 📥 安装
 
@@ -27,20 +27,21 @@
 3. 点击「账号管理」→ 选择平台 → 扫码/登录 → Cookie 加密保存
 4. 撰写文章 → 选择平台 + 选择账号 → 点击发布
 
-## 🌐 支持平台（11 个）
+## 🌐 支持平台（15 个）
 
 | 平台 | 类型 | 技术路线 | 多账号 |
 |------|------|----------|:------:|
-| 微信公众号 | 图文 | Playwright RPA | ✅ |
-| 知乎 | 图文 | Playwright RPA | ✅ |
-| 微博 | 图文 | Playwright RPA | ✅ |
-| 抖音 | 图文 + 视频 | Playwright RPA | ✅ |
-| 小红书 | 图文 | Playwright RPA | ✅ |
-| 视频号 | 视频 + 图文 | Playwright RPA | ✅ |
-| 快手 | 视频 + 图文 | Playwright RPA | ✅ |
-| 今日头条 | 图文 + 视频 | Playwright RPA | ✅ |
-| YouTube | 视频 | Playwright RPA + OAuth 2.0 | ✅ |
-| TikTok | 视频 | Playwright RPA + OAuth 2.0 | ✅ |
+| 微信公众号 | 图文 | RpaViewManager RPA | ✅ |
+| 知乎 | 图文 | RpaViewManager RPA | ✅ |
+| 微博 | 图文 | RpaViewManager RPA | ✅ |
+| 抖音 | 图文 + 视频 | RpaViewManager RPA | ✅ |
+| 小红书 | 图文 | RpaViewManager RPA | ✅ |
+| 视频号 | 视频 + 图文 | RpaViewManager RPA | ✅ |
+| 快手 | 视频 + 图文 | RpaViewManager RPA | ✅ |
+| 今日头条 | 图文 + 视频 | RpaViewManager RPA | ✅ |
+| 百家号 | 图文 | RpaViewManager RPA | ✅ |
+| YouTube | 视频 | RpaViewManager RPA + OAuth 2.0 | ✅ |
+| TikTok | 视频 | RpaViewManager RPA + OAuth 2.0 | ✅ |
 | **B站** | **专栏 + 视频** | **API+RPA 双模式** | ✅ |
 
 ## ✨ 功能亮点
@@ -84,9 +85,9 @@
 │      ├── api/                 ← IPC 封装
 │      └── styles/              ← Cohere 设计系统
 ├──────────────────────────────────────────┤
-│  packages/rpa-engine/         ← Playwright RPA（11 平台）
+│  packages/rpa-engine/         ← RpaViewManager RPA（12 平台）
 │  │  ├── playwright-manager.js
-│  │  └── publishers/           ← 11 个平台发布器 + API 适配器
+│  │  └── publishers/           ← 12 个平台发布器 + API 适配器
 │  packages/shared-utils/       ← 任务队列（并发3+持久化）
 └──────────────────────────────────────────┘
 ```
@@ -132,10 +133,10 @@ multi-publish/
 
 ## 📊 功能列表
 
-- ✅ **11 个平台发布**（含 B站 API+RPA）
+- ✅ **12 个平台发布**（含 B站 API+RPA）
 - ✅ **多账号同平台**（切换 + 同时发布）
 - ✅ **分屏监控**（2/3/4/6 分屏）
-- ✅ **实时回调**（WebSocket + HTTP）
+- ✅ **实时回调**（HTTP POST 回调 :16521）
 - ✅ **扫码登录**（3 策略）
 - ✅ **OAuth 2.0**（YouTube/TikTok）
 - ✅ **URL 内容采集**（自动提取）
@@ -155,10 +156,10 @@ multi-publish/
 | [PRD.md](PRD.md) | 产品需求文档（完整功能架构 + 验收标准） |
 | [AGENTS.md](AGENTS.md) | 开发流程规范（7 阶段 + 质量门禁） |
 | [CHANGELOG.md](CHANGELOG.md) | 变更日志 |
-| [docs/roadmap-v1.1.0.md](docs/roadmap-v1.1.0.md) | v1.1.0 路线图 |
-| [docs/pricing-strategy.md](docs/pricing-strategy.md) | 定价策略 |
-| [docs/user-manual.md](docs/user-manual.md) | 用户手册 |
-| [docs/rpa-verification-report.md](docs/rpa-verification-report.md) | RPA 验证报告 |
+| [docs/roadmap-v1.1.0.md](01-docs/roadmap-v1.1.0.md) | v1.1.0 路线图 |
+| [docs/pricing-strategy.md](01-docs/pricing-strategy.md) | 定价策略 |
+| [docs/user-manual.md](01-docs/user-manual.md) | 用户手册 |
+| [docs/rpa-verification-report.md](01-docs/rpa-verification-report.md) | RPA 验证报告 |
 
 ## 📝 发布流程
 
