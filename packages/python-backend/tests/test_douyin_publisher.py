@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import os
 
 from pytest import fixture
 
 from multi_publish.models import PlatformType
-from multi_publish.publishers.douyin import DouyinPublisher
 from multi_publish.publishers.base import PublisherConfig
+from multi_publish.publishers.douyin import DouyinPublisher
 
 
 @fixture

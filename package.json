@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "multi-publish",
-  "version": "1.2.0",
+  "version": "2.3.41",
   "private": true,
   "description": "多平台内容一键发布 — Monorepo",
   "scripts": {
@@ -40,3 +40,4 @@
     "playwright": "^1.61.1"
   }
 }
+
