@@ -1,4 +1,4 @@
-"""Tests for video_compose.py -- high-risk pure functions."""
+﻿"""Tests for video_compose.py -- high-risk pure functions."""
 
 import json
 from pathlib import Path
@@ -148,3 +148,39 @@ class TestResolveSubtitleStyle:
     def test_none_values_not_overridden(self):
         result = VideoCompose._resolve_subtitle_style({"font": None}, {"subtitles": {"style": {"font": "Sans"}}}, None)
         assert result["font"] == "Sans"
+class TestRemotionAvailable:
+    """_remotion_available() checks npx + project dir + node_modules."""
+
+    def test_no_npx_on_path(self):
+        vc = VideoCompose()
+        with patch("shutil.which", return_value=None):
+            assert vc._remotion_available() is False
+
+    def test_composer_dir_missing(self):
+        vc = VideoCompose()
+        with patch("shutil.which", return_value="/usr/bin/npx"):
+            with patch("pathlib.Path.exists", return_value=False):
+                assert vc._remotion_available() is False
+
+    def test_all_checks_pass(self):
+        vc = VideoCompose()
+        with patch("shutil.which", return_value="/usr/bin/npx"):
+            with patch("pathlib.Path.exists", return_value=True):
+                assert vc._remotion_available() is True
+
+
+class TestGetInfo:
+    """get_info() returns capabilities dict."""
+
+    def test_returns_dict_with_expected_keys(self):
+        vc = VideoCompose()
+        info = vc.get_info()
+        assert isinstance(info, dict)
+        assert "name" in info
+        assert info["name"] == "video_compose"
+
+    def test_includes_version(self):
+        vc = VideoCompose()
+        info = vc.get_info()
+        assert "version" in info
+        assert isinstance(info["version"], str)
