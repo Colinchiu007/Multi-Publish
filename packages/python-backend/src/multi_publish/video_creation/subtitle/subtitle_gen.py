@@ -1,4 +1,4 @@
-"""Subtitle generation tool.
+﻿"""Subtitle generation tool.
 
 Converts word-level timestamps from the transcriber into SRT, VTT,
 or caption JSON formats. Pure Python — no external dependencies beyond
@@ -302,17 +302,20 @@ class SubtitleGen(BaseTool):
     @staticmethod
     def _ts_srt(seconds: float) -> str:
         """Format seconds as SRT timestamp: HH:MM:SS,mmm"""
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s = int(seconds % 60)
-        ms = int(round((seconds % 1) * 1000))
+        total_ms = int(round(seconds * 1000))
+        h = total_ms // 3_600_000
+        m = (total_ms % 3_600_000) // 60_000
+        s = (total_ms % 60_000) // 1_000
+        ms = total_ms % 1_000
         return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
     @staticmethod
     def _ts_vtt(seconds: float) -> str:
         """Format seconds as VTT timestamp: HH:MM:SS.mmm"""
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s = int(seconds % 60)
-        ms = int(round((seconds % 1) * 1000))
+        total_ms = int(round(seconds * 1000))
+        h = total_ms // 3_600_000
+        m = (total_ms % 3_600_000) // 60_000
+        s = (total_ms % 60_000) // 1_000
+        ms = total_ms % 1_000
         return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
