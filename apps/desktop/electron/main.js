@@ -2,8 +2,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./services/logger')
-const RenderEngine = require('./services/render-engine')
-const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require('@multi-publish/shared-utils')
 const PublishIntervalGuard = require('@multi-publish/shared-utils/src/publish-interval-guard')
 const pythonBridge = require('./services/python-bridge')
 const AccountManager = require('./publishers/account-manager')
@@ -11,10 +9,6 @@ const scheduler = require('./services/scheduler')
 const history = require('./services/publish-history')
 const autoUpdater = require('./services/auto-updater')
 const firstRun = require('./services/first-run')
-const AuthViewManager = require('./services/auth-view-manager')
-const CallbackServer = require('./services/callback-server')
-const OAuthManager = require('./services/oauth-manager')
-// eslint-disable-next-line no-unused-vars
 const BatchManager = require('./services/batch-manager')
 const CloudPublisher = require('./services/cloud-publisher')
 const { createContainer } = require('./core/container.setup');
@@ -24,7 +18,6 @@ const flutterSkillBridge = require('./services/flutter-skill-bridge')
 // ─── Helper ────────────────────────────────────────────────
 function getMainWin() { return BrowserWindow.getAllWindows()[0] }
 
-const UsageTracker = require('./services/usage-tracker')
 const LicenseManager = require('./services/license-manager')
 // ─── 基础设施实例 ──────────────────────────
 const authViewManager = container.get('authViewManager')
@@ -44,8 +37,8 @@ const viralEngine = container.get('viralEngine')
 const proxyPool = container.get('proxyPool')
 const analyticsService = container.get('analyticsService')
 
-// eslint-disable-next-line no-unused-vars
-const PublishAlert = require('./services/publish-alert')
+// _PublishAlert has side effects on require
+const _PublishAlert = require('./services/publish-alert')
 const templateManager = container.get('templateManager')
 templateManager.seedDefaults()
 const licenseManager = LicenseManager.getInstance()
@@ -66,8 +59,7 @@ BatchManager.setTaskQueue(taskQueue)
 offlineManager.setTaskQueue(taskQueue)
 
 // ─── Aggregator Bridge ────────────────────
-// eslint-disable-next-line no-unused-vars
-const aggregatorBridge = container.get('aggregatorBridge')
+const _aggregatorBridge = container.get('aggregatorBridge')
 
 // ─── PublisherRouter ──────────────────────
 const publisherRouter = container.get('publisherRouter')
@@ -263,8 +255,7 @@ app.whenReady().then(async () => {
     get: (key) => store.getPublishTimeline(key),
     set: (key, value) => store.setPublishTimeline(key, value),
   }
-  // eslint-disable-next-line no-unused-vars
-  const publishIntervalGuard = new PublishIntervalGuard({ store: publishGuardStore })
+  const _publishIntervalGuard = new PublishIntervalGuard({ store: publishGuardStore })
 
   // 任务队列持久化
   taskQueue.setStateSaver((jsonStr) => {
