@@ -33,6 +33,7 @@ const HIDDEN = new Set([
   'intelligence:get-benchmark', 'intelligence:get-impact',
   'intelligence:save-impact', 'intelligence:search',
   'intelligence:search-mentions', 'intelligence:search-titles',
+  'usage:daily', 'usage:stats', 'usage:track',
 ])
 
 const RE_HANDLE = /ipcMain\.handle\s*\(\s*['\"]([^'\"]+)['\"]/g
@@ -48,16 +49,22 @@ function extractAll(content, re) {
 let handlerChannels, preloadChannels
 
 beforeAll(() => {
-  // Scan all handler files
+  // Scan all handler files recursively
   handlerChannels = new Set()
-  for (const dir of [HD, SD]) {
-    const files = readdirSync(dir).filter(f => f.endsWith('.js') && f !== 'types.js')
-    for (const file of files) {
-      const content = readFileSync(resolve(dir, file), 'utf-8')
-      if (content.length < 100) continue // skip stub/minimal files
+  function walkDir(dir) {
+    const entries = readdirSync(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      if (entry.name === 'node_modules') continue
+      const full = resolve(dir, entry.name)
+      if (entry.isDirectory()) { walkDir(full); continue }
+      if (!entry.name.endsWith('.js') || entry.name === 'types.js') continue
+      const content = readFileSync(full, 'utf-8')
+      if (content.length < 100) continue
       extractAll(content, RE_HANDLE).forEach(c => handlerChannels.add(c))
     }
   }
+  walkDir(ROOT + '/electron')
 
   // Scan preload.js
   preloadChannels = extractAll(readFileSync(PP, 'utf-8'), RE_INVOKE)

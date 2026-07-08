@@ -237,10 +237,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       providerSetUserKey: (name, apiKey, baseUrl) => ipcRenderer.invoke("provider:set-user-key", name, apiKey, baseUrl),
       providerDeleteUserKey: (name) => ipcRenderer.invoke("provider:delete-user-key", name),
       // ─── AI 写作 API ───────────────────────────
-      aiGenerateTitles: (topic) => ipcRenderer.invoke('ai:generate-titles', topic),
-      aiGenerateSummary: (content) => ipcRenderer.invoke('ai:generate-summary', content),
-      aiEnhanceContent: (content, style) => ipcRenderer.invoke('ai:enhance-content', content, style),
-      aiIsConfigured: () => ipcRenderer.invoke('ai:is-configured'),
 
   // ─── AI 生成 API（Phase 2）────────────────────
   aiListProviders: (type) => ipcRenderer.invoke('ai:list-providers', type),
@@ -317,5 +313,40 @@ contextBridge.exposeInMainWorld('electronAPI', {
       onNavigate: (cb) => {
         const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
       },
+
+      // --- Analytics API ---
+      analyticsOverview: () => ipcRenderer.invoke("analytics:overview"),
+      analyticsPlatform: (platform) => ipcRenderer.invoke("analytics:platform", platform),
+      analyticsPlatforms: () => ipcRenderer.invoke("analytics:platforms"),
+
+      // --- Auth API ---
+      authLoginSilent: (platform, cookies, localStorage) => ipcRenderer.invoke("auth:login-silent", platform, cookies, localStorage),
+
+      // --- Hotkeys ---
+      hotkeysList: () => ipcRenderer.invoke("hotkeys:list"),
+
+      // --- Keyword API ---
+      keywordStart: (keyword, opts) => ipcRenderer.invoke("keyword:start", keyword, opts),
+      keywordStop: (keyword) => ipcRenderer.invoke("keyword:stop", keyword),
+      keywordStatus: () => ipcRenderer.invoke("keyword:status"),
+      keywordHistory: (keyword) => ipcRenderer.invoke("keyword:history", keyword),
+      keywordStopAll: () => ipcRenderer.invoke("keyword:stop-all"),
+
+      // --- Proxy API ---
+      proxyAdd: (proxy) => ipcRenderer.invoke("proxy:add", proxy),
+      proxyAddBatch: (proxies) => ipcRenderer.invoke("proxy:add-batch", proxies),
+      proxyList: () => ipcRenderer.invoke("proxy:list"),
+      proxyRemove: (id) => ipcRenderer.invoke("proxy:remove", id),
+      proxyTest: (id, timeout) => ipcRenderer.invoke("proxy:test", id, timeout),
+      proxyTestAll: (timeout) => ipcRenderer.invoke("proxy:test-all", timeout),
+      proxyStatus: () => ipcRenderer.invoke("proxy:status"),
+      proxyGetNext: () => ipcRenderer.invoke("proxy:get-next"),
+      proxyReset: () => ipcRenderer.invoke("proxy:reset"),
+      proxyRemoveDead: () => ipcRenderer.invoke("proxy:remove-dead"),
+
+      // --- Upload API ---
+      uploadChunked: (filePath, uploadChunkFn) => ipcRenderer.invoke("upload:chunked", filePath, uploadChunkFn),
+      uploadCancel: () => ipcRenderer.invoke("upload:cancel"),
+
     })
 
