@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 发布 API 封装 — 调用 Electron IPC
  * 所有 Vue 组件通过此文件访问 Electron IPC，不直接调用 window.electronAPI
  */
@@ -228,4 +228,16 @@ export function onOfflineRestored(callback) { return bridgeOn("OfflineRestored",
 export function showNotification (data) {
   return invoke("showNotification", data)
 }
+
+
+// ─── Pipeline 管线 API ──────────────────────
+export async function pipelineList() { return invokeWithFallback("pipelineList", { success: true, data: [] }) }
+export async function pipelineGet(name) { return invokeWithFallback("pipelineGet", null, name) }
+export async function pipelineStart(name, params) { return invokeWithFallback("pipelineStart", { success: false, error: 'electronAPI not available' }, name, params) }
+export async function pipelinePause() { return invokeWithFallback("pipelinePause", { success: false }) }
+export async function pipelineResume() { return invokeWithFallback("pipelineResume", { success: false }) }
+export async function pipelineCancel() { return invokeWithFallback("pipelineCancel", { success: false }) }
+export async function pipelineStatus(name) { return invokeWithFallback("pipelineStatus", null, name) }
+export async function pipelineAdvance() { return invokeWithFallback("pipelineAdvance", { success: false }) }
+export async function pipelineHistory() { return invokeWithFallback("pipelineHistory", { success: true, data: [] }) }
 

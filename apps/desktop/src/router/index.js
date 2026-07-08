@@ -1,4 +1,4 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
+﻿import { createRouter, createWebHashHistory } from 'vue-router'
 
 const routes = [
   {
@@ -67,6 +67,11 @@ const routes = [
     component: () => import('@/views/ResultView.vue')
   },
   {
+    path: '/create/pipeline',
+    name: 'Pipeline',
+    component: () => import('@/views/PipelineView.vue')
+  },
+  {
     path: '/cloud-publish',
     name: 'CloudPublish',
     component: () => import('@/views/CloudPublish.vue')
@@ -89,3 +94,6 @@ const router = createRouter({
 })
 
 export default router
+
+
+
