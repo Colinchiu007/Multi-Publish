@@ -1,4 +1,4 @@
-"""Tests for VideoStitch tool.
+﻿"""Tests for VideoStitch tool.
 
 Tests the input validation, dry-run, schema checking, and error handling
 paths of VideoStitch without requiring an actual FFmpeg installation.
@@ -7,6 +7,7 @@ paths of VideoStitch without requiring an actual FFmpeg installation.
 from multi_publish.video_creation.base_tool import ToolStability, ToolTier
 from multi_publish.video_creation.providers.video.video_stitch import VideoStitch
 
+from unittest.mock import MagicMock, patch
 
 class TestVideoStitchBasics:
     """Basic metadata and configuration tests."""
@@ -185,3 +186,58 @@ class TestVideoStitchCleanup:
         assert info["stability"] == "experimental"
         assert info["capability"] == "video_post"
         assert "cmd:ffmpeg" in info.get("dependencies", [])
+class TestGetXfadeOffset:
+    """_get_xfade_offset() calculates transition timestamp."""
+
+    def test_first_clip_offset(self):
+        v = VideoStitch()
+        probes = [{"duration": 10.0}, {"duration": 5.0}]
+        offset = v._get_xfade_offset(probes, 0, 1.0)
+        assert offset == 9.0  # 10.0 - 1.0
+
+    def test_second_clip_offset(self):
+        v = VideoStitch()
+        probes = [{"duration": 10.0}, {"duration": 5.0}]
+        offset = v._get_xfade_offset(probes, 1, 0.5)
+        assert offset == 4.5  # 5.0 - 0.5
+
+    def test_zero_duration_returns_zero(self):
+        v = VideoStitch()
+        probes = [{"duration": 0.0}]
+        offset = v._get_xfade_offset(probes, 0, 1.0)
+        assert offset == 0.0
+
+    def test_clip_duration_less_than_transition(self):
+        v = VideoStitch()
+        probes = [{"duration": 0.5}]
+        offset = v._get_xfade_offset(probes, 0, 1.0)
+        assert offset == 0.0  # max(0, -0.5) = 0
+
+    def test_index_out_of_range(self):
+        v = VideoStitch()
+        probes = [{"duration": 10.0}]
+        offset = v._get_xfade_offset(probes, 5, 1.0)
+        assert offset == 0.0  # clip_index >= len(probes)
+
+
+class TestClipHasAudio:
+    """_clip_has_audio() checks for audio streams via ffprobe."""
+
+    def test_has_audio(self):
+        v = VideoStitch()
+        mock_proc = MagicMock()
+        mock_proc.stdout = '{"streams": [{"codec_type": "audio"}]}'
+        with patch.object(v, "run_command", return_value=mock_proc):
+            assert v._clip_has_audio("/path/to/video.mp4") is True
+
+    def test_no_audio(self):
+        v = VideoStitch()
+        mock_proc = MagicMock()
+        mock_proc.stdout = '{"streams": []}'
+        with patch.object(v, "run_command", return_value=mock_proc):
+            assert v._clip_has_audio("/path/to/video.mp4") is False
+
+    def test_ffprobe_error_returns_false(self):
+        v = VideoStitch()
+        with patch.object(v, "run_command", side_effect=RuntimeError("ffprobe not found")):
+            assert v._clip_has_audio("/path/to/video.mp4") is False
