@@ -46,29 +46,29 @@ const LicenseManager = require('./services/license-manager')
 const AiWriter = require('./services/ai-writer')
 
 // ─── 基础设施实例 ──────────────────────────
-const authViewManager = new AuthViewManager()
-const rpaViewManager = new RpaViewManager()
-const webviewManager = new WebviewManager()
-const callbackServer = new CallbackServer()
-const qrCodeLogin = new QrCodeLogin()
-const store = new Store()
-const contentIntelligence = new ContentIntelligence(store)
-const publishImpactTracker = new PublishImpactTracker(contentIntelligence)
-const keywordMonitor = new KeywordMonitor(contentIntelligence, store)
-const providerManager = new ProviderManager()
-const oauthManager = new OAuthManager(store)
-const batchManager = new BatchManager(store)
-const urlCollector = new UrlCollector()
-const viralEngine = new ViralEngine()
-const proxyPool = new ProxyPool()
-const analyticsService = new AnalyticsService()
+const authViewManager = container.get('authViewManager')
+const rpaViewManager = container.get('rpaViewManager')
+const webviewManager = container.get('webviewManager')
+const callbackServer = container.get('callbackServer')
+const qrCodeLogin = container.get('qrCodeLogin')
+const store = container.get('store')
+const contentIntelligence = container.get('contentIntelligence')
+const publishImpactTracker = container.get('publishImpactTracker')
+const keywordMonitor = container.get('keywordMonitor')
+const providerManager = container.get('providerManager')
+const oauthManager = container.get('oauthManager')
+const batchManager = container.get('batchManager')
+const urlCollector = container.get('urlCollector')
+const viralEngine = container.get('viralEngine')
+const proxyPool = container.get('proxyPool')
+const analyticsService = container.get('analyticsService')
 
 // eslint-disable-next-line no-unused-vars
 const PublishAlert = require('./services/publish-alert')
-const templateManager = new TemplateManager()
+const templateManager = container.get('templateManager')
 templateManager.seedDefaults()
 const licenseManager = LicenseManager.getInstance()
-const aiWriter = new AiWriter()
+const aiWriter = container.get('aiWriter')
 const offlineManager = require('./services/offline-manager')
 offlineManager.startMonitoring()
 const publishMonitor = require('./services/publish-monitor')
@@ -79,17 +79,17 @@ const hotkeys = require('./services/hotkeys')
 systemTray.registerIpcHandlers()
 
 // ─── 任务队列 ──────────────────────────────
-const taskQueue = new TaskQueue({ maxConcurrent: 3 })
+const taskQueue = container.get('taskQueue')
 scheduler.setTaskQueue(taskQueue)
 BatchManager.setTaskQueue(taskQueue)
 offlineManager.setTaskQueue(taskQueue)
 
 // ─── Aggregator Bridge ────────────────────
 // eslint-disable-next-line no-unused-vars
-const aggregatorBridge = new AggregatorBridge(taskQueue)
+const aggregatorBridge = container.get('aggregatorBridge')
 
 // ─── PublisherRouter ──────────────────────
-const publisherRouter = new PublisherRouter()
+const publisherRouter = container.get('publisherRouter')
 
 // ─── 任务执行器 ────────────────────────────
 taskQueue.setExecutor(async (task) => {
@@ -190,11 +190,11 @@ taskQueue.on('task:retry', (task) => {
 })
 
 // ─── 渲染引擎实例 ──────────────────────────
-const renderEngine = new RenderEngine()
-const compositionManager = new CompositionManager()
-const aiGenerator = new AIGenerator()
-const videoEngine = new VideoEngine()
-const pipelineEngine = new PipelineEngine()
+const renderEngine = container.get('renderEngine')
+const compositionManager = container.get('compositionManager')
+const aiGenerator = container.get('aiGenerator')
+const videoEngine = container.get('videoEngine')
+const pipelineEngine = container.get('pipelineEngine')
 
 // ─── 平台、敏感词、数据同步等基础设施 ────────
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
@@ -213,7 +213,7 @@ const _platformConfig = (() => {
   }
 })()
 
-const _chunkedUploader = new ChunkedUploader()
+const _chunkedUploader = container.get('chunkedUploader')
 
 // ─── 窗口实例 ──────────────────────────────
 let mainWindow = null
@@ -272,7 +272,7 @@ app.whenReady().then(async () => {
 
   // 启动使用量统计
   const usageTracker = new UsageTracker()
-  usageTracker.load()
+  const usageTracker = container.get('usageTracker')
   usageTracker.trackSession()
   global.usageTracker = usageTracker
 
