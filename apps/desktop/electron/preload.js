@@ -24,8 +24,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ─── 管线 API ──────────────────────────────
   pipelines: {
-    list: () => ipcRenderer.invoke('pipelines:list'),
-    get: (name) => ipcRenderer.invoke('pipelines:get', name),
+    list: () => ipcRenderer.invoke('pipeline:list'),
+    get: (name) => ipcRenderer.invoke('pipeline:get', name),
   },
 
   // 内容情报 API（预存未注册）
@@ -318,3 +318,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
         const h = (_, route) => cb(route); ipcRenderer.on('app:navigate', h); return () => ipcRenderer.removeListener('app:navigate', h)
       },
     })
+

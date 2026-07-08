@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="pipeline-browser">
     <h2 class="section-title">视频创作管线</h2>
     <p class="section-desc">选择一种视频创作模式，AI 将自动完成从脚本到成片的全流程</p>
@@ -48,14 +48,14 @@ export default {
   },
   async mounted() {
     try {
-      // Use Electron IPC if available, otherwise show demo data
-      if (window.electronAPI?.pipelines?.list) {
-        const result = await window.electronAPI.pipelines.list();
-        if (result.success) {
-          this.pipelines = result.data;
-        } else {
-          this.error = result.error;
-        }
+    try {
+      const { pipelineList } = await import("@/api/publisher")
+      const result = await pipelineList()
+      if (result?.success) {
+        this.pipelines = result.data || []
+      } else {
+        this.error = result?.error || '加载失败'
+      }
       } else {
         // Fallback for vitest/dev
         this.pipelines = [];
@@ -113,3 +113,4 @@ export default {
 .error-state { color: #ef4444; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
+
