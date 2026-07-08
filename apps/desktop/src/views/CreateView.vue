@@ -68,6 +68,7 @@ export default {
     mode: 'text', text: '', theme: 'clean-professional', profile: 'youtube-landscape',
     images: [], rendering: false, progress: 0, stage: '', result: null, error: null,
     status: null, aiLoading: false, installing: false, installLog: '',
+    _cleanups: [],
     modes: [
       { value: 'text', label: '文案生成' },
       { value: 'gallery', label: '图片轮播' },
@@ -93,52 +94,74 @@ export default {
     },
     themeOptions() {
       return [
-        { value: 'clean-professional', label: '专业清晰' },
-        { value: 'flat-motion-graphics', label: '动感深色' },
+        { value: 'clean-professional', label: '简洁专业' },
+        { value: 'flat-motion-graphics', label: '扁平动效' },
+        { value: 'cinematic-dark', label: '电影暗调' },
+        { value: 'tech-blueprint', label: '科技蓝图' },
+        { value: 'warm-storytelling', label: '温暖叙事' },
+        { value: 'bold-colorful', label: '大胆缤纷' },
       ];
     },
-  },
-  mounted() { this.checkStatus(); this.setupListeners(); },
-  beforeUnmount() { this.cleanup(); },
-  methods: {
-    checkStatus() { if (renderGetStatus) renderGetStatus().then(s => this.status = s); },
-    setupListeners() {
-      this._unsubProgress = onRenderProgress(p => { this.progress = p.percent ?? p; this.stage = p.stage ?? ''; });
-      this._unsubComplete = onRenderComplete(r => { this.rendering = false; this.result = r; });
-      this._unsubError = onRenderError(e => { this.rendering = false; this.error = e.error || e.message || '渲染失败'; });
-      this._unsubInstall = onRenderInstallProgress(t => { this.installLog += t.text ?? t; });
-    },
-    cleanup() { this._unsubProgress?.(); this._unsubComplete?.(); this._unsubError?.(); this._unsubInstall?.(); },
-    async installDeps() { this.installing = true; this.installLog = ''; const r = await renderInstallDeps(); this.installing = false; if (r?.success) this.checkStatus(); },
-    triggerUpload() { this.$refs.fileInput.click(); },
-    handleFiles(e) { this.addImages(Array.from(e.target.files)); },
-    handleDrop(e) { this.addImages(Array.from(e.dataTransfer.files)); },
-    addImages(files) { for (const file of files) { this.images.push({ preview: URL.createObjectURL(file), path: file.path || URL.createObjectURL(file) }); } },
-    removeImage(i) { URL.revokeObjectURL(this.images[i].preview); this.images.splice(i, 1); },
-    async startRender() {
-      this.rendering = true; this.progress = 0; this.stage = '准备中'; this.error = null; this.result = null;
-      if (!window.electronAPI) { this.error = '渲染引擎不可用'; this.rendering = false; return; }
-      renderStart({ props: this.buildProps(), profile: this.profile });
-    },
-    buildProps() {
+    renderProps() {
       let cuts;
       if (this.mode === 'text') cuts = this.text.split('\n').filter(l => l.trim()).map((t, i) => ({ id: 'scene-' + i, type: 'text_card', text: t.trim(), in_seconds: i * 8, out_seconds: (i + 1) * 8 - 0.5 }));
       else if (this.mode === 'gallery') cuts = this.images.map((img, i) => ({ id: 'scene-' + i, type: 'anime_scene', images: [img.path || img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 }));
       else cuts = [];
       return { cuts, theme: this.theme, renderer_family: 'explainer-data' };
     },
+  },
+  methods: {
+    onPipelineSelect(pipeline) { this.mode = 'text'; this.text = 'Pipeline: ' + (pipeline?.name || pipeline || '') + '\n'; },
+    triggerUpload() { this.$refs.fileInput?.click(); },
+    handleFiles(e) {
+      const files = Array.from(e.target.files || []);
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (ev) => { this.images.push({ name: file.name, path: '', preview: ev.target.result }); };
+        reader.readAsDataURL(file);
+      });
+    },
+    handleDrop(e) {
+      const files = Array.from(e.dataTransfer?.files || []);
+      files.forEach(file => {
+        if (!file.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => { this.images.push({ name: file.name, path: '', preview: ev.target.result }); };
+        reader.readAsDataURL(file);
+      });
+    },
+    removeImage(i) { this.images.splice(i, 1); },
     cancelRender() { if (renderCancel) renderCancel(); this.rendering = false; },
     viewResult() { this.$router.push({ path: '/create/result', query: { path: this.result?.outputPath || '' } }); },
     async aiWrite() {
-    onPipelineSelect(pipeline) { this.mode = 'text'; this.text = 'Pipeline: ' + (pipeline?.name || pipeline || '') + '\n'; },
       this.aiLoading = true;
       try {
         const { aiGenerate } = await import('@/api/publisher');
         const r = await aiGenerate('text', 'openai', { prompt: '为短视频写一个30秒文案，风格：' + this.theme });
         if (r?.success && r?.text) this.text = r.text;
-      } catch (e) { /* AI write failed silently */ }
+      } catch (e) {
+        this.error = 'AI 写稿失败: ' + (e.message || '未知错误');
+      }
       this.aiLoading = false;
     },
+    async startRender() {
+      this.rendering = true; this.progress = 0; this.stage = '开始渲染'; this.error = null; this.result = null;
+      try {
+        const res = await renderStart({ props: this.renderProps, profile: this.profile });
+        if (res?.success) { this.result = res; }
+        else { this.error = res?.message || res?.error || '渲染失败'; this.rendering = false; }
+      } catch (e) { this.error = '渲染异常: ' + (e.message || '未知错误'); this.rendering = false; }
+    },
+  },
+  mounted() {
+    renderGetStatus().then(s => { this.status = s; }).catch(() => { this.status = { ready: false }; });
+    this._cleanups.push(onRenderProgress((pct, stg) => { if (this.rendering) { this.progress = pct; this.stage = stg; } }));
+    this._cleanups.push(onRenderComplete((res) => { this.rendering = false; this.result = res; }));
+    this._cleanups.push(onRenderError((err) => { this.rendering = false; this.error = err?.message || err || '渲染错误'; }));
+    this._cleanups.push(onRenderInstallProgress(({ text }) => { this.installLog += text + '\n'; }));
+  },
+  unmounted() {
+    this._cleanups.forEach(fn => { try { fn(); } catch(e) {} });
   },
 }
 </script>
