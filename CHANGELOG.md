@@ -15,6 +15,14 @@
 ### 文档
 - 01-docs/architecture-video-integration.md — OpenMontage 集成架构方案 v2.0
 
+
+### 修复
+- main.js DI 容器重构遗留编译错误（缺少 createContainer 导入等 4 处）
+- main.js 移除 13 个被容器取代的直接 import，ESLint 归零（11 warnings → 0）
+
+### 文档
+- INFRA-001: jest 30 testRunner 子包解析失败（预存基础设施问题）
+
 ### 测试
 - composition-manager.test.js: 7/7 通过
 
@@ -784,6 +792,7 @@
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
+
 
 
 
