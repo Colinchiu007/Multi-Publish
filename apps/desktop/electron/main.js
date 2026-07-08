@@ -3,11 +3,6 @@ const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./services/logger')
 const RenderEngine = require('./services/render-engine')
-const { CompositionManager } = require('./services/composition-manager')
-const AIGenerator = require('./services/ai-generator')
-const VideoEngine = require('./services/video-engine')
-const PipelineEngine = require('./services/pipeline-engine')
-
 const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require('@multi-publish/shared-utils')
 const PublishIntervalGuard = require('@multi-publish/shared-utils/src/publish-interval-guard')
 const pythonBridge = require('./services/python-bridge')
@@ -17,23 +12,12 @@ const history = require('./services/publish-history')
 const autoUpdater = require('./services/auto-updater')
 const firstRun = require('./services/first-run')
 const AuthViewManager = require('./services/auth-view-manager')
-const WebviewManager = require('./services/webview-manager')
-const RpaViewManager = require('./services/rpa-view-manager')
-const { PublisherRouter } = require('./services/publisher-router')
 const CallbackServer = require('./services/callback-server')
-const QrCodeLogin = require('./services/qrcode-login')
-const Store = require('./services/store')
 const OAuthManager = require('./services/oauth-manager')
+// eslint-disable-next-line no-unused-vars
 const BatchManager = require('./services/batch-manager')
-const UrlCollector = require('./services/url-collector')
-const ViralEngine = require('./services/viral-engine')
-const ContentIntelligence = require('./services/content-intelligence')
-const PublishImpactTracker = require('./services/publish-impact-tracker')
-const KeywordMonitor = require('./services/keyword-monitor')
-const ProviderManager = require('./services/provider-manager')
 const CloudPublisher = require('./services/cloud-publisher')
 const { createContainer } = require('./core/container.setup');
-// eslint-disable-next-line no-unused-vars
 const container = createContainer();
 const flutterSkillBridge = require('./services/flutter-skill-bridge')
 
@@ -41,10 +25,7 @@ const flutterSkillBridge = require('./services/flutter-skill-bridge')
 function getMainWin() { return BrowserWindow.getAllWindows()[0] }
 
 const UsageTracker = require('./services/usage-tracker')
-const TemplateManager = require('./services/template-manager')
 const LicenseManager = require('./services/license-manager')
-const AiWriter = require('./services/ai-writer')
-
 // ─── 基础设施实例 ──────────────────────────
 const authViewManager = container.get('authViewManager')
 const rpaViewManager = container.get('rpaViewManager')
@@ -271,7 +252,6 @@ app.whenReady().then(async () => {
   flutterSkillBridge.start(mainWindow)
 
   // 启动使用量统计
-  const usageTracker = new UsageTracker()
   const usageTracker = container.get('usageTracker')
   usageTracker.trackSession()
   global.usageTracker = usageTracker
