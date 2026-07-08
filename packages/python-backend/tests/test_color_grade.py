@@ -5,8 +5,6 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from multi_publish.video_creation.enhancement.color_grade import (
     PROFILES,
     ColorGrade,

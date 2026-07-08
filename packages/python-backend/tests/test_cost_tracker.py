@@ -1,4 +1,4 @@
-"""Tests for CostTracker."""
+﻿"""Tests for CostTracker."""
 
 
 import pytest
@@ -54,7 +54,7 @@ class TestCostTracker:
         assert ct.entries[0]["status"] == "failed"
         assert ct.budget_spent_usd == 0.0
 
-    def test_budget_exceeded_in_CAP_mode_during_reserve(self):
+    def test_budget_exceeded_in_CAP_mode_during_reserve(self):  # noqa: N802
         ct = CostTracker(budget_total_usd=1.0, mode=BudgetMode.CAP)
         eid = ct.estimate("tool", "op", 0.6)
         ct.reserve(eid)

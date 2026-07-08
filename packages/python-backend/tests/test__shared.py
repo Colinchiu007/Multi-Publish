@@ -1,4 +1,4 @@
-"""Tests for _shared.py — data dicts and pure functions."""
+﻿"""Tests for _shared.py — data dicts and pure functions."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from multi_publish.video_creation.base_tool import ToolResult, ToolStatus
+from multi_publish.video_creation.base_tool import ToolStatus
 from multi_publish.video_creation.providers.video._shared import (
     COGVIDEO_VARIANTS,
     HEYGEN_PROVIDERS,
@@ -21,18 +21,17 @@ from multi_publish.video_creation.providers.video._shared import (
     estimate_local_runtime,
     estimate_quality_cost,
     estimate_speed_runtime,
+    generate_heygen_video,
+    generate_ltx_modal_video,
     get_torch_device,
     local_generation_enabled,
     local_generation_status,
     local_install_instructions,
-    probe_output,
     poll_heygen,
+    probe_output,
     upload_image_fal,
     upload_image_heygen,
-    generate_heygen_video,
-    generate_ltx_modal_video,
 )
-
 
 # ──────────────────────────────────────────────
 # Data dict completeness
@@ -313,7 +312,7 @@ class TestPollHeygen:
 
     def test_http_error_raises(self, respx_mock):
         respx_mock.get("https://api.heygen.com/v1/workflows/executions/exec_123").respond(status_code=401)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             poll_heygen("exec_123", "test_key", timeout=10)
 
     def test_timeout_after_deadline(self, respx_mock):
@@ -525,7 +524,7 @@ class TestGenerateHeygenVideo:
     @patch.dict(os.environ, {"HEYGEN_API_KEY": "test_key"})
     def test_http_error_raises(self, respx_mock):
         respx_mock.post("https://api.heygen.com/v1/workflows/executions").respond(status_code=401)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             generate_heygen_video({"prompt": "test", "provider_variant": "veo_3_1"})
 
 

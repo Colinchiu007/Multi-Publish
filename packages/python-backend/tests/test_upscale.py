@@ -1,10 +1,6 @@
-"""Tests for upscale.py — MODELS data + error paths."""
+﻿"""Tests for upscale.py — MODELS data + error paths."""
 
 from __future__ import annotations
-
-from pathlib import Path
-
-import pytest
 
 from multi_publish.video_creation.enhancement.upscale import (
     MODELS,
@@ -33,7 +29,7 @@ class TestModels:
         assert len(MODELS) == 3
 
     def test_each_has_description_and_scale(self):
-        for name, info in MODELS.items():
+        for _name, info in MODELS.items():
             assert "description" in info
             assert "scale" in info
             assert info["scale"] == 4  # all models are 4x

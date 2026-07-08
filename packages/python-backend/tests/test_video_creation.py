@@ -1,4 +1,4 @@
-"""Tests for video creation infrastructure (Phase 0)."""
+﻿"""Tests for video creation infrastructure (Phase 0)."""
 
 import tempfile
 from pathlib import Path
@@ -73,7 +73,7 @@ class TestBaseToolSubclass:
         assert t.get_info()["tier"] == "generate"
 
     def test_valid_without_name(self):
-        class _(BaseTool):
+        class _(BaseTool):  # noqa: N801
             name = "x"
             capability = "t"
             provider = "t"

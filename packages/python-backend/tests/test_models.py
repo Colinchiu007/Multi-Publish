@@ -1,4 +1,4 @@
-"""Tests for core data models."""
+﻿"""Tests for core data models."""
 
 from multi_publish.models import (
     PLATFORM_META,
@@ -51,7 +51,7 @@ class TestPublishPhase:
         assert PublishPhase.FAILED.value == "failed"
 
 
-class TestPLATFORM_META:
+class TestPlatformMeta:
     def test_all_platforms_covered(self):
         for pt in PlatformType:
             assert pt in PLATFORM_META, f"Missing meta for {pt}"

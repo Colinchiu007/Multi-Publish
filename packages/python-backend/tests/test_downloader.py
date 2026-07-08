@@ -1,6 +1,5 @@
 """Tests for DownloadManager ? merged (new + legacy)"""
 
-import os
 import tempfile
 from unittest.mock import patch
 

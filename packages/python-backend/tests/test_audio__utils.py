@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from multi_publish.video_creation.providers.audio._utils import (
-    CLOUD_PLATFORM_SCOPE,
     get_access_token,
     probe_duration,
     resolve_project_id,

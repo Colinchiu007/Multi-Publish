@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from multi_publish.video_creation.enhancement.bg_remove import BgRemove
 
 

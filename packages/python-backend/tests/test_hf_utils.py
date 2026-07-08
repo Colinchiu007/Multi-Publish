@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from multi_publish.video_creation.providers.video.hf_utils import (
     _f,
     compute_total_duration,

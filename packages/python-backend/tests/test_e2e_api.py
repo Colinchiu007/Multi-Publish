@@ -1,6 +1,5 @@
 ﻿"""E2E API Tests -- FastAPI backend integration tests."""
 
-import pytest
 from fastapi.testclient import TestClient
 
 from server import app
@@ -36,8 +35,8 @@ class TestPlatforms:
     def test_major_platforms_present(self):
         resp = client.get("/api/platforms")
         names = [p["key"] for p in resp.json()["data"]]
-        MAJOR_KEYS = ['wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu']
-        for expected in MAJOR_KEYS:
+        major_keys = ['wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu']
+        for expected in major_keys:
             assert expected in names
 
 

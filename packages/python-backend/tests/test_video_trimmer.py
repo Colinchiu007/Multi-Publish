@@ -8,8 +8,6 @@ This test focuses on:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from multi_publish.video_creation.providers.video.video_trimmer import VideoTrimmer

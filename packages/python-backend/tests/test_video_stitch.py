@@ -4,10 +4,11 @@ Tests the input validation, dry-run, schema checking, and error handling
 paths of VideoStitch without requiring an actual FFmpeg installation.
 """
 
+from unittest.mock import MagicMock, patch
+
 from multi_publish.video_creation.base_tool import ToolStability, ToolTier
 from multi_publish.video_creation.providers.video.video_stitch import VideoStitch
 
-from unittest.mock import MagicMock, patch
 
 class TestVideoStitchBasics:
     """Basic metadata and configuration tests."""

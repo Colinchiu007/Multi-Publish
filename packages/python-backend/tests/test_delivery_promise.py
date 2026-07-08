@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from multi_publish.video_creation.providers.video.lib.delivery_promise import (
+    PROMISE_RULES,
     DeliveryPromise,
     PromiseType,
-    PROMISE_RULES,
     classify_from_brief,
 )
 

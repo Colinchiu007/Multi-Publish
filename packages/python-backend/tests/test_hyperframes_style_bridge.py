@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import pytest
-
 from multi_publish.video_creation.providers.video.lib.hyperframes_style_bridge import (
-    style_bridge,
+    _FALLBACK_CSS_VARS,
     _first,
     _font,
     _motion_easing,
     _render_design_md,
-    _FALLBACK_CSS_VARS,
+    style_bridge,
 )
 
 

@@ -6,8 +6,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from multi_publish.video_creation.character.character_animation_utils import (
     _character_color,
     _normalize_style,

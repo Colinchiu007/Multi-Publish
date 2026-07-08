@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import builtins
 import pytest
 
 from wechat_publisher.utils import (

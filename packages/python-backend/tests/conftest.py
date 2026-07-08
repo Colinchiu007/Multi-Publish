@@ -1,7 +1,8 @@
-"""Test configuration — add src to Python path"""
-
+﻿"""pytest conftest — shared fixtures."""
 import sys
 from pathlib import Path
+
+import pytest
 
 # Add the src directory to the Python path
 SRC_DIR = Path(__file__).parent.parent / "src"
@@ -11,7 +12,6 @@ sys.path.insert(0, str(SRC_DIR.resolve()))
 PROJECT-003 测试套件
 """
 
-import pytest
 
 
 @pytest.fixture
