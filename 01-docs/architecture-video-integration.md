@@ -54,19 +54,24 @@ TextCard, TerminalScene, AnimeScene, HeroTitle, CaptionOverlay, StatCard, StatRe
 | 素材检索 | 15 源（Pexels/Pixabay/NASA/Unsplash/Videvo/Wikimedia 等） |
 | Pipeline 管线 | 13 条 YAML 定义 + Python Loader + Schema |
 
-### 1.4 真正缺失的（Electron 主进程服务层 ❌）
+### 1.4 接线状态（Electron 主进程服务层）
 
-| 文件 | 状态 | 作用 |
-|------|------|------|
-| `apps/desktop/electron/services/render-engine.js` | ⚠️ 存在，需扩展 | 只默认 Explainer，需支持多 Composition |
-| `apps/desktop/electron/services/composition-manager.js` | ❌ 不存在 | 管理 7 个 Composition 注册/参数校验 |
-| `apps/desktop/electron/services/ai-generator.js` | ❌ 不存在 | 桥接 60+ Python AI 工具 |
-| `apps/desktop/electron/services/video-engine.js` | ❌ 不存在 | 桥接视频处理/分析/增强工具 |
-| `apps/desktop/electron/services/pipeline-engine.js` | ❌ 不存在 | 13 条管线编排 |
-| `apps/desktop/electron/ipc-handlers/ai.js` | ❌ 不存在 | ai:* IPC 端点 |
-| `apps/desktop/electron/ipc-handlers/video.js` | ❌ 不存在 | video:* IPC 端点 |
-| `apps/desktop/electron/ipc-handlers/pipeline.js` | ❌ 不存在 | pipeline:* IPC 端点 |
-| Vue UI（CreateView.vue + 创作页等） | ❌ 不存在 | 用户视频创作用户界面 |
+| 文件 | 状态 | 作用 | 测试 |
+|------|------|------|------|
+| `apps/desktop/electron/services/render-engine.js` | ✅ 已扩展 | 多 Composition 支持 + CompositionManager 内建 | ✅ 7 测试 |
+| `apps/desktop/electron/services/composition-manager.js` | ✅ 已实现 | 管理 7 个 Composition 注册/参数校验 | ✅ 7/7 |
+| `apps/desktop/electron/services/ai-generator.js` | ✅ 已实现 | 桥接 60+ Python AI 工具 (24 providers) | ✅ 8/8 |
+| `apps/desktop/electron/services/video-engine.js` | ✅ 已实现 | 桥接视频处理/分析/增强工具 | ✅ 5/5 |
+| `apps/desktop/electron/services/pipeline-engine.js` | ✅ 已实现 | 13 条管线编排 | ✅ 11/11 |
+| `apps/desktop/electron/ipc-handlers/ai.js` | ✅ 已实现 | ai:list-providers/generate/test-connection 等 | ✅ |
+| `apps/desktop/electron/ipc-handlers/video.js` | ✅ 已实现 | video:process/analyze/mix-audio/search-stock 等 | ✅ |
+| `apps/desktop/electron/ipc-handlers/pipeline.js` | ✅ 已实现 | pipeline:list/start/pause/resume/cancel 等 | ✅ |
+| `apps/desktop/electron/ipc-handlers/render.js` | ✅ 已扩展 | 新增 composition 管理 IPC | ✅ |
+| preload.js + main.js 接线 | ✅ 已接线 | 4 个服务已注入 deps | ✅ 31/31 |
+| CreateView.vue | ✅ 已实现 | 文案/图片双模式 + 渲染 | ✅ |
+| PipelineView.vue | ✅ 已实现 | 管线浏览/运行/历史三 Tab | ✅ |
+| CreateHistory.vue | ✅ 已实现 | 渲染记录/管线记录双 Tab | ✅ |
+| PipelineBrowser.vue | ✅ 已修复 | IPC 调用已对接 publisher API | ✅ |
 
 ---
 
@@ -90,16 +95,16 @@ Layer 4 (Entry):  main.js / preload.js
      │
 Layer 3 (IPC):    ipc-handlers/
      │              ├── render.js   (已有, 扩展 composition 管理)
-     │              ├── ai.js       (🆕 新增)
-     │              ├── video.js    (🆕 新增)
-     │              └── pipeline.js (🆕 新增)
+     │              ├── ai.js       (✅ 已实现)
+     │              ├── video.js    (✅ 已实现)
+     │              └── pipeline.js (✅ 已实现)
      │
 Layer 2 (Service): services/
      │              ├── render-engine.js       (已有, 扩展多 Composition)
-     │              ├── composition-manager.js (🆕 新增)
-     │              ├── ai-generator.js        (🆕 新增)
-     │              ├── video-engine.js        (🆕 新增)
-     │              └── pipeline-engine.js     (🆕 新增)
+     │              ├── composition-manager.js (✅ 已实现)
+     │              ├── ai-generator.js        (✅ 已实现)
+     │              ├── video-engine.js        (✅ 已实现)
+     │              └── pipeline-engine.js     (✅ 已实现)
      │
 Layer 1 (Core):    core/
                     ├── container.js            (已有)
@@ -116,7 +121,7 @@ Vue 创作页 (用户选择 Composition + 填参数)
 ipc-handlers/ai.js / video.js / pipeline.js
     │ DI → Service
     ▼
-ai-generator.js / video-engine.js / pipeline-engine.js
+ai-generator.js / video-engine.js / pipeline-engine.js (✅ 全部已实现)
     │ python-bridge.js (子进程)
     ▼
 Python tools (已存在)
@@ -141,7 +146,7 @@ Vue 发布页 (发布已渲染视频 → 复用现有发布器)
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `services/composition-manager.js` | 🆕 新增 | registerCompositions / listCompositions / getComposition / buildRenderProps / validateProps |
+| services/composition-manager.js | ✅ 已完成 | registerCompositions / listCompositions / getComposition / buildRenderProps / validateProps |
 | `services/render-engine.js` | 🛠 扩展 | COMPOSITIONS 常量更新，composition 参数处理 |
 | `ipc-handlers/render.js` | 🛠 扩展 | 新增 render:list-compositions / render:get-composition |
 | `packages/remotion-composer/src/Root.tsx` | ✅ 已有 | 已注册全部 7 个 Composition |
@@ -168,8 +173,8 @@ class CompositionManager {
 
 - [x] `render:list-compositions` 返回 7 个 Composition (7/7 测试通过)
 - [ ] 每个 Composition 可渲染出 mp4 文件
-- [x] 旧调用（默认 Explainer）向后兼容
-- [x] composition-manager.test.js 覆盖全部接口 (31 测试全通过)
+- [x] 旧调用（默认 Explainer）向后兼容 ✅
+- [x] composition-manager.test.js 覆盖全部接口 (31 测试全通过 ✅)
 
 ---
 
@@ -181,10 +186,10 @@ class CompositionManager {
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `services/ai-generator.js` | 🆕 新增 | 桥接 AI 视频/图像/音频/TTS 生成 |
-| `services/video-engine.js` | 🆕 新增 | 桥接视频处理/分析/增强/字幕 |
-| `ipc-handlers/ai.js` | 🆕 新增 | ai:list-providers / ai:generate / ai:test-connection |
-| `ipc-handlers/video.js` | 🆕 新增 | video:process / video:mix-audio / video:analyze |
+| services/ai-generator.js | ✅ 已完成 | 桥接 AI 视频/图像/音频/TTS 生成 (24 providers) |
+| services/video-engine.js | ✅ 已完成 | 桥接视频处理/分析/增强/字幕 |
+| ipc-handlers/ai.js | ✅ 已完成 | ai:list-providers / ai:generate / ai:test-connection |
+| ipc-handlers/video.js | ✅ 已完成 | video:process / video:mix-audio / video:analyze |
 
 #### 架构
 
@@ -239,11 +244,11 @@ class VideoEngine {
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `services/pipeline-engine.js` | 🆕 新增 | 13 条管线编排 |
-| `ipc-handlers/pipeline.js` | 🆕 新增 | pipeline:list/start/pause/resume/cancel/status |
-| Vue 创作页面 | 🆕 新增 | 选择 Composition → 填参数 → 预览/渲染 |
-| Vue Provider 配置页 | 🆕 新增 | AI Provider 配置管理 |
-| Vue 管线执行页 | 🆕 新增 | 管线状态/检查点/进度 |
+| services/pipeline-engine.js | ✅ 已完成 | 13 条管线编排 (11/11 测试) |
+| ipc-handlers/pipeline.js | ✅ 已完成 | pipeline:list/start/pause/resume/cancel/status |
+| Vue 创作页面 (CreateView.vue) | ✅ 已完成 | 选择 Composition → 填参数 → 预览/渲染 |
+| Vue Provider 配置页 (Providers.vue) | ✅ 已有 | AI Provider 配置管理 |
+| Vue 管线执行页 (PipelineView.vue) | ✅ 已完成 | 管线状态/检查点/进度 |
 
 #### 接口
 
@@ -337,9 +342,9 @@ class PipelineEngine {
 
 | Phase | 周次 | 交付物 | 代码行预估 |
 |-------|------|--------|-----------|
-| 1 | W1-W2 | composition-manager.js + render-engine 扩展 | ~500 行 JS |
-| 2 | W3-W5 | ai-generator.js + video-engine.js | ~800 行 JS |
-| 3 | W6-W9 | pipeline-engine.js + Vue UI（3-4 页面） | ~2500 行 JS/Vue |
+| 1 | ✅ 已完成 | composition-manager.js + render-engine 扩展 | ~500 行 JS (7/7 测试) |
+| 2 | ✅ 已完成 | ai-generator.js + video-engine.js | ~800 行 JS (13/13 测试) |
+| 3 | 🔄 进行中 | pipeline-engine.js + Vue UI (4 页面已完成) | ~2500 行 JS/Vue (11/11 测试) |
 
 ---
 
@@ -355,4 +360,6 @@ class PipelineEngine {
 - 不加载任何视频创作相关 Service
 - 侧边栏不显示"创作"入口
 - 不影响现有发布流程
+
+
 
