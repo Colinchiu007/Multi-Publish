@@ -15,7 +15,12 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('pipeline:start', async (_event, name, params) => {
-    return pipelineEngine.start(name, params || {})
+    try {
+      return await pipelineEngine.start(name, params || {})
+    } catch (err) {
+      log.error('[pipeline] start error:', err)
+      return { success: false, error: err.message }
+    }
   })
 
   ipcMain.handle('pipeline:pause', () => {
@@ -31,7 +36,12 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('pipeline:status', (_event, name) => {
-    return pipelineEngine.getStatus(name)
+    try {
+      return pipelineEngine.getStatus(name)
+    } catch (err) {
+      log.error('[pipeline] status error:', err)
+      return { success: false, error: err.message }
+    }
   })
 
   ipcMain.handle('pipeline:advance', () => {
@@ -43,7 +53,12 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('pipeline:fetch', async (_event, name) => {
-    return await pipelineEngine.fetchPipelineFromBackend(name)
+    try {
+      return await pipelineEngine.fetchPipelineFromBackend(name)
+    } catch (err) {
+      log.error('[pipeline] fetch error:', err)
+      return { success: false, error: err.message }
+    }
   })
 }
 

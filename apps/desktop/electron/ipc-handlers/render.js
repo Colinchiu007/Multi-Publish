@@ -8,20 +8,30 @@ function registerHandlers(ipcMain, deps) {
   const { renderEngine, BrowserWindow, log } = deps
 
   ipcMain.handle('render:start', async (event, data) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    const onProgress = (percent, stage) => { win?.webContents.send('render:progress', { percent, stage }) }
-    const result = await renderEngine.render(data.props || data, { onProgress, profile: data.profile })
-    if (result.success) win?.webContents.send('render:complete', result)
-    else win?.webContents.send('render:error', result)
-    return result
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const onProgress = (percent, stage) => { win?.webContents.send('render:progress', { percent, stage }) }
+      const result = await renderEngine.render(data.props || data, { onProgress, profile: data.profile })
+      if (result.success) win?.webContents.send('render:complete', result)
+      else win?.webContents.send('render:error', result)
+      return result
+    } catch (err) {
+      log.error('[render] render:start error:', err)
+      return { success: false, error: err.message }
+    }
   })
 
   ipcMain.handle('render:cancel', () => { renderEngine.cancel(); return { success: true } })
   ipcMain.handle('render:status', () => renderEngine.getStatus())
 
   ipcMain.handle('render:install-deps', async (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    return await renderEngine.installDeps((text) => win?.webContents.send('render:install-progress', { text }))
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      return await renderEngine.installDeps((text) => win?.webContents.send('render:install-progress', { text }))
+    } catch (err) {
+      log.error('[render] install-deps error:', err)
+      return { success: false, error: err.message }
+    }
   })
 
   // --- Composition 管理（Phase 1）---
