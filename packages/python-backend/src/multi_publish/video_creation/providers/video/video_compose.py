@@ -47,6 +47,13 @@ from multi_publish.video_creation.base_tool import (
     ToolTier,
 )
 from multi_publish.video_creation.providers.video import compose_utils as _cu
+from multi_publish.video_creation.providers.video.composition_registry import (
+    RENDERER_FAMILY_MAP as _RENDERER_FAMILY_MAP,
+    get_composition_id as _get_composition_id_impl,
+)
+from multi_publish.video_creation.providers.video.subtitle_style import (
+    resolve_subtitle_style as _resolve_subtitle_style_impl,
+)
 
 
 class VideoCompose(BaseTool):
@@ -704,32 +711,18 @@ class VideoCompose(BaseTool):
     # Maps renderer_family → Remotion composition ID.
     # Only compositions registered in remotion-composer/src/Root.tsx are valid.
     # Current compositions: Explainer, CinematicRenderer, TalkingHead
-    RENDERER_FAMILY_MAP = {
-        "explainer-data": "Explainer",
-        "explainer-teacher": "Explainer",
-        "cinematic-trailer": "CinematicRenderer",
-        "documentary-montage": "CinematicRenderer",
-        "product-reveal": "Explainer",
-        "screen-demo": "Explainer",
-        "presenter": "TalkingHead",
-        "animation-first": "Explainer",
-    }
+    # Phase 5.2: 定义委托给 composition_registry.RENDERER_FAMILY_MAP
+    RENDERER_FAMILY_MAP = _RENDERER_FAMILY_MAP
 
     @classmethod
     def _get_composition_id(cls, renderer_family: str) -> str:
         """Resolve renderer_family to Remotion composition ID.
 
+        Delegated to composition_registry.get_composition_id (Phase 5.2 提取).
         Raises ValueError if renderer_family is not recognized — the caller
         must set it at proposal stage.
         """
-        comp = cls.RENDERER_FAMILY_MAP.get(renderer_family)
-        if comp is None:
-            raise ValueError(
-                f"Unknown renderer_family {renderer_family!r}. "
-                f"Valid families: {sorted(cls.RENDERER_FAMILY_MAP)}. "
-                f"Set renderer_family at proposal stage."
-            )
-        return comp
+        return _get_composition_id_impl(renderer_family)
 
     def _render_via_atelier(
         self,
@@ -2535,48 +2528,10 @@ class VideoCompose(BaseTool):
     ) -> dict:
         """Resolve subtitle style with layered priority.
 
+        Delegated to subtitle_style.resolve_subtitle_style (Phase 5.2 提取).
         Priority: explicit_style > edit_decisions.subtitles.style > playbook > defaults.
-        This prevents every video from looking identical (Arial bold white).
         """
-        # Start with minimal fallback defaults
-        resolved = {
-            "font": "Inter",
-            "font_size": 28,
-            "bold": True,
-            "outline_width": 2,
-            "shadow": 0,
-            "margin_v": 40,
-            "alignment": 2,
-        }
-
-        # Layer 1: Playbook-derived style
-        if playbook:
-            typo = playbook.get("typography", {})
-            colors = playbook.get("visual_language", {}).get("color_palette", {})
-            if typo.get("body", {}).get("family"):
-                resolved["font"] = typo["body"]["family"]
-            if colors.get("text"):
-                resolved["primary_color"] = colors["text"]
-            if colors.get("background"):
-                resolved["outline_color"] = colors["background"]
-                # Semi-transparent background for readability
-                bg = colors["background"]
-                resolved["back_color"] = bg
-
-        # Layer 2: edit_decisions subtitle style
-        if edit_decisions:
-            ed_style = edit_decisions.get("subtitles", {}).get("style", {})
-            for k, v in ed_style.items():
-                if v is not None:
-                    resolved[k] = v
-
-        # Layer 3: Explicit override (highest priority)
-        if explicit_style:
-            for k, v in explicit_style.items():
-                if v is not None:
-                    resolved[k] = v
-
-        return resolved
+        return _resolve_subtitle_style_impl(explicit_style, edit_decisions, playbook)
 
     @staticmethod
     def _build_subtitle_style(style: dict) -> str:
