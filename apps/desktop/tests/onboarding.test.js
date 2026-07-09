@@ -12,7 +12,7 @@ __registerMock("fs", {
   unlinkSync: vi.fn(),
 })
 
-const onboarding = require("../electron/onboarding")
+const onboarding = require("../electron/services/onboarding")
 
 describe("OnboardingManager", () => {
   beforeEach(() => {

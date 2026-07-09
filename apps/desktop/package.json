@@ -73,9 +73,11 @@
         "files": [
             "dist/**/*",
             "electron/**/*",
-            "config/**/*",
             "node_modules/**/*",
             "package.json"
+        ],
+        "extraResources": [
+            { "from": "../../config", "to": "config" }
         ],
         "win": {
             "target": "nsis",

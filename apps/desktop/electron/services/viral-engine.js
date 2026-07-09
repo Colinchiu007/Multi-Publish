@@ -16,7 +16,7 @@
 const { ipcMain } = require('electron')
 const log = require('./logger')
 
-const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || 'http://localhost:8000'
+const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
 
 // 停用词（本地关键词提取用）
 const STOP_WORDS = new Set([

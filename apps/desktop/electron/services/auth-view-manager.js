@@ -256,7 +256,7 @@ class AuthViewManager {
       width: 1024, height: 768,
       webPreferences: {
         session: session.fromPartition(`persist:silent-auth-${platform}-${Date.now()}`, { cache: true }),
-        contextIsolation: true, nodeIntegration: false,
+        contextIsolation: true, nodeIntegration: false, sandbox: true,
       },
     })
 

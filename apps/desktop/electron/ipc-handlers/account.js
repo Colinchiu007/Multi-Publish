@@ -109,8 +109,12 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('auth:close', async () => {
-    authViewManager.close()
-    return { code: 0 }
+    try {
+      authViewManager.close()
+      return { code: 0 }
+    } catch (e) {
+      return { code: -1, message: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('auth:save-credentials', async (event, { accountId, cookies, localStorage }) => {

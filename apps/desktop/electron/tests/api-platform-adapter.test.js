@@ -6,7 +6,7 @@ function eq(a,b){assert.deepStrictEqual(a,b);}
 
 console.log("=== api-platform-adapter ===");
 let adapter;
-try{adapter=require("../api-platform-adapter");}catch(e){console.log("  Skipped: non-Electron env");process.exit(0);}
+try{adapter=require("../services/api-platform-adapter");}catch(e){console.log("  Skipped: non-Electron env");process.exit(0);}
 t("exports publishViaApi",function(){eq(typeof adapter.publishViaApi,"function");});
 t("exports isApiPlatform",function(){eq(typeof adapter.isApiPlatform,"function");});
 t("exports getApiPlatforms",function(){eq(typeof adapter.getApiPlatforms,"function");});

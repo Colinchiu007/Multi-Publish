@@ -29,7 +29,7 @@ describe("UsageTracker", () => {
   var tracker
 
   beforeAll(function() {
-    UsageTracker = require("../electron/usage-tracker")
+    UsageTracker = require("../electron/services/usage-tracker")
   })
 
   beforeEach(function() {

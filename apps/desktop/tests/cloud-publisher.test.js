@@ -19,7 +19,7 @@ __registerMock('axios', { get: vi.fn(), post: vi.fn() })
 __registerMock('../electron/logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
 const axios = require('axios')
-const CloudPublisher = require('../electron/cloud-publisher')
+const CloudPublisher = require('../electron/services/cloud-publisher')
 
 // Helpers
 const ORCHESTRATOR_URL = 'https://39.105.42.85'

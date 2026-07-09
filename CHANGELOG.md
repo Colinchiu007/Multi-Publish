@@ -1,5 +1,49 @@
 ﻿# CHANGELOG
 
+## [v2.3.44] - 2026-07-09
+
+### 全库代码审查修复 — 安全 + 打包 + 架构 + 死代码清理
+
+**背景**：v2.3.43 后进行全库代码审查（4 agent 并行），发现 55 CRITICAL + 35 MAJOR + 23 MINOR 问题，本次一次性全部修复。同时删除 34 个无人引用的根 shim 文件后修复所有受影响的 require 链。
+
+#### 🔴 CRITICAL 修复（7 项）
+- **C1 安全 — 兑换码硬编码密钥**：[redemption-codes.js](apps/desktop/electron/services/redemption-codes.js) 移除 `|| "mp-redemption-seed-v1"` fallback，未配置 `REDEMPTION_SECRET` 时 SECRET 为空串（generate/validate 抛明确错误），消除 Pro 兑换码伪造风险
+- **C2 打包 — config 未打入 asar**：[package.json](apps/desktop/package.json) `files` 移除不存在的 `config/**/*`，新增 `extraResources` 从 `../../config` 复制到 `resourcesPath/config/`；新建 [config-resolver.js](apps/desktop/electron/services/config-resolver.js) 统一 dev/打包环境配置路径解析（bootstrap/publisher-router/rpa-view-manager 共用）
+- **C3 安全 — 凭证写入 CWD**：[account-manager.js](apps/desktop/electron/publishers/account-manager.js) 凭证写入路径从 `process.env.ELECTRON_USER_DATA_DIR || '.'` 改为 `app.getPath('userData')`，避免凭证落盘到不确定的工作目录
+- **C4 打包 — 坏 require 被双重静默**：[api-platform-adapter.test.js](apps/desktop/electron/tests/api-platform-adapter.test.js) `require("../api-platform-adapter")` → `require("../services/api-platform-adapter")`（try/catch + process.exit(0) 掩盖了 require 失败）
+- **C5 打包 — 坏 shim 路径**：删除 [publishers/playwright-manager.js](apps/desktop/electron/publishers/playwright-manager.js)（`./services/...` 应为 `../services/...`）
+- **C7 架构 — DI 容器双实例**：[bootstrap.js](apps/desktop/electron/bootstrap.js) `new DataSyncService(store)` / `new PublishIntervalGuard()` 改为 `container.get()`，消除绕过容器的双实例问题
+- **C6 架构 — container.setup.js 违反 Core 层零外部依赖**：记录为技术债（移动风险过高，涉及多个测试断言），不在本次修复
+
+#### 🟠 MAJOR 修复（7 项）
+- **M1 安全 — BrowserWindow 缺 sandbox**：[auth-view-manager.js](apps/desktop/electron/services/auth-view-manager.js) + [rpa-view-manager.js](apps/desktop/electron/services/rpa-view-manager.js) 添加 `sandbox: true`（contextIsolation + nodeIntegration:false 仍不够）
+- **M2 一致性 — ORCHESTRATOR_URL 默认值**：[provider-manager.js](apps/desktop/electron/services/provider-manager.js) + [viral-engine.js](apps/desktop/electron/services/viral-engine.js) 统一为 `|| ''`
+- **M3 安全 — IPC handler 缺 try-catch**：[account.js](apps/desktop/electron/ipc-handlers/account.js) `auth:close` 添加 try-catch（全库唯一缺的 ipcMain.handle）
+- **M5 死代码 — 34 个根 shim + 4 个死模块**：删除 `electron/` 根目录 34 个单行 re-export 文件（全部无人引用）+ `services/` 下 4 个死模块（aggregator-bridge / content-aggregator-bridge / p1-integration / video-uploader）
+- **M7 功能 — video IPC handler 未注册**：[ipc-handlers/index.js](apps/desktop/electron/ipc-handlers/index.js) 添加 `require('./video')` 注册（完整实现但从未挂载）
+- **M-Orphan — onboarding 3 个 orphan 通道**：新建 [ipc-handlers/onboarding.js](apps/desktop/electron/ipc-handlers/onboarding.js) 注册 `onboarding:complete` / `onboarding:get-steps` / `onboarding:status`（preload 暴露但无 handler，运行时 invoke 会报错）
+
+#### 🟢 MINOR 修复（2 项）
+- [phase10-service-tests.test.js](apps/desktop/electron/services/phase10-service-tests.test.js) 冗余 `../services/` 绕回路径 → `./`
+- [license-manager.js](apps/desktop/electron/services/license-manager.js) 删除未使用的 `crypto` require + `validateCodeFormat` 死函数
+
+#### 测试修复 — 删除根 shim 后 require 链修复
+- 16 个测试文件 `require('../electron/XXX')` → `require('../electron/services/XXX')`（cloud-publisher / rpa-view-manager / template-manager / error-codes→core / payment-manager / content-intelligence / publish-poller / onboarding / ai-writer / license-manager / rpa-view-manager-zhihu / redemption-codes / publish-alert / license-store / usage-tracker / offline-manager）
+- [startup.test.js](apps/desktop/tests/smoke/startup.test.js) `nativeRequire.resolve('./playwright-manager')` → `./services/playwright-manager`；5× `publisher-router` → `services/publisher-router`
+
+#### 验证
+- 全量测试：**1825 passed | 10 skipped | 0 failed**（修复前 18 文件失败）
+- QM-1 替代验证（Linux 沙箱无 electron 二进制）：14 文件语法检查 + 2 require 链检查 = 16/16 OK
+- 全库 grep 确认无残留指向已删除 shim 的 require
+
+#### 教训存档
+- learnings.md 新增 R1-R6 强制规则（合并前搜同名文件 / 改 electron 必打包 / 测试通过≠require 链正确 / force push 前查祖先 / 跨 AI 统一实现 / 测试断言不依赖 vitest fallback）
+
+### 文档
+- decision-log: D-035 全库审查修复记录
+- learnings.md: 跨 AI 协作与 require 链断裂复盘 v2.3.43（R1-R6）
+
+
 ## [v2.3.43] - 2026-07-09
 
 ### PRD 功能验证修复 — 10 项缺失补齐 + 1 bug 修复

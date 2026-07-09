@@ -18,7 +18,7 @@ __registerMock('../electron/logger', {
   error: vi.fn(),
 })
 
-const ContentIntelligence = require('../electron/content-intelligence')
+const ContentIntelligence = require('../electron/services/content-intelligence')
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 

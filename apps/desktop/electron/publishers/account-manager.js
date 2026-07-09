@@ -5,11 +5,17 @@
  */
 // eslint-disable-next-line no-unused-vars
 const path = require('path')
-const log = require('../logger')
-const playwrightManager = require('../playwright-manager')
-const pythonBridge = require('../python-bridge')
+const { app } = require('electron')
+const log = require('../services/logger')
+const playwrightManager = require('../services/playwright-manager')
+const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
+
+// 安全：凭证写入路径使用 Electron userData 目录，而非当前工作目录
+function getUserDataDir () {
+  try { return app.getPath('userData') } catch { return getUserDataDir() }
+}
 const { PLATFORM_LOGIN_URLS, PLATFORM_NAMES, PLATFORM_LOGIN_SUCCESS_SELECTORS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
@@ -203,7 +209,7 @@ async function addAccount (platform) {
     credentialStore.saveCredential(accountId, {
       localStorage: localStorageData,
       accountInfo,
-    }, process.env.ELECTRON_USER_DATA_DIR || '.')
+    }, getUserDataDir())
     log.info('AccountManager', `Saved credential store for account ${accountId}`)
   } catch (e) {
     log.warn('AccountManager', `Failed to save credential: ${e.message}`)
@@ -396,7 +402,7 @@ async function openSavedAccount (accountId, platform, opts = {}) {
   const { mainWindow, session } = opts
   
   // 从本地存储加载完整凭证
-  const credentialData = credentialStore.loadCredential(accountId, process.env.ELECTRON_USER_DATA_DIR || '.')
+  const credentialData = credentialStore.loadCredential(accountId, getUserDataDir())
   const accountRecord = accountStateRestorer.getAccountRecord(platform, accountId)
   
   if (!credentialData && !accountRecord) {
@@ -428,7 +434,7 @@ async function openSavedAccount (accountId, platform, opts = {}) {
  * 检查本地是否有账号凭证
  */
 function checkLocalCredentials (platform, accountId) {
-  return credentialStore.hasCredential(accountId, process.env.ELECTRON_USER_DATA_DIR || '.') ||
+  return credentialStore.hasCredential(accountId, getUserDataDir()) ||
          !!accountStateRestorer.getAccountRecord(platform, accountId)
 }
 

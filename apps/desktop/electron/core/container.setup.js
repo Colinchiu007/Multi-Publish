@@ -74,7 +74,15 @@ function createContainer(options) {
   container.register("taskQueue", function() { return new TaskQueue(options.taskQueue || { maxConcurrent: 3 }); });
   container.register("aggregatorBridge", function(c) { return new AggregatorBridge(c.get("taskQueue")); });
   container.register("publisherRouter", function() { return new PublisherRouter(); });
-  container.register("publishIntervalGuard", function(c) { return new PublishIntervalGuard({ store: c.get("store") }); });
+  container.register("publishIntervalGuard", function(c) {
+    const s = c.get("store");
+    return new PublishIntervalGuard({
+      store: {
+        get: (key) => s.getPublishTimeline(key),
+        set: (key, value) => s.setPublishTimeline(key, value),
+      }
+    });
+  });
 
   container.assertRequired([
     "store", "authViewManager", "rpaViewManager", "webviewManager",

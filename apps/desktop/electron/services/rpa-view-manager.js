@@ -9,6 +9,7 @@ const { BrowserWindow, session, ipcMain } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const log = require('./logger')
+const { getConfigPath } = require('./config-resolver')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { supportsApi, publishViaApi } = require('@multi-publish/api-publish-engine')
@@ -56,7 +57,7 @@ class RpaViewManager {
   // ========== P2-B: Config loading ==========
   _getPlatformConfig(platform) {
     if (!_platformConfigInstance) {
-      _platformConfigInstance = new PlatformConfig(path.join(__dirname, '..', '..', '..', '..', 'config', 'platforms.yaml'))
+      _platformConfigInstance = new PlatformConfig(getConfigPath('platforms.yaml'))
     }
     const cfg = _platformConfigInstance.getPlatform(platform)
     if (!cfg) throw new Error('platform config not found: ' + platform)
@@ -276,7 +277,7 @@ class RpaViewManager {
 
   // ========== Window management ==========
   _createWindow(partition) {
-    const win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, backgroundThrottling:false,preload:path.join(__dirname,'../stealth-preload.js') } })
+    const win = new BrowserWindow({ show:false, width:1280, height:800, webPreferences:{ session:session.fromPartition(partition,{cache:true}), contextIsolation:true, nodeIntegration:false, sandbox:true, backgroundThrottling:false,preload:path.join(__dirname,'../stealth-preload.js') } })
     win.webContents.on('did-fail-load',function(e,code,desc){log.warn('RpaView','load fail: '+desc+' ('+code+')')})
     win.webContents.on('console-message',function(){})
     // anti-detection: inject stealth on every navigation

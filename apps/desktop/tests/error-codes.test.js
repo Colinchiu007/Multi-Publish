@@ -1,7 +1,7 @@
 /**
  * error-codes unit tests
  */
-var EC = require("../electron/error-codes")
+var EC = require("../electron/core/error-codes")
 
 describe("error-codes", function() {
   test("ERROR is frozen with expected codes", function() {

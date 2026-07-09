@@ -33,7 +33,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 
-const PublishPoller = require('../electron/publish-poller')
+const PublishPoller = require('../electron/services/publish-poller')
 
 // Helpers
 const FAKE_TASK = {

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ---- Global mocks — must be at top level for hoisting ----
 const { createMockLogger } = require("./test-helpers");
-vi.mock("../services/logger", () => createMockLogger());
+vi.mock("./logger", () => createMockLogger());
 vi.mock("axios", () => ({ default: { get: vi.fn().mockResolvedValue({ data: { data: { list: [] } } }) } }));
 
 // ---- Offline Manager (JS implementation) ----
@@ -11,7 +11,7 @@ describe("offline-manager", () => {
 
   beforeEach(() => {
     vi.resetModules();
-    offline = require("../services/offline-manager");
+    offline = require("./offline-manager");
   });
 
   describe("exports", () => {
@@ -115,7 +115,7 @@ describe("publish-monitor", () => {
 
   describe("exports", () => {
     it("exports expected API", () => {
-      const m = require("../services/publish-monitor");
+      const m = require("./publish-monitor");
       expect(typeof m.createMonitorTask).toBe("function");
       expect(typeof m.checkPublishStatus).toBe("function");
       expect(typeof m.POLL_INTERVAL).toBe("number");
@@ -125,11 +125,11 @@ describe("publish-monitor", () => {
 
   describe("constants", () => {
     it("POLL_INTERVAL is positive", () => {
-      expect(require("../services/publish-monitor").POLL_INTERVAL).toBeGreaterThan(0);
+      expect(require("./publish-monitor").POLL_INTERVAL).toBeGreaterThan(0);
     });
 
     it("MAX_RETRIES is positive integer", () => {
-      const m = require("../services/publish-monitor");
+      const m = require("./publish-monitor");
       expect(m.MAX_RETRIES).toBeGreaterThan(0);
       expect(Number.isInteger(m.MAX_RETRIES)).toBe(true);
     });
@@ -137,7 +137,7 @@ describe("publish-monitor", () => {
 
   describe("createMonitorTask()", () => {
     it("creates task with stop()", () => {
-      const m = require("../services/publish-monitor");
+      const m = require("./publish-monitor");
       const t = m.createMonitorTask({ postId: "t1", platform: "weibo", cookies: "", callback: vi.fn() });
       expect(t).toBeDefined();
       expect(typeof t.stop).toBe("function");
@@ -146,7 +146,7 @@ describe("publish-monitor", () => {
 
     it("calls callback with skipped for unsupported platform", () => {
       const cb = vi.fn();
-      const m = require("../services/publish-monitor");
+      const m = require("./publish-monitor");
       const t = m.createMonitorTask({ postId: "t2", platform: "no_such_platform", callback: cb });
       expect(cb).toHaveBeenCalledWith(expect.objectContaining({ status: "skipped" }));
       t.stop();
@@ -154,7 +154,7 @@ describe("publish-monitor", () => {
 
     it("handles missing platform", () => {
       const cb = vi.fn();
-      const m = require("../services/publish-monitor");
+      const m = require("./publish-monitor");
       const t = m.createMonitorTask({ postId: "t3", callback: cb });
       expect(cb).toHaveBeenCalledWith(expect.objectContaining({ status: "skipped" }));
       t.stop();
@@ -163,7 +163,7 @@ describe("publish-monitor", () => {
 
   describe("checkPublishStatus()", () => {
     it("returns status for nonexistent task", async () => {
-      const m = require("../services/publish-monitor");
+      const m = require("./publish-monitor");
       const r = await m.checkPublishStatus("x", "weibo", "", "https://x.com/api");
       expect(r).toHaveProperty("status");
       expect(r).toHaveProperty("postId");
@@ -172,7 +172,7 @@ describe("publish-monitor", () => {
 
   describe("edge cases", () => {
     it("multiple stop() calls safe", () => {
-      const m = require("../services/publish-monitor");
+      const m = require("./publish-monitor");
       const t = m.createMonitorTask({ postId: "t4", platform: "weibo", callback: vi.fn() });
       expect(() => { t.stop(); t.stop(); t.stop(); }).not.toThrow();
     });

@@ -11,7 +11,7 @@
 const { app, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./services/logger')
-const PublishIntervalGuard = require('@multi-publish/shared-utils/src/publish-interval-guard')
+const { getConfigPath } = require('./services/config-resolver')
 const pythonBridge = require('./services/python-bridge')
 const AccountManager = require('./publishers/account-manager')
 const scheduler = require('./services/scheduler')
@@ -191,12 +191,11 @@ function createAppContext() {
   const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
   const BACKEND_PLATFORMS = new Set(['youtube', 'tiktok', 'twitter'])
   const SensitiveFilter = require('@multi-publish/shared-utils/src/sensitive-filter')
-  const DataSyncService = require('@multi-publish/shared-utils/src/data-sync')
   const _sensitiveFilter = SensitiveFilter.createWithBuiltin()
-  const _dataSync = new DataSyncService(store)
+  const _dataSync = container.get('dataSync')
   const _platformConfig = (() => {
     try {
-      const cfgPath = path.join(__dirname, '..', '..', '..', 'config', 'platforms.yaml')
+      const cfgPath = getConfigPath('platforms.yaml')
       return new PlatformConfig(cfgPath)
     } catch (e) {
       log.warn('App', 'Failed to load platform config:', e.message)
@@ -258,12 +257,8 @@ function runWhenReady(context, deps) {
 
     store.init()
 
-    // 发布频率控制
-    const publishGuardStore = {
-      get: (key) => store.getPublishTimeline(key),
-      set: (key, value) => store.setPublishTimeline(key, value),
-    }
-    const _publishIntervalGuard = new PublishIntervalGuard({ store: publishGuardStore })
+    // 发布频率控制（通过 DI 容器获取，使用 store 适配器）
+    const _publishIntervalGuard = container.get('publishIntervalGuard')
 
     // 任务队列持久化
     taskQueue.setStateSaver((jsonStr) => {

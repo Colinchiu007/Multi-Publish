@@ -29,7 +29,7 @@ describe("LicenseManager", function() {
   var manager
 
   beforeAll(function() {
-    LicenseManager = require("../electron/license-manager")
+    LicenseManager = require("../electron/services/license-manager")
   })
 
   beforeEach(function() {

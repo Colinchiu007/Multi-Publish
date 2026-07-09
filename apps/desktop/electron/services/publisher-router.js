@@ -13,6 +13,7 @@
  */
 const path = require('path')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
+const { getConfigPath } = require('./config-resolver')
 
 // 鈹€鈹€鈹€ 璺敱琛紙纭害鏉燂級鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 // mode: 鍙戝竷寮曟搸
@@ -117,7 +118,7 @@ class PublisherRouter {
    * @param {string} [configPath] - platforms.yaml 璺緞锛岄粯璁や粠椤圭洰鏍圭洰褰曞姞杞?
    */
   constructor (configPath) {
-    const resolvedPath = configPath || path.join(__dirname, '..', '..', '..', '..', 'config', 'platforms.yaml')
+    const resolvedPath = configPath || getConfigPath('platforms.yaml')
     this._platformConfig = new PlatformConfig(resolvedPath)
     this._routeTable = ROUTE_TABLE
   }

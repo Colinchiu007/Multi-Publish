@@ -11,7 +11,8 @@
 
 const crypto = require("crypto")
 
-const SECRET = process.env.REDEMPTION_SECRET || "mp-redemption-seed-v1"
+// 安全：移除硬编码密钥 fallback，未配置时 SECRET 为空串，generate/validate 会抛明确错误
+const SECRET = process.env.REDEMPTION_SECRET || ''
 const CODE_PREFIX = "MP"
 const SEGMENT_LENGTH = 4 // 每个段 4 字符
 const SIGNATURE_LENGTH = 4 // 签名短码 4 字符

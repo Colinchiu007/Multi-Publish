@@ -40,7 +40,7 @@ describe("TemplateManager", function() {
   }
 
   beforeAll(function() {
-    TemplateManager = require("../electron/template-manager")
+    TemplateManager = require("../electron/services/template-manager")
   })
 
   beforeEach(function() {

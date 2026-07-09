@@ -20,7 +20,7 @@ __registerMock("fs", {
   existsSync: vi.fn().mockReturnValue(true),
 })
 
-const publishAlert = require("../electron/publish-alert")
+const publishAlert = require("../electron/services/publish-alert")
 
 describe("PublishAlertManager", () => {
   beforeEach(() => {

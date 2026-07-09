@@ -51,7 +51,7 @@ __registerMock("fs", {
   existsSync: vi.fn(),
 })
 
-const RpaViewManager = require("../electron/rpa-view-manager")
+const RpaViewManager = require("../electron/services/rpa-view-manager")
 
 describe("RpaViewManager bilibili publish", () => {
   let rpa

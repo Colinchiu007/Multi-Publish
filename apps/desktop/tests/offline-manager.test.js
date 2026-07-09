@@ -14,7 +14,7 @@ __registerMock("fs", {
   writeFileSync: vi.fn(),
 })
 
-var offlineManager = require("../electron/offline-manager")
+var offlineManager = require("../electron/services/offline-manager")
 
 describe("OfflineManager", function() {
   beforeEach(function() {

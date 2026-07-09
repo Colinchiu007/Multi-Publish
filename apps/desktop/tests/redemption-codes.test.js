@@ -8,7 +8,7 @@ describe("RedemptionCodes", function() {
   var RedemptionCodes
 
   beforeAll(function() {
-    RedemptionCodes = require("../electron/redemption-codes")
+    RedemptionCodes = require("../electron/services/redemption-codes")
   })
 
   test("generates a valid code", function() {

@@ -22,7 +22,7 @@ __registerMock('../electron/logger', {
   warn: vi.fn(),
 })
 
-var PaymentManager = require('../electron/payment-manager')
+var PaymentManager = require('../electron/services/payment-manager')
 
 describe('PaymentManager', function() {
   var pm

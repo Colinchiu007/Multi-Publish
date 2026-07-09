@@ -26,19 +26,19 @@ describe('PublisherRouter', () => {
   let publisherRouter
 
   beforeAll(() => {
-    const { PublisherRouter } = require(path.join(ELECTRON_DIR, 'publisher-router'))
+    const { PublisherRouter } = require(path.join(ELECTRON_DIR, 'services', 'publisher-router'))
     publisherRouter = new PublisherRouter()
   })
 
   test('ROUTE_TABLE covers all 12 platforms', () => {
-    const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'publisher-router'))
+    const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'services', 'publisher-router'))
     for (const p of EXPECTED_PLATFORMS) {
       expect(ROUTE_TABLE).toHaveProperty(p)
     }
   })
 
   test('all ROUTE_TABLE entries mode=rpa_vm', () => {
-    const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'publisher-router'))
+    const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'services', 'publisher-router'))
     for (const [platform, route] of Object.entries(ROUTE_TABLE)) {
       if (platform.startsWith('_') || platform === 'shipinhao') continue
       expect(route.mode).toBe('rpa_vm')
@@ -46,7 +46,7 @@ describe('PublisherRouter', () => {
   })
 
   test('no extra platforms in ROUTE_TABLE', () => {
-    const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'publisher-router'))
+    const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'services', 'publisher-router'))
     const routePlatforms = Object.keys(ROUTE_TABLE).filter(p => !p.startsWith('_') && p !== 'shipinhao')
     for (const p of routePlatforms) {
       expect(EXPECTED_PLATFORMS).toContain(p)
@@ -93,12 +93,12 @@ describe('模块依赖解析', () => {
   }
 
   const CORE_MODULES = [
-    'logger', 'python-bridge', 'publishers/account-manager',
-    'scheduler', 'publish-history', 'auto-updater', 'first-run',
-    'auth-view-manager', 'webview-manager', 'rpa-view-manager',
-    'publisher-router', 'callback-server', 'qrcode-login', 'store',
-    'oauth-manager', 'batch-manager', 'url-collector',
-    'publish-alert', 'publish-monitor', 'system-tray', 'hotkeys',
+    'services/logger', 'services/python-bridge', 'publishers/account-manager',
+    'services/scheduler', 'services/publish-history', 'services/auto-updater', 'services/first-run',
+    'services/auth-view-manager', 'services/webview-manager', 'services/rpa-view-manager',
+    'services/publisher-router', 'services/callback-server', 'services/qrcode-login', 'services/store',
+    'services/oauth-manager', 'services/batch-manager', 'services/url-collector',
+    'services/publish-alert', 'services/publish-monitor', 'services/system-tray', 'services/hotkeys',
   ]
 
   test('all main.js local require paths resolve', () => {
@@ -123,7 +123,7 @@ describe('模块依赖解析', () => {
   })
 
   test('url-collector playwright-manager resolves', () => {
-    const resolved = nativeRequire.resolve('./playwright-manager')
+    const resolved = nativeRequire.resolve('./services/playwright-manager')
     expect(resolved).toBeTruthy()
     expect(resolved.endsWith('playwright-manager.js')).toBe(true)
   })
@@ -143,7 +143,7 @@ describe('平台配置一致性', () => {
     const raw = fs.readFileSync(CONFIG_YAML, 'utf-8')
     const config = yaml.load(raw)
     const yamlPlatforms = Object.keys(config.platforms)
-    const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'publisher-router'))
+    const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'services', 'publisher-router'))
     for (const p of yamlPlatforms) {
       expect(ROUTE_TABLE).toHaveProperty(p)
     }

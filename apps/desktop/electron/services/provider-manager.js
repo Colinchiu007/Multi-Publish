@@ -21,7 +21,7 @@
 const { ipcMain } = require('electron')
 const log = require('./logger')
 
-const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || 'http://localhost:8000'
+const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
 
 class ProviderManager {
   constructor () {

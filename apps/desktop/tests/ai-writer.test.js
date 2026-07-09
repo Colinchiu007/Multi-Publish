@@ -20,7 +20,7 @@ describe("AiWriter", function() {
   var SUCCESS_RESP = { data: { choices: [{ message: { content: "默认回复" } }] } }
 
   beforeAll(function() {
-    AiWriter = require("../electron/ai-writer")
+    AiWriter = require("../electron/services/ai-writer")
   })
 
   beforeEach(function() {
