@@ -6,13 +6,13 @@
   "bin": { "ai-writer": "src/cli.js" },
   "files": ["src/", "README.md"],
   "scripts": {
-    "test": "jest --config jest.config.js"
+    "test": "vitest run"
   },
   "dependencies": {
     "axios": "^1.7.0"
   },
   "devDependencies": {
-    "jest": "^29.7.0"
+    "vitest": "^4.1.9"
   },
   "keywords": ["ai", "writing", "llm", "openai"],
   "license": "MIT"

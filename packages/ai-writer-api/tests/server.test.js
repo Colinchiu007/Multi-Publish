@@ -1,34 +1,41 @@
 /**
  * AiWriter API server tests
  */
-jest.mock("@multi-publish/ai-writer")
-
+// @multi-publish/ai-writer 通过 workspace hoisting 在根 node_modules 解析，
+// Vitest 4 对此类 hoisted 依赖的 vi.mock 拦截不完整（factory 不会执行）。
+// 改用 vi.spyOn 真实 AiWriter.prototype 方法：src/server.js 顶层
+// require("@multi-publish/ai-writer") 与测试拿到同一 constructor 引用，
+// spy prototype 方法即可拦截 new AiWriter().generateTitles() 等调用。
 var AiWriter = require("@multi-publish/ai-writer")
 var request = require("supertest")
 var app
 
-// Mock AiWriter
-var mockGenerateTitles = jest.fn()
-var mockGenerateSummary = jest.fn()
-var mockEnhanceContent = jest.fn()
-
-AiWriter.mockImplementation(function() {
-  return {
-    generateTitles: mockGenerateTitles,
-    generateSummary: mockGenerateSummary,
-    enhanceContent: mockEnhanceContent,
-    isConfigured: jest.fn().mockReturnValue(true),
-  }
-})
+var _spies = {}
 
 beforeAll(function() {
-  jest.isolateModules(function() {
-    app = require("../src/server")
-  })
+  // spy prototype 方法，保留默认行为以便 server.js 初始化时 isConfigured() 等
+  _spies.generateTitles = vi.spyOn(AiWriter.prototype, "generateTitles").mockResolvedValue([])
+  _spies.generateSummary = vi.spyOn(AiWriter.prototype, "generateSummary").mockResolvedValue("")
+  _spies.enhanceContent = vi.spyOn(AiWriter.prototype, "enhanceContent").mockResolvedValue("")
+  _spies.isConfigured = vi.spyOn(AiWriter.prototype, "isConfigured").mockReturnValue(true)
+  app = require("../src/server")
 })
 
 beforeEach(function() {
-  jest.clearAllMocks()
+  // 只清 calls，保留 mockImplementation（vi.clearAllMocks 会清 implementation，
+  // 这里手动重置 mockResolvedValue 的返回值到默认）
+  _spies.generateTitles.mockClear()
+  _spies.generateSummary.mockClear()
+  _spies.enhanceContent.mockClear()
+  _spies.isConfigured.mockClear()
+  _spies.generateTitles.mockResolvedValue([])
+  _spies.generateSummary.mockResolvedValue("")
+  _spies.enhanceContent.mockResolvedValue("")
+  _spies.isConfigured.mockReturnValue(true)
+})
+
+afterAll(function() {
+  vi.restoreAllMocks()
 })
 
 var VALID_KEY = "dev-key-change-me"
@@ -41,27 +48,27 @@ describe("AiWriter API", function() {
   })
 
   test("POST /api/ai/titles returns titles", async function() {
-    mockGenerateTitles.mockResolvedValue(["Title 1", "Title 2", "Title 3"])
+    _spies.generateTitles.mockResolvedValue(["Title 1", "Title 2", "Title 3"])
     var res = await request(app)
       .post("/api/ai/titles")
       .send({ topic: "AI trends", count: 3 })
       .set("X-API-Key", VALID_KEY)
     expect(res.status).toBe(200)
     expect(res.body.data).toEqual(["Title 1", "Title 2", "Title 3"])
-    expect(mockGenerateTitles).toHaveBeenCalledWith("AI trends", 3)
+    expect(_spies.generateTitles).toHaveBeenCalledWith("AI trends", 3)
   })
 
   test("POST /api/ai/titles without count defaults to 5", async function() {
-    mockGenerateTitles.mockResolvedValue(["T1"])
+    _spies.generateTitles.mockResolvedValue(["T1"])
     await request(app)
       .post("/api/ai/titles")
       .send({ topic: "test" })
       .set("X-API-Key", VALID_KEY)
-    expect(mockGenerateTitles).toHaveBeenCalledWith("test", 5)
+    expect(_spies.generateTitles).toHaveBeenCalledWith("test", 5)
   })
 
   test("POST /api/ai/summary returns summary", async function() {
-    mockGenerateSummary.mockResolvedValue("Summary text")
+    _spies.generateSummary.mockResolvedValue("Summary text")
     var res = await request(app)
       .post("/api/ai/summary")
       .send({ content: "Long article content here" })
@@ -71,23 +78,23 @@ describe("AiWriter API", function() {
   })
 
   test("POST /api/ai/enhance returns enhanced content", async function() {
-    mockEnhanceContent.mockResolvedValue("Enhanced content")
+    _spies.enhanceContent.mockResolvedValue("Enhanced content")
     var res = await request(app)
       .post("/api/ai/enhance")
       .send({ content: "Original text", style: "concise" })
       .set("X-API-Key", VALID_KEY)
     expect(res.status).toBe(200)
     expect(res.body.data).toBe("Enhanced content")
-    expect(mockEnhanceContent).toHaveBeenCalledWith("Original text", "concise")
+    expect(_spies.enhanceContent).toHaveBeenCalledWith("Original text", "concise")
   })
 
   test("POST /api/ai/enhance defaults to polish style", async function() {
-    mockEnhanceContent.mockResolvedValue("Enhanced")
+    _spies.enhanceContent.mockResolvedValue("Enhanced")
     await request(app)
       .post("/api/ai/enhance")
       .send({ content: "text" })
       .set("X-API-Key", VALID_KEY)
-    expect(mockEnhanceContent).toHaveBeenCalledWith("text", "polish")
+    expect(_spies.enhanceContent).toHaveBeenCalledWith("text", "polish")
   })
 
   test("returns 400 for missing required fields", async function() {
@@ -112,7 +119,7 @@ describe("AiWriter API", function() {
   })
 
   test("POST /api/ai/titles returns 500 on AI error", async function() {
-    mockGenerateTitles.mockRejectedValue(new Error("API failed"))
+    _spies.generateTitles.mockRejectedValue(new Error("API failed"))
     var res = await request(app)
       .post("/api/ai/titles")
       .send({ topic: "test" })

@@ -1,13 +1,16 @@
-/** 
+/**
  * AiWriter 独立包 - 单元测试
  */
 
-jest.mock('axios', function() {
-  return { post: jest.fn() }
-})
+// axios 1.x 是 "type":"module"（ESM 优先），且位于 workspace 根 node_modules。
+// Vitest 4 对 hoisted ESM 依赖的 vi.mock 拦截不完整（factory 不会被调用）。
+// 改用 vi.spyOn 拦截 require('axios').post：由于 Node module cache，
+// src/index.js 顶层的 require('axios') 与测试里的 require('axios') 拿到同一引用，
+// spy .post 即可拦截 src 内部调用。
+var axios = require('axios')
+var _postSpy
 
 var AiWriter  // loaded in beforeAll
-var axios
 
 var SUCCESS_RESP = { data: { choices: [{ message: { content: '默认回复' } }] } }
 
@@ -17,9 +20,13 @@ describe('AiWriter (standalone package)', function() {
   })
 
   beforeEach(function() {
-    axios = require('axios')
-    axios.post.mockReset()
-    axios.post.mockResolvedValue(SUCCESS_RESP)
+    if (_postSpy) { _postSpy.mockRestore() }
+    _postSpy = vi.spyOn(axios, 'post')
+    _postSpy.mockResolvedValue(SUCCESS_RESP)
+  })
+
+  afterEach(function() {
+    if (_postSpy) { _postSpy.mockRestore() }
   })
 
   test('constructor sets default options', function() {
@@ -56,7 +63,7 @@ describe('AiWriter (standalone package)', function() {
 
   test('generateTitles returns array of titles', async function() {
     var list = '1. 标题一\\n2. 标题二\\n3. 标题三'
-    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: list } }] } })
+    _postSpy.mockResolvedValue({ data: { choices: [{ message: { content: list } }] } })
     var titles = await new AiWriter({ apiKey: 'sk-test' }).generateTitles('AI 技术', 3)
     expect(Array.isArray(titles)).toBe(true)
     expect(titles.length).toBe(3)
@@ -64,20 +71,20 @@ describe('AiWriter (standalone package)', function() {
   })
 
   test('generateTitles returns empty array on API error', async function() {
-    axios.post.mockRejectedValue(new Error('API Error'))
+    _postSpy.mockRejectedValue(new Error('API Error'))
     var titles = await new AiWriter({ apiKey: 'sk-test' }).generateTitles('test')
     expect(Array.isArray(titles)).toBe(true)
     expect(titles.length).toBe(0)
   })
 
   test('generateSummary returns summary text', async function() {
-    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '摘要内容' } }] } })
+    _postSpy.mockResolvedValue({ data: { choices: [{ message: { content: '摘要内容' } }] } })
     var s = await new AiWriter({ apiKey: 'sk-test' }).generateSummary('这是一篇长文章内容摘要测试')
     expect(s).toBe('摘要内容')
   })
 
   test('generateSummary returns empty on error', async function() {
-    axios.post.mockRejectedValue(new Error('Error'))
+    _postSpy.mockRejectedValue(new Error('Error'))
     var s = await new AiWriter({ apiKey: 'sk-test' }).generateSummary('test')
     expect(s).toBe('')
   })
@@ -88,13 +95,13 @@ describe('AiWriter (standalone package)', function() {
   })
 
   test('enhanceContent returns enhanced text', async function() {
-    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '润色后内容' } }] } })
+    _postSpy.mockResolvedValue({ data: { choices: [{ message: { content: '润色后内容' } }] } })
     var r = await new AiWriter({ apiKey: 'sk-test' }).enhanceContent('需要润色的原始内容')
     expect(r).toBe('润色后内容')
   })
 
   test('enhanceContent returns original on error', async function() {
-    axios.post.mockRejectedValue(new Error('Error'))
+    _postSpy.mockRejectedValue(new Error('Error'))
     var original = '原始内容'
     var r = await new AiWriter({ apiKey: 'sk-test' }).enhanceContent(original)
     expect(r).toBe(original)
@@ -103,7 +110,7 @@ describe('AiWriter (standalone package)', function() {
   test('enhanceContent accepts different styles', async function() {
     var w = new AiWriter({ apiKey: 'sk-test' })
     // Test that style param is passed through
-    var spy = jest.spyOn(w, '_call')
+    var spy = vi.spyOn(w, '_call')
     spy.mockResolvedValue('润色结果')
     var r = await w.enhanceContent('需要润色的内容用于测试', 'concise')
     expect(spy).toHaveBeenCalled()

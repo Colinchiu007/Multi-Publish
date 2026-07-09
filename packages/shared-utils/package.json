@@ -5,11 +5,14 @@
   "description": "共享工具库 — 任务队列、调度器、发布历史",
   "main": "src/index.js",
   "scripts": {
-    "test": "npx jest"
+    "test": "vitest run"
   },
   "dependencies": {
     "js-yaml": "^4.2.0",
     "sharp": "^0.35.1"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.9"
   },
   "types": "index.d.ts"
 }

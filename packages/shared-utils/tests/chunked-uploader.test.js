@@ -80,8 +80,8 @@ describe('ChunkedUploader', () => {
 
   test('upload calls uploadChunkFn for each chunk', async () => {
     const uploader5 = new ChunkedUploader({ chunkSize: 6 * 1024 * 1024 }) // 2 chunks
-    const uploadChunkFn = jest.fn().mockResolvedValue({ success: true })
-    const onProgress = jest.fn()
+    const uploadChunkFn = vi.fn().mockResolvedValue({ success: true })
+    const onProgress = vi.fn()
 
     const result = await uploader5.upload(testFilePath, uploadChunkFn, onProgress)
 
@@ -92,9 +92,9 @@ describe('ChunkedUploader', () => {
 
   test('upload passes chunk data, index, and total to uploadChunkFn', async () => {
     const uploader5 = new ChunkedUploader({ chunkSize: 12 * 1024 * 1024 }) // 1 chunk
-    const uploadChunkFn = jest.fn().mockResolvedValue({ success: true })
+    const uploadChunkFn = vi.fn().mockResolvedValue({ success: true })
 
-    await uploader5.upload(testFilePath, uploadChunkFn, jest.fn())
+    await uploader5.upload(testFilePath, uploadChunkFn, vi.fn())
 
     expect(uploadChunkFn).toHaveBeenCalledWith(
       expect.any(Buffer),
@@ -106,7 +106,7 @@ describe('ChunkedUploader', () => {
 
   test('upload calls onProgress with 0% and 100%', async () => {
     const uploader5 = new ChunkedUploader({ chunkSize: 12 * 1024 * 1024 })
-    const onProgress = jest.fn()
+    const onProgress = vi.fn()
 
     await uploader5.upload(testFilePath, () => ({ success: true }), onProgress)
 
@@ -119,7 +119,7 @@ describe('ChunkedUploader', () => {
     const emitted = []
     uploader5.on('chunk:uploaded', (data) => emitted.push(data))
 
-    await uploader5.upload(testFilePath, () => ({ success: true }), jest.fn())
+    await uploader5.upload(testFilePath, () => ({ success: true }), vi.fn())
 
     expect(emitted).toHaveLength(2)
     expect(emitted[0].index).toBe(0)
@@ -131,7 +131,7 @@ describe('ChunkedUploader', () => {
     const u = new ChunkedUploader({ chunkSize: 12 * 1024 * 1024 })
     u.on('upload:complete', (data) => emitted.push(data))
 
-    await u.upload(testFilePath, () => ({ success: true }), jest.fn())
+    await u.upload(testFilePath, () => ({ success: true }), vi.fn())
 
     expect(emitted).toHaveLength(1)
     expect(emitted[0].bytesUploaded).toBe(12 * 1024 * 1024)
@@ -144,7 +144,7 @@ describe('ChunkedUploader', () => {
     const result = await uploader.upload(
       testFilePath,
       () => { throw new Error('upload failed') },
-      jest.fn()
+      vi.fn()
     )
 
     expect(result.success).toBe(false)
@@ -167,7 +167,7 @@ describe('ChunkedUploader', () => {
         }
         return { success: true }
       },
-      jest.fn()
+      vi.fn()
     )
 
     expect(result.success).toBe(false)

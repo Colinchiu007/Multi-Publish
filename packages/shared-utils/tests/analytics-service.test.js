@@ -5,7 +5,7 @@
 const AnalyticsService = require('../src/analytics-service')
 
 // 模拟 platform provider
-const mockXiaohongshuProvider = jest.fn().mockResolvedValue({
+const mockXiaohongshuProvider = vi.fn().mockResolvedValue({
   platform: 'xiaohongshu',
   period: 'day',
   metrics: {
@@ -22,7 +22,7 @@ const mockXiaohongshuProvider = jest.fn().mockResolvedValue({
   ],
 })
 
-const mockDouyinProvider = jest.fn().mockResolvedValue({
+const mockDouyinProvider = vi.fn().mockResolvedValue({
   platform: 'douyin',
   period: 'day',
   metrics: {
@@ -37,7 +37,7 @@ const mockDouyinProvider = jest.fn().mockResolvedValue({
   ],
 })
 
-const mockFailingProvider = jest.fn().mockRejectedValue(new Error('API rate limited'))
+const mockFailingProvider = vi.fn().mockRejectedValue(new Error('API rate limited'))
 
 describe('AnalyticsService', () => {
   let service
@@ -75,7 +75,7 @@ describe('AnalyticsService', () => {
 
   test('registerProvider overwrites existing provider', () => {
     service.registerProvider('xiaohongshu', mockXiaohongshuProvider)
-    const newProvider = jest.fn()
+    const newProvider = vi.fn()
     service.registerProvider('xiaohongshu', newProvider)
     expect(service.getProvider('xiaohongshu')).toBe(newProvider)
   })
@@ -102,7 +102,7 @@ describe('AnalyticsService', () => {
   })
 
   test('fetchPlatformData passes credentials to provider', async () => {
-    const provider = jest.fn().mockResolvedValue({ platform: 'test', metrics: {} })
+    const provider = vi.fn().mockResolvedValue({ platform: 'test', metrics: {} })
     service.registerProvider('test', provider)
 
     await service.fetchPlatformData('test', { cookie: 'test-cookie' })
@@ -171,10 +171,10 @@ describe('AnalyticsService', () => {
   })
 
   test('fetchOverview runs providers in parallel', async () => {
-    const slowProvider = jest.fn().mockImplementation(
+    const slowProvider = vi.fn().mockImplementation(
       () => new Promise(resolve => setTimeout(() => resolve({ platform: 'slow', metrics: {} }), 50))
     )
-    const fastProvider = jest.fn().mockResolvedValue({ platform: 'fast', metrics: {} })
+    const fastProvider = vi.fn().mockResolvedValue({ platform: 'fast', metrics: {} })
 
     service.registerProvider('slow', slowProvider)
     service.registerProvider('fast', fastProvider)
