@@ -147,209 +147,67 @@
 import UiButton from "./components/UiButton.vue";
 import PlatformIcon from "./components/PlatformIcon.vue";
 import UiModal from "./components/UiModal.vue";
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
 import { useLicenseStore } from '@/stores/license'
 // eslint-disable-next-line no-unused-vars
 import UpgradeModal from '@/components/UpgradeModal.vue'
 // eslint-disable-next-line no-unused-vars
 import TrialBanner from '@/components/TrialBanner.vue'
+import { usePlatformAccounts, platformMeta } from '@/composables/usePlatformAccounts'
+import { useAutoUpdate } from '@/composables/useAutoUpdate'
+import { useAuthView } from '@/composables/useAuthView'
+import { useOfflineStatus } from '@/composables/useOfflineStatus'
 
 const route = useRoute()
-const authViewVisible = ref(false)
+const router = useRouter()
+const licenseStore = useLicenseStore()
 const showUpgradeModal = ref(false)
 // eslint-disable-next-line no-unused-vars
 const dismissBanner = ref(false)
-const licenseStore = useLicenseStore()
-const isOffline = ref(false)
-const cachedTaskCount = ref(0)
 
-function closeLogin () {
-  const api = window.electronAPI
-  if (api && api.authClose) api.authClose()
-  authViewVisible.value = false
-}
+// 平台账号（侧栏）
+const {
+  platformSearch,
+  activePlatform,
+  filteredPlatforms,
+  loadAccounts,
+  switchAccount,
+  getDefaultAccount,
+  getAccountText,
+  getStatusClass,
+  getAccountsForPlatform,
+} = usePlatformAccounts()
 
-// 监听登录视图状态
+// 自动更新
+const {
+  showUpdateDialog,
+  updateStatus,
+  updateInfo,
+  downloading,
+  downloadPercent,
+  downloadSpeed,
+  showNotAvailable,
+  showError,
+  updateError,
+  handleDownload,
+  handleInstall,
+  start: startAutoUpdate,
+  cleanup: cleanupAutoUpdate,
+} = useAutoUpdate()
+
+// 登录视图
+const { authViewVisible, registerListeners: registerAuthListeners, closeLogin } = useAuthView()
+
+// 离线状态
+const { isOffline, cachedTaskCount, init: initOfflineStatus } = useOfflineStatus()
+
 onMounted(() => {
   licenseStore.load()
-  const api = window.electronAPI
-  if (api) {
-    if (api.offlineStatus) {
-      api.offlineStatus().then(function(res) {
-        if (res && res.code === 0) {
-          isOffline.value = res.data.offline
-          cachedTaskCount.value = res.data.cachedCount
-        }
-      })
-    }
-    if (api.onOfflineRestored) {
-      api.onOfflineRestored(function(data) {
-        isOffline.value = false
-        cachedTaskCount.value = data.cachedCount || 0
-      })
-    }
-  }
-  if (api && api.onAuthViewOpened) {
-    api.onAuthViewOpened(() => { authViewVisible.value = true })
-  }
-  if (api && api.onAuthViewClosed) {
-    api.onAuthViewClosed(() => { authViewVisible.value = false })
-  }
-  if (api && api.onAuthCompleted) {
-    api.onAuthCompleted(() => { authViewVisible.value = false })
-  }
-})
-const router = useRouter()
-
-// 侧栏平台数据
-const platformSearch = ref('')
-const activePlatform = ref(null)
-
-// 从 Store 加载多账号
-const platformAccounts = ref({})  // { platformId: [account, ...] }
-const loaded = ref(false)
-
-const platformMeta = {
-  wechat_mp: { label: '微信公众号', icon: '💬' },
-  zhihu: { label: '知乎', icon: '❓' },
-  weibo: { label: '微博', icon: '✧' },
-  douyin: { label: '抖音', icon: '🎵' },
-  xiaohongshu: { label: '小红书', icon: '📕' },
-  tencent_video: { label: '视频号', icon: '▶' },
-  kuaishou: { label: '快手', icon: '🎬' },
-  toutiao: { label: '今日头条', icon: '📰' },
-  bilibili: { label: 'B站', icon: '📺' },
-  baijiahao: { label: '百家号', icon: '📖' },
-  yidian: { label: '一点号', icon: '📋' },
-  youtube: { label: 'YouTube', icon: '▶' },
-  tiktok: { label: 'TikTok', icon: '♪' },
-  twitter: { label: 'X (Twitter)', icon: '✕' },
-}
-
-async function loadAccounts () {
-  const api = window.electronAPI
-  if (!api || !api.accountList) return
-  try {
-    const res = await api.accountList()
-    if (res.code === 0 && Array.isArray(res.data)) {
-      const grouped = {}
-      for (const acc of res.data) {
-        if (!grouped[acc.platform]) grouped[acc.platform] = []
-        grouped[acc.platform].push(acc)
-      }
-      platformAccounts.value = grouped
-    }
-    loaded.value = true
-  } catch (e) {
-    console.warn('Failed to load accounts:', e)
-    loaded.value = true
-  }
-}
-
-function getDefaultAccount (platform) {
-  const accounts = platformAccounts.value[platform]
-  if (!accounts || accounts.length === 0) return null
-  return accounts.find(a => a.is_default) || accounts[0]
-}
-
-function getAccountText (platform) {
-  const def = getDefaultAccount(platform)
-  return def ? def.name || '已登录' : '未登录'
-}
-
-function getStatusClass (platform) {
-  const def = getDefaultAccount(platform)
-  if (!def) return 'offline'
-  return def.status === 'active' || def.status === 'online' ? 'online' : 'offline'
-}
-
-function getAccountsForPlatform (platform) {
-  return platformAccounts.value[platform] || []
-}
-
-async function switchAccount (platform, accountId) {
-  const api = window.electronAPI
-  if (!api || !api.accountSetDefault) return
-  try {
-    await api.accountSetDefault(platform, accountId)
-    // 刷新列表
-    await loadAccounts()
-  } catch (e) {
-    console.warn('Failed to switch account:', e)
-  }
-}
-
-const filteredPlatforms = computed(() => {
-  const ids = Object.keys(platformMeta)
-  if (!platformSearch.value) return ids
-  const q = platformSearch.value.toLowerCase()
-  return ids.filter(id =>
-    platformMeta[id].label.toLowerCase().includes(q) || id.toLowerCase().includes(q)
-  )
-})
-
-// 更新状态 (完全保留原始)
-const showUpdateDialog = ref(false)
-const updateStatus = ref(null)
-const updateInfo = ref(null)
-const downloading = ref(false)
-const downloadPercent = ref(0)
-const downloadSpeed = ref('')
-const showNotAvailable = ref(false)
-const showError = ref(false)
-const updateError = ref('')
-let cancelUpdateListen = null
-
-function formatSpeed (bytesPerSecond) {
-  if (!bytesPerSecond) return ''
-  if (bytesPerSecond > 1024 * 1024) return (bytesPerSecond / 1024 / 1024).toFixed(1) + ' MB/s'
-  if (bytesPerSecond > 1024) return (bytesPerSecond / 1024).toFixed(1) + ' KB/s'
-  return bytesPerSecond + ' B/s'
-}
-
-function handleUpdateStatus (payload) {
-  if (!payload) return
-  updateStatus.value = payload.type
-  if (payload.type === 'available') {
-    updateInfo.value = payload.data
-    showUpdateDialog.value = true
-  } else if (payload.type === 'downloading') {
-    downloading.value = true
-    downloadPercent.value = payload.data.percent || 0
-    downloadSpeed.value = formatSpeed(payload.data.bytesPerSecond)
-  } else if (payload.type === 'downloaded') {
-    downloading.value = false
-    downloadPercent.value = 100
-    showUpdateDialog.value = true
-  } else if (payload.type === 'error') {
-    updateError.value = payload.data || '未知错误'
-    showError.value = true
-    showUpdateDialog.value = false
-    downloading.value = false
-  } else if (payload.type === 'not-available') {
-    if (!showUpdateDialog.value) showNotAvailable.value = true
-    setTimeout(() => { showNotAvailable.value = false }, 4000)
-  }
-}
-
-function handleDownload () {
-  downloading.value = true
-  updateDownload().catch(e => {
-    updateError.value = e.message || '下载失败'
-    showError.value = true
-    downloading.value = false
-  })
-}
-function handleInstall () {
-  updateInstall()
-}
-
-onMounted(() => {
+  registerAuthListeners()
+  initOfflineStatus()
   loadAccounts()
-  cancelUpdateListen = onUpdateStatus(handleUpdateStatus)
-  setTimeout(() => updateCheck(), 3000)
+  startAutoUpdate()
 
   // 全局快捷键导航
   const api = window.electronAPI
@@ -361,7 +219,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (cancelUpdateListen) cancelUpdateListen()
+  cleanupAutoUpdate()
 })
 </script>
 
