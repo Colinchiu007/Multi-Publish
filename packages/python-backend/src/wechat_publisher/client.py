@@ -5,6 +5,7 @@ Core client for interacting with WeChat Official Account API.
 """
 
 import logging
+import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,7 @@ from .exceptions import (
     WeChatAuthError,
     WeChatConfigError,
     WeChatDraftError,
+    WeChatError,
     WeChatNetworkError,
     WeChatPublishError,
     WeChatRateLimitError,
@@ -259,6 +261,14 @@ class WechatPublisher:
 
         except WeChatAPIError:
             raise
+        except WeChatError:
+            # Propagate other WeChat-specific errors (RateLimit, Auth, Network, etc.)
+            # unchanged so callers can branch on type. Without this, a
+            # WeChatRateLimitError raised inside a recursive _make_request
+            # call would be caught by the broad `except Exception` below
+            # and re-wrapped as a generic WeChatAPIError, losing the
+            # original error type.
+            raise
         except Exception as e:
             raise WeChatAPIError(f"Unexpected error: {e}") from e
 
@@ -377,8 +387,6 @@ class WechatPublisher:
         Returns:
             Path to downloaded image
         """
-        import tempfile
-
         response = self._client.get(url)
         response.raise_for_status()
 
