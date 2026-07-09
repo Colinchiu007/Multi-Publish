@@ -9,6 +9,14 @@
 - PM-PRD-v1.1.md 状态从"待 CEO 确认"→"CEO 已确认"
 - decision-log: 新增 D-031 前期流程文档补齐记录
 
+### 文档（PRD.md 乱码恢复 + v2.3.42 增量合并）
+- 恢复 `01-docs/PRD.md` mojibake 乱码（从 git 历史 `bba83b0` 干净 v2.1.2 版本检出，0 mojibake 字符）
+- 合并 v2.1.2 → v2.3.42 增量章节：§2.3 用户认证 / §3.3 并发约束 / §4.4 内容字段规范
+- 新增 §17 安全审计与质量门禁（修复要点 + QM-1~QM-3 状态 + 测试基线）
+- 新增 §18 文档体系索引（前期流程 / 子 PRD / ADR / 质量流程）
+- 版本号 v2.1.2 → v2.3.42，添加 CEO 签字 + 市场调研 + 设计评审引用
+- decision-log: 新增 D-032 PRD 乱码恢复记录
+
 ### 安全（/cso + /guard 审计修复）
 - 修复 config.yaml 硬编码 master_password / jwt_secret（CRITICAL）→ 环境变量 MASTER_PASSWORD / JWT_SECRET
 - 修复 ai-writer-api 默认 API Key "dev-key-change-me"（CRITICAL）→ 未设 AI_WRITER_API_KEY 时拒绝启动
