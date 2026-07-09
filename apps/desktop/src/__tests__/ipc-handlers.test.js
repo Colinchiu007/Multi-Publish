@@ -15,6 +15,8 @@ const ROOT = resolve(__dirname, '../..')
 const HD = resolve(ROOT, 'electron/ipc-handlers')
 const SD = resolve(ROOT, 'electron/services')
 const PP = resolve(ROOT, 'electron/preload.js')
+// Phase 3.3 拆分后，preload API 实际定义在 electron/preload/ 子目录下
+const PP_DIR = resolve(ROOT, 'electron/preload')
 
 // 已知不应暴露到 preload 的内部 handler（与 check-ipc-bridge.js 保持一致）
 const HIDDEN = new Set([
@@ -66,8 +68,32 @@ beforeAll(() => {
   }
   walkDir(ROOT + '/electron')
 
-  // Scan preload.js
-  preloadChannels = extractAll(readFileSync(PP, 'utf-8'), RE_INVOKE)
+  // Scan preload.js（拆分后为 shim，本身不含 ipcRenderer.invoke）
+  // + 扫描 electron/preload/ 子目录（Phase 3.3 拆分后的实际定义位置）
+  preloadChannels = new Set()
+  // 兼容旧路径：preload.js 若仍含 invoke 调用，一并提取
+  try {
+    extractAll(readFileSync(PP, 'utf-8'), RE_INVOKE).forEach(c => preloadChannels.add(c))
+  } catch {
+    // preload.js 不存在时跳过
+  }
+  // 扫描 preload/ 子目录下所有 .js 文件
+  try {
+    function walkPreloadDir(dir) {
+      const entries = readdirSync(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue
+        const full = resolve(dir, entry.name)
+        if (entry.isDirectory()) { walkPreloadDir(full); continue }
+        if (!entry.name.endsWith('.js')) continue
+        const content = readFileSync(full, 'utf-8')
+        extractAll(content, RE_INVOKE).forEach(c => preloadChannels.add(c))
+      }
+    }
+    walkPreloadDir(PP_DIR)
+  } catch {
+    // preload/ 目录不存在时跳过（向后兼容）
+  }
 })
 
 describe('IPC Handler Registration Completeness', () => {
