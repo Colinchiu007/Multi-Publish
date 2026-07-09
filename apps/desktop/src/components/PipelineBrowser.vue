@@ -48,7 +48,6 @@ export default {
   },
   async mounted() {
     try {
-    try {
       const { pipelineList } = await import("@/api/publisher")
       const result = await pipelineList()
       if (result?.success) {
@@ -56,11 +55,9 @@ export default {
       } else {
         this.error = result?.error || '加载失败'
       }
-      } else {
-        // Fallback for vitest/dev
-        this.pipelines = [];
-      }
     } catch (e) {
+      // Fallback for vitest/dev
+      this.pipelines = [];
       this.error = e.message;
     } finally {
       this.loading = false;
