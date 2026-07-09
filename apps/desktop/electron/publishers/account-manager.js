@@ -8,8 +8,8 @@ const path = require('path')
 const log = require('../logger')
 const playwrightManager = require('../playwright-manager')
 const pythonBridge = require('../python-bridge')
-const accountStateRestorer = require('../account-state-restorer')
-const credentialStore = require('../credential-store')
+const accountStateRestorer = require('../services/account-state-restorer')
+const credentialStore = require('../services/credential-store')
 const { PLATFORM_LOGIN_URLS, PLATFORM_NAMES, PLATFORM_LOGIN_SUCCESS_SELECTORS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
