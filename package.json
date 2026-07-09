@@ -13,9 +13,7 @@
     "check:circular": "npx madge --warning --circular apps/desktop/electron/main.js 2>&1 || echo \"WARN: circular deps found (non-blocking)\"",
     "test:platform-verify": "node scripts/verify-platform-selectors.js",
     "test:platform-verify-full": "node scripts/verify-platform-selectors.js --full",
-    "test:rpa-selectors": "cd packages/rpa-engine && npx jest tests/platform-selectors.test.js",
-    "flutter-skill": "node scripts/flutter-skill-e2e.js",
-    "flutter-skill-snapshot": "node scripts/flutter-skill-e2e.js --snapshot"
+    "test:rpa-selectors": "cd packages/rpa-engine && npx jest tests/platform-selectors.test.js"
   },
   "workspaces": [
     "apps/*",

@@ -1,1 +1,0 @@
-{"name":"flutter-skill-bridge","version":"0.1.0","description":"flutter-skill AI E2E bridge for Multi-Publish Electron app","main":"flutter-skill-electron.js","scripts":{"test":"vitest run","test:watch":"vitest"},"dependencies":{"ws":"^8.19.0"},"peerDependencies":{"electron":">=20.0.0"},"devDependencies":{"happy-dom":"^17.0.0","vitest":"^3.2.6"}}

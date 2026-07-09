@@ -27,7 +27,6 @@ function buildMockContext(overrides) {
   return Object.assign({
     hotkeys: { unregister: vi.fn() },
     pythonBridge: { stopPythonBackend: vi.fn(function () { return Promise.resolve() }) },
-    flutterSkillBridge: { stop: vi.fn() },
     webviewManager: { closeAll: vi.fn() },
     rpaViewManager: { cleanup: vi.fn() },
     keywordMonitor: { stopAll: vi.fn() },
@@ -64,12 +63,6 @@ describe('shutdown — registerShutdownHandlers', () => {
     registerShutdownHandlers(context)
     await __electronMock.app._handlers['window-all-closed']()
     expect(context.pythonBridge.stopPythonBackend).toHaveBeenCalledTimes(1)
-  })
-
-  it('触发回调调用 flutterSkillBridge.stop', async () => {
-    registerShutdownHandlers(context)
-    await __electronMock.app._handlers['window-all-closed']()
-    expect(context.flutterSkillBridge.stop).toHaveBeenCalledTimes(1)
   })
 
   it('触发回调调用 webviewManager.closeAll', async () => {

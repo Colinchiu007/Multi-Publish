@@ -14,7 +14,7 @@ const log = require('./services/logger')
  */
 function registerShutdownHandlers(context) {
   const {
-    hotkeys, pythonBridge, flutterSkillBridge,
+    hotkeys, pythonBridge,
     webviewManager, rpaViewManager, keywordMonitor,
     callbackServer, store,
   } = context
@@ -23,7 +23,6 @@ function registerShutdownHandlers(context) {
   app.on('window-all-closed', async () => {
     hotkeys.unregister()
     try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
-    flutterSkillBridge.stop()
     if (global.usageTracker) { global.usageTracker.save() }
     webviewManager.closeAll()
     rpaViewManager.cleanup()

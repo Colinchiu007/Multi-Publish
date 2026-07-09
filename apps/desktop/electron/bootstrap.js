@@ -23,7 +23,6 @@ const BatchManager = require('./services/batch-manager')
 const _CloudPublisherModule = require('./services/cloud-publisher')
 const CloudPublisher = _CloudPublisherModule.default || _CloudPublisherModule
 const { createContainer } = require('./core/container.setup')
-const flutterSkillBridge = require('./services/flutter-skill-bridge')
 
 // ─── Helper ────────────────────────────────────────────────
 function getMainWin() { return require('electron').BrowserWindow.getAllWindows()[0] }
@@ -218,7 +217,7 @@ function createAppContext() {
     renderEngine, compositionManager, aiGenerator, videoEngine,
     pipelineEngine, _chunkedUploader, _platformConfig,
     _sensitiveFilter, _dataSync, BACKEND_PLATFORMS,
-    flutterSkillBridge, CloudPublisher,
+    CloudPublisher,
     // 额外暴露：runWhenReady 需要
     _aggregatorBridge, publisherRouter, _PublishAlert,
   }
@@ -233,7 +232,7 @@ function runWhenReady(context, deps) {
   const createWindow = deps.createWindow
   const {
     container, store, taskQueue, callbackServer, scheduler,
-    keywordMonitor, analyticsService, pythonBridge, flutterSkillBridge,
+    keywordMonitor, analyticsService, pythonBridge,
     renderEngine, history, autoUpdater, hotkeys, firstRun,
     AccountManager, _platformConfig, _sensitiveFilter, _dataSync,
     proxyPool, _chunkedUploader, BACKEND_PLATFORMS, templateManager,
@@ -250,8 +249,6 @@ function runWhenReady(context, deps) {
   app.whenReady().then(async () => {
     try { await pythonBridge.startPythonBackend() }
     catch (e) { log.error('App', 'Failed to start Python backend:', e.message) }
-
-    flutterSkillBridge.start(mainWindow)
 
     // 启动使用量统计
     const usageTracker = container.get('usageTracker')

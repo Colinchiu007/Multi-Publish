@@ -62,7 +62,6 @@ const mockKeywordMonitor = {
 }
 const mockAnalyticsService = { registerProvider: vi.fn() }
 const mockPythonBridge = { startPythonBackend: vi.fn(), stopPythonBackend: vi.fn() }
-const mockFlutterSkillBridge = { start: vi.fn(), stop: vi.fn() }
 const mockSystemTray = { registerIpcHandlers: vi.fn(), init: vi.fn() }
 const mockHotkeys = { register: vi.fn(), unregister: vi.fn() }
 const mockAutoUpdater = { init: vi.fn() }
@@ -137,7 +136,6 @@ __registerMock('./services/auto-updater', mockAutoUpdater)
 __registerMock('./services/first-run', mockFirstRun)
 __registerMock('./services/batch-manager', mockBatchManager)
 __registerMock('./services/cloud-publisher', { default: mockCloudPublisher, __esModule: true })
-__registerMock('./services/flutter-skill-bridge', mockFlutterSkillBridge)
 __registerMock('./services/license-manager', mockLicenseManager)
 __registerMock('./services/publish-alert', {})
 __registerMock('./services/offline-manager', mockOfflineManager)
@@ -218,10 +216,6 @@ describe('bootstrap — createAppContext', () => {
 
   it('context 包含 pythonBridge', () => {
     expect(context.pythonBridge).toBe(mockPythonBridge)
-  })
-
-  it('context 包含 flutterSkillBridge', () => {
-    expect(context.flutterSkillBridge).toBe(mockFlutterSkillBridge)
   })
 
   it('context 包含 scheduler', () => {
@@ -379,13 +373,6 @@ describe('bootstrap — runWhenReady', () => {
     await runWhenReady(context, { createWindow: vi.fn() })
     await new Promise(function (r) { setTimeout(r, 50) })
     expect(mockPythonBridge.startPythonBackend).toHaveBeenCalledTimes(1)
-  })
-
-  it('runWhenReady 调用 flutterSkillBridge.start', async () => {
-    const context = createAppContext()
-    await runWhenReady(context, { createWindow: vi.fn() })
-    await new Promise(function (r) { setTimeout(r, 50) })
-    expect(mockFlutterSkillBridge.start).toHaveBeenCalledTimes(1)
   })
 
   it('runWhenReady 调用 store.init', async () => {
