@@ -31,6 +31,9 @@ from multi_publish.video_creation.character.character_animation_utils import (
     _slug,
     _write_json,
 )
+from multi_publish.video_creation.character.action_timeline_compiler import (
+    compile_action_timeline as _module_compile_action_timeline,
+)
 
 
 class CharacterSpecGenerator(BaseTool):
@@ -320,61 +323,12 @@ class ActionTimelineCompiler(BaseTool):
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         start = time.time()
         character_ids = inputs.get("character_ids") or ["main_character"]
-        scenes = []
-        for scene in inputs["scene_plan"].get("scenes", []):
-            start_s = scene.get("start_seconds", 0)
-            end_s = scene.get("end_seconds", start_s + 3)
-            duration = max(0.1, end_s - start_s)
-            actions = []
-            for index, character_id in enumerate(character_ids):
-                offset = min(duration * 0.08 * index, duration * 0.2)
-                is_primary = index == 0
-                actions.extend(
-                    [
-                        {
-                            "at_seconds": start_s + offset,
-                            "duration_seconds": min(0.5, duration / 4),
-                            "character_id": character_id,
-                            "action": "anticipate" if is_primary else "react",
-                            "pose": "idle",
-                            "easing": "power2.out",
-                        },
-                        {
-                            "at_seconds": start_s + duration * 0.25 + offset,
-                            "duration_seconds": duration * 0.35,
-                            "character_id": character_id,
-                            "action": "perform" if is_primary else "follow",
-                            "pose": ("surprised" if scene.get("hero_moment") or not is_primary else "look_right"),
-                            "easing": "back.out",
-                            "notes": scene.get("description", ""),
-                        },
-                        {
-                            "at_seconds": start_s + duration * 0.7 + offset,
-                            "duration_seconds": duration * 0.25,
-                            "character_id": character_id,
-                            "action": "settle",
-                            "pose": "idle",
-                            "easing": "power2.inOut",
-                        },
-                    ]
-                )
-            scenes.append(
-                {
-                    "scene_id": scene["id"],
-                    "start_seconds": start_s,
-                    "end_seconds": end_s,
-                    "camera": {"framing": scene.get("framing", "medium")},
-                    "background": scene.get("description", ""),
-                    "effects": [],
-                    "actions": actions,
-                }
-            )
-        artifact = {
-            "version": "1.0",
-            "fps": inputs.get("fps", 30),
-            "scenes": scenes,
-            "metadata": {"source": self.name},
-        }
+        artifact = _module_compile_action_timeline(
+            scene_plan=inputs["scene_plan"],
+            character_ids=character_ids,
+            fps=inputs.get("fps", 30),
+            tool_name=self.name,
+        )
         artifacts = _write_json(inputs.get("output_path"), artifact)
         return ToolResult(
             success=True,
