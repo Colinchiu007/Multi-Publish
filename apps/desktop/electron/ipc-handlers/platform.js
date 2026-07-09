@@ -22,6 +22,13 @@ function registerHandlers(ipcMain, deps) {
   // 统一平台元数据（单一数据源）
   ipcMain.handle('platform:definitions', async () => {
     try {
+      // PRD F9: 附带 content_category 映射（从 platformConfig 提取）
+      let contentCategories = {}
+      if (_platformConfig) {
+        for (const p of _platformConfig.listPlatforms()) {
+          if (p.content_category) contentCategories[p.id] = p.content_category
+        }
+      }
       return {
         code: 0,
         data: {
@@ -31,6 +38,7 @@ function registerHandlers(ipcMain, deps) {
           dashboardUrls: definitions.PLATFORM_DASHBOARD_URLS,
           successPatterns: definitions.PLATFORM_LOGIN_SUCCESS_PATTERNS,
           qrCodePlatforms: definitions.QR_CODE_PLATFORMS,
+          content_categories: contentCategories,  // PRD F9
         },
       }
     } catch (e) { return { code: -1, message: e.message } }

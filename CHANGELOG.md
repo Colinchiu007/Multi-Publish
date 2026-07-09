@@ -1,5 +1,42 @@
 ﻿# CHANGELOG
 
+## [v2.3.43] - 2026-07-09
+
+### PRD 功能验证修复 — 10 项缺失补齐 + 1 bug 修复
+
+**验证背景**：对照 PRD 93 个子功能验证代码实现，发现 10 项未实现 + 1 个运行时 bug，本次全部修复。
+
+#### 🔴 P0 Bug 修复
+- **F2.4 定时发布崩溃**：`scheduler.js` 调用 `_taskQueue.addTask()`（不存在）→ 改为 `add()`，定时器触发时不再抛 TypeError
+
+#### 🟠 P1 功能补齐（5 项）
+- **F1.3 登录状态定期检测**：新增 [login-status-monitor.js](apps/desktop/electron/services/login-status-monitor.js)，每 30 分钟遍历 accounts 检测 Cookie 过期，过期账号标记为 'expired' 并通知前端
+- **F9 平台分类（4 项全缺，最严重）**：
+  - [platform-config.js](packages/shared-utils/src/platform-config.js)：新增 `PlatformCategory` 枚举（VIDEO/IMAGE_TEXT/MIXED）+ `getContentCategory` / `getPlatformsByContentCategory` / `getContentCategories` 方法
+  - [platforms.yaml](config/platforms.yaml)：15 平台全部添加 `content_category` 字段
+  - [platform store](apps/desktop/src/stores/platforms.js)：前端暴露 `getContentCategory` / `getPlatformsByContentCategory`
+  - [platform IPC](apps/desktop/electron/ipc-handlers/platform.js)：`platform:definitions` 返回 `content_categories` 映射
+- **F8.5 JSONL→SQLite 数据迁移**：[store.js](apps/desktop/electron/services/store.js) 新增 `migrateFromJsonl({accounts, scheduledTasks, publishHistory})` 方法，支持从旧 JSONL 文件迁移到 SQLite
+
+#### 🟡 P2 功能补齐（2 项）
+- **F10.8 CDP/JS 双文件上传**：[rpa-view-manager.js](apps/desktop/electron/services/rpa-view-manager.js) CDP 失败时回退到 JS File API / DataTransfer（读取文件为 base64 → 构造 File → dispatch change），含 `_guessMimeType` 辅助函数
+- **F16.3 beforePublish/afterPublish 钩子**：[plugin-loader.js](packages/api-publish-engine/src/plugin-loader.js) 新增 `runBeforePublish(platform, ctx)` / `runAfterPublish(platform, ctx)` 方法，beforePublish 可拒绝/修改发布
+
+#### 🟢 P3 PRD 文档对齐
+- F6.3 TTS：7→5 提供商（实际实现 5 个：ElevenLabs/OpenAI/豆包/Google/Piper）
+- F15.3 支付：标注"当前为模拟模式，真实 SDK 预留接口"
+- F17.3 调度：标注"setTimeout 单次定时（非 cron）"
+- F1.3/F8.5/F9/F10.8/F16.3 状态更新为 "✅ v2.3.43"
+
+#### 附加修复
+- **bootstrap.js 硬编码 IP**：cloudPublisher 的 orchestratorUrl 默认值从 `https://39.105.42.85` 改为空字符串（修复 v2.3.42 遗漏的 1 处）
+
+### 文档
+- PRD.md: 7 处功能状态对齐（F1.3/F6.3/F8.5/F9/F10.8/F15.3/F16.3/F17.3）
+- decision-log: D-033 PRD 功能验证修复记录
+- learnings.md: PRD 功能验证复盘
+
+
 ## [v2.3.42] - 2026-07-09
 
 ### 文档（前期流程 8 阶段补齐）

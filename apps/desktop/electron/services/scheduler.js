@@ -53,7 +53,7 @@ function scheduleTimer (entry) {
 
   _timers[entry.id] = setTimeout(async () => {
     if (_taskQueue) {
-      _taskQueue.addTask({ platform: entry.platform, article: entry.article })
+      _taskQueue.add({ platform: entry.platform, article: entry.article })
       updateStatus(entry.id, 'executed')
     }
     delete _timers[entry.id]

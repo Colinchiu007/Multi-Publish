@@ -21,6 +21,19 @@ let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
 const mediaId = null
 
+// PRD F10.8: 文件 MIME 类型推断（JS File API 回退用）
+function _guessMimeType (fileName) {
+  const ext = (fileName.split('.').pop() || '').toLowerCase()
+  const map = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+    webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
+    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo',
+    mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4',
+    pdf: 'application/pdf', txt: 'text/plain', json: 'application/json',
+  }
+  return map[ext] || 'application/octet-stream'
+}
+
 class RpaViewManager {
   constructor() {
     this.mainWindow = null; this.windows = {}; this._nextId = 1
@@ -319,7 +332,38 @@ class RpaViewManager {
       await dbg.sendCommand('DOM.setFileInputFiles',{files:[path.resolve(filePath)],nodeId:nd.nodeId||nd})
       log.info('RpaView','CDP file: '+path.basename(filePath)); return true
     // eslint-disable-next-line no-unused-vars
+    } catch (cdpErr) {
+      // PRD F10.8: CDP 失败时回退到 JS File API / DataTransfer
+      log.warn('RpaView', 'CDP upload failed, fallback to JS File API: ' + cdpErr.message)
+      try { await dbg.detach() } catch (e) { /* ignore */ }
+      return await this._setFileInputViaJs(win, filePath)
     } finally { try { await dbg.detach() } catch (e) { /* ignore */ } }
+  }
+
+  // PRD F10.8: JS File API 回退 — 读取文件为 Buffer，通过 DataTransfer 构造 File 并 dispatch change
+  async _setFileInputViaJs(win, filePath) {
+    const fsSync = require('fs')
+    const buf = fsSync.readFileSync(filePath)
+    const base64 = buf.toString('base64')
+    const fileName = path.basename(filePath)
+    const mimeType = _guessMimeType(fileName)
+    // 在渲染进程内构造 File 并触发 input.change
+    const js = '(function(){' +
+      'var b64=' + JSON.stringify(base64) + ';' +
+      'var name=' + JSON.stringify(fileName) + ';' +
+      'var mime=' + JSON.stringify(mimeType) + ';' +
+      'var bin=atob(b64);var n=bin.length;var bytes=new Uint8Array(n);' +
+      'for(var i=0;i<n;i++)bytes[i]=bin.charCodeAt(i);' +
+      'var file=new File([bytes],name,{type:mime});' +
+      'var input=document.querySelector(\'input[type="file"]\');' +
+      'if(!input)throw new Error("No file input found (JS fallback)");' +
+      'var dt=new DataTransfer();dt.items.add(file);input.files=dt.files;' +
+      'input.dispatchEvent(new Event("change",{bubbles:true}));' +
+      'input.dispatchEvent(new Event("input",{bubbles:true}));' +
+      'return true})()'
+    await win.webContents.executeJavaScript(js)
+    log.info('RpaView', 'JS File API fallback: ' + fileName)
+    return true
   }
 
   // ========== Network response monitor ==========

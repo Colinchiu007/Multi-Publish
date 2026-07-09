@@ -10,6 +10,7 @@ export const usePlatformStore = defineStore('platforms', () => {
   const platforms = ref([])
   const names = ref({})
   const icons = ref({})
+  const contentCategories = ref({})  // PRD F9: { platformId -> 'VIDEO'|'IMAGE_TEXT'|'MIXED' }
   const loaded = ref(false)
   const loading = ref(false)
 
@@ -19,6 +20,13 @@ export const usePlatformStore = defineStore('platforms', () => {
     xiaohongshu: '📕', tencent_video: '▶', kuaishou: '🎬', toutiao: '📰',
     bilibili: '📺', baijiahao: '📖', youtube: '▶', tiktok: '♪',
     twitter: '✕', instagram: '📷', facebook: '👍',
+  }
+
+  // PRD F9 PlatformCategory 默认映射（与 config/platforms.yaml 一致）
+  const DEFAULT_CONTENT_CATEGORIES = {
+    wechat_mp: 'IMAGE_TEXT', zhihu: 'IMAGE_TEXT', baijiahao: 'IMAGE_TEXT', instagram: 'IMAGE_TEXT',
+    douyin: 'VIDEO', tencent_video: 'VIDEO', kuaishou: 'VIDEO', youtube: 'VIDEO', tiktok: 'VIDEO', bilibili: 'VIDEO',
+    weibo: 'MIXED', xiaohongshu: 'MIXED', toutiao: 'MIXED', twitter: 'MIXED', facebook: 'MIXED',
   }
 
   const DEFAULT_PLATFORMS = [
@@ -46,9 +54,10 @@ export const usePlatformStore = defineStore('platforms', () => {
     try {
       const res = await window.electronAPI.getPlatformDefinitions()
       if (res && res.code === 0 && res.data) {
-        const { names: nameMap, icons: iconMap } = res.data
+        const { names: nameMap, icons: iconMap, content_categories: catMap } = res.data
         names.value = nameMap || {}
         icons.value = iconMap || {}
+        contentCategories.value = catMap || {}
         platforms.value = Object.entries(nameMap || {}).map(([id, label]) => ({ id, label }))
         loaded.value = true
       } else {
@@ -66,6 +75,7 @@ export const usePlatformStore = defineStore('platforms', () => {
     platforms.value = DEFAULT_PLATFORMS
     names.value = Object.fromEntries(DEFAULT_PLATFORMS.map(p => [p.id, p.label]))
     icons.value = DEFAULT_ICONS
+    contentCategories.value = { ...DEFAULT_CONTENT_CATEGORIES }
     loaded.value = true
   }
 
@@ -77,5 +87,15 @@ export const usePlatformStore = defineStore('platforms', () => {
     return icons.value[id] || ''
   }
 
-  return { platforms, names, icons, loaded, loading, load, getLabel, getIcon }
+  // PRD F9: 获取平台内容类型分类
+  function getContentCategory(id) {
+    return contentCategories.value[id] || DEFAULT_CONTENT_CATEGORIES[id] || null
+  }
+
+  // PRD F9: 按内容类型分类获取平台列表
+  function getPlatformsByContentCategory(category) {
+    return platforms.value.filter(p => getContentCategory(p.id) === category)
+  }
+
+  return { platforms, names, icons, contentCategories, loaded, loading, load, getLabel, getIcon, getContentCategory, getPlatformsByContentCategory }
 })

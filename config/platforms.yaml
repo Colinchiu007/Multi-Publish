@@ -1,6 +1,11 @@
 # 多平台发布 — 平台配置
 # 参考融媒宝 data/media_url_list.txt 设计
 # 新增平台只需在这里加一段配置
+#
+# 字段说明:
+#   type              — 旧字段（article/mixed），保留兼容
+#   category          — 语言分类（中文/海外）
+#   content_category  — 内容类型分类（VIDEO/IMAGE_TEXT/MIXED），对应 PRD F9 PlatformCategory
 
 platforms:
   wechat_mp:
@@ -9,6 +14,7 @@ platforms:
     type: article
     icon: 💬
     category: 中文
+    content_category: IMAGE_TEXT
     publish_url: ""
     data_url: "https://mp.weixin.qq.com/cgi-bin/message"
     comment_url: "https://mp.weixin.qq.com/misc/appmsgcomment"
@@ -23,6 +29,7 @@ platforms:
     type: article
     icon: ❓
     category: 中文
+    content_category: IMAGE_TEXT
     publish_url: "https://zhuanlan.zhihu.com/write"
     data_url: ""
     comment_url: ""
@@ -33,9 +40,19 @@ platforms:
 
   weibo:
     has_api: true
+    name: 微博
+    type: mixed
+    icon: 🔥
+    category: 中文
+    content_category: MIXED
 
   douyin:
     has_api: true
+    name: 抖音
+    type: mixed
+    icon: 🎵
+    category: 中文
+    content_category: VIDEO
 
   xiaohongshu:
     id: 51
@@ -43,6 +60,7 @@ platforms:
     type: mixed
     icon: 📕
     category: 中文
+    content_category: MIXED
     publish_url: "https://creator.xiaohongshu.com/"
     data_url: "https://creator.xiaohongshu.com/creator/data-center"
     comment_url: "https://creator.xiaohongshu.com/creator/comment"
@@ -57,6 +75,7 @@ platforms:
     type: mixed
     icon: ▶
     category: 中文
+    content_category: VIDEO
     publish_url: "https://channels.weixin.qq.com/"
     data_url: ""
     comment_url: ""
@@ -71,6 +90,7 @@ platforms:
     type: mixed
     icon: 🎬
     category: 中文
+    content_category: VIDEO
     publish_url: "https://cp.kuaishou.com/"
     data_url: ""
     comment_url: ""
@@ -85,6 +105,7 @@ platforms:
     type: mixed
     icon: 📰
     category: 中文
+    content_category: MIXED
     publish_url: "https://mp.toutiao.com/"
     data_url: "https://mp.toutiao.com/profile_v4/analysis/works-overall/all"
     comment_url: "https://mp.toutiao.com/profile_v4/manage/comment/all"
@@ -95,12 +116,27 @@ platforms:
 
   youtube:
     has_api: true
+    name: YouTube
+    type: mixed
+    icon: 📺
+    category: 海外
+    content_category: VIDEO
 
   tiktok:
     has_api: true
+    name: TikTok
+    type: mixed
+    icon: 🎤
+    category: 海外
+    content_category: VIDEO
 
   bilibili:
     has_api: true
+    name: 哔哩哔哩
+    type: mixed
+    icon: 📺
+    category: 中文
+    content_category: VIDEO
 
   baijiahao:
     id: 4
@@ -108,6 +144,7 @@ platforms:
     type: article
     icon: 📖
     category: 中文
+    content_category: IMAGE_TEXT
     publish_url: "https://baijiahao.baidu.com/"
     data_url: ""
     comment_url: ""
@@ -117,6 +154,11 @@ platforms:
     has_api: false
   twitter:
     has_api: true
+    name: Twitter
+    type: mixed
+    icon: 🐦
+    category: 海外
+    content_category: MIXED
 
   instagram:
     id: 103
@@ -124,6 +166,7 @@ platforms:
     type: mixed
     icon: 📷
     category: 海外
+    content_category: IMAGE_TEXT
     publish_url: "https://www.instagram.com/"
     data_url: ""
     comment_url: ""
@@ -138,6 +181,7 @@ platforms:
     type: mixed
     icon: 👍
     category: 海外
+    content_category: MIXED
     publish_url: "https://www.facebook.com/"
     data_url: ""
     comment_url: ""

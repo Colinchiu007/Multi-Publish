@@ -113,7 +113,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 |--------|------|------|
 | 添加平台 | 选择平台类型，打开浏览器窗口完成登录 | ✅ |
 | Cookie 加密 | 所有 Cookie AES-256-GCM 加密存储 | ✅ |
-| 登录状态检测 | 定期检测 Cookie 是否过期，支持一键重新登录 | ✅ |
+| 登录状态检测 | 每 30 分钟定期检测 Cookie 是否过期（login-status-monitor，v2.3.43），支持一键重新登录 | ✅ v2.3.43 |
 | 多账号支持 | **同平台管理多个账号**，侧栏下拉切换，发布时选账号 | ✅ |
 | 默认账号 | 每个平台可设默认账号，发布时自动使用 | ✅ |
 | 扫码登录 | 微信生态平台二维码自动检测+扫码登录（img/canvas 策略） | ✅ |
@@ -176,7 +176,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 |--------|------|------|
 | AI 视频生成 | 15+ 提供商：Hunyuan/Kling/Runway/VEO/WAN/CogVideo/MiniMax/Grok/HeyGen 等 | ✅ Phase 1-3 |
 | AI 图像生成 | 14 提供商：Flux/DALL-E/Grok/Imagen/Recraft/Pixabay/Pexels/本地扩散 | ✅ Phase 1-3 |
-| 语音合成 TTS | 7 提供商：ElevenLabs/OpenAI/豆包/Google/Piper | ✅ Phase 1-3 |
+| 语音合成 TTS | 5 提供商：ElevenLabs/OpenAI/豆包/Google/Piper（原 PRD 称 7 个，实际实现 5 个） | ✅ Phase 1-3（5/7） |
 | 音乐生成 | 5 种：Suno/Pixabay/Freesound/音乐库/生成器 | ✅ Phase 1-3 |
 | 视频分析 | 场景检测/人脸跟踪/帧采样/转写/视频理解 | ✅ Phase 4 |
 | 绿幕合成/增强 | 绿幕处理/字幕生成/屏幕录制/人脸修复 | ✅ Phase 5 |
@@ -233,7 +233,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 |--------|------|------|
 | 许可证管理 | 离线验证 + 限时试用 | ✅ |
 | 功能门禁 | Pro 功能按 license 解锁 | ✅ |
-| 支付集成 | 支付宝/微信支付 | ✅ |
+| 支付集成 | 支付宝/微信支付（当前为模拟模式，真实 SDK 预留接口） | ✅ 模拟模式 |
 
 #### F16：插件系统（v2.0.0）
 
@@ -241,7 +241,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 |--------|------|------|
 | 插件 manifest | 声明式配置 | ✅ |
 | 动态加载 | 运行时热加载 | ✅ |
-| 生命周期钩子 | beforePublish/afterPublish | ✅ |
+| 生命周期钩子 | beforePublish/afterPublish + onLoad/onEnable/onDisable/onUnload | ✅ v2.3.43 |
 
 #### F17：日历与计划（v2.0.0）
 
@@ -249,7 +249,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 |--------|------|------|
 | 发布日历 | 日历视图展示计划 | ✅ |
 | 内容收藏 | 草稿/模板管理 | ✅ |
-| 定时调度 | cron + 持久化队列 | ✅ |
+| 定时调度 | setTimeout 单次定时 + 持久化队列（非 cron，重启恢复） | ✅ setTimeout 模式 |
 
 #### F8：系统功能
 
@@ -259,17 +259,17 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | 全局快捷键 | 6组快捷键：发布/监控/看板/采集/首页/退出 | ✅ |
 | 自动更新 | 启动检测 GitHub Release，后台下载静默安装 | ✅ |
 | 首次运行引导 | 自动检测 Python 依赖 | ✅ |
-| 数据迁移 | JSONL → SQLite 迁移 | ✅ |
+| 数据迁移 | JSONL → SQLite 迁移（migrateFromJsonl，v2.3.43 实现） | ✅ v2.3.43 |
 | 静默登录验证 | 隐藏 BrowserWindow 后台验证 Cookie 有效性（loginSilent） | ✅ |
 
-#### F9：平台分类（v1.2.0）
+#### F9：平台分类（v1.2.0, v2.3.43 完整实现）
 
 | 子功能 | 描述 | 状态 |
 |--------|------|------|
-| 平台分类枚举 | `PlatformCategory`：VIDEO / IMAGE_TEXT / MIXED | ✅ |
-| 分类映射 | 14 平台自动归类到三类（抖音/快手/视频号/B站/YouTube/TikTok=video） | ✅ |
-| API 透传 | `/api/platforms` 返回 category 字段 | ✅ |
-| 前端显示 | 平台列表按分类分组展示 | ✅ |
+| 平台分类枚举 | `PlatformCategory`：VIDEO / IMAGE_TEXT / MIXED（v2.3.43） | ✅ v2.3.43 |
+| 分类映射 | 15 平台自动归类到三类（抖音/快手/视频号/B站/YouTube/TikTok=VIDEO） | ✅ v2.3.43 |
+| API 透传 | `/api/platforms` + `platform:definitions` IPC 返回 content_categories 字段 | ✅ v2.3.43 |
+| 前端显示 | platform store 暴露 getContentCategory / getPlatformsByContentCategory | ✅ v2.3.43 |
 
 #### F10：Electron 原生 RPA 引擎（v1.2.0）
 
@@ -282,7 +282,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | Playwright → RpaViewManager 全量迁移 | 15 平台从 Playwright 统一迁移到 RpaViewManager | ✅ |
 | 每账号 Session 隔离 | `session.fromPartition()` 独立 Cookie 分区 | ✅ |
 | 进度事件上报 | IPC rpa:progress → 前端实时展示 | ✅ |
-| CDP/JS 双文件上传 | 大文件走 CDP，小文件走 JS File API | ✅ |
+| CDP/JS 双文件上传 | 大文件走 CDP，CDP 失败回退 JS File API / DataTransfer（v2.3.43） | ✅ v2.3.43 |
 
 
 #### F1a：内容编辑字段规范

@@ -14,6 +14,17 @@
 const fs = require('fs')
 const path = require('path')
 
+/**
+ * 平台内容类型分类枚举（PRD F9 PlatformCategory）
+ * @readonly
+ * @enum {string}
+ */
+const PlatformCategory = Object.freeze({
+  VIDEO: 'VIDEO',
+  IMAGE_TEXT: 'IMAGE_TEXT',
+  MIXED: 'MIXED'
+})
+
 class PlatformConfig {
   /**
    * @param {string} configPath - 配置文件路径
@@ -149,6 +160,39 @@ class PlatformConfig {
   getPlatformsByCategory (category) {
     return this.listPlatforms().filter(p => p.category === category)
   }
+
+  /**
+   * 获取平台内容类型分类（PRD F9 PlatformCategory）
+   * @param {string} platform
+   * @returns {string|null} VIDEO | IMAGE_TEXT | MIXED
+   */
+  getContentCategory (platform) {
+    const p = this.getPlatform(platform)
+    return p ? (p.content_category || null) : null
+  }
+
+  /**
+   * 按内容类型分类获取平台列表（PRD F9）
+   * @param {string} contentCategory - VIDEO | IMAGE_TEXT | MIXED
+   * @returns {Array<object>}
+   */
+  getPlatformsByContentCategory (contentCategory) {
+    return this.listPlatforms().filter(p => p.content_category === contentCategory)
+  }
+
+  /**
+   * 获取所有内容类型分类（PRD F9）
+   * @returns {Array<string>}
+   */
+  getContentCategories () {
+    const cats = new Set()
+    for (const p of this._platforms.values()) {
+      if (p.content_category) cats.add(p.content_category)
+    }
+    return Array.from(cats)
+  }
 }
+
+PlatformConfig.PlatformCategory = PlatformCategory
 
 module.exports = PlatformConfig

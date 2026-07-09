@@ -373,6 +373,73 @@ class Store {
       this._ready = false
     }
   }
+
+  /**
+   * PRD F8.5: 从 JSONL 文件迁移数据到 SQLite
+   * @param {object} paths - { accounts, scheduledTasks, publishHistory } JSONL 文件路径
+   * @returns {Promise<{accounts:number, scheduledTasks:number, publishHistory:number}>}
+   */
+  async migrateFromJsonl (paths) {
+    if (!this._ready) throw new Error('Store not ready')
+    if (!paths || typeof paths !== 'object') throw new Error('paths required')
+
+    const fs = require('fs')
+    const result = { accounts: 0, scheduledTasks: 0, publishHistory: 0 }
+
+    // accounts.jsonl
+    if (paths.accounts && fs.existsSync(paths.accounts)) {
+      const lines = fs.readFileSync(paths.accounts, 'utf-8').trim().split('\n').filter(Boolean)
+      for (const line of lines) {
+        try {
+          const a = JSON.parse(line)
+          // 跳过已存在的（platform + account_name 唯一）
+          const existing = this.db.prepare('SELECT id FROM accounts WHERE platform = ? AND account_name = ?').get(a.platform, a.account_name || '')
+          if (!existing) {
+            this.addAccount({
+              platform: a.platform,
+              account_name: a.account_name || '',
+              name: a.name || '',
+              avatar: a.avatar || '',
+              cookies: JSON.stringify(a.cookies || []),
+              localStorage: JSON.stringify(a.localStorage || {}),
+              status: a.status || 'active',
+              is_default: a.is_default ? 1 : 0,
+            })
+            result.accounts++
+          }
+        } catch (e) { log.warn('Store', 'migrate account skip: ' + e.message) }
+      }
+    }
+
+    // scheduled-tasks.jsonl → scheduled_tasks 表
+    if (paths.scheduledTasks && fs.existsSync(paths.scheduledTasks)) {
+      const lines = fs.readFileSync(paths.scheduledTasks, 'utf-8').trim().split('\n').filter(Boolean)
+      for (const line of lines) {
+        try {
+          const t = JSON.parse(line)
+          this.db.prepare('INSERT OR IGNORE INTO scheduled_tasks (platform, article, publish_time, status) VALUES (?, ?, ?, ?)')
+            .run(t.platform, JSON.stringify(t.article || {}), t.publishTime || '', t.status || 'pending')
+          result.scheduledTasks++
+        } catch (e) { log.warn('Store', 'migrate scheduled_task skip: ' + e.message) }
+      }
+    }
+
+    // publish-history.jsonl → publish_history 表
+    if (paths.publishHistory && fs.existsSync(paths.publishHistory)) {
+      const lines = fs.readFileSync(paths.publishHistory, 'utf-8').trim().split('\n').filter(Boolean)
+      for (const line of lines) {
+        try {
+          const h = JSON.parse(line)
+          this.db.prepare('INSERT OR IGNORE INTO publish_history (platform, title, content, status, result) VALUES (?, ?, ?, ?, ?)')
+            .run(h.platform || '', h.title || '', h.content || '', h.status || '', h.result || '')
+          result.publishHistory++
+        } catch (e) { log.warn('Store', 'migrate publish_history skip: ' + e.message) }
+      }
+    }
+
+    log.info('Store', 'JSONL → SQLite 迁移完成: ' + JSON.stringify(result))
+    return result
+  }
 }
 
 module.exports = Store

@@ -317,6 +317,22 @@ function runWhenReady(context, deps) {
       }
     }, 5 * 60 * 1000)
 
+    // PRD F1.3: 登录状态定期检测 — 每 30 分钟检测账号 Cookie 是否过期
+    try {
+      const { createLoginStatusMonitor } = require('./services/login-status-monitor')
+      const accountManager = require('./publishers/account-manager')
+      const loginMonitor = createLoginStatusMonitor({
+        store: store,
+        accountManager: accountManager,
+        intervalMs: 30 * 60 * 1000,
+        getMainWin: getMainWin,
+      })
+      loginMonitor.start()
+      log.info('App', 'Login status monitor started (F1.3, 30min interval)')
+    } catch (e) {
+      log.warn('App', 'Login status monitor failed to start: ' + e.message)
+    }
+
     // Analytics 提供者注册
     try {
       const { xiaohongshuProvider, douyinProvider } = require('./services/analytics-providers')
@@ -329,7 +345,7 @@ function runWhenReady(context, deps) {
 
     // 云端发布
     const cloudPublisher = new CloudPublisher({
-      orchestratorUrl: process.env.ORCHESTRATOR_URL || 'https://39.105.42.85',
+      orchestratorUrl: process.env.ORCHESTRATOR_URL || '',
       store,
     })
     cloudPublisher.registerIpcHandlers()

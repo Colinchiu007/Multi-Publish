@@ -12,6 +12,8 @@
  *     async publish(postData, cookie)         // optional
  *     async publishViaApi(postData, config)   // optional
  *     async validate()         // optional
+ *     async beforePublish(ctx) // optional (PRD F16.3) — 返回 {proceed:false,reason} 拒绝；返回 {article} 修改
+ *     async afterPublish(ctx)  // optional (PRD F16.3) — 发布完成后调用，ctx={article,account,result,success}
  *   }
  *
  * manifest.json:
@@ -140,6 +142,50 @@ class PluginLoader {
   }
 
   get(platform) { return this._plugins.get(platform) || null; }
+
+  /**
+   * PRD F16.3: 发布前置钩子 — 在执行发布前调用，可修改/拒绝发布
+   * @param {string} platform - 目标平台
+   * @param {object} ctx - { article, account, config } 发布上下文
+   * @returns {Promise<{proceed: boolean, article?: object, reason?: string}>}
+   *   - proceed=false 时中止发布，reason 给出原因
+   *   - 返回 article 时用修改后的 article 替换原 article
+   */
+  async runBeforePublish(platform, ctx) {
+    const inst = this._plugins.get(platform);
+    if (!inst || this._disabled.has(platform)) return { proceed: true };
+    if (typeof inst.beforePublish !== "function") return { proceed: true };
+    try {
+      const result = await inst.beforePublish(ctx || {});
+      if (result === false) return { proceed: false, reason: "Plugin beforePublish returned false" };
+      if (result && typeof result === "object" && result.proceed === false) {
+        return { proceed: false, reason: result.reason || "Plugin beforePublish rejected" };
+      }
+      // 返回 article 或返回 true/undefined → 继续，可能用返回的 article
+      const article = (result && result.article) || (typeof result === "object" ? result.article : undefined);
+      return { proceed: true, article: article };
+    } catch (e) {
+      console.warn("[PluginLoader] beforePublish error for " + platform + ": " + e.message);
+      return { proceed: true };  // 钩子异常不阻塞发布
+    }
+  }
+
+  /**
+   * PRD F16.3: 发布后置钩子 — 在发布完成后调用
+   * @param {string} platform - 目标平台
+   * @param {object} ctx - { article, account, result, success } 发布结果上下文
+   * @returns {Promise<void>}
+   */
+  async runAfterPublish(platform, ctx) {
+    const inst = this._plugins.get(platform);
+    if (!inst || this._disabled.has(platform)) return;
+    if (typeof inst.afterPublish !== "function") return;
+    try {
+      await inst.afterPublish(ctx || {});
+    } catch (e) {
+      console.warn("[PluginLoader] afterPublish error for " + platform + ": " + e.message);
+    }
+  }
 
   getPluginInfo(platform) {
     if (!this._plugins.has(platform) && !this._disabled.has(platform)) return null;
