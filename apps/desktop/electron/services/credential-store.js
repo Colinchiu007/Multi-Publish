@@ -45,6 +45,8 @@ function getMasterKey (credDir) {
     masterKey = crypto.randomBytes(32).toString('hex')
     fs.mkdirSync(credDir, { recursive: true })
     fs.writeFileSync(keyFile, masterKey, 'utf8')
+    // 安全：限制主密钥文件权限为 600（仅所有者可读写）
+    try { fs.chmodSync(keyFile, 0o600) } catch (e) { /* Windows 无效，忽略 */ }
   }
   return masterKey
 }
@@ -96,8 +98,12 @@ function getCredentialDir (userDataDir) {
 
 /**
  * 获取凭证文件路径
+ * 安全：校验 accountId 不含路径穿越序列（防止 ../../etc/passwd）
  */
 function getCredentialFilePath (accountId, credDir) {
+  if (!accountId || typeof accountId !== 'string' || accountId.includes('..') || accountId.includes('/') || accountId.includes('\\') || accountId.includes(path.sep)) {
+    throw new Error('Invalid accountId: must not contain path separators or traversal sequences')
+  }
   return path.join(credDir, `${accountId}.json.enc`)
 }
 
@@ -116,9 +122,12 @@ function saveCredential (accountId, data, userDataDir) {
     const credDir = getCredentialDir(userDataDir)
     const masterKey = getMasterKey(credDir)
     const payload = encryptData(JSON.stringify(data), masterKey)
-    
+
     const filePath = getCredentialFilePath(accountId, credDir)
-    fs.writeFileSync(filePath, payload)
+    // 安全：原子写（写临时文件后 rename），防止崩溃中断损坏凭证文件
+    const tmpPath = filePath + '.tmp.' + process.pid
+    fs.writeFileSync(tmpPath, payload)
+    fs.renameSync(tmpPath, filePath)
     log.info('CredentialStore', `Saved credentials for account: ${accountId}`)
   } catch (e) {
     log.error('CredentialStore', `Failed to save credentials for ${accountId}: ${e.message}`)

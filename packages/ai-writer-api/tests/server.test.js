@@ -12,13 +12,20 @@ var app
 
 var _spies = {}
 
+// 测试用 API Key（不再使用弱默认值，显式注入）
+var VALID_KEY = "test-api-key-for-vitest"
+
 beforeAll(function() {
+  // 显式设置环境变量，使 server.js 能初始化
+  process.env.AI_WRITER_API_KEY = VALID_KEY
   // spy prototype 方法，保留默认行为以便 server.js 初始化时 isConfigured() 等
   _spies.generateTitles = vi.spyOn(AiWriter.prototype, "generateTitles").mockResolvedValue([])
   _spies.generateSummary = vi.spyOn(AiWriter.prototype, "generateSummary").mockResolvedValue("")
   _spies.enhanceContent = vi.spyOn(AiWriter.prototype, "enhanceContent").mockResolvedValue("")
   _spies.isConfigured = vi.spyOn(AiWriter.prototype, "isConfigured").mockReturnValue(true)
-  app = require("../src/server")
+  var mod = require("../src/server")
+  // server.js 在 API_KEY 可用时导出 app，否则导出工厂
+  app = mod.createApp ? mod.createApp({ apiKey: VALID_KEY }) : mod
 })
 
 beforeEach(function() {
@@ -37,8 +44,6 @@ beforeEach(function() {
 afterAll(function() {
   vi.restoreAllMocks()
 })
-
-var VALID_KEY = "dev-key-change-me"
 
 describe("AiWriter API", function() {
   test("GET /api/ai/health returns OK", async function() {

@@ -16,9 +16,20 @@ describe("PublishPoller", () => {
   });
 
   describe("constructor", () => {
-    it("defaults orchestratorUrl", () => {
+    it("defaults orchestratorUrl to empty when no env var (security: no hardcoded IP)", () => {
+      const saved = process.env.ORCHESTRATOR_URL
+      delete process.env.ORCHESTRATOR_URL
       const p = new PublishPoller({ axios: mockAxios });
-      expect(p.orchestratorUrl).toBe("https://39.105.42.85");
+      expect(p.orchestratorUrl).toBe("");
+      if (saved) process.env.ORCHESTRATOR_URL = saved
+    });
+    it("reads orchestratorUrl from env var", () => {
+      const saved = process.env.ORCHESTRATOR_URL
+      process.env.ORCHESTRATOR_URL = "https://env.example.com"
+      const p = new PublishPoller({ axios: mockAxios });
+      expect(p.orchestratorUrl).toBe("https://env.example.com");
+      if (saved) process.env.ORCHESTRATOR_URL = saved
+      else delete process.env.ORCHESTRATOR_URL
     });
     it("accepts custom URL", () => {
       const p = new PublishPoller({ axios: mockAxios, orchestratorUrl: "http://x" });

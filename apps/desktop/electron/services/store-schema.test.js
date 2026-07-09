@@ -52,6 +52,29 @@ describe("store-schema", () => {
     expect(JSON.parse(result.vals[0])).toEqual([1, 2]);
   });
 
+  it("sanitizeUpdateFields rejects unknown field names (SQL injection prevention)", async () => {
+    const { sanitizeUpdateFields } = await import("../services/store-schema");
+    // 合法字段通过
+    const ok = sanitizeUpdateFields("accounts", { name: "x", status: "active" });
+    expect(ok.name).toBe("x");
+    expect(ok.status).toBe("active");
+    // 非法字段被过滤（防止 SQL 注入：字段名不能拼接到 SQL）
+    const filtered = sanitizeUpdateFields("accounts", { "id = 1 OR 1=1 --": "x", name: "y" });
+    expect(filtered).toEqual({ name: "y" });
+  });
+
+  it("sanitizeUpdateFields returns empty object when all fields unknown", async () => {
+    const { sanitizeUpdateFields } = await import("../services/store-schema");
+    const result = sanitizeUpdateFields("accounts", { "malicious--": 1, "drop table": 2 });
+    expect(result).toEqual({});
+  });
+
+  it("sanitizeUpdateFields handles unknown table gracefully", async () => {
+    const { sanitizeUpdateFields } = await import("../services/store-schema");
+    const result = sanitizeUpdateFields("nonexistent_table", { name: "x" });
+    expect(result).toEqual({});
+  });
+
   it("TABLE_NAMES values match SCHEMA_SQL table names", async () => {
     const { TABLE_NAMES, SCHEMA_SQL } = await import("../services/store-schema");
     for (const [key, name] of Object.entries(TABLE_NAMES)) {

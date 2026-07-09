@@ -102,7 +102,10 @@ class TasksRepo {
         const data = this._db.export();
         const dir = path.dirname(this.dbPath);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(this.dbPath, Buffer.from(data));
+        // 安全：原子写（写临时文件后 rename），防止崩溃中断损坏数据库
+        const tmpPath = this.dbPath + '.tmp.' + process.pid;
+        fs.writeFileSync(tmpPath, Buffer.from(data));
+        fs.renameSync(tmpPath, this.dbPath);
       } catch (err) {
         log.warn("TasksRepo", "save on close failed: " + err.message);
       }

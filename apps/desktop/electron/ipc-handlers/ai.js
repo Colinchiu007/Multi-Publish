@@ -7,15 +7,21 @@ function registerHandlers(ipcMain, deps) {
   const { aiGenerator, BrowserWindow, log } = deps
 
   ipcMain.handle('ai:list-providers', (_event, type) => {
-    return aiGenerator.listProviders(type || null);
+    try {
+      return aiGenerator.listProviders(type || null);
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('ai:get-config', (_event, providerId) => {
-    return aiGenerator.getProviderConfig(providerId);
+    try {
+      return aiGenerator.getProviderConfig(providerId);
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('ai:list-models', (_event, providerId) => {
-    return aiGenerator.listModels(providerId);
+    try {
+      return aiGenerator.listModels(providerId);
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('ai:generate', async (event, { type, provider, params }) => {
@@ -33,11 +39,15 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('ai:test-connection', async (_event, providerId) => {
-    return await aiGenerator.testConnection(providerId)
+    try {
+      return await aiGenerator.testConnection(providerId)
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('ai:save-config', (_event, providerId, config) => {
-    return aiGenerator.updateProviderConfig(providerId, config)
+    try {
+      return aiGenerator.updateProviderConfig(providerId, config)
+    } catch (e) { return { code: -1, message: e.message } }
   })
 }
 

@@ -7,19 +7,27 @@ function registerHandlers(ipcMain, deps) {
   const { videoEngine, BrowserWindow, log } = deps
 
   ipcMain.handle('video:status', () => {
-    return videoEngine.getStatus()
+    try {
+      return videoEngine.getStatus()
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('video:list-process-types', () => {
-    return videoEngine.listProcessTypes()
+    try {
+      return videoEngine.listProcessTypes()
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('video:list-analyze-types', () => {
-    return videoEngine.listAnalyzeTypes()
+    try {
+      return videoEngine.listAnalyzeTypes()
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('video:list-stock-sources', () => {
-    return videoEngine.listStockSources()
+    try {
+      return videoEngine.listStockSources()
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('video:process', async (event, { type, params }) => {
@@ -37,19 +45,27 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('video:analyze', async (_event, type, filePath) => {
-    return await videoEngine.analyze(type, filePath)
+    try {
+      return await videoEngine.analyze(type, filePath)
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('video:mix-audio', async (_event, params) => {
-    return await videoEngine.mixAudio(params)
+    try {
+      return await videoEngine.mixAudio(params)
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('video:search-stock', async (_event, query, source, limit) => {
-    return await videoEngine.searchStock(query, source, limit)
+    try {
+      return await videoEngine.searchStock(query, source, limit)
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('video:generate-subtitle', async (_event, audioPath, language) => {
-    return await videoEngine.generateSubtitle(audioPath, language)
+    try {
+      return await videoEngine.generateSubtitle(audioPath, language)
+    } catch (e) { return { code: -1, message: e.message } }
   })
 }
 

@@ -12,7 +12,7 @@
 const path = require('path')
 const { app } = require('electron')
 // eslint-disable-next-line no-unused-vars
-const { TABLE_NAMES, SCHEMA_SQL, safeJsonParse, safeJsonStringify, buildUpdateQuery } = require('./store-schema')
+const { TABLE_NAMES, SCHEMA_SQL, safeJsonParse, safeJsonStringify, buildUpdateQuery, sanitizeUpdateFields } = require('./store-schema')
 const log = require('./logger')
 
 let Database = null
@@ -104,9 +104,12 @@ class Store {
 
   updateAccount (id, fields) {
     if (!this._ready) return false
+    // 安全：字段名白名单过滤，防止 SQL 注入（字段名直接拼接进 SQL）
+    const safeFields = sanitizeUpdateFields('accounts', fields)
+    if (Object.keys(safeFields).length === 0) return false
     const sets = []
     const vals = []
-    for (const [k, v] of Object.entries(fields)) {
+    for (const [k, v] of Object.entries(safeFields)) {
       if (k === 'cookies' || k === 'localStorage') {
         sets.push(`${k} = ?`)
         vals.push(JSON.stringify(v))
@@ -122,13 +125,18 @@ class Store {
   }
 
   /**
-   * 设置平台的默认账�?   */
+   * 设置平台的默认账号（事务包裹，保证原子性）
+   */
   setDefaultAccount (platform, accountId) {
     if (!this._ready) return false
-    // 清除该平台所有账号的默认标记
-    this.db.prepare('UPDATE accounts SET is_default = 0 WHERE platform = ?').run(platform)
-    // 设置新的默认账号
-    this.db.prepare('UPDATE accounts SET is_default = 1 WHERE id = ?').run(accountId)
+    // 安全：事务包裹两条 UPDATE，防止中间失败导致数据不一致
+    const tx = this.db.transaction(() => {
+      // 清除该平台所有账号的默认标记
+      this.db.prepare('UPDATE accounts SET is_default = 0 WHERE platform = ?').run(platform)
+      // 设置新的默认账号
+      this.db.prepare('UPDATE accounts SET is_default = 1 WHERE id = ?').run(accountId)
+    })
+    tx()
     return true
   }
 
@@ -313,7 +321,10 @@ class Store {
 
   updateBatchJob (id, fields) {
     if (!this._ready) return false
-    const { sets, vals } = buildUpdateQuery(fields);
+    // 安全：字段名白名单过滤，防止 SQL 注入
+    const safeFields = sanitizeUpdateFields('batch_jobs', fields)
+    if (Object.keys(safeFields).length === 0) return false
+    const { sets, vals } = buildUpdateQuery(safeFields);
     vals.push(id)
     this.db.prepare(`UPDATE batch_jobs SET ${sets.join(', ')} WHERE id = ?`).run(...vals)
     return true

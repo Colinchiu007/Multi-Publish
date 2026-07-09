@@ -3,15 +3,27 @@ function registerHandlers(ipcMain, deps) {
   // eslint-disable-next-line no-unused-vars
   const { app, hotkeys, firstRun, BrowserWindow, log } = deps
 
-  ipcMain.handle('app:get-version', () => app.getVersion())
-  ipcMain.handle('app:get-platform', () => process.platform)
+  ipcMain.handle('app:get-version', () => {
+    try {
+      return app.getVersion()
+    } catch (e) { return { code: -1, message: e.message } }
+  })
+  ipcMain.handle('app:get-platform', () => {
+    try {
+      return process.platform
+    } catch (e) { return { code: -1, message: e.message } }
+  })
 
   ipcMain.handle('hotkeys:list', async () => {
-    return { code: 0, data: hotkeys.getShortcuts() }
+    try {
+      return { code: 0, data: hotkeys.getShortcuts() }
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('first-run:check', async () => {
-    return { code: 0, data: firstRun.checkDeps() }
+    try {
+      return { code: 0, data: firstRun.checkDeps() }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('show-notification', async (_, data) => {

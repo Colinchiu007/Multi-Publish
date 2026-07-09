@@ -7,11 +7,15 @@ function registerHandlers(ipcMain, deps) {
   const { pipelineEngine, BrowserWindow, log } = deps
 
   ipcMain.handle('pipeline:list', () => {
-    return pipelineEngine.listPipelines()
+    try {
+      return pipelineEngine.listPipelines()
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('pipeline:get', (_event, name) => {
-    return pipelineEngine.getPipeline(name)
+    try {
+      return pipelineEngine.getPipeline(name)
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('pipeline:start', async (_event, name, params) => {
@@ -24,15 +28,21 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('pipeline:pause', () => {
-    return pipelineEngine.pause()
+    try {
+      return pipelineEngine.pause()
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('pipeline:resume', () => {
-    return pipelineEngine.resume()
+    try {
+      return pipelineEngine.resume()
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('pipeline:cancel', () => {
-    return pipelineEngine.cancel()
+    try {
+      return pipelineEngine.cancel()
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('pipeline:status', (_event, name) => {
@@ -45,11 +55,15 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('pipeline:advance', () => {
-    return pipelineEngine.advance()
+    try {
+      return pipelineEngine.advance()
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('pipeline:history', () => {
-    return pipelineEngine.getHistory()
+    try {
+      return pipelineEngine.getHistory()
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('pipeline:fetch', async (_event, name) => {

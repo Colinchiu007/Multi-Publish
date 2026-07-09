@@ -18,11 +18,13 @@ publishers:
 crypto:
   # 主密码（生产环境必填，用于派生密钥）
   # 使用强密码，重启后仍可解密凭证
-  master_password: "project003-secret-key-change-in-production"
+  # 必须通过环境变量 MASTER_PASSWORD 提供，未设置时启动报错
+  master_password: "${MASTER_PASSWORD}"
 
 # 共享认证配置
 auth:
-  jwt_secret: "project003-jwt-secret-change-in-production"
+  # JWT 密钥必须通过环境变量 JWT_SECRET 提供，未设置时启动报错
+  jwt_secret: "${JWT_SECRET}"
   database_type: sqlite
   sqlite_path: ./data/user.db
   access_token_expire_minutes: 10080  # 7 天

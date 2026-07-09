@@ -46,11 +46,21 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: 500, message: e.message } }
   })
 
-  ipcMain.handle('queue:status', async () => taskQueue.getStatus())
-  ipcMain.handle('queue:history', async () => ({ code: 0, data: taskQueue.getHistory() }))
+  ipcMain.handle('queue:status', async () => {
+    try {
+      return taskQueue.getStatus()
+    } catch (e) { return { code: -1, message: e.message } }
+  })
+  ipcMain.handle('queue:history', async () => {
+    try {
+      return { code: 0, data: taskQueue.getHistory() }
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
+  })
   ipcMain.handle('queue:cancel', async (event, taskId) => {
-    const ok = taskQueue.cancel(taskId)
-    return { code: ok ? 0 : -1, message: ok ? '任务已取消' : '任务不存在或已完成' }
+    try {
+      const ok = taskQueue.cancel(taskId)
+      return { code: ok ? 0 : -1, message: ok ? '任务已取消' : '任务不存在或已完成' }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('history:list', async (event, opts) => {
@@ -63,13 +73,17 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('history:get', async (event, id) => {
-    const record = history.getRecord(id)
-    if (!record) return { code: -1, message: '记录不存在' }
-    return { code: 0, data: record }
+    try {
+      const record = history.getRecord(id)
+      if (!record) return { code: -1, message: '记录不存在' }
+      return { code: 0, data: record }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('dashboard:stats', async () => {
-    return { code: 0, data: history.getStats() }
+    try {
+      return { code: 0, data: history.getStats() }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 }
 

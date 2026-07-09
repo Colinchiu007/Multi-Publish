@@ -1,5 +1,37 @@
 ﻿# CHANGELOG
 
+## [v2.3.42] - 2026-07-09
+
+### 安全（/cso + /guard 审计修复）
+- 修复 config.yaml 硬编码 master_password / jwt_secret（CRITICAL）→ 环境变量 MASTER_PASSWORD / JWT_SECRET
+- 修复 ai-writer-api 默认 API Key "dev-key-change-me"（CRITICAL）→ 未设 AI_WRITER_API_KEY 时拒绝启动
+- 修复 playwright-manager.js contextIsolation: false（CRITICAL）→ 改为 true
+- 移除硬编码生产 IP 39.105.42.85（CRITICAL）→ cloud-publisher / publish-poller / account.js 强制环境变量配置，拒绝无鉴权 cookie 推送
+- 修复 store.js updateAccount SQL 注入（CRITICAL）→ 新增 sanitizeUpdateFields 字段名白名单
+- 修复 setDefaultAccount 双 UPDATE 无事务（CRITICAL）→ 包裹 db.transaction()
+- payment / license IPC 新增来源校验（CRITICAL）→ _assertTrustedSender + 生产环境禁用 payment:simulate
+- callback-server 新增鉴权（CRITICAL）→ 随机 token + Origin 限制 + 1MB body 上限
+- payment-manager 路径回退 /tmp（CRITICAL）→ 改用 os.homedir()/.multi-publish/
+- store.js 16 个 IPC handler 全部补 try-catch（CRITICAL）
+
+### 代码质量
+- 11 个 IPC handler 文件 46 个 handler 补 try-catch（keyword/update/video/ai/render/pipeline/publish/misc/scheduler/upload/platform）
+- credential-store: .masterkey chmod 600 + 凭证原子写
+- tasks-repo: 数据库关闭原子写
+- upload:chunked filePath 路径穿越校验
+- credential-store accountId 路径穿越校验
+- 删除 22 个 ipc-handlers/*.ts + core/*.ts 死代码（与 .js 同名共存）
+- ESLint: vue/no-v-html warn→error；preload/ 子目录纳入 lint 覆盖
+
+### 文档
+- decision-log: D-024 乱码恢复；D-028/D-029 撞号重编号；新增 D-030 安全审计修复记录
+- learnings.md: Phase 4 Retro — 安全审计复盘
+
+### 测试
+- apps/desktop: 1786→1791 passed（+5 安全防护测试：SQL 注入白名单 3 个 + env var 读取 2 个）
+- ai-writer-api: 10 passed（适配 API Key 强制要求）
+
+
 ## [v2.3.41] - 2026-07-08
 
 ### 新增

@@ -52,8 +52,14 @@ function registerHandlers(ipcMain, deps) {
 
       if (platform === 'bilibili' || platform === 'douyin') {
         try {
-          const orchestratorUrl = process.env.ORCHESTRATOR_URL || 'https://39.105.42.85'
+          // 安全：orchestratorUrl 必须显式配置，不再硬编码生产 IP
+          const orchestratorUrl = process.env.ORCHESTRATOR_URL || ''
           const token = process.env.ORCHESTRATOR_API_KEY || ''
+          if (!orchestratorUrl) {
+            log.warn('Auth', 'ORCHESTRATOR_URL 未配置，跳过 ' + platform + ' cookie 推送')
+          } else if (!token) {
+            log.warn('Auth', 'ORCHESTRATOR_API_KEY 未配置，跳过 ' + platform + ' cookie 推送（拒绝无鉴权推送）')
+          } else {
           const postData = JSON.stringify({
             cookies: result.cookies.map(/** @param {{ name: string, value: string, domain?: string, path?: string }} c */ (c) => ({
               name: c.name,
@@ -81,6 +87,7 @@ function registerHandlers(ipcMain, deps) {
           req.write(postData)
           req.end()
           log.info('Auth', 'Pushed ' + platform + ' cookies to orchestrator')
+          }
         } catch (e) {
           log.warn('Auth', 'Orchestrator cookie push failed: ' + (e instanceof Error ? e.message : String(e)))
         }

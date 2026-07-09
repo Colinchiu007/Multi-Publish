@@ -26,9 +26,9 @@ export default [
     },
   },
 
-  // Preload scripts (browser-like env)
+  // Preload scripts (browser-like env) — 覆盖顶层 *-preload.js 与 preload/ 子目录
   {
-    files: ["electron/*-preload.js"],
+    files: ["electron/*-preload.js", "electron/preload/**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "script",
@@ -57,7 +57,7 @@ export default [
       "no-var": "warn",
       eqeqeq: ["warn", "smart"],
       "vue/multi-word-component-names": "off",
-      "vue/no-v-html": "warn",
+      "vue/no-v-html": "error",
       "no-console": "off",
     },
   },

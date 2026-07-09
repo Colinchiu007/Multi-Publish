@@ -19,12 +19,16 @@ class CloudPublisher {
 
   /**
    * @param {Object} opts
-   * @param {string} opts.orchestratorUrl - Orchestrator base URL (e.g. https://39.105.42.85)
+   * @param {string} opts.orchestratorUrl - Orchestrator base URL (必填，通过环境变量 ORCHESTRATOR_URL 或显式传入)
    * @param {Object} opts.store - Electron store instance (reserved for future use)
    */
   constructor (opts) {
     this._axios = opts.axios || require("axios")
-    this._orchestratorUrl = opts.orchestratorUrl || 'https://39.105.42.85'
+    // 安全：不再硬编码生产 IP，必须通过 opts 或环境变量提供
+    this._orchestratorUrl = opts.orchestratorUrl || process.env.ORCHESTRATOR_URL || ''
+    if (!this._orchestratorUrl) {
+      log.warn('CloudPublisher', 'orchestratorUrl 未配置（set opts.orchestratorUrl 或 ORCHESTRATOR_URL env）')
+    }
     this._store = opts.store || null
   }
 

@@ -14,8 +14,10 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('scheduler:cancel', async (event, id) => {
-    scheduler.cancel(id)
-    return { code: 0, message: '定时任务已取消' }
+    try {
+      scheduler.cancel(id)
+      return { code: 0, message: '定时任务已取消' }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 }
 

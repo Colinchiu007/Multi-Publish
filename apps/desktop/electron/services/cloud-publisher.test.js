@@ -12,8 +12,19 @@ describe("CloudPublisher", () => {
   });
 
   describe("constructor", () => {
-    it("default orchestrator URL", () => {
-      expect(new CloudPublisher({ axios: mockAxios })._orchestratorUrl).toBe("https://39.105.42.85");
+    it("default orchestrator URL is empty when no env var (security: no hardcoded IP)", () => {
+      // 清除环境变量确保测试隔离
+      const saved = process.env.ORCHESTRATOR_URL
+      delete process.env.ORCHESTRATOR_URL
+      expect(new CloudPublisher({ axios: mockAxios })._orchestratorUrl).toBe("");
+      if (saved) process.env.ORCHESTRATOR_URL = saved
+    });
+    it("reads orchestrator URL from env var", () => {
+      const saved = process.env.ORCHESTRATOR_URL
+      process.env.ORCHESTRATOR_URL = "https://env.example.com"
+      expect(new CloudPublisher({ axios: mockAxios })._orchestratorUrl).toBe("https://env.example.com");
+      if (saved) process.env.ORCHESTRATOR_URL = saved
+      else delete process.env.ORCHESTRATOR_URL
     });
     it("custom URL", () => {
       const cp = new CloudPublisher({ axios: mockAxios, orchestratorUrl: "http://x:3000" });

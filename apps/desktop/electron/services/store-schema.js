@@ -19,10 +19,13 @@ const SCHEMA_SQL = [
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     platform      TEXT NOT NULL,
     account_name  TEXT,
+    name          TEXT,
+    avatar        TEXT,
     cookies       TEXT DEFAULT "[]",
     localStorage  TEXT DEFAULT "{}",
     avatar_url    TEXT,
     status        TEXT DEFAULT "active",
+    is_default    INTEGER DEFAULT 0,
     created_at    TEXT DEFAULT (datetime("now")),
     updated_at    TEXT DEFAULT (datetime("now"))
   )`,
@@ -97,4 +100,36 @@ function buildUpdateQuery(fields, jsonKeys = ["articles"]) {
   return { sets, vals };
 }
 
-module.exports = { TABLE_NAMES, SCHEMA_SQL, safeJsonParse, safeJsonStringify, buildUpdateQuery };
+/**
+ * 各表允许更新的字段白名单（防止 SQL 注入：字段名直接拼接进 SQL）
+ * 仅允许这些字段名出现在 UPDATE 的 SET 子句中
+ */
+const UPDATE_WHITELIST = {
+  accounts: ["platform", "name", "account_name", "avatar", "avatar_url", "cookies", "localStorage", "status", "is_default"],
+  publish_history: ["platform", "title", "content", "task_id", "article_id", "status", "result", "error"],
+  scheduled_tasks: ["platform", "article", "publish_time", "status"],
+  settings: ["value"],
+  callback_logs: ["type", "source", "payload"],
+  batch_jobs: ["name", "articles", "total", "completed", "failed", "status"],
+  publish_timeline: ["last_publish_at"],
+};
+
+/**
+ * 过滤更新字段，只保留白名单中的字段名（SQL 注入防护）
+ * @param {string} tableName - 表名（必须是 UPDATE_WHITELIST 的 key）
+ * @param {object} fields - 待更新的字段对象
+ * @returns {object} 过滤后的字段对象（只含白名单字段）
+ */
+function sanitizeUpdateFields(tableName, fields) {
+  const allowed = UPDATE_WHITELIST[tableName];
+  if (!allowed || !fields || typeof fields !== "object") return {};
+  const result = {};
+  for (const k of Object.keys(fields)) {
+    if (allowed.includes(k)) {
+      result[k] = fields[k];
+    }
+  }
+  return result;
+}
+
+module.exports = { TABLE_NAMES, SCHEMA_SQL, safeJsonParse, safeJsonStringify, buildUpdateQuery, sanitizeUpdateFields, UPDATE_WHITELIST };

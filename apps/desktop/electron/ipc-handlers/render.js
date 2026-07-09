@@ -21,8 +21,16 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('render:cancel', () => { renderEngine.cancel(); return { success: true } })
-  ipcMain.handle('render:status', () => renderEngine.getStatus())
+  ipcMain.handle('render:cancel', () => {
+    try {
+      renderEngine.cancel(); return { success: true }
+    } catch (e) { return { code: -1, message: e.message } }
+  })
+  ipcMain.handle('render:status', () => {
+    try {
+      return renderEngine.getStatus()
+    } catch (e) { return { code: -1, message: e.message } }
+  })
 
   ipcMain.handle('render:install-deps', async (event) => {
     try {
@@ -36,15 +44,21 @@ function registerHandlers(ipcMain, deps) {
 
   // --- Composition 管理（Phase 1）---
   ipcMain.handle('render:list-compositions', () => {
-    return renderEngine.listCompositions();
+    try {
+      return renderEngine.listCompositions();
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('render:get-composition', (_event, id) => {
-    return renderEngine.getComposition(id);
+    try {
+      return renderEngine.getComposition(id);
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('render:validate-props', (_event, compositionId, props) => {
-    return renderEngine.validateProps(compositionId, props);
+    try {
+      return renderEngine.validateProps(compositionId, props);
+    } catch (e) { return { code: -1, message: e.message } }
   })
 }
 

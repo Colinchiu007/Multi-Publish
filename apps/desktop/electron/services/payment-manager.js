@@ -26,10 +26,14 @@ function PaymentManager() {
   this._orders = []
   this._dataPath = null
   try {
+    // 优先使用 Electron userData 目录（跨平台、用户隔离）
     this._dataPath = path.join(require('electron').app.getPath('userData'), 'payment-orders.json')
   // eslint-disable-next-line no-unused-vars
   } catch(e) {
-    this._dataPath = path.join(process.env.USERPROFILE || '/tmp', 'payment-orders.json')
+    // 非 Electron 环境（如测试）：使用 os.homedir() 而非全局可读的 /tmp
+    const os = require('os')
+    const home = process.env.USERPROFILE || process.env.HOME || os.homedir()
+    this._dataPath = path.join(home, '.multi-publish', 'payment-orders.json')
   }
   this._loadOrders()
 }
@@ -53,7 +57,10 @@ PaymentManager.prototype._saveOrders = function() {
   try {
     const dir = path.dirname(this._dataPath)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(this._dataPath, JSON.stringify(this._orders, null, 2), 'utf-8')
+    // 安全：原子写（写临时文件后 rename），防止崩溃中断损坏订单文件
+    const tmpPath = this._dataPath + '.tmp.' + process.pid
+    fs.writeFileSync(tmpPath, JSON.stringify(this._orders, null, 2), 'utf-8')
+    fs.renameSync(tmpPath, this._dataPath)
   } catch(e) {
     log.warn('PaymentManager', 'Failed to save orders: ' + e.message)
   }

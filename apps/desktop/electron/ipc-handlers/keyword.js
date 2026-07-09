@@ -3,26 +3,36 @@ function registerHandlers(ipcMain, deps) {
   const { keywordMonitor } = deps
 
   ipcMain.handle('keyword:start', async (_, { keyword, opts }) => {
-    const ok = keywordMonitor.startMonitoring(keyword, opts)
-    return { code: ok ? 0 : -1, data: { keyword } }
+    try {
+      const ok = keywordMonitor.startMonitoring(keyword, opts)
+      return { code: ok ? 0 : -1, data: { keyword } }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('keyword:stop', async (_, { keyword }) => {
-    const ok = keywordMonitor.stopMonitoring(keyword)
-    return { code: ok ? 0 : -1 }
+    try {
+      const ok = keywordMonitor.stopMonitoring(keyword)
+      return { code: ok ? 0 : -1 }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('keyword:status', async () => {
-    return { code: 0, data: keywordMonitor.getStatus() }
+    try {
+      return { code: 0, data: keywordMonitor.getStatus() }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('keyword:history', async (_, { keyword }) => {
-    return { code: 0, data: keywordMonitor.getHistory(keyword) }
+    try {
+      return { code: 0, data: keywordMonitor.getHistory(keyword) }
+    } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('keyword:stop-all', async () => {
-    keywordMonitor.stopAll()
-    return { code: 0 }
+    try {
+      keywordMonitor.stopAll()
+      return { code: 0 }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 }
 
