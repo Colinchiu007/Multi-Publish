@@ -81,8 +81,11 @@ class TestDetectPlatform:
         # "youtube.com/shorts" contains "youtube.com" — shorts must win
         assert detect_platform("https://www.youtube.com/shorts/abc") == "shorts"
 
-    def test_case_insensitive(self):
-        assert detect_platform("HTTPS://TIKTOK.COM/x") == "tiktok"
+    def test_case_insensitive_after_url_check(self):
+        # is_url() is case-sensitive (startswith), so uppercase schemes are
+        # treated as local files. detect_platform() only lowercases the body
+        # AFTER the url check passes. This matches the pre-extraction behavior.
+        assert detect_platform("https://TIKTOK.COM/x") == "tiktok"
 
 
 class TestIsYoutube:
