@@ -91,22 +91,22 @@ export function onRenderError(callback) { return bridgeOn("RenderError", callbac
 export function onRenderInstallProgress(callback) { return bridgeOn("RenderInstallProgress", callback) }
 
 // ─── 内容情报 API ────────────────────────
-export async function intelligenceSearch(query) { return invokeWithFallback("intelligenceSearch", {  code: 0, data: []  }, query) }
+export async function intelligenceSearch(query, opts) { return invokeWithFallback("intelligenceSearch", {  code: 0, data: []  }, query, opts) }
 
-export async function intelligenceSearchTitles (query) {
-  return invokeWithFallback("intelligenceSearchTitles", [], query)
+export async function intelligenceSearchTitles (query, opts) {
+  return invokeWithFallback("intelligenceSearchTitles", [], query, opts)
 }
 
-export async function intelligenceFetchTrending () {
-  return invokeWithFallback("intelligenceFetchTrending", [])
+export async function intelligenceFetchTrending (opts) {
+  return invokeWithFallback("intelligenceFetchTrending", [], opts)
 }
 
 export async function intelligenceSuggestTags (content, opts) {
   return invokeWithFallback("intelligenceSuggestTags", null, content, opts)
 }
 
-export async function intelligenceFindReferences (url) {
-  return invokeWithFallback("intelligenceFindReferences", [], url)
+export async function intelligenceFindReferences (url, opts) {
+  return invokeWithFallback("intelligenceFindReferences", [], url, opts)
 }
 
 export async function intelligenceGetOptimalTime (keyword) {
@@ -129,9 +129,9 @@ export async function keywordStop(keyword) { return invokeWithFallback("keywordS
 export async function keywordHistory(keyword) { return invokeWithFallback("keywordHistory", {  code: 0, data: []  }, keyword) }
 
 // ─── 爆款分析 API ────────────────────────
-export async function viralAnalyze(keyword) { return invokeWithFallback("viralAnalyze", {  code: -1  }, keyword) }
-
+export async function viralAnalyze(articles, topic) { return invokeWithFallback("viralAnalyze", {  code: -1  }, articles, topic) }
 export async function viralGenerate(opts) { return invokeWithFallback("viralGenerate", {  code: -1  }, opts) }
+export async function viralTrending(articles) { return invokeWithFallback("viralTrending", {  code: -1  }, articles) }
 
 // ─── 平台配置 API ────────────────────────
 export async function platformList() { return invokeWithFallback("platformList", {  code: 0, data: []  }) }

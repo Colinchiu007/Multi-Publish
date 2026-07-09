@@ -65,13 +65,6 @@ jobs:
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
-      # 显式安装 @electron/rebuild 并重建原生模块
-      # app-builder-lib@25.1.8 缺少 remote-rebuild.js，内置 rebuilder 会失败
-      - name: Rebuild native modules
-        run: |
-          cd apps/desktop
-          npx @electron/rebuild -f -w better-sqlite3
-
       # 安装 Playwright Chromium 并捆绑到安装包（避免离线用户无法下载）
       - name: Install Playwright chromium (bundled)
         shell: bash

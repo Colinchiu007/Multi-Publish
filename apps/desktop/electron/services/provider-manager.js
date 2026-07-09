@@ -109,48 +109,84 @@ class ProviderManager {
 
   registerIpcHandlers () {
     ipcMain.handle('provider:list', async () => {
-      const result = await this.listProviders()
-      return result
+      try {
+        return await this.listProviders()
+      } catch (e) {
+        log.error('ProviderManager', 'list error: ' + e.message)
+        return { code: -1, message: e.message }
+      }
     })
 
     ipcMain.handle('provider:create', async (event, data) => {
-      const result = await this.createProvider(data)
-      return result
+      try {
+        return await this.createProvider(data)
+      } catch (e) {
+        log.error('ProviderManager', 'create error: ' + e.message)
+        return { code: -1, message: e.message }
+      }
     })
 
     ipcMain.handle('provider:update', async (event, name, data) => {
-      const result = await this.updateProvider(name, data)
-      return result
+      try {
+        return await this.updateProvider(name, data)
+      } catch (e) {
+        log.error('ProviderManager', 'update error: ' + e.message)
+        return { code: -1, message: e.message }
+      }
     })
 
     ipcMain.handle('provider:delete', async (event, name) => {
-      const result = await this.deleteProvider(name)
-      return result
+      try {
+        return await this.deleteProvider(name)
+      } catch (e) {
+        log.error('ProviderManager', 'delete error: ' + e.message)
+        return { code: -1, message: e.message }
+      }
     })
 
     ipcMain.handle('provider:test', async (event, name) => {
-      const result = await this.testProvider(name)
-      return result
+      try {
+        return await this.testProvider(name)
+      } catch (e) {
+        log.error('ProviderManager', 'test error: ' + e.message)
+        return { code: -1, message: e.message }
+      }
     })
 
-        ipcMain.handle('provider:get-user', async (event, name) => {
-      const result = await this.getUserProvider(name)
-      return result
+    ipcMain.handle('provider:get-user', async (event, name) => {
+      try {
+        return await this.getUserProvider(name)
+      } catch (e) {
+        log.error('ProviderManager', 'get-user error: ' + e.message)
+        return { code: -1, message: e.message }
+      }
     })
 
     ipcMain.handle('provider:list-user', async () => {
-      const result = await this.listUserProviders()
-      return result
+      try {
+        return await this.listUserProviders()
+      } catch (e) {
+        log.error('ProviderManager', 'list-user error: ' + e.message)
+        return { code: -1, message: e.message }
+      }
     })
 
     ipcMain.handle('provider:set-user-key', async (event, name, apiKey, baseUrl) => {
-      const result = await this.setUserKey(name, apiKey, baseUrl)
-      return result
+      try {
+        return await this.setUserKey(name, apiKey, baseUrl)
+      } catch (e) {
+        log.error('ProviderManager', 'set-user-key error: ' + e.message)
+        return { code: -1, message: e.message }
+      }
     })
 
     ipcMain.handle('provider:delete-user-key', async (event, name) => {
-      const result = await this.deleteUserKey(name)
-      return result
+      try {
+        return await this.deleteUserKey(name)
+      } catch (e) {
+        log.error('ProviderManager', 'delete-user-key error: ' + e.message)
+        return { code: -1, message: e.message }
+      }
     })
   }
 }

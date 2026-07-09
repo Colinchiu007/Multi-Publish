@@ -56,9 +56,20 @@ function createPublishApi(ipcRenderer) {
       get: (name) => ipcRenderer.invoke('pipeline:get', name),
     },
 
-    // 内容情报 API（预存未注册）
+    // 内容情报 API（已注册于 services/content-intelligence.js）
     intelligenceSuggestTags: (content, opts) => ipcRenderer.invoke('intelligence:suggest-tags', { content, opts }),
     intelligenceGetOptimalTime: (keyword) => ipcRenderer.invoke('intelligence:get-optimal-time', { keyword }),
+    intelligenceSearch: (query, opts) => ipcRenderer.invoke('intelligence:search', { query, opts }),
+    // handler 解构 { title, opts }，前端用 query 作为标题
+    intelligenceSearchTitles: (query, opts) => ipcRenderer.invoke('intelligence:search-titles', { title: query, opts }),
+    intelligenceFetchTrending: (opts) => ipcRenderer.invoke('intelligence:fetch-trending', opts),
+    // handler 解构 { text, opts }，前端用 url 作为搜索文本
+    intelligenceFindReferences: (url, opts) => ipcRenderer.invoke('intelligence:find-references', { text: url, opts }),
+    // handler 解构 { title, opts }，前端传 { keyword, sampleSize }
+    intelligenceGetBenchmark: (opts) => {
+      const o = opts || {}
+      return ipcRenderer.invoke('intelligence:get-benchmark', { title: o.keyword || o.title, opts: o })
+    },
 
     // 队列 API
     getQueueStatus: () => ipcRenderer.invoke('queue:status'),
@@ -103,12 +114,12 @@ function createPublishApi(ipcRenderer) {
     cloudPublishPlatforms: () => ipcRenderer.invoke('cloud-publisher:platforms'),
 
     // URL Collect API
-    urlCollectFetch: (url) => ipcRenderer.invoke('url-collect:fetch', url),
+    urlCollectFetch: (url) => ipcRenderer.invoke('url-collect:fetch', { url }),
 
     // Viral Analysis API
-    viralAnalyze: (content) => ipcRenderer.invoke('viral:analyze', content),
-    viralGenerate: (prompt) => ipcRenderer.invoke('viral:generate', prompt),
-    viralTrending: () => ipcRenderer.invoke('viral:trending'),
+    viralAnalyze: (articles, topic) => ipcRenderer.invoke('viral:analyze', { articles, topic }),
+    viralGenerate: (opts) => ipcRenderer.invoke('viral:generate', opts),
+    viralTrending: (articles) => ipcRenderer.invoke('viral:trending', { articles }),
 
     // Comment Management API (PRD F13)
     commentList: (platform, cookie, maxDays) => ipcRenderer.invoke('comment:list', { platform, cookie, maxDays }),

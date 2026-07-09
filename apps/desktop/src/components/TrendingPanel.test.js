@@ -2,54 +2,59 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 
+// Mock @/api/publisher 模块（组件通过 import 调用，不再用全局注入）
+vi.mock("@/api/publisher", () => ({
+  intelligenceFetchTrending: vi.fn()
+}));
+
+import { intelligenceFetchTrending } from "@/api/publisher";
 import TrendingPanel from "./TrendingPanel.vue";
 
 describe("TrendingPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    window.intelligenceFetchTrending = vi.fn();
   });
 
   it("shows loading state", async () => {
-    window.intelligenceFetchTrending.mockImplementation(() => new Promise(() => {}));
+    vi.mocked(intelligenceFetchTrending).mockImplementation(() => new Promise(() => {}));
     const w = mount(TrendingPanel);
     await nextTick();
-    expect(w.text()).toContain("加载中");
+    expect(w.text()).toContain("\u52a0\u8f7d\u4e2d");
   });
 
   it("shows error state with retry", async () => {
-    window.intelligenceFetchTrending.mockRejectedValue(new Error("网络错误"));
+    vi.mocked(intelligenceFetchTrending).mockRejectedValue(new Error("\u7f51\u7edc\u9519\u8bef"));
     const w = mount(TrendingPanel);
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
-    expect(w.text()).toContain("网络错误");
-    expect(w.text()).toContain("重新加载");
+    expect(w.text()).toContain("\u7f51\u7edc\u9519\u8bef");
+    expect(w.text()).toContain("\u91cd\u65b0\u52a0\u8f7d");
   });
 
   it("retries on reload button click", async () => {
-    window.intelligenceFetchTrending.mockRejectedValueOnce(new Error("首次失败"));
-    window.intelligenceFetchTrending.mockResolvedValueOnce([]);
+    vi.mocked(intelligenceFetchTrending).mockRejectedValueOnce(new Error("\u9996\u6b21\u5931\u8d25"));
+    vi.mocked(intelligenceFetchTrending).mockResolvedValueOnce([]);
     const w = mount(TrendingPanel);
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
     // Click retry button
-    const retryBtn = w.findAll("button").filter(b => b.text().includes("重新加载"));
+    const retryBtn = w.findAll("button").filter(b => b.text().includes("\u91cd\u65b0\u52a0\u8f7d"));
     await retryBtn[0].trigger("click");
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
-    expect(window.intelligenceFetchTrending).toHaveBeenCalledTimes(2);
+    expect(intelligenceFetchTrending).toHaveBeenCalledTimes(2);
   });
 
   it("shows empty state", async () => {
-    window.intelligenceFetchTrending.mockResolvedValue([]);
+    vi.mocked(intelligenceFetchTrending).mockResolvedValue([]);
     const w = mount(TrendingPanel);
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
-    expect(w.text()).toContain("暂无热门内容");
+    expect(w.text()).toContain("\u6682\u65e0\u70ed\u95e8\u5185\u5bb9");
   });
 
   it("displays trending items", async () => {
-    window.intelligenceFetchTrending.mockResolvedValue([
+    vi.mocked(intelligenceFetchTrending).mockResolvedValue([
       { title: "AI breakthrough", source: "reddit", url: "https://reddit.com/r/ai", upvotes: 1200, comments: 340, engagementScore: 4.5 },
       { title: "New JS framework", source: "github", url: "https://github.com/test", upvotes: 800, comments: 50, engagementScore: 2.3 },
     ]);
@@ -65,7 +70,7 @@ describe("TrendingPanel", () => {
   });
 
   it("filters by source tab", async () => {
-    window.intelligenceFetchTrending.mockResolvedValue([
+    vi.mocked(intelligenceFetchTrending).mockResolvedValue([
       { title: "Reddit post", source: "reddit", url: "https://reddit.com/r/test", upvotes: 100, comments: 10, engagementScore: 1.0 },
       { title: "HN post", source: "hackernews", url: "https://news.ycombinator.com/item?id=1", upvotes: 200, comments: 20, engagementScore: 2.0 },
     ]);

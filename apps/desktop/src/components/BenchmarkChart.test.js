@@ -2,7 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 
-// Mock global API function
+// Mock @/api/publisher 模块（组件通过 import 调用，不再用全局注入）
+vi.mock("@/api/publisher", () => ({
+  intelligenceGetBenchmark: vi.fn()
+}));
+
+import { intelligenceGetBenchmark } from "@/api/publisher";
+import BenchmarkChart from "./BenchmarkChart.vue";
+
 const mockBenchmark = {
   benchmark: {
     sampleSize: 100,
@@ -14,18 +21,14 @@ const mockBenchmark = {
   }
 };
 
-vi.stubGlobal("intelligenceGetBenchmark", vi.fn().mockResolvedValue(mockBenchmark));
-
-import BenchmarkChart from "./BenchmarkChart.vue";
-
 describe("BenchmarkChart", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    globalThis.intelligenceGetBenchmark = vi.fn().mockResolvedValue(mockBenchmark);
+    vi.mocked(intelligenceGetBenchmark).mockResolvedValue(mockBenchmark);
   });
 
   it("renders loading state initially", async () => {
-    globalThis.intelligenceGetBenchmark.mockImplementation(() => new Promise(function(r) { /* never resolve */ }));
+    vi.mocked(intelligenceGetBenchmark).mockImplementation(() => new Promise(function(r) { /* never resolve */ }));
     const w = mount(BenchmarkChart, { props: { title: "\u6d4b\u8bd5\u6587\u7ae0\u6807\u9898" } });
     await nextTick();
     await new Promise(function(r) { return setTimeout(r, 10); });
@@ -47,7 +50,7 @@ describe("BenchmarkChart", () => {
   });
 
   it("renders error state when API returns error", async () => {
-    globalThis.intelligenceGetBenchmark.mockResolvedValue({ error: "API \u914d\u989d\u4e0d\u8db3" });
+    vi.mocked(intelligenceGetBenchmark).mockResolvedValue({ error: "API \u914d\u989d\u4e0d\u8db3" });
     const w = mount(BenchmarkChart, { props: { title: "\u6d4b\u8bd5\u6587\u7ae0\u6807\u9898" } });
     await nextTick();
     await new Promise(function(r) { return setTimeout(r, 50); });
@@ -55,7 +58,7 @@ describe("BenchmarkChart", () => {
   });
 
   it("renders error state when API throws", async () => {
-    globalThis.intelligenceGetBenchmark.mockRejectedValue(new Error("\u7f51\u7edc\u9519\u8bef"));
+    vi.mocked(intelligenceGetBenchmark).mockRejectedValue(new Error("\u7f51\u7edc\u9519\u8bef"));
     const w = mount(BenchmarkChart, { props: { title: "\u6d4b\u8bd5\u6587\u7ae0\u6807\u9898" } });
     await nextTick();
     await new Promise(function(r) { return setTimeout(r, 50); });
@@ -63,7 +66,7 @@ describe("BenchmarkChart", () => {
   });
 
   it("renders insufficient data message", async () => {
-    globalThis.intelligenceGetBenchmark.mockResolvedValue({ message: "\u6570\u636e\u4e0d\u8db3" });
+    vi.mocked(intelligenceGetBenchmark).mockResolvedValue({ message: "\u6570\u636e\u4e0d\u8db3" });
     const w = mount(BenchmarkChart, { props: { title: "\u6d4b\u8bd5\u6587\u7ae0\u6807\u9898" } });
     await nextTick();
     await new Promise(function(r) { return setTimeout(r, 50); });

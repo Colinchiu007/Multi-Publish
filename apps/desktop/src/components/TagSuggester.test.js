@@ -17,6 +17,14 @@ vi.mock("element-plus", () => ({
   ElMessage: { success: vi.fn() }
 }));
 
+// 组件已 import { intelligenceSuggestTags } from '@/api/publisher'
+// 必须用 vi.mock 拦截 ESM import
+// 工厂内创建 vi.fn()，通过 import 拿引用（vi.mock 是 hoisted，不能引用外部变量）
+vi.mock("@/api/publisher", () => ({
+  intelligenceSuggestTags: vi.fn(),
+}));
+
+import { intelligenceSuggestTags } from "@/api/publisher";
 import TagSuggester from "./TagSuggester.vue";
 
 function successResponse() {
@@ -42,12 +50,10 @@ async function triggerAnalyzeTimed(w, content) {
 
 describe("TagSuggester", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.mocked(intelligenceSuggestTags).mockReset();
+    vi.mocked(intelligenceSuggestTags).mockResolvedValue(successResponse());
     vi.useFakeTimers({ shouldAdvanceTime: true });
     setActivePinia(createPinia());
-    window.electronAPI = {
-      intelligenceSuggestTags: vi.fn().mockResolvedValue(successResponse())
-    };
   });
 
   afterEach(() => {
@@ -67,7 +73,7 @@ describe("TagSuggester", () => {
   });
 
   it("shows loading when analyzing", async () => {
-    window.electronAPI.intelligenceSuggestTags.mockImplementation(() => new Promise(() => {}));
+    vi.mocked(intelligenceSuggestTags).mockImplementation(() => new Promise(() => {}));
     const w = createWrapper();
     await nextTick();
     await w.setProps({ content: "这是一篇测试文章内容" });
@@ -88,7 +94,7 @@ describe("TagSuggester", () => {
   });
 
   it("shows error when API fails", async () => {
-    window.electronAPI.intelligenceSuggestTags.mockRejectedValue(new Error("API error"));
+    vi.mocked(intelligenceSuggestTags).mockRejectedValue(new Error("API error"));
     const w = createWrapper();
     await nextTick();
     await triggerAnalyzeTimed(w, "这是一篇测试文章内容");
@@ -96,7 +102,7 @@ describe("TagSuggester", () => {
   });
 
   it("handles null API response gracefully", async () => {
-    window.electronAPI.intelligenceSuggestTags.mockResolvedValue(null);
+    vi.mocked(intelligenceSuggestTags).mockResolvedValue(null);
     const w = createWrapper();
     await nextTick();
     await triggerAnalyzeTimed(w, "这是一篇测试文章内容");
@@ -152,7 +158,8 @@ describe("TagSuggester", () => {
   });
 
   it("debounces rapid changes", async () => {
-    window.electronAPI.intelligenceSuggestTags = vi.fn();
+    vi.mocked(intelligenceSuggestTags).mockClear();
+    vi.mocked(intelligenceSuggestTags).mockResolvedValue(successResponse());
     const w = createWrapper();
     await nextTick();
 
@@ -165,10 +172,10 @@ describe("TagSuggester", () => {
     await w.setProps({ content: "abcd" });
     vi.advanceTimersByTime(100);
 
-    expect(window.electronAPI.intelligenceSuggestTags).not.toHaveBeenCalled();
+    expect(intelligenceSuggestTags).not.toHaveBeenCalled();
     vi.advanceTimersByTime(800);
     await nextTick();
-    expect(window.electronAPI.intelligenceSuggestTags).toHaveBeenCalledTimes(1);
+    expect(intelligenceSuggestTags).toHaveBeenCalledTimes(1);
   });
 
   it("resets state when content is cleared", async () => {

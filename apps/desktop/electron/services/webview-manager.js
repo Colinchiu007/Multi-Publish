@@ -88,6 +88,7 @@ class WebviewManager {
         preload: path.join(__dirname, '..', 'monitor-preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
+        sandbox: true,
         backgroundThrottling: false,
       }
     })
@@ -257,27 +258,32 @@ class WebviewManager {
    */
   registerIpcHandlers () {
     ipcMain.handle('webview:set-layout', (_, count) => {
-      this.setLayout(count)
-      return { code: 0, data: { layout: count, tabCount: this.tabs.length } }
+      try {
+        this.setLayout(count)
+        return { code: 0, data: { layout: count, tabCount: this.tabs.length } }
+      } catch (e) { return { code: -1, message: e.message } }
     })
 
     ipcMain.handle('webview:open-tab', (_, { platform, accountId, cookies, localStorage, url }) => {
-      const tabId = this.openTab(platform, accountId, cookies, localStorage, url)
-      return tabId ? { code: 0, data: { tabId } } : { code: -1, message: `无法打开 ${platform}` }
+      try {
+        const tabId = this.openTab(platform, accountId, cookies, localStorage, url)
+        return tabId ? { code: 0, data: { tabId } } : { code: -1, message: `无法打开 ${platform}` }
+      } catch (e) { return { code: -1, message: e.message } }
     })
 
     ipcMain.handle('webview:close-tab', (_, tabId) => {
-      this.closeTab(tabId)
-      return { code: 0 }
+      try { this.closeTab(tabId); return { code: 0 } }
+      catch (e) { return { code: -1, message: e.message } }
     })
 
     ipcMain.handle('webview:close-all', () => {
-      this.closeAll()
-      return { code: 0 }
+      try { this.closeAll(); return { code: 0 } }
+      catch (e) { return { code: -1, message: e.message } }
     })
 
     ipcMain.handle('webview:list-tabs', () => {
-      return { code: 0, data: this.getTabsInfo() }
+      try { return { code: 0, data: this.getTabsInfo() } }
+      catch (e) { return { code: -1, message: e.message, data: [] } }
     })
   }
 

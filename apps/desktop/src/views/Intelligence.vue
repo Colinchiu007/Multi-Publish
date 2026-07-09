@@ -144,6 +144,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import TrendingPanel from '@/components/TrendingPanel.vue'
 import ReferenceFinder from '@/components/ReferenceFinder.vue'
+import { intelligenceSearch, intelligenceSearchTitles } from '@/api/publisher'
 
 const query = ref('')
 const searching = ref(false)
@@ -186,14 +187,14 @@ async function doSearch () {
   result.value = null
   titleAnalysis.value = null
   try {
-    const res = await window.electronAPI.intelligenceSearch(query.value.trim(), {
+    const res = await intelligenceSearch(query.value.trim(), {
       sources: selectedSources.value,
       limit: 10,
     })
     result.value = res
 
     // Also get title analysis
-    const titleRes = await window.electronAPI.intelligenceSearchTitles(query.value.trim(), {
+    const titleRes = await intelligenceSearchTitles(query.value.trim(), {
       sources: selectedSources.value,
     })
     titleAnalysis.value = titleRes.titleAnalysis || null

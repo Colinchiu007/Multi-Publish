@@ -30,7 +30,7 @@ describe('PublisherRouter', () => {
     publisherRouter = new PublisherRouter()
   })
 
-  test('ROUTE_TABLE covers all 12 platforms', () => {
+  test('ROUTE_TABLE covers all 15 platforms', () => {
     const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'services', 'publisher-router'))
     for (const p of EXPECTED_PLATFORMS) {
       expect(ROUTE_TABLE).toHaveProperty(p)
@@ -69,7 +69,7 @@ describe('PublisherRouter', () => {
 
   test('listPlatforms returns all platform ids', () => {
     const platforms = publisherRouter.listPlatforms()
-    expect(platforms.length).toBeGreaterThanOrEqual(12)
+    expect(platforms.length).toBeGreaterThanOrEqual(15)
     const ids = platforms.map(p => p.id || p)
     for (const p of EXPECTED_PLATFORMS) {
       expect(ids).toContain(p)

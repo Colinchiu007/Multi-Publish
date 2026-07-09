@@ -45,18 +45,14 @@ function checkNullBytes(dir, depth = 0) {
 
 // ── 2. 关键文件存在性 ──
 const CRITICAL_FILES = [
-  'packages/rpa-engine/src/playwright-manager.js',
-  'packages/rpa-engine/src/cookie-store.js',
-  'packages/rpa-engine/src/selector-engine.js',
   'packages/rpa-engine/src/index.js',
-  'packages/rpa-engine/src/publishers/base-rpa-publisher.js',
   'packages/rpa-engine/src/publishers/registry.js',
   'packages/shared-utils/src/index.js',
   'packages/shared-utils/src/platform-config.js',
   'apps/desktop/electron/main.js',
-  'apps/desktop/electron/publisher-router.js',
-  'apps/desktop/electron/store.js',
-  'apps/desktop/electron/rpa-view-manager.js',
+  'apps/desktop/electron/services/publisher-router.js',
+  'apps/desktop/electron/services/store.js',
+  'apps/desktop/electron/services/rpa-view-manager.js',
   'config/platforms.yaml',
 ]
 
@@ -113,8 +109,10 @@ function checkPackageConfig() {
     if (!files.some(f => f.includes('electron/**'))) {
       ERRORS.push('[CONFIG] build.files 缺少 electron/**/*')
     }
-    if (!files.some(f => f.includes('config/'))) {
-      ERRORS.push('[CONFIG] build.files 缺少 config/**/*')
+    // v2.3.44: config 从 build.files 移到 build.extraResources
+    const extraResources = pkg.build?.extraResources
+    if (!extraResources || !Array.isArray(extraResources) || !extraResources.some(e => e && e.to === 'config')) {
+      ERRORS.push('[CONFIG] build.extraResources 缺少 config 配置')
     }
   } catch (e) {
     ERRORS.push(`[CONFIG] package.json 解析失败: ${e.message}`)

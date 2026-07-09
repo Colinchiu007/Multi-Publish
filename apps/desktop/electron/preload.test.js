@@ -46,6 +46,8 @@ const PUBLISH_METHODS = [
   'onRenderProgress', 'onRenderComplete', 'onRenderError', 'onRenderInstallProgress',
   'renderListCompositions', 'renderGetComposition', 'renderValidateProps',
   'intelligenceSuggestTags', 'intelligenceGetOptimalTime',
+  'intelligenceSearch', 'intelligenceSearchTitles', 'intelligenceFetchTrending',
+  'intelligenceFindReferences', 'intelligenceGetBenchmark',
   'getQueueStatus', 'getQueueHistory', 'cancelTask',
   'historyList', 'historyGet',
   'dashboardStats',
@@ -154,10 +156,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 51 个键（50 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 56 个键（55 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(51)
+    expect(Object.keys(r).length).toBe(56)
   })
 
   it('account 模块应导出 40 个方法', () => {
@@ -166,18 +168,18 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(40)
   })
 
-  it('system 模块应导出 117 个方法', () => {
+  it('system 模块应导出 121 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(117)
+    expect(Object.keys(r).length).toBe(121)
   })
 
-  it('合并后 api 总键数应为 208', () => {
-    expect(Object.keys(api).length).toBe(208)
+  it('合并后 api 总键数应为 217', () => {
+    expect(Object.keys(api).length).toBe(217)
   })
 
-  it('PUBLISH_METHODS 常量长度应为 50', () => {
-    expect(PUBLISH_METHODS.length).toBe(50)
+  it('PUBLISH_METHODS 常量长度应为 55', () => {
+    expect(PUBLISH_METHODS.length).toBe(55)
   })
 
   it('ACCOUNT_METHODS 常量长度应为 40', () => {

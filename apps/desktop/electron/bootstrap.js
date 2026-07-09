@@ -382,16 +382,30 @@ function runWhenReady(context, deps) {
 
     // 使用量统计 IPC
     ipcMain.handle('usage:stats', () => {
-      if (global.usageTracker) return global.usageTracker.getStats()
-      return { features: {}, events: [], sessions: 0 }
+      try {
+        if (global.usageTracker) return global.usageTracker.getStats()
+        return { features: {}, events: [], sessions: 0 }
+      } catch (e) {
+        return { code: -1, message: e.message, features: {}, events: [], sessions: 0 }
+      }
     })
     ipcMain.handle('usage:daily', () => {
-      if (global.usageTracker) return global.usageTracker.getDailyStats()
-      return {}
+      try {
+        if (global.usageTracker) return global.usageTracker.getDailyStats()
+        return {}
+      } catch (e) {
+        return { code: -1, message: e.message }
+      }
     })
     ipcMain.handle('usage:track', (event, args) => {
-      if (global.usageTracker) global.usageTracker.trackEvent(args.feature, args.action, args.detail)
-      return true
+      try {
+        if (global.usageTracker && args) {
+          global.usageTracker.trackEvent(args.feature, args.action, args.detail)
+        }
+        return true
+      } catch (e) {
+        return { code: -1, message: e.message }
+      }
     })
 
     mainWindow = createWindow(context)

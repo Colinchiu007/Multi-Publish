@@ -229,7 +229,7 @@ import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { storeGetSetting } from '@/api/publisher'
+import { storeGetSetting, storeSetSetting } from '@/api/publisher'
 import TagSuggester from '@/components/TagSuggester.vue'
 import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
@@ -315,8 +315,7 @@ const {
 
 // 持久化预检开关状态
 watch(precheckEnabled, (val) => {
-  const api = window.electronAPI;
-  if (api && api.storeSetSetting) api.storeSetSetting("precheckEnabled", val);
+  storeSetSetting("precheckEnabled", val);
 })
 
 // 草稿导入 — 从 Collection 页跳转时加载

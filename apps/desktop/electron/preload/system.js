@@ -151,33 +151,33 @@ function createSystemApi(ipcRenderer) {
 
     // Analytics API
     analyticsOverview: () => ipcRenderer.invoke('analytics:overview'),
-    analyticsPlatform: (platform) => ipcRenderer.invoke('analytics:platform', platform),
+    analyticsPlatform: (platform) => ipcRenderer.invoke('analytics:platform', { platform }),
     analyticsPlatforms: () => ipcRenderer.invoke('analytics:platforms'),
 
     // Hotkeys API
     hotkeysList: () => ipcRenderer.invoke('hotkeys:list'),
 
     // Keyword API
-    keywordStart: (keyword, opts) => ipcRenderer.invoke('keyword:start', keyword, opts),
-    keywordStop: (keyword) => ipcRenderer.invoke('keyword:stop', keyword),
+    keywordStart: (keyword, opts) => ipcRenderer.invoke('keyword:start', { keyword, opts }),
+    keywordStop: (keyword) => ipcRenderer.invoke('keyword:stop', { keyword }),
     keywordStatus: () => ipcRenderer.invoke('keyword:status'),
-    keywordHistory: (keyword) => ipcRenderer.invoke('keyword:history', keyword),
+    keywordHistory: (keyword) => ipcRenderer.invoke('keyword:history', { keyword }),
     keywordStopAll: () => ipcRenderer.invoke('keyword:stop-all'),
 
     // Proxy API
-    proxyAdd: (proxy) => ipcRenderer.invoke('proxy:add', proxy),
-    proxyAddBatch: (proxies) => ipcRenderer.invoke('proxy:add-batch', proxies),
+    proxyAdd: (host, port, type) => ipcRenderer.invoke('proxy:add', { host, port, type }),
+    proxyAddBatch: (proxies) => ipcRenderer.invoke('proxy:add-batch', { proxies }),
     proxyList: () => ipcRenderer.invoke('proxy:list'),
-    proxyRemove: (id) => ipcRenderer.invoke('proxy:remove', id),
-    proxyTest: (id, timeout) => ipcRenderer.invoke('proxy:test', id, timeout),
-    proxyTestAll: (timeout) => ipcRenderer.invoke('proxy:test-all', timeout),
+    proxyRemove: (id) => ipcRenderer.invoke('proxy:remove', { id }),
+    proxyTest: (id, timeout) => ipcRenderer.invoke('proxy:test', { id, timeout }),
+    proxyTestAll: (timeout) => ipcRenderer.invoke('proxy:test-all', { timeout }),
     proxyStatus: () => ipcRenderer.invoke('proxy:status'),
     proxyGetNext: () => ipcRenderer.invoke('proxy:get-next'),
     proxyReset: () => ipcRenderer.invoke('proxy:reset'),
     proxyRemoveDead: () => ipcRenderer.invoke('proxy:remove-dead'),
 
     // Upload API
-    uploadChunked: (filePath, uploadChunkFn) => ipcRenderer.invoke('upload:chunked', filePath, uploadChunkFn),
+    uploadChunked: (filePath) => ipcRenderer.invoke('upload:chunked', { filePath }),
     uploadCancel: () => ipcRenderer.invoke('upload:cancel'),
 
     // Template API
@@ -215,6 +215,10 @@ function createSystemApi(ipcRenderer) {
     aiGenerate: (type, provider, params) => ipcRenderer.invoke('ai:generate', { type, provider, params }),
     aiTestConnection: (providerId) => ipcRenderer.invoke('ai:test-connection', providerId),
     aiSaveConfig: (providerId, config) => ipcRenderer.invoke('ai:save-config', providerId, config),
+    aiIsConfigured: () => ipcRenderer.invoke('ai:is-configured'),
+    aiGenerateTitles: (topic) => ipcRenderer.invoke('ai:generate-titles', topic),
+    aiEnhanceContent: (content, style) => ipcRenderer.invoke('ai:enhance-content', content, style),
+    aiGenerateSummary: (content) => ipcRenderer.invoke('ai:generate-summary', content),
     onAIProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:progress', h); return () => ipcRenderer.removeListener('ai:progress', h); },
     onAIComplete: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:complete', h); return () => ipcRenderer.removeListener('ai:complete', h); },
     onAIError: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:error', h); return () => ipcRenderer.removeListener('ai:error', h); },

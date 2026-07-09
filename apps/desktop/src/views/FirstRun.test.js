@@ -10,9 +10,12 @@ vi.mock("@/stores/license", () => ({
 vi.mock("@/api/publisher", () => ({
   onFirstRunStatus: vi.fn(() => vi.fn()),
   firstRunCheck: vi.fn().mockResolvedValue({ setupDone: false }),
+  authOpenLogin: vi.fn(),
+  accountAdd: vi.fn(),
 }));
 
 import FirstRunView from "./FirstRun.vue";
+import { authOpenLogin, accountAdd } from "@/api/publisher";
 
 describe("FirstRunView", () => {
   beforeEach(() => {
@@ -69,16 +72,19 @@ describe("FirstRunView", () => {
   });
 
   it("addAccount opens auth login via electronAPI", async () => {
-    window.electronAPI.authOpenLogin = vi.fn().mockResolvedValue({ code: 0 });
+    // window.electronAPI.authOpenLogin 存在 → 走 if 分支调 import 的 authOpenLogin
+    window.electronAPI.authOpenLogin = vi.fn();
+    vi.mocked(authOpenLogin).mockResolvedValue({ code: 0 });
     const w = createView();
     await nextTick();
     await w.vm.addAccount("douyin");
-    expect(window.electronAPI.authOpenLogin).toHaveBeenCalledWith("douyin");
+    expect(authOpenLogin).toHaveBeenCalledWith("douyin");
     expect(w.vm.addingPlatform).toBe("");
   });
 
   it("addAccount handles authOpenLogin error", async () => {
-    window.electronAPI.authOpenLogin = vi.fn().mockResolvedValue({ code: 1, message: "login failed" });
+    window.electronAPI.authOpenLogin = vi.fn();
+    vi.mocked(authOpenLogin).mockResolvedValue({ code: 1, message: "login failed" });
     const spy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = createView();
     await nextTick();
@@ -88,17 +94,20 @@ describe("FirstRunView", () => {
   });
 
   it("addAccount falls back to accountAdd when authOpenLogin missing", async () => {
-    window.electronAPI.accountAdd = vi.fn().mockResolvedValue({ code: 0 });
+    // window.electronAPI.authOpenLogin 不存在 → 走 else 分支调 import 的 accountAdd
+    window.electronAPI.accountAdd = vi.fn();
+    vi.mocked(accountAdd).mockResolvedValue({ code: 0 });
     const spy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = createView();
     await nextTick();
     await w.vm.addAccount("zhihu");
-    expect(window.electronAPI.accountAdd).toHaveBeenCalledWith("zhihu");
+    expect(accountAdd).toHaveBeenCalledWith("zhihu");
     spy.mockRestore();
   });
 
   it("addAccount catches exception", async () => {
-    window.electronAPI.authOpenLogin = vi.fn().mockRejectedValue(new Error("network error"));
+    window.electronAPI.authOpenLogin = vi.fn();
+    vi.mocked(authOpenLogin).mockRejectedValue(new Error("network error"));
     const spy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = createView();
     await nextTick();

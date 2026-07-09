@@ -80,6 +80,7 @@ class QrCodeLogin {
           preload: path.join(__dirname, '..', 'auth-qrcode-preload.js'),
           contextIsolation: true,
           nodeIntegration: false,
+          sandbox: true,
         }
       })
       this.currentView = view
@@ -398,8 +399,12 @@ class QrCodeLogin {
     })
 
     ipcMain.handle('auth:qrcode-close', () => {
-      this.close()
-      return { code: 0 }
+      try {
+        this.close()
+        return { code: 0 }
+      } catch (e) {
+        return { code: -1, message: e.message }
+      }
     })
   }
 }

@@ -157,7 +157,7 @@ function notify(msg, type = 'success') {
   showNotification.value = true
   setTimeout(() => { showNotification.value = false }, 3000)
 }
-import { onFirstRunStatus, firstRunCheck } from '@/api/publisher'
+import { onFirstRunStatus, firstRunCheck, authOpenLogin, accountAdd } from '@/api/publisher'
 
 const currentStep = ref(0)
 const addingPlatform = ref('')
@@ -219,11 +219,11 @@ async function addAccount (platform) {
   try {
     const api = window.electronAPI
     if (api?.authOpenLogin) {
-      const res = await api.authOpenLogin(platform)
+      const res = await authOpenLogin(platform)
       if (res.code !== 0) window.alert(res.message || '添加失败')
       else window.alert('账号添加成功，继续添加或进入下一步')
     } else {
-      const res = await api.accountAdd(platform)
+      const res = await accountAdd(platform)
       if (res.code !== 0) window.alert(res.message || '添加失败')
       else window.alert('请在弹出的浏览器窗口中完成登录')
     }

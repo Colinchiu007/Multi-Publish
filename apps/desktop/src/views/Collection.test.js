@@ -37,7 +37,7 @@ describe("CollectionView", () => {
     await nextTick();
     await new Promise(r => setTimeout(r, 0));
     await nextTick();
-    expect(window.electronAPI.storeGetSetting).toHaveBeenCalledWith("drafts", "[]");
+    expect(window.electronAPI.storeGetSetting).toHaveBeenCalledWith("drafts");
     expect(w.vm.drafts.length).toBe(1);
     expect(w.vm.drafts[0].title).toBe("Saved");
   });
@@ -194,7 +194,7 @@ describe("CollectionView", () => {
     expect(w.vm.drafts.length).toBe(1);
   });
 
-  it("collectUrl warns if no urlCollect API", async () => {
+  it("collectUrl warns if no urlCollectFetch API", async () => {
     window.electronAPI = {};
     const w = mount(CollectionView);
     await nextTick();
@@ -206,7 +206,7 @@ describe("CollectionView", () => {
 
   it("collectUrl warns if URL is empty", async () => {
     window.electronAPI = {
-      urlCollect: vi.fn()
+      urlCollectFetch: vi.fn()
     };
     const w = mount(CollectionView);
     await nextTick();
@@ -218,13 +218,13 @@ describe("CollectionView", () => {
 
   it("collectUrl succeeds with API", async () => {
     window.electronAPI = {
-      urlCollect: vi.fn().mockResolvedValue({ code: 0, data: { title: "Article", description: "Desc", coverImage: "img.jpg" } })
+      urlCollectFetch: vi.fn().mockResolvedValue({ code: 0, data: { title: "Article", description: "Desc", coverImage: "img.jpg" } })
     };
     const w = mount(CollectionView);
     await nextTick();
     w.vm.linkUrl = "https://example.com/article";
     await w.vm.collectUrl();
-    expect(window.electronAPI.urlCollect).toHaveBeenCalledWith("https://example.com/article");
+    expect(window.electronAPI.urlCollectFetch).toHaveBeenCalledWith("https://example.com/article");
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.success).toHaveBeenCalled();
     expect(w.vm.collectedResult).toBeTruthy();
@@ -233,7 +233,7 @@ describe("CollectionView", () => {
 
   it("collectUrl shows error on API failure", async () => {
     window.electronAPI = {
-      urlCollect: vi.fn().mockResolvedValue({ code: 1, message: "collection failed" })
+      urlCollectFetch: vi.fn().mockResolvedValue({ code: 1, message: "collection failed" })
     };
     const w = mount(CollectionView);
     await nextTick();
@@ -245,7 +245,7 @@ describe("CollectionView", () => {
 
   it("collectUrl catches exception", async () => {
     window.electronAPI = {
-      urlCollect: vi.fn().mockRejectedValue(new Error("network error"))
+      urlCollectFetch: vi.fn().mockRejectedValue(new Error("network error"))
     };
     const w = mount(CollectionView);
     await nextTick();

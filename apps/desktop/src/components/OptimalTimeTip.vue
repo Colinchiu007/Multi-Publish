@@ -74,8 +74,8 @@
 </template>
 
 <script setup>
-/* global intelligenceGetOptimalTime */
 import { ref, watch, computed } from 'vue'
+import { intelligenceGetOptimalTime } from '@/api/publisher'
 
 const props = defineProps({
   keyword: { type: String, required: true },

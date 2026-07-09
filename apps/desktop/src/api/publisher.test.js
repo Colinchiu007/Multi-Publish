@@ -65,11 +65,11 @@ const apiMeta = {
   onRenderError:          { args: [vi.fn()], fallback: undefined, returns: "function" },
   onRenderInstallProgress: { args: [vi.fn()], fallback: undefined, returns: "function" },
   // 内容情报
-  intelligenceSearch:        { args: ["test"], fallback: { code: 0, data: [] }, returns: "object" },
-  intelligenceSearchTitles:  { args: ["test"], fallback: [], returns: "object" },
-  intelligenceFetchTrending: { args: [], fallback: [], returns: "object" },
+  intelligenceSearch:        { args: ["test", {}], fallback: { code: 0, data: [] }, returns: "object" },
+  intelligenceSearchTitles:  { args: ["test", {}], fallback: [], returns: "object" },
+  intelligenceFetchTrending: { args: [{}], fallback: [], returns: "object" },
   intelligenceSuggestTags:   { args: ["content", {}], fallback: null, returns: "null" },
-  intelligenceFindReferences: { args: ["https://x.com"], fallback: [], returns: "object" },
+  intelligenceFindReferences: { args: ["https://x.com", {}], fallback: [], returns: "object" },
   intelligenceGetOptimalTime: { args: ["keyword"], fallback: null, returns: "null" },
   intelligenceGetBenchmark:   { args: [{}], fallback: null, returns: "null" },
   // 关键词监测
@@ -78,7 +78,7 @@ const apiMeta = {
   keywordStop:     { args: ["kw"], fallback: { code: -1 }, returns: "object" },
   keywordHistory:  { args: ["kw"], fallback: { code: 0, data: [] }, returns: "object" },
   // 爆款分析
-  viralAnalyze:    { args: ["kw"], fallback: { code: -1 }, returns: "object" },
+  viralAnalyze:    { args: ["articles", "topic"], fallback: { code: -1 }, returns: "object" },
   viralGenerate:   { args: [{}], fallback: { code: -1 }, returns: "object" },
   // 平台配置
   platformList:    { args: [], fallback: { code: 0, data: [] }, returns: "object" },

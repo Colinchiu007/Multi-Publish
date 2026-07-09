@@ -119,6 +119,7 @@ class OAuthManager {
           preload: path.join(__dirname, '..', 'auth-qrcode-preload.js'),
           contextIsolation: true,
           nodeIntegration: false,
+          sandbox: true,
         }
       })
       this.currentView = view
@@ -169,7 +170,8 @@ class OAuthManager {
 
         if (error) {
           res.writeHead(400, { 'Content-Type': 'text/html' })
-          res.end('<h3>授权失败</h3><p>' + error + '</p><script>window.close()</script>')
+          const safeError = String(error).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]))
+          res.end('<h3>授权失败</h3><p>' + safeError + '</p><script>window.close()</script>')
           this._onAuthFailed(new Error(`OAuth error: ${error}`))
           return
         }
@@ -372,18 +374,26 @@ class OAuthManager {
     })
 
     ipcMain.handle('oauth:close', () => {
-      this.close()
-      return { code: 0 }
+      try {
+        this.close()
+        return { code: 0 }
+      } catch (e) {
+        return { code: -1, message: e.message }
+      }
     })
 
     ipcMain.handle('oauth:get-configs', () => {
-      const list = Object.entries(OAUTH_CONFIGS).map(([platform, config]) => ({
-        platform,
-        scopes: config.scopes,
-        hasClientId: !!config.clientId,
-        redirectPort: config.redirectPort,
-      }))
-      return { code: 0, data: list }
+      try {
+        const list = Object.entries(OAUTH_CONFIGS).map(([platform, config]) => ({
+          platform,
+          scopes: config.scopes,
+          hasClientId: !!config.clientId,
+          redirectPort: config.redirectPort,
+        }))
+        return { code: 0, data: list }
+      } catch (e) {
+        return { code: -1, message: e.message, data: [] }
+      }
     })
   }
 }

@@ -4,7 +4,7 @@
  */
 
 function registerHandlers(ipcMain, deps) {
-  const { aiGenerator, BrowserWindow, log } = deps
+  const { aiGenerator, aiWriter, BrowserWindow, log } = deps
 
   ipcMain.handle('ai:list-providers', (_event, type) => {
     try {
@@ -47,6 +47,34 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('ai:save-config', (_event, providerId, config) => {
     try {
       return aiGenerator.updateProviderConfig(providerId, config)
+    } catch (e) { return { code: -1, message: e.message } }
+  })
+
+  // AiWriter 辅助写作 API（AiWriterPanel.vue 使用）
+  ipcMain.handle('ai:is-configured', () => {
+    try {
+      return { code: 0, data: aiWriter.isConfigured() }
+    } catch (e) { return { code: -1, message: e.message } }
+  })
+
+  ipcMain.handle('ai:generate-titles', async (_event, topic) => {
+    try {
+      const titles = await aiWriter.generateTitles(topic)
+      return { code: 0, data: titles }
+    } catch (e) { return { code: -1, message: e.message } }
+  })
+
+  ipcMain.handle('ai:enhance-content', async (_event, content, style) => {
+    try {
+      const enhanced = await aiWriter.enhanceContent(content, style)
+      return { code: 0, data: enhanced }
+    } catch (e) { return { code: -1, message: e.message } }
+  })
+
+  ipcMain.handle('ai:generate-summary', async (_event, content) => {
+    try {
+      const summary = await aiWriter.generateSummary(content)
+      return { code: 0, data: summary }
     } catch (e) { return { code: -1, message: e.message } }
   })
 }

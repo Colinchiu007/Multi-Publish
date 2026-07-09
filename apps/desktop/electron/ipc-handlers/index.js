@@ -22,7 +22,7 @@ function registerAllHandlers(ipcMain, deps) {
   require('./ai')(ipcMain, deps)
   require('./offline')(ipcMain, deps)
   require('./payment')(ipcMain, deps)
-  require('./pipeline')(ipcMain)
+  require('./pipeline')(ipcMain, deps)
   require('./video')(ipcMain, deps)
   require('./misc')(ipcMain, deps)
   require('./onboarding')(ipcMain, deps)

@@ -98,6 +98,7 @@ import UiInput from "../components/UiInput.vue";
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { storeGetSetting, storeSetSetting } from '@/api/publisher'
 
 const router = useRouter()
 const drafts = ref([])
@@ -110,17 +111,14 @@ onMounted(async () => {
 })
 
 async function loadDrafts () {
-  const api = window.electronAPI
-  if (!api || !api.storeGetSetting) return
-  const raw = await api.storeGetSetting('drafts', '[]')
+  const raw = await storeGetSetting('drafts')
+  // API 不可用（bridge fallback 返回 null）或无数据时，保持当前 drafts 不覆盖
+  if (raw == null) return
   try { drafts.value = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { drafts.value = [] }
 }
 
 async function saveDrafts () {
-  const api = window.electronAPI
-  if (api && api.storeSetSetting) {
-    await api.storeSetSetting('drafts', JSON.stringify(drafts.value))
-  }
+  await storeSetSetting('drafts', JSON.stringify(drafts.value))
 }
 
 function createDraft () {
@@ -188,7 +186,7 @@ async function deleteDraft (d) {
 
 async function collectUrl () {
   const api = window.electronAPI
-  if (!api || !api.urlCollect) {
+  if (!api || !api.urlCollectFetch) {
     ElMessage.warning('采集功能不可用')
     return
   }
@@ -199,7 +197,7 @@ async function collectUrl () {
   collecting.value = true
   collectedResult.value = null
   try {
-    const result = await api.urlCollect(linkUrl.value.trim())
+    const result = await api.urlCollectFetch(linkUrl.value.trim())
     if (result.code !== 0) {
       ElMessage.error(result.message || '采集失败')
       return

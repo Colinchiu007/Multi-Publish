@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const Module = require('module');
 
-const ASAR = 'C:/Users/邱领/AppData/Local/Temp/app-test-full';
+const ASAR = process.argv[2] || process.env.ASAR_ROOT || '/tmp/app-test-full';
 const nm = path.join(ASAR, 'node_modules');
 const electronDir = path.join(ASAR, 'electron');
 
@@ -52,7 +52,7 @@ try {
 } catch (e) { console.log('❌ electron:', e.message.split('\n')[0]); }
 
 // 测试 4：检查 api-platform-adapter 的所有 require 能否解析
-const apiAdapterPath = path.join(electronDir, 'api-platform-adapter.js');
+const apiAdapterPath = path.join(electronDir, 'services', 'api-platform-adapter.js');
 const apiAdapterContent = fs.readFileSync(apiAdapterPath, 'utf8');
 const requires = [...apiAdapterContent.matchAll(/require\(['"]([^'"]+)['"]\)/g)].map(m => m[1]);
 console.log('\n--- api-platform-adapter require 链 ---');
@@ -65,8 +65,8 @@ for (const r of requires) {
 
 // 测试 5：检查 electron 目录下所有文件的关键 require
 console.log('\n--- electron/ 目录关键文件检查 ---');
-const criticalFiles = ['callback-server.js', 'publish-monitor.js', 'content-aggregator-bridge.js',
-  'credential-store.js', 'account-state-restorer.js', 'video-uploader.js', 'system-tray.js'];
+const criticalFiles = ['services/callback-server.js', 'services/publish-monitor.js',
+  'services/credential-store.js', 'services/account-state-restorer.js', 'services/system-tray.js'];
 for (const file of criticalFiles) {
   const filePath = path.join(electronDir, file);
   if (!fs.existsSync(filePath)) { console.log('⚠️ ', file, '(not in asar)'); continue; }

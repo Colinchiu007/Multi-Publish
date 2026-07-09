@@ -75,6 +75,7 @@
 import { ref, watch } from 'vue'
 import { usePlatformStore } from '@/stores/platforms'
 import { ElMessage } from 'element-plus'
+import { intelligenceSuggestTags } from '@/api/publisher'
 
 const props = defineProps({
   content: { type: String, required: true },
@@ -104,7 +105,7 @@ watch(() => props.content, (newVal) => {
     loading.value = true
     error.value = null
     try {
-      const res = await window.electronAPI.intelligenceSuggestTags(newVal, {
+      const res = await intelligenceSuggestTags(newVal, {
         platforms: ['zhihu', 'weibo', 'xiaohongshu', 'bilibili', 'toutiao'],
       })
       if (res && res.keywords) {

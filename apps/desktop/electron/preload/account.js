@@ -56,7 +56,7 @@ function createAccountApi(ipcRenderer) {
       return () => ipcRenderer.removeListener('auth:view-closed', h)
     },
     // Auth API（静默登录）
-    authLoginSilent: (platform, cookies, localStorage) => ipcRenderer.invoke('auth:login-silent', platform, cookies, localStorage),
+    authLoginSilent: (platform, cookies, localStorage) => ipcRenderer.invoke('auth:login-silent', { platform, cookies, localStorage }),
 
     // 扫码登录 API
     authOpenQrCodeLogin: (platform) => ipcRenderer.invoke('auth:open-qrcode-login', platform),

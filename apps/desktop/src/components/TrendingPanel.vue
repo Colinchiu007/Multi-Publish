@@ -109,8 +109,8 @@
 </template>
 
 <script setup>
-/* global intelligenceFetchTrending */
 import { ref, computed, onMounted } from 'vue'
+import { intelligenceFetchTrending } from '@/api/publisher'
 
 const props = defineProps({
   sources: {

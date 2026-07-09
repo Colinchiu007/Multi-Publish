@@ -123,8 +123,8 @@
 </template>
 
 <script setup>
-/* global intelligenceGetBenchmark */
 import { ref, onMounted, watch } from 'vue'
+import { intelligenceGetBenchmark } from '@/api/publisher'
 
 const props = defineProps({
   title: {

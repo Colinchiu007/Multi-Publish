@@ -11,7 +11,7 @@
 
 // eslint-disable-next-line no-unused-vars
 const path = require('path')
-const AiWriter = require('../../../../packages/ai-writer/src/index')
+const AiWriter = require('@multi-publish/ai-writer')
 const log = require('./logger')
 
 // 包装器 — 添加 Electron 日志

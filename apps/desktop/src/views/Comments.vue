@@ -49,6 +49,7 @@
 <script setup>
 // eslint-disable-next-line no-unused-vars
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { platformList } from '@/api/publisher'
 
 const activePlatform = ref(null)
 const platforms = ref([])
@@ -65,11 +66,9 @@ const platformNameMap = {
 function platformName (id) { return platformNameMap[id] || id }
 
 async function loadPlatforms () {
-  const api = window.electronAPI
-  if (!api || !api.platformList) return
   try {
-    const res = await api.platformList()
-    if (res.code === 0) {
+    const res = await platformList()
+    if (res && res.code === 0) {
       platforms.value = (res.data || []).filter(p => p.comment_url)
     }
   // eslint-disable-next-line no-unused-vars

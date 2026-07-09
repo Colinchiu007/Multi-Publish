@@ -88,11 +88,9 @@
 </template>
 
 <script setup>
-/* global intelligenceFindReferences */
 import UiModal from "../components/UiModal.vue";
 import { ref, watch } from 'vue'
-// eslint-disable-next-line no-unused-vars
-import { ElDialog } from 'element-plus'
+import { intelligenceFindReferences } from '@/api/publisher'
 
 const props = defineProps({
   visible: { type: Boolean, required: true },

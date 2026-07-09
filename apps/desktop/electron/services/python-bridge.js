@@ -11,7 +11,7 @@ const log = require('./logger')
 const http = require('http')
 
 const BACKEND_PORT = parseInt(process.env.BACKEND_PORT || '8299', 10)
-const BACKEND_HOST = '127.0.0.1'
+const BACKEND_HOST = process.env.BACKEND_HOST || '127.0.0.1'
 const HEALTH_CHECK_INTERVAL = 500   // 启动时健康检查间隔 (ms)
 const HEALTH_CHECK_TIMEOUT = 10000  // 启动时最长等待 (ms)
 const WATCHDOG_INTERVAL = 30000     // 守护检查间隔 30s

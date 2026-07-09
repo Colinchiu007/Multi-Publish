@@ -77,6 +77,7 @@ function createAuthView(accountId, preloadPath, sessionInstance) {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     }
   })
 }

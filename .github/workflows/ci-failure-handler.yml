@@ -13,7 +13,7 @@ name: CI Failure Handler (Level 4)
 
 on:
   workflow_run:
-    workflows: ["check-docs-sync", "CI", "Lint", "Test"]
+    workflows: ["Build & Release", "Electron CI", "quality-gate", "GUI Tests", "Doc Sync Gate"]
     types: [completed]
 
 permissions:

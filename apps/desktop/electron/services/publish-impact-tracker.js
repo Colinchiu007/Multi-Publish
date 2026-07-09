@@ -133,7 +133,12 @@ class PublishImpactTracker {
     const { ipcMain } = require('electron')
 
     ipcMain.handle('impact:get-active', () => {
-      return { data: this.getActiveTrackings() }
+      try {
+        return { data: this.getActiveTrackings() }
+      } catch (e) {
+        log.error('ImpactTracker', 'getActive error: ' + e.message)
+        return { data: [] }
+      }
     })
 
     // Return recent impact snapshots for dashboard display

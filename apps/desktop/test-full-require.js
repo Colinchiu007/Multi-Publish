@@ -6,8 +6,8 @@ const path = require('path');
 const fs = require('fs');
 const Module = require('module');
 
-// asar 提取目录
-const ASAR_ROOT = 'C:/Users/邱领/AppData/Local/Temp/app-test-full';
+// asar 提取目录（可通过命令行参数或环境变量覆盖）
+const ASAR_ROOT = process.argv[2] || process.env.ASAR_ROOT || '/tmp/app-test-full';
 
 // 替换所有 require 路径，指向 asar 提取后的目录
 const originalResolve = Module._resolveFilename;
@@ -31,24 +31,22 @@ const ELECTRON_DIR = path.join(ASAR_ROOT, 'electron');
 const ELECTRON_FILES = [
   'main.js',
   'preload.js',
-  'logger.js',
-  'store.js',
-  'credential-store.js',
-  'account-state-restorer.js',
-  'webview-manager.js',
+  'services/logger.js',
+  'services/store.js',
+  'services/credential-store.js',
+  'services/account-state-restorer.js',
+  'services/webview-manager.js',
   'monitor-preload.js',
   'auth-qrcode-preload.js',
-  'qrcode-login.js',
-  'oauth-manager.js',
-  'batch-manager.js',
-  'url-collector.js',
-  'hotkeys.js',
-  'system-tray.js',
-  'publish-monitor.js',
-  'video-uploader.js',
-  'content-aggregator-bridge.js',
-  'api-platform-adapter.js',
-  'callback-server.js',
+  'services/qrcode-login.js',
+  'services/oauth-manager.js',
+  'services/batch-manager.js',
+  'services/url-collector.js',
+  'services/hotkeys.js',
+  'services/system-tray.js',
+  'services/publish-monitor.js',
+  'services/api-platform-adapter.js',
+  'services/callback-server.js',
 ];
 
 let passed = 0;

@@ -77,7 +77,8 @@
             "package.json"
         ],
         "extraResources": [
-            { "from": "../../config", "to": "config" }
+            { "from": "../../config", "to": "config" },
+            { "from": ".playwright-browsers", "to": "playwright-browsers" }
         ],
         "win": {
             "target": "nsis",

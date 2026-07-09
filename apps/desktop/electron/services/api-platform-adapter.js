@@ -10,19 +10,13 @@
 const path = require("path");
 const log = require("./logger");
 
-// ?????? api-publish-engine ???????
+// 加载 api-publish-engine（统一走 workspace 包名，避免深相对路径跳出 asar）
 let engine = null;
 try {
-  engine = require("../../../packages/api-publish-engine/src/index");
-// eslint-disable-next-line no-unused-vars
+  engine = require("@multi-publish/api-publish-engine");
 } catch (e) {
-  // ????? monorepo workspace ??
-  try {
-    engine = require("@multi-publish/api-publish-engine");
-  } catch (e2) {
-    log.error("APIPlatformAdapter", "Cannot load api-publish-engine: " + e2.message);
-    engine = null;
-  }
+  log.error("APIPlatformAdapter", "Cannot load api-publish-engine: " + e.message);
+  engine = null;
 }
 
 /**

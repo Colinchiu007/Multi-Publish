@@ -44,7 +44,7 @@ jobs:
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
           echo "checking for hardcoded secrets..."
-          $hasSecret = Select-String -Path apps/desktop/electron/*.js -Pattern "(?i)(api[_-]?key|secret|token|password)\s*=\s*['""][a-zA-Z0-9_\-]{16,}" -Quiet
+          $hasSecret = Get-ChildItem -Recurse -Filter *.js -Path apps/desktop/electron | Select-String -Pattern "(?i)(api[_-]?key|secret|token|password)\s*=\s*['""][a-zA-Z0-9_\-]{16,}" -Quiet
           if ($hasSecret) { echo "hardcoded secrets found"; exit 1 }
           echo "code quality scan done"
 

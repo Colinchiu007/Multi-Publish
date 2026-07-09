@@ -193,26 +193,32 @@ class BatchManager {
     })
 
     ipcMain.handle('batch:schedule', (_, batchId) => {
-      const ok = this.scheduleBatch(batchId)
-      return ok ? { code: 0 } : { code: -1, message: '批量任务不存在' }
+      try {
+        const ok = this.scheduleBatch(batchId)
+        return ok ? { code: 0 } : { code: -1, message: '批量任务不存在' }
+      } catch (e) { return { code: -1, message: e.message } }
     })
 
     ipcMain.handle('batch:list', () => {
-      return { code: 0, data: this.store.listBatchJobs() }
+      try { return { code: 0, data: this.store.listBatchJobs() } }
+      catch (e) { return { code: -1, message: e.message, data: [] } }
     })
 
     ipcMain.handle('batch:get', (_, id) => {
-      const batch = this.store.getBatchJob(id)
-      return batch ? { code: 0, data: batch } : { code: -1, message: '未找到' }
+      try {
+        const batch = this.store.getBatchJob(id)
+        return batch ? { code: 0, data: batch } : { code: -1, message: '未找到' }
+      } catch (e) { return { code: -1, message: e.message } }
     })
 
     ipcMain.handle('batch:delete', (_, id) => {
-      this.store.deleteBatchJob(id)
-      return { code: 0 }
+      try { this.store.deleteBatchJob(id); return { code: 0 } }
+      catch (e) { return { code: -1, message: e.message } }
     })
 
     ipcMain.handle('batch:duplicate-article', (_, article) => {
-      return { code: 0, data: this.duplicateArticle(article) }
+      try { return { code: 0, data: this.duplicateArticle(article) } }
+      catch (e) { return { code: -1, message: e.message } }
     })
   }
 }

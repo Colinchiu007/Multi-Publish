@@ -7,6 +7,14 @@ vi.mock("@/components/TrendingPanel.vue", () => ({ default: { template: "<div>tr
 vi.mock("@/components/ReferenceFinder.vue", () => ({ default: { template: "<div v-if='visible'>ref-finder</div>", props: ["visible", "searchText"] } }));
 vi.mock("element-plus", () => ({ ElMessage: { success: vi.fn() } }));
 
+// 组件已 import { intelligenceSearch, intelligenceSearchTitles } from '@/api/publisher'
+// 必须用 vi.mock 拦截 ESM import
+vi.mock("@/api/publisher", () => ({
+  intelligenceSearch: vi.fn(),
+  intelligenceSearchTitles: vi.fn(),
+}));
+
+import { intelligenceSearch, intelligenceSearchTitles } from "@/api/publisher";
 import IntelligenceView from "./Intelligence.vue";
 
 describe("IntelligenceView", () => {
@@ -93,22 +101,21 @@ describe("IntelligenceView", () => {
   });
 
   it("doSearch requires non-empty query", async () => {
-    window.electronAPI.intelligenceSearch = vi.fn();
     const w = createView();
     await nextTick();
     w.vm.query = "";
     await w.vm.doSearch();
-    expect(window.electronAPI.intelligenceSearch).not.toHaveBeenCalled();
+    expect(intelligenceSearch).not.toHaveBeenCalled();
   });
 
-  it("doSearch calls electronAPI with query and sources", async () => {
-    window.electronAPI.intelligenceSearch = vi.fn().mockResolvedValue({ total: 2, results: [], timestamp: "2026-07-05T10:00:00Z" });
-    window.electronAPI.intelligenceSearchTitles = vi.fn().mockResolvedValue({ titleAnalysis: null });
+  it("doSearch calls intelligenceSearch with query and sources", async () => {
+    vi.mocked(intelligenceSearch).mockResolvedValue({ total: 2, results: [], timestamp: "2026-07-05T10:00:00Z" });
+    vi.mocked(intelligenceSearchTitles).mockResolvedValue({ titleAnalysis: null });
     const w = createView();
     await nextTick();
     w.vm.query = "AI trends";
     await w.vm.doSearch();
-    expect(window.electronAPI.intelligenceSearch).toHaveBeenCalledWith("AI trends", {
+    expect(intelligenceSearch).toHaveBeenCalledWith("AI trends", {
       sources: ["reddit", "hackernews", "github"],
       limit: 10,
     });
@@ -116,10 +123,10 @@ describe("IntelligenceView", () => {
   });
 
   it("doSearch sets result and titleAnalysis", async () => {
-    window.electronAPI.intelligenceSearch = vi.fn().mockResolvedValue({
+    vi.mocked(intelligenceSearch).mockResolvedValue({
       total: 1, results: [{ id: "1", title: "AI", source: "reddit", engagement: 1.5 }], timestamp: "2026-07-05T10:00:00Z"
     });
-    window.electronAPI.intelligenceSearchTitles = vi.fn().mockResolvedValue({
+    vi.mocked(intelligenceSearchTitles).mockResolvedValue({
       titleAnalysis: { patterns: [["AI", 3]], suggestion: { tip: "Use AI" } }
     });
     const w = createView();
@@ -133,7 +140,7 @@ describe("IntelligenceView", () => {
   });
 
   it("doSearch handles API error gracefully", async () => {
-    window.electronAPI.intelligenceSearch = vi.fn().mockRejectedValue(new Error("API error"));
+    vi.mocked(intelligenceSearch).mockRejectedValue(new Error("API error"));
     const w = createView();
     await nextTick();
     w.vm.query = "test";

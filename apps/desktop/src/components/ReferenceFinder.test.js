@@ -10,12 +10,17 @@ vi.mock("../components/UiModal.vue", () => ({
   }
 }));
 
+// Mock @/api/publisher 模块（组件通过 import 调用，不再用全局注入）
+vi.mock("@/api/publisher", () => ({
+  intelligenceFindReferences: vi.fn()
+}));
+
+import { intelligenceFindReferences } from "@/api/publisher";
 import ReferenceFinder from "./ReferenceFinder.vue";
 
 describe("ReferenceFinder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    window.intelligenceFindReferences = vi.fn();
   });
 
   it("shows initial empty state", async () => {
@@ -23,44 +28,44 @@ describe("ReferenceFinder", () => {
       props: { visible: true, searchText: "" }
     });
     await nextTick();
-    expect(w.text()).toContain("输入关键词搜索权威来源");
+    expect(w.text()).toContain("\u8f93\u5165\u5173\u952e\u8bcd\u641c\u7d22\u6743\u5a01\u6765\u6e90");
   });
 
   it("shows searching state", async () => {
-    window.intelligenceFindReferences.mockImplementation(() => new Promise(() => {}));
+    vi.mocked(intelligenceFindReferences).mockImplementation(() => new Promise(() => {}));
     const w = mount(ReferenceFinder, {
       props: { visible: true, searchText: "" }
     });
     await nextTick();
     const input = w.find("input");
-    await input.setValue("AI技术");
+    await input.setValue("AI\u6280\u672f");
     await nextTick();
-    const searchBtn = w.findAll("button").filter(b => b.text().includes("搜索"));
+    const searchBtn = w.findAll("button").filter(b => b.text().includes("\u641c\u7d22"));
     await searchBtn[0].trigger("click");
     await nextTick();
-    expect(w.text()).toContain("搜索中");
+    expect(w.text()).toContain("\u641c\u7d22\u4e2d");
   });
 
   it("shows no results state", async () => {
-    window.intelligenceFindReferences.mockResolvedValue({ references: [] });
+    vi.mocked(intelligenceFindReferences).mockResolvedValue({ references: [] });
     const w = mount(ReferenceFinder, {
       props: { visible: true, searchText: "" }
     });
     await nextTick();
     const input = w.find("input");
-    await input.setValue("不存在的关键词");
+    await input.setValue("\u4e0d\u5b58\u5728\u7684\u5173\u952e\u8bcd");
     await nextTick();
-    const searchBtn = w.findAll("button").filter(b => b.text().includes("搜索"));
+    const searchBtn = w.findAll("button").filter(b => b.text().includes("\u641c\u7d22"));
     await searchBtn[0].trigger("click");
     await nextTick();
-    expect(w.text()).toContain("未找到相关来源");
+    expect(w.text()).toContain("\u672a\u627e\u5230\u76f8\u5173\u6765\u6e90");
   });
 
   it("shows results after search", async () => {
-    window.intelligenceFindReferences.mockResolvedValue({
+    vi.mocked(intelligenceFindReferences).mockResolvedValue({
       references: [
-        { title: "AI技术发展趋势", url: "https://example.com/ai", source: "知乎", engagement: "1.2k", snippet: "人工智能技术正在快速发展...", relevance: 45 },
-        { title: "深度学习入门", url: "https://example.com/dl", source: "CSDN", engagement: "856", snippet: "深度学习是机器学习的一个分支...", relevance: 30 },
+        { title: "AI\u6280\u672f\u53d1\u5c55\u8d8b\u52bf", url: "https://example.com/ai", source: "\u77e5\u4e4e", engagement: "1.2k", snippet: "\u4eba\u5de5\u667a\u80fd\u6280\u672f\u6b63\u5728\u5feb\u901f\u53d1\u5c55...", relevance: 45 },
+        { title: "\u6df1\u5ea6\u5b66\u4e60\u5165\u95e8", url: "https://example.com/dl", source: "CSDN", engagement: "856", snippet: "\u6df1\u5ea6\u5b66\u4e60\u662f\u673a\u5668\u5b66\u4e60\u7684\u4e00\u4e2a\u5206\u652f...", relevance: 30 },
       ]
     });
     const w = mount(ReferenceFinder, {
@@ -68,41 +73,41 @@ describe("ReferenceFinder", () => {
     });
     await nextTick();
     const input = w.find("input");
-    await input.setValue("AI技术");
+    await input.setValue("AI\u6280\u672f");
     await nextTick();
-    const searchBtn = w.findAll("button").filter(b => b.text().includes("搜索"));
+    const searchBtn = w.findAll("button").filter(b => b.text().includes("\u641c\u7d22"));
     await searchBtn[0].trigger("click");
     await nextTick();
-    expect(w.text()).toContain("AI技术发展趋势");
-    expect(w.text()).toContain("深度学习入门");
-    expect(w.text()).toContain("知乎");
+    expect(w.text()).toContain("AI\u6280\u672f\u53d1\u5c55\u8d8b\u52bf");
+    expect(w.text()).toContain("\u6df1\u5ea6\u5b66\u4e60\u5165\u95e8");
+    expect(w.text()).toContain("\u77e5\u4e4e");
     expect(w.text()).toContain("CSDN");
   });
 
   it("auto-searches when visible flips to true with searchText", async () => {
-    window.intelligenceFindReferences.mockResolvedValue({
+    vi.mocked(intelligenceFindReferences).mockResolvedValue({
       references: [
-        { title: "机器学习", url: "https://example.com/ml", source: "知乎", engagement: "2k", snippet: "机器学习概述...", relevance: 50 }
+        { title: "\u673a\u5668\u5b66\u4e60", url: "https://example.com/ml", source: "\u77e5\u4e4e", engagement: "2k", snippet: "\u673a\u5668\u5b66\u4e60\u6982\u8ff0...", relevance: 50 }
       ]
     });
     // Mount not visible first, then flip to visible
     const w = mount(ReferenceFinder, {
-      props: { visible: false, searchText: "机器学习" }
+      props: { visible: false, searchText: "\u673a\u5668\u5b66\u4e60" }
     });
     await nextTick();
     await w.setProps({ visible: true });
     await nextTick();
-    expect(window.intelligenceFindReferences).toHaveBeenCalledWith("机器学习", { limit: 5 });
+    expect(intelligenceFindReferences).toHaveBeenCalledWith("\u673a\u5668\u5b66\u4e60", { limit: 5 });
   });
 
   it("emits insert-reference on insert button click", async () => {
-    window.intelligenceFindReferences.mockResolvedValue({
+    vi.mocked(intelligenceFindReferences).mockResolvedValue({
       references: [
-        { title: "测试文章", url: "https://example.com/test", source: "知乎", engagement: "100", snippet: "测试内容", relevance: 40 }
+        { title: "\u6d4b\u8bd5\u6587\u7ae0", url: "https://example.com/test", source: "\u77e5\u4e4e", engagement: "100", snippet: "\u6d4b\u8bd5\u5185\u5bb9", relevance: 40 }
       ]
     });
     const w = mount(ReferenceFinder, {
-      props: { visible: false, searchText: "测试" }
+      props: { visible: false, searchText: "\u6d4b\u8bd5" }
     });
     await nextTick();
     await w.setProps({ visible: true });
@@ -110,12 +115,12 @@ describe("ReferenceFinder", () => {
     // Wait for async search to complete
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
-    const insertBtn = w.findAll("button").filter(b => b.text().includes("插入"));
+    const insertBtn = w.findAll("button").filter(b => b.text().includes("\u63d2\u5165"));
     expect(insertBtn.length).toBeGreaterThan(0);
     await insertBtn[0].trigger("click");
     expect(w.emitted("insert-reference")).toBeTruthy();
     expect(w.emitted("insert-reference")[0][0]).toMatchObject({
-      title: "测试文章",
+      title: "\u6d4b\u8bd5\u6587\u7ae0",
       url: "https://example.com/test"
     });
   });
