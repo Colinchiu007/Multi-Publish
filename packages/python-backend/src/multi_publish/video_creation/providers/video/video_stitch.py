@@ -24,6 +24,12 @@ from multi_publish.video_creation.base_tool import (
     ToolStability,
     ToolTier,
 )
+from multi_publish.video_creation.providers.video.video_stitch_xfade import (
+    build_chain_xfade_filtergraph as _module_build_chain_xfade,
+)
+from multi_publish.video_creation.providers.video.video_stitch_xfade import (
+    get_xfade_offset as _module_get_xfade_offset,
+)
 
 
 class VideoStitch(BaseTool):
@@ -710,10 +716,11 @@ class VideoStitch(BaseTool):
 
         The offset is the timestamp in the output where the transition starts,
         which equals the duration of the first clip minus the transition duration.
+
+        实现委托到 ``video_stitch_xfade.get_xfade_offset``（纯函数，配套测试
+        见 ``tests/test_video_stitch_xfade.py``）。
         """
-        clip_dur = probes[clip_index].get("duration", 0) if clip_index < len(probes) else 0
-        offset = max(0, clip_dur - duration)
-        return round(offset, 3)
+        return _module_get_xfade_offset(probes, clip_index, duration)
 
     def _chain_xfade(
         self,
@@ -725,52 +732,16 @@ class VideoStitch(BaseTool):
     ) -> None:
         """Chain xfade filters for N > 2 clips.
 
-        Builds a complex filtergraph that progressively applies xfade
-        between each adjacent pair of clips.
+        构建复杂 filtergraph，在每对相邻 clip 间渐进应用 xfade。
+        纯 filtergraph 构建委托到 ``video_stitch_xfade.build_chain_xfade_filtergraph``，
+        本方法只负责拼装完整 ffmpeg 命令并执行 subprocess。
+
+        已知问题（暂不修复）：probes 使用原始片段时长，但 working_clips 可能已被
+        ``_normalize_clip`` 重新编码导致时长偏移几毫秒 → offset 略有偏差。
         """
-        n = len(clips)
-        input_args: list[str] = []
-        for clip in clips:
-            input_args.extend(["-i", clip])
-
-        # Calculate cumulative offsets
-        # Each xfade offset = cumulative duration of all previous segments
-        # minus cumulative transition overlaps minus current transition duration
-        video_filters: list[str] = []
-        audio_filters: list[str] = []
-        cumulative_offset = 0.0
-
-        for i in range(n - 1):
-            clip_dur = probes[i].get("duration", 0) if i < len(probes) else 0
-            offset = round(cumulative_offset + clip_dur - duration, 3)
-            offset = max(0, offset)
-
-            if i == 0:
-                v_in1 = "[0:v]"
-                a_in1 = "[0:a]"
-            else:
-                v_in1 = f"[vfade{i - 1}]"
-                a_in1 = f"[afade{i - 1}]"
-
-            v_in2 = f"[{i + 1}:v]"
-            a_in2 = f"[{i + 1}:a]"
-
-            if i < n - 2:
-                v_out = f"[vfade{i}]"
-                a_out = f"[afade{i}]"
-            else:
-                v_out = "[vout]"
-                a_out = "[aout]"
-
-            video_filters.append(
-                f"{v_in1}{v_in2}xfade=transition={transition}:duration={duration}:offset={offset}{v_out}"
-            )
-            audio_filters.append(f"{a_in1}{a_in2}acrossfade=d={duration}{a_out}")
-
-            # Cumulative offset advances by clip duration minus overlap
-            cumulative_offset = offset
-
-        filter_complex = ";".join(video_filters + audio_filters)
+        input_args, filter_complex = _module_build_chain_xfade(
+            clips, duration=duration, probes=probes, transition=transition
+        )
 
         cmd = ["ffmpeg", "-y"]
         cmd.extend(input_args)
