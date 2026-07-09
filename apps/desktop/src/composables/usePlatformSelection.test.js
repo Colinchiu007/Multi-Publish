@@ -1,0 +1,138 @@
+// @ts-check
+/**
+ * usePlatformSelection.test.js — 平台选择 composable 测试（Phase 4.3 TDD）
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { nextTick } from 'vue'
+import { usePlatformSelection } from '../composables/usePlatformSelection'
+
+function makeAccountStore() {
+  return {
+    byPlatform: {
+      wechat_mp: [{ id: 'acc1', name: '公众号A', is_default: true }],
+      zhihu: [{ id: 'acc2', name: '知乎号', is_default: true }],
+    },
+    getDefault: vi.fn(function (p) {
+      if (p === 'wechat_mp') return { id: 'acc1', name: '公众号A' }
+      if (p === 'zhihu') return { id: 'acc2', name: '知乎号' }
+      return null
+    }),
+  }
+}
+
+describe('usePlatformSelection — composable setup', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('返回响应式状态和方法', () => {
+    const r = usePlatformSelection(makeAccountStore())
+    expect(r.selectedPlatforms).toBeDefined()
+    expect(r.selectedAccounts).toBeDefined()
+    expect(r.hasVideoPlatforms).toBeDefined()
+    expect(typeof r.togglePlatform).toBe('function')
+    expect(typeof r.getAccounts).toBe('function')
+    expect(typeof r.getDefaultAccount).toBe('function')
+  })
+
+  it('初始 selectedPlatforms = ["wechat_mp"]', () => {
+    const r = usePlatformSelection(makeAccountStore())
+    expect(r.selectedPlatforms.value).toEqual(['wechat_mp'])
+  })
+
+  it('初始 selectedAccounts 为空对象', () => {
+    const r = usePlatformSelection(makeAccountStore())
+    expect(r.selectedAccounts.value).toEqual({})
+  })
+
+  it('togglePlatform 添加平台', () => {
+    const r = usePlatformSelection(makeAccountStore())
+    r.togglePlatform('zhihu')
+    expect(r.selectedPlatforms.value).toContain('zhihu')
+  })
+
+  it('togglePlatform 移除已选平台', () => {
+    const r = usePlatformSelection(makeAccountStore())
+    r.togglePlatform('wechat_mp')
+    expect(r.selectedPlatforms.value).not.toContain('wechat_mp')
+  })
+
+  it('togglePlatform 重复添加不重复', () => {
+    const r = usePlatformSelection(makeAccountStore())
+    r.togglePlatform('zhihu')
+    r.togglePlatform('zhihu')
+    expect(r.selectedPlatforms.value).not.toContain('zhihu')
+  })
+
+  it('hasVideoPlatforms 检测视频平台', async () => {
+    const r = usePlatformSelection(makeAccountStore())
+    expect(r.hasVideoPlatforms.value).toBe(false)
+    r.selectedPlatforms.value = ['douyin']
+    await nextTick()
+    expect(r.hasVideoPlatforms.value).toBe(true)
+    r.selectedPlatforms.value = ['kuaishou']
+    await nextTick()
+    expect(r.hasVideoPlatforms.value).toBe(true)
+    r.selectedPlatforms.value = ['tencent_video']
+    await nextTick()
+    expect(r.hasVideoPlatforms.value).toBe(true)
+    r.selectedPlatforms.value = ['wechat_mp']
+    await nextTick()
+    expect(r.hasVideoPlatforms.value).toBe(false)
+  })
+
+  it('getAccounts 从 accountStore 获取', () => {
+    const store = makeAccountStore()
+    const r = usePlatformSelection(store)
+    expect(r.getAccounts('wechat_mp')).toHaveLength(1)
+    expect(r.getAccounts('nonexistent')).toEqual([])
+  })
+
+  it('getDefaultAccount 调用 accountStore.getDefault', () => {
+    const store = makeAccountStore()
+    const r = usePlatformSelection(store)
+    const def = r.getDefaultAccount('wechat_mp')
+    expect(store.getDefault).toHaveBeenCalledWith('wechat_mp')
+    expect(def.id).toBe('acc1')
+  })
+
+  it('watch 同步：添加平台时自动设置默认账号', async () => {
+    const store = makeAccountStore()
+    const r = usePlatformSelection(store)
+    r.selectedPlatforms.value = ['wechat_mp', 'zhihu']
+    await nextTick()
+    expect(r.selectedAccounts.value.wechat_mp).toBe('acc1')
+    expect(r.selectedAccounts.value.zhihu).toBe('acc2')
+  })
+
+  it('watch 同步：移除平台时清理账号', async () => {
+    const store = makeAccountStore()
+    const r = usePlatformSelection(store)
+    r.selectedPlatforms.value = ['wechat_mp', 'zhihu']
+    await nextTick()
+    expect(r.selectedAccounts.value.zhihu).toBe('acc2')
+    r.selectedPlatforms.value = ['wechat_mp']
+    await nextTick()
+    expect(r.selectedAccounts.value.zhihu).toBeUndefined()
+  })
+
+  it('watch 同步：无默认账号时不设置', async () => {
+    const store = makeAccountStore()
+    store.getDefault = vi.fn(function () { return null })
+    const r = usePlatformSelection(store)
+    r.selectedPlatforms.value = ['wechat_mp', 'unknown']
+    await nextTick()
+    expect(r.selectedAccounts.value.unknown).toBeUndefined()
+  })
+
+  it('初始 selectedPlatforms 已有的平台会触发 watch 设置默认账号', async () => {
+    const store = makeAccountStore()
+    const r = usePlatformSelection(store)
+    // 初始 selectedPlatforms = ['wechat_mp']，watch 默认不立即执行
+    // 但手动触发一次后应设置
+    r.selectedPlatforms.value = ['wechat_mp']
+    await nextTick()
+    // watch 应已设置 wechat_mp 默认账号
+    expect(r.selectedAccounts.value.wechat_mp).toBe('acc1')
+  })
+})

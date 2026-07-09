@@ -221,16 +221,15 @@
 </template>
 
 <script setup>
-/* global licenseStore */
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { publishBatch, onProgress, sensitiveCheck, batchCreate, storeGetSetting, offlineStatus, offlineAddToCache } from '@/api/publisher'
+import { storeGetSetting } from '@/api/publisher'
 import TagSuggester from '@/components/TagSuggester.vue'
 import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
@@ -238,16 +237,19 @@ import ArticleEditor from '@/components/ArticleEditor.vue'
 import TemplatePicker from '@/components/TemplatePicker.vue'
 // eslint-disable-next-line no-unused-vars
 import { useTemplateStore } from '@/stores/templates'
-// eslint-disable-next-line no-unused-vars
 import { useLicenseStore } from '@/stores/license'
 // eslint-disable-next-line no-unused-vars
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import AiWriterPanel from '@/components/AiWriterPanel.vue'
+import { usePlatformSelection } from '@/composables/usePlatformSelection'
+import { usePublishFlow } from '@/composables/usePublishFlow'
+import { useBatchPublish } from '@/composables/useBatchPublish'
 
 const route = useRoute()
 const platformStore = usePlatformStore()
 platformStore.load()
 const accountStore = useAccountStore()
+const licenseStore = useLicenseStore()
 
 // platform data → usePlatformStore() + bilibili tag override
 const PLATFORM_TAGS = { bilibili: { tag: '新', tagClass: 'cohere-tag-success' } }
@@ -260,242 +262,56 @@ const platforms = computed(() =>
 )
 
 // ── 多账号加载 ──────────────────────────
-
-
 async function loadAccounts () {
   await accountStore.load()
 }
 
-function getAccounts (platformId) {
-  return accountStore.byPlatform[platformId] || []
-}
-
-function getDefaultAccount (platformId) {
-  return accountStore.getDefault(platformId)
-}
-
-// ── 非批量模式 ──────────────────────────
-const selectedPlatforms = ref(['wechat_mp'])
-const selectedAccounts = ref({})  // { platformId: accountId }
-const publishing = ref(false)
-const progress = ref([])
-const result = ref(null)
-const copied = ref(false)  // P2-3: URL 复制反馈
-
+// ── 非批量模式（本地 UI 状态） ────────────
 const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '' })
 const showTagPanel = ref(true)
 const showTitlePanel = ref(false)
-const showTemplatePicker = ref(false)
 const showAiWriter = ref(false)
-const templateTargetIdx = ref(-1)
 const showUpgradeModal = ref(false)
-
 const combinedContent = computed(() => article.title + ' ' + article.content)
 
-// 同步 selectedAccounts 默认值
-// eslint-disable-next-line no-unused-vars
-watch(selectedPlatforms, (newPlatforms, oldPlatforms) => {
-  for (const pid of newPlatforms) {
-    if (!selectedAccounts.value[pid]) {
-      const def = getDefaultAccount(pid)
-      if (def) selectedAccounts.value[pid] = def.id
-    }
-  }
-  // 清理已移除平台的账号
-  for (const pid of Object.keys(selectedAccounts.value)) {
-    if (!newPlatforms.includes(pid)) {
-      delete selectedAccounts.value[pid]
-    }
-  }
-}, { deep: true })
+// ── composables ──────────────────────────
+const {
+  selectedPlatforms,
+  selectedAccounts,
+  hasVideoPlatforms,
+  togglePlatform,
+  getAccounts,
+  getDefaultAccount,
+} = usePlatformSelection(accountStore)
 
-// eslint-disable-next-line no-unused-vars
-function togglePlatform (platformId) {
-  const idx = selectedPlatforms.value.indexOf(platformId)
-  if (idx === -1) {
-    selectedPlatforms.value.push(platformId)
-  } else {
-    selectedPlatforms.value.splice(idx, 1)
-  }
-}
-
-const hasVideoPlatforms = computed(() =>
-  selectedPlatforms.value.some(p => ['douyin', 'tencent_video', 'kuaishou'].includes(p))
-)
-
-// P2-3: URL 复制反馈
-function copyUrl (url) {
-  navigator.clipboard.writeText(url).then(() => {
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
-  }).catch(() => {
-    // fallback for older browsers
-    const ta = document.createElement('textarea')
-    ta.value = url
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
-  })
-}
-
-function addProgress (text, type = 'primary') {
-  const now = new Date()
-  const time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  progress.value.push({ text, time, type })
-}
-
-async function handlePublish () {
-  if (!article.title.trim()) { ElMessage.warning('请输入文章标题'); return }
-  if (!article.content.trim()) { ElMessage.warning('请输入正文内容'); return }
-
-  // 敏感词预检
-  if (sensitiveCheck) {
-    const titleResult = await sensitiveCheck(article.title)
-    const contentResult = await sensitiveCheck(article.content)
-    const allWords = [...(titleResult.data?.words || []), ...(contentResult.data?.words || [])]
-    if (allWords.length > 0) {
-      try {
-        await ElMessageBox.confirm(
-          `发布内容包含敏感词：${allWords.join('、')}，是否仍然发布？`,
-          '敏感词提示',
-          { confirmButtonText: '强制发布', cancelButtonText: '修改', type: 'warning' }
-        )
-      // eslint-disable-next-line no-unused-vars
-      } catch (e) { return /* 用户取消 */ }
-    }
-  }
-
-  // 离线检测：网络断开时缓存到本地
-  const targets = selectedPlatforms.value.map(pid => ({ platform: pid, accountId: selectedAccounts.value[pid] || null }));
-  const offlineRes = await offlineStatus()
-  if (offlineRes.code === 0 && offlineRes.data.offline) {
-    await offlineAddToCache({ targets, data: article })
-    addProgress('📡 网络已断开，发布任务已缓存，网络恢复后自动重试', 'warning')
-    ElMessage.warning('网络已断开，任务已缓存')
-    publishing.value = false
-    return
-  }
-  publishing.value = true; progress.value = []; result.value = null
-
-  const off = onProgress((data) => addProgress(`[${data.platform}] ${data.stage}`))
-  try {
-        // Detect Markdown input and tag for platform-specific formatting
-    const isMarkdown = /^#\s|^\*\*|^>\s|^```/m.test(article.content) || /\[.+\]\(.+\)/.test(article.content)
-    const data = { title: article.title, content: article.content, contentFormat: isMarkdown ? 'markdown' : 'html', author: article.author || '', cover_url: article.cover_url || '', video_path: article.video_path || '', precheck: precheckEnabled.value }
-    // 构建带 accountId 的平台列表
-    // targets already set above
-    addProgress(`发布到 ${targets.length} 个目标（含多账号）...`, 'info')
-    const res = await publishBatch(targets, data)
-    if (res.code === 0) { addProgress(`✓ 已添加 ${res.data?.taskIds?.length || ''} 个任务`, 'success'); result.value = { success: true, message: res.message || '任务已加入队列', url: '' } }
-    else { addProgress(`✗ 发布失败: ${res.message}`, 'danger'); result.value = { success: false, message: res.message } }
-  } catch (e) { addProgress(`✗ 错误: ${e.message}`, 'danger'); result.value = { success: false, message: e.message } }
-  finally { publishing.value = false; off() }
-}
-
-// ── 批量模式 ────────────────────────────
-const batchMode = ref(false)
 const precheckEnabled = ref(false)
-let _keyCounter = 1
-const articles = ref([])
-const batchProgress = ref([])
-function checkBatchAccess() {
-  if (batchMode.value && !licenseStore.isPro) {
-    batchMode.value = false
-    showUpgradeModal.value = true
-  }
-}
 
-function applyTemplate(data) {
-  if (batchMode.value && templateTargetIdx.value >= 0) {
-    const a = articles.value[templateTargetIdx.value]
-    if (a) { a.title = data.title; a.content = data.content }
-  } else {
-    article.title = data.title
-    article.content = data.content
-  }
-  showTemplatePicker.value = false
-}
+const {
+  publishing,
+  progress,
+  result,
+  copied,
+  handlePublish,
+  addProgress,
+  copyUrl,
+} = usePublishFlow({ article, selectedPlatforms, selectedAccounts, precheckEnabled })
 
-const batchDone = computed(() => batchProgress.value.filter(p => p.type === 'success').length)
-const batchFail = computed(() => batchProgress.value.filter(p => p.type === 'danger').length)
-const totalPlatformTasks = computed(() => articles.value.reduce((s, a) => s + (a.platforms?.length || 0), 0))
-
-function freshKey () { return `a_${_keyCounter++}_${Date.now()}` }
-
-function addArticle () {
-  articles.value.push({ _key: freshKey(), title: '', content: '', platforms: [], publishTime: '' })
-}
-
-function removeArticle (idx) { articles.value.splice(idx, 1) }
-
-function duplicateArticle (idx) {
-  const orig = articles.value[idx]
-  articles.value.splice(idx + 1, 0, { ...orig, _key: freshKey(), title: orig.title + ' (复制)', publishTime: '' })
-}
-
-async function handleBatchPublish () {
-  const api = window.electronAPI
-  for (const a of articles.value) {
-    if (!a.title.trim()) { ElMessage.warning('有文章缺少标题'); return }
-    if (!a.content.trim()) { ElMessage.warning('有文章缺少正文'); return }
-    if (!a.platforms || a.platforms.length === 0) { ElMessage.warning(`"${a.title.slice(0, 20)}" 未选择发布平台`); return }
-  }
-
-  publishing.value = true
-  batchProgress.value = []
-
-  const off = onProgress((data) => {
-    batchProgress.value.push({
-      text: `[${data.platform}] ${data.stage}`,
-      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      type: data.type || 'primary',
-    })
-  })
-
-  try {
-    // 创建批量任务
-    const createRes = await batchCreate({ name: `批量发布 ${new Date().toLocaleDateString('zh-CN')}`, articles: articles.value.map(a => ({
-      title: a.title, content: a.content, platforms: a.platforms, publishTime: a.publishTime || null, precheck: precheckEnabled.value,
-    })) })
-
-    if (createRes.code !== 0) { throw new Error(createRes.message) }
-
-    const batchId = createRes.data.id
-
-    // 检查是否有定时任务
-    const hasScheduled = articles.value.some(a => a.publishTime)
-    if (hasScheduled) {
-      await api.batchSchedule(batchId)
-      batchProgress.value.push({ text: `✅ 已排期 ${articles.value.length} 篇文章`, time: new Date().toLocaleTimeString('zh-CN'), type: 'success' })
-    } else {
-      // 接收批量进度
-      const off2 = api.onBatchProgress((data) => {
-        batchProgress.value.push({
-          text: data.ok ? `✅ [${data.platform}] ${data.title.slice(0, 20)}: 发布成功` : `❌ [${data.platform}] ${data.title.slice(0, 20)}: ${data.message}`,
-          time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-          type: data.ok ? 'success' : 'danger',
-        })
-      })
-
-      await api.batchExecute(batchId)
-      batchProgress.value.push({ text: `🚀 ${articles.value.length} 篇文章已提交发布`, time: new Date().toLocaleTimeString('zh-CN'), type: 'primary' })
-      off2()
-    }
-  } catch (e) {
-    batchProgress.value.push({ text: `❌ 批量发布失败: ${e.message}`, time: new Date().toLocaleTimeString('zh-CN'), type: 'danger' })
-  } finally {
-    publishing.value = false
-    off()
-  }
-}
-
-// 批量模式切换时初始化
-watch(batchMode, (val) => {
-  if (val && articles.value.length === 0) addArticle()
-})
+const {
+  batchMode,
+  articles,
+  batchProgress,
+  templateTargetIdx,
+  showTemplatePicker,
+  batchDone,
+  batchFail,
+  totalPlatformTasks,
+  addArticle,
+  removeArticle,
+  duplicateArticle,
+  handleBatchPublish,
+  applyTemplate,
+  checkBatchAccess,
+} = useBatchPublish({ article, licenseStore })
 
 // 持久化预检开关状态
 watch(precheckEnabled, (val) => {
@@ -515,8 +331,6 @@ onMounted(async () => {
   const draftId = route.query.draft
   if (!draftId) return
 
-  if (!storeGetSetting) return
-
   const raw = await storeGetSetting('drafts', '[]')
   let drafts
   try { drafts = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { drafts = [] }
@@ -526,6 +340,42 @@ onMounted(async () => {
   article.title = draft.title || ''
   article.content = draft.content || ''
   ElMessage.success('已加载草稿')
+})
+
+// 暴露给测试（w.vm.xxx）和外部组件
+defineExpose({
+  article,
+  batchMode,
+  articles,
+  batchProgress,
+  batchDone,
+  batchFail,
+  totalPlatformTasks,
+  precheckEnabled,
+  publishing,
+  progress,
+  result,
+  copied,
+  selectedPlatforms,
+  selectedAccounts,
+  hasVideoPlatforms,
+  showTemplatePicker,
+  showAiWriter,
+  showUpgradeModal,
+  templateTargetIdx,
+  addArticle,
+  removeArticle,
+  duplicateArticle,
+  handleBatchPublish,
+  handlePublish,
+  applyTemplate,
+  checkBatchAccess,
+  togglePlatform,
+  getAccounts,
+  getDefaultAccount,
+  copyUrl,
+  addProgress,
+  loadAccounts,
 })
 </script>
 
