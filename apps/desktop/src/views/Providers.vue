@@ -81,24 +81,24 @@
     </div>
 
     <!-- 创建/编辑对话框 -->
-        <UiModal
+    <UiModal
       :visible="showFormDialog"
-      title="?????"
+      title="Provider 配置"
       size="md"
-      @close="cancelEdit"
+      @close="showFormDialog = false"
     >
       <div style="display:flex;flex-direction:column;gap:16px">
-        <label class="input-label">???</label>
-        <input class="input" v-model="form.name" placeholder="? openai, doubao" :disabled="isEditing" />
-        <label class="input-label">??</label>
+        <label class="input-label">标识名</label>
+        <input class="input" v-model="form.name" placeholder="如 openai, doubao" :disabled="isEditing" />
+        <label class="input-label">类型</label>
         <select class="input" v-model="form.provider_type" style="width:100%">
           <option value="llm">LLM</option>
-          <option value="video">??</option>
+          <option value="video">视频</option>
         </select>
       </div>
       <template #footer>
-        <UiButton variant="ghost" @click="cancelEdit">??</UiButton>
-        <UiButton @click="saveProvider" :disabled="saving">{{ saving ? '???...' : '??' }}</UiButton>
+        <UiButton variant="ghost" @click="showFormDialog = false">取消</UiButton>
+        <UiButton @click="submitForm" :disabled="submitting">{{ submitting ? '保存中...' : '保存' }}</UiButton>
       </template>
     </UiModal>
 
@@ -150,63 +150,48 @@
 <script setup>
 import UiModal from "../components/UiModal.vue";
 import UiButton from "../components/UiButton.vue";
-import { ref, computed, onMounted } from 'vue'
+import { onMounted } from 'vue'
 // eslint-disable-next-line no-unused-vars
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  providerList,
-  providerCreate,
-  providerUpdate,
-  providerDelete,
-  providerTest,
-} from '@/api/providers'
+import { useProviderCrud } from '@/composables/useProviderCrud'
+import { typeLabel, modelList } from '@/composables/useProviderFilters'
 
-// ─── 数据 ─────────────────────────────────────
-const providers = ref([])
-const loading = ref(true)
-const submitting = ref(false)
-const filterType = ref('all')
+const {
+  // 数据状态
+  providers,
+  loading,
+  submitting,
+  filterType,
+  testResults,
+  testingName,
+  // 表单状态
+  showFormDialog,
+  isEditing,
+  formRef,
+  form,
+  // 删除状态
+  showDeleteDialog,
+  deleteTarget,
+  // 用户 Key 状态
+  showUserKeyDialog,
+  userKeyTarget,
+  userKeyForm,
+  // 计算属性
+  filteredProviders,
+  enabledCount,
+  // 方法
+  loadProviders,
+  openCreate,
+  openEdit,
+  submitForm,
+  confirmDelete,
+  doDelete,
+  testProvider,
+  openUserKey,
+  saveUserKey,
+} = useProviderCrud()
 
-// 测试结果缓存
-const testResults = ref({})
-const testingName = ref('')
-
-// 表单状态
-const showFormDialog = ref(false)
-const isEditing = ref(false)
-const formRef = ref(null)
-const form = ref({
-  name: '',
-  provider_type: 'llm',
-  display_name: '',
-  base_url: '',
-  api_key: '',
-  models: '',
-  enabled: true,
-  min_tier: 1,
-  config: '',
-})
-
-// 删除状态
-const showDeleteDialog = ref(false)
-const deleteTarget = ref(null)
-
-// 用户 Key 管理
-const showUserKeyDialog = ref(false)
-const userKeyTarget = ref(null)
-const userKeyForm = ref({ apiKey: '', baseUrl: '' })
-
-// ─── 计算属性 ─────────────────────────────────
-const filteredProviders = computed(() => {
-  if (filterType.value === 'all') return providers.value
-  return providers.value.filter(p => p.provider_type === filterType.value)
-})
-
-const enabledCount = computed(() =>
-  providers.value.filter(p => p.enabled).length
-)
-
-// ─── 表单验证 ────────────────────────────────
+// 表单验证规则（保留原 formRules 引用，供 formRef.validate 使用）
 // eslint-disable-next-line no-unused-vars
 const formRules = {
   name: [
@@ -219,186 +204,38 @@ const formRules = {
   models: [{ required: true, message: '请至少输入一个模型', trigger: 'blur' }],
 }
 
-// ─── 辅助函数 ─────────────────────────────────
-function typeLabel (type) {
-  const map = { llm: 'LLM', video: '视频', image: '图片' }
-  return map[type] || type || 'LLM'
-}
+// 暴露给测试（w.vm.xxx）和外部组件
+defineExpose({
+  providers,
+  loading,
+  submitting,
+  filterType,
+  testResults,
+  testingName,
+  showFormDialog,
+  isEditing,
+  formRef,
+  form,
+  showDeleteDialog,
+  deleteTarget,
+  showUserKeyDialog,
+  userKeyTarget,
+  userKeyForm,
+  filteredProviders,
+  enabledCount,
+  loadProviders,
+  openCreate,
+  openEdit,
+  submitForm,
+  confirmDelete,
+  doDelete,
+  testProvider,
+  openUserKey,
+  saveUserKey,
+  typeLabel,
+  modelList,
+})
 
-function modelList (models) {
-  if (!models) return '-'
-  if (Array.isArray(models)) return models.join(', ')
-  try { return JSON.parse(models).join(', ') } catch { return String(models) }
-}
-
-// ─── 数据加载 ─────────────────────────────────
-async function loadProviders () {
-  loading.value = true
-  try {
-    const res = await providerList()
-    if (res.code === 0 && Array.isArray(res.data)) {
-      providers.value = res.data
-    } else {
-      ElMessage.error(res.message || '加载失败')
-    }
-  } catch (e) {
-    ElMessage.error(e.message)
-  } finally {
-    loading.value = false
-  }
-}
-
-// ─── 创建/编辑 ────────────────────────────────
-function openCreate () {
-  isEditing.value = false
-  form.value = {
-    name: '', provider_type: 'llm', display_name: '',
-    base_url: '', api_key: '', models: '',
-    enabled: true, min_tier: 1, config: '',
-  }
-  showFormDialog.value = true
-}
-
-function openEdit (provider) {
-  isEditing.value = true
-  const models = Array.isArray(provider.models)
-    ? provider.models.join('\n')
-    : typeof provider.models === 'string'
-      ? provider.models
-      : ''
-  const config = provider.config
-    ? typeof provider.config === 'object'
-      ? JSON.stringify(provider.config, null, 2)
-      : String(provider.config)
-    : ''
-  form.value = {
-    name: provider.name,
-    provider_type: provider.provider_type || 'llm',
-    display_name: provider.display_name || '',
-    base_url: provider.base_url || '',
-    api_key: '',
-    models,
-    enabled: provider.enabled !== false,
-    min_tier: provider.min_tier || 1,
-    config,
-  }
-  showFormDialog.value = true
-}
-
-// eslint-disable-next-line no-unused-vars
-function resetForm () {
-  formRef.value?.resetFields()
-}
-
-// eslint-disable-next-line no-unused-vars
-async function submitForm () {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
-
-  submitting.value = true
-  try {
-    const data = {
-      name: form.value.name,
-      provider_type: form.value.provider_type,
-      display_name: form.value.display_name,
-      base_url: form.value.base_url,
-      models: form.value.models.split('\n').map(s => s.trim()).filter(Boolean),
-      enabled: form.value.enabled,
-      min_tier: Number(form.value.min_tier) || 1,
-    }
-    if (form.value.api_key) data.api_key = form.value.api_key
-    if (form.value.config) {
-      try { data.config = JSON.parse(form.value.config) } catch { data.config = form.value.config }
-    }
-
-    let res
-    if (isEditing.value) {
-      res = await providerUpdate(form.value.name, data)
-    } else {
-      res = await providerCreate(data)
-    }
-
-    if (res.code === 0) {
-      ElMessage.success(isEditing.value ? '更新成功' : '创建成功')
-      showFormDialog.value = false
-      await loadProviders()
-    } else {
-      ElMessage.error(res.message || '保存失败')
-    }
-  } catch (e) {
-    ElMessage.error(e.message)
-  } finally {
-    submitting.value = false
-  }
-}
-
-// ─── 删除 ─────────────────────────────────────
-function confirmDelete (provider) {
-  deleteTarget.value = provider
-  showDeleteDialog.value = true
-}
-
-async function doDelete () {
-  if (!deleteTarget.value) return
-  submitting.value = true
-  try {
-    const res = await providerDelete(deleteTarget.value.name)
-    if (res.code === 0) {
-      ElMessage.success('已删除')
-      showDeleteDialog.value = false
-      deleteTarget.value = null
-      await loadProviders()
-    } else {
-      ElMessage.error(res.message || '删除失败')
-    }
-  } catch (e) {
-    ElMessage.error(e.message)
-  } finally {
-    submitting.value = false
-  }
-}
-
-// ─── 测试连接 ─────────────────────────────────
-async function testProvider (name) {
-  testingName.value = name
-  delete testResults.value[name]
-  try {
-    const res = await providerTest(name)
-    if (res.code === 0) {
-      testResults.value[name] = { success: true, message: res.message || 'ok' }
-    } else {
-      testResults.value[name] = { success: false, message: res.message || '连接失败' }
-    }
-  } catch (e) {
-    testResults.value[name] = { success: false, message: e.message }
-  } finally {
-    testingName.value = ''
-    // 3 秒后自动清除结果
-    setTimeout(() => { delete testResults.value[name] }, 5000)
-  }
-}
-
-// ─── 用户 Key 管理 ────────────────────────────
-// eslint-disable-next-line no-unused-vars
-function openUserKey (provider) {
-  userKeyTarget.value = provider
-  userKeyForm.value = { apiKey: '', baseUrl: '' }
-  showUserKeyDialog.value = true
-}
-
-async function saveUserKey () {
-  if (!userKeyTarget.value) return
-  try {
-    const api = window.electronAPI
-    await api.providerSetUserKey(userKeyTarget.value.name, userKeyForm.value.apiKey, userKeyForm.value.baseUrl)
-    ElMessage.success('用户 Key 已保存')
-    showUserKeyDialog.value = false
-  } catch (e) {
-    ElMessage.error(e.message)
-  }
-}
-
-// ─── 生命周期 ─────────────────────────────────
 onMounted(() => {
   loadProviders()
 })
@@ -622,4 +459,3 @@ onMounted(() => {
   margin: 0;
 }
 </style>
-
