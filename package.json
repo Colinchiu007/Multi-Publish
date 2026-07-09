@@ -9,7 +9,7 @@
     "build:win": "npm run build:win -w @multi-publish/desktop",
     "test": "npm run test -w @multi-publish/rpa-engine -w @multi-publish/shared-utils -w @multi-publish/desktop",
     "clean": "rm -rf apps/*/node_modules packages/*/node_modules node_modules",
-    "check:deps": "npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite,app-builder-bin,electron,jest 2>&1 || echo \"WARN: depcheck issues found (non-blocking)\"",
+    "check:deps": "npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite,app-builder-bin,electron 2>&1 || echo \"WARN: depcheck issues found (non-blocking)\"",
     "check:circular": "npx madge --warning --circular apps/desktop/electron/main.js 2>&1 || echo \"WARN: circular deps found (non-blocking)\"",
     "test:platform-verify": "node scripts/verify-platform-selectors.js",
     "test:platform-verify-full": "node scripts/verify-platform-selectors.js --full",
@@ -32,7 +32,6 @@
   },
   "devDependencies": {
     "depcheck": "^1.4.7",
-    "jest": "^30.4.2",
     "madge": "^8.0.0",
     "pinia": "^3.0.0",
     "playwright": "^1.61.1"

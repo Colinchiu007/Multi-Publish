@@ -103,7 +103,8 @@ describe('模块依赖解析', () => {
 
   test('all main.js local require paths resolve', () => {
     const requires = extractRequires(path.join(ELECTRON_DIR, 'main.js'))
-    expect(requires.length).toBeGreaterThan(10)
+    // main.js 已重构为委托 bootstrap/window/shutdown 三件套，仅 3 个本地 require
+    expect(requires.length).toBeGreaterThanOrEqual(3)
     for (const req of requires) {
       try {
         const resolved = require.resolve(req, { paths: [ELECTRON_DIR] })
