@@ -24,7 +24,7 @@ class PublishPoller {
    */
   constructor (opts) {
     this._axios = opts.axios || require("axios")
-    this.orchestratorUrl = opts.orchestratorUrl || process.env.ORCHESTRATOR_URL || 'http://39.105.42.85'
+    this.orchestratorUrl = opts.orchestratorUrl || process.env.ORCHESTRATOR_URL || 'https://39.105.42.85'
     this.pollInterval = opts.pollInterval || 2000
     this.publisherRouter = opts.publisherRouter
     this.rpaViewManager = opts.rpaViewManager

@@ -36,7 +36,7 @@ const FAKE_TASK = {
   },
 }
 
-const ORCHESTRATOR_URL = 'http://39.105.42.85'
+const ORCHESTRATOR_URL = 'https://39.105.42.85'
 
 function createPoller (overrides) {
   const router = { createPublisher: jest.fn() }

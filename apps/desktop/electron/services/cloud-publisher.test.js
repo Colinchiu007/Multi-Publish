@@ -13,7 +13,7 @@ describe("CloudPublisher", () => {
 
   describe("constructor", () => {
     it("default orchestrator URL", () => {
-      expect(new CloudPublisher({ axios: mockAxios })._orchestratorUrl).toBe("http://39.105.42.85");
+      expect(new CloudPublisher({ axios: mockAxios })._orchestratorUrl).toBe("https://39.105.42.85");
     });
     it("custom URL", () => {
       const cp = new CloudPublisher({ axios: mockAxios, orchestratorUrl: "http://x:3000" });

@@ -18,7 +18,7 @@ const axios = require('axios')
 const CloudPublisher = require('../electron/cloud-publisher')
 
 // Helpers
-const ORCHESTRATOR_URL = 'http://39.105.42.85'
+const ORCHESTRATOR_URL = 'https://39.105.42.85'
 
 function createPublisher (overrides) {
   const store = { _ready: true }

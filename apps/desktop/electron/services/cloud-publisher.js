@@ -19,12 +19,12 @@ class CloudPublisher {
 
   /**
    * @param {Object} opts
-   * @param {string} opts.orchestratorUrl - Orchestrator base URL (e.g. http://39.105.42.85)
+   * @param {string} opts.orchestratorUrl - Orchestrator base URL (e.g. https://39.105.42.85)
    * @param {Object} opts.store - Electron store instance (reserved for future use)
    */
   constructor (opts) {
     this._axios = opts.axios || require("axios")
-    this._orchestratorUrl = opts.orchestratorUrl || 'http://39.105.42.85'
+    this._orchestratorUrl = opts.orchestratorUrl || 'https://39.105.42.85'
     this._store = opts.store || null
   }
 

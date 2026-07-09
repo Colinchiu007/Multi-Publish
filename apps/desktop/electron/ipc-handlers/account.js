@@ -52,8 +52,7 @@ function registerHandlers(ipcMain, deps) {
 
       if (platform === 'bilibili' || platform === 'douyin') {
         try {
-          const http = require('http')
-          const orchestratorUrl = process.env.ORCHESTRATOR_URL || 'http://39.105.42.85'
+          const orchestratorUrl = process.env.ORCHESTRATOR_URL || 'https://39.105.42.85'
           const token = process.env.ORCHESTRATOR_API_KEY || ''
           const postData = JSON.stringify({
             cookies: result.cookies.map(/** @param {{ name: string, value: string, domain?: string, path?: string }} c */ (c) => ({
@@ -65,7 +64,9 @@ function registerHandlers(ipcMain, deps) {
             username: result.name || '',
           })
           const url = new URL(orchestratorUrl + '/api/jobs/cookies/' + platform)
-          const req = http.request({
+          // 动态选择 http/https 模块
+          const httpClient = url.protocol === 'https:' ? require('https') : require('http')
+          const req = httpClient.request({
             hostname: url.hostname,
             port: url.port,
             path: url.pathname,

@@ -18,7 +18,7 @@ describe("PublishPoller", () => {
   describe("constructor", () => {
     it("defaults orchestratorUrl", () => {
       const p = new PublishPoller({ axios: mockAxios });
-      expect(p.orchestratorUrl).toBe("http://39.105.42.85");
+      expect(p.orchestratorUrl).toBe("https://39.105.42.85");
     });
     it("accepts custom URL", () => {
       const p = new PublishPoller({ axios: mockAxios, orchestratorUrl: "http://x" });

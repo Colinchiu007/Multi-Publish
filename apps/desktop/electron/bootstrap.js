@@ -332,7 +332,7 @@ function runWhenReady(context, deps) {
 
     // 云端发布
     const cloudPublisher = new CloudPublisher({
-      orchestratorUrl: process.env.ORCHESTRATOR_URL || 'http://39.105.42.85',
+      orchestratorUrl: process.env.ORCHESTRATOR_URL || 'https://39.105.42.85',
       store,
     })
     cloudPublisher.registerIpcHandlers()
