@@ -106,3 +106,27 @@
 - 外部依赖功能必须有本地 fallback — orchestrator 不可用时 viral-engine 回退到本地启发式分析，确保离线环境功能不完全瘫痪
 - IPC 集成应同时更新三处 — handler 文件 + container.register + preload API + preload.test.js 计数断言，遗漏任何一处都会导致测试失败或前端调用不通
 - 本地 fallback 返回数据应带 mode 标记 — `mode: 'local-fallback'` 让前端能区分"AI 深度分析"和"本地启发式分析"，避免用户误判分析质量
+
+---
+
+## 跨 AI 协作与 require 链断裂复盘 v2.3.43 (2026-07-09)
+
+### ✅ 做得好的
+1. 统一到完整版而非保留两套实现 — 删除简版（30 行 scrypt + 固定 SALT）保留 services/ 完整版（主密钥 + pbkdf2 + 原子写 + 路径校验 + listAccounts），消除"两套同名 API 各自调用"的隐患
+2. 方法签名兼容性逐项验证 — 统一前逐条比对 `saveCredential(accountId, data, dir)` / `loadCredential` / `hasCredential` / `saveAccountRecord({...})` / `getAccountRecord(platform, accountId)` 在新旧实现下是否签名一致，避免迁移后运行时崩
+3. flaky 测试单独重跑确认非回归 — phase10 `returns status for nonexistent task` 全量测试超时但单跑 10578ms 通过，判定为 flaky 而非本次改动回归
+
+### ⚠️ 需要注意的
+1. **vitest fallback 掩盖 require 路径错误** — `phase8-service-tests.test.js` 中 `require("../services/credential-store")` 解析到 `electron/services/services/credential-store.js`（不存在），但 vitest 回退到项目根重新解析使测试通过。**测试绿 ≠ require 链正确**，只有 electron-builder 打包成 asar 后才真正 MODULE_NOT_FOUND
+2. **跨 AI 合并未做同名文件全局搜索** — 另一个 AI 在 `electron/` 根目录创建了简版 credential-store.js / account-state-restorer.js，但 services/ 下完整版早已存在。合并外部改动前必须 `grep -r "credential-store"` 全库扫描，避免引入重复实现
+3. **QM-1 本地打包验证一直被跳过** — AGENTS.md 明确要求修改 `apps/desktop/electron/` 后必须 `npx electron-builder --win --dir`，但实际从未执行。require 路径错误本应在第一次打包就暴露
+4. **squash force push 制造 unrelated histories** — main 用 squash 压成 1 个 commit 后 force push，丢失与 trae/agent-A3uwqd（837 commit 完整历史）的共同祖先，合并时必须 `git reset --hard` + force push
+5. **历史遗留：account-manager.js 长期 require 不存在的文件** — 该文件原本 require `../credential-store`（简版），但简版可能从未真正存在，靠 vitest fallback 才没在测试中炸。说明测试从未真正 require 到简版实现
+
+### 🧠 经验沉淀（强制规则）
+- **R1：合并外部 AI 改动前，先全库搜索同名文件** — `grep -rn "filename" --include="*.js"` 确认不存在重复实现，再 merge
+- **R2：修改 electron/ 后必须执行 QM-1 本地打包验证** — `cd apps/desktop && npx electron-builder --win --dir --publish never`，不打包不提交
+- **R3：测试通过 ≠ require 链正确** — vitest 有模块解析 fallback，掩盖相对路径错误。重要模块的 require 路径应通过 `node -e "require('./path')"` 单独验证
+- **R4：force push 前先检查共同祖先** — `git log --oneline A...B` 检查两条线历史关系，避免 squash 制造 unrelated histories
+- **R5：跨 AI 协作时，统一实现而非保留两套** — 发现重复实现时立即合并到权威版本，删除简版，避免"两套 API 各自调用"的隐式耦合
+- **R6：测试断言不应依赖 vitest fallback** — 测试中 `require("../services/x")` 这种错误路径在 vitest 下能过但打包会炸，应在测试中用绝对路径或 alias 验证
