@@ -2,6 +2,13 @@
 
 ## [v2.3.42] - 2026-07-09
 
+### 文档（前期流程 8 阶段补齐）
+- 新增 `01-docs/REQUIREMENTS-SIGNOFF.md` — 需求确认签字记录（阶段 4 门禁：CEO 签字 + baseline 锁定 + 变更控制流程）
+- 新增 `01-docs/DESIGN-REVIEW.md` — 设计评审纪要（阶段 7：3 方向对比 → 选定 Hybrid + tokens 完整性 + 组件 API 审查）
+- 新增 `01-docs/MARKET-RESEARCH.md` — 市场调研报告（阶段 2：行业概况 + 竞品矩阵 + 用户画像 + 市场进入策略）
+- PM-PRD-v1.1.md 状态从"待 CEO 确认"→"CEO 已确认"
+- decision-log: 新增 D-031 前期流程文档补齐记录
+
 ### 安全（/cso + /guard 审计修复）
 - 修复 config.yaml 硬编码 master_password / jwt_secret（CRITICAL）→ 环境变量 MASTER_PASSWORD / JWT_SECRET
 - 修复 ai-writer-api 默认 API Key "dev-key-change-me"（CRITICAL）→ 未设 AI_WRITER_API_KEY 时拒绝启动

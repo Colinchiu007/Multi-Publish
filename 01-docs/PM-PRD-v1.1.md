@@ -1,6 +1,6 @@
 # PROJECT-003 v1.1 — 功能规格（PM Draft）
 
-> **起草**: 2026-06-13 | **状态**: ⏳ PM Draft → 待 CEO 确认
+> **起草**: 2026-06-13 | **状态**: ✅ CEO 已确认（2026-07-09，见 [REQUIREMENTS-SIGNOFF.md](./REQUIREMENTS-SIGNOFF.md)）
 > **目标版本**: v1.1.0
 > **工作模式**: 正式流程（PM → 架构 → TDD → Review → QA → 文档 → 发布）
 
