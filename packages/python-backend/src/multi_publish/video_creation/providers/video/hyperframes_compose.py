@@ -36,6 +36,10 @@ from multi_publish.video_creation.base_tool import (
     ToolStatus,
     ToolTier,
 )
+from multi_publish.video_creation.providers.video.hf_html_gen import (
+    cut_to_html as _module_cut_to_html,
+    generate_index_html as _module_generate_index_html,
+)
 from multi_publish.video_creation.providers.video.hf_utils import (
     compute_total_duration,
     escape_text,
@@ -47,11 +51,6 @@ from multi_publish.video_creation.providers.video.hf_utils import (
 )
 
 log = logging.getLogger("hyperframes_compose")
-
-
-_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp", ".gif"}
-_VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".mkv", ".m4v"}
-_AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
 
 
 class HyperFramesCompose(BaseTool):
@@ -898,7 +897,7 @@ class HyperFramesCompose(BaseTool):
         return css_vars, design_md
 
     # ------------------------------------------------------------------
-    # HTML generation (minimal, Phase 1)
+    # HTML generation (minimal, Phase 1) — 委托到 hf_html_gen 模块
     # ------------------------------------------------------------------
 
     def _generate_index_html(
@@ -923,159 +922,27 @@ class HyperFramesCompose(BaseTool):
         Richer scene types (registry blocks, kinetic typography) are authored
         by the agent directly into compositions/ — this generator just
         provides a functional starting skeleton.
+
+        实现委托到 ``hf_html_gen.generate_index_html``，配套测试见
+        ``tests/test_hf_html_gen.py``。
         """
-        vars_css = "\n      ".join(f"{k}: {v};" for k, v in css_vars.items())
-
-        clip_html: list[str] = []
-        entrance_tweens: list[str] = []
-        for i, cut in enumerate(cuts):
-            html, tween = self._cut_to_html(i, cut, width, height)
-            clip_html.append(html)
-            if tween:
-                entrance_tweens.append(tween)
-
-        audio_html: list[str] = []
-        for j, nar in enumerate(audio_refs.get("narration") or []):
-            src = self._rel_from_workspace(nar["src"])
-            start = nar.get("start_seconds", 0)
-            end = nar.get("end_seconds")
-            duration = (end - start) if end and end > start else (total_duration - start)
-            audio_html.append(
-                f'<audio id="nar-{j}" '
-                f'data-start="{self._f(start)}" data-duration="{self._f(duration)}" '
-                f'data-track-index="2" src="{self._escape_attr(src)}" '
-                f'data-volume="1"></audio>'
-            )
-
-        music = audio_refs.get("music")
-        if music:
-            src = self._rel_from_workspace(music["src"])
-            audio_html.append(
-                f'<audio id="music" '
-                f'data-start="0" data-duration="{self._f(total_duration)}" '
-                f'data-track-index="3" src="{self._escape_attr(src)}" '
-                f'data-volume="{self._f(music["volume"])}"></audio>'
-            )
-
-        tween_block = "\n        ".join(entrance_tweens) if entrance_tweens else "// no tweens"
-
-        return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>{self._escape_text(title)}</title>
-  <style>
-    :root {{
-      {vars_css}
-    }}
-    body {{ margin: 0; background: var(--color-bg); color: var(--color-fg); font-family: var(--font-body); }}
-    [data-composition-id="root"] {{
-      position: relative;
-      width: {width}px;
-      height: {height}px;
-      overflow: hidden;
-    }}
-    .clip {{ position: absolute; inset: 0; }}
-    .clip.video-clip, .clip.image-clip {{ object-fit: cover; width: 100%; height: 100%; }}
-    .clip.text-card {{ display: flex; align-items: center; justify-content: center; padding: 120px 160px; box-sizing: border-box; text-align: center; }}
-    .clip.text-card h1 {{ font-family: var(--font-heading); font-weight: 700; font-size: 96px; line-height: 1.1; margin: 0; color: var(--color-fg); }}
-    .clip.text-card .subtitle {{ font-size: 36px; margin-top: 24px; color: var(--color-accent); }}
-  </style>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-</head>
-<body>
-  <div data-composition-id="root" data-start="0" data-duration="{self._f(total_duration)}" data-width="{width}" data-height="{height}">
-    {"".join(clip_html)}
-    {"".join(audio_html)}
-    <script>
-      window.__timelines = window.__timelines || {{}};
-      const tl = gsap.timeline({{ paused: true }});
-      {tween_block}
-      window.__timelines["root"] = tl;
-    </script>
-  </div>
-</body>
-</html>
-"""
+        return _module_generate_index_html(
+            self,
+            cuts=cuts,
+            audio_refs=audio_refs,
+            width=width,
+            height=height,
+            total_duration=total_duration,
+            css_vars=css_vars,
+            title=title,
+        )
 
     def _cut_to_html(self, index: int, cut: dict, width: int, height: int) -> tuple[str, str | None]:
-        """Render one cut + its entrance tween. Returns (html, tween or None)."""
-        cut_id = f"cut-{index}"
-        in_s = float(cut.get("in_seconds", 0) or 0)
-        out_s = float(cut.get("out_seconds", 0) or 0)
-        duration = max(0.1, out_s - in_s)
+        """Render one cut + its entrance tween. Returns (html, tween or None).
 
-        source = cut.get("source") or ""
-        cut_type = (cut.get("type") or "").lower()
-        text = cut.get("text") or cut.get("title") or ""
-
-        src_path = Path(source) if source else None
-        ext = src_path.suffix.lower() if src_path else ""
-
-        # Decide scene shape
-        if cut_type in {"text_card", "hero_title", "callout"} or (not source and text):
-            inner = f"<h1>{self._escape_text(text or f'Scene {index + 1}')}</h1>"
-            subtitle = cut.get("subtitle") or cut.get("caption")
-            if subtitle:
-                inner += f'<div class="subtitle">{self._escape_text(subtitle)}</div>'
-            html = (
-                f'<div id="{cut_id}" class="clip text-card" '
-                f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-                f'data-track-index="1">{inner}</div>'
-            )
-            # Mild entrance — fade + lift.
-            tween = (
-                f'tl.from("#{cut_id} h1", {{ y: 40, opacity: 0, duration: 0.6, '
-                f'ease: "power3.out" }}, {self._f(in_s + 0.1)});'
-            )
-            return html, tween
-
-        if ext in _IMAGE_EXTENSIONS and src_path:
-            rel = self._rel_from_workspace(str(src_path))
-            html = (
-                f'<img id="{cut_id}" class="clip image-clip" '
-                f'src="{self._escape_attr(rel)}" '
-                f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-                f'data-track-index="1" alt="">'
-            )
-            tween = (
-                f'tl.from("#{cut_id}", {{ scale: 1.05, opacity: 0, duration: 0.5, '
-                f'ease: "power2.out" }}, {self._f(in_s)});'
-            )
-            return html, tween
-
-        if ext in _VIDEO_EXTENSIONS and src_path:
-            rel = self._rel_from_workspace(str(src_path))
-            html = (
-                f'<video id="{cut_id}" class="clip video-clip" '
-                f'src="{self._escape_attr(rel)}" '
-                f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-                f'data-track-index="1" muted playsinline></video>'
-            )
-            return html, None
-
-        # Unknown cut shape — render a placeholder text card so the render
-        # still succeeds; lint/validate will surface the issue.
-        if ext in {".html", ".htm"} and src_path:
-            rel = self._rel_from_workspace(str(src_path))
-            composition_id = Path(rel).stem
-            html = (
-                f'<div id="{cut_id}" class="clip composition-clip" '
-                f'data-composition-id="{self._escape_attr(composition_id)}" '
-                f'data-composition-src="{self._escape_attr(rel)}" '
-                f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-                f'data-width="{width}" data-height="{height}" '
-                f'data-track-index="1"></div>'
-            )
-            return html, None
-
-        placeholder = self._escape_text(text or cut.get("reason") or f"Scene {index + 1}")
-        html = (
-            f'<div id="{cut_id}" class="clip text-card" '
-            f'data-start="{self._f(in_s)}" data-duration="{self._f(duration)}" '
-            f'data-track-index="1"><h1>{placeholder}</h1></div>'
-        )
-        return html, None
+        实现委托到 ``hf_html_gen.cut_to_html``。
+        """
+        return _module_cut_to_html(self, index, cut, width, height)
 
     # ------------------------------------------------------------------
     # Utilities
