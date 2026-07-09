@@ -35,6 +35,17 @@ from multi_publish.publishers.base import (
     PublisherConfig,
     ResponseMonitor,
 )
+from multi_publish.publishers.douyin_auth import (
+    _capture_indexed_db as _module_capture_indexed_db,
+    _capture_local_storage as _module_capture_local_storage,
+    check_auth as _module_check_auth,
+    load_auth_data as _module_load_auth_data,
+    load_cookies as _module_load_cookies,
+    login as _module_login,
+    restore_auth_data as _module_restore_auth_data,
+    save_auth_data as _module_save_auth_data,
+    save_cookies as _module_save_cookies,
+)
 from multi_publish.publishers.douyin_rpa_fields import (
     rpa_do_field_cover,
     rpa_do_field_desc,
@@ -75,6 +86,23 @@ DOUYIN_API = {
     "post_video": "https://creator.douyin.com/web/api/media/aweme/post/",
     "user_info": "https://creator.douyin.com/web/api/media/user/info",
 }
+
+
+def _build_launch_kwargs(*, user_data_dir: str, headless: bool, viewport: dict, proxy: dict | None = None) -> dict:
+    """构造 ``launch_persistent_context`` 的 kwargs。
+
+    修复原代码中 ``os.path.join(..., proxy=...)`` 关键字参数 bug：
+    os.path.join 不接受关键字参数，运行时会抛 TypeError。这里把 proxy
+    作为 ``launch_persistent_context`` 的独立 kwarg。
+    """
+    kwargs: dict = {
+        "user_data_dir": user_data_dir,
+        "headless": headless,
+        "viewport": viewport,
+    }
+    if proxy:
+        kwargs["proxy"] = proxy
+    return kwargs
 
 
 class DouyinPublisher(BasePublisher):
@@ -128,87 +156,23 @@ class DouyinPublisher(BasePublisher):
         logger.info("抖音发布器初始化完成")
 
     # ═══════════════════════════════════════════════════════════
-    # 登录
+    # 登录 — 委托到 douyin_auth 模块
     # ═══════════════════════════════════════════════════════════
 
     async def login(self) -> bool:
         """
         打开抖音创作服务平台登录页，等待用户扫码登录后捕获完整认证数据。
 
-        捕获范围（蚁小二认证体系）：
-        1. Cookies — sid_tt, sessionid, bd_ticket_guard_client_data 等
-        2. localStorage — security-sdk/* 系列键
-        3. IndexedDB — secure-store 存储中的 SDK 证书和签名密钥
+        实现委托到 ``douyin_auth.login``，该模块修复了原代码中
+        ``os.path.join(..., proxy=...)`` 关键字参数 bug。
 
         Returns:
             True 登录成功
         """
-        logger.info("启动抖音登录流程...")
-
-        self._context = await self._playwright_app.chromium.launch_persistent_context(
-            user_data_dir=os.path.join(self.config.data_dir, "browser_data", proxy=self.proxy_config),
-            headless=False,
-            viewport={"width": 1280, "height": 800},
-        )
-
-        self._page = await self._context.new_page()
-
-        await self._page.goto("https://creator.douyin.com/", wait_until="domcontentloaded")
-        logger.info("请在浏览器中扫码登录抖音创作服务平台...")
-
-        start = time.time()
-        logged_in = False
-
-        while time.time() - start < self._login_timeout:
-            try:
-                current_url = self._page.url
-                if "creator.douyin.com" in current_url and "/login" not in current_url:
-                    avatar_exists = await self._page.locator(self._selectors["login_avatar"]).count()
-                    if avatar_exists > 0:
-                        logged_in = True
-                        break
-
-                dash_exists = await self._page.locator(self._selectors["login_success_indicator"]).count()
-                if dash_exists > 0 and "creator.douyin.com" in current_url:
-                    logged_in = True
-                    break
-            except Exception:
-                pass
-
-            await asyncio.sleep(2)
-
-        if not logged_in:
-            logger.error("登录超时，未能检测到登录状态")
-            await self.close()
-            return False
-
-        logger.info("登录成功，正在捕获认证数据（cookies + localStorage + IndexedDB）...")
-
-        # ─── 捕获完整认证数据 ──────────────────────────────
-        cookies = await self._context.cookies()
-
-        local_storage = await self._capture_local_storage()
-        indexed_db = await self._capture_indexed_db()
-
-        # 保存完整认证数据
-        self._save_auth_data(cookies, local_storage, indexed_db)
-
-        # 兼容旧格式（仅 cookies）
-        self._save_cookies(cookies)
-
-        ls_count = len(local_storage)
-        idb_count = sum(len(v) for v in indexed_db.values()) if indexed_db else 0
-        logger.info(
-            f"认证数据已保存: {len(cookies)} cookies, {ls_count} localStorage items, {idb_count} IndexedDB items"
-        )
-
-        await self._context.close()
-        self._context = None
-
-        return True
+        return await _module_login(self)
 
     # ═══════════════════════════════════════════════════════════
-    # 认证数据捕获（蚁小二方案：三层捕获）
+    # 认证数据捕获（蚁小二方案：三层捕获）— 委托到 douyin_auth
     # ═══════════════════════════════════════════════════════════
 
     async def _capture_local_storage(self) -> dict[str, str]:
@@ -219,18 +183,7 @@ class DouyinPublisher(BasePublisher):
         - security-sdk/s_sdk_crypt_sdk
         - security-sdk/s_sdk_sign_data_key/web_protect
         """
-        try:
-            return await self._page.evaluate("""() => {
-                const data = {};
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    try { data[key] = localStorage.getItem(key); } catch(e) {}
-                }
-                return data;
-            }""")
-        except Exception as e:
-            logger.warning(f"localStorage 捕获失败: {e}")
-            return {}
+        return await _module_capture_local_storage(self)
 
     async def _capture_indexed_db(self) -> dict[str, dict]:
         """
@@ -245,71 +198,15 @@ class DouyinPublisher(BasePublisher):
             {db_name: {store_name: {key: value, ...}}, ...}
             注意：当前专注于 secure-store 数据库
         """
-        try:
-            return await self._page.evaluate("""() => {
-                return new Promise((resolve) => {
-                    const result = {};
-                    const dbName = 'secure-store';
-                    const request = indexedDB.open(dbName);
-
-                    request.onsuccess = (event) => {
-                        const db = event.target.result;
-                        const storeNames = Array.from(db.objectStoreNames);
-
-                        if (storeNames.length === 0) {
-                            db.close();
-                            // 尝试其他常见数据库
-                            resolve(tryOtherDBs());
-                            return;
-                        }
-
-                        let completed = 0;
-                        storeNames.forEach((storeName) => {
-                            const transaction = db.transaction(storeName, 'readonly');
-                            const store = transaction.objectStore(storeName);
-                            const getAllReq = store.getAll();
-                            const getKeysReq = store.getAllKeys();
-
-                            Promise.all([
-                                new Promise((res) => { getAllReq.onsuccess = () => res(getAllReq.result); }),
-                                new Promise((res) => { getKeysReq.onsuccess = () => res(getKeysReq.result); })
-                            ]).then(([values, keys]) => {
-                                if (!result[dbName]) result[dbName] = {};
-                                result[dbName][storeName] = {};
-                                keys.forEach((key, idx) => {
-                                    result[dbName][storeName][String(key)] = values[idx];
-                                });
-                                completed++;
-                                if (completed === storeNames.length) {
-                                    db.close();
-                                    resolve(result);
-                                }
-                            });
-                        });
-                    };
-
-                    request.onerror = () => resolve({});
-                    request.onupgradeneeded = () => resolve({});  // DB doesn't exist
-
-                    function tryOtherDBs() {
-                        // Try other known Douyin databases
-                        return {};
-                    }
-                });
-            }""")
-        except Exception as e:
-            logger.warning(f"IndexedDB 捕获失败: {e}")
-            return {}
+        return await _module_capture_indexed_db(self)
 
     # ═══════════════════════════════════════════════════════════
-    # 认证数据持久化
+    # 认证数据持久化 — 委托到 douyin_auth
     # ═══════════════════════════════════════════════════════════
 
     def _save_cookies(self, cookies: list[dict]):
         """保存 Cookie 到文件（兼容旧格式）"""
-        os.makedirs(os.path.dirname(self._cookie_path), exist_ok=True)
-        with open(self._cookie_path, "w") as f:
-            json.dump(cookies, f)
+        _module_save_cookies(self, cookies)
 
     def _save_auth_data(self, cookies: list[dict], local_storage: dict, indexed_db: dict):
         """
@@ -318,22 +215,11 @@ class DouyinPublisher(BasePublisher):
         蚁小二关键发现：抖音的 security-sdk 认证需要全部三层数据，
         仅保存 cookies 会导致发布时登录态频繁失效。
         """
-        os.makedirs(os.path.dirname(self._auth_data_path), exist_ok=True)
-        auth_data = {
-            "cookies": cookies,
-            "local_storage": local_storage,
-            "indexed_db": indexed_db,
-            "captured_at": time.time(),
-        }
-        with open(self._auth_data_path, "w") as f:
-            json.dump(auth_data, f, ensure_ascii=False, indent=2)
+        _module_save_auth_data(self, cookies, local_storage, indexed_db)
 
     def _load_cookies(self) -> list[dict]:
         """从文件加载 Cookie（兼容旧格式）"""
-        if not os.path.exists(self._cookie_path):
-            return []
-        with open(self._cookie_path) as f:
-            return json.load(f)
+        return _module_load_cookies(self)
 
     def _load_auth_data(self) -> dict | None:
         """
@@ -341,14 +227,7 @@ class DouyinPublisher(BasePublisher):
 
         优先使用新的 auth_{platform}.json，不存在时回退到旧 cookies_{platform}.json。
         """
-        if os.path.exists(self._auth_data_path):
-            with open(self._auth_data_path) as f:
-                return json.load(f)
-        # 兼容旧格式
-        cookies = self._load_cookies()
-        if cookies:
-            return {"cookies": cookies, "local_storage": {}, "indexed_db": {}}
-        return None
+        return _module_load_auth_data(self)
 
     async def _restore_auth_data(self) -> bool:
         """
@@ -363,81 +242,7 @@ class DouyinPublisher(BasePublisher):
         Returns:
             True 如果恢复成功
         """
-        auth_data = self._load_auth_data()
-        if not auth_data:
-            return False
-
-        try:
-            # 1. 恢复 cookies
-            if auth_data.get("cookies"):
-                await self._context.add_cookies(auth_data["cookies"])
-
-            # 2. 恢复 localStorage
-            if auth_data.get("local_storage"):
-                try:
-                    await self._page.evaluate(
-                        """(data) => {
-                        for (const [key, value] of Object.entries(data)) {
-                            try { localStorage.setItem(key, value); } catch(e) {}
-                        }
-                    }""",
-                        auth_data["local_storage"],
-                    )
-                except Exception as e:
-                    logger.warning(f"localStorage 恢复失败（不影响发布）: {e}")
-
-            # 3. 恢复 IndexedDB
-            if auth_data.get("indexed_db"):
-                try:
-                    await self._page.evaluate(
-                        """(data) => {
-                        return new Promise((resolve) => {
-                            const allPromises = [];
-                            for (const [dbName, stores] of Object.entries(data)) {
-                                const request = indexedDB.open(dbName);
-                                allPromises.push(new Promise((res) => {
-                                    request.onsuccess = (event) => {
-                                        const db = event.target.result;
-                                        let completed = 0;
-                                        const storeNames = Object.keys(stores);
-                                        if (storeNames.length === 0) { db.close(); res(); return; }
-                                        storeNames.forEach((storeName) => {
-                                            try {
-                                                const transaction = db.transaction(storeName, 'readwrite');
-                                                const store = transaction.objectStore(storeName);
-                                                const items = stores[storeName];
-                                                for (const [key, value] of Object.entries(items)) {
-                                                    try { store.put(value, key); } catch(e) {}
-                                                }
-                                                transaction.oncomplete = () => {
-                                                    completed++;
-                                                    if (completed === storeNames.length) { db.close(); res(); }
-                                                };
-                                            } catch(e) {
-                                                completed++;
-                                                if (completed === storeNames.length) { db.close(); res(); }
-                                            }
-                                        });
-                                        // Fallback if no valid stores
-                                        setTimeout(() => { db.close(); res(); }, 3000);
-                                    };
-                                    request.onerror = () => res();
-                                    request.onupgradeneeded = () => res();
-                                }));
-                            }
-                            Promise.all(allPromises).then(() => resolve());
-                        });
-                    }""",
-                        auth_data["indexed_db"],
-                    )
-                except Exception as e:
-                    logger.warning(f"IndexedDB 恢复失败（不影响发布）: {e}")
-
-            return True
-
-        except Exception as e:
-            logger.warning(f"认证数据恢复失败: {e}")
-            return False
+        return await _module_restore_auth_data(self)
 
     async def check_auth(self) -> bool:
         """
@@ -447,43 +252,11 @@ class DouyinPublisher(BasePublisher):
         1. 认证文件是否存在
         2. 文件是否过期（7天阈值）
         3. 实际登录验证（RPA 页面测试）
+
+        实现委托到 ``douyin_auth.check_auth``，该模块修复了原代码中
+        ``os.path.join(..., proxy=...)`` 关键字参数 bug。
         """
-        auth_data = self._load_auth_data()
-        if not auth_data:
-            return False
-
-        # 检查是否有足够的认证数据
-        has_essential = bool(auth_data.get("cookies"))
-        if not has_essential:
-            return False
-
-        # 检查过期时间
-        captured_at = auth_data.get("captured_at", 0)
-        days_old = (time.time() - captured_at) / 86400
-        if days_old > 7:
-            logger.info(f"认证数据已 {days_old:.0f} 天未更新，建议重新登录")
-            return False
-
-        # 实际验证：尝试用认证数据访问首页
-        try:
-            ctx = await self._playwright_app.chromium.launch_persistent_context(
-                user_data_dir=os.path.join(self.config.data_dir, "browser_data_check", proxy=self.proxy_config),
-                headless=True,
-            )
-            page = await ctx.new_page()
-            await page.goto("https://creator.douyin.com/", wait_until="domcontentloaded")
-
-            if auth_data.get("cookies"):
-                await ctx.add_cookies(auth_data["cookies"])
-                await page.reload()
-                await asyncio.sleep(3)
-
-            current_url = page.url
-            logged_in = "creator.douyin.com" in current_url and "/login" not in current_url
-            await ctx.close()
-            return logged_in
-        except Exception:
-            return False
+        return await _module_check_auth(self)
 
     # ═══════════════════════════════════════════════════════════
     # 发布入口（API 优先 → RPA 降级）
@@ -783,10 +556,14 @@ class DouyinPublisher(BasePublisher):
         logger.info(f"开始 RPA 发布到抖音: {title}")
         await self._report_progress(PublishPhase.AUTHENTICATING, "启动浏览器...", 10)
 
+        # 注：原代码有 bug — os.path.join 不接受 proxy 关键字参数（TypeError）
         self._context = await self._playwright_app.chromium.launch_persistent_context(
-            user_data_dir=os.path.join(self.config.data_dir, "browser_data", proxy=self.proxy_config),
-            headless=self.config.headless,
-            viewport={"width": 1280, "height": 800},
+            **_build_launch_kwargs(
+                user_data_dir=os.path.join(self.config.data_dir, "browser_data"),
+                headless=self.config.headless,
+                viewport={"width": 1280, "height": 800},
+                proxy=self.proxy_config,
+            )
         )
         self._page = await self._context.new_page()
 
@@ -986,10 +763,14 @@ class DouyinPublisher(BasePublisher):
         logger.info(f"开始 RPA 发布到抖音（回退模式）: {title}")
         await self._report_progress(PublishPhase.AUTHENTICATING, "启动浏览器...", 10)
 
+        # 注：原代码有 bug — os.path.join 不接受 proxy 关键字参数（TypeError）
         self._context = await self._playwright_app.chromium.launch_persistent_context(
-            user_data_dir=os.path.join(self.config.data_dir, "browser_data", proxy=self.proxy_config),
-            headless=self.config.headless,
-            viewport={"width": 1280, "height": 800},
+            **_build_launch_kwargs(
+                user_data_dir=os.path.join(self.config.data_dir, "browser_data"),
+                headless=self.config.headless,
+                viewport={"width": 1280, "height": 800},
+                proxy=self.proxy_config,
+            )
         )
         self._page = await self._context.new_page()
 
