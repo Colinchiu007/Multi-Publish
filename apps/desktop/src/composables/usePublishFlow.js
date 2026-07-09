@@ -147,11 +147,11 @@ export function usePublishFlow(options) {
         result.value = { success: true, message: res.message || '任务已加入队列', url: '' }
       } else {
         addProgress('✗ 发布失败: ' + res.message, 'danger')
-        result.value = { success: false, message: res.message }
+        result.value = { success: false, message: res.message }; if (window.electronAPI?.showNotification) window.electronAPI.showNotification({ title: "发布失败", body: res.message })
       }
     } catch (e) {
       addProgress('✗ 错误: ' + e.message, 'danger')
-      result.value = { success: false, message: e.message }
+      result.value = { success: false, message: e.message }; if (window.electronAPI?.showNotification) window.electronAPI.showNotification({ title: "发布异常", body: e.message })
     } finally {
       publishing.value = false
       off()
