@@ -54,7 +54,7 @@ describe("credential-store public API", () => {
   beforeEach(() => { vi.resetModules(); });
 
   it("exports all expected functions", () => {
-    const cs = require("../services/credential-store");
+    const cs = require("./credential-store");
     expect(typeof cs.saveCredential).toBe("function");
     expect(typeof cs.loadCredential).toBe("function");
     expect(typeof cs.deleteCredential).toBe("function");
@@ -63,7 +63,7 @@ describe("credential-store public API", () => {
   });
 
   it("hasCredential returns false for non-existent account", () => {
-    const cs = require("../services/credential-store");
+    const cs = require("./credential-store");
     const result = cs.hasCredential("nonexistent", "/tmp/.test-credentials");
     expect(result).toBe(false);
   });
@@ -75,7 +75,7 @@ describe("sqlite-wrapper", () => {
   beforeEach(() => { vi.resetModules(); });
 
   it("exports Database class", () => {
-    const Database = require("../services/sqlite-wrapper");
+    const Database = require("./sqlite-wrapper");
     expect(typeof Database).toBe("function");
     expect(Database.name).toBe("Database");
   });
