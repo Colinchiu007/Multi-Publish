@@ -16,6 +16,7 @@ module.exports = defineConfig({
       'electron/bootstrap.test.{js,ts}',
       'electron/window.test.{js,ts}',
       'electron/shutdown.test.{js,ts}',
+      'electron/main.test.{js,ts}',
       'electron/preload.test.{js,ts}',
     ],
     alias: {
