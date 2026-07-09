@@ -31,9 +31,14 @@
 #### 附加修复
 - **bootstrap.js 硬编码 IP**：cloudPublisher 的 orchestratorUrl 默认值从 `https://39.105.42.85` 改为空字符串（修复 v2.3.42 遗漏的 1 处）
 
+#### 附加观察项修复（3 项）
+- **JS/Python Provider 注册表同步**：[ai-generator.js](apps/desktop/electron/services/ai-generator.js) PROVIDERS 注册表从 video:8/image:4/audio:2/tts:4 扩充到 video:12/image:9/audio:5/tts:5，与 Python 后端 `video_creation/providers/` 目录同步，修复前端 UI 显示 Provider 数偏少问题
+- **F13 评论管理 IPC 集成**：新增 [comment-manager.js](apps/desktop/electron/services/comment-manager.js)，将 `CommentMessageService`（来自 api-publish-engine）接入 Electron IPC，注册 `comment:list` / `comment:reply` / `comment:start-polling` / `comment:stop-polling` / `comment:status` 5 个 IPC handler，支持后台轮询自动回复 + `OrchestratorCommentProvider` 桥接 orchestrator API；preload 暴露 6 个 renderer API 方法
+- **§9.3 爆款分析本地 fallback**：[viral-engine.js](apps/desktop/electron/services/viral-engine.js) 当 orchestrator 不可用时自动回退到本地启发式分析（`_localAnalyze` / `_localGenerate` / `_localTrending`），基于输入文章互动数据、标题特征和关键词多样性计算爆款潜力分，确保离线环境下功能可用
+
 ### 文档
-- PRD.md: 7 处功能状态对齐（F1.3/F6.3/F8.5/F9/F10.8/F15.3/F16.3/F17.3）
-- decision-log: D-033 PRD 功能验证修复记录
+- PRD.md: 7 处功能状态对齐（F1.3/F6.3/F8.5/F9/F10.8/F15.3/F16.3/F17.3）+ F11 爆款分析 / F13 评论管理状态更新 + §9.3 实现说明（orchestrator + 本地 fallback）
+- decision-log: D-033 PRD 功能验证修复记录 + D-034 附加观察项修复
 - learnings.md: PRD 功能验证复盘
 
 

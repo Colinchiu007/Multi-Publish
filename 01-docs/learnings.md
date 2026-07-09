@@ -86,3 +86,23 @@
 - 插件钩子设计应支持"拒绝/修改"双模式 — beforePublish 返回 {proceed:false,reason} 比 return false 更友好
 - 文件上传双路径（CDP + JS）是 Electron RPA 的必备模式 — CDP 在某些平台/版本不稳定，JS File API 是可靠回退
 - 平台分类枚举应定义在 shared-utils 而非散落各处 — PlatformCategory 作为 Object.freeze 导出，前后端共享
+
+---
+
+## 附加观察项修复复盘 v2.3.43 (2026-07-09)
+
+### ✅ 做得好的
+1. PRD 验证报告的"附加观察项"分类清晰 — 区分 P0/P1 缺陷 vs 观察项，观察项单独处理不阻塞主线
+2. 服务注册遵循既有模式 — comment-manager.js 完全复用 viral-engine/webview-manager 的 registerIpcHandlers + container.register 模式，零学习成本
+3. 本地 fallback 设计为"启发式"而非"模拟" — viral-engine 本地分析基于真实输入数据计算，不是返回假数据，用户能看到有意义的分数和因子
+
+### ⚠️ 需要注意的
+1. JS/Python 双语言后端的注册表同步是持续维护成本 — 每次新增 Provider 需同时改 ai-generator.js 和 Python providers/ 目录，应考虑代码生成或共享配置
+2. comment-service.js 早已实现但未接入 IPC — "代码存在 ≠ 功能可用"，已实现的库需要主动集成到主流程
+3. viral-engine 默认 ORCHESTRATOR_BASE 是 localhost:8000 而非空字符串 — 与 comment-manager/bootstrap 的空字符串策略不一致，后续应统一
+
+### 🧠 经验沉淀
+- PRD 验证应包含"代码存在但未接入"维度 — 不只检查"功能是否实现"，还要检查"已实现的库是否被正确调用"
+- 外部依赖功能必须有本地 fallback — orchestrator 不可用时 viral-engine 回退到本地启发式分析，确保离线环境功能不完全瘫痪
+- IPC 集成应同时更新三处 — handler 文件 + container.register + preload API + preload.test.js 计数断言，遗漏任何一处都会导致测试失败或前端调用不通
+- 本地 fallback 返回数据应带 mode 标记 — `mode: 'local-fallback'` 让前端能区分"AI 深度分析"和"本地启发式分析"，避免用户误判分析质量

@@ -22,6 +22,7 @@
  *   - 云发布：cloudPublishSubmit / cloudPublishListTasks / cloudPublishGetTask / cloudPublishPlatforms
  *   - URL 采集：urlCollectFetch
  *   - 爆款分析：viralAnalyze / viralGenerate / viralTrending
+ *   - 评论管理：commentList / commentReply / commentStartPolling / commentStopPolling / commentStatus / onCommentReplied
  */
 
 /**
@@ -108,6 +109,16 @@ function createPublishApi(ipcRenderer) {
     viralAnalyze: (content) => ipcRenderer.invoke('viral:analyze', content),
     viralGenerate: (prompt) => ipcRenderer.invoke('viral:generate', prompt),
     viralTrending: () => ipcRenderer.invoke('viral:trending'),
+
+    // Comment Management API (PRD F13)
+    commentList: (platform, cookie, maxDays) => ipcRenderer.invoke('comment:list', { platform, cookie, maxDays }),
+    commentReply: (platform, cookie, commentId, content) => ipcRenderer.invoke('comment:reply', { platform, cookie, commentId, content }),
+    commentStartPolling: (opts) => ipcRenderer.invoke('comment:start-polling', opts),
+    commentStopPolling: (key) => ipcRenderer.invoke('comment:stop-polling', { key }),
+    commentStatus: () => ipcRenderer.invoke('comment:status'),
+    onCommentReplied: (cb) => {
+      const h = (_, data) => cb(data); ipcRenderer.on('comment:replied', h); return () => ipcRenderer.removeListener('comment:replied', h)
+    },
   }
 }
 

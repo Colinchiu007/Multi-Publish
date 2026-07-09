@@ -27,6 +27,7 @@ const OAuthManager = require('../services/oauth-manager');
 const BatchManager = require('../services/batch-manager');
 const UrlCollector = require('../services/url-collector');
 const ViralEngine = require('../services/viral-engine');
+const CommentManager = require('../services/comment-manager');
 const ProviderManager = require('../services/provider-manager');
 const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsService } = require("@multi-publish/shared-utils");
 const PublishIntervalGuard = require("@multi-publish/shared-utils/src/publish-interval-guard");
@@ -53,6 +54,7 @@ function createContainer(options) {
   container.register("pipelineEngine", function() { return new PipelineEngine(); });
   container.register("urlCollector", function() { return new UrlCollector(); });
   container.register("viralEngine", function() { return new ViralEngine(); });
+  container.register("commentManager", function() { return new CommentManager(); });
   container.register("providerManager", function() { return new ProviderManager(); });
   container.register("proxyPool", function() { return new ProxyPool(); });
   container.register("analyticsService", function() { return new AnalyticsService(); });

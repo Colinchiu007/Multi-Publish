@@ -18,7 +18,7 @@ function createWindow(context) {
   const {
     authViewManager, rpaViewManager, webviewManager, qrCodeLogin,
     oauthManager, batchManager, urlCollector, providerManager,
-    viralEngine, contentIntelligence, publishImpactTracker,
+    viralEngine, commentManager, contentIntelligence, publishImpactTracker,
     systemTray, hotkeys, autoUpdater, firstRun,
   } = context
 
@@ -58,6 +58,8 @@ function createWindow(context) {
   urlCollector.registerIpcHandlers()
   providerManager.registerIpcHandlers()
   viralEngine.registerIpcHandlers()
+  commentManager.setGetMainWin(() => BrowserWindow.getAllWindows()[0])
+  commentManager.registerIpcHandlers()
   contentIntelligence.registerIpcHandlers()
   publishImpactTracker.registerIpcHandlers()
   systemTray.init(mainWindow)

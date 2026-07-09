@@ -201,7 +201,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | 热点趋势 | 实时热点话题追踪与推荐 | ✅ |
 | 标题助手 | AI 生成/优化标题 | ✅ |
 | 标签推荐 | 智能标签生成 | ✅ |
-| 爆款分析 | 分析平台爆款内容特征 | ✅ |
+| 爆款分析 | 分析平台爆款内容特征 | ✅ v2.3.43（orchestrator + 本地 fallback） |
 | AI Writer | AI 辅助写作面板 | ✅ |
 | 关键词监控 | 监控关键词在各平台的表现 | ✅ |
 
@@ -217,8 +217,8 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 
 | 子功能 | 描述 | 状态 |
 |--------|------|------|
-| 评论聚合 | 多平台评论统一管理 | ✅ |
-| 评论回复 | 在应用内直接回复 | ✅ |
+| 评论聚合 | 多平台评论统一管理 | ✅ v2.3.43（webview + IPC comment:list） |
+| 评论回复 | 在应用内直接回复 | ✅ v2.3.43（IPC comment:reply + 后台轮询 comment:start-polling） |
 
 #### F14：云端发布（v2.0.0）
 
@@ -742,6 +742,13 @@ pending → publishing → { success | failed | partial | denied | cancelled }
     ├─ 查看互动数据、发布时间、内容类型分布
     └─ 为创作策略提供数据支撑
 ```
+
+> **实现说明（v2.3.43）**：爆款分析由 `viral-engine.js` 桥接到外部 orchestrator
+> (`ORCHESTRATOR_URL`，默认 `http://localhost:8000`)，提供 AI 驱动的深度分析。
+> 当 orchestrator 不可用时（未配置或连接失败），自动回退到**本地启发式分析**
+> （`_localAnalyze` / `_localGenerate` / `_localTrending`），基于输入文章的互动
+> 数据、标题特征和关键词多样性计算爆款潜力分，确保功能在离线/无 orchestrator
+> 环境下仍可使用。本地 fallback 返回数据带 `mode: 'local-fallback'` 标记。
 
 ### 9.4 关键词监控
 

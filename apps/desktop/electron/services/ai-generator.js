@@ -6,7 +6,7 @@
 
 const path = require('path');
 
-// --- Provider 注册表 ---
+// --- Provider 注册表（与 Python 后端 video_creation/providers/ 同步，v2.3.43）---
 const PROVIDERS = {
   video: [
     { id: 'hunyuan', name: '腾讯混元', description: 'Hunyuan 视频生成', models: ['hunyuan-video'], apiRequired: true },
@@ -14,25 +14,38 @@ const PROVIDERS = {
     { id: 'grok', name: 'Grok Video', description: 'xAI Grok 视频', models: ['grok-video'], apiRequired: true },
     { id: 'heygen', name: 'HeyGen', description: 'HeyGen 数字人视频', models: ['heygen-video'], apiRequired: true },
     { id: 'kling', name: 'Kling', description: 'Kling 视频生成', models: ['kling-video'], apiRequired: true },
-    { id: 'runway', name: 'Runway', description: 'Runway Gen-3', models: ['runway-gen3'], apiRequired: true },
-    { id: 'veo', name: 'Veo', description: 'Google Veo', models: ['veo'], apiRequired: true },
+    { id: 'runway', name: 'Runway', description: 'Runway Gen-3/4', models: ['runway-gen3', 'runway-gen4'], apiRequired: true },
+    { id: 'veo', name: 'Veo', description: 'Google Veo 3.1', models: ['veo'], apiRequired: true },
     { id: 'wan', name: 'Wan', description: '阿里万相视频', models: ['wan-video'], apiRequired: true },
+    { id: 'minimax', name: 'MiniMax', description: 'MiniMax/Hailuo 视频', models: ['minimax-video'], apiRequired: true },
+    { id: 'ltx', name: 'LTX Video', description: 'Lightricks LTX 本地生成', models: ['ltx-video'], apiRequired: false },
+    { id: 'seedance', name: 'Seedance', description: 'Seedance 视频', models: ['seedance'], apiRequired: true },
+    { id: 'higgsfield', name: 'Higgsfield', description: 'Higgsfield 视频', models: ['higgsfield-video'], apiRequired: true },
   ],
   image: [
-    { id: 'flux', name: 'Flux', description: 'Black Forest Labs Flux', models: ['flux-pro'], apiRequired: true },
-    { id: 'openai', name: 'DALL-E', description: 'OpenAI DALL-E 3', models: ['dall-e-3'], apiRequired: true },
+    { id: 'flux', name: 'Flux', description: 'Black Forest Labs Flux Pro', models: ['flux-pro'], apiRequired: true },
+    { id: 'openai', name: 'DALL-E', description: 'OpenAI gpt-image-1 / DALL-E 3', models: ['gpt-image-1', 'dall-e-3'], apiRequired: true },
     { id: 'recraft', name: 'Recraft', description: 'Recraft V3', models: ['recraft-v3'], apiRequired: true },
-    { id: 'imagen', name: 'Imagen', description: 'Google Imagen', models: ['imagen-3'], apiRequired: true },
+    { id: 'imagen', name: 'Imagen', description: 'Google Imagen 3', models: ['imagen-3'], apiRequired: true },
+    { id: 'grok-image', name: 'Grok Image', description: 'xAI Grok 图像', models: ['grok-image'], apiRequired: true },
+    { id: 'pixabay', name: 'Pixabay', description: 'Pixabay 免费图库', models: ['pixabay'], apiRequired: false },
+    { id: 'pexels', name: 'Pexels', description: 'Pexels 免费图库', models: ['pexels'], apiRequired: false },
+    { id: 'local-diffusion', name: '本地扩散', description: 'StableDiffusion 本地生成', models: ['sd-1.5', 'sdxl'], apiRequired: false },
+    { id: 'comfyui', name: 'ComfyUI', description: 'ComfyUI 自定义工作流', models: ['comfyui'], apiRequired: false },
   ],
   audio: [
     { id: 'suno', name: 'Suno', description: 'Suno AI 音乐生成', models: ['suno-v4'], apiRequired: true },
     { id: 'musicgen', name: 'MusicGen', description: 'Meta MusicGen', models: ['musicgen'], apiRequired: false },
+    { id: 'pixabay-music', name: 'Pixabay Music', description: 'Pixabay 免费音乐库', models: ['pixabay-music'], apiRequired: false },
+    { id: 'freesound', name: 'Freesound', description: 'Freesound 音效库', models: ['freesound'], apiRequired: false },
+    { id: 'music-library', name: '音乐库', description: '本地音乐库扫描', models: ['local-library'], apiRequired: false },
   ],
   tts: [
     { id: 'elevenlabs', name: 'ElevenLabs', description: 'ElevenLabs TTS', models: ['eleven_multilingual_v2'], apiRequired: true },
-    { id: 'openai-tts', name: 'OpenAI TTS', description: 'OpenAI TTS-1', models: ['tts-1', 'tts-1-hd'], apiRequired: true },
+    { id: 'openai-tts', name: 'OpenAI TTS', description: 'OpenAI gpt-4o-mini-tts', models: ['tts-1', 'tts-1-hd'], apiRequired: true },
     { id: 'doubao', name: '豆包 TTS', description: '字节豆包语音合成', models: ['doubao-tts'], apiRequired: true },
     { id: 'google-tts', name: 'Google TTS', description: 'Google Cloud TTS', models: ['google-tts'], apiRequired: true },
+    { id: 'piper', name: 'Piper', description: 'Piper 本地 TTS', models: ['piper'], apiRequired: false },
   ],
 };
 

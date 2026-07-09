@@ -51,6 +51,7 @@ function createAppContext() {
   const batchManager = container.get('batchManager')
   const urlCollector = container.get('urlCollector')
   const viralEngine = container.get('viralEngine')
+  const commentManager = container.get('commentManager')
   const proxyPool = container.get('proxyPool')
   const analyticsService = container.get('analyticsService')
 
@@ -212,7 +213,7 @@ function createAppContext() {
     systemTray, offlineManager, publishMonitor,
     authViewManager, rpaViewManager, webviewManager, qrCodeLogin,
     oauthManager, batchManager, urlCollector, providerManager,
-    viralEngine, contentIntelligence, publishImpactTracker,
+    viralEngine, commentManager, contentIntelligence, publishImpactTracker,
     proxyPool, templateManager, licenseManager, aiWriter,
     renderEngine, compositionManager, aiGenerator, videoEngine,
     pipelineEngine, _chunkedUploader, _platformConfig,
@@ -239,7 +240,7 @@ function runWhenReady(context, deps) {
     licenseManager, aiWriter, compositionManager, aiGenerator,
     videoEngine, pipelineEngine, authViewManager, rpaViewManager,
     webviewManager, qrCodeLogin, oauthManager, batchManager, urlCollector,
-    providerManager, viralEngine, contentIntelligence, publishImpactTracker,
+    providerManager, viralEngine, commentManager, contentIntelligence, publishImpactTracker,
     CloudPublisher,
   } = context
 

@@ -56,6 +56,7 @@ const PUBLISH_METHODS = [
   'cloudPublishSubmit', 'cloudPublishListTasks', 'cloudPublishGetTask', 'cloudPublishPlatforms',
   'urlCollectFetch',
   'viralAnalyze', 'viralGenerate', 'viralTrending',
+  'commentList', 'commentReply', 'commentStartPolling', 'commentStopPolling', 'commentStatus', 'onCommentReplied',
 ]
 
 const ACCOUNT_METHODS = [
@@ -153,10 +154,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 45 个键（44 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 51 个键（50 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(45)
+    expect(Object.keys(r).length).toBe(51)
   })
 
   it('account 模块应导出 40 个方法', () => {
@@ -171,12 +172,12 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(117)
   })
 
-  it('合并后 api 总键数应为 202', () => {
-    expect(Object.keys(api).length).toBe(202)
+  it('合并后 api 总键数应为 208', () => {
+    expect(Object.keys(api).length).toBe(208)
   })
 
-  it('PUBLISH_METHODS 常量长度应为 44', () => {
-    expect(PUBLISH_METHODS.length).toBe(44)
+  it('PUBLISH_METHODS 常量长度应为 50', () => {
+    expect(PUBLISH_METHODS.length).toBe(50)
   })
 
   it('ACCOUNT_METHODS 常量长度应为 40', () => {

@@ -291,12 +291,13 @@ describe('bootstrap — createAppContext', () => {
     expect(context.qrCodeLogin).toBeDefined()
   })
 
-  it('context 包含 oauthManager / batchManager / urlCollector / providerManager / viralEngine', () => {
+  it('context 包含 oauthManager / batchManager / urlCollector / providerManager / viralEngine / commentManager', () => {
     expect(context.oauthManager).toBeDefined()
     expect(context.batchManager).toBe(mockBatchManager)
     expect(context.urlCollector).toBeDefined()
     expect(context.providerManager).toBeDefined()
     expect(context.viralEngine).toBeDefined()
+    expect(context.commentManager).toBeDefined()
   })
 
   it('taskQueue.setExecutor 被调用（执行器注入）', () => {

@@ -25,6 +25,7 @@ beforeAll(() => {
 function buildMockContext(overrides) {
   const mk = () => ({
     setMainWindow: vi.fn(),
+    setGetMainWin: vi.fn(),
     registerIpcHandlers: vi.fn(),
     _onWindowResize: vi.fn(),
     resize: vi.fn(),
@@ -40,6 +41,7 @@ function buildMockContext(overrides) {
     urlCollector: mk(),
     providerManager: mk(),
     viralEngine: mk(),
+    commentManager: mk(),
     contentIntelligence: mk(),
     publishImpactTracker: mk(),
     systemTray: { init: vi.fn() },
