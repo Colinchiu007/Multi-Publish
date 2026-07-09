@@ -6,30 +6,34 @@
  * - Engagement scoring
  * - Keyword extraction
  * - All 6 v1.4.0 methods (with mocked sub-methods to avoid real API calls)
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
+__enableElectronMock()
 
-jest.mock('../electron/logger', () => ({
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-}))
+__registerMock('../electron/logger', {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+})
 
 const ContentIntelligence = require('../electron/content-intelligence')
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function createCI () {
-  const store = { _ready: true, db: { prepare: () => ({ run: jest.fn(), all: jest.fn(() => []) }) } }
+  const store = { _ready: true, db: { prepare: () => ({ run: vi.fn(), all: vi.fn(() => []) }) } }
   return new ContentIntelligence(store)
 }
 
 function mockSubMethods (ci) {
-  ci._searchReddit = jest.fn()
-  ci._searchHN = jest.fn()
-  ci._searchGitHub = jest.fn()
-  ci._fetchRedditTrending = jest.fn()
-  ci._fetchHNTrending = jest.fn()
-  ci._fetchGitHubTrending = jest.fn()
+  ci._searchReddit = vi.fn()
+  ci._searchHN = vi.fn()
+  ci._searchGitHub = vi.fn()
+  ci._fetchRedditTrending = vi.fn()
+  ci._fetchHNTrending = vi.fn()
+  ci._fetchGitHubTrending = vi.fn()
 }
 
 function makeRedditItem (overrides) {
@@ -244,7 +248,7 @@ describe('ContentIntelligence', () => {
     it('returns keywords and byPlatform mapping for content', async () => {
       const ci = createCI()
       mockSubMethods(ci)
-      ci.search = jest.fn().mockResolvedValue({ results: [] })
+      ci.search = vi.fn().mockResolvedValue({ results: [] })
 
       const result = await ci.suggestTags('AI technology is great for machine learning and deep learning')
       expect(result.keywords).toBeDefined()
@@ -259,7 +263,7 @@ describe('ContentIntelligence', () => {
     it('adapts tag style per platform (hashtag vs topic)', async () => {
       const ci = createCI()
       mockSubMethods(ci)
-      ci.search = jest.fn().mockResolvedValue({ results: [] })
+      ci.search = vi.fn().mockResolvedValue({ results: [] })
 
       const result = await ci.suggestTags('machine learning algorithms')
       result.byPlatform.weibo.forEach(function(tag) {
@@ -273,7 +277,7 @@ describe('ContentIntelligence', () => {
     it('handles empty content gracefully', async () => {
       const ci = createCI()
       mockSubMethods(ci)
-      ci.search = jest.fn().mockResolvedValue({ results: [] })
+      ci.search = vi.fn().mockResolvedValue({ results: [] })
 
       const result = await ci.suggestTags('')
       expect(result.keywords).toEqual([])
@@ -284,7 +288,7 @@ describe('ContentIntelligence', () => {
     it('returns filtered high-quality references', async () => {
       const ci = createCI()
       mockSubMethods(ci)
-      ci.search = jest.fn().mockResolvedValue({
+      ci.search = vi.fn().mockResolvedValue({
         results: [
           makeRedditItem({ engagement: 1.5 }),
           makeHNItem({ engagement: 2.0 }),
@@ -309,7 +313,7 @@ describe('ContentIntelligence', () => {
     it('filters out low-engagement items', async () => {
       const ci = createCI()
       mockSubMethods(ci)
-      ci.search = jest.fn().mockResolvedValue({
+      ci.search = vi.fn().mockResolvedValue({
         results: [
           makeRedditItem({ engagement: 0.05 }),
           makeHNItem({ engagement: 0.5 })
@@ -325,7 +329,7 @@ describe('ContentIntelligence', () => {
     it('returns benchmark stats when enough data available', async () => {
       const ci = createCI()
       mockSubMethods(ci)
-      ci.search = jest.fn().mockResolvedValue({
+      ci.search = vi.fn().mockResolvedValue({
         results: [
           makeRedditItem({ engagement: 0.5, upvotes: 10, comments: 2 }),
           makeRedditItem({ title: 'Second item', engagement: 1.0, upvotes: 50, comments: 5 }),
@@ -346,7 +350,7 @@ describe('ContentIntelligence', () => {
     it('returns null benchmark when too few results', async () => {
       const ci = createCI()
       mockSubMethods(ci)
-      ci.search = jest.fn().mockResolvedValue({
+      ci.search = vi.fn().mockResolvedValue({
         results: [makeRedditItem({ engagement: 0.5 })]
       })
 
@@ -375,7 +379,7 @@ describe('ContentIntelligence', () => {
           engagement: 0.5 + i * 0.1
         }))
       }
-      ci.search = jest.fn().mockResolvedValue({ results: items })
+      ci.search = vi.fn().mockResolvedValue({ results: items })
 
       const result = await ci.getOptimalTime('AI tools')
       expect(result.recommendation).toBeDefined()
@@ -391,7 +395,7 @@ describe('ContentIntelligence', () => {
     it('returns null recommendation for little data', async () => {
       const ci = createCI()
       mockSubMethods(ci)
-      ci.search = jest.fn().mockResolvedValue({ results: [makeRedditItem()] })
+      ci.search = vi.fn().mockResolvedValue({ results: [makeRedditItem()] })
 
       const result = await ci.getOptimalTime('AI')
       expect(result.recommendation).toBeNull()
@@ -456,7 +460,7 @@ describe('ContentIntelligence', () => {
     it('returns mention analysis with top source and sentiment', async () => {
       const ci = createCI()
       mockSubMethods(ci)
-      ci.search = jest.fn().mockResolvedValue({
+      ci.search = vi.fn().mockResolvedValue({
         results: [makeRedditItem({ engagement: 1.5 }), makeHNItem({ engagement: 2.0 })],
         total: 2
       })

@@ -10,7 +10,7 @@ describe('Container (TS)', () => {
 
   it('register a factory and lazy init', () => {
     const c = new Container();
-    const factory = jest.fn(() => 42);
+    const factory = vi.fn(() => 42);
     c.register('num', factory);
     expect(factory).not.toHaveBeenCalled();
     expect(c.get('num')).toBe(42);

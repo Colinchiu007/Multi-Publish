@@ -6,39 +6,23 @@
  * - publish("bilibili", ...) dispatches to _publish_bilibili
  * - Returns error for missing video_path
  * - Returns properly shaped result object
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
+__enableElectronMock()
 
-jest.mock("electron", () => ({
-  BrowserWindow: jest.fn().mockImplementation(() => ({
-    loadURL: jest.fn(),
-    webContents: {
-      getURL: jest.fn().mockReturnValue("https://member.bilibili.com/video/upload.html"),
-      executeJavaScript: jest.fn().mockResolvedValue(null),
-      send: jest.fn(),
-      on: jest.fn(),
-    },
-    destroy: jest.fn(),
-    on: jest.fn(),
-  })),
-  session: {
-    fromPartition: jest.fn().mockReturnValue({
-      cookies: { set: jest.fn() },
-    }),
-  },
-  ipcMain: { on: jest.fn() },
-}))
-
-jest.mock("@multi-publish/shared-utils/src/platform-config", () => {
-  return jest.fn().mockImplementation(() => ({
-    getPlatform: jest.fn().mockReturnValue({
+__registerMock("@multi-publish/shared-utils/src/platform-config", vi.fn().mockImplementation(function () {
+  return {
+    getPlatform: vi.fn().mockReturnValue({
       publish_url: "https://member.bilibili.com/",
       type: "mixed",
       has_api: true,
     }),
-  }))
-})
+  }
+}))
 
-jest.mock("@multi-publish/rpa-engine", () => ({
+__registerMock("@multi-publish/rpa-engine", {
   platformSelectors: {
     PLATFORM_PUBLISH_SELECTORS: {
       bilibili: {
@@ -49,10 +33,23 @@ jest.mock("@multi-publish/rpa-engine", () => ({
       },
     },
   },
-}))
+})
 
-jest.mock("path")
-jest.mock("fs")
+// api-publish-engine 真实包加载会失败（api-router.js 缺 ./logger），需 mock 以避免 require 抛错
+__registerMock("@multi-publish/api-publish-engine", {
+  supportsApi: vi.fn().mockReturnValue(false),
+  publishViaApi: vi.fn(),
+})
+
+__registerMock("path", {
+  join: vi.fn(),
+  resolve: vi.fn(),
+  basename: vi.fn(),
+})
+
+__registerMock("fs", {
+  existsSync: vi.fn(),
+})
 
 const RpaViewManager = require("../electron/rpa-view-manager")
 
@@ -60,29 +57,29 @@ describe("RpaViewManager bilibili publish", () => {
   let rpa
 
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
     // Mock all internal helpers
-    RpaViewManager.prototype._emitProgress = jest.fn()
-    RpaViewManager.prototype._createWindow = jest.fn().mockReturnValue({
-      loadURL: jest.fn().mockResolvedValue(),
+    RpaViewManager.prototype._emitProgress = vi.fn()
+    RpaViewManager.prototype._createWindow = vi.fn().mockReturnValue({
+      loadURL: vi.fn().mockResolvedValue(),
       webContents: {
-        getURL: jest.fn().mockReturnValue("https://member.bilibili.com/video/upload.html"),
-        executeJavaScript: jest.fn().mockResolvedValue(null),
-        send: jest.fn(),
-        on: jest.fn(),
+        getURL: vi.fn().mockReturnValue("https://member.bilibili.com/video/upload.html"),
+        executeJavaScript: vi.fn().mockResolvedValue(null),
+        send: vi.fn(),
+        on: vi.fn(),
       },
-      destroy: jest.fn(),
-      on: jest.fn(),
+      destroy: vi.fn(),
+      on: vi.fn(),
     })
-    RpaViewManager.prototype._restoreCookies = jest.fn().mockResolvedValue()
-    RpaViewManager.prototype._navigateAndWait = jest.fn().mockResolvedValue()
-    RpaViewManager.prototype._waitForElement = jest.fn().mockResolvedValue(true)
-    RpaViewManager.prototype._setFileInput = jest.fn().mockResolvedValue()
-    RpaViewManager.prototype._waitForCondition = jest.fn().mockResolvedValue(true)
-    RpaViewManager.prototype._fillInput = jest.fn().mockResolvedValue()
-    RpaViewManager.prototype._click = jest.fn().mockResolvedValue(true)
-    RpaViewManager.prototype._waitForResponse = jest.fn().mockResolvedValue(null)
-    RpaViewManager.prototype._windowKey = jest.fn().mockReturnValue("bilibili_test")
+    RpaViewManager.prototype._restoreCookies = vi.fn().mockResolvedValue()
+    RpaViewManager.prototype._navigateAndWait = vi.fn().mockResolvedValue()
+    RpaViewManager.prototype._waitForElement = vi.fn().mockResolvedValue(true)
+    RpaViewManager.prototype._setFileInput = vi.fn().mockResolvedValue()
+    RpaViewManager.prototype._waitForCondition = vi.fn().mockResolvedValue(true)
+    RpaViewManager.prototype._fillInput = vi.fn().mockResolvedValue()
+    RpaViewManager.prototype._click = vi.fn().mockResolvedValue(true)
+    RpaViewManager.prototype._waitForResponse = vi.fn().mockResolvedValue(null)
+    RpaViewManager.prototype._windowKey = vi.fn().mockReturnValue("bilibili_test")
     rpa = new RpaViewManager()
   })
 
@@ -109,7 +106,7 @@ describe("RpaViewManager bilibili publish", () => {
   })
 
   test("_publish_bilibili returns success shaped result", async () => {
-    rpa._waitForResponse = jest.fn().mockResolvedValue({ url: "https://bilibili.com/video/BV1xxx" })
+    rpa._waitForResponse = vi.fn().mockResolvedValue({ url: "https://bilibili.com/video/BV1xxx" })
 
     const result = await rpa.publish("bilibili", {
       video_path: "/tmp/test.mp4",

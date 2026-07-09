@@ -1,6 +1,11 @@
 /**
  * License plan validation tests
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
+__enableElectronMock()
+
 describe("License plan validation", function() {
   test("PRO_FEATURES includes expected items", function() {
     var LM = require("../electron/license-manager")

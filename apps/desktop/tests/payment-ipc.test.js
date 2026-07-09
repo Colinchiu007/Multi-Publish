@@ -1,38 +1,36 @@
-/** 
+/**
  * Payment IPC handlers tests
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
+ * 修正：原 vi.mock 路径 '../electron/payment-manager' 错误，payment.js 实际 require 的是 '../services/payment-manager'。
  */
-jest.mock('../electron/payment-manager')
+var mockCreateOrder = vi.fn()
+var mockGetOrder = vi.fn()
+var mockCompletePayment = vi.fn()
+var mockSimulatePayment = vi.fn()
+var mockListOrders = vi.fn()
 
-var mockCreateOrder = jest.fn()
-var mockGetOrder = jest.fn()
-var mockCompletePayment = jest.fn()
-var mockSimulatePayment = jest.fn()
-var mockListOrders = jest.fn()
+__registerMock('../services/payment-manager', vi.fn().mockImplementation(function() {
+  return {
+    createOrder: mockCreateOrder,
+    getOrder: mockGetOrder,
+    completePayment: mockCompletePayment,
+    simulatePayment: mockSimulatePayment,
+    listOrders: mockListOrders,
+    getOrderStatus: vi.fn(),
+    cancelPayment: vi.fn(),
+  }
+}))
 
-jest.mock('../electron/payment-manager', function() {
-  return jest.fn().mockImplementation(function() {
-    return {
-      createOrder: mockCreateOrder,
-      getOrder: mockGetOrder,
-      completePayment: mockCompletePayment,
-      simulatePayment: mockSimulatePayment,
-      listOrders: mockListOrders,
-      getOrderStatus: jest.fn(),
-      cancelPayment: jest.fn(),
-    }
-  })
-})
+__registerMock('../electron/logger', { info: vi.fn(), error: vi.fn(), warn: vi.fn() })
 
-jest.mock('../electron/logger', function() {
-  return { info: jest.fn(), error: jest.fn(), warn: jest.fn() }
-})
-
-var mockIpcMain = { handle: jest.fn() }
+var mockIpcMain = { handle: vi.fn() }
 var registerHandlers = require('../electron/ipc-handlers/payment')
 
 describe('Payment IPC handlers', function() {
   beforeEach(function() {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
     registerHandlers(mockIpcMain, {})
   })
 

@@ -1,24 +1,22 @@
 /**
  * OnboardingManager unit tests
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
-jest.mock("electron", () => ({
-  app: {
-    getPath: jest.fn().mockReturnValue("/tmp/test-user-data"),
-    getAppPath: jest.fn().mockReturnValue("/tmp"),
-  },
-}))
+__enableElectronMock()
 
-jest.mock("fs", () => ({
-  existsSync: jest.fn().mockReturnValue(false),
-  writeFileSync: jest.fn(),
-  unlinkSync: jest.fn(),
-}))
+__registerMock("fs", {
+  existsSync: vi.fn().mockReturnValue(false),
+  writeFileSync: vi.fn(),
+  unlinkSync: vi.fn(),
+})
 
 const onboarding = require("../electron/onboarding")
 
 describe("OnboardingManager", () => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   test("isOnboardingDone returns false initially", () => {

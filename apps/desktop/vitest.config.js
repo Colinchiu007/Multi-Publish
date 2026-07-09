@@ -13,11 +13,13 @@ module.exports = defineConfig({
       'src/**/*.test.{js,ts}', 'src/**/*.spec.{js,ts}',
       'electron/services/**/*.test.{js,ts}',
       'electron/ipc-handlers/**/*.test.{js,ts}',
+      'electron/core/**/*.test.{js,ts}',
       'electron/bootstrap.test.{js,ts}',
       'electron/window.test.{js,ts}',
       'electron/shutdown.test.{js,ts}',
       'electron/main.test.{js,ts}',
       'electron/preload.test.{js,ts}',
+      'tests/**/*.test.{js,ts}',
     ],
     alias: {
       '@': path.resolve(__dirname, 'src')

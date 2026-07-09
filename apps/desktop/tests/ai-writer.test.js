@@ -1,15 +1,18 @@
 /**
  * AiWriter unit tests
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
-jest.mock("axios", () => ({
-  post: jest.fn(),
-}))
+__registerMock("axios", {
+  post: vi.fn(),
+})
 
-jest.mock("../electron/logger", () => ({
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-}))
+__registerMock("../electron/logger", {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+})
 
 describe("AiWriter", function() {
   var AiWriter

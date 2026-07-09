@@ -7,40 +7,24 @@
  * - Returns error for missing content
  * - Returns properly shaped result
  * - Platform selector validation
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
+__enableElectronMock()
 
-jest.mock("electron", () => ({
-  BrowserWindow: jest.fn().mockImplementation(() => ({
-    loadURL: jest.fn(),
-    webContents: {
-      getURL: jest.fn().mockReturnValue("https://www.zhihu.com/creator/write"),
-      executeJavaScript: jest.fn().mockResolvedValue(null),
-      send: jest.fn(),
-      on: jest.fn(),
-    },
-    destroy: jest.fn(),
-    on: jest.fn(),
-  })),
-  session: {
-    fromPartition: jest.fn().mockReturnValue({
-      cookies: { set: jest.fn() },
-    }),
-  },
-  ipcMain: { on: jest.fn() },
-}))
-
-jest.mock("@multi-publish/shared-utils/src/platform-config", () => {
-  return jest.fn().mockImplementation(() => ({
-    getPlatform: jest.fn().mockReturnValue({
+__registerMock("@multi-publish/shared-utils/src/platform-config", vi.fn().mockImplementation(function () {
+  return {
+    getPlatform: vi.fn().mockReturnValue({
       publish_url: "https://www.zhihu.com/creator/write",
       type: "article",
       max_title: 120,
       max_content: 100000,
     }),
-  }))
-})
+  }
+}))
 
-jest.mock("@multi-publish/rpa-engine", () => ({
+__registerMock("@multi-publish/rpa-engine", {
   platformSelectors: {
     PLATFORM_PUBLISH_SELECTORS: {
       zhihu: {
@@ -54,10 +38,23 @@ jest.mock("@multi-publish/rpa-engine", () => ({
       zhihu: ["https://www.zhihu.com/", "https://zhuanlan.zhihu.com/p/"],
     },
   },
-}))
+})
 
-jest.mock("path")
-jest.mock("fs")
+// api-publish-engine 真实包加载会失败（api-router.js 缺 ./logger），需 mock 以避免 require 抛错
+__registerMock("@multi-publish/api-publish-engine", {
+  supportsApi: vi.fn().mockReturnValue(false),
+  publishViaApi: vi.fn(),
+})
+
+__registerMock("path", {
+  join: vi.fn(),
+  resolve: vi.fn(),
+  basename: vi.fn(),
+})
+
+__registerMock("fs", {
+  existsSync: vi.fn(),
+})
 
 const RpaViewManager = require("../electron/rpa-view-manager")
 const { platformSelectors } = require("@multi-publish/rpa-engine")
@@ -66,26 +63,26 @@ describe("RpaViewManager zhihu publish", () => {
   let rpa
 
   beforeEach(() => {
-    jest.clearAllMocks()
-    RpaViewManager.prototype._emitProgress = jest.fn()
-    RpaViewManager.prototype._createWindow = jest.fn().mockReturnValue({
-      loadURL: jest.fn().mockResolvedValue(),
+    vi.clearAllMocks()
+    RpaViewManager.prototype._emitProgress = vi.fn()
+    RpaViewManager.prototype._createWindow = vi.fn().mockReturnValue({
+      loadURL: vi.fn().mockResolvedValue(),
       webContents: {
-        getURL: jest.fn().mockReturnValue("https://www.zhihu.com/creator/write"),
-        executeJavaScript: jest.fn().mockResolvedValue(null),
-        send: jest.fn(),
-        on: jest.fn(),
+        getURL: vi.fn().mockReturnValue("https://www.zhihu.com/creator/write"),
+        executeJavaScript: vi.fn().mockResolvedValue(null),
+        send: vi.fn(),
+        on: vi.fn(),
       },
-      destroy: jest.fn(),
-      on: jest.fn(),
+      destroy: vi.fn(),
+      on: vi.fn(),
     })
-    RpaViewManager.prototype._restoreCookies = jest.fn().mockResolvedValue()
-    RpaViewManager.prototype._navigateAndWait = jest.fn().mockResolvedValue()
-    RpaViewManager.prototype._waitForElement = jest.fn().mockResolvedValue(true)
-    RpaViewManager.prototype._fillInput = jest.fn().mockResolvedValue()
-    RpaViewManager.prototype._click = jest.fn().mockResolvedValue(true)
-    RpaViewManager.prototype._waitForResponse = jest.fn().mockResolvedValue(null)
-    RpaViewManager.prototype._windowKey = jest.fn().mockReturnValue("zhihu_test")
+    RpaViewManager.prototype._restoreCookies = vi.fn().mockResolvedValue()
+    RpaViewManager.prototype._navigateAndWait = vi.fn().mockResolvedValue()
+    RpaViewManager.prototype._waitForElement = vi.fn().mockResolvedValue(true)
+    RpaViewManager.prototype._fillInput = vi.fn().mockResolvedValue()
+    RpaViewManager.prototype._click = vi.fn().mockResolvedValue(true)
+    RpaViewManager.prototype._waitForResponse = vi.fn().mockResolvedValue(null)
+    RpaViewManager.prototype._windowKey = vi.fn().mockReturnValue("zhihu_test")
     rpa = new RpaViewManager()
   })
 
@@ -107,7 +104,7 @@ describe("RpaViewManager zhihu publish", () => {
   })
 
   test("_publish_zhihu returns success shaped result", async () => {
-    rpa._waitForResponse = jest.fn().mockResolvedValue({
+    rpa._waitForResponse = vi.fn().mockResolvedValue({
       url: "https://www.zhihu.com/",
     })
 

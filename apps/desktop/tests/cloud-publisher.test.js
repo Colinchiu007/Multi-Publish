@@ -9,10 +9,14 @@
  * - Registers IPC handlers
  *
  * Mock strategy: Mock axios for HTTP, electron for ipcMain.
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
+__enableElectronMock()
 
-jest.mock('axios')
-jest.mock('../electron/logger', () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }))
+__registerMock('axios', { get: vi.fn(), post: vi.fn() })
+__registerMock('../electron/logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
 const axios = require('axios')
 const CloudPublisher = require('../electron/cloud-publisher')
@@ -44,7 +48,7 @@ const SAMPLE_TASK = {
 // Tests
 describe('CloudPublisher', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   describe('constructor', () => {
@@ -147,7 +151,7 @@ describe('CloudPublisher', () => {
   describe('registerIpcHandlers', () => {
     beforeEach(function () {
       const electron = require('electron')
-      electron.ipcMain.handle = jest.fn()
+      electron.ipcMain.handle = vi.fn()
     })
 
     test('registers 4 IPC handlers on ipcMain', () => {

@@ -8,13 +8,25 @@
  * - Updates task status via PUT
  *
  * Mock strategy: Mock axios for HTTP, fs for download, publisherRouter for publish.
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
-
-jest.mock('axios')
-jest.mock('fs')
-jest.mock('path')
-jest.mock('crypto')
-jest.mock('../electron/logger', () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }))
+__registerMock('axios', { get: vi.fn(), post: vi.fn(), put: vi.fn() })
+__registerMock('fs', {
+  mkdtempSync: vi.fn(),
+  existsSync: vi.fn(),
+  statSync: vi.fn(),
+  createWriteStream: vi.fn(),
+  unlinkSync: vi.fn(),
+  rmdirSync: vi.fn(),
+})
+__registerMock('path', {
+  join: vi.fn(),
+  extname: vi.fn(),
+})
+__registerMock('crypto', { randomBytes: vi.fn() })
+__registerMock('../electron/logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
 const axios = require('axios')
 const fs = require('fs')
@@ -39,7 +51,7 @@ const FAKE_TASK = {
 const ORCHESTRATOR_URL = 'https://39.105.42.85'
 
 function createPoller (overrides) {
-  const router = { createPublisher: jest.fn() }
+  const router = { createPublisher: vi.fn() }
   const rpaViewManager = {}
   const store = {}
   const opts = Object.assign({
@@ -70,11 +82,11 @@ function mockFsTemp () {
 function mockFsDownload (tasks) {
   tasks = tasks || []
   const mockStream = {
-    on: jest.fn((event, handler) => {
+    on: vi.fn((event, handler) => {
       if (event === 'finish') setTimeout(handler, 0)
       return mockStream
     }),
-    once: jest.fn((event, handler) => {
+    once: vi.fn((event, handler) => {
       if (event === 'close') setTimeout(handler, 0)
       return mockStream
     }),
@@ -83,11 +95,11 @@ function mockFsDownload (tasks) {
   axios.get.mockImplementation((url, opts) => {
     if (opts && opts.responseType === 'stream') {
       const mockReadStream = {
-        on: jest.fn((event, handler) => {
+        on: vi.fn((event, handler) => {
           if (event === 'end' || event === 'close') setTimeout(handler, 0)
           return mockReadStream
         }),
-        pipe: jest.fn().mockReturnValue(mockStream),
+        pipe: vi.fn().mockReturnValue(mockStream),
       }
       return Promise.resolve({ data: mockReadStream })
     }
@@ -97,37 +109,37 @@ function mockFsDownload (tasks) {
 
 describe('PublishPoller', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   describe('start/stop', () => {
     test('start() sets interval and sets running flag', () => {
-      jest.useFakeTimers()
+      vi.useFakeTimers()
       const poller = createPoller()
       poller.start()
       expect(poller._running).toBe(true)
       expect(poller._timer).not.toBeNull()
-      jest.useRealTimers()
+      vi.useRealTimers()
     })
 
     test('stop() clears interval and unsets running flag', () => {
-      jest.useFakeTimers()
+      vi.useFakeTimers()
       const poller = createPoller()
       poller.start()
       poller.stop()
       expect(poller._running).toBe(false)
       expect(poller._timer).toBeNull()
-      jest.useRealTimers()
+      vi.useRealTimers()
     })
 
     test('start() does not set duplicate interval if already running', () => {
-      jest.useFakeTimers()
+      vi.useFakeTimers()
       const poller = createPoller()
       poller.start()
       const timer1 = poller._timer
       poller.start()
       expect(poller._timer).toBe(timer1)
-      jest.useRealTimers()
+      vi.useRealTimers()
     })
   })
 
@@ -147,8 +159,8 @@ describe('PublishPoller', () => {
       mockFsTemp()
       mockFsDownload([FAKE_TASK])
 
-      const mockPublisher = { publish: jest.fn().mockResolvedValue({ success: true, url: 'https://bilibili.com/video/BV1xxx', postId: 'task-001', platform: 'bilibili' }) }
-      const router = { createPublisher: jest.fn().mockReturnValue(mockPublisher) }
+      const mockPublisher = { publish: vi.fn().mockResolvedValue({ success: true, url: 'https://bilibili.com/video/BV1xxx', postId: 'task-001', platform: 'bilibili' }) }
+      const router = { createPublisher: vi.fn().mockReturnValue(mockPublisher) }
 
       const poller = createPoller({ publisherRouter: router })
       await poller._poll()
@@ -177,8 +189,8 @@ describe('PublishPoller', () => {
       mockFsTemp()
       mockFsDownload([FAKE_TASK])
 
-      const mockPublisher = { publish: jest.fn().mockRejectedValue(new Error('RPA failed: timeout')) }
-      const router = { createPublisher: jest.fn().mockReturnValue(mockPublisher) }
+      const mockPublisher = { publish: vi.fn().mockRejectedValue(new Error('RPA failed: timeout')) }
+      const router = { createPublisher: vi.fn().mockReturnValue(mockPublisher) }
 
       const poller = createPoller({ publisherRouter: router })
       await poller._poll()
@@ -201,7 +213,7 @@ describe('PublishPoller', () => {
         return Promise.resolve({ data: { items: [FAKE_TASK] } })
       })
 
-      const router = { createPublisher: jest.fn() }
+      const router = { createPublisher: vi.fn() }
       const poller = createPoller({ publisherRouter: router })
       await poller._poll()
 
@@ -218,7 +230,7 @@ describe('PublishPoller', () => {
       mockAxiosGet([FAKE_TASK])
       mockAxiosPut()
 
-      const router = { createPublisher: jest.fn() }
+      const router = { createPublisher: vi.fn() }
       const poller = createPoller({ publisherRouter: router, rpaCheck: function () { return false } })
       await poller._poll()
 
@@ -231,8 +243,8 @@ describe('PublishPoller', () => {
       mockFsTemp()
       mockFsDownload([FAKE_TASK])
 
-      const mockPublisher = { publish: jest.fn().mockResolvedValue({ success: true, url: 'https://bilibili.com/video/BV1xxx', postId: 'task-001', platform: 'bilibili' }) }
-      const router = { createPublisher: jest.fn().mockReturnValue(mockPublisher) }
+      const mockPublisher = { publish: vi.fn().mockResolvedValue({ success: true, url: 'https://bilibili.com/video/BV1xxx', postId: 'task-001', platform: 'bilibili' }) }
+      const router = { createPublisher: vi.fn().mockReturnValue(mockPublisher) }
 
       const poller = createPoller({ publisherRouter: router, rpaCheck: function () { return true } })
       await poller._poll()
@@ -246,8 +258,8 @@ describe('PublishPoller', () => {
       mockFsTemp()
       mockFsDownload([FAKE_TASK])
 
-      const mockPublisher = { publish: jest.fn().mockResolvedValue({ success: true, platform: 'bilibili' }) }
-      const router = { createPublisher: jest.fn().mockReturnValue(mockPublisher) }
+      const mockPublisher = { publish: vi.fn().mockResolvedValue({ success: true, platform: 'bilibili' }) }
+      const router = { createPublisher: vi.fn().mockReturnValue(mockPublisher) }
 
       const poller = createPoller({ publisherRouter: router })
       await poller._poll()
@@ -266,7 +278,7 @@ describe('PublishPoller', () => {
       mockAxiosGet([cloudTask])
       mockAxiosPut()
 
-      const router = { createPublisher: jest.fn() }
+      const router = { createPublisher: vi.fn() }
       const poller = createPoller({ publisherRouter: router })
       await poller._poll()
 
@@ -279,8 +291,8 @@ describe('PublishPoller', () => {
       mockFsTemp()
       mockFsDownload([FAKE_TASK])
 
-      const mockPublisher = { publish: jest.fn().mockResolvedValue({ success: true, platform: 'bilibili' }) }
-      const router = { createPublisher: jest.fn().mockReturnValue(mockPublisher) }
+      const mockPublisher = { publish: vi.fn().mockResolvedValue({ success: true, platform: 'bilibili' }) }
+      const router = { createPublisher: vi.fn().mockReturnValue(mockPublisher) }
 
       const poller = createPoller({ publisherRouter: router })
       await poller._poll()
@@ -292,19 +304,19 @@ describe('PublishPoller', () => {
 
   describe('integration: start/stop cycle with polling', () => {
     test('polling loop calls _poll on interval', async () => {
-      jest.useFakeTimers()
+      vi.useFakeTimers()
       mockAxiosGet([])
       mockAxiosPut()
 
       const poller = createPoller()
-      poller._poll = jest.fn().mockResolvedValue()
+      poller._poll = vi.fn().mockResolvedValue()
       poller.start()
 
-      jest.advanceTimersByTime(500)
+      vi.advanceTimersByTime(500)
       expect(poller._poll).toHaveBeenCalledTimes(5)
 
       poller.stop()
-      jest.useRealTimers()
+      vi.useRealTimers()
     })
   })
 })

@@ -1,26 +1,26 @@
-/** 
+/**
  * PaymentManager unit tests
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
-var mockActivate = jest.fn().mockReturnValue(true)
-var mockGetInfo = jest.fn().mockReturnValue({ type: 'free', isPro: false })
+var mockActivate = vi.fn().mockReturnValue(true)
+var mockGetInfo = vi.fn().mockReturnValue({ type: 'free', isPro: false })
 
-jest.mock('electron', () => ({
-  app: { getPath: jest.fn().mockReturnValue('/tmp/test-payment') },
-  net: { isConnected: jest.fn().mockReturnValue(true) },
-}))
+__enableElectronMock()
 
-jest.mock('fs', () => ({
-  existsSync: jest.fn().mockReturnValue(false),
-  readFileSync: jest.fn(),
-  writeFileSync: jest.fn(),
-  mkdirSync: jest.fn(),
-}))
+__registerMock('fs', {
+  existsSync: vi.fn().mockReturnValue(false),
+  readFileSync: vi.fn(),
+  writeFileSync: vi.fn(),
+  mkdirSync: vi.fn(),
+})
 
-jest.mock('../electron/logger', () => ({
-  info: jest.fn(),
-  error: jest.fn(),
-  warn: jest.fn(),
-}))
+__registerMock('../electron/logger', {
+  info: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
+})
 
 var PaymentManager = require('../electron/payment-manager')
 
@@ -28,7 +28,7 @@ describe('PaymentManager', function() {
   var pm
 
   beforeEach(function() {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
     pm = new PaymentManager()
   })
 

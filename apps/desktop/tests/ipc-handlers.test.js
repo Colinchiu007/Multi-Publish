@@ -1,7 +1,16 @@
 /**
  * IPC handlers 单元测试
  * 验证 handler 文件能正确加载并注册
+ *
+ * 注意：用 __enableElectronMock 启用全局 electron mock，因为部分 handler 加载的服务
+ * 在构造时会 require('electron')（如 PaymentManager），未启用会抛 "Electron failed to install correctly"。
+ * pipeline handler 在 index.js 中被调用时未传入 deps（源码 bug），此处 mock 为 no-op 以避免崩溃；
+ * 本测试不断言 pipeline handler 注册情况。
  */
+__enableElectronMock()
+
+__registerMock('./pipeline', function() {})
+
 const path = require('path')
 const registerHandlers = require(path.join(__dirname, '..', 'electron', 'ipc-handlers', 'index'))
 

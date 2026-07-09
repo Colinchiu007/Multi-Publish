@@ -1,34 +1,24 @@
 /**
  * OfflineManager unit tests
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
-var mockSend = jest.fn()
+var mockSend = vi.fn()
 
-jest.mock("electron", () => ({
-  app: {
-    getPath: jest.fn().mockReturnValue("/tmp/test-user-data"),
-  },
-  net: {
-    isConnected: jest.fn().mockReturnValue(true),
-    on: jest.fn(),
-  },
-  BrowserWindow: {
-    getAllWindows: jest.fn().mockReturnValue([
-      { webContents: { send: mockSend }, isDestroyed: jest.fn().mockReturnValue(false) }
-    ]),
-  },
-}))
+__enableElectronMock()
 
-jest.mock("fs", () => ({
-  existsSync: jest.fn().mockReturnValue(false),
-  readFileSync: jest.fn().mockReturnValue("[]"),
-  writeFileSync: jest.fn(),
-}))
+__registerMock("fs", {
+  existsSync: vi.fn().mockReturnValue(false),
+  readFileSync: vi.fn().mockReturnValue("[]"),
+  writeFileSync: vi.fn(),
+})
 
 var offlineManager = require("../electron/offline-manager")
 
 describe("OfflineManager", function() {
   beforeEach(function() {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   test("isOffline returns false initially", function() {
@@ -107,8 +97,8 @@ describe("OfflineManager integration", function() {
   var mockTaskQueue
 
   beforeEach(function() {
-    jest.clearAllMocks()
-    mockTaskQueue = { add: jest.fn().mockReturnValue("mock_task_id") }
+    vi.clearAllMocks()
+    mockTaskQueue = { add: vi.fn().mockReturnValue("mock_task_id") }
   })
 
   test("setTaskQueue stores reference", function() {

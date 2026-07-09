@@ -1,23 +1,28 @@
 /**
  * LicenseManager unit tests
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
-jest.mock("fs", () => ({
-  existsSync: jest.fn().mockReturnValue(false),
-  readFileSync: jest.fn(),
-  writeFileSync: jest.fn(),
-  mkdirSync: jest.fn(),
-}))
+__enableElectronMock()
 
-jest.mock("path", () => ({
-  join: jest.fn(() => "/mock/license.json"),
-  dirname: jest.fn(),
-}))
+__registerMock("fs", {
+  existsSync: vi.fn().mockReturnValue(false),
+  readFileSync: vi.fn(),
+  writeFileSync: vi.fn(),
+  mkdirSync: vi.fn(),
+})
 
-jest.mock("../electron/logger", () => ({
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-}))
+__registerMock("path", {
+  join: vi.fn(() => "/mock/license.json"),
+  dirname: vi.fn(),
+})
+
+__registerMock("../electron/logger", {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+})
 
 describe("LicenseManager", function() {
   var LicenseManager

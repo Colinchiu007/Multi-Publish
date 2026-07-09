@@ -1,26 +1,30 @@
 /**
  * PublishAlertManager unit tests
+ *
+ * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
+ * 对 CJS require 不生效。__registerMock 拦截 Module.prototype.require，与 CJS 完全兼容。
  */
-jest.mock("electron", () => ({
-  Notification: jest.fn().mockImplementation(() => ({
-    show: jest.fn(),
-  })),
-  shell: { openExternal: jest.fn() },
+__enableElectronMock()
+
+// 默认 electron mock 不含 Notification，需动态赋值（覆盖字段而非整体替换）
+const electron = require("electron")
+electron.Notification = vi.fn().mockImplementation(() => ({
+  show: vi.fn(),
 }))
 
-jest.mock("child_process", () => ({
-  exec: jest.fn(),
-}))
+__registerMock("child_process", {
+  exec: vi.fn(),
+})
 
-jest.mock("fs", () => ({
-  existsSync: jest.fn().mockReturnValue(true),
-}))
+__registerMock("fs", {
+  existsSync: vi.fn().mockReturnValue(true),
+})
 
 const publishAlert = require("../electron/publish-alert")
 
 describe("PublishAlertManager", () => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   test("playSound calls exec", () => {
@@ -32,13 +36,13 @@ describe("PublishAlertManager", () => {
   test("triggerAlert with success type", () => {
     // Mock Notification.isSupported
     const { Notification } = require("electron")
-    Notification.isSupported = jest.fn().mockReturnValue(true)
+    Notification.isSupported = vi.fn().mockReturnValue(true)
     publishAlert.triggerAlert("success", { platform: "weibo" })
   })
 
   test("triggerAlert with error type", () => {
     const { Notification } = require("electron")
-    Notification.isSupported = jest.fn().mockReturnValue(true)
+    Notification.isSupported = vi.fn().mockReturnValue(true)
     publishAlert.triggerAlert("error", { platform: "bilibili" })
   })
 })
