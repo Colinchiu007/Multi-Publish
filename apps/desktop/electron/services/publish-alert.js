@@ -34,13 +34,15 @@ function playSound (type) {
   try {
     const audioPath = getSoundPath(type)
     if (fs.existsSync(audioPath)) {
-      const { exec } = require('child_process')
+      // 使用 execFile 而非 exec，避免 shell 注入风险（audioPath 不经过 shell 解释）
+      const { execFile } = require('child_process')
       if (process.platform === 'win32') {
-        exec(`start "" "${audioPath}"`, () => {})
+        // Windows 用 cmd /c start 打开默认播放器（execFile 不经 shell，需显式 shell）
+        execFile('cmd', ['/c', 'start', '', '', audioPath], () => {})
       } else if (process.platform === 'darwin') {
-        exec(`afplay "${audioPath}"`, () => {})
+        execFile('afplay', [audioPath], () => {})
       } else {
-        exec(`paplay "${audioPath}"`, () => {})
+        execFile('paplay', [audioPath], () => {})
       }
     }
   // eslint-disable-next-line no-unused-vars

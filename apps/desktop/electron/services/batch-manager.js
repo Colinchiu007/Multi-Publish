@@ -146,8 +146,12 @@ class BatchManager {
       }
 
       setTimeout(() => {
-        for (const platform of article.platforms) {
-          _taskQueue.add({ platform, article, batchId })
+        try {
+          for (const platform of article.platforms) {
+            _taskQueue.add({ platform, article, batchId })
+          }
+        } catch (e) {
+          log.error('BatchManager', 'Failed to schedule batch task for batch ' + batchId + ': ' + e.message)
         }
       }, delay)
     }

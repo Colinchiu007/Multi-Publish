@@ -106,6 +106,14 @@ class Database {
 
   pragma(sql) {
     if (this._db) {
+      // 白名单校验，仅允许已知安全的 PRAGMA 名（防 SQL 注入）
+      const SAFE_PRAGMAS = ['journal_mode = WAL', 'journal_mode = DELETE', 'journal_mode = MEMORY',
+        'foreign_keys = ON', 'foreign_keys = OFF', 'synchronous = NORMAL', 'synchronous = FULL',
+        'synchronous = OFF', 'temp_store = MEMORY', 'temp_store = FILE']
+      if (!SAFE_PRAGMAS.includes(String(sql).trim())) {
+        console.warn('[sqlite-wrapper] Rejected unsafe PRAGMA:', sql)
+        return
+      }
       // eslint-disable-next-line no-unused-vars
       try { this._db.exec(`PRAGMA ${sql}`) } catch (e) { /* ignore */ }
     }

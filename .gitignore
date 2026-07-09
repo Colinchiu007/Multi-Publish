@@ -55,6 +55,10 @@ HANDOFF.md
 
 # E2E test credentials (real account data - DO NOT COMMIT)
 config/e2e-credentials.json
+apps/desktop/tests/bilibili-cookies.json
+apps/desktop/tests/*.b64
+apps/desktop/tests/e2e-cookies*.json
+apps/desktop/tests/*-cookies.json
 
 # E2E test results (screenshots, reports)
 test-results/

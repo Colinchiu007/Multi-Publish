@@ -247,6 +247,7 @@ function runWhenReady(context, deps) {
   let mainWindow = null
 
   app.whenReady().then(async () => {
+   try {
     try { await pythonBridge.startPythonBackend() }
     catch (e) { log.error('App', 'Failed to start Python backend:', e.message) }
 
@@ -409,6 +410,13 @@ function runWhenReady(context, deps) {
     })
 
     mainWindow = createWindow(context)
+   } catch (e) {
+    log.error('App', 'Startup failed:', e.message, e.stack)
+    try {
+      const { dialog } = require('electron')
+      dialog.showErrorBox('启动失败', e.message + '\n\n请查看日志并联系支持。')
+    } catch { /* dialog 不可用时忽略 */ }
+   }
   })
 }
 

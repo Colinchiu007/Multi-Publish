@@ -52,9 +52,14 @@ function scheduleTimer (entry) {
   if (delay <= 0) return  // 已过期
 
   _timers[entry.id] = setTimeout(async () => {
-    if (_taskQueue) {
-      _taskQueue.add({ platform: entry.platform, article: entry.article })
-      updateStatus(entry.id, 'executed')
+    try {
+      if (_taskQueue) {
+        _taskQueue.add({ platform: entry.platform, article: entry.article })
+        updateStatus(entry.id, 'executed')
+      }
+    } catch (e) {
+      logger.error('Scheduler', 'Failed to execute scheduled task ' + entry.id + ': ' + e.message)
+      try { updateStatus(entry.id, 'failed') } catch { /* ignore */ }
     }
     delete _timers[entry.id]
   }, delay)

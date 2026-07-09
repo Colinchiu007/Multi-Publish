@@ -163,6 +163,10 @@ describe("publish-monitor", () => {
 
   describe("checkPublishStatus()", () => {
     it("returns status for nonexistent task", async () => {
+      // Mock axios 避免真实网络请求（sandbox 无网络时会卡满 15s timeout）
+      __registerMock("axios", {
+        get: vi.fn().mockResolvedValue({ data: { data: { list: [] } } }),
+      });
       const m = require("./publish-monitor");
       const r = await m.checkPublishStatus("x", "weibo", "", "https://x.com/api");
       expect(r).toHaveProperty("status");
