@@ -1,4 +1,4 @@
-﻿name: quality-gate
+name: quality-gate
 
 on:
   push:
@@ -22,41 +22,14 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      # --- Gate 1: 代码语法检查 (取代 vitest+jest，避免预存测试失败) ---
+      # --- Gate 1: TypeScript 编译检查（硬门禁） ---
       - name: "Gate 1 - TypeScript 编译检查"
         run: cd apps/desktop && npx tsc --noEmit
-        continue-on-error: true
 
-      - name: "Gate 1b - node --check 核心 JS 文件"
+      # --- Gate 2: 核心 JS 文件语法检查（FUSE 截断防护） ---
+      - name: "Gate 2 - JS syntax integrity (detect FUSE truncation)"
         run: |
           $errors = 0
-          Get-ChildItem -Recurse -Filter "*.js" -Path apps/desktop/electron -Exclude "*node_modules*","*test*","*spec*" | ForEach-Object {
-            $result = node --check $_.FullName 2>&1
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "  [FAIL] $($_.Name) - $($result | Select-Object -First 1)"
-              $errors++
-            }
-          }
-          if ($errors -gt 0) { exit 1 }
-          Write-Host "All core JS files pass syntax check"
-
-      # --- Gate 2: 代码质量扫描 ---
-      - name: "Gate 2 - Code quality scan"
-        run: |
-          echo "checking for hardcoded secrets..."
-          $hasSecret = Select-String -Path apps/desktop/electron/*.js -Pattern "(?i)(api[_-]?key|secret|token|password)\s*=\s*['""][a-zA-Z0-9_\-]{16,}" -Quiet
-          if ($hasSecret) { echo "hardcoded secrets found"; exit 1 }
-          echo "code quality scan done"
-
-      # --- Gate 3: Coverage check (placeholder) ---
-      - name: "Gate 3 - Test coverage check"
-        run: echo "coverage check placeholder"
-
-      # --- Gate 4: FUSE truncation protection ---
-      - name: "Gate 4 - JS syntax integrity (detect FUSE truncation)"
-        run: |
-          $errors = 0
-          # 只检查 electron 核心文件（排除测试文件中的 ESM import）
           Get-ChildItem -Recurse -Filter "*.js" -Path apps/desktop/electron -Exclude "*node_modules*" | ForEach-Object {
             $result = node --check $_.FullName 2>&1
             if ($LASTEXITCODE -ne 0) {
@@ -67,14 +40,27 @@ jobs:
           if ($errors -gt 0) { exit 1 }
           Write-Host "All Electron JS files pass syntax check"
 
-      - name: "Gate 4b - Quality rhythm compliance"
+      # --- Gate 3: 硬编码密钥扫描 ---
+      - name: "Gate 3 - Hardcoded secrets scan"
         run: |
-          if (Test-Path ".quality-rhythm") { echo "project under quality-rhythm governance" }
-          else { echo "missing .quality-rhythm marker" }
+          echo "checking for hardcoded secrets..."
+          $hasSecret = Select-String -Path apps/desktop/electron/*.js -Pattern "(?i)(api[_-]?key|secret|token|password)\s*=\s*['""][a-zA-Z0-9_\-]{16,}" -Quiet
+          if ($hasSecret) { echo "hardcoded secrets found"; exit 1 }
+          echo "code quality scan done"
 
-      # --- Gate 5: IPC bridge completeness ---
-      - name: "Gate 5 - IPC bridge completeness (non-blocking)"
+      # --- Gate 4: 单元测试（Vitest 全套，硬门禁） ---
+      - name: "Gate 4 - Unit tests (Vitest)"
+        run: npm run test -w @multi-publish/desktop
+
+      # --- Gate 5: Coverage 检查 ---
+      - name: "Gate 5 - Test coverage check"
+        run: cd apps/desktop && npx vitest run --coverage --coverage.reporter=text-summary --coverage.thresholds.lines=60 --coverage.thresholds.branches=50 --coverage.thresholds.functions=60 --coverage.thresholds.statements=60
+        continue-on-error: true
+
+      # --- Gate 6: IPC bridge completeness (non-blocking) ---
+      - name: "Gate 6 - IPC bridge completeness (non-blocking)"
         id: ipc-check
+        continue-on-error: true
         run: |
           try {
             node .github/scripts/check-ipc-bridge.js
@@ -90,10 +76,10 @@ jobs:
           echo "=============================="
           echo "  quality-rhythm CI gate report"
           echo "=============================="
-          echo "tsc --noEmit : ${{ steps.gate.conclusion == 'success' && 'PASS' || 'FAIL' }}"
-          echo "node--check  : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
-          echo "code scan    : PASS"
-          echo "coverage     : TBD"
-          echo "compliance   : PASS"
-          echo "IPC bridge   : ${{ env.IPC_CHECK }}"
+          echo "tsc --noEmit  : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
+          echo "js syntax     : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
+          echo "secrets scan  : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
+          echo "unit tests    : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
+          echo "coverage      : see step output above"
+          echo "IPC bridge    : ${{ env.IPC_CHECK }}"
           echo "=============================="

@@ -5,8 +5,8 @@
  */
 'use strict';
 
-// TS 迁移: 使用编译后的 TypeScript 版本
-const Container = require("../../dist-ts/core/container");
+// Container DI 容器（JS 版本，与 container.test.ts 测试一致）
+const Container = require("./container");
 
 // -- 本模块加载的依赖（最终目标是到 container 中获取） --
 const RenderEngine = require('../services/render-engine');

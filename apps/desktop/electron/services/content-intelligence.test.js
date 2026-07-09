@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, vi, beforeAll } from "vitest";
 
-vi.mock("../services/logger", () => ({
+// vitest 4 下 vi.mock factory 对 CJS require 不生效，改用 __registerMock + __enableElectronMock
+__enableElectronMock()
+
+__registerMock("./logger", {
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
-}));
+})
 
 let ContentIntelligence;
 beforeAll(async () => {

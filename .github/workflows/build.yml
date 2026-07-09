@@ -55,7 +55,7 @@ jobs:
       # 2. 依赖声明一致性检查 — 检测未声明/未使用的 dependencies
       - name: Dependency check
         continue-on-error: true
-        run: npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite --ignores=app-builder-bin,electron
+        run: npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite,app-builder-bin,electron
 
       # 3. 循环依赖检查 — 防止模块间循环引用
       - name: Circular dependency check
