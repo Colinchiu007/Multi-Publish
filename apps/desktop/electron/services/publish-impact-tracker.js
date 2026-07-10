@@ -157,27 +157,28 @@ class PublishImpactTracker {
 
     ipcMain.handle('impact:get-active', () => {
       try {
-        return { data: this.getActiveTrackings() }
+        // M-8 修复：统一为标准 { code, data, message } 格式
+        return { code: 0, data: this.getActiveTrackings() }
       } catch (e) {
         log.error('ImpactTracker', 'getActive error: ' + e.message)
-        return { data: [] }
+        return { code: -1, message: e.message, data: [] }
       }
     })
 
     // Return recent impact snapshots for dashboard display
     ipcMain.handle('impact:get-recent-snapshots', () => {
-      if (!this.ci || !this.ci._store || !this.ci._store._ready) return { data: [] }
+      if (!this.ci || !this.ci._store || !this.ci._store._ready) return { code: 0, data: [] }
       try {
         const rows = this.ci._store.db.prepare(
           `SELECT * FROM impact_snapshots ORDER BY checked_at DESC LIMIT 20`
         ).all()
-        return { data: rows.map(r => ({
+        return { code: 0, data: rows.map(r => ({
           ...r,
           keywords: r.keywords ? JSON.parse(r.keywords) : null,
         })) }
       } catch (e) {
         log.error('ImpactTracker', 'getRecentSnapshots error: ' + e.message)
-        return { data: [] }
+        return { code: -1, message: e.message, data: [] }
       }
     })
   }

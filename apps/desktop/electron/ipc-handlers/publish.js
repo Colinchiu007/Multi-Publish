@@ -32,6 +32,10 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('publish:batch', async (event, { platforms, article }) => {
     try {
+    // M-5 修复：参数校验，platforms 为 undefined 时 .map() 必崩
+    if (!Array.isArray(platforms) || platforms.length === 0) {
+      return { code: -1, message: 'platforms 不能为空且必须为数组' }
+    }
     const isObj = platforms && platforms.length > 0 && typeof platforms[0] === 'object'
     const taskIds = platforms.map(p => {
       const platform = isObj ? p.platform : p
@@ -43,12 +47,13 @@ function registerHandlers(ipcMain, deps) {
       })
     })
       return { code: 0, data: { taskIds }, message: taskIds.length + " tasks added" }
-    } catch (e) { return { code: 500, message: e.message } }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('queue:status', async () => {
     try {
-      return taskQueue.getStatus()
+      // M-13 修复：成功路径也包裹为标准格式，与错误路径对称
+      return { code: 0, data: taskQueue.getStatus() }
     } catch (e) { return { code: -1, message: e.message } }
   })
   ipcMain.handle('queue:history', async () => {

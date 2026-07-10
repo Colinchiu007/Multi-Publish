@@ -560,3 +560,31 @@ apt-get install -y \
 - OK：24 处（含第十七轮修复的 3 处 + 本轮修复的 2 处）
 - 已修复：2 处（line 203 tag_input 选择器 + line 538 mediaId 选择器）
 - 无遗漏：grep `querySelector\(\\'+|\+ sel\.|\+mediaId` 仅剩硬编码字面量选择器
+
+---
+
+## 第十九轮审查复盘 v2.3.45 (2026-07-10)
+
+### ✅ 做得好的
+1. **R10 连续三轮全通过** — 第十八轮 2 处 R47 选择器修复逐项验证 PASS，无回归
+2. **R48 穷尽性验证首次执行** — 对 R45/R47 两个新规则做全仓穷尽性确认：R45 的 2 处 .pipe() 准确无遗漏，R47 的 26 处 executeJavaScript 全部扫描完毕，3 处边界项（函数字符串拼接）来源可信判定 OK
+3. **R14 聚焦未覆盖维度有产出** — 首次系统性扫描 unhandled rejection、竞态条件、IPC 参数校验、错误响应格式 4 个子维度，发现 0 CRITICAL / 9 MAJOR（本轮修复）/ 2 MINOR
+4. **格式一致性穷尽扫描** — 首次穷尽列出全仓 7 套 IPC 响应格式，修复 cloud-publisher/publish-impact-tracker/viral-engine 3 个文件的非标准格式
+
+### ⚠️ 需要注意（失误与改进）
+1. **unhandled rejection 维度前十八轮未覆盖** — auth-view-cdp.js 的 `sendCommand` 不 await 也不 .catch() 是经典反模式，python-bridge watchdog 的 `stopPythonBackend` 未 try/catch 在进程已退出时必崩。**根因：R14"错误处理"维度此前聚焦 try-catch 覆盖率，未覆盖"Promise 不 await 也不 .catch()"这一隐式 unhandled rejection**
+2. **TOCTOU 竞态条件首次识别** — comment-manager startPolling 的 check-then-set 间有 await 让出点，并发调用导致 service 孤立泄漏。**根因：R14"异步"维度此前未查"check-then-act 模式中间是否有 await 让出点"**
+3. **IPC 参数校验是系统性问题** — 全仓 27 个 handler 无参数校验，依赖 try/catch 捕获 TypeError 返回不友好错误。**根因：缺乏统一的 IPC handler 参数校验规范**
+4. **错误响应格式 7 套** — 前十八轮 R14 报告 4 套，本轮穷尽后发现 7 套（新增 ok/data无code/error+field 三套）。**根因：缺乏统一 IPC 响应格式规范 + 穷尽扫描**
+
+### 🧠 经验沉淀（强制规则新增）
+- **R49：Promise 调用必须 await 或 .catch()** — `sendCommand()`/`axios.get()`/任何返回 Promise 的调用，必须 `await`（在 async 函数内）或追加 `.catch(handler)`。禁止"裸调用 Promise"——try/catch 无法捕获 async rejection，会产生 unhandledRejection。审查时 grep `sendCommand\(|axios\.\|fetch(` 检查每处调用是否 await 或 .catch
+- **R50：check-then-act 模式中间禁止 await 让出点** — 当代码模式为 `if (map.has(key)) return; ... await xxx; map.set(key, val)` 时，check 与 set 之间的 await 会让出事件循环，并发调用可通过 check 后覆盖第一次 set。正确做法：先占位 `map.set(key, placeholder)` 再 await，失败时 `map.delete(key)` 回滚。审查时 grep `\.has\(|\.get(` 后跟随 `await` 的模式
+- **R51：IPC handler 必须校验参数存在性** — 涉及解构 `{ a, b, c }` 的 ipcMain.handle，必须在 try 内首行校验必需字段（`if (!a || !b) return { code: -1, message: '缺少参数' }`），不能依赖 try/catch 捕获 TypeError——错误消息对用户不友好且 error code 非标准。审查时 grep `ipcMain.handle` 逐个检查参数校验
+- **R52：IPC 响应格式必须统一为 { code, data, message }** — 成功 `{ code: 0, data }`，失败 `{ code: -1, message }`。禁止 `{ ok }`、`{ success }`、裸返回、`{ error }`、`{ data }` 无 code 等非标准格式。审查时 grep `return { ok:\|return { success:\|return { error:\|return { data:` 检查非标准格式
+
+### 🔁 本轮"为什么还有问题"复盘
+第十九轮发现 0 CRITICAL / 9 MAJOR（全部本轮修复）/ 2 MINOR + 系统性 IPC 校验问题（27 handler）。CRITICAL 连续第五轮清零。MAJOR 数量回升（1→9）是因为本轮首次扫描 4 个新子维度。根因分析：
+1. **R14 维度仍有盲区** — "错误处理"未覆盖 unhandled rejection，"异步"未覆盖 TOCTOU 竞态，"输入校验"未穷尽 IPC handler，"一致性"未穷尽响应格式。**改进：R49-R52 扩展 4 个子维度**
+2. **穷尽扫描是持续过程** — R45/R47 在第十七/十八轮定义并扫描，第十九轮 R48 验证穷尽性。R49-R52 在本轮定义，下一轮需验证穷尽性。**改进：每条新规则定义后，下一轮 R48 验证穷尽性**
+3. **系统性问题需统一方案** — 27 个 handler 无参数校验、7 套响应格式是系统性问题，逐个修复成本高。**改进：考虑引入 IPC handler 装饰器统一校验+格式化**

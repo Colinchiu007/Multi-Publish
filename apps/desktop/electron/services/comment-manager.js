@@ -157,8 +157,14 @@ class CommentManager {
     service.onReply((comment, reply) => {
       this._emit('comment:replied', { platform: platform, accountId: accountId, comment: comment, reply: reply })
     })
-    await service.start()
+    // M-4 修复：TOCTOU 竞态——先占位再 await start()，避免并发调用导致 service 孤立泄漏
     this._services.set(key, service)
+    try {
+      await service.start()
+    } catch (e) {
+      this._services.delete(key)
+      throw e
+    }
     log.info('CommentManager', 'Started polling for ' + key)
     return { key: key, started: true }
   }

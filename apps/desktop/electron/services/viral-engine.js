@@ -298,16 +298,16 @@ class ViralEngine {
     ipcMain.handle('viral:analyze', async (event, { articles, topic }) => {
       try {
         const result = await this.analyze(articles, topic)
-        // Pass through orchestrator response directly
+        // M-9 修复：统一为标准 { code, data, message } 格式
         if (result.code === 0 && result.data) {
-          return result.data
+          return { code: 0, data: result.data }
         }
         // v2.3.43: orchestrator 不可用时回退到本地启发式分析
         log.warn('ViralEngine', 'analyze 回退到本地 fallback: ' + result.message)
-        return this._localAnalyze(articles, topic)
+        return { code: 0, data: this._localAnalyze(articles, topic) }
       } catch (e) {
         log.error('ViralEngine', 'analyze handler error: ' + e.message)
-        return { error: e.message }
+        return { code: -1, message: e.message }
       }
     })
 
@@ -315,14 +315,14 @@ class ViralEngine {
       try {
         const result = await this.generate(opts)
         if (result.code === 0 && result.data) {
-          return result.data
+          return { code: 0, data: result.data }
         }
         // v2.3.43: orchestrator 不可用时回退到本地模板生成
         log.warn('ViralEngine', 'generate 回退到本地 fallback: ' + result.message)
-        return this._localGenerate(opts)
+        return { code: 0, data: this._localGenerate(opts) }
       } catch (e) {
         log.error('ViralEngine', 'generate handler error: ' + e.message)
-        return { error: e.message }
+        return { code: -1, message: e.message }
       }
     })
 
@@ -330,14 +330,14 @@ class ViralEngine {
       try {
         const result = await this.trending(articles)
         if (result.code === 0 && result.data) {
-          return result.data
+          return { code: 0, data: result.data }
         }
         // v2.3.43: orchestrator 不可用时回退到本地趋势聚合
         log.warn('ViralEngine', 'trending 回退到本地 fallback: ' + result.message)
-        return this._localTrending(articles)
+        return { code: 0, data: this._localTrending(articles) }
       } catch (e) {
         log.error('ViralEngine', 'trending handler error: ' + e.message)
-        return { error: e.message }
+        return { code: -1, message: e.message }
       }
     })
   }

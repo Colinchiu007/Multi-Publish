@@ -172,7 +172,8 @@ function startWatchdog () {
     if (!healthy) {
       log.warn('PythonBridge', 'Backend unhealthy, restarting...')
       if (restartCount < MAX_RESTARTS) {
-        await stopPythonBackend()
+        // M-3 修复：stopPythonBackend 在进程已退出时 kill() 抛 ESRCH，需 try/catch 否则 unhandledRejection
+        try { await stopPythonBackend() } catch (e) { log.warn('PythonBridge', 'stop failed: ' + (e instanceof Error ? e.message : String(e))) }
         try {
           await startPythonBackend()
         } catch (e) {

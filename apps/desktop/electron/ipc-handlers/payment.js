@@ -39,6 +39,8 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('payment:create-order', async function(event, options) {
     if (!_assertTrustedSender(event)) return _untrusted()
+    // M-6 修复：参数校验，options 为 undefined 时 options.plan 必崩
+    if (!options || !options.plan) return { code: -1, message: '缺少 plan 参数' }
     try {
       const order = pm.createOrder(options.plan, { method: options.method })
       return { code: 0, data: { id: order.id, amount: order.amount, method: order.method, status: order.status } }
@@ -69,6 +71,8 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('payment:complete', async function(event, options) {
     if (!_assertTrustedSender(event)) return _untrusted()
+    // M-6 修复：参数校验
+    if (!options || !options.orderId) return { code: -1, message: '缺少 orderId 参数' }
     try {
       const ok = pm.completePayment(options.orderId, options.txnId)
       return { code: ok ? 0 : -1, message: ok ? '支付完成，Pro 已激活' : '订单不可用或已完成' }
@@ -83,6 +87,8 @@ function registerHandlers(ipcMain, deps) {
     if (process.env.NODE_ENV === 'production') {
       return { code: -1, message: '模拟支付在生产环境禁用' }
     }
+    // M-6 修复：参数校验
+    if (!options || !options.orderId) return { code: -1, message: '缺少 orderId 参数' }
     try {
       const ok = pm.simulatePayment(options.orderId)
       return { code: ok ? 0 : -1, message: ok ? '模拟支付成功，Pro 已激活' : '模拟支付失败' }

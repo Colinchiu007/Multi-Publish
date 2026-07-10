@@ -1,8 +1,24 @@
 ﻿# CHANGELOG
 
-## [审查复盘] 第十五~十八轮 (2026-07-10)
+## [审查复盘] 第十五~十九轮 (2026-07-10)
 
-应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R48。
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R52。
+
+### 第十九轮（v2.3.45 复盘）
+- **R10 连续三轮全通过** — 第十八轮 2 处 R47 修复无回归
+- **R48 穷尽性验证** — R45/R47 全仓扫描确认无遗漏
+- **R14 聚焦未覆盖维度** — 0 CRITICAL / 9 MAJOR / 2 MINOR + 系统性 IPC 校验问题
+- **修复 9 MAJOR**：
+  - M-1/M-2: auth-view-cdp.js sendCommand 补 .catch()（unhandled rejection）
+  - M-3: python-bridge.js stopPythonBackend 补 try/catch（ESRCH 异常）
+  - M-4: comment-manager.js startPolling TOCTOU 竞态修复（先占位再 await）
+  - M-5: publish.js publish:batch 参数校验 + code 500→-1
+  - M-6: payment.js create-order/complete/simulate 参数校验
+  - M-7: cloud-publisher.js 4 handler 统一为 { code, data, message }
+  - M-8: publish-impact-tracker.js 2 handler 补 code/message
+  - M-9: viral-engine.js 3 handler 统一为 { code, data, message }
+  - M-13: publish.js queue:status 成功路径补标准包裹
+- **新增规则 R49-R52**：Promise 必须 await/.catch / check-then-act 禁止 await 让出 / IPC 参数校验 / IPC 响应格式统一
 
 ### 第十八轮（v2.3.45 复盘）
 - **R10 连续两轮全通过** — 第十七轮 4 处修复无回归

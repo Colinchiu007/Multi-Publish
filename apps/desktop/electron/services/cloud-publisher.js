@@ -106,35 +106,36 @@ class CloudPublisher {
     ipcMain.handle('cloud-publisher:submit', async (_event, params) => {
       try {
         const result = await this.submitTask(params)
-        return { ok: true, data: result }
+        // M-7 修复：统一为标准 { code, data, message } 格式
+        return { code: 0, data: result }
       } catch (err) {
         log.error('CloudPublisher', 'submit failed: ' + err.message)
-        return { ok: false, error: err.message }
+        return { code: -1, message: err.message }
       }
     })
 
     ipcMain.handle('cloud-publisher:list-tasks', async () => {
       try {
         const result = await this.listTasks()
-        return { ok: true, data: result }
+        return { code: 0, data: result }
       } catch (err) {
         log.error('CloudPublisher', 'list-tasks failed: ' + err.message)
-        return { ok: false, error: err.message }
+        return { code: -1, message: err.message }
       }
     })
 
     ipcMain.handle('cloud-publisher:get-task', async (_event, taskId) => {
       try {
         const result = await this.getTask(taskId)
-        return { ok: true, data: result }
+        return { code: 0, data: result }
       } catch (err) {
         log.error('CloudPublisher', 'get-task failed: ' + err.message)
-        return { ok: false, error: err.message }
+        return { code: -1, message: err.message }
       }
     })
 
     ipcMain.handle('cloud-publisher:platforms', async () => {
-      return { ok: true, data: this.getSupportedPlatforms() }
+      return { code: 0, data: this.getSupportedPlatforms() }
     })
   }
 }
