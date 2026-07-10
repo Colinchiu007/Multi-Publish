@@ -10,7 +10,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('store:add-account', (_, account) => {
     try {
       const ok = store.addAccount(account)
-      return { code: ok ? 0 : -1 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: ok ? 0 : -1, data: ok }
     } catch (e) {
       return { code: -1, message: e.message }
     }
@@ -43,7 +44,8 @@ function registerHandlers(ipcMain, deps) {
       if (accountStateRestorer && accountStateRestorer.deleteAccountRecord) {
         try { accountStateRestorer.deleteAccountRecord(id) } catch (e) { /* best-effort */ }
       }
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) {
       return { code: -1, message: e.message }
     }
@@ -52,7 +54,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('store:set-default-account', (_, { platform, accountId }) => {
     try {
       store.setDefaultAccount(platform, accountId)
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) {
       return { code: -1, message: e.message }
     }
@@ -70,7 +73,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('store:update-account', (_, { id, fields }) => {
     try {
       store.updateAccount(id, fields)
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) {
       return { code: -1, message: e.message }
     }
@@ -121,7 +125,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('store:delete-task', (_, id) => {
     try {
       store.deleteTask(id)
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) {
       return { code: -1, message: e.message }
     }
@@ -138,7 +143,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('store:set-setting', (_, key, value) => {
     try {
       store.setSetting(key, value)
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) {
       return { code: -1, message: e.message }
     }

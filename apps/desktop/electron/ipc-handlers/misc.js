@@ -32,7 +32,8 @@ function registerHandlers(ipcMain, deps) {
       if (win && !win.isDestroyed()) {
         win.webContents.send('notification', data)
       }
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     // eslint-disable-next-line no-unused-vars
     } catch (e) { return { code: -1, message: e.message } }
   })

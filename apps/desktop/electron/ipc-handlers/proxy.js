@@ -18,7 +18,7 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('proxy:remove', async (_, { id }) => {
-    try { const ok = proxyPool.remove(id); return { code: ok ? 0 : -1, message: ok ? '已移除' : '代理不存在' } }
+    try { const ok = proxyPool.remove(id); return { code: ok ? 0 : -1, data: ok, message: ok ? '已移除' : '代理不存在' } }
     catch (e) { return { code: -1, message: e.message } }
   })
 
@@ -43,7 +43,7 @@ function registerHandlers(ipcMain, deps) {
   })
 
   ipcMain.handle('proxy:reset', async () => {
-    try { proxyPool.reset(); return { code: 0 } }
+    try { proxyPool.reset(); return { code: 0, data: true } }
     catch (e) { return { code: -1, message: e.message } }
   })
 
