@@ -213,6 +213,8 @@ class LicenseManager {
     const now = new Date()
     const expires = new Date(this._data.expiresAt)
     const diff = expires.getTime() - now.getTime()
+    // R29 修复：Invalid Date 导致 diff=NaN，Math.max(0,NaN)=NaN，NaN<=0 为 false 试用永不过期
+    if (!Number.isFinite(diff)) return 0
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)))
   }
 

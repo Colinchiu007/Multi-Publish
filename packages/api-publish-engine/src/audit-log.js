@@ -15,6 +15,8 @@ class AuditLog {
     try {
       var raw = fs.readFileSync(this._storageFile, "utf8");
       this._entries = JSON.parse(raw);
+      // R29 修复：JSON.parse("null") 返回 null 不抛异常，后续 .push() 会崩溃
+      if (!Array.isArray(this._entries)) this._entries = [];
     } catch(e) {
       this._entries = [];
     }

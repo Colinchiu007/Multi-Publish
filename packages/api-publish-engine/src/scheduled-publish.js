@@ -21,6 +21,8 @@ class ScheduledPublish {
     try {
       var raw = fs.readFileSync(this._storageFile, "utf8");
       this._entries = JSON.parse(raw);
+      // R29 修复：JSON.parse("null") 返回 null 不抛异常，后续 .push() 会崩溃
+      if (!Array.isArray(this._entries)) this._entries = [];
     } catch(e) {
       this._entries = [];
     }
@@ -93,6 +95,13 @@ class ScheduledPublish {
       var entry = this._entries[i];
       if (entry.status !== "pending") continue;
       var scheduledTime = new Date(entry.scheduledAt).getTime();
+      // R29 修复：Invalid Date 导致 NaN，NaN<=now 为 false，任务永远不执行卡在 pending
+      if (!Number.isFinite(scheduledTime)) {
+        entry.status = "failed";
+        entry.error = "invalid scheduledAt: " + entry.scheduledAt;
+        this._save();
+        continue;
+      }
       if (scheduledTime <= now) {
         this._execute(entry);
       }

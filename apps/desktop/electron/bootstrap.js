@@ -305,7 +305,8 @@ function runWhenReady(context, deps) {
       }
     })
 
-    setInterval(() => {
+    // R28 修复：保存 interval 句柄并 unref，允许进程正常退出
+    const keywordPersistTimer = setInterval(() => {
       try {
         const state = keywordMonitor.getAllHistories()
         store.setSetting('keyword_monitor_state', JSON.stringify(state))
@@ -313,6 +314,7 @@ function runWhenReady(context, deps) {
         log.warn('App', 'Keyword monitor persist error: ' + e.message)
       }
     }, 5 * 60 * 1000)
+    if (keywordPersistTimer.unref) keywordPersistTimer.unref()
 
     // PRD F1.3: 登录状态定期检测 — 每 30 分钟检测账号 Cookie 是否过期
     try {

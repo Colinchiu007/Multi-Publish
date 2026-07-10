@@ -5,9 +5,13 @@
  * 职责：
  *   - createWindow(context)：创建 BrowserWindow + 绑定事件 + 注册 IPC
  */
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./services/logger')
+
+// R28 修复：防止 macOS app.on('activate') 重复调用 createWindow 时
+// 重复注册 ipcMain.handle 导致 "Attempted to register a second handler" 崩溃
+let _ipcRegistered = false
 
 /**
  * 创建主窗口
@@ -49,19 +53,23 @@ function createWindow(context) {
   authViewManager.setMainWindow(mainWindow)
   rpaViewManager.setMainWindow(mainWindow)
   webviewManager.setMainWindow(mainWindow)
-  webviewManager.registerIpcHandlers()
+  // R28 修复：IPC handler 只注册一次，防止 macOS activate 重复注册崩溃
+  if (!_ipcRegistered) {
+    _ipcRegistered = true
+    webviewManager.registerIpcHandlers()
+    qrCodeLogin.registerIpcHandlers()
+    oauthManager.registerIpcHandlers()
+    batchManager.registerIpcHandlers()
+    urlCollector.registerIpcHandlers()
+    providerManager.registerIpcHandlers()
+    viralEngine.registerIpcHandlers()
+    commentManager.registerIpcHandlers()
+    contentIntelligence.registerIpcHandlers()
+    publishImpactTracker.registerIpcHandlers()
+  }
   qrCodeLogin.setMainWindow(mainWindow)
-  qrCodeLogin.registerIpcHandlers()
   oauthManager.setMainWindow(mainWindow)
-  oauthManager.registerIpcHandlers()
-  batchManager.registerIpcHandlers()
-  urlCollector.registerIpcHandlers()
-  providerManager.registerIpcHandlers()
-  viralEngine.registerIpcHandlers()
   commentManager.setGetMainWin(() => BrowserWindow.getAllWindows()[0])
-  commentManager.registerIpcHandlers()
-  contentIntelligence.registerIpcHandlers()
-  publishImpactTracker.registerIpcHandlers()
   systemTray.init(mainWindow)
   hotkeys.register()
   autoUpdater.init(mainWindow, (status) => {

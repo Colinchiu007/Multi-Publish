@@ -80,7 +80,7 @@
             <span class="cohere-tag cohere-tag-danger">❌ {{ batchFail }} 失败</span>
           </div>
           <ul class="cohere-timeline">
-            <li v-for="(item, idx) in batchProgress" :key="idx" class="cohere-timeline-item" :class="item.type">
+            <li v-for="item in batchProgress" :key="item.time + item.text" class="cohere-timeline-item" :class="item.type">
               <span class="tl-time">{{ item.time }}</span>
               <span class="tl-text">{{ item.text }}</span>
             </li>
@@ -195,7 +195,7 @@
           </div>
           <div v-if="progress.length > 0" class="cohere-card" style="margin-top:16px;cursor:default">
             <ul class="cohere-timeline">
-              <li v-for="(item, idx) in progress" :key="idx" class="cohere-timeline-item" :class="item.type">
+              <li v-for="item in progress" :key="item.time + item.text" class="cohere-timeline-item" :class="item.type">
                 <span class="tl-time">{{ item.time }}</span>
                 <span class="tl-text">{{ item.text }}</span>
               </li>

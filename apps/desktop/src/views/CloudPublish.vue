@@ -43,7 +43,7 @@
             <label class="cohere-form-label">标签</label>
             <UiInput v-model="tagsInput" placeholder="标签（逗号分隔）" @keydown.enter.prevent="addTag" />
             <div v-if="form.tags.length" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:var(--space-xs)">
-              <span v-for="(tag, idx) in form.tags" :key="idx" class="cohere-tag cohere-tag-info" style="cursor:pointer" @click="form.tags.splice(idx, 1)">
+              <span v-for="(tag, idx) in form.tags" :key="tag" class="cohere-tag cohere-tag-info" style="cursor:pointer" @click="form.tags.splice(idx, 1)">
                 {{ tag }} ✕
               </span>
             </div>

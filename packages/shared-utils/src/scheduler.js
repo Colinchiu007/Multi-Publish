@@ -47,6 +47,11 @@ function create (schedule) {
  */
 function scheduleTimer (entry) {
   const delay = new Date(entry.publishTime).getTime() - Date.now()
+  // R26 修复：Invalid Date 导致 NaN，setTimeout(fn, NaN) 立即执行（与 apps/desktop 版对齐）
+  if (!Number.isFinite(delay)) {
+    console.warn('[Scheduler] Invalid publishTime for task ' + entry.id + ': ' + entry.publishTime)
+    return
+  }
   if (delay <= 0) return  // 已过期
 
   _timers[entry.id] = setTimeout(async () => {
