@@ -11,18 +11,28 @@
  * }} deps
  */
 function registerHandlers(ipcMain, deps) {
+  const EC = require('../core/error-codes').ERROR
   const { authViewManager, pythonBridge, AccountManager, BACKEND_PLATFORMS, log, BrowserWindow } = deps
+
+  // R51 P1 修复：URL 路径段白名单校验，防止路径注入
+  // 仅允许字母/数字/下划线/短横线，拒绝 / ? # .. 等路径操纵字符
+  function _isSafePathSegment(s) {
+    if (!s || typeof s !== 'string') return false
+    return /^[a-zA-Z0-9_-]+$/.test(s)
+  }
 
   ipcMain.handle('accounts:list', async () => {
     try {
       return await pythonBridge.requestBackend('GET', '/api/accounts')
     } catch (e) {
-      return { code: -1, message: e instanceof Error ? e.message : String(e), data: [] }
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: [] }
     }
   })
 
   ipcMain.handle('auth:open-login', async (event, platform) => {
     try {
+      // R51 P1：platform 用于 URL 拼接，必须校验
+      if (!_isSafePathSegment(platform)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 platform 参数' }
       if (BACKEND_PLATFORMS.has(platform)) {
         const result = await pythonBridge.requestBackend('POST', '/api/login', { platform }, 180000)
         if (result.code === 0) {
@@ -32,7 +42,7 @@ function registerHandlers(ipcMain, deps) {
           }
           return { code: 0, data: result.data, message: '登录成功' }
         }
-        return { code: -1, message: result.message || '登录失败' }
+        return { code: EC.REQUEST_ERROR, message: result.message || '登录失败' }
       }
 
       const result = await authViewManager.openLogin(platform)
@@ -69,6 +79,7 @@ function registerHandlers(ipcMain, deps) {
             })),
             username: result.name || '',
           })
+          // platform 已通过 _isSafePathSegment 校验，可安全拼接
           const url = new URL(orchestratorUrl + '/api/jobs/cookies/' + platform)
           // 动态选择 http/https 模块
           const httpClient = url.protocol === 'https:' ? require('https') : require('http')
@@ -98,16 +109,19 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: { ...saveResult.data }, message: '账号添加成功' }
     } catch (e) {
       log.error('Auth', 'Login failed for ' + platform + ': ' + (e instanceof Error ? e.message : String(e)))
-      return { code: -1, message: e instanceof Error ? e.message : String(e) }
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
     }
   })
 
-  ipcMain.handle('auth:login-silent', async (event, { platform, cookies, localStorage }) => {
+  ipcMain.handle('auth:login-silent', async (event, arg) => {
     try {
+      // R51 P1：解构保护，arg 为 undefined 时解构会抛
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { platform, cookies, localStorage } = arg
       const result = await authViewManager.loginSilent(platform, cookies, localStorage)
       return { code: 0, data: result }
     } catch (e) {
-      return { code: -1, message: e instanceof Error ? e.message : String(e), data: { valid: false, accountName: null } }
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { valid: false, accountName: null } }
     }
   })
 
@@ -117,12 +131,15 @@ function registerHandlers(ipcMain, deps) {
       // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
     } catch (e) {
-      return { code: -1, message: e instanceof Error ? e.message : String(e) }
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
     }
   })
 
-  ipcMain.handle('auth:save-credentials', async (event, { accountId, cookies, localStorage }) => {
+  ipcMain.handle('auth:save-credentials', async (event, arg) => {
     try {
+      // R51 P1：解构保护
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { accountId, cookies, localStorage } = arg
       const result = await pythonBridge.requestBackend('POST', '/api/auth', {
         accountId,
         cookies,
@@ -130,7 +147,7 @@ function registerHandlers(ipcMain, deps) {
       })
       return result
     } catch (e) {
-      return { code: -1, message: e instanceof Error ? e.message : String(e) }
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
     }
   })
 
@@ -138,34 +155,39 @@ function registerHandlers(ipcMain, deps) {
     try {
       const account = await AccountManager.addAccount(platform)
       return { code: 0, data: account, message: '账号添加成功' }
-    } catch (e) { return { code: -1, message: e instanceof Error ? e.message : String(e) } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) } }
   })
 
   ipcMain.handle('account:delete', async (event, accountId) => {
     try {
+      // R51 P1：accountId 用于 URL 拼接，必须校验
+      if (!_isSafePathSegment(accountId)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId 参数' }
       const result = await pythonBridge.requestBackend('DELETE', '/api/accounts/' + accountId)
       if (result.code === 0) return { code: 0, data: true, message: '账号已删除' }
     } catch (_e) { /* fallthrough */ }
     try { await AccountManager.deleteAccount(accountId); return { code: 0, data: true, message: '账号已删除' } }
-    catch (e) { return { code: -1, message: e instanceof Error ? e.message : String(e) } }
+    catch (e) { return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) } }
   })
 
-  ipcMain.handle('account:check-login', async (event, { platform, accountId }) => {
+  ipcMain.handle('account:check-login', async (event, arg) => {
     try {
+      // R51 P1：解构保护 + platform 用于 URL 拼接必须校验
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { platform, accountId } = arg
       if (BACKEND_PLATFORMS.has(platform)) {
+        if (!_isSafePathSegment(platform)) return { code: EC.VALIDATION_ERROR, message: '非法 platform 参数' }
         const result = await pythonBridge.requestBackend('GET', '/api/auth-status/' + platform)
         return { code: 0, data: { valid: result.data?.valid === true } }
       }
       const status = await AccountManager.checkLoginStatus(platform, accountId)
       return { code: 0, data: status }
-    } catch (e) { return { code: -1, message: e instanceof Error ? e.message : String(e), data: { valid: false } } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { valid: false } } }
   })
 
   ipcMain.handle('account:list', async () => {
     try { const accounts = await AccountManager.listAccounts(); return { code: 0, data: accounts } }
-    catch (e) { return { code: -1, message: e instanceof Error ? e.message : String(e), data: [] } }
+    catch (e) { return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: [] } }
   })
 }
 
 module.exports = registerHandlers
-

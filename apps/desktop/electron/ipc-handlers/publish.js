@@ -30,8 +30,11 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
-  ipcMain.handle('publish:batch', async (event, { platforms, article }) => {
+  ipcMain.handle('publish:batch', async (event, arg) => {
     try {
+    // R51 P1：解构保护，arg 为 undefined 时解构会抛（M-5 修复不完整补丁）
+    if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+    const { platforms, article } = arg
     // M-5 修复：参数校验，platforms 为 undefined 时 .map() 必崩
     if (!Array.isArray(platforms) || platforms.length === 0) {
       return { code: EC.VALIDATION_ERROR, message: 'platforms 不能为空且必须为数组' }

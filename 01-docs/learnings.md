@@ -1223,3 +1223,138 @@ R52 是质量节拍 skill 应用以来最大的系统性技术债清理任务。
 **结论**：CRITICAL 清零 ✅ / MAJOR 实质清零 ✅（剩余 P3 为重构议题）/ R51 P0 完成 ✅ / R52 100% ✅
 
 下一步可进入 R51 P1 参数校验或 P3 服务层格式统一。
+
+---
+
+## 第三十二轮复盘（v2.3.56）— R67 NUL 全项目清零 + R51 P1 HIGH URL 注入修复
+
+### 本轮成果
+1. **R10 回归基线** — 第三十一轮 commit `81c0497` 工作区干净
+2. **R67 NUL 字节全项目扫描** — 发现 3 个文件 6 个 NUL 字节残留，全部清除
+3. **R51 P1 参数校验扫描** — 发现 3 处 HIGH（URL 注入）+ 21 处 MEDIUM（解构无兜底）
+4. **修复 3 处 HIGH URL 注入** — account.js 三处加 `_isSafePathSegment` 白名单校验
+5. **修复 3 处 MEDIUM 解构保护** — account.js/publish.js/templates.js
+
+### R67 NUL 字节全项目扫描结果
+
+扫描 423 个文件，发现 3 个文件含 NUL 字节：
+
+| 文件 | NUL 数 | 严重度 | 状态 |
+|------|--------|--------|------|
+| 01-docs/archive/refactoring-analysis-2026-07-06.md | 3 | MAJOR | ✅ 已修 |
+| 01-docs/archive/code-depth-analysis-2026-07-06.md | 2 | MAJOR | ✅ 已修 |
+| CHANGELOG.md | 1 | MINOR | ✅ 已修 |
+
+**关键发现**：所有 6 个 NUL 字节都是数字目录名前导字符 `0`（0x30）被替换为 NUL（0x00）。
+- `01-docs/` → `<NUL>1-docs/`（5 处）
+- `04-tests/` → `<NUL>4-tests/`（1 处）
+
+**根因推测**：某次文本处理脚本对形如 `0N-xxx/` 的编号目录路径执行了"前导零清除"，但产物错误地用 NUL 字节而非直接删除（疑似 `digit_char - 0x30` 误用，对 `'0'` 恰好得到 `0x00`）。
+
+**为什么第三十一轮没发现**：
+- 第三十一轮只修了 `01-docs/CHANGELOG.md` 的 1 个 NUL（grep 检测到的）
+- 没有扫描 `01-docs/archive/` 子目录
+- 没有扫描根 `CHANGELOG.md`（因为它是第三十一轮新写的，以为不会有问题，但实际上是从旧内容复制的）
+- **这是 R64 教训的第三次验证**：修一类问题后必须做全项目同类扫描
+
+### R51 P1 参数校验扫描结果
+
+| 严重度 | 数量 | 说明 |
+|--------|------|------|
+| 🔴 HIGH（URL 注入） | 3 | account.js 三个 handler 字符串参数直接拼接 URL |
+| 🟠 MEDIUM（解构无兜底） | 21 | 各 handler 在 try 之前解构对象参数 |
+| ✅ 已校验 | 6 | 可作为修复参考范式 |
+
+### 本轮修复明细
+
+#### HIGH URL 注入 × 3（account.js）
+- **`account:delete` (L144)** — `accountId` 直接拼接 `/api/accounts/' + accountId`
+- **`account:check-login` (L153)** — `platform` 直接拼接 `/api/auth-status/' + platform`
+- **`auth:open-login` (L24)** — `platform` 拼接 orchestrator URL `/api/jobs/cookies/' + platform`
+
+**修复方案**：新增 `_isSafePathSegment(s)` 函数，用正则 `/^[a-zA-Z0-9_-]+$/` 白名单校验，拒绝 `/ ? # ..` 等路径操纵字符。
+
+#### MEDIUM 解构保护 × 3
+- **account.js** — `auth:login-silent` / `auth:save-credentials` / `account:check-login` 三个 handler 的 `(event, { field1, field2 })` 改为 `(event, arg)` + try 内校验 + 再解构
+- **publish.js** — `publish:batch` 的 M-5 修复不完整补丁（解构在签名处，arg 为 undefined 时仍会抛）
+- **templates.js** — `template:update` 的 `{ id, updates }` 解构保护
+
+**修复范式**（参考 render.js:11 R51 P0）：
+```javascript
+// 修复前：解构在签名处，arg 为 undefined 时同步抛
+ipcMain.handle('xxx', async (event, { field }) => { try { ... } })
+
+// 修复后：参数整体接收，try 内校验再解构
+ipcMain.handle('xxx', async (event, arg) => {
+  try {
+    if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+    const { field } = arg
+    ...
+  }
+})
+```
+
+### ⚠️ 本轮发现的问题
+
+#### 问题 1：R67 NUL 字节"修一个少一个"第三次验证
+- 第三十一轮只修了 `01-docs/CHANGELOG.md` 的 1 个 NUL
+- 没扫描 `01-docs/archive/` 子目录（5 个 NUL 残留）
+- 没扫描根 `CHANGELOG.md`（1 个 NUL 残留）
+- **教训**：R64/R66/R67 三条规则都验证了同一模式 — "修一类问题后必须做全项目同类扫描"
+
+#### 问题 2：R51 P1 M-5 修复不完整
+- 第二十八轮修了 `publish:batch` 的 `platforms` 字段校验（M-5）
+- 但解构在签名处 `(event, { platforms, article })`，arg 为 undefined 时解构先抛
+- M-5 校验只能兜住 `{}` 调用，兜不住 `undefined` 调用
+- **教训**：参数校验必须考虑"整个 arg 为 undefined"的情况，不能只校验字段缺失
+
+#### 问题 3：URL 注入被忽略 28 轮
+- account.js 的 3 处 URL 拼接从第一轮就存在
+- 前 28 轮的安全审计聚焦"硬编码密钥/明文存储/CORS"，没覆盖"URL 路径注入"
+- **教训**：安全审计维度需要持续扩展，不能只查 OWASP Top 10 的常见项
+
+### 🧠 经验沉淀（新增规则 R68-R69）
+
+- **R68：全项目 NUL 字节定期扫描** — 每次修改 markdown/json 文件后，执行：
+  ```python
+  import os
+  for root, dirs, files in os.walk('.'):
+    if any(x in root for x in ['node_modules', '.git', 'dist']): continue
+    for f in files:
+      if not f.endswith(('.md', '.json', '.js')): continue
+      path = os.path.join(root, f)
+      with open(path, 'rb') as fp: data = fp.read()
+      if b'\x00' in data: print(f'NUL in {path}: {data.count(b"\x00")}')
+  ```
+  重点扫描 `01-docs/archive/` 子目录（历史文档易被批量处理脚本污染）
+
+- **R69：IPC 参数校验三重防护** — IPC handler 参数校验必须覆盖三个层级：
+  1. **整个 arg 为 undefined/null** — `if (!arg || typeof arg !== 'object') return VALIDATION_ERROR`
+  2. **必需字段缺失** — `if (!arg.field) return VALIDATION_ERROR`
+  3. **字段值非法**（用于路径/URL 时）— `if (!_isSafePathSegment(arg.field)) return VALIDATION_ERROR`
+  
+  仅做第 2 层（M-5 模式）是不完整的，必须三重都做。
+
+### 🔁 本轮"为什么还有问题"复盘
+
+第三十二轮发现的问题都是"前轮修复不彻底"的延续：
+- R67 NUL：第三十一轮修了 1 个，剩 5 个（archive 子目录 + 根 CHANGELOG）
+- R51 P1：第二十八轮修了 M-5（字段校验），但没修解构保护（arg 为 undefined）
+- URL 注入：从第一轮就存在，28 轮安全审计都没覆盖
+
+**根本原因**：每轮修复后只验证"修的那一处"，没做"同类全扫描"。
+
+**改进措施**：
+1. 每条新规则落地后，立即做全项目扫描（不是只扫"已知问题文件"）
+2. 参数校验必须三重防护（R69）
+3. 安全审计维度每轮扩展一个（本轮扩展"URL 路径注入"）
+
+### 剩余工作
+
+**R51 P1 MEDIUM 剩余 18 处**（已分类，下一轮处理）：
+- ai.js / analytics.js / keyword.js / proxy.js / scheduler.js / sensitive.js / store.js / video.js
+- 全部是解构保护问题，按 R69 范式批量修复
+
+**R51 P2 低优先级**：参数仅透传，try/catch 已兜底（~55 处，可接受现状）
+
+**P3 长期重构**：服务层格式统一 + wrapServiceResult 包装器

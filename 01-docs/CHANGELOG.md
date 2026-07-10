@@ -1,4 +1,4 @@
-﻿# CHANGELOG
+# CHANGELOG
 
 ## [v2.3.55] - 2026-07-10
 

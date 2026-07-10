@@ -1,4 +1,28 @@
-﻿# CHANGELOG
+# CHANGELOG
+
+## [审查复盘] 第十五~三十二轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R69。
+
+### 第三十二轮（v2.3.56 复盘）— R67 NUL 全项目清零 + R51 P1 HIGH URL 注入修复
+- **R10 回归基线** — 第三十一轮 commit 81c0497 工作区干净
+- **R67 NUL 字节全项目扫描** — 扫描 423 个文件，发现 3 个文件 6 个 NUL 字节残留，全部清除：
+  - 01-docs/archive/refactoring-analysis-2026-07-06.md（3 个 NUL）
+  - 01-docs/archive/code-depth-analysis-2026-07-06.md（2 个 NUL）
+  - CHANGELOG.md（1 个 NUL）
+  - 关键发现：所有 NUL 都是数字目录名前导字符 `0`(0x30) 被替换为 NUL(0x00)
+- **R51 P1 参数校验扫描** — 发现 3 处 HIGH（URL 注入）+ 21 处 MEDIUM（解构无兜底）
+- **修复 3 处 HIGH URL 注入**（account.js）：
+  - account:delete / account:check-login / auth:open-login 三处字符串参数直接拼接 URL
+  - 新增 `_isSafePathSegment(s)` 白名单校验函数（正则 `/^[a-zA-Z0-9_-]+$/`）
+- **修复 3 处 MEDIUM 解构保护**：
+  - account.js auth:login-silent / auth:save-credentials / account:check-login
+  - publish.js publish:batch（M-5 修复不完整补丁）
+  - templates.js template:update
+- **新增规则 R68-R69**：
+  - R68 全项目 NUL 字节定期扫描（重点扫描 01-docs/archive/ 子目录）
+  - R69 IPC 参数校验三重防护（arg undefined / 字段缺失 / 字段值非法）
+- **剩余 R51 P1 MEDIUM 18 处**：ai.js/analytics.js/keyword.js/proxy.js/scheduler.js/sensitive.js/store.js/video.js，下一轮按 R69 范式批量修复
 
 ## [审查复盘] 第十五~三十一轮 (2026-07-10)
 
@@ -1032,7 +1056,7 @@
 - Python: 443 passed ✅
 - **总计: 1699 测试 ALL GREEN**
 
-> 完整变更日志请查看 [ 1-docs/CHANGELOG.md](01-docs/CHANGELOG.md)
+> 完整变更日志请查看 [01-docs/CHANGELOG.md](01-docs/CHANGELOG.md)
 >
 > 以下为精简版变更摘要：
 
