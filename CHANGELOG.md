@@ -1,8 +1,19 @@
 ﻿# CHANGELOG
 
-## [审查复盘] 第十五~十六轮 (2026-07-10)
+## [审查复盘] 第十五~十七轮 (2026-07-10)
 
-应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R44。
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R47。
+
+### 第十七轮（v2.3.45 复盘）
+- **R10 回归验证全通过** — 第十六轮 9 处 unref + R40 归一化逐项验证 8 文件全部 PASS，无回归
+- **R37 全仓定时器 100% 合规** — 26 处跨生命周期定时器全部有 unref，R28 穷尽修复闭环
+- **R14 六维扫描** — 0 CRITICAL / 1 MAJOR / 3 MINOR（CRITICAL 连续第三轮清零，MAJOR 9→1）
+- **M-1 修复**：publish-poller.js 下载流 `downloadResp.data.pipe(writer)` 补源流 error 监听（video + cover 两处），避免下载中途出错导致 await Promise 永久 pending
+- **m-2 修复**：login-status-monitor.js stop() 补 `_startTimer` clearTimeout，避免 start 后 60s 内 stop 仍触发 _runOnce
+- **m-4 修复**：retry-middleware.js 删除 return 后不可达的重复代码（109-110 行）
+- **m-1 修复**：rpa-view-manager.js `_waitForElement/_fillInput/_click` 选择器改用 `JSON.stringify(sel)` 注入，消除单引号注入风险
+- **rebase 冲突解决**：第十六轮 push 被 remote 拒绝，3 文件冲突（scheduler/task-queue/batch-manager），保留 HEAD 版本（静态方法 resolvePlatform），GIT_EDITOR=true 非交互 continue
+- **新增规则 R45-R47**：stream pipe 源 error 监听 / rebase 冲突保留更完整版本 / executeJavaScript 用 JSON.stringify 注入
 
 ### 第十六轮（v2.3.45 复盘）
 - **R28 unref 穷尽修复（9处）**：R10 验证发现第十五轮声称"21处全补"实际不成立，packages/*/src/ 下 6 处完全未修。本轮修复全部 9 处：publish-impact-tracker baselineTimer + abort-utils timeoutId + batch-manager timer + shared-utils/scheduler + task-queue×2 + scheduled-publish + rate-limiter + comment-service

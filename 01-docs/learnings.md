@@ -484,3 +484,49 @@ apt-get install -y \
 2. **"已闭环"结论缺乏重扫验证** — 第十四轮报告 R26"彻底闭环"，但第十五轮仍发现遗漏。**改进：任何"已闭环"结论必须附带本轮重扫的 grep 输出，而非仅引用上轮修复记录**
 3. **一致性维度边界过窄** — 前十四轮"一致性"只查版本号/文档，未查 API 字段契约。MAJOR-9 暴露这个盲区。**改进：R38 扩展一致性维度**
 4. **类型多态未作为独立审查点** — MAJOR-8 的 `platform` 多态散落判断，前十四轮未识别。**改进：R40 强制边界归一化**
+
+---
+
+## 第十七轮审查复盘 v2.3.45 (2026-07-10)
+
+### ✅ 做得好的
+1. **R10 回归验证首次全自动通过** — 第十六轮 9 处 unref + R40 归一化逐项验证 8 文件全部 PASS，无回归。R10 从"发现回归"回归到"确认稳定"的正向用途，说明前轮修复质量提升
+2. **R37 全仓定时器扫描首次 100% 合规** — 26 处跨生命周期定时器全部有 unref（100%），4 处 MINOR 边界提示均为一次性短定时器不阻塞退出。R37 从"发现遗漏"工具转为"合规确认"工具，是 R28 穷尽修复的闭环标志
+3. **R14 维度基线扫描发现新维度问题** — 首次识别"流式下载源 error 监听缺失"（M-1）这一前十六轮未覆盖的资源泄漏模式，说明 R14 六维扫描仍有产出
+4. **三 agent 并行审查提效** — R10/R37/R14 三路并行，单轮审查从串行 30min 降至并行 ~10min，且每个 agent 上下文独立不受压缩影响
+
+### ⚠️ 需要注意（失误与改进）
+1. **rebase 冲突解决耗时** — 第十六轮 push 被 remote 新提交拒绝，`git pull --rebase` 产生 3 文件冲突（scheduler/task-queue/batch-manager）。batch-manager 因 R40 归一化在 HEAD（静态方法）与本地（模块级函数）间存在结构性差异，冲突解决需要判断保留哪个版本。**根因：多轮审查中同一文件被不同轮次修改，结构演进方向不一致**
+2. **M-1 下载流 error 监听缺失是长期遗留** — publish-poller.js 的 `downloadResp.data.pipe(writer)` 未监听源流 error，前十六轮未发现。**根因：R14"资源泄漏"维度此前聚焦"定时器/窗口/句柄"，未覆盖"Node stream pipe 不转发源 error"这一隐式泄漏模式**
+3. **retry-middleware 存在不可达死代码** — 第 109-110 行是 107-108 的逐字重复，位于 return 之后永不执行。**根因：复制粘贴残留，lint 未捕获（lint 不检测不可达代码）**
+4. **rpa-view-manager 选择器字符串拼接** — `_waitForElement/_fillInput/_click` 直接把 `sel` 拼入 `document.querySelector('...'+sel+'...')`，未转义单引号。当前 sel 来自配置态风险低，但模式脆弱。**根因：executeJavaScript 字符串拼接缺乏统一的"参数注入"规范**
+
+### 🧠 经验沉淀（强制规则新增）
+- **R45：Node stream pipe 必须单独监听源流 error** — `src.pipe(dest)` 默认不转发 src 的 error 事件到 dest。若只监听 dest 的 error/finish，src 中途出错会导致 await Promise 永久 pending + 触发 uncaughtException。正确写法：`src.on('error', e => { dest.destroy(e); reject(e) })`，或改用 `stream.pipeline(src, dest)`（自动处理错误传播与清理）。审查时 grep `.pipe(` 必须检查源流 error 监听
+- **R46：git rebase 冲突解决必须保留更完整的版本** — 当 HEAD 与本地修改存在结构性差异（如静态方法 vs 模块级函数），应保留功能更完整的版本（HEAD 的静态方法含 setTaskQueue，模块级函数无）。解决后必须 `node -c` 语法检查 + grep 冲突标记确认无残留。多轮审查同一文件时，应在 commit message 中标注结构演进方向，避免下一轮反向修改
+- **R47：executeJavaScript 字符串拼接必须用 JSON.stringify 注入参数** — 向 webContents.executeJavaScript 注入变量时，禁止字符串拼接（`'...'+sel+'...'`），必须用 `JSON.stringify(sel)` 转为字面量注入（`'var s='+JSON.stringify(sel)+';...'`）。避免选择器/用户输入中的引号破坏脚本或注入页面上下文
+
+### 🔁 本轮"为什么还有问题"复盘
+第十七轮发现 0 CRITICAL、1 MAJOR（M-1 下载流）、3 MINOR（m-2/m-4/m-1选择器），CRITICAL 连续第三轮清零，MAJOR 数量下降（9→1）。根因分析：
+1. **R14 维度仍有盲区** — "资源泄漏"维度此前只查定时器/窗口/句柄，未覆盖 Node stream pipe 的源 error 监听。M-1 是这个盲区的首次暴露。**改进：R45 扩展资源泄漏维度**
+2. **rebase 冲突暴露多轮修改的结构演进问题** — batch-manager 在第十六轮（R40 模块级函数）与 remote（静态方法）间冲突，说明同一文件被多轮修改时结构方向会漂移。**改进：R46 要求 commit message 标注结构方向**
+3. **lint 无法捕获不可达代码** — retry-middleware 的死代码存在多轮未发现，因为 ESLint 不检测 return 后的重复语句。**改进：审查时对"return 后的代码"保持敏感**
+4. **executeJavaScript 拼接是系统性问题** — rpa-view-manager 的 3 个方法都有选择器拼接，说明是模式而非个案。**改进：R47 强制 JSON.stringify 注入**
+
+### 🔧 rebase 冲突解决经验（本轮新增流程经验）
+本轮 push 第十六轮时遇到 remote 有新提交，`git pull --rebase` 产生 3 文件冲突：
+1. **scheduler.js** — 冲突轻微，保留 HEAD（含 stopAll）
+2. **task-queue.js** — 冲突轻微，保留 HEAD（含 _pendingTimers）
+3. **batch-manager.js** — 结构性冲突（HEAD 静态方法 vs 本地模块级函数），3 处冲突标记
+
+**解决步骤**（可复用）：
+1. `git show HEAD:<file> | head -30` 确认 HEAD 版本结构
+2. 判断哪个版本更完整（HEAD 的静态方法含 setTaskQueue + resolvePlatform，本地只有 resolvePlatform）
+3. 保留 HEAD 版本，移除本地冲突标记
+4. `node -c <file>` 语法检查
+5. `grep -E '^(<<<<<<<|=======|>>>>>>>)'` 确认无残留标记
+6. `git add` + `GIT_EDITOR=true git rebase --continue`（非交互模式）
+7. `git config user.email/user.name`（首次需设置）
+8. `git push origin main`
+
+**教训**：rebase 冲突解决时，"保留 HEAD"通常是安全选择（remote 已合并的代码更稳定），但必须验证 HEAD 版本是否包含本轮需要的修复（如本轮 HEAD 已含 R40 静态方法，无需本地模块级函数）。
