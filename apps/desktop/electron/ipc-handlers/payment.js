@@ -13,8 +13,7 @@
 
 // eslint-disable-next-line no-unused-vars
 function registerHandlers(ipcMain, deps) {
-  // R65/R14：移除死导入 EC（payment.js 全部用 code:-1，未使用 EC 常量）
-  // 如需统一错误码语义化，后续轮次单独迁移
+  const EC = require('../core/error-codes').ERROR
   const PaymentManager = require('../services/payment-manager')
   const pm = new PaymentManager()
 
@@ -34,18 +33,18 @@ function registerHandlers(ipcMain, deps) {
   }
 
   function _untrusted() {
-    return { code: -1, message: '未授权的调用来源' }
+    return { code: EC.AUTH_ERROR, message: '未授权的调用来源' }
   }
 
   ipcMain.handle('payment:create-order', async function(event, options) {
     if (!_assertTrustedSender(event)) return _untrusted()
     // M-6 修复：参数校验，options 为 undefined 时 options.plan 必崩
-    if (!options || !options.plan) return { code: -1, message: '缺少 plan 参数' }
+    if (!options || !options.plan) return { code: EC.VALIDATION_ERROR, message: '缺少 plan 参数' }
     try {
       const order = pm.createOrder(options.plan, { method: options.method })
       return { code: 0, data: { id: order.id, amount: order.amount, method: order.method, status: order.status } }
     } catch(e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -54,7 +53,7 @@ function registerHandlers(ipcMain, deps) {
     try {
       return { code: 0, data: pm.listOrders() }
     } catch(e) {
-      return { code: -1, message: e.message, data: [] }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
   })
 
@@ -62,23 +61,23 @@ function registerHandlers(ipcMain, deps) {
     if (!_assertTrustedSender(event)) return _untrusted()
     try {
       const order = pm.getOrder(orderId)
-      if (!order) return { code: -1, message: '订单不存在' }
+      if (!order) return { code: EC.NOT_FOUND, message: '订单不存在' }
       return { code: 0, data: order }
     } catch(e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
   ipcMain.handle('payment:complete', async function(event, options) {
     if (!_assertTrustedSender(event)) return _untrusted()
     // M-6 修复：参数校验
-    if (!options || !options.orderId) return { code: -1, message: '缺少 orderId 参数' }
+    if (!options || !options.orderId) return { code: EC.VALIDATION_ERROR, message: '缺少 orderId 参数' }
     try {
       const ok = pm.completePayment(options.orderId, options.txnId)
       // R52 修复：统一返回格式，补充 data 字段
-      return { code: ok ? 0 : -1, data: ok, message: ok ? '支付完成，Pro 已激活' : '订单不可用或已完成' }
+      return { code: ok ? 0 : EC.REQUEST_ERROR, data: ok, message: ok ? '支付完成，Pro 已激活' : '订单不可用或已完成' }
     } catch(e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -86,16 +85,16 @@ function registerHandlers(ipcMain, deps) {
     if (!_assertTrustedSender(event)) return _untrusted()
     // 安全：生产环境禁用模拟支付（可绕过支付直接激活 Pro）
     if (process.env.NODE_ENV === 'production') {
-      return { code: -1, message: '模拟支付在生产环境禁用' }
+      return { code: EC.REQUEST_ERROR, message: '模拟支付在生产环境禁用' }
     }
     // M-6 修复：参数校验
-    if (!options || !options.orderId) return { code: -1, message: '缺少 orderId 参数' }
+    if (!options || !options.orderId) return { code: EC.VALIDATION_ERROR, message: '缺少 orderId 参数' }
     try {
       const ok = pm.simulatePayment(options.orderId)
       // R52 修复：统一返回格式，补充 data 字段
-      return { code: ok ? 0 : -1, data: ok, message: ok ? '模拟支付成功，Pro 已激活' : '模拟支付失败' }
+      return { code: ok ? 0 : EC.REQUEST_ERROR, data: ok, message: ok ? '模拟支付成功，Pro 已激活' : '模拟支付失败' }
     } catch(e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -104,9 +103,9 @@ function registerHandlers(ipcMain, deps) {
     try {
       const ok = pm.cancelPayment(orderId)
       // R52 修复：统一返回格式，补充 data 字段
-      return { code: ok ? 0 : -1, data: ok, message: ok ? '订单已取消' : '订单不可取消' }
+      return { code: ok ? 0 : EC.REQUEST_ERROR, data: ok, message: ok ? '订单已取消' : '订单不可取消' }
     } catch(e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 }

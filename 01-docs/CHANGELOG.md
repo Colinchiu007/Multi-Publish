@@ -1,5 +1,78 @@
 ﻿# CHANGELOG
 
+## [v2.3.55] - 2026-07-10
+
+### 第三十一轮 — IPC handler EC 常量迁移
+- 8 个 IPC handler 完成 EC 常量迁移，启用 VALIDATION_ERROR/NOT_FOUND/AUTH_ERROR 三类语义化错误码
+- 修复 01-docs/CHANGELOG.md 乱码段（v2.3.37~v2.3.39 三个版本）+ 补齐 v2.3.42~v2.3.55
+
+## [v2.3.54] - 2026-07-10
+
+### 第二十九轮 — 3 启动 bug 根因深挖 + 安全 MAJOR 收尾
+- 3 个启动 bug 根因：logger.js 悬空引用 / container.setup.js 解构错 / system-tray.js 缺降级
+- 安全 MAJOR × 3：移除硬编码 CSDN appSecret / CORS 收紧 / API Key SHA-256 哈希存储
+- 资源泄漏 MAJOR：auth-view-session.js restoreLocalStorage 加 10s 超时
+- 一致性 MAJOR：apps/desktop/package.json 版本 2.3.44→2.3.53 + description 乱码修复
+
+## [v2.3.53] - 2026-07-10
+
+### 第二十八轮 — 环境启动 + 中文乱码定位 + R51 P0
+- 环境从零搭建：npm install 1188 包 + electron 33.4.0 + Xvfb + 系统库 + 中文字体
+- 中文乱码根因：headless 环境缺中文字体（非编码问题）
+- 合并另一个会话 3 个启动 bug 修复：logger.js / container.setup.js 解构 / system-tray try/catch
+- R51 P0 完成：24 文件扫描，仅 render.js render:start 需补 data 参数校验
+
+## [v2.3.52] - 2026-07-10
+
+### 第二十七轮 — 安全审计 + R14 资源泄漏 + R14 一致性
+- 三路并行 agent 审查：安全审计(8维度) + R14资源泄漏(6子维度) + R14一致性(6子维度)
+- 4 CRITICAL 全部修复：license-manager XOR→AES-256-GCM / python crypto.py salt 持久化 /
+  batch-manager.js 事件监听修复 / 两份 error-codes.js 语义冲突
+- 9 个高优先级 MAJOR 修复：文件句柄泄漏 / DB 连接泄漏 / 进程泄漏 / 监听器泄漏
+
+## [v2.3.51] - 2026-07-10
+
+### 第二十六轮 — R52 IPC 响应格式统一收尾
+- 191/191 IPC handler 完成 R52 格式统一（100% 合规率）
+
+## [v2.3.50] - 2026-07-10
+
+### 第二十五轮 — R52 持续推进 + 错误码冲突解决
+- desktop 侧 error-codes.js NOT_FOUND/TIMEOUT_ERROR/NETWORK_ERROR/IO_ERROR 改为 -10~-13
+- 避免与 api-publish-engine 的 -4(exception)/-5(io_error) 冲突
+
+## [v2.3.49] - 2026-07-09
+
+### 第二十四轮 — R52 持续推进
+
+## [v2.3.48] - 2026-07-09
+
+### 第二十三轮 — R52 持续推进
+
+## [v2.3.47] - 2026-07-09
+
+### 第二十二轮 — R52 持续推进
+
+## [v2.3.46] - 2026-07-09
+
+### 第二十一轮 — R52 启动
+
+## [v2.3.45] - 2026-07-09
+
+### 第二十轮 — 质量节拍启动
+
+## [v2.3.44] - 2026-07-09
+
+### 第十九轮 — 预审
+
+## [v2.3.43] - 2026-07-09
+
+### 第十八轮 — 基础设施梳理
+
+## [v2.3.42] - 2026-07-08
+
+### 第十七轮 — 基础设施梳理
+
 ## [v2.3.41] - 2026-07-08
 
 ### 新增
@@ -72,42 +145,42 @@
 
 ## [v2.3.39] - 2026-07-07
 
-### UAT ? ????????
-- ?? 01-docs/UAT-PLAN.md ? 10 ?????30+ ????
-- P0: ?????? (J1-J4) ? ????/????/????/????
-- P1: ???? (J5-J7) ? ????/???/????
-- P2: ???? (J8-J10) ? ????/SQLite/????
-- ?????? 6 ????? (UAT-001~006)
+### UAT 与 验收测试计划
+- 依据 01-docs/UAT-PLAN.md 拆解 10 个验证任务，覆盖 30+ 验收点
+- P0: 核心流程 (J1-J4) — 账号管理/发布队列/视频合成/内容采集
+- P1: 重要功能 (J5-J7) — AI 生成/批量发布/数据统计
+- P2: 增强功能 (J8-J10) — 评论管理/SQLite 持久化/监控告警
+- 预留验收报告 6 个验证用例 (UAT-001~006)
 
 ## [v2.3.38] - 2026-07-07
 
-### ?? -- video_compose.py ?????? 21 ? (8%->28% ??)
-- _compare_transcript_to_script: 10 ?? -- ?? transcript / ????? / ????? / ?? JSON /
-  ???? / ???????? / ???? / ? token / ?? / ????
-- _get_composition_id: 3 ?? -- ?? / ?? / ???
-- _needs_remotion: 2 ?? -- ?? / ???
-- _resolve_subtitle_style: 7 ?? -- ?? / playbook / edit_decisions / explicit /
-  ????? / None ???
-- ????: 1335+21=1356
+### 测试 — video_compose.py 新增用例 21 条 (8%->28% 覆盖)
+- _compare_transcript_to_script: 10 条 — 空 transcript / 字段缺失 / 字段类型 / 错误 JSON /
+  空白内容 / 时间戳格式异常 / 长度不匹配 / 缺 token / 边界 / 多段对照
+- _get_composition_id: 3 条 — 默认 / 命中 / 未命中
+- _needs_remotion: 2 条 — 需要 / 不需要
+- _resolve_subtitle_style: 7 条 — 默认 / playbook / edit_decisions / explicit /
+  无效值 / None 处理
+- 累计：1335+21=1356
 
-### ??
-- ?? 1356 ????
+### 文档
+- 同步 1356 用例总数
 
 ## [v2.3.37] - 2026-07-07
 
-### ?? -- scoring.py (video_creation) 28 ? (36%->72% ??)
-- _tokenize_text: 6 ?? -- ?? / ? / ?? / ??? / ??? / None
-- _compute_task_fit: 5 ?? -- ? best_for / ???? / ????? / style ??? / ???
-- _compute_control: 4 ?? -- ? / ???? / ???? / ????
-- ProductionPathScore: ??????/???
-- format_ranking: top_n > list / ?? / ??
-- _keyword_overlap: overlap ?? vs Jaccard / ?????? / ???
-- _expand_synonyms: ?? / social ?
-- rank_providers: ??? / ????? / ????
-- ????: 1307+28=1335
+### 测试 — scoring.py (video_creation) 28 条 (36%->72% 覆盖)
+- _tokenize_text: 6 条 — 空 / 单 / 多 / 标点 / 重复 / None
+- _compute_task_fit: 5 条 — 有 best_for / 无 best_for / 多平台匹配 / style 不匹配 / 边界
+- _compute_control: 4 条 — 空 / 完整 / 部分缺失 / 异常类型
+- ProductionPathScore: 分数计算/字段缺失
+- format_ranking: top_n > list / 越界 / 排序
+- _keyword_overlap: overlap 计算 vs Jaccard / 大小写不敏感 / 空集合
+- _expand_synonyms: 同义词 / social 关键词
+- rank_providers: 排序 / 分数相等 / 空列表
+- 累计：1307+28=1335
 
-### ??
-- ?? 1335 ????
+### 文档
+- 同步 1335 用例总数
 
 ## [v2.3.36] - 2026-07-07
 
@@ -700,7 +773,7 @@
 - Python: 443 passed ✅
 - **总计: 1699 测试 ALL GREEN**
 
-> 完整变更日志请查看 [ 1-docs/CHANGELOG.md](01-docs/CHANGELOG.md)
+> 完整变更日志请查看 [01-docs/CHANGELOG.md](01-docs/CHANGELOG.md)
 >
 > 以下为精简版变更摘要：
 

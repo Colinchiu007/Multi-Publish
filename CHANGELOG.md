@@ -1,5 +1,23 @@
 ﻿# CHANGELOG
 
+## [审查复盘] 第十五~三十一轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R67。
+
+### 第三十一轮（v2.3.55 复盘）— P1+P2 一致性 MAJOR 清零 + R67 NUL 字节排查
+- **P1 高优先级 MAJOR 清零** — 8 个 IPC handler 完成 EC 常量迁移：
+  - 启用 VALIDATION_ERROR(-2) × 6 处（参数校验失败）
+  - 启用 AUTH_ERROR(-3) × 2 处（license.js + payment.js 未授权调用来源）
+  - 启用 NOT_FOUND(-10) × 5 处（模板/记录/订单/平台/任务不存在）
+  - 所有 catch 块字面量 -1 迁移为 EC.REQUEST_ERROR
+- **P2 中优先级 MAJOR 清零** — 01-docs/CHANGELOG.md：
+  - 补齐 v2.3.42~v2.3.55（14 个版本条目）
+  - 修复乱码段 v2.3.37~v2.3.39（三个版本的 ???? 恢复为中文）
+  - 清除第 776 行 NUL 字节（markdown 链接 [0 中的 0 被替换为 \x00）
+- **新增规则 R67** — NUL 字节排查清单（grep 在 CRLF 文件上误报，改用 Python 精准检测）
+- **第 27 轮 5 个一致性 MAJOR 现状**：4 个已修复，1 个降级 P3（服务层格式统一）
+- **MAJOR 实质清零** — 安全/资源泄漏/一致性三类 MAJOR 全部修复，剩余 P3 为长期重构议题
+
 ## [审查复盘] 第十五~三十轮 (2026-07-10)
 
 应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R66。

@@ -34,7 +34,7 @@ function registerHandlers(ipcMain, deps) {
     try {
     // M-5 修复：参数校验，platforms 为 undefined 时 .map() 必崩
     if (!Array.isArray(platforms) || platforms.length === 0) {
-      return { code: -1, message: 'platforms 不能为空且必须为数组' }
+      return { code: EC.VALIDATION_ERROR, message: 'platforms 不能为空且必须为数组' }
     }
     const isObj = platforms && platforms.length > 0 && typeof platforms[0] === 'object'
     const taskIds = platforms.map(p => {
@@ -47,26 +47,26 @@ function registerHandlers(ipcMain, deps) {
       })
     })
       return { code: 0, data: { taskIds }, message: taskIds.length + " tasks added" }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('queue:status', async () => {
     try {
       // M-13 修复：成功路径也包裹为标准格式，与错误路径对称
       return { code: 0, data: taskQueue.getStatus() }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
   ipcMain.handle('queue:history', async () => {
     try {
       return { code: 0, data: taskQueue.getHistory() }
-    } catch (e) { return { code: -1, message: e.message, data: [] } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
   ipcMain.handle('queue:cancel', async (event, taskId) => {
     try {
       const ok = taskQueue.cancel(taskId)
       // R52 修复：统一返回格式，补充 data 字段
-      return { code: ok ? 0 : -1, data: ok, message: ok ? '任务已取消' : '任务不存在或已完成' }
-    } catch (e) { return { code: -1, message: e.message } }
+      return { code: ok ? 0 : EC.NOT_FOUND, data: ok, message: ok ? '任务已取消' : '任务不存在或已完成' }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('history:list', async (event, opts) => {
@@ -74,22 +74,22 @@ function registerHandlers(ipcMain, deps) {
       const result = history.listRecords(opts)
       return { code: 0, data: result }
     } catch (e) {
-      return { code: -1, message: e.message, data: { total: 0, records: [] } }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, records: [] } }
     }
   })
 
   ipcMain.handle('history:get', async (event, id) => {
     try {
       const record = history.getRecord(id)
-      if (!record) return { code: -1, message: '记录不存在' }
+      if (!record) return { code: EC.NOT_FOUND, message: '记录不存在' }
       return { code: 0, data: record }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('dashboard:stats', async () => {
     try {
       return { code: 0, data: history.getStats() }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 }
 
