@@ -5,6 +5,7 @@
  * 安全：所有 handler 包裹 try-catch，防止 store 抛错变成 unhandled rejection
  */
 function registerHandlers(ipcMain, deps) {
+  const EC = require('../core/error-codes').ERROR
   const { store, credentialStore, accountStateRestorer } = deps
 
   ipcMain.handle('store:add-account', (_, account) => {
@@ -51,13 +52,16 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('store:set-default-account', (_, { platform, accountId }) => {
+  ipcMain.handle('store:set-default-account', (_, arg) => {
     try {
+      // R51 P1：解构保护
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { platform, accountId } = arg
       store.setDefaultAccount(platform, accountId)
       // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -70,13 +74,16 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('store:update-account', (_, { id, fields }) => {
+  ipcMain.handle('store:update-account', (_, arg) => {
     try {
+      // R51 P1：解构保护
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { id, fields } = arg
       store.updateAccount(id, fields)
       // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 

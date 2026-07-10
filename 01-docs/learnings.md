@@ -1358,3 +1358,112 @@ ipcMain.handle('xxx', async (event, arg) => {
 **R51 P2 低优先级**：参数仅透传，try/catch 已兜底（~55 处，可接受现状）
 
 **P3 长期重构**：服务层格式统一 + wrapServiceResult 包装器
+
+---
+
+## 第三十三轮复盘（v2.3.57）— R51 P1 MEDIUM 批量清零 + R69 范式落地
+
+### 本轮成果
+1. **R10 回归基线** — 第三十二轮 commit `783c288` 工作区干净，R67 全项目 NUL 验证通过
+2. **R51 P1 MEDIUM 批量清零** — 8 个文件 18 处解构保护全部修复
+3. **R69 范式落地验证** — 三重防护范式在 8 个文件上一致应用
+
+### R51 P1 MEDIUM 修复明细（8 文件 18 处）
+
+| 文件 | 修复 handler 数 | 修复内容 |
+|------|----------------|---------|
+| ai.js | 1 | `ai:generate` 解构保护 + 全文字面量 -1 → EC.REQUEST_ERROR |
+| analytics.js | 1 | `analytics:platform` 解构保护 + 全文字面量 -1 → EC.REQUEST_ERROR |
+| keyword.js | 3 | `keyword:start`/`keyword:stop`/`keyword:history` 解构保护 + 字面量迁移 |
+| proxy.js | 5 | `proxy:add`/`proxy:add-batch`/`proxy:remove`/`proxy:test`/`proxy:test-all` 解构保护 + 数组校验 + 字面量迁移 |
+| scheduler.js | 1 | `scheduler:create` 解构保护 + 字面量迁移 |
+| sensitive.js | 2 | `sensitive:check`/`sensitive:replace` 解构保护 + 字面量迁移 |
+| store.js | 2 | `store:set-default-account`/`store:update-account` 解构保护 + 字面量迁移 |
+| video.js | 1 | `video:process` 解构保护 + 全文字面量 -1 → EC.REQUEST_ERROR |
+
+**R69 三重防护范式应用统计**：
+- 第 1 重（arg 为 undefined/null）：18 处全部覆盖 ✅
+- 第 2 重（必需字段缺失）：2 处补充（proxy:add-batch 的 Array.isArray + 已有的 payment/render）
+- 第 3 重（字段值非法用于 URL）：第三十二轮已修 3 处（account.js）
+
+**proxy:add-batch 特殊处理**：
+- 与 `publish:batch` 同模式，补充 `Array.isArray(proxies)` 校验
+- 防止 `proxies` 为 undefined 时 `proxyPool.addProxies(undefined)` 崩溃
+
+**proxy:test-all 特殊处理**：
+- timeout 是可选参数，允许 arg 为 undefined
+- 用 `(arg && typeof arg === 'object') ? arg.timeout : undefined` 宽松处理
+- 这是 R69 的"可选参数"变体——并非所有 handler 都需要严格校验
+
+### R51 P1 完成状态
+
+| 优先级 | 数量 | 状态 |
+|--------|------|------|
+| P1 HIGH（URL 注入） | 3 | ✅ 第三十二轮已修 |
+| P1 MEDIUM（解构无兜底） | 21 | ✅ 本轮清零（第三十二轮修 3 + 本轮修 18） |
+| P1 已校验（参考范式） | 6 | ✅ 无需修 |
+| **P1 合计** | **30** | **✅ 全部完成** |
+
+### ⚠️ 本轮发现的问题
+
+#### 问题 1：R51 P1 MEDIUM 拖了两轮才修
+- 第三十二轮扫描发现 21 处 MEDIUM，当轮只修了 3 处（account.js + publish.js + templates.js）
+- 剩余 18 处拖到第三十三轮才批量修
+- **根因**：第三十二轮聚焦"3 处 HIGH URL 注入"，MEDIUM 被推迟
+- **避免方法**：同类问题应在同一轮内一次性修完，避免跨轮残留
+
+#### 问题 2：proxy:test-all 的"可选参数"边界情况
+- 原代码 `(_, { timeout })` 解构，但 timeout 是可选的
+- 如果严格按 R69 范式 `if (!arg || typeof arg !== 'object') return VALIDATION_ERROR`，会拒绝 `invoke('proxy:test-all')` 无参调用
+- **解决**：用宽松变体 `(arg && typeof arg === 'object') ? arg.timeout : undefined`
+- **教训**：R69 不是"一刀切"规则，需要区分"必需参数"和"可选参数"
+
+#### 问题 3：字面量 -1 迁移为 EC.REQUEST_ERROR 的遗漏
+- 本轮在修复解构保护的同时，顺便把字面量 `code: -1` 迁移为 `EC.REQUEST_ERROR`
+- 但 store.js 中其他 handler（如 `store:add-account`/`store:get-account` 等）仍有字面量 -1
+- **根因**：本轮聚焦"解构保护"，没做"全文件字面量迁移"
+- **避免方法**：修复一类问题时，应同时检查同文件的其他同类问题
+
+### 🧠 经验沉淀（新增规则 R70）
+
+- **R70：R69 可选参数变体** — 当 handler 的参数是**可选的**（如 `proxy:test-all` 的 timeout），R69 的严格校验会误拒合法的无参调用。此时应使用宽松变体：
+  ```javascript
+  // 必需参数：严格校验
+  if (!arg || typeof arg !== 'object') return VALIDATION_ERROR
+  const { field } = arg
+  
+  // 可选参数：宽松校验（允许 arg 为 undefined）
+  const field = (arg && typeof arg === 'object') ? arg.field : undefined
+  ```
+  判断标准：handler 是否设计为支持无参调用（如 `invoke('xxx')` 不传第二参数）。
+
+### 🔁 本轮"为什么还有问题"复盘
+
+第三十三轮是"清零轮"——把第三十二轮扫描发现但未修完的 18 处 MEDIUM 一次性修完。
+
+**为什么第三十二轮没一次性修完？**
+1. **优先级聚焦** — 第三十二轮聚焦 3 处 HIGH（URL 注入），MEDIUM 被视为"可推迟"
+2. **修复成本误判** — 以为 18 处需要逐个分析，实际批量修复只需 8 个文件
+3. **跨轮残留风险** — 拖到下一轮修，增加了"忘记修"的风险
+
+**改进措施**：
+1. 同类问题同一轮内修完（即使需要更多时间）
+2. 批量修复时用"扫描→分类→批量改"三步法，而非逐个处理
+3. R69 范式需要区分必需/可选参数（R70 新规则）
+
+### 剩余工作
+
+**R51 P1 全部完成** ✅（30/30）
+
+**剩余可做**：
+- R51 P2 低优先级：参数仅透传，try/catch 已兜底（~55 处，可接受现状）
+- P3 长期重构：服务层格式统一 + wrapServiceResult 包装器
+- store.js 其他 handler 的字面量 -1 迁移（非解构保护类，低优先级）
+
+**质量节拍状态**：
+- CRITICAL 清零 ✅
+- MAJOR 实质清零 ✅
+- R51 P0 完成 ✅
+- R51 P1 完成 ✅（本轮清零）
+- R52 100% ✅
+- R64-R70 七条新规则全部落地验证 ✅

@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [审查复盘] 第十五~三十三轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R70。
+
+### 第三十三轮（v2.3.57 复盘）— R51 P1 MEDIUM 批量清零 + R69 范式落地
+- **R10 回归基线** — 第三十二轮 commit 783c288 工作区干净，R67 全项目 NUL 验证通过
+- **R51 P1 MEDIUM 批量清零** — 8 个文件 18 处解构保护全部修复：
+  - ai.js / analytics.js / keyword.js / proxy.js / scheduler.js / sensitive.js / store.js / video.js
+  - 全部按 R69 三重防护范式：`(event, arg)` + try 内 `if (!arg || typeof arg !== 'object')` + 再解构
+  - 顺便把字面量 `code: -1` 迁移为 `EC.REQUEST_ERROR`
+  - proxy:add-batch 补充 `Array.isArray(proxies)` 校验（与 publish:batch 同模式）
+  - proxy:test-all 用 R70 可选参数变体（timeout 可选，允许 arg 为 undefined）
+- **R51 P1 全部完成** ✅（30/30）：HIGH 3 + MEDIUM 21 + 已校验 6
+- **新增规则 R70**：R69 可选参数变体 — 当 handler 参数是可选的，用宽松校验 `(arg && typeof arg === 'object') ? arg.field : undefined`
+- **质量节拍状态**：CRITICAL 清零 ✅ / MAJOR 实质清零 ✅ / R51 P0+P1 完成 ✅ / R52 100% ✅ / R64-R70 七条新规则全部落地 ✅
+
 ## [审查复盘] 第十五~三十二轮 (2026-07-10)
 
 应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R69。
