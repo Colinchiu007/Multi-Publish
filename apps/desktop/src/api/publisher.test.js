@@ -171,7 +171,13 @@ describe("api/publisher -- normal 路径（electronAPI 存在）", () => {
   function setupNormal(name) {
     mockApi = createMockApi();
     const resolvedValue = { code: 0, name };
-    mockApi[name].mockResolvedValue(resolvedValue);
+    // intelligenceFetchTrending 在 publisher.js 中拆 envelope（res.code===0 → res.data），
+    // 故 mock 需把期望返回值包进 data，使 unwrap 后仍等于 resolvedValue
+    if (name === "intelligenceFetchTrending") {
+      mockApi[name].mockResolvedValue({ code: 0, data: resolvedValue });
+    } else {
+      mockApi[name].mockResolvedValue(resolvedValue);
+    }
     window.electronAPI = mockApi;
     return resolvedValue;
   }

@@ -8,7 +8,7 @@ __registerMock("axios", {
   post: vi.fn(),
 })
 
-__registerMock("../electron/logger", {
+__registerMock("./logger", {
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),

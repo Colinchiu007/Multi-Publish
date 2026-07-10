@@ -12,7 +12,7 @@
  */
 __enableElectronMock()
 
-__registerMock('../electron/logger', {
+__registerMock('./logger', {
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),

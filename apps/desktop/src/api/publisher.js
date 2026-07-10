@@ -99,15 +99,17 @@ export async function intelligenceSearchTitles (query, opts) {
 
 export async function intelligenceFetchTrending (opts) {
   const res = await invokeWithFallback("intelligenceFetchTrending", [], opts)
+  // 拆 envelope：IPC 返回 { code, data }
+  const payload = res?.code === 0 ? res.data : res
   // 归一化：后端 fetchTrending 返回 { total, results, bySource, timestamp }（results 元素字段为 engagement），
   // 前端组件契约为数组且字段为 engagementScore。统一映射，避免字段名/结构不匹配导致互动分永不显示。
-  if (Array.isArray(res)) {
-    return res.map(item => ({ ...item, engagementScore: item.engagementScore != null ? item.engagementScore : item.engagement }))
+  if (Array.isArray(payload)) {
+    return payload.map(item => ({ ...item, engagementScore: item.engagementScore != null ? item.engagementScore : item.engagement }))
   }
-  if (res && Array.isArray(res.results)) {
-    return res.results.map(item => ({ ...item, engagementScore: item.engagementScore != null ? item.engagementScore : item.engagement }))
+  if (payload && Array.isArray(payload.results)) {
+    return payload.results.map(item => ({ ...item, engagementScore: item.engagementScore != null ? item.engagementScore : item.engagement }))
   }
-  return res
+  return payload
 }
 
 export async function intelligenceSuggestTags (content, opts) {

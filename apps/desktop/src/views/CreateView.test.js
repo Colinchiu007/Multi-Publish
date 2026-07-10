@@ -8,7 +8,7 @@ vi.mock("@/api/publisher", () => ({
   renderStart: vi.fn(),
   renderCancel: vi.fn(),
   renderGetStatus: vi.fn().mockResolvedValue({ ready: true }),
-  renderInstallDeps: vi.fn().mockResolvedValue({ success: true }),
+  renderInstallDeps: vi.fn().mockResolvedValue({ code: 0, data: { success: true } }),
   onRenderProgress: vi.fn().mockReturnValue(vi.fn()),
   onRenderComplete: vi.fn().mockReturnValue(vi.fn()),
   onRenderError: vi.fn().mockReturnValue(vi.fn()),

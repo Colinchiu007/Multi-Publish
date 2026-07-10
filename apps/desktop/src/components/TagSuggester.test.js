@@ -51,7 +51,7 @@ async function triggerAnalyzeTimed(w, content) {
 describe("TagSuggester", () => {
   beforeEach(() => {
     vi.mocked(intelligenceSuggestTags).mockReset();
-    vi.mocked(intelligenceSuggestTags).mockResolvedValue(successResponse());
+    vi.mocked(intelligenceSuggestTags).mockResolvedValue({ code: 0, data: successResponse() });
     vi.useFakeTimers({ shouldAdvanceTime: true });
     setActivePinia(createPinia());
   });
@@ -159,7 +159,7 @@ describe("TagSuggester", () => {
 
   it("debounces rapid changes", async () => {
     vi.mocked(intelligenceSuggestTags).mockClear();
-    vi.mocked(intelligenceSuggestTags).mockResolvedValue(successResponse());
+    vi.mocked(intelligenceSuggestTags).mockResolvedValue({ code: 0, data: successResponse() });
     const w = createWrapper();
     await nextTick();
 

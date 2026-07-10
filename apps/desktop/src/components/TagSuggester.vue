@@ -110,8 +110,9 @@ watch(() => props.content, (newVal) => {
       const res = await intelligenceSuggestTags(newVal, {
         platforms: ['zhihu', 'weibo', 'xiaohongshu', 'bilibili', 'toutiao'],
       })
-      if (res && res.keywords) {
-        suggestions.value = res
+      const data = res?.code === 0 ? res.data : null
+      if (data && data.keywords) {
+        suggestions.value = data
       } else {
         suggestions.value = { keywords: [], relatedTerms: [], byPlatform: {} }
       }

@@ -8,7 +8,7 @@
  */
 
 // Mock sqlite-wrapper：提供带 _runLog/_getLog 的 MockDatabase
-__registerMock('../electron/services/sqlite-wrapper', function () {
+__registerMock('./sqlite-wrapper', function () {
   function MockStatement (db, sql) {
     this._db = db
     this._sql = sql
@@ -42,7 +42,7 @@ __registerMock('../electron/services/sqlite-wrapper', function () {
 }())
 
 // Mock logger
-__registerMock('../electron/services/logger', {
+__registerMock('./logger', {
   info: function () {},
   warn: function () {},
   error: function () {},

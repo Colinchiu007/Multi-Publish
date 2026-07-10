@@ -26,7 +26,7 @@ __registerMock('path', {
   extname: vi.fn(),
 })
 __registerMock('crypto', { randomBytes: vi.fn() })
-__registerMock('../electron/logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+__registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
 const axios = require('axios')
 const fs = require('fs')

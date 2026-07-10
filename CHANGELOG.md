@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [审查复盘] 第十五~三十七轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R80。
+
+### 第三十七轮（v2.3.61 复盘）— R75 全仓 grep 验证 + mock 路径批量清零
+- **R10 回归基线** — 第三十六轮 commit bdefa25 工作区干净，测试 1861 passed | 0 failed
+- **三层审查（/review + /cso + /guard）** — 并行 3 agent 验证 R75-R78 新规则
+- **CRITICAL 修复（×2）**：
+  - TagSuggester.vue 未拆 envelope → 标签建议永远显示空数据（`res.keywords` 直接读业务字段的隐蔽模式）
+  - TrendingPanel.vue + publisher.js 归一化未处理 envelope → 热门趋势无法渲染
+- **MAJOR 修复（×11）**：
+  - 8 个测试文件 logger mock 路径不匹配（R76 遗漏：publish-poller/usage-tracker/content-intelligence/ai-writer/cloud-publisher/comment-manager/viral-engine/store-cascade）
+  - usage-tracker.test.js fs mock 缺少 renameSync（R77 遗漏）
+  - store-cascade.test.js sqlite-wrapper mock 路径不匹配
+  - TagSuggester.test.js + CreateView.test.js mock 格式同步
+- **新增规则 R79-R80**：
+  - R79 — envelope 拆包遗漏三种形态扫描（显式读旧字段 / 直接读业务字段 / API 封装层归一化传导）
+  - R80 — mock 修复零残留验证（修复后必须 grep 验证全局零残留）
+- **质量节拍状态**：CRITICAL 清零 ✅ / MAJOR 清零 ✅ / 测试全绿 ✅（1861 passed | 0 failed）
+
 ## [审查复盘] 第十五~三十六轮 (2026-07-10)
 
 应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R78。

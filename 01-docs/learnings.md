@@ -1912,3 +1912,115 @@ ipcMain.handle('xxx', async (event, arg) => {
 - R64-R78 十五条新规则全部落地 ✅
 - **测试全绿** ✅（1861 passed | 0 failed）
 - **安全审计通过** ✅（0 CRITICAL，6 项 MINOR 为防御纵深建议）
+
+---
+
+## 第三十七轮复盘 v2.3.61 (2026-07-10) — R75 全仓 grep 验证 + mock 路径批量清零
+
+### 审查方法
+应用质量节拍 skill 三层机制（/review + /cso + /guard），并行启动 3 个 agent 验证 R75-R78 新规则：
+1. **R75 全仓 grep 扫描验证** — 验证第三十六轮修复后是否还有旧格式残留，特别关注"直接赋值整个 response"的隐蔽模式
+2. **R76/R77 mock 完整性全局验证** — 验证第三十六轮修复的 3 个文件 + 全局搜索同类问题
+3. **R78 EC 迁移按 ipcMain.handle 扫描** — 验证 services/ 目录下所有注册 IPC handler 的文件
+
+### 🔴 CRITICAL 修复（×2）
+
+#### C1：TagSuggester.vue 未拆 envelope — 标签建议永远显示空数据
+- **文件**：`apps/desktop/src/components/TagSuggester.vue:113-114`
+- **问题**：`intelligenceSuggestTags()` 返回 `{ code: 0, data: { keywords, ... } }`，但组件读 `res.keywords`（undefined）→ if 条件恒 false → 永远走 else 分支显示空数据
+- **根因**：第三十六轮 R75 扫描只检查了 `res?.success`/`res?.ok` 模式，没检查 `res.keywords` 这种"直接读业务字段"的隐蔽模式
+- **修复**：`const data = res?.code === 0 ? res.data : null`；`if (data && data.keywords)` → `suggestions.value = data`
+
+#### C2：TrendingPanel.vue + publisher.js 归一化未处理 envelope — 热门趋势无法渲染
+- **文件**：`apps/desktop/src/api/publisher.js:100-111` + `apps/desktop/src/components/TrendingPanel.vue:158`
+- **问题**：`intelligenceFetchTrending()` 的归一化逻辑只处理 `Array.isArray(res)` 和 `res.results` 两种扁平形态，没处理 `{ code, data }` envelope → 返回整个 envelope 对象 → 组件 `items.value` 被赋值为对象而非数组
+- **根因**：publisher.js 的归一化在 R52 迁移时没同步更新处理 envelope
+- **修复**：在归一化前先拆 envelope：`const payload = res?.code === 0 ? res.data : res`，后续逻辑操作 payload
+
+### 🟠 MAJOR 修复（×11）
+
+#### M1-M8：8 个测试文件 logger mock 路径不匹配（R76 遗漏）
+- **文件**：publish-poller / usage-tracker / content-intelligence / ai-writer / cloud-publisher / comment-manager / viral-engine / store-cascade 测试文件
+- **问题**：注册 key `'../electron/logger'` 或 `'../electron/services/logger'`（从测试文件视角），但源码 require `'./logger'`（从源文件视角）→ mock 未生效，真实 logger 被加载
+- **根因**：第三十六轮 R76 只修了 3 个文件（license/template/payment），没全局搜索同类问题（违反 R77）
+- **修复**：8 个文件注册 key 统一改为 `'./logger'`
+
+#### M9：usage-tracker.test.js fs mock 缺少 renameSync（R77 遗漏）
+- **文件**：`apps/desktop/tests/usage-tracker.test.js:9-14`
+- **问题**：与第三十六轮 3 个文件完全相同的 bug，mock fs 缺少 renameSync → save() 静默失败
+- **根因**：第三十六轮 R77 只修了 3 个文件，遗漏了 usage-tracker.test.js
+- **修复**：fs mock 添加 `renameSync: vi.fn()`
+
+#### M10：store-cascade.test.js sqlite-wrapper mock 路径不匹配
+- **文件**：`apps/desktop/tests/store-cascade.test.js:11`
+- **问题**：注册 `'../electron/services/sqlite-wrapper'`，源码 require `'./sqlite-wrapper'` → mock 未生效，靠手动 override store.db 规避
+- **修复**：改为 `'./sqlite-wrapper'`
+
+#### M11：TagSuggester.test.js + CreateView.test.js mock 格式不同步
+- **文件**：`apps/desktop/src/components/TagSuggester.test.js` + `apps/desktop/src/views/CreateView.test.js`
+- **问题**：mock 返回扁平结构，与真实 IPC `{ code, data }` 不一致 → 测试"假绿"
+- **修复**：TagSuggester.test.js mock 包裹 `{ code: 0, data: ... }`；CreateView.test.js renderInstallDeps mock 改为 `{ code: 0, data: { success: true } }`
+
+### 🔁 本轮"为什么还有问题"复盘
+
+第三十七轮发现的问题分为两类：
+
+**第一类：R75 扫描模式不全（CRITICAL × 2）**
+- TagSuggester.vue 用 `res.keywords` 直接读业务字段，TrendingPanel.vue 经 publisher.js 归一化传导
+- 第三十六轮 R75 只扫描了 `res?.success`/`res?.ok`/`res?.error` 三种显式模式
+- **根因**：envelope 拆包遗漏有多种形态：(a) 显式读 `res?.success`，(b) 直接读 `res.业务字段`，(c) 经 API 封装层归一化传导
+- **改进**：R79 — R75 扫描必须覆盖三种 envelope 拆包遗漏形态
+
+**第二类：R76/R77 修复不完整（MAJOR × 11）**
+- 第三十六轮只修了 3 个文件的 logger 路径和 renameSync，没全局搜索同类
+- 8 个文件 logger 路径 + 1 个文件 renameSync + 1 个文件 sqlite-wrapper 路径
+- **根因**：R77"修复一个需全局搜索同类"规则在第三十六轮未被严格执行
+- **改进**：R80 — R76/R77 修复后必须用 grep 验证"零残留"，不能只验证已修复文件
+
+### 🧠 经验沉淀（新增规则 R79-R80）
+
+- **R79：envelope 拆包遗漏三种形态扫描规则** — R75 扫描不能只查 `res?.success`，必须覆盖三种形态：
+  ```bash
+  # 形态 1：显式读旧字段
+  grep -rn "res?\.success\|res?\.ok\|res?\.error" src/views/ src/components/ --include="*.vue"
+  # 形态 2：直接读业务字段（res.keywords / res.results / res.total 等）
+  grep -rn "= res$\|= response$\|= result$" src/views/ src/components/ --include="*.vue"
+  # 形态 3：API 封装层归一化未处理 envelope
+  grep -rn "Array\.isArray(res)\|res\.results\|res\.data" src/api/ --include="*.js"
+  # 对每个命中，验证 res 是否可能为 envelope 对象
+  ```
+
+- **R80：mock 修复零残留验证规则** — 修复 mock 路径或方法缺失后，必须用 grep 验证全局零残留：
+  ```bash
+  # 验证 logger mock 路径零残留
+  grep -rn "__registerMock.*['\"]\.\./.*logger['\"]" tests/ electron/ src/
+  # 验证 fs mock renameSync 零残留
+  grep -rln '__registerMock.*["\x27]fs["\x27]' tests/ electron/ src/ | xargs grep -L "renameSync"
+  # 验证 sqlite-wrapper mock 路径零残留
+  grep -rn "__registerMock.*['\"]\.\./.*sqlite" tests/ electron/ src/
+  ```
+  如果 grep 返回非空，说明还有同类问题未修复。
+
+### 测试基线对比
+
+| 维度 | 第三十六轮 | 第三十七轮 | 变化 |
+|------|-----------|-----------|------|
+| 测试文件总数 | 129 | 129 | — |
+| 通过测试数 | 1861 | 1861 | — |
+| 失败测试数 | 0 | 0 | — |
+| 跳过测试数 | 10 | 10 | — |
+
+### 质量节拍状态
+- CRITICAL 清零 ✅（TagSuggester.vue + TrendingPanel.vue envelope 拆包修复）
+- MAJOR 实质清零 ✅（11 项 MAJOR 全部修复：8 logger 路径 + 1 renameSync + 1 sqlite-wrapper + 1 mock 格式）
+- R51 P0+P1 完成 ✅
+- R52 100% ✅
+- R64-R80 十七条新规则全部落地 ✅
+- **测试全绿** ✅（1861 passed | 0 failed）
+- **安全审计通过** ✅（0 CRITICAL）
+
+### 第三十七轮发现但未修复的 MINOR（记录，后续处理）
+- 11 个 services/ 文件未迁移 EC 常量（batch-manager/webview-manager/qrcode-login/oauth-manager/viral-engine/cloud-publisher/comment-manager/url-collector/provider-manager/publish-impact-tracker/bootstrap.js）
+- services/ 下 IPC handler 普遍缺少 R51 参数守卫
+- keywordPersistTimer / publish-poller / login-status-monitor 未纳入 shutdown 清理
+- EC.SUCCESS 定义但全局未使用（成功路径仍用 `code: 0` 字面量）

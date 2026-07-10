@@ -16,7 +16,7 @@
 __enableElectronMock()
 
 __registerMock('axios', { get: vi.fn(), post: vi.fn() })
-__registerMock('../electron/logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+__registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
 const axios = require('axios')
 const CloudPublisher = require('../electron/services/cloud-publisher')
