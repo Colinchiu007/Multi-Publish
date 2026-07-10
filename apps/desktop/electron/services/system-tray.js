@@ -27,8 +27,15 @@ function init (mainWindow) {
   
   // 创建托盘图标（使用应用图标）
   const iconPath = path.join(__dirname, '..', '..', 'dist', 'assets', 'icon.png')
-  tray = new Tray(iconPath)
-  
+  // 托盘为非必要功能：图标缺失（dev 模式未构建）或无系统托盘环境（headless/xvfb）时优雅降级，不阻断启动
+  try {
+    tray = new Tray(iconPath)
+  } catch (e) {
+    tray = null
+    log.warn('SystemTray', `Tray unavailable, skipping (icon=${fs.existsSync(iconPath) ? 'present' : 'missing'}): ${e.message}`)
+    return
+  }
+
   const contextMenu = Menu.buildFromTemplate([
     {
       label: '显示窗口',

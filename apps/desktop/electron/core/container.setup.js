@@ -33,7 +33,7 @@ const { TaskQueue, AggregatorBridge, ChunkedUploader, ProxyPool, AnalyticsServic
 const PublishIntervalGuard = require("@multi-publish/shared-utils/src/publish-interval-guard");
 const TemplateManager = require('../services/template-manager');
 const AiWriter = require('../services/ai-writer');
-const PublisherRouter = require('../services/publisher-router');
+const { PublisherRouter } = require('../services/publisher-router');
 const UsageTracker = require('../services/usage-tracker');
 const DataSyncService = require("@multi-publish/shared-utils/src/data-sync");
 
