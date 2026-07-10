@@ -30,10 +30,13 @@ app = FastAPI(title="Multi-Publish Backend", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # 安全收紧：仅允许本地 Electron 开发服务器跨域（生产走 IPC 不走 HTTP）
+    # 原 allow_origins=["*"] + allow_credentials=True 等同于"任意源可携凭证跨域访问"
+    # 攻击链：恶意网页 → GET /api/accounts/{id}/cookies → 窃取用户平台 Cookie
+    allow_origins=["http://localhost:5174", "http://127.0.0.1:5174"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 

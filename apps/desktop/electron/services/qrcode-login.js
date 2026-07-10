@@ -374,6 +374,10 @@ class QrCodeLogin {
 
     this.currentPlatform = null
     this.currentAccountId = null
+    // 先 reject pending Promise 再置空（否则 openLogin 的 await 永久挂起）
+    if (this._rejectLogin) {
+      this._rejectLogin(new Error('QR code login window closed'))
+    }
     this._resolveLogin = null
     this._rejectLogin = null
     this._lastQrHash = null

@@ -351,6 +351,10 @@ class OAuthManager {
     }
 
     this.currentPlatform = null
+    // 先 reject pending Promise 再置空（否则 startAuth 的 await 永久挂起）
+    if (this._rejectAuth) {
+      this._rejectAuth(new Error('OAuth window closed'))
+    }
     this._resolveAuth = null
     this._rejectAuth = null
 

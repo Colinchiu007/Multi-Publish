@@ -312,7 +312,8 @@ describe('PublishPoller', () => {
       poller._poll = vi.fn().mockResolvedValue()
       poller.start()
 
-      vi.advanceTimersByTime(500)
+      // 递归 setTimeout 模式：需用 advanceTimersByTimeAsync 让 async 回调完成后再推进下一轮
+      await vi.advanceTimersByTimeAsync(500)
       expect(poller._poll).toHaveBeenCalledTimes(5)
 
       poller.stop()

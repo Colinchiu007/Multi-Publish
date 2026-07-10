@@ -50,9 +50,14 @@ function scheduleTimer (entry) {
   if (delay <= 0) return  // 已过期
 
   _timers[entry.id] = setTimeout(async () => {
-    if (_taskQueue) {
-      _taskQueue.addTask({ platform: entry.platform, article: entry.article })
-      updateStatus(entry.id, 'executed')
+    try {
+      if (_taskQueue) {
+        _taskQueue.addTask({ platform: entry.platform, article: entry.article })
+        updateStatus(entry.id, 'executed')
+      }
+    } catch (e) {
+      // 防止 unhandled rejection（async 回调的错误不会被 setTimeout 捕获）
+      updateStatus(entry.id, 'failed')
     }
     delete _timers[entry.id]
   }, delay)

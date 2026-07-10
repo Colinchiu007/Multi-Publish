@@ -44,7 +44,15 @@ class PublishPoller {
   start () {
     if (this._running) return
     this._running = true
-    this._timer = setInterval(() => this._poll(), this.pollInterval)
+    // 递归 setTimeout：确保上一次 _poll 完成后再调度，避免 setInterval 竞态导致重复处理
+    const scheduleNext = () => {
+      if (!this._running) return
+      this._timer = setTimeout(async () => {
+        try { await this._poll() } catch (e) { log.warn('PublishPoller', 'poll error: ' + e.message) }
+        scheduleNext()
+      }, this.pollInterval)
+    }
+    scheduleNext()
     log.info('PublishPoller', 'started (interval=' + this.pollInterval + 'ms)')
   }
 
@@ -55,7 +63,7 @@ class PublishPoller {
     if (!this._running) return
     this._running = false
     if (this._timer) {
-      clearInterval(this._timer)
+      clearTimeout(this._timer)
       this._timer = null
     }
     log.info('PublishPoller', 'stopped')

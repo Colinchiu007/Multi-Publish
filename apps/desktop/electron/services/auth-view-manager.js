@@ -94,11 +94,12 @@ class AuthViewManager {
        */
       const escHandler = (event, input) => {
         if (input && input.type === 'keyDown' && input.key === 'Escape') {
-          this.close()
+          // 先 resolve 再 close（close 会置空 _resolveLogin，导致 Promise 永久泄漏）
           if (this._resolveLogin) {
             this._resolveLogin({ cancelled: true })
             this._resolveLogin = null
           }
+          this.close()
         }
       }
       view.webContents.on("before-input-event", escHandler)
@@ -223,11 +224,12 @@ class AuthViewManager {
      */
     const escHandler = (event, input) => {
       if (input && input.type === 'keyDown' && input.key === 'Escape') {
-        this.close()
+        // 先 resolve 再 close（close 会置空 _resolveLogin，导致 Promise 永久泄漏）
         if (this._resolveLogin) {
           this._resolveLogin({ cancelled: true })
           this._resolveLogin = null
         }
+        this.close()
       }
     }
     view.webContents.on("before-input-event", escHandler)

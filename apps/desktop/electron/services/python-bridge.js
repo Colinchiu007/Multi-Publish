@@ -89,7 +89,15 @@ function launchProcess (port) {
       }
     })
 
-    resolve(proc)
+    // 监听 'spawn' 事件再 resolve（修复竞态：原同步 resolve 后 'error' 事件的 reject 变空操作）
+    // 加 30s 超时保护（大于健康检查超时），防止 spawn 事件永不触发导致 Promise 永久泄漏
+    const spawnTimeout = setTimeout(() => {
+      reject(new Error('Python process spawn timeout'))
+    }, 30000)
+    proc.once('spawn', () => {
+      clearTimeout(spawnTimeout)
+      resolve(proc)
+    })
   })
 }
 

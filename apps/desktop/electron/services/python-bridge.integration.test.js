@@ -20,6 +20,9 @@ function createFakeProc (pid) {
     // kill 后异步触发 exit
     setImmediate(() => proc.emit('exit', 0, null))
   })
+  // spawn 事件：真实 child_process 在进程启动后触发 'spawn'
+  // python-bridge.js 监听此事件来 resolve Promise（修复竞态后）
+  setImmediate(() => proc.emit('spawn'))
   return proc
 }
 
