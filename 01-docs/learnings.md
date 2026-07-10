@@ -249,3 +249,32 @@ apt-get install -y \
 - **R11：文档规则 ≠ 强制执行** — AGENTS.md 中的规则只是约定，真正强制执行必须落到 pre-commit hook / ESLint / CI 等技术门禁
 - **R12：沙箱网络限制按 IP/协议细粒度封锁** — 同域名 IPv4 被封但 IPv6 CDN 可达时，绕过 got 库用 curl -L 走 CDN 是可行解法；沙箱限制属平台层，项目侧只能用预置/离线 fallback 缓解，无法通过项目设置修改
 - **R13：环境变量改 URL 不改网络栈** — `ELECTRON_MIRROR` 只改下载地址，底层 got 仍走被封锁的 IPv4，换镜像在 got 层面无效，必须换下载工具（curl）
+
+---
+
+## 第八九轮审查复盘 v2.3.45 (2026-07-10)
+
+### ✅ 做得好的
+1. **首次应用 R7 语义同类穷尽** — 第八轮发现 3 个登录管理器（auth-view-manager/oauth-manager/qrcode-login）的 Promise 泄漏是"close 置空 reject 但不调用"的语义同类，一次性修复全部
+2. **首次执行 QM-1 打包验证** — 第九轮 R9 规则首次闭环，electron-builder --linux --dir exit code 0，asar 文件清单 + require 链验证通过
+3. **新增 SSRF 独立审查维度** — 前八轮从未作为独立维度审查，第九轮发现 4 处 SSRF（url-collector/webhook/media-downloader/publish-poller）
+4. **XSS 注入面语义同类扫描** — 第九轮发现 account-manager.js 的 localStorage 拼接是第八轮 rpa-view-manager CSS 选择器拼接的语义同类，一次性修复
+
+### ⚠️ 需要注意（失误与改进）
+1. **审查维度"补漏式"选择，无完整基线清单** — 前八轮每次凭感觉选维度，导致异步竞态/Promise 泄漏拖到第八轮、SSRF 拖到第九轮才被发现。**根因：没有一份"必须覆盖的维度清单"作为基线**
+2. **R7 早期只扫字面同类，未扫语义同类** — 第七轮说"应用了 R7"但实际只扫完全相同的代码模式。第八轮发现的 3 个登录管理器是"变体"模式（escHandler 的 close-then-resolve vs oauth 的 close-置空-reject）。**R7 应扫语义同类（如"Promise 永久泄漏"），而非字面同类（完全一样的代码）**
+3. **安全审计维度长期缺失网络暴露面** — 前七轮的"安全"维度只查 eval/shell注入/XSS，没查 CORS/绑定地址/鉴权。Python CORS `*` + allow_credentials 是最高危问题，却拖到第八轮才被 /cso 发现
+4. **QM-1 从未执行** — 第七轮装好了 electron 二进制，但第八轮修完代码后又没跑打包验证。R9 规则写了"不允许以网络为由跳过"，但实际执行时还是跳了。直到第九轮才首次闭环
+5. **第八轮 R7 穷尽扫描有遗漏** — 第八轮报告"3 处 HTTP 无超时"，第九轮穷尽发现实为 6 处（遗漏 account.js/youtube.js）；第八轮报告"3 处 read-modify-write 竞态"，第九轮穷尽发现实为 7 处非原子写（且定性需修正：同步 I/O 非竞态，是崩溃丢数据风险）
+
+### 🧠 经验沉淀（强制规则新增）
+- **R14：审查维度清单基线化** — 每轮审查必须对照以下完整维度清单，不允许"凭感觉选维度"：
+  - 安全：eval/shell注入/XSS/CORS/绑定地址/鉴权/密钥硬编码/SSRF/路径穿越
+  - 资源泄漏：定时器/监听器/文件句柄/进程/数据库连接
+  - 错误处理：try-catch覆盖/返回值契约/Promise rejection/全局处理器
+  - 异步：竞态条件/Promise泄漏/超时保护/串行vs并行
+  - 输入校验：参数解构位置/类型校验/白名单/URL协议校验
+  - 一致性：版本号/文档/错误码/日志规范
+- **R15：R7 必须扫语义同类** — 修复一个 Promise 泄漏后，不能只搜相同代码模式，必须搜"所有可能导致 Promise 永久 pending 的模式"（close置空reject / 同步resolve与error事件竞态 / fire-and-forget async / 无超时保护）
+- **R16：QM-1 每轮必执行** — 修改 electron/ 下代码后，QM-1 打包验证是"每轮"必执行，不是"首次"执行。每轮修复后立即打包，不允许积累多轮再打包
+- **R17：安全审计必须含网络暴露面** — /cso 审计必须包含：CORS 配置 / 监听地址（0.0.0.0 vs 127.0.0.1）/ 端点鉴权 / SSRF 防护。不能只查代码注入
