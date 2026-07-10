@@ -15,6 +15,7 @@
  */
 const { ipcMain } = require('electron')
 const log = require('./logger')
+const EC = require('../core/error-codes').ERROR
 
 const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
 
@@ -295,7 +296,9 @@ class ViralEngine {
   }
 
   registerIpcHandlers () {
-    ipcMain.handle('viral:analyze', async (event, { articles, topic }) => {
+    ipcMain.handle('viral:analyze', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { articles, topic } = arg
       try {
         const result = await this.analyze(articles, topic)
         // M-9 修复：统一为标准 { code, data, message } 格式
@@ -307,7 +310,7 @@ class ViralEngine {
         return { code: 0, data: this._localAnalyze(articles, topic) }
       } catch (e) {
         log.error('ViralEngine', 'analyze handler error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -322,11 +325,13 @@ class ViralEngine {
         return { code: 0, data: this._localGenerate(opts) }
       } catch (e) {
         log.error('ViralEngine', 'generate handler error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
-    ipcMain.handle('viral:trending', async (event, { articles }) => {
+    ipcMain.handle('viral:trending', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { articles } = arg
       try {
         const result = await this.trending(articles)
         if (result.code === 0 && result.data) {
@@ -337,7 +342,7 @@ class ViralEngine {
         return { code: 0, data: this._localTrending(articles) }
       } catch (e) {
         log.error('ViralEngine', 'trending handler error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
   }

@@ -20,6 +20,7 @@
  */
 const { ipcMain } = require('electron')
 const log = require('./logger')
+const EC = require('../core/error-codes').ERROR
 
 const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
 
@@ -113,7 +114,7 @@ class ProviderManager {
         return await this.listProviders()
       } catch (e) {
         log.error('ProviderManager', 'list error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -122,7 +123,7 @@ class ProviderManager {
         return await this.createProvider(data)
       } catch (e) {
         log.error('ProviderManager', 'create error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -131,7 +132,7 @@ class ProviderManager {
         return await this.updateProvider(name, data)
       } catch (e) {
         log.error('ProviderManager', 'update error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -140,7 +141,7 @@ class ProviderManager {
         return await this.deleteProvider(name)
       } catch (e) {
         log.error('ProviderManager', 'delete error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -149,7 +150,7 @@ class ProviderManager {
         return await this.testProvider(name)
       } catch (e) {
         log.error('ProviderManager', 'test error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -158,7 +159,7 @@ class ProviderManager {
         return await this.getUserProvider(name)
       } catch (e) {
         log.error('ProviderManager', 'get-user error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -167,7 +168,7 @@ class ProviderManager {
         return await this.listUserProviders()
       } catch (e) {
         log.error('ProviderManager', 'list-user error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -176,7 +177,7 @@ class ProviderManager {
         return await this.setUserKey(name, apiKey, baseUrl)
       } catch (e) {
         log.error('ProviderManager', 'set-user-key error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -185,7 +186,7 @@ class ProviderManager {
         return await this.deleteUserKey(name)
       } catch (e) {
         log.error('ProviderManager', 'delete-user-key error: ' + e.message)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
   }

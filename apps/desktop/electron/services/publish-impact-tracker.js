@@ -12,6 +12,7 @@
  * 文件位置: apps/desktop/electron/publish-impact-tracker.js
  */
 const log = require('./logger')
+const EC = require('../core/error-codes').ERROR
 
 class PublishImpactTracker {
   constructor (contentIntelligence) {
@@ -161,7 +162,7 @@ class PublishImpactTracker {
         return { code: 0, data: this.getActiveTrackings() }
       } catch (e) {
         log.error('ImpactTracker', 'getActive error: ' + e.message)
-        return { code: -1, message: e.message, data: [] }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
       }
     })
 
@@ -178,7 +179,7 @@ class PublishImpactTracker {
         })) }
       } catch (e) {
         log.error('ImpactTracker', 'getRecentSnapshots error: ' + e.message)
-        return { code: -1, message: e.message, data: [] }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
       }
     })
   }

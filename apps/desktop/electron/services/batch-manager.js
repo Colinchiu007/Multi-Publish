@@ -11,6 +11,7 @@
  */
 const { ipcMain } = require('electron')
 const log = require('./logger')
+const EC = require('../core/error-codes').ERROR
 
 let _taskQueue = null
 
@@ -237,7 +238,7 @@ class BatchManager {
         const id = this.createBatch(batch)
         return { code: 0, data: { id } }
       } catch (e) {
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -246,37 +247,37 @@ class BatchManager {
         await this.executeBatch(batchId)
         return { code: 0 }
       } catch (e) {
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
     ipcMain.handle('batch:schedule', (_, batchId) => {
       try {
         const ok = this.scheduleBatch(batchId)
-        return ok ? { code: 0 } : { code: -1, message: '批量任务不存在' }
-      } catch (e) { return { code: -1, message: e.message } }
+        return ok ? { code: 0 } : { code: EC.REQUEST_ERROR, message: '批量任务不存在' }
+      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     })
 
     ipcMain.handle('batch:list', () => {
       try { return { code: 0, data: this.store.listBatchJobs() } }
-      catch (e) { return { code: -1, message: e.message, data: [] } }
+      catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     })
 
     ipcMain.handle('batch:get', (_, id) => {
       try {
         const batch = this.store.getBatchJob(id)
-        return batch ? { code: 0, data: batch } : { code: -1, message: '未找到' }
-      } catch (e) { return { code: -1, message: e.message } }
+        return batch ? { code: 0, data: batch } : { code: EC.REQUEST_ERROR, message: '未找到' }
+      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     })
 
     ipcMain.handle('batch:delete', (_, id) => {
       try { this.store.deleteBatchJob(id); return { code: 0 } }
-      catch (e) { return { code: -1, message: e.message } }
+      catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     })
 
     ipcMain.handle('batch:duplicate-article', (_, article) => {
       try { return { code: 0, data: this.duplicateArticle(article) } }
-      catch (e) { return { code: -1, message: e.message } }
+      catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     })
   }
 }

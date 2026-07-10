@@ -23,7 +23,7 @@ __registerMock('../services/payment-manager', vi.fn().mockImplementation(functio
   }
 }))
 
-__registerMock('../electron/logger', { info: vi.fn(), error: vi.fn(), warn: vi.fn() })
+__registerMock('./logger', { info: vi.fn(), error: vi.fn(), warn: vi.fn() })
 
 var mockIpcMain = { handle: vi.fn() }
 var registerHandlers = require('../electron/ipc-handlers/payment')

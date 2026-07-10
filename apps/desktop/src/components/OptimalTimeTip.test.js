@@ -27,7 +27,7 @@ describe('OptimalTimeTip', () => {
   });
 
   it('watcher triggers on keyword prop change', async () => {
-    vi.mocked(intelligenceGetOptimalTime).mockResolvedValue({ recommendation: { topHours: [] } });
+    vi.mocked(intelligenceGetOptimalTime).mockResolvedValue({ code: 0, data: { recommendation: { topHours: [] } } });
     const w = mount(OptimalTimeTip, { props: { keyword: '' } });
     await w.setProps({ keyword: 'test' });
     await new Promise(r => setTimeout(r, 700));
@@ -44,8 +44,11 @@ describe('OptimalTimeTip', () => {
 
   it('shows results via prop change', async () => {
     vi.mocked(intelligenceGetOptimalTime).mockResolvedValue({
-      recommendation: { topHours: [{ hourUTC: 2, hourCN: 10, score: 85 }], bestHourUTC: 2, bestHourCN: 10, dataPoints: 100 },
-      bySource: { douyin: 60 },
+      code: 0,
+      data: {
+        recommendation: { topHours: [{ hourUTC: 2, hourCN: 10, score: 85 }], bestHourUTC: 2, bestHourCN: 10, dataPoints: 100 },
+        bySource: { douyin: 60 },
+      },
     });
     const w = mount(OptimalTimeTip, { props: { keyword: '' } });
     await w.setProps({ keyword: 'test' });

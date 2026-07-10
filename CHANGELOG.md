@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [审查复盘] 第十五~三十八轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R82。
+
+### 第三十八轮（v2.3.62 复盘）— R79 零残留验证 + services/ EC 迁移 + R51 参数守卫
+- **R10 回归基线** — 第三十七轮 commit c8b59f3 工作区干净，测试 1861 passed | 0 failed
+- **三层审查** — 并行 2 agent：R79/R80 零残留验证 + services/ EC 迁移 + R51 参数守卫扫描
+- **CRITICAL 修复（×3）**：
+  - TitleAssistantPanel.vue 未拆 envelope → 标题分析功能失效
+  - OptimalTimeTip.vue 未拆 envelope → 最佳发布时间功能失效
+  - ReferenceFinder.vue 未拆 envelope → 引用查找功能失效
+  - （第三十七轮 R79 遗漏的 3 个同类组件，全部调用 intelligence* API）
+- **MAJOR 修复（×13）**：
+  - services/ EC 迁移：10 个文件 44 处 `code: -1` → `EC.REQUEST_ERROR`（R78 全局扫描）
+  - R51 参数守卫：17 个解构 handler 全部加 `if (!arg || typeof arg !== 'object')` 守卫
+  - payment-ipc.test.js logger mock 路径残留修复
+  - 3 个组件测试 mock 格式同步为 envelope
+  - 变量遮蔽 bug 修复（局部 `const data` → `const payload`，避免遮蔽 ref）
+- **新增规则 R81-R82**：
+  - R81 — envelope 拆包反向追踪扫描（从 API 调用点反向追踪，而非从组件名正向扫描）
+  - R82 — Vue 组件变量遮蔽防护（拆 envelope 用 `payload` 而非 `data`）
+- **质量节拍状态**：CRITICAL 清零 ✅ / MAJOR 清零 ✅ / R51 services/ 完成 ✅ / R78 services/ 完成 ✅ / 测试全绿 ✅（1861 passed | 0 failed）
+
 ## [审查复盘] 第十五~三十七轮 (2026-07-10)
 
 应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R80。

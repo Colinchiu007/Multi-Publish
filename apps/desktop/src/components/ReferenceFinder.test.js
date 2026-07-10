@@ -47,7 +47,7 @@ describe("ReferenceFinder", () => {
   });
 
   it("shows no results state", async () => {
-    vi.mocked(intelligenceFindReferences).mockResolvedValue({ references: [] });
+    vi.mocked(intelligenceFindReferences).mockResolvedValue({ code: 0, data: { references: [] } });
     const w = mount(ReferenceFinder, {
       props: { visible: true, searchText: "" }
     });
@@ -63,10 +63,13 @@ describe("ReferenceFinder", () => {
 
   it("shows results after search", async () => {
     vi.mocked(intelligenceFindReferences).mockResolvedValue({
-      references: [
-        { title: "AI\u6280\u672f\u53d1\u5c55\u8d8b\u52bf", url: "https://example.com/ai", source: "\u77e5\u4e4e", engagement: "1.2k", snippet: "\u4eba\u5de5\u667a\u80fd\u6280\u672f\u6b63\u5728\u5feb\u901f\u53d1\u5c55...", relevance: 45 },
-        { title: "\u6df1\u5ea6\u5b66\u4e60\u5165\u95e8", url: "https://example.com/dl", source: "CSDN", engagement: "856", snippet: "\u6df1\u5ea6\u5b66\u4e60\u662f\u673a\u5668\u5b66\u4e60\u7684\u4e00\u4e2a\u5206\u652f...", relevance: 30 },
-      ]
+      code: 0,
+      data: {
+        references: [
+          { title: "AI\u6280\u672f\u53d1\u5c55\u8d8b\u52bf", url: "https://example.com/ai", source: "\u77e5\u4e4e", engagement: "1.2k", snippet: "\u4eba\u5de5\u667a\u80fd\u6280\u672f\u6b63\u5728\u5feb\u901f\u53d1\u5c55...", relevance: 45 },
+          { title: "\u6df1\u5ea6\u5b66\u4e60\u5165\u95e8", url: "https://example.com/dl", source: "CSDN", engagement: "856", snippet: "\u6df1\u5ea6\u5b66\u4e60\u662f\u673a\u5668\u5b66\u4e60\u7684\u4e00\u4e2a\u5206\u652f...", relevance: 30 },
+        ]
+      }
     });
     const w = mount(ReferenceFinder, {
       props: { visible: true, searchText: "" }
@@ -86,9 +89,12 @@ describe("ReferenceFinder", () => {
 
   it("auto-searches when visible flips to true with searchText", async () => {
     vi.mocked(intelligenceFindReferences).mockResolvedValue({
-      references: [
-        { title: "\u673a\u5668\u5b66\u4e60", url: "https://example.com/ml", source: "\u77e5\u4e4e", engagement: "2k", snippet: "\u673a\u5668\u5b66\u4e60\u6982\u8ff0...", relevance: 50 }
-      ]
+      code: 0,
+      data: {
+        references: [
+          { title: "\u673a\u5668\u5b66\u4e60", url: "https://example.com/ml", source: "\u77e5\u4e4e", engagement: "2k", snippet: "\u673a\u5668\u5b66\u4e60\u6982\u8ff0...", relevance: 50 }
+        ]
+      }
     });
     // Mount not visible first, then flip to visible
     const w = mount(ReferenceFinder, {
@@ -102,9 +108,12 @@ describe("ReferenceFinder", () => {
 
   it("emits insert-reference on insert button click", async () => {
     vi.mocked(intelligenceFindReferences).mockResolvedValue({
-      references: [
-        { title: "\u6d4b\u8bd5\u6587\u7ae0", url: "https://example.com/test", source: "\u77e5\u4e4e", engagement: "100", snippet: "\u6d4b\u8bd5\u5185\u5bb9", relevance: 40 }
-      ]
+      code: 0,
+      data: {
+        references: [
+          { title: "\u6d4b\u8bd5\u6587\u7ae0", url: "https://example.com/test", source: "\u77e5\u4e4e", engagement: "100", snippet: "\u6d4b\u8bd5\u5185\u5bb9", relevance: 40 }
+        ]
+      }
     });
     const w = mount(ReferenceFinder, {
       props: { visible: false, searchText: "\u6d4b\u8bd5" }

@@ -815,7 +815,9 @@ class ContentIntelligence {
   registerIpcHandlers () {
     // R52 修复：所有 handler 统一为 { code, data, message } 格式
     // Search for topic intelligence (方案 A)
-    ipcMain.handle('intelligence:search', async (event, { query, opts }) => {
+    ipcMain.handle('intelligence:search', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { query, opts } = arg
       try {
         return { code: 0, data: await this.search(query, opts || {}) }
       } catch (e) {
@@ -824,7 +826,9 @@ class ContentIntelligence {
     })
 
     // Title assistant search (方案 B)
-    ipcMain.handle('intelligence:search-titles', async (event, { title, opts }) => {
+    ipcMain.handle('intelligence:search-titles', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { title, opts } = arg
       try {
         return { code: 0, data: await this.searchTitles(title, opts || {}) }
       } catch (e) {
@@ -833,7 +837,9 @@ class ContentIntelligence {
     })
 
     // Impact tracking — save snapshot (方案 C)
-    ipcMain.handle('intelligence:save-impact', async (event, { articleId, title, keywords, snapshot }) => {
+    ipcMain.handle('intelligence:save-impact', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { articleId, title, keywords, snapshot } = arg
       try {
         const ok = await this.saveImpactSnapshot(articleId, title, keywords, snapshot)
         return { code: 0, data: ok }
@@ -843,7 +849,9 @@ class ContentIntelligence {
     })
 
     // Impact tracking — get history (方案 C)
-    ipcMain.handle('intelligence:get-impact', async (event, { articleId }) => {
+    ipcMain.handle('intelligence:get-impact', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { articleId } = arg
       try {
         return { code: 0, data: this.getImpactHistory(articleId) }
       } catch (e) {
@@ -852,7 +860,9 @@ class ContentIntelligence {
     })
 
     // Impact tracking — search mentions (方案 C)
-    ipcMain.handle('intelligence:search-mentions', async (event, { keywords, opts }) => {
+    ipcMain.handle('intelligence:search-mentions', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { keywords, opts } = arg
       try {
         return { code: 0, data: await this.searchMentions(keywords, opts || {}) }
       } catch (e) {
@@ -869,7 +879,9 @@ class ContentIntelligence {
     })
 
     // ── Smart Tag Suggestion ─────────────────────────────────────
-    ipcMain.handle('intelligence:suggest-tags', async (event, { content, opts }) => {
+    ipcMain.handle('intelligence:suggest-tags', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { content, opts } = arg
       try {
         return { code: 0, data: await this.suggestTags(content, opts || {}) }
       } catch (e) {
@@ -878,7 +890,9 @@ class ContentIntelligence {
     })
 
     // ── Reference Finder ─────────────────────────────────────────
-    ipcMain.handle('intelligence:find-references', async (event, { text, opts }) => {
+    ipcMain.handle('intelligence:find-references', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { text, opts } = arg
       try {
         return { code: 0, data: await this.findReferences(text, opts || {}) }
       } catch (e) {
@@ -887,7 +901,9 @@ class ContentIntelligence {
     })
 
     // ── Benchmark ────────────────────────────────────────────────
-    ipcMain.handle('intelligence:get-benchmark', async (event, { title, opts }) => {
+    ipcMain.handle('intelligence:get-benchmark', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { title, opts } = arg
       try {
         return { code: 0, data: await this.getBenchmark(title, opts || {}) }
       } catch (e) {
@@ -896,7 +912,9 @@ class ContentIntelligence {
     })
 
     // ── Optimal Time ─────────────────────────────────────────────
-    ipcMain.handle('intelligence:get-optimal-time', async (event, { keyword }) => {
+    ipcMain.handle('intelligence:get-optimal-time', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { keyword } = arg
       try {
         return { code: 0, data: await this.getOptimalTime(keyword) }
       } catch (e) {

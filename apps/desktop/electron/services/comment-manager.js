@@ -23,6 +23,7 @@ const {
   EchoReplyGenerator,
   TemplateReplyGenerator,
 } = require('@multi-publish/api-publish-engine/src/comment-service')
+const EC = require('../core/error-codes').ERROR
 
 const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
 
@@ -214,22 +215,26 @@ class CommentManager {
   }
 
   registerIpcHandlers () {
-    ipcMain.handle('comment:list', async (_event, { platform, cookie, maxDays }) => {
+    ipcMain.handle('comment:list', async (_event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { platform, cookie, maxDays } = arg
       try {
         const data = await this.listComments(platform, cookie, { maxDays: maxDays })
         return { code: 0, data: data }
       } catch (e) {
-        return { code: -1, message: e.message, data: [] }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
       }
     })
 
-    ipcMain.handle('comment:reply', async (_event, { platform, cookie, commentId, content }) => {
+    ipcMain.handle('comment:reply', async (_event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { platform, cookie, commentId, content } = arg
       try {
         const result = await this.replyComment(platform, cookie, commentId, content)
         if (result && result.success) return { code: 0, data: result.data }
-        return { code: -1, message: (result && result.error) || '回复失败' }
+        return { code: EC.REQUEST_ERROR, message: (result && result.error) || '回复失败' }
       } catch (e) {
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -238,16 +243,18 @@ class CommentManager {
         const result = await this.startPolling(opts || {})
         return { code: 0, data: result }
       } catch (e) {
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
-    ipcMain.handle('comment:stop-polling', async (_event, { key }) => {
+    ipcMain.handle('comment:stop-polling', async (_event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { key } = arg
       try {
         const result = await this.stopPolling(key)
         return { code: 0, data: result }
       } catch (e) {
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -255,7 +262,7 @@ class CommentManager {
       try {
         return { code: 0, data: this.getStatus() }
       } catch (e) {
-        return { code: -1, message: e.message, data: [] }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
       }
     })
   }

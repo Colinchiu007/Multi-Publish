@@ -47,14 +47,17 @@ describe("TitleAssistantPanel", () => {
 
   it("displays title analysis results", async () => {
     intelligenceSearchTitles.mockResolvedValue({
-      titleAnalysis: {
-        patterns: [["AI", 4], ["技术", 3]],
-        suggestion: { tip: "建议使用数字增强吸引力" }
-      },
-      results: [
-        { id: 1, title: "2024 AI发展趋势", engagement: 3.2, source: "reddit" },
-        { id: 2, title: "深度学习入门指南", engagement: 1.5, source: "github" }
-      ]
+      code: 0,
+      data: {
+        titleAnalysis: {
+          patterns: [["AI", 4], ["技术", 3]],
+          suggestion: { tip: "建议使用数字增强吸引力" }
+        },
+        results: [
+          { id: 1, title: "2024 AI发展趋势", engagement: 3.2, source: "reddit" },
+          { id: 2, title: "深度学习入门指南", engagement: 1.5, source: "github" }
+        ]
+      }
     });
     const w = mount(TitleAssistantPanel, { props: { visible: true, title: "" } });
     await nextTick();
@@ -78,8 +81,11 @@ describe("TitleAssistantPanel", () => {
 
   it("clears data when visible becomes false", async () => {
     intelligenceSearchTitles.mockResolvedValue({
-      titleAnalysis: { patterns: [], suggestion: { tip: "测试" } },
-      results: [{ id: 1, title: "测试标题", engagement: 1.0, source: "reddit" }]
+      code: 0,
+      data: {
+        titleAnalysis: { patterns: [], suggestion: { tip: "测试" } },
+        results: [{ id: 1, title: "测试标题", engagement: 1.0, source: "reddit" }]
+      }
     });
     const w = mount(TitleAssistantPanel, { props: { visible: true, title: "" } });
     await nextTick();

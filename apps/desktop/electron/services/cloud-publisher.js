@@ -14,6 +14,7 @@
 
 const logger = require('./logger')
 const log = logger.log || logger
+const EC = require('../core/error-codes').ERROR
 
 class CloudPublisher {
 
@@ -110,7 +111,7 @@ class CloudPublisher {
         return { code: 0, data: result }
       } catch (err) {
         log.error('CloudPublisher', 'submit failed: ' + err.message)
-        return { code: -1, message: err.message }
+        return { code: EC.REQUEST_ERROR, message: err.message }
       }
     })
 
@@ -120,7 +121,7 @@ class CloudPublisher {
         return { code: 0, data: result }
       } catch (err) {
         log.error('CloudPublisher', 'list-tasks failed: ' + err.message)
-        return { code: -1, message: err.message }
+        return { code: EC.REQUEST_ERROR, message: err.message }
       }
     })
 
@@ -130,7 +131,7 @@ class CloudPublisher {
         return { code: 0, data: result }
       } catch (err) {
         log.error('CloudPublisher', 'get-task failed: ' + err.message)
-        return { code: -1, message: err.message }
+        return { code: EC.REQUEST_ERROR, message: err.message }
       }
     })
 

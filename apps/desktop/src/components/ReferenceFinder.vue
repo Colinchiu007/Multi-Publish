@@ -132,7 +132,8 @@ async function doSearch () {
   searched.value = true
   try {
     const res = await intelligenceFindReferences(query.value.trim(), { limit: 5 })
-    results.value = (res && res.references) || []
+    const data = res?.code === 0 ? res.data : null
+    results.value = (data && data.references) || []
   } catch (e) {
     console.error('Reference search failed:', e)
     results.value = []

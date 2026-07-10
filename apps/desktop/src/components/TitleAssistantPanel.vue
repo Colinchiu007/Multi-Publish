@@ -93,12 +93,13 @@ watch(() => props.title, (newVal) => {
     error.value = null
     try {
       const res = await intelligenceSearchTitles(newVal, { limit: 6 })
-      if (res && res.titleAnalysis) {
-        const analysis = res.titleAnalysis
+      const payload = res?.code === 0 ? res.data : null
+      if (payload && payload.titleAnalysis) {
+        const analysis = payload.titleAnalysis
         data.value = {
           patterns: analysis.patterns,
           suggestion: analysis.suggestion,
-          titles: (res.results || []).slice(0, 6),
+          titles: (payload.results || []).slice(0, 6),
         }
       } else {
         data.value = null

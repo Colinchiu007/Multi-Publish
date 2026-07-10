@@ -115,8 +115,9 @@ watch(() => props.keyword, (newVal) => {
     notEnoughData.value = false
     try {
       const res = await intelligenceGetOptimalTime(newVal.trim())
-      if (res && res.recommendation) {
-        const rec = res.recommendation
+      const payload = res?.code === 0 ? res.data : null
+      if (payload && payload.recommendation) {
+        const rec = payload.recommendation
         if (rec.topHours && rec.topHours.length > 0) {
           data.value = {
             topHours: rec.topHours,
@@ -124,7 +125,7 @@ watch(() => props.keyword, (newVal) => {
             bestHourCN: rec.bestHourCN,
             summary: rec.summary || '',
             dataPoints: rec.dataPoints || 0,
-            bySource: res.bySource || {},
+            bySource: payload.bySource || {},
           }
         } else {
           notEnoughData.value = true

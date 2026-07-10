@@ -19,6 +19,7 @@ const { WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
 const { PLATFORM_DASHBOARD_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
+const EC = require('../core/error-codes').ERROR
 
 // 各平台创作者中心/后台 URL → @multi-publish/shared-utils/src/platform-definitions
 
@@ -274,29 +275,31 @@ class WebviewManager {
       try {
         this.setLayout(count)
         return { code: 0, data: { layout: count, tabCount: this.tabs.length } }
-      } catch (e) { return { code: -1, message: e.message } }
+      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     })
 
-    ipcMain.handle('webview:open-tab', (_, { platform, accountId, cookies, localStorage, url }) => {
+    ipcMain.handle('webview:open-tab', (_, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { platform, accountId, cookies, localStorage, url } = arg
       try {
         const tabId = this.openTab(platform, accountId, cookies, localStorage, url)
-        return tabId ? { code: 0, data: { tabId } } : { code: -1, message: `无法打开 ${platform}` }
-      } catch (e) { return { code: -1, message: e.message } }
+        return tabId ? { code: 0, data: { tabId } } : { code: EC.REQUEST_ERROR, message: `无法打开 ${platform}` }
+      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     })
 
     ipcMain.handle('webview:close-tab', (_, tabId) => {
       try { this.closeTab(tabId); return { code: 0 } }
-      catch (e) { return { code: -1, message: e.message } }
+      catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     })
 
     ipcMain.handle('webview:close-all', () => {
       try { this.closeAll(); return { code: 0 } }
-      catch (e) { return { code: -1, message: e.message } }
+      catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     })
 
     ipcMain.handle('webview:list-tabs', () => {
       try { return { code: 0, data: this.getTabsInfo() } }
-      catch (e) { return { code: -1, message: e.message, data: [] } }
+      catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
     })
   }
 

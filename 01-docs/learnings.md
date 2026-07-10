@@ -2024,3 +2024,116 @@ ipcMain.handle('xxx', async (event, arg) => {
 - services/ 下 IPC handler 普遍缺少 R51 参数守卫
 - keywordPersistTimer / publish-poller / login-status-monitor 未纳入 shutdown 清理
 - EC.SUCCESS 定义但全局未使用（成功路径仍用 `code: 0` 字面量）
+
+---
+
+## 第三十八轮复盘 v2.3.62 (2026-07-10) — R79 零残留验证 + services/ EC 迁移 + R51 参数守卫
+
+### 审查方法
+应用质量节拍 skill 三层机制，并行启动 2 个 agent：
+1. **R79/R80 零残留验证** — 验证第三十七轮修复后是否还有 envelope 拆包遗漏和 mock 路径残留
+2. **services/ EC 迁移 + R51 参数守卫扫描** — 按 ipcMain.handle 全局扫描 services/ 目录
+
+### 🔴 CRITICAL 修复（×3）
+
+#### C1：TitleAssistantPanel.vue 未拆 envelope — 标题分析功能失效
+- **文件**：`apps/desktop/src/components/TitleAssistantPanel.vue:96-102`
+- **问题**：`intelligenceSearchTitles()` 返回 `{ code: 0, data: { titleAnalysis, results } }`，但组件直接读 `res.titleAnalysis`（undefined）→ 条件恒 false → 标题分析永远不显示
+- **根因**：第三十七轮 R79 只修复了 TagSuggester/TrendingPanel，遗漏了 TitleAssistantPanel（同类型组件，同样调用 intelligence* API）
+- **修复**：`const payload = res?.code === 0 ? res.data : null`；读 `payload.titleAnalysis` / `payload.results`
+
+#### C2：OptimalTimeTip.vue 未拆 envelope — 最佳发布时间功能失效
+- **文件**：`apps/desktop/src/components/OptimalTimeTip.vue:118-128`
+- **问题**：`intelligenceGetOptimalTime()` 返回 `{ code: 0, data: { recommendation, bySource } }`，但组件直接读 `res.recommendation`（undefined）→ 永远显示"数据不足"
+- **根因**：同 C1，R79 扫描遗漏
+- **修复**：`const payload = res?.code === 0 ? res.data : null`；读 `payload.recommendation` / `payload.bySource`
+
+#### C3：ReferenceFinder.vue 未拆 envelope — 引用查找功能失效
+- **文件**：`apps/desktop/src/components/ReferenceFinder.vue:135`
+- **问题**：`intelligenceFindReferences()` 返回 `{ code: 0, data: { references } }`，但组件直接读 `res.references`（undefined）→ 结果永远为空
+- **根因**：同 C1/C2，R79 扫描遗漏
+- **修复**：`const data = res?.code === 0 ? res.data : null`；读 `data.references`
+
+### 🟠 MAJOR 修复（×13）
+
+#### M1-M10：services/ EC 迁移（10 个文件，44 处 code: -1 字面量）
+- **文件**：batch-manager(9) / provider-manager(9) / webview-manager(6) / comment-manager(6) / qrcode-login(2) / oauth-manager(3) / viral-engine(3) / cloud-publisher(3) / url-collector(1) / publish-impact-tracker(2)
+- **问题**：这些文件注册了 IPC handler 但用 `code: -1` 字面量而非 `EC.REQUEST_ERROR`
+- **根因**：R78 规则定义后，第三十六轮只修了 content-intelligence.js 一个文件，没全局扫描
+- **修复**：10 个文件添加 `const EC = require('../core/error-codes').ERROR`，44 处 `code: -1` → `code: EC.REQUEST_ERROR`
+
+#### M11-M12：R51 参数守卫（17 个解构 handler）
+- **文件**：content-intelligence(9) / webview-manager(1) / oauth-manager(1) / viral-engine(2) / comment-manager(3) / url-collector(1)
+- **问题**：直接解构 `arg` 参数无守卫，若 renderer 传 undefined 会抛 TypeError
+- **修复**：改为 `(event, arg) => { if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }; const { ...fields } = arg; ... }`
+
+#### M13：payment-ipc.test.js logger mock 路径残留
+- **文件**：`apps/desktop/tests/payment-ipc.test.js:26`
+- **问题**：`'../electron/logger'` 不匹配源码 require `'./logger'`
+- **修复**：改为 `'./logger'`
+
+### 🔁 本轮"为什么还有问题"复盘
+
+第三十八轮发现的问题分为两类：
+
+**第一类：R79 扫描仍不完整（CRITICAL × 3）**
+- 第三十七轮修复了 TagSuggester/TrendingPanel，但遗漏了 TitleAssistantPanel/OptimalTimeTip/ReferenceFinder
+- **根因**：R79 形态 2（直接读业务字段）的扫描不够彻底，只 grep 了已知组件名，没全仓扫描所有调用 intelligence* API 的组件
+- **教训**：R79 扫描应该反过来——先 grep 所有 `intelligence*` API 调用点，再检查每个调用点是否拆了 envelope
+- **改进**：R81 — envelope 拆包扫描应该从 API 调用点反向追踪，而非从组件名正向扫描
+
+**第二类：变量遮蔽 bug（自引入）**
+- 修复 3 个 CRITICAL 时，局部变量 `const data` 遮蔽了响应式 ref `data`，导致 `data.value = null` 失败
+- **根因**：手动编辑时没注意变量名冲突，测试 mock 仍是旧格式所以没捕获
+- **教训**：修复 .vue 文件时，局部变量不要用 `data`/`result`/`error` 等常见 ref 名
+- **改进**：R82 — 修复 Vue 组件时，拆 envelope 的局部变量用 `payload` 而非 `data`，避免遮蔽 ref
+
+### 🧠 经验沉淀（新增规则 R81-R82）
+
+- **R81：envelope 拆包反向追踪扫描规则** — R79 形态 2 扫描应该从 API 调用点反向追踪：
+  ```bash
+  # 1. 找出所有 intelligence* API 函数
+  grep -rn "export.*function.*intelligence\|export.*const.*intelligence" src/api/
+  # 2. 找出所有调用这些函数的组件
+  grep -rn "intelligenceSearch\|intelligenceSuggest\|intelligenceFind\|intelligenceGet\|intelligenceFetch" src/views/ src/components/ --include="*.vue"
+  # 3. 对每个调用点，检查是否拆了 envelope
+  ```
+  不能只扫描已知组件名，必须全仓追踪所有 API 调用点。
+
+- **R82：Vue 组件变量遮蔽防护规则** — 修复 Vue 组件时，拆 envelope 的局部变量必须用 `payload` 而非 `data`/`result`/`error`：
+  ```javascript
+  // ❌ 危险：const data 遮蔽了 ref data，data.value = null 会失败
+  const res = await api()
+  const data = res?.code === 0 ? res.data : null  // 遮蔽！
+  data.value = null  // TypeError: Cannot set properties of null
+
+  // ✅ 安全：用 payload 避免遮蔽
+  const res = await api()
+  const payload = res?.code === 0 ? res.data : null
+  data.value = null  // 正确，操作的是 ref
+  ```
+  修复后必须运行测试验证，不能假设修复正确。
+
+### 测试基线对比
+
+| 维度 | 第三十七轮 | 第三十八轮 | 变化 |
+|------|-----------|-----------|------|
+| 测试文件总数 | 129 | 129 | — |
+| 通过测试数 | 1861 | 1861 | — |
+| 失败测试数 | 0 | 0 | — |
+| 跳过测试数 | 10 | 10 | — |
+
+### 质量节拍状态
+- CRITICAL 清零 ✅（3 个组件 envelope 拆包修复）
+- MAJOR 实质清零 ✅（13 项 MAJOR 全部修复：10 EC 迁移 + R51 参数守卫 + 1 logger 路径）
+- R51 services/ 参数守卫完成 ✅（17 个解构 handler 全部加守卫）
+- R78 services/ EC 迁移完成 ✅（10 个文件 44 处字面量全部迁移）
+- R64-R82 十九条新规则全部落地 ✅
+- **测试全绿** ✅（1861 passed | 0 failed）
+
+### 第三十八轮发现但未修复的 MINOR（记录，后续处理）
+- bootstrap.js（electron/ 根目录）3 个 usage:* handler 未迁移 EC（超出 services/ 范围）
+- callback-server.js + python-bridge.js 的 4 处 code:-1（非 IPC 但对外暴露）
+- keywordPersistTimer / publish-poller / login-status-monitor 未纳入 shutdown 清理
+- EC.SUCCESS 定义但全局未使用（成功路径仍用 `code: 0` 字面量）
+- publisher.js intelligence* 系列 API 函数拆 envelope 策略不一致（有的拆有的不拆）

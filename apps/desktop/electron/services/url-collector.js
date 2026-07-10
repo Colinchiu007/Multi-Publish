@@ -13,6 +13,7 @@
 const { ipcMain } = require('electron')
 // eslint-disable-next-line no-unused-vars
 const log = require('./logger')
+const EC = require('../core/error-codes').ERROR
 
 class UrlCollector {
   constructor () {
@@ -142,12 +143,14 @@ class UrlCollector {
    * 注册 IPC 处理器
    */
   registerIpcHandlers () {
-    ipcMain.handle('url-collect:fetch', async (event, { url }) => {
+    ipcMain.handle('url-collect:fetch', async (event, arg) => {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { url } = arg
       try {
         const result = await this.collect(url)
         return { code: result.success ? 0 : -1, data: result }
       } catch (e) {
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
   }

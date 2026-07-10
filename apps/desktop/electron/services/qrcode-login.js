@@ -19,6 +19,7 @@ const path = require('path')
 const log = require('./logger')
 // eslint-disable-next-line no-unused-vars
 const { PLATFORM_LOGIN_URLS, QR_CODE_PLATFORMS } = require('@multi-publish/shared-utils/src/platform-definitions')
+const EC = require('../core/error-codes').ERROR
 
 // 各平台登录页 URL → @multi-publish/shared-utils/src/platform-definitions
 // 支持二维码登录的平台由 QR_CODE_PLATFORMS 定义
@@ -411,7 +412,7 @@ class QrCodeLogin {
         return { code: 0, data: result, message: '扫码登录成功' }
       } catch (e) {
         log.error('QrCodeLogin', `Login failed: ${e.message}`)
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
 
@@ -420,7 +421,7 @@ class QrCodeLogin {
         this.close()
         return { code: 0 }
       } catch (e) {
-        return { code: -1, message: e.message }
+        return { code: EC.REQUEST_ERROR, message: e.message }
       }
     })
   }
