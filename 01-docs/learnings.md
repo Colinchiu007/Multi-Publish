@@ -278,3 +278,25 @@ apt-get install -y \
 - **R15：R7 必须扫语义同类** — 修复一个 Promise 泄漏后，不能只搜相同代码模式，必须搜"所有可能导致 Promise 永久 pending 的模式"（close置空reject / 同步resolve与error事件竞态 / fire-and-forget async / 无超时保护）
 - **R16：QM-1 每轮必执行** — 修改 electron/ 下代码后，QM-1 打包验证是"每轮"必执行，不是"首次"执行。每轮修复后立即打包，不允许积累多轮再打包
 - **R17：安全审计必须含网络暴露面** — /cso 审计必须包含：CORS 配置 / 监听地址（0.0.0.0 vs 127.0.0.1）/ 端点鉴权 / SSRF 防护。不能只查代码注入
+
+---
+
+## 第十轮审查复盘 v2.3.45 (2026-07-10)
+
+### ✅ 做得好的
+1. **首次应用 R14 维度基线清单** — 不再凭感觉选维度，按 6 大维度基线选了 3 个前九轮从未覆盖的维度（供应链安全/持久化完整性/Vue 深度），一轮发现 9 CRITICAL + 31 MAJOR
+2. **QM-1 连续第二轮执行** — R16 规则从"首次闭环"变为"每轮执行"，打包验证不再被跳过
+3. **持久化维度发现系统性缺陷** — sql.js 仅 close 时持久化（崩溃丢全部数据）、Statement.run 静默吞错（changes 恒为 0）、transaction 方法缺失（setDefaultAccount 必崩）、主密钥非原子写（损坏则全部凭证不可解密）—— 这些问题前九轮从未暴露，因为从未把"数据完整性"作为独立维度审查
+4. **供应链维度发现幽灵依赖** — cheerio 完全不在 node_modules 中，url-collector 功能必崩，前九轮靠 require 链测试从未覆盖到这个懒加载 require
+
+### ⚠️ 需要注意（失误与改进）
+1. **持久化数据完整性维度长期缺失** — 前九轮审查了资源泄漏（定时器/监听器），但从未审查"数据持久化的完整性"。sql.js 的内存模型（仅 close 时写盘）是持久化层的根本缺陷，却拖到第十轮才被发现。**根因：R14 的维度清单中"资源泄漏"只查内存资源，未查"数据持久化资源"**
+2. **供应链安全维度长期缺失** — 前九轮审查了依赖版本（electron EOL），但从未审查"幽灵依赖"和"package-lock 可复现性"。cheerio 缺失靠 hoisting 也救不回来，却拖到第十轮才被发现。**根因：R14 的维度清单中"依赖"只查版本号，未查"声明完整性"**
+3. **Vue 前端审查深度不足** — 前九轮只查了 loading 卡死（try-catch-finally），未查内存泄漏（debounce 定时器/IPC 监听器清理）、响应式陷阱（v-for index key）、路由（无 404 兜底）。第十轮一次性发现 15 MAJOR
+4. **D3 electron EOL 升级延后** — 已知风险但升级风险大（需同步升级 electron-builder + @types/electron + 测试），未在本轮修复。需单独排期
+
+### 🧠 经验沉淀（强制规则新增）
+- **R18：持久化完整性必须独立审查** — 不能归入"资源泄漏"维度。必须检查：持久化时机（实时 vs close时）、原子写（tmp+rename）、备份机制（.bak 双副本）、损坏恢复（先尝试备份再降级）、schema 迁移（PRAGMA user_version）
+- **R19：幽灵依赖必须用 require 链验证** — 不能只看 package.json 的 dependencies，必须 grep 源码中所有 require/import，交叉验证每个包是否在 package.json 中声明。特别检查懒加载 require（函数内部 require）和 try-catch require（容错 require）
+- **R20：Vue 审查必须含组件生命周期清理** — 不能只查 loading 卡死。必须检查：debounce/setTimeout 在 onBeforeUnmount 中 clearTimeout、addEventListener 有对应 removeEventListener、IPC 监听器（api.onXxx）返回的 unlisten 函数被调用
+- **R21：package-lock.json 必须提交** — monorepo 根目录的锁文件是供应链可复现性的基础，不允许被 .gitignore 忽略。CI/CD 和团队成员必须能复现完全相同的依赖树
