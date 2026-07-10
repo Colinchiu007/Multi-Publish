@@ -91,7 +91,9 @@ function loadCache() {
 function saveCache(tasks) {
   try {
     const cachePath = getCachePath()
-    fs.writeFileSync(cachePath, JSON.stringify(tasks, null, 2))
+    const tmpPath = cachePath + ".tmp"
+    fs.writeFileSync(tmpPath, JSON.stringify(tasks, null, 2))
+    fs.renameSync(tmpPath, cachePath)
     return true
   } catch (e) {
     log.error("offline", "Failed to save cache: " + e.message)

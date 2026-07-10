@@ -340,7 +340,9 @@ class PluginLoader {
     const dir = this._pluginDirs.get(platform);
     if (!dir) throw new Error("Platform filepath not found: " + platform);
     const cfgPath = path.join(path.dirname(dir), "plugin.config.json");
-    fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2), "utf-8");
+    const tmpPath = cfgPath + ".tmp";
+    fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), "utf-8");
+    fs.renameSync(tmpPath, cfgPath);
   }
 
 }

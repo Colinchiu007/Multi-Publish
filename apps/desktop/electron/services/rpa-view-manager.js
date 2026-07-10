@@ -370,18 +370,24 @@ class RpaViewManager {
   // ========== Network response monitor ==========
   async _waitForResponse(win, patterns, timeout) {
     timeout = timeout||60000
+    const session = win.webContents.session
     return new Promise(function(resolve) {
-      const t = setTimeout(function(){resolve(null)}, timeout)
+      let settled = false
+      const t = setTimeout(function(){ cleanup(); resolve(null) }, timeout)
       const matched = []
-      win.webContents.session.webRequest.onCompleted({urls:['<all_urls>']}, function(d) {
+      function cleanup() {
+        try { session.webRequest.onCompleted({urls:['<all_urls>']}, null) } catch(e) { /* session may be destroyed */ }
+      }
+      session.webRequest.onCompleted({urls:['<all_urls>']}, function(d) {
+        if (settled) return
         const url = d.url||''
         let hit = false
         for (let pi=0;pi<patterns.length;pi++){if(url.includes(patterns[pi])){hit=true;break}}
         if (!hit) return
         matched.push({url:url,statusCode:d.statusCode})
-        if (d.statusCode===200) { clearTimeout(t); resolve({url:url,statusCode:d.statusCode,matchedUrls:matched}) }
+        if (d.statusCode===200) { settled=true; clearTimeout(t); cleanup(); resolve({url:url,statusCode:d.statusCode,matchedUrls:matched}) }
       })
-      setTimeout(function(){if(matched.length>0)resolve({url:matched[0].url,statusCode:matched[0].statusCode,matchedUrls:matched})}, timeout+1000)
+      setTimeout(function(){ if(!settled && matched.length>0){ settled=true; cleanup(); resolve({url:matched[0].url,statusCode:matched[0].statusCode,matchedUrls:matched}) } }, timeout+1000)
     })
   }
 

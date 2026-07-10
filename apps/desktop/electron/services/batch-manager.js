@@ -149,6 +149,11 @@ class BatchManager {
       if (!article.publishTime || !article.platforms) continue
 
       const delay = new Date(article.publishTime).getTime() - Date.now()
+      // 安全修复：Invalid Date 导致 NaN，setTimeout(fn, NaN) 会立即执行（原仅检查 <=0，NaN<=0 为 false 漏过）
+      if (!Number.isFinite(delay)) {
+        log.warn('BatchManager', 'Invalid publishTime in batch ' + batchId + ': ' + article.publishTime)
+        continue
+      }
       if (delay <= 0) {
         // 已过期，立即发布
         for (const platform of article.platforms) {

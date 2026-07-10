@@ -72,7 +72,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onBeforeUnmount } from 'vue'
 import { usePlatformStore } from '@/stores/platforms'
 import { ElMessage } from 'element-plus'
 import { intelligenceSuggestTags } from '@/api/publisher'
@@ -94,6 +94,8 @@ function platformLabel (key) {
 }
 
 let debounceTimer = null
+// R20 修复：组件卸载时清理 debounce timer
+onBeforeUnmount(() => { if (debounceTimer) clearTimeout(debounceTimer) })
 watch(() => props.content, (newVal) => {
   if (debounceTimer) clearTimeout(debounceTimer)
   if (!newVal || newVal.trim().length < 3) {

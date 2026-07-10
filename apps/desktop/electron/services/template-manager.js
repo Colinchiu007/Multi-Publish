@@ -39,7 +39,9 @@ class TemplateManager {
     try {
       const dir = path.dirname(this._dataPath)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(this._dataPath, JSON.stringify(this._templates, null, 2), "utf-8")
+      const tmpPath = this._dataPath + ".tmp"
+      fs.writeFileSync(tmpPath, JSON.stringify(this._templates, null, 2), "utf-8")
+      fs.renameSync(tmpPath, this._dataPath)
     } catch (e) {
       log.warn("TemplateManager", "Failed to save: " + e.message)
     }

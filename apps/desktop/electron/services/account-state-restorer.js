@@ -119,7 +119,10 @@ function deleteAccountRecord (platform, accountId) {
       }
     })
     
-    fs.writeFileSync(filePath, filtered.join('\n') + (filtered.length ? '\n' : ''))
+    // 安全修复：凭证全文重写原子写（原非原子写中断会丢失全部账号登录态）
+    const tmpPath = filePath + '.tmp'
+    fs.writeFileSync(tmpPath, filtered.join('\n') + (filtered.length ? '\n' : ''))
+    fs.renameSync(tmpPath, filePath)
     log.info('AccountStateRestorer', `Deleted credentials for ${platform}:${accountId}`)
   } catch (e) {
     log.error('AccountStateRestorer', `Failed to delete account record: ${e.message}`)
@@ -185,7 +188,10 @@ function purgeExpired (days = 90) {
     })
     
     const purged = lines.length - valid.length
-    fs.writeFileSync(filePath, valid.join('\n') + (valid.length ? '\n' : ''))
+    // 安全修复：purgeExpired 全文重写原子写（原非原子写中断丢失全部账号凭证）
+    const tmpPath = filePath + '.tmp'
+    fs.writeFileSync(tmpPath, valid.join('\n') + (valid.length ? '\n' : ''))
+    fs.renameSync(tmpPath, filePath)
     
     if (purged > 0) {
       log.info('AccountStateRestorer', `Purged ${purged} expired records (>${days}d)`)

@@ -20,7 +20,11 @@ class PublishingPlan {
 
   _save() {
     if (!this._storageFile) return;
-    try { fs.writeFileSync(this._storageFile, JSON.stringify(this._plans, null, 2), "utf8"); } catch(e) {}
+    try {
+      const tmpPath = this._storageFile + ".tmp";
+      fs.writeFileSync(tmpPath, JSON.stringify(this._plans, null, 2), "utf8");
+      fs.renameSync(tmpPath, this._storageFile);
+    } catch(e) {}
   }
 
   async create(data) {

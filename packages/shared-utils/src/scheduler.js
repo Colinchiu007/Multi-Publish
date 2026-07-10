@@ -78,7 +78,10 @@ function updateStatus (id, status) {
       return JSON.stringify(entry)
     } catch { return line }
   })
-  fs.writeFileSync(filePath, updated.join('\n') + '\n', 'utf-8')
+  // 安全修复：定时任务全文重写原子写（原非原子写中断丢失全部定时发布任务）
+  const tmpPath = filePath + '.tmp'
+  fs.writeFileSync(tmpPath, updated.join('\n') + '\n', 'utf-8')
+  fs.renameSync(tmpPath, filePath)
 }
 
 /**

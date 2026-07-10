@@ -31,7 +31,9 @@ class UsageTracker {
   _save() {
     const dir = path.dirname(this._usagePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(this._usagePath, JSON.stringify(this._data, null, 2), "utf-8");
+    const tmpPath = this._usagePath + ".tmp";
+    fs.writeFileSync(tmpPath, JSON.stringify(this._data, null, 2), "utf-8");
+    fs.renameSync(tmpPath, this._usagePath);
   }
 
   /** 记录一次请求 */

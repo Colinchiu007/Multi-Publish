@@ -74,7 +74,7 @@
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { intelligenceGetOptimalTime } from '@/api/publisher'
 
 const props = defineProps({
@@ -98,6 +98,8 @@ function barWidth (score) {
 }
 
 let debounceTimer = null
+// R20 修复：组件卸载时清理 debounce timer
+onBeforeUnmount(() => { if (debounceTimer) clearTimeout(debounceTimer) })
 watch(() => props.keyword, (newVal) => {
   if (debounceTimer) clearTimeout(debounceTimer)
   if (!newVal || newVal.trim().length < 2) {

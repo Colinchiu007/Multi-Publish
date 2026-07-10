@@ -13,6 +13,35 @@ const fs = require('fs')
 const path = require('path')
 const log = require('./logger')
 
+/**
+ * SSRF 防护：校验外部 URL（协议白名单 + 内网 IP 黑名单）
+ * 与 url-collector.js / webhook-manager.js 保持一致的校验规则
+ */
+function _validateExternalUrl (url) {
+  let parsed
+  try {
+    parsed = new URL(url)
+  } catch (e) {
+    return { ok: false, reason: 'URL 格式不正确' }
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return { ok: false, reason: '仅支持 http/https 协议' }
+  }
+  const hostname = parsed.hostname.toLowerCase()
+  const isInternal = hostname === 'localhost' ||
+    hostname === '::1' ||
+    hostname.startsWith('127.') ||
+    hostname.startsWith('10.') ||
+    hostname.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+    hostname.startsWith('169.254.') ||
+    hostname.endsWith('.local')
+  if (isInternal) {
+    return { ok: false, reason: '不允许访问内网地址' }
+  }
+  return { ok: true }
+}
+
 class PublishPoller {
   /**
    * @param {object} opts
@@ -135,6 +164,14 @@ class PublishPoller {
         phase: 'download', percent: 10, message: 'Downloading video...',
       })
 
+      // 安全修复：SSRF 防护 — 校验 videoUrl 协议白名单 + 内网 IP 黑名单
+      const videoSsrfCheck = _validateExternalUrl(videoUrl)
+      if (!videoSsrfCheck.ok) {
+        log.warn('PublishPoller', `SSRF blocked for video_url: ${videoSsrfCheck.reason}`)
+        await this._updateTaskStatus(taskId, 'failed', { message: 'video_url ' + videoSsrfCheck.reason })
+        return
+      }
+
       const parsedUrl = new URL(videoUrl)
       const ext = path.extname(parsedUrl.pathname) || '.mp4'
       videoPath = path.join(tmpDir, 'video' + ext)
@@ -151,15 +188,22 @@ class PublishPoller {
       // Download cover (optional)
       if (input.cover_url) {
         try {
-          const coverExt = path.extname(new URL(input.cover_url).pathname) || '.jpg'
-          coverPath = path.join(tmpDir, 'cover' + coverExt)
-          const coverWriter = fs.createWriteStream(coverPath)
-          const coverResp = await this._axios.get(input.cover_url, { responseType: 'stream' })
-          coverResp.data.pipe(coverWriter)
-          await new Promise(function (resolve, reject) {
-            coverWriter.on('finish', resolve)
-            coverWriter.on('error', reject)
-          })
+          // 安全修复：SSRF 防护 — 校验 cover_url
+          const coverSsrfCheck = _validateExternalUrl(input.cover_url)
+          if (!coverSsrfCheck.ok) {
+            log.warn('PublishPoller', `SSRF blocked for cover_url: ${coverSsrfCheck.reason}`)
+            coverPath = null
+          } else {
+            const coverExt = path.extname(new URL(input.cover_url).pathname) || '.jpg'
+            coverPath = path.join(tmpDir, 'cover' + coverExt)
+            const coverWriter = fs.createWriteStream(coverPath)
+            const coverResp = await this._axios.get(input.cover_url, { responseType: 'stream' })
+            coverResp.data.pipe(coverWriter)
+            await new Promise(function (resolve, reject) {
+              coverWriter.on('finish', resolve)
+              coverWriter.on('error', reject)
+            })
+          }
         } catch (coverErr) {
           log.warn('PublishPoller', 'cover download failed: ' + coverErr.message)
           coverPath = null

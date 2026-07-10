@@ -112,7 +112,8 @@ class AuthViewManager {
       // CDP 检测（主检测方式）
       attachCdpDetection(view, () => {
         log.info('AuthView', 'CDP detected login success')
-        setTimeout(async () => {
+        // 安全修复：保存 timer 句柄，close() 中清理（R15 对齐 oauth-manager/qrcode-login）
+        this._cdpExtractTimer = setTimeout(async () => {
           try {
             const authData = await this._extractAuthData(view)
             if (this._resolveLogin) {
@@ -128,7 +129,8 @@ class AuthViewManager {
 
       // 超时
       if (timeout > 0) {
-        setTimeout(() => {
+        // 安全修复：保存 timer 句柄，close() 中清理（R15 对齐 oauth-manager/qrcode-login）
+        this._loginTimeout = setTimeout(() => {
           if (this._resolveLogin) {
             this._resolveLogin({ timeout: true })
             this._resolveLogin = null
@@ -158,7 +160,8 @@ class AuthViewManager {
     if (!patterns) return
     if (patterns.some(p => url.includes(p))) {
       log.info('AuthView', 'URL pattern detected login success: ' + this.currentPlatform)
-      setTimeout(async () => {
+      // 安全修复：保存 timer 句柄，close() 中清理
+      this._urlExtractTimer = setTimeout(async () => {
         try {
           const authData = this.currentView ? await this._extractAuthData(this.currentView) : { cookies: [], name: "" }
           if (this._resolveLogin) {
@@ -174,6 +177,10 @@ class AuthViewManager {
   }
 
   close() {
+    // 安全修复：清理所有 timer（R15 对齐 oauth-manager/qrcode-login）
+    if (this._loginTimeout) { clearTimeout(this._loginTimeout); this._loginTimeout = null }
+    if (this._cdpExtractTimer) { clearTimeout(this._cdpExtractTimer); this._cdpExtractTimer = null }
+    if (this._urlExtractTimer) { clearTimeout(this._urlExtractTimer); this._urlExtractTimer = null }
     if (this.currentView) {
       try {
         if (this._escHandler && this._escView) {

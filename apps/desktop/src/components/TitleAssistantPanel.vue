@@ -57,7 +57,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onBeforeUnmount } from 'vue'
 import { intelligenceSearchTitles } from '@/api/publisher'
 
 const props = defineProps({
@@ -80,6 +80,8 @@ function scoreColor (score) {
 
 // Debounced search when title changes
 let debounceTimer = null
+// R20 修复：组件卸载时清理 debounce timer（原未清理导致卸载后 async 回调修改已销毁组件状态）
+onBeforeUnmount(() => { if (debounceTimer) clearTimeout(debounceTimer) })
 watch(() => props.title, (newVal) => {
   if (debounceTimer) clearTimeout(debounceTimer)
   if (!newVal || newVal.length < 3) {

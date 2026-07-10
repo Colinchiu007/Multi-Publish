@@ -259,7 +259,8 @@ class QrCodeLogin {
     this._stopQrDetection()
 
     // 等待页面稳定后提取凭证
-    setTimeout(async () => {
+    // 安全修复：保存 timer 句柄，close() 中清理（原未保存导致 close 后仍触发虚假登录成功事件）
+    this._extractTimer = setTimeout(async () => {
       try {
         const authData = await this._extractAuthData()
         this._onLoginSuccess(authData)
@@ -360,6 +361,11 @@ class QrCodeLogin {
     if (this._loginTimeout) {
       clearTimeout(this._loginTimeout)
       this._loginTimeout = null
+    }
+    // 安全修复：清理 extract timer（原未清理导致 close 后仍触发虚假登录成功事件）
+    if (this._extractTimer) {
+      clearTimeout(this._extractTimer)
+      this._extractTimer = null
     }
 
     if (this.currentView) {

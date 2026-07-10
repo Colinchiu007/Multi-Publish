@@ -21,6 +21,36 @@ const log = require("./logger");
 
 const pipelineAsync = promisify(streamPipeline);
 
+/**
+ * SSRF 防护：校验外部 URL（协议白名单 + 内网 IP 黑名单）
+ * 与 url-collector.js / publish-poller.js 保持一致的校验规则
+ */
+function _validateExternalUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (e) {
+    return { ok: false, reason: "URL 格式不正确" };
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return { ok: false, reason: "仅支持 http/https 协议" };
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  const isInternal =
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname.startsWith("127.") ||
+    hostname.startsWith("10.") ||
+    hostname.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+    hostname.startsWith("169.254.") ||
+    hostname.endsWith(".local");
+  if (isInternal) {
+    return { ok: false, reason: "不允许访问内网地址" };
+  }
+  return { ok: true };
+}
+
 // ??? Content-Type ? ????? ??????????????????????????
 
 const CONTENT_TYPE_MAP = {
@@ -139,6 +169,12 @@ async function downloadMedia(url, destDir, options = {}) {
   }
 
   const axios = require("axios");
+
+  // 安全修复：SSRF 防护 — 校验 URL 协议白名单 + 内网 IP 黑名单
+  const ssrfCheck = _validateExternalUrl(url);
+  if (!ssrfCheck.ok) {
+    throw new Error("SSRF blocked: " + ssrfCheck.reason);
+  }
 
   const resp = await axios.get(url, {
     responseType: "stream",

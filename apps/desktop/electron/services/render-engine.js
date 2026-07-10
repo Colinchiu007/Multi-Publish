@@ -40,10 +40,17 @@ class RenderEngine {
   async installDeps(onProgress) {
     return new Promise((resolve) => {
       const child = spawn('npm', ['install'], { cwd: COMPOSER_DIR, shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      // 安全修复：保存到 _currentProcess 使 cancel() 能 kill（原未保存导致 installDeps 挂起时无法取消）
+      this._currentProcess = child
+      // 5 分钟超时保护（防止 npm install 挂起导致 Promise 永久 pending）
+      const installTimer = setTimeout(() => {
+        try { child.kill() } catch (_) { /* ignore */ }
+        resolve({ success: false, error: 'npm install timed out (5min)' })
+      }, 5 * 60 * 1000)
       child.stdout.on('data', (d) => { if (onProgress) onProgress(d.toString()); });
       child.stderr.on('data', (d) => { if (onProgress) onProgress(d.toString()); });
-      child.on('close', (code) => resolve(code === 0 ? { success: true } : { success: false, error: `npm install exited with code ${code}` }));
-      child.on('error', (err) => resolve({ success: false, error: err.message }));
+      child.on('close', (code) => { clearTimeout(installTimer); resolve(code === 0 ? { success: true } : { success: false, error: `npm install exited with code ${code}` }); });
+      child.on('error', (err) => { clearTimeout(installTimer); resolve({ success: false, error: err.message }); });
     });
   }
 

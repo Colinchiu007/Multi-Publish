@@ -49,6 +49,11 @@ function create (schedule) {
  */
 function scheduleTimer (entry) {
   const delay = new Date(entry.publishTime).getTime() - Date.now()
+  // 安全修复：Invalid Date 导致 NaN，setTimeout(fn, NaN) 会立即执行（原仅检查 <=0，NaN<=0 为 false 漏过）
+  if (!Number.isFinite(delay)) {
+    logger.warn('Scheduler', 'Invalid publishTime for task ' + entry.id + ': ' + entry.publishTime)
+    return
+  }
   if (delay <= 0) return  // 已过期
 
   _timers[entry.id] = setTimeout(async () => {
@@ -80,7 +85,10 @@ function updateStatus (id, status) {
       return JSON.stringify(entry)
     } catch { return line }
   })
-  fs.writeFileSync(filePath, updated.join('\n') + '\n', 'utf-8')
+  // 安全修复：定时任务全文重写原子写（原非原子写中断丢失全部定时发布任务）
+  const tmpPath = filePath + '.tmp'
+  fs.writeFileSync(tmpPath, updated.join('\n') + '\n', 'utf-8')
+  fs.renameSync(tmpPath, filePath)
 }
 
 /**
