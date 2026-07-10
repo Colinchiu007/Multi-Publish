@@ -79,6 +79,8 @@ class CommentMessageService {
         }
       } catch(e) { console.warn("[CommentService] poll error:", e.message); }
       self._timer = setTimeout(tick, interval);
+      // R28 修复：递归轮询定时器需 unref，不阻止进程退出
+      if (self._timer && self._timer.unref) self._timer.unref();
     }
     tick();
   }

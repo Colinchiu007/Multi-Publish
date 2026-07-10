@@ -1,5 +1,20 @@
 ﻿# CHANGELOG
 
+## [审查复盘] 第十五~十六轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R44。
+
+### 第十六轮（v2.3.45 复盘）
+- **R28 unref 穷尽修复（9处）**：R10 验证发现第十五轮声称"21处全补"实际不成立，packages/*/src/ 下 6 处完全未修。本轮修复全部 9 处：publish-impact-tracker baselineTimer + abort-utils timeoutId + batch-manager timer + shared-utils/scheduler + task-queue×2 + scheduled-publish + rate-limiter + comment-service
+- **R40 边界归一化落地**：batch-manager resolvePlatform 从局部函数提取为模块级函数，executeBatch 和 scheduleBatch 共用同一归一化入口，消除 3 处散落 typeof 判断
+- **R10 回归验证**：MAJOR-9 engagement 契约已修复 ✅ / R26 已闭环 ✅ / R28 9处未修（本轮修复）/ MAJOR-8 未完全达成（本轮修复）
+- **QM-1**：node_modules 环境被清空，用 R35 等效验证（8文件语法OK + 4/5模块加载OK）
+- **新增规则 R42-R44**：复盘与代码同commit / R37覆盖packages副本 / 审查首节验证node_modules
+
+### 第十五轮
+- 0 CRITICAL | 9 MAJOR | 8 MINOR（复盘文档已写但 packages 代码修复未执行，第十六轮补修）
+- 新增规则 R37-R41
+
 ## [审查复盘] 第十二~十四轮 (2026-07-09 ~ 2026-07-10)
 
 应用质量节拍 skill 连续三轮审查，累计修复 + 测试债务偿还。learnings.md 规则累计 R1-R36。

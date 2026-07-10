@@ -87,6 +87,8 @@ class ScheduledPublish {
     var self = this;
     this._checkDue();
     this._timer = setTimeout(function() { self._tick(); }, this._checkInterval);
+    // R28 修复：递归轮询定时器需 unref，不阻止进程退出
+    if (this._timer && this._timer.unref) this._timer.unref();
   }
 
   _checkDue() {

@@ -6,6 +6,8 @@ class RateLimiter {
     this._clients = {};
     var self = this;
     this._timer = setInterval(function() { self._cleanup(); }, Math.min(this._windowMs, 60000));
+    // R28 修复：清理窗口定时器需 unref，不阻止进程退出
+    if (this._timer && this._timer.unref) this._timer.unref();
   }
 
   check(ip) {

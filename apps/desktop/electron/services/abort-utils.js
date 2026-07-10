@@ -24,6 +24,8 @@ function createAbort(timeoutMs) {
     timeoutId = setTimeout(function () {
       controller.abort(new Error("Operation timed out after " + timeoutMs + "ms"));
     }, timeoutMs);
+    // R28 修复：超时定时器需 unref，不阻止进程退出（cleanup/abort 会 clearTimeout）
+    if (timeoutId && timeoutId.unref) timeoutId.unref();
   }
 
   return {

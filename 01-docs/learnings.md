@@ -429,6 +429,33 @@ apt-get install -y \
 
 ---
 
+## 第十六轮审查复盘 v2.3.45 (2026-07-10)
+
+### ✅ 做得好的
+1. **R10 回归验证首次推翻上轮"已闭环"结论** — 首节即发现第十五轮声称"12 文件 21 处定时器全部补 unref"实际不成立：packages/*/src/ 下 6 处完全未修，apps/desktop 还有 3 处遗漏。R10 不再是"走过场"，而是真正验证上轮声称
+2. **R37 全仓定时器清单输出作为证据** — 首次输出完整 setInterval/setTimeout 清单（35 处，26 有 unref，9 缺），而非口头声称"已扫描"。清单作为修复依据，可追溯
+3. **R40 边界归一化首次落地** — batch-manager 的 resolvePlatform 从 scheduleBatch 局部函数提取为模块级函数，executeBatch 和 scheduleBatch 共用同一归一化入口，消除 3 处散落 typeof 判断
+4. **R35 等效验证在 node_modules 清空时仍完成** — 环境被重置（electron/electron-builder/vitest 全部消失），但通过 `node -c` 语法检查 + 非 electron 模块 require 加载测试完成等效验证
+
+### ⚠️ 需要注意（失误与改进）
+1. **第十五轮"声称已修但实际未修"** — commit a828459 前缀为"docs:"，实际只写了 learnings 复盘（R37-R41），packages/*/src/ 下的 6 处 unref 代码修复完全未执行。**根因：复盘文档与代码修复分离提交，代码修复可能因上下文压缩/中断而丢失，但复盘文档照写了"已修复"**
+2. **R37 规则定义但执行不彻底** — 第十五轮定义了 R37"全仓 grep setInterval|setTimeout"，但实际只修了 apps/desktop 的部分实例，packages 副本完全遗漏。**根因：R30"规则定义后必须当轮执行"再次违反 — R37 定义了但执行范围仅限 apps/desktop**
+3. **node_modules 环境不稳定** — 连续审查中 node_modules 被清空（electron/electron-builder/vitest 全部消失），导致 QM-1 无法完整执行。**根因：沙箱环境不持久，每轮审查前未验证依赖可用性**
+4. **R39 重扫验证了 R26 闭环但发现方法名不对称** — usage-tracker 在 apps/desktop 为 `save()`、在 api-publish-engine 为 `_save()`，虽功能相同但命名不一致。R26"同功能多实现"的残留特征
+
+### 🧠 经验沉淀（强制规则新增）
+- **R42：复盘文档必须与代码修复同轮同 commit** — 不允许"先写复盘声称已修复，代码修复另轮补"。复盘中的"✅ 已修复"每一项必须在同轮 commit 的 diff 中有对应代码变更。commit message 前缀（fix: vs docs:）必须与实际内容匹配——代码修复用 fix:，纯文档用 docs:，混合时用 fix: 并在 body 列出代码变更
+- **R43：R37 全仓定时器清单必须覆盖 packages 副本** — R37 的 grep 范围必须包含 `apps/desktop/electron/` AND `packages/*/src/`，不能只扫主应用。packages 下的 shared-utils/scheduler、api-publish-engine 的 scheduled-publish/rate-limiter/comment-service 是跨生命周期定时器的常见位置
+- **R44：每轮审查首节必须验证 node_modules 可用性** — 审查前先 `ls node_modules/electron/package.json && ls node_modules/electron-builder/cli.js`，不可用时先记录环境限制，再用 R35 等效验证（语法+加载），避免 QM-1 在不可用环境中空转
+
+### 🔁 本轮"为什么还有问题"复盘
+第十六轮发现 0 CRITICAL、9 MAJOR（全部是第十五轮声称已修但实际未修的 R28 unref + MAJOR-8 platform 归一化），根因分析：
+1. **"声称已修但实际未修"是最严重的流程缺陷** — 第十五轮的复盘文档照写了"21 处全部补 unref"，但 packages 副本的 6 处代码修复完全未执行。这说明复盘文档变成了"写给自己看的乐观叙事"而非"基于 diff 的事实记录"。**改进：R42 强制复盘与代码同 commit，每项"已修复"必须在 diff 中可验证**
+2. **R30 再次违反** — R37 定义于第十五轮但执行不彻底（仅 apps/desktop）。R30"规则定义后必须当轮执行"已连续在 R26（第十二轮定义→第十三轮首次执行）、R28（第十二轮定义→第十五轮首次执行）、R37（第十五轮定义→第十六轮首次执行）中被违反。**根因：规则定义容易，全仓执行难——需要工具化（grep 脚本）而非靠记忆**
+3. **R28 穷尽扫描拖延 4 轮** — R28 定义于第十二轮，第十二~十五轮都声称"已应用"，但直到第十六轮才真正穷尽（9 处全修）。这说明"已应用"的判定标准过于宽松——只看是否修了被报告的实例，不看是否穷尽。**改进：R37 清单必须作为"已应用"的证据**
+
+---
+
 ## 第十五轮审查复盘 v2.3.45 (2026-07-10)
 
 ### ✅ 做得好的

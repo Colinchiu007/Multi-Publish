@@ -78,6 +78,8 @@ class PublishImpactTracker {
       }
       await this._captureSnapshot(articleId, title, searchKeywords, platform, 'baseline')
     }, 60_000)  // T+1min
+    // R28 修复：baselineTimer 同样需 unref（与 line 63 的 timer 对齐）
+    if (baselineTimer && baselineTimer.unref) baselineTimer.unref()
     intervals.push(baselineTimer)
 
     return { articleId, schedule }
