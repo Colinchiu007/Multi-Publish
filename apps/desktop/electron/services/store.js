@@ -46,7 +46,14 @@ class Store {
       this.db.pragma('foreign_keys = ON')
       this._createTables()
       this._ready = true
-      log.info('Store', 'Database initialized successfully')
+      // 修复 P1：定时持久化（原仅 close() 时持久化，崩溃丢全部数据）
+      // 每 5 秒检查 dirty 标记，有写入则原子持久化到磁盘
+      this._persistTimer = setInterval(() => {
+        if (this.db && this.db.persist) this.db.persist()
+      }, 5000)
+      // unref 让定时器不阻止进程退出
+      if (this._persistTimer.unref) this._persistTimer.unref()
+      log.info('Store', 'Database initialized successfully (with auto-persist)')
       return true
     } catch (e) {
       log.error('Store', `Failed to initialize: ${e.message}`)
@@ -98,7 +105,24 @@ class Store {
 
   deleteAccount (id) {
     if (!this._ready) return false
+    // 修复 P2：级联清理孤儿数据（原仅删 accounts 表，凭证/状态/历史残留）
+    // 先查出 platform，用于清理 publish_timeline 等关联数据
+    const row = this.db.prepare('SELECT platform FROM accounts WHERE id = ?').get(id)
+    const platform = row ? row.platform : null
+
     this.db.prepare('DELETE FROM accounts WHERE id = ?').run(id)
+    // 清理关联表数据
+    this.db.prepare('DELETE FROM scheduled_tasks WHERE platform = ? AND article LIKE ?').run(
+      platform || '', `%"accountId":"${id}"%`
+    )
+    this.db.prepare('DELETE FROM publish_history WHERE platform = ? AND result LIKE ?').run(
+      platform || '', `%"accountId":"${id}"%`
+    )
+    this.db.prepare("DELETE FROM settings WHERE key = ? OR key LIKE ?").run(
+      `default_account:${platform}`, `%:${id}`
+    )
+    // 触发持久化
+    if (this.db.persist) this.db.persist()
     return true
   }
 
@@ -366,7 +390,12 @@ class Store {
   /**
    * 关闭数据�?   */
   close () {
+    if (this._persistTimer) {
+      clearInterval(this._persistTimer)
+      this._persistTimer = null
+    }
     if (this.db) {
+      // close() 内部会调用 persist() 做最后一次原子持久化
       // eslint-disable-next-line no-unused-vars
       try { this.db.close() } catch (e) { /* ignore */ }
       this.db = null

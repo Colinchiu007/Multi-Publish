@@ -27,6 +27,7 @@
   "license": "MIT",
   "dependencies": {
     "app-builder-bin": "5.0.0-alpha.10",
+    "cheerio": "^1.2.0",
     "electron": "^33.4.0",
     "ws": "^8.21.0"
   },
@@ -37,4 +38,3 @@
     "playwright": "^1.61.1"
   }
 }
-

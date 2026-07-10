@@ -82,12 +82,32 @@ class LicenseManager {
           if (parsed && parsed.type) {
             this._data = parsed
             log.info("LicenseManager", "License loaded: " + this._data.type)
+            return
           }
         }
       }
     } catch (e) {
-      log.warn("LicenseManager", "Failed to load: " + e.message)
+      log.warn("LicenseManager", "Failed to load primary: " + e.message)
+      // 修复 P6：损坏时先尝试 .bak 备份，避免静默降级为 free 丢失 Pro 许可
+      try {
+        const bakPath = this._dataPath + ".bak"
+        if (fs.existsSync(bakPath)) {
+          const rawBak = fs.readFileSync(bakPath, "utf-8").trim()
+          const decodedBak = deobfuscate(rawBak)
+          if (decodedBak) {
+            const parsedBak = JSON.parse(decodedBak)
+            if (parsedBak && parsedBak.type) {
+              this._data = parsedBak
+              log.info("LicenseManager", "License restored from backup: " + this._data.type)
+              return
+            }
+          }
+        }
+      } catch (e2) {
+        log.warn("LicenseManager", "Backup also failed: " + e2.message)
+      }
       this._data = this._defaultData()
+      log.warn("LicenseManager", "License corrupted, fell back to free. Please re-activate if you had Pro.")
     }
   }
 
@@ -96,7 +116,15 @@ class LicenseManager {
       const dir = path.dirname(this._dataPath)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
       const encoded = obfuscate(JSON.stringify(this._data))
-      fs.writeFileSync(this._dataPath, encoded, "utf-8")
+      // 修复 P6：原子写（tmp + rename）+ 备份双副本
+      const tmpPath = this._dataPath + ".tmp"
+      fs.writeFileSync(tmpPath, encoded, "utf-8")
+      fs.renameSync(tmpPath, this._dataPath)
+      // 同步备份
+      try {
+        const bakPath = this._dataPath + ".bak"
+        fs.writeFileSync(bakPath, encoded, "utf-8")
+      } catch (e2) { /* best-effort backup */ }
     } catch (e) {
       log.warn("LicenseManager", "Failed to save: " + e.message)
     }

@@ -5,7 +5,7 @@
  * 安全：所有 handler 包裹 try-catch，防止 store 抛错变成 unhandled rejection
  */
 function registerHandlers(ipcMain, deps) {
-  const { store } = deps
+  const { store, credentialStore, accountStateRestorer } = deps
 
   ipcMain.handle('store:add-account', (_, account) => {
     try {
@@ -36,6 +36,13 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('store:delete-account', (_, id) => {
     try {
       store.deleteAccount(id)
+      // 修复 P2：级联清理凭证和登录状态（原仅删 accounts 表，孤儿数据残留）
+      if (credentialStore && credentialStore.deleteCredential) {
+        try { credentialStore.deleteCredential(id) } catch (e) { /* best-effort */ }
+      }
+      if (accountStateRestorer && accountStateRestorer.deleteAccountRecord) {
+        try { accountStateRestorer.deleteAccountRecord(id) } catch (e) { /* best-effort */ }
+      }
       return { code: 0 }
     } catch (e) {
       return { code: -1, message: e.message }

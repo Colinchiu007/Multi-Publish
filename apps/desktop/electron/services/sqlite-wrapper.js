@@ -3,7 +3,7 @@
  * SQLite Wrapper — 兼容 better-sqlite3 API 的纯 JS 实现
  *
  * 底层使用 sql.js，不需要原生编译。
- * 提供 prepare(sql).all() / .get() / .run() 接口，
+ * 提供 prepare(sql).all() / .get() / .run() / .transaction() 接口，
  * 与 store.js 中原有的 better-sqlite3 调用兼容。
  *
  * 注意：sql.js 需要先调用 initSqlJs() 初始化 WASM，
@@ -11,6 +11,7 @@
  */
 const fs = require('fs')
 const path = require('path')
+const log = require('./logger')
 
 let SQL = null
 let _initError = null
@@ -33,19 +34,26 @@ class Statement {
   }
 
   run(...params) {
+    // 修复 P3：原 catch 静默吞掉所有错误且 changes 恒为 0
+    if (!this._db) return { changes: 0 }
     try {
       const stmt = this._db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
       stmt.step()
+      const changes = this._db.getRowsModified()
       stmt.free()
-    // eslint-disable-next-line no-unused-vars
+      return { changes }
     } catch (e) {
-      // Table might not exist yet — just return
+      // 表不存在等启动期错误降级为 changes:0，其余错误记录日志
+      if (!String(e.message).includes('no such table')) {
+        log.error('sqlite-wrapper', `run() error: ${e.message} | SQL: ${this._sql.substring(0, 80)}`)
+      }
+      return { changes: 0, error: e.message }
     }
-    return { changes: 0 }
   }
 
   get(...params) {
+    if (!this._db) return undefined
     try {
       const stmt = this._db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
@@ -55,15 +63,17 @@ class Statement {
         return row
       }
       stmt.free()
-    // eslint-disable-next-line no-unused-vars
     } catch (e) {
-      return undefined
+      if (!String(e.message).includes('no such table')) {
+        log.error('sqlite-wrapper', `get() error: ${e.message} | SQL: ${this._sql.substring(0, 80)}`)
+      }
     }
     return undefined
   }
 
   all(...params) {
     const rows = []
+    if (!this._db) return rows
     try {
       const stmt = this._db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
@@ -71,9 +81,10 @@ class Statement {
         rows.push(stmt.getAsObject())
       }
       stmt.free()
-    // eslint-disable-next-line no-unused-vars
     } catch (e) {
-      // Table might not exist yet
+      if (!String(e.message).includes('no such table')) {
+        log.error('sqlite-wrapper', `all() error: ${e.message} | SQL: ${this._sql.substring(0, 80)}`)
+      }
     }
     return rows
   }
@@ -84,12 +95,13 @@ class Database {
     this._dbPath = dbPath
     this._ready = false
     this._db = null
+    this._dirty = false   // 标记是否有未持久化的写入
     this._init()
   }
 
   _init() {
     if (!SQL) {
-      if (_initError) console.warn('[sqlite-wrapper]', _initError)
+      if (_initError) log.warn('sqlite-wrapper', _initError)
       return
     }
     try {
@@ -100,7 +112,7 @@ class Database {
       }
       this._ready = true
     } catch (e) {
-      console.warn('[sqlite-wrapper] Failed to open DB:', e.message)
+      log.error('sqlite-wrapper', 'Failed to open DB: ' + e.message)
     }
   }
 
@@ -111,11 +123,12 @@ class Database {
         'foreign_keys = ON', 'foreign_keys = OFF', 'synchronous = NORMAL', 'synchronous = FULL',
         'synchronous = OFF', 'temp_store = MEMORY', 'temp_store = FILE']
       if (!SAFE_PRAGMAS.includes(String(sql).trim())) {
-        console.warn('[sqlite-wrapper] Rejected unsafe PRAGMA:', sql)
+        log.warn('sqlite-wrapper', 'Rejected unsafe PRAGMA: ' + sql)
         return
       }
-      // eslint-disable-next-line no-unused-vars
-      try { this._db.exec(`PRAGMA ${sql}`) } catch (e) { /* ignore */ }
+      try { this._db.exec(`PRAGMA ${sql}`) } catch (e) {
+        log.warn('sqlite-wrapper', 'PRAGMA error: ' + e.message)
+      }
     }
   }
 
@@ -126,22 +139,61 @@ class Database {
 
   exec(sql) {
     if (this._db) {
-      // eslint-disable-next-line no-unused-vars
-      try { this._db.exec(sql) } catch (e) { /* ignore */ }
+      try {
+        this._db.exec(sql)
+        this._dirty = true
+      } catch (e) {
+        log.error('sqlite-wrapper', 'exec() error: ' + e.message)
+      }
+    }
+  }
+
+  /**
+   * 事务支持（修复 P4：原 store.js 调用 this.db.transaction() 但方法不存在）
+   * @param {function} fn - 事务体函数
+   */
+  transaction(fn) {
+    if (!this._db) return () => {}
+    return () => {
+      try {
+        this._db.exec('BEGIN')
+        const result = fn()
+        this._db.exec('COMMIT')
+        this._dirty = true
+        return result
+      } catch (e) {
+        try { this._db.exec('ROLLBACK') } catch (_) { /* ignore rollback error */ }
+        log.error('sqlite-wrapper', 'Transaction failed, rolled back: ' + e.message)
+        throw e
+      }
+    }
+  }
+
+  /**
+   * 持久化到磁盘（原子写：tmp + rename）
+   * 修复 P1：原仅 close() 时持久化，崩溃丢全部数据
+   */
+  persist() {
+    if (!this._db || !this._dbPath || !this._dirty) return true
+    try {
+      const data = this._db.export()
+      const dir = path.dirname(this._dbPath)
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+      // 原子写：先写临时文件，再 rename
+      const tmpPath = this._dbPath + '.tmp'
+      fs.writeFileSync(tmpPath, Buffer.from(data))
+      fs.renameSync(tmpPath, this._dbPath)
+      this._dirty = false
+      return true
+    } catch (e) {
+      log.error('sqlite-wrapper', 'Failed to persist DB: ' + e.message)
+      return false
     }
   }
 
   close() {
-    if (this._db && this._dbPath) {
-      try {
-        const data = this._db.export()
-        const dir = path.dirname(this._dbPath)
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-        fs.writeFileSync(this._dbPath, Buffer.from(data))
-      } catch (e) {
-        console.warn('[sqlite-wrapper] Failed to save DB:', e.message)
-      }
-    }
+    // 关闭前持久化（原子写）
+    this.persist()
     if (this._db) this._db.close()
   }
 }

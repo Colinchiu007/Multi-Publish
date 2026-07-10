@@ -10,8 +10,9 @@ data/
 .DS_Store
 *.log
 # Monorepo
-package-lock.json
-# 鍐椾綑鏂囦欢锛岄厤缃粺涓€鍦?package.json
+# 修复 D1：package-lock.json 必须提交以保证供应链可复现性（原被忽略导致 CI/团队依赖漂移）
+# package-lock.json
+# 鍐椾綑鏂囦欢锛岄厤缃粺涓€鍦?package.json
 electron-builder.yml
 build/*.exe
 latest.yml

@@ -44,9 +44,18 @@ function getMasterKey (credDir) {
   } else {
     masterKey = crypto.randomBytes(32).toString('hex')
     fs.mkdirSync(credDir, { recursive: true })
-    fs.writeFileSync(keyFile, masterKey, 'utf8')
+    // 修复 P5：主密钥原子写（原 writeFileSync 中断会导致所有凭证永久不可解密）
+    const tmpPath = keyFile + '.tmp'
+    fs.writeFileSync(tmpPath, masterKey, 'utf8')
+    fs.renameSync(tmpPath, keyFile)
     // 安全：限制主密钥文件权限为 600（仅所有者可读写）
     try { fs.chmodSync(keyFile, 0o600) } catch (e) { /* Windows 无效，忽略 */ }
+    // 备份主密钥（双副本，防止单文件损坏导致全部凭证不可解密）
+    try {
+      const bakPath = keyFile + '.bak'
+      fs.writeFileSync(bakPath, masterKey, 'utf8')
+      try { fs.chmodSync(bakPath, 0o600) } catch (e) { /* ignore */ }
+    } catch (e) { /* best-effort backup */ }
   }
   return masterKey
 }
