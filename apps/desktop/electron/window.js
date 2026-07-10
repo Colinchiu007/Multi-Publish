@@ -73,9 +73,14 @@ function createWindow(context) {
   commentManager.setGetMainWin(() => BrowserWindow.getAllWindows()[0])
   systemTray.init(mainWindow)
   hotkeys.register()
-  autoUpdater.init(mainWindow, (status) => {
-    log.info('auto-updater', JSON.stringify(status))
-  })
+  // R66：autoUpdater 属可选组件，失败时仅日志不阻断启动
+  try {
+    autoUpdater.init(mainWindow, (status) => {
+      log.info('auto-updater', JSON.stringify(status))
+    })
+  } catch (e) {
+    log.warn('window', 'autoUpdater init failed, running without auto-update: ' + (e && e.message))
+  }
   firstRun.runSetup(mainWindow)
 
   return mainWindow

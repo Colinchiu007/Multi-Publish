@@ -1057,3 +1057,66 @@ R52 是质量节拍 skill 应用以来最大的系统性技术债清理任务。
 - 服务层 `{ success, error }` 与 IPC 层 `{ code, data, message }` 双格式
 
 预计再 **1~2 轮** 可清零 MAJOR。然后进入 R51 P1 参数校验阶段。
+
+---
+
+## 第三十轮复盘（v2.3.55）— R64/R65/R66 三规则落地 + 5 一致性 MAJOR 调查
+
+### 本轮成果
+1. **R10 回归基线** — 第二十九轮 commit `fe1ed8f` 已推送，8 文件改动语法验证通过
+2. **应用 R64 悬空引用扫描** — PASS（270 条静态相对 require 全部命中目标文件）
+3. **应用 R65 导出/导入形状契约** — PASS（8 个核心模块 + 1 个修正：rpa-engine 实际无 publisher-router.js，文件在 apps/desktop 下）
+4. **应用 R66 可选组件降级** — 发现 1 处违规，已修复
+5. **5 个一致性 MAJOR 问题调查** — 全部仍存在，已分类列出修复路径
+
+### R66 修复明细
+- **`apps/desktop/electron/window.js:76`** — `autoUpdater.init()` 调用加 try/catch
+  - 修复前：未包裹，失败时传播到 bootstrap.js 顶层 catch（fail-fast：弹错误对话框 + 中止启动）
+  - 修复后：try/catch + `log.warn` + 继续启动
+  - 与 system-tray/hotkeys/Notification 的优雅降级风格保持一致
+
+### R65 调查修正（一处认知偏差）
+- 第二十九轮 Bug 2 描述："publisher-router.js 导出 `{ PublisherRouter, ROUTE_TABLE }` 但 container.setup.js 按默认导入"
+- R65 扫描发现：`packages/rpa-engine/src/publisher-router.js` **不存在**
+- 实际位置：`apps/desktop/electron/services/publisher-router.js`
+- 当前导入形状已修复（`const { PublisherRouter } = require('../services/publisher-router')`），R65 PASS
+
+### 5 个一致性 MAJOR 问题调查结论
+
+| 编号 | 问题 | 现状 | 严重度 | 修复建议 |
+|------|------|------|--------|---------|
+| 1 | 两份 CHANGELOG 未同步 | 仍存在（顶层到 v2.3.54，01-docs 停在 v2.3.41 + ????乱码段） | MAJOR | 补齐 01-docs/CHANGELOG.md 的 v2.3.42~v2.3.54 + 修乱码 |
+| 2 | error-codes.js 8 个未使用常量 | 仍存在 | MAJOR | 不删常量，启用 VALIDATION_ERROR(-2)/NOT_FOUND(-10)/AUTH_ERROR(-3) 用于语义化 |
+| 3 | 4 个 IPC handler EC 常量混用 | 仍存在（3/4 文件） | MAJOR | offline.js/publish.js 迁移字面量到 EC.XXX；payment.js 删死导入（本轮已做） |
+| 4 | 校验错误用 -1 而非 -2 | 仍存在（6 处参数校验 + 5 处 NOT_FOUND + 2 处 AUTH） | MAJOR | 与 #2/#3 合并修复 |
+| 5 | 服务层 success/error 与 IPC 层 code/data/message 双格式 | 仍存在（且服务层内部也不一致） | MAJOR-低 | 加 wrapServiceResult 包装器，下一轮重构 |
+
+### 本轮已修（最小手术）
+- **payment.js L17** — 删除死导入 `const EC = require('../core/error-codes').ERROR`（全文 0 处引用 EC，纯死代码）
+- **window.js L76** — autoUpdater.init 加 try/catch（R66 合规）
+
+### 本轮"为什么还有问题"复盘
+
+第三十轮应用 R64/R65/R66 三条新规则做了同类扫描，结果：
+- R64 PASS — 第二十八轮修 logger.js 后已经无悬空引用，规则落地后证明修复彻底
+- R65 PASS — 第二十八轮修 container.setup.js 解构后已经形状匹配，规则落地后证明修复彻底
+- R66 发现 1 处违规 — system-tray/hotkeys/Notification 都有 try/catch，唯独 autoUpdater 没有。**这是"修一个少一个"模式的再次验证**：第二十八轮只修了 system-tray，没系统性扫描其他可选组件
+
+**教训**：R66 是本轮新增规则，落地后才系统性扫描了所有可选组件。如果第二十八轮就有 R66，autoUpdater 违规当时就会被一起修掉。**这就是"先有规则再扫描"vs"修一个就走"的差别**。
+
+### 剩余 MAJOR 修复路径（已分类）
+
+**P1 高优先级（下一轮做）**：
+- IPC handler EC 常量迁移（offline.js + publish.js + render.js + upload.js + templates.js + license.js + platform.js + payment.js 字面量迁移）
+- 估时：~2h，影响 8 个文件
+- 同时启用 VALIDATION_ERROR(-2) / NOT_FOUND(-10) / AUTH_ERROR(-3) 三个常量
+
+**P2 中优先级**：
+- 01-docs/CHANGELOG.md 补齐 v2.3.42~v2.3.54 + 修乱码
+- 估时：~1h
+
+**P3 低优先级（重构级）**：
+- 服务层格式统一 + wrapServiceResult 包装器
+- 估时：~4h
+
+预计再 **2 轮** 可清零 P1+P2 MAJOR。P3 可作为长期重构议题。

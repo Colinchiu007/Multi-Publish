@@ -13,8 +13,8 @@
 
 // eslint-disable-next-line no-unused-vars
 function registerHandlers(ipcMain, deps) {
-  // eslint-disable-next-line no-unused-vars
-  const EC = require('../core/error-codes').ERROR
+  // R65/R14：移除死导入 EC（payment.js 全部用 code:-1，未使用 EC 常量）
+  // 如需统一错误码语义化，后续轮次单独迁移
   const PaymentManager = require('../services/payment-manager')
   const pm = new PaymentManager()
 

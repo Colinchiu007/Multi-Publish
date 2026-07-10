@@ -1,5 +1,21 @@
 ﻿# CHANGELOG
 
+## [审查复盘] 第十五~三十轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R66。
+
+### 第三十轮（v2.3.55 复盘）— R64/R65/R66 三规则落地 + 5 一致性 MAJOR 调查
+- **R10 回归基线** — 第二十九轮 commit fe1ed8f 已推送，8 文件改动语法验证通过
+- **R64 悬空引用扫描 PASS** — 270 条静态相对 require 全部命中目标文件
+- **R65 导出/导入形状契约 PASS** — 8 个核心模块全部形状匹配（修正：rpa-engine 实际无 publisher-router.js）
+- **R66 可选组件降级** — 发现 1 处违规，已修复：
+  - window.js:76 autoUpdater.init 加 try/catch + log.warn
+- **5 个一致性 MAJOR 问题调查** — 全部仍存在，分类列出修复路径（P1 IPC EC 迁移 / P2 CHANGELOG 同步 / P3 服务层格式统一）
+- **本轮最小手术**：
+  - payment.js L17 删除死导入 EC（全文 0 处引用）
+  - window.js L76 autoUpdater.init 加 try/catch（R66 合规）
+- **教训**："修一个少一个" vs "先有规则再扫描"的差别 — R66 落地后才发现 autoUpdater 缺降级
+
 ## [审查复盘] 第十五~二十九轮 (2026-07-10)
 
 应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R66。
