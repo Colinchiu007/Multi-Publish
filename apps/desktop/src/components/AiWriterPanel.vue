@@ -138,11 +138,16 @@ async function checkConfig() {
 async function generateTitles() {
   if (!topic.value.trim()) return
   generating.value = true
-  const a = api()
-  if (!a) return
-  const res = await a.aiGenerateTitles(topic.value)
-  if (res && res.code === 0) titles.value = res.data || []
-  generating.value = false
+  try {
+    const a = api()
+    if (!a) return
+    const res = await a.aiGenerateTitles(topic.value)
+    if (res && res.code === 0) titles.value = res.data || []
+  } catch (e) {
+    console.error(e)
+  } finally {
+    generating.value = false
+  }
 }
 
 function selectTitle(t) {
@@ -151,18 +156,22 @@ function selectTitle(t) {
 
 async function enhanceContent() {
   enhancing.value = true
-  const a = api()
-  if (!a) return
-  // Read content from parent - passed via prop or get from editor
-  const content = props.sourceContent || ""
-  if (!content || content.length < 10) {
-    enhancedResult.value = "请先在正文编辑器中输入内容"
+  try {
+    const a = api()
+    if (!a) return
+    // Read content from parent - passed via prop or get from editor
+    const content = props.sourceContent || ""
+    if (!content || content.length < 10) {
+      enhancedResult.value = "请先在正文编辑器中输入内容"
+      return
+    }
+    const res = await a.aiEnhanceContent(content, selectedStyle.value)
+    if (res && res.code === 0) enhancedResult.value = res.data
+  } catch (e) {
+    console.error(e)
+  } finally {
     enhancing.value = false
-    return
   }
-  const res = await a.aiEnhanceContent(content, selectedStyle.value)
-  if (res && res.code === 0) enhancedResult.value = res.data
-  enhancing.value = false
 }
 
 function selectEnhanced() {
@@ -171,17 +180,21 @@ function selectEnhanced() {
 
 async function generateSummary() {
   summarizing.value = true
-  const a = api()
-  if (!a) return
-  const content = props.sourceContent || ""
-  if (!content || content.length < 20) {
-    summary.value = "内容太短，无法生成摘要"
+  try {
+    const a = api()
+    if (!a) return
+    const content = props.sourceContent || ""
+    if (!content || content.length < 20) {
+      summary.value = "内容太短，无法生成摘要"
+      return
+    }
+    const res = await a.aiGenerateSummary(content)
+    if (res && res.code === 0) summary.value = res.data || ""
+  } catch (e) {
+    console.error(e)
+  } finally {
     summarizing.value = false
-    return
   }
-  const res = await a.aiGenerateSummary(content)
-  if (res && res.code === 0) summary.value = res.data || ""
-  summarizing.value = false
 }
 
 function selectSummary() {

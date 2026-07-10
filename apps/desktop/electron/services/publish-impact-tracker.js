@@ -116,6 +116,18 @@ class PublishImpactTracker {
   }
 
   /**
+   * 清理所有追踪定时器（应用退出时调用）
+   */
+  stopAll () {
+    for (const [articleId, data] of this._timers) {
+      for (const timer of data.intervals) {
+        clearTimeout(timer)
+      }
+    }
+    this._timers.clear()
+  }
+
+  /**
    * Get all active tracking schedules.
    */
   getActiveTrackings () {

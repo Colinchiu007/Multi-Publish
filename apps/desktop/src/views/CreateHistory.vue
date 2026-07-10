@@ -92,9 +92,14 @@ export default {
     },
     async loadPipelines() {
       this.pipelineLoading = true
-      const r = await pipelineHistory()
-      if (r?.success) this.pipelines = r.data || []
-      this.pipelineLoading = false
+      try {
+        const r = await pipelineHistory()
+        if (r?.success) this.pipelines = r.data || []
+      } catch (e) {
+        console.error(e)
+      } finally {
+        this.pipelineLoading = false
+      }
     },
     statusLabel(s) {
       const labels = { completed: '已完成', running: '运行中', failed: '失败', cancelled: '已取消', paused: '已暂停' }

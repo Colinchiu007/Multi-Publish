@@ -91,19 +91,24 @@ const platforms = [
 ]
 
 onMounted(async () => {
-  const api = window.electronAPI
-  if (api) {
-    if (api.getVersion) version.value = await api.getVersion()
-    if (api.storeGetPublishStats) {
-      const res = await api.storeGetPublishStats()
-      if (res.code === 0) stats.value = res.data
+  try {
+    const api = window.electronAPI
+    if (api) {
+      if (api.getVersion) version.value = await api.getVersion()
+      if (api.storeGetPublishStats) {
+        const res = await api.storeGetPublishStats()
+        if (res.code === 0) stats.value = res.data
+      }
+      if (api.storeListAccounts) {
+        const res = await api.storeListAccounts()
+        if (res.code === 0) accounts.value = (res.data || []).length
+      }
     }
-    if (api.storeListAccounts) {
-      const res = await api.storeListAccounts()
-      if (res.code === 0) accounts.value = (res.data || []).length
-    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    loaded.value = true
   }
-  loaded.value = true
 })
 
 function go (path) {

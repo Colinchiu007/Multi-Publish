@@ -116,4 +116,14 @@ function restore () {
   return tasks.length
 }
 
-module.exports = { setTaskQueue, create, list, cancel, restore }
+/**
+ * 清理所有待执行的定时器（应用退出时调用）
+ */
+function stopAll () {
+  for (const id of Object.keys(_timers)) {
+    clearTimeout(_timers[id])
+    delete _timers[id]
+  }
+}
+
+module.exports = { setTaskQueue, create, list, cancel, restore, stopAll }

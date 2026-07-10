@@ -1,6 +1,6 @@
 {
     "name": "@multi-publish/desktop",
-    "version": "2.0.0",
+    "version": "2.3.44",
     "description": "婢舵艾閽╅崣鏉垮敶鐎归€涚闁款喖褰傜敮鍐╊攽闂堛垹浼愰敓?(Electron + RpaViewManager)",
     "author": "Colin Chiu <colin.chiu@colinchiu.com>",
     "main": "electron/main.js",
@@ -20,7 +20,7 @@
         "format": "prettier --check \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
         "format:write": "prettier --write \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
         "check:ts": "tsc -p tsconfig.check.json --noEmit",
-        "check:all": "npm run check:ts && npm run lint && npm run test:vue"
+        "check:all": "npm run check:ts && npm run lint && npm run test"
     },
     "keywords": [
         "multi-publish",

@@ -150,13 +150,13 @@ async function downloadMedia(url, destDir, options = {}) {
   const contentDisposition = resp.headers["content-disposition"] || "";
   const totalSize = parseInt(resp.headers["content-length"] || "0", 10) || 0;
 
-  // ?????
+  // 确定文件名
   let finalFilename = filename;
   if (!finalFilename) {
     finalFilename = getFileNameFromDisposition(contentDisposition);
   }
   if (!finalFilename) {
-    // ? URL ?????
+    // 从 URL 路径提取
     const urlPath = new URL(url).pathname;
     const urlBase = path.basename(urlPath);
     if (urlBase && urlBase.includes(".")) {
@@ -165,6 +165,15 @@ async function downloadMedia(url, destDir, options = {}) {
       const ext = getExtensionFromContentType(contentType);
       finalFilename = `download${ext === ".bin" && defaultExt ? defaultExt : ext}`;
     }
+  }
+
+  // 安全防护：剥离目录部分，防止路径穿越（../ 注入）
+  finalFilename = path.basename(finalFilename);
+  // 解码可能的 URL 编码后再次剥离（防止 %2E%2E%2F 绕过）
+  try { finalFilename = path.basename(decodeURIComponent(finalFilename)) } catch { /* 无效编码保持原值 */ }
+  if (!finalFilename || finalFilename === '.' || finalFilename === '..') {
+    const ext = getExtensionFromContentType(contentType);
+    finalFilename = `download${ext === ".bin" && defaultExt ? defaultExt : ext}`;
   }
 
   const filePath = ensureUniqueFilePath(path.join(destDir, finalFilename));

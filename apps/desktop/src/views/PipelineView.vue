@@ -138,9 +138,14 @@ export default {
     },
     async loadHistory() {
       this.historyLoading = true
-      const r = await pipelineHistory()
-      if (r?.success) this.history = r.data || []
-      this.historyLoading = false
+      try {
+        const r = await pipelineHistory()
+        if (r?.success) this.history = r.data || []
+      } catch (e) {
+        console.error(e)
+      } finally {
+        this.historyLoading = false
+      }
     },
     getRunningClass(name) { return this.currentPipeline === name ? 'is-running' : '' },
     stageClass(stage, i) { return i < this.currentStageIndex ? 'done' : i === this.currentStageIndex ? 'active' : '' },

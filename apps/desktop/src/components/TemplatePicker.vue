@@ -102,8 +102,13 @@ async function resetDefaults() {
 
 onMounted(async () => {
   loading.value = true
-  await store.load()
-  loading.value = false
+  try {
+    await store.load()
+  } catch (e) {
+    console.error(e)
+  } finally {
+    loading.value = false
+  }
 })
 </script>
 

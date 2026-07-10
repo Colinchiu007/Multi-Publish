@@ -220,23 +220,33 @@ async function doActivate() {
   activating.value = true
   activateError.value = ""
   activateSuccess.value = false
-  const ok = await store.activate(licenseKey.value.trim())
-  activating.value = false
-  if (ok) {
-    activateSuccess.value = true
-  } else {
-    activateError.value = "激活码无效或已被使用"
+  try {
+    const ok = await store.activate(licenseKey.value.trim())
+    if (ok) {
+      activateSuccess.value = true
+    } else {
+      activateError.value = "激活码无效或已被使用"
+    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    activating.value = false
   }
 }
 
 async function doTrial() {
   trialLoading.value = true
-  const ok = await store.activateTrial()
-  trialLoading.value = false
-  if (ok) {
-    activateSuccess.value = true
-  } else {
-    activateError.value = "试用激活失败"
+  try {
+    const ok = await store.activateTrial()
+    if (ok) {
+      activateSuccess.value = true
+    } else {
+      activateError.value = "试用激活失败"
+    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    trialLoading.value = false
   }
 }
 

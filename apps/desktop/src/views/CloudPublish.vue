@@ -156,14 +156,19 @@ export default {
 
     async refreshTasks () {
       this.loadingTasks = true
-      const res = await cloudPublishListTasks()
-      if (res.ok && res.data) {
-        this.tasks = (res.data.items || []).slice(0, 50)
-        this.orchestratorOnline = true
-      } else {
-        this.orchestratorOnline = false
+      try {
+        const res = await cloudPublishListTasks()
+        if (res.ok && res.data) {
+          this.tasks = (res.data.items || []).slice(0, 50)
+          this.orchestratorOnline = true
+        } else {
+          this.orchestratorOnline = false
+        }
+      } catch (e) {
+        console.error(e)
+      } finally {
+        this.loadingTasks = false
       }
-      this.loadingTasks = false
     },
 
     startPolling () {
@@ -199,30 +204,33 @@ export default {
 
       this.submitting = true
       this.submitResult = null
+      try {
+        const res = await cloudPublishSubmit({
+          videoUrl: this.form.videoUrl,
+          platform: this.form.platform,
+          title: this.form.title,
+          desc: this.form.desc,
+          tags: this.form.tags,
+          coverUrl: this.form.coverUrl,
+        })
 
-      const res = await cloudPublishSubmit({
-        videoUrl: this.form.videoUrl,
-        platform: this.form.platform,
-        title: this.form.title,
-        desc: this.form.desc,
-        tags: this.form.tags,
-        coverUrl: this.form.coverUrl,
-      })
+        this.submitResult = res
 
-      this.submitResult = res
-
-      if (res.ok) {
-        // Reset form
-        this.form.videoUrl = ''
-        this.form.title = ''
-        this.form.desc = ''
-        this.form.tags = []
-        this.form.coverUrl = ''
-        // Refresh task list
-        await this.refreshTasks()
+        if (res.ok) {
+          // Reset form
+          this.form.videoUrl = ''
+          this.form.title = ''
+          this.form.desc = ''
+          this.form.tags = []
+          this.form.coverUrl = ''
+          // Refresh task list
+          await this.refreshTasks()
+        }
+      } catch (e) {
+        console.error(e)
+      } finally {
+        this.submitting = false
       }
-
-      this.submitting = false
     },
 
     async retryTask (task) {
