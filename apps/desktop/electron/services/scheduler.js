@@ -68,6 +68,8 @@ function scheduleTimer (entry) {
     }
     delete _timers[entry.id]
   }, delay)
+  // R28 修复：unref 让定时器不阻止进程退出
+  if (_timers[entry.id] && _timers[entry.id].unref) _timers[entry.id].unref()
 }
 
 /**

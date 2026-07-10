@@ -72,6 +72,8 @@ function createMonitorTask (task) {
       
       log.info('PublishMonitor', `Poll ${retries}/${maxRetries} for ${platform}:${postId} → ${result.status}`)
       timerId = setTimeout(poll, POLL_INTERVAL)
+      // R28 修复：unref 让定时器不阻止进程退出
+      if (timerId && timerId.unref) timerId.unref()
     } catch (e) {
       log.error('PublishMonitor', `Poll error for ${platform}:${postId}: ${e.message}`)
       retries++
@@ -80,11 +82,15 @@ function createMonitorTask (task) {
         return
       }
       timerId = setTimeout(poll, POLL_INTERVAL)
+      // R28 修复：unref 让定时器不阻止进程退出
+      if (timerId && timerId.unref) timerId.unref()
     }
   }
   
   // 启动监控
   timerId = setTimeout(poll, POLL_INTERVAL)
+  // R28 修复：unref 让定时器不阻止进程退出
+  if (timerId && timerId.unref) timerId.unref()
   
   return {
     stop: () => {

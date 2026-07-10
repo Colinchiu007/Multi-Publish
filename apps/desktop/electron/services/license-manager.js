@@ -170,6 +170,8 @@ class LicenseManager {
       if (!this._data.expiresAt) return false
       const now = new Date()
       const expires = new Date(this._data.expiresAt)
+      // R29 修复：Invalid Date 守卫，无效日期视为非 Pro（与 isTrialExpired 返回 true 一致）
+      if (!Number.isFinite(expires.getTime())) return false
       return now < expires
     }
     return false
@@ -182,7 +184,10 @@ class LicenseManager {
   isTrialExpired() {
     if (this._data.type !== "trial") return false
     if (!this._data.expiresAt) return false
-    return new Date() > new Date(this._data.expiresAt)
+    const expires = new Date(this._data.expiresAt)
+    // R29 修复：Invalid Date 守卫，无效日期视为已过期（与 isPro 返回 false 一致）
+    if (!Number.isFinite(expires.getTime())) return true
+    return new Date() > expires
   }
 
   getInfo() {

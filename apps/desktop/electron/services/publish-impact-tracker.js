@@ -59,6 +59,8 @@ class PublishImpactTracker {
       const timer = setTimeout(async () => {
         await this._captureSnapshot(articleId, title, searchKeywords, platform, label)
       }, delay)
+      // R28 修复：unref 让定时器不阻止进程退出
+      if (timer && timer.unref) timer.unref()
       intervals.push(timer)
       schedule.push({ label, delay, at: new Date(Date.now() + delay).toISOString() })
     }

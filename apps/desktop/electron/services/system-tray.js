@@ -102,6 +102,8 @@ function flashTray (times = 3) {
     }
     count++
   }, 500)
+  // R28 修复：unref 让定时器不阻止进程退出
+  if (interval && interval.unref) interval.unref()
 }
 
 // 需要 fs 模块

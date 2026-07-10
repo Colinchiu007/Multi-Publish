@@ -28,7 +28,9 @@ function createLoginStatusMonitor (opts) {
       return
     }
     // 首次延迟 60s 启动，避免与应用启动抢资源
-    setTimeout(_runOnce, 60 * 1000)
+    const _startTimer = setTimeout(_runOnce, 60 * 1000)
+    // R28 修复：unref 让定时器不阻止进程退出
+    if (_startTimer && _startTimer.unref) _startTimer.unref()
     _timer = setInterval(_runOnce, _intervalMs)
     _timer.unref && _timer.unref()
     logger.info('LoginMonitor', '登录状态定期检测已启动，间隔 ' + (_intervalMs / 60000) + ' 分钟')

@@ -118,6 +118,8 @@ class QrCodeLogin {
           this.close()
           reject(new Error(`${platform} 扫码登录超时（${Math.round(timeout / 1000 / 60)} 分钟）`))
         }, timeout)
+        // R28 修复：unref 让定时器不阻止进程退出
+        if (this._loginTimeout && this._loginTimeout.unref) this._loginTimeout.unref()
       }
 
       // 通知渲染进程
@@ -148,6 +150,8 @@ class QrCodeLogin {
     this._scanTimer = setInterval(() => {
       this._detectQrCodeOnce()
     }, QR_SCAN_INTERVAL_MS)
+    // R28 修复：unref 让定时器不阻止进程退出
+    if (this._scanTimer && this._scanTimer.unref) this._scanTimer.unref()
   }
 
   _stopQrDetection () {
@@ -269,6 +273,8 @@ class QrCodeLogin {
         this._onLoginSuccess({ cookies: [], localStorage: {}, accountName: this.currentPlatform })
       }
     }, 2000)
+    // R28 修复：unref 让定时器不阻止进程退出
+    if (this._extractTimer && this._extractTimer.unref) this._extractTimer.unref()
   }
 
   /**

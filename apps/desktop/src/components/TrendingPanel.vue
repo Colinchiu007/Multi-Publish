@@ -93,7 +93,7 @@
             {{ item.comments }}
           </span>
           <span
-            v-if="item.engagementScore !== undefined"
+            v-if="item.engagementScore != null"
             style="display: flex; align-items: center; gap: 3px; font-weight: 500;"
             :style="{ color: engagementColor(item.engagementScore) }"
           >

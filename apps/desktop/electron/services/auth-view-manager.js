@@ -125,6 +125,8 @@ class AuthViewManager {
             log.warn('AuthView', 'Failed to extract auth data: ' + (e instanceof Error ? e.message : String(e)))
           }
         }, 3000)
+        // R28 修复：unref 让定时器不阻止进程退出
+        if (this._cdpExtractTimer && this._cdpExtractTimer.unref) this._cdpExtractTimer.unref()
       })
 
       // 超时
@@ -137,6 +139,8 @@ class AuthViewManager {
             this.close()
           }
         }, timeout)
+        // R28 修复：unref 让定时器不阻止进程退出
+        if (this._loginTimeout && this._loginTimeout.unref) this._loginTimeout.unref()
       }
     })
   }
@@ -173,6 +177,8 @@ class AuthViewManager {
           log.warn('AuthView', 'Extract error: ' + (e instanceof Error ? e.message : String(e)))
         }
       }, 3000)
+      // R28 修复：unref 让定时器不阻止进程退出
+      if (this._urlExtractTimer && this._urlExtractTimer.unref) this._urlExtractTimer.unref()
     }
   }
 

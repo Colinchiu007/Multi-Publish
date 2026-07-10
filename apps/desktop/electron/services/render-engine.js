@@ -47,6 +47,8 @@ class RenderEngine {
         try { child.kill() } catch (_) { /* ignore */ }
         resolve({ success: false, error: 'npm install timed out (5min)' })
       }, 5 * 60 * 1000)
+      // R28 修复：unref 让定时器不阻止进程退出
+      if (installTimer && installTimer.unref) installTimer.unref()
       child.stdout.on('data', (d) => { if (onProgress) onProgress(d.toString()); });
       child.stderr.on('data', (d) => { if (onProgress) onProgress(d.toString()); });
       child.on('close', (code) => { clearTimeout(installTimer); resolve(code === 0 ? { success: true } : { success: false, error: `npm install exited with code ${code}` }); });

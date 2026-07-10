@@ -80,6 +80,8 @@ class PublishPoller {
         try { await this._poll() } catch (e) { log.warn('PublishPoller', 'poll error: ' + e.message) }
         scheduleNext()
       }, this.pollInterval)
+      // R28 修复：unref 让定时器不阻止进程退出
+      if (this._timer && this._timer.unref) this._timer.unref()
     }
     scheduleNext()
     log.info('PublishPoller', 'started (interval=' + this.pollInterval + 'ms)')

@@ -28,11 +28,12 @@ class BatchManager {
    * 清理所有排期中的定时器（应用退出时调用）
    */
   stopAll () {
+    const count = this._timers.size
     for (const timer of this._timers) {
       clearTimeout(timer)
     }
     this._timers.clear()
-    log.info('BatchManager', `Cleared ${this._timers.size} pending batch timers`)
+    log.info('BatchManager', `Cleared ${count} pending batch timers`)
   }
 
   /**
@@ -145,6 +146,9 @@ class BatchManager {
     const batch = this.store.getBatchJob(batchId)
     if (!batch) return false
 
+    // platform 可能是字符串或 {platform, accountId} 对象（与 executeBatch 解析逻辑一致）
+    const resolvePlatform = (p) => typeof p === 'object' && p ? { platform: p.platform, accountId: p.accountId || null } : { platform: p, accountId: null }
+
     for (const article of batch.articles) {
       if (!article.publishTime || !article.platforms) continue
 
@@ -162,7 +166,8 @@ class BatchManager {
           continue
         }
         for (const platform of article.platforms) {
-          _taskQueue.add({ platform, article, batchId })
+          const r = resolvePlatform(platform)
+          _taskQueue.add({ platform: r.platform, article, batchId, accountId: r.accountId })
         }
         continue
       }
@@ -170,8 +175,14 @@ class BatchManager {
       const timer = setTimeout(() => {
         this._timers.delete(timer)
         try {
+          // 边界修复：_taskQueue 可能为 null（与立即发布路径对齐）
+          if (!_taskQueue) {
+            log.warn('BatchManager', 'Task queue not ready, skipping batch task for batch ' + batchId)
+            return
+          }
           for (const platform of article.platforms) {
-            _taskQueue.add({ platform, article, batchId })
+            const r = resolvePlatform(platform)
+            _taskQueue.add({ platform: r.platform, article, batchId, accountId: r.accountId })
           }
         } catch (e) {
           log.error('BatchManager', 'Failed to schedule batch task for batch ' + batchId + ': ' + e.message)

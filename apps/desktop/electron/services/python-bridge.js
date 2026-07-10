@@ -25,6 +25,8 @@ let currentPort = BACKEND_PORT
 let restartCount = 0
 /** @type {NodeJS.Timeout | null} */
 let watchdogTimer = null
+/** @type {NodeJS.Timeout | null} */
+let _restartTimer = null
 
 /**
  * 获取 Python 后端工作目录
@@ -94,6 +96,8 @@ function launchProcess (port) {
     const spawnTimeout = setTimeout(() => {
       reject(new Error('Python process spawn timeout'))
     }, 30000)
+    // R28 修复：unref 让定时器不阻止进程退出
+    if (spawnTimeout && spawnTimeout.unref) spawnTimeout.unref()
     proc.once('spawn', () => {
       clearTimeout(spawnTimeout)
       resolve(proc)
@@ -151,6 +155,8 @@ function waitForHealthy () {
         reject(new Error('Python backend health check timed out'))
       }
     }, HEALTH_CHECK_INTERVAL)
+    // R28 修复：unref 让定时器不阻止进程退出
+    if (interval && interval.unref) interval.unref()
   })
   return p
 }
@@ -188,6 +194,10 @@ function stopWatchdog () {
     clearInterval(watchdogTimer)
     watchdogTimer = null
   }
+  if (_restartTimer) {
+    clearTimeout(_restartTimer)
+    _restartTimer = null
+  }
 }
 
 function scheduleRestart () {
@@ -198,13 +208,15 @@ function scheduleRestart () {
   restartCount++
   const delay = Math.min(restartCount * 2000, 10000)  // 递增延迟
   log.info('PythonBridge', `Scheduling restart #${restartCount} in ${delay}ms`)
-  setTimeout(async () => {
+  _restartTimer = setTimeout(async () => {
     try {
       await startPythonBackend()
     } catch (e) {
       log.error('PythonBridge', `Restart #${restartCount} failed: ${e instanceof Error ? e.message : String(e)}`)
     }
   }, delay)
+  // R28 修复：unref 让定时器不阻止进程退出
+  if (_restartTimer && _restartTimer.unref) _restartTimer.unref()
 }
 
 /**

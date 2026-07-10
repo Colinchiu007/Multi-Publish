@@ -147,6 +147,8 @@ class OAuthManager {
           this.close()
           reject(new Error(`${platform} OAuth 授权超时（${Math.round(timeout / 1000 / 60)} 分钟）`))
         }, timeout)
+        // R28 修复：unref 让定时器不阻止进程退出
+        if (this._loginTimeout && this._loginTimeout.unref) this._loginTimeout.unref()
       }
 
       log.info('OAuthManager', `Started OAuth for ${platform}, redirect port ${config.redirectPort}`)
