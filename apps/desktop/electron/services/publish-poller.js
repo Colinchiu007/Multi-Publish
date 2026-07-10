@@ -187,6 +187,8 @@ class PublishPoller {
       await new Promise(function (resolve, reject) {
         writer.on('finish', resolve)
         writer.on('error', reject)
+        // M-1 修复：pipe 不转发源流 error，需单独监听，否则下载中途出错 promise 永久挂起
+        downloadResp.data.on('error', function (e) { writer.destroy(e); reject(e) })
       })
 
       // Download cover (optional)
@@ -206,6 +208,8 @@ class PublishPoller {
             await new Promise(function (resolve, reject) {
               coverWriter.on('finish', resolve)
               coverWriter.on('error', reject)
+              // M-1 修复：pipe 不转发源流 error，需单独监听
+              coverResp.data.on('error', function (e) { coverWriter.destroy(e); reject(e) })
             })
           }
         } catch (coverErr) {

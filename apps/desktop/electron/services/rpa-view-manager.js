@@ -304,7 +304,7 @@ class RpaViewManager {
   async _waitForElement(win, sel, timeout) {
     timeout = timeout||30000
     // eslint-disable-next-line no-unused-vars
-    try { return await win.webContents.executeJavaScript('(function(){return new Promise(function(r){let e=document.querySelector(\''+sel+'\');if(e){r(true);return}let o=new MutationObserver(function(){let f=document.querySelector(\''+sel+'\');if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()') } catch(e) { return false }
+    try { return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';return new Promise(function(r){let e=document.querySelector(s);if(e){r(true);return}let o=new MutationObserver(function(){let f=document.querySelector(s);if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()') } catch(e) { return false }
   }
   async _waitForCondition(win, fn, timeout, interval) {
     timeout=timeout||30000; interval=interval||500
@@ -313,10 +313,10 @@ class RpaViewManager {
   }
   async _fillInput(win, sel, val) {
     const sv=JSON.stringify(val)
-    return await win.webContents.executeJavaScript('(function(){let el=document.querySelector(\''+sel+'\');if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){el.innerHTML='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));return}let ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
+    return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';let el=document.querySelector(s);if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){el.innerHTML='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));return}let ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
   }
   async _click(win, sel) {
-    return await win.webContents.executeJavaScript('(function(){let el=document.querySelector(\''+sel+'\');if(!el)throw new Error("not found: "+"'+sel+'");el.click();return true})()')
+    return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';let el=document.querySelector(s);if(!el)throw new Error("not found: "+s);el.click();return true})()')
   }
 
   // ========== CDP file upload ==========

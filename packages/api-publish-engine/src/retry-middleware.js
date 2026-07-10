@@ -106,8 +106,6 @@ function withCache(fn, opts) {
   });
   cacheStore[key] = { data: val, ts: Date.now() };
   return val;
-  cacheStore[key] = { data: val, ts: Date.now() };
-  return val;
 }
 
 function clearCache(key) {

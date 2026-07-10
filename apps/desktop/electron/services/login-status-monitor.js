@@ -19,6 +19,7 @@ function createLoginStatusMonitor (opts) {
   const _getMainWin = opts.getMainWin
 
   let _timer = null
+  let _startTimer = null
   let _running = false
 
   function start () {
@@ -28,7 +29,7 @@ function createLoginStatusMonitor (opts) {
       return
     }
     // 首次延迟 60s 启动，避免与应用启动抢资源
-    const _startTimer = setTimeout(_runOnce, 60 * 1000)
+    _startTimer = setTimeout(_runOnce, 60 * 1000)
     // R28 修复：unref 让定时器不阻止进程退出
     if (_startTimer && _startTimer.unref) _startTimer.unref()
     _timer = setInterval(_runOnce, _intervalMs)
@@ -37,6 +38,11 @@ function createLoginStatusMonitor (opts) {
   }
 
   function stop () {
+    // m-2 修复：stop 时一并清理 _startTimer，避免 start 后 60s 内 stop 仍触发一次 _runOnce
+    if (_startTimer) {
+      clearTimeout(_startTimer)
+      _startTimer = null
+    }
     if (_timer) {
       clearInterval(_timer)
       _timer = null
