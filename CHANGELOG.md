@@ -948,6 +948,43 @@
 - 改动涉及 119 文件 ±678 行
 
 
+## [第十五轮审查] v2.3.45 — 2026-07-10
+
+### 审查范围
+- R10 回归基线验证（第十四轮 11 处修复无回归 ✅）
+- R14 六大维度基线扫描 + R15 语义同类 + R26 同功能多实现 + R28 跨生命周期 unref + R29 隐式转换
+- 结果：0 CRITICAL | 9 MAJOR | 8 MINOR（CRITICAL 连续第二轮清零）
+
+### 修复清单
+**R28 跨生命周期 unref 穷尽（21 处 × 12 文件）**
+- publish-monitor.js（3 处 setTimeout）、python-bridge.js（3 处 + 新增 _restartTimer 模块级变量 + stopWatchdog 清理）
+- qrcode-login.js（3 处）、auth-view-manager.js（3 处）、publish-poller.js（1 处递归轮询）
+- oauth-manager.js（1 处）、login-status-monitor.js（1 处）、system-tray.js（1 处 flashTray）
+- publish-impact-tracker.js（1 处）、scheduler.js（1 处 _timers[entry.id]）、render-engine.js（1 处 installTimer）
+
+**MAJOR 修复**
+- MAJOR-1: `packages/shared-utils/src/scheduler.js` L65 `addTask` → `add`（R26 同步遗漏，TaskQueue 类只有 add 方法）
+- MAJOR-8: `batch-manager.js` executeBatch platform 对象未解析 — 新增 `resolvePlatform(p)` 边界归一化（R40），立即路径和 setTimeout 路径统一消费规范形态
+- MAJOR-9: `publisher.js` intelligenceFetchTrending 后端返回 `engagement` 前端消费 `engagementScore` 字段不匹配 — 归一化 `engagementScore: item.engagementScore != null ? item.engagementScore : item.engagement`；TrendingPanel.vue v-if 从 `!== undefined` 改 `!= null`（R38 前后端字段契约）
+
+**MINOR 修复**
+- MINOR-1: batch-manager stopAll 先保存 `_timers.size` 再 clear（修日志 bug，clear 后 size 为 0）
+- MINOR-2: batch-manager scheduleBatch setTimeout 路径补 `_taskQueue` null 守卫
+- MINOR-4: license-manager isPro/isTrialExpired 同步 R29 Invalid Date 守卫（之前只修了 _daysRemaining）
+
+### 验证
+- 测试: 1855 passed | 5 failed | 10 skipped（5 失败为 pre-existing，git stash 验证非本轮回归）
+- QM-1: `electron-builder --win --dir --publish never` 80s 通过，asar 135MB + rpa-engine require 链 OK
+- 语法校验: 14 个 CJS 文件 + 1 ESM 文件全部通过
+
+### 新增强制规则（R37-R41）
+- R37: R28 unref 必须全仓 grep `setInterval\|setTimeout` 逐个核对（R7 在跨生命周期维度的强化）
+- R38: 前后端字段名契约必须建立对照表（R14 一致性维度新增 API 字段契约子项）
+- R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
+- R40: 多态参数必须边界归一化（入口统一解析为规范形态）
+- R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
+
 
 
 
