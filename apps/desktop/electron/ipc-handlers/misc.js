@@ -1,29 +1,30 @@
 // @ts-check
 function registerHandlers(ipcMain, deps) {
+  const EC = require('../core/error-codes').ERROR
   // eslint-disable-next-line no-unused-vars
   const { app, hotkeys, firstRun, BrowserWindow, log } = deps
 
   ipcMain.handle('app:get-version', () => {
     try {
       return { code: 0, data: app.getVersion() }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
   ipcMain.handle('app:get-platform', () => {
     try {
       return { code: 0, data: process.platform }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('hotkeys:list', async () => {
     try {
       return { code: 0, data: hotkeys.getShortcuts() }
-    } catch (e) { return { code: -1, message: e.message, data: [] } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
 
   ipcMain.handle('first-run:check', async () => {
     try {
       return { code: 0, data: firstRun.checkDeps() }
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('show-notification', async (_, data) => {
@@ -32,10 +33,9 @@ function registerHandlers(ipcMain, deps) {
       if (win && !win.isDestroyed()) {
         win.webContents.send('notification', data)
       }
-      // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
     // eslint-disable-next-line no-unused-vars
-    } catch (e) { return { code: -1, message: e.message } }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 }
 

@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [审查复盘] 第十五~三十四轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R71。
+
+### 第三十四轮（v2.3.58 复盘）— EC 迁移完整性清零 + R71 全文件扫描规则
+- **R10 回归基线** — 第三十三轮 commit a46d22e 工作区干净，R67 全项目 NUL 验证通过
+- **EC 迁移完整性扫描** — 发现 1 CRITICAL + 40 MAJOR + 5 测试断言待同步
+- **修复 1 CRITICAL** — upload.js:24 `upload:chunked` 解构在 try 外（arg 为 undefined 时同步抛 TypeError）
+- **修复 4 文件缺 EC import** — pipeline.js(10) / misc.js(5) / sync.js(3) / update.js(3)，共 21 处字面量迁移
+- **修复 store.js 19 处字面量** — 14 处 catch + 3 处业务三元码 + 2 处 NOT_FOUND 语义化
+- **同步 2 处测试断言** — store.test.js 中 NOT_FOUND 断言从 -1 → -10
+- **全 IPC handler `code: -1` 残留清零** ✅（grep 验证通过）
+- **新增规则 R71** — EC 迁移全文件扫描规则（文件/字面量/handler 三个完整性）
+- **EC 迁移全部完成** ✅（文件/字面量/handler/测试四维全清零）
+
 ## [审查复盘] 第十五~三十三轮 (2026-07-10)
 
 应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R70。

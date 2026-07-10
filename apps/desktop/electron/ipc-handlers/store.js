@@ -11,19 +11,18 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('store:add-account', (_, account) => {
     try {
       const ok = store.addAccount(account)
-      // R52 修复：统一返回格式，补充 data 字段
-      return { code: ok ? 0 : -1, data: ok }
+      return { code: ok ? 0 : EC.REQUEST_ERROR, data: ok }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
   ipcMain.handle('store:get-account', (_, id) => {
     try {
       const account = store.getAccount(id)
-      return { code: account ? 0 : -1, data: account }
+      return { code: account ? 0 : EC.NOT_FOUND, data: account }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -31,7 +30,7 @@ function registerHandlers(ipcMain, deps) {
     try {
       return { code: 0, data: store.listAccounts(platform) }
     } catch (e) {
-      return { code: -1, message: e.message, data: [] }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
   })
 
@@ -45,10 +44,9 @@ function registerHandlers(ipcMain, deps) {
       if (accountStateRestorer && accountStateRestorer.deleteAccountRecord) {
         try { accountStateRestorer.deleteAccountRecord(id) } catch (e) { /* best-effort */ }
       }
-      // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -58,7 +56,6 @@ function registerHandlers(ipcMain, deps) {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { platform, accountId } = arg
       store.setDefaultAccount(platform, accountId)
-      // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -68,9 +65,9 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('store:get-default-account', (_, platform) => {
     try {
       const account = store.getDefaultAccount(platform)
-      return { code: account ? 0 : -1, data: account }
+      return { code: account ? 0 : EC.NOT_FOUND, data: account }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -80,7 +77,6 @@ function registerHandlers(ipcMain, deps) {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { id, fields } = arg
       store.updateAccount(id, fields)
-      // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -90,9 +86,9 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('store:add-publish-record', (_, record) => {
     try {
       const id = store.addPublishRecord(record)
-      return { code: id ? 0 : -1, data: { id } }
+      return { code: id ? 0 : EC.REQUEST_ERROR, data: { id } }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -100,7 +96,7 @@ function registerHandlers(ipcMain, deps) {
     try {
       return { code: 0, data: store.listPublishHistory(opts) }
     } catch (e) {
-      return { code: -1, message: e.message, data: { total: 0, records: [] } }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, records: [] } }
     }
   })
 
@@ -108,16 +104,16 @@ function registerHandlers(ipcMain, deps) {
     try {
       return { code: 0, data: store.getPublishStats() }
     } catch (e) {
-      return { code: -1, message: e.message, data: { total: 0, success: 0, failed: 0, byPlatform: {} } }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, success: 0, failed: 0, byPlatform: {} } }
     }
   })
 
   ipcMain.handle('store:add-scheduled-task', (_, task) => {
     try {
       const id = store.addScheduledTask(task)
-      return { code: id ? 0 : -1, data: { id } }
+      return { code: id ? 0 : EC.REQUEST_ERROR, data: { id } }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -125,17 +121,16 @@ function registerHandlers(ipcMain, deps) {
     try {
       return { code: 0, data: store.listScheduledTasks() }
     } catch (e) {
-      return { code: -1, message: e.message, data: [] }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
   })
 
   ipcMain.handle('store:delete-task', (_, id) => {
     try {
       store.deleteTask(id)
-      // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -143,17 +138,16 @@ function registerHandlers(ipcMain, deps) {
     try {
       return { code: 0, data: store.getSetting(key) }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
   ipcMain.handle('store:set-setting', (_, key, value) => {
     try {
       store.setSetting(key, value)
-      // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -161,7 +155,7 @@ function registerHandlers(ipcMain, deps) {
     try {
       return { code: 0, data: store.listCallbackLogs(limit) }
     } catch (e) {
-      return { code: -1, message: e.message, data: [] }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
   })
 }

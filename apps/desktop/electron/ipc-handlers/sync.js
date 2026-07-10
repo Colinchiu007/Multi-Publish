@@ -1,5 +1,6 @@
 // @ts-check
 function registerHandlers(ipcMain, deps) {
+  const EC = require('../core/error-codes').ERROR
   const { _dataSync } = deps
 
   ipcMain.handle('sync:all', async () => {
@@ -7,7 +8,7 @@ function registerHandlers(ipcMain, deps) {
       const results = await _dataSync.syncAll()
       return { code: 0, data: results }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -16,7 +17,7 @@ function registerHandlers(ipcMain, deps) {
       const result = await _dataSync.syncPlatform(platform)
       return { code: 0, data: result }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 
@@ -25,7 +26,7 @@ function registerHandlers(ipcMain, deps) {
       const data = _dataSync.getAllCachedData()
       return { code: 0, data }
     } catch (e) {
-      return { code: -1, message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   })
 }

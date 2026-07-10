@@ -108,10 +108,10 @@ describe("store IPC handlers", () => {
       expect(mockStore.getAccount).toHaveBeenCalledWith("acc1");
     });
 
-    it("returns code -1 when not found", async () => {
+    it("returns code -10 (NOT_FOUND) when not found", async () => {
       mockStore.getAccount.mockReturnValue(null);
       const result = await ipcMain._callHandler("store:get-account", "nonexistent");
-      expect(result).toEqual({ code: -1, data: null });
+      expect(result).toEqual({ code: -10, data: null });
     });
   });
 
@@ -155,10 +155,10 @@ describe("store IPC handlers", () => {
       expect(result).toEqual({ code: 0, data: account });
     });
 
-    it("returns code -1 when not set", async () => {
+    it("returns code -10 (NOT_FOUND) when not set", async () => {
       mockStore.getDefaultAccount.mockReturnValue(null);
       const result = await ipcMain._callHandler("store:get-default-account", "github");
-      expect(result).toEqual({ code: -1, data: null });
+      expect(result).toEqual({ code: -10, data: null });
     });
   });
 
