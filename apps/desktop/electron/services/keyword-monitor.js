@@ -66,6 +66,8 @@ class KeywordMonitor {
 
     // Then schedule periodic polls
     watcher.timer = setInterval(() => this._poll(watcher), interval)
+    // R28 修复：unref 让定时器不阻止进程退出（后台监控不应持有事件循环）
+    if (watcher.timer.unref) watcher.timer.unref()
 
     this._watchers.set(keyword, watcher)
     log.info('KeywordMonitor', `Started monitoring "${keyword}" every ${Math.round(interval / 60000)}min`)
@@ -139,6 +141,8 @@ class KeywordMonitor {
         lastTotal: Array.isArray(history) && history.length > 0 ? history[history.length - 1].total : null,
       }
       watcher.timer = setInterval(() => this._poll(watcher), DEFAULT_INTERVAL)
+      // R28 修复：unref 让定时器不阻止进程退出（恢复的监控同样不应持有事件循环）
+      if (watcher.timer.unref) watcher.timer.unref()
       this._watchers.set(keyword, watcher)
       count++
     }

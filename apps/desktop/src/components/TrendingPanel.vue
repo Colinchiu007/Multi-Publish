@@ -43,7 +43,7 @@
     <div v-else style="display: flex; flex-direction: column; gap: var(--space-sm);">
       <div
         v-for="(item, idx) in filteredItems"
-        :key="idx"
+        :key="item.source + ':' + item.title"
         style="border: 1px solid var(--border); border-radius: 6px; padding: var(--space-md); transition: background 0.15s;"
         @mouseenter="($event) => $event.currentTarget.style.background = 'var(--bg)'"
         @mouseleave="($event) => $event.currentTarget.style.background = 'transparent'"

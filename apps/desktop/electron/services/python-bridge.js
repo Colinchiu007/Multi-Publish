@@ -179,6 +179,8 @@ function startWatchdog () {
       }
     }
   }, WATCHDOG_INTERVAL)
+  // R28 修复：unref 让守护定时器不阻止进程退出（后端健康检查不应持有事件循环）
+  if (watchdogTimer && watchdogTimer.unref) watchdogTimer.unref()
 }
 
 function stopWatchdog () {

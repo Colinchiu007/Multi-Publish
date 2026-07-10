@@ -25,7 +25,7 @@
         <div class="image-upload-zone" @click="triggerUpload" @dragover.prevent @drop.prevent="handleDrop">
           <p v-if="images.length === 0" class="upload-hint">点击或拖拽图片到此处</p>
           <div class="image-grid" v-else>
-            <div v-for="(img, i) in images" :key="i" class="image-thumb">
+            <div v-for="(img, i) in images" :key="img.id" class="image-thumb">
               <img :src="img.preview" />
               <UiButton variant="ghost" size="sm" @click.stop="removeImage(i)">x</UiButton>
               <span class="image-index">{{ i + 1 }}</span>
@@ -117,7 +117,7 @@ export default {
       const files = Array.from(e.target.files || []);
       files.forEach(file => {
         const reader = new FileReader();
-        reader.onload = (ev) => { this.images.push({ name: file.name, path: '', preview: ev.target.result }); };
+        reader.onload = (ev) => { this.images.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2), name: file.name, path: '', preview: ev.target.result }); };
         reader.readAsDataURL(file);
       });
     },
@@ -126,7 +126,7 @@ export default {
       files.forEach(file => {
         if (!file.type.startsWith('image/')) return;
         const reader = new FileReader();
-        reader.onload = (ev) => { this.images.push({ name: file.name, path: '', preview: ev.target.result }); };
+        reader.onload = (ev) => { this.images.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2), name: file.name, path: '', preview: ev.target.result }); };
         reader.readAsDataURL(file);
       });
     },

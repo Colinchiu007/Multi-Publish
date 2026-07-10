@@ -29,11 +29,17 @@ class UsageTracker {
   }
 
   _save() {
-    const dir = path.dirname(this._usagePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const tmpPath = this._usagePath + ".tmp";
-    fs.writeFileSync(tmpPath, JSON.stringify(this._data, null, 2), "utf-8");
-    fs.renameSync(tmpPath, this._usagePath);
+    // R26 修复：_save 无 try/catch，磁盘满/权限拒绝会让 record() 抛错并打断 API 请求计数流程
+    try {
+      const dir = path.dirname(this._usagePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const tmpPath = this._usagePath + ".tmp";
+      fs.writeFileSync(tmpPath, JSON.stringify(this._data, null, 2), "utf-8");
+      fs.renameSync(tmpPath, this._usagePath);
+    } catch (e) {
+      // best-effort：用量统计失败不应阻塞请求处理
+      console.error("[UsageTracker] Failed to save usage: " + e.message);
+    }
   }
 
   /** 记录一次请求 */

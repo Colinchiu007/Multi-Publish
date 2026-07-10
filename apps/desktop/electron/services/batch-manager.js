@@ -156,6 +156,11 @@ class BatchManager {
       }
       if (delay <= 0) {
         // 已过期，立即发布
+        // 边界修复：_taskQueue 可能为 null（与下方 setTimeout 路径的 try/catch 对齐）
+        if (!_taskQueue) {
+          log.warn('BatchManager', 'Task queue not ready, skipping immediate publish for batch ' + batchId)
+          continue
+        }
         for (const platform of article.platforms) {
           _taskQueue.add({ platform, article, batchId })
         }

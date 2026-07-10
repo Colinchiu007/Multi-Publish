@@ -85,6 +85,14 @@ function getOrCreateKey (dir) {
   const tmp = keyFile + '.tmp.' + Date.now()
   fs.writeFileSync(tmp, key, 'utf8')
   fs.renameSync(tmp, keyFile)
+  // R26 修复：与 credential-store.getMasterKey 对齐 — 限制文件权限 600 + 双副本备份
+  // 原仅单文件无备份，主密钥损坏会导致所有浏览器数据永久不可解密
+  try { fs.chmodSync(keyFile, 0o600) } catch (e) { /* Windows 无效，忽略 */ }
+  try {
+    const bakPath = keyFile + '.bak'
+    fs.writeFileSync(bakPath, key, 'utf8')
+    try { fs.chmodSync(bakPath, 0o600) } catch (e) { /* ignore */ }
+  } catch (e) { /* best-effort backup */ }
   return key
 }
 

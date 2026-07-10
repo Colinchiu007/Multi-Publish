@@ -35,7 +35,12 @@ function create (schedule) {
 
   // 持久化
   const filePath = getSchedulerPath()
-  fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf-8')
+  // R26 修复：appendFileSync 无 try/catch，磁盘满/权限拒绝会让 create() 抛错（与 apps/desktop 版对齐）
+  try {
+    fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf-8')
+  } catch (e) {
+    console.error('[Scheduler] Failed to persist task ' + entry.id + ': ' + e.message)
+  }
 
   // 注册定时器
   scheduleTimer(entry)
@@ -62,7 +67,8 @@ function scheduleTimer (entry) {
       }
     } catch (e) {
       // 防止 unhandled rejection（async 回调的错误不会被 setTimeout 捕获）
-      updateStatus(entry.id, 'failed')
+      // R26 修复：updateStatus 裸调用无 try/catch，在 catch 块内再抛错会变成 unhandled exception
+      try { updateStatus(entry.id, 'failed') } catch (e2) { /* ignore persistence error in failure path */ }
     }
     delete _timers[entry.id]
   }, delay)

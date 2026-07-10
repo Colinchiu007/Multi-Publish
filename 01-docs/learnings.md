@@ -398,3 +398,31 @@ apt-get install -y \
 2. **R29 隐式类型转换是新维度** — 前十二轮从未把"隐式类型转换"作为审查维度。NaN 的行为反直觉（`NaN <= 0` 为 false、`Math.max(0, NaN)` 为 NaN、`setTimeout(fn, NaN)` 立即执行），需要专门维度覆盖。**改进：R14 维度清单新增"隐式类型转换"子维度**
 3. **平台特定行为从未审查** — macOS 的 `app.on('activate')` 是前十二轮的盲区。**改进：R31 强制平台特定行为独立审查**
 4. **Vue 前端审查深度仍不足** — 第十二轮只查了 debounce 定时器清理，未查 v-for key 反模式。**改进：Vue 审查清单新增 v-for key 检查项**
+
+---
+
+## 第十四轮审查复盘 v2.3.45 (2026-07-10)
+
+### ✅ 做得好的
+1. **R33 测试债务首次强制偿还** — 本轮新增 30 个测试覆盖跨 5 轮的测试债务：sqlite-wrapper（transaction/persist/pragma 白名单）、credential-store（原子写/chmod/路径穿越/roundtrip）、license-manager（.bak 恢复/双损坏降级）、store（deleteAccount 级联清理 4 张表）。R25 定义于第十一轮、R33 定义于第十三轮，本轮终于兑现
+2. **R26 未同步副本彻底闭环** — 4 处 R26 同步全部修复：shared-utils/scheduler appendFileSync+updateStatus try/catch、api-publish-engine/usage-tracker _save try/catch、browser-data getOrCreateKey 补 chmod 600 + .bak 双副本（与 credential-store.getMasterKey 完全对齐）
+3. **R28 跨生命周期定时器 unref 全部修复** — keyword-monitor startMonitoring/restoreState 两处 setInterval + python-bridge watchdog setInterval，全部补 `unref()`，后台定时器不再持有事件循环
+4. **边界条件 + Vue v-for 同轮修复** — render-engine 两处除零（total=0 → Infinity 破坏进度条 UI）、batch-manager _taskQueue null 守卫、CreateView/TrendingPanel v-for index key 改稳定 key
+
+### ⚠️ 需要注意（失误与改进）
+1. **测试文件首轮就踩"Vitest CJS import"坑** — 4 个测试文件全部用 `const { describe } = require('vitest')`，而 vitest 4 在 CJS 下不允许 require 导入，必须用 globals。**根因：写测试前未读现有测试文件的 import 约定**（license-manager.test.js 用 globals + `__registerMock`，而非 vi.mock）
+2. **被测模块的 `module.exports` 形态凭记忆写错** — 测试用 `require('...sqlite-wrapper').Database`，但该模块 `module.exports = Database`（直接导出类），`.Database` 为 undefined。license-manager、store 同样错误。**根因：未先 grep `module.exports` 确认导出形态**
+3. **QM-1 耗时 23 分钟下载 + wine 失败** — 本会话 win32 electron 缓存被清空，下载 115MB 走代理仅 ~130KB/s；NSIS 安装包步骤需 wine，Linux 沙箱无 wine。前几轮 QM-1 能通过应是用了 `--dir` 或缓存命中。**根因：AGENTS.md 的 QM-1 命令 `--win --x64` 产 NSIS 需 wine，与沙箱环境不匹配**
+4. **跨轮携带的 MAJOR 项靠上下文记忆** — R26 未同步/R28 unref/边界条件/Vue v-for 这批 MAJOR 是第十三轮发现、第十四轮才修。中间因上下文压缩，行号信息一度丢失（R22 未严格执行）。**根因：MAJOR 修复清单未写入 TodoWrite 持久化跨轮**
+
+### 🧠 经验沉淀（强制规则新增）
+- **R34：写测试前必须先读现有测试文件的 import/mock 约定** — 不允许凭记忆写 `require('vitest')` / `vi.mock`。每个测试目录的 setup（globals / `__registerMock` / `__enableElectronMock`）和被测模块的 `module.exports` 形态（直接导出类 vs 导出对象）必须在写测试前 grep 确认，再动笔
+- **R35：QM-1 在无 wine 的 Linux 沙箱用 `--dir` 验证 asar + require 链** — `--win --x64` 产 NSIS 安装包需 wine；沙箱无 wine 时改用 `--win --dir --publish never`，执行 asar 文件清单（grep 修改模块）+ require 链测试（extract + require rpa-engine）+ 模块加载测试，等效覆盖 QM-1 意图（require 路径 / glob 覆盖 / 语法）。NSIS 安装包本身不能反映代码缺陷，只是打包产物
+- **R36：跨轮携带的 MAJOR 修复清单必须 TodoWrite 持久化** — 不允许"本轮发现但下轮才修"的 MAJOR 项只存在上下文中；必须写入 TodoWrite 并标注来源轮次 + 文件 + 行号，防止上下文压缩丢失行号信息（R22 的强化）
+
+### 🔁 本轮"为什么还有问题"复盘
+第十四轮主要是偿还前几轮的 MAJOR/测试债务，未发现新 CRITICAL，但暴露流程缺陷：
+1. **R33 测试债务拖延了 5 轮才偿还** — R25（第十一轮）要求"新增功能必须同步补测试"，R33（第十三轮）要求"测试债务不跨 3 轮"，但实际到第十四轮才补。每轮都"先修代码，测试延后"，延后从未主动兑现，直到本轮强制。**改进：R33 必须在每轮 review 末尾检查"新增 public 方法是否有测试"，无测试直接阻断提交**
+2. **测试编写违反"先读再写"** — 4 个测试文件首轮全部报 import 错误，浪费一轮往返。**改进：R34 强制写测试前先读现有测试约定**
+3. **QM-1 环境适配缺失** — 连续 5 轮 QM-1 都"通过"，但本轮首次暴露沙箱无 wine，说明前几轮的"通过"可能是缓存命中或未真正产 NSIS。**改进：R35 明确无 wine 时的等效验证路径，避免 QM-1 形式化**
+4. **跨轮 MAJOR 清单丢失** — 第十三轮发现的部分 MAJOR 因上下文压缩在第十四轮初行号丢失，重新定位。**改进：R36 强制 TodoWrite 持久化**

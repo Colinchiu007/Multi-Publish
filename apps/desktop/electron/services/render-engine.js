@@ -110,7 +110,8 @@ class RenderEngine {
         if (match) {
           const done = parseInt(match[1], 10);
           const total = parseInt(match[2], 10);
-          const percent = Math.round((done / total) * 100);
+          // 边界修复：total=0 时除零得 Infinity，Math.round(Infinity)=Infinity 会破坏进度条 UI
+          const percent = total > 0 ? Math.round((done / total) * 100) : 0;
           onProgress(percent, '渲染中');
         }
 
@@ -131,7 +132,8 @@ class RenderEngine {
         if (match) {
           const done = parseInt(match[1], 10);
           const total = parseInt(match[2], 10);
-          const percent = Math.round((done / total) * 100);
+          // 边界修复：total=0 时除零得 Infinity，传播到 onProgress 破坏 UI
+          const percent = total > 0 ? Math.round((done / total) * 100) : 0;
           onProgress(percent, '渲染中');
         }
       });

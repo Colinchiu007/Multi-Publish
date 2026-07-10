@@ -211,6 +211,9 @@ function hasCredential (accountId, userDataDir) {
 }
 
 module.exports = {
+  getMasterKey,
+  getCredentialFilePath,
+  getCredentialDir,
   saveCredential,
   loadCredential,
   deleteCredential,

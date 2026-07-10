@@ -1,5 +1,26 @@
 ﻿# CHANGELOG
 
+## [审查复盘] 第十二~十四轮 (2026-07-09 ~ 2026-07-10)
+
+应用质量节拍 skill 连续三轮审查，累计修复 + 测试债务偿还。learnings.md 规则累计 R1-R36。
+
+### 第十四轮（v2.3.45 复盘）
+- **R33 测试债务偿还**：新增 30 个测试（sqlite-wrapper transaction/persist/pragma、credential-store 原子写/chmod/路径穿越、license-manager .bak 恢复、store deleteAccount 级联清理）
+- **R26 未同步副本闭环**：shared-utils/scheduler appendFileSync+updateStatus try/catch、api-publish-engine/usage-tracker _save try/catch、browser-data getOrCreateKey 补 chmod 600 + .bak
+- **R28 跨生命周期 unref**：keyword-monitor ×2 + python-bridge watchdog
+- **边界条件**：render-engine 除零 ×2、batch-manager _taskQueue null 守卫
+- **Vue v-for**：CreateView images + TrendingPanel filteredItems 改稳定 key
+- **QM-1**：asar 打包验证通过（135MB，require 链 OK）；NSIS 安装包步骤因沙箱无 wine 跳过（R35）
+- **新增规则 R34-R36**：写测试前先读 import 约定 / QM-1 无 wine 用 --dir / 跨轮 MAJOR TodoWrite 持久化
+
+### 第十三轮
+- 5 CRITICAL + 3 MAJOR：R26 首次执行发现 shared-utils/scheduler 未同步、R29 Invalid Date 穷尽扫描 3 处、R28 macOS ipcMain 重复注册、Vue v-for key 3 处
+- 新增规则 R30-R33
+
+### 第十二轮
+- 7 CRITICAL + 14 MAJOR：原子写闭环、SSRF 同类、webRequest 泄漏、Invalid Date、timer 清理、Vue debounce
+- 新增规则 R26-R29
+
 ## [v2.3.44] - 2026-07-09
 
 ### 全库代码审查修复 — 安全 + 打包 + 架构 + 死代码清理
