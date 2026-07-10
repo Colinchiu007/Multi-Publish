@@ -69,6 +69,18 @@ class WebviewManager {
       return null
     }
 
+    // 安全：校验 URL 协议（防止 file:// / data:// 等 SSRF/信息泄露）
+    try {
+      const parsed = new URL(url)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        log.warn('WebviewManager', `Blocked non-http(s) URL: ${parsed.protocol}`)
+        return null
+      }
+    } catch (e) {
+      log.warn('WebviewManager', `Invalid URL: ${url}`)
+      return null
+    }
+
     const tabId = `tab-${this._nextTabId++}`
     const partition = `persist:monitor-${accountId || `${platform}-${tabId}`}`
     const viewSession = session.fromPartition(partition, { cache: true })

@@ -16,6 +16,19 @@ class WebhookManager {
     if (!data || !data.url || !URL_RE.test(data.url)) {
       throw new Error("Valid webhook URL is required (http:// or https://)");
     }
+    // 安全：拒绝内网地址（防止 SSRF 攻击内部服务）
+    var parsed;
+    try { parsed = new URL(data.url); } catch (e) {
+      throw new Error("Invalid webhook URL");
+    }
+    var host = parsed.hostname.toLowerCase();
+    var isInternal = host === "localhost" || host === "::1" ||
+      host.startsWith("127.") || host.startsWith("10.") ||
+      host.startsWith("192.168.") || /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+      host.startsWith("169.254.");
+    if (isInternal) {
+      throw new Error("Webhook URL cannot point to internal/private network");
+    }
     var wh = {
       id: genId(),
       url: data.url,

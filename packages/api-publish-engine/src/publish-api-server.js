@@ -51,7 +51,8 @@ class PublishApiServer {
         self._handle(req, res);
       });
       self._server.on("error", reject);
-      self._server.listen(port, function() {
+      // 安全：绑定 127.0.0.1（原默认绑定 0.0.0.0 暴露到整个网络）
+      self._server.listen(port, "127.0.0.1", function() {
         if (self._scheduler) self._scheduler.start();
         // Register process signal handlers for graceful shutdown
         self._processSignals = [];

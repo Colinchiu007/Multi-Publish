@@ -39,12 +39,29 @@ class UrlCollector {
       return { success: false, error: '无效的 URL' }
     }
 
-    // 校验 URL 格式
+    // 校验 URL 格式 + 协议白名单 + 内网 IP 防护（防 SSRF）
+    let parsedUrl
     try {
-      new URL(url)
+      parsedUrl = new URL(url)
     // eslint-disable-next-line no-unused-vars
     } catch (e) {
       return { success: false, error: 'URL 格式不正确' }
+    }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return { success: false, error: '仅支持 http/https 协议' }
+    }
+    // 拒绝内网地址（防止 SSRF 探测内部服务如 Python 后端 127.0.0.1:8299）
+    const hostname = parsedUrl.hostname.toLowerCase()
+    const isInternal = hostname === 'localhost' ||
+      hostname === '::1' ||
+      hostname.startsWith('127.') ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+      hostname.startsWith('169.254.') ||
+      hostname.endsWith('.local')
+    if (isInternal) {
+      return { success: false, error: '不允许采集内网地址' }
     }
 
     try {

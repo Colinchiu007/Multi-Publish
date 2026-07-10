@@ -378,14 +378,13 @@ function restoreLocalStorage (webContents, localStorageObj) {
   
   const items = Object.entries(localStorageObj)
   if (items.length === 0) return Promise.resolve()
-  
-  const sets = items.map(([key, value]) => {
-    const escapedKey = String(key).replace(/'/g, "\\'")
-    const escapedValue = String(value).replace(/'/g, "\\'")
-    return `localStorage.setItem('${escapedKey}', '${escapedValue}')`
-  }).join('\n')
-  
-  return webContents.executeJavaScript(sets).catch(() => {})
+
+  // 安全修复：原 escape 顺序错误（先替换单引号导致 \'; 注入）
+  // 改用 JSON.stringify 整体序列化，杜绝字符串拼接注入
+  const json = JSON.stringify(Object.fromEntries(items))
+  const script = `(function(){var d=${json};Object.keys(d).forEach(function(k){try{localStorage.setItem(k,d[k])}catch(e){}})})()`
+
+  return webContents.executeJavaScript(script).catch(() => {})
 }
 
 /**

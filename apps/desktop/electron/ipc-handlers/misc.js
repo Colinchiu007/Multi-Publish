@@ -5,12 +5,12 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('app:get-version', () => {
     try {
-      return app.getVersion()
+      return { code: 0, data: app.getVersion() }
     } catch (e) { return { code: -1, message: e.message } }
   })
   ipcMain.handle('app:get-platform', () => {
     try {
-      return process.platform
+      return { code: 0, data: process.platform }
     } catch (e) { return { code: -1, message: e.message } }
   })
 
@@ -32,8 +32,9 @@ function registerHandlers(ipcMain, deps) {
       if (win && !win.isDestroyed()) {
         win.webContents.send('notification', data)
       }
+      return { code: 0 }
     // eslint-disable-next-line no-unused-vars
-    } catch (e) { /* ignore */ }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 }
 
