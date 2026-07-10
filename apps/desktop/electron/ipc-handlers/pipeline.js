@@ -8,8 +8,10 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('pipeline:list', () => {
     try {
-      return pipelineEngine.listPipelines()
-    } catch (e) { return { code: -1, message: e.message, data: [] } }
+      // R38：前端期望 { success, data } 契约（PipelineBrowser.vue），不可返回裸数组
+      const list = pipelineEngine.listPipelines()
+      return { success: true, data: Array.isArray(list) ? list : [] }
+    } catch (e) { return { success: false, error: e.message, data: [] } }
   })
 
   ipcMain.handle('pipeline:get', (_event, name) => {
@@ -62,8 +64,10 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('pipeline:history', () => {
     try {
-      return pipelineEngine.getHistory()
-    } catch (e) { return { code: -1, message: e.message, data: [] } }
+      // R38：前端期望 { success, data } 契约（CreateHistory.vue），不可返回裸数组
+      const history = pipelineEngine.getHistory()
+      return { success: true, data: Array.isArray(history) ? history : [] }
+    } catch (e) { return { success: false, error: e.message, data: [] } }
   })
 
   ipcMain.handle('pipeline:fetch', async (_event, name) => {

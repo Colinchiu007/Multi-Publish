@@ -25,6 +25,16 @@ class BatchManager {
   }
 
   /**
+   * R40 边界归一化：platform 可能是字符串或 {platform, accountId} 对象
+   * 在入口统一解析为规范形态，后续代码只消费规范形态（禁止在每个使用点重复 typeof 判断）
+   */
+  static resolvePlatform (p) {
+    return typeof p === 'object' && p
+      ? { platform: p.platform, accountId: p.accountId || null }
+      : { platform: p, accountId: null }
+  }
+
+  /**
    * 清理所有排期中的定时器（应用退出时调用）
    */
   stopAll () {
@@ -77,19 +87,18 @@ class BatchManager {
 
       for (const platform of article.platforms) {
         try {
-          // platform 可能是字符串或 {platform, accountId} 对象
-          const platformId = typeof platform === 'object' ? platform.platform : platform
-          const accountId = typeof platform === 'object' ? (platform.accountId || null) : null
+          // R40：入口归一化为规范形态，后续只消费 r.platform / r.accountId
+          const r = BatchManager.resolvePlatform(platform)
 
           const taskId = _taskQueue.add({
-            platform: platformId,
+            platform: r.platform,
             article: {
               title: article.title,
               content: article.content,
               author: article.author || '',
               cover_url: article.cover_url || '',
               video_path: article.video_path || '',
-              accountId,
+              accountId: r.accountId,
             },
             batchId,
             retry: 2,
@@ -146,9 +155,7 @@ class BatchManager {
     const batch = this.store.getBatchJob(batchId)
     if (!batch) return false
 
-    // platform 可能是字符串或 {platform, accountId} 对象（与 executeBatch 解析逻辑一致）
-    const resolvePlatform = (p) => typeof p === 'object' && p ? { platform: p.platform, accountId: p.accountId || null } : { platform: p, accountId: null }
-
+    // R40：复用类静态方法归一化（禁止本地副本，避免与 executeBatch 解析逻辑漂移）
     for (const article of batch.articles) {
       if (!article.publishTime || !article.platforms) continue
 
@@ -166,7 +173,7 @@ class BatchManager {
           continue
         }
         for (const platform of article.platforms) {
-          const r = resolvePlatform(platform)
+          const r = BatchManager.resolvePlatform(platform)
           _taskQueue.add({ platform: r.platform, article, batchId, accountId: r.accountId })
         }
         continue
@@ -181,13 +188,15 @@ class BatchManager {
             return
           }
           for (const platform of article.platforms) {
-            const r = resolvePlatform(platform)
+            const r = BatchManager.resolvePlatform(platform)
             _taskQueue.add({ platform: r.platform, article, batchId, accountId: r.accountId })
           }
         } catch (e) {
           log.error('BatchManager', 'Failed to schedule batch task for batch ' + batchId + ': ' + e.message)
         }
       }, delay)
+      // R28 修复：unref 让定时器不阻止进程退出
+      if (timer && timer.unref) timer.unref()
       this._timers.add(timer)
     }
 

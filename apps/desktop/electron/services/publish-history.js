@@ -28,7 +28,14 @@ function addRecord (record) {
     ...record,
     timestamp: new Date().toISOString()
   }
-  fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf-8')
+  // R14 错误处理：appendFileSync 可能因磁盘满/权限拒绝抛错，与 scheduler.js 一致加 try/catch
+  try {
+    fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf-8')
+  } catch (e) {
+    // 记录失败不阻塞发布主流程，仅日志告警
+    if (typeof log !== 'undefined' && log.warn) log.warn('PublishHistory', 'appendRecord failed: ' + e.message)
+    else console.warn('[PublishHistory] appendRecord failed: ' + e.message)
+  }
   return entry
 }
 

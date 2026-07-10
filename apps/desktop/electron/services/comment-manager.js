@@ -33,6 +33,11 @@ const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
 class OrchestratorCommentProvider extends CommentProvider {
   constructor (platform) {
     super()
+    // R14 输入校验：platform 拼入 URL 路径（/api/comments/:platform），必须限定安全字符集
+    // 防止 platform 含 /、..、?、# 等操纵 URL 路径（URL 路径穿越）
+    if (typeof platform !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(platform)) {
+      throw new Error('Invalid platform: ' + platform + ' (only [a-zA-Z0-9_-] allowed)')
+    }
     this._platform = platform
     this._axios = null
   }

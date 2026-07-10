@@ -254,6 +254,10 @@ class OAuthManager {
             try { resolve(JSON.parse(data)) } catch (e) { reject(new Error(`Token response: ${data.slice(0, 200)}`)) }
           })
         })
+        // R28/R37：token 端点超时保护，避免 orchestrator/token 服务挂起导致 Promise 永久 pending
+        req.setTimeout(30000, () => {
+          req.destroy(new Error('Token exchange timed out after 30s'))
+        })
         req.on('error', reject)
         req.write(postData)
         req.end()

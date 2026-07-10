@@ -83,6 +83,9 @@ function registerHandlers(ipcMain, deps) {
               ...(token ? { 'X-API-Key': token } : {}),
             },
           })
+          // R28/R37：超时保护 + 消费响应体，避免 orchestrator 挂起导致 socket 泄漏
+          req.setTimeout(15000, () => { req.destroy(new Error('Orchestrator cookie push timed out')) })
+          req.on('response', (res) => { res.resume() })  // 消费响应体释放 socket
           req.on('error', (e) => log.warn('Auth', 'Orchestrator cookie push failed: ' + (e instanceof Error ? e.message : String(e))))
           req.write(postData)
           req.end()

@@ -52,7 +52,9 @@ class PublishPoller {
    * @param {object} opts.store - Store (SQLite) instance for account loading
    */
   constructor (opts) {
-    this._axios = opts.axios || require("axios")
+    const Axios = opts.axios || require("axios")
+    // R28/R37：默认 30s 超时（API 轮询/状态更新）；视频/封面下载在调用处覆盖为更长超时
+    this._axios = Axios.create ? Axios.create({ timeout: 30000 }) : Axios
     // 安全：不再硬编码生产 IP，必须通过 opts 或环境变量提供
     this.orchestratorUrl = opts.orchestratorUrl || process.env.ORCHESTRATOR_URL || ''
     if (!this.orchestratorUrl) {
@@ -179,7 +181,7 @@ class PublishPoller {
       videoPath = path.join(tmpDir, 'video' + ext)
 
       const writer = fs.createWriteStream(videoPath)
-      const downloadResp = await this._axios.get(videoUrl, { responseType: 'stream' })
+      const downloadResp = await this._axios.get(videoUrl, { responseType: 'stream', timeout: 300000 })
       downloadResp.data.pipe(writer)
 
       await new Promise(function (resolve, reject) {
@@ -199,7 +201,7 @@ class PublishPoller {
             const coverExt = path.extname(new URL(input.cover_url).pathname) || '.jpg'
             coverPath = path.join(tmpDir, 'cover' + coverExt)
             const coverWriter = fs.createWriteStream(coverPath)
-            const coverResp = await this._axios.get(input.cover_url, { responseType: 'stream' })
+            const coverResp = await this._axios.get(input.cover_url, { responseType: 'stream', timeout: 60000 })
             coverResp.data.pipe(coverWriter)
             await new Promise(function (resolve, reject) {
               coverWriter.on('finish', resolve)

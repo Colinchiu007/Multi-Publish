@@ -19,8 +19,19 @@ class TaskQueue extends EventEmitter {
     this._queue = []          // 等待队列
     this._running = new Map() // 正在执行的任务 { id -> task }
     this._history = []        // 已完成的任务历史
+    this._pendingTimers = new Set()  // R28/R37：跟踪频率控制重排定时器，shutdown 时清理
     this._paused = false
     this._idCounter = 0
+  }
+
+  /**
+   * R28/R37：清理所有待执行的频率控制重排定时器（应用退出时调用）
+   */
+  shutdown () {
+    for (const t of this._pendingTimers) {
+      clearTimeout(t)
+    }
+    this._pendingTimers.clear()
   }
 
   /**
@@ -266,18 +277,25 @@ class TaskQueue extends EventEmitter {
           this.emit('publish:blocked', { task, remainingWait: wait })
           this._saveState()
           // 达到等待时间后重新加入队列
-          setTimeout(() => {
+          // R28/R37：保存句柄 + unref + 注册到 _pendingTimers 供 shutdown 清理
+          const requeueTimer = setTimeout(() => {
+            this._pendingTimers.delete(requeueTimer)
             this._queue.unshift(task)
             this._processNext()
           }, wait)
+          if (requeueTimer && requeueTimer.unref) requeueTimer.unref()
+          this._pendingTimers.add(requeueTimer)
           return
         }
       }
     }
 
     // 创建超时 Promise
+    // R28/R37：保存句柄，race 结束后立即 clearTimeout，避免任务成功后定时器驻留最长 task.timeout(180s)
+    let timeoutHandle = null
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`Task timed out after ${task.timeout}ms`)), task.timeout)
+      timeoutHandle = setTimeout(() => reject(new Error(`Task timed out after ${task.timeout}ms`)), task.timeout)
+      if (timeoutHandle && timeoutHandle.unref) timeoutHandle.unref()
     })
 
     try {
@@ -315,6 +333,8 @@ class TaskQueue extends EventEmitter {
       }
       this._saveState()
     } finally {
+      // R28/R37：无论成功/失败/超时，立即清理超时定时器
+      if (timeoutHandle) clearTimeout(timeoutHandle)
       this._running.delete(task.id)
       // 已完成的任务移入历史
       if (task.status === 'success' || task.status === 'failed') {

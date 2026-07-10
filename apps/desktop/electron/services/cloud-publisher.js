@@ -23,7 +23,9 @@ class CloudPublisher {
    * @param {Object} opts.store - Electron store instance (reserved for future use)
    */
   constructor (opts) {
-    this._axios = opts.axios || require("axios")
+    const Axios = opts.axios || require("axios")
+    // R28/R37：为 orchestrator HTTP 调用配置默认超时，避免 orchestrator 挂起时请求永久 pending
+    this._axios = Axios.create ? Axios.create({ timeout: 30000 }) : Axios
     // 安全：不再硬编码生产 IP，必须通过 opts 或环境变量提供
     this._orchestratorUrl = opts.orchestratorUrl || process.env.ORCHESTRATOR_URL || ''
     if (!this._orchestratorUrl) {

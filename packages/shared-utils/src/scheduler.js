@@ -72,6 +72,19 @@ function scheduleTimer (entry) {
     }
     delete _timers[entry.id]
   }, delay)
+  // R28 修复：unref 让定时器不阻止进程退出（与 apps/desktop 版同步，R26 副本一致性）
+  if (_timers[entry.id] && _timers[entry.id].unref) _timers[entry.id].unref()
+}
+
+/**
+ * R26/R28 同步：清理所有待执行的定时器（应用退出时调用）
+ * 与 apps/desktop/electron/services/scheduler.js 的 stopAll 保持一致
+ */
+function stopAll () {
+  for (const id of Object.keys(_timers)) {
+    clearTimeout(_timers[id])
+    delete _timers[id]
+  }
 }
 
 /**
@@ -128,4 +141,4 @@ function restore () {
   return tasks.length
 }
 
-module.exports = { setTaskQueue, create, list, cancel, restore }
+module.exports = { setTaskQueue, create, list, cancel, restore, stopAll }

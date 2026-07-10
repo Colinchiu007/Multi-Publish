@@ -39,7 +39,14 @@ describe("pipeline IPC handlers", () => {
   it("pipeline:list delegates to pipelineEngine.listPipelines", async () => {
     const result = await mockIpcMain._handlers["pipeline:list"]();
     expect(pipelineEngine.listPipelines).toHaveBeenCalled();
-    expect(result).toEqual([]);
+    // R38：返回 { success, data } 契约（与 PipelineBrowser.vue 前端对齐），非裸数组
+    expect(result).toEqual({ success: true, data: [] });
+  });
+
+  it("pipeline:history returns { success, data } contract (R38)", async () => {
+    const result = await mockIpcMain._handlers["pipeline:history"]();
+    expect(pipelineEngine.getHistory).toHaveBeenCalled();
+    expect(result).toEqual({ success: true, data: [] });
   });
 
   it("pipeline:get delegates to pipelineEngine.getPipeline", async () => {
