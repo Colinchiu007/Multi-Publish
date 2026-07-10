@@ -333,3 +333,34 @@ apt-get install -y \
 1. 修复清单写入 TodoWrite 时精确到"文件:行号:修复模式"，而非笼统的"修复非原子写"
 2. 每完成一个修复立即 commit（小步提交），即使上下文丢失，git log 也能还原进度
 3. 审查-修复闭环应在单轮内完成，避免跨上下文周期
+
+---
+
+## 第十二轮审查复盘 v2.3.45 (2026-07-10)
+
+### ✅ 做得好的
+1. **R22 精确修复清单首次应用** — TodoWrite 每项含"文件:行号:修复模式"（如"CRITICAL-1: account-state-restorer.js:122,188 凭证全文重写原子写"），上下文丢失风险大幅降低
+2. **R24 当轮闭环所有 R15 同类问题** — 第十一轮延后的 7 处非原子写本轮全部修复，未再产生新债务。R24 规则从"延后"变为"当轮闭环"
+3. **R15 语义扫描发现"两份同名代码"** — 发现 `apps/desktop/electron/services/scheduler.js` 与 `packages/shared-utils/src/scheduler.js` 是两份独立的 scheduler 实现，第十一轮只修了 shared-utils 那份，遗漏了 desktop services 那份。R15 语义扫描（而非字面搜索）才能发现这种"不同路径同类逻辑"
+4. **R20 延后债务闭环** — 第十一轮延后的 Vue debounce 三组件 onBeforeUnmount 清理本轮全部修复
+5. **单轮修复量最大** — 7 CRITICAL + 7 MAJOR 非原子写 + 4 MAJOR timer + 3 Vue debounce = 21 项，全部当轮闭环
+6. **QM-1 连续第四轮执行** — 打包验证已固化为肌肉记忆
+
+### ⚠️ 需要注意（失误与改进）
+1. **R15 语义扫描仍遗漏"两份同名代码"** — 第十一轮 R15 扫到 `shared-utils/scheduler.js` 的非原子写并延后，但未发现 `apps/desktop/electron/services/scheduler.js` 是另一份独立实现（相同逻辑、不同路径）。直到第十二轮全仓 grep `writeFileSync` 才发现。**根因：R15 搜索时按文件名/路径定位，未做"同功能多实现"交叉检查**
+2. **SSRF 防护逻辑重复 3 份** — url-collector.js / publish-poller.js / media-downloader.js 各有一份 `_validateExternalUrl`，逻辑相同但分别维护。已出现不一致（webhook-manager.js 缺 `.local` 后缀检查）。**根因：未提取为 shared-utils 共享函数，违反 DRY**
+3. **Invalid Date 缺陷是"隐式类型转换"经典陷阱** — `NaN <= 0` 为 `false`，`setTimeout(fn, NaN)` 将 NaN 当 0 处理。这类缺陷无法靠代码审查肉眼发现，需要 ESLint 自定义规则或 TypeScript 严格模式
+4. **webRequest 监听器跨 session 生命周期泄漏** — `persist:rpa-{key}` 分区跨窗口存活，`onCompleted` 监听器注册后永不清理，即使窗口 destroy 仍持续触发。这类"跨生命周期资源"比"单窗口资源"更隐蔽
+5. **本轮发现的问题量大（21 项）说明前几轮仍有遗漏** — 第十二轮仍发现 7 CRITICAL，说明 R14 维度基线虽已建立，但每个维度的"语义同类穷尽"深度仍不足
+
+### 🧠 经验沉淀（强制规则新增）
+- **R26：R15 语义扫描必须做"同功能多实现"交叉检查** — 修复一个文件的问题后，不能只搜相同代码模式，还要搜索"实现相同功能的其他文件"（如两份 scheduler.js、两份 usage-tracker.js）。方法：grep 函数名 + grep 文件名关键词，交叉比对
+- **R27：SSRF/校验类公共逻辑必须提取为 shared-utils** — 不允许在 3+ 个文件中复制粘贴相同的校验函数（如 `_validateExternalUrl`）。必须提取到 `packages/shared-utils` 中统一维护，避免不一致漂移
+- **R28：跨生命周期资源（session/eventBus/全局定时器）必须独立审查** — 不能归入"单窗口资源泄漏"维度。必须检查：注册的监听器是否有对应取消订阅、监听器是否绑定在比窗口生命周期更长的对象上（如 session）、全局 setInterval 是否有模块级清理入口
+- **R29：隐式类型转换缺陷需 ESLint 规则拦截** — `NaN <= 0` / `setTimeout(fn, NaN)` / `Number(undefined)` 类缺陷无法靠肉眼审查发现。应在 ESLint 配置 `no-implicit-coercion` + 自定义规则检测 `new Date(x).getTime()` 后是否 `Number.isFinite` 校验
+
+### 🔁 本轮"为什么还有问题"复盘
+第十二轮仍发现 7 CRITICAL，根因分析：
+1. **R15 深度不足** — 第十一轮说"应用了 R15"但只扫了字面同类（writeFileSync），未扫"同功能多实现"（两份 scheduler.js）。R15 需要升级为"语义+功能"双重扫描（R26）
+2. **公共逻辑未提取导致重复** — SSRF 校验在 3 个文件各一份，修了 url-collector 后未同步到 publish-poller/media-downloader。根因是"修复时未想这是公共逻辑应提取"（R27）
+3. **新维度持续涌现** — 第十二轮首次发现"Invalid Date 隐式类型转换"和"webRequest 跨 session 泄漏"两个新模式。说明代码库的缺陷模式空间大于 R14 基线清单的覆盖范围，需要持续补充
