@@ -364,3 +364,37 @@ apt-get install -y \
 1. **R15 深度不足** — 第十一轮说"应用了 R15"但只扫了字面同类（writeFileSync），未扫"同功能多实现"（两份 scheduler.js）。R15 需要升级为"语义+功能"双重扫描（R26）
 2. **公共逻辑未提取导致重复** — SSRF 校验在 3 个文件各一份，修了 url-collector 后未同步到 publish-poller/media-downloader。根因是"修复时未想这是公共逻辑应提取"（R27）
 3. **新维度持续涌现** — 第十二轮首次发现"Invalid Date 隐式类型转换"和"webRequest 跨 session 泄漏"两个新模式。说明代码库的缺陷模式空间大于 R14 基线清单的覆盖范围，需要持续补充
+
+---
+
+## 第十三轮审查复盘 v2.3.45 (2026-07-10)
+
+### ✅ 做得好的
+1. **R26 首次应用即发现"未同步副本"CRITICAL** — shared-utils/scheduler.js 是 apps/desktop 版的未同步副本，apps/desktop 版第十二轮已修 Invalid Date，shared-utils 版未修。R26"同功能多实现交叉检查"直接命中
+2. **R29 隐式类型转换穷尽扫描** — 一次性发现 3 处 Invalid Date CRITICAL（shared-utils/scheduler + scheduled-publish + license-manager），覆盖"任务立即执行/任务永久卡死/试用永不过期"三种不同后果
+3. **R28 跨生命周期资源独立审查** — 发现 macOS `app.on('activate')` 导致 ipcMain.handle 重复注册崩溃，这是前十二轮从未覆盖的"平台特定生命周期"问题
+4. **三维度并行审查效率高** — R26+R29 / R27+R28 / 一致性+Vue+测试 三个 agent 并行，15 分钟完成全维度扫描
+5. **QM-1 连续第五轮执行** — 打包验证已完全固化为肌肉记忆
+
+### ⚠️ 需要注意（失误与改进）
+1. **R26 规则虽已建立但第十二轮未应用** — 第十二轮定义了 R26"同功能多实现交叉检查"，但实际修复时只修了 apps/desktop 版 scheduler.js，未检查 shared-utils 版是否有同一 bug。**根因：规则定义 ≠ 规则执行**。本轮首次真正执行 R26 才发现遗漏
+2. **R29 隐式类型转换是"系统性缺陷模式"** — `new Date(x).getTime()` 后不校验 `Number.isFinite` 在代码库中出现 6 处（3 CRITICAL + 3 MINOR），说明这不是个别疏忽，而是开发者普遍不知道 `NaN <= 0` 为 false、`setTimeout(fn, NaN)` 立即执行。**需要 ESLint 自定义规则强制拦截，而非靠审查记忆**
+3. **Vue v-for index key 是"系统性反模式"** — 本轮发现 14+ 处可变列表用 index 作为 key，其中 3 处为 CRITICAL（动态追加/splice 删除）。说明前端代码库缺乏 v-for key 使用规范。**根因：Vue 文档虽警告但无强制工具，需 ESLint vue/require-v-for-key + 自定义规则禁止 index 作为 key（对可变列表）**
+4. **macOS 平台特定问题从未审查** — 前十二轮都在 Linux 沙箱审查，从未考虑 macOS 的 `app.on('activate')` 生命周期差异。ipcMain.handle 重复注册在 Linux/Windows 不会触发（窗口关闭即退出），但 macOS 关闭窗口后重新激活会二次调用 createWindow。**根因：审查未覆盖平台特定行为**
+5. **测试覆盖债务持续积累** — 第十/十一/十二轮新增的 7 类安全/数据完整性修复（sqlite 事务/credential 原子写/license .bak/store 级联/SSRF/Invalid Date/webRequest 清理）全部零测试覆盖，违反 R25。**根因：每轮都"先修代码，测试延后"，但延后从未兑现**
+
+### 🧠 经验沉淀（强制规则新增）
+- **R30：规则定义后必须在当轮执行验证** — 新增规则（如 R26）定义后，必须立即在当轮审查中执行一次，验证规则可操作性和覆盖度。不允许"定义规则但跳过执行"
+- **R31：平台特定行为必须独立审查** — 审查清单必须包含 macOS/Windows/Linux 的平台特定行为差异：
+  - macOS：`app.on('activate')` 重新创建窗口 / `window-all-closed` 不退出 / 菜单栏行为
+  - Windows：路径分隔符 `\` vs `/` / 进程信号 SIGTERM vs SIGKILL
+  - Linux：托盘图标格式 / 包管理器差异
+- **R32：ESLint 自定义规则是"系统性缺陷模式"的唯一解** — 当同一缺陷模式在代码库中出现 5+ 处（如 Invalid Date 不校验、v-for index key），说明靠人工审查无法根治，必须用 ESLint 自定义规则强制拦截。人工审查只能发现，工具才能预防
+- **R33：测试债务不允许跨 3 轮** — 新增 public 方法的测试缺失（R25）不允许连续延后超过 2 轮。第 3 轮必须强制补测试，否则代码修复的"无测试保护"会成为新的 CRITICAL 来源
+
+### 🔁 本轮"为什么还有问题"复盘
+第十三轮仍发现 5 CRITICAL，根因分析：
+1. **R26 规则定义但未执行** — 第十二轮定义 R26 但未真正执行"同功能多实现交叉检查"，导致 shared-utils/scheduler.js 的同一 bug 漏到第十三轮。**改进：R30 强制规则定义后当轮执行**
+2. **R29 隐式类型转换是新维度** — 前十二轮从未把"隐式类型转换"作为审查维度。NaN 的行为反直觉（`NaN <= 0` 为 false、`Math.max(0, NaN)` 为 NaN、`setTimeout(fn, NaN)` 立即执行），需要专门维度覆盖。**改进：R14 维度清单新增"隐式类型转换"子维度**
+3. **平台特定行为从未审查** — macOS 的 `app.on('activate')` 是前十二轮的盲区。**改进：R31 强制平台特定行为独立审查**
+4. **Vue 前端审查深度仍不足** — 第十二轮只查了 debounce 定时器清理，未查 v-for key 反模式。**改进：Vue 审查清单新增 v-for key 检查项**
