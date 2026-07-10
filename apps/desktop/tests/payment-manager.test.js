@@ -14,9 +14,10 @@ __registerMock('fs', {
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
+  renameSync: vi.fn(),
 })
 
-__registerMock('../electron/logger', {
+__registerMock('./logger', {
   info: vi.fn(),
   error: vi.fn(),
   warn: vi.fn(),

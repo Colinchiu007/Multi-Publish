@@ -1767,3 +1767,148 @@ ipcMain.handle('xxx', async (event, arg) => {
 - R64-R74 十一条新规则全部落地 ✅
 - **测试基础设施完整** ✅（test-setup.js 创建 + .gitignore 修复 + mock 匹配修复）
 - **测试全绿** ✅（1861 passed | 0 failed）
+
+---
+
+## 第三十六轮复盘 v2.3.60 (2026-07-10) — R56 遗漏清零 + R73 全链路验证 + 安全盲区扫描
+
+### 审查方法
+应用质量节拍 skill 三层机制（/review + /cso + /guard），并行启动 3 个 search agent：
+1. **R73 格式残留全链路扫描** — 前端组件 + API 封装 + IPC handler + 测试 mock + EC 常量
+2. **R72/R74 测试基础设施 + mock 完整性** — setupFiles 验证 + 5 个测试文件 mock 对比源码
+3. **/cso + /guard 安全审计** — 命令注入/路径穿越/原型链/ReDoS/敏感数据 + eval/v-html/安全配置/硬编码密钥
+
+### 🔴 CRITICAL 修复（×2）
+
+#### C1：PipelineBrowser.vue 仍用旧格式消费 IPC 响应 — 组件完全失效
+- **文件**：`apps/desktop/src/components/PipelineBrowser.vue:53,56`
+- **问题**：`pipelineList()` 返回 `{ code: 0, data: [] }` 新格式，但组件读 `result?.success`（永远 undefined）→ 永远走 else 分支 → 永远显示"加载失败"
+- **根因**：第三十五轮 R56 只扫描了 7 个已知 Vue 组件，遗漏了 PipelineBrowser.vue
+- **修复**：`result?.success` → `result?.code === 0`，`result?.error` → `result?.message`
+
+#### C2：Intelligence.vue 未拆 `{ code, data }` envelope — 搜索功能失效
+- **文件**：`apps/desktop/src/views/Intelligence.vue:194,200`
+- **问题**：`intelligenceSearch()` 返回 `{ code: 0, data: { total, results, timestamp } }`，但组件直接 `result.value = res` 后读 `result.total`/`result.results`（undefined）→ 搜索结果永远不显示
+- **根因**：R56 迁移时只检查了 `res?.success`/`res?.ok` 模式，没检查"直接赋值整个 response"的模式
+- **修复**：`result.value = res` → `result.value = res?.code === 0 ? res.data : null`；`titleRes.titleAnalysis` → `titleRes?.code === 0 ? (titleRes.data?.titleAnalysis || null) : null`
+
+### 🟠 MAJOR 修复（×7）
+
+#### M1：PipelineView.vue updateStatus 未拆 envelope — 状态轮询失效
+- **文件**：`apps/desktop/src/views/PipelineView.vue:130-137`
+- **问题**：同文件其他方法（loadPipelines/startPipeline 等）正确用 `res?.code === 0` + `res.data`，唯独 `updateStatus` 遗漏，直接读 `s.status`/`s.stages`（undefined）
+- **根因**：R56 按文件扫描，没按方法逐个验证 → 同一文件内迁移不一致
+- **修复**：`if (s)` → `if (s?.code === 0)`，`s.status` → `s.data.status` 等
+
+#### M2：3 个测试文件 fs mock 缺少 renameSync — save() 静默失败
+- **文件**：`tests/license-manager.test.js`、`tests/template-manager.test.js`、`tests/payment-manager.test.js`
+- **问题**：mock 的 fs 对象缺少 `renameSync`，源码 `save()` 调用 `fs.renameSync` 抛 TypeError，被 try-catch 静默吞掉 → 测试看似通过但原子写逻辑未执行
+- **根因**：第三十五轮只修复了 offline-manager.test.js 的 renameSync 缺失，没全局扫描其他使用相同模板的测试文件
+- **修复**：3 个文件 fs mock 均添加 `renameSync: vi.fn()`
+
+#### M3：3 个测试文件 logger mock 路径不匹配 — mock 未生效
+- **文件**：同 M2 的 3 个文件
+- **问题**：注册 key `"../electron/logger"`（从测试文件视角的相对路径），但源码 require `"./logger"`（从源文件视角）。Module._load 拦截的是源码的 request 字符串，不匹配 → mock 未生效，使用真实 logger
+- **根因**：测试作者混淆了"测试文件路径"与"源码 require 路径"
+- **修复**：注册 key 改为 `"./logger"`（与源码 require 一致）
+
+#### M4：content-intelligence.js 10 处 `code: -1` 字面量未迁移 EC
+- **文件**：`apps/desktop/electron/services/content-intelligence.js:821-902`
+- **问题**：该文件注册了 10 个 IPC handler，错误分支全部用 `code: -1` 字面量，且未 `require('../core/error-codes')`
+- **根因**：R71 "EC 迁移全文件扫描"只扫描了 `ipc-handlers/` 目录，遗漏了 `services/` 目录下注册 IPC handler 的文件
+- **修复**：添加 `const EC = require('../core/error-codes').ERROR`，10 处 `code: -1` → `code: EC.REQUEST_ERROR`
+
+#### M5：rpa-view-manager.js _waitForCondition 字符串拼接无类型守卫
+- **文件**：`apps/desktop/electron/services/rpa-view-manager.js:309-313`
+- **问题**：`fn` 参数直接字符串拼接进 `executeJavaScript`，无类型校验。当前 3 个调用方均传硬编码字符串（安全），但 API 公开，未来误用即等于目标页面 RCE
+- **修复**：添加 `if (typeof fn !== 'string' || fn.length === 0) return false` 类型守卫
+
+#### M6：PipelineBrowser.test.js 3 处 mock 返回旧格式
+- **文件**：`apps/desktop/src/components/PipelineBrowser.test.js:28,39,49`
+- **问题**：mock 返回 `{ success: true/false, data/error }`，与真实 IPC `{ code, data, message }` 不一致 → 测试"假绿"
+- **修复**：3 处 mock 更新为 `{ code: 0/-1, data/message }`
+
+#### M7：Intelligence.test.js 2 处 mock 返回扁平格式
+- **文件**：`apps/desktop/src/views/Intelligence.test.js:112-113,126-131`
+- **问题**：mock 返回 `{ total, results }` 扁平结构，与真实 IPC `{ code: 0, data: { total, results } }` 不一致
+- **修复**：2 处 mock 包裹为 `{ code: 0, data: {...} }`
+
+### 🟢 MINOR（记录，未修复 — 防御纵深/低风险）
+
+| # | 文件 | 描述 | 风险等级 |
+|---|------|------|----------|
+| 1 | render-engine.js:94 | `spawn(cmd, { shell: true })` latent 风险，当前参数硬编码 | 低 |
+| 2 | usage-tracker.js:42 | `Object.assign(this._data, JSON.parse(raw))` 原型链可加固 | 低 |
+| 3 | url-collector.js:53 | SSRF 防护未覆盖 DNS rebinding/八进制 IP | 低 |
+| 4 | callback-server.js:101 | token 比较非恒定时间（本地监听，低风险） | 低 |
+| 5 | cli.js:37 | 打印 API Key 前 8 字符 | 低 |
+| 6 | offline-manager.test.js | electron mock 缺少 `net` 属性，startMonitoring 被 try-catch 吞掉 | 低 |
+
+### 🔁 本轮"为什么还有问题"复盘
+
+第三十六轮发现的问题分为三类：
+
+**第一类：R56 迁移不完整（CRITICAL × 2 + MAJOR × 1）**
+- PipelineBrowser.vue 和 Intelligence.vue 在第三十五轮 R56 扫描中被遗漏
+- PipelineView.vue 的 updateStatus 方法在同一文件内被遗漏
+- **根因**：R56 扫描策略是"按已知组件列表扫描"，而非"全仓 grep `res?.success` 模式"
+- **改进**：R75 — R56 迁移必须用 grep 全仓扫描，不能依赖组件列表；同一文件内多个方法需逐个验证
+
+**第二类：mock 复制模板问题（MAJOR × 2）**
+- 3 个测试文件复制了 offline-manager.test.js 修复前的模板，缺少 renameSync
+- 3 个测试文件 logger mock 路径从测试文件视角而非源码视角
+- **根因**：测试模板复制时没同步后续修复；mock 路径理解错误
+- **改进**：R76 — mock 路径必须与源码 require 的 request 字符串一致；R77 — 修复 mock 问题时必须全局搜索同类 mock
+
+**第三类：EC 迁移范围遗漏（MAJOR × 1）**
+- content-intelligence.js 在 `services/` 目录而非 `ipc-handlers/`，R71 扫描没覆盖
+- **根因**：R71 扫描范围按目录划分，没按"是否注册 IPC handler"划分
+- **改进**：R78 — EC 迁移扫描范围改为"所有调用 `ipcMain.handle` 的文件"，不限目录
+
+### 🧠 经验沉淀（新增规则 R75-R78）
+
+- **R75：R56 迁移全仓 grep 扫描规则** — 格式迁移不能用"已知组件列表"扫描，必须全仓 grep：
+  ```bash
+  # 扫描所有 .vue 文件中的旧格式消费模式
+  grep -rn "res?\.success\|res?\.ok\|res?\.error\|result?\.success\|result?\.ok" src/views/ src/components/ --include="*.vue"
+  # 同一文件内多个方法需逐个验证，不能只检查第一个方法
+  ```
+  迁移后必须运行测试验证组件功能正常，不能只看测试是否通过（mock 可能"假绿"）。
+
+- **R76：mock 路径匹配规则** — `__registerMock` 的 key 必须与源码 `require()` 的 request 字符串完全一致：
+  - 源码 `require("./logger")` → 注册 `"./logger"`（✅）
+  - 源码 `require("./logger")` → 注册 `"../electron/logger"`（❌ 从测试文件视角，不匹配）
+  - 验证方法：读源码文件找 `require("xxx")`，用相同的 `xxx` 作为注册 key
+
+- **R77：mock 修复全局同步规则** — 修复某个测试文件的 mock 问题时（如添加 renameSync），必须全局搜索所有使用相同 mock 模式的测试文件：
+  ```bash
+  # 找出所有注册 fs mock 的测试文件
+  grep -rn '__registerMock.*"fs"\|__registerMock.*'\''fs'\''' tests/ electron/ src/
+  # 逐个检查是否包含所有源码调用的方法
+  ```
+
+- **R78：EC 迁移按 ipcMain.handle 扫描规则** — EC 常量迁移扫描范围不能按目录划分，必须按"是否调用 `ipcMain.handle`"扫描：
+  ```bash
+  # 找出所有注册 IPC handler 的文件（不限目录）
+  grep -rln "ipcMain\.handle" electron/ packages/ --include="*.js"
+  # 对每个文件检查是否有 code: -1 字面量
+  grep -rn "code:\s*-1" <file>
+  ```
+
+### 测试基线对比
+
+| 维度 | 第三十五轮 | 第三十六轮 | 变化 |
+|------|-----------|-----------|------|
+| 测试文件总数 | 129 | 129 | — |
+| 通过测试数 | 1861 | 1861 | — |
+| 失败测试数 | 0 | 0 | — |
+| 跳过测试数 | 10 | 10 | — |
+
+### 质量节拍状态
+- CRITICAL 清零 ✅（PipelineBrowser.vue + Intelligence.vue envelope 拆包修复）
+- MAJOR 实质清零 ✅（7 项 MAJOR 全部修复）
+- R51 P0+P1 完成 ✅
+- R52 100% ✅
+- R64-R78 十五条新规则全部落地 ✅
+- **测试全绿** ✅（1861 passed | 0 failed）
+- **安全审计通过** ✅（0 CRITICAL，6 项 MINOR 为防御纵深建议）

@@ -20,6 +20,7 @@ const { ipcMain } = require('electron')
 // eslint-disable-next-line no-unused-vars
 const { calculateStats, deduplicateResults, calculateHourDistribution } = require('./content-intelligence-utils')
 const log = require('./logger')
+const EC = require('../core/error-codes').ERROR
 
 class ContentIntelligence {
   constructor (store) {
@@ -818,7 +819,7 @@ class ContentIntelligence {
       try {
         return { code: 0, data: await this.search(query, opts || {}) }
       } catch (e) {
-        return { code: -1, message: e.message, data: { results: [], total: 0 } }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: { results: [], total: 0 } }
       }
     })
 
@@ -827,7 +828,7 @@ class ContentIntelligence {
       try {
         return { code: 0, data: await this.searchTitles(title, opts || {}) }
       } catch (e) {
-        return { code: -1, message: e.message, data: { results: [], total: 0 } }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: { results: [], total: 0 } }
       }
     })
 
@@ -837,7 +838,7 @@ class ContentIntelligence {
         const ok = await this.saveImpactSnapshot(articleId, title, keywords, snapshot)
         return { code: 0, data: ok }
       } catch (e) {
-        return { code: -1, message: e.message, data: false }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: false }
       }
     })
 
@@ -846,7 +847,7 @@ class ContentIntelligence {
       try {
         return { code: 0, data: this.getImpactHistory(articleId) }
       } catch (e) {
-        return { code: -1, message: e.message, data: [] }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
       }
     })
 
@@ -855,7 +856,7 @@ class ContentIntelligence {
       try {
         return { code: 0, data: await this.searchMentions(keywords, opts || {}) }
       } catch (e) {
-        return { code: -1, message: e.message, data: { results: [], total: 0 } }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: { results: [], total: 0 } }
       }
     })
     // ── Trending Discovery ────────────────────────────────────────
@@ -863,7 +864,7 @@ class ContentIntelligence {
       try {
         return { code: 0, data: await this.fetchTrending(opts || {}) }
       } catch (e) {
-        return { code: -1, message: e.message, data: { results: [], total: 0 } }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: { results: [], total: 0 } }
       }
     })
 
@@ -872,7 +873,7 @@ class ContentIntelligence {
       try {
         return { code: 0, data: await this.suggestTags(content, opts || {}) }
       } catch (e) {
-        return { code: -1, message: e.message, data: { keywords: [], byPlatform: {} } }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: { keywords: [], byPlatform: {} } }
       }
     })
 
@@ -881,7 +882,7 @@ class ContentIntelligence {
       try {
         return { code: 0, data: await this.findReferences(text, opts || {}) }
       } catch (e) {
-        return { code: -1, message: e.message, data: { references: [], total: 0 } }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: { references: [], total: 0 } }
       }
     })
 
@@ -890,7 +891,7 @@ class ContentIntelligence {
       try {
         return { code: 0, data: await this.getBenchmark(title, opts || {}) }
       } catch (e) {
-        return { code: -1, message: e.message, data: null }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: null }
       }
     })
 
@@ -899,7 +900,7 @@ class ContentIntelligence {
       try {
         return { code: 0, data: await this.getOptimalTime(keyword) }
       } catch (e) {
-        return { code: -1, message: e.message, data: null }
+        return { code: EC.REQUEST_ERROR, message: e.message, data: null }
       }
     })
 

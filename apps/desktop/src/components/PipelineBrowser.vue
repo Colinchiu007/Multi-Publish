@@ -50,10 +50,10 @@ export default {
     try {
       const { pipelineList } = await import("@/api/publisher")
       const result = await pipelineList()
-      if (result?.success) {
+      if (result?.code === 0) {
         this.pipelines = result.data || []
       } else {
-        this.error = result?.error || '加载失败'
+        this.error = result?.message || '加载失败'
       }
     } catch (e) {
       // Fallback for vitest/dev

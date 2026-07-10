@@ -130,10 +130,11 @@ export default {
     async updateStatus() {
       if (!this.currentPipeline) return
       const s = await pipelineStatus(this.currentPipeline)
-      if (s) {
-        this.pipelineStatusData = s.status
-        this.currentStages = s.stages || []
-        this.currentStageIndex = s.currentStageIndex ?? -1
+      if (s?.code === 0) {
+        const d = s.data || {}
+        this.pipelineStatusData = d.status
+        this.currentStages = d.stages || []
+        this.currentStageIndex = d.currentStageIndex ?? -1
       }
     },
     async loadHistory() {

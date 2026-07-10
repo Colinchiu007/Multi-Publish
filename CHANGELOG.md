@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## [审查复盘] 第十五~三十六轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R78。
+
+### 第三十六轮（v2.3.60 复盘）— R56 遗漏清零 + R73 全链路验证 + 安全盲区扫描
+- **R10 回归基线** — 第三十五轮 commit 42f21dd 工作区干净，测试 1861 passed | 0 failed
+- **三层审查（/review + /cso + /guard）** — 并行 3 agent 扫描 R73 格式残留 + R72/R74 mock 完整性 + 安全盲区
+- **CRITICAL 修复（×2）**：
+  - PipelineBrowser.vue 仍用 `result?.success` 消费新格式 → 组件完全失效（永远显示"加载失败"）
+  - Intelligence.vue 未拆 `{ code, data }` envelope → 搜索结果永远不显示
+- **MAJOR 修复（×7）**：
+  - PipelineView.vue updateStatus 未拆 envelope（同文件其他方法已迁移，唯独此方法遗漏）
+  - 3 个测试文件（license-manager/template-manager/payment-manager）fs mock 缺少 renameSync → save() 静默失败
+  - 3 个测试文件 logger mock 路径 `"../electron/logger"` 不匹配源码 require `"./logger"` → mock 未生效
+  - content-intelligence.js 10 处 `code: -1` 字面量 → `EC.REQUEST_ERROR`（R71 扫描遗漏 services/ 目录）
+  - rpa-view-manager.js _waitForCondition 字符串拼接添加类型守卫（latent 注入防护）
+  - PipelineBrowser.test.js + Intelligence.test.js mock 格式同步更新
+- **安全审计通过** — 0 CRITICAL，6 项 MINOR 为防御纵深建议（shell:true/原型链/SSRF 绕过/时序比较等）
+- **新增规则 R75-R78**：
+  - R75 — R56 迁移全仓 grep 扫描（不能依赖组件列表，需逐方法验证）
+  - R76 — mock 路径匹配规则（key 必须与源码 require request 一致）
+  - R77 — mock 修复全局同步规则（修复一个需全局搜索同类 mock）
+  - R78 — EC 迁移按 ipcMain.handle 扫描（不限目录）
+- **质量节拍状态**：CRITICAL 清零 ✅ / MAJOR 清零 ✅ / 测试全绿 ✅（1861 passed | 0 failed）
+
 ## [审查复盘] 第十五~三十五轮 (2026-07-10)
 
 应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R74。

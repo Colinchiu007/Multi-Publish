@@ -109,8 +109,8 @@ describe("IntelligenceView", () => {
   });
 
   it("doSearch calls intelligenceSearch with query and sources", async () => {
-    vi.mocked(intelligenceSearch).mockResolvedValue({ total: 2, results: [], timestamp: "2026-07-05T10:00:00Z" });
-    vi.mocked(intelligenceSearchTitles).mockResolvedValue({ titleAnalysis: null });
+    vi.mocked(intelligenceSearch).mockResolvedValue({ code: 0, data: { total: 2, results: [], timestamp: "2026-07-05T10:00:00Z" } });
+    vi.mocked(intelligenceSearchTitles).mockResolvedValue({ code: 0, data: { titleAnalysis: null } });
     const w = createView();
     await nextTick();
     w.vm.query = "AI trends";
@@ -124,10 +124,10 @@ describe("IntelligenceView", () => {
 
   it("doSearch sets result and titleAnalysis", async () => {
     vi.mocked(intelligenceSearch).mockResolvedValue({
-      total: 1, results: [{ id: "1", title: "AI", source: "reddit", engagement: 1.5 }], timestamp: "2026-07-05T10:00:00Z"
+      code: 0, data: { total: 1, results: [{ id: "1", title: "AI", source: "reddit", engagement: 1.5 }], timestamp: "2026-07-05T10:00:00Z" }
     });
     vi.mocked(intelligenceSearchTitles).mockResolvedValue({
-      titleAnalysis: { patterns: [["AI", 3]], suggestion: { tip: "Use AI" } }
+      code: 0, data: { titleAnalysis: { patterns: [["AI", 3]], suggestion: { tip: "Use AI" } } }
     });
     const w = createView();
     await nextTick();

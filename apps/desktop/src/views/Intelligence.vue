@@ -191,13 +191,13 @@ async function doSearch () {
       sources: selectedSources.value,
       limit: 10,
     })
-    result.value = res
+    result.value = res?.code === 0 ? res.data : null
 
     // Also get title analysis
     const titleRes = await intelligenceSearchTitles(query.value.trim(), {
       sources: selectedSources.value,
     })
-    titleAnalysis.value = titleRes.titleAnalysis || null
+    titleAnalysis.value = titleRes?.code === 0 ? (titleRes.data?.titleAnalysis || null) : null
   } catch (e) {
     console.error('Intelligence search failed:', e)
   } finally {

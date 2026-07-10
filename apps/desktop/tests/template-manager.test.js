@@ -12,6 +12,7 @@ __registerMock("fs", {
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
   readdirSync: vi.fn().mockReturnValue([]),
+  renameSync: vi.fn(),
 })
 
 __registerMock("path", {
@@ -20,7 +21,7 @@ __registerMock("path", {
   basename: vi.fn(function(p) { return p; }),
 })
 
-__registerMock("../electron/logger", {
+__registerMock("./logger", {
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),

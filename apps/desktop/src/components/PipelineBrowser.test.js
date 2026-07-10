@@ -25,7 +25,7 @@ describe("PipelineBrowser", () => {
   });
 
   it("shows error state when IPC fails", async () => {
-    pipelineList.mockResolvedValue({ success: false, error: "Backend offline" });
+    pipelineList.mockResolvedValue({ code: -1, message: "Backend offline" });
     const wrapper = mount(PipelineBrowser);
     await new Promise((r) => setTimeout(r, 50));
     expect(wrapper.text()).toContain("Backend offline");
@@ -36,7 +36,7 @@ describe("PipelineBrowser", () => {
       { name: "animated-explainer", description: "AI 解释视频", category: "generated", stability: "production", version: "2.0" },
       { name: "talking-head", description: "单人讲话视频", category: "generated", stability: "beta", version: "1.0" },
     ];
-    pipelineList.mockResolvedValue({ success: true, data: mockPipelines });
+    pipelineList.mockResolvedValue({ code: 0, data: mockPipelines });
     const wrapper = mount(PipelineBrowser);
     await new Promise((r) => setTimeout(r, 50));
     expect(wrapper.findAll(".pipeline-card").length).toBe(2);
@@ -46,7 +46,7 @@ describe("PipelineBrowser", () => {
 
   it("emits select event when card is clicked", async () => {
     const mockPipeline = { name: "cinematic", description: "电影感视频", category: "generated" };
-    pipelineList.mockResolvedValue({ success: true, data: [mockPipeline] });
+    pipelineList.mockResolvedValue({ code: 0, data: [mockPipeline] });
     const wrapper = mount(PipelineBrowser);
     await new Promise((r) => setTimeout(r, 50));
     await wrapper.find(".pipeline-card").trigger("click");

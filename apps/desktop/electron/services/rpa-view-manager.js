@@ -307,6 +307,8 @@ class RpaViewManager {
     try { return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';return new Promise(function(r){let e=document.querySelector(s);if(e){r(true);return}let o=new MutationObserver(function(){let f=document.querySelector(s);if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()') } catch(e) { return false }
   }
   async _waitForCondition(win, fn, timeout, interval) {
+    // R75 防护：fn 必须是硬编码函数字面量字符串，禁止拼接用户输入
+    if (typeof fn !== 'string' || fn.length === 0) return false
     timeout=timeout||30000; interval=interval||500
     // eslint-disable-next-line no-unused-vars
     try { return await win.webContents.executeJavaScript('(function(){let c='+fn+';return new Promise(function(r){if(c()){r(true);return}let ch=setInterval(function(){if(c()){clearInterval(ch);clearTimeout(t);r(true)}},'+interval+');let t=setTimeout(function(){clearInterval(ch);r(false)},'+timeout+')})})()') } catch(e) { return false }
