@@ -43,7 +43,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('upload:cancel', async () => {
     try {
       _chunkedUploader.cancel()
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) { return { code: -1, message: e.message } }
   })
 }

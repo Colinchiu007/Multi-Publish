@@ -75,7 +75,8 @@ function registerHandlers(ipcMain, deps) {
     if (!options || !options.orderId) return { code: -1, message: '缺少 orderId 参数' }
     try {
       const ok = pm.completePayment(options.orderId, options.txnId)
-      return { code: ok ? 0 : -1, message: ok ? '支付完成，Pro 已激活' : '订单不可用或已完成' }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: ok ? 0 : -1, data: ok, message: ok ? '支付完成，Pro 已激活' : '订单不可用或已完成' }
     } catch(e) {
       return { code: -1, message: e.message }
     }
@@ -91,7 +92,8 @@ function registerHandlers(ipcMain, deps) {
     if (!options || !options.orderId) return { code: -1, message: '缺少 orderId 参数' }
     try {
       const ok = pm.simulatePayment(options.orderId)
-      return { code: ok ? 0 : -1, message: ok ? '模拟支付成功，Pro 已激活' : '模拟支付失败' }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: ok ? 0 : -1, data: ok, message: ok ? '模拟支付成功，Pro 已激活' : '模拟支付失败' }
     } catch(e) {
       return { code: -1, message: e.message }
     }
@@ -101,7 +103,8 @@ function registerHandlers(ipcMain, deps) {
     if (!_assertTrustedSender(event)) return _untrusted()
     try {
       const ok = pm.cancelPayment(orderId)
-      return { code: ok ? 0 : -1, message: ok ? '订单已取消' : '订单不可取消' }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: ok ? 0 : -1, data: ok, message: ok ? '订单已取消' : '订单不可取消' }
     } catch(e) {
       return { code: -1, message: e.message }
     }

@@ -28,14 +28,16 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle("offline:add-to-cache", async function(event, task) {
     try {
       const ok = offlineManager.addToCache(task)
-      return { code: ok ? 0 : -1, message: ok ? "已缓存" : "缓存失败" }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: ok ? 0 : -1, data: ok, message: ok ? "已缓存" : "缓存失败" }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle("offline:clear-cache", async function() {
     try {
       offlineManager.clearSuccessfulTasks()
-      return { code: 0, message: "已清理" }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true, message: "已清理" }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 }

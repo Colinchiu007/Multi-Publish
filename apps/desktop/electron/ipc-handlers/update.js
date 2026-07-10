@@ -5,21 +5,24 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('update:check', async () => {
     try {
       autoUpdater.check()
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('update:download', async () => {
     try {
       autoUpdater.download()
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('update:install', async () => {
     try {
       autoUpdater.quitAndInstall()
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) { return { code: -1, message: e.message } }
   })
 }

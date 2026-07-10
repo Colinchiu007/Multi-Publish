@@ -114,7 +114,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('auth:close', async () => {
     try {
       authViewManager.close()
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) {
       return { code: -1, message: e instanceof Error ? e.message : String(e) }
     }
@@ -143,9 +144,9 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('account:delete', async (event, accountId) => {
     try {
       const result = await pythonBridge.requestBackend('DELETE', '/api/accounts/' + accountId)
-      if (result.code === 0) return { code: 0, message: '账号已删除' }
+      if (result.code === 0) return { code: 0, data: true, message: '账号已删除' }
     } catch (_e) { /* fallthrough */ }
-    try { await AccountManager.deleteAccount(accountId); return { code: 0, message: '账号已删除' } }
+    try { await AccountManager.deleteAccount(accountId); return { code: 0, data: true, message: '账号已删除' } }
     catch (e) { return { code: -1, message: e instanceof Error ? e.message : String(e) } }
   })
 
