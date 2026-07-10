@@ -41,6 +41,8 @@ function isNetworkError (err) {
  * @param {Function} onStatus - (status: string, data?: any) => void
  */
 function init (win, onStatus) {
+  // 防止重复 init 导致 autoUpdater 监听器累积（每次 init 都会 .on 注册新监听器）
+  if (_mainWin === win) return
   _mainWin = win
   _statusCallback = onStatus
 

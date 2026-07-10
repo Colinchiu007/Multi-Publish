@@ -48,4 +48,16 @@ function isLoginSuccess(data) {
   )) || data.data.isLogin === true
 }
 
-module.exports = { attachCdpDetection, isLoginSuccess }
+/**
+ * 从 View 分离 CDP 检测（解除 debugger attach，防止 attach 状态泄漏）
+ * @param {import('electron').WebContentsView} view
+ */
+function detachCdpDetection(view) {
+  try {
+    if (view && view.webContents && view.webContents.debugger) {
+      view.webContents.debugger.detach()
+    }
+  } catch (_) { /* debugger may already be detached */ }
+}
+
+module.exports = { attachCdpDetection, detachCdpDetection, isLoginSuccess }

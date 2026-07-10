@@ -23,6 +23,8 @@ let mainWindowRef = null
  * 初始化系统托盘
  */
 function init (mainWindow) {
+  // 防止重复 init 导致 Tray 泄漏（销毁旧 Tray 再创建新的）
+  if (tray) { try { tray.destroy() } catch (_) { /* ignore */ } }
   mainWindowRef = mainWindow
   
   // 创建托盘图标（使用应用图标）

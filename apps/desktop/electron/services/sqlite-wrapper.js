@@ -36,12 +36,12 @@ class Statement {
   run(...params) {
     // 修复 P3：原 catch 静默吞掉所有错误且 changes 恒为 0
     if (!this._db) return { changes: 0 }
+    let stmt
     try {
-      const stmt = this._db.prepare(this._sql)
+      stmt = this._db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
       stmt.step()
       const changes = this._db.getRowsModified()
-      stmt.free()
       return { changes }
     } catch (e) {
       // 表不存在等启动期错误降级为 changes:0，其余错误记录日志
@@ -49,24 +49,26 @@ class Statement {
         log.error('sqlite-wrapper', `run() error: ${e.message} | SQL: ${this._sql.substring(0, 80)}`)
       }
       return { changes: 0, error: e.message }
+    } finally {
+      if (stmt) { try { stmt.free() } catch (_) { /* ignore */ } }
     }
   }
 
   get(...params) {
     if (!this._db) return undefined
+    let stmt
     try {
-      const stmt = this._db.prepare(this._sql)
+      stmt = this._db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
       if (stmt.step()) {
-        const row = stmt.getAsObject()
-        stmt.free()
-        return row
+        return stmt.getAsObject()
       }
-      stmt.free()
     } catch (e) {
       if (!String(e.message).includes('no such table')) {
         log.error('sqlite-wrapper', `get() error: ${e.message} | SQL: ${this._sql.substring(0, 80)}`)
       }
+    } finally {
+      if (stmt) { try { stmt.free() } catch (_) { /* ignore */ } }
     }
     return undefined
   }
@@ -74,17 +76,19 @@ class Statement {
   all(...params) {
     const rows = []
     if (!this._db) return rows
+    let stmt
     try {
-      const stmt = this._db.prepare(this._sql)
+      stmt = this._db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
       while (stmt.step()) {
         rows.push(stmt.getAsObject())
       }
-      stmt.free()
     } catch (e) {
       if (!String(e.message).includes('no such table')) {
         log.error('sqlite-wrapper', `all() error: ${e.message} | SQL: ${this._sql.substring(0, 80)}`)
       }
+    } finally {
+      if (stmt) { try { stmt.free() } catch (_) { /* ignore */ } }
     }
     return rows
   }

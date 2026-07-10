@@ -88,20 +88,20 @@ describe("LicenseManager", function() {
     expect(fs.writeFileSync).toHaveBeenCalled()
   })
 
-  test("load reads obfuscated data from disk", function() {
+  test("load reads encrypted data from disk", function() {
     var fs = require("fs")
     fs.existsSync.mockReturnValue(true)
-    // Use the LicenseManager's own obfuscation
-    var crypto = require("crypto")
-    var raw = JSON.stringify({
-      type: "pro",
-      licenseKey: "LOADED-KEY",
-      activatedAt: "2026-07-04T00:00:00Z",
+    // Round-trip through the manager's own encrypt() (AES-256-GCM)：
+    // 捕获 save() 写入的密文，再喂回 load()，避免与具体加密格式耦合
+    var captured = null
+    fs.writeFileSync.mockImplementationOnce(function(_p, data) {
+      captured = data
     })
-    var buf = Buffer.from(raw, "utf-8")
-    var xor = Buffer.alloc(buf.length)
-    for (var i = 0; i < buf.length; i++) xor[i] = buf[i] ^ 0x4d
-    fs.readFileSync.mockReturnValue(xor.toString("base64"))
+    var producer = new LicenseManager("/mock/license.json")
+    producer.activate("LOADED-KEY")
+    producer.save()
+    expect(captured).toBeTruthy()
+    fs.readFileSync.mockReturnValue(captured)
     manager.load()
     expect(manager.isPro()).toBe(true)
     expect(manager.getInfo().licenseKey).toBe("LOADED-KEY")

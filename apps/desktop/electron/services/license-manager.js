@@ -9,6 +9,7 @@
 
 const fs = require("fs")
 const path = require("path")
+const crypto = require("crypto")
 const { app } = require("electron")
 const log = require("./logger")
 
@@ -36,25 +37,37 @@ function getDataPath(dataPath) {
   return dataPath || path.join(app.getPath("userData"), "license.json")
 }
 
-function obfuscate(str) {
-  if (!str) return ""
-  const buf = Buffer.from(str, "utf-8")
-  const xor = Buffer.alloc(buf.length)
-  for (let i = 0; i < buf.length; i++) {
-    xor[i] = buf[i] ^ 0x4d
-  }
-  return xor.toString("base64")
+// AES-256-GCM 加密：密钥从机器 userData 路径派生（每台机器不同），防伪造 Pro 许可证
+const ALGORITHM = "aes-256-gcm"
+const IV_LENGTH = 16
+const TAG_LENGTH = 16
+
+function _deriveKey() {
+  return crypto.scryptSync(app.getPath("userData"), "license-salt", 32)
 }
 
-function deobfuscate(encoded) {
+function encrypt(str) {
+  if (!str) return ""
+  const key = _deriveKey()
+  const iv = crypto.randomBytes(IV_LENGTH)
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv)
+  const encrypted = Buffer.concat([cipher.update(str, "utf-8"), cipher.final()])
+  const tag = cipher.getAuthTag()
+  return Buffer.concat([iv, tag, encrypted]).toString("base64")
+}
+
+function decrypt(encoded) {
   if (!encoded) return null
   try {
-    const xor = Buffer.from(encoded, "base64")
-    const buf = Buffer.alloc(xor.length)
-    for (let i = 0; i < xor.length; i++) {
-      buf[i] = xor[i] ^ 0x4d
-    }
-    return buf.toString("utf-8")
+    const buf = Buffer.from(encoded, "base64")
+    const iv = buf.subarray(0, IV_LENGTH)
+    const tag = buf.subarray(IV_LENGTH, IV_LENGTH + TAG_LENGTH)
+    const encrypted = buf.subarray(IV_LENGTH + TAG_LENGTH)
+    const key = _deriveKey()
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
+    decipher.setAuthTag(tag)
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()])
+    return decrypted.toString("utf-8")
   // eslint-disable-next-line no-unused-vars
   } catch (e) {
     return null
@@ -76,7 +89,7 @@ class LicenseManager {
       if (fs.existsSync(this._dataPath)) {
         const raw = fs.readFileSync(this._dataPath, "utf-8").trim()
         if (!raw) return
-        const decoded = deobfuscate(raw)
+        const decoded = decrypt(raw)
         if (decoded) {
           const parsed = JSON.parse(decoded)
           if (parsed && parsed.type) {
@@ -93,7 +106,7 @@ class LicenseManager {
         const bakPath = this._dataPath + ".bak"
         if (fs.existsSync(bakPath)) {
           const rawBak = fs.readFileSync(bakPath, "utf-8").trim()
-          const decodedBak = deobfuscate(rawBak)
+          const decodedBak = decrypt(rawBak)
           if (decodedBak) {
             const parsedBak = JSON.parse(decodedBak)
             if (parsedBak && parsedBak.type) {
@@ -115,7 +128,7 @@ class LicenseManager {
     try {
       const dir = path.dirname(this._dataPath)
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-      const encoded = obfuscate(JSON.stringify(this._data))
+      const encoded = encrypt(JSON.stringify(this._data))
       // 修复 P6：原子写（tmp + rename）+ 备份双副本
       const tmpPath = this._dataPath + ".tmp"
       fs.writeFileSync(tmpPath, encoded, "utf-8")

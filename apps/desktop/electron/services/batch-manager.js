@@ -104,8 +104,16 @@ class BatchManager {
             retry: 2,
           })
 
-          // 监听完成
-          _taskQueue.once(`task:${taskId}:done`, (result) => {
+          // 监听完成（修复：TaskQueue 实际 emit task:success / task:failed，原 task:${id}:done 从不触发）
+          const onResult = (task) => {
+            if (!task || task.id !== taskId) return  // 忽略其他 task 的事件
+            // 手动清理两个监听器（不再是 once，需显式 off）
+            _taskQueue.off('task:success', onResult)
+            _taskQueue.off('task:failed', onResult)
+            // 归一化 result：failed 时携带 error，success 时透传 task.result
+            const result = task.status === 'failed'
+              ? { error: task.error || '发布失败' }
+              : (task.result || {})
             const current = this.store.getBatchJob(batchId)
             if (!current) return
             const updates = {
@@ -119,7 +127,9 @@ class BatchManager {
 
             // 通知渲染进程
             this._emitProgress(batchId, platform, article.title, result)
-          })
+          }
+          _taskQueue.on('task:success', onResult)
+          _taskQueue.on('task:failed', onResult)
         } catch (e) {
           log.error('BatchManager', `Failed to submit ${platform}: ${e.message}`)
           const current = this.store.getBatchJob(batchId)

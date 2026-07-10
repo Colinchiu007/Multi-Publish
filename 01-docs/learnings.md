@@ -801,3 +801,70 @@ R52 是质量节拍 skill 应用以来最大的系统性技术债清理任务。
 1. **R51 参数校验按风险分级推进** — 优先修复高风险的数组/对象/路径参数
 2. **R14 其他子维度扫描** — 资源泄漏、一致性等尚未穷尽扫描
 3. **安全审计** — 硬编码密钥、XSS、Electron 安全等（QM-2 必检项）
+
+---
+
+## 第二十七轮审查复盘 v2.3.52 (2026-07-10) — 安全审计 + R14 资源泄漏 + R14 一致性
+
+### 审查范围
+三路并行 agent 审查：
+1. 安全审计（8 维度：硬编码密钥/eval/Shell注入/XSS/Electron安全/路径穿越/CORS/密钥管理）
+2. R14 资源泄漏穷尽扫描（6 子维度：文件句柄/DB连接/进程/监听器/Playwright/EventEmitter）
+3. R14 一致性穷尽扫描（6 子维度：版本号/错误码/日志规范/API字段契约/命名/模块导出）
+
+### 扫描结果汇总
+
+| 维度 | CRITICAL | MAJOR | MINOR |
+|------|---------|-------|-------|
+| 安全审计 | 2 | 3 | 1 |
+| R14 资源泄漏 | 1 | 10 | 4 |
+| R14 一致性 | 1 | 7 | 3 |
+| **合计** | **4** | **20** | **8** |
+
+### ✅ 修复完成
+
+#### 🔴 CRITICAL（4 个全部修复）
+
+1. **license-manager.js XOR 混淆 → AES-256-GCM** — 原 XOR 0x4d+Base64 任何人可伪造 Pro 许可证。改为 AES-256-GCM + scryptSync 密钥派生（每台机器不同），密文格式 `Buffer.concat([iv, tag, encrypted]).toString('base64')`
+2. **python crypto.py salt 未持久化** — 原 `__init__` 每次生成新 salt 但不持久化，重启后凭证不可解密。改为 encrypt 时生成随机 salt 拼到密文前 `base64(salt + ciphertext)`，decrypt 时从前 16 字节提取 salt
+3. **batch-manager.js once 监听不存在事件** — `_taskQueue.once('task:${taskId}:done')` 但 TaskQueue 从不 emit 此事件。改为监听 `task:success` + `task:failed`，通过 `task.id` 匹配，手动 off 清理
+4. **两份 error-codes.js 语义冲突** — desktop 的 `-4=NOT_FOUND` vs api-publish-engine 的 `-4=exception`。desktop 侧调整为 `-10=NOT_FOUND, -11=TIMEOUT_ERROR, -12=NETWORK_ERROR, -13=IO_ERROR`，避免与 api-publish-engine 冲突
+
+#### 🟠 MAJOR（9 个高优先级修复）
+
+1. chunked-uploader.js — openSync→closeSync 用 try/finally 包裹
+2. cos-uploader.js — 同上
+3. oss-uploader.js — 同上
+4. sqlite-wrapper.js — run/get/all 三方法 stmt.free() 移入 finally
+5. tasks-repo.js — get/list/findDueSchedules/statistics 四方法 stmt.free() 移入 finally
+6. python-bridge.js — spawn 超时 reject 前先 kill('SIGKILL') 子进程
+7. auto-updater.js — init() 加 guard 防重复注册监听器
+8. system-tray.js — init() 开头销毁旧 Tray 防泄漏
+9. auth-view-cdp.js — 新增 detachCdpDetection() 函数供调用方清理
+
+#### ⚠️ 未修复 MAJOR（11 个，后续处理）
+
+- 安全：signer-local.js 硬编码 CSDN appSecret
+- 安全：publish-api-server.js CORS `*` + Authorization
+- 安全：api-key-manager.js API Key 明文存储
+- 一致性：package.json 版本落后 7 个版本
+- 一致性：两份 CHANGELOG 不同步
+- 一致性：error-codes.js 8 个常量未使用
+- 一致性：4 个 IPC handler EC 常量混用
+- 一致性：校验类错误用 -1 而非 -2
+- 一致性：engagement vs engagementScore 字段名（已有 workaround）
+- 一致性：service 层 { success, error } 与 IPC 层 { code, data, message } 双轨制
+- 资源泄漏：auth-view-session.js once('did-finish-load') 无超时
+
+### 🧠 经验沉淀（强制规则新增）
+- **R58：安全审计必须覆盖密钥管理方案** — 不能只查"有没有硬编码密钥"，还要查"加密方案是否真正安全"。XOR/Base64/ROT13 不是加密，AES-256-GCM/ChaCha20-Poly1305 才是。审查时 grep `obfuscate|deobfuscate|xor|cipher` 检查是否有"伪加密"
+- **R59：salt/IV/nonce 必须与密文一起持久化** — 加密参数（salt/IV/nonce）是解密的必要条件，不持久化等于不可解密。审查时检查 encrypt() 的输出是否包含全部解密所需参数
+- **R60：事件名必须与 emit 端交叉验证** — `.on('event')` / `.once('event')` 的事件名必须与 `emit('event')` 交叉验证。审查时 grep `\.on\(|\.once\(` 后搜索对应 `\.emit\(` 确认事件名匹配
+- **R61：多包共享错误码必须统一或显式映射** — monorepo 中多个包各自定义 error-codes.js 时，相同数值码必须有相同语义，或在包间接口层做显式映射。审查时对比各包 error-codes.js 的数值-语义对照表
+
+### 🔁 本轮"为什么还有问题"复盘
+第二十七轮发现 4 CRITICAL + 20 MAJOR + 8 MINOR，是连续 10 轮 CRITICAL 清零后首次大规模爆发。根因分析：
+1. **安全审计是全新维度** — 前 26 轮从未做过独立的安全审计（密钥管理/加密方案/CORS），4 个 CRITICAL 中 3 个是安全维度发现。**根因：R14 维度清单中"安全"子项不够细，未覆盖"加密方案有效性"**
+2. **R14 资源泄漏子维度不够深** — 前 26 轮的"资源泄漏"只查定时器/监听器，未查"文件句柄 try/finally"和"prepared statement free()"。batch-manager.js 的事件名不匹配 CRITICAL 也是首次发现。**根因：R14 资源泄漏维度需扩展到"同步 I/O 异常路径"**
+3. **一致性维度此前只查格式** — 前 26 轮的"一致性"聚焦 IPC 响应格式（R52），未查"错误码语义冲突"和"版本号同步"。**根因：R14 一致性维度需扩展到"跨包错误码语义"**
+4. **batch-manager.js 事件名 bug 是功能性缺陷** — `once('task:${taskId}:done')` 从不触发意味着批量发布进度**从未更新**。这个 bug 存在多轮未被发现，因为审查从未做过"事件名与 emit 交叉验证"

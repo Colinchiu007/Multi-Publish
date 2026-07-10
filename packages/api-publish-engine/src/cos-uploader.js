@@ -15,7 +15,11 @@ class CosUploader {
     for (let i = 0; i < total; i++) {
       const buf = Buffer.alloc(Math.min(CHUNK, sz - i * CHUNK));
       const fd = fs.openSync(filePath, "r");
-      fs.readSync(fd, buf, 0, buf.length, i * CHUNK); fs.closeSync(fd);
+      try {
+        fs.readSync(fd, buf, 0, buf.length, i * CHUNK);
+      } finally {
+        fs.closeSync(fd);
+      }
       const r = await axios.put(base + "?partNumber=" + (i+1) + "&uploadId=" + uid, buf, {
         headers: { "x-cos-security-token": token.token } });
       parts.push({ PartNumber: i+1, ETag: r.headers.etag });

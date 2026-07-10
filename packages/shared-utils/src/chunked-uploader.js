@@ -33,20 +33,23 @@ class ChunkedUploader extends EventEmitter {
    */
   splitFile (filePath) {
     const fd = fs.openSync(filePath, 'r')
-    const stat = fs.fstatSync(fd)
-    const chunks = []
-    let offset = 0
+    try {
+      const stat = fs.fstatSync(fd)
+      const chunks = []
+      let offset = 0
 
-    while (offset < stat.size) {
-      const size = Math.min(this.chunkSize, stat.size - offset)
-      const buf = Buffer.alloc(size)
-      fs.readSync(fd, buf, 0, size, offset)
-      chunks.push(buf)
-      offset += size
+      while (offset < stat.size) {
+        const size = Math.min(this.chunkSize, stat.size - offset)
+        const buf = Buffer.alloc(size)
+        fs.readSync(fd, buf, 0, size, offset)
+        chunks.push(buf)
+        offset += size
+      }
+
+      return chunks
+    } finally {
+      fs.closeSync(fd)
     }
-
-    fs.closeSync(fd)
-    return chunks
   }
 
   /**

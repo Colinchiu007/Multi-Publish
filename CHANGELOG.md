@@ -1,14 +1,26 @@
 ﻿# CHANGELOG
 
-## [审查复盘] 第十五~二十六轮 (2026-07-10)
+## [审查复盘] 第十五~二十七轮 (2026-07-10)
 
-应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R57。
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R61。
+
+### 第二十七轮（v2.3.52 复盘）— 安全审计 + R14 资源泄漏 + R14 一致性
+- **三路并行 agent 审查**：安全审计(8维度) + R14资源泄漏(6子维度) + R14一致性(6子维度)
+- **发现 4 CRITICAL + 20 MAJOR + 8 MINOR** — 连续 10 轮 CRITICAL 清零后首次大规模爆发
+- **4 CRITICAL 全部修复**：
+  - license-manager.js XOR混淆→AES-256-GCM（许可证可伪造）
+  - python crypto.py salt未持久化（重启后凭证不可解密）
+  - batch-manager.js once监听不存在事件（批量进度从未更新）
+  - 两份error-codes.js语义冲突（-4~-5数值码含义不同）
+- **9 个高优先级 MAJOR 修复**：
+  - 文件句柄泄漏：chunked-uploader/cos-uploader/oss-uploader try/finally
+  - DB连接泄漏：sqlite-wrapper/tasks-repo stmt.free() 移入 finally
+  - 进程泄漏：python-bridge spawn超时先kill子进程
+  - 监听器泄漏：auto-updater init guard / system-tray 销毁旧Tray / auth-view-cdp 新增detach函数
+- **新增规则 R58-R61**：密钥管理方案审查 / salt持久化 / 事件名交叉验证 / 跨包错误码统一
 
 ### 第二十六轮（v2.3.51 复盘）
 - **R10 连续十轮全通过** — 第二十五轮 3 个微调修复无回归
-- **R52 100% 合规持续保持** — 全仓扫描确认无倒退
-- **R51 参数校验扫描启动** — 全仓扫描识别参数校验缺口（脚本存在误判，需优化）
-- **阶段性总结** — 12 轮审查累计修复 35+ MAJOR，新增 R45~R57 共 13 条规则，R52 从 51.3% → 100%
 
 ### 第二十五轮（v2.3.50 复盘）
 - **R10 连续九轮全通过** — 第二十四轮 12 个微调修复无回归

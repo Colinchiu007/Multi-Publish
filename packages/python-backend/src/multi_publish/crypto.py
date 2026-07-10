@@ -30,24 +30,26 @@ class CredentialCrypto:
                 - 如果为空，使用随机生成的密钥（适合开发环境）
                 - 如果提供，使用 PBKDF2 派生密钥（适合生产环境）
         """
-        if master_password:
-            # 从主密码派生密钥
-            salt = os.urandom(16)
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                iterations=480000,
-            )
-            key = base64.urlsafe_b64encode(kdf.derive(master_password.encode()))
-            self._fernet = Fernet(key)
-            self._salt = salt
-        else:
+        self._master_password = master_password
+        # _salt 保留用于向后兼容，但不再在 __init__ 中赋值（改为 encrypt 时生成并随密文持久化）
+        if not master_password:
             # 使用随机密钥（开发环境）
-            self._fernet = Fernet.generate_key()
-            self._fernet = Fernet(self._fernet)
-            self._salt = None
+            self._fernet = Fernet(Fernet.generate_key())
             logger.warning("使用随机密钥，重启后无法解密已有凭证（开发模式）")
+        else:
+            # 生产环境：每次 encrypt/decrypt 时根据 salt 派生密钥（salt 随密文持久化）
+            self._fernet = None
+
+    def _derive_fernet(self, salt: bytes) -> Fernet:
+        """从 master_password + salt 派生 Fernet 密钥"""
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=480000,
+        )
+        key = base64.urlsafe_b64encode(kdf.derive(self._master_password.encode()))
+        return Fernet(key)
 
     def encrypt(self, plaintext: str) -> str:
         """
@@ -59,8 +61,16 @@ class CredentialCrypto:
         Returns:
             加密后的 Base64 字符串
         """
-        encrypted = self._fernet.encrypt(plaintext.encode())
-        return base64.urlsafe_b64encode(encrypted).decode()
+        if self._fernet is not None:
+            # 开发模式（随机密钥，无 salt 拼接）
+            encrypted = self._fernet.encrypt(plaintext.encode())
+            return base64.urlsafe_b64encode(encrypted).decode()
+        # 生产模式：生成随机 salt，派生密钥，加密后将 salt 拼接到密文前面
+        salt = os.urandom(16)
+        self._salt = salt  # 向后兼容：保留最近一次 encrypt 使用的 salt
+        fernet = self._derive_fernet(salt)
+        encrypted = fernet.encrypt(plaintext.encode())
+        return base64.urlsafe_b64encode(salt + encrypted).decode()
 
     def decrypt(self, ciphertext: str) -> str:
         """
@@ -74,7 +84,14 @@ class CredentialCrypto:
         """
         try:
             decoded = base64.urlsafe_b64decode(ciphertext.encode())
-            decrypted = self._fernet.decrypt(decoded)
+            if self._fernet is not None:
+                # 开发模式
+                decrypted = self._fernet.decrypt(decoded)
+                return decrypted.decode()
+            # 生产模式：从密文前 16 字节提取 salt，重新派生密钥，再解密剩余部分
+            salt = decoded[:16]
+            fernet = self._derive_fernet(salt)
+            decrypted = fernet.decrypt(decoded[16:])
             return decrypted.decode()
         except Exception as e:
             logger.error(f"解密失败: {e}")

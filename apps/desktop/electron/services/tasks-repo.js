@@ -146,14 +146,16 @@ class TasksRepo {
   get(id) {
     this._ensureReady();
     const stmt = this._db.prepare("SELECT * FROM tasks WHERE id = ?");
-    stmt.bind([id]);
-    if (stmt.step()) {
-      const row = stmt.getAsObject();
-      stmt.free();
-      return _deserialize(row);
+    try {
+      stmt.bind([id]);
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        return _deserialize(row);
+      }
+      return null;
+    } finally {
+      try { stmt.free(); } catch (_) { /* ignore */ }
     }
-    stmt.free();
-    return null;
   }
 
   /**
@@ -177,14 +179,17 @@ class TasksRepo {
 
     sql += " ORDER BY created_at DESC";
     const stmt = this._db.prepare(sql);
-    stmt.bind(params);
+    try {
+      stmt.bind(params);
 
-    const rows = [];
-    while (stmt.step()) {
-      rows.push(_deserialize(stmt.getAsObject()));
+      const rows = [];
+      while (stmt.step()) {
+        rows.push(_deserialize(stmt.getAsObject()));
+      }
+      return rows;
+    } finally {
+      try { stmt.free(); } catch (_) { /* ignore */ }
     }
-    stmt.free();
-    return rows;
   }
 
   /**
@@ -295,14 +300,17 @@ class TasksRepo {
         (status = ? AND schedule IS NOT NULL AND json_extract(schedule, '$.type') = 'interval' AND next_run IS NOT NULL AND next_run <= ?)
       )
     `);
-    stmt.bind([TASK_STATUS.PENDING, now, TASK_STATUS.RUNNING, now]);
+    try {
+      stmt.bind([TASK_STATUS.PENDING, now, TASK_STATUS.RUNNING, now]);
 
-    const rows = [];
-    while (stmt.step()) {
-      rows.push(_deserialize(stmt.getAsObject()));
+      const rows = [];
+      while (stmt.step()) {
+        rows.push(_deserialize(stmt.getAsObject()));
+      }
+      return rows;
+    } finally {
+      try { stmt.free(); } catch (_) { /* ignore */ }
     }
-    stmt.free();
-    return rows;
   }
 
   // 鈹€鈹€鈹€ 缁熻 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -314,15 +322,18 @@ class TasksRepo {
   statistics() {
     this._ensureReady();
     const stmt = this._db.prepare("SELECT status, COUNT(*) as count FROM tasks GROUP BY status");
-    const byStatus = {};
-    let total = 0;
-    while (stmt.step()) {
-      const row = stmt.getAsObject();
-      byStatus[row.status] = row.count;
-      total += row.count;
+    try {
+      const byStatus = {};
+      let total = 0;
+      while (stmt.step()) {
+        const row = stmt.getAsObject();
+        byStatus[row.status] = row.count;
+        total += row.count;
+      }
+      return { total, by_status: byStatus };
+    } finally {
+      try { stmt.free(); } catch (_) { /* ignore */ }
     }
-    stmt.free();
-    return { total, by_status: byStatus };
   }
 
   // 鈹€鈹€鈹€ 鍐呴儴 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€

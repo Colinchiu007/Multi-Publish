@@ -29,7 +29,11 @@ class OssUploader {
     for (let i = 0; i < total; i++) {
       const buf = Buffer.alloc(Math.min(CHUNK, sz - i * CHUNK));
       const fd = fs.openSync(filePath, "r");
-      fs.readSync(fd, buf, 0, buf.length, i * CHUNK); fs.closeSync(fd);
+      try {
+        fs.readSync(fd, buf, 0, buf.length, i * CHUNK);
+      } finally {
+        fs.closeSync(fd);
+      }
       const pn = i + 1; const dt = new Date().toUTCString();
       const res = "/" + uf.object_key + "?partNumber=" + pn + "&uploadId=" + uid;
       let h2 = { "x-oss-date": dt, "x-oss-security-token": ut.access_token, "x-oss-user-agent": this.ua };

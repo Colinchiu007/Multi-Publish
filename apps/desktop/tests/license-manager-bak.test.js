@@ -12,7 +12,7 @@ const LicenseManager = require('../electron/services/license-manager')
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'license-test-'))
 
-// 复用源文件的 obfuscate/deobfuscate（通过 LicenseManager 的 save 生成有效文件）
+// 复用源文件的 encrypt/decrypt（通过 LicenseManager 的 save 生成有效文件）
 function makeManager(dataPath) {
   const m = new LicenseManager(dataPath)
   return m

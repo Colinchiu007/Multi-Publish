@@ -6,10 +6,10 @@ describe("ErrorCodes core", () => {
     expect(ERROR.REQUEST_ERROR).toBe(-1);
     expect(ERROR.VALIDATION_ERROR).toBe(-2);
     expect(ERROR.AUTH_ERROR).toBe(-3);
-    expect(ERROR.NOT_FOUND).toBe(-4);
-    expect(ERROR.TIMEOUT_ERROR).toBe(-5);
-    expect(ERROR.NETWORK_ERROR).toBe(-6);
-    expect(ERROR.IO_ERROR).toBe(-7);
+    expect(ERROR.NOT_FOUND).toBe(-10);
+    expect(ERROR.TIMEOUT_ERROR).toBe(-11);
+    expect(ERROR.NETWORK_ERROR).toBe(-12);
+    expect(ERROR.IO_ERROR).toBe(-13);
     expect(ERROR.TASK_CANCELLED).toBe(-999);
     expect(ERROR.UNKNOWN_ERROR).toBe(-99);
   });
