@@ -200,7 +200,7 @@ class RpaViewManager {
           this._emitProgress(platform,'adding tags...',72)
           await this._waitForElement(win,sel.tag_input[0],5000)
           await this._fillInput(win,sel.tag_input[0],article.tags[ti])
-          await win.webContents.executeJavaScript('(function(){let el=document.querySelector(\''+sel.tag_input[0]+'\');if(el)el.dispatchEvent(new KeyboardEvent(\'keydown\',{key:\'Enter\',code:\'Enter\',keyCode:13}))})()')
+          await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel.tag_input[0])+';let el=document.querySelector(s);if(el)el.dispatchEvent(new KeyboardEvent(\'keydown\',{key:\'Enter\',code:\'Enter\',keyCode:13}))})()')
           await new Promise(function(r){setTimeout(r,800)})
         } catch(e) { log.warn('RpaView','['+platform+'] tag: '+e.message) }
       }
@@ -535,7 +535,7 @@ class RpaViewManager {
       this._emitProgress('wechat_mp','mass sending...',85)
       try {
         await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_list&type=10&action=list',2000)
-        await win.webContents.executeJavaScript("(function(){let row=document.querySelector('[appmsgid=\"' + mediaId + '\"]');if(row)row.click();})()")
+        await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify('[appmsgid="'+mediaId+'"]')+';let row=document.querySelector(s);if(row)row.click();})()')
         await new Promise(function(r){setTimeout(r,1000)})
         await this._click(win,'a.btn_masssend, a[data-action="masssend"]')
         await new Promise(function(r){setTimeout(r,2000)})
