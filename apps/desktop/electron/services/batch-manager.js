@@ -17,10 +17,22 @@ let _taskQueue = null
 class BatchManager {
   constructor (store) {
     this.store = store
+    this._timers = new Set()   // 跟踪 scheduleBatch 创建的所有 setTimeout 句柄
   }
 
   static setTaskQueue (taskQueue) {
     _taskQueue = taskQueue
+  }
+
+  /**
+   * 清理所有排期中的定时器（应用退出时调用）
+   */
+  stopAll () {
+    for (const timer of this._timers) {
+      clearTimeout(timer)
+    }
+    this._timers.clear()
+    log.info('BatchManager', `Cleared ${this._timers.size} pending batch timers`)
   }
 
   /**
@@ -145,7 +157,8 @@ class BatchManager {
         continue
       }
 
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        this._timers.delete(timer)
         try {
           for (const platform of article.platforms) {
             _taskQueue.add({ platform, article, batchId })
@@ -154,6 +167,7 @@ class BatchManager {
           log.error('BatchManager', 'Failed to schedule batch task for batch ' + batchId + ': ' + e.message)
         }
       }, delay)
+      this._timers.add(timer)
     }
 
     this.store.updateBatchJob(batchId, { status: 'scheduled' })

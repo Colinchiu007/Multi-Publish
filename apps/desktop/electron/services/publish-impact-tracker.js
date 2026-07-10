@@ -67,9 +67,16 @@ class PublishImpactTracker {
 
     // Immediate: capture initial baseline snapshot
     // (use small delay to let the publish complete)
-    setTimeout(async () => {
+    const baselineTimer = setTimeout(async () => {
+      // 执行后从 intervals 中移除自身（避免 stopAll 重复清除已触发的句柄）
+      const entry = this._timers.get(articleId)
+      if (entry) {
+        const idx = entry.intervals.indexOf(baselineTimer)
+        if (idx >= 0) entry.intervals.splice(idx, 1)
+      }
       await this._captureSnapshot(articleId, title, searchKeywords, platform, 'baseline')
     }, 60_000)  // T+1min
+    intervals.push(baselineTimer)
 
     return { articleId, schedule }
   }
