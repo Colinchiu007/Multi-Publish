@@ -868,3 +868,56 @@ R52 是质量节拍 skill 应用以来最大的系统性技术债清理任务。
 2. **R14 资源泄漏子维度不够深** — 前 26 轮的"资源泄漏"只查定时器/监听器，未查"文件句柄 try/finally"和"prepared statement free()"。batch-manager.js 的事件名不匹配 CRITICAL 也是首次发现。**根因：R14 资源泄漏维度需扩展到"同步 I/O 异常路径"**
 3. **一致性维度此前只查格式** — 前 26 轮的"一致性"聚焦 IPC 响应格式（R52），未查"错误码语义冲突"和"版本号同步"。**根因：R14 一致性维度需扩展到"跨包错误码语义"**
 4. **batch-manager.js 事件名 bug 是功能性缺陷** — `once('task:${taskId}:done')` 从不触发意味着批量发布进度**从未更新**。这个 bug 存在多轮未被发现，因为审查从未做过"事件名与 emit 交叉验证"
+
+---
+
+## 第二十八轮审查复盘 v2.3.53 (2026-07-10) — 环境启动 + 编码问题 + R51 P0
+
+### ✅ 做得好的
+1. **环境从零搭建成功** — node_modules 完全缺失的情况下，用 npmmirror registry + --ignore-scripts 安装 1188 个包，手动下载 electron 33.4.0 二进制（102MB），安装 Xvfb + 系统库，完整启动 Electron 应用
+2. **中文乱码根因定位** — 前端"问号"问题的根因是 **headless Linux 环境没有中文字体**（`fc-list :lang=zh` 返回空），页面 CSS font-family 中的 PingFang SC / Microsoft YaHei 在 Linux 上不存在，DejaVu Sans 不含中文字形。安装 fonts-noto-cjk 后解决
+3. **另一个会话的 3 个启动 bug 修复并合并** — 无冲突，互补：
+   - api-router.js require('./logger') → 新建 logger.js
+   - container.setup.js `const PublisherRouter = require(...)` → `const { PublisherRouter } = require(...)`
+   - system-tray.js `new Tray(iconPath)` → 加 try/catch 优雅降级（与我的 tray.destroy() guard 互补）
+4. **R51 P0 扫描完成** — 24 个 IPC handler 文件逐文件读取分析，发现大部分高风险 handler（publish:batch / payment 系列）已在之前轮次修复，仅 render.js render:start 需补 data 参数校验
+5. **ffmpeg 截图成功** — 用 `ffmpeg -f x11grab` 截取 Xvfb 虚拟显示，验证应用界面渲染
+
+### ⚠️ 需要注意（失误与改进）
+1. **"问号"问题不是编码问题而是字体问题** — 前端文件全部是 UTF-8 编码，HTML 有 `<meta charset="UTF-8">`，Vite 返回 Content-Type 虽然没带 charset 但 `<meta charset>` 已足够。真正的根因是 **headless 环境缺中文字体**。之前多轮以为是"编码问题"实际是"字体缺失"。**教训：排查"中文显示异常"时，先查 `fc-list :lang=zh`，再查文件编码**
+2. **另一个会话的修复未提交到 git** — 另一个会话做了 3 个 bug 修复但没有 commit，环境重置后丢失。**教训：修复后必须立即 commit**
+3. **SQLite CURRENT_TIMESTAMP 不被 sql.js 支持** — `default value of column [created_at] is not constant` 是 sql.js（纯 JS SQLite）的已知限制，不影响应用运行（Store 降级继续），但建表失败导致 accounts/publish_history 等表不存在。**需后续修复**
+4. **Python 后端缺少 uvicorn** — `ModuleNotFoundError: No module named 'uvicorn'`，不影响应用外壳运行（bootstrap.js try/catch 兜住），但 AI 功能不可用
+
+### 🧠 经验沉淀
+- **R62：headless 环境中文显示排查清单** — 当 headless 环境中中文显示为问号/方块时，按以下顺序排查：
+  1. `fc-list :lang=zh` — 检查是否有中文字体（最常见根因）
+  2. `file xxx.vue` — 检查文件编码是否为 UTF-8
+  3. HTML `<meta charset="UTF-8">` — 检查 charset 声明
+  4. CSS `font-family` — 检查是否引用了不存在的字体
+  5. HTTP `Content-Type` charset — 检查响应头（Vite dev server 默认不带 charset，但 `<meta charset>` 已足够）
+- **R63：启动阻断 bug 必须立即提交** — 发现并修复启动阻断 bug 后，必须立即 git commit。不能"等一起提交"，因为环境重置会丢失未提交的修复
+
+### 🔁 本轮"为什么还有问题"复盘
+第二十八轮没有发现新的 CRITICAL/MAJOR 代码问题。主要成果是：
+1. 环境搭建 — 从零安装依赖 + electron 二进制 + 系统库 + 中文字体
+2. 启动 bug 修复 — 合并另一个会话的 3 个修复
+3. 编码问题定位 — 根因是字体而非编码
+4. R51 P0 完成 — 仅 1 个 handler 需修复
+
+### 关于"还要审查多少轮才能完全没有 bug"的分析
+
+**答案：永远不可能"完全没有 bug"，但可以做到"无 CRITICAL、无已知 MAJOR"。**
+
+原因分析：
+1. **审查维度无限** — 每次定义新规则（R1~R63）打开新扫描维度，就可能发现新问题。安全审计（第 27 轮）首次做就发现 4 CRITICAL，因为之前 26 轮从未查过"加密方案有效性"
+2. **代码在变** — 每次修复都可能引入新问题。例如第 27 轮修复 license-manager 加密方案，测试文件需要同步更新
+3. **维度有深浅** — R52 格式统一用了 6 轮（第 20~25 轮），R51 参数校验估计需要 3~5 轮
+4. **依赖外部环境** — 如 fonts-noto-cjk 缺失导致中文乱码，这不是代码 bug 但影响用户体验
+
+**实际目标**：
+- **CRITICAL 清零**：当前已清零（第 27 轮 4 个已全部修复）
+- **MAJOR 清零**：剩余约 11 个 MAJOR（安全 3 + 一致性 7 + 资源泄漏 1），预计再 2~3 轮
+- **MINOR 可接受**：20 处 console.error、命名不一致等不影响功能
+- **R51 完成**：P0 已完成，P1 预计 1 轮，P2 可接受现状
+- **总计**：预计再 **3~5 轮**可达到"无 CRITICAL、无已知 MAJOR"的状态

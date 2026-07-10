@@ -27,9 +27,14 @@ function init (mainWindow) {
   if (tray) { try { tray.destroy() } catch (_) { /* ignore */ } }
   mainWindowRef = mainWindow
   
-  // 创建托盘图标（使用应用图标）
+  // 创建托盘图标（使用应用图标），dev 模式 dist/ 可能不存在，try/catch 优雅降级
   const iconPath = path.join(__dirname, '..', '..', 'dist', 'assets', 'icon.png')
-  tray = new Tray(iconPath)
+  try {
+    tray = new Tray(iconPath)
+  } catch (e) {
+    log.warn('SystemTray', 'Tray creation failed, running without tray: ' + e.message)
+    return
+  }
   
   const contextMenu = Menu.buildFromTemplate([
     {

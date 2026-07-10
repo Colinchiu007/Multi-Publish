@@ -9,6 +9,8 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('render:start', async (event, data) => {
     try {
+      // R51 P0 修复：data 为 undefined 时 data.props / data.profile 属性访问必崩
+      if (!data || typeof data !== 'object') return { code: -1, message: '缺少 data 参数' }
       const win = BrowserWindow.fromWebContents(event.sender)
       const onProgress = (percent, stage) => { win?.webContents.send('render:progress', { percent, stage }) }
       const result = await renderEngine.render(data.props || data, { onProgress, profile: data.profile })

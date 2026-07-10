@@ -1,8 +1,19 @@
 ﻿# CHANGELOG
 
-## [审查复盘] 第十五~二十七轮 (2026-07-10)
+## [审查复盘] 第十五~二十八轮 (2026-07-10)
 
-应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R61。
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R63。
+
+### 第二十八轮（v2.3.53 复盘）— 环境启动 + 编码问题 + R51 P0
+- **环境从零搭建**：npm install 1188 包 + electron 33.4.0 二进制 + Xvfb + 系统库 + 中文字体
+- **中文乱码根因定位**：headless 环境缺中文字体（非编码问题），安装 fonts-noto-cjk 解决
+- **合并另一个会话的 3 个启动 bug 修复**：
+  - api-router.js require('./logger') → 新建 logger.js
+  - container.setup.js PublisherRouter 解构修复
+  - system-tray.js Tray 创建 try/catch 优雅降级
+- **R51 P0 完成**：24 文件扫描，仅 render.js render:start 需补 data 参数校验
+- **新增规则 R62-R63**：headless 中文显示排查清单 / 启动阻断 bug 必须立即提交
+- **关于"还要审查多少轮"**：预计再 3~5 轮可达"无 CRITICAL、无已知 MAJOR"
 
 ### 第二十七轮（v2.3.52 复盘）— 安全审计 + R14 资源泄漏 + R14 一致性
 - **三路并行 agent 审查**：安全审计(8维度) + R14资源泄漏(6子维度) + R14一致性(6子维度)
