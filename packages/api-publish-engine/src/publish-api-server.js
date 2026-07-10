@@ -99,7 +99,7 @@ class PublishApiServer {
   }
 
   _json(res, status, data) {
-    res.writeHead(status, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.writeHead(status, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "http://localhost:5174" });
     res.end(JSON.stringify(data));
   }
 
@@ -135,7 +135,7 @@ class PublishApiServer {
     res.end = function() { res.end = _origEnd; res.end.apply(res, arguments); if (_self._accessLogger) _self._accessLogger.log(req, res, _startTime); };
 
     if (method === "OPTIONS") {
-      res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" });
+      res.writeHead(204, { "Access-Control-Allow-Origin": "http://localhost:5174", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" });
       res.end();
       return;
     }

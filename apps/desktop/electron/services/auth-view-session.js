@@ -45,8 +45,15 @@ async function setCookies(session, cookies) {
 async function restoreLocalStorage(view, localStorage) {
   if (!localStorage || Object.keys(localStorage).length === 0) return
   /** @type {Promise<void>} */
-  const p = new Promise((resolve) => {
+  var p = new Promise((resolve) => {
+    // R14 修复：增加 10s 超时，防止 did-finish-load 永不触发时 Promise 永久 pending
+    var done = false
+    var timer = setTimeout(() => {
+      if (!done) { done = true; resolve() }
+    }, 10000)
     view.webContents.once('did-finish-load', async () => {
+      if (done) return
+      clearTimeout(timer)
       try {
         await view.webContents.executeJavaScript(`
           (function() {
@@ -57,6 +64,7 @@ async function restoreLocalStorage(view, localStorage) {
           })()
         `)
       } catch (_e) { /* ignore */ }
+      done = true
       resolve()
     })
   })

@@ -1,5 +1,27 @@
 ﻿# CHANGELOG
 
+## [审查复盘] 第十五~二十九轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R66。
+
+### 第二十九轮（v2.3.54 复盘）— 3 启动 bug 根因深挖 + 安全 MAJOR 收尾 + 截图能力说明
+- **3 个启动 bug 根因深挖**（用户问"为什么会出现这几个 bug"）：
+  - Bug 1（logger.js 悬空引用）— 模块被 require 但从未创建
+  - Bug 2（container.setup.js 解构错）— 导出/导入形状契约不一致
+  - Bug 3（system-tray.js Tray 崩溃）— 缺少可选组件优雅降级
+- **5 个 MAJOR 修复**（接续第 27 轮安全审计 + R14 扫描）：
+  - 安全：signer-local.js 移除硬编码 CSDN appSecret
+  - 安全：publish-api-server.js CORS 由 * 收紧为 localhost:5174
+  - 安全：api-key-manager.js API Key 改为 SHA-256 哈希存储
+  - 资源泄漏：auth-view-session.js restoreLocalStorage 加 10s 超时
+  - 一致性：apps/desktop/package.json 版本号 2.3.44→2.3.53 + description 乱码修复
+- **截图能力说明** — 能调用 ffmpeg 截图，但作为文本模型无法"看到"图片内容；视觉验证需用户配合
+- **新增规则 R64-R66**：
+  - R64：悬空引用扫描清单（grep + 文件存在性验证）
+  - R65：导出/导入形状契约（改导出必须 grep 所有调用方）
+  - R66：可选组件强制优雅降级（托盘/快捷键/autoUpdater/Notification/sandbox 必须 try/catch）
+- **剩余 MAJOR 约 5 个**（全部一致性），预计再 1~2 轮可清零
+
 ## [审查复盘] 第十五~二十八轮 (2026-07-10)
 
 应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R63。

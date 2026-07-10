@@ -35,13 +35,19 @@ class ApiKeyManager {
     this._loaded = true;
   }
 
-  /** 持久化到文件（原子写：tmp + rename） */
+  /** 持久化到文件（原子写：tmp + rename）— API Key 以 SHA-256 哈希存储 */
   _save() {
     const dir = path.dirname(this._keysPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    // 安全修复：API 密钥是安全敏感数据，原非原子写中断会导致文件损坏
+    // 安全修复：API Key 以 SHA-256 哈希存储，不明文保存
+    const hashed = this._keys.map(k => {
+      var h = { name: k.name, scopes: k.scopes, createdAt: k.createdAt, keyHash: k.keyHash || crypto.createHash('sha256').update(k.key).digest('hex') }
+      if (k.revokedAt) h.revokedAt = k.revokedAt
+      if (k.lastUsed) h.lastUsed = k.lastUsed
+      return h
+    })
     const tmpPath = this._keysPath + ".tmp";
-    fs.writeFileSync(tmpPath, JSON.stringify(this._keys, null, 2), "utf-8");
+    fs.writeFileSync(tmpPath, JSON.stringify(hashed, null, 2), "utf-8");
     fs.renameSync(tmpPath, this._keysPath);
   }
 
@@ -114,7 +120,9 @@ class ApiKeyManager {
   validateKey(key, requiredScope) {
     if (!this._loaded) this.load();
     if (!key) return { valid: false, error: "No API key provided" };
-    const entry = this._keys.find((k) => k.key === key);
+    // 安全修复：用 SHA-256 哈希比较，不明文匹配
+    var keyHash = crypto.createHash('sha256').update(key).digest('hex')
+    var entry = this._keys.find(function(k) { return (k.keyHash || crypto.createHash('sha256').update(k.key).digest('hex')) === keyHash });
     if (!entry) return { valid: false, error: "API key not found" };
     if (entry.revokedAt) return { valid: false, error: "API key has been revoked" };
     // 更新 lastUsed（不阻塞）

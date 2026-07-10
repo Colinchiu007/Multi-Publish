@@ -6,9 +6,10 @@ const crypto = require("crypto");
 
 // CSDN HMAC-SHA256 签名
 function getCsdnSign(url, body, appSecret) {
+  if (!appSecret) throw new Error("CSDN appSecret is required")
   const sorted = Object.keys(body).sort().map(k => k + "=" + body[k]).join("&");
   const signStr = url + "?" + sorted;
-  return crypto.createHmac("sha256", appSecret || "9znpamsyl2c7cdrr9sas0le9vbc3r6ba")
+  return crypto.createHmac("sha256", appSecret)
     .update(signStr).digest("base64");
 }
 

@@ -1,7 +1,7 @@
 {
     "name": "@multi-publish/desktop",
-    "version": "2.3.44",
-    "description": "婢舵艾閽╅崣鏉垮敶鐎归€涚闁款喖褰傜敮鍐╊攽闂堛垹浼愰敓?(Electron + RpaViewManager)",
+    "version": "2.3.53",
+    "description": "多平台内容一键发布桌面端 (Electron + RpaViewManager)",
     "author": "Colin Chiu <colin.chiu@colinchiu.com>",
     "main": "electron/main.js",
     "scripts": {
