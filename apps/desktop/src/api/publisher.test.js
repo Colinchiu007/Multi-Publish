@@ -92,7 +92,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   cancelTask: { args: ["task-1"], fallback: { code: -1 }, returns: "object" },
   historyList: { args: [{ page: 1 }], fallback: { code: 0, data: { total: 0, records: [] } }, returns: "object" },
   historyGet: { args: ["id-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
-  dashboardStats: { args: [], fallback: { total: 0, success: 0, failed: 0, perPlatform: {}, daily: [] }, returns: "object" },
+  dashboardStats: { args: [], fallback: { code: 0, data: { total: 0, success: 0, failed: 0, byPlatform: {}, daily: [] } }, returns: "object" },
   schedulerCreate: { args: [{ time: "2026-01-01" }], fallback: { code: -1 }, returns: "object" },
   schedulerList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
   schedulerCancel: { args: ["sched-1"], fallback: { code: -1 }, returns: "object" },
@@ -111,7 +111,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   renderStart: { args: [{ type: "video" }], fallback: undefined, returns: "undefined" },
   renderCancel: { args: [], fallback: {}, returns: "object" },
   renderGetStatus: { args: [], fallback: {}, returns: "object" },
-  renderInstallDeps: { args: [], fallback: { success: false, error: "electronAPI not available" }, returns: "object" },
+  renderInstallDeps: { args: [], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   sensitiveCheck: { args: ["text"], fallback: { code: -1 }, returns: "object" },
   sensitiveReplace: { args: ["text"], fallback: { code: -1 }, returns: "object" },
   syncAll: { args: [], fallback: { code: -1 }, returns: "object" },
@@ -136,7 +136,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   paymentGetOrder: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },
   paymentSimulate: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },
   paymentCancel: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },
-  firstRunCheck: { args: [], fallback: { setupDone: false }, returns: "object" },
+  firstRunCheck: { args: [], fallback: { code: 0, data: { setupDone: false } }, returns: "object" },
   onFirstRunStatus: { args: [vi.fn()], fallback: undefined, returns: "function" },
   offlineStatus: { args: [], fallback: { code: -1, data: { offline: false, cachedCount: 0, cachedTasks: [] } }, returns: "object" },
   offlineAddToCache: { args: [{ task: "x" }], fallback: { code: -1 }, returns: "object" },
@@ -170,7 +170,7 @@ describe("api/publisher -- normal 路径（electronAPI 存在）", () => {
   });
   function setupNormal(name) {
     mockApi = createMockApi();
-    const resolvedValue = { success: true, name };
+    const resolvedValue = { code: 0, name };
     mockApi[name].mockResolvedValue(resolvedValue);
     window.electronAPI = mockApi;
     return resolvedValue;

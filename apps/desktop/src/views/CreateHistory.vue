@@ -94,7 +94,7 @@ export default {
       this.pipelineLoading = true
       try {
         const r = await pipelineHistory()
-        if (r?.success) this.pipelines = r.data || []
+        if (r?.code === 0) this.pipelines = r.data || []
       } catch (e) {
         console.error(e)
       } finally {

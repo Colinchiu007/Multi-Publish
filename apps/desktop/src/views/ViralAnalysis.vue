@@ -255,10 +255,10 @@ export default {
         }
 
         const res = await viralAnalyze(articles, this.topic)
-        if (res && res.success !== false) {
-          this.result = res
+        if (res?.code === 0) {
+          this.result = res.data
         } else {
-          this.result = { overall_score: 0, error: res?.error || '分析失败' }
+          this.result = { overall_score: 0, error: res?.message || '分析失败' }
         }
       } catch (err) {
         this.result = { overall_score: 0, error: err.message }
@@ -279,8 +279,8 @@ export default {
           count: 5,
         }
         const res = await viralGenerate(opts)
-        if (res && res.success !== false) {
-          this.genResult = res
+        if (res?.code === 0) {
+          this.genResult = res.data
         }
       } catch (err) {
         this.genResult = { task: 'titles', error: err.message }

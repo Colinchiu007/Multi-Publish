@@ -149,9 +149,9 @@ async function fetchBenchmark() {
   loading.value = true
   try {
     const result = await intelligenceGetBenchmark({ keyword: props.title, sampleSize: 12 })
-    data.value = result
-    if (result?.error) {
-      error.value = result.error
+    data.value = result?.code === 0 ? result.data : null
+    if (result?.code !== 0) {
+      error.value = result?.message
     }
   } catch (err) {
     error.value = err.message || '获取基准数据失败'

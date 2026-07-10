@@ -4,8 +4,8 @@ import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 
 vi.mock("@/api/publisher", () => ({
-  viralAnalyze: vi.fn().mockResolvedValue({ success: true, overall_score: 8.5, factors: [] }),
-  viralGenerate: vi.fn().mockResolvedValue({ success: true, task: "titles", data: { titles: [] } }),
+  viralAnalyze: vi.fn().mockResolvedValue({ code: 0, data: { overall_score: 8.5, factors: [] } }),
+  viralGenerate: vi.fn().mockResolvedValue({ code: 0, data: { task: "titles", data: { titles: [] } } }),
 }));
 
 import ViralAnalysisView from "./ViralAnalysis.vue";
@@ -66,7 +66,7 @@ describe("ViralAnalysisView", () => {
 
   it("doAnalyze calls viralAnalyze with articles", async () => {
     const { viralAnalyze } = await import("@/api/publisher");
-    viralAnalyze.mockResolvedValue({ success: true, overall_score: 8.5, factors: [{ name: "test", label: "Test", score: 0.8 }] });
+    viralAnalyze.mockResolvedValue({ code: 0, data: { overall_score: 8.5, factors: [{ name: "test", label: "Test", score: 0.8 }] } });
     const w = createView();
     await nextTick();
     w.vm.topic = "AI trends";
@@ -91,7 +91,7 @@ describe("ViralAnalysisView", () => {
 
   it("doAnalyze handles API error", async () => {
     const { viralAnalyze } = await import("@/api/publisher");
-    viralAnalyze.mockResolvedValue({ success: false, error: "analysis failed" });
+    viralAnalyze.mockResolvedValue({ code: -1, message: "analysis failed" });
     const w = createView();
     await nextTick();
     w.vm.topic = "AI";
@@ -120,7 +120,7 @@ describe("ViralAnalysisView", () => {
 
   it("doGenerate calls viralGenerate with options", async () => {
     const { viralGenerate } = await import("@/api/publisher");
-    viralGenerate.mockResolvedValue({ success: true, task: "titles", data: { titles: [{ title: "Test Title", structure: "list", emotion: "curiosity" }] } });
+    viralGenerate.mockResolvedValue({ code: 0, data: { task: "titles", data: { titles: [{ title: "Test Title", structure: "list", emotion: "curiosity" }] } } });
     const w = createView();
     await nextTick();
     w.vm.topic = "AI tools";
@@ -138,7 +138,7 @@ describe("ViralAnalysisView", () => {
 
   it("doGenerate skips setting genResult on API error", async () => {
     const { viralGenerate } = await import("@/api/publisher");
-    viralGenerate.mockResolvedValue({ success: false, error: "generate failed" });
+    viralGenerate.mockResolvedValue({ code: -1, message: "generate failed" });
     const w = createView();
     await nextTick();
     w.vm.topic = "AI";

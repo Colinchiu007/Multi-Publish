@@ -29,7 +29,7 @@ export async function historyGet(id) { return invokeWithFallback("historyGet", {
 
 // ─── 发布统计 API ──────────────────────────
 export async function dashboardStats () {
-  return invokeWithFallback("dashboardStats", { total: 0, success: 0, failed: 0, perPlatform: {}, daily: [] })
+  return invokeWithFallback("dashboardStats", { code: 0, data: { total: 0, success: 0, failed: 0, byPlatform: {}, daily: [] } })
 }
 
 // ─── 定时发布 API ─────────────────────────
@@ -80,7 +80,7 @@ export async function renderGetStatus () {
   return invokeWithFallback("renderGetStatus", {})
 }
 
-export async function renderInstallDeps() { return invokeWithFallback("renderInstallDeps", {  success: false, error: 'electronAPI not available'  }) }
+export async function renderInstallDeps() { return invokeWithFallback("renderInstallDeps", {  code: -1, message: 'electronAPI not available'  }) }
 
 export function onRenderProgress(callback) { return bridgeOn("RenderProgress", callback) }
 
@@ -218,7 +218,7 @@ export async function paymentCancel(orderId) { return invokeWithFallback("paymen
 
 
 // ─── 首次运行引导 API ──────────────────────
-export async function firstRunCheck() { return invokeWithFallback("firstRunCheck", {  setupDone: false  }) }
+export async function firstRunCheck() { return invokeWithFallback("firstRunCheck", {  code: 0, data: { setupDone: false }  }) }
 export function onFirstRunStatus(callback) { return bridgeOn("FirstRunStatus", callback) }
 
 // ─── 通知 API ────────────────────────────
@@ -240,13 +240,13 @@ export function showNotification (data) {
 
 
 // ─── Pipeline 管线 API ──────────────────────
-export async function pipelineList() { return invokeWithFallback("pipelineList", { success: true, data: [] }) }
+export async function pipelineList() { return invokeWithFallback("pipelineList", { code: 0, data: [] }) }
 export async function pipelineGet(name) { return invokeWithFallback("pipelineGet", null, name) }
-export async function pipelineStart(name, params) { return invokeWithFallback("pipelineStart", { success: false, error: 'electronAPI not available' }, name, params) }
-export async function pipelinePause() { return invokeWithFallback("pipelinePause", { success: false }) }
-export async function pipelineResume() { return invokeWithFallback("pipelineResume", { success: false }) }
-export async function pipelineCancel() { return invokeWithFallback("pipelineCancel", { success: false }) }
+export async function pipelineStart(name, params) { return invokeWithFallback("pipelineStart", { code: -1, message: 'electronAPI not available' }, name, params) }
+export async function pipelinePause() { return invokeWithFallback("pipelinePause", { code: -1 }) }
+export async function pipelineResume() { return invokeWithFallback("pipelineResume", { code: -1 }) }
+export async function pipelineCancel() { return invokeWithFallback("pipelineCancel", { code: -1 }) }
 export async function pipelineStatus(name) { return invokeWithFallback("pipelineStatus", null, name) }
-export async function pipelineAdvance() { return invokeWithFallback("pipelineAdvance", { success: false }) }
-export async function pipelineHistory() { return invokeWithFallback("pipelineHistory", { success: true, data: [] }) }
+export async function pipelineAdvance() { return invokeWithFallback("pipelineAdvance", { code: -1 }) }
+export async function pipelineHistory() { return invokeWithFallback("pipelineHistory", { code: 0, data: [] }) }
 

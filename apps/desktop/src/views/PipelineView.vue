@@ -111,21 +111,21 @@ export default {
       this.loading = true; this.error = null
       try {
         const res = await pipelineList()
-        if (res?.success) this.pipelines = res.data || []
-        else this.error = res?.error || '加载失败'
+        if (res?.code === 0) this.pipelines = res.data || []
+        else this.error = res?.message || '加载失败'
       } catch (e) { this.error = e.message }
       finally { this.loading = false }
     },
     async startPipeline(name) {
       const res = await pipelineStart(name, {})
-      if (res?.success) { this.currentPipeline = name; this.tab = 'running'; await this.updateStatus() }
-      else { this.error = res?.error || '启动失败' }
+      if (res?.code === 0) { this.currentPipeline = name; this.tab = 'running'; await this.updateStatus() }
+      else { this.error = res?.message || '启动失败' }
     },
-    async pausePipeline() { const r = await pipelinePause(); if (r?.success) this.pipelineStatusData = 'paused' },
-    async resumePipeline() { const r = await pipelineResume(); if (r?.success) this.pipelineStatusData = 'running' },
+    async pausePipeline() { const r = await pipelinePause(); if (r?.code === 0) this.pipelineStatusData = 'paused' },
+    async resumePipeline() { const r = await pipelineResume(); if (r?.code === 0) this.pipelineStatusData = 'running' },
     async cancelPipeline() {
       const r = await pipelineCancel()
-      if (r?.success) { this.pipelineStatusData = null; this.currentPipeline = null; this.currentStages = []; this.currentStageIndex = -1 }
+      if (r?.code === 0) { this.pipelineStatusData = null; this.currentPipeline = null; this.currentStages = []; this.currentStageIndex = -1 }
     },
     async updateStatus() {
       if (!this.currentPipeline) return
@@ -140,7 +140,7 @@ export default {
       this.historyLoading = true
       try {
         const r = await pipelineHistory()
-        if (r?.success) this.history = r.data || []
+        if (r?.code === 0) this.history = r.data || []
       } catch (e) {
         console.error(e)
       } finally {

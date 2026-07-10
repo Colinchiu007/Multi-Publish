@@ -61,8 +61,8 @@
           </div>
 
           <div v-if="submitResult" class="cohere-form-item" style="margin-top:var(--space-sm)">
-            <div v-if="submitResult.ok" class="cohere-tag cohere-tag-success">任务已创建: {{ submitResult.data.task_id }}</div>
-            <div v-else class="cohere-tag cohere-tag-error">提交失败: {{ submitResult.error }}</div>
+            <div v-if="submitResult.ok" class="cohere-tag cohere-tag-success">任务已创建: {{ submitResult.data?.task_id }}</div>
+            <div v-else class="cohere-tag cohere-tag-error">提交失败: {{ submitResult.message }}</div>
           </div>
         </div>
       </div>
@@ -146,7 +146,7 @@ export default {
   methods: {
     async loadPlatforms () {
       const res = await cloudPublishPlatforms()
-      if (res.ok && res.data && res.data.length) {
+      if (res?.code === 0 && res.data && res.data.length) {
         this.platforms = res.data
         if (!this.form.platform && this.platforms.length) {
           this.form.platform = this.platforms[0].id
@@ -158,7 +158,7 @@ export default {
       this.loadingTasks = true
       try {
         const res = await cloudPublishListTasks()
-        if (res.ok && res.data) {
+        if (res?.code === 0 && res.data) {
           this.tasks = (res.data.items || []).slice(0, 50)
           this.orchestratorOnline = true
         } else {
@@ -198,7 +198,7 @@ export default {
 
     async handleSubmit () {
       if (!this.form.videoUrl || !this.form.title || !this.form.platform) {
-        this.submitResult = { ok: false, error: '视频 URL、平台和标题为必填项' }
+        this.submitResult = { ok: false, message: '视频 URL、平台和标题为必填项' }
         return
       }
 
@@ -214,9 +214,9 @@ export default {
           coverUrl: this.form.coverUrl,
         })
 
-        this.submitResult = res
+        this.submitResult = res?.code === 0 ? { ok: true, data: res.data } : { ok: false, message: res?.message }
 
-        if (res.ok) {
+        if (res?.code === 0) {
           // Reset form
           this.form.videoUrl = ''
           this.form.title = ''

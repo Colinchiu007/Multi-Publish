@@ -95,7 +95,7 @@ describe("publish IPC handlers", () => {
   describe("queue handlers", () => {
     it("queue:status returns status", async () => {
       const result = await ipcMain._callHandler("queue:status");
-      expect(result).toEqual({ queued: 0, running: 0, completed: 10, failed: 1 });
+      expect(result).toEqual({ code: 0, data: { queued: 0, running: 0, completed: 10, failed: 1 } });
     });
 
     it("queue:history returns history", async () => {
@@ -111,7 +111,7 @@ describe("publish IPC handlers", () => {
 
     it("queue:cancel fails for invalid id", async () => {
       const result = await ipcMain._callHandler("queue:cancel", "invalid-id");
-      expect(result.code).toBe(-1);
+      expect(result.code).toBe(-10);
     });
   });
 
@@ -137,7 +137,7 @@ describe("publish IPC handlers", () => {
 
     it("history:get returns error when not found", async () => {
       const result = await ipcMain._callHandler("history:get", "nonexistent");
-      expect(result.code).toBe(-1);
+      expect(result.code).toBe(-10);
       expect(result.message).toBe("记录不存在");
     });
   });

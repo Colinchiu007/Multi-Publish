@@ -185,7 +185,7 @@ const stepIndex = { python: 0, playwright: 1 }
 
 onMounted(async () => {
   const checkResult = await firstRunCheck()
-  if (checkResult?.setupDone) {
+  if (checkResult?.code === 0 && checkResult.data?.setupDone) {
     allDepsDone.value = true
     depSteps.value.forEach(s => { s.status = 'done' })
     currentStep.value = 1  // skip deps

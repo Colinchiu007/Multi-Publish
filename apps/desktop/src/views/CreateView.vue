@@ -138,7 +138,7 @@ export default {
       try {
         const { aiGenerate } = await import('@/api/publisher');
         const r = await aiGenerate('text', 'openai', { prompt: '为短视频写一个30秒文案，风格：' + this.theme });
-        if (r?.success && r?.text) this.text = r.text;
+        if (r?.code === 0 && r.data?.text) this.text = r.data.text;
       } catch (e) {
         this.error = 'AI 写稿失败: ' + (e.message || '未知错误');
       }
@@ -148,13 +148,13 @@ export default {
       this.rendering = true; this.progress = 0; this.stage = '开始渲染'; this.error = null; this.result = null;
       try {
         const res = await renderStart({ props: this.renderProps, profile: this.profile });
-        if (res?.success) { this.result = res; }
-        else { this.error = res?.message || res?.error || '渲染失败'; this.rendering = false; }
+        if (res?.code === 0) { this.result = res.data; }
+        else { this.error = res?.message || '渲染失败'; this.rendering = false; }
       } catch (e) { this.error = '渲染异常: ' + (e.message || '未知错误'); this.rendering = false; }
     },
   },
   mounted() {
-    renderGetStatus().then(s => { this.status = s; }).catch(() => { this.status = { ready: false }; });
+    renderGetStatus().then(s => { this.status = s?.code === 0 ? s.data : { ready: false }; }).catch(() => { this.status = { ready: false }; });
     this._cleanups.push(onRenderProgress((pct, stg) => { if (this.rendering) { this.progress = pct; this.stage = stg; } }));
     this._cleanups.push(onRenderComplete((res) => { this.rendering = false; this.result = res; }));
     this._cleanups.push(onRenderError((err) => { this.rendering = false; this.error = err?.message || err || '渲染错误'; }));

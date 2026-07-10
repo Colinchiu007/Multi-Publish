@@ -12,6 +12,7 @@ __registerMock("fs", {
   existsSync: vi.fn().mockReturnValue(false),
   readFileSync: vi.fn().mockReturnValue("[]"),
   writeFileSync: vi.fn(),
+  renameSync: vi.fn(),
 })
 
 var offlineManager = require("../electron/services/offline-manager")

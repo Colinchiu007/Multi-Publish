@@ -1,0 +1,226 @@
+// @ts-check
+/**
+ * test-setup.js — vitest 全局测试设置
+ *
+ * 提供 4 个全局工具（vitest globals: true 已开启，无需 import）：
+ * - __electronMock       — electron 模块的全局单例 mock（app/BrowserWindow 等）
+ * - __registerMock(path, obj) — 注册模块 mock，拦截 Module.prototype.require
+ * - __enableElectronMock()    — opt-in 启用 electron mock 拦截
+ * - __resetElectronMock()     — 重置 electron mock 状态（beforeEach 调用）
+ *
+ * 设计原因：vi.mock 仅在 vitest SSR 转换层生效，不适用于 CJS require 加载的模块。
+ * electron 主进程代码用 require() 加载，需要通过 Module._load 拦截。
+ */
+const Module = require('module')
+
+// ─── electron mock 单例 ───
+const electronMock = {
+  app: {
+    _handlers: {},
+    // vi.fn 以支持 toHaveBeenCalledWith 断言；实现仍写入 _handlers 供 emit / 测试手动触发
+    on: vi.fn(function (evt, fn) { this._handlers[evt] = fn; return this }),
+    off: function (evt) { delete this._handlers[evt]; return this },
+    emit: function (evt, ...args) { if (this._handlers[evt]) this._handlers[evt](...args) },
+    quit: vi.fn(function () {}),
+    getPath: function () { return '/tmp/test-electron-path' },
+    getName: function () { return 'Multi-Publish' },
+    getVersion: function () { return '0.0.0-test' },
+    isReady: function () { return true },
+    whenReady: function () { return Promise.resolve() },
+    isPackaged: false,
+    setAppUserModelId: function () {},
+  },
+  BrowserWindow: (function () {
+    // 用 vi.fn 包装构造函数，使其具备 .mock 调用跟踪（供 toHaveBeenCalledTimes / mock.calls 断言）
+    const fn = vi.fn(function MockBrowserWindow(opts) {
+      this._opts = opts || {}
+      this._handlers = {}
+      this.webContents = {
+        send: function () {},
+        on: function () {},
+        once: function () {},
+        openDevTools: function () {},
+        closeDevTools: function () {},
+        isDestroyed: function () { return false },
+        executeJavaScript: function () { return Promise.resolve() },
+        loadURL: function () { return Promise.resolve() },
+        loadFile: function () { return Promise.resolve() },
+      }
+      this.loadURL = vi.fn(function () { return Promise.resolve() })
+      this.loadFile = vi.fn(function () { return Promise.resolve() })
+      // on/once 记录 handler 到 _handlers，便于测试手动触发 ready-to-show/closed/resize 回调
+      this.on = function (evt, handler) { this._handlers[evt] = handler; return this }
+      this.once = function (evt, handler) { this._handlers[evt] = handler; return this }
+      this.off = function (evt) { delete this._handlers[evt]; return this }
+      this.show = vi.fn(function () {})
+      this.hide = function () {}
+      this.close = function () {}
+      this.focus = function () {}
+      this.minimize = function () {}
+      this.maximize = function () {}
+      this.restore = function () {}
+      this.isDestroyed = function () { return false }
+      this.isMinimized = function () { return false }
+      this.isMaximized = function () { return false }
+      this.isVisible = function () { return true }
+      this.getBounds = function () { return { x: 0, y: 0, width: 800, height: 600 } }
+      this.setBounds = function () {}
+      this.setSize = function () {}
+      this.setPosition = function () {}
+      this.center = function () {}
+      this.setTitle = function () {}
+      // 记录实例（动态引用 fn._instances，使 __resetElectronMock 重置数组后仍生效）
+      fn._instances.push(this)
+    })
+    fn._instances = []
+    fn.getAllWindows = vi.fn(function () { return fn._instances.slice() })
+    fn.fromWebContents = function () { return fn._instances[0] || null }
+    fn.focusedWindow = null
+    return fn
+  })(),
+  session: {
+    defaultSession: {
+      cookies: { get: function () { return Promise.resolve([]) }, set: function () { return Promise.resolve() } },
+      on: function () {},
+    },
+    fromPartition: function () { return this.defaultSession },
+  },
+  ipcMain: {
+    _handlers: {},
+    handle: function (ch, fn) { this._handlers[ch] = fn },
+    removeHandler: function (ch) { delete this._handlers[ch] },
+    on: function (ch, fn) { this._handlers[ch] = fn },
+    off: function (ch) { delete this._handlers[ch] },
+  },
+  ipcRenderer: {
+    send: function () {},
+    invoke: function () { return Promise.resolve({}) },
+    on: function () {},
+    off: function () {},
+  },
+  // preload/index.js 顶层调用 contextBridge.exposeInMainWorld，需提供空实现避免 TypeError
+  contextBridge: {
+    exposeInMainWorld: function () {},
+  },
+  WebContentsView: function (opts) {
+    this._opts = opts || {}
+    this.webContents = {
+      send: function () {},
+      on: function () {},
+      once: function () {},
+      loadURL: function () { return Promise.resolve() },
+      executeJavaScript: function () { return Promise.resolve() },
+      isDestroyed: function () { return false },
+    }
+    this.setBounds = function () {}
+  },
+  Menu: {
+    buildFromTemplate: function (t) { return t },
+    setApplicationMenu: function () {},
+  },
+  Tray: function () {
+    this.setToolTip = function () {}
+    this.setContextMenu = function () {}
+    this.on = function () { return this }
+    this.destroy = function () {}
+  },
+  nativeImage: {
+    createFromPath: function () { return { isEmpty: function () { return true } } },
+    createFromBuffer: function () { return { isEmpty: function () { return true } } },
+  },
+  shell: {
+    openExternal: function () { return Promise.resolve() },
+    openPath: function () { return Promise.resolve() },
+    showItemInFolder: function () {},
+  },
+  dialog: {
+    showMessageBox: function () { return Promise.resolve({ response: 0 }) },
+    showErrorBox: function () {},
+    showOpenDialog: function () { return Promise.resolve({ canceled: true, filePaths: [] }) },
+    showSaveDialog: function () { return Promise.resolve({ canceled: true, filePath: '' }) },
+  },
+  Notification: function () {
+    this.show = function () {}
+    this.on = function () { return this }
+  },
+  globalShortcut: {
+    register: function () { return true },
+    unregister: function () {},
+    unregisterAll: function () {},
+  },
+  powerMonitor: {
+    on: function () {},
+  },
+  screen: {
+    getPrimaryDisplay: function () { return { bounds: { width: 1920, height: 1080 }, workArea: { width: 1920, height: 1080, x: 0, y: 0 } } },
+    getAllDisplays: function () { return [this.getPrimaryDisplay()] },
+  },
+  systemPreferences: {
+    getUserDefault: function () { return '' },
+  },
+}
+
+// ─── 模块 mock 注册表 ───
+const mockRegistry = new Map()
+let electronMockEnabled = false
+
+function registerMock(modulePath, mockObj) {
+  mockRegistry.set(modulePath, mockObj)
+}
+
+function enableElectronMock() {
+  electronMockEnabled = true
+}
+
+function disableElectronMock() {
+  electronMockEnabled = false
+}
+
+function resetElectronMock() {
+  // 重置 handler 和实例
+  electronMock.app._handlers = {}
+  electronMock.ipcMain._handlers = {}
+  electronMock.BrowserWindow._instances = []
+  electronMock.BrowserWindow.focusedWindow = null
+  // 清空 vi.fn 调用记录（不清实现）：app.on / app.quit / BrowserWindow 构造 / getAllWindows
+  electronMock.app.on.mockClear()
+  electronMock.app.quit.mockClear()
+  electronMock.BrowserWindow.mockClear()
+  electronMock.BrowserWindow.getAllWindows.mockClear()
+  // 不清空 mockRegistry（测试可能跨 beforeEach 复用注册）
+}
+
+// ─── 拦截 Module._load ───
+const originalLoad = Module._load
+Module._load = function (request, parent, isMain) {
+  // 1. electron mock（opt-in）
+  if (electronMockEnabled && (request === 'electron' || request.startsWith('electron/'))) {
+    return electronMock
+  }
+  // 2. 直接匹配 request 字符串（如 './services/logger'、'@multi-publish/...'）
+  if (mockRegistry.has(request)) return mockRegistry.get(request)
+  // 3. 通过 resolved filename 匹配（处理 require('./x') 与注册 key './x' 路径差异）
+  if (parent && parent.filename) {
+    let resolved
+    try { resolved = Module._resolveFilename(request, parent, isMain) } catch (e) { /* 模块不存在时跳过 */ }
+    if (resolved) {
+      if (mockRegistry.has(resolved)) return mockRegistry.get(resolved)
+      for (const [key, val] of mockRegistry) {
+        // 标准化 key：去掉 './' 前缀，用于后缀匹配
+        const normalizedKey = key.replace(/^\.\//, '')
+        if (normalizedKey && (resolved.endsWith(normalizedKey) || resolved.includes(normalizedKey))) return val
+      }
+    }
+  }
+  return originalLoad.apply(this, arguments)
+}
+
+// ─── 暴露全局变量（vitest globals: true） ───
+global.__electronMock = electronMock
+global.__registerMock = registerMock
+global.__enableElectronMock = enableElectronMock
+global.__disableElectronMock = disableElectronMock
+global.__resetElectronMock = resetElectronMock
+
+// ─── 全局 afterEach 清理（可选，测试文件可自行 beforeEach 调 __resetElectronMock） ───
+// 不在此处自动调用 reset，避免干扰测试文件自己的 beforeEach 顺序

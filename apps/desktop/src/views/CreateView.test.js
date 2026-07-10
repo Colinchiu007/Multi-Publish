@@ -13,7 +13,7 @@ vi.mock("@/api/publisher", () => ({
   onRenderComplete: vi.fn().mockReturnValue(vi.fn()),
   onRenderError: vi.fn().mockReturnValue(vi.fn()),
   onRenderInstallProgress: vi.fn().mockReturnValue(vi.fn()),
-  aiGenerate: vi.fn().mockResolvedValue({ success: true, text: "AI生成文案内容" }),
+  aiGenerate: vi.fn().mockResolvedValue({ code: 0, data: { text: "AI生成文案内容" } }),
 }));
 
 // Stub components used in CreateView

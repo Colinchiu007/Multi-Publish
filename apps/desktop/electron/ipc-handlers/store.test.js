@@ -88,14 +88,14 @@ describe("store IPC handlers", () => {
     it("returns code 0 on success", async () => {
       mockStore.addAccount.mockReturnValue(true);
       const result = await ipcMain._callHandler("store:add-account", { id: "acc1", platform: "github" });
-      expect(result).toEqual({ code: 0 });
+      expect(result).toEqual({ code: 0, data: true });
       expect(mockStore.addAccount).toHaveBeenCalledWith({ id: "acc1", platform: "github" });
     });
 
     it("returns code -1 on failure", async () => {
       mockStore.addAccount.mockReturnValue(false);
       const result = await ipcMain._callHandler("store:add-account", { id: "acc1" });
-      expect(result).toEqual({ code: -1 });
+      expect(result).toEqual({ code: -1, data: false });
     });
   });
 
@@ -134,7 +134,7 @@ describe("store IPC handlers", () => {
   describe("store:delete-account", () => {
     it("deletes and returns code 0", async () => {
       const result = await ipcMain._callHandler("store:delete-account", "acc1");
-      expect(result).toEqual({ code: 0 });
+      expect(result).toEqual({ code: 0, data: true });
       expect(mockStore.deleteAccount).toHaveBeenCalledWith("acc1");
     });
   });
@@ -142,7 +142,7 @@ describe("store IPC handlers", () => {
   describe("store:set-default-account", () => {
     it("sets default and returns code 0", async () => {
       const result = await ipcMain._callHandler("store:set-default-account", { platform: "github", accountId: "acc1" });
-      expect(result).toEqual({ code: 0 });
+      expect(result).toEqual({ code: 0, data: true });
       expect(mockStore.setDefaultAccount).toHaveBeenCalledWith("github", "acc1");
     });
   });
@@ -166,7 +166,7 @@ describe("store IPC handlers", () => {
     it("updates and returns code 0", async () => {
       const fields = { username: "new_name" };
       const result = await ipcMain._callHandler("store:update-account", { id: "acc1", fields });
-      expect(result).toEqual({ code: 0 });
+      expect(result).toEqual({ code: 0, data: true });
       expect(mockStore.updateAccount).toHaveBeenCalledWith("acc1", fields);
     });
   });
@@ -234,7 +234,7 @@ describe("store IPC handlers", () => {
   describe("store:delete-task", () => {
     it("deletes and returns code 0", async () => {
       const result = await ipcMain._callHandler("store:delete-task", "task1");
-      expect(result).toEqual({ code: 0 });
+      expect(result).toEqual({ code: 0, data: true });
       expect(mockStore.deleteTask).toHaveBeenCalledWith("task1");
     });
   });
@@ -251,7 +251,7 @@ describe("store IPC handlers", () => {
   describe("store:set-setting", () => {
     it("sets setting and returns code 0", async () => {
       const result = await ipcMain._callHandler("store:set-setting", "theme", "light");
-      expect(result).toEqual({ code: 0 });
+      expect(result).toEqual({ code: 0, data: true });
       expect(mockStore.setSetting).toHaveBeenCalledWith("theme", "light");
     });
   });

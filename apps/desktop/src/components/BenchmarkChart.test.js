@@ -24,7 +24,7 @@ const mockBenchmark = {
 describe("BenchmarkChart", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(intelligenceGetBenchmark).mockResolvedValue(mockBenchmark);
+    vi.mocked(intelligenceGetBenchmark).mockResolvedValue({ code: 0, data: mockBenchmark });
   });
 
   it("renders loading state initially", async () => {
@@ -50,7 +50,7 @@ describe("BenchmarkChart", () => {
   });
 
   it("renders error state when API returns error", async () => {
-    vi.mocked(intelligenceGetBenchmark).mockResolvedValue({ error: "API \u914d\u989d\u4e0d\u8db3" });
+    vi.mocked(intelligenceGetBenchmark).mockResolvedValue({ code: -1, message: "API \u914d\u989d\u4e0d\u8db3" });
     const w = mount(BenchmarkChart, { props: { title: "\u6d4b\u8bd5\u6587\u7ae0\u6807\u9898" } });
     await nextTick();
     await new Promise(function(r) { return setTimeout(r, 50); });
@@ -66,7 +66,7 @@ describe("BenchmarkChart", () => {
   });
 
   it("renders insufficient data message", async () => {
-    vi.mocked(intelligenceGetBenchmark).mockResolvedValue({ message: "\u6570\u636e\u4e0d\u8db3" });
+    vi.mocked(intelligenceGetBenchmark).mockResolvedValue({ code: 0, data: { message: "\u6570\u636e\u4e0d\u8db3" } });
     const w = mount(BenchmarkChart, { props: { title: "\u6d4b\u8bd5\u6587\u7ae0\u6807\u9898" } });
     await nextTick();
     await new Promise(function(r) { return setTimeout(r, 50); });

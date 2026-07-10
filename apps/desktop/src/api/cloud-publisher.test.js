@@ -9,10 +9,10 @@ const exportedNames = [
 ];
 
 const apiMeta = {
-  cloudPublishSubmit:     { args: [{ videoUrl: "https://x.com/v.mp4", platform: "bilibili" }], fallback: { ok: false, error: "electronAPI not available" }, returns: "object" },
-  cloudPublishListTasks:  { args: [], fallback: { ok: false, error: "electronAPI not available" }, returns: "object" },
-  cloudPublishGetTask:    { args: ["task-1"], fallback: { ok: false, error: "electronAPI not available" }, returns: "object" },
-  cloudPublishPlatforms:  { args: [], fallback: { ok: false, error: "electronAPI not available" }, returns: "object" },
+  cloudPublishSubmit:     { args: [{ videoUrl: "https://x.com/v.mp4", platform: "bilibili" }], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  cloudPublishListTasks:  { args: [], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  cloudPublishGetTask:    { args: ["task-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  cloudPublishPlatforms:  { args: [], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
 };
 
 function createMockApi() {
@@ -40,7 +40,7 @@ describe("api/cloud-publisher — normal 路径", () => {
   });
   function setupNormal(name) {
     mockApi = createMockApi();
-    const resolvedValue = { ok: true, name };
+    const resolvedValue = { code: 0, name };
     mockApi[name].mockResolvedValue(resolvedValue);
     window.electronAPI = mockApi;
     return resolvedValue;

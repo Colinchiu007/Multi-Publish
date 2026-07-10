@@ -9,7 +9,7 @@ vi.mock("@/stores/license", () => ({
 
 vi.mock("@/api/publisher", () => ({
   onFirstRunStatus: vi.fn(() => vi.fn()),
-  firstRunCheck: vi.fn().mockResolvedValue({ setupDone: false }),
+  firstRunCheck: vi.fn().mockResolvedValue({ code: 0, data: { setupDone: false } }),
   authOpenLogin: vi.fn(),
   accountAdd: vi.fn(),
 }));
@@ -194,7 +194,7 @@ describe("FirstRunView — extra coverage", () => {
     const mocks = await import("@/api/publisher");
     var cb = null;
     mocks.onFirstRunStatus.mockImplementation(callback => { cb = callback; return vi.fn(); });
-    mocks.firstRunCheck.mockResolvedValue({ setupDone: false });
+    mocks.firstRunCheck.mockResolvedValue({ code: 0, data: { setupDone: false } });
     const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
     await nextTick();
     // Set a step as active first so error handler finds it
@@ -207,7 +207,7 @@ describe("FirstRunView — extra coverage", () => {
 
   it("firstRunCheck setupDone skips deps step", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.firstRunCheck.mockResolvedValue({ setupDone: true });
+    mocks.firstRunCheck.mockResolvedValue({ code: 0, data: { setupDone: true } });
     const w = mount(FirstRunView, { global: { plugins: [createPinia()] } });
     await nextTick();
     await new Promise(r => setTimeout(r, 0));

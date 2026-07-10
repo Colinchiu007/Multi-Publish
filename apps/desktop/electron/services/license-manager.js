@@ -98,6 +98,8 @@ class LicenseManager {
             return
           }
         }
+        // decrypt 返回 null 或 JSON 解析失败 → 主文件损坏，抛异常触发 .bak 恢复
+        throw new Error("Primary license file corrupted or undecryptable")
       }
     } catch (e) {
       log.warn("LicenseManager", "Failed to load primary: " + e.message)

@@ -17,8 +17,6 @@ let createWindow
 beforeAll(() => {
   // 启用 electron mock（opt-in）：window.js 顶层 require('electron') 需要 mock
   __enableElectronMock()
-  const mod = require('./window.js')
-  createWindow = mod.createWindow
 })
 
 // 构造一个 mock context（含 createWindow 需要的所有 manager）
@@ -63,6 +61,11 @@ describe('window — createWindow', () => {
     vi.clearAllMocks()
     __resetElectronMock()
     context = buildMockContext()
+    // window.js 内 _ipcRegistered 为模块级标记（R28：防止 macOS activate 重复注册 IPC），
+    // 跨用例残留会导致除首次 createWindow 外 registerIpcHandlers 不再调用。
+    // 每个用例前清缓存重新 require，使 _ipcRegistered 复位为 false。
+    delete require.cache[require.resolve('./window.js')]
+    createWindow = require('./window.js').createWindow
   })
 
   it('createWindow 是函数', () => {

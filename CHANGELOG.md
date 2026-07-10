@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [审查复盘] 第十五~三十五轮 (2026-07-10)
+
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R74。
+
+### 第三十五轮（v2.3.59 复盘）— test-setup.js 基础设施修复 + R56 前端兼容性清零 + 测试全绿
+- **测试基线提升** — 1830 passed → 1861 passed（+31），0 failed
+- **test-setup.js 基础设施修复（CRITICAL × 3）**：
+  - 创建缺失的 test-setup.js（vitest.config.js 引用但文件不存在，39+ 测试无法运行）
+  - 修复 .gitignore 误忽略（`test-*.js` 规则匹配 test-setup.js，添加否定规则）
+  - 修复 Module._load mock 匹配逻辑（相对路径 key 不匹配 resolved 绝对路径）
+  - BrowserWindow 用 vi.fn() 包装以支持 .mock.calls 断言
+- **R56 前端兼容性修复（MAJOR × 26）**：
+  - 7 个 Vue 组件 23+2 处 `res?.success`/`res?.ok` → `res?.code === 0`
+  - publisher.js 10 处 + cloud-publisher.js 4 处 API fallback 格式统一
+  - 6 个测试文件 mock 返回值同步更新
+- **EC 迁移测试断言修复（MAJOR × 6）** — pipeline.test.js(3) + publish.test.js(3)
+- **license-manager .bak 恢复 bug 修复（CRITICAL × 1）** — decrypt 返回 null 时不触发 .bak 恢复
+- **offline-manager 测试 mock 完整性修复** — 补充缺失的 fs.renameSync mock
+- **新增规则 R72-R74**：
+  - R72 — 测试基础设施完整性规则（setupFiles 存在性 + git 跟踪 + .gitignore 检查）
+  - R73 — 格式变更全链路扫描规则（handler → 组件 → API 封装 → 测试 mock）
+  - R74 — mock 完整性规则（mock 必须覆盖源码所有方法调用）
+- **质量节拍状态**：CRITICAL 清零 ✅ / MAJOR 清零 ✅ / 测试全绿 ✅（1861 passed | 0 failed）
+
 ## [审查复盘] 第十五~三十四轮 (2026-07-10)
 
 应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R71。

@@ -15,10 +15,10 @@ vi.mock("@/stores/license", () => ({
 }));
 
 vi.mock("@/api/cloud-publisher", () => ({
-  cloudPublishPlatforms: vi.fn().mockResolvedValue({ ok: true, data: [{ id: "youtube", name: "YouTube" }, { id: "bilibili", name: "B站" }] }),
-  cloudPublishListTasks: vi.fn().mockResolvedValue({ ok: true, data: [{ id: "t1", title: "Test", status: "success", platform: "youtube", created_at: "2026-07-05T10:00:00Z" }] }),
-  cloudPublishSubmit: vi.fn().mockResolvedValue({ ok: true, data: { id: "new-task" } }),
-  cloudPublishGetTask: vi.fn().mockResolvedValue({ ok: true, data: { id: "t1", status: "success" } }),
+  cloudPublishPlatforms: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "youtube", name: "YouTube" }, { id: "bilibili", name: "B站" }] }),
+  cloudPublishListTasks: vi.fn().mockResolvedValue({ code: 0, data: { items: [{ id: "t1", title: "Test", status: "success", platform: "youtube", created_at: "2026-07-05T10:00:00Z" }] } }),
+  cloudPublishSubmit: vi.fn().mockResolvedValue({ code: 0, data: { id: "new-task" } }),
+  cloudPublishGetTask: vi.fn().mockResolvedValue({ code: 0, data: { id: "t1", status: "success" } }),
 }));
 
 import UiButton from "@/components/UiButton.vue";
@@ -119,7 +119,7 @@ describe("CloudPublishView — extra coverage", () => {
 
   it("orchestrator goes offline when refresh fails", async () => {
     const mocks = await import("@/api/cloud-publisher");
-    mocks.cloudPublishListTasks.mockResolvedValue({ ok: false });
+    mocks.cloudPublishListTasks.mockResolvedValue({ code: -1 });
     const w = mount(CloudPublishView, {
       global: { plugins: [createPinia()], components: { UiButton, UiInput } }
     });
@@ -205,12 +205,12 @@ describe("CloudPublishView — extra coverage", () => {
     w.vm.form.platform = "";
     await w.vm.handleSubmit();
     expect(w.vm.submitResult.ok).toBe(false);
-    expect(w.vm.submitResult.error).toContain("必填项");
+    expect(w.vm.submitResult.message).toContain("必填项");
   });
 
   it("refreshTasks with empty items sets empty tasks", async () => {
     const mocks = await import("@/api/cloud-publisher");
-    mocks.cloudPublishListTasks.mockResolvedValue({ ok: true, data: {} });
+    mocks.cloudPublishListTasks.mockResolvedValue({ code: 0, data: {} });
     const w = mount(CloudPublishView, {
       global: { plugins: [createPinia()], components: { UiButton, UiInput } }
     });

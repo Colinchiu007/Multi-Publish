@@ -39,19 +39,19 @@ describe("pipeline IPC handlers", () => {
   it("pipeline:list delegates to pipelineEngine.listPipelines", async () => {
     const result = await mockIpcMain._handlers["pipeline:list"]();
     expect(pipelineEngine.listPipelines).toHaveBeenCalled();
-    // R38：返回 { success, data } 契约（与 PipelineBrowser.vue 前端对齐），非裸数组
-    expect(result).toEqual({ success: true, data: [] });
+    // R52：返回 { code, data } 契约（EC 迁移后统一格式），非裸数组
+    expect(result).toEqual({ code: 0, data: [] });
   });
 
-  it("pipeline:history returns { success, data } contract (R38)", async () => {
+  it("pipeline:history returns { code, data } contract (R38/R52)", async () => {
     const result = await mockIpcMain._handlers["pipeline:history"]();
     expect(pipelineEngine.getHistory).toHaveBeenCalled();
-    expect(result).toEqual({ success: true, data: [] });
+    expect(result).toEqual({ code: 0, data: [] });
   });
 
   it("pipeline:get delegates to pipelineEngine.getPipeline", async () => {
     const result = await mockIpcMain._handlers["pipeline:get"]({}, "animated-explainer");
     expect(pipelineEngine.getPipeline).toHaveBeenCalledWith("animated-explainer");
-    expect(result).toBeNull();
+    expect(result).toEqual({ code: 0, data: null });
   });
 });

@@ -1578,3 +1578,192 @@ ipcMain.handle('xxx', async (event, arg) => {
 - R52 100% ✅
 - R64-R71 八条新规则全部落地 ✅
 - **EC 迁移完整性 100%** ✅（文件/字面量/handler/测试四维全清零）
+
+---
+
+## 第三十五轮（2026-07-10）— test-setup.js 基础设施修复 + R56 前端兼容性清零 + 测试全绿
+
+### 本轮核心成果
+
+**测试基线提升：1830 passed → 1861 passed（+31），0 failed**
+
+从第三十四轮的"1830 passed | 10 skipped"提升到"1861 passed | 10 skipped | 0 failed"。31 个新增通过测试来自之前因 test-setup.js 缺失而无法运行的测试文件（bootstrap/window/main/shutdown/preload）。
+
+### 修复清单
+
+#### 1. test-setup.js 基础设施（CRITICAL × 3）
+
+**问题 1：test-setup.js 完全缺失**
+- `vitest.config.js` 第 11 行引用 `setupFiles: ['./test-setup.js']`，但文件不存在
+- 导致 39+ 个 electron 目录下的测试文件全部无法运行（`__electronMock` / `__registerMock` 未定义）
+- **修复**：创建 `/workspace/apps/desktop/test-setup.js`，提供 4 个全局工具：
+  - `__electronMock` — electron 模块单例 mock（app/BrowserWindow/ipcMain 等）
+  - `__registerMock(path, obj)` — 注册模块 mock，拦截 `Module._load`
+  - `__enableElectronMock()` — opt-in 启用 electron mock
+  - `__resetElectronMock()` — 重置 mock 状态
+
+**问题 2：test-setup.js 被 .gitignore 误忽略**
+- `.gitignore` 第 51 行 `test-*.js` 规则意外匹配了 `test-setup.js`
+- 文件存在于磁盘但无法被 git 跟踪
+- **修复**：添加否定规则 `!apps/desktop/test-setup.js`
+
+**问题 3：Module._load mock 匹配逻辑失效**
+- `__registerMock('./core/container.setup', mockObj)` 注册的 key 是相对路径
+- 但 `Module._load` 拦截只检查 resolved 绝对路径，不检查 request 字符串
+- 导致 bootstrap.test.js 的 39 个 mock 全部不生效（加载了真实模块而非 mock）
+- **修复**：三层匹配策略：
+  1. 直接匹配 request 字符串（`mockRegistry.has(request)`）
+  2. 精确匹配 resolved filename
+  3. 标准化后缀匹配（去掉 `./` 前缀）
+
+**问题 4：BrowserWindow 不是 vi.fn()**
+- 测试用 `__electronMock.BrowserWindow.mock.calls[0][0]` 和 `toHaveBeenCalledTimes(1)` 断言
+- 但 MockBrowserWindow 是普通函数，没有 `.mock` 属性
+- **修复**：用 `vi.fn(impl)` 包装，保留 `_instances`/`getAllWindows`/`fromWebContents` 静态属性
+
+#### 2. R56 前端兼容性修复（MAJOR × 26）
+
+**Vue 组件 R56 修复（23+2 处，7 个文件）**：
+- CreateView.vue — 4 处 `r?.success` → `r?.code === 0`，`res?.error` → `res?.message`
+- PipelineView.vue — 8 处同上
+- CreateHistory.vue — 1 处
+- ViralAnalysis.vue — 3 处 `res.success !== false` → `res?.code === 0`，`this.result = res` → `this.result = res.data`
+- CloudPublish.vue — 5+2 处 `res.ok` → `res?.code === 0`，`error` → `message`
+- BenchmarkChart.vue — 2 处 `data.value = result` → `result?.code === 0 ? result.data : null`
+- FirstRun.vue — 1 处 `checkResult?.setupDone` → `checkResult?.code === 0 && checkResult.data?.setupDone`
+
+**API 封装 fallback 格式修复（14 处，2 个文件）**：
+- publisher.js — 10 处：
+  - `dashboardStats` fallback：扁平结构 → `{ code: 0, data: { ... } }`（同时修复 `perPlatform` → `byPlatform` 字段名不一致）
+  - `renderInstallDeps` fallback：`{ success: false, error }` → `{ code: -1, message }`
+  - `firstRunCheck` fallback：`{ setupDone: false }` → `{ code: 0, data: { setupDone: false } }`
+  - `pipelineList/Start/Pause/Resume/Cancel/Advance/History`（7 处）：`{ success, error }` → `{ code, message }`
+- cloud-publisher.js — 4 处：
+  - `cloudPublishSubmit/ListTasks/GetTask/Platforms`：`{ ok: false, error }` → `{ code: -1, message }`
+
+**测试 mock 同步修复（6 个测试文件，80 处）**：
+- BenchmarkChart.test.js — mock 返回值改为 `{ code: 0, data: ... }`
+- CloudPublish.test.js — mock + 断言改为新格式
+- CreateView.test.js — `aiGenerate` mock 改为 `{ code: 0, data: { text } }`
+- FirstRun.test.js — `firstRunCheck` mock 改为 `{ code: 0, data: { setupDone } }`
+- ViralAnalysis.test.js — `viralAnalyze/Generate` mock 改为新格式
+- views-deep2.test.js — 同 CreateView
+
+#### 3. EC 迁移测试断言修复（MAJOR × 6，2 个文件）
+
+- pipeline.test.js（3 处）：
+  - `pipeline:list` 断言：`{ success: true, data }` → `{ code: 0, data }`
+  - `pipeline:history` 断言：同上
+  - `pipeline:get` 断言：`toBeNull()` → `toEqual({ code: 0, data: null })`
+- publish.test.js（3 处）：
+  - `queue:status` 断言：扁平结构 → `{ code: 0, data: { ... } }`
+  - `queue:cancel` invalid id：`code: -1` → `code: -10`（EC.NOT_FOUND）
+  - `history:get` not found：`code: -1` → `code: -10`（EC.NOT_FOUND）
+
+#### 4. license-manager .bak 恢复 bug 修复（CRITICAL × 1）
+
+**Bug**：`load()` 方法中，当 `decrypt(raw)` 返回 `null`（主文件损坏），不会抛异常，因此 `catch` 块中的 .bak 恢复逻辑永远不会触发。用户主文件损坏时会静默降级为 free，丢失 Pro 许可。
+
+**根因**：`decrypt()` 内部有 try-catch 将异常转为 `null` 返回，但 `load()` 只在异常时触发 .bak 恢复，没有处理 `null` 返回值的情况。
+
+**修复**：在 `load()` 中，当 `decrypt` 返回 `null` 或 JSON 解析失败时，主动 `throw new Error("Primary license file corrupted")` 触发 .bak 恢复逻辑。
+
+#### 5. offline-manager 测试 mock 完整性修复（MINOR × 1）
+
+- `saveCache()` 调用 `fs.renameSync()`，但测试 mock 的 `fs` 对象缺少 `renameSync` 方法
+- 导致 `saveCache` 抛 TypeError，被 try-catch 捕获返回 false
+- **修复**：mock `fs` 对象添加 `renameSync: vi.fn()`
+
+### ⚠️ 本轮发现的问题
+
+#### 问题 1：测试基础设施缺失持续多轮未发现（CRITICAL）
+- test-setup.js 从项目创建开始就缺失
+- vitest.config.js 引用了它，但文件不存在
+- 39+ 个测试文件连续多轮"无法运行"但没人发现
+- **根因**：测试基线"1830 passed"看起来很好，没人追问"为什么 electron/ 下的测试文件不运行"
+- **避免方法**：R72 新规则 — 测试文件计数对比
+
+#### 问题 2：R56 前端修改未同步测试 mock（MAJOR）
+- 修改 Vue 组件的 IPC 响应格式判断后，没有同步更新测试 mock
+- 导致 13 个测试文件失败
+- **根因**：只改了"生产代码"，没改"测试代码"
+- **避免方法**：R73 新规则 — 格式变更必须扫描测试 mock
+
+#### 问题 3：API fallback 格式不一致（MAJOR）
+- R52 统一了 IPC handler 返回格式，但 API 封装层的 fallback 没同步
+- publisher.js 有 10 处、cloud-publisher.js 有 4 处仍用旧格式
+- **根因**：R56 只扫描了 Vue 组件，没扫描 API 封装层
+- **避免方法**：R73 扩展 — 格式变更扫描范围包括 API 封装层
+
+#### 问题 4：license-manager .bak 恢复逻辑有 bug（CRITICAL）
+- `decrypt` 返回 null 时不触发 .bak 恢复
+- 测试早在 R33 就写了，但一直无法运行（test-setup.js 缺失）
+- **根因**：测试无法运行 → bug 无法被发现
+- **避免方法**：确保测试基础设施可用，让所有测试都能运行
+
+### 🧠 经验沉淀（新增规则 R72-R74）
+
+- **R72：测试基础设施完整性规则** — vitest setupFiles 引用的文件必须存在且被 git 跟踪。每轮审查开始时对比测试文件数：
+  ```bash
+  # 检查 setupFiles 引用的文件是否存在
+  grep "setupFiles" vitest.config.js
+  # 检查文件是否被 git 跟踪
+  git ls-files <setupFile>
+  # 检查 .gitignore 是否误忽略
+  git check-ignore -v <setupFile>
+  ```
+  如果测试文件数突然减少或某些目录的测试全部"不运行"，立即排查 setupFiles。
+
+- **R73：格式变更全链路扫描规则** — 修改 IPC 响应格式（如 R52 `{ code, data, message }`）时，必须扫描三个层面：
+  1. **IPC handler** — 所有 handler 的返回值
+  2. **前端组件** — 所有 Vue 组件的响应判断（`res?.success` → `res?.code === 0`）
+  3. **API 封装层** — 所有 `invokeWithFallback` 的 fallback 值 + 测试 mock 返回值
+  ```bash
+  # 扫描旧格式残留
+  grep -rn "success:\s*\(true\|false\)\|ok:\s*\(true\|false\)\|error:\s*'" src/api/ src/views/ src/components/
+  ```
+
+- **R74：mock 完整性规则** — mock Node.js 内置模块（fs/path/crypto 等）时，必须包含源码使用的所有方法。验证方法：读源码找出所有 `fs.xxx()` 调用，逐个确认 mock 中有对应方法。
+  ```bash
+  # 找出源码调用的所有 fs 方法
+  grep -oP "fs\.\w+" electron/services/*.js | sort -u
+  # 对比 mock 中定义的方法
+  grep -P "^\s+\w+:" tests/*.test.js
+  ```
+
+### 🔁 本轮"为什么还有问题"复盘
+
+第三十五轮发现的问题分为两类：
+
+**第一类：测试基础设施缺失（根因）**
+- test-setup.js 缺失导致 39+ 测试无法运行
+- 这掩盖了 license-manager .bak 恢复 bug、EC 迁移测试断言不一致、R56 前端 mock 不一致等多个问题
+- **根本原因**：从来没有验证"所有测试文件都在运行"
+
+**第二类：修复未覆盖全链路**
+- R56 只改了 Vue 组件，没改 API 封装 fallback 和测试 mock
+- EC 迁移只改了 handler，没改测试断言
+- **根本原因**：修复时只关注"当前层"，没做"上下游同步扫描"
+
+**改进措施**：
+1. R72 — 测试基础设施完整性检查（每轮开始时验证）
+2. R73 — 格式变更全链路扫描（handler → 组件 → API 封装 → 测试 mock）
+3. R74 — mock 完整性验证（确保 mock 覆盖源码所有方法调用）
+
+### 测试基线对比
+
+| 维度 | 第三十四轮 | 第三十五轮 | 变化 |
+|------|-----------|-----------|------|
+| 测试文件总数 | ~108 | 129 | +21（test-setup.js 解锁） |
+| 通过测试数 | 1830 | 1861 | +31 |
+| 失败测试数 | 0（但 39+ 无法运行） | 0 | — |
+| 跳过测试数 | 10 | 10 | — |
+
+### 质量节拍状态
+- CRITICAL 清零 ✅（license-manager .bak 恢复 bug 修复）
+- MAJOR 实质清零 ✅（R56 前端兼容性 + API fallback + 测试 mock 全部清零）
+- R51 P0+P1 完成 ✅
+- R52 100% ✅
+- R64-R74 十一条新规则全部落地 ✅
+- **测试基础设施完整** ✅（test-setup.js 创建 + .gitignore 修复 + mock 匹配修复）
+- **测试全绿** ✅（1861 passed | 0 failed）
