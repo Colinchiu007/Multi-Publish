@@ -37,7 +37,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('template:delete', async (event, id) => {
     try {
       const ok = templateManager.delete(id)
-      return ok ? { code: 0, message: '模板已删除' } : { code: -1, message: '模板未找到' }
+      // R52 修复：统一返回格式，补充 data 字段
+      return ok ? { code: 0, data: true, message: '模板已删除' } : { code: -1, data: false, message: '模板未找到' }
     } catch (e) { return { code: -1, message: e.message } }
   })
 

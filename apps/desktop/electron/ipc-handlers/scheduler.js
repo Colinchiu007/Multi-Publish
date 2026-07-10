@@ -16,7 +16,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('scheduler:cancel', async (event, id) => {
     try {
       scheduler.cancel(id)
-      return { code: 0, message: '定时任务已取消' }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true, message: '定时任务已取消' }
     } catch (e) { return { code: -1, message: e.message } }
   })
 }

@@ -64,7 +64,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('queue:cancel', async (event, taskId) => {
     try {
       const ok = taskQueue.cancel(taskId)
-      return { code: ok ? 0 : -1, message: ok ? '任务已取消' : '任务不存在或已完成' }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: ok ? 0 : -1, data: ok, message: ok ? '任务已取消' : '任务不存在或已完成' }
     } catch (e) { return { code: -1, message: e.message } }
   })
 
