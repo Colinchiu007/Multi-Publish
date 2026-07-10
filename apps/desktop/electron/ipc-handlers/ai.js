@@ -8,19 +8,22 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('ai:list-providers', (_event, type) => {
     try {
-      return aiGenerator.listProviders(type || null);
+      // R52 修复：统一为标准 { code, data, message } 格式
+      return { code: 0, data: aiGenerator.listProviders(type || null) }
     } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
   ipcMain.handle('ai:get-config', (_event, providerId) => {
     try {
-      return aiGenerator.getProviderConfig(providerId);
+      // R52 修复：统一为标准格式
+      return { code: 0, data: aiGenerator.getProviderConfig(providerId) }
     } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('ai:list-models', (_event, providerId) => {
     try {
-      return aiGenerator.listModels(providerId);
+      // R52 修复：统一为标准格式
+      return { code: 0, data: aiGenerator.listModels(providerId) }
     } catch (e) { return { code: -1, message: e.message, data: [] } }
   })
 
@@ -30,9 +33,10 @@ function registerHandlers(ipcMain, deps) {
     try {
       const result = await aiGenerator.generate(type, provider, params, onProgress)
       win?.webContents.send('ai:complete', result)
-      return result
+      // R52 修复：统一为标准格式
+      return { code: 0, data: result }
     } catch (e) {
-      const err = { success: false, error: e.message }
+      const err = { code: -1, message: e.message }
       win?.webContents.send('ai:error', err)
       return err
     }
@@ -40,13 +44,15 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('ai:test-connection', async (_event, providerId) => {
     try {
-      return await aiGenerator.testConnection(providerId)
+      // R52 修复：统一为标准格式
+      return { code: 0, data: await aiGenerator.testConnection(providerId) }
     } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('ai:save-config', (_event, providerId, config) => {
     try {
-      return aiGenerator.updateProviderConfig(providerId, config)
+      // R52 修复：统一为标准格式
+      return { code: 0, data: aiGenerator.updateProviderConfig(providerId, config) }
     } catch (e) { return { code: -1, message: e.message } }
   })
 

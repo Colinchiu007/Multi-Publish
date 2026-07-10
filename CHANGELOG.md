@@ -1,8 +1,16 @@
 ﻿# CHANGELOG
 
-## [审查复盘] 第十五~二十轮 (2026-07-10)
+## [审查复盘] 第十五~二十一轮 (2026-07-10)
 
-应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R54。
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R56。
+
+### 第二十一轮（v2.3.46 复盘）
+- **R10 连续五轮全通过** — 第二十轮 2 CRITICAL + 8 MAJOR + 26 R52 修复无回归
+- **R48 R49 穷尽性验证通过** — 全仓 Promise unhandled rejection 扫描无遗漏
+- **R52 第二批次推进**：content-intelligence(10) + ai(6) + keyword(2) = 18 个 handler 统一为 { code, data, message }
+- **analytics.js 验证 R53** — 3 个 handler 追踪调用链路确认合规，避免误判
+- **R52 合规率**：64.9% → 74.3%（142/191）
+- **新增规则 R55-R56**：IPC handler 注册位置集中化 / 格式统一需同步检查前端调用方
 
 ### 第二十轮（v2.3.45 复盘）
 - **R10 连续四轮全通过** — 第十九轮 9 处 MAJOR 修复无回归

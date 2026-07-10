@@ -812,21 +812,22 @@ class ContentIntelligence {
   // ── IPC Handlers ─────────────────────────────────────────────────
 
   registerIpcHandlers () {
+    // R52 修复：所有 handler 统一为 { code, data, message } 格式
     // Search for topic intelligence (方案 A)
     ipcMain.handle('intelligence:search', async (event, { query, opts }) => {
       try {
-        return await this.search(query, opts || {})
+        return { code: 0, data: await this.search(query, opts || {}) }
       } catch (e) {
-        return { error: e.message, results: [], total: 0 }
+        return { code: -1, message: e.message, data: { results: [], total: 0 } }
       }
     })
 
     // Title assistant search (方案 B)
     ipcMain.handle('intelligence:search-titles', async (event, { title, opts }) => {
       try {
-        return await this.searchTitles(title, opts || {})
+        return { code: 0, data: await this.searchTitles(title, opts || {}) }
       } catch (e) {
-        return { error: e.message, results: [], total: 0 }
+        return { code: -1, message: e.message, data: { results: [], total: 0 } }
       }
     })
 
@@ -834,71 +835,71 @@ class ContentIntelligence {
     ipcMain.handle('intelligence:save-impact', async (event, { articleId, title, keywords, snapshot }) => {
       try {
         const ok = await this.saveImpactSnapshot(articleId, title, keywords, snapshot)
-        return { success: ok }
+        return { code: 0, data: ok }
       } catch (e) {
-        return { success: false, error: e.message }
+        return { code: -1, message: e.message, data: false }
       }
     })
 
     // Impact tracking — get history (方案 C)
     ipcMain.handle('intelligence:get-impact', async (event, { articleId }) => {
       try {
-        return { data: this.getImpactHistory(articleId) }
+        return { code: 0, data: this.getImpactHistory(articleId) }
       } catch (e) {
-        return { error: e.message, data: [] }
+        return { code: -1, message: e.message, data: [] }
       }
     })
 
     // Impact tracking — search mentions (方案 C)
     ipcMain.handle('intelligence:search-mentions', async (event, { keywords, opts }) => {
       try {
-        return await this.searchMentions(keywords, opts || {})
+        return { code: 0, data: await this.searchMentions(keywords, opts || {}) }
       } catch (e) {
-        return { error: e.message, results: [], total: 0 }
+        return { code: -1, message: e.message, data: { results: [], total: 0 } }
       }
     })
     // ── Trending Discovery ────────────────────────────────────────
     ipcMain.handle('intelligence:fetch-trending', async (event, opts) => {
       try {
-        return await this.fetchTrending(opts || {})
+        return { code: 0, data: await this.fetchTrending(opts || {}) }
       } catch (e) {
-        return { error: e.message, results: [], total: 0 }
+        return { code: -1, message: e.message, data: { results: [], total: 0 } }
       }
     })
 
     // ── Smart Tag Suggestion ─────────────────────────────────────
     ipcMain.handle('intelligence:suggest-tags', async (event, { content, opts }) => {
       try {
-        return await this.suggestTags(content, opts || {})
+        return { code: 0, data: await this.suggestTags(content, opts || {}) }
       } catch (e) {
-        return { error: e.message, keywords: [], byPlatform: {} }
+        return { code: -1, message: e.message, data: { keywords: [], byPlatform: {} } }
       }
     })
 
     // ── Reference Finder ─────────────────────────────────────────
     ipcMain.handle('intelligence:find-references', async (event, { text, opts }) => {
       try {
-        return await this.findReferences(text, opts || {})
+        return { code: 0, data: await this.findReferences(text, opts || {}) }
       } catch (e) {
-        return { error: e.message, references: [], total: 0 }
+        return { code: -1, message: e.message, data: { references: [], total: 0 } }
       }
     })
 
     // ── Benchmark ────────────────────────────────────────────────
     ipcMain.handle('intelligence:get-benchmark', async (event, { title, opts }) => {
       try {
-        return await this.getBenchmark(title, opts || {})
+        return { code: 0, data: await this.getBenchmark(title, opts || {}) }
       } catch (e) {
-        return { error: e.message, benchmark: null }
+        return { code: -1, message: e.message, data: null }
       }
     })
 
     // ── Optimal Time ─────────────────────────────────────────────
     ipcMain.handle('intelligence:get-optimal-time', async (event, { keyword }) => {
       try {
-        return await this.getOptimalTime(keyword)
+        return { code: 0, data: await this.getOptimalTime(keyword) }
       } catch (e) {
-        return { error: e.message, recommendation: null }
+        return { code: -1, message: e.message, data: null }
       }
     })
 

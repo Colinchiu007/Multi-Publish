@@ -12,7 +12,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('keyword:stop', async (_, { keyword }) => {
     try {
       const ok = keywordMonitor.stopMonitoring(keyword)
-      return { code: ok ? 0 : -1 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: ok ? 0 : -1, data: ok }
     } catch (e) { return { code: -1, message: e.message } }
   })
 
@@ -31,7 +32,8 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('keyword:stop-all', async () => {
     try {
       keywordMonitor.stopAll()
-      return { code: 0 }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true }
     } catch (e) { return { code: -1, message: e.message } }
   })
 }

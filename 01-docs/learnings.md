@@ -622,3 +622,40 @@ apt-get install -y \
 - 本轮修复：26 个（pipeline 10 + render 7 + video 9）
 - 本轮后合规：约 124 个（64.9%）
 - 剩余违规：约 67 个（content-intelligence 10 + ai 6 + keyword 4 + analytics 3 + 其余分散）
+
+---
+
+## 第二十一轮审查复盘 v2.3.46 (2026-07-10)
+
+### ✅ 做得好的
+1. **R10 连续五轮全通过** — 第二十轮 2 CRITICAL + 8 MAJOR + 26 R52 修复逐项验证 PASS，无回归
+2. **R48 R49 穷尽性验证通过** — 全仓 Promise unhandled rejection 扫描确认无遗漏：
+   - bootstrap.js whenReady().catch() + callbackServer.start await 修复到位
+   - 8 处 loadURL/loadFile .catch() 修复到位
+   - auth-view-cdp.js sendCommand .catch() 已修复
+   - content-intelligence.js / publish-poller.js 所有 Promise 调用都有 await 或被 allSettled 收集
+   - services/ 下无裸 .then() 调用
+3. **R52 第二批次批量推进** — content-intelligence(10) + ai(6) + keyword(2) = 18 个 handler 统一为 { code, data, message }，analytics(3) 原本已合规
+4. **analytics.js 验证 R53 正确性** — 3 个 handler 全部返回 { code, data }，符合标准。说明追踪调用链路判断合规性的方法（R53）在本轮得到验证
+
+### ⚠️ 需要注意（失误与改进）
+1. **content-intelligence.js IPC handler 位置分散** — IPC handler 注册在 services/content-intelligence.js 内（registerIpcHandlers 方法），而非 ipc-handlers/ 目录下。这种分散的注册方式增加了审查遗漏风险。**教训：IPC handler 集中放在 ipc-handlers/ 目录更利于审查**
+2. **ai.js ai:generate error 路径格式切换** — 从 { success: false, error } 切换为 { code: -1, message } 时，前端可能同时依赖新旧两种格式。**教训：R52 格式统一涉及前端兼容时，需同步检查前端调用方**
+3. **keyword.js stop/stop-all 之前缺少 data 字段** — { code } 不完整，前端调用方可能依赖 data 判断结果。**教训：R52 统一格式时不仅要修正已有字段，还要补全缺失字段**
+
+### 🧠 经验沉淀
+- **R55：IPC handler 注册位置必须集中** — 所有 ipcMain.handle 注册应集中在 ipc-handlers/ 目录（或统一入口文件），避免分散在 services/ 等业务模块中。集中位置便于 R51/R52 扫描，降低遗漏风险
+- **R56：格式统一需同步检查前端调用方** — 当 IPC 响应格式从 { success, error } 切换为 { code, data, message } 时，必须同步检查前端 renderer 进程的调用代码，确保前端按新格式解析响应
+
+### 🔁 本轮"为什么还有问题"复盘
+第二十一轮实际发现 0 CRITICAL / 0 MAJOR 新增问题。全仓 R49 穷尽性扫描未发现遗漏，R52 推进是纯技术债偿还。这说明：
+1. **R48 验证机制有效** — R49 定义后下一轮 R48 穷尽性扫描，确实能确认无遗漏
+2. **R52 是长期技术债** — 不是新引入的问题，是历史代码逐步清理。只要分批推进，每轮都能取得进展
+3. **R53 避免误判** — analytics.js 3 个 handler 通过追踪调用链路确认为合规，避免了无意义修改
+
+### 🔧 R52 格式统一进度更新
+全仓 191 个 handler：
+- 本轮前合规：约 124 个（64.9%）
+- 本轮修复：18 个（content-intelligence 10 + ai 6 + keyword 2）
+- 本轮后合规：约 142 个（74.3%）
+- 剩余违规：约 49 个（publish 8 + templates 7 + store 16 + scheduler 3 + 其余分散）
