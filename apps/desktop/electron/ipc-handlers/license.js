@@ -35,7 +35,8 @@ function registerHandlers(ipcMain, deps) {
     if (!_assertTrustedSender(event)) return _untrusted()
     try {
       const ok = licenseManager.activate(licenseKey)
-      return ok ? { code: 0, message: "激活成功" } : { code: -1, message: "激活失败，许可证可能已被使用" }
+      // R52 修复：统一返回格式，补充 data 字段
+      return ok ? { code: 0, data: true, message: "激活成功" } : { code: -1, data: false, message: "激活失败，许可证可能已被使用" }
     } catch (e) { return { code: -1, message: e.message } }
   })
 
@@ -43,7 +44,8 @@ function registerHandlers(ipcMain, deps) {
     if (!_assertTrustedSender(event)) return _untrusted()
     try {
       licenseManager.deactivate()
-      return { code: 0, message: "已注销" }
+      // R52 修复：统一返回格式，补充 data 字段
+      return { code: 0, data: true, message: "已注销" }
     } catch (e) { return { code: -1, message: e.message } }
   })
 
@@ -51,7 +53,8 @@ function registerHandlers(ipcMain, deps) {
     if (!_assertTrustedSender(event)) return _untrusted()
     try {
       const ok = licenseManager.activateTrial()
-      return ok ? { code: 0, message: "试用已激活，有效期 7 天" } : { code: -1, message: "无法激活试用" }
+      // R52 修复：统一返回格式，补充 data 字段
+      return ok ? { code: 0, data: true, message: "试用已激活，有效期 7 天" } : { code: -1, data: false, message: "无法激活试用" }
     } catch (e) { return { code: -1, message: e.message } }
   })
 
