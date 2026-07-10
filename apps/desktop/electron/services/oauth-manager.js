@@ -136,7 +136,8 @@ class OAuthManager {
 
       this.mainWindow.contentView.addChildView(view)
       view.setVisible(true)
-      view.webContents.loadURL(authUrl)
+      // R49 修复：loadURL 返回 Promise，必须 .catch()
+      view.webContents.loadURL(authUrl).catch(function () { /* ignore nav errors */ })
 
       // 通知渲染进程
       this.mainWindow.webContents.send('oauth:opened', { platform, authUrl })

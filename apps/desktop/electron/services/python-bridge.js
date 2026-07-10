@@ -255,11 +255,13 @@ async function stopPythonBackend () {
   log.info('PythonBridge', 'Stopping Python backend...')
 
   if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/PID', String(pythonProcess.pid), '/F', '/T'])
+    // R50 修复：spawnSync 增加 timeout 防止 taskkill 挂起阻塞退出
+    try { spawnSync('taskkill', ['/PID', String(pythonProcess.pid), '/F', '/T'], { timeout: 5000 }) } catch (e) { log.warn('PythonBridge', 'taskkill failed: ' + e.message) }
   } else {
-    pythonProcess.kill('SIGTERM')
+    try { pythonProcess.kill('SIGTERM') } catch (e) { log.warn('PythonBridge', 'SIGTERM failed: ' + e.message) }
     await new Promise(r => setTimeout(r, 3000))
-    if (pythonProcess) pythonProcess.kill('SIGKILL')
+    // R50 修复：kill('SIGKILL') 包入 try/catch 处理 ESRCH（进程已退出但 exit 事件尚未触发）
+    try { if (pythonProcess) pythonProcess.kill('SIGKILL') } catch (e) { /* already exited */ }
   }
 
   pythonProcess = null

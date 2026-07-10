@@ -398,7 +398,8 @@ class RpaViewManager {
       const t = setTimeout(function(){reject(new Error('nav timeout: '+url))},45000)
       win.webContents.once('did-finish-load',function(){clearTimeout(t);setTimeout(function(){win.webContents.executeJavaScript('void(0)').then(resolve).catch(reject)},stabilizeMs)})
       win.webContents.once('did-fail-load',function(e,code,desc){clearTimeout(t);log.warn('RpaView','nav warn: '+desc);setTimeout(resolve,stabilizeMs)})
-      win.webContents.loadURL(url)
+      // R49 修复：loadURL 返回 Promise，必须 .catch() 否则导航失败产生 unhandledRejection
+      win.webContents.loadURL(url).catch(function (e) { clearTimeout(t); reject(e) })
     })
   }
 

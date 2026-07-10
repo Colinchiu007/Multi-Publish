@@ -588,3 +588,37 @@ apt-get install -y \
 1. **R14 维度仍有盲区** — "错误处理"未覆盖 unhandled rejection，"异步"未覆盖 TOCTOU 竞态，"输入校验"未穷尽 IPC handler，"一致性"未穷尽响应格式。**改进：R49-R52 扩展 4 个子维度**
 2. **穷尽扫描是持续过程** — R45/R47 在第十七/十八轮定义并扫描，第十九轮 R48 验证穷尽性。R49-R52 在本轮定义，下一轮需验证穷尽性。**改进：每条新规则定义后，下一轮 R48 验证穷尽性**
 3. **系统性问题需统一方案** — 27 个 handler 无参数校验、7 套响应格式是系统性问题，逐个修复成本高。**改进：考虑引入 IPC handler 装饰器统一校验+格式化**
+
+---
+
+## 第二十轮审查复盘 v2.3.45 (2026-07-10)
+
+### ✅ 做得好的
+1. **R10 连续四轮全通过** — 第十九轮 9 处 MAJOR 修复逐项验证 PASS，无回归
+2. **R49 新规则首扫即有 CRITICAL** — 全仓 Promise unhandled rejection 扫描发现 bootstrap.js 2 处 CRITICAL（callbackServer.start 未 await + app.whenReady() 无 .catch()）+ 8 处 MAJOR（loadURL/loadFile 裸调用）。R49 规则定义后即执行全仓扫描，符合 R48 要求
+3. **R50 首扫验证已修复项** — 全仓 TOCTOU 竞态扫描确认 comment-manager startPolling 已修复（M-4），python-bridge stopPythonBackend 补了 ESRCH + timeout 防护
+4. **R52 格式统一批量推进** — 本轮统一了 pipeline.js(10) + render.js(7) + video.js(9) = 26 个 handler 的格式，加上 provider-manager.js 9 个原本就合规的，合计 35 个
+5. **四 agent 并行审查提效** — R10/R49/R50/R51+R52 四路并行，单轮审查覆盖 4 个维度
+
+### ⚠️ 需要注意（失误与改进）
+1. **bootstrap.js 两处 CRITICAL 长期遗留** — callbackServer.start 在 try/catch 内但未 await（典型的"try/catch 包裹 Promise 调用但不 await"反模式），app.whenReady().then() 链无 .catch()。前十九轮均未发现。**根因：R49 维度此前未覆盖**
+2. **R52 格式统一是长期技术债** — 全仓 191 个 handler，仅约 51% 合规。本轮统一 26 个（pipeline/render/video），仍有约 76 个违规。**根因：早期开发时无统一规范，各模块各自为政**
+3. **R50 扫描有一处误判** — publish-poller.js 的递归 setTimeout + _running 标志被误判为竞态，实际 scheduleNext() 在设置新定时器前会检查 _running，是安全的。**教训：分析竞态时要检查"act 之后是否还有检查"，不能只看 check-then-set 模式**
+4. **provider-manager.js 9 个 handler 实际已合规** — R51+R52 agent 报告 9 个违规，但实际 _callApi 已返回 { code, data, message } 格式。**教训：判断 R52 违规时要追踪返回值的完整链路，不能只看 return 语句的字面形态**
+
+### 🧠 经验沉淀（强制规则新增）
+- **R53：审查结论必须追踪完整调用链路** — 判断"是否违规"时，不能只看当前函数的 return 语句，要追踪返回值的来源（如 provider-manager 的 return await this.listProviders() → _callApi 返回 { code, data, message }，因此 handler 实际已合规）。特别是 R52（格式一致性）、R51（参数校验）等依赖"最终返回值形态"的规则，必须追踪到最内层
+- **R54：递归 setTimeout + running 标志是安全模式** — 当定时器回调末尾调用 scheduleNext()，而 scheduleNext() 首行检查 `if (!running) return` 时，stop() 设置 running=false + clearTimeout 是安全的。因为 _poll() 完成后 scheduleNext() 会在设置新定时器前检查 running 标志并退出。**不要误判为 TOCTOU 竞态**
+
+### 🔁 本轮"为什么还有问题"复盘
+第二十轮发现 2 CRITICAL / 9 MAJOR（R49）+ 1 MAJOR（R50 python-bridge）+ 26 MAJOR（R52 格式统一）。CRITICAL 在连续五轮清零后再次出现。根因分析：
+1. **R49 维度是新盲区** — unhandled rejection 在前十九轮从未被系统性扫描过。bootstrap.js 的两处 CRITICAL 长期存在，只是没被发现。**改进：R49 已纳入标准审查维度**
+2. **R52 格式统一是历史债务** — 项目早期无统一 IPC 响应规范，各模块自行实现。7 套格式是逐步累积的结果。**改进：分批推进，本轮完成 26 个，下一轮继续**
+3. **R50 扫描有 1 处误判** — 提高了 MAJOR 数但实际无需修复。**改进：R54 明确递归 setTimeout + running 标志是安全模式**
+
+### 🔧 R52 格式统一进度
+全仓 191 个 handler：
+- 本轮前合规：约 98 个（51.3%）
+- 本轮修复：26 个（pipeline 10 + render 7 + video 9）
+- 本轮后合规：约 124 个（64.9%）
+- 剩余违规：约 67 个（content-intelligence 10 + ai 6 + keyword 4 + analytics 3 + 其余分散）

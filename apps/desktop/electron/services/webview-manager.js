@@ -108,7 +108,8 @@ class WebviewManager {
     this.mainWindow.contentView.addChildView(view)
 
     // 导航到平台页面
-    view.webContents.loadURL(url)
+    // R49 修复：loadURL 返回 Promise，必须 .catch()
+    view.webContents.loadURL(url).catch(function () { /* ignore nav errors */ })
 
     // 页面加载后恢复 localStorage
     if (localStorage && Object.keys(localStorage).length > 0) {

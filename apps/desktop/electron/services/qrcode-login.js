@@ -93,7 +93,8 @@ class QrCodeLogin {
       view.setVisible(true)
 
       // 导航到登录页
-      view.webContents.loadURL(loginUrl)
+      // R49 修复：loadURL 返回 Promise，必须 .catch()
+      view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
 
       // 页面加载后开始检测 QR 码
       view.webContents.on('did-finish-load', () => {

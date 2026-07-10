@@ -246,6 +246,7 @@ function runWhenReady(context, deps) {
   // mainWindow 在 createWindow 调用前为 null（与原 main.js 行为一致）
   let mainWindow = null
 
+  // R49 修复：app.whenReady() 返回 Promise，必须 .catch() 否则 rejection 无人处理
   app.whenReady().then(async () => {
    try {
     try { await pythonBridge.startPythonBackend() }
@@ -267,8 +268,9 @@ function runWhenReady(context, deps) {
     })
 
     // 回调服务器
+    // R49 修复：callbackServer.start 返回 Promise，必须 await 否则 try/catch 无法捕获 rejection
     try {
-      callbackServer.start((data) => {
+      await callbackServer.start((data) => {
         const win = getMainWin()
         if (win && !win.isDestroyed()) {
           win.webContents.send('callback:received', data)
@@ -419,6 +421,8 @@ function runWhenReady(context, deps) {
       dialog.showErrorBox('启动失败', e.message + '\n\n请查看日志并联系支持。')
     } catch { /* dialog 不可用时忽略 */ }
    }
+  }).catch(function (e) {
+    log.error('App', 'whenReady failed:', e.message)
   })
 }
 

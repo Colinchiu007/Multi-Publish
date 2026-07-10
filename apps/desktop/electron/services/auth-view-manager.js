@@ -85,7 +85,8 @@ class AuthViewManager {
       this._positionView(this.mainWindow.getBounds())
       this.mainWindow.contentView.addChildView(view)
       view.setVisible(true)
-      view.webContents.loadURL(loginUrl)
+      // R49 修复：loadURL 返回 Promise，必须 .catch()
+      view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
 
       // Escape 键关闭
       /**
@@ -229,7 +230,8 @@ class AuthViewManager {
     this._positionView(this.mainWindow.getBounds())
     this.mainWindow.contentView.addChildView(view)
     view.setVisible(true)
-    view.webContents.loadURL(loginUrl)
+    // R49 修复：loadURL 返回 Promise，必须 .catch()
+    view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
 
     /**
      * @param {import('electron').Event} event

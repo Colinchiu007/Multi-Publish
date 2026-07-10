@@ -38,10 +38,11 @@ function createWindow(context) {
   })
   const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev') || !app.isPackaged
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5174')
+    // R49 修复：loadURL 返回 Promise，必须 .catch() 否则导航失败产生 unhandledRejection
+    mainWindow.loadURL('http://localhost:5174').catch(function () { /* dev 模式忽略 */ })
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html')).catch(function () { /* ignore */ })
   }
   mainWindow.once('ready-to-show', () => { mainWindow.show() })
   mainWindow.on('closed', () => { /* mainWindow 已通过返回值管理 */ })

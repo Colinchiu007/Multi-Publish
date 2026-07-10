@@ -1,8 +1,18 @@
 ﻿# CHANGELOG
 
-## [审查复盘] 第十五~十九轮 (2026-07-10)
+## [审查复盘] 第十五~二十轮 (2026-07-10)
 
-应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R52。
+应用质量节拍 skill 连续审查。learnings.md 规则累计 R1-R54。
+
+### 第二十轮（v2.3.45 复盘）
+- **R10 连续四轮全通过** — 第十九轮 9 处 MAJOR 修复无回归
+- **R49 新维度首扫（2 CRITICAL + 8 MAJOR）**：
+  - bootstrap.js callbackServer.start 未 await + app.whenReady() 无 .catch()（2 CRITICAL）
+  - 7 文件 8 处 loadURL/loadFile 裸调用无 .catch()（8 MAJOR）
+- **R50 新维度首扫**：python-bridge stopPythonBackend 补 ESRCH + timeout（1 MAJOR）；publish-poller 递归 setTimeout 判为安全（R54）
+- **R52 格式统一批量推进**：pipeline.js(10) + render.js(7) + video.js(9) = 26 个 handler 统一为 { code, data, message }
+- **R52 合规率**：51.3% → 64.9%（124/191）
+- **新增规则 R53-R54**：审查结论追踪完整调用链路 / 递归 setTimeout + running 标志是安全模式
 
 ### 第十九轮（v2.3.45 复盘）
 - **R10 连续三轮全通过** — 第十八轮 2 处 R47 修复无回归
