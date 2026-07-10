@@ -35,11 +35,14 @@ class ApiKeyManager {
     this._loaded = true;
   }
 
-  /** 持久化到文件 */
+  /** 持久化到文件（原子写：tmp + rename） */
   _save() {
     const dir = path.dirname(this._keysPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(this._keysPath, JSON.stringify(this._keys, null, 2), "utf-8");
+    // 安全修复：API 密钥是安全敏感数据，原非原子写中断会导致文件损坏
+    const tmpPath = this._keysPath + ".tmp";
+    fs.writeFileSync(tmpPath, JSON.stringify(this._keys, null, 2), "utf-8");
+    fs.renameSync(tmpPath, this._keysPath);
   }
 
   /** 生成随机 API Key */

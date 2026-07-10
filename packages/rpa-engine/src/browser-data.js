@@ -152,7 +152,10 @@ async function saveCookies (electronSession, platform, accountId, userDataDir) {
   const masterKey = getOrCreateKey(dir)
   const payload = encrypt(JSON.stringify(cookies), masterKey)
   const filePath = path.join(dir, COOKIE_BACKUP_FILE)
-  fs.writeFileSync(filePath, payload)
+  // 安全修复：加密 cookies 备份原子写（原非原子写中断会导致登录态丢失）
+  const tmpPath = filePath + '.tmp'
+  fs.writeFileSync(tmpPath, payload)
+  fs.renameSync(tmpPath, filePath)
   return { count: cookies.length, filePath }
 }
 
@@ -229,7 +232,10 @@ async function saveLocalStorage (webContents, platform, accountId, userDataDir) 
   const masterKey = getOrCreateKey(dir)
   const payload = encrypt(lsData, masterKey)
   const filePath = path.join(dir, 'localStorage.json.enc')
-  fs.writeFileSync(filePath, payload)
+  // 安全修复：加密 localStorage 备份原子写（原非原子写中断会导致登录态丢失）
+  const tmpPath = filePath + '.tmp'
+  fs.writeFileSync(tmpPath, payload)
+  fs.renameSync(tmpPath, filePath)
   return { count: keys.length, filePath }
 }
 
