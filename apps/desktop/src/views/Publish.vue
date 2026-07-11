@@ -160,6 +160,12 @@
           <div class="cohere-card" style="cursor:default">
             <div class="cohere-form" style="gap:var(--space-md)">
               <div class="cohere-form-label">发布目标</div>
+              <input
+                v-model="platformSearch"
+                type="text"
+                placeholder="搜索平台..."
+                style="width:100%;padding:8px 12px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;outline:none"
+              />
               <el-checkbox-group v-model="selectedPlatforms">
                 <div v-for="group in groupedPlatforms" :key="group.label" style="margin-bottom:16px">
                   <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:500">{{ group.label }}</div>
@@ -267,10 +273,13 @@ const platforms = computed(() =>
     ...(PLATFORM_TAGS[p.id] || { tag: null, tagClass: '' }),
   }))
 )
+const platformSearch = ref('')
 const groupedPlatforms = computed(() => {
+  const search = platformSearch.value.toLowerCase()
+  const filterPlatform = (p) => !search || p.label.toLowerCase().includes(search) || p.id.toLowerCase().includes(search)
   const groups = []
-  const domestic = platforms.value.filter(p => PLATFORM_GROUPS.domestic.platforms.includes(p.id))
-  const international = platforms.value.filter(p => PLATFORM_GROUPS.international.platforms.includes(p.id))
+  const domestic = platforms.value.filter(p => PLATFORM_GROUPS.domestic.platforms.includes(p.id) && filterPlatform(p))
+  const international = platforms.value.filter(p => PLATFORM_GROUPS.international.platforms.includes(p.id) && filterPlatform(p))
   if (domestic.length > 0) groups.push({ label: PLATFORM_GROUPS.domestic.label, items: domestic })
   if (international.length > 0) groups.push({ label: PLATFORM_GROUPS.international.label, items: international })
   return groups
