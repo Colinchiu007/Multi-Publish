@@ -3006,3 +3006,39 @@ Why 4: 因为截图时机问题（应用启动后窗口未完全渲染）
 - Node.js 测试: ? 通过
 - Playwright 验证: ?? 无法测试 Electron 主进程（预期行为）
 - 用户手动验证: ?? 需要用户操作
+
+---
+
+## 第五十七轮复盘（2026-07-11）— 版本号显示修复
+
+### 问题
+版本号显示 v1.0.0，修复没有生效
+
+### 根因分析
+- api.getVersion() 返回的是 { code: 0, data: "2.3.53" } 格式
+- 之前代码直接把整个对象赋值给 version.value，所以显示错误
+- 需要正确解构 { code, data } 结构，只取 data 字段
+
+### 修复方案
+`javascript
+// 修复前
+if (api.getVersion) version.value = await api.getVersion()
+
+// 修复后
+if (api.getVersion) {
+  const res = await api.getVersion()
+  if (res && res.code === 0 && res.data) {
+    version.value = res.data
+  }
+}
+`
+
+### 经验沉淀
+- **R95**: IPC 返回的 { code, data } 结构必须正确解构
+- **R96**: Playwright 无法测试 Electron 主进程，但可以测试前端组件逻辑
+
+### 质量节拍状态
+- 代码修复: ? 已正确应用
+- Node.js 测试: ? 通过
+- Playwright 验证: ?? 无法测试 Electron 主进程
+- 用户手动验证: ?? 需要用户操作
