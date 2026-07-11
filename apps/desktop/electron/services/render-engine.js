@@ -9,8 +9,9 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { CompositionManager } = require('./composition-manager');
+const { getComposerDir } = require('./path-utils');
 
-const COMPOSER_DIR = path.join(__dirname, '..', '..', '..', '..', 'packages', 'remotion-composer');
+const COMPOSER_DIR = getComposerDir();
 
 const MEDIA_PROFILES = {
   'youtube-landscape': { width: 1920, height: 1080, fps: 30 },

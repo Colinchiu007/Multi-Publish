@@ -6,7 +6,8 @@
 
 const path = require('path');
 const fs = require('fs');
-const COMPOSER_DIR = path.join(__dirname, '..', '..', '..', '..', 'packages', 'remotion-composer');
+const { getComposerDir } = require('./path-utils');
+const COMPOSER_DIR = getComposerDir();
 
 // --- Composition 元数据 ---
 const COMPOSITIONS = [

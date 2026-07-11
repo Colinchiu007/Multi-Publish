@@ -29,15 +29,11 @@ let watchdogTimer = null
 let _restartTimer = null
 
 /**
- * 获取 Python 后端工作目录
+ * 获取 Python 后端工作目录（委托 path-utils 统一解析）
  */
 function getBackendDir () {
-  // 开发模式：packages/python-backend/src/
-  // 打包后：resources/python-backend/
-  if (process.resourcesPath && require('electron').app.isPackaged) {
-    return path.join(process.resourcesPath, 'python-backend')
-  }
-  return path.join(__dirname, '..', '..', '..', '..', 'packages', 'python-backend', 'src')
+  const { getPythonBackendDir } = require('./path-utils');
+  return getPythonBackendDir();
 }
 
 /**
