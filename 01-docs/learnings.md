@@ -3218,3 +3218,37 @@ Console errors: None
 - Node.js 测试: ? 通过
 - Playwright 验证: ?? 需要关闭现有进程后启动
 - 用户手动验证: ?? 需要用户操作
+
+---
+
+## 第六十三轮复盘（2026-07-11）— Playwright 启动器超时根因分析
+
+### 问题
+Playwright _electron 启动器超时
+
+### 根因分析（5 Whys）
+`
+问题: Playwright 启动器等待 30 秒后超时
+Why 1: 因为 Electron 窗口没有在 30 秒内出现
+Why 2: 因为 app.whenReady() 回调没有完成
+Why 3: 因为 runWhenReady() 中的 startPythonBackend() 阻塞
+Why 4: 因为 startPythonBackend() 等待健康检查（10 秒超时）
+Why 5: 因为 Python 后端可能启动失败或健康检查超时
+→ 根因: Python 后端启动阻塞了 Electron 窗口的创建
+`
+
+### 解决方案
+1. 在测试前确保 Python 后端已经运行
+2. 或者增加 Playwright 启动器的超时时间
+3. 或者在测试中跳过 Python 后端启动
+
+### 经验沉淀
+- **R108**: Playwright _electron 启动器超时的根因是 Python 后端启动阻塞
+- **R109**: 测试前必须确保 Python 后端已经运行
+- **R110**: 可以增加 Playwright 启动器的超时时间来解决
+
+### 质量节拍状态
+- 代码修复: ? 已正确应用
+- Node.js 测试: ? 通过
+- Playwright 验证: ?? 需要确保 Python 后端运行
+- 用户手动验证: ?? 需要用户操作
