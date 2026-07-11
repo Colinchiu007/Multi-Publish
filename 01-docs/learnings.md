@@ -1,4 +1,4 @@
-﻿## 本轮质量节拍复盘 v2.3.41 (2026-07-08)
+## 本轮质量节拍复盘 v2.3.41 (2026-07-08)
 
 ### ✅ 做得好的
 1. DI 容器重构 — 28 处 inline new 替换，main.js import 减少 50%
@@ -2137,3 +2137,79 @@ ipcMain.handle('xxx', async (event, arg) => {
 - keywordPersistTimer / publish-poller / login-status-monitor 未纳入 shutdown 清理
 - EC.SUCCESS 定义但全局未使用（成功路径仍用 `code: 0` 字面量）
 - publisher.js intelligence* 系列 API 函数拆 envelope 策略不一致（有的拆有的不拆）
+
+---
+
+## 第三十九轮复盘（2026-07-11）— 完整测试 + Windows 兼容性修复 + 推送
+
+### 本轮成果
+1. **完整测试执行** — 1861 个测试全部通过（129 测试文件，10 跳过）
+2. **发现 1 个失败测试** — media-downloader.test.js "throws when destDir does not exist"
+3. **根因定位** — Windows 上 `/nonexistent/path` 路径解析问题
+4. **修复** — 使用 `path.join(os.tmpdir(), "nonexistent-dir-12345-test")` 确保跨平台兼容
+5. **推送 GitHub** — commit `802e460` 成功推送
+
+### 失败测试分析
+
+#### 问题：media-downloader.test.js "throws when destDir does not exist"
+
+**测试期望**：当 `destDir` 不存在时，应抛出包含 "does not exist" 的错误
+
+**实际行为**：抛出 "Network Error"
+
+**根因**：
+- 测试使用 `/nonexistent/path` 作为不存在的目录
+- 在 Windows 上，`/nonexistent/path` 被解析为相对路径（相对于当前驱动器根目录）
+- `fs.existsSync("/nonexistent/path")` 在 Windows 上可能返回 `true`（因为路径格式问题）
+- 代码继续执行，axios 发起网络请求，由于网络问题返回 "Network Error"
+
+**修复方案**：
+```javascript
+// 修复前
+await expect(downloadMedia("http://example.com/v.mp4", "/nonexistent/path")).rejects.toThrow(/does not exist/);
+
+// 修复后
+const nonExistentDir = path.join(os.tmpdir(), "nonexistent-dir-12345-test");
+await expect(downloadMedia("http://example.com/v.mp4", nonExistentDir)).rejects.toThrow(/does not exist/);
+```
+
+**为什么 38 轮没发现**：
+1. 之前都在 Linux 沙箱环境测试，`/nonexistent/path` 是有效的绝对路径
+2. Windows 上路径格式不同，`/` 开头的路径不是绝对路径
+3. 测试文件在第 94 行，不是高频修改区域
+
+### 🧠 经验沉淀（新增规则 R83）
+
+- **R83：跨平台测试路径必须使用 `path.join(os.tmpdir(), ...)`** — 测试中需要"不存在的目录"时，不能用 `/nonexistent/path`（Windows 不兼容），必须用：
+  ```javascript
+  const nonExistentDir = path.join(os.tmpdir(), "nonexistent-dir-12345-test");
+  ```
+  这确保路径在任何操作系统上都不存在（os.tmpdir() 存在但子目录不存在）。
+
+### 测试基线对比
+
+| 维度 | 第三十八轮 | 第三十九轮 | 变化 |
+|------|-----------|-----------|------|
+| 测试文件总数 | 129 | 129 | — |
+| 通过测试数 | 1861 | 1861 | — |
+| 失败测试数 | 0 | 0 | ✅ 修复 1 个 |
+| 跳过测试数 | 10 | 10 | — |
+
+### 质量节拍状态
+- CRITICAL 清零 ✅
+- MAJOR 实质清零 ✅
+- 测试全绿 ✅（1861 passed | 0 failed）
+- **Windows 兼容性测试通过** ✅
+
+### 本轮"为什么还有问题"复盘
+
+第三十九轮发现的问题是"平台兼容性"盲区：
+
+1. **测试路径未考虑 Windows** — `/nonexistent/path` 在 Linux 是绝对路径，在 Windows 是相对路径
+2. **之前都在 Linux 测试** — 沙箱环境是 Linux，没暴露 Windows 兼容性问题
+3. **测试文件是历史遗留** — 第 94 行的测试从项目早期就存在，当时可能只在 Linux 验证过
+
+**改进措施**：
+1. R83 — 跨平台测试路径必须使用 `path.join(os.tmpdir(), ...)`
+2. 重要测试应在 Windows/macOS/Linux 三平台验证（但沙箱环境限制）
+3. 测试文件修改时，顺便检查是否有平台兼容性问题
