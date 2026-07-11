@@ -20,7 +20,13 @@
         "format": "prettier --check \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
         "format:write": "prettier --write \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
         "check:ts": "tsc -p tsconfig.check.json --noEmit",
-        "check:all": "npm run check:ts && npm run lint && npm run test"
+        "check:all": "npm run check:ts && npm run lint && npm run test",
+        "test:visual": "VISUAL=1 npx vitest run tests/visual-testing/views/ --reporter=verbose",
+        "test:workflow": "WORKFLOW=1 npx vitest run tests/visual-testing/workflows/ --reporter=verbose",
+        "test:visual:ci": "node tests/visual-testing/scripts/visual-ci.js",
+        "test:visual:update-baseline": "UPDATE_BASELINE=1 VISUAL=1 npx vitest run tests/visual-testing/",
+        "test:visual:quick": "VISUAL=1 npx vitest run tests/visual-testing/views/home.visual.test.js --reporter=verbose",
+        "test:all:visual": "VISUAL=1 WORKFLOW=1 npx vitest run tests/visual-testing/"
     },
     "keywords": [
         "multi-publish",
@@ -58,7 +64,10 @@
         "eslint-plugin-vue": "^10.9.2",
         "globals": "^17.7.0",
         "jsdom": "^29.1.1",
+        "playwright": "^1.61.1",
         "prettier": "^3.9.4",
+        "resemblejs": "^4.1.0",
+        "tesseract.js": "^5.1.1",
         "typescript": "^6.0.3",
         "vitest": "^4.1.9",
         "vue-eslint-parser": "^10.4.1",
@@ -79,8 +88,14 @@
             "package.json"
         ],
         "extraResources": [
-            { "from": "../../config", "to": "config" },
-            { "from": ".playwright-browsers", "to": "playwright-browsers" }
+            {
+                "from": "../../config",
+                "to": "config"
+            },
+            {
+                "from": ".playwright-browsers",
+                "to": "playwright-browsers"
+            }
         ],
         "win": {
             "target": "nsis",
