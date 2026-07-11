@@ -6,7 +6,9 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('app:get-version', () => {
     try {
-      return { code: 0, data: app.getVersion() }
+      // 直接从 package.json 读取版本号，避免 Electron 开发模式下 app.getVersion() 返回错误值
+      const pkg = require('../../../package.json')
+      return { code: 0, data: pkg.version || app.getVersion() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
   ipcMain.handle('app:get-platform', () => {
