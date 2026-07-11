@@ -5,6 +5,8 @@
  * 1. 改动的源文件必须有对应的测试文件
  * 2. 测试必须能通过
  * 3. 不允许直接 commit 到 main 分支
+ * 4. 路径变更必须使用 path-utils（禁止 4 级 .. 模式）
+ * 5. 无硬编码绝对路径
  *
  * 安装：在项目根目录运行 node .husky/install.js
  * 跳过：git commit --no-verify（不推荐）
@@ -29,6 +31,9 @@ const TEST_MARKERS = {
   ".py": "_test.py",
 };
 const TEST_DIRS = ["tests", "__tests__", "test"];
+const PATH_UTILS_REQUIRED = /^apps\/desktop\/electron\/services\/(?!path-utils\.js).*\.js$/;
+const FORBIDDEN_PATH_PATTERN = /['"]\.\.['"],\s*['"]\.\.['"],\s*['"]\.\.['"],\s*['"]\.\.['"]/;
+const HARDCODED_ABSOLUTE_PATH = /['"][A-Z]:\\[^'"]+['"]|['"]\/home\/[^'"]+['"]|['"]\/opt\/[^'"]+['"]/;
 
 function run(cmd, opts) {
   opts = opts || {};
@@ -95,6 +100,22 @@ for (const file of staged) {
   if (!testFile) {
     errors.push("\u2757 " + file + " 没有对应的测试文件。请先创建测试再提交。");
     hasError = true;
+  }
+
+  // 路径安全检查：electron/services 下的文件必须使用 path-utils
+  if (PATH_UTILS_REQUIRED.test(file)) {
+    const fullPath = path.join(process.cwd(), file);
+    if (fs.existsSync(fullPath)) {
+      const content = fs.readFileSync(fullPath, "utf8");
+      if (FORBIDDEN_PATH_PATTERN.test(content)) {
+        errors.push("\u274c " + file + " 使用了 4 级 '..' 路径模式，必须改用 path-utils.js");
+        hasError = true;
+      }
+      if (HARDCODED_ABSOLUTE_PATH.test(content)) {
+        errors.push("\u274c " + file + " 包含硬编码绝对路径，必须改用环境变量或 path-utils");
+        hasError = true;
+      }
+    }
   }
 }
 
