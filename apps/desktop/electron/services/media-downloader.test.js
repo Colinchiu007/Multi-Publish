@@ -92,7 +92,8 @@ describe("MediaDownloader", () => {
 
   describe("downloadMedia", () => {
     it("throws when destDir does not exist", async () => {
-      await expect(downloadMedia("http://example.com/v.mp4", "/nonexistent/path")).rejects.toThrow(/does not exist/);
+      const nonExistentDir = path.join(os.tmpdir(), "nonexistent-dir-12345-test");
+      await expect(downloadMedia("http://example.com/v.mp4", nonExistentDir)).rejects.toThrow(/does not exist/);
     });
     it("throws when signal is already aborted", async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mediadl-test-"));
