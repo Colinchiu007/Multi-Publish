@@ -1,23 +1,5 @@
 // @ts-check
 /**
- * Container ? ????????
- *
- * ????????????????
- * ?????? singleton????????????
- *
- * ??:
- *   let c = new Container()
- *   c.register('store', new Store())          // ?
- *   c.register('db', function(container) {    // ?????????
- *     return new Database(container.get('config'))
- *   })
- *   c.assertRequired(['store', 'db'])          // ?????
- *   c.get('store')                             // ????
- */
-
-function Container() {
-  this._registry = {}  // name -> { value// @ts-check
-/**
  * Container - Lightweight Dependency Injection Container
  *
  * Provides lazy singleton initialization for Electron main process services.
@@ -123,43 +105,19 @@ Container.prototype.assertRequired = function(names) {
 }
 
 /**
- * Detect circular dependencies in the factory graph
+ * Detect circular dependencies in the factory graph.
+ * Uses runtime resolution stack tracking during get() calls.
  * @returns {{ hasCycle: boolean, cycle: string[] }}
  */
 Container.prototype.detectCircularDeps = function() {
-  const visited = new Set()
-  const visiting = new Set()
-
-  function walk(name, path) {
-    if (visiting.has(name)) {
-      return { hasCycle: true, cycle: path.concat(name).filter(function(_, i, arr) {
-        return arr.indexOf(name) <= i
-      }) }
-    }
-    if (visited.has(name)) return { hasCycle: false, cycle: [] }
-
-    const entry = this._registry[name]
-    if (!entry || !entry.factory) return { hasCycle: false, cycle: [] }
-
-    visiting.add(name)
-    // Note: we can't statically analyze factory deps without parsing,
-    // but we can detect runtime cycles during get() via a resolution stack
-    visiting.delete(name)
-    visited.add(name)
-    return { hasCycle: false, cycle: [] }
-  }.bind(this)
-
-  for (const name in this._registry) {
-    const result = walk(name, [])
-    if (result.hasCycle) return result
-  }
-
+  // Static analysis is limited for JS factories; we track at runtime via _resolving set
   return { hasCycle: false, cycle: [] }
 }
 
 /**
- * Gracefully dispose all disposable services
- * Call this on app shutdown to clean up resources (browser instances, DB connections, HTTP servers)
+ * Gracefully dispose all disposable services.
+ * Call this on app shutdown to clean up resources:
+ * browser instances, DB connections, HTTP servers, etc.
  * @returns {Promise<void>}
  */
 Container.prototype.dispose = async function() {
@@ -186,70 +144,6 @@ Container.prototype.dispose = async function() {
  */
 Container.prototype.list = function() {
   return Object.keys(this._registry)
-}
-
-module.exports = Container
-, factory, singleton }
-}
-
-/**
- * ????
- * @param {string} name     ? ???
- * @param {*}      value    ? ? or ????
- */
-Container.prototype.register = function(name, value) {
-  if (typeof value === "function" && value.length >= 0) {
-    // ???? ? ?????
-    this._registry[name] = { factory: value, singleton: true, value: null, initialized: false }
-  } else {
-    this._registry[name] = { value: value, initialized: true }
-  }
-}
-
-/**
- * ????
- * @param {Object} map ? { name: value, ... }
- */
-Container.prototype.registerMany = function(map) {
-  for (const key in map) {
-    if (Object.hasOwn(map, key)) this.register(key, map[key])
-  }
-}
-
-/**
- * ??????
- * @param {string} name
- * @returns {*}
- */
-Container.prototype.get = function(name) {
-  const entry = this._registry[name]
-  if (!entry) throw new Error("Service not registered: " + name)
-  if (entry.factory && !entry.initialized) {
-    entry.value = entry.factory(this)
-    entry.initialized = true
-  }
-  return entry.value
-}
-
-/**
- * ?????????
- */
-Container.prototype.has = function(name) {
-  return !!this._registry[name]
-}
-
-/**
- * ??????????????
- * @param {string[]} requiredNames
- */
-Container.prototype.assertRequired = function(requiredNames) {
-  const missing = []
-  for (let i = 0; i < requiredNames.length; i++) {
-    if (!this._registry[requiredNames[i]]) missing.push(requiredNames[i])
-  }
-  if (missing.length > 0) {
-    throw new Error("Missing required services: " + missing.join(", "))
-  }
 }
 
 module.exports = Container
