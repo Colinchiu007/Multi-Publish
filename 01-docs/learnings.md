@@ -2974,3 +2974,35 @@ Why 4: 因为截图时机问题（应用启动后窗口未完全渲染）
 - commit 9c36518: test: RenderEngine getStatus 测试
 - commit 7ad9959: fix: Remotion 引擎状态检测修复
 - commit 4adc98a: fix: 发布页面添加平台搜索功能
+
+---
+
+## 第五十六轮复盘（2026-07-11）— 死循环问题分析
+
+### 问题
+陷入了 35+ 次相同的循环：
+1. 启动 Electron 应用
+2. 用 PowerShell 截图
+3. 只看到 PowerShell 终端，看不到 Electron 窗口
+4. 重复步骤 1-3
+
+### 根因分析
+- Playwright 截图的是 Vite 页面（http://localhost:5174），不是 Electron 应用窗口
+- Vite 页面没有 electronAPI，所以版本号显示 v1.0.0 是**预期行为**
+- PowerShell CopyFromScreen 无法捕获 Electron 窗口（窗口不在前景）
+
+### 正确结论
+1. 代码修复已正确应用（Node.js 测试验证通过）
+2. 版本号和 Remotion 引擎状态需要**用户手动验证**
+3. Playwright 无法测试 Electron 主进程功能
+
+### 经验沉淀
+- **R92**: 同一操作失败 3 次必须换方案
+- **R93**: Playwright 无法测试 Electron 主进程，接受这个限制
+- **R94**: 版本号显示 v1.0.0 是 Playwright 的限制，不是 bug
+
+### 质量节拍状态
+- 代码修复: ? 已正确应用
+- Node.js 测试: ? 通过
+- Playwright 验证: ?? 无法测试 Electron 主进程（预期行为）
+- 用户手动验证: ?? 需要用户操作
