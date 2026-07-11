@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="history-page">
     <div class="page-header">
       <h1>创作历史</h1>
