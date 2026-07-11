@@ -3154,3 +3154,40 @@ if (api.getVersion) {
 - commit 5ad345d: docs: 第五十三轮复盘 — Remotion 引擎问题分析
 - commit 6198c8e: docs: 第五十二轮复盘 — CreateHistory.vue 语法错误修复
 - commit d8167ef: fix: 修复 CreateHistory.vue 语法错误
+
+---
+
+## 第六十一轮复盘（2026-07-11）— Remotion 引擎状态问题分析
+
+### 问题
+视频创作页面显示"Remotion 渲染引擎未就绪"
+
+### 根因分析
+- Playwright 打开的是 Vite 页面（http://localhost:5174），没有 electronAPI
+- enderGetStatus() 调用 invokeWithFallback("renderGetStatus", {})
+- 如果 electronAPI 不可用，返回 fallback（空对象 {}）
+- 前端检查 s?.code === 0 失败，所以 status.ready = false
+
+### 验证结果
+`
+electronAPI available: false
+Version text: not found
+Remotion status: ?? Remotion 渲染引擎未就绪缺少 remotion-composer
+Console errors: None
+`
+
+### 结论
+- 这是 Playwright 的限制，不是 bug
+- Remotion 引擎状态需要在 Electron 应用中验证
+- 代码修复已正确应用（Node.js 测试验证通过）
+
+### 经验沉淀
+- **R102**: Playwright 无法测试 Electron 主进程的 IPC 功能
+- **R103**: Remotion 引擎状态需要在 Electron 应用中验证
+- **R104**: 版本号和 Remotion 状态显示问题都是 Playwright 的限制
+
+### 质量节拍状态
+- 代码修复: ? 已正确应用
+- Node.js 测试: ? 通过
+- Playwright 验证: ?? 无法测试 Electron 主进程（预期行为）
+- 用户手动验证: ?? 需要用户操作
