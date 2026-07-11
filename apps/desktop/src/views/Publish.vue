@@ -161,29 +161,32 @@
             <div class="cohere-form" style="gap:var(--space-md)">
               <div class="cohere-form-label">发布目标</div>
               <el-checkbox-group v-model="selectedPlatforms">
-                <div v-for="p in platforms" :key="p.id" style="margin-bottom:10px">
-                  <div style="display:flex;align-items:center;gap:8px">
-                    <el-checkbox :label="p.id" :disabled="p.disabled">
-                      <span style="margin-left:6px">{{ p.label }}</span>
-                    </el-checkbox>
-                    <!-- 账号选择器（平台勾选后才显示） -->
-                    <template v-if="selectedPlatforms.includes(p.id)">
-                      <template v-if="getAccounts(p.id).length > 0">
-                        <select
-                          class="publish-account-select"
-                          :value="selectedAccounts[p.id] || ''"
-                          @change="selectedAccounts[p.id] = $event.target.value"
-                          @click.stop
-                        >
-                          <option
-                            v-for="a in getAccounts(p.id)"
-                            :key="a.id"
-                            :value="a.id"
-                          >{{ a.name || a.id?.slice(0,8) }}</option>
-                        </select>
+                <div v-for="group in groupedPlatforms" :key="group.label" style="margin-bottom:16px">
+                  <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:500">{{ group.label }}</div>
+                  <div v-for="p in group.items" :key="p.id" style="margin-bottom:8px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <el-checkbox :label="p.id" :disabled="p.disabled">
+                        <span style="margin-left:6px">{{ p.label }}</span>
+                      </el-checkbox>
+                      <!-- 账号选择器（平台勾选后才显示） -->
+                      <template v-if="selectedPlatforms.includes(p.id)">
+                        <template v-if="getAccounts(p.id).length > 0">
+                          <select
+                            class="publish-account-select"
+                            :value="selectedAccounts[p.id] || ''"
+                            @change="selectedAccounts[p.id] = $event.target.value"
+                            @click.stop
+                          >
+                            <option
+                              v-for="a in getAccounts(p.id)"
+                              :key="a.id"
+                              :value="a.id"
+                            >{{ a.name || a.id?.slice(0,8) }}</option>
+                          </select>
+                        </template>
+                        <span v-else style="font-size:11px;color:var(--coral)">请先添加账号</span>
                       </template>
-                      <span v-else style="font-size:11px;color:var(--coral)">请先添加账号</span>
-                    </template>
+                    </div>
                   </div>
                 </div>
               </el-checkbox-group>
@@ -253,6 +256,10 @@ const licenseStore = useLicenseStore()
 
 // platform data → usePlatformStore() + bilibili tag override
 const PLATFORM_TAGS = { bilibili: { tag: '新', tagClass: 'cohere-tag-success' } }
+const PLATFORM_GROUPS = {
+  domestic: { label: '国内平台', platforms: ['wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu', 'tencent_video', 'kuaishou', 'toutiao', 'bilibili', 'baijiahao'] },
+  international: { label: '国际平台', platforms: ['youtube', 'tiktok', 'twitter', 'instagram', 'facebook'] },
+}
 const platforms = computed(() =>
   platformStore.platforms.map(p => ({
     id: p.id,
@@ -260,6 +267,14 @@ const platforms = computed(() =>
     ...(PLATFORM_TAGS[p.id] || { tag: null, tagClass: '' }),
   }))
 )
+const groupedPlatforms = computed(() => {
+  const groups = []
+  const domestic = platforms.value.filter(p => PLATFORM_GROUPS.domestic.platforms.includes(p.id))
+  const international = platforms.value.filter(p => PLATFORM_GROUPS.international.platforms.includes(p.id))
+  if (domestic.length > 0) groups.push({ label: PLATFORM_GROUPS.domestic.label, items: domestic })
+  if (international.length > 0) groups.push({ label: PLATFORM_GROUPS.international.label, items: international })
+  return groups
+})
 
 // ── 多账号加载 ──────────────────────────
 async function loadAccounts () {
