@@ -28,8 +28,8 @@
           </div>
           <div class="render-status" :class="r.status || 'completed'">{{ statusLabel(r.status) }}</div>
           <div class="render-actions">
-            <UiButton size="sm" @click.stop=".push('/publish')">发布</UiButton>
-            <UiButton size="sm" variant="ghost" @click.stop=".push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">预览</UiButton>
+            <UiButton size="sm" @click.stop="$router.push('/publish')">发布</UiButton>
+            <UiButton size="sm" variant="ghost" @click.stop="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">预览</UiButton>
           </div>
         </div>
       </div>
