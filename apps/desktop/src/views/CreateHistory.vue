@@ -15,10 +15,10 @@
       <div v-if="renderLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else-if="renders.length === 0" class="empty-state">
         <p>暂无渲染记录</p>
-        <UiButton @click=".push('/create')">去创作</UiButton>
+        <UiButton @click="$router.push('/create')">去创作</UiButton>
       </div>
       <div v-else class="render-list">
-        <div v-for="(r, i) in renders" :key="i" class="render-card" @click=".push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
+        <div v-for="(r, i) in renders" :key="i" class="render-card" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
           <div class="render-info">
             <span class="render-icon">🎬</span>
             <div class="render-meta">
@@ -40,7 +40,7 @@
       <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else-if="pipelines.length === 0" class="empty-state">
         <p>暂无管线运行记录</p>
-        <UiButton @click=".push('/create/pipeline')">浏览管线</UiButton>
+        <UiButton @click="$router.push('/create/pipeline')">浏览管线</UiButton>
       </div>
       <div v-else class="pipeline-list">
         <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card">
