@@ -9,7 +9,7 @@
 
     <div class="cohere-content">
       <!-- 快捷导航 -->
-      <div class="cohere-stat-grid">
+      <div class="cohere-stat-grid" style="grid-template-columns: repeat(5, 1fr);">
         <div class="cohere-stat-card" style="cursor:pointer" @click="go('/publish')">
           <div class="stat-value">🚀</div>
           <div class="stat-label">一键发布</div>

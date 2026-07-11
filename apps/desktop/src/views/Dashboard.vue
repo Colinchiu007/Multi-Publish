@@ -19,18 +19,22 @@
       <!-- 汇总卡片 -->
       <div class="cohere-stat-grid">
         <div class="cohere-stat-card">
+          <div class="stat-icon">📤</div>
           <div class="stat-value">{{ totalArticles }}</div>
           <div class="stat-label">总发布</div>
         </div>
         <div class="cohere-stat-card">
+          <div class="stat-icon">👁️</div>
           <div class="stat-value">{{ totalViews > 10000 ? (totalViews / 10000).toFixed(1) + '万' : totalViews }}</div>
           <div class="stat-label">总阅读</div>
         </div>
         <div class="cohere-stat-card">
+          <div class="stat-icon">💬</div>
           <div class="stat-value">{{ totalComments }}</div>
           <div class="stat-label">评论</div>
         </div>
         <div class="cohere-stat-card">
+          <div class="stat-icon">👥</div>
           <div class="stat-value">{{ totalFollowers > 10000 ? (totalFollowers / 10000).toFixed(1) + '万' : totalFollowers }}</div>
           <div class="stat-label">粉丝</div>
         </div>
