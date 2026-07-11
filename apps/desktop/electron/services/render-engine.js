@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * RenderEngine — Electron 主进程模块
  * 管理 Remotion 子进程：启动、进度解析、取消
@@ -33,7 +33,10 @@ class RenderEngine {
 
   getStatus() {
     const composerExists = fs.existsSync(path.join(COMPOSER_DIR, 'package.json'));
-    const nodeModulesExist = fs.existsSync(path.join(COMPOSER_DIR, 'node_modules'));
+    // 检查根目录 node_modules（workspace hoisting）或本地 node_modules
+    const rootNodeModulesExist = fs.existsSync(path.join(COMPOSER_DIR, '..', '..', '..', 'node_modules', 'remotion'));
+    const localNodeModulesExist = fs.existsSync(path.join(COMPOSER_DIR, 'node_modules'));
+    const nodeModulesExist = rootNodeModulesExist || localNodeModulesExist;
     return { ready: composerExists && nodeModulesExist, composerExists, nodeModulesExist, composerDir: COMPOSER_DIR };
   }
 
