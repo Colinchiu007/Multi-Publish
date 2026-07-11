@@ -72,7 +72,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
-const version = ref('1.0.0')
+const version = ref('')
 const loaded = ref(false)
 const stats = ref({ total: 0, success: 0, failed: 0 })
 const accounts = ref(0)
@@ -94,7 +94,13 @@ onMounted(async () => {
   try {
     const api = window.electronAPI
     if (api) {
-      if (api.getVersion) version.value = await api.getVersion()
+      // ✅ 修复：正确解构 IPC 返回的 { code, data } 结构
+      if (api.getVersion) {
+        const res = await api.getVersion()
+        if (res && res.code === 0 && res.data) {
+          version.value = res.data
+        }
+      }
       if (api.storeGetPublishStats) {
         const res = await api.storeGetPublishStats()
         if (res.code === 0) stats.value = res.data
