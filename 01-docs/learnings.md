@@ -2405,3 +2405,63 @@ Phase 3.2: 灰度验证
 - **测试全绿** ✅（1861 passed | 0 failed）
 - **Windows 兼容性通过** ✅（R83 验证）
 - **前端界面测试通过** ✅（6 页面截图分析）
+
+---
+
+## Bug 反思复盘 #1：版本号显示 v1.0.0（2026-07-11）
+
+### 问题
+- **现象**: 首页显示版本号 v1.0.0，但 package.json 版本是 v2.3.53
+- **预期**: 应显示正确的版本号 v2.3.53
+- **复现**: 打开应用首页即可看到
+
+### 根因定位（5 Whys）
+```
+问题: 版本号显示 v1.0.0
+Why 1: 因为 app.getVersion() 返回了错误的值
+Why 2: 因为 Electron 在开发模式下读取的是 Electron 自己的 package.json
+Why 3: 因为应用是通过 electron . 启动的，而非打包后的可执行文件
+Why 4: 因为 app.getVersion() 的行为在开发模式和生产模式不一致
+→ 根因: Electron 的 app.getVersion() 在开发模式下返回 Electron 版本而非应用版本
+```
+
+### 漏测分类
+- **代码缺陷**: 是 — 代码假设 app.getVersion() 在所有模式下都返回正确值
+- **测试缺口**: 是 — 没有测试版本号显示功能
+
+### 改进措施
+| 优先级 | 类别 | 措施 |
+|--------|------|------|
+| P0 | 代码缺陷 | 已修复：直接从 package.json 读取版本号 |
+| P1 | 测试缺口 | 补充版本号获取函数的单元测试 |
+| P2 | 流程缺口 | Review Checklist 增加「Electron API 行为验证」检查项 |
+
+---
+
+## Bug 反思复盘 #2：Remotion 引擎未就绪（2026-07-11）
+
+### 问题
+- **现象**: 视频创作页面显示「Remotion 渲染引擎未就绪」
+- **预期**: 应正常检测到已安装的依赖
+- **复现**: 打开视频创作页面即可看到
+
+### 根因定位（5 Whys）
+```
+问题: Remotion 引擎未就绪
+Why 1: 因为 getStatus() 检查 packages/remotion-composer/node_modules 不存在
+Why 2: 因为依赖被安装到了根目录 node_modules（workspace hoisting）
+Why 3: 因为 render-engine.js 只检查本地 node_modules，不检查根目录
+Why 4: 因为代码没有考虑 monorepo 的 workspace hoisting 机制
+→ 根因: 状态检测逻辑没有兼容 workspace hoisting 的依赖解析方式
+```
+
+### 漏测分类
+- **代码缺陷**: 是 — 代码只检查本地 node_modules，未考虑 workspace hoisting
+- **测试缺口**: 是 — 没有测试 Remotion 引擎状态检测
+
+### 改进措施
+| 优先级 | 类别 | 措施 |
+|--------|------|------|
+| P0 | 代码缺陷 | 已修复：同时检查根目录和本地 node_modules |
+| P1 | 测试缺口 | 已补充：render-engine.test.js |
+| P2 | 流程缺口 | Review Checklist 增加「monorepo 依赖路径验证」检查项 |
