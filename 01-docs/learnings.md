@@ -3069,3 +3069,37 @@ if (api.getVersion) {
 - Node.js 测试: ? 通过
 - Playwright 验证: ?? 无法测试 Electron 主进程
 - 用户手动验证: ?? 需要用户操作
+
+---
+
+## 第五十九轮复盘（2026-07-11）— Playwright 测试 Electron 正确用法
+
+### 问题
+我一直错误地使用 Playwright 测试 Electron，没有正确使用 _electron 启动器
+
+### 另一个 AI 的正确说法
+- Playwright 可以测试 Electron 渲染进程（通过 _electron 启动器）
+- 主进程需要用 Vitest/Jest + Mock
+- 项目中已经有 electron-gui-v9.js（Playwright 渲染进程测试）和 main.test.js（Vitest 主进程测试）
+
+### 我的错误
+- 用 Playwright 截图 Vite 页面（http://localhost:5174），而不是用 Playwright 的 _electron 启动器
+- 这导致我无法测试 Electron 主进程的功能
+
+### 正确的测试分层
+
+| 测试对象 | 推荐工具 | 项目实现 |
+|---------|---------|---------|
+| 渲染进程 (Vue/Chromium) | Playwright _electron | electron-gui-v9.js |
+| 主进程 (Node.js/IPC) | Vitest + Mock | main.test.js |
+
+### 经验沉淀
+- **R99**: Playwright 可以测试 Electron 渲染进程，通过 _electron 启动器
+- **R100**: 主进程测试需要用 Vitest/Jest + Mock，不能用 Playwright
+- **R101**: 测试分层：渲染进程用 Playwright，主进程用 Vitest
+
+### 质量节拍状态
+- 代码修复: ? 已正确应用
+- Node.js 测试: ? 通过
+- Playwright 渲染进程测试: ? 可以使用 _electron 启动器
+- Vitest 主进程测试: ? 可以使用 Mock
