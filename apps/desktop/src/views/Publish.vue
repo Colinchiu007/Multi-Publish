@@ -138,6 +138,11 @@
                 <label class="cohere-form-label">封面图 URL</label>
                 <UiInput v-model="article.cover_url" placeholder="封面图片链接（选填）" />
               </div>
+              <div class="cohere-form-item">
+                <label class="cohere-form-label">定时发布</label>
+                <UiInput type="datetime-local" v-model="article.publishTime" style="max-width:260px" />
+                <span style="font-size:12px;color:var(--muted);margin-left:8px">留空 = 立即发布</span>
+              </div>
             </div>
           </div>
         </div>
@@ -291,7 +296,7 @@ async function loadAccounts () {
 }
 
 // ── 非批量模式（本地 UI 状态） ────────────
-const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '' })
+const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '', publishTime: '' })
 const showTagPanel = ref(true)
 const showTitlePanel = ref(false)
 const showAiWriter = ref(false)
