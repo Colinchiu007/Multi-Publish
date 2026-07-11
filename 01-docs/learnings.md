@@ -2675,6 +2675,32 @@ Why 4: 因为 Electron 应用缓存了旧的 IPC handler
 
 ---
 
+## 第四十九轮复盘（2026-07-11）— 版本号路径修复
+
+### 问题
+版本号仍然显示 v1.0.0，修复没有生效。
+
+### 根因分析（5 Whys）
+```
+问题: 版本号仍然显示 v1.0.0
+Why 1: 因为 api.getVersion() 没有被调用
+Why 2: 因为 electronAPI 在 Playwright 页面中不可用
+Why 3: 因为 Playwright 打开的是 Vite 页面，不是 Electron 应用
+Why 4: 因为 window.electronAPI 是通过 preload 脚本注入的
+→ 根因: Playwright 无法测试 Electron 主进程的功能
+```
+
+### 修复
+- 修正 package.json 相对路径：`../../../package.json` → `../../package.json`
+- 路径从 `apps/desktop/electron/ipc-handlers` 解析到 `apps/desktop/package.json`
+
+### 结论
+- 代码修复已正确应用（Node.js 测试验证通过）
+- Playwright 无法测试 Electron 主进程功能（electronAPI 不可用）
+- 版本号和 Remotion 引擎状态需要在 Electron 应用中验证
+
+---
+
 ## 第四十五轮修复（2026-07-11）— 非批量模式定时发布
 
 ### 本轮成果
