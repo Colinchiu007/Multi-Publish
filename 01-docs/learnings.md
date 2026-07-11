@@ -2398,7 +2398,43 @@ Why 4: 因为文件编码不一致
 | 指标 | 状态 |
 |------|------|
 | 测试覆盖 | ✅ 18/18 页面全部测试 |
-| MAJOR 清零 | ✅（BOM 已修复） |
+| MAJOR 清零 | ✅（BOM + 语法错误已修复） |
+| MINOR 可接受 | ✅（CSS 空白问题） |
+
+---
+
+## 第五十二轮复盘（2026-07-11）— CreateHistory.vue 语法错误修复
+
+### 问题
+CreateHistory.vue 页面返回 500 Internal Server Error。
+
+### 根因分析（5 Whys）
+```
+问题: CreateHistory.vue 页面返回 500 错误
+Why 1: 因为 Vite 编译失败
+Why 2: 因为 Vue 模板语法错误
+Why 3: 因为 @click=\".push(...)\" 缺少 \$router
+Why 4: 因为代码复制时遗漏了 \$router
+→ 根因: 3 处 @click 绑定缺少 \$router 前缀
+```
+
+### 修复
+- 修复 3 处 `@click=".push(...)"` → `@click="$router.push(...)"`
+- 文件：CreateHistory.vue 第 18、21、43 行
+
+### 经验沉淀
+
+**R91：Vue 模板中 @click 绑定必须使用完整路径**
+- `@click=".push(...)"` 是无效的 JavaScript 表达式
+- 必须使用 `@click="$router.push(...)"` 或 `@click="methodName()"`
+- 审查时 grep `@click=".push` 检查是否有遗漏
+
+### 质量节拍状态
+
+| 指标 | 状态 |
+|------|------|
+| 测试覆盖 | ✅ 18/18 页面全部测试 |
+| MAJOR 清零 | ✅（BOM + 语法错误已修复） |
 | MINOR 可接受 | ✅（CSS 空白问题） |
 
 ---
