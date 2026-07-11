@@ -27,5 +27,20 @@ describe('RenderEngine', () => {
       expect(typeof status.composerDir).toBe('string')
       expect(status.composerDir).toContain('remotion-composer')
     })
+
+    it('should return boolean for composerExists and nodeModulesExist', () => {
+      const status = engine.getStatus()
+      expect(typeof status.composerExists).toBe('boolean')
+      expect(typeof status.nodeModulesExist).toBe('boolean')
+    })
+
+    it('should have consistent ready logic', () => {
+      const status = engine.getStatus()
+      // ready should be true only when both are true
+      if (status.ready) {
+        expect(status.composerExists).toBe(true)
+        expect(status.nodeModulesExist).toBe(true)
+      }
+    })
   })
 })
