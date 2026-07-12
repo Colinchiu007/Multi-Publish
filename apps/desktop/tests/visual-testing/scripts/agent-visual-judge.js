@@ -108,7 +108,7 @@ function generateMarkdownReport(results, diffImages) {
 
     md += `### ${i + 1}. ${r.testName}\n\n`;
     md += `- **路由**: \`${r.route}\`\n`;
-    md += `- **像素对比**: ${hasPixelDiff ? `${C.red}失败${C.reset} (差异率 ${diff.misMatchPercentage.toFixed(2)}%)` : `${C.green}通过${C.reset}`}\n`;
+    md += `- **像素对比**: ${hasPixelDiff ? `${C.red}失败${C.reset} (差异率 ${Number(diff.misMatchPercentage).toFixed(2)}%)` : `${C.green}通过${C.reset}`}\n`;
     md += `- **当前截图**: \`${r.screenshotPath}\`\n`;
 
     if (hasPixelDiff) {
@@ -198,92 +198,67 @@ function inferTestName(screenshotFile) {
 }
 
 /**
- * 主流程
+ * 主流程：从 JSON 测试报告读取 route 和 misMatchPercentage
+ * 替代原来扫描 screenshots/ 目录 + 硬编码 route/misMatchPercentage 的方式
  */
 function main() {
-  console.log(`\n${C.bold}${C.blue}开始 Agent 视觉判断报告生成${C.reset}\n`);
-
-  // Step 1: 扫描最近的失败测试和 pixel-diff 差异图
+  console.log("\n" + C.bold + C.blue + "开始 Agent 视觉判断报告生成" + C.reset + "\n");
+  let reportData = null;
+  const reportFiles = fs.readdirSync(REPORT_DIR)
+    .filter(f => f.startsWith("report-") && f.endsWith(".json"))
+    .sort().reverse();
+  if (reportFiles.length === 0) {
+    log(C.yellow, "WARN", "没有找到测试报告，请先跑 npm run test:visual:pixel");
+    process.exit(0);
+  }
+  const reportPath = path.join(REPORT_DIR, reportFiles[0]);
+  try { reportData = JSON.parse(fs.readFileSync(reportPath, "utf8")); }
+  catch (e) { log(C.red, "ERROR", "报告解析失败: " + e.message); process.exit(1); }
+  log(C.blue, "INFO", "从报告读取 " + reportData.results.length + " 个测试结果");
   const diffImages = scanDiffImages();
-  log(C.blue, 'INFO', `找到 ${diffImages.length} 张像素差异图`);
-
-  // Step 2: 扫描所有截图
-  const screenshots = scanScreenshots();
-  log(C.blue, 'INFO', `找到 ${screenshots.length} 张当前截图`);
-
-  if (screenshots.length === 0) {
-    log(C.yellow, 'WARN', '没有找到任何截图，跳过报告生成。请先跑 npm run test:visual:pixel');
-    process.exit(0);
-  }
-
-  // Step 3: 构建测试名到路径的映射 (testName -> screenshotPath, baselinePath)
-  const testMap = new Map();
-
-  screenshots.forEach(sc => {
-    const testName = inferTestName(sc);
-    const screenshotPath = sc;
-    const baselinePath = path.join(BASELINE_DIR, `${testName}.png`);
-    const currentPath = sc;
-
-    // 检查是否有对应的像素差异（说明测试失败）
-    let pixelDiff = null;
-    const matchedDiff = diffImages.find(d => extractTestName(d) === testName);
-    if (matchedDiff && fs.existsSync(baselinePath)) {
-      pixelDiff = {
-        passed: false,
-        misMatchPercentage: 50, // 差异图存在即视为失败，具体数值需用户从像素测试结果读
-        diffImagePath: matchedDiff,
-        threshold: 0.1
-      };
-    }
-
-    testMap.set(testName, {
-      testName,
-      screenshotPath,
-      baselinePath: fs.existsSync(baselinePath) ? baselinePath : null,
-      currentPath,
-      pixelDiff,
-      route: '/', // 简化处理：路由需从像素测试结果反查，这里固定为 /
+  const diffMap = new Map();
+  diffImages.forEach(d => diffMap.set(extractTestName(d), d));
+  const results = [];
+  reportData.results.forEach(r => {
+    const testName = r.test;
+    const screenshotPath = path.join(SCREENSHOT_DIR, testName + "-current.png");
+    const baselinePath = path.join(BASELINE_DIR, testName + ".png");
+    const hasDiff = diffMap.has(testName);
+    const isFailed = r.status === "FAILED";
+    const pixelDiff = isFailed ? {
+      passed: false,
+      misMatchPercentage: (r.misMatchPercentage !== undefined) ? parseFloat(r.misMatchPercentage) : 0,
+      diffImagePath: diffMap.get(testName) || null,
       threshold: 0.1
-    });
+    } : null;
+    results.push({ testName, route: r.route || "/",
+      screenshotPath: fs.existsSync(screenshotPath) ? screenshotPath : null,
+      baselinePath: fs.existsSync(baselinePath) ? baselinePath : null,
+      pixelDiff, threshold: 0.1 });
   });
-
-  // Step 4: 筛选出有差异的测试，准备给 Agent 审查
-  const results = Array.from(testMap.values())
-    .filter(r => r.pixelDiff && !r.pixelDiff.passed)
+  const failedResults = results.filter(r => r.pixelDiff && !r.pixelDiff.passed)
     .sort((a, b) => a.testName.localeCompare(b.testName));
-
-  if (results.length === 0) {
-    log(C.green, 'RESULT', '所有测试像素对比均通过，无需 Agent 审查');
-    // 仍然生成完整报告（包含全部测试的通过状态）
-    const allResults = Array.from(testMap.values());
-    const md = generateMarkdownReport(allResults, []);
-    const json = generateJsonReport(allResults, []);
-    fs.writeFileSync(OUTPUT_MD, md, 'utf8');
-    fs.writeFileSync(OUTPUT_JSON, JSON.stringify(json, null, 2), 'utf8');
-    log(C.blue, 'OUTPUT', OUTPUT_MD);
-    log(C.blue, 'OUTPUT', OUTPUT_JSON);
+  if (failedResults.length === 0) {
+    log(C.green, "RESULT", "所有测试像素对比均通过，无需 Agent 审查");
+    const md = generateMarkdownReport(results, diffImages);
+    const json = generateJsonReport(results, diffImages);
+    fs.writeFileSync(OUTPUT_MD, md, "utf8");
+    fs.writeFileSync(OUTPUT_JSON, JSON.stringify(json, null, 2), "utf8");
+    log(C.blue, "OUTPUT", OUTPUT_MD);
+    log(C.blue, "OUTPUT", OUTPUT_JSON);
     process.exit(0);
   }
-
-  log(C.yellow, 'FOUND', `${results.length} 个测试像素对比失败，已生成报告供 Agent 审查`);
-
-  // Step 5: 写入报告
-  const md = generateMarkdownReport(results, diffImages);
-  const json = generateJsonReport(results, diffImages);
-
-  fs.writeFileSync(OUTPUT_MD, md, 'utf8');
-  fs.writeFileSync(OUTPUT_JSON, JSON.stringify(json, null, 2), 'utf8');
-
-  log(C.green, 'DONE', `报告已生成：`);
-  log(C.blue, 'FILE', OUTPUT_MD);
-  log(C.blue, 'FILE', OUTPUT_JSON);
-  log(C.blue, 'URL',  toFileUrl(OUTPUT_MD));
-
-  console.log(`\n${C.bold}下一步:${C.reset} 在 Agent 会话中读 ${path.basename(OUTPUT_MD)} +`);
-  console.log(`用 view_image 工具加载截图，自己判断每个失败项是否预期变化。\n`);
-
-  // 报告生成始终退出 0（不影响 CI 流水线，pixel 测试结果才是真正的门禁）
+  log(C.yellow, "FOUND", failedResults.length + " 个测试像素对比失败，已生成报告供 Agent 审查");
+  const md = generateMarkdownReport(failedResults, diffImages);
+  const json = generateJsonReport(failedResults, diffImages);
+  fs.writeFileSync(OUTPUT_MD, md, "utf8");
+  fs.writeFileSync(OUTPUT_JSON, JSON.stringify(json, null, 2), "utf8");
+  log(C.green, "DONE", "报告已生成：");
+  log(C.blue, "FILE", OUTPUT_MD);
+  log(C.blue, "FILE", OUTPUT_JSON);
+  log(C.blue, "URL", toFileUrl(OUTPUT_MD));
+  console.log("\n" + C.bold + "下一步:" + C.reset + " 在 Agent 会话中读 " + path.basename(OUTPUT_MD) + " +");
+  console.log("用 view_image 工具加载截图，自己判断每个失败项是否预期变化。\n");
   process.exit(0);
 }
 

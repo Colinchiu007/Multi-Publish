@@ -1,1 +1,13 @@
-﻿*.png
+﻿# Baseline reference images (must be tracked for pixel comparison)
+# Use negation patterns to override parent *.png rule
+!home-baseline.png
+!accounts-list.png
+!publish-form.png
+!monitor-dashboard.png
+!analytics-overview.png
+!settings-general.png
+!login-form.png
+!create-editor.png
+
+# Current screenshots from test runs (not tracked)
+*-current.png
