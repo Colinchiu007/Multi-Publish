@@ -1,4 +1,35 @@
 
+## [集成] ai-autonomous-tester v0.6.0 - AgentJudge 接入主路径 (2026-07-13)
+
+应用质量节拍第 7 轮：把 v0.5.0 新增的 AgentJudge 接入 RequirementsTestRunner + TestOrchestrator 主路径。
+
+### 改动
+
+- **RequirementsTestRunner** 重写为四路径：
+  - 路径 1 (默认): `collectFacts → AgentJudge → verdict → details`（新主路径）
+  - 路径 2: 注入 llmFn，自动调用 + 解析
+  - 路径 3: 外部传入 facts（orchestrator 复用采集结果）
+  - 路径 4: 旧 `verify()` 关键词兜底（_deprecated，仍可用）
+- **AutonomousTestRunner** 新增 `llmFn` 顶层选项 + 透传到 `requirements` 子 runner
+- **TestOrchestrator** 新增 `llmFn` 顶层选项 + 自动注入到 testRunner
+- details 状态映射：COVERED→PASSED, PARTIAL→PASSED+warning, NOT_IMPLEMENTED→FAILED
+- prompt 包模式下 details 标记 _agentRequired，提示 Agent 读 verdict.prompt
+
+### 不变量
+
+- 默认行为变化：以前走关键词匹配 (18.2% 假覆盖率)，现在走 AgentJudge
+- 无 LLM 注入时：verdict._mode="prompt"，details 全部 PASSED+_agentRequired（等待 Agent 审查）
+- 有 LLM 注入时：verdict 自动产出，PASS/FAIL/NEED_HUMAN 三态决策
+- 顶层 llmFn 兼容：orchestrator({ llmFn }) / runner({ llmFn }) / context.requirements.llmFn 三层都能传
+
+### E2E 验证
+
+TestOrchestrator + AutonomousTestRunner + RequirementsTestRunner + AgentJudge 链路：
+- 顶层 llmFn 注入 → requirements PASS → 1/1 passed → STOP_SUCCESS
+- 无 llmFn → requirements prompt 包模式 → AgentRequired
+
+---
+
 ## [重构] ai-autonomous-tester v0.5.0 - 语义判断权下放给 Agent (2026-07-13)
 
 应用质量节拍第 6 轮：架构 pivot — 框架只做事实采集，语义推理交给 Agent。

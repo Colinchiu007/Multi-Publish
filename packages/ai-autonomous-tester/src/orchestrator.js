@@ -28,8 +28,21 @@ class TestOrchestrator {
     this.iterationDelay = options.iterationDelay || 5000;
     this.logger = options.logger || console;
     this.stopOnSuccess = options.stopOnSuccess !== false;
+    this.llmFn = options.llmFn || null;
 
-    this.testRunner = options.testRunner || new AutonomousTestRunner();
+    // 顶层 llmFn 自动注入到 testRunner（如果 testRunner 是 AutonomousTestRunner）
+    const runnerOptions = this.llmFn ? { llmFn: this.llmFn } : {};
+    this.testRunner = options.testRunner || new AutonomousTestRunner(runnerOptions);
+    if (this.llmFn && this.testRunner && !this.testRunner.options?.llmFn) {
+      this.testRunner.options = { ...(this.testRunner.options || {}), llmFn: this.llmFn };
+      // 重建 requirements 子 runner 以注入 llmFn
+      try {
+        const { RequirementsTestRunner } = require("./runners/requirements-runner");
+        this.testRunner.requirements = new RequirementsTestRunner({ llmFn: this.llmFn });
+      } catch (e) {
+        // 非 AutonomousTestRunner 时跳过
+      }
+    }
     this.analyzer = options.analyzer || new AIAnalyzer();
     this.fixEngine = options.fixEngine || new FixEngine({ logger: this.logger });
 
