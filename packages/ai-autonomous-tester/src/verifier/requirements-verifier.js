@@ -48,7 +48,7 @@ class RequirementsVerifier {
 
     // 若传入了 srcDir 且当前 featureDetector 用的是默认配置，重新构造一个带正确路径的
     let detector = this.featureDetector;
-    if (context.srcDir && (!this.options.srcDir || this.options.srcDir !== context.srcDir)) {
+    if (context.srcDir && !this.options.featureDetector && (!this.options.srcDir || this.options.srcDir !== context.srcDir)) {
       detector = new FeatureDetector({ srcDir: context.srcDir });
     }
     const implItems = await detector.detect();

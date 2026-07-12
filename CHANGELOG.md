@@ -1,4 +1,42 @@
 
+## [测试] ai-autonomous-tester v0.9.0 - 单元测试补全 (2026-07-13)
+
+应用质量节拍第 10 轮：补齐整个包的单元测试，50 个测试全部通过。
+
+### 新增测试 (50 个)
+
+- **PRDParser (8 tests)**: parse/parseStructured/splitSections/isFeatureSection/extractFeatures/makeFeature
+  - 中文章节识别、checkbox/numbered/heading、文件不存在错误
+- **AgentJudge (11 tests)**: prompt 包/parseVerdict 标准JSON/马克代码块/决策归一化/malformed/null/LLM 注入/上下文 llmFn
+- **RequirementsVerifier (5 tests)**: collectFacts 采集/无prdPath/assessCoverage LLM/马克代码块解析/verify 旧路径
+- **FixEngine (8 tests)**: fromVerdict 推荐/去重/maxFixes/空输入/execute dryRun/未知类型/空列表/plan
+- **AIAnalyzer (11 tests)**: analyze 正常/prompt/空/decide 五决策路径/analyzeVisual/analyzeFunctional
+- **FeatureDetector (7 tests)**: 空目录/routes/nav/titles/testid/去重/humanize
+
+### 技术细节
+
+- 使用 Node 22 内置 `node:test` + `node:assert/strict`，零外部依赖
+- 测试临时文件用 `os.tmpdir()` + `.tmp/` 目录自动清理
+- FeatureDetector 用真实文件系统副本来验证检测逻辑
+- PRDParser 测试不依赖于真实 PRD.md 内容
+- 全部测试可并行运行（`--test` 并行模式）
+
+### 修复的问题
+
+- PRDParser extractFeatures 正则：从 `#{4,}` 更正为 `#{3,}`（支持 ### h3 子标题）
+- RequirementsVerifier collectFacts guard：增加 `!this.options.featureDetector` 检查
+- AIAnalyzer 测试：analyze() 改为 async 调用
+
+### 退出码验证
+
+```bash
+cd packages/ai-autonomous-tester
+npm test                 # 50/50 pass
+npm run test:coverage    # 带覆盖率报告
+```
+
+---
+
 ## [集成] ai-autonomous-tester v0.8.0 - GitHub Actions + CLI 入口 (2026-07-13)
 
 应用质量节拍第 9 轮：让 AgentJudge 跑进 CI，PR 评论自动贴 verdict。

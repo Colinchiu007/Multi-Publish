@@ -129,3 +129,7 @@ subtitles*.json
 # AI Agent Judge CLI test outputs
 apps/desktop/tests/visual-testing/reports/agent-judge-prompt-*.md
 apps/desktop/tests/visual-testing/reports/agent-judge-summary-*.json
+
+# Test artifacts
+packages/ai-autonomous-tester/tests/.tmp
+packages/ai-autonomous-tester/tests/.tmp-*

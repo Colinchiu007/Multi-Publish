@@ -102,7 +102,7 @@ class PRDParser {
       const checkbox = line.match(/^-\s+\[([ x])\]\s+(.+)/);
       const numbered = line.match(/^\d+[\.、]\s+(.+)/);
       const dashed = line.match(/^-\s+(?!\[\s?\])(.+)/);
-      const subHeading = line.match(/^#{4,}\s+(.+)/);
+      const subHeading = line.match(/^#{3,}\s+(.+)/);
 
       if (checkbox) {
         features.push(this.makeFeature(checkbox[2].trim(), "checkbox", checkbox[1] === "x"));
