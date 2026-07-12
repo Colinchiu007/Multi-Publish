@@ -174,7 +174,7 @@ function buildFunctionalTargets(names) {
 async function runOrchestratorLoop() {
   logBox("全自主多轮循环", [`最大迭代: ${MAX_ITERATIONS}`, `功能测试: ${ENABLE_FUNCTIONAL ? FUNCTIONAL_TARGETS.join(", ") : "关闭"}`,
     `多文档: ${DOC_PATHS.map(p => path.basename(p)).join(", ")}`, `LLM: ${LLM_PROVIDER || "(无)"}`]);
-  const { TestOrchestrator, AutonomousTestRunner, RequirementsTestRunner, FunctionalTestRunner, VisualTestRunner } = require("../index");
+  const { TestOrchestrator, AutonomousTestRunner, RequirementsTestRunner, FunctionalTestRunner, VisualTestRunner, FixEngine } = require("../index");
   const llmFn = makeLlmFn(LLM_PROVIDER);
   const visualRunner = SKIP_VISUAL ? null : new VisualTestRunner({ url: TEST_URL, headless: true, threshold: COVERAGE_THRESHOLD });
   const functionalRunner = ENABLE_FUNCTIONAL ? new FunctionalTestRunner({ url: TEST_URL, headless: true }) : null;
@@ -183,7 +183,8 @@ async function runOrchestratorLoop() {
     llmFn, visualRunner: visualRunner || undefined, functionalRunner: functionalRunner || undefined,
     requirementsRunner,
   });
-  const orchestrator = new TestOrchestrator({ maxIterations: MAX_ITERATIONS, testRunner, iterationDelay: 3000, stopOnSuccess: true });
+      const fixEngine = new FixEngine({ logger: console, dryRun: false });
+    const orchestrator = new TestOrchestrator({ maxIterations: MAX_ITERATIONS, testRunner, fixEngine, iterationDelay: 3000, stopOnSuccess: true });
   const context = {
     visual: { targets: [{ name: "home-baseline", route: "/" }, { name: "accounts-list", route: "/accounts" }, { name: "publish-form", route: "/publish" }] },
     functional: functionalRunner ? { targets: buildFunctionalTargets(FUNCTIONAL_TARGETS) } : {},
@@ -297,6 +298,28 @@ async function main() {
       const report = await runOrchestratorLoop();
       const success = report.finalStatus === "SUCCESS";
       logBox(success ? "循环通过" : "循环失败", [`状态: ${report.finalStatus}`, `迭代: ${report.iterations}`]);
+
+      // 生成可执行修复脚本（Agent 可以在下一轮运行前执行）
+      const fixScriptPath = path.join(REPORT_DIR, "auto-fix-commands.bat");
+      const fixLines = ["@echo off", "REM Auto-generated fix commands from autonomous loop", ""];
+      for (const h of (report.iterationHistory || [])) {
+        if (h.fixResult?.results) {
+          for (const r of h.fixResult.results) {
+            if (!r.success) continue;
+            const fix = r.fix || {};
+            if (fix.type === "baseline" && fix.testName) {
+              const src = path.join(APPS_DIR, "tests/visual-testing/screenshots", fix.testName + "-current.png");
+              const dst = path.join(APPS_DIR, "tests/visual-testing/base-screenshots", fix.testName + ".png");
+              fixLines.push("REM Update baseline for " + fix.testName);
+              fixLines.push('copy /Y "' + src + '" "' + dst + '" 2>nul');
+            }
+          }
+        }
+      }
+      if (fixLines.length > 3) {
+        fs.writeFileSync(fixScriptPath, fixLines.join("\r\n"));
+        log("FIX", "修复脚本已生成: " + fixScriptPath);
+      }
       process.exit(success ? 0 : 1);
       return;
     }

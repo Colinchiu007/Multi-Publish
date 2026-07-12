@@ -1,4 +1,28 @@
 ﻿
+## [修复] ai-autonomous-tester v0.12.1 - 自主循环闭环：FixEngine dryRun=false + 自动修复脚本 (2026-07-13)
+
+应用质量节拍第 15 轮：分析并修复自主循环无法真正闭环的根因。
+
+### 问题
+- **FixEngine 默认 dryRun=true** → 多轮循环中 asserts baseline 从不更新 → 反复检测同一 diff → 无法收敛
+- **无修复脚本** → Agent 不知道具体要执行什么命令来应用修复
+
+### 修复
+- **FixEngine.dryRun=false**：多轮循环模式下基线更新真实生效
+- **自动生成修复脚本**：迭代结束后写出 uto-fix-commands.bat，包含所有 baseline copy 命令
+- **Agent 可执行**：生成的 .bat 脚本可直接执行，Agent 也能读取命令自行判断
+
+### 完整自主流程（现在）
+`
+1. 启动 dev server
+2. 视觉测试（像素对比）
+3. 分析结果 → AIAnalyzer.decide()
+4. FIX_AND_RETRY → FixEngine 真实更新基线（dryRun=false）
+5. 生成 auto-fix-commands.bat
+6. 重测 → 通过则 STOP_SUCCESS，否则继续
+`
+
+---
 ## [端到端] ai-autonomous-tester v0.12.0 - 三个新方向：多轮循环 + 多文档 + 功能测试 (2026-07-13)
 
 应用质量节拍第 14 轮：实现三个新方向，使自主测试框架具备完整的端到端自动化能力。
