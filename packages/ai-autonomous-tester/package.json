@@ -1,6 +1,6 @@
 {
   "name": "@multi-publish/ai-autonomous-tester",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "AI 全自动前端测试框架：视觉回归 + 功能测试 + 需求验证，框架只做事实采集，Agent 用自带 LLM 做语义判断",
   "main": "index.js",
   "exports": {
@@ -21,7 +21,10 @@
     "./utils/path-resolver": "./src/utils/path-resolver.js"
   },
   "scripts": {
-    "test": "echo \"no tests yet\""
+    "test": "echo \"no tests yet\"",
+    "agent-judge": "node scripts/run-agent-judge.js",
+    "agent-judge:openai": "cross-env-shell LLM_PROVIDER=openai node scripts/run-agent-judge.js",
+    "agent-judge:anthropic": "cross-env-shell LLM_PROVIDER=anthropic node scripts/run-agent-judge.js"
   },
   "keywords": [
     "ai-testing",
@@ -35,7 +38,11 @@
     "agent-loop",
     "prd-verification",
     "agent-judge",
-    "semantic-coverage"
+    "semantic-coverage",
+    "github-actions",
+    "ci-cd",
+    "pr-comment",
+    "coverage-audit"
   ],
   "license": "MIT",
   "dependencies": {

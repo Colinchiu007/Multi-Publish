@@ -1,4 +1,47 @@
 
+## [集成] ai-autonomous-tester v0.8.0 - GitHub Actions + CLI 入口 (2026-07-13)
+
+应用质量节拍第 9 轮：让 AgentJudge 跑进 CI，PR 评论自动贴 verdict。
+
+### 新增
+
+- **CLI 入口 `run-agent-judge.js`**：
+  - `--prd` / `--src` 指定 PRD 文件和源码目录
+  - `--llm=openai|anthropic` 注入 LLM provider
+  - `--model` 指定模型（默认 gpt-4o-mini / claude-3-5-sonnet-latest）
+  - `--threshold` 覆盖阈值（默认 0.8）
+  - `--iterations` 多次循环（默认 1）
+  - `--out` 指定 reports 输出目录
+  - 输出：`agent-judge-verdict-{ts}.json`、`agent-judge-report-{ts}.md`、`agent-judge-prompt-{ts}.md`、`agent-judge-summary-{ts}.json`
+  - 退出码: 0=PASS, 1=FAIL, 2=NEED_HUMAN, 3=INFRA_ERROR
+- **GitHub Actions `.github/workflows/agent-judge.yml`**：
+  - 触发：PR / push main / 手动 dispatch
+  - 始终跑（无需 API Key 也行），exit 2 = NEED_HUMAN
+  - 有 OPENAI_API_KEY / ANTHROPIC_API_KEY → 自动注入 → 自动 verdict
+  - 自动 PR 评论：用 markdown 表格贴 verdict（含 marker 防刷屏，自动更新已有评论）
+  - 决策 gate: PASS 放行，FAIL/NEED_HUMAN 阻塞 PR
+  - artifact 上传: verdict.json + reports 保留 30 天
+
+### 修复
+
+- **PRDParser mojibake 修复**：featureKeywords 默认值从损坏字节恢复为中文（"功能需求"/"特性"等）
+  - 之前 mojibake 导致 PRD items 永远为 0
+- **RequirementsVerifier 修复**：collectFacts() 现在透传 srcDir 给 FeatureDetector
+  - 之前 detector 默认 srcDir="src"，CLI 在仓库根运行时找不到 apps/desktop/src
+- **PRDParser 加宽 keywords**：CLI 默认覆盖 F1/F2/F3 + 3./6. 等章节路径，覆盖 56 个 PRD items
+
+### 依赖
+
+- 无新增 npm 依赖（用 Node 22 内置 fetch）
+- OpenAI 兼容端点可通过 `LLM_BASE_URL` 自定义（LM Studio / Ollama / vLLM）
+
+### 下一步
+
+- Phase 17: 补单元测试（`npm test` 现在还是 no-op）
+- Phase 18: 文档更新（`packages/ai-autonomous-tester/README.md`）
+
+---
+
 ## [闭环] ai-autonomous-tester v0.7.0 - FixEngine 接 verdict 推荐 (2026-07-13)
 
 应用质量节拍第 8 轮：让 AIAnalyzer + FixEngine 接 verdict.recommendations 完成闭环。

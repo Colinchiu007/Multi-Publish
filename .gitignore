@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 dist/
 dist-electron/
 .vite/
@@ -126,3 +126,6 @@ heygen_video_exec_*.mp4
 subtitles.srt
 subtitles.vtt
 subtitles*.json
+# AI Agent Judge CLI test outputs
+apps/desktop/tests/visual-testing/reports/agent-judge-prompt-*.md
+apps/desktop/tests/visual-testing/reports/agent-judge-summary-*.json
