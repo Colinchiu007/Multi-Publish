@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 视觉测试运行器
  * 使用方式：
  *   const runner = new TestRunner({ headless: true });
@@ -19,16 +19,18 @@ class VisualTestRunner {
     this.headless = options.headless ?? true;
     this.screenshotDir = options.screenshotDir || 'tests/visual-testing/screenshots';
     this.reportDir = options.reportDir || 'tests/visual-testing/reports';
+    this.metaDir = options.metaDir || 'tests/visual-testing/meta';
     
     this.browser = null;
     this.context = null;
     this.page = null;
     
-    // 初始化提供者
+    // 初始化提供器
     this.ocr = new OCRProvider();
     this.pixelDiff = new PixelDiffProvider({ outputDir: `${this.reportDir}/pixel-diff` });
     
     this.results = [];
+    this.testMeta = {}; // 存储每个测试的元数据
   }
 
   async launch() {
@@ -42,13 +44,34 @@ class VisualTestRunner {
     this.page = await this.context.newPage();
     
     // 确保目录存在
-    fs.mkdirSync(this.screenshotDir, { recursive: true });
-    fs.mkdirSync(this.reportDir, { recursive: true });
+    [this.screenshotDir, this.reportDir, this.metaDir].forEach(d => 
+      fs.mkdirSync(d, { recursive: true })
+    );
+    
+    // 加载已有的 meta 数据
+    this._loadMeta();
   }
 
-  async close() {
-    if (this.browser) await this.browser.close();
-    return this.generateReport();
+  /**
+   * 加载已有的 meta.json 数据
+   */
+  _loadMeta() {
+    const metaPath = path.join(this.metaDir, 'pixel-tests-meta.json');
+    if (fs.existsSync(metaPath)) {
+      try {
+        this.testMeta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      } catch (e) {
+        this.testMeta = {};
+      }
+    }
+  }
+
+  /**
+   * 保存 meta 数据到文件
+   */
+  _saveMeta() {
+    const metaPath = path.join(this.metaDir, 'pixel-tests-meta.json');
+    fs.writeFileSync(metaPath, JSON.stringify(this.testMeta, null, 2), 'utf8');
   }
 
   /**
@@ -62,7 +85,6 @@ class VisualTestRunner {
       const text = await this.ocr.extractText(screenshotPath);
       return { screenshotPath, text, prompt };
     }
-    
     
     return { screenshotPath, prompt };
   }
@@ -80,15 +102,28 @@ class VisualTestRunner {
     
     await this.page.screenshot({ path: currentPath });
     
-    // 如果没有基线图，创建
+    // 如果没有基准图，创建
     if (!fs.existsSync(baselinePath)) {
       await this.pixelDiff.updateBaseline(currentPath, baselinePath);
+      // 保存 meta 信息
+      this.testMeta[testName] = { route, createdAt: new Date().toISOString() };
+      this._saveMeta();
       this.results.push({ test: testName, status: 'BASELINE_CREATED', route });
       return { status: 'BASELINE_CREATED', baselinePath };
     }
     
     // 对比
     const result = await this.pixelDiff.compare(baselinePath, currentPath, testName);
+    
+    // 保存 meta 信息（包括真实 misMatchPercentage）
+    this.testMeta[testName] = { 
+      route, 
+      misMatchPercentage: result.misMatchPercentage,
+      threshold: this.pixelDiff.threshold,
+      updatedAt: new Date().toISOString()
+    };
+    this._saveMeta();
+    
     this.results.push({
       test: testName,
       status: result.passed ? 'PASSED' : 'FAILED',
@@ -98,18 +133,16 @@ class VisualTestRunner {
     });
 
     // 对比失败: 主动 throw, 让调用方 (run-pixel-tests.js) 记录 failed 并返回非零退出码
-    // 修于 2026-07-12 质量节拍: 避免 CI 因容错误报通过
+    // 始于 2026-07-12 质量节拍: 避免 CI 因容错错误报告通过
     if (!result.passed) {
       throw new Error(
         '像素对比失败 (' + testName + '): misMatchPercentage=' + result.misMatchPercentage.toFixed(2) + '% ' +
-        '(threshold=' + (this.pixelDiff.threshold * 100) + '%); 差异图=' + result.diffImagePath
+        '(threshold=' + (this.pixelDiff.threshold * 100) + '%); 差异图: ' + result.diffImagePath
       );
     }
 
     return result;
   }
-
-  /**
 
   /**
    * 生成测试报告
@@ -129,16 +162,16 @@ class VisualTestRunner {
     fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
     
     console.log(`
-┌─────────────────────────────────────┐
-│     视觉测试报告                     │
-├─────────────────────────────────────┤
-│  总计: ${total}                               │
-│  通过: ${passed} ✅                            │
-│  失败: ${failed} ❌                            │
-│  通过率: ${((passed/total)*100).toFixed(1)}%                        │
-├─────────────────────────────────────┤
-│  报告: ${reportPath}   │
-└─────────────────────────────────────┘
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      视觉测试报告
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  总计: ${total}
+  通过: ✓ ${passed}
+  失败: ✗ ${failed}
+  通过率: ${((passed/total)*100).toFixed(1)}%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  报告: ${reportPath}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     `);
     
     return report;

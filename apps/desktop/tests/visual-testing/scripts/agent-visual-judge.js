@@ -1,24 +1,20 @@
-/**
- * Agent 视觉判断报告生成器
- *
- * 用途：像素对比失败后，生成结构化报告供 Agent 读取截图并自行判断。
- * Agent 不需要任何外部 API Key —— 自己就是视觉推理引擎。
- *
- * 使用方式：
+﻿/**
+ * Agent Visual Judge Report Generator
+ * 
+ * Purpose: After pixel diff fails, generate structured report for Agent to read screenshots and judge.
+ * Agent does NOT need any external API Key - it IS the vision agent.
+ * 
+ * Usage:
  *   node tests/visual-testing/scripts/agent-visual-judge.js
- *   # 输出 judge-report.md 和 agent-judge-results.json
+ *   # Outputs judge-report.md and agent-judge-results.json
  *
- * Agent 读 judge-report.md，用 view_image 工具看图，自己判断对不对。
- *
- * CI 集成：
- *   在 run-pixel-tests.js 失败后，CI 流程调用本脚本生成报告，
- *   然后把 judge-report.md 作为一个 review 步骤交给 Agent 处理。
+ * Agent reads judge-report.md, uses view_image tool to inspect screenshots, judges pass/fail.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// 从 __dirname 向上找项目根(优先匹配 monorepo 特征: .git / AGENTS.md)
+// Find project root from __dirname (monorepo-aware: .git / AGENTS.md)
 function findProjectRoot(startDir) {
   let dir = startDir;
   let lastPkg = null;
@@ -31,125 +27,133 @@ function findProjectRoot(startDir) {
     if (parent === dir) break;
     dir = parent;
   }
-  // 兜底:monorepo 没 .git 但有多个 package.json 时,返回最深的 package.json 的父级
   return lastPkg ? path.dirname(lastPkg) : path.resolve(startDir, '..', '..', '..', '..', '..');
 }
+
 const ROOT = findProjectRoot(__dirname);
 const REPORT_DIR = path.join(ROOT, 'apps/desktop/tests/visual-testing/reports');
 const SCREENSHOT_DIR = path.join(ROOT, 'apps/desktop/tests/visual-testing/screenshots');
 const DIFF_DIR = path.join(REPORT_DIR, 'pixel-diff');
 const BASELINE_DIR = path.join(ROOT, 'apps/desktop/tests/visual-testing/base-screenshots');
+const META_DIR = path.join(ROOT, 'apps/desktop/tests/visual-testing/meta');
+const META_FILE = path.join(META_DIR, 'pixel-tests-meta.json');
 const OUTPUT_MD = path.join(REPORT_DIR, 'judge-report.md');
 const OUTPUT_JSON = path.join(REPORT_DIR, 'agent-judge-results.json');
 
-// 确保目录存在
-[REPORT_DIR, SCREENSHOT_DIR, DIFF_DIR, BASELINE_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
+// Ensure directories exist
+[REPORT_DIR, SCREENSHOT_DIR, DIFF_DIR, BASELINE_DIR, META_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
 
-// ANSI 颜色
-const C = {
-  reset: '\x1b[0m', red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m',
-  blue: '\x1b[34m', bold: '\x1b[1m', dim: '\x1b[2m'
-};
-
-function log(color, tag, msg) {
-  console.log(`${color}[${tag}]${C.reset} ${msg}`);
+function log(tag, msg, color = '') {
+  const prefix = color ? `\x1b[${color}m[${tag}]\x1b[0m ` : `[${tag}] `;
+  console.log(prefix + msg);
 }
 
 function toFileUrl(absPath) {
-  // Windows 路径转 file:// URL
+  if (!absPath) return 'N/A';
   return 'file:///' + absPath.replace(/\\/g, '/');
 }
 
 /**
- * 扫描 pixel-diff 目录下的所有差异图，按修改时间倒序
+ * Load meta.json to get route and misMatchPercentage
  */
-function scanDiffImages() {
-  if (!fs.existsSync(DIFF_DIR)) return [];
-  const files = fs.readdirSync(DIFF_DIR)
-    .filter(f => f.endsWith('.png'))
-    .map(f => path.join(DIFF_DIR, f))
-    .sort((a, b) => fs.statSync(b).mtime - fs.statSync(a).mtime);
-  return files;
+function loadMeta() {
+  if (!fs.existsSync(META_FILE)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(META_FILE, 'utf8'));
+  } catch (e) {
+    return {};
+  }
 }
 
 /**
- * 从 diff 图文件名提取测试名（去掉末尾时间戳）
- * 命名格式: {testName}-{timestamp}.png
+ * Scan pixel-diff directory for all diff images, sorted by mtime
+ */
+function scanDiffImages() {
+  if (!fs.existsSync(DIFF_DIR)) return [];
+  return fs.readdirSync(DIFF_DIR)
+    .filter(f => f.endsWith('.png'))
+    .map(f => path.join(DIFF_DIR, f))
+    .sort((a, b) => fs.statSync(b).mtime - fs.statSync(a).mtime);
+}
+
+/**
+ * Extract test name from diff filename (remove trailing timestamp)
  */
 function extractTestName(diffPath) {
   const basename = path.basename(diffPath, '.png');
-  // 去掉末尾时间戳（数字），保留原始测试名
   return basename.replace(/-\d+$/, '');
 }
 
 /**
- * 生成 Markdown 报告供 Agent view_image 工具阅读
+ * Generate Markdown report (for Agent view_image tool)
  */
 function generateMarkdownReport(results, diffImages) {
-  const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+  const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' });
   const total = results.length;
   const failed = results.filter(r => r.pixelDiff && !r.pixelDiff.passed).length;
   const passed = total - failed;
 
-  let md = `# Agent 视觉判断报告\n\n`;
-  md += `**生成时间**: ${now}\n`;
-  md += `**测试总数**: ${total} | **像素对比失败**: ${failed} | **需 Agent 审查**: ${failed}\n\n`;
+  let md = `# Agent Visual Judge Report\n\n`;
+  md += `**Generated**: ${now}\n`;
+  md += `**Total Tests**: ${total} | **Pixel Diff Failed**: ${failed} | **Needs Agent Review**: ${failed}\n\n`;
 
-  md += `## Agent 审查指南\n\n`;
-  md += `请逐项使用 **view_image** 工具加载下方截图，\n`;
-  md += `判断哪些差异是「预期变化」（设计改版 / 故意调整）\n`;
-  md += `哪些是「意外回归」（Bug / 样式错乱）。\n\n`;
+  md += `## Agent Review Guide\n\n`;
+  md += `Please use **view_image** tool to load screenshots below.\n`;
+  md += `Determine which diffs are **expected changes** (design update / intentional adjustment).\n`;
+  md += `Which are **unexpected regressions** (Bug / style error).\n\n`;
 
   md += `---\n\n`;
 
   results.forEach((r, i) => {
     const diff = r.pixelDiff;
     const hasPixelDiff = diff && !diff.passed;
+    const mismatch = hasPixelDiff ? Number(diff.misMatchPercentage).toFixed(2) : '0.00';
 
     md += `### ${i + 1}. ${r.testName}\n\n`;
-    md += `- **路由**: \`${r.route}\`\n`;
-    md += `- **像素对比**: ${hasPixelDiff ? `${C.red}失败${C.reset} (差异率 ${Number(diff.misMatchPercentage).toFixed(2)}%)` : `${C.green}通过${C.reset}`}\n`;
-    md += `- **当前截图**: \`${r.screenshotPath}\`\n`;
+    md += `- **Route**: \`${r.route}\`\n`;
+    md += `- **Pixel Diff**: ${hasPixelDiff ? `**FAILED** (mismatch: ${mismatch}%)` : '**PASSED**'}\n`;
+    md += `- **Current Screenshot**: \`${r.screenshotPath || 'N/A'}\`\n`;
 
     if (hasPixelDiff) {
-      md += `- **差异图**: \`${diff.diffImagePath}\`\n`;
-      md += `- **阈值**: ${(r.threshold * 100).toFixed(0)}%\n\n`;
-      md += `**对比图片**\n\n`;
-      md += `| 类型 | 路径 |\n`;
+      md += `- **Diff Image**: \`${diff.diffImagePath || 'N/A'}\`\n`;
+      md += `- **Threshold**: ${((r.threshold || 0.1) * 100).toFixed(0)}%\n\n`;
+      md += `**Comparison Images**\n\n`;
+      md += `| Type | Path |\n`;
       md += `|------|------|\n`;
-      md += `| 基线 | ${toFileUrl(r.baselinePath)} |\n`;
-      md += `| 当前 | ${toFileUrl(r.screenshotPath)} |\n`;
-      md += `| 差异 | ${toFileUrl(diff.diffImagePath)} |\n\n`;
-      md += `**Agent 判断清单**\n\n`;
-      md += `- [ ] **通过**: 当前截图相对基线的 UI 变化符合预期设计\n`;
-      md += `- [ ] **失败**: 当前截图存在 UI 问题，需修复后重新跑测试\n`;
-      md += `- [ ] **需更新基线**: 如变化是预期的，把 current 提升为新基线\n\n`;
-      md += `**Agent 处理结果**: _（请填写：已通过 / 已失败 / 已更新基线）_\n\n`;
+      md += `| Baseline | ${toFileUrl(r.baselinePath)} |\n`;
+      md += `| Current | ${toFileUrl(r.screenshotPath)} |\n`;
+      md += `| Diff | ${toFileUrl(diff.diffImagePath)} |\n\n`;
+      md += `**Agent Judgment**\n\n`;
+      md += `- [ ] **PASS**: UI change is expected design update\n`;
+      md += `- [ ] **FAIL**: UI has issues, fix and re-run test\n`;
+      md += `- [ ] **UPDATE BASELINE**: If change is expected, promote current as new baseline\n\n`;
+      md += `**Result**: _(please fill: PASS / FAIL / BASELINE_UPDATED)_\n\n`;
     } else {
-      md += `- **说明**: 像素对比通过，无需 Agent 审查\n\n`;
+      md += `\n`;
     }
 
     md += `---\n\n`;
   });
 
-  md += `## 汇总表\n\n`;
-  md += `| 测试名 | 像素对比 | Agent 判断 |\n`;
-  md += `|------|----------|------------|\n`;
-
+  // Summary table
+  md += `## Summary\n\n`;
+  md += `| Test | Pixel Diff | Agent Judgment |\n`;
+  md += `|------|------------|---------------|\n`;
   results.forEach(r => {
     const diff = r.pixelDiff;
     const hasPixelDiff = diff && !diff.passed;
-    const pixelStatus = hasPixelDiff ? `${diff.misMatchPercentage.toFixed(2)}% 差` : 'OK';
-    md += `| ${r.testName} | ${pixelStatus} | _待审查_ |\n`;
+    const mismatch = hasPixelDiff ? `${Number(diff.misMatchPercentage).toFixed(2)}% FAILED` : 'PASSED';
+    md += `| ${r.testName} | ${mismatch} | _pending_ |\n`;
   });
 
-  md += `\n---\n*本报告由 agent-visual-judge.js 自动生成，供 Agent 在 review 阶段视觉判断使用。*\n`;
+  md += `\n---\n`;
+  md += `*This report is auto-generated by agent-visual-judge.js for Agent visual review.*\n`;
 
   return md;
 }
 
 /**
- * 生成 JSON 报告供其他工具消费
+ * Generate JSON report for other tools
  */
 function generateJsonReport(results, diffImages) {
   return {
@@ -177,88 +181,103 @@ function generateJsonReport(results, diffImages) {
   };
 }
 
-/**
- * 扫描 screenshots 目录下的所有截图
- */
-function scanScreenshots() {
-  if (!fs.existsSync(SCREENSHOT_DIR)) return [];
-  return fs.readdirSync(SCREENSHOT_DIR)
-    .filter(f => f.endsWith('.png'))
-    .map(f => path.join(SCREENSHOT_DIR, f))
-    .sort((a, b) => fs.statSync(b).mtime - fs.statSync(a).mtime);
-}
-
-/**
- * 从截图文件名推断测试名
- * 命名格式: {testName}-current.png 或 {testName}.png
- */
-function inferTestName(screenshotFile) {
-  const basename = path.basename(screenshotFile, '.png');
-  return basename.replace(/-current$/, '');
-}
-
-/**
- * 主流程：从 JSON 测试报告读取 route 和 misMatchPercentage
- * 替代原来扫描 screenshots/ 目录 + 硬编码 route/misMatchPercentage 的方式
- */
 function main() {
-  console.log("\n" + C.bold + C.blue + "开始 Agent 视觉判断报告生成" + C.reset + "\n");
+  console.log("\n[INFO] Starting Agent Visual Judge Report Generation\n");
+  
+  // Load meta data
+  const meta = loadMeta();
+  log('INFO', `Loaded meta data: ${Object.keys(meta).length} records`, '34');
+  
+  // Find latest test report
   let reportData = null;
   const reportFiles = fs.readdirSync(REPORT_DIR)
     .filter(f => f.startsWith("report-") && f.endsWith(".json"))
     .sort().reverse();
+    
   if (reportFiles.length === 0) {
-    log(C.yellow, "WARN", "没有找到测试报告，请先跑 npm run test:visual:pixel");
+    log('WARN', 'No test report found. Run npm run test:visual:pixel first.', '33');
     process.exit(0);
   }
+  
   const reportPath = path.join(REPORT_DIR, reportFiles[0]);
-  try { reportData = JSON.parse(fs.readFileSync(reportPath, "utf8")); }
-  catch (e) { log(C.red, "ERROR", "报告解析失败: " + e.message); process.exit(1); }
-  log(C.blue, "INFO", "从报告读取 " + reportData.results.length + " 个测试结果");
+  try { 
+    reportData = JSON.parse(fs.readFileSync(reportPath, 'utf8')); 
+  } catch (e) { 
+    log('ERROR', 'Report parse failed: ' + e.message, '31'); 
+    process.exit(1); 
+  }
+  
+  log('INFO', `Read ${reportData.results.length} test results from report`, '34');
+  
+  // Build diff map
   const diffImages = scanDiffImages();
   const diffMap = new Map();
   diffImages.forEach(d => diffMap.set(extractTestName(d), d));
+  
+  // Build results: prioritize meta.json for route and misMatchPercentage
   const results = [];
   reportData.results.forEach(r => {
     const testName = r.test;
+    const metaInfo = meta[testName] || {};
+    
+    // Priority: meta.json > report JSON
+    const route = metaInfo.route || r.route || '/';
+    const misMatchPercentage = metaInfo.misMatchPercentage ?? r.misMatchPercentage;
+    
     const screenshotPath = path.join(SCREENSHOT_DIR, testName + "-current.png");
     const baselinePath = path.join(BASELINE_DIR, testName + ".png");
     const hasDiff = diffMap.has(testName);
     const isFailed = r.status === "FAILED";
+    
     const pixelDiff = isFailed ? {
       passed: false,
-      misMatchPercentage: (r.misMatchPercentage !== undefined) ? parseFloat(r.misMatchPercentage) : 0,
+      // Get real misMatchPercentage from meta to avoid 50% anomaly
+      misMatchPercentage: misMatchPercentage !== undefined ? parseFloat(misMatchPercentage) : (hasDiff ? 0.01 : 0),
       diffImagePath: diffMap.get(testName) || null,
-      threshold: 0.1
+      threshold: metaInfo.threshold || 0.1
     } : null;
-    results.push({ testName, route: r.route || "/",
+    
+    results.push({ 
+      testName, 
+      route,
       screenshotPath: fs.existsSync(screenshotPath) ? screenshotPath : null,
       baselinePath: fs.existsSync(baselinePath) ? baselinePath : null,
-      pixelDiff, threshold: 0.1 });
+      pixelDiff, 
+      threshold: metaInfo.threshold || 0.1 
+    });
   });
+  
+  // Filter failed tests only
   const failedResults = results.filter(r => r.pixelDiff && !r.pixelDiff.passed)
     .sort((a, b) => a.testName.localeCompare(b.testName));
+  
   if (failedResults.length === 0) {
-    log(C.green, "RESULT", "所有测试像素对比均通过，无需 Agent 审查");
+    log('RESULT', 'All pixel diff tests passed, no Agent review needed', '32');
     const md = generateMarkdownReport(results, diffImages);
     const json = generateJsonReport(results, diffImages);
-    fs.writeFileSync(OUTPUT_MD, md, "utf8");
-    fs.writeFileSync(OUTPUT_JSON, JSON.stringify(json, null, 2), "utf8");
-    log(C.blue, "OUTPUT", OUTPUT_MD);
-    log(C.blue, "OUTPUT", OUTPUT_JSON);
+    fs.writeFileSync(OUTPUT_MD, md, 'utf8');
+    fs.writeFileSync(OUTPUT_JSON, JSON.stringify(json, null, 2), 'utf8');
+    log('OUTPUT', OUTPUT_MD, '34');
+    log('OUTPUT', OUTPUT_JSON, '34');
     process.exit(0);
   }
-  log(C.yellow, "FOUND", failedResults.length + " 个测试像素对比失败，已生成报告供 Agent 审查");
+  
+  log('FOUND', `${failedResults.length} pixel diff failures, report generated for Agent review`, '33');
+  
   const md = generateMarkdownReport(failedResults, diffImages);
   const json = generateJsonReport(failedResults, diffImages);
-  fs.writeFileSync(OUTPUT_MD, md, "utf8");
-  fs.writeFileSync(OUTPUT_JSON, JSON.stringify(json, null, 2), "utf8");
-  log(C.green, "DONE", "报告已生成：");
-  log(C.blue, "FILE", OUTPUT_MD);
-  log(C.blue, "FILE", OUTPUT_JSON);
-  log(C.blue, "URL", toFileUrl(OUTPUT_MD));
-  console.log("\n" + C.bold + "下一步:" + C.reset + " 在 Agent 会话中读 " + path.basename(OUTPUT_MD) + " +");
-  console.log("用 view_image 工具加载截图，自己判断每个失败项是否预期变化。\n");
+  
+  fs.writeFileSync(OUTPUT_MD, md, 'utf8');
+  fs.writeFileSync(OUTPUT_JSON, JSON.stringify(json, null, 2), 'utf8');
+  
+  log('DONE', 'Report generated!', '32');
+  log('FILE', OUTPUT_MD, '34');
+  log('FILE', OUTPUT_JSON, '34');
+  log('URL', toFileUrl(OUTPUT_MD), '34');
+  
+  console.log("\n[NEXT] In Agent session, read " + path.basename(OUTPUT_MD) + " + ");
+  console.log("use view_image tool to inspect screenshots and judge each failure.\n");
+  
   process.exit(0);
 }
 

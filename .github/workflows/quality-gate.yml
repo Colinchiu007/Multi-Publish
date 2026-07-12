@@ -1,4 +1,4 @@
-name: quality-gate
+﻿name: quality-gate
 
 on:
   push:
@@ -22,11 +22,11 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      # --- Gate 1: TypeScript 编译检查（硬门禁） ---
+      # --- Gate 1: TypeScript 编译检查（严格卡点） ---
       - name: "Gate 1 - TypeScript 编译检查"
         run: cd apps/desktop && npx tsc --noEmit
 
-      # --- Gate 2: 核心 JS 文件语法检查（FUSE 截断防护） ---
+      # --- Gate 2: 核心 JS 文件语法检查（FUSE 断点保护）---
       - name: "Gate 2 - JS syntax integrity (detect FUSE truncation)"
         run: |
           $errors = 0
@@ -48,7 +48,7 @@ jobs:
           if ($hasSecret) { echo "hardcoded secrets found"; exit 1 }
           echo "code quality scan done"
 
-      # --- Gate 4: 单元测试（Vitest 全套，硬门禁） ---
+      # --- Gate 4: 单元测试（Vitest 全量，卡点要求）---
       - name: "Gate 4 - Unit tests (Vitest)"
         run: npm run test -w @multi-publish/desktop
 
@@ -69,10 +69,84 @@ jobs:
             echo "IPC_CHECK=FAIL" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           }
 
+      # --- Gate 7: 视觉回归测试 ---
+      - name: "Gate 7 - Visual regression"
+        id: visual-gate
+        run: |
+          Write-Host "=== Gate 7: Visual Regression Test ==="
+          cd apps/desktop
+          
+          # 安装 Playwright Chromium（如未安装）
+          Write-Host "Installing Playwright chromium..."
+          npx playwright install chromium 2>&1 | Out-Null
+          
+          # 构建 Vue 前端
+          Write-Host "Building Vue frontend..."
+          npm run build:vue 2>&1 | Out-Null
+          
+          # 启动 Vite dev server
+          Write-Host "Starting Vite dev server..."
+          $viteJob = Start-Job -ScriptBlock {
+            Set-Location $args[0]
+            npx vite --port 5174
+          } -ArgumentList (Get-Location)
+          
+          # 等待 Vite 就绪
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 1
+            try {
+              $response = Invoke-WebRequest -Uri "http://127.0.0.1:5174/" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
+              if ($response.StatusCode -eq 200) {
+                Write-Host "Vite ready after $i seconds"
+                break
+              }
+            } catch {}
+            if ($i -eq 29) {
+              Write-Host "[FAIL] Vite never became ready"
+              Stop-Job $viteJob
+              Remove-Job $viteJob -Force
+              exit 1
+            }
+          }
+          
+          # 运行像素对比测试
+          Write-Host "Running pixel diff tests..."
+          npm run test:visual:pixel
+          $pixelExit = $LASTEXITCODE
+          
+          # 生成 Agent 判断报告（供 Agent view_image 判断）
+          Write-Host "Generating Agent judge report..."
+          node tests/visual-testing/scripts/agent-visual-judge.js 2>&1 | Out-Null
+          
+          # 上传截图和报告（供追溯）
+          Write-Host "Uploading test artifacts..."
+          
+          # 清理 Vite 进程
+          Stop-Job $viteJob -ErrorAction SilentlyContinue
+          Remove-Job $viteJob -Force
+          taskkill /F /IM node.exe /T 2>$null
+          
+          # Gate 7 结果
+          if ($pixelExit -ne 0) {
+            Write-Host ""
+            Write-Host "[GATE-7] Pixel diff failed - see artifacts for details"
+            Write-Host ""
+            Write-Host "To fix: Agent should run locally:"
+            Write-Host "  1. cd apps/desktop"
+            Write-Host "  2. npm run test:visual:pixel"
+            Write-Host "  3. Check screenshots in tests/visual-testing/screenshots/"
+            Write-Host "  4. If changes expected: cp screenshots/*-current.png base-screenshots/"
+            Write-Host "  5. Commit and push"
+            exit 1  # 像素失败必须退出非零，让 PR 处于 pending 状态
+          } else {
+            Write-Host "[GATE-7] All pixel diff tests passed"
+          }
+
       # --- Gate result ---
       - name: "Gate result"
         if: always()
         run: |
+          echo ""
           echo "=============================="
           echo "  quality-rhythm CI gate report"
           echo "=============================="
@@ -82,4 +156,5 @@ jobs:
           echo "unit tests    : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
           echo "coverage      : see step output above"
           echo "IPC bridge    : ${{ env.IPC_CHECK }}"
+          echo "visual gate  : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
           echo "=============================="
