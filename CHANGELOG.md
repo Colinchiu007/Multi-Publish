@@ -1,4 +1,54 @@
 
+## [闭环] ai-autonomous-tester v0.7.0 - FixEngine 接 verdict 推荐 (2026-07-13)
+
+应用质量节拍第 8 轮：让 AIAnalyzer + FixEngine 接 verdict.recommendations 完成闭环。
+
+### 改动
+
+- **FixEngine.fromVerdict(verdict)** 静态方法：
+  - 从 verdict.recommendations 自动生成 fixes
+  - 从 verdict.items 中 NOT_IMPLEMENTED/PARTIAL 提取 fixes
+  - 按 priority HIGH→MEDIUM→LOW，同级按 effort LOW→HIGH 排序
+  - 去重 (recommendation + item 来源合并)
+- **FixEngine 新增 verdict-recommendations 策略**：
+  - 默认 SUGGESTED 模式（不自动改代码）
+  - dryRun=false + llmFn + HIGH priority 触发代码骨架生成
+- **FixEngine.plan(fixes)** 仅生成修复计划，不执行
+- **AIAnalyzer.analyze** 升级走 verdict 路径：
+  - verdict._mode='prompt' → verdictMode='prompt'
+  - 正常 verdict → 从 items 拆分 covered/uncovered
+- **AIAnalyzer.decide** 升级：
+  - verdictMode='prompt' → NEED_HUMAN (Agent 必须先回答)
+  - verdict.decision='FAIL' → FIX_AND_RETRY + verdictToFixes 自动生成 fixes
+  - verdict.decision='NEED_HUMAN' → NEED_HUMAN
+  - verdict.decision='PASS' → 继续走 baseline 检查
+
+### E2E 三场景验证通过
+
+1. 无 LLM (prompt 包): NEED_HUMAN（提示 Agent 读 prompt）
+2. LLM FAIL: FIX_AND_RETRY + FixEngine 2/2 fixes 应用成功
+3. LLM PASS: STOP_SUCCESS
+
+### 闭环示意
+
+```
+PRD + 代码 → collectFacts → AgentJudge → verdict
+                                          ↓
+                                AIAnalyzer.decide(verdict)
+                                          ↓
+              ┌───────────────────────────┼───────────────────────────┐
+              ↓                           ↓                           ↓
+      verdict.decision='FAIL'    verdict.decision='NEED_HUMAN'  verdict.decision='PASS'
+              ↓                           ↓                           ↓
+   FixEngine.fromVerdict()         NEED_HUMAN (Agent 读)         STOP_SUCCESS
+              ↓
+   VerdictRecommendationsStrategy.apply()
+              ↓
+   优先级排序 → 建议 / 骨架 → 重新跑测试 → 验证修复
+```
+
+---
+
 ## [集成] ai-autonomous-tester v0.6.0 - AgentJudge 接入主路径 (2026-07-13)
 
 应用质量节拍第 7 轮：把 v0.5.0 新增的 AgentJudge 接入 RequirementsTestRunner + TestOrchestrator 主路径。
