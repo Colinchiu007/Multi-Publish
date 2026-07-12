@@ -1,4 +1,44 @@
 
+## [端到端] ai-autonomous-tester v0.11.0 - 统一 E2E 测试脚本 (2026-07-13)
+
+应用质量节拍第 12 轮：创建统一端到端自主测试命令。
+
+### 新增
+
+- **run-autonomous-e2e.js**（14.6 KB）— 一键端到端脚本
+  - 阶段 1: 启动 Vite dev server（自动等待就绪）
+  - 阶段 2: 像素对比测试（Playwright 截图）
+  - 阶段 3: PRD 需求覆盖审计（collectFacts → AgentJudge）
+  - 阶段 4: 生成统一报告（JSON + Markdown）
+  - 清理：自动关闭 dev server
+  - 参数：--skip-server / --skip-visual / --skip-coverage / --llm / --threshold
+  - 退出码：0=PASS / 1=FAIL / 2=INFRA_ERROR
+- npm scripts：
+  - `npm run test:autonomous:e2e` — 本地完整跑
+  - `npm run test:autonomous:e2e:ci` — CI 模式（注入 LLM）
+
+### 报告示例
+
+运行 `--skip-server --skip-visual` 模式：
+- PRD 条目: 56 | 代码特征: 21
+- 无 LLM → prompt 包 → COVERAGE_NEED_HUMAN
+- 输出 JSON + Markdown 到 `reports/`
+
+### 质量门禁全貌（8 道）
+
+```
+Gate 1  TypeScript 编译检查         阻塞
+Gate 2  JS 语法检查                 阻塞
+Gate 3  硬编码密钥扫描               阻塞
+Gate 4  单元测试                     阻塞
+Gate 5  测试覆盖率检查               非阻塞
+Gate 6  IPC bridge 完整性            非阻塞
+Gate 7  视觉回归测试 (像素对比)       阻塞
+Gate 8  PRD 需求覆盖审计 (AgentJudge)  有Key阻塞/无Key提示
+```
+
+---
+
 ## [质量门禁] ai-autonomous-tester v0.10.1 - Gate 8 PRD 覆盖审计 (2026-07-13)
 
 应用质量节拍第 11 轮：在 quality-gate.yml 中增加 Gate 8 PRD 需求覆盖审计。
