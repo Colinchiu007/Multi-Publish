@@ -1,3 +1,38 @@
+﻿
+## [设计] AI 全自动前端测试框架 (2026-07-13)
+
+应用质量节拍技能，设计了 AI-Driven Autonomous Testing 架构。
+
+### 新增
+
+- `01-docs/ARCH-AUTO-TEST.md` - AI 全自动测试框架技术设计文档
+  - 整体架构：Orchestrator / Test Runner / AI Analyzer / Fix Engine
+  - 测试类型：视觉回归 / 功能测试 / 需求验证
+  - 自主循环流程：测试 → 分析 → 决策 → 修复 → 迭代
+  - 差异分类：噪声 / 预期变更 / 回归问题 / 需要人工
+  - 决策类型：STOP_SUCCESS / FIX_AND_RETRY / UPDATE_BASELINE / NEED_HUMAN
+
+### CI 集成
+
+- `.github/workflows/quality-gate.yml` - 新增 Gate 7 视觉回归测试
+  - 安装 Playwright + 构建前端 + 启动 Vite
+  - 运行像素对比测试
+  - 生成 Agent 判断报告
+  - Pixel diff 失败时退出非零，PR pending
+
+### 代码修复
+
+- `test-runner.js` - 新增 meta.json 持久化（route / misMatchPercentage）
+- `agent-visual-judge.js` - 重写，从 meta.json 读取真实数据
+- `visual-ci.js` - 重写，移除废弃 AI judgment 代码
+
+### 下一步
+
+- Phase 1: 实现 Orchestrator 和基础 Test Runner
+- Phase 2: 实现 AI Analyzer 增强分析
+- Phase 3: 实现 PRD Parser 和需求验证
+
+---
 ## [验证 + 修复] 视觉测试框架首次端到端验证 (2026-07-12)
 
 应用质量节拍第五轮审查。用合成 PNG 数据对视觉测试框架做端到端验证,发现并修复 3 个生产级 bug。
@@ -1464,6 +1499,7 @@
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 
