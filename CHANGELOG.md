@@ -1,4 +1,18 @@
 
+## [文档] ai-autonomous-tester v0.9.1 - README + root test 集成 (2026-07-13)
+
+### 新增
+
+- `packages/ai-autonomous-tester/README.md` (9566 字节)：完整文档
+  - 架构示意图（事实采集 → Agent 判断）
+  - 快速使用（CLI四种模式 + 退出码）
+  - 核心组件 API（AgentJudge / RequirementsVerifier / FixEngine / AIAnalyzer）
+  - CI/CD GitHub Actions 说明 + PR 评论示例
+  - 测试命令速查
+- 根 `package.json` 注册 `npm run test:ai-autonomous-tester` + 集成到主 `npm test`
+
+---
+
 ## [测试] ai-autonomous-tester v0.9.0 - 单元测试补全 (2026-07-13)
 
 应用质量节拍第 10 轮：补齐整个包的单元测试，50 个测试全部通过。
