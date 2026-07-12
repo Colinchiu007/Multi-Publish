@@ -1,4 +1,4 @@
-﻿# PROJECT-003 Multi-Publish — 开发流程规范
+# PROJECT-003 Multi-Publish — 开发流程规范
 
 本文件定义本项目开发的完整 SOP。支持 `AGENTS.md` 的 AI 工具（Cursor、Claude Code、Cline、Windsurf、GitHub Copilot 等）启动时自动读取，确保所有 AI 协作按规范执行。
 
@@ -261,6 +261,75 @@ Code review 时除逻辑正确性外，必须逐项检查：
 **门禁规则**：
 
 > `npm run test:visual:pixel` 返回非零退出码 → **禁止合入 PR**
+
+
+## 视觉测试框架(供其他 AI 使用)
+
+> 完整说明文档:[apps/desktop/tests/visual-testing/USAGE.md](apps/desktop/tests/visual-testing/USAGE.md)
+
+### 一句话介绍
+
+本项目使用**像素对比 + OCR + Agent 视觉判断**三层视觉回归测试框架,**完全本地运行,无需任何外部 AI API Key**。
+
+### 框架位置
+
+```
+apps/desktop/tests/visual-testing/
+├── views/        # 单视图快照(45 用例)
+├── workflows/    # 多步工作流(32 用例)
+├── providers/    # 本地检测器:像素对比 + OCR
+├── base-screenshots/  # 基准图(8 张核心视图)
+└── reports/      # diff 图 + judge-report.md + JSON
+```
+
+### 三种检测能力
+
+| 能力 | 是否需 Key | 适用 |
+|------|-----------|------|
+| 像素对比(Resemble.js) | ❌ 本地 | 日常开发、PR 合入 |
+| OCR(Tesseract.js) | ❌ 本地 | 文字内容校验 |
+| Agent 视觉判断 | ❌ 自带 | 像素失败后最终判断 |
+
+### 命令速查(必须 `cd apps/desktop`)
+
+```bash
+# 单视图快速验证(改完 UI 后)
+node tests/visual-testing/views/all-views.visual.test.js --single home-default
+
+# PR 合入前(必跑,门禁)
+npm run test:visual:pixel
+
+# 像素失败后生成 Agent 判断报告
+npm run test:visual:agent
+
+# 发版前(必跑,77 用例全量)
+npm run test:all:visual
+```
+
+### 强制规则(MUST)
+
+1. **pre-commit 不集成**视觉测试(需 dev server,触发频率过高)
+2. **PR 合入前必须通过** `npm run test:visual:pixel`(非零退出码禁止合入)
+3. **发版前必须通过** `npm run test:all:visual`
+4. **baseline 更新需人工审核** diff 图,确认是预期变化后再覆盖
+5. **像素失败后**必须跑 `npm run test:visual:agent` 生成报告,Agent 用 view_image 看图判断
+6. 所有命令必须在 `apps/desktop/` 目录下执行
+
+### 失败处理流程
+
+1. 查看 `tests/visual-testing/reports/pixel-diff/*.png` 确认 diff 范围
+2. 判断是否为预期变化:
+   - ✅ 是 → `cp screenshots/<view>-current.png base-screenshots/<view>.png` 更新基准
+   - ❌ 否 → 修复 UI 后重跑
+3. 仍有疑问 → 跑 `npm run test:visual:agent`,Agent 读 judge-report.md 判断
+
+### 无外部 AI 依赖
+
+**重要**:本项目视觉测试**不使用** OpenAI / Claude / 任何云端 AI。所有能力本地完成:
+- 像素对比、OCR 走本地 Node 库
+- Agent 视觉判断走 Agent 自带的 LLM(view_image 工具)
+
+---
 ## 新增模块（蚁小二逆向工程集成）
 
 - `electron/services/account-state-restorer.js` — 账号登录状态持久化（JSONL）

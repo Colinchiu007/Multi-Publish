@@ -1,3 +1,82 @@
+## [验证 + 修复] 视觉测试框架首次端到端验证 (2026-07-12)
+
+应用质量节拍第五轮审查。用合成 PNG 数据对视觉测试框架做端到端验证,发现并修复 3 个生产级 bug。
+
+### 修复
+
+- **test-runner.js**: 删除残留的 `require('./providers/ai-vision')` 和 `aiVisionTest()` 方法(QM-2 违规,require 路径不存在)
+- **agent-visual-judge.js**: 修复 ROOT 路径解析错误(原代码 `path.resolve(__dirname, '..', '..', '..')` 算到 `apps/desktop/` 而不是仓库根),改为根据 `.git` / `AGENTS.md` 向上自动查找项目根
+- **agent-visual-judge.js**: 修复 Markdown 报告泄漏 ANSI 颜色码的问题(改用 Markdown 加粗语法)
+
+### 新增
+
+- `apps/desktop/tests/visual-testing/TEST-REPORT-2026-07-12.md` — 完整验证报告(问题清单、改进建议、优先级排序)
+
+### 发现的未修复问题(后续工作)
+
+- `agent-visual-judge.js` 中 `route` 字段硬编码为 `/`(需从 meta 文件读取)
+- `misMatchPercentage` 硬编码 50%(需从 meta 文件读取)
+- `base-screenshots/` 下 8 张 PNG 是同一张占位图(MD5 全是 `0E485FDC...`)
+- `playwright` 未装在 `node_modules`
+- `/login` 测试路由不存在
+
+### 框架现状判断
+
+**核心机制可用**:
+- ✅ `agent-visual-judge.js` 修复后能正确扫描 + 生成结构化报告
+- ✅ Agent 用 view_image 可直接判断每个失败项
+- ✅ 无外部 AI 依赖,完全本地运行
+
+**端到端跑不通**:
+- ❌ baseline 是假 PNG
+- ❌ playwright 未安装
+- ❌ 真实测试路由不存在
+
+**下一步**:按 P0 优先级修复 baseline / playwright / 路由,再做后续功能扩展。
+
+---
+## [重构] 视觉测试框架去 AI 云端依赖 (2026-07-12)
+
+应用质量节拍 skill 第四轮审查。彻底移除视觉测试的云端 AI 依赖,改用 Agent 自带的 LLM 做视觉判断。
+
+### 删除
+
+- `apps/desktop/tests/visual-testing/providers/ai-vision.js` — OpenAI/Claude SDK 调用层
+- `apps/desktop/tests/visual-testing/scripts/run-ai-tests.js` — 云端 AI 视觉测试运行器
+- `package.json` 依赖:`openai`、`@anthropic-ai/sdk`
+- `package.json` script:`test:visual:ai`
+- `.github/workflows/visual-test.yml` 中「Detect AI vision secrets」+「AI vision tests」两个 step
+
+### 保留 + 重构
+
+- `apps/desktop/tests/visual-testing/scripts/agent-visual-judge.js`
+  - 原文件中文注释双重编码 mojibake,本次用 UTF-8 全文件重写
+  - 逻辑不变:扫 diff 图 → 生成 Markdown/JSON 报告供 Agent 用 view_image 自行判断
+- `.github/workflows/visual-test.yml` — 删 AI 检测步骤,CI 流程简化为:像素对比 + 生成报告 + 上传 artifact
+
+### 文档同步
+
+- `apps/desktop/tests/visual-testing/README.md` — 全文重写,移除所有 AI 视觉/OpenAI/Claude 引用
+- `apps/desktop/tests/visual-testing/USAGE.md` — 重写为「像素对比 + OCR + Agent 视觉判断」三层结构
+- `apps/desktop/tests/visual-testing/.env.example` — 删除 AI Key 段,改为纯本地配置
+- `AGENTS.md` — 视觉测试小节更新,标注「无外部 AI 依赖」
+
+### 收益
+
+- 减少两个 npm 依赖(`openai` 6.46.0 / `@anthropic-ai/sdk` 0.111.0)
+- 视觉测试运行时无任何外部 HTTP 调用
+- CI 流程不依赖 GitHub Secrets
+- 判断能力由 Agent 自带 LLM 提供,零额外成本
+
+### 后续验证
+
+- ✅ JS 语法:`node --check agent-visual-judge.js` 通过
+- ✅ JSON 合法性:`package.json` 通过 ConvertFrom-Json
+- ✅ YAML 合法性:`visual-test.yml` 通过 js-yaml 解析
+- ✅ UTF-8 编码:agent-visual-judge.js / README.md / USAGE.md 全部无 BOM
+- ⏳ 像素测试:`npm run test:visual:pixel`(下次跑)
+
+---
 ## @visual-test-runner/core - 独立视觉测试 npm 包 (2026-07-12)
 
 抽取为独立 npm 包，供其他项目复用。

@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "@multi-publish/desktop",
   "version": "2.3.53",
   "description": "多平台内容一键发布桌面端 (Electron + RpaViewManager)",
@@ -28,8 +28,7 @@
     "test:visual:quick": "VISUAL=1 npx vitest run tests/visual-testing/views/home.visual.test.js --reporter=verbose",
     "test:all:visual": "VISUAL=1 WORKFLOW=1 npx vitest run tests/visual-testing/",
     "test:visual:pixel": "node tests/visual-testing/scripts/run-pixel-tests.js",
-    "test:visual:ai": "node tests/visual-testing/scripts/run-ai-tests.js",
-    "test:visual:agent": "node tests/visual-testing/scripts/agent-visual-judge.js"
+        "test:visual:agent": "node tests/visual-testing/scripts/agent-visual-judge.js"
   },
   "keywords": [
     "multi-publish",
@@ -56,8 +55,7 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.111.0",
-    "@eslint/js": "^10.0.1",
+        "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.9",
     "@vue/test-utils": "^2.4.11",
     "concurrently": "^9.0.0",
@@ -68,8 +66,7 @@
     "eslint-plugin-vue": "^10.9.2",
     "globals": "^17.7.0",
     "jsdom": "^29.1.1",
-    "openai": "^6.46.0",
-    "playwright": "^1.61.1",
+        "playwright": "^1.61.1",
     "prettier": "^3.9.4",
     "resemblejs": "^4.1.0",
     "tesseract.js": "^5.1.1",

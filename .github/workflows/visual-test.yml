@@ -1,10 +1,9 @@
-name: Visual Tests
+﻿name: Visual Tests
 
-# 视觉回归测试（像素对比默认，AI 视觉仅当 secrets 注入时升级启用）
-# - 触发：PR / push 主干 / 手动 dispatch
-# - 默认行为：只跑像素对比，无需任何 API Key
-# - AI 视觉：自动检测 secrets（OPENAI_API_KEY / ANTHROPIC_API_KEY）启用，缺则跳过
-# - 失败语义：像素测试严格 fail；AI 测试失败不阻塞（避免配额/抖动影响 PR 合入）
+# 视觉回归测试（仅跑本地像素对比 + OCR，无需任何 API Key）
+# - 触发：PR / push 主分支 / 手动 dispatch
+# - 默认行为：跑像素对比 + 生成 Agent 判断报告（本地全部完成）
+# - 判断：Agent 在 PR review 时读取 judge-report.md 并用 view_image 看截图
 
 on:
   pull_request:
@@ -65,36 +64,12 @@ jobs:
       - name: Pixel-comparison tests (default, no API Key needed)
         run: npm run test:visual:pixel -w @multi-publish/desktop
 
-      - name: Detect AI vision secrets
-        id: ai_detect
-        run: |
-          if [ -n "${{ secrets.OPENAI_API_KEY }}" ] || [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
-            echo "ai_enabled=true" >> "$GITHUB_OUTPUT"
-            echo "✅ AI vision ENABLED (secrets detected)"
-          else
-            echo "ai_enabled=false" >> "$GITHUB_OUTPUT"
-            echo "ℹ️  AI vision SKIPPED (no OPENAI_API_KEY / ANTHROPIC_API_KEY secrets)"
-            echo "   像素对比 + OCR 已足够验证 UI 正确性"
-          fi
-
-      - name: AI vision tests (only when secrets configured)
-        if: steps.ai_detect.outputs.ai_enabled == 'true'
-        continue-on-error: true
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          AI_PROVIDER: openai
-        run: npm run test:visual:ai -w @multi-publish/desktop
-
-
-      - name: Generate Agent visual-judge report (if pixel tests ran)
+      - name: Generate Agent visual-judge report
         if: always()
         run: |
           echo "=== Agent Visual Judge ==="
           node apps/desktop/tests/visual-testing/scripts/agent-visual-judge.js || true
-          if [ -f apps/desktop/tests/visual-testing/reports/judge-report.md ]; then
-            echo "AGENT_REPORT_GENERATED=true" >> "$GITHUB_OUTPUT"
-          fi
+
       - name: Upload screenshots and reports
         if: always()
         uses: actions/upload-artifact@v4

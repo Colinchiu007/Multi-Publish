@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 视觉测试运行器
  * 使用方式：
  *   const runner = new TestRunner({ headless: true });
@@ -8,7 +8,6 @@
  */
 
 const { chromium } = require('playwright');
-const { VisionProvider } = require('./providers/ai-vision');
 const { OCRProvider } = require('./providers/ocr');
 const { PixelDiffProvider } = require('./providers/pixel-diff');
 const fs = require('fs');
@@ -26,7 +25,6 @@ class VisualTestRunner {
     this.page = null;
     
     // 初始化提供者
-    this.vision = new VisionProvider();
     this.ocr = new OCRProvider();
     this.pixelDiff = new PixelDiffProvider({ outputDir: `${this.reportDir}/pixel-diff` });
     
@@ -65,10 +63,6 @@ class VisualTestRunner {
       return { screenshotPath, text, prompt };
     }
     
-    if (options.useVision) {
-      const analysis = await this.vision.analyzeImage(screenshotPath, prompt);
-      return { screenshotPath, analysis, prompt };
-    }
     
     return { screenshotPath, prompt };
   }
@@ -116,32 +110,6 @@ class VisualTestRunner {
   }
 
   /**
-   * AI视觉验证
-   */
-  async aiVisionTest(testName, route, checks, options = {}) {
-    await this.page.goto(`${this.url}${route}`);
-    if (options.waitFor) await this.page.waitForSelector(options.waitFor);
-    if (options.waitMs) await this.page.waitForTimeout(options.waitMs);
-    
-    const screenshotPath = path.join(this.screenshotDir, `${testName}.png`);
-    await this.page.screenshot({ path: screenshotPath });
-    
-    const results = [];
-    for (const check of checks) {
-      const result = await this.vision.analyzeImage(screenshotPath, check.prompt);
-      results.push({
-        check: check.name,
-        prompt: check.prompt,
-        result,
-        passed: check.validator ? check.validator(result) : true
-      });
-    }
-    
-    const allPassed = results.every(r => r.passed);
-    this.results.push({ test: testName, status: allPassed ? 'PASSED' : 'FAILED', details: results, route });
-    
-    return results;
-  }
 
   /**
    * 生成测试报告
