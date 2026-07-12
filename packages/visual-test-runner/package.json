@@ -16,14 +16,18 @@
   "dependencies": {
     "playwright": "^1.61.1",
     "resemblejs": "^4.1.0",
-    "tesseract.js": "^5.1.1"
+    "tesseract.js": "^5.1.1",
+    "axe-core": "^4.10.0"
   },
   "keywords": [
     "visual-testing",
     "pixel-diff",
     "ocr",
     "playwright",
-    "e2e"
+    "e2e",
+    "accessibility",
+    "a11y",
+    "axe"
   ],
   "license": "MIT"
 }
