@@ -1,0 +1,125 @@
+﻿name: autonomous-loop
+
+# AI 全自动多轮视觉测试循环（方向2）
+# 特性：
+#   - 多轮重试：视觉 diff 检测到后可自动更新基线并重试
+#   - 智能基线管理：优先使用 Agent 判断 diff 性质
+#   - 修复脚本：每轮生成 auto-fix-commands.bat
+#   - 触发方式：手动 dispatch 或 PR 标签触发
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "最大循环轮数"
+        required: false
+        default: "3"
+      threshold:
+        description: "像素对比阈值 (0.0-1.0)"
+        required: false
+        default: "0.1"
+      functional:
+        description: "启用功能测试 (true/false)"
+        required: false
+        default: "true"
+  pull_request:
+    branches: [main]
+    types: [labeled]
+    paths:
+      - "apps/desktop/src/**"
+      - "apps/desktop/tests/visual-testing/**"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  loop:
+    name: "Autonomous Loop (迭代 ${{ github.event.inputs.iterations || 3 }} 轮)"
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      MAX_ITER: ${{ github.event.inputs.iterations || 3 }}
+      LLM_PROVIDER: openai
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      COVERAGE_THRESHOLD: 0.5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Install Playwright
+        run: cd apps/desktop && npx playwright install chromium
+
+      - name: Build Vue frontend
+        run: cd apps/desktop && npm run build:vue 2>&1 | Out-Null
+
+      - name: Run autonomous loop
+        id: loop
+        continue-on-error: true
+        run: |
+          Write-Host "=== Autonomous Visual Test Loop ==="
+          Write-Host "Max iterations: $env:MAX_ITER"
+          Write-Host "Functional: ${{ github.event.inputs.functional || 'true' }}"
+          Write-Host ""
+
+          $funcFlag = ""
+          if ("${{ github.event.inputs.functional || 'true' }}" -eq "true") { $funcFlag = "--functional" }
+
+          cd apps/desktop
+          node ../../packages/ai-autonomous-tester/scripts/run-autonomous-e2e.js `
+            --iterations=$env:MAX_ITER `
+            $funcFlag `
+            --docs="01-docs/PRD.md,README.md" `
+            --threshold="${{ github.event.inputs.threshold || '0.1' }}" 2>&1
+
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "LOOP_EXIT=$exitCode" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-loop-reports
+          path: |
+            apps/desktop/tests/visual-testing/reports/
+            patches/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Commit auto-fixes if any
+        if: always()
+        run: |
+          # Check if patches or baseline changes exist
+          git add -A
+          $hasChanges = git diff --cached --quiet; $hasChanges = !$?
+
+          if ($hasChanges) {
+            git config user.name "autonomous-loop[bot]"
+            git config user.email "autonomous-loop[bot]@users.noreply.github.com"
+            git commit -m "chore(autonomous-loop): auto-fix baseline/patches [skip ci]" --allow-empty
+            git push
+            Write-Host "Auto-fix committed and pushed"
+          } else {
+            Write-Host "No auto-fixable changes"
+          }
+
+      - name: Report final status
+        if: always()
+        run: |
+          $exit = [int]($env:LOOP_EXIT || 1)
+          if ($exit -eq 0) {
+            Write-Host "::notice::Autonomous loop PASSED after all iterations"
+          } else {
+            Write-Host "::error::Autonomous loop FAILED - see artifacts for details"
+            exit 1
+          }

@@ -1,4 +1,44 @@
 ﻿
+## [完整闭环] ai-autonomous-tester v0.12.2 - 三个方向全部实现 (2026-07-13)
+
+应用质量节拍第 16 轮：实现自动代码修复 + CI 多轮循环 + 视觉基线智能管理。
+
+### 方向1：自动代码修复（PatchFixStrategy）
+- **PatchFixStrategy** — 生成可执行 .patch 文件，Agent 审阅后可 patch 应用
+- 有 LLM 时：生成智能代码 patch（真实的 diff 格式）
+- 无 LLM 时：生成模板 patch（含修复建议的 TODO 标记）
+- 同时生成 .sh/.bat 执行脚本，Agent 可直接运行
+
+### 方向2：CI 多轮循环（autonomous-loop.yml）
+- 新 workflow：utonomous-loop.yml — 手动 dispatch 或 PR 标签触发
+- 自动多轮重试：检测 → 修复 → 重测（最多 N 轮）
+- 自动 commit 基线更新 + patch 文件
+- 完整的 artifacts 上传（报告 + patch + 截图）
+
+### 方向3：视觉基线智能管理（AgentVisualJudge）
+- **AgentVisualJudge** — 三层判断策略：
+  - 有 LLM：让 Agent 看图判断 diff 是预期变更还是回归 bug
+  - 无 LLM：规则引擎（按组件类型 + diff 比例分类）
+  - 不确定的标记 NEED_REVIEW
+- 集成到 FixEngine：expected change → 自动更新 baseline
+- regression → 标记为 bug，生成 patch
+
+### 架构示意
+`
+AgentVisualJudge.judge(diff)
+  ├─ noise(<0.5%) → 忽略
+  ├─ LLM(有Key)   → Agent 推理 → expected/regression/need_review
+  └─ 规则引擎(无Key) → 交互组件>2% → regression
+
+FixEngine.execute(fix)
+  ├─ type=baseline → BaselineStrategy(更新截图)
+  ├─ type=patch    → PatchFixStrategy(生成.patch+.sh)
+  └─ type=visual   → VisualFixStrategy(建议模式)
+
+CI autonomous-loop.yml → 多轮循环 → 自动 commit → 收敛为止
+`
+
+---
 ## [修复] ai-autonomous-tester v0.12.1 - 自主循环闭环：FixEngine dryRun=false + 自动修复脚本 (2026-07-13)
 
 应用质量节拍第 15 轮：分析并修复自主循环无法真正闭环的根因。

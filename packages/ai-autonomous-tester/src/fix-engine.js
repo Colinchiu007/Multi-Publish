@@ -352,4 +352,51 @@ function estimateImpact(fix) {
   return 'MEDIUM';
 }
 
-module.exports = { FixEngine, inferEffort };
+
+
+/**
+ * PatchFixStrategy - 生成可执行代码 Patch
+ *
+ * v0.12.2 新增：不直接改代码，而是生成 .patch 文件（或 .diff / 命令脚本），
+ * 让 Agent 审阅后执行。有 LLM 时生成智能 patch，无 LLM 时生成模板建议。
+ */
+class PatchFixStrategy {
+  constructor(options = {}) {
+    this.logger = options.logger || console;
+    this.workDir = options.workDir || process.cwd();
+    this.llmFn = options.llmFn || null;
+    this.patchDir = options.patchDir || path.join(this.workDir, "patches");
+  }
+
+  async apply(fix, ctx = {}) {
+    const ts = new Date().toISOString().slice(0, 10);
+    const safeName = (fix.testName || "fix").replace(/[^a-z0-9]/gi, "-");
+    const patchFile = path.join(this.patchDir, ts + "-" + safeName + ".patch");
+    const shellFile = path.join(this.patchDir, ts + "-" + safeName + ".sh");
+    fs.mkdirSync(this.patchDir, { recursive: true });
+
+    if (this.llmFn && fix.error && !ctx.dryRun) {
+      try {
+        const prompt = "You are a frontend engineer generating a code fix patch.\nTest: " + fix.testName + "\nError: " + (fix.error || "") + "\nContext: " + (fix.description || "") + "\n\nOutput a unified diff patch (diff -u format) that fixes this issue. Use paths relative to project root.";
+        const output = await this.llmFn(prompt);
+        if (output && output.length > 20) {
+          fs.writeFileSync(patchFile, output);
+          const sh = "#!/bin/bash\n# Auto-generated fix for: " + fix.testName + "\necho \"Applying patch for " + fix.testName + "...\"\npatch -p0 < \"" + patchFile + "\" 2>/dev/null || echo \"Patch apply failed\"\n";
+          fs.writeFileSync(shellFile, sh);
+          return { action: "PATCH_GENERATED", patchFile, shellFile };
+        }
+      } catch (e) {
+        this.logger.log("[PatchFixStrategy] LLM failed: " + e.message);
+      }
+    }
+
+    // Template patch
+    const tmpl = "--- a/unknown\n+++ b/unknown\n@@ -1,1 +1,1 @@\n-# FIX: " + fix.testName + "\n+# " + (fix.suggestedFix || "Manual fix required") + "\n";
+    fs.writeFileSync(patchFile, tmpl);
+    const sh = "#!/bin/bash\n# TEMPLATE: " + fix.testName + "\necho \"FIX REQUIRED: " + fix.testName + "\"\necho \"See: " + patchFile + "\"\n";
+    fs.writeFileSync(shellFile, sh);
+    return { action: "PATCH_TEMPLATE", patchFile, shellFile };
+  }
+}
+
+module.exports = { FixEngine, inferEffort, PatchFixStrategy };
