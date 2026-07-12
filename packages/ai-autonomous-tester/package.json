@@ -1,0 +1,36 @@
+{
+  "name": "@multi-publish/ai-autonomous-tester",
+  "version": "0.1.0",
+  "description": "AI 全自动前端测试框架：视觉回归 + 功能测试 + 需求验证，支持 Agent 自主循环",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./providers/pixel-diff": "./src/providers/pixel-diff.js",
+    "./providers/ocr": "./src/providers/ocr.js",
+    "./test-runner": "./src/test-runner.js",
+    "./orchestrator": "./src/orchestrator.js",
+    "./ai-analyzer": "./src/ai-analyzer.js",
+    "./fix-engine": "./src/fix-engine.js",
+    "./utils/path-resolver": "./src/utils/path-resolver.js"
+  },
+  "scripts": {
+    "test": "echo \"no tests yet\""
+  },
+  "keywords": [
+    "ai-testing",
+    "autonomous-testing",
+    "visual-regression",
+    "e2e-testing",
+    "playwright",
+    "pixel-diff",
+    "ocr",
+    "agent-loop"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.61.1",
+    "resemblejs": "^4.1.0",
+    "tesseract.js": "^5.1.1"
+  }
+}
+

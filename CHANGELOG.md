@@ -1,4 +1,32 @@
 ﻿
+## [重构] 视觉测试框架模块化 (2026-07-13)
+
+应用质量节拍技能，将视觉测试框架从 `apps/desktop/tests/visual-testing/` 抽取为独立 npm 包。
+
+### 包升级
+
+- `packages/visual-test-runner/` → `packages/ai-autonomous-tester/` (`@multi-publish/ai-autonomous-tester` v0.1.0)
+- 提供通用 API：VisualTestRunner、PixelDiffProvider、OCRProvider、TestOrchestrator、AIAnalyzer、FixEngine
+
+### 新增模块
+
+- `src/orchestrator.js` - TestOrchestrator 循环协调器
+- `src/ai-analyzer.js` - AIAnalyzer 差异分类与决策
+- `src/fix-engine.js` - FixEngine 修复策略（Baseline / Visual / Functional / Requirements）
+- `src/utils/path-resolver.js` - monorepo 路径解析工具
+
+### 向后兼容
+
+- 原 `apps/desktop/tests/visual-testing/` 保留，所有现有脚本继续工作
+- `agent-visual-judge.js`、`visual-ci.js` 验证通过
+
+### 后续计划
+
+- visual-ci.js、run-pixel-tests.js 改用包 API
+- 抽取 PRD Parser、Feature Detector 到包内
+
+---
+
 ## [设计] AI 全自动前端测试框架 (2026-07-13)
 
 应用质量节拍技能，设计了 AI-Driven Autonomous Testing 架构。
@@ -1499,6 +1527,7 @@
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 
