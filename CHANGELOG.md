@@ -1,4 +1,31 @@
 
+## [质量门禁] ai-autonomous-tester v0.10.1 - Gate 8 PRD 覆盖审计 (2026-07-13)
+
+应用质量节拍第 11 轮：在 quality-gate.yml 中增加 Gate 8 PRD 需求覆盖审计。
+
+### 新增
+
+- **Gate 8: PRD 需求覆盖审计 (AgentJudge)**
+  - 无 `OPENAI_API_KEY` → prompt 包模式 → exit 2 → 非阻塞提示（人工审查）
+  - 有 `OPENAI_API_KEY` → 自动 verdict → FAIL 时阻塞 PR
+  - 输出 `COVERAGE_GATE=PASS|FAIL|NEED_HUMAN|INFRA_ERROR` 供 Gate result 展示
+- Gate result 报告增加 coverage gate 行
+
+### 质量门禁全貌
+
+```
+Gate 1  TypeScript 编译检查       (阻塞)
+Gate 2  JS 语法检查               (阻塞)
+Gate 3  硬编码密钥扫描             (阻塞)
+Gate 4  单元测试                   (阻塞)
+Gate 5  测试覆盖率                 (非阻塞)
+Gate 6  IPC bridge完整性          (非阻塞)
+Gate 7  视觉回归测试               (阻塞)
+Gate 8  PRD 需求覆盖审计           (有Key阻塞/无Key提示)
+```
+
+---
+
 ## [集成] ai-autonomous-tester v0.10.0 - 集成测试 + 55/55 (2026-07-13)
 
 ### 新增
