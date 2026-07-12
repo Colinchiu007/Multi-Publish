@@ -29,6 +29,8 @@ class AIAnalyzer {
       'cross_module_impact',
     ];
     this.requirementsNeedHumanThreshold = options.requirementsNeedHumanThreshold || 0.5;
+    this.llmFn = options.llmFn || null;
+    this.visualJudge = options.visualJudge || null;
   }
 
   /**

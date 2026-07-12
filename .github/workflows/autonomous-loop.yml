@@ -54,6 +54,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout branch (for git push)
+        run: |
+           = git rev-parse --abbrev-ref HEAD
+          if ( -eq "HEAD") { git checkout main }
+          Write-Host "Branch: codex/quality-optimization-analysis"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -114,8 +123,9 @@ jobs:
           if ($hasChanges) {
             git config user.name "autonomous-loop[bot]"
             git config user.email "autonomous-loop[bot]@users.noreply.github.com"
+             = git rev-parse --abbrev-ref HEAD
             git commit -m "chore(autonomous-loop): auto-fix baseline/patches [skip ci]" --allow-empty
-            git push
+            git push origin 
             Write-Host "Auto-fix committed and pushed"
           } else {
             Write-Host "No auto-fixable changes"

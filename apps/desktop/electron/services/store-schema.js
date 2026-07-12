@@ -12,6 +12,7 @@ const TABLE_NAMES = {
   callback_logs: "callback_logs",
   batch_jobs: "batch_jobs",
   publish_timeline: "publish_timeline",
+  model_providers: "model_providers",
 };
 
 const SCHEMA_SQL = [
@@ -77,6 +78,21 @@ const SCHEMA_SQL = [
     status        TEXT DEFAULT "pending",
     created_at    TEXT DEFAULT (datetime("now"))
   )`,
+  `CREATE TABLE IF NOT EXISTS model_providers (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    category      TEXT NOT NULL,
+    base_url      TEXT DEFAULT '',
+    api_key       TEXT DEFAULT '',
+    models        TEXT DEFAULT '[]',
+    enabled       INTEGER DEFAULT 0,
+    is_default    INTEGER DEFAULT 0,
+    is_preset     INTEGER DEFAULT 0,
+    config        TEXT DEFAULT '{}',
+    created_at    TEXT DEFAULT (datetime("now")),
+    updated_at    TEXT DEFAULT (datetime("now"))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_model_providers_category ON model_providers(category)`,
 ];
 
 function safeJsonParse(str, fallback = null) {
@@ -112,6 +128,7 @@ const UPDATE_WHITELIST = {
   callback_logs: ["type", "source", "payload"],
   batch_jobs: ["name", "articles", "total", "completed", "failed", "status"],
   publish_timeline: ["last_publish_at"],
+  model_providers: ["name", "base_url", "api_key", "models", "enabled", "is_default", "config", "updated_at"],
 };
 
 /**

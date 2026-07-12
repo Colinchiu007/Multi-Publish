@@ -551,10 +551,32 @@ class BaseRpaPublisher {
 ### 5.2 平台账号登录
 通过内嵌浏览器（WebContentsView）登录各发布平台，支持扫码登录（微信生态），Cookie 自动 AES-256-GCM 加密保存。
 
-### 5.3 AI Provider 配置（可选）
-在「Provider 配置」页添加 LLM/视频/图片 API Provider 的 API Key。
+### 5.3 模型服务商配置（必选）
+在「模型服务商设置」页配置 AI 模型的 API Key。支持 5 类模型：
 
-### 5.4 开始使用
+| 类别 | 用途 | 预设服务商 |
+|------|------|----------|
+| 推理模型 (LLM) | AI 写稿、标题生成、内容智能 | Anthropic / OpenAI / Gemini / OpenRouter / Ollama / 豆包 / DeepSeek |
+| TTS 语音 | 视频配音、语音合成 | ElevenLabs / OpenAI TTS / 豆包 TTS / Google TTS / Piper |
+| 语音识别 | 字幕生成、语音转文字 | OpenAI Whisper / Google STT / 豆包语音识别 / 百度语音识别 / 本地 Whisper |
+| 图片生成 | 封面图、配图、AI 图像 | Flux / DALL-E / Recraft / Imagen / Grok Image / Pixabay / Pexels / 本地扩散 / ComfyUI |
+| 视频模型 | AI 视频生成 | 混元 / CogVideo / Grok Video / HeyGen / Kling / Runway / Veo / Wan / MiniMax / LTX / Seedance / Higgsfield |
+
+每个类别可添加多个服务商，并选择一个设为默认。
+
+### 5.4 模型类别与功能关联
+
+| 功能模块 | 依赖模型类别 | 说明 |
+|----------|------------|------|
+| AI 写稿 | 推理模型 | 视频脚本、文章改写、标题生成 |
+| 标题助手 | 推理模型 | AI 生成/优化标题 |
+| 内容智能 | 推理模型 | 内容分析、关键词提取、摘要生成 |
+| 视频配音 | TTS 语音 | 文本转语音、多语言配音 |
+| 字幕生成 | 语音识别 | 音频/视频转文字、字幕文件生成 |
+| 封面生成 | 图片生成 | AI 生成封面图、配图 |
+| 视频生成 | 视频模型 | 文本/图片生成视频片段 |
+
+### 5.5 开始使用
 完成引导后进入首页，即可使用发布、视频创作、内容智能等全部功能。
 
 > 详细流程见：**第 7-11 节**（视频创作 / 内容采集 / 内容智能 / 发布日历 / 云端发布）
@@ -650,25 +672,38 @@ pending → publishing → { success | failed | partial | denied | cancelled }
 
 在文本模式下点击「AI 写稿」，调用已配置的 LLM Provider 自动生成视频脚本，节省创作时间。
 
-### 7.4 Provider 配置（AI 提供商管理）
+### 7.4 模型服务商设置（AI 服务商管理）
 
 ```
-进入「Provider 配置」页面
+进入「模型服务商设置」页面
     │
-    ├─ 查看已配置的 Provider 列表
-    │   ├─ 按类型过滤：LLM / 视频 / 图片
-    │   ├─ 查看每个 Provider 的 Base URL、模型列表、启用状态
-    │   └─ 支持测试连接、编辑、删除
+    ├─ 查看已配置的服务商列表
+    │   ├─ 按类别过滤：全部 / 推理模型 / TTS语音 / 语音识别 / 图片生成 / 视频模型
+    │   ├─ 查看每个服务商的 Base URL、模型列表、API Key 状态、启用状态
+    │   ├─ 默认服务商标记（★ 图标）
+    │   └─ 支持测试连接、编辑、启用/禁用
     │
-    ├─ 添加新的 Provider
-    │   ├─ 选择 Provider 类型
-    │   ├─ 填写名称、Base URL、API Key、模型列表
-    │   └─ 保存后自动启用
+    ├─ 添加新的服务商
+    │   ├─ 第一步：选择模型类别
+    │   ├─ 第二步：从预设列表选择 或 自定义
+    │   ├─ 第三步：填写 API Key + Base URL + 模型列表
+    │   └─ 预设服务商的 Base URL 自动填充
     │
-    └─ Provider 用于：
-        ├─ LLM → AI 写稿、标题生成、内容智能
-        ├─ 视频 → AI 视频生成（Hunyuan/Kling/Runway 等）
-        └─ 图片 → AI 图片生成（Flux/DALL-E/Stable Diffusion 等）
+    ├─ 设为默认
+    │   ├─ 每个类别只能有一个默认服务商
+    │   ├─ 未配置 API Key 的服务商不能设为默认
+    │   └─ 设置新默认时自动取消同类别旧的默认
+    │
+    ├─ 删除规则
+    │   ├─ 预设服务商：不允许删除，只能禁用
+    │   └─ 自定义服务商：允许删除，二次确认
+    │
+    └─ 服务商用于：
+        ├─ 推理模型 → AI 写稿、标题生成、内容智能、视频创作 LLM 选择
+        ├─ TTS 语音 → 视频配音、语音合成
+        ├─ 语音识别 → 字幕生成、语音转文字
+        ├─ 图片生成 → AI 图片生成（封面、配图）
+        └─ 视频模型 → AI 视频生成（Hunyuan/Kling/Runway 等）
 ```
 
 ---

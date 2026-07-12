@@ -123,7 +123,7 @@ const searchItems = [
   { id: 'nav-comments',   type: 'route',   label: '评论管理',       path: '/comments',     icon: '💬',   shortcut: '',   keywords: ['comment', '评论', '回复'] },
   { id: 'nav-dashboard',  type: 'route',   label: '数据看板',       path: '/dashboard',    icon: '◇',    shortcut: '',   keywords: ['dashboard', '数据', '统计'] },
   { id: 'nav-viral',      type: 'route',   label: '爆款分析',       path: '/viral-analysis', icon: '🔥', shortcut: '', keywords: ['viral', '爆款', '分析'] },
-  { id: 'nav-providers',  type: 'route',   label: 'Provider 配置',  path: '/providers',  icon: '⚙',    shortcut: '',   keywords: ['provider', 'LLM', 'API', '配置', '设置'] },
+  { id: 'nav-providers',  type: 'route',   label: '模型服务商设置',  path: '/model-providers',  icon: '⚙',    shortcut: '',   keywords: ['provider', 'LLM', 'API', '配置', '设置', '模型', '服务商'] },
   { id: 'nav-home',       type: 'route',   label: '首页',           path: '/',             icon: '⌂',    shortcut: '',   keywords: ['home', '首页'] },
 
   // 操作

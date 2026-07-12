@@ -187,6 +187,15 @@ function createAppContext() {
   const videoEngine = container.get('videoEngine')
   const pipelineEngine = container.get('pipelineEngine')
 
+  // ─── 模型服务商管理 ────────────────────────
+  const { ModelProviderManager } = require('./services/model-provider-manager')
+  const modelProviderManager = new ModelProviderManager(store)
+
+  // 连接 aiGenerator 和 modelProviderManager
+  if (aiGenerator && aiGenerator.setModelProviderManager) {
+    aiGenerator.setModelProviderManager(modelProviderManager)
+  }
+
   // ─── 平台、敏感词、数据同步等基础设施 ────────
   const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
   const BACKEND_PLATFORMS = new Set(['youtube', 'tiktok', 'twitter'])
@@ -215,7 +224,7 @@ function createAppContext() {
     viralEngine, commentManager, contentIntelligence, publishImpactTracker,
     proxyPool, templateManager, licenseManager, aiWriter,
     renderEngine, compositionManager, aiGenerator, videoEngine,
-    pipelineEngine, _chunkedUploader, _platformConfig,
+    pipelineEngine, modelProviderManager, _chunkedUploader, _platformConfig,
     _sensitiveFilter, _dataSync, BACKEND_PLATFORMS,
     CloudPublisher,
     // 额外暴露：runWhenReady 需要
@@ -237,7 +246,7 @@ function runWhenReady(context, deps) {
     AccountManager, _platformConfig, _sensitiveFilter, _dataSync,
     proxyPool, _chunkedUploader, BACKEND_PLATFORMS, templateManager,
     licenseManager, aiWriter, compositionManager, aiGenerator,
-    videoEngine, pipelineEngine, authViewManager, rpaViewManager,
+    videoEngine, pipelineEngine, modelProviderManager, authViewManager, rpaViewManager,
     webviewManager, qrCodeLogin, oauthManager, batchManager, urlCollector,
     providerManager, viralEngine, commentManager, contentIntelligence, publishImpactTracker,
     CloudPublisher,
@@ -383,6 +392,7 @@ function runWhenReady(context, deps) {
       aiGenerator,
       videoEngine,
       pipelineEngine,
+      modelProviderManager,
     })
 
     // 使用量统计 IPC

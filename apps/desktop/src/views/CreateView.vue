@@ -112,12 +112,12 @@
             <div class="config-item">
               <label>LLM 提供商</label>
               <select v-model="llmConfig.provider" class="form-select">
-                <option value="anthropic">Anthropic</option>
-                <option value="openai">OpenAI</option>
-                <option value="gemini">Gemini</option>
-                <option value="openrouter">OpenRouter</option>
-                <option value="ollama">Ollama (本地)</option>
+                <option v-for="p in availableLlmProviders" :key="p.id" :value="p.id">
+                  {{ p.name }}{{ p.is_default ? ' (默认)' : '' }}
+                </option>
+                <option v-if="availableLlmProviders.length === 0" value="" disabled>未配置 — 请前往模型服务商设置</option>
               </select>
+              <a v-if="availableLlmProviders.length === 0" href="#/model-providers" class="config-hint-link">前往配置 →</a>
             </div>
             <div class="config-item">
               <label>模型</label>
@@ -305,6 +305,7 @@ export default {
       // 配置
       selectedStyle: 'clean-professional',
       llmConfig: { provider: 'anthropic', model: '', temperature: 0.7 },
+      availableLlmProviders: [],
       budgetConfig: { mode: 'warn', totalUsd: 10 },
       checkpointPolicy: 'guided',
       outputConfig: { resolution: '1920x1080', fps: 30, format: 'mp4' },
@@ -355,6 +356,25 @@ export default {
     },
   },
   methods: {
+    async loadLlmProviders() {
+      try {
+        const api = window.electronAPI
+        if (!api || !api.modelProviderList) return
+        const res = await api.modelProviderList('llm')
+        if (res && res.code === 0 && Array.isArray(res.data)) {
+          this.availableLlmProviders = res.data.filter(p => p.enabled)
+          // 如果有默认的，设置为默认
+          const defaultProvider = this.availableLlmProviders.find(p => p.is_default)
+          if (defaultProvider) {
+            this.llmConfig.provider = defaultProvider.id
+          } else if (this.availableLlmProviders.length > 0) {
+            this.llmConfig.provider = this.availableLlmProviders[0].id
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load LLM providers:', e)
+      }
+    },
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
     categoryLabel(cat) { return CATEGORY_LABELS[cat] || cat },
     costLabel(cost) { return COST_LABELS[cost] || cost },
@@ -503,6 +523,7 @@ export default {
   },
   async mounted() {
     await this.loadPipelines()
+    this.loadLlmProviders()
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 ? s.data : { ready: false } }).catch(() => { this.renderStatus = { ready: false } })
     this._cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this._cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
