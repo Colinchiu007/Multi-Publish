@@ -1,4 +1,4 @@
-﻿# 视觉测试框架
+# 视觉测试框架
 
 基于 Playwright 的自动化 UI 测试系统，支持像素对比、OCR 和 AI 视觉三种模式。
 
@@ -9,6 +9,7 @@
 | **像素对比** | Resemble.js | 本地开发 ✅ 默认 |
 | **OCR 文字提取** | Tesseract.js | 本地开发 ✅ 默认 |
 | **AI 视觉** | OpenAI / Claude | 仅 CI 流水线（可选） |
+| **Agent 视觉** | Agent 自己（无需 Key） | Agent 迭代时自动判断截图 |
 
 > 💡 **本地开发和 Agent 内运行无需任何 API Key**——像素对比 + OCR 默认足够。
 > 🔑 **AI 视觉只在 CI 无人值守场景才需要**——可选，repository secrets 注入才启用，本地 / Agent / CI 默认都不需要。
@@ -66,6 +67,7 @@ npm run dev
 | `npm run test:visual:pixel` | 像素对比测试（无需 API Key）✅ |
 | `npm run test:visual:ai` | AI 视觉测试（仅 CI 需要，未配置 Key 时跳过） |
 | `npm run test:visual:ci` | CI 模式（生成 ci-report.json） |
+| `npm run test:visual:agent` | Agent 视觉判断报告（无需 Key）✅ |
 | `npm run test:visual:quick` | 快速测试（首页视图） |
 
 ### 4. 单个测试

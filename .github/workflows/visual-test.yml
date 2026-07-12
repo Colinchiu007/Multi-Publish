@@ -86,6 +86,15 @@ jobs:
           AI_PROVIDER: openai
         run: npm run test:visual:ai -w @multi-publish/desktop
 
+
+      - name: Generate Agent visual-judge report (if pixel tests ran)
+        if: always()
+        run: |
+          echo "=== Agent Visual Judge ==="
+          node apps/desktop/tests/visual-testing/scripts/agent-visual-judge.js || true
+          if [ -f apps/desktop/tests/visual-testing/reports/judge-report.md ]; then
+            echo "AGENT_REPORT_GENERATED=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Upload screenshots and reports
         if: always()
         uses: actions/upload-artifact@v4
