@@ -1,4 +1,4 @@
-# PROJECT-003 Multi-Publish — 开发流程规范
+﻿# PROJECT-003 Multi-Publish — 开发流程规范
 
 本文件定义本项目开发的完整 SOP。支持 `AGENTS.md` 的 AI 工具（Cursor、Claude Code、Cline、Windsurf、GitHub Copilot 等）启动时自动读取，确保所有 AI 协作按规范执行。
 
@@ -222,6 +222,45 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - 本地打包验证：覆盖 require 链、文件包含、语法 ✅（新增）
 - 后续补充：main.js 启动测试（`node -e "require('./electron/main.js')"`）
 
+### QM-4：视觉回归测试
+
+**框架位置**：`apps/desktop/tests/visual-testing/`
+
+| 测试模式 | 依赖 | 适用场景 |
+|----------|------|----------|
+| **像素对比** | Resemble.js | 日常开发（默认，无需 API Key） |
+| **OCR 文字提取** | Tesseract.js | 日常开发（默认，无需 API Key） |
+| **AI 视觉** | OpenAI / Claude（可选） | 仅 CI 无人值守流水线 |
+
+**集成规则**：
+
+- `pre-commit`：**不集成**视觉测试（需要 dev server 运行，触发频率过高）
+- **日常开发**：改完 UI 后用 `--single` 单独验证
+  ```bash
+  node apps/desktop/tests/visual-testing/views/all-views.visual.test.js --single home-default
+  ```
+- **PR 合入前（必须通过）**：像素对比核心视图，无需 API Key
+  ```bash
+  cd apps/desktop && npm run test:visual:pixel
+  ```
+- **发版前（必须通过）**：完整回归（77 个测试：45 视图 + 32 工作流）
+  ```bash
+  npm run test:all:visual
+  ```
+- **CI 流水线**：AI 视觉可选，有 Key 才跑，无 Key 安全跳过
+  ```bash
+  npm run test:visual:ci
+  ```
+
+**依赖**（已在 `package.json` 中）：
+- `playwright` — 浏览器自动化
+- `resemblejs` — 像素对比
+- `tesseract.js` — OCR 识别
+- `openai` / `@anthropic-ai/sdk` — AI 视觉（仅 CI 可选）
+
+**门禁规则**：
+
+> `npm run test:visual:pixel` 返回非零退出码 → **禁止合入 PR**
 ## 新增模块（蚁小二逆向工程集成）
 
 - `electron/services/account-state-restorer.js` — 账号登录状态持久化（JSONL）
