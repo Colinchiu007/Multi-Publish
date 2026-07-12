@@ -29,7 +29,14 @@ export async function invoke(method, ...args) {
  */
 export async function invokeWithFallback(method, fallback, ...args) {
   const result = await invoke(method, ...args);
-  return result !== undefined ? result : fallback;
+  if (result === undefined) {
+    // 开发模式下 warn，让 IPC 失败可见（之前静默降级导致 preload 问题难以排查）
+    if (process.env.NODE_ENV === 'development' || location?.hostname === 'localhost') {
+      console.warn('[electron-bridge] IPC fallback:', method, '— window.electronAPI 不可用或方法不存在');
+    }
+    return fallback;
+  }
+  return result;
 }
 
 /**
