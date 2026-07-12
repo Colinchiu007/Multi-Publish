@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 视觉测试环境设置脚本
  * 运行: node tests/visual-testing/scripts/setup.js
  *
@@ -80,34 +80,20 @@ for (const dir of dirs) {
   console.log(`  ✅ ${dir}`);
 }
 
-// 3. 生成 .env.visual.example
-console.log('\n📝 生成 .env.visual.example...\n');
+// 3. 确认 .env.example 已就位（不自动创建 .env，避免误导）
+console.log("\n📝 确认 .env.example...\n");
 
-const envExample = `# 视觉测试环境变量示例
-# 复制此文件到 tests/visual-testing/.env 并填入实际值
-
-# ===== 默认模式：无需 API Key =====
-TEST_URL=http://localhost:5173
-HEADLESS=true
-
-# ===== AI 视觉模式（仅 CI 场景需要）=====
-# 在 .env 中取消注释对应行：
-# OPENAI_API_KEY=sk-your-openai-key
-# ANTHROPIC_API_KEY=sk-ant-your-key
-`;
-
-const examplePath = path.join(__dirname, '..', '..', '..', '..', '.env.visual.example');
-fs.writeFileSync(examplePath, envExample);
-console.log('  ✅ .env.visual.example 已生成到仓库根目录');
-
-// 4. 生成 .env（如果不存在）
-const envPath = path.join(__dirname, '..', '.env');
-if (!fs.existsSync(envPath)) {
-  fs.writeFileSync(envPath, envExample);
-  console.log('  ✅ tests/visual-testing/.env 已创建');
+const examplePath = path.join(__dirname, "..", ".env.example");
+if (fs.existsSync(examplePath)) {
+  console.log("  ✅ tests/visual-testing/.env.example 已就位");
 } else {
-  console.log('  ℹ️  tests/visual-testing/.env 已存在，跳过');
+  console.log("  ⚠️  tests/visual-testing/.env.example 不存在，请检查仓库完整性");
 }
+
+// 不再自动创建 .env——默认模式（像素对比 + OCR）开箱即用，无需任何配置
+// 仅当用户主动需要本地跑 AI 视觉时，手动复制并填 Key：cp .env.example .env
+console.log("  ℹ️  默认模式无需 .env；本地跑 AI 视觉请手动复制 .env.example → .env");
+
 
 console.log(`
 ╔════════════════════════════════════════════════════════════╗

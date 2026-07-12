@@ -58,6 +58,9 @@ async function run() {
 
   await runner.launch();
 
+  let passed = 0;
+  let failed = 0;
+
   for (const test of viewTests.slice(0, 10)) { // 默认测试前 10 个视图
     console.log(`🔍 ${test.name}...`);
     try {
@@ -65,12 +68,19 @@ async function run() {
         waitFor: test.waitFor,
         waitMs: test.waitMs
       });
+      passed++;
     } catch (err) {
       console.log(`   ❌ ${err.message}`);
+      failed++;
     }
   }
 
   await runner.close();
+
+  const total = viewTests.slice(0, 10).length;
+  console.log(`
+📊 AI 视觉结果：通过 ${passed} / 失败 ${failed} / 总计 ${total}`);
+  process.exit(failed > 0 ? 1 : 0);
 }
 
-run().catch(console.error);
+run().catch(err => { console.error("❌ 运行器启动失败:", err.message); process.exit(1); });

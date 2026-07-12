@@ -1,0 +1,97 @@
+name: Visual Tests
+
+# 视觉回归测试（像素对比默认，AI 视觉仅当 secrets 注入时升级启用）
+# - 触发：PR / push 主干 / 手动 dispatch
+# - 默认行为：只跑像素对比，无需任何 API Key
+# - AI 视觉：自动检测 secrets（OPENAI_API_KEY / ANTHROPIC_API_KEY）启用，缺则跳过
+# - 失败语义：像素测试严格 fail；AI 测试失败不阻塞（避免配额/抖动影响 PR 合入）
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+  workflow_dispatch:
+
+jobs:
+  visual-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TEST_URL: http://127.0.0.1:5174
+      HEADLESS: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Linux system deps (libvips + xvfb)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libvips libvips-dev build-essential python3 xvfb
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright + Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Vue frontend
+        run: npm run build:vue -w @multi-publish/desktop
+
+      - name: Start Vite dev server (background)
+        run: |
+          cd apps/desktop
+          npx vite --port 5174 &
+          for i in $(seq 1 30); do
+            if curl -s http://127.0.0.1:5174/ > /dev/null 2>&1; then
+              echo "Vite ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "❌ Vite never became ready"
+          exit 1
+
+      - name: Pixel-comparison tests (default, no API Key needed)
+        run: npm run test:visual:pixel -w @multi-publish/desktop
+
+      - name: Detect AI vision secrets
+        id: ai_detect
+        run: |
+          if [ -n "${{ secrets.OPENAI_API_KEY }}" ] || [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "ai_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "✅ AI vision ENABLED (secrets detected)"
+          else
+            echo "ai_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️  AI vision SKIPPED (no OPENAI_API_KEY / ANTHROPIC_API_KEY secrets)"
+            echo "   像素对比 + OCR 已足够验证 UI 正确性"
+          fi
+
+      - name: AI vision tests (only when secrets configured)
+        if: steps.ai_detect.outputs.ai_enabled == 'true'
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AI_PROVIDER: openai
+        run: npm run test:visual:ai -w @multi-publish/desktop
+
+      - name: Upload screenshots and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-test-reports
+          path: |
+            apps/desktop/tests/visual-testing/screenshots
+            apps/desktop/tests/visual-testing/reports
+          retention-days: 7

@@ -10,7 +10,9 @@
 | **OCR 文字提取** | Tesseract.js | 本地开发 ✅ 默认 |
 | **AI 视觉** | OpenAI / Claude | 仅 CI 流水线（可选） |
 
-> 💡 **本地开发和 Agent 内运行无需任何 API Key**。像素对比已足够验证 UI 正确性。AI 视觉仅在无人值守的 CI 流水线中需要。
+> 💡 **本地开发和 Agent 内运行无需任何 API Key**——像素对比 + OCR 默认足够。
+> 🔑 **AI 视觉只在 CI 无人值守场景才需要**——可选，repository secrets 注入才启用，本地 / Agent / CI 默认都不需要。
+> 📖 详细说明见文末「[三种调用方式](#三种调用方式-本地--agent--ci)」章节。
 
 ## 目录结构
 
@@ -44,9 +46,9 @@ node tests/visual-testing/scripts/setup.js
 ```
 
 setup.js 会：
-- 检查依赖（Playwright、Tesseract.js、Resemble.js）
+- 检查依赖（Playwright、Tesseract.js、Resemble.js 都是必装；openai / @anthropic-ai/sdk 是可选）
 - 创建必要的目录
-- 在 `tests/visual-testing/` 下生成 `.env`（无 API Key，开箱即用）
+- 确认 `tests/visual-testing/.env.example` 已就位（**不再自动创建 .env**——按需手动 cp）
 
 ### 2. 启动开发服务器
 
@@ -192,35 +194,42 @@ await runner.aiVisionTest('login-page', '/login', [
 await runner.close(); // 生成报告
 ```
 
-## CI 集成
+## 三种调用方式（本地 / Agent / CI）
 
-```yaml
-# .github/workflows/visual-test.yml
-name: Visual Tests
+### 本地开发
 
-on: [push, pull_request]
+```bash
+cd apps/desktop
+node tests/visual-testing/scripts/setup.js   # 检查依赖 + 目录，首次运行
 
-jobs:
-  visual-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - run: npm ci
-      - name: Start dev server
-        run: npm run dev &
-      - name: Run visual tests
-        run: npm run test:visual:ci
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      - name: Upload reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: visual-test-reports
-          path: apps/desktop/tests/visual-testing/reports/
+npm run dev                                  # 启动 dev server（http://localhost:5174）
+
+# 跑像素对比（默认，无需任何 Key）
+npm run test:visual:pixel
+
+# 跑全量（像素 + OCR）
+npm run test:all:visual
 ```
+
+### Agent / 自动化脚本
+
+```bash
+# 同本地命令；本仓库的 run-*.js 脚本默认无 Key 时安全退出
+# npm run test:visual:ai 没 Key 不会报错，agent 可以放心迭代
+```
+
+### CI 流水线（GitHub Actions）
+
+工作流文件：.github/workflows/visual-test.yml
+
+- **触发**：pull_request / push main / workflow_dispatch
+- **默认行为**：仅跑像素对比，**无需任何 API Key**
+- **AI 视觉升级**：在仓库 Settings → Secrets 配置 OPENAI_API_KEY 或 ANTHROPIC_API_KEY，CI 自动启用 AI 判断
+- **失败语义**：
+  - 像素对比 fail → 强制 PR 红
+  - AI 视觉 fail → continue-on-error: true 不阻塞（避免 API 配额抖动影响 PR 合入）
+
+**重要**：本节是仓库真实状态。如果你看到其它示例说「必须 OPENAI_API_KEY」，那是过期文档。
 
 ## 更新基线截图
 

@@ -24,16 +24,25 @@ async function run() {
   
   await runner.launch();
   
+  let passed = 0;
+  let failed = 0;
+
   for (const test of pixelTests) {
     console.log(`📷 ${test.name}...`);
     try {
       await runner.pixelRegressionTest(test.name, test.route);
+      passed++;
     } catch (err) {
       console.log(`   ❌ ${err.message}`);
+      failed++;
     }
   }
   
   await runner.close();
+
+  console.log(`
+📊 像素对比结果：通过 ${passed} / 失败 ${failed} / 总计 ${pixelTests.length}`);
+  process.exit(failed > 0 ? 1 : 0);
 }
 
-run().catch(console.error);
+run().catch(err => { console.error("❌ 运行器启动失败:", err.message); process.exit(1); });
