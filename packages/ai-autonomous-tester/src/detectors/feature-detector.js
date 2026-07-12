@@ -1,17 +1,18 @@
 /**
- * FeatureDetector - 妫�娴嬪簲鐢ㄤ腑宸插疄鐜扮殑鍔熻兘
+ * FeatureDetector - 检测应用中已实现的功能（为 Agent 提供上下文）
  *
- * Multi-dimension detection:
- * 1. Routes (Vue Router: path + name)
- * 2. Navigation menu items (Sidebar/Layout)
- * 3. Page titles (<title>, <h1>)
- * 4. Test IDs (data-testid)
- * 5. Business keywords (stores/api)
+ * 采集多维度信息供 Agent 阅读，不做匹配判断：
+ * - Routes (Vue Router: path + name)
+ * - Navigation menu items
+ * - Page titles / H1
+ * - Test IDs
+ * - Sidebar/menu structure
+ * - Component-level exports
  *
- * Usage:
- *   const { FeatureDetector } = require("@multi-publish/ai-autonomous-tester");
+ * 使用方式:
  *   const detector = new FeatureDetector({ srcDir: "./src" });
  *   const features = await detector.detect();
+ *   // 把 features 给 Agent，让 Agent 决定如何与 PRD 匹配
  */
 
 const fs = require("fs");
@@ -50,9 +51,6 @@ class FeatureDetector {
 
     const components = await this.detectFromComponents();
     components.forEach(add);
-
-    const keywords = await this.detectFromKeywords();
-    keywords.forEach(add);
 
     return features;
   }
@@ -156,58 +154,6 @@ class FeatureDetector {
       }
     }
     return features;
-  }
-
-  async detectFromKeywords() {
-    const features = [];
-    // Match full feature phrases to avoid single-character false positives
-    const keywordMap = {
-      "AccountMgmt": ["Account"],
-      "PublishMgmt": ["Publish"],
-      "CreateMgmt": ["Create"],
-      "VideoMgmt": ["Remotion", "Video"],
-      "CollectionMgmt": ["Collection"],
-      "CommentMgmt": ["Comment"],
-      "AnalyticsMgmt": ["Analytics"],
-      "IntelligenceMgmt": ["Intelligence"],
-      "CloudPublish": ["Cloud"],
-      "BatchMgmt": ["Batch"],
-      "ScheduleMgmt": ["Schedule"],
-      "MonitorRealTime": ["Monitor"],
-      "DashboardHome": ["Dashboard"],
-      "FirstRunFlow": ["FirstRun"],
-      "ViralAnalysis": ["Viral"],
-      "KeywordMonitor": ["Keyword"],
-      "CalendarView": ["Calendar"],
-      "PipelineWorkflow": ["Pipeline"],
-    };
-
-    for (const file of this._findFiles(/.*/)) {
-      const content = fs.readFileSync(file, "utf8");
-      for (const [featureName, keywords] of Object.entries(keywordMap)) {
-        if (keywords.some(k => content.includes(k))) {
-          features.push({
-            name: featureName,
-            type: "keyword",
-            source: "code",
-            file,
-            confidence: this._calcConfidence(content, keywords),
-          });
-          break;
-        }
-      }
-    }
-    return features;
-  }
-
-  _calcConfidence(content, keywords) {
-    let hits = 0;
-    for (const kw of keywords) {
-      hits += content.split(kw).length - 1;
-    }
-    if (hits >= 5) return "HIGH";
-    if (hits >= 2) return "MEDIUM";
-    return "LOW";
   }
 
   _humanize(s) {

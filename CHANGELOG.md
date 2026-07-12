@@ -1,4 +1,44 @@
-﻿
+
+## [重构] ai-autonomous-tester v0.5.0 - 语义判断权下放给 Agent (2026-07-13)
+
+应用质量节拍第 6 轮：架构 pivot — 框架只做事实采集，语义推理交给 Agent。
+
+### 用户洞察
+
+> PRD ↔ 代码的匹配是语义推理任务，不应由框架算法承担。
+> 框架只做事实采集；由运行环境中的 Agent 用自带 LLM 做最终判断。
+
+之前的 v0.4.0 用关键词/同义词/子串算法做语义匹配，覆盖率 18.2% 不可接受。
+本版本彻底剥离匹配算法，让 Agent 主导。
+
+### 改动
+
+- `PRDParser.parseStructured()` 新增：返回 title + sections + items + contentPreview
+- `FeatureDetector` 剥离 `_keywords`/`keywordMap`，纯多维度事实采集（routes/nav/titles/testids/components）
+- `RequirementsVerifier.collectFacts()` 取代 `verify()`：只采集事实不做匹配
+  - `assessCoverage(facts, llmFn)` 提供可选 LLM 钩子
+  - `verify()` 标记 `_deprecated`，保留向后兼容
+- **新增 `AgentJudge`** (`src/agent/agent-judge.js`)：
+  - 模式 A: Prompt 包 — 无 LLM 时返回结构化 prompt 供 Agent 读（推荐用于 Codex/Claude Desktop 等交互式 Agent）
+  - 模式 B: LLM 注入 — 接收 `llmFn` 自动调用
+  - 稳定 Verdict JSON Schema: `{ task, decision, score, items, summary, recommendations, reasoning }`
+  - 解析容错：剥离 markdown code fence、JSON 抽取、自然语言兜底 → `NEED_HUMAN`
+  - Verdict 验证：`validateVerdict()` 保证契约
+  - 决策归一化: `PASS/ACCEPT/COVERED` → `PASS`，`FAIL/REJECT` → `FAIL`，其余 → `NEED_HUMAN`
+
+### 不变量
+
+- 框架继续 100% 本地运行，无需任何外部 AI API Key
+- Agent 用自带 LLM 推理（Codex/Claude Desktop/任何 Agent）
+- Verdicts 通过 stable JSON schema 跨任务（coverage / bug-classify / fix-approve）复用
+
+### 下一步
+
+- Phase 14: 让 `RequirementsTestRunner` 默认走 `collectFacts → AgentJudge` 路径
+- Phase 15: 让 `FixEngine` 接收 `verdict.recommendations` 闭环
+- Phase 16: GitHub Actions 跑 `npm run test:autonomous --llm-stub`，PR 评论贴 verdict
+
+---
 ## [增强] ai-autonomous-tester v0.4.0 - 需求匹配算法升级 (2026-07-13)
 
 应用质量节拍第 5 轮：提升 PRD ↔ 代码匹配精度。

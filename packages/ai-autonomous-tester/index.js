@@ -10,7 +10,7 @@
  *     // Runners
  *     VisualTestRunner, FunctionalTestRunner, RequirementsTestRunner, AutonomousTestRunner,
  *     // AI Loop
- *     TestOrchestrator, AIAnalyzer, FixEngine,
+ *     TestOrchestrator, AIAnalyzer, FixEngine, AgentJudge,
  *     // Requirements
  *     PRDParser, FeatureDetector, RequirementsVerifier,
  *     // Utils
@@ -30,6 +30,7 @@ const { FixEngine } = require("./src/fix-engine");
 const { PRDParser } = require("./src/parsers/prd-parser");
 const { FeatureDetector } = require("./src/detectors/feature-detector");
 const { RequirementsVerifier } = require("./src/verifier/requirements-verifier");
+const { AgentJudge } = require("./src/agent/agent-judge");
 const { findProjectRoot } = require("./src/utils/path-resolver");
 
 module.exports = {
@@ -47,6 +48,7 @@ module.exports = {
   TestOrchestrator,
   AIAnalyzer,
   FixEngine,
+  AgentJudge,
 
   // Requirements Verification
   PRDParser,
