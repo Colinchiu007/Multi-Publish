@@ -36,7 +36,7 @@ class AIAnalyzer {
    */
   async analyze(testResults) {
     const analysis = {
-      visual: this.analyzeVisual(testResults.visual),
+      visual: await this.analyzeVisual(testResults.visual),
       functional: this.analyzeFunctional(testResults.functional),
       requirements: this.analyzeRequirements(testResults.requirements),
       verdict: testResults.requirements?._verdict || null,
@@ -59,7 +59,7 @@ class AIAnalyzer {
   /**
    * 分析视觉测试结果
    */
-  analyzeVisual(visualResults) {
+  async analyzeVisual(visualResults) {
     if (!visualResults || !visualResults.details) {
       return { regressions: [], expectedChanges: [], noise: [], summary: null };
     }
@@ -76,15 +76,24 @@ class AIAnalyzer {
         continue;
       }
 
-      // Use AgentVisualJudge if available (方向3)
+      // 方向3: AgentVisualJudge 真正做智能判断
       if (this.visualJudge) {
-        // This runs synchronously for now; async judgment happens in decide()
-        if (this.isKnownChange(result)) {
-          expectedChanges.push(result);
-        } else if (this.isLikelyRegression(result)) {
-          regressions.push(result);
-        } else {
-          expectedChanges.push({ ...result, uncertain: true });
+        try {
+          const v = await this.visualJudge.judge(result);
+          if (v.verdict === "expected") {
+            expectedChanges.push({ ...result, judgeReasoning: v.reasoning, judgeConfidence: v.confidence });
+          } else if (v.verdict === "regression") {
+            regressions.push({ ...result, judgeReasoning: v.reasoning, judgeConfidence: v.confidence });
+          } else if (v.verdict === "noise") {
+            noise.push({ ...result, judgeReasoning: v.reasoning });
+          } else {
+            expectedChanges.push({ ...result, uncertain: true, judgeReasoning: v.reasoning });
+          }
+        } catch (e) {
+          // Fallback to heuristic on error
+          if (this.isKnownChange(result)) expectedChanges.push(result);
+          else if (this.isLikelyRegression(result)) regressions.push(result);
+          else expectedChanges.push({ ...result, uncertain: true });
         }
       } else {
         // Legacy heuristic

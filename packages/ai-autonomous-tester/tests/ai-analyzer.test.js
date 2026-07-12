@@ -1,4 +1,4 @@
-const { describe, it } = require("node:test");
+﻿const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { AIAnalyzer } = require("../src/ai-analyzer");
 const { AgentJudge } = require("../src/agent/agent-judge");
@@ -144,8 +144,8 @@ describe("AIAnalyzer", () => {
     assert.equal(d.action, "UPDATE_BASELINE");
   });
 
-  it("analyzeVisual: 按 noise 阈值分类", () => {
-    const v = a.analyzeVisual({
+  it("analyzeVisual: 按 noise 阈值分类", async () => {
+    const v = await a.analyzeVisual({
       details: [
         { testName: "home", misMatchPercentage: "0.1" },
         { testName: "dashboard", misMatchPercentage: "3.5" },
@@ -170,4 +170,36 @@ describe("AIAnalyzer", () => {
     assert.equal(f.failed.length, 1);
     assert.equal(f.flaky.length, 1);
   });
+
+  it("analyzeVisual: uses AgentVisualJudge when provided", async () => {
+    const { AgentVisualJudge } = require("../src/agent/agent-visual-judge");
+    const visualJudge = new AgentVisualJudge();
+    const aa = new AIAnalyzer({ visualJudge });
+    const visualResults = {
+      details: [
+        { testName: "noise-view", misMatchPercentage: 0.1 },
+        { testName: "regression-button", misMatchPercentage: 3.5 },
+      ],
+      summary: { total: 2, passed: 0, failed: 2 },
+    };
+    const result = await aa.analyzeVisual(visualResults);
+    assert.equal(result.noise.length, 1);
+    assert.equal(result.regressions.length, 1);
+    assert.equal(result.noise[0].testName, "noise-view");
+    assert.equal(result.regressions[0].testName, "regression-button");
+  });
+
+  it("analyze: passes visualJudge results through full analysis", async () => {
+    const { AgentVisualJudge } = require("../src/agent/agent-visual-judge");
+    const visualJudge = new AgentVisualJudge();
+    const aa = new AIAnalyzer({ visualJudge });
+    const testResults = {
+      visual: { details: [{ testName: "home", misMatchPercentage: 0.3 }], summary: { total: 1, passed: 0, failed: 0 } },
+      functional: null,
+      requirements: null,
+    };
+    const analysis = await aa.analyze(testResults);
+    assert.equal(analysis.visual.noise.length, 1);
+  });
+
 });

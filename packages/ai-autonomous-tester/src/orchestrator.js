@@ -43,7 +43,9 @@ class TestOrchestrator {
         // 非 AutonomousTestRunner 时跳过
       }
     }
-    this.analyzer = options.analyzer || new AIAnalyzer({ llmFn: this.llmFn });
+    const { AgentVisualJudge } = require("./agent/agent-visual-judge");
+    const visualJudge = options.visualJudge || (this.llmFn ? new AgentVisualJudge({ llmFn: this.llmFn }) : null);
+    this.analyzer = options.analyzer || new AIAnalyzer({ llmFn: this.llmFn, visualJudge });
     this.fixEngine = options.fixEngine || new FixEngine({ logger: this.logger });
 
     this.iterationHistory = [];

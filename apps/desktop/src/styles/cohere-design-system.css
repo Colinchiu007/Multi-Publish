@@ -339,7 +339,7 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--canvas);
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 /* --- 页面头部 --- */
