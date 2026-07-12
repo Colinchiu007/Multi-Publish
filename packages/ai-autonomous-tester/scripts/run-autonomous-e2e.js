@@ -183,7 +183,7 @@ async function runOrchestratorLoop() {
     llmFn, visualRunner: visualRunner || undefined, functionalRunner: functionalRunner || undefined,
     requirementsRunner,
   });
-      const fixEngine = new FixEngine({ logger: console, dryRun: false });
+      const fixEngine = new FixEngine({ logger: console, dryRun: false, llmFn });
     const orchestrator = new TestOrchestrator({ maxIterations: MAX_ITERATIONS, testRunner, fixEngine, iterationDelay: 3000, stopOnSuccess: true });
   const context = {
     visual: { targets: [{ name: "home-baseline", route: "/" }, { name: "accounts-list", route: "/accounts" }, { name: "publish-form", route: "/publish" }] },

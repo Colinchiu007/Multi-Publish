@@ -17,6 +17,8 @@
  *   - verdict.decision === 'NEED_HUMAN' → NEED_HUMAN
  */
 
+const { AgentVisualJudge } = require("./agent/agent-visual-judge");
+
 class AIAnalyzer {
   constructor(options = {}) {
     this.noiseThreshold = options.noiseThreshold || 0.5;
@@ -71,12 +73,28 @@ class AIAnalyzer {
 
       if (mismatch <= this.noiseThreshold) {
         noise.push(result);
-      } else if (this.isKnownChange(result)) {
-        expectedChanges.push(result);
-      } else if (this.isLikelyRegression(result)) {
-        regressions.push(result);
+        continue;
+      }
+
+      // Use AgentVisualJudge if available (方向3)
+      if (this.visualJudge) {
+        // This runs synchronously for now; async judgment happens in decide()
+        if (this.isKnownChange(result)) {
+          expectedChanges.push(result);
+        } else if (this.isLikelyRegression(result)) {
+          regressions.push(result);
+        } else {
+          expectedChanges.push({ ...result, uncertain: true });
+        }
       } else {
-        expectedChanges.push({ ...result, uncertain: true });
+        // Legacy heuristic
+        if (this.isKnownChange(result)) {
+          expectedChanges.push(result);
+        } else if (this.isLikelyRegression(result)) {
+          regressions.push(result);
+        } else {
+          expectedChanges.push({ ...result, uncertain: true });
+        }
       }
     }
 
@@ -258,8 +276,9 @@ class AIAnalyzer {
   }
 
   generateFixes(items, type) {
+    const usePatch = type === "visual" && (this.llmFn || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY);
     return items.map(item => ({
-      type,
+      type: usePatch ? "patch" : type,
       testName: item.testName || item.name,
       description: this.describeIssue(item, type),
       suggestedFix: this.suggestFix(item, type),

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * TestOrchestrator - 测试循环协调器
  *
  * 完整测试-分析-修复循环，支持自定义测试目标
@@ -43,7 +43,7 @@ class TestOrchestrator {
         // 非 AutonomousTestRunner 时跳过
       }
     }
-    this.analyzer = options.analyzer || new AIAnalyzer();
+    this.analyzer = options.analyzer || new AIAnalyzer({ llmFn: this.llmFn });
     this.fixEngine = options.fixEngine || new FixEngine({ logger: this.logger });
 
     this.iterationHistory = [];

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * FixEngine - 修复引擎
  *
  * 执行代码修复、Baseline 更新、文档更新、需求修复、verdict 推荐修复。
@@ -33,6 +33,7 @@ class FixEngine {
       visual: new VisualFixStrategy(options),
       functional: new FunctionalFixStrategy(options),
       requirements: new RequirementsFixStrategy(options),
+      patch: new PatchFixStrategy({ ...options, workDir: this.workDir }),
       'verdict-recommendations': new VerdictRecommendationsStrategy({
         ...options,
         workDir: this.workDir,
