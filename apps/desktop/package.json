@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "@multi-publish/desktop",
     "version":  "2.3.53",
     "description":  "澶氬钩鍙板唴瀹逛竴閿彂甯冩闈㈢ (Electron + RpaViewManager)",
@@ -28,7 +28,8 @@
                     "test:visual:quick":  "VISUAL=1 npx vitest run tests/visual-testing/views/home.visual.test.js --reporter=verbose",
                     "test:all:visual":  "VISUAL=1 WORKFLOW=1 npx vitest run tests/visual-testing/",
                     "test:visual:pixel":  "node tests/visual-testing/scripts/run-pixel-tests.js",
-                    "test:visual:agent":  "node tests/visual-testing/scripts/agent-visual-judge.js"
+                    "test:visual:agent":  "node tests/visual-testing/scripts/agent-visual-judge.js",
+                    "test:ai:autonomous":  "node ../../packages/ai-autonomous-tester/scripts/run-autonomous.js"
                 },
     "keywords":  [
                      "multi-publish",

@@ -5,22 +5,25 @@
  *
  * 使用方式:
  *   const {
- *     VisualTestRunner,
- *     PixelDiffProvider,
- *     OCRProvider,
- *     TestOrchestrator,
- *     AIAnalyzer,
- *     FixEngine,
- *     PRDParser,
- *     FeatureDetector,
- *     RequirementsVerifier,
+ *     // Providers
+ *     PixelDiffProvider, OCRProvider,
+ *     // Runners
+ *     VisualTestRunner, FunctionalTestRunner, RequirementsTestRunner, AutonomousTestRunner,
+ *     // AI Loop
+ *     TestOrchestrator, AIAnalyzer, FixEngine,
+ *     // Requirements
+ *     PRDParser, FeatureDetector, RequirementsVerifier,
+ *     // Utils
  *     findProjectRoot,
  *   } = require("@multi-publish/ai-autonomous-tester");
  */
 
 const { PixelDiffProvider } = require("./src/providers/pixel-diff");
 const { OCRProvider } = require("./src/providers/ocr");
-const { VisualTestRunner } = require("./src/test-runner");
+const { VisualTestRunner } = require("./src/runners/visual-runner");
+const { FunctionalTestRunner } = require("./src/runners/functional-runner");
+const { RequirementsTestRunner } = require("./src/runners/requirements-runner");
+const { AutonomousTestRunner } = require("./src/runners/autonomous-runner");
 const { TestOrchestrator } = require("./src/orchestrator");
 const { AIAnalyzer } = require("./src/ai-analyzer");
 const { FixEngine } = require("./src/fix-engine");
@@ -36,6 +39,9 @@ module.exports = {
 
   // Runners
   VisualTestRunner,
+  FunctionalTestRunner,
+  RequirementsTestRunner,
+  AutonomousTestRunner,
 
   // AI Loop
   TestOrchestrator,

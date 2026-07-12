@@ -1,26 +1,37 @@
 /**
  * TestOrchestrator - 测试循环协调器
- * 
- * 管理完整的测试-分析-修复循环
- * 
+ *
+ * 完整测试-分析-修复循环，支持自定义测试目标
+ *
  * 使用方式:
- *   const { TestOrchestrator } = require('@multi-publish/ai-autonomous-tester');
- *   const orchestrator = new TestOrchestrator({ maxIterations: 5 });
- *   const report = await orchestrator.start({ testRunner, analyzer, fixEngine });
+ *   const { TestOrchestrator, AutonomousTestRunner } = require("@multi-publish/ai-autonomous-tester");
+ *
+ *   const runner = new AutonomousTestRunner({ url: "http://localhost:5173" });
+ *   const orchestrator = new TestOrchestrator({ maxIterations: 5, testRunner: runner });
+ *
+ *   const report = await orchestrator.start({
+ *     visual: { targets: [{ name: "home", route: "/" }] },
+ *     functional: { targets: [{ name: "login", steps: [...], assertions: [...] }] },
+ *     requirements: { prdPath: "./PRD.md", srcDir: "./src" }
+ *   });
+ *
+ *   console.log(report.finalStatus);
  */
 
-const { AIAnalyzer } = require('./ai-analyzer');
-const { FixEngine } = require('./fix-engine');
+const { AIAnalyzer } = require("./ai-analyzer");
+const { FixEngine } = require("./fix-engine");
+const { AutonomousTestRunner } = require("./runners/autonomous-runner");
 
 class TestOrchestrator {
   constructor(options = {}) {
     this.maxIterations = options.maxIterations || 5;
     this.iterationDelay = options.iterationDelay || 5000;
     this.logger = options.logger || console;
+    this.stopOnSuccess = options.stopOnSuccess !== false;
 
-    this.testRunner = options.testRunner || null;
+    this.testRunner = options.testRunner || new AutonomousTestRunner();
     this.analyzer = options.analyzer || new AIAnalyzer();
-    this.fixEngine = options.fixEngine || new FixEngine();
+    this.fixEngine = options.fixEngine || new FixEngine({ logger: this.logger });
 
     this.iterationHistory = [];
     this.currentIteration = 0;
@@ -34,80 +45,112 @@ class TestOrchestrator {
   }
 
   /**
-   * 开始自主测试循环
+   * 启动自主测试循环
    */
   async start(context = {}) {
     this.logger.log(`\nStarting autonomous test loop (max ${this.maxIterations} iterations)`);
+    this.logger.log(`Visual | Functional | Requirements coverage\n`);
 
-    if (!this.testRunner) {
-      throw new Error('TestOrchestrator: testRunner is required');
+    try {
+      await this.testRunner.launch?.();
+    } catch (e) {
+      this.logger.log(`Warning: launch failed: ${e.message}`);
     }
 
-    while (this.currentIteration < this.maxIterations) {
-      this.currentIteration++;
-      this.logger.log(`\n=== Iteration ${this.currentIteration}/${this.maxIterations} ===`);
+    try {
+      while (this.currentIteration < this.maxIterations) {
+        this.currentIteration++;
+        this.logger.log(`\n=== Iteration ${this.currentIteration}/${this.maxIterations} ===`);
 
-      const iterationResult = await this.runIteration(context);
+        const result = await this._runIteration(context);
 
-      if (iterationResult.decision === 'STOP_SUCCESS') {
-        return this.buildReport('SUCCESS');
+        if (result.action === "STOP_SUCCESS" && this.stopOnSuccess) {
+          return this._buildReport("SUCCESS");
+        }
+        if (result.action === "STOP_NO_PROGRESS") {
+          return this._buildReport("NO_PROGRESS");
+        }
+        if (result.action === "NEED_HUMAN") {
+          return this._buildReport("NEED_HUMAN", { reason: result.reason });
+        }
+        if (result.action === "FIX_AND_RETRY" || result.action === "UPDATE_BASELINE") {
+          await this._delay(this.iterationDelay);
+        }
       }
 
-      if (iterationResult.decision === 'STOP_NO_PROGRESS') {
-        return this.buildReport('NO_PROGRESS');
-      }
-
-      if (iterationResult.decision === 'NEED_HUMAN') {
-        return this.buildReport('NEED_HUMAN', { reason: iterationResult.reason });
-      }
-
-      if (iterationResult.decision === 'FIX_AND_RETRY' || iterationResult.decision === 'UPDATE_BASELINE') {
-        await this.delay(this.iterationDelay);
+      return this._buildReport("MAX_ITERATIONS");
+    } finally {
+      try {
+        await this.testRunner.close?.();
+      } catch (e) {
+        // ignore close errors
       }
     }
-
-    return this.buildReport('MAX_ITERATIONS');
   }
 
   /**
    * 单次迭代
    */
-  async runIteration(context) {
-    // 1. 执行测试
-    const testResults = await this.testRunner.runTests({
-      ...context,
-      iteration: this.currentIteration,
-    });
+  async _runIteration(context) {
+    const testResults = await this.testRunner.runTests(context);
 
-    // 2. AI 分析
     const analysis = await this.analyzer.analyze(testResults);
-
-    // 3. 决策
     const decisionResult = this.analyzer.decide(analysis);
 
-    // 4. 记录历史
     const historyEntry = {
       iteration: this.currentIteration,
       timestamp: new Date().toISOString(),
-      testResults,
-      analysis,
+      summary: testResults.summary,
+      visual: testResults.visual?.summary,
+      functional: testResults.functional?.summary,
+      requirements: testResults.requirements?.summary,
       decision: decisionResult.action,
+      analysis: {
+        visual: analysis.visual ? {
+          regressions: analysis.visual.regressions.length,
+          expectedChanges: analysis.visual.expectedChanges.length,
+          noise: analysis.visual.noise.length,
+        } : null,
+        functional: analysis.functional ? {
+          passed: analysis.functional.passed.length,
+          failed: analysis.functional.failed.length,
+        } : null,
+        requirements: analysis.requirements ? {
+          covered: analysis.requirements.covered.length,
+          uncovered: analysis.requirements.uncovered.length,
+          coverageRate: analysis.requirements.coverageRate,
+        } : null,
+        overallRisk: analysis.overallRisk,
+      },
     };
     this.iterationHistory.push(historyEntry);
 
-    // 5. 处理决策
-    if (decisionResult.action === 'FIX_AND_RETRY') {
+    this.logger.log(`Result: ${testResults.summary.passed}/${testResults.summary.total} passed (${testResults.summary.passRate})`);
+    this.logger.log(`Risk: ${analysis.overallRisk}`);
+    this.logger.log(`Decision: ${decisionResult.action}`);
+
+    if (decisionResult.action === "FIX_AND_RETRY") {
       const fixResult = await this.fixEngine.execute(decisionResult.fixes || []);
       historyEntry.fixResult = fixResult;
     }
 
-    return { decision: decisionResult.action, ...decisionResult };
+    return { action: decisionResult.action, ...decisionResult };
+  }
+
+  /**
+   * 检测无进展：连续两轮失败的 details hash 相同
+   */
+  _isNoProgress() {
+    if (this.iterationHistory.length < 2) return false;
+    const last = this.iterationHistory[this.iterationHistory.length - 1];
+    const prev = this.iterationHistory[this.iterationHistory.length - 2];
+    return JSON.stringify(last.summary) === JSON.stringify(prev.summary);
   }
 
   /**
    * 生成最终报告
    */
-  buildReport(status, extra = {}) {
+  _buildReport(status, extra = {}) {
     const report = {
       generatedAt: new Date().toISOString(),
       finalStatus: status,
@@ -120,7 +163,7 @@ class TestOrchestrator {
     return report;
   }
 
-  delay(ms) {
+  _delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

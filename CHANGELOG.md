@@ -1,4 +1,49 @@
 ﻿
+## [增强] ai-autonomous-tester v0.3.0 - 自主循环端到端 (2026-07-13)
+
+应用质量节拍第 4 轮。
+
+### 新增
+
+- `VisualTestRunner` 重构为 BaseTestRunner 子类，添加 runTests() 统一接口
+- `FunctionalTestRunner` - 通过 Playwright 执行步骤序列与断言
+- `RequirementsTestRunner` - 需求验证专用运行器
+- `AutonomousTestRunner` - 聚合 Visual + Functional + Requirements 三类测试
+- `BaseTestRunner` - 通用基类（生命周期、报告生成、子类扩展点）
+
+### Orchestrator 升级
+
+- 默认使用 AutonomousTestRunner
+- 添加 _isNoProgress() 检测连续无进展
+- finally 块保证浏览器关闭
+
+### CLI 入口
+
+- `packages/ai-autonomous-tester/scripts/run-autonomous.js`
+- 支持 --prd --src --iterations --targets 参数
+- `apps/desktop` package.json 新增 `npm run test:ai:autonomous`
+
+### 包导出（13 个）
+
+```
+PixelDiffProvider, OCRProvider,
+VisualTestRunner, FunctionalTestRunner, RequirementsTestRunner,
+AutonomousTestRunner,
+TestOrchestrator, AIAnalyzer, FixEngine,
+PRDParser, FeatureDetector, RequirementsVerifier,
+findProjectRoot
+```
+
+### 端到端验证
+
+```
+npm run test:ai:autonomous -- --iterations=1 --targets=home-baseline
+Result: 2/12 passed (16.7%) in 3.6s
+Status: SUCCESS
+```
+
+---
+
 ## [增强] ai-autonomous-tester v0.2.0 (2026-07-13)
 
 应用质量节拍技能第 3 轮。
@@ -1562,6 +1607,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 
