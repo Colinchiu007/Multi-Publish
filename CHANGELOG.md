@@ -1,4 +1,30 @@
 ﻿
+## [端到端] ai-autonomous-tester v0.12.0 - 三个新方向：多轮循环 + 多文档 + 功能测试 (2026-07-13)
+
+应用质量节拍第 14 轮：实现三个新方向，使自主测试框架具备完整的端到端自动化能力。
+
+### 新增
+- **方向1：多轮自主循环** — --iterations=N 启用 TestOrchestrator 驱动全自主测试-分析-修复闭环
+- **方向2：多文档匹配（MultiDocParser）** — 支持 PRD / README / ARCHITECTURE / DESIGN / CHANGELOG / 用户手册等
+- **方向3：功能测试集成** — --functional 启用 Playwright 交互测试（导航/登录/发布/账号/设置）
+- **新 npm scripts**：	est:autonomous:full / 	est:autonomous:functional / 	est:autonomous:multi-doc
+- **新 CLI 参数**：--iterations、--docs、--functional、--functional-targets
+- **CI 升级**：Gate 8 传入 --docs="01-docs/PRD.md" 支持多文档审计
+
+### 质量门禁全貌（8 道）
+
+`
+Gate 1  TypeScript 编译检查         阻塞
+Gate 2  JS 语法检查                 阻塞
+Gate 3  硬编码密钥扫描               阻塞
+Gate 4  单元测试 (55/55)             阻塞
+Gate 5  测试覆盖率检查               非阻塞
+Gate 6  IPC bridge 完整性            非阻塞
+Gate 7  视觉回归测试 (像素对比)       阻塞
+Gate 8  全自动端到端测试 (Unified E2E)  有Key阻塞/无Key提示
+`
+
+---
 ## [质量门禁] quality-gate.yml Gate 8 升级到统一 E2E 脚本 v0.11.0 (2026-07-13)
 
 应用质量节拍第 13 轮：将 quality-gate.yml 的 Gate 8 从旧版 run-agent-judge.js 升级到新版 run-autonomous-e2e.js。

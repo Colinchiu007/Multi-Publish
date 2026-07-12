@@ -12,7 +12,8 @@
  *     // AI Loop
  *     TestOrchestrator, AIAnalyzer, FixEngine, AgentJudge,
  *     // Requirements
- *     PRDParser, FeatureDetector, RequirementsVerifier,
+ *     PRDParser,
+  MultiDocParser, FeatureDetector, RequirementsVerifier,
  *     // Utils
  *     findProjectRoot,
  *   } = require("@multi-publish/ai-autonomous-tester");
@@ -31,6 +32,7 @@ const { PRDParser } = require("./src/parsers/prd-parser");
 const { FeatureDetector } = require("./src/detectors/feature-detector");
 const { RequirementsVerifier } = require("./src/verifier/requirements-verifier");
 const { AgentJudge } = require("./src/agent/agent-judge");
+const { MultiDocParser } = require("./src/parsers/multi-doc-parser");
 const { findProjectRoot } = require("./src/utils/path-resolver");
 
 module.exports = {
@@ -52,6 +54,7 @@ module.exports = {
 
   // Requirements Verification
   PRDParser,
+  MultiDocParser,
   FeatureDetector,
   RequirementsVerifier,
 

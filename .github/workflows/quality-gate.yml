@@ -160,6 +160,7 @@ jobs:
             --src="apps/desktop/src" `
             --skip-server `
             --skip-visual `
+            --docs="01-docs/PRD.md" `
             --llm=$(if ($env:OPENAI_API_KEY) { "openai" } else { "" }) `
             --threshold="0.5" 2>&1
           

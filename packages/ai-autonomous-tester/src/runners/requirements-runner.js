@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RequirementsTestRunner - 需求验证运行器
  *
  * 默认路径 (v0.5.0+):
@@ -24,6 +24,7 @@
 
 const { BaseTestRunner } = require("./base-runner");
 const { RequirementsVerifier } = require("../verifier/requirements-verifier");
+const { MultiDocParser } = require("../parsers/multi-doc-parser");
 const { AgentJudge } = require("../agent/agent-judge");
 
 class RequirementsTestRunner extends BaseTestRunner {
@@ -39,6 +40,11 @@ class RequirementsTestRunner extends BaseTestRunner {
 
   async runTests(context = {}) {
     // 跳过条件：既无 prdPath 也无外部 facts
+    // Multi-doc mode: parse all docs then judge
+    if (context.docPaths && context.docPaths.length > 0 && !context.facts) {
+      return this._runWithMultiDocs(context);
+    }
+
     if (!context.prdPath && !context.facts) {
       return {
         type: "requirements",
@@ -61,6 +67,31 @@ class RequirementsTestRunner extends BaseTestRunner {
   /**
    * 新主路径：facts 采集 → Agent 语义判断 → verdict → details
    */
+    /**
+   * Multi-doc mode: parse all docPaths + code features, then AgentJudge
+   */
+  async _runWithMultiDocs(context) {
+    const parser = new MultiDocParser({ prdParser: this.verifier?.prdParser });
+    const docResult = await parser.parseAll(context.docPaths);
+    const { FeatureDetector } = require("../detectors/feature-detector");
+    const detector = new FeatureDetector();
+    const implItems = await detector.detect(context.srcDir || "src");
+    const facts = { prdItems: docResult.items, implItems, docSources: docResult.sources };
+    const judgeContext = { facts, task: context.task || "coverage" };
+    if (context.llmFn) judgeContext.llmFn = context.llmFn;
+    const verdict = await this.judge.judge(judgeContext);
+    if (verdict._mode === "prompt") {
+      const details = facts.prdItems.map(p => ({ testName: p.name, status: "PASSED", type: "pending-agent-judgment", _agentRequired: true }));
+      return { type: "requirements", summary: this.summarize(details), details, coverageRate: 0, totalPrdFeatures: facts.prdItems.length, totalImplementedFeatures: facts.implItems.length, docSources: docResult.sources, _verdict: verdict, _facts: facts, _mode: "agent-required" };
+    }
+    const details = (verdict.items || []).map(it => {
+      const s = it.status === "COVERED" ? "PASSED" : it.status === "NOT_IMPLEMENTED" ? "FAILED" : "PASSED";
+      return { testName: it.prdFeature, status: s, type: it.status.toLowerCase(), matchedImpl: it.matchedImpl || "", evidence: it.evidence || "", reasoning: it.reasoning || "" };
+    });
+    const summary = this.summarize(details);
+    return { type: "requirements", summary, details, coverageRate: verdict.summary?.coverageRate ?? 0, totalPrdFeatures: facts.prdItems.length, totalImplementedFeatures: facts.implItems.length, docSources: docResult.sources, _verdict: verdict, _facts: facts, _decision: verdict.decision };
+  }
+
   async _runWithAgentJudge(context) {
     let facts = context.facts;
     if (!facts) {

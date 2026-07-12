@@ -1,0 +1,176 @@
+﻿const fs = require("fs");
+const path = require("path");
+const { PRDParser } = require("./prd-parser");
+
+// Document type detection rules
+const DOC_RULES = [
+  { pattern: /prd/i,            type: "prd",         label: "PRD 需求文档" },
+  { pattern: /readme/i,         type: "readme",      label: "项目说明" },
+  { pattern: /arch/i,           type: "architecture",label: "架构文档" },
+  { pattern: /design/i,         type: "design",      label: "设计文档" },
+  { pattern: /integration/i,    type: "integration", label: "集成说明" },
+  { pattern: /changelog/i,      type: "changelog",   label: "变更日志" },
+  { pattern: /manual|guide|使用说明|用户手册/i, type: "manual", label: "用户手册" },
+];
+
+const NON_FEATURE_SECTIONS = [
+  "概述", "背景", "简介", "安装", "快速开始",
+  "贡献", "许可", "License", "安装说明", "技术栈",
+  "前置条件", "环境要求", "项目结构", "目录结构",
+];
+
+class MultiDocParser {
+  constructor(options = {}) {
+    this.prdParser = options.prdParser || new PRDParser(options);
+    this.strictMode = options.strictMode !== false;
+  }
+
+  async parseAll(docPaths) {
+    const paths = Array.isArray(docPaths) ? docPaths : [docPaths];
+    const results = [];
+
+    for (const docPath of paths) {
+      if (!fs.existsSync(docPath)) {
+        console.warn("[MultiDocParser] 文件不存在，跳过:", docPath);
+        continue;
+      }
+      const docType = this._detectType(docPath);
+      const items = await this._parseOne(docPath, docType);
+      results.push({ type: docType.type, label: docType.label, path: docPath, items, itemCount: items.length });
+    }
+
+    // Dedup by name
+    const seen = new Set();
+    const allItems = [];
+    for (const r of results) {
+      for (const item of r.items) {
+        const key = item.name.toLowerCase().trim();
+        if (!seen.has(key)) {
+          seen.add(key);
+          allItems.push({ ...item, sourceDoc: r.type });
+        }
+      }
+    }
+
+    return {
+      items: allItems,
+      sources: results.map(r => ({ type: r.type, label: r.label, path: r.path, itemCount: r.itemCount })),
+    };
+  }
+
+  _detectType(filePath) {
+    const basename = path.basename(filePath);
+    for (const rule of DOC_RULES) {
+      if (rule.pattern.test(basename)) return { type: rule.type, label: rule.label };
+    }
+    return { type: "other", label: basename };
+  }
+
+  async _parseOne(filePath, docType) {
+    switch (docType.type) {
+      case "prd": return this.prdParser.parse(filePath);
+      case "readme": return this._parseReadme(filePath);
+      case "architecture":
+      case "design":
+      case "integration":
+      case "manual":
+        return this._parseStructuredDoc(filePath, docType);
+      case "changelog": return this._parseChangelog(filePath);
+      default: return this._parseGeneric(filePath);
+    }
+  }
+
+  async _parseReadme(filePath) {
+    const content = fs.readFileSync(filePath, "utf8");
+    const sections = this.prdParser.splitSections(content);
+    const items = [];
+
+    for (const section of sections) {
+      const title = section.title.toLowerCase();
+      if (/功能|特性|feature|capability|能力|亮点|highlights/.test(title)) {
+        items.push(...this.prdParser.extractFeatures(section));
+      }
+      if (/快速开始|quick.?start|使用|usage|示例|example/.test(title)) {
+        const steps = this.prdParser.extractFeatures(section);
+        for (const s of steps) s._tag = "usage-flow";
+        items.push(...steps);
+      }
+    }
+    for (const item of items) item.source = "readme";
+    return items;
+  }
+
+  async _parseStructuredDoc(filePath, docType) {
+    const content = fs.readFileSync(filePath, "utf8");
+    const sections = this.prdParser.splitSections(content);
+    const items = [];
+    const skipKw = NON_FEATURE_SECTIONS.map(s => s.toLowerCase());
+
+    for (const section of sections) {
+      const title = section.title.toLowerCase();
+      if (skipKw.some(k => title.includes(k))) continue;
+      if (section.level >= 2) {
+        const feats = this.prdParser.extractFeatures(section);
+        for (const f of feats) {
+          const fn = f.name.toLowerCase();
+          if (fn.length < 5 || skipKw.some(k => fn.includes(k))) continue;
+          f.source = docType.type;
+          items.push(f);
+        }
+      }
+    }
+    return items;
+  }
+
+  async _parseChangelog(filePath) {
+    const content = fs.readFileSync(filePath, "utf8");
+    const lines = content.split(/\r?\n/);
+    const items = [];
+    let capturing = false;
+    let versionsSeen = 0;
+
+    for (const line of lines) {
+      const verMatch = line.match(/^##\s+\[([^\]]+)\]/);
+      if (verMatch) {
+        versionsSeen++;
+        capturing = versionsSeen <= 2;
+        continue;
+      }
+      if (!capturing) continue;
+
+      // Under "新增" section, extract list items
+      if (/新增|add|feature/i.test(line)) continue;
+      const listMatch = line.match(/^\s*[-*+]\s+(.+)/);
+      if (listMatch) {
+        const text = listMatch[1].trim();
+        if (text.length > 5 && !text.startsWith("**")) {
+          items.push({
+            id: "chg_" + Math.random().toString(36).substr(2, 9),
+            name: text.replace(/^\[.*?\]\s*/, ""),
+            completed: true,
+            type: "changelog",
+            source: "changelog",
+          });
+        }
+      }
+    }
+    return items;
+  }
+
+  async _parseGeneric(filePath) {
+    const content = fs.readFileSync(filePath, "utf8");
+    const sections = this.prdParser.splitSections(content);
+    const items = [];
+    for (const section of sections) {
+      if (section.level >= 2) {
+        const feats = this.prdParser.extractFeatures(section);
+        for (const f of feats) {
+          if (f.name.trim().length >= 5) { f.source = "other"; items.push(f); }
+        }
+      }
+    }
+    return items;
+  }
+}
+
+module.exports = { MultiDocParser };
