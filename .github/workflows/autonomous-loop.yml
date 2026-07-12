@@ -8,6 +8,14 @@
 #   - 触发方式：手动 dispatch 或 PR 标签触发
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/src/**"
+      - "apps/desktop/tests/visual-testing/**"
+      - "packages/ai-autonomous-tester/**"
+      - "01-docs/PRD.md"
+      - ".github/workflows/autonomous-loop.yml"
   workflow_dispatch:
     inputs:
       iterations:
@@ -123,3 +131,4 @@ jobs:
             Write-Host "::error::Autonomous loop FAILED - see artifacts for details"
             exit 1
           }
+

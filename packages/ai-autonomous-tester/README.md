@@ -1,4 +1,4 @@
-# @multi-publish/ai-autonomous-tester
+﻿# @multi-publish/ai-autonomous-tester
 
 > AI 全自动前端测试框架 + 需求验证。
 > **框架只做事实采集，语义判断由 Agent（你）用自带 LLM 完成。**
@@ -110,7 +110,52 @@ node scripts/run-agent-judge.js \
 | 2 | NEED_HUMAN | 无 LLM 或 LLM 不确定，需人工审查 |
 | 3 | INFRA_ERROR | 文件缺失、API 错误等 |
 
-### 作为库使用
+
+### 统一端到端命令（v0.12+）
+
+`ash
+# 单次检测（默认，像素对比 + 需求审计）
+node scripts/run-autonomous-e2e.js --dev=apps/desktop
+
+# 多轮自主循环（3 轮，含功能测试 + 多文档审计）
+node scripts/run-autonomous-e2e.js \
+  --iterations=3 \
+  --functional \
+  --docs="01-docs/PRD.md,README.md"
+
+# CI 模式（跳过 server 和 visual，仅审计）
+node scripts/run-autonomous-e2e.js \
+  --skip-server --skip-visual --llm=openai
+`
+
+#### 参数说明
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| --iterations=N | 1 | 多轮循环次数（>1 启用 TestOrchestrator） |
+| --functional | false | 启用 Playwright 交互功能测试 |
+| --docs="a,b" | "PRD.md" | 多文档审计路径（支持 PRD/README/ARCH/...） |
+| --llm=openai | none | LLM provider（openai/anthropic/留空=prompt包） |
+| --skip-server | false | 跳过 dev server 启动 |
+| --skip-visual | false | 跳过视觉测试 |
+| --threshold=0.5 | 0.5 | 覆盖率阈值 |
+| --auto-fix-visual | false | 自动更新视觉基线 |
+
+#### npm scripts
+`ash
+# 全自主 3 轮循环
+npm run test:autonomous:full
+
+# 仅功能测试
+npm run test:autonomous:functional
+
+# 仅多文档覆盖审计
+npm run test:autonomous:multi-doc
+
+# CI 模式（需设置 LLM_PROVIDER）
+npm run test:autonomous:e2e:ci
+`
+
+---### 作为库使用
 
 ```javascript
 const {
@@ -257,7 +302,23 @@ on:
 
 **PR 评论示例**：
 ```
-## ✅ AI Agent Judge — Coverage Audit
+
+### 全自动多轮循环（v0.12+）
+
+Workflow: utonomous-loop.yml
+
+- **触发**：push main / PR labeled / 手动 dispatch
+- **行为**：启动 dev server → 像素对比 → 功能测试 → 多文档审计 → 修复 → 重测（最多 N 轮）
+- **基线管理**：Agent 智能判断 diff 是否预期变更，自动更新 baseline
+- **修复脚本**：生成 uto-fix-commands.bat 和 patches/*.patch 供 Agent 执行
+- **报告**：每轮输出 JSON + Markdown 报告，归档 artifacts
+
+`yaml
+# 手动触发
+gh workflow run autonomous-loop.yml -f iterations=3 -f functional=true
+`
+
+---## ✅ AI Agent Judge — Coverage Audit
 
 **Decision**: PASS  **Score**: 0.85  **Coverage**: 100.0%
 
