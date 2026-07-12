@@ -1,3 +1,16 @@
+## @visual-test-runner/core - 独立视觉测试 npm 包 (2026-07-12)
+
+抽取为独立 npm 包，供其他项目复用。
+
+核心变更：
+- 像素对比+OCR 核心逻辑抽成 packages/visual-test-runner/ monorepo 包
+- 支持 require("@visual-test-runner/core") 方式跨项目复用
+- 环境变量配置（TEST_URL/TEST_SCREENSHOT_DIR 等），无需改代码即可适配不同项目
+- agent-visual-judge.js 支持 Agent 视觉判断，无需任何外部 Key
+
+文件结构：packages/visual-test-runner/ + index.js + src/test-runner.js + src/providers/{pixel-diff,ocr}.js + scripts/{run-pixel-tests.template,agent-visual-judge}.js
+
+---
 
 ## [审查复盘] 视觉测试框架三大历史隐患修复 (2026-07-12)
 

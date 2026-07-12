@@ -1,0 +1,29 @@
+{
+  "name": "@visual-test-runner/core",
+  "version": "1.0.0",
+  "description": "跨项目视觉测试运行器：像素对比+OCR+Agent视觉判断，无需外部API Key",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./runner": "./src/test-runner.js",
+    "./pixel-diff": "./src/providers/pixel-diff.js",
+    "./ocr": "./src/providers/ocr.js"
+  },
+  "scripts": {
+    "test:pixel": "node scripts/run-pixel-tests.js",
+    "test:agent": "node scripts/agent-visual-judge.js"
+  },
+  "dependencies": {
+    "playwright": "^1.61.1",
+    "resemblejs": "^4.1.0",
+    "tesseract.js": "^5.1.1"
+  },
+  "keywords": [
+    "visual-testing",
+    "pixel-diff",
+    "ocr",
+    "playwright",
+    "e2e"
+  ],
+  "license": "MIT"
+}
