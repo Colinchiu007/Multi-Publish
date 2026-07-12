@@ -418,15 +418,17 @@ async function executeStep(page, step) {
   
   if (step.waitMs) await page.waitForTimeout(step.waitMs);
 }
-// CLI 入口
-const args = process.argv.slice(2);
-if (args[0] === '--single' && args[1]) {
-  runSingleWorkflow(args[1]);
-} else if (args[0] === '--list') {
-  console.log('可用的工作流测试:');
-  workflowTests.forEach(w => console.log(`  - ${w.name}`));
-} else {
-  runAllWorkflowTests();
+// CLI 入口（仅当直接调用此文件时执行，被 require() 时不触发副作用）
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  if (args[0] === '--single' && args[1]) {
+    runSingleWorkflow(args[1]);
+  } else if (args[0] === '--list') {
+    console.log('可用的工作流测试:');
+    workflowTests.forEach(w => console.log(`  - ${w.name}`));
+  } else {
+    runAllWorkflowTests();
+  }
 }
 
 // 单独测试某个工作流

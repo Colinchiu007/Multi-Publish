@@ -260,15 +260,17 @@ async function runSingleView(viewName) {
   await runner.close();
 }
 
-// CLI 入口
-const args = process.argv.slice(2);
-if (args[0] === '--single' && args[1]) {
-  runSingleView(args[1]);
-} else if (args[0] === '--list') {
-  console.log('可用的视图测试:');
-  viewTests.forEach(v => console.log(`  - ${v.name}`));
-} else {
-  runAllViewTests();
+// CLI 入口（仅当直接调用此文件时执行，被 require() 时不触发副作用）
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  if (args[0] === '--single' && args[1]) {
+    runSingleView(args[1]);
+  } else if (args[0] === '--list') {
+    console.log('可用的视图测试:');
+    viewTests.forEach(v => console.log(`  - ${v.name}`));
+  } else {
+    runAllViewTests();
+  }
 }
 
 module.exports = { viewTests, runAllViewTests, runSingleView };
