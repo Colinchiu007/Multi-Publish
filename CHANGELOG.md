@@ -1,4 +1,39 @@
 ﻿
+## [增强] ai-autonomous-tester v0.2.0 (2026-07-13)
+
+应用质量节拍技能第 3 轮。
+
+### 新增导出
+
+- `PRDParser` - 解析 Markdown PRD，支持复选框/编号列表/三级编号标题
+- `FeatureDetector` - 从路由/API 端点检测已实现功能
+- `RequirementsVerifier` - 比对 PRD 与实现，计算覆盖率
+
+### 业务脚本迁移到包 API
+
+- `apps/desktop/tests/visual-testing/scripts/visual-ci.js` 改用包内 VisualTestRunner
+- `apps/desktop/tests/visual-testing/scripts/run-pixel-tests.js` 改用包 API
+
+### Bug 修复
+
+- PRDParser: 兼容 CRLF/LF 行尾
+- PRDParser: 仅按 ## 切分，### 作为内容保留
+- PRDParser: 默认包含叙述式三级标题 (`### 1.1 xxx`)
+
+### 验证结果
+
+```
+exports: 10 个 (PixelDiffProvider, OCRProvider, VisualTestRunner,
+        TestOrchestrator, AIAnalyzer, FixEngine, PRDParser,
+        FeatureDetector, RequirementsVerifier, findProjectRoot)
+
+PRD Parser: 从 01-docs/PRD.md 提取 11 个功能
+Feature Detector: 从 apps/desktop/src 检测 18 个实现功能
+Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
+```
+
+---
+
 ## [重构] 视觉测试框架模块化 (2026-07-13)
 
 应用质量节拍技能，将视觉测试框架从 `apps/desktop/tests/visual-testing/` 抽取为独立 npm 包。
@@ -1527,6 +1562,7 @@
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 
