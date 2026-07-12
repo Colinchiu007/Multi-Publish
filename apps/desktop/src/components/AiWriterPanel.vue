@@ -124,13 +124,22 @@ const styles = [
 const api = () => window.electronAPI
 
 function goToProviders() {
-  router.push("/providers")
+  router.push("/model-providers")
   emit("close")
 }
 
 async function checkConfig() {
   const a = api()
   if (!a) return
+  // 优先使用新的模型服务商 API
+  if (a.modelProviderIsConfigured) {
+    const res = await a.modelProviderIsConfigured('llm')
+    if (res && res.code === 0) {
+      configured.value = res.data
+      return
+    }
+  }
+  // 降级使用旧的 aiIsConfigured
   const res = await a.aiIsConfigured()
   if (res && res.code === 0) configured.value = res.data
 }

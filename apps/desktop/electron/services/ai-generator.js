@@ -2,11 +2,13 @@
 /**
  * AIGenerator — 桥接 Python AI 工具链
  * 通过 python-bridge 调用视频/图像/音频/TTS 等 AI 生成工具
+ *
+ * 配置读取已委托给 model-provider-manager，本模块保留 PROVIDERS 注册表作为回退
  */
 
 const path = require('path');
 
-// --- Provider 注册表（与 Python 后端 video_creation/providers/ 同步，v2.3.43）---
+// --- Provider 注册表（回退用，优先从 model-provider-manager 读取）---
 const PROVIDERS = {
   video: [
     { id: 'hunyuan', name: '腾讯混元', description: 'Hunyuan 视频生成', models: ['hunyuan-video'], apiRequired: true },
@@ -52,7 +54,13 @@ const PROVIDERS = {
 class AIGenerator {
   constructor() {
     this._configs = new Map();
+    this._modelProviderManager = null;
     this._initDefaults();
+  }
+
+  /** 设置 model-provider-manager 引用（延迟注入，避免循环依赖） */
+  setModelProviderManager(mpm) {
+    this._modelProviderManager = mpm;
   }
 
   _initDefaults() {
@@ -72,14 +80,30 @@ class AIGenerator {
     }
   }
 
-  /** 获取 Provider 列表（按类型） */
+  /** 获取 Provider 列表（按类型）—— 优先从 model-provider-manager 读取 */
   listProviders(type) {
+    // 尝试从 model-provider-manager 读取
+    if (this._modelProviderManager && this._modelProviderManager._ready) {
+      const categoryMap = { video: 'video', image: 'image', audio: 'audio', tts: 'tts' };
+      const category = categoryMap[type];
+      if (category) {
+        const providers = this._modelProviderManager.listProviders(category);
+        if (providers.length > 0) return providers;
+      }
+    }
+    // 回退到本地注册表
     if (type) return PROVIDERS[type] || [];
     return PROVIDERS;
   }
 
   /** 获取 Provider 配置（不含 apiKey) */
   getProviderConfig(providerId) {
+    // 尝试从 model-provider-manager 读取
+    if (this._modelProviderManager && this._modelProviderManager._ready) {
+      const config = this._modelProviderManager.getProvider(providerId);
+      if (config) return config;
+    }
+    // 回退到内存配置
     const config = this._configs.get(providerId);
     if (!config) return null;
     const { apiKey, ...safe } = config;  // eslint-disable-line no-unused-vars
@@ -88,13 +112,26 @@ class AIGenerator {
 
   /** 获取可用模型列表 */
   listModels(providerId) {
+    // 尝试从 model-provider-manager 读取
+    if (this._modelProviderManager && this._modelProviderManager._ready) {
+      const config = this._modelProviderManager.getProvider(providerId);
+      if (config) return config.models || [];
+    }
+    // 回退到内存配置
     const config = this._configs.get(providerId);
     return config ? [...config.models] : [];
   }
 
   /** 生成——通过 python-bridge 调用 Python 后端 */
   async generate(type, providerId, params, onProgress) {
-    const config = this._configs.get(providerId);
+    // 从 model-provider-manager 或内存获取配置
+    let config = null;
+    if (this._modelProviderManager && this._modelProviderManager._ready) {
+      config = this._modelProviderManager.getProviderWithKey(providerId);
+    }
+    if (!config) {
+      config = this._configs.get(providerId);
+    }
     if (!config) throw new Error('Unknown provider: ' + providerId);
 
     // 通过 python-bridge 调用后端 API
@@ -115,6 +152,11 @@ class AIGenerator {
 
   /** 测试 Provider 连接 */
   async testConnection(providerId) {
+    // 优先使用 model-provider-manager
+    if (this._modelProviderManager && this._modelProviderManager._ready) {
+      return this._modelProviderManager.testConnection(providerId);
+    }
+    // 回退
     const config = this._configs.get(providerId);
     if (!config) return { success: false, error: 'Unknown provider' };
     if (!config.apiKey) return { success: false, error: 'API Key not configured' };
@@ -123,6 +165,11 @@ class AIGenerator {
 
   /** 更新 Provider 配置 */
   updateProviderConfig(providerId, updates) {
+    // 同步更新到 model-provider-manager
+    if (this._modelProviderManager && this._modelProviderManager._ready) {
+      this._modelProviderManager.updateProvider(providerId, updates);
+    }
+    // 同步更新内存配置
     const config = this._configs.get(providerId);
     if (!config) return false;
     Object.assign(config, updates);

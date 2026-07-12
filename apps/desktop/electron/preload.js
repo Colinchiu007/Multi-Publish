@@ -178,6 +178,18 @@ const api = {
   aiGenerateTitles: (topic) => ipcRenderer.invoke('ai:generate-titles', topic),
   aiEnhanceContent: (content, style) => ipcRenderer.invoke('ai:enhance-content', content, style),
   aiGenerateSummary: (content) => ipcRenderer.invoke('ai:generate-summary', content),
+
+  // ═══ 模型服务商管理 API ═══
+  modelProviderList: (category) => ipcRenderer.invoke('model-provider:list', category),
+  modelProviderGet: (id) => ipcRenderer.invoke('model-provider:get', id),
+  modelProviderCreate: (data) => ipcRenderer.invoke('model-provider:create', data),
+  modelProviderUpdate: (id, data) => ipcRenderer.invoke('model-provider:update', id, data),
+  modelProviderDelete: (id) => ipcRenderer.invoke('model-provider:delete', id),
+  modelProviderSetDefault: (category, id) => ipcRenderer.invoke('model-provider:set-default', category, id),
+  modelProviderGetDefault: (category) => ipcRenderer.invoke('model-provider:get-default', category),
+  modelProviderTest: (id) => ipcRenderer.invoke('model-provider:test', id),
+  modelProviderPresets: (category) => ipcRenderer.invoke('model-provider:presets', category),
+  modelProviderIsConfigured: (category) => ipcRenderer.invoke('model-provider:is-configured', category),
   onAIProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:progress', h); return () => ipcRenderer.removeListener('ai:progress', h); },
   onAIComplete: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:complete', h); return () => ipcRenderer.removeListener('ai:complete', h); },
   onAIError: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:error', h); return () => ipcRenderer.removeListener('ai:error', h); },
