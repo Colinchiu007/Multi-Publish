@@ -1,4 +1,4 @@
-name: quality-gate
+﻿name: quality-gate
 
 on:
   push:
@@ -141,50 +141,49 @@ jobs:
           } else {
             Write-Host "[GATE-7] All pixel diff tests passed"
           }
-      # --- Gate 8: PRD 需求覆盖审计（AI AgentJudge）---
-      - name: "Gate 8 - PRD 需求覆盖审计 (AgentJudge)"
+      # --- Gate 8: 全自动端到端测试（统一 E2E 脚本 v0.11.0）---
+      - name: "Gate 8 - 全自动端到端测试 (Unified E2E)"
         id: coverage-gate
         continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          Write-Host "=== Gate 8: PRD Coverage Audit ==="
-          Write-Host "Running AgentJudge to verify PRD requirements coverage..."
+          Write-Host "=== Gate 8: Unified Autonomous E2E Test ==="
+          Write-Host "Running unified E2E script (coverage audit)..."
           
           # 安装依赖
           npm ci 2>&1 | Out-Null
           
-          # 运行 AgentJudge
-          $output = node packages/ai-autonomous-tester/scripts/run-agent-judge.js `
+          # 运行统一 E2E 脚本（跳过 server 和 visual 因为已在 Gate 7 完成）
+          $output = node packages/ai-autonomous-tester/scripts/run-autonomous-e2e.js `
             --prd="01-docs/PRD.md" `
             --src="apps/desktop/src" `
-            --llm=$(if ($env:OPENAI_API_KEY) { "openai" } else { "none" }) `
-            --threshold="0.5" `
-            --out="apps/desktop/tests/visual-testing/reports" 2>&1
+            --skip-server `
+            --skip-visual `
+            --llm=$(if ($env:OPENAI_API_KEY) { "openai" } else { "" }) `
+            --threshold="0.5" 2>&1
           
           Write-Host $output
           
-          # 提取退出码
+          # 提取退出码（0=PASS, 1=FAIL, 2=INFRA_ERROR）
           $exitCode = $LASTEXITCODE
-          Write-Host "AgentJudge exit code: $exitCode"
+          Write-Host "Unified E2E exit code: $exitCode"
           
           # 输出结果供后续步骤使用
           if ($exitCode -eq 0) {
-            Write-Host "[GATE-8] PASS - PRD coverage is acceptable"
+            Write-Host "[GATE-8] PASS - All tests passed"
             echo "COVERAGE_GATE=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           } elseif ($exitCode -eq 1) {
-            Write-Host "[GATE-8] FAIL - PRD requirements not fully covered"
+            Write-Host "[GATE-8] FAIL - Visual or coverage test failed"
+            Write-Host "[GATE-8] See report in artifacts for details"
             echo "COVERAGE_GATE=FAIL" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            # 没有 API Key 时不阻塞（因为只是提示），有 Key 时阻塞
+            # 无 API Key 时不阻塞（提示 Agent 读报告），有 Key 时阻塞
             if ($env:OPENAI_API_KEY) {
-              Write-Host "[GATE-8] Blocking PR - fix uncovered requirements"
+              Write-Host "[GATE-8] Blocking PR - fix failed tests"
               exit 1
             } else {
-              Write-Host "[GATE-8] Non-blocking (no API Key - manual review needed)"
+              Write-Host "[GATE-8] Non-blocking (no API Key - Agent must review report)"
             }
-          } elseif ($exitCode -eq 2) {
-            Write-Host "[GATE-8] NEED_HUMAN - Agent must review the prompt package"
-            echo "COVERAGE_GATE=NEED_HUMAN" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           } else {
             Write-Host "[GATE-8] INFRA_ERROR - see details above"
             echo "COVERAGE_GATE=INFRA_ERROR" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append

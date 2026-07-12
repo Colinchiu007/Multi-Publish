@@ -1,4 +1,29 @@
+﻿
+## [质量门禁] quality-gate.yml Gate 8 升级到统一 E2E 脚本 v0.11.0 (2026-07-13)
 
+应用质量节拍第 13 轮：将 quality-gate.yml 的 Gate 8 从旧版 run-agent-judge.js 升级到新版 run-autonomous-e2e.js。
+
+### 改动
+- **Gate 8 升级**：使用 un-autonomous-e2e.js 统一端到端脚本替代 un-agent-judge.js
+- **更全面的检测**：统一脚本同时覆盖视觉回归和 PRD 覆盖审计
+- **退出码精简**：0=PASS / 1=FAIL / 2=INFRA_ERROR，消除 NEED_HUMAN 歧义
+- **CI 兼容**：使用 --skip-server --skip-visual 模式，复用 Gate 7 的 Vite 服务器
+- **无 Key 友好**：无 API Key 时非阻塞退出，Agent 读报告做人工判断
+
+### 质量门禁全貌（8 道）
+
+`
+Gate 1  TypeScript 编译检查         阻塞
+Gate 2  JS 语法检查                 阻塞
+Gate 3  硬编码密钥扫描               阻塞
+Gate 4  单元测试                     阻塞
+Gate 5  测试覆盖率检查               非阻塞
+Gate 6  IPC bridge 完整性            非阻塞
+Gate 7  视觉回归测试 (像素对比)       阻塞
+Gate 8  全自动端到端测试 (Unified E2E) 有Key阻塞/无Key提示
+`
+
+---
 ## [端到端] ai-autonomous-tester v0.11.0 - 统一 E2E 测试脚本 (2026-07-13)
 
 应用质量节拍第 12 轮：创建统一端到端自主测试命令。
