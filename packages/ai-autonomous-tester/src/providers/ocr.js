@@ -5,6 +5,7 @@
  *   const text = await ocr.extractText(screenshotPath);
  */
 
+const path = require("path");
 const Tesseract = require('tesseract.js');
 const fs = require('fs');
 

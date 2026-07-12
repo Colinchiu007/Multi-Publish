@@ -138,8 +138,8 @@ class MultiDocParser {
       }
       if (!capturing) continue;
 
-      // Under "新增" section, extract list items
-      if (/新增|add|feature/i.test(line)) continue;
+      // Skip heading lines, only extract list items
+      if (/^#{1,3}\s/.test(line)) continue;
       const listMatch = line.match(/^\s*[-*+]\s+(.+)/);
       if (listMatch) {
         const text = listMatch[1].trim();
