@@ -1,4 +1,33 @@
 
+## [集成] ai-autonomous-tester v0.10.0 - 集成测试 + 55/55 (2026-07-13)
+
+### 新增
+
+- **orchestrator-integration.test.js**（5 个集成测试场景）：
+  - Scenario 1: 无 LLM → verdict._mode=prompt → NEED_HUMAN ✓
+  - Scenario 2: LLM FAIL → FIX_AND_RETRY + FixEngine 2/2 fixes ✓
+  - Scenario 3: LLM PASS → STOP_SUCCESS ✓
+  - Scenario 4: 像素回归 → FIX_AND_RETRY ✓
+  - Scenario 5: 视觉 diff + AgentJudge verdict → FIX_AND_RETRY ✓
+- **总数 55/55 全部通过**（50 单元 + 5 集成）
+- package.json 新增 `test:integration`、`test:all` 脚本
+
+### 覆盖场景
+
+```
+单元测试 (50)          集成测试 (5)
+┌─────────────┐        ┌──────────────────┐
+│ PRDParser     8      │ 无 LLM → NEED_HUMAN │
+│ AgentJudge   11      │ LLM FAIL → 修复    │
+│ Requirements 5       │ LLM PASS → 成功    │
+│ FixEngine     8      │ 视觉回归 → 修复    │
+│ AIAnalyzer   11      │ 视觉判断 → 修复    │
+│ FeatureDetec  7      └──────────────────┘
+└─────────────┘
+```
+
+---
+
 ## [文档] ai-autonomous-tester v0.9.1 - README + root test 集成 (2026-07-13)
 
 ### 新增
