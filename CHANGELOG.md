@@ -1,4 +1,31 @@
 ﻿
+## [增强] ai-autonomous-tester v0.4.0 - 需求匹配算法升级 (2026-07-13)
+
+应用质量节拍第 5 轮：提升 PRD ↔ 代码匹配精度。
+
+### 改进
+
+- FeatureDetector 重写为多维度检测：Routes / Nav / Page Titles / Test IDs / Keywords
+- RequirementsVerifier 改为多策略评分：子串 (0.85) / Token 重合 (0.5-0.85) / 同义词 (0.4-0.7)
+- 添加 SYNONYM_GROUPS 同义词表（中英文互通）
+- 添加 matchScore() / _findBestMatch() 公开评分 API
+
+### 发现
+
+之前的"100% 覆盖率"是 mojibake 假阳性（PowerShell 编码问题导致中文 key 互相匹配）。
+修复编码后真实覆盖率是 18.2%，反映叙述式 PRD 与代码匹配的固有难度：
+- 叙述式句子（"读取目标平台配置 platforms.yaml"）没有对应代码标识符
+- 限流条款（"max 10/minute"）是约束不是功能名
+- 真匹配 2 个：Publish 路由、Accounts 路由
+
+### 下一步
+
+叙述式 PRD 提升需要 LLM 推理。建议：
+- 选项 A: PRD 用 `- [ ]` 列表项明确功能名
+- 选项 B: 后续增加 verifyWithLLM(llmFn) 钩子，让 Agent 做最后语义判断
+
+---
+
 ## [增强] ai-autonomous-tester v0.3.0 - 自主循环端到端 (2026-07-13)
 
 应用质量节拍第 4 轮。
@@ -1607,6 +1634,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 
