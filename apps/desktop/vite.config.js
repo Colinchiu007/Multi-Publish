@@ -9,6 +9,7 @@ export default defineConfig({
   plugins: [vue()],
   root: path.resolve(__dirname, 'src'),
   base: './',
+  // postcss.config.js 由 PostCSS 自动加载，无需在 Vite 中显式指定
   server: {
     host: '127.0.0.1',
     port: 5174,

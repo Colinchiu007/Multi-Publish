@@ -14,6 +14,20 @@ const path = require('path');
 const fs = require('fs');
 
 /**
+ * 判断是否为打包模式（非开发环境）
+ * 开发模式下 Electron 也会设置 process.resourcesPath，必须用 isPackaged 区分
+ * @returns {boolean}
+ */
+function isPackaged() {
+  try {
+    return require('electron').app.isPackaged;
+  } catch {
+    // 非 Electron 环境（如纯 Node 测试）
+    return false;
+  }
+}
+
+/**
  * 获取项目根目录
  * @returns {string} 项目根目录绝对路径
  */
@@ -24,22 +38,18 @@ function getProjectRoot() {
   }
 
   // 2. 打包模式：从 resourcesPath 向上推导
-  if (process.resourcesPath) {
-    // resourcesPath = <install-dir>/resources
-    // 项目根 = <install-dir>/resources/app.asar.unpacked (或 resources 本身)
-    // packages 通常在 resources/packages 下
+  if (isPackaged() && process.resourcesPath) {
     const resourcesPackages = path.join(process.resourcesPath, 'packages');
     if (fs.existsSync(resourcesPackages)) {
       return process.resourcesPath;
     }
-    // 如果 packages 直接在 resourcesPath 下
     return process.resourcesPath;
   }
 
   // 3. 开发模式：从 __dirname 向上推导
   // __dirname = <project>/apps/desktop/electron/services
-  // 需要 3 级 .. 到达项目根
-  return path.resolve(__dirname, '..', '..', '..');
+  // 需要 4 级 .. 到达项目根
+  return path.resolve(__dirname, '..', '..', '..', '..');
 }
 
 /**
@@ -55,7 +65,7 @@ function getComposerDir() {
   if (fs.existsSync(devPath)) return devPath;
 
   // 打包后可能在 resources/packages 下
-  if (process.resourcesPath) {
+  if (isPackaged() && process.resourcesPath) {
     const packedPath = path.join(process.resourcesPath, 'packages', 'remotion-composer');
     if (fs.existsSync(packedPath)) return packedPath;
   }
@@ -72,7 +82,7 @@ function getPythonBackendDir() {
   if (customPath) return customPath;
 
   // 打包模式
-  if (process.resourcesPath) {
+  if (isPackaged() && process.resourcesPath) {
     const packedPath = path.join(process.resourcesPath, 'python-backend');
     if (fs.existsSync(packedPath)) return packedPath;
   }
@@ -88,7 +98,7 @@ function getPythonBackendDir() {
  */
 function getConfigPath(filename) {
   // 打包模式
-  if (process.resourcesPath) {
+  if (isPackaged() && process.resourcesPath) {
     return path.join(process.resourcesPath, 'config', filename);
   }
   const root = getProjectRoot();

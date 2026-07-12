@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="pipeline-page">
     <div class="page-header">
       <h1>管线编排</h1>

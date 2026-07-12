@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="create-page">
     <div class="page-header">
       <h1>视频创作</h1>
@@ -503,7 +503,7 @@ export default {
   },
   async mounted() {
     await this.loadPipelines()
-    renderGetStatus().then(s => { this.renderStatus = s?.code === 0 ? s.data : { ready: false } }).catch(() => { this.renderStatus = { ready: false } })
+        renderGetStatus().then(s => { this.renderStatus = s?.code === 0 ? s.data : { ready: false } }).catch(() => { this.renderStatus = { ready: false } })
     this._cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this._cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
     this._cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = err?.message || err || '渲染错误' }))

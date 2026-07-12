@@ -212,6 +212,8 @@ cd apps/desktop && node ../../node_modules/electron-builder/cli.js --win --x64
 Code review 时除逻辑正确性外，必须逐项检查：
 
 - **require 路径**：每个 `require('../x')` / `require('./y')` 的解析目标文件是否真实存在
+- **preload sandbox 兼容**：修改 preload 后必须在 sandbox:true 和 sandbox:false 两种模式下验证 `window.electronAPI` 可用
+- **路径层级**：多包工作区中 `..` 层级必须用 path-utils 统一模块，禁止凭直觉估算
 - **注释语法**：`/* */` 成对出现，`* text` 开头的行必须前面有 `/*`
 - **模块导出**：`module.exports = {` 后不能有多余逗号
 - **文件 glob 覆盖**：`package.json` 的 `files` 数组必须包含所有被 require 的非 node_modules 文件

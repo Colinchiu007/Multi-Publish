@@ -35,7 +35,8 @@ class RenderEngine {
   getStatus() {
     const composerExists = fs.existsSync(path.join(COMPOSER_DIR, 'package.json'));
     // 检查根目录 node_modules（workspace hoisting）或本地 node_modules
-    const rootNodeModulesExist = fs.existsSync(path.join(COMPOSER_DIR, '..', '..', '..', 'node_modules', 'remotion'));
+    // COMPOSER_DIR = <project>/packages/remotion-composer，2 级 .. 到达项目根
+    const rootNodeModulesExist = fs.existsSync(path.resolve(COMPOSER_DIR, '..', '..', 'node_modules', 'remotion'));
     const localNodeModulesExist = fs.existsSync(path.join(COMPOSER_DIR, 'node_modules'));
     const nodeModulesExist = rootNodeModulesExist || localNodeModulesExist;
     return { ready: composerExists && nodeModulesExist, composerExists, nodeModulesExist, composerDir: COMPOSER_DIR };

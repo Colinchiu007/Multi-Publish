@@ -5,6 +5,11 @@
 ### IPC Handler 完整性
 - preload 的 ipcRenderer.invoke 都有对应的 ipcMain.handle
 
+### Preload Sandbox 兼容性
+- 修改 preload 后必须在 sandbox:true 和 sandbox:false 两种模式下验证
+- preload.js 禁止 require 子目录文件（sandbox 模式下会加载失败），必须内联或使用绝对路径
+- 验证 `window.electronAPI` 在两种模式下均可用，IPC 调用能到达主进程
+
 ### JS 语法正确性
 - node --check 必须通过所有 JS 文件
 

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 发布 API 封装 — 调用 Electron IPC
  * 所有 Vue 组件通过此文件访问 Electron IPC，不直接调用 window.electronAPI
  */

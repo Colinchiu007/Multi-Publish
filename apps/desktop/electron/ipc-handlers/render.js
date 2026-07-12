@@ -33,9 +33,10 @@ function registerHandlers(ipcMain, deps) {
   })
   ipcMain.handle('render:status', () => {
     try {
+      const status = renderEngine.getStatus()
       // R52 修复：成功路径包裹为标准格式
-      return { code: 0, data: renderEngine.getStatus() }
-    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      return { code: 0, data: status }
+    } catch (e) { log.error('[render:status] error:', e); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
   ipcMain.handle('render:install-deps', async (event) => {

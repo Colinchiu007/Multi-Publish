@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="pipeline-browser">
     <h2 class="section-title">视频创作管线</h2>
     <p class="section-desc">选择一种视频创作模式，AI 将自动完成从脚本到成片的全流程</p>
