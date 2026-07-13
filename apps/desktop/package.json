@@ -34,7 +34,8 @@
                     "test:workflow:supplement":  "node tests/visual-testing/workflows/supplementary-workflows.visual.test.js",
                     "test:functional":  "node tests/visual-testing/functional-test.js",
                     "test:autonomous-loop":  "node tests/visual-testing/autonomous-loop.js",
-                    "test:full-regression":  "node tests/visual-testing/autonomous-loop.js --max-rounds 3"
+                    "test:full-regression":  "node tests/visual-testing/autonomous-loop.js --max-rounds 3",
+                    "test:fix-loop":  "node tests/visual-testing/autonomous-fix-loop.js"
                 },
     "keywords":  [
                      "multi-publish",
@@ -126,3 +127,4 @@
                               }
               }
 }
+
