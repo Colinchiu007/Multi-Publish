@@ -69,6 +69,7 @@ class OrchestratorCommentProvider extends CommentProvider {
     }
   }
 
+  /** @returns {Promise<{success: boolean, data?: any, error?: string}>} */
   async replyComment (cookie, commentId, content) {
     if (!ORCHESTRATOR_BASE) {
       return { success: false, error: 'ORCHESTRATOR_URL 未配置，无法回复评论' }
@@ -134,7 +135,7 @@ class CommentManager {
   /**
    * 启动后台轮询
    * @param {{platform: string, accountId: string, cookie: string, interval?: number, maxDays?: number, template?: string}} opts
-   * @returns {{key: string, started: boolean}}
+   * @returns {Promise<{key: string, started: boolean, message?: string}>}
    */
   async startPolling (opts) {
     const platform = opts.platform

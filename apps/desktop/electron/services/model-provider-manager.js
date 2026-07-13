@@ -305,7 +305,7 @@ class ModelProviderManager {
   /**
    * 测试连接（模拟）
    * @param {string} id
-   * @returns {{ code: number, message?: string }}
+   * @returns {Promise<{ code: number, message?: string }>}
    */
   async testConnection (id) {
     if (!this._ready) return { code: -1, message: 'Store 未初始化' }

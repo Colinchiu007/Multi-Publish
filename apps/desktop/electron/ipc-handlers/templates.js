@@ -55,7 +55,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('template:get-presets', async () => {
     try {
-      const { TemplateManager } = require('../services/template-manager')
+      const TemplateManager = require('../services/template-manager')
       return { code: 0, data: TemplateManager.getPresets() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })

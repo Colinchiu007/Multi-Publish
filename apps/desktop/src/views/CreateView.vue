@@ -319,7 +319,7 @@ export default {
       // 历史
       history: [], historyLoading: false,
       // 清理
-      _cleanups: [],
+      cleanups: [],
       quickModes: [
         { value: 'text', label: '文案生成' },
         { value: 'gallery', label: '图片轮播' },
@@ -525,13 +525,13 @@ export default {
     await this.loadPipelines()
     this.loadLlmProviders()
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 ? s.data : { ready: false } }).catch(() => { this.renderStatus = { ready: false } })
-    this._cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
-    this._cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
-    this._cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = err?.message || err || '渲染错误' }))
-    this._cleanups.push(onRenderInstallProgress(({ text }) => { this.installLog += text + '\n' }))
+    this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
+    this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
+    this.cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = err?.message || err || '渲染错误' }))
+    this.cleanups.push(onRenderInstallProgress(({ text }) => { this.installLog += text + '\n' }))
   },
   beforeUnmount() {
-    this._cleanups.forEach(fn => { try { fn() } catch(e) {} })
+    this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
     if (this.pollTimer) clearInterval(this.pollTimer)
   },
 }

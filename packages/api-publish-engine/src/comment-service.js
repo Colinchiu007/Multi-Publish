@@ -4,6 +4,7 @@
 // CommentProvider 基类 — 各平台需继承
 class CommentProvider {
   async getCommentList(cookie, params) { throw new Error("subclass must implement getCommentList"); }
+  /** @returns {Promise<{success: boolean, data?: any, error?: string}>} */
   async replyComment(cookie, commentId, content) { throw new Error("subclass must implement replyComment"); }
 }
 
