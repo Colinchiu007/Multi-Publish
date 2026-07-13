@@ -35,7 +35,8 @@
                     "test:functional":  "node tests/visual-testing/functional-test.js",
                     "test:autonomous-loop":  "node tests/visual-testing/autonomous-loop.js",
                     "test:full-regression":  "node tests/visual-testing/autonomous-loop.js --max-rounds 3",
-                    "test:fix-loop":  "node tests/visual-testing/autonomous-fix-loop.js"
+                    "test:fix-loop":  "node tests/visual-testing/autonomous-fix-loop.js",
+                    "test:enforce":  "node tests/visual-testing/autonomous-enforce-loop.js"
                 },
     "keywords":  [
                      "multi-publish",
@@ -127,4 +128,5 @@
                               }
               }
 }
+
 
