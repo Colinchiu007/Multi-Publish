@@ -403,7 +403,19 @@ async function autonomousFixLoop() {
   console.log('║   发现 → 分类 → 修复建议 → 验证 → 循环                     ║');
   console.log('╚══════════════════════════════════════════════════════════════╝\n');
   
-  const startTime = Date.now();
+  // 连接检查
+log(c.blue, '检查 dev server...');
+const http = require('http');
+const checkServer = () => new Promise(resolve => {
+  http.get(BASE_URL, () => resolve(true)).on('error', () => resolve(false));
+});
+if (!(await checkServer())) {
+  log(c.red, '❌ Dev server 未运行! 请先启动: cd apps/desktop && npx vite --port 5174');
+  process.exit(1);
+}
+log(c.green, '✅ Dev server 就绪');
+
+const startTime = Date.now();
   const history = [];
   
   for (let round = 1; round <= MAX_ROUNDS; round++) {
@@ -546,3 +558,4 @@ if (require.main === module) {
 }
 
 module.exports = { autonomousFixLoop, analyzeFailures, generateFixReport };
+

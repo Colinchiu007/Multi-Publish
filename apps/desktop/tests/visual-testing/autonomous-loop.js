@@ -163,7 +163,20 @@ async function autonomousLoop() {
   console.log('║        全自动 E2E 多轮循环测试 (autonomous-loop.js)          ║');
   console.log('╚══════════════════════════════════════════════════════════════╝\n');
   
-  const startTime = Date.now();
+  // 连接检查
+log(c.blue, '检查 dev server...');
+const http = require('http');
+const checkServer = () => new Promise(resolve => {
+  http.get(BASE_URL, () => resolve(true)).on('error', () => resolve(false));
+});
+if (!(await checkServer())) {
+  log(c.red, '❌ Dev server 未运行! 请先启动: cd apps/desktop && npx vite --port 5174');
+  process.exit(1);
+}
+log(c.green, '✅ Dev server 就绪');
+
+const startTime = Date.now();
+const startTime = Date.now();
   const allRoundResults = [];
   let previousFailed = 0;
   
@@ -360,5 +373,6 @@ if (require.main === module) {
 }
 
 module.exports = { autonomousLoop };
+
 
 

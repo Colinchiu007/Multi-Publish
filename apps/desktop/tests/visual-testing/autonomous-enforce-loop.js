@@ -321,7 +321,20 @@ async function enforceLoop() {
   if (DRY_RUN) log(c.yellow, '⚠️  DRY-RUN 模式: 不会实际修改文件\n');
   if (AUTO_PUSH) log(c.cyan, '📡 AUTO-PUSH 模式: 每轮修复后自动 push\n');
   
-  const startTime = Date.now();
+  // 连接检查
+log(c.blue, '检查 dev server...');
+const http = require('http');
+const checkServer = () => new Promise(resolve => {
+  http.get(BASE_URL, () => resolve(true)).on('error', () => resolve(false));
+});
+const serverUp = await checkServer();
+if (!serverUp) {
+  log(c.red, '❌ Dev server 未运行! 请先启动: cd apps/desktop && npx vite --port 5174');
+  process.exit(1);
+}
+log(c.green, '✅ Dev server 就绪');
+
+const startTime = Date.now();
   const history = [];
   
   for (let round = 1; round <= MAX_ROUNDS; round++) {
@@ -488,4 +501,5 @@ if (require.main === module) {
 }
 
 module.exports = { enforceLoop, classifyFailures, executeAutoFixes };
+
 
