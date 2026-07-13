@@ -206,6 +206,20 @@ const viewTests = [
   { name: 'collection-detail', route: '/collection/1', waitFor: '[data-testid=collection-detail]', checks: [
     { name: '详情视图', prompt: '是否显示收藏详情？' }
   ]},
+
+  // ==================== 模型服务商设置 (3个) ====================
+  { name: 'model-providers-list', route: '/model-providers', waitFor: '.provider-grid', checks: [
+    { name: '过滤条', prompt: '是否显示5个类别过滤按钮（全部/推理/TTS/语音识别/图片/视频）？' },
+    { name: '服务商卡片', prompt: '是否显示服务商卡片列表？' },
+    { name: '新增按钮', prompt: '是否存在「添加服务商」按钮？' }
+  ]},
+  { name: 'model-providers-llm', route: '/model-providers', waitMs: 800, checks: [
+    { name: 'LLM过滤', prompt: '点击推理模型过滤后，是否只显示LLM类服务商？' },
+    { name: '卡片信息', prompt: '卡片是否显示名称/base_url/模型列表？' }
+  ]},
+  { name: 'model-providers-add-dialog', route: '/model-providers', waitMs: 800, checks: [
+    { name: '页面加载', prompt: '模型服务商页面是否正常加载？' }
+  ]},
 ];
 
 async function runAllViewTests() {

@@ -15,6 +15,7 @@ const pixelTests = [
   { name: "settings-general", route: "/settings" },
   { name: "login-form", route: "/login" },
   { name: "create-editor", route: "/create" },
+  { name: "model-providers", route: "/model-providers" },
 ];
 
 async function run() {

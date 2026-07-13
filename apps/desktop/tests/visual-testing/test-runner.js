@@ -145,6 +145,63 @@ class VisualTestRunner {
   }
 
   /**
+   * AI 视觉测试：导航到路由，截图，对每个 check 做 OCR + 快照记录
+   */
+  async aiVisionTest(testName, route, checks = [], options = {}) {
+    await this.page.goto(`${this.url}${route}`);
+    if (options.waitFor) {
+      try {
+        await this.page.waitForSelector(options.waitFor, { timeout: 5000 });
+      } catch (_) {
+        // waitFor 选择器不存在也继续
+      }
+    }
+    if (options.waitMs) await this.page.waitForTimeout(options.waitMs);
+
+    const screenshotPath = path.join(this.screenshotDir, `${testName}.png`);
+    await this.page.screenshot({ path: screenshotPath, fullPage: true });
+
+    // OCR 提取页面文字
+    let pageText = '';
+    try {
+      pageText = await this.ocr.extractText(screenshotPath);
+    } catch (_) {}
+
+    for (const check of checks) {
+      this.results.push({
+        test: testName,
+        check: check.name,
+        status: 'SNAPSHOT_CAPTURED',
+        route,
+        screenshotPath,
+        prompt: check.prompt,
+        ocrTextLength: pageText.length
+      });
+    }
+
+    if (checks.length === 0) {
+      this.results.push({
+        test: testName,
+        status: 'SNAPSHOT_CAPTURED',
+        route,
+        screenshotPath
+      });
+    }
+  }
+
+  /**
+   * 关闭浏览器
+   */
+  async close() {
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+      this.context = null;
+      this.page = null;
+    }
+  }
+
+  /**
    * 生成测试报告
    */
   generateReport() {

@@ -60,7 +60,7 @@ const workflowTests = [
     steps: [
       { action: 'click', selector: '[data-testid=refresh-all-btn]' },
       { action: 'waitForSelector', selector: '[data-testid=loading]', state: 'hidden' },
-      { action: 'waitMs', 1000 },
+      { action: 'waitMs', ms: 1000 },
       { action: 'screenshot', name: '刷新后状态' }
     ]
   },
@@ -71,7 +71,7 @@ const workflowTests = [
       { action: 'waitFor', selector: '[data-testid=qr-code]' },
       { action: 'screenshot', name: '二维码初始' },
       { action: 'click', selector: '[data-testid=refresh-qr]' },
-      { action: 'waitMs', 2000 },
+      { action: 'waitMs', ms: 2000 },
       { action: 'screenshot', name: '二维码刷新' }
     ]
   },
@@ -243,7 +243,7 @@ const workflowTests = [
     steps: [
       { action: 'click', selector: '[data-testid=status-filter]' },
       { action: 'click', selector: '[data-testid=status-pending]' },
-      { action: 'waitMs', 500 },
+      { action: 'waitMs', ms: 500 },
       { action: 'screenshot', name: '状态筛选' }
     ]
   },
@@ -333,7 +333,7 @@ const workflowTests = [
     steps: [
       { action: 'click', selector: '[data-testid=reload-btn]' },
       { action: 'waitForSelector', selector: '[data-testid=loading]', state: 'hidden' },
-      { action: 'waitMs', 1000 },
+      { action: 'waitMs', ms: 1000 },
       { action: 'screenshot', name: '刷新后' }
     ]
   },
