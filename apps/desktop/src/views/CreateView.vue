@@ -262,6 +262,9 @@
 </template>
 
 <script>
+import UiButton from '@/components/UiButton.vue'
+import UiSelect from '@/components/UiSelect.vue'
+
 import {
   renderStart, renderCancel, renderGetStatus, renderInstallDeps,
   onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress,
@@ -292,6 +295,7 @@ const STABILITY_MAP = {
 
 export default {
   name: 'CreateView',
+  components: { UiButton, UiSelect },
   data() {
     return {
       // 视图

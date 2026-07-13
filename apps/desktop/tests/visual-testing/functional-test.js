@@ -257,6 +257,88 @@ const functionalTests = [
       return { passed: !!statusDot, errors: statusDot ? [] : ['状态指示器不存在'] };
     }
   },
+
+
+  // === Console Error Detection ===
+  {
+    name: 'console-no-errors',
+    description: '所有路由无 JS 运行时错误',
+    async run(runner) {
+      const routes = ['/', '/accounts', '/publish', '/create', '/dashboard', '/calendar', '/collection', '/login'];
+      const allErrors = [];
+      for (const route of routes) {
+        const errors = [];
+        const handler = err => errors.push(err.message);
+        const consoleHandler = msg => { if (msg.type() === 'error') errors.push(msg.text()); };
+        runner.page.on('pageerror', handler);
+        runner.page.on('console', consoleHandler);
+        try { await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 }); await runner.page.waitForTimeout(1500); } catch (_) {}
+        runner.page.removeListener('pageerror', handler);
+        runner.page.removeListener('console', consoleHandler);
+        const critical = errors.filter(e =>
+          !e.includes('ResizeObserver') && !e.includes('favicon') && !e.includes('net::ERR_') &&
+          !e.includes('Failed to load resource') && !e.includes('Security Warning') && !e.includes('CSP')
+        );
+        if (critical.length > 0) allErrors.push(route + ': ' + critical.join('; '));
+      }
+      return { passed: allErrors.length === 0, errors: allErrors.length > 0 ? allErrors : [] };
+    }
+  },
+  // === Vue Component Resolution ===
+  {
+    name: 'vue-component-resolution',
+    description: '所有组件正确解析（无 Failed to resolve component 警告）',
+    async run(runner) {
+      const routes = ['/', '/create', '/accounts', '/publish', '/dashboard'];
+      const unresolved = [];
+      for (const route of routes) {
+        const warnings = [];
+        const handler = msg => {
+          if (msg.type() === 'warning' || msg.type() === 'error') {
+            const text = msg.text();
+            if (text.includes('Failed to resolve component') || text.includes('Unknown custom element')) {
+              warnings.push(text.substring(0, 200));
+            }
+          }
+        };
+        runner.page.on('console', handler);
+        try { await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 }); await runner.page.waitForTimeout(2000); } catch (_) {}
+        runner.page.removeListener('console', handler);
+        if (warnings.length > 0) unresolved.push(route + ': ' + warnings.join('; '));
+      }
+      return { passed: unresolved.length === 0, errors: unresolved.length > 0 ? unresolved : [] };
+    }
+  },
+  // === Button Clickability ===
+  {
+    name: 'create-pipeline-start-button',
+    description: '创作页「启动管线」按钮可点击',
+    async run(runner) {
+      await runner.page.goto(hashUrl('/create'), { waitUntil: 'load', timeout: 10000 });
+      await runner.page.waitForTimeout(2000);
+      const dq = String.fromCharCode(36, 36);
+      const tabs = await runner.page[dq]('.view-tab');
+      if (tabs.length > 0) { await tabs[0].click(); await runner.page.waitForTimeout(1000); }
+      const pipelineCards = await runner.page[dq]('.pipeline-card');
+      if (pipelineCards.length > 0) {
+        await pipelineCards[0].click();
+        await runner.page.waitForTimeout(1500);
+      } else {
+        const fallbackBtn = await runner.page.evaluate(() => { const els = document.querySelectorAll('*'); for (const el of els) { if (el.textContent.includes('启动管线') && el.children.length <= 2) return { tag: el.tagName, isBtn: el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' }; } return null; });
+        if (fallbackBtn && !fallbackBtn.isBtn) return { passed: false, errors: ['管线数据为空, 启动管线降级为非button元素(tag=' + fallbackBtn.tag + ')'] };
+        return { passed: true, info: '管线列表为空(dev server下正常)，无按钮可验证' };
+      }
+      const startBtn = await runner.page.evaluate(() => { const allBtns = document.querySelectorAll('button, .btn-start, [class*=btn]'); for (const btn of allBtns) { if (btn.textContent.includes('启动管线')) { const style = window.getComputedStyle(btn); return { exists: true, tag: btn.tagName, disabled: btn.disabled || btn.hasAttribute('disabled'), pointerEvents: style.pointerEvents, isRealButton: btn.tagName === 'BUTTON' }; } } return { exists: false }; });
+      const errors = [];
+      if (!startBtn.exists) errors.push('启动管线按钮不存在');
+      else {
+        if (!startBtn.isRealButton) errors.push('不是真正的 button 元素(tag=' + startBtn.tag + ')，组件可能未注册');
+        if (startBtn.disabled) errors.push('按钮处于 disabled 状态');
+        if (startBtn.pointerEvents === 'none') errors.push('pointer-events: none');
+      }
+      return { passed: errors.length === 0, errors: errors };
+    }
+  },
 ];
 
 async function runFunctionalTests() {
