@@ -133,3 +133,9 @@ apps/desktop/tests/visual-testing/reports/agent-judge-summary-*.json
 # Test artifacts
 packages/ai-autonomous-tester/tests/.tmp
 packages/ai-autonomous-tester/tests/.tmp-*
+
+# Visual testing artifacts (generated locally, not tracked)
+apps/desktop/tests/visual-testing/meta/
+packages/ai-autonomous-tester/tests/visual-testing/
+# Tesseract OCR traineddata (downloaded at runtime by tesseract.js)
+packages/ai-autonomous-tester/*.traineddata
