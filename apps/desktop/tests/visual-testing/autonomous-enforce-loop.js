@@ -144,7 +144,7 @@ async function collectAll(runner) {
           const modal = await runner.page.$('.ui-modal, .el-dialog, [role="dialog"]');
           functionalResults.push({ name: test.name, status: modal ? 'PASSED' : 'FAILED', errors: modal ? [] : ['弹窗未出现'] });
         } else if (test.selector) {
-          const count = await runner.page.$$eval(test.selector, els => els.length);
+          const count = await runner.page.evaluate(sel => document.querySelectorAll(sel).length, test.selector);
           functionalResults.push({ name: test.name, status: count >= test.minCount ? 'PASSED' : 'FAILED', count, errors: count < test.minCount ? [`${test.selector}: ${count}/${test.minCount}`] : [] });
         } else {
           const has = await runner.page.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
@@ -488,3 +488,4 @@ if (require.main === module) {
 }
 
 module.exports = { enforceLoop, classifyFailures, executeAutoFixes };
+
