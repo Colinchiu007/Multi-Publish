@@ -1,7 +1,7 @@
-{
+﻿{
     "name":  "@multi-publish/desktop",
     "version":  "2.3.53",
-    "description":  "澶氬钩鍙板唴瀹逛竴閿彂甯冩闈㈢ (Electron + RpaViewManager)",
+    "description":  "婢舵艾閽╅崣鏉垮敶鐎归€涚闁款喖褰傜敮鍐╊攽闂堛垻顏?(Electron + RpaViewManager)",
     "author":  "Colin Chiu \u003ccolin.chiu@colinchiu.com\u003e",
     "main":  "electron/main.js",
     "scripts":  {
@@ -29,7 +29,12 @@
                     "test:all:visual":  "VISUAL=1 WORKFLOW=1 npx vitest run tests/visual-testing/",
                     "test:visual:pixel":  "node tests/visual-testing/scripts/run-pixel-tests.js",
                     "test:visual:agent":  "node tests/visual-testing/scripts/agent-visual-judge.js",
-                    "test:ai:autonomous":  "node ../../packages/ai-autonomous-tester/scripts/run-autonomous.js"
+                    "test:ai:autonomous":  "node ../../packages/ai-autonomous-tester/scripts/run-autonomous.js",
+                    "test:visual:supplement":  "node tests/visual-testing/views/supplementary-views.visual.test.js",
+                    "test:workflow:supplement":  "node tests/visual-testing/workflows/supplementary-workflows.visual.test.js",
+                    "test:functional":  "node tests/visual-testing/functional-test.js",
+                    "test:autonomous-loop":  "node tests/visual-testing/autonomous-loop.js",
+                    "test:full-regression":  "node tests/visual-testing/autonomous-loop.js --max-rounds 3"
                 },
     "keywords":  [
                      "multi-publish",

@@ -7,6 +7,9 @@
  *   await runner.close();
  */
 
+// 加载 .env 配置
+try { require('dotenv').config({ path: __dirname + '/.env' }); } catch (_) {}
+
 const { chromium } = require('playwright');
 const { OCRProvider } = require('./providers/ocr');
 const { PixelDiffProvider } = require('./providers/pixel-diff');
@@ -15,8 +18,8 @@ const path = require('path');
 
 class VisualTestRunner {
   constructor(options = {}) {
-    this.url = options.url || 'http://localhost:5173';
-    this.headless = options.headless ?? true;
+    this.url = options.url || process.env.TEST_URL || 'http://127.0.0.1:5174';
+    this.headless = options.headless ?? (process.env.HEADLESS !== 'false');
     this.screenshotDir = options.screenshotDir || 'tests/visual-testing/screenshots';
     this.reportDir = options.reportDir || 'tests/visual-testing/reports';
     this.metaDir = options.metaDir || 'tests/visual-testing/meta';
@@ -93,8 +96,12 @@ class VisualTestRunner {
    * 像素对比测试
    */
   async pixelRegressionTest(testName, route, options = {}) {
-    await this.page.goto(`${this.url}${route}`);
-    if (options.waitFor) await this.page.waitForSelector(options.waitFor);
+    await this.page.goto(`${this.url}${route === '/' ? '/' : '/#' + route}`, { waitUntil: 'networkidle', timeout: 15000 });
+    if (options.waitFor) {
+      try {
+        await this.page.waitForSelector(options.waitFor, { timeout: 5000 });
+      } catch (_) {}
+    }
     if (options.waitMs) await this.page.waitForTimeout(options.waitMs);
     
     const currentPath = path.join(this.screenshotDir, `${testName}-current.png`);
@@ -136,7 +143,7 @@ class VisualTestRunner {
     // 始于 2026-07-12 质量节拍: 避免 CI 因容错错误报告通过
     if (!result.passed) {
       throw new Error(
-        '像素对比失败 (' + testName + '): misMatchPercentage=' + result.misMatchPercentage.toFixed(2) + '% ' +
+        '像素对比失败 (' + testName + '): misMatchPercentage=' + (Number(result.misMatchPercentage) || 0).toFixed(2) + '% ' +
         '(threshold=' + (this.pixelDiff.threshold * 100) + '%); 差异图: ' + result.diffImagePath
       );
     }
@@ -148,7 +155,7 @@ class VisualTestRunner {
    * AI 视觉测试：导航到路由，截图，对每个 check 做 OCR + 快照记录
    */
   async aiVisionTest(testName, route, checks = [], options = {}) {
-    await this.page.goto(`${this.url}${route}`);
+    await this.page.goto(`${this.url}${route === '/' ? '/' : '/#' + route}`, { waitUntil: 'networkidle', timeout: 15000 });
     if (options.waitFor) {
       try {
         await this.page.waitForSelector(options.waitFor, { timeout: 5000 });
@@ -236,3 +243,8 @@ class VisualTestRunner {
 }
 
 module.exports = { VisualTestRunner };
+
+
+
+
+
