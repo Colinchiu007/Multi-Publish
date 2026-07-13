@@ -221,8 +221,10 @@
 
 <script>
 import { viralAnalyze, viralGenerate } from '@/api/publisher'
+import UiButton from '../components/UiButton.vue'
 export default {
-  name: 'ViralAnalysis',
+  
+  components: { UiButton },
   data () {
     return {
       topic: '',

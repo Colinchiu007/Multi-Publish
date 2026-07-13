@@ -339,6 +339,90 @@ const functionalTests = [
       return { passed: errors.length === 0, errors: errors };
     }
   },
+
+
+  // === Static: Component Registration Check ===
+  {
+    name: 'component-registration-audit',
+    description: '所有 .vue 文件的 Ui 组件均已 import 并注册',
+    async run(runner) {
+      var fs2 = require('fs');
+      var path = require('path');
+      var viewsDir = path.resolve(__dirname, '../../src/views');
+      var files = fs2.readdirSync(viewsDir).filter(function(f) { return f.endsWith('.vue'); });
+      var issues = [];
+      for (var i = 0; i < files.length; i++) {
+        var content = fs2.readFileSync(path.join(viewsDir, files[i]), "utf8");
+        var usedMatch = content.match(/<Ui(\w+)/g) || [];
+        var used = [];
+        for (var j = 0; j < usedMatch.length; j++) {
+          var name = 'Ui' + usedMatch[j].substring(3);
+          if (used.indexOf(name) < 0) used.push(name);
+        }
+        var importedMatch = content.match(/import\s+Ui\w+/g) || [];
+        var imported = [];
+        for (var j = 0; j < importedMatch.length; j++) {
+          var name = importedMatch[j].replace('import ', '');
+          if (imported.indexOf(name) < 0) imported.push(name);
+        }
+        var missing = used.filter(function(u) { return imported.indexOf(u) < 0; });
+        if (missing.length > 0) {
+          issues.push(files[i] + ': missing import for ' + missing.join(', '));
+        }
+      }
+      return { passed: issues.length === 0, errors: issues };
+    }
+  },
+  // === Missing Route Coverage ===
+  {
+    name: 'all-routes-renderable',
+    description: '所有路由可加载且无致命错误',
+    async run(runner) {
+      var routes = ['/', '/accounts', '/publish', '/create', '/dashboard', '/calendar', '/collection', '/login', '/first-run', '/keywords', '/viral-analysis', '/create/result', '/create/pipeline', '/create/history', '/cloud-publish', '/intelligence', '/model-providers'];
+      var fatal = [];
+      for (var i = 0; i < routes.length; i++) {
+        var route = routes[i];
+        var errors = [];
+        var handler = function(msg) { if (msg.type() === "error") errors.push(msg.text()); };
+        runner.page.on("console", handler);
+        try {
+          await runner.page.goto(hashUrl(route), { waitUntil: "load", timeout: 10000 });
+          await runner.page.waitForTimeout(1500);
+        } catch (e) { errors.push("navigation failed: " + e.message.substring(0, 100)); }
+        runner.page.removeListener("console", handler);
+        var critical = errors.filter(function(e) { return e.indexOf('net::ERR_') >= 0 || e.indexOf('Uncaught TypeError') >= 0 || e.indexOf('Uncaught ReferenceError') >= 0; });
+        if (critical.length > 0) fatal.push(route + ": " + critical.join("; "));
+      }
+      return { passed: fatal.length === 0, errors: fatal };
+    }
+  },
+  // === CSS Load Check ===
+  {
+    name: 'css-variables-active',
+    description: 'CSS 变量正确加载（无 BOM / PostCSS 错误）',
+    async run(runner) {
+      await runner.page.goto(hashUrl("/"), { waitUntil: "load", timeout: 10000 });
+      await runner.page.waitForTimeout(1000);
+      var cssOk = await runner.page.evaluate(function() {
+        var root = getComputedStyle(document.documentElement);
+        var primary = root.getPropertyValue("--primary").trim();
+        var bg = root.getPropertyValue("--bg-primary").trim();
+        var sidebar = document.querySelector(".sidebar, .app-sidebar, nav");
+        var sidebarBg = sidebar ? getComputedStyle(sidebar).backgroundColor : "none";
+        return {
+          hasPrimary: primary.length > 0,
+          hasBg: bg.length > 0,
+          sidebarHasStyle: sidebarBg !== 'none' && sidebarBg !== 'rgba(0, 0, 0, 0)',
+          bodyMargin: getComputedStyle(document.body).margin
+        };
+      });
+      var errors = [];
+      if (!cssOk.hasPrimary) errors.push('--primary CSS variable not set (CSS may not have loaded)');
+      if (!cssOk.sidebarHasStyle) errors.push('Sidebar has no background color (CSS may not have loaded)');
+      if (cssOk.bodyMargin !== '0px') errors.push('body margin is not reset: ' + cssOk.bodyMargin);
+      return { passed: errors.length === 0, errors: errors };
+    }
+  },
 ];
 
 async function runFunctionalTests() {

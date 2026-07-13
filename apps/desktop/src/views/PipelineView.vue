@@ -78,8 +78,10 @@
 
 <script>
 import { pipelineList, pipelineGet, pipelineStart, pipelinePause, pipelineResume, pipelineCancel, pipelineStatus, pipelineHistory } from '@/api/publisher'
+import UiButton from '../components/UiButton.vue'
 export default {
-  name: 'PipelineView',
+  
+  components: { UiButton },
   data() {
     return {
       tab: 'browse',

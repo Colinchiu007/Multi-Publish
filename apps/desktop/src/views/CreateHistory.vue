@@ -65,8 +65,10 @@
 
 <script>
 import { pipelineHistory } from '@/api/publisher'
+import UiButton from '../components/UiButton.vue'
 export default {
-  name: 'CreateHistory',
+  
+  components: { UiButton },
   data() {
     return {
       tab: 'renders',

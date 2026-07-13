@@ -45,8 +45,11 @@
 </template>
 
 <script>
+
+import UiButton from '../components/UiButton.vue'
 export default {
-  name: 'ResultView',
+  
+  components: { UiButton },
   data() {
     return {
       videoPath: null,
