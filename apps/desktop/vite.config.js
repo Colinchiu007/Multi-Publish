@@ -13,7 +13,13 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5174,
-    strictPort: true
+    strictPort: true,
+    fs: {
+      allow: [
+        path.resolve(__dirname, 'src'),
+        path.resolve(__dirname, '..', '..')
+      ]
+    }
   },
   build: {
     outDir: path.resolve(__dirname, 'dist'),

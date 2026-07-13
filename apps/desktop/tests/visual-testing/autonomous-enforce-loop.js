@@ -107,6 +107,7 @@ function gitPush() {
 // ===== Step 1: 采集测试结果 =====
 
 async function collectAll(runner) {
+  // ===== 像素对比（用 runner 的浏览器）=====
   const pixelResults = [];
   for (const test of PIXEL_TESTS) {
     try {
@@ -124,30 +125,38 @@ async function collectAll(runner) {
     }
   }
   
+  // ===== 功能测试（使用独立浏览器上下文，避免像素测试污染）=====
+  const { chromium } = require('playwright');
+  const funcBrowser = await chromium.launch({ headless: runner.headless, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  const funcCtx = await funcBrowser.newContext({ viewport: { width: 1920, height: 1080 } });
+  const funcPage = await funcCtx.newPage();
+  
   const functionalResults = [];
   for (const test of FUNCTIONAL_TESTS_DEF) {
     try {
       if (test.routes) {
         const errors = [];
         for (const route of test.routes) {
-          try { await runner.page.goto(hashUrl(route), { waitUntil: 'networkidle', timeout: 10000 }); }
-          catch (e) { errors.push(route); }
+          try {
+            await funcPage.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 });
+            await funcPage.waitForTimeout(1500);
+          } catch (e) { errors.push(route); }
         }
         functionalResults.push({ name: test.name, status: errors.length === 0 ? 'PASSED' : 'FAILED', errors });
       } else {
-        await runner.page.goto(hashUrl(test.route || '/'), { waitUntil: 'networkidle', timeout: 10000 });
-        await runner.page.waitForTimeout(1000);
+        await funcPage.goto(hashUrl(test.route || '/'), { waitUntil: 'load', timeout: 10000 });
+        await funcPage.waitForTimeout(2000);
         if (test.trigger) {
-          try { await runner.page.click(test.trigger, { timeout: 3000 }); await runner.page.waitForTimeout(800); } catch (_) {}
+          try { await funcPage.click(test.trigger, { timeout: 3000 }); await funcPage.waitForTimeout(800); } catch (_) {}
         }
         if (test.expectModal) {
-          const modal = await runner.page.$('.ui-modal, .el-dialog, [role="dialog"]');
+          const modal = await funcPage.$('.ui-modal, .el-dialog, [role="dialog"]');
           functionalResults.push({ name: test.name, status: modal ? 'PASSED' : 'FAILED', errors: modal ? [] : ['弹窗未出现'] });
         } else if (test.selector) {
-          const count = await runner.page.evaluate(sel => document.querySelectorAll(sel).length, test.selector);
+          const count = await funcPage.evaluate(sel => document.querySelectorAll(sel).length, test.selector);
           functionalResults.push({ name: test.name, status: count >= test.minCount ? 'PASSED' : 'FAILED', count, errors: count < test.minCount ? [`${test.selector}: ${count}/${test.minCount}`] : [] });
         } else {
-          const has = await runner.page.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
+          const has = await funcPage.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
           functionalResults.push({ name: test.name, status: has ? 'PASSED' : 'FAILED', errors: has ? [] : ['页面内容为空'] });
         }
       }
@@ -156,6 +165,7 @@ async function collectAll(runner) {
     }
   }
   
+  await funcBrowser.close();
   return { pixelResults, functionalResults };
 }
 
@@ -501,5 +511,7 @@ if (require.main === module) {
 }
 
 module.exports = { enforceLoop, classifyFailures, executeAutoFixes };
+
+
 
 

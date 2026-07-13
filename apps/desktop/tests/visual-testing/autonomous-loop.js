@@ -106,7 +106,7 @@ async function runFunctionalTests(runner) {
         const errors = [];
         for (const route of test.routes) {
           try {
-            await runner.page.goto(hashUrl(route), { waitUntil: 'networkidle', timeout: 10000 });
+            await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 }); await runner.page.waitForTimeout(1500);
           } catch (e) {
             errors.push(route);
           }
@@ -115,7 +115,7 @@ async function runFunctionalTests(runner) {
       } else {
         // 选择器测试
         const route = test.route || '/';
-        await runner.page.goto(hashUrl(route), { waitUntil: 'networkidle', timeout: 10000 });
+        await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 }); await runner.page.waitForTimeout(1500);
         await runner.page.waitForTimeout(test.waitMs || 1000);
         const items = await runner.page.$$(test.selector);
         results.push({
@@ -137,7 +137,7 @@ async function runScreenshotCaptures(runner) {
   const results = [];
   for (const test of screenshotViewTests) {
     try {
-      await runner.page.goto(hashUrl(test.route), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl(test.route), { waitUntil: 'load', timeout: 10000 }); await runner.page.waitForTimeout(1500);
       await runner.page.waitForTimeout(test.waitMs || 1000);
       
       if (test.trigger) {
@@ -373,6 +373,7 @@ if (require.main === module) {
 }
 
 module.exports = { autonomousLoop };
+
 
 
 

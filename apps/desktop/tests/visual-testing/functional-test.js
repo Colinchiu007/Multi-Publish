@@ -25,7 +25,7 @@ const functionalTests = [
       const errors = [];
       for (const route of routes) {
         try {
-          await runner.page.goto(hashUrl(route), { waitUntil: 'networkidle', timeout: 10000 });
+          await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 });
         } catch (err) {
           errors.push(`${route}: ${err.message.split('\n')[0]}`);
         }
@@ -37,7 +37,7 @@ const functionalTests = [
     name: 'nav-highlight',
     description: '导航高亮跟随路由',
     async run(runner) {
-      await runner.page.goto(hashUrl('/accounts'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/accounts'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(500);
       const activeCount = await runner.page.$$eval('.nav-item.active, a.router-link-exact-active', els => els.length);
       return { passed: activeCount > 0, errors: activeCount === 0 ? ['导航项无 active 高亮'] : [] };
@@ -49,7 +49,7 @@ const functionalTests = [
     name: 'home-content',
     description: '首页内容渲染',
     async run(runner) {
-      await runner.page.goto(hashUrl('/'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1000);
       const hasContent = await runner.page.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
       return { passed: hasContent, errors: hasContent ? [] : ['主内容区域为空'] };
@@ -59,7 +59,7 @@ const functionalTests = [
     name: 'home-sidebar-platforms',
     description: '侧边栏平台列表',
     async run(runner) {
-      await runner.page.goto(hashUrl('/'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(500);
       const count = await runner.page.$$eval('.cohere-platform-item', els => els.length);
       return { passed: count >= 3, errors: count < 3 ? [`平台列表项不足: ${count}`] : [] };
@@ -71,7 +71,7 @@ const functionalTests = [
     name: 'accounts-add-dialog',
     description: '添加账号弹窗',
     async run(runner) {
-      await runner.page.goto(hashUrl('/accounts'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/accounts'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1000);
       
       const addBtn = await runner.page.$('button:has-text("添加账号")');
@@ -87,7 +87,7 @@ const functionalTests = [
     name: 'accounts-filter',
     description: '账号列表筛选',
     async run(runner) {
-      await runner.page.goto(hashUrl('/accounts'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/accounts'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1000);
       const filterChips = await runner.page.$$eval('button', btns =>
         btns.filter(b => ['全部', '已登录', '未登录'].includes(b.textContent.trim())).length
@@ -101,7 +101,7 @@ const functionalTests = [
     name: 'publish-form',
     description: '发布表单字段',
     async run(runner) {
-      await runner.page.goto(hashUrl('/publish'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/publish'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1000);
       const inputs = await runner.page.$$('input, textarea');
       const hasTitle = await runner.page.$('input[placeholder*="标题"]');
@@ -122,7 +122,7 @@ const functionalTests = [
     name: 'monitor-layout',
     description: '监控页面布局',
     async run(runner) {
-      await runner.page.goto(hashUrl('/monitor'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/monitor'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1500);
       const hasContent = await runner.page.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
       return { passed: hasContent, errors: hasContent ? [] : ['监控页面内容为空'] };
@@ -134,7 +134,7 @@ const functionalTests = [
     name: 'model-provider-filter',
     description: '服务商分类筛选',
     async run(runner) {
-      await runner.page.goto(hashUrl('/model-providers'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/model-providers'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1000);
       const chips = await runner.page.$$('.cohere-filter-chip');
       return { passed: chips.length >= 5, errors: chips.length < 5 ? [`筛选按钮不足: ${chips.length}`] : [] };
@@ -144,7 +144,7 @@ const functionalTests = [
     name: 'model-provider-cards',
     description: '服务商卡片区域',
     async run(runner) {
-      await runner.page.goto(hashUrl('/model-providers'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/model-providers'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1000);
       const cards = await runner.page.$$('.provider-card, .provider-grid, [class*="provider"]');
       return { passed: true, errors: [], info: `发现 ${cards.length} 个服务商相关元素` };
@@ -156,7 +156,7 @@ const functionalTests = [
     name: 'calendar-grid',
     description: '日历网格渲染',
     async run(runner) {
-      await runner.page.goto(hashUrl('/calendar'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/calendar'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1500);
       const gridChildren = await runner.page.$$eval('.calendar-grid > *', els => els.length);
       return { passed: gridChildren >= 28, errors: gridChildren < 28 ? [`日历格子不足: ${gridChildren}`] : [] };
@@ -166,7 +166,7 @@ const functionalTests = [
     name: 'calendar-nav',
     description: '日历月份导航',
     async run(runner) {
-      await runner.page.goto(hashUrl('/calendar'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/calendar'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1500);
       const btnTexts = await runner.page.$$eval('button', els => els.map(e => e.textContent.trim()));
       const hasNav = btnTexts.some(t => t.includes('◀')) && btnTexts.some(t => t.includes('▶')) && btnTexts.some(t => t.includes('今天'));
@@ -179,7 +179,7 @@ const functionalTests = [
     name: 'create-view-tabs',
     description: '创作页 Tab 切换',
     async run(runner) {
-      await runner.page.goto(hashUrl('/create'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/create'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1500);
       const tabs = await runner.page.$$('.view-tab, .view-tabs button');
       return { passed: tabs.length >= 3, errors: tabs.length < 3 ? [`Tab 数量不足: ${tabs.length}`] : [] };
@@ -191,7 +191,7 @@ const functionalTests = [
     name: 'intelligence-search',
     description: '智能搜索入口',
     async run(runner) {
-      await runner.page.goto(hashUrl('/intelligence'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/intelligence'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1500);
       const hasContent = await runner.page.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
       return { passed: hasContent, errors: hasContent ? [] : ['智能助手页面内容为空'] };
@@ -203,7 +203,7 @@ const functionalTests = [
     name: 'comments-list',
     description: '评论列表渲染',
     async run(runner) {
-      await runner.page.goto(hashUrl('/comments'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/comments'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1500);
       const hasContent = await runner.page.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
       return { passed: hasContent, errors: hasContent ? [] : ['评论页面内容为空'] };
@@ -215,7 +215,7 @@ const functionalTests = [
     name: 'collection-view',
     description: '收藏页面渲染',
     async run(runner) {
-      await runner.page.goto(hashUrl('/collection'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/collection'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(1500);
       const cards = await runner.page.$$('.cohere-stat-card');
       return { passed: cards.length >= 2, errors: cards.length < 2 ? [`收藏统计卡片不足: ${cards.length}`] : [] };
@@ -227,7 +227,7 @@ const functionalTests = [
     name: 'global-topnav',
     description: '顶部导航栏',
     async run(runner) {
-      await runner.page.goto(hashUrl('/'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(500);
       const navItems = await runner.page.$$('.nav-item');
       const brand = await runner.page.$('.brand');
@@ -241,7 +241,7 @@ const functionalTests = [
     name: 'global-upgrade-btn',
     description: '升级按钮（非Pro用户）',
     async run(runner) {
-      await runner.page.goto(hashUrl('/'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(500);
       const upgradeBtn = await runner.page.$('.pro-btn, button:has-text("升级 Pro")');
       return { passed: !!upgradeBtn, errors: upgradeBtn ? [] : ['升级按钮未找到'] };
@@ -251,7 +251,7 @@ const functionalTests = [
     name: 'global-status-indicator',
     description: '服务状态指示器',
     async run(runner) {
-      await runner.page.goto(hashUrl('/'), { waitUntil: 'networkidle', timeout: 10000 });
+      await runner.page.goto(hashUrl('/'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(500);
       const statusDot = await runner.page.$('.status-dot, .status-indicator');
       return { passed: !!statusDot, errors: statusDot ? [] : ['状态指示器不存在'] };
@@ -316,3 +316,4 @@ async function runFunctionalTests() {
 if (require.main === module) runFunctionalTests();
 
 module.exports = { functionalTests, runFunctionalTests };
+

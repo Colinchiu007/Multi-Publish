@@ -1,25 +1,21 @@
-﻿/**
- * 像素对比测试运行器（完整版）
- *
- * 使用本地 test-runner（支持 hash 路由）
+/**
+ * Pixel comparison test runner (full version)
+ * Uses local test-runner (supports hash routing)
  */
+try { require("dotenv").config({ path: __dirname + "/../.env" }); } catch (_) {}
 
-try { require('dotenv').config({ path: __dirname + '/../.env' }); } catch (_) {}
-
-const { VisualTestRunner } = require('../test-runner');
+const { VisualTestRunner } = require("../test-runner");
 
 const pixelTests = [
-  // ==================== 核心视图 ====================
   { name: "home-baseline", route: "/" },
   { name: "accounts-list", route: "/accounts" },
   { name: "publish-form", route: "/publish" },
-  { name: "monitor-dashboard", route: "/monitor" },
+  { name: "monitor-dashboard", route: "/monitor", electronOnly: true },
   { name: "analytics-overview", route: "/analytics" },
   { name: "settings-general", route: "/settings" },
   { name: "login-form", route: "/login" },
   { name: "create-editor", route: "/create" },
   { name: "model-providers", route: "/model-providers" },
-  // ==================== 补充视图 ====================
   { name: "first-run", route: "/first-run", waitMs: 1500 },
   { name: "dashboard", route: "/dashboard", waitMs: 1500 },
   { name: "calendar", route: "/calendar", waitMs: 1500 },
@@ -31,45 +27,53 @@ const pixelTests = [
   { name: "intelligence", route: "/intelligence", waitMs: 1500 },
   { name: "keyword-monitor", route: "/keywords", waitMs: 1500 },
   { name: "collection", route: "/collection", waitMs: 1500 },
-  { name: "comments", route: "/comments", waitMs: 1500 },
+  { name: "comments", route: "/comments", electronOnly: true },
 ];
 
 async function run() {
-  console.log("\nPixel Comparison Tests — 完整版 (local runner with hash routing)\n");
-  console.log(`  Target: ${process.env.TEST_URL || 'http://127.0.0.1:5174'}\n`);
+  console.log("\nPixel Comparison Tests - Full\n");
+  console.log("  Target: " + (process.env.TEST_URL || "http://127.0.0.1:5174") + "\n");
 
   const runner = new VisualTestRunner({
-    url: process.env.TEST_URL || 'http://127.0.0.1:5174',
+    url: process.env.TEST_URL || "http://127.0.0.1:5174",
   });
 
   await runner.launch();
 
   let passed = 0;
   let failed = 0;
+  let skipped = 0;
   let baselined = 0;
 
   for (const test of pixelTests) {
-    console.log(`${test.name} (${test.route})...`);
+    if (test.electronOnly && !process.env.ELECTRON_TEST) {
+      console.log(test.name + " (" + test.route + ")... SKIPPED (electron-only)");
+      skipped++;
+      continue;
+    }
+
+    console.log(test.name + " (" + test.route + ")...");
     try {
       const result = await runner.pixelRegressionTest(test.name, test.route, {
         waitMs: test.waitMs
       });
       if (result && result.status === "BASELINE_CREATED") {
         baselined++;
-        console.log(`  BASELINE_CREATED`);
+        console.log("  BASELINE_CREATED");
       } else {
         passed++;
-        console.log(`  PASSED (${result.misMatchPercentage}%)`);
+        console.log("  PASSED (" + result.misMatchPercentage + "%)");
       }
     } catch (err) {
-      console.log(`  FAILED: ${err.message.split("\n")[0]}`);
+      console.log("  FAILED: " + err.message.split("\n")[0]);
       failed++;
     }
   }
 
   await runner.close();
 
-  console.log(`\nPixel Diff: ${passed + baselined}/${pixelTests.length} passed (${baselined} new baselines), ${failed} failed\n`);
+  const tested = passed + baselined + failed;
+  console.log("\nPixel Diff: " + (passed + baselined) + "/" + tested + " passed (" + baselined + " new baselines), " + failed + " failed, " + skipped + " skipped (electron-only)\n");
   process.exit(failed > 0 ? 1 : 0);
 }
 

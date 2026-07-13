@@ -109,7 +109,7 @@ async function collectFunctionalResults(runner) {
         const errors = [];
         for (const route of test.routes) {
           try {
-            await runner.page.goto(hashUrl(route), { waitUntil: 'networkidle', timeout: 10000 });
+            await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 });
           } catch (e) {
             errors.push(route);
           }
@@ -117,7 +117,7 @@ async function collectFunctionalResults(runner) {
         results.push({ name: test.name, status: errors.length === 0 ? 'PASSED' : 'FAILED', errors });
       } else {
         const route = test.route || '/';
-        await runner.page.goto(hashUrl(route), { waitUntil: 'networkidle', timeout: 10000 });
+        await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 });
         await runner.page.waitForTimeout(1000);
         
         if (test.trigger) {
@@ -558,4 +558,5 @@ if (require.main === module) {
 }
 
 module.exports = { autonomousFixLoop, analyzeFailures, generateFixReport };
+
 
