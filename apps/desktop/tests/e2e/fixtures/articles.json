@@ -1,0 +1,54 @@
+{
+  "articles": [
+    {
+      "id": "art_001",
+      "title": "测试文章1: AI在内容创作中的应用",
+      "content": "这是一篇关于AI在内容创作领域应用的测试文章。本文详细介绍了AI写作工具如何帮助创作者提高效率，以及未来发展趋势。",
+      "tags": ["AI", "内容创作", "效率"],
+      "status": "draft",
+      "platform": "wechat_mp",
+      "createdAt": "2026-07-10T08:00:00Z",
+      "wordCount": 86
+    },
+    {
+      "id": "art_002",
+      "title": "测试文章2: 短视频运营技巧",
+      "content": "短视频运营需要把握三个关键点：内容质量、发布时机、用户互动。本篇分享实战经验。",
+      "tags": ["短视频", "运营"],
+      "status": "published",
+      "platform": "douyin",
+      "createdAt": "2026-07-09T14:30:00Z",
+      "wordCount": 56
+    },
+    {
+      "id": "art_003",
+      "title": "测试文章3: 微信公众号涨粉策略",
+      "content": "微信公众号涨粉的核心是提供高质量内容，同时配合多渠道推广。本文介绍10种有效方法。",
+      "tags": ["微信公众号", "涨粉"],
+      "status": "published",
+      "platform": "wechat_mp",
+      "createdAt": "2026-07-08T10:15:00Z",
+      "wordCount": 65
+    },
+    {
+      "id": "art_004",
+      "title": "测试文章4: 小红书爆款笔记拆解",
+      "content": "拆解近30天小红书爆款笔记的共同特征：封面设计、标题撰写、内容结构、互动引导。",
+      "tags": ["小红书", "爆款"],
+      "status": "draft",
+      "platform": "xiaohongshu",
+      "createdAt": "2026-07-11T09:00:00Z",
+      "wordCount": 60
+    },
+    {
+      "id": "art_005",
+      "title": "测试文章5: 知乎答题涨粉实战",
+      "content": "知乎答题涨粉的核心是选择有潜力的问题，给出有深度有结构的答案。本文分享实战方法。",
+      "tags": ["知乎", "涨粉"],
+      "status": "published",
+      "platform": "zhihu",
+      "createdAt": "2026-07-07T16:45:00Z",
+      "wordCount": 58
+    }
+  ]
+}

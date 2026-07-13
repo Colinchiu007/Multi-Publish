@@ -68,6 +68,19 @@ apps/desktop/tests/*-cookies.json
 # E2E test results (screenshots, reports)
 test-results/
 
+# E2E functional test 临时调试脚本（根目录）
+apps/desktop/check-vite.mjs
+apps/desktop/debug-monitor.js
+apps/desktop/list-failures.js
+apps/desktop/run-all.js
+
+# E2E functional test 运行时产物（每次跑测试都会重新生成）
+apps/desktop/tests/e2e/reports/*.functional.json
+apps/desktop/tests/e2e/reports/integration.flow-*.json
+apps/desktop/tests/e2e/reports/b1-core-publish.json
+apps/desktop/tests/e2e/reports/routes-scan.json
+apps/desktop/tests/e2e/reports/screenshots/
+
 # 涓存椂鑴氭湰鍜屾埅鍥?
 scripts/*.js
 screenshot_script*.js

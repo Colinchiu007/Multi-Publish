@@ -1,0 +1,15 @@
+{
+  "comments": [
+    { "id": "cmt_001", "platform": "weibo", "articleTitle": "测试文章A: 微博热点分析", "author": "网友小明", "content": "分析得很到位，受教了！", "publishedAt": "2026-07-11T08:30:00Z", "status": "pending", "likes": 5 },
+    { "id": "cmt_002", "platform": "weibo", "articleTitle": "测试文章A: 微博热点分析", "author": "热心网友", "content": "期待下一篇！", "publishedAt": "2026-07-11T09:15:00Z", "status": "pending", "likes": 2 },
+    { "id": "cmt_003", "platform": "wechat_mp", "articleTitle": "测试文章3: 微信公众号涨粉策略", "author": "读者小张", "content": "方法很实用，已经照着做了", "publishedAt": "2026-07-10T14:20:00Z", "status": "replied", "repliedAt": "2026-07-10T15:00:00Z", "reply": "感谢支持！", "likes": 12 },
+    { "id": "cmt_004", "platform": "douyin", "articleTitle": "测试文章2: 短视频运营技巧", "author": "短视频达人", "content": "技巧讲得很细致，求更新", "publishedAt": "2026-07-11T10:00:00Z", "status": "pending", "likes": 28 },
+    { "id": "cmt_005", "platform": "zhihu", "articleTitle": "测试文章5: 知乎答题涨粉实战", "author": "知乎用户", "content": "实战经验很有参考价值", "publishedAt": "2026-07-09T16:30:00Z", "status": "replied", "repliedAt": "2026-07-09T17:00:00Z", "reply": "感谢支持！", "likes": 8 },
+    { "id": "cmt_006", "platform": "xiaohongshu", "articleTitle": "测试文章D: 小红书种草", "author": "小红薯", "content": "种草成功，已入手", "publishedAt": "2026-07-11T11:00:00Z", "status": "pending", "likes": 15 }
+  ],
+  "schedulerTasks": [
+    { "id": "task_001", "articleId": "art_001", "articleTitle": "测试文章1: AI在内容创作中的应用", "platforms": ["wechat_mp", "zhihu"], "scheduledAt": "2026-07-15T10:00:00Z", "status": "pending" },
+    { "id": "task_002", "articleId": "art_004", "articleTitle": "测试文章4: 小红书爆款笔记拆解", "platforms": ["xiaohongshu"], "scheduledAt": "2026-07-14T14:30:00Z", "status": "pending" },
+    { "id": "task_003", "articleId": "art_005", "articleTitle": "测试文章5: 知乎答题涨粉实战", "platforms": ["zhihu", "weibo"], "scheduledAt": "2026-07-13T09:00:00Z", "status": "executed" }
+  ]
+}

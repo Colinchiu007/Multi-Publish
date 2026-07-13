@@ -1,0 +1,34 @@
+{
+  "publishHistory": [
+    { "id": "hist_001", "title": "测试文章3: 微信公众号涨粉策略", "platform": "wechat_mp", "status": "success", "publishedAt": "2026-07-08T10:30:00Z", "views": 1250, "likes": 89, "comments": 12 },
+    { "id": "hist_002", "title": "测试文章2: 短视频运营技巧", "platform": "douyin", "status": "success", "publishedAt": "2026-07-09T15:00:00Z", "views": 8900, "likes": 567, "comments": 89 },
+    { "id": "hist_003", "title": "测试文章5: 知乎答题涨粉实战", "platform": "zhihu", "status": "success", "publishedAt": "2026-07-07T17:00:00Z", "views": 3400, "likes": 234, "comments": 45 },
+    { "id": "hist_004", "title": "测试文章A: 微博热点分析", "platform": "weibo", "status": "failed", "publishedAt": "2026-07-06T12:00:00Z", "views": 0, "likes": 0, "comments": 0, "error": "敏感词拦截" },
+    { "id": "hist_005", "title": "测试文章B: B站视频推荐", "platform": "bilibili", "status": "success", "publishedAt": "2026-07-05T18:30:00Z", "views": 5600, "likes": 412, "comments": 67 },
+    { "id": "hist_006", "title": "测试文章C: 头条号运营", "platform": "toutiao", "status": "success", "publishedAt": "2026-07-04T11:20:00Z", "views": 2100, "likes": 145, "comments": 23 },
+    { "id": "hist_007", "title": "测试文章D: 视频号运营", "platform": "tencent_video", "status": "success", "publishedAt": "2026-07-03T20:00:00Z", "views": 7800, "likes": 523, "comments": 91 },
+    { "id": "hist_008", "title": "测试文章E: 小红书种草", "platform": "xiaohongshu", "status": "success", "publishedAt": "2026-07-02T14:00:00Z", "views": 4500, "likes": 378, "comments": 56 },
+    { "id": "hist_009", "title": "测试文章F: 百家号发布", "platform": "baijiahao", "status": "success", "publishedAt": "2026-07-01T09:30:00Z", "views": 1800, "likes": 98, "comments": 15 },
+    { "id": "hist_010", "title": "测试文章G: 快手短视频", "platform": "kuaishou", "status": "success", "publishedAt": "2026-06-30T16:45:00Z", "views": 9800, "likes": 612, "comments": 102 }
+  ],
+  "stats": {
+    "total": 156,
+    "success": 142,
+    "failed": 14,
+    "today": 8,
+    "thisWeek": 32,
+    "thisMonth": 95,
+    "byPlatform": {
+      "wechat_mp": 32,
+      "douyin": 28,
+      "xiaohongshu": 24,
+      "zhihu": 18,
+      "weibo": 22,
+      "bilibili": 12,
+      "toutiao": 8,
+      "tencent_video": 6,
+      "kuaishou": 4,
+      "baijiahao": 2
+    }
+  }
+}

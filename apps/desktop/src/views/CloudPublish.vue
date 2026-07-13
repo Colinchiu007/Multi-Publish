@@ -112,9 +112,12 @@
 <script>
 // eslint-disable-next-line no-unused-vars
 import { cloudPublishSubmit, cloudPublishListTasks, cloudPublishGetTask, cloudPublishPlatforms } from '../api/cloud-publisher'
+import UiInput from '../components/UiInput.vue'
+import UiButton from '../components/UiButton.vue'
 
 export default {
   name: 'CloudPublish',
+  components: { UiInput, UiButton },
   data () {
     return {
       orchestratorOnline: true,

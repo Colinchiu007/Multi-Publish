@@ -160,6 +160,10 @@ async function switchLayout (count) {
   }
 }
 
+function openAccountDialog () {
+  showDialog.value = true
+}
+
 async function confirmAdd () {
   if (!newPlatform.value) { ElMessage.warning('请选择平台'); return }
   adding.value = true

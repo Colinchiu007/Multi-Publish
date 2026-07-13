@@ -1,0 +1,96 @@
+{
+  "providers": [
+    {
+      "id": "preset_openai",
+      "category": "llm",
+      "name": "OpenAI",
+      "displayName": "OpenAI (GPT-4)",
+      "baseUrl": "https://api.openai.com/v1",
+      "defaultModel": "gpt-4",
+      "models": ["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"],
+      "preset": true,
+      "isDefault": true,
+      "configured": false,
+      "createdAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "preset_anthropic",
+      "category": "llm",
+      "name": "anthropic",
+      "displayName": "Anthropic Claude",
+      "baseUrl": "https://api.anthropic.com",
+      "defaultModel": "claude-3-5-sonnet-20241022",
+      "models": ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229"],
+      "preset": true,
+      "isDefault": false,
+      "configured": false,
+      "createdAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "preset_deepseek",
+      "category": "llm",
+      "name": "deepseek",
+      "displayName": "DeepSeek",
+      "baseUrl": "https://api.deepseek.com/v1",
+      "defaultModel": "deepseek-chat",
+      "models": ["deepseek-chat", "deepseek-reasoner"],
+      "preset": true,
+      "isDefault": false,
+      "configured": true,
+      "createdAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "preset_doubao",
+      "category": "llm",
+      "name": "doubao",
+      "displayName": "豆包 (字节)",
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+      "defaultModel": "doubao-pro-32k",
+      "models": ["doubao-pro-32k", "doubao-pro-128k"],
+      "preset": true,
+      "isDefault": false,
+      "configured": false,
+      "createdAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "preset_qwen",
+      "category": "llm",
+      "name": "qwen",
+      "displayName": "通义千问 (阿里)",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "defaultModel": "qwen-max",
+      "models": ["qwen-max", "qwen-plus", "qwen-turbo"],
+      "preset": true,
+      "isDefault": false,
+      "configured": false,
+      "createdAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "preset_wenxin",
+      "category": "llm",
+      "name": "wenxin",
+      "displayName": "文心一言 (百度)",
+      "baseUrl": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop",
+      "defaultModel": "ernie-4.0-8k",
+      "models": ["ernie-4.0-8k", "ernie-3.5-8k"],
+      "preset": true,
+      "isDefault": false,
+      "configured": false,
+      "createdAt": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "categories": [
+    { "id": "llm", "label": "大语言模型", "description": "用于文本生成、标题优化、内容润色" },
+    { "id": "image", "label": "图像生成", "description": "用于封面图、配图生成" },
+    { "id": "video", "label": "视频生成", "description": "用于短视频、动画制作" },
+    { "id": "audio", "label": "语音合成", "description": "用于配音、播报" },
+    { "id": "embedding", "label": "向量化", "description": "用于内容检索、相似度分析" }
+  ],
+  "defaults": {
+    "llm": "preset_openai",
+    "image": "preset_openai",
+    "video": "preset_doubao",
+    "audio": "preset_qwen",
+    "embedding": "preset_openai"
+  }
+}
