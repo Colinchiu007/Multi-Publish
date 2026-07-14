@@ -25,6 +25,7 @@ const CloudPublisher = _CloudPublisherModule.default || _CloudPublisherModule
 const { createContainer } = require('./core/container.setup')
 const { wireTaskQueueEvents } = require('./bootstrap/phase4-events')
 const { registerAllIpcHandlers } = require('./bootstrap/phase5-ipc')
+const { startBridges } = require('./bootstrap/phase2-bridges')
 
 // ─── Helper ────────────────────────────────────────────────
 // Bug-5: 优先从 DI 容器获取缓存的窗口引用，fallback 到 getAllWindows
@@ -209,30 +210,8 @@ function runWhenReady(context, deps) {
   // R49 修复：app.whenReady() 返回 Promise，必须 .catch() 否则 rejection 无人处理
   app.whenReady().then(async () => {
    try {
-    try { await pythonBridge.startPythonBackend() }
-    catch (e) { log.error('App', 'Failed to start Python backend:', e.message) }
-
-    // ─── 启动 SplitterBridge / PromptBridge（并行） ───
-    {
-      const _bridgeResults = await Promise.allSettled([
-        splitterBridge.start(),
-        promptBridge.start(),
-      ])
-      const _names = ['SplitterBridge', 'PromptBridge']
-      _bridgeResults.forEach((r, i) => {
-        if (r.status === 'rejected') {
-          log.warn('App', _names[i] + ' failed to start: ' + (r.reason instanceof Error ? r.reason.message : String(r.reason)))
-        } else {
-          log.info('App', _names[i] + ' started')
-        }
-      })
-    }
-
-    // ─── 退出清理：停止 SplitterBridge / PromptBridge ───
-    app.on('before-quit', async () => {
-      try { await splitterBridge.stop() } catch (e) { log.warn('App', 'SplitterBridge stop failed: ' + e.message) }
-      try { await promptBridge.stop() } catch (e) { log.warn('App', 'PromptBridge stop failed: ' + e.message) }
-    })
+    // ─── Python Bridges 启动 + 退出清理（拆分到 bootstrap/phase2-bridges.js） ───
+    await startBridges({ app, pythonBridge, splitterBridge, promptBridge })
 
     // 启动使用量统计
     const usageTracker = container.get('usageTracker')

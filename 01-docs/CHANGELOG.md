@@ -3,6 +3,43 @@
 ## [Unreleased] - 2026-07-14
 
 
+### P1-C 试点 — bootstrap.js 拆分 phase2-bridges.js (质量节拍 Phase 2)
+
+#### 拆分范围
+- **新建**: `electron/bootstrap/phase2-bridges.js` (56 行，验收 ≤80 行 ✅)
+- **新建**: `electron/bootstrap/phase2-bridges.test.js` (6 用例)
+- **修改**: `electron/bootstrap.js` (359→339 行，-20 行)
+
+#### 拆出职责
+- Python bridges 启动（pythonBridge + splitterBridge + promptBridge）
+- before-quit 退出清理（stop 调用，容错隔离）
+- 从 `runWhenReady()` L210-235 拆出
+
+#### 行为等价性
+- 原: 26 行 inline（pythonBridge try-catch + Promise.allSettled + before-quit 注册）
+- 新: `await startBridges({ app, pythonBridge, splitterBridge, promptBridge })` (1 行调用)
+- 内部逻辑完全一致，仅函数封装不改执行序
+
+#### 测试覆盖 (6/6 PASS)
+1. 三个 bridge 全部启动成功 — 记录 2 条 info 日志
+2. pythonBridge 失败 — 不阻断其他 bridge 启动
+3. splitterBridge 失败 — promptBridge 仍启动，记录 warn
+4. before-quit 注册 — 触发时调用 stop
+5. before-quit 中 stop 失败 — 不影响其他 stop
+6. promptBridge 失败 — splitterBridge 仍启动，记录 warn
+
+#### 回归验证
+- bootstrap 目录 17/17 全绿（phase2-bridges 6 + phase5-ipc 11）
+- 全量 1894 passed / 25 failed（全部为预存失败，与本次拆分无关）
+- 预存失败: CreateView.test.js (UI)、visual-testing、path-utils、container.setup (getComposerDir)
+
+#### P1-C 试点结论
+- ✅ 拆分模式有效（与 phase4-events/phase5-ipc 一致）
+- ✅ 行为等价性验证通过
+- ✅ 测试覆盖充分（6 用例覆盖正常/失败/清理）
+- ⏳ 下一步: phase1-context.js + phase3-services.js（待用户确认）
+
+
 ### Phase 5 运营期收尾 — 性能/安全/运维三大报告更新 (质量节拍 Phase 5)
 
 #### Phase 5.2 性能验证（修复后基线复测）
