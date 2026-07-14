@@ -292,6 +292,15 @@ const api = {
   pipelineHistory: () => ipcRenderer.invoke('pipeline:history'),
   pipelineFetch: (name) => ipcRenderer.invoke('pipeline:fetch', name),
 
+  // ══ Pipeline 编排模式 API（story2video-compose 等新管线使用） ═══
+  pipelineStartOrchestrated: (name, params) => ipcRenderer.invoke('pipeline:startOrchestrated', name, params),
+  pipelineExecuteStage: (runId) => ipcRenderer.invoke('pipeline:executeStage', runId),
+  pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer.invoke('pipeline:advanceToNextCheckpoint', runId),
+  pipelineGetRunContext: (runId) => ipcRenderer.invoke('pipeline:getRunContext', runId),
+  pipelinePauseWithCheckpoint: () => ipcRenderer.invoke('pipeline:pauseWithCheckpoint'),
+  pipelineResumeFromCheckpoint: () => ipcRenderer.invoke('pipeline:resumeFromCheckpoint'),
+  pipelineRegisterPipeline: (def) => ipcRenderer.invoke('pipeline:registerPipeline', def),
+
   // ══ Cloud Publisher API ═══
   cloudPublishSubmit: (params) => ipcRenderer.invoke('cloud-publisher:submit', params),
   cloudPublishListTasks: () => ipcRenderer.invoke('cloud-publisher:list-tasks'),

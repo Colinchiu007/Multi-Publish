@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * Pipeline 管线编排 IPC handlers
  */
@@ -78,6 +78,68 @@ function registerHandlers(ipcMain, deps) {
       log.error('[pipeline] fetch error:', err)
       return { code: EC.REQUEST_ERROR, message: err.message }
     }
+  })
+
+  // ---- 编排模式（Orchestrator）IPC handlers ----
+
+  ipcMain.handle('pipeline:startOrchestrated', async (_event, name, params) => {
+    try {
+      const result = await pipelineEngine.startOrchestrated(name, params || {})
+      return { code: 0, data: result }
+    } catch (err) {
+      log.error('[pipeline] startOrchestrated error:', err)
+      return { code: EC.REQUEST_ERROR, message: err.message }
+    }
+  })
+
+  ipcMain.handle('pipeline:executeStage', async (_event, runId) => {
+    try {
+      const result = await pipelineEngine.executeStage(runId)
+      return { code: 0, data: result }
+    } catch (err) {
+      log.error('[pipeline] executeStage error:', err)
+      return { code: EC.REQUEST_ERROR, message: err.message }
+    }
+  })
+
+  ipcMain.handle('pipeline:advanceToNextCheckpoint', async (_event, runId) => {
+    try {
+      const result = await pipelineEngine.advanceToNextCheckpoint(runId)
+      return { code: 0, data: result }
+    } catch (err) {
+      log.error('[pipeline] advanceToNextCheckpoint error:', err)
+      return { code: EC.REQUEST_ERROR, message: err.message }
+    }
+  })
+
+  ipcMain.handle('pipeline:getRunContext', (_event, runId) => {
+    try {
+      return { code: 0, data: pipelineEngine.getRunContext(runId) }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  })
+
+  ipcMain.handle('pipeline:pauseWithCheckpoint', () => {
+    try {
+      return { code: 0, data: pipelineEngine.pauseWithCheckpoint() }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  })
+
+  ipcMain.handle('pipeline:resumeFromCheckpoint', () => {
+    try {
+      return { code: 0, data: pipelineEngine.resumeFromCheckpoint() }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  })
+
+  ipcMain.handle('pipeline:registerPipeline', (_event, def) => {
+    try {
+      return { code: 0, data: pipelineEngine.registerPipeline(def) }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  })
+
+  ipcMain.handle('pipeline:registerStageExecutor', (_event, stageType, fn) => {
+    try {
+      return { code: 0, data: pipelineEngine.registerStageExecutor(stageType, fn) }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 }
 

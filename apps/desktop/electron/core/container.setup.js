@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * Container setup — 集中注册所有 Electron 主进程服务
  * 可作为逐步替换 main.js 直接 new 的中间步骤
@@ -36,6 +36,14 @@ const AiWriter = require('../services/ai-writer');
 const { PublisherRouter } = require('../services/publisher-router');
 const UsageTracker = require('../services/usage-tracker');
 const DataSyncService = require("@multi-publish/shared-utils/src/data-sync");
+// -- 基础设施 & 横切服务 --
+const logger = require('../services/logger');
+const pythonBridge = require('../services/python-bridge');
+const SplitterBridge = require('../services/splitter-bridge');
+const PromptBridge = require('../services/prompt-bridge');
+const ServiceBus = require('../services/service-bus');
+const PluginRegistry = require('../services/plugin-registry');
+const { registerStory2VideoStages } = require('../services/story2video-stages');
 
 function createContainer(options) {
   const container = new Container();
@@ -51,7 +59,25 @@ function createContainer(options) {
   container.register("compositionManager", function() { return new CompositionManager(); });
   container.register("aiGenerator", function() { return new AIGenerator(); });
   container.register("videoEngine", function() { return new VideoEngine(); });
-  container.register("pipelineEngine", function() { return new PipelineEngine(); });
+  // PipelineEngine 注入 serviceBus + container（用于编排模式）
+  // 注意：需要懒加载 serviceBus（避免循环依赖），通过工厂函数延迟到首次 get 时解析
+  container.register("pipelineEngine", function(c) {
+    const engine = new PipelineEngine({
+      serviceBus: c.get("serviceBus"),
+      container: c,
+      log: c.get("logger"),
+    });
+    // 注册 story2video-compose 管线的自定义阶段执行器
+    if (engine.stageExecutor) {
+      try {
+        registerStory2VideoStages(engine);
+      } catch (e) {
+        c.get("logger").warn("container",
+          "registerStory2VideoStages failed: " + (e instanceof Error ? e.message : String(e)));
+      }
+    }
+    return engine;
+  });
   container.register("urlCollector", function() { return new UrlCollector(); });
   container.register("viralEngine", function() { return new ViralEngine(); });
   container.register("commentManager", function() { return new CommentManager(); });
@@ -81,6 +107,34 @@ function createContainer(options) {
         get: (key) => s.getPublishTimeline(key),
         set: (key, value) => s.setPublishTimeline(key, value),
       }
+    });
+  });
+
+  // ---- 基础设施 & 横切服务 ----
+  // logger/pythonBridge 模块级单例（非类），直接注册实例
+  container.register("logger", function() { return logger; });
+  container.register("pythonBridge", function() { return pythonBridge; });
+  // SplitterBridge/PromptBridge 为类，构造函数接收 { log }
+  container.register("splitterBridge", function(c) { return new SplitterBridge({ log: c.get("logger") }); });
+  container.register("promptBridge", function(c) { return new PromptBridge({ log: c.get("logger") }); });
+  // Story2Video 引擎暂未实现，注册为 null
+  container.register("story2videoEngine", function() { return null; });
+  // ServiceBus 统一聚合所有 Bridge
+  container.register("serviceBus", function(c) {
+    return new ServiceBus({
+      pythonBridge: c.get("pythonBridge"),
+      splitterBridge: c.get("splitterBridge"),
+      promptBridge: c.get("promptBridge"),
+      story2videoEngine: c.get("story2videoEngine"),
+      log: c.get("logger"),
+    });
+  });
+  // PluginRegistry 插件注册中心
+  container.register("pluginRegistry", function(c) {
+    return new PluginRegistry({
+      serviceBus: c.get("serviceBus"),
+      container: c,
+      log: c.get("logger"),
     });
   });
 

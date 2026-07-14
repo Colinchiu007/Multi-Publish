@@ -214,6 +214,12 @@ function createAppContext() {
 
   const _chunkedUploader = container.get('chunkedUploader')
 
+  // ─── 基础设施 & 横切服务 ────────────────────
+  const splitterBridge = container.get('splitterBridge')
+  const promptBridge = container.get('promptBridge')
+  const serviceBus = container.get('serviceBus')
+  const pluginRegistry = container.get('pluginRegistry')
+
   return {
     container, store, taskQueue, scheduler, callbackServer,
     keywordMonitor, analyticsService, pythonBridge,
@@ -229,6 +235,8 @@ function createAppContext() {
     CloudPublisher,
     // 额外暴露：runWhenReady 需要
     _aggregatorBridge, publisherRouter, _PublishAlert,
+    // 基础设施 & 横切服务
+    splitterBridge, promptBridge, serviceBus, pluginRegistry,
   }
 }
 
@@ -250,6 +258,7 @@ function runWhenReady(context, deps) {
     webviewManager, qrCodeLogin, oauthManager, batchManager, urlCollector,
     providerManager, viralEngine, commentManager, contentIntelligence, publishImpactTracker,
     CloudPublisher,
+    splitterBridge, promptBridge, serviceBus,
   } = context
 
   // mainWindow 在 createWindow 调用前为 null（与原 main.js 行为一致）
@@ -260,6 +269,28 @@ function runWhenReady(context, deps) {
    try {
     try { await pythonBridge.startPythonBackend() }
     catch (e) { log.error('App', 'Failed to start Python backend:', e.message) }
+
+    // ─── 启动 SplitterBridge / PromptBridge（并行） ───
+    {
+      const _bridgeResults = await Promise.allSettled([
+        splitterBridge.start(),
+        promptBridge.start(),
+      ])
+      const _names = ['SplitterBridge', 'PromptBridge']
+      _bridgeResults.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          log.warn('App', _names[i] + ' failed to start: ' + (r.reason instanceof Error ? r.reason.message : String(r.reason)))
+        } else {
+          log.info('App', _names[i] + ' started')
+        }
+      })
+    }
+
+    // ─── 退出清理：停止 SplitterBridge / PromptBridge ───
+    app.on('before-quit', async () => {
+      try { await splitterBridge.stop() } catch (e) { log.warn('App', 'SplitterBridge stop failed: ' + e.message) }
+      try { await promptBridge.stop() } catch (e) { log.warn('App', 'PromptBridge stop failed: ' + e.message) }
+    })
 
     // 启动使用量统计
     const usageTracker = container.get('usageTracker')

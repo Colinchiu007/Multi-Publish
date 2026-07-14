@@ -1,0 +1,23 @@
+{
+  "name": "@multi-publish/story2video-engine",
+  "version": "1.0.0",
+  "description": "Story2Video \u6838\u5fc3\u89c6\u9891\u5408\u6210\u5f15\u64ce - \u4ece Story2Video \u63d0\u53d6\u7684\u7eaf TS \u903b\u8f91",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "segmentit": "^2.0.3"
+  },
+  "peerDependenciesMeta": {
+    "segmentit": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

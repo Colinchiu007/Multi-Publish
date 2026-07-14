@@ -1,0 +1,136 @@
+name: story2video-compose
+version: "1.0"
+description: >
+  Story-to-Video composition pipeline. Takes a long-form text (script or rewritten content),
+  splits it into sentences via smart-sentence-splitter, optimizes each sentence into image/video
+  prompts via prompt-engine, generates assets (images + TTS) in parallel, composes a slideshow
+  video via Story2Video engine, and publishes to selected platforms.
+category: generated
+stability: beta
+default_checkpoint_policy: guided
+
+# Story2Video-compose 横切依赖：
+#   - smart-sentence-splitter (port 8002) - 文本分句
+#   - prompt-engine (port 8013) - 提示词优化
+#   - Story2Video 引擎 (@multi-publish/story2video-engine) - 视频合成
+#   - PublisherRouter - 多平台发布
+required_skills:
+  - pipelines/story2video/split-director
+  - pipelines/story2video/optimize-director
+  - pipelines/story2video/asset-director
+  - pipelines/story2video/compose-director
+  - pipelines/story2video/publish-director
+
+orchestration:
+  mode: stage-executor
+  executor_side: electron-js
+  notes: >
+    与其他管线不同，story2video-compose 的阶段执行器在 Electron JS 侧
+    (StageExecutor + ServiceBus)，Python 后端仅提供 manifest 定义和资源生成技能。
+
+compatible_playbooks:
+  recommended:
+    - slideshow-narration
+    - image-sequence-with-tts
+  also_works:
+    - cinematic-narration
+  custom_allowed: true
+
+stages:
+  - name: split
+    description: 文案分句 - 调用 smart-sentence-splitter 将长文案切分为句子
+    produces:
+      - sentences
+    tools_available:
+      - smart_sentence_splitter
+    checkpoint_required: false
+    human_approval_default: false
+    review_focus:
+      - 分句数量合理（5-30 句之间）
+      - 每句长度适中（10-100 字）
+      - 语义完整，不在连词处断句
+    success_criteria:
+      - 至少 3 句
+      - 每句不超过 200 字
+      - 总时长估算 1-10 分钟
+
+  - name: optimize
+    description: 批量提示词优化 - 将每句转换为图片生成提示词并优化
+    produces:
+      - optimized_prompts
+    tools_available:
+      - prompt_engine
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 每个提示词与对应句子语义匹配
+      - 提示词包含风格、构图、色彩描述
+      - 提示词长度适中（20-200 字符）
+      - 批量优化无失败
+    success_criteria:
+      - 优化后的提示词数量等于分句数量
+      - 所有提示词通过 schema 验证
+
+  - name: generate_assets
+    description: 并行资源生成 - 为每个提示词生成图片 + 为每句生成 TTS 音频
+    produces:
+      - asset_manifest
+    required_tools:
+      - image_generator
+      - tts_engine
+    optional_tools:
+      - bgm_generator
+      - sfx_generator
+    tools_available:
+      - image_generator
+      - tts_engine
+      - bgm_generator
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - 所有图片文件存在且可加载
+      - TTS 音频时长与对应句子匹配（±20%）
+      - 图片风格一致性
+      - 总资源大小合理
+    success_criteria:
+      - 所有图片文件存在
+      - 所有 TTS 音频文件存在
+      - 资源清单与提示词数量一致
+
+  - name: compose
+    description: 视频合成 - 调用 Story2Video 引擎合成最终视频
+    produces:
+      - render_report
+    required_tools:
+      - story2video_engine
+      - audio_mixer
+    tools_available:
+      - story2video_engine
+      - audio_mixer
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - 输出视频可播放
+      - 时长与资源总时长匹配（±5%）
+      - 字幕同步准确
+      - 音视频同步
+      - 转场效果自然
+    success_criteria:
+      - 视频文件存在且通过 ffprobe 验证
+      - 时长在目标范围内
+
+  - name: publish
+    description: 多平台发布 - 将合成视频发布到用户选择的平台
+    produces:
+      - publish_log
+    tools_available:
+      - publisher_router
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - 发布到所有选定平台
+      - 各平台元数据完整（标题、描述、标签）
+      - 发布日志记录成功/失败状态
+    success_criteria:
+      - 至少发布到一个平台
+      - 发布日志 schema 合法

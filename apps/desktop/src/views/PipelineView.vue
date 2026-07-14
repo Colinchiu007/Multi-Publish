@@ -27,12 +27,62 @@
             </div>
           </div>
           <div class="card-right">
-            <UiButton v-if="currentPipeline !== p.name" @click="startPipeline(p.name)">开始</UiButton>
+            <template v-if="currentPipeline !== p.name">
+              <UiButton v-if="isOrchestratedPipeline(p.name)" @click="toggleS2VConfig(p.name)">配置并开始</UiButton>
+              <UiButton v-else @click="startPipeline(p.name)">开始</UiButton>
+            </template>
             <div v-else class="running-controls">
               <UiButton v-if="pipelineStatusData === 'paused'" @click="resumePipeline">继续</UiButton>
               <UiButton v-else-if="pipelineStatusData === 'running'" @click="pausePipeline">暂停</UiButton>
               <UiButton variant="danger" @click="cancelPipeline">取消</UiButton>
             </div>
+          </div>
+        </div>
+        <!-- Story2Video 参数配置面板 -->
+        <div v-if="showS2VConfig" class="s2v-config-panel">
+          <h3>Story2Video 配置</h3>
+          <div class="config-field">
+            <label>文案内容</label>
+            <textarea v-model="s2vConfig.text" rows="6" placeholder="粘贴或输入文案内容，将自动分句并生成视频..."></textarea>
+          </div>
+          <div class="config-row">
+            <div class="config-field">
+              <label>图片风格</label>
+              <select v-model="s2vConfig.imageStyle">
+                <option value="cinematic">电影感</option>
+                <option value="realistic">写实</option>
+                <option value="anime">动漫</option>
+                <option value="watercolor">水彩</option>
+                <option value="minimalist">极简</option>
+              </select>
+            </div>
+            <div class="config-field">
+              <label>宽高比</label>
+              <select v-model="s2vConfig.aspectRatio">
+                <option value="16:9">16:9 横屏</option>
+                <option value="9:16">9:16 竖屏</option>
+                <option value="1:1">1:1 正方</option>
+                <option value="4:3">4:3 传统</option>
+              </select>
+            </div>
+          </div>
+          <div class="config-row">
+            <div class="config-field">
+              <label>语音</label>
+              <select v-model="s2vConfig.voiceId">
+                <option value="default">默认女声</option>
+                <option value="male">男声</option>
+                <option value="female-soft">柔和女声</option>
+              </select>
+            </div>
+            <div class="config-field">
+              <label>并发数</label>
+              <input type="number" v-model.number="s2vConfig.concurrency" min="1" max="10" />
+            </div>
+          </div>
+          <div class="config-actions">
+            <UiButton variant="secondary" @click="showS2VConfig = false">取消</UiButton>
+            <UiButton @click="startOrchestratedPipeline" :disabled="!s2vConfig.text?.trim()">启动编排</UiButton>
           </div>
         </div>
       </div>
@@ -44,8 +94,13 @@
       <div class="status-bar" :class="pipelineStatusData">
         <span>状态: {{ statusLabel }}</span>
         <span class="controls">
-          <UiButton v-if="pipelineStatusData === 'paused'" @click="resumePipeline">继续</UiButton>
-          <UiButton v-else-if="pipelineStatusData === 'running'" @click="pausePipeline">暂停</UiButton>
+          <template v-if="orchestrationRunId">
+            <UiButton v-if="pipelineStatusData === 'paused'" @click="advanceOrchestration">推进到下一检查点</UiButton>
+          </template>
+          <template v-else>
+            <UiButton v-if="pipelineStatusData === 'paused'" @click="resumePipeline">继续</UiButton>
+            <UiButton v-else-if="pipelineStatusData === 'running'" @click="pausePipeline">暂停</UiButton>
+          </template>
           <UiButton variant="danger" @click="cancelPipeline">取消</UiButton>
         </span>
       </div>
@@ -53,6 +108,14 @@
         <div v-for="(stage, i) in currentStages" :key="i" class="stage-item" :class="stageClass(stage, i)">
           <span class="stage-icon">{{ stageIcon(stage, i) }}</span>
           <span class="stage-name">{{ humanName(stage) }}</span>
+        </div>
+      </div>
+      <!-- 编排模式中间结果预览 -->
+      <div v-if="orchestrationContext" class="orchestration-context">
+        <h4>中间结果</h4>
+        <div v-for="(value, key) in orchestrationContext" :key="key" class="context-item">
+          <span class="context-key">{{ humanName(String(key)) }}</span>
+          <span class="context-value">{{ formatContextValue(value) }}</span>
         </div>
       </div>
     </div>
@@ -77,7 +140,7 @@
 </template>
 
 <script>
-import { pipelineList, pipelineGet, pipelineStart, pipelinePause, pipelineResume, pipelineCancel, pipelineStatus, pipelineHistory } from '@/api/publisher'
+import { pipelineList, pipelineGet, pipelineStart, pipelinePause, pipelineResume, pipelineCancel, pipelineStatus, pipelineHistory, pipelineStartOrchestrated, pipelineAdvanceToNextCheckpoint, pipelineGetRunContext } from '@/api/publisher'
 import UiButton from '../components/UiButton.vue'
 export default {
   
@@ -95,6 +158,17 @@ export default {
       history: [],
       historyLoading: false,
       pollTimer: null,
+      showS2VConfig: false,
+      s2vPipelineName: null,
+      s2vConfig: {
+        text: '',
+        imageStyle: 'cinematic',
+        aspectRatio: '16:9',
+        voiceId: 'default',
+        concurrency: 3,
+      },
+      orchestrationRunId: null,
+      orchestrationContext: null,
     }
   },
   computed: {
@@ -122,6 +196,57 @@ export default {
       const res = await pipelineStart(name, {})
       if (res?.code === 0) { this.currentPipeline = name; this.tab = 'running'; await this.updateStatus() }
       else { this.error = res?.message || '启动失败' }
+    },
+    isOrchestratedPipeline(name) {
+      // story2video-compose 等新管线使用编排模式
+      return name === 'story2video-compose'
+    },
+    toggleS2VConfig(name) {
+      this.s2vPipelineName = name
+      this.showS2VConfig = !this.showS2VConfig
+    },
+    async startOrchestratedPipeline() {
+      if (!this.s2vConfig.text?.trim() || !this.s2vPipelineName) return
+      this.error = null
+      const params = {
+        text: this.s2vConfig.text,
+        autoAdvance: false,
+        imageStyle: this.s2vConfig.imageStyle,
+        aspectRatio: this.s2vConfig.aspectRatio,
+        voiceId: this.s2vConfig.voiceId,
+        concurrency: this.s2vConfig.concurrency,
+      }
+      const res = await pipelineStartOrchestrated(this.s2vPipelineName, params)
+      if (res?.code === 0 && res.data?.success) {
+        this.orchestrationRunId = res.data.runId
+        this.currentPipeline = this.s2vPipelineName
+        this.showS2VConfig = false
+        this.tab = 'running'
+        await this.updateOrchestrationStatus()
+      } else {
+        this.error = res?.data?.error || res?.message || '编排启动失败'
+      }
+    },
+    async updateOrchestrationStatus() {
+      if (!this.orchestrationRunId) return
+      const ctxRes = await pipelineGetRunContext(this.orchestrationRunId)
+      if (ctxRes?.code === 0 && ctxRes.data) {
+        this.orchestrationContext = ctxRes.data
+        const stages = ['split', 'optimize', 'generate_assets', 'compose', 'publish']
+        this.currentStages = stages
+        const completedKeys = Object.keys(ctxRes.data).filter(k => stages.includes(k))
+        this.currentStageIndex = completedKeys.length - 1
+        this.pipelineStatusData = 'running'
+      }
+    },
+    async advanceOrchestration() {
+      if (!this.orchestrationRunId) return
+      const res = await pipelineAdvanceToNextCheckpoint(this.orchestrationRunId)
+      if (res?.code === 0 && res.data) {
+        if (res.data.paused) { this.pipelineStatusData = 'paused' }
+        else if (res.data.completed) { this.pipelineStatusData = 'completed' }
+        await this.updateOrchestrationStatus()
+      }
     },
     async pausePipeline() { const r = await pipelinePause(); if (r?.code === 0) this.pipelineStatusData = 'paused' },
     async resumePipeline() { const r = await pipelineResume(); if (r?.code === 0) this.pipelineStatusData = 'running' },
@@ -158,6 +283,13 @@ export default {
       return '⭕'
     },
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
+    formatContextValue(value) {
+      if (value === null || value === undefined) return '—'
+      if (Array.isArray(value)) return `${value.length} 项`
+      if (typeof value === 'object') return Object.keys(value).length + ' 字段'
+      if (typeof value === 'string') return value.length > 60 ? value.slice(0, 60) + '...' : value
+      return String(value)
+    },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
   },
 }
@@ -210,4 +342,21 @@ export default {
 .history-time { color: #999; font-size: 12px; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: var(--primary, #7c5cbf); border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Story2Video 参数配置面板 */
+.s2v-config-panel { padding: 20px; border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb; margin-top: 12px; }
+.s2v-config-panel h3 { margin: 0 0 16px; font-size: 16px; color: #1f2937; }
+.config-field { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.config-field label { font-size: 13px; font-weight: 600; color: #374151; }
+.config-field textarea { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical; min-height: 120px; }
+.config-field select, .config-field input { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+.config-row { display: flex; gap: 16px; margin-top: 12px; }
+.config-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+/* 编排模式中间结果 */
+.orchestration-context { margin-top: 20px; padding: 16px; background: #f3f4f6; border-radius: 8px; }
+.orchestration-context h4 { margin: 0 0 12px; font-size: 14px; color: #374151; }
+.context-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+.context-key { font-weight: 600; color: #4b5563; }
+.context-value { color: #6b7280; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

@@ -16,6 +16,11 @@ import { ProductReveal, ProductRevealProps } from "./components/ProductReveal";
 import { CaptionOverlay, WordCaption } from "./components/CaptionOverlay";
 import { CollageBurst, CollageBurstProps } from "./CollageBurst";
 import { LyricOverlay, LyricOverlayProps } from "./LyricOverlay";
+import {
+  Story2VideoSlideshow,
+  calculateStory2VideoMetadata,
+  type Story2VideoSlideshowProps,
+} from "./Story2VideoSlideshow";
 
 // ---------------------------------------------------------------------------
 // Theme System — prevents every video from looking like dark fintech
@@ -329,6 +334,28 @@ export const Root: React.FC = () => {
           fadeOutSeconds: 1.5,
           overlay: true,
         } as EndTagProps}
+      />
+      {/* Story2Video — 第14条管线 story2video-compose 的 compose 阶段入口 */}
+      <Composition
+        id="Story2VideoSlideshow"
+        component={Story2VideoSlideshow}
+        durationInFrames={30 * 60}
+        fps={30}
+        width={1920}
+        height={1080}
+        defaultProps={
+          {
+            scenes: [],
+            transitionDurationInFrames: 15,
+            subtitleStyle: {
+              fontSize: 48,
+              color: "#FFFFFF",
+              backgroundColor: "rgba(0, 0, 0, 0.75)",
+              highlightColor: "#FACC15",
+            },
+          } as Story2VideoSlideshowProps
+        }
+        calculateMetadata={calculateStory2VideoMetadata}
       />
     </>
   );
