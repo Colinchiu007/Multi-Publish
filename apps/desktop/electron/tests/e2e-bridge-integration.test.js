@@ -6,14 +6,14 @@ const assert = require('node:assert/strict');
 const SplitterBridge = require('../services/splitter-bridge');
 const PromptBridge = require('../services/prompt-bridge');
 
-test('SplitterBridge - attach() 能附加到外部已运行的 8002 端口服务', async () => {
+test('SplitterBridge - attach() 能附加到外部已运行的 8002 端口服务', { timeout: 30000 }, async () => {
   const bridge = new SplitterBridge({});
   const attached = await bridge.attach();
   assert.ok(attached, '应成功附加到外部 splitter 服务');
   assert.ok(bridge.isRunning, 'attach 后 isRunning 应为 true');
 });
 
-test('SplitterBridge - split() 返回正确的分句结果', async () => {
+test('SplitterBridge - split() 返回正确的分句结果', { timeout: 30000 }, async () => {
   const bridge = new SplitterBridge({});
   await bridge.attach();
   const result = await bridge.split('今天天气真好。我们去公园玩吧！孩子们很开心。');
@@ -26,14 +26,14 @@ test('SplitterBridge - split() 返回正确的分句结果', async () => {
   console.log('  使用 tier:', result.tier_used);
 });
 
-test('PromptBridge - attach() 能附加到外部已运行的 8013 端口服务', async () => {
+test('PromptBridge - attach() 能附加到外部已运行的 8013 端口服务', { timeout: 30000 }, async () => {
   const bridge = new PromptBridge({});
   const attached = await bridge.attach();
   assert.ok(attached, '应成功附加到外部 prompt-engine 服务');
   assert.ok(bridge.isRunning, 'attach 后 isRunning 应为 true');
 });
 
-test('PromptBridge - optimize() 返回优化结果', async () => {
+test('PromptBridge - optimize() 返回优化结果', { timeout: 30000 }, async () => {
   const bridge = new PromptBridge({});
   await bridge.attach();
   const result = await bridge.optimize({ prompt: 'a cat sitting on a chair' });
@@ -44,7 +44,7 @@ test('PromptBridge - optimize() 返回优化结果', async () => {
   console.log('  模型:', result.model_used);
 });
 
-test('SplitterBridge + PromptBridge 串联调用（模拟 story2video-compose 的 split -> optimize）', async () => {
+test('SplitterBridge + PromptBridge 串联调用（模拟 story2video-compose 的 split -> optimize）', { timeout: 60000 }, async () => {
   const splitter = new SplitterBridge({});
   const prompter = new PromptBridge({});
   await splitter.attach();

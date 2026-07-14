@@ -3,6 +3,42 @@
 ## [Unreleased] - 2026-07-14
 
 
+### P2-8 — 测试超时 + 临时文件清理 (质量节拍 Phase 2 日常循环)
+
+#### 问题
+- 3 个 e2e 测试文件（e2e-bridge-integration / e2e-pipeline-orchestrator / e2e-full-pipeline）无 timeout 设置
+- 外部 Python 服务挂起时测试无限等待，可能挂死 CI
+- e2e-full-pipeline 创建真实文件（图片/TTS/视频）无 afterEach 清理，残留磁盘
+
+#### 修复
+- **e2e-bridge-integration.test.js** — 5 test 加 `{ timeout: 30000 }`（HTTP 调用 30s）
+- **e2e-pipeline-orchestrator.test.js** — 5 test 加 `{ timeout: 10000~120000 }`（分级：注册检查 10s / 单阶段 60s / autoAdvance 120s）
+- **e2e-full-pipeline.test.js** — 1 test 加 `{ timeout: 120000 }`（含 ffmpeg 合成）
+- **e2e-full-pipeline.test.js** — 新增 `afterEach` 清理：
+  - 收集 `_tmpFiles` 数组（图片/TTS/视频路径）
+  - 清理 `os.tmpdir()/story2video/assets/` 下的 `img_*.png` / `tts_*.mp3`
+  - 清理 `os.tmpdir()/story2video/` 下的 `*_output.mp4`
+  - 不递归子目录（sessionDir 由 ComposeEngine P2-7 自管）
+
+#### 测试
+- node --check 语法验证通过（3 文件）
+- vitest 全量回归：279 passed | 10 skipped | 5 failed（全为预存 canvas.node 缺失，无新增失败）
+- node --test 加载验证：timeout 参数被正确接受，test 1-2 通过（后续因 Python 服务未运行而失败，预期）
+
+#### 6 大专项审查
+1. **异常处理** ✅ — afterEach 所有 fs 操作 try-catch，单文件失败不中断
+2. **权限边界** ✅ — 只清理 img_*/tts_/*_output.mp4 前缀，不误删其他文件
+3. **事务一致性** ✅ — afterEach 在 test 成功/失败时都执行（node:test 保证）
+4. **边界值** ✅ — 目录不存在/文件已删除/空目录全覆盖
+5. **代码风格** ✅ — node:test `{ timeout: N }` 标准格式，afterEach 从 node:test 导入
+6. **Demo 代码** ✅ — 无硬编码路径（全用 os.tmpdir()），timeout 值有依据
+
+#### 设计说明
+- e2e 文件用 `node:test` 模块（不是 vitest），vitest.config 虽 include 但实际由 `node --test` 运行
+- timeout 分级策略：30s（纯 HTTP）< 60s（split+optimize）< 120s（ffmpeg 合成）
+- afterEach 双重清理：_tmpFiles 数组（精确）+ 目录扫描（兜底）
+
+
 ### P2-7 — 临时文件清理 (质量节拍 Phase 2 日常循环)
 
 #### 问题

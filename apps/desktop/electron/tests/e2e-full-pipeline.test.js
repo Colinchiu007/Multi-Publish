@@ -13,10 +13,11 @@
  *   - prompt-engine 运行在 8013
  *   - ffmpeg 可用
  */
-const { test } = require('node:test');
+const { test, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const ServiceBus = require('../services/service-bus');
 const { StageExecutor, STAGE_TYPES } = require('../services/stage-executor');
@@ -28,6 +29,36 @@ const SplitterBridge = require('../services/splitter-bridge');
 const PromptBridge = require('../services/prompt-bridge');
 
 const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
+
+// P2-8: 收集测试创建的临时文件路径，afterEach 统一清理
+const _tmpFiles = [];
+const _tmpDirs = [
+  path.join(os.tmpdir(), 'story2video', 'assets'), // AssetGenerator 输出
+  path.join(os.tmpdir(), 'story2video'),           // ComposeEngine outputDir
+];
+
+afterEach(() => {
+  // 清理收集的文件
+  for (const f of _tmpFiles) {
+    try { fs.unlinkSync(f); } catch (_) { /* 已删除或不存在 */ }
+  }
+  _tmpFiles.length = 0;
+
+  // 清理 assets 目录下的残留文件（img_*.png / tts_*.mp3）
+  for (const dir of _tmpDirs) {
+    try {
+      if (!fs.existsSync(dir)) continue;
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) continue; // 不递归子目录（sessionDir 由 ComposeEngine 自管）
+        if (entry.name.startsWith('img_') || entry.name.startsWith('tts_') || entry.name.endsWith('_output.mp4')) {
+          try { fs.unlinkSync(fullPath); } catch (_) { /* ignore */ }
+        }
+      }
+    } catch (_) { /* 目录不存在或无权限 */ }
+  }
+});
 
 const TEST_TEXT = '人工智能正在改变世界。从自动驾驶到智能助手，AI 技术已经深入我们生活的方方面面。未来十年，AI 将带来更多惊喜。';
 
@@ -54,7 +85,7 @@ async function buildRealContext() {
   return { serviceBus, splitterBridge, promptBridge, assetGenerator, composeEngine };
 }
 
-test('E2E: split → optimize → generate_assets → compose 全链路', async () => {
+test('E2E: split → optimize → generate_assets → compose 全链路', { timeout: 120000 }, async () => {
   const { serviceBus, assetGenerator, composeEngine } = await buildRealContext();
 
   // --- Stage 1: SPLIT ---
@@ -85,6 +116,8 @@ test('E2E: split → optimize → generate_assets → compose 全链路', async 
   const imageResults = await Promise.all(imagePromises);
   assert.ok(imageResults.every(r => r.code === 0), 'all images should succeed');
   assert.ok(imageResults.every(r => fs.existsSync(r.data.path)), 'image files should exist');
+  // P2-8: 收集图片文件供 afterEach 清理
+  imageResults.forEach(r => _tmpFiles.push(r.data.path));
   console.log('  [generate_assets] ' + imageResults.length + ' images created');
 
   const ttsPromises = prompts.slice(0, 3).map((text, i) =>
@@ -93,6 +126,8 @@ test('E2E: split → optimize → generate_assets → compose 全链路', async 
   const ttsResults = await Promise.all(ttsPromises);
   assert.ok(ttsResults.every(r => r.code === 0), 'all TTS should succeed');
   assert.ok(ttsResults.every(r => fs.existsSync(r.data.path)), 'TTS files should exist');
+  // P2-8: 收集 TTS 文件供 afterEach 清理
+  ttsResults.forEach(r => _tmpFiles.push(r.data.path));
   console.log('  [generate_assets] ' + ttsResults.length + ' TTS clips created');
 
   // --- Stage 4: COMPOSE (真实视频) ---
@@ -121,6 +156,8 @@ test('E2E: split → optimize → generate_assets → compose 全链路', async 
   assert.strictEqual(composeResult.code, 0, 'compose should succeed');
   assert.ok(fs.existsSync(composeResult.data.videoPath), 'video file should exist');
   assert.ok(composeResult.data.fileSize > 0, 'video file should not be empty');
+  // P2-8: 收集视频文件供 afterEach 清理
+  _tmpFiles.push(composeResult.data.videoPath);
   console.log('  [compose] video created: ' + composeResult.data.fileSize + ' bytes, ' +
     composeResult.data.segmentCount + ' segments');
 

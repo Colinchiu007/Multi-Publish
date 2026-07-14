@@ -56,7 +56,7 @@ async function buildContainer() {
   return { pipelineEngine, serviceBus };
 }
 
-test('PipelineEngine orchestrator - story2video-compose 管线已注册为第 14 条', () => {
+test('PipelineEngine orchestrator - story2video-compose 管线已注册为第 14 条', { timeout: 10000 }, () => {
   const pe = new PipelineEngine({ log: { info: () => {}, warn: () => {}, error: () => {} } });
   const list = pe.listPipelines();
   const s2v = list.find(p => p.name === 'story2video-compose');
@@ -65,7 +65,7 @@ test('PipelineEngine orchestrator - story2video-compose 管线已注册为第 14
   assert.equal(list.length, 14, '总管线数应为 14');
 });
 
-test('PipelineEngine orchestrator - startOrchestrated 创建 run 并标记为 orchestrator 模式', async () => {
+test('PipelineEngine orchestrator - startOrchestrated 创建 run 并标记为 orchestrator 模式', { timeout: 60000 }, async () => {
   const { pipelineEngine } = await buildContainer();
   const res = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: '美丽的日落。海边的椰子树。',
@@ -77,7 +77,7 @@ test('PipelineEngine orchestrator - startOrchestrated 创建 run 并标记为 or
   assert.ok(ctx !== null, '应返回 context 对象');
 });
 
-test('PipelineEngine orchestrator - stage 1 (split) 执行成功并写入 context', async () => {
+test('PipelineEngine orchestrator - stage 1 (split) 执行成功并写入 context', { timeout: 60000 }, async () => {
   const { pipelineEngine } = await buildContainer();
   const res = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: '美丽的日落。海边的椰子树。远处的帆船。',
@@ -93,7 +93,7 @@ test('PipelineEngine orchestrator - stage 1 (split) 执行成功并写入 contex
   console.log('  stage 1 (split) 完成，场景数:', ctx.split.scenes?.length);
 });
 
-test('PipelineEngine orchestrator - stage 2 (optimize) 执行成功', async () => {
+test('PipelineEngine orchestrator - stage 2 (optimize) 执行成功', { timeout: 60000 }, async () => {
   const { pipelineEngine } = await buildContainer();
   const res = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: '美丽的日落。海边的椰子树。',
@@ -111,7 +111,7 @@ test('PipelineEngine orchestrator - stage 2 (optimize) 执行成功', async () =
   console.log('  stage 2 (optimize) 完成');
 });
 
-test('PipelineEngine orchestrator - advanceToNextCheckpoint 推进到完成', async () => {
+test('PipelineEngine orchestrator - advanceToNextCheckpoint 推进到完成', { timeout: 120000 }, async () => {
   const { pipelineEngine } = await buildContainer();
   const res = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: '美丽的日落。海边的椰子树。',
