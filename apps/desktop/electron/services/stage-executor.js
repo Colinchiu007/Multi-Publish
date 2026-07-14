@@ -194,7 +194,7 @@ class StageExecutor {
       return { success: false, error: (result && result.message) || 'Asset generation failed' };
     });
 
-    // COMPOSE - 视频合成
+    // COMPOSE - 视频合成（基于 ffmpeg 的真实合成引擎）
     map.set(STAGE_TYPES.COMPOSE, async ({ stage, params, context }) => {
       const assets = _resolveInput(stage, params, context);
       const result = await self.serviceBus.composeVideo(assets, stage.options || {});
@@ -202,20 +202,7 @@ class StageExecutor {
       if (result && (result.code === 0 || result.code === undefined)) {
         return { success: true, output: result.data || result };
       }
-      // 占位响应（story2videoEngine 未实现时 ServiceBus 返回 code === -1）
-      // E2E 编排逻辑验证优先于实际视频生成，故占位返回成功
-      if (result && result.code === -1) {
-        return {
-          success: true,
-          output: {
-            placeholder: true,
-            message: result.message || 'Compose not implemented (placeholder)',
-            videoPath: null,
-            assets: result.assets,
-            options: result.options,
-          },
-        };
-      }
+      // 引擎不可用时返回失败（不再用占位成功）
       return { success: false, error: (result && result.message) || 'Compose failed' };
     });
 

@@ -149,9 +149,9 @@ t('COMPOSE 阶段处理 code === 0 成功', async function () {
   eq(result.output.videoPath, '/tmp/out.mp4');
 });
 
-t('COMPOSE 阶段处理 code === -1 占位响应', async function () {
+t('COMPOSE 阶段处理 code === -1 引擎不可用', async function () {
   const bus = makeMockServiceBus({
-    composeVideo: async () => ({ code: -1, message: 'Story2Video engine not implemented yet' }),
+    composeVideo: async () => ({ code: -1, message: 'ffmpeg not found' }),
   });
   const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
   const result = await exec.execute({
@@ -160,10 +160,9 @@ t('COMPOSE 阶段处理 code === -1 占位响应', async function () {
     params: {},
     context: {},
   });
-  // E2E 编排验证：code === -1 时返回占位成功，让管线走完
-  eq(result.success, true);
-  ok(result.output.placeholder === true);
-  ok(/not implemented/.test(result.output.message));
+  // 引擎不可用时返回失败
+  eq(result.success, false);
+  ok(/ffmpeg not found/.test(result.error));
 });
 
 t('CALL_SKILL 阶段需要 skillName', async function () {

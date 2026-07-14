@@ -28,7 +28,13 @@ async function buildContainer() {
     pythonBridge,
     splitterBridge,
     promptBridge,
-    story2videoEngine: null,
+    // E2E 测试用 mock 引擎（真实引擎需要图片/音频文件）
+    story2videoEngine: {
+      compose: async () => ({
+        code: 0,
+        data: { videoPath: '/tmp/e2e_test.mp4', fileSize: 1024, segmentCount: 2, duration: 5.0 },
+      }),
+    },
     log: { info: () => {}, warn: () => {}, error: () => {} },
   });
 

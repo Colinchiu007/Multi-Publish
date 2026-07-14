@@ -117,8 +117,11 @@ function createContainer(options) {
   // SplitterBridge/PromptBridge 为类，构造函数接收 { log }
   container.register("splitterBridge", function(c) { return new SplitterBridge({ log: c.get("logger") }); });
   container.register("promptBridge", function(c) { return new PromptBridge({ log: c.get("logger") }); });
-  // Story2Video 引擎暂未实现，注册为 null
-  container.register("story2videoEngine", function() { return null; });
+  // Story2Video 合成引擎（基于 ffmpeg，替代占位 null）
+  container.register("story2videoEngine", function(c) {
+    const { Story2VideoComposeEngine } = require('../services/story2video-compose-engine');
+    return new Story2VideoComposeEngine({ log: c.get("logger") });
+  });
   // ServiceBus 统一聚合所有 Bridge
   container.register("serviceBus", function(c) {
     return new ServiceBus({
