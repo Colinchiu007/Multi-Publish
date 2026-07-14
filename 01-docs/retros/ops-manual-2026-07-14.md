@@ -1,0 +1,240 @@
+﻿# Phase 5.5 运维手册 — Multi-Publish 稳定性运维指南
+
+**版本**: 1.0 | **生成时间**: 2026-07-14 23:20 | **质量节拍**: Phase 5.5
+
+---
+
+## 一、服务清单
+
+### 1.1 核心服务
+
+| 服务 | 端口 | 启动命令 | 健康检查 |
+|------|------|----------|----------|
+| platform-orchestrator | 8000 | `uvicorn main:app --reload --port 8000` | GET /health |
+| TrendScope API | 8001 | `uvicorn trendscope.api.main:app --reload --port 8001` | GET /health |
+| smart-sentence-splitter | 8002 | `uvicorn 02-source.api.rest_api:app --reload --port 8002` | GET /v1/split (POST) |
+| prompt-engine | 8013 | `uvicorn prompt_engine.api:app --port 8013` | GET /v1/optimize (POST) |
+| Vite dev server | 5173 | `cd apps/desktop && npm run dev` | GET / |
+
+### 1.2 后台服务
+
+| 服务 | 命令 | 备注 |
+|------|------|------|
+| TrendScope 爬虫 | `celery -A trendscope.crawler.celery_app worker -l info -c 4` | Celery worker |
+| Electron 桌面端 | `cd apps/desktop && npm run electron:dev` | 主进程 + 渲染进程 |
+
+---
+
+## 二、启动顺序
+
+```
+1. shared-models (pip install -e .)
+2. content-aggregator-shared (pip install -e .)
+3. platform-orchestrator (pip install -e .)
+4. content-aggregator (pip install -e .)
+5. smart-sentence-splitter (pip install -e .)
+6. prompt-engine (pip install -e .)
+7. trendscope (pip install -e .)
+8. Python bridges (port 8002, 8013)
+9. orchestrator (port 8000)
+10. TrendScope API (port 8001)
+11. Vite dev (port 5173)
+12. Electron desktop
+```
+
+---
+
+## 三、资源约束 (生产环境)
+
+| 项目 | 约束 | 备注 |
+|------|------|------|
+| 目标环境 | 4G 阿里云 ECS | Alibaba Cloud Linux 3 |
+| 常驻内存 | < 200 MB | orchestrator |
+| 峰值内存 | < 800 MB | 视频任务 |
+| 并发视频 | 1 (串行) | 设计限制 |
+| Python 版本 | 3.12+ | |
+| Node.js 版本 | 22.x | |
+| 数据库 | aiosqlite (WAL) + PostgreSQL 15 | |
+
+---
+
+## 四、常见问题排查
+
+### 4.1 Python bridge 启动失败
+
+**症状**: port 8002/8013 无法连接
+
+**排查步骤**:
+1. 检查 Python 版本: `python --version` (需 3.12+)
+2. 检查依赖: `pip install -e .`
+3. 检查端口占用: `netstat -ano | findstr :8002`
+4. 查看日志: bridge 启动时会输出到 stdout
+5. 验证 watchdog: bridge 崩溃后应在 30s 内自动重启
+
+**恢复**: 重启 Electron 桌面端，bridge 会随主进程自动启动
+
+### 4.2 Electron 白屏
+
+**症状**: 应用启动后显示白屏
+
+**排查步骤**:
+1. 检查 Vite dev server (port 5173) 是否运行
+2. 检查 package.json 是否有 UTF-8 BOM (用 `Format-Hex package.json` 检查前 3 字节)
+3. 检查 CreateView.vue 等组件是否有语法错误
+4. 查看 DevTools Console (Ctrl+Shift+I)
+
+**已知修复**:
+- BOM 问题: `fix: 移除 package.json 的 UTF-8 BOM 解决 Vite CSS 500 白屏` (commit be1f6cd)
+- 组件注册: `fix: 修复 CreateView 组件注册` (commit 6e3b988)
+
+### 4.3 Remotion 引擎状态异常
+
+**症状**: 视频合成失败，引擎状态不可用
+
+**排查步骤**:
+1. 检查 workspace hoisting: Remotion 可能在 monorepo 根目录
+2. 验证 RenderEngine.getStatus(): 应返回 ready
+3. 检查 ffmpeg 是否安装: `ffmpeg -version`
+
+**已知修复**:
+- workspace hoisting: `fix: Remotion 引擎状态检测修复 — 支持 workspace hoisting` (commit 7ad9959)
+
+### 4.4 IPC 通道未注册
+
+**症状**: `pipeline:registerStageExecutor` 测试失败
+
+**状态**: 已知预存问题，非阻断
+
+**排查**: 检查 bootstrap/phase5-ipc.js 是否正确注册所有 IPC handler
+
+### 4.5 版本号显示错误
+
+**症状**: 前端显示版本号不正确
+
+**排查步骤**:
+1. 检查 package.json 相对路径
+2. 检查 IPC 返回结构: 应正确解构 `{ code, data }`
+
+**已知修复**:
+- `fix: 版本号显示修复 — 直接从 package.json 读取` (commit bc17bd3)
+- `fix: 版本号显示修复 — 正确解构 IPC 返回的 { code, data } 结构` (commit 063a226)
+
+---
+
+## 五、监控指标
+
+### 5.1 健康检查
+
+```powershell
+# 检查所有端口
+$ports = @(8000,8001,8002,8013,5173)
+foreach ($p in $ports) {
+    $r = Test-NetConnection -ComputerName localhost -Port $p -WarningAction SilentlyContinue
+    Write-Output "Port $p : $($r.TcpTestSucceeded)"
+}
+
+# 检查进程内存
+Get-Process | Where-Object { $_.ProcessName -match "python|node|electron" } |
+    Select-Object ProcessName, Id, @{N="MB";E={[math]::Round($_.WorkingSet64/1MB,1)}}
+```
+
+### 5.2 基线指标 (2026-07-14)
+
+| 指标 | 基线值 | 告警阈值 |
+|------|--------|----------|
+| Electron 内存 | 476.5 MB | > 600 MB |
+| Node.js 内存 | 228.8 MB | > 350 MB |
+| Python 内存 | 123.2 MB | > 200 MB |
+| 总内存 | 828.5 MB | > 1000 MB |
+| CPU 负载 | 15% | > 80% |
+
+---
+
+## 六、故障恢复流程
+
+### 6.1 Python bridge 崩溃
+
+```
+bridge 崩溃
+    ↓
+watchdog 检测 (30s 内)
+    ↓
+自动重启 bridge
+    ↓
+验证健康 (/v1/split 或 /v1/optimize)
+    ↓
+恢复服务
+```
+
+### 6.2 Electron 主进程崩溃
+
+```
+主进程崩溃
+    ↓
+用户重启应用
+    ↓
+bootstrap.js 按阶段初始化 (phase1-5)
+    ↓
+Python bridges 随主进程启动
+    ↓
+验证全部服务健康
+```
+
+### 6.3 数据库损坏
+
+```
+aiosqlite WAL 模式
+    ↓
+检查 .db-wal 文件
+    ↓
+如损坏: 删除 .db-wal, 从 .db 主文件恢复
+    ↓
+重启 orchestrator
+```
+
+---
+
+## 七、日志位置
+
+| 服务 | 日志位置 |
+|------|----------|
+| Electron 主进程 | DevTools Console + stdout |
+| Python bridges | stdout (watchdog 捕获) |
+| orchestrator | stdout + aiosqlite |
+| TrendScope | Celery log + PostgreSQL |
+
+---
+
+## 八、安全检查清单
+
+- [ ] .env 文件未被 git 跟踪
+- [ ] 所有 BrowserWindow 配置 sandbox:true
+- [ ] 所有 BrowserWindow 配置 contextIsolation:true
+- [ ] 所有 BrowserWindow 配置 nodeIntegration:false
+- [ ] JWT_SECRET 和 MASTER_PASSWORD 通过环境变量提供
+- [ ] 无硬编码 API Key (grep 扫描)
+- [ ] npm audit 无 HIGH/CRITICAL 漏洞
+
+---
+
+## 九、备份策略
+
+| 数据 | 位置 | 备份频率 |
+|------|------|----------|
+| aiosqlite 数据库 | orchestrator 目录 | 每日 |
+| PostgreSQL | TrendScope 目录 | 每日 |
+| 用户配置 | Electron userData | 每周 |
+| 代码仓库 | GitHub | 每次 push |
+
+---
+
+## 十、联系方式
+
+- **项目负责人**: Colin Chiu
+- **代码仓库**: Multi-Publish (GitHub)
+- **文档位置**: 01-docs/
+- **复盘报告**: 01-docs/retros/
+
+---
+
+*生成工具: 质量节拍 Phase 5.5 Operations Manual*
