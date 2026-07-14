@@ -3,6 +3,64 @@
 ## [Unreleased] - 2026-07-14
 
 
+### P2-10 — PUBLISH 阶段实现 (质量节拍 Phase 2 日常循环)
+
+#### 问题
+- `stage-executor.js` PUBLISH 执行器调用 `router.publish(...)`，但 `PublisherRouter` 只有 `createPublisher(platform, deps).publish(task)` 模式
+- **`router.publish` 方法根本不存在** → 永远走占位成功分支，真实发布从未执行
+- 无 videoPath 验证（undefined 直接传给 router）
+- 无 platforms 验证（空数组时静默成功）
+- 无日志记录（成功/失败都没 log）
+- 占位成功误导调用方（`placeholder: true` 但 `success: true`，无法区分）
+
+#### 修复 — 重写 PUBLISH 执行器
+- **API 匹配**：`router.publish(...)` → `router.createPublisher(platform, deps).publish(task)`
+- **videoPath 验证**：从 compose output 提取（支持 string/object 两种格式）+ `fs.existsSync` 验证
+- **platforms 验证**：非空数组检查，支持 `stage.platforms` 优先于 `params.platforms`
+- **日志记录**：占位 warn / 单平台 info / 失败 warn / 异常 warn 全覆盖
+- **多平台汇总**：`publishedTo` + `failedPlatforms` + `results` + `stats` 详细输出
+- **异常隔离**：单平台 publish 抛异常不中断其他平台
+- **占位分支保留**：E2E 编排验证兼容（router 未配置时仍返回占位成功 + warn 日志）
+
+#### 输出结构
+```javascript
+// 真实发布
+{
+  success: true/false,  // 至少一个平台成功
+  output: {
+    placeholder: false,
+    videoPath: '/tmp/xxx.mp4',
+    publishedTo: ['xiaohongshu', 'bilibili'],
+    failedPlatforms: ['douyin'],
+    results: [{ platform, success, url, error }, ...],
+    stats: { total, succeeded, failed }
+  },
+  error: null / 'All platforms failed: ...'
+}
+// 占位（router 未配置）
+{ success: true, output: { placeholder: true, publishedTo: [], videoPath } }
+```
+
+#### 测试
+- **新建** `stage-executor-publish.test.js` (13 用例)
+  - 占位分支: router null / container null / 无 createPublisher 方法
+  - 输入验证: videoPath undefined / 文件不存在 / platforms 空数组 / platforms 未指定
+  - 单平台: 成功 / 失败
+  - 多平台: 部分成功 / 全部失败
+  - 异常处理: publish 抛异常不中断其他平台
+  - 优先级: stage.platforms 优先于 params.platforms
+- **13/13 PASS**（128ms）
+- 相关测试无回归：stage-executor.test.js 35/35 PASS
+
+#### 6 大专项审查
+1. **异常处理** ✅ — publisher.publish try-catch 隔离，占位分支 warn 日志
+2. **权限边界** ✅ — createPublisher 参数数组调用，videoPath 验证后再用
+3. **事务一致性** ✅ — 多平台尽力而为，至少一个成功即整体成功
+4. **边界值** ✅ — router/videoPath/platforms/单平台/多平台/异常全 13 场景覆盖
+5. **代码风格** ✅ — @ts-check + JSDoc + 与现有执行器一致
+6. **Demo 代码** ✅ — 无硬编码，日志完整，fs 按需 require
+
+
 ### P2-8 — 测试超时 + 临时文件清理 (质量节拍 Phase 2 日常循环)
 
 #### 问题

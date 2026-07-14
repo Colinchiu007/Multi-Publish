@@ -207,32 +207,132 @@ class StageExecutor {
     });
 
     // PUBLISH - 多平台发布
+    // P2-10: 重写为 createPublisher 模式，匹配 PublisherRouter 真实 API
     map.set(STAGE_TYPES.PUBLISH, async ({ stage, params, context }) => {
       const router = (self.container && typeof self.container.get === 'function')
         ? self.container.get('publisherRouter')
         : null;
-      if (!router || typeof router.publish !== 'function') {
-        // E2E 编排验证：router 未配置时返回占位成功
+
+      // 占位分支：router 未配置（E2E 编排验证 / 开发环境）
+      // 真实 PublisherRouter 只有 createPublisher 方法，没有 publish 方法
+      if (!router || typeof router.createPublisher !== 'function') {
+        self.log.warn('StageExecutor',
+          'PUBLISH: publisherRouter not available, returning placeholder success');
+        // 提取 videoPath 用于日志（不做验证，占位模式允许文件不存在）
+        const composeOut = _resolveInput(stage, params, context);
+        const phVideoPath = typeof composeOut === 'string'
+          ? composeOut
+          : (composeOut && composeOut.videoPath) || (params && params.videoPath) || null;
         return {
           success: true,
           output: {
             placeholder: true,
             message: 'PublisherRouter not available (placeholder)',
             publishedTo: [],
+            videoPath: phVideoPath,
           },
         };
       }
-      const videoPath = _resolveInput(stage, params, context);
+
+      // 1. 解析并验证 videoPath
+      // compose 阶段的 output 是 { videoPath, fileSize, segmentCount, duration }
+      // _resolveInput 返回整个 compose 对象，需提取 videoPath 字段
+      const composeOutput = _resolveInput(stage, params, context);
+      let videoPath;
+      if (typeof composeOutput === 'string') {
+        videoPath = composeOutput;
+      } else if (composeOutput && typeof composeOutput === 'object') {
+        videoPath = composeOutput.videoPath || composeOutput.path || composeOutput.output;
+      } else if (params && params.videoPath) {
+        videoPath = params.videoPath;
+      }
+      if (!videoPath) {
+        return { success: false, error: 'PUBLISH: No videoPath resolved from context/params' };
+      }
+      const fs = require('fs');
+      if (!fs.existsSync(videoPath)) {
+        return {
+          success: false,
+          error: 'PUBLISH: videoPath does not exist: ' + videoPath,
+        };
+      }
+
+      // 2. 解析并验证 platforms
       const platforms = stage.platforms || params.platforms || [];
-      const result = await router.publish({
-        videoPath,
-        platforms,
-        ...stage.options,
-      });
+      if (!Array.isArray(platforms) || platforms.length === 0) {
+        return {
+          success: false,
+          error: 'PUBLISH: No platforms specified (stage.platforms or params.platforms required)',
+        };
+      }
+
+      // 3. 构建 publish deps（rpaViewManager + store + pythonBridge 从 container 获取）
+      const rpaViewManager = (self.container && typeof self.container.get === 'function')
+        ? self.container.get('rpaViewManager') : null;
+      const store = (self.container && typeof self.container.get === 'function')
+        ? self.container.get('store') : null;
+      const pythonBridge = (self.container && typeof self.container.get === 'function')
+        ? self.container.get('pythonBridge') : null;
+      const publishDeps = { rpaViewManager, store, pythonBridge };
+
+      // 4. 逐平台发布（createPublisher + publisher.publish 模式）
+      const results = [];
+      for (const platform of platforms) {
+        try {
+          const publisher = router.createPublisher(platform, publishDeps);
+          const task = {
+            id: 's2v_' + Date.now() + '_' + platform,
+            platform,
+            article: {
+              video_path: videoPath,
+              title: stage.options?.title || params.title || '',
+              content: stage.options?.content || params.content || '',
+              tags: stage.options?.tags || [],
+            },
+          };
+          const r = await publisher.publish(task);
+          results.push({
+            platform,
+            success: !!(r && r.success),
+            url: r?.url || r?.postId || '',
+            error: r?.success ? null : (r?.error || 'Publish failed'),
+          });
+          self.log.info('StageExecutor',
+            'PUBLISH: ' + platform + ' ' + (r?.success ? 'success' : 'failed') +
+            (r?.url ? ' url=' + r.url : ''));
+        } catch (e) {
+          results.push({
+            platform,
+            success: false,
+            url: '',
+            error: e instanceof Error ? e.message : String(e),
+          });
+          self.log.warn('StageExecutor',
+            'PUBLISH: ' + platform + ' exception: ' + (e instanceof Error ? e.message : String(e)));
+        }
+      }
+
+      // 5. 汇总结果
+      const succeeded = results.filter(r => r.success);
+      const failed = results.filter(r => !r.success);
+      const overallSuccess = succeeded.length > 0; // 至少一个平台成功
+
       return {
-        success: !!(result && result.success),
-        output: result,
-        error: result && result.error,
+        success: overallSuccess,
+        output: {
+          placeholder: false,
+          videoPath,
+          publishedTo: succeeded.map(r => r.platform),
+          failedPlatforms: failed.map(r => r.platform),
+          results,
+          stats: {
+            total: platforms.length,
+            succeeded: succeeded.length,
+            failed: failed.length,
+          },
+        },
+        error: overallSuccess ? null : 'All platforms failed: ' +
+          failed.map(r => r.platform + '(' + r.error + ')').join(', '),
       };
     });
 
