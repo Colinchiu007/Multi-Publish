@@ -49,7 +49,17 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 从 context 获取前序阶段的输出
       const optimizedPrompts = context.optimize || context.optimized_prompts;
-      const sentences = context.split || context.sentences;
+      let sentences = context.split || context.sentences;
+
+      // 适配 split 阶段输出：{ scenes: [...], sentences: [...], ... }（对象，非数组）
+      // 与 stage-executor.js 中 OPTIMIZE_BATCH 的适配逻辑一致
+      if (sentences && !Array.isArray(sentences)) {
+        if (Array.isArray(sentences.scenes)) {
+          sentences = sentences.scenes;
+        } else if (Array.isArray(sentences.sentences)) {
+          sentences = sentences.sentences;
+        }
+      }
 
       if (!Array.isArray(optimizedPrompts) || optimizedPrompts.length === 0) {
         return {
@@ -79,7 +89,7 @@ function registerStory2VideoStages(pipelineEngine) {
         async (prompt, index) => {
           try {
             const result = await serviceBus.callPythonSkill('generate_image', {
-              prompt: typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized,
+              prompt: typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized,
               style: imageStyle,
               index,
               aspect_ratio: stage.options?.aspectRatio || '16:9',
@@ -156,7 +166,7 @@ function registerStory2VideoStages(pipelineEngine) {
         })),
         optimizedPrompts: optimizedPrompts.map((p, i) => ({
           index: i,
-          prompt: typeof p === 'string' ? p : p.prompt || p.optimized,
+          prompt: typeof p === 'string' ? p : p.prompt || p.optimized_prompt || p.optimized,
           imagePath: imageResults[i]?.path || null,
         })),
         stats: {

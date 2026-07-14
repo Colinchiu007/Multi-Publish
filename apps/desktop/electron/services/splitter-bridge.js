@@ -57,6 +57,24 @@ class SplitterBridge {
   }
 
   /**
+   * 附加到外部已运行的服务（不 spawn 子进程）
+   * 适用场景：Python 服务由 systemd/docker/手动启动，Electron 端只需连接
+   * @returns {Promise<boolean>} 是否成功附加
+   */
+  async attach () {
+    if (this.isRunning) return true
+    this.log.info('SplitterBridge', `Attaching to external splitter on port ${this.port}...`)
+    const healthy = await this.healthCheck()
+    if (healthy) {
+      this.isRunning = true
+      this.log.info('SplitterBridge', `Attached to external splitter on port ${this.port}`)
+    } else {
+      this.log.warn('SplitterBridge', `Cannot attach: no splitter responding on port ${this.port}`)
+    }
+    return healthy
+  }
+
+  /**
    * spawn 子进程并监听生命周期事件
    * @param {string} pythonCmd
    * @returns {Promise<import('child_process').ChildProcess>}

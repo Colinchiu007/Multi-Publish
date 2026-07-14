@@ -55,6 +55,24 @@ class PromptBridge {
   }
 
   /**
+   * 附加到外部已运行的服务（不 spawn 子进程）
+   * 适用场景：Python 服务由 systemd/docker/手动启动，Electron 端只需连接
+   * @returns {Promise<boolean>} 是否成功附加
+   */
+  async attach () {
+    if (this.isRunning) return true
+    this.log.info('PromptBridge', `Attaching to external prompt-engine on port ${this.port}...`)
+    const healthy = await this.healthCheck()
+    if (healthy) {
+      this.isRunning = true
+      this.log.info('PromptBridge', `Attached to external prompt-engine on port ${this.port}`)
+    } else {
+      this.log.warn('PromptBridge', `Cannot attach: no prompt-engine responding on port ${this.port}`)
+    }
+    return healthy
+  }
+
+  /**
    * spawn 子进程并监听生命周期事件
    * @param {string} pythonCmd
    * @returns {Promise<import('child_process').ChildProcess>}
@@ -175,7 +193,12 @@ class PromptBridge {
    * @returns {Promise<object>}
    */
   optimizeBatch (requests) {
-    const body = JSON.stringify(requests)
+    const normalized = requests.map(r => {
+      if (typeof r === 'string') return { prompt: r }
+      if (r.prompt !== undefined) return r
+      return { prompt: String(r) }
+    })
+    const body = JSON.stringify({ requests: normalized })
     return this._post('/v1/optimize/batch', body)
   }
 

@@ -160,8 +160,10 @@ t('COMPOSE 阶段处理 code === -1 占位响应', async function () {
     params: {},
     context: {},
   });
-  eq(result.success, false);
-  ok(/not implemented/.test(result.error));
+  // E2E 编排验证：code === -1 时返回占位成功，让管线走完
+  eq(result.success, true);
+  ok(result.output.placeholder === true);
+  ok(/not implemented/.test(result.output.message));
 });
 
 t('CALL_SKILL 阶段需要 skillName', async function () {

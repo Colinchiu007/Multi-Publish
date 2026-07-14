@@ -137,7 +137,7 @@ const PIPELINES = [
         type: 'optimize_batch', // 内置 STAGE_TYPES.OPTIMIZE_BATCH
         description: '批量提示词优化',
         options: {
-          style: 'cinematic',
+          style: 'realistic', // 必须是 prompt-engine StyleType 枚举值
         },
         inputFrom: 'split', // 从 context.split 取
       },
@@ -462,7 +462,19 @@ class PipelineEngine {
    * @returns {Promise<{success: boolean, output?: any, error?: string, checkpoint?: boolean}>}
    */
   async executeStage(runId) {
-    return this._executeStage(runId);
+    const result = await this._executeStage(runId);
+    // 手动模式下，执行成功后推进到下一阶段
+    if (result.success) {
+      const run = this._runs.get(runId);
+      if (run && run.orchestrationMode === 'orchestrator') {
+        const advResult = this.advance();
+        if (!advResult.success && advResult.message !== 'Pipeline completed') {
+          // 推进失败（非完成），保留错误信息但不覆盖执行结果
+          this.log.warn('PipelineEngine', 'advance after executeStage: ' + (advResult.message || advResult.error));
+        }
+      }
+    }
+    return result;
   }
 
   /**
@@ -591,7 +603,7 @@ class PipelineEngine {
       context: run.context || {},
     });
 
-    // 阶段执行成功且有输出 → 写入 context 供后续阶段使用
+    // 阶段执行成功且有输出 -> 写入 context 供后续阶段使用
     if (result.success && result.output !== undefined) {
       run.context = run.context || {};
       run.context[stage.name] = result.output;
