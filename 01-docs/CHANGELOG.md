@@ -3,6 +3,44 @@
 ## [Unreleased] - 2026-07-14
 
 
+### P2-6 — BaseBridge 抽取 (质量节拍 Phase 2 日常循环)
+
+#### 问题
+- splitter-bridge.js (230 行) 和 prompt-bridge.js (252 行) 有 ~60% 重复代码
+- start/attach/_launchProcess/_waitForHealthy/_startWatchdog/_stopWatchdog/_scheduleRestart/healthCheck/stop 几乎完全相同
+- 差异仅在类名/端口/Python 模块/业务方法
+
+#### 修复
+- **新建** `base-python-bridge.js` (261 行) — BasePythonBridge 基类
+  - 公共逻辑：start/stop/attach/healthCheck/_launchProcess/_waitForHealthy/_startWatchdog/_stopWatchdog/_scheduleRestart/_post
+  - 配置化：name/pythonModule/port/host/workDir/log/requestTimeout
+- **重构** `splitter-bridge.js` 230→44 行 (**-81%**) — 继承基类，仅保留 split()
+- **重构** `prompt-bridge.js` 252→56 行 (**-78%**) — 继承基类，仅保留 optimize()/optimizeBatch()
+
+#### 测试
+- **新建** `base-python-bridge.test.js` (16 用例)
+  - 构造函数初始化/log 回退/默认超时
+  - start/attach/stop 生命周期
+  - _post HTTP 请求 mock
+  - 子类继承验证 + 业务方法调用验证
+- **16/16 PASS**（2.24s）
+- 相关测试无回归：phase2-bridges 6/6 + story2video-compose-engine 12/12
+- 全量回归：1943 通过 / 23 预存失败（无新增失败）
+
+#### 6 大专项审查
+1. **异常处理** ✅ — error→reject/resolve(false)，stop try-catch 全覆盖
+2. **权限边界** ✅ — spawn 参数数组，http.request 参数对象，无 shell 注入
+3. **事务一致性** ✅ — stop 原子清理，无多步写入
+4. **边界值** ✅ — isRunning/process=null/默认超时全覆盖
+5. **代码风格** ✅ — @ts-check + JSDoc + 与 python-bridge.js 一致
+6. **Demo 代码** ✅ — 无硬编码，日志完整
+
+#### 代码消除效果
+- 删除重复代码：~330 行（2 × ~165 行公共逻辑）
+- 新增基类：261 行（含 JSDoc + 测试）
+- 净减少：splitter + prompt = 482→100 行（-79%），加基类 261 行 = 总 361 行（-25%）
+
+
 ### P1-C Phase 3 — 发布审查 + 推送 (质量节拍 Phase 3)
 
 #### 全量回归测试
