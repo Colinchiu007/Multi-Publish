@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * 极简零依赖 logger — 与 shared-utils/logger 接口一致
  * 用于 api-publish-engine 内部模块（api-router 等需要 require('./logger')）
