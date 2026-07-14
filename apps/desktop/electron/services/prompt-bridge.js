@@ -13,7 +13,9 @@ const http = require('http')
 
 const PROMPT_PORT = parseInt(process.env.PROMPT_PORT || '8013', 10)
 const PROMPT_HOST = process.env.PROMPT_HOST || '127.0.0.1'
-const PROMPT_DIR = process.env.PROMPT_DIR || 'D:/Data/projects/prompt-engine'
+// P1-A: 移除硬编码开发者路径，必须通过环境变量配置
+// 生产部署时在 .env 或系统环境变量中设置 PROMPT_DIR
+const PROMPT_DIR = process.env.PROMPT_DIR || process.cwd()
 const HEALTH_CHECK_INTERVAL = 500
 const HEALTH_CHECK_TIMEOUT = 10000
 const WATCHDOG_INTERVAL = 30000

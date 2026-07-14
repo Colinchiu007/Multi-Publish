@@ -23,18 +23,25 @@ const execFileAsync = promisify(execFile)
 
 // 查找 ffmpeg 可执行文件
 function findFfmpeg () {
-  // 1. 环境变量
+  // 1. 环境变量 FFMPEG_PATH（最高优先级）
   if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
     return process.env.FFMPEG_PATH
   }
-  // 2. 系统 PATH
+  // 2. 系统 PATH 查找
   try {
     require('child_process').execSync('ffmpeg -version', { stdio: 'ignore' })
     return 'ffmpeg'
   } catch {
-    // 3. 已知 Windows 路径
-    const winPath = 'D:\\Projects\\ffmpeg-7.1\\ffmpeg-n7.1-latest-win64-gpl-7.1\\bin\\ffmpeg.exe'
-    if (process.platform === 'win32' && fs.existsSync(winPath)) return winPath
+    // 3. 常见安装位置（跨平台，非开发者路径）
+    const commonPaths = process.platform === 'win32'
+      ? [
+          'C:\\ffmpeg\\bin\\ffmpeg.exe',
+          path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'ffmpeg', 'bin', 'ffmpeg.exe'),
+        ]
+      : ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg']
+    for (const p of commonPaths) {
+      if (p && fs.existsSync(p)) return p
+    }
   }
   return null
 }

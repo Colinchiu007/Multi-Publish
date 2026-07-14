@@ -2,6 +2,30 @@
 
 ## [Unreleased] - 2026-07-14
 
+### 安全加固 — P1 硬编码路径 + IPC sender 验证 (质量节拍 Phase 2)
+
+#### P1-A: 硬编码开发者路径清理
+- **严重级别**: HIGH (生产环境必崩)
+- **问题**: 3 个文件硬编码 `D:/Data/projects/...` 开发者路径
+- **修复**:
+  - `splitter-bridge.js` L17: `D:/Data/projects/smart-sentence-splitter` → `process.cwd()` (env 优先)
+  - `prompt-bridge.js` L16: `D:/Data/projects/prompt-engine` → `process.cwd()` (env 优先)
+  - `story2video-compose-engine.js` L36: `D:\Projects\ffmpeg-7.1\...` → 跨平台常见安装位置查找
+- **测试**: 36/36 改动相关测试通过
+
+#### P1-B: IPC sender 来源验证
+- **严重级别**: MEDIUM (恶意页面可调用 IPC)
+- **问题**: `phase5-ipc.js` 中 `usage:stats/daily/track` 三个 handler 无 sender 验证
+- **修复**:
+  - 新增 `isTrustedSender(event, app)` 函数
+  - 白名单：`app://` 协议、`file://` 协议、开发模式 `localhost/127.0.0.1`
+  - 不可信来源返回默认值 + log.warn
+- **测试**: phase5-ipc.test.js 11 个测试覆盖（可信/不可信/边界/null 防呆）
+
+#### P1-C: bootstrap.js createAppContext 拆分（推迟）
+- **原因**: 140 行核心启动代码，拆分风险高，需独立循环+完整测试覆盖
+- **状态**: 列入技术债务，下个迭代处理
+
 ### 安全修复 — P0 命令注入 + P0 桩实现 (质量节拍 Phase 2)
 
 #### P0-1: asset-generator.js 命令注入漏洞修复

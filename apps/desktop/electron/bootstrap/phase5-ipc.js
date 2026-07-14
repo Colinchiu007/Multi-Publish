@@ -7,9 +7,32 @@
  * - usage:* 系列（使用量统计 IPC）
  *
  * 验收标准 BUGFIX-PLAN Bug-1: phase 文件 ≤ 80 行
+ * P1-B: 所有 ipcMain.handle 加 sender 来源验证，防恶意页面调用
  */
 const { ipcMain } = require('electron')
 const log = require('../services/logger')
+
+/**
+ * 验证 IPC 调用来源是否可信
+ * 白名单：app:// 协议、file:// 协议、开发模式 localhost
+ * @param {object} event - Electron IPC event
+ * @param {object} app - Electron app 实例（用于判断 isPackaged）
+ * @returns {boolean} 来源可信返回 true
+ */
+function isTrustedSender(event, app) {
+  if (!event || !event.senderFrame) return false
+  const url = event.senderFrame.url
+  if (!url) return false
+  // 生产模式：app:// 协议（Electron 自定义协议）
+  if (url.startsWith('app://')) return true
+  // file:// 协议（本地文件加载）
+  if (url.startsWith('file://')) return true
+  // 开发模式：localhost / 127.0.0.1
+  if (process.env.NODE_ENV === 'development' || (app && !app.isPackaged)) {
+    if (url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1')) return true
+  }
+  return false
+}
 
 /**
  * 注册所有 IPC handlers
@@ -39,8 +62,12 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     compositionManager, aiGenerator, videoEngine, pipelineEngine, modelProviderManager,
   })
 
-  // 使用量统计 IPC
-  ipcMain.handle('usage:stats', () => {
+  // 使用量统计 IPC — P1-B: 加 sender 来源验证
+  ipcMain.handle('usage:stats', (event) => {
+    if (!isTrustedSender(event, app)) {
+      log.warn('IPC', 'usage:stats rejected: untrusted sender')
+      return { features: {}, events: [], sessions: 0 }
+    }
     try {
       if (global.usageTracker) return global.usageTracker.getStats()
       return { features: {}, events: [], sessions: 0 }
@@ -49,7 +76,11 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     }
   })
 
-  ipcMain.handle('usage:daily', () => {
+  ipcMain.handle('usage:daily', (event) => {
+    if (!isTrustedSender(event, app)) {
+      log.warn('IPC', 'usage:daily rejected: untrusted sender')
+      return {}
+    }
     try {
       if (global.usageTracker) return global.usageTracker.getDailyStats()
       return {}
@@ -59,6 +90,10 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
   })
 
   ipcMain.handle('usage:track', (event, args) => {
+    if (!isTrustedSender(event, app)) {
+      log.warn('IPC', 'usage:track rejected: untrusted sender')
+      return false
+    }
     try {
       if (global.usageTracker && args) {
         global.usageTracker.trackEvent(args.feature, args.action, args.detail)
@@ -70,4 +105,4 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
   })
 }
 
-module.exports = { registerAllIpcHandlers }
+module.exports = { registerAllIpcHandlers, isTrustedSender }

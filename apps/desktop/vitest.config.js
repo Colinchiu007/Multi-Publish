@@ -14,6 +14,7 @@ module.exports = defineConfig({
       'electron/services/**/*.test.{js,ts}',
       'electron/ipc-handlers/**/*.test.{js,ts}',
       'electron/core/**/*.test.{js,ts}',
+      'electron/bootstrap/**/*.test.{js,ts}',
       'electron/bootstrap.test.{js,ts}',
       'electron/window.test.{js,ts}',
       'electron/shutdown.test.{js,ts}',

@@ -14,7 +14,9 @@ const http = require('http')
 
 const SPLITTER_PORT = parseInt(process.env.SPLITTER_PORT || '8002', 10)
 const SPLITTER_HOST = process.env.SPLITTER_HOST || '127.0.0.1'
-const SPLITTER_DIR = process.env.SPLITTER_DIR || 'D:/Data/projects/smart-sentence-splitter'
+// P1-A: 移除硬编码开发者路径，必须通过环境变量配置
+// 生产部署时在 .env 或系统环境变量中设置 SPLITTER_DIR
+const SPLITTER_DIR = process.env.SPLITTER_DIR || process.cwd()
 const HEALTH_CHECK_INTERVAL = 500
 const HEALTH_CHECK_TIMEOUT = 10000
 const WATCHDOG_INTERVAL = 30000
