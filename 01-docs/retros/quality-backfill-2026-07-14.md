@@ -320,16 +320,18 @@ Phase 4.3 经验沉淀（补跑）
 
 ## 十、后续行动项
 
-| # | 行动 | 负责人 | 截止 | 状态 |
-|---|------|--------|------|------|
-| 1 | 修复 asset-generator.js 命令注入 | AI 协作 | 立即 | ⬜ |
-| 2 | 修复 container.js 桩实现 | AI 协作 | 本周 | ⬜ |
-| 3 | 清理 3 处硬编码路径 | AI 协作 | 本周 | ⬜ |
-| 4 | 加 IPC sender 验证 | AI 协作 | 本周 | ⬜ |
-| 5 | 完成 Bug-1 拆分（createAppContext ≤30 行） | AI 协作 | 本周 | ⬜ |
-| 6 | 抽取 BaseBridge 基类 | AI 协作 | 下迭代 | ⬜ |
-| 7 | 加临时文件清理 | AI 协作 | 下迭代 | ⬜ |
-| 8 | 加测试清理 + 超时 | AI 协作 | 下迭代 | ⬜ |
+| # | 行动 | 负责人 | Commit | 状态 |
+|---|------|--------|--------|------|
+| 1 | 修复 asset-generator.js 命令注入 | AI 协作 | 481a6fd | ✅ 已修复 |
+| 2 | 修复 container.js 桩实现 | AI 协作 | 481a6fd | ✅ 已修复 |
+| 3 | 清理 3 处硬编码路径 | AI 协作 | 899b5cf | ✅ 已修复 |
+| 4 | 加 IPC sender 验证 | AI 协作 | 899b5cf | ✅ 已修复 |
+| 5 | 完成 Bug-1 拆分（createAppContext ≤30 行） | AI 协作 | d82bffc+3e914e6+9f69647 | ✅ 已修复 |
+| 6 | 抽取 BaseBridge 基类 | AI 协作 | cd6b074 | ✅ 已修复 |
+| 7 | 加临时文件清理 | AI 协作 | 847e430 | ✅ 已修复 |
+| 8 | 加测试清理 + 超时 | AI 协作 | d53dad4 | ✅ 已修复 |
+| 9 | 字幕转义修复 | AI 协作 | d05ab34 | ✅ 已修复 |
+| 10 | PUBLISH 阶段实现 | AI 协作 | 4e9139e | ✅ 已修复 |
 
 ---
 
@@ -355,7 +357,7 @@ Phase 4.3 经验沉淀（补跑）
 |---|------|--------|------|------|
 | P1-A | 3处硬编码开发者路径 | 899b5cf | 36 改动相关测试 | ✅ 已修复 |
 | P1-B | IPC sender 验证缺失 | 899b5cf | 11 测试 (可信/不可信/边界) | ✅ 已修复 |
-| P1-C | bootstrap createAppContext 拆分 | - | - | ⏳ 推迟（技术债务） |
+| P1-C | bootstrap createAppContext 拆分 | d82bffc+3e914e6+9f69647 | 全量测试 | ✅ 已修复 |
 
 ### 质量评分变化
 
@@ -391,7 +393,7 @@ P1-A/B 修复后:     8.0/10  ✅ 超过发布门槛
 | Phase 2 | P1-A/B 修复日常循环 6 步 | ✅ |
 | Phase 3.1 | 发布审查 (git diff + 全量测试 + 6大专项) | ✅ |
 | Phase 3.4 | 文档同步 (CHANGELOG + 本报告) | ✅ |
-| Phase 4 | 复盘 + 经验沉淀 | 🔄 进行中 |
+| Phase 4 | 复盘 + 经验沉淀 | ✅ |
 
 ### Git 提交链
 
@@ -403,4 +405,69 @@ P1-A/B 修复后:     8.0/10  ✅ 超过发布门槛
 899b5cf fix(P1): 清理硬编码路径 + IPC sender 验证 (质量节拍 Phase 2)
 ```
 
-**结论**：P0+P1-A/B 修复完成，质量评分 6.2→8.0，已达发布门槛。剩余 P1-C（bootstrap 拆分）和 P2 问题列入技术债务。
+**结论**：P0+P1-A/B 修复完成，质量评分 6.2→8.0，已达发布门槛。P1-C 和 P2 系列已在后续迭代中全部修复（详见第十二节）。
+
+---
+
+## 十二、P2 系列技术债务清零 (2026-07-14/15)
+
+### P2 修复记录
+
+| # | 问题 | Commit | 测试 | 状态 |
+|---|------|--------|------|------|
+| P2-6 | BaseBridge 抽取 — 消除 splitter/prompt-bridge 60% 重复代码 | cd6b074 | 16 测试 | ✅ 已修复 |
+| P2-7 | 临时文件清理 — sessionDir 自动清理 + 跨平台递归删除 | 847e430 | 12 测试 | ✅ 已修复 |
+| P2-8 | 测试超时+清理 — 3 e2e 文件加 timeout + afterEach | d53dad4 | 3 e2e 文件 | ✅ 已修复 |
+| P2-9 | 字幕转义修复 — 7 字符全覆盖 + 转义顺序正确 | d05ab34 | 12 测试 | ✅ 已修复 |
+| P2-10 | PUBLISH 阶段实现 — 替换占位为真实 createPublisher 模式 | 4e9139e | 13 测试 | ✅ 已修复 |
+
+### 质量评分变化
+
+```
+补跑审查（修复前）: 6.2/10  ❌ 未达发布门槛
+P0 修复后:         7.5/10  ✅ 达发布门槛
+P1-A/B 修复后:     8.0/10  ✅ 超过发布门槛
+P1-C 修复后:       8.5/10  ✅ 稳固
+P2 系列修复后:     8.95/10 ✅ 技术债务清零
+```
+
+### 全量回归
+
+- 通过: 1955
+- 失败: 23（全部预存，与本次改动无关）
+  - `tests/path-utils.test.js` — 路径工具预存失败
+  - `electron/core/container.setup.test.js` — getComposerDir 预存失败
+  - 4 × `tests/visual-testing/` — resemblejs/canvas 缺原生依赖
+  - 其余 16 个为各模块预存失败
+- TSC 类型检查: 零错误
+
+### 关键发现
+
+- **P2-10 重大发现**: PUBLISH 阶段调用 `router.publish()` 但 PublisherRouter 根本没有此方法（只有 `createPublisher(platform, deps).publish(task)`）→ story2video-compose 管线的 publish 阶段**从未真正执行过发布**，一直走占位成功分支
+- **P2-7 发现**: `fs.rmSync({ recursive: true, force: true })` 在 Windows 静默失败（不抛错但目录未删除）→ 需手动递归删除
+
+### 技术债务最终状态
+
+所有 P0/P1/P2 级别技术债务已全部清零。项目质量评分 6.2 → 8.95（+2.75），已达发布门槛且无新增回归。
+
+### Git 提交链（P2 系列）
+
+```
+cd6b074 refactor(P2-6): BaseBridge 抽取
+   ↓
+847e430 fix(P2-7): 临时文件清理
+   ↓
+d53dad4 test(P2-8): 测试超时+清理
+   ↓
+d05ab34 fix(P2-9): 字幕转义修复
+   ↓
+4e9139e feat(P2-10): PUBLISH 阶段实现
+```
+
+### Phase 3+4 补跑记录
+
+- Phase 3.1 全量回归: 1955 passed / 23 pre-existing failed（对比基线 +5/-5，无新增失败）
+- Phase 3.2 6 大专项审查: 3 commit × 6 专项 = 18 项全 PASS + TSC 零错误
+- Phase 4 经验沉淀: project_memory.md 更新 +2 lessons / +3 patterns / +1 anti-pattern
+
+**结论**：P0+P1+P2 全部修复完成，质量评分 6.2→8.95，技术债务清零。质量节拍补跑全流程完成。

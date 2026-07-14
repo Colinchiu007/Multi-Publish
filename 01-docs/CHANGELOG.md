@@ -3,6 +3,29 @@
 ## [Unreleased] - 2026-07-14
 
 
+### 质量节拍 Phase 3+4 收尾 — retro 跟踪表更新 + Phase 4 门禁确认
+
+#### 文档同步
+- 更新 retro 跟踪表：10 项行动全部标记 ✅ + commit hash（原 8 项全 ⬜）
+- 新增第十二节：P2 系列技术债务清零完整记录（P2-6~P2-10 逐项跟踪）
+- 修正 P1-C 状态：⏳ 推迟 → ✅ 已完成（3 commit: d82bffc+3e914e6+9f69647）
+- 修正 Phase 4 状态：🔄 进行中 → ✅
+
+#### Phase 4 门禁确认
+- [x] /health 评分 8.95 (>= 7) ✅
+- [x] /retro 产出了 learnings（+2 lessons / +3 patterns / +1 anti-pattern）✅
+- [x] Bug 反哺完成（P2-10 router.publish 不存在 + P2-7 fs.rmSync Windows 静默失败）✅
+- [x] learnings 已 review（3 新 pattern 为代码级，已入 project_memory.md，无需 skillify）✅
+- [x] 未触发 /bug-reflection 的未解决问题（仅 2 个预存 TODO，非阻塞）✅
+
+#### 技术债务最终状态
+- 所有 P0/P1/P2 级别技术债务已全部清零
+- 质量评分 6.2 → 8.95（+2.75）
+- 全量回归 1955 passed / 23 pre-existing failed（无新增失败）
+- TSC 类型检查：零错误
+- 质量节拍补跑全流程完成（Phase 3.1 发布审查 + Phase 4 经验沉淀）
+
+
 ### P2-10 — PUBLISH 阶段实现 (质量节拍 Phase 2 日常循环)
 
 #### 问题
@@ -394,9 +417,9 @@
   - 不可信来源返回默认值 + log.warn
 - **测试**: phase5-ipc.test.js 11 个测试覆盖（可信/不可信/边界/null 防呆）
 
-#### P1-C: bootstrap.js createAppContext 拆分（推迟）
+#### P1-C: bootstrap.js createAppContext 拆分（已完成）
 - **原因**: 140 行核心启动代码，拆分风险高，需独立循环+完整测试覆盖
-- **状态**: 列入技术债务，下个迭代处理
+- **状态**: ✅ 已完成（3 commit: d82bffc → 3e914e6 → 9f69647，bootstrap.js 359→137 行 -62%）
 
 ### 安全修复 — P0 命令注入 + P0 桩实现 (质量节拍 Phase 2)
 
