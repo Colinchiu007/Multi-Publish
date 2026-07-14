@@ -3,6 +3,47 @@
 ## [Unreleased] - 2026-07-14
 
 
+### P2-7 — 临时文件清理 (质量节拍 Phase 2 日常循环)
+
+#### 问题
+- `story2video-compose-engine.js` 每次 compose 创建 `sessionDir`（含 segments + concat_list.txt + output.mp4）
+- 合成完成后 sessionDir 内的 segments 和 concat_list.txt 永久残留，占磁盘
+- 无历史 sessionDir 清理机制，长时间运行导致临时目录堆积
+
+#### 修复
+- **成功路径**：合成后将 output.mp4 移到 outputDir 根目录（`<sessionId>_output.mp4`），清理整个 sessionDir
+- **失败路径**：segments 全部失败/拼接失败/输出验证失败时，清理 sessionDir
+- **历史清理**：compose 启动时调用 `_cleanupOldSessions()` 清理超过 `maxSessionAgeMs`（默认 24h）的 `s2v_*` 目录
+- **跨平台删除**：`_rmSyncRecursive()` 手动递归删除（`fs.rmSync({recursive:true})` 在部分 Windows 环境静默失败）
+
+#### 新增方法
+- `_cleanupSession(sessionDir)` — 清理单个 sessionDir
+- `_rmSyncRecursive(dirPath)` — 跨平台可靠递归删除
+- `_cleanupOldSessions(maxAgeMs)` — 清理历史残留 sessionDir
+- 构造函数新增 `maxSessionAgeMs` 选项（默认 24h）
+
+#### 测试
+- **新建** `story2video-compose-engine-cleanup.test.js` (12 用例)
+  - _cleanupSession: 存在/不存在/文件删除/日志记录
+  - _cleanupOldSessions: 超期清理/非 s2v_ 前缀/普通文件/返回数/默认 24h/outputDir 不存在
+  - constructor: 默认/自定义 maxSessionAgeMs
+- **12/12 PASS**（24.68s，含真实 fs 操作）
+- 相关测试无回归：story2video-compose-engine 12/12 + base-python-bridge 16/16 + phase2-bridges 6/6
+
+#### 6 大专项审查
+1. **异常处理** ✅ — try-catch 容错，单目录失败不中断，移动失败保留原路径
+2. **权限边界** ✅ — 仅清理 s2v_ 前缀目录，不清理非目录文件
+3. **事务一致性** ✅ — 成功先 copy 再清理，失败直接清理
+4. **边界值** ✅ — 存在/不存在/空/旧/新/非前缀/普通文件/不存在 outputDir 全覆盖
+5. **代码风格** ✅ — @ts-check + JSDoc + 与现有代码一致
+6. **Demo 代码** ✅ — 无硬编码，跨平台注释完整
+
+#### 踩坑记录
+- `fs.rmSync({ recursive: true, force: true })` 在 Windows 部分环境**静默失败**（不抛错但目录未删除）
+- 调试过程：创建 test-rm-debug*.js 验证，发现 fs.rmSync 对有内容的目录无效，手动递归 unlinkSync+rmdirSync 正常
+- 解决：实现 `_rmSyncRecursive()` 手动递归删除，确保跨平台可靠
+
+
 ### P2-6 — BaseBridge 抽取 (质量节拍 Phase 2 日常循环)
 
 #### 问题

@@ -79,11 +79,13 @@ class Story2VideoComposeEngine {
    * @param {object} [opts]
    * @param {string} [opts.outputDir] - 输出目录（默认 os.tmpdir）
    * @param {object} [opts.log] - 日志模块
+   * @param {number} [opts.maxSessionAgeMs] - 历史 sessionDir 最大保留时间 ms（默认 24h）
    */
   constructor (opts) {
     opts = opts || {}
     this.outputDir = opts.outputDir || path.join(os.tmpdir(), 'story2video')
     this.log = opts.log || require('./logger')
+    this.maxSessionAgeMs = opts.maxSessionAgeMs || 24 * 60 * 60 * 1000
     this._segmentSeq = 0
   }
 
@@ -104,6 +106,9 @@ class Story2VideoComposeEngine {
 
     // 确保输出目录存在
     fs.mkdirSync(this.outputDir, { recursive: true })
+
+    // P2-7: 启动时清理历史残留 sessionDir（超过 maxSessionAgeMs）
+    this._cleanupOldSessions()
 
     const sessionId = 's2v_' + Date.now()
     const sessionDir = path.join(this.outputDir, sessionId)
@@ -145,34 +150,141 @@ class Story2VideoComposeEngine {
     }
 
     if (segments.length === 0) {
+      // P2-7: 失败时清理 sessionDir
+      this._cleanupSession(sessionDir)
       return { code: -1, message: 'All segments failed to create' }
     }
 
     // 2. 拼接所有片段
     const outputPath = path.join(sessionDir, 'output.mp4')
-    if (segments.length === 1) {
-      fs.copyFileSync(segments[0], outputPath)
-    } else {
-      await this._concatSegments(segments, outputPath, sessionDir)
+    try {
+      if (segments.length === 1) {
+        fs.copyFileSync(segments[0], outputPath)
+      } else {
+        await this._concatSegments(segments, outputPath, sessionDir)
+      }
+    } catch (e) {
+      // P2-7: 拼接失败时清理 sessionDir
+      this._cleanupSession(sessionDir)
+      throw e
     }
 
     // 3. 验证输出
     if (!fs.existsSync(outputPath)) {
+      this._cleanupSession(sessionDir)
       return { code: -1, message: 'Output file not created' }
     }
 
-    const stat = fs.statSync(outputPath)
-    this.log.info('Story2VideoCompose', 'Video composed: ' + outputPath + ' (' + Math.round(stat.size / 1024) + 'KB)')
+    // P2-7: 成功后，将 output.mp4 移到 outputDir 根目录，清理 sessionDir
+    const finalPath = path.join(this.outputDir, sessionId + '_output.mp4')
+    try {
+      fs.copyFileSync(outputPath, finalPath)
+    } catch (e) {
+      // 移动失败则保留原路径（output.mp4 仍在 sessionDir 内）
+      this.log.warn('Story2VideoCompose', 'Failed to move output to final path, keeping in sessionDir: ' + e.message)
+      const stat = fs.statSync(outputPath)
+      return {
+        code: 0,
+        data: {
+          videoPath: outputPath,
+          fileSize: stat.size,
+          segmentCount: segments.length,
+          duration: assetManifest.audio.reduce((sum, a) => sum + (a.duration || 0), 0),
+        },
+      }
+    }
+    // 成功移到 finalPath 后清理 sessionDir
+    this._cleanupSession(sessionDir)
+
+    const stat = fs.statSync(finalPath)
+    this.log.info('Story2VideoCompose', 'Video composed: ' + finalPath + ' (' + Math.round(stat.size / 1024) + 'KB)')
 
     return {
       code: 0,
       data: {
-        videoPath: outputPath,
+        videoPath: finalPath,
         fileSize: stat.size,
         segmentCount: segments.length,
         duration: assetManifest.audio.reduce((sum, a) => sum + (a.duration || 0), 0),
       },
     }
+  }
+
+  /**
+   * 清理单个 sessionDir（删除目录及所有内容）
+   *
+   * 注意：fs.rmSync({ recursive: true }) 在部分 Windows 环境静默失败（不抛错但未删除），
+   * 改用手动递归删除（unlinkSync + rmdirSync）确保跨平台可靠。
+   *
+   * @param {string} sessionDir - session 目录路径
+   * @private
+   */
+  _cleanupSession (sessionDir) {
+    try {
+      if (!fs.existsSync(sessionDir)) return
+      this._rmSyncRecursive(sessionDir)
+      this.log.info('Story2VideoCompose', 'Cleaned sessionDir: ' + path.basename(sessionDir))
+    } catch (e) {
+      this.log.warn('Story2VideoCompose', 'Failed to cleanup sessionDir: ' + e.message)
+    }
+  }
+
+  /**
+   * 递归删除目录（跨平台可靠实现）
+   *
+   * fs.rmSync({ recursive: true, force: true }) 在部分 Windows 环境静默失败，
+   * 此方法手动遍历并删除每个文件再删除目录，确保删除生效。
+   *
+   * @param {string} dirPath - 要删除的目录
+   * @private
+   */
+  _rmSyncRecursive (dirPath) {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name)
+      if (entry.isDirectory()) {
+        this._rmSyncRecursive(fullPath)
+      } else {
+        fs.unlinkSync(fullPath)
+      }
+    }
+    fs.rmdirSync(dirPath)
+  }
+
+  /**
+   * 清理历史残留的 sessionDir（超过 maxSessionAgeMs 的 s2v_* 目录）
+   * @param {number} [maxAgeMs] - 最大保留时间 ms（默认使用 this.maxSessionAgeMs）
+   * @returns {number} 清理的目录数
+   * @private
+   */
+  _cleanupOldSessions (maxAgeMs) {
+    const maxAge = maxAgeMs || this.maxSessionAgeMs
+    const now = Date.now()
+    let cleaned = 0
+    try {
+      const entries = fs.readdirSync(this.outputDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        if (!entry.name.startsWith('s2v_')) continue
+        const dirPath = path.join(this.outputDir, entry.name)
+        try {
+          const stat = fs.statSync(dirPath)
+          if (now - stat.mtimeMs > maxAge) {
+            this._rmSyncRecursive(dirPath)
+            cleaned++
+          }
+        } catch (e) {
+          // 单个目录清理失败不中断其他清理
+          this.log.warn('Story2VideoCompose', 'Failed to stat/cleanup old session ' + entry.name + ': ' + e.message)
+        }
+      }
+      if (cleaned > 0) {
+        this.log.info('Story2VideoCompose', 'Cleaned ' + cleaned + ' old sessionDir(s)')
+      }
+    } catch (e) {
+      this.log.warn('Story2VideoCompose', 'Failed to scan outputDir for old sessions: ' + e.message)
+    }
+    return cleaned
   }
 
   /**
