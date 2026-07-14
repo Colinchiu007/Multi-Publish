@@ -38,6 +38,34 @@
 - **3 个 commit**: d82bffc (phase2-bridges) → 3e914e6 (phase1-context) → 9f69647 (phase3-services)
 
 
+### P2-9 — 字幕转义修复 (质量节拍 Phase 2 日常循环)
+
+#### 问题
+- `story2video-compose-engine.js` L165-168 字幕转义仅覆盖 3 个字符（`:` `'` `,`），缺少 `\` `%` `{` `}`
+- 转义顺序错误：应在转义其他字符前先转义 `\`，否则后续转义符 `\` 会被二次转义
+- 风险：字幕含 `%` 会触发 ffmpeg `%{n}` 函数扩展；含 `{}` 会触发变量扩展；含 `\` 会导致滤镜解析错误
+
+#### 修复
+- **提取独立函数** `escapeSubtitleText(text)`（L51-75，7 字符转义 + 正确顺序）
+- **转义顺序**：`\` → `:` → `'` → `,` → `%` → `{` → `}`（反斜杠必须最先）
+- **调用替换**：`_createSegment` 中 L191 改为 `escapeSubtitleText(opts.subtitleText)`
+- **导出**：`module.exports` 新增 `escapeSubtitleText` 供独立测试
+
+#### 测试
+- **新建** `story2video-compose-engine.test.js`（12 用例）
+- 覆盖：纯中文/冒号/单引号/逗号/反斜杠/百分号/花括号/组合/空串/转义顺序/null/换行
+- **12/12 PASS**（1.79s）
+- 全量回归：1927 通过 / 23 预存失败（与 P2-9 无关）
+
+#### 6 大专项审查
+1. **异常处理** ✅ — `if (!text) return ''` 处理 falsy；`_createSegment` 在 try-catch 中
+2. **权限边界** ✅ — 纯函数；`execFile`（非 exec）参数数组，无 shell 注入
+3. **事务一致性** ✅ — 纯函数无多步写入；写后验证 `existsSync`
+4. **边界值** ✅ — 测试覆盖空/null/undefined/换行/组合字符
+5. **代码风格** ✅ — 单引号/2空格/无分号/小驼峰，与 `findFfmpeg` 一致
+6. **Demo 代码** ✅ — 无硬编码路径；日志完整；无调试 console.log
+
+
 ### P1-C Phase 2.2 — bootstrap.js 拆分 phase3-services.js (质量节拍 Phase 2)
 
 #### 拆分范围

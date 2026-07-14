@@ -48,6 +48,32 @@ function findFfmpeg () {
 
 const FFMPEG = findFfmpeg()
 
+/**
+ * 转义 ffmpeg drawtext 滤镜中的字幕文本
+ *
+ * ffmpeg drawtext 的 text 参数在单引号上下文中，以下字符需转义：
+ *   - \  必须最先转义（否则后续转义符 \ 会被二次转义）
+ *   - :  滤镜参数分隔符
+ *   - '  单引号字符串结束符
+ *   - ,  滤镜链分隔符
+ *   - %  避免 %{...} 函数扩展（如 %{n} 帧号）
+ *   - { } 避免 ${...} 变量扩展
+ *
+ * @param {string} text - 原始字幕文本
+ * @returns {string} 转义后的文本，可直接用于 drawtext=text='...'
+ */
+function escapeSubtitleText (text) {
+  if (!text) return ''
+  return text
+    .replace(/\\/g, '\\\\')  // 1. 反斜杠最先转义（\ → \\）
+    .replace(/:/g, '\\:')    // 2. 冒号
+    .replace(/'/g, "\\'")    // 3. 单引号
+    .replace(/,/g, '\\,')    // 4. 逗号
+    .replace(/%/g, '\\%')    // 5. 百分号
+    .replace(/\{/g, '\\{')   // 6. 左花括号
+    .replace(/\}/g, '\\}')   // 7. 右花括号
+}
+
 class Story2VideoComposeEngine {
   /**
    * @param {object} [opts]
@@ -162,10 +188,7 @@ class Story2VideoComposeEngine {
     // 字幕滤镜
     const filters = []
     if (opts.subtitleText) {
-      const escaped = opts.subtitleText
-        .replace(/:/g, '\\:')
-        .replace(/'/g, "\\'")
-        .replace(/,/g, '\\,')
+      const escaped = escapeSubtitleText(opts.subtitleText)
       const fontSize = 24
       filters.push("drawtext=text='" + escaped + "':" +
         'fontcolor=white:fontsize=' + fontSize + ':' +
@@ -225,4 +248,4 @@ class Story2VideoComposeEngine {
   }
 }
 
-module.exports = { Story2VideoComposeEngine, findFfmpeg }
+module.exports = { Story2VideoComposeEngine, findFfmpeg, escapeSubtitleText }
