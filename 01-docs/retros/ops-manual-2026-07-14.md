@@ -238,3 +238,87 @@ aiosqlite WAL 模式
 ---
 
 *生成工具: 质量节拍 Phase 5.5 Operations Manual*
+
+
+---
+
+## 十一、P0/P1 修复后新增配置（2026-07-14 23:58 追加）
+
+### 11.1 新增环境变量
+
+P1-A 硬编码路径清理后，3 个文件改用 env 变量优先 + `process.cwd()` fallback 模式。生产部署需在启动脚本中显式设置以下变量：
+
+| 环境变量 | 默认值 | 用途 | 影响文件 |
+|----------|--------|------|----------|
+| `SPLITTER_DIR` | `process.cwd()` | smart-sentence-splitter 项目根目录 | `electron/services/splitter-bridge.js` L17 |
+| `PROMPT_DIR` | `process.cwd()` | prompt-engine 项目根目录 | `electron/services/prompt-bridge.js` L16 |
+| `FFMPEG_PATH` | 自动查找 | ffmpeg 可执行文件绝对路径 | `electron/services/story2video-compose-engine.js` L36 |
+
+### 11.2 ffmpeg 跨平台查找顺序
+
+未设置 `FFMPEG_PATH` 时，`findFfmpeg()` 按以下顺序查找：
+
+1. 检查 `process.env.FFMPEG_PATH` 是否存在
+2. 尝试 `ffmpeg -version` 调用（依赖系统 PATH）
+3. 检查常见安装位置：
+   - **Windows**: `C:\ffmpeg\bin\ffmpeg.exe`、`%PROGRAMFILES%\ffmpeg\bin\ffmpeg.exe`
+   - **Linux/macOS**: `/usr/bin/ffmpeg`、`/usr/local/bin/ffmpeg`、`/opt/homebrew/bin/ffmpeg`
+4. 全部失败返回 `null`，video compose 阶段会返回 `code === -1`
+
+### 11.3 生产部署启动脚本示例
+
+#### Linux (阿里云 ECS)
+
+```bash
+# /etc/systemd/system/multi-publish.service
+[Service]
+Environment="SPLITTER_DIR=/opt/multi-publish/smart-sentence-splitter"
+Environment="PROMPT_DIR=/opt/multi-publish/prompt-engine"
+Environment="FFMPEG_PATH=/usr/bin/ffmpeg"
+Environment="NODE_ENV=production"
+ExecStart=/usr/bin/node /opt/multi-publish/apps/desktop/electron/main.js
+```
+
+#### Windows (开发机)
+
+```powershell
+# 启动前设置（PowerShell）
+$env:SPLITTER_DIR = "D:\Data\projects\smart-sentence-splitter"
+$env:PROMPT_DIR = "D:\Data\projects\prompt-engine"
+$env:FFMPEG_PATH = "D:\Projectsfmpeg-7.1infmpeg.exe"
+cd D:\Data\projects\Multi-Publishpps\desktop
+npm run electron:dev
+```
+
+### 11.4 IPC sender 白名单（P1-B 运维须知）
+
+`phase5-ipc.js` 中 `usage:stats/daily/track` 三个 IPC handler 现已加 `isTrustedSender(event, app)` 验证：
+
+- ✅ 允许：`app://` 协议（Electron 打包后）
+- ✅ 允许：`file://` 协议（Electron 本地资源）
+- ✅ 允许（仅 dev）：`http://localhost:*` / `http://127.0.0.1:*`
+- ❌ 拒绝：其他所有来源（返回默认值 + `log.warn` 记录）
+
+**运维影响**: 
+- 生产环境不会有影响（app:// + file:// 始终可信）
+- 开发环境如果出现 "Untrusted IPC sender" 警告，检查 Vite dev server 是否在 `localhost` 而非 `0.0.0.0`
+
+### 11.5 容器循环依赖检测（P0-2 运维须知）
+
+`container.js` 现已启用真实循环依赖检测：
+
+- **运行时**: `container.get('serviceName')` 触发 `_resolving` Set 追踪，发现环时抛 `Circular dependency detected: A -> B -> A`
+- **主动探测**: `container.detectCircularDeps()` 遍历未初始化 factory，触发 get() 进行探测，结果缓存到 `_lastCycle`
+- **运维影响**: 启动时如出现循环依赖错误，检查 `container.setup.js` 中 factory 注册顺序；修复方式是调整 factory 依赖关系，或在 factory 内部用 lazy get 延迟解析
+
+### 11.6 更新后的启动配置清单
+
+- [ ] 设置 `SPLITTER_DIR` env 变量
+- [ ] 设置 `PROMPT_DIR` env 变量
+- [ ] 设置 `FFMPEG_PATH` env 变量（或确保 ffmpeg 在 PATH 中）
+- [ ] 验证 IPC sender 白名单不阻塞生产流量（应在 app:// 协议下自动通过）
+- [ ] 验证 `container.detectCircularDeps()` 启动时不抛错
+
+---
+
+*追加时间: 2026-07-14 23:58 | 修复 commit: 481a6fd + 899b5cf | 工具: 质量节拍 Phase 5.5 Operations Manual (更新)*

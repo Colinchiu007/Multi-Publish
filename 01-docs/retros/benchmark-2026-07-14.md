@@ -174,3 +174,58 @@ Recommendations:
 ---
 
 *生成工具: 质量节拍 Phase 5.2 /benchmark (适配版) | 数据源: Get-Process + Test-NetConnection*
+
+
+---
+
+## 九、P0/P1 修复后基线对比（2026-07-14 23:50 复测）
+
+**测试背景**: P0-1 命令注入 (asset-generator.js) + P0-2 桩实现 (container.js) + P1-A 硬编码路径 (3 文件) + P1-B IPC sender 验证 修复完成后复测。
+
+### 9.1 进程内存对比
+
+| 类别 | 修复前 (MB) | 修复后 (MB) | 变化 | 评估 |
+|------|-------------|-------------|------|------|
+| Electron (5 进程) | 476.5 | 393.9 | -82.6 | ✅ 改善 |
+| Node.js (6 进程) | 228.8 | 229.4 | +0.6 | ⚪ 持平 |
+| Python (4 进程) | 123.2 | 122.1 | -1.1 | ⚪ 持平 |
+| **总计** | **828.5** | **745.4** | **-83.1** | ✅ 改善 (-10.0%) |
+
+### 9.2 关键发现
+
+1. **Electron 内存下降 82.6 MB** — 推测源于 `container.js` 真实循环依赖检测启用后，DI 容器不再创建冗余实例；`_resolving` Set + `_lastCycle` 缓存让 `detectCircularDeps()` 不会重复遍历已初始化的 factory。
+2. **Node.js/Python 内存持平** — 修复集中在 Electron 主进程侧，对 Node.js/Python 子进程无影响，符合预期。
+3. **峰值内存回到 800MB 阈值以内** — 修复前 828.5MB 已超 CLAUDE.md 约束（峰值 < 800MB），修复后 745.4MB 重新达标。
+
+### 9.3 端口状态对比
+
+| 端口 | 修复前 | 修复后 | 备注 |
+|------|--------|--------|------|
+| 8000 (orchestrator) | DOWN | DOWN | 与本次修复无关 |
+| 8001 (trendscope-api) | DOWN | DOWN | 与本次修复无关 |
+| 8002 (splitter) | UP | UP | P1-A env 变量化后保持稳定 |
+| 8013 (prompt-engine) | UP | UP | P1-A env 变量化后保持稳定 |
+| 5173 (vite-dev) | DOWN | DOWN | 与本次修复无关 |
+
+**结论**: P1-A 硬编码路径清理 + `process.cwd()` fallback 不影响已运行的 Python bridges，零回归。
+
+### 9.4 修复后健康评分
+
+```
+Health Score: 7/10（修复前 6/10，+1）
+  - Python bridges healthy (2/2) ✅
+  - Electron 内存优化至 393.9 MB ✅
+  - 总内存重新进入 800 MB 阈值 ✅
+  - 3 个核心服务仍未启动 ⚠️（与本次修复无关）
+  - CPU 负载正常 ✅
+```
+
+### 9.5 修复后建议
+
+1. **立即**: 启动 orchestrator/trendscope/vite 完成完整 E2E 基线
+2. **本周**: 24 小时无人值守稳定性测试，验证 `container.js` 循环依赖检测不会误报
+3. **下迭代**: P1-C bootstrap createAppContext 拆分（140 行），预期进一步降低 Electron 主进程内存
+
+---
+
+*追加时间: 2026-07-14 23:50 | 修复 commit: 481a6fd + 899b5cf | 验证工具: Get-Process*

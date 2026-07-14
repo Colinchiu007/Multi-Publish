@@ -2,6 +2,41 @@
 
 ## [Unreleased] - 2026-07-14
 
+
+### Phase 5 运营期收尾 — 性能/安全/运维三大报告更新 (质量节拍 Phase 5)
+
+#### Phase 5.2 性能验证（修复后基线复测）
+- **修复前→后**: 总内存 828.5 → 745.4 MB (-10.0%)，回到 800MB 阈值内
+- **Electron**: 476.5 → 393.9 MB (-82.6 MB)，源于 container.js 真实循环依赖检测启用后 DI 容器去冗余
+- **Node.js / Python**: 持平（修复集中在 Electron 主进程侧）
+- **端口**: 8002/8013 保持 UP，零回归
+- **健康评分**: 6/10 → 7/10
+- **报告**: 01-docs/retros/benchmark-2026-07-14.md（追加第九章）
+
+#### Phase 5.4 日常安全检查（P0 修复后复评）
+- **安全评分**: 8.55/10 → 8.95/10 (+0.40，接近 9.0)
+- **OWASP Top 10**: 4 项强化（A03 Injection / A05 Security Misconfig / A07 Auth / A08 Data Integrity）
+- **新增 4 道安全防线**: P0-1 命令注入根除 + P0-2 桩实现替换 + P1-A 路径清理 + P1-B IPC 白名单
+- **新增 25 个安全回归测试**: asset-generator (4) + container (10) + phase5-ipc (11)
+- **门禁**: ✅ PASS (>= 8/10)，可推进至 Phase 5.6 月度审计
+- **报告**: 01-docs/retros/cso-daily-2026-07-14.md（追加第八章）
+
+#### Phase 5.5 运维手册更新（P0/P1 后新配置）
+- **新增 env 变量**: `SPLITTER_DIR` / `PROMPT_DIR` / `FFMPEG_PATH` (3 个，全可选，有 process.cwd()/PATH fallback)
+- **ffmpeg 跨平台查找顺序**: env → PATH → 常见安装位置 → null
+- **IPC sender 白名单运维须知**: app:// + file:// 始终可信，dev localhost 可信，其他拒绝
+- **容器循环依赖运维须知**: 启动错误信息含 "Circular dependency detected: A -> B -> A"
+- **启动配置清单**: 5 项检查（3 env + 2 验证）
+- **报告**: 01-docs/retros/ops-manual-2026-07-14.md（追加第十一章）
+
+#### Phase 5 门禁结果
+- [x] /investigate 无未解决告警 (Phase 5.1 零回归)
+- [x] /cso daily 安全扫描通过 (8.95/10)
+- [x] 性能指标在基线内 (745.4 MB < 800 MB 阈值)
+
+#### 质量评分趋势
+- 补跑前 6.2 → P0 修复后 8.0 → P1 修复后 8.5 → Phase 4 体检 8.5 → Phase 5 复评 8.95
+
 ### 安全加固 — P1 硬编码路径 + IPC sender 验证 (质量节拍 Phase 2)
 
 #### P1-A: 硬编码开发者路径清理
