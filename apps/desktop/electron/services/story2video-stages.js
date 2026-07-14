@@ -83,17 +83,24 @@ function registerStory2VideoStages(pipelineEngine) {
         sentences.length + ' TTS (concurrency=' + concurrency + ')');
 
       // 并行生成图片（分批控制并发）
+      // 使用 AssetGenerator（ffmpeg 占位图）替代 serviceBus.callPythonSkill
+      const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator;
       const imageResults = await _mapWithConcurrency(
         optimizedPrompts,
         concurrency,
         async (prompt, index) => {
           try {
-            const result = await serviceBus.callPythonSkill('generate_image', {
-              prompt: typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized,
-              style: imageStyle,
-              index,
-              aspect_ratio: stage.options?.aspectRatio || '16:9',
-            });
+            const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
+            const result = assetGenerator
+              ? await assetGenerator.generateImage(promptText, {
+                  style: imageStyle,
+                  index,
+                  aspect_ratio: stage.options?.aspectRatio || '16:9',
+                })
+              : await serviceBus.callPythonSkill('generate_image', {
+                  prompt: promptText, style: imageStyle, index,
+                  aspect_ratio: stage.options?.aspectRatio || '16:9',
+                });
             if (result && result.code === 0 && result.data) {
               return {
                 index,
@@ -120,11 +127,11 @@ function registerStory2VideoStages(pipelineEngine) {
         async (sentence, index) => {
           try {
             const text = typeof sentence === 'string' ? sentence : sentence.text || sentence.content;
-            const result = await serviceBus.callPythonSkill('generate_tts', {
-              text,
-              voice_id: voiceId,
-              index,
-            });
+            const result = assetGenerator
+              ? await assetGenerator.generateTTS(text, { voice_id: voiceId, index })
+              : await serviceBus.callPythonSkill('generate_tts', {
+                  text, voice_id: voiceId, index,
+                });
             if (result && result.code === 0 && result.data) {
               return {
                 index,

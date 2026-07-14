@@ -122,15 +122,23 @@ function createContainer(options) {
     const { Story2VideoComposeEngine } = require('../services/story2video-compose-engine');
     return new Story2VideoComposeEngine({ log: c.get("logger") });
   });
+  // AssetGenerator - 资源生成（图片 + TTS），供 generate_assets 阶段使用
+  container.register("assetGenerator", function(c) {
+    const { AssetGenerator } = require('../services/asset-generator');
+    return new AssetGenerator({ log: c.get("logger") });
+  });
   // ServiceBus 统一聚合所有 Bridge
   container.register("serviceBus", function(c) {
-    return new ServiceBus({
+    const bus = new ServiceBus({
       pythonBridge: c.get("pythonBridge"),
       splitterBridge: c.get("splitterBridge"),
       promptBridge: c.get("promptBridge"),
       story2videoEngine: c.get("story2videoEngine"),
       log: c.get("logger"),
     });
+    // 注入 assetGenerator 供 story2video-stages.js 使用
+    bus._assetGenerator = c.get("assetGenerator");
+    return bus;
   });
   // PluginRegistry 插件注册中心
   container.register("pluginRegistry", function(c) {
