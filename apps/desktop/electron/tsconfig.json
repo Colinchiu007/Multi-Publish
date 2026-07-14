@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"]
+  },
+  "include": [
+    "*.js",
+    "bootstrap/**/*.js",
+    "core/**/*.js",
+    "services/**/*.js",
+    "publishers/**/*.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "tests"
+  ]
+}
