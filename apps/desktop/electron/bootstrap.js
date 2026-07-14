@@ -1,6 +1,6 @@
-// @ts-nocheck
+// @ts-check
 /**
- * bootstrap.js — 应用启动模块（从 main.js 拆分）
+ * bootstrap.js — 应用启动模块（从 main.js 拆分，Bug-1 重构：拆分 phase4-events / phase5-ipc）
  *
  * 职责：
  *   - createAppContext()：同步初始化（DI 容器消费 + taskQueue 接线 + 基础设施构建）

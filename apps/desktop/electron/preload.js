@@ -404,4 +404,18 @@ const api = {
   storeListCallbackLogs: (limit) => ipcRenderer.invoke('store:list-callback-logs', limit),
 }
 
+// ══ Bug-2: Preload API 分级裁剪 ════════════════
+// 敏感操作仅在 devMode 暴露，生产模式下从 api 中移除
+const isDevMode = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1'
+
+const _adminOnlyMethods = [
+  'paymentComplete', 'paymentSimulate', 'paymentCancel',  // 支付
+  'proxyTest', 'proxyTestAll', 'proxyReset',               // 代理测试
+  'licenseActivate', 'licenseDeactivate', 'licenseActivateTrial',  // 许可证激活
+]
+
+if (!isDevMode) {
+  _adminOnlyMethods.forEach((m) => { delete api[m] })
+}
+
 contextBridge.exposeInMainWorld('electronAPI', api)
