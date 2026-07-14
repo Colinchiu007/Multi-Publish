@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 /**
  * shutdown.js — 退出清理模块（从 main.js 拆分）
  *

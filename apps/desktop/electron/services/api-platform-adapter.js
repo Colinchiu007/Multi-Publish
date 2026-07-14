@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 /**
  * APIPlatformAdapter ? API ???????
  *

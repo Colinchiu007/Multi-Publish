@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 /**
  * QrCodeLogin — 二维码扫码登录管理器
  *

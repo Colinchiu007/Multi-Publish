@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 /**
  * window.js — 窗口创建模块（从 main.js 拆分）
  *

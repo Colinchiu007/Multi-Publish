@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 /**
  * analytics-providers.js — AnalyticsService 平台数据提供者
  *

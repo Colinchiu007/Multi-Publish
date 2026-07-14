@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 /**
  * CloudPublisher — Orchestrator HTTP client for cloud-based publishing (F13)
  *

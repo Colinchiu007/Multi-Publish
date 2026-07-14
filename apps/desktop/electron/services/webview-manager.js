@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 /**
  * WebviewManager — 分屏监控管理器
  *

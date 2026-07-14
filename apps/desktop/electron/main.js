@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 /**
  * main.js — 应用入口（已拆分为 bootstrap/window/shutdown 三件套）
  *
