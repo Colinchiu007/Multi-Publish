@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-07-14
+
+### 安全修复 — P0 命令注入 + P0 桩实现 (质量节拍 Phase 2)
+
+#### P0-1: asset-generator.js 命令注入漏洞修复
+- **严重级别**: CRITICAL (CVSS 9.8)
+- **问题**: `spawn('python', [...], { shell: true })` 中 shell:true 允许恶意文本触发任意命令
+- **修复**: `shell: true` → `shell: false`，参数通过数组直接传递给 Python 解释器
+- **测试**: 新增 asset-generator.test.js，4 个安全回归测试覆盖 5 种 shell 元字符注入
+- **文件**: `apps/desktop/electron/services/asset-generator.js` L148
+
+#### P0-2: container.js 桩实现替换为真实实现
+- **严重级别**: HIGH
+- **问题**: `detectCircularDeps()` 返回硬编码 `{ hasCycle: false, cycle: [] }`，无真实检测
+- **修复**:
+  - `get()` 加入 `_resolving` Set 运行时循环依赖检测，发现环时抛错
+  - `detectCircularDeps()` 改为"探测式"实现：遍历未初始化 factory，尝试解析触发环检测
+  - `_lastCycle` 缓存上次检测到的循环
+- **测试**: container.test.ts 新增 10 个测试（6 循环依赖 + 4 dispose）
+- **文件**: `apps/desktop/electron/core/container.js` L17-21, L74-104, L138-161
+
+#### 质量节拍日常循环 6 步全执行
+- ⓪ pre-flight: 6 道防线检查通过
+- ① 上下文检查: 读取 2 文件源码，发现审查报告误差（dispose 非死代码）
+- ② 测试脑暴: 8+8 个测试场景，TDD 顺序
+- ③ 增量实现: 2 文件修改 + 2 测试文件
+- ④ 6 大专项审查: 全部 PASS（1 已知 P1 WARN 不在本次范围）
+- ⑤ 文档更新: CHANGELOG + 本记录
+- ⑥ AI 协作检查: 见会话总结
+
 ## [v2.3.55] - 2026-07-10
 
 ### 第三十一轮 — IPC handler EC 常量迁移

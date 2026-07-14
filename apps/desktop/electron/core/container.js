@@ -16,6 +16,8 @@
  */
 function Container() {
   this._registry = {}  // name -> { value, factory, singleton, initialized, disposable }
+  this._resolving = new Set()  // 运行时循环依赖检测栈
+  this._lastCycle = null  // 上次检测到的循环 { hasCycle, cycle }
 }
 
 /**
@@ -64,9 +66,10 @@ Container.prototype.registerMany = function(map) {
 
 /**
  * Resolve a service by name (lazy initialization for factories)
+ * 运行时循环依赖检测：通过 _resolving 栈跟踪解析路径，发现环则抛错
  * @param {string} name - Service name
  * @returns {*} Resolved service instance
- * @throws {Error} If service is not registered
+ * @throws {Error} If service is not registered or circular dependency detected
  */
 Container.prototype.get = function(name) {
   const entry = this._registry[name]
@@ -75,9 +78,26 @@ Container.prototype.get = function(name) {
     throw new Error('Service not registered: ' + name)
   }
 
-  if (entry.factory && !entry.initialized) {
-    entry.value = entry.factory(this)
-    entry.initialized = true
+  // 已初始化的单例直接返回，不进入 resolving 栈
+  if (entry.initialized) {
+    return entry.value
+  }
+
+  // 运行时循环依赖检测
+  if (this._resolving.has(name)) {
+    const cycle = Array.from(this._resolving).concat([name])
+    this._lastCycle = { hasCycle: true, cycle: cycle }
+    throw new Error('Circular dependency detected: ' + cycle.join(' -> '))
+  }
+
+  if (entry.factory) {
+    this._resolving.add(name)
+    try {
+      entry.value = entry.factory(this)
+      entry.initialized = true
+    } finally {
+      this._resolving.delete(name)
+    }
   }
 
   return entry.value
@@ -106,11 +126,37 @@ Container.prototype.assertRequired = function(names) {
 
 /**
  * Detect circular dependencies in the factory graph.
- * Uses runtime resolution stack tracking during get() calls.
+ *
+ * JS factory 是动态代码，无法纯静态分析依赖图。
+ * 本方法采用"探测式"检测：对每个未初始化的 factory，尝试执行解析路径，
+ * 若在解析过程中触发 _resolving 栈的环检测，则记录并返回该环。
+ *
+ * 已初始化的单例不参与检测（其依赖已在首次解析时验证过）。
+ *
  * @returns {{ hasCycle: boolean, cycle: string[] }}
  */
 Container.prototype.detectCircularDeps = function() {
-  // Static analysis is limited for JS factories; we track at runtime via _resolving set
+  // 优先返回上次运行时检测到的循环（来自 get() 调用）
+  if (this._lastCycle) {
+    return this._lastCycle
+  }
+
+  // 主动探测：遍历所有未初始化 factory，尝试解析以触发环检测
+  for (const name of Object.keys(this._registry)) {
+    const entry = this._registry[name]
+    if (entry.factory && !entry.initialized) {
+      try {
+        this.get(name)
+      } catch (e) {
+        if (e.message && e.message.startsWith('Circular dependency detected:')) {
+          // _lastCycle 已在 get() 中设置
+          return this._lastCycle
+        }
+        // 其他错误（如 factory 内部异常）不是循环依赖，继续探测下一个
+      }
+    }
+  }
+
   return { hasCycle: false, cycle: [] }
 }
 

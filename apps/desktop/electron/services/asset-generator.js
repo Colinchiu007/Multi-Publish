@@ -138,6 +138,8 @@ class AssetGenerator {
 
     return new Promise((resolve) => {
       // 尝试调用 Python edge-tts
+      // 安全修复 (P0-1): 移除 shell: true，避免命令注入风险
+      // 参数通过数组传递，由 spawn 直接转给 Python 解释器，shell 元字符不被解释
       const proc = spawn('python', ['-c',
         'import sys; import edge_tts; import asyncio; ' +
         'async def main(): ' +
@@ -145,7 +147,7 @@ class AssetGenerator {
         '  await c.save(sys.argv[3]); ' +
         'asyncio.run(main())',
         cleanText, voice, audioPath,
-      ], { stdio: 'ignore', shell: true, timeout: 15000 })
+      ], { stdio: 'ignore', shell: false, timeout: 15000 })
 
       proc.on('error', () => resolve(null))
       proc.on('exit', (code) => {
