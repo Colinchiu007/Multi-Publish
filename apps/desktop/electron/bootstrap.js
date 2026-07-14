@@ -23,9 +23,18 @@ const BatchManager = require('./services/batch-manager')
 const _CloudPublisherModule = require('./services/cloud-publisher')
 const CloudPublisher = _CloudPublisherModule.default || _CloudPublisherModule
 const { createContainer } = require('./core/container.setup')
+const { wireTaskQueueEvents } = require('./bootstrap/phase4-events')
+const { registerAllIpcHandlers } = require('./bootstrap/phase5-ipc')
 
 // ─── Helper ────────────────────────────────────────────────
-function getMainWin() { return require('electron').BrowserWindow.getAllWindows()[0] }
+// Bug-5: 优先从 DI 容器获取缓存的窗口引用，fallback 到 getAllWindows
+let _container = null
+function getMainWin() {
+  if (_container && _container.has('mainWindow')) {
+    try { return _container.get('mainWindow') } catch { /* fallthrough */ }
+  }
+  return require('electron').BrowserWindow.getAllWindows()[0]
+}
 
 /**
  * 创建应用上下文（同步初始化）
@@ -33,6 +42,7 @@ function getMainWin() { return require('electron').BrowserWindow.getAllWindows()
  */
 function createAppContext() {
   const container = createContainer()
+  _container = container // Bug-5: 缓存 container 供 getMainWin 使用
 
   const LicenseManager = require('./services/license-manager')
 
@@ -107,77 +117,9 @@ function createAppContext() {
   })
 
   // ─── 任务事件 ──────────────────────────────
-  // 记录发布事件
-  if (typeof global.usageTracker !== 'undefined' && global.usageTracker) {
-    global.usageTracker.trackFeatureUsage('publish', 'success')
-    global.usageTracker.trackDaily('articles_published', 1)
-  }
-
-  taskQueue.on('task:success', (task) => {
-    const win = getMainWin()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('publish:progress', {
-        platform: task.platform, stage: '✓ 发布成功', taskId: task.id, result: task.result,
-      })
-    }
-    history.addRecord({
-      platform: task.platform, title: task.article?.title || '', taskId: task.id,
-      status: 'success', result: task.result,
-    })
-    try {
-      const postId = task.result?.postId || task.result?.id
-      if (postId) {
-        publishMonitor.createMonitorTask({
-          postId, platform: task.platform, cookies: task.article?.cookies || '',
-          callback: (monitorResult) => {
-            log.info('PublishMonitor', 'Monitor result for ' + task.platform + ':' + postId + ': ' + monitorResult.status)
-            history.addRecord({
-              platform: task.platform, title: task.article?.title || '',
-              taskId: task.id, status: monitorResult.status, result: monitorResult,
-            })
-          },
-        })
-      }
-    } catch (e) { log.warn('PublishMonitor', 'Failed to start monitor: ' + e.message) }
-    try {
-      const title = task.article?.title
-      const content = task.article?.content || title
-      if (title && content) {
-        publishImpactTracker.addTracking({
-          articleId: task.id, title, keywords: task.article?.keywords || [title],
-        })
-        log.info('ImpactTracker', 'Started tracking "' + title + '"')
-      }
-    } catch (e) { log.warn('ImpactTracker', 'Failed to start impact tracking: ' + e.message) }
-  })
-
-  taskQueue.on('task:failed', (task) => {
-    const win = getMainWin()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('publish:progress', {
-        platform: task.platform, stage: '✗ 发布失败: ' + task.error, taskId: task.id, error: task.error,
-      })
-    }
-  })
-
-  taskQueue.on('publish:blocked', ({ task, remainingWait }) => {
-    const win = getMainWin()
-    if (win && !win.isDestroyed()) {
-      const minutes = Math.ceil(remainingWait / 60000)
-      win.webContents.send('publish:progress', {
-        platform: task.platform, stage: '⏳ 发布间隔限制，等待 ' + minutes + ' 分钟后重试',
-        taskId: task.id, remainingWait,
-      })
-    }
-  })
-
-  taskQueue.on('task:retry', (task) => {
-    const win = getMainWin()
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('publish:progress', {
-        platform: task.platform, stage: '⟳ 重试中... (剩余 ' + task.retriesLeft + ' 次)', taskId: task.id,
-      })
-    }
+  // 拆分到 bootstrap/phase4-events.js
+  wireTaskQueueEvents({
+    taskQueue, history, publishMonitor, publishImpactTracker, getMainWin,
   })
 
   // ─── 渲染引擎实例 ──────────────────────────
@@ -392,69 +334,16 @@ function runWhenReady(context, deps) {
     cloudPublisher.registerIpcHandlers()
 
     // ─── 注册所有 IPC handlers ──────────────
-    const registerAllHandlers = require('./ipc-handlers')
-    registerAllHandlers(ipcMain, {
+    // 拆分到 bootstrap/phase5-ipc.js
+    registerAllIpcHandlers({
       app,
       BrowserWindow: require('electron').BrowserWindow,
-      log,
-      renderEngine,
-      taskQueue,
-      history,
-      scheduler,
-      autoUpdater,
-      hotkeys,
-      firstRun,
-      authViewManager,
-      pythonBridge,
-      AccountManager,
-      store,
-      _platformConfig,
-      _sensitiveFilter,
-      _dataSync,
-      analyticsService,
-      proxyPool,
-      _chunkedUploader,
-      keywordMonitor,
-      BACKEND_PLATFORMS,
-      templateManager,
-      licenseManager,
-      aiWriter,
-      compositionManager,
-      aiGenerator,
-      videoEngine,
-      pipelineEngine,
-      modelProviderManager,
-    })
-
-    // 使用量统计 IPC
-    ipcMain.handle('usage:stats', () => {
-      try {
-        if (global.usageTracker) return global.usageTracker.getStats()
-        return { features: {}, events: [], sessions: 0 }
-      } catch (e) {
-        return { code: -1, message: e.message, features: {}, events: [], sessions: 0 }
-      }
-    })
-    ipcMain.handle('usage:daily', () => {
-      try {
-        if (global.usageTracker) return global.usageTracker.getDailyStats()
-        return {}
-      } catch (e) {
-        return { code: -1, message: e.message }
-      }
-    })
-    ipcMain.handle('usage:track', (event, args) => {
-      try {
-        if (global.usageTracker && args) {
-          global.usageTracker.trackEvent(args.feature, args.action, args.detail)
-        }
-        return true
-      } catch (e) {
-        return { code: -1, message: e.message }
-      }
+      context,
     })
 
     mainWindow = createWindow(context)
+    // Bug-5: 注册 mainWindow 到 DI 容器供 getMainWin 缓存使用
+    if (_container) _container.register('mainWindow', mainWindow, { forceValue: true })
    } catch (e) {
     log.error('App', 'Startup failed:', e.message, e.stack)
     try {
