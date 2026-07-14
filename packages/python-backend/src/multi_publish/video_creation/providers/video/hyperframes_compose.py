@@ -38,6 +38,8 @@ from multi_publish.video_creation.base_tool import (
 )
 from multi_publish.video_creation.providers.video.hf_html_gen import (
     cut_to_html as _module_cut_to_html,
+)
+from multi_publish.video_creation.providers.video.hf_html_gen import (
     generate_index_html as _module_generate_index_html,
 )
 from multi_publish.video_creation.providers.video.hf_utils import (

@@ -121,10 +121,12 @@ def cut_to_html(
     if ext in {".html", ".htm"} and src_path:
         rel = host._rel_from_workspace(str(src_path))
         composition_id = Path(rel).stem
+        # HTML 属性使用正斜杠（URL 路径），避免 Windows 反斜杠
+        rel_url = rel.replace("\\", "/")
         html = (
             f'<div id="{cut_id}" class="clip composition-clip" '
             f'data-composition-id="{host._escape_attr(composition_id)}" '
-            f'data-composition-src="{host._escape_attr(rel)}" '
+            f'data-composition-src="{host._escape_attr(rel_url)}" '
             f'data-start="{host._f(in_s)}" data-duration="{host._f(duration)}" '
             f'data-width="{width}" data-height="{height}" '
             f'data-track-index="1"></div>'

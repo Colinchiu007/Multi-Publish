@@ -22,6 +22,9 @@ from multi_publish.video_creation.base_tool import (
     ToolStability,
     ToolTier,
 )
+from multi_publish.video_creation.character.action_timeline_compiler import (
+    compile_action_timeline as _module_compile_action_timeline,
+)
 
 # Utility functions extracted to character_animation_utils.py
 from multi_publish.video_creation.character.character_animation_utils import (
@@ -30,9 +33,6 @@ from multi_publish.video_creation.character.character_animation_utils import (
     _render_preview_mp4,
     _slug,
     _write_json,
-)
-from multi_publish.video_creation.character.action_timeline_compiler import (
-    compile_action_timeline as _module_compile_action_timeline,
 )
 
 

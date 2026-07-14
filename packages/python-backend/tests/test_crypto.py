@@ -13,7 +13,9 @@ class TestCredentialCrypto:
 
     def test_init_with_password(self):
         c = CredentialCrypto(master_password="my_secret")
-        assert c._salt is not None
+        # 新 API: 生产模式延迟派生，_salt 初始化为 None，encrypt 时才赋值
+        assert c._fernet is None  # 生产模式不预生成 fernet
+        assert c._salt is None  # encrypt 前为 None
 
     def test_encrypt_decrypt_roundtrip(self):
         c = CredentialCrypto()

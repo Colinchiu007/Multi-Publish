@@ -49,6 +49,8 @@ from multi_publish.video_creation.base_tool import (
 from multi_publish.video_creation.providers.video import compose_utils as _cu
 from multi_publish.video_creation.providers.video.composition_registry import (
     RENDERER_FAMILY_MAP as _RENDERER_FAMILY_MAP,
+)
+from multi_publish.video_creation.providers.video.composition_registry import (
     get_composition_id as _get_composition_id_impl,
 )
 from multi_publish.video_creation.providers.video.subtitle_style import (

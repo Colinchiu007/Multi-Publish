@@ -29,8 +29,7 @@
   "dependencies": {
     "app-builder-bin": "5.0.0-alpha.10",
     "cheerio": "^1.2.0",
-    "electron": "^33.4.0",
-    "ws": "^8.21.0"
+    "electron": "^33.4.0"
   },
   "devDependencies": {
     "depcheck": "^1.4.7",

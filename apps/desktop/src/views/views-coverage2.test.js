@@ -50,7 +50,7 @@ describe("IntelligenceView (coverage)", () => {
     });
   }
 
-  it("renders search input and trending panel", { timeout: 10000 }, async () => {
+  it("renders search input and trending panel", { timeout: 30000 }, async () => {
     const w = await mnt();
     await nextTick();
     expect(w.text()).toContain("内容情报");

@@ -31,7 +31,8 @@ class CredentialCrypto:
                 - 如果提供，使用 PBKDF2 派生密钥（适合生产环境）
         """
         self._master_password = master_password
-        # _salt 保留用于向后兼容，但不再在 __init__ 中赋值（改为 encrypt 时生成并随密文持久化）
+        # _salt 保留用于向后兼容，初始化为 None（encrypt 时生成并随密文持久化）
+        self._salt = None
         if not master_password:
             # 使用随机密钥（开发环境）
             self._fernet = Fernet(Fernet.generate_key())

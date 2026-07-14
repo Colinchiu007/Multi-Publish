@@ -37,13 +37,29 @@ from multi_publish.publishers.base import (
 )
 from multi_publish.publishers.douyin_auth import (
     _capture_indexed_db as _module_capture_indexed_db,
+)
+from multi_publish.publishers.douyin_auth import (
     _capture_local_storage as _module_capture_local_storage,
+)
+from multi_publish.publishers.douyin_auth import (
     check_auth as _module_check_auth,
+)
+from multi_publish.publishers.douyin_auth import (
     load_auth_data as _module_load_auth_data,
+)
+from multi_publish.publishers.douyin_auth import (
     load_cookies as _module_load_cookies,
+)
+from multi_publish.publishers.douyin_auth import (
     login as _module_login,
+)
+from multi_publish.publishers.douyin_auth import (
     restore_auth_data as _module_restore_auth_data,
+)
+from multi_publish.publishers.douyin_auth import (
     save_auth_data as _module_save_auth_data,
+)
+from multi_publish.publishers.douyin_auth import (
     save_cookies as _module_save_cookies,
 )
 from multi_publish.publishers.douyin_rpa_fields import (
