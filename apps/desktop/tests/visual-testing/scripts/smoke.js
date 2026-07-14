@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 视觉测试冒烟验证
  * 不需要开发服务器，本地 HTML 文件测试整个流程
  */
@@ -65,15 +65,21 @@ const fs = require('fs');
   
   // 5. 验证像素对比流程
   console.log('🎯 测试像素对比流程...');
-  const resemble = require('resemblejs');
+  // resemblejs 依赖 node-canvas 原生模块，缺失时优雅跳过
+  let resemble = null;
+  try { resemble = require('resemblejs'); } catch (_e) { resemble = null; }
   const screenshot2 = path.join(__dirname, '..', 'screenshots', '_smoke-test-2.png');
   await page.screenshot({ path: screenshot2, fullPage: true });
-  
-  resemble(screenshotPath).compareTo(screenshot2).onComplete(result => {
-    const misMatch = parseFloat(result.misMatchPercentage);
-    console.log(`✅ 像素对比完成: 差异 ${misMatch}%`);
-    console.log(misMatch < 1 ? '✅ 像素对比通过\n' : '⚠️  像素有差异（正常）\n');
-  });
+
+  if (resemble) {
+    resemble(screenshotPath).compareTo(screenshot2).onComplete(result => {
+      const misMatch = parseFloat(result.misMatchPercentage);
+      console.log(`✅ 像素对比完成: 差异 ${misMatch}%`);
+      console.log(misMatch < 1 ? '✅ 像素对比通过\n' : '⚠️  像素有差异（正常）\n');
+    });
+  } else {
+    console.log('⚠️  像素对比跳过: canvas 模块不可用\n');
+  }
   
   // 6. 关闭浏览器
   await new Promise(r => setTimeout(r, 1000));

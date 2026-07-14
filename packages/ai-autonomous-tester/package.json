@@ -56,7 +56,6 @@
     "license": "MIT",
     "dependencies": {
         "playwright": "^1.61.1",
-        "resemblejs": "^4.1.0",
         "tesseract.js": "^5.1.1"
     }
 }
