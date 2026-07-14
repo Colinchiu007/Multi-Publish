@@ -1,4 +1,4 @@
-import { Segment, useDefault } from 'segmentit';
+import { Segment, useDefault, SegmentitToken } from 'segmentit';
 
 /** 全局 segmentit 分词实例（懒加载） */
 let _segmentit: InstanceType<typeof Segment> | null = null;
@@ -296,7 +296,7 @@ export function segmentSubtitleText(text: string): string[] {
     }
 
     // 2. 分词
-    const rawTokens = segmenter.doSegment(segment).map((r) => r.w);
+    const rawTokens = segmenter.doSegment(segment).map((r: SegmentitToken) => r.w);
 
     let currentLine = '';
     let currentWidth = 0;

@@ -10,55 +10,16 @@ import {
   useVideoConfig,
 } from "remotion";
 import { loadFont } from "@remotion/google-fonts/NotoSansSC";
+import type {
+  ImageEffect,
+  TransitionEffect,
+  WatermarkConfig,
+} from "@multi-publish/story2video-engine";
 
 const { fontFamily } = loadFont("normal", {
   weights: ["400", "700"],
   subsets: ["latin"],
 });
-
-// ---------------------------------------------------------------------------
-// Types — 与 story2video-engine/src/types.ts 保持同步
-// ---------------------------------------------------------------------------
-
-/** 图片动态效果类型（对应 story2video-engine ImageEffect） */
-type ImageEffect =
-  | "zoom-in"
-  | "zoom-out"
-  | "pan-left"
-  | "pan-right"
-  | "pan-up"
-  | "pan-down"
-  | "zoom-pan"
-  | "rotate"
-  | "blur-in"
-  | "none";
-
-/** 转场效果类型（对应 story2video-engine TransitionEffect） */
-type TransitionEffect =
-  | "fade"
-  | "slide-left"
-  | "slide-right"
-  | "slide-up"
-  | "slide-down"
-  | "none";
-
-/** 水印位置 */
-type WatermarkPosition =
-  | "top-left"
-  | "top-right"
-  | "bottom-left"
-  | "bottom-right"
-  | "center";
-
-/** 水印配置（对应 story2video-engine WatermarkConfig） */
-interface WatermarkConfig {
-  enabled: boolean;
-  text: string;
-  position: WatermarkPosition;
-  fontSize: number;
-  opacity: number;
-  color: string;
-}
 
 // ---------------------------------------------------------------------------
 // Scene & Props Types

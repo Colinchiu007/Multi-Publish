@@ -8,6 +8,7 @@
     "upgrade": "npx remotion upgrade"
   },
   "dependencies": {
+    "@multi-publish/story2video-engine": "*",
     "@remotion/captions": "^4.0.484",
     "@remotion/cli": "^4.0.484",
     "@remotion/google-fonts": "^4.0.484",
