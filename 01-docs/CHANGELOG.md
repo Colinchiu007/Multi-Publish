@@ -3,6 +3,41 @@
 ## [Unreleased] - 2026-07-14
 
 
+### P1-C Phase 3 — 发布审查 + 推送 (质量节拍 Phase 3)
+
+#### 全量回归测试
+- bootstrap 目录: 36/36 PASS（4 文件: phase1-context 9 + phase2-bridges 6 + phase3-services 10 + phase5-ipc 11）
+- bootstrap.test.js (集成): 44/44 PASS
+- electron/ 全量: 719/719 PASS（1 文件加载失败为预存 path-utils 问题，非本次回归）
+
+#### 6 大专项审查
+1. **异常处理** ✅ — callbackServer/keywordMonitor/loginMonitor/analytics 4 处 try-catch 容错隔离
+2. **权限边界** ✅ — 无 IPC 注册，getMainWin 调用前 win && !win.isDestroyed() 检查
+3. **事务一致性** ✅ — taskQueue 持久化+恢复+清空 savedState 原子操作
+4. **边界值** ✅ — restored/recovered > 0 才 log，savedState 存在才反序列化
+5. **代码风格** ✅ — @ts-check + JSDoc + 按需 require + 命名一致
+6. **Demo 代码** ✅ — 无硬编码路径/占位实现/TODO
+
+#### 推送问题解决（SSH over 443）
+- 问题: VPN TUN 模式劫持 github.com DNS（→198.18.29.58），HTTPS push 必失败（curl 52）
+- 尝试: DoH（TLS 被拦截）/ 直连 IP（301 重定向被劫持）/ curloptResolve（TLS 被中断）
+- 解决: **SSH over 443**（ssh.github.com:443 不被劫持）
+  ```bash
+  git remote set-url origin ssh://git@ssh.github.com:443/Colinchiu007/Multi-Publish.git
+  git push origin main  # 3e914e6..9f69647 main -> main
+  git remote set-url origin https://github.com/Colinchiu007/Multi-Publish.git  # 改回
+  ```
+- 沉淀: project_memory.md 更新 Lessons Learned + Reusable Patterns
+
+#### P1-C 完成总结
+- **目标**: bootstrap.js createAppContext + runWhenReady 拆分（140+100 行 inline → 3 个 phase 文件）
+- **产物**: phase1-context.js (130 行) + phase3-services.js (124 行) + phase2-bridges.js (56 行，前序)
+- **效果**: bootstrap.js 359 → 137 行（**-62%**），职责单一化
+- **测试**: 3 个新 phase 文件 25 用例 + bootstrap.test.js 44 集成用例无回归
+- **质量评分**: 8.95（Phase 5 基线）→ P1-C 完成后维持（无回归）
+- **3 个 commit**: d82bffc (phase2-bridges) → 3e914e6 (phase1-context) → 9f69647 (phase3-services)
+
+
 ### P1-C Phase 2.2 — bootstrap.js 拆分 phase3-services.js (质量节拍 Phase 2)
 
 #### 拆分范围
