@@ -206,9 +206,10 @@ Module._load = function (request, parent, isMain) {
     if (resolved) {
       if (mockRegistry.has(resolved)) return mockRegistry.get(resolved)
       for (const [key, val] of mockRegistry) {
-        // 标准化 key：去掉 './' 前缀，用于后缀匹配
-        const normalizedKey = key.replace(/^\.\//, '')
-        if (normalizedKey && (resolved.endsWith(normalizedKey) || resolved.includes(normalizedKey))) return val
+        // 标准化 key 和 resolved：去掉 './' 前缀 + 统一路径分隔符为 '/'（Windows 兼容）
+        const normalizedKey = key.replace(/^\.\//, '').replace(/\\/g, '/')
+        const normalizedResolved = resolved.replace(/\\/g, '/')
+        if (normalizedKey && (normalizedResolved.endsWith(normalizedKey) || normalizedResolved.includes(normalizedKey))) return val
       }
     }
   }

@@ -26,6 +26,7 @@ const { createContainer } = require('./core/container.setup')
 const { wireTaskQueueEvents } = require('./bootstrap/phase4-events')
 const { registerAllIpcHandlers } = require('./bootstrap/phase5-ipc')
 const { startBridges } = require('./bootstrap/phase2-bridges')
+const { extractContext } = require('./bootstrap/phase1-context')
 
 // ─── Helper ────────────────────────────────────────────────
 // Bug-5: 优先从 DI 容器获取缓存的窗口引用，fallback 到 getAllWindows
@@ -45,55 +46,12 @@ function createAppContext() {
   const container = createContainer()
   _container = container // Bug-5: 缓存 container 供 getMainWin 使用
 
-  const LicenseManager = require('./services/license-manager')
+  // Phase 1: 提取所有 DI 实例 + 模块单例 + 副作用（拆分到 bootstrap/phase1-context.js）
+  const ctx = extractContext(container)
 
-  // ─── 基础设施实例 ──────────────────────────
-  const authViewManager = container.get('authViewManager')
-  const rpaViewManager = container.get('rpaViewManager')
-  const webviewManager = container.get('webviewManager')
-  const callbackServer = container.get('callbackServer')
-  const qrCodeLogin = container.get('qrCodeLogin')
-  const store = container.get('store')
-  const contentIntelligence = container.get('contentIntelligence')
-  const publishImpactTracker = container.get('publishImpactTracker')
-  const keywordMonitor = container.get('keywordMonitor')
-  const providerManager = container.get('providerManager')
-  const oauthManager = container.get('oauthManager')
-  const batchManager = container.get('batchManager')
-  const urlCollector = container.get('urlCollector')
-  const viralEngine = container.get('viralEngine')
-  const commentManager = container.get('commentManager')
-  const proxyPool = container.get('proxyPool')
-  const analyticsService = container.get('analyticsService')
-
-  // _PublishAlert has side effects on require
-  const _PublishAlert = require('./services/publish-alert')
-  const templateManager = container.get('templateManager')
-  templateManager.seedDefaults()
-  const licenseManager = LicenseManager.getInstance()
-  const aiWriter = container.get('aiWriter')
-  const offlineManager = require('./services/offline-manager')
-  offlineManager.startMonitoring()
-  const publishMonitor = require('./services/publish-monitor')
-  const systemTray = require('./services/system-tray')
-  const hotkeys = require('./services/hotkeys')
-
-  // ─── 系统托盘 ──────────────────────────────
-  systemTray.registerIpcHandlers()
-
-  // ─── 任务队列 ──────────────────────────────
-  const taskQueue = container.get('taskQueue')
-  scheduler.setTaskQueue(taskQueue)
-  BatchManager.setTaskQueue(taskQueue)
-  offlineManager.setTaskQueue(taskQueue)
-
-  // ─── Aggregator Bridge ────────────────────
-  const _aggregatorBridge = container.get('aggregatorBridge')
-
-  // ─── PublisherRouter ──────────────────────
-  const publisherRouter = container.get('publisherRouter')
-
-  // ─── 任务执行器 ────────────────────────────
+  // 保留原位：taskQueue.setExecutor 闭包（依赖 getMainWin + publisherRouter + rpaViewManager，高风险）
+  const { taskQueue, publisherRouter, rpaViewManager, store,
+    history, publishMonitor, publishImpactTracker } = ctx
   taskQueue.setExecutor(async (task) => {
     const platform = task.platform
     const emitProgress = (stage) => {
@@ -117,70 +75,12 @@ function createAppContext() {
     }
   })
 
-  // ─── 任务事件 ──────────────────────────────
-  // 拆分到 bootstrap/phase4-events.js
+  // 保留原位：任务事件接线（拆分到 bootstrap/phase4-events.js）
   wireTaskQueueEvents({
     taskQueue, history, publishMonitor, publishImpactTracker, getMainWin,
   })
 
-  // ─── 渲染引擎实例 ──────────────────────────
-  const renderEngine = container.get('renderEngine')
-  const compositionManager = container.get('compositionManager')
-  const aiGenerator = container.get('aiGenerator')
-  const videoEngine = container.get('videoEngine')
-  const pipelineEngine = container.get('pipelineEngine')
-
-  // ─── 模型服务商管理 ────────────────────────
-  const { ModelProviderManager } = require('./services/model-provider-manager')
-  const modelProviderManager = new ModelProviderManager(store)
-
-  // 连接 aiGenerator 和 modelProviderManager
-  if (aiGenerator && aiGenerator.setModelProviderManager) {
-    aiGenerator.setModelProviderManager(modelProviderManager)
-  }
-
-  // ─── 平台、敏感词、数据同步等基础设施 ────────
-  const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
-  const BACKEND_PLATFORMS = new Set(['youtube', 'tiktok', 'twitter'])
-  const SensitiveFilter = require('@multi-publish/shared-utils/src/sensitive-filter')
-  const _sensitiveFilter = SensitiveFilter.createWithBuiltin()
-  const _dataSync = container.get('dataSync')
-  const _platformConfig = (() => {
-    try {
-      const cfgPath = getConfigPath('platforms.yaml')
-      return new PlatformConfig(cfgPath)
-    } catch (e) {
-      log.warn('App', 'Failed to load platform config:', e.message)
-      return null
-    }
-  })()
-
-  const _chunkedUploader = container.get('chunkedUploader')
-
-  // ─── 基础设施 & 横切服务 ────────────────────
-  const splitterBridge = container.get('splitterBridge')
-  const promptBridge = container.get('promptBridge')
-  const serviceBus = container.get('serviceBus')
-  const pluginRegistry = container.get('pluginRegistry')
-
-  return {
-    container, store, taskQueue, scheduler, callbackServer,
-    keywordMonitor, analyticsService, pythonBridge,
-    AccountManager, history, autoUpdater, hotkeys, firstRun,
-    systemTray, offlineManager, publishMonitor,
-    authViewManager, rpaViewManager, webviewManager, qrCodeLogin,
-    oauthManager, batchManager, urlCollector, providerManager,
-    viralEngine, commentManager, contentIntelligence, publishImpactTracker,
-    proxyPool, templateManager, licenseManager, aiWriter,
-    renderEngine, compositionManager, aiGenerator, videoEngine,
-    pipelineEngine, modelProviderManager, _chunkedUploader, _platformConfig,
-    _sensitiveFilter, _dataSync, BACKEND_PLATFORMS,
-    CloudPublisher,
-    // 额外暴露：runWhenReady 需要
-    _aggregatorBridge, publisherRouter, _PublishAlert,
-    // 基础设施 & 横切服务
-    splitterBridge, promptBridge, serviceBus, pluginRegistry,
-  }
+  return ctx
 }
 
 /**

@@ -3,6 +3,43 @@
 ## [Unreleased] - 2026-07-14
 
 
+### P1-C Phase 2.1 — bootstrap.js 拆分 phase1-context.js (质量节拍 Phase 2)
+
+#### 拆分范围
+- **新建**: `electron/bootstrap/phase1-context.js` (130 行，DI 实例提取 + 模块单例副作用)
+- **新建**: `electron/bootstrap/phase1-context.test.js` (9 用例)
+- **修改**: `electron/bootstrap.js` (339→238 行，-101 行，累计 359→238 = -33.7%)
+- **修复**: `test-setup.js` mock 路径匹配（Windows 路径分隔符标准化）
+
+#### 拆出职责
+- 所有 `container.get(...)` 调用（17 个 DI 实例）
+- 模块单例 + 副作用（seedDefaults / startMonitoring / registerIpcHandlers）
+- scheduler / BatchManager / offlineManager 的 setTaskQueue 接线
+- ModelProviderManager 接线
+- 平台配置 / 敏感词 / 横切服务加载
+- 从 `createAppContext()` L48-164 拆出
+
+#### 保留原位（高风险）
+- `taskQueue.setExecutor` 闭包（依赖 getMainWin + publisherRouter + rpaViewManager）
+- `wireTaskQueueEvents` 调用（依赖 getMainWin）
+
+#### 行为等价性
+- 原: 140 行 inline（DI 提取 + 副作用 + setExecutor + 事件接线 + return）
+- 新: `const ctx = extractContext(container)` (1 行) + setExecutor 保留 + wireTaskQueueEvents 保留 + `return ctx`
+- 内部逻辑完全一致，仅函数封装不改执行序
+
+#### test-setup.js 修复
+- 问题: `__registerMock('./services/x', ...)` 注册的 mock，从子目录 `require('../services/x')` 时匹配失败
+- 原因: Windows 上 resolved 路径用 `\`，mock key 用 `/`，`includes()` 匹配失败
+- 修复: 标准化两者路径分隔符为 `/` 再匹配
+
+#### 测试覆盖
+- phase1-context.test.js: 9/9 PASS
+- bootstrap.test.js: 44/44 PASS（回归无损失）
+- bootstrap 目录全量: 26/26 PASS
+- electron/ 目录: 709/709 PASS（1 文件加载失败为预存 path-utils 问题）
+
+
 ### P1-C 试点 — bootstrap.js 拆分 phase2-bridges.js (质量节拍 Phase 2)
 
 #### 拆分范围
