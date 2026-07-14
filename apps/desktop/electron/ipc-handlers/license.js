@@ -4,6 +4,8 @@
  * License/Pro features management
  *
  * 安全：activate/deactivate/activate-trial 为敏感操作，校验来源必须是本应用主窗口
+ *
+ * Bug-2 三级分离：注册 auth:get-access-level 同步 IPC，供 preload/index.js 查询访问级别
  */
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
@@ -36,7 +38,6 @@ function registerHandlers(ipcMain, deps) {
     if (!_assertTrustedSender(event)) return _untrusted()
     try {
       const ok = licenseManager.activate(licenseKey)
-      // R52 修复：统一返回格式，补充 data 字段
       return ok ? { code: 0, data: true, message: "激活成功" } : { code: EC.REQUEST_ERROR, data: false, message: "激活失败，许可证可能已被使用" }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
@@ -45,7 +46,6 @@ function registerHandlers(ipcMain, deps) {
     if (!_assertTrustedSender(event)) return _untrusted()
     try {
       licenseManager.deactivate()
-      // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true, message: "已注销" }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
@@ -54,7 +54,6 @@ function registerHandlers(ipcMain, deps) {
     if (!_assertTrustedSender(event)) return _untrusted()
     try {
       const ok = licenseManager.activateTrial()
-      // R52 修复：统一返回格式，补充 data 字段
       return ok ? { code: 0, data: true, message: "试用已激活，有效期 7 天" } : { code: EC.REQUEST_ERROR, data: false, message: "无法激活试用" }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
@@ -69,6 +68,25 @@ function registerHandlers(ipcMain, deps) {
     try {
       return { code: 0, data: licenseManager.getFeatures() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+  })
+
+  // Bug-2 三级分离：同步 IPC 供 preload 查询访问级别
+  // 返回 'public' | 'authenticated' | 'admin'
+  ipcMain.on("auth:get-access-level", (event) => {
+    try {
+      const isDevMode = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1'
+      if (isDevMode) {
+        event.returnValue = 'admin'
+        return
+      }
+      if (licenseManager && typeof licenseManager.isPro === 'function' && licenseManager.isPro()) {
+        event.returnValue = 'authenticated'
+      } else {
+        event.returnValue = 'public'
+      }
+    } catch (e) {
+      event.returnValue = 'public'
+    }
   })
 }
 

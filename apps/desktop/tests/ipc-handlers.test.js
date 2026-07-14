@@ -19,7 +19,7 @@ describe('IPC Handlers', () => {
 
   beforeEach(() => {
     handlers = {}
-    mockIpcMain = { handle: (channel, fn) => { handlers[channel] = fn } }
+    mockIpcMain = { handle: (channel, fn) => { handlers[channel] = fn }, on: (channel, fn) => { handlers[channel] = fn } }
     registerHandlers(mockIpcMain, {
       app: { getVersion: () => '1.0.0' },
       BrowserWindow: require('electron'),
