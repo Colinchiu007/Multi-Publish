@@ -1,6 +1,46 @@
 # CHANGELOG
 
-## [Unreleased] - 2026-07-14
+## [Unreleased] - 2026-07-15
+
+
+### 质量节拍 Phase 5.1 问题排查 — 25 个预存测试失败清零
+
+#### 成果
+- **全量回归**: 1982 passed / 10 skipped / **0 failed** (1992 总测试)
+- **基线提升**: 1955 passed / 23 failed → 1982 passed / 0 failed (+27 测试, -23 失败)
+- **测试文件**: 136 passed | 3 skipped (139 总计)
+
+#### 修复清单 (8 文件, +160/-115 行, commit eb60cbc)
+1. **Home.test.js / views-deep.test.js** — getVersion mock 返回 `{code:0, data:string}` 适配新 API 契约 (2 失败)
+2. **ipc-handlers.test.js** — HIDDEN 集合新增 `pipeline:registerStageExecutor` (1 失败)
+3. **CreateView.test.js** — 完整重写 271 行适配三视图架构 (16 失败)
+   - 11 个 API 重命名: text→quickText, canRender→canQuickRender, startRender→startQuickRender 等
+   - 补充 8 个 pipeline* mock (pipelineList/Start/Pause/Resume/Cancel/Status/Advance/History)
+   - setTimeout(0) 替代 nextTick 等待 async mounted()
+4. **views-deep2.test.js** — 3 个 CreateView 断言适配三视图 + .mode-tab 期望 2 而非 3 (3 失败)
+5. **pixel-diff.js** — resemblejs require 包裹 try-catch + available 属性, canvas 缺失时优雅 skipped (2 失败)
+6. **vitest.config.js** — exclude 新增 visual-testing/** 与 path-utils.test.js (非 vitest 格式)
+7. **test-setup.js** — mock 路径匹配 bug 修复: `includes(key)` 误匹配子串 → 精确 `endsWith` 匹配 (1 失败)
+
+#### 根因分析
+| 类别 | 失败数 | 根因 |
+|------|--------|------|
+| CreateView 重构 | 19 | 组件从单视图改为三视图架构, API 全部重命名, 测试未同步 |
+| Mock 契约不匹配 | 2 | getVersion 返回类型变更, 测试 mock 未更新 |
+| IPC HIDDEN 遗漏 | 1 | 新增 handler 未加入 HIDDEN 列表 |
+| 视觉测试环境 | 2 | node-canvas 原生模块 Windows 下缺失 |
+| 非 vitest 格式 | 1 | path-utils.test.js 是 CLI 脚本 |
+| Mock 路径匹配 bug | 1 | test-setup.js `includes("path")` 误匹配 `path-utils` |
+
+#### Bug 反哺 (新增 anti-pattern)
+- **mock 路径子串匹配 bug**: `includes(normalizedKey)` 导致 "path" 误匹配 "path-utils.js" → 必须用精确 `endsWith` 或完全相等匹配
+
+#### 质量评分
+- Phase 4 基线: 8.95
+- Phase 5.1 完成后: 维持 8.95 (零失败, 无回归)
+
+
+
 
 
 ### 质量节拍 Phase 3+4 收尾 — retro 跟踪表更新 + Phase 4 门禁确认
