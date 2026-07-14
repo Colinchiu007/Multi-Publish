@@ -27,6 +27,7 @@ const { wireTaskQueueEvents } = require('./bootstrap/phase4-events')
 const { registerAllIpcHandlers } = require('./bootstrap/phase5-ipc')
 const { startBridges } = require('./bootstrap/phase2-bridges')
 const { extractContext } = require('./bootstrap/phase1-context')
+const { startServices } = require('./bootstrap/phase3-services')
 
 // ─── Helper ────────────────────────────────────────────────
 // Bug-5: 优先从 DI 容器获取缓存的窗口引用，fallback 到 getAllWindows
@@ -92,16 +93,8 @@ function runWhenReady(context, deps) {
   const createWindow = deps.createWindow
   const {
     container, store, taskQueue, callbackServer, scheduler,
-    keywordMonitor, analyticsService, pythonBridge,
-    renderEngine, history, autoUpdater, hotkeys, firstRun,
-    AccountManager, _platformConfig, _sensitiveFilter, _dataSync,
-    proxyPool, _chunkedUploader, BACKEND_PLATFORMS, templateManager,
-    licenseManager, aiWriter, compositionManager, aiGenerator,
-    videoEngine, pipelineEngine, modelProviderManager, authViewManager, rpaViewManager,
-    webviewManager, qrCodeLogin, oauthManager, batchManager, urlCollector,
-    providerManager, viralEngine, commentManager, contentIntelligence, publishImpactTracker,
-    CloudPublisher,
-    splitterBridge, promptBridge, serviceBus,
+    keywordMonitor, analyticsService, CloudPublisher,
+    pythonBridge, splitterBridge, promptBridge,
   } = context
 
   // mainWindow 在 createWindow 调用前为 null（与原 main.js 行为一致）
@@ -110,110 +103,16 @@ function runWhenReady(context, deps) {
   // R49 修复：app.whenReady() 返回 Promise，必须 .catch() 否则 rejection 无人处理
   app.whenReady().then(async () => {
    try {
-    // ─── Python Bridges 启动 + 退出清理（拆分到 bootstrap/phase2-bridges.js） ───
+    // Phase 2: Python Bridges 启动 + 退出清理（拆分到 bootstrap/phase2-bridges.js）
     await startBridges({ app, pythonBridge, splitterBridge, promptBridge })
 
-    // 启动使用量统计
-    const usageTracker = container.get('usageTracker')
-    usageTracker.trackSession()
-    global.usageTracker = usageTracker
-
-    store.init()
-
-    // 发布频率控制（通过 DI 容器获取，使用 store 适配器）
-    const _publishIntervalGuard = container.get('publishIntervalGuard')
-
-    // 任务队列持久化
-    taskQueue.setStateSaver((jsonStr) => {
-      store.setSetting('task_queue_state', jsonStr)
+    // Phase 3: 服务初始化（拆分到 bootstrap/phase3-services.js）
+    await startServices({
+      container, store, taskQueue, callbackServer, scheduler,
+      keywordMonitor, analyticsService, CloudPublisher, getMainWin,
     })
 
-    // 回调服务器
-    // R49 修复：callbackServer.start 返回 Promise，必须 await 否则 try/catch 无法捕获 rejection
-    try {
-      await callbackServer.start((data) => {
-        const win = getMainWin()
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('callback:received', data)
-        }
-        if (data) {
-          store.addCallbackLog(data.type || 'unknown', data.source || data.platform, data)
-        }
-      })
-    } catch (e) {
-      log.warn('App', 'Callback server failed to start (port may be in use):', e.message)
-    }
-
-    const restored = scheduler.restore()
-    if (restored > 0) log.info('Scheduler', 'Restored ' + restored + ' pending tasks')
-
-    const savedState = store.getSetting('task_queue_state')
-    if (savedState) {
-      const recovered = taskQueue.deserialize(savedState)
-      if (recovered > 0) {
-        log.info('App', 'Recovered ' + recovered + ' tasks from queue state')
-        store.setSetting('task_queue_state', null)
-      }
-    }
-
-    // 关键词监测告警
-    keywordMonitor.onAlert((keyword, current, previous, ratio) => {
-      const win = getMainWin()
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('notification', {
-          type: 'keyword-spike',
-          title: '[Spike] ' + keyword + ': ' + previous + ' -> ' + current + ' (' + ratio.toFixed(1) + 'x)',
-          keyword, current, previous,
-        })
-      }
-    })
-
-    // R28 修复：保存 interval 句柄并 unref，允许进程正常退出
-    const keywordPersistTimer = setInterval(() => {
-      try {
-        const state = keywordMonitor.getAllHistories()
-        store.setSetting('keyword_monitor_state', JSON.stringify(state))
-      } catch (e) {
-        log.warn('App', 'Keyword monitor persist error: ' + e.message)
-      }
-    }, 5 * 60 * 1000)
-    if (keywordPersistTimer.unref) keywordPersistTimer.unref()
-
-    // PRD F1.3: 登录状态定期检测 — 每 30 分钟检测账号 Cookie 是否过期
-    try {
-      const { createLoginStatusMonitor } = require('./services/login-status-monitor')
-      const accountManager = require('./publishers/account-manager')
-      const loginMonitor = createLoginStatusMonitor({
-        store: store,
-        accountManager: accountManager,
-        intervalMs: 30 * 60 * 1000,
-        getMainWin: getMainWin,
-      })
-      loginMonitor.start()
-      log.info('App', 'Login status monitor started (F1.3, 30min interval)')
-    } catch (e) {
-      log.warn('App', 'Login status monitor failed to start: ' + e.message)
-    }
-
-    // Analytics 提供者注册
-    try {
-      const { xiaohongshuProvider, douyinProvider } = require('./services/analytics-providers')
-      analyticsService.registerProvider('xiaohongshu', xiaohongshuProvider)
-      analyticsService.registerProvider('douyin', douyinProvider)
-      log.info('App', 'Analytics providers registered: xiaohongshu, douyin')
-    } catch (e) {
-      log.warn('App', 'Failed to register analytics providers: ' + e.message)
-    }
-
-    // 云端发布
-    const cloudPublisher = new CloudPublisher({
-      orchestratorUrl: process.env.ORCHESTRATOR_URL || '',
-      store,
-    })
-    cloudPublisher.registerIpcHandlers()
-
-    // ─── 注册所有 IPC handlers ──────────────
-    // 拆分到 bootstrap/phase5-ipc.js
+    // Phase 5: 注册所有 IPC handlers（拆分到 bootstrap/phase5-ipc.js）
     registerAllIpcHandlers({
       app,
       BrowserWindow: require('electron').BrowserWindow,

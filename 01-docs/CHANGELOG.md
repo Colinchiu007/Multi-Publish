@@ -3,6 +3,33 @@
 ## [Unreleased] - 2026-07-14
 
 
+### P1-C Phase 2.2 — bootstrap.js 拆分 phase3-services.js (质量节拍 Phase 2)
+
+#### 拆分范围
+- **新建**: `electron/bootstrap/phase3-services.js` (115 行，服务初始化)
+- **新建**: `electron/bootstrap/phase3-services.test.js` (10 用例)
+- **修改**: `electron/bootstrap.js` (238→137 行，-101 行，累计 359→137 = -62%)
+
+#### 拆出职责（从 runWhenReady L116-213 拆出）
+- usageTracker / store.init / publishIntervalGuard
+- taskQueue.setStateSaver / callbackServer.start
+- scheduler.restore / taskQueue.deserialize
+- keywordMonitor.onAlert + 持久化定时器（5min interval, unref）
+- login status monitor (F1.3, 30min interval)
+- analytics providers 注册（xiaohongshu / douyin）
+- cloudPublisher 构造 + registerIpcHandlers
+
+#### 行为等价性
+- 原: 100 行 inline（10 个服务初始化块，含 3 个 try-catch）
+- 新: `await startServices({ container, store, taskQueue, ... })` (1 行调用)
+- runWhenReady 简化为: startBridges → startServices → registerAllIpcHandlers → createWindow
+
+#### 测试覆盖
+- phase3-services.test.js: 10/10 PASS
+- bootstrap.test.js: 44/44 PASS（runWhenReady 全部集成测试通过）
+- bootstrap 目录全量: 80/80 PASS（5 文件）
+
+
 ### P1-C Phase 2.1 — bootstrap.js 拆分 phase1-context.js (质量节拍 Phase 2)
 
 #### 拆分范围
