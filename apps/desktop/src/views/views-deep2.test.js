@@ -41,7 +41,7 @@ vi.mock("@element-plus/icons-vue", () => ({ UploadFilled: { template: "<span>U</
 vi.mock("@/api/publisher", () => ({
   renderStart: vi.fn(),
   renderCancel: vi.fn(),
-  renderGetStatus: vi.fn().mockResolvedValue({ ready: true }),
+  renderGetStatus: vi.fn().mockResolvedValue({ code: 0, data: { ready: true } }),
   renderInstallDeps: vi.fn(),
   onRenderProgress: vi.fn(() => vi.fn()),
   onRenderComplete: vi.fn(() => vi.fn()),
@@ -55,6 +55,14 @@ vi.mock("@/api/publisher", () => ({
   offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
   offlineAddToCache: vi.fn(),
   aiGenerate: vi.fn().mockResolvedValue({ code: 0, data: { text: "AI生成文案内容" } }),
+  pipelineList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+  pipelineStart: vi.fn(),
+  pipelinePause: vi.fn(),
+  pipelineResume: vi.fn(),
+  pipelineCancel: vi.fn(),
+  pipelineStatus: vi.fn(),
+  pipelineAdvance: vi.fn(),
+  pipelineHistory: vi.fn().mockResolvedValue({ code: 0, data: [] }),
 }));
 
 // Publish.vue
@@ -101,26 +109,30 @@ describe("CreateView (deep)", () => {
 
   it("shows mode tabs", async () => {
     const w = await mountCreate();
+    w.vm.view = 'quick';
+    await nextTick();
     const tabs = w.findAll(".mode-tab");
-    expect(tabs.length).toBe(3);
+    expect(tabs.length).toBe(2);
   });
 
-  it("canRender changes with text", async () => {
+  it("canQuickRender changes with quickText", async () => {
     const w = await mountCreate();
+    w.vm.view = 'quick';
     await nextTick();
-    expect(w.vm.canRender).toBe(false);
-    w.vm.text = "hello";
+    expect(w.vm.canQuickRender).toBe(false);
+    w.vm.quickText = "hello";
     await nextTick();
-    expect(w.vm.canRender).toBe(true);
+    expect(w.vm.canQuickRender).toBe(true);
   });
 
   it("aiWrite generates content", async () => {
     const w = await mountCreate();
+    w.vm.view = 'quick';
     await nextTick();
     w.vm.aiWrite();
     await new Promise(r => setTimeout(r, 1100));
     await nextTick();
-    expect(w.vm.text.length).toBeGreaterThan(0);
+    expect(w.vm.quickText.length).toBeGreaterThan(0);
   });
 });
 

@@ -7,16 +7,23 @@ import { setActivePinia, createPinia } from "pinia";
 vi.mock("@/api/publisher", () => ({
   renderStart: vi.fn(),
   renderCancel: vi.fn(),
-  renderGetStatus: vi.fn().mockResolvedValue({ ready: true }),
+  renderGetStatus: vi.fn().mockResolvedValue({ code: 0, data: { ready: true } }),
   renderInstallDeps: vi.fn().mockResolvedValue({ code: 0, data: { success: true } }),
   onRenderProgress: vi.fn().mockReturnValue(vi.fn()),
   onRenderComplete: vi.fn().mockReturnValue(vi.fn()),
   onRenderError: vi.fn().mockReturnValue(vi.fn()),
   onRenderInstallProgress: vi.fn().mockReturnValue(vi.fn()),
   aiGenerate: vi.fn().mockResolvedValue({ code: 0, data: { text: "AI生成文案内容" } }),
+  pipelineList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+  pipelineStart: vi.fn(),
+  pipelinePause: vi.fn(),
+  pipelineResume: vi.fn(),
+  pipelineCancel: vi.fn(),
+  pipelineStatus: vi.fn(),
+  pipelineAdvance: vi.fn(),
+  pipelineHistory: vi.fn().mockResolvedValue({ code: 0, data: [] }),
 }));
 
-// Stub components used in CreateView
 import UiButton from "@/components/UiButton.vue";
 import UiSelect from "@/components/UiSelect.vue";
 
@@ -34,70 +41,136 @@ describe("CreateView", () => {
     window.electronAPI = {};
   });
 
-  it("renders page header and mode tabs", async () => {
-    const w = mount(CreateView, {
-      global: {
-        plugins: [router],
-        components: { UiButton, UiSelect }
-      }
-    });
-    await nextTick();
-    expect(w.text()).toContain("视频创作");
-    expect(w.find(".mode-tab").exists()).toBe(true);
-  });
-
-  it("switches mode between text and gallery", async () => {
+  it("renders page header", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    const tabs = w.findAll(".mode-tab");
+    expect(w.text()).toContain("视频创作");
+  });
+
+  it("shows three view tabs", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    const tabs = w.findAll(".view-tab");
     expect(tabs.length).toBe(3);
+  });
+
+  it("switches to quick view shows mode tabs", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.view = "quick";
+    await nextTick();
+    const tabs = w.findAll(".mode-tab");
+    expect(tabs.length).toBe(2);
+  });
+
+  it("switches quick mode to gallery shows upload", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.view = "quick";
+    await nextTick();
+    const tabs = w.findAll(".mode-tab");
     await tabs[1].trigger("click");
     await nextTick();
     expect(w.text()).toContain("上传图片");
   });
 
-  it("canRender is false with empty text", async () => {
+  it("canQuickRender is false with empty quickText", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    expect(w.vm.canRender).toBe(false);
+    w.vm.view = "quick";
+    await nextTick();
+    expect(w.vm.canQuickRender).toBe(false);
   });
 
-  it("canRender is true with non-empty text", async () => {
+  it("canQuickRender is true with non-empty quickText", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.text = "hello world";
+    w.vm.view = "quick";
+    w.vm.quickText = "hello world";
     await nextTick();
-    expect(w.vm.canRender).toBe(true);
+    expect(w.vm.canQuickRender).toBe(true);
   });
 
-  it("shows error when electronAPI missing on startRender", async () => {
-    delete window.electronAPI;
+  it("canQuickRender is false when quickRendering", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.text = "test";
-    await w.vm.startRender();
-    await nextTick();
-    // renderStart mock 返回 undefined，组件走 '渲染失败' 分支
-    expect(w.vm.error).toBeTruthy();
+    w.vm.view = "quick";
+    w.vm.quickText = "test";
+    w.vm.quickRendering = true;
+    expect(w.vm.canQuickRender).toBe(false);
   });
 
-  it("calls renderStart with correct props", async () => {
+  it("canQuickRender is false when gallery mode with no images", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.view = "quick";
+    w.vm.quickMode = "gallery";
+    expect(w.vm.canQuickRender).toBe(false);
+  });
+
+  it("canQuickRender is true when gallery has images", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.view = "quick";
+    w.vm.quickMode = "gallery";
+    w.vm.quickImages = [{ path: "/img.png", preview: "blob:1" }];
+    expect(w.vm.canQuickRender).toBe(true);
+  });
+
+  it("gets renderStatus on mount", async () => {
     const mocks = await import("@/api/publisher");
-    window.electronAPI = { renderStart: vi.fn() };
+    mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await new Promise(r => setTimeout(r, 0));
+    expect(mocks.renderGetStatus).toHaveBeenCalled();
+  });
+
+  it("loads pipelines on mount", async () => {
+    const mocks = await import("@/api/publisher");
+    mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    expect(mocks.pipelineList).toHaveBeenCalled();
+  });
+});
+
+describe("CreateView - quick render", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  it("startQuickRender calls renderStart with text cuts", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.renderStart.mockResolvedValue({ code: 0, data: { outputPath: "/tmp/test.mp4" } });
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.text = "scene1\nscene2\nscene3";
-    await w.vm.startRender();
+    w.vm.view = "quick";
+    w.vm.quickText = "scene1\nscene2\nscene3";
+    await w.vm.startQuickRender();
     await nextTick();
     expect(mocks.renderStart).toHaveBeenCalled();
     const arg = mocks.renderStart.mock.calls[0][0];
@@ -105,147 +178,84 @@ describe("CreateView", () => {
     expect(arg.props.cuts[0].text).toBe("scene1");
   });
 
-  it("calls renderCancel", async () => {
+  it("startQuickRender sets quickError on failure", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.renderStart.mockResolvedValue({ code: 1, message: "render failed" });
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.view = "quick";
+    w.vm.quickText = "test";
+    await w.vm.startQuickRender();
+    await nextTick();
+    expect(w.vm.quickError).toBe("render failed");
+    expect(w.vm.quickRendering).toBe(false);
+  });
+
+  it("cancelQuickRender calls renderCancel", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.rendering = true;
-    await w.vm.cancelRender();
+    w.vm.quickRendering = true;
+    await w.vm.cancelQuickRender();
     expect(mocks.renderCancel).toHaveBeenCalled();
+    expect(w.vm.quickRendering).toBe(false);
   });
 
-  it("gets status on mount", async () => {
-    const mocks = await import("@/api/publisher");
-    mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
-    });
-    await nextTick();
-    expect(mocks.renderGetStatus).toHaveBeenCalled();
-  });
-
-  it("adds and removes images", async () => {
+  it("aiWrite generates content", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    // 组件用 images 数组管理图片，直接操作数组验证 add/remove 逻辑
-    w.vm.images.push({ name: "test.png", path: "", preview: "blob:1" });
-    await nextTick();
-    expect(w.vm.images.length).toBe(1);
-    w.vm.removeImage(0);
-    await nextTick();
-    expect(w.vm.images.length).toBe(0);
-  });
-
-  it("calls aiWrite", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
-    });
+    w.vm.view = "quick";
     await nextTick();
     w.vm.aiWrite();
     await new Promise(r => setTimeout(r, 1100));
     await nextTick();
-    expect(w.vm.text.length).toBeGreaterThan(0);
+    expect(w.vm.quickText.length).toBeGreaterThan(0);
   });
 
-  it("sets result from onRenderComplete callback", async () => {
-    window.electronAPI = {};
-    const mocks = await import("@/api/publisher");
-    // onRenderComplete should trigger when called
-    mocks.onRenderComplete.mockImplementation(cb => { cb({ outputPath: "/tmp/test.mp4" }); return vi.fn(); });
-    const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
-    });
-    await nextTick();
-    w.vm.rendering = true;
-    // Trigger the onRenderComplete callback that was set up in setupListeners
-    await nextTick();
-    expect(w.vm.result).toEqual({ outputPath: "/tmp/test.mp4" });
-    // progress 由 onRenderProgress 回调设置，onRenderComplete 不修改 progress
-  });
-});
-
-describe("CreateView — extra coverage", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    setActivePinia(createPinia());
-    window.electronAPI = { renderStart: vi.fn() };
-  });
-
-  it("buildProps for gallery mode returns image scenes", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
-    });
-    await nextTick();
-    w.vm.mode = "gallery";
-    w.vm.images = [{ path: "/img1.png", preview: "blob:1" }, { path: "/img2.png", preview: "blob:2" }];
-    const props = w.vm.renderProps;
-    expect(props.cuts.length).toBe(2);
-    expect(props.cuts[0].type).toBe("anime_scene");
-    expect(props.cuts[0].images[0]).toBe("/img1.png");
-  });
-
-  it("buildProps returns empty cuts for unknown mode", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
-    });
-    await nextTick();
-    w.vm.mode = "unknown";
-    const props = w.vm.renderProps;
-    expect(props.cuts).toEqual([]);
-  });
-
-  it("viewResult navigates to result page", async () => {
+  it("viewQuickResult navigates to result page", async () => {
     const push = vi.fn();
     router.push = push;
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.result = { outputPath: "/tmp/video.mp4" };
-    w.vm.viewResult();
+    w.vm.quickResult = { outputPath: "/tmp/video.mp4" };
+    w.vm.viewQuickResult();
     expect(push).toHaveBeenCalledWith({ path: "/create/result", query: { path: "/tmp/video.mp4" } });
   });
+});
 
-  it("canRender is false when rendering in progress", async () => {
+describe("CreateView - callbacks", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  it("onRenderComplete sets quickResult", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.onRenderComplete.mockImplementation(cb => { cb({ outputPath: "/tmp/test.mp4" }); return vi.fn(); });
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
-    await nextTick();
-    w.vm.text = "test";
-    w.vm.rendering = true;
-    expect(w.vm.canRender).toBe(false);
+    await new Promise(r => setTimeout(r, 0));
+    expect(w.vm.quickResult).toEqual({ outputPath: "/tmp/test.mp4" });
   });
 
-  it("canRender is false when gallery mode with no images", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
-    });
-    await nextTick();
-    w.vm.mode = "gallery";
-    expect(w.vm.canRender).toBe(false);
-  });
-
-  it("canRender is true when gallery has images", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
-    });
-    await nextTick();
-    w.vm.mode = "gallery";
-    w.vm.images = [{ path: "/img.png", preview: "blob:1" }];
-    expect(w.vm.canRender).toBe(true);
-  });
-
-  it("onRenderError sets error state", async () => {
+  it("onRenderError sets quickError", async () => {
     const mocks = await import("@/api/publisher");
     mocks.onRenderError.mockImplementation(cb => { cb({ message: "render failed" }); return vi.fn(); });
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
-    await nextTick();
-    expect(w.vm.error).toBe("render failed");
+    await new Promise(r => setTimeout(r, 0));
+    expect(w.vm.quickError).toBe("render failed");
   });
 
   it("onRenderInstallProgress updates installLog", async () => {
@@ -254,8 +264,7 @@ describe("CreateView — extra coverage", () => {
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
-    await nextTick();
+    await new Promise(r => setTimeout(r, 0));
     expect(w.vm.installLog).toContain("installing");
   });
 });
-

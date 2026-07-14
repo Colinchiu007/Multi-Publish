@@ -62,7 +62,7 @@ describe("HomeView (deep)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.electronAPI = {
-      getVersion: vi.fn().mockResolvedValue("2.1.0"),
+      getVersion: vi.fn().mockResolvedValue({ code: 0, data: "2.1.0" }),
       storeGetPublishStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 100, success: 95, failed: 5 } }),
       storeListAccounts: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "a1" }, { id: "a2" }, { id: "a3" }] }),
     };

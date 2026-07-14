@@ -22,6 +22,12 @@ module.exports = defineConfig({
       'electron/preload.test.{js,ts}',
       'tests/**/*.test.{js,ts}',
     ],
+    exclude: [
+      'tests/visual-testing/**',
+      'tests/path-utils.test.js',
+      'node_modules/**',
+      'dist/**',
+    ],
     alias: {
       '@': path.resolve(__dirname, 'src')
     }

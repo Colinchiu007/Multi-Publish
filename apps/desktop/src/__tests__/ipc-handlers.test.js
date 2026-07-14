@@ -31,6 +31,7 @@ const HIDDEN = new Set([
   'show-notification', 'hotkeys:list',
   'impact:get-active', 'impact:get-recent-snapshots',
   'pipelines:list', 'pipelines:get',
+  'pipeline:registerStageExecutor',
   'intelligence:fetch-trending', 'intelligence:find-references',
   'intelligence:get-benchmark', 'intelligence:get-impact',
   'intelligence:save-impact', 'intelligence:search',

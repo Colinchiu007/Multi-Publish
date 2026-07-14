@@ -209,7 +209,12 @@ Module._load = function (request, parent, isMain) {
         // 标准化 key 和 resolved：去掉 './' 前缀 + 统一路径分隔符为 '/'（Windows 兼容）
         const normalizedKey = key.replace(/^\.\//, '').replace(/\\/g, '/')
         const normalizedResolved = resolved.replace(/\\/g, '/')
-        if (normalizedKey && (normalizedResolved.endsWith(normalizedKey) || normalizedResolved.includes(normalizedKey))) return val
+        // 精确匹配路径段，避免 "path" 误匹配 "path-utils" 等子串问题
+        if (normalizedKey && (
+          normalizedResolved === normalizedKey ||
+          normalizedResolved.endsWith('/' + normalizedKey) ||
+          normalizedResolved.endsWith('/' + normalizedKey + '.js')
+        )) return val
       }
     }
   }
