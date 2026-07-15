@@ -583,10 +583,80 @@ module.exports = { ProviderRouter };
 
 ---
 
+## 七、Phase 1.3 UI 设计审查记录
+
+> **审查日期**: 2026-07-15
+> **审查目标**: `apps/desktop/src/views/ModelProviders.vue`（606 行）
+> **审查方法**: 7 维度评估（信息层级 / 交互状态 / 响应式 / 可访问性 / 视觉一致性 / 微交互 / 错误处理）
+> **门禁标准**: 7.0/10
+> **审查结论**: 不通过（综合 4.9/10）— 需 P2 改造后复审
+> **完整报告**: [model-provider-ui-review.md](./model-provider-ui-review.md)
+
+### 7.1 综合评分
+
+| 维度 | 评分 | 关键短板 |
+|------|------|---------|
+| 1. 信息层级 | 6/10 | API Key 明文显示、models 撑高卡片、status 双指示器混淆 |
+| 2. 交互状态 | 5/10 | 加载态简陋、步骤无进度、禁用无降级、测试结果无超时 |
+| 3. 响应式 | 4/10 | 零 @media、固定宽度对话框、窄屏溢出 |
+| 4. 可访问性 | 4/10 | 图标无 aria-label、色盲不友好、无 aria-pressed/current/live |
+| 5. 视觉一致性 | 6/10 | 硬编码颜色、颜色语义重复、局部样式未抽取 |
+| 6. 微交互 | 4/10 | hover 单薄、硬切多、无 :active、rotating 未验证 |
+| 7. 错误处理 | 5/10 | 加密失败未处理、表单验证不足、并发无锁 |
+| **综合** | **4.9/10** | **低于 7.0 门禁** |
+
+### 7.2 关键发现汇总（19 项）
+
+**P0 — 安全 和 必须修复（4 项）**：
+1. API Key 显示遮罩 sk-****1234（第 74-76 行）
+2. safeStorage 不可用时 UI 显示警告横幅
+3. 5 个图标按钮补 aria-label（第 85-103 行）
+4. status-dot 色盲友好（形状区分，第 52 行）
+
+**P1 — UX 关键（9 项）**：
+1. 添加对话框步骤进度指示器
+2. 加载状态升级为骨架屏（第 33 行）
+3. 禁用卡片视觉降级（opacity 0.6 + grayscale）
+4. 表单验证：base_url 格式、API Key 格式提示
+5. models 字段截断 + tooltip（第 70 行）
+6. 响应式断点 @media (max-width: 768px)
+7. card hover 微动效（translateY + border-color）
+8. 测试结果超时自动清理（30s 后淡出）
+9. 保存成功 toast 反馈
+
+**P2 — 体验提升（6 项）**：
+1. 类型 badge 颜色改用 CSS 变量
+2. default-badge dark mode 适配
+3. 测试结果淡入过渡
+4. 步骤切换过渡动画
+5. aria 属性补全（aria-pressed / aria-current / aria-live）
+6. 测试失败重试按钮
+
+**P3 — 抛光（3 项）**：
+1. 测试结果持久化（localStorage）
+2. 焦点管理（对话框打开聚焦首输入框）
+3. 抽取 category-card / preset-item 到全局 cohere 系统
+
+### 7.3 与设计文档差距
+
+设计文档 P2 阶段原已覆盖 2 项（API Key 遮罩 + safeStorage 警告），本次审查新增 19 项发现。
+
+P2 阶段 UI 改造清单扩展：原设计文档仅标注 API Key 显示遮罩，现扩展为 P0(4) + P1(9) + P2(6) + P3(3) = 22 项完整改造清单。
+
+### 7.4 复审条件
+
+P2 改造完成后需复审，通过条件：
+1. P0 全部 4 项修复
+2. P1 至少 6/9 项修复
+3. 综合评分 >= 7.0/10
+4. 响应式 + 可访问性维度各自 >= 6/10
+
+---
+
 ## 六、后续待办
 
-- [ ] /plan-eng-review 架构审查（本文档）
-- [ ] /plan-design-review UI 审查（ModelProviders.vue 改造）
+- [x] /plan-eng-review 架构审查（本文档，8.7/10 通过 @ 2026-07-15）
+- [x] /plan-design-review UI 审查（ModelProviders.vue 改造，4.9/10 需 P2 改造 @ 2026-07-15）
 - [ ] /plan-devex-review 开发者体验审查（Adapter 开发体验）
 - [ ] P1 实施前补充 TDD 测试用例
 - [ ] 评估是否需要 Python 端同步改造（llm_client.py）
@@ -621,5 +691,5 @@ module.exports = { ProviderRouter };
 | `electron/services/ai-generator.js` (PROVIDERS) | 删除 | 统一到 SQLite |
 | `electron/ipc-handlers/model-provider.js` | 保持不变 | IPC 层不改 |
 | `src/api/model-providers.js` | 保持不变 | 前端 API 不改 |
-| `src/views/ModelProviders.vue` | P2 改造 | API Key 显示遮罩 |
-| `src/composables/useModelProviderCrud.js` | P2 改造 | 适配遮罩显示 |
+| `src/views/ModelProviders.vue` | P2 改造 | API Key 遮罩 + safeStorage 警告 + aria-label + 响应式 + 骨架屏等 22 项（详见 UI 审查报告） |
+| `src/composables/useModelProviderCrud.js` | P2 改造 | 适配遮罩显示 + 表单验证 + 测试结果超时清理 |
