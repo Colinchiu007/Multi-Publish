@@ -116,20 +116,71 @@ class ModelProviderManager {
   }
 
   /**
-   * P3.6: 注册内置 Adapter 工厂
-   * 在 init() 中调用，注册 OpenAI + Anthropic 两个 LLM Adapter
+   * 注册内置 Adapter 工厂
+   * 在 init() 中调用，注册全部 43 个预设供应商对应的 Adapter
    * 工厂只是 (credentials) => Adapter 函数，不立即创建实例
+   *
+   * 覆盖 6 大类别：llm / tts / speech_recognition / image / video / audio
    */
   _registerBuiltinAdapters () {
-    const { OpenAIAdapter } = require('./adapters/openai')
-    const { AnthropicAdapter } = require('./adapters/anthropic')
-    const { ElevenLabsAdapter } = require('./adapters/elevenlabs')
-    const { FluxAdapter } = require('./adapters/flux')
+    // 供应商 ID → Adapter 类的映射（共 43 个，与 PRESET_PROVIDERS 一一对应）
+    const adapters = {
+      // ─── LLM 推理模型 (7) ──────────────────────────
+      openai: require('./adapters/openai').OpenAIAdapter,
+      anthropic: require('./adapters/anthropic').AnthropicAdapter,
+      gemini: require('./adapters/gemini').GeminiAdapter,
+      openrouter: require('./adapters/openrouter').OpenRouterAdapter,
+      ollama: require('./adapters/ollama').OllamaAdapter,
+      'doubao-llm': require('./adapters/doubao-llm').DoubaoLlmAdapter,
+      deepseek: require('./adapters/deepseek').DeepSeekAdapter,
+      // ─── TTS 语音合成 (5) ──────────────────────────
+      elevenlabs: require('./adapters/elevenlabs').ElevenLabsAdapter,
+      'openai-tts': require('./adapters/openai-tts').OpenAITtsAdapter,
+      'doubao-tts': require('./adapters/doubao-tts').DoubaoTtsAdapter,
+      'google-tts': require('./adapters/google-tts').GoogleTtsAdapter,
+      piper: require('./adapters/piper').PiperAdapter,
+      // ─── 语音识别 STT (5) ──────────────────────────
+      whisper: require('./adapters/openai-whisper').OpenAIWhisperAdapter,
+      'google-stt': require('./adapters/google-stt').GoogleSttAdapter,
+      'doubao-stt': require('./adapters/doubao-stt').DoubaoSttAdapter,
+      'baidu-stt': require('./adapters/baidu-stt').BaiduSttAdapter,
+      'local-whisper': require('./adapters/local-whisper').LocalWhisperAdapter,
+      // ─── 图像生成 (9) ──────────────────────────────
+      flux: require('./adapters/flux').FluxAdapter,
+      'dall-e': require('./adapters/openai-image').OpenAIImageAdapter,
+      recraft: require('./adapters/recraft').RecraftAdapter,
+      imagen: require('./adapters/imagen').ImagenAdapter,
+      'grok-image': require('./adapters/grok-image').GrokImageAdapter,
+      pixabay: require('./adapters/pixabay').PixabayAdapter,
+      pexels: require('./adapters/pexels').PexelsAdapter,
+      'local-diffusion': require('./adapters/local-diffusion').LocalDiffusionAdapter,
+      comfyui: require('./adapters/comfyui').ComfyUiAdapter,
+      // ─── 视频生成 (12) ─────────────────────────────
+      hunyuan: require('./adapters/hunyuan').HunyuanAdapter,
+      cogvideo: require('./adapters/cogvideo').CogVideoAdapter,
+      'grok-video': require('./adapters/grok-video').GrokVideoAdapter,
+      heygen: require('./adapters/heygen').HeyGenAdapter,
+      kling: require('./adapters/kling').KlingAdapter,
+      runway: require('./adapters/runway').RunwayAdapter,
+      veo: require('./adapters/veo').VeoAdapter,
+      wan: require('./adapters/wan').WanAdapter,
+      minimax: require('./adapters/minimax').MiniMaxAdapter,
+      ltx: require('./adapters/ltx').LtxAdapter,
+      seedance: require('./adapters/seedance').SeedanceAdapter,
+      higgsfield: require('./adapters/higgsfield').HiggsfieldAdapter,
+      // ─── 音频生成 (5) ──────────────────────────────
+      suno: require('./adapters/suno').SunoAdapter,
+      musicgen: require('./adapters/musicgen').MusicGenAdapter,
+      'pixabay-music': require('./adapters/pixabay-music').PixabayMusicAdapter,
+      freesound: require('./adapters/freesound').FreesoundAdapter,
+      'music-library': require('./adapters/music-library').MusicLibraryAdapter,
+    }
 
-    this.registerAdapter('openai', (creds) => new OpenAIAdapter(creds))
-    this.registerAdapter('anthropic', (creds) => new AnthropicAdapter(creds))
-    this.registerAdapter('elevenlabs', (creds) => new ElevenLabsAdapter(creds))
-    this.registerAdapter('flux', (creds) => new FluxAdapter(creds))
+    for (const [providerId, AdapterClass] of Object.entries(adapters)) {
+      this.registerAdapter(providerId, (creds) => new AdapterClass(creds))
+    }
+
+    log.info('ModelProviderManager', `Registered ${Object.keys(adapters).length} builtin adapters`)
   }
 
   init () {
