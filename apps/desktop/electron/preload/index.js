@@ -62,20 +62,33 @@ const PUBLIC_METHODS = [
 ]
 
 /**
+ * 模块级缓存：sendSync 只在首次调用时执行，后续直接返回缓存值
+ *
+ * 架构说明：contextBridge.exposeInMainWorld 是同步 API，必须在调用时确定
+ * accessLevel，因此无法改用异步 ipcRenderer.invoke。sendSync 是 Electron
+ * 官方推荐的同步 IPC 方案，主进程 handler 仅检查环境变量和许可证状态（<1ms），
+ * 阻塞可忽略。缓存确保即使多次调用 getAccessLevel() 也只触发一次 sendSync。
+ */
+let _cachedAccessLevel = null
+
+/**
  * 获取当前访问级别
  * @returns {'public'|'authenticated'|'admin'}
  */
 function getAccessLevel() {
+  if (_cachedAccessLevel) return _cachedAccessLevel
   try {
     if (typeof ipcRenderer.sendSync === 'function') {
       const level = ipcRenderer.sendSync('auth:get-access-level')
       if (level === 'admin' || level === 'authenticated' || level === 'public') {
+        _cachedAccessLevel = level
         return level
       }
     }
   } catch (_) { /* IPC 未注册时 fallback */ }
   const isDevMode = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1'
-  return isDevMode ? 'admin' : 'public'
+  _cachedAccessLevel = isDevMode ? 'admin' : 'public'
+  return _cachedAccessLevel
 }
 
 /**

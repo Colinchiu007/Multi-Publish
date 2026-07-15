@@ -108,7 +108,7 @@ export default {
       return labels[s] || s || '已完成'
     },
     stageClass(s) {
-      if (typeof s === 'object') return s.status || ''
+      if (s && typeof s === 'object') return s.status || ''
       return ''
     },
     shortName(name) {

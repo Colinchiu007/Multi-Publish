@@ -121,6 +121,9 @@ async function startServices({ container, store, taskQueue, callbackServer, sche
     store,
   })
   cloudPublisher.registerIpcHandlers()
+
+  // 返回定时器引用，供 shutdown 时 clearInterval 清理
+  return { keywordPersistTimer }
 }
 
 module.exports = { startServices }

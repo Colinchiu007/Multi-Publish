@@ -1,4 +1,36 @@
 
+## [重构改进] v0.13.2 - 5项改进 + CreateHistory测试 + stageClass bug修复 (2026-07-15)
+
+应用质量节拍日常循环：项目重构分析 Top 5 改进实现。
+
+### 改进1：preload sendSync 模块级缓存
+- `preload/index.js` `getAccessLevel()` 添加 `_cachedAccessLevel` 模块级缓存，sendSync 只在首次调用执行
+- 添加架构说明注释：contextBridge.exposeInMainWorld 同步约束使 sendSync 不可替代，handler <1ms 阻塞可忽略
+
+### 改进2：keywordPersistTimer 内存泄漏修复
+- `phase3-services.js` `startServices()` 返回 `{ keywordPersistTimer }`
+- `bootstrap.js` 捕获返回值并加入 context
+- `shutdown.js` 在 window-all-closed 中 `clearInterval(keywordPersistTimer)` 清理定时器
+
+### 改进3：rpa-view-manager innerHTML 安全 helper
+- 新增 `_setElementContentSafe(win, selector, content, opts)` 方法，统一用 JSON.stringify 转义参数
+- 重构 zhihu content 填充使用 helper（消除重复字符串拼接模式）
+- 注：_fillInFrame（iframe 场景）和 douyin（多选择器迭代）保留原模式，已用 JSON.stringify 安全转义
+
+### 改进4：JSON.parse 误报确认
+- 排查确认 `account-state-restorer.js`、`license-manager.js`、`analytics.js`、`auth-view-cdp.js`、`anthropic.js` 所有 JSON.parse 均已包裹 try-catch，无需修复
+
+### 改进5：CreateHistory.vue 测试 + stageClass bug 修复
+- 新建 `CreateHistory.test.js`，16 个测试覆盖渲染/tab切换/空状态/列表加载/辅助方法/错误处理/加载状态
+- 修复 `stageClass(null)` bug：`typeof null === 'object'` 导致 `null.status` 抛错，改为 `s && typeof s === 'object'`
+
+### 其他发现
+- console.log 仅存在于测试文件和 logger.js（日志模块本身），生产代码已清洁
+- 硬编码 setTimeout 为 RPA 页面加载等待，重构风险大不调整
+
+### 测试
+- 全量回归：3643 passed / 0 failed / 10 skipped（基线 3627 → 3643，+16 新测试）
+
 ## [Bug4修复 + 需求5/6实现] v0.13.1 - preload白名单 + S2V双界面统一 + 默认模型 (2026-07-15)
 
 应用质量节拍补跑：Bug4 深度排查 + 需求5（默认模型）+ 需求6（S2V双界面统一）。

@@ -28,3 +28,11 @@
 
 2026-07-15 | 14条流水线共享全局 LLM 配置但 UI 暴露独立选择 | 🟢 低 | ✅ 已修复 | CreateView.vue 高级配置区暴露 LLM 提供商/模型选择，但 14 条流水线共享全局 LLM 配置，无独立模型选择环节。修复：llmConfig 精简为 { temperature }，移除 loadLlmProviders/availableLlmProviders 及对应 UI，startPipeline 传 llm:{temperature} 让后端用 getDefault(category) 默认供应商。commit df99ff6
 
+2026-07-15 | keywordPersistTimer setInterval 未清理 | 🟡 中 | ✅ 已修复 | `phase3-services.js` 的 `keywordPersistTimer`（5分钟持久化定时器）仅 `.unref()` 但从未 `clearInterval`，应用退出时内存泄漏。修复：`startServices()` 返回 `{ keywordPersistTimer }`，`bootstrap.js` 捕获并加入 context，`shutdown.js` 在 window-all-closed 中 `clearInterval`
+
+2026-07-15 | rpa-view-manager innerHTML 字符串拼接重复 | 🟢 低 | ✅ 已修复 | `rpa-view-manager.js` 3 处 innerHTML 设置通过字符串拼接构建 executeJavaScript 代码，虽已用 JSON.stringify 转义但模式重复。修复：抽取 `_setElementContentSafe(win, selector, content, opts)` helper 统一转义逻辑，重构 zhihu content 填充使用 helper
+
+2026-07-15 | CreateHistory.vue stageClass(null) 抛错 | 🟡 中 | ✅ 已修复 | `stageClass(s)` 用 `typeof s === 'object'` 判断，但 `typeof null === 'object'` 导致 `null.status` 抛 TypeError。修复：改为 `s && typeof s === 'object'`
+
+2026-07-15 | preload sendSync 无缓存 | 🟢 低 | ✅ 已修复 | `preload/index.js` `getAccessLevel()` 每次调用都执行 `sendSync`。虽实际只调用一次，但缺乏缓存防御。修复：添加 `_cachedAccessLevel` 模块级缓存 + 架构说明注释（contextBridge 同步约束使 sendSync 不可替代）
+

@@ -107,10 +107,14 @@ function runWhenReady(context, deps) {
     await startBridges({ app, pythonBridge, splitterBridge, promptBridge })
 
     // Phase 3: 服务初始化（拆分到 bootstrap/phase3-services.js）
-    await startServices({
+    const servicesResult = await startServices({
       container, store, taskQueue, callbackServer, scheduler,
       keywordMonitor, analyticsService, CloudPublisher, getMainWin,
     })
+    // 将 keywordPersistTimer 加入 context，供 shutdown 时 clearInterval
+    if (servicesResult && servicesResult.keywordPersistTimer) {
+      context.keywordPersistTimer = servicesResult.keywordPersistTimer
+    }
 
     // Phase 5: 注册所有 IPC handlers（拆分到 bootstrap/phase5-ipc.js）
     registerAllIpcHandlers({

@@ -20,7 +20,7 @@ function registerShutdownHandlers(context) {
     systemTray, scheduler, publishImpactTracker,
     authViewManager, qrCodeLogin, oauthManager,
     batchManager, taskQueue, commentManager,
-    renderEngine,
+    renderEngine, keywordPersistTimer,
   } = context
 
   // ─── 窗口关闭 ──────────────────────────────
@@ -31,6 +31,8 @@ function registerShutdownHandlers(context) {
     try { if (batchManager && batchManager.stopAll) batchManager.stopAll() } catch (e) { log.error('App', 'Error stopping batch manager:', e.message) }
     try { if (publishImpactTracker && publishImpactTracker.stopAll) publishImpactTracker.stopAll() } catch (e) { log.error('App', 'Error stopping impact tracker:', e.message) }
     try { if (commentManager && commentManager.stopAll) commentManager.stopAll() } catch (e) { log.error('App', 'Error stopping comment manager:', e.message) }
+    // 清理 keyword 持久化定时器（防止内存泄漏）
+    try { if (keywordPersistTimer) clearInterval(keywordPersistTimer) } catch (e) { log.error('App', 'Error clearing keyword persist timer:', e.message) }
 
     // 停止外部进程
     try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }

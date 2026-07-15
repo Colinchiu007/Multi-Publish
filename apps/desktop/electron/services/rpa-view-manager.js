@@ -118,6 +118,35 @@ class RpaViewManager {
     ].join(' '))
   }
 
+  // ========== 安全 DOM 操作 helper ==========
+  /**
+   * 安全设置元素 innerHTML 或 value — 统一用 JSON.stringify 转义参数
+   * 避免 3 处重复的字符串拼接模式，确保内容中的引号/特殊字符被正确转义
+   * @param {BrowserWindow} win
+   * @param {string} selector - CSS 选择器
+   * @param {string} content - 要设置的内容
+   * @param {object} [opts] - { useInnerHTML: true 默认, dispatchEvents: true 默认 }
+   */
+  async _setElementContentSafe(win, selector, content, opts) {
+    const useInnerHTML = !opts || opts.useInnerHTML !== false
+    const dispatchEvents = !opts || opts.dispatchEvents !== false
+    const sel = JSON.stringify(selector)
+    const ct = JSON.stringify(content)
+    const lines = [
+      'let el = document.querySelector(' + sel + ');',
+      'if (!el) return false;',
+      useInnerHTML
+        ? 'el.innerHTML = ' + ct + ';'
+        : 'el.value = ' + ct + ';',
+    ]
+    if (dispatchEvents) {
+      lines.push('el.dispatchEvent(new Event("input", { bubbles: true }));')
+      lines.push('el.dispatchEvent(new Event("change", { bubbles: true }));')
+    }
+    lines.push('return true;')
+    return await win.webContents.executeJavaScript('(function(){' + lines.join(' ') + '})()')
+  }
+
   // ========== P2-B: Generic publish engine ==========
   async _publish_generic(win, article, platform, publishConfig) {
     const config = publishConfig || this._getPlatformConfig(platform)
@@ -651,8 +680,7 @@ class RpaViewManager {
     if (article.content) {
       this._emitProgress('zhihu','filling content...',50)
       try {
-        const cj = JSON.stringify(article.content)
-        await win.webContents.executeJavaScript("(function(){let ed=document.querySelector('.DraftEditor-root, .Editable-editor, .ql-editor, [contenteditable=\u005c\u0022true\u005c\u0022]');if(!ed)return false;ed.innerHTML="+cj+";ed.dispatchEvent(new Event('input',{bubbles:true}));ed.dispatchEvent(new Event('change',{bubbles:true}));return true;})()")
+        await this._setElementContentSafe(win, '.DraftEditor-root, .Editable-editor, .ql-editor, [contenteditable="true"]', article.content)
       } catch(e) { log.warn('RpaView','zhihu content: '+e.message) }
     }
     this._emitProgress('zhihu','publishing...',80)
