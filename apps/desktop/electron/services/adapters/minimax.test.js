@@ -49,7 +49,7 @@ describe('MiniMaxAdapter — MiniMax Video', () => {
     })
     it('默认 baseUrl', () => {
       const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
-      expect(adapter.credentials.baseUrl).toBe('https://api.minimax.chat/v1')
+      expect(adapter.credentials.baseUrl).toBe('https://api.minimaxi.com/v1')
     })
     it('版本号匹配 ADAPTER_VERSION', () => {
       const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
@@ -78,7 +78,7 @@ describe('MiniMaxAdapter — MiniMax Video', () => {
   })
 
   describe('generateVideo', () => {
-    it('POST /video_generation 返回 { taskId, model }', async () => {
+    it('POST /video_generation 返回 { taskId, model }，默认参数正确', async () => {
       const fetchMock = createFetchMock([createFetchResponse({ task_id: 'mm-task-1' })])
       global.fetch = fetchMock
 
@@ -86,13 +86,68 @@ describe('MiniMaxAdapter — MiniMax Video', () => {
       const result = await adapter.generateVideo({ prompt: '海浪' })
 
       expect(result.taskId).toBe('mm-task-1')
-      expect(result.model).toBe('minimax-video')
+      expect(result.model).toBe('MiniMax-Hailuo-2.3')
 
       expect(fetchMock.calls[0].url).toContain('/video_generation')
       const body = JSON.parse(fetchMock.calls[0].opts.body)
       expect(body.prompt).toBe('海浪')
-      expect(body.model).toBe('minimax-video')
+      expect(body.model).toBe('MiniMax-Hailuo-2.3')
+      // 默认参数
+      expect(body.duration).toBe(6)
+      expect(body.resolution).toBe('768P')
+      expect(body.prompt_optimizer).toBe(true)
+      // 未传 first_frame_image 为 undefined
+      expect(body.first_frame_image).toBeUndefined()
       expect(fetchMock.calls[0].opts.headers['Authorization']).toBe('Bearer k')
+    })
+
+    it('自定义 model', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ task_id: 't1' })])
+      global.fetch = fetchMock
+      const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
+      const result = await adapter.generateVideo({ prompt: 'x', model: 'T2V-01' })
+      expect(result.model).toBe('T2V-01')
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.model).toBe('T2V-01')
+    })
+
+    it('自定义 duration=10', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ task_id: 't1' })])
+      global.fetch = fetchMock
+      const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
+      await adapter.generateVideo({ prompt: 'x', duration: 10 })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.duration).toBe(10)
+    })
+
+    it('自定义 resolution=1080P', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ task_id: 't1' })])
+      global.fetch = fetchMock
+      const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
+      await adapter.generateVideo({ prompt: 'x', resolution: '1080P' })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.resolution).toBe('1080P')
+    })
+
+    it('firstFrameImage 映射到 first_frame_image（图生视频）', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ task_id: 't1' })])
+      global.fetch = fetchMock
+      const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
+      await adapter.generateVideo({
+        prompt: 'x',
+        firstFrameImage: 'https://cdn.example.com/first.png',
+      })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.first_frame_image).toBe('https://cdn.example.com/first.png')
+    })
+
+    it('prompt_optimizer 始终为 true', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ task_id: 't1' })])
+      global.fetch = fetchMock
+      const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
+      await adapter.generateVideo({ prompt: 'x' })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.prompt_optimizer).toBe(true)
     })
 
     it('无 prompt 抛错', async () => {
@@ -137,9 +192,27 @@ describe('MiniMaxAdapter — MiniMax Video', () => {
 
       expect(result.status).toBe('completed')
       expect(result.progress).toBe(100)
+      // videoUrl 使用配置的 baseUrl（minimaxi）+ file_id
       expect(result.videoUrl).toContain('file_id=file-123')
+      expect(result.videoUrl).toContain('https://api.minimaxi.com/v1/files/retrieve')
       expect(fetchMock.calls[0].url).toContain('/query/video_generation')
       expect(fetchMock.calls[0].url).toContain('task_id=mm-task-1')
+    })
+
+    it('Preparing → processing', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ status: 'Preparing', progress: 0 })])
+      const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
+      const result = await adapter.getVideoStatus('t1')
+      expect(result.status).toBe('processing')
+      expect(result.progress).toBe(0)
+    })
+
+    it('Queueing → processing', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ status: 'Queueing', progress: 10 })])
+      const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
+      const result = await adapter.getVideoStatus('t1')
+      expect(result.status).toBe('processing')
+      expect(result.progress).toBe(10)
     })
 
     it('Processing → processing', async () => {
@@ -150,9 +223,35 @@ describe('MiniMaxAdapter — MiniMax Video', () => {
       expect(result.progress).toBe(30)
     })
 
+    it('Fail → failed', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ status: 'Fail', progress: 0 })])
+      const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
+      const result = await adapter.getVideoStatus('t1')
+      expect(result.status).toBe('failed')
+      expect(result.videoUrl).toBe('')
+    })
+
     it('无 taskId 抛错', async () => {
       const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
       await expect(adapter.getVideoStatus('')).rejects.toThrow(/taskId.*required/i)
+    })
+  })
+
+  describe('listModels', () => {
+    it('返回 4 个预定义模型', async () => {
+      const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
+      const models = await adapter.listModels()
+      expect(models).toHaveLength(4)
+      const ids = models.map(m => m.id)
+      expect(ids).toEqual(['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02', 'T2V-01', 'I2V-01'])
+    })
+
+    it('不发起 HTTP 请求（静态列表）', async () => {
+      const fetchMock = createFetchMock([])
+      global.fetch = fetchMock
+      const adapter = new MiniMaxAdapter({ id: 'minimax', apiKey: 'k' })
+      await adapter.listModels()
+      expect(fetchMock.calls).toHaveLength(0)
     })
   })
 

@@ -157,15 +157,15 @@ class ModelProviderManager {
 
   /**
    * 注册内置 Adapter 工厂
-   * 在 init() 中调用，注册全部 43 个预设供应商对应的 Adapter
+   * 在 init() 中调用，注册全部 52 个预设供应商对应的 Adapter
    * 工厂只是 (credentials) => Adapter 函数，不立即创建实例
    *
    * 覆盖 6 大类别：llm / tts / speech_recognition / image / video / audio
    */
   _registerBuiltinAdapters () {
-    // 供应商 ID → Adapter 类的映射（共 43 个，与 PRESET_PROVIDERS 一一对应）
+    // 供应商 ID → Adapter 类的映射（共 52 个，与 PRESET_PROVIDERS 一一对应）
     const adapters = {
-      // ─── LLM 推理模型 (7) ──────────────────────────
+      // ─── LLM 推理模型 (11) ─────────────────────────
       openai: require('./adapters/openai').OpenAIAdapter,
       anthropic: require('./adapters/anthropic').AnthropicAdapter,
       gemini: require('./adapters/gemini').GeminiAdapter,
@@ -173,19 +173,25 @@ class ModelProviderManager {
       ollama: require('./adapters/ollama').OllamaAdapter,
       'doubao-llm': require('./adapters/doubao-llm').DoubaoLlmAdapter,
       deepseek: require('./adapters/deepseek').DeepSeekAdapter,
-      // ─── TTS 语音合成 (5) ──────────────────────────
+      'mimo-llm': require('./adapters/mimo-llm').MimoLlmAdapter,
+      'opencode-go': require('./adapters/opencode-go').OpenCodeGoAdapter,
+      'agnes-llm': require('./adapters/agnes-llm').AgnesLlmAdapter,
+      'sensenova-llm': require('./adapters/sensenova-llm').SenseNovaLlmAdapter,
+      // ─── TTS 语音合成 (7) ──────────────────────────
       elevenlabs: require('./adapters/elevenlabs').ElevenLabsAdapter,
       'openai-tts': require('./adapters/openai-tts').OpenAITtsAdapter,
       'doubao-tts': require('./adapters/doubao-tts').DoubaoTtsAdapter,
       'google-tts': require('./adapters/google-tts').GoogleTtsAdapter,
       piper: require('./adapters/piper').PiperAdapter,
+      'mimo-tts': require('./adapters/mimo-tts').MimoTtsAdapter,
+      'minimax-tts': require('./adapters/minimax-tts').MinimaxTtsAdapter,
       // ─── 语音识别 STT (5) ──────────────────────────
       whisper: require('./adapters/openai-whisper').OpenAIWhisperAdapter,
       'google-stt': require('./adapters/google-stt').GoogleSttAdapter,
       'doubao-stt': require('./adapters/doubao-stt').DoubaoSttAdapter,
       'baidu-stt': require('./adapters/baidu-stt').BaiduSttAdapter,
       'local-whisper': require('./adapters/local-whisper').LocalWhisperAdapter,
-      // ─── 图像生成 (9) ──────────────────────────────
+      // ─── 图像生成 (11) ─────────────────────────────
       flux: require('./adapters/flux').FluxAdapter,
       'dall-e': require('./adapters/openai-image').OpenAIImageAdapter,
       recraft: require('./adapters/recraft').RecraftAdapter,
@@ -195,7 +201,9 @@ class ModelProviderManager {
       pexels: require('./adapters/pexels').PexelsAdapter,
       'local-diffusion': require('./adapters/local-diffusion').LocalDiffusionAdapter,
       comfyui: require('./adapters/comfyui').ComfyUiAdapter,
-      // ─── 视频生成 (12) ─────────────────────────────
+      'minimax-image': require('./adapters/minimax-image').MinimaxImageAdapter,
+      'agnes-image': require('./adapters/agnes-image').AgnesImageAdapter,
+      // ─── 视频生成 (13) ─────────────────────────────
       hunyuan: require('./adapters/hunyuan').HunyuanAdapter,
       cogvideo: require('./adapters/cogvideo').CogVideoAdapter,
       'grok-video': require('./adapters/grok-video').GrokVideoAdapter,
@@ -208,6 +216,7 @@ class ModelProviderManager {
       ltx: require('./adapters/ltx').LtxAdapter,
       seedance: require('./adapters/seedance').SeedanceAdapter,
       higgsfield: require('./adapters/higgsfield').HiggsfieldAdapter,
+      'agnes-video': require('./adapters/agnes-video').AgnesVideoAdapter,
       // ─── 音频生成 (5) ──────────────────────────────
       suno: require('./adapters/suno').SunoAdapter,
       musicgen: require('./adapters/musicgen').MusicGenAdapter,

@@ -4,9 +4,10 @@
  *
  * MiniMax API 关键特性：
  * - 认证: Bearer token
- * - generateVideo: POST /video_generation，请求体 { model: 'minimax-video', prompt }
+ * - generateVideo: POST /video_generation，请求体含 model/prompt/duration/resolution/first_frame_image/prompt_optimizer
  * - getVideoStatus: GET /query/video_generation?task_id={taskId}
  * - 异步任务模式：generateVideo 返回 task_id，通过 getVideoStatus 轮询
+ * - completed 时通过 file_id 调用 /files/retrieve 获取下载 URL
  *
  * 实现的方法（capabilities）：
  *   - generateVideo()    提交视频生成任务
@@ -18,13 +19,16 @@
 const { BaseAdapter } = require('./base')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
 
-const DEFAULT_BASE_URL = 'https://api.minimax.chat/v1'
+const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
 const DEFAULT_TIMEOUT = 120000
+const DEFAULT_MODEL = 'MiniMax-Hailuo-2.3'
 
 // 静态预定义模型列表
 const MINIMAX_MODELS = [
-  { id: 'minimax-video', name: 'MiniMax Video', description: 'MiniMax 视频生成模型' },
-  { id: 'video-01', name: 'Video 01', description: 'MiniMax video-01 视频生成' },
+  { id: 'MiniMax-Hailuo-2.3', name: 'Hailuo 2.3', description: '最新模型，支持 768P/1080P' },
+  { id: 'MiniMax-Hailuo-02', name: 'Hailuo 02', description: '支持 512P/768P/1080P + 首尾帧' },
+  { id: 'T2V-01', name: 'T2V-01', description: '文生视频基础模型，720P' },
+  { id: 'I2V-01', name: 'I2V-01', description: '图生视频基础模型' },
 ]
 
 class MiniMaxAdapter extends BaseAdapter {
@@ -110,7 +114,10 @@ class MiniMaxAdapter extends BaseAdapter {
    * 提交视频生成任务
    * @param {object} params
    * @param {string} params.prompt - 生成提示词（必填）
-   * @param {string} [params.model='minimax-video'] - 模型 ID
+   * @param {string} [params.model='MiniMax-Hailuo-2.3'] - 模型 ID
+   * @param {number} [params.duration=6] - 视频时长（6 或 10 秒）
+   * @param {string} [params.resolution='768P'] - 分辨率（512P/720P/768P/1080P）
+   * @param {string} [params.firstFrameImage] - 图生视频首帧 URL 或 base64
    * @returns {Promise<{taskId: string, model: string}>}
    */
   async generateVideo(params) {
@@ -118,10 +125,14 @@ class MiniMaxAdapter extends BaseAdapter {
       throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'params.prompt is required')
     }
 
-    const model = params.model || 'minimax-video'
+    const model = params.model || DEFAULT_MODEL
     const body = {
       model,
       prompt: params.prompt,
+      duration: params.duration || 6,
+      resolution: params.resolution || '768P',
+      first_frame_image: params.firstFrameImage || undefined,
+      prompt_optimizer: true,
     }
 
     const resp = await this._request('/video_generation', {
@@ -156,13 +167,15 @@ class MiniMaxAdapter extends BaseAdapter {
 
     // MiniMax 状态映射
     const statusMap = {
+      'Preparing': 'processing',
+      'Queueing': 'processing',
       'Processing': 'processing',
       'Success': 'completed',
-      'Failed': 'failed',
-      'Queueing': 'processing',
+      'Fail': 'failed',
     }
     const status = statusMap[data.status] || 'processing'
-    const videoUrl = (data.file_id && `https://api.minimax.chat/v1/files/retrieve?file_id=${data.file_id}`) || ''
+    // completed 时通过 file_id 调用 /files/retrieve 获取下载 URL（使用配置的 baseUrl）
+    const videoUrl = (data.file_id && `${this.credentials.baseUrl.replace(/\/$/, '')}/files/retrieve?file_id=${data.file_id}`) || ''
     const progress = data.progress !== undefined ? Number(data.progress) : (status === 'completed' ? 100 : 0)
 
     return { status, videoUrl, progress }
@@ -182,7 +195,7 @@ class MiniMaxAdapter extends BaseAdapter {
     try {
       await this._request('/video_generation', {
         method: 'POST',
-        body: JSON.stringify({ model: 'minimax-video', prompt: 'test' }),
+        body: JSON.stringify({ model: DEFAULT_MODEL, prompt: 'test' }),
       })
       return { success: true }
     } catch (e) {

@@ -35,6 +35,15 @@
       <router-link to="/calendar" class="nav-item" :class="{ active: route.path === '/calendar' }">
         发布日历
       </router-link>
+      <!-- 设置下拉菜单 -->
+      <div class="nav-dropdown-wrapper" ref="settingsDropdownRef">
+        <button class="nav-item nav-dropdown-trigger" :class="{ active: showSettingsMenu }" @click="toggleSettingsMenu">
+          设置 ▾
+        </button>
+        <div v-if="showSettingsMenu" class="nav-dropdown-menu">
+          <button class="nav-dropdown-item" @click="openSettings">模型设置</button>
+        </div>
+      </div>
       <div class="nav-spacer"></div>
       <div class="nav-right">
         <button v-if="authViewVisible" @click="closeLogin" class="btn-ghost-close">✕ 关闭登录</button>
@@ -140,6 +149,9 @@
     >
       <el-alert :title="'更新失败: ' + updateError" type="warning" show-icon :closable="true" @close="showError = false" />
     </div>
+
+    <!-- 设置弹窗（多 Tab） -->
+    <SettingsDialog :visible="showSettingsDialog" @close="showSettingsDialog = false" />
   </div>
 </template>
 
@@ -147,6 +159,7 @@
 import UiButton from "./components/UiButton.vue";
 import PlatformIcon from "./components/PlatformIcon.vue";
 import UiModal from "./components/UiModal.vue";
+import SettingsDialog from "./components/SettingsDialog.vue";
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLicenseStore } from '@/stores/license'
@@ -165,6 +178,26 @@ const licenseStore = useLicenseStore()
 const showUpgradeModal = ref(false)
 // eslint-disable-next-line no-unused-vars
 const dismissBanner = ref(false)
+
+// 设置弹窗 + 下拉菜单
+const showSettingsDialog = ref(false)
+const showSettingsMenu = ref(false)
+const settingsDropdownRef = ref(null)
+
+function toggleSettingsMenu () {
+  showSettingsMenu.value = !showSettingsMenu.value
+}
+
+function openSettings () {
+  showSettingsMenu.value = false
+  showSettingsDialog.value = true
+}
+
+function handleOutsideClick (e) {
+  if (settingsDropdownRef.value && !settingsDropdownRef.value.contains(e.target)) {
+    showSettingsMenu.value = false
+  }
+}
 
 // 平台账号（侧栏）
 const {
@@ -216,10 +249,14 @@ onMounted(() => {
       router.push(route)
     })
   }
+
+  // 设置下拉菜单 click outside 关闭
+  document.addEventListener('click', handleOutsideClick)
 })
 
 onBeforeUnmount(() => {
   cleanupAutoUpdate()
+  document.removeEventListener('click', handleOutsideClick)
 })
 </script>
 

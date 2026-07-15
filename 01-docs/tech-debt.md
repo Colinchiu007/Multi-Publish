@@ -20,3 +20,5 @@
 
 2026-07-15 | preload/system.js 缺 model-provider 12 个方法 + IPC handler 无测试 | 🔴 严重 | ✅ 已修复 | 第 4 轮将 modelProviderLogs/cleanLogs 加到了已弃用的单文件 preload.js（window.js 实际加载 preload/index.js → preload/system.js），导致渲染进程无法调用全部 12 个 model-provider:* IPC 接口。修复：preload/system.js 补齐 12 个方法（121→133 方法），preload.test.js 同步更新 SYSTEM_METHODS（117→133）+ 断言 + INVOKE_CASES，新建 ipc-handlers/model-provider.test.js 覆盖 12 个 handler（34 测试，含 logs/clean-logs store 缺失兜底）。同时补录 4 个遗漏的 ai* 方法（aiIsConfigured/aiGenerateTitles/aiEnhanceContent/aiGenerateSummary）到 SYSTEM_METHODS 常量
 
+2026-07-15 | SettingsDialog 占位 Tab 待实现 | 🟢 低 | 待实现 | 设置弹窗目前仅【模型设置】Tab 可用，通用/发布/账号 3 个 Tab 为占位禁用状态。未来需按需实现各自设置面板。前端下拉菜单使用了全局 click 监听（handleOutsideClick），组件卸载时已配对移除
+

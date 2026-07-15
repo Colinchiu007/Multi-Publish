@@ -213,8 +213,13 @@
           <input class="input" v-model="form.base_url" placeholder="https://api.example.com/v1" />
           <label class="input-label">API Key</label>
           <input class="input" v-model="form.api_key" type="password" placeholder="sk-..." />
-          <label class="input-label">模型列表 (逗号分隔)</label>
-          <input class="input" v-model="form.modelsText" placeholder="model-1, model-2" />
+          <template v-if="form.models.length === 1">
+            <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
+          </template>
+          <template v-else>
+            <label class="input-label">模型列表 (逗号分隔)</label>
+            <input class="input" v-model="form.modelsText" placeholder="model-1, model-2" />
+          </template>
         </div>
       </div>
 
@@ -239,8 +244,13 @@
         <input class="input" v-model="form.base_url" />
         <label class="input-label">API Key</label>
         <input class="input" v-model="form.api_key" type="password" placeholder="留空保持不变" />
-        <label class="input-label">模型列表 (逗号分隔)</label>
-        <input class="input" v-model="form.modelsText" />
+        <template v-if="form.models.length === 1">
+          <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
+        </template>
+        <template v-else>
+          <label class="input-label">模型列表 (逗号分隔)</label>
+          <input class="input" v-model="form.modelsText" />
+        </template>
       </div>
       <template #footer>
         <div class="dialog-footer">
@@ -707,6 +717,14 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 500;
   color: var(--ink);
+}
+.form-hint {
+  font-size: 13px;
+  color: var(--slate, #6b7280);
+  background: var(--soft-stone, #f5f5f0);
+  padding: 10px 12px;
+  border-radius: var(--r-sm, 8px);
+  line-height: 1.5;
 }
 .input {
   width: 100%;

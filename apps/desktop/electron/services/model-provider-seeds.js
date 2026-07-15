@@ -72,6 +72,30 @@ const PRESET_PROVIDERS = [
     models: ['deepseek-chat', 'deepseek-reasoner'],
     is_preset: 1,
   },
+  {
+    id: 'mimo-llm', name: 'Xiaomi MiMo', category: 'llm',
+    base_url: 'https://api.xiaomimimo.com/v1',
+    models: ['mimo-v2.5-pro', 'mimo-v2.5'],
+    is_preset: 1,
+  },
+  {
+    id: 'opencode-go', name: 'OpenCode-Go', category: 'llm',
+    base_url: 'https://opencode.ai/zen/go/v1',
+    models: ['glm-5.2', 'kimi-k2.7-code', 'deepseek-v4-pro', 'deepseek-v4-flash', 'mimo-v2.5', 'mimo-v2.5-pro', 'glm-5.1', 'kimi-k2.6'],
+    is_preset: 1,
+  },
+  {
+    id: 'agnes-llm', name: 'Agnes AI', category: 'llm',
+    base_url: 'https://apihub.agnes-ai.com/v1',
+    models: ['agnes-2.0-flash'],
+    is_preset: 1,
+  },
+  {
+    id: 'sensenova-llm', name: 'SenseNova', category: 'llm',
+    base_url: 'https://token.sensenova.cn/v1',
+    models: ['deepseek-v4-flash'],
+    is_preset: 1,
+  },
 
   // ─── TTS 语音合成 ────────────────────────────
   {
@@ -102,6 +126,18 @@ const PRESET_PROVIDERS = [
     id: 'piper', name: 'Piper (本地)', category: 'tts',
     base_url: '',
     models: ['piper'],
+    is_preset: 1,
+  },
+  {
+    id: 'mimo-tts', name: 'MiMo TTS', category: 'tts',
+    base_url: 'https://api.xiaomimimo.com/v1',
+    models: ['mimo-v2.5-tts', 'mimo-v2.5-tts-voicedesign', 'mimo-v2.5-tts-voiceclone'],
+    is_preset: 1,
+  },
+  {
+    id: 'minimax-tts', name: 'MiniMax TTS', category: 'tts',
+    base_url: 'https://api.minimaxi.com/v1',
+    models: ['speech-2.8-hd', 'speech-2.8-turbo', 'speech-2.6-hd', 'speech-2.6-turbo'],
     is_preset: 1,
   },
 
@@ -192,6 +228,18 @@ const PRESET_PROVIDERS = [
     models: ['comfyui'],
     is_preset: 1,
   },
+  {
+    id: 'minimax-image', name: 'MiniMax Image', category: 'image',
+    base_url: 'https://api.minimaxi.com/v1',
+    models: ['image-01', 'image-01-live'],
+    is_preset: 1,
+  },
+  {
+    id: 'agnes-image', name: 'Agnes Image', category: 'image',
+    base_url: 'https://apihub.agnes-ai.com/v1',
+    models: ['agnes-image-2.1-flash'],
+    is_preset: 1,
+  },
 
   // ─── 视频模型 ────────────────────────────────
   {
@@ -244,8 +292,14 @@ const PRESET_PROVIDERS = [
   },
   {
     id: 'minimax', name: 'MiniMax', category: 'video',
-    base_url: 'https://api.minimax.chat/v1',
-    models: ['minimax-video'],
+    base_url: 'https://api.minimaxi.com/v1',
+    models: ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02', 'T2V-01', 'I2V-01'],
+    is_preset: 1,
+  },
+  {
+    id: 'agnes-video', name: 'Agnes Video', category: 'video',
+    base_url: 'https://apihub.agnes-ai.com/v1',
+    models: ['agnes-video-v2.0'],
     is_preset: 1,
   },
   {

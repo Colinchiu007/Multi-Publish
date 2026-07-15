@@ -1,4 +1,26 @@
-﻿
+
+## [新增模型供应商 + 设置入口] v0.13.0 - 9个新Adapter + 前端设置弹窗 (2026-07-15)
+
+应用质量节拍日常循环：新增 9 个模型供应商 Adapter + 前端【设置】-【模型设置】入口。
+
+### 后端：9 个新 Adapter（43→52 供应商）
+- **LLM 推理（7→11）**：Xiaomi MiMo / OpenCode-Go / Agnes AI / SenseNova（4 个薄包装继承 OpenAICompatibleAdapter）
+- **TTS 语音（5→7）**：MiMo TTS（自定义 api-key 头）/ MiniMax TTS（Bearer + hex→Buffer）
+- **图像生成（9→11）**：MiniMax Image（POST /image_generation）/ Agnes Image 2.1 Flash（parseSizeTier）
+- **视频生成（12→13）**：Agnes Video V2.0（num_frames=8n+1 规则，异步 2 步流程）
+- 更新 MiniMax Video adapter：base_url 改为 api.minimaxi.com/v1，扩展 duration/resolution/first_frame_image 参数
+- model-provider-seeds.js + model-provider-manager.js 同步更新，52 个 seed 与 52 个 adapter 一一对应
+
+### 前端：设置弹窗 + 单模型优化
+- **SettingsDialog.vue** — 多 Tab 设置弹窗（模型设置 tab + 通用/发布/账号 3 个占位 tab）
+- **App.vue** — 顶部导航新增【设置】下拉菜单，点击【模型设置】打开弹窗，click outside 自动关闭
+- **ModelProviders.vue** — 单模型供应商（models.length === 1）隐藏 Model ID 输入框，改为提示信息
+- cohere-design-system.css 新增 nav-dropdown 系列样式
+
+### 测试
+- 9 个新 Adapter 测试文件，共 176 个新测试全部 GREEN
+- 完整性审查修复 1 个 MINOR bug（单模型判断条件 <= 1 → === 1）
+
 ## [完整闭环] ai-autonomous-tester v0.12.2 - 三个方向全部实现 (2026-07-13)
 
 应用质量节拍第 16 轮：实现自动代码修复 + CI 多轮循环 + 视觉基线智能管理。
