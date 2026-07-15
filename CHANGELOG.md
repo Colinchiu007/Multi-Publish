@@ -1,4 +1,27 @@
 
+## [Bug4修复 + 需求5/6实现] v0.13.1 - preload白名单 + S2V双界面统一 + 默认模型 (2026-07-15)
+
+应用质量节拍补跑：Bug4 深度排查 + 需求5（默认模型）+ 需求6（S2V双界面统一）。
+
+### Bug4 修复：Remotion 渲染引擎未就绪"缺少 remotion-composer"
+- **根因**：`preload/index.js` 的 `PUBLIC_METHODS` 白名单未包含 `renderGetStatus` 等渲染方法。打包模式下 `accessLevel='public'`（无 Pro license），这些方法被 `filterApiByAccessLevel` 过滤，前端 `invokeWithFallback` 返回 `{}`，模板 `!{}.composerExists` → true 误报"缺少 remotion-composer"
+- **修复**：`PUBLIC_METHODS` 新增 `renderGetStatus`/`renderInstallDeps`/`onRenderInstallProgress`/`pipelineList`/`pipelineGet`
+- **防御性处理**：CreateView.vue 区分 IPC 失败（`ipcError`）和实际 `composerExists=false`，避免误导性错误提示
+
+### 需求5：14条流水线用默认模型替代独立选择
+- `llmConfig` 精简为 `{ temperature }`，移除 `provider`/`model`
+- 移除 `loadLlmProviders`/`availableLlmProviders` 及 LLM 提供商/模型选择 UI
+- `startPipeline` 传 `llm:{temperature}`，后端用 `getDefault(category)` 默认供应商
+
+### 需求6：story2video 双界面统一到 CreateView.vue
+- CreateView.vue 新增 S2V 编排模式：`isOrchestratedPipeline`/`s2vConfig`/`startOrchestratedPipeline`/`updateOrchestrationStatus`/`advanceOrchestration`
+- 模板新增 S2V 配置面板（图片风格/宽高比/语音/并发数）+ 编排上下文预览 + 执行控制栏分发
+- 删除 PipelineView.vue，路由移除 `/create/pipeline`，CreateHistory.vue 跳转改为 `/create`
+
+### 测试
+- 6 个新 S2V 编排测试（isOrchestratedPipeline/s2vConfig/startPipeline分发/llmConfig精简）
+- 全量回归：3627 passed / 0 failed / 10 skipped（基线 3621 → 3627）
+
 ## [新增模型供应商 + 设置入口] v0.13.0 - 9个新Adapter + 前端设置弹窗 (2026-07-15)
 
 应用质量节拍日常循环：新增 9 个模型供应商 Adapter + 前端【设置】-【模型设置】入口。

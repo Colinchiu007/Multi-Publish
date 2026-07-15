@@ -22,3 +22,9 @@
 
 2026-07-15 | SettingsDialog 占位 Tab 待实现 | 🟢 低 | 待实现 | 设置弹窗目前仅【模型设置】Tab 可用，通用/发布/账号 3 个 Tab 为占位禁用状态。未来需按需实现各自设置面板。前端下拉菜单使用了全局 click 监听（handleOutsideClick），组件卸载时已配对移除
 
+2026-07-15 | preload PUBLIC_METHODS 白名单遗漏渲染/流水线方法 | 🔴 严重 | ✅ 已修复 | `preload/index.js` 的 `PUBLIC_METHODS` 白名单未包含 `renderGetStatus`/`renderInstallDeps`/`onRenderInstallProgress`/`pipelineList`/`pipelineGet`。打包模式下 `accessLevel='public'`（无 Pro license/未登录），这些方法被 `filterApiByAccessLevel` 过滤，前端 `invokeWithFallback` 返回 `{}`，导致视频创作页面误报"缺少 remotion-composer"。修复：将上述 5 个只读方法加入 PUBLIC_METHODS，同时 CreateView.vue 增加 ipcError 防御性处理区分 IPC 失败和实际状态。commit df99ff6
+
+2026-07-15 | story2video 双界面并存 | 🟡 中 | ✅ 已修复 | CreateView.vue（统一界面）和 PipelineView.vue（S2V 专属配置面板）并存，两套独立 UI+数据流，用户体验割裂。修复：将 S2V 编排模式（isOrchestratedPipeline/s2vConfig/startOrchestratedPipeline/updateOrchestrationStatus/advanceOrchestration）合并到 CreateView.vue，删除 PipelineView.vue，路由移除 /create/pipeline。commit df99ff6
+
+2026-07-15 | 14条流水线共享全局 LLM 配置但 UI 暴露独立选择 | 🟢 低 | ✅ 已修复 | CreateView.vue 高级配置区暴露 LLM 提供商/模型选择，但 14 条流水线共享全局 LLM 配置，无独立模型选择环节。修复：llmConfig 精简为 { temperature }，移除 loadLlmProviders/availableLlmProviders 及对应 UI，startPipeline 传 llm:{temperature} 让后端用 getDefault(category) 默认供应商。commit df99ff6
+
