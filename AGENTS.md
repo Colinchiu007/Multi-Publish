@@ -351,3 +351,15 @@ npm run test:all:visual
 - `electron/services/batch-manager.js` — **批量发布管理器**（批量编辑/排期/复制，支持多篇文章独立选平台+定时）
 - `electron/services/url-collector.js` — **URL 内容采集**（HTTP+Playwright双模式，og:meta提取）
 - `electron/services/hotkeys.js` — **全局快捷键**（6组 Ctrl+Alt+... 导航快捷键）
+
+---
+
+## 质量节拍强制执行
+
+本仓库已启用质量节拍（quality-rhythm）门禁系统。每次新任务自动执行：
+1. 判断变更类型（14种全覆盖）
+2. 评估变更规模
+3. 路由到对应 Phase
+4. 用户确认后开始
+
+**视觉测试强制：** UI 文件变更时自动提示视觉回归测试。
