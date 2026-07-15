@@ -100,7 +100,7 @@ class AIGenerator {
     if (!config) throw new Error('Unknown provider: ' + providerId);
 
     const method = TYPE_TO_METHOD[type] || 'chatCompletion';
-    if (onProgress) onProgress({ percent: 0, stage: 'calling adapter: ' + providerId });
+    this._safeProgress(onProgress, { percent: 0, stage: 'calling adapter: ' + providerId });
 
     const result = await this._modelProviderManager.callAdapter(providerId, method, params);
 
@@ -112,7 +112,7 @@ class AIGenerator {
       throw new Error(result.message || 'Adapter call failed');
     }
 
-    if (onProgress) onProgress({ percent: 100, stage: 'completed' });
+    this._safeProgress(onProgress, { percent: 100, stage: 'completed' });
     return result.data;
   }
 
@@ -123,7 +123,7 @@ class AIGenerator {
     }
 
     const method = TYPE_TO_METHOD[type] || 'chatCompletion';
-    if (onProgress) onProgress({ percent: 0, stage: 'failover start' });
+    this._safeProgress(onProgress, { percent: 0, stage: 'failover start' });
 
     const result = await this._router.executeWithFailover(type, async (provider) => {
       const r = await this._modelProviderManager.callAdapter(provider.id, method, params);
@@ -134,7 +134,7 @@ class AIGenerator {
       return r.data;
     }, { maxRetries: 3, strategy: 'failover' });
 
-    if (onProgress) onProgress({ percent: 100, stage: 'completed' });
+    this._safeProgress(onProgress, { percent: 100, stage: 'completed' });
     return result;
   }
 
@@ -148,17 +148,34 @@ class AIGenerator {
     const PythonBridge = this._getPythonBridge();
     if (PythonBridge && PythonBridge.isRunning()) {
       try {
-        if (onProgress) onProgress({ percent: 0, stage: 'calling python-bridge' });
+        this._safeProgress(onProgress, { percent: 0, stage: 'calling python-bridge' });
         return await PythonBridge.requestBackend('POST', '/api/ai/generate', {
           type, provider: providerId, params,
         }, 300000);
       } catch (e) {
-        if (onProgress) onProgress({ percent: 0, stage: 'error: ' + e.message });
+        this._safeProgress(onProgress, { percent: 0, stage: 'error: ' + e.message });
         throw e;
       }
     }
 
     throw new Error('Python backend not available');
+  }
+
+  /**
+   * 安全触发 onProgress 回调 — 异常不影响主流程
+   * 修复 MAJOR bug：原实现 `if (onProgress) onProgress(...)` 未 try-catch，
+   * 用户回调抛错会传播到主流程，导致 generate 调用失败
+   * @param {function} [onProgress] - 进度回调
+   * @param {object} payload - 回调参数
+   */
+  _safeProgress(onProgress, payload) {
+    if (typeof onProgress !== 'function') return;
+    try {
+      onProgress(payload);
+    } catch (_) {
+      // 忽略 onProgress 回调异常，避免影响主流程
+      // 设计原则：回调异常不应影响主流程
+    }
   }
 
   /** 测试 Provider 连接 */

@@ -449,7 +449,7 @@ describe('ProviderRouter — P3.3 路由策略 + 故障转移', () => {
       expect(fn).toHaveBeenCalledTimes(2)
     })
 
-    it('每次失败 excludeId 更新（注：当前实现只记录最后一次，存在重复尝试风险 MAJOR bug）', async () => {
+    it('每次失败 excludeIds 累积（不重复失败 provider）— MAJOR bug 已修复', async () => {
       manager.setDefault('llm', 'openai')
       const calledIds = []
       const fn = vi.fn(async (provider) => {
@@ -458,12 +458,49 @@ describe('ProviderRouter — P3.3 路由策略 + 故障转移', () => {
       })
       await expect(router.executeWithFailover('llm', fn, { maxRetries: 3 }))
         .rejects.toThrow()
-      // 3 次调用
+      // 3 次调用应该是 3 个不同的 provider（不重复尝试已失败的）
       expect(calledIds).toHaveLength(3)
-      // ⚠️ 当前实现：excludeId 只记录最后一次失败，不累积
-      // 导致已失败的 provider 可能被重复尝试
-      // 这是一个 MAJOR bug，应在后续修复为 excludeIds 数组累积
-      // 测试只验证调用次数，不验证唯一性（因为当前实现确实会重复）
+      expect(new Set(calledIds).size).toBe(3)
+    })
+
+    it('excludeIds 累积验证：3 个 provider 全部失败时不重复', async () => {
+      // 3 个 provider，maxRetries=5（大于 provider 数），应只调用 3 次后抛错
+      const mgr = createMockManager([
+        { id: 'p1', category: 'llm', priority: 1, enabled: true },
+        { id: 'p2', category: 'llm', priority: 2, enabled: true },
+        { id: 'p3', category: 'llm', priority: 3, enabled: true },
+      ])
+      // 不设置 default，确保 failover 走 providers[0]
+      mgr.getDefault = vi.fn(() => null)
+      const r = new ProviderRouter(mgr)
+
+      const calledIds = []
+      const fn = vi.fn(async (provider) => {
+        calledIds.push(provider.id)
+        throw new Error('always fail')
+      })
+
+      // maxRetries=5 但只有 3 个 provider，应 3 次后因 "No available provider" 抛错
+      await expect(r.executeWithFailover('llm', fn, { maxRetries: 5 }))
+        .rejects.toThrow(/No available provider|always fail/)
+
+      // 验证：3 次调用都是不同的 provider（累积排除生效）
+      expect(calledIds).toHaveLength(3)
+      expect(new Set(calledIds).size).toBe(3)
+    })
+
+    it('第 2 次重试不重复第 1 次失败的 provider', async () => {
+      manager.setDefault('llm', 'openai')
+      const calledIds = []
+      const fn = vi.fn(async (provider) => {
+        calledIds.push(provider.id)
+        if (calledIds.length === 1) throw new Error('first fail')
+        return 'ok from ' + provider.id
+      })
+      const result = await router.executeWithFailover('llm', fn, { maxRetries: 2 })
+      // 第一次和第二次应该是不同的 provider
+      expect(calledIds[0]).not.toBe(calledIds[1])
+      expect(result).toMatch(/^ok from /)
     })
   })
 

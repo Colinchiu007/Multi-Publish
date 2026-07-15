@@ -99,10 +99,13 @@ describe('window — createWindow', () => {
     expect(opts.webPreferences.nodeIntegration).toBe(false)
   })
 
-  it('webPreferences.sandbox = true', () => {
+  it('webPreferences.sandbox = false（允许 preload require 本地模块）', () => {
     createWindow(context)
     const opts = __electronMock.BrowserWindow.mock.calls[0][0]
-    expect(opts.webPreferences.sandbox).toBe(true)
+    // sandbox:false 允许 preload 使用 require() 加载本地模块（./publish 等）
+    // 安全性由 contextIsolation:true + nodeIntegration:false 保障
+    // 详见 window.js 中 sandbox 配置注释
+    expect(opts.webPreferences.sandbox).toBe(false)
   })
 
   it('show: false（延迟显示）', () => {

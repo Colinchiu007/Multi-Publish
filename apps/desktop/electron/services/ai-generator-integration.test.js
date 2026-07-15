@@ -464,18 +464,54 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
       expect(result).toBeTruthy()
     })
 
-    it('onProgress 回调抛错传播到主流程（⚠️ MAJOR bug：onProgress 未 try-catch 包裹）', async () => {
+    it('onProgress 回调抛错不影响主流程 — MAJOR bug 已修复', async () => {
       ai.setRouter(router)
       manager._adapterFactories.set('openai', () => ({}))
 
-      // ⚠️ 当前实现：ai-generator.js 第 103 行 `if (onProgress) onProgress(...)`
-      // 没有 try-catch 包裹，回调抛错会传播到主流程
-      // 这违反了"回调异常不应影响主流程"的设计原则
-      // 修复建议：包裹为 try { onProgress(...) } catch (_) { /* 忽略回调异常 */ }
-      await expect(ai.generate('llm', 'openai', {
+      // 修复后：onProgress 回调被 try-catch 包裹，回调异常不影响主流程
+      // 修复方式：所有 `if (onProgress) onProgress(...)` 包裹为
+      // `try { if (onProgress) onProgress(...) } catch (_) { /* 忽略回调异常 */ }`
+      const result = await ai.generate('llm', 'openai', {
         messages: [],
-      }, () => { throw new Error('callback error') }))
-        .rejects.toThrow(/callback error/)
+      }, () => { throw new Error('callback error') })
+
+      // 主流程仍应成功
+      expect(result).toBeTruthy()
+    })
+
+    it('onProgress 多次回调中某次抛错不影响后续回调', async () => {
+      ai.setRouter(router)
+      manager._adapterFactories.set('openai', () => ({}))
+
+      let callbackCount = 0
+      // 第 2 次回调抛错，其他正常
+      const onProgress = () => {
+        callbackCount++
+        if (callbackCount === 2) throw new Error('middle callback fail')
+      }
+
+      const result = await ai.generate('llm', 'openai', {
+        messages: [],
+      }, onProgress)
+
+      // 主流程成功
+      expect(result).toBeTruthy()
+      // 回调至少被调用过
+      expect(callbackCount).toBeGreaterThanOrEqual(1)
+    })
+
+    it('onProgress 抛 ProviderError 也不影响主流程', async () => {
+      ai.setRouter(router)
+      manager._adapterFactories.set('openai', () => ({}))
+      const { ProviderError, ERROR_CODES } = require('./adapters/provider-error')
+
+      const result = await ai.generate('llm', 'openai', {
+        messages: [],
+      }, () => {
+        throw new ProviderError(ERROR_CODES.AUTH_FAILED, 'callback error')
+      })
+
+      expect(result).toBeTruthy()
     })
   })
 

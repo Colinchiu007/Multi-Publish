@@ -33,12 +33,19 @@ class ProviderRouter {
    * 获取下一个可用的 provider
    * @param {string} category - llm/tts/image/video/audio
    * @param {string} strategy - default/priority/round_robin/failover
-   * @param {string} [excludeId=null] - 故障转移时排除的 provider ID
+   * @param {string|string[]|Set} [excludeIds=null] - 故障转移时排除的 provider ID（单值或集合）
    * @returns {object|null} provider config，无可用时返回 null
    */
-  getNext(category, strategy = 'default', excludeId = null) {
+  getNext(category, strategy = 'default', excludeIds = null) {
+    // 兼容三种形式：null/string/Array|Set
+    const excludeSet = excludeIds == null
+      ? new Set()
+      : (excludeIds instanceof Set
+          ? excludeIds
+          : new Set(Array.isArray(excludeIds) ? excludeIds : [excludeIds]))
+
     const providers = (this._manager.listEnabledProviders(category) || [])
-      .filter(p => p.id !== excludeId)
+      .filter(p => !excludeSet.has(p.id))
 
     if (providers.length === 0) return null
 
@@ -56,9 +63,9 @@ class ProviderRouter {
       }
 
       case 'failover': {
-        // 默认优先，排除 excludeId 后取第一个
+        // 默认优先，排除 excludeIds 后取第一个
         const def = this._manager.getDefault(category)
-        if (def && def.id !== excludeId) return def
+        if (def && !excludeSet.has(def.id)) return def
         return providers[0]
       }
 
@@ -86,10 +93,12 @@ class ProviderRouter {
     }
 
     let lastError = null
-    let excludeId = null
+    // 累积所有已失败 provider ID，避免重复尝试
+    // 修复：原实现 excludeId 只记录最后一次，导致已失败 provider 可能被重复尝试
+    const excludeIds = new Set()
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const provider = this.getNext(category, strategy, excludeId)
+      const provider = this.getNext(category, strategy, excludeIds)
       if (!provider) {
         throw new Error(`No available provider for category "${category}"`)
       }
@@ -100,7 +109,7 @@ class ProviderRouter {
         return result
       } catch (e) {
         lastError = e
-        excludeId = provider.id
+        excludeIds.add(provider.id)
         this._logCall(provider, 'error', e.message)
         log.warn('ProviderRouter',
           `Provider "${provider.id}" failed (attempt ${attempt + 1}/${maxRetries}): ${e.message}`)
