@@ -204,9 +204,12 @@ class AuthViewManager {
         this.currentView = null
       } catch (_e) { /* ignore */ }
     }
+    if (this._resolveLogin) {
+      this._resolveLogin({ cancelled: true })
+      this._resolveLogin = null
+    }
     this.currentPlatform = null
     this.currentAccountId = null
-    this._resolveLogin = null
     this._rejectLogin = null
   }
 
