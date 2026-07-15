@@ -653,11 +653,83 @@ P2 改造完成后需复审，通过条件：
 
 ---
 
+## 八、Phase 1.4 DX 设计审查记录
+
+> **审查日期**: 2026-07-15
+> **审查目标**: Adapter 抽象设计（2.3 IModelProvider + 2.4 工厂注册表 + 3.4 P3 实施计划）
+> **审查方法**: 7 维度评估（上手门槛 / 接口设计 / 错误反馈 / 测试体验 / 文档示例 / 调试支持 / 版本演进）
+> **门禁标准**: 7.0/10
+> **审查结论**: 不通过（综合 4.9/10）- 需 P3 实施前改进
+> **完整报告**: [model-provider-devex-review.md](./model-provider-devex-review.md)
+
+### 8.1 综合评分
+
+| 维度 | 评分 | 关键短板 |
+|------|------|---------|
+| 1. 上手门槛 | 5/10 | 无脚手架、无模板、无概念图 |
+| 2. 接口设计 | 6/10 | 9 方法过度耦合、无默认实现、config 双职责 |
+| 3. 错误反馈 | 4/10 | 错误类型未定义、无错误码字典、解密失败静默 |
+| 4. 测试体验 | 5/10 | 无 mock 基础设施、无 contract 测试、E2E 依赖真实 key |
+| 5. 文档示例 | 5/10 | 无完整 Adapter 示例、无 README、无迁移指南 |
+| 6. 调试支持 | 4/10 | 无结构化日志、无 request ID、无调试钩子 |
+| 7. 版本演进 | 5/10 | 无接口版本号、无能力协商、无 schema 迁移框架 |
+| **综合** | **4.9/10** | **低于 7.0 门禁** |
+
+### 8.2 关键发现汇总（24 项）
+
+**P0 - 必须在 P3 实施前解决（6 项）**：
+1. 接口隔离: 拆分 9 方法为 IModelProvider（基础 7 方法）+ ILlmAdapter + ITtsAdapter + IImageAdapter + IVideoAdapter
+2. 脚手架命令: npm run new-adapter <name> 自动生成 Adapter + 测试 + 注册代码
+3. 错误类型定义: ProviderError 类（code/category/retryable）+ ERROR_CODES 常量
+4. 完整 Adapter 示例: 附录 C 提供 openai.js 完整实现
+5. mock 基础设施: test-utils.js 含 createMockConfig/assertAdapterContract/MockTransport
+6. 接口版本号: IModelProvider.version = 1 + registry 兼容性检查
+
+**P1 - P3 实施时同步解决（9 项）**：
+1. base.js 方法体改为抛 NotImplementedError
+2. config 参数分离为 credentials + options
+3. validateConfig 在 registerAdapter 时自动调用
+4. registry 重复注册错误包含已注册文件路径
+5. adapters/README.md 目录约定 + 新增流程
+6. 现有 PROVIDERS 迁移指南（附录 D）
+7. 结构化日志 schema
+8. request ID 贯穿 router -> adapter -> log
+9. adapter.supports(method) 能力协商
+
+**P2 - 体验提升（6 项）**：
+1. adapters/_template.js 模板文件
+2. adapter.capabilities() 返回支持的方法列表
+3. estimateCost 标注为可选
+4. ERROR_CODES 常量字典
+5. beforeCall/afterCall/onError 调试钩子
+6. adapter.dryRun(method, params) 验证参数
+
+**P3 - 抛光（3 项）**：
+1. yeoman/inquirer 交互式生成器
+2. OpenTelemetry trace 集成
+3. semver 策略 + 兼容性回归测试
+
+### 8.3 与设计文档差距
+
+设计文档已覆盖 3 项（9 方法接口签名、工厂注册表、测试覆盖率目标），本次审查新增 24 项发现。
+
+P3 阶段 Adapter 改造清单扩展：原设计文档仅定义 9 方法接口，现扩展为 P0(6) + P1(9) + P2(6) + P3(3) = 24 项完整 DX 改进清单。
+
+### 8.4 复审条件
+
+P3 实施前需复审，通过条件：
+1. P0 全部 6 项修复
+2. P1 至少 6/9 项修复
+3. 综合评分 >= 7.0/10
+4. 接口设计 + 错误反馈 + 测试体验维度各自 >= 6/10
+
+---
+
 ## 六、后续待办
 
 - [x] /plan-eng-review 架构审查（本文档，8.7/10 通过 @ 2026-07-15）
 - [x] /plan-design-review UI 审查（ModelProviders.vue 改造，4.9/10 需 P2 改造 @ 2026-07-15）
-- [ ] /plan-devex-review 开发者体验审查（Adapter 开发体验）
+- [x] /plan-devex-review 开发者体验审查（Adapter 开发体验，4.9/10 需 P3 前改进 @ 2026-07-15）
 - [ ] P1 实施前补充 TDD 测试用例
 - [ ] 评估是否需要 Python 端同步改造（llm_client.py）
 
