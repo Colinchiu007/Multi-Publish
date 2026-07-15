@@ -14,6 +14,105 @@ class ModelProviderManager {
   constructor (store) {
     this._store = store
     this._ready = false
+    // P3.2: Adapter 工厂注册表 + 实例缓存
+    this._adapterFactories = new Map()
+    this._adapterCache = new Map()
+  }
+
+  /**
+   * P3.2: 注册 Adapter 工厂
+   * @param {string} providerId - 供应商 ID（如 'openai'）
+   * @param {function} factory - (credentials) => BaseAdapter 实例
+   */
+  registerAdapter (providerId, factory) {
+    if (!providerId || typeof factory !== 'function') {
+      log.error('ModelProviderManager', 'registerAdapter: invalid providerId or factory')
+      return
+    }
+    this._adapterFactories.set(providerId, factory)
+    // 注册后清除该 provider 的缓存（下次 callAdapter 重建）
+    this._adapterCache.delete(providerId)
+    log.info('ModelProviderManager', 'Adapter factory registered: ' + providerId)
+  }
+
+  /**
+   * P3.2: 统一调用入口
+   * @param {string} providerId - 供应商 ID
+   * @param {string} method - 方法名（如 'chatCompletion'）
+   * @param {object} params - 方法参数
+   * @returns {Promise<{code: number, data?: any, message?: string, error?: Error}>}
+   */
+  async callAdapter (providerId, method, params = {}) {
+    if (!this._ready) return { code: -1, message: 'Store not initialized' }
+
+    // 检查 Adapter 工厂是否注册
+    const factory = this._adapterFactories.get(providerId)
+    if (!factory) {
+      return { code: -1, message: `No adapter registered for provider "${providerId}"` }
+    }
+
+    // 获取 provider（含解密后的 api_key）
+    const provider = this.getProviderWithKey(providerId)
+    if (!provider) {
+      return { code: -1, message: `Provider "${providerId}" not found` }
+    }
+    if (!provider.api_key) {
+      return { code: -1, message: 'API Key not configured for provider "' + providerId + '"' }
+    }
+
+    try {
+      // 获取或创建 Adapter 实例（缓存机制）
+      const adapter = this._getOrCreateAdapter(providerId, provider)
+
+      // 能力检查
+      if (typeof adapter.supports === 'function' && !adapter.supports(method)) {
+        return { code: -1, message: `Method "${method}" not supported by adapter "${providerId}"` }
+      }
+
+      // 调用方法
+      const result = await adapter[method](params)
+      return { code: 0, data: result }
+    } catch (e) {
+      // ProviderError 透传
+      const { ProviderError } = require('./adapters/provider-error')
+      if (e instanceof ProviderError) {
+        return { code: -1, error: e, message: e.message }
+      }
+      // 普通 Error 包装
+      log.error('ModelProviderManager', `callAdapter ${providerId}.${method} failed: ${e.message}`)
+      return { code: -1, message: e.message }
+    }
+  }
+
+  /**
+   * P3.2: 获取或创建 Adapter 实例（带缓存）
+   */
+  _getOrCreateAdapter (providerId, provider) {
+    // 检查缓存
+    if (this._adapterCache.has(providerId)) {
+      return this._adapterCache.get(providerId)
+    }
+
+    // 创建新实例
+    const factory = this._adapterFactories.get(providerId)
+    const credentials = {
+      id: provider.id,
+      apiKey: provider.api_key,
+      baseUrl: provider.base_url,
+      models: provider.models,
+      config: provider.config,
+    }
+    const adapter = factory(credentials)
+    this._adapterCache.set(providerId, adapter)
+    return adapter
+  }
+
+  /**
+   * P3.2: 清除指定 provider 的 Adapter 缓存
+   * 在 updateProvider/deleteProvider 后调用
+   */
+  _invalidateAdapterCache (providerId) {
+    this._adapterCache.delete(providerId)
   }
 
   init () {
@@ -194,6 +293,8 @@ class ModelProviderManager {
     vals.push(id)
     try {
       this._store.db.prepare('UPDATE model_providers SET ' + sets.join(', ') + ' WHERE id = ?').run(...vals)
+      // P3.2: 配置变更后清除 Adapter 缓存
+      this._invalidateAdapterCache(id)
       log.info('ModelProviderManager', 'Provider updated: ' + id)
       return { code: 0, data: this.getProvider(id) }
     } catch (e) {
@@ -217,6 +318,8 @@ class ModelProviderManager {
         db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ?').run(provider.category)
       }
       db.prepare('DELETE FROM model_providers WHERE id = ?').run(id)
+      // P3.2: 删除后清除 Adapter 缓存
+      this._invalidateAdapterCache(id)
       log.info('ModelProviderManager', 'Provider deleted: ' + id)
       return { code: 0, message: 'Deleted' }
     } catch (e) {
@@ -273,6 +376,13 @@ class ModelProviderManager {
     if (!provider.api_key) {
       return { code: -1, message: 'API Key not configured' }
     }
+    // P3.2: 若已注册 Adapter，通过 Adapter 实际调用 testConnection
+    const factory = this._adapterFactories.get(id)
+    if (factory) {
+      const result = await this.callAdapter(id, 'testConnection', {})
+      return result
+    }
+    // Fallback: 仅配置校验（无 Adapter 注册时）
     return { code: 0, message: provider.name + ' config valid (' + provider.base_url + ')' }
   }
 
