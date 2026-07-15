@@ -398,4 +398,173 @@ describe('ElevenLabsAdapter — P3.7 第一个 TTS Adapter', () => {
       expect(info.version).toBe(ADAPTER_VERSION)
     })
   })
+
+  // ─── P3.7 质量节拍补跑：步骤② 边界场景补充 ───
+
+  describe('audio format 推断（P3.7 补跑：AC7 split 逻辑）', () => {
+    it('mp3_44100_128 → format "mp3"（默认）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse(new ArrayBuffer(8), 200),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      const result = await adapter.synthesize({
+        text: 'Hi',
+        voiceId: 'v1',
+        // 不传 outputFormat，使用默认 mp3_44100_128
+      })
+
+      expect(result.format).toBe('mp3')
+      expect(fetchMock.calls[0].url).toContain('output_format=mp3_44100_128')
+    })
+
+    it('pcm_24000 → format "pcm"', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse(new ArrayBuffer(8), 200),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      const result = await adapter.synthesize({
+        text: 'Hi',
+        voiceId: 'v1',
+        outputFormat: 'pcm_24000',
+      })
+
+      expect(result.format).toBe('pcm')
+    })
+
+    it('ulaw_8000 → format "ulaw"', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse(new ArrayBuffer(8), 200),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      const result = await adapter.synthesize({
+        text: 'Hi',
+        voiceId: 'v1',
+        outputFormat: 'ulaw_8000',
+      })
+
+      expect(result.format).toBe('ulaw')
+    })
+  })
+
+  describe('synthesize 边界（P3.7 补跑）', () => {
+    it('voice_settings 只传 stability（similarityBoost 用默认 0.75）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse(new ArrayBuffer(8), 200),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      await adapter.synthesize({
+        text: 'Hi',
+        voiceId: 'v1',
+        stability: 0.3,
+        // 不传 similarityBoost
+      })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.voice_settings.stability).toBe(0.3)
+      expect(body.voice_settings.similarity_boost).toBe(0.75)
+    })
+
+    it('voice_settings 只传 similarityBoost（stability 用默认 0.5）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse(new ArrayBuffer(8), 200),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      await adapter.synthesize({
+        text: 'Hi',
+        voiceId: 'v1',
+        similarityBoost: 0.9,
+      })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.voice_settings.stability).toBe(0.5)
+      expect(body.voice_settings.similarity_boost).toBe(0.9)
+    })
+
+    it('不传 voice_settings 参数时不构造 voice_settings 字段', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse(new ArrayBuffer(8), 200),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      await adapter.synthesize({
+        text: 'Hi',
+        voiceId: 'v1',
+      })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.voice_settings).toBeUndefined()
+    })
+
+    it('空 text 抛错误', async () => {
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      await expect(adapter.synthesize({ text: '', voiceId: 'v1' }))
+        .rejects.toThrow(/text.*required/i)
+    })
+
+    it('空 voiceId 抛错误', async () => {
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      await expect(adapter.synthesize({ text: 'Hi', voiceId: '' }))
+        .rejects.toThrow(/voiceId.*required/i)
+    })
+  })
+
+  describe('错误响应边界（P3.7 补跑）', () => {
+    it('detail 为字符串（非对象）→ 提取字符串消息', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ detail: 'Plain string error message' }, 401),
+      ])
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-bad' })
+      try {
+        await adapter.listVoices()
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.AUTH_FAILED)
+        expect(e.message).toContain('Plain string error message')
+      }
+    })
+
+    it('500 错误 → ProviderError(PROVIDER_ERROR)', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ detail: { message: 'Internal error' } }, 500),
+      ])
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      try {
+        await adapter.listVoices()
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.retryable).toBe(true)
+      }
+    })
+
+    it('非 JSON 错误响应（纯文本）→ ProviderError', async () => {
+      global.fetch = vi.fn(async () => ({
+        ok: false,
+        status: 502,
+        headers: new Map(),
+        async json() { throw new Error('not JSON') },
+        async text() { return 'Bad Gateway' },
+      }))
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      try {
+        await adapter.listVoices()
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+      }
+    })
+  })
 })

@@ -495,4 +495,160 @@ describe('FluxAdapter — P3.8 第一个 Image Adapter', () => {
       expect(body.height).toBeUndefined()
     })
   })
+
+  // ─── P3.8 质量节拍补跑：步骤② 边界场景补充 ───
+
+  describe('width/height 与 image_size 优先级（P3.8 补跑：AC6）', () => {
+    it('同时传 width/height 和 image_size → width/height 优先', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ images: [{ url: 'x' }] }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      await adapter.generateImage({
+        prompt: 't',
+        width: 999,
+        height: 888,
+        image_size: 'square_hd', // 768x768
+      })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.width).toBe(999)
+      expect(body.height).toBe(888)
+    })
+
+    it('只传 width 不传 height → 不设置尺寸', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ images: [{ url: 'x' }] }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      await adapter.generateImage({
+        prompt: 't',
+        width: 1024,
+        // 不传 height
+      })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.width).toBeUndefined()
+      expect(body.height).toBeUndefined()
+    })
+  })
+
+  describe('generateImage 参数完整性（P3.8 补跑）', () => {
+    it('seed 参数被正确传递到请求体', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ images: [{ url: 'x' }], seed: 42 }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      const result = await adapter.generateImage({
+        prompt: 't',
+        seed: 42,
+      })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.seed).toBe(42)
+      expect(result.seed).toBe(42)
+    })
+
+    it('响应无 images 字段 → 返回空数组', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ model: 'flux-pro-1.1' }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      const result = await adapter.generateImage({ prompt: 't' })
+      expect(result.images).toEqual([])
+    })
+
+    it('响应无 model 字段 → 回退到请求 model', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ images: [{ url: 'x' }] }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      const result = await adapter.generateImage({
+        prompt: 't',
+        model: 'flux-dev',
+      })
+      expect(result.model).toBe('flux-dev')
+    })
+
+    it('无参数（undefined）抛错误', async () => {
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      await expect(adapter.generateImage())
+        .rejects.toThrow(/prompt.*required/i)
+    })
+  })
+
+  describe('listModels 突变安全（P3.8 补跑）', () => {
+    it('返回的列表是副本，修改不影响下次返回', async () => {
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      const list1 = await adapter.listModels()
+      list1.push({ id: 'injected', name: 'malicious' })
+      list1[0].id = 'tampered'
+
+      const list2 = await adapter.listModels()
+      expect(list2).not.toContainEqual({ id: 'injected', name: 'malicious' })
+      // 验证内部静态列表未被污染
+      const ids = list2.map(m => m.id)
+      expect(ids).toContain('flux-pro-1.1')
+      expect(ids).not.toContain('injected')
+      expect(ids).not.toContain('tampered')
+    })
+  })
+
+  describe('testConnection 边界（P3.8 补跑）', () => {
+    it('500 错误 → { success: false, error: PROVIDER_ERROR }', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ error: 'Internal' }, 500),
+      ])
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      const result = await adapter.testConnection()
+      expect(result.success).toBe(false)
+      expect(result.error).toBeInstanceOf(ProviderError)
+      expect(result.error.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+    })
+
+    it('网络错误 → { success: false, error: NETWORK_ERROR }', async () => {
+      global.fetch = vi.fn(async () => { throw new Error('ECONNREFUSED') })
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      const result = await adapter.testConnection()
+      expect(result.success).toBe(false)
+      expect(result.error.code).toBe(ERROR_CODES.NETWORK_ERROR)
+    })
+  })
+
+  describe('错误响应边界（P3.8 补跑）', () => {
+    it('非 JSON 错误响应（纯文本）→ ProviderError', async () => {
+      global.fetch = vi.fn(async () => ({
+        ok: false,
+        status: 502,
+        headers: new Map(),
+        async json() { throw new Error('not JSON') },
+        async text() { return 'Bad Gateway text' },
+      }))
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      try {
+        await adapter.generateImage({ prompt: 't' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.message).toContain('Bad Gateway text')
+      }
+    })
+
+    it('错误响应 JSON 无 error 字段 → HTTP 状态码消息', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ unrelated: 'field' }, 500),
+      ])
+      const adapter = new FluxAdapter({ id: 'flux', apiKey: 'flux-test' })
+      try {
+        await adapter.generateImage({ prompt: 't' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.message).toContain('500')
+      }
+    })
+  })
 })

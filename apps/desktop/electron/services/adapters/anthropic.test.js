@@ -46,6 +46,35 @@ function createFetchMock(responses = []) {
   return mock
 }
 
+// ─── 流式响应 mock（SSE）───
+function createStreamResponse(sseChunks, status = 200) {
+  // sseChunks: Array<string|Uint8Array> 每次 reader.read() 返回一块
+  const encoder = new TextEncoder()
+  const encoded = sseChunks.map(c => (c instanceof Uint8Array ? c : encoder.encode(c)))
+  let index = 0
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Map(),
+    async json() { return {} },
+    async text() { return '' },
+    body: {
+      getReader() {
+        return {
+          async read() {
+            if (index < encoded.length) {
+              const value = encoded[index]
+              index++
+              return { done: false, value }
+            }
+            return { done: true, value: undefined }
+          },
+        }
+      },
+    },
+  }
+}
+
 describe('AnthropicAdapter — P3.6 第二个 LLM Adapter', () => {
   let originalFetch
 
@@ -426,6 +455,322 @@ describe('AnthropicAdapter — P3.6 第二个 LLM Adapter', () => {
       expect(info.id).toBe('anthropic')
       expect(info.baseUrl).toBe('https://api.anthropic.com')
       expect(info.version).toBe(ADAPTER_VERSION)
+    })
+  })
+
+  // ─── P3.6 质量节拍补跑：步骤② 边界场景补充 ───
+
+  describe('streamChat — P3.6 补跑：SSE 流式解析（原 CRITICAL 缺口）', () => {
+    it('无 onChunk 回调抛错误', async () => {
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      await expect(adapter.streamChat({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      })).rejects.toThrow(/onChunk.*required/i)
+    })
+
+    it('无 messages 参数抛错误', async () => {
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      await expect(adapter.streamChat({}, () => {}))
+        .rejects.toThrow(/messages.*required/i)
+    })
+
+    it('请求体包含 stream: true', async () => {
+      const fetchMock = createFetchMock([
+        createStreamResponse(['data: [DONE]\n']),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      await adapter.streamChat({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }, () => {})
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.stream).toBe(true)
+      expect(body.max_tokens).toBe(4096)
+    })
+
+    it('content_block_delta 事件触发 onChunk 回调', async () => {
+      const sseLines = [
+        'event: content_block_delta\n',
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}\n',
+        '\n',
+        'event: content_block_delta\n',
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":" World"}}\n',
+        '\n',
+      ]
+      global.fetch = createFetchMock([createStreamResponse(sseLines)])
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      const chunks = []
+      await adapter.streamChat({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }, (text) => chunks.push(text))
+
+      expect(chunks).toEqual(['Hello', ' World'])
+    })
+
+    it('[DONE] 标记提前终止流', async () => {
+      const sseLines = [
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"A"}}\n',
+        'data: [DONE]\n',
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"B"}}\n',
+      ]
+      global.fetch = createFetchMock([createStreamResponse(sseLines)])
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      const chunks = []
+      await adapter.streamChat({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }, (text) => chunks.push(text))
+
+      // [DONE] 后的 chunk 不应触发
+      expect(chunks).toEqual(['A'])
+    })
+
+    it('非 content_block_delta 事件不触发 onChunk', async () => {
+      const sseLines = [
+        'data: {"type":"message_start","message":{"id":"msg_1"}}\n',
+        'data: {"type":"content_block_start","index":0}\n',
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hi"}}\n',
+        'data: {"type":"content_block_stop","index":0}\n',
+        'data: {"type":"message_stop"}\n',
+      ]
+      global.fetch = createFetchMock([createStreamResponse(sseLines)])
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      const chunks = []
+      await adapter.streamChat({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }, (text) => chunks.push(text))
+
+      expect(chunks).toEqual(['Hi'])
+    })
+
+    it('解析失败的 data 行被静默忽略（不抛错）', async () => {
+      const sseLines = [
+        'data: {invalid json\n',
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}\n',
+      ]
+      global.fetch = createFetchMock([createStreamResponse(sseLines)])
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      const chunks = []
+      await adapter.streamChat({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }, (text) => chunks.push(text))
+
+      expect(chunks).toEqual(['OK'])
+    })
+
+    it('非 data: 开头的行被忽略', async () => {
+      const sseLines = [
+        'event: content_block_delta\n',
+        ': comment line\n',
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"X"}}\n',
+      ]
+      global.fetch = createFetchMock([createStreamResponse(sseLines)])
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      const chunks = []
+      await adapter.streamChat({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }, (text) => chunks.push(text))
+
+      expect(chunks).toEqual(['X'])
+    })
+
+    it('响应 body 无 getReader → ProviderError(NETWORK_ERROR)', async () => {
+      global.fetch = createFetchMock([createFetchResponse({})]) // body: null
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      try {
+        await adapter.streamChat({
+          model: 'claude-sonnet-4-20250514',
+          messages: [{ role: 'user', content: 'Hi' }],
+        }, () => {})
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.NETWORK_ERROR)
+      }
+    })
+
+    it('跨 chunk 的 SSE 行能正确拼接', async () => {
+      // 一个 data 行被拆成两个 read() chunk
+      const sseLines = [
+        'data: {"type":"content_block_delta","delta":',
+        '{"type":"text_delta","text":"Split"}}\n',
+      ]
+      global.fetch = createFetchMock([createStreamResponse(sseLines)])
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      const chunks = []
+      await adapter.streamChat({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }, (text) => chunks.push(text))
+
+      expect(chunks).toEqual(['Split'])
+    })
+  })
+
+  describe('chatCompletion — 多 block 与边界（P3.6 补跑）', () => {
+    it('多个 text block 被合并为单个字符串', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({
+          id: 'msg_123',
+          content: [
+            { type: 'text', text: 'Part1 ' },
+            { type: 'text', text: 'Part2' },
+          ],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 5, output_tokens: 4 },
+        }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      const result = await adapter.chatCompletion({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      })
+
+      expect(result.content).toBe('Part1 Part2')
+    })
+
+    it('非 text block（如 tool_use）被过滤', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({
+          id: 'msg_123',
+          content: [
+            { type: 'text', text: 'Thinking...' },
+            { type: 'tool_use', id: 'tu_1', name: 'get_weather', input: {} },
+            { type: 'text', text: 'Done' },
+          ],
+          stop_reason: 'tool_use',
+          usage: { input_tokens: 5, output_tokens: 4 },
+        }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      const result = await adapter.chatCompletion({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      })
+
+      expect(result.content).toBe('Thinking...Done')
+    })
+
+    it('空 content 数组返回空字符串', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({
+          id: 'msg_123',
+          content: [],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 5, output_tokens: 0 },
+        }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      const result = await adapter.chatCompletion({
+        model: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Hi' }],
+      })
+
+      expect(result.content).toBe('')
+    })
+
+    it('多个 system 消息被合并（换行连接）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({
+          content: [{ type: 'text', text: 'OK' }],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 5, output_tokens: 1 },
+        }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      await adapter.chatCompletion({
+        model: 'claude-sonnet-4-20250514',
+        messages: [
+          { role: 'system', content: 'Rule 1.' },
+          { role: 'system', content: 'Rule 2.' },
+          { role: 'user', content: 'Hi' },
+        ],
+      })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.system).toBe('Rule 1.\nRule 2.')
+      expect(body.messages).toHaveLength(1)
+    })
+
+    it('无 model 参数抛错误', async () => {
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      await expect(adapter.chatCompletion({
+        messages: [{ role: 'user', content: 'Hi' }],
+      })).rejects.toThrow(/model.*required/i)
+    })
+
+    it('messages 非数组抛错误', async () => {
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      await expect(adapter.chatCompletion({
+        model: 'claude-sonnet-4-20250514',
+        messages: 'not an array',
+      })).rejects.toThrow(/messages.*required.*array/i)
+    })
+  })
+
+  describe('错误响应边界（P3.6 补跑）', () => {
+    it('非 JSON 错误响应（纯文本）→ ProviderError', async () => {
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 502,
+        headers: new Map(),
+        async json() { throw new Error('not JSON') },
+        async text() { return 'Bad Gateway plain text' },
+      }))
+      global.fetch = fetchMock
+
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      try {
+        await adapter.chatCompletion({
+          model: 'claude-sonnet-4-20250514',
+          messages: [{ role: 'user', content: 'Hi' }],
+        })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.message).toContain('Bad Gateway plain text')
+      }
+    })
+
+    it('错误响应 JSON 无 error 字段 → HTTP 状态码消息', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ unrelated: 'field' }, 500),
+      ])
+      const adapter = new AnthropicAdapter({ id: 'anthropic', apiKey: 'sk-ant-test' })
+      try {
+        await adapter.chatCompletion({
+          model: 'claude-sonnet-4-20250514',
+          messages: [{ role: 'user', content: 'Hi' }],
+        })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.message).toContain('500')
+      }
     })
   })
 })

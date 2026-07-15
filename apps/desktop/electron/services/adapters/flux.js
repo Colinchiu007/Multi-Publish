@@ -189,10 +189,13 @@ class FluxAdapter extends BaseAdapter {
   /**
    * 返回静态预定义的 FLUX 模型列表
    * BFL 无公开 /models 端点，使用静态列表避免不必要的 HTTP 请求
+   *
+   * P3.8 补跑修复：使用 map+展开运算符创建对象副本（非 slice 浅拷贝），
+   * 防止调用方修改返回值污染内部静态列表 FLUX_MODELS。
    * @returns {Promise<Array<{id, name, description}>>}
    */
   async listModels() {
-    return FLUX_MODELS.slice()
+    return FLUX_MODELS.map(m => ({ ...m }))
   }
 
   /**

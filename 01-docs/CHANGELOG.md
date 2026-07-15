@@ -1,5 +1,56 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-07-15 (Phase 2 质量节拍补跑 — 模型供应商 Adapter)
+
+### 质量节拍日常循环 6 步补跑（P3.6-P3.8 回顾性补跑）
+
+> P3.6-P3.8 三个 Adapter 实现时跳过了质量节拍 6 步，本次补跑完整执行并留下证据。
+
+#### 6 步执行证据
+
+| 步骤 | 内容 | 产出 |
+|------|------|------|
+| ⓪ pre-flight | 回顾性补充 31 条验收标准（Anthropic 10 + ElevenLabs 11 + FLUX 10） | 验收标准文档化 |
+| ① 上下文检查 | 读取 3 Adapter 源码 + 3 测试 + base.js + provider-error.js + seeds.js + manager.js | 接口契约确认 |
+| ② TDD 场景脑暴 | 识别 10 个测试缺口，补充 40 个边界测试 | 测试 2231 → 2271 (+40) |
+| ④ 完整性审查 | 6 大专项（异常/权限/事务/边界/风格/Demo）审查 3 个 Adapter | 发现并修复 1 个 MAJOR bug |
+| ⑤ 文档更新 | CHANGELOG + tech-debt 更新 | 本节 |
+| ⑥ AI 协作质量检查 | 经验记录到 project_memory | 新增 2 条教训 |
+
+#### Bug 修复
+
+- **FLUX listModels 浅拷贝突变污染** (MAJOR)
+  - 文件: `apps/desktop/electron/services/adapters/flux.js`
+  - 原代码: `return FLUX_MODELS.slice()` — slice() 仅浅拷贝数组，对象引用共享
+  - 症状: 调用方修改返回值 `list[0].id = 'tampered'` 会污染内部静态列表 FLUX_MODELS
+  - 修复: `return FLUX_MODELS.map(m => ({ ...m }))` — 对每个对象创建副本
+  - 发现方式: 步骤② TDD 场景脑暴的"破坏性场景"测试揭示
+
+#### 新增测试覆盖（40 个）
+
+**Anthropic（18 个）— 补跑 CRITICAL 缺口 streamChat**
+- streamChat SSE 流式解析（10 个）：onChunk 回调校验、stream:true 请求体、content_block_delta 事件触发、[DONE] 终止、非 content_block_delta 过滤、JSON 解析失败静默忽略、非 data: 行忽略、无 getReader 错误、跨 chunk SSE 行拼接、无 messages 参数
+- chatCompletion 多 block（6 个）：多 text block 合并、tool_use block 过滤、空 content 数组、多 system 消息合并、无 model 错误、非数组 messages 错误
+- 错误响应边界（2 个）：非 JSON 纯文本错误、JSON 无 error 字段
+
+**ElevenLabs（11 个）**
+- audio format 推断（3 个）：mp3_44100_128→mp3、pcm_24000→pcm、ulaw_8000→ulaw
+- synthesize 边界（5 个）：只传 stability、只传 similarityBoost、不传 voice_settings、空 text、空 voiceId
+- 错误响应边界（3 个）：detail 字符串格式、500 错误、非 JSON 纯文本错误
+
+**FLUX（11 个）**
+- width/height 与 image_size 优先级（2 个）：同时传时 width/height 优先、只传 width 不设置尺寸
+- generateImage 参数完整性（4 个）：seed 传递、无 images 字段、无 model 字段回退、无参数错误
+- listModels 突变安全（1 个）：揭示并验证浅拷贝 bug 修复
+- testConnection 边界（2 个）：500 错误、网络错误
+- 错误响应边界（2 个）：非 JSON 纯文本错误、JSON 无 error 字段
+
+#### 测试基线
+
+- 补跑前: 2231 passed / 0 failed / 10 skipped
+- 补跑后: 2271 passed / 0 failed / 10 skipped（+40 测试，零回归）
+
+
 ## [Unreleased] - 2026-07-15 (Phase 5.4 — Electron 升级)
 
 
