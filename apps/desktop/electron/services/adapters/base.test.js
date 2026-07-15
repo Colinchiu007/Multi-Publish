@@ -134,4 +134,108 @@ describe('BaseAdapter — P3.0 接口契约', () => {
       expect(() => adapter.getVideoStatus()).toThrow(NotImplementedError)
     })
   })
+
+  // ─── P3.0 质量节拍补跑：边界场景 ───
+  describe('P3.0 补跑：supports() 边界', () => {
+    it('supports 传入非 KNOWN_METHODS 方法返回 false', () => {
+      const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
+      expect(adapter.supports('unknownMethod')).toBe(false)
+      expect(adapter.supports('foo')).toBe(false)
+    })
+
+    it('supports 传入非字符串（数字/undefined/null）返回 false', () => {
+      const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
+      expect(adapter.supports(123)).toBe(false)
+      expect(adapter.supports(undefined)).toBe(false)
+      expect(adapter.supports(null)).toBe(false)
+      expect(adapter.supports('')).toBe(false)
+    })
+  })
+
+  describe('P3.0 补跑：capabilities() 突变安全', () => {
+    it('修改 capabilities() 返回值不影响下次返回', () => {
+      class TestAdapter extends BaseAdapter {
+        chatCompletion() { return 'ok' }
+      }
+      const adapter = new TestAdapter({ id: 'test', apiKey: 'sk-test' })
+      const caps1 = adapter.capabilities()
+      caps1.push('tampered')
+      caps1[0] = 'mutated'
+
+      const caps2 = adapter.capabilities()
+      expect(caps2).not.toContain('tampered')
+      expect(caps2).toContain('chatCompletion')
+    })
+  })
+
+  describe('P3.0 补跑：constructor null/undefined credentials', () => {
+    it('constructor 传入 null credentials 不崩溃', () => {
+      const adapter = new BaseAdapter(null)
+      expect(adapter.credentials).toEqual({})
+      expect(adapter.id).toBe('unknown')
+    })
+
+    it('constructor 传入 undefined credentials 不崩溃', () => {
+      const adapter = new BaseAdapter(undefined)
+      expect(adapter.credentials).toEqual({})
+      expect(adapter.id).toBe('unknown')
+    })
+
+    it('constructor 无 options 时默认空对象', () => {
+      const adapter = new BaseAdapter({ id: 'test' })
+      expect(adapter.options).toEqual({})
+    })
+  })
+
+  describe('P3.0 补跑：getProviderInfo 边界', () => {
+    it('无 baseUrl 时返回空字符串', () => {
+      const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
+      const info = adapter.getProviderInfo()
+      expect(info.baseUrl).toBe('')
+    })
+
+    it('有 baseUrl 时返回正确值', () => {
+      const adapter = new BaseAdapter({ id: 'test', baseUrl: 'https://api.test.com' })
+      const info = adapter.getProviderInfo()
+      expect(info.baseUrl).toBe('https://api.test.com')
+    })
+  })
+
+  describe('P3.0 补跑：estimateCost 默认返回 null', () => {
+    it('BaseAdapter.estimateCost() 默认返回 null', () => {
+      const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
+      expect(adapter.estimateCost()).toBeNull()
+    })
+  })
+
+  describe('P3.0 补跑：NotImplementedError 属性', () => {
+    it('NotImplementedError 包含 methodName 属性', () => {
+      const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
+      try {
+        adapter.listModels()
+      } catch (e) {
+        expect(e.methodName).toBe('listModels')
+        expect(e.name).toBe('NotImplementedError')
+        expect(e.code).toBe('NOT_IMPLEMENTED')
+      }
+    })
+
+    it('NotImplementedError 是 ProviderError 子类', () => {
+      const { ProviderError } = require('./provider-error')
+      const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
+      try {
+        adapter.chatCompletion()
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e).toBeInstanceOf(Error)
+      }
+    })
+  })
+
+  describe('P3.0 补跑：testConnection 默认抛 NotImplementedError', () => {
+    it('BaseAdapter.testConnection 默认抛 NotImplementedError', async () => {
+      const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
+      await expect(adapter.testConnection()).rejects.toThrow(NotImplementedError)
+    })
+  })
 })

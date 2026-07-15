@@ -373,4 +373,315 @@ describe('OpenAIAdapter — P3.1 第一个具体 Adapter', () => {
       expect(info.version).toBe(ADAPTER_VERSION)
     })
   })
+
+  // ─── P3.1 质量节拍补跑：streamChat SSE 流式解析（CRITICAL 缺口） ───
+  describe('P3.1 补跑：streamChat SSE 流式解析', () => {
+    function createStreamResponse(sseChunks, status = 200) {
+      const encoder = new TextEncoder()
+      const chunks = sseChunks.map(c => encoder.encode(c))
+      let idx = 0
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        headers: new Map(),
+        async json() { return {} },
+        async text() { return '' },
+        body: {
+          getReader() {
+            return {
+              read: async () => {
+                if (idx < chunks.length) {
+                  return { done: false, value: chunks[idx++] }
+                }
+                return { done: true, value: undefined }
+              },
+            }
+          },
+        },
+      }
+    }
+
+    it('streamChat 触发 onChunk 回调', async () => {
+      global.fetch = createFetchMock([
+        createStreamResponse([
+          'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":" world"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      const chunks = []
+      await adapter.streamChat({ model: 'gpt-4o', messages: [{ role: 'user', content: 'Hi' }] }, (c) => chunks.push(c))
+      expect(chunks).toEqual(['Hello', ' world'])
+    })
+
+    it('streamChat 请求体包含 stream:true', async () => {
+      const fetchMock = createFetchMock([
+        createStreamResponse(['data: [DONE]\n\n']),
+      ])
+      global.fetch = fetchMock
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      await adapter.streamChat({ model: 'gpt-4o', messages: [{ role: 'user', content: 'Hi' }] }, () => {})
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.stream).toBe(true)
+    })
+
+    it('streamChat [DONE] 终止流', async () => {
+      global.fetch = createFetchMock([
+        createStreamResponse([
+          'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+          'data: [DONE]\n\n',
+          'data: {"choices":[{"delta":{"content":"不应到达"}}]}\n\n',
+        ]),
+      ])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      const chunks = []
+      await adapter.streamChat({ model: 'gpt-4o', messages: [] }, (c) => chunks.push(c))
+      expect(chunks).toEqual(['Hi'])
+    })
+
+    it('streamChat 非 data: 行忽略', async () => {
+      global.fetch = createFetchMock([
+        createStreamResponse([
+          ': comment\n',
+          'event: ping\n',
+          'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      const chunks = []
+      await adapter.streamChat({ model: 'gpt-4o', messages: [] }, (c) => chunks.push(c))
+      expect(chunks).toEqual(['ok'])
+    })
+
+    it('streamChat JSON 解析失败静默忽略', async () => {
+      global.fetch = createFetchMock([
+        createStreamResponse([
+          'data: {invalid json}\n\n',
+          'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      const chunks = []
+      await adapter.streamChat({ model: 'gpt-4o', messages: [] }, (c) => chunks.push(c))
+      expect(chunks).toEqual(['ok'])
+    })
+
+    it('streamChat 无 onChunk 回调抛错', async () => {
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      await expect(adapter.streamChat({ model: 'gpt-4o', messages: [] }))
+        .rejects.toThrow(/onChunk.*required/i)
+    })
+
+    it('streamChat 无 messages 抛错', async () => {
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      await expect(adapter.streamChat({ model: 'gpt-4o' }, () => {}))
+        .rejects.toThrow(/messages.*required/i)
+    })
+
+    it('streamChat 无 getReader 抛 NETWORK_ERROR', async () => {
+      global.fetch = createFetchMock([{
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        body: null, // 无 body
+      }])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      await expect(adapter.streamChat({ model: 'gpt-4o', messages: [] }, () => {}))
+        .rejects.toThrow(/not readable/i)
+    })
+
+    it('streamChat 跨 chunk SSE 行拼接', async () => {
+      // 一个 SSE 行被分割到两个 chunk
+      global.fetch = createFetchMock([
+        createStreamResponse([
+          'data: {"choices":[{"delta":', // 不完整
+          '{"content":"Hi"}}]}\n\n', // 补全
+          'data: [DONE]\n\n',
+        ]),
+      ])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      const chunks = []
+      await adapter.streamChat({ model: 'gpt-4o', messages: [] }, (c) => chunks.push(c))
+      expect(chunks).toEqual(['Hi'])
+    })
+
+    it('streamChat delta 无 content 字段忽略', async () => {
+      global.fetch = createFetchMock([
+        createStreamResponse([
+          'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      const chunks = []
+      await adapter.streamChat({ model: 'gpt-4o', messages: [] }, (c) => chunks.push(c))
+      expect(chunks).toEqual(['Hi'])
+    })
+  })
+
+  // ─── P3.1 补跑：chatCompletion 边界 ───
+  describe('P3.1 补跑：chatCompletion 边界', () => {
+    it('无 model 参数抛错', async () => {
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      await expect(adapter.chatCompletion({ messages: [] }))
+        .rejects.toThrow(/model.*required/i)
+    })
+
+    it('messages 非数组抛错', async () => {
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      await expect(adapter.chatCompletion({ model: 'gpt-4o', messages: 'not array' }))
+        .rejects.toThrow(/messages.*required.*array/i)
+    })
+
+    it('choices 空数组返回空 content', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ choices: [], usage: { total_tokens: 0 } }),
+      ])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      const result = await adapter.chatCompletion({ model: 'gpt-4o', messages: [] })
+      expect(result.content).toBe('')
+      expect(result.finish_reason).toBeNull()
+    })
+
+    it('无 usage 字段返回默认值', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({
+          choices: [{ message: { content: 'Hi' }, finish_reason: 'stop' }],
+        }),
+      ])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      const result = await adapter.chatCompletion({ model: 'gpt-4o', messages: [] })
+      expect(result.usage).toEqual({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 })
+    })
+
+    it('错误响应为非 JSON 纯文本', async () => {
+      global.fetch = vi.fn(async () => ({
+        ok: false,
+        status: 502,
+        headers: new Map(),
+        async json() { throw new Error('not JSON') },
+        async text() { return 'Bad Gateway' },
+      }))
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      try {
+        await adapter.chatCompletion({ model: 'gpt-4o', messages: [] })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.message).toBe('Bad Gateway')
+      }
+    })
+
+    it('错误响应 JSON 无 error 字段', async () => {
+      global.fetch = vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        headers: new Map(),
+        async json() { return { detail: 'something' } }, // 无 error.message
+        async text() { return JSON.stringify({ detail: 'something' }) },
+      }))
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      try {
+        await adapter.chatCompletion({ model: 'gpt-4o', messages: [] })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.message).toMatch(/HTTP 500/)
+      }
+    })
+  })
+
+  // ─── P3.1 补跑：embeddings 边界 ───
+  describe('P3.1 补跑：embeddings 边界', () => {
+    it('无 input 参数抛错', async () => {
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      await expect(adapter.embeddings({ model: 'text-embedding-3-small' }))
+        .rejects.toThrow(/input.*required/i)
+    })
+
+    it('无 model 参数抛错', async () => {
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      await expect(adapter.embeddings({ input: 'hello' }))
+        .rejects.toThrow(/model.*required/i)
+    })
+
+    it('无参数抛错', async () => {
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      await expect(adapter.embeddings()).rejects.toThrow(/input.*required/i)
+    })
+  })
+
+  // ─── P3.1 补跑：listModels 边界 ───
+  describe('P3.1 补跑：listModels 边界', () => {
+    it('空 data 数组返回空数组', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ data: [] })])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      const models = await adapter.listModels()
+      expect(models).toEqual([])
+    })
+
+    it('无 data 字段返回空数组', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ object: 'list' })])
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      const models = await adapter.listModels()
+      expect(models).toEqual([])
+    })
+  })
+
+  // ─── P3.1 补跑：_url 末尾斜杠 ───
+  describe('P3.1 补跑：_url 末尾斜杠处理', () => {
+    it('baseUrl 末尾有斜杠时正确拼接', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ data: [] })])
+      global.fetch = fetchMock
+      const adapter = new OpenAIAdapter({
+        id: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1/', // 末尾斜杠
+      })
+      await adapter.listModels()
+      // 不应出现双斜杠
+      expect(fetchMock.calls[0].url).not.toContain('//models')
+      expect(fetchMock.calls[0].url).toContain('/v1/models')
+    })
+  })
+
+  // ─── P3.1 补跑：网络错误分类 ───
+  describe('P3.1 补跑：网络错误分类', () => {
+    it('ENOTFOUND → NETWORK_ERROR', async () => {
+      global.fetch = vi.fn(async () => { throw new Error('ENOTFOUND api.openai.com') })
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      try {
+        await adapter.listModels()
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.NETWORK_ERROR)
+      }
+    })
+
+    it('aborted → TIMEOUT', async () => {
+      global.fetch = vi.fn(async () => { throw new Error('The operation was aborted') })
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      try {
+        await adapter.listModels()
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.TIMEOUT)
+      }
+    })
+
+    it('未知网络错误 → NETWORK_ERROR', async () => {
+      global.fetch = vi.fn(async () => { throw new Error('Some weird error') })
+      const adapter = new OpenAIAdapter({ id: 'openai', apiKey: 'sk-test' })
+      try {
+        await adapter.listModels()
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.NETWORK_ERROR)
+      }
+    })
+  })
 })

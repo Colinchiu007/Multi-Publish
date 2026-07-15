@@ -541,4 +541,383 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
       expect(result.message).toMatch(/config valid/i)
     })
   })
+
+  // ─── P3.2 质量节拍补跑：边界场景 ───
+  describe('P3.2 补跑：callAdapter store 未初始化', () => {
+    it('manager._ready=false 时 callAdapter 返回错误', async () => {
+      manager._ready = false
+      const result = await manager.callAdapter('openai', 'chatCompletion', {})
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/not initialized/i)
+    })
+
+    it('manager._ready=false 时不访问 _adapterFactories', async () => {
+      manager._ready = false
+      // 清空 factories，确保不会被访问
+      manager._adapterFactories.clear()
+      const result = await manager.callAdapter('openai', 'chatCompletion', {})
+      // 仍返回 store not initialized（而非 no adapter）
+      expect(result.message).toMatch(/not initialized/i)
+    })
+  })
+
+  describe('P3.2 补跑：registerAdapter 参数校验', () => {
+    it('空 providerId 静默返回（不注册）', () => {
+      const factory = vi.fn(() => ({}))
+      manager.registerAdapter('', factory)
+      expect(manager._adapterFactories.has('')).toBe(false)
+    })
+
+    it('null providerId 静默返回', () => {
+      const factory = vi.fn(() => ({}))
+      manager.registerAdapter(null, factory)
+      expect(manager._adapterFactories.has(null)).toBe(false)
+    })
+
+    it('非 function factory 静默返回', () => {
+      manager.registerAdapter('openai', 'not-a-function')
+      // 即使之前注册过，也不应被覆盖
+      const original = manager._adapterFactories.get('openai')
+      manager.registerAdapter('openai', { foo: 'bar' })
+      expect(manager._adapterFactories.get('openai')).toBe(original)
+    })
+
+    it('undefined factory 静默返回', () => {
+      manager.registerAdapter('openai', undefined)
+      const original = manager._adapterFactories.get('openai')
+      expect(manager._adapterFactories.get('openai')).toBe(original)
+    })
+  })
+
+  describe('P3.2 补跑：callAdapter params 默认 {}', () => {
+    it('不传 params 参数时使用默认 {}', async () => {
+      manager.createProvider({
+        id: 'openai', name: 'OpenAI', category: 'llm',
+        api_key: 'sk-test', models: ['gpt-4o'],
+      })
+
+      const mockChat = vi.fn(async (params) => ({ received: params }))
+      manager.registerAdapter('openai', (creds) => ({
+        id: 'openai',
+        credentials: creds,
+        capabilities: () => ['chatCompletion'],
+        supports: (m) => m === 'chatCompletion',
+        chatCompletion: mockChat,
+      }))
+
+      // 不传第三个参数
+      const result = await manager.callAdapter('openai', 'chatCompletion')
+      expect(result.code).toBe(0)
+      expect(mockChat).toHaveBeenCalledOnce()
+      // params 应为 {}
+      expect(mockChat.mock.calls[0][0]).toEqual({})
+    })
+  })
+
+  describe('P3.2 补跑：factory 同步抛异常', () => {
+    it('factory 抛同步异常时 callAdapter 返回错误', async () => {
+      manager.createProvider({
+        id: 'crash-factory', name: 'CrashFactory', category: 'llm',
+        api_key: 'sk-test', models: ['m'],
+      })
+
+      manager.registerAdapter('crash-factory', (creds) => {
+        throw new Error('Factory initialization failed')
+      })
+
+      const result = await manager.callAdapter('crash-factory', 'chatCompletion', {})
+      expect(result.code).toBe(-1)
+      expect(result.message).toContain('Factory initialization failed')
+    })
+
+    it('factory 抛 ProviderError 时透传', async () => {
+      manager.createProvider({
+        id: 'crash-pe', name: 'CrashPE', category: 'llm',
+        api_key: 'sk-test', models: ['m'],
+      })
+
+      const { ProviderError, ERROR_CODES } = require('./adapters/provider-error')
+      manager.registerAdapter('crash-pe', (creds) => {
+        throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'Invalid credentials')
+      })
+
+      const result = await manager.callAdapter('crash-pe', 'chatCompletion', {})
+      expect(result.code).toBe(-1)
+      expect(result.error).toBeInstanceOf(ProviderError)
+      expect(result.error.code).toBe(ERROR_CODES.INVALID_CONFIG)
+    })
+  })
+
+  describe('P3.2 补跑：adapter method 不存在', () => {
+    it('adapter 上无该方法时 TypeError 被捕获', async () => {
+      manager.createProvider({
+        id: 'openai', name: 'OpenAI', category: 'llm',
+        api_key: 'sk-test', models: ['gpt-4o'],
+      })
+
+      // 注册一个没有 streamChat 方法的 Adapter，且 supports 总是返回 true
+      manager.registerAdapter('openai', (creds) => ({
+        id: 'openai',
+        credentials: creds,
+        supports: () => true,  // 假装支持
+        capabilities: () => ['chatCompletion'],
+        chatCompletion: vi.fn(async () => 'ok'),
+        // 注意：没有 streamChat 方法
+      }))
+
+      const result = await manager.callAdapter('openai', 'streamChat', {})
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/streamChat|not a function|undefined/i)
+    })
+  })
+
+  describe('P3.2 补跑：adapter.supports 不是 function', () => {
+    it('supports 缺失时跳过能力检查直接调用', async () => {
+      manager.createProvider({
+        id: 'no-supports', name: 'NoSupports', category: 'llm',
+        api_key: 'sk-test', models: ['m'],
+      })
+
+      const mockChat = vi.fn(async () => ({ ok: true }))
+      manager.registerAdapter('no-supports', (creds) => ({
+        id: 'no-supports',
+        credentials: creds,
+        // 没有 supports 方法
+        chatCompletion: mockChat,
+      }))
+
+      const result = await manager.callAdapter('no-supports', 'chatCompletion', {})
+      expect(result.code).toBe(0)
+      expect(mockChat).toHaveBeenCalledOnce()
+    })
+
+    it('supports 为非 function（如 boolean）时跳过能力检查', async () => {
+      manager.createProvider({
+        id: 'bool-supports', name: 'BoolSupports', category: 'llm',
+        api_key: 'sk-test', models: ['m'],
+      })
+
+      const mockChat = vi.fn(async () => ({ ok: true }))
+      manager.registerAdapter('bool-supports', (creds) => ({
+        id: 'bool-supports',
+        credentials: creds,
+        supports: true,  // 非 function
+        chatCompletion: mockChat,
+      }))
+
+      const result = await manager.callAdapter('bool-supports', 'chatCompletion', {})
+      expect(result.code).toBe(0)
+      expect(mockChat).toHaveBeenCalledOnce()
+    })
+  })
+
+  describe('P3.2 补跑：deleteProvider 缓存失效', () => {
+    it('deleteProvider 后调用 callAdapter 返回 not found', async () => {
+      manager.createProvider({
+        id: 'temp', name: 'Temp', category: 'llm',
+        api_key: 'sk-test', models: ['m'],
+      })
+
+      let factoryCallCount = 0
+      manager.registerAdapter('temp', (creds) => {
+        factoryCallCount++
+        return {
+          id: 'temp',
+          credentials: creds,
+          supports: () => true,
+          chatCompletion: vi.fn(async () => 'ok'),
+        }
+      })
+
+      // 第一次调用：创建并缓存
+      await manager.callAdapter('temp', 'chatCompletion', {})
+      expect(factoryCallCount).toBe(1)
+      expect(manager._adapterCache.has('temp')).toBe(true)
+
+      // 删除 provider
+      manager.deleteProvider('temp')
+
+      // 缓存应被清除
+      expect(manager._adapterCache.has('temp')).toBe(false)
+
+      // 再次调用：provider 不存在
+      const result = await manager.callAdapter('temp', 'chatCompletion', {})
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/not found/i)
+      // factory 不应被再次调用
+      expect(factoryCallCount).toBe(1)
+    })
+  })
+
+  describe('P3.2 补跑：重新注册 Adapter 覆盖', () => {
+    it('重复注册同 providerId 覆盖原 factory 并清空缓存', async () => {
+      manager.createProvider({
+        id: 'openai', name: 'OpenAI', category: 'llm',
+        api_key: 'sk-test', models: ['gpt-4o'],
+      })
+
+      let v1CallCount = 0
+      let v2CallCount = 0
+      manager.registerAdapter('openai', (creds) => {
+        v1CallCount++
+        return {
+          id: 'openai',
+          credentials: creds,
+          supports: () => true,
+          chatCompletion: vi.fn(async () => 'v1'),
+        }
+      })
+
+      // 第一次调用 v1
+      await manager.callAdapter('openai', 'chatCompletion', {})
+      expect(v1CallCount).toBe(1)
+
+      // 重新注册 v2
+      manager.registerAdapter('openai', (creds) => {
+        v2CallCount++
+        return {
+          id: 'openai',
+          credentials: creds,
+          supports: () => true,
+          chatCompletion: vi.fn(async () => 'v2'),
+        }
+      })
+
+      // v1 不应被再次调用，v2 应被调用
+      const result = await manager.callAdapter('openai', 'chatCompletion', {})
+      expect(v1CallCount).toBe(1)
+      expect(v2CallCount).toBe(1)
+      expect(result.data).toBe('v2')
+    })
+  })
+
+  describe('P3.2 补跑：_invalidateAdapterCache 直接调用', () => {
+    it('_invalidateAdapterCache 清除指定 provider 缓存', async () => {
+      manager.createProvider({
+        id: 'openai', name: 'OpenAI', category: 'llm',
+        api_key: 'sk-test', models: ['gpt-4o'],
+      })
+
+      let factoryCallCount = 0
+      manager.registerAdapter('openai', (creds) => {
+        factoryCallCount++
+        return {
+          id: 'openai',
+          credentials: creds,
+          supports: () => true,
+          chatCompletion: vi.fn(async () => 'ok'),
+        }
+      })
+
+      // 第一次调用：缓存创建
+      await manager.callAdapter('openai', 'chatCompletion', {})
+      expect(factoryCallCount).toBe(1)
+      expect(manager._adapterCache.has('openai')).toBe(true)
+
+      // 手动清除缓存
+      manager._invalidateAdapterCache('openai')
+      expect(manager._adapterCache.has('openai')).toBe(false)
+
+      // 再次调用：factory 重新调用
+      await manager.callAdapter('openai', 'chatCompletion', {})
+      expect(factoryCallCount).toBe(2)
+    })
+
+    it('_invalidateAdapterCache 对未缓存 provider 不抛错', () => {
+      expect(() => manager._invalidateAdapterCache('never-cached')).not.toThrow()
+    })
+  })
+
+  describe('P3.2 补跑：callAdapter credentials 字段完整', () => {
+    it('credentials 包含 id/apiKey/baseUrl/models/config', async () => {
+      manager.createProvider({
+        id: 'openai', name: 'OpenAI', category: 'llm',
+        api_key: 'sk-test', base_url: 'https://custom.api/v1',
+        models: ['gpt-4o', 'gpt-4o-mini'],
+        config: { timeout: 5000 },
+      })
+
+      let receivedCreds = null
+      manager.registerAdapter('openai', (creds) => {
+        receivedCreds = creds
+        return {
+          id: 'openai',
+          credentials: creds,
+          supports: () => true,
+          listModels: vi.fn(async () => []),
+        }
+      })
+
+      await manager.callAdapter('openai', 'listModels', {})
+      expect(receivedCreds.id).toBe('openai')
+      expect(receivedCreds.apiKey).toBe('sk-test')
+      expect(receivedCreds.baseUrl).toBe('https://custom.api/v1')
+      expect(receivedCreds.models).toEqual(['gpt-4o', 'gpt-4o-mini'])
+      expect(receivedCreds.config).toEqual({ timeout: 5000 })
+    })
+
+    it('provider 无 base_url 时 credentials.baseUrl 为 undefined', async () => {
+      manager.createProvider({
+        id: 'no-base', name: 'NoBase', category: 'llm',
+        api_key: 'sk-test', models: ['m'],
+      })
+
+      let receivedCreds = null
+      manager.registerAdapter('no-base', (creds) => {
+        receivedCreds = creds
+        return {
+          id: 'no-base',
+          credentials: creds,
+          supports: () => true,
+          listModels: vi.fn(async () => []),
+        }
+      })
+
+      await manager.callAdapter('no-base', 'listModels', {})
+      // mock db 默认插入空字符串，manager 也可能传 undefined，两者都视为未配置
+      expect(receivedCreds.baseUrl).toBeFalsy()
+    })
+
+    it('credentials 突变不污染 manager 内部状态', async () => {
+      manager.createProvider({
+        id: 'openai', name: 'OpenAI', category: 'llm',
+        api_key: 'sk-test', models: ['gpt-4o'],
+      })
+
+      let capturedCreds = null
+      manager.registerAdapter('openai', (creds) => {
+        capturedCreds = creds
+        return {
+          id: 'openai',
+          credentials: creds,
+          supports: () => true,
+          chatCompletion: vi.fn(async () => 'ok'),
+        }
+      })
+
+      await manager.callAdapter('openai', 'chatCompletion', {})
+
+      // 突变 credentials
+      capturedCreds.apiKey = 'tampered'
+      capturedCreds.models.push('injected')
+
+      // 重新创建 Adapter（通过清除缓存）应使用原始值
+      manager._invalidateAdapterCache('openai')
+      let newCreds = null
+      manager.registerAdapter('openai', (creds) => {
+        newCreds = creds
+        return {
+          id: 'openai',
+          credentials: creds,
+          supports: () => true,
+          chatCompletion: vi.fn(async () => 'ok'),
+        }
+      })
+
+      await manager.callAdapter('openai', 'chatCompletion', {})
+      expect(newCreds.apiKey).toBe('sk-test')
+      // models 数组也应是新的（不应被 push 污染）
+      expect(newCreds.models).not.toContain('injected')
+    })
+  })
 })

@@ -163,4 +163,85 @@ describe('AdapterRegistry — P3.0 注册表', () => {
       expect(ttsAdapters[0].id).toBe('elevenlabs')
     })
   })
+
+  // ─── P3.0 质量节拍补跑：边界场景 ───
+  describe('P3.0 补跑：registerAdapter 参数校验', () => {
+    it('空字符串 id 抛错', () => {
+      const adapter = new TestLlmAdapter({ id: 'openai', apiKey: 'sk-test' })
+      expect(() => registry.registerAdapter('', adapter)).toThrow(/non-empty string/i)
+    })
+
+    it('非字符串 id（数字）抛错', () => {
+      const adapter = new TestLlmAdapter({ id: 'openai', apiKey: 'sk-test' })
+      expect(() => registry.registerAdapter(123, adapter)).toThrow(/non-empty string/i)
+    })
+
+    it('null id 抛错', () => {
+      const adapter = new TestLlmAdapter({ id: 'openai', apiKey: 'sk-test' })
+      expect(() => registry.registerAdapter(null, adapter)).toThrow(/non-empty string/i)
+    })
+
+    it('null adapter 抛错', () => {
+      expect(() => registry.registerAdapter('openai', null)).toThrow(/Adapter instance is required/i)
+    })
+
+    it('undefined adapter 抛错', () => {
+      expect(() => registry.registerAdapter('openai', undefined)).toThrow(/Adapter instance is required/i)
+    })
+  })
+
+  describe('P3.0 补跑：validateConfig errors 数组', () => {
+    it('validateConfig 返回 errors 数组时错误消息包含错误详情', () => {
+      const adapter = new TestLlmAdapter({ id: 'openai', apiKey: 'sk-test' })
+      adapter.validateConfig = vi.fn(() => ({
+        valid: false,
+        errors: ['Missing API key', 'Invalid baseUrl'],
+      }))
+      try {
+        registry.registerAdapter('openai', adapter)
+        expect.fail('Should have thrown')
+      } catch (e) {
+        expect(e.message).toContain('Missing API key')
+        expect(e.message).toContain('Invalid baseUrl')
+      }
+    })
+
+    it('validateConfig 返回 valid:false 无 errors 时错误消息含 unknown', () => {
+      const adapter = new TestLlmAdapter({ id: 'openai', apiKey: 'sk-test' })
+      adapter.validateConfig = vi.fn(() => ({ valid: false }))
+      try {
+        registry.registerAdapter('openai', adapter)
+        expect.fail('Should have thrown')
+      } catch (e) {
+        expect(e.message).toContain('unknown')
+      }
+    })
+  })
+
+  describe('P3.0 补跑：clear()', () => {
+    it('clear 后 listAdapters 返回空数组', () => {
+      const llm = new TestLlmAdapter({ id: 'openai', apiKey: 'sk-test' })
+      registry.registerAdapter('openai', llm)
+      expect(registry.listAdapters()).toHaveLength(1)
+
+      registry.clear()
+      expect(registry.listAdapters()).toEqual([])
+      expect(registry.getAdapter('openai')).toBeUndefined()
+    })
+  })
+
+  describe('P3.0 补跑：getAdaptersByCapability 边界', () => {
+    it('未知能力返回空数组', () => {
+      const llm = new TestLlmAdapter({ id: 'openai', apiKey: 'sk-test' })
+      registry.registerAdapter('openai', llm)
+
+      const result = registry.getAdaptersByCapability('unknownCapability')
+      expect(result).toEqual([])
+    })
+
+    it('空注册表返回空数组', () => {
+      const result = registry.getAdaptersByCapability('chatCompletion')
+      expect(result).toEqual([])
+    })
+  })
 })

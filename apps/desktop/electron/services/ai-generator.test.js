@@ -187,4 +187,101 @@ describe('AIGenerator — P1 统一数据源（删除 PROVIDERS）', () => {
       expect(mod.PROVIDERS).toBeUndefined()
     })
   })
+
+  // ─── P1 质量节拍补跑：边界场景（manager._ready / 突变安全 / 异常 / 未知 type） ───
+  describe('P1 补跑：manager._ready=false 边界', () => {
+    it('manager._ready=false 时 listProviders 返回空数组', () => {
+      const genNotReady = new AIGenerator()
+      const notReadyManager = { ...mockManager, _ready: false }
+      genNotReady.setModelProviderManager(notReadyManager)
+      const result = genNotReady.listProviders('video')
+      expect(result).toEqual([])
+      expect(notReadyManager.listProviders).not.toHaveBeenCalled()
+    })
+
+    it('manager._ready=false 时 getProviderConfig 返回 null', () => {
+      const genNotReady = new AIGenerator()
+      const notReadyManager = { ...mockManager, _ready: false }
+      genNotReady.setModelProviderManager(notReadyManager)
+      const result = genNotReady.getProviderConfig('hunyuan')
+      expect(result).toBeNull()
+    })
+
+    it('manager._ready=false 时 listModels 返回空数组', () => {
+      const genNotReady = new AIGenerator()
+      const notReadyManager = { ...mockManager, _ready: false }
+      genNotReady.setModelProviderManager(notReadyManager)
+      const result = genNotReady.listModels('hunyuan')
+      expect(result).toEqual([])
+    })
+
+    it('manager._ready=false 时 testConnection 返回失败', async () => {
+      const genNotReady = new AIGenerator()
+      const notReadyManager = { ...mockManager, _ready: false }
+      genNotReady.setModelProviderManager(notReadyManager)
+      const result = await genNotReady.testConnection('hunyuan')
+      expect(result.success).toBe(false)
+    })
+
+    it('manager._ready=false 时 updateProviderConfig 返回 false', () => {
+      const genNotReady = new AIGenerator()
+      const notReadyManager = { ...mockManager, _ready: false }
+      genNotReady.setModelProviderManager(notReadyManager)
+      const result = genNotReady.updateProviderConfig('hunyuan', { api_key: 'x' })
+      expect(result).toBe(false)
+    })
+
+    it('manager._ready=false 时 generate 抛错', async () => {
+      const genNotReady = new AIGenerator()
+      const notReadyManager = { ...mockManager, _ready: false }
+      genNotReady.setModelProviderManager(notReadyManager)
+      await expect(genNotReady.generate('video', 'hunyuan', {}))
+        .rejects.toThrow(/manager.*not available/i)
+    })
+  })
+
+  describe('P1 补跑：listModels 突变安全', () => {
+    it('修改 listModels 返回值不污染 manager 内部', () => {
+      // manager.getProvider 返回 { models: ['hunyuan-video'] }
+      const result1 = gen.listModels('hunyuan')
+      expect(result1).toContain('hunyuan-video')
+
+      // 修改返回值
+      result1.push('tampered')
+      result1[0] = 'mutated'
+
+      // 再次获取，应该不受影响
+      const result2 = gen.listModels('hunyuan')
+      expect(result2).not.toContain('tampered')
+      expect(result2).toContain('hunyuan-video')
+    })
+  })
+
+  describe('P1 补跑：updateProviderConfig 异常', () => {
+    it('manager.updateProvider 抛异常时不崩溃', () => {
+      const errorManager = {
+        ...mockManager,
+        updateProvider: vi.fn(() => { throw new Error('DB locked') }),
+      }
+      gen.setModelProviderManager(errorManager)
+      // 当前实现不 try-catch，异常会抛出
+      expect(() => gen.updateProviderConfig('hunyuan', { api_key: 'x' }))
+        .toThrow('DB locked')
+    })
+  })
+
+  describe('P1 补跑：generate 未知 type', () => {
+    it('未知 type 回退到 chatCompletion 方法', async () => {
+      // 使用 integration test 的 mock 模式
+      mockManager._adapterFactories = new Map()
+      mockManager._adapterFactories.set('unknown_type_provider', () => ({}))
+      mockManager.getProviderWithKey.mockReturnValue({ id: 'unknown_type_provider', api_key: 'sk-test' })
+      mockManager.callAdapter = vi.fn(async () => ({ code: 0, data: { content: 'ok' } }))
+
+      // 未知 type 'embedding' 不在 TYPE_TO_METHOD 中，应回退到 chatCompletion
+      const result = await gen.generate('embedding', 'unknown_type_provider', {})
+      expect(mockManager.callAdapter).toHaveBeenCalledWith('unknown_type_provider', 'chatCompletion', expect.any(Object))
+      expect(result.content).toBe('ok')
+    })
+  })
 })

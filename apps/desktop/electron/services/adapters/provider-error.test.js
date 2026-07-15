@@ -111,4 +111,70 @@ describe('ProviderError — P3.0 错误类型', () => {
       expect(err.retryable).toBe(true)
     })
   })
+
+  // ─── P3.0 质量节拍补跑：边界场景 ───
+  describe('P3.0 补跑：fromHttpStatus 边界', () => {
+    it('status=0 + 非 timeout 消息 → NETWORK_ERROR', () => {
+      const err = fromHttpStatus(0, 'ECONNREFUSED')
+      expect(err.code).toBe(ERROR_CODES.NETWORK_ERROR)
+      expect(err.retryable).toBe(true)
+    })
+
+    it('status=0 + "timeout" 关键字 → TIMEOUT', () => {
+      const err = fromHttpStatus(0, 'request timeout')
+      expect(err.code).toBe(ERROR_CODES.TIMEOUT)
+    })
+
+    it('status=200 → PROVIDER_ERROR（非错误状态码也映射）', () => {
+      const err = fromHttpStatus(200, 'Unexpected response')
+      expect(err.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+    })
+
+    it('status=302 → PROVIDER_ERROR', () => {
+      const err = fromHttpStatus(302, 'Redirect')
+      expect(err.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+    })
+
+    it('status=503 → PROVIDER_ERROR', () => {
+      const err = fromHttpStatus(503, 'Service unavailable')
+      expect(err.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+    })
+
+    it('fromHttpStatus 包含 statusCode 在 context 中', () => {
+      const err = fromHttpStatus(401, 'Unauthorized', { providerId: 'openai' })
+      expect(err.context.statusCode).toBe(401)
+      expect(err.context.providerId).toBe('openai')
+    })
+  })
+
+  describe('P3.0 补跑：ProviderError 未知 code', () => {
+    it('未知 code → category="unknown", retryable=false', () => {
+      const err = new ProviderError('UNKNOWN_CODE', 'Some error')
+      expect(err.category).toBe('unknown')
+      expect(err.retryable).toBe(false)
+    })
+
+    it('context 默认为空对象', () => {
+      const err = new ProviderError(ERROR_CODES.TIMEOUT, 'timeout')
+      expect(err.context).toEqual({})
+    })
+  })
+
+  describe('P3.0 补跑：ERROR_CODES 冻结', () => {
+    it('ERROR_CODES 被 Object.freeze 冻结', () => {
+      expect(Object.isFrozen(ERROR_CODES)).toBe(true)
+    })
+
+    it('ERROR_CODES 不能被修改（strict mode 抛错）', () => {
+      'use strict'
+      expect(() => { ERROR_CODES.AUTH_FAILED = 'modified' }).toThrow()
+    })
+  })
+
+  describe('P3.0 补跑：ProviderError toString', () => {
+    it('toString 格式为 [CODE] message', () => {
+      const err = new ProviderError(ERROR_CODES.AUTH_FAILED, 'Invalid key')
+      expect(err.toString()).toBe('[AUTH_FAILED] Invalid key')
+    })
+  })
 })
