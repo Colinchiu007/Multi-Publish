@@ -22,6 +22,9 @@ vi.mock("@/api/publisher", () => ({
   pipelineStatus: vi.fn(),
   pipelineAdvance: vi.fn(),
   pipelineHistory: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+  pipelineStartOrchestrated: vi.fn(),
+  pipelineAdvanceToNextCheckpoint: vi.fn(),
+  pipelineGetRunContext: vi.fn(),
 }));
 
 import UiButton from "@/components/UiButton.vue";
@@ -266,5 +269,82 @@ describe("CreateView - callbacks", () => {
     });
     await new Promise(r => setTimeout(r, 0));
     expect(w.vm.installLog).toContain("installing");
+  });
+});
+
+describe("CreateView - S2V orchestration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+  });
+
+  it("isOrchestratedPipeline returns true for story2video-compose", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    expect(w.vm.isOrchestratedPipeline("story2video-compose")).toBe(true);
+  });
+
+  it("isOrchestratedPipeline returns false for other pipelines", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    expect(w.vm.isOrchestratedPipeline("cinematic")).toBe(false);
+    expect(w.vm.isOrchestratedPipeline("talking-head")).toBe(false);
+  });
+
+  it("has s2vConfig with required fields", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    expect(w.vm.s2vConfig).toHaveProperty("imageStyle");
+    expect(w.vm.s2vConfig).toHaveProperty("aspectRatio");
+    expect(w.vm.s2vConfig).toHaveProperty("voiceId");
+    expect(w.vm.s2vConfig).toHaveProperty("concurrency");
+  });
+
+  it("startPipeline dispatches to orchestrated for story2video-compose", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-123" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {} } });
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
+    w.vm.pipelineText = "test text";
+    await w.vm.startPipeline();
+    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalled();
+    expect(mocks.pipelineStart).not.toHaveBeenCalled();
+    expect(w.vm.orchestrationRunId).toBe("run-123");
+  });
+
+  it("startPipeline uses normal pipelineStart for non-orchestrated", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStart.mockResolvedValue({ code: 0, data: {} });
+    mocks.pipelineStatus.mockResolvedValue({ code: 0, data: { status: "running", stages: [] } });
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "cinematic", description: "test", stages: [], category: "cinematic" };
+    w.vm.pipelineText = "test text";
+    await w.vm.startPipeline();
+    expect(mocks.pipelineStart).toHaveBeenCalled();
+    expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
+  });
+
+  it("llmConfig only has temperature (no provider/model)", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    expect(w.vm.llmConfig).toHaveProperty("temperature");
+    expect(w.vm.llmConfig).not.toHaveProperty("provider");
+    expect(w.vm.llmConfig).not.toHaveProperty("model");
   });
 });

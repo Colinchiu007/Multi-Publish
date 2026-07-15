@@ -54,6 +54,11 @@ const PUBLIC_METHODS = [
   'modelProviderDelete', 'modelProviderSetDefault', 'modelProviderGetDefault',
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
   'modelProviderLogs', 'modelProviderCleanLogs',
+  // 渲染引擎诊断（只读状态查询 + 依赖安装，未登录也应可用，便于诊断 remotion 状态）
+  // 注意：renderStart/renderCancel/renderListCompositions 仍保持 authenticated（需登录后才能发起渲染）
+  'renderGetStatus', 'renderInstallDeps', 'onRenderInstallProgress',
+  // 流水线查询（只读，未登录也应能浏览流水线列表）
+  'pipelineList', 'pipelineGet',
 ]
 
 /**

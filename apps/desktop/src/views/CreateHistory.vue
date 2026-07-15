@@ -40,7 +40,7 @@
       <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else-if="pipelines.length === 0" class="empty-state">
         <p>暂无流水线运行记录</p>
-        <UiButton @click="$router.push('/create/pipeline')">浏览流水线</UiButton>
+        <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
       </div>
       <div v-else class="pipeline-list">
         <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card">

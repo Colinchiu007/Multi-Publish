@@ -8,9 +8,10 @@
     <!-- Remotion 状态提示 -->
     <div v-if="renderStatus && !renderStatus.ready" class="status-banner warn">
       <span>⚠️ Remotion 渲染引擎未就绪</span>
-      <span class="detail" v-if="!renderStatus.composerExists">缺少 remotion-composer</span>
+      <span class="detail" v-if="renderStatus.ipcError">IPC 调用失败：{{ renderStatus.message || '检查 preload 是否暴露该方法' }}</span>
+      <span class="detail" v-else-if="!renderStatus.composerExists">缺少 remotion-composer</span>
       <span class="detail" v-else-if="!renderStatus.nodeModulesExist">依赖未安装</span>
-      <button v-if="renderStatus.composerExists && !renderStatus.nodeModulesExist" class="btn-install" @click="installDeps" :disabled="installing">{{ installing ? '安装中...' : '安装依赖' }}</button>
+      <button v-if="!renderStatus.ipcError && renderStatus.composerExists && !renderStatus.nodeModulesExist" class="btn-install" @click="installDeps" :disabled="installing">{{ installing ? '安装中...' : '安装依赖' }}</button>
     </div>
     <div v-if="installLog" class="install-log">{{ installLog }}</div>
 
@@ -58,6 +59,15 @@
             <span class="stage-icon">{{ stageStateIcon(stage, i) }}</span>
             <span class="stage-name">{{ humanName(stage.name) }}</span>
             <span class="stage-status">{{ stageStatusLabel(stage) }}</span>
+          </div>
+        </div>
+
+        <!-- 编排模式中间结果预览 -->
+        <div v-if="orchestrationContext" class="orchestration-context">
+          <h4>中间结果</h4>
+          <div v-for="(value, key) in orchestrationContext" :key="key" class="context-item">
+            <span class="context-key">{{ humanName(String(key)) }}</span>
+            <span class="context-value">{{ typeof value === 'object' ? JSON.stringify(value).slice(0, 200) : String(value).slice(0, 200) }}</span>
           </div>
         </div>
 
@@ -110,18 +120,9 @@
           <h3>高级配置</h3>
           <div class="config-grid">
             <div class="config-item">
-              <label>LLM 提供商</label>
-              <select v-model="llmConfig.provider" class="form-select">
-                <option v-for="p in availableLlmProviders" :key="p.id" :value="p.id">
-                  {{ p.name }}{{ p.is_default ? ' (默认)' : '' }}
-                </option>
-                <option v-if="availableLlmProviders.length === 0" value="" disabled>未配置 — 请前往模型服务商设置</option>
-              </select>
-              <a v-if="availableLlmProviders.length === 0" href="#/model-providers" class="config-hint-link">前往配置 →</a>
-            </div>
-            <div class="config-item">
-              <label>模型</label>
-              <input v-model="llmConfig.model" placeholder="留空使用默认模型" class="form-input" />
+              <label>LLM 模型</label>
+              <span class="config-hint">使用默认模型（可在模型服务商设置中配置）</span>
+              <a href="#/model-providers" class="config-hint-link">前往配置 →</a>
             </div>
             <div class="config-item">
               <label>温度: {{ llmConfig.temperature }}</label>
@@ -146,6 +147,44 @@
                 <option value="manual_all">全部手动确认</option>
                 <option value="auto_noncreative">自动跳过非创意阶段</option>
               </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- S2V 编排专属配置（仅 story2video-compose 显示） -->
+        <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="config-section">
+          <h3>Story2Video 配置</h3>
+          <div class="config-grid">
+            <div class="config-item">
+              <label>图片风格</label>
+              <select v-model="s2vConfig.imageStyle" class="form-select">
+                <option value="cinematic">电影感</option>
+                <option value="realistic">写实</option>
+                <option value="anime">动漫</option>
+                <option value="watercolor">水彩</option>
+                <option value="minimalist">极简</option>
+              </select>
+            </div>
+            <div class="config-item">
+              <label>宽高比</label>
+              <select v-model="s2vConfig.aspectRatio" class="form-select">
+                <option value="16:9">16:9 横屏</option>
+                <option value="9:16">9:16 竖屏</option>
+                <option value="1:1">1:1 正方</option>
+                <option value="4:3">4:3 传统</option>
+              </select>
+            </div>
+            <div class="config-item">
+              <label>语音</label>
+              <select v-model="s2vConfig.voiceId" class="form-select">
+                <option value="default">默认女声</option>
+                <option value="male">男声</option>
+                <option value="female-soft">柔和女声</option>
+              </select>
+            </div>
+            <div class="config-item">
+              <label>并发数</label>
+              <input type="number" v-model.number="s2vConfig.concurrency" min="1" max="10" class="form-input" />
             </div>
           </div>
         </div>
@@ -185,13 +224,18 @@
         <div class="action-bar">
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
             <UiButton class="btn-start" @click="startPipeline" :disabled="!canStartPipeline">
-              🚀 启动流水线
+              {{ isOrchestratedPipeline(selectedPipeline.name) ? '🚀 启动编排' : '🚀 启动流水线' }}
             </UiButton>
           </div>
           <div v-else class="running-controls">
-            <UiButton v-if="pipelineRunStatus.status === 'paused'" @click="resumePipeline">▶ 继续</UiButton>
-            <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ 暂停</UiButton>
-            <UiButton v-if="needsCheckpoint" @click="advancePipeline">✅ 确认并继续</UiButton>
+            <template v-if="orchestrationRunId">
+              <UiButton v-if="needsCheckpoint" @click="advanceOrchestration">✅ 推进到下一检查点</UiButton>
+            </template>
+            <template v-else>
+              <UiButton v-if="pipelineRunStatus.status === 'paused'" @click="resumePipeline">▶ 继续</UiButton>
+              <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ 暂停</UiButton>
+              <UiButton v-if="needsCheckpoint" @click="advancePipeline">✅ 确认并继续</UiButton>
+            </template>
             <UiButton variant="danger" @click="cancelPipeline">✕ 取消</UiButton>
           </div>
           <div v-if="pipelineRunStatus && pipelineRunStatus.progress !== undefined" class="progress-inline">
@@ -269,7 +313,8 @@ import {
   renderStart, renderCancel, renderGetStatus, renderInstallDeps,
   onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress,
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
-  pipelineStatus, pipelineAdvance, pipelineHistory
+  pipelineStatus, pipelineAdvance, pipelineHistory,
+  pipelineStartOrchestrated, pipelineAdvanceToNextCheckpoint, pipelineGetRunContext
 } from '@/api/publisher'
 
 const STYLES = [
@@ -308,8 +353,7 @@ export default {
       inputMode: 'text', pipelineText: '', pipelineImages: [], pipelineVideo: null,
       // 配置
       selectedStyle: 'clean-professional',
-      llmConfig: { provider: 'anthropic', model: '', temperature: 0.7 },
-      availableLlmProviders: [],
+      llmConfig: { temperature: 0.7 },
       budgetConfig: { mode: 'warn', totalUsd: 10 },
       checkpointPolicy: 'guided',
       outputConfig: { resolution: '1920x1080', fps: 30, format: 'mp4' },
@@ -320,6 +364,9 @@ export default {
       aiLoading: false,
       // Remotion 状态
       renderStatus: null, installing: false, installLog: '',
+      // S2V 编排模式（story2video-compose）
+      s2vConfig: { imageStyle: 'cinematic', aspectRatio: '16:9', voiceId: 'default', concurrency: 3 },
+      orchestrationRunId: null, orchestrationContext: null,
       // 历史
       history: [], historyLoading: false,
       // 清理
@@ -360,25 +407,6 @@ export default {
     },
   },
   methods: {
-    async loadLlmProviders() {
-      try {
-        const api = window.electronAPI
-        if (!api || !api.modelProviderList) return
-        const res = await api.modelProviderList('llm')
-        if (res && res.code === 0 && Array.isArray(res.data)) {
-          this.availableLlmProviders = res.data.filter(p => p.enabled)
-          // 如果有默认的，设置为默认
-          const defaultProvider = this.availableLlmProviders.find(p => p.is_default)
-          if (defaultProvider) {
-            this.llmConfig.provider = defaultProvider.id
-          } else if (this.availableLlmProviders.length > 0) {
-            this.llmConfig.provider = this.availableLlmProviders[0].id
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to load LLM providers:', e)
-      }
-    },
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
     categoryLabel(cat) { return CATEGORY_LABELS[cat] || cat },
     costLabel(cost) { return COST_LABELS[cost] || cost },
@@ -395,8 +423,12 @@ export default {
       } catch (e) { this.pipelineError = e.message }
       finally { this.pipelineLoading = false }
     },
-    selectPipeline(p) { this.selectedPipeline = p; this.pipelineRunStatus = null },
+    selectPipeline(p) { this.selectedPipeline = p; this.pipelineRunStatus = null; this.orchestrationRunId = null; this.orchestrationContext = null },
+    isOrchestratedPipeline(name) { return name === 'story2video-compose' },
     async startPipeline() {
+      if (this.isOrchestratedPipeline(this.selectedPipeline.name)) {
+        return this.startOrchestratedPipeline()
+      }
       const params = {
         text: this.pipelineText, style: this.selectedStyle,
         llm: this.llmConfig, budget: this.budgetConfig,
@@ -411,6 +443,38 @@ export default {
         this.pollTimer = setInterval(() => this.updatePipelineStatus(), 3000)
       } else { alert(res?.message || '启动失败') }
     },
+    async startOrchestratedPipeline() {
+      const params = {
+        text: this.pipelineText,
+        imageStyle: this.s2vConfig.imageStyle,
+        aspectRatio: this.s2vConfig.aspectRatio,
+        voiceId: this.s2vConfig.voiceId,
+        concurrency: this.s2vConfig.concurrency,
+        style: this.selectedStyle,
+        output: this.outputConfig,
+      }
+      const res = await pipelineStartOrchestrated(this.selectedPipeline.name, params)
+      if (res?.code === 0 && res.data?.runId) {
+        this.orchestrationRunId = res.data.runId
+        await this.updateOrchestrationStatus()
+        this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+      } else { alert(res?.message || '编排启动失败') }
+    },
+    async updateOrchestrationStatus() {
+      if (!this.orchestrationRunId) return
+      const s = await pipelineGetRunContext(this.orchestrationRunId)
+      if (s?.code === 0 && s.data) {
+        this.orchestrationContext = s.data.context || null
+        this.pipelineRunStatus = s.data.status || null
+        this.needsCheckpoint = s.data.status?.status === 'paused'
+      }
+    },
+    async advanceOrchestration() {
+      if (!this.orchestrationRunId) return
+      const res = await pipelineAdvanceToNextCheckpoint(this.orchestrationRunId)
+      if (res?.code === 0) { await this.updateOrchestrationStatus() }
+      else { alert(res?.message || '推进失败') }
+    },
     async updatePipelineStatus() {
       if (!this.selectedPipeline) return
       const s = await pipelineStatus(this.selectedPipeline.name)
@@ -424,6 +488,7 @@ export default {
     async cancelPipeline() {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
+      this.orchestrationRunId = null; this.orchestrationContext = null
       if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null }
     },
     async advancePipeline() { await pipelineAdvance(); await this.updatePipelineStatus() },
@@ -500,7 +565,7 @@ export default {
       } catch (e) { this.installLog = '安装失败: ' + e.message }
       this.installing = false
       const s = await renderGetStatus()
-      this.renderStatus = s?.code === 0 ? s.data : { ready: false }
+      this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' }
     },
 
     // 阶段显示
@@ -527,8 +592,7 @@ export default {
   },
   async mounted() {
     await this.loadPipelines()
-    this.loadLlmProviders()
-        renderGetStatus().then(s => { this.renderStatus = s?.code === 0 ? s.data : { ready: false } }).catch(() => { this.renderStatus = { ready: false } })
+        renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
     this.cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = err?.message || err || '渲染错误' }))
