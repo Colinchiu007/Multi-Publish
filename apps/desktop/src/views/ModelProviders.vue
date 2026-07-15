@@ -12,12 +12,18 @@
       </div>
     </div>
 
+    <!-- P0: safeStorage 不可用警告横幅 -->
+    <div v-if="!safeStorageAvailable" class="safe-storage-warning" role="alert">
+      ⚠️ 系统加密不可用，API Key 将无法安全存储。请检查系统密钥链设置。
+    </div>
+
     <!-- 过滤条 -->
     <div style="padding: var(--space-lg) var(--space-xxl) 0">
       <div class="cohere-filter-bar">
         <button
           v-for="opt in CATEGORY_OPTIONS" :key="opt.value"
           class="cohere-filter-chip" :class="{ active: filterCategory === opt.value }"
+          :aria-pressed="filterCategory === opt.value"
           @click="filterCategory = opt.value"
         >
           {{ opt.label }}
@@ -29,8 +35,24 @@
 
     <!-- 内容区 -->
     <div class="cohere-content" style="margin-top: var(--space-lg)">
-      <!-- 加载状态 -->
-      <div v-if="loading" style="text-align:center;padding:60px 0;color:var(--muted)">加载中...</div>
+      <!-- P1: 骨架屏加载 -->
+      <div v-if="loading" class="provider-grid" aria-live="polite">
+        <div v-for="i in 3" :key="'skeleton-' + i" class="provider-card skeleton-card">
+          <div class="card-top">
+            <div class="card-header">
+              <div class="skeleton-bar" style="width: 60px; height: 20px;"></div>
+              <div class="skeleton-bar" style="width: 16px; height: 16px; border-radius: 50%;"></div>
+            </div>
+            <div class="skeleton-bar" style="width: 120px; height: 18px; margin: 8px 0;"></div>
+            <div class="skeleton-bar" style="width: 80px; height: 14px;"></div>
+          </div>
+          <div class="card-body">
+            <div class="skeleton-bar" style="width: 100%; height: 14px; margin-bottom: 8px;"></div>
+            <div class="skeleton-bar" style="width: 80%; height: 14px; margin-bottom: 8px;"></div>
+            <div class="skeleton-bar" style="width: 60%; height: 14px;"></div>
+          </div>
+        </div>
+      </div>
 
       <!-- 空状态 -->
       <div v-else-if="filteredProviders.length === 0" class="cohere-empty">
@@ -41,7 +63,11 @@
 
       <!-- 服务商卡片网格 -->
       <div v-else class="provider-grid">
-        <div v-for="p in filteredProviders" :key="p.id" class="provider-card">
+        <div
+          v-for="p in filteredProviders" :key="p.id"
+          class="provider-card"
+          :class="{ 'card-disabled': !p.enabled }"
+        >
           <div class="card-top">
             <div class="card-header">
               <div class="provider-type-badge" :class="'type-' + p.category">
@@ -49,7 +75,13 @@
               </div>
               <div class="card-badges">
                 <span v-if="p.is_default" class="default-badge" title="默认服务商">★ 默认</span>
-                <span class="status-dot" :class="p.api_key ? 'online' : 'offline'" :title="p.api_key ? '已配置 API Key' : '未配置 API Key'"></span>
+                <!-- P0: 色盲友好 status-dot — 用形状区分而非仅颜色 -->
+                <span
+                  class="status-dot-icon"
+                  :class="(p.api_key_masked || p.api_key) ? 'configured' : 'not-configured'"
+                  :title="(p.api_key_masked || p.api_key) ? '已配置 API Key' : '未配置 API Key'"
+                  :aria-label="(p.api_key_masked || p.api_key) ? '已配置 API Key' : '未配置 API Key'"
+                >{{ (p.api_key_masked || p.api_key) ? '●' : '○' }}</span>
               </div>
             </div>
             <div class="provider-name">{{ p.name }}</div>
@@ -67,12 +99,16 @@
             </div>
             <div class="provider-field">
               <span class="field-label">模型</span>
-              <span class="field-value">{{ (p.models || []).join(', ') || '-' }}</span>
+              <!-- P1: models 截断 + tooltip -->
+              <span class="field-value" :title="(p.models || []).join(', ')">
+                {{ formatModels(p.models) }}
+              </span>
             </div>
             <div class="provider-field">
               <span class="field-label">API Key</span>
-              <span class="field-value" :class="p.api_key ? 'configured' : 'not-configured'">
-                {{ p.api_key ? '已配置' : '未配置' }}
+              <!-- P0: API Key 遮罩 sk-****1234 -->
+              <span class="field-value mono" :class="(p.api_key_masked || p.api_key) ? 'configured' : 'not-configured'">
+                {{ p.api_key_masked || (p.api_key ? '已配置' : '未配置') }}
               </span>
             </div>
           </div>
@@ -82,23 +118,36 @@
           </div>
           <!-- 操作按钮 -->
           <div class="card-actions">
-            <button class="cohere-icon-btn" title="测试连接" @click="testProvider(p.id)" :disabled="!p.api_key">
+            <!-- P0: aria-label 补全 -->
+            <button
+              class="cohere-icon-btn"
+              aria-label="测试连接"
+              title="测试连接"
+              @click="testProvider(p.id)"
+              :disabled="!(p.api_key_masked || p.api_key)"
+            >
               <span v-if="testingId !== p.id">⚡</span>
               <span v-else class="rotating">⟳</span>
             </button>
-            <button class="cohere-icon-btn" title="编辑" @click="openEdit(p)">✎</button>
+            <button class="cohere-icon-btn" aria-label="编辑" title="编辑" @click="openEdit(p)">✎</button>
             <button
               class="cohere-icon-btn" :class="{ 'default-active': p.is_default }"
+              :aria-label="p.is_default ? '当前默认' : '设为默认'"
               :title="p.is_default ? '当前默认' : '设为默认'"
               @click="!p.is_default && setDefault(p)"
-              :disabled="p.is_default || !p.api_key"
+              :disabled="p.is_default || !(p.api_key_masked || p.api_key)"
             >★</button>
-            <button class="cohere-icon-btn" :title="p.enabled ? '禁用' : '启用'" @click="toggleEnabled(p)">
-              {{ p.enabled ? '⏸' : '▶' }}
-            </button>
+            <button
+              class="cohere-icon-btn"
+              :aria-label="p.enabled ? '禁用' : '启用'"
+              :title="p.enabled ? '禁用' : '启用'"
+              @click="toggleEnabled(p)"
+            >{{ p.enabled ? '⏸' : '▶' }}</button>
             <button
               v-if="!p.is_preset"
-              class="cohere-icon-btn cohere-icon-btn-danger" title="删除"
+              class="cohere-icon-btn cohere-icon-btn-danger"
+              aria-label="删除"
+              title="删除"
               @click="confirmDelete(p)"
             >✕</button>
           </div>
@@ -107,7 +156,15 @@
     </div>
 
     <!-- 添加服务商对话框（多步骤） -->
-    <el-dialog v-model="showAddDialog" title="添加服务商" width="560px" :close-on-click-modal="false">
+    <el-dialog v-model="showAddDialog" title="添加服务商" class="responsive-dialog" :close-on-click-modal="false">
+      <!-- P1: 步骤进度指示器 -->
+      <div class="step-progress">
+        <div v-for="n in 3" :key="n" class="step-indicator" :class="{ active: addStep >= n, current: addStep === n }">
+          <span class="step-number">{{ n }}</span>
+          <span class="step-text">{{ ['选择类别', '选择预设', '填写配置'][n - 1] }}</span>
+        </div>
+      </div>
+
       <!-- 步骤 1: 选择类别 -->
       <div v-if="addStep === 1" class="add-step">
         <p class="step-hint">第一步：选择模型类别</p>
@@ -174,7 +231,7 @@
     </el-dialog>
 
     <!-- 编辑对话框 -->
-    <el-dialog v-model="showFormDialog" title="编辑服务商" width="480px">
+    <el-dialog v-model="showFormDialog" title="编辑服务商" class="responsive-dialog">
       <div class="form-fields">
         <label class="input-label">显示名称</label>
         <input class="input" v-model="form.name" />
@@ -196,7 +253,7 @@
     </el-dialog>
 
     <!-- 删除确认对话框 -->
-    <el-dialog v-model="showDeleteDialog" title="确认删除" width="400px">
+    <el-dialog v-model="showDeleteDialog" title="确认删除" class="responsive-dialog-sm">
       <p>确定要删除服务商 <strong>{{ deleteTarget?.name }}</strong> 吗？</p>
       <p style="font-size:13px;color:var(--muted)">此操作不可恢复，关联的 API Key 也会一并移除。</p>
       <template #footer>
@@ -225,6 +282,7 @@ const {
   filterCategory,
   testResults,
   testingId,
+  safeStorageAvailable,
   showFormDialog,
   isEditing,
   form,
@@ -258,12 +316,34 @@ function categoryIcon (cat) {
   return icons[cat] || '📦'
 }
 
+// P1: models 截断显示 — 最多 3 个，其余 +N
+function formatModels (models) {
+  if (!models || models.length === 0) return '-'
+  if (models.length <= 3) return models.join(', ')
+  return models.slice(0, 3).join(', ') + ' +' + (models.length - 3)
+}
+
 onMounted(() => {
   loadProviders()
 })
 </script>
 
 <style scoped>
+/* P0: safeStorage 警告横幅 */
+.safe-storage-warning {
+  background: #fff3e0;
+  color: #e65100;
+  padding: 10px var(--space-xxl);
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 1px solid #ffcc80;
+}
+[data-theme="dark"] .safe-storage-warning {
+  background: #3c2a1a;
+  color: #ffb74d;
+  border-bottom-color: #5d4037;
+}
+
 /* Provider 卡片网格 */
 .provider-grid {
   display: grid;
@@ -277,10 +357,37 @@ onMounted(() => {
   border: 1px solid var(--hairline, var(--border));
   border-radius: 12px;
   overflow: hidden;
-  transition: box-shadow 0.15s;
+  transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
 }
+/* P1: card hover 微动效 */
 .provider-card:hover {
   box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  transform: translateY(-2px);
+  border-color: var(--primary, #1a73e8);
+}
+/* P1: 禁用卡片视觉降级 */
+.provider-card.card-disabled {
+  opacity: 0.6;
+  filter: grayscale(0.5);
+}
+
+/* P1: 骨架屏 */
+.skeleton-card {
+  pointer-events: none;
+}
+.skeleton-bar {
+  background: linear-gradient(90deg, var(--hairline, #e0e0e0) 25%, var(--soft-stone, #f0f0f0) 50%, var(--hairline, #e0e0e0) 75%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+[data-theme="dark"] .skeleton-bar {
+  background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
+  background-size: 200% 100%;
 }
 
 .card-top {
@@ -351,14 +458,14 @@ onMounted(() => {
   border-radius: 4px;
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+/* P0: 色盲友好 status-dot — 用形状+颜色双重区分 */
+.status-dot-icon {
+  font-size: 14px;
+  line-height: 1;
   display: inline-block;
 }
-.status-dot.online { background: #34a853; }
-.status-dot.offline { background: #999; }
+.status-dot-icon.configured { color: #34a853; }
+.status-dot-icon.not-configured { color: #999; }
 
 .status-label {
   font-size: 11px;
@@ -390,6 +497,8 @@ onMounted(() => {
   color: var(--ink, #222);
   word-break: break-all;
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .field-value.mono {
   font-family: 'SF Mono', 'JetBrains Mono', monospace;
@@ -415,6 +524,7 @@ onMounted(() => {
   gap: 4px;
   padding: var(--space-sm) var(--space-lg);
   border-top: 1px solid var(--hairline, var(--border));
+  flex-wrap: wrap;
 }
 
 .cohere-icon-btn {
@@ -434,6 +544,10 @@ onMounted(() => {
 .cohere-icon-btn:hover:not(:disabled) {
   background: var(--soft-stone, var(--bg));
   color: var(--ink, #222);
+}
+/* P1: 按钮 :active 反馈 */
+.cohere-icon-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .cohere-icon-btn:disabled {
   opacity: 0.4;
@@ -459,6 +573,47 @@ onMounted(() => {
 }
 [data-theme="dark"] .chip-count {
   background: rgba(255,255,255,0.15);
+}
+
+/* P1: 步骤进度指示器 */
+.step-progress {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding: 0 8px;
+}
+.step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.4;
+  transition: opacity 0.2s;
+}
+.step-indicator.active { opacity: 0.7; }
+.step-indicator.current { opacity: 1; }
+.step-number {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--hairline, #e0e0e0);
+  color: var(--muted, #999);
+}
+.step-indicator.active .step-number {
+  background: var(--primary, #1a73e8);
+  color: #fff;
+}
+.step-text {
+  font-size: 12px;
+  color: var(--muted, #999);
+}
+.step-indicator.current .step-text {
+  color: var(--ink, #222);
+  font-weight: 500;
 }
 
 /* 添加对话框步骤 */
@@ -602,5 +757,49 @@ onMounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* P1: 响应式断点 */
+@media (max-width: 768px) {
+  .provider-grid {
+    grid-template-columns: 1fr;
+    padding: var(--space-md);
+  }
+  .cohere-page-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .cohere-filter-bar {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .category-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .step-text {
+    display: none;
+  }
+  .step-progress {
+    justify-content: center;
+    gap: 24px;
+  }
+}
+
+/* P1: 响应式对话框 */
+:deep(.responsive-dialog) {
+  width: 90vw !important;
+  max-width: 560px;
+}
+:deep(.responsive-dialog-sm) {
+  width: 90vw !important;
+  max-width: 400px;
+}
+@media (max-width: 768px) {
+  :deep(.responsive-dialog),
+  :deep(.responsive-dialog-sm) {
+    width: 95vw !important;
+    margin: 0 auto;
+  }
 }
 </style>

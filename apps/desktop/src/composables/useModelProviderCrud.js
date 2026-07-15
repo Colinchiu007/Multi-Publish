@@ -67,6 +67,7 @@ export function useModelProviderCrud () {
   const loading = ref(true)
   const submitting = ref(false)
   const filterCategory = ref('all')
+  const safeStorageAvailable = ref(true) // P0: safeStorage 不可用时显示警告
 
   // 测试结果缓存
   const testResults = ref({})
@@ -96,7 +97,7 @@ export function useModelProviderCrud () {
   })
 
   const configuredCount = computed(() => {
-    return providers.value.filter(p => p.api_key).length
+    return providers.value.filter(p => p.api_key_masked || p.api_key).length
   })
 
   const categoryCounts = computed(() => {
@@ -274,7 +275,7 @@ export function useModelProviderCrud () {
 
   // ─── 设为默认 ─────────────────────────────────
   async function setDefault (provider) {
-    if (!provider.api_key) {
+    if (!provider.api_key_masked && !provider.api_key) {
       ElMessage.warning('请先配置 API Key 后再设为默认')
       return
     }
@@ -321,6 +322,7 @@ export function useModelProviderCrud () {
     filterCategory,
     testResults,
     testingId,
+    safeStorageAvailable,
     // 表单状态
     showFormDialog,
     isEditing,
