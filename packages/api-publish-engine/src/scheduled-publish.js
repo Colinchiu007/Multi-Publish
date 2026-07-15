@@ -35,7 +35,7 @@ class ScheduledPublish {
       const tmpPath = this._storageFile + ".tmp";
       fs.writeFileSync(tmpPath, JSON.stringify(this._entries, null, 2), "utf8");
       fs.renameSync(tmpPath, this._storageFile);
-    } catch(e) {}
+    } catch(e) { console.warn('[scheduled-publish] persist failed:', e.message); }
   }
 
   async schedule(data) {

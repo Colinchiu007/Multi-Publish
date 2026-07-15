@@ -60,7 +60,7 @@ class PublishApiClient {
               resolve(JSON.parse(data));
             } else {
               var errMsg = "HTTP " + res.statusCode;
-              try { var parsed = JSON.parse(data); errMsg = parsed.error || parsed.message || errMsg; } catch(e) {}
+              try { var parsed = JSON.parse(data); errMsg = parsed.error || parsed.message || errMsg; } catch(e) { /* JSON.parse 失败保留原 errMsg */ }
               var err = new Error(errMsg);
               err.status = res.statusCode;
               reject(err);

@@ -6,6 +6,7 @@
  */
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const { withSenderCheck } = require('./helpers')
   const { store, credentialStore, accountStateRestorer } = deps
 
   ipcMain.handle('store:add-account', (_, account) => {
@@ -34,7 +35,7 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('store:delete-account', (_, id) => {
+  ipcMain.handle('store:delete-account', withSenderCheck((_, id) => {
     try {
       store.deleteAccount(id)
       // 修复 P2：级联清理凭证和登录状态（原仅删 accounts 表，孤儿数据残留）
@@ -48,7 +49,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('store:set-default-account', (_, arg) => {
     try {
@@ -71,7 +72,7 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('store:update-account', (_, arg) => {
+  ipcMain.handle('store:update-account', withSenderCheck((_, arg) => {
     try {
       // R51 P1：解构保护
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
@@ -81,7 +82,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('store:add-publish-record', (_, record) => {
     try {

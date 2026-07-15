@@ -12,6 +12,7 @@
  */
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const { withSenderCheck } = require('./helpers')
   const { authViewManager, pythonBridge, AccountManager, BACKEND_PLATFORMS, log, BrowserWindow } = deps
 
   // R51 P1 修复：URL 路径段白名单校验，防止路径注入
@@ -135,7 +136,7 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('auth:save-credentials', async (event, arg) => {
+  ipcMain.handle('auth:save-credentials', withSenderCheck(async (event, arg) => {
     try {
       // R51 P1：解构保护
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
@@ -149,7 +150,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
     }
-  })
+  }))
 
   ipcMain.handle('account:add', async (event, platform) => {
     try {

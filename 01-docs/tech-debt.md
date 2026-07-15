@@ -36,3 +36,11 @@
 
 2026-07-15 | preload sendSync 无缓存 | 🟢 低 | ✅ 已修复 | `preload/index.js` `getAccessLevel()` 每次调用都执行 `sendSync`。虽实际只调用一次，但缺乏缓存防御。修复：添加 `_cachedAccessLevel` 模块级缓存 + 架构说明注释（contextBridge 同步约束使 sendSync 不可替代）
 
+2026-07-16 | 缺少 CSP 内容安全策略 | 🔴 严重 | ✅ 已修复 | `src/index.html` 无 Content-Security-Policy，sandbox:false 下无法防 XSS。修复：添加 CSP meta 标签，script-src 'self'，允许 Fontshare/Google Fonts 字体 + Vite HMR (ws:/localhost)。安全性由 contextIsolation:true + nodeIntegration:false + CSP 三重保障
+
+2026-07-16 | 空 catch 吞错误（10 处） | 🟠 高 | ✅ 已修复 | `api-publish-engine/src/` 10 处 `catch(e) {}` 错误完全消失。修复：scheduled-publish/publish-plan/audit-log/publish-api-client/plugin-loader(4处)/zhihu 共 10 处加 console.warn。未误改合理 fallback：md-converter.js/browser-data.js/http-provider.js
+
+2026-07-16 | IPC 无 sender 验证（9 个敏感 handler） | 🔴 严重 | ✅ 已修复 | `isTrustedSender()` 已定义但仅覆盖 3/212 handler。修复：提取 `withSenderCheck(fn)` 高阶函数到 `ipc-handlers/helpers.js`，包装 9 个敏感 handler（auth:save-credentials/store:delete-account/store:update-account/payment:complete/payment:simulate/batch:execute/batch:delete/scheduler:create/scheduler:cancel）。测试环境跳过验证
+
+2026-07-16 | IPC handler try-catch 模板重复 | 🟡 中 | ✅ 已修复 | ~40 handler 完全相同的 try-catch 模式。修复：提取 `wrapIpcHandler(fn)`/`wrapIpcHandlerRaw(fn)` 高阶函数到 `ipc-handlers/helpers.js`，统一 try-catch + 参数校验 + 错误日志。scheduler.js 迁移为示例，保留原响应格式 + catchData 兜底
+

@@ -24,7 +24,7 @@ class PublishingPlan {
       const tmpPath = this._storageFile + ".tmp";
       fs.writeFileSync(tmpPath, JSON.stringify(this._plans, null, 2), "utf8");
       fs.renameSync(tmpPath, this._storageFile);
-    } catch(e) {}
+    } catch(e) { console.warn('[publish-plan] persist failed:', e.message); }
   }
 
   async create(data) {

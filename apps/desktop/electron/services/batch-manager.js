@@ -12,6 +12,7 @@
 const { ipcMain } = require('electron')
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
+const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 let _taskQueue = null
 
@@ -242,14 +243,14 @@ class BatchManager {
       }
     })
 
-    ipcMain.handle('batch:execute', async (_, batchId) => {
+    ipcMain.handle('batch:execute', withSenderCheck(async (_, batchId) => {
       try {
         await this.executeBatch(batchId)
         return { code: 0 }
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
     ipcMain.handle('batch:schedule', (_, batchId) => {
       try {
@@ -270,10 +271,10 @@ class BatchManager {
       } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     })
 
-    ipcMain.handle('batch:delete', (_, id) => {
+    ipcMain.handle('batch:delete', withSenderCheck((_, id) => {
       try { this.store.deleteBatchJob(id); return { code: 0 } }
       catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-    })
+    }))
 
     ipcMain.handle('batch:duplicate-article', (_, article) => {
       try { return { code: 0, data: this.duplicateArticle(article) } }

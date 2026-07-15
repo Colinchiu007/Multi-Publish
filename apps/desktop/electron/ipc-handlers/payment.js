@@ -14,6 +14,7 @@
 // eslint-disable-next-line no-unused-vars
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const { withSenderCheck } = require('./helpers')
   const PaymentManager = require('../services/payment-manager')
   const pm = new PaymentManager()
 
@@ -68,7 +69,7 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('payment:complete', async function(event, options) {
+  ipcMain.handle('payment:complete', withSenderCheck(async function(event, options) {
     if (!_assertTrustedSender(event)) return _untrusted()
     // M-6 修复：参数校验
     if (!options || !options.orderId) return { code: EC.VALIDATION_ERROR, message: '缺少 orderId 参数' }
@@ -79,9 +80,9 @@ function registerHandlers(ipcMain, deps) {
     } catch(e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
-  ipcMain.handle('payment:simulate', async function(event, options) {
+  ipcMain.handle('payment:simulate', withSenderCheck(async function(event, options) {
     if (!_assertTrustedSender(event)) return _untrusted()
     // 安全：生产环境禁用模拟支付（可绕过支付直接激活 Pro）
     if (process.env.NODE_ENV === 'production') {
@@ -96,7 +97,7 @@ function registerHandlers(ipcMain, deps) {
     } catch(e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('payment:cancel', async function(event, orderId) {
     if (!_assertTrustedSender(event)) return _untrusted()

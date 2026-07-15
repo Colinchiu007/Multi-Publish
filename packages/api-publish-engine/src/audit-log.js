@@ -28,7 +28,7 @@ class AuditLog {
       const tmpPath = this._storageFile + ".tmp";
       fs.writeFileSync(tmpPath, JSON.stringify(this._entries, null, 2), "utf8");
       fs.renameSync(tmpPath, this._storageFile);
-    } catch(e) {}
+    } catch(e) { console.warn('[audit-log] persist failed:', e.message); }
   }
 
   async log(data) {

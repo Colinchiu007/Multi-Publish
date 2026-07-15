@@ -1,4 +1,38 @@
 
+## [系统化重构] v0.13.3 - Phase 1 安全加固 (2026-07-16)
+
+系统化重构路线图 Phase 1：安全加固。基于独立深度代码分析，修正用户方案 6 处偏差，补充 4 项盲区。
+
+### Task 1: CSP 内容安全策略
+- `src/index.html` 添加 Content-Security-Policy meta 标签
+- script-src 'self' 防御 XSS（sandbox:false 的关键补偿措施）
+- 允许 Fontshare/Google Fonts 字体加载 + Vite HMR (ws:/localhost)
+- 视觉测试 19/19 通过，CSP 未阻断字体加载和 HMR
+
+### Task 2: 修复生产代码 10 处空 catch（精确范围）
+- `api-publish-engine/src/`：scheduled-publish/publish-plan/audit-log/publish-api-client/plugin-loader(4处)/zhihu 共 10 处空 catch 加 console.warn
+- **未误改**合理 fallback：md-converter.js / browser-data.js / http-provider.js（这些是合理的 try-catch fallback）
+
+### Task 3: IPC sender 验证扩展（9 个敏感 handler）
+- 新建 `ipc-handlers/helpers.js`，提取 `withSenderCheck(fn)` 高阶函数
+- 包装 9 个敏感 handler：auth:save-credentials / store:delete-account / store:update-account / payment:complete / payment:simulate / batch:execute / batch:delete / scheduler:create / scheduler:cancel
+- 测试环境兼容：`_isTestEnv()` 检测跳过 sender 验证（mock event 无真实 senderFrame）
+- 只读 handler（查询类）不加验证，避免过度验证
+
+### Task 4: IPC handler 包装器
+- `ipc-handlers/helpers.js` 提取 `wrapIpcHandler(fn)` 和 `wrapIpcHandlerRaw(fn)` 高阶函数
+- 统一 try-catch + 参数校验 + 错误日志，消除模板重复
+- `scheduler.js` 迁移为 wrapIpcHandlerRaw 示例（保留原响应格式 + catchData 兜底）
+- 错误码从 `core/error-codes` 加载（负数语义），兜底定义与项目一致
+
+### 测试
+- 全量回归：3643 passed / 0 failed / 10 skipped（与基线一致）
+- 视觉测试：19/19 passed / 0 failed / 2 skipped (electron-only)
+
+### Spec 文档
+- 新建 `.trae/specs/refactoring-roadmap/`：spec.md / tasks.md / checklist.md
+- 15 Task 4 Phase 路线图，Phase 1 全部完成
+
 ## [重构改进] v0.13.2 - 5项改进 + CreateHistory测试 + stageClass bug修复 (2026-07-15)
 
 应用质量节拍日常循环：项目重构分析 Top 5 改进实现。

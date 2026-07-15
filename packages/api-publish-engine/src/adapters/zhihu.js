@@ -18,7 +18,7 @@ class ZhihuAdapter extends BasePlatformAdapter {
     if (ct && ct.isCancelled) return { success: false, error: "Cancelled" };
     if (!dr.data || (!dr.data.id && !dr.data.article_id)) { const msg = dr.data?.error?.message || dr.data?.message || "Failed to create draft"; return { success: false, error: msg, platform: "zhihu" }; }
     const aid = dr.data.article_id || dr.data.id;
-    if (pd.topics && pd.topics.length > 0) { try { await this.http.post(this.apiBase + "/api/articles/" + aid + "/topics", { topics: pd.topics.map(t => t.name) }, { headers: h }); } catch(e) {} }
+    if (pd.topics && pd.topics.length > 0) { try { await this.http.post(this.apiBase + "/api/articles/" + aid + "/topics", { topics: pd.topics.map(t => t.name) }, { headers: h }); } catch(e) { console.warn('[zhihu] topics 提交失败:', e.message); } }
     const pr = await this.http.post(this.apiBase + "/api/v4/content/publish", { article_id: aid, comment_permission: pd.commentPermission || "all", declare: pd.declare || "" }, { headers: h });
     if (pr.data?.success || pr.data?.id || pr.status === 200) return { success: true, url: this.apiBase + "/p/" + aid, platform: "zhihu", publishId: aid };
     return { success: true, url: this.apiBase + "/p/" + aid, platform: "zhihu", publishId: aid, draft: true };

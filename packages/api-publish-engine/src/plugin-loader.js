@@ -48,7 +48,7 @@ class PluginLoader {
     this._errors = [];
 
     if (!fs.existsSync(this._pluginsDir)) {
-      try { fs.mkdirSync(this._pluginsDir, { recursive: true }); } catch (e) {}
+      try { fs.mkdirSync(this._pluginsDir, { recursive: true }); } catch (e) { console.warn('[PluginLoader] mkdir failed:', e.message); }
       return this._plugins;
     }
 
@@ -243,7 +243,7 @@ class PluginLoader {
     this._disabled.add(platform);
     this._plugins.delete(platform);
     if (inst && typeof inst.onDisable === "function")
-      try { inst.onDisable({ appVersion: this._appVersion }).catch(function() {}); } catch(e) {}
+      try { inst.onDisable({ appVersion: this._appVersion }).catch(function() {}); } catch(e) { console.warn('[PluginLoader] onDisable failed:', e.message); }
   }
 
   enable(platform) {
@@ -269,7 +269,7 @@ class PluginLoader {
         this._manifests.set(instance.platform, manifest);
         this._pluginDirs.set(instance.platform, filepath);
         if (typeof instance.onEnable === "function")
-          try { instance.onEnable({ appVersion: this._appVersion }).catch(function() {}); } catch(e) {}
+          try { instance.onEnable({ appVersion: this._appVersion }).catch(function() {}); } catch(e) { console.warn('[PluginLoader] onEnable failed:', e.message); }
         console.log("[PluginLoader] Re-enabled: " + instance.platform);
       }
     }
@@ -328,7 +328,7 @@ class PluginLoader {
       if (fs.existsSync(cfgPath)) {
         return JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
       }
-    } catch (e) {}
+    } catch (e) { console.warn('[PluginLoader] getConfig failed:', e.message); }
     return null;
   }
 
