@@ -19,8 +19,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 __registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
 const { AgnesVideoAdapter, AGNES_VIDEO_MODELS } = require('./agnes-video')
-const { ProviderError, ERROR_CODES } = require('./provider-error')
-const { ADAPTER_VERSION } = require('./base')
+const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
+const { ADAPTER_VERSION } = require('./_base/base')
 
 // ─── fetch mock 工具 ───
 function createFetchResponse(body, status = 200, headers = {}) {

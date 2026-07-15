@@ -24,8 +24,8 @@
  * - listModels 静态列表避免不必要的 HTTP 请求
  */
 
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
 const DEFAULT_TIMEOUT = 60000

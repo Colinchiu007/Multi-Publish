@@ -65,7 +65,7 @@ class ModelProviderManager {
     try {
       adapter = this._getOrCreateAdapter(providerId, provider)
     } catch (e) {
-      const { ProviderError } = require('./adapters/provider-error')
+      const { ProviderError } = require('./adapters/_base/provider-error')
       if (e instanceof ProviderError) {
         return { code: -1, error: e, message: e.message }
       }
@@ -89,7 +89,7 @@ class ModelProviderManager {
       const errorMsg = e.message || String(e)
       this._writeLog(provider, method, 'error', latency_ms, errorMsg)
       // ProviderError 透传
-      const { ProviderError } = require('./adapters/provider-error')
+      const { ProviderError } = require('./adapters/_base/provider-error')
       if (e instanceof ProviderError) {
         return { code: -1, error: e, message: e.message }
       }
@@ -222,7 +222,7 @@ class ModelProviderManager {
       musicgen: require('./adapters/musicgen').MusicGenAdapter,
       'pixabay-music': require('./adapters/pixabay-music').PixabayMusicAdapter,
       freesound: require('./adapters/freesound').FreesoundAdapter,
-      'music-library': require('./adapters/music-library').MusicLibraryAdapter,
+      'music-library': require('./adapters/_base/music-library').MusicLibraryAdapter,
     }
 
     for (const [providerId, AdapterClass] of Object.entries(adapters)) {

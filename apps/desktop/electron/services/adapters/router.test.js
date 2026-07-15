@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 __registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
-const { ProviderRouter } = require('./router')
+const { ProviderRouter } = require('./_base/router')
 
 // ─── mock manager ───
 function createMockManager(providers = []) {
@@ -568,7 +568,7 @@ describe('ProviderRouter — P3.3 路由策略 + 故障转移', () => {
 
   describe('P3.3 补跑：executeWithFailover — 错误类型', () => {
     it('ProviderError 透传到最后', async () => {
-      const { ProviderError, ERROR_CODES } = require('./provider-error')
+      const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
       const fn = vi.fn(async () => {
         throw new ProviderError(ERROR_CODES.AUTH_FAILED, 'Invalid key')
       })

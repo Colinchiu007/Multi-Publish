@@ -39,22 +39,22 @@
 
 ## Phase 3：架构重构
 
-- [ ] Store 现有 API 快照测试已编写（锁定 35 方法行为）
-- [ ] `store/` 目录结构已创建（base-store + 8 子 store）
-- [ ] 8 个功能域全部迁移到独立子 store（账号/历史/定时/设置/回调/批量/频率/模型日志）
-- [ ] `store/index.js` 统一导出，`require('./store')` 向后兼容
-- [ ] 数据迁移测试通过（SQLite schema 无数据丢失）
-- [ ] App.vue 行数 < 100 行（仅布局组合）
-- [ ] UpdateNotification/OfflineIndicator/NotificationBar 组件已提取
-- [ ] layouts/ 目录已创建（AppLayout/AppSidebar/AppNavbar/AppStatusBar）
-- [ ] `adapters/_base/` 子目录已创建
-- [ ] 6 个基础设施文件已移入 `_base/`（base.js / registry.js / router.js / provider-error.js / openai-compatible.js / music-library.js）
-- [ ] **未移动** 46 个 adapter 文件（命名后缀已自带分组语义）
-- [ ] model-provider-manager.js require 路径已更新
-- [ ] createAppContext 返回值按 infra/services/windows/pipelines 分组（52 字段）
-- [ ] 过渡期兼容层已实现（Proxy 代理 context.store → context.infra.store）
-- [ ] 全量回归测试通过
-- [ ] 视觉测试通过
+- [x] Store 现有 API 快照测试已编写（锁定 35 方法行为）
+- [x] `store/` 目录结构已创建（base-store + 8 子 store）
+- [x] 8 个功能域全部迁移到独立子 store（账号/历史/定时/设置/回调/批量/频率/模型日志）
+- [x] `store/index.js` 统一导出，`require('./store')` 向后兼容
+- [x] 数据迁移测试通过（SQLite schema 无数据丢失）
+- [x] App.vue 行数 < 100 行（仅布局组合）
+- [x] UpdateNotification/OfflineIndicator/NotificationBar 组件已提取
+- [x] layouts/ 目录已创建（AppLayout/AppSidebar/AppNavbar/AppStatusBar）
+- [x] `adapters/_base/` 子目录已创建
+- [x] 6 个基础设施文件已移入 `_base/`（base.js / registry.js / router.js / provider-error.js / openai-compatible.js / music-library.js）
+- [x] **未移动** 46 个 adapter 文件（命名后缀已自带分组语义）
+- [x] model-provider-manager.js require 路径已更新
+- [x] createAppContext 返回值按 infra/services/windows/pipelines 分组（52 字段）
+- [x] 过渡期兼容层已实现（Proxy 代理 context.store → context.infra.store）
+- [x] 全量回归测试通过
+- [x] 视觉测试通过
 
 ## Phase 4：测试补全
 

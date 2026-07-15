@@ -22,7 +22,7 @@
  */
 
 const { OpenAIAdapter } = require('./openai')
-const { ProviderError, ERROR_CODES } = require('./provider-error')
+const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
 
 // OpenAI TTS 静态预定义声音列表
 const TTS_VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'coral', 'sage']

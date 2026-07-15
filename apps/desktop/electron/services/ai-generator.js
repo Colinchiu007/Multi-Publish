@@ -9,7 +9,7 @@
  *   - 路径 C（故障转移）: useFailover=true 时通过 router.executeWithFailover
  */
 
-const { ProviderError } = require('./adapters/provider-error')
+const { ProviderError } = require('./adapters/_base/provider-error')
 
 // type → Adapter method 映射
 const TYPE_TO_METHOD = {

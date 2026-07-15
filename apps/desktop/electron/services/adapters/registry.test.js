@@ -15,8 +15,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
-const { AdapterRegistry } = require('./registry')
-const { BaseAdapter, ADAPTER_VERSION } = require('./base')
+const { AdapterRegistry } = require('./_base/registry')
+const { BaseAdapter, ADAPTER_VERSION } = require('./_base/base')
 
 // 创建测试用 Adapter
 class TestLlmAdapter extends BaseAdapter {

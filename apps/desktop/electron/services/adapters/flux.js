@@ -25,8 +25,8 @@
  * - 默认 model flux-pro-1.1，可通过 params.model 覆盖为 flux-dev/flux-schnell
  */
 
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://api.bfl.ai'
 const DEFAULT_TIMEOUT = 120000

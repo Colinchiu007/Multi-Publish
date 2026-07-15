@@ -16,8 +16,8 @@
  *   - testConnection()   GET /?key=xxx&q=test 检查 HTTP 200
  */
 
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://pixabay.com/api/'
 const DEFAULT_TIMEOUT = 30000

@@ -468,7 +468,7 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
         api_key: 'sk-bad', models: ['gpt-4o'],
       })
 
-      const { ProviderError, ERROR_CODES } = require('./adapters/provider-error')
+      const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
       manager.registerAdapter('openai', (creds) => ({
         id: 'openai',
         credentials: creds,
@@ -636,7 +636,7 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
         api_key: 'sk-test', models: ['m'],
       })
 
-      const { ProviderError, ERROR_CODES } = require('./adapters/provider-error')
+      const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
       manager.registerAdapter('crash-pe', (creds) => {
         throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'Invalid credentials')
       })

@@ -28,9 +28,68 @@ const _CloudPublisherModule = require('../services/cloud-publisher')
 const CloudPublisher = _CloudPublisherModule.default || _CloudPublisherModule
 
 /**
+ * 为分组 context 对象包装过渡期兼容 Proxy。
+ *
+ * 旧代码：context.store 仍可用（Proxy 转发到 context.infra.store）
+ * 新代码：context.infra.store / context.services.scheduler / context.windows.webviewManager / context.pipelines.viralEngine
+ *
+ * 行为：
+ * - get：先查顶层（组名/松散属性），再查各子组（向后兼容 context.store → context.infra.store）
+ * - set：若属性已是某子组自有属性则更新该子组，否则落到顶层（如 keywordPersistTimer）
+ * - has：顶层或任一子组含该属性即 true
+ * - ownKeys / getOwnPropertyDescriptor：返回 4 个组名 + 全部字段名（兼容 Object.keys 遍历与 hasOwnProperty 检查）
+ *
+ * @param {object} grouped - { infra, services, windows, pipelines }
+ * @returns {object} Proxy 包装后的 context
+ */
+function createGroupedContextProxy(grouped) {
+  return new Proxy(grouped, {
+    get(target, prop) {
+      if (prop in target) return target[prop]
+      for (const g of Object.values(target)) {
+        if (prop in g) return g[prop]
+      }
+      return undefined
+    },
+    set(target, prop, value) {
+      for (const g of Object.values(target)) {
+        if (Object.prototype.hasOwnProperty.call(g, prop)) { g[prop] = value; return true }
+      }
+      target[prop] = value
+      return true
+    },
+    has(target, prop) {
+      if (prop in target) return true
+      for (const g of Object.values(target)) {
+        if (prop in g) return true
+      }
+      return false
+    },
+    ownKeys(target) {
+      const keys = new Set(Object.keys(target))
+      for (const g of Object.values(target)) {
+        Object.keys(g).forEach((k) => keys.add(k))
+      }
+      return Array.from(keys)
+    },
+    getOwnPropertyDescriptor(target, prop) {
+      if (Object.prototype.hasOwnProperty.call(target, prop)) {
+        return Object.getOwnPropertyDescriptor(target, prop)
+      }
+      for (const g of Object.values(target)) {
+        if (Object.prototype.hasOwnProperty.call(g, prop)) {
+          return { configurable: true, enumerable: true, writable: true, value: g[prop] }
+        }
+      }
+      return undefined
+    },
+  })
+}
+
+/**
  * 从 DI 容器提取所有实例 + 运行模块单例副作用
  * @param {object} container - DI 容器实例
- * @returns {object} context 对象（含 40+ 字段，供 createAppContext / runWhenReady 使用）
+ * @returns {object} context 对象（含 52 字段，按 infra/services/windows/pipelines 分组 + Proxy 兼容层）
  */
 function extractContext(container) {
   const LicenseManager = require('../services/license-manager')
@@ -84,7 +143,7 @@ function extractContext(container) {
 
   // ─── ModelProviderManager + ProviderRouter 接线 ───
   const { ModelProviderManager } = require('../services/model-provider-manager')
-  const { ProviderRouter } = require('../services/adapters/router')
+  const { ProviderRouter } = require('../services/adapters/_base/router')
   const modelProviderManager = new ModelProviderManager(store)
   // 创建 ProviderRouter（不注入 logHandler，避免与 callAdapter 内部日志双写）
   // callAdapter 内部已通过 _writeLog 统一记录到 model_provider_logs 表
@@ -117,22 +176,34 @@ function extractContext(container) {
   const serviceBus = container.get('serviceBus')
   const pluginRegistry = container.get('pluginRegistry')
 
-  return {
-    container, store, taskQueue, scheduler, callbackServer,
-    keywordMonitor, analyticsService, pythonBridge,
-    AccountManager, history, autoUpdater, hotkeys, firstRun,
-    systemTray, offlineManager, publishMonitor,
-    authViewManager, rpaViewManager, webviewManager, qrCodeLogin,
-    oauthManager, batchManager, urlCollector, providerManager,
-    viralEngine, commentManager, contentIntelligence, publishImpactTracker,
-    proxyPool, templateManager, licenseManager, aiWriter,
-    renderEngine, compositionManager, aiGenerator, videoEngine,
-    pipelineEngine, modelProviderManager, providerRouter, _chunkedUploader, _platformConfig,
-    _sensitiveFilter, _dataSync, BACKEND_PLATFORMS,
-    CloudPublisher,
-    _aggregatorBridge, publisherRouter, _PublishAlert,
-    splitterBridge, promptBridge, serviceBus, pluginRegistry,
-  }
+  // ─── 分组返回 + 过渡期 Proxy 兼容层 ───
+  // 旧消费者 context.store 仍可用（Proxy 转发到 context.infra.store）
+  // 新代码可用 context.infra.store / context.services.scheduler / context.windows.webviewManager / context.pipelines.viralEngine
+  return createGroupedContextProxy({
+    infra: {
+      container, store, taskQueue, pythonBridge,
+      _platformConfig, _sensitiveFilter, _dataSync,
+      BACKEND_PLATFORMS, _chunkedUploader,
+    },
+    services: {
+      scheduler, callbackServer, keywordMonitor, analyticsService,
+      AccountManager, history, autoUpdater, hotkeys, firstRun,
+      systemTray, offlineManager, publishMonitor,
+      templateManager, licenseManager, aiWriter,
+      renderEngine, compositionManager, aiGenerator, videoEngine, pipelineEngine,
+      modelProviderManager, providerRouter, providerManager,
+      _aggregatorBridge, publisherRouter, _PublishAlert,
+      splitterBridge, promptBridge, serviceBus, pluginRegistry,
+    },
+    windows: {
+      authViewManager, rpaViewManager, webviewManager, qrCodeLogin,
+      oauthManager, batchManager, urlCollector, proxyPool,
+    },
+    pipelines: {
+      viralEngine, commentManager, contentIntelligence,
+      publishImpactTracker, CloudPublisher,
+    },
+  })
 }
 
 module.exports = { extractContext }

@@ -9,9 +9,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 __registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
-const { MusicLibraryAdapter } = require('./music-library')
-const { ProviderError, ERROR_CODES } = require('./provider-error')
-const { ADAPTER_VERSION } = require('./base')
+const { MusicLibraryAdapter } = require('./_base/music-library')
+const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
+const { ADAPTER_VERSION } = require('./_base/base')
 
 function createFetchResponse(body, status = 200) {
   return {

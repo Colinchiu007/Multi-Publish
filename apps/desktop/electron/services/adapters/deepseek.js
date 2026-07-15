@@ -20,7 +20,7 @@
  * - getProviderInfo 返回 id 标识（继承自 BaseAdapter）
  */
 
-const { OpenAICompatibleAdapter } = require('./openai-compatible')
+const { OpenAICompatibleAdapter } = require('./_base/openai-compatible')
 
 class DeepSeekAdapter extends OpenAICompatibleAdapter {
   // 无需新增方法，全部继承自 OpenAICompatibleAdapter
