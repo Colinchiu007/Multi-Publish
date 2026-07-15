@@ -17,7 +17,7 @@
  * - _logCall 钩子供子类或调用方记录日志（默认空实现）
  */
 
-const log = require('../logger')
+const log = require('../../logger')
 
 class ProviderRouter {
   /**

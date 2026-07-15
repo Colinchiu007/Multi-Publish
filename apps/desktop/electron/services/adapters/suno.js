@@ -17,8 +17,8 @@
  *       supports() 默认返回 false，需在 capabilities() 中手动添加。
  */
 
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://api.suno.ai/v1'
 const DEFAULT_TIMEOUT = 120000

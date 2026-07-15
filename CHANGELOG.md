@@ -1,4 +1,36 @@
 
+## [系统化重构] v0.13.5 - Phase 3 架构重构 (2026-07-16)
+
+系统化重构路线图 Phase 3：架构重构。Store 拆分、App.vue 拆分、Adapter 目录优化、createAppContext 分组。
+
+### Task 9: Store 类按功能域拆分（570 行 → facade + 8 子 store）
+- `store.js` 从 570 行实现改为 38 行 thin re-export（向后兼容 `require('./store')`）
+- 新建 `store/` 目录：base-store + account/history/scheduler/settings/callback/batch/rate-limit/model-log 8 个子 store
+- Mixin 模式：`Object.assign(Store.prototype, accountStoreMixin, ...)` 保持 `instanceof Store` 有效
+- 新增 39 个快照测试（store-snapshot.test.js）：API 表面 + SQL 模板 + 降级 + 生命周期
+- SQLite schema 完全不变，数据零丢失
+
+### Task 10: App.vue 拆分（332 行 → 60 行）
+- 提取 4 个组件：UpdateNotification.vue / OfflineIndicator.vue / layouts/AppNavbar.vue / layouts/AppSidebar.vue
+- App.vue 仅保留 licenseStore.load() + onNavigate 全局监听 + SettingsDialog 状态
+- 每个组件独立管理生命周期（onMounted/onBeforeUnmount）
+- 未提取 NotificationBar（无独立功能）和 AppLayout（过度抽象）
+
+### Task 11: Adapter 目录优化（仅提取基础设施）
+- 6 个基础设施文件移入 `adapters/_base/` 子目录（base/registry/router/provider-error/openai-compatible/music-library）
+- 207 处 require 路径更新（111 个文件），用 git mv 保留历史
+- 46 个 adapter 文件不动（命名后缀已自带分组语义）
+
+### Task 12: createAppContext 上帝对象分组（52 字段 → 4 组）
+- 52 字段按 infra(9)/services(30)/windows(8)/pipelines(5) 分组
+- Proxy 兼容层：5 个 trap（get/set/has/ownKeys/getOwnPropertyDescriptor）
+- `context.store` → `context.infra.store` 自动转发，零破坏现有消费者
+- 后续可逐文件迁移（bootstrap.js/shutdown.js/window.js/phase5-ipc.js）
+
+### 测试
+- 全量回归：3682 passed / 0 failed / 10 skipped（+39 新测试，基线 3643 → 3682）
+- 视觉测试：19/19 passed / 0 failed / 2 skipped (electron-only)
+
 ## [系统化重构] v0.13.4 - Phase 2 代码清理 (2026-07-16)
 
 系统化重构路线图 Phase 2：代码清理。删除旧版 preload、var 现代化、定时器 unref 补全、硬编码配置抽取。

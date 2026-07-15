@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest'
 
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 describe('ProviderError — P3.0 错误类型', () => {
   describe('ProviderError 构造', () => {

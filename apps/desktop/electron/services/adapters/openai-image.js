@@ -22,7 +22,7 @@
  */
 
 const { OpenAIAdapter } = require('./openai')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_MODEL = 'dall-e-3'
 const DEFAULT_SIZE = '1024x1024'

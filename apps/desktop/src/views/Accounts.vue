@@ -215,8 +215,11 @@ async function addAccount () {
       newPlatform.value = ''
       authViewVisible.value = true
       const res = await authOpenLogin(platform)
-      if (res.code !== 0) ElMessage.error(res.message || '添加失败')
-      // auth:completed 事件自动刷新
+      if (res.cancelled) {
+        authViewVisible.value = false
+      } else if (res.code !== 0) {
+        ElMessage.error(res.message || '添加失败')
+      }
     } else {
       const res = await accountAdd(newPlatform.value)
       if (res.code === 0) {

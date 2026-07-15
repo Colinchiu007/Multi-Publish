@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from 'vitest'
 
 __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
-const { BaseAdapter, NotImplementedError, ADAPTER_VERSION } = require('./base')
+const { BaseAdapter, NotImplementedError, ADAPTER_VERSION } = require('./_base/base')
 
 describe('BaseAdapter — P3.0 接口契约', () => {
   describe('ADAPTER_VERSION', () => {
@@ -221,7 +221,7 @@ describe('BaseAdapter — P3.0 接口契约', () => {
     })
 
     it('NotImplementedError 是 ProviderError 子类', () => {
-      const { ProviderError } = require('./provider-error')
+      const { ProviderError } = require('./_base/provider-error')
       const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
       try {
         adapter.chatCompletion()

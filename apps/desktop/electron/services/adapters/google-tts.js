@@ -25,8 +25,8 @@
  * - 所有 HTTP 错误统一抛 ProviderError
  */
 
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://texttospeech.googleapis.com'
 const DEFAULT_TIMEOUT = 60000

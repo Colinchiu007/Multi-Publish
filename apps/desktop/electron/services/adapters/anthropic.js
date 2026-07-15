@@ -26,8 +26,8 @@
  * - max_tokens 默认 4096（Anthropic 必填，不同于 OpenAI 可选）
  */
 
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://api.anthropic.com'
 const DEFAULT_TIMEOUT = 60000

@@ -9,7 +9,7 @@
  * - getAdaptersByCapability 按能力筛选
  */
 
-const log = require('../logger')
+const log = require('../../logger')
 const { ADAPTER_VERSION } = require('./base')
 const { ProviderError, ERROR_CODES } = require('./provider-error')
 

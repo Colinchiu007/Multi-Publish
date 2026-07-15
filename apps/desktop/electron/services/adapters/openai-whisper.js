@@ -21,7 +21,7 @@
  */
 
 const { OpenAIAdapter } = require('./openai')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_MODEL = 'whisper-1'
 

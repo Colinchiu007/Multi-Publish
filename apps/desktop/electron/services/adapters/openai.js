@@ -20,8 +20,8 @@
  * - 网络错误区分 TIMEOUT 和 NETWORK_ERROR
  */
 
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1'
 const DEFAULT_TIMEOUT = 30000

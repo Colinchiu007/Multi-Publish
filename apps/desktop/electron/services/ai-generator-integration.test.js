@@ -21,7 +21,7 @@ __registerMock('./python-bridge', {
 })
 
 const { AIGenerator } = require('./ai-generator')
-const { ProviderError, ERROR_CODES } = require('./adapters/provider-error')
+const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
 
 // ─── mock manager ───
 function createMockManager(providers = []) {
@@ -503,7 +503,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
     it('onProgress 抛 ProviderError 也不影响主流程', async () => {
       ai.setRouter(router)
       manager._adapterFactories.set('openai', () => ({}))
-      const { ProviderError, ERROR_CODES } = require('./adapters/provider-error')
+      const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
 
       const result = await ai.generate('llm', 'openai', {
         messages: [],

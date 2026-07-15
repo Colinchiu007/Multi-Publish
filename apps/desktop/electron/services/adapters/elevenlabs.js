@@ -26,8 +26,8 @@
  * - voice_settings 自动构造（stability/similarity_boost 可选）
  */
 
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://api.elevenlabs.io'
 const DEFAULT_TIMEOUT = 60000

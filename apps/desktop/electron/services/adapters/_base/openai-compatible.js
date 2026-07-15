@@ -13,7 +13,7 @@
  * 继承 OpenAIAdapter，仅覆盖 validateConfig 放宽 baseUrl 要求
  */
 
-const { OpenAIAdapter } = require('./openai')
+const { OpenAIAdapter } = require('../openai')
 
 class OpenAICompatibleAdapter extends OpenAIAdapter {
   /**

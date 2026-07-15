@@ -26,8 +26,8 @@
  */
 
 const crypto = require('crypto')
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://openspeech.bytedance.com'
 const DEFAULT_TIMEOUT = 60000

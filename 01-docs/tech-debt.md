@@ -52,3 +52,11 @@
 
 2026-07-16 | 10 处硬编码 127.0.0.1/端口 | 🟡 中 | ✅ 已修复 | callback-server/oauth-manager/window/python-bridge/prompt-bridge/splitter-bridge 6 个文件 13 处硬编码。修复：新建 `electron/config/app-config.js` 统一 6 个服务配置（环境变量优先），替换 13 处硬编码。保留安全检查代码中的 127.0.0.1（isTrustedSender 字面量）
 
+2026-07-16 | Store 类过于庞大（570 行 8 功能域） | 🟠 高 | ✅ 已修复 | `store.js` 570 行含 8 个功能域（账号/历史/定时/设置/回调/批量/频率/模型日志），违反单一职责。修复：物理拆分为 `store/` 目录（base-store + 8 子 store + index），Mixin 模式 `Object.assign(Store.prototype, ...)`，store.js 改为 38 行 thin re-export 保持 `require('./store')` 向后兼容。新增 39 个快照测试。SQLite schema 不变
+
+2026-07-16 | App.vue 过于庞大（332 行 7 功能域） | 🟡 中 | ✅ 已修复 | `App.vue` 332 行含布局/侧边栏/导航栏/状态栏/更新通知/离线指示/通知条 7 个功能域。修复：提取 4 个组件（UpdateNotification/OfflineIndicator/layouts/AppNavbar/layouts/AppSidebar），App.vue 瘦身到 60 行。每个组件独立管理生命周期
+
+2026-07-16 | Adapter 目录膨胀（52 文件平面排列） | 🟢 低 | ✅ 已修复 | `adapters/` 52 文件平面排列。修复：6 个基础设施文件移入 `_base/` 子目录（base/registry/router/provider-error/openai-compatible/music-library），207 处 require 路径更新。46 个 adapter 不动（命名后缀已自带分组语义）
+
+2026-07-16 | createAppContext 上帝对象（52 字段） | 🔴 严重 | ✅ 已修复 | `extractContext()` 返回 52 个扁平字段。修复：按 infra(9)/services(30)/windows(8)/pipelines(5) 分组，Proxy 兼容层（5 个 trap）实现 `context.store` → `context.infra.store` 自动转发，零破坏现有消费者。后续可逐文件迁移
+

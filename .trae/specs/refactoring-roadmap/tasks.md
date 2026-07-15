@@ -55,27 +55,27 @@
 
 ## Phase 3：架构重构（🟡 中-高风险）
 
-- [ ] Task 9: Store 类按功能域拆分（🔴 高风险 — 涉及 SQLite）
+- [x] Task 9: Store 类按功能域拆分（🔴 高风险 — 涉及 SQLite） ✅
   - [ ] SubTask 9.1: 先写 Store 现有 API 的快照测试（锁定行为，35 方法）
   - [ ] SubTask 9.2: 创建 `store/` 目录结构（base-store.js + 8 个子 store）
   - [ ] SubTask 9.3: 逐个迁移功能域（账号→历史→定时→设置→回调→批量→频率→模型日志）
   - [ ] SubTask 9.4: `store/index.js` 统一导出，保持 `require('./store')` 向后兼容
   - [ ] SubTask 9.5: 全量回归 + 数据迁移测试（SQLite schema 无数据丢失）
 
-- [ ] Task 10: App.vue 拆分
+- [x] Task 10: App.vue 拆分 ✅
   - [ ] SubTask 10.1: 提取 UpdateNotification.vue / OfflineIndicator.vue / NotificationBar.vue 组件
   - [ ] SubTask 10.2: 创建 layouts/AppLayout.vue / AppSidebar.vue / AppNavbar.vue / AppStatusBar.vue
   - [ ] SubTask 10.3: App.vue 瘦身到 <100 行（仅布局组合）
   - [ ] SubTask 10.4: 视觉测试确认 UI 无回归（19/19 基线）
 
-- [ ] Task 11: Adapter 目录优化（仅提取基础设施，不分子目录）
+- [x] Task 11: Adapter 目录优化（仅提取基础设施，不分子目录） ✅
   - [ ] SubTask 11.1: 创建 `adapters/_base/` 子目录
   - [ ] SubTask 11.2: 移动 6 个基础设施文件到 `_base/`（base.js / registry.js / router.js / provider-error.js / openai-compatible.js / music-library.js）
   - [ ] SubTask 11.3: 更新 model-provider-manager.js 的 require 路径
   - [ ] SubTask 11.4: **不移动** 46 个 adapter 文件（命名后缀已自带分组语义）
   - [ ] SubTask 11.5: 全量回归测试
 
-- [ ] Task 12: createAppContext 上帝对象分组（52 字段，🔴 CRITICAL）
+- [x] Task 12: createAppContext 上帝对象分组（52 字段，🔴 CRITICAL） ✅
   - [ ] SubTask 12.1: 将 52 个字段按 infra/services/windows/pipelines 分组
   - [ ] SubTask 12.2: 更新所有 context 消费者（bootstrap/shutdown/IPC handlers）
   - [ ] SubTask 12.3: 保持过渡期兼容（Proxy 代理 context.store → context.infra.store）

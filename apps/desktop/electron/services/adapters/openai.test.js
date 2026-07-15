@@ -21,8 +21,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 __registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
 const { OpenAIAdapter } = require('./openai')
-const { ProviderError, ERROR_CODES, NotImplementedError } = require('./provider-error')
-const { BaseAdapter, ADAPTER_VERSION } = require('./base')
+const { ProviderError, ERROR_CODES, NotImplementedError } = require('./_base/provider-error')
+const { BaseAdapter, ADAPTER_VERSION } = require('./_base/base')
 
 // ─── fetch mock 工具 ───
 function createFetchResponse(body, status = 200, headers = {}) {

@@ -19,8 +19,8 @@
  * - 不发送 size 字段（Grok API 与 OpenAI DALL-E 不同，不强制要求 size）
  */
 
-const { OpenAICompatibleAdapter } = require('./openai-compatible')
-const { ProviderError, ERROR_CODES } = require('./provider-error')
+const { OpenAICompatibleAdapter } = require('./_base/openai-compatible')
+const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://api.x.ai/v1'
 const DEFAULT_MODEL = 'grok-image'

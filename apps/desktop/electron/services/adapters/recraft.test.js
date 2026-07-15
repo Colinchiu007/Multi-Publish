@@ -10,8 +10,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 __registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
 const { RecraftAdapter, VALID_STYLES, RECRAFT_MODELS } = require('./recraft')
-const { ProviderError, ERROR_CODES } = require('./provider-error')
-const { BaseAdapter, ADAPTER_VERSION } = require('./base')
+const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
+const { BaseAdapter, ADAPTER_VERSION } = require('./_base/base')
 
 // ─── fetch mock 工具 ───
 function createFetchResponse(body, status = 200, headers = {}) {

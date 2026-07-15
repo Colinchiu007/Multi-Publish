@@ -15,8 +15,8 @@
  *   - testConnection()   通过最小请求验证
  */
 
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 const crypto = require('crypto')
 
 const DEFAULT_BASE_URL = 'https://hunyuan.tencentcloudapi.com'

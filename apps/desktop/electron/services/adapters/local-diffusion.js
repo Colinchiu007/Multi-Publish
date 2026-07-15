@@ -20,8 +20,8 @@
  *   - testConnection()   GET /sdapi/v1/options 检查在线
  */
 
-const { BaseAdapter } = require('./base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./provider-error')
+const { BaseAdapter } = require('./_base/base')
+const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'http://localhost:7860'
 const DEFAULT_TIMEOUT = 300000
