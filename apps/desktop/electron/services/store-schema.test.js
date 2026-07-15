@@ -23,6 +23,26 @@ describe("store-schema", () => {
     expect(TABLE_NAMES).toHaveProperty("callback_logs");
     expect(TABLE_NAMES).toHaveProperty("batch_jobs");
     expect(TABLE_NAMES).toHaveProperty("publish_timeline");
+    expect(TABLE_NAMES).toHaveProperty("model_providers");
+    // Phase 2+：调用日志表
+    expect(TABLE_NAMES).toHaveProperty("model_provider_logs");
+  });
+
+  it("SCHEMA_SQL 包含 model_provider_logs 表创建语句", async () => {
+    const { SCHEMA_SQL } = await import("../services/store-schema");
+    const tableSql = SCHEMA_SQL.find(s => s.includes("model_provider_logs"));
+    expect(tableSql).toBeDefined();
+    expect(tableSql).toContain("provider_id");
+    expect(tableSql).toContain("category");
+    expect(tableSql).toContain("action");
+    expect(tableSql).toContain("status");
+    expect(tableSql).toContain("latency_ms");
+  });
+
+  it("SCHEMA_SQL 包含 model_provider_logs 索引", async () => {
+    const { SCHEMA_SQL } = await import("../services/store-schema");
+    const indexSqls = SCHEMA_SQL.filter(s => s.includes("idx_model_provider_logs"));
+    expect(indexSqls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("safeJsonParse parses JSON strings safely", async () => {

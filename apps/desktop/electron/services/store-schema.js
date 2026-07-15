@@ -13,6 +13,7 @@ const TABLE_NAMES = {
   batch_jobs: "batch_jobs",
   publish_timeline: "publish_timeline",
   model_providers: "model_providers",
+  model_provider_logs: "model_provider_logs",
 };
 
 const SCHEMA_SQL = [
@@ -94,6 +95,24 @@ const SCHEMA_SQL = [
     updated_at    TEXT DEFAULT (datetime("now"))
   )`,
   `CREATE INDEX IF NOT EXISTS idx_model_providers_category ON model_providers(category)`,
+  // ─── Phase 2+：模型供应商调用日志表 ───
+  `CREATE TABLE IF NOT EXISTS model_provider_logs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id   TEXT NOT NULL,
+    category      TEXT NOT NULL,
+    model         TEXT,
+    action        TEXT NOT NULL,
+    status        TEXT NOT NULL,
+    latency_ms    INTEGER,
+    tokens_in     INTEGER,
+    tokens_out    INTEGER,
+    cost          REAL,
+    error_message TEXT,
+    created_at    TEXT DEFAULT (datetime("now")),
+    FOREIGN KEY (provider_id) REFERENCES model_providers(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_model_provider_logs_provider ON model_provider_logs(provider_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_model_provider_logs_created ON model_provider_logs(created_at)`,
 ];
 
 function safeJsonParse(str, fallback = null) {

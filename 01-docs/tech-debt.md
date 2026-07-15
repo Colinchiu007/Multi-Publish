@@ -8,6 +8,8 @@
 
 2026-07-15 | FLUX listModels 浅拷贝突变污染 | 🟠 高 | ✅ 已修复 | `flux.js` listModels() 用 `slice()` 仅浅拷贝数组，对象引用共享，调用方修改返回值污染内部 FLUX_MODELS 静态列表。修复为 `map(m => ({ ...m }))`。由质量节拍补跑步骤② TDD 场景脑暴发现
 
-2026-07-15 | Hunyuan Video Adapter 待实现 | 🟡 中 | 待实现 | IVideoAdapter mixin 已在 base.js 定义（generateVideo + getVideoStatus），但无 Adapter 实现。4 类 mixin 中 Video 类别空缺。下一步可选 Hunyuan(TC3签名) / CogVideo(Bearer) / Kling(Bearer)
+2026-07-15 | Hunyuan Video Adapter 待实现 | 🟡 中 | ✅ 已修复 | 已在 commit 4736094 中实现全部 39 个 Adapter（含 Hunyuan），覆盖 6 大类别 43 个供应商。IVideoAdapter mixin 的 12 个 Video Adapter 全部就绪
+
+2026-07-15 | model_provider_logs 表未启用 | 🟡 中 | ✅ 已修复 | store-schema.js 已添加 model_provider_logs 表 + 2 个索引，store.js 新增 addProviderLog/getProviderLogs/cleanProviderLogs 三方法，router.js 通过 logHandler 注入模式写入日志（不直接依赖 db，保持可独立测试）
 
 2026-07-15 | Anthropic streamChat 无集成测试 | 🟢 低 | 部分覆盖 | 质量节拍补跑已补充 9 个单元测试覆盖 SSE 解析逻辑，但缺真实 Anthropic API 端到端集成测试（需 API Key，CI 环境无法执行）

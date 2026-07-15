@@ -261,6 +261,54 @@ describe('ProviderRouter — P3.3 路由策略 + 故障转移', () => {
     })
   })
 
+  // ─── Phase 2+：logHandler 注入（model_provider_logs 表启用）───
+  describe('_logCall — logHandler 注入模式', () => {
+    it('构造函数传入 logHandler 时 _logCall 调用它', () => {
+      const logs = []
+      const handler = (provider, status, error) => {
+        logs.push({ providerId: provider.id, status, error })
+      }
+      const r = new ProviderRouter(manager, handler)
+      r._logCall({ id: 'openai' }, 'success')
+      r._logCall({ id: 'anthropic' }, 'error', 'timeout')
+      expect(logs).toHaveLength(2)
+      expect(logs[0]).toEqual({ providerId: 'openai', status: 'success', error: null })
+      expect(logs[1]).toEqual({ providerId: 'anthropic', status: 'error', error: 'timeout' })
+    })
+
+    it('logHandler 抛错时不影响主流程（静默吞掉）', () => {
+      const badHandler = () => { throw new Error('log write failed') }
+      const r = new ProviderRouter(manager, badHandler)
+      // _logCall 不应抛错
+      expect(() => r._logCall({ id: 'openai' }, 'success')).not.toThrow()
+      expect(() => r._logCall({ id: 'openai' }, 'error', 'fail')).not.toThrow()
+    })
+
+    it('未传入 logHandler 时 _logCall 静默不抛错', () => {
+      const r = new ProviderRouter(manager)
+      expect(() => r._logCall({ id: 'openai' }, 'success')).not.toThrow()
+    })
+
+    it('setLogHandler 动态注入日志处理器', () => {
+      const r = new ProviderRouter(manager)
+      const logs = []
+      r.setLogHandler((provider, status, error) => {
+        logs.push({ providerId: provider.id, status })
+      })
+      r._logCall({ id: 'openai' }, 'success')
+      expect(logs).toHaveLength(1)
+      expect(logs[0].providerId).toBe('openai')
+    })
+
+    it('setLogHandler(null) 清除日志处理器', () => {
+      const logs = []
+      const r = new ProviderRouter(manager, () => { logs.push('called') })
+      r.setLogHandler(null)
+      r._logCall({ id: 'openai' }, 'success')
+      expect(logs).toHaveLength(0)
+    })
+  })
+
   // ─── P3.3 质量节拍补跑：边界场景 ───
   describe('P3.3 补跑：getNext — priority 排序边界', () => {
     it('相同 priority 时返回第一个（排序稳定）', () => {

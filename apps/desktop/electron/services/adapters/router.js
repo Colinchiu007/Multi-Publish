@@ -23,10 +23,21 @@ class ProviderRouter {
   /**
    * @param {object} manager - ModelProviderManager 实例
    *   需要 listEnabledProviders(category) / getDefault(category) 方法
+   * @param {function} [logHandler=null] - 可选日志处理器 (provider, status, error) => void
+   *   用于将调用日志写入 model_provider_logs 表，router 不直接依赖 db
    */
-  constructor(manager) {
+  constructor(manager, logHandler = null) {
     this._manager = manager
     this._lastUsedIndex = new Map() // category -> index
+    this._logHandler = logHandler
+  }
+
+  /**
+   * 动态设置日志处理器（运行时注入）
+   * @param {function|null} handler - (provider, status, error) => void，传 null 清除
+   */
+  setLogHandler(handler) {
+    this._logHandler = handler
   }
 
   /**
@@ -120,16 +131,21 @@ class ProviderRouter {
   }
 
   /**
-   * 记录调用日志（钩子方法，可被子类覆盖或通过 monkey-patch 替换）
-   * 默认实现：空（生产环境可写入 model_provider_logs 表）
+   * 记录调用日志（钩子方法，可通过 logHandler 注入或 monkey-patch 替换）
+   * 默认实现：若有 logHandler 则调用它，否则空操作
+   * 设计决策：不强制依赖 db，保持 router 可独立测试
    * @param {object} provider - provider config
    * @param {string} status - 'success' | 'error'
    * @param {string} [error=null] - 错误消息（status=error 时）
    */
-  _logCall(provider, status, _error = null) {
-    // 默认空实现 — 子类或调用方可覆盖
-    // 设计决策：不强制依赖 db，保持 router 可独立测试
-    // 参数 _error 前缀下划线表示子类覆盖时会使用
+  _logCall(provider, status, error = null) {
+    if (typeof this._logHandler === 'function') {
+      try {
+        this._logHandler(provider, status, error)
+      } catch (_) {
+        // 日志写入失败不影响主流程
+      }
+    }
   }
 
   /**
