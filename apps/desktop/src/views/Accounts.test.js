@@ -165,6 +165,16 @@ describe("AccountsView", () => {
     expect(w.vm.newPlatform).toBe("");
   });
 
+  it("addAccount resets adding state after cancelled login", async () => {
+    const { authOpenLogin } = await import("@/api/publisher");
+    authOpenLogin.mockResolvedValue({ cancelled: true });
+    const w = await mountView();
+    w.vm.newPlatform = "douyin";
+    await w.vm.addAccount();
+    expect(w.vm.adding).toBe(false);
+    expect(w.vm.authViewVisible).toBe(false);
+  });
+
   it("addAccount falls back to accountAdd when authOpenLogin not available", async () => {
     // Temporarily remove authOpenLogin
     const api = await import("@/api/publisher");
@@ -186,6 +196,7 @@ describe("AccountsView", () => {
     await w.vm.addAccount();
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.error).toHaveBeenCalledWith("auth failed");
+    expect(w.vm.adding).toBe(false);
   });
 
   it("addAccount catches exception", async () => {

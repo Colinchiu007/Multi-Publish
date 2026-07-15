@@ -46,7 +46,6 @@ function checkNullBytes(dir, depth = 0) {
 // ── 2. 关键文件存在性 ──
 const CRITICAL_FILES = [
   'packages/rpa-engine/src/index.js',
-  'packages/rpa-engine/src/publishers/registry.js',
   'packages/shared-utils/src/index.js',
   'packages/shared-utils/src/platform-config.js',
   'apps/desktop/electron/main.js',

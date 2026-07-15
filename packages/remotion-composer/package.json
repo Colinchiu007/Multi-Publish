@@ -5,7 +5,8 @@
   "scripts": {
     "start": "npx remotion studio",
     "build": "npx remotion render src/index.tsx Explainer out/video.mp4",
-    "upgrade": "npx remotion upgrade"
+    "upgrade": "npx remotion upgrade",
+    "test": "vitest run"
   },
   "dependencies": {
     "@multi-publish/story2video-engine": "*",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@types/react": "^18.2.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.9"
   }
 }

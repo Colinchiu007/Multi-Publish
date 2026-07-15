@@ -1,4 +1,32 @@
 
+## [系统化重构] v0.13.6 - Phase 4 测试补全 (2026-07-16)
+
+系统化重构路线图 Phase 4：测试补全。remotion-composer 单元测试、shared-utils 手动测试迁移、rpa-engine 死代码清理。
+
+### Task 13: remotion-composer 单元测试（36 文件 0 测试 → 111 测试）
+- 新建 `packages/remotion-composer/vitest.config.js` + package.json test script
+- `props-validator.test.ts`：38 测试（cuts/id/in_seconds/out_seconds/sceneType/theme/chartData 校验 + 错误聚合）
+- `scene-builder.test.ts`：34 测试（text/gallery 双模式 + 默认值 + 时间轴数学公式 + 空文本边界）
+- `media-profiles.test.ts`：39 测试（9 内置 profile + listProfiles 浅拷贝 + getProfile 回退 + getRemotionArgs/getFfmpegArgs）
+
+### Task 14: shared-utils 手动测试迁移 Vitest（5 文件）
+- 迁移 5 个 manual-*.js → Vitest .test.js（format-adapter/cover-processor/sensitive-filter/platform-config/data-sync）
+- 45 passed + 9 skipped（skip 原因：platforms.yaml 缺 cover_size/max_title/max_content 字段，非源码 bug）
+- 删除 5 个原手动测试文件，调整 vitest.config.js include 规则
+
+### Task 15: rpa-engine 清理 + 评估
+- 删除 `packages/rpa-engine/src/publishers/registry.js`（空壳死代码，已废弃）
+- 删除 `packages/rpa-engine/tests/registry.test.js`（废弃契约测试）
+- 评估结论：**保留 rpa-engine 包**（合并成本 > 收益，QM-1 打包验证深度耦合包名）
+- 发现：browser-data.js 393 行加密代码无运行时消费方（后续清理候选）
+
+### 测试
+- desktop：3683 passed / 0 failed / 10 skipped
+- rpa-engine：203 passed / 0 failed（删除 registry.test.js 后）
+- shared-utils：160 passed / 0 failed / 10 skipped（+45 新测试）
+- remotion-composer：111 passed / 0 failed（新增）
+- 视觉测试：19/19 passed / 0 failed / 2 skipped (electron-only)
+
 ## [系统化重构] v0.13.5 - Phase 3 架构重构 (2026-07-16)
 
 系统化重构路线图 Phase 3：架构重构。Store 拆分、App.vue 拆分、Adapter 目录优化、createAppContext 分组。

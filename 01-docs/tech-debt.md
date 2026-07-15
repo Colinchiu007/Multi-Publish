@@ -60,3 +60,11 @@
 
 2026-07-16 | createAppContext 上帝对象（52 字段） | 🔴 严重 | ✅ 已修复 | `extractContext()` 返回 52 个扁平字段。修复：按 infra(9)/services(30)/windows(8)/pipelines(5) 分组，Proxy 兼容层（5 个 trap）实现 `context.store` → `context.infra.store` 自动转发，零破坏现有消费者。后续可逐文件迁移
 
+2026-07-16 | remotion-composer 36 文件零测试 | 🔴 严重 | ✅ 已修复 | `packages/remotion-composer/` 36 个 TS 文件无任何测试，项目最严重测试缺口。修复：为 3 个核心模块添加 111 个单元测试（props-validator 38 + scene-builder 34 + media-profiles 39），新建 vitest.config.js + package.json test script
+
+2026-07-16 | shared-utils 5 个手动测试脚本 | 🟡 中 | ✅ 已修复 | `packages/shared-utils/` 5 个 manual-*.js 手动测试脚本含 process.exit() 无法被 Vitest 收集。修复：迁移为 5 个 .test.js Vitest 测试（45 passed + 9 skipped），删除原手动测试文件，调整 vitest.config.js include 规则排除含 process.exit() 的孤儿文件
+
+2026-07-16 | rpa-engine registry.js 空壳死代码 | 🟢 低 | ✅ 已修复 | `packages/rpa-engine/src/publishers/registry.js` 是空壳（`registry = {}`，所有方法抛错或返回空），已废弃。修复：删除 registry.js + registry.test.js，移除 index.js 导出和 check-integrity.js 引用。评估 rpa-engine 合并：保留（合并成本 > 收益）
+
+2026-07-16 | rpa-engine browser-data.js 无消费方 | 🟢 低 | 待评估 | `packages/rpa-engine/src/browser-data.js`（393 行 AES-256-GCM 加密持久化代码）在 index.js 导出但全库无运行时消费方。后续清理候选，需确认是否真的无用再删除
+
