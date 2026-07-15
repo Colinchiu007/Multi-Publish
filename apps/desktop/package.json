@@ -104,6 +104,11 @@
             {
                 "from": ".playwright-browsers",
                 "to": "playwright-browsers"
+            },
+            {
+                "from": "../../packages/remotion-composer",
+                "to": "packages/remotion-composer",
+                "filter": ["**/*", "!node_modules/**"]
             }
         ],
         "win": {

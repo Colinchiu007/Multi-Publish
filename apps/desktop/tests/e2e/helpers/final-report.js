@@ -32,7 +32,7 @@ const ROUTE_LIST = [
   { spec: 'model-providers', route: '/model-providers', title: '模型服务商' },
   { spec: 'create', route: '/create', title: 'AI 创作' },
   { spec: 'result', route: '/create/result', title: '创作结果' },
-  { spec: 'pipeline', route: '/create/pipeline', title: '创作管线' },
+  { spec: 'pipeline', route: '/create/pipeline', title: '创作流水线' },
   { spec: 'create-history', route: '/create/history', title: '创作历史' },
   { spec: 'cloud-publish', route: '/cloud-publish', title: '云端发布' },
   { spec: 'intelligence', route: '/intelligence', title: '智能助手' },

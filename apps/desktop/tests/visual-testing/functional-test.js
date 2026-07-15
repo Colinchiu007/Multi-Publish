@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 功能性测试 — 验证页面交互逻辑和功能正确性
  * 运行: node tests/visual-testing/functional-test.js
  */
@@ -312,7 +312,7 @@ const functionalTests = [
   // === Button Clickability ===
   {
     name: 'create-pipeline-start-button',
-    description: '创作页「启动管线」按钮可点击',
+    description: '创作页「启动流水线」按钮可点击',
     async run(runner) {
       await runner.page.goto(hashUrl('/create'), { waitUntil: 'load', timeout: 10000 });
       await runner.page.waitForTimeout(2000);
@@ -324,13 +324,13 @@ const functionalTests = [
         await pipelineCards[0].click();
         await runner.page.waitForTimeout(1500);
       } else {
-        const fallbackBtn = await runner.page.evaluate(() => { const els = document.querySelectorAll('*'); for (const el of els) { if (el.textContent.includes('启动管线') && el.children.length <= 2) return { tag: el.tagName, isBtn: el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' }; } return null; });
-        if (fallbackBtn && !fallbackBtn.isBtn) return { passed: false, errors: ['管线数据为空, 启动管线降级为非button元素(tag=' + fallbackBtn.tag + ')'] };
-        return { passed: true, info: '管线列表为空(dev server下正常)，无按钮可验证' };
+        const fallbackBtn = await runner.page.evaluate(() => { const els = document.querySelectorAll('*'); for (const el of els) { if (el.textContent.includes('启动流水线') && el.children.length <= 2) return { tag: el.tagName, isBtn: el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' }; } return null; });
+        if (fallbackBtn && !fallbackBtn.isBtn) return { passed: false, errors: ['流水线数据为空, 启动流水线降级为非button元素(tag=' + fallbackBtn.tag + ')'] };
+        return { passed: true, info: '流水线列表为空(dev server下正常)，无按钮可验证' };
       }
-      const startBtn = await runner.page.evaluate(() => { const allBtns = document.querySelectorAll('button, .btn-start, [class*=btn]'); for (const btn of allBtns) { if (btn.textContent.includes('启动管线')) { const style = window.getComputedStyle(btn); return { exists: true, tag: btn.tagName, disabled: btn.disabled || btn.hasAttribute('disabled'), pointerEvents: style.pointerEvents, isRealButton: btn.tagName === 'BUTTON' }; } } return { exists: false }; });
+      const startBtn = await runner.page.evaluate(() => { const allBtns = document.querySelectorAll('button, .btn-start, [class*=btn]'); for (const btn of allBtns) { if (btn.textContent.includes('启动流水线')) { const style = window.getComputedStyle(btn); return { exists: true, tag: btn.tagName, disabled: btn.disabled || btn.hasAttribute('disabled'), pointerEvents: style.pointerEvents, isRealButton: btn.tagName === 'BUTTON' }; } } return { exists: false }; });
       const errors = [];
-      if (!startBtn.exists) errors.push('启动管线按钮不存在');
+      if (!startBtn.exists) errors.push('启动流水线按钮不存在');
       else {
         if (!startBtn.isRealButton) errors.push('不是真正的 button 元素(tag=' + startBtn.tag + ')，组件可能未注册');
         if (startBtn.disabled) errors.push('按钮处于 disabled 状态');

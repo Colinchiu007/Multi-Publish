@@ -2,7 +2,7 @@
   <div class="create-page">
     <div class="page-header">
       <h1>视频创作</h1>
-      <p class="text-muted">基于 OpenMontage 管线引擎，AI 驱动从脚本到成片的全流程</p>
+      <p class="text-muted">基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程</p>
     </div>
 
     <!-- Remotion 状态提示 -->
@@ -16,16 +16,16 @@
 
     <!-- 视图切换 -->
     <div class="view-tabs">
-      <button :class="['view-tab', { active: view === 'pipelines' }]" @click="view = 'pipelines'">管线创作</button>
+      <button :class="['view-tab', { active: view === 'pipelines' }]" @click="view = 'pipelines'">流水线创作</button>
       <button :class="['view-tab', { active: view === 'quick' }]" @click="view = 'quick'">快速渲染</button>
       <button :class="['view-tab', { active: view === 'history' }]" @click="view = 'history'; loadHistory()">历史记录</button>
     </div>
 
-    <!-- ==================== 管线创作视图 ==================== -->
+    <!-- ==================== 流水线创作视图 ==================== -->
     <div v-if="view === 'pipelines'">
-      <!-- 管线列表 -->
+      <!-- 流水线列表 -->
       <div v-if="!selectedPipeline">
-        <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载管线列表...</span></div>
+        <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载流水线列表...</span></div>
         <div v-else-if="pipelineError" class="error-state">⚠️ {{ pipelineError }}</div>
         <div v-else class="pipeline-grid">
           <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :class="p.category" @click="selectPipeline(p)">
@@ -43,9 +43,9 @@
         </div>
       </div>
 
-      <!-- 管线详情 & 配置 -->
+      <!-- 流水线详情 & 配置 -->
       <div v-else class="pipeline-detail">
-        <button class="back-btn" @click="selectedPipeline = null">← 返回管线列表</button>
+        <button class="back-btn" @click="selectedPipeline = null">← 返回流水线列表</button>
 
         <div class="detail-header">
           <h2>{{ humanName(selectedPipeline.name) }}</h2>
@@ -87,7 +87,7 @@
           </div>
           <div v-if="inputMode === 'video'" class="input-area">
             <div class="upload-zone" @click="$refs.pipelineVideoInput?.click()">
-              <p v-if="!pipelineVideo">点击上传参考视频（用于电影感/蒙太奇管线）</p>
+              <p v-if="!pipelineVideo">点击上传参考视频（用于电影感/蒙太奇流水线）</p>
               <p v-else>✅ {{ pipelineVideo.name }}</p>
             </div>
             <input ref="pipelineVideoInput" type="file" accept="video/*" style="display:none" @change="handlePipelineVideo" />
@@ -185,7 +185,7 @@
         <div class="action-bar">
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
             <UiButton class="btn-start" @click="startPipeline" :disabled="!canStartPipeline">
-              🚀 启动管线
+              🚀 启动流水线
             </UiButton>
           </div>
           <div v-else class="running-controls">
@@ -300,11 +300,11 @@ export default {
     return {
       // 视图
       view: 'pipelines',
-      // 管线
+      // 流水线
       pipelines: [], pipelineLoading: true, pipelineError: null,
       selectedPipeline: null,
       pipelineRunStatus: null, needsCheckpoint: false, pollTimer: null,
-      // 管线输入
+      // 流水线输入
       inputMode: 'text', pipelineText: '', pipelineImages: [], pipelineVideo: null,
       // 配置
       selectedStyle: 'clean-professional',
@@ -385,7 +385,7 @@ export default {
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
 
-    // 管线操作
+    // 流水线操作
     async loadPipelines() {
       this.pipelineLoading = true; this.pipelineError = null
       try {
@@ -559,7 +559,7 @@ export default {
 .view-tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #666; border-bottom: 2px solid transparent; }
 .view-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
 
-/* 管线网格 */
+/* 流水线网格 */
 .pipeline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
 .pipeline-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; cursor: pointer; transition: all 0.2s; }
 .pipeline-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-2px); border-color: var(--primary); }
@@ -590,7 +590,7 @@ export default {
 .cost-label.medium { color: #f59e0b; }
 .cost-label.high { color: #ef4444; }
 
-/* 管线详情 */
+/* 流水线详情 */
 .pipeline-detail { }
 .back-btn { background: none; border: none; color: var(--primary); cursor: pointer; font-size: 14px; padding: 0; margin-bottom: 16px; }
 .detail-header { margin-bottom: 20px; }

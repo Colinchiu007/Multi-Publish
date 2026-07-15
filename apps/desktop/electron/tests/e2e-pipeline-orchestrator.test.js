@@ -1,4 +1,4 @@
-// E2E 集成测试 - 验证 PipelineEngine orchestrator 模式端到端执行 story2video-compose 管线
+// E2E 集成测试 - 验证 PipelineEngine orchestrator 模式端到端执行 story2video-compose 流水线
 // 前置条件：smart-sentence-splitter 已在 8002 启动，prompt-engine 已在 8013 启动
 
 const { test } = require('node:test');
@@ -56,13 +56,13 @@ async function buildContainer() {
   return { pipelineEngine, serviceBus };
 }
 
-test('PipelineEngine orchestrator - story2video-compose 管线已注册为第 14 条', { timeout: 10000 }, () => {
+test('PipelineEngine orchestrator - story2video-compose 流水线已注册为第 14 条', { timeout: 10000 }, () => {
   const pe = new PipelineEngine({ log: { info: () => {}, warn: () => {}, error: () => {} } });
   const list = pe.listPipelines();
   const s2v = list.find(p => p.name === 'story2video-compose');
-  assert.ok(s2v, 'story2video-compose 应存在于管线列表');
+  assert.ok(s2v, 'story2video-compose 应存在于流水线列表');
   assert.equal(s2v.category, 'generated');
-  assert.equal(list.length, 14, '总管线数应为 14');
+  assert.equal(list.length, 14, '总流水线数应为 14');
 });
 
 test('PipelineEngine orchestrator - startOrchestrated 创建 run 并标记为 orchestrator 模式', { timeout: 60000 }, async () => {
@@ -119,7 +119,7 @@ test('PipelineEngine orchestrator - advanceToNextCheckpoint 推进到完成', { 
   });
   if (!res.success) console.log('  autoAdvance error:', res.error, res.results);
   assert.ok(res.success, 'autoAdvance 应执行成功');
-  // 管线完成后 run 从 _runs 删除，context 通过返回值传递
+  // 流水线完成后 run 从 _runs 删除，context 通过返回值传递
   const ctx = res.context || pipelineEngine.getRunContext(res.runId);
   assert.ok(ctx, '应返回 context');
   console.log('  context keys:', Object.keys(ctx).join(', '));

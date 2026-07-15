@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 
-// 组件通过 import("@/api/publisher") 的 pipelineList 加载管线
+// 组件通过 import("@/api/publisher") 的 pipelineList 加载流水线
 vi.mock("@/api/publisher", () => ({
   pipelineList: vi.fn(),
 }));
@@ -16,7 +16,7 @@ describe("PipelineBrowser", () => {
 
   it("renders title", () => {
     const wrapper = mount(PipelineBrowser);
-    expect(wrapper.text()).toContain("视频创作管线");
+    expect(wrapper.text()).toContain("视频创作流水线");
   });
 
   it("shows loading state initially", () => {

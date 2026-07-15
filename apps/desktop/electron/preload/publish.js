@@ -10,7 +10,7 @@
  *   - 渲染：renderStart / renderCancel / renderGetStatus / renderInstallDeps
  *           onRenderProgress / onRenderComplete / onRenderError / onRenderInstallProgress
  *           renderListCompositions / renderGetComposition / renderValidateProps
- *   - 管线（对象）：pipelines.list / pipelines.get
+ *   - 流水线（对象）：pipelines.list / pipelines.get
  *   - 内容情报：intelligenceSuggestTags / intelligenceGetOptimalTime
  *   - 队列：getQueueStatus / getQueueHistory / cancelTask
  *   - 历史：historyList / historyGet
@@ -50,7 +50,7 @@ function createPublishApi(ipcRenderer) {
     renderGetComposition: (id) => ipcRenderer.invoke('render:get-composition', id),
     renderValidateProps: (compositionId, props) => ipcRenderer.invoke('render:validate-props', compositionId, props),
 
-    // 管线 API（嵌套对象）
+    // 流水线 API（嵌套对象）
     pipelines: {
       list: () => ipcRenderer.invoke('pipeline:list'),
       get: (name) => ipcRenderer.invoke('pipeline:get', name),
@@ -95,7 +95,7 @@ function createPublishApi(ipcRenderer) {
       return () => ipcRenderer.removeListener('publish:progress', handler)
     },
 
-    // Pipeline 管线 API（Phase 3）
+    // Pipeline 流水线 API（Phase 3）
     pipelineList: () => ipcRenderer.invoke('pipeline:list'),
     pipelineGet: (name) => ipcRenderer.invoke('pipeline:get', name),
     pipelineStart: (name, params) => ipcRenderer.invoke('pipeline:start', name, params),

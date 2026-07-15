@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * E2E 全链路测试 - story2video-compose 管线真实执行
+ * E2E 全链路测试 - story2video-compose 流水线真实执行
  *
  * 测试范围：
  *   1. split (Python 8002) → 真实分句

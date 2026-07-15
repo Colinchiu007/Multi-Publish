@@ -379,7 +379,7 @@
     renderGetComposition: makeHandler('renderGetComposition', async () => ok(null)),
     renderValidateProps: makeHandler('renderValidateProps', async () => ok({ valid: true })),
 
-    // 管线
+    // 流水线
     pipelines: pipelinesObj,
     pipelineList: makeHandler('pipelineList', async () => ok([
       { name: '热点流水线', description: '采集热点并生成发布内容', category: 'content', stages: ['采集', 'AI写作', '优化', '发布'], steps: ['采集', 'AI写作', '优化', '发布'] },

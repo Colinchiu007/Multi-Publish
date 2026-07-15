@@ -240,7 +240,7 @@ const api = {
   renderGetComposition: (id) => ipcRenderer.invoke('render:get-composition', id),
   renderValidateProps: (compositionId, props) => ipcRenderer.invoke('render:validate-props', compositionId, props),
 
-  // ═══ 管线 API ═══
+  // ═══ 流水线 API ═══
   pipelines: {
     list: () => ipcRenderer.invoke('pipeline:list'),
     get: (name) => ipcRenderer.invoke('pipeline:get', name),
@@ -282,7 +282,7 @@ const api = {
     return () => ipcRenderer.removeListener('publish:progress', handler)
   },
 
-  // ══ Pipeline 管线 API ═══
+  // ══ Pipeline 流水线 API ═══
   pipelineList: () => ipcRenderer.invoke('pipeline:list'),
   pipelineGet: (name) => ipcRenderer.invoke('pipeline:get', name),
   pipelineStart: (name, params) => ipcRenderer.invoke('pipeline:start', name, params),
@@ -294,7 +294,7 @@ const api = {
   pipelineHistory: () => ipcRenderer.invoke('pipeline:history'),
   pipelineFetch: (name) => ipcRenderer.invoke('pipeline:fetch', name),
 
-  // ══ Pipeline 编排模式 API（story2video-compose 等新管线使用） ═══
+  // ══ Pipeline 编排模式 API（story2video-compose 等新流水线使用） ═══
   pipelineStartOrchestrated: (name, params) => ipcRenderer.invoke('pipeline:startOrchestrated', name, params),
   pipelineExecuteStage: (runId) => ipcRenderer.invoke('pipeline:executeStage', runId),
   pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer.invoke('pipeline:advanceToNextCheckpoint', runId),

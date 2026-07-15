@@ -448,12 +448,12 @@ def publish_progress(task_id: str):
     return {"code": 0, "data": progress}
 
 
-# ─── 视频创作管线路由 ─────────────────────────────────────
+# ─── 视频创作流水线路由 ─────────────────────────────────────
 
 
 @app.get("/api/pipelines")
 def get_pipelines():
-    """列出所有可用管线"""
+    """列出所有可用流水线"""
     try:
         names = list_pipelines()
         pipelines = []
@@ -478,12 +478,12 @@ def get_pipelines():
 
 @app.get("/api/pipelines/{name}")
 def get_pipeline_detail(name: str):
-    """获取单个管线详情"""
+    """获取单个流水线详情"""
     try:
         info = load_pipeline(name)
         return {"code": 0, "data": info}
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"管线未找到: {name}") from None
+        raise HTTPException(status_code=404, detail=f"流水线未找到: {name}") from None
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

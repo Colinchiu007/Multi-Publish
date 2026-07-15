@@ -92,8 +92,8 @@ class ServiceBus {
   }
 
   /**
-   * 获取管线定义 — 委托 PythonBridge
-   * @param {string} name - 管线名称
+   * 获取流水线定义 — 委托 PythonBridge
+   * @param {string} name - 流水线名称
    * @returns {Promise<object>}
    */
   async fetchPipeline (name) {

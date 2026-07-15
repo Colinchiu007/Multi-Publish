@@ -13,7 +13,7 @@
  *   StageExecutor 补齐这一缺口：每个阶段对应一次 ServiceBus 调用，
  *   阶段间通过 context 对象传递数据。
  *
- *   旧的 13 条管线无 stage.type 字段，会回退为 MANUAL_CHECKPOINT，
+ *   旧的 13 条流水线无 stage.type 字段，会回退为 MANUAL_CHECKPOINT，
  *   保持与原状态机行为完全一致。
  */
 
@@ -29,7 +29,7 @@ const STAGE_TYPES = {
   GENERATE_ASSETS: 'generate_assets',   // 资源生成（图片/TTS，委托 Python 技能）
   COMPOSE: 'compose',                   // 视频合成（Story2Video 引擎）
   PUBLISH: 'publish',                   // 多平台发布
-  FETCH_PIPELINE: 'fetch_pipeline',     // 从 Python 后端拉取管线定义
+  FETCH_PIPELINE: 'fetch_pipeline',     // 从 Python 后端拉取流水线定义
   CALL_SKILL: 'call_skill',             // 通用 Python 技能调用
   MANUAL_CHECKPOINT: 'manual_checkpoint', // 人工检查点（不执行，等待 advance）
   CUSTOM: 'custom',                     // 自定义执行器（stage.executor 函数）
@@ -74,7 +74,7 @@ class StageExecutor {
    * @param {object} opts
    * @param {string} opts.runId - 运行 ID
    * @param {object} opts.stage - 阶段定义（包含 name/type/options/inputFrom 等）
-   * @param {object} opts.params - 管线启动参数
+   * @param {object} opts.params - 流水线启动参数
    * @param {object} opts.context - 阶段间上下文（前序阶段的 output 集合）
    * @returns {Promise<{success: boolean, output?: any, error?: string, checkpoint?: boolean}>}
    */
@@ -336,7 +336,7 @@ class StageExecutor {
       };
     });
 
-    // FETCH_PIPELINE - 从 Python 后端拉取管线定义
+    // FETCH_PIPELINE - 从 Python 后端拉取流水线定义
     map.set(STAGE_TYPES.FETCH_PIPELINE, async ({ stage, params }) => {
       const name = stage.pipelineName || params.pipelineName;
       if (!name) {
@@ -396,7 +396,7 @@ class StageExecutor {
 /**
  * 解析阶段输入：优先从 context 取（前序阶段输出），其次从 params 取
  * @param {object} stage - 阶段定义
- * @param {object} params - 管线参数
+ * @param {object} params - 流水线参数
  * @param {object} context - 阶段间上下文
  * @returns {any}
  */

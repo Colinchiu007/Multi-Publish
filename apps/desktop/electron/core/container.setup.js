@@ -67,7 +67,7 @@ function createContainer(options) {
       container: c,
       log: c.get("logger"),
     });
-    // 注册 story2video-compose 管线的自定义阶段执行器
+    // 注册 story2video-compose 流水线的自定义阶段执行器
     if (engine.stageExecutor) {
       try {
         registerStory2VideoStages(engine);

@@ -46,16 +46,16 @@
     </div>
 
     <!-- 添加监控对话框 -->
-        <UiModal :visible="showDialog" title="????" size="sm" @close="showDialog = false">
+    <UiModal :visible="showDialog" title="添加监控" size="sm" @close="showDialog = false">
       <UiSelect
         v-model="newPlatform"
-        label="????"
-        placeholder="?????"
+        label="选择平台"
+        placeholder="请选择平台"
         :options="platforms.filter(p => p.id !== 'all').map(p => ({ value: p.id, label: p.label }))"
       />
       <template #footer>
-        <UiButton variant="ghost" @click="showDialog = false">??</UiButton>
-        <UiButton @click="confirmAdd" :disabled="adding">{{ adding ? '???...' : '????' }}</UiButton>
+        <UiButton variant="ghost" @click="showDialog = false">取消</UiButton>
+        <UiButton @click="confirmAdd" :disabled="adding">{{ adding ? '添加中...' : '添加监控' }}</UiButton>
       </template>
     </UiModal>
   </div>

@@ -1,11 +1,11 @@
 <template>
   <div class="pipeline-browser">
-    <h2 class="section-title">视频创作管线</h2>
+    <h2 class="section-title">视频创作流水线</h2>
     <p class="section-desc">选择一种视频创作模式，AI 将自动完成从脚本到成片的全流程</p>
 
     <div v-if="loading" class="loading-state">
       <span class="spinner"></span>
-      <span>加载管线列表...</span>
+      <span>加载流水线列表...</span>
     </div>
 
     <div v-else-if="error" class="error-state">

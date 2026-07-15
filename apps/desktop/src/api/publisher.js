@@ -241,7 +241,7 @@ export function showNotification (data) {
 }
 
 
-// ─── Pipeline 管线 API ──────────────────────
+// ─── Pipeline 流水线 API ──────────────────────
 export async function pipelineList() { return invokeWithFallback("pipelineList", { code: 0, data: [] }) }
 export async function pipelineGet(name) { return invokeWithFallback("pipelineGet", null, name) }
 export async function pipelineStart(name, params) { return invokeWithFallback("pipelineStart", { code: -1, message: 'electronAPI not available' }, name, params) }
@@ -252,7 +252,7 @@ export async function pipelineStatus(name) { return invokeWithFallback("pipeline
 export async function pipelineAdvance() { return invokeWithFallback("pipelineAdvance", { code: -1 }) }
 export async function pipelineHistory() { return invokeWithFallback("pipelineHistory", { code: 0, data: [] }) }
 
-// ═══ Pipeline 编排模式 API（story2video-compose 等新管线使用） ═══
+// ═══ Pipeline 编排模式 API（story2video-compose 等新流水线使用） ═══
 export async function pipelineStartOrchestrated(name, params) { return invokeWithFallback("pipelineStartOrchestrated", { code: -1, message: 'electronAPI not available' }, name, params) }
 export async function pipelineExecuteStage(runId) { return invokeWithFallback("pipelineExecuteStage", { code: -1 }, runId) }
 export async function pipelineAdvanceToNextCheckpoint(runId) { return invokeWithFallback("pipelineAdvanceToNextCheckpoint", { code: -1 }, runId) }

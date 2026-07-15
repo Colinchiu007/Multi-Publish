@@ -1,8 +1,8 @@
 // @ts-check
 /**
- * story2video-stages - Story2Video-compose 管线的自定义阶段执行器
+ * story2video-stages - Story2Video-compose 流水线的自定义阶段执行器
  *
- * 注册与 story2video-compose 管线配套的自定义 STAGE_TYPES：
+ * 注册与 story2video-compose 流水线配套的自定义 STAGE_TYPES：
  *   - story2video_generate_assets: 并行生成图片 + TTS 音频
  *
  * 设计意图：
@@ -25,7 +25,7 @@ const STORY2VIDEO_STAGE_TYPES = {
 };
 
 /**
- * 注册 Story2Video-compose 管线的自定义阶段执行器
+ * 注册 Story2Video-compose 流水线的自定义阶段执行器
  * @param {object} pipelineEngine - PipelineEngine 实例（需已注入 serviceBus）
  * @returns {{success: boolean, error?: string, registered?: string[]}}
  */

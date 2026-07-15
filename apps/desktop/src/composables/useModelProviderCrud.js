@@ -298,16 +298,22 @@ export function useModelProviderCrud () {
     delete testResults.value[id]
     try {
       const res = await modelProviderTest(id)
-      if (res.code === 0) {
-        testResults.value[id] = { success: true, message: res.message || 'ok' }
-      } else {
-        testResults.value[id] = { success: false, message: res.message || '连接失败' }
+      testResults.value[id] = {
+        success: res.code === 0,
+        code: res.code,
+        message: res.message || (res.code === 0 ? '连接成功' : '连接失败'),
+        detail: res.detail || (res.data ? JSON.stringify(res.data) : null),
       }
     } catch (e) {
-      testResults.value[id] = { success: false, message: e.message }
+      testResults.value[id] = {
+        success: false,
+        code: -1,
+        message: e.message || '请求异常',
+        detail: null,
+      }
     } finally {
       testingId.value = ''
-      setTimeout(() => { delete testResults.value[id] }, 5000)
+      setTimeout(() => { delete testResults.value[id] }, 8000)
     }
   }
 

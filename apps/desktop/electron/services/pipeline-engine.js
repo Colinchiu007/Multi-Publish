@@ -1,9 +1,9 @@
 // @ts-check
 /**
- * PipelineEngine - 管线编排引擎
+ * PipelineEngine - 流水线编排引擎
  *
  * 双模式设计：
- *   1. state_machine（默认）- 仅跟踪状态，不执行阶段工作。与原 13 条管线行为完全一致。
+ *   1. state_machine（默认）- 仅跟踪状态，不执行阶段工作。与原 13 条流水线行为完全一致。
  *   2. orchestrator（新增）- 通过 StageExecutor 真正执行每个阶段，调用 ServiceBus。
  *
  * 切换方式：
@@ -14,13 +14,13 @@
  * 向后兼容：
  *   - 构造函数参数全部可选（无参仍可正常工作，stageExecutor 为 null）
  *   - 所有现有同步方法签名和返回值保持不变
- *   - 现有 13 条管线无 stage.type 字段，回退为 MANUAL_CHECKPOINT
+ *   - 现有 13 条流水线无 stage.type 字段，回退为 MANUAL_CHECKPOINT
  */
 
 const path = require('path');
 const { StageExecutor, STAGE_TYPES } = require('./stage-executor');
 
-// --- 管线元数据（与 Python pipeline_defs 同步） ---
+// --- 流水线元数据（与 Python pipeline_defs 同步） ---
 const PIPELINES = [
   {
     name: 'animated-explainer',
@@ -80,7 +80,7 @@ const PIPELINES = [
   },
   {
     name: 'hybrid',
-    description: '混合管线 - AI 生成 + 实拍素材混合',
+    description: '混合流水线 - AI 生成 + 实拍素材混合',
     category: 'hybrid',
     stages: ['plan', 'generate', 'merge', 'render'],
     estimatedCost: 'high',
@@ -108,7 +108,7 @@ const PIPELINES = [
   },
   {
     name: 'framework-smoke',
-    description: '框架冒烟测试 - 快速验证管线配置',
+    description: '框架冒烟测试 - 快速验证流水线配置',
     category: 'custom',
     stages: ['verify', 'report'],
     estimatedCost: 'low',
@@ -120,7 +120,7 @@ const PIPELINES = [
     stages: ['split', 'optimize', 'generate_assets', 'compose', 'publish'],
     estimatedCost: 'high',
     // stageDefs 定义每个阶段的执行类型和参数（供 StageExecutor 使用）
-    // 旧管线无 stageDefs 字段，回退为 MANUAL_CHECKPOINT
+    // 旧流水线无 stageDefs 字段，回退为 MANUAL_CHECKPOINT
     stageDefs: [
       {
         name: 'split',
@@ -214,7 +214,7 @@ class PipelineEngine {
     }
   }
 
-  /** 列出所有可用管线（内置 + 动态注册） */
+  /** 列出所有可用流水线（内置 + 动态注册） */
   listPipelines() {
     const builtIn = PIPELINES.map((p) => ({
       name: p.name,
@@ -235,7 +235,7 @@ class PipelineEngine {
     return builtIn.concat(custom);
   }
 
-  /** 获取单个管线详情 */
+  /** 获取单个流水线详情 */
   getPipeline(name) {
     const pl = PIPELINES.find((p) => p.name === name) ||
                (this._customPipelines && this._customPipelines.get(name));
@@ -244,9 +244,9 @@ class PipelineEngine {
   }
 
   /**
-   * 动态注册管线（插件扩展点）
-   * 允许 PluginRegistry 或外部模块注册新管线，无需修改源码中的 PIPELINES 数组
-   * @param {object} def - 管线定义 { name, description, category, stages, stageDefs?, estimatedCost? }
+   * 动态注册流水线（插件扩展点）
+   * 允许 PluginRegistry 或外部模块注册新流水线，无需修改源码中的 PIPELINES 数组
+   * @param {object} def - 流水线定义 { name, description, category, stages, stageDefs?, estimatedCost? }
    * @returns {{success: boolean, error?: string}}
    */
   registerPipeline(def) {
@@ -270,7 +270,7 @@ class PipelineEngine {
     return { success: true };
   }
 
-  /** 启动管线执行（state_machine 模式，同步） */
+  /** 启动流水线执行（state_machine 模式，同步） */
   start(pipelineName, params) {
     const pl = this.getPipeline(pipelineName);
     if (!pl) return { success: false, error: 'Unknown pipeline: ' + pipelineName };
@@ -303,7 +303,7 @@ class PipelineEngine {
     return { success: true, runId };
   }
 
-  /** 暂停当前管线 */
+  /** 暂停当前流水线 */
   pause() {
     const run = this._getCurrentRun();
     if (!run) return { success: false, error: 'No active pipeline' };
@@ -314,7 +314,7 @@ class PipelineEngine {
     return { success: true };
   }
 
-  /** 恢复管线执行 */
+  /** 恢复流水线执行 */
   resume() {
     const run = this._getCurrentRun();
     if (!run) return { success: false, error: 'No active pipeline' };
@@ -325,7 +325,7 @@ class PipelineEngine {
     return { success: true };
   }
 
-  /** 取消管线 */
+  /** 取消流水线 */
   cancel() {
     const run = this._getCurrentRun();
     if (!run) return { success: false, error: 'No active pipeline' };
@@ -339,7 +339,7 @@ class PipelineEngine {
     return { success: true };
   }
 
-  /** 获取管线运行状态 */
+  /** 获取流水线运行状态 */
   getStatus(pipelineName) {
     // Try exact run id first, then pipeline name
     const run = this._runs.get(pipelineName) || this._runs.get('_' + pipelineName);
@@ -396,7 +396,7 @@ class PipelineEngine {
     return { success: true, currentStage: run.stages[run.currentStage].name, checkpoint };
   }
 
-  /** 通过 Python 后端加载管线完整定义 */
+  /** 通过 Python 后端加载流水线完整定义 */
   async fetchPipelineFromBackend(pipelineName) {
     const bridge = this._getPythonBridge();
     if (bridge && bridge.isRunning()) {
@@ -419,9 +419,9 @@ class PipelineEngine {
   // ============================================================
 
   /**
-   * 启动编排模式管线
+   * 启动编排模式流水线
    * @param {string} pipelineName
-   * @param {object} [params] - { autoAdvance?: boolean, ...管线特定参数 }
+   * @param {object} [params] - { autoAdvance?: boolean, ...流水线特定参数 }
    * @returns {Promise<{success: boolean, runId?: string, error?: string, results?: any[], context?: object, paused?: boolean}>}
    */
   async startOrchestrated(pipelineName, params) {
@@ -588,8 +588,8 @@ class PipelineEngine {
     const stage = run.stages[run.currentStage];
     if (!stage) return { success: false, error: 'No stage to execute' };
 
-    // 合并管线定义中的 stage 元数据（type, options, inputFrom 等）
-    // 旧管线无 stageDefs，stageDef 为空对象，type 为 undefined → 回退为 MANUAL_CHECKPOINT
+    // 合并流水线定义中的 stage 元数据（type, options, inputFrom 等）
+    // 旧流水线无 stageDefs，stageDef 为空对象，type 为 undefined → 回退为 MANUAL_CHECKPOINT
     const pl = this.getPipeline(run.pipeline);
     const stageDef = (pl && Array.isArray(pl.stageDefs))
       ? (pl.stageDefs.find((s) => s.name === stage.name) || {})
@@ -662,7 +662,7 @@ class PipelineEngine {
       // 推进到下一阶段（同步 advance）
       const advResult = this.advance();
       if (!advResult.success) {
-        // 管线完成或出错
+        // 流水线完成或出错
         if (advResult.message === 'Pipeline completed') {
           return {
             success: true,

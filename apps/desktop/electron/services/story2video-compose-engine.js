@@ -8,7 +8,7 @@
  *   - 拼接所有片段为最终视频
  *
  * 设计意图：
- *   替代 ServiceBus 中的占位响应，让 story2video-compose 管线真正产出视频。
+ *   替代 ServiceBus 中的占位响应，让 story2video-compose 流水线真正产出视频。
  *   不依赖 Remotion/Canvas，纯 Node.js + ffmpeg 子进程。
  */
 'use strict'

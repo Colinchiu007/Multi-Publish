@@ -222,15 +222,15 @@ async function exerciseModelProviders(r) {
 async function exerciseCreate(r) {
   record(r, '渲染引擎状态就绪', await bodyHas(r, '渲染引擎就绪').catch(() => false) || !(await bodyHas(r, '依赖未安装')));
   const pipelineCard = r.page.locator('.pipeline-card').first();
-  record(r, '创作管线列表渲染', await pipelineCard.count() > 0);
+  record(r, '创作流水线列表渲染', await pipelineCard.count() > 0);
   if (await pipelineCard.count()) {
     await pipelineCard.click();
     await r.waitForTimeout(300);
     await fillByPlaceholder(r, '视频文案', 'E2E 视频创作文案');
     await r.waitForTimeout(500);
-    const started = await clickText(r, '启动管线');
-    record(r, '启动创作管线可执行', started);
-    if (started) await expectIpc(r, 'pipelineStart', '启动管线调用 IPC');
+    const started = await clickText(r, '启动流水线');
+    record(r, '启动创作流水线可执行', started);
+    if (started) await expectIpc(r, 'pipelineStart', '启动流水线调用 IPC');
   }
   await r.goto('/create');
   await r.waitForTimeout(400);
@@ -250,25 +250,25 @@ async function exerciseResult(r) {
 
 async function exercisePipeline(r) {
   await r.waitForTimeout(800);
-  record(r, '管线卡片渲染阶段', await r.page.locator('.pipeline-card .stage-dot').count() > 0);
+  record(r, '流水线卡片渲染阶段', await r.page.locator('.pipeline-card .stage-dot').count() > 0);
   const start = await clickText(r, '开始', { wait: 400 });
-  record(r, '管线可启动', start);
+  record(r, '流水线可启动', start);
   if (start) {
-    await expectIpc(r, 'pipelineStart', '管线编排启动 IPC');
+    await expectIpc(r, 'pipelineStart', '流水线编排启动 IPC');
     await r.waitForTimeout(300);
-    record(r, '启动后进入运行中页签', await bodyHas(r, '当前管线'));
+    record(r, '启动后进入运行中页签', await bodyHas(r, '当前流水线'));
   }
   await r.goto('/create/pipeline');
   await r.waitForTimeout(400);
   record(r, '历史记录可切换', await clickText(r, '历史记录'));
   await r.waitForTimeout(400);
-  record(r, '管线历史 fixture 渲染', await bodyHas(r, 'completed'));
+  record(r, '流水线历史 fixture 渲染', await bodyHas(r, 'completed'));
 }
 
 async function exerciseCreateHistory(r) {
   record(r, '渲染历史 fixture 渲染', await r.page.locator('.render-card').count() > 0);
-  record(r, '管线记录可切换', await clickText(r, '管线记录'));
-  record(r, '管线历史列表渲染', await r.page.locator('.pipeline-card').count() > 0);
+  record(r, '流水线记录可切换', await clickText(r, '流水线记录'));
+  record(r, '流水线历史列表渲染', await r.page.locator('.pipeline-card').count() > 0);
   await r.goto('/create/history');
   const preview = await clickText(r, '预览');
   if (preview) record(r, '历史预览跳转结果页', (await r.currentRoute()).startsWith('/create/result'));
@@ -335,7 +335,7 @@ const definitions = {
   'model-providers': { route: '/model-providers', title: '模型服务商设置', exercise: exerciseModelProviders },
   create: { route: '/create', title: '视频创作', exercise: exerciseCreate },
   result: { route: '/create/result', title: '视频预览', exercise: exerciseResult },
-  pipeline: { route: '/create/pipeline', title: '管线编排', exercise: exercisePipeline },
+  pipeline: { route: '/create/pipeline', title: '流水线编排', exercise: exercisePipeline },
   'create-history': { route: '/create/history', title: '创作历史', exercise: exerciseCreateHistory },
   'cloud-publish': { route: '/cloud-publish', title: '云端发布', exercise: exerciseCloudPublish },
   intelligence: { route: '/intelligence', title: '内容情报', exercise: exerciseIntelligence },

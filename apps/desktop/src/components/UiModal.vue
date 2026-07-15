@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="visible" class="ui-modal-overlay" @click.self="$emit('close')">
-        <div :class="['ui-modal', sizeClass]" :style="{ maxWidth: width }">
+        <div :class="['ui-modal', sizeClass]" :style="{ maxWidth: computedMaxWidth }">
           <div class="ui-modal-header">
             <span v-if="title" class="ui-modal-title">{{ title }}</span>
             <button class="ui-modal-close" @click="$emit('close')">&times;</button>
@@ -31,9 +31,9 @@ const props = defineProps({
 
 defineEmits(["close"]);
 
-// eslint-disable-next-line no-unused-vars
 const sizeMap = { sm: "360px", md: "480px", lg: "640px", xl: "800px" };
 const sizeClass = computed(() => "ui-modal-" + props.size);
+const computedMaxWidth = computed(() => props.width || sizeMap[props.size] || sizeMap.md);
 </script>
 
 <style scoped>

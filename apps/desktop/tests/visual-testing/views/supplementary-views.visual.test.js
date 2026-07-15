@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 补充视觉测试 — 覆盖遗漏的视图、弹窗、对话框
  * 运行: node tests/visual-testing/views/supplementary-views.visual.test.js
  * 
@@ -39,8 +39,8 @@ const supplementaryViewTests = [
     { name: '数据展示', prompt: '是否存在爆文数据或分析结果展示？' }
   ]},
   { name: 'create-view-default', route: '/create', waitMs: 1500, checks: [
-    { name: '视图切换', prompt: '是否存在「管线创作」「快速渲染」「历史记录」Tab 切换？' },
-    { name: '管线卡片', prompt: '是否显示管线模板卡片列表？' }
+    { name: '视图切换', prompt: '是否存在「流水线创作」「快速渲染」「历史记录」Tab 切换？' },
+    { name: '流水线卡片', prompt: '是否显示流水线模板卡片列表？' }
   ]},
   { name: 'create-result', route: '/create/result', waitMs: 1500, checks: [
     { name: '结果页面', prompt: '是否显示创作结果页面？' },

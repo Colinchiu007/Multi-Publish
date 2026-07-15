@@ -3,7 +3,7 @@
  * PluginRegistry — 插件标准化注册中心
  *
  * 支持三种插件类型：
- *   - pipeline:    管线插件（扩展内容生成流程）
+ *   - pipeline:    流水线插件（扩展内容生成流程）
  *   - service:     服务插件（提供外部服务调用）
  *   - data_source: 数据源插件（提供数据采集）
  *

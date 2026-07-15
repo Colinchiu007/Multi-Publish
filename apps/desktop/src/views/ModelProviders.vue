@@ -114,7 +114,12 @@
           </div>
           <!-- 测试结果 -->
           <div v-if="testResults[p.id]" class="card-test-result" :class="testResults[p.id].success ? 'success' : 'fail'">
-            {{ testResults[p.id].success ? '✅ ' + testResults[p.id].message : '❌ ' + testResults[p.id].message }}
+            <div class="test-result-line">
+              {{ testResults[p.id].success ? '✅' : '❌' }}
+              <span class="test-code">码 {{ testResults[p.id].code }}</span>
+              {{ testResults[p.id].message }}
+            </div>
+            <div v-if="testResults[p.id].detail" class="test-detail">{{ testResults[p.id].detail }}</div>
           </div>
           <!-- 操作按钮 -->
           <div class="card-actions">
@@ -183,21 +188,22 @@
       <!-- 步骤 2: 选择预设或自定义 -->
       <div v-if="addStep === 2" class="add-step">
         <p class="step-hint">第二步：选择预设服务商或自定义</p>
-        <div v-if="availablePresets.length > 0" class="preset-list">
+        <div v-if="availablePresets.length > 0" class="preset-grid">
           <button
             v-for="preset in availablePresets" :key="preset.id"
-            class="preset-item" :class="{ active: addPresetId === preset.id }"
+            class="preset-card" :class="{ active: addPresetId === preset.id }"
             @click="selectPreset(preset.id)"
           >
-            <span class="preset-name">{{ preset.name }}</span>
-            <span class="preset-url">{{ preset.base_url || '本地' }}</span>
+            <div class="preset-card-name">{{ preset.name }}</div>
+            <div class="preset-card-url">{{ preset.base_url || '本地' }}</div>
+            <div class="preset-card-models">{{ (preset.models || []).length }} 个模型</div>
           </button>
         </div>
         <div v-else class="no-presets">该类别暂无可添加的预设服务商</div>
         <div class="divider">或</div>
-        <button class="preset-item custom" :class="{ active: isCustomAdd }" @click="selectCustom">
-          <span class="preset-name">✏️ 自定义服务商</span>
-          <span class="preset-url">手动填写配置信息</span>
+        <button class="preset-card custom" :class="{ active: isCustomAdd }" @click="selectCustom">
+          <div class="preset-card-name">✏️ 自定义服务商</div>
+          <div class="preset-card-url">手动填写配置信息</div>
         </button>
       </div>
 
@@ -521,12 +527,14 @@ onMounted(() => {
 .card-test-result {
   padding: 8px var(--space-lg);
   font-size: 13px;
-  font-weight: 500;
 }
 .card-test-result.success { background: #e6f4ea; color: #137333; }
 .card-test-result.fail { background: var(--secondary-light); color: #d93025; }
 [data-theme="dark"] .card-test-result.success { background: #1a3c2a; color: #81c995; }
 [data-theme="dark"] .card-test-result.fail { background: #3c1a1a; color: #f28b82; }
+.test-result-line { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.test-code { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,0.08); font-family: monospace; }
+.test-detail { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-all; }
 
 /* 操作按钮 */
 .card-actions {
@@ -661,18 +669,18 @@ onMounted(() => {
 .category-icon { font-size: 24px; }
 .category-label { font-size: 13px; font-weight: 500; }
 
-.preset-list {
-  display: flex;
-  flex-direction: column;
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 8px;
-  max-height: 240px;
+  max-height: 280px;
   overflow-y: auto;
 }
-.preset-item {
+.preset-card {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: transparent;
@@ -680,10 +688,11 @@ onMounted(() => {
   text-align: left;
   transition: all 0.12s;
 }
-.preset-item:hover { border-color: var(--primary); background: var(--primary-light); }
-.preset-item.active { border-color: var(--primary); background: var(--primary-light); }
-.preset-name { font-weight: 500; }
-.preset-url { font-size: 12px; color: var(--muted); }
+.preset-card:hover { border-color: var(--primary); background: var(--primary-light); }
+.preset-card.active { border-color: var(--primary); background: var(--primary-light); }
+.preset-card-name { font-weight: 500; font-size: 13px; }
+.preset-card-url { font-size: 11px; color: var(--muted); word-break: break-all; }
+.preset-card-models { font-size: 11px; color: var(--muted); }
 .no-presets {
   text-align: center;
   padding: 24px;

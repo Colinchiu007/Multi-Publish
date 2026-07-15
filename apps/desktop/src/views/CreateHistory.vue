@@ -2,12 +2,12 @@
   <div class="history-page">
     <div class="page-header">
       <h1>创作历史</h1>
-      <p class="text-muted">查看已渲染的视频和管线运行记录</p>
+      <p class="text-muted">查看已渲染的视频和流水线运行记录</p>
     </div>
 
     <div class="page-tabs">
       <button :class="['tab', { active: tab === 'renders' }]" @click="tab = 'renders'">渲染记录</button>
-      <button :class="['tab', { active: tab === 'pipelines' }]" @click="tab = 'pipelines'; loadPipelines()">管线记录</button>
+      <button :class="['tab', { active: tab === 'pipelines' }]" @click="tab = 'pipelines'; loadPipelines()">流水线记录</button>
     </div>
 
     <!-- 渲染记录 -->
@@ -35,12 +35,12 @@
       </div>
     </div>
 
-    <!-- 管线记录 -->
+    <!-- 流水线记录 -->
     <div v-if="tab === 'pipelines'">
       <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else-if="pipelines.length === 0" class="empty-state">
-        <p>暂无管线运行记录</p>
-        <UiButton @click="$router.push('/create/pipeline')">浏览管线</UiButton>
+        <p>暂无流水线运行记录</p>
+        <UiButton @click="$router.push('/create/pipeline')">浏览流水线</UiButton>
       </div>
       <div v-else class="pipeline-list">
         <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card">

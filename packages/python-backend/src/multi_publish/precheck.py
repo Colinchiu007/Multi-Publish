@@ -1,4 +1,4 @@
-"""PreCheck — 发布前内容预检管线（已注释：依赖 TikHub 付费 API）
+"""PreCheck — 发布前内容预检流水线（已注释：依赖 TikHub 付费 API）
 
 保留架构文档，check_duplicate 始终返回 PASS。
 启用时需要 TikHubBridge.available == True。

@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Pipeline 管线编排 IPC handlers
+ * Pipeline 流水线编排 IPC handlers
  */
 
 function registerHandlers(ipcMain, deps) {

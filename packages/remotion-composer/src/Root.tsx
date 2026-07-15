@@ -335,7 +335,7 @@ export const Root: React.FC = () => {
           overlay: true,
         } as EndTagProps}
       />
-      {/* Story2Video — 第14条管线 story2video-compose 的 compose 阶段入口 */}
+      {/* Story2Video — 第14条流水线 story2video-compose 的 compose 阶段入口 */}
       <Composition
         id="Story2VideoSlideshow"
         component={Story2VideoSlideshow}

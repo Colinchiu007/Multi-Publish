@@ -1,9 +1,9 @@
-﻿/**
+/**
  * 补充工作流测试 — 覆盖遗漏的交互流程
  * 运行: node tests/visual-testing/workflows/supplementary-workflows.visual.test.js
  * 
  * 覆盖范围:
- * - 视频创作全流程 (管线选择 → 参数配置 → 执行 → 结果)
+ * - 视频创作全流程 (流水线选择 → 参数配置 → 执行 → 结果)
  * - 日历交互 (月份切换 → 日期选择 → 事件查看)
  * - 智能搜索 (输入关键词 → 搜索 → 查看结果)
  * - 模型服务商管理 (添加 → 编辑 → 删除)
@@ -20,10 +20,10 @@ const supplementaryWorkflowTests = [
     route: '/create',
     steps: [
       { action: 'waitMs', ms: 1500 },
-      { action: 'screenshot', name: '管线列表' },
-      { action: 'click', selector: '.pipeline-card:first-child', name: '选择管线' },
+      { action: 'screenshot', name: '流水线列表' },
+      { action: 'click', selector: '.pipeline-card:first-child', name: '选择流水线' },
       { action: 'waitMs', ms: 1000 },
-      { action: 'screenshot', name: '管线详情' }
+      { action: 'screenshot', name: '流水线详情' }
     ]
   },
   {
@@ -51,10 +51,10 @@ const supplementaryWorkflowTests = [
     route: '/create',
     steps: [
       { action: 'waitMs', ms: 1500 },
-      { action: 'click', selector: '.pipeline-card:first-child', name: '选择管线' },
+      { action: 'click', selector: '.pipeline-card:first-child', name: '选择流水线' },
       { action: 'waitMs', ms: 800 },
       { action: 'click', selector: 'button:has-text("文案")', name: '切换文案输入' },
-      { action: 'screenshot', name: '管线配置' }
+      { action: 'screenshot', name: '流水线配置' }
     ]
   },
 

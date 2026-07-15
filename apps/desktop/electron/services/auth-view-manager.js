@@ -88,6 +88,9 @@ class AuthViewManager {
       // R49 修复：loadURL 返回 Promise，必须 .catch()
       view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
 
+      // 通知渲染进程：登录视图已打开（触发关闭按钮显示）
+      this.mainWindow.webContents.send('auth:view-opened', { platform, accountId })
+
       // Escape 键关闭
       /**
        * @param {import('electron').Event} event

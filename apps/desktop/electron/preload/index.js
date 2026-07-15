@@ -7,7 +7,7 @@
  *
  * 三级分离设计：
  *   - public: 未登录可用（系统信息/登录入口/许可证激活/通知/onboarding）
- *   - authenticated: 登录后可用（业务 API：发布/管线/账号/渲染等）
+ *   - authenticated: 登录后可用（业务 API：发布/流水线/账号/渲染等）
  *   - admin: 仅开发模式（敏感操作：paymentComplete/proxyTest 等）
  *
  * 访问级别通过同步 IPC auth:get-access-level 从主进程获取，
@@ -49,6 +49,11 @@ const PUBLIC_METHODS = [
   'syncAll', 'syncPlatform', 'syncCached',
   'webviewSetLayout', 'webviewOpenTab', 'webviewCloseTab', 'webviewCloseAll', 'webviewListTabs',
   'onWebviewLayoutChanged', 'onWebviewTabOpened', 'onWebviewTabClosed', 'onWebviewNav', 'onWebviewAllClosed',
+  // 模型服务商管理（应用级配置，与登录状态无关，需在设置中随时配置）
+  'modelProviderList', 'modelProviderGet', 'modelProviderCreate', 'modelProviderUpdate',
+  'modelProviderDelete', 'modelProviderSetDefault', 'modelProviderGetDefault',
+  'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
+  'modelProviderLogs', 'modelProviderCleanLogs',
 ]
 
 /**

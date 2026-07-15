@@ -220,7 +220,7 @@ t('无 stage.type 回退为 MANUAL_CHECKPOINT（向后兼容）', async function
   const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
   const result = await exec.execute({
     runId: 'r1',
-    stage: { name: 'research' }, // 旧管线只有 name
+    stage: { name: 'research' }, // 旧流水线只有 name
     params: {},
     context: {},
   });
@@ -335,7 +335,7 @@ t('startOrchestrated 在无 stageExecutor 时返回错误', async function () {
   ok(/StageExecutor/.test(r.error));
 });
 
-t('startOrchestrated 在未知管线时返回错误', async function () {
+t('startOrchestrated 在未知流水线时返回错误', async function () {
   const bus = makeMockServiceBus();
   const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
   const r = await pe.startOrchestrated('nonexistent', {});
@@ -355,7 +355,7 @@ t('startOrchestrated 手动模式（autoAdvance=false）只创建 run', async fu
   eq(status.status, 'running');
 });
 
-t('startOrchestrated + autoAdvance 自动执行全部阶段（旧管线回退为 checkpoint）', async function () {
+t('startOrchestrated + autoAdvance 自动执行全部阶段（旧流水线回退为 checkpoint）', async function () {
   const bus = makeMockServiceBus();
   const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
   // framework-smoke 有 2 个阶段：verify, report（无 stage.type，回退为 MANUAL_CHECKPOINT）
@@ -381,7 +381,7 @@ t('executeStage 执行单个阶段并将输出写入 context', async function ()
   const bus = makeMockServiceBus();
   const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
 
-  // 动态注册带 stageDefs 的测试管线
+  // 动态注册带 stageDefs 的测试流水线
   pe.registerPipeline({
     name: 'test-call-skill-pipeline',
     description: '测试 CALL_SKILL 阶段',
@@ -480,7 +480,7 @@ t('registerStageExecutor 插件扩展点', async function () {
     pluginCalled = true;
     return { success: true, output: { custom: params.foo } };
   });
-  // 注册一个使用自定义 stage 类型的管线
+  // 注册一个使用自定义 stage 类型的流水线
   pe.registerPipeline({
     name: 'test-plugin-stage-pipeline',
     description: '测试插件 stage 扩展',
@@ -494,9 +494,9 @@ t('registerStageExecutor 插件扩展点', async function () {
   eq(r.output.custom, 'bar');
 });
 
-t('registerPipeline 动态注册管线', function () {
+t('registerPipeline 动态注册流水线', function () {
   const pe = new PipelineEngine();
-  // 注册新管线
+  // 注册新流水线
   const r1 = pe.registerPipeline({
     name: 'test-dynamic-pipeline',
     description: '动态注册测试',
@@ -506,7 +506,7 @@ t('registerPipeline 动态注册管线', function () {
   eq(r1.success, true);
   // 在 listPipelines 中应可见
   const list = pe.listPipelines();
-  ok(list.find(p => p.name === 'test-dynamic-pipeline'), '动态注册的管线应在 list 中');
+  ok(list.find(p => p.name === 'test-dynamic-pipeline'), '动态注册的流水线应在 list 中');
   // 重复注册应失败
   const r2 = pe.registerPipeline({ name: 'test-dynamic-pipeline', stages: ['x'] });
   eq(r2.success, false);
@@ -517,11 +517,11 @@ t('registerPipeline 动态注册管线', function () {
   ok(/stages/.test(r3.error));
 });
 
-t('registerPipeline 注册的管线可启动和推进', function () {
+t('registerPipeline 注册的流水线可启动和推进', function () {
   const pe = new PipelineEngine();
   pe.registerPipeline({
     name: 'test-runnable-dynamic',
-    description: '可运行动态管线',
+    description: '可运行动态流水线',
     category: 'custom',
     stages: ['init', 'process', 'finalize'],
     estimatedCost: 'low',
@@ -542,13 +542,13 @@ t('registerStageExecutor 在无 stageExecutor 时返回错误', function () {
 });
 
 // ============================================================
-// 5. 现有 14 条管线回归（state_machine 模式）
+// 5. 现有 14 条流水线回归（state_machine 模式）
 // ============================================================
 
-t('现有 14 条管线在 state_machine 模式下全部可启动', function () {
+t('现有 14 条流水线在 state_machine 模式下全部可启动', function () {
   const pe = new PipelineEngine(); // 无 serviceBus，纯状态机
   const list = pe.listPipelines();
-  eq(list.length, 14, '应有 14 条管线（含 story2video-compose）');
+  eq(list.length, 14, '应有 14 条流水线（含 story2video-compose）');
   for (const pl of list) {
     const r = pe.start(pl.name, { test: true });
     eq(r.success, true, pl.name + ' 应可启动');
@@ -556,11 +556,11 @@ t('现有 14 条管线在 state_machine 模式下全部可启动', function () {
   }
 });
 
-t('story2video-compose 管线已注册为第 14 条', function () {
+t('story2video-compose 流水线已注册为第 14 条', function () {
   const pe = new PipelineEngine();
   const list = pe.listPipelines();
   const s2v = list.find(p => p.name === 'story2video-compose');
-  ok(s2v, 'story2video-compose 应存在于管线列表');
+  ok(s2v, 'story2video-compose 应存在于流水线列表');
   eq(s2v.category, 'generated');
   const detail = pe.getPipeline('story2video-compose');
   eq(detail.stages.length, 5);
@@ -571,7 +571,7 @@ t('story2video-compose 管线已注册为第 14 条', function () {
   eq(detail.stageDefs[4].name, 'publish');
 });
 
-t('现有 14 条管线可完整 advance 到完成', function () {
+t('现有 14 条流水线可完整 advance 到完成', function () {
   const pe = new PipelineEngine();
   const list = pe.listPipelines();
   for (const pl of list) {

@@ -86,21 +86,21 @@
     </div>
 
     <!-- 新增账号对话框 -->
-        <UiModal
+    <UiModal
       :visible="showAddDialog"
-      title="????"
+      title="添加账号"
       size="sm"
       @close="showAddDialog = false"
     >
       <UiSelect
         v-model="newPlatform"
-        label="????"
-        placeholder="?????"
+        label="选择平台"
+        placeholder="请选择平台"
         :options="allPlatforms.map(p => ({ value: p.id, label: p.label }))"
       />
       <template #footer>
-        <UiButton variant="ghost" @click="showAddDialog = false">??</UiButton>
-        <UiButton @click="addAccount" :disabled="adding">{{ adding ? '???...' : '????' }}</UiButton>
+        <UiButton variant="ghost" @click="showAddDialog = false">取消</UiButton>
+        <UiButton @click="addAccount" :disabled="adding">{{ adding ? '添加中...' : '添加账号' }}</UiButton>
       </template>
     </UiModal>
   </div>

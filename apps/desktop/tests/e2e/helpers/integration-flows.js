@@ -70,9 +70,9 @@ async function flowCreateToDashboard(r) {
   const taValue = await r.page.locator('textarea[placeholder*="视频文案"]').first().inputValue().catch(() => '');
   record(r, 'Flow1.1 创作文案可填写', taValue === 'E2E 集成测试视频文案', { value: taValue });
 
-  // Step 2: 启动管线（保存到历史）
-  const startBtn = await clickText(r, '启动管线');
-  record(r, 'Flow1.2 启动管线保存内容', startBtn);
+  // Step 2: 启动流水线（保存到历史）
+  const startBtn = await clickText(r, '启动流水线');
+  record(r, 'Flow1.2 启动流水线保存内容', startBtn);
   await r.waitForTimeout(300);
 
   // Step 3: 跳到 /publish
@@ -226,7 +226,7 @@ async function flowProviderToAI(r) {
   await r.waitForTimeout(500);
 
   // Step 3: 验证 AI 写作面板存在（任意 AI 相关元素即可）
-  const aiContent = await bodyHas(r, '管线') || await bodyHas(r, 'AI') || await bodyHas(r, '创作');
+  const aiContent = await bodyHas(r, '流水线') || await bodyHas(r, 'AI') || await bodyHas(r, '创作');
   record(r, 'Flow3.3 创作页面 AI 面板加载', aiContent);
   const aiProvider = await r.getIpcCalls('aiListProviders');
   record(r, 'Flow3.4 AI 服务商 IPC 可调用', true, { note: 'IPC handler available', count: aiProvider });
@@ -355,9 +355,9 @@ async function flowErrorPaths(r) {
   await r.waitForTimeout(400);
   const requiredBlank = await r.page.evaluate(() => {
     const text = document.body.innerText || '';
-    return /管线|启动|创作/.test(text);
+    return /流水线|启动|创作/.test(text);
   });
-  record(r, 'Flow6.3 创作页必填提示可达', requiredBlank, { note: '已加载管线界面' });
+  record(r, 'Flow6.3 创作页必填提示可达', requiredBlank, { note: '已加载流水线界面' });
 }
 
 const flows = {

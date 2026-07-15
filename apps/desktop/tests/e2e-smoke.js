@@ -79,7 +79,7 @@ async function run() {
 
 
   // 5. PipelineBrowser component
-  console.log('\x35. 管线浏览器组件');
+  console.log('\x35. 流水线浏览器组件');
   try {
     const pbPath = path.join(__dirname, '..', 'src', 'components', 'PipelineBrowser.vue');
     const pbExists = fs.existsSync(pbPath);
@@ -94,7 +94,7 @@ async function run() {
   }
 
   // 6. Pipeline IPC handlers
-  console.log('\x36. 管线 IPC 处理器');
+  console.log('\x36. 流水线 IPC 处理器');
   try {
     const pipelinePath = path.join(__dirname, '..', 'electron', 'ipc-handlers', 'pipeline.js');
     const pipelineExists = fs.existsSync(pipelinePath);

@@ -25,7 +25,7 @@ orchestration:
   mode: stage-executor
   executor_side: electron-js
   notes: >
-    与其他管线不同，story2video-compose 的阶段执行器在 Electron JS 侧
+    与其他流水线不同，story2video-compose 的阶段执行器在 Electron JS 侧
     (StageExecutor + ServiceBus)，Python 后端仅提供 manifest 定义和资源生成技能。
 
 compatible_playbooks:

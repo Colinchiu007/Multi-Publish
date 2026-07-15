@@ -1,17 +1,17 @@
 <template>
   <div class="pipeline-page">
     <div class="page-header">
-      <h1>管线编排</h1>
-      <p class="text-muted">查看和管理视频创作管线</p>
+      <h1>流水线编排</h1>
+      <p class="text-muted">查看和管理视频创作流水线</p>
     </div>
 
     <div class="page-tabs">
-      <button :class="['tab', { active: tab === 'browse' }]" @click="tab = 'browse'">浏览管线</button>
+      <button :class="['tab', { active: tab === 'browse' }]" @click="tab = 'browse'">浏览流水线</button>
       <button :class="['tab', { active: tab === 'running' }]" @click="tab = 'running'">运行中</button>
       <button :class="['tab', { active: tab === 'history' }]" @click="tab = 'history'; loadHistory()">历史记录</button>
     </div>
 
-    <!-- 管线浏览 -->
+    <!-- 流水线浏览 -->
     <div v-if="tab === 'browse'">
       <div v-if="loading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else-if="error" class="error-state">⚠️ {{ error }}</div>
@@ -90,7 +90,7 @@
 
     <!-- 运行中状态 -->
     <div v-if="tab === 'running' && currentPipeline" class="running-section">
-      <h2>当前管线: {{ humanName(currentPipeline) }}</h2>
+      <h2>当前流水线: {{ humanName(currentPipeline) }}</h2>
       <div class="status-bar" :class="pipelineStatusData">
         <span>状态: {{ statusLabel }}</span>
         <span class="controls">
@@ -120,14 +120,14 @@
       </div>
     </div>
     <div v-else-if="tab === 'running' && !currentPipeline" class="empty-state">
-      <p>没有正在运行的管线</p>
-      <UiButton @click="tab = 'browse'">浏览管线</UiButton>
+      <p>没有正在运行的流水线</p>
+      <UiButton @click="tab = 'browse'">浏览流水线</UiButton>
     </div>
 
     <!-- 历史记录 -->
     <div v-if="tab === 'history'">
       <div v-if="historyLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
-      <div v-else-if="history.length === 0" class="empty-state"><p>暂无管线运行记录</p></div>
+      <div v-else-if="history.length === 0" class="empty-state"><p>暂无流水线运行记录</p></div>
       <div v-else class="history-list">
         <div v-for="(h, i) in history" :key="i" class="history-item">
           <span class="history-name">{{ humanName(h.pipelineName || h.name) }}</span>
@@ -198,7 +198,7 @@ export default {
       else { this.error = res?.message || '启动失败' }
     },
     isOrchestratedPipeline(name) {
-      // story2video-compose 等新管线使用编排模式
+      // story2video-compose 等新流水线使用编排模式
       return name === 'story2video-compose'
     },
     toggleS2VConfig(name) {
