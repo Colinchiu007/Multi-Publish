@@ -123,9 +123,11 @@ class ModelProviderManager {
   _registerBuiltinAdapters () {
     const { OpenAIAdapter } = require('./adapters/openai')
     const { AnthropicAdapter } = require('./adapters/anthropic')
+    const { ElevenLabsAdapter } = require('./adapters/elevenlabs')
 
     this.registerAdapter('openai', (creds) => new OpenAIAdapter(creds))
     this.registerAdapter('anthropic', (creds) => new AnthropicAdapter(creds))
+    this.registerAdapter('elevenlabs', (creds) => new ElevenLabsAdapter(creds))
   }
 
   init () {
