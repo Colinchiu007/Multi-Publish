@@ -82,11 +82,29 @@ function extractContext(container) {
   const videoEngine = container.get('videoEngine')
   const pipelineEngine = container.get('pipelineEngine')
 
-  // ─── ModelProviderManager 接线 ───
+  // ─── ModelProviderManager + ProviderRouter 接线 ───
   const { ModelProviderManager } = require('../services/model-provider-manager')
+  const { ProviderRouter } = require('../services/adapters/router')
   const modelProviderManager = new ModelProviderManager(store)
+  // 创建 ProviderRouter 并注入 logHandler（写入 model_provider_logs 表）
+  // logHandler 签名：(provider, status, error, context) => void
+  // context 含 category/action/latency_ms，转成 store.addProviderLog 需要的格式
+  const providerRouter = new ProviderRouter(modelProviderManager, (provider, status, error, context) => {
+    if (!store || !store.addProviderLog) return
+    store.addProviderLog({
+      provider_id: provider.id,
+      category: (context && context.category) || 'unknown',
+      action: (context && context.action) || 'unknown',
+      status,
+      latency_ms: context && context.latency_ms,
+      error_message: error || null,
+    })
+  })
   if (aiGenerator && aiGenerator.setModelProviderManager) {
     aiGenerator.setModelProviderManager(modelProviderManager)
+  }
+  if (aiGenerator && aiGenerator.setRouter) {
+    aiGenerator.setRouter(providerRouter)
   }
 
   // ─── 平台配置 + 敏感词 + 横切服务 ───
@@ -119,7 +137,7 @@ function extractContext(container) {
     viralEngine, commentManager, contentIntelligence, publishImpactTracker,
     proxyPool, templateManager, licenseManager, aiWriter,
     renderEngine, compositionManager, aiGenerator, videoEngine,
-    pipelineEngine, modelProviderManager, _chunkedUploader, _platformConfig,
+    pipelineEngine, modelProviderManager, providerRouter, _chunkedUploader, _platformConfig,
     _sensitiveFilter, _dataSync, BACKEND_PLATFORMS,
     CloudPublisher,
     _aggregatorBridge, publisherRouter, _PublishAlert,

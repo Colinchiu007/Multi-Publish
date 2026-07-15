@@ -155,7 +155,10 @@ describe('ProviderRouter — P3.3 路由策略 + 故障转移', () => {
       manager.setDefault('llm', 'openai')
       const logSpy = vi.spyOn(router, '_logCall')
       await router.executeWithFailover('llm', async () => 'ok')
-      expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'openai' }), 'success')
+      // _logCall(provider, status, error, context) — 只验证前两参数
+      expect(logSpy).toHaveBeenCalledOnce()
+      expect(logSpy.mock.calls[0][0]).toMatchObject({ id: 'openai' })
+      expect(logSpy.mock.calls[0][1]).toBe('success')
     })
   })
 
@@ -193,8 +196,11 @@ describe('ProviderRouter — P3.3 路由策略 + 故障转移', () => {
       })
 
       await router.executeWithFailover('llm', fn, { maxRetries: 3 })
-      // 第一次调用应该记录 error
-      expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'openai' }), 'error', 'fail')
+      // 第一次调用应该记录 error — _logCall(provider, status, error, context)
+      const errorCall = logSpy.mock.calls.find(c => c[1] === 'error')
+      expect(errorCall).toBeDefined()
+      expect(errorCall[0]).toMatchObject({ id: 'openai' })
+      expect(errorCall[2]).toBe('fail')
     })
   })
 
@@ -306,6 +312,85 @@ describe('ProviderRouter — P3.3 路由策略 + 故障转移', () => {
       r.setLogHandler(null)
       r._logCall({ id: 'openai' }, 'success')
       expect(logs).toHaveLength(0)
+    })
+  })
+
+  // ─── Phase 2+ 扩展：_logCall context 参数（latency_ms/action/category）───
+  describe('_logCall — context 参数传递', () => {
+    it('logHandler 接收第 4 参数 context（含 category/action/latency_ms）', () => {
+      const logs = []
+      const handler = (provider, status, error, context) => {
+        logs.push({ providerId: provider.id, status, error, context })
+      }
+      const r = new ProviderRouter(manager, handler)
+      r._logCall({ id: 'openai' }, 'success', null, {
+        category: 'llm', action: 'chat', latency_ms: 150
+      })
+      expect(logs).toHaveLength(1)
+      expect(logs[0].context).toEqual({ category: 'llm', action: 'chat', latency_ms: 150 })
+    })
+
+    it('context 缺省时 logHandler 收到空对象（向后兼容）', () => {
+      const logs = []
+      const handler = (provider, status, error, context) => {
+        logs.push({ status, context })
+      }
+      const r = new ProviderRouter(manager, handler)
+      r._logCall({ id: 'openai' }, 'success')
+      expect(logs[0].context).toEqual({})
+    })
+
+    it('executeWithFailover 成功时 logHandler 收到 latency_ms 和 action', async () => {
+      const logs = []
+      const mgr = createMockManager([
+        { id: 'p1', category: 'llm', enabled: true },
+      ])
+      const r = new ProviderRouter(mgr, (provider, status, error, context) => {
+        logs.push({ providerId: provider.id, status, context })
+      })
+      await r.executeWithFailover('llm', async () => 'ok', {
+        action: 'chat', maxRetries: 1
+      })
+      expect(logs).toHaveLength(1)
+      expect(logs[0].status).toBe('success')
+      expect(logs[0].context.category).toBe('llm')
+      expect(logs[0].context.action).toBe('chat')
+      expect(typeof logs[0].context.latency_ms).toBe('number')
+      expect(logs[0].context.latency_ms).toBeGreaterThanOrEqual(0)
+    })
+
+    it('executeWithFailover 失败时 logHandler 收到 error + latency_ms', async () => {
+      const logs = []
+      const mgr = createMockManager([
+        { id: 'p1', category: 'llm', enabled: true },
+        { id: 'p2', category: 'llm', enabled: true },
+      ])
+      const r = new ProviderRouter(mgr, (provider, status, error, context) => {
+        logs.push({ providerId: provider.id, status, error, context })
+      })
+      await expect(r.executeWithFailover('llm', async () => {
+        throw new Error('timeout')
+      }, { action: 'chat', maxRetries: 2 })).rejects.toThrow('timeout')
+
+      // 两次失败都应记录
+      expect(logs).toHaveLength(2)
+      expect(logs.every(l => l.status === 'error')).toBe(true)
+      expect(logs.every(l => l.error === 'timeout')).toBe(true)
+      expect(logs.every(l => l.context.action === 'chat')).toBe(true)
+      expect(logs.every(l => typeof l.context.latency_ms === 'number')).toBe(true)
+    })
+
+    it('executeWithFailover 未传 action 时 context.action 为 null', async () => {
+      const logs = []
+      const mgr = createMockManager([
+        { id: 'p1', category: 'tts', enabled: true },
+      ])
+      const r = new ProviderRouter(mgr, (provider, status, error, context) => {
+        logs.push({ context })
+      })
+      await r.executeWithFailover('tts', async () => 'ok', { maxRetries: 1 })
+      expect(logs[0].context.action).toBeNull()
+      expect(logs[0].context.category).toBe('tts')
     })
   })
 

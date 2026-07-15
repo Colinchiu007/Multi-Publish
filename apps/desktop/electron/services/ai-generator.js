@@ -132,7 +132,7 @@ class AIGenerator {
         throw new Error(r.message || 'Adapter call failed');
       }
       return r.data;
-    }, { maxRetries: 3, strategy: 'failover' });
+    }, { maxRetries: 3, strategy: 'failover', action: method });
 
     this._safeProgress(onProgress, { percent: 100, stage: 'completed' });
     return result;

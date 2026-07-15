@@ -93,11 +93,12 @@ class ProviderRouter {
    * @param {object} [options={}]
    * @param {number} [options.maxRetries=3] - 最大重试次数（含首次）
    * @param {string} [options.strategy='failover'] - 路由策略
+   * @param {string} [options.action=null] - 调用动作（chat/tts/image/video），用于日志记录
    * @returns {Promise<any>} fn 的返回值
    * @throws {Error} 所有重试都失败后抛最后错误
    */
   async executeWithFailover(category, fn, options = {}) {
-    const { maxRetries = 3, strategy = 'failover' } = options
+    const { maxRetries = 3, strategy = 'failover', action = null } = options
 
     if (maxRetries <= 0) {
       throw new Error('maxRetries must be positive')
@@ -114,14 +115,17 @@ class ProviderRouter {
         throw new Error(`No available provider for category "${category}"`)
       }
 
+      const startTime = Date.now()
       try {
         const result = await fn(provider)
-        this._logCall(provider, 'success')
+        const latency_ms = Date.now() - startTime
+        this._logCall(provider, 'success', null, { category, action, latency_ms })
         return result
       } catch (e) {
+        const latency_ms = Date.now() - startTime
         lastError = e
         excludeIds.add(provider.id)
-        this._logCall(provider, 'error', e.message)
+        this._logCall(provider, 'error', e.message, { category, action, latency_ms })
         log.warn('ProviderRouter',
           `Provider "${provider.id}" failed (attempt ${attempt + 1}/${maxRetries}): ${e.message}`)
       }
@@ -137,11 +141,12 @@ class ProviderRouter {
    * @param {object} provider - provider config
    * @param {string} status - 'success' | 'error'
    * @param {string} [error=null] - 错误消息（status=error 时）
+   * @param {object} [context={}] - 上下文信息（category/action/latency_ms/tokens 等）
    */
-  _logCall(provider, status, error = null) {
+  _logCall(provider, status, error = null, context = {}) {
     if (typeof this._logHandler === 'function') {
       try {
-        this._logHandler(provider, status, error)
+        this._logHandler(provider, status, error, context)
       } catch (_) {
         // 日志写入失败不影响主流程
       }
