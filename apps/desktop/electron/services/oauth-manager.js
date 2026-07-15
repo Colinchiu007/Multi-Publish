@@ -17,6 +17,7 @@ const { WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const http = require('http')
 const log = require('./logger')
+const { config: appConfig } = require('../config/app-config')
 // eslint-disable-next-line no-unused-vars
 const Store = require('./store')
 const EC = require('../core/error-codes').ERROR
@@ -198,7 +199,7 @@ class OAuthManager {
       }
     })
 
-    this._callbackServer.listen(port, '127.0.0.1', () => {
+    this._callbackServer.listen(port, appConfig.oauthServer.host, () => {
       log.debug('OAuthManager', `Callback server listening on port ${port}`)
     })
     this._callbackServer.on('error', (err) => {

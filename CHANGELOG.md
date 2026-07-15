@@ -1,4 +1,34 @@
 
+## [系统化重构] v0.13.4 - Phase 2 代码清理 (2026-07-16)
+
+系统化重构路线图 Phase 2：代码清理。删除旧版 preload、var 现代化、定时器 unref 补全、硬编码配置抽取。
+
+### Task 5: CI 脚本重构 + 删除旧版 preload.js
+- 重构 `.github/scripts/check-ipc-bridge.js`：改用 `preload/` 子目录递归扫描（与 ipc-handlers.test.js 逻辑一致）
+- 删除 `electron/preload.js`（423 行，已弃用，window.js 实际加载 preload/index.js）
+- 更新 `ipc-handlers.test.js`：移除旧版 preload.js 读取逻辑，HIDDEN 集合补充 8 个 pipeline 内部 handler
+- 发现：新版 preload/publish.js 正确移除了 7 个 pipeline 编排内部方法（不应暴露给渲染进程）
+
+### Task 6: ai-writer 包 var → const/let
+- `packages/ai-writer/src/index.js`：18 处 var 替换（16 const + 2 let）
+- `packages/ai-writer/src/cli.js`：20 处 var 替换（全部 const）
+- 总计 38 处，ai-writer 测试 16/16 通过
+
+### Task 7: 补全 setTimeout unref 覆盖
+- 扫描 104 处 setTimeout/setInterval，33 处已 unref
+- 所有 13 处 setInterval 已有 unref（100% 覆盖）
+- 新增 7 处长期 setTimeout unref：auth-view-session.js(1) + rpa-view-manager.js(6)
+- 聚焦 ≥10s 的命名/超时定时器，短期定时器不修改
+
+### Task 8: 硬编码 127.0.0.1/端口抽取配置
+- 新建 `electron/config/app-config.js`：统一 6 个服务的 host/port 配置（环境变量优先）
+- 替换 6 个文件 13 处硬编码：callback-server/oauth-manager/window/python-bridge/prompt-bridge/splitter-bridge
+- 保留安全检查代码中的 127.0.0.1（isTrustedSender 字面量，非服务配置）
+
+### 测试
+- 全量回归：3643 passed / 0 failed / 10 skipped（与基线一致）
+- 视觉测试：19/19 passed / 0 failed / 2 skipped (electron-only)
+
 ## [系统化重构] v0.13.3 - Phase 1 安全加固 (2026-07-16)
 
 系统化重构路线图 Phase 1：安全加固。基于独立深度代码分析，修正用户方案 6 处偏差，补充 4 项盲区。

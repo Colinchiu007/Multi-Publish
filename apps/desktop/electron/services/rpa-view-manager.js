@@ -405,6 +405,7 @@ class RpaViewManager {
     return new Promise(function(resolve) {
       let settled = false
       const t = setTimeout(function(){ cleanup(); resolve(null) }, timeout)
+      if (t && t.unref) t.unref()
       const matched = []
       function cleanup() {
         try { session.webRequest.onCompleted({urls:['<all_urls>']}, null) } catch(e) { /* session may be destroyed */ }
@@ -418,7 +419,8 @@ class RpaViewManager {
         matched.push({url:url,statusCode:d.statusCode})
         if (d.statusCode===200) { settled=true; clearTimeout(t); cleanup(); resolve({url:url,statusCode:d.statusCode,matchedUrls:matched}) }
       })
-      setTimeout(function(){ if(!settled && matched.length>0){ settled=true; cleanup(); resolve({url:matched[0].url,statusCode:matched[0].statusCode,matchedUrls:matched}) } }, timeout+1000)
+      const fallbackTimer = setTimeout(function(){ if(!settled && matched.length>0){ settled=true; cleanup(); resolve({url:matched[0].url,statusCode:matched[0].statusCode,matchedUrls:matched}) } }, timeout+1000)
+      if (fallbackTimer && fallbackTimer.unref) fallbackTimer.unref()
     })
   }
 
@@ -427,6 +429,7 @@ class RpaViewManager {
     stabilizeMs = stabilizeMs||3000
     return new Promise(function(resolve,reject) {
       const t = setTimeout(function(){reject(new Error('nav timeout: '+url))},45000)
+      if (t && t.unref) t.unref()
       win.webContents.once('did-finish-load',function(){clearTimeout(t);setTimeout(function(){win.webContents.executeJavaScript('void(0)').then(resolve).catch(reject)},stabilizeMs)})
       win.webContents.once('did-fail-load',function(e,code,desc){clearTimeout(t);log.warn('RpaView','nav warn: '+desc);setTimeout(resolve,stabilizeMs)})
       // R49 修复：loadURL 返回 Promise，必须 .catch() 否则导航失败产生 unhandledRejection
@@ -733,7 +736,7 @@ class RpaViewManager {
           publishViaApi(platform, article, cookie, {
             onProgress: (pct, msg) => this._emitProgress(platform, msg, pct)
           }),
-          new Promise(function(_, rj) { setTimeout(function() { rj(new Error('API timeout (' + (timeout/1000) + 's)')) }, timeout) })
+          new Promise(function(_, rj) { const _t = setTimeout(function() { rj(new Error('API timeout (' + (timeout/1000) + 's)')) }, timeout); if (_t && _t.unref) _t.unref() })
         ]);
         return apiResult;
       } catch(e) {
@@ -751,9 +754,9 @@ class RpaViewManager {
     try {
       if (authData&&authData.cookies) { await this._restoreCookies(win,authData.cookies); this._emitProgress(platform,'cookies restored',2) }
       const mn = '_publish_'+platform
-      if (typeof this[mn]==='function') return await Promise.race([this[mn](win,article),new Promise(function(_,rj){setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout)})])
+      if (typeof this[mn]==='function') return await Promise.race([this[mn](win,article),new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})])
       const cfg = this._getPlatformConfig(platform)
-      return await Promise.race([this._publish_generic(win,article,platform,cfg),new Promise(function(_,rj){setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout)})])
+      return await Promise.race([this._publish_generic(win,article,platform,cfg),new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})])
     } catch(e) { log.error('RpaView','publish '+platform+': '+e.message); return { success:false, error:e.message, platform:platform } }
     // eslint-disable-next-line no-unused-vars
     finally { try { win.destroy() } catch (e) { /* ignore */ }; delete this.windows[key] }

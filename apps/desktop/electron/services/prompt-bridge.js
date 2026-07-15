@@ -7,9 +7,10 @@
  * 公共逻辑（start/stop/attach/healthCheck/watchdog/restart）由基类提供
  */
 const { BasePythonBridge } = require('./base-python-bridge')
+const { config } = require('../config/app-config')
 
-const PROMPT_PORT = parseInt(process.env.PROMPT_PORT || '8013', 10)
-const PROMPT_HOST = process.env.PROMPT_HOST || '127.0.0.1'
+const PROMPT_PORT = config.promptBridge.port
+const PROMPT_HOST = config.promptBridge.host
 // P1-A: 移除硬编码开发者路径，必须通过环境变量配置
 const PROMPT_DIR = process.env.PROMPT_DIR || process.cwd()
 

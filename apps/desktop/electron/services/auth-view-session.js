@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * AuthView Session — 登录 Session / Cookie 管理
  *
@@ -51,6 +51,7 @@ async function restoreLocalStorage(view, localStorage) {
     var timer = setTimeout(() => {
       if (!done) { done = true; resolve() }
     }, 10000)
+    if (timer && timer.unref) timer.unref()
     view.webContents.once('did-finish-load', async () => {
       if (done) return
       clearTimeout(timer)

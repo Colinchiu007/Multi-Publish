@@ -6,7 +6,7 @@ const path = require('path');
 
 const HD = 'apps/desktop/electron/ipc-handlers';
 const SD = 'apps/desktop/electron/services';
-const PP = 'apps/desktop/electron/preload.js';
+const PP_DIR = 'apps/desktop/electron/preload';
 
 const HIDDEN = new Set([
   'auth:login-silent', 'auth:save-credentials', 'store:update-account',
@@ -23,6 +23,10 @@ const HIDDEN = new Set([
   'intelligence:get-benchmark', 'intelligence:get-impact',
   'intelligence:save-impact', 'intelligence:search',
   'intelligence:search-mentions', 'intelligence:search-titles',
+  'pipeline:registerStageExecutor', 'pipeline:registerPipeline',
+  'pipeline:startOrchestrated', 'pipeline:executeStage',
+  'pipeline:advanceToNextCheckpoint', 'pipeline:getRunContext',
+  'pipeline:pauseWithCheckpoint', 'pipeline:resumeFromCheckpoint',
 ]);
 
 const GAPS = new Set([]);
@@ -45,7 +49,17 @@ for (const d of [HD, SD]) {
   }
 }
 
-const pre = extract(fs.readFileSync(PP, 'utf8'), RE2);
+const pre = new Set();
+function walkPreloadDir(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith('.')) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) { walkPreloadDir(full); continue; }
+    if (!entry.name.endsWith('.js')) continue;
+    extract(fs.readFileSync(full, 'utf8'), RE2).forEach(x => pre.add(x));
+  }
+}
+walkPreloadDir(PP_DIR);
 const missing = [...all].filter(h => !pre.has(h) && !HIDDEN.has(h) && !GAPS.has(h)).sort();
 const gaps = [...all].filter(h => GAPS.has(h)).sort();
 

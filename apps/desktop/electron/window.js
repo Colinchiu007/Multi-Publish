@@ -8,6 +8,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./services/logger')
+const { config, getUrl } = require('./config/app-config')
 
 // R28 修复：防止 macOS app.on('activate') 重复调用 createWindow 时
 // 重复注册 ipcMain.handle 导致 "Attempted to register a second handler" 崩溃
@@ -43,7 +44,7 @@ function createWindow(context) {
   const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev') || !app.isPackaged
   if (isDev) {
     // R49 修复：loadURL 返回 Promise，必须 .catch() 否则导航失败产生 unhandledRejection
-    mainWindow.loadURL('http://localhost:5174').catch(function () { /* dev 模式忽略 */ })
+    mainWindow.loadURL(getUrl(config.devServer)).catch(function () { /* dev 模式忽略 */ })
     mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html')).catch(function () { /* ignore */ })

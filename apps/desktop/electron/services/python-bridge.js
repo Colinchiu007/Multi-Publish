@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * Python 后端子进程管理
  * Electron 主进程启动/停止 Python FastAPI 服务
@@ -9,9 +9,10 @@ const { spawn, spawnSync } = require('child_process')
 const path = require('path')
 const log = require('./logger')
 const http = require('http')
+const { config } = require('../config/app-config')
 
-const BACKEND_PORT = parseInt(process.env.BACKEND_PORT || '8299', 10)
-const BACKEND_HOST = process.env.BACKEND_HOST || '127.0.0.1'
+const BACKEND_PORT = config.pythonBridge.port
+const BACKEND_HOST = config.pythonBridge.host
 const HEALTH_CHECK_INTERVAL = 500   // 启动时健康检查间隔 (ms)
 const HEALTH_CHECK_TIMEOUT = 10000  // 启动时最长等待 (ms)
 const WATCHDOG_INTERVAL = 30000     // 守护检查间隔 30s

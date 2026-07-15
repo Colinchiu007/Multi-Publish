@@ -29,7 +29,7 @@
 
 ## Phase 2：代码清理（🟢 低风险）
 
-- [ ] Task 5: **前置** — 重构 CI 脚本 + 删除旧版 preload.js
+- [x] Task 5: **前置** — 重构 CI 脚本 + 删除旧版 preload.js ✅
   - [ ] SubTask 5.1: 重构 `.github/scripts/check-ipc-bridge.js` 第 9/48 行，改用 `apps/desktop/electron/preload/index.js` 提取 ipcRenderer.invoke
   - [ ] SubTask 5.2: 验证 CI 脚本重构后仍能正确检测 IPC 桥接完整性
   - [ ] SubTask 5.3: 搜索全库确认 `electron/preload.js` 无其他生产引用（仅 preload.test.js 注释提及）
@@ -37,18 +37,18 @@
   - [ ] SubTask 5.5: 更新 preload.test.js 移除旧版引用
   - [ ] SubTask 5.6: 全量回归测试
 
-- [ ] Task 6: ai-writer 包 var → const/let
+- [x] Task 6: ai-writer 包 var → const/let ✅
   - [ ] SubTask 6.1: `packages/ai-writer/src/index.js` — ~20 处 var 替换
   - [ ] SubTask 6.2: `packages/ai-writer/src/cli.js` — ~20 处 var 替换
   - [ ] SubTask 6.3: 跑 ai-writer 测试确认无回归
 
-- [ ] Task 7: 补全主进程 setTimeout/setInterval 的 unref 覆盖
+- [x] Task 7: 补全主进程 setTimeout/setInterval 的 unref 覆盖 ✅
   - [ ] SubTask 7.1: 扫描 `electron/services/` 下所有 setTimeout/setInterval（实测 104 处 / 28 文件）
   - [ ] SubTask 7.2: 识别长期定时器（scheduler/publish-monitor/publish-poller/login-status-monitor/python-bridge/auth-view-manager）中未 unref 的
   - [ ] SubTask 7.3: 长期定时器加 `.unref()`，短期定时器在 shutdown 中清理（已有 33 处 unref，聚焦补全剩余长期定时器）
   - [ ] SubTask 7.4: shutdown.js 已有 keywordPersistTimer 清理，确认其他长期定时器也有清理逻辑
 
-- [ ] Task 8: 硬编码 127.0.0.1/端口抽取配置
+- [x] Task 8: 硬编码 127.0.0.1/端口抽取配置 ✅
   - [ ] SubTask 8.1: 创建 `electron/config/app-config.js` 统一配置（devServer/callbackServer/oauthServer/pythonBridge）
   - [ ] SubTask 8.2: 替换 ~10 处硬编码引用
   - [ ] SubTask 8.3: 测试配置可覆盖性（环境变量优先）

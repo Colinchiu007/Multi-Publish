@@ -16,8 +16,9 @@
 const http = require('http')
 const crypto = require('crypto')
 const log = require('./logger')
+const { config } = require('../config/app-config')
 
-const DEFAULT_PORT = 16521
+const DEFAULT_PORT = config.callbackServer.port
 const HEARTBEAT_MS = 59000  // 59s
 const MAX_BODY_BYTES = 1024 * 1024  // 1MB body 上限，防止 DoS
 
@@ -55,8 +56,8 @@ class CallbackServer {
     this.server = http.createServer((req, res) => this._handleRequest(req, res))
 
     return new Promise((resolve, reject) => {
-      this.server.listen(this.port, '127.0.0.1', () => {
-        log.info('CallbackServer', `Listening on http://127.0.0.1:${this.port} (auth token enabled)`)
+      this.server.listen(this.port, config.callbackServer.host, () => {
+        log.info('CallbackServer', `Listening on http://${config.callbackServer.host}:${this.port} (auth token enabled)`)
         this._startHeartbeat()
         resolve(this.port)
       })

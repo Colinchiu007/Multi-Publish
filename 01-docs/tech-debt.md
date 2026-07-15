@@ -44,3 +44,11 @@
 
 2026-07-16 | IPC handler try-catch 模板重复 | 🟡 中 | ✅ 已修复 | ~40 handler 完全相同的 try-catch 模式。修复：提取 `wrapIpcHandler(fn)`/`wrapIpcHandlerRaw(fn)` 高阶函数到 `ipc-handlers/helpers.js`，统一 try-catch + 参数校验 + 错误日志。scheduler.js 迁移为示例，保留原响应格式 + catchData 兜底
 
+2026-07-16 | 两套 preload 并存（旧版 423 行未删除） | 🟠 高 | ✅ 已修复 | 旧版单文件 `electron/preload.js`（423 行）已弃用，window.js 实际加载 `preload/index.js`，但 CI 脚本和测试仍依赖旧版。修复：重构 `check-ipc-bridge.js` 改用 `preload/` 子目录递归扫描，更新 `ipc-handlers.test.js` 移除旧版读取逻辑，HIDDEN 集合补充 8 个 pipeline 内部 handler，删除旧版 preload.js
+
+2026-07-16 | ai-writer 包 100% var 声明遗留 | 🟢 低 | ✅ 已修复 | `packages/ai-writer/src/` 2 个源文件 38 处 var 声明。修复：index.js 18 处（16 const + 2 let）+ cli.js 20 处（全部 const），按是否重新赋值判断 const/let
+
+2026-07-16 | setTimeout unref 覆盖不足（32%） | 🟢 低 | ✅ 已修复 | 主进程 104 处 setTimeout/setInterval 仅 33 处 unref。修复：所有 13 处 setInterval 已有 unref（100%），新增 7 处长期 setTimeout unref（auth-view-session 10s 超时 + rpa-view-manager 60s/120s 发布超时）。短期定时器和浏览器上下文定时器不修改
+
+2026-07-16 | 10 处硬编码 127.0.0.1/端口 | 🟡 中 | ✅ 已修复 | callback-server/oauth-manager/window/python-bridge/prompt-bridge/splitter-bridge 6 个文件 13 处硬编码。修复：新建 `electron/config/app-config.js` 统一 6 个服务配置（环境变量优先），替换 13 处硬编码。保留安全检查代码中的 127.0.0.1（isTrustedSender 字面量）
+

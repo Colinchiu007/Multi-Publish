@@ -23,19 +23,19 @@
 
 ## Phase 2：代码清理
 
-- [ ] **前置**：`.github/scripts/check-ipc-bridge.js` 第 9/48 行已重构，改用 `preload/index.js` 提取 ipcRenderer.invoke
-- [ ] CI 脚本重构后仍能正确检测 IPC 桥接完整性（验证 missing 列表为空或已知 GAPS）
-- [ ] 搜索确认 `electron/preload.js` 无生产代码引用（仅 preload.test.js 注释提及）
-- [ ] `electron/preload.js`（423 行）已删除
-- [ ] preload.test.js 旧版引用已清理
-- [ ] `packages/ai-writer/src/index.js` 无 var 声明
-- [ ] `packages/ai-writer/src/cli.js` 无 var 声明
-- [ ] 主进程长期 setTimeout/setInterval 已加 .unref()（聚焦 scheduler/publish-monitor/publish-poller/login-status-monitor/python-bridge/auth-view-manager）
-- [ ] 短期定时器在 shutdown 中有清理逻辑（如 keywordPersistTimer 已在 shutdown.js 清理）
-- [ ] `electron/config/app-config.js` 已创建，统一 host/port 配置
-- [ ] 搜索 `127.0.0.1` 确认硬编码已替换为配置引用
-- [ ] 全量回归测试通过
-- [ ] 视觉测试通过
+- [x] **前置**：`.github/scripts/check-ipc-bridge.js` 第 9/48 行已重构，改用 `preload/index.js` 提取 ipcRenderer.invoke
+- [x] CI 脚本重构后仍能正确检测 IPC 桥接完整性（验证 missing 列表为空或已知 GAPS）
+- [x] 搜索确认 `electron/preload.js` 无生产代码引用（仅 preload.test.js 注释提及）
+- [x] `electron/preload.js`（423 行）已删除
+- [x] preload.test.js 旧版引用已清理
+- [x] `packages/ai-writer/src/index.js` 无 var 声明
+- [x] `packages/ai-writer/src/cli.js` 无 var 声明
+- [x] 主进程长期 setTimeout/setInterval 已加 .unref()（聚焦 scheduler/publish-monitor/publish-poller/login-status-monitor/python-bridge/auth-view-manager）
+- [x] 短期定时器在 shutdown 中有清理逻辑（如 keywordPersistTimer 已在 shutdown.js 清理）
+- [x] `electron/config/app-config.js` 已创建，统一 host/port 配置
+- [x] 搜索 `127.0.0.1` 确认硬编码已替换为配置引用
+- [x] 全量回归测试通过
+- [x] 视觉测试通过
 
 ## Phase 3：架构重构
 
@@ -72,12 +72,12 @@
 ## 跨 Phase 检查
 
 - [x] Phase 1 结束后 git commit + push
-- [ ] 每个 Phase 结束后跑全量回归 + 视觉测试
+- [x] 每个 Phase 结束后跑全量回归 + 视觉测试
 - [x] 测试基线不降低（≥ 3643 passed / 0 failed）
 - [x] 视觉测试基线不降低（≥ 19/19 passed）
 - [x] 无 CRITICAL 安全问题引入
-- [ ] CHANGELOG.md 每个 Phase 追加变更记录
-- [ ] tech-debt.md 记录已修复项
+- [x] CHANGELOG.md 每个 Phase 追加变更记录
+- [x] tech-debt.md 记录已修复项
 - [x] **未误改合理 fallback**（md-converter/browser-data/http-provider 的空 catch 是合理的，不应修改）
 - [x] **未强制 adapter 子目录分组**（命名后缀已自带分组语义，仅提取 6 个基础设施文件到 _base/）
 - [x] **未尝试启用 sandbox:true**（sandbox:false 是有意决策，commit 9aa1680 确认，安全性由 contextIsolation:true + nodeIntegration:false + CSP 保障）

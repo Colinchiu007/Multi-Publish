@@ -7,9 +7,10 @@
  * 公共逻辑（start/stop/attach/healthCheck/watchdog/restart）由基类提供
  */
 const { BasePythonBridge } = require('./base-python-bridge')
+const { config } = require('../config/app-config')
 
-const SPLITTER_PORT = parseInt(process.env.SPLITTER_PORT || '8002', 10)
-const SPLITTER_HOST = process.env.SPLITTER_HOST || '127.0.0.1'
+const SPLITTER_PORT = config.splitterBridge.port
+const SPLITTER_HOST = config.splitterBridge.host
 // P1-A: 移除硬编码开发者路径，必须通过环境变量配置
 const SPLITTER_DIR = process.env.SPLITTER_DIR || process.cwd()
 

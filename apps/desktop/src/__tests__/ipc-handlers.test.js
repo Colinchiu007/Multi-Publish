@@ -1,7 +1,7 @@
 /**
  * IPC handler 注册完整性测试（Vitest 版本）
  *
- * 自动扫描 preload.js → ipcRenderer.invoke(channel) 和 ipc-handlers/ → ipcMain.handle(channel)
+ * 自动扫描 electron/preload/ → ipcRenderer.invoke(channel) 和 ipc-handlers/ → ipcMain.handle(channel)
  * 验证每个 channel 都有对应的 handler，反之亦然。
  * 防止 account.ts 这类不完整迁移文件导致 handler 丢失。
  *
@@ -14,7 +14,6 @@ import { resolve } from 'path'
 const ROOT = resolve(__dirname, '../..')
 const HD = resolve(ROOT, 'electron/ipc-handlers')
 const SD = resolve(ROOT, 'electron/services')
-const PP = resolve(ROOT, 'electron/preload.js')
 // Phase 3.3 拆分后，preload API 实际定义在 electron/preload/ 子目录下
 const PP_DIR = resolve(ROOT, 'electron/preload')
 
@@ -31,7 +30,10 @@ const HIDDEN = new Set([
   'show-notification', 'hotkeys:list',
   'impact:get-active', 'impact:get-recent-snapshots',
   'pipelines:list', 'pipelines:get',
-  'pipeline:registerStageExecutor',
+  'pipeline:registerStageExecutor', 'pipeline:registerPipeline',
+  'pipeline:startOrchestrated', 'pipeline:executeStage',
+  'pipeline:advanceToNextCheckpoint', 'pipeline:getRunContext',
+  'pipeline:pauseWithCheckpoint', 'pipeline:resumeFromCheckpoint',
   'intelligence:fetch-trending', 'intelligence:find-references',
   'intelligence:get-benchmark', 'intelligence:get-impact',
   'intelligence:save-impact', 'intelligence:search',
@@ -69,15 +71,8 @@ beforeAll(() => {
   }
   walkDir(ROOT + '/electron')
 
-  // Scan preload.js（拆分后为 shim，本身不含 ipcRenderer.invoke）
-  // + 扫描 electron/preload/ 子目录（Phase 3.3 拆分后的实际定义位置）
+  // Scan electron/preload/ 子目录（Phase 3.3 拆分后的实际定义位置）
   preloadChannels = new Set()
-  // 兼容旧路径：preload.js 若仍含 invoke 调用，一并提取
-  try {
-    extractAll(readFileSync(PP, 'utf-8'), RE_INVOKE).forEach(c => preloadChannels.add(c))
-  } catch {
-    // preload.js 不存在时跳过
-  }
   // 扫描 preload/ 子目录下所有 .js 文件
   try {
     function walkPreloadDir(dir) {
