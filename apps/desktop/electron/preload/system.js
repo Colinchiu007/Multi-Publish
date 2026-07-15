@@ -41,6 +41,10 @@
  *               onVideoProgress / onVideoComplete / onVideoError
  *   - 批量管理：batchCreate / batchExecute / batchSchedule / batchList / batchGet / batchDelete
  *               batchDuplicateArticle / onBatchProgress
+ *   - 模型服务商：modelProviderList / modelProviderGet / modelProviderCreate / modelProviderUpdate
+ *                 modelProviderDelete / modelProviderSetDefault / modelProviderGetDefault
+ *                 modelProviderTest / modelProviderPresets / modelProviderIsConfigured
+ *                 modelProviderLogs / modelProviderCleanLogs
  */
 
 /**
@@ -248,6 +252,20 @@ function createSystemApi(ipcRenderer) {
     onBatchProgress: (cb) => {
       const h = (_, d) => cb(d); ipcRenderer.on('batch:progress', h); return () => ipcRenderer.removeListener('batch:progress', h)
     },
+
+    // 模型服务商管理 API（5 类模型 CRUD + 默认设置 + 调用日志）
+    modelProviderList: (category) => ipcRenderer.invoke('model-provider:list', category),
+    modelProviderGet: (id) => ipcRenderer.invoke('model-provider:get', id),
+    modelProviderCreate: (data) => ipcRenderer.invoke('model-provider:create', data),
+    modelProviderUpdate: (id, data) => ipcRenderer.invoke('model-provider:update', id, data),
+    modelProviderDelete: (id) => ipcRenderer.invoke('model-provider:delete', id),
+    modelProviderSetDefault: (category, id) => ipcRenderer.invoke('model-provider:set-default', category, id),
+    modelProviderGetDefault: (category) => ipcRenderer.invoke('model-provider:get-default', category),
+    modelProviderTest: (id) => ipcRenderer.invoke('model-provider:test', id),
+    modelProviderPresets: (category) => ipcRenderer.invoke('model-provider:presets', category),
+    modelProviderIsConfigured: (category) => ipcRenderer.invoke('model-provider:is-configured', category),
+    modelProviderLogs: (filter) => ipcRenderer.invoke('model-provider:logs', filter),
+    modelProviderCleanLogs: (days) => ipcRenderer.invoke('model-provider:clean-logs', days),
   }
 }
 

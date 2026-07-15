@@ -104,12 +104,17 @@ const SYSTEM_METHODS = [
   'providerList', 'providerCreate', 'providerUpdate', 'providerDelete', 'providerTest',
   'providerListUser', 'providerGetUser', 'providerSetUserKey', 'providerDeleteUserKey',
   'aiListProviders', 'aiGetConfig', 'aiListModels', 'aiGenerate', 'aiTestConnection', 'aiSaveConfig',
+  'aiIsConfigured', 'aiGenerateTitles', 'aiEnhanceContent', 'aiGenerateSummary',
   'onAIProgress', 'onAIComplete', 'onAIError',
   'videoStatus', 'videoListProcessTypes', 'videoListAnalyzeTypes', 'videoListStockSources',
   'videoProcess', 'videoAnalyze', 'videoMixAudio', 'videoSearchStock', 'videoGenerateSubtitle',
   'onVideoProgress', 'onVideoComplete', 'onVideoError',
   'batchCreate', 'batchExecute', 'batchSchedule', 'batchList', 'batchGet', 'batchDelete',
   'batchDuplicateArticle', 'onBatchProgress',
+  'modelProviderList', 'modelProviderGet', 'modelProviderCreate', 'modelProviderUpdate',
+  'modelProviderDelete', 'modelProviderSetDefault', 'modelProviderGetDefault',
+  'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
+  'modelProviderLogs', 'modelProviderCleanLogs',
 ]
 
 // === 工厂函数导出 ===
@@ -168,14 +173,14 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(40)
   })
 
-  it('system 模块应导出 121 个方法', () => {
+  it('system 模块应导出 133 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(121)
+    expect(Object.keys(r).length).toBe(133)
   })
 
-  it('合并后 api 总键数应为 217', () => {
-    expect(Object.keys(api).length).toBe(217)
+  it('合并后 api 总键数应为 229', () => {
+    expect(Object.keys(api).length).toBe(229)
   })
 
   it('PUBLISH_METHODS 常量长度应为 55', () => {
@@ -186,8 +191,8 @@ describe('preload 子模块方法数', () => {
     expect(ACCOUNT_METHODS.length).toBe(40)
   })
 
-  it('SYSTEM_METHODS 常量长度应为 117', () => {
-    expect(SYSTEM_METHODS.length).toBe(117)
+  it('SYSTEM_METHODS 常量长度应为 133', () => {
+    expect(SYSTEM_METHODS.length).toBe(133)
   })
 })
 
@@ -241,7 +246,7 @@ describe('system 模块方法存在且为函数', () => {
   })
 })
 
-// === invoke 转发抽样测试（10 个：channel 与原 preload.js 一致）===
+// === invoke 转发抽样测试（12 个：channel 与原 preload.js 一致）===
 describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
   const INVOKE_CASES = [
     ['publishWechat', 'publish:wechat', [{ id: 1 }]],
@@ -254,6 +259,8 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
     ['paymentCreateOrder', 'payment:create-order', [{ amount: 100 }]],
     ['templateList', 'template:list', []],
     ['proxyAdd', 'proxy:add', [{ host: '127.0.0.1' }]],
+    ['modelProviderLogs', 'model-provider:logs', [{ category: 'llm' }]],
+    ['modelProviderCleanLogs', 'model-provider:clean-logs', [7]],
   ]
 
   beforeEach(() => {

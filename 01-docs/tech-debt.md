@@ -17,3 +17,6 @@
 2026-07-15 | callAdapter 内部无日志记录 + IPC 无 logs 接口 | 🟠 高 | ✅ 已修复 | model-provider-manager.callAdapter 内部新增 _writeLog 统一记录日志（所有路径覆盖，不依赖 router logHandler），phase1-context.js 移除 router logHandler 避免双写。IPC 层新增 model-provider:logs（查询）和 model-provider:clean-logs（清理）两个接口。store 无 addProviderLog 方法时向后兼容不抛错，addProviderLog 抛错时 try-catch 包裹不影响主流程
 
 2026-07-15 | Anthropic streamChat 无集成测试 | 🟢 低 | 部分覆盖 | 质量节拍补跑已补充 9 个单元测试覆盖 SSE 解析逻辑，但缺真实 Anthropic API 端到端集成测试（需 API Key，CI 环境无法执行）
+
+2026-07-15 | preload/system.js 缺 model-provider 12 个方法 + IPC handler 无测试 | 🔴 严重 | ✅ 已修复 | 第 4 轮将 modelProviderLogs/cleanLogs 加到了已弃用的单文件 preload.js（window.js 实际加载 preload/index.js → preload/system.js），导致渲染进程无法调用全部 12 个 model-provider:* IPC 接口。修复：preload/system.js 补齐 12 个方法（121→133 方法），preload.test.js 同步更新 SYSTEM_METHODS（117→133）+ 断言 + INVOKE_CASES，新建 ipc-handlers/model-provider.test.js 覆盖 12 个 handler（34 测试，含 logs/clean-logs store 缺失兜底）。同时补录 4 个遗漏的 ai* 方法（aiIsConfigured/aiGenerateTitles/aiEnhanceContent/aiGenerateSummary）到 SYSTEM_METHODS 常量
+
