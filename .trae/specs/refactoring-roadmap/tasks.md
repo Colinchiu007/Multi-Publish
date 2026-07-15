@@ -82,12 +82,12 @@
 
 ## Phase 4：测试补全（🟢 低风险）
 
-- [ ] Task 13: remotion-composer 添加单元测试（🔴 CRITICAL — 36 文件 0 测试）
+- [x] Task 13: remotion-composer 添加单元测试（🔴 CRITICAL — 36 文件 0 测试） ✅
   - [ ] SubTask 13.1: props-validator.ts 验证逻辑测试
   - [ ] SubTask 13.2: scene-builder.ts 场景构建测试
   - [ ] SubTask 13.3: media-profiles.ts profile 选择测试
 
-- [ ] Task 14: shared-utils 手动测试迁移 Vitest
+- [x] Task 14: shared-utils 手动测试迁移 Vitest ✅
   - [ ] SubTask 14.1: manual-test-publish-history.js → publish-history.test.js
   - [ ] SubTask 14.2: manual-test-scheduler.js → scheduler.test.js
   - [ ] SubTask 14.3: manual-test-platform-config.js → platform-config.test.js
@@ -95,7 +95,7 @@
   - [ ] SubTask 14.5: manual-test-sensitive-filter.js → sensitive-filter.test.js
   - [ ] SubTask 14.6: manual-test-md-converter.js → md-converter.test.js
 
-- [ ] Task 15: 清理 rpa-engine 空壳死代码 + 评估合并
+- [x] Task 15: 清理 rpa-engine 空壳死代码 + 评估合并 ✅
   - [ ] SubTask 15.1: 删除 `packages/rpa-engine/src/publishers/registry.js`（空壳 `registry = {}`）
   - [ ] SubTask 15.2: 评估 rpa-engine 剩余 3 文件是否合并入 apps/desktop/electron/services/legacy/
   - [ ] SubTask 15.3: 如合并，更新 workspace package.json 移除 rpa-engine

@@ -58,20 +58,20 @@
 
 ## Phase 4：测试补全
 
-- [ ] props-validator.ts 单元测试已编写
-- [ ] scene-builder.ts 单元测试已编写
-- [ ] media-profiles.ts 单元测试已编写
-- [ ] 6 个手动测试脚本已迁移到 Vitest
-- [ ] 原 manual-test-*.js 已删除
-- [ ] `packages/rpa-engine/src/publishers/registry.js` 空壳死代码已删除
-- [ ] rpa-engine 合并评估已完成（合并或保留决策有记录）
-- [ ] 如合并：rpa-engine 已合并入 apps/desktop/electron/services/legacy/，workspace package.json 已移除 rpa-engine
-- [ ] 全量回归测试通过（测试数 ≥ 3643 + 新增测试）
-- [ ] 视觉测试通过
+- [x] props-validator.ts 单元测试已编写（38 测试）
+- [x] scene-builder.ts 单元测试已编写（34 测试）
+- [x] media-profiles.ts 单元测试已编写（39 测试）
+- [x] 5 个手动测试脚本已迁移到 Vitest（实际 5 个非 6 个：format-adapter/cover-processor/sensitive-filter/platform-config/data-sync）
+- [x] 原 manual-*.js 已删除
+- [x] `packages/rpa-engine/src/publishers/registry.js` 空壳死代码已删除
+- [x] rpa-engine 合并评估已完成（决策：保留，合并成本 > 收益）
+- [x] 全量回归测试通过（desktop 3683 + rpa-engine 203 + shared-utils 160 + remotion-composer 111）
+- [x] 视觉测试通过（19/19 passed / 0 failed / 2 skipped）
 
 ## 跨 Phase 检查
 
 - [x] Phase 1 结束后 git commit + push
+- [x] Phase 4 结束后 git commit + push（含所有 Phase 合并到 main）
 - [x] 每个 Phase 结束后跑全量回归 + 视觉测试
 - [x] 测试基线不降低（≥ 3643 passed / 0 failed）
 - [x] 视觉测试基线不降低（≥ 19/19 passed）
