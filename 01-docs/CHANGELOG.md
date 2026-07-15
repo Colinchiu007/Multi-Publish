@@ -1,5 +1,42 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-07-15 (Phase 5.4 — Electron 升级)
+
+
+### 质量节拍 Phase 5.4 安全运营 — Electron 33→43 主版本升级
+
+#### 成果
+- **Security**: npm audit 0 vulnerabilities (从 6 high CVE → 0) ✅
+- **Composite Score**: 9.7/10 (较 Phase 4.1 基线 8.7 ↑1.0)
+- **Electron**: 33.4.0 → 43.1.1 (跨 10 个主版本)
+- **全量回归**: JS 1982 passed / 0 failed / 10 skipped — 零回归
+
+#### 升级详情
+- 根目录 package.json: `"electron": "^33.4.0"` → `"^43.1.1"`
+- apps/desktop/package.json: `"electron": "33.4.0"` → `"^43.1.1"`
+- rpa-engine peerDependency `>=33.0.0` 已兼容，无需修改
+
+#### Breaking Changes 评估 (33→43)
+| 版本 | Breaking Change | 项目影响 |
+|------|----------------|---------|
+| v38 | Removed plugin-crashed event | 未使用 ✅ |
+| v38 | Removed macOS 11 support | Windows 优先 ✅ |
+| v39 | window.open popups always resizable | Accounts.vue 1 处, UI 微调 ✅ |
+| v40 | Deprecated clipboard from renderer | 项目用 navigator.clipboard ✅ |
+| v41 | PDFs no longer separate WebContents | 未涉及 PDF ✅ |
+| v42 | electron postinstall 不自动下载 | 按需下载, 已验证 ✅ |
+| v42 | macOS notifications UNNotification | Windows 优先 ✅ |
+| v43 | NativeImage.toBitmap color space | 未使用 ✅ |
+| v43 | Dialog default to Downloads | 项目 dialog 调用少 ✅ |
+| v44 | clipboard removed from renderer | 项目用 navigator.clipboard ✅ |
+
+#### 验证
+- TSC: 零错误 ✅
+- npm audit --omit=dev: 0 vulnerabilities ✅
+- vitest: 1982/0/10 ✅
+- Electron 二进制: 43.1.1 已下载到 dist/electron.exe ✅
+
+
 ## [Unreleased] - 2026-07-15 (Phase 4.1)
 
 
