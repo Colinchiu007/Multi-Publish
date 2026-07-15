@@ -124,10 +124,12 @@ class ModelProviderManager {
     const { OpenAIAdapter } = require('./adapters/openai')
     const { AnthropicAdapter } = require('./adapters/anthropic')
     const { ElevenLabsAdapter } = require('./adapters/elevenlabs')
+    const { FluxAdapter } = require('./adapters/flux')
 
     this.registerAdapter('openai', (creds) => new OpenAIAdapter(creds))
     this.registerAdapter('anthropic', (creds) => new AnthropicAdapter(creds))
     this.registerAdapter('elevenlabs', (creds) => new ElevenLabsAdapter(creds))
+    this.registerAdapter('flux', (creds) => new FluxAdapter(creds))
   }
 
   init () {
