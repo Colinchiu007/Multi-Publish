@@ -11,6 +11,27 @@ __registerMock("./logger", {
   error: vi.fn(),
 })
 
+// P2: mock crypto 模块（safeStorage 加密）
+// 注意：encrypt("") 必须返回 null（与真实 crypto.js 行为一致），
+// 否则 _migrateApiKeyEncryption 会给空 api_key 的预设设置非 null 的 api_key_enc
+__registerMock("./crypto", {
+  isAvailable: () => true,
+  encrypt: (key) => {
+    if (!key) return null
+    return Buffer.from("enc_" + key, "utf-8")
+  },
+  decrypt: (buf) => {
+    if (!buf) return ""
+    const s = Buffer.isBuffer(buf) ? buf.toString("utf-8") : Buffer.from(buf, "base64").toString("utf-8")
+    return s.startsWith("enc_") ? s.slice(4) : ""
+  },
+  mask: (key) => {
+    if (!key || key.length < 8) return "****"
+    return key.substring(0, 4) + "****" + key.substring(key.length - 4)
+  },
+  setSafeStorage: () => {},
+})
+
 describe("ModelProviderManager", function () {
   let ModelProviderManager
   let manager
@@ -31,7 +52,7 @@ describe("ModelProviderManager", function () {
                 if (!data.has(id)) {
                   data.set(id, {
                     id: args[0], name: args[1], category: args[2],
-                    base_url: args[3], api_key: "",
+                    base_url: args[3], api_key: "", api_key_enc: null,
                     models: args[4], enabled: 0,
                     is_default: 0, is_preset: 1,
                     config: "{}",
@@ -41,18 +62,44 @@ describe("ModelProviderManager", function () {
               }
               // 模拟 INSERT
               if (sql.includes("INSERT INTO")) {
+                // P2: api_key 加密到 api_key_enc，api_key 清空
+                // INSERT 参数: id, name, category, base_url, '', apiKeyEnc, models, enabled, config
+                // 注意：manager.js 的 INSERT 用字面量 '' 和 0，mock store 按位置取参数
+                const cryptoMod = require("./crypto")
+                const apiKeyEnc = args[4] // 第 5 个参数是 apiKeyEnc（在 '' 之后）
                 data.set(args[0], {
                   id: args[0], name: args[1], category: args[2],
-                  base_url: args[3], api_key: args[4] || "",
+                  base_url: args[3], api_key: "", api_key_enc: apiKeyEnc || null,
                   models: args[5], enabled: args[6] || 0,
                   is_default: args[7] || 0, is_preset: args[8] || 0,
                   config: args[9] || "{}",
                 })
                 return { changes: 1 }
               }
-              // 模拟 UPDATE
+              // 模拟 UPDATE（支持多列 SET）
               if (sql.includes("UPDATE")) {
-                return { changes: 1 }
+                // 解析 WHERE id = ?
+                const whereMatch = sql.match(/WHERE\s+id\s*=\s*\?/i)
+                if (whereMatch) {
+                  const id = args[args.length - 1]
+                  const row = data.get(id)
+                  if (row) {
+                    // 解析 SET 子句：col1 = ?, col2 = ?, ...
+                    const setMatch = sql.match(/SET\s+(.+?)\s+WHERE/i)
+                    if (setMatch) {
+                      const setParts = setMatch[1].split(",").map(s => s.trim())
+                      let argIdx = 0
+                      for (const part of setParts) {
+                        const colM = part.match(/^(\w+)\s*=\s*\?$/)
+                        if (colM) {
+                          row[colM[1]] = args[argIdx++]
+                        }
+                      }
+                    }
+                    return { changes: 1 }
+                  }
+                }
+                return { changes: 0 }
               }
               // 模拟 DELETE
               if (sql.includes("DELETE")) {
@@ -71,7 +118,8 @@ describe("ModelProviderManager", function () {
                 let count = 0
                 for (const [, v] of data) {
                   if (sql.includes("category = ?")) {
-                    if (v.category === args[0] && v.api_key && v.enabled) count++
+                    // P2: 检查 api_key_enc 而非 api_key
+                    if (v.category === args[0] && v.api_key_enc && v.enabled) count++
                   }
                 }
                 return { cnt: count }
@@ -82,9 +130,9 @@ describe("ModelProviderManager", function () {
                 }
                 return null
               }
-              if (sql.includes("api_key != ''")) {
+              if (sql.includes("api_key_enc IS NOT NULL")) {
                 for (const [, v] of data) {
-                  if (v.category === args[0] && v.api_key) return v
+                  if (v.category === args[0] && v.api_key_enc) return v
                 }
                 return null
               }
@@ -200,13 +248,13 @@ describe("ModelProviderManager", function () {
       manager.createProvider({ id: "dup", name: "Dup", category: "llm" })
       const res = manager.createProvider({ id: "dup", name: "Dup2", category: "llm" })
       expect(res.code).toBe(-1)
-      expect(res.message).toContain("已存在")
+      expect(res.message).toContain("already exists")
     })
 
     it("应拒绝无效类别", function () {
       const res = manager.createProvider({ id: "bad", name: "Bad", category: "invalid" })
       expect(res.code).toBe(-1)
-      expect(res.message).toContain("无效的模型类别")
+      expect(res.message).toContain("Invalid category")
     })
 
     it("缺少必填字段应返回错误", function () {
@@ -236,7 +284,7 @@ describe("ModelProviderManager", function () {
     it("预设服务商不允许删除", function () {
       const res = manager.deleteProvider("openai")
       expect(res.code).toBe(-1)
-      expect(res.message).toContain("预设")
+      expect(res.message).toContain("Preset")
     })
 
     it("应成功删除自定义服务商", function () {

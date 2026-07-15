@@ -84,6 +84,7 @@ const SCHEMA_SQL = [
     category      TEXT NOT NULL,
     base_url      TEXT DEFAULT '',
     api_key       TEXT DEFAULT '',
+    api_key_enc   BLOB,
     models        TEXT DEFAULT '[]',
     enabled       INTEGER DEFAULT 0,
     is_default    INTEGER DEFAULT 0,
@@ -128,7 +129,7 @@ const UPDATE_WHITELIST = {
   callback_logs: ["type", "source", "payload"],
   batch_jobs: ["name", "articles", "total", "completed", "failed", "status"],
   publish_timeline: ["last_publish_at"],
-  model_providers: ["name", "base_url", "api_key", "models", "enabled", "is_default", "config", "updated_at"],
+  model_providers: ["name", "base_url", "api_key", "api_key_enc", "models", "enabled", "is_default", "config", "updated_at"],
 };
 
 /**
@@ -149,4 +150,18 @@ function sanitizeUpdateFields(tableName, fields) {
   return result;
 }
 
-module.exports = { TABLE_NAMES, SCHEMA_SQL, safeJsonParse, safeJsonStringify, buildUpdateQuery, sanitizeUpdateFields, UPDATE_WHITELIST };
+
+/**
+ * 迁移 model_providers 表：添加 api_key_enc BLOB 字段（如果不存在）
+ * SQLite 不支持 ADD COLUMN IF NOT EXISTS，需用 PRAGMA table_info 检查
+ * @param {import('better-sqlite3').Database} db
+ */
+function migrateModelProvidersSchema(db) {
+  const cols = db.prepare("PRAGMA table_info(model_providers)").all()
+  const colNames = cols.map(c => c.name)
+  if (!colNames.includes('api_key_enc')) {
+    db.exec("ALTER TABLE model_providers ADD COLUMN api_key_enc BLOB")
+  }
+}
+
+module.exports = { TABLE_NAMES, SCHEMA_SQL, migrateModelProvidersSchema, safeJsonParse, safeJsonStringify, buildUpdateQuery, sanitizeUpdateFields, UPDATE_WHITELIST };
