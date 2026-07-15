@@ -529,13 +529,14 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
     })
 
     it('无 Adapter 注册时 fallback 到配置校验', async () => {
+      // 使用 custom-llm 而非 openai（后者在 init() 中自动注册了内置 Adapter）
       manager.createProvider({
-        id: 'openai', name: 'OpenAI', category: 'llm',
-        api_key: 'sk-test', models: ['gpt-4o'],
+        id: 'custom-llm', name: 'CustomLLM', category: 'llm',
+        api_key: 'sk-test', models: ['custom-model'],
       })
 
       // 不注册 Adapter
-      const result = await manager.testConnection('openai')
+      const result = await manager.testConnection('custom-llm')
       expect(result.code).toBe(0)
       expect(result.message).toMatch(/config valid/i)
     })

@@ -115,6 +115,19 @@ class ModelProviderManager {
     this._adapterCache.delete(providerId)
   }
 
+  /**
+   * P3.6: 注册内置 Adapter 工厂
+   * 在 init() 中调用，注册 OpenAI + Anthropic 两个 LLM Adapter
+   * 工厂只是 (credentials) => Adapter 函数，不立即创建实例
+   */
+  _registerBuiltinAdapters () {
+    const { OpenAIAdapter } = require('./adapters/openai')
+    const { AnthropicAdapter } = require('./adapters/anthropic')
+
+    this.registerAdapter('openai', (creds) => new OpenAIAdapter(creds))
+    this.registerAdapter('anthropic', (creds) => new AnthropicAdapter(creds))
+  }
+
   init () {
     if (this._ready) return
     if (!this._store || !this._store._ready) {
@@ -124,6 +137,7 @@ class ModelProviderManager {
     try {
       this._seedPresets()
       this._migrateApiKeyEncryption()
+      this._registerBuiltinAdapters()
       this._ready = true
       log.info('ModelProviderManager', 'Initialized with ' + PRESET_PROVIDERS.length + ' preset providers')
     } catch (e) {
