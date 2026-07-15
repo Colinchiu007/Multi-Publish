@@ -32,7 +32,11 @@ function createWindow(context) {
       preload: path.join(__dirname, 'preload', 'index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      // sandbox:false 允许 preload 使用 require() 加载本地模块（./publish 等）
+      // 安全性由 contextIsolation:true + nodeIntegration:false 保障
+      // sandbox:true 时 preloadRequire 不支持相对路径 require，导致
+      // "module not found: ./publish" 错误
+      sandbox: false,
     },
     show: false,
   })
