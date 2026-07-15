@@ -527,3 +527,83 @@ const baijiahaoConfig = {
 | TypeScript 迁移 | 全部迁移 | 逐步添加 JSDoc | **B**（逐步 JSDoc + .d.ts） |
 | 测试框架统一 | 全部 Vitest | 混合 | **A**（Vitest 统一） |
 | sandbox 迁移 | 修改 preload 结构 | 保持现状 | **B**（保持现状，加 CSP 补偿） |
+
+---
+
+## 十、Backlot 功能集成分析
+
+> 源项目：[OpenMontage](https://github.com/calesthio/OpenMontage) — 第一个开源 AI 视频生产系统
+> Backlot：一个"直播故事板"（living storyboard），生产流程跑起来后自动更新的本地看板
+
+### 10.1 Backlot 的完整功能清单
+
+通过阅读 OpenMontage README 和搜索代码库，Backlot 提供以下能力：
+
+| 功能 | 描述 | 实现方式（OpenMontage） |
+|------|------|------------------------|
+| **实时生产看板** | 流水线运行时自动填充，阶段点亮，脚本落地到 screenplay page | `python -m backlot open` |
+| **场景卡片** | 显示素材生成状态、供应商选择、成本、审批卡点 | Python Backlot Web UI |
+| **逐场景 contact sheet** | 素材生成后暂停，展示 take、prompt、单项成本和质量分 | 审批门禁 + 可视化 contact sheet |
+| **脚本审批门** | creative gate 停住等待人工回复 | 在 chat 中回复即通过 |
+| **项目库（library）** | 所有本机项目出现在 library 中，像小型片场档案馆 | `python -m backlot open` 打开库视图 |
+| **Replay Run** | 生产结束后回放整次生产，基于时间戳可拖动 | `▶ REPLAY RUN` 按钮 |
+| **模拟运行** | 没有生产也可以 watch 模拟运行 | `python scripts/backlot_simulate_run.py` |
+
+### 10.2 Multi-Publish 中已实现的部分
+
+通过在项目全库搜索 8 组关键词（backlot、storyboard、screenplay、approval gate、contact sheet、replay run、living storyboard、scene plan），结果如下：
+
+| 搜索词 | 匹配数 | 详细结果 |
+|--------|--------|----------|
+| `backlot` | **0** | ❌ 完全不存在 |
+| `screenplay` | **0** | ❌ 完全不存在 |
+| `approval gate` / `creative gate` | **0** | ❌ 完全不存在 |
+| `contact sheet` | **0** | ❌ 完全不存在 |
+| `replay run` | **0** | ❌ 完全不存在 |
+| `living storyboard` | **0** | ❌ 完全不存在 |
+| `storyboard` | **3** | ⚠️ 仅有 `storyboard-prompt.ts`（分镜 prompt 生成器）+ 流水线阶段名 |
+| `scene plan` / `scenePlan` | **20** | ✅ 广泛分布在 TS/Python/YAML 三层架构 |
+
+### 10.3 Multi-Publish 已有的基础设施（可复用部分）
+
+Multi-Publish **具备 Backlot 所需的底层管线基础**，但**完全缺少上层 UI/UX**：
+
+| 已有组件 | 位置 | 可复用程度 |
+|----------|------|-----------|
+| **PipelineEngine**（完整流水线编排引擎） | [pipeline-engine.js](file:///d:/Data/projects/Multi-Publish/apps/desktop/electron/services/pipeline-engine.js) | ✅ 核心引擎完整，支持状态机、checkpoint、stage 编排 |
+| **18 个 IPC 通道**（pipeline:list/get/start/stop/executeStage/advanceToNextCheckpoint） | [ipc-handlers/pipeline.js](file:///d:/Data/projects/Multi-Publish/apps/desktop/electron/ipc-handlers/pipeline.js) | ✅ 完整的 IPC 接口层 |
+| **MANUAL_CHECKPOINT stage 类型** | [stage-executor.test.js](file:///d:/Data/projects/Multi-Publish/apps/desktop/electron/tests/stage-executor.test.js) | ✅ 手动审批 checkpoint 机制已定义 |
+| **YAML 中 `human_approval_default: true` / `checkpoint_required: true`** | 12 个 YAML 流水线定义文件 | ✅ 审批标记已在流水线定义中预置 |
+| **scene-builder.ts**（场景计划构建） | [scene-builder.ts](file:///d:/Data/projects/Multi-Publish/packages/remotion-composer/src/scene-builder.ts) | ✅ 场景计划数据结构 |
+| **storyboard-prompt.ts**（分镜 prompt 生成） | [storyboard-prompt.ts](file:///d:/Data/projects/Multi-Publish/packages/story2video-engine/src/storyboard-prompt.ts) | ✅ 分镜文案生成器 |
+| **stage executor**（阶段执行器） | [pipeline-engine.js](file:///d:/Data/projects/Multi-Publish/apps/desktop/electron/services/pipeline-engine.js) | ✅ 阶段执行引擎 |
+
+### 10.4 Multi-Publish 中缺失的部分（需开发）
+
+| 缺失组件 | 对应 Backlot 功能 | 开发建议 |
+|----------|------------------|----------|
+| **实时生产看板 UI** | Backlot 的 Python Web 看板 | 在 Desktop Vue 前端新增 `ProductionBoard.vue` 视图 |
+| **场景卡片组件** | 显示素材生成状态 + 成本 + 供应商 | 新建 `SceneCard.vue` 组件 |
+| **Contact Sheet 审批视图** | 逐场景暂停展示 take/prompt/成本/质量分 | 新建 `ContactSheetView.vue` + 审批流程 |
+| **脚本审批门 UI** | creative gate 等待人工回复 | 在 PipelineEngine 基础上实现 checkpoint 弹窗审批 |
+| **项目库（Project Library）** | 显示所有本机生产的档案馆 | 新建 `ProjectLibrary.vue` 视图 |
+| **Replay Run** | 基于时间戳的生产回放 | 需要实现 ExecutionHistoryRecorder + 时间线回放播放器 |
+| **审批通知机制** | 审批门停住时通知用户 | IPC 推送到渲染进程的系统通知 |
+| **Python backlot 模块** | OpenMontage 的核心 Python 模块 | 此项目无 Python 端需求，应直接在 Electron 中实现 |
+
+### 10.5 结论
+
+> **Backlot 功能在 Multi-Publish 中尚未实现。** 
+> 
+> 项目已具备其所需的底层基础设施（PipelineEngine、checkpoint 机制、YAML 审批标记、场景计划数据结构），但**完全缺少 Backlot 的上层 UI/UX**：没有实时看板、没有场景卡片、没有 contact sheet 审批、没有项目库、没有回放功能。
+
+**集成 Backlot 的估算工作量**：
+
+| 阶段 | 任务 | 文件数 | 估算 |
+|------|------|--------|------|
+| **P0** | 项目库（ProjectLibrary.vue + store） | 3-4 | 1 天 |
+| **P1** | 实时生产看板（ProductionBoard.vue + WebSocket/轮询更新） | 4-5 | 2 天 |
+| **P2** | Contact Sheet 审批（ContactSheetView.vue + 审批流程 + IPC） | 5-6 | 2-3 天 |
+| **P3** | 脚本审批门（checkpoint UI + 审批弹窗 + 通知） | 3-4 | 1-2 天 |
+| **P4** | Replay Run（ExecutionHistoryRecorder + 时间线播放器） | 4-5 | 2-3 天 |
+| **总计** | 集成完整 Backlot | ~20 文件 | **8-11 天** |
