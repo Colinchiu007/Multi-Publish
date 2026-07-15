@@ -12,6 +12,7 @@ const CATEGORIES = {
   SPEECH_RECOGNITION: 'speech_recognition',
   IMAGE: 'image',
   VIDEO: 'video',
+  AUDIO: 'audio',
 };
 
 const CATEGORY_LABELS = {
@@ -20,6 +21,7 @@ const CATEGORY_LABELS = {
   speech_recognition: '语音识别',
   image: '图片生成',
   video: '视频模型',
+  audio: '音频生成',
 };
 
 /**
@@ -262,6 +264,37 @@ const PRESET_PROVIDERS = [
     id: 'higgsfield', name: 'Higgsfield', category: 'video',
     base_url: 'https://api.higgsfield.ai/v1',
     models: ['higgsfield-video'],
+    is_preset: 1,
+  },
+  // ─── 音频生成 ────────────────────────────────
+  {
+    id: 'suno', name: 'Suno', category: 'audio',
+    base_url: 'https://api.suno.ai/v1',
+    models: ['suno-v4'],
+    is_preset: 1,
+  },
+  {
+    id: 'musicgen', name: 'MusicGen', category: 'audio',
+    base_url: '',
+    models: ['musicgen'],
+    is_preset: 1,
+  },
+  {
+    id: 'pixabay-music', name: 'Pixabay Music', category: 'audio',
+    base_url: 'https://pixabay.com/api/',
+    models: ['pixabay-music'],
+    is_preset: 1,
+  },
+  {
+    id: 'freesound', name: 'Freesound', category: 'audio',
+    base_url: 'https://freesound.org/apiv2',
+    models: ['freesound'],
+    is_preset: 1,
+  },
+  {
+    id: 'music-library', name: '本地音乐库', category: 'audio',
+    base_url: '',
+    models: ['local-library'],
     is_preset: 1,
   },
 ];
