@@ -132,6 +132,36 @@ function registerHandlers (ipcMain, deps) {
       return { code: EC.REQUEST_ERROR, message: e.message, data: false }
     }
   })
+
+  // ─── 查询调用日志 ────────────────────────────
+  ipcMain.handle('model-provider:logs', (_event, filter) => {
+    try {
+      const store = deps.store
+      if (!store || typeof store.getProviderLogs !== 'function') {
+        return { code: 0, data: [] }
+      }
+      const logs = store.getProviderLogs(filter || {})
+      return { code: 0, data: logs }
+    } catch (e) {
+      log.error('[model-provider] logs error:', e)
+      return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
+    }
+  })
+
+  // ─── 清理调用日志 ────────────────────────────
+  ipcMain.handle('model-provider:clean-logs', (_event, days) => {
+    try {
+      const store = deps.store
+      if (!store || typeof store.cleanProviderLogs !== 'function') {
+        return { code: 0, data: 0 }
+      }
+      const deleted = store.cleanProviderLogs(days || 30)
+      return { code: 0, data: deleted }
+    } catch (e) {
+      log.error('[model-provider] clean-logs error:', e)
+      return { code: EC.REQUEST_ERROR, message: e.message, data: 0 }
+    }
+  })
 }
 
 module.exports = registerHandlers

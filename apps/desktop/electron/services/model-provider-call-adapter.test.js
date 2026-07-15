@@ -920,4 +920,140 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
       expect(newCreds.models).not.toContain('injected')
     })
   })
+
+  // ─── Phase 2+：callAdapter 内部统一日志记录 ───
+  describe('callAdapter — 内部日志记录（model_provider_logs）', () => {
+    let logManager, addProviderLogSpy
+
+    beforeEach(() => {
+      // 创建带 addProviderLog mock 的 store
+      addProviderLogSpy = vi.fn(() => true)
+      const storeWithLog = {
+        db: mockDb,
+        _ready: true,
+        addProviderLog: addProviderLogSpy,
+      }
+      delete require.cache[require.resolve('./model-provider-manager')]
+      const { ModelProviderManager } = require('./model-provider-manager')
+      logManager = new ModelProviderManager(storeWithLog)
+      logManager.init()
+    })
+
+    it('成功调用时写入 success 日志', async () => {
+      logManager.createProvider({
+        id: 'openai', name: 'OpenAI', category: 'llm',
+        api_key: 'sk-test', models: ['gpt-4o'],
+      })
+      logManager.registerAdapter('openai', (creds) => ({
+        id: 'openai',
+        credentials: creds,
+        supports: () => true,
+        chatCompletion: vi.fn(async () => ({ content: 'ok' })),
+      }))
+
+      const result = await logManager.callAdapter('openai', 'chatCompletion', {})
+      expect(result.code).toBe(0)
+      expect(addProviderLogSpy).toHaveBeenCalledOnce()
+      const logEntry = addProviderLogSpy.mock.calls[0][0]
+      expect(logEntry.provider_id).toBe('openai')
+      expect(logEntry.category).toBe('llm')
+      expect(logEntry.action).toBe('chatCompletion')
+      expect(logEntry.status).toBe('success')
+      expect(logEntry.error_message).toBeNull()
+      expect(typeof logEntry.latency_ms).toBe('number')
+      expect(logEntry.latency_ms).toBeGreaterThanOrEqual(0)
+    })
+
+    it('失败调用时写入 error 日志（含 error_message）', async () => {
+      logManager.createProvider({
+        id: 'fail-prov', name: 'Fail', category: 'tts',
+        api_key: 'sk-test', models: ['m'],
+      })
+      logManager.registerAdapter('fail-prov', (creds) => ({
+        id: 'fail-prov',
+        credentials: creds,
+        supports: () => true,
+        synthesize: vi.fn(async () => { throw new Error('TTS timeout') }),
+      }))
+
+      const result = await logManager.callAdapter('fail-prov', 'synthesize', {})
+      expect(result.code).toBe(-1)
+      expect(addProviderLogSpy).toHaveBeenCalledOnce()
+      const logEntry = addProviderLogSpy.mock.calls[0][0]
+      expect(logEntry.provider_id).toBe('fail-prov')
+      expect(logEntry.category).toBe('tts')
+      expect(logEntry.action).toBe('synthesize')
+      expect(logEntry.status).toBe('error')
+      expect(logEntry.error_message).toBe('TTS timeout')
+      expect(typeof logEntry.latency_ms).toBe('number')
+    })
+
+    it('store 无 addProviderLog 方法时不抛错（向后兼容）', async () => {
+      // 使用不带 addProviderLog 的 store（原始 manager）
+      manager.createProvider({
+        id: 'no-log-store', name: 'NoLog', category: 'llm',
+        api_key: 'sk-test', models: ['m'],
+      })
+      manager.registerAdapter('no-log-store', (creds) => ({
+        id: 'no-log-store',
+        credentials: creds,
+        supports: () => true,
+        chatCompletion: vi.fn(async () => 'ok'),
+      }))
+
+      // 不应抛错
+      const result = await manager.callAdapter('no-log-store', 'chatCompletion', {})
+      expect(result.code).toBe(0)
+    })
+
+    it('addProviderLog 抛错时不影响主流程', async () => {
+      const crashStore = {
+        db: mockDb,
+        _ready: true,
+        addProviderLog: () => { throw new Error('DB write failed') },
+      }
+      delete require.cache[require.resolve('./model-provider-manager')]
+      const { ModelProviderManager } = require('./model-provider-manager')
+      const crashManager = new ModelProviderManager(crashStore)
+      crashManager.init()
+
+      crashManager.createProvider({
+        id: 'crash-log', name: 'CrashLog', category: 'llm',
+        api_key: 'sk-test', models: ['m'],
+      })
+      crashManager.registerAdapter('crash-log', (creds) => ({
+        id: 'crash-log',
+        credentials: creds,
+        supports: () => true,
+        chatCompletion: vi.fn(async () => ({ content: 'still works' })),
+      }))
+
+      const result = await crashManager.callAdapter('crash-log', 'chatCompletion', {})
+      expect(result.code).toBe(0)
+      expect(result.data.content).toBe('still works')
+    })
+
+    it('provider 不存在时不写日志（提前返回）', async () => {
+      const result = await logManager.callAdapter('nonexistent', 'chatCompletion', {})
+      expect(result.code).toBe(-1)
+      expect(addProviderLogSpy).not.toHaveBeenCalled()
+    })
+
+    it('Adapter 不支持的方法时不写日志（提前返回）', async () => {
+      logManager.createProvider({
+        id: 'limited', name: 'Limited', category: 'llm',
+        api_key: 'sk-test', models: ['m'],
+      })
+      logManager.registerAdapter('limited', (creds) => ({
+        id: 'limited',
+        credentials: creds,
+        supports: (m) => m === 'chatCompletion',
+        chatCompletion: vi.fn(async () => 'ok'),
+      }))
+
+      const result = await logManager.callAdapter('limited', 'synthesize', {})
+      expect(result.code).toBe(-1)
+      expect(addProviderLogSpy).not.toHaveBeenCalled()
+    })
+  })
 })

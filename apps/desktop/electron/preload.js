@@ -190,6 +190,8 @@ const api = {
   modelProviderTest: (id) => ipcRenderer.invoke('model-provider:test', id),
   modelProviderPresets: (category) => ipcRenderer.invoke('model-provider:presets', category),
   modelProviderIsConfigured: (category) => ipcRenderer.invoke('model-provider:is-configured', category),
+  modelProviderLogs: (filter) => ipcRenderer.invoke('model-provider:logs', filter),
+  modelProviderCleanLogs: (days) => ipcRenderer.invoke('model-provider:clean-logs', days),
   onAIProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:progress', h); return () => ipcRenderer.removeListener('ai:progress', h); },
   onAIComplete: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:complete', h); return () => ipcRenderer.removeListener('ai:complete', h); },
   onAIError: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('ai:error', h); return () => ipcRenderer.removeListener('ai:error', h); },

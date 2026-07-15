@@ -14,4 +14,6 @@
 
 2026-07-15 | ProviderRouter 未在 bootstrap 中接线 | 🟠 高 | ✅ 已修复 | phase1-context.js 创建 ProviderRouter 实例并注入 logHandler（转调 store.addProviderLog），调用 aiGenerator.setRouter() 完成接线。router._logCall 扩展第 4 参数 context（含 category/action/latency_ms），executeWithFailover 用 Date.now() 计算延迟。ai-generator.js _generateWithFailover 在 options 中传入 action: method。至此故障转移 + 调用日志全链路闭环
 
+2026-07-15 | callAdapter 内部无日志记录 + IPC 无 logs 接口 | 🟠 高 | ✅ 已修复 | model-provider-manager.callAdapter 内部新增 _writeLog 统一记录日志（所有路径覆盖，不依赖 router logHandler），phase1-context.js 移除 router logHandler 避免双写。IPC 层新增 model-provider:logs（查询）和 model-provider:clean-logs（清理）两个接口。store 无 addProviderLog 方法时向后兼容不抛错，addProviderLog 抛错时 try-catch 包裹不影响主流程
+
 2026-07-15 | Anthropic streamChat 无集成测试 | 🟢 低 | 部分覆盖 | 质量节拍补跑已补充 9 个单元测试覆盖 SSE 解析逻辑，但缺真实 Anthropic API 端到端集成测试（需 API Key，CI 环境无法执行）

@@ -86,20 +86,10 @@ function extractContext(container) {
   const { ModelProviderManager } = require('../services/model-provider-manager')
   const { ProviderRouter } = require('../services/adapters/router')
   const modelProviderManager = new ModelProviderManager(store)
-  // 创建 ProviderRouter 并注入 logHandler（写入 model_provider_logs 表）
-  // logHandler 签名：(provider, status, error, context) => void
-  // context 含 category/action/latency_ms，转成 store.addProviderLog 需要的格式
-  const providerRouter = new ProviderRouter(modelProviderManager, (provider, status, error, context) => {
-    if (!store || !store.addProviderLog) return
-    store.addProviderLog({
-      provider_id: provider.id,
-      category: (context && context.category) || 'unknown',
-      action: (context && context.action) || 'unknown',
-      status,
-      latency_ms: context && context.latency_ms,
-      error_message: error || null,
-    })
-  })
+  // 创建 ProviderRouter（不注入 logHandler，避免与 callAdapter 内部日志双写）
+  // callAdapter 内部已通过 _writeLog 统一记录到 model_provider_logs 表
+  // router 的 logHandler 功能保留为可选扩展（测试中可单独验证）
+  const providerRouter = new ProviderRouter(modelProviderManager)
   if (aiGenerator && aiGenerator.setModelProviderManager) {
     aiGenerator.setModelProviderManager(modelProviderManager)
   }

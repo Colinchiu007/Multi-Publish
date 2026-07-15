@@ -60,19 +60,34 @@ class ModelProviderManager {
       return { code: -1, message: 'API Key not configured for provider "' + providerId + '"' }
     }
 
+    // 获取或创建 Adapter 实例（factory 可能同步抛异常）
+    let adapter
     try {
-      // 获取或创建 Adapter 实例（缓存机制）
-      const adapter = this._getOrCreateAdapter(providerId, provider)
-
-      // 能力检查
-      if (typeof adapter.supports === 'function' && !adapter.supports(method)) {
-        return { code: -1, message: `Method "${method}" not supported by adapter "${providerId}"` }
+      adapter = this._getOrCreateAdapter(providerId, provider)
+    } catch (e) {
+      const { ProviderError } = require('./adapters/provider-error')
+      if (e instanceof ProviderError) {
+        return { code: -1, error: e, message: e.message }
       }
+      return { code: -1, message: 'Factory initialization failed: ' + e.message }
+    }
 
-      // 调用方法
+    // 能力检查（在调用前完成，避免不必要的日志记录）
+    if (typeof adapter.supports === 'function' && !adapter.supports(method)) {
+      return { code: -1, message: `Method "${method}" not supported by adapter "${providerId}"` }
+    }
+
+    // 调用 + 统一日志记录（所有路径覆盖，不依赖 router logHandler）
+    const startTime = Date.now()
+    try {
       const result = await adapter[method](params)
+      const latency_ms = Date.now() - startTime
+      this._writeLog(provider, method, 'success', latency_ms, null)
       return { code: 0, data: result }
     } catch (e) {
+      const latency_ms = Date.now() - startTime
+      const errorMsg = e.message || String(e)
+      this._writeLog(provider, method, 'error', latency_ms, errorMsg)
       // ProviderError 透传
       const { ProviderError } = require('./adapters/provider-error')
       if (e instanceof ProviderError) {
@@ -81,6 +96,31 @@ class ModelProviderManager {
       // 普通 Error 包装
       log.error('ModelProviderManager', `callAdapter ${providerId}.${method} failed: ${e.message}`)
       return { code: -1, message: e.message }
+    }
+  }
+
+  /**
+   * 写入调用日志（安全包装，失败不影响主流程）
+   * @param {object} provider - provider config（含 id/category）
+   * @param {string} action - 调用方法名
+   * @param {string} status - 'success' | 'error'
+   * @param {number} latencyMs - 延迟毫秒
+   * @param {string|null} errorMessage - 错误消息
+   * @private
+   */
+  _writeLog (provider, action, status, latencyMs, errorMessage) {
+    if (!this._store || typeof this._store.addProviderLog !== 'function') return
+    try {
+      this._store.addProviderLog({
+        provider_id: provider.id,
+        category: provider.category || 'unknown',
+        action,
+        status,
+        latency_ms: latencyMs,
+        error_message: errorMessage,
+      })
+    } catch (_) {
+      // 日志写入失败不影响主流程
     }
   }
 
