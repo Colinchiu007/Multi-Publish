@@ -203,6 +203,7 @@
               </el-checkbox-group>
               <div class="cohere-divider"></div>
               <UiButton variant="secondary" style="width:100%;justify-content:center;margin-bottom:8px" @click="saveDraft" :disabled="publishing">💾 保存草稿</UiButton>
+              <UiButton variant="ghost" size="sm" style="width:100%;justify-content:center;margin-bottom:8px" @click="showDraftList = true; loadDrafts()">📋 草稿箱</UiButton>
               <UiButton style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
                 {{ publishing ? '发布中...' : '🚀 一键发布' }}
               </UiButton>
@@ -215,6 +216,30 @@
                 <span class="tl-text">{{ item.text }}</span>
               </li>
             </ul>
+          </div>
+
+          <!-- 草稿箱面板 -->
+          <div v-if="showDraftList" class="cohere-card" style="margin-top:16px;cursor:default">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="font-weight:600;font-size:14px"> 草稿箱</div>
+              <button @click="showDraftList = false" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--muted)">✕</button>
+            </div>
+            <div v-if="drafts.length === 0" style="text-align:center;padding:20px;color:var(--muted)">暂无草稿</div>
+            <div v-else class="draft-list">
+              <div v-for="d in drafts" :key="d.id" class="draft-item">
+                <div class="draft-info">
+                  <div class="draft-title">{{ d.title || '无标题' }}</div>
+                  <div class="draft-meta">
+                    <span class="draft-time">{{ d.updatedAt ? new Date(d.updatedAt).toLocaleString('zh-CN') : '' }}</span>
+                    <span v-if="d.platforms && d.platforms.length" class="cohere-tag cohere-tag-info">{{ d.platforms.length }} 个平台</span>
+                  </div>
+                </div>
+                <div style="display:flex;gap:4px">
+                  <UiButton variant="ghost" size="sm" @click="loadDraft(d.id)">加载</UiButton>
+                  <UiButton variant="ghost" size="sm" @click="removeDraft(d.id)" style="color:var(--coral)">删除</UiButton>
+                </div>
+              </div>
+            </div>
           </div>
           <div v-if="result" class="cohere-card" style="margin-top:16px;cursor:default">
             <div :style="{ display:'flex', gap:'8px', alignItems:'center' }">
