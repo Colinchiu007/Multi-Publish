@@ -86,6 +86,9 @@ scripts/*.js
 screenshot_script*.js
 temp_debug.txt
 coverage/
+stryker-tmp/
+reports/mutation/
+tests/sessions/
 # TypeScript compiled output
 dist-ts/
 

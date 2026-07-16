@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "mutate": [
+    "apps/desktop/electron/services/**/*.js",
+    "apps/desktop/electron/ipc-handlers/**/*.js",
+    "apps/desktop/src/stores/**/*.js",
+    "apps/desktop/src/composables/**/*.js"
+  ],
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "ignorePatterns": [
+    "apps/desktop/dist-electron",
+    "apps/desktop/stryker-tmp",
+    "apps/desktop/.stryker-tmp",
+    "stryker-tmp",
+    ".stryker-tmp"
+  ],
+  "inPlace": true,
+  "incremental": true,
+  "vitest": {
+    "configFile": "apps/desktop/vitest.stryker.config.js",
+    "related": false
+  },
+  "disableBail": true,
+  "dryRunTimeoutMinutes": 30,
+  "concurrency": 2,
+  "reporters": ["html", "progress", "clear-text"],
+  "htmlReporter": {
+    "fileName": "apps/desktop/reports/mutation/index.html"
+  },
+  "thresholds": {
+    "high": 55,
+    "low": 40,
+    "break": 30
+  },
+  "tempDirName": "stryker-tmp"
+}

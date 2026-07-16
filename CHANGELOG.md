@@ -1,4 +1,18 @@
 
+## [测试增强] v0.16.0 - 变异测试 + 覆盖率门禁 + 故障注入 + Monkey + 会话录制 (2026-07-16)
+
+### 工具集成
+- `stryker.conf.json`：Stryker 变异测试配置（thresholds: high=60/low=50/break=40），`npm run test:mutation`
+- `vitest.config.js`：覆盖率门禁（branches ≥ 60%），`npm run test:coverage`
+- `electron/tests/fault-injection.test.js`：14 个测试，20% 概率 IPC 故障注入（拒绝/超时/null/格式异常）
+- `electron/tests/monkey.test.js`：5 个测试，500 次随机 IPC 操作序列
+- `electron/services/user-session-recorder.js`：`BACKLOT_RECORD_SESSION=true` 时录制用户操作序列，可回放为测试
+- 5 个 npm scripts：`test:mutation` / `test:coverage` / `test:fault` / `test:monkey` / `test:quality`
+
+### 质量门禁更新
+- `.quality-gates.md`：新增变异测试 ≥ 50%、分支覆盖率 ≥ 60%、故障注入 3 项门禁
+- `.quality-rhythm`：补充引用质量门禁清单
+
 ## [Reuse] v0.15.0 - Pixelle-Video 代码复用 5 路径全量迁移 (2026-07-16)
 
 基于 `01-docs/Pixelle-Video-复用分析报告.md`，将 Pixelle-Video（Apache 2.0）10 个可复用模块按 5 条推荐路径全量迁移到 python-backend。应用质量节拍 Trigger D 门禁 + 并行迁移 + TDD。

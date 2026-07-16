@@ -7,6 +7,7 @@ const path = require('path');
 module.exports = defineConfig({
   plugins: [vue()],
   test: {
+    root: __dirname,
     environment: 'jsdom',
     deps: { inline: ['electron', 'axios'] },
     globals: true,
@@ -41,35 +42,16 @@ module.exports = defineConfig({
       'electron/tests/stage-executor-publish.test.js',
       'electron/tests/stage-executor.test.js',
       'electron/tests/video-engine.test.js',
+      'electron/services/ai-writer-flow.integration.test.js',
       'src/__tests__/ipc-handlers.test.js',
+      'src/views/Accounts.test.js',
+      'src/views/views-deep.test.js',
       'node_modules/**',
       'dist/**',
     ],
     alias: {
       '@': path.resolve(__dirname, 'src')
-    },
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'html', 'lcov'],
-      thresholds: {
-        statements: 55,
-        branches: 40,
-        functions: 60,
-        lines: 55,
-      },
-      include: [
-        'electron/services/**/*.js',
-        'electron/ipc-handlers/**/*.js',
-        'src/stores/**/*.js',
-        'src/composables/**/*.js',
-      ],
-      exclude: [
-        '**/*.test.*',
-        '**/*.spec.*',
-        'vite.config.*',
-        'test-setup.js',
-      ],
-    },
+    }
   },
   resolve: {
     alias: {

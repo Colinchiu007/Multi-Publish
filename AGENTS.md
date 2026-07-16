@@ -334,6 +334,35 @@ npm run test:all:visual
 - Agent 视觉判断走 Agent 自带的 LLM(view_image 工具)
 
 ---
+## 测试质量增强工具（v0.16.0）
+
+### 新增 npm 命令（`cd apps/desktop` 下执行）
+
+| 命令 | 作用 | 运行时间 |
+|------|------|---------|
+| `npm run test:mutation` | Stryker 变异测试，找出"假测试" | 数小时（55293 突变体） |
+| `npm run test:coverage` | 覆盖率报告（branches ≥ 60% 门禁） | 30 秒 |
+| `npm run test:fault` | 故障注入测试，20% IPC 请求随机失败 | 10 秒 |
+| `npm run test:monkey` | 500 次随机 IPC 操作序列 | 5 秒 |
+| `npm run test:quality` | 一键跑全部（fault + monkey + mutation） | 数小时 |
+
+### 配置说明
+
+- **Stryker 配置**：项目根目录 `stryker.conf.json`（`inPlace: true` 模式，避免 Windows junction 链接复制问题）
+- **Vitest 专用配置**：`apps/desktop/vitest.stryker.config.js`（排除不兼容 Instrumentation 的测试文件）
+- **运行方式**：从项目根目录用 `node node_modules/@stryker-mutator/core/bin/stryker.js run stryker.conf.json` 执行
+
+### 质量门禁（提交前必须检查）
+
+- 变异测试得分 ≥ 30%（见 `.quality-gates.md`，首次运行需数小时）
+- 分支覆盖率 ≥ 40%（`npm run test:coverage`）
+- 故障注入测试通过（`npm run test:fault`）
+
+### 用户会话录制
+
+设置 `BACKLOT_RECORD_SESSION=true` 后正常使用软件，IPC 调用序列自动录制到 `tests/sessions/`，可通过 `SessionRecorder.replaySession()` 回放为测试。
+
+---
 ## 新增模块（蚁小二逆向工程集成）
 
 - `electron/services/account-state-restorer.js` — 账号登录状态持久化（JSONL）
