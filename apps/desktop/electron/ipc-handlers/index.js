@@ -27,6 +27,16 @@ function registerAllHandlers(ipcMain, deps) {
   require('./misc')(ipcMain, deps)
   require('./onboarding')(ipcMain, deps)
   require('./model-provider')(ipcMain, deps)
+  // Backlot 项目库
+  require('./project')(ipcMain, deps)
+  // Backlot 实时看板
+  require('./board')(ipcMain, deps)
+  // Backlot Contact Sheet 审批
+  require('./contact-sheet')(ipcMain, deps)
+  // Backlot Approval Gate 审批门
+  require('./approval-gate')(ipcMain, deps)
+  // Backlot Replay 生产回放
+  require('./replay')(ipcMain, deps)
 }
 
 module.exports = registerAllHandlers

@@ -14,6 +14,7 @@ const TABLE_NAMES = {
   publish_timeline: "publish_timeline",
   model_providers: "model_providers",
   model_provider_logs: "model_provider_logs",
+  backlot_projects: "backlot_projects",
 };
 
 const SCHEMA_SQL = [
@@ -113,6 +114,23 @@ const SCHEMA_SQL = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_model_provider_logs_provider ON model_provider_logs(provider_id)`,
   `CREATE INDEX IF NOT EXISTS idx_model_provider_logs_created ON model_provider_logs(created_at)`,
+  // ─── Backlot 项目库（OpenMontage 集成） ───
+  `CREATE TABLE IF NOT EXISTS backlot_projects (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    pipeline_type TEXT NOT NULL,
+    status        TEXT DEFAULT 'draft',
+    summary       TEXT DEFAULT '',
+    thumbnail_path TEXT,
+    total_cost    REAL DEFAULT 0,
+    last_run_at   TEXT,
+    stages        TEXT DEFAULT '[]',
+    metadata      TEXT DEFAULT '{}',
+    created_at    TEXT DEFAULT (datetime('now')),
+    updated_at    TEXT DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_backlot_projects_updated ON backlot_projects(updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_backlot_projects_status ON backlot_projects(status)`,
 ];
 
 function safeJsonParse(str, fallback = null) {
@@ -149,6 +167,7 @@ const UPDATE_WHITELIST = {
   batch_jobs: ["name", "articles", "total", "completed", "failed", "status"],
   publish_timeline: ["last_publish_at"],
   model_providers: ["name", "base_url", "api_key", "api_key_enc", "models", "enabled", "is_default", "config", "updated_at"],
+  backlot_projects: ["name", "pipeline_type", "status", "summary", "thumbnail_path", "total_cost", "last_run_at", "stages", "metadata", "updated_at"],
 };
 
 /**

@@ -140,6 +140,11 @@ function extractContext(container) {
   const aiGenerator = container.get('aiGenerator')
   const videoEngine = container.get('videoEngine')
   const pipelineEngine = container.get('pipelineEngine')
+  const projectService = container.get('projectService')
+  const boardService = container.get('boardService')
+  const contactSheetService = container.get('contactSheetService')
+  const approvalGateService = container.get('approvalGateService')
+  const executionRecorder = container.get('executionRecorder')
 
   // ─── ModelProviderManager + ProviderRouter 接线 ───
   const { ModelProviderManager } = require('../services/model-provider-manager')
@@ -194,6 +199,8 @@ function extractContext(container) {
       modelProviderManager, providerRouter, providerManager,
       _aggregatorBridge, publisherRouter, _PublishAlert,
       splitterBridge, promptBridge, serviceBus, pluginRegistry,
+      projectService, boardService, contactSheetService, approvalGateService,
+      executionRecorder,
     },
     windows: {
       authViewManager, rpaViewManager, webviewManager, qrCodeLogin,

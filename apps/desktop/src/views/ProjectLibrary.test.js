@@ -1,0 +1,171 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mount, flushPromises } from "@vue/test-utils";
+import { setActivePinia, createPinia } from "pinia";
+import { nextTick } from "vue";
+
+const pushSpy = vi.fn();
+vi.mock("vue-router", () => ({
+  useRouter: () => ({ push: pushSpy }),
+}));
+
+import ProjectLibrary from "./ProjectLibrary.vue";
+
+describe("ProjectLibrary", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+    delete window.electronAPI;
+  });
+
+  it("shows loading skeleton on mount", async () => {
+    // Simulate slow loading — list never resolves
+    window.electronAPI = {
+      project: { list: vi.fn().mockReturnValue(new Promise(() => {})) },
+    };
+    const w = mount(ProjectLibrary);
+    await nextTick();
+    expect(w.find(".skeleton-grid").exists()).toBe(true);
+    expect(w.findAll(".skeleton-card").length).toBe(6);
+  });
+
+  it("shows empty state when no projects", async () => {
+    window.electronAPI = {
+      project: { list: vi.fn().mockResolvedValue({ code: 0, data: [] }) },
+    };
+    const w = mount(ProjectLibrary);
+    await flushPromises();
+    await nextTick();
+    expect(w.find(".empty-state").exists()).toBe(true);
+    expect(w.text()).toContain("暂无项目");
+  });
+
+  it("shows error state on failure", async () => {
+    window.electronAPI = {
+      project: { list: vi.fn().mockRejectedValue(new Error("network down")) },
+    };
+    const w = mount(ProjectLibrary);
+    await flushPromises();
+    await nextTick();
+    expect(w.find(".error-state").exists()).toBe(true);
+    expect(w.text()).toContain("network down");
+  });
+
+  it("shows retry button in error state", async () => {
+    window.electronAPI = {
+      project: { list: vi.fn().mockRejectedValue(new Error("fail")) },
+    };
+    const w = mount(ProjectLibrary);
+    await flushPromises();
+    await nextTick();
+    expect(w.text()).toContain("重试");
+  });
+
+  it("displays project cards after loading", async () => {
+    const mockProjects = [
+      { id: "p1", name: "Project A", status: "draft" },
+      { id: "p2", name: "Project B", status: "running" },
+      { id: "p3", name: "Project C", status: "completed" },
+    ];
+    window.electronAPI = {
+      project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }) },
+    };
+    const w = mount(ProjectLibrary);
+    await flushPromises();
+    await nextTick();
+    expect(w.find(".project-grid").exists()).toBe(true);
+    expect(w.findAll(".project-card").length).toBe(3);
+    expect(w.text()).toContain("Project A");
+    expect(w.text()).toContain("Project B");
+    expect(w.text()).toContain("Project C");
+  });
+
+  it("shows delete confirmation when delete emitted", async () => {
+    const mockProjects = [
+      { id: "p1", name: "Project A", status: "draft" },
+    ];
+    window.electronAPI = {
+      project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }) },
+      project_del: vi.fn(),
+    };
+    const w = mount(ProjectLibrary);
+    await flushPromises();
+    await nextTick();
+    // Click delete button on the card
+    await w.find(".delete-btn").trigger("click");
+    expect(w.find(".confirm-dialog").exists()).toBe(true);
+    expect(w.text()).toContain("Project A");
+  });
+
+  it("cancels delete when cancel clicked", async () => {
+    const mockProjects = [
+      { id: "p1", name: "Project A", status: "draft" },
+    ];
+    window.electronAPI = {
+      project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }) },
+    };
+    const w = mount(ProjectLibrary);
+    await flushPromises();
+    await nextTick();
+    await w.find(".delete-btn").trigger("click");
+    expect(w.find(".confirm-dialog").exists()).toBe(true);
+    // Click cancel
+    const buttons = w.findAll("button");
+    const cancelBtn = buttons.find(b => b.text() === "取消");
+    await cancelBtn.trigger("click");
+    expect(w.find(".confirm-dialog").exists()).toBe(false);
+  });
+
+  it("confirms delete and calls electronAPI.project.del", async () => {
+    const mockProjects = [
+      { id: "p1", name: "Project A", status: "draft" },
+    ];
+    const delFn = vi.fn().mockResolvedValue({ code: 0 });
+    window.electronAPI = {
+      project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }), del: delFn },
+    };
+    const w = mount(ProjectLibrary);
+    await flushPromises();
+    await nextTick();
+    await w.find(".delete-btn").trigger("click");
+    // Click delete confirm
+    const buttons = w.findAll("button");
+    const deleteBtn = buttons.find(b => b.text() === "删除");
+    await deleteBtn.trigger("click");
+    await flushPromises();
+    expect(delFn).toHaveBeenCalledWith("p1");
+    expect(w.find(".confirm-dialog").exists()).toBe(false);
+  });
+
+  it("retry button reloads projects", async () => {
+    let callCount = 0;
+    window.electronAPI = {
+      project: {
+        list: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) return Promise.reject(new Error("fail"));
+          return Promise.resolve({ code: 0, data: [{ id: "p1", name: "P1", status: "draft" }] });
+        }),
+      },
+    };
+    const w = mount(ProjectLibrary);
+    await flushPromises();
+    await nextTick();
+    expect(w.find(".error-state").exists()).toBe(true);
+    // Click retry
+    const buttons = w.findAll("button");
+    const retryBtn = buttons.find(b => b.text() === "重试");
+    await retryBtn.trigger("click");
+    await flushPromises();
+    await nextTick();
+    expect(w.find(".project-grid").exists()).toBe(true);
+    expect(w.text()).toContain("P1");
+  });
+
+  it("renders page title", () => {
+    window.electronAPI = {
+      project: { list: vi.fn().mockResolvedValue({ code: 0, data: [] }) },
+    };
+    const w = mount(ProjectLibrary);
+    expect(w.text()).toContain("项目库");
+  });
+});

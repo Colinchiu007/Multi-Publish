@@ -187,6 +187,7 @@ class PipelineEngine {
     this._runs = new Map();
     this._currentPipeline = null;
     this._history = [];
+    this._eventListeners = new Map(); // Backlot 事件系统
 
     deps = deps || {};
     this.serviceBus = deps.serviceBus || null;
@@ -211,6 +212,48 @@ class PipelineEngine {
     } else {
       // 无 serviceBus 时退化为纯状态机（兼容旧测试）
       this.stageExecutor = null;
+    }
+  }
+
+  // ============================================================
+  // Backlot 事件系统（on/off/_emit）
+  // ============================================================
+
+  /**
+   * 订阅事件
+   * @param {string} event - 事件名（如 'pipeline:start', 'stage:complete'）
+   * @param {Function} callback - 回调函数
+   * @returns {Function} 取消订阅函数
+   */
+  on(event, callback) {
+    if (!this._eventListeners.has(event)) {
+      this._eventListeners.set(event, []);
+    }
+    this._eventListeners.get(event).push(callback);
+    return () => this.off(event, callback);
+  }
+
+  /**
+   * 取消订阅事件
+   */
+  off(event, callback) {
+    const listeners = this._eventListeners.get(event);
+    if (listeners) {
+      const idx = listeners.indexOf(callback);
+      if (idx !== -1) listeners.splice(idx, 1);
+    }
+  }
+
+  /**
+   * 发射事件（单个 listener 失败不影响其他）
+   * @protected
+   */
+  _emit(event, data) {
+    const listeners = this._eventListeners.get(event);
+    if (listeners) {
+      for (const cb of listeners) {
+        try { cb(data); } catch (_) { /* 单个 listener 失败不影响其他 */ }
+      }
     }
   }
 
@@ -300,6 +343,10 @@ class PipelineEngine {
     this._runs.set(runId, run);
     this._runs.set('_' + pipelineName, run); // Also index by pipeline name
     this._currentPipeline = pipelineName;
+
+    // Backlot 事件：流水线启动
+    this._emit('pipeline:start', { runId, pipelineType: pipelineName, stages: run.stages.map(s => s.name) });
+
     return { success: true, runId };
   }
 
@@ -332,6 +379,8 @@ class PipelineEngine {
 
     run.status = 'cancelled';
     run.stages[run.currentStage].status = 'cancelled';
+    // Backlot 事件：流水线取消
+    this._emit('pipeline:fail', { runId: run.id, pipelineType: run.pipeline, error: 'cancelled' });
     this._history.push({ ...run, endedAt: new Date().toISOString() });
     this._runs.delete(run.id);
     this._runs.delete('_' + run.pipeline);
@@ -371,15 +420,21 @@ class PipelineEngine {
     const run = this._getCurrentRun();
     if (!run) return { success: false, error: 'No active pipeline' };
 
+    const completedStageName = run.stages[run.currentStage].name;
     // Complete current stage
     run.stages[run.currentStage].status = 'completed';
     run.stages[run.currentStage].completedAt = new Date().toISOString();
+
+    // Backlot 事件：阶段完成
+    this._emit('stage:complete', { runId: run.id, stageName: completedStageName, stageIndex: run.currentStage });
 
     // Advance to next stage
     run.currentStage++;
     if (run.currentStage >= run.stages.length) {
       run.status = 'completed';
       this._history.push({ ...run, endedAt: new Date().toISOString() });
+      // Backlot 事件：流水线完成
+      this._emit('pipeline:complete', { runId: run.id, pipelineType: run.pipeline, totalDuration: Date.now() - new Date(run.createdAt).getTime() });
       this._runs.delete(run.id);
       this._runs.delete('_' + run.pipeline);
       this._currentPipeline = null;
@@ -389,6 +444,9 @@ class PipelineEngine {
     run.stages[run.currentStage].status = 'running';
     run.stages[run.currentStage].startedAt = new Date().toISOString();
     run.progress = this._calcProgress(run);
+
+    // Backlot 事件：阶段开始
+    this._emit('stage:start', { runId: run.id, stageName: run.stages[run.currentStage].name, stageIndex: run.currentStage });
 
     // Check if next stage requires user checkpoint
     const checkpoint = run.stages[run.currentStage].requiresCheckpoint || false;
@@ -638,6 +696,9 @@ class PipelineEngine {
       if (!execResult.success) {
         run.status = 'failed';
         run.error = execResult.error;
+        // Backlot 事件：阶段失败 + 流水线失败
+        this._emit('stage:fail', { runId, stageName: stage.name, error: execResult.error });
+        this._emit('pipeline:fail', { runId, pipelineType: run.pipeline, error: execResult.error });
         return {
           success: false,
           runId,
@@ -650,6 +711,8 @@ class PipelineEngine {
       // 遇到人工检查点 → 暂停并返回
       if (execResult.checkpoint) {
         this.pause();
+        // Backlot 事件：检查点暂停
+        this._emit('checkpoint:pause', { runId, stageName: stage.name, checkpointType: execResult.checkpoint });
         return {
           success: true,
           runId,

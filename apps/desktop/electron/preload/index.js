@@ -17,6 +17,11 @@ const { contextBridge, ipcRenderer } = require('electron')
 const { createPublishApi } = require('./publish')
 const { createAccountApi } = require('./account')
 const { createSystemApi } = require('./system')
+const { createProjectApi } = require('./project')
+const { createBoardApi } = require('./board')
+const { createContactSheetApi } = require('./contact-sheet')
+const { createApprovalGateApi } = require('./approval-gate')
+const { createReplayApi } = require('./replay')
 
 // ─── admin-only 方法清单（仅开发模式可用） ───
 const ADMIN_ONLY_METHODS = [
@@ -126,6 +131,11 @@ const fullApi = {
   ...createPublishApi(ipcRenderer),
   ...createAccountApi(ipcRenderer),
   ...createSystemApi(ipcRenderer),
+  ...createProjectApi(ipcRenderer),
+  ...createBoardApi(ipcRenderer),
+  ...createContactSheetApi(ipcRenderer),
+  ...createApprovalGateApi(ipcRenderer),
+  ...createReplayApi(ipcRenderer),
 }
 
 const accessLevel = getAccessLevel()

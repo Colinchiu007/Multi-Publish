@@ -19,6 +19,10 @@ const routes = [
   { path: '/cloud-publish', name: 'CloudPublish', component: () => import('@/views/CloudPublish.vue') },
   { path: '/intelligence', name: 'Intelligence', component: () => import('@/views/Intelligence.vue') },
   { path: '/calendar', name: 'Calendar', component: () => import('@/views/Calendar.vue') },
+  { path: '/library', name: 'ProjectLibrary', component: () => import('@/views/ProjectLibrary.vue') },
+  { path: '/board/:projectId', name: 'ProductionBoard', component: () => import('@/views/ProductionBoard.vue') },
+  { path: '/board/:projectId/contact-sheet', name: 'ContactSheetView', component: () => import('@/views/ContactSheetView.vue') },
+  { path: '/replay/:projectId', name: 'ReplayTimeline', component: () => import('@/views/ReplayTimeline.vue') },
 ]
 
 const router = createRouter({

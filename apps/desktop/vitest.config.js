@@ -20,6 +20,7 @@ module.exports = defineConfig({
       'electron/shutdown.test.{js,ts}',
       'electron/main.test.{js,ts}',
       'electron/preload.test.{js,ts}',
+      'electron/tests/**/*.test.{js,ts}',
       'tests/**/*.test.{js,ts}',
     ],
     exclude: [

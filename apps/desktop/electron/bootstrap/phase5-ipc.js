@@ -49,6 +49,8 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     analyticsService, proxyPool, _chunkedUploader, keywordMonitor,
     BACKEND_PLATFORMS, templateManager, licenseManager, aiWriter,
     compositionManager, aiGenerator, videoEngine, pipelineEngine, modelProviderManager,
+    projectService, boardService, contactSheetService, approvalGateService,
+    executionRecorder,
   } = context
 
   // 业务 IPC handlers
@@ -60,6 +62,8 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     analyticsService, proxyPool, _chunkedUploader, keywordMonitor,
     BACKEND_PLATFORMS, templateManager, licenseManager, aiWriter,
     compositionManager, aiGenerator, videoEngine, pipelineEngine, modelProviderManager,
+    projectService, boardService, contactSheetService, approvalGateService,
+    executionRecorder,
   })
 
   // 使用量统计 IPC — P1-B: 加 sender 来源验证

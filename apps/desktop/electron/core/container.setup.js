@@ -36,6 +36,13 @@ const AiWriter = require('../services/ai-writer');
 const { PublisherRouter } = require('../services/publisher-router');
 const UsageTracker = require('../services/usage-tracker');
 const DataSyncService = require("@multi-publish/shared-utils/src/data-sync");
+// Backlot 项目库服务
+const { ProjectService } = require('../services/project-service');
+const { BoardService } = require('../services/board-service');
+const { ContactSheetService } = require('../services/contact-sheet-service');
+const { ApprovalGateService } = require('../services/approval-gate-service');
+// Backlot 生产回放录制服务
+const { ExecutionRecorder } = require('../services/execution-recorder');
 // -- 基础设施 & 横切服务 --
 const logger = require('../services/logger');
 const pythonBridge = require('../services/python-bridge');
@@ -88,6 +95,48 @@ function createContainer(options) {
   container.register("aiWriter", function() { return new AiWriter(); });
   container.register("usageTracker", function() { return new UsageTracker(); });
   container.register("chunkedUploader", function() { return new ChunkedUploader(); });
+
+  // ---- Backlot 项目库服务 ----
+  container.register("projectService", function(c) { return new ProjectService(c.get("store")); });
+  container.register("boardService", function(c) {
+    const bs = new BoardService({
+      pipelineEngine: c.get("pipelineEngine"),
+      projectService: c.get("projectService"),
+      getMainWindow: null, // 将在 extractContext 中接线
+    });
+    bs.startListening();
+    return bs;
+  });
+  // ContactSheet 审批服务（依赖 pipelineEngine + boardService）
+  container.register("contactSheetService", function(c) {
+    const cs = new ContactSheetService({
+      pipelineEngine: c.get("pipelineEngine"),
+      boardService: c.get("boardService"),
+      getMainWindow: null, // 将在 extractContext 中接线
+    });
+    cs.startListening();
+    return cs;
+  });
+  // ApprovalGate 审批门服务（依赖 pipelineEngine + boardService）
+  container.register("approvalGateService", function(c) {
+    const ag = new ApprovalGateService({
+      pipelineEngine: c.get("pipelineEngine"),
+      boardService: c.get("boardService"),
+      getMainWindow: null, // 将在 extractContext 中接线
+    });
+    ag.startListening();
+    return ag;
+  });
+  // ExecutionRecorder 生产回放录制服务（依赖 projectService + pipelineEngine + boardService）
+  container.register("executionRecorder", function(c) {
+    const er = new ExecutionRecorder({
+      projectService: c.get("projectService"),
+      pipelineEngine: c.get("pipelineEngine"),
+      boardService: c.get("boardService"),
+    });
+    er.startListening();
+    return er;
+  });
 
   // ---- 有依赖的服务 ----
   container.register("store", function() { return new Store(); });

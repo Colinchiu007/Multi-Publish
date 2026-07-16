@@ -26,6 +26,9 @@
     <router-link to="/create" class="nav-item" :class="{ active: route.path === '/create' }">
       视频创作
     </router-link>
+    <router-link to="/library" class="nav-item" :class="{ active: route.path.startsWith('/library') || route.path.startsWith('/board') }">
+      项目库
+    </router-link>
     <router-link to="/calendar" class="nav-item" :class="{ active: route.path === '/calendar' }">
       发布日历
     </router-link>

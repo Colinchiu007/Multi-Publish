@@ -1,4 +1,44 @@
 
+## [Backlot] v0.14.0 - 生产回放 + 审批门 + 看板 (2026-07-16)
+
+OpenMontage Backlot living storyboard 集成：生产过程可视化、审批门、生产回放。
+
+### Task 1+3+11: 基础设施 + ProjectService + UI 组件
+- `project-service.js`：本地项目库（创建/列表/更新/删除，SQLite backlot_projects 表）
+- `board-service.js`：看板状态构建（stages/scenes/cost/elapsed 快照）
+- `BoardStageIndicator.vue` + `SceneCard.vue` + `ProjectCard.vue`：UI 组件
+- `useBacklot.js`：live board 订阅 composable
+- `backlot.js` Pinia store
+
+### Task 2+4+5+6: ProjectLibrary + ProductionBoard + ContactSheet + ApprovalGate
+- `ProjectLibrary.vue`：项目库页面（创建/打开/删除）
+- `ProductionBoard.vue`：生产看板（阶段指示器 + 场景网格 + 成本面板）
+- `ContactSheetView.vue`：场景审批（takes 缩略图 + 批准/驳回）
+- `ApprovalGateModal.vue` + `approval-gate-service.js`：审批门（creative/quality gate）
+- `contact-sheet-service.js`：场景素材审批（scene:complete/fail/retry 事件）
+
+### Task 7+9+10: 管道事件系统 + ExecutionRecorder + ReplayTimeline
+- `pipeline-engine.js`：新增 on/off/_emit 事件系统（12 种事件）
+- `execution-recorder.js`：生产回放录制（JSONL 持久化 + 100 事件内存缓存）
+- `ReplayTimeline.vue`：生产回放页面（时间轴 + 播放控制 + 快照面板）
+- `replay.js` IPC handler + preload API
+- 集成到 container.setup / phase1-context / phase5-ipc / preload/index
+
+### Task 8: ApprovalGate UI（含在 Task 4 中完成）
+
+### 测试
+- execution-recorder.test.js：44 测试
+- ReplayTimeline.test.js：44 测试
+- board-service / contact-sheet-service / approval-gate-service / project-service：各 service 测试
+- ProductionBoard / ContactSheetView / BoardStageIndicator / SceneCard / ApprovalGateModal：各组件测试
+- useBacklot / backlot store：composable + store 测试
+- 总计 backlot 测试：12 文件 308 测试全通过
+- 集成回归：preload 276 + phase5-ipc 11 + container.setup 4 = 291 测试全通过
+
+### 已知限制
+- replay API 为嵌套对象，未登录（public）状态不可用（设计如此）
+- preload.test.js 未覆盖嵌套 API 对象暴露测试（MINOR，后续补充）
+
 ## [系统化重构] v0.13.6 - Phase 4 测试补全 (2026-07-16)
 
 系统化重构路线图 Phase 4：测试补全。remotion-composer 单元测试、shared-utils 手动测试迁移、rpa-engine 死代码清理。
