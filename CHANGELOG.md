@@ -1,3 +1,33 @@
+## [蚁小二复用] v0.17.0 - 账号管理增强 + 内容发布增强 (2026-07-16)
+
+基于蚁小二逆向工程分析，增强账号管理和内容发布模块，使其功能接近蚁小二 4.0。
+
+### 账号管理模块增强 (accounts.js)
+- 新增账号分组管理（创建/删除/按分组筛选），localStorage 持久化
+- 新增批量操作（批量删除/启用/禁用），支持全选/取消全选
+- 新增多维度搜索过滤（名称/平台/状态），实时响应式
+- 新增排序功能（名称/添加时间/最后使用），支持升序/降序
+- 增强 groupedByPlatform 计算属性，带过滤和统计
+
+### 内容发布模块增强 (Publish.vue + usePublishFlow.js)
+- 新增草稿箱功能（保存/加载/删除草稿），基于 localStorage
+- 新增差异化内容设置（每个平台可独立修改标题和内容）
+- 新增平台内容限制显示（标题/正文字数限制）
+- 传入 diffEdits 参数到 usePublishFlow，支持 platformOverrides
+
+### API 层增强 (publisher.js)
+- 新增草稿箱 API（draftList/draftSave/draftGet/draftDelete）
+- 新增批量操作 API（accountBatchDelete/accountBatchUpdateStatus）
+- 新增平台内容限制 API（getPlatformLimits）
+
+### 测试结果
+- accounts store: 8/8 通过
+- Accounts view: 34/34 通过
+- Publish view: 23/23 通过
+- 总计: 65/65 通过 ✅
+
+---
+
 
 ## [测试增强] v0.16.0 - 变异测试 + 覆盖率门禁 + 故障注入 + Monkey + 会话录制 (2026-07-16)
 
