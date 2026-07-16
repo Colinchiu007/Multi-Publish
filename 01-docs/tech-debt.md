@@ -84,3 +84,13 @@
 
 2026-07-16 | api-key-manager 残留 var 声明 | 🟢 低 | ✅ 已修复 | Phase 2 var 现代化遗漏：`_save()` 中 `var h` + `validateKey()` 中 `var keyHash`/`var entry` + `function(k)` 回调。修复：3 处 var → const + 箭头函数。commit 4ffe565
 
+2026-07-16 | ai-writer 包无结构化输出能力 | 🟡 中 | ✅ 已修复 | `packages/ai-writer/src/index.js`（83行）仅支持纯文本输出，无法返回结构化 JSON。修复：Path 1 迁移 Pixelle-Video LLMService 到 `python-backend/services/llm_service.py`（377行），支持 Pydantic v2 `response_type` + 三层 JSON 解析回退。ai-writer 包保留并存（Node.js 端简单文本生成）
+
+2026-07-16 | Prompt 写在代码里难维护 | 🟢 低 | ✅ 已修复 | 原 `ai-writer` 中 prompt 硬编码在 generateTitles/generateSummary 函数内。修复：Path 2 新建 `python-backend/prompts/` 目录，7 个独立 prompt 文件（content_narration/image_generation/title_generation/topic_narration/video_generation/asset_script_generation/style_conversion），每个自包含 system + user template + JSON schema
+
+2026-07-16 | config/config.yaml 无类型安全 | 🟡 中 | ✅ 已修复 | 纯 YAML 读取无类型校验、无热重载、无深度合并。修复：Path 4 新建 `python-backend/config/` 目录（schema.py 95行 + loader.py 60行 + manager.py 152行），Pydantic v2 schema + 热重载 `reload()` + 深度合并 `update()` + 单例模式。适配 Multi-Publish 结构（LLM/TTS/Publishers/VideoCreation）
+
+2026-07-16 | core/task_queue.py 缺状态机和互斥 | 🟡 中 | ✅ 已修复 | 现有 `task_queue.py` 无任务状态机、无同类型互斥、无并发限制。修复：Path 5 新建 `core/task_manager.py`（并行模块，不替换 task_queue.py），状态机 pending→running→completed/failed/cancelled + `cancel_previous=True` 互斥 + `max_concurrent` 并发限制 + `start()/stop()` 生命周期
+
+2026-07-16 | 缺 HTML 模板视频生成能力 | 🟢 低 | ✅ 已修复 | Remotion 复杂动画不适合快速生成带文字/图片的短视频封面。修复：Path 3 迁移 Pixelle-Video `frame_html.py`（411行）+ `frame_processor.py`（249行）+ 3 种尺寸 HTML 模板（1080x1080/1080x1920/1920x1080），Jinja2 风格 DSL + HTML 消毒 + Playwright 截图
+

@@ -1,4 +1,48 @@
 
+## [Reuse] v0.15.0 - Pixelle-Video 代码复用 5 路径全量迁移 (2026-07-16)
+
+基于 `01-docs/Pixelle-Video-复用分析报告.md`，将 Pixelle-Video（Apache 2.0）10 个可复用模块按 5 条推荐路径全量迁移到 python-backend。应用质量节拍 Trigger D 门禁 + 并行迁移 + TDD。
+
+### Path 1: LLM 结构化输出服务（⭐⭐⭐ 高价值）
+- `services/llm_service.py`（377行）：Pydantic v2 `response_type` 结构化输出 + 三层 JSON 解析回退（直接 JSON → markdown 代码块 → 大括号提取）+ 运行时参数覆盖（api_key/base_url/model）
+- `services/llm_presets.py`（85行）：6 个 LLM 提供商预设（Qwen/OpenAI/Claude/DeepSeek/Ollama/Moonshot）
+- 配置依赖解耦：构造函数 config dict → 环境变量 → 内置默认值（原依赖 pixelle_video.config_manager 已移除）
+- 与 Node.js `ai-writer` 包并存，互不影响
+
+### Path 2: Prompt 管理体系（⭐⭐ 中价值）
+- `prompts/` 目录：7 个独立 prompt 文件（content_narration/image_generation/title_generation/topic_narration/video_generation/asset_script_generation/style_conversion）
+- 每个 prompt 自包含：system prompt + user template + JSON schema（纯 dict，无外部依赖）
+- 双 API 设计：`build_*_prompt()` 便捷格式化 + `get_prompt_spec()` 返回三元组
+- `__init__.py` 导出 `get_all_prompt_specs()` 注册表
+
+### Path 3: HTML 模板 + Playwright 渲染流水线（⭐⭐ 中价值）
+- `services/frame_html.py`（411行）：Jinja2 风格 DSL 变量替换（`{{ title }}`/`{{ content }}`/`{{ image_path }}`）+ HTML 消毒（`html.escape` 防 XSS）+ Playwright 截图（async）
+- `services/frame_processor.py`（249行）：帧/场景管理 + 模板选择（static_/image_/video_ 前缀）
+- `templates/`：3 种尺寸 HTML 模板（1080x1080 方形 / 1080x1920 竖屏 / 1920x1080 横屏）
+
+### Path 4: ConfigManager 配置管理（⭐⭐ 中价值）
+- `config/schema.py`（95行）：Pydantic v2 schema，适配 Multi-Publish 结构（LLMConfig/TTSConfig/PublishersConfig/VideoCreationConfig）
+- `config/loader.py`（60行）：YAML 读写
+- `config/manager.py`（152行）：单例 ConfigManager + 热重载 `reload()` + 深度合并 `update()` + 便捷访问器
+- 所有字段有默认值，空 YAML 即合法
+
+### Path 5: FastAPI 任务状态机增强（⭐ 参考）
+- `core/task_manager.py`：并行模块（不替换 task_queue.py）
+- 任务状态机：pending → running → completed/failed/cancelled，`_VALID_TRANSITIONS` 强制校验
+- `cancel_previous=True`：同类型任务互斥
+- `max_concurrent`：并发限制，超限任务保持 pending
+- 生命周期：`start()` 后台清理循环 / `stop()` 取消所有任务
+
+### 测试
+- **263 测试全通过**（Path 1: 37 + Path 2: 70 + Path 3: 72 + Path 4: 40 + Path 5: 44）
+- TDD 模式：先写测试 → 红灯 → 实现 → 绿灯
+- 所有 HTTP/Playwright 调用均 mock，零真实外部依赖
+- 5 路径并行 subagent 迁移，每个 subagent 独立 TDD 循环
+
+### 许可证合规
+- 所有迁移文件保留原始 Apache 2.0 许可证头（Copyright AIDC-AI）
+- 严格遵守许可证条款，归属清晰
+
 ## [Security+Arch] v0.14.1 - 8项MAJOR安全加固+架构拆分 (2026-07-16)
 
 代码审查发现的 7 个 MAJOR + 1 个 MINOR 问题全部修复，应用质量节拍日常循环。
