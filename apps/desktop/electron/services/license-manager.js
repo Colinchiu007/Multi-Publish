@@ -37,34 +37,54 @@ function getDataPath(dataPath) {
   return dataPath || path.join(app.getPath("userData"), "license.json")
 }
 
-// AES-256-GCM 加密：密钥从机器 userData 路径派生（每台机器不同），防伪造 Pro 许可证
+// AES-256-GCM 加密：密钥从机器 userData 路径 + 随机盐派生（每台机器不同 + 每次加密不同盐），防伪造 Pro 许可证
+// 安全修复（2026-07-16）：静态盐 "license-salt" → 随机盐（16 字节），v2 格式带 salt 前缀
 const ALGORITHM = "aes-256-gcm"
 const IV_LENGTH = 16
 const TAG_LENGTH = 16
+const SALT_LENGTH = 16
+const V2_PREFIX = "v2:"
 
-function _deriveKey() {
-  return crypto.scryptSync(app.getPath("userData"), "license-salt", 32)
+function _deriveKey(salt) {
+  // keyMaterial 机器特定（userData 路径包含用户名 + 应用名），salt 每次随机
+  return crypto.scryptSync(app.getPath("userData"), salt, 32)
 }
 
 function encrypt(str) {
   if (!str) return ""
-  const key = _deriveKey()
+  const salt = crypto.randomBytes(SALT_LENGTH)
+  const key = _deriveKey(salt)
   const iv = crypto.randomBytes(IV_LENGTH)
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv)
   const encrypted = Buffer.concat([cipher.update(str, "utf-8"), cipher.final()])
   const tag = cipher.getAuthTag()
-  return Buffer.concat([iv, tag, encrypted]).toString("base64")
+  // v2 格式：v2: 前缀 + salt + iv + tag + encrypted
+  return V2_PREFIX + Buffer.concat([salt, iv, tag, encrypted]).toString("base64")
 }
 
 function decrypt(encoded) {
   if (!encoded) return null
   try {
+    // v2 格式：带随机盐
+    if (encoded.startsWith(V2_PREFIX)) {
+      const buf = Buffer.from(encoded.slice(V2_PREFIX.length), "base64")
+      const salt = buf.subarray(0, SALT_LENGTH)
+      const iv = buf.subarray(SALT_LENGTH, SALT_LENGTH + IV_LENGTH)
+      const tag = buf.subarray(SALT_LENGTH + IV_LENGTH, SALT_LENGTH + IV_LENGTH + TAG_LENGTH)
+      const encrypted = buf.subarray(SALT_LENGTH + IV_LENGTH + TAG_LENGTH)
+      const key = _deriveKey(salt)
+      const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
+      decipher.setAuthTag(tag)
+      const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()])
+      return decrypted.toString("utf-8")
+    }
+    // 旧格式（v1）：静态盐向后兼容，解密成功后 save() 会自动升级为 v2
     const buf = Buffer.from(encoded, "base64")
     const iv = buf.subarray(0, IV_LENGTH)
     const tag = buf.subarray(IV_LENGTH, IV_LENGTH + TAG_LENGTH)
     const encrypted = buf.subarray(IV_LENGTH + TAG_LENGTH)
-    const key = _deriveKey()
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
+    const legacyKey = crypto.scryptSync(app.getPath("userData"), "license-salt", 32)
+    const decipher = crypto.createDecipheriv(ALGORITHM, legacyKey, iv)
     decipher.setAuthTag(tag)
     const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()])
     return decrypted.toString("utf-8")

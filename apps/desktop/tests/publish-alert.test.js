@@ -15,6 +15,7 @@ electron.Notification = vi.fn().mockImplementation(() => ({
 __registerMock("child_process", {
   exec: vi.fn(),
   execFile: vi.fn(),
+  spawn: vi.fn(),
 })
 
 __registerMock("fs", {
@@ -28,10 +29,10 @@ describe("PublishAlertManager", () => {
     vi.clearAllMocks()
   })
 
-  test("playSound calls execFile", () => {
+  test("playSound calls spawn (shell-safe, no cmd injection)", () => {
     publishAlert.playSound("success")
-    const { execFile } = require("child_process")
-    expect(execFile).toHaveBeenCalled()
+    const { spawn } = require("child_process")
+    expect(spawn).toHaveBeenCalled()
   })
 
   test("triggerAlert with success type", () => {

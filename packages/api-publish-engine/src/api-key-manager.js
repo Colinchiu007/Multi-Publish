@@ -41,7 +41,7 @@ class ApiKeyManager {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     // 安全修复：API Key 以 SHA-256 哈希存储，不明文保存
     const hashed = this._keys.map(k => {
-      var h = { name: k.name, scopes: k.scopes, createdAt: k.createdAt, keyHash: k.keyHash || crypto.createHash('sha256').update(k.key).digest('hex') }
+      const h = { name: k.name, scopes: k.scopes, createdAt: k.createdAt, keyHash: k.keyHash || crypto.createHash('sha256').update(k.key).digest('hex') }
       if (k.revokedAt) h.revokedAt = k.revokedAt
       if (k.lastUsed) h.lastUsed = k.lastUsed
       return h
@@ -121,8 +121,8 @@ class ApiKeyManager {
     if (!this._loaded) this.load();
     if (!key) return { valid: false, error: "No API key provided" };
     // 安全修复：用 SHA-256 哈希比较，不明文匹配
-    var keyHash = crypto.createHash('sha256').update(key).digest('hex')
-    var entry = this._keys.find(function(k) { return (k.keyHash || crypto.createHash('sha256').update(k.key).digest('hex')) === keyHash });
+    const keyHash = crypto.createHash('sha256').update(key).digest('hex')
+    const entry = this._keys.find(k => (k.keyHash || crypto.createHash('sha256').update(k.key).digest('hex')) === keyHash);
     if (!entry) return { valid: false, error: "API key not found" };
     if (entry.revokedAt) return { valid: false, error: "API key has been revoked" };
     // 更新 lastUsed（不阻塞）

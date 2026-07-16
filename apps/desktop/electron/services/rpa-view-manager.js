@@ -74,12 +74,12 @@ class RpaViewManager {
         await this._waitForElement(win, (context&&context.iframeSelector)||'iframe', 10000); break
       case 'clickCreate':
         if (await this._click(win, (context&&context.createSelector)||'#create-icon')) {
-          await new Promise(function(r){setTimeout(r,2000)})
+          await this._sleep(2000)
           await this._click(win, (context&&context.uploadSelector)||'tp-yt-paper-item')
         }; break
       case 'clickWrite':
         await this._click(win, (context&&context.writeSelector)||'button:has-text("写文章")')
-        await new Promise(function(r){setTimeout(r,2000)}); break
+        await this._sleep(2000); break
       default: log.warn('RpaView', 'Unknown hook: ' + hookName)
     }
   }
@@ -104,11 +104,16 @@ class RpaViewManager {
     const fs = JSON.stringify(frameSelector)
     const is_ = JSON.stringify(innerSelector)
     const sc = JSON.stringify(content)
+    // 安全修复（2026-07-16）：iframe 内 innerHTML 也需净化，移除 script/on*= 事件
     return await this._execInFrame(win, frameSelector, [
       'let el = document.querySelector(' + is_ + ');',
       'if (!el) throw new Error("element not found in iframe");',
       'if (el.getAttribute("contenteditable") === "true") {',
-      '  el.innerHTML = ' + sc + ';',
+      '  let tmp = document.createElement("div");',
+      '  tmp.innerHTML = ' + sc + ';',
+      '  tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});',
+      '  tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes, function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});',
+      '  el.innerHTML = tmp.innerHTML;',
       '} else {',
       '  el.value = ' + sc + ';',
       '}',
@@ -122,6 +127,7 @@ class RpaViewManager {
   /**
    * 安全设置元素 innerHTML 或 value — 统一用 JSON.stringify 转义参数
    * 避免 3 处重复的字符串拼接模式，确保内容中的引号/特殊字符被正确转义
+   * 安全修复（2026-07-16）：innerHTML 模式下添加 HTML 净化，移除 <script>/<iframe>/on*= 事件处理器
    * @param {BrowserWindow} win
    * @param {string} selector - CSS 选择器
    * @param {string} content - 要设置的内容
@@ -135,10 +141,21 @@ class RpaViewManager {
     const lines = [
       'let el = document.querySelector(' + sel + ');',
       'if (!el) return false;',
-      useInnerHTML
-        ? 'el.innerHTML = ' + ct + ';'
-        : 'el.value = ' + ct + ';',
     ]
+    if (useInnerHTML) {
+      // 净化 HTML：移除 script/iframe/object/embed，移除所有 on*= 事件属性
+      lines.push(
+        'let tmp = document.createElement("div");',
+        'tmp.innerHTML = ' + ct + ';',
+        'tmp.querySelectorAll("script, iframe, object, embed, link[rel=import]").forEach(function(n){n.remove()});',
+        'tmp.querySelectorAll("*").forEach(function(n){' +
+          '[].forEach.call(n.attributes, function(a){ if(a.name.toLowerCase().indexOf("on")===0) n.removeAttribute(a.name) });' +
+        '});',
+        'el.innerHTML = tmp.innerHTML;'
+      )
+    } else {
+      lines.push('el.value = ' + ct + ';')
+    }
     if (dispatchEvents) {
       lines.push('el.dispatchEvent(new Event("input", { bubbles: true }));')
       lines.push('el.dispatchEvent(new Event("change", { bubbles: true }));')
@@ -176,7 +193,7 @@ class RpaViewManager {
           }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] title: '+e.message)
-          if (!retry.retry('title')) break; await new Promise(function(r){setTimeout(r,1000)})
+          if (!retry.retry('title')) break; await this._sleep(1000)
         }
       }
     }
@@ -193,7 +210,7 @@ class RpaViewManager {
           }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] content: '+e.message)
-          if (!retry.retry('content')) break; await new Promise(function(r){setTimeout(r,1000)})
+          if (!retry.retry('content')) break; await this._sleep(1000)
         }
       }
     }
@@ -212,14 +229,14 @@ class RpaViewManager {
           }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] upload: '+e.message)
-          if (!retry.retry('file_upload')) break; await new Promise(function(r){setTimeout(r,2000)})
+          if (!retry.retry('file_upload')) break; await this._sleep(2000)
         }
       }
     }
 
     // cover
     if (article.cover_path && sel.cover_input) {
-      try { this._emitProgress(platform,'uploading cover...',65); await this._setFileInput(win,article.cover_path); await new Promise(function(r){setTimeout(r,2000)}) } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message) }
+      try { this._emitProgress(platform,'uploading cover...',65); await this._setFileInput(win,article.cover_path); await this._sleep(2000) } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message) }
     }
 
     // tags
@@ -230,7 +247,7 @@ class RpaViewManager {
           await this._waitForElement(win,sel.tag_input[0],5000)
           await this._fillInput(win,sel.tag_input[0],article.tags[ti])
           await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel.tag_input[0])+';let el=document.querySelector(s);if(el)el.dispatchEvent(new KeyboardEvent(\'keydown\',{key:\'Enter\',code:\'Enter\',keyCode:13}))})()')
-          await new Promise(function(r){setTimeout(r,800)})
+          await this._sleep(800)
         } catch(e) { log.warn('RpaView','['+platform+'] tag: '+e.message) }
       }
     }
@@ -253,7 +270,7 @@ class RpaViewManager {
         } catch(e) {
           log.warn('RpaView','['+platform+'] publish btn: '+e.message)
           if (!retry.retry('publish')) return {success:false,error:e.message,platform:platform}
-          await new Promise(function(r){setTimeout(r,1500)})
+          await this._sleep(1500)
         }
       }
     }
@@ -271,7 +288,7 @@ class RpaViewManager {
     // Mode: url — wait for URL to leave publish page
     if (mode === 'url') {
       try {
-        await new Promise(function(r){setTimeout(r,5000)})
+        await this._sleep(5000)
         const url = win.webContents.getURL(), pubUrl = config.publish_url||''
         if (url && pubUrl && !url.includes(pubUrl) && !url.includes('login') && !url.includes('passport')) {
           this._emitProgress(platform,'URL changed',100); return { success:true, url:url, platform:platform }
@@ -295,7 +312,7 @@ class RpaViewManager {
       if (r) { this._emitProgress(platform,'API success',100); return { success:true, url:win.webContents.getURL()||'', platform:platform } }
     }
     try {
-      await new Promise(function(r){setTimeout(r,5000)})
+      await this._sleep(5000)
       const url2 = win.webContents.getURL(), pubUrl2 = config.publish_url||''
       if (url2 && pubUrl2 && !url2.includes(pubUrl2) && !url2.includes('login') && !url2.includes('passport')) {
         this._emitProgress(platform,'URL fallback',100); return { success:true, url:url2, platform:platform }
@@ -342,9 +359,21 @@ class RpaViewManager {
     // eslint-disable-next-line no-unused-vars
     try { return await win.webContents.executeJavaScript('(function(){let c='+fn+';return new Promise(function(r){if(c()){r(true);return}let ch=setInterval(function(){if(c()){clearInterval(ch);clearTimeout(t);r(true)}},'+interval+');let t=setTimeout(function(){clearInterval(ch);r(false)},'+timeout+')})})()') } catch(e) { return false }
   }
+  // 安全修复（2026-07-16）：condition-based-waiting helper，替代硬编码 setTimeout 纯等待
+  // 轮询条件函数直到满足或超时，避免 waitForTimeout 反模式
+  async _waitForFn(win, fn, timeout, interval) {
+    if (typeof fn !== 'string' || fn.length === 0) return false
+    timeout = timeout || 3000; interval = interval || 300
+    return await this._waitForCondition(win, fn, timeout, interval)
+  }
+  // 统一的 sleep helper（标记需要后续改为 condition-based-waiting 的点）
+  _sleep(ms) {
+    return new Promise(function(r){const t=setTimeout(r,ms);if(t&&t.unref)t.unref()})
+  }
   async _fillInput(win, sel, val) {
     const sv=JSON.stringify(val)
-    return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';let el=document.querySelector(s);if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){el.innerHTML='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));return}let ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
+    // 安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化，移除 script/on*= 事件
+    return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';let el=document.querySelector(s);if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));return}let ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
   }
   async _click(win, sel) {
     return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';let el=document.querySelector(s);if(!el)throw new Error("not found: "+s);el.click();return true})()')
@@ -469,13 +498,14 @@ class RpaViewManager {
       this._emitProgress('douyin','filling desc...',65)
       try {
         const dj=JSON.stringify(article.content)
-        await win.webContents.executeJavaScript('(function(){let els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for (let i=0;i<els.length;i++){let el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){el.innerHTML='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
+        // 安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化
+        await win.webContents.executeJavaScript('(function(){let els=document.querySelectorAll(\'textarea,[contenteditable="true"],[class*="description"],[class*="desc"]\');for (let i=0;i<els.length;i++){let el=els[i];if(el.tagName==="TEXTAREA"){el.value='+dj+';el.dispatchEvent(new Event("input",{bubbles:true}));break}else if(el.getAttribute("contenteditable")==="true"){let tmp=document.createElement("div");tmp.innerHTML='+dj+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));break}}})()')
       } catch(e) { log.warn('RpaView','douyin desc: '+e.message) }
     }
 
     if (article.cover_path) {
       this._emitProgress('douyin','uploading cover...',75)
-      try { if(await this._click(win,'[class*="cover"]')){await new Promise(function(r){setTimeout(r,1000)});await this._setFileInput(win,article.cover_path);await new Promise(function(r){setTimeout(r,2000)})} } catch(e) { log.warn('RpaView','douyin cover: '+e.message) }
+      try { if(await this._click(win,'[class*="cover"]')){await this._sleep(1000);await this._setFileInput(win,article.cover_path);await this._sleep(2000)} } catch(e) { log.warn('RpaView','douyin cover: '+e.message) }
     }
 
     if (article.tags && article.tags.length>0) {
@@ -483,7 +513,7 @@ class RpaViewManager {
       for (let ti=0;ti<article.tags.length;ti++) {
         try {
           await win.webContents.executeJavaScript('(function(){let ti=document.querySelectorAll(\'[class*="tag"] input,input[placeholder*="tag"],input[placeholder*="标签"]\');if(ti.length>0){let inp=ti[0];inp.value='+JSON.stringify(article.tags[ti])+';inp.dispatchEvent(new Event("input",{bubbles:true}));inp.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",keyCode:13}))}})()')
-          await new Promise(function(r){setTimeout(r,1000)})
+          await this._sleep(1000)
         } catch(e) { log.warn('RpaView','douyin tag: '+e.message) }
       }
     }
@@ -495,7 +525,7 @@ class RpaViewManager {
       else await this._click(win,'button:has-text("发布"), [class*="publish"]')
       const resp = await rp
       if (resp) { this._emitProgress('douyin','API success',100); return { success:true, url:win.webContents.getURL()||'', platform:'douyin' } }
-      await new Promise(function(r){setTimeout(r,5000)})
+      await this._sleep(5000)
       const fu=win.webContents.getURL()
       if (fu.includes('success')||fu.includes('publish/success')) return { success:true, url:fu||'', platform:'douyin' }
       return { success:false, error:'publish timeout', platform:'douyin' }
@@ -555,7 +585,7 @@ class RpaViewManager {
     this._emitProgress('wechat_mp','saving draft...',70)
     try {
       await this._click(win,'a[data-action="save"], a#js_sync_save')
-      await new Promise(function(r){setTimeout(r,3000)})
+      await this._sleep(3000)
       const finalUrl = win.webContents.getURL()
       let mediaId = null
       const match = finalUrl.match(/appmsgid=(\d+)/)
@@ -571,11 +601,11 @@ class RpaViewManager {
       try {
         await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_list&type=10&action=list',2000)
         await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify('[appmsgid="'+mediaId+'"]')+';let row=document.querySelector(s);if(row)row.click();})()')
-        await new Promise(function(r){setTimeout(r,1000)})
+        await this._sleep(1000)
         await this._click(win,'a.btn_masssend, a[data-action="masssend"]')
-        await new Promise(function(r){setTimeout(r,2000)})
+        await this._sleep(2000)
         await this._click(win,'.dialog_bd_btn a:has-text("确定"), .weui-desktop-btn:has-text("确定")')
-        await new Promise(function(r){setTimeout(r,3000)})
+        await this._sleep(3000)
       } catch(e) { log.warn('RpaView','wechat_mp mass send: '+e.message) }
     }
 
@@ -598,10 +628,10 @@ class RpaViewManager {
     // Click Create → Upload video
     this._emitProgress('youtube','clicking Create...',10)
     const created = await this._click(win,'#create-icon, ytcp-button#create-icon')
-    await new Promise(function(r){setTimeout(r,2000)})
+    await this._sleep(2000)
     if (created) {
       await this._click(win,'tp-yt-paper-item:has-text("上传视频"), .ytcp-menu-item:has-text("上传视频")')
-      await new Promise(function(r){setTimeout(r,2000)})
+      await this._sleep(2000)
     }
 
     // Upload file
@@ -636,26 +666,26 @@ class RpaViewManager {
     this._emitProgress('youtube','next step (elements)...',75)
     try {
       await this._click(win,'ytcp-button:has-text("下一步"), #next-button')
-      await new Promise(function(r){setTimeout(r,3000)})
+      await this._sleep(3000)
     } catch(e) { log.warn('RpaView','youtube: next1: '+e.message) }
 
     // Click Next (visibility/schedule)
     try {
       await this._click(win,'ytcp-button:has-text("下一步"), #next-button')
-      await new Promise(function(r){setTimeout(r,3000)})
+      await this._sleep(3000)
     } catch(e) { log.warn('RpaView','youtube: next2: '+e.message) }
 
     // Set visibility to Public
     try {
       await this._click(win,'tp-yt-paper-radio-button[name="PUBLIC"], #public-radio-button')
-      await new Promise(function(r){setTimeout(r,1000)})
+      await this._sleep(1000)
     } catch(e) { log.warn('RpaView','youtube: visibility: '+e.message) }
 
     // Click Publish
     this._emitProgress('youtube','publishing...',90)
     try {
       await this._click(win,'ytcp-button:has-text("发布"), #done-button')
-      await new Promise(function(r){setTimeout(r,5000)})
+      await this._sleep(5000)
     } catch(e) { log.warn('RpaView','youtube: publish btn: '+e.message) }
 
     this._emitProgress('youtube','done',100)
@@ -696,13 +726,13 @@ class RpaViewManager {
         if (!(await this._waitForElement(win,saveBtn,5000)))
           return {success:false,error:'zhihu: save draft btn not found',platform:'zhihu'}
         await this._click(win,saveBtn)
-        await new Promise(function(r){setTimeout(r,2000)})
+        await this._sleep(2000)
         this._emitProgress('zhihu','draft saved',100)
         return {success:true,url:win.webContents.getURL()||'',platform:'zhihu',draft:true}
       }
       await this._click(win,pubBtn)
       this._emitProgress('zhihu','verifying...',95)
-      await new Promise(function(r){setTimeout(r,3000)})
+      await this._sleep(3000)
       const curUrl = win.webContents.getURL()
       if (curUrl.includes('success')||curUrl.includes('publish')||curUrl.includes('article')) {
         this._emitProgress('zhihu','published!',100)

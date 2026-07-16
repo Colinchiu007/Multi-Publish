@@ -34,15 +34,26 @@ function playSound (type) {
   try {
     const audioPath = getSoundPath(type)
     if (fs.existsSync(audioPath)) {
-      // 使用 execFile 而非 exec，避免 shell 注入风险（audioPath 不经过 shell 解释）
-      const { execFile } = require('child_process')
+      // 安全修复（2026-07-16）：移除 cmd /c start shell 调用，改用 spawn 无 shell
+      // Windows 用 PowerShell 的 (New-Object Media.SoundPlayer) 播放 wav，不经过 cmd shell
+      // macOS/Linux 直接调用原生播放器
+      const { spawn } = require('child_process')
       if (process.platform === 'win32') {
-        // Windows 用 cmd /c start 打开默认播放器（execFile 不经 shell，需显式 shell）
-        execFile('cmd', ['/c', 'start', '', '', audioPath], () => {})
+        // PowerShell -Command 方式，audioPath 作为参数传入不经 shell 解释
+        const ps = spawn('powershell', [
+          '-NoProfile', '-NonInteractive', '-Command',
+          '(New-Object Media.SoundPlayer \'' + audioPath.replace(/'/g, "''") + '\').PlaySync()'
+        ], { stdio: 'ignore', shell: false })
+        ps.on('error', () => { /* 无声环境忽略 */ })
+        ps.unref()
       } else if (process.platform === 'darwin') {
-        execFile('afplay', [audioPath], () => {})
+        const ps = spawn('afplay', [audioPath], { stdio: 'ignore', shell: false })
+        ps.on('error', () => { /* 无声环境忽略 */ })
+        ps.unref()
       } else {
-        execFile('paplay', [audioPath], () => {})
+        const ps = spawn('paplay', [audioPath], { stdio: 'ignore', shell: false })
+        ps.on('error', () => { /* 无声环境忽略 */ })
+        ps.unref()
       }
     }
   // eslint-disable-next-line no-unused-vars
