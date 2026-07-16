@@ -41,7 +41,11 @@
         "test:coverage": "vitest run --coverage",
         "test:fault": "cross-env INJECT_FAULTS=1 vitest run electron/tests/fault-injection.test.js",
         "test:monkey": "vitest run electron/tests/monkey.test.js",
-        "test:quality": "npm run test:fault && npm run test:monkey"
+        "test:quality": "npm run test:fault && npm run test:monkey",
+        "test:e2e": "node tests/e2e/helpers/run-all.js",
+        "test:e2e:routes": "node tests/e2e/helpers/run-all.js routes",
+        "test:e2e:flows": "node tests/e2e/helpers/run-all.js flows",
+        "test:e2e:b1": "node tests/e2e/specs/b1-core-publish.js"
     },
     "keywords": [
         "multi-publish",

@@ -56,6 +56,8 @@ const exportedNames = [
   "offlineStatus", "offlineAddToCache", "offlineClearCache", "onOfflineRestored",
   // 通知
   "showNotification",
+  // 草稿箱（蚁小二复用）
+  "draftSave", "draftList", "draftDelete",
 ];
 
 const apiMeta = {
@@ -142,7 +144,10 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   offlineAddToCache: { args: [{ task: "x" }], fallback: { code: -1 }, returns: "object" },
   offlineClearCache: { args: [], fallback: { code: -1 }, returns: "object" },
   onOfflineRestored: { args: [vi.fn()], fallback: undefined, returns: "function" },
-  showNotification: { args: [{ title: "test" }], fallback: undefined, returns: "undefined" }
+  showNotification: { args: [{ title: "test" }], fallback: undefined, returns: "undefined" },
+  draftSave: { args: [{ id: "d1", title: "t" }], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  draftList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
+  draftDelete: { args: ["d1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" }
 };
 
 function createMockApi() {
