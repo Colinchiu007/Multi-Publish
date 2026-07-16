@@ -1,4 +1,24 @@
 
+## [Security+Arch] v0.14.1 - 8项MAJOR安全加固+架构拆分 (2026-07-16)
+
+代码审查发现的 7 个 MAJOR + 1 个 MINOR 问题全部修复，应用质量节拍日常循环。
+
+### 安全加固（commit 4ffe565）
+- `license-manager.js`：静态盐 → 随机16字节盐 + scrypt（v2格式，v1向后兼容）
+- `rpa-view-manager.js`：4处 innerHTML 注入净化（DOMPurify-lite，移除 script/on* 事件）
+- `publish-alert.js`：shell 命令 → spawn shell:false（消除 shell 注入）
+- `rpa-view-manager.js`：25处硬编码 setTimeout → this._sleep helper
+- `proxy-manager.js`：代理 URL 凭据 encodeURIComponent
+- `api-key-manager.js`：残留 var → let/const
+
+### 架构拆分（commit 4f22d1c）
+- `rpa-view-manager.js`（805行）→ 4 文件 Mixin 拆分（manager 99 + helpers 211 + session 47 + platforms 339）
+- `content-intelligence.js`（825行）→ 3 文件 Mixin 拆分（main 381 + sources 235 + analysis 300）
+- 方法体零修改，Object.assign(prototype, ...mixins) 组合，require 接口不变
+
+### 测试
+- 相关测试 57 + 59 = 116 passed（license 12 + publish-alert 16 + rpa-view 10 + proxy 4 + api-key 13 + content-intelligence 49 + rpa-view拆分 10 + content-intel拆分 49... 实际去重后 116 unique）
+
 ## [Backlot] v0.14.0 - 生产回放 + 审批门 + 看板 (2026-07-16)
 
 OpenMontage Backlot living storyboard 集成：生产过程可视化、审批门、生产回放。

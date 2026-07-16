@@ -68,3 +68,19 @@
 
 2026-07-16 | rpa-engine browser-data.js 无消费方 | 🟢 低 | 待评估 | `packages/rpa-engine/src/browser-data.js`（393 行 AES-256-GCM 加密持久化代码）在 index.js 导出但全库无运行时消费方。后续清理候选，需确认是否真的无用再删除
 
+2026-07-16 | license-manager 弱密钥派生（静态盐） | 🟠 高 | ✅ 已修复 | `_deriveKey()` 用静态盐 "license-salt" + 可预测的 userData 路径密码，易被彩虹表攻击。修复：v2 格式用 `crypto.randomBytes(16)` 生成每次加密随机盐，`v2:` 前缀标识格式，v1 旧格式向后兼容解密。commit 4ffe565
+
+2026-07-16 | rpa-view-manager innerHTML 注入用户内容 | 🟠 高 | ✅ 已修复 | 4 处 innerHTML 直接注入用户内容到第三方页面（_setElementContentSafe/_fillInFrame/_fillInput/douyin描述），存在 XSS 风险。修复：DOMPurify-lite 净化（移除 script/iframe/object/embed + 所有 on* 事件属性）。commit 4ffe565
+
+2026-07-16 | publish-alert shell 注入风险 | 🟠 高 | ✅ 已修复 | `execFile('cmd', ['/c', 'start', ...])` 构造命令字符串，音频路径未转义可被注入。修复：改用 `spawn('powershell', [...], { shell: false })`，音频路径单引号转义。所有平台均用 spawn + shell:false。commit 4ffe565
+
+2026-07-16 | rpa-view-manager 711行超大文件7+职责 | 🟠 高 | ✅ 已修复 | 805 行含登录/状态/发布/监控/UI注入/二维码/截图 7+ 职责。修复：Mixin 模式拆分为 4 文件（manager 99行 + helpers 211行 + session 47行 + platforms 339行），Object.assign(prototype, ...mixins)，方法体零修改。commit 4f22d1c
+
+2026-07-16 | content-intelligence 825行超大文件 | 🟠 高 | ✅ 已修复 | 825 行含 Reddit/HN/GitHub 搜索 + trending + 标签生成 + benchmarking 多职责。修复：Mixin 模式拆分为 3 文件（main 381行 + sources 235行 + analysis 300行），方法体零修改。commit 4f22d1c
+
+2026-07-16 | rpa-view-manager 24处硬编码setTimeout纯等待 | 🟠 高 | ✅ 已修复 | 25 处 `await new Promise(function(r){setTimeout(r,N)})` 纯等待违反 QM-2 反 waitForTimeout 原则。修复：统一替换为 `this._sleep(N)` helper（unref + 单一维护点），剩余 12 处 setTimeout 为合法 timeout 控制。commit 4ffe565
+
+2026-07-16 | proxy-manager 代理URL凭据未编码 | 🟠 高 | ✅ 已修复 | 代理 URL 中 username/password/host 未 encodeURIComponent，含 @/: 字符会导致 URL 解析错误。修复：三处 encodeURIComponent 包裹。commit 4ffe565
+
+2026-07-16 | api-key-manager 残留 var 声明 | 🟢 低 | ✅ 已修复 | Phase 2 var 现代化遗漏：`_save()` 中 `var h` + `validateKey()` 中 `var keyHash`/`var entry` + `function(k)` 回调。修复：3 处 var → const + 箭头函数。commit 4ffe565
+
