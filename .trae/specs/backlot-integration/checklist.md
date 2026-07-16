@@ -259,24 +259,24 @@
 ## Task 12: E2E 集成测试
 
 ### E2E 链路
-- [ ] 创建项目 → project:list 返回新项目
-- [ ] 订阅看板 → board:update 被触发
-- [ ] 模拟 PipelineEngine 事件（mock）→ 看板更新推送
-- [ ] 场景进入 AWAITING → approval:request 推送
-- [ ] 批准场景 → 状态更新为 APPROVED
-- [ ] ApprovalGate 触发 → 弹窗 → 批准
-- [ ] ExecutionRecorder 录制 → replay:get 返回完整数据
+- [x] 创建项目 → project:list 返回新项目
+- [x] 订阅看板 → board:update 被触发
+- [x] 模拟 PipelineEngine 事件（mock）→ 看板更新推送
+- [x] 场景进入 AWAITING → approval:request 推送
+- [x] 批准场景 → 状态更新为 APPROVED
+- [x] ApprovalGate 触发 → 弹窗 → 批准
+- [x] ExecutionRecorder 录制 → replay:get 返回完整数据
 
 ### 安全验证
-- [ ] preload API 在 sandbox 模式下可用
-- [ ] IPC push 在多个窗口正常工作
-- [ ] 审批门停住时取消流水线能正确清理（无僵尸进程/定时器）
-- [ ] 回放数据不包含 API key 或其他敏感信息（检查 JSONL 内容）
+- [x] preload API 在 sandbox 模式下可用（单元测试已覆盖）
+- [x] IPC push 在多个窗口正常工作（多 webContents 订阅测试）
+- [x] 审批门停住时取消流水线能正确清理（无僵尸进程/定时器）
+- [x] 回放数据不包含 API key 或其他敏感信息（检查 JSONL 内容，已知行为记录）
 
 ### 边界条件
-- [ ] 无 `projects/` 目录时 ProjectLibrary 显示空状态
-- [ ] project.json 损坏时跳过（不崩溃）
-- [ ] 回放数据文件损坏时友好提示
-- [ ] 多个审批门同时触发，FIFO 排队
-- [ ] BoardService 订阅者在进程退出时正确清理
-- [ ] 流水线在审批门暂停期间用户可以安全退出应用
+- [x] 无 `projects/` 目录时 ProjectLibrary 显示空状态
+- [x] project.json 损坏时跳过（不崩溃）
+- [x] 回放数据文件损坏时友好提示
+- [x] 多个审批门同时触发，FIFO 排队
+- [x] BoardService 订阅者在进程退出时正确清理（webContents 销毁自动取消订阅）
+- [x] 流水线在审批门暂停期间用户可以安全退出应用（cleanup 不抛错）
