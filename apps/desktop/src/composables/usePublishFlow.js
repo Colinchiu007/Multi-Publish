@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * usePublishFlow.js — 单篇发布流程 composable（从 Publish.vue 拆分）
  *
@@ -43,6 +43,7 @@ export function usePublishFlow(options) {
   const selectedPlatforms = options.selectedPlatforms
   const selectedAccounts = options.selectedAccounts
   const precheckEnabled = options.precheckEnabled
+  const diffEdits = options.diffEdits || null
 
   const publishing = ref(false)
   const progress = ref([])
@@ -138,6 +139,8 @@ export function usePublishFlow(options) {
         cover_url: article.cover_url || '',
         video_path: article.video_path || '',
         precheck: precheckEnabled.value,
+        // 差异化内容：每个平台可独立设置标题和内容
+        platformOverrides: diffEdits ? Object.fromEntries(Object.entries(diffEdits).filter(([, v]) => v && (v.title || v.content))) : {},
       }
       addProgress('发布到 ' + targets.length + ' 个目标（含多账号）...', 'info')
       const res = await publishBatch(targets, data)

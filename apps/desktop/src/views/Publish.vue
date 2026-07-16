@@ -243,7 +243,7 @@ import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { storeGetSetting, storeSetSetting } from '@/api/publisher'
+import { storeGetSetting, storeSetSetting, draftSave, draftList, draftDelete } from '@/api/publisher'
 import TagSuggester from '@/components/TagSuggester.vue'
 import OptimalTimeTip from '@/components/OptimalTimeTip.vue'
 import TitleAssistantPanel from '@/components/TitleAssistantPanel.vue'
@@ -260,6 +260,76 @@ import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
 
 const route = useRoute()
+
+// ── 草稿箱功能（蚁小二复用） ──────────────────
+const showDraftList = ref(false)
+const drafts = ref([])
+
+async function loadDrafts() {
+  const res = await draftList()
+  if (res.code === 0) drafts.value = res.data
+}
+
+async function saveDraft() {
+  if (!article.title && !article.content) {
+    ElMessage.warning('标题和内容不能都为空')
+    return
+  }
+  await draftSave({
+    id: 'draft_' + Date.now(),
+    title: article.title,
+    content: article.content,
+    platforms: [...selectedPlatforms.value],
+  })
+  ElMessage.success('草稿已保存')
+  await loadDrafts()
+}
+
+async function loadDraft(draftId) {
+  const d = drafts.value.find(dr => dr.id === draftId)
+  if (d) {
+    article.title = d.title || ''
+    article.content = d.content || ''
+    if (d.platforms) selectedPlatforms.value = d.platforms
+    showDraftList.value = false
+    ElMessage.success('已加载草稿')
+  }
+}
+
+async function removeDraft(draftId) {
+  await draftDelete(draftId)
+  await loadDrafts()
+  ElMessage.success('草稿已删除')
+}
+
+// ── 差异化内容设置（蚁小二复用） ──────────────────
+const diffEdits = reactive({})
+
+function toggleDiffEdit(platformId) {
+  if (diffEdits[platformId]) {
+    delete diffEdits[platformId]
+  } else {
+    diffEdits[platformId] = { title: '', content: '' }
+  }
+}
+
+function getPlatformLimit(platformId, field) {
+  const limits = {
+    weibo: { titleMax: 0, contentMax: 2000 },
+    wechat_mp: { titleMax: 64, contentMax: 20000 },
+    zhihu: { titleMax: 50, contentMax: 100000 },
+    douyin: { titleMax: 55, contentMax: 0 },
+    bilibili: { titleMax: 80, contentMax: 2000 },
+    xiaohongshu: { titleMax: 20, contentMax: 1000 },
+    toutiao: { titleMax: 30, contentMax: 100000 },
+    youtube: { titleMax: 100, contentMax: 5000 },
+    tiktok: { titleMax: 2200, contentMax: 0 },
+    twitter: { titleMax: 0, contentMax: 280 },
+    instagram: { titleMax: 0, contentMax: 2200 },
+  }
+  const limit = limits[platformId] || { titleMax: 100, contentMax: 5000 }
+  return limit[field] || 0
+}
 const platformStore = usePlatformStore()
 platformStore.load()
 const accountStore = useAccountStore()
@@ -323,7 +393,7 @@ const {
   handlePublish,
   addProgress,
   copyUrl,
-} = usePublishFlow({ article, selectedPlatforms, selectedAccounts, precheckEnabled })
+} = usePublishFlow({ article, selectedPlatforms, selectedAccounts, precheckEnabled, diffEdits })
 
 const {
   batchMode,
@@ -331,7 +401,7 @@ const {
   batchProgress,
   templateTargetIdx,
   showTemplatePicker,
-  batchDone,
+    batchDone,
   batchFail,
   totalPlatformTasks,
   addArticle,
@@ -403,7 +473,7 @@ defineExpose({
   getDefaultAccount,
   copyUrl,
   addProgress,
-  loadAccounts,
+  loadAccounts, saveDraft, loadDraft, removeDraft, toggleDiffEdit, getPlatformLimit,
 })
 </script>
 
