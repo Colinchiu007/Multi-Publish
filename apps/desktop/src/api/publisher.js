@@ -174,6 +174,13 @@ export async function updateInstall () {
 export function onUpdateStatus(callback) { return bridgeOn("UpdateStatus", callback) }
 
 
+// ─── 草稿箱 API（蚁小二复用）─────────────────
+export async function draftSave(draft) { return invokeWithFallback("draftSave", { code: -1, message: 'electronAPI not available' }, draft) }
+
+export async function draftList() { return invokeWithFallback("draftList", { code: 0, data: [] }) }
+
+export async function draftDelete(draftId) { return invokeWithFallback("draftDelete", { code: -1, message: 'electronAPI not available' }, draftId) }
+
 // ─── 全局存储 API ─────────────────────────
 export async function storeGetSetting (key) {
   return invokeWithFallback("storeGetSetting", null, key)
