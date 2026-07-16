@@ -22,6 +22,7 @@ vi.mock("@/stores/platforms", () => ({
 
 vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => ({
+      
     load: vi.fn(),
     accounts: [
       { id: "a1", platform: "wechat_mp", name: "MP1", status: "active" },
@@ -31,7 +32,20 @@ vi.mock("@/stores/accounts", () => ({
       wechat_mp: [{ id: "a1", platform: "wechat_mp", name: "MP1", status: "active" }],
       zhihu: [{ id: "a2", platform: "zhihu", name: "Zhihu1", status: "inactive" }],
     },
-    getDefault: (p) => p === "wechat_mp" ? { id: "a1", name: "MP1" } : null
+    
+      searchQuery: "",
+      selectedIds: new Set(),
+      groups: [],
+      loadGroups: vi.fn(),
+      toggleSelect: vi.fn(),
+      selectAll: vi.fn(),
+      clearSelection: vi.fn(),
+      batchDelete: vi.fn().mockResolvedValue({ code: 0 }),
+      createGroup: vi.fn(),
+      deleteGroup: vi.fn(),
+      getGroupAccounts: vi.fn().mockReturnValue([]),
+      renameAccount: vi.fn(),
+      getDefault: (p) => p === "wechat_mp" ? { id: "a1", name: "MP1" } : null
   })
 }));
 

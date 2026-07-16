@@ -26,6 +26,20 @@ vi.mock("@/stores/accounts", () => ({
     load: vi.fn(),
     loading: false,
     error: null,
+    searchQuery: "",
+    selectedIds: new Set(),
+    groups: [],
+    loadGroups: vi.fn(),
+    toggleSelect: vi.fn(),
+    selectAll: vi.fn(),
+    clearSelection: vi.fn(),
+    batchDelete: vi.fn().mockResolvedValue({ code: 0 }),
+    createGroup: vi.fn(),
+    deleteGroup: vi.fn(),
+    getGroupAccounts: vi.fn().mockReturnValue([]),
+    getDefault: vi.fn(),
+    setDefault: vi.fn(),
+    renameAccount: vi.fn(),
   })
 }));
 

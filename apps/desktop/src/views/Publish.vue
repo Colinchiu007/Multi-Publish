@@ -202,6 +202,7 @@
                 </div>
               </el-checkbox-group>
               <div class="cohere-divider"></div>
+              <UiButton variant="secondary" style="width:100%;justify-content:center;margin-bottom:8px" @click="saveDraft" :disabled="publishing">💾 保存草稿</UiButton>
               <UiButton style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
                 {{ publishing ? '发布中...' : '🚀 一键发布' }}
               </UiButton>
@@ -263,6 +264,7 @@ const route = useRoute()
 
 // ── 草稿箱功能（蚁小二复用） ──────────────────
 const showDraftList = ref(false)
+const showDiffPanel = ref(false)
 const drafts = ref([])
 
 async function loadDrafts() {
@@ -341,6 +343,8 @@ const PLATFORM_GROUPS = {
   domestic: { label: '国内平台', platforms: ['wechat_mp', 'zhihu', 'weibo', 'douyin', 'xiaohongshu', 'tencent_video', 'kuaishou', 'toutiao', 'bilibili', 'baijiahao'] },
   international: { label: '国际平台', platforms: ['youtube', 'tiktok', 'twitter', 'instagram', 'facebook'] },
 }
+function platformLabel(id) { return platformStore.getLabel(id) || id }
+
 const platforms = computed(() =>
   platformStore.platforms.map(p => ({
     id: p.id,
@@ -491,5 +495,76 @@ defineExpose({
 }
 .publish-account-select:hover {
   border-color: var(--coral, #f56c6c);
+}
+
+/* 草稿箱列表 */
+.draft-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.draft-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--border-light, #eee);
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.draft-item:hover { background: var(--soft-stone, #f8f8fa); }
+.draft-info { flex: 1; min-width: 0; }
+.draft-title {
+  font-weight: 500;
+  font-size: 14px;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.draft-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.draft-time {
+  font-size: 11px;
+  color: var(--muted, #999);
+}
+
+/* 差异化内容面板 */
+.diff-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.diff-platform-item {
+  padding: 12px;
+  border: 1px solid var(--border-light, #eee);
+  border-radius: 8px;
+  background: var(--soft-stone, #fafafa);
+}
+.diff-platform-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.diff-platform-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.diff-edit-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--action-blue, #1890ff);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.diff-edit-btn:hover {
+  background: rgba(24,144,255,0.08);
 }
 </style>
