@@ -3,41 +3,41 @@
    用于 @import 或 <link> 引入
    ============================================ */
 
-/* --- 色彩 Tokens (社媒管家 · 奶油薰衣草) --- */
+/* --- 色彩 Tokens (蚁小二对齐 · 蓝紫主题) --- */
 :root {
-  --primary: #7c5cbf;
-  --primary-hover: #6a4dab;
-  --primary-light: #f0ebff;
+  --primary: #5048E5;
+  --primary-hover: #603af9;
+  --primary-light: #eff6fb;
   --secondary: #f472b6;
   --secondary-light: #fce7f3;
   --cohere-black: #1e1b4b;
   --ink: #1e1b4b;
-  --text-muted: #7c7c9a;
-  --text-light: #a5a5c4;
-  --canvas: #f8f4ff;
+  --text-muted: #707080;
+  --text-light: #9898a8;
+  --canvas: #ffffff;
   --surface: #ffffff;
-  --soft-stone: #f8f4ff;
-  --pale-blue: #f0ebff;
-  --hairline: #e0d8f0;
-  --border-light: #f0ebff;
-  --card-border: #e0d8f0;
-  --muted: #7c7c9a;
-  --slate: #a5a5c4;
-  --body-muted: #7c7c9a;
-  --action-blue: #7c5cbf;
-  --focus-blue: #6a4dab;
-  --coral: #f472b6;
-  --coral-soft: #fce7f3;
-  --form-focus: #7c5cbf;
+  --soft-stone: #faf6f8;
+  --pale-blue: #eff6fb;
+  --hairline: #efefef;
+  --border-light: #efefef;
+  --card-border: #e8e8e8;
+  --muted: #707080;
+  --slate: #9898a8;
+  --body-muted: #707080;
+  --action-blue: #5048E5;
+  --focus-blue: #603af9;
+  --coral: #ef5757;
+  --coral-soft: #fef0f0;
+  --form-focus: #5048E5;
   --on-primary: #ffffff;
   --on-dark: #ffffff;
-  --error: #f87171;
+  --error: #ef5757;
   --success: #34d399;
   --warning: #fbbf24;
   --warning-bg: #fef3c7;
   --teal: #34d399;
   --teal-soft: #d1fae5;
-  --canvas-tp: rgba(248,244,255,0.95);
+  --canvas-tp: rgba(255,255,255,0.95);
 
   /* 间距 */
   --space-xxs: 2px;
@@ -69,11 +69,11 @@
 }
 
 body {
-  font-family: 'Inter', 'Arial', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
-  font-size: 16px;
+  font-family: ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--ink);
-  background: var(--canvas);
+  background: linear-gradient(to bottom left, #fff, #fff, #eff6fb, #faf6f8, #fff);
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
@@ -81,7 +81,7 @@ body {
 
 /* Display / heading 字体 (对应 CohereText) */
 .display-font {
-  font-family: 'Space Grotesk', 'Inter', 'Arial', ui-sans-serif, system-ui, sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
 }
 
 /* --- 顶部导航 --- */
@@ -101,7 +101,7 @@ body {
 }
 
 .cohere-topnav .brand {
-  font-family: 'Space Grotesk', 'Inter', ui-sans-serif, sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 18px;
   font-weight: 500;
   color: var(--primary);
@@ -123,7 +123,7 @@ body {
 }
 
 .cohere-topnav .nav-item {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 400;
   color: var(--muted);
@@ -293,7 +293,7 @@ body {
   border: 1px solid var(--border-light);
   border-radius: var(--r-xs);
   font-size: 13px;
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   color: var(--ink);
   background: var(--canvas);
   outline: none;
@@ -395,7 +395,7 @@ body {
 }
 
 .cohere-page-header .page-title {
-  font-family: 'Inter', 'Arial', ui-sans-serif, system-ui, sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 22px;
   font-weight: 500;
   color: var(--primary);
@@ -416,7 +416,7 @@ body {
 
 /* --- 按钮 --- */
 .cohere-btn {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   border: none;
@@ -431,7 +431,7 @@ body {
 }
 
 .cohere-btn-primary {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: var(--on-primary);
@@ -446,10 +446,10 @@ body {
   white-space: nowrap;
 }
 
-.cohere-btn-primary:hover { background: #000; }
+.cohere-btn-primary:hover { background: var(--primary-hover); }
 
 .cohere-btn-secondary {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: var(--ink);
@@ -466,7 +466,7 @@ body {
 .cohere-btn-secondary:hover { color: var(--action-blue); }
 
 .cohere-btn-outline {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: var(--primary);
@@ -487,7 +487,7 @@ body {
 }
 
 .cohere-btn-coral {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: var(--ink);
@@ -587,7 +587,7 @@ body {
 }
 
 .cohere-card .card-actions button {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 13px;
   font-weight: 500;
   border: 1px solid var(--border-light);
@@ -623,7 +623,7 @@ body {
 }
 
 .cohere-filter-chip {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 13px;
   font-weight: 400;
   background: transparent;
@@ -666,7 +666,7 @@ body {
 }
 
 .cohere-empty h3 {
-  font-family: 'Inter', 'Arial', ui-sans-serif, system-ui, sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 20px;
   font-weight: 500;
   color: var(--ink);
@@ -747,7 +747,7 @@ body {
 
 .cohere-modal-header .modal-title {
   flex: 1;
-  font-family: 'Inter', 'Arial', ui-sans-serif, system-ui, sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 16px;
   font-weight: 500;
   color: var(--ink);
@@ -807,7 +807,7 @@ body {
 }
 
 .cohere-input {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   padding: 8px 12px;
   border: 1px solid var(--border-light);
@@ -823,7 +823,7 @@ body {
 }
 
 .cohere-textarea {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   padding: 8px 12px;
   border: 1px solid var(--border-light);
@@ -841,7 +841,7 @@ body {
 }
 
 .cohere-select {
-  font-family: 'Inter', sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   padding: 8px 12px;
   border: 1px solid var(--border-light);
@@ -1002,7 +1002,7 @@ body {
 }
 
 .cohere-stat-card .stat-value {
-  font-family: 'Space Grotesk', 'Inter', ui-sans-serif, sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 36px;
   font-weight: 400;
   color: var(--primary);
@@ -1126,7 +1126,7 @@ body {
 }
 
 .cohere-dark-band h2 {
-  font-family: 'Inter', 'Arial', ui-sans-serif, system-ui, sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 32px;
   font-weight: 400;
   line-height: 1.2;
