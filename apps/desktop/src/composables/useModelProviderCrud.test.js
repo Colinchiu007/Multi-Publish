@@ -310,5 +310,64 @@ describe('useModelProviderCrud', function () {
       expect(crud.presetCount.value).toBe(2)
     })
   })
+
+  // ─── 回归测试：composable 导出完整性 ──────────────────────
+  describe('composable 导出完整性（防止模板解构遗漏）', function () {
+    it('必须导出所有模板中使用的属性和方法', function () {
+      // 此列表从 ModelProviders.vue 的 script setup 解构中提取
+      const expectedExports = [
+        // 常量
+        'CATEGORY_OPTIONS', 'CATEGORY_LABELS',
+        // 数据状态
+        'providers', 'loading', 'submitting', 'filterCategory', 'viewMode',
+        'testResults', 'testingId', 'safeStorageAvailable',
+        // 表单状态
+        'showFormDialog', 'isEditing', 'form',
+        // 删除状态
+        'showDeleteDialog', 'deleteTarget',
+        // 新增对话框
+        'showAddDialog', 'addStep', 'addCategory', 'addPresetId',
+        'availablePresets', 'isCustomAdd',
+        // 计算属性
+        'configuredProviders', 'unconfiguredPresets', 'customProviders',
+        'filteredProviders', 'configuredCount', 'presetCount',
+        'categoryCounts', 'configuredCategoryCounts',
+        // 方法
+        'loadProviders', 'openAdd', 'nextAddStep',
+        'selectPreset', 'selectCustom', 'openEdit',
+        'submitForm', 'confirmDelete', 'doDelete',
+        'toggleEnabled', 'setDefault', 'testProvider',
+      ]
+
+      for (const key of expectedExports) {
+        expect(crud).toHaveProperty(key)
+        expect(crud[key]).toBeDefined()
+      }
+    })
+
+    it('viewMode 默认为 configured', function () {
+      expect(crud.viewMode.value).toBe('configured')
+    })
+
+    it('configuredProviders 初始为空数组（mock 返回空）', function () {
+      expect(crud.configuredProviders.value).toEqual([])
+    })
+
+    it('unconfiguredPresets 初始为空数组', function () {
+      expect(crud.unconfiguredPresets.value).toEqual([])
+    })
+
+    it('customProviders 初始为空数组', function () {
+      expect(crud.customProviders.value).toEqual([])
+    })
+
+    it('presetCount 初始为 0', function () {
+      expect(crud.presetCount.value).toBe(0)
+    })
+
+    it('configuredCategoryCounts 初始为 { all: 0 }', function () {
+      expect(crud.configuredCategoryCounts.value).toEqual({ all: 0 })
+    })
+  })
   })
 })
