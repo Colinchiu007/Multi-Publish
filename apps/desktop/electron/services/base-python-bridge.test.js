@@ -189,7 +189,7 @@ describe('BasePythonBridge — 子类继承验证', () => {
     const b = new PromptBridge({})
     expect(b instanceof BasePythonBridge).toBe(true)
     expect(b.name).toBe('PromptBridge')
-    expect(b.pythonModule).toBe('prompt_engine.api.rest')
+    expect(b.pythonModule).toBe('prompt_engine.api')
     expect(typeof b.optimize).toBe('function')
     expect(typeof b.optimizeBatch).toBe('function')
     expect(typeof b.start).toBe('function')
@@ -230,4 +230,21 @@ describe('BasePythonBridge — 子类继承验证', () => {
     const parsed = JSON.parse(body)
     expect(parsed.requests).toEqual([{ prompt: 'prompt1' }, { prompt: 'prompt2' }])
   })
+
+  // ─── 回归测试：PromptBridge 启动命令正确性 ──────────────
+  it('13b. PromptBridge pythonModule 指向可启动的包路径', () => {
+    const PromptBridge = require('./prompt-bridge')
+    const b = new PromptBridge({})
+    // pythonModule 必须是支持 python -m 启动的包路径
+    // 不应是 .rest 这种无 __main__ 的子模块
+    expect(b.pythonModule).toBe('prompt_engine.api')
+    expect(b.pythonModule).not.toContain('.rest')
+  })
+
+  it('13c. SplitterBridge pythonModule 保持不变', () => {
+    const SplitterBridge = require('./splitter-bridge')
+    const b = new SplitterBridge({})
+    expect(b.pythonModule).toBe('splitter.api.rest_api')
+  })
+
 })
