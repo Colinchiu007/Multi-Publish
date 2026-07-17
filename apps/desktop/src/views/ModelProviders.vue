@@ -4,7 +4,7 @@
     <div class="cohere-page-header">
       <div>
         <div class="page-title">模型服务商设置</div>
-        <div class="page-subtitle">管理推理 / TTS语音 / 语音识别 / 图片生成 / 视频模型 五类 AI 服务商</div>
+        <div class="page-subtitle">管理推理 / TTS语音 / 语音识别 / 图片生成 / 视频模型 / 音频生成 六类 AI 服务商</div>
       </div>
       <div class="page-actions">
         <button class="cohere-btn-secondary" @click="loadProviders">⟳ 刷新</button>
@@ -17,7 +17,41 @@
       ⚠️ 系统加密不可用，API Key 将无法安全存储。请检查系统密钥链设置。
     </div>
 
-    <!-- 过滤条 -->
+    <!-- 视图模式 Tab + 分类筛选 -->
+    <div class="view-mode-tabs" v-if="!loading">
+      <button
+        class="view-mode-tab"
+        :class="{ active: viewMode === 'configured' }"
+        @click="viewMode = 'configured'"
+      >
+        <span class="tab-icon">✓</span>
+        <span>已配置</span>
+        <span class="tab-count">{{ configuredCount }}</span>
+      </button>
+      <button
+        class="view-mode-tab"
+        :class="{ active: viewMode === 'all' }"
+        @click="viewMode = 'all'"
+      >
+        <span class="tab-icon">📦</span>
+        <span>全部</span>
+        <span class="tab-count">{{ providers.length }}</span>
+      </button>
+    </div>
+
+    <!-- 分类筛选条 -->
+    <div class="cohere-filter-bar" v-if="!loading && viewMode === 'all'">
+      <button
+        v-for="opt in CATEGORY_OPTIONS" :key="opt.value"
+        class="filter-chip"
+        :class="{ active: filterCategory === opt.value }"
+        @click="filterCategory = opt.value"
+      >
+        <span class="chip-label">{{ opt.label }}</span>
+        <span class="chip-count" v-if="opt.value !== 'all'">{{ categoryCounts[opt.value] || 0 }}</span>
+        <span class="chip-count" v-else>{{ providers.length }}</span>
+      </button>
+    </div>
     <!-- 内容区 -->
     <div class="cohere-content" style="margin-top: var(--space-lg)">
       <!-- P1: 骨架屏加载 -->
@@ -53,6 +87,14 @@
 
         <!-- 已配置卡片 -->
         <div v-else>
+          <!-- 统计摘要 -->
+          <div class="configured-stats">
+            <span class="stats-primary">已配置 <strong>{{ configuredCount }}</strong> 个服务商</span>
+            <span class="stats-separator">·</span>
+            <span class="stats-secondary">预设可用 <strong>{{ unconfiguredPresets.length }}</strong> 个</span>
+            <span v-if="customProviders.length > 0" class="stats-separator">·</span>
+            <span v-if="customProviders.length > 0" class="stats-secondary">自定义 <strong>{{ customProviders.length }}</strong> 个</span>
+          </div>
           <div class="provider-grid">
             <div
               v-for="p in filteredProviders" :key="p.id"
@@ -416,7 +458,7 @@ const {
 } = useModelProviderCrud()
 
 function categoryIcon (cat) {
-  const icons = { llm: '🧠', tts: '🔊', speech_recognition: '🎤', image: '🖼️', video: '🎬' }
+  const icons = { llm: '🧠', tts: '🔊', speech_recognition: '🎤', image: '🖼️', video: '🎬', audio: '🎵' }
   return icons[cat] || '📦'
 }
 
@@ -525,12 +567,14 @@ onMounted(() => {
 .type-speech_recognition { background: #e8f5e9; color: #2e7d32; }
 .type-image { background: #e6f4ea; color: #137333; }
 .type-video { background: var(--secondary-light); color: #d93025; }
+.type-audio { background: #f3e5f5; color: #7b1fa2; }
 
 [data-theme="dark"] .type-llm { background: #1a3a5c; color: #8ab4f8; }
 [data-theme="dark"] .type-tts { background: #3c2a1a; color: #ffb74d; }
 [data-theme="dark"] .type-speech_recognition { background: #1a3c1a; color: #81c995; }
 [data-theme="dark"] .type-image { background: #1a3c2a; color: #81c995; }
 [data-theme="dark"] .type-video { background: #3c1a1a; color: #f28b82; }
+[data-theme="dark"] .type-audio { background: #2a1a2e; color: #ce93d8; }
 
 .default-badge {
   font-size: 11px;
@@ -667,18 +711,6 @@ onMounted(() => {
 .cohere-icon-btn-danger:hover:not(:disabled) {
   background: var(--secondary-light);
   color: #d93025;
-}
-
-/* 过滤条数量标记 */
-.chip-count {
-  font-size: 10px;
-  background: rgba(0,0,0,0.1);
-  padding: 1px 5px;
-  border-radius: 8px;
-  margin-left: 4px;
-}
-[data-theme="dark"] .chip-count {
-  background: rgba(255,255,255,0.15);
 }
 
 /* P1: 步骤进度指示器 */
@@ -961,6 +993,61 @@ onMounted(() => {
   color: var(--primary, #1a73e8);
 }
 
+/* ===== 分类筛选条 ===== */
+.cohere-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 0;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--border, #e0e0e0);
+  border-radius: 16px;
+  background: var(--bg, #fff);
+  font-size: 12px;
+  color: var(--muted, #666);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.filter-chip:hover {
+  border-color: var(--primary, #1a73e8);
+  color: var(--primary, #1a73e8);
+}
+.filter-chip.active {
+  background: var(--primary-light, #e8f0fe);
+  border-color: var(--primary, #1a73e8);
+  color: var(--primary, #1a73e8);
+  font-weight: 500;
+}
+.chip-label { font-size: 12px; }
+.chip-count {
+  font-size: 10px;
+  background: var(--bg-secondary, #f0f0f0);
+  padding: 1px 5px;
+  border-radius: 8px;
+  color: var(--muted, #999);
+}
+.filter-chip.active .chip-count {
+  background: rgba(26, 115, 232, 0.15);
+  color: var(--primary, #1a73e8);
+}
+[data-theme="dark"] .filter-chip {
+  border-color: #444;
+  background: #2a2a3e;
+  color: #aaa;
+}
+[data-theme="dark"] .filter-chip.active {
+  background: #1a3a5c;
+  border-color: #8ab4f8;
+  color: #8ab4f8;
+}
+
 /* ===== 卡片徽章 ===== */
 .configured-badge {
   font-size: 11px;
@@ -1002,6 +1089,28 @@ onMounted(() => {
   margin: 0 0 8px;
   color: var(--ink);
 }
+.configured-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: var(--bg-secondary, #f8f9fa);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted, #666);
+}
+.configured-stats strong {
+  color: var(--ink, #222);
+  font-weight: 600;
+}
+.stats-separator { color: #ccc; }
+.stats-primary { color: var(--ink, #222); }
+.stats-secondary { color: var(--muted, #666); }
+[data-theme="dark"] .configured-stats {
+  background: #1e1e2e;
+}
+[data-theme="dark"] .configured-stats strong { color: #e0e0e0; }
 .onboarding-empty p {
   font-size: 14px;
   color: var(--muted);
