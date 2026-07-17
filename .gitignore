@@ -83,6 +83,7 @@ apps/desktop/tests/e2e/reports/screenshots/
 
 # 涓存椂鑴氭湰鍜屾埅鍥?
 scripts/*.js
+!scripts/quality-rhythm-wrapper.js
 screenshot_script*.js
 temp_debug.txt
 coverage/
@@ -155,3 +156,4 @@ apps/desktop/tests/visual-testing/meta/
 packages/ai-autonomous-tester/tests/visual-testing/
 # Tesseract OCR traineddata (downloaded at runtime by tesseract.js)
 packages/ai-autonomous-tester/*.traineddata
+
