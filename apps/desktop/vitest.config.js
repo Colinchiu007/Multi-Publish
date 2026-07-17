@@ -14,6 +14,7 @@ module.exports = defineConfig({
     include: [
       'src/**/*.test.{js,ts}', 'src/**/*.spec.{js,ts}',
       'electron/services/**/*.test.{js,ts}',
+      'electron/publishers/**/*.test.{js,ts}',
       'electron/ipc-handlers/**/*.test.{js,ts}',
       'electron/core/**/*.test.{js,ts}',
       'electron/bootstrap/**/*.test.{js,ts}',
