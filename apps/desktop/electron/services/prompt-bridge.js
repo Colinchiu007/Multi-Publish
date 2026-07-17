@@ -21,7 +21,7 @@ class PromptBridge extends BasePythonBridge {
   constructor ({ log } = {}) {
     super({
       name: 'PromptBridge',
-      pythonModule: 'prompt_engine.api.rest',
+      pythonModule: 'prompt_engine.api',
       port: PROMPT_PORT,
       host: PROMPT_HOST,
       workDir: PROMPT_DIR,
