@@ -249,17 +249,9 @@ async function exerciseResult(r) {
 }
 
 async function exercisePipeline(r) {
-  await r.waitForTimeout(800);
-  record(r, '流水线卡片渲染阶段', await r.page.locator('.pipeline-card .stage-dot').count() > 0);
-  const start = await clickText(r, '开始', { wait: 400 });
-  record(r, '流水线可启动', start);
-  if (start) {
-    await expectIpc(r, 'pipelineStart', '流水线编排启动 IPC');
-    await r.waitForTimeout(300);
-    record(r, '启动后进入运行中页签', await bodyHas(r, '当前流水线'));
-  }
-  await r.goto('/create/pipeline');
-  await r.waitForTimeout(400);
+  // /create/pipeline 已合并到 /create（CreateView.vue），此处仅验证重定向后渲染创作页 + 流水线卡片
+  await r.waitForTimeout(500);
+  record(r, '流水线卡片渲染阶段', await r.page.locator('.pipeline-card').count() > 0);
   record(r, '历史记录可切换', await clickText(r, '历史记录'));
   await r.waitForTimeout(400);
   record(r, '流水线历史 fixture 渲染', await bodyHas(r, 'completed'));
@@ -335,7 +327,7 @@ const definitions = {
   'model-providers': { route: '/model-providers', title: '模型服务商设置', exercise: exerciseModelProviders },
   create: { route: '/create', title: '视频创作', exercise: exerciseCreate },
   result: { route: '/create/result', title: '视频预览', exercise: exerciseResult },
-  pipeline: { route: '/create/pipeline', title: '流水线编排', exercise: exercisePipeline },
+  pipeline: { route: '/create/pipeline', redirectExpected: '/create', title: '视频创作', exercise: exercisePipeline },
   'create-history': { route: '/create/history', title: '创作历史', exercise: exerciseCreateHistory },
   'cloud-publish': { route: '/cloud-publish', title: '云端发布', exercise: exerciseCloudPublish },
   intelligence: { route: '/intelligence', title: '内容情报', exercise: exerciseIntelligence },
@@ -376,9 +368,14 @@ async function auditInitialControls(r, definition) {
   let exercised = 0;
   for (let i = 0; i < fieldCount; i++) {
     const field = fields.nth(i);
+    // DOM 可能在前一次操作后变化，nth(i) 已不存在时跳过而非等待 30s 超时
+    if (await field.count().catch(() => 0) === 0) continue;
     if (!(await field.isVisible().catch(() => false)) || await field.isDisabled().catch(() => true)) continue;
-    const tag = await field.evaluate((el) => el.tagName.toLowerCase());
-    const type = await field.getAttribute('type') || '';
+    let tag = '', type = '';
+    try {
+      tag = await field.evaluate((el) => el.tagName.toLowerCase(), { timeout: 1500 });
+      type = await field.getAttribute('type', { timeout: 1500 }) || '';
+    } catch (_) { continue; /* DOM 变化，跳过该字段 */ }
     try {
       if (tag === 'select') {
         const values = await field.locator('option').evaluateAll((options) => options.map((o) => o.value).filter(Boolean));
@@ -414,14 +411,20 @@ async function runRouteSpec(specName, options = {}) {
   const allowedConsoleErrors = ['Not allowed to load local resource'];
   try {
     await r.goto(definition.route);
-    record(r, '路由地址正确', (await r.currentRoute()).startsWith(definition.route));
+    // 若定义了 redirectExpected（如 /create/pipeline → /create），检查重定向后路径
+    const expectedRoute = definition.redirectExpected || definition.route;
+    record(r, '路由地址正确', (await r.currentRoute()).startsWith(expectedRoute));
     record(r, '页面标题渲染', await bodyHas(r, definition.title), { title: definition.title });
     await definition.exercise(r);
     await auditInitialControls(r, definition);
     await r.page.setViewportSize({ width: 1024, height: 768 });
     await r.page.reload({ waitUntil: 'domcontentloaded' });
-    await r.waitForTimeout(800);
-    record(r, '响应式窗口仍渲染标题', await bodyHas(r, definition.title) || (specName === 'first-run' && await bodyHas(r, '开始配置')));
+    // 等待标题文本出现（最多 5s），避免固定 waitForTimeout 在慢机子上偶发失败
+    const expectedTitle = definition.title;
+    try {
+      await r.page.waitForFunction((title) => document.body && document.body.innerText.includes(title), expectedTitle, { timeout: 5000 });
+    } catch (_) { /* 超时后用 bodyHas 再判一次，保留失败现场 */ }
+    record(r, '响应式窗口仍渲染标题', await bodyHas(r, expectedTitle) || (specName === 'first-run' && await bodyHas(r, '开始配置')));
     await r.expectNoConsoleError(allowedConsoleErrors);
     await r.expectNoPageError();
     await r.screenshot('final');

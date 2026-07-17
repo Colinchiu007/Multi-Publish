@@ -1,4 +1,4 @@
-﻿import { defineStore } from 'pinia'
+import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { listAccounts, accountDelete, accountSetDefault, accountUpdate } from '@/api/publisher'
 
@@ -185,7 +185,7 @@ export const useAccountStore = defineStore('accounts', () => {
   return {
     accounts, groups, loading, error, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
     byPlatform, filteredAccounts, groupedByPlatform,
-    load, getDefault, setDefault, renameAccount,
+    load, loadGroups, getDefault, setDefault, renameAccount,
     createGroup, deleteGroup, getGroupAccounts,
     toggleSelect, selectAll, clearSelection, batchDelete, batchSetStatus,
   }

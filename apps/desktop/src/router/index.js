@@ -14,6 +14,7 @@ const routes = [
   { path: '/providers', redirect: '/model-providers' },
   { path: '/model-providers', name: 'ModelProviders', component: () => import('@/views/ModelProviders.vue') },
   { path: '/create', name: 'Create', component: () => import('@/views/CreateView.vue') },
+  { path: '/create/pipeline', redirect: '/create' },
   { path: '/create/result', name: 'CreateResult', component: () => import('@/views/ResultView.vue') },
   { path: '/create/history', name: 'CreateHistory', component: () => import('@/views/CreateHistory.vue') },
   { path: '/cloud-publish', name: 'CloudPublish', component: () => import('@/views/CloudPublish.vue') },

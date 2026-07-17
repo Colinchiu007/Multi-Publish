@@ -3,13 +3,13 @@
 ## 总览
 
 - 路由覆盖: 18/18 (100%)
-- 路由检查: 225/225 通过 (0 失败)
+- 路由检查: 222/222 通过 (0 失败)
 - 路由 console errors: 0
 - 路由 page errors: 0
 - 集成流: 6/6 通过
 - 集成检查: 42/42 通过
 - 集成流 console errors: 0
-- **总计: 267/267 checks 通过, 0 errors**
+- **总计: 264/264 checks 通过, 0 errors**
 
 ## 路由覆盖矩阵
 
@@ -28,7 +28,7 @@
 | 模型服务商 | `/model-providers` | 13 | 13 | 0 | 0 | ✅ PASS |
 | AI 创作 | `/create` | 14 | 14 | 0 | 0 | ✅ PASS |
 | 创作结果 | `/create/result` | 10 | 10 | 0 | 0 | ✅ PASS |
-| 创作管线 | `/create/pipeline` | 14 | 14 | 0 | 0 | ✅ PASS |
+| 创作流水线 | `/create/pipeline` | 11 | 11 | 0 | 0 | ✅ PASS |
 | 创作历史 | `/create/history` | 11 | 11 | 0 | 0 | ✅ PASS |
 | 云端发布 | `/cloud-publish` | 12 | 12 | 0 | 0 | ✅ PASS |
 | 智能助手 | `/intelligence` | 14 | 14 | 0 | 0 | ✅ PASS |
