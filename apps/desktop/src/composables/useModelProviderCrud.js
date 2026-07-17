@@ -199,20 +199,22 @@ export function useModelProviderCrud () {
         ? form.value.modelsText.split(',').map(s => s.trim()).filter(Boolean)
         : form.value.models || []
 
-      const data = {
+      // 深拷贝：Vue ref 嵌套对象是 reactive proxy，传给 IPC 时 structured clone 会报
+      // 'An object could not be cloned'。JSON 序列化安全脱壳。
+      const data = JSON.parse(JSON.stringify({
         name: form.value.name,
         category: form.value.category,
         base_url: form.value.base_url,
         api_key: form.value.api_key,
         models,
-        config: form.value.config,
-      }
+        config: form.value.config || {},
+      }))
 
       let res
       if (isEditing.value) {
-        res = await modelProviderUpdate(form.value.id, data)
+        res = await modelProviderUpdate(String(form.value.id), data)
       } else {
-        data.id = form.value.id || form.value.name.toLowerCase().replace(/\s+/g, '-')
+        data.id = String(form.value.id || form.value.name.toLowerCase().replace(/\s+/g, '-'))
         res = await modelProviderCreate(data)
       }
 
