@@ -277,10 +277,7 @@ const platformsMixin = {
     } catch(e) { log.error('RpaView','douyin publish: '+e.message); return { success:false, error:e.message, platform:'douyin' } }
   },
 
-  // eslint-disable-next-line no-unused-vars
-  async _publish_wechat_mp(win, article) { return {success:false,error:'wechat_mp RPA pending',platform:'wechat_mp'} },
   // ========== P2-D: wechat_mp — iframe save-draft + mass-send ==========
-  // eslint-disable-next-line no-dupe-class-members
   async _publish_wechat_mp(win, article) {
     this._emitProgress('wechat_mp','navigating to draft...',5)
     // Direct draft edit URL
