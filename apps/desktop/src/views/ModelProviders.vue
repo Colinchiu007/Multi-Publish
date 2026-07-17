@@ -242,21 +242,6 @@
         </div>
       </template>
     </div>
-              :title="p.enabled ? '禁用' : '启用'"
-              @click="toggleEnabled(p)"
-            >{{ p.enabled ? '⏸' : '▶' }}</button>
-            <button
-              v-if="!p.is_preset"
-              class="cohere-icon-btn cohere-icon-btn-danger"
-              aria-label="删除"
-              title="删除"
-              @click="confirmDelete(p)"
-            >✕</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- 添加服务商对话框（多步骤） -->
     <el-dialog v-model="showAddDialog" title="添加服务商" class="responsive-dialog" :close-on-click-modal="false">
       <!-- P1: 步骤进度指示器 -->
