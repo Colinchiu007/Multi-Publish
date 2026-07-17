@@ -113,10 +113,12 @@ export function useModelProviderCrud () {
   })
 
   const configuredCount = computed(() => {
+    if (!providers.value) return 0
     return providers.value.filter(p => p.api_key_masked || p.api_key).length
   })
 
   const presetCount = computed(() => {
+    if (!providers.value) return 0
     return providers.value.filter(p => p.is_preset).length
   })
 
