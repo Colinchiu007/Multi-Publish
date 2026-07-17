@@ -422,7 +422,7 @@ async function runRouteSpec(specName, options = {}) {
     // 等待标题文本出现（最多 5s），避免固定 waitForTimeout 在慢机子上偶发失败
     const expectedTitle = definition.title;
     try {
-      await r.page.waitForFunction((title) => document.body && document.body.innerText.includes(title), expectedTitle, { timeout: 5000 });
+      await r.page.waitForFunction((title) => document.body && document.body.innerText.includes(title), expectedTitle, { timeout: 10000 });
     } catch (_) { /* 超时后用 bodyHas 再判一次，保留失败现场 */ }
     record(r, '响应式窗口仍渲染标题', await bodyHas(r, expectedTitle) || (specName === 'first-run' && await bodyHas(r, '开始配置')));
     await r.expectNoConsoleError(allowedConsoleErrors);

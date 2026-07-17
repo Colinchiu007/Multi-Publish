@@ -15,7 +15,7 @@ vi.mock("@/stores/platforms", () => ({
 
 vi.mock("@/stores/license", () => ({ useLicenseStore: () => ({ isPro: true }) }));
 vi.mock("@/stores/templates", () => ({ useTemplateStore: () => ({ load: vi.fn() }) }));
-vi.mock("@/stores/accounts", () => ({ useAccountStore: () => ({ load: vi.fn(), accounts: [], byPlatform: {}, getDefault: () => null }) }));
+vi.mock("@/stores/accounts", () => ({ useAccountStore: () => ({ load: vi.fn(), loadGroups: vi.fn(), accounts: [], byPlatform: {}, getDefault: () => null }) }));
 vi.mock("@element-plus/icons-vue", () => ({ UploadFilled: { template: "<span>U</span>" } }));
 
 const mockApi = {

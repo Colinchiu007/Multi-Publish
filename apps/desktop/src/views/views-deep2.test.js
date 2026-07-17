@@ -20,7 +20,7 @@ vi.mock("@/stores/platforms", () => ({
 }));
 
 vi.mock("@/stores/accounts", () => ({
-  useAccountStore: () => ({ load: vi.fn(), accounts: [], byPlatform: {}, getDefault: () => null })
+  useAccountStore: () => ({ load: vi.fn(), loadGroups: vi.fn(), accounts: [], byPlatform: {}, getDefault: () => null })
 }));
 
 vi.mock("@/stores/license", () => ({

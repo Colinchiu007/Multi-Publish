@@ -3,13 +3,13 @@
 ## 总览
 
 - 路由覆盖: 18/18 (100%)
-- 路由检查: 222/222 通过 (0 失败)
+- 路由检查: 220/222 通过 (2 失败)
 - 路由 console errors: 0
 - 路由 page errors: 0
 - 集成流: 6/6 通过
 - 集成检查: 42/42 通过
 - 集成流 console errors: 0
-- **总计: 264/264 checks 通过, 0 errors**
+- **总计: 262/264 checks 通过, 0 errors**
 
 ## 路由覆盖矩阵
 
@@ -21,13 +21,13 @@
 | 一键发布 | `/publish` | 12 | 12 | 0 | 0 | ✅ PASS |
 | 账号管理 | `/accounts` | 13 | 13 | 0 | 0 | ✅ PASS |
 | 数据看板 | `/dashboard` | 14 | 14 | 0 | 0 | ✅ PASS |
-| 内容采集 | `/collection` | 13 | 13 | 0 | 0 | ✅ PASS |
+| 内容采集 | `/collection` | 13 | 12 | 1 | 0 | ❌ FAIL |
 | 文章监控 | `/monitor` | 11 | 11 | 0 | 0 | ✅ PASS |
 | 关键词监控 | `/keywords` | 13 | 13 | 0 | 0 | ✅ PASS |
 | 爆款分析 | `/viral-analysis` | 14 | 14 | 0 | 0 | ✅ PASS |
 | 模型服务商 | `/model-providers` | 13 | 13 | 0 | 0 | ✅ PASS |
 | AI 创作 | `/create` | 14 | 14 | 0 | 0 | ✅ PASS |
-| 创作结果 | `/create/result` | 10 | 10 | 0 | 0 | ✅ PASS |
+| 创作结果 | `/create/result` | 10 | 9 | 1 | 0 | ❌ FAIL |
 | 创作流水线 | `/create/pipeline` | 11 | 11 | 0 | 0 | ✅ PASS |
 | 创作历史 | `/create/history` | 11 | 11 | 0 | 0 | ✅ PASS |
 | 云端发布 | `/cloud-publish` | 12 | 12 | 0 | 0 | ✅ PASS |
@@ -44,3 +44,10 @@
 | flow-4 | 监控 → 评论回复 | 6 | 6 | 0 | ✅ PASS |
 | flow-5 | 设置变更级联 | 6 | 6 | 0 | ✅ PASS |
 | flow-6 | 错误路径 | 5 | 5 | 0 | ✅ PASS |
+
+## Issue 列表
+
+- **CRITICAL** [路由检查失败] collection: 内容采集 (/collection) failed=1 consoleErrors=0
+  - 修复建议: 查看 reports/collection.functional.json 并修复
+- **CRITICAL** [路由检查失败] result: 创作结果 (/create/result) failed=1 consoleErrors=0
+  - 修复建议: 查看 reports/result.functional.json 并修复

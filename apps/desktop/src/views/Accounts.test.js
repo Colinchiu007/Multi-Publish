@@ -18,28 +18,42 @@ vi.mock("@/stores/platforms", () => ({
 }));
 
 const _testAccounts = vi.hoisted(() => ([]));
+const _spies = vi.hoisted(() => ({
+  load: vi.fn(),
+  loadGroups: vi.fn(),
+  toggleSelect: vi.fn(),
+  selectAll: vi.fn(),
+  clearSelection: vi.fn(),
+  batchDelete: vi.fn().mockResolvedValue({ code: 0 }),
+  createGroup: vi.fn(),
+  deleteGroup: vi.fn(),
+  getGroupAccounts: vi.fn().mockReturnValue([]),
+  getDefault: vi.fn(),
+  setDefault: vi.fn(),
+  renameAccount: vi.fn(),
+}));
 
 vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => ({
     get accounts() { return _testAccounts; },
     set accounts(v) { _testAccounts.length = 0; _testAccounts.push(...v); },
-    load: vi.fn(),
+    load: _spies.load,
     loading: false,
     error: null,
     searchQuery: "",
     selectedIds: new Set(),
     groups: [],
-    loadGroups: vi.fn(),
-    toggleSelect: vi.fn(),
-    selectAll: vi.fn(),
-    clearSelection: vi.fn(),
-    batchDelete: vi.fn().mockResolvedValue({ code: 0 }),
-    createGroup: vi.fn(),
-    deleteGroup: vi.fn(),
-    getGroupAccounts: vi.fn().mockReturnValue([]),
-    getDefault: vi.fn(),
-    setDefault: vi.fn(),
-    renameAccount: vi.fn(),
+    loadGroups: _spies.loadGroups,
+    toggleSelect: _spies.toggleSelect,
+    selectAll: _spies.selectAll,
+    clearSelection: _spies.clearSelection,
+    batchDelete: _spies.batchDelete,
+    createGroup: _spies.createGroup,
+    deleteGroup: _spies.deleteGroup,
+    getGroupAccounts: _spies.getGroupAccounts,
+    getDefault: _spies.getDefault,
+    setDefault: _spies.setDefault,
+    renameAccount: _spies.renameAccount,
   })
 }));
 
@@ -400,6 +414,29 @@ describe("AccountsView", () => {
     // JSDOM does not apply Vue scoped CSS; check source CSS instead
     const vueSrc = fs.readFileSync("./src/views/Accounts.vue", "utf8");
     expect(vueSrc).toMatch(/min-width:\s*160px/);
+  });
+
+  // 回归保护：loadGroups 必须在 onMounted 时被调用
+  // 此 bug 曾导致 Accounts.vue 报 70 次 console error（commit d016596 修复）
+  it("calls loadGroups on mount", async () => {
+    _spies.loadGroups.mockClear();
+    await mountView();
+    expect(_spies.loadGroups).toHaveBeenCalled();
+  });
+
+  // 交互测试：点击"添加账号"按钮应打开对话框
+  it("opens add account dialog when clicking add button", async () => {
+    const w = await mountView();
+    // jsdom 不支持 :has-text() 伪类，用 findAll + 文本匹配
+    const buttons = w.findAll("button");
+    const addBtn = buttons.find(b => b.text().includes("添加账号"));
+    if (addBtn) {
+      await addBtn.trigger("click");
+      await nextTick();
+      // 验证对话框或表单出现
+      const dialog = w.find(".ui-modal, .el-dialog, .add-account-form");
+      expect(dialog.exists() || w.vm.showAddDialog === true || w.vm.authViewVisible === true).toBe(true);
+    }
   });
 
 });

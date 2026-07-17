@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2026-07-17T03:35:32.403Z",
+    "generatedAt": "2026-07-17T03:58:53.780Z",
     "vite": "http://127.0.0.1:5174",
     "spec": "前端全量功能 E2E 测试 (task-29a)",
     "version": "1.0.0",
@@ -8,11 +8,11 @@
   },
   "summary": {
     "totalChecks": 264,
-    "totalPassed": 264,
-    "totalFailed": 0,
+    "totalPassed": 262,
+    "totalFailed": 2,
     "totalConsoleErrors": 0,
     "totalPageErrors": 0,
-    "passRate": 100,
+    "passRate": 99.24,
     "coverageRate": 100
   },
   "routes": {
@@ -183,18 +183,18 @@
         "spec": "collection",
         "route": "/collection",
         "title": "内容采集",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
           "total": 13,
-          "passed": 13,
-          "failed": 0
+          "passed": 12,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
             "total": 11,
-            "passed": 11
+            "passed": 10
           },
           "expectNoConsoleError": {
             "total": 1,
@@ -345,18 +345,18 @@
         "spec": "result",
         "route": "/create/result",
         "title": "创作结果",
-        "status": "✅ PASS",
+        "status": "❌ FAIL",
         "checks": {
           "total": 10,
-          "passed": 10,
-          "failed": 0
+          "passed": 9,
+          "failed": 1
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
             "total": 8,
-            "passed": 8
+            "passed": 7
           },
           "expectNoConsoleError": {
             "total": 1,
@@ -506,8 +506,8 @@
     ],
     "totals": {
       "totalChecks": 222,
-      "totalPassed": 222,
-      "totalFailed": 0,
+      "totalPassed": 220,
+      "totalFailed": 2,
       "totalConsoleErrors": 0,
       "totalPageErrors": 0,
       "coveredRoutes": 18,
@@ -590,11 +590,26 @@
       "totalConsoleErrors": 0
     }
   },
-  "issues": [],
+  "issues": [
+    {
+      "severity": "CRITICAL",
+      "category": "路由检查失败",
+      "spec": "collection",
+      "issue": "内容采集 (/collection) failed=1 consoleErrors=0",
+      "recommendation": "查看 reports/collection.functional.json 并修复"
+    },
+    {
+      "severity": "CRITICAL",
+      "category": "路由检查失败",
+      "spec": "result",
+      "issue": "创作结果 (/create/result) failed=1 consoleErrors=0",
+      "recommendation": "查看 reports/result.functional.json 并修复"
+    }
+  ],
   "totals": {
     "totalChecks": 264,
-    "totalPassed": 264,
-    "totalFailed": 0,
+    "totalPassed": 262,
+    "totalFailed": 2,
     "totalConsoleErrors": 0,
     "totalPageErrors": 0
   }
