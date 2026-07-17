@@ -29,8 +29,8 @@ const SCHEMA_SQL = [
     avatar_url    TEXT,
     status        TEXT DEFAULT "active",
     is_default    INTEGER DEFAULT 0,
-    created_at    TEXT DEFAULT (datetime("now")),
-    updated_at    TEXT DEFAULT (datetime("now"))
+    created_at    TEXT DEFAULT '',
+    updated_at    TEXT DEFAULT ''
   )`,
   `CREATE TABLE IF NOT EXISTS publish_history (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,7 +40,7 @@ const SCHEMA_SQL = [
     content       TEXT,
     status        TEXT DEFAULT "pending",
     result        TEXT DEFAULT "{}",
-    created_at    TEXT DEFAULT (datetime("now"))
+    created_at    TEXT DEFAULT ''
   )`,
   `CREATE TABLE IF NOT EXISTS scheduled_tasks (
     id            TEXT PRIMARY KEY,
@@ -48,7 +48,7 @@ const SCHEMA_SQL = [
     article       TEXT DEFAULT "{}",
     publish_time  TEXT,
     status        TEXT DEFAULT "pending",
-    created_at    TEXT DEFAULT (datetime("now"))
+    created_at    TEXT DEFAULT ''
   )`,
   `CREATE TABLE IF NOT EXISTS settings (
     key           TEXT PRIMARY KEY,
@@ -59,7 +59,7 @@ const SCHEMA_SQL = [
     type          TEXT NOT NULL,
     source        TEXT DEFAULT "",
     payload       TEXT DEFAULT "{}",
-    created_at    TEXT DEFAULT (datetime("now"))
+    created_at    TEXT DEFAULT ''
   )`,
   `CREATE INDEX IF NOT EXISTS idx_accounts_platform ON accounts(platform)`,
   `CREATE INDEX IF NOT EXISTS idx_history_platform ON publish_history(platform)`,
@@ -78,7 +78,7 @@ const SCHEMA_SQL = [
     completed     INTEGER DEFAULT 0,
     failed        INTEGER DEFAULT 0,
     status        TEXT DEFAULT "pending",
-    created_at    TEXT DEFAULT (datetime("now"))
+    created_at    TEXT DEFAULT ''
   )`,
   `CREATE TABLE IF NOT EXISTS model_providers (
     id            TEXT PRIMARY KEY,
@@ -92,8 +92,8 @@ const SCHEMA_SQL = [
     is_default    INTEGER DEFAULT 0,
     is_preset     INTEGER DEFAULT 0,
     config        TEXT DEFAULT '{}',
-    created_at    TEXT DEFAULT (datetime("now")),
-    updated_at    TEXT DEFAULT (datetime("now"))
+    created_at    TEXT DEFAULT '',
+    updated_at    TEXT DEFAULT ''
   )`,
   `CREATE INDEX IF NOT EXISTS idx_model_providers_category ON model_providers(category)`,
   // ─── Phase 2+：模型供应商调用日志表 ───
@@ -109,7 +109,7 @@ const SCHEMA_SQL = [
     tokens_out    INTEGER,
     cost          REAL,
     error_message TEXT,
-    created_at    TEXT DEFAULT (datetime("now")),
+    created_at    TEXT DEFAULT '',
     FOREIGN KEY (provider_id) REFERENCES model_providers(id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_model_provider_logs_provider ON model_provider_logs(provider_id)`,
@@ -126,8 +126,8 @@ const SCHEMA_SQL = [
     last_run_at   TEXT,
     stages        TEXT DEFAULT '[]',
     metadata      TEXT DEFAULT '{}',
-    created_at    TEXT DEFAULT (datetime('now')),
-    updated_at    TEXT DEFAULT (datetime('now'))
+    created_at    TEXT DEFAULT '',
+    updated_at    TEXT DEFAULT ''
   )`,
   `CREATE INDEX IF NOT EXISTS idx_backlot_projects_updated ON backlot_projects(updated_at)`,
   `CREATE INDEX IF NOT EXISTS idx_backlot_projects_status ON backlot_projects(status)`,
