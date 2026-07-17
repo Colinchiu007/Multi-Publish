@@ -3292,3 +3292,20 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - 修改 .vue 文件后必须通过 Vite 编译验证
 - 使用 MCP 行替换时必须验证 splice 范围完全覆盖目标内容
 
+
+## 2026-07-17：PromptBridge 启动超时 — Python 模块入口缺失
+
+**Bug**：应用启动时 PromptBridge 健康检查超时报错
+
+**第一性原因**：commit 2d509ab 设置 `pythonModule: "prompt_engine.api.rest"`，但 rest.py 没有 `__main__.py` 入口，`python -m` 方式导入模块后直接退出。PromptBridge 是照搬 SplitterBridge 的模式写的，但没有验证目标模块是否支持 `-m` 启动。
+
+**逃逸原因**：
+- 单元测试只断言 pythonModule 字符串值，不验证模块能启动
+- E2E 测试依赖手动前置条件（假设服务已运行）
+- 没有 Bridge 启动命令的端到端验证
+
+**教训**：
+- Bridge/子进程的启动命令必须有回归测试验证（不只是断言字符串）
+- 外部 Python 项目作为子进程被调用时，必须确认有 `__main__.py`
+- 新增 Bridge 时应执行一次真实的 spawn + health check 验证
+
