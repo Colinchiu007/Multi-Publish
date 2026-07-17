@@ -59,7 +59,7 @@ describe("store IPC handlers", () => {
     registerHandlers(ipcMain, { store: mockStore });
   });
 
-  it("registers all 16 store handlers", () => {
+  it("registers all 19 store handlers", () => {
     const expected = [
       "store:add-account",
       "store:get-account",
@@ -77,6 +77,9 @@ describe("store IPC handlers", () => {
       "store:get-setting",
       "store:set-setting",
       "store:list-callback-logs",
+      "draftSave",
+      "draftList",
+      "draftDelete",
     ];
     expect(ipcMain.handle).toHaveBeenCalledTimes(expected.length);
     for (const ch of expected) {
