@@ -93,6 +93,7 @@ export function useModelProviderCrud () {
 
   // ─── 计算属性 ─────────────────────────────────
   const configuredProviders = computed(() => {
+    if (!providers.value) return []
     return providers.value.filter(p => p.api_key_masked || p.api_key)
   })
 
@@ -105,6 +106,7 @@ export function useModelProviderCrud () {
   })
 
   const filteredProviders = computed(() => {
+    if (!providers.value) return []
     const base = viewMode.value === 'configured' ? configuredProviders.value : providers.value
     if (filterCategory.value === 'all') return base
     return base.filter(p => p.category === filterCategory.value)
@@ -119,6 +121,7 @@ export function useModelProviderCrud () {
   })
 
   const categoryCounts = computed(() => {
+    if (!providers.value) return {}
     const counts = { all: providers.value.length }
     for (const p of providers.value) {
       counts[p.category] = (counts[p.category] || 0) + 1
@@ -407,3 +410,5 @@ export function useModelProviderCrud () {
     testProvider,
   }
 }
+
+
