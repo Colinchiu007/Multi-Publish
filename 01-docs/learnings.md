@@ -3275,3 +3275,20 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 ### 修复文件
 - apps/desktop/src/composables/useModelProviderCrud.js — submitForm() 深拷贝 + String() 包装
 - apps/desktop/src/composables/useModelProviderCrud.test.js — 新增 7 个回归测试（全部通过）
+
+## 2026-07-17：Vue 模板 MCP 行替换残留 Bug
+
+**Bug**：ModelProviders.vue 打开时报 "Invalid end tag" 编译错误
+
+**第一性原因**：commit dce4c74 使用 MCP node_repl 的 `splice` 操作对 833 行 Vue 文件做行号替换，替换范围（20-146）没有完全覆盖旧内容区域（20-162），导致旧版按钮代码残留在新模板闭合标签之后。
+
+**逃逸分析**：
+- ModelProviders.vue 没有任何组件测试
+- 提交前未执行 `vite build` 验证模板语法
+- MCP 工具不提供模板编译检查
+
+**预防措施**：
+- AGENTS.md QM-2 新增 Vue 模板语法规则
+- 修改 .vue 文件后必须通过 Vite 编译验证
+- 使用 MCP 行替换时必须验证 splice 范围完全覆盖目标内容
+
