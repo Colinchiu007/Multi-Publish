@@ -223,6 +223,17 @@ export function useModelProviderCrud () {
         showFormDialog.value = false
         showAddDialog.value = false
         await loadProviders()
+      } else if (!isEditing.value && res.message && res.message.includes('already exists')) {
+        // ID 冲突（预设已存在）→ 自动降级为更新，允许用户配置已有预设
+        const updateRes = await modelProviderUpdate(data.id, data)
+        if (updateRes.code === 0) {
+          ElMessage.success('已更新已有服务商配置')
+          showFormDialog.value = false
+          showAddDialog.value = false
+          await loadProviders()
+        } else {
+          ElMessage.error(updateRes.message || '更新失败')
+        }
       } else {
         ElMessage.error(res.message || '保存失败')
       }
