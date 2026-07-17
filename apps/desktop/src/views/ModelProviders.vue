@@ -18,21 +18,6 @@
     </div>
 
     <!-- 过滤条 -->
-    <div style="padding: var(--space-lg) var(--space-xxl) 0">
-      <div class="cohere-filter-bar">
-        <button
-          v-for="opt in CATEGORY_OPTIONS" :key="opt.value"
-          class="cohere-filter-chip" :class="{ active: filterCategory === opt.value }"
-          :aria-pressed="filterCategory === opt.value"
-          @click="filterCategory = opt.value"
-        >
-          {{ opt.label }}
-          <span v-if="categoryCounts[opt.value]" class="chip-count">{{ categoryCounts[opt.value] }}</span>
-        </button>
-        <span class="cohere-filter-meta">共 {{ filteredProviders.length }} 个 · {{ configuredCount }} 个已配置</span>
-      </div>
-    </div>
-
     <!-- 内容区 -->
     <div class="cohere-content" style="margin-top: var(--space-lg)">
       <!-- P1: 骨架屏加载 -->
@@ -54,97 +39,209 @@
         </div>
       </div>
 
-      <!-- 空状态 -->
-      <div v-else-if="filteredProviders.length === 0" class="cohere-empty">
-        <div class="empty-icon">🔌</div>
-        <h3>暂无服务商</h3>
-        <p>点击右上角「添加服务商」配置第一个 AI 模型</p>
-      </div>
+      <!-- ===== 已配置模式：引导 + 已配置卡片 + 快速添加 ===== -->
+      <template v-else-if="viewMode === 'configured'">
+        <!-- 引导状态：一个都没配置 -->
+        <div v-if="configuredProviders.length === 0" class="onboarding-empty">
+          <div class="onboarding-icon">🚀</div>
+          <h3>还没有配置任何服务商</h3>
+          <p>选择一个 AI 服务商，填入 API Key 即可开始使用</p>
+          <button class="cohere-btn-primary" @click="viewMode = 'all'; openAdd()">
+            <span>浏览全部服务商</span>
+          </button>
+        </div>
 
-      <!-- 服务商卡片网格 -->
-      <div v-else class="provider-grid">
-        <div
-          v-for="p in filteredProviders" :key="p.id"
-          class="provider-card"
-          :class="{ 'card-disabled': !p.enabled }"
-        >
-          <div class="card-top">
-            <div class="card-header">
-              <div class="provider-type-badge" :class="'type-' + p.category">
-                {{ CATEGORY_LABELS[p.category] || p.category }}
-              </div>
-              <div class="card-badges">
-                <span v-if="p.is_default" class="default-badge" title="默认服务商">★ 默认</span>
-                <!-- P0: 色盲友好 status-dot — 用形状区分而非仅颜色 -->
-                <span
-                  class="status-dot-icon"
-                  :class="(p.api_key_masked || p.api_key) ? 'configured' : 'not-configured'"
-                  :title="(p.api_key_masked || p.api_key) ? '已配置 API Key' : '未配置 API Key'"
-                  :aria-label="(p.api_key_masked || p.api_key) ? '已配置 API Key' : '未配置 API Key'"
-                >{{ (p.api_key_masked || p.api_key) ? '●' : '○' }}</span>
-              </div>
-            </div>
-            <div class="provider-name">{{ p.name }}</div>
-            <div class="provider-id">
-              <code>{{ p.id }}</code>
-              <span class="status-label" :class="p.enabled ? 'enabled' : 'disabled'">
-                {{ p.enabled ? '已启用' : '已禁用' }}
-              </span>
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="provider-field">
-              <span class="field-label">Base URL</span>
-              <span class="field-value mono">{{ p.base_url || '-' }}</span>
-            </div>
-            <div class="provider-field">
-              <span class="field-label">模型</span>
-              <!-- P1: models 截断 + tooltip -->
-              <span class="field-value" :title="(p.models || []).join(', ')">
-                {{ formatModels(p.models) }}
-              </span>
-            </div>
-            <div class="provider-field">
-              <span class="field-label">API Key</span>
-              <!-- P0: API Key 遮罩 sk-****1234 -->
-              <span class="field-value mono" :class="(p.api_key_masked || p.api_key) ? 'configured' : 'not-configured'">
-                {{ p.api_key_masked || (p.api_key ? '已配置' : '未配置') }}
-              </span>
-            </div>
-          </div>
-          <!-- 测试结果 -->
-          <div v-if="testResults[p.id]" class="card-test-result" :class="testResults[p.id].success ? 'success' : 'fail'">
-            <div class="test-result-line">
-              {{ testResults[p.id].success ? '✅' : '❌' }}
-              <span class="test-code">码 {{ testResults[p.id].code }}</span>
-              {{ testResults[p.id].message }}
-            </div>
-            <div v-if="testResults[p.id].detail" class="test-detail">{{ testResults[p.id].detail }}</div>
-          </div>
-          <!-- 操作按钮 -->
-          <div class="card-actions">
-            <!-- P0: aria-label 补全 -->
-            <button
-              class="cohere-icon-btn"
-              aria-label="测试连接"
-              title="测试连接"
-              @click="testProvider(p.id)"
-              :disabled="!(p.api_key_masked || p.api_key)"
+        <!-- 已配置卡片 -->
+        <div v-else>
+          <div class="provider-grid">
+            <div
+              v-for="p in filteredProviders" :key="p.id"
+              class="provider-card card-configured"
+              :class="{ 'card-disabled': !p.enabled }"
             >
-              <span v-if="testingId !== p.id">⚡</span>
-              <span v-else class="rotating">⟳</span>
-            </button>
-            <button class="cohere-icon-btn" aria-label="编辑" title="编辑" @click="openEdit(p)">✎</button>
-            <button
-              class="cohere-icon-btn" :class="{ 'default-active': p.is_default }"
-              :aria-label="p.is_default ? '当前默认' : '设为默认'"
-              :title="p.is_default ? '当前默认' : '设为默认'"
-              @click="!p.is_default && setDefault(p)"
-              :disabled="p.is_default || !(p.api_key_masked || p.api_key)"
-            >★</button>
-            <button
-              class="cohere-icon-btn"
-              :aria-label="p.enabled ? '禁用' : '启用'"
+              <div class="card-top">
+                <div class="card-header">
+                  <div class="provider-type-badge" :class="'type-' + p.category">
+                    {{ CATEGORY_LABELS[p.category] || p.category }}
+                  </div>
+                  <div class="card-badges">
+                    <span v-if="p.is_default" class="default-badge" title="默认服务商">★ 默认</span>
+                    <span class="configured-badge" title="已配置">✓ 已配置</span>
+                    <span v-if="!p.is_preset" class="custom-badge" title="自定义服务商">自定义</span>
+                  </div>
+                </div>
+                <div class="provider-name">{{ p.name }}</div>
+                <div class="provider-id">
+                  <code>{{ p.id }}</code>
+                  <span class="status-label" :class="p.enabled ? 'enabled' : 'disabled'">
+                    {{ p.enabled ? '已启用' : '已禁用' }}
+                  </span>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="provider-field">
+                  <span class="field-label">Base URL</span>
+                  <span class="field-value mono">{{ p.base_url || '-' }}</span>
+                </div>
+                <div class="provider-field">
+                  <span class="field-label">模型</span>
+                  <span class="field-value" :title="(p.models || []).join(', ')">
+                    {{ formatModels(p.models) }}
+                  </span>
+                </div>
+                <div class="provider-field">
+                  <span class="field-label">API Key</span>
+                  <span class="field-value mono configured">
+                    {{ p.api_key_masked || (p.api_key ? '已配置' : '未配置') }}
+                  </span>
+                </div>
+              </div>
+              <div v-if="testResults[p.id]" class="card-test-result" :class="testResults[p.id].success ? 'success' : 'fail'">
+                <div class="test-result-line">
+                  {{ testResults[p.id].success ? '✅' : '❌' }}
+                  <span class="test-code">码 {{ testResults[p.id].code }}</span>
+                  {{ testResults[p.id].message }}
+                </div>
+                <div v-if="testResults[p.id].detail" class="test-detail">{{ testResults[p.id].detail }}</div>
+              </div>
+              <div class="card-actions">
+                <button class="cohere-icon-btn" aria-label="测试连接" title="测试连接"
+                  @click="testProvider(p.id)" :disabled="!(p.api_key_masked || p.api_key)">
+                  <span v-if="testingId !== p.id">⚡</span>
+                  <span v-else class="rotating">⟳</span>
+                </button>
+                <button class="cohere-icon-btn" aria-label="编辑" title="编辑" @click="openEdit(p)">✎</button>
+                <button class="cohere-icon-btn" :class="{ 'default-active': p.is_default }"
+                  :aria-label="p.is_default ? '当前默认' : '设为默认'"
+                  :title="p.is_default ? '当前默认' : '设为默认'"
+                  @click="!p.is_default && setDefault(p)"
+                  :disabled="p.is_default || !(p.api_key_masked || p.api_key)"
+                >★</button>
+                <button class="cohere-icon-btn"
+                  :aria-label="p.enabled ? '禁用' : '启用'"
+                  :title="p.enabled ? '禁用' : '启用'"
+                  @click="toggleEnabled(p)"
+                >{{ p.enabled ? '⏸' : '▶' }}</button>
+                <button v-if="!p.is_preset" class="cohere-icon-btn cohere-icon-btn-danger"
+                  aria-label="删除" title="删除" @click="confirmDelete(p)"
+                >✕</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 快速添加区域 -->
+          <div v-if="unconfiguredPresets.length > 0" class="quick-add-section">
+            <div class="quick-add-header">
+              <span class="quick-add-title">更多服务商</span>
+              <span class="quick-add-meta">{{ unconfiguredPresets.length }} 个预设可用</span>
+            </div>
+            <div class="quick-add-grid">
+              <button
+                v-for="p in unconfiguredPresets.slice(0, 12)" :key="p.id"
+                class="quick-add-card"
+                @click="viewMode = 'all'"
+              >
+                <span class="quick-add-icon">{{ categoryIcon(p.category) }}</span>
+                <span class="quick-add-name">{{ p.name }}</span>
+                <span class="quick-add-category">{{ CATEGORY_LABELS[p.category] }}</span>
+              </button>
+              <button v-if="unconfiguredPresets.length > 12"
+                class="quick-add-card quick-add-more"
+                @click="viewMode = 'all'"
+              >
+                <span class="quick-add-icon">···</span>
+                <span class="quick-add-name">查看全部 {{ unconfiguredPresets.length }} 个</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ===== 全部服务商模式：平铺展示 ===== -->
+      <template v-else>
+        <div v-if="filteredProviders.length === 0" class="cohere-empty">
+          <div class="empty-icon">🔌</div>
+          <h3>暂无服务商</h3>
+          <p>点击右上角「添加服务商」配置第一个 AI 模型</p>
+        </div>
+        <div v-else class="provider-grid">
+          <div
+            v-for="p in filteredProviders" :key="p.id"
+            class="provider-card"
+            :class="{ 'card-disabled': !p.enabled }"
+          >
+            <div class="card-top">
+              <div class="card-header">
+                <div class="provider-type-badge" :class="'type-' + p.category">
+                  {{ CATEGORY_LABELS[p.category] || p.category }}
+                </div>
+                <div class="card-badges">
+                  <span v-if="p.is_default" class="default-badge" title="默认服务商">★ 默认</span>
+                  <span v-if="p.api_key_masked || p.api_key" class="configured-badge" title="已配置">✓ 已配置</span>
+                  <span v-if="!p.is_preset" class="custom-badge" title="自定义服务商">自定义</span>
+                  <span v-if="p.is_preset && !(p.api_key_masked || p.api_key)" class="preset-badge" title="预设服务商">预设</span>
+                </div>
+              </div>
+              <div class="provider-name">{{ p.name }}</div>
+              <div class="provider-id">
+                <code>{{ p.id }}</code>
+                <span class="status-label" :class="p.enabled ? 'enabled' : 'disabled'">
+                  {{ p.enabled ? '已启用' : '已禁用' }}
+                </span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="provider-field">
+                <span class="field-label">Base URL</span>
+                <span class="field-value mono">{{ p.base_url || '-' }}</span>
+              </div>
+              <div class="provider-field">
+                <span class="field-label">模型</span>
+                <span class="field-value" :title="(p.models || []).join(', ')">
+                  {{ formatModels(p.models) }}
+                </span>
+              </div>
+              <div class="provider-field">
+                <span class="field-label">API Key</span>
+                <span class="field-value mono" :class="(p.api_key_masked || p.api_key) ? 'configured' : 'not-configured'">
+                  {{ p.api_key_masked || (p.api_key ? '已配置' : '未配置') }}
+                </span>
+              </div>
+            </div>
+            <div v-if="testResults[p.id]" class="card-test-result" :class="testResults[p.id].success ? 'success' : 'fail'">
+              <div class="test-result-line">
+                {{ testResults[p.id].success ? '✅' : '❌' }}
+                <span class="test-code">码 {{ testResults[p.id].code }}</span>
+                {{ testResults[p.id].message }}
+              </div>
+              <div v-if="testResults[p.id].detail" class="test-detail">{{ testResults[p.id].detail }}</div>
+            </div>
+            <div class="card-actions">
+              <button class="cohere-icon-btn" aria-label="测试连接" title="测试连接"
+                @click="testProvider(p.id)" :disabled="!(p.api_key_masked || p.api_key)">
+                <span v-if="testingId !== p.id">⚡</span>
+                <span v-else class="rotating">⟳</span>
+              </button>
+              <button class="cohere-icon-btn" aria-label="编辑" title="编辑" @click="openEdit(p)">✎</button>
+              <button class="cohere-icon-btn" :class="{ 'default-active': p.is_default }"
+                :aria-label="p.is_default ? '当前默认' : '设为默认'"
+                :title="p.is_default ? '当前默认' : '设为默认'"
+                @click="!p.is_default && setDefault(p)"
+                :disabled="p.is_default || !(p.api_key_masked || p.api_key)"
+              >★</button>
+              <button class="cohere-icon-btn"
+                :aria-label="p.enabled ? '禁用' : '启用'"
+                :title="p.enabled ? '禁用' : '启用'"
+                @click="toggleEnabled(p)"
+              >{{ p.enabled ? '⏸' : '▶' }}</button>
+              <button v-if="!p.is_preset" class="cohere-icon-btn cohere-icon-btn-danger"
+                aria-label="删除" title="删除" @click="confirmDelete(p)"
+              >✕</button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
               :title="p.enabled ? '禁用' : '启用'"
               @click="toggleEnabled(p)"
             >{{ p.enabled ? '⏸' : '▶' }}</button>
@@ -828,5 +925,147 @@ onMounted(() => {
     width: 95vw !important;
     margin: 0 auto;
   }
+}
+
+/* ===== 视图模式 Tab ===== */
+.view-mode-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: var(--space-md);
+  background: var(--soft-stone, #f0f0ec);
+  border-radius: 10px;
+  padding: 3px;
+  width: fit-content;
+}
+.view-mode-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted, #999);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.view-mode-tab:hover { color: var(--ink, #222); }
+.view-mode-tab.active {
+  background: #fff;
+  color: var(--ink, #222);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.tab-icon { font-size: 12px; }
+.tab-count {
+  font-size: 11px;
+  background: var(--soft-stone, #e8e8e4);
+  padding: 1px 6px;
+  border-radius: 10px;
+  color: var(--muted, #999);
+}
+.view-mode-tab.active .tab-count {
+  background: var(--primary-light, #e8f0fe);
+  color: var(--primary, #1a73e8);
+}
+
+/* ===== 卡片徽章 ===== */
+.configured-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #e6f4ea;
+  color: #137333;
+  font-weight: 500;
+}
+.preset-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f1f3f4;
+  color: #5f6368;
+  font-weight: 500;
+}
+.custom-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-weight: 500;
+}
+.card-configured {
+  border-left: 3px solid #34a853;
+}
+
+/* ===== 引导空状态 ===== */
+.onboarding-empty {
+  text-align: center;
+  padding: 60px 20px;
+}
+.onboarding-icon { font-size: 56px; margin-bottom: 16px; }
+.onboarding-empty h3 {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+.onboarding-empty p {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0 0 20px;
+}
+
+/* ===== 快速添加区域 ===== */
+.quick-add-section {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border);
+}
+.quick-add-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--space-md);
+}
+.quick-add-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink, #222);
+}
+.quick-add-meta {
+  font-size: 12px;
+  color: var(--muted, #999);
+}
+.quick-add-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+.quick-add-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  border: 1px dashed var(--border, #ddd);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.12s;
+  color: var(--ink);
+}
+.quick-add-card:hover {
+  border-color: var(--primary, #1a73e8);
+  border-style: solid;
+  background: var(--primary-light, #f0f6ff);
+}
+.quick-add-icon { font-size: 20px; }
+.quick-add-name { font-size: 12px; font-weight: 500; }
+.quick-add-category { font-size: 11px; color: var(--muted, #999); }
+.quick-add-more {
+  border-color: var(--muted, #999);
+  color: var(--muted, #999);
 }
 </style>

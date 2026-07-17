@@ -67,6 +67,7 @@ export function useModelProviderCrud () {
   const loading = ref(true)
   const submitting = ref(false)
   const filterCategory = ref('all')
+  const viewMode = ref('configured') // 'configured' | 'all'
   const safeStorageAvailable = ref(true) // P0: safeStorage 不可用时显示警告
 
   // 测试结果缓存
@@ -91,18 +92,43 @@ export function useModelProviderCrud () {
   const isCustomAdd = ref(false)
 
   // ─── 计算属性 ─────────────────────────────────
+  const configuredProviders = computed(() => {
+    return providers.value.filter(p => p.api_key_masked || p.api_key)
+  })
+
+  const unconfiguredPresets = computed(() => {
+    return providers.value.filter(p => p.is_preset && !(p.api_key_masked || p.api_key))
+  })
+
+  const customProviders = computed(() => {
+    return providers.value.filter(p => !p.is_preset)
+  })
+
   const filteredProviders = computed(() => {
-    if (filterCategory.value === 'all') return providers.value
-    return providers.value.filter(p => p.category === filterCategory.value)
+    const base = viewMode.value === 'configured' ? configuredProviders.value : providers.value
+    if (filterCategory.value === 'all') return base
+    return base.filter(p => p.category === filterCategory.value)
   })
 
   const configuredCount = computed(() => {
     return providers.value.filter(p => p.api_key_masked || p.api_key).length
   })
 
+  const presetCount = computed(() => {
+    return providers.value.filter(p => p.is_preset).length
+  })
+
   const categoryCounts = computed(() => {
     const counts = { all: providers.value.length }
     for (const p of providers.value) {
+      counts[p.category] = (counts[p.category] || 0) + 1
+    }
+    return counts
+  })
+
+  const configuredCategoryCounts = computed(() => {
+    const counts = { all: configuredProviders.value.length }
+    for (const p of configuredProviders.value) {
       counts[p.category] = (counts[p.category] || 0) + 1
     }
     return counts
@@ -339,6 +365,7 @@ export function useModelProviderCrud () {
     loading,
     submitting,
     filterCategory,
+    viewMode,
     testResults,
     testingId,
     safeStorageAvailable,
@@ -357,9 +384,14 @@ export function useModelProviderCrud () {
     availablePresets,
     isCustomAdd,
     // 计算属性
+    configuredProviders,
+    unconfiguredPresets,
+    customProviders,
     filteredProviders,
     configuredCount,
+    presetCount,
     categoryCounts,
+    configuredCategoryCounts,
     // 方法
     loadProviders,
     openAdd,

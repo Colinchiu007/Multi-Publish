@@ -209,6 +209,7 @@ describe('useModelProviderCrud', function () {
       })
       await crud.loadProviders()
 
+      crud.viewMode.value = 'all'
       crud.filterCategory.value = 'llm'
       expect(crud.filteredProviders.value).toHaveLength(1)
       expect(crud.filteredProviders.value[0].id).toBe('a')
@@ -219,5 +220,95 @@ describe('useModelProviderCrud', function () {
       await crud.submitForm()
       expect(modelProviderCreate).not.toHaveBeenCalled()
     })
+
+  // ─── 视图模式分组测试 ──────────────────────────────
+  describe('视图模式分组', function () {
+    it('默认 viewMode 为 configured', function () {
+      expect(crud.viewMode.value).toBe('configured')
+    })
+
+    it('configuredProviders 只返回有 API Key 的', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
+          { id: 'b', name: 'B', category: 'llm', is_preset: 1, api_key: '' },
+          { id: 'c', name: 'C', category: 'tts', is_preset: 0, api_key: 'sk-3' },
+        ],
+      })
+      await crud.loadProviders()
+      expect(crud.configuredProviders.value).toHaveLength(2)
+      expect(crud.configuredProviders.value.map(p => p.id)).toEqual(['a', 'c'])
+    })
+
+    it('unconfiguredPresets 只返回未配置的预设', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
+          { id: 'b', name: 'B', category: 'llm', is_preset: 1, api_key: '' },
+          { id: 'c', name: 'C', category: 'tts', is_preset: 0, api_key: '' },
+        ],
+      })
+      await crud.loadProviders()
+      expect(crud.unconfiguredPresets.value).toHaveLength(1)
+      expect(crud.unconfiguredPresets.value[0].id).toBe('b')
+    })
+
+    it('customProviders 只返回非预设的', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
+          { id: 'custom', name: 'Custom', category: 'llm', is_preset: 0, api_key: 'sk-c' },
+        ],
+      })
+      await crud.loadProviders()
+      expect(crud.customProviders.value).toHaveLength(1)
+      expect(crud.customProviders.value[0].id).toBe('custom')
+    })
+
+    it('filteredProviders 在 configured 模式下只返回已配置的', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
+          { id: 'b', name: 'B', category: 'llm', is_preset: 1, api_key: '' },
+        ],
+      })
+      await crud.loadProviders()
+      crud.viewMode.value = 'configured'
+      expect(crud.filteredProviders.value).toHaveLength(1)
+      expect(crud.filteredProviders.value[0].id).toBe('a')
+      crud.viewMode.value = 'all'
+      expect(crud.filteredProviders.value).toHaveLength(2)
+    })
+
+    it('configuredCategoryCounts 按类别统计已配置的', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
+          { id: 'b', name: 'B', category: 'tts', is_preset: 1, api_key: 'sk-2' },
+          { id: 'c', name: 'C', category: 'tts', is_preset: 1, api_key: '' },
+        ],
+      })
+      await crud.loadProviders()
+      expect(crud.configuredCategoryCounts.value).toEqual({ all: 2, llm: 1, tts: 1 })
+    })
+
+    it('presetCount 统计全部预设数量', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
+          { id: 'b', name: 'B', category: 'llm', is_preset: 0, api_key: 'sk-2' },
+          { id: 'c', name: 'C', category: 'tts', is_preset: 1, api_key: '' },
+        ],
+      })
+      await crud.loadProviders()
+      expect(crud.presetCount.value).toBe(2)
+    })
+  })
   })
 })
