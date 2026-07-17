@@ -12,6 +12,7 @@
  * 错误码语义与 ../core/error-codes.js 保持一致（负数）。
  */
 const log = require('../services/logger')
+const { isTrustedSender } = require('../core/ipc-security')
 
 // 从 core/error-codes 获取错误码（项目统一负数语义）
 let EC
@@ -102,26 +103,6 @@ function wrapIpcHandlerRaw(fn, opts = {}) {
 }
 
 /**
- * 引入 isTrustedSender（避免循环依赖，延迟 require）
- */
-let _isTrustedSender = null
-function getIsTrustedSender() {
-  if (_isTrustedSender) return _isTrustedSender
-  try {
-    _isTrustedSender = require('../bootstrap/phase5-ipc').isTrustedSender
-  } catch (_) {
-    // 兜底：开发环境或测试中 phase5-ipc 不可用时，信任所有本地 sender
-    _isTrustedSender = (event) => {
-      if (!event || !event.senderFrame) return true
-      return event.senderFrame.url.startsWith('file://') ||
-             event.senderFrame.url.startsWith('http://localhost') ||
-             event.senderFrame.url.startsWith('http://127.0.0.1')
-    }
-  }
-  return _isTrustedSender
-}
-
-/**
  * 检测当前是否为测试环境
  * Vitest 运行时设置 process.env.VITEST 或 NODE_ENV=test
  */
@@ -144,7 +125,6 @@ function _isTestEnv() {
  * @returns {Function} 包装后的 handler，先校验 sender 可信再执行原逻辑
  */
 function withSenderCheck(fn) {
-  const isTrusted = getIsTrustedSender()
   const isTest = _isTestEnv()
   return async (event, args) => {
     // 测试环境跳过 sender 验证（mock event 无真实 senderFrame）
@@ -155,7 +135,7 @@ function withSenderCheck(fn) {
     if (!event || !event.senderFrame) {
       return fn(event, args)
     }
-    if (!isTrusted(event)) {
+    if (!isTrustedSender(event)) {
       log.warn('[IPC] 未授权的调用来源:', event && event.senderFrame && event.senderFrame.url)
       return { code: EC.AUTH_ERROR, message: '未授权的调用来源' }
     }

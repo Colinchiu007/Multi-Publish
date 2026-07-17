@@ -10,29 +10,8 @@
  * P1-B: 所有 ipcMain.handle 加 sender 来源验证，防恶意页面调用
  */
 const { ipcMain } = require('electron')
+const { isTrustedSender } = require('../core/ipc-security')
 const log = require('../services/logger')
-
-/**
- * 验证 IPC 调用来源是否可信
- * 白名单：app:// 协议、file:// 协议、开发模式 localhost
- * @param {object} event - Electron IPC event
- * @param {object} app - Electron app 实例（用于判断 isPackaged）
- * @returns {boolean} 来源可信返回 true
- */
-function isTrustedSender(event, app) {
-  if (!event || !event.senderFrame) return false
-  const url = event.senderFrame.url
-  if (!url) return false
-  // 生产模式：app:// 协议（Electron 自定义协议）
-  if (url.startsWith('app://')) return true
-  // file:// 协议（本地文件加载）
-  if (url.startsWith('file://')) return true
-  // 开发模式：localhost / 127.0.0.1
-  if (process.env.NODE_ENV === 'development' || (app && !app.isPackaged)) {
-    if (url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1')) return true
-  }
-  return false
-}
 
 /**
  * 注册所有 IPC handlers
