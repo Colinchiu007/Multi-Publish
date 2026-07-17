@@ -3309,3 +3309,17 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - 外部 Python 项目作为子进程被调用时，必须确认有 `__main__.py`
 - 新增 Bridge 时应执行一次真实的 spawn + health check 验证
 
+
+## 2026-07-17：Vue 模板解构遗漏 — composable 属性未解构到 script setup
+
+**Bug**：模型设置页面白屏，报 "configuredProviders was accessed during render but is not defined"
+
+**第一性原因**：commit dce4c74 同时修改 composable（新增 6 个属性）和 Vue 模板（使用这 6 个属性），但 script setup 的解构列表只插入了 viewMode，其余 5 个遗漏。根因是 PowerShell 字符串替换在包含单引号的 JS 代码中静默失败，而 MCP 逐个操作时也没有检查完整性。
+
+**逃逸原因**：ModelProviders.vue 无组件测试，vitest 不经过 Vue SFC 编译器。
+
+**教训**：
+- composable 新增属性后，必须同步更新 Vue 模板的解构列表
+- 使用 MCP/PowerShell 修改 Vue 文件时，必须验证所有修改都已写入
+- 新增 composable 导出完整性测试（useModelProviderCrud.test.js），列出所有模板需要的属性
+
