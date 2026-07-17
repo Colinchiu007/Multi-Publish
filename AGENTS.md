@@ -232,12 +232,17 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **模块导出**：`module.exports = {` 后不能有多余逗号
 - **文件 glob 覆盖**：`package.json` 的 `files` 数组必须包含所有被 require 的非 node_modules 文件
 - **Vue 模板语法**：修改 `.vue` 文件后，必须确认无模板编译错误（Vite HMR 报错或 `vite build` 通过）。使用 MCP node_repl 的 splice 操作修改 Vue 文件后，必须检查新旧代码没有重叠或残留。
+- **Bridge/子进程启动验证**：新增或修改 Bridge（BasePythonBridge 子类）时，必须验证：(1) `pythonModule` 指向的模块有 `__main__.py` 入口；(2) 真实执行一次 spawn + health check。不能只断言 `pythonModule` 字符串值。
+- **composable↔模板导出一致性**：composable 新增/重命名导出属性时，必须同步更新所有使用该 composable 的 Vue 模板的解构列表。新增属性后应运行 composable 导出完整性测试。
+- **AI 工具修改后的完整性校验**：使用 MCP node_repl splice / PowerShell 字符串替换 / apply_patch 修改大文件时，修改后必须用 `rg` 或 `git diff` 验证所有目标变更都已写入，不能假设「操作成功 = 内容正确」。
 
 ### QM-3：测试策略
 
 - 单元测试（1830 passed | 10 skipped）：覆盖核心业务逻辑 ✅
 - 本地打包验证：覆盖 require 链、文件包含、语法 ✅（新增）
 - 后续补充：main.js 启动测试（`node -e "require('./electron/main.js')"`）
+- **composable 导出完整性测试**：所有使用 composable 的 Vue 组件，对应的 composable 测试必须包含导出完整性断言 — 列出模板需要的所有属性和方法，逐个 `toHaveProperty` 验证。防止模板引用未解构的属性。
+- **Bridge 启动回归测试**：Bridge 子类的测试必须包含 `pythonModule` 值断言（不能只断言字符串，还要验证目标模块路径指向的包能被 `python -m` 启动）。已有用例如用例 13b。
 
 ### QM-4：视觉回归测试
 
