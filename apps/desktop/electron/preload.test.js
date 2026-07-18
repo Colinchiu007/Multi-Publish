@@ -321,6 +321,159 @@ describe('方法名清单无重复', () => {
   })
 })
 
+// === 许可证运行时变更：API 引用必须按最新权限执行 ===
+describe('preload 动态许可证权限', () => {
+  it('同一受限 API 引用在升级后立即放行，降级后立即拒绝', () => {
+    const { createDynamicAccessApi } = require('./preload/access-control')
+    let accessLevel = 'public'
+    const publishWechat = vi.fn(() => '已发布')
+    const dynamicApi = createDynamicAccessApi(
+      { publishWechat, getVersion: vi.fn(() => '1.0.0') },
+      () => accessLevel,
+    )
+
+    expect(typeof dynamicApi.publishWechat).toBe('function')
+    expect(() => dynamicApi.publishWechat({ title: '免费版' }))
+      .toThrow(/许可证权限不足/)
+    expect(publishWechat).not.toHaveBeenCalled()
+
+    accessLevel = 'authenticated'
+    expect(dynamicApi.publishWechat({ title: '专业版' })).toBe('已发布')
+    expect(publishWechat).toHaveBeenCalledTimes(1)
+
+    accessLevel = 'public'
+    expect(() => dynamicApi.publishWechat({ title: '已降级' }))
+      .toThrow(/许可证权限不足/)
+    expect(publishWechat).toHaveBeenCalledTimes(1)
+  })
+
+  it('公开 API 始终可用，非开发环境不暴露 admin API', () => {
+    const { createDynamicAccessApi } = require('./preload/access-control')
+    const getVersion = vi.fn(() => '1.0.0')
+    const dynamicApi = createDynamicAccessApi(
+      { getVersion, paymentComplete: vi.fn() },
+      () => 'public',
+    )
+
+    expect(dynamicApi.getVersion()).toBe('1.0.0')
+    expect(dynamicApi.paymentComplete).toBeUndefined()
+  })
+
+  it('调用参数不能伪造访问级别', () => {
+    const { createDynamicAccessApi } = require('./preload/access-control')
+    const publishWechat = vi.fn()
+    const dynamicApi = createDynamicAccessApi(
+      { publishWechat },
+      () => 'public',
+    )
+
+    expect(() => dynamicApi.publishWechat({
+      accessLevel: 'admin',
+      isPro: true,
+    })).toThrow(/许可证权限不足/)
+    expect(publishWechat).not.toHaveBeenCalled()
+  })
+
+  it('嵌套 API 在升级和降级后也立即使用最新权限', () => {
+    const { createDynamicAccessApi } = require('./preload/access-control')
+    let accessLevel = 'public'
+    const list = vi.fn(() => ['pipeline-a'])
+    const dynamicApi = createDynamicAccessApi(
+      { pipelines: { list } },
+      () => accessLevel,
+    )
+
+    expect(() => dynamicApi.pipelines.list()).toThrow(/许可证权限不足/)
+    accessLevel = 'authenticated'
+    expect(dynamicApi.pipelines.list()).toEqual(['pipeline-a'])
+    accessLevel = 'public'
+    expect(() => dynamicApi.pipelines.list()).toThrow(/许可证权限不足/)
+    expect(list).toHaveBeenCalledTimes(1)
+  })
+
+  it('权限查询异常或返回非法值时按 public 失败关闭', () => {
+    const { createDynamicAccessApi } = require('./preload/access-control')
+    let queryMode = 'public'
+    const publishWechat = vi.fn()
+    const dynamicApi = createDynamicAccessApi(
+      { publishWechat },
+      () => {
+        if (queryMode === 'throw') throw new Error('同步 IPC 不可用')
+        return queryMode
+      },
+    )
+
+    queryMode = 'throw'
+    expect(() => dynamicApi.publishWechat()).toThrow(/许可证权限不足/)
+    queryMode = 'forged-admin'
+    expect(() => dynamicApi.publishWechat()).toThrow(/许可证权限不足/)
+    expect(publishWechat).not.toHaveBeenCalled()
+  })
+
+  it('聚合入口暴露稳定 API，并在运行时升级和降级后立即生效', async () => {
+    const preloadPath = require.resolve('./preload/index')
+    const originalExpose = __electronMock.contextBridge.exposeInMainWorld
+    const originalInvoke = __electronMock.ipcRenderer.invoke
+    const originalSendSync = __electronMock.ipcRenderer.sendSync
+    let accessLevel = 'public'
+
+    __electronMock.contextBridge.exposeInMainWorld = vi.fn()
+    __electronMock.ipcRenderer.invoke = vi.fn(async (channel, args) => ({ channel, args }))
+    __electronMock.ipcRenderer.sendSync = vi.fn(() => accessLevel)
+    __enableElectronMock()
+
+    try {
+      delete require.cache[preloadPath]
+      require('./preload/index')
+
+      expect(__electronMock.contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1)
+      const [worldName, exposedApi] = __electronMock.contextBridge.exposeInMainWorld.mock.calls[0]
+      expect(worldName).toBe('electronAPI')
+      expect(exposedApi).toHaveProperty('getVersion')
+      expect(exposedApi).toHaveProperty('publishWechat')
+      expect(exposedApi.paymentComplete).toBeUndefined()
+
+      expect(() => exposedApi.publishWechat({ title: '免费版' }))
+        .toThrow(/许可证权限不足/)
+
+      accessLevel = 'authenticated'
+      await expect(exposedApi.publishWechat({ title: '专业版' })).resolves.toEqual({
+        channel: 'publish:wechat',
+        args: { title: '专业版' },
+      })
+
+      accessLevel = 'public'
+      expect(() => exposedApi.publishWechat({ title: '已降级' }))
+        .toThrow(/许可证权限不足/)
+      expect(__electronMock.ipcRenderer.invoke).toHaveBeenCalledTimes(1)
+      expect(__electronMock.ipcRenderer.sendSync)
+        .toHaveBeenCalledWith('auth:get-access-level')
+    } finally {
+      delete require.cache[preloadPath]
+      __electronMock.contextBridge.exposeInMainWorld = originalExpose
+      __electronMock.ipcRenderer.invoke = originalInvoke
+      if (originalSendSync === undefined) delete __electronMock.ipcRenderer.sendSync
+      else __electronMock.ipcRenderer.sendSync = originalSendSync
+      __disableElectronMock()
+    }
+  })
+
+  it('所有 preload 公开 invoke 方法对应的主进程通道都保持公开', () => {
+    const { PUBLIC_METHODS } = require('./preload/access-control')
+    const { requiredLevelForChannel } = require('./ipc-handlers/license-access-control')
+
+    for (const methodName of PUBLIC_METHODS) {
+      expect(api).toHaveProperty(methodName)
+      ipcRenderer.invoke.mockClear()
+      api[methodName](vi.fn(), vi.fn(), vi.fn())
+
+      for (const [channel] of ipcRenderer.invoke.mock.calls) {
+        expect(requiredLevelForChannel(channel), `${methodName} -> ${channel}`).toBe('public')
+      }
+    }
+  })
+})
+
 // === 子模块路径解析（require 链可加载，确保 QM-2 require 路径校验）===
 describe('子模块 require 链可加载', () => {
   it('require("./preload/publish") 不抛错', () => {

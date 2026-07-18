@@ -2,7 +2,7 @@
  * preload 聚合入口（Phase 3.3 + Bug-2 三级分离）
  *
  * 从 electron 拿到 ipcRenderer，分别构造三个子模块的 API，
- * 根据访问级别（public/authenticated/admin）过滤后，
+ * 根据访问级别（public/authenticated/admin）动态鉴权后，
  * 通过 contextBridge.exposeInMainWorld 暴露给渲染进程。
  *
  * 三级分离设计：
@@ -10,7 +10,7 @@
  *   - authenticated: 登录后可用（业务 API：发布/流水线/账号/渲染等）
  *   - admin: 仅开发模式（敏感操作：paymentComplete/proxyTest 等）
  *
- * 访问级别通过同步 IPC auth:get-access-level 从主进程获取，
+ * 访问级别在每次受限 API 调用时通过同步 IPC auth:get-access-level 获取，
  * fallback 到环境变量判断（development → admin，其他 → public）。
  */
 const { contextBridge, ipcRenderer } = require('electron')
@@ -22,109 +22,28 @@ const { createBoardApi } = require('./board')
 const { createContactSheetApi } = require('./contact-sheet')
 const { createApprovalGateApi } = require('./approval-gate')
 const { createReplayApi } = require('./replay')
-
-// ─── admin-only 方法清单（仅开发模式可用） ───
-const ADMIN_ONLY_METHODS = [
-  'paymentComplete', 'paymentSimulate', 'paymentCancel',
-  'proxyTest', 'proxyTestAll', 'proxyReset',
-]
-
-// ─── public 方法清单（未登录也可用） ───
-const PUBLIC_METHODS = [
-  'getVersion', 'getPlatform',
-  'updateCheck', 'updateDownload', 'updateInstall', 'onUpdateStatus',
-  'firstRunCheck', 'onFirstRunStatus',
-  'showNotification', 'onNotification',
-  'onNavigate',
-  'onboardingComplete', 'onboardingGetSteps', 'onboardingStatus',
-  'licenseInfo', 'licenseActivate', 'licenseDeactivate', 'licenseActivateTrial',
-  'licenseHasFeature', 'licenseFeatures',
-  'authOpenLogin', 'authClose', 'onAuthViewOpened', 'onAuthCompleted', 'onAuthViewClosed',
-  'authLoginSilent',
-  'authOpenQrCodeLogin', 'authQrCodeClose',
-  'onQrCodeOpened', 'onQrCodeDetected', 'onQrCodeCompleted', 'onQrCodeClosed',
-  'oauthStart', 'oauthClose', 'oauthGetConfigs',
-  'onOAuthOpened', 'onOAuthCompleted', 'onOAuthFailed', 'onOAuthClosed',
-  'platformList', 'platformGet', 'getPlatformDefinitions',
-  'offlineStatus', 'offlineIsOffline', 'offlineCachedTasks', 'offlineAddToCache',
-  'offlineClearCache', 'onOfflineRestored',
-  'onCallbackReceived',
-  'hotkeysList',
-  'sensitiveCheck', 'sensitiveReplace',
-  'syncAll', 'syncPlatform', 'syncCached',
-  'webviewSetLayout', 'webviewOpenTab', 'webviewCloseTab', 'webviewCloseAll', 'webviewListTabs',
-  'onWebviewLayoutChanged', 'onWebviewTabOpened', 'onWebviewTabClosed', 'onWebviewNav', 'onWebviewAllClosed',
-  // 模型服务商管理（应用级配置，与登录状态无关，需在设置中随时配置）
-  'modelProviderList', 'modelProviderGet', 'modelProviderCreate', 'modelProviderUpdate',
-  'modelProviderDelete', 'modelProviderSetDefault', 'modelProviderGetDefault',
-  'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
-  'modelProviderLogs', 'modelProviderCleanLogs',
-  // 渲染引擎诊断（只读状态查询 + 依赖安装，未登录也应可用，便于诊断 remotion 状态）
-  // 注意：renderStart/renderCancel/renderListCompositions 仍保持 authenticated（需登录后才能发起渲染）
-  'renderGetStatus', 'renderInstallDeps', 'onRenderInstallProgress',
-  // 流水线查询（只读，未登录也应能浏览流水线列表）
-  'pipelineList', 'pipelineGet',
-]
+const {
+  ADMIN_ONLY_METHODS,
+  PUBLIC_METHODS,
+  createDynamicAccessApi,
+  filterApiByAccessLevel,
+} = require('./access-control')
 
 /**
- * 模块级缓存：sendSync 只在首次调用时执行，后续直接返回缓存值
- *
- * 架构说明：contextBridge.exposeInMainWorld 是同步 API，必须在调用时确定
- * accessLevel，因此无法改用异步 ipcRenderer.invoke。sendSync 是 Electron
- * 官方推荐的同步 IPC 方案，主进程 handler 仅检查环境变量和许可证状态（<1ms），
- * 阻塞可忽略。缓存确保即使多次调用 getAccessLevel() 也只触发一次 sendSync。
- */
-let _cachedAccessLevel = null
-
-/**
- * 获取当前访问级别
- * @returns {'public'|'authenticated'|'admin'}
+ * 同步读取主进程的当前访问级别。该函数刻意不缓存：许可证可在窗口运行期间
+ * 激活或注销，受限 API 必须立即使用最新状态。
  */
 function getAccessLevel() {
-  if (_cachedAccessLevel) return _cachedAccessLevel
   try {
     if (typeof ipcRenderer.sendSync === 'function') {
       const level = ipcRenderer.sendSync('auth:get-access-level')
       if (level === 'admin' || level === 'authenticated' || level === 'public') {
-        _cachedAccessLevel = level
         return level
       }
     }
   } catch (_) { /* IPC 未注册时 fallback */ }
   const isDevMode = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1'
-  _cachedAccessLevel = isDevMode ? 'admin' : 'public'
-  return _cachedAccessLevel
-}
-
-/**
- * 根据访问级别过滤 API
- * @param {object} api - 完整 API 对象
- * @param {'public'|'authenticated'|'admin'} level - 访问级别
- * @returns {object} 过滤后的 API
- */
-function filterApiByAccessLevel(api, level) {
-  const filtered = {}
-  for (const key of Object.keys(api)) {
-    const value = api[key]
-    if (typeof value === 'function') {
-      if (level === 'admin') {
-        filtered[key] = value
-      } else if (level === 'authenticated') {
-        if (!ADMIN_ONLY_METHODS.includes(key)) {
-          filtered[key] = value
-        }
-      } else {
-        if (PUBLIC_METHODS.includes(key)) {
-          filtered[key] = value
-        }
-      }
-    } else if (typeof value === 'object' && value !== null) {
-      if (level === 'admin' || level === 'authenticated') {
-        filtered[key] = value
-      }
-    }
-  }
-  return filtered
+  return isDevMode ? 'admin' : 'public'
 }
 
 const fullApi = {
@@ -138,11 +57,16 @@ const fullApi = {
   ...createReplayApi(ipcRenderer),
 }
 
-const accessLevel = getAccessLevel()
-const exposedApi = filterApiByAccessLevel(fullApi, accessLevel)
+const exposedApi = createDynamicAccessApi(fullApi, getAccessLevel)
 
-exposedApi.getAccessLevel = () => accessLevel
+exposedApi.getAccessLevel = getAccessLevel
 
 contextBridge.exposeInMainWorld('electronAPI', exposedApi)
 
-module.exports = { getAccessLevel, filterApiByAccessLevel, ADMIN_ONLY_METHODS, PUBLIC_METHODS }
+module.exports = {
+  getAccessLevel,
+  filterApiByAccessLevel,
+  createDynamicAccessApi,
+  ADMIN_ONLY_METHODS,
+  PUBLIC_METHODS,
+}

@@ -6,9 +6,10 @@
     "main": "electron/main.js",
     "scripts": {
         "dev:vue": "vite",
-        "dev:electron": "wait-on http://localhost:5174 && electron .",
+        "dev:electron": "npm run build:preload && wait-on http://localhost:5174 && electron .",
         "dev": "concurrently \"npm run dev:vue\" \"npm run dev:electron\"",
-        "build:vue": "vite build",
+        "build:preload": "node scripts/build-preload.js",
+        "build:vue": "npm run build:preload && vite build",
         "build": "npm run build:vue && electron-builder",
         "build:win": "npm run build:vue && electron-builder --win --x64",
         "build:dir": "npm run build:vue && electron-builder --dir",
@@ -21,12 +22,12 @@
         "format:write": "prettier --write \"electron/**/*.js\" \"src/**/*.{js,vue}\"",
         "check:ts": "tsc -p tsconfig.check.json --noEmit",
         "check:all": "npm run check:ts && npm run lint && npm run test",
-        "test:visual": "VISUAL=1 npx vitest run tests/visual-testing/views/ --reporter=verbose",
-        "test:workflow": "WORKFLOW=1 npx vitest run tests/visual-testing/workflows/ --reporter=verbose",
+        "test:visual": "node tests/visual-testing/views/all-views.visual.test.js",
+        "test:workflow": "node tests/visual-testing/workflows/all-workflows.visual.test.js",
         "test:visual:ci": "node tests/visual-testing/scripts/visual-ci.js",
-        "test:visual:update-baseline": "UPDATE_BASELINE=1 VISUAL=1 npx vitest run tests/visual-testing/",
-        "test:visual:quick": "VISUAL=1 npx vitest run tests/visual-testing/views/home.visual.test.js --reporter=verbose",
-        "test:all:visual": "VISUAL=1 WORKFLOW=1 npx vitest run tests/visual-testing/",
+        "test:visual:update-baseline": "cross-env UPDATE_BASELINE=1 node tests/visual-testing/scripts/run-pixel-tests.js",
+        "test:visual:quick": "node tests/visual-testing/views/all-views.visual.test.js --single home-default",
+        "test:all:visual": "node tests/visual-testing/views/all-views.visual.test.js && node tests/visual-testing/workflows/all-workflows.visual.test.js",
         "test:visual:pixel": "node tests/visual-testing/scripts/run-pixel-tests.js",
         "test:visual:agent": "node tests/visual-testing/scripts/agent-visual-judge.js",
         "test:ai:autonomous": "node ../../packages/ai-autonomous-tester/scripts/run-autonomous.js",
@@ -45,7 +46,9 @@
         "test:e2e": "node tests/e2e/helpers/run-all.js",
         "test:e2e:routes": "node tests/e2e/helpers/run-all.js routes",
         "test:e2e:flows": "node tests/e2e/helpers/run-all.js flows",
-        "test:e2e:b1": "node tests/e2e/specs/b1-core-publish.js"
+        "test:e2e:b1": "node tests/e2e/specs/b1-core-publish.js",
+        "test:startup": "vitest run --config vitest.smoke.config.js",
+        "test:preload:sandbox": "npm run build:preload && node scripts/verify-preload-sandbox.js"
     },
     "keywords": [
         "multi-publish",
@@ -79,12 +82,15 @@
         "cross-env": "^10.1.0",
         "electron": "^43.1.1",
         "electron-builder": "^25.1.8",
+        "esbuild": "^0.25.12",
         "eslint": "^9.39.4",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-vue": "^10.9.2",
         "globals": "^17.7.0",
         "jsdom": "^29.1.1",
+        "pixelmatch": "^5.3.0",
         "playwright": "^1.61.1",
+        "pngjs": "^7.0.0",
         "prettier": "^3.9.4",
         "tesseract.js": "^5.1.1",
         "typescript": "^6.0.3",
@@ -93,12 +99,13 @@
         "wait-on": "^8.0.0"
     },
     "build": {
+        "beforePack": "scripts/before-pack.js",
         "appId": "com.colinchiu.multi-publish",
         "productName": "Multi-Publish",
         "directories": {
             "output": "dist-electron"
         },
-        "electronVersion": "33.4.0",
+        "electronVersion": "43.1.1",
         "npmRebuild": false,
         "files": [
             "dist/**/*",

@@ -2,21 +2,21 @@
 /**
  * Store IPC handlers
  *
- * 安全：所有 handler 包裹 try-catch，防止 store 抛错变成 unhandled rejection
+ * 安全：写操作通过 withSenderCheck 校验来源，只读操作不加校验避免过度验证
  */
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
   const { store, credentialStore, accountStateRestorer } = deps
 
-  ipcMain.handle('store:add-account', (_, account) => {
+  ipcMain.handle('store:add-account', withSenderCheck((_, account) => {
     try {
       const ok = store.addAccount(account)
       return { code: ok ? 0 : EC.REQUEST_ERROR, data: ok }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('store:get-account', (_, id) => {
     try {
@@ -51,7 +51,7 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
-  ipcMain.handle('store:set-default-account', (_, arg) => {
+  ipcMain.handle('store:set-default-account', withSenderCheck((_, arg) => {
     try {
       // R51 P1：解构保护
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
@@ -61,7 +61,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('store:get-default-account', (_, platform) => {
     try {
@@ -84,14 +84,14 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
-  ipcMain.handle('store:add-publish-record', (_, record) => {
+  ipcMain.handle('store:add-publish-record', withSenderCheck((_, record) => {
     try {
       const id = store.addPublishRecord(record)
       return { code: id ? 0 : EC.REQUEST_ERROR, data: { id } }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('store:list-publish-history', (_, opts) => {
     try {
@@ -109,14 +109,14 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('store:add-scheduled-task', (_, task) => {
+  ipcMain.handle('store:add-scheduled-task', withSenderCheck((_, task) => {
     try {
       const id = store.addScheduledTask(task)
       return { code: id ? 0 : EC.REQUEST_ERROR, data: { id } }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('store:list-scheduled-tasks', () => {
     try {
@@ -126,14 +126,14 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('store:delete-task', (_, id) => {
+  ipcMain.handle('store:delete-task', withSenderCheck((_, id) => {
     try {
       store.deleteTask(id)
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('store:get-setting', (_, key) => {
     try {
@@ -143,14 +143,14 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('store:set-setting', (_, key, value) => {
+  ipcMain.handle('store:set-setting', withSenderCheck((_, key, value) => {
     try {
       store.setSetting(key, value)
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('store:list-callback-logs', (_, limit) => {
     try {
@@ -161,7 +161,7 @@ function registerHandlers(ipcMain, deps) {
   })
 
   // ─── 草稿箱 IPC handlers（蚁小二复用）─────────────────
-  ipcMain.handle('draftSave', (_, draft) => {
+  ipcMain.handle('draftSave', withSenderCheck((_, draft) => {
     try {
       // 草稿存储在 store settings 中（JSON 数组）
       const raw = store.getSetting('drafts') || '[]'
@@ -177,7 +177,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('draftList', () => {
     try {
@@ -189,7 +189,7 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('draftDelete', (_, draftId) => {
+  ipcMain.handle('draftDelete', withSenderCheck((_, draftId) => {
     try {
       const raw = store.getSetting('drafts') || '[]'
       const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
@@ -199,7 +199,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 }
 
 module.exports = registerHandlers
