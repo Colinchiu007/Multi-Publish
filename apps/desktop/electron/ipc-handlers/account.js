@@ -30,7 +30,7 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('auth:open-login', async (event, platform) => {
+  ipcMain.handle('auth:open-login', withSenderCheck(async (event, platform) => {
     try {
       // R51 P1：platform 用于 URL 拼接，必须校验
       if (!_isSafePathSegment(platform)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 platform 参数' }
@@ -112,9 +112,9 @@ function registerHandlers(ipcMain, deps) {
       log.error('Auth', 'Login failed for ' + platform + ': ' + (e instanceof Error ? e.message : String(e)))
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
     }
-  })
+  }))
 
-  ipcMain.handle('auth:login-silent', async (event, arg) => {
+  ipcMain.handle('auth:login-silent', withSenderCheck(async (event, arg) => {
     try {
       // R51 P1：解构保护，arg 为 undefined 时解构会抛
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
@@ -124,7 +124,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { valid: false, accountName: null } }
     }
-  })
+  }))
 
   ipcMain.handle('auth:close', async () => {
     try {
@@ -152,14 +152,14 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
-  ipcMain.handle('account:add', async (event, platform) => {
+  ipcMain.handle('account:add', withSenderCheck(async (event, platform) => {
     try {
       const account = await AccountManager.addAccount(platform)
       return { code: 0, data: account, message: '账号添加成功' }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) } }
-  })
+  }))
 
-  ipcMain.handle('account:delete', async (event, accountId) => {
+  ipcMain.handle('account:delete', withSenderCheck(async (event, accountId) => {
     try {
       // R51 P1：accountId 用于 URL 拼接，必须校验
       if (!_isSafePathSegment(accountId)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId 参数' }
@@ -168,7 +168,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (_e) { /* fallthrough */ }
     try { await AccountManager.deleteAccount(accountId); return { code: 0, data: true, message: '账号已删除' } }
     catch (e) { return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) } }
-  })
+  }))
 
   ipcMain.handle('account:check-login', async (event, arg) => {
     try {
