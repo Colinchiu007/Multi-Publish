@@ -1,6 +1,7 @@
 // @ts-check
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const { withSenderCheck } = require('./helpers')
   const { _sensitiveFilter } = deps
 
   ipcMain.handle('sensitive:check', async (_, arg) => {
@@ -15,7 +16,7 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('sensitive:replace', async (_, arg) => {
+  ipcMain.handle('sensitive:replace', withSenderCheck(async (_, arg) => {
     try {
       // R51 P1：解构保护
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
@@ -25,7 +26,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 }
 
 module.exports = registerHandlers

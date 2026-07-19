@@ -1,7 +1,9 @@
-﻿// @ts-check
+// @ts-check
 /**
  * 视频处理 IPC handlers
  */
+
+const { withSenderCheck } = require('./helpers')
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
@@ -31,7 +33,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
 
-  ipcMain.handle('video:process', async (event, arg) => {
+  ipcMain.handle('video:process', withSenderCheck(async (event, arg) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const onProgress = (p) => win?.webContents.send('video:progress', p)
     try {
@@ -46,7 +48,7 @@ function registerHandlers(ipcMain, deps) {
       win?.webContents.send('video:error', err)
       return err
     }
-  })
+  }))
 
   ipcMain.handle('video:analyze', async (_event, type, filePath) => {
     try {
@@ -66,11 +68,11 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
 
-  ipcMain.handle('video:generate-subtitle', async (_event, audioPath, language) => {
+  ipcMain.handle('video:generate-subtitle', withSenderCheck(async (_event, audioPath, language) => {
     try {
       return { code: 0, data: await videoEngine.generateSubtitle(audioPath, language) }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 }
 
 module.exports = registerHandlers

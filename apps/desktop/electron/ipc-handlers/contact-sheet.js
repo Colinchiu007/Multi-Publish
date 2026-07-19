@@ -10,7 +10,7 @@
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR;
-  const { wrapIpcHandlerRaw } = require('./helpers');
+  const { wrapIpcHandlerRaw, withSenderCheck } = require('./helpers');
   const { contactSheetService } = deps;
 
   // contact-sheet:list — 获取项目的所有场景
@@ -31,7 +31,7 @@ function registerHandlers(ipcMain, deps) {
   // contact-sheet:approve — 批准场景
   ipcMain.handle(
     'contact-sheet:approve',
-    wrapIpcHandlerRaw(async (_event, args) => {
+    withSenderCheck(wrapIpcHandlerRaw(async (_event, args) => {
       if (!args || !args.sceneId) {
         return { code: EC.VALIDATION_ERROR, message: '缺少 sceneId 参数' };
       }
@@ -43,13 +43,13 @@ function registerHandlers(ipcMain, deps) {
         return { code: EC.NOT_FOUND, message: 'Scene not found: ' + args.sceneId };
       }
       return { code: 0, data: result };
-    }, { label: 'contact-sheet:approve' })
+    }, { label: 'contact-sheet:approve' }))
   );
 
   // contact-sheet:reject — 驳回场景
   ipcMain.handle(
     'contact-sheet:reject',
-    wrapIpcHandlerRaw(async (_event, args) => {
+    withSenderCheck(wrapIpcHandlerRaw(async (_event, args) => {
       if (!args || !args.sceneId) {
         return { code: EC.VALIDATION_ERROR, message: '缺少 sceneId 参数' };
       }
@@ -61,7 +61,7 @@ function registerHandlers(ipcMain, deps) {
         return { code: EC.NOT_FOUND, message: 'Scene not found: ' + args.sceneId };
       }
       return { code: 0, data: result };
-    }, { label: 'contact-sheet:reject' })
+    }, { label: 'contact-sheet:reject' }))
   );
 }
 

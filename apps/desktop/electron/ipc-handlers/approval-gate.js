@@ -9,7 +9,7 @@
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR;
-  const { wrapIpcHandlerRaw } = require('./helpers');
+  const { wrapIpcHandlerRaw, withSenderCheck } = require('./helpers');
   const { approvalGateService } = deps;
 
   // approval-gate:get — 获取当前审批门
@@ -30,7 +30,7 @@ function registerHandlers(ipcMain, deps) {
   // approval-gate:approve — 处理审批决策
   ipcMain.handle(
     'approval-gate:approve',
-    wrapIpcHandlerRaw(async (_event, args) => {
+    withSenderCheck(wrapIpcHandlerRaw(async (_event, args) => {
       if (!args || !args.gateId) {
         return { code: EC.VALIDATION_ERROR, message: '缺少 gateId 参数' };
       }
@@ -43,7 +43,7 @@ function registerHandlers(ipcMain, deps) {
         return { code: EC.REQUEST_ERROR, message: 'Failed to resolve gate: ' + args.gateId };
       }
       return { code: 0, data: result };
-    }, { label: 'approval-gate:approve' })
+    }, { label: 'approval-gate:approve' }))
   );
 }
 

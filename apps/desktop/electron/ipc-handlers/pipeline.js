@@ -5,6 +5,7 @@
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const { withSenderCheck } = require('./helpers')
   const { pipelineEngine, BrowserWindow, log } = deps
 
   ipcMain.handle('pipeline:list', () => {
@@ -20,7 +21,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
-  ipcMain.handle('pipeline:start', async (_event, name, params) => {
+  ipcMain.handle('pipeline:start', withSenderCheck(async (_event, name, params) => {
     try {
       const result = await pipelineEngine.start(name, params || {})
       return { code: 0, data: result }
@@ -28,7 +29,7 @@ function registerHandlers(ipcMain, deps) {
       log.error('[pipeline] start error:', err)
       return { code: EC.REQUEST_ERROR, message: err.message }
     }
-  })
+  }))
 
   ipcMain.handle('pipeline:pause', () => {
     try {
@@ -42,11 +43,11 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
-  ipcMain.handle('pipeline:cancel', () => {
+  ipcMain.handle('pipeline:cancel', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.cancel() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   ipcMain.handle('pipeline:status', (_event, name) => {
     try {
@@ -82,7 +83,7 @@ function registerHandlers(ipcMain, deps) {
 
   // ---- 编排模式（Orchestrator）IPC handlers ----
 
-  ipcMain.handle('pipeline:startOrchestrated', async (_event, name, params) => {
+  ipcMain.handle('pipeline:startOrchestrated', withSenderCheck(async (_event, name, params) => {
     try {
       const result = await pipelineEngine.startOrchestrated(name, params || {})
       return { code: 0, data: result }
@@ -90,7 +91,7 @@ function registerHandlers(ipcMain, deps) {
       log.error('[pipeline] startOrchestrated error:', err)
       return { code: EC.REQUEST_ERROR, message: err.message }
     }
-  })
+  }))
 
   ipcMain.handle('pipeline:executeStage', async (_event, runId) => {
     try {

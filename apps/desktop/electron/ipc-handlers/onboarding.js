@@ -7,13 +7,14 @@
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const onboarding = require('../services/onboarding')
+  const { withSenderCheck } = require('./helpers')
 
-  ipcMain.handle('onboarding:complete', async function () {
+  ipcMain.handle('onboarding:complete', withSenderCheck(async function () {
     try {
       const ok = onboarding.completeOnboarding()
       return { code: 0, data: { completed: ok } }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   ipcMain.handle('onboarding:get-steps', async function () {
     try {

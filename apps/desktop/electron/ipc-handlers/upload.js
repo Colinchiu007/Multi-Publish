@@ -1,5 +1,6 @@
 // @ts-check
 const path = require('path')
+const { withSenderCheck } = require('./helpers')
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
@@ -21,7 +22,7 @@ function registerHandlers(ipcMain, deps) {
     return ALLOWED_BASES.some(base => normalized === base || normalized.startsWith(base + path.sep))
   }
 
-  ipcMain.handle('upload:chunked', async (_, arg) => {
+  ipcMain.handle('upload:chunked', withSenderCheck(async (_, arg) => {
     try {
       // R51 P1：解构保护（CRITICAL 修复 — 原解构在 try 外，arg 为 undefined 时同步抛）
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
@@ -42,15 +43,15 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
-  ipcMain.handle('upload:cancel', async () => {
+  ipcMain.handle('upload:cancel', withSenderCheck(async () => {
     try {
       _chunkedUploader.cancel()
       // R52 修复：统一返回格式，补充 data 字段
       return { code: 0, data: true }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 }
 
 module.exports = registerHandlers
