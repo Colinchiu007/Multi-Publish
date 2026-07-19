@@ -27,6 +27,30 @@ const crypto = require('crypto');
 const log = require('./logger');
 
 /**
+ * @typedef {object} Project
+ * @property {string} id
+ * @property {string} name
+ * @property {string} pipelineType
+ * @property {string} status
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ * @property {string | null} lastRunAt
+ * @property {string | null} thumbnailPath
+ * @property {string} summary
+ * @property {number} totalCost
+ * @property {unknown[]} stages
+ * @property {Record<string, unknown>} metadata
+ */
+
+/**
+ * @typedef {object} CreateProjectMeta
+ * @property {string} [name]
+ * @property {string} [pipelineType]
+ * @property {string} [summary]
+ * @property {Record<string, unknown>} [metadata]
+ */
+
+/**
  * 自定义错误：项目不存在
  */
 class ProjectNotFound extends Error {
@@ -94,7 +118,7 @@ class ProjectService {
    */
   scanProjects() {
     const dir = this.getProjectsDir();
-    let entries = [];
+    let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch (e) {
@@ -102,6 +126,7 @@ class ProjectService {
       return [];
     }
 
+    /** @type {Project[]} */
     const projects = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
@@ -143,14 +168,14 @@ class ProjectService {
     try {
       const raw = fs.readFileSync(projectJsonPath, 'utf-8');
       return JSON.parse(raw);
-    } catch (e) {
+    } catch {
       throw new ProjectNotFound(id);
     }
   }
 
   /**
    * 创建新项目
-   * @param {object} meta - { name, pipelineType, summary?, metadata? }
+   * @param {CreateProjectMeta} meta - { name, pipelineType, summary?, metadata? }
    * @returns {Project}
    */
   createProject(meta) {
@@ -185,7 +210,7 @@ class ProjectService {
       );
     } catch (e) {
       log.error('ProjectService', 'Failed to create project ' + id + ': ' + e.message);
-      throw new Error('Failed to create project: ' + e.message);
+      throw new Error('Failed to create project: ' + e.message, { cause: e });
     }
 
     // 同步写入 SQLite
@@ -197,7 +222,7 @@ class ProjectService {
   /**
    * 更新项目元数据
    * @param {string} id
-   * @param {object} updates - 要更新的字段
+   * @param {Partial<Project>} updates - 要更新的字段
    * @returns {Project}
    * @throws {ProjectNotFound}
    */
@@ -211,7 +236,7 @@ class ProjectService {
       fs.writeFileSync(projectJsonPath, JSON.stringify(merged, null, 2), 'utf-8');
     } catch (e) {
       log.error('ProjectService', 'Failed to write project ' + id + ': ' + e.message);
-      throw new Error('Failed to update project: ' + e.message);
+      throw new Error('Failed to update project: ' + e.message, { cause: e });
     }
 
     // 更新 SQLite
@@ -249,6 +274,7 @@ class ProjectService {
 
   /**
    * 写入/更新 SQLite 记录
+   * @param {Project} project
    * @private
    */
   _upsertDb(project) {

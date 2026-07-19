@@ -139,6 +139,24 @@ describe('ProjectService — Backlot 项目库', () => {
       const project = service.createProject({ name: 'M', pipelineType: 'p' });
       expect(project.metadata).toEqual({});
     });
+
+    it('创建写盘失败时保留原始文件系统错误', () => {
+      const blockingPath = path.join(tempDir, 'not-a-directory');
+      fs.writeFileSync(blockingPath, 'blocking file', 'utf-8');
+      const blockedService = new ProjectService(null, { userDataDir: blockingPath });
+
+      let thrown;
+      try {
+        blockedService.createProject({ name: '失败项目', pipelineType: 'p' });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown.message).toContain('Failed to create project');
+      expect(thrown.cause).toBeInstanceOf(Error);
+      expect(thrown.cause.code).toBe('ENOTDIR');
+    });
   });
 
   describe('getProject', () => {
@@ -178,6 +196,32 @@ describe('ProjectService — Backlot 项目库', () => {
         )
       );
       expect(raw.name).toBe('B');
+    });
+
+    it('更新写盘失败时保留原始文件系统错误', () => {
+      const created = service.createProject({ name: '原名称', pipelineType: 'p' });
+      const projectJsonPath = path.join(service.getProjectsDir(), created.id, 'project.json');
+      const updates = {};
+      Object.defineProperty(updates, 'name', {
+        enumerable: true,
+        get() {
+          fs.rmSync(projectJsonPath);
+          fs.mkdirSync(projectJsonPath);
+          return '新名称';
+        },
+      });
+
+      let thrown;
+      try {
+        service.updateProject(created.id, updates);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown.message).toContain('Failed to update project');
+      expect(thrown.cause).toBeInstanceOf(Error);
+      expect(['EISDIR', 'EPERM', 'EACCES']).toContain(thrown.cause.code);
     });
   });
 

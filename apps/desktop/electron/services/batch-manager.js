@@ -16,6 +16,16 @@ const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 let _taskQueue = null
 
+/**
+ * @typedef {object} PlannedBatchTask
+ * @property {{title: string, content: string, author?: string, cover_url?: string, video_path?: string}} article
+ * @property {string} platform
+ * @property {string | null} accountId
+ * @property {string} submissionTaskId
+ * @property {string} [taskId]
+ * @property {boolean} [settled]
+ */
+
 class BatchManager {
   constructor (store) {
     this.store = store
@@ -79,73 +89,171 @@ class BatchManager {
     const batch = this.store.getBatchJob(batchId)
     if (!batch) {
       log.warn('BatchManager', `Batch ${batchId} not found`)
-      return false
+      return null
     }
 
-    this.store.updateBatchJob(batchId, { status: 'running' })
-
+    /** @type {PlannedBatchTask[]} */
+    const plannedTasks = []
     for (const article of batch.articles) {
       if (!article.platforms || article.platforms.length === 0) continue
-
       for (const platform of article.platforms) {
-        try {
-          // R40：入口归一化为规范形态，后续只消费 r.platform / r.accountId
-          const r = BatchManager.resolvePlatform(platform)
-
-          const taskId = _taskQueue.add({
-            platform: r.platform,
-            article: {
-              title: article.title,
-              content: article.content,
-              author: article.author || '',
-              cover_url: article.cover_url || '',
-              video_path: article.video_path || '',
-              accountId: r.accountId,
-            },
-            batchId,
-            retry: 2,
-          })
-
-          // 监听完成（修复：TaskQueue 实际 emit task:success / task:failed，原 task:${id}:done 从不触发）
-          const onResult = (task) => {
-            if (!task || task.id !== taskId) return  // 忽略其他 task 的事件
-            // 手动清理两个监听器（不再是 once，需显式 off）
-            _taskQueue.off('task:success', onResult)
-            _taskQueue.off('task:failed', onResult)
-            // 归一化 result：failed 时携带 error，success 时透传 task.result
-            const result = task.status === 'failed'
-              ? { error: task.error || '发布失败' }
-              : (task.result || {})
-            const current = this.store.getBatchJob(batchId)
-            if (!current) return
-            const updates = {
-              completed: (current.completed || 0) + 1,
-            }
-            if (result && result.error) {
-              updates.failed = (current.failed || 0) + 1
-            }
-            updates.status = updates.completed >= current.total ? 'done' : 'running'
-            this.store.updateBatchJob(batchId, updates)
-
-            // 通知渲染进程
-            this._emitProgress(batchId, platform, article.title, result)
-          }
-          _taskQueue.on('task:success', onResult)
-          _taskQueue.on('task:failed', onResult)
-        } catch (e) {
-          log.error('BatchManager', `Failed to submit ${platform}: ${e.message}`)
-          const current = this.store.getBatchJob(batchId)
-          if (current) {
-            this.store.updateBatchJob(batchId, {
-              failed: (current.failed || 0) + 1,
-              completed: (current.completed || 0) + 1,
-            })
-          }
-        }
+        const resolved = BatchManager.resolvePlatform(platform)
+        plannedTasks.push({
+          article,
+          platform: typeof resolved.platform === 'string' ? resolved.platform.trim() : '',
+          accountId: resolved.accountId,
+          submissionTaskId: `${batchId}:enqueue:${plannedTasks.length + 1}:${Date.now()}`,
+        })
       }
     }
 
-    return true
+    const taskQueue = _taskQueue
+    const total = plannedTasks.length
+    const acceptedTasks = new Map()
+    const earlyResults = new Map()
+    let accepted = 0
+    let enqueueFailed = 0
+    let completed = 0
+    let failed = 0
+    let batchCompleteEmitted = false
+    let acceptingTasks = true
+
+    const queueCanTrackResults = Boolean(
+      taskQueue &&
+      typeof taskQueue.add === 'function' &&
+      typeof taskQueue.on === 'function' &&
+      typeof taskQueue.off === 'function'
+    )
+
+    const removeQueueListeners = () => {
+      if (!queueCanTrackResults) return
+      taskQueue.off('task:success', onResult)
+      taskQueue.off('task:failed', onResult)
+    }
+
+    const updateBatchState = () => {
+      this.store.updateBatchJob(batchId, {
+        total,
+        completed,
+        failed,
+        status: completed >= total ? 'done' : 'running',
+      })
+    }
+
+    const emitBatchCompleteIfReady = () => {
+      if (batchCompleteEmitted || completed < total) return
+      batchCompleteEmitted = true
+      removeQueueListeners()
+      updateBatchState()
+      this._emitBatchComplete(batchId, {
+        total,
+        accepted,
+        completed,
+        succeeded: completed - failed,
+        failed,
+      })
+    }
+
+    const settleAcceptedTask = (metadata, task) => {
+      if (metadata.settled) return
+      metadata.settled = true
+      const result = task.status === 'failed'
+        ? { error: task.error || '发布失败' }
+        : (task.result || {})
+      completed += 1
+      if (result.error) failed += 1
+      updateBatchState()
+      this._emitProgress(batchId, task.id || metadata.taskId, metadata.platform, metadata.article.title, result)
+      emitBatchCompleteIfReady()
+    }
+
+    function onResult (task) {
+      if (!task || !task.id) return
+      const metadata = acceptedTasks.get(task.id)
+      if (!metadata) {
+        if (acceptingTasks) earlyResults.set(task.id, task)
+        return
+      }
+      settleAcceptedTask(metadata, task)
+    }
+
+    const failToEnqueue = (metadata, message) => {
+      enqueueFailed += 1
+      completed += 1
+      failed += 1
+      updateBatchState()
+      this._emitProgress(
+        batchId,
+        metadata.submissionTaskId,
+        metadata.platform || '未知平台',
+        metadata.article.title,
+        { error: message }
+      )
+      emitBatchCompleteIfReady()
+    }
+
+    this.store.updateBatchJob(batchId, {
+      total,
+      completed: 0,
+      failed: 0,
+      status: total === 0 ? 'done' : 'running',
+    })
+
+    if (queueCanTrackResults) {
+      taskQueue.on('task:success', onResult)
+      taskQueue.on('task:failed', onResult)
+    }
+
+    for (const metadata of plannedTasks) {
+      if (!metadata.platform) {
+        failToEnqueue(metadata, '无效发布平台')
+        continue
+      }
+      if (!queueCanTrackResults) {
+        failToEnqueue(metadata, '任务队列未初始化')
+        continue
+      }
+
+      try {
+        const taskId = await taskQueue.add({
+          platform: metadata.platform,
+          article: {
+            title: metadata.article.title,
+            content: metadata.article.content,
+            author: metadata.article.author || '',
+            cover_url: metadata.article.cover_url || '',
+            video_path: metadata.article.video_path || '',
+            accountId: metadata.accountId,
+          },
+          batchId,
+          retry: 2,
+        })
+        if (typeof taskId !== 'string' || !taskId) {
+          throw new Error('任务队列未返回有效任务 ID')
+        }
+
+        metadata.taskId = taskId
+        metadata.settled = false
+        accepted += 1
+        acceptedTasks.set(taskId, metadata)
+
+        const earlyResult = earlyResults.get(taskId)
+        if (earlyResult) {
+          earlyResults.delete(taskId)
+          settleAcceptedTask(metadata, earlyResult)
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        log.error('BatchManager', `Failed to submit ${metadata.platform}: ${message}`)
+        failToEnqueue(metadata, message || '任务入队失败')
+      }
+    }
+
+    acceptingTasks = false
+    earlyResults.clear()
+    emitBatchCompleteIfReady()
+
+    return { batchId, total, accepted, failed: enqueueFailed }
   }
 
   /**
@@ -217,14 +325,28 @@ class BatchManager {
     return true
   }
 
-  _emitProgress (batchId, platform, title, result) {
+  _emitProgress (batchId, taskId, platform, title, result) {
     const wins = require('electron').BrowserWindow.getAllWindows()
     const win = wins[0]
     if (win && !win.isDestroyed()) {
       win.webContents.send('batch:progress', {
-        batchId, platform, title,
+        kind: 'task-complete',
+        batchId, taskId, platform, title,
         ok: !result?.error,
         message: result?.error || '发布成功',
+        timestamp: Date.now(),
+      })
+    }
+  }
+
+  _emitBatchComplete (batchId, counts) {
+    const wins = require('electron').BrowserWindow.getAllWindows()
+    const win = wins[0]
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('batch:progress', {
+        kind: 'batch-complete',
+        batchId,
+        ...counts,
         timestamp: Date.now(),
       })
     }
@@ -245,8 +367,10 @@ class BatchManager {
 
     ipcMain.handle('batch:execute', withSenderCheck(async (_, batchId) => {
       try {
-        await this.executeBatch(batchId)
-        return { code: 0 }
+        const result = await this.executeBatch(batchId)
+        return result
+          ? { code: 0, data: result }
+          : { code: EC.REQUEST_ERROR, message: '批量任务不存在' }
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }

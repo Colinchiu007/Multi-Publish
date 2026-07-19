@@ -1,144 +1,297 @@
+// @ts-check
 /**
- * Scheduler — 定时发布
- * 持久化存储定时任务，到点自动提交到任务队列
+ * Scheduler — 定时发布的单一业务实现。
+ * 运行环境依赖通过工厂注入，默认导出仍兼容 Electron 中的既有调用方式。
  */
-const fs = require('fs')
+const defaultFs = require('fs')
 const path = require('path')
-const { app } = require('electron')
+const MAX_TIMER_DELAY = 2_147_483_647
+const DISPATCH_CLAIM_MAX_ATTEMPTS = 3
+const DISPATCH_CLAIM_RETRY_DELAY = 100
 
-function getSchedulerPath () {
-  return path.join(app.getPath('userData'), 'scheduled-tasks.jsonl')
+function createConsoleLogger () {
+  return {
+    error: (scope, message) => console.error(`[${scope}] ${message}`),
+    warn: (scope, message) => console.warn(`[${scope}] ${message}`)
+  }
 }
 
-let _timers = {}  // id → timeout handle
-let _taskQueue = null
-
-function setTaskQueue (taskQueue) {
-  _taskQueue = taskQueue
-}
-
-/**
- * 创建定时发布任务
- */
-function create (schedule) {
-  const { platform, article, publishTime } = schedule
-  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-
-  const entry = {
-    id,
-    platform,
-    article,
-    status: 'pending',
-    publishTime,
-    createdAt: new Date().toISOString()
-  }
-
-  // 持久化
-  const filePath = getSchedulerPath()
-  // R26 修复：appendFileSync 无 try/catch，磁盘满/权限拒绝会让 create() 抛错（与 apps/desktop 版对齐）
-  try {
-    fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf-8')
-  } catch (e) {
-    console.error('[Scheduler] Failed to persist task ' + entry.id + ': ' + e.message)
-  }
-
-  // 注册定时器
-  scheduleTimer(entry)
-  return entry
+function getErrorMessage (error) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**
- * 注册单个定时器
+ * 创建隔离的调度器实例。
+ * @param {{ app: { getPath: (name: string) => string }, fs?: typeof defaultFs, logger?: { error: Function, warn: Function } }} dependencies
  */
-function scheduleTimer (entry) {
-  const delay = new Date(entry.publishTime).getTime() - Date.now()
-  // R26 修复：Invalid Date 导致 NaN，setTimeout(fn, NaN) 立即执行（与 apps/desktop 版对齐）
-  if (!Number.isFinite(delay)) {
-    console.warn('[Scheduler] Invalid publishTime for task ' + entry.id + ': ' + entry.publishTime)
-    return
-  }
-  if (delay <= 0) return  // 已过期
+function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() }) {
+  const timers = Object.create(null)
+  const retryWaiters = new Map()
+  const activeDispatches = new Map()
+  let taskQueue = null
+  let stopped = false
 
-  _timers[entry.id] = setTimeout(async () => {
-    try {
-      if (_taskQueue) {
-        _taskQueue.add({ platform: entry.platform, article: entry.article })
-        updateStatus(entry.id, 'executed')
+  function getSchedulerPath () {
+    return path.join(app.getPath('userData'), 'scheduled-tasks.jsonl')
+  }
+
+  function setTaskQueue (nextTaskQueue) {
+    taskQueue = nextTaskQueue
+  }
+
+  function updateStatus (id, status, expectedStatus) {
+    const filePath = getSchedulerPath()
+    if (!fs.existsSync(filePath)) return false
+
+    const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
+    let updatedTask = false
+    const updated = lines.map(line => {
+      try {
+        const entry = JSON.parse(line)
+        if (entry.id === id && (expectedStatus === undefined || entry.status === expectedStatus)) {
+          entry.status = status
+          updatedTask = true
+        }
+        return JSON.stringify(entry)
+      } catch {
+        return line
       }
-    } catch (e) {
-      // 防止 unhandled rejection（async 回调的错误不会被 setTimeout 捕获）
-      // R26 修复：updateStatus 裸调用无 try/catch，在 catch 块内再抛错会变成 unhandled exception
-      try { updateStatus(entry.id, 'failed') } catch (e2) { /* ignore persistence error in failure path */ }
+    })
+    if (!updatedTask) return false
+    const temporaryPath = filePath + '.tmp'
+    fs.writeFileSync(temporaryPath, updated.join('\n') + '\n', 'utf-8')
+    fs.renameSync(temporaryPath, filePath)
+    return true
+  }
+
+  function isTaskTracked (id) {
+    return Boolean(timers[id]) || activeDispatches.has(id)
+  }
+
+  function waitForDispatchRetry (id, attempt) {
+    return new Promise(resolve => {
+      if (stopped) {
+        resolve(false)
+        return
+      }
+
+      const finish = (shouldRetry) => {
+        clearTimeout(timer)
+        if (timers[id] === timer) delete timers[id]
+        retryWaiters.delete(id)
+        resolve(shouldRetry)
+      }
+      const timer = setTimeout(
+        () => finish(!stopped),
+        DISPATCH_CLAIM_RETRY_DELAY * attempt
+      )
+      timers[id] = timer
+      retryWaiters.set(id, () => finish(false))
+      if (timer && timer.unref) timer.unref()
+    })
+  }
+
+  async function claimForDispatch (entry, expectedStatus) {
+    for (let attempt = 1; attempt <= DISPATCH_CLAIM_MAX_ATTEMPTS; attempt += 1) {
+      if (stopped) return false
+      try {
+        return updateStatus(entry.id, 'dispatching', expectedStatus)
+      } catch (error) {
+        const message = getErrorMessage(error)
+        if (attempt === DISPATCH_CLAIM_MAX_ATTEMPTS) {
+          logger.error(
+            'Scheduler',
+            `Failed to persist dispatching state for task ${entry.id} after ${attempt} attempts: ${message}`
+          )
+          return false
+        }
+        logger.warn(
+          'Scheduler',
+          `Failed to persist dispatching state for task ${entry.id}; retry ${attempt}/${DISPATCH_CLAIM_MAX_ATTEMPTS}: ${message}`
+        )
+        if (!await waitForDispatchRetry(entry.id, attempt)) return false
+      }
     }
-    delete _timers[entry.id]
-  }, delay)
-  // R28 修复：unref 让定时器不阻止进程退出（与 apps/desktop 版同步，R26 副本一致性）
-  if (_timers[entry.id] && _timers[entry.id].unref) _timers[entry.id].unref()
-}
-
-/**
- * R26/R28 同步：清理所有待执行的定时器（应用退出时调用）
- * 与 apps/desktop/electron/services/scheduler.js 的 stopAll 保持一致
- */
-function stopAll () {
-  for (const id of Object.keys(_timers)) {
-    clearTimeout(_timers[id])
-    delete _timers[id]
+    return false
   }
-}
 
-/**
- * 更新持久化任务状态
- */
-function updateStatus (id, status) {
-  const filePath = getSchedulerPath()
-  if (!fs.existsSync(filePath)) return
-
-  const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
-  const updated = lines.map(line => {
+  async function dispatch (entry, expectedStatus) {
+    if (!await claimForDispatch(entry, expectedStatus) || stopped) return
     try {
-      const entry = JSON.parse(line)
-      if (entry.id === id) entry.status = status
-      return JSON.stringify(entry)
-    } catch { return line }
-  })
-  // 安全修复：定时任务全文重写原子写（原非原子写中断丢失全部定时发布任务）
-  const tmpPath = filePath + '.tmp'
-  fs.writeFileSync(tmpPath, updated.join('\n') + '\n', 'utf-8')
-  fs.renameSync(tmpPath, filePath)
-}
-
-/**
- * 列出定时任务
- */
-function list () {
-  const filePath = getSchedulerPath()
-  if (!fs.existsSync(filePath)) return []
-  const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
-  return lines.map(l => {
-    try { return JSON.parse(l) } catch { return null }
-  }).filter(Boolean)
-}
-
-/**
- * 取消定时任务
- */
-function cancel (id) {
-  if (_timers[id]) {
-    clearTimeout(_timers[id])
-    delete _timers[id]
+      if (!taskQueue) throw new Error('Task queue is not configured')
+      await taskQueue.add({ platform: entry.platform, article: entry.article })
+      if (!stopped) updateStatus(entry.id, 'executed', 'dispatching')
+    } catch (error) {
+      logger.error('Scheduler', 'Failed to execute scheduled task ' + entry.id + ': ' + getErrorMessage(error))
+      if (!stopped) {
+        try { updateStatus(entry.id, 'failed', 'dispatching') } catch { /* 忽略失败路径中的持久化异常 */ }
+      }
+    }
   }
-  updateStatus(id, 'cancelled')
-  return true
+
+  function startDispatch (entry, expectedStatus) {
+    if (stopped || activeDispatches.has(entry.id)) return false
+    if (timers[entry.id]) {
+      clearTimeout(timers[entry.id])
+      delete timers[entry.id]
+    }
+
+    const operation = dispatch(entry, expectedStatus)
+      .catch(error => {
+        logger.error('Scheduler', 'Unexpected scheduled task failure ' + entry.id + ': ' + getErrorMessage(error))
+      })
+      .finally(() => {
+        activeDispatches.delete(entry.id)
+      })
+    activeDispatches.set(entry.id, operation)
+    return true
+  }
+
+  function scheduleTimer (entry, expectedStatus = 'pending') {
+    const publishTimestamp = new Date(entry.publishTime).getTime()
+    if (!Number.isFinite(publishTimestamp)) {
+      logger.warn('Scheduler', 'Invalid publishTime for task ' + entry.id + ': ' + entry.publishTime)
+      return false
+    }
+    if (stopped) return false
+
+    // restore 可能被重复调用；同一任务只允许有一个定时器或派发操作。
+    if (isTaskTracked(entry.id)) return true
+
+    const armNextSegment = () => {
+      const remaining = publishTimestamp - Date.now()
+      if (remaining <= 0) {
+        startDispatch(entry, expectedStatus)
+        return
+      }
+      timers[entry.id] = setTimeout(armNextSegment, Math.min(remaining, MAX_TIMER_DELAY))
+      if (timers[entry.id] && timers[entry.id].unref) timers[entry.id].unref()
+    }
+
+    armNextSegment()
+    return true
+  }
+
+  function create (schedule) {
+    if (!schedule || typeof schedule !== 'object' || Array.isArray(schedule)) {
+      throw new TypeError('任务参数必须是对象')
+    }
+    const { platform, article, publishTime } = schedule
+    if (typeof platform !== 'string' || !platform.trim()) {
+      throw new TypeError('platform 必须是非空字符串')
+    }
+    if (!article || typeof article !== 'object' || Array.isArray(article)) {
+      throw new TypeError('article 必须是对象')
+    }
+    const publishTimestamp = new Date(publishTime).getTime()
+    if (!Number.isFinite(publishTimestamp) || publishTimestamp <= Date.now()) {
+      throw new TypeError('publishTime 必须是有效的未来时间')
+    }
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    const entry = {
+      id,
+      platform,
+      article,
+      status: 'pending',
+      publishTime,
+      createdAt: new Date().toISOString()
+    }
+
+    try {
+      fs.appendFileSync(getSchedulerPath(), JSON.stringify(entry) + '\n', 'utf-8')
+    } catch (error) {
+      logger.error('Scheduler', 'Failed to persist task: ' + getErrorMessage(error))
+      throw error
+    }
+
+    try {
+      if (!scheduleTimer(entry)) throw new Error('无法注册定时任务')
+    } catch (error) {
+      try { updateStatus(entry.id, 'failed', 'pending') } catch { /* 保留原始定时器异常 */ }
+      throw error
+    }
+    return entry
+  }
+
+  function list () {
+    const filePath = getSchedulerPath()
+    if (!fs.existsSync(filePath)) return []
+    try {
+      const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
+      return lines.map(line => {
+        try { return JSON.parse(line) } catch { return null }
+      }).filter(Boolean)
+    } catch (error) {
+      logger.error('Scheduler', 'Failed to list scheduled tasks: ' + getErrorMessage(error))
+      return []
+    }
+  }
+
+  function cancel (id) {
+    // 先完成原子持久化，再清定时器；写盘失败时任务仍可执行，不会形成幽灵 pending。
+    if (!updateStatus(id, 'cancelled', 'pending')) return false
+    const cancelRetry = retryWaiters.get(id)
+    if (cancelRetry) cancelRetry()
+    if (timers[id]) {
+      clearTimeout(timers[id])
+      delete timers[id]
+    }
+    return true
+  }
+
+  function restore () {
+    const tasks = list().filter(task => task.status === 'pending' || task.status === 'dispatching')
+    let restored = 0
+    for (const entry of tasks) {
+      if (isTaskTracked(entry.id)) {
+        restored += 1
+        continue
+      }
+
+      let expectedStatus = entry.status
+      if (entry.status === 'dispatching') {
+        try {
+          if (!updateStatus(entry.id, 'pending', 'dispatching')) continue
+          expectedStatus = 'pending'
+        } catch (error) {
+          // 若恢复时暂时无法写盘，到期认领仍会按 dispatching 状态进行有界重试。
+          logger.warn('Scheduler', 'Failed to reset interrupted task ' + entry.id + ': ' + getErrorMessage(error))
+        }
+      }
+      if (scheduleTimer(entry, expectedStatus)) restored += 1
+    }
+    return restored
+  }
+
+  function stopAll () {
+    stopped = true
+    for (const cancelRetry of retryWaiters.values()) cancelRetry()
+    for (const id of Object.keys(timers)) {
+      clearTimeout(timers[id])
+      delete timers[id]
+    }
+    return Promise.allSettled([...activeDispatches.values()])
+  }
+
+  return { setTaskQueue, create, list, cancel, restore, stopAll }
 }
 
-/**
- * 应用启动时恢复所有待执行的定时任务
- */
-function restore () {
-  const tasks = list().filter(t => t.status === 'pending')
-  tasks.forEach(entry => scheduleTimer(entry))
-  return tasks.length
+let defaultScheduler = null
+
+function getDefaultScheduler () {
+  if (!defaultScheduler) {
+    const { app } = require('electron')
+    defaultScheduler = createScheduler({ app })
+  }
+  return defaultScheduler
 }
 
-module.exports = { setTaskQueue, create, list, cancel, restore, stopAll }
+module.exports = {
+  setTaskQueue: (...args) => getDefaultScheduler().setTaskQueue(...args),
+  create: (...args) => getDefaultScheduler().create(...args),
+  list: (...args) => getDefaultScheduler().list(...args),
+  cancel: (...args) => getDefaultScheduler().cancel(...args),
+  restore: (...args) => getDefaultScheduler().restore(...args),
+  stopAll: (...args) => getDefaultScheduler().stopAll(...args),
+  createScheduler
+}

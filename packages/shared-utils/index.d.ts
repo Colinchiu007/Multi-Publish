@@ -69,6 +69,38 @@ export class PublishIntervalGuard {
   getNextAvailableTime(platform: string): number;
 }
 
+// ---- 定时发布 ----
+export interface ScheduledTask {
+  id: string;
+  platform: string;
+  article: Record<string, unknown>;
+  status: 'pending' | 'dispatching' | 'executed' | 'failed' | 'cancelled';
+  publishTime: string;
+  createdAt?: string;
+}
+
+export interface Scheduler {
+  setTaskQueue(taskQueue: { add(task: unknown): unknown | Promise<unknown> }): void;
+  create(schedule: {
+    platform: string;
+    article: Record<string, unknown>;
+    publishTime: string;
+  }): ScheduledTask;
+  list(): ScheduledTask[];
+  cancel(id: string): boolean;
+  restore(): number;
+  stopAll(): Promise<unknown[]>;
+}
+
+export function createScheduler(dependencies: {
+  app: { getPath(name: string): string };
+  fs?: unknown;
+  logger?: {
+    error(scope: string, message: string): void;
+    warn(scope: string, message: string): void;
+  };
+}): Scheduler;
+
 // ---- 敏感词过滤 ----
 export class SensitiveFilter {
   constructor(rules?: any[]);

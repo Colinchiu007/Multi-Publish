@@ -102,8 +102,8 @@ class CloudPublisher {
   /**
    * 注册 IPC handlers
    */
-  registerIpcHandlers () {
-    const { ipcMain } = require("electron")
+  registerIpcHandlers (injectedIpcMain) {
+    const ipcMain = injectedIpcMain || require("electron").ipcMain
     ipcMain.handle('cloud-publisher:submit', async (_event, params) => {
       try {
         const result = await this.submitTask(params)

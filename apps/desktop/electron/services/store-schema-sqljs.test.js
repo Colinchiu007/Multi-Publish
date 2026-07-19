@@ -42,10 +42,10 @@ describe('store-schema sql.js compatibility', function () {
 
   it('model_providers table: INSERT and SELECT work after schema creation', async function () {
     const { SCHEMA_SQL } = await import('./store-schema')
-    for (const sql of SCHEMA_SQL) { try { db.exec(sql) } catch (_) {} }
+    for (const sql of SCHEMA_SQL) db.exec(sql)
 
     db.run(
-      'INSERT INTO model_providers (id, name, category, base_url, api_key, api_key_enc, models, enabled, is_default, is_preset, config, created_at, updated_at) VALUES (?, ?, ?, ?, \"\", NULL, ?, 0, 0, 1, \"{}\", datetime(\"now\"), datetime(\"now\"))',
+      'INSERT INTO model_providers (id, name, category, base_url, api_key, api_key_enc, models, enabled, is_default, is_preset, config, created_at, updated_at) VALUES (?, ?, ?, ?, "", NULL, ?, 0, 0, 1, "{}", datetime("now"), datetime("now"))',
       ['deepseek', 'DeepSeek', 'llm', 'https://api.deepseek.com', '["deepseek-chat"]']
     )
 
@@ -56,7 +56,7 @@ describe('store-schema sql.js compatibility', function () {
 
   it('model_provider_logs table: INSERT works', async function () {
     const { SCHEMA_SQL } = await import('./store-schema')
-    for (const sql of SCHEMA_SQL) { try { db.exec(sql) } catch (_) {} }
+    for (const sql of SCHEMA_SQL) db.exec(sql)
 
     db.run(
       'INSERT INTO model_provider_logs (provider_id, category, model, action, status, latency_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))',
@@ -69,7 +69,7 @@ describe('store-schema sql.js compatibility', function () {
 
   it('accounts table: INSERT with datetime works', async function () {
     const { SCHEMA_SQL } = await import('./store-schema')
-    for (const sql of SCHEMA_SQL) { try { db.exec(sql) } catch (_) {} }
+    for (const sql of SCHEMA_SQL) db.exec(sql)
 
     db.run(
       'INSERT INTO accounts (platform, account_name, created_at, updated_at) VALUES (?, ?, datetime("now"), datetime("now"))',

@@ -36,6 +36,41 @@ const DEFAULT_MODEL = 'base'
 const DEFAULT_ENDPOINT = 'asr'
 const DEFAULT_LANGUAGE = 'auto'
 
+/** @typedef {string | {id: string, name: string}} WhisperModel */
+
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is WhisperModel}
+ */
+function isWhisperModel(value) {
+  return typeof value === 'string' || (
+    isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string'
+  )
+}
+
+/**
+ * @param {unknown} body
+ * @param {number} status
+ * @returns {string}
+ */
+function getResponseErrorMessage(body, status) {
+  if (isRecord(body)) {
+    for (const key of ['detail', 'error', 'message']) {
+      const value = body[key]
+      if (value !== undefined && value !== null && value !== '') return String(value)
+    }
+  }
+  return typeof body === 'string' && body ? body : `HTTP ${status}`
+}
+
 class LocalWhisperAdapter extends BaseAdapter {
   /**
    * @param {object} credentials
@@ -103,8 +138,7 @@ class LocalWhisperAdapter extends BaseAdapter {
           try { errorBody = await response.text() } catch (__) { errorBody = {} }
         }
         // Whisper 服务错误格式多样：{ detail: "..." } 或 { error: "..." } 或纯文本
-        const message = (errorBody && (errorBody.detail || errorBody.error || errorBody.message))
-          || (typeof errorBody === 'string' ? errorBody : `HTTP ${response.status}`)
+        const message = getResponseErrorMessage(errorBody, response.status)
         throw fromHttpStatus(response.status, message, { providerId: this.id, url })
       }
 
@@ -126,14 +160,14 @@ class LocalWhisperAdapter extends BaseAdapter {
   /**
    * GET /models — 列出可用模型
    * 兼容 ahmetoner/whisper-asr-webservice 的 /models 端点
-   * @returns {Promise<Array<string|{id, name}>>}
+   * @returns {Promise<WhisperModel[]>}
    */
   async listModels() {
     const resp = await this._request('/models')
     const data = await resp.json()
     // 不同实现返回格式不同：可能是 ["base", "small", ...] 或 [{ id, name }]
-    if (Array.isArray(data)) return data
-    if (data && Array.isArray(data.models)) return data.models
+    if (Array.isArray(data)) return data.filter(isWhisperModel)
+    if (isRecord(data) && Array.isArray(data.models)) return data.models.filter(isWhisperModel)
     return []
   }
 
@@ -188,16 +222,18 @@ class LocalWhisperAdapter extends BaseAdapter {
     })
 
     // Whisper 服务可能返回 JSON { text: "..." } 或纯文本
-    let text = ''
+    /** @type {unknown} */
+    let text
     let duration = 0
     const contentType = resp.headers && (resp.headers.get ? resp.headers.get('content-type') : '') || ''
     if (contentType.includes('application/json')) {
       const data = await resp.json()
-      text = data.text || ''
+      text = isRecord(data) ? (data.text || '') : ''
       // 部分实现返回 segments[]，duration 取最后一段的 end
-      if (Array.isArray(data.segments) && data.segments.length > 0) {
-        const lastSeg = data.segments[data.segments.length - 1]
-        if (lastSeg && typeof lastSeg.end === 'number') duration = lastSeg.end
+      const segments = isRecord(data) && Array.isArray(data.segments) ? data.segments : []
+      if (segments.length > 0) {
+        const lastSeg = segments[segments.length - 1]
+        if (isRecord(lastSeg) && typeof lastSeg.end === 'number') duration = lastSeg.end
       }
     } else {
       text = await resp.text()
@@ -215,7 +251,7 @@ class LocalWhisperAdapter extends BaseAdapter {
 
   /**
    * 测试连接 — GET /models 检查服务是否在线
-   * 返回 models 数量作为连通性证明
+   * @returns {Promise<{success: true, models: number} | {success: false, error: unknown}>}
    */
   async testConnection() {
     try {
