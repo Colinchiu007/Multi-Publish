@@ -18,9 +18,14 @@
  * 有 LLM 时: 自动调用 LLM 生成 patch，自动应用并验证
  */
 
-try { require('dotenv').config({ path: __dirname + '/.env' }); } catch (_) {}
+try {
+  require('dotenv').config({ path: __dirname + '/.env' });
+} catch (error) {
+  if (error.code !== 'MODULE_NOT_FOUND') throw error;
+}
 
 const { VisualTestRunner } = require('./test-runner');
+const { ROUTE_READY_SELECTORS, navigateToReady, waitForCount } = require('./functional-test');
 const fs = require('fs');
 const path = require('path');
 
@@ -51,27 +56,36 @@ const PIXEL_TESTS = [
   { name: "login-form", route: "/login" },
   { name: "create-editor", route: "/create" },
   { name: "model-providers", route: "/model-providers" },
-  { name: "first-run", route: "/first-run", waitMs: 1500 },
-  { name: "dashboard", route: "/dashboard", waitMs: 1500 },
-  { name: "calendar", route: "/calendar", waitMs: 1500 },
-  { name: "cloud-publish", route: "/cloud-publish", waitMs: 1500 },
-  { name: "viral-analysis", route: "/viral-analysis", waitMs: 1500 },
-  { name: "create-result", route: "/create/result", waitMs: 1500 },
-  { name: "create-pipeline", route: "/create/pipeline", waitMs: 1500 },
-  { name: "create-history", route: "/create/history", waitMs: 1500 },
-  { name: "intelligence", route: "/intelligence", waitMs: 1500 },
-  { name: "keyword-monitor", route: "/keywords", waitMs: 1500 },
-  { name: "collection", route: "/collection", waitMs: 1500 },
-  { name: "comments", route: "/comments", waitMs: 1500 },
-];
+  { name: "first-run", route: "/first-run" },
+  { name: "dashboard", route: "/dashboard" },
+  { name: "calendar", route: "/calendar" },
+  { name: "cloud-publish", route: "/cloud-publish" },
+  { name: "viral-analysis", route: "/viral-analysis" },
+  { name: "create-result", route: "/create/result" },
+  { name: "create-pipeline", route: "/create/pipeline", expectedRoute: "/create" },
+  { name: "create-history", route: "/create/history" },
+  { name: "intelligence", route: "/intelligence" },
+  { name: "keyword-monitor", route: "/keywords" },
+  { name: "collection", route: "/collection" },
+  { name: "comments", route: "/comments" },
+].map(test => ({
+  ...test,
+  waitFor: ROUTE_READY_SELECTORS[test.route] || '#app[data-v-app]',
+}));
 
 const FUNCTIONAL_TESTS_DEF = [
   { name: 'nav-routes', routes: ['/', '/accounts', '/publish', '/collection', '/monitor', '/comments', '/dashboard', '/create', '/calendar'] },
   { name: 'sidebar-platforms', selector: '.cohere-platform-item', minCount: 3 },
-  { name: 'accounts-add-dialog', route: '/accounts', trigger: 'button:has-text("添加账号")', expectModal: true },
-  { name: 'publish-form', route: '/publish', expectInputs: 2, expectBtnText: '发布' },
+  {
+    name: 'accounts-add-dialog',
+    route: '/accounts',
+    trigger: 'button:has-text("添加账号")',
+    afterTrigger: '.ui-modal, .el-dialog, [role="dialog"]',
+    expectModal: true,
+  },
+  { name: 'publish-form', route: '/publish', waitFor: 'input[placeholder*="标题"]', expectInputs: 2, expectBtnText: '发布' },
   { name: 'calendar-grid', route: '/calendar', selector: '.calendar-grid > *', minCount: 28 },
-  { name: 'model-provider-filter', route: '/model-providers', selector: '.cohere-filter-chip', minCount: 5 },
+  { name: 'model-provider-filter', route: '/model-providers', selector: '.filter-chip', minCount: 5 },
 ];
 
 // ===== Step 1: 采集测试结果 =====
@@ -80,7 +94,10 @@ async function collectPixelResults(runner) {
   const results = [];
   for (const test of PIXEL_TESTS) {
     try {
-      await runner.pixelRegressionTest(test.name, test.route, { waitMs: test.waitMs });
+      await runner.pixelRegressionTest(test.name, test.route, {
+        waitFor: test.waitFor,
+        expectedRoute: test.expectedRoute,
+      });
       results.push({ name: test.name, route: test.route, status: 'PASSED' });
     } catch (err) {
       // 提取 misMatchPercentage
@@ -109,28 +126,30 @@ async function collectFunctionalResults(runner) {
         const errors = [];
         for (const route of test.routes) {
           try {
-            await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 });
+            await navigateToReady(runner.page, route);
           } catch (e) {
-            errors.push(route);
+            errors.push(`${route}: ${e.message}`);
           }
         }
         results.push({ name: test.name, status: errors.length === 0 ? 'PASSED' : 'FAILED', errors });
       } else {
         const route = test.route || '/';
-        await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 });
-        await runner.page.waitForTimeout(1000);
+        await navigateToReady(
+          runner.page,
+          route,
+          test.waitFor || test.selector || ROUTE_READY_SELECTORS[route],
+        );
         
         if (test.trigger) {
-          try {
-            await runner.page.click(test.trigger, { timeout: 3000 });
-            await runner.page.waitForTimeout(800);
-          } catch (_) {}
+          await runner.page.click(test.trigger, { timeout: 5000 });
+          await runner.page.waitForSelector(test.afterTrigger, { state: 'visible', timeout: 10000 });
         }
         
         if (test.expectModal) {
           const modal = await runner.page.$('.ui-modal, .el-dialog, [role="dialog"]');
           results.push({ name: test.name, status: modal ? 'PASSED' : 'FAILED', errors: modal ? [] : ['弹窗未出现'] });
         } else if (test.selector) {
+          await waitForCount(runner.page, test.selector, test.minCount);
           const count = await runner.page.$$eval(test.selector, els => els.length);
           results.push({ name: test.name, status: count >= test.minCount ? 'PASSED' : 'FAILED', count, errors: count < test.minCount ? [`${test.selector} 不足: ${count}/${test.minCount}`] : [] });
         } else {

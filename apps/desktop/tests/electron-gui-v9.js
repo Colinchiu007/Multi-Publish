@@ -375,23 +375,54 @@ async function testNavigation(win) {
 // 主程序
 // ════════════════════════════════════════════════════
 
+function resolveGuiExitCode({
+  results = getResults(),
+  consoleErrors = [],
+  pageErrors = [],
+  runnerError = null,
+} = {}) {
+  const resultsValid = results &&
+    Number.isInteger(results.pass) && results.pass >= 0 &&
+    Number.isInteger(results.fail) && results.fail >= 0 &&
+    Number.isInteger(results.total) && results.total > 0 &&
+    results.pass + results.fail === results.total;
+  const hasRuntimeErrors = consoleErrors.length > 0 || pageErrors.length > 0 || Boolean(runnerError);
+  return resultsValid && results.fail === 0 && !hasRuntimeErrors ? 0 : 1;
+}
+
 async function run() {
   console.log("╔═════════════════════════════════════════════╗");
   console.log("║  Multi-Publish GUI v9 — 配置驱动通用框架    ║");
   console.log("╚═════════════════════════════════════════════╝\n");
 
-  if (!fs.existsSync(SS)) fs.mkdirSync(SS, { recursive: true });
-  if (!await checkVite()) { console.log("❌ Vite 未运行"); process.exit(1); }
-  console.log("✅ Vite\n");
-
-  const app = await electron.launch({
-    executablePath: EL, args: [MAIN, "--no-sandbox"], timeout: 60000,
-  });
+  resetResults();
+  let app;
   let win;
-  const errors = [];
+  const consoleErrors = [];
+  const pageErrors = [];
+  let runnerError = null;
 
   try {
-        win = await findMainWindow(app);
+    if (!fs.existsSync(SS)) fs.mkdirSync(SS, { recursive: true });
+    if (!await checkVite()) throw new Error("Vite 未运行");
+    console.log("✅ Vite\n");
+
+    app = await electron.launch({
+      executablePath: EL, args: [MAIN, "--no-sandbox"], timeout: 60000,
+    });
+    const observedWindows = new WeakSet();
+    const captureWindowErrors = (window) => {
+      if (observedWindows.has(window)) return;
+      observedWindows.add(window);
+      window.on("console", (message) => {
+        if (message.type() === "error") consoleErrors.push(message.text());
+      });
+      window.on("pageerror", (error) => pageErrors.push(error.message || String(error)));
+    };
+    app.on("window", captureWindowErrors);
+    app.windows().forEach(captureWindowErrors);
+
+    win = await findMainWindow(app);
     if (!win) {
       const debugInfo = { windows: app.windows().length, pid: app.process().pid };
       // Try to get any console output from the app
@@ -410,9 +441,9 @@ async function run() {
       }
       throw new Error("Electron 未创建窗口或 Vite 未就绪");
     }
+    captureWindowErrors(win);
     await win.waitForLoadState("networkidle");
     await wait(3000);
-    win.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 
     console.log("1. 初始化 Stores");
     await win.evaluate((r) => { window.location.hash = "#" + r; }, ROUTES.accounts);
@@ -439,27 +470,52 @@ async function run() {
     await testPublishDeep(win);
     await testNavigation(win);
 
+    await win.screenshot({ path: path.join(SS, "v9-final.png") });
+  } catch (err) {
+    runnerError = err;
+    console.error(`\n❌ 异常: ${err.message}`);
+    try { if (win) await win.screenshot({ path: path.join(SS, "v9-error.png") }); } catch (_) {}
+  } finally {
+    if (app) {
+      try {
+        await app.close();
+      } catch (closeError) {
+        runnerError ||= closeError;
+        console.error(`\n❌ Electron 关闭失败: ${closeError.message}`);
+      }
+    }
+
     console.log("\n═══ 控制台错误 ═══");
-    if (errors.length) {
-      console.log(`   ⚠️ ${errors.length} 个错误:`);
-      errors.slice(-5).forEach(e => console.log(`   ${e.substring(0, 200)}`));
+    if (consoleErrors.length) {
+      console.log(`   ❌ ${consoleErrors.length} 个错误:`);
+      consoleErrors.slice(-5).forEach(error => console.log(`   ${error.substring(0, 200)}`));
     } else {
       console.log("   ✅ 无错误");
     }
 
-    const r = getResults();
-    console.log(`\n${"═".repeat(50)}`);
-    console.log(`   ✅ ${r.pass}/${r.total} 通过` + (r.fail ? `, ❌ ${r.fail} 失败` : " 🎉"));
-    console.log(`${"═".repeat(50)}\n`);
+    console.log("\n═══ 页面错误 ═══");
+    if (pageErrors.length) {
+      console.log(`   ❌ ${pageErrors.length} 个错误:`);
+      pageErrors.slice(-5).forEach(error => console.log(`   ${error.substring(0, 200)}`));
+    } else {
+      console.log("   ✅ 无错误");
+    }
 
-    await win.screenshot({ path: path.join(SS, "v9-final.png") });
-    await app.close();
-  } catch (err) {
-    console.error(`\n❌ 异常: ${err.message}`);
-    try { if (win) await win.screenshot({ path: path.join(SS, "v9-error.png") }); } catch (_) {}
-    await app.close().catch(() => {});
-    process.exit(1);
+    const results = getResults();
+    const exitCode = resolveGuiExitCode({ results, consoleErrors, pageErrors, runnerError });
+    console.log(`\n${"═".repeat(50)}`);
+    console.log(`   ✅ ${results.pass}/${results.total} 通过` + (results.fail ? `, ❌ ${results.fail} 失败` : ""));
+    console.log(`   ${exitCode === 0 ? "✅ GUI CI 通过" : "❌ GUI CI 失败"}`);
+    console.log(`${"═".repeat(50)}\n`);
+    process.exitCode = exitCode;
   }
 }
 
-run();
+if (require.main === module) {
+  run().catch((error) => {
+    console.error(`\n❌ GUI runner 未处理异常: ${error.message}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { resolveGuiExitCode, run };

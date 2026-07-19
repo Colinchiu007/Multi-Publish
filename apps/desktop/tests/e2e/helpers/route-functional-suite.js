@@ -1,6 +1,7 @@
 const { FunctionalRunner } = require('./functional-runner');
 
 const SUITE_OPTIONS = { initPro: true };
+const CONDITION_TIMEOUT = 5000;
 
 function record(r, name, passed, details) {
   r.checks.push({ kind: 'functional', name, passed: Boolean(passed), details: details || null });
@@ -9,29 +10,79 @@ function record(r, name, passed, details) {
   return Boolean(passed);
 }
 
-async function bodyHas(r, text) {
-  return r.page.locator('body').innerText().then((value) => value.includes(text));
+function isTimeoutError(error) {
+  return error && (error.name === 'TimeoutError' || /timeout/i.test(error.message || ''));
+}
+
+async function waitForVisible(locator, timeout = CONDITION_TIMEOUT) {
+  const target = typeof locator.first === 'function' ? locator.first() : locator;
+  if (typeof target.waitFor === 'function') {
+    try {
+      await target.waitFor({ state: 'visible', timeout });
+      return true;
+    } catch (error) {
+      if (isTimeoutError(error)) return false;
+      throw error;
+    }
+  }
+  return (typeof target.count !== 'function' || await target.count() > 0)
+    && (typeof target.isVisible !== 'function' || await target.isVisible());
+}
+
+async function waitForHidden(locator, timeout = CONDITION_TIMEOUT) {
+  const target = typeof locator.first === 'function' ? locator.first() : locator;
+  if (typeof target.waitFor === 'function') {
+    try {
+      await target.waitFor({ state: 'hidden', timeout });
+      return true;
+    } catch (error) {
+      if (isTimeoutError(error)) return false;
+      throw error;
+    }
+  }
+  return typeof target.isVisible !== 'function' || !(await target.isVisible());
+}
+
+async function waitForPageCondition(r, predicate, argument, timeout = CONDITION_TIMEOUT) {
+  if (typeof r.page.waitForFunction !== 'function') {
+    return Boolean(await r.page.evaluate(predicate, argument));
+  }
+  try {
+    const handle = await r.page.waitForFunction(predicate, argument, { timeout });
+    if (handle && typeof handle.dispose === 'function') await handle.dispose();
+    return true;
+  } catch (error) {
+    if (isTimeoutError(error)) return false;
+    throw error;
+  }
+}
+
+async function bodyHas(r, text, timeout = CONDITION_TIMEOUT) {
+  const body = r.page.locator('body');
+  if (typeof body.filter === 'function') {
+    return waitForVisible(body.filter({ hasText: text }), timeout);
+  }
+  return body.innerText().then((value) => value.includes(text));
 }
 
 async function clickText(r, text, options = {}) {
   const selector = options.selector || `.cohere-main button:has-text("${text}"), .cohere-main [role="button"]:has-text("${text}"), .cohere-main uibutton:has-text("${text}"), .cohere-main uibutton[title="${text}"]`;
   const locator = r.page.locator(selector).first();
-  if (await locator.count() === 0 || !(await locator.isVisible().catch(() => false))) return false;
+  if (!(await waitForVisible(locator, options.timeout || 3000))) return false;
   await locator.click({ timeout: 3000 });
-  await r.waitForTimeout(options.wait || 250);
   return true;
 }
 
 async function fillByPlaceholder(r, placeholder, value) {
   const locator = r.page.locator(`.cohere-main input[placeholder*="${placeholder}"], .cohere-main textarea[placeholder*="${placeholder}"]`).first();
-  if (await locator.count() === 0 || !(await locator.isVisible().catch(() => false))) return false;
+  if (!(await waitForVisible(locator))) return false;
   await locator.fill(value);
   return true;
 }
 
 async function selectFirstUsable(r, selector = '.cohere-main select') {
   const locator = r.page.locator(selector).first();
-  if (await locator.count() === 0 || !(await locator.isVisible().catch(() => false))) return false;
+  if (!(await waitForVisible(locator))) return false;
   const values = await locator.locator('option').evaluateAll((options) => options.map((o) => o.value).filter(Boolean));
   if (!values.length) return false;
   await locator.selectOption(values[0]);
@@ -39,6 +90,11 @@ async function selectFirstUsable(r, selector = '.cohere-main select') {
 }
 
 async function expectIpc(r, method, name) {
+  if (typeof r.page.waitForFunction === 'function') {
+    await waitForPageCondition(r, (expectedMethod) => (
+      window.__ipcCallsByMethod?.[expectedMethod] || 0
+    ) > 0, method);
+  }
   const count = await r.getIpcCalls(method);
   return record(r, name || `IPC ${method} 被调用`, count > 0, { method, count });
 }
@@ -56,8 +112,7 @@ async function exerciseComments(r) {
   record(r, '评论平台列表有数据', await item.count() > 0);
   if (await item.count()) {
     await item.click();
-    await r.waitForTimeout(200);
-    record(r, '评论容器在选择平台后显示', await r.page.locator('#comment-view-container').isVisible());
+    record(r, '评论容器在选择平台后显示', await waitForVisible(r.page.locator('#comment-view-container')));
     await expectIpc(r, 'webviewOpenTab', '选择平台打开评论页');
   }
 }
@@ -69,7 +124,6 @@ async function exerciseFirstRun(r) {
   // 验证下一步可点击：点击 “开始配置” 进入环境步骤
   const clicked = await clickText(r, '开始配置');
   if (clicked) {
-    await r.waitForTimeout(300);
     record(r, '开始配置进入环境步骤', await bodyHas(r, '环境'));
   } else {
     record(r, '开始配置进入环境步骤', false);
@@ -87,11 +141,10 @@ async function exercisePublish(r) {
   }
   record(r, '正文字段可填写', contentFilled);
   const platform = r.page.locator('.cohere-main input[type="checkbox"]').nth(1);
-  if (await platform.count() && await platform.isVisible().catch(() => false)) await platform.click().catch(() => {});
+  if (await waitForVisible(platform, 1000)) await platform.click();
   const batch = r.page.locator('.cohere-main label:has-text("批量模式") input[type="checkbox"]').first();
   if (await batch.count()) {
     await batch.click();
-    await r.waitForTimeout(150);
     record(r, '批量模式显示添加文章', await bodyHas(r, '添加文章'));
     await batch.click();
   }
@@ -106,24 +159,24 @@ async function exerciseAccounts(r) {
   record(r, '账号状态筛选均可点击', await filters.count() >= 3);
   const add = await clickText(r, '添加账号');
   if (add) {
-    await r.waitForTimeout(300);
-    const modalShown = await r.page.locator('.ui-modal, .el-dialog').first().isVisible().catch(() => false);
+    const modal = r.page.locator('.ui-modal, .el-dialog').first();
+    const modalShown = await waitForVisible(modal);
     record(r, '添加账号打开弹窗', modalShown);
     // 关闭弹窗
-    await r.page.keyboard.press('Escape').catch(() => {});
-    await r.page.locator('.ui-modal-close').first().click().catch(() => {});
-    await r.waitForTimeout(200);
+    const closeButton = r.page.locator('.ui-modal-close').first();
+    if (await waitForVisible(closeButton, 1000)) await closeButton.click();
+    else await r.page.keyboard.press('Escape');
+    record(r, '添加账号弹窗可关闭', await waitForHidden(modal));
   } else {
     record(r, '添加账号打开弹窗', false);
   }
   await r.goto('/accounts');
-  await r.page.evaluate(() => window.location.reload());
-  await r.page.waitForLoadState('domcontentloaded');
-  await r.waitForTimeout(500);
+  const allFilter = r.page.locator('.cohere-filter-chip:has-text("全部")').first();
+  if (await allFilter.count() > 0) await allFilter.click();
   // 寻找 “验证” 按钮（不依赖具体位置）
   const verifyBtn = r.page.locator('.account-row button:has-text("验证")').first();
   let verify = false;
-  if (await verifyBtn.count() > 0 && await verifyBtn.isVisible().catch(() => false)) {
+  if (await waitForVisible(verifyBtn)) {
     await verifyBtn.click({ timeout: 3000 });
     verify = true;
   }
@@ -139,8 +192,7 @@ async function exerciseDashboard(r) {
   // 基准比较：填入标题并点分析，验证 BenchmarkChart 被渲染
   await fillByPlaceholder(r, '基准', 'E2E 基准文章');
   const analyzeClicked = await clickText(r, '分析');
-  await r.waitForTimeout(300);
-  const chartRendered = await r.page.locator('.cohere-main [class*="cohere-card"]:has-text("内容基准比较")').count() > 0;
+  const chartRendered = await waitForVisible(r.page.locator('.cohere-main [class*="cohere-card"]:has-text("内容基准比较")'));
   record(r, '基准比较组件渲染', analyzeClicked && chartRendered, { analyzeClicked, chartRendered });
   await expectIpc(r, 'intelligenceGetBenchmark', '基准调用 IPC');
   await expectIpc(r, 'dashboardStats', '看板统计加载');
@@ -148,11 +200,9 @@ async function exerciseDashboard(r) {
 
 async function exerciseCollection(r) {
   record(r, '采集 URL 可填写', await fillByPlaceholder(r, '文章链接', 'https://example.com/e2e'));
-  await r.waitForTimeout(150);
   const clicked = await clickText(r, '采集');
   record(r, '链接采集可执行', clicked);
   if (clicked) {
-    await r.waitForTimeout(400);
     record(r, '采集结果展示标题', await bodyHas(r, '采集的标题'));
     await expectIpc(r, 'urlCollectFetch', '采集调用 IPC');
   }
@@ -166,13 +216,14 @@ async function exerciseMonitor(r) {
   await expectIpc(r, 'webviewSetLayout', '分屏布局调用 IPC');
   const opened = await clickText(r, '添加监控');
   if (opened) {
-    await r.waitForTimeout(300);
-    const modalVisible = await r.page.locator('.ui-modal, .el-dialog').first().isVisible().catch(() => false);
+    const modal = r.page.locator('.ui-modal, .el-dialog').first();
+    const modalVisible = await waitForVisible(modal);
     record(r, '添加监控打开弹窗', modalVisible);
     // 关闭弹窗以便后续通用扫描
-    await r.page.keyboard.press('Escape').catch(() => {});
-    await r.page.locator('.ui-modal-close').first().click().catch(() => {});
-    await r.waitForTimeout(200);
+    const closeButton = r.page.locator('.ui-modal-close').first();
+    if (await waitForVisible(closeButton, 1000)) await closeButton.click();
+    else await r.page.keyboard.press('Escape');
+    record(r, '添加监控弹窗可关闭', await waitForHidden(modal));
   } else {
     record(r, '添加监控打开弹窗', false);
   }
@@ -191,30 +242,31 @@ async function exerciseKeywords(r) {
 async function exerciseViral(r) {
   await fillByPlaceholder(r, '你想分析的主题', 'AI 内容创作');
   record(r, '爆款分析可执行', await clickText(r, '爆款分析'));
-  await r.waitForTimeout(400);
   record(r, '爆款潜力分渲染', await bodyHas(r, '爆款潜力分'));
   await expectIpc(r, 'viralAnalyze', '爆款分析调用 IPC');
   record(r, '生成文案可执行', await clickText(r, '生成文案'));
-  await r.waitForTimeout(400);
   record(r, '生成标题结果渲染', await bodyHas(r, '5 个 AI 工具'));
   await expectIpc(r, 'viralGenerate', '文案生成调用 IPC');
 }
 
 async function exerciseModelProviders(r) {
-  await r.waitForTimeout(500);
-  record(r, '模型服务商列表渲染', await r.page.locator('.provider-card').count() > 0);
-  const chips = r.page.locator('.cohere-main .cohere-filter-chip');
+  const providerCards = r.page.locator('.provider-card');
+  record(r, '模型服务商列表渲染', await waitForVisible(providerCards));
+  const allTab = r.page.locator('.view-mode-tab:has-text("全部")').first();
+  if (await allTab.count() > 0) await allTab.click();
+  const chips = r.page.locator('.cohere-main .filter-chip');
   for (let i = 0; i < await chips.count(); i++) await chips.nth(i).click();
   record(r, '模型类别筛选可点击', await chips.count() >= 5, { count: await chips.count() });
   const added = await clickText(r, '添加服务商');
-  record(r, '添加服务商弹窗打开', added && await r.page.locator('.el-dialog').isVisible().catch(() => false));
+  const dialog = r.page.locator('.el-dialog').first();
+  record(r, '添加服务商弹窗打开', added && await waitForVisible(dialog));
   // 关闭弹窗（el-dialog 的 overlay），避免阻挡后续操作
-  await r.page.keyboard.press('Escape').catch(() => {});
-  await r.page.locator('.el-overlay').first().click({ force: true }).catch(() => {});
-  await r.waitForTimeout(300);
+  if (added) {
+    await r.page.keyboard.press('Escape');
+    record(r, '添加服务商弹窗可关闭', await waitForHidden(dialog));
+  }
   // 导航刷新页面，确保弹窗完全关闭
   await r.goto('/model-providers');
-  await r.waitForTimeout(500);
   record(r, '服务商刷新可点击', await clickText(r, '刷新'));
   await expectIpc(r, 'modelProviderList', '服务商列表调用 IPC');
 }
@@ -225,15 +277,12 @@ async function exerciseCreate(r) {
   record(r, '创作流水线列表渲染', await pipelineCard.count() > 0);
   if (await pipelineCard.count()) {
     await pipelineCard.click();
-    await r.waitForTimeout(300);
     await fillByPlaceholder(r, '视频文案', 'E2E 视频创作文案');
-    await r.waitForTimeout(500);
     const started = await clickText(r, '启动流水线');
     record(r, '启动创作流水线可执行', started);
     if (started) await expectIpc(r, 'pipelineStart', '启动流水线调用 IPC');
   }
   await r.goto('/create');
-  await r.waitForTimeout(400);
   record(r, '快速渲染标签可切换', await clickText(r, '快速渲染'));
   record(r, '历史记录标签可切换', await clickText(r, '历史记录'));
 }
@@ -242,18 +291,15 @@ async function exerciseResult(r) {
   record(r, '无路径时提供去创作操作', await bodyHas(r, '去创作') || await bodyHas(r, '重新创作'));
   // Hash 模式下使用 hash 内的 query：/#/create/result?path=...
   await r.page.goto(r.url + '/#/create/result?path=' + encodeURIComponent('C:/mock/e2e.mp4'), { waitUntil: 'domcontentloaded' });
-  await r.waitForTimeout(800);
-  record(r, '结果路径渲染视频或错误状态', await r.page.locator('.video-player, .empty-state, .video-section').count() > 0);
+  record(r, '结果路径渲染视频或错误状态', await waitForVisible(r.page.locator('.video-player, .empty-state, .video-section')));
   const publish = await clickText(r, '去发布');
   if (publish) record(r, '结果页可跳转发布', (await r.currentRoute()).startsWith('/publish'));
 }
 
 async function exercisePipeline(r) {
   // /create/pipeline 已合并到 /create（CreateView.vue），此处仅验证重定向后渲染创作页 + 流水线卡片
-  await r.waitForTimeout(500);
-  record(r, '流水线卡片渲染阶段', await r.page.locator('.pipeline-card').count() > 0);
+  record(r, '流水线卡片渲染阶段', await waitForVisible(r.page.locator('.pipeline-card')));
   record(r, '历史记录可切换', await clickText(r, '历史记录'));
-  await r.waitForTimeout(400);
   record(r, '流水线历史 fixture 渲染', await bodyHas(r, 'completed'));
 }
 
@@ -273,7 +319,6 @@ async function exerciseCloudPublish(r) {
   await fillByPlaceholder(r, '标签', 'E2E,云发布');
   await selectFirstUsable(r);
   record(r, '云发布提交可执行', await clickText(r, '提交云端发布'));
-  await r.waitForTimeout(200);
   record(r, '云发布返回任务 ID', await bodyHas(r, '任务已创建'));
   await expectIpc(r, 'cloudPublishSubmit', '云发布提交调用 IPC');
   record(r, '云发布记录渲染', await bodyHas(r, 'E2E 云发布记录'));
@@ -282,7 +327,6 @@ async function exerciseCloudPublish(r) {
 async function exerciseIntelligence(r) {
   await fillByPlaceholder(r, '输入关键词', 'AI 创作');
   record(r, '内容情报搜索可执行', await clickText(r, '搜索'));
-  await r.waitForTimeout(400);
   record(r, '跨平台搜索结果渲染', await bodyHas(r, '热门讨论'));
   record(r, '标题分析建议渲染', await bodyHas(r, '标题中加入'));
   await expectIpc(r, 'intelligenceSearch', '情报搜索调用 IPC');
@@ -290,12 +334,10 @@ async function exerciseIntelligence(r) {
   record(r, '搜索结果可作为参考', reference);
   // 关闭 ReferenceFinder 弹窗（UiModal 不支持 ESC，必须点击 .ui-modal-close）
   if (reference) {
-    await r.waitForTimeout(300);
-    await r.page.locator('.ui-modal-close').first().click({ force: true, timeout: 3000 }).catch(() => {});
-    await r.waitForTimeout(300);
-    // 如果还有 overlay 残留，也尝试关闭
-    await r.page.locator('.ui-modal-overlay').first().click({ force: true }).catch(() => {});
-    await r.waitForTimeout(200);
+    const modal = r.page.locator('.ui-modal').first();
+    const closeButton = r.page.locator('.ui-modal-close').first();
+    if (await waitForVisible(closeButton)) await closeButton.click({ force: true, timeout: 3000 });
+    record(r, '参考内容弹窗可关闭', await waitForHidden(modal));
   }
   record(r, '清空搜索可执行', await clickText(r, '✕'));
 }
@@ -303,12 +345,16 @@ async function exerciseIntelligence(r) {
 async function exerciseCalendar(r) {
   const labelBefore = await r.page.locator('.cohere-page-header span').first().textContent().catch(() => '');
   await clickText(r, '▶');
+  await waitForPageCondition(r, (previousLabel) => {
+    const label = document.querySelector('.cohere-page-header span');
+    return label && label.textContent !== previousLabel;
+  }, labelBefore);
   const labelAfter = await r.page.locator('.cohere-page-header span').first().textContent().catch(() => '');
   record(r, '日历可切换下个月', labelBefore !== labelAfter, { labelBefore, labelAfter });
   record(r, '日历可回到今天', await clickText(r, '今天'));
   const day = r.page.locator('.cal-day:not(.other-month)').first();
   if (await day.count()) await day.click();
-  record(r, '日期格可选择', await r.page.locator('.cal-day.selected').count() === 1);
+  record(r, '日期格可选择', await waitForVisible(r.page.locator('.cal-day.selected')));
   await expectIpc(r, 'schedulerList', '日历加载排期');
   await expectIpc(r, 'historyList', '日历加载发布历史');
 }
@@ -334,27 +380,46 @@ const definitions = {
   calendar: { route: '/calendar', title: '发布日历', exercise: exerciseCalendar }
 };
 
+function expectedRouteFor(definition) {
+  return definition.redirectExpected || definition.route;
+}
+
+async function gotoDefinition(r, definition) {
+  const expectedRoute = expectedRouteFor(definition);
+  return expectedRoute === definition.route
+    ? r.goto(definition.route)
+    : r.goto(definition.route, { expectedRoute });
+}
+
+async function resetDefinitionRoute(r, definition) {
+  if (typeof r.resetToRoute === 'function') {
+    return r.resetToRoute(definition.route, { expectedRoute: expectedRouteFor(definition) });
+  }
+  return gotoDefinition(r, definition);
+}
+
 async function auditInitialControls(r, definition) {
-  // 使用纯 reload 保证 Vue 组件状态完全重置
-  await r.page.evaluate(() => window.location.reload());
-  await r.page.waitForLoadState('domcontentloaded');
-  await r.page.waitForTimeout(500);
-  const controls = await r.page.locator('.cohere-main button').evaluateAll((buttons) => buttons.filter((button) => button.offsetParent !== null).map((button, index) => ({ index, text: (button.textContent || '').trim().slice(0, 60), disabled: button.disabled })));
+  await resetDefinitionRoute(r, definition);
+  const controls = await r.page.locator('.cohere-main button').evaluateAll((buttons) => {
+    const occurrences = new Map();
+    return buttons.filter((button) => button.getClientRects().length > 0 && !button.closest('details:not([open])')).map((button) => {
+      const text = (button.textContent || '').trim().slice(0, 60);
+      const occurrence = occurrences.get(text) || 0;
+      occurrences.set(text, occurrence + 1);
+      return { text, occurrence, disabled: button.disabled };
+    });
+  });
   let clicked = 0;
   let skipped = 0;
   const failures = [];
   for (const control of controls) {
     if (control.disabled) { skipped++; continue; }
-    // 每次 click 前也重新 reload，保证点击不互相影响
-    await r.page.evaluate(() => window.location.reload());
-    await r.page.waitForLoadState('domcontentloaded');
-    await r.page.waitForTimeout(300);
-    const locator = r.page.locator('.cohere-main button').filter({ visible: true }).nth(control.index);
+    await resetDefinitionRoute(r, definition);
+    const locator = r.page.locator('.cohere-main button').filter({ hasText: control.text, visible: true }).nth(control.occurrence);
     try {
-      if (await locator.count() && !(await locator.isDisabled())) {
+      if (await waitForVisible(locator, 2500) && !(await locator.isDisabled())) {
         await locator.click({ timeout: 2500 });
         clicked++;
-        await r.waitForTimeout(80);
       }
     } catch (error) {
       failures.push({ text: control.text, error: error.message.slice(0, 120) });
@@ -362,43 +427,138 @@ async function auditInitialControls(r, definition) {
   }
   record(r, '初始可用按钮均完成点击扫描', failures.length === 0, { total: controls.length, clicked, skipped, failures });
 
-  await r.goto(definition.route);
-  const fields = r.page.locator('.cohere-main input, .cohere-main textarea, .cohere-main select');
-  const fieldCount = await fields.count();
-  let exercised = 0;
-  for (let i = 0; i < fieldCount; i++) {
-    const field = fields.nth(i);
-    // DOM 可能在前一次操作后变化，nth(i) 已不存在时跳过而非等待 30s 超时
-    if (await field.count().catch(() => 0) === 0) continue;
-    if (!(await field.isVisible().catch(() => false)) || await field.isDisabled().catch(() => true)) continue;
-    let tag = '', type = '';
-    try {
-      tag = await field.evaluate((el) => el.tagName.toLowerCase(), { timeout: 1500 });
-      type = await field.getAttribute('type', { timeout: 1500 }) || '';
-    } catch (_) { continue; /* DOM 变化，跳过该字段 */ }
-    try {
-      if (tag === 'select') {
-        const values = await field.locator('option').evaluateAll((options) => options.map((o) => o.value).filter(Boolean));
-        if (values.length) { await field.selectOption(values[0]); exercised++; }
-      } else if (type === 'checkbox' || type === 'radio') {
-        await field.check(); exercised++;
-      } else if (!['file', 'range', 'color'].includes(type)) {
-        await field.fill(type === 'number' ? '1' : type.includes('date') ? '2026-07-15T10:00' : 'E2E 自动输入'); exercised++;
-      }
-    } catch (_) { /* route-specific exercise covers guarded fields */ }
-  }
-  record(r, '全部初始可编辑表单字段完成输入扫描', fieldCount === 0 || exercised > 0, { fieldCount, exercised });
+  await resetDefinitionRoute(r, definition);
+  await auditInitialFields(r, definition);
 
-  const links = await r.page.locator('.cohere-main a').evaluateAll((items) => items.filter((item) => item.offsetParent !== null).map((item) => ({ href: item.getAttribute('href'), text: (item.textContent || '').trim() })));
+  await resetDefinitionRoute(r, definition);
+  const links = await r.page.locator('.cohere-main a').evaluateAll((items) => items.filter((item) => item.getClientRects().length > 0 && !item.closest('details:not([open])')).map((item) => ({ href: item.getAttribute('href'), text: (item.textContent || '').trim() })));
   let linksClicked = 0;
   for (let i = 0; i < links.length; i++) {
-    await r.goto(definition.route);
+    await resetDefinitionRoute(r, definition);
     const link = r.page.locator('.cohere-main a').filter({ visible: true }).nth(i);
     try {
       if (await link.count()) { await link.click({ noWaitAfter: true, timeout: 2000 }); linksClicked++; }
     } catch (_) { /* external/browser-only links are still enumerated */ }
   }
   record(r, '页面链接完成点击扫描', links.length === 0 || linksClicked === links.length, { total: links.length, clicked: linksClicked, links });
+}
+
+function fieldValueFor(type) {
+  if (type === 'number' || type === 'range') return '1';
+  if (type === 'date') return '2026-07-15';
+  if (type === 'datetime-local') return '2026-07-15T10:00';
+  if (type === 'time') return '10:00';
+  if (type === 'month') return '2026-07';
+  if (type === 'week') return '2026-W29';
+  if (type === 'color') return '#336699';
+  if (type === 'email') return 'e2e@example.com';
+  if (type === 'url') return 'https://example.com/e2e';
+  return 'E2E 自动输入';
+}
+
+async function auditInitialFields(r, definition) {
+  const fields = r.page.locator('.cohere-main input, .cohere-main textarea, .cohere-main select');
+  const descriptors = await fields.evaluateAll((elements) => {
+    const occurrences = new Map();
+    return elements.map((element, index) => {
+      const visible = element.getClientRects().length > 0 && !element.closest('details:not([open])');
+      const identity = {
+        tag: element.tagName.toLowerCase(),
+        type: element.getAttribute('type') || '',
+        placeholder: element.getAttribute('placeholder') || '',
+        name: element.getAttribute('name') || '',
+        testid: element.getAttribute('data-testid') || ''
+      };
+      const key = JSON.stringify(identity);
+      const occurrence = visible ? (occurrences.get(key) || 0) : -1;
+      if (visible) occurrences.set(key, occurrence + 1);
+      return {
+        index,
+        ...identity,
+        occurrence,
+        visible,
+        disabled: Boolean(element.disabled),
+        readOnly: Boolean(element.readOnly)
+      };
+    });
+  });
+  const editable = descriptors.filter((field) => field.visible && !field.disabled && !field.readOnly);
+  let exercised = 0;
+  const failures = [];
+  for (const descriptor of editable) {
+    if (definition) await resetDefinitionRoute(r, definition);
+    try {
+      let field = fields.nth(descriptor.index);
+      if (definition) {
+        const identityReady = await waitForPageCondition(r, (expected) => {
+          const matches = Array.from(document.querySelectorAll('.cohere-main input, .cohere-main textarea, .cohere-main select'))
+            .filter((element) => element.getClientRects().length > 0
+              && !element.closest('details:not([open])')
+              && element.tagName.toLowerCase() === expected.tag
+              && (element.getAttribute('type') || '') === expected.type
+              && (element.getAttribute('placeholder') || '') === expected.placeholder
+              && (element.getAttribute('name') || '') === expected.name
+              && (element.getAttribute('data-testid') || '') === expected.testid);
+          return matches.length > expected.occurrence;
+        }, descriptor);
+        if (!identityReady) throw new Error('重置后找不到对应的初始字段');
+        const currentFields = r.page.locator('.cohere-main input, .cohere-main textarea, .cohere-main select');
+        const currentVisibleIndex = await currentFields.evaluateAll((elements, expected) => {
+          const visibleElements = elements.filter((element) => element.getClientRects().length > 0 && !element.closest('details:not([open])'));
+          const matchingElements = visibleElements.filter((element) =>
+            element.tagName.toLowerCase() === expected.tag
+            && (element.getAttribute('type') || '') === expected.type
+            && (element.getAttribute('placeholder') || '') === expected.placeholder
+            && (element.getAttribute('name') || '') === expected.name
+            && (element.getAttribute('data-testid') || '') === expected.testid);
+          return visibleElements.indexOf(matchingElements[expected.occurrence]);
+        }, descriptor);
+        if (currentVisibleIndex < 0) throw new Error('重置后找不到对应的初始字段');
+        field = r.page.locator('.cohere-main input:visible, .cohere-main textarea:visible, .cohere-main select:visible').nth(currentVisibleIndex);
+        if (!(await waitForVisible(field))) throw new Error('重置后的初始字段不可见');
+        const resolvedIdentity = await field.evaluate((element) => ({
+          tag: element.tagName.toLowerCase(),
+          type: element.getAttribute('type') || '',
+          placeholder: element.getAttribute('placeholder') || '',
+          name: element.getAttribute('name') || '',
+          testid: element.getAttribute('data-testid') || ''
+        }));
+        if (resolvedIdentity.tag !== descriptor.tag
+          || resolvedIdentity.type !== descriptor.type
+          || resolvedIdentity.placeholder !== descriptor.placeholder
+          || resolvedIdentity.name !== descriptor.name
+          || resolvedIdentity.testid !== descriptor.testid) {
+          throw new Error('重置后的字段身份发生变化');
+        }
+      }
+      if (descriptor.tag === 'select') {
+        const values = await field.locator('option').evaluateAll((options) => options.map((o) => o.value).filter(Boolean));
+        if (!values.length) throw new Error('没有可选择的非空选项');
+        await field.selectOption(values[0]);
+      } else if (descriptor.type === 'checkbox' || descriptor.type === 'radio') {
+        await field.check();
+      } else if (descriptor.type === 'file') {
+        await field.setInputFiles({ name: 'e2e.txt', mimeType: 'text/plain', buffer: Buffer.from('e2e') });
+      } else {
+        await field.fill(fieldValueFor(descriptor.type));
+      }
+      exercised++;
+    } catch (error) {
+      failures.push({
+        index: descriptor.index,
+        tag: descriptor.tag,
+        type: descriptor.type,
+        placeholder: descriptor.placeholder,
+        name: descriptor.name,
+        testid: descriptor.testid,
+        error: error.message
+      });
+    }
+  }
+  const details = { fieldCount: descriptors.length, editableCount: editable.length, exercised, failures };
+  const passed = failures.length === 0 && exercised === editable.length;
+  record(r, '全部初始可编辑表单字段完成输入扫描', passed, details);
+  return { passed, details };
 }
 
 async function runRouteSpec(specName, options = {}) {
@@ -410,7 +570,7 @@ async function runRouteSpec(specName, options = {}) {
   // 允许的 console error（预期的 mock 路径错误等）
   const allowedConsoleErrors = ['Not allowed to load local resource'];
   try {
-    await r.goto(definition.route);
+    await gotoDefinition(r, definition);
     // 若定义了 redirectExpected（如 /create/pipeline → /create），检查重定向后路径
     const expectedRoute = definition.redirectExpected || definition.route;
     record(r, '路由地址正确', (await r.currentRoute()).startsWith(expectedRoute));
@@ -418,12 +578,8 @@ async function runRouteSpec(specName, options = {}) {
     await definition.exercise(r);
     await auditInitialControls(r, definition);
     await r.page.setViewportSize({ width: 1024, height: 768 });
-    await r.page.reload({ waitUntil: 'domcontentloaded' });
-    // 等待标题文本出现（最多 5s），避免固定 waitForTimeout 在慢机子上偶发失败
+    await resetDefinitionRoute(r, definition);
     const expectedTitle = definition.title;
-    try {
-      await r.page.waitForFunction((title) => document.body && document.body.innerText.includes(title), expectedTitle, { timeout: 10000 });
-    } catch (_) { /* 超时后用 bodyHas 再判一次，保留失败现场 */ }
     record(r, '响应式窗口仍渲染标题', await bodyHas(r, expectedTitle) || (specName === 'first-run' && await bodyHas(r, '开始配置')));
     await r.expectNoConsoleError(allowedConsoleErrors);
     await r.expectNoPageError();
@@ -451,4 +607,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { definitions, runRouteSpec };
+module.exports = { definitions, runRouteSpec, auditInitialControls, auditInitialFields };

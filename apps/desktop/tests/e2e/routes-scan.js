@@ -47,7 +47,7 @@ async function scanRoute(r, route) {
     // 重置 mock 状态
     await r.page.evaluate(() => window.__resetMock());
     await r.goto(route.path);
-    await r.waitForTimeout(800); // 给 Vue 异步渲染时间
+    await r.waitForAppReady(route.path);
 
     const stats = await r.page.evaluate(() => {
       const buttons = Array.from(document.querySelectorAll('button'));

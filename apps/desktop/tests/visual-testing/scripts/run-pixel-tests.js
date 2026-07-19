@@ -1,83 +1,111 @@
 /**
- * Pixel comparison test runner (full version)
- * Uses local test-runner (supports hash routing)
+ * 浏览器可稳定渲染视图的像素门禁。
+ * Electron 专属 WebContentsView 页面由真实 Electron E2E 覆盖，不在此处伪装为跳过成功。
  */
-try { require("dotenv").config({ path: __dirname + "/../.env" }); } catch (_) {}
 
-const { VisualTestRunner } = require("../test-runner");
+try { require('dotenv').config({ path: __dirname + '/../.env' }); } catch (_) {}
+
+const { VisualTestRunner } = require('../test-runner');
 
 const pixelTests = [
-  { name: "home-baseline", route: "/" },
-  { name: "accounts-list", route: "/accounts" },
-  { name: "publish-form", route: "/publish" },
-  { name: "monitor-dashboard", route: "/monitor", electronOnly: true },
-  { name: "analytics-overview", route: "/analytics" },
-  { name: "settings-general", route: "/settings" },
-  { name: "login-form", route: "/login" },
-  { name: "create-editor", route: "/create" },
-  { name: "model-providers", route: "/model-providers" },
-  { name: "first-run", route: "/first-run", waitMs: 1500 },
-  { name: "dashboard", route: "/dashboard", waitMs: 1500 },
-  { name: "calendar", route: "/calendar", waitMs: 1500 },
-  { name: "cloud-publish", route: "/cloud-publish", waitMs: 1500 },
-  { name: "viral-analysis", route: "/viral-analysis", waitMs: 1500 },
-  { name: "create-result", route: "/create/result", waitMs: 1500 },
-  { name: "create-pipeline", route: "/create/pipeline", waitMs: 1500 },
-  { name: "create-history", route: "/create/history", waitMs: 1500 },
-  { name: "intelligence", route: "/intelligence", waitMs: 1500 },
-  { name: "keyword-monitor", route: "/keywords", waitMs: 1500 },
-  { name: "collection", route: "/collection", waitMs: 1500 },
-  { name: "comments", route: "/comments", electronOnly: true },
+  { name: 'home-baseline', route: '/', waitFor: '.cohere-main .page-title:has-text("社媒管家")' },
+  { name: 'accounts-list', route: '/accounts', waitFor: '.cohere-main .page-title:has-text("账号管理")' },
+  { name: 'publish-form', route: '/publish', waitFor: '.cohere-main .page-title:has-text("一键发布")' },
+  { name: 'create-editor', route: '/create', waitFor: '.cohere-main h1:has-text("视频创作")' },
+  { name: 'model-providers', route: '/model-providers', waitFor: '.cohere-main .page-title:has-text("模型服务商设置")' },
+  { name: 'first-run', route: '/first-run', waitFor: '.cohere-main h2:has-text("欢迎使用社媒管家")' },
+  { name: 'dashboard', route: '/dashboard', waitFor: '.cohere-main .page-title:has-text("数据看板")' },
+  { name: 'calendar', route: '/calendar', waitFor: '.cohere-main .page-title:has-text("发布日历")' },
+  { name: 'cloud-publish', route: '/cloud-publish', waitFor: '.cohere-main .page-title:has-text("云端发布")' },
+  { name: 'viral-analysis', route: '/viral-analysis', waitFor: '.cohere-main .page-title:has-text("爆款分析")' },
+  { name: 'create-result', route: '/create/result', waitFor: '.cohere-main h1:has-text("视频预览")' },
+  { name: 'create-pipeline', route: '/create/pipeline', expectedRoute: '/create', waitFor: '.cohere-main h1:has-text("视频创作")' },
+  { name: 'create-history', route: '/create/history', waitFor: '.cohere-main h1:has-text("创作历史")' },
+  { name: 'intelligence', route: '/intelligence', waitFor: '.cohere-main .page-title:has-text("内容情报")' },
+  { name: 'keyword-monitor', route: '/keywords', waitFor: '.cohere-main .page-title:has-text("关键词监测")' },
+  { name: 'collection', route: '/collection', waitFor: '.cohere-main .page-title:has-text("内容采集")' },
 ];
 
-async function run() {
-  console.log("\nPixel Comparison Tests - Full\n");
-  console.log("  Target: " + (process.env.TEST_URL || "http://127.0.0.1:5174") + "\n");
-
-  const runner = new VisualTestRunner({
-    url: process.env.TEST_URL || "http://127.0.0.1:5174",
+function createRunner(options = {}) {
+  return new VisualTestRunner({
+    url: options.url || process.env.TEST_URL || 'http://127.0.0.1:5174',
   });
+}
 
-  await runner.launch();
+async function runPixelSuite(tests = pixelTests, options = {}) {
+  const runner = options.runner || createRunner(options);
+  const results = [];
+  let fatalError = null;
 
-  let passed = 0;
-  let failed = 0;
-  let skipped = 0;
-  let baselined = 0;
-
-  for (const test of pixelTests) {
-    if (test.electronOnly && !process.env.ELECTRON_TEST) {
-      console.log(test.name + " (" + test.route + ")... SKIPPED (electron-only)");
-      skipped++;
-      continue;
-    }
-
-    console.log(test.name + " (" + test.route + ")...");
-    try {
-      const result = await runner.pixelRegressionTest(test.name, test.route, {
-        waitMs: test.waitMs
-      });
-      if (result && result.status === "BASELINE_CREATED") {
-        baselined++;
-        console.log("  BASELINE_CREATED");
-      } else {
-        passed++;
-        console.log("  PASSED (" + result.misMatchPercentage + "%)");
+  try {
+    await runner.launch();
+    for (const test of tests) {
+      console.log(test.name + ' (' + test.route + ')...');
+      try {
+        const result = await runner.pixelRegressionTest(test.name, test.route, {
+          expectedRoute: test.expectedRoute,
+          waitFor: test.waitFor,
+        });
+        const status = result && result.status === 'BASELINE_CREATED'
+          ? 'BASELINE_CREATED'
+          : 'PASSED';
+        results.push({ test: test.name, route: test.route, status, result });
+        console.log('  ' + status);
+      } catch (error) {
+        results.push({
+          test: test.name,
+          route: test.route,
+          status: 'FAILED',
+          error: error.message,
+        });
+        console.log('  FAILED: ' + error.message.split('\n')[0]);
       }
-    } catch (err) {
-      console.log("  FAILED: " + err.message.split("\n")[0]);
-      failed++;
+    }
+  } catch (error) {
+    fatalError = error;
+  } finally {
+    try {
+      await runner.close();
+    } catch (error) {
+      fatalError ||= error;
     }
   }
 
-  await runner.close();
+  if (fatalError) throw fatalError;
 
-  const tested = passed + baselined + failed;
-  console.log("\nPixel Diff: " + (passed + baselined) + "/" + tested + " passed (" + baselined + " new baselines), " + failed + " failed, " + skipped + " skipped (electron-only)\n");
-  process.exit(failed > 0 ? 1 : 0);
+  const failed = results.filter(result => result.status === 'FAILED').length;
+  const baselined = results.filter(result => result.status === 'BASELINE_CREATED').length;
+  const passed = results.length - failed - baselined;
+  return { results, failed, passed, baselined };
 }
 
-run().catch(err => {
-  console.error("Runner failed:", err.message);
-  process.exit(1);
-});
+async function main() {
+  console.log('像素视觉门禁');
+  console.log('目标: ' + (process.env.TEST_URL || 'http://127.0.0.1:5174'));
+  const summary = await runPixelSuite();
+  console.log(
+    '像素结果: '
+    + (summary.passed + summary.baselined)
+    + '/' + summary.results.length
+    + ' 通过，' + summary.failed + ' 失败',
+  );
+  if (summary.failed > 0) {
+    const error = new Error('像素视觉门禁存在 ' + summary.failed + ' 个失败');
+    error.code = 'ERR_PIXEL_GATE_FAILED';
+    throw error;
+  }
+  return summary;
+}
+
+if (require.main === module) {
+  main().catch(error => {
+    console.error('像素门禁失败: ' + error.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  pixelTests,
+  runPixelSuite,
+  main,
+};

@@ -36,60 +36,92 @@ async function testHome(r) {
   await r.screenshot('home-loaded');
 }
 
+function assertJsonSerializable(value) {
+  try {
+    const serialized = JSON.stringify(value);
+    assert(typeof serialized === 'string', 'publishBatch IPC 载荷必须可 JSON 序列化');
+    JSON.parse(serialized);
+  } catch (error) {
+    throw new Error('publishBatch IPC 载荷无法 JSON 序列化: ' + (error.message || String(error)));
+  }
+}
+
+async function clickAndVerifyPublish(r, expectedFailure) {
+  const beforeCalls = await r.getIpcCalls('publishBatch');
+  const publishButton = r.page.locator('button:has-text("一键发布")').first();
+  assert(await publishButton.count() > 0, '发布页必须存在一键发布按钮');
+
+  await publishButton.click();
+  await r.page.waitForFunction((previousCalls) => {
+    return (window.__ipcCallsByMethod.publishBatch || 0) > previousCalls;
+  }, beforeCalls, { timeout: 5000 });
+
+  const afterCalls = await r.getIpcCalls('publishBatch');
+  assert(afterCalls > beforeCalls, '点击发布后 publishBatch IPC 调用次数必须增加');
+
+  const calls = await r.getIpcCalls();
+  const publishCall = calls.slice().reverse().find((call) => call.method === 'publishBatch');
+  assert(publishCall, '必须记录 publishBatch IPC 调用');
+  assertJsonSerializable(publishCall.args);
+
+  const resultSelector = expectedFailure
+    ? '.cohere-tag-danger:has-text("发布失败")'
+    : '.cohere-tag-success:has-text("发布成功")';
+  await r.page.locator(resultSelector).first().waitFor({ state: 'visible', timeout: 5000 });
+  await r.expectText(expectedFailure ? '发布失败' : '发布成功');
+}
 async function testPublish(r) {
   console.log('\n=== Publish ===');
   await r.goto('/publish');
   await r.expectText('一键发布');
-  await r.waitForTimeout(800); // 等平台列表加载
+  await r.page.waitForFunction(() => {
+    return (window.__ipcCallsByMethod.getPlatformDefinitions || 0) > 0 &&
+      (window.__ipcCallsByMethod.licenseInfo || 0) > 0 &&
+      document.querySelectorAll('.el-checkbox-group input[type="checkbox"]').length > 0;
+  }, null, { timeout: 5000 });
 
   // 切换批量模式
-  const batchToggle = await r.page.$('input[type="checkbox"]');
-  if (batchToggle) {
+  const batchToggleSelector = 'label.cohere-toggle input[type="checkbox"]';
+  const batchToggle = r.page.locator(batchToggleSelector).first();
+  if (await batchToggle.count() > 0) {
     await batchToggle.click();
-    await r.waitForTimeout(300);
+    await r.page.waitForFunction((selector) => {
+      const checkbox = document.querySelector(selector);
+      return checkbox && checkbox.checked;
+    }, batchToggleSelector, { timeout: 3000 });
+    await r.page.locator('button:has-text("添加文章")').waitFor({ state: 'visible', timeout: 3000 });
     await r.expectText('批量');
     await r.screenshot('publish-batch-mode');
 
     // 切换回单篇模式
     await batchToggle.click();
-    await r.waitForTimeout(300);
+    await r.page.waitForFunction((selector) => {
+      const checkbox = document.querySelector(selector);
+      return checkbox && !checkbox.checked;
+    }, batchToggleSelector, { timeout: 3000 });
+    await r.page.locator('input[placeholder="搜索平台..."]').waitFor({ state: 'visible', timeout: 3000 });
   }
 
-  // 列出所有按钮
-  const buttons = await r.listButtons();
-  console.log('  Publish buttons:', buttons.length);
+  const titleInput = r.page.locator('input[placeholder="请输入文章标题"]').first();
+  await titleInput.fill('E2E 测试标题');
 
-  // 列出平台复选框
-  const platformChecks = await r.page.$$eval('input[type="checkbox"]', els =>
-    els.filter(el => el.offsetParent !== null).map(el => ({
-      checked: el.checked,
-      value: el.value
-    }))
-  );
-  console.log('  Platform checkboxes:', platformChecks.length);
+  const articleEditor = r.page.locator('.article-editor .ql-editor').first();
+  await articleEditor.fill('E2E 测试正文，用于验证完整发布流程。');
 
-  // 勾选第一个非批量模式的平台（如果没有批量）
-  if (platformChecks.length > 1) {
-    const platformCheckboxes = await r.page.$$('input[type="checkbox"]:not([type="radio"])');
-    if (platformChecks[1] && !platformChecks[1].checked) {
-      // 找到非 batch 的 checkbox
-    }
-  }
-
-  // 填写标题
-  const titleInputs = await r.page.$$('input[type="text"], input:not([type])');
-  if (titleInputs.length > 0) {
-    await titleInputs[0].fill('E2E 测试标题');
-  }
+  const platformOption = r.page.locator('.el-checkbox-group .el-checkbox:not(.is-disabled)').first();
+  assert(await platformOption.count() > 0, '发布页必须存在可选平台');
+  await platformOption.click();
+  await r.page.waitForFunction(() => {
+    return Array.from(document.querySelectorAll('.el-checkbox-group input[type="checkbox"]'))
+      .some((checkbox) => checkbox.checked);
+  }, null, { timeout: 3000 });
 
   await r.screenshot('publish-with-content');
+  await clickAndVerifyPublish(r, false);
 
-  // 点发布按钮（如果有）
-  const publishBtns = await r.page.$$eval('button', els =>
-    els.filter(b => /发布|发布中/.test(b.textContent) && b.offsetParent !== null).map(b => b.textContent.trim())
-  );
-  console.log('  Publish buttons:', publishBtns);
-
+  await r.failNextIpc('publishBatch', 'B1 注入发布失败');
+  await clickAndVerifyPublish(r, true);
+  await r.expectText('B1 注入发布失败');
   await r.expectNoConsoleError();
 }
 
@@ -97,17 +129,27 @@ async function testDashboard(r) {
   console.log('\n=== Dashboard ===');
   await r.goto('/dashboard');
   await r.expectText('数据看板');
-  await r.waitForTimeout(800);
+  await r.page.waitForFunction(() => {
+    return (window.__ipcCallsByMethod.syncCached || 0) > 0 &&
+      (window.__ipcCallsByMethod.dashboardStats || 0) > 0 &&
+      (window.__ipcCallsByMethod.historyList || 0) > 0;
+  }, null, { timeout: 5000 });
 
   // 检查平台数据卡片
   const platformCards = await r.page.$$eval('.cohere-card', els => els.length);
   console.log('  Platform cards:', platformCards);
 
   // 点击"刷新数据"按钮（如果存在）
-  const refreshBtn = await r.page.locator('button:has-text("刷新")').first();
+  const refreshBtn = r.page.locator('button:has-text("刷新数据")').first();
   if (await refreshBtn.count() > 0) {
-    await refreshBtn.click({ timeout: 2000 }).catch(() => {});
-    await r.waitForTimeout(500);
+    const syncAllCalls = await r.getIpcCalls('syncAll');
+    const syncCachedCalls = await r.getIpcCalls('syncCached');
+    await refreshBtn.click({ timeout: 2000 });
+    await r.page.waitForFunction(([previousSyncAll, previousSyncCached]) => {
+      return (window.__ipcCallsByMethod.syncAll || 0) > previousSyncAll &&
+        (window.__ipcCallsByMethod.syncCached || 0) > previousSyncCached;
+    }, [syncAllCalls, syncCachedCalls], { timeout: 5000 });
+    await r.page.locator('button:has-text("刷新数据")').waitFor({ state: 'visible', timeout: 3000 });
     console.log('  Refresh clicked');
   }
 
@@ -115,11 +157,14 @@ async function testDashboard(r) {
   const benchInput = await r.page.locator('input[placeholder*="基准"]').first();
   if (await benchInput.count() > 0) {
     await benchInput.fill('测试文章基准');
-    await r.waitForTimeout(200);
     const analyzeBtn = await r.page.locator('button:has-text("分析")').first();
     if (await analyzeBtn.count() > 0) {
-      await analyzeBtn.click({ timeout: 2000 }).catch(() => {});
-      await r.waitForTimeout(500);
+      const benchmarkCalls = await r.getIpcCalls('intelligenceGetBenchmark');
+      await analyzeBtn.click({ timeout: 2000 });
+      await r.page.waitForFunction((previousCalls) => {
+        return (window.__ipcCallsByMethod.intelligenceGetBenchmark || 0) > previousCalls;
+      }, benchmarkCalls, { timeout: 5000 });
+      await r.page.locator('text=/基于 \\d+ 条同类内容/').waitFor({ state: 'visible', timeout: 5000 });
       console.log('  Benchmark analyzed');
     }
   }
@@ -132,7 +177,14 @@ async function testCloudPublish(r) {
   console.log('\n=== CloudPublish ===');
   await r.goto('/cloud-publish');
   await r.expectText('云发布');
-  await r.waitForTimeout(800);
+  await r.page.waitForFunction(() => {
+    const platformSelect = document.querySelector('select.cohere-input');
+    return (window.__ipcCallsByMethod.cloudPublishPlatforms || 0) > 0 &&
+      (window.__ipcCallsByMethod.cloudPublishListTasks || 0) > 0 &&
+      platformSelect &&
+      platformSelect.options.length > 0 &&
+      !document.body.innerText.includes('加载中...');
+  }, null, { timeout: 5000 });
 
   const buttons = await r.listButtons();
   console.log('  CloudPublish buttons:', buttons.length);
@@ -143,27 +195,86 @@ async function testCloudPublish(r) {
   await r.expectNoConsoleError();
 }
 
-(async () => {
-  const r = new FunctionalRunner({ specName: 'b1-core-publish' });
-  await r.launch();
+const DEFAULT_SCENARIOS = [testHome, testPublish, testDashboard, testCloudPublish];
+
+function reportHasFailures(report) {
+  if (!report || !report.checks) return true;
+  const checks = report.checks;
+  const failedChecks = Number(checks.failed || 0);
+  const incompleteChecks = Number(checks.passed || 0) < Number(checks.total || 0);
+  return failedChecks > 0 ||
+    incompleteChecks ||
+    (report.consoleErrors || []).length > 0 ||
+    (report.pageErrors || []).length > 0;
+}
+
+function logSummary(logger, report) {
+  const checks = report.checks;
+  logger.log('\n=== B1 Summary ===');
+  logger.log('Checks:', checks.passed + '/' + checks.total);
+  logger.log('Console errors:', report.consoleErrors.length);
+  logger.log('Page errors:', report.pageErrors.length);
+  report.consoleErrors.forEach((error) => logger.log('  console:', error.text.slice(0, 200)));
+  report.pageErrors.forEach((error) => logger.log('  page:', error.message.slice(0, 200)));
+}
+
+function logFailure(logger, prefix, error) {
+  const message = error && error.message ? error.message : String(error);
+  logger.error(prefix + ':', message);
+  if (error && error.stack) logger.error(error.stack);
+}
+
+async function run(options = {}) {
+  const r = options.runner || new FunctionalRunner({ specName: 'b1-core-publish', initPro: true });
+  const scenarios = options.scenarios || DEFAULT_SCENARIOS;
+  const logger = options.logger || console;
+  let exitCode = 0;
+
   try {
-    await testHome(r);
-    await testPublish(r);
-    await testDashboard(r);
-    await testCloudPublish(r);
-  } catch (e) {
-    console.error('FAIL:', e.message);
-    console.error(e.stack);
+    await r.launch();
+    for (const scenario of scenarios) {
+      await scenario(r);
+    }
+  } catch (error) {
+    exitCode = 1;
+    logFailure(logger, 'B1 场景失败', error);
+  } finally {
+    try {
+      const report = r.generateReport();
+      logSummary(logger, report);
+      if (reportHasFailures(report)) exitCode = 1;
+    } catch (error) {
+      exitCode = 1;
+      logFailure(logger, '生成 B1 报告失败', error);
+    }
+
+    try {
+      r.saveReport();
+    } catch (error) {
+      exitCode = 1;
+      logFailure(logger, '保存 B1 报告失败', error);
+    }
+
+    try {
+      await r.close();
+    } catch (error) {
+      exitCode = 1;
+      logFailure(logger, '关闭 B1 runner 失败', error);
+    }
   }
-  const report = r.generateReport();
-  console.log('\n=== B1 Summary ===');
-  console.log('Checks:', report.checks.passed + '/' + report.checks.total);
-  console.log('Console errors:', report.consoleErrors.length);
-  console.log('Page errors:', report.pageErrors.length);
-  if (report.consoleErrors.length > 0) {
-    report.consoleErrors.forEach(e => console.log('  console:', e.text.slice(0, 200)));
-  }
-  r.saveReport();
-  await r.close();
-  process.exit(0);
-})();
+
+  return exitCode;
+}
+
+async function main(options = {}) {
+  const exitCode = await run(options);
+  const processRef = options.processRef || process;
+  processRef.exitCode = exitCode;
+  return exitCode;
+}
+
+if (require.main === module) {
+  void main();
+}
+
+module.exports = { main, run, testPublish, testHome, testDashboard, testCloudPublish };

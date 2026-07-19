@@ -44,6 +44,7 @@ class FunctionalRunner {
     this.pageErrors = [];
     this.actions = [];
     this.checks = [];
+    this.resetSequence = 0;
   }
 
   async launch() {
@@ -102,11 +103,35 @@ class FunctionalRunner {
   }
 
   /** 导航到指定路由（hash 模式） */
-  async goto(route) {
+  async goto(route, options = {}) {
+    const expectedRoute = options.expectedRoute || route;
     const url = this.url + '/#' + route;
     await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await this.page.waitForTimeout(500);
-    this.actions.push({ kind: 'goto', route, at: Date.now });
+    await this.waitForAppReady(expectedRoute);
+    this.actions.push({ kind: 'goto', route, expectedRoute, at: Date.now() });
+  }
+
+  /** 完整刷新当前路由，隔离前一个交互留下的弹窗和响应式状态 */
+  async resetToRoute(route, options = {}) {
+    const expectedRoute = options.expectedRoute || route;
+    const resetUrl = `${this.url}/?__e2e_reset=${++this.resetSequence}#${route}`;
+    await this.page.goto(resetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await this.waitForAppReady(expectedRoute);
+    this.actions.push({ kind: 'resetToRoute', route, expectedRoute, at: Date.now() });
+  }
+
+  /** 等待 Vue 完成挂载并切换到目标路由 */
+  async waitForAppReady(route, timeout = 5000) {
+    const expectedHash = '#' + route;
+    await this.page.waitForURL((currentUrl) => currentUrl.hash === expectedHash, { timeout });
+    await this.page.locator('#app').waitFor({ state: 'visible', timeout });
+    await this.page.waitForFunction((hash) => {
+      const app = document.querySelector('#app');
+      return window.location.hash === hash &&
+        app &&
+        app.hasAttribute('data-v-app') &&
+        (app.textContent || '').trim().length > 0;
+    }, expectedHash, { timeout });
   }
 
   /** 等待指定选择器出现 */
@@ -117,11 +142,6 @@ class FunctionalRunner {
     } catch (_) {
       return false;
     }
-  }
-
-  /** 等待 N 毫秒 */
-  async waitForTimeout(ms) {
-    await this.page.waitForTimeout(ms);
   }
 
   /** 等待文字出现 */
@@ -233,28 +253,49 @@ class FunctionalRunner {
     } else {
       throw new Error('clickButton: by must be text|index|selector');
     }
-    await this.page.waitForTimeout(200);
     this.actions.push({ kind: 'clickButton', by, value, at: Date.now() });
   }
 
   /** 点击链接 */
   async clickLink(href) {
-    await this.page.click(`a[href="${href}"]`);
-    await this.page.waitForTimeout(300);
+    const link = this.page.locator(`a[href="${href}"]`).first();
+    await link.waitFor({ state: 'visible', timeout: 3000 });
+    const target = await link.getAttribute('target');
+    const shouldNavigateCurrentPage = target !== '_blank' &&
+      !href.startsWith('javascript:') &&
+      !href.startsWith('mailto:');
+
+    if (shouldNavigateCurrentPage) {
+      const expectedUrl = new URL(href, this.page.url()).href;
+      await Promise.all([
+        this.page.waitForURL(expectedUrl, { timeout: 5000 }),
+        link.click(),
+      ]);
+    } else {
+      await link.click();
+    }
     this.actions.push({ kind: 'clickLink', href, at: Date.now() });
   }
 
   /** 点击 router-link */
   async clickRouterLink(path) {
-    await this.page.click(`a[href="#${path}"], a[href="/#${path}"]`);
-    await this.page.waitForTimeout(300);
+    const expectedHash = '#' + path;
+    const link = this.page.locator(`a[href="#${path}"], a[href="/#${path}"]`).first();
+    await Promise.all([
+      this.page.waitForURL((currentUrl) => currentUrl.hash === expectedHash, { timeout: 5000 }),
+      link.click(),
+    ]);
+    await this.waitForAppReady(path);
     this.actions.push({ kind: 'clickRouterLink', path, at: Date.now() });
   }
 
   /** 填写表单字段 */
   async fillInput(selector, value) {
     await this.page.fill(selector, value);
-    await this.page.waitForTimeout(100);
+    await this.page.waitForFunction(({ inputSelector, expectedValue }) => {
+      const input = document.querySelector(inputSelector);
+      return input && input.value === expectedValue;
+    }, { inputSelector: selector, expectedValue: String(value) }, { timeout: 3000 });
     this.actions.push({ kind: 'fill', selector, value: String(value).slice(0, 50), at: Date.now() });
   }
 
@@ -278,11 +319,19 @@ class FunctionalRunner {
     if (method === 'escape') {
       await this.page.keyboard.press('Escape');
     } else if (method === 'overlay') {
-      await this.page.click('.el-overlay, .ui-modal-overlay, [data-modal-overlay]').catch(() => {});
+      await this.page.locator('.el-overlay, .ui-modal-overlay, [data-modal-overlay]').first().click({ timeout: 3000 });
     } else if (method === 'close-btn') {
-      await this.page.click('[data-modal-close], .el-dialog__close, .ui-modal-close').catch(() => {});
+      await this.page.locator('[data-modal-close], .el-dialog__close, .ui-modal-close').first().click({ timeout: 3000 });
     }
-    await this.page.waitForTimeout(200);
+    await this.page.waitForFunction((selector) => {
+      return Array.from(document.querySelectorAll(selector)).every((element) => {
+        const style = window.getComputedStyle(element);
+        return style.display === 'none' ||
+          style.visibility === 'hidden' ||
+          style.opacity === '0' ||
+          element.getClientRects().length === 0;
+      });
+    }, '[role="dialog"], .el-dialog, .ui-modal, [data-modal], .el-overlay, .ui-modal-overlay, [data-modal-overlay]', { timeout: 3000 });
   }
 
   /** 获取当前路由 */

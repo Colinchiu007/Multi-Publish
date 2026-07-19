@@ -185,7 +185,11 @@
     onCallbackReceived: makeOn('callback:received'),
 
     // 离线
-    offlineStatus: makeHandler('offlineStatus', async () => ok({ isOffline: state.offline })),
+    offlineStatus: makeHandler('offlineStatus', async () => ok({
+      offline: state.offline,
+      cachedCount: 0,
+      cachedTasks: [],
+    })),
     offlineIsOffline: makeHandler('offlineIsOffline', async () => ok(state.offline)),
     offlineCachedTasks: makeHandler('offlineCachedTasks', async () => ok([])),
     offlineAddToCache: makeHandler('offlineAddToCache', async () => ok(true)),
@@ -311,7 +315,8 @@
     modelProviderGet: makeHandler('modelProviderGet', async (id) => ok(state.providers.find(function (p) { return p.id === id; }) || null)),
     modelProviderCreate: makeHandler('modelProviderCreate', async (data) => {
       const id = 'custom_' + Date.now();
-      const created = Object.assign({ id, preset: false, configured: true, isDefault: false, createdAt: new Date().toISOString() }, data);
+      const now = new Date().toISOString();
+      const created = Object.assign({ id, is_preset: false, is_default: false, configured: true, created_at: now, updated_at: now }, data);
       state.providers.push(created);
       return ok(created);
     }),
@@ -328,13 +333,13 @@
       return ok(true);
     }),
     modelProviderSetDefault: makeHandler('modelProviderSetDefault', async (cat, id) => {
-      state.providers.forEach(function (p) { if (p.category === cat) p.isDefault = (p.id === id); });
+      state.providers.forEach(function (p) { if (p.category === cat) p.is_default = (p.id === id); });
       state.providerDefaults[cat] = id;
       return ok({ category: cat, id });
     }),
     modelProviderGetDefault: makeHandler('modelProviderGetDefault', async (cat) => ok(state.providers.find(function (p) { return p.id === state.providerDefaults[cat]; }) || null)),
     modelProviderTest: makeHandler('modelProviderTest', async () => ok({ ok: true, latency: 95, model: 'gpt-4' })),
-    modelProviderPresets: makeHandler('modelProviderPresets', async (cat) => ok(state.providers.filter(function (p) { return p.preset && (!cat || p.category === cat); }))),
+    modelProviderPresets: makeHandler('modelProviderPresets', async (cat) => ok(state.providers.filter(function (p) { return p.is_preset && (!cat || p.category === cat); }))),
     modelProviderIsConfigured: makeHandler('modelProviderIsConfigured', async (cat) => ok(state.providerDefaults[cat] != null)),
 
     // 视频
@@ -506,7 +511,7 @@
     // 账号管理
     accountAdd: makeHandler('accountAdd', async (platform) => {
       const id = 'acc_' + platform + '_' + Date.now();
-      const acc = { id, platform, name: '测试' + platform, is_default: false, status: 'online', createdAt: new Date().toISOString() };
+      const acc = { id, platform, name: '测试' + platform, is_default: false, status: 'online', created_at: new Date().toISOString() };
       state.accounts.push(acc);
       return ok(acc);
     }),
@@ -564,7 +569,7 @@
     //  与 accountList 行为一致；带 platform 时按平台过滤）
     storeAddAccount: makeHandler('storeAddAccount', async (a) => {
       const id = a.id || ('store_acc_' + Date.now());
-      const acc = Object.assign({ id, createdAt: new Date().toISOString(), is_default: false, status: 'active' }, a);
+      const acc = Object.assign({ id, created_at: new Date().toISOString(), is_default: false, status: 'active' }, a);
       state.accounts.push(acc);
       return ok(acc);
     }),
@@ -596,7 +601,7 @@
       state.schedulerTasks = state.schedulerTasks.filter(function (t) { return t.id !== id; });
       return ok(true);
     }),
-    storeGetSetting: makeHandler('storeGetSetting', async (key) => ({
+    storeGetSetting: makeHandler('storeGetSetting', async (key) => ok({
       'drafts': JSON.stringify(state.articles),
       'default_llm': 'preset_openai',
       'theme': 'light'
