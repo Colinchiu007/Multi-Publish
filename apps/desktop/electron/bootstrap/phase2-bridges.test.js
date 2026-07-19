@@ -17,16 +17,13 @@ const { startBridges } = require('./phase2-bridges')
 
 describe('phase2-bridges.startBridges', () => {
   let mockApp, mockPythonBridge, mockSplitterBridge, mockPromptBridge
-  let beforeQuitHandlers
 
   beforeEach(() => {
-    beforeQuitHandlers = []
-    mockApp = {
-      on: vi.fn((event, handler) => {
-        if (event === 'before-quit') beforeQuitHandlers.push(handler)
-      }),
+    mockApp = { on: vi.fn() }
+    mockPythonBridge = {
+      startPythonBackend: vi.fn(() => Promise.resolve()),
+      stopPythonBackend: vi.fn(() => Promise.resolve()),
     }
-    mockPythonBridge = { startPythonBackend: vi.fn(() => Promise.resolve()) }
     mockSplitterBridge = { start: vi.fn(() => Promise.resolve()), stop: vi.fn(() => Promise.resolve()) }
     mockPromptBridge = { start: vi.fn(() => Promise.resolve()), stop: vi.fn(() => Promise.resolve()) }
     log.info.mockClear()
@@ -56,7 +53,7 @@ describe('phase2-bridges.startBridges', () => {
       splitterBridge: mockSplitterBridge,
       promptBridge: mockPromptBridge,
     })
-    expect(log.error).toHaveBeenCalledWith('App', 'Failed to start Python backend:', 'python down')
+    expect(log.error).toHaveBeenCalledWith('App', 'Failed to start Python backend: python down')
     expect(mockSplitterBridge.start).toHaveBeenCalledTimes(1)
     expect(mockPromptBridge.start).toHaveBeenCalledTimes(1)
   })
@@ -74,31 +71,57 @@ describe('phase2-bridges.startBridges', () => {
     expect(log.info).toHaveBeenCalledWith('App', 'PromptBridge started')
   })
 
-  it('before-quit 注册 — 触发时调用 stop', async () => {
-    await startBridges({
+  it('返回显式可等待的 bridge 清理函数，不注册异步 before-quit 监听器', async () => {
+    const stopBridges = await startBridges({
       app: mockApp,
       pythonBridge: mockPythonBridge,
       splitterBridge: mockSplitterBridge,
       promptBridge: mockPromptBridge,
     })
-    expect(mockApp.on).toHaveBeenCalledWith('before-quit', expect.any(Function))
-    expect(beforeQuitHandlers).toHaveLength(1)
-    // 模拟 before-quit 触发
-    await beforeQuitHandlers[0]()
+    expect(stopBridges).toBeTypeOf('function')
+    expect(mockApp.on).not.toHaveBeenCalled()
+    await stopBridges()
+    expect(mockPythonBridge.stopPythonBackend).toHaveBeenCalledTimes(1)
     expect(mockSplitterBridge.stop).toHaveBeenCalledTimes(1)
     expect(mockPromptBridge.stop).toHaveBeenCalledTimes(1)
   })
 
-  it('before-quit 中 stop 失败 — 不影响其他 stop', async () => {
-    mockSplitterBridge.stop = vi.fn(() => Promise.reject(new Error('stop fail')))
-    await startBridges({
+  it('bridge 清理幂等且等待全部异步 stop 完成', async () => {
+    let resolveSplitterStop
+    mockSplitterBridge.stop = vi.fn(() => new Promise((resolve) => { resolveSplitterStop = resolve }))
+    const stopBridges = await startBridges({
       app: mockApp,
       pythonBridge: mockPythonBridge,
       splitterBridge: mockSplitterBridge,
       promptBridge: mockPromptBridge,
     })
-    await beforeQuitHandlers[0]()
+
+    const firstStop = stopBridges()
+    const secondStop = stopBridges()
+    let settled = false
+    firstStop.then(() => { settled = true })
+    await Promise.resolve()
+
+    expect(firstStop).toBe(secondStop)
+    expect(settled).toBe(false)
+    resolveSplitterStop()
+    await firstStop
+    expect(mockPythonBridge.stopPythonBackend).toHaveBeenCalledTimes(1)
+    expect(mockSplitterBridge.stop).toHaveBeenCalledTimes(1)
+    expect(mockPromptBridge.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('bridge 清理中单个 stop 失败 — 不影响其他 stop', async () => {
+    mockSplitterBridge.stop = vi.fn(() => Promise.reject(new Error('stop fail')))
+    const stopBridges = await startBridges({
+      app: mockApp,
+      pythonBridge: mockPythonBridge,
+      splitterBridge: mockSplitterBridge,
+      promptBridge: mockPromptBridge,
+    })
+    await stopBridges()
     expect(log.warn).toHaveBeenCalledWith('App', 'SplitterBridge stop failed: stop fail')
+    expect(mockPythonBridge.stopPythonBackend).toHaveBeenCalledTimes(1)
     expect(mockPromptBridge.stop).toHaveBeenCalledTimes(1)
   })
 

@@ -65,7 +65,7 @@ describe('phase1-context.extractContext', () => {
     // 核心字段
     const expectedFields = [
       'container', 'store', 'taskQueue', 'scheduler', 'callbackServer',
-      'keywordMonitor', 'analyticsService', 'pythonBridge',
+      'keywordMonitor', 'analyticsService', 'usageTracker', 'pythonBridge',
       'AccountManager', 'history', 'autoUpdater', 'hotkeys', 'firstRun',
       'systemTray', 'offlineManager', 'publishMonitor',
       'authViewManager', 'rpaViewManager', 'webviewManager', 'qrCodeLogin',
@@ -123,7 +123,7 @@ describe('phase1-context.extractContext', () => {
     expect(() => extractContext(container)).not.toThrow()
     const ctx = extractContext(container)
     expect(ctx._platformConfig).toBeNull()
-    expect(log.warn).toHaveBeenCalledWith('App', 'Failed to load platform config:', 'load failed')
+    expect(log.warn).toHaveBeenCalledWith('App', 'Failed to load platform config: load failed')
   })
 
   it('aiGenerator.setModelProviderManager 被调用（方法存在时）', () => {
@@ -152,5 +152,18 @@ describe('phase1-context.extractContext', () => {
     expect(ctx.BACKEND_PLATFORMS.has('youtube')).toBe(true)
     expect(ctx.BACKEND_PLATFORMS.has('tiktok')).toBe(true)
     expect(ctx.BACKEND_PLATFORMS.has('twitter')).toBe(true)
+  })
+
+  it('写入动态生命周期字段后仍可安全读取和枚举 context', () => {
+    const context = extractContext(makeMockContainer())
+    context.stopBridges = vi.fn()
+    context.keywordPersistTimer = 1
+    context.loginStatusMonitor = null
+
+    expect(context.unknownLifecycleField).toBeUndefined()
+    expect('unknownLifecycleField' in context).toBe(false)
+    expect(Object.keys(context)).toEqual(expect.arrayContaining([
+      'container', 'stopBridges', 'keywordPersistTimer', 'loginStatusMonitor',
+    ]))
   })
 })

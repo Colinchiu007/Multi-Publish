@@ -146,7 +146,9 @@ __registerMock('@multi-publish/shared-utils/src/publish-interval-guard', vi.fn()
 __registerMock('@multi-publish/shared-utils/src/platform-config', vi.fn())
 __registerMock('@multi-publish/shared-utils/src/sensitive-filter', { createWithBuiltin: vi.fn(function () { return {} }) })
 __registerMock('@multi-publish/shared-utils/src/data-sync', vi.fn(function () { return {} }))
-__registerMock('./ipc-handlers', vi.fn())
+const mockRegisterAllHandlers = vi.fn()
+__registerMock('./ipc-handlers', mockRegisterAllHandlers)
+__registerMock('../ipc-handlers', mockRegisterAllHandlers)
 __registerMock('./services/analytics-providers', {
   xiaohongshuProvider: {},
   douyinProvider: {},
@@ -154,6 +156,7 @@ __registerMock('./services/analytics-providers', {
 __registerMock('./core/container.setup', {
   createContainer: function () {
     return {
+      register: vi.fn(),
       get: function (key) {
         if (services[key]) return services[key]
         return defaultMock()
@@ -305,6 +308,44 @@ describe('bootstrap — createAppContext', () => {
     expect(mockTaskQueue.setExecutor).toHaveBeenCalledWith(expect.any(Function))
   })
 
+  it('任务执行器忽略容器中的已销毁窗口并回退到存活窗口', async () => {
+    const context = createAppContext()
+    const destroyedWindow = { isDestroyed: vi.fn(function () { return true }) }
+    const activeWindow = {
+      isDestroyed: vi.fn(function () { return false }),
+      webContents: { send: vi.fn() },
+    }
+    const publisher = { publish: vi.fn().mockResolvedValue({ ok: true }) }
+    context.container.has = vi.fn(function () { return true })
+    context.container.get = vi.fn(function () { return destroyedWindow })
+    __electronMock.BrowserWindow.getAllWindows.mockReturnValueOnce([activeWindow])
+    mockPublisherRouter.createPublisher.mockReturnValueOnce(publisher)
+    const executor = mockTaskQueue.setExecutor.mock.calls.at(-1)[0]
+
+    await executor({ id: 'task-1', platform: 'douyin' })
+
+    expect(activeWindow.webContents.send).toHaveBeenCalledWith(
+      'publish:progress',
+      expect.objectContaining({ taskId: 'task-1', stage: '准备发布...' }),
+    )
+  })
+
+  it('容器窗口查询失败时任务执行器仍回退到存活窗口', async () => {
+    const context = createAppContext()
+    const activeWindow = {
+      isDestroyed: vi.fn(function () { return false }),
+      webContents: { send: vi.fn() },
+    }
+    const publisher = { publish: vi.fn().mockResolvedValue({ ok: true }) }
+    context.container.has = vi.fn(function () { throw new Error('container unavailable') })
+    __electronMock.BrowserWindow.getAllWindows.mockReturnValue([activeWindow])
+    mockPublisherRouter.createPublisher.mockReturnValueOnce(publisher)
+    const executor = mockTaskQueue.setExecutor.mock.calls.at(-1)[0]
+
+    await expect(executor({ id: 'task-2', platform: 'weibo' })).resolves.toEqual({ ok: true })
+    expect(activeWindow.webContents.send).toHaveBeenCalled()
+  })
+
   it('taskQueue.on 注册 4 个事件（task:success/failed/blocked/retry）', () => {
     const events = mockTaskQueue.on.mock.calls.map(function (c) { return c[0] })
     expect(events).toContain('task:success')
@@ -347,8 +388,6 @@ describe('bootstrap — runWhenReady', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     __resetElectronMock()
-    // 清除上一个测试 runWhenReady 设置的 global.usageTracker（防止泄漏到 createAppContext）
-    delete global.usageTracker
   })
 
   it('runWhenReady 是函数', () => {
@@ -363,30 +402,111 @@ describe('bootstrap — runWhenReady', () => {
 
   it('runWhenReady 调用 createWindow（whenReady 立即 resolve）', async () => {
     const context = createAppContext()
-    const createWindow = vi.fn()
-    await runWhenReady(context, { createWindow: createWindow })
-    await new Promise(function (r) { setTimeout(r, 50) })
+    const mainWindow = { id: 'main-window' }
+    const createWindow = vi.fn(function () { return mainWindow })
+    const result = await runWhenReady(context, { createWindow: createWindow })
+
+    expect(result).toBe(mainWindow)
     expect(createWindow).toHaveBeenCalledTimes(1)
+    expect(context.container.register).toHaveBeenCalledWith('mainWindow', mainWindow, { forceValue: true })
+  })
+
+  it('异步创建窗口完成后才注册真实窗口实例', async () => {
+    let resolveWindow
+    const context = createAppContext()
+    const mainWindow = { id: 'async-main-window' }
+    const createWindow = vi.fn(function () {
+      return new Promise((resolve) => { resolveWindow = resolve })
+    })
+
+    const readyPromise = runWhenReady(context, { createWindow })
+    await vi.waitFor(() => {
+      expect(createWindow).toHaveBeenCalledTimes(1)
+    })
+    expect(context.container.register).not.toHaveBeenCalledWith(
+      'mainWindow',
+      expect.any(Promise),
+      { forceValue: true },
+    )
+
+    resolveWindow(mainWindow)
+    await expect(readyPromise).resolves.toBe(mainWindow)
+    expect(context.container.register).toHaveBeenCalledWith(
+      'mainWindow',
+      mainWindow,
+      { forceValue: true },
+    )
+  })
+
+  it('等待异步 IPC 注册完成后才创建窗口', async () => {
+    let resolveRegistration
+    const context = createAppContext()
+    const createWindow = vi.fn()
+    mockRegisterAllHandlers.mockImplementationOnce(function () {
+      return new Promise((resolve) => { resolveRegistration = resolve })
+    })
+
+    const readyPromise = runWhenReady(context, { createWindow })
+    await vi.waitFor(() => {
+      expect(mockRegisterAllHandlers).toHaveBeenCalledTimes(1)
+    })
+    expect(createWindow).not.toHaveBeenCalled()
+
+    resolveRegistration()
+    await readyPromise
+    expect(createWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('异步 IPC 注册失败时不创建窗口并回滚启动资源', async () => {
+    const registrationError = new Error('IPC registration failed')
+    const context = createAppContext()
+    const createWindow = vi.fn()
+    mockRegisterAllHandlers.mockRejectedValueOnce(registrationError)
+
+    await expect(runWhenReady(context, { createWindow })).rejects.toBe(registrationError)
+
+    expect(createWindow).not.toHaveBeenCalled()
+    expect(mockStore.close).toHaveBeenCalledTimes(1)
+    expect(mockCallbackServer.stop).toHaveBeenCalledTimes(1)
+    expect(mockPythonBridge.stopPythonBackend).toHaveBeenCalledTimes(1)
+  })
+
+  it('runWhenReady 返回跟随 app.whenReady 的真实 Promise', async () => {
+    let resolveReady
+    const originalWhenReady = __electronMock.app.whenReady
+    __electronMock.app.whenReady = vi.fn(function () {
+      return new Promise((resolve) => { resolveReady = resolve })
+    })
+    const context = createAppContext()
+    const createWindow = vi.fn()
+
+    try {
+      const readyPromise = runWhenReady(context, { createWindow })
+      expect(readyPromise).toBeInstanceOf(Promise)
+      expect(createWindow).not.toHaveBeenCalled()
+      resolveReady()
+      await readyPromise
+      expect(createWindow).toHaveBeenCalledTimes(1)
+    } finally {
+      __electronMock.app.whenReady = originalWhenReady
+    }
   })
 
   it('runWhenReady 调用 pythonBridge.startPythonBackend', async () => {
     const context = createAppContext()
     await runWhenReady(context, { createWindow: vi.fn() })
-    await new Promise(function (r) { setTimeout(r, 50) })
     expect(mockPythonBridge.startPythonBackend).toHaveBeenCalledTimes(1)
   })
 
   it('runWhenReady 调用 store.init', async () => {
     const context = createAppContext()
     await runWhenReady(context, { createWindow: vi.fn() })
-    await new Promise(function (r) { setTimeout(r, 50) })
     expect(mockStore.init).toHaveBeenCalledTimes(1)
   })
 
   it('runWhenReady 调用 taskQueue.setStateSaver', async () => {
     const context = createAppContext()
     await runWhenReady(context, { createWindow: vi.fn() })
-    await new Promise(function (r) { setTimeout(r, 50) })
     expect(mockTaskQueue.setStateSaver).toHaveBeenCalledTimes(1)
     expect(mockTaskQueue.setStateSaver).toHaveBeenCalledWith(expect.any(Function))
   })
@@ -394,36 +514,97 @@ describe('bootstrap — runWhenReady', () => {
   it('runWhenReady 调用 callbackServer.start', async () => {
     const context = createAppContext()
     await runWhenReady(context, { createWindow: vi.fn() })
-    await new Promise(function (r) { setTimeout(r, 50) })
     expect(mockCallbackServer.start).toHaveBeenCalledTimes(1)
   })
 
   it('runWhenReady 调用 scheduler.restore', async () => {
     const context = createAppContext()
     await runWhenReady(context, { createWindow: vi.fn() })
-    await new Promise(function (r) { setTimeout(r, 50) })
     expect(mockScheduler.restore).toHaveBeenCalledTimes(1)
   })
 
   it('runWhenReady 调用 keywordMonitor.onAlert', async () => {
     const context = createAppContext()
     await runWhenReady(context, { createWindow: vi.fn() })
-    await new Promise(function (r) { setTimeout(r, 50) })
     expect(mockKeywordMonitor.onAlert).toHaveBeenCalledTimes(1)
   })
 
   it('runWhenReady 注册 analytics providers（xiaohongshu / douyin）', async () => {
     const context = createAppContext()
     await runWhenReady(context, { createWindow: vi.fn() })
-    await new Promise(function (r) { setTimeout(r, 50) })
     expect(mockAnalyticsService.registerProvider).toHaveBeenCalledWith('xiaohongshu', expect.anything())
     expect(mockAnalyticsService.registerProvider).toHaveBeenCalledWith('douyin', expect.anything())
   })
 
-  it('runWhenReady 设置 global.usageTracker', async () => {
+  it('runWhenReady 使用 context 中的 usageTracker 记录会话', async () => {
     const context = createAppContext()
     await runWhenReady(context, { createWindow: vi.fn() })
-    await new Promise(function (r) { setTimeout(r, 50) })
-    expect(global.usageTracker).toBe(mockUsageTracker)
+    expect(mockUsageTracker.trackSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('runWhenReady 将可等待的 bridge 和阶段3资源引用写回 context', async () => {
+    const context = createAppContext()
+
+    await runWhenReady(context, { createWindow: vi.fn() })
+
+    expect(context.stopBridges).toBeTypeOf('function')
+    expect(context.loginStatusMonitor).toBeDefined()
+    expect(context.keywordPersistTimer).toBeDefined()
+  })
+
+  it('阶段3启动失败时等待 bridge 回滚并拒绝启动 Promise', async () => {
+    const startupError = new Error('cloud publisher failed')
+    mockCloudPublisher.mockImplementationOnce(function () { throw startupError })
+    const context = createAppContext()
+
+    await expect(runWhenReady(context, { createWindow: vi.fn() })).rejects.toBe(startupError)
+
+    expect(mockPythonBridge.stopPythonBackend).toHaveBeenCalledTimes(1)
+  })
+
+  it('bridge 启动同步失败时清理所有 bridge 并保留原始错误', async () => {
+    const startupError = new Error('splitter failed synchronously')
+    const context = createAppContext()
+    let splitterStopReceiver
+    let promptStopReceiver
+    context.splitterBridge.start.mockImplementationOnce(function () { throw startupError })
+    context.splitterBridge.stop.mockImplementationOnce(function () { splitterStopReceiver = this })
+    context.promptBridge.stop.mockImplementationOnce(function () { promptStopReceiver = this })
+
+    await expect(runWhenReady(context, { createWindow: vi.fn() })).rejects.toBe(startupError)
+
+    expect(mockPythonBridge.stopPythonBackend).toHaveBeenCalledTimes(1)
+    expect(context.splitterBridge.stop).toHaveBeenCalledTimes(1)
+    expect(context.promptBridge.stop).toHaveBeenCalledTimes(1)
+    expect(splitterStopReceiver).toBe(context.splitterBridge)
+    expect(promptStopReceiver).toBe(context.promptBridge)
+  })
+
+  it('窗口创建失败时回滚阶段3服务和 bridge', async () => {
+    const startupError = new Error('window creation failed')
+    const context = createAppContext()
+
+    await expect(runWhenReady(context, {
+      createWindow: vi.fn(function () { throw startupError }),
+    })).rejects.toBe(startupError)
+
+    expect(mockStore.close).toHaveBeenCalledTimes(1)
+    expect(mockCallbackServer.stop).toHaveBeenCalledTimes(1)
+    expect(mockPythonBridge.stopPythonBackend).toHaveBeenCalledTimes(1)
+  })
+
+  it('app.whenReady 拒绝时不启动资源并向调用方传播错误', async () => {
+    const readyError = new Error('electron ready failed')
+    const originalWhenReady = __electronMock.app.whenReady
+    __electronMock.app.whenReady = vi.fn(function () { return Promise.reject(readyError) })
+    const context = createAppContext()
+
+    try {
+      await expect(runWhenReady(context, { createWindow: vi.fn() })).rejects.toBe(readyError)
+      expect(mockPythonBridge.startPythonBackend).not.toHaveBeenCalled()
+      expect(mockStore.init).not.toHaveBeenCalled()
+    } finally {
+      __electronMock.app.whenReady = originalWhenReady
+    }
   })
 })

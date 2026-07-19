@@ -8,20 +8,9 @@
  *
  * 红线：保留原 main.js DI 容器消费代码，不碰 container.setup.js
  */
-const { app, ipcMain } = require('electron')
-const path = require('path')
+const { app } = require('electron')
 const log = require('./services/logger')
-const { getConfigPath } = require('./services/config-resolver')
 const pythonBridge = require('./services/python-bridge')
-const AccountManager = require('./publishers/account-manager')
-const scheduler = require('./services/scheduler')
-const history = require('./services/publish-history')
-const autoUpdater = require('./services/auto-updater')
-const firstRun = require('./services/first-run')
-const BatchManager = require('./services/batch-manager')
-// CJS/ESM interop：兼容真实模块（module.exports = CloudPublisher）与 vitest mock（{ default: fn }）
-const _CloudPublisherModule = require('./services/cloud-publisher')
-const CloudPublisher = _CloudPublisherModule.default || _CloudPublisherModule
 const { createContainer } = require('./core/container.setup')
 const { wireTaskQueueEvents } = require('./bootstrap/phase4-events')
 const { registerAllIpcHandlers } = require('./bootstrap/phase5-ipc')
@@ -32,11 +21,39 @@ const { startServices } = require('./bootstrap/phase3-services')
 // ─── Helper ────────────────────────────────────────────────
 // Bug-5: 优先从 DI 容器获取缓存的窗口引用，fallback 到 getAllWindows
 let _container = null
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function errorMessage(value) {
+  return value instanceof Error ? value.message : String(value)
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function errorDetails(value) {
+  return value instanceof Error ? (value.stack || value.message) : String(value)
+}
+
+function isUsableMainWindow(mainWindow) {
+  return Boolean(mainWindow) && typeof mainWindow.then !== 'function' && (
+    typeof mainWindow.isDestroyed !== 'function' || !mainWindow.isDestroyed()
+  )
+}
+
 function getMainWin() {
-  if (_container && _container.has('mainWindow')) {
-    try { return _container.get('mainWindow') } catch { /* fallthrough */ }
+  if (_container && typeof _container.has === 'function') {
+    try {
+      if (_container.has('mainWindow')) {
+        const registeredWindow = _container.get('mainWindow')
+        if (isUsableMainWindow(registeredWindow)) return registeredWindow
+      }
+    } catch { /* fallthrough */ }
   }
-  return require('electron').BrowserWindow.getAllWindows()[0]
+  return require('electron').BrowserWindow.getAllWindows().find(isUsableMainWindow)
 }
 
 /**
@@ -71,7 +88,7 @@ function createAppContext() {
       emitProgress('✓ 发布成功')
       return result
     } catch (e) {
-      log.error('Executor', 'Publish failed for ' + platform + ': ' + e.message)
+      log.error('Executor', 'Publish failed for ' + platform + ': ' + errorMessage(e))
       throw e
     }
   })
@@ -84,6 +101,49 @@ function createAppContext() {
   return ctx
 }
 
+async function rollbackStartup(context, servicesResult, stopBridges) {
+  if (servicesResult && typeof servicesResult.rollback === 'function') {
+    try {
+      await servicesResult.rollback()
+    } catch (e) {
+      log.warn('App', 'Service rollback failed: ' + errorMessage(e))
+    }
+  }
+
+  if (stopBridges) {
+    try {
+      await stopBridges()
+    } catch (e) {
+      log.warn('App', 'Bridge rollback failed: ' + errorMessage(e))
+    }
+    return
+  }
+
+  /** @type {Array<[string, () => unknown]>} */
+  const bridgeStops = [
+    ['Python backend', () => {
+      if (context.pythonBridge && context.pythonBridge.stopPythonBackend) {
+        return context.pythonBridge.stopPythonBackend()
+      }
+    }],
+    ['SplitterBridge', () => {
+      if (context.splitterBridge && context.splitterBridge.stop) return context.splitterBridge.stop()
+    }],
+    ['PromptBridge', () => {
+      if (context.promptBridge && context.promptBridge.stop) return context.promptBridge.stop()
+    }],
+  ]
+  const results = await Promise.allSettled(
+    bridgeStops.map(([, stop]) => Promise.resolve().then(() => stop())),
+  )
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason)
+      log.warn('App', bridgeStops[index][0] + ' rollback failed: ' + reason)
+    }
+  })
+}
+
 /**
  * 注册 app.whenReady 回调
  * @param {object} context - createAppContext 返回的上下文
@@ -93,48 +153,47 @@ function runWhenReady(context, deps) {
   const createWindow = deps.createWindow
   const {
     container, store, taskQueue, callbackServer, scheduler,
-    keywordMonitor, analyticsService, CloudPublisher,
+    keywordMonitor, analyticsService, usageTracker, CloudPublisher,
     pythonBridge, splitterBridge, promptBridge,
   } = context
 
-  // mainWindow 在 createWindow 调用前为 null（与原 main.js 行为一致）
-  let mainWindow = null
-
-  // R49 修复：app.whenReady() 返回 Promise，必须 .catch() 否则 rejection 无人处理
-  app.whenReady().then(async () => {
-   try {
-    // Phase 2: Python Bridges 启动 + 退出清理（拆分到 bootstrap/phase2-bridges.js）
-    await startBridges({ app, pythonBridge, splitterBridge, promptBridge })
-
-    // Phase 3: 服务初始化（拆分到 bootstrap/phase3-services.js）
-    const servicesResult = await startServices({
-      container, store, taskQueue, callbackServer, scheduler,
-      keywordMonitor, analyticsService, CloudPublisher, getMainWin,
-    })
-    // 将 keywordPersistTimer 加入 context，供 shutdown 时 clearInterval
-    if (servicesResult && servicesResult.keywordPersistTimer) {
-      context.keywordPersistTimer = servicesResult.keywordPersistTimer
-    }
-
-    // Phase 5: 注册所有 IPC handlers（拆分到 bootstrap/phase5-ipc.js）
-    registerAllIpcHandlers({
-      app,
-      BrowserWindow: require('electron').BrowserWindow,
-      context,
-    })
-
-    mainWindow = createWindow(context)
-    // Bug-5: 注册 mainWindow 到 DI 容器供 getMainWin 缓存使用
-    if (_container) _container.register('mainWindow', mainWindow, { forceValue: true })
-   } catch (e) {
-    log.error('App', 'Startup failed:', e.message, e.stack)
+  return app.whenReady().then(async () => {
+    let stopBridges = null
+    let servicesResult = null
     try {
-      const { dialog } = require('electron')
-      dialog.showErrorBox('启动失败', e.message + '\n\n请查看日志并联系支持。')
-    } catch { /* dialog 不可用时忽略 */ }
-   }
-  }).catch(function (e) {
-    log.error('App', 'whenReady failed:', e.message)
+      stopBridges = await startBridges({ app, pythonBridge, splitterBridge, promptBridge })
+      context.stopBridges = stopBridges
+
+      servicesResult = await startServices({
+        container, store, taskQueue, callbackServer, scheduler,
+        keywordMonitor, analyticsService, usageTracker, CloudPublisher, getMainWin,
+      })
+      context.keywordPersistTimer = servicesResult.keywordPersistTimer
+      context.loginStatusMonitor = servicesResult.loginStatusMonitor
+      context.cloudPublisher = servicesResult.cloudPublisher
+
+      await registerAllIpcHandlers({
+        app,
+        BrowserWindow: require('electron').BrowserWindow,
+        context,
+      })
+
+      const mainWindow = await createWindow(context)
+      const activeContainer = context.container || _container
+      if (activeContainer) activeContainer.register('mainWindow', mainWindow, { forceValue: true })
+      return mainWindow
+    } catch (e) {
+      await rollbackStartup(context, servicesResult, stopBridges)
+      log.error('App', 'Startup failed: ' + errorDetails(e))
+      try {
+        const { dialog } = require('electron')
+        dialog.showErrorBox('启动失败', errorMessage(e) + '\n\n请查看日志并联系支持。')
+      } catch { /* dialog 不可用时忽略 */ }
+      throw e
+    }
+  }, (e) => {
+    log.error('App', 'whenReady failed: ' + errorMessage(e))
+    throw e
   })
 }
 

@@ -3,16 +3,30 @@
  * shutdown.js — 退出清理模块（从 main.js 拆分）
  *
  * 职责：
- *   - registerShutdownHandlers(context)：注册 window-all-closed 退出清理
+ *   - registerShutdownHandlers(context)：注册进程退出协调器
  */
 const { app } = require('electron')
 const log = require('./services/logger')
 
 /**
+ * @param {string} message
+ * @param {() => unknown | Promise<unknown>} cleanup
+ * @returns {Promise<void>}
+ */
+async function runCleanup(message, cleanup) {
+  try {
+    await cleanup()
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e)
+    log.error('App', message + ' ' + detail)
+  }
+}
+
+/**
  * 注册退出清理处理器
  * @param {object} context - bootstrap 创建的上下文
  */
-function registerShutdownHandlers(context) {
+async function performShutdown(context) {
   const {
     hotkeys, pythonBridge,
     webviewManager, rpaViewManager, keywordMonitor,
@@ -20,47 +34,108 @@ function registerShutdownHandlers(context) {
     systemTray, scheduler, publishImpactTracker,
     authViewManager, qrCodeLogin, oauthManager,
     batchManager, taskQueue, commentManager,
-    renderEngine, keywordPersistTimer,
+    renderEngine, usageTracker,
   } = context
 
-  // ─── 窗口关闭 ──────────────────────────────
-  app.on('window-all-closed', async () => {
-    // 停止接受新任务 / 清理定时器
-    try { hotkeys.unregister() } catch (e) { log.error('App', 'Error unregistering hotkeys:', e.message) }
-    try { if (scheduler && scheduler.stopAll) scheduler.stopAll() } catch (e) { log.error('App', 'Error stopping scheduler:', e.message) }
-    try { if (batchManager && batchManager.stopAll) batchManager.stopAll() } catch (e) { log.error('App', 'Error stopping batch manager:', e.message) }
-    try { if (publishImpactTracker && publishImpactTracker.stopAll) publishImpactTracker.stopAll() } catch (e) { log.error('App', 'Error stopping impact tracker:', e.message) }
-    try { if (commentManager && commentManager.stopAll) commentManager.stopAll() } catch (e) { log.error('App', 'Error stopping comment manager:', e.message) }
-    // 清理 keyword 持久化定时器（防止内存泄漏）
-    try { if (keywordPersistTimer) clearInterval(keywordPersistTimer) } catch (e) { log.error('App', 'Error clearing keyword persist timer:', e.message) }
+  await runCleanup('Error unregistering hotkeys:', () => {
+    if (hotkeys && hotkeys.unregister) return hotkeys.unregister()
+  })
+  await runCleanup('Error stopping scheduler:', () => {
+    if (scheduler && scheduler.stopAll) return scheduler.stopAll()
+  })
+  await runCleanup('Error stopping batch manager:', () => {
+    if (batchManager && batchManager.stopAll) return batchManager.stopAll()
+  })
+  await runCleanup('Error stopping impact tracker:', () => {
+    if (publishImpactTracker && publishImpactTracker.stopAll) return publishImpactTracker.stopAll()
+  })
+  await runCleanup('Error stopping comment manager:', () => {
+    if (commentManager && commentManager.stopAll) return commentManager.stopAll()
+  })
+  await runCleanup('Error clearing keyword persist timer:', () => {
+    if (context.keywordPersistTimer) clearInterval(context.keywordPersistTimer)
+  })
+  await runCleanup('Error stopping login monitor:', () => {
+    if (context.loginStatusMonitor && context.loginStatusMonitor.stop) return context.loginStatusMonitor.stop()
+  })
 
-    // 停止外部进程
-    try { await pythonBridge.stopPythonBackend() } catch (e) { log.error('App', 'Error stopping Python:', e.message) }
-    try { if (renderEngine && renderEngine.cancel) renderEngine.cancel() } catch (e) { log.error('App', 'Error canceling render:', e.message) }
+  await runCleanup('Error stopping bridges:', async () => {
+    if (context.stopBridges) await context.stopBridges()
+    else if (pythonBridge && pythonBridge.stopPythonBackend) await pythonBridge.stopPythonBackend()
+  })
+  await runCleanup('Error canceling render:', () => {
+    if (renderEngine && renderEngine.cancel) return renderEngine.cancel()
+  })
+  await runCleanup('Error saving usage:', () => {
+    if (usageTracker && usageTracker.save) return usageTracker.save()
+  })
 
-    // 保存状态
-    try { if (global.usageTracker) { global.usageTracker.save() } } catch (e) { log.error('App', 'Error saving usage:', e.message) }
+  await runCleanup('Error closing webviews:', () => {
+    if (webviewManager && webviewManager.closeAll) return webviewManager.closeAll()
+  })
+  await runCleanup('Error cleaning rpa views:', () => {
+    if (rpaViewManager && rpaViewManager.cleanup) return rpaViewManager.cleanup()
+  })
+  await runCleanup('Error closing auth views:', () => {
+    if (authViewManager && authViewManager.close) return authViewManager.close()
+  })
+  await runCleanup('Error closing qrcode login:', () => {
+    if (qrCodeLogin && qrCodeLogin.close) return qrCodeLogin.close()
+  })
+  await runCleanup('Error closing oauth:', () => {
+    if (oauthManager && oauthManager.close) return oauthManager.close()
+  })
 
-    // 关闭视图 / 窗口
-    try { webviewManager.closeAll() } catch (e) { log.error('App', 'Error closing webviews:', e.message) }
-    try { rpaViewManager.cleanup() } catch (e) { log.error('App', 'Error cleaning rpa views:', e.message) }
-    try { if (authViewManager && authViewManager.close) authViewManager.close() } catch (e) { log.error('App', 'Error closing auth views:', e.message) }
-    try { if (qrCodeLogin && qrCodeLogin.close) qrCodeLogin.close() } catch (e) { log.error('App', 'Error closing qrcode login:', e.message) }
-    try { if (oauthManager && oauthManager.close) oauthManager.close() } catch (e) { log.error('App', 'Error closing oauth:', e.message) }
-
-    // 停止监控 / 服务
-    try { keywordMonitor.stopAll() } catch (e) { log.error('App', 'Error stopping keyword monitor:', e.message) }
-    try { callbackServer.stop() } catch (e) { log.error('App', 'Error stopping callback server:', e.message) }
-    try { if (systemTray && systemTray.destroy) systemTray.destroy() } catch (e) { log.error('App', 'Error destroying tray:', e.message) }
-
-    // 清理事件监听器
-    try { if (taskQueue && taskQueue.removeAllListeners) taskQueue.removeAllListeners() } catch (e) { log.error('App', 'Error removing taskQueue listeners:', e.message) }
-
-    // 关闭存储
-    try { store.close() } catch (e) { log.error('App', 'Error closing store:', e.message) }
-
-    if (process.platform !== 'darwin') app.quit()
+  await runCleanup('Error stopping keyword monitor:', () => {
+    if (keywordMonitor && keywordMonitor.stopAll) return keywordMonitor.stopAll()
+  })
+  await runCleanup('Error stopping callback server:', () => {
+    if (callbackServer && callbackServer.stop) return callbackServer.stop()
+  })
+  await runCleanup('Error destroying tray:', () => {
+    if (systemTray && systemTray.destroy) return systemTray.destroy()
+  })
+  await runCleanup('Error removing taskQueue listeners:', () => {
+    if (taskQueue && taskQueue.removeAllListeners) return taskQueue.removeAllListeners()
+  })
+  await runCleanup('Error closing store:', () => {
+    if (store && store.close) return store.close()
   })
 }
 
-module.exports = { registerShutdownHandlers }
+function registerShutdownHandlers(context, options = {}) {
+  const platform = options.platform || process.platform
+  let shutdownPromise = null
+  let quitPromise = null
+  let allowQuit = false
+
+  function shutdown() {
+    if (!shutdownPromise) shutdownPromise = performShutdown(context)
+    return shutdownPromise
+  }
+
+  function quitAfterShutdown() {
+    if (!quitPromise) {
+      quitPromise = shutdown().then(() => {
+        allowQuit = true
+        app.quit()
+      })
+    }
+    return quitPromise
+  }
+
+  app.on('before-quit', (event) => {
+    if (allowQuit) return Promise.resolve()
+    if (event && event.preventDefault) event.preventDefault()
+    return quitAfterShutdown()
+  })
+
+  app.on('window-all-closed', () => {
+    if (platform === 'darwin') return Promise.resolve()
+    return quitAfterShutdown()
+  })
+
+  return shutdown
+}
+
+module.exports = { registerShutdownHandlers, performShutdown }

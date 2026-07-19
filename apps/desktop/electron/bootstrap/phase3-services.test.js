@@ -4,8 +4,10 @@ __registerMock('../services/logger', {
   warn: vi.fn(),
   error: vi.fn(),
 })
+const mockLoginStatusMonitor = { start: vi.fn(), stop: vi.fn() }
+const mockCreateLoginStatusMonitor = vi.fn(() => mockLoginStatusMonitor)
 __registerMock('../services/login-status-monitor', {
-  createLoginStatusMonitor: vi.fn(() => ({ start: vi.fn() })),
+  createLoginStatusMonitor: mockCreateLoginStatusMonitor,
 })
 __registerMock('../publishers/account-manager', {})
 __registerMock('../services/analytics-providers', {
@@ -17,15 +19,19 @@ const log = require('../services/logger')
 const { startServices } = require('./phase3-services')
 
 function makeMockDeps(overrides) {
+  const mockUsageTracker = {
+    trackSession: vi.fn(),
+    getStats: vi.fn(),
+  }
   const mockContainer = {
     get: vi.fn((key) => {
-      if (key === 'usageTracker') return { trackSession: vi.fn(), getStats: vi.fn() }
       if (key === 'publishIntervalGuard') return {}
       return {}
     }),
   }
   const mockStore = {
     init: vi.fn(),
+    close: vi.fn(),
     setSetting: vi.fn(),
     getSetting: vi.fn(() => null),
     addCallbackLog: vi.fn(),
@@ -36,9 +42,11 @@ function makeMockDeps(overrides) {
   }
   const mockCallbackServer = {
     start: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
   }
   const mockScheduler = {
     restore: vi.fn(() => 0),
+    stopAll: vi.fn(),
   }
   const mockKeywordMonitor = {
     onAlert: vi.fn(),
@@ -53,6 +61,7 @@ function makeMockDeps(overrides) {
 
   return Object.assign({
     container: mockContainer,
+    usageTracker: mockUsageTracker,
     store: mockStore,
     taskQueue: mockTaskQueue,
     callbackServer: mockCallbackServer,
@@ -67,23 +76,15 @@ function makeMockDeps(overrides) {
 describe('phase3-services.startServices', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    delete global.usageTracker
   })
 
-  it('usageTracker.trackSession 被调用 + global.usageTracker 被设置', async () => {
+  it('使用注入的 usageTracker 记录会话，不写入 global', async () => {
     const mockUsageTracker = { trackSession: vi.fn(), getStats: vi.fn() }
     const deps = makeMockDeps({
-      container: {
-        get: vi.fn((key) => {
-          if (key === 'usageTracker') return mockUsageTracker
-          if (key === 'publishIntervalGuard') return {}
-          return {}
-        }),
-      },
+      usageTracker: mockUsageTracker,
     })
     await startServices(deps)
     expect(mockUsageTracker.trackSession).toHaveBeenCalled()
-    expect(global.usageTracker).toBe(mockUsageTracker)
   })
 
   it('store.init 被调用', async () => {
@@ -109,7 +110,7 @@ describe('phase3-services.startServices', () => {
       callbackServer: { start: vi.fn(async () => { throw new Error('port in use') }) },
     })
     await startServices(deps)
-    expect(log.warn).toHaveBeenCalledWith('App', 'Callback server failed to start (port may be in use):', 'port in use')
+    expect(log.warn).toHaveBeenCalledWith('App', 'Callback server failed to start (port may be in use): port in use')
   })
 
   it('scheduler.restore 被调用', async () => {
@@ -149,9 +150,37 @@ describe('phase3-services.startServices', () => {
     expect(deps.analyticsService.registerProvider).toHaveBeenCalledWith('douyin', { name: 'douyin' })
   })
 
-  it('CloudPublisher 构造 + registerIpcHandlers 被调用', async () => {
+  it('CloudPublisher 仅构造并返回，IPC 延迟到 Phase 5 受控注册', async () => {
     const deps = makeMockDeps()
-    await startServices(deps)
+    const result = await startServices(deps)
+
     expect(deps.CloudPublisher).toHaveBeenCalled()
+    expect(result.cloudPublisher).toBeInstanceOf(deps.CloudPublisher)
+    expect(deps.CloudPublisher.prototype.registerIpcHandlers).not.toHaveBeenCalled()
+  })
+
+  it('启动成功时返回退出阶段需要的定时器和登录监控引用', async () => {
+    const deps = makeMockDeps()
+
+    const result = await startServices(deps)
+
+    expect(result.keywordPersistTimer).toBeDefined()
+    expect(result.loginStatusMonitor).toBe(mockLoginStatusMonitor)
+  })
+
+  it('CloudPublisher 构造失败时回滚已经启动的阶段3资源', async () => {
+    const registerError = new Error('CloudPublisher constructor failed')
+    const CloudPublisher = vi.fn(function () { throw registerError })
+    const deps = makeMockDeps({ CloudPublisher })
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+
+    await expect(startServices(deps)).rejects.toBe(registerError)
+
+    expect(mockLoginStatusMonitor.stop).toHaveBeenCalledTimes(1)
+    expect(deps.scheduler.stopAll).toHaveBeenCalledTimes(1)
+    expect(deps.callbackServer.stop).toHaveBeenCalledTimes(1)
+    expect(deps.taskQueue.setStateSaver).toHaveBeenLastCalledWith(null)
+    expect(deps.store.close).toHaveBeenCalledTimes(1)
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
   })
 })
