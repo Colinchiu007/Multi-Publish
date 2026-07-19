@@ -10,10 +10,11 @@
  * 文件位置: apps/desktop/electron/system-tray.js
  */
 // eslint-disable-next-line no-unused-vars
-const { Tray, Menu, ipcMain, nativeImage, shell } = require('electron')
+const { Tray, Menu, ipcMain, nativeImage, shell, app } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const log = require('./logger')
+const { isTrustedSender } = require('../core/ipc-security')
 
 let tray = null
 // eslint-disable-next-line no-unused-vars
@@ -139,13 +140,24 @@ function destroy () {
 
 /**
  * 注册托盘相关 IPC 处理
+ *
+ * 安全：tray:flash / tray:set-tooltip 是同步 IPC（ipcMain.on），
+ * 不走 createAccessControlledIpcMain Proxy，需手动校验 sender 来源
  */
 function registerIpcHandlers () {
   ipcMain.on('tray:flash', (event, { times = 3 } = {}) => {
+    if (!isTrustedSender(event, app)) {
+      log.warn('Tray', 'tray:flash rejected: untrusted sender')
+      return
+    }
     flashTray(times)
   })
-  
+
   ipcMain.on('tray:set-tooltip', (event, text) => {
+    if (!isTrustedSender(event, app)) {
+      log.warn('Tray', 'tray:set-tooltip rejected: untrusted sender')
+      return
+    }
     setTooltip(text)
   })
 }

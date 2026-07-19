@@ -24,6 +24,7 @@ const {
   TemplateReplyGenerator,
 } = require('@multi-publish/api-publish-engine/src/comment-service')
 const EC = require('../core/error-codes').ERROR
+const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
 
@@ -227,7 +228,7 @@ class CommentManager {
       }
     })
 
-    ipcMain.handle('comment:reply', async (_event, arg) => {
+    ipcMain.handle('comment:reply', withSenderCheck(async (_event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { platform, cookie, commentId, content } = arg
       try {
@@ -237,18 +238,18 @@ class CommentManager {
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
-    ipcMain.handle('comment:start-polling', async (_event, opts) => {
+    ipcMain.handle('comment:start-polling', withSenderCheck(async (_event, opts) => {
       try {
         const result = await this.startPolling(opts || {})
         return { code: 0, data: result }
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
-    ipcMain.handle('comment:stop-polling', async (_event, arg) => {
+    ipcMain.handle('comment:stop-polling', withSenderCheck(async (_event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { key } = arg
       try {
@@ -257,7 +258,7 @@ class CommentManager {
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
     ipcMain.handle('comment:status', async () => {
       try {

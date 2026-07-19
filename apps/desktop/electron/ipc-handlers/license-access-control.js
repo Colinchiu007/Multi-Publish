@@ -28,6 +28,7 @@ const PUBLIC_CHANNELS = new Set([
   'model-provider:is-configured', 'model-provider:logs', 'model-provider:clean-logs',
   'render:status', 'render:install-deps',
   'pipeline:list', 'pipeline:get',
+  'usage:stats', 'usage:daily', 'usage:track',
 ])
 
 const ADMIN_ONLY_CHANNELS = new Set([

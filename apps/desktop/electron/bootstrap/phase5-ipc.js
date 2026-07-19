@@ -128,13 +128,10 @@ function runIpcRegistrationTransaction(target, register) {
   return tracked
 }
 
-function registerUsageHandlers(app, usageTracker) {
-  // 使用量统计 IPC — P1-B: 加 sender 来源验证
-  ipcMain.handle('usage:stats', (event) => {
-    if (!isTrustedSender(event, app)) {
-      log.warn('IPC', 'usage:stats rejected: untrusted sender')
-      return { features: {}, events: [], sessions: 0 }
-    }
+function registerUsageHandlers(controlledIpcMain, usageTracker) {
+  // 使用量统计 IPC — 通过 controlledIpcMain 走访问控制 Proxy
+  // controlledIpcMain 内部已包装 isTrustedSender + 权限校验，这里不需要重复校验
+  controlledIpcMain.handle('usage:stats', () => {
     try {
       if (usageTracker) return usageTracker.getStats()
       return { features: {}, events: [], sessions: 0 }
@@ -143,11 +140,7 @@ function registerUsageHandlers(app, usageTracker) {
     }
   })
 
-  ipcMain.handle('usage:daily', (event) => {
-    if (!isTrustedSender(event, app)) {
-      log.warn('IPC', 'usage:daily rejected: untrusted sender')
-      return {}
-    }
+  controlledIpcMain.handle('usage:daily', () => {
     try {
       if (usageTracker) return usageTracker.getDailyStats()
       return {}
@@ -156,11 +149,7 @@ function registerUsageHandlers(app, usageTracker) {
     }
   })
 
-  ipcMain.handle('usage:track', (event, args) => {
-    if (!isTrustedSender(event, app)) {
-      log.warn('IPC', 'usage:track rejected: untrusted sender')
-      return false
-    }
+  controlledIpcMain.handle('usage:track', (event, args) => {
     try {
       if (usageTracker && args) {
         usageTracker.trackEvent(args.feature, args.action, args.detail)
@@ -225,9 +214,9 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
       ? Promise.resolve(cloudRegistration).then(registerCentralHandlers)
       : registerCentralHandlers()
     if (isThenable(result)) {
-      return Promise.resolve(result).then(() => registerUsageHandlers(app, usageTracker))
+      return Promise.resolve(result).then(() => registerUsageHandlers(controlledIpcMain, usageTracker))
     }
-    registerUsageHandlers(app, usageTracker)
+    registerUsageHandlers(controlledIpcMain, usageTracker)
     return undefined
   }))
 }

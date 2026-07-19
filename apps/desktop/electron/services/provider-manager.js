@@ -21,6 +21,7 @@
 const { ipcMain } = require('electron')
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
+const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
 
@@ -118,32 +119,32 @@ class ProviderManager {
       }
     })
 
-    ipcMain.handle('provider:create', async (event, data) => {
+    ipcMain.handle('provider:create', withSenderCheck(async (event, data) => {
       try {
         return await this.createProvider(data)
       } catch (e) {
         log.error('ProviderManager', 'create error: ' + e.message)
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
-    ipcMain.handle('provider:update', async (event, name, data) => {
+    ipcMain.handle('provider:update', withSenderCheck(async (event, name, data) => {
       try {
         return await this.updateProvider(name, data)
       } catch (e) {
         log.error('ProviderManager', 'update error: ' + e.message)
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
-    ipcMain.handle('provider:delete', async (event, name) => {
+    ipcMain.handle('provider:delete', withSenderCheck(async (event, name) => {
       try {
         return await this.deleteProvider(name)
       } catch (e) {
         log.error('ProviderManager', 'delete error: ' + e.message)
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
     ipcMain.handle('provider:test', async (event, name) => {
       try {
@@ -172,23 +173,23 @@ class ProviderManager {
       }
     })
 
-    ipcMain.handle('provider:set-user-key', async (event, name, apiKey, baseUrl) => {
+    ipcMain.handle('provider:set-user-key', withSenderCheck(async (event, name, apiKey, baseUrl) => {
       try {
         return await this.setUserKey(name, apiKey, baseUrl)
       } catch (e) {
         log.error('ProviderManager', 'set-user-key error: ' + e.message)
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
-    ipcMain.handle('provider:delete-user-key', async (event, name) => {
+    ipcMain.handle('provider:delete-user-key', withSenderCheck(async (event, name) => {
       try {
         return await this.deleteUserKey(name)
       } catch (e) {
         log.error('ProviderManager', 'delete-user-key error: ' + e.message)
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
   }
 }
 
