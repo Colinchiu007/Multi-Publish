@@ -72,6 +72,8 @@ import {
   modelProviderCreate,
   modelProviderUpdate,
   modelProviderList,
+  modelProviderSetDefault,
+  modelProviderTest,
 } from '@/api/model-providers'
 
 describe('useModelProviderCrud', function () {
@@ -219,6 +221,98 @@ describe('useModelProviderCrud', function () {
       crud.form.value = { ...crud.form.value, name: '', id: '' }
       await crud.submitForm()
       expect(modelProviderCreate).not.toHaveBeenCalled()
+    })
+
+    it('loadProviders 返回异常格式时提示错误并结束加载态', async function () {
+      modelProviderList.mockResolvedValueOnce({})
+
+      await expect(crud.loadProviders()).resolves.toBeUndefined()
+
+      const { ElMessage } = await import('element-plus')
+      expect(ElMessage.error).toHaveBeenCalledWith('加载失败')
+      expect(crud.providers.value).toEqual([])
+      expect(crud.loading.value).toBe(false)
+    })
+
+    it('loadProviders 请求拒绝时提示原始错误并结束加载态', async function () {
+      modelProviderList.mockRejectedValueOnce(new Error('IPC 不可用'))
+
+      await expect(crud.loadProviders()).resolves.toBeUndefined()
+
+      const { ElMessage } = await import('element-plus')
+      expect(ElMessage.error).toHaveBeenCalledWith('IPC 不可用')
+      expect(crud.loading.value).toBe(false)
+    })
+
+    it('submitForm 创建失败时保留对话框并复位提交状态', async function () {
+      modelProviderCreate.mockResolvedValueOnce({ code: 1, message: '密钥无效' })
+      crud.showFormDialog.value = true
+      crud.form.value = {
+        id: 'bad-provider', name: 'Bad', category: 'llm', base_url: '',
+        api_key: 'bad-key', models: [], modelsText: '', config: {},
+      }
+
+      await crud.submitForm()
+
+      const { ElMessage } = await import('element-plus')
+      expect(ElMessage.error).toHaveBeenCalledWith('密钥无效')
+      expect(crud.showFormDialog.value).toBe(true)
+      expect(crud.submitting.value).toBe(false)
+    })
+
+    it('submitForm 创建响应异常时显示默认错误且不崩溃', async function () {
+      modelProviderCreate.mockResolvedValueOnce({})
+      crud.form.value = {
+        id: 'bad-response', name: 'Bad Response', category: 'llm', base_url: '',
+        api_key: '', models: [], modelsText: '', config: {},
+      }
+
+      await expect(crud.submitForm()).resolves.toBeUndefined()
+
+      const { ElMessage } = await import('element-plus')
+      expect(ElMessage.error).toHaveBeenCalledWith('保存失败')
+      expect(crud.submitting.value).toBe(false)
+    })
+
+    it('预设已存在时自动改为更新并刷新列表', async function () {
+      modelProviderCreate.mockResolvedValueOnce({ code: 1, message: 'provider already exists' })
+      modelProviderUpdate.mockResolvedValueOnce({ code: 0 })
+      modelProviderList.mockResolvedValueOnce({ code: 0, data: [] })
+      crud.showFormDialog.value = true
+      crud.showAddDialog.value = true
+      crud.form.value = {
+        id: 'openai', name: 'OpenAI', category: 'llm', base_url: '',
+        api_key: 'sk-test', models: [], modelsText: '', config: {},
+      }
+
+      await crud.submitForm()
+
+      expect(modelProviderUpdate).toHaveBeenCalledWith('openai', expect.objectContaining({ api_key: 'sk-test' }))
+      expect(modelProviderList).toHaveBeenCalledTimes(1)
+      expect(crud.showFormDialog.value).toBe(false)
+      expect(crud.showAddDialog.value).toBe(false)
+    })
+
+    it('setDefault 在未配置密钥时拦截 IPC', async function () {
+      await crud.setDefault({ id: 'openai', category: 'llm', api_key: '', api_key_masked: '' })
+
+      const { ElMessage } = await import('element-plus')
+      expect(ElMessage.warning).toHaveBeenCalledWith('请先配置 API Key 后再设为默认')
+      expect(modelProviderSetDefault).not.toHaveBeenCalled()
+    })
+
+    it('testProvider 请求拒绝时记录稳定失败结果并复位 testingId', async function () {
+      modelProviderTest.mockRejectedValueOnce(new Error('连接超时'))
+
+      await crud.testProvider('openai')
+
+      expect(crud.testResults.value.openai).toEqual({
+        success: false,
+        code: -1,
+        message: '连接超时',
+        detail: null,
+      })
+      expect(crud.testingId.value).toBe('')
     })
 
   // ─── 视图模式分组测试 ──────────────────────────────

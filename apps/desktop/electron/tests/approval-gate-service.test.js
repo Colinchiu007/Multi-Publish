@@ -27,7 +27,9 @@ function createMockPipelineEngine() {
     resume: vi.fn(() => ({ success: true })),
     _emit: vi.fn((event, data) => {
       const arr = listeners.get(event);
-      if (arr) for (const cb of arr) { try { cb(data); } catch (_) {} }
+      if (arr) {
+        for (const cb of arr) cb(data);
+      }
     }),
   };
 }

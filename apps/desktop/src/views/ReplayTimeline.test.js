@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mount, flushPromises } from "@vue/test-utils";
+import { mount as mountComponent, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 
 const pushSpy = vi.fn();
@@ -11,6 +11,14 @@ vi.mock("vue-router", () => ({
 }));
 
 import ReplayTimeline from "./ReplayTimeline.vue";
+
+const mountedWrappers = new Set();
+
+function mount(component) {
+  const wrapper = mountComponent(component);
+  mountedWrappers.add(wrapper);
+  return wrapper;
+}
 
 // 构造测试事件
 function makeEvent(type, stageName, extra = {}) {
@@ -39,6 +47,11 @@ describe("ReplayTimeline", () => {
   });
 
   afterEach(() => {
+    for (const wrapper of mountedWrappers) {
+      if (!wrapper.vm.$.isUnmounted) wrapper.unmount();
+    }
+    mountedWrappers.clear();
+    if (vi.isFakeTimers()) vi.clearAllTimers();
     vi.useRealTimers();
     delete window.electronAPI;
   });

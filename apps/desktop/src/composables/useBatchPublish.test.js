@@ -53,19 +53,21 @@ describe('useBatchPublish — composable setup', () => {
     article = reactive({ title: '', content: '' })
     licenseStore = { isPro: true }
     window.electronAPI = {
-      batchSchedule: vi.fn(function () { return Promise.resolve() }),
-      batchExecute: vi.fn(function () { return Promise.resolve() }),
+      batchSchedule: vi.fn(function () { return Promise.resolve({ code: 0 }) }),
+      batchExecute: vi.fn(function () { return Promise.resolve({ code: 0 }) }),
       onBatchProgress: vi.fn(function () { return vi.fn() }),
     }
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     window.electronAPI = originalElectronAPI
   })
 
   it('返回响应式状态和方法', () => {
     const r = useBatchPublish({ article, licenseStore })
     expect(r.batchMode).toBeDefined()
+    expect(r.batchPublishing).toBeDefined()
     expect(r.articles).toBeDefined()
     expect(r.batchProgress).toBeDefined()
     expect(r.templateTargetIdx).toBeDefined()
@@ -85,6 +87,7 @@ describe('useBatchPublish — composable setup', () => {
   it('初始状态', () => {
     const r = useBatchPublish({ article, licenseStore })
     expect(r.batchMode.value).toBe(false)
+    expect(r.batchPublishing.value).toBe(false)
     expect(r.articles.value).toEqual([])
     expect(r.batchProgress.value).toEqual([])
     expect(r.templateTargetIdx.value).toBe(-1)
@@ -246,6 +249,121 @@ describe('useBatchPublish — composable setup', () => {
     expect(r.articles.value).toHaveLength(1)
   })
 
+  it('校验期间发生重入时只执行一次校验，并在结束后释放锁', async () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '', content: '正文', platforms: ['wechat_mp'] }]
+    let nestedPublish
+    mockElMessage.warning.mockImplementationOnce(function () {
+      expect(r.batchPublishing.value).toBe(true)
+      nestedPublish = r.handleBatchPublish()
+    })
+
+    await r.handleBatchPublish()
+    await nestedPublish
+
+    expect(mockElMessage.warning).toHaveBeenCalledTimes(1)
+    expect(mockBatchCreate).not.toHaveBeenCalled()
+    expect(r.batchPublishing.value).toBe(false)
+  })
+
+  it('从创建挂起到批次终态期间始终忽略重复发布', async () => {
+    let resolveCreate
+    let emitBatchProgress
+    mockBatchCreate.mockImplementationOnce(function () {
+      return new Promise(function (resolve) { resolveCreate = resolve })
+    })
+    window.electronAPI.onBatchProgress.mockImplementationOnce(function (callback) {
+      emitBatchProgress = callback
+      return vi.fn()
+    })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
+
+    const firstPublish = r.handleBatchPublish()
+    expect(r.batchPublishing.value).toBe(true)
+    const secondPublish = r.handleBatchPublish()
+    await secondPublish
+
+    expect(mockBatchCreate).toHaveBeenCalledTimes(1)
+    expect(window.electronAPI.batchExecute).not.toHaveBeenCalled()
+
+    resolveCreate({ code: 0, data: { id: 'batch1' } })
+    await firstPublish
+
+    expect(window.electronAPI.batchExecute).toHaveBeenCalledTimes(1)
+    expect(r.batchPublishing.value).toBe(true)
+
+    await r.handleBatchPublish()
+    expect(mockBatchCreate).toHaveBeenCalledTimes(1)
+    expect(window.electronAPI.batchExecute).toHaveBeenCalledTimes(1)
+
+    emitBatchProgress({
+      kind: 'batch-complete',
+      batchId: 'batch1',
+      total: 1,
+      completed: 1,
+      succeeded: 1,
+      failed: 0,
+    })
+    expect(r.batchPublishing.value).toBe(false)
+  })
+
+  it.each([
+    {
+      name: '创建业务失败',
+      arrange: function () {
+        mockBatchCreate.mockResolvedValueOnce({ code: 1, message: '创建失败' })
+      },
+    },
+    {
+      name: '执行业务失败',
+      arrange: function () {
+        mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+        window.electronAPI.batchExecute.mockResolvedValueOnce({ code: 1, message: '执行失败' })
+      },
+    },
+    {
+      name: '同步异常',
+      arrange: function () {
+        mockOnProgress.mockImplementationOnce(function () { throw new Error('同步异常') })
+      },
+    },
+  ])('$name 后释放批量执行锁', async ({ arrange }) => {
+    arrange()
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
+
+    await r.handleBatchPublish()
+
+    expect(r.batchPublishing.value).toBe(false)
+  })
+  it('取消全局进度订阅抛错时不掩盖已提交批次并保持锁到终态', async () => {
+    let emitBatchProgress
+    mockOnProgress.mockReturnValueOnce(function () {
+      throw new Error('取消订阅失败')
+    })
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.onBatchProgress.mockImplementationOnce(function (callback) {
+      emitBatchProgress = callback
+      return vi.fn()
+    })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
+
+    await expect(r.handleBatchPublish()).resolves.toBeUndefined()
+
+    expect(r.batchPublishing.value).toBe(true)
+    emitBatchProgress({
+      kind: 'batch-complete',
+      batchId: 'batch1',
+      total: 1,
+      completed: 1,
+      succeeded: 1,
+      failed: 0,
+    })
+
+    expect(r.batchPublishing.value).toBe(false)
+  })
   // ─── handleBatchPublish ──────────────────────
   it('handleBatchPublish 文章缺标题时警告', async () => {
     const r = useBatchPublish({ article, licenseStore })
@@ -280,7 +398,7 @@ describe('useBatchPublish — composable setup', () => {
 
   it('handleBatchPublish 成功创建批量任务（无定时）', async () => {
     mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
-    window.electronAPI.batchExecute.mockResolvedValueOnce(undefined)
+    window.electronAPI.batchExecute.mockResolvedValueOnce({ code: 0 })
     window.electronAPI.onBatchProgress.mockReturnValueOnce(function () {})
     const r = useBatchPublish({ article, licenseStore })
     r.batchMode.value = true
@@ -297,7 +415,7 @@ describe('useBatchPublish — composable setup', () => {
 
   it('handleBatchPublish 有定时时调用 batchSchedule', async () => {
     mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
-    window.electronAPI.batchSchedule.mockResolvedValueOnce(undefined)
+    window.electronAPI.batchSchedule.mockResolvedValueOnce({ code: 0 })
     const r = useBatchPublish({ article, licenseStore })
     r.batchMode.value = true
     await nextTick()
@@ -307,6 +425,27 @@ describe('useBatchPublish — composable setup', () => {
     r.articles.value[0].publishTime = '2026-01-01T10:00'
     await r.handleBatchPublish()
     expect(window.electronAPI.batchSchedule).toHaveBeenCalledWith('batch1')
+  })
+
+  it('排期接口返回业务失败时显示后端消息且不提示已排期', async () => {
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.batchSchedule.mockResolvedValueOnce({
+      code: -1,
+      message: '排期失败：任务不存在',
+    })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp'],
+      publishTime: '2026-01-01T10:00',
+    }]
+
+    await r.handleBatchPublish()
+
+    expect(r.batchProgress.value.at(-1)).toMatchObject({ type: 'danger' })
+    expect(r.batchProgress.value.at(-1).text).toContain('排期失败：任务不存在')
+    expect(r.batchProgress.value.some(function (item) { return item.text.includes('已排期') })).toBe(false)
   })
 
   it('handleBatchPublish batchCreate 失败时记录错误', async () => {
@@ -331,5 +470,314 @@ describe('useBatchPublish — composable setup', () => {
     r.articles.value[0].platforms = ['wechat_mp']
     await r.handleBatchPublish()
     expect(r.batchProgress.value.some(function (p) { return p.type === 'danger' })).toBe(true)
+  })
+
+  it('空白标题会被拦截且不会创建批次', async () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '  ', content: '正文', platforms: ['wechat_mp'] }]
+
+    await r.handleBatchPublish()
+
+    expect(mockElMessage.warning).toHaveBeenCalledWith('有文章缺少标题')
+    expect(mockBatchCreate).not.toHaveBeenCalled()
+    expect(mockOnProgress).not.toHaveBeenCalled()
+  })
+
+  it('空白正文会被拦截且不会创建批次', async () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '\n  ', platforms: ['wechat_mp'] }]
+
+    await r.handleBatchPublish()
+
+    expect(mockElMessage.warning).toHaveBeenCalledWith('有文章缺少正文')
+    expect(mockBatchCreate).not.toHaveBeenCalled()
+    expect(mockOnProgress).not.toHaveBeenCalled()
+  })
+
+  it('创建批次时精确透传文章、排期和预检配置', async () => {
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    const r = useBatchPublish({ article, licenseStore })
+    r.precheckEnabled.value = true
+    r.articles.value = [{
+      _key: 'ui-only',
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp', 'zhihu'],
+      publishTime: '2026-07-18T10:00',
+    }]
+
+    await r.handleBatchPublish()
+
+    expect(mockBatchCreate).toHaveBeenCalledTimes(1)
+    expect(mockBatchCreate.mock.calls[0][0].articles).toEqual([{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp', 'zhihu'],
+      publishTime: '2026-07-18T10:00',
+      precheck: true,
+    }])
+    expect(window.electronAPI.batchSchedule).toHaveBeenCalledWith('batch1')
+    expect(window.electronAPI.batchExecute).not.toHaveBeenCalled()
+  })
+
+  it('创建批次时传入 IPC 的嵌套文章数据可结构化克隆', async () => {
+    mockBatchCreate.mockImplementationOnce(async function (payload) {
+      expect(function () { structuredClone(payload) }).not.toThrow()
+      return { code: 0, data: { id: 'batch1' } }
+    })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp', 'zhihu'],
+      publishTime: '2026-07-18T10:00',
+    }]
+
+    await r.handleBatchPublish()
+
+    expect(mockBatchCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it('批次响应缺少 data 时记录失败并释放全局进度订阅', async () => {
+    const unsubscribe = vi.fn()
+    mockOnProgress.mockReturnValueOnce(unsubscribe)
+    mockBatchCreate.mockResolvedValueOnce({ code: 0 })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
+
+    await expect(r.handleBatchPublish()).resolves.toBeUndefined()
+
+    expect(r.batchProgress.value.at(-1)).toMatchObject({ type: 'danger' })
+    expect(r.batchProgress.value.at(-1).text).toContain('批量发布失败')
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('Electron API 缺失时记录失败而不是向调用方抛错', async () => {
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI = undefined
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
+
+    await expect(r.handleBatchPublish()).resolves.toBeUndefined()
+
+    expect(r.batchProgress.value.at(-1)).toMatchObject({ type: 'danger' })
+    expect(r.batchProgress.value.at(-1).text).toContain('批量发布失败')
+  })
+
+  it('执行批次失败时记录错误并释放两个进度订阅', async () => {
+    const unsubscribe = vi.fn()
+    const unsubscribeBatch = vi.fn()
+    mockOnProgress.mockReturnValueOnce(unsubscribe)
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.onBatchProgress.mockReturnValueOnce(unsubscribeBatch)
+    window.electronAPI.batchExecute.mockRejectedValueOnce(new Error('执行失败'))
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
+
+    await r.handleBatchPublish()
+
+    expect(r.batchProgress.value.at(-1)).toMatchObject({ type: 'danger' })
+    expect(r.batchProgress.value.at(-1).text).toContain('执行失败')
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('执行接口返回业务失败时显示后端消息、不提示提交成功并释放订阅', async () => {
+    const unsubscribe = vi.fn()
+    const unsubscribeBatch = vi.fn()
+    mockOnProgress.mockReturnValueOnce(unsubscribe)
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.onBatchProgress.mockReturnValueOnce(unsubscribeBatch)
+    window.electronAPI.batchExecute.mockResolvedValueOnce({
+      code: 1,
+      message: '执行失败：账号未登录',
+    })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
+
+    await r.handleBatchPublish()
+
+    expect(r.batchProgress.value.at(-1)).toMatchObject({ type: 'danger' })
+    expect(r.batchProgress.value.at(-1).text).toContain('执行失败：账号未登录')
+    expect(r.batchProgress.value.some(function (item) { return item.text.includes('已提交发布') })).toBe(false)
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('批次进度同时映射成功和失败事件', async () => {
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.onBatchProgress.mockImplementationOnce(function (callback) {
+      callback({ ok: true, platform: 'wechat_mp', title: '成功文章', message: '' })
+      callback({ ok: false, platform: 'zhihu', title: '失败文章', message: '未登录' })
+      return vi.fn()
+    })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
+
+    await r.handleBatchPublish()
+
+    expect(r.batchDone.value).toBe(1)
+    expect(r.batchFail.value).toBe(1)
+    expect(r.batchProgress.value.some(function (p) { return p.text.includes('未登录') })).toBe(true)
+  })
+
+  it('批次提交后持续接收异步进度，并在部分失败时汇总后释放订阅', async () => {
+    const unsubscribeBatch = vi.fn()
+    let emitBatchProgress
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.onBatchProgress.mockImplementationOnce(function (callback) {
+      emitBatchProgress = callback
+      return unsubscribeBatch
+    })
+    window.electronAPI.batchExecute.mockResolvedValueOnce({ code: 0 })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp', 'zhihu'],
+    }]
+
+    await r.handleBatchPublish()
+
+    expect(unsubscribeBatch).not.toHaveBeenCalled()
+    emitBatchProgress({ batchId: 'batch1', ok: true, platform: 'wechat_mp', title: '标题' })
+    expect(unsubscribeBatch).not.toHaveBeenCalled()
+    emitBatchProgress({ batchId: 'batch1', ok: false, platform: 'zhihu', title: '标题', message: '账号未登录' })
+
+    expect(r.batchDone.value).toBe(1)
+    expect(r.batchFail.value).toBe(1)
+    expect(mockElMessage.warning).toHaveBeenCalledWith('批量发布完成：1 个成功，1 个失败')
+    expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('全部任务失败时显示明确错误汇总，并忽略其他批次事件', async () => {
+    const unsubscribeBatch = vi.fn()
+    let emitBatchProgress
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.onBatchProgress.mockImplementationOnce(function (callback) {
+      emitBatchProgress = callback
+      return unsubscribeBatch
+    })
+    window.electronAPI.batchExecute.mockResolvedValueOnce({ code: 0 })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp', 'zhihu'],
+    }]
+
+    await r.handleBatchPublish()
+    emitBatchProgress({ batchId: 'other-batch', ok: false, platform: 'wechat_mp', title: '其他任务', message: '失败' })
+    expect(r.batchFail.value).toBe(0)
+
+    emitBatchProgress({ batchId: 'batch1', ok: false, platform: 'wechat_mp', title: '标题', message: '超时' })
+    emitBatchProgress({ batchId: 'batch1', ok: false, platform: 'zhihu', title: '标题', message: '账号未登录' })
+
+    expect(r.batchDone.value).toBe(0)
+    expect(r.batchFail.value).toBe(2)
+    expect(mockElMessage.error).toHaveBeenCalledWith('批量发布失败：2 个任务全部失败')
+    expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('收到 batch-complete 后以批次终态计数汇总并立即释放监听', async () => {
+    const unsubscribeBatch = vi.fn()
+    let emitBatchProgress
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.onBatchProgress.mockImplementationOnce(function (callback) {
+      emitBatchProgress = callback
+      return unsubscribeBatch
+    })
+    window.electronAPI.batchExecute.mockResolvedValueOnce({
+      code: 0,
+      data: { batchId: 'batch1', total: 2, accepted: 1, failed: 1 },
+    })
+    window.electronAPI.batchGet = vi.fn()
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp', 'zhihu'],
+    }]
+
+    await r.handleBatchPublish()
+    emitBatchProgress({
+      kind: 'batch-complete',
+      batchId: 'batch1',
+      total: 2,
+      accepted: 1,
+      completed: 2,
+      succeeded: 1,
+      failed: 1,
+    })
+
+    expect(mockElMessage.warning).toHaveBeenCalledWith('批量发布完成：1 个成功，1 个失败')
+    expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
+    expect(window.electronAPI.batchGet).not.toHaveBeenCalled()
+  })
+
+  it('batch-complete 事件丢失时通过有界状态轮询确认终态并释放监听', async () => {
+    vi.useFakeTimers()
+    const unsubscribeBatch = vi.fn()
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.onBatchProgress.mockReturnValueOnce(unsubscribeBatch)
+    window.electronAPI.batchExecute.mockResolvedValueOnce({
+      code: 0,
+      data: { batchId: 'batch1', total: 2, accepted: 2, failed: 0 },
+    })
+    window.electronAPI.batchGet = vi.fn().mockResolvedValueOnce({
+      code: 0,
+      data: { id: 'batch1', status: 'done', total: 2, completed: 2, failed: 1 },
+    })
+    const r = useBatchPublish({
+      article,
+      licenseStore,
+      batchStatusPollIntervalMs: 10,
+      batchStatusPollMaxAttempts: 2,
+    })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp', 'zhihu'],
+    }]
+
+    await r.handleBatchPublish()
+    expect(unsubscribeBatch).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(window.electronAPI.batchGet).toHaveBeenCalledWith('batch1')
+    expect(mockElMessage.warning).toHaveBeenCalledWith('批量发布完成：1 个成功，1 个失败')
+    expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('状态轮询达到边界仍无终态时提示超时并可靠取消监听', async () => {
+    vi.useFakeTimers()
+    const unsubscribeBatch = vi.fn()
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.onBatchProgress.mockReturnValueOnce(unsubscribeBatch)
+    window.electronAPI.batchExecute.mockResolvedValueOnce({
+      code: 0,
+      data: { batchId: 'batch1', total: 1, accepted: 1, failed: 0 },
+    })
+    window.electronAPI.batchGet = vi.fn().mockResolvedValue({
+      code: 0,
+      data: { id: 'batch1', status: 'running', total: 1, completed: 0, failed: 0 },
+    })
+    const r = useBatchPublish({
+      article,
+      licenseStore,
+      batchStatusPollIntervalMs: 10,
+      batchStatusPollMaxAttempts: 2,
+    })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
+
+    await r.handleBatchPublish()
+    await vi.advanceTimersByTimeAsync(20)
+
+    expect(window.electronAPI.batchGet).toHaveBeenCalledTimes(2)
+    expect(mockElMessage.error).toHaveBeenCalledWith('批量发布状态确认超时，请在任务记录中查看最终结果')
+    expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

@@ -1,41 +1,52 @@
-﻿// video-engine tests
-const assert = require('assert');
-let p = 0, f = 0;
-function t(n, fn) { try { fn(); p++; console.log('  \u2705 ' + n); } catch (e) { f++; console.log('  \u274C ' + n + ': ' + e.message); } }
-function eq(a, b) { assert.deepStrictEqual(a, b); }
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-console.log('=== video-engine ===');
-let VideoEngine;
-try { VideoEngine = require('../services/video-engine').VideoEngine; } catch (e) { console.log('  Skipped: ' + e.message); process.exit(0); }
+const { VideoEngine } = require('../services/video-engine')
 
-const ve = new VideoEngine();
+describe('VideoEngine 能力清单', () => {
+  let engine
 
-t('exports VideoEngine class', function () { eq(typeof VideoEngine, 'function'); });
+  beforeEach(() => {
+    engine = new VideoEngine()
+  })
 
-t('processTypes returns supported list', function () {
-  const types = ve.listProcessTypes();
-  eq(Array.isArray(types), true);
-  eq(types.length > 0, true);
-  eq(types.includes('green-screen'), true);
-});
+  it('导出 VideoEngine 类', () => {
+    expect(VideoEngine).toBeTypeOf('function')
+  })
 
-t('analyzeTypes returns supported list', function () {
-  const types = ve.listAnalyzeTypes();
-  eq(types.includes('scene-detect'), true);
-  eq(types.includes('transcript'), true);
-});
+  it('返回包含 green-screen 的处理类型副本', () => {
+    const types = engine.listProcessTypes()
 
-t('stockSources returns array', function () {
-  const sources = ve.listStockSources();
-  eq(Array.isArray(sources), true);
-  eq(sources.length > 5, true);
-});
+    expect(types).toContain('green-screen')
+    types.push('mutated')
+    expect(engine.listProcessTypes()).not.toContain('mutated')
+  })
 
-t('getStatus returns object', function () {
-  const status = ve.getStatus();
-  eq(typeof status, 'object');
-  eq(typeof status.ffmpegAvailable, 'boolean');
-});
+  it('返回 scene-detect 和 transcript 分析类型', () => {
+    expect(engine.listAnalyzeTypes()).toEqual(expect.arrayContaining([
+      'scene-detect',
+      'transcript',
+    ]))
+  })
 
-console.log('\n========== ' + p + '/' + (p + f) + ' ==========');
-if (f) process.exit(1);
+  it('返回结构完整的素材源数组', () => {
+    const sources = engine.listStockSources()
+
+    expect(sources.length).toBeGreaterThan(5)
+    expect(sources.every((source) => (
+      typeof source.id === 'string'
+      && typeof source.name === 'string'
+      && typeof source.type === 'string'
+    ))).toBe(true)
+  })
+
+  it('getStatus 返回 FFmpeg 布尔状态和能力列表', () => {
+    const ffmpegCheck = vi.spyOn(engine, '_checkFfmpeg').mockReturnValue(false)
+
+    expect(engine.getStatus()).toEqual({
+      ffmpegAvailable: false,
+      processTypes: expect.arrayContaining(['green-screen']),
+      analyzeTypes: expect.arrayContaining(['scene-detect']),
+    })
+    expect(ffmpegCheck).toHaveBeenCalledOnce()
+  })
+})

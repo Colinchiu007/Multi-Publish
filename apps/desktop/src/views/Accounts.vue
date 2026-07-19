@@ -192,7 +192,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listAccounts, accountDelete, accountCheckLogin, authOpenLogin, authClose, accountAdd, accountSetDefault, accountUpdate } from '@/api/publisher'
+import { accountDelete, accountCheckLogin, authOpenLogin, authClose, accountAdd, accountSetDefault, accountUpdate } from '@/api/publisher'
 
 const loading = ref(false)
 const showAddDialog = ref(false)
@@ -229,10 +229,7 @@ const totalAccounts = computed(() => accountStore.accounts.length)
 
 // 批量选择
 const selectedCount = computed(() => accountStore.selectedIds.size)
-const isAllSelected = computed(() => {
-  const accounts = accountStore.accounts
-  return accounts.length > 0 && accounts.every(a => accountStore.selectedIds.has(a.id))
-})
+const isAllSelected = computed(() => accountStore.isAllSelected)
 
 function isSelected (id) {
   return accountStore.selectedIds.has(id)
@@ -400,11 +397,14 @@ async function closeAuthView () {
 async function setDefault (acc) {
   if (!accountSetDefault) return
   try {
-    await accountSetDefault(acc.platform, acc.id)
+    const result = await accountSetDefault(acc.platform, acc.id)
+    if (result?.code !== 0) {
+      throw new Error(result?.message || '设置默认账号失败')
+    }
+    await refresh()
     ElMessage.success(`已设为 ${platformLabel(acc.platform)} 默认账号`)
-    refresh()
   } catch (e) {
-    ElMessage.error(e.message)
+    ElMessage.error(e?.message || '设置默认账号失败')
   }
 }
 
@@ -413,10 +413,13 @@ async function renameAccount (acc, newName) {
   if (!name || name === (acc.account_name || acc.name)) return
   if (!accountUpdate) return
   try {
-    await accountUpdate(acc.id, { name })
-    refresh()
+    const result = await accountUpdate(acc.id, { name })
+    if (result?.code !== 0) {
+      throw new Error(result?.message || '重命名失败')
+    }
+    await refresh()
   } catch (e) {
-    ElMessage.error('重命名失败: ' + e.message)
+    ElMessage.error(e?.message || '重命名失败')
   }
 }
 
@@ -474,9 +477,19 @@ async function handleBatchDelete () {
       `确定删除选中的 ${count} 个账号吗？此操作不可恢复。`,
       '批量删除确认', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
     )
-    await accountStore.batchDelete()
-    ElMessage.success(`已删除 ${count} 个账号`)
-    refresh()
+    const result = await accountStore.batchDelete()
+    const success = result?.success
+    const failed = result?.failed
+    if (!Number.isInteger(success) || !Number.isInteger(failed) || success < 0 || failed < 0 || success + failed !== count) {
+      throw new Error('批量删除返回了无效结果')
+    }
+    if (failed === 0) {
+      ElMessage.success(`已删除 ${success} 个账号`)
+    } else if (success > 0) {
+      ElMessage.warning(`已删除 ${success} 个账号，${failed} 个删除失败`)
+    } else {
+      ElMessage.error(`${failed} 个账号删除失败`)
+    }
   } catch (e) {
     if (e !== 'cancel' && e?.message !== 'canceled') {
       ElMessage.error('批量删除失败: ' + (e.message || '未知错误'))

@@ -67,8 +67,8 @@
         <div style="display:flex;gap:var(--space-sm)">
           <UiButton variant="secondary" @click="addArticle">＋ 添加文章</UiButton>
           <div style="flex:1"></div>
-          <UiButton @click="handleBatchPublish" :disabled="publishing || articles.length === 0">
-            {{ publishing ? '发布中...' : `🚀 批量发布 (${totalPlatformTasks} 个任务)` }}
+          <UiButton @click="handleBatchPublish" :disabled="batchPublishing || articles.length === 0">
+            {{ batchPublishing ? '发布中...' : `🚀 批量发布 (${totalPlatformTasks} 个任务)` }}
           </UiButton>
         </div>
 
@@ -426,6 +426,7 @@ const {
 
 const {
   batchMode,
+  batchPublishing,
   articles,
   batchProgress,
   templateTargetIdx,
@@ -473,6 +474,7 @@ onMounted(async () => {
 defineExpose({
   article,
   batchMode,
+  batchPublishing,
   articles,
   batchProgress,
   batchDone,

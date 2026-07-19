@@ -38,7 +38,7 @@ vi.mock("@/stores/templates", () => ({
 }));
 
 vi.mock("element-plus", () => ({
-  ElMessage: { warning: vi.fn(), success: vi.fn() },
+  ElMessage: { warning: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn() },
   ElMessageBox: { confirm: vi.fn() }
 }));
 
@@ -72,6 +72,12 @@ async function createWrapper() {
   return w;
 }
 
+function findButtonByText(wrapper, text) {
+  const button = wrapper.findAllComponents(UiButton).find((item) => item.text().includes(text));
+  expect(button, `未找到包含“${text}”的按钮`).toBeDefined();
+  return button;
+}
+
 describe("PublishView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -82,6 +88,10 @@ describe("PublishView", () => {
       offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
       offlineAddToCache: vi.fn().mockResolvedValue({ code: 0 }),
       onProgress: vi.fn(() => vi.fn()),
+      batchCreate: vi.fn().mockResolvedValue({ code: 0, data: { id: "batch1" } }),
+      batchExecute: vi.fn().mockResolvedValue({ code: 0 }),
+      batchSchedule: vi.fn().mockResolvedValue({ code: 0 }),
+      onBatchProgress: vi.fn(() => vi.fn()),
     };
     mockAccountLoad.mockClear();
   });
@@ -185,6 +195,53 @@ describe("PublishView", () => {
     expect(w.vm.articles.length).toBe(count + 1);
   });
 
+  it("批量发布进行中仅锁定批量按钮并显示发布中状态", async () => {
+    let resolveCreate;
+    let emitBatchProgress;
+    window.electronAPI.batchCreate.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    window.electronAPI.onBatchProgress.mockImplementationOnce((callback) => {
+      emitBatchProgress = callback;
+      return vi.fn();
+    });
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.articles[0].title = "批量标题";
+    w.vm.articles[0].content = "批量正文";
+    w.vm.articles[0].platforms = ["wechat_mp"];
+
+    const publishPromise = w.vm.handleBatchPublish();
+    await nextTick();
+
+    const batchButton = findButtonByText(w, "发布中...");
+    expect(w.vm.batchPublishing).toBe(true);
+    expect(w.vm.publishing).toBe(false);
+    expect(batchButton.attributes("disabled")).toBeDefined();
+    expect(window.electronAPI.batchCreate).toHaveBeenCalledTimes(1);
+
+    resolveCreate({ code: 0, data: { id: "batch1" } });
+    await publishPromise;
+    await nextTick();
+
+    expect(w.vm.batchPublishing).toBe(true);
+    expect(findButtonByText(w, "发布中...").attributes("disabled")).toBeDefined();
+
+    emitBatchProgress({
+      kind: "batch-complete",
+      batchId: "batch1",
+      total: 1,
+      completed: 1,
+      succeeded: 1,
+      failed: 0,
+    });
+    await nextTick();
+
+    expect(w.vm.batchPublishing).toBe(false);
+    expect(findButtonByText(w, "批量发布").attributes("disabled")).toBeUndefined();
+  });
+
   it("offline detection blocks publish when offline", async () => {
     window.electronAPI.offlineStatus = vi.fn().mockResolvedValue({ code: 0, data: { offline: true } });
     const w = await createWrapper();
@@ -207,6 +264,10 @@ describe("PublishView — extra coverage", () => {
       offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
       offlineAddToCache: vi.fn().mockResolvedValue({ code: 0 }),
       onProgress: vi.fn(() => vi.fn()),
+      batchCreate: vi.fn().mockResolvedValue({ code: 0, data: { id: "batch1" } }),
+      batchExecute: vi.fn().mockResolvedValue({ code: 0 }),
+      batchSchedule: vi.fn().mockResolvedValue({ code: 0 }),
+      onBatchProgress: vi.fn(() => vi.fn()),
     };
     mockAccountLoad.mockClear();
   });
@@ -338,15 +399,12 @@ describe("PublishView — extra coverage", () => {
     w.vm.article.content = "E2E 交互测试正文";
     w.vm.selectedPlatforms = ["wechat_mp"];
     await nextTick();
-    const publishBtn = w.findComponent(UiButton);
-    if (publishBtn.exists()) {
-      await publishBtn.trigger("click");
-      await nextTick();
-      await new Promise(r => setTimeout(r, 0));
-      // handlePublish 应被触发（publishing 状态变化或 IPC 调用）
-      const ipcCalled = window.electronAPI?.publishBatch && vi.mocked(window.electronAPI.publishBatch).mock.calls.length > 0;
-      expect(ipcCalled || w.vm.publishing !== undefined).toBe(true);
-    }
+    const publishBtn = findButtonByText(w, "一键发布");
+    await publishBtn.trigger("click");
+
+    await vi.waitFor(() => {
+      expect(window.electronAPI.publishBatch).toHaveBeenCalledTimes(1);
+    });
   });
 
 });

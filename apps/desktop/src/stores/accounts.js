@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { listAccounts, accountDelete, accountSetDefault, accountUpdate } from '@/api/publisher'
 
 /**
@@ -32,10 +32,12 @@ export const useAccountStore = defineStore('accounts', () => {
       } else {
         accounts.value = []
       }
+      reconcileSelection()
       loadGroups()
     } catch (e) {
       error.value = e.message
       accounts.value = []
+      reconcileSelection()
     } finally {
       loading.value = false
     }
@@ -101,6 +103,19 @@ export const useAccountStore = defineStore('accounts', () => {
     return Object.values(map).sort((a, b) => b.activeCount - a.activeCount || b.accounts.length - a.accounts.length)
   })
 
+  function syncAllSelected() {
+    const visibleIds = filteredAccounts.value.map(account => account.id)
+    isAllSelected.value = visibleIds.length > 0 && visibleIds.every(id => selectedIds.value.has(id))
+  }
+
+  function reconcileSelection() {
+    const validIds = new Set(accounts.value.map(account => account.id))
+    selectedIds.value = new Set(Array.from(selectedIds.value).filter(id => validIds.has(id)))
+    syncAllSelected()
+  }
+
+  watch([filteredAccounts, selectedIds], syncAllSelected, { flush: 'sync' })
+
   function loadGroups() {
     try {
       const raw = localStorage.getItem('mp_account_groups')
@@ -131,11 +146,15 @@ export const useAccountStore = defineStore('accounts', () => {
     if (selectedIds.value.has(accountId)) selectedIds.value.delete(accountId)
     else selectedIds.value.add(accountId)
     selectedIds.value = new Set(selectedIds.value)
+    syncAllSelected()
   }
   function selectAll() {
-    if (isAllSelected.value) selectedIds.value = new Set()
-    else selectedIds.value = new Set(filteredAccounts.value.map(a => a.id))
-    isAllSelected.value = !isAllSelected.value
+    const visibleIds = filteredAccounts.value.map(account => account.id)
+    const next = new Set(selectedIds.value)
+    if (isAllSelected.value) visibleIds.forEach(id => next.delete(id))
+    else visibleIds.forEach(id => next.add(id))
+    selectedIds.value = next
+    syncAllSelected()
   }
   function clearSelection() {
     selectedIds.value = new Set()

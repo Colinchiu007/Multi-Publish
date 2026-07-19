@@ -1,94 +1,91 @@
-﻿// pipeline-engine tests
-const assert = require('assert');
-let p = 0, f = 0;
-function t(n, fn) { try { fn(); p++; console.log('  \u2705 ' + n); } catch (e) { f++; console.log('  \u274C ' + n + ': ' + e.message); } }
-function eq(a, b) { assert.deepStrictEqual(a, b); }
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-console.log('=== pipeline-engine ===');
-let PipelineEngine;
-try { PipelineEngine = require('../services/pipeline-engine').PipelineEngine; } catch (e) { console.log('  Skipped: ' + e.message); process.exit(0); }
+const { PipelineEngine } = require('../services/pipeline-engine')
 
-const pe = new PipelineEngine();
+describe('PipelineEngine 状态机模式', () => {
+  let engine
 
-t('exports PipelineEngine class', function () { eq(typeof PipelineEngine, 'function'); });
+  beforeEach(() => {
+    engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+  })
 
-t('listPipelines returns array', function () {
-  const list = pe.listPipelines();
-  eq(Array.isArray(list), true);
-  eq(list.length > 0, true);
-});
+  it('导出 PipelineEngine 类', () => {
+    expect(PipelineEngine).toBeTypeOf('function')
+  })
 
-t('pipelines have required fields', function () {
-  const list = pe.listPipelines();
-  for (const pl of list) {
-    eq(typeof pl.name, 'string');
-    eq(typeof pl.description, 'string');
-    eq(pl.name.length > 0, true);
-  }
-});
+  it('列出非空的 pipeline 数组', () => {
+    expect(engine.listPipelines()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'animated-explainer' }),
+    ]))
+  })
 
-t('getPipeline returns detail for known pipeline', function () {
-  const detail = pe.getPipeline('animated-explainer');
-  eq(detail !== null, true);
-  eq(detail.name, 'animated-explainer');
-  eq(Array.isArray(detail.stages), true);
-});
+  it('每条 pipeline 都包含非空名称和描述', () => {
+    for (const pipeline of engine.listPipelines()) {
+      expect(pipeline.name).toEqual(expect.any(String))
+      expect(pipeline.name.length).toBeGreaterThan(0)
+      expect(pipeline.description).toEqual(expect.any(String))
+      expect(pipeline.description.length).toBeGreaterThan(0)
+    }
+  })
 
-t('getPipeline returns null for unknown', function () {
-  eq(pe.getPipeline('nonexistent-pipeline'), null);
-});
+  it('返回已知 pipeline 的完整阶段定义', () => {
+    expect(engine.getPipeline('animated-explainer')).toEqual(expect.objectContaining({
+      name: 'animated-explainer',
+      stages: expect.any(Array),
+    }))
+  })
 
-t('start sets pipeline status to running', function () {
-  const result = pe.start('animated-explainer', { topic: 'AI basics' });
-  eq(result.success, true);
-  const status = pe.getStatus('animated-explainer');
-  eq(status.status, 'running');
-});
+  it('未知 pipeline 返回 null', () => {
+    expect(engine.getPipeline('nonexistent-pipeline')).toBeNull()
+  })
 
-t('pause changes status to paused', function () {
-  pe.start('animated-explainer', {});
-  const result = pe.pause();
-  eq(result.success, true);
-  const status = pe.getStatus('animated-explainer');
-  eq(status.status, 'paused');
-});
+  it('start 将 pipeline 状态切换为 running', () => {
+    expect(engine.start('animated-explainer', { topic: 'AI basics' })).toMatchObject({ success: true })
+    expect(engine.getStatus('animated-explainer').status).toBe('running')
+  })
 
-t('resume changes status back to running', function () {
-  pe.start('animated-explainer', {});
-  pe.pause();
-  const result = pe.resume();
-  eq(result.success, true);
-  const status = pe.getStatus('animated-explainer');
-  eq(status.status, 'running');
-});
+  it('pause 将运行状态切换为 paused', () => {
+    engine.start('animated-explainer', {})
 
-t('cancel returns success and cleans up', function () {
-  pe.start('animated-explainer', {});
-  const result = pe.cancel();
-  eq(result.success, true);
-  const status = pe.getStatus('animated-explainer');
-  eq(status.status, 'idle');
-});
+    expect(engine.pause()).toMatchObject({ success: true })
+    expect(engine.getStatus('animated-explainer').status).toBe('paused')
+  })
 
-t('advance progresses through stages', function () {
-  pe.start('animated-explainer', {});
-  for (let i = 0; i < 7; i++) {
-    const r = pe.advance();
-    eq(r.success, true);
-  }
-  const final = pe.advance();
-  eq(final.success, true);
-  const status = pe.getStatus('animated-explainer');
-  eq(status.status, 'idle');
-});
+  it('resume 将暂停状态切回 running', () => {
+    engine.start('animated-explainer', {})
+    engine.pause()
 
-t('getHistory records completed pipelines', function () {
-  pe.start('animated-explainer', {});
-  for (let i = 0; i < 8; i++) pe.advance();
-  const history = pe.getHistory();
-  eq(history.length >= 1, true);
-  eq(history[history.length - 1].status, 'completed');
-});
+    expect(engine.resume()).toMatchObject({ success: true })
+    expect(engine.getStatus('animated-explainer').status).toBe('running')
+  })
 
-console.log('\n========== ' + p + '/' + (p + f) + ' ==========');
-if (f) process.exit(1);
+  it('cancel 成功并清理当前运行状态', () => {
+    engine.start('animated-explainer', {})
+
+    expect(engine.cancel()).toMatchObject({ success: true })
+    expect(engine.getStatus('animated-explainer').status).toBe('idle')
+  })
+
+  it('advance 按阶段推进并在末尾回到 idle', () => {
+    const pipeline = engine.getPipeline('animated-explainer')
+    engine.start(pipeline.name, {})
+
+    for (const _stage of pipeline.stages) {
+      expect(engine.advance()).toMatchObject({ success: true })
+    }
+    expect(engine.getStatus(pipeline.name).status).toBe('idle')
+  })
+
+  it('完成 pipeline 后记录 completed 历史', () => {
+    const pipeline = engine.getPipeline('animated-explainer')
+    engine.start(pipeline.name, {})
+    pipeline.stages.forEach(() => engine.advance())
+
+    expect(engine.getHistory()).toContainEqual(expect.objectContaining({
+      pipeline: pipeline.name,
+      status: 'completed',
+    }))
+  })
+})

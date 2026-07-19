@@ -59,9 +59,21 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  try { recorder.cleanup(); } catch (_) {}
-  try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
+  const cleanupErrors = [];
+  try {
+    recorder.cleanup();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   delete require.cache[require.resolve('../services/execution-recorder')];
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(cleanupErrors, 'ExecutionRecorder 测试资源清理失败');
+  }
 });
 
 // ─── Mock 工厂 ───
@@ -82,7 +94,9 @@ function createMockPipelineEngine() {
     resume: vi.fn(() => ({ success: true })),
     _emit: vi.fn((event, data) => {
       const arr = listeners.get(event);
-      if (arr) for (const cb of arr) { try { cb(data); } catch (_) {} }
+      if (arr) {
+        for (const cb of arr) cb(data);
+      }
     }),
   };
 }

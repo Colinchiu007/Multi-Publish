@@ -12,7 +12,7 @@
  *   - cohere-design-system.css 中 :root 和 [data-theme="dark"] 变量定义
  */
 
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 
 const THEME_KEY = 'ui:theme'
 
@@ -22,6 +22,10 @@ const THEME_KEY = 'ui:theme'
 export function useTheme() {
   const theme = ref('light')
   const loaded = ref(false)
+  let disposed = false
+  let preferredTheme = null
+  let systemThemeQuery = null
+  let onSystemThemeChange = null
 
   // 获取系统偏好
   function getSystemTheme() {
@@ -40,6 +44,7 @@ export function useTheme() {
   // 切换主题
   function toggle() {
     const next = theme.value === 'dark' ? 'light' : 'dark'
+    preferredTheme = next
     applyTheme(next)
     persist(next)
   }
@@ -71,21 +76,31 @@ export function useTheme() {
       // silent
     }
 
-    const initial = preferred || getSystemTheme()
+    if (disposed) return
+
+    preferredTheme = preferred
+    const initial = preferredTheme || getSystemTheme()
     applyTheme(initial)
     loaded.value = true
 
     // 监听系统主题变化（当无用户偏好时）
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    mq.addEventListener('change', (e) => {
+    systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    onSystemThemeChange = (e) => {
       // 只在没有持久化偏好的情况下跟随系统
-      if (!preferred) {
+      if (!preferredTheme) {
         applyTheme(e.matches ? 'dark' : 'light')
       }
-    })
+    }
+    systemThemeQuery.addEventListener('change', onSystemThemeChange)
   }
 
   onMounted(() => { init() })
+  onBeforeUnmount(() => {
+    disposed = true
+    if (systemThemeQuery && onSystemThemeChange) {
+      systemThemeQuery.removeEventListener('change', onSystemThemeChange)
+    }
+  })
 
   const isDark = ref(false)
   watch(theme, (val) => { isDark.value = val === 'dark' }, { immediate: true })

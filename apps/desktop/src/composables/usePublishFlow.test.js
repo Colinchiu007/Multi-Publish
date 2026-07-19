@@ -46,7 +46,7 @@ vi.mock('element-plus', function () {
   }
 })
 
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { usePublishFlow } from '../composables/usePublishFlow'
 
 describe('usePublishFlow — composable setup', () => {
@@ -165,6 +165,23 @@ describe('usePublishFlow — composable setup', () => {
     article.content = 'Content'
     await r.handlePublish()
     await nextTick()
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+  })
+
+  it('离线缓存返回业务失败时进入错误路径并显示后端消息', async () => {
+    mockOfflineStatus.mockResolvedValueOnce({ code: 0, data: { offline: true } })
+    mockOfflineAddToCache.mockResolvedValueOnce({ code: -1, message: '缓存写入失败' })
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+
+    await r.handlePublish()
+    await nextTick()
+
+    expect(r.result.value).toEqual({ success: false, message: '缓存写入失败' })
+    expect(r.progress.value.at(-1)).toMatchObject({ type: 'danger' })
+    expect(r.progress.value.at(-1).text).toContain('缓存写入失败')
+    expect(mockElMessage.warning).not.toHaveBeenCalledWith('网络已断开，任务已缓存')
     expect(mockPublishBatch).not.toHaveBeenCalled()
   })
 
@@ -313,5 +330,208 @@ describe('usePublishFlow — composable setup', () => {
     await r.handlePublish()
     const data = mockPublishBatch.mock.calls[0][1]
     expect(data.precheck).toBe(true)
+  })
+
+  // ─── 核心流程边界与资源清理 ───────────────
+  it('空白标题会在任何预检或发布调用前被拦截', async () => {
+    const r = createFlow()
+    article.title = '   '
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    expect(mockElMessage.warning).toHaveBeenCalledWith('请输入文章标题')
+    expect(mockSensitiveCheck).not.toHaveBeenCalled()
+    expect(mockOfflineStatus).not.toHaveBeenCalled()
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+  })
+
+  it('空白正文会在任何预检或发布调用前被拦截', async () => {
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '\n  \t'
+
+    await r.handlePublish()
+
+    expect(mockElMessage.warning).toHaveBeenCalledWith('请输入正文内容')
+    expect(mockSensitiveCheck).not.toHaveBeenCalled()
+    expect(mockOfflineStatus).not.toHaveBeenCalled()
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+  })
+
+  it('未选择发布平台时在预检前拦截', async () => {
+    selectedPlatforms.value = []
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    expect(mockElMessage.warning).toHaveBeenCalledWith('请选择至少一个发布平台')
+    expect(mockSensitiveCheck).not.toHaveBeenCalled()
+    expect(mockOfflineStatus).not.toHaveBeenCalled()
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+    expect(r.publishing.value).toBe(false)
+  })
+
+  it('敏感词接口缺少 data 时按无敏感词处理', async () => {
+    mockSensitiveCheck.mockResolvedValue({ code: 0 })
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '正文'
+
+    await expect(r.handlePublish()).resolves.toBeUndefined()
+
+    expect(mockElMessageBox.confirm).not.toHaveBeenCalled()
+    expect(mockPublishBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('离线接口返回空对象时继续在线发布', async () => {
+    mockOfflineStatus.mockResolvedValueOnce({})
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '正文'
+
+    await expect(r.handlePublish()).resolves.toBeUndefined()
+
+    expect(mockOfflineAddToCache).not.toHaveBeenCalled()
+    expect(mockPublishBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('发布接口返回空对象时生成可展示的失败结果', async () => {
+    mockPublishBatch.mockResolvedValueOnce({})
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '正文'
+
+    await expect(r.handlePublish()).resolves.toBeUndefined()
+
+    expect(r.result.value).toEqual({ success: false, message: '发布失败' })
+    expect(r.progress.value.at(-1).text).toContain('发布失败')
+    expect(r.progress.value.at(-1)).toMatchObject({ type: 'danger' })
+    expect(r.publishing.value).toBe(false)
+  })
+
+  it('发布成功后只释放一次进度订阅', async () => {
+    const unsubscribe = vi.fn()
+    mockOnProgress.mockReturnValueOnce(unsubscribe)
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('发布抛错后仍只释放一次进度订阅', async () => {
+    const unsubscribe = vi.fn()
+    mockOnProgress.mockReturnValueOnce(unsubscribe)
+    mockPublishBatch.mockRejectedValueOnce(new Error('IPC 不可用'))
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(r.result.value).toEqual({ success: false, message: 'IPC 不可用' })
+  })
+
+  it('只透传有实际差异内容的平台覆盖项', async () => {
+    const diffEdits = {
+      wechat_mp: { title: '微信标题', content: '' },
+      zhihu: { title: '', content: '' },
+      douyin: null,
+    }
+    const r = usePublishFlow({
+      article,
+      selectedPlatforms,
+      selectedAccounts,
+      precheckEnabled,
+      diffEdits,
+    })
+    article.title = '标题'
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    expect(mockPublishBatch.mock.calls[0][1].platformOverrides).toEqual({
+      wechat_mp: { title: '微信标题', content: '' },
+    })
+  })
+
+  it('在线发布时传入 IPC 的响应式载荷可结构化克隆', async () => {
+    selectedPlatforms = ref(['wechat_mp'])
+    selectedAccounts = ref({ wechat_mp: 'acc1' })
+    const diffEdits = reactive({
+      wechat_mp: { title: '微信标题', content: '微信正文' },
+    })
+    mockPublishBatch.mockImplementationOnce(async function (targets, data) {
+      expect(function () { structuredClone(targets) }).not.toThrow()
+      expect(function () { structuredClone(data) }).not.toThrow()
+      return { code: 0, data: { taskIds: ['t1'] }, message: 'ok' }
+    })
+    const r = usePublishFlow({
+      article,
+      selectedPlatforms,
+      selectedAccounts,
+      precheckEnabled,
+      diffEdits,
+    })
+    article.title = '标题'
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    expect(mockPublishBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('离线缓存时传入 IPC 的响应式载荷可结构化克隆', async () => {
+    selectedPlatforms = ref(['wechat_mp'])
+    selectedAccounts = ref({ wechat_mp: 'acc1' })
+    mockOfflineStatus.mockResolvedValueOnce({ code: 0, data: { offline: true } })
+    mockOfflineAddToCache.mockImplementationOnce(async function (payload) {
+      expect(function () { structuredClone(payload) }).not.toThrow()
+      return { code: 0 }
+    })
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    expect(mockOfflineAddToCache).toHaveBeenCalledTimes(1)
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['标题敏感词检查', function () {
+      mockSensitiveCheck.mockRejectedValueOnce(new Error('标题检查失败'))
+    }, '标题检查失败'],
+    ['正文敏感词检查', function () {
+      mockSensitiveCheck
+        .mockResolvedValueOnce({ code: 0, data: { words: [] } })
+        .mockRejectedValueOnce(new Error('正文检查失败'))
+    }, '正文检查失败'],
+    ['离线状态检查', function () {
+      mockOfflineStatus.mockRejectedValueOnce(new Error('离线检查失败'))
+    }, '离线检查失败'],
+    ['离线缓存', function () {
+      mockOfflineStatus.mockResolvedValueOnce({ code: 0, data: { offline: true } })
+      mockOfflineAddToCache.mockRejectedValueOnce(new Error('缓存失败'))
+    }, '缓存失败'],
+  ])('%s 异常时生成稳定失败结果且不向调用方抛错', async (_name, configure, message) => {
+    configure()
+    const r = createFlow()
+    article.title = '标题'
+    article.content = '正文'
+
+    await expect(r.handlePublish()).resolves.toBeUndefined()
+
+    expect(r.result.value).toEqual({ success: false, message })
+    expect(r.progress.value.at(-1)).toMatchObject({ type: 'danger' })
+    expect(r.publishing.value).toBe(false)
+    expect(mockPublishBatch).not.toHaveBeenCalled()
   })
 })
