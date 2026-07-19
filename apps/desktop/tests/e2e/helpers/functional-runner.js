@@ -71,6 +71,11 @@ class FunctionalRunner {
         'if (window.__offlineDefault && window.__mockState) window.__mockState.offline = true;'
     });
 
+    // 功能 E2E 不依赖远程字体；屏蔽外网字体请求，避免 reset 时重复网络等待和资源耗尽。
+    await this.context.route(/https:\/\/(?:api\.fontshare\.com|fonts\.googleapis\.com|fonts\.gstatic\.com)\//, async (route) => {
+      await route.fulfill({ status: 204, body: '' });
+    });
+
     this.page = await this.context.newPage();
 
     // 收集 console error / pageerror

@@ -134,10 +134,48 @@ describe('ipc-handlers/helpers', () => {
     expect(warnSpy).toHaveBeenCalledTimes(2)
   })
 
+  it.each([
+    ['NODE_ENV=test', () => { process.env.NODE_ENV = 'test' }],
+    ['VITEST=true', () => { process.env.VITEST = 'true' }],
+    ['global.__VITEST__=true', () => { global.__VITEST__ = true }],
+  ])('withSenderCheck 在已打包应用中不得因 %s 放行缺少 senderFrame 的调用', async (_, enableTestMarker) => {
+    const originalNodeEnv = process.env.NODE_ENV
+    const originalVitest = process.env.VITEST
+    const originalGlobalVitest = global.__VITEST__
+    const originalIsPackaged = __electronMock.app.isPackaged
+    const inner = vi.fn(async () => ({ code: EC.SUCCESS }))
+
+    try {
+      delete process.env.NODE_ENV
+      delete process.env.VITEST
+      delete global.__VITEST__
+      __electronMock.app.isPackaged = true
+      enableTestMarker()
+
+      await expect(withSenderCheck(inner)({}, {})).resolves.toEqual({
+        code: EC.AUTH_ERROR,
+        message: '未授权的调用来源',
+      })
+      expect(inner).not.toHaveBeenCalled()
+    } finally {
+      restoreNodeEnv(originalNodeEnv)
+      if (originalVitest === undefined) delete process.env.VITEST
+      else process.env.VITEST = originalVitest
+      global.__VITEST__ = originalGlobalVitest
+      __electronMock.app.isPackaged = originalIsPackaged
+    }
+  })
+
   it('withSenderCheck 仅在测试环境兼容没有 senderFrame 的旧 mock', async () => {
+    const originalIsPackaged = __electronMock.app.isPackaged
     const inner = vi.fn(async () => ({ code: 0 }))
 
-    await expect(withSenderCheck(inner)({}, {})).resolves.toEqual({ code: 0 })
-    expect(inner).toHaveBeenCalledTimes(1)
+    try {
+      __electronMock.app.isPackaged = false
+      await expect(withSenderCheck(inner)({}, {})).resolves.toEqual({ code: 0 })
+      expect(inner).toHaveBeenCalledTimes(1)
+    } finally {
+      __electronMock.app.isPackaged = originalIsPackaged
+    }
   })
 })

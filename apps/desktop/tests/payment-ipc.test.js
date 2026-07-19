@@ -10,6 +10,8 @@ var mockGetOrder = vi.fn()
 var mockCompletePayment = vi.fn()
 var mockSimulatePayment = vi.fn()
 var mockListOrders = vi.fn()
+var TRUSTED_EVENT = { senderFrame: { url: 'app://localhost/index.html' } }
+var UNTRUSTED_EVENT = { senderFrame: { url: 'https://evil.example/' } }
 
 __registerMock('../services/payment-manager', vi.fn().mockImplementation(function() {
   return {
@@ -47,7 +49,7 @@ describe('Payment IPC handlers', function() {
   test('payment:create-order handler creates order', async function() {
     var handler = mockIpcMain.handle.mock.calls.find(function(c) { return c[0] === 'payment:create-order' })[1]
     mockCreateOrder.mockReturnValue({ id: 'order-1', plan: 'pro', amount: 99, method: 'alipay', status: 'pending' })
-    var result = await handler(null, { plan: 'pro', method: 'alipay' })
+    var result = await handler(TRUSTED_EVENT, { plan: 'pro', method: 'alipay' })
     expect(mockCreateOrder).toHaveBeenCalledWith('pro', { method: 'alipay' })
     expect(result.code).toBe(0)
     expect(result.data.id).toBe('order-1')
@@ -56,8 +58,15 @@ describe('Payment IPC handlers', function() {
   test('payment:simulate handler completes payment', async function() {
     var handler = mockIpcMain.handle.mock.calls.find(function(c) { return c[0] === 'payment:simulate' })[1]
     mockSimulatePayment.mockReturnValue(true)
-    var result = await handler(null, { orderId: 'order-1' })
+    var result = await handler(TRUSTED_EVENT, { orderId: 'order-1' })
     expect(mockSimulatePayment).toHaveBeenCalledWith('order-1')
     expect(result.code).toBe(0)
+  })
+
+  test('payment:create-order rejects untrusted senders without creating an order', async function() {
+    var handler = mockIpcMain.handle.mock.calls.find(function(c) { return c[0] === 'payment:create-order' })[1]
+    var result = await handler(UNTRUSTED_EVENT, { plan: 'pro', method: 'alipay' })
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(mockCreateOrder).not.toHaveBeenCalled()
   })
 })

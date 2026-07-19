@@ -365,6 +365,21 @@ describe('模型服务商 E2E 契约', () => {
 
     expect(r.checks.find((check) => check.name.includes('AI 服务商'))).toMatchObject({ passed: false })
   })
+
+  it('Flow 3 等待 AI 面板可见和配置 IPC 后通过正常路径', async () => {
+    const r = makeFlow3Runner({
+      providers: [{ id: 'preset_anthropic', category: 'llm', is_default: true }],
+      configuredCalls: 1,
+    })
+
+    await integrationFlows.flows['flow-3'].exercise(r)
+
+    expect(r.checks.find((check) => check.name.includes('AI 写作面板'))).toMatchObject({
+      passed: true,
+      details: { aiPanelOpened: true, aiPanelVisible: true },
+    })
+    expect(r.checks.find((check) => check.name.includes('AI 服务商'))).toMatchObject({ passed: true })
+  })
 })
 
 describe('账号 E2E 契约', () => {
@@ -388,6 +403,24 @@ describe('账号 E2E 契约', () => {
   })
 })
 
+describe('平台定义 E2E 契约', () => {
+  it('IPC mock 与生产 platform:definitions 返回结构一致', async () => {
+    const mockWindow = loadProviderMock()
+    const response = await mockWindow.electronAPI.getPlatformDefinitions()
+
+    expect(response).toMatchObject({
+      code: 0,
+      data: {
+        names: expect.any(Object),
+        icons: expect.any(Object),
+        content_categories: expect.any(Object),
+      },
+    })
+    expect(response.data.names.wechat_mp).toBe('微信公众号')
+    expect(response.data.icons.douyin).toBe('🎵')
+  })
+})
+
 function makeFlow3Runner({ providers, configuredCalls }) {
   const clickable = {
     count: vi.fn().mockResolvedValue(1),
@@ -403,7 +436,7 @@ function makeFlow3Runner({ providers, configuredCalls }) {
     }),
     locator: vi.fn((selector) => {
       if (selector === '.provider-card') return { count: vi.fn().mockResolvedValue(1) }
-      if (selector === 'body') return { innerText: vi.fn().mockResolvedValue('AI 写作') }
+      if (selector === 'body') return { innerText: vi.fn().mockResolvedValue('AI 辅助写作') }
       return { first: vi.fn(() => clickable) }
     }),
   }

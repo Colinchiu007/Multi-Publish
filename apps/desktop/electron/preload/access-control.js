@@ -70,6 +70,7 @@ function readAccessLevel(getCurrentAccessLevel) {
     if (level === 'public' || level === 'authenticated' || level === 'admin') return level
   } catch (_) {
     // 同步权限 IPC 不可用时按最低权限处理。
+    void _
   }
   return 'public'
 }

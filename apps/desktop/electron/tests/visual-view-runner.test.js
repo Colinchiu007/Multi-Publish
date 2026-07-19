@@ -17,7 +17,7 @@ const routerPaths = [...routerSource.matchAll(/\bpath:\s*['"]([^'"]+)['"]/g)]
 function routeMatches(pattern, actual) {
   const normalizedActual = actual.split('?')[0]
   const expression = pattern
-    .replace(/[.*+?^\${}()|[\]\\]/g, '\\$&')
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     .replace(/:([A-Za-z0-9_]+)/g, '[^/]+')
   return new RegExp('^' + expression + '$').test(normalizedActual)
 }
@@ -81,6 +81,23 @@ describe('单视图视觉门禁合同', () => {
 })
 
 describe('像素视觉门禁合同', () => {
+  it('发布页必须等待异步平台选项后截图', () => {
+    const publishView = viewRunner.viewTests.find(test => test.name === 'publish-form')
+
+    expect(publishView.waitFor).toContain('.el-checkbox-group .el-checkbox')
+    expect(publishView.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: '页面主标题',
+        selector: '.cohere-main .page-title:has-text("一键发布")',
+      }),
+      expect.objectContaining({
+        name: '发布目标平台已加载',
+        selector: '.cohere-main .el-checkbox-group .el-checkbox',
+      }),
+    ]))
+    expect(pixelRunnerSource).toContain("waitFor: '.cohere-main .el-checkbox-group .el-checkbox'")
+  })
+
   it('不把跳过和固定等待计入成功，也不强制提前退出进程', () => {
     expect(pixelRunnerSource).not.toMatch(/electronOnly|SKIPPED/)
     expect(pixelRunnerSource).not.toMatch(/waitMs|waitForTimeout/)

@@ -142,12 +142,26 @@
       { id: 'xiaohongshu', name: '小红书', icon: '📕', comment_url: 'https://creator.xiaohongshu.com/' }
     ])),
     platformGet: makeHandler('platformGet', async (id) => ok(state.accounts.filter(function (a) { return a.platform === id; }))),
-    getPlatformDefinitions: makeHandler('getPlatformDefinitions', async () => ok([
-      { id: 'wechat_mp', label: '微信公众号', icon: '💬' },
-      { id: 'zhihu', label: '知乎', icon: '❓' },
-      { id: 'weibo', label: '微博', icon: '✧' },
-      { id: 'douyin', label: '抖音', icon: '🎵' }
-    ])),
+    getPlatformDefinitions: makeHandler('getPlatformDefinitions', async () => ok({
+      names: {
+        wechat_mp: '微信公众号',
+        zhihu: '知乎',
+        weibo: '微博',
+        douyin: '抖音'
+      },
+      icons: {
+        wechat_mp: '💬',
+        zhihu: '❓',
+        weibo: '✧',
+        douyin: '🎵'
+      },
+      content_categories: {
+        wechat_mp: 'IMAGE_TEXT',
+        zhihu: 'IMAGE_TEXT',
+        weibo: 'MIXED',
+        douyin: 'VIDEO'
+      }
+    })),
 
     // 敏感词
     sensitiveCheck: makeHandler('sensitiveCheck', async ({ text }) => ok({ hasSensitive: false, words: [] })),

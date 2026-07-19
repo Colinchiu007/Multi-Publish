@@ -23,7 +23,7 @@ function createApprovalGateApi(ipcRenderer) {
   ipcRenderer.on('approval:request', (_event, payload) => {
     if (payload && payload.type === 'approval_gate') {
       for (const cb of gateListeners) {
-        try { cb(payload); } catch (_) { /* 单个 listener 失败不影响其他 */ }
+        try { cb(payload); } catch (_) { void _ /* 单个 listener 失败不影响其他 */ }
       }
     }
   });

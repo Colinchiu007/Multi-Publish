@@ -99,7 +99,7 @@ async function testPublish(r) {
       const checkbox = document.querySelector(selector);
       return checkbox && !checkbox.checked;
     }, batchToggleSelector, { timeout: 3000 });
-    await r.page.locator('input[placeholder="搜索平台..."]').waitFor({ state: 'visible', timeout: 3000 });
+    await r.page.locator('.cohere-main input[placeholder="搜索平台..."]').waitFor({ state: 'visible', timeout: 3000 });
   }
 
   const titleInput = r.page.locator('input[placeholder="请输入文章标题"]').first();
@@ -108,13 +108,14 @@ async function testPublish(r) {
   const articleEditor = r.page.locator('.article-editor .ql-editor').first();
   await articleEditor.fill('E2E 测试正文，用于验证完整发布流程。');
 
-  const platformOption = r.page.locator('.el-checkbox-group .el-checkbox:not(.is-disabled)').first();
+  const selectedPlatformSelector = '.cohere-main .el-checkbox-group input[type="checkbox"]:checked';
+  const selectedPlatformCount = await r.page.locator(selectedPlatformSelector).count();
+  const platformOption = r.page.locator('.cohere-main .el-checkbox-group .el-checkbox:not(.is-disabled):not(.is-checked)').first();
   assert(await platformOption.count() > 0, '发布页必须存在可选平台');
   await platformOption.click();
-  await r.page.waitForFunction(() => {
-    return Array.from(document.querySelectorAll('.el-checkbox-group input[type="checkbox"]'))
-      .some((checkbox) => checkbox.checked);
-  }, null, { timeout: 3000 });
+  await r.page.waitForFunction(([selector, previousCount]) => {
+    return document.querySelectorAll(selector).length > previousCount;
+  }, [selectedPlatformSelector, selectedPlatformCount], { timeout: 3000 });
 
   await r.screenshot('publish-with-content');
   await clickAndVerifyPublish(r, false);

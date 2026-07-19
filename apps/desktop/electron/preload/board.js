@@ -24,7 +24,7 @@ function createBoardApi(ipcRenderer) {
     const board = payload && payload.board;
     if (board) {
       for (const cb of updateListeners) {
-        try { cb(board); } catch (_) { /* 单个 listener 失败不影响其他 */ }
+        try { cb(board); } catch (_) { void _ /* 单个 listener 失败不影响其他 */ }
       }
     }
   });

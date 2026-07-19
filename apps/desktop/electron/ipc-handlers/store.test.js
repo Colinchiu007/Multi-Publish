@@ -8,6 +8,8 @@ vi.mock("../services/logger", () => ({
 }));
 
 let registerHandlers;
+const TRUSTED_EVENT = { senderFrame: { url: "app://localhost/index.html" } };
+const UNTRUSTED_EVENT = { senderFrame: { url: "https://evil.example/" } };
 
 beforeAll(async () => {
   const mod = await import("./store");
@@ -23,7 +25,11 @@ function createMockIpcMain() {
     _getHandler: (channel) => handlers[channel],
     _callHandler: async (channel, ...args) => {
       if (!handlers[channel]) throw new Error(`No handler for ${channel}`);
-      return handlers[channel]({} , ...args);
+      return handlers[channel](TRUSTED_EVENT, ...args);
+    },
+    _callHandlerFrom: async (channel, event, ...args) => {
+      if (!handlers[channel]) throw new Error(`No handler for ${channel}`);
+      return handlers[channel](event, ...args);
     },
   };
 }
@@ -88,6 +94,16 @@ describe("store IPC handlers", () => {
   });
 
   describe("store:add-account", () => {
+    it("rejects untrusted senders without writing", async () => {
+      const result = await ipcMain._callHandlerFrom(
+        "store:add-account",
+        UNTRUSTED_EVENT,
+        { id: "acc1" },
+      );
+      expect(result).toEqual({ code: -3, message: "未授权的调用来源" });
+      expect(mockStore.addAccount).not.toHaveBeenCalled();
+    });
+
     it("returns code 0 on success", async () => {
       mockStore.addAccount.mockReturnValue(true);
       const result = await ipcMain._callHandler("store:add-account", { id: "acc1", platform: "github" });

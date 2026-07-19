@@ -292,9 +292,10 @@ async function flowProviderToAI(r) {
   const aiPanelOpened = await clickText(r, 'AI');
 
   // Step 4: 面板初始化必须真实查询模型服务商配置
-  const aiContent = await bodyHas(r, 'AI 辅助写作');
-  record(r, 'Flow3.4 发布页面 AI 写作面板加载', aiPanelOpened && aiContent, { aiPanelOpened });
-  if (aiPanelOpened) await waitForIpcCall(r, 'modelProviderIsConfigured');
+  const aiPanelVisible = aiPanelOpened && await waitForVisible(r.page.locator('.ai-writer-panel'));
+  if (aiPanelVisible) await waitForIpcCall(r, 'modelProviderIsConfigured');
+  const aiContent = aiPanelVisible && await bodyHas(r, 'AI 辅助写作');
+  record(r, 'Flow3.4 发布页面 AI 写作面板加载', aiContent, { aiPanelOpened, aiPanelVisible });
   const configuredCalls = await r.getIpcCalls('modelProviderIsConfigured');
   record(r, 'Flow3.5 AI 服务商配置 IPC 已调用', configuredCalls > 0, { count: configuredCalls });
 }

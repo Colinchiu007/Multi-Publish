@@ -201,6 +201,17 @@ describe('B1 run 退出契约', () => {
 })
 
 describe('B1 发布场景', () => {
+  it('切回单篇模式时只等待主内容中的平台搜索框', () => {
+    const source = fs.readFileSync(specPath, 'utf8')
+    expect(source).toContain(".cohere-main input[placeholder=\"搜索平台...\"]")
+  })
+
+  it('发布前只点击可用且未选中的平台', () => {
+    const source = fs.readFileSync(specPath, 'utf8')
+    expect(source).toContain('.el-checkbox:not(.is-disabled):not(.is-checked)')
+    expect(source).toContain('document.querySelectorAll(selector).length > previousCount')
+  })
+
   it('通过 UI 连续验证发布成功和业务失败，并记录可 JSON 序列化的 IPC 载荷', async () => {
     const { runner, state } = createPublishRunner()
 

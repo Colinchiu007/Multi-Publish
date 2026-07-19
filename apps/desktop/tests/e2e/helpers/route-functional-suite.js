@@ -185,7 +185,11 @@ async function exerciseAccounts(r) {
 }
 
 async function exerciseDashboard(r) {
-  record(r, '平台数据卡片渲染', await r.page.locator('.cohere-main .cohere-card').count() >= 2);
+  // syncCached 是异步加载，等待真实平台卡片出现后再断言，避免把加载窗口误报为功能失败。
+  const platformCards = r.page.locator('.cohere-content > .cohere-card-grid .cohere-card');
+  const cardsReady = await waitForVisible(platformCards.first());
+  const cardCount = await platformCards.count();
+  record(r, '平台数据卡片渲染', cardsReady && cardCount >= 2, { count: cardCount, ready: cardsReady });
   const refreshed = await clickText(r, '刷新数据');
   record(r, '刷新数据可执行', refreshed);
   if (refreshed) await expectIpc(r, 'syncAll', '刷新调用全平台同步');

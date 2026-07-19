@@ -389,14 +389,14 @@ class OAuthManager {
       }
     }))
 
-    ipcMain.handle('oauth:close', () => {
+    ipcMain.handle('oauth:close', withSenderCheck(() => {
       try {
         this.close()
         return { code: 0 }
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
     ipcMain.handle('oauth:get-configs', () => {
       try {

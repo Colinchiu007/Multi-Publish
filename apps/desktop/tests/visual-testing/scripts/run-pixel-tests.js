@@ -10,7 +10,8 @@ const { VisualTestRunner } = require('../test-runner');
 const pixelTests = [
   { name: 'home-baseline', route: '/', waitFor: '.cohere-main .page-title:has-text("社媒管家")' },
   { name: 'accounts-list', route: '/accounts', waitFor: '.cohere-main .page-title:has-text("账号管理")' },
-  { name: 'publish-form', route: '/publish', waitFor: '.cohere-main .page-title:has-text("一键发布")' },
+  // 发布目标由 IPC 异步加载；等待平台选项，避免在空列表状态截图。
+  { name: 'publish-form', route: '/publish', waitFor: '.cohere-main .el-checkbox-group .el-checkbox' },
   { name: 'create-editor', route: '/create', waitFor: '.cohere-main h1:has-text("视频创作")' },
   { name: 'model-providers', route: '/model-providers', waitFor: '.cohere-main .page-title:has-text("模型服务商设置")' },
   { name: 'first-run', route: '/first-run', waitFor: '.cohere-main h2:has-text("欢迎使用社媒管家")' },

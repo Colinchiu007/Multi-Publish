@@ -5,13 +5,13 @@
 
 const { VisualTestRunner } = require('../test-runner');
 
-function routeView(name, route, waitFor, checkName = '页面主标题', expectedRoute = route) {
+function routeView(name, route, waitFor, checkName = '页面主标题', expectedRoute = route, checks) {
   return {
     name,
     route,
     expectedRoute,
     waitFor,
-    checks: [{ name: checkName, selector: waitFor }],
+    checks: checks || [{ name: checkName, selector: waitFor }],
   };
 }
 
@@ -19,7 +19,17 @@ const viewTests = [
   routeView('home-default', '/', '.cohere-main .page-title:has-text("社媒管家")'),
   routeView('comments-list', '/comments', '.cohere-main .page-title:has-text("评论管理")'),
   routeView('first-run', '/first-run', '.cohere-main h2:has-text("欢迎使用社媒管家")'),
-  routeView('publish-form', '/publish', '.cohere-main .page-title:has-text("一键发布")'),
+  routeView(
+    'publish-form',
+    '/publish',
+    '.cohere-main .el-checkbox-group .el-checkbox',
+    '发布目标平台已加载',
+    '/publish',
+    [
+      { name: '页面主标题', selector: '.cohere-main .page-title:has-text("一键发布")' },
+      { name: '发布目标平台已加载', selector: '.cohere-main .el-checkbox-group .el-checkbox' },
+    ],
+  ),
   routeView('accounts-list', '/accounts', '.cohere-main .page-title:has-text("账号管理")'),
   routeView('dashboard', '/dashboard', '.cohere-main .page-title:has-text("数据看板")'),
   routeView('collection', '/collection', '.cohere-main .page-title:has-text("内容采集")'),

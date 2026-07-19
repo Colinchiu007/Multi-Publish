@@ -23,7 +23,7 @@ function createContactSheetApi(ipcRenderer) {
   ipcRenderer.on('approval:request', (_event, payload) => {
     if (payload && payload.type === 'contact_sheet') {
       for (const cb of approvalListeners) {
-        try { cb(payload); } catch (_) { /* 单个 listener 失败不影响其他 */ }
+        try { cb(payload); } catch (_) { void _ /* 单个 listener 失败不影响其他 */ }
       }
     }
   });

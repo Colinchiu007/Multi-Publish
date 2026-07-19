@@ -41,7 +41,7 @@ function getAccessLevel() {
         return level
       }
     }
-  } catch (_) { /* IPC 未注册时 fallback */ }
+  } catch (_) { void _ /* IPC 未注册时 fallback */ }
   const isDevMode = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1'
   return isDevMode ? 'admin' : 'public'
 }

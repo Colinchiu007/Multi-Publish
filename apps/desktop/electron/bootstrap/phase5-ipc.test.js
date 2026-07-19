@@ -31,6 +31,10 @@ function makeTrustedEvent() {
   return { senderFrame: { url: 'app://localhost/index.html' } }
 }
 
+function makeUntrustedEvent() {
+  return { senderFrame: { url: 'https://evil.example/' } }
+}
+
 describe('usageTracker context 注入', () => {
   const app = { isPackaged: true }
 
@@ -58,6 +62,26 @@ describe('usageTracker context 注入', () => {
     expect(usageTracker.getStats).toHaveBeenCalledTimes(1)
     expect(usageTracker.getDailyStats).toHaveBeenCalledTimes(1)
     expect(usageTracker.trackEvent).toHaveBeenCalledWith('publish', 'start', { platform: 'wechat' })
+  })
+
+  it('usage:* handlers 拒绝不可信来源且不调用 usageTracker', async () => {
+    const usageTracker = {
+      getStats: vi.fn(() => ({ sessions: 2 })),
+      getDailyStats: vi.fn(() => ({ '2026-07-17': 3 })),
+      trackEvent: vi.fn(),
+    }
+    registerAllIpcHandlers({ app, BrowserWindow, context: { usageTracker } })
+
+    const expected = { code: -3, message: '未授权的调用来源' }
+    await expect(ipcMain._handlers['usage:stats'](makeUntrustedEvent())).resolves.toEqual(expected)
+    await expect(ipcMain._handlers['usage:daily'](makeUntrustedEvent())).resolves.toEqual(expected)
+    await expect(ipcMain._handlers['usage:track'](makeUntrustedEvent(), {
+      feature: 'publish', action: 'start', detail: { platform: 'wechat' },
+    })).resolves.toEqual(expected)
+
+    expect(usageTracker.getStats).not.toHaveBeenCalled()
+    expect(usageTracker.getDailyStats).not.toHaveBeenCalled()
+    expect(usageTracker.trackEvent).not.toHaveBeenCalled()
   })
 
   it('context 未提供 usageTracker 时保持默认返回值', async () => {

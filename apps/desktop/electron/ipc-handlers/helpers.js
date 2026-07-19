@@ -119,17 +119,17 @@ function _isTestEnv() {
  * 用于敏感操作（写入/删除/激活/支付），防止恶意页面通过 DOM 注入调用
  * 只读 handler（查询类）不应使用此包装，避免过度验证
  *
- * 测试环境兼容：没有 senderFrame 的旧 mock 继续放行；一旦提供 senderFrame，
- * 无论测试还是生产环境都执行真实来源校验。
+ * 测试环境兼容：仅未打包应用放行没有 senderFrame 的旧 mock；
+ * 已打包应用或已提供 senderFrame 时始终执行真实来源校验。
  *
- * @param {Function} fn - 原始 handler（通常已用 wrapIpcHandlerRaw 包装）
- * @returns {Function} 包装后的 handler，先校验 sender 可信再执行原逻辑
+ * @param {(event: import('electron').IpcMainInvokeEvent, ...args: any[]) => Promise<any> | any} fn - 原始 handler（通常已用 wrapIpcHandlerRaw 包装）
+ * @returns {(event: import('electron').IpcMainInvokeEvent, ...args: any[]) => Promise<any>} 包装后的 handler，先校验 sender 可信再执行原逻辑
  */
 function withSenderCheck(fn) {
   const isTest = _isTestEnv()
   return async (event, ...args) => {
-    // 仅兼容没有 senderFrame 的旧测试 mock，真实来源合同始终可测试。
-    if (isTest && (!event || !event.senderFrame)) {
+    // 仅兼容未打包应用中没有 senderFrame 的旧测试 mock。
+    if (isTest && app && app.isPackaged === false && (!event || !event.senderFrame)) {
       return fn(event, ...args)
     }
     if (!isTrustedSender(event, app)) {

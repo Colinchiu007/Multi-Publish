@@ -3,7 +3,7 @@
  * Pipeline IPC handlers 合同测试
  *
  * 验证写操作的 sender 来源校验（withSenderCheck）：
- * - pipeline:start / pipeline:cancel / pipeline:startOrchestrated
+ * - 所有启动、控制、检查点推进和注册类写通道
  *
  * 只读操作不校验：pipeline:list / pipeline:status / pipeline:get
  *                / pipeline:definitions / pipeline:list-orchestrated
@@ -85,6 +85,18 @@ const UNTRUSTED_EVENT = { senderFrame: { url: 'https://evil.example/' } }
 // 可信来源（dev localhost）
 const TRUSTED_EVENT = { senderFrame: { url: 'http://localhost:5174/' } }
 
+const NEW_PROTECTED_CHANNELS = [
+  ['pipeline:pause', 'pause', []],
+  ['pipeline:resume', 'resume', []],
+  ['pipeline:advance', 'advance', []],
+  ['pipeline:executeStage', 'executeStage', ['run-1']],
+  ['pipeline:advanceToNextCheckpoint', 'advanceToNextCheckpoint', ['run-2']],
+  ['pipeline:pauseWithCheckpoint', 'pauseWithCheckpoint', []],
+  ['pipeline:resumeFromCheckpoint', 'resumeFromCheckpoint', []],
+  ['pipeline:registerPipeline', 'registerPipeline', [{ name: 'custom', stages: [] }]],
+  ['pipeline:registerStageExecutor', 'registerStageExecutor', ['render', vi.fn()]],
+]
+
 describe('pipeline IPC 写操作 sender 校验', () => {
   it('pipeline:start 拒绝外部网页调用', async () => {
     const ipcMain = createMockIpcMain()
@@ -115,6 +127,20 @@ describe('pipeline IPC 写操作 sender 校验', () => {
 
     expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
   })
+
+  it.each(NEW_PROTECTED_CHANNELS)(
+    '%s 拒绝外部网页调用且不执行 pipelineEngine.%s',
+    async (channel, method, args) => {
+      const deps = createMockDeps()
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+
+      const result = await ipcMain._get(channel)(UNTRUSTED_EVENT, ...args)
+
+      expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+      expect(deps.pipelineEngine[method]).not.toHaveBeenCalled()
+    },
+  )
 })
 
 describe('pipeline IPC 只读操作不加 sender 校验', () => {
@@ -178,4 +204,21 @@ describe('pipeline IPC 可信来源写操作正常工作', () => {
     expect(result).toEqual({ code: 0, data: mockResult })
     expect(deps.pipelineEngine.startOrchestrated).toHaveBeenCalledWith('default', {})
   })
+
+  it.each(NEW_PROTECTED_CHANNELS)(
+    '%s 可信来源保持 pipelineEngine.%s 参数与返回合同',
+    async (channel, method, args) => {
+      const expected = { channel, accepted: true }
+      const deps = createMockDeps()
+      deps.pipelineEngine[method].mockReturnValue(expected)
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+
+      const result = await ipcMain._get(channel)(TRUSTED_EVENT, ...args)
+
+      expect(result).toEqual({ code: 0, data: expected })
+      expect(deps.pipelineEngine[method]).toHaveBeenCalledTimes(1)
+      expect(deps.pipelineEngine[method]).toHaveBeenCalledWith(...args)
+    },
+  )
 })

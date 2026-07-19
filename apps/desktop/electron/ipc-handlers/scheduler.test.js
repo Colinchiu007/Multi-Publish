@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 
 let registerHandlers;
+const TRUSTED_EVENT = {
+  sender: { send: vi.fn() },
+  senderFrame: { url: "app://localhost/index.html" },
+};
+const UNTRUSTED_EVENT = { senderFrame: { url: "https://evil.example/" } };
 
 beforeAll(async () => {
   const mod = await import("./scheduler");
@@ -13,7 +18,11 @@ function createMockIpcMain() {
     handle: vi.fn((channel, fn) => { handlers[channel] = fn; }),
     _callHandler: async (channel, ...args) => {
       if (!handlers[channel]) throw new Error(`No handler for ${channel}`);
-      return handlers[channel]({ sender: { send: vi.fn() } }, ...args);
+      return handlers[channel](TRUSTED_EVENT, ...args);
+    },
+    _callHandlerFrom: async (channel, event, ...args) => {
+      if (!handlers[channel]) throw new Error(`No handler for ${channel}`);
+      return handlers[channel](event, ...args);
     },
   };
 }
@@ -41,6 +50,16 @@ describe("scheduler IPC handlers", () => {
   });
 
   describe("scheduler:create", () => {
+    it("rejects untrusted senders without creating a task", async () => {
+      const result = await ipcMain._callHandlerFrom(
+        "scheduler:create",
+        UNTRUSTED_EVENT,
+        { platform: "github" },
+      );
+      expect(result).toEqual({ code: -3, message: "未授权的调用来源" });
+      expect(scheduler.create).not.toHaveBeenCalled();
+    });
+
     it("creates a scheduled task", async () => {
       const result = await ipcMain._callHandler("scheduler:create", {
         platform: "github",

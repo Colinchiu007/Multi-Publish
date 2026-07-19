@@ -19,6 +19,7 @@ const { isTrustedSender } = require('../core/ipc-security')
 let tray = null
 // eslint-disable-next-line no-unused-vars
 let mainWindowRef = null
+const MAX_FLASH_TIMES = 20
 
 /**
  * 初始化系统托盘
@@ -145,11 +146,15 @@ function destroy () {
  * 不走 createAccessControlledIpcMain Proxy，需手动校验 sender 来源
  */
 function registerIpcHandlers () {
-  ipcMain.on('tray:flash', (event, { times = 3 } = {}) => {
+  ipcMain.on('tray:flash', (event, payload) => {
     if (!isTrustedSender(event, app)) {
       log.warn('Tray', 'tray:flash rejected: untrusted sender')
       return
     }
+    const normalizedPayload = payload === undefined ? {} : payload
+    if (!normalizedPayload || typeof normalizedPayload !== 'object' || Array.isArray(normalizedPayload)) return
+    const times = normalizedPayload.times === undefined ? 3 : normalizedPayload.times
+    if (!Number.isInteger(times) || times < 1 || times > MAX_FLASH_TIMES) return
     flashTray(times)
   })
 
@@ -158,6 +163,7 @@ function registerIpcHandlers () {
       log.warn('Tray', 'tray:set-tooltip rejected: untrusted sender')
       return
     }
+    if (typeof text !== 'string' || text.length > 256) return
     setTooltip(text)
   })
 }

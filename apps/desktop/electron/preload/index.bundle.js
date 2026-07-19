@@ -487,6 +487,7 @@ var require_board = __commonJS({
             try {
               cb(board);
             } catch (_) {
+              void _;
             }
           }
         }
@@ -518,6 +519,7 @@ var require_contact_sheet = __commonJS({
             try {
               cb(payload);
             } catch (_) {
+              void _;
             }
           }
         }
@@ -549,6 +551,7 @@ var require_approval_gate = __commonJS({
             try {
               cb(payload);
             } catch (_) {
+              void _;
             }
           }
         }
@@ -706,6 +709,7 @@ var require_access_control = __commonJS({
         const level = getCurrentAccessLevel();
         if (level === "public" || level === "authenticated" || level === "admin") return level;
       } catch (_) {
+        void _;
       }
       return "public";
     }
@@ -779,6 +783,7 @@ function getAccessLevel() {
       }
     }
   } catch (_) {
+    void _;
   }
   const isDevMode = process.env.NODE_ENV === "development" || process.env.ELECTRON_IS_DEV === "1";
   return isDevMode ? "admin" : "public";
