@@ -10,6 +10,7 @@
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
+  const { isTrustedSender } = require('../core/ipc-security')
   const { licenseManager } = deps
 
   ipcMain.handle("license:info", async () => {
@@ -53,7 +54,13 @@ function registerHandlers(ipcMain, deps) {
 
   // Bug-2 三级分离：同步 IPC 供 preload 查询访问级别
   // 返回 'public' | 'authenticated' | 'admin'
+  // 安全：同步 IPC 不走 controlledIpcMain Proxy，需手动校验 sender 来源
   ipcMain.on("auth:get-access-level", (event) => {
+    if (!isTrustedSender(event, deps && deps.app)) {
+      // 不可信来源返回最低权限，防止外部页面探测许可证状态
+      event.returnValue = 'public'
+      return
+    }
     try {
       const isDevMode = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1'
       const isUnpackagedApp = deps && deps.app && deps.app.isPackaged === false

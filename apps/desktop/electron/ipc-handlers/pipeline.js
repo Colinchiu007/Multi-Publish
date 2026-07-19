@@ -31,17 +31,17 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
-  ipcMain.handle('pipeline:pause', () => {
+  ipcMain.handle('pipeline:pause', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.pause() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
-  ipcMain.handle('pipeline:resume', () => {
+  ipcMain.handle('pipeline:resume', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.resume() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   ipcMain.handle('pipeline:cancel', withSenderCheck(() => {
     try {
@@ -58,11 +58,11 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('pipeline:advance', () => {
+  ipcMain.handle('pipeline:advance', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.advance() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   ipcMain.handle('pipeline:history', () => {
     try {
@@ -93,7 +93,7 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
-  ipcMain.handle('pipeline:executeStage', async (_event, runId) => {
+  ipcMain.handle('pipeline:executeStage', withSenderCheck(async (_event, runId) => {
     try {
       const result = await pipelineEngine.executeStage(runId)
       return { code: 0, data: result }
@@ -101,9 +101,9 @@ function registerHandlers(ipcMain, deps) {
       log.error('[pipeline] executeStage error:', err)
       return { code: EC.REQUEST_ERROR, message: err.message }
     }
-  })
+  }))
 
-  ipcMain.handle('pipeline:advanceToNextCheckpoint', async (_event, runId) => {
+  ipcMain.handle('pipeline:advanceToNextCheckpoint', withSenderCheck(async (_event, runId) => {
     try {
       const result = await pipelineEngine.advanceToNextCheckpoint(runId)
       return { code: 0, data: result }
@@ -111,7 +111,7 @@ function registerHandlers(ipcMain, deps) {
       log.error('[pipeline] advanceToNextCheckpoint error:', err)
       return { code: EC.REQUEST_ERROR, message: err.message }
     }
-  })
+  }))
 
   ipcMain.handle('pipeline:getRunContext', (_event, runId) => {
     try {
@@ -119,29 +119,29 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
-  ipcMain.handle('pipeline:pauseWithCheckpoint', () => {
+  ipcMain.handle('pipeline:pauseWithCheckpoint', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.pauseWithCheckpoint() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
-  ipcMain.handle('pipeline:resumeFromCheckpoint', () => {
+  ipcMain.handle('pipeline:resumeFromCheckpoint', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.resumeFromCheckpoint() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
-  ipcMain.handle('pipeline:registerPipeline', (_event, def) => {
+  ipcMain.handle('pipeline:registerPipeline', withSenderCheck((_event, def) => {
     try {
       return { code: 0, data: pipelineEngine.registerPipeline(def) }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
-  ipcMain.handle('pipeline:registerStageExecutor', (_event, stageType, fn) => {
+  ipcMain.handle('pipeline:registerStageExecutor', withSenderCheck((_event, stageType, fn) => {
     try {
       return { code: 0, data: pipelineEngine.registerStageExecutor(stageType, fn) }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 }
 
 module.exports = registerHandlers

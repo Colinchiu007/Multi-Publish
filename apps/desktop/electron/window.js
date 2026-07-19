@@ -108,6 +108,53 @@ function isAllowedMainWindowUrl(url) {
   return isTrustedSender({ senderFrame: { url } }, app)
 }
 
+/**
+ * 注入 Content Security Policy (CSP) header
+ *
+ * 安全：渲染进程加载第三方内容（发布平台页面、CDN）时，CSP 防止 XSS 注入后加载
+ * 任意远程脚本。dev 模式 Vite HMR 需要 ws: + 'unsafe-eval'；prod 模式严格限制。
+ *
+ * @param {Electron.BrowserWindow} mainWindow
+ * @param {boolean} isDev
+ */
+function installContentSecurityPolicy(mainWindow, isDev) {
+  const directives = isDev
+    ? [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: https:",
+        // Vite HMR + 后端 API
+        "connect-src 'self' ws: wss: http: https:",
+        "font-src 'self' data:",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+      ].join('; ')
+    : [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: https:",
+        "connect-src 'self' https:",
+        "font-src 'self' data:",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+      ].join('; ')
+
+  try {
+    mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [directives],
+        },
+      })
+    })
+  } catch (error) {
+    log.warn('window', 'Failed to install CSP: ' + (error instanceof Error ? error.message : String(error)))
+  }
+}
+
 function isAllowedExternalUrl(rawUrl) {
   if (typeof rawUrl !== 'string') return false
   try {
@@ -213,6 +260,8 @@ function createWindow(context) {
     show: false,
   })
   const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev') || !app.isPackaged
+  // 注入 CSP header — 防止渲染进程 XSS 加载任意远程脚本
+  installContentSecurityPolicy(mainWindow, isDev)
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!isAllowedMainWindowUrl(url)) {
       event.preventDefault()
