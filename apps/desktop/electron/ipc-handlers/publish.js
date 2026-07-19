@@ -10,10 +10,11 @@
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const { withSenderCheck } = require('./helpers')
   // eslint-disable-next-line no-unused-vars
   const { taskQueue, history, BrowserWindow, log } = deps
 
-  ipcMain.handle('publish:wechat', async (event, articleData) => {
+  ipcMain.handle('publish:wechat', withSenderCheck(async (event, articleData) => {
     try {
       const offlineManager = require('../services/offline-manager')
       if (offlineManager.isOffline()) {
@@ -28,9 +29,9 @@ function registerHandlers(ipcMain, deps) {
       })
       return { code: 0, data: { taskId }, message: '任务已加入队列' }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
-  ipcMain.handle('publish:batch', async (event, arg) => {
+  ipcMain.handle('publish:batch', withSenderCheck(async (event, arg) => {
     try {
     // R51 P1：解构保护，arg 为 undefined 时解构会抛（M-5 修复不完整补丁）
     if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
@@ -51,7 +52,7 @@ function registerHandlers(ipcMain, deps) {
     })
       return { code: 0, data: { taskIds }, message: taskIds.length + " tasks added" }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   ipcMain.handle('queue:status', async () => {
     try {
@@ -64,13 +65,13 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: taskQueue.getHistory() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   })
-  ipcMain.handle('queue:cancel', async (event, taskId) => {
+  ipcMain.handle('queue:cancel', withSenderCheck(async (event, taskId) => {
     try {
       const ok = taskQueue.cancel(taskId)
       // R52 修复：统一返回格式，补充 data 字段
       return { code: ok ? 0 : EC.NOT_FOUND, data: ok, message: ok ? '任务已取消' : '任务不存在或已完成' }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   ipcMain.handle('history:list', async (event, opts) => {
     try {

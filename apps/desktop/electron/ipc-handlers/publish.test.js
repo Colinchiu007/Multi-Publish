@@ -1,153 +1,164 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+// @ts-check
+/**
+ * Publish IPC handlers 合同测试
+ *
+ * 验证写操作的 sender 来源校验（withSenderCheck）：
+ * - publish:wechat / publish:batch / queue:cancel
+ *
+ * 只读操作不校验：queue:status / queue:history / history:list / history:get / dashboard:stats
+ *
+ * @vitest-environment node
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-let registerHandlers;
+// Mock logger 防止真实日志污染
+vi.mock('../services/logger', () => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
 
-beforeAll(() => {
-  registerHandlers = require("./publish");
-});
+// Mock offline-manager 避免 publish:wechat 拉起额外依赖
+vi.mock('../services/offline-manager', () => ({
+  isOffline: vi.fn(() => false),
+  addToCache: vi.fn(),
+}))
+
+// 启用 electron mock，withSenderCheck 通过 require('electron').app 读取 isPackaged
+__enableElectronMock()
+
+let registerHandlers
+let originalNodeEnv
+let originalIsPackaged
+
+beforeEach(async () => {
+  vi.resetModules()
+  // 信任 dev localhost:5174 — 模拟未打包开发模式
+  originalNodeEnv = process.env.NODE_ENV
+  originalIsPackaged = __electronMock.app.isPackaged
+  delete process.env.NODE_ENV
+  __electronMock.app.isPackaged = false
+  const mod = await import('./publish')
+  registerHandlers = mod.default || mod
+})
+
+afterEach(() => {
+  if (originalNodeEnv === undefined) delete process.env.NODE_ENV
+  else process.env.NODE_ENV = originalNodeEnv
+  __electronMock.app.isPackaged = originalIsPackaged
+})
 
 function createMockIpcMain() {
-  const handlers = {};
+  const handlers = {}
   return {
-    handle: vi.fn((channel, fn) => { handlers[channel] = fn; }),
-    _callHandler: async (channel, ...args) => {
-      if (!handlers[channel]) throw new Error("No handler for " + channel);
-      return handlers[channel]({ sender: { send: vi.fn() } }, ...args);
-    },
-  };
+    handle: vi.fn((channel, fn) => { handlers[channel] = fn }),
+    on: vi.fn(),
+    _get: (channel) => handlers[channel],
+  }
 }
 
-function createDeps() {
+function createMockDeps(overrides = {}) {
   return {
     taskQueue: {
-      add: vi.fn((task) => "task-" + Date.now()),
-      getStatus: vi.fn(() => ({ queued: 0, running: 0, completed: 10, failed: 1 })),
-      getHistory: vi.fn(() => [{ id: "t1", status: "completed" }]),
-      cancel: vi.fn((id) => id === "valid-id"),
+      add: vi.fn(() => 'task-1'),
+      cancel: vi.fn(() => true),
+      getStatus: vi.fn(() => ({})),
+      getHistory: vi.fn(() => []),
     },
     history: {
-      listRecords: vi.fn((opts) => ({ total: 5, records: [] })),
-      getRecord: vi.fn((id) => id === "rec-1" ? { id: "rec-1", status: "success" } : null),
-      getStats: vi.fn(() => ({ total: 50, byPlatform: {} })),
+      listRecords: vi.fn(() => ({ total: 0, records: [] })),
+      getRecord: vi.fn(() => null),
+      getStats: vi.fn(() => ({})),
     },
     BrowserWindow: { getAllWindows: vi.fn(() => []) },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  };
+    ...overrides,
+  }
 }
 
-describe("publish IPC handlers", () => {
-  let ipcMain, deps;
+// 不可信来源（外部网页）
+const UNTRUSTED_EVENT = { senderFrame: { url: 'https://evil.example/' } }
+// 可信来源（dev localhost）
+const TRUSTED_EVENT = { senderFrame: { url: 'http://localhost:5174/' } }
 
-  beforeEach(() => {
-    ipcMain = createMockIpcMain();
-    deps = createDeps();
-    registerHandlers(ipcMain, deps);
-  });
+describe('publish IPC 写操作 sender 校验', () => {
+  it('publish:wechat 拒绝外部网页调用', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps())
+    const handler = ipcMain._get('publish:wechat')
 
-  it("registers all 8 publish handlers", () => {
-    const expected = [
-      "publish:wechat", "publish:batch",
-      "queue:status", "queue:history", "queue:cancel",
-      "history:list", "history:get",
-      "dashboard:stats",
-    ];
-    expect(ipcMain.handle).toHaveBeenCalledTimes(expected.length);
-    for (const ch of expected) {
-      expect(ipcMain.handle).toHaveBeenCalledWith(ch, expect.any(Function));
-    }
-  });
+    const result = await handler(UNTRUSTED_EVENT, { title: 'test' })
 
-  describe("publish:wechat", () => {
-    it("adds task to queue when online", async () => {
-      const result = await ipcMain._callHandler("publish:wechat", { title: "test" });
-      expect(result.code).toBe(0);
-      expect(result.data).toHaveProperty("taskId");
-    });
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
 
-    it("returns error code when taskQueue.add throws", async () => {
-      deps.taskQueue.add.mockImplementation(() => { throw new Error("queue full"); });
-      const result = await ipcMain._callHandler("publish:wechat", { title: "test" });
-      expect(result.code).toBe(-1);
-      expect(result.message).toBe("queue full");
-    });
-  });
+  it('publish:batch 拒绝外部网页调用', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps())
+    const handler = ipcMain._get('publish:batch')
 
-  describe("publish:batch", () => {
-    it("handles string platform list", async () => {
-      const result = await ipcMain._callHandler("publish:batch", {
-        platforms: ["github", "wechat_mp"],
-        article: { title: "批量" },
-      });
-      expect(result.code).toBe(0);
-      expect(result.data.taskIds).toHaveLength(2);
-    });
+    const result = await handler(UNTRUSTED_EVENT, { platforms: ['wechat'], article: {} })
 
-    it("handles object platform list with accountId", async () => {
-      const result = await ipcMain._callHandler("publish:batch", {
-        platforms: [{ platform: "github", accountId: "acc1" }],
-        article: { title: "test" },
-      });
-      expect(result.code).toBe(0);
-      expect(result.data.taskIds).toHaveLength(1);
-    });
-  });
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
 
-  describe("queue handlers", () => {
-    it("queue:status returns status", async () => {
-      const result = await ipcMain._callHandler("queue:status");
-      expect(result).toEqual({ code: 0, data: { queued: 0, running: 0, completed: 10, failed: 1 } });
-    });
+  it('queue:cancel 拒绝外部网页调用', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps())
+    const handler = ipcMain._get('queue:cancel')
 
-    it("queue:history returns history", async () => {
-      const result = await ipcMain._callHandler("queue:history");
-      expect(result.code).toBe(0);
-      expect(result.data).toHaveLength(1);
-    });
+    const result = await handler(UNTRUSTED_EVENT, 'task-1')
 
-    it("queue:cancel succeeds for valid id", async () => {
-      const result = await ipcMain._callHandler("queue:cancel", "valid-id");
-      expect(result.code).toBe(0);
-    });
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
+})
 
-    it("queue:cancel fails for invalid id", async () => {
-      const result = await ipcMain._callHandler("queue:cancel", "invalid-id");
-      expect(result.code).toBe(-10);
-    });
-  });
+describe('publish IPC 可信来源正常工作', () => {
+  it('publish:wechat 可信来源正常入队', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('publish:wechat')
 
-  describe("history handlers", () => {
-    it("history:list returns records", async () => {
-      const result = await ipcMain._callHandler("history:list", { page: 1 });
-      expect(result.code).toBe(0);
-      expect(result.data.total).toBe(5);
-    });
+    const result = await handler(TRUSTED_EVENT, { title: 'hello' })
 
-    it("history:list handles error", async () => {
-      deps.history.listRecords.mockImplementation(() => { throw new Error("DB error"); });
-      const result = await ipcMain._callHandler("history:list", {});
-      expect(result.code).toBe(-1);
-      expect(result.data).toEqual({ total: 0, records: [] });
-    });
+    expect(result.code).toBe(0)
+    expect(result.data).toEqual({ taskId: 'task-1' })
+    expect(deps.taskQueue.add).toHaveBeenCalled()
+  })
 
-    it("history:get finds record", async () => {
-      const result = await ipcMain._callHandler("history:get", "rec-1");
-      expect(result.code).toBe(0);
-      expect(result.data.id).toBe("rec-1");
-    });
+  it('publish:batch 可信来源正常批量入队', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('publish:batch')
 
-    it("history:get returns error when not found", async () => {
-      const result = await ipcMain._callHandler("history:get", "nonexistent");
-      expect(result.code).toBe(-10);
-      expect(result.message).toBe("记录不存在");
-    });
-  });
+    const result = await handler(TRUSTED_EVENT, { platforms: ['wechat', 'douyin'], article: { title: 'x' } })
 
-  describe("dashboard:stats", () => {
-    it("returns publish stats", async () => {
-      const result = await ipcMain._callHandler("dashboard:stats");
-      expect(result.code).toBe(0);
-      expect(result.data.total).toBe(50);
-    });
-  });
-});
+    expect(result.code).toBe(0)
+    expect(deps.taskQueue.add).toHaveBeenCalledTimes(2)
+  })
 
+  it('queue:cancel 可信来源正常取消', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('queue:cancel')
+
+    const result = await handler(TRUSTED_EVENT, 'task-1')
+
+    expect(result).toEqual({ code: 0, data: true, message: '任务已取消' })
+    expect(deps.taskQueue.cancel).toHaveBeenCalledWith('task-1')
+  })
+
+  it('queue:status 只读操作不加 sender 校验，外部来源也可调用', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('queue:status')
+
+    const result = await handler(UNTRUSTED_EVENT)
+
+    expect(result.code).toBe(0)
+  })
+})

@@ -6,6 +6,7 @@
 
 function registerHandlers (ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const { withSenderCheck } = require('./helpers')
   const { modelProviderManager, log } = deps
 
   // 确保 manager 已初始化
@@ -43,7 +44,7 @@ function registerHandlers (ipcMain, deps) {
   })
 
   // ─── 创建服务商 ──────────────────────────────
-  ipcMain.handle('model-provider:create', (_event, data) => {
+  ipcMain.handle('model-provider:create', withSenderCheck((_event, data) => {
     try {
       const mgr = getManager()
       return mgr.createProvider(data)
@@ -51,10 +52,10 @@ function registerHandlers (ipcMain, deps) {
       log.error('[model-provider] create error:', e)
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   // ─── 更新服务商 ──────────────────────────────
-  ipcMain.handle('model-provider:update', (_event, id, updates) => {
+  ipcMain.handle('model-provider:update', withSenderCheck((_event, id, updates) => {
     try {
       const mgr = getManager()
       return mgr.updateProvider(id, updates)
@@ -62,10 +63,10 @@ function registerHandlers (ipcMain, deps) {
       log.error('[model-provider] update error:', e)
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   // ─── 删除服务商 ──────────────────────────────
-  ipcMain.handle('model-provider:delete', (_event, id) => {
+  ipcMain.handle('model-provider:delete', withSenderCheck((_event, id) => {
     try {
       const mgr = getManager()
       return mgr.deleteProvider(id)
@@ -73,10 +74,10 @@ function registerHandlers (ipcMain, deps) {
       log.error('[model-provider] delete error:', e)
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   // ─── 设置默认 ────────────────────────────────
-  ipcMain.handle('model-provider:set-default', (_event, category, providerId) => {
+  ipcMain.handle('model-provider:set-default', withSenderCheck((_event, category, providerId) => {
     try {
       const mgr = getManager()
       return mgr.setDefault(category, providerId)
@@ -84,7 +85,7 @@ function registerHandlers (ipcMain, deps) {
       log.error('[model-provider] set-default error:', e)
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   // ─── 获取默认 ────────────────────────────────
   ipcMain.handle('model-provider:get-default', (_event, category) => {
@@ -149,7 +150,7 @@ function registerHandlers (ipcMain, deps) {
   })
 
   // ─── 清理调用日志 ────────────────────────────
-  ipcMain.handle('model-provider:clean-logs', (_event, days) => {
+  ipcMain.handle('model-provider:clean-logs', withSenderCheck((_event, days) => {
     try {
       const store = deps.store
       if (!store || typeof store.cleanProviderLogs !== 'function') {
@@ -161,7 +162,7 @@ function registerHandlers (ipcMain, deps) {
       log.error('[model-provider] clean-logs error:', e)
       return { code: EC.REQUEST_ERROR, message: e.message, data: 0 }
     }
-  })
+  }))
 }
 
 module.exports = registerHandlers
