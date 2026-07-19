@@ -2,7 +2,7 @@
  * useModelProviderCrud.js — 模型服务商 CRUD composable
  *
  * 职责：
- *   - 维护 5 类模型服务商列表 + 表单 + 删除 + 默认设置
+ *   - 维护 6 类模型服务商列表 + 表单 + 删除 + 默认设置
  *   - loadProviders / submitForm / doDelete / testProvider / setDefault 等方法
  *   - filteredProviders / configuredCount 计算属性
  */
@@ -25,6 +25,7 @@ const CATEGORY_OPTIONS = [
   { value: 'speech_recognition', label: '语音识别' },
   { value: 'image', label: '图片生成' },
   { value: 'video', label: '视频模型' },
+  { value: 'audio', label: '音频生成' },
 ]
 
 const CATEGORY_LABELS = {
@@ -33,6 +34,7 @@ const CATEGORY_LABELS = {
   speech_recognition: '语音识别',
   image: '图片生成',
   video: '视频模型',
+  audio: '音频生成',
 }
 
 function createDefaultForm () {

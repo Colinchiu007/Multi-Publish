@@ -155,6 +155,30 @@ describe("CreateView", () => {
     await nextTick();
     expect(mocks.pipelineList).toHaveBeenCalled();
   });
+
+  it("pipelineList 返回异常格式时展示默认加载错误", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValueOnce({});
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(w.vm.pipelineError).toBe("加载失败");
+    expect(w.vm.pipelineLoading).toBe(false);
+  });
+
+  it("pipelineList 拒绝时保留错误并结束加载态", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockRejectedValueOnce(new Error("IPC 不可用"));
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(w.vm.pipelineError).toBe("IPC 不可用");
+    expect(w.vm.pipelineLoading).toBe(false);
+  });
 });
 
 describe("CreateView - quick render", () => {
@@ -231,6 +255,59 @@ describe("CreateView - quick render", () => {
     w.vm.quickResult = { outputPath: "/tmp/video.mp4" };
     w.vm.viewQuickResult();
     expect(push).toHaveBeenCalledWith({ path: "/create/result", query: { path: "/tmp/video.mp4" } });
+  });
+
+  it("renderStart 拒绝时展示异常并复位渲染状态", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.renderStart.mockRejectedValueOnce(new Error("渲染 IPC 缺失"));
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.quickText = "测试文案";
+
+    await expect(w.vm.startQuickRender()).resolves.toBeUndefined();
+
+    expect(w.vm.quickError).toBe("渲染异常: 渲染 IPC 缺失");
+    expect(w.vm.quickRendering).toBe(false);
+    expect(w.vm.quickResult).toBeNull();
+  });
+
+  it("renderStart 返回异常格式时展示默认错误并复位", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.renderStart.mockResolvedValueOnce({});
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.quickText = "测试文案";
+
+    await w.vm.startQuickRender();
+
+    expect(w.vm.quickError).toBe("渲染失败");
+    expect(w.vm.quickRendering).toBe(false);
+  });
+
+  it("图库渲染只提交图片预览并按五秒生成镜头", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.renderStart.mockResolvedValueOnce({ code: 0, data: { taskId: "r1" } });
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.quickMode = "gallery";
+    w.vm.quickImages = [
+      { name: "a.png", preview: "data:image/png;base64,a" },
+      { name: "b.png", preview: "data:image/png;base64,b" },
+    ];
+
+    await w.vm.startQuickRender();
+
+    const cuts = mocks.renderStart.mock.calls.at(-1)[0].props.cuts;
+    expect(cuts).toEqual([
+      { id: "scene-0", type: "anime_scene", images: ["data:image/png;base64,a"], animation: "ken-burns", in_seconds: 0, out_seconds: 4.5 },
+      { id: "scene-1", type: "anime_scene", images: ["data:image/png;base64,b"], animation: "ken-burns", in_seconds: 5, out_seconds: 9.5 },
+    ]);
   });
 });
 
@@ -338,6 +415,31 @@ describe("CreateView - S2V orchestration", () => {
     expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
   });
 
+  it("普通流水线精确透传文本、输入模式和输出配置", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "暂不启动" });
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "cinematic", stages: [] };
+    w.vm.pipelineText = "创作内容";
+    w.vm.inputMode = "text";
+
+    await w.vm.startPipeline();
+
+    expect(mocks.pipelineStart).toHaveBeenCalledWith("cinematic", expect.objectContaining({
+      text: "创作内容",
+      inputMode: "text",
+      images: [],
+      video: null,
+      output: w.vm.outputConfig,
+    }));
+    expect(alertSpy).toHaveBeenCalledWith("暂不启动");
+    alertSpy.mockRestore();
+  });
+
   it("llmConfig only has temperature (no provider/model)", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
@@ -369,20 +471,28 @@ describe("CreateView - UI interactions", () => {
   });
 
   it("clicks btn-start triggers startPipeline", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "测试阻止启动" });
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    // 设置必要状态使 canStartPipeline = true
     w.vm.selectedPipeline = { id: "p1", name: "normal-pipeline" };
+    w.vm.pipelineText = "通过界面发起的内容";
     await nextTick();
     const startBtn = w.find(".btn-start");
-    if (startBtn.exists() && !startBtn.attributes("disabled")) {
-      // 验证点击不抛错（startPipeline 内部异步调用 pipelineStart）
-      await startBtn.trigger("click");
-      await nextTick();
-      await new Promise(r => setTimeout(r, 0));
-      expect(true).toBe(true); // 未抛错即通过
-    }
+    expect(startBtn.exists()).toBe(true);
+    expect(startBtn.attributes("disabled")).toBeUndefined();
+
+    await startBtn.trigger("click");
+    await nextTick();
+
+    expect(mocks.pipelineStart).toHaveBeenCalledWith("normal-pipeline", expect.objectContaining({
+      text: "通过界面发起的内容",
+      inputMode: "text",
+    }));
+    expect(alertSpy).toHaveBeenCalledWith("测试阻止启动");
+    alertSpy.mockRestore();
   });
 });

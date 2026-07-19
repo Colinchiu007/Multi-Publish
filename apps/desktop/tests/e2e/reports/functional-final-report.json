@@ -1,18 +1,18 @@
 {
   "meta": {
-    "generatedAt": "2026-07-17T03:58:53.780Z",
+    "generatedAt": "2026-07-18T17:34:46.686Z",
     "vite": "http://127.0.0.1:5174",
     "spec": "前端全量功能 E2E 测试 (task-29a)",
     "version": "1.0.0",
     "phase": "Phase 0-4 全部完成"
   },
   "summary": {
-    "totalChecks": 264,
-    "totalPassed": 262,
-    "totalFailed": 2,
+    "totalChecks": 270,
+    "totalPassed": 270,
+    "totalFailed": 0,
     "totalConsoleErrors": 0,
     "totalPageErrors": 0,
-    "passRate": 99.24,
+    "passRate": 100,
     "coverageRate": 100
   },
   "routes": {
@@ -131,16 +131,16 @@
         "title": "账号管理",
         "status": "✅ PASS",
         "checks": {
-          "total": 13,
-          "passed": 13,
+          "total": 14,
+          "passed": 14,
           "failed": 0
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 11,
-            "passed": 11
+            "total": 12,
+            "passed": 12
           },
           "expectNoConsoleError": {
             "total": 1,
@@ -183,18 +183,18 @@
         "spec": "collection",
         "route": "/collection",
         "title": "内容采集",
-        "status": "❌ FAIL",
+        "status": "✅ PASS",
         "checks": {
           "total": 13,
-          "passed": 12,
-          "failed": 1
+          "passed": 13,
+          "failed": 0
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
             "total": 11,
-            "passed": 10
+            "passed": 11
           },
           "expectNoConsoleError": {
             "total": 1,
@@ -212,16 +212,16 @@
         "title": "文章监控",
         "status": "✅ PASS",
         "checks": {
-          "total": 11,
-          "passed": 11,
+          "total": 12,
+          "passed": 12,
           "failed": 0
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 9,
-            "passed": 9
+            "total": 10,
+            "passed": 10
           },
           "expectNoConsoleError": {
             "total": 1,
@@ -293,16 +293,16 @@
         "title": "模型服务商",
         "status": "✅ PASS",
         "checks": {
-          "total": 13,
-          "passed": 13,
+          "total": 14,
+          "passed": 14,
           "failed": 0
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 11,
-            "passed": 11
+            "total": 12,
+            "passed": 12
           },
           "expectNoConsoleError": {
             "total": 1,
@@ -345,18 +345,18 @@
         "spec": "result",
         "route": "/create/result",
         "title": "创作结果",
-        "status": "❌ FAIL",
+        "status": "✅ PASS",
         "checks": {
           "total": 10,
-          "passed": 9,
-          "failed": 1
+          "passed": 10,
+          "failed": 0
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
             "total": 8,
-            "passed": 7
+            "passed": 8
           },
           "expectNoConsoleError": {
             "total": 1,
@@ -455,16 +455,16 @@
         "title": "智能助手",
         "status": "✅ PASS",
         "checks": {
-          "total": 14,
-          "passed": 14,
+          "total": 15,
+          "passed": 15,
           "failed": 0
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 12,
-            "passed": 12
+            "total": 13,
+            "passed": 13
           },
           "expectNoConsoleError": {
             "total": 1,
@@ -505,9 +505,9 @@
       }
     ],
     "totals": {
-      "totalChecks": 222,
-      "totalPassed": 220,
-      "totalFailed": 2,
+      "totalChecks": 226,
+      "totalPassed": 226,
+      "totalFailed": 0,
       "totalConsoleErrors": 0,
       "totalPageErrors": 0,
       "coveredRoutes": 18,
@@ -532,8 +532,8 @@
         "name": "账号管理 → 侧栏 → 发布",
         "status": "✅ PASS",
         "checks": {
-          "total": 7,
-          "passed": 7,
+          "total": 8,
+          "passed": 8,
           "failed": 0
         },
         "consoleErrors": 0
@@ -543,8 +543,8 @@
         "name": "模型服务商 → AI 写作",
         "status": "✅ PASS",
         "checks": {
-          "total": 6,
-          "passed": 6,
+          "total": 7,
+          "passed": 7,
           "failed": 0
         },
         "consoleErrors": 0
@@ -584,32 +584,17 @@
       }
     ],
     "totals": {
-      "totalChecks": 42,
-      "totalPassed": 42,
+      "totalChecks": 44,
+      "totalPassed": 44,
       "totalFailed": 0,
       "totalConsoleErrors": 0
     }
   },
-  "issues": [
-    {
-      "severity": "CRITICAL",
-      "category": "路由检查失败",
-      "spec": "collection",
-      "issue": "内容采集 (/collection) failed=1 consoleErrors=0",
-      "recommendation": "查看 reports/collection.functional.json 并修复"
-    },
-    {
-      "severity": "CRITICAL",
-      "category": "路由检查失败",
-      "spec": "result",
-      "issue": "创作结果 (/create/result) failed=1 consoleErrors=0",
-      "recommendation": "查看 reports/result.functional.json 并修复"
-    }
-  ],
+  "issues": [],
   "totals": {
-    "totalChecks": 264,
-    "totalPassed": 262,
-    "totalFailed": 2,
+    "totalChecks": 270,
+    "totalPassed": 270,
+    "totalFailed": 0,
     "totalConsoleErrors": 0,
     "totalPageErrors": 0
   }

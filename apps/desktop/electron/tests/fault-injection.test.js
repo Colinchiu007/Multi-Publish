@@ -261,9 +261,21 @@ describe('故障注入 — 容错能力测试', () => {
     })
 
     afterEach(() => {
-      try { recorder.cleanup() } catch (_) {}
-      try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch (_) {}
+      const cleanupErrors = []
+      try {
+        recorder.cleanup()
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true })
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
       delete require.cache[require.resolve('../services/execution-recorder')]
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(cleanupErrors, '故障注入测试资源清理失败')
+      }
     })
 
     it('stream.write 抛出异常时 recordEvent 不崩溃', () => {

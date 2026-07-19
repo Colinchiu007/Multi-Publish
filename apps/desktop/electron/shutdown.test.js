@@ -32,6 +32,9 @@ function buildMockContext(overrides) {
     keywordMonitor: { stopAll: vi.fn() },
     callbackServer: { stop: vi.fn() },
     store: { close: vi.fn() },
+    usageTracker: { save: vi.fn() },
+    stopBridges: vi.fn(function () { return Promise.resolve() }),
+    loginStatusMonitor: { stop: vi.fn() },
   }, overrides)
 }
 
@@ -53,16 +56,150 @@ describe('shutdown — registerShutdownHandlers', () => {
     expect(__electronMock.app._handlers['window-all-closed']).toBeDefined()
   })
 
+  it('注册 before-quit 事件并返回显式 shutdown 函数', () => {
+    const shutdown = registerShutdownHandlers(context)
+    expect(shutdown).toBeTypeOf('function')
+    expect(__electronMock.app.on).toHaveBeenCalledWith('before-quit', expect.any(Function))
+  })
+
+  it('macOS 关闭全部窗口时保留进程级服务', async () => {
+    registerShutdownHandlers(context, { platform: 'darwin' })
+
+    await __electronMock.app._handlers['window-all-closed']()
+
+    expect(context.stopBridges).not.toHaveBeenCalled()
+    expect(context.store.close).not.toHaveBeenCalled()
+    expect(__electronMock.app.quit).not.toHaveBeenCalled()
+  })
+
+  it('显式 shutdown 幂等并等待 bridge 清理完成', async () => {
+    let resolveBridges
+    context.stopBridges = vi.fn(function () {
+      return new Promise((resolve) => { resolveBridges = resolve })
+    })
+    const shutdown = registerShutdownHandlers(context)
+
+    const first = shutdown()
+    const second = shutdown()
+    let settled = false
+    first.then(() => { settled = true })
+    await vi.waitFor(() => {
+      expect(context.stopBridges).toHaveBeenCalledTimes(1)
+    })
+
+    expect(first).toBe(second)
+    expect(settled).toBe(false)
+    resolveBridges()
+    await first
+    expect(context.stopBridges).toHaveBeenCalledTimes(1)
+    expect(context.store.close).toHaveBeenCalledTimes(1)
+  })
+
+  it('before-quit 阻止立即退出，等待 shutdown 后再次 quit', async () => {
+    let resolveBridges
+    context.stopBridges = vi.fn(function () {
+      return new Promise((resolve) => { resolveBridges = resolve })
+    })
+    registerShutdownHandlers(context)
+    const event = { preventDefault: vi.fn() }
+
+    const quitPromise = __electronMock.app._handlers['before-quit'](event)
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(__electronMock.app.quit).not.toHaveBeenCalled()
+
+    await vi.waitFor(() => {
+      expect(context.stopBridges).toHaveBeenCalledTimes(1)
+    })
+    resolveBridges()
+    await quitPromise
+    expect(__electronMock.app.quit).toHaveBeenCalledTimes(1)
+  })
+
+  it('等待异步 scheduler 清理完成后才继续关闭存储并退出', async () => {
+    let resolveScheduler
+    context.scheduler = {
+      stopAll: vi.fn(function () {
+        return new Promise((resolve) => { resolveScheduler = resolve })
+      }),
+    }
+    registerShutdownHandlers(context)
+
+    const quitPromise = __electronMock.app._handlers['window-all-closed']()
+    await vi.waitFor(() => {
+      expect(context.scheduler.stopAll).toHaveBeenCalledTimes(1)
+    })
+
+    expect(context.store.close).not.toHaveBeenCalled()
+    expect(__electronMock.app.quit).not.toHaveBeenCalled()
+
+    resolveScheduler()
+    await quitPromise
+    expect(context.store.close).toHaveBeenCalledTimes(1)
+    expect(__electronMock.app.quit).toHaveBeenCalledTimes(1)
+  })
+
+  it('异步清理拒绝时记录错误并继续后续清理', async () => {
+    const cleanupError = new Error('scheduler stop failed')
+    context.scheduler = { stopAll: vi.fn(function () { return Promise.reject(cleanupError) }) }
+    registerShutdownHandlers(context)
+
+    await __electronMock.app._handlers['window-all-closed']()
+
+    expect(mockLogger.error).toHaveBeenCalledWith('App', 'Error stopping scheduler: ' + cleanupError.message)
+    expect(context.store.close).toHaveBeenCalledTimes(1)
+    expect(__electronMock.app.quit).toHaveBeenCalledTimes(1)
+  })
+
+  it('等待异步 store.close 完成后才调用 app.quit', async () => {
+    let resolveStore
+    context.store.close = vi.fn(function () {
+      return new Promise((resolve) => { resolveStore = resolve })
+    })
+    registerShutdownHandlers(context)
+
+    const quitPromise = __electronMock.app._handlers['window-all-closed']()
+    await vi.waitFor(() => {
+      expect(context.store.close).toHaveBeenCalledTimes(1)
+    })
+
+    expect(__electronMock.app.quit).not.toHaveBeenCalled()
+    resolveStore()
+    await quitPromise
+    expect(__electronMock.app.quit).toHaveBeenCalledTimes(1)
+  })
+
+  it('window-all-closed 与 before-quit 并发时复用同一次清理', async () => {
+    let resolveBridges
+    context.stopBridges = vi.fn(function () {
+      return new Promise((resolve) => { resolveBridges = resolve })
+    })
+    registerShutdownHandlers(context)
+    const event = { preventDefault: vi.fn() }
+
+    const closePromise = __electronMock.app._handlers['window-all-closed']()
+    const beforeQuitPromise = __electronMock.app._handlers['before-quit'](event)
+    await vi.waitFor(() => {
+      expect(context.stopBridges).toHaveBeenCalledTimes(1)
+    })
+    resolveBridges()
+    await Promise.all([closePromise, beforeQuitPromise])
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(context.stopBridges).toHaveBeenCalledTimes(1)
+    expect(context.store.close).toHaveBeenCalledTimes(1)
+    expect(__electronMock.app.quit).toHaveBeenCalledTimes(1)
+  })
+
   it('触发 window-all-closed 回调调用 hotkeys.unregister', async () => {
     registerShutdownHandlers(context)
     await __electronMock.app._handlers['window-all-closed']()
     expect(context.hotkeys.unregister).toHaveBeenCalledTimes(1)
   })
 
-  it('触发回调调用 pythonBridge.stopPythonBackend', async () => {
+  it('触发回调调用显式 bridge 清理函数', async () => {
     registerShutdownHandlers(context)
     await __electronMock.app._handlers['window-all-closed']()
-    expect(context.pythonBridge.stopPythonBackend).toHaveBeenCalledTimes(1)
+    expect(context.stopBridges).toHaveBeenCalledTimes(1)
   })
 
   it('触发回调调用 webviewManager.closeAll', async () => {
@@ -83,6 +220,12 @@ describe('shutdown — registerShutdownHandlers', () => {
     expect(context.keywordMonitor.stopAll).toHaveBeenCalledTimes(1)
   })
 
+  it('触发回调停止登录状态监控', async () => {
+    registerShutdownHandlers(context)
+    await __electronMock.app._handlers['window-all-closed']()
+    expect(context.loginStatusMonitor.stop).toHaveBeenCalledTimes(1)
+  })
+
   it('触发回调调用 callbackServer.stop', async () => {
     registerShutdownHandlers(context)
     await __electronMock.app._handlers['window-all-closed']()
@@ -95,12 +238,21 @@ describe('shutdown — registerShutdownHandlers', () => {
     expect(context.store.close).toHaveBeenCalledTimes(1)
   })
 
-  it('触发回调调用 global.usageTracker.save（当存在时）', async () => {
-    global.usageTracker = { save: vi.fn() }
+  it('触发回调调用 context.usageTracker.save', async () => {
     registerShutdownHandlers(context)
     await __electronMock.app._handlers['window-all-closed']()
-    expect(global.usageTracker.save).toHaveBeenCalledTimes(1)
-    delete global.usageTracker
+    expect(context.usageTracker.save).toHaveBeenCalledTimes(1)
+  })
+
+  it('注册后注入的 keyword 持久化定时器仍会在退出时清理', async () => {
+    const timer = { id: 'late-timer' }
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => {})
+    registerShutdownHandlers(context)
+    context.keywordPersistTimer = timer
+
+    await __electronMock.app._handlers['window-all-closed']()
+
+    expect(clearIntervalSpy).toHaveBeenCalledWith(timer)
   })
 
   it('触发回调在非 darwin 平台调用 app.quit', async () => {

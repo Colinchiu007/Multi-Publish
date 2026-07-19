@@ -5,6 +5,7 @@
  */
 // eslint-disable-next-line no-unused-vars
 const path = require('path')
+const os = require('os')
 const { app } = require('electron')
 const log = require('../services/logger')
 const playwrightManager = require('../services/playwright-manager')
@@ -14,7 +15,7 @@ const credentialStore = require('../services/credential-store')
 
 // 安全：凭证写入路径使用 Electron userData 目录，而非当前工作目录
 function getUserDataDir () {
-  try { return app.getPath('userData') } catch { return getUserDataDir() }
+  try { return app.getPath('userData') } catch { return path.join(os.homedir(), '.multi-publish') }
 }
 const { PLATFORM_LOGIN_URLS, PLATFORM_NAMES, PLATFORM_LOGIN_SUCCESS_SELECTORS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 

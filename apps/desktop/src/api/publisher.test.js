@@ -178,7 +178,7 @@ describe("api/publisher -- normal 路径（electronAPI 存在）", () => {
     const resolvedValue = { code: 0, name };
     // intelligenceFetchTrending 在 publisher.js 中拆 envelope（res.code===0 → res.data），
     // 故 mock 需把期望返回值包进 data，使 unwrap 后仍等于 resolvedValue
-    if (name === "intelligenceFetchTrending") {
+    if (name === "intelligenceFetchTrending" || name === "storeGetSetting") {
       mockApi[name].mockResolvedValue({ code: 0, data: resolvedValue });
     } else {
       mockApi[name].mockResolvedValue(resolvedValue);
@@ -245,7 +245,10 @@ describe("api/publisher -- 边界条件", () => {
     window.electronAPI = null;
     const pub = await import("./publisher.js");
     const result = await pub.offlineStatus();
-    expect(result).toBeDefined();
+    expect(result).toEqual({
+      code: -1,
+      data: { offline: false, cachedCount: 0, cachedTasks: [] },
+    });
   });
   it("electronAPI 部分实现时仍可工作", async () => {
     vi.resetModules();
@@ -255,6 +258,24 @@ describe("api/publisher -- 边界条件", () => {
     expect(result).toEqual({ code: 0 });
     // 部分实现时未实现的方法会 TypeError（electronAPI 有对象但不含该方法）
     // 这是预期行为 — electronAPI 要么全有要么全无
+  });
+  it("storeGetSetting 解包生产 IPC envelope", async () => {
+    vi.resetModules();
+    window.electronAPI = {
+      storeGetSetting: vi.fn().mockResolvedValue({ code: 0, data: "dark" }),
+    };
+    const pub = await import("./publisher.js");
+
+    await expect(pub.storeGetSetting("theme")).resolves.toBe("dark");
+  });
+  it("storeGetSetting 业务失败时返回 null", async () => {
+    vi.resetModules();
+    window.electronAPI = {
+      storeGetSetting: vi.fn().mockResolvedValue({ code: -1, message: "读取失败" }),
+    };
+    const pub = await import("./publisher.js");
+
+    await expect(pub.storeGetSetting("theme")).resolves.toBeNull();
   });
 });
 

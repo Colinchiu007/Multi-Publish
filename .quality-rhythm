@@ -1,3 +1,0 @@
-﻿此项目受质量节拍 skill 管辖。所有编码必须遵循：
-日常循环：source-driven-dev → TDD → incremental-impl → /review
-阶段检查：verification-before-completion → /health → documentation-and-adrs

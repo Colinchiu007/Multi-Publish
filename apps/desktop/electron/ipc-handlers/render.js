@@ -1,14 +1,15 @@
-﻿// @ts-check
+// @ts-check
 /**
  * 渲染 IPC handlers
  */
 
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const { withSenderCheck } = require('./helpers')
   // eslint-disable-next-line no-unused-vars
   const { renderEngine, BrowserWindow, log } = deps
 
-  ipcMain.handle('render:start', async (event, data) => {
+  ipcMain.handle('render:start', withSenderCheck(async (event, data) => {
     try {
       // R51 P0 修复：data 为 undefined 时 data.props / data.profile 属性访问必崩
       if (!data || typeof data !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少 data 参数' }
@@ -23,14 +24,14 @@ function registerHandlers(ipcMain, deps) {
       log.error('[render] render:start error:', err)
       return { code: EC.REQUEST_ERROR, message: err.message }
     }
-  })
+  }))
 
-  ipcMain.handle('render:cancel', () => {
+  ipcMain.handle('render:cancel', withSenderCheck(() => {
     try {
       // R52 修复：统一为标准格式
       renderEngine.cancel(); return { code: 0, data: true }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
   ipcMain.handle('render:status', () => {
     try {
       const status = renderEngine.getStatus()
@@ -39,7 +40,7 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { log.error('[render:status] error:', e); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
-  ipcMain.handle('render:install-deps', async (event) => {
+  ipcMain.handle('render:install-deps', withSenderCheck(async (event) => {
     try {
       const win = BrowserWindow.fromWebContents(event.sender)
       const result = await renderEngine.installDeps((text) => win?.webContents.send('render:install-progress', { text }))
@@ -49,7 +50,7 @@ function registerHandlers(ipcMain, deps) {
       log.error('[render] install-deps error:', err)
       return { code: EC.REQUEST_ERROR, message: err.message }
     }
-  })
+  }))
 
   // --- Composition 管理（Phase 1）---
   ipcMain.handle('render:list-compositions', () => {

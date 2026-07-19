@@ -13,6 +13,7 @@
  */
 
 const { VisualTestRunner } = require('./test-runner');
+const { ROUTE_READY_SELECTORS, navigateToReady, waitForCount } = require('./functional-test');
 const fs = require('fs');
 const path = require('path');
 
@@ -40,47 +41,63 @@ const pixelTests = [
   { name: "login-form", route: "/login" },
   { name: "create-editor", route: "/create" },
   { name: "model-providers", route: "/model-providers" },
-  { name: "first-run", route: "/first-run", waitMs: 1500 },
-  { name: "dashboard", route: "/dashboard", waitMs: 1500 },
-  { name: "calendar", route: "/calendar", waitMs: 1500 },
-  { name: "cloud-publish", route: "/cloud-publish", waitMs: 1500 },
-  { name: "viral-analysis", route: "/viral-analysis", waitMs: 1500 },
-  { name: "create-result", route: "/create/result", waitMs: 1500 },
-  { name: "create-pipeline", route: "/create/pipeline", waitMs: 1500 },
-  { name: "create-history", route: "/create/history", waitMs: 1500 },
-  { name: "intelligence", route: "/intelligence", waitMs: 1500 },
-  { name: "keyword-monitor", route: "/keywords", waitMs: 1500 },
-  { name: "collection", route: "/collection", waitMs: 1500 },
-  { name: "comments", route: "/comments", waitMs: 1500 },
-];
+  { name: "first-run", route: "/first-run" },
+  { name: "dashboard", route: "/dashboard" },
+  { name: "calendar", route: "/calendar" },
+  { name: "cloud-publish", route: "/cloud-publish" },
+  { name: "viral-analysis", route: "/viral-analysis" },
+  { name: "create-result", route: "/create/result" },
+  { name: "create-pipeline", route: "/create/pipeline", expectedRoute: "/create" },
+  { name: "create-history", route: "/create/history" },
+  { name: "intelligence", route: "/intelligence" },
+  { name: "keyword-monitor", route: "/keywords" },
+  { name: "collection", route: "/collection" },
+  { name: "comments", route: "/comments" },
+].map(test => ({
+  ...test,
+  waitFor: ROUTE_READY_SELECTORS[test.route] || '#app[data-v-app]',
+}));
 
 const functionalTestDefs = [
   { name: 'nav-routes', routes: ['/', '/accounts', '/publish', '/collection', '/monitor', '/comments', '/dashboard', '/create', '/calendar'] },
   { name: 'sidebar-platforms', selector: '.cohere-platform-item', minCount: 3 },
   { name: 'topnav-items', selector: '.nav-item', minCount: 5 },
-  { name: 'model-provider-filter-chips', selector: '.cohere-filter-chip', minCount: 5, route: '/model-providers' },
-  { name: 'calendar-grid-cells', selector: '.calendar-day, .calendar-grid > div', minCount: 28, route: '/calendar' },
+  { name: 'model-provider-filter-chips', selector: '.filter-chip', minCount: 5, route: '/model-providers' },
+  { name: 'calendar-grid-cells', selector: '.calendar-grid > div', minCount: 28, route: '/calendar' },
   { name: 'create-view-tabs', selector: '.view-tab', minCount: 3, route: '/create' },
 ];
 
 const screenshotViewTests = [
   // 遗漏路由视图截图
-  { name: 'first-run', route: '/first-run', waitMs: 1500 },
-  { name: 'dashboard', route: '/dashboard', waitMs: 1500 },
-  { name: 'calendar', route: '/calendar', waitMs: 1500 },
-  { name: 'cloud-publish', route: '/cloud-publish', waitMs: 1500 },
-  { name: 'viral-analysis', route: '/viral-analysis', waitMs: 1500 },
-  { name: 'create-result', route: '/create/result', waitMs: 1500 },
-  { name: 'create-pipeline', route: '/create/pipeline', waitMs: 1500 },
-  { name: 'create-history', route: '/create/history', waitMs: 1500 },
-  { name: 'intelligence', route: '/intelligence', waitMs: 1500 },
-  { name: 'keyword-monitor', route: '/keywords', waitMs: 1500 },
-  { name: 'collection', route: '/collection', waitMs: 1500 },
-  { name: 'comments', route: '/comments', waitMs: 1500 },
+  { name: 'first-run', route: '/first-run' },
+  { name: 'dashboard', route: '/dashboard' },
+  { name: 'calendar', route: '/calendar' },
+  { name: 'cloud-publish', route: '/cloud-publish' },
+  { name: 'viral-analysis', route: '/viral-analysis' },
+  { name: 'create-result', route: '/create/result' },
+  { name: 'create-pipeline', route: '/create/pipeline', expectedRoute: '/create' },
+  { name: 'create-history', route: '/create/history' },
+  { name: 'intelligence', route: '/intelligence' },
+  { name: 'keyword-monitor', route: '/keywords' },
+  { name: 'collection', route: '/collection' },
+  { name: 'comments', route: '/comments' },
   // 弹窗/对话框截图
-  { name: 'accounts-with-dialog', route: '/accounts', waitMs: 1000, trigger: 'button:has-text("添加"), button:has-text("＋")' },
-  { name: 'model-providers-with-add', route: '/model-providers', waitMs: 1000, trigger: 'button:has-text("添加服务商"), .cohere-btn-primary:has-text("添加")' },
-];
+  {
+    name: 'accounts-with-dialog',
+    route: '/accounts',
+    trigger: 'button:has-text("添加账号")',
+    afterTrigger: '.ui-modal, .el-dialog, [role="dialog"]',
+  },
+  {
+    name: 'model-providers-with-add',
+    route: '/model-providers',
+    trigger: 'button:has-text("添加服务商")',
+    afterTrigger: '.el-dialog:has-text("添加服务商")',
+  },
+].map(test => ({
+  ...test,
+  waitFor: ROUTE_READY_SELECTORS[test.route] || '#app[data-v-app]',
+}));
 
 // ==================== 执行函数 ====================
 
@@ -88,7 +105,10 @@ async function runPixelTests(runner) {
   const results = [];
   for (const test of pixelTests) {
     try {
-      await runner.pixelRegressionTest(test.name, test.route, { waitMs: test.waitMs });
+      await runner.pixelRegressionTest(test.name, test.route, {
+        waitFor: test.waitFor,
+        expectedRoute: test.expectedRoute,
+      });
       results.push({ name: test.name, status: 'PASSED' });
     } catch (err) {
       results.push({ name: test.name, status: 'FAILED', error: err.message.split('\n')[0] });
@@ -106,17 +126,17 @@ async function runFunctionalTests(runner) {
         const errors = [];
         for (const route of test.routes) {
           try {
-            await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 }); await runner.page.waitForTimeout(1500);
+            await navigateToReady(runner.page, route);
           } catch (e) {
-            errors.push(route);
+            errors.push(`${route}: ${e.message}`);
           }
         }
         results.push({ name: test.name, status: errors.length === 0 ? 'PASSED' : 'FAILED', errors });
       } else {
         // 选择器测试
         const route = test.route || '/';
-        await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 }); await runner.page.waitForTimeout(1500);
-        await runner.page.waitForTimeout(test.waitMs || 1000);
+        await navigateToReady(runner.page, route, test.selector);
+        await waitForCount(runner.page, test.selector, test.minCount);
         const items = await runner.page.$$(test.selector);
         results.push({
           name: test.name,
@@ -137,17 +157,23 @@ async function runScreenshotCaptures(runner) {
   const results = [];
   for (const test of screenshotViewTests) {
     try {
-      await runner.page.goto(hashUrl(test.route), { waitUntil: 'load', timeout: 10000 }); await runner.page.waitForTimeout(1500);
-      await runner.page.waitForTimeout(test.waitMs || 1000);
-      
+      await navigateToReady(runner.page, test.route, test.waitFor);
+
       if (test.trigger) {
-        try {
-          await runner.page.click(test.trigger, { timeout: 3000 });
-          await runner.page.waitForTimeout(800);
-        } catch (_) {}
+        await runner.page.click(test.trigger, { timeout: 5000 });
+        await runner.page.waitForSelector(test.afterTrigger, { state: 'visible', timeout: 10000 });
+        await runner.page.screenshot({
+          path: path.join(runner.screenshotDir, `${test.name}.png`),
+          fullPage: true,
+        });
+      } else {
+        await runner.aiVisionTest(
+          test.name,
+          test.route,
+          [{ name: '页面就绪', selector: test.waitFor }],
+          { waitFor: test.waitFor, expectedRoute: test.expectedRoute },
+        );
       }
-      
-      await runner.aiVisionTest(test.name, test.route, [], { waitMs: 0 });
       results.push({ name: test.name, status: 'CAPTURED' });
     } catch (err) {
       results.push({ name: test.name, status: 'ERROR', error: err.message.split('\n')[0] });
@@ -175,7 +201,6 @@ if (!(await checkServer())) {
 }
 log(c.green, '✅ Dev server 就绪');
 
-const startTime = Date.now();
 const startTime = Date.now();
   const allRoundResults = [];
   let previousFailed = 0;

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
@@ -24,7 +24,7 @@ const _spies = vi.hoisted(() => ({
   toggleSelect: vi.fn(),
   selectAll: vi.fn(),
   clearSelection: vi.fn(),
-  batchDelete: vi.fn().mockResolvedValue({ code: 0 }),
+  batchDelete: vi.fn().mockResolvedValue({ success: 0, failed: 0 }),
   createGroup: vi.fn(),
   deleteGroup: vi.fn(),
   getGroupAccounts: vi.fn().mockReturnValue([]),
@@ -96,11 +96,27 @@ async function mountView() {
 }
 
 describe("AccountsView", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    const publisher = await import("@/api/publisher");
+    publisher.listAccounts.mockResolvedValue({ code: 0, data: [] });
+    publisher.accountAdd.mockResolvedValue({ code: 0 });
+    publisher.accountDelete.mockResolvedValue({ code: 0 });
+    publisher.accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: true } });
+    publisher.authOpenLogin.mockResolvedValue({ code: 0 });
+    publisher.authClose.mockResolvedValue({ code: 0 });
+    publisher.accountSetDefault.mockResolvedValue({ code: 0 });
+    publisher.accountUpdate.mockResolvedValue({ code: 0 });
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockResolvedValue(undefined);
+    _spies.batchDelete.mockResolvedValue({ success: 0, failed: 0 });
     _testAccounts.length = 0;
     setActivePinia(createPinia());
     window.electronAPI = {};
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("renders page title", async () => {
@@ -171,7 +187,9 @@ describe("AccountsView", () => {
 
   it("refresh calls accountStore.load", async () => {
     const w = await mountView();
+    _spies.load.mockClear();
     await w.vm.refresh();
+    expect(_spies.load).toHaveBeenCalledTimes(1);
     expect(w.vm.loading).toBe(false);
   });
 
@@ -180,7 +198,10 @@ describe("AccountsView", () => {
     w.vm.newPlatform = "";
     await w.vm.addAccount();
     const { ElMessage } = await import("element-plus");
-    expect(ElMessage.warning).toHaveBeenCalled();
+    const { authOpenLogin, accountAdd } = await import("@/api/publisher");
+    expect(ElMessage.warning).toHaveBeenCalledWith("请选择平台");
+    expect(authOpenLogin).not.toHaveBeenCalled();
+    expect(accountAdd).not.toHaveBeenCalled();
   });
 
   it("addAccount opens auth login flow", async () => {
@@ -201,19 +222,6 @@ describe("AccountsView", () => {
     await w.vm.addAccount();
     expect(w.vm.adding).toBe(false);
     expect(w.vm.authViewVisible).toBe(false);
-  });
-
-  it("addAccount falls back to accountAdd when authOpenLogin not available", async () => {
-    // Temporarily remove authOpenLogin
-    const api = await import("@/api/publisher");
-    const saved = api.authOpenLogin;
-    // We can't easily override a vi.mock. Instead, test the else branch through the component.
-    // The component checks: if (authOpenLogin) { ... } else { ... }
-    // Since authOpenLogin is mocked as a function, it always enters the if branch.
-    // For the else branch, we need authOpenLogin to be undefined/null.
-    const w = await mountView();
-    // We'll verify the component structure instead
-    expect(w.vm.addAccount).toBeDefined();
   });
 
   it("addAccount shows error on failure", async () => {
@@ -282,6 +290,20 @@ describe("AccountsView", () => {
     expect(ElMessage.error).toHaveBeenCalled();
   });
 
+  it("setDefault 业务失败时显示原始错误且不提示成功、不刷新", async () => {
+    const { accountSetDefault } = await import("@/api/publisher");
+    const { ElMessage } = await import("element-plus");
+    accountSetDefault.mockResolvedValue({ code: 1, message: "账号不存在" });
+    const w = await mountView();
+    _spies.load.mockClear();
+
+    await w.vm.setDefault({ id: "missing", platform: "zhihu" });
+
+    expect(ElMessage.error).toHaveBeenCalledWith("账号不存在");
+    expect(ElMessage.success).not.toHaveBeenCalled();
+    expect(_spies.load).not.toHaveBeenCalled();
+  });
+
   it("renameAccount updates name and refreshes", async () => {
     const { accountUpdate } = await import("@/api/publisher");
     const w = await mountView();
@@ -314,6 +336,19 @@ describe("AccountsView", () => {
     await w.vm.renameAccount(acc, "New");
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.error).toHaveBeenCalled();
+  });
+
+  it("renameAccount 业务失败时显示原始错误且不刷新", async () => {
+    const { accountUpdate } = await import("@/api/publisher");
+    const { ElMessage } = await import("element-plus");
+    accountUpdate.mockResolvedValue({ code: 1, message: "账号名称已存在" });
+    const w = await mountView();
+    _spies.load.mockClear();
+
+    await w.vm.renameAccount({ id: "a1", account_name: "旧名称" }, "新名称");
+
+    expect(ElMessage.error).toHaveBeenCalledWith("账号名称已存在");
+    expect(_spies.load).not.toHaveBeenCalled();
   });
 
   it("openPlatform opens correct URL", async () => {
@@ -437,6 +472,177 @@ describe("AccountsView", () => {
       const dialog = w.find(".ui-modal, .el-dialog, .add-account-form");
       expect(dialog.exists() || w.vm.showAddDialog === true || w.vm.authViewVisible === true).toBe(true);
     }
+  });
+
+  it("搜索输入防抖后才更新账号查询条件", async () => {
+    const w = await mountView();
+    vi.useFakeTimers();
+    w.vm.searchInput = "知乎";
+
+    w.vm.onSearchInput();
+    expect(w.vm.accountStore.searchQuery).toBe("");
+
+    await vi.advanceTimersByTimeAsync(299);
+    expect(w.vm.accountStore.searchQuery).toBe("");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(w.vm.accountStore.searchQuery).toBe("知乎");
+  });
+
+  it("连续搜索只应用最后一次输入", async () => {
+    const w = await mountView();
+    vi.useFakeTimers();
+    w.vm.searchInput = "微";
+    w.vm.onSearchInput();
+    await vi.advanceTimersByTimeAsync(200);
+    w.vm.searchInput = "微信";
+    w.vm.onSearchInput();
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(w.vm.accountStore.searchQuery).toBe("微信");
+  });
+
+  it("清空搜索会立即清理输入和查询条件", async () => {
+    const w = await mountView();
+    w.vm.searchInput = "抖音";
+    w.vm.accountStore.searchQuery = "抖音";
+
+    w.vm.clearSearch();
+
+    expect(w.vm.searchInput).toBe("");
+    expect(w.vm.accountStore.searchQuery).toBe("");
+  });
+
+  it("登录完成事件会关闭登录视图、提示成功并刷新账号", async () => {
+    let authCompleted;
+    window.electronAPI = {
+      onAuthCompleted: vi.fn((callback) => { authCompleted = callback; return vi.fn(); }),
+    };
+    const w = await mountView();
+    _spies.load.mockClear();
+    w.vm.authViewVisible = true;
+
+    authCompleted({ platform: "zhihu" });
+    await nextTick();
+
+    const { ElMessage } = await import("element-plus");
+    expect(w.vm.authViewVisible).toBe(false);
+    expect(ElMessage.success).toHaveBeenCalledWith("账号添加成功");
+    expect(_spies.load).toHaveBeenCalledTimes(1);
+  });
+
+  it("卸载时释放全部 Electron 登录事件订阅", async () => {
+    const unsubscribeOpened = vi.fn();
+    const unsubscribeCompleted = vi.fn();
+    const unsubscribeClosed = vi.fn();
+    window.electronAPI = {
+      onAuthViewOpened: vi.fn(() => unsubscribeOpened),
+      onAuthCompleted: vi.fn(() => unsubscribeCompleted),
+      onAuthViewClosed: vi.fn(() => unsubscribeClosed),
+    };
+    const w = await mountView();
+
+    w.unmount();
+
+    expect(unsubscribeOpened).toHaveBeenCalledTimes(1);
+    expect(unsubscribeCompleted).toHaveBeenCalledTimes(1);
+    expect(unsubscribeClosed).toHaveBeenCalledTimes(1);
+  });
+
+  it("删除接口返回异常格式时显示默认错误且不刷新", async () => {
+    const { accountDelete } = await import("@/api/publisher");
+    accountDelete.mockResolvedValueOnce({});
+    const w = await mountView();
+    _spies.load.mockClear();
+
+    await w.vm.removeAccount({ id: "a1", platform: "douyin", account_name: "账号" });
+
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.error).toHaveBeenCalledWith("删除失败");
+    expect(_spies.load).not.toHaveBeenCalled();
+  });
+
+  it("批量删除全成功时显示真实成功数量且不重复刷新", async () => {
+    _spies.batchDelete.mockResolvedValueOnce({ success: 2, failed: 0 });
+    const w = await mountView();
+    w.vm.accountStore.selectedIds.add("a1");
+    w.vm.accountStore.selectedIds.add("a2");
+    _spies.load.mockClear();
+
+    await w.vm.handleBatchDelete();
+
+    expect(_spies.batchDelete).toHaveBeenCalledTimes(1);
+    expect(_spies.load).not.toHaveBeenCalled();
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.success).toHaveBeenCalledWith("已删除 2 个账号");
+  });
+
+  it("批量删除部分失败时显示成功和失败数量", async () => {
+    _spies.batchDelete.mockResolvedValueOnce({ success: 1, failed: 1 });
+    const w = await mountView();
+    w.vm.accountStore.selectedIds.add("a1");
+    w.vm.accountStore.selectedIds.add("a2");
+    _spies.load.mockClear();
+
+    await w.vm.handleBatchDelete();
+
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.warning).toHaveBeenCalledWith("已删除 1 个账号，1 个删除失败");
+    expect(ElMessage.success).not.toHaveBeenCalled();
+    expect(_spies.load).not.toHaveBeenCalled();
+  });
+
+  it("批量删除全部失败时只显示失败提示", async () => {
+    _spies.batchDelete.mockResolvedValueOnce({ success: 0, failed: 2 });
+    const w = await mountView();
+    w.vm.accountStore.selectedIds.add("a1");
+    w.vm.accountStore.selectedIds.add("a2");
+    _spies.load.mockClear();
+
+    await w.vm.handleBatchDelete();
+
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.error).toHaveBeenCalledWith("2 个账号删除失败");
+    expect(ElMessage.success).not.toHaveBeenCalled();
+    expect(_spies.load).not.toHaveBeenCalled();
+  });
+
+  it("使用真实 Pinia Store 的筛选全选状态", async () => {
+    vi.resetModules();
+    vi.doUnmock("@/stores/accounts");
+    const [
+      { default: RealAccountsView },
+      { useAccountStore },
+      { createPinia: createRealPinia, setActivePinia: setRealActivePinia },
+      { listAccounts },
+    ] = await Promise.all([
+      import("./Accounts.vue"),
+      import("@/stores/accounts"),
+      import("pinia"),
+      import("@/api/publisher"),
+    ]);
+    listAccounts.mockResolvedValue({
+      code: 0,
+      data: [
+        { id: "wx-1", platform: "wechat_mp", status: "active", account_name: "微信公众号" },
+        { id: "zh-1", platform: "zhihu", status: "active", account_name: "知乎账号" },
+      ],
+    });
+    const pinia = createRealPinia();
+    setRealActivePinia(pinia);
+    const w = mount(RealAccountsView, { global: { plugins: [pinia] } });
+    await nextTick();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+    const store = useAccountStore();
+
+    store.searchQuery = "微信";
+    store.selectAll();
+    await nextTick();
+
+    expect(store.filteredAccounts.map(account => account.id)).toEqual(["wx-1"]);
+    expect(store.isAllSelected).toBe(true);
+    expect(w.find(".batch-select-all input").element.checked).toBe(true);
+    w.unmount();
   });
 
 });

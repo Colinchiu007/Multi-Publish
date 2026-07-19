@@ -1,49 +1,69 @@
-﻿// composition-manager tests
-const assert = require('assert');
-let p = 0, f = 0;
-function t(n, fn) { try { fn(); p++; console.log('  \u2705 ' + n); } catch (e) { f++; console.log('  \u274C ' + n + ': ' + e.message); } }
-function eq(a, b) { assert.deepStrictEqual(a, b); }
+import { beforeEach, describe, expect, it } from 'vitest'
 
-console.log('=== composition-manager ===');
-let cm;
-try { cm = require('../services/composition-manager'); } catch (e) { console.log('  Skipped: ' + e.message); process.exit(0); }
+const { CompositionManager } = require('../services/composition-manager')
 
-t('exports CompositionManager class', function () { eq(typeof cm.CompositionManager, 'function'); });
+describe('CompositionManager', () => {
+  let manager
 
-const manager = new cm.CompositionManager();
+  beforeEach(() => {
+    manager = new CompositionManager()
+  })
 
-t('listCompositions returns all 7', function () {
-  const list = manager.listCompositions();
-  eq(Array.isArray(list), true);
-  eq(list.length, 7);
-});
+  it('导出 CompositionManager 类', () => {
+    expect(CompositionManager).toBeTypeOf('function')
+  })
 
-t('Explainer composition has required fields', function () {
-  const comp = manager.getComposition('Explainer');
-  eq(comp.id, 'Explainer');
-  eq(typeof comp.defaultProps, 'object');
-  eq(Array.isArray(comp.scenes), true);
-});
+  it('列出全部 7 个 composition 且包含摘要字段', () => {
+    const list = manager.listCompositions()
 
-t('getComposition returns null for unknown', function () {
-  eq(manager.getComposition('NonExistent'), null);
-});
+    expect(list).toHaveLength(7)
+    expect(list).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'Explainer', mode: 'text', sceneCount: expect.any(Number) }),
+    ]))
+  })
 
-t('buildRenderProps generates valid props for Explainer', function () {
-  const props = manager.buildRenderProps('Explainer', { text: 'Hello', theme: 'clean-professional' });
-  eq(Array.isArray(props.cuts), true);
-  eq(props.cuts.length > 0, true);
-  eq(typeof props.cuts[0].id, 'string');
-});
+  it('Explainer composition 包含渲染所需字段', () => {
+    expect(manager.getComposition('Explainer')).toEqual(expect.objectContaining({
+      id: 'Explainer',
+      defaultProps: expect.any(Object),
+      scenes: expect.any(Array),
+    }))
+  })
 
-t('buildRenderProps supports gallery mode', function () {
-  const props = manager.buildRenderProps('Explainer', { images: ['img1.jpg', 'img2.jpg'], theme: 'flat-motion-graphics' });
-  eq(Array.isArray(props.cuts), true);
-});
+  it('未知 composition 返回 null', () => {
+    expect(manager.getComposition('NonExistent')).toBeNull()
+  })
 
-t('buildRenderProps returns null for unknown composition', function () {
-  eq(manager.buildRenderProps('Bad', {}), null);
-});
+  it('为 Explainer 文本模式生成连续 cut', () => {
+    const props = manager.buildRenderProps('Explainer', {
+      text: 'Hello\nSecond scene',
+      theme: 'clean-professional',
+    })
 
-console.log('\n========== ' + p + '/' + (p + f) + ' ==========');
-if (f) process.exit(1);
+    expect(props.cuts).toHaveLength(2)
+    expect(props.cuts[0]).toEqual(expect.objectContaining({
+      id: 'cut-1',
+      text: 'Hello',
+      type: 'hero_title',
+    }))
+    expect(props.durationInFrames).toBeGreaterThan(0)
+  })
+
+  it('为 Explainer 图片模式生成 gallery cut', () => {
+    const props = manager.buildRenderProps('Explainer', {
+      images: ['img1.jpg', 'img2.jpg'],
+      theme: 'flat-motion-graphics',
+    })
+
+    expect(props.cuts).toHaveLength(2)
+    expect(props.cuts[0]).toEqual(expect.objectContaining({
+      id: 'img-1',
+      source: 'img1.jpg',
+      type: 'screenshot_scene',
+    }))
+  })
+
+  it('为未知 composition 构建 props 时返回 null', () => {
+    expect(manager.buildRenderProps('Bad', {})).toBeNull()
+  })
+})

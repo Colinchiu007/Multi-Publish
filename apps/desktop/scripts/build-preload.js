@@ -1,0 +1,42 @@
+'use strict'
+
+const path = require('path')
+const esbuild = require('esbuild')
+
+const DESKTOP_ROOT = path.resolve(__dirname, '..')
+const ENTRY_FILE = path.join(DESKTOP_ROOT, 'electron', 'preload', 'index.js')
+const OUTPUT_FILE = path.join(DESKTOP_ROOT, 'electron', 'preload', 'index.bundle.js')
+
+function buildPreload({ write = true, logLevel = 'silent' } = {}) {
+  return esbuild.build({
+    absWorkingDir: DESKTOP_ROOT,
+    entryPoints: [ENTRY_FILE],
+    outfile: OUTPUT_FILE,
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    external: ['electron'],
+    legalComments: 'none',
+    charset: 'utf8',
+    logLevel,
+    write,
+  })
+}
+
+async function main() {
+  try {
+    await buildPreload({ logLevel: 'info' })
+  } catch (error) {
+    console.error('preload 构建失败：', error)
+    process.exitCode = 1
+  }
+}
+
+if (require.main === module) main()
+
+module.exports = {
+  ENTRY_FILE,
+  OUTPUT_FILE,
+  buildPreload,
+}

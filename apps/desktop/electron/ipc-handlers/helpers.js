@@ -12,6 +12,8 @@
  * 错误码语义与 ../core/error-codes.js 保持一致（负数）。
  */
 const log = require('../services/logger')
+const { isTrustedSender } = require('../core/ipc-security')
+const { app } = require('electron')
 
 // 从 core/error-codes 获取错误码（项目统一负数语义）
 let EC
@@ -80,8 +82,8 @@ function wrapIpcHandler(fn, opts = {}) {
  * @param {object} [opts] - 选项
  * @param {boolean} [opts.requireArgs=false] - 是否强制校验 args 为对象
  * @param {string} [opts.label] - 日志标签
- * @param {any} [opts.catchData] - catch 时的兜底 data（如 []、{} ），未提供则不附加 data 字段
- * @returns {(event: any, args: any) => Promise<{code: number, data?: any, message?: string}>}
+ * @param {unknown} [opts.catchData] - catch 时的兜底 data（如 []、{} ），未提供则不附加 data 字段
+ * @returns {(event: any, args: any) => Promise<{code: number, data?: unknown, message?: string}>}
  */
 function wrapIpcHandlerRaw(fn, opts = {}) {
   return async (event, args) => {
@@ -102,33 +104,13 @@ function wrapIpcHandlerRaw(fn, opts = {}) {
 }
 
 /**
- * 引入 isTrustedSender（避免循环依赖，延迟 require）
- */
-let _isTrustedSender = null
-function getIsTrustedSender() {
-  if (_isTrustedSender) return _isTrustedSender
-  try {
-    _isTrustedSender = require('../bootstrap/phase5-ipc').isTrustedSender
-  } catch (_) {
-    // 兜底：开发环境或测试中 phase5-ipc 不可用时，信任所有本地 sender
-    _isTrustedSender = (event) => {
-      if (!event || !event.senderFrame) return true
-      return event.senderFrame.url.startsWith('file://') ||
-             event.senderFrame.url.startsWith('http://localhost') ||
-             event.senderFrame.url.startsWith('http://127.0.0.1')
-    }
-  }
-  return _isTrustedSender
-}
-
-/**
  * 检测当前是否为测试环境
  * Vitest 运行时设置 process.env.VITEST 或 NODE_ENV=test
  */
 function _isTestEnv() {
   return process.env.NODE_ENV === 'test' ||
          process.env.VITEST === 'true' ||
-         typeof vitest !== 'undefined' ||
+         (typeof globalThis !== 'undefined' && 'vitest' in globalThis) ||
          (typeof global !== 'undefined' && global.__VITEST__)
 }
 
@@ -137,29 +119,24 @@ function _isTestEnv() {
  * 用于敏感操作（写入/删除/激活/支付），防止恶意页面通过 DOM 注入调用
  * 只读 handler（查询类）不应使用此包装，避免过度验证
  *
- * 测试环境兼容：Vitest 中 mock event 的 senderFrame 不符合生产协议，
- * 测试环境下跳过验证，保证单元测试可运行。
+ * 测试环境兼容：没有 senderFrame 的旧 mock 继续放行；一旦提供 senderFrame，
+ * 无论测试还是生产环境都执行真实来源校验。
  *
  * @param {Function} fn - 原始 handler（通常已用 wrapIpcHandlerRaw 包装）
  * @returns {Function} 包装后的 handler，先校验 sender 可信再执行原逻辑
  */
 function withSenderCheck(fn) {
-  const isTrusted = getIsTrustedSender()
   const isTest = _isTestEnv()
-  return async (event, args) => {
-    // 测试环境跳过 sender 验证（mock event 无真实 senderFrame）
-    if (isTest) {
-      return fn(event, args)
+  return async (event, ...args) => {
+    // 仅兼容没有 senderFrame 的旧测试 mock，真实来源合同始终可测试。
+    if (isTest && (!event || !event.senderFrame)) {
+      return fn(event, ...args)
     }
-    // 生产环境：event 无 senderFrame 时也跳过（防御性兼容）
-    if (!event || !event.senderFrame) {
-      return fn(event, args)
-    }
-    if (!isTrusted(event)) {
+    if (!isTrustedSender(event, app)) {
       log.warn('[IPC] 未授权的调用来源:', event && event.senderFrame && event.senderFrame.url)
       return { code: EC.AUTH_ERROR, message: '未授权的调用来源' }
     }
-    return fn(event, args)
+    return fn(event, ...args)
   }
 }
 

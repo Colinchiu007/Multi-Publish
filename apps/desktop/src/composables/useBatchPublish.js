@@ -13,7 +13,7 @@
  *   - article: reactive 对象（单篇模式 applyTemplate 目标）
  *   - licenseStore: { isPro: boolean }
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
 import { ElMessage } from 'element-plus'
 import { batchCreate, onProgress } from '@/api/publisher'
 
@@ -21,6 +21,17 @@ let _keyCounter = 1
 
 function freshKey() {
   return 'a_' + (_keyCounter++) + '_' + Date.now()
+}
+
+function toPlainJson(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+const DEFAULT_BATCH_STATUS_POLL_INTERVAL_MS = 5000
+const DEFAULT_BATCH_STATUS_POLL_MAX_ATTEMPTS = 180
+
+function positiveInteger(value, fallback) {
+  return Number.isInteger(value) && value > 0 ? value : fallback
 }
 
 /**
@@ -33,13 +44,48 @@ function freshKey() {
 export function useBatchPublish(options) {
   const article = options.article
   const licenseStore = options.licenseStore
+  const batchStatusPollIntervalMs = positiveInteger(
+    options.batchStatusPollIntervalMs,
+    DEFAULT_BATCH_STATUS_POLL_INTERVAL_MS,
+  )
+  const batchStatusPollMaxAttempts = positiveInteger(
+    options.batchStatusPollMaxAttempts,
+    DEFAULT_BATCH_STATUS_POLL_MAX_ATTEMPTS,
+  )
 
   const batchMode = ref(false)
+  const batchPublishing = ref(false)
   const precheckEnabled = ref(false)
   const articles = ref([])
   const batchProgress = ref([])
   const templateTargetIdx = ref(-1)
   const showTemplatePicker = ref(false)
+  let stopBatchProgress = null
+  let batchStatusPollTimer = null
+
+  function clearBatchStatusPollTimer() {
+    if (batchStatusPollTimer !== null) {
+      clearTimeout(batchStatusPollTimer)
+      batchStatusPollTimer = null
+    }
+  }
+
+  function clearBatchProgressListener() {
+    if (typeof stopBatchProgress === 'function') {
+      const stop = stopBatchProgress
+      stopBatchProgress = null
+      stop()
+    }
+  }
+
+  function clearBatchTracking() {
+    clearBatchStatusPollTimer()
+    clearBatchProgressListener()
+  }
+
+  if (getCurrentScope()) {
+    onScopeDispose(clearBatchTracking)
+  }
 
   const batchDone = computed(function () {
     return batchProgress.value.filter(function (p) { return p.type === 'success' }).length
@@ -106,32 +152,38 @@ export function useBatchPublish(options) {
   }
 
   async function handleBatchPublish() {
-    // 验证每篇文章
-    for (const a of articles.value) {
-      if (!a.title.trim()) {
-        ElMessage.warning('有文章缺少标题')
-        return
-      }
-      if (!a.content.trim()) {
-        ElMessage.warning('有文章缺少正文')
-        return
-      }
-      if (!a.platforms || a.platforms.length === 0) {
-        ElMessage.warning('"' + a.title.slice(0, 20) + '" 未选择发布平台')
-        return
-      }
-    }
+    if (batchPublishing.value) return
+    batchPublishing.value = true
 
-    const off = onProgress(function (data) {
-      batchProgress.value.push({
-        text: '[' + data.platform + '] ' + data.stage,
-        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        type: data.type || 'primary',
-      })
-    })
-
+    let offProgress
+    let keepPublishingLock = false
     try {
-      const createRes = await batchCreate({
+      // 验证每篇文章
+      for (const a of articles.value) {
+        if (!a.title.trim()) {
+          ElMessage.warning('有文章缺少标题')
+          return
+        }
+        if (!a.content.trim()) {
+          ElMessage.warning('有文章缺少正文')
+          return
+        }
+        if (!a.platforms || a.platforms.length === 0) {
+          ElMessage.warning('"' + a.title.slice(0, 20) + '" 未选择发布平台')
+          return
+        }
+      }
+
+      clearBatchTracking()
+      offProgress = onProgress(function (data) {
+        batchProgress.value.push({
+          text: '[' + data.platform + '] ' + data.stage,
+          time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          type: data.type || 'primary',
+        })
+      })
+
+      const createRes = await batchCreate(toPlainJson({
         name: '批量发布 ' + new Date().toLocaleDateString('zh-CN'),
         articles: articles.value.map(function (a) {
           return {
@@ -142,10 +194,13 @@ export function useBatchPublish(options) {
             precheck: precheckEnabled.value,
           }
         }),
-      })
+      }))
 
-      if (createRes.code !== 0) {
-        throw new Error(createRes.message)
+      if (!createRes || createRes.code !== 0) {
+        throw new Error((createRes && createRes.message) || '创建批量任务失败')
+      }
+      if (!createRes.data || !createRes.data.id) {
+        throw new Error('创建批量任务失败：响应缺少批次 ID')
       }
 
       const batchId = createRes.data.id
@@ -154,39 +209,169 @@ export function useBatchPublish(options) {
       // 检查是否有定时任务
       const hasScheduled = articles.value.some(function (a) { return a.publishTime })
       if (hasScheduled) {
-        await api.batchSchedule(batchId)
+        const scheduleRes = await api.batchSchedule(batchId)
+        if (!scheduleRes || scheduleRes.code !== 0) {
+          throw new Error((scheduleRes && scheduleRes.message) || '批量排期失败')
+        }
         batchProgress.value.push({
           text: '✅ 已排期 ' + articles.value.length + ' 篇文章',
           time: new Date().toLocaleTimeString('zh-CN'),
           type: 'success',
         })
       } else {
-        const off2 = api.onBatchProgress(function (data) {
+        const expectedTaskCount = totalPlatformTasks.value
+        let receivedTaskCount = 0
+        let succeededTaskCount = 0
+        let failedTaskCount = 0
+        let completedBeforeSubscribe = false
+        let batchSettled = false
+        let pollAttempts = 0
+        const seenTaskIds = new Set()
+
+        const finishBatchProgress = function (counts) {
+          if (batchSettled) return
+          batchSettled = true
+          batchPublishing.value = false
+          const succeeded = counts && Number.isInteger(counts.succeeded)
+            ? counts.succeeded
+            : succeededTaskCount
+          const failed = counts && Number.isInteger(counts.failed)
+            ? counts.failed
+            : failedTaskCount
+          const total = counts && Number.isInteger(counts.total)
+            ? counts.total
+            : expectedTaskCount
+
+          if (failed === total && total > 0) {
+            ElMessage.error('批量发布失败：' + failed + ' 个任务全部失败')
+          } else if (failed > 0) {
+            ElMessage.warning('批量发布完成：' + succeeded + ' 个成功，' + failed + ' 个失败')
+          } else {
+            ElMessage.success('批量发布完成：' + succeeded + ' 个任务全部成功')
+          }
+
+          if (stopBatchProgress) clearBatchTracking()
+          else completedBeforeSubscribe = true
+        }
+
+        const unsubscribe = api.onBatchProgress(function (data) {
+          if (!data || (data.batchId && data.batchId !== batchId)) return
+          if (data.kind === 'batch-complete') {
+            finishBatchProgress(data)
+            return
+          }
+          if (data.taskId && seenTaskIds.has(data.taskId)) return
+          if (data.taskId) seenTaskIds.add(data.taskId)
+
+          const title = String(data.title || '').slice(0, 20)
+          const platform = data.platform || '未知平台'
           batchProgress.value.push({
             text: data.ok
-              ? '✅ [' + data.platform + '] ' + data.title.slice(0, 20) + ': 发布成功'
-              : '❌ [' + data.platform + '] ' + data.title.slice(0, 20) + ': ' + data.message,
+              ? '✅ [' + platform + '] ' + title + ': 发布成功'
+              : '❌ [' + platform + '] ' + title + ': ' + (data.message || '发布失败'),
             time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
             type: data.ok ? 'success' : 'danger',
           })
-        })
 
-        await api.batchExecute(batchId)
+          receivedTaskCount += 1
+          if (data.ok) succeededTaskCount += 1
+          else failedTaskCount += 1
+          if (receivedTaskCount >= expectedTaskCount) finishBatchProgress()
+        })
+        stopBatchProgress = typeof unsubscribe === 'function' ? unsubscribe : null
+        if (completedBeforeSubscribe) clearBatchTracking()
+
+        const executeRes = await api.batchExecute(batchId)
+        if (!executeRes || executeRes.code !== 0) {
+          throw new Error((executeRes && executeRes.message) || '批量执行失败')
+        }
+        const executeContract = executeRes.data && typeof executeRes.data === 'object'
+          ? executeRes.data
+          : executeRes
+        const acceptedCount = Number.isInteger(executeContract.accepted)
+          ? executeContract.accepted
+          : expectedTaskCount
+        const enqueueFailedCount = Number.isInteger(executeContract.failed)
+          ? executeContract.failed
+          : 0
         batchProgress.value.push({
-          text: '🚀 ' + articles.value.length + ' 篇文章已提交发布',
+          text: enqueueFailedCount > 0
+            ? '🚀 已接受 ' + acceptedCount + ' 个发布任务，' + enqueueFailedCount + ' 个入队失败'
+            : '🚀 已接受 ' + acceptedCount + ' 个发布任务',
           time: new Date().toLocaleTimeString('zh-CN'),
           type: 'primary',
         })
-        off2()
+
+        const pollBatchStatus = async function () {
+          if (batchSettled) return
+          pollAttempts += 1
+          try {
+            if (typeof api.batchGet === 'function') {
+              const statusRes = await api.batchGet(batchId)
+              const status = statusRes && statusRes.code === 0 ? statusRes.data : null
+              if (status && status.status === 'done') {
+                const completed = Number.isInteger(status.completed) ? status.completed : expectedTaskCount
+                const failed = Number.isInteger(status.failed) ? status.failed : failedTaskCount
+                finishBatchProgress({
+                  total: Number.isInteger(status.total) ? status.total : expectedTaskCount,
+                  succeeded: Math.max(0, completed - failed),
+                  failed,
+                })
+                return
+              }
+            }
+          } catch (_) {
+            // IPC 瞬时失败由下一次有界轮询重试，达到上限后统一提示。
+          }
+
+          if (batchSettled) return
+          if (pollAttempts >= batchStatusPollMaxAttempts) {
+            batchSettled = true
+            batchPublishing.value = false
+            ElMessage.error('批量发布状态确认超时，请在任务记录中查看最终结果')
+            clearBatchTracking()
+            return
+          }
+          scheduleBatchStatusPoll()
+        }
+
+        const scheduleBatchStatusPoll = function () {
+          if (batchSettled) return
+          batchStatusPollTimer = setTimeout(function () {
+            batchStatusPollTimer = null
+            void pollBatchStatus()
+          }, batchStatusPollIntervalMs)
+          if (batchStatusPollTimer && typeof batchStatusPollTimer.unref === 'function') {
+            batchStatusPollTimer.unref()
+          }
+        }
+
+        if (!batchSettled) {
+          keepPublishingLock = true
+          scheduleBatchStatusPoll()
+        }
       }
     } catch (e) {
+      keepPublishingLock = false
+      clearBatchTracking()
       batchProgress.value.push({
-        text: '❌ 批量发布失败: ' + e.message,
+        text: '❌ 批量发布失败: ' + ((e && e.message) || '未知错误'),
         time: new Date().toLocaleTimeString('zh-CN'),
         type: 'danger',
       })
     } finally {
-      off()
+      if (!keepPublishingLock) batchPublishing.value = false
+      if (typeof offProgress === 'function') {
+        try {
+          offProgress()
+        } catch (cleanupError) {
+          batchProgress.value.push({
+            text: '⚠️ 全局进度监听清理失败: ' + ((cleanupError && cleanupError.message) || '未知错误'),
+            time: new Date().toLocaleTimeString('zh-CN'),
+            type: 'warning',
+          })
+        }
+      }
     }
   }
 
@@ -197,6 +382,7 @@ export function useBatchPublish(options) {
 
   return {
     batchMode,
+    batchPublishing,
     precheckEnabled,
     articles,
     batchProgress,

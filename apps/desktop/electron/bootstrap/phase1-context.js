@@ -23,9 +23,26 @@ const history = require('../services/publish-history')
 const autoUpdater = require('../services/auto-updater')
 const firstRun = require('../services/first-run')
 const BatchManager = require('../services/batch-manager')
+/** @typedef {new (options: {orchestratorUrl: string, store: object}) => {registerIpcHandlers(): void}} CloudPublisherConstructor */
 // CJS/ESM interop：兼容真实模块与 vitest mock
+/** @type {CloudPublisherConstructor | {default: CloudPublisherConstructor}} */
 const _CloudPublisherModule = require('../services/cloud-publisher')
-const CloudPublisher = _CloudPublisherModule.default || _CloudPublisherModule
+const CloudPublisher = 'default' in _CloudPublisherModule
+  ? _CloudPublisherModule.default
+  : _CloudPublisherModule
+const CONTEXT_GROUP_KEYS = ['infra', 'services', 'windows', 'pipelines']
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function errorMessage(value) {
+  return value instanceof Error ? value.message : String(value)
+}
+
+function getContextGroups(target) {
+  return CONTEXT_GROUP_KEYS.map((key) => target[key])
+}
 
 /**
  * 为分组 context 对象包装过渡期兼容 Proxy。
@@ -46,13 +63,13 @@ function createGroupedContextProxy(grouped) {
   return new Proxy(grouped, {
     get(target, prop) {
       if (prop in target) return target[prop]
-      for (const g of Object.values(target)) {
+      for (const g of getContextGroups(target)) {
         if (prop in g) return g[prop]
       }
       return undefined
     },
     set(target, prop, value) {
-      for (const g of Object.values(target)) {
+      for (const g of getContextGroups(target)) {
         if (Object.prototype.hasOwnProperty.call(g, prop)) { g[prop] = value; return true }
       }
       target[prop] = value
@@ -60,14 +77,14 @@ function createGroupedContextProxy(grouped) {
     },
     has(target, prop) {
       if (prop in target) return true
-      for (const g of Object.values(target)) {
+      for (const g of getContextGroups(target)) {
         if (prop in g) return true
       }
       return false
     },
     ownKeys(target) {
       const keys = new Set(Object.keys(target))
-      for (const g of Object.values(target)) {
+      for (const g of getContextGroups(target)) {
         Object.keys(g).forEach((k) => keys.add(k))
       }
       return Array.from(keys)
@@ -76,7 +93,7 @@ function createGroupedContextProxy(grouped) {
       if (Object.prototype.hasOwnProperty.call(target, prop)) {
         return Object.getOwnPropertyDescriptor(target, prop)
       }
-      for (const g of Object.values(target)) {
+      for (const g of getContextGroups(target)) {
         if (Object.prototype.hasOwnProperty.call(g, prop)) {
           return { configurable: true, enumerable: true, writable: true, value: g[prop] }
         }
@@ -112,6 +129,7 @@ function extractContext(container) {
   const commentManager = container.get('commentManager')
   const proxyPool = container.get('proxyPool')
   const analyticsService = container.get('analyticsService')
+  const usageTracker = container.get('usageTracker')
 
   // ─── 模块单例 + 副作用 ───
   const _PublishAlert = require('../services/publish-alert') // side effects on require
@@ -171,7 +189,7 @@ function extractContext(container) {
     try {
       return new PlatformConfig(getConfigPath('platforms.yaml'))
     } catch (e) {
-      log.warn('App', 'Failed to load platform config:', e.message)
+      log.warn('App', 'Failed to load platform config: ' + errorMessage(e))
       return null
     }
   })()
@@ -191,7 +209,7 @@ function extractContext(container) {
       BACKEND_PLATFORMS, _chunkedUploader,
     },
     services: {
-      scheduler, callbackServer, keywordMonitor, analyticsService,
+      scheduler, callbackServer, keywordMonitor, analyticsService, usageTracker,
       AccountManager, history, autoUpdater, hotkeys, firstRun,
       systemTray, offlineManager, publishMonitor,
       templateManager, licenseManager, aiWriter,

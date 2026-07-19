@@ -10,7 +10,10 @@ const http = require("http");
 const PROJECT_ROOT = (function findRoot() {
   let dir = __dirname;
   while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(path.join(dir, 'apps', 'desktop'))) return dir.replace(/\\/g, '/');
+    const desktopTestConfig = path.join(dir, 'apps', 'desktop', 'tests', 'selectors.json');
+    if (fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(desktopTestConfig)) {
+      return dir.replace(/\\/g, '/');
+    }
     dir = path.dirname(dir);
   }
   return path.resolve(__dirname, '..', '..').replace(/\\/g, '/');
@@ -35,6 +38,15 @@ function assert(name, ok, detail = "") {
 }
 function getResults() { return { pass, fail, total: pass + fail }; }
 function resetResults() { pass = 0; fail = 0; }
+function resolveGuiExitCode({
+  results = getResults(),
+  consoleErrors = [],
+  pageErrors = [],
+  runnerError = null,
+} = {}) {
+  const hasErrors = consoleErrors.length > 0 || pageErrors.length > 0 || Boolean(runnerError);
+  return results.fail > 0 || hasErrors ? 1 : 0;
+}
 
 // Vite 健康检查
 async function checkVite() {
@@ -109,7 +121,7 @@ async function assertTitle(win, keyword) {
 
 module.exports = {
   PROJECT_ROOT, EL, MAIN, SS, ROUTES, SEL, MOCK,
-  config, wait, assert, getResults, resetResults,
+  config, wait, assert, getResults, resetResults, resolveGuiExitCode,
   checkVite, findMainWindow, injectAccounts, ensurePlatformStore,
   setBatchMode, assertTitle,
 };

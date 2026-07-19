@@ -18,6 +18,7 @@ const AnalyticsService = require('./analytics-service')
 const DataSyncService = require('./data-sync')
 const ContentQualityGate = require('./content-quality-gate')
 const PublishIntervalGuard = require('./publish-interval-guard')
+const { createScheduler } = require('./scheduler')
 
 module.exports = {
   TaskQueue,
@@ -33,4 +34,5 @@ module.exports = {
   DataSyncService,
   ContentQualityGate,
   PublishIntervalGuard,
+  createScheduler,
 }

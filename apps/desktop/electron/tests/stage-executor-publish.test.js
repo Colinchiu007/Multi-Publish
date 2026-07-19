@@ -1,68 +1,52 @@
 // stage-executor PUBLISH 阶段单元测试 (P2-10)
 // 测试多平台发布的各种场景：占位/验证/单平台/多平台/失败处理
 //
-// 运行：node --test electron/tests/stage-executor-publish.test.js
-const assert = require('assert');
+// 运行：vitest run electron/tests/stage-executor-publish.test.js
+import { describe, expect, it, vi } from 'vitest'
+
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-let p = 0, f = 0;
-const _testQueue = [];
-function t(n, fn) { _testQueue.push({ name: n, fn }); }
-function eq(a, b) { assert.deepStrictEqual(a, b); }
-function ok(a, m) { assert.ok(a, m); }
-
-async function _runAll() {
-  for (const { name, fn } of _testQueue) {
-    try {
-      await fn();
-      p++;
-      console.log('  \u2705 ' + name);
-    } catch (e) {
-      f++;
-      console.log('  \u274C ' + name + ': ' + e.message);
-    }
-  }
+function eq(actual, expected, message) {
+  expect(actual, message).toEqual(expected)
 }
 
-console.log('=== stage-executor PUBLISH (P2-10) ===');
+function ok(value, message) {
+  expect(value, message).toBeTruthy()
+}
 
-let StageExecutor, STAGE_TYPES;
-try {
-  ({ StageExecutor, STAGE_TYPES } = require('../services/stage-executor'));
-} catch (e) { console.log('  Skipped: ' + e.message); process.exit(0); }
+const { StageExecutor, STAGE_TYPES } = require('../services/stage-executor');
 
 // ---------- Mock 工具 ----------
 function makeMockServiceBus() {
   return {
-    splitText: async () => ({ code: 0, data: { sentences: [] } }),
-    optimizePrompt: async () => ({ code: 0, data: {} }),
-    optimizePromptsBatch: async () => ({ code: 0, data: [] }),
-    composeVideo: async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4' } }),
-    callPythonSkill: async () => ({ code: 0, data: {} }),
-    fetchPipeline: async () => ({ code: 0, data: {} }),
+    splitText: vi.fn(async () => ({ code: 0, data: { sentences: [] } })),
+    optimizePrompt: vi.fn(async () => ({ code: 0, data: {} })),
+    optimizePromptsBatch: vi.fn(async () => ({ code: 0, data: [] })),
+    composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4' } })),
+    callPythonSkill: vi.fn(async () => ({ code: 0, data: {} })),
+    fetchPipeline: vi.fn(async () => ({ code: 0, data: {} })),
   };
 }
 
 function makeMockContainer(services) {
-  return { get: (name) => services[name] };
+  return { get: vi.fn((name) => services[name]) };
 }
 
 function makeMockLogger() {
   const logs = { info: [], warn: [], error: [] };
   return {
-    info: (c, m) => logs.info.push(c + ': ' + m),
-    warn: (c, m) => logs.warn.push(c + ': ' + m),
-    error: (c, m) => logs.error.push(c + ': ' + m),
+    info: vi.fn((c, m) => logs.info.push(c + ': ' + m)),
+    warn: vi.fn((c, m) => logs.warn.push(c + ': ' + m)),
+    error: vi.fn((c, m) => logs.error.push(c + ': ' + m)),
     _logs: logs,
   };
 }
 
 // 创建真实临时文件作为 videoPath
 function makeTempVideo() {
-  const dir = path.join(os.tmpdir(), 'p2-10-test-' + Date.now());
-  fs.mkdirSync(dir, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'p2-10-test-'));
   const file = path.join(dir, 'test.mp4');
   fs.writeFileSync(file, Buffer.from('fake-video-content'));
   return file;
@@ -71,13 +55,7 @@ function makeTempVideo() {
 function cleanupTempVideo(file) {
   try {
     const dir = path.dirname(file);
-    if (fs.existsSync(dir)) {
-      const entries = fs.readdirSync(dir);
-      for (const e of entries) {
-        fs.unlinkSync(path.join(dir, e));
-      }
-      fs.rmdirSync(dir);
-    }
+    fs.rmSync(dir, { recursive: true, force: true });
   } catch (_) { /* ignore */ }
 }
 
@@ -85,21 +63,23 @@ function cleanupTempVideo(file) {
 function makeMockRouter(platformResults) {
   // platformResults: { platform: { success, url?, error?, throw? } }
   return {
-    createPublisher: (platform, deps) => ({
-      publish: async (task) => {
+    createPublisher: vi.fn((platform) => ({
+      publish: vi.fn(async () => {
         const cfg = platformResults[platform] || { success: false, error: 'Unknown platform' };
         if (cfg.throw) throw new Error(cfg.throw);
         return { success: cfg.success, url: cfg.url, postId: cfg.postId, error: cfg.error };
-      },
-    }),
+      }),
+    })),
   };
 }
+
+describe('StageExecutor PUBLISH 阶段', () => {
 
 // ============================================================
 // 1. 占位分支（router 未配置）
 // ============================================================
 
-t('PUBLISH: router 为 null 时返回占位成功 + warn 日志', async function () {
+it('PUBLISH: router 为 null 时返回占位成功 + warn 日志', async function () {
   const log = makeMockLogger();
   const exec = new StageExecutor({
     serviceBus: makeMockServiceBus(),
@@ -118,7 +98,7 @@ t('PUBLISH: router 为 null 时返回占位成功 + warn 日志', async function
   ok(log._logs.warn.length > 0, '应记录 warn 日志');
 });
 
-t('PUBLISH: container 为 null 时返回占位成功', async function () {
+it('PUBLISH: container 为 null 时返回占位成功', async function () {
   const log = makeMockLogger();
   const exec = new StageExecutor({
     serviceBus: makeMockServiceBus(),
@@ -135,7 +115,7 @@ t('PUBLISH: container 为 null 时返回占位成功', async function () {
   eq(result.output.placeholder, true);
 });
 
-t('PUBLISH: router 无 createPublisher 方法时返回占位成功', async function () {
+it('PUBLISH: router 无 createPublisher 方法时返回占位成功', async function () {
   // 旧代码检查 router.publish，新代码检查 router.createPublisher
   // 如果 router 只有 publish 方法（不存在的情况），应走占位分支
   const log = makeMockLogger();
@@ -160,7 +140,7 @@ t('PUBLISH: router 无 createPublisher 方法时返回占位成功', async funct
 // 2. 输入验证
 // ============================================================
 
-t('PUBLISH: videoPath 为 undefined 时失败', async function () {
+it('PUBLISH: videoPath 为 undefined 时失败', async function () {
   const log = makeMockLogger();
   const exec = new StageExecutor({
     serviceBus: makeMockServiceBus(),
@@ -177,7 +157,7 @@ t('PUBLISH: videoPath 为 undefined 时失败', async function () {
   ok(/videoPath/.test(result.error), '错误应包含 videoPath');
 });
 
-t('PUBLISH: videoPath 文件不存在时失败', async function () {
+it('PUBLISH: videoPath 文件不存在时失败', async function () {
   const log = makeMockLogger();
   const exec = new StageExecutor({
     serviceBus: makeMockServiceBus(),
@@ -194,7 +174,7 @@ t('PUBLISH: videoPath 文件不存在时失败', async function () {
   ok(/does not exist/.test(result.error), '错误应提示文件不存在');
 });
 
-t('PUBLISH: platforms 为空数组时失败', async function () {
+it('PUBLISH: platforms 为空数组时失败', async function () {
   const log = makeMockLogger();
   const videoPath = makeTempVideo();
   try {
@@ -216,7 +196,7 @@ t('PUBLISH: platforms 为空数组时失败', async function () {
   }
 });
 
-t('PUBLISH: platforms 未指定时失败', async function () {
+it('PUBLISH: platforms 未指定时失败', async function () {
   const log = makeMockLogger();
   const videoPath = makeTempVideo();
   try {
@@ -242,7 +222,7 @@ t('PUBLISH: platforms 未指定时失败', async function () {
 // 3. 单平台发布
 // ============================================================
 
-t('PUBLISH: 单平台发布成功', async function () {
+it('PUBLISH: 单平台发布成功', async function () {
   const log = makeMockLogger();
   const videoPath = makeTempVideo();
   try {
@@ -274,7 +254,7 @@ t('PUBLISH: 单平台发布成功', async function () {
   }
 });
 
-t('PUBLISH: 单平台发布失败时整体失败', async function () {
+it('PUBLISH: 单平台发布失败时整体失败', async function () {
   const log = makeMockLogger();
   const videoPath = makeTempVideo();
   try {
@@ -307,7 +287,7 @@ t('PUBLISH: 单平台发布失败时整体失败', async function () {
 // 4. 多平台发布
 // ============================================================
 
-t('PUBLISH: 多平台部分成功部分失败 — 整体成功', async function () {
+it('PUBLISH: 多平台部分成功部分失败 — 整体成功', async function () {
   const log = makeMockLogger();
   const videoPath = makeTempVideo();
   try {
@@ -340,7 +320,7 @@ t('PUBLISH: 多平台部分成功部分失败 — 整体成功', async function 
   }
 });
 
-t('PUBLISH: 多平台全部失败 — 整体失败', async function () {
+it('PUBLISH: 多平台全部失败 — 整体失败', async function () {
   const log = makeMockLogger();
   const videoPath = makeTempVideo();
   try {
@@ -373,7 +353,7 @@ t('PUBLISH: 多平台全部失败 — 整体失败', async function () {
 // 5. 异常处理
 // ============================================================
 
-t('PUBLISH: publisher.publish 抛异常时不中断其他平台', async function () {
+it('PUBLISH: publisher.publish 抛异常时不中断其他平台', async function () {
   const log = makeMockLogger();
   const videoPath = makeTempVideo();
   try {
@@ -406,7 +386,7 @@ t('PUBLISH: publisher.publish 抛异常时不中断其他平台', async function
   }
 });
 
-t('PUBLISH: stage.platforms 优先于 params.platforms', async function () {
+it('PUBLISH: stage.platforms 优先于 params.platforms', async function () {
   const log = makeMockLogger();
   const videoPath = makeTempVideo();
   try {
@@ -436,8 +416,4 @@ t('PUBLISH: stage.platforms 优先于 params.platforms', async function () {
   }
 });
 
-(async () => {
-  await _runAll();
-  console.log('========== ' + p + '/' + (p + f) + ' ==========');
-  if (f > 0) process.exit(1);
-})();
+})

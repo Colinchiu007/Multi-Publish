@@ -36,10 +36,22 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  try { recorder.stopRecording(); } catch (_) {}
-  try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
+  const cleanupErrors = [];
+  try {
+    recorder.stopRecording();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   delete require.cache[require.resolve('../services/user-session-recorder')];
   delete process.env.BACKLOT_RECORD_SESSION;
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(cleanupErrors, 'SessionRecorder 测试资源清理失败');
+  }
 });
 
 describe('SessionRecorder — Backlot 用户会话录制与回放', () => {

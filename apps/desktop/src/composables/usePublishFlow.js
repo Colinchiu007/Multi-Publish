@@ -29,6 +29,10 @@ function nowTimeString() {
   return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+function toPlainJson(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
 /**
  * 单篇发布流程 composable
  * @param {object} options
@@ -86,50 +90,57 @@ export function usePublishFlow(options) {
       ElMessage.warning('请输入正文内容')
       return
     }
-
-    // 敏感词预检
-    if (sensitiveCheck) {
-      const titleResult = await sensitiveCheck(article.title)
-      const contentResult = await sensitiveCheck(article.content)
-      const allWords = [].concat(
-        (titleResult.data && titleResult.data.words) || [],
-        (contentResult.data && contentResult.data.words) || []
-      )
-      if (allWords.length > 0) {
-        try {
-          await ElMessageBox.confirm(
-            '发布内容包含敏感词：' + allWords.join('、') + '，是否仍然发布？',
-            '敏感词提示',
-            { confirmButtonText: '强制发布', cancelButtonText: '修改', type: 'warning' }
-          )
-        } catch (e) {
-          return // 用户取消
-        }
-      }
-    }
-
-    // 离线检测
-    const targets = selectedPlatforms.value.map(function (pid) {
-      return { platform: pid, accountId: selectedAccounts.value[pid] || null }
-    })
-    const offlineRes = await offlineStatus()
-    if (offlineRes.code === 0 && offlineRes.data.offline) {
-      await offlineAddToCache({ targets: targets, data: article })
-      addProgress('📡 网络已断开，发布任务已缓存，网络恢复后自动重试', 'warning')
-      ElMessage.warning('网络已断开，任务已缓存')
-      publishing.value = false
+    if (!Array.isArray(selectedPlatforms.value) || selectedPlatforms.value.length === 0) {
+      ElMessage.warning('请选择至少一个发布平台')
       return
     }
 
     publishing.value = true
     progress.value = []
     result.value = null
-
-    const off = onProgress(function (data) {
-      addProgress('[' + data.platform + '] ' + data.stage)
-    })
+    let off
 
     try {
+      // 敏感词预检
+      if (sensitiveCheck) {
+      const titleResult = await sensitiveCheck(article.title)
+      const contentResult = await sensitiveCheck(article.content)
+      const allWords = [].concat(
+        (titleResult.data && titleResult.data.words) || [],
+        (contentResult.data && contentResult.data.words) || []
+      )
+        if (allWords.length > 0) {
+          try {
+          await ElMessageBox.confirm(
+            '发布内容包含敏感词：' + allWords.join('、') + '，是否仍然发布？',
+            '敏感词提示',
+            { confirmButtonText: '强制发布', cancelButtonText: '修改', type: 'warning' }
+          )
+          } catch (e) {
+            return
+          }
+        }
+      }
+
+      // 离线检测
+      const targets = selectedPlatforms.value.map(function (pid) {
+        return { platform: pid, accountId: selectedAccounts.value[pid] || null }
+      })
+      const offlineRes = await offlineStatus()
+      if (offlineRes && offlineRes.code === 0 && offlineRes.data && offlineRes.data.offline) {
+        const cacheRes = await offlineAddToCache(toPlainJson({ targets: targets, data: article }))
+        if (!cacheRes || cacheRes.code !== 0 || cacheRes.data === false) {
+          throw new Error((cacheRes && cacheRes.message) || '离线任务缓存失败')
+        }
+        addProgress('📡 网络已断开，发布任务已缓存，网络恢复后自动重试', 'warning')
+        ElMessage.warning('网络已断开，任务已缓存')
+        return
+      }
+
+      off = onProgress(function (data) {
+        addProgress('[' + data.platform + '] ' + data.stage)
+      })
+
       const md = isMarkdownContent(article.content)
       const data = {
         title: article.title,
@@ -143,21 +154,30 @@ export function usePublishFlow(options) {
         platformOverrides: diffEdits ? Object.fromEntries(Object.entries(diffEdits).filter(([, v]) => v && (v.title || v.content))) : {},
       }
       addProgress('发布到 ' + targets.length + ' 个目标（含多账号）...', 'info')
-      const res = await publishBatch(targets, data)
+      const payload = toPlainJson({ targets, data })
+      const res = await publishBatch(payload.targets, payload.data)
       if (res.code === 0) {
         const count = (res.data && res.data.taskIds && res.data.taskIds.length) || ''
         addProgress('✓ 已添加 ' + count + ' 个任务', 'success')
         result.value = { success: true, message: res.message || '任务已加入队列', url: '' }
       } else {
-        addProgress('✗ 发布失败: ' + res.message, 'danger')
-        result.value = { success: false, message: res.message }; if (window.electronAPI?.showNotification) window.electronAPI.showNotification({ title: "发布失败", body: res.message })
+        const message = res.message || '发布失败'
+        addProgress('✗ 发布失败: ' + message, 'danger')
+        result.value = { success: false, message }
+        if (window.electronAPI?.showNotification) {
+          window.electronAPI.showNotification({ title: '发布失败', body: message })
+        }
       }
     } catch (e) {
-      addProgress('✗ 错误: ' + e.message, 'danger')
-      result.value = { success: false, message: e.message }; if (window.electronAPI?.showNotification) window.electronAPI.showNotification({ title: "发布异常", body: e.message })
+      const message = e && e.message ? e.message : '发布异常'
+      addProgress('✗ 错误: ' + message, 'danger')
+      result.value = { success: false, message }
+      if (window.electronAPI?.showNotification) {
+        window.electronAPI.showNotification({ title: '发布异常', body: message })
+      }
     } finally {
       publishing.value = false
-      off()
+      if (typeof off === 'function') off()
     }
   }
 

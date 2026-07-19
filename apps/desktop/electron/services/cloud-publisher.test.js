@@ -88,8 +88,18 @@ describe("CloudPublisher", () => {
   });
 
   describe("registerIpcHandlers()", () => {
-    it("throws in non-electron env", () => {
-      expect(() => new CloudPublisher({ axios: mockAxios }).registerIpcHandlers()).toThrow();
+    it("使用注入的 ipcMain 注册全部通道", () => {
+      const ipcMain = { handle: vi.fn() };
+
+      new CloudPublisher({ axios: mockAxios }).registerIpcHandlers(ipcMain);
+
+      expect(ipcMain.handle).toHaveBeenCalledTimes(4);
+      expect(ipcMain.handle.mock.calls.map(([channel]) => channel)).toEqual([
+        "cloud-publisher:submit",
+        "cloud-publisher:list-tasks",
+        "cloud-publisher:get-task",
+        "cloud-publisher:platforms",
+      ]);
     });
   });
 });

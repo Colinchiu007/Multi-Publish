@@ -1,0 +1,3 @@
+display_name: 质量节拍
+short_description: 开发质量按节拍分层管理：日常循环 + 阶段检查 + 多技能触发
+default_prompt: 使用质量节拍，当前焦点：[Phase 编号] —— [子任务名称]

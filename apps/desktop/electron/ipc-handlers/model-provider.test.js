@@ -10,7 +10,17 @@
  * 参照 scheduler.test.js 的 createMockIpcMain 模式。
  */
 
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
+
+// Mock logger 防止真实日志污染
+vi.mock('../services/logger', () => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}))
+
+// 启用 electron mock，withSenderCheck 通过 require('electron').app 读取 isPackaged
+__enableElectronMock()
 
 let registerHandlers
 
@@ -27,6 +37,7 @@ function createMockIpcMain () {
       if (!handlers[channel]) throw new Error(`No handler for ${channel}`)
       return handlers[channel]({ sender: { send: vi.fn() } }, ...args)
     },
+    _get: (channel) => handlers[channel],
   }
 }
 
@@ -345,5 +356,110 @@ describe('model-provider IPC handlers', () => {
       expect(result.code).toBe(-1)
       expect(result.data).toBe(0)
     })
+  })
+})
+
+// ─── sender 来源校验测试（withSenderCheck 迁移）──────────────
+// 参考 account.test.js：5 个写操作拒绝外部来源，只读操作不校验
+describe('model-provider IPC 写操作 sender 校验', () => {
+  let ipcMain, modelProviderManager, store
+  let originalNodeEnv
+  let originalIsPackaged
+
+  beforeEach(() => {
+    // 信任 dev localhost:5174 — 模拟未打包开发模式
+    originalNodeEnv = process.env.NODE_ENV
+    originalIsPackaged = __electronMock.app.isPackaged
+    delete process.env.NODE_ENV
+    __electronMock.app.isPackaged = false
+
+    ipcMain = createMockIpcMain()
+    modelProviderManager = createMockManager()
+    store = createMockStore()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    registerHandlers(ipcMain, { modelProviderManager, store, log })
+  })
+
+  afterEach(() => {
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = originalNodeEnv
+    __electronMock.app.isPackaged = originalIsPackaged
+  })
+
+  // 不可信来源（外部网页）
+  const UNTRUSTED_EVENT = { senderFrame: { url: 'https://evil.example/' } }
+
+  it('model-provider:create 拒绝外部网页调用', async () => {
+    const handler = ipcMain._get('model-provider:create')
+    const result = await handler(UNTRUSTED_EVENT, { id: 'openai', name: 'OpenAI' })
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(modelProviderManager.createProvider).not.toHaveBeenCalled()
+  })
+
+  it('model-provider:update 拒绝外部网页调用', async () => {
+    const handler = ipcMain._get('model-provider:update')
+    const result = await handler(UNTRUSTED_EVENT, 'openai', { name: 'OpenAI 2' })
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(modelProviderManager.updateProvider).not.toHaveBeenCalled()
+  })
+
+  it('model-provider:delete 拒绝外部网页调用', async () => {
+    const handler = ipcMain._get('model-provider:delete')
+    const result = await handler(UNTRUSTED_EVENT, 'openai')
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(modelProviderManager.deleteProvider).not.toHaveBeenCalled()
+  })
+
+  it('model-provider:set-default 拒绝外部网页调用', async () => {
+    const handler = ipcMain._get('model-provider:set-default')
+    const result = await handler(UNTRUSTED_EVENT, 'llm', 'openai')
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(modelProviderManager.setDefault).not.toHaveBeenCalled()
+  })
+
+  it('model-provider:clean-logs 拒绝外部网页调用', async () => {
+    const handler = ipcMain._get('model-provider:clean-logs')
+    const result = await handler(UNTRUSTED_EVENT, 7)
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(store.cleanProviderLogs).not.toHaveBeenCalled()
+  })
+})
+
+describe('model-provider IPC 只读操作不校验 sender', () => {
+  let ipcMain, modelProviderManager, store
+
+  beforeEach(() => {
+    ipcMain = createMockIpcMain()
+    modelProviderManager = createMockManager()
+    store = createMockStore()
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    registerHandlers(ipcMain, { modelProviderManager, store, log })
+  })
+
+  // 外部来源 — 只读操作应放行
+  const UNTRUSTED_EVENT = { senderFrame: { url: 'https://evil.example/' } }
+
+  it('model-provider:list 外部来源可正常调用（只读不校验）', async () => {
+    const handler = ipcMain._get('model-provider:list')
+    const result = await handler(UNTRUSTED_EVENT, 'llm')
+    expect(result.code).toBe(0)
+    expect(result.data).toHaveLength(1)
+    expect(modelProviderManager.listProviders).toHaveBeenCalledWith('llm')
+  })
+
+  it('model-provider:logs 外部来源可正常调用（只读不校验）', async () => {
+    const handler = ipcMain._get('model-provider:logs')
+    const result = await handler(UNTRUSTED_EVENT, { status: 'success' })
+    expect(result.code).toBe(0)
+    expect(result.data).toHaveLength(1)
+    expect(store.getProviderLogs).toHaveBeenCalledWith({ status: 'success' })
+  })
+
+  it('model-provider:get-default 外部来源可正常调用（只读不校验）', async () => {
+    const handler = ipcMain._get('model-provider:get-default')
+    const result = await handler(UNTRUSTED_EVENT, 'llm')
+    expect(result.code).toBe(0)
+    expect(result.data.id).toBe('openai')
+    expect(modelProviderManager.getDefault).toHaveBeenCalledWith('llm')
   })
 })

@@ -96,7 +96,10 @@ class BaseAdapter {
     throw new NotImplementedError('listModels')
   }
 
-  /** 测试连接（子类必须实现） */
+  /**
+   * 测试连接（子类必须实现）
+   * @returns {Promise<unknown>}
+   */
   async testConnection() {
     throw new NotImplementedError('testConnection')
   }

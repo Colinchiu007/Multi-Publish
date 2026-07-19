@@ -1,14 +1,20 @@
-// api-platform-adapter tests
-const assert = require("assert");
-let p=0,f=0;
-function t(n,fn){try{fn();p++;console.log("  "+String.fromCodePoint(0x2705)+" "+n);}catch(e){f++;console.log("  "+String.fromCodePoint(0x274C)+" "+n+": "+e.message);}}
-function eq(a,b){assert.deepStrictEqual(a,b);}
+import { describe, expect, it } from 'vitest'
 
-console.log("=== api-platform-adapter ===");
-let adapter;
-try{adapter=require("../services/api-platform-adapter");}catch(e){console.log("  Skipped: non-Electron env");process.exit(0);}
-t("exports publishViaApi",function(){eq(typeof adapter.publishViaApi,"function");});
-t("exports isApiPlatform",function(){eq(typeof adapter.isApiPlatform,"function");});
-t("exports getApiPlatforms",function(){eq(typeof adapter.getApiPlatforms,"function");});
-console.log("\n========== "+p+"/"+(p+f)+" ==========");
-if(f)process.exit(1);
+const adapter = require('../services/api-platform-adapter')
+
+describe('APIPlatformAdapter 公共合同', () => {
+  it('导出 publishViaApi 异步发布入口', () => {
+    expect(adapter.publishViaApi).toBeTypeOf('function')
+  })
+
+  it('导出 isApiPlatform 平台能力判断入口', () => {
+    expect(adapter.isApiPlatform).toBeTypeOf('function')
+    expect(adapter.isApiPlatform('__unsupported_platform__')).toBe(false)
+  })
+
+  it('导出 getApiPlatforms 且返回平台名称数组', () => {
+    expect(adapter.getApiPlatforms).toBeTypeOf('function')
+    expect(adapter.getApiPlatforms()).toEqual(expect.any(Array))
+    expect(adapter.getApiPlatforms().every((platform) => typeof platform === 'string')).toBe(true)
+  })
+})

@@ -183,7 +183,11 @@ export async function draftDelete(draftId) { return invokeWithFallback("draftDel
 
 // ─── 全局存储 API ─────────────────────────
 export async function storeGetSetting (key) {
-  return invokeWithFallback("storeGetSetting", null, key)
+  const result = await invokeWithFallback("storeGetSetting", null, key)
+  if (result && typeof result === 'object' && typeof result.code === 'number') {
+    return result.code === 0 ? result.data : null
+  }
+  return result
 }
 
 export async function storeSetSetting (key, value) {

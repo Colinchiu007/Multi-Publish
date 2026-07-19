@@ -3,431 +3,848 @@
  * 运行: node tests/visual-testing/workflows/all-workflows.visual.test.js
  */
 
+const fs = require('fs');
+const path = require('path');
 const { VisualTestRunner } = require('../test-runner');
+
+const STEP_TIMEOUT = Number(process.env.WORKFLOW_STEP_TIMEOUT || 3000);
+const DEFAULT_PIXEL_THRESHOLD = 0.01;
+const DESKTOP_ROOT = path.resolve(__dirname, '../../..');
+const ROUTER_FILE = path.join(DESKTOP_ROOT, 'src/router/index.js');
+const SOURCE_ROOT = path.join(DESKTOP_ROOT, 'src');
+const DEFAULT_BASELINE_DIR = path.join(DESKTOP_ROOT, 'tests/visual-testing/base-screenshots');
+const DEFAULT_SCREENSHOT_DIR = path.join(DESKTOP_ROOT, 'tests/visual-testing/screenshots/workflows');
+const SUPPORTED_ACTIONS = new Set([
+  'click',
+  'fill',
+  'waitFor',
+  'waitForSelector',
+  'screenshot',
+  'press',
+  'select',
+  'setInputFiles',
+  'selectDate',
+  'dragAndDrop',
+]);
+const SELECTOR_ACTIONS = new Set([
+  'click',
+  'fill',
+  'waitFor',
+  'waitForSelector',
+  'select',
+  'setInputFiles',
+  'dragAndDrop',
+]);
+
+function buildWorkflowUrl(baseUrl, route) {
+  const normalizedBase = baseUrl.replace(/\/$/, '');
+  return route === '/' ? normalizedBase + '/' : normalizedBase + '/#' + route;
+}
 
 /**
  * 工作流测试配置
  * 每个工作流测试: 操作前截图 -> 执行操作 -> 操作后截图 -> 对比差异
  */
 const workflowTests = [
-  // ==================== 账号操作 (8个) ====================
-  { 
-    name: 'account-add-flow',
-    route: '/accounts',
+  // 账号管理：搜索、筛选和弹窗均回到列表稳定态后截图。
+  {
+    name: 'accounts-search-clear', route: '/accounts', baseline: 'accounts-list',
     steps: [
-      { action: 'click', selector: '[data-testid=add-account-btn]', name: '点击添加' },
-      { action: 'waitFor', selector: '[data-testid=add-account-form]' },
-      { action: 'screenshot', name: '添加表单' }
+      { action: 'waitFor', selector: '.page-title' },
+      { action: 'fill', selector: 'input[placeholder="搜索账号名称或平台..."]', value: '知乎' },
+      { action: 'click', selector: 'button.search-clear' },
+      { action: 'waitForSelector', selector: 'button.search-clear', state: 'hidden' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空搜索后的账号列表' },
     ],
-    baseline: 'accounts-list',
-    verify: { method: 'pixel', threshold: 0.05 }
   },
   {
-    name: 'account-delete-flow',
-    route: '/accounts',
-    setup: async (page) => { await page.click('[data-testid=account-item]:first-child'); },
+    name: 'accounts-active-filter-reset', route: '/accounts', baseline: 'accounts-list',
     steps: [
-      { action: 'click', selector: '[data-testid=delete-btn]', name: '点击删除' },
-      { action: 'waitFor', selector: '[data-testid=confirm-dialog]' },
-      { action: 'screenshot', name: '确认弹窗' },
-      { action: 'click', selector: '[data-testid=confirm-yes]' },
-    ]
+      { action: 'waitFor', selector: '.filter-chips' },
+      { action: 'click', selector: '.filter-chips .cohere-filter-chip:nth-child(2)' },
+      { action: 'waitFor', selector: '.filter-chips .cohere-filter-chip:nth-child(2).active' },
+      { action: 'click', selector: '.filter-chips .cohere-filter-chip:nth-child(1)' },
+      { action: 'waitFor', selector: '.filter-chips .cohere-filter-chip:nth-child(1).active' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '恢复全部账号筛选' },
+    ],
   },
   {
-    name: 'account-edit-flow',
-    route: '/accounts',
+    name: 'accounts-inactive-filter-reset', route: '/accounts', baseline: 'accounts-list',
     steps: [
-      { action: 'click', selector: '[data-testid=account-item]:first-child' },
-      { action: 'click', selector: '[data-testid=edit-btn]' },
-      { action: 'waitFor', selector: '[data-testid=edit-form]' },
-      { action: 'screenshot', name: '编辑表单' }
-    ]
+      { action: 'waitFor', selector: '.filter-chips' },
+      { action: 'click', selector: '.filter-chips .cohere-filter-chip:nth-child(3)' },
+      { action: 'waitFor', selector: '.filter-chips .cohere-filter-chip:nth-child(3).active' },
+      { action: 'click', selector: '.filter-chips .cohere-filter-chip:nth-child(1)' },
+      { action: 'waitFor', selector: '.filter-chips .cohere-filter-chip:nth-child(1).active' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '恢复全部账号筛选' },
+    ],
   },
   {
-    name: 'account-filter-platform',
-    route: '/accounts',
+    name: 'accounts-add-dialog-cancel', route: '/accounts', baseline: 'accounts-list',
     steps: [
-      { action: 'click', selector: '[data-testid=platform-filter]' },
-      { action: 'waitFor', selector: '[data-testid=filter-dropdown]' },
-      { action: 'click', selector: '[data-testid=option-weibo]' },
-      { action: 'waitFor', selector: '[data-testid=account-item]' },
-      { action: 'screenshot', name: '筛选结果' }
-    ]
+      { action: 'waitFor', selector: '.page-actions' },
+      { action: 'click', selector: '.page-actions .cohere-btn-primary' },
+      { action: 'waitFor', selector: '.ui-modal-overlay' },
+      { action: 'click', selector: '.ui-modal-close' },
+      { action: 'waitForSelector', selector: '.ui-modal-overlay', state: 'hidden' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '取消添加后的账号列表' },
+    ],
   },
   {
-    name: 'account-refresh-status',
-    route: '/accounts',
+    name: 'accounts-group-dialog-close', route: '/accounts', baseline: 'accounts-list',
     steps: [
-      { action: 'click', selector: '[data-testid=refresh-all-btn]' },
-      { action: 'waitForSelector', selector: '[data-testid=loading]', state: 'hidden' },
-      { action: 'waitMs', ms: 1000 },
-      { action: 'screenshot', name: '刷新后状态' }
-    ]
-  },
-  {
-    name: 'account-bind-qr-scan',
-    route: '/accounts/bind/weibo',
-    steps: [
-      { action: 'waitFor', selector: '[data-testid=qr-code]' },
-      { action: 'screenshot', name: '二维码初始' },
-      { action: 'click', selector: '[data-testid=refresh-qr]' },
-      { action: 'waitMs', ms: 2000 },
-      { action: 'screenshot', name: '二维码刷新' }
-    ]
-  },
-  {
-    name: 'account-import-cookies',
-    route: '/accounts/import',
-    steps: [
-      { action: 'screenshot', name: '导入页面' },
-      { action: 'setInputFiles', selector: '[data-testid=cookie-file]', files: ['tests/cookies.json'] },
-      { action: 'waitFor', selector: '[data-testid=parse-result]' },
-      { action: 'screenshot', name: '解析结果' }
-    ]
-  },
-  {
-    name: 'account-export-data',
-    route: '/accounts',
-    steps: [
-      { action: 'click', selector: '[data-testid=export-btn]' },
-      { action: 'waitFor', selector: '[data-testid=export-dialog]' },
-      { action: 'click', selector: '[data-testid=format-json]' },
-      { action: 'click', selector: '[data-testid=confirm-export]' },
-      { action: 'waitFor', selector: '[data-testid=download-complete]' },
-      { action: 'screenshot', name: '导出完成' }
-    ]
+      { action: 'waitFor', selector: '.page-actions' },
+      { action: 'click', selector: '.page-actions .cohere-btn-ghost' },
+      { action: 'waitFor', selector: '.ui-modal-overlay' },
+      { action: 'click', selector: '.ui-modal-close' },
+      { action: 'waitForSelector', selector: '.ui-modal-overlay', state: 'hidden' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '关闭分组管理后的账号列表' },
+    ],
   },
 
-  // ==================== 发布操作 (8个) ====================
+  // 一键发布：编辑字段或打开辅助面板后恢复默认发布表单。
   {
-    name: 'publish-quick-flow',
-    route: '/publish',
+    name: 'publish-title-edit-reset', route: '/publish', baseline: 'publish-form',
     steps: [
-      { action: 'fill', selector: '[data-testid=title-input]', value: '测试标题' },
-      { action: 'fill', selector: '[data-testid=content-editor]', value: '测试内容' },
-      { action: 'click', selector: '[data-testid=platform-weibo]' },
-      { action: 'click', selector: '[data-testid=publish-btn]' },
-      { action: 'waitFor', selector: '[data-testid=publish-success]' },
-      { action: 'screenshot', name: '发布成功' }
-    ]
+      { action: 'waitFor', selector: 'input[placeholder="请输入文章标题"]' },
+      { action: 'fill', selector: 'input[placeholder="请输入文章标题"]', value: '视觉回归标题' },
+      { action: 'fill', selector: 'input[placeholder="请输入文章标题"]', value: '' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空标题后的发布表单' },
+    ],
   },
   {
-    name: 'publish-schedule-flow',
-    route: '/publish',
+    name: 'publish-author-edit-reset', route: '/publish', baseline: 'publish-form',
     steps: [
-      { action: 'click', selector: '[data-testid=schedule-toggle]' },
-      { action: 'waitFor', selector: '[data-testid=datetime-picker]' },
-      { action: 'click', selector: '[data-testid=datetime-picker]' },
-      { action: 'selectDate', value: '2026-07-15 10:00' },
-      { action: 'screenshot', name: '定时设置' }
-    ]
+      { action: 'waitFor', selector: 'input[placeholder="作者名称（选填）"]' },
+      { action: 'fill', selector: 'input[placeholder="作者名称（选填）"]', value: '测试作者' },
+      { action: 'fill', selector: 'input[placeholder="作者名称（选填）"]', value: '' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空作者后的发布表单' },
+    ],
   },
   {
-    name: 'publish-draft-save',
-    route: '/publish',
+    name: 'publish-platform-search-reset', route: '/publish', baseline: 'publish-form',
     steps: [
-      { action: 'fill', selector: '[data-testid=title-input]', value: '草稿测试' },
-      { action: 'click', selector: '[data-testid=save-draft]' },
-      { action: 'waitFor', selector: '[data-testid=toast-saved]' },
-      { action: 'screenshot', name: '保存草稿' }
-    ]
+      { action: 'waitFor', selector: 'input[placeholder="搜索平台..."]' },
+      { action: 'fill', selector: 'input[placeholder="搜索平台..."]', value: '微博' },
+      { action: 'fill', selector: 'input[placeholder="搜索平台..."]', value: '' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空平台搜索后的发布表单' },
+    ],
   },
   {
-    name: 'publish-preview-flow',
-    route: '/publish',
-    setup: async (page) => { 
-      await page.fill('[data-testid=title-input]', '预览测试'); 
-      await page.fill('[data-testid=content-editor]', '预览内容'); 
-    },
+    name: 'publish-cover-url-reset', route: '/publish', baseline: 'publish-form',
     steps: [
-      { action: 'click', selector: '[data-testid=preview-btn]' },
-      { action: 'waitFor', selector: '[data-testid=preview-modal]' },
-      { action: 'screenshot', name: '预览弹窗' }
-    ]
+      { action: 'waitFor', selector: 'input[placeholder="封面图片链接（选填）"]' },
+      { action: 'fill', selector: 'input[placeholder="封面图片链接（选填）"]', value: 'https://example.com/cover.jpg' },
+      { action: 'fill', selector: 'input[placeholder="封面图片链接（选填）"]', value: '' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空封面链接后的发布表单' },
+    ],
   },
   {
-    name: 'publish-media-upload',
-    route: '/publish',
+    name: 'publish-template-panel-toggle', route: '/publish', baseline: 'publish-form',
     steps: [
-      { action: 'click', selector: '[data-testid=media-btn]' },
-      { action: 'waitFor', selector: '[data-testid=media-modal]' },
-      { action: 'screenshot', name: '媒体库弹窗' }
-    ]
+      { action: 'waitFor', selector: 'button.cohere-btn-ghost:has-text("📝 模板")' },
+      { action: 'click', selector: 'button.cohere-btn-ghost:has-text("📝 模板")' },
+      { action: 'waitFor', selector: 'button.cohere-btn-ghost:has-text("✕ 关闭")' },
+      { action: 'click', selector: 'button.cohere-btn-ghost:has-text("✕ 关闭")' },
+      { action: 'waitForSelector', selector: 'button.cohere-btn-ghost:has-text("✕ 关闭")', state: 'hidden' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '关闭模板面板后的发布表单' },
+    ],
   },
   {
-    name: 'publish-template-apply',
-    route: '/publish',
+    name: 'publish-ai-panel-toggle', route: '/publish', baseline: 'publish-form',
     steps: [
-      { action: 'click', selector: '[data-testid=template-btn]' },
-      { action: 'waitFor', selector: '[data-testid=template-list]' },
-      { action: 'click', selector: '[data-testid=template-item]:first-child' },
-      { action: 'waitFor', selector: '[data-testid=content-editor]' },
-      { action: 'screenshot', name: '模板应用' }
-    ]
-  },
-  {
-    name: 'publish-history-view',
-    route: '/publish/history',
-    steps: [
-      { action: 'waitFor', selector: '[data-testid=history-list]' },
-      { action: 'click', selector: '[data-testid=history-item]:first-child' },
-      { action: 'waitFor', selector: '[data-testid=history-detail]' },
-      { action: 'screenshot', name: '历史详情' }
-    ]
-  },
-  {
-    name: 'publish-retry-failed',
-    route: '/publish/history',
-    steps: [
-      { action: 'click', selector: '[data-testid=filter-failed]' },
-      { action: 'click', selector: '[data-testid=history-item]:first-child' },
-      { action: 'click', selector: '[data-testid=retry-btn]' },
-      { action: 'waitFor', selector: '[data-testid=publishing]' },
-      { action: 'screenshot', name: '重试中' }
-    ]
+      { action: 'waitFor', selector: 'button.cohere-btn-ghost:has-text("🤖 AI")' },
+      { action: 'click', selector: 'button.cohere-btn-ghost:has-text("🤖 AI")' },
+      { action: 'waitFor', selector: 'button.cohere-btn-ghost:has-text("✕ 关闭")' },
+      { action: 'click', selector: 'button.cohere-btn-ghost:has-text("✕ 关闭")' },
+      { action: 'waitForSelector', selector: 'button.cohere-btn-ghost:has-text("✕ 关闭")', state: 'hidden' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '关闭AI面板后的发布表单' },
+    ],
   },
 
-  // ==================== 批量操作 (6个) ====================
+  // 模型服务商：在已配置默认视图和全量分类之间往返。
   {
-    name: 'batch-select-all',
-    route: '/batch',
+    name: 'providers-add-dialog-cancel', route: '/model-providers', baseline: 'model-providers',
     steps: [
-      { action: 'waitFor', selector: '[data-testid=batch-list]' },
-      { action: 'click', selector: '[data-testid=select-all]' },
-      { action: 'waitFor', selector: '[data-testid=batch-toolbar]' },
-      { action: 'screenshot', name: '全选后' }
-    ]
+      { action: 'waitFor', selector: '.page-actions .cohere-btn-primary' },
+      { action: 'click', selector: '.page-actions .cohere-btn-primary' },
+      { action: 'waitFor', selector: '.el-dialog' },
+      { action: 'click', selector: '.el-dialog .cohere-btn-secondary' },
+      { action: 'waitForSelector', selector: '.el-dialog', state: 'hidden' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '取消添加后的服务商列表' },
+    ],
   },
   {
-    name: 'batch-edit-platform',
-    route: '/batch/edit/1',
+    name: 'providers-all-configured-roundtrip', route: '/model-providers', baseline: 'model-providers',
     steps: [
-      { action: 'click', selector: '[data-testid=platform-toggle]:nth-child(2)' },
-      { action: 'screenshot', name: '切换平台' }
-    ]
+      { action: 'waitFor', selector: '.view-mode-tabs' },
+      { action: 'click', selector: '.view-mode-tab:nth-child(2)' },
+      { action: 'waitFor', selector: '.cohere-filter-bar' },
+      { action: 'click', selector: '.view-mode-tab:nth-child(1)' },
+      { action: 'waitFor', selector: '.view-mode-tab:nth-child(1).active' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '恢复已配置服务商视图' },
+    ],
   },
   {
-    name: 'batch-schedule-create',
-    route: '/batch/schedule',
+    name: 'providers-llm-filter-reset', route: '/model-providers', baseline: 'model-providers',
     steps: [
-      { action: 'click', selector: '[data-testid=add-schedule]' },
-      { action: 'waitFor', selector: '[data-testid=schedule-form]' },
-      { action: 'screenshot', name: '排期表单' }
-    ]
+      { action: 'waitFor', selector: '.view-mode-tabs' },
+      { action: 'click', selector: '.view-mode-tab:nth-child(2)' },
+      { action: 'click', selector: 'button.filter-chip:has-text("推理模型")' },
+      { action: 'waitFor', selector: 'button.filter-chip.active:has-text("推理模型")' },
+      { action: 'click', selector: '.view-mode-tab:nth-child(1)' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '恢复已配置服务商视图' },
+    ],
   },
   {
-    name: 'batch-copy-flow',
-    route: '/batch/copy',
+    name: 'providers-tts-filter-reset', route: '/model-providers', baseline: 'model-providers',
     steps: [
-      { action: 'select', selector: '[data-testid=source-select]', value: 'article-1' },
-      { action: 'click', selector: '[data-testid=platform-weibo]' },
-      { action: 'click', selector: '[data-testid=platform-douyin]' },
-      { action: 'click', selector: '[data-testid=start-copy]' },
-      { action: 'waitFor', selector: '[data-testid=copy-progress]' },
-      { action: 'screenshot', name: '复制进度' }
-    ]
+      { action: 'waitFor', selector: '.view-mode-tabs' },
+      { action: 'click', selector: '.view-mode-tab:nth-child(2)' },
+      { action: 'click', selector: 'button.filter-chip:has-text("TTS语音")' },
+      { action: 'waitFor', selector: 'button.filter-chip.active:has-text("TTS语音")' },
+      { action: 'click', selector: '.view-mode-tab:nth-child(1)' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '恢复已配置服务商视图' },
+    ],
   },
   {
-    name: 'batch-delete-flow',
-    route: '/batch',
+    name: 'providers-image-filter-reset', route: '/model-providers', baseline: 'model-providers',
     steps: [
-      { action: 'click', selector: '[data-testid=batch-item]:first-child' },
-      { action: 'click', selector: '[data-testid=delete-batch]' },
-      { action: 'waitFor', selector: '[data-testid=confirm-dialog]' },
-      { action: 'screenshot', name: '删除确认' }
-    ]
-  },
-  {
-    name: 'batch-filter-status',
-    route: '/batch',
-    steps: [
-      { action: 'click', selector: '[data-testid=status-filter]' },
-      { action: 'click', selector: '[data-testid=status-pending]' },
-      { action: 'waitMs', ms: 500 },
-      { action: 'screenshot', name: '状态筛选' }
-    ]
-  },
-
-  // ==================== 创作操作 (5个) ====================
-  {
-    name: 'create-text-format',
-    route: '/create',
-    steps: [
-      { action: 'click', selector: '[data-testid=bold-btn]' },
-      { action: 'click', selector: '[data-testid=italic-btn]' },
-      { action: 'screenshot', name: '格式化后' }
-    ]
-  },
-  {
-    name: 'create-media-upload',
-    route: '/create/media',
-    steps: [
-      { action: 'dragAndDrop', selector: '[data-testid=upload-zone]', files: ['test.jpg'] },
-      { action: 'waitFor', selector: '[data-testid=upload-progress]' },
-      { action: 'waitFor', selector: '[data-testid=upload-complete]' },
-      { action: 'screenshot', name: '上传完成' }
-    ]
-  },
-  {
-    name: 'create-template-select',
-    route: '/create/template',
-    steps: [
-      { action: 'click', selector: '[data-testid=template-item]:first-child' },
-      { action: 'click', selector: '[data-testid=use-template]' },
-      { action: 'waitFor', selector: '[data-testid=editor-filled]' },
-      { action: 'screenshot', name: '模板应用' }
-    ]
-  },
-  {
-    name: 'create-ai-generate',
-    route: '/create/ai',
-    steps: [
-      { action: 'fill', selector: '[data-testid=ai-prompt]', value: '写一篇关于AI的文章' },
-      { action: 'click', selector: '[data-testid=generate-btn]' },
-      { action: 'waitFor', selector: '[data-testid=ai-generating]' },
-      { action: 'waitFor', selector: '[data-testid=ai-result]' },
-      { action: 'screenshot', name: 'AI生成结果' }
-    ]
-  },
-  {
-    name: 'create-save-version',
-    route: '/create',
-    setup: async (page) => {
-      await page.fill('[data-testid=title-input]', '版本测试');
-    },
-    steps: [
-      { action: 'click', selector: '[data-testid=version-btn]' },
-      { action: 'click', selector: '[data-testid=save-version]' },
-      { action: 'waitFor', selector: '[data-testid=version-list]' },
-      { action: 'screenshot', name: '版本列表' }
-    ]
+      { action: 'waitFor', selector: '.view-mode-tabs' },
+      { action: 'click', selector: '.view-mode-tab:nth-child(2)' },
+      { action: 'click', selector: 'button.filter-chip:has-text("图片生成")' },
+      { action: 'waitFor', selector: 'button.filter-chip.active:has-text("图片生成")' },
+      { action: 'click', selector: '.view-mode-tab:nth-child(1)' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '恢复已配置服务商视图' },
+    ],
   },
 
-  // ==================== 监控操作 (5个) ====================
+  // 视频创作：切换真实视图和快速渲染配置后回到流水线列表。
   {
-    name: 'monitor-switch-layout',
-    route: '/monitor',
+    name: 'create-quick-view-roundtrip', route: '/create', baseline: 'create-editor',
     steps: [
-      { action: 'click', selector: '[data-testid=layout-2]' },
-      { action: 'waitFor', selector: '[data-testid=split-2]' },
-      { action: 'screenshot', name: '双屏' },
-      { action: 'click', selector: '[data-testid=layout-3]' },
-      { action: 'waitFor', selector: '[data-testid=split-3]' },
-      { action: 'screenshot', name: '三屏' }
-    ]
+      { action: 'waitFor', selector: '.view-tabs' },
+      { action: 'click', selector: '.view-tab:nth-child(2)' },
+      { action: 'waitFor', selector: '.quick-render' },
+      { action: 'click', selector: '.view-tab:nth-child(1)' },
+      { action: 'waitFor', selector: '.view-tab:nth-child(1).active' },
+      { action: 'click', selector: '.page-header h1' },
+      { action: 'screenshot', name: '恢复流水线创作视图' },
+    ],
   },
   {
-    name: 'monitor-fullscreen',
-    route: '/monitor',
+    name: 'create-history-view-roundtrip', route: '/create', baseline: 'create-editor',
     steps: [
-      { action: 'click', selector: '[data-testid=fullscreen-btn]' },
-      { action: 'waitFor', selector: '[data-testid=fullscreen-active]' },
-      { action: 'screenshot', name: '全屏模式' },
-      { action: 'press', key: 'Escape' },
-      { action: 'screenshot', name: '退出全屏' }
-    ]
+      { action: 'waitFor', selector: '.view-tabs' },
+      { action: 'click', selector: '.view-tab:nth-child(3)' },
+      { action: 'waitFor', selector: '.view-tab:nth-child(3).active' },
+      { action: 'click', selector: '.view-tab:nth-child(1)' },
+      { action: 'waitFor', selector: '.view-tab:nth-child(1).active' },
+      { action: 'click', selector: '.page-header h1' },
+      { action: 'screenshot', name: '恢复流水线创作视图' },
+    ],
   },
   {
-    name: 'monitor-reload',
-    route: '/monitor',
+    name: 'create-gallery-mode-roundtrip', route: '/create', baseline: 'create-editor',
     steps: [
-      { action: 'click', selector: '[data-testid=reload-btn]' },
-      { action: 'waitForSelector', selector: '[data-testid=loading]', state: 'hidden' },
-      { action: 'waitMs', ms: 1000 },
-      { action: 'screenshot', name: '刷新后' }
-    ]
+      { action: 'waitFor', selector: '.view-tabs' },
+      { action: 'click', selector: '.view-tab:nth-child(2)' },
+      { action: 'waitFor', selector: '.quick-render' },
+      { action: 'click', selector: '.mode-tab:nth-child(2)' },
+      { action: 'waitFor', selector: '.mode-tab:nth-child(2).active' },
+      { action: 'click', selector: '.view-tab:nth-child(1)' },
+      { action: 'click', selector: '.page-header h1' },
+      { action: 'screenshot', name: '恢复流水线创作视图' },
+    ],
   },
   {
-    name: 'monitor-zoom',
-    route: '/monitor',
+    name: 'create-quick-text-reset', route: '/create', baseline: 'create-editor',
     steps: [
-      { action: 'click', selector: '[data-testid=zoom-in]' },
-      { action: 'screenshot', name: '放大' },
-      { action: 'click', selector: '[data-testid=zoom-out]' },
-      { action: 'screenshot', name: '缩小' }
-    ]
+      { action: 'waitFor', selector: '.view-tabs' },
+      { action: 'click', selector: '.view-tab:nth-child(2)' },
+      { action: 'waitFor', selector: '.view-tab:nth-child(2).active' },
+      { action: 'click', selector: '.mode-tab:nth-child(1)' },
+      { action: 'waitFor', selector: '.mode-tab:nth-child(1).active' },
+      { action: 'waitFor', selector: 'textarea[placeholder="输入视频文案，每行一个场景..."]' },
+      { action: 'fill', selector: 'textarea[placeholder="输入视频文案，每行一个场景..."]', value: '第一幕\n第二幕' },
+      { action: 'fill', selector: 'textarea[placeholder="输入视频文案，每行一个场景..."]', value: '' },
+      { action: 'click', selector: '.view-tab:nth-child(1)' },
+      { action: 'waitFor', selector: '.view-tab:nth-child(1).active' },
+      { action: 'click', selector: '.page-header h1' },
+      { action: 'screenshot', name: '清空文案并恢复流水线视图' },
+    ],
   },
   {
-    name: 'monitor-audio-toggle',
-    route: '/monitor',
+    name: 'create-output-profile-reset', route: '/create', baseline: 'create-editor',
     steps: [
-      { action: 'click', selector: '[data-testid=audio-btn]' },
-      { action: 'waitFor', selector: '[data-testid=audio-off]' },
-      { action: 'screenshot', name: '静音' }
-    ]
+      { action: 'waitFor', selector: '.view-tabs' },
+      { action: 'click', selector: '.view-tab:nth-child(2)' },
+      { action: 'waitFor', selector: '.quick-render .form-group:has-text("输出平台") select.ui-select' },
+      { action: 'select', selector: '.quick-render .form-group:has-text("输出平台") select.ui-select', value: 'tiktok' },
+      { action: 'select', selector: '.quick-render .form-group:has-text("输出平台") select.ui-select', value: 'youtube-landscape' },
+      { action: 'click', selector: '.view-tab:nth-child(1)' },
+      { action: 'click', selector: '.page-header h1' },
+      { action: 'screenshot', name: '恢复默认输出规格和流水线视图' },
+    ],
+  },
+
+  // 云端发布：表单编辑和标签增删完成后恢复空表单。
+  {
+    name: 'cloud-publish-video-url-reset', route: '/cloud-publish', baseline: 'cloud-publish',
+    steps: [
+      { action: 'waitFor', selector: 'input[placeholder="https://storage.example.com/videos/xxx.mp4"]' },
+      { action: 'fill', selector: 'input[placeholder="https://storage.example.com/videos/xxx.mp4"]', value: 'https://example.com/video.mp4' },
+      { action: 'fill', selector: 'input[placeholder="https://storage.example.com/videos/xxx.mp4"]', value: '' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空视频地址后的云发布表单' },
+    ],
+  },
+  {
+    name: 'cloud-publish-title-reset', route: '/cloud-publish', baseline: 'cloud-publish',
+    steps: [
+      { action: 'waitFor', selector: 'input[placeholder="视频标题"]' },
+      { action: 'fill', selector: 'input[placeholder="视频标题"]', value: '云端发布测试' },
+      { action: 'fill', selector: 'input[placeholder="视频标题"]', value: '' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空标题后的云发布表单' },
+    ],
+  },
+  {
+    name: 'cloud-publish-tag-add-remove', route: '/cloud-publish', baseline: 'cloud-publish',
+    steps: [
+      { action: 'waitFor', selector: 'input[placeholder="标签（逗号分隔）"]' },
+      { action: 'fill', selector: 'input[placeholder="标签（逗号分隔）"]', value: '视觉回归' },
+      { action: 'press', key: 'Enter' },
+      { action: 'waitFor', selector: 'span.cohere-tag-info:has-text("视觉回归")' },
+      { action: 'click', selector: 'span.cohere-tag-info:has-text("视觉回归")' },
+      { action: 'waitForSelector', selector: 'span.cohere-tag-info:has-text("视觉回归")', state: 'hidden' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '移除临时标签后的云发布表单' },
+    ],
+  },
+
+  // 内容情报：清空查询并验证真实数据源勾选可逆。
+  {
+    name: 'intelligence-query-clear', route: '/intelligence', baseline: 'intelligence',
+    steps: [
+      { action: 'waitFor', selector: 'input[placeholder="输入关键词，搜索各平台的高互动内容..."]' },
+      { action: 'fill', selector: 'input[placeholder="输入关键词，搜索各平台的高互动内容..."]', value: 'AI 视频' },
+      { action: 'click', selector: 'button[title="清空"]' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空搜索后的内容情报页' },
+    ],
+  },
+  {
+    name: 'intelligence-first-source-toggle', route: '/intelligence', baseline: 'intelligence',
+    steps: [
+      { action: 'waitFor', selector: '.cohere-content .cohere-card label:nth-of-type(1) input[type="checkbox"]' },
+      { action: 'click', selector: '.cohere-content .cohere-card label:nth-of-type(1) input[type="checkbox"]' },
+      { action: 'click', selector: '.cohere-content .cohere-card label:nth-of-type(1) input[type="checkbox"]' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '恢复第一个情报数据源' },
+    ],
+  },
+  {
+    name: 'intelligence-third-source-toggle', route: '/intelligence', baseline: 'intelligence',
+    steps: [
+      { action: 'waitFor', selector: '.cohere-content .cohere-card label:nth-of-type(3) input[type="checkbox"]' },
+      { action: 'click', selector: '.cohere-content .cohere-card label:nth-of-type(3) input[type="checkbox"]' },
+      { action: 'click', selector: '.cohere-content .cohere-card label:nth-of-type(3) input[type="checkbox"]' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '恢复第三个情报数据源' },
+    ],
+  },
+
+  // 数据看板、日历、爆款分析和关键词监测的可逆主流程。
+  {
+    name: 'dashboard-benchmark-title-reset', route: '/dashboard', baseline: 'dashboard',
+    steps: [
+      { action: 'waitFor', selector: 'input[placeholder="输入文章标题进行基准比较..."]' },
+      { action: 'fill', selector: 'input[placeholder="输入文章标题进行基准比较..."]', value: '短视频增长方法' },
+      { action: 'fill', selector: 'input[placeholder="输入文章标题进行基准比较..."]', value: '' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空基准标题后的数据看板' },
+    ],
+  },
+  {
+    name: 'calendar-next-previous-month', route: '/calendar', baseline: 'calendar',
+    steps: [
+      { action: 'waitFor', selector: '.cohere-page-header button' },
+      { action: 'click', selector: '.cohere-page-header button:nth-of-type(2)' },
+      { action: 'click', selector: '.cohere-page-header button:nth-of-type(1)' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '返回当前月份的发布日历' },
+    ],
+  },
+  {
+    name: 'viral-topic-reset', route: '/viral-analysis', baseline: 'viral-analysis',
+    steps: [
+      { action: 'waitFor', selector: 'input[placeholder="输入你想分析的主题，如「AI工具推荐」"]' },
+      { action: 'fill', selector: 'input[placeholder="输入你想分析的主题，如「AI工具推荐」"]', value: 'AI 工具推荐' },
+      { action: 'fill', selector: 'input[placeholder="输入你想分析的主题，如「AI工具推荐」"]', value: '' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空主题后的爆款分析页' },
+    ],
+  },
+  {
+    name: 'viral-platform-reset', route: '/viral-analysis', baseline: 'viral-analysis',
+    steps: [
+      { action: 'waitFor', selector: '.cohere-content select.cohere-input' },
+      { action: 'select', selector: '.cohere-content select.cohere-input', value: '小红书' },
+      { action: 'select', selector: '.cohere-content select.cohere-input', value: '通用' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '恢复通用平台的爆款分析页' },
+    ],
+  },
+  {
+    name: 'keyword-monitor-input-reset', route: '/keywords', baseline: 'keyword-monitor',
+    steps: [
+      { action: 'waitFor', selector: 'input[placeholder="输入监测关键词"]' },
+      { action: 'fill', selector: 'input[placeholder="输入监测关键词"]', value: '品牌口碑' },
+      { action: 'fill', selector: 'input[placeholder="输入监测关键词"]', value: '' },
+      { action: 'click', selector: '.page-title' },
+      { action: 'screenshot', name: '清空输入后的关键词监测页' },
+    ],
   },
 ];
 
-async function runAllWorkflowTests() {
-  console.log('🔄 开始32个工作流视觉测试...\n');
-  
-  const runner = new VisualTestRunner();
-  await runner.launch();
-  
-  for (const test of workflowTests) {
-    console.log(`📋 测试: ${test.name}`);
-    try {
-      // 执行前置操作
-      if (test.setup) await test.setup(runner.page);
-      
-      // 访问页面
-      await runner.page.goto(runner.url + test.route);
-      
-      // 执行步骤
-      for (const step of test.steps) {
-        await executeStep(runner.page, step);
-      }
-      
-      runner.results.push({ test: test.name, status: 'PASSED' });
-    } catch (err) {
-      runner.results.push({ test: test.name, status: 'FAILED', error: err.message });
-    }
-  }
-  
-  await runner.close();
+function extractRoutePaths(routerSource) {
+  return Array.from(routerSource.matchAll(/\bpath\s*:\s*['"]([^'"]+)['"]/g), match => match[1]);
 }
 
-async function executeStep(page, step) {
+function extractSourceTestIds(sourceText) {
+  return new Set(Array.from(
+    sourceText.matchAll(/\bdata-testid\s*=\s*['"]([^'"]+)['"]/g),
+    match => match[1],
+  ));
+}
+
+function extractSelectorTestIds(selector) {
+  if (typeof selector !== 'string') return [];
+  return Array.from(
+    selector.matchAll(/\[data-testid\s*=\s*['"]?([^\]'"\s]+)['"]?\]/g),
+    match => match[1],
+  );
+}
+
+function readSourceText(rootDir = SOURCE_ROOT) {
+  const extensions = new Set(['.js', '.jsx', '.ts', '.tsx', '.vue']);
+  const stack = [rootDir];
+  const contents = [];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (extensions.has(path.extname(entry.name))) {
+        contents.push(fs.readFileSync(fullPath, 'utf8'));
+      }
+    }
+  }
+
+  return contents.join('\n');
+}
+
+function routeMatches(pattern, route) {
+  const patternParts = pattern.split('/').filter(Boolean);
+  const routeParts = route.split(/[?#]/)[0].split('/').filter(Boolean);
+  return patternParts.length === routeParts.length && patternParts.every((part, index) => (
+    part.startsWith(':') || part === routeParts[index]
+  ));
+}
+
+function safeImageName(value) {
+  const raw = String(value || '').replace(/\.png$/i, '');
+  if (!raw || path.basename(raw) !== raw || !/^[a-zA-Z0-9._-]+$/.test(raw)) {
+    throw new Error(`非法截图名称: ${value}`);
+  }
+  return raw;
+}
+
+function getScreenshotSteps(workflow) {
+  return Array.isArray(workflow.steps)
+    ? workflow.steps.filter(step => step && step.action === 'screenshot')
+    : [];
+}
+
+function resolveBaselineName(workflow, step, screenshotIndex) {
+  const screenshotCount = getScreenshotSteps(workflow).length;
+  const configuredName = step.baseline || workflow.baseline || workflow.name;
+  const baseName = safeImageName(configuredName);
+  return screenshotCount > 1 && !step.baseline
+    ? `${baseName}--step-${screenshotIndex + 1}`
+    : baseName;
+}
+
+function resolveThreshold(workflow, step) {
+  return step.verify?.threshold ?? workflow.verify?.threshold ?? DEFAULT_PIXEL_THRESHOLD;
+}
+
+function prepareValidationOptions(options = {}) {
+  const routePaths = options.routePaths || extractRoutePaths(fs.readFileSync(ROUTER_FILE, 'utf8'));
+  const sourceText = Object.prototype.hasOwnProperty.call(options, 'sourceText')
+    ? options.sourceText
+    : readSourceText();
+
+  return {
+    ...options,
+    routePaths,
+    sourceTestIds: options.sourceTestIds || extractSourceTestIds(sourceText),
+    baselineDir: options.baselineDir || DEFAULT_BASELINE_DIR,
+    baselineExists: options.baselineExists || fs.existsSync,
+  };
+}
+
+function validateWorkflowDefinition(workflow, options = {}) {
+  const validation = options.sourceTestIds ? options : prepareValidationOptions(options);
+  const errors = [];
+  const addError = (code, message) => errors.push({ code, message });
+
+  if (!workflow || typeof workflow !== 'object') {
+    return [{ code: 'WORKFLOW_REQUIRED', message: '工作流定义必须是对象' }];
+  }
+
+  if (!workflow.name || typeof workflow.name !== 'string') {
+    addError('NAME_REQUIRED', '工作流缺少有效名称');
+  }
+  if (!workflow.route || typeof workflow.route !== 'string') {
+    addError('ROUTE_REQUIRED', `${workflow.name || '未命名工作流'} 缺少路由`);
+  } else if (!validation.routePaths.some(route => routeMatches(route, workflow.route))) {
+    addError('ROUTE_NOT_FOUND', `${workflow.name} 引用了未声明路由 ${workflow.route}`);
+  }
+
+  if (!Array.isArray(workflow.steps) || workflow.steps.length === 0) {
+    addError('STEPS_REQUIRED', `${workflow.name || '未命名工作流'} 没有可执行步骤`);
+  }
+
+  const screenshotSteps = getScreenshotSteps(workflow);
+  if (screenshotSteps.length === 0) {
+    addError('SCREENSHOT_REQUIRED', `${workflow.name || '未命名工作流'} 没有截图步骤`);
+  }
+
+  for (const [index, step] of (workflow.steps || []).entries()) {
+    if (!step || !SUPPORTED_ACTIONS.has(step.action)) {
+      addError('UNKNOWN_ACTION', `${workflow.name} 第 ${index + 1} 步使用未知动作 ${step?.action}`);
+      continue;
+    }
+    if (SELECTOR_ACTIONS.has(step.action) && (!step.selector || typeof step.selector !== 'string')) {
+      addError('SELECTOR_REQUIRED', `${workflow.name} 第 ${index + 1} 步缺少 selector`);
+    }
+    for (const testId of extractSelectorTestIds(step.selector)) {
+      if (!validation.sourceTestIds.has(testId)) {
+        addError('TESTID_NOT_FOUND', `${workflow.name} 引用了源码中不存在的 data-testid=${testId}`);
+      }
+    }
+  }
+
+  const verifyMethod = workflow.verify?.method || 'pixel';
+  if (verifyMethod !== 'pixel') {
+    addError('VERIFY_METHOD_UNSUPPORTED', `${workflow.name} 使用不支持的视觉验证方法 ${verifyMethod}`);
+  }
+
+  for (const [screenshotIndex, step] of screenshotSteps.entries()) {
+    const threshold = resolveThreshold(workflow, step);
+    if (typeof threshold !== 'number' || !Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+      addError('THRESHOLD_INVALID', `${workflow.name} 的像素阈值必须在 0 到 1 之间`);
+    }
+
+    try {
+      const baselinePath = path.join(
+        validation.baselineDir,
+        `${resolveBaselineName(workflow, step, screenshotIndex)}.png`,
+      );
+      if (!validation.baselineExists(baselinePath)) {
+        addError('BASELINE_NOT_FOUND', `${workflow.name} 缺少人工审核基线 ${baselinePath}`);
+      }
+    } catch (error) {
+      addError('BASELINE_NAME_INVALID', `${workflow.name} 的基线配置无效: ${error.message}`);
+    }
+  }
+
+  return errors;
+}
+
+async function captureWorkflowScreenshot(runner, workflow, step, screenshotIndex, options = {}) {
+  const baselineDir = options.baselineDir || DEFAULT_BASELINE_DIR;
+  const screenshotDir = options.screenshotDir || DEFAULT_SCREENSHOT_DIR;
+  const baselineExists = options.baselineExists || fs.existsSync;
+  const ensureDir = options.ensureDir || (dir => fs.mkdirSync(dir, { recursive: true }));
+  const comparisonName = `${safeImageName(workflow.name)}--step-${screenshotIndex + 1}`;
+  const currentPath = path.join(screenshotDir, `${comparisonName}-current.png`);
+  const baselinePath = path.join(
+    baselineDir,
+    `${resolveBaselineName(workflow, step, screenshotIndex)}.png`,
+  );
+  const threshold = resolveThreshold(workflow, step);
+
+  ensureDir(screenshotDir);
+  await runner.page.screenshot({ path: currentPath, fullPage: true });
+
+  if (!baselineExists(baselinePath)) {
+    return {
+      status: 'FAILED',
+      reason: `缺少人工审核基线 ${baselinePath}`,
+      baselinePath,
+      currentPath,
+      threshold,
+    };
+  }
+  if (!runner.pixelDiff || typeof runner.pixelDiff.compare !== 'function') {
+    return {
+      status: 'FAILED',
+      reason: '像素比较器不可用',
+      baselinePath,
+      currentPath,
+      threshold,
+    };
+  }
+
+  const comparison = await runner.pixelDiff.compare(baselinePath, currentPath, comparisonName);
+  if (comparison.skipped) {
+    try {
+      const identical = fs.readFileSync(baselinePath).equals(fs.readFileSync(currentPath));
+      return {
+        status: identical ? 'PASSED' : 'FAILED',
+        reason: identical
+          ? undefined
+          : `像素比较不可用且严格图像断言发现差异: ${comparison.reason || '未知原因'}`,
+        baselinePath,
+        currentPath,
+        threshold,
+        comparisonMethod: 'binary-exact',
+        misMatchPercentage: identical ? 0 : 100,
+      };
+    } catch (error) {
+      return {
+        status: 'FAILED',
+        reason: `像素比较不可用且严格图像断言失败: ${error.message}`,
+        baselinePath,
+        currentPath,
+        threshold,
+        comparisonMethod: 'binary-exact',
+      };
+    }
+  }
+
+  const misMatchPercentage = Number(
+    comparison.rawMisMatchPercentage ?? comparison.misMatchPercentage,
+  );
+  if (!Number.isFinite(misMatchPercentage)) {
+    return {
+      status: 'FAILED',
+      reason: '像素比较未返回有效差异百分比',
+      baselinePath,
+      currentPath,
+      threshold,
+      diffPath: comparison.diffImagePath,
+    };
+  }
+
+  const passed = misMatchPercentage <= threshold * 100;
+  return {
+    status: passed ? 'PASSED' : 'FAILED',
+    reason: passed
+      ? undefined
+      : `视觉差异 ${misMatchPercentage}% 超过阈值 ${threshold * 100}%`,
+    baselinePath,
+    currentPath,
+    diffPath: comparison.diffImagePath,
+    threshold,
+    misMatchPercentage,
+  };
+}
+
+function createWorkflowError(message, screenshots) {
+  const error = new Error(message);
+  error.screenshots = screenshots;
+  return error;
+}
+
+async function executeWorkflow(runner, workflow, options = {}) {
+  const baseUrl = options.baseUrl || runner.url || 'http://127.0.0.1:5174';
+  const screenshots = [];
+  let screenshotIndex = 0;
+
+  await runner.page.goto(buildWorkflowUrl(baseUrl, workflow.route), {
+    waitUntil: 'domcontentloaded',
+    timeout: 10000,
+  });
+  if (workflow.setup) await workflow.setup(runner.page);
+
+  for (const step of workflow.steps) {
+    const stepResult = await executeStep(runner.page, step, {
+      captureScreenshot: () => captureWorkflowScreenshot(
+        runner,
+        workflow,
+        step,
+        screenshotIndex,
+        options,
+      ),
+    });
+    if (step.action === 'screenshot') {
+      screenshotIndex += 1;
+      screenshots.push(stepResult);
+      if (stepResult.status !== 'PASSED') {
+        throw createWorkflowError(stepResult.reason, screenshots);
+      }
+    }
+  }
+
+  return { test: workflow.name, status: 'PASSED', screenshots };
+}
+
+async function runWorkflowSuite(tests, options = {}) {
+  const silent = options.silent === true;
+  const log = (...args) => { if (!silent) console.log(...args); };
+  const validationOptions = prepareValidationOptions(options.validationOptions);
+  const results = [];
+  const runnableTests = [];
+  const seenNames = new Set();
+
+  for (const test of tests) {
+    const errors = validateWorkflowDefinition(test, validationOptions);
+    if (seenNames.has(test.name)) {
+      errors.push({ code: 'DUPLICATE_NAME', message: `工作流名称重复: ${test.name}` });
+    }
+    seenNames.add(test.name);
+
+    if (errors.length > 0) {
+      const error = errors.map(item => `[${item.code}] ${item.message}`).join('; ');
+      results.push({ test: test.name, status: 'FAILED', error, contractErrors: errors });
+      log(`   ❌ ${test.name}: ${error}`);
+    } else {
+      runnableTests.push(test);
+    }
+  }
+
+  let runner = null;
+  if (runnableTests.length > 0) {
+    runner = options.runner || (options.runnerFactory
+      ? options.runnerFactory()
+      : new VisualTestRunner());
+
+    try {
+      await runner.launch();
+      for (const test of runnableTests) {
+        log(`📋 测试: ${test.name}`);
+        try {
+          results.push(await executeWorkflow(runner, test, {
+            ...options.executionOptions,
+            baselineDir: validationOptions.baselineDir,
+            baselineExists: validationOptions.baselineExists,
+          }));
+        } catch (error) {
+          results.push({
+            test: test.name,
+            status: 'FAILED',
+            error: error.message,
+            screenshots: error.screenshots || [],
+          });
+          log(`   ❌ ${error.message.split('\n')[0]}`);
+        }
+      }
+    } catch (error) {
+      for (const test of runnableTests) {
+        if (!results.some(result => result.test === test.name)) {
+          results.push({ test: test.name, status: 'FAILED', error: `视觉运行器启动失败: ${error.message}` });
+        }
+      }
+    } finally {
+      if (runner && typeof runner.close === 'function') await runner.close();
+    }
+  }
+
+  const failed = results.filter(result => result.status === 'FAILED').length;
+  log(`\n工作流结果: ${results.length - failed}/${results.length} 通过，${failed} 失败\n`);
+  return { results, failed };
+}
+
+async function runAllWorkflowTests() {
+  console.log(`🔄 开始 ${workflowTests.length} 个工作流视觉测试...\n`);
+  return runWorkflowSuite(workflowTests);
+}
+
+async function executeStep(page, step, context = {}) {
   switch (step.action) {
     case 'click':
-      await page.click(step.selector);
+      await page.click(step.selector, { timeout: STEP_TIMEOUT });
       if (step.name) console.log(`   → ${step.name}`);
       break;
     case 'fill':
-      await page.fill(step.selector, step.value);
+      await page.fill(step.selector, step.value, { timeout: STEP_TIMEOUT });
       break;
     case 'waitFor':
-      await page.waitForSelector(step.selector);
+      await page.waitForSelector(step.selector, { timeout: STEP_TIMEOUT });
       break;
     case 'waitForSelector':
-      await page.waitForSelector(step.selector, { state: step.state || 'visible' });
-      break;
-    case 'waitMs':
-      await page.waitForTimeout(step.value);
+      await page.waitForSelector(step.selector, {
+        state: step.state || 'visible',
+        timeout: STEP_TIMEOUT,
+      });
       break;
     case 'screenshot':
-      // 由runner处理
-      break;
+      if (typeof context.captureScreenshot !== 'function') {
+        throw new Error('截图步骤缺少视觉验证上下文');
+      }
+      return context.captureScreenshot();
     case 'press':
       await page.keyboard.press(step.key);
       break;
     case 'select':
-      await page.selectOption(step.selector, step.value);
+      await page.selectOption(step.selector, step.value, { timeout: STEP_TIMEOUT });
       break;
+    case 'setInputFiles':
+      await page.setInputFiles(step.selector, step.files);
+      break;
+    case 'selectDate':
+      await page.keyboard.type(step.value);
+      break;
+    case 'dragAndDrop':
+      await page.setInputFiles(step.selector, step.files);
+      break;
+    default:
+      throw new Error(`不支持的工作流动作: ${step.action}`);
   }
   
-  if (step.waitMs) await page.waitForTimeout(step.waitMs);
 }
 // CLI 入口（仅当直接调用此文件时执行，被 require() 时不触发副作用）
 if (require.main === module) {
   const args = process.argv.slice(2);
   if (args[0] === '--single' && args[1]) {
-    runSingleWorkflow(args[1]);
+    runSingleWorkflow(args[1]).then(result => {
+      process.exitCode = result && result.failed ? 1 : 0;
+    }).catch(err => {
+      console.error(err);
+      process.exitCode = 1;
+    });
   } else if (args[0] === '--list') {
     console.log('可用的工作流测试:');
     workflowTests.forEach(w => console.log(`  - ${w.name}`));
   } else {
-    runAllWorkflowTests();
+    runAllWorkflowTests().then(result => {
+      process.exitCode = result.failed > 0 ? 1 : 0;
+    }).catch(err => {
+      console.error(err);
+      process.exitCode = 1;
+    });
   }
 }
 
@@ -437,26 +854,23 @@ async function runSingleWorkflow(workflowName) {
   if (!test) {
     console.log(`❌ 未找到工作流: ${workflowName}`);
     console.log('可用工作流:', workflowTests.map(w => w.name).join(', '));
-    return;
+    return { failed: 1 };
   }
 
-  const runner = new VisualTestRunner();
-  await runner.launch();
-
-  console.log(`📋 测试: ${test.name}`);
-  try {
-    if (test.setup) await test.setup(runner.page);
-    await runner.page.goto(runner.url + test.route);
-    for (const step of test.steps) {
-      await executeStep(runner.page, step);
-    }
-    runner.results.push({ test: test.name, status: 'PASSED' });
-  } catch (err) {
-    runner.results.push({ test: test.name, status: 'FAILED', error: err.message });
-    console.log(`   ❌ ${err.message}`);
-  }
-
-  await runner.close();
+  return runWorkflowSuite([test]);
 }
 
-module.exports = { workflowTests, runAllWorkflowTests };
+module.exports = {
+  workflowTests,
+  buildWorkflowUrl,
+  captureWorkflowScreenshot,
+  executeStep,
+  executeWorkflow,
+  extractRoutePaths,
+  extractSelectorTestIds,
+  extractSourceTestIds,
+  runAllWorkflowTests,
+  runSingleWorkflow,
+  runWorkflowSuite,
+  validateWorkflowDefinition,
+};

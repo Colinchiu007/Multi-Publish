@@ -5,16 +5,24 @@ on:
     branches: [main]
     paths:
       - 'apps/desktop/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/gui-test.yml'
   push:
     branches: [codex/gui-test*, main]
     paths:
       - 'apps/desktop/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/gui-test.yml'
   workflow_dispatch:
 
 jobs:
   gui-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -44,32 +52,56 @@ jobs:
           cd apps/desktop
           npx @electron/rebuild -f -w better-sqlite3
 
-      - name: Start Vite dev server
+      - name: Browser E2E, visual regression, and Electron GUI gates
+        shell: bash
         run: |
-          cd apps/desktop
-          npx vite --port 5174 &
+          set -euo pipefail
+          (
+            cd apps/desktop
+            exec npx vite --host 127.0.0.1 --port 5174
+          ) > apps/desktop/vite-ci.log 2>&1 &
+          vite_pid=$!
+          cleanup() {
+            kill "$vite_pid" 2>/dev/null || true
+            wait "$vite_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          vite_ready=0
           for i in $(seq 1 30); do
-            if curl -s http://127.0.0.1:5174/ > /dev/null 2>&1; then
-              echo "Vite ready"
+            if curl --fail --silent --show-error http://127.0.0.1:5174/ > /dev/null 2>&1; then
+              echo "Vite ready after ${i}s"
+              vite_ready=1
               break
+            fi
+            if ! kill -0 "$vite_pid" 2>/dev/null; then
+              echo "Vite exited before becoming ready"
+              cat apps/desktop/vite-ci.log
+              exit 1
             fi
             sleep 1
           done
+          if [ "$vite_ready" -ne 1 ]; then
+            echo "Vite never became ready"
+            cat apps/desktop/vite-ci.log
+            exit 1
+          fi
 
-      - name: Smoke test (无需启动 Electron)
-        run: node apps/desktop/tests/e2e-smoke.js; echo "exit=$?"
-
-      - name: GUI tests (Electron + xvfb, 可能失败)
-        continue-on-error: true
-        run: |
+          node apps/desktop/tests/e2e-smoke.js
+          npm run test:e2e -w @multi-publish/desktop
+          npm run test:visual:pixel -w @multi-publish/desktop
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-            node apps/desktop/tests/electron-gui-v9.js || \
-          echo "GUI test failed (headless CI), smoke test already ran above"
+            node apps/desktop/tests/electron-gui-v9.js
 
       - name: Upload test screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gui-test-screenshots
-          path: apps/desktop/tests/screenshots/*.png
+          path: |
+            apps/desktop/tests/screenshots/*.png
+            apps/desktop/tests/e2e/reports/**
+            apps/desktop/tests/visual-testing/reports/**
+            apps/desktop/vite-ci.log
+          if-no-files-found: warn
           retention-days: 7

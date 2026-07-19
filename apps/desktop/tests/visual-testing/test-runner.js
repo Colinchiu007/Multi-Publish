@@ -1,13 +1,13 @@
 /**
- * ÊÓ¾õ²âÊÔÔËÐÐÆ÷
- * Ê¹ÓÃ·½Ê½£º
+ * è§†è§‰æµ‹è¯•è¿è¡Œå™¨
+ * ä½¿ç”¨æ–¹å¼ï¼š
  *   const runner = new TestRunner({ headless: true });
  *   await runner.launch();
  *   await runner.testAllViews();
  *   await runner.close();
  */
 
-// ¼ÓÔØ .env ÅäÖÃ
+// åŠ è½½ .env é…ç½®
 try { require('dotenv').config({ path: __dirname + '/.env' }); } catch (_) {}
 
 const { chromium } = require('playwright');
@@ -15,6 +15,7 @@ const { OCRProvider } = require('./providers/ocr');
 const { PixelDiffProvider } = require('./providers/pixel-diff');
 const fs = require('fs');
 const path = require('path');
+const { buildInitScript } = require('../e2e/helpers/fixture-loader');
 
 class VisualTestRunner {
   constructor(options = {}) {
@@ -23,17 +24,25 @@ class VisualTestRunner {
     this.screenshotDir = options.screenshotDir || 'tests/visual-testing/screenshots';
     this.reportDir = options.reportDir || 'tests/visual-testing/reports';
     this.metaDir = options.metaDir || 'tests/visual-testing/meta';
+    this.baselineDir = options.baselineDir || 'tests/visual-testing/base-screenshots';
+    this.readyTimeout = options.readyTimeout ?? 5000;
+    this.useFixtures = options.useFixtures !== false;
     
     this.browser = null;
     this.context = null;
     this.page = null;
     
-    // ³õÊ¼»¯Ìá¹©Æ÷
+    // åˆå§‹åŒ–æä¾›å™¨
     this.ocr = new OCRProvider();
-    this.pixelDiff = new PixelDiffProvider({ outputDir: `${this.reportDir}/pixel-diff` });
+    this.pixelDiff = new PixelDiffProvider({
+      outputDir: `${this.reportDir}/pixel-diff`,
+      threshold: options.pixelThreshold ?? 0.01,
+    });
     
     this.results = [];
-    this.testMeta = {}; // ´æ´¢Ã¿¸ö²âÊÔµÄÔªÊý¾Ý
+    this.testMeta = {}; // å­˜å‚¨æ¯ä¸ªæµ‹è¯•çš„å…ƒæ•°æ®
+    this.consoleErrors = [];
+    this.pageErrors = [];
   }
 
   async launch() {
@@ -42,21 +51,72 @@ class VisualTestRunner {
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     this.context = await this.browser.newContext({
-      viewport: { width: 1920, height: 1080 }
+      viewport: { width: 1920, height: 1080 },
+      locale: 'zh-CN',
     });
+    if (this.useFixtures) {
+      await this.context.addInitScript({ content: buildInitScript() });
+    }
     this.page = await this.context.newPage();
+    this.page.on('console', (message) => {
+      if (message.type() !== 'error') return;
+      const text = message.text();
+      if (text.includes('[vite]') || text.includes('HMR')) return;
+      this.consoleErrors.push(text.slice(0, 500));
+    });
+    this.page.on('pageerror', (error) => {
+      this.pageErrors.push(error.message.slice(0, 500));
+    });
     
-    // È·±£Ä¿Â¼´æÔÚ
+    // ç¡®ä¿ç›®å½•å­˜åœ¨
     [this.screenshotDir, this.reportDir, this.metaDir].forEach(d => 
       fs.mkdirSync(d, { recursive: true })
     );
     
-    // ¼ÓÔØÒÑÓÐµÄ meta Êý¾Ý
+    // åŠ è½½å·²æœ‰çš„ meta æ•°æ®
     this._loadMeta();
   }
 
+  async _navigateToRoute(route, readySelector, expectedRoute = route) {
+    const normalizedBase = this.url.replace(/\/$/, '');
+    const expectedHash = '#' + expectedRoute;
+    await this.page.goto(`${normalizedBase}/#${route}`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    });
+    if (typeof this.page.waitForFunction === 'function') {
+      await this.page.waitForFunction((hash) => {
+        const app = document.querySelector('#app');
+        return window.location.hash === hash
+          && app
+          && app.hasAttribute('data-v-app')
+          && (app.textContent || '').trim().length > 0;
+      }, expectedHash, { timeout: this.readyTimeout });
+    }
+    if (readySelector) {
+      await this.page.waitForSelector(readySelector, { timeout: this.readyTimeout });
+    }
+    if (typeof this.page.evaluate === 'function') {
+      await this.page.evaluate(async () => {
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+    }
+  }
+
+  _throwOnRuntimeErrors(testName, consoleOffset, pageOffset) {
+    const errors = [
+      ...this.consoleErrors.slice(consoleOffset),
+      ...this.pageErrors.slice(pageOffset),
+    ];
+    if (errors.length === 0) return;
+    const error = new Error(`è§†è§‰æµ‹è¯• ${testName} å‡ºçŽ°é¡µé¢é”™è¯¯: ${errors.join(' | ')}`);
+    error.code = 'ERR_VISUAL_PAGE_RUNTIME';
+    throw error;
+  }
+
   /**
-   * ¼ÓÔØÒÑÓÐµÄ meta.json Êý¾Ý
+   * åŠ è½½å·²æœ‰çš„ meta.json æ•°æ®
    */
   _loadMeta() {
     const metaPath = path.join(this.metaDir, 'pixel-tests-meta.json');
@@ -70,7 +130,7 @@ class VisualTestRunner {
   }
 
   /**
-   * ±£´æ meta Êý¾Ýµ½ÎÄ¼þ
+   * ä¿å­˜ meta æ•°æ®åˆ°æ–‡ä»¶
    */
   _saveMeta() {
     const metaPath = path.join(this.metaDir, 'pixel-tests-meta.json');
@@ -78,7 +138,7 @@ class VisualTestRunner {
   }
 
   /**
-   * ½ØÍ¼²¢·ÖÎö
+   * æˆªå›¾å¹¶åˆ†æž
    */
   async captureAndAnalyze(viewName, prompt, options = {}) {
     const screenshotPath = path.join(this.screenshotDir, `${viewName}.png`);
@@ -93,47 +153,49 @@ class VisualTestRunner {
   }
 
   /**
-   * ÏñËØ¶Ô±È²âÊÔ
+   * åƒç´ å¯¹æ¯”æµ‹è¯•
    */
   async pixelRegressionTest(testName, route, options = {}) {
-    await this.page.goto(`${this.url}${route === '/' ? '/' : '/#' + route}`, { waitUntil: 'load', timeout: 15000 });
-    await this.page.waitForTimeout(options.waitMs || 1500);
-    // ÖÇÄÜµÈ´ý: ¼ì²éÒì²½Êý¾ÝÊÇ·ñäÖÈ¾Íê³É£¨ÊÊÓÃÓÚ monitor-dashboard µÈÒì²½¼ÓÔØÂ·ÓÉ£©
-    try {
-      const contentLen = await this.page.evaluate(() => {
-        const main = document.querySelector('main') || document.querySelector('.content') || document.querySelector('#app');
-        return main ? main.innerHTML.length : 0;
-      });
-      if (contentLen < 100) {
-        // ÄÚÈÝ²»×ã£¬¿ÉÄÜ»¹ÔÚÒì²½¼ÓÔØ£¬¶àµÈ 3 Ãë
-        await this.page.waitForTimeout(3000);
-      }
-    } catch (_) {}
-    if (options.waitFor) {
-      try {
-        await this.page.waitForSelector(options.waitFor, { timeout: 5000 });
-      } catch (_) {}
-    }
+    const consoleOffset = this.consoleErrors.length;
+    const pageOffset = this.pageErrors.length;
+    await this._navigateToRoute(
+      route,
+      options.waitFor || '#app',
+      options.expectedRoute || route,
+    );
     
     const currentPath = path.join(this.screenshotDir, `${testName}-current.png`);
-    const baselinePath = path.join('tests/visual-testing/base-screenshots', `${testName}.png`);
+    const baselinePath = path.join(this.baselineDir, `${testName}.png`);
     
     await this.page.screenshot({ path: currentPath });
+    this._throwOnRuntimeErrors(testName, consoleOffset, pageOffset);
     
-    // Èç¹ûÃ»ÓÐ»ù×¼Í¼£¬´´½¨
+    // å¦‚æžœæ²¡æœ‰åŸºå‡†å›¾ï¼Œåˆ›å»º
     if (!fs.existsSync(baselinePath)) {
+      if (process.env.UPDATE_BASELINE !== '1') {
+        const error = new Error(`ç¼ºå°‘äººå·¥å®¡æ ¸çš„è§†è§‰åŸºçº¿: ${baselinePath}`);
+        error.code = 'ERR_VISUAL_BASELINE_MISSING';
+        this.results.push({
+          test: testName,
+          status: 'FAILED',
+          reason: error.message,
+          route,
+        });
+        throw error;
+      }
+
       await this.pixelDiff.updateBaseline(currentPath, baselinePath);
-      // ±£´æ meta ÐÅÏ¢
+      // ä¿å­˜ meta ä¿¡æ¯
       this.testMeta[testName] = { route, createdAt: new Date().toISOString() };
       this._saveMeta();
       this.results.push({ test: testName, status: 'BASELINE_CREATED', route });
       return { status: 'BASELINE_CREATED', baselinePath };
     }
     
-    // ¶Ô±È
+    // å¯¹æ¯”
     const result = await this.pixelDiff.compare(baselinePath, currentPath, testName);
     
-    // ±£´æ meta ÐÅÏ¢£¨°üÀ¨ÕæÊµ misMatchPercentage£©
+    // ä¿å­˜ meta ä¿¡æ¯ï¼ˆåŒ…æ‹¬çœŸå®ž misMatchPercentageï¼‰
     this.testMeta[testName] = { 
       route, 
       misMatchPercentage: result.misMatchPercentage,
@@ -150,12 +212,12 @@ class VisualTestRunner {
       route
     });
 
-    // ¶Ô±ÈÊ§°Ü: Ö÷¶¯ throw, ÈÃµ÷ÓÃ·½ (run-pixel-tests.js) ¼ÇÂ¼ failed ²¢·µ»Ø·ÇÁãÍË³öÂë
-    // Ê¼ÓÚ 2026-07-12 ÖÊÁ¿½ÚÅÄ: ±ÜÃâ CI ÒòÈÝ´í´íÎó±¨¸æÍ¨¹ý
+    // å¯¹æ¯”å¤±è´¥: ä¸»åŠ¨ throw, è®©è°ƒç”¨æ–¹ (run-pixel-tests.js) è®°å½• failed å¹¶è¿”å›žéžé›¶é€€å‡ºç 
+    // å§‹äºŽ 2026-07-12 è´¨é‡èŠ‚æ‹: é¿å… CI å› å®¹é”™é”™è¯¯æŠ¥å‘Šé€šè¿‡
     if (!result.passed) {
       throw new Error(
-        'ÏñËØ¶Ô±ÈÊ§°Ü (' + testName + '): misMatchPercentage=' + (Number(result.misMatchPercentage) || 0).toFixed(2) + '% ' +
-        '(threshold=' + (this.pixelDiff.threshold * 100) + '%); ²îÒìÍ¼: ' + result.diffImagePath
+        'åƒç´ å¯¹æ¯”å¤±è´¥ (' + testName + '): misMatchPercentage=' + (Number(result.misMatchPercentage) || 0).toFixed(2) + '% ' +
+        '(threshold=' + (this.pixelDiff.threshold * 100) + '%); å·®å¼‚å›¾: ' + result.diffImagePath
       );
     }
 
@@ -163,52 +225,64 @@ class VisualTestRunner {
   }
 
   /**
-   * AI ÊÓ¾õ²âÊÔ£ºµ¼º½µ½Â·ÓÉ£¬½ØÍ¼£¬¶ÔÃ¿¸ö check ×ö OCR + ¿ìÕÕ¼ÇÂ¼
+   * AI è§†è§‰æµ‹è¯•ï¼šå¯¼èˆªåˆ°è·¯ç”±ï¼Œæˆªå›¾ï¼Œå¯¹æ¯ä¸ª check åš OCR + å¿«ç…§è®°å½•
    */
   async aiVisionTest(testName, route, checks = [], options = {}) {
-    await this.page.goto(`${this.url}${route === '/' ? '/' : '/#' + route}`, { waitUntil: 'load', timeout: 15000 });
-    if (options.waitFor) {
-      try {
-        await this.page.waitForSelector(options.waitFor, { timeout: 5000 });
-      } catch (_) {
-        // waitFor Ñ¡ÔñÆ÷²»´æÔÚÒ²¼ÌÐø
-      }
+    if (checks.length === 0 || checks.some((check) => !check.selector && !check.text)) {
+      const error = new Error(`è§†è§‰æµ‹è¯• ${testName} ç¼ºå°‘å¯æ‰§è¡Œçš„ selector/text æ–­è¨€`);
+      error.code = 'ERR_VISUAL_CHECK_INVALID';
+      throw error;
     }
-    if (options.waitMs) await this.page.waitForTimeout(options.waitMs);
+
+    const consoleOffset = this.consoleErrors.length;
+    const pageOffset = this.pageErrors.length;
+    await this._navigateToRoute(
+      route,
+      options.waitFor || '#app',
+      options.expectedRoute || route,
+    );
 
     const screenshotPath = path.join(this.screenshotDir, `${testName}.png`);
     await this.page.screenshot({ path: screenshotPath, fullPage: true });
 
-    // OCR ÌáÈ¡Ò³ÃæÎÄ×Ö
     let pageText = '';
-    try {
-      pageText = await this.ocr.extractText(screenshotPath);
-    } catch (_) {}
+    if (options.useOCR) pageText = await this.ocr.extractText(screenshotPath);
 
+    let failed = 0;
     for (const check of checks) {
+      let passed;
+      if (check.selector) {
+        passed = await this.page.locator(check.selector).first().isVisible();
+      } else {
+        const textLocator = typeof this.page.getByText === 'function'
+          ? this.page.getByText(check.text, { exact: false })
+          : this.page.locator(`text=${check.text}`);
+        passed = await textLocator.first().isVisible();
+      }
+      if (!passed) failed += 1;
       this.results.push({
         test: testName,
         check: check.name,
-        status: 'SNAPSHOT_CAPTURED',
+        status: passed ? 'PASSED' : 'FAILED',
         route,
         screenshotPath,
         prompt: check.prompt,
-        ocrTextLength: pageText.length
+        ocrTextLength: pageText.length,
       });
     }
 
-    if (checks.length === 0) {
-      this.results.push({
-        test: testName,
-        status: 'SNAPSHOT_CAPTURED',
-        route,
-        screenshotPath
-      });
+    this._throwOnRuntimeErrors(testName, consoleOffset, pageOffset);
+    if (failed > 0) {
+      const error = new Error(`è§†è§‰æµ‹è¯• ${testName} æœ‰ ${failed} é¡¹æœºå™¨æ–­è¨€å¤±è´¥`);
+      error.code = 'ERR_VISUAL_CHECK_FAILED';
+      throw error;
     }
+
+    return { status: 'PASSED', screenshotPath, checks: checks.length };
   }
 
   /**
-   * ¹Ø±Õä¯ÀÀÆ÷
+   * å…³é—­æµè§ˆå™¨
    */
   async close() {
     if (this.browser) {
@@ -220,7 +294,7 @@ class VisualTestRunner {
   }
 
   /**
-   * Éú³É²âÊÔ±¨¸æ
+   * ç”Ÿæˆæµ‹è¯•æŠ¥å‘Š
    */
   generateReport() {
     const passed = this.results.filter(r => r.status === 'PASSED').length;
@@ -237,16 +311,16 @@ class VisualTestRunner {
     fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
     
     console.log(`
-©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥
-      ÊÓ¾õ²âÊÔ±¨¸æ
-©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥
-  ×Ü¼Æ: ${total}
-  Í¨¹ý: ? ${passed}
-  Ê§°Ü: ? ${failed}
-  Í¨¹ýÂÊ: ${((passed/total)*100).toFixed(1)}%
-©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥
-  ±¨¸æ: ${reportPath}
-©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥©¥
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
+      è§†è§‰æµ‹è¯•æŠ¥å‘Š
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
+  æ€»è®¡: ${total}
+  é€šè¿‡: ? ${passed}
+  å¤±è´¥: ? ${failed}
+  é€šè¿‡çŽ‡: ${((passed/total)*100).toFixed(1)}%
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
+  æŠ¥å‘Š: ${reportPath}
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
     `);
     
     return report;

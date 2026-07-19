@@ -1,205 +1,309 @@
 /**
- * 补充视觉测试 — 覆盖遗漏的视图、弹窗、对话框
+ * 补充视觉测试：覆盖附加路由、弹窗和全局 UI 状态。
  * 运行: node tests/visual-testing/views/supplementary-views.visual.test.js
- * 
- * 覆盖范围:
- * - 11 个遗漏路由视图 (first-run, dashboard, calendar, cloud-publish, viral-analysis, 
- *   create/result, create/pipeline, create/history, intelligence, keywords)
- * - 6 个弹窗/对话框 (upgrade-modal, model-provider dialogs, monitor-dialog, 
- *   command-palette, collection-confirm, publish-upgrade)
- * - 侧边栏、导航高亮、响应式布局等全局状态
  */
 
+const path = require('path');
 const { VisualTestRunner } = require('../test-runner');
 
-const supplementaryViewTests = [
-  // ==================== 遗漏路由视图 (11个) ====================
-  { name: 'first-run', route: '/first-run', waitMs: 1500, checks: [
-    { name: '欢迎页面', prompt: '是否显示首次运行欢迎/引导页面？' },
-    { name: '开始按钮', prompt: '是否存在开始/下一步按钮？' },
-    { name: '步骤指示', prompt: '是否显示步骤进度指示器？' }
-  ]},
-  { name: 'dashboard', route: '/dashboard', waitMs: 1500, checks: [
-    { name: '数据卡片', prompt: '是否显示数据统计卡片（发布数/阅读量/互动等）？' },
-    { name: '图表区域', prompt: '是否显示趋势图表或可视化数据？' },
-    { name: '试用横幅', prompt: '是否存在试用提示横幅或升级按钮？' }
-  ]},
-  { name: 'calendar', route: '/calendar', waitMs: 1500, checks: [
-    { name: '日历网格', prompt: '是否显示月度日历网格？' },
-    { name: '月份切换', prompt: '是否存在月份前/后切换按钮？' },
-    { name: '今天按钮', prompt: '是否存在「今天」快速跳转按钮？' },
-    { name: '日期选择', prompt: '点击某天是否显示该天的发布事件？' }
-  ]},
-  { name: 'cloud-publish', route: '/cloud-publish', waitMs: 1500, checks: [
-    { name: '云端发布表单', prompt: '是否显示云端发布相关表单或任务列表？' },
-    { name: '平台选择', prompt: '是否存在目标平台选择区域？' }
-  ]},
-  { name: 'viral-analysis', route: '/viral-analysis', waitMs: 1500, checks: [
-    { name: '爆文分析', prompt: '是否显示爆文分析页面？' },
-    { name: '数据展示', prompt: '是否存在爆文数据或分析结果展示？' }
-  ]},
-  { name: 'create-view-default', route: '/create', waitMs: 1500, checks: [
-    { name: '视图切换', prompt: '是否存在「流水线创作」「快速渲染」「历史记录」Tab 切换？' },
-    { name: '流水线卡片', prompt: '是否显示流水线模板卡片列表？' }
-  ]},
-  { name: 'create-result', route: '/create/result', waitMs: 1500, checks: [
-    { name: '结果页面', prompt: '是否显示创作结果页面？' },
-    { name: '预览区域', prompt: '是否存在内容预览区域？' },
-    { name: '操作按钮', prompt: '是否存在发布/编辑/返回等操作按钮？' }
-  ]},
-  { name: 'create-pipeline', route: '/create/pipeline', waitMs: 1500, checks: [
-    { name: '流水线视图', prompt: '是否显示创作流水线视图？' },
-    { name: '步骤进度', prompt: '是否存在步骤进度指示？' }
-  ]},
-  { name: 'create-history', route: '/create/history', waitMs: 1500, checks: [
-    { name: '历史列表', prompt: '是否显示创作历史记录列表？' },
-    { name: '记录详情', prompt: '每条记录是否显示时间/标题/状态？' }
-  ]},
-  { name: 'intelligence-main', route: '/intelligence', waitMs: 1500, checks: [
-    { name: '搜索入口', prompt: '是否存在搜索输入框？' },
-    { name: '搜索按钮', prompt: '是否存在搜索按钮？' },
-    { name: '来源筛选', prompt: '是否显示数据来源筛选（如知乎/头条/微博等）？' }
-  ]},
-  { name: 'keyword-monitor', route: '/keywords', waitMs: 1500, checks: [
-    { name: '监控面板', prompt: '是否显示关键词监控面板？' },
-    { name: '关键词输入', prompt: '是否存在关键词输入或添加区域？' }
-  ]},
-
-  // ==================== 弹窗/对话框 (6个) ====================
-  { name: 'upgrade-modal', route: '/', waitMs: 1000, checks: [
-    { name: '升级按钮', prompt: '顶部导航是否存在「升级 Pro」按钮？点击后是否弹出升级弹窗？' }
-  ]},
-  { name: 'model-provider-add-dialog', route: '/model-providers', waitMs: 1000, checks: [
-    { name: '添加按钮', prompt: '是否显示「添加服务商」按钮？' },
-    { name: '弹窗交互', prompt: '点击添加按钮后是否弹出「添加服务商」对话框？对话框是否包含分类选择网格？' }
-  ]},
-  { name: 'model-provider-edit-dialog', route: '/model-providers', waitMs: 1000, checks: [
-    { name: '编辑按钮', prompt: '服务商卡片上是否存在编辑按钮？' },
-    { name: '编辑弹窗', prompt: '点击编辑后是否弹出编辑服务商对话框？' }
-  ]},
-  { name: 'model-provider-delete-dialog', route: '/model-providers', waitMs: 1000, checks: [
-    { name: '删除按钮', prompt: '服务商卡片上是否存在删除按钮？' },
-    { name: '确认弹窗', prompt: '点击删除后是否弹出确认删除对话框？' }
-  ]},
-  { name: 'monitor-settings-dialog', route: '/monitor', waitMs: 1500, checks: [
-    { name: '监控面板', prompt: '监控页面是否正常加载？' },
-    { name: '设置入口', prompt: '是否存在设置/配置入口按钮？' }
-  ]},
-  { name: 'collection-confirm-dialog', route: '/collection', waitMs: 1500, checks: [
-    { name: '收藏列表', prompt: '收藏页面是否正常加载？' },
-    { name: '删除入口', prompt: '是否存在删除收藏的入口（删除按钮或右键菜单）？' }
-  ]},
-
-  // ==================== 全局 UI 状态 (3个) ====================
-  { name: 'sidebar-platform-list', route: '/', waitMs: 1000, checks: [
-    { name: '侧边栏', prompt: '左侧是否显示平台账号侧边栏？' },
-    { name: '平台图标', prompt: '每个平台是否有对应图标？' },
-    { name: '搜索框', prompt: '侧边栏是否存在搜索框？' },
-    { name: '状态指示', prompt: '每个平台项是否显示在线/离线状态点？' }
-  ]},
-  { name: 'nav-active-state', route: '/accounts', waitMs: 800, checks: [
-    { name: '导航高亮', prompt: '当前路由对应的导航项是否高亮？' },
-    { name: '侧边栏联动', prompt: '导航到账号管理后，侧边栏是否正常显示？' }
-  ]},
-  { name: 'app-header-status', route: '/', waitMs: 800, checks: [
-    { name: '品牌标识', prompt: '顶部导航左侧是否有品牌 Logo/名称？' },
-    { name: '运行状态', prompt: '右上角是否显示服务运行状态指示器？' },
-    { name: '升级按钮', prompt: '非 Pro 用户是否显示升级按钮？' }
-  ]},
-];
-
-async function runSupplementaryTests() {
-  console.log('🔍 开始补充视觉测试（遗漏视图 + 弹窗 + 全局状态）...\n');
-  
-  const runner = new VisualTestRunner({
-    url: process.env.TEST_URL || 'http://localhost:5173',
-    headless: process.env.HEADLESS !== 'false'
-  });
-  
-  await runner.launch();
-  
-  let passed = 0;
-  let failed = 0;
-  let total = 0;
-  
-  for (const test of supplementaryViewTests) {
-    total++;
-    console.log(`📸 [${total}/${supplementaryViewTests.length}] ${test.name}`);
-    try {
-      // 对弹窗类测试，先尝试触发弹窗
-      if (test.name === 'upgrade-modal') {
-        try { await runner.page.click('text=升级 Pro', { timeout: 2000 }); } catch (_) {}
-        await runner.page.waitForTimeout(1000);
-      }
-      if (test.name === 'model-provider-add-dialog') {
-        try { await runner.page.click('text=添加服务商', { timeout: 2000 }); } catch (_) {}
-        await runner.page.waitForTimeout(1000);
-      }
-      if (test.name === 'monitor-settings-dialog') {
-        try { await runner.page.click('[data-testid=fullscreen-btn], button:has-text("全屏")', { timeout: 2000 }); } catch (_) {}
-        await runner.page.waitForTimeout(800);
-      }
-      
-      await runner.aiVisionTest(test.name, test.route, test.checks, {
-        waitFor: test.waitFor,
-        waitMs: test.waitMs
-      });
-      passed++;
-      console.log(`   ✅ 截图完成，${test.checks.length} 项检查`);
-    } catch (err) {
-      failed++;
-      runner.results.push({ test: test.name, status: 'ERROR', error: err.message });
-      console.log(`   ❌ ${err.message}`);
-    }
-  }
-  
-  await runner.close();
-  
-  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`  补充测试结果: ${passed}/${total} 通过, ${failed} 失败`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-  
-  process.exit(failed > 0 ? 1 : 0);
+function check(name, selector, prompt) {
+  return { name, selector, prompt };
 }
 
-// 单独运行
-async function runSingle(name) {
-  const test = supplementaryViewTests.find(v => v.name === name);
-  if (!test) {
-    console.log(`❌ 未找到: ${name}`);
-    console.log('可用:', supplementaryViewTests.map(v => v.name).join(', '));
-    return;
+const supplementaryViewTests = [
+  {
+    name: 'first-run',
+    route: '/first-run',
+    waitFor: 'h2:has-text("欢迎使用社媒管家")',
+    checks: [
+      check('欢迎页面', 'h2:has-text("欢迎使用社媒管家")', '显示首次运行欢迎页面'),
+      check('开始按钮', 'button:has-text("开始配置")', '显示开始配置按钮'),
+      check('步骤指示', '.cohere-card [style*="border-radius"]', '显示步骤进度指示器'),
+    ],
+  },
+  {
+    name: 'dashboard',
+    route: '/dashboard',
+    waitFor: '.page-title:has-text("数据看板")',
+    checks: [
+      check('数据卡片', '.cohere-stat-grid .cohere-stat-card', '显示数据统计卡片'),
+      check('数据区域', '.cohere-section-title:has-text("各平台数据")', '显示平台数据区域'),
+      check('刷新入口', 'button:has-text("刷新")', '显示数据刷新入口'),
+    ],
+  },
+  {
+    name: 'calendar',
+    route: '/calendar',
+    waitFor: '.calendar-grid .cal-day',
+    checks: [
+      check('日历网格', '.calendar-grid', '显示月度日历网格'),
+      check('月份切换', 'button:has-text("▶")', '显示月份切换按钮'),
+      check('今天按钮', 'button:has-text("今天")', '显示今天按钮'),
+      check('日期选择', '.calendar-grid .cal-day', '显示可选择日期'),
+    ],
+  },
+  {
+    name: 'cloud-publish',
+    route: '/cloud-publish',
+    waitFor: '.page-title:has-text("云端发布")',
+    checks: [
+      check('云端发布表单', '.cohere-form', '显示云端发布表单'),
+      check('平台选择', '.cohere-form select', '显示目标平台选择'),
+    ],
+  },
+  {
+    name: 'viral-analysis',
+    route: '/viral-analysis',
+    waitFor: '.page-title:has-text("爆款分析")',
+    checks: [
+      check('爆文分析', '.page-title:has-text("爆款分析")', '显示爆款分析页面'),
+      check('数据输入', '.cohere-input', '显示分析数据输入区域'),
+    ],
+  },
+  {
+    name: 'create-view-default',
+    route: '/create',
+    waitFor: 'h1:has-text("视频创作")',
+    checks: [
+      check('视图切换', '.view-tabs .view-tab', '显示创作视图切换'),
+      check('流水线状态', '.pipeline-grid, .loading-state, .error-state', '显示流水线列表或明确状态'),
+    ],
+  },
+  {
+    name: 'create-result',
+    route: '/create/result',
+    waitFor: 'h1:has-text("视频预览")',
+    checks: [
+      check('结果页面', 'h1:has-text("视频预览")', '显示创作结果页面'),
+      check('预览区域', '.result-page', '显示内容预览区域'),
+      check('操作按钮', '.result-page button, .result-page a', '显示结果操作入口'),
+    ],
+  },
+  {
+    name: 'create-pipeline',
+    route: '/create/pipeline',
+    expectedRoute: '/create',
+    waitFor: 'h1:has-text("视频创作")',
+    checks: [
+      check('流水线视图', '.view-tab.active:has-text("流水线创作")', '显示创作流水线视图'),
+      check('流水线状态', '.pipeline-grid, .loading-state, .error-state', '显示流水线加载结果'),
+    ],
+  },
+  {
+    name: 'create-history',
+    route: '/create/history',
+    waitFor: 'h1:has-text("创作历史")',
+    checks: [
+      check('历史列表', '.history-page', '显示创作历史页面'),
+      check('记录状态', '.render-list, .empty-state, .loading-state', '显示历史记录或明确空状态'),
+    ],
+  },
+  {
+    name: 'intelligence-main',
+    route: '/intelligence',
+    waitFor: '.page-title:has-text("内容情报")',
+    checks: [
+      check('搜索入口', 'input[placeholder*="输入关键词"]', '显示搜索输入框'),
+      check('搜索按钮', 'button:has-text("搜索")', '显示搜索按钮'),
+      check('来源筛选', 'input[type="checkbox"]', '显示数据来源筛选'),
+    ],
+  },
+  {
+    name: 'keyword-monitor',
+    route: '/keywords',
+    waitFor: '.page-title:has-text("关键词监测")',
+    checks: [
+      check('监控面板', '.page-title:has-text("关键词监测")', '显示关键词监控面板'),
+      check('关键词入口', 'input, button:has-text("添加")', '显示关键词输入或添加入口'),
+    ],
+  },
+  {
+    name: 'upgrade-modal',
+    route: '/',
+    waitFor: 'button:has-text("升级 Pro")',
+    trigger: 'button:has-text("升级 Pro")',
+    afterTrigger: '.upgrade-modal, [role="dialog"]:has-text("升级")',
+    checks: [
+      check('升级按钮', 'button:has-text("升级 Pro")', '显示升级按钮'),
+      check('升级弹窗', '.upgrade-modal, [role="dialog"]:has-text("升级")', '点击后显示升级弹窗'),
+    ],
+  },
+  {
+    name: 'model-provider-add-dialog',
+    route: '/model-providers',
+    waitFor: 'button:has-text("添加服务商")',
+    trigger: 'button:has-text("添加服务商")',
+    afterTrigger: '.el-dialog:has-text("添加服务商")',
+    checks: [
+      check('添加按钮', 'button:has-text("添加服务商")', '显示添加服务商按钮'),
+      check('弹窗交互', '.el-dialog .category-grid', '显示服务商类别选择'),
+    ],
+  },
+  {
+    name: 'model-provider-edit-dialog',
+    route: '/model-providers',
+    waitFor: 'button[aria-label="编辑"]',
+    trigger: 'button[aria-label="编辑"]',
+    afterTrigger: '.el-dialog:has-text("编辑服务商")',
+    checks: [
+      check('编辑按钮', 'button[aria-label="编辑"]', '显示编辑服务商按钮'),
+      check('编辑弹窗', '.el-dialog:has-text("编辑服务商")', '点击后显示编辑弹窗'),
+    ],
+  },
+  {
+    name: 'model-provider-delete-dialog',
+    route: '/model-providers',
+    waitFor: 'button[aria-label="删除"]',
+    trigger: 'button[aria-label="删除"]',
+    afterTrigger: '.el-dialog:has-text("确认删除")',
+    checks: [
+      check('删除按钮', 'button[aria-label="删除"]', '显示删除服务商按钮'),
+      check('确认弹窗', '.el-dialog:has-text("确认删除")', '点击后显示删除确认弹窗'),
+    ],
+  },
+  {
+    name: 'monitor-settings-dialog',
+    route: '/monitor',
+    waitFor: '.page-title:has-text("分屏监控")',
+    checks: [
+      check('监控面板', '.page-title:has-text("分屏监控")', '显示监控页面'),
+      check('设置入口', '.layout-toggle, button:has-text("添加监控")', '显示布局或监控配置入口'),
+    ],
+  },
+  {
+    name: 'collection-confirm-dialog',
+    route: '/collection',
+    waitFor: '.page-title:has-text("内容采集")',
+    checks: [
+      check('收藏列表', '.cohere-section-title:has-text("草稿箱")', '显示草稿列表'),
+      check('删除入口', '.cohere-card-grid button:has-text("删除"), .cohere-empty', '显示删除入口或明确空状态'),
+    ],
+  },
+  {
+    name: 'sidebar-platform-list',
+    route: '/',
+    waitFor: '.cohere-sidebar',
+    checks: [
+      check('侧边栏', '.cohere-sidebar', '显示平台账号侧边栏'),
+      check('平台图标', '.cohere-platform-item .platform-icon', '显示平台图标'),
+      check('搜索框', '.cohere-sidebar-search input', '显示平台搜索框'),
+      check('状态指示', '.cohere-platform-item .platform-status', '显示平台状态'),
+    ],
+  },
+  {
+    name: 'nav-active-state',
+    route: '/accounts',
+    waitFor: '.nav-item.active:has-text("账号管理")',
+    checks: [
+      check('导航高亮', '.nav-item.active:has-text("账号管理")', '高亮当前导航'),
+      check('侧边栏联动', '.cohere-sidebar', '账号页保留平台侧边栏'),
+    ],
+  },
+  {
+    name: 'app-header-status',
+    route: '/',
+    waitFor: '.cohere-topnav',
+    checks: [
+      check('品牌标识', '.cohere-topnav .brand', '显示品牌标识'),
+      check('运行状态', '.cohere-topnav .status-indicator', '显示服务运行状态'),
+      check('升级按钮', '.cohere-topnav .pro-btn', '非 Pro 用户显示升级按钮'),
+    ],
+  },
+];
+
+async function runViewTest(runner, test) {
+  const consoleOffset = runner.consoleErrors.length;
+  const pageOffset = runner.pageErrors.length;
+  await runner._navigateToRoute(test.route, test.waitFor, test.expectedRoute || test.route);
+
+  if (test.trigger) {
+    await runner.page.click(test.trigger, { timeout: 5000 });
+    await runner.page.waitForSelector(test.afterTrigger, { state: 'visible', timeout: 10000 });
   }
-  
-  const runner = new VisualTestRunner();
-  await runner.launch();
-  
-  if (test.name === 'upgrade-modal') {
-    try { await runner.page.click('text=升级 Pro', { timeout: 2000 }); } catch (_) {}
-    await runner.page.waitForTimeout(1000);
+
+  const screenshotPath = path.join(runner.screenshotDir, `${test.name}.png`);
+  await runner.page.screenshot({ path: screenshotPath, fullPage: true });
+
+  const failedChecks = [];
+  for (const item of test.checks) {
+    const visible = await runner.page.locator(item.selector).first().isVisible();
+    runner.results.push({
+      test: test.name,
+      check: item.name,
+      status: visible ? 'PASSED' : 'FAILED',
+      route: test.route,
+      screenshotPath,
+      prompt: item.prompt,
+    });
+    if (!visible) failedChecks.push(item.name);
   }
-  if (test.name === 'model-provider-add-dialog') {
-    try { await runner.page.click('text=添加服务商', { timeout: 2000 }); } catch (_) {}
-    await runner.page.waitForTimeout(1000);
+
+  runner._throwOnRuntimeErrors(test.name, consoleOffset, pageOffset);
+  if (failedChecks.length > 0) {
+    throw new Error(`${test.name} 断言失败: ${failedChecks.join(', ')}`);
   }
-  
-  await runner.aiVisionTest(test.name, test.route, test.checks, {
-    waitFor: test.waitFor,
-    waitMs: test.waitMs
+}
+
+async function runViewSuite(tests, options = {}) {
+  const runner = options.runner || new VisualTestRunner({
+    url: options.url || process.env.TEST_URL || 'http://127.0.0.1:5174',
+    headless: options.headless ?? (process.env.HEADLESS !== 'false'),
   });
-  await runner.close();
+  const failures = [];
+
+  try {
+    await runner.launch();
+    for (const test of tests) {
+      try {
+        await runViewTest(runner, test);
+      } catch (error) {
+        failures.push({ test: test.name, error });
+      }
+    }
+  } finally {
+    await runner.close();
+  }
+
+  if (failures.length > 0) {
+    const error = new Error(
+      `补充视图失败: ${failures.map(item => `${item.test}: ${item.error.message}`).join(' | ')}`,
+    );
+    error.failures = failures;
+    throw error;
+  }
+
+  return { total: tests.length, passed: tests.length };
+}
+
+async function runSupplementaryTests(options = {}) {
+  return runViewSuite(supplementaryViewTests, options);
+}
+
+async function runSingle(name, options = {}) {
+  const test = supplementaryViewTests.find(view => view.name === name);
+  if (!test) throw new Error(`未找到补充视图: ${name}`);
+  return runViewSuite([test], options);
 }
 
 if (require.main === module) {
   const args = process.argv.slice(2);
-  if (args[0] === '--single' && args[1]) {
-    runSingle(args[1]);
-  } else if (args[0] === '--list') {
-    console.log('可用的补充视图测试:');
-    supplementaryViewTests.forEach(v => console.log(`  - ${v.name}`));
+  if (args[0] === '--list') {
+    supplementaryViewTests.forEach(view => console.log(view.name));
   } else {
-    runSupplementaryTests();
+    const run = args[0] === '--single'
+      ? () => runSingle(args[1])
+      : runSupplementaryTests;
+    run().catch(error => {
+      console.error(error.message);
+      process.exitCode = 1;
+    });
   }
 }
 
-module.exports = { supplementaryViewTests, runSupplementaryTests };
+module.exports = {
+  supplementaryViewTests,
+  runViewTest,
+  runViewSuite,
+  runSupplementaryTests,
+  runSingle,
+};

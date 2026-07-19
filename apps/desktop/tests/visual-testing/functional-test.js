@@ -3,7 +3,11 @@
  * 运行: node tests/visual-testing/functional-test.js
  */
 
-try { require('dotenv').config({ path: __dirname + '/.env' }); } catch (_) {}
+try {
+  require('dotenv').config({ path: __dirname + '/.env' });
+} catch (error) {
+  if (error.code !== 'MODULE_NOT_FOUND') throw error;
+}
 
 const { VisualTestRunner } = require('./test-runner');
 
@@ -13,6 +17,47 @@ const BASE_URL = process.env.TEST_URL || 'http://127.0.0.1:5174';
 function hashUrl(route) {
   if (route === '/') return BASE_URL + '/';
   return BASE_URL + '/#' + route;
+}
+
+const ROUTE_READY_SELECTORS = {
+  '/': '.cohere-main .page-title:has-text("社媒管家")',
+  '/accounts': '.cohere-main .page-title:has-text("账号管理")',
+  '/publish': '.cohere-main .page-title:has-text("一键发布")',
+  '/collection': '.cohere-main .page-title:has-text("内容采集")',
+  '/monitor': '.cohere-main .page-title:has-text("分屏监控")',
+  '/comments': '.cohere-main .page-title:has-text("评论管理")',
+  '/dashboard': '.cohere-main .page-title:has-text("数据看板")',
+  '/create': '.cohere-main h1:has-text("视频创作")',
+  '/create/pipeline': '.cohere-main h1:has-text("视频创作")',
+  '/create/result': '.cohere-main h1:has-text("视频预览")',
+  '/create/history': '.cohere-main h1:has-text("创作历史")',
+  '/calendar': '.cohere-main .page-title:has-text("发布日历")',
+  '/first-run': '.cohere-main h2:has-text("欢迎使用社媒管家")',
+  '/keywords': '.cohere-main .page-title:has-text("关键词监测")',
+  '/viral-analysis': '.cohere-main .page-title:has-text("爆款分析")',
+  '/cloud-publish': '.cohere-main .page-title:has-text("云端发布")',
+  '/intelligence': '.cohere-main .page-title:has-text("内容情报")',
+  '/model-providers': '.cohere-main .page-title:has-text("模型服务商设置")',
+};
+
+function expectedRoute(route) {
+  return route === '/create/pipeline' ? '/create' : route;
+}
+
+async function navigateToReady(page, route, selector = ROUTE_READY_SELECTORS[route] || '#app[data-v-app]') {
+  await page.goto(hashUrl(route), { waitUntil: 'domcontentloaded', timeout: 15000 });
+  await page.waitForFunction((routePath) => {
+    const currentRoute = window.location.hash.slice(1) || '/';
+    const app = document.querySelector('#app[data-v-app]');
+    return currentRoute === routePath && app && (app.textContent || '').trim().length > 0;
+  }, expectedRoute(route), { timeout: 10000 });
+  await page.waitForSelector(selector, { state: 'visible', timeout: 10000 });
+}
+
+async function waitForCount(page, selector, minimum) {
+  await page.waitForFunction(({ query, count }) => (
+    document.querySelectorAll(query).length >= count
+  ), { query: selector, count: minimum }, { timeout: 10000 });
 }
 
 const functionalTests = [
@@ -25,7 +70,7 @@ const functionalTests = [
       const errors = [];
       for (const route of routes) {
         try {
-          await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 });
+          await navigateToReady(runner.page, route);
         } catch (err) {
           errors.push(`${route}: ${err.message.split('\n')[0]}`);
         }
@@ -37,8 +82,7 @@ const functionalTests = [
     name: 'nav-highlight',
     description: '导航高亮跟随路由',
     async run(runner) {
-      await runner.page.goto(hashUrl('/accounts'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(500);
+      await navigateToReady(runner.page, '/accounts', '.nav-item.active:has-text("账号管理")');
       const activeCount = await runner.page.$$eval('.nav-item.active, a.router-link-exact-active', els => els.length);
       return { passed: activeCount > 0, errors: activeCount === 0 ? ['导航项无 active 高亮'] : [] };
     }
@@ -49,8 +93,7 @@ const functionalTests = [
     name: 'home-content',
     description: '首页内容渲染',
     async run(runner) {
-      await runner.page.goto(hashUrl('/'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1000);
+      await navigateToReady(runner.page, '/');
       const hasContent = await runner.page.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
       return { passed: hasContent, errors: hasContent ? [] : ['主内容区域为空'] };
     }
@@ -59,8 +102,8 @@ const functionalTests = [
     name: 'home-sidebar-platforms',
     description: '侧边栏平台列表',
     async run(runner) {
-      await runner.page.goto(hashUrl('/'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(500);
+      await navigateToReady(runner.page, '/', '.cohere-platform-item');
+      await waitForCount(runner.page, '.cohere-platform-item', 3);
       const count = await runner.page.$$eval('.cohere-platform-item', els => els.length);
       return { passed: count >= 3, errors: count < 3 ? [`平台列表项不足: ${count}`] : [] };
     }
@@ -71,13 +114,15 @@ const functionalTests = [
     name: 'accounts-add-dialog',
     description: '添加账号弹窗',
     async run(runner) {
-      await runner.page.goto(hashUrl('/accounts'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1000);
+      await navigateToReady(runner.page, '/accounts', 'button:has-text("添加账号")');
       
       const addBtn = await runner.page.$('button:has-text("添加账号")');
       if (!addBtn) return { passed: false, errors: ['未找到添加按钮'] };
       await addBtn.click();
-      await runner.page.waitForTimeout(800);
+      await runner.page.waitForSelector('.ui-modal, .el-dialog, [role="dialog"]', {
+        state: 'visible',
+        timeout: 10000,
+      });
       
       const modal = await runner.page.$('.ui-modal, .el-dialog, [role="dialog"]');
       return { passed: !!modal, errors: modal ? [] : ['点击添加后未弹出对话框'] };
@@ -87,8 +132,8 @@ const functionalTests = [
     name: 'accounts-filter',
     description: '账号列表筛选',
     async run(runner) {
-      await runner.page.goto(hashUrl('/accounts'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1000);
+      await navigateToReady(runner.page, '/accounts', '.cohere-filter-chip');
+      await waitForCount(runner.page, '.cohere-filter-chip', 3);
       const filterChips = await runner.page.$$eval('button', btns =>
         btns.filter(b => ['全部', '已登录', '未登录'].includes(b.textContent.trim())).length
       );
@@ -101,8 +146,7 @@ const functionalTests = [
     name: 'publish-form',
     description: '发布表单字段',
     async run(runner) {
-      await runner.page.goto(hashUrl('/publish'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1000);
+      await navigateToReady(runner.page, '/publish', 'input[placeholder*="标题"]');
       const inputs = await runner.page.$$('input, textarea');
       const hasTitle = await runner.page.$('input[placeholder*="标题"]');
       const hasPublishBtn = await runner.page.$$eval('button', btns => btns.some(b => b.textContent.includes('发布')));
@@ -122,8 +166,7 @@ const functionalTests = [
     name: 'monitor-layout',
     description: '监控页面布局',
     async run(runner) {
-      await runner.page.goto(hashUrl('/monitor'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1500);
+      await navigateToReady(runner.page, '/monitor');
       const hasContent = await runner.page.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
       return { passed: hasContent, errors: hasContent ? [] : ['监控页面内容为空'] };
     }
@@ -134,9 +177,9 @@ const functionalTests = [
     name: 'model-provider-filter',
     description: '服务商分类筛选',
     async run(runner) {
-      await runner.page.goto(hashUrl('/model-providers'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1000);
-      const chips = await runner.page.$$('.cohere-filter-chip');
+      await navigateToReady(runner.page, '/model-providers', '.filter-chip');
+      await waitForCount(runner.page, '.filter-chip', 5);
+      const chips = await runner.page.$$('.filter-chip');
       return { passed: chips.length >= 5, errors: chips.length < 5 ? [`筛选按钮不足: ${chips.length}`] : [] };
     }
   },
@@ -144,10 +187,13 @@ const functionalTests = [
     name: 'model-provider-cards',
     description: '服务商卡片区域',
     async run(runner) {
-      await runner.page.goto(hashUrl('/model-providers'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1000);
+      await navigateToReady(runner.page, '/model-providers');
       const cards = await runner.page.$$('.provider-card, .provider-grid, [class*="provider"]');
-      return { passed: true, errors: [], info: `发现 ${cards.length} 个服务商相关元素` };
+      return {
+        passed: cards.length > 0,
+        errors: cards.length > 0 ? [] : ['服务商区域未渲染'],
+        info: `发现 ${cards.length} 个服务商相关元素`,
+      };
     }
   },
 
@@ -156,8 +202,8 @@ const functionalTests = [
     name: 'calendar-grid',
     description: '日历网格渲染',
     async run(runner) {
-      await runner.page.goto(hashUrl('/calendar'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1500);
+      await navigateToReady(runner.page, '/calendar', '.calendar-grid');
+      await waitForCount(runner.page, '.calendar-grid > *', 28);
       const gridChildren = await runner.page.$$eval('.calendar-grid > *', els => els.length);
       return { passed: gridChildren >= 28, errors: gridChildren < 28 ? [`日历格子不足: ${gridChildren}`] : [] };
     }
@@ -166,8 +212,7 @@ const functionalTests = [
     name: 'calendar-nav',
     description: '日历月份导航',
     async run(runner) {
-      await runner.page.goto(hashUrl('/calendar'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1500);
+      await navigateToReady(runner.page, '/calendar', 'button:has-text("今天")');
       const btnTexts = await runner.page.$$eval('button', els => els.map(e => e.textContent.trim()));
       const hasNav = btnTexts.some(t => t.includes('◀')) && btnTexts.some(t => t.includes('▶')) && btnTexts.some(t => t.includes('今天'));
       return { passed: hasNav, errors: hasNav ? [] : ['缺少月份导航按钮'] };
@@ -179,8 +224,8 @@ const functionalTests = [
     name: 'create-view-tabs',
     description: '创作页 Tab 切换',
     async run(runner) {
-      await runner.page.goto(hashUrl('/create'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1500);
+      await navigateToReady(runner.page, '/create', '.view-tab');
+      await waitForCount(runner.page, '.view-tab, .view-tabs button', 3);
       const tabs = await runner.page.$$('.view-tab, .view-tabs button');
       return { passed: tabs.length >= 3, errors: tabs.length < 3 ? [`Tab 数量不足: ${tabs.length}`] : [] };
     }
@@ -191,8 +236,7 @@ const functionalTests = [
     name: 'intelligence-search',
     description: '智能搜索入口',
     async run(runner) {
-      await runner.page.goto(hashUrl('/intelligence'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1500);
+      await navigateToReady(runner.page, '/intelligence');
       const hasContent = await runner.page.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
       return { passed: hasContent, errors: hasContent ? [] : ['智能助手页面内容为空'] };
     }
@@ -203,8 +247,7 @@ const functionalTests = [
     name: 'comments-list',
     description: '评论列表渲染',
     async run(runner) {
-      await runner.page.goto(hashUrl('/comments'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1500);
+      await navigateToReady(runner.page, '/comments');
       const hasContent = await runner.page.evaluate(() => document.querySelector('main')?.innerHTML?.length > 100);
       return { passed: hasContent, errors: hasContent ? [] : ['评论页面内容为空'] };
     }
@@ -215,8 +258,8 @@ const functionalTests = [
     name: 'collection-view',
     description: '收藏页面渲染',
     async run(runner) {
-      await runner.page.goto(hashUrl('/collection'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(1500);
+      await navigateToReady(runner.page, '/collection', '.cohere-stat-card');
+      await waitForCount(runner.page, '.cohere-stat-card', 2);
       const cards = await runner.page.$$('.cohere-stat-card');
       return { passed: cards.length >= 2, errors: cards.length < 2 ? [`收藏统计卡片不足: ${cards.length}`] : [] };
     }
@@ -227,8 +270,8 @@ const functionalTests = [
     name: 'global-topnav',
     description: '顶部导航栏',
     async run(runner) {
-      await runner.page.goto(hashUrl('/'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(500);
+      await navigateToReady(runner.page, '/', '.cohere-topnav');
+      await waitForCount(runner.page, '.nav-item', 5);
       const navItems = await runner.page.$$('.nav-item');
       const brand = await runner.page.$('.brand');
       return {
@@ -241,8 +284,7 @@ const functionalTests = [
     name: 'global-upgrade-btn',
     description: '升级按钮（非Pro用户）',
     async run(runner) {
-      await runner.page.goto(hashUrl('/'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(500);
+      await navigateToReady(runner.page, '/', '.pro-btn, button:has-text("升级 Pro")');
       const upgradeBtn = await runner.page.$('.pro-btn, button:has-text("升级 Pro")');
       return { passed: !!upgradeBtn, errors: upgradeBtn ? [] : ['升级按钮未找到'] };
     }
@@ -251,8 +293,7 @@ const functionalTests = [
     name: 'global-status-indicator',
     description: '服务状态指示器',
     async run(runner) {
-      await runner.page.goto(hashUrl('/'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(500);
+      await navigateToReady(runner.page, '/', '.status-dot, .status-indicator');
       const statusDot = await runner.page.$('.status-dot, .status-indicator');
       return { passed: !!statusDot, errors: statusDot ? [] : ['状态指示器不存在'] };
     }
@@ -272,7 +313,11 @@ const functionalTests = [
         const consoleHandler = msg => { if (msg.type() === 'error') errors.push(msg.text()); };
         runner.page.on('pageerror', handler);
         runner.page.on('console', consoleHandler);
-        try { await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 }); await runner.page.waitForTimeout(1500); } catch (_) {}
+        try {
+          await navigateToReady(runner.page, route);
+        } catch (error) {
+          errors.push(`navigation failed: ${error.message}`);
+        }
         runner.page.removeListener('pageerror', handler);
         runner.page.removeListener('console', consoleHandler);
         const critical = errors.filter(e =>
@@ -302,7 +347,11 @@ const functionalTests = [
           }
         };
         runner.page.on('console', handler);
-        try { await runner.page.goto(hashUrl(route), { waitUntil: 'load', timeout: 10000 }); await runner.page.waitForTimeout(2000); } catch (_) {}
+        try {
+          await navigateToReady(runner.page, route);
+        } catch (error) {
+          warnings.push(`navigation failed: ${error.message}`);
+        }
         runner.page.removeListener('console', handler);
         if (warnings.length > 0) unresolved.push(route + ': ' + warnings.join('; '));
       }
@@ -314,15 +363,20 @@ const functionalTests = [
     name: 'create-pipeline-start-button',
     description: '创作页「启动流水线」按钮可点击',
     async run(runner) {
-      await runner.page.goto(hashUrl('/create'), { waitUntil: 'load', timeout: 10000 });
-      await runner.page.waitForTimeout(2000);
+      await navigateToReady(runner.page, '/create', '.view-tab');
       const dq = String.fromCharCode(36, 36);
       const tabs = await runner.page[dq]('.view-tab');
-      if (tabs.length > 0) { await tabs[0].click(); await runner.page.waitForTimeout(1000); }
+      if (tabs.length > 0) {
+        await tabs[0].click();
+        await runner.page.waitForSelector('.view-tab.active:has-text("流水线创作")', {
+          state: 'visible',
+          timeout: 10000,
+        });
+      }
       const pipelineCards = await runner.page[dq]('.pipeline-card');
       if (pipelineCards.length > 0) {
         await pipelineCards[0].click();
-        await runner.page.waitForTimeout(1500);
+        await runner.page.waitForSelector('.pipeline-detail', { state: 'visible', timeout: 10000 });
       } else {
         const fallbackBtn = await runner.page.evaluate(() => { const els = document.querySelectorAll('*'); for (const el of els) { if (el.textContent.includes('启动流水线') && el.children.length <= 2) return { tag: el.tagName, isBtn: el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' }; } return null; });
         if (fallbackBtn && !fallbackBtn.isBtn) return { passed: false, errors: ['流水线数据为空, 启动流水线降级为非button元素(tag=' + fallbackBtn.tag + ')'] };
@@ -386,8 +440,7 @@ const functionalTests = [
         var handler = function(msg) { if (msg.type() === "error") errors.push(msg.text()); };
         runner.page.on("console", handler);
         try {
-          await runner.page.goto(hashUrl(route), { waitUntil: "load", timeout: 10000 });
-          await runner.page.waitForTimeout(1500);
+          await navigateToReady(runner.page, route);
         } catch (e) { errors.push("navigation failed: " + e.message.substring(0, 100)); }
         runner.page.removeListener("console", handler);
         var critical = errors.filter(function(e) { return e.indexOf('net::ERR_') >= 0 || e.indexOf('Uncaught TypeError') >= 0 || e.indexOf('Uncaught ReferenceError') >= 0; });
@@ -401,8 +454,7 @@ const functionalTests = [
     name: 'css-variables-active',
     description: 'CSS 变量正确加载（无 BOM / PostCSS 错误）',
     async run(runner) {
-      await runner.page.goto(hashUrl("/"), { waitUntil: "load", timeout: 10000 });
-      await runner.page.waitForTimeout(1000);
+      await navigateToReady(runner.page, '/', '.cohere-sidebar, .app-sidebar, nav');
       var cssOk = await runner.page.evaluate(function() {
         var root = getComputedStyle(document.documentElement);
         var primary = root.getPropertyValue("--primary").trim();
@@ -481,5 +533,11 @@ async function runFunctionalTests() {
 
 if (require.main === module) runFunctionalTests();
 
-module.exports = { functionalTests, runFunctionalTests };
+module.exports = {
+  ROUTE_READY_SELECTORS,
+  navigateToReady,
+  waitForCount,
+  functionalTests,
+  runFunctionalTests,
+};
 

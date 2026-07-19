@@ -232,7 +232,7 @@ sleep 8 && kill $!
 
 ## 构建与发布
 
-- **打包**：`npm run build:win`（需 node_modules 里有 electron@33.4.0 + electron-builder@25.1.8）
+- **打包**：`npm run build:win`（需 node_modules 里有 electron@43.1.1 + electron-builder@25.1.8）
 - **Playwright 浏览器捆绑**：打包前需执行 `cd apps/desktop && PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers npx playwright install chromium`，浏览器自动捆入 `extraResources`
 - **离线支持**：安装包自带 Chromium 浏览器（~170MB），无需代理；
   自动更新模块内置 GFW 网络错误静默处理，无网络时静默失败不弹错

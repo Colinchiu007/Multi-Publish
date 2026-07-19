@@ -7,13 +7,11 @@
     "dev": "npm run dev -w @multi-publish/desktop",
     "build": "npm run build -w @multi-publish/desktop",
     "build:win": "npm run build:win -w @multi-publish/desktop",
-    "test": "npm run test -w @multi-publish/rpa-engine -w @multi-publish/shared-utils -w @multi-publish/desktop && npm run test:ai-autonomous-tester",
+    "test": "npm run test --workspaces --if-present",
     "clean": "rm -rf apps/*/node_modules packages/*/node_modules node_modules",
-    "check:deps": "npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite,app-builder-bin,electron 2>&1 || echo \"WARN: depcheck issues found (non-blocking)\"",
-    "check:circular": "npx madge --warning --circular apps/desktop/electron/main.js 2>&1 || echo \"WARN: circular deps found (non-blocking)\"",
-    "test:platform-verify": "node scripts/verify-platform-selectors.js",
-    "test:platform-verify-full": "node scripts/verify-platform-selectors.js --full",
-    "test:rpa-selectors": "cd packages/rpa-engine && npx vitest run tests/platform-selectors.test.js",
+    "check:deps": "depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite,app-builder-bin,electron,@jridgewell/trace-mapping,cheerio,remotion,@stryker-mutator/core,@stryker-mutator/vitest-runner,pinia,playwright",
+    "check:circular": "madge --warning --circular apps/desktop/electron/main.js",
+    "test:rpa-selectors": "cd packages/rpa-engine && npx vitest run tests/platform-selectors.test.js tests/platform-selectors-cross-platform.test.js",
     "test:ai-autonomous-tester": "npm test -w @multi-publish/ai-autonomous-tester"
   },
   "workspaces": [
@@ -34,6 +32,8 @@
     "remotion": "^4.0.484"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "depcheck": "^1.4.7",
     "madge": "^8.0.0",
     "pinia": "^3.0.0",

@@ -277,10 +277,7 @@ const platformsMixin = {
     } catch(e) { log.error('RpaView','douyin publish: '+e.message); return { success:false, error:e.message, platform:'douyin' } }
   },
 
-  // eslint-disable-next-line no-unused-vars
-  async _publish_wechat_mp(win, article) { return {success:false,error:'wechat_mp RPA pending',platform:'wechat_mp'} },
   // ========== P2-D: wechat_mp — iframe save-draft + mass-send ==========
-  // eslint-disable-next-line no-dupe-class-members
   async _publish_wechat_mp(win, article) {
     this._emitProgress('wechat_mp','navigating to draft...',5)
     // Direct draft edit URL
@@ -328,30 +325,49 @@ const platformsMixin = {
 
     // Save draft
     this._emitProgress('wechat_mp','saving draft...',70)
+    let mediaId = null
     try {
-      await this._click(win,'a[data-action="save"], a#js_sync_save')
+      const saved = await this._click(win,'a[data-action="save"], a#js_sync_save')
+      if (!saved) {
+        return { success:false, error:'微信公众号草稿保存失败：保存按钮不可用', platform:'wechat_mp' }
+      }
       await this._sleep(3000)
       const finalUrl = win.webContents.getURL()
-      let mediaId = null
       const match = finalUrl.match(/appmsgid=(\d+)/)
-      // eslint-disable-next-line no-unused-vars
       if (match) mediaId = match[1]
     } catch(e) {
       log.warn('RpaView','wechat_mp save: '+e.message)
+      return { success:false, error:'微信公众号草稿保存失败：'+e.message, platform:'wechat_mp' }
+    }
+
+    if (!mediaId) {
+      return { success:false, error:'微信公众号草稿保存结果无法验证：缺少媒体 ID', platform:'wechat_mp' }
     }
 
     // Mass send (群发)
-    if (article.massSend && mediaId) {
+    if (article.massSend) {
       this._emitProgress('wechat_mp','mass sending...',85)
       try {
         await this._navigateAndWait(win,'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_list&type=10&action=list',2000)
-        await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify('[appmsgid="'+mediaId+'"]')+';let row=document.querySelector(s);if(row)row.click();})()')
+        const draftSelected = await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify('[appmsgid="'+mediaId+'"]')+';let row=document.querySelector(s);if(!row)return false;row.click();return true;})()')
+        if (!draftSelected) {
+          return { success:false, error:'微信公众号群发失败：未找到已保存草稿', platform:'wechat_mp' }
+        }
         await this._sleep(1000)
-        await this._click(win,'a.btn_masssend, a[data-action="masssend"]')
+        const massSendStarted = await this._click(win,'a.btn_masssend, a[data-action="masssend"]')
+        if (!massSendStarted) {
+          return { success:false, error:'微信公众号群发失败：群发按钮不可用', platform:'wechat_mp' }
+        }
         await this._sleep(2000)
-        await this._click(win,'.dialog_bd_btn a:has-text("确定"), .weui-desktop-btn:has-text("确定")')
+        const massSendConfirmed = await this._click(win,'.dialog_bd_btn a:has-text("确定"), .weui-desktop-btn:has-text("确定")')
+        if (!massSendConfirmed) {
+          return { success:false, error:'微信公众号群发确认失败：确认按钮不可用', platform:'wechat_mp' }
+        }
         await this._sleep(3000)
-      } catch(e) { log.warn('RpaView','wechat_mp mass send: '+e.message) }
+      } catch(e) {
+        log.warn('RpaView','wechat_mp mass send: '+e.message)
+        return { success:false, error:'微信公众号群发失败：'+e.message, platform:'wechat_mp' }
+      }
     }
 
     this._emitProgress('wechat_mp','done',100)

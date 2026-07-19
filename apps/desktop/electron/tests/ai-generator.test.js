@@ -1,57 +1,81 @@
-﻿// ai-generator tests
-const assert = require('assert');
-let p = 0, f = 0;
-function t(n, fn) { try { fn(); p++; console.log('  \u2705 ' + n); } catch (e) { f++; console.log('  \u274C ' + n + ': ' + e.message); } }
-function eq(a, b) { assert.deepStrictEqual(a, b); }
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-console.log('=== ai-generator ===');
-let AIGenerator;
-try { AIGenerator = require('../services/ai-generator').AIGenerator; } catch (e) { console.log('  Skipped: ' + e.message); process.exit(0); }
+const { AIGenerator } = require('../services/ai-generator')
 
-const gen = new AIGenerator();
+describe('AIGenerator 当前 provider manager 委托合同', () => {
+  let generator
+  let manager
 
-t('exports AIGenerator class', function () { eq(typeof AIGenerator, 'function'); });
+  beforeEach(() => {
+    manager = {
+      _ready: true,
+      listProviders: vi.fn((type) => ({
+        video: [{ id: 'hunyuan', category: 'video' }],
+        audio: [{ id: 'suno', category: 'audio' }],
+        image: [{ id: 'flux', category: 'image' }],
+        tts: [{ id: 'elevenlabs', category: 'tts' }],
+      })[type] || []),
+      getProvider: vi.fn((providerId) => providerId === 'hunyuan'
+        ? { id: 'hunyuan', models: ['hunyuan-video'] }
+        : null),
+    }
+    generator = new AIGenerator()
+    generator.setModelProviderManager(manager)
+  })
 
-t('listProviders returns arrays by type', function () {
-  const video = gen.listProviders('video');
-  const audio = gen.listProviders('audio');
-  const image = gen.listProviders('image');
-  const tts = gen.listProviders('tts');
-  eq(Array.isArray(video), true);
-  eq(Array.isArray(audio), true);
-  eq(Array.isArray(image), true);
-  eq(Array.isArray(tts), true);
-});
+  it('导出 AIGenerator 类', () => {
+    expect(AIGenerator).toBeTypeOf('function')
+  })
 
-t('video providers include hunyuan', function () {
-  const providers = gen.listProviders('video');
-  eq(providers.some(p => p.id === 'hunyuan'), true);
-});
+  it('按类型委托 manager.listProviders 并返回数组', () => {
+    const results = ['video', 'audio', 'image', 'tts'].map((type) => generator.listProviders(type))
 
-t('tts providers include elevenlabs', function () {
-  const providers = gen.listProviders('tts');
-  eq(providers.some(p => p.id === 'elevenlabs'), true);
-});
+    expect(manager.listProviders.mock.calls).toEqual([
+      ['video'],
+      ['audio'],
+      ['image'],
+      ['tts'],
+    ])
+    expect(results.every(Array.isArray)).toBe(true)
+  })
 
-t('image providers include flux', function () {
-  const providers = gen.listProviders('image');
-  eq(providers.some(p => p.id === 'flux'), true);
-});
+  it('视频 provider 包含 hunyuan', () => {
+    expect(generator.listProviders('video')).toContainEqual(
+      expect.objectContaining({ id: 'hunyuan', category: 'video' }),
+    )
+  })
 
-t('getProviderConfig returns config without apiKey', function () {
-  const config = gen.getProviderConfig('hunyuan');
-  eq(config.id, 'hunyuan');
-  eq(config.apiKey, undefined);
-});
+  it('TTS provider 包含 elevenlabs', () => {
+    expect(generator.listProviders('tts')).toContainEqual(
+      expect.objectContaining({ id: 'elevenlabs', category: 'tts' }),
+    )
+  })
 
-t('getProviderConfig returns null for unknown', function () {
-  eq(gen.getProviderConfig('unknown_provider'), null);
-});
+  it('图片 provider 包含 flux', () => {
+    expect(generator.listProviders('image')).toContainEqual(
+      expect.objectContaining({ id: 'flux', category: 'image' }),
+    )
+  })
 
-t('listModels returns array', function () {
-  const models = gen.listModels('hunyuan');
-  eq(Array.isArray(models), true);
-});
+  it('getProviderConfig 委托 manager 且不暴露 apiKey', () => {
+    const config = generator.getProviderConfig('hunyuan')
 
-console.log('\n========== ' + p + '/' + (p + f) + ' ==========');
-if (f) process.exit(1);
+    expect(manager.getProvider).toHaveBeenCalledWith('hunyuan')
+    expect(config).toEqual({ id: 'hunyuan', models: ['hunyuan-video'] })
+    expect(config).not.toHaveProperty('apiKey')
+  })
+
+  it('未知 provider 返回 null', () => {
+    expect(generator.getProviderConfig('unknown_provider')).toBeNull()
+    expect(manager.getProvider).toHaveBeenCalledWith('unknown_provider')
+  })
+
+  it('listModels 委托 manager 并返回独立模型数组', () => {
+    const models = generator.listModels('hunyuan')
+
+    expect(manager.getProvider).toHaveBeenCalledWith('hunyuan')
+    expect(models).toEqual(['hunyuan-video'])
+    models.push('mutated')
+    expect(generator.listModels('hunyuan')).toEqual(['hunyuan-video'])
+  })
+})

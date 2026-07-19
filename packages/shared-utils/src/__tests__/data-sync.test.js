@@ -54,6 +54,14 @@ describe('数据同步 / 数据缓存', () => {
     const service = new DataSyncService(new MockStore())
     expect(service.getCachedData('nonexistent')).toBeNull()
   })
+
+  test('缓存结构缺少同步时间时返回 null', () => {
+    const store = new MockStore()
+    store.setSetting('sync_data_douyin', JSON.stringify({ platform: 'douyin', views: 100 }))
+    const service = new DataSyncService(store)
+
+    expect(service.getCachedData('douyin')).toBeNull()
+  })
 })
 
 describe('数据同步 / 同步编排', () => {
