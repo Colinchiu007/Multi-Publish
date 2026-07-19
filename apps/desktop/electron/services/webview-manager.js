@@ -20,6 +20,7 @@ const path = require('path')
 const log = require('./logger')
 const { PLATFORM_DASHBOARD_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
+const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 // 各平台创作者中心/后台 URL → @multi-publish/shared-utils/src/platform-definitions
 
@@ -271,31 +272,31 @@ class WebviewManager {
    * 注册 IPC handlers（供 main.js 调用）
    */
   registerIpcHandlers () {
-    ipcMain.handle('webview:set-layout', (_, count) => {
+    ipcMain.handle('webview:set-layout', withSenderCheck((_, count) => {
       try {
         this.setLayout(count)
         return { code: 0, data: { layout: count, tabCount: this.tabs.length } }
       } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-    })
+    }))
 
-    ipcMain.handle('webview:open-tab', (_, arg) => {
+    ipcMain.handle('webview:open-tab', withSenderCheck((_, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { platform, accountId, cookies, localStorage, url } = arg
       try {
         const tabId = this.openTab(platform, accountId, cookies, localStorage, url)
         return tabId ? { code: 0, data: { tabId } } : { code: EC.REQUEST_ERROR, message: `无法打开 ${platform}` }
       } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-    })
+    }))
 
-    ipcMain.handle('webview:close-tab', (_, tabId) => {
+    ipcMain.handle('webview:close-tab', withSenderCheck((_, tabId) => {
       try { this.closeTab(tabId); return { code: 0 } }
       catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-    })
+    }))
 
-    ipcMain.handle('webview:close-all', () => {
+    ipcMain.handle('webview:close-all', withSenderCheck(() => {
       try { this.closeAll(); return { code: 0 } }
       catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-    })
+    }))
 
     ipcMain.handle('webview:list-tabs', () => {
       try { return { code: 0, data: this.getTabsInfo() } }

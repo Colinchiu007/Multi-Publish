@@ -21,6 +21,7 @@ const { config: appConfig } = require('../config/app-config')
 // eslint-disable-next-line no-unused-vars
 const Store = require('./store')
 const EC = require('../core/error-codes').ERROR
+const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 // OAuth 平台配置
 const OAUTH_CONFIGS = {
@@ -377,7 +378,7 @@ class OAuthManager {
    * 注册 IPC handlers
    */
   registerIpcHandlers () {
-    ipcMain.handle('oauth:start', async (event, arg) => {
+    ipcMain.handle('oauth:start', withSenderCheck(async (event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { platform, credentials } = arg
       try {
@@ -386,7 +387,7 @@ class OAuthManager {
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
     ipcMain.handle('oauth:close', () => {
       try {

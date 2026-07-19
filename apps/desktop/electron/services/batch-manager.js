@@ -356,14 +356,14 @@ class BatchManager {
    * 注册 IPC handlers
    */
   registerIpcHandlers () {
-    ipcMain.handle('batch:create', (_, batch) => {
+    ipcMain.handle('batch:create', withSenderCheck((_, batch) => {
       try {
         const id = this.createBatch(batch)
         return { code: 0, data: { id } }
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
     ipcMain.handle('batch:execute', withSenderCheck(async (_, batchId) => {
       try {
@@ -376,12 +376,12 @@ class BatchManager {
       }
     }))
 
-    ipcMain.handle('batch:schedule', (_, batchId) => {
+    ipcMain.handle('batch:schedule', withSenderCheck((_, batchId) => {
       try {
         const ok = this.scheduleBatch(batchId)
         return ok ? { code: 0 } : { code: EC.REQUEST_ERROR, message: '批量任务不存在' }
       } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-    })
+    }))
 
     ipcMain.handle('batch:list', () => {
       try { return { code: 0, data: this.store.listBatchJobs() } }
@@ -400,10 +400,10 @@ class BatchManager {
       catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
-    ipcMain.handle('batch:duplicate-article', (_, article) => {
+    ipcMain.handle('batch:duplicate-article', withSenderCheck((_, article) => {
       try { return { code: 0, data: this.duplicateArticle(article) } }
       catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-    })
+    }))
   }
 }
 

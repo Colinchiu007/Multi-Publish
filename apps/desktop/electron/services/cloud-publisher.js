@@ -15,6 +15,7 @@
 const logger = require('./logger')
 const log = logger.log || logger
 const EC = require('../core/error-codes').ERROR
+const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 class CloudPublisher {
 
@@ -104,7 +105,7 @@ class CloudPublisher {
    */
   registerIpcHandlers (injectedIpcMain) {
     const ipcMain = injectedIpcMain || require("electron").ipcMain
-    ipcMain.handle('cloud-publisher:submit', async (_event, params) => {
+    ipcMain.handle('cloud-publisher:submit', withSenderCheck(async (_event, params) => {
       try {
         const result = await this.submitTask(params)
         // M-7 修复：统一为标准 { code, data, message } 格式
@@ -113,7 +114,7 @@ class CloudPublisher {
         log.error('CloudPublisher', 'submit failed: ' + err.message)
         return { code: EC.REQUEST_ERROR, message: err.message }
       }
-    })
+    }))
 
     ipcMain.handle('cloud-publisher:list-tasks', async () => {
       try {

@@ -41,7 +41,7 @@ describe('usageTracker context 注入', () => {
     mockRegisterAllHandlers.mockImplementation(() => {})
   })
 
-  it('usage:* handlers 只调用 context 中的 usageTracker', () => {
+  it('usage:* handlers 只调用 context 中的 usageTracker', async () => {
     const usageTracker = {
       getStats: vi.fn(() => ({ sessions: 2 })),
       getDailyStats: vi.fn(() => ({ '2026-07-17': 3 })),
@@ -49,23 +49,24 @@ describe('usageTracker context 注入', () => {
     }
     registerAllIpcHandlers({ app, BrowserWindow, context: { usageTracker } })
 
-    expect(ipcMain._handlers['usage:stats'](makeTrustedEvent())).toEqual({ sessions: 2 })
-    expect(ipcMain._handlers['usage:daily'](makeTrustedEvent())).toEqual({ '2026-07-17': 3 })
-    expect(ipcMain._handlers['usage:track'](makeTrustedEvent(), {
+    // controlledIpcMain 的 dynamicallyAuthorizedHandler 是 async，需 await
+    await expect(ipcMain._handlers['usage:stats'](makeTrustedEvent())).resolves.toEqual({ sessions: 2 })
+    await expect(ipcMain._handlers['usage:daily'](makeTrustedEvent())).resolves.toEqual({ '2026-07-17': 3 })
+    await expect(ipcMain._handlers['usage:track'](makeTrustedEvent(), {
       feature: 'publish', action: 'start', detail: { platform: 'wechat' },
-    })).toBe(true)
+    })).resolves.toBe(true)
     expect(usageTracker.getStats).toHaveBeenCalledTimes(1)
     expect(usageTracker.getDailyStats).toHaveBeenCalledTimes(1)
     expect(usageTracker.trackEvent).toHaveBeenCalledWith('publish', 'start', { platform: 'wechat' })
   })
 
-  it('context 未提供 usageTracker 时保持默认返回值', () => {
+  it('context 未提供 usageTracker 时保持默认返回值', async () => {
     registerAllIpcHandlers({ app, BrowserWindow, context: {} })
-    expect(ipcMain._handlers['usage:stats'](makeTrustedEvent())).toEqual({
+    await expect(ipcMain._handlers['usage:stats'](makeTrustedEvent())).resolves.toEqual({
       features: {}, events: [], sessions: 0,
     })
-    expect(ipcMain._handlers['usage:daily'](makeTrustedEvent())).toEqual({})
-    expect(ipcMain._handlers['usage:track'](makeTrustedEvent(), { feature: 'x' })).toBe(true)
+    await expect(ipcMain._handlers['usage:daily'](makeTrustedEvent())).resolves.toEqual({})
+    await expect(ipcMain._handlers['usage:track'](makeTrustedEvent(), { feature: 'x' })).resolves.toBe(true)
   })
 })
 

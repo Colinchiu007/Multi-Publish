@@ -16,6 +16,7 @@
 const { ipcMain } = require('electron')
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
+const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
 
@@ -314,7 +315,7 @@ class ViralEngine {
       }
     })
 
-    ipcMain.handle('viral:generate', async (event, opts) => {
+    ipcMain.handle('viral:generate', withSenderCheck(async (event, opts) => {
       try {
         const result = await this.generate(opts)
         if (result.code === 0 && result.data) {
@@ -327,7 +328,7 @@ class ViralEngine {
         log.error('ViralEngine', 'generate handler error: ' + e.message)
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
     ipcMain.handle('viral:trending', async (event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }

@@ -28,6 +28,7 @@ const { ipcMain } = require('electron')
 const { calculateStats, deduplicateResults, calculateHourDistribution } = require('./content-intelligence-utils')
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
+const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 const sourcesMixin = require('./content-intelligence-sources')
 const analysisMixin = require('./content-intelligence-analysis')
@@ -287,7 +288,7 @@ class ContentIntelligence {
     })
 
     // Impact tracking — save snapshot (方案 C)
-    ipcMain.handle('intelligence:save-impact', async (event, arg) => {
+    ipcMain.handle('intelligence:save-impact', withSenderCheck(async (event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { articleId, title, keywords, snapshot } = arg
       try {
@@ -296,7 +297,7 @@ class ContentIntelligence {
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message, data: false }
       }
-    })
+    }))
 
     // Impact tracking — get history (方案 C)
     ipcMain.handle('intelligence:get-impact', async (event, arg) => {
