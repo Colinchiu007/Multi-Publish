@@ -20,6 +20,7 @@ const log = require('./logger')
 // eslint-disable-next-line no-unused-vars
 const { PLATFORM_LOGIN_URLS, QR_CODE_PLATFORMS } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
+const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 // 各平台登录页 URL → @multi-publish/shared-utils/src/platform-definitions
 // 支持二维码登录的平台由 QR_CODE_PLATFORMS 定义
@@ -406,7 +407,7 @@ class QrCodeLogin {
    * 注册 IPC handlers
    */
   registerIpcHandlers () {
-    ipcMain.handle('auth:open-qrcode-login', async (event, platform) => {
+    ipcMain.handle('auth:open-qrcode-login', withSenderCheck(async (event, platform) => {
       try {
         const result = await this.openLogin(platform)
         return { code: 0, data: result, message: '扫码登录成功' }
@@ -414,16 +415,16 @@ class QrCodeLogin {
         log.error('QrCodeLogin', `Login failed: ${e.message}`)
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
 
-    ipcMain.handle('auth:qrcode-close', () => {
+    ipcMain.handle('auth:qrcode-close', withSenderCheck(() => {
       try {
         this.close()
         return { code: 0 }
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message }
       }
-    })
+    }))
   }
 }
 
