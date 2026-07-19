@@ -50,145 +50,204 @@ jobs:
 
       # --- Gate 4: 单元测试（Vitest 全量，卡点要求）---
       - name: "Gate 4 - Unit tests (Vitest)"
-        run: npm run test -w @multi-publish/desktop
+        run: npm test
+
+      - name: "Gate 4b - Startup and require smoke tests"
+        run: npm run test:startup -w @multi-publish/desktop
 
       # --- Gate 5: Coverage 检查 ---
       - name: "Gate 5 - Test coverage check"
-        run: cd apps/desktop && npx vitest run --coverage --coverage.reporter=text-summary --coverage.thresholds.lines=60 --coverage.thresholds.branches=50 --coverage.thresholds.functions=60 --coverage.thresholds.statements=60
-        continue-on-error: true
+        run: npm run test:coverage -w @multi-publish/desktop -- --coverage.reporter=text-summary
 
-      # --- Gate 6: IPC bridge completeness (non-blocking) ---
-      - name: "Gate 6 - IPC bridge completeness (non-blocking)"
+      # --- Gate 6: IPC bridge completeness ---
+      - name: "Gate 6 - IPC bridge completeness"
         id: ipc-check
-        continue-on-error: true
         run: |
-          try {
-            node .github/scripts/check-ipc-bridge.js
-            echo "IPC_CHECK=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          } catch {
-            echo "IPC_CHECK=FAIL" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          }
+          node .github/scripts/check-ipc-bridge.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          echo "IPC_CHECK=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # --- Gate 7: 视觉回归测试 ---
       - name: "Gate 7 - Visual regression"
         id: visual-gate
+        shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           Write-Host "=== Gate 7: Visual Regression Test ==="
-          cd apps/desktop
-          
-          # 安装 Playwright Chromium（如未安装）
-          Write-Host "Installing Playwright chromium..."
-          npx playwright install chromium 2>&1 | Out-Null
-          
-          # 构建 Vue 前端
-          Write-Host "Building Vue frontend..."
-          npm run build:vue 2>&1 | Out-Null
-          
-          # 启动 Vite dev server
-          Write-Host "Starting Vite dev server..."
-          $viteJob = Start-Job -ScriptBlock {
-            Set-Location $args[0]
-            npx vite --port 5174
-          } -ArgumentList (Get-Location)
-          
-          # 等待 Vite 就绪
-          for ($i = 0; $i -lt 30; $i++) {
-            Start-Sleep -Seconds 1
-            try {
-              $response = Invoke-WebRequest -Uri "http://127.0.0.1:5174/" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
-              if ($response.StatusCode -eq 200) {
-                Write-Host "Vite ready after $i seconds"
-                break
+          $desktopDir = Join-Path $PWD "apps/desktop"
+
+          Push-Location $desktopDir
+          try {
+            Write-Host "Installing Playwright chromium..."
+            npx.cmd playwright install chromium
+            $playwrightExit = $LASTEXITCODE
+            if ($playwrightExit -ne 0) { exit $playwrightExit }
+
+            Write-Host "Building Vue frontend..."
+            npm.cmd run build:vue
+            $buildExit = $LASTEXITCODE
+            if ($buildExit -ne 0) { exit $buildExit }
+          } finally {
+            Pop-Location
+          }
+
+          $viteProcess = $null
+          $pixelExit = 1
+          $judgeExit = 1
+          try {
+            Write-Host "Starting Vite dev server..."
+            $viteProcess = Start-Process -FilePath "npx.cmd" `
+              -ArgumentList @("vite", "--host", "127.0.0.1", "--port", "5174") `
+              -WorkingDirectory $desktopDir `
+              -RedirectStandardOutput (Join-Path $desktopDir "vite-visual.stdout.log") `
+              -RedirectStandardError (Join-Path $desktopDir "vite-visual.stderr.log") `
+              -WindowStyle Hidden -PassThru
+
+            $viteReady = $false
+            for ($i = 1; $i -le 30; $i++) {
+              Start-Sleep -Seconds 1
+              $viteProcess.Refresh()
+              if ($viteProcess.HasExited) {
+                throw "Vite exited before becoming ready (exit=$($viteProcess.ExitCode))"
               }
-            } catch {}
-            if ($i -eq 29) {
-              Write-Host "[FAIL] Vite never became ready"
-              Stop-Job $viteJob
-              Remove-Job $viteJob -Force
-              exit 1
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:5174/" -UseBasicParsing -TimeoutSec 2
+                if ($response.StatusCode -eq 200) {
+                  Write-Host "Vite ready after $i seconds"
+                  $viteReady = $true
+                  break
+                }
+              } catch {}
+            }
+            if (-not $viteReady) { throw "Vite never became ready" }
+
+            Push-Location $desktopDir
+            try {
+              Write-Host "Running pixel diff tests..."
+              npm.cmd run test:visual:pixel
+              $pixelExit = $LASTEXITCODE
+
+              Write-Host "Generating Agent judge report..."
+              node tests/visual-testing/scripts/agent-visual-judge.js
+              $judgeExit = $LASTEXITCODE
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            if ($viteProcess -and -not $viteProcess.HasExited) {
+              taskkill /PID $viteProcess.Id /T /F 2>$null | Out-Null
             }
           }
-          
-          # 运行像素对比测试
-          Write-Host "Running pixel diff tests..."
-          npm run test:visual:pixel
-          $pixelExit = $LASTEXITCODE
-          
-          # 生成 Agent 判断报告（供 Agent view_image 判断）
-          Write-Host "Generating Agent judge report..."
-          node tests/visual-testing/scripts/agent-visual-judge.js 2>&1 | Out-Null
-          
-          # 上传截图和报告（供追溯）
-          Write-Host "Uploading test artifacts..."
-          
-          # 清理 Vite 进程
-          Stop-Job $viteJob -ErrorAction SilentlyContinue
-          Remove-Job $viteJob -Force
-          taskkill /F /IM node.exe /T 2>$null
-          
-          # Gate 7 结果
+
           if ($pixelExit -ne 0) {
-            Write-Host ""
             Write-Host "[GATE-7] Pixel diff failed - see artifacts for details"
-            Write-Host ""
-            Write-Host "To fix: Agent should run locally:"
-            Write-Host "  1. cd apps/desktop"
-            Write-Host "  2. npm run test:visual:pixel"
-            Write-Host "  3. Check screenshots in tests/visual-testing/screenshots/"
-            Write-Host "  4. If changes expected: cp screenshots/*-current.png base-screenshots/"
-            Write-Host "  5. Commit and push"
-            exit 1  # 像素失败必须退出非零，让 PR 处于 pending 状态
-          } else {
-            Write-Host "[GATE-7] All pixel diff tests passed"
+            exit $pixelExit
           }
-      # --- Gate 8: 全自动端到端测试（统一 E2E 脚本 v0.11.0）---
-      - name: "Gate 8 - 全自动端到端测试 (Unified E2E)"
-        id: coverage-gate
-        continue-on-error: true
+          if ($judgeExit -ne 0) {
+            Write-Host "[GATE-7] Agent visual report generation failed"
+            exit $judgeExit
+          }
+          Write-Host "[GATE-7] All visual tests passed"
+
+      # --- Gate 8: 真实浏览器端到端测试 ---
+      - name: "Gate 8 - Browser E2E"
+        id: e2e-gate
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          Write-Host "=== Gate 8: Browser E2E ==="
+          $desktopDir = Join-Path $PWD "apps/desktop"
+          $viteProcess = $null
+          $e2eExit = 1
+          try {
+            $viteProcess = Start-Process -FilePath "npx.cmd" `
+              -ArgumentList @("vite", "--host", "127.0.0.1", "--port", "5174") `
+              -WorkingDirectory $desktopDir `
+              -RedirectStandardOutput (Join-Path $desktopDir "vite-e2e.stdout.log") `
+              -RedirectStandardError (Join-Path $desktopDir "vite-e2e.stderr.log") `
+              -WindowStyle Hidden -PassThru
+
+            $viteReady = $false
+            for ($i = 1; $i -le 30; $i++) {
+              Start-Sleep -Seconds 1
+              $viteProcess.Refresh()
+              if ($viteProcess.HasExited) {
+                throw "Vite exited before becoming ready (exit=$($viteProcess.ExitCode))"
+              }
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:5174/" -UseBasicParsing -TimeoutSec 2
+                if ($response.StatusCode -eq 200) {
+                  Write-Host "Vite ready after $i seconds"
+                  $viteReady = $true
+                  break
+                }
+              } catch {}
+            }
+            if (-not $viteReady) { throw "Vite never became ready" }
+
+            npm.cmd run test:e2e -w @multi-publish/desktop
+            $e2eExit = $LASTEXITCODE
+          } finally {
+            if ($viteProcess -and -not $viteProcess.HasExited) {
+              taskkill /PID $viteProcess.Id /T /F 2>$null | Out-Null
+            }
+          }
+
+          if ($e2eExit -ne 0) {
+            echo "E2E_GATE=FAIL" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            exit $e2eExit
+          }
+          echo "E2E_GATE=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "[GATE-8] Browser E2E passed"
+
+      # --- Gate 9: PRD/源码自主覆盖审计 ---
+      - name: "Gate 9 - Autonomous coverage audit"
+        id: autonomous-gate
+        shell: pwsh
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          Write-Host "=== Gate 8: Unified Autonomous E2E Test ==="
-          Write-Host "Running unified E2E script (coverage audit)..."
-          
-          # 安装依赖
-          npm ci 2>&1 | Out-Null
-          
-          # 运行统一 E2E 脚本（跳过 server 和 visual 因为已在 Gate 7 完成）
-          $output = node packages/ai-autonomous-tester/scripts/run-autonomous-e2e.js `
-            --prd="01-docs/PRD.md" `
-            --src="apps/desktop/src" `
-            --skip-server `
-            --skip-visual `
-            --docs="01-docs/PRD.md" `
-            --llm=$(if ($env:OPENAI_API_KEY) { "openai" } else { "" }) `
-            --threshold="0.5" 2>&1
-          
-          Write-Host $output
-          
-          # 提取退出码（0=PASS, 1=FAIL, 2=INFRA_ERROR）
+          $PSNativeCommandUseErrorActionPreference = $false
+          Write-Host "=== Gate 9: Autonomous Coverage Audit ==="
+          $auditArgs = @(
+            "packages/ai-autonomous-tester/scripts/run-autonomous-e2e.js",
+            "--prd=01-docs/PRD.md",
+            "--src=apps/desktop/src",
+            "--skip-server",
+            "--skip-visual",
+            "--docs=01-docs/PRD.md",
+            "--threshold=0.5"
+          )
+          if ($env:OPENAI_API_KEY) { $auditArgs += "--llm=openai" }
+
+          $output = & node @auditArgs 2>&1
           $exitCode = $LASTEXITCODE
-          Write-Host "Unified E2E exit code: $exitCode"
-          
-          # 输出结果供后续步骤使用
+          $output | ForEach-Object { Write-Host $_ }
+          Write-Host "Autonomous audit exit code: $exitCode"
+
           if ($exitCode -eq 0) {
-            Write-Host "[GATE-8] PASS - All tests passed"
-            echo "COVERAGE_GATE=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            echo "AUTONOMOUS_GATE=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "[GATE-9] Autonomous audit passed"
+            exit 0
           } elseif ($exitCode -eq 1) {
-            Write-Host "[GATE-8] FAIL - Visual or coverage test failed"
-            Write-Host "[GATE-8] See report in artifacts for details"
-            echo "COVERAGE_GATE=FAIL" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            # 无 API Key 时不阻塞（提示 Agent 读报告），有 Key 时阻塞
-            if ($env:OPENAI_API_KEY) {
-              Write-Host "[GATE-8] Blocking PR - fix failed tests"
-              exit 1
-            } else {
-              Write-Host "[GATE-8] Non-blocking (no API Key - Agent must review report)"
-            }
-          } else {
-            Write-Host "[GATE-8] INFRA_ERROR - see details above"
-            echo "COVERAGE_GATE=INFRA_ERROR" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            echo "AUTONOMOUS_GATE=FAIL" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            exit 1
           }
+          echo "AUTONOMOUS_GATE=INFRA_ERROR" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          exit $exitCode
+
+      - name: "Upload GUI quality artifacts"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-gui-reports
+          path: |
+            apps/desktop/tests/e2e/reports/**
+            apps/desktop/tests/visual-testing/reports/**
+            apps/desktop/tests/visual-testing/screenshots/**
+            apps/desktop/vite-*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       # --- Gate result ---
       - name: "Gate result"
@@ -205,5 +264,6 @@ jobs:
           echo "coverage      : see step output above"
           echo "IPC bridge    : ${{ env.IPC_CHECK }}"
           echo "visual gate  : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
-          echo "coverage gate: ${{ env.COVERAGE_GATE }}"
+          echo "browser E2E  : ${{ env.E2E_GATE }}"
+          echo "autonomous   : ${{ env.AUTONOMOUS_GATE }}"
           echo "=============================="

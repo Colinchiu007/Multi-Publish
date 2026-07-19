@@ -50,17 +50,15 @@ jobs:
       # 1. 启动冒烟测试 — 验证 require 路径、路由表、配置一致性
       #    不依赖 Electron 运行时，在非 Electron 环境自动 mock
       - name: Startup smoke test
-        run: npm run test -w @multi-publish/desktop
+        run: npm run test:startup -w @multi-publish/desktop
 
       # 2. 依赖声明一致性检查 — 检测未声明/未使用的 dependencies
       - name: Dependency check
-        continue-on-error: true
-        run: npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite,app-builder-bin,electron
+        run: npm run check:deps
 
       # 3. 循环依赖检查 — 防止模块间循环引用
       - name: Circular dependency check
-        continue-on-error: true
-        run: npx madge --warning --circular apps/desktop/electron/main.js
+        run: npm run check:circular
 
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
@@ -97,6 +95,8 @@ jobs:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [build]
     runs-on: ubuntu-latest
+    env:
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
     permissions:
       contents: write
 
@@ -152,13 +152,34 @@ jobs:
         if: env.GITEE_TOKEN != ''
         shell: bash
         env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_OWNER: ColinChiu007
           GITEE_REPO: Multi-Publish
         run: |
-          set -e
+          set -euo pipefail
           TAG="${{ github.ref_name }}"
+          RELEASE_API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases"
+
           # 1) 确保 Gitee 仓库 release 存在
-          curl -fsS -X POST "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases" \
-            -H "Content-Type: application/json" \
-            -d "{\"access_token\":\"${GITEE_TOKEN}\",\"tag_
+          if release_json=$(curl -fsS "${RELEASE_API}/tags/${TAG}?access_token=${GITEE_TOKEN}"); then
+            echo "Gitee release ${TAG} already exists"
+          else
+            release_json=$(curl -fsS -X POST "${RELEASE_API}" \
+              -H "Content-Type: application/json" \
+              -d "{\"access_token\":\"${GITEE_TOKEN}\",\"tag_name\":\"${TAG}\",\"name\":\"Multi-Publish ${TAG}\",\"body\":\"Gitee mirror of https://github.com/${GITEE_OWNER}/${GITEE_REPO}/releases/tag/${TAG}\"}")
+          fi
+          release_id=$(printf '%s' "$release_json" | node -e "const fs=require('fs'); const release=JSON.parse(fs.readFileSync(0, 'utf8')); if (!release.id) throw new Error('Gitee release response missing id'); process.stdout.write(String(release.id));")
+
+          # 2) 上传构建产物；配置了 Gitee Token 时，上传失败必须阻塞发布
+          shopt -s nullglob
+          assets=(release-assets/*)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "No release assets found"
+            exit 1
+          fi
+          for asset in "${assets[@]}"; do
+            echo "Uploading ${asset} to Gitee"
+            curl -fsS -X POST "${RELEASE_API}/${release_id}/attach_files" \
+              -F "access_token=${GITEE_TOKEN}" \
+              -F "file=@${asset}"
+          done
+          echo "Gitee sync completed"

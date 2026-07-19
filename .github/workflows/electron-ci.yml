@@ -10,7 +10,7 @@ on:
 
 jobs:
   electron-tests:
-    runs-on: self-hosted
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
 
     steps:
@@ -38,16 +38,25 @@ jobs:
       - name: Electron smoke test (xvfb)
         run: |
           cd apps/desktop
-          timeout 30 xvfb-run --auto-servernum npx electron . --no-sandbox --disable-gpu 2>&1 || true
+          set +e
+          timeout 30 xvfb-run --auto-servernum npx electron . --no-sandbox --disable-gpu 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 124 ]; then
+            echo "Electron remained alive for the smoke window"
+          elif [ "$status" -eq 0 ]; then
+            echo "Electron exited before the smoke window completed"
+            exit 1
+          else
+            exit "$status"
+          fi
 
       - name: Build Vue frontend
         run: |
           npm run build:vue -w @multi-publish/desktop
 
       - name: Dependency check
-        continue-on-error: true
-        run: npx depcheck --ignore-dirs=dist,node_modules,.playwright-browsers --ignores=@vitejs/*,vite,app-builder-bin,electron
+        run: npm run check:deps
 
       - name: Circular dependency check
-        continue-on-error: true
-        run: npx madge --warning --circular apps/desktop/electron/main.js
+        run: npm run check:circular

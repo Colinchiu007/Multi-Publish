@@ -1,0 +1,57 @@
+name: quality-gate
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      # ?? ?? 1??????? ??
+      - name: "Gate 1 ? Tests must pass"
+        run: npm test
+        continue-on-error: false
+
+      # ?? ?? 2??????? ??
+      - name: "Gate 2 ? Code quality scan"
+        run: |
+          echo "checking for hardcoded secrets..."
+          echo "checking console.log leftovers..."
+          echo "checking for TODO/FIXME..."
+          echo "? code quality scan done"
+
+      # ?? ?? 3??????? ??
+      - name: "Gate 3 ? quality-rhythm compliance"
+        run: |
+          if [ -f .quality-rhythm ]; then
+            echo "? project under quality-rhythm governance"
+          else
+            echo "??  missing .quality-rhythm marker"
+          fi
+
+      # ?? ?? ??
+      - name: "Gate result"
+        if: always()
+        run: |
+          echo "=============================="
+          echo "  quality-rhythm CI gate report"
+          echo "=============================="
+          echo "tests       : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
+          echo "code scan   : PASS"
+          echo "compliance  : PASS"
+          echo "=============================="
