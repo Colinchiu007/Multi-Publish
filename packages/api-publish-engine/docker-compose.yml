@@ -1,24 +1,34 @@
-version: "3.9"
-
 services:
   publish-api:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: packages/api-publish-engine/Dockerfile
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
       - PORT=3000
       - DRY_RUN=false
       - API_KEY=${API_KEY:-}
       - MAX_RPM=${MAX_RPM:-100}
       - ENABLE_SCHEDULE=${ENABLE_SCHEDULE:-false}
+      - IDENTITY_AUTH_ENABLED=${IDENTITY_AUTH_ENABLED:?请设置 IDENTITY_AUTH_ENABLED}
+      - IDENTITY_AUTH_REQUIRED=${IDENTITY_AUTH_REQUIRED:-false}
+      - BUSINESS_DATABASE_AUTO_MIGRATE=false
+      - BUSINESS_DATABASE_URL=${BUSINESS_DATABASE_URL:?请设置 BUSINESS_DATABASE_URL}
+      - LOGTO_ENDPOINT=${LOGTO_ENDPOINT:?请设置 LOGTO_ENDPOINT}
+      - LOGTO_API_RESOURCE=${LOGTO_API_RESOURCE:?请设置 LOGTO_API_RESOURCE}
+      - LOGTO_WEBHOOK_SIGNING_KEY=${LOGTO_WEBHOOK_SIGNING_KEY:?请设置 LOGTO_WEBHOOK_SIGNING_KEY}
+      - ENTITLEMENT_KEY_ID=${ENTITLEMENT_KEY_ID:?请设置 ENTITLEMENT_KEY_ID}
+      - ENTITLEMENT_PRIVATE_KEY=${ENTITLEMENT_PRIVATE_KEY:?请设置 ENTITLEMENT_PRIVATE_KEY}
     volumes:
-      - ./config:/app/config
+      # API Key 与可选 publish-api.json 都在包内 config/ 目录读写，必须持久化到该路径。
+      - ./config:/app/packages/api-publish-engine/config
       - ./data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/v1/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/v1/ready"]
       interval: 30s
       timeout: 5s
       retries: 3

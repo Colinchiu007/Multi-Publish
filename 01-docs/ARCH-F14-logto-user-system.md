@@ -282,3 +282,5 @@ Logto 使用 PostgreSQL 持久化；多实例部署时启用 Redis central cache
 1. 真实 Logto 测试租户中的首次登录、重启恢复、Refresh Token 轮换、退出和账号切换。
 2. 真实 PostgreSQL 迁移、并发 lazy upsert、Webhook 重试事务和高并发额度扣减压力测试。
 3. 真实云端 API 的端到端发布与暂停/删除用户会话撤销。
+
+生产配置、版本化 migration、深度就绪探针、备份恢复、监控和灰度回滚的补充设计见 [ARCH-F14-LOGTO-PRODUCTION-READINESS.md](./ARCH-F14-LOGTO-PRODUCTION-READINESS.md)。

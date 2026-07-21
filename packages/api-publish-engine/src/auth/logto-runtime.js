@@ -3,6 +3,8 @@ const { createLogtoJwtVerifier } = require('./logto-jwks')
 const { LogtoWebhookConsumer } = require('./logto-webhook')
 const { signEntitlement } = require('./entitlement')
 const { PostgresEntitlementProvider, PostgresIdentityRepository } = require('./postgres-identity-repository')
+const { createProductionReadinessProbe } = require('./production-readiness')
+const { validateProductionConfig } = require('./production-config')
 
 class LogtoRuntimeError extends Error {
   constructor(code, message, cause) {
@@ -17,6 +19,11 @@ function enabled(value, name = 'identity auth flag') {
   if (!normalized || ['0', 'false', 'no', 'off'].includes(normalized)) return false
   if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
   throw new LogtoRuntimeError('LOGTO_RUNTIME_CONFIG_INVALID', `${name} 必须是明确的布尔值`)
+}
+
+function optionalBoolean(value, fallback, name) {
+  if (value === undefined || value === null || String(value).trim() === '') return fallback
+  return enabled(value, name)
 }
 
 function durationSeconds(value, fallback, name, { allowZero = false } = {}) {
@@ -60,6 +67,16 @@ async function createLogtoRuntime(options = {}) {
   const env = options.env || process.env
   const authEnabled = enabled(env.IDENTITY_AUTH_ENABLED, 'IDENTITY_AUTH_ENABLED')
   const authRequired = enabled(env.IDENTITY_AUTH_REQUIRED, 'IDENTITY_AUTH_REQUIRED')
+  const production = String(env.NODE_ENV || '').trim().toLowerCase() === 'production'
+  if (production) {
+    const validation = validateProductionConfig(env, { phase: authRequired ? 'required' : 'shadow' })
+    if (!validation.valid) {
+      throw new LogtoRuntimeError(
+        'LOGTO_RUNTIME_CONFIG_INVALID',
+        validation.errors.map((entry) => entry.code).join(','),
+      )
+    }
+  }
   if (!authEnabled && !authRequired) return null
   const audience = String(env.LOGTO_API_RESOURCE || '').trim()
   if (!audience) throw new LogtoRuntimeError('LOGTO_RUNTIME_CONFIG_INVALID', '缺少 LOGTO_API_RESOURCE')
@@ -74,10 +91,31 @@ async function createLogtoRuntime(options = {}) {
     audience,
     cacheTtlMs: durationSeconds(env.LOGTO_JWKS_CACHE_TTL, 300, 'LOGTO_JWKS_CACHE_TTL'),
   })
-  const repository = options.repository || new PostgresIdentityRepository({ connectionString: databaseUrl })
+  const migrationDirectory = options.migrationDirectory || String(env.BUSINESS_DATABASE_MIGRATIONS_DIR || '').trim() || undefined
+  const repository = options.repository || new PostgresIdentityRepository({
+    connectionString: databaseUrl,
+    ...(migrationDirectory ? { migrationDirectory } : {}),
+    production,
+  })
   const entitlementSigner = options.entitlementSigner === undefined ? createEntitlementSigner(env) : options.entitlementSigner
+  const autoMigrate = optionalBoolean(
+    env.BUSINESS_DATABASE_AUTO_MIGRATE,
+    !production,
+    'BUSINESS_DATABASE_AUTO_MIGRATE',
+  )
+  if (production && autoMigrate) {
+    await repository.close().catch(() => {})
+    throw new LogtoRuntimeError('LOGTO_RUNTIME_CONFIG_INVALID', '生产环境禁止应用启动时自动迁移')
+  }
   try {
-    await repository.initialize()
+    if (autoMigrate) {
+      await repository.initialize()
+    } else {
+      if (typeof repository.assertReady !== 'function') {
+        throw new LogtoRuntimeError('LOGTO_RUNTIME_CONFIG_INVALID', '业务数据库仓储不支持 schema readiness')
+      }
+      await repository.assertReady()
+    }
     const entitlementProvider = options.entitlementProvider || new PostgresEntitlementProvider(repository)
     const webhookKey = String(env.LOGTO_WEBHOOK_SIGNING_KEY || '')
     const createWebhookConsumer = options.createWebhookConsumer || ((consumerOptions) => new LogtoWebhookConsumer(consumerOptions))
@@ -87,6 +125,7 @@ async function createLogtoRuntime(options = {}) {
       maxEventAgeMs: durationSeconds(env.LOGTO_WEBHOOK_MAX_EVENT_AGE_SECONDS, 15 * 60, 'LOGTO_WEBHOOK_MAX_EVENT_AGE_SECONDS'),
       maxFutureSkewMs: durationSeconds(env.LOGTO_WEBHOOK_MAX_FUTURE_SKEW_SECONDS, 5 * 60, 'LOGTO_WEBHOOK_MAX_FUTURE_SKEW_SECONDS', { allowZero: true }),
     }) : null
+    const readinessProbe = createProductionReadinessProbe({ repository, verifier })
     return {
       required: authRequired,
       verifier,
@@ -94,6 +133,8 @@ async function createLogtoRuntime(options = {}) {
       entitlementProvider,
       entitlementSigner,
       webhookConsumer,
+      readinessProbe,
+      autoMigrate,
       close: () => repository.close(),
     }
   } catch (error) {
@@ -102,4 +143,4 @@ async function createLogtoRuntime(options = {}) {
   }
 }
 
-module.exports = { LogtoRuntimeError, createEntitlementSigner, createLogtoRuntime, enabled, normalizeIssuer }
+module.exports = { LogtoRuntimeError, createEntitlementSigner, createLogtoRuntime, enabled, normalizeIssuer, optionalBoolean }

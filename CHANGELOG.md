@@ -1,3 +1,16 @@
+## [生产就绪] v2.4.1-logto-production-readiness (2026-07-21)
+
+### 新增
+- 生产配置 fail-closed、版本化 PostgreSQL migration ledger/checksum/readiness 和独立 smoke CLI。
+- 停写确认后的双库备份、`quiesced` manifest 校验、不可覆盖快照、独占锁、私有文件权限、空隔离目标预检，以及 Prometheus + blackbox + Alertmanager 监控模板。`pg_dump` stdout 直接写入私有 descriptor，三个工件以硬链接在锁内原子发布；锁残留时恢复 fail closed。
+- 恢复使用已校验的 dump 文件描述符和单库事务；`complete`/`failed`/`in-progress` 状态可审计，Unix 同步状态目录，`--verify-state` 为数据库切换提供 fail-closed 机器门禁。
+- API 容器改用 monorepo lockfile 构建，携带 production scripts 与 PostgreSQL migrations，并以 `/ready` 而非 liveness 判定可接流量；带查询参数的 readiness 探针同样免认证。
+- 修正业务 API Compose 的配置持久化挂载目标，并明确监控 Compose 必须作为基础 Logto Compose 的 overlay 使用。
+
+### 验证边界
+- 本地 API、容器合同、配置、迁移、readiness、smoke、备份恢复、状态切换门禁和监控测试纳入全量 runner。
+- 真实 Logto 登录、真实 PostgreSQL migration/恢复/压力和云端撤销保持 `PENDING_EXTERNAL`。
+
 ## [用户系统] v2.4.0-logto - Logto 身份、权益与租户隔离 (2026-07-20)
 
 ### 新增

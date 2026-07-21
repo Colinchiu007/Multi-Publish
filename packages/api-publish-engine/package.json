@@ -9,12 +9,16 @@
   "files": [
     "src/",
     "bin/",
+    "scripts/",
     "README.md",
     "CHANGELOG.md"
   ],
   "scripts": {
     "test": "node scripts/run-tests.js",
     "start": "node bin/publish-api",
+    "migrate:postgres": "node scripts/migrate-postgres.js",
+    "validate:production": "node scripts/validate-production-config.js",
+    "smoke:production": "node scripts/production-smoke.js",
     "prepublishOnly": "node -e \"require('./test/config-loader.test.js'); require('./test/publish-api-client.test.js')\""
   },
   "engines": {

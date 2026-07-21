@@ -83,6 +83,7 @@ async function main() {
 
   var identityRuntime = await createLogtoRuntime({ env: process.env });
   var server = new PublishApiServer({
+    host: config.host,
     dryRun: config.dryRun,
     apiKey: config.apiKey,
     maxRpm: config.maxRpm,
@@ -97,7 +98,8 @@ async function main() {
     businessIdentityRepository: identityRuntime && identityRuntime.repository,
     entitlementProvider: identityRuntime && identityRuntime.entitlementProvider,
     entitlementSigner: identityRuntime && identityRuntime.entitlementSigner,
-    logtoWebhookConsumer: identityRuntime && identityRuntime.webhookConsumer
+    logtoWebhookConsumer: identityRuntime && identityRuntime.webhookConsumer,
+    readinessProbe: identityRuntime && identityRuntime.readinessProbe
   });
 
   try {
@@ -110,6 +112,7 @@ async function main() {
     console.log("[publish-api] PublishApiServer 已启动");
     console.log("[publish-api]   配置文件: " + (configFile || "无"));
     console.log("[publish-api]   端口: " + actualPort);
+    console.log("[publish-api]   监听: " + config.host);
     console.log("[publish-api]   模式: " + mode);
     console.log("[publish-api]   认证: " + auth);
     console.log("[publish-api]   限流: " + rate);

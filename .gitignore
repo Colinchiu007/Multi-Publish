@@ -7,6 +7,10 @@ browser-data/
 python/__pycache__/
 *.pyc
 data/
+# API 服务运行时状态，不进入版本库
+packages/api-publish-engine/config/api-keys.json
+packages/api-publish-engine/config/publish-api.json
+packages/api-publish-engine/config/*.tmp
 .DS_Store
 *.log
 # Monorepo

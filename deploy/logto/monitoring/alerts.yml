@@ -1,0 +1,34 @@
+groups:
+  - name: multi-publish-identity
+    rules:
+      - alert: MultiPublishApiNotReady
+        expr: probe_success{job="multi-publish-api-ready"} == 0
+        for: 45s
+        labels:
+          severity: critical
+        annotations:
+          summary: Multi-Publish API 连续无法通过就绪探针
+
+      - alert: LogtoOidcUnavailable
+        expr: probe_success{job="logto-oidc-discovery"} == 0
+        for: 45s
+        labels:
+          severity: critical
+        annotations:
+          summary: Logto OIDC discovery 连续不可用
+
+      - alert: IdentityProbeSlow
+        expr: probe_duration_seconds{job=~"multi-publish-api-ready|logto-oidc-discovery"} > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 身份依赖探针延迟连续超过 2 秒
+
+      - alert: IdentityProbeMissing
+        expr: absent(probe_success{job="multi-publish-api-ready"}) or absent(probe_success{job="logto-oidc-discovery"}) or max by (job) (up{job=~"multi-publish-api-ready|logto-oidc-discovery"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 身份依赖探针指标缺失或 blackbox exporter 不可用

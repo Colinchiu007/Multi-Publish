@@ -186,6 +186,13 @@ class LogtoJwtVerifier {
     const publicKey = await this._getKey(header.kid)
     return verifyJwtClaims(token, { publicKey, issuer: this.issuer, audience: this.audience, now: this.now() })
   }
+
+  async checkReady() {
+    await this._getDiscovery()
+    const keys = await this._getJwks()
+    if (!Array.isArray(keys) || keys.length === 0) throw new AuthError('AUTH_JWKS_INVALID')
+    return { oidc: 'ready', jwks: 'ready', signingKeys: keys.length }
+  }
 }
 
 function createLogtoJwtVerifier(options) {

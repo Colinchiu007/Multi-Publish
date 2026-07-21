@@ -1,5 +1,6 @@
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 // Test the config-loader module
@@ -12,7 +13,7 @@ let p=0,f=0;
 function t(n,fn){try{fn();p++;console.log("  OK "+n)}catch(e){f++;console.log("  FAIL "+n+": "+e.message)}}
 function eq(a,b){assert.deepStrictEqual(a,b)}
 
-var tmpDir = fs.mkdtempSync("config-test-");
+var tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
 
 console.log("--- Module exports ---");
 t("loadConfig is exported", function() { eq(typeof loadConfig, "function"); });
@@ -67,6 +68,7 @@ t("loadConfig returns defaults when no file", function() {
   var result = loadConfig({ configFile: null });
   eq(typeof result, "object");
   eq(result.port, 3000);
+  eq(result.host, "127.0.0.1");
 });
 
 t("loadConfig reads JSON config file", function() {
@@ -103,21 +105,30 @@ t("loadConfig handles invalid JSON", function() {
 
 t("loadConfig resolves relative paths", function() {
   var configPath = "test-config-relative.json";
-  var absPath = path.join(process.cwd(), configPath);
-  fs.writeFileSync(absPath, JSON.stringify({ port: 7777 }));
-  var result = loadConfig({ configFile: configPath });
-  eq(result.port, 7777);
-  fs.unlinkSync(absPath);
+  var previousCwd = process.cwd();
+  process.chdir(tmpDir);
+  try {
+    var absPath = path.join(process.cwd(), configPath);
+    fs.writeFileSync(absPath, JSON.stringify({ port: 7777 }));
+    var result = loadConfig({ configFile: configPath });
+    eq(result.port, 7777);
+    fs.unlinkSync(absPath);
+  } finally {
+    process.chdir(previousCwd);
+  }
 });
 
 console.log("\n--- Config env vars ---");
 t("loadConfig reads env vars", function() {
   process.env.PORT = "9999";
+  process.env.HOST = "0.0.0.0";
   process.env.DRY_RUN = "true";
   var result = loadConfig({ readEnv: true });
   eq(result.port, 9999);
+  eq(result.host, "0.0.0.0");
   eq(result.dryRun, true);
   delete process.env.PORT;
+  delete process.env.HOST;
   delete process.env.DRY_RUN;
 });
 
@@ -130,7 +141,7 @@ t("loadConfig --config CLI arg works", function() {
 });
 
 // Cleanup
-try { fs.rmdirSync(tmpDir); } catch(e) {}
+try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(e) {}
 
 console.log("\n========== Result: "+p+"/"+(p+f)+" ==========");
 if(f)process.exit(1);

@@ -8,6 +8,7 @@ const path = require("path");
 
 // 默认配置
 var DEFAULTS = {
+  host: "127.0.0.1",
   port: 3000,
   dryRun: false,
   apiKey: null,
@@ -22,6 +23,7 @@ var DEFAULTS = {
 
 // 环境变量映射: { configKey: envVarName }
 var ENV_MAP = {
+  host: "HOST",
   port: "PORT",
   dryRun: "DRY_RUN",
   apiKey: "API_KEY",

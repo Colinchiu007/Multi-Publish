@@ -26,6 +26,8 @@ async function main() {
   assert.strictEqual(calls.length, 2)
   assert.deepStrictEqual(await verifier.verify(jwt), { subject: 'sub-1', scopes: ['publish:read', 'publish:submit'] })
   assert.strictEqual(calls.length, 2, '有效 JWKS 应命中缓存')
+  assert.deepStrictEqual(await verifier.checkReady(), { oidc: 'ready', jwks: 'ready', signingKeys: 1 })
+  assert.strictEqual(calls.length, 2, 'readiness 应复用已验证的 discovery/JWKS 缓存')
 
   const middleware = createLogtoAuthMiddleware({ verifier, requiredScopes: ['publish:submit'] })
   const req = { headers: { authorization: `Bearer ${jwt}` } }
