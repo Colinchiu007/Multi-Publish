@@ -1,12 +1,9 @@
 const assert = require("assert");
 const http = require("http");
+const test = require("node:test");
 const zlib = require("zlib");
 
-var PublishApiServer = require("../src/publish-api-server").PublishApiServer;
-
-let p=0,f=0;
-function t(n,fn){try{fn();p++;console.log("  OK "+n)}catch(e){f++;console.log("  FAIL "+n+": "+e.message)}}
-function eq(a,b){assert.deepStrictEqual(a,b)}
+const { PublishApiServer } = require("../src/publish-api-server");
 
 function request(port, method, path, headers) {
   return new Promise(function(resolve, reject) {
@@ -15,11 +12,7 @@ function request(port, method, path, headers) {
       var chunks = [];
       res.on("data", function(c) { chunks.push(c); });
       res.on("end", function() {
-        resolve({
-          status: res.statusCode,
-          headers: res.headers,
-          raw: Buffer.concat(chunks)
-        });
+        resolve({ status: res.statusCode, headers: res.headers, raw: Buffer.concat(chunks) });
       });
     });
     req.on("error", reject);
@@ -27,69 +20,97 @@ function request(port, method, path, headers) {
   });
 }
 
-console.log("--- Compression support ---");
+function parseJson(response) {
+  var raw = response.headers["content-encoding"] === "gzip"
+    ? zlib.gunzipSync(response.raw)
+    : response.raw;
+  return JSON.parse(raw.toString("utf8"));
+}
 
-t("ignores unsupported encoding, returns uncompressed", async function() {
+async function withServer(run) {
   var server = new PublishApiServer({ dryRun: true });
-  await server.start(0); var port = server._server.address().port;
-  var r = await request(port, "GET", "/api/v1/platforms", { "Accept-Encoding": "deflate" });
-  eq(r.status, 200);
-  eq(r.headers["content-encoding"], undefined);
-  await server.stop();
-});
+  var port = await server.start(0);
+  try {
+    await run(port);
+  } finally {
+    await server.stop();
+  }
+}
 
-t("returns gzip compressed response when client accepts gzip", async function() {
-  var server = new PublishApiServer({ dryRun: true });
-  await server.start(0); var port = server._server.address().port;
-  var r = await request(port, "GET", "/api/v1/platforms", { "Accept-Encoding": "gzip" });
-  eq(r.status, 200);
-  eq(r.headers["content-encoding"], "gzip");
-  // Verify we can decompress it
-  var decompressed = zlib.gunzipSync(r.raw);
-  var parsed = JSON.parse(decompressed.toString());
-  eq(Array.isArray(parsed.platforms), true);
-  await server.stop();
-});
-
-t("returns uncompressed when no Accept-Encoding header", async function() {
-  var server = new PublishApiServer({ dryRun: true });
-  await server.start(0); var port = server._server.address().port;
-  var r = await request(port, "GET", "/api/v1/platforms");
-  eq(r.status, 200);
-  eq(r.headers["content-encoding"], undefined);
-  await server.stop();
-});
-
-t("compresses large responses", async function() {
-  var server = new PublishApiServer({ dryRun: true });
-  await server.start(0); var port = server._server.address().port;
-  // Make a request with gzip accept
-  var r = await request(port, "POST", "/api/v1/publish", {
-    "Content-Type": "application/json",
-    "Accept-Encoding": "gzip"
+test("不支持的 deflate 编码保持未压缩", async function() {
+  await withServer(async function(port) {
+    var response = await request(port, "GET", "/api/v1/openapi.json", { "Accept-Encoding": "deflate" });
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.headers["content-encoding"], undefined);
+    assert.match(response.headers.vary, /Accept-Encoding/i);
+    assert.strictEqual(Number(response.headers["content-length"]), response.raw.length);
   });
-  eq(r.status, 400); // missing platform
-  // Should still be compressed even for error responses
-  if (r.headers["content-encoding"] === "gzip") {
-    var decompressed = zlib.gunzipSync(r.raw);
-    var parsed = JSON.parse(decompressed.toString());
-    eq(typeof parsed.error, "string");
-  }
-  await server.stop();
 });
 
-t("health endpoint supports gzip", async function() {
-  var server = new PublishApiServer({ dryRun: true });
-  await server.start(0); var port = server._server.address().port;
-  var r = await request(port, "GET", "/api/v1/health", { "Accept-Encoding": "gzip" });
-  eq(r.status, 200);
-  if (r.headers["content-encoding"] === "gzip") {
-    var decompressed = zlib.gunzipSync(r.raw);
-    var parsed = JSON.parse(decompressed.toString());
-    eq(parsed.status, "ok");
-  }
-  await server.stop();
+test("客户端接受 gzip 时压缩大响应", async function() {
+  await withServer(async function(port) {
+    var response = await request(port, "GET", "/api/v1/openapi.json", { "Accept-Encoding": "gzip" });
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.headers["content-encoding"], "gzip");
+    assert.match(response.headers.vary, /Accept-Encoding/i);
+    assert.strictEqual(Number(response.headers["content-length"]), response.raw.length);
+    assert.strictEqual(parseJson(response).openapi, "3.0.3");
+  });
 });
 
-console.log("\n========== Result: "+p+"/"+(p+f)+" ==========");
-if(f)process.exit(1);
+test("平台列表路由的小响应保持未压缩且可解析", async function() {
+  await withServer(async function(port) {
+    var response = await request(port, "GET", "/api/v1/platforms", { "Accept-Encoding": "gzip" });
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.headers["content-encoding"], undefined);
+    assert.strictEqual(Array.isArray(parseJson(response).platforms), true);
+  });
+});
+
+test("未发送 Accept-Encoding 时返回未压缩 JSON", async function() {
+  await withServer(async function(port) {
+    var response = await request(port, "GET", "/api/v1/openapi.json");
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.headers["content-encoding"], undefined);
+    assert.strictEqual(Number(response.headers["content-length"]), response.raw.length);
+    assert.strictEqual(parseJson(response).openapi, "3.0.3");
+  });
+});
+
+test("gzip;q=0 明确拒绝压缩", async function() {
+  await withServer(async function(port) {
+    var response = await request(port, "GET", "/api/v1/openapi.json", { "Accept-Encoding": "gzip;q=0, *;q=1" });
+    assert.strictEqual(response.headers["content-encoding"], undefined);
+    assert.strictEqual(parseJson(response).openapi, "3.0.3");
+  });
+});
+
+test("小于阈值的健康检查不压缩", async function() {
+  await withServer(async function(port) {
+    var response = await request(port, "GET", "/api/v1/health", { "Accept-Encoding": "gzip" });
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.headers["content-encoding"], undefined);
+    assert.strictEqual(parseJson(response).status, "ok");
+  });
+});
+
+test("发布参数错误保持可解析且小响应不压缩", async function() {
+  await withServer(async function(port) {
+    var response = await request(port, "POST", "/api/v1/publish", {
+      "Content-Type": "application/json",
+      "Accept-Encoding": "gzip",
+    });
+    assert.strictEqual(response.status, 400);
+    assert.strictEqual(response.headers["content-encoding"], undefined);
+    assert.strictEqual(parseJson(response).error, "platform is required");
+  });
+});
+
+test("超过阈值的错误响应同样支持 gzip", async function() {
+  await withServer(async function(port) {
+    var response = await request(port, "GET", "/api/v1/" + "missing-".repeat(60), { "Accept-Encoding": "gzip" });
+    assert.strictEqual(response.status, 404);
+    assert.strictEqual(response.headers["content-encoding"], "gzip");
+    assert.strictEqual(parseJson(response).error, "Not found");
+  });
+});

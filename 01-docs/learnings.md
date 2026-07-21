@@ -3396,3 +3396,39 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **修复与回归保护**：`ApiKeyManager` 保存明确的加载错误状态；校验返回 `API_KEY_STORE_UNAVAILABLE`，写操作和自动迁移拒绝覆盖；HTTP 返回 503，定时执行同样 fail closed。`api-key-manager.test.js` 和 `logto-optional-auth.test.js` 固定覆盖损坏 JSON、文件不被覆盖和静态 Key 不得恢复权限。
 
 **预防措施**：质量门禁新增“授权/凭据存储读取失败必须 fail closed”；后续所有凭据、entitlement 和会话存储都必须分别测试 missing、empty、corrupt、unreadable 四种状态，禁止用同一个空值代表。
+
+## 2026-07-21：API 全量测试在干净提交快照失败
+
+### 第一性原因
+
+- `40f6b7ec` 引入的多份 Node 测试使用同步 `try { fn() }` 包装 `async` 回调，包装器没有等待 Promise。测试会先打印通过，异步断言和资源清理随后以未处理异常退出。
+- 原测试脚本依赖 shell 展开 `test/*.test.js`；Windows 下无法稳定执行完整集合。跨平台 runner 首次真实运行全部测试后，暴露了这些长期假绿。
+- `1ed43e9` 将大量平台改成配置驱动的 `GenericPlatformAdapter`，但 `api-router.supportsApi()` 和旧测试仍把物理 `REGISTRY` 当成完整平台清单。
+- Logto 本轮增加 Webhook SSRF 防护后，旧测试继续向 `127.0.0.1` 注册回调，与生产安全合同冲突。
+
+### 测试逃逸链
+
+- 单元测试：自定义同步包装器没有等待异步断言，错误发生在“通过”日志之后。
+- 集成测试：客户端服务端口、HTTP 压缩和 Webhook 本地服务依赖跨测试共享时序，未使用统一生命周期管理。
+- 端到端测试：身份 UI E2E 不执行 API 发布引擎的独立测试脚本，无法发现 runner 假绿。
+- 代码审查：此前只看测试进程是否打印通过，没有在干净提交快照核对每个子进程退出码，也没有比较脏工作区与提交树。
+
+### 系统性漏洞定位
+
+- 测试质量不足：自定义同步包装器无法表达异步完成条件，产生假绿。
+- 测试场景缺失：配置化平台、签名 secret、Webhook SSRF 与具体业务路由的压缩合同没有同时覆盖。
+- 审查盲区：只审查功能 diff，没有从提交树重新执行 runner 并核对每个子进程退出码。
+- 流程缺失：此前没有“干净提交快照复验”门禁，脏工作区中的其他修正会掩盖提交缺口。
+
+### 修复与回归保护
+
+- 集成测试 `compress.test.js` 和 `publish-api-client.test.js` 使用真实 `PublishApiServer`/`PublishApiClient`，由 `node:test` 等待 Promise，并覆盖平台列表、发布错误、gzip 阈值和服务生命周期。
+- 单元测试 `signer-local.test.js` 显式注入测试 secret，并保留缺失 secret 的拒绝断言；不再依赖环境变量或生产默认值。
+- 合同测试 `unified-registration.test.js`、`upload-orchestrator.test.js` 和 Vitest `api-router.test.js` 通过真实公开入口覆盖自定义适配器、配置化适配器和未知平台。
+- `webhook-manager.test.js` 仅在 DNS/HTTP 边界注入可观测传输，验证固定公网解析、payload 和 owner 隔离；生产 SSRF 实现继续由使用真实 `WebhookManager` 的 `webhook-ssrf.test.js` 覆盖，未放宽回环地址拒绝。
+
+### 防止再次发生
+
+- `.quality-gates.md` 新增“异步测试必须真实等待”和“必须在干净提交快照复验”规则。
+- API runner 继续逐文件检查退出码；任何测试子进程失败都会使总命令非零退出。
+- 平台注册测试只通过公开的 `getAdapter()`/`supportsApi()` 合同判断能力，禁止用物理文件数量推断支持平台数。

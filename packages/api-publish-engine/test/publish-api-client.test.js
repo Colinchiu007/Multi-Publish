@@ -1,12 +1,12 @@
 const assert = require("assert");
 const http = require("http");
+const { after, before, test } = require("node:test");
 
 var mod;
 try { mod = require("../src/publish-api-client"); } catch(e) { mod = null; }
 var PublishApiClient = mod ? mod.PublishApiClient : null;
 
-let p=0,f=0;
-function t(n,fn){try{fn();p++;console.log("  OK "+n)}catch(e){f++;console.log("  FAIL "+n+": "+e.message)}}
+const t = test;
 function eq(a,b){assert.deepStrictEqual(a,b)}
 
 console.log("--- Module exports ---");
@@ -53,10 +53,14 @@ var PublishApiServer = require("../src/publish-api-server").PublishApiServer;
 var testServer = null;
 var testPort = null;
 
-t("starts test server", async function() {
+before(async function() {
   testServer = new PublishApiServer({ dryRun: true });
   testPort = await testServer.start(0);
   eq(typeof testPort, "number");
+});
+
+after(async function() {
+  if (testServer) await testServer.stop();
 });
 
 t("client health() returns ok", async function() {
@@ -108,11 +112,6 @@ t("client throws on network error", async function() {
   eq(threw, true);
 });
 
-t("stops test server", async function() {
-  await testServer.stop();
-  eq(testServer._server, null);
-});
-
 console.log("\n--- Error handling ---");
 t("client uses apiKey in Authorization header", function() {
   var client = new PublishApiClient({ baseUrl: "http://localhost:3000", apiKey: "secret-123" });
@@ -128,6 +127,3 @@ t("client sets Content-Type header", function() {
   var client = new PublishApiClient({ baseUrl: "http://localhost:3000" });
   eq(client._headers()["Content-Type"], "application/json");
 });
-
-console.log("\n========== Result: "+p+"/"+(p+f)+" ==========");
-if(f)process.exit(1);

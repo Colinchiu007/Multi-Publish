@@ -112,12 +112,12 @@ node ../../node_modules/electron-builder/cli.js --win --x64
 
 | 门禁 | 命令/范围 | 结果 |
 |------|-----------|------|
-| Node API 全量 | `packages/api-publish-engine: npm test` | exit 0；61 个测试分组全部通过，Vitest 8 files / 24 tests 通过 |
+| Node API 全量 | 干净提交快照中执行 `packages/api-publish-engine: npm test` | exit 0；61 个测试分组全部通过，Vitest 8 files / 24 tests 通过 |
 | Desktop 全量 + 覆盖率 | `apps/desktop: npm run test:coverage -- --maxWorkers=4` | exit 0；285 files / 5007 tests；statements 68.37%、branches 60.59%、functions 69.86%、lines 70.51% |
 | Python 全量 | `packages/python-backend: <bundled-python> -m pytest -q --basetemp C:\tmp\multi-publish-pytest-logto-20260721-final -p no:cacheprovider` | exit 0；2503 passed、1 skipped、10 warnings |
 | 故障注入 | `npm run test:fault` | exit 0；14/14 |
 | Monkey | `npm run test:monkey` | exit 0；5/5 |
-| Vue/preload 构建 | 根目录 `npm run build:vue --workspace @multi-publish/desktop` | exit 0；1801 modules transformed |
+| Vue/preload 构建 | 根目录 `npm run build:vue --workspace @multi-publish/desktop` | exit 0；1806 modules transformed |
 | Preload 双 sandbox | `apps/desktop: npm run test:preload:sandbox` | exit 0；`sandbox:true` 与 `sandbox:false` 的真实 Electron IPC 均通过 |
 | 身份 UI E2E | `TEST_URL=http://127.0.0.1:5175/ npm run test:e2e:identity` | exit 0；1440x900 与 1024x600 均通过，无 console/page/request error |
 | 单视图视觉 | `all-views.visual.test.js --single home-default` | exit 0 |
@@ -125,6 +125,7 @@ node ../../node_modules/electron-builder/cli.js --win --x64
 | Electron QM-1 | `node ../../node_modules/electron-builder/cli.js --win --x64` | exit 0；Electron 43.1.1，NSIS 2.3.53 |
 | ASAR/启动 | ASAR list + 敏感文件扫描 + extract/require + packaged exe | 身份模块和 logger 已入包；无 `.env`/私钥；require 成功；应用稳定运行 8 秒并关闭 |
 | 变异分片 | `identity-errors.js` + 专属测试 | exit 0；mutation score 90.00%，9 killed、0 survived、1 no coverage |
+| 代码与安全复审 | 冻结 Logto diff 与最终 11 文件暂存 diff 的两轮独立审查 | 未报告 CRITICAL/MAJOR；最终审查的 MINOR 压缩路由覆盖已补回 |
 
 ### 7.1 已知限制与未执行外部场景
 
@@ -137,6 +138,7 @@ node ../../node_modules/electron-builder/cli.js --win --x64
 - `apps/desktop` 子目录直接执行 `npm run build:vue` 时，npm 10 未注入根工作区 hoist 的 `vite`；从根目录使用 workspace 命令执行同一脚本后通过，不是源码编译失败。
 - preload 真实 Electron 验证在受限进程沙箱中会触发系统 GPU 子进程访问失败；在非受限本机环境重跑后 `sandbox:true/false` 均通过。此处的“非受限”仅指测试宿主权限，不改变 BrowserWindow 的 sandbox 配置。
 - 覆盖率全量使用单 worker 时在 900 秒上限超时且无断言失败；改用 `--maxWorkers=4` 后 572.7 秒完成并通过。Windows/D 盘高负载环境不能把单 worker 超时当成源码失败。
+- 历史 Node API 测试曾使用同步 `try { fn() }` 包装 `async` 回调，导致测试先打印通过、Promise 随后在进程中未处理失败；最终门禁已改为 `node:test` 的真实等待，并在独立干净工作树复验，避免其他未提交改动掩盖提交缺口。
 
 ### 7.2 E2E 前置条件
 

@@ -47,10 +47,8 @@ function shouldUseApi(platform) {
 }
 
 function supportsApi(platform) {
-  // ?????? REGISTRY ???????????
-  var REGISTRY;
-  try { REGISTRY = require("./index").REGISTRY; } catch(e) { REGISTRY = {}; }
-  return !!REGISTRY[platform];
+  try { return require("./index").supportsApi(platform); }
+  catch(e) { return false; }
 }
 
 function listApiPlatforms() {

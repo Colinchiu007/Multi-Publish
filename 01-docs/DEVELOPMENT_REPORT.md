@@ -181,8 +181,9 @@ python -m uvicorn web.server:app --host 0.0.0.0 --port 8082
 - Node API：61 个测试分组全部通过；Python：2503 passed、1 skipped。
 - 故障注入 14/14、Monkey 5/5、视觉 16/16、身份 mock E2E 两个 viewport。
 - Preload 在真实 Electron 的 `sandbox:true/false` 两种模式下通过；Windows 打包 exit 0，ASAR 身份文件、敏感文件扫描、require 链和应用 8 秒启动通过。
-- 独立安全/代码审查无 CRITICAL/MAJOR；最终新增 IPC 与 Webhook 防护完成 RED -> GREEN。
+- 两轮独立安全/代码复审未报告 CRITICAL/MAJOR，范围与结果记录在 `TEST-PLAN-LOGTO.md` 第 7 节；最终新增 IPC 与 Webhook 防护完成 RED -> GREEN。
 - API Key 边界完成 RED -> GREEN：历史 pending 定时任务即使跨重启恢复，也会在发布前返回 `SCHEDULE_OWNER_REVOKED`；未托管静态 Key 返回 `SCHEDULE_OWNER_INVALID`；Key 存储损坏时返回 `API_KEY_STORE_UNAVAILABLE` 且不覆盖原文件。
+- 最终在独立干净工作树复验 Node API；修复旧异步测试假绿、配置化平台识别和 Webhook SSRF 测试合同后，61 个测试分组与 Vitest 8 files / 24 tests 全部通过。
 - Stryker 完整 1505 mutants 在本机负载上限内未完成；`identity-errors.js` 专属分片 90%，完整限制已记录在测试计划。
 
 ### 未关闭的外部验收

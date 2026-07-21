@@ -1,5 +1,6 @@
 const assert = require("assert");
 const { getCsdnSign, getXiaohongshuSign, buildDouyinParams, getKuaishouSign } = require("../src/signer-local");
+const TEST_SECRET = "test-secret";
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -10,17 +11,20 @@ function assertEqual(a, b) { assert.deepStrictEqual(a, b); }
 
 console.log("--- getCsdnSign ---");
 test("returns base64 string", () => {
-  const s = getCsdnSign("/api/post", { title: "test" });
+  const s = getCsdnSign("/api/post", { title: "test" }, TEST_SECRET);
   assertEqual(typeof s, "string"); assertEqual(s.length > 0, true);
 });
 test("deterministic for same inputs", () => {
-  assertEqual(getCsdnSign("/api/post", { title: "test" }), getCsdnSign("/api/post", { title: "test" }));
+  assertEqual(getCsdnSign("/api/post", { title: "test" }, TEST_SECRET), getCsdnSign("/api/post", { title: "test" }, TEST_SECRET));
 });
 test("different bodies differ", () => {
-  assertEqual(getCsdnSign("/api/post", { title: "a" }) !== getCsdnSign("/api/post", { title: "b" }), true);
+  assertEqual(getCsdnSign("/api/post", { title: "a" }, TEST_SECRET) !== getCsdnSign("/api/post", { title: "b" }, TEST_SECRET), true);
 });
 test("without body", () => {
-  assertEqual(typeof getCsdnSign("/api/post", {}), "string");
+  assertEqual(typeof getCsdnSign("/api/post", {}, TEST_SECRET), "string");
+});
+test("rejects missing appSecret", () => {
+  assert.throws(() => getCsdnSign("/api/post", { title: "test" }), /appSecret is required/);
 });
 
 console.log("\n--- getXiaohongshuSign ---");
