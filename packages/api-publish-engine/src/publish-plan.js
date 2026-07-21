@@ -46,6 +46,7 @@ class PublishingPlan {
     });
     var plan = {
       id: genId(),
+      ownerSubject: typeof data.ownerSubject === "string" ? data.ownerSubject : null,
       name: data.name,
       items: items,
       status: "draft",

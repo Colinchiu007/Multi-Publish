@@ -12,9 +12,13 @@ module.exports = {
    * @param {string} key - "${platform}:${accountId}"
    * @returns {number|null} 时间戳(ms)，null 表示从未发布
    */
-  getPublishTimeline (key) {
+  getPublishTimeline (key, ownerSubject) {
     if (!this._ready) return null
-    const row = this.db.prepare('SELECT last_publish_at FROM publish_timeline WHERE key = ?').get(key)
+    const owner = this._resolveOwnerSubject(ownerSubject)
+    if (!owner) return null
+    const row = this.db.prepare(
+      'SELECT last_publish_at FROM publish_timeline WHERE owner_subject = ? AND key = ?'
+    ).get(owner, key)
     return row ? row.last_publish_at : null
   },
 
@@ -23,10 +27,12 @@ module.exports = {
    * @param {string} key - "${platform}:${accountId}"
    * @param {number} timestamp - 时间戳(ms)
    */
-  setPublishTimeline (key, timestamp) {
+  setPublishTimeline (key, timestamp, ownerSubject) {
     if (!this._ready) return
+    const owner = this._resolveOwnerSubject(ownerSubject)
+    if (!owner) return
     this.db.prepare(
-      'INSERT OR REPLACE INTO publish_timeline (key, last_publish_at) VALUES (?, ?)'
-    ).run(key, timestamp)
+      'INSERT OR REPLACE INTO publish_timeline (owner_subject, key, last_publish_at) VALUES (?, ?, ?)'
+    ).run(owner, key, timestamp)
   },
 }

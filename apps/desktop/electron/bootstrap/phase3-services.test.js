@@ -32,12 +32,16 @@ function makeMockDeps(overrides) {
   const mockStore = {
     init: vi.fn(),
     close: vi.fn(),
+    setOwnerSubjectProvider: vi.fn(),
     setSetting: vi.fn(),
     getSetting: vi.fn(() => null),
+    setUserSetting: vi.fn(),
+    getUserSetting: vi.fn(() => null),
     addCallbackLog: vi.fn(),
   }
   const mockTaskQueue = {
     setStateSaver: vi.fn(),
+    setOwnerSubjectProvider: vi.fn(),
     deserialize: vi.fn(() => 0),
   }
   const mockCallbackServer = {
@@ -46,6 +50,7 @@ function makeMockDeps(overrides) {
   }
   const mockScheduler = {
     restore: vi.fn(() => 0),
+    setOwnerSubjectProvider: vi.fn(),
     stopAll: vi.fn(),
   }
   const mockKeywordMonitor = {
@@ -54,6 +59,9 @@ function makeMockDeps(overrides) {
   }
   const mockAnalyticsService = {
     registerProvider: vi.fn(),
+  }
+  const mockPythonBridge = {
+    setAuthService: vi.fn(),
   }
   const mockCloudPublisher = vi.fn()
   mockCloudPublisher.prototype.registerIpcHandlers = vi.fn()
@@ -68,6 +76,7 @@ function makeMockDeps(overrides) {
     scheduler: mockScheduler,
     keywordMonitor: mockKeywordMonitor,
     analyticsService: mockAnalyticsService,
+    pythonBridge: mockPythonBridge,
     CloudPublisher: mockCloudPublisher,
     getMainWin: mockGetMainWin,
   }, overrides)
@@ -143,6 +152,23 @@ describe('phase3-services.startServices', () => {
     expect(deps.keywordMonitor.onAlert).toHaveBeenCalled()
   })
 
+  it('关键词监控聚合状态写入当前用户命名空间', async () => {
+    vi.useFakeTimers()
+    const deps = makeMockDeps()
+    deps.keywordMonitor.getAllHistories.mockReturnValue({ topic: [{ total: 1 }] })
+    try {
+      const result = await startServices(deps)
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+      expect(deps.store.setUserSetting).toHaveBeenCalledWith(
+        'keyword_monitor_state',
+        JSON.stringify({ topic: [{ total: 1 }] }),
+      )
+      await result.rollback()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('analytics providers 注册成功', async () => {
     const deps = makeMockDeps()
     await startServices(deps)
@@ -159,6 +185,39 @@ describe('phase3-services.startServices', () => {
     expect(deps.CloudPublisher.prototype.registerIpcHandlers).not.toHaveBeenCalled()
   })
 
+  it('身份服务注入 CloudPublisher 并随阶段结果返回', async () => {
+    const identityService = {
+      getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })),
+    }
+    const createIdentityService = vi.fn(async () => identityService)
+    const deps = makeMockDeps({ createIdentityService })
+    const result = await startServices(deps)
+
+    expect(createIdentityService).toHaveBeenCalledWith(expect.objectContaining({ store: deps.store }))
+    expect(deps.CloudPublisher).toHaveBeenCalledWith(expect.objectContaining({ authService: identityService }))
+    expect(deps.pythonBridge.setAuthService).toHaveBeenCalledWith(identityService)
+    expect(deps.store.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    const ownerProvider = deps.store.setOwnerSubjectProvider.mock.calls[0][0]
+    expect(ownerProvider()).toBe('user-a')
+    expect(result.identityService).toBe(identityService)
+    expect(deps.scheduler.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    expect(deps.taskQueue.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+  })
+
+  it.each(['1', 'true', 'yes', 'on', ' TRUE '])('required=%s 时身份初始化失败必须阻止启动', async (required) => {
+    const previous = process.env.IDENTITY_AUTH_REQUIRED
+    process.env.IDENTITY_AUTH_REQUIRED = required
+    const failure = new Error('identity bootstrap failed')
+    const deps = makeMockDeps({ createIdentityService: vi.fn(async () => { throw failure }) })
+    try {
+      await expect(startServices(deps)).rejects.toBe(failure)
+      expect(deps.CloudPublisher).not.toHaveBeenCalled()
+    } finally {
+      if (previous === undefined) delete process.env.IDENTITY_AUTH_REQUIRED
+      else process.env.IDENTITY_AUTH_REQUIRED = previous
+    }
+  })
+
   it('启动成功时返回退出阶段需要的定时器和登录监控引用', async () => {
     const deps = makeMockDeps()
 
@@ -171,7 +230,14 @@ describe('phase3-services.startServices', () => {
   it('CloudPublisher 构造失败时回滚已经启动的阶段3资源', async () => {
     const registerError = new Error('CloudPublisher constructor failed')
     const CloudPublisher = vi.fn(function () { throw registerError })
-    const deps = makeMockDeps({ CloudPublisher })
+    const identityService = {
+      getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })),
+      dispose: vi.fn(async () => {}),
+    }
+    const deps = makeMockDeps({
+      CloudPublisher,
+      createIdentityService: vi.fn(async () => identityService),
+    })
     const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
 
     await expect(startServices(deps)).rejects.toBe(registerError)
@@ -180,6 +246,10 @@ describe('phase3-services.startServices', () => {
     expect(deps.scheduler.stopAll).toHaveBeenCalledTimes(1)
     expect(deps.callbackServer.stop).toHaveBeenCalledTimes(1)
     expect(deps.taskQueue.setStateSaver).toHaveBeenLastCalledWith(null)
+    expect(deps.scheduler.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
+    expect(deps.taskQueue.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
+    expect(deps.pythonBridge.setAuthService).toHaveBeenLastCalledWith(null)
+    expect(identityService.dispose).toHaveBeenCalledTimes(1)
     expect(deps.store.close).toHaveBeenCalledTimes(1)
     expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
   })

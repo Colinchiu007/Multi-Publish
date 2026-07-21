@@ -1,0 +1,193 @@
+const assert = require('assert')
+const fs = require('fs')
+const path = require('path')
+const test = require('node:test')
+
+test('PostgresIdentityRepository', async (t) => {
+  function createPool() {
+    const calls = []
+    const queries = new Map()
+    const client = {
+      async query(text, values) {
+        calls.push({ text, values })
+        if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] }
+        if (text.includes('INSERT INTO identity_users')) return { rows: [{ id: 'u-1' }] }
+        if (text.includes('INSERT INTO identity_webhook_events')) return { rows: [{ id: 'event-1' }] }
+        if (text.includes('SELECT * FROM identity_users')) return { rows: queries.get(values.join(':')) || [] }
+        return { rows: [] }
+      },
+      release() { calls.push({ text: 'RELEASE' }) },
+    }
+    return {
+      calls,
+      client,
+      async query(text, values) {
+        calls.push({ text, values })
+        if (text.includes('INSERT INTO identity_users')) return { rows: [{ id: 'u-1' }] }
+        return { rows: [] }
+      },
+      async connect() { return client },
+    }
+  }
+
+  await t.test('初始化业务身份、权益、Webhook 和会话表', async () => {
+    const pool = createPool()
+    const { PostgresIdentityRepository } = require('../src/auth/postgres-identity-repository')
+    const repository = new PostgresIdentityRepository({ pool })
+
+    await repository.initialize()
+
+    const sql = pool.calls.map((call) => call.text).join('\n')
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_users/)
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_webhook_events/)
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_entitlement_snapshots/)
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_subscriptions/)
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_entitlement_usage/)
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS identity_user_sessions/)
+    assert.match(sql, /ALTER TABLE identity_users\s+ADD COLUMN IF NOT EXISTS last_event_created_at/)
+  })
+
+  await t.test('生产 PostgreSQL 迁移与运行时所需表保持一致', () => {
+    const migrationDirectory = path.resolve(__dirname, '../../../migrations/postgresql')
+    const sql = ['002_logto_identity.sql', '003_logto_webhook_events.sql']
+      .map((name) => fs.readFileSync(path.join(migrationDirectory, name), 'utf8'))
+      .join('\n')
+    for (const table of [
+      'identity_users', 'identity_subscriptions', 'identity_entitlement_snapshots',
+      'identity_entitlement_usage', 'identity_webhook_events', 'identity_user_sessions',
+    ]) {
+      assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`))
+    }
+    assert.match(sql, /TIMESTAMPTZ/)
+    assert.match(sql, /JSONB/)
+    assert.match(sql, /last_event_created_at/)
+  })
+
+  await t.test('以单条参数化 SQL 原子扣减月度额度', async () => {
+    const calls = []
+    const pool = {
+      async query(text, values) {
+        calls.push({ text, values })
+        return { rows: [{ used: 3, quota_limit: 10, period_start: '2026-07-01', period_end: '2026-08-01' }] }
+      },
+    }
+    const { PostgresIdentityRepository } = require('../src/auth/postgres-identity-repository')
+    const repository = new PostgresIdentityRepository({ pool })
+    const usage = await repository.consumeEntitlementUsage({
+      userId: 'user-1', feature: 'cloud_publish', amount: 2, limit: 10,
+      periodStart: '2026-07-01T00:00:00.000Z', periodEnd: '2026-08-01T00:00:00.000Z',
+    })
+
+    assert.deepStrictEqual(usage, {
+      used: 3, limit: 10, remaining: 7,
+      periodStart: '2026-07-01', periodEnd: '2026-08-01',
+    })
+    assert.strictEqual(calls.length, 1)
+    assert.match(calls[0].text, /ON CONFLICT \(user_id, feature, period_start\) DO UPDATE/)
+    assert.match(calls[0].text, /WHERE identity_entitlement_usage\.used \+ EXCLUDED\.used <= EXCLUDED\.quota_limit/)
+    assert.deepStrictEqual(calls[0].values, [
+      'user-1', 'cloud_publish', '2026-07-01T00:00:00.000Z',
+      '2026-08-01T00:00:00.000Z', 2, 10,
+    ])
+  })
+
+  await t.test('拒绝无效或倒置的计费周期', async () => {
+    const { PostgresIdentityRepository } = require('../src/auth/postgres-identity-repository')
+    const repository = new PostgresIdentityRepository({ pool: { query: async () => ({ rows: [] }) } })
+    const base = { userId: 'user-1', feature: 'cloud_publish', amount: 1, limit: 10 }
+
+    await assert.rejects(repository.consumeEntitlementUsage({
+      ...base, periodStart: 'invalid', periodEnd: '2026-08-01T00:00:00.000Z',
+    }), /periodStart and periodEnd must be valid/)
+    await assert.rejects(repository.consumeEntitlementUsage({
+      ...base, periodStart: '2026-08-01T00:00:00.000Z', periodEnd: '2026-07-01T00:00:00.000Z',
+    }), /periodEnd must be after periodStart/)
+  })
+
+  await t.test('权益提供器按 UTC 月份扣减并在额度耗尽时 fail closed', async () => {
+    const calls = []
+    const repository = {
+      async getEntitlement() {
+        return { plan: 'pro', features: ['cloud_publish'], quota: { cloud_publish_monthly: 2 } }
+      },
+      async consumeEntitlementUsage(input) {
+        calls.push(input)
+        return calls.length === 1 ? { used: 1, limit: 2, remaining: 1 } : null
+      },
+    }
+    const { PostgresEntitlementProvider } = require('../src/auth/postgres-identity-repository')
+    const provider = new PostgresEntitlementProvider(repository, { now: () => new Date('2026-07-20T12:00:00.000Z') })
+    const context = { businessUser: { id: 'user-1' }, feature: 'cloud_publish' }
+
+    await assert.doesNotReject(provider.consumeFeature(context, 1))
+    assert.deepStrictEqual(calls[0], {
+      userId: 'user-1', feature: 'cloud_publish', amount: 1, limit: 2,
+      periodStart: '2026-07-01T00:00:00.000Z', periodEnd: '2026-08-01T00:00:00.000Z',
+    })
+    await assert.rejects(provider.consumeFeature(context, 1), (error) => {
+      return error && error.code === 'ENTITLEMENT_QUOTA_EXHAUSTED' && error.status === 429
+    })
+  })
+
+  await t.test('按 provider + sub 查找并以唯一键幂等创建业务用户', async () => {
+    const pool = createPool()
+    const { PostgresIdentityRepository } = require('../src/auth/postgres-identity-repository')
+    const repository = new PostgresIdentityRepository({ pool })
+
+    const found = await repository.findBySubject('logto', 'sub-1')
+    const created = await repository.create({
+      id: 'u-1', auth_provider: 'logto', auth_subject: 'sub-1', status: 'active',
+    })
+
+    assert.strictEqual(found, null)
+    assert.deepStrictEqual(created, { id: 'u-1' })
+    assert(pool.calls.some((call) => call.text.includes('ON CONFLICT (auth_provider, auth_subject) DO NOTHING')))
+  })
+
+  await t.test('Webhook 事务异常时回滚并释放连接，成功时提交', async () => {
+    const pool = createPool()
+    const { PostgresIdentityRepository } = require('../src/auth/postgres-identity-repository')
+    const repository = new PostgresIdentityRepository({ pool })
+
+    await repository.transaction(async (transaction) => {
+      assert.strictEqual(await transaction.claimWebhookEvent({
+        id: 'event-1', provider: 'logto', event: 'User.Created', hookId: 'hook-1',
+        subject: 'sub-1', createdAt: '2026-01-01T00:00:00.000Z', receivedAt: '2026-01-01T00:00:01.000Z',
+      }), true)
+      await transaction.completeWebhookEvent('event-1', { subject: 'sub-1' })
+    })
+    assert(pool.calls.some((call) => call.text === 'COMMIT'))
+    assert(pool.calls.some((call) => call.text === 'RELEASE'))
+
+    await assert.rejects(repository.transaction(async () => { throw new Error('boom') }), /boom/)
+    assert(pool.calls.some((call) => call.text === 'ROLLBACK'))
+  })
+
+  await t.test('乱序 Webhook 返回 applied=false，供调用方跳过撤销副作用', async () => {
+    const calls = []
+    const existing = {
+      id: 'u-1',
+      auth_provider: 'logto',
+      auth_subject: 'sub-1',
+      status: 'active',
+      last_event_created_at: '2026-07-20T00:10:00.000Z',
+    }
+    const client = {
+      async query(text, values) {
+        calls.push({ text, values })
+        if (text.includes('SELECT * FROM identity_users')) return { rows: [existing] }
+        throw new Error('乱序事件不应执行 INSERT')
+      },
+    }
+    const { PostgresWebhookTransaction } = require('../src/auth/postgres-identity-repository')
+    const transaction = new PostgresWebhookTransaction(client)
+
+    const result = await transaction.upsertUserState('logto', 'sub-1', { status: 'deleted' }, {
+      eventCreatedAt: '2026-07-20T00:09:00.000Z',
+    })
+
+    assert.strictEqual(result.applied, false)
+    assert.strictEqual(result.status, 'active')
+    assert.strictEqual(calls.length, 1)
+  })
+})

@@ -14,7 +14,25 @@
  */
 const { PublishApiServer } = require("../src/publish-api-server");
 const { loadConfig, parseCLI } = require("../src/config-loader");
+const { createLogtoRuntime } = require("../src/auth/logto-runtime");
 const path = require("path");
+
+const HELP_TEXT = [
+  "publish-api - 启动多平台发布 HTTP API",
+  "",
+  "用法:",
+  "  publish-api [--port 3000] [--dry-run] [--api-key <key>] [--max-rpm 100]",
+  "  publish-api --config ./publish-api.config.json",
+  "",
+  "选项:",
+  "  -h, --help             显示帮助并退出",
+  "  --port <port>          监听端口，默认 3000",
+  "  --dry-run              启用试运行模式",
+  "  --api-key <key>        设置兼容模式 API key",
+  "  --max-rpm <count>      设置每分钟请求上限",
+  "  --enable-schedule      启用定时发布",
+  "  --config <path>        读取 JSON 配置文件",
+].join("\n");
 
 function findConfigFile() {
   // 检查 --config CLI 参数
@@ -36,7 +54,12 @@ function findConfigFile() {
   return null;
 }
 
-(function main() {
+async function main() {
+  var args = process.argv.slice(2);
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(HELP_TEXT);
+    return;
+  }
   var configFile = findConfigFile();
   // ???? platforms.yaml???????????
   var yamlPath = path.resolve(__dirname, "..", "..", "..", "config", "platforms.yaml");
@@ -58,6 +81,7 @@ function findConfigFile() {
     cliArgs: parseCLI()
   });
 
+  var identityRuntime = await createLogtoRuntime({ env: process.env });
   var server = new PublishApiServer({
     dryRun: config.dryRun,
     apiKey: config.apiKey,
@@ -67,12 +91,19 @@ function findConfigFile() {
     scheduleFile: config.scheduleFile,
     planFile: config.planFile,
     accessLog: config.accessLog,
-    scheduleCheckInterval: config.scheduleCheckInterval
+    scheduleCheckInterval: config.scheduleCheckInterval,
+    logtoVerifier: identityRuntime && identityRuntime.verifier,
+    identityAuthRequired: identityRuntime ? identityRuntime.required : false,
+    businessIdentityRepository: identityRuntime && identityRuntime.repository,
+    entitlementProvider: identityRuntime && identityRuntime.entitlementProvider,
+    entitlementSigner: identityRuntime && identityRuntime.entitlementSigner,
+    logtoWebhookConsumer: identityRuntime && identityRuntime.webhookConsumer
   });
 
-  server.start(config.port).then(function(actualPort) {
+  try {
+    var actualPort = await server.start(config.port);
     var mode = config.dryRun ? "DRY-RUN" : "LIVE";
-    var auth = config.apiKey ? "API Key (" + config.apiKey.slice(0, 8) + "...)" : "无";
+    var auth = identityRuntime ? "Logto OIDC" : config.apiKey ? "API Key (" + config.apiKey.slice(0, 8) + "...)" : "无";
     var rate = config.maxRpm ? config.maxRpm + " rpm" : "无";
     var sched = config.enableSchedule ? "已启用" : "未启用";
 
@@ -85,10 +116,23 @@ function findConfigFile() {
     console.log("[publish-api]   定时: " + sched);
     console.log("[publish-api] 按 Ctrl+C 停止");
 
-    var cleanup = PublishApiServer.registerShutdownSignals(server);
-    process.on("beforeExit", cleanup);
-  }).catch(function(err) {
+    var shuttingDown = false;
+    var shutdown = async function() {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      await server.stop();
+      if (identityRuntime) await identityRuntime.close();
+    };
+    process.once("SIGTERM", shutdown);
+    process.once("SIGINT", shutdown);
+    process.once("beforeExit", shutdown);
+  } catch (err) {
+    if (identityRuntime) await identityRuntime.close().catch(function() {});
+    throw err;
+  }
+}
+
+main().catch(function(err) {
     console.error("[publish-api] 启动失败:", err.message);
     process.exit(1);
-  });
-})();
+});

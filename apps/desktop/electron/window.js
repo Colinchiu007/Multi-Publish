@@ -42,6 +42,7 @@ function registerWithAccessControl(context, register) {
     context.licenseManager,
     process.env,
     app,
+    context.identityService,
   ).handle
   ipcMain.handle = controlledHandle
 

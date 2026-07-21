@@ -20,6 +20,17 @@ const { AuditLog } = require("./audit-log");
 const { PublishingPlan } = require("./publish-plan");
 const { RateLimiter } = require("./rate-limiter");
 const { AccessLogger } = require("./access-log");
+const {
+  DEFAULT_MAX_BODY_BYTES,
+  LOGTO_WEBHOOK_EVENTS,
+  LOGTO_WEBHOOK_SIGNATURE_HEADER,
+  LogtoWebhookConsumer,
+  LogtoWebhookError,
+  deriveLogtoWebhookEventId,
+} = require("./auth/logto-webhook");
+const { createLogtoRuntime, LogtoRuntimeError } = require("./auth/logto-runtime");
+const { PostgresEntitlementProvider, PostgresIdentityRepository } = require("./auth/postgres-identity-repository");
+const platformConfigs = require("./adapters/platform-configs");
 const PluginLoader = require("./plugin-loader");
 
 // ─── Plugin System Integration ───
@@ -31,19 +42,27 @@ function reloadPlugins() {
   pluginLoader.loadAll();
 }
 
-/** Get all platforms including plugins */
-function supportsApi(p) { return !!REGISTRY[p] || !!pluginLoader.get(p); }
+function hasOwnPlatform(registry, platform) {
+  return typeof platform === "string" && Object.prototype.hasOwnProperty.call(registry, platform);
+}
+
+/** 判断内置、配置化或插件平台是否具备 API 适配器。 */
+function supportsApi(p) {
+  return hasOwnPlatform(REGISTRY, p) || hasOwnPlatform(platformConfigs, p) || !!pluginLoader.get(p);
+}
 
 /** Get adapter (built-in or plugin) */
 function getAdapter(p) {
-  var C = REGISTRY[p];
+  var C = hasOwnPlatform(REGISTRY, p) ? REGISTRY[p] : null;
   if (C) return new C();
-  // Try generic adapter for boilerplate platforms
-  try {
-    var { createAdapter } = require("./adapters/generic-adapter");
-    var adapter = createAdapter(p);
-    if (adapter) return adapter;
-  } catch(e) { /* generic-adapter not available */ }
+  // 配置化适配器只接受配置表中的自有键，避免原型属性被当成平台名。
+  if (hasOwnPlatform(platformConfigs, p)) {
+    try {
+      var { createAdapter } = require("./adapters/generic-adapter");
+      var adapter = createAdapter(p);
+      if (adapter) return adapter;
+    } catch(e) { /* 配置化适配器不可用时继续尝试插件 */ }
+  }
   var plugin = pluginLoader.get(p);
   return plugin || null;
 }
@@ -96,6 +115,9 @@ module.exports = {
   getAdapter, supportsApi, publishViaApi, batchPublish, reloadPlugins,
   REGISTRY, pluginLoader,
   ScheduledPublish, WebhookManager, AuditLog, PublishingPlan, RateLimiter, AccessLogger,
+  DEFAULT_MAX_BODY_BYTES, LOGTO_WEBHOOK_EVENTS, LOGTO_WEBHOOK_SIGNATURE_HEADER,
+  LogtoWebhookConsumer, LogtoWebhookError, deriveLogtoWebhookEventId,
+  createLogtoRuntime, LogtoRuntimeError, PostgresEntitlementProvider, PostgresIdentityRepository,
   apiRouter: require("./api-router"),
   batchPublishWithRouting: require("./api-router").batchPublishWithRouting,
   publishWithFallback: require("./api-router").publishWithFallback,

@@ -4,7 +4,7 @@ const desktopScheduler = require('./scheduler')
 describe('Scheduler 单一实现', () => {
   it('桌面兼容入口保留全部既有公共 API', () => {
     expect(Object.keys(desktopScheduler).sort()).toEqual([
-      'cancel', 'create', 'list', 'restore', 'setTaskQueue', 'stopAll'
+      'cancel', 'create', 'list', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
     ])
     expect(sharedScheduler.createScheduler).toBeTypeOf('function')
   })

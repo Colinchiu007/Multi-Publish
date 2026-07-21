@@ -9,6 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 const {
+  CHANNEL_FEATURE_MAP,
   createAccessControlledIpcMain,
   getAccessLevel,
   requiredLevelForChannel,
@@ -88,6 +89,99 @@ describe('主进程许可证动态鉴权', () => {
     expect(getAccessLevel(licenseManager, { NODE_ENV: 'production' })).toBe('authenticated')
     isPro = false
     expect(getAccessLevel(licenseManager, { NODE_ENV: 'production' })).toBe('public')
+  })
+
+  it('Logto 已登录时以身份为准，不能被本地 license 状态降级', () => {
+    const licenseManager = { isPro: vi.fn(() => false) }
+    const identityService = { getState: () => ({ status: 'authenticated' }) }
+    expect(getAccessLevel(licenseManager, { NODE_ENV: 'production' }, { isPackaged: true }, identityService))
+      .toBe('authenticated')
+    identityService.getState = () => ({ status: 'signed_out' })
+    expect(getAccessLevel(licenseManager, { NODE_ENV: 'production' }, { isPackaged: true }, identityService))
+      .toBe('public')
+  })
+
+  it('Logto 已启用时开发环境也不能把退出登录提升为 admin', () => {
+    const identityService = { getState: () => ({ status: 'signed_out' }) }
+    expect(getAccessLevel(
+      { isPro: () => true },
+      { NODE_ENV: 'development' },
+      { isPackaged: false },
+      identityService,
+    )).toBe('public')
+  })
+
+  it.each(['publish:wechat', 'publish:batch'])(
+    'Logto 已登录但缺少 cloud_publish 权益时拒绝 %s 且不执行 handler',
+    async (channel) => {
+      const identityService = {
+        getState: () => ({ status: 'authenticated' }),
+        requireEntitlement: vi.fn(async () => { throw new Error('ENTITLEMENT_REQUIRED') }),
+      }
+      const { ipcMain, handlers } = createIpcMainHarness()
+      const controlledIpcMain = createAccessControlledIpcMain(
+        ipcMain,
+        { isPro: () => true },
+        { NODE_ENV: 'production' },
+        { isPackaged: true },
+        identityService,
+      )
+      const protectedHandler = vi.fn(async () => ({ code: 0 }))
+      controlledIpcMain.handle(channel, protectedHandler)
+
+      await expect(handlers[channel](trustedEvent, {})).resolves.toMatchObject({ code: -3 })
+      expect(identityService.requireEntitlement).toHaveBeenCalledWith('cloud_publish', { onlineOnly: false })
+      expect(protectedHandler).not.toHaveBeenCalled()
+    },
+  )
+
+  it('有效权益放行本地发布，离线权益不被强制在线刷新', async () => {
+    const identityService = {
+      getState: () => ({ status: 'offline_authenticated' }),
+      requireEntitlement: vi.fn(async () => true),
+    }
+    const { ipcMain, handlers } = createIpcMainHarness()
+    const controlledIpcMain = createAccessControlledIpcMain(
+      ipcMain,
+      null,
+      { NODE_ENV: 'production' },
+      { isPackaged: true },
+      identityService,
+    )
+    const publish = vi.fn(async () => ({ code: 0 }))
+    controlledIpcMain.handle('publish:wechat', publish)
+
+    await expect(handlers['publish:wechat'](trustedEvent, {})).resolves.toEqual({ code: 0 })
+    expect(identityService.requireEntitlement).toHaveBeenCalledWith('cloud_publish', { onlineOnly: false })
+    expect(publish).toHaveBeenCalledTimes(1)
+  })
+
+  it('云端发布通道要求在线 cloud_publish 权益', async () => {
+    const identityService = {
+      getState: () => ({ status: 'authenticated' }),
+      requireEntitlement: vi.fn(async () => true),
+    }
+    const { ipcMain, handlers } = createIpcMainHarness()
+    const controlledIpcMain = createAccessControlledIpcMain(
+      ipcMain,
+      null,
+      { NODE_ENV: 'production' },
+      { isPackaged: true },
+      identityService,
+    )
+    controlledIpcMain.handle('cloud-publisher:submit', vi.fn(async () => ({ code: 0 })))
+
+    await handlers['cloud-publisher:submit'](trustedEvent, {})
+
+    expect(identityService.requireEntitlement).toHaveBeenCalledWith('cloud_publish', { onlineOnly: true })
+  })
+
+  it('显式 feature map 覆盖本地和云端发布写通道', () => {
+    expect(CHANNEL_FEATURE_MAP).toMatchObject({
+      'publish:wechat': 'cloud_publish',
+      'publish:batch': 'cloud_publish',
+      'cloud-publisher:submit': 'cloud_publish',
+    })
   })
 
   it('IPC 参数不能伪造许可证或访问级别', async () => {

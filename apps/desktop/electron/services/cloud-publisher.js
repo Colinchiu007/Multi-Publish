@@ -17,6 +17,20 @@ const log = logger.log || logger
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 
+function assertSecureOrchestratorUrl(rawUrl, authService) {
+  if (!rawUrl || !authService) return
+  let url
+  try {
+    url = new URL(rawUrl)
+  } catch (error) {
+    throw new Error('ORCHESTRATOR_URL 必须是有效的 HTTPS 地址', { cause: error })
+  }
+  const isLoopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback)) {
+    throw new Error('启用身份认证后 ORCHESTRATOR_URL 必须使用 HTTPS（本机开发可使用回环 HTTP）')
+  }
+}
+
 class CloudPublisher {
 
   /**
@@ -34,6 +48,28 @@ class CloudPublisher {
       log.warn('CloudPublisher', 'orchestratorUrl 未配置（set opts.orchestratorUrl 或 ORCHESTRATOR_URL env）')
     }
     this._store = opts.store || null
+    this._authService = opts.authService || null
+    assertSecureOrchestratorUrl(this._orchestratorUrl, this._authService)
+  }
+
+  async _requestConfig (forceRefresh = false) {
+    if (!this._authService) return null
+    const token = await this._authService.getAccessToken({ forceRefresh })
+    return { headers: { Authorization: 'Bearer ' + token } }
+  }
+
+  async _request (method, url, data) {
+    const call = async (forceRefresh) => {
+      const config = await this._requestConfig(forceRefresh)
+      if (config) return data === undefined ? this._axios[method](url, config) : this._axios[method](url, data, config)
+      return data === undefined ? this._axios[method](url) : this._axios[method](url, data)
+    }
+    try {
+      return await call(false)
+    } catch (error) {
+      if (!this._authService || !error || !error.response || error.response.status !== 401) throw error
+      return call(true)
+    }
   }
 
   /**
@@ -51,7 +87,10 @@ class CloudPublisher {
    * @returns {Promise<Object>} orchestrator response: { task_id, status, platform }
    */
   async submitTask ({ videoUrl, platform, title, desc, tags, coverUrl }) {
-    const resp = await this._axios.post(this._orchestratorUrl + '/api/jobs/publish-video', {
+    if (this._authService && typeof this._authService.requireEntitlement === 'function') {
+      await this._authService.requireEntitlement('cloud_publish', { onlineOnly: true })
+    }
+    const resp = await this._request('post', this._orchestratorUrl + '/api/jobs/publish-video', {
       video_url: videoUrl,
       platform: platform,
       title: title,
@@ -71,7 +110,7 @@ class CloudPublisher {
    * @returns {Promise<{items: Array}>}
    */
   async listTasks () {
-    const resp = await this._axios.get(this._orchestratorUrl + '/api/jobs/publish')
+    const resp = await this._request('get', this._orchestratorUrl + '/api/jobs/publish')
     return resp.data
   }
 
@@ -84,7 +123,7 @@ class CloudPublisher {
    * @returns {Promise<Object>}
    */
   async getTask (taskId) {
-    const resp = await this._axios.get(this._orchestratorUrl + '/api/jobs/publish/' + taskId)
+    const resp = await this._request('get', this._orchestratorUrl + '/api/jobs/publish/' + encodeURIComponent(taskId))
     return resp.data
   }
 
@@ -116,7 +155,7 @@ class CloudPublisher {
       }
     }))
 
-    ipcMain.handle('cloud-publisher:list-tasks', async () => {
+    ipcMain.handle('cloud-publisher:list-tasks', withSenderCheck(async () => {
       try {
         const result = await this.listTasks()
         return { code: 0, data: result }
@@ -124,9 +163,9 @@ class CloudPublisher {
         log.error('CloudPublisher', 'list-tasks failed: ' + err.message)
         return { code: EC.REQUEST_ERROR, message: err.message }
       }
-    })
+    }))
 
-    ipcMain.handle('cloud-publisher:get-task', async (_event, taskId) => {
+    ipcMain.handle('cloud-publisher:get-task', withSenderCheck(async (_event, taskId) => {
       try {
         const result = await this.getTask(taskId)
         return { code: 0, data: result }
@@ -134,11 +173,11 @@ class CloudPublisher {
         log.error('CloudPublisher', 'get-task failed: ' + err.message)
         return { code: EC.REQUEST_ERROR, message: err.message }
       }
-    })
+    }))
 
-    ipcMain.handle('cloud-publisher:platforms', async () => {
+    ipcMain.handle('cloud-publisher:platforms', withSenderCheck(async () => {
       return { code: 0, data: this.getSupportedPlatforms() }
-    })
+    }))
   }
 }
 

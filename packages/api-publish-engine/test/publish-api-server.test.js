@@ -1,12 +1,12 @@
 const assert = require("assert");
 const http = require("http");
+const { createHarness } = require("./async-test-harness");
 
 var mod;
 try { mod = require("../src/publish-api-server"); } catch(e) { mod = null; }
 var PublishApiServer = mod ? mod.PublishApiServer : null;
 
-let p=0,f=0;
-function t(n,fn){try{fn();p++;console.log('  \u2705 '+n)}catch(e){f++;console.log('  \u274C '+n+': '+e.message)}}
+const { test: t, run } = createHarness();
 function eq(a,b){assert.deepStrictEqual(a,b)}
 
 console.log('--- PublishApiServer structure ---');
@@ -229,6 +229,11 @@ if (PublishApiServer) {
   });
   t('schedule disabled by default', async function() {
     var server = new PublishApiServer({ dryRun: true });
+    await server.start(0); var port = server._server.address().port;
+    var r = await request(port, 'POST', '/api/v1/schedule', { platforms: ['zhihu'], title: 'X', content: 'x', scheduledAt: new Date().toISOString() });
+    eq(r.status, 400);
+    await server.stop();
+  });
 
   console.log('\n--- Metrics ---');
   t('GET /api/v1/metrics returns server stats', async function() {
@@ -264,10 +269,4 @@ if (PublishApiServer) {
     await server.stop();
     await server.stop(); // second call should not throw
   });
-    await server.start(0); var port = server._server.address().port;
-    var r = await request(port, 'POST', '/api/v1/schedule', { platforms: ['zhihu'], title: 'X', content: 'x', scheduledAt: new Date().toISOString() });
-    eq(r.status, 400);
-    await server.stop();
-  });
-console.log('\n========== Result: '+p+'/'+(p+f)+' ==========');
-if(f)process.exit(1);
+run();

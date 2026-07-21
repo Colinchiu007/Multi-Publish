@@ -60,7 +60,7 @@ describe("scheduler IPC handlers", () => {
       expect(scheduler.create).not.toHaveBeenCalled();
     });
 
-    it("creates a scheduled task", async () => {
+  it("creates a scheduled task", async () => {
       const result = await ipcMain._callHandler("scheduler:create", {
         platform: "github",
         article: { title: "test" },
@@ -81,6 +81,29 @@ describe("scheduler IPC handlers", () => {
       expect(result.code).toBe(-1);
       expect(result.message).toBe("Invalid time");
     });
+  });
+
+  it("创建、列表和取消都绑定当前登录用户 sub", async () => {
+    const identityService = {
+      getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+    };
+    ipcMain = createMockIpcMain();
+    scheduler = {
+      create: vi.fn((task) => ({ id: "sched-a", ...task, status: "pending" })),
+      list: vi.fn(() => []),
+      cancel: vi.fn(() => true),
+    };
+    registerHandlers(ipcMain, { scheduler, identityService });
+
+    await ipcMain._callHandler("scheduler:create", {
+      platform: "douyin", article: {}, publishTime: "2026-07-06T10:00:00Z",
+    });
+    await ipcMain._callHandler("scheduler:list");
+    await ipcMain._callHandler("scheduler:cancel", "sched-a");
+
+    expect(scheduler.create).toHaveBeenCalledWith(expect.objectContaining({ owner_subject: "user-a" }));
+    expect(scheduler.list).toHaveBeenCalledWith("user-a");
+    expect(scheduler.cancel).toHaveBeenCalledWith("sched-a", "user-a");
   });
 
   describe("scheduler:list", () => {

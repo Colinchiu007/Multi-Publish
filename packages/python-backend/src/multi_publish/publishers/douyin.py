@@ -143,6 +143,7 @@ class DouyinPublisher(BasePublisher):
 
     def __init__(self, config: PublisherConfig, account_id: str | None = None):
         super().__init__(config, account_id=account_id)
+        self._configure_account_storage()
         self._browser = None
         self._context = None
         self._page = None
@@ -151,11 +152,6 @@ class DouyinPublisher(BasePublisher):
         self._login_timeout = 120
         self._publish_timeout = 300
         self._upload_wait_timeout = 600
-
-        # 兼容旧的 cookie 文件路径
-        self._cookie_path = os.path.join(config.data_dir, f"cookies_{self.platform.value}.json")
-        # 新的完整认证数据文件路径
-        self._auth_data_path = os.path.join(config.data_dir, f"auth_{self.platform.value}.json")
 
     @property
     def platform(self) -> PlatformType:
@@ -534,20 +530,6 @@ class DouyinPublisher(BasePublisher):
             else:
                 raise RuntimeError(f"发布 API 返回异常: HTTP {create_resp.status_code}, body: {create_resp.text[:200]}")
 
-    # ── Browser data dir (P1-2: Per-Account Session 隔离) ─────────
-
-    def _get_browser_data_dir(self, check: bool = False) -> str:
-        """获取当前账号的浏览器数据目录
-
-        每个 account_id 使用独立的 browser_data 子目录，
-        同平台多账号切换时不会因为残留 cookie 导致登录态错乱。
-        """
-        base = os.path.join(self.config.data_dir, "browser_data")
-        suffix = "_check" if check else ""
-        if self.account_id:
-            return f"{base}_{self.account_id}{suffix}"
-        return f"{base}{suffix}"
-
     # ═══════════════════════════════════════════════════════════════
     # RPA 模式发布（增强版 — 响应拦截 + Per-Field 重试）
     # ═══════════════════════════════════════════════════════════════
@@ -575,7 +557,7 @@ class DouyinPublisher(BasePublisher):
         # 注：原代码有 bug — os.path.join 不接受 proxy 关键字参数（TypeError）
         self._context = await self._playwright_app.chromium.launch_persistent_context(
             **_build_launch_kwargs(
-                user_data_dir=os.path.join(self.config.data_dir, "browser_data"),
+                user_data_dir=self._get_browser_data_dir(),
                 headless=self.config.headless,
                 viewport={"width": 1280, "height": 800},
                 proxy=self.proxy_config,
@@ -782,7 +764,7 @@ class DouyinPublisher(BasePublisher):
         # 注：原代码有 bug — os.path.join 不接受 proxy 关键字参数（TypeError）
         self._context = await self._playwright_app.chromium.launch_persistent_context(
             **_build_launch_kwargs(
-                user_data_dir=os.path.join(self.config.data_dir, "browser_data"),
+                user_data_dir=self._get_browser_data_dir(),
                 headless=self.config.headless,
                 viewport={"width": 1280, "height": 800},
                 proxy=self.proxy_config,

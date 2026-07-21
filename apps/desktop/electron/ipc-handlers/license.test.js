@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const registerLicenseHandlers = require('./license')
 
-function registerAccessLevelHandler({ app, isPro = false }) {
+function registerAccessLevelHandler({ app, isPro = false, identityService }) {
   const listeners = {}
   registerLicenseHandlers(
     {
@@ -14,6 +14,7 @@ function registerAccessLevelHandler({ app, isPro = false }) {
     {
       app,
       licenseManager: { isPro: vi.fn(() => isPro) },
+      identityService,
     },
   )
   return listeners['auth:get-access-level']
@@ -66,6 +67,32 @@ describe('许可证同步访问级别', () => {
     handler(event)
 
     expect(event.returnValue).toBe('authenticated')
+  })
+
+  it('Logto 已登录时同步访问级别以身份为准，不依赖本地 license', () => {
+    const handler = registerAccessLevelHandler({
+      app: { isPackaged: true },
+      isPro: false,
+      identityService: { getState: () => ({ status: 'authenticated' }) },
+    })
+    const event = makeTrustedEvent()
+
+    handler(event)
+
+    expect(event.returnValue).toBe('authenticated')
+  })
+
+  it('Logto 已启用但已退出时本地 Pro license 不能提权', () => {
+    const handler = registerAccessLevelHandler({
+      app: { isPackaged: true },
+      isPro: true,
+      identityService: { getState: () => ({ status: 'signed_out' }) },
+    })
+    const event = makeTrustedEvent()
+
+    handler(event)
+
+    expect(event.returnValue).toBe('public')
   })
 
   it('未打包开发应用仍可获得 admin', () => {

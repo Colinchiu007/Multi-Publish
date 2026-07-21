@@ -117,4 +117,39 @@ describe('credential-store', () => {
     expect(accounts).toContain('acc_list_1')
     expect(accounts).toContain('acc_list_2')
   })
+
+  it('不同 owner 的同名账号使用独立加密命名空间', () => {
+    cs.saveCredential('shared', { accountInfo: { nickName: 'A' } }, userDataDir, 'user-a')
+    cs.saveCredential('shared', { accountInfo: { nickName: 'B' } }, userDataDir, 'user-b')
+
+    expect(cs.loadCredential('shared', userDataDir, 'user-a').accountInfo.nickName).toBe('A')
+    expect(cs.loadCredential('shared', userDataDir, 'user-b').accountInfo.nickName).toBe('B')
+    expect(cs.listAccounts(userDataDir, 'user-a')).toEqual(['shared'])
+    expect(cs.listAccounts(userDataDir, 'user-b')).toEqual(['shared'])
+  })
+
+  it('owner 命名空间不把旧 legacy 文件回退给已登录用户', () => {
+    cs.saveCredential('legacy-only', { accountInfo: { nickName: 'legacy' } }, userDataDir)
+
+    expect(cs.loadCredential('legacy-only', userDataDir, 'user-a')).toBeNull()
+    expect(cs.hasCredential('legacy-only', userDataDir, 'user-a')).toBe(false)
+  })
+
+  it('删除一个 owner 的凭证不会删除另一个 owner 的同名凭证', () => {
+    cs.saveCredential('shared', { accountInfo: { nickName: 'A' } }, userDataDir, 'user-a')
+    cs.saveCredential('shared', { accountInfo: { nickName: 'B' } }, userDataDir, 'user-b')
+
+    expect(cs.deleteCredential('shared', userDataDir, 'user-a')).toBe(true)
+    expect(cs.loadCredential('shared', userDataDir, 'user-a')).toBeNull()
+    expect(cs.loadCredential('shared', userDataDir, 'user-b').accountInfo.nickName).toBe('B')
+  })
+
+  it('owner 只接受非空字符串且命名空间不允许路径穿越', () => {
+    expect(() => cs.getOwnerCredentialDir(userDataDir, '../user-a')).not.toThrow()
+    expect(() => cs.getOwnerCredentialDir(userDataDir, '')).toThrow()
+    expect(() => cs.getOwnerCredentialDir(userDataDir, null)).toThrow()
+    const ownerDir = cs.getOwnerCredentialDir(userDataDir, '../user-a')
+    expect(ownerDir.startsWith(path.join(userDataDir, 'credentials', 'owners'))).toBe(true)
+    expect(ownerDir).not.toContain('..')
+  })
 })

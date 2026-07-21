@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from multi_publish.models import PlatformType, PublishPhase, PublishResult
+from multi_publish.publishers.account_paths import build_account_storage_paths
 
 # ═══════════════════════════════════════════════════════════════
 # P1: 进度节流阀（蚁小二 UploadEmitGate）
@@ -349,6 +350,21 @@ class BasePublisher(ABC):
         self.account_id: str | None = account_id
         self._cookie_path: str = ""
         self._progress_callback: Callable[[PublishPhase, str, int], Coroutine] | None = None
+
+    def _configure_account_storage(self) -> None:
+        """为当前平台与账号配置隔离的认证和浏览器目录。"""
+        paths = build_account_storage_paths(self.config.data_dir, self.platform.value, self.account_id)
+        self._account_data_dir = str(paths.account_dir)
+        self._auth_data_path = str(paths.auth_file)
+        self._cookie_path = str(paths.cookie_file)
+        self._legacy_auth_data_path = str(paths.legacy_auth_file)
+        self._legacy_cookie_path = str(paths.legacy_cookie_file)
+        self._browser_data_dir = str(paths.browser_dir)
+        self._browser_check_data_dir = str(paths.browser_check_dir)
+
+    def _get_browser_data_dir(self, check: bool = False) -> str:
+        """返回当前账号的持久化浏览器目录。"""
+        return self._browser_check_data_dir if check else self._browser_data_dir
 
     @property
     def proxy_config(self) -> dict | None:

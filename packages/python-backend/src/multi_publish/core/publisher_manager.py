@@ -182,9 +182,9 @@ class PublisherManager:
         publisher = await self.get_or_create(platform, account_id=account_id, proxy=proxy)
         return await publisher.login()
 
-    async def get_auth_status(self, platform: PlatformType) -> bool:
+    async def get_auth_status(self, platform: PlatformType, account_id: str) -> bool:
         try:
-            publisher = await self.get_or_create(platform)
+            publisher = await self.get_or_create(platform, account_id=account_id)
             return await publisher.check_auth()
         except Exception:
             return False

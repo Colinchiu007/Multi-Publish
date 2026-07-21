@@ -250,7 +250,7 @@ async def login(publisher) -> bool:
     # os.path.join 不接受关键字参数，运行时会抛 TypeError。修复方式：把 proxy
     # 移到 launch_persistent_context 的 kwargs 中。
     launch_kwargs: dict = {
-        "user_data_dir": os.path.join(publisher.config.data_dir, "browser_data"),
+        "user_data_dir": publisher._get_browser_data_dir(),
         "headless": False,
         "viewport": {"width": 1280, "height": 800},
     }
@@ -458,7 +458,7 @@ async def check_auth(publisher) -> bool:
     # 实际验证：尝试用认证数据访问首页
     try:
         ctx = await publisher._playwright_app.chromium.launch_persistent_context(
-            user_data_dir=os.path.join(publisher.config.data_dir, "browser_data_check"),
+            user_data_dir=publisher._get_browser_data_dir(check=True),
             headless=True,
         )
         page = await ctx.new_page()

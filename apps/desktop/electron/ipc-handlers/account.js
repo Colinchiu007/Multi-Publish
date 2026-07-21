@@ -160,12 +160,8 @@ function registerHandlers(ipcMain, deps) {
   }))
 
   ipcMain.handle('account:delete', withSenderCheck(async (event, accountId) => {
-    try {
-      // R51 P1：accountId 用于 URL 拼接，必须校验
-      if (!_isSafePathSegment(accountId)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId 参数' }
-      const result = await pythonBridge.requestBackend('DELETE', '/api/accounts/' + accountId)
-      if (result.code === 0) return { code: 0, data: true, message: '账号已删除' }
-    } catch (_e) { /* fallthrough */ }
+    // 统一经 AccountManager 删除，确保后端记录与本地凭证同步清理。
+    if (!_isSafePathSegment(accountId)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId 参数' }
     try { await AccountManager.deleteAccount(accountId); return { code: 0, data: true, message: '账号已删除' } }
     catch (e) { return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) } }
   }))

@@ -4,6 +4,9 @@
 **版本**: 0.1.1  
 **状态**: Phase 1 核心功能完成 ✅
 
+> 本文件顶部保留 2026-06-03 的历史基线；当前 Logto 用户系统交付以文末
+> “2026-07-20：Logto 用户系统交付补充”为准。
+
 ---
 
 ## 已完成内容
@@ -155,3 +158,35 @@ python -m uvicorn web.server:app --host 0.0.0.0 --port 8082
 | `cgi-bin/publish` | **企业认证公众号** | ✅ 已实现 |
 
 **注意**: 个人公众号无法使用 `publish` 接口，只能保存草稿手动发布。
+
+---
+
+## 2026-07-20：Logto 用户系统交付补充
+
+**分支**：`codex/logto-user-system`
+**需求版本**：PRD v2.4.0-logto
+**架构**：`01-docs/ARCH-F14-logto-user-system.md`
+**状态**：本地实现与工程门禁完成；生产集成验收待真实租户/数据库
+
+### 交付范围
+
+1. Electron 登录：PKCE、固定回环回调、safeStorage、恢复/刷新/退出/切换状态机、IPC/preload/Pinia/UI。
+2. API 身份：Node/Python JWT/JWKS 验证、统一错误语义、`sub` lazy upsert 和跨用户隔离。
+3. 权益与用量：服务端 entitlement、RSA 离线快照、原子额度扣减、本地 license 降权兼容。
+4. 运维：PostgreSQL 迁移、Webhook 事务消费、Logto 1.41.0 Compose、环境变量和回滚说明。
+
+### 质量结果
+
+- Desktop coverage：285 files、5007 tests；68.37% statements / 60.59% branches / 69.86% functions / 70.51% lines。
+- Node API：61 个测试分组全部通过；Python：2503 passed、1 skipped。
+- 故障注入 14/14、Monkey 5/5、视觉 16/16、身份 mock E2E 两个 viewport。
+- Preload 在真实 Electron 的 `sandbox:true/false` 两种模式下通过；Windows 打包 exit 0，ASAR 身份文件、敏感文件扫描、require 链和应用 8 秒启动通过。
+- 独立安全/代码审查无 CRITICAL/MAJOR；最终新增 IPC 与 Webhook 防护完成 RED -> GREEN。
+- API Key 边界完成 RED -> GREEN：历史 pending 定时任务即使跨重启恢复，也会在发布前返回 `SCHEDULE_OWNER_REVOKED`；未托管静态 Key 返回 `SCHEDULE_OWNER_INVALID`；Key 存储损坏时返回 `API_KEY_STORE_UNAVAILABLE` 且不覆盖原文件。
+- Stryker 完整 1505 mutants 在本机负载上限内未完成；`identity-errors.js` 专属分片 90%，完整限制已记录在测试计划。
+
+### 未关闭的外部验收
+
+- 真实 Logto 租户登录、刷新轮换、退出、账号切换和 Webhook 投递。
+- 真实 PostgreSQL 迁移、并发 lazy upsert、事务回滚和额度压力测试。
+- 身份 E2E 当前使用浏览器注入 mock bridge，不能替代真实 Electron + Logto 验收。

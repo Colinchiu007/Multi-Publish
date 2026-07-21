@@ -9,7 +9,12 @@
  */
 const path = require('path')
 const { app } = require('electron')
-const { SCHEMA_SQL } = require('../store-schema')
+const {
+  SCHEMA_SQL,
+  LEGACY_OWNER_SUBJECT,
+  migrateOwnerIsolationSchema,
+  migrateModelProvidersSchema,
+} = require('../store-schema')
 const log = require('../logger')
 
 let Database = null
@@ -23,6 +28,29 @@ class BaseStore {
   constructor () {
     this.db = null
     this._ready = false
+    this._ownerSubjectProvider = null
+  }
+
+  /**
+   * 注入当前登录用户解析器。解析器缺少有效 sub 时返回 null，所有用户数据
+   * CRUD 都会 fail-closed；未配置身份服务时才使用 legacy 命名空间兼容旧流程。
+   */
+  setOwnerSubjectProvider (provider) {
+    if (provider !== null && provider !== undefined && typeof provider !== 'function') {
+      throw new TypeError('owner subject provider must be a function or null')
+    }
+    this._ownerSubjectProvider = provider || null
+  }
+
+  _resolveOwnerSubject (explicitOwnerSubject) {
+    if (explicitOwnerSubject !== undefined) return normalizeOwnerSubject(explicitOwnerSubject)
+    if (!this._ownerSubjectProvider) return LEGACY_OWNER_SUBJECT
+    try {
+      return normalizeOwnerSubject(this._ownerSubjectProvider())
+    } catch (e) {
+      log.warn('Store', 'Failed to resolve owner subject: ' + e.message)
+      return null
+    }
   }
 
   /**
@@ -43,6 +71,8 @@ class BaseStore {
       this.db.pragma('journal_mode = WAL')   // WAL 模式，读写不阻塞
       this.db.pragma('foreign_keys = ON')
       this._createTables()
+      migrateOwnerIsolationSchema(this.db)
+      migrateModelProvidersSchema(this.db)
       this._ready = true
       // 修复 P1：定时持久化（原仅 close() 时持久化，崩溃丢全部数据）
       // 每 5 秒检查 dirty 标记，有写入则原子持久化到磁盘
@@ -61,7 +91,8 @@ class BaseStore {
 
   _createTables () {
     for (const sql of SCHEMA_SQL) {
-      this.db.exec(sql)
+      if (typeof this.db.execOrThrow === 'function') this.db.execOrThrow(sql)
+      else this.db.exec(sql)
     }
   }
 
@@ -106,18 +137,20 @@ class BaseStore {
         try {
           const a = JSON.parse(line)
           // 跳过已存在的（platform + account_name 唯一）
-          const existing = this.db.prepare('SELECT id FROM accounts WHERE platform = ? AND account_name = ?').get(a.platform, a.account_name || '')
+          const existing = this.db.prepare('SELECT id FROM accounts WHERE owner_subject = ? AND platform = ? AND account_name = ?')
+            .get(LEGACY_OWNER_SUBJECT, a.platform, a.account_name || '')
           if (!existing) {
             this.addAccount({
+              id: a.id,
               platform: a.platform,
               account_name: a.account_name || '',
               name: a.name || '',
               avatar: a.avatar || '',
-              cookies: JSON.stringify(a.cookies || []),
-              localStorage: JSON.stringify(a.localStorage || {}),
+              cookies: a.cookies || [],
+              localStorage: a.localStorage || {},
               status: a.status || 'active',
               is_default: a.is_default ? 1 : 0,
-            })
+            }, LEGACY_OWNER_SUBJECT)
             result.accounts++
           }
         } catch (e) { log.warn('Store', 'migrate account skip: ' + e.message) }
@@ -130,8 +163,9 @@ class BaseStore {
       for (const line of lines) {
         try {
           const t = JSON.parse(line)
-          this.db.prepare('INSERT OR IGNORE INTO scheduled_tasks (platform, article, publish_time, status) VALUES (?, ?, ?, ?)')
-            .run(t.platform, JSON.stringify(t.article || {}), t.publishTime || '', t.status || 'pending')
+          const taskId = String(t.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)))
+          this.db.prepare('INSERT OR IGNORE INTO scheduled_tasks (owner_subject, id, platform, article, publish_time, status) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(LEGACY_OWNER_SUBJECT, taskId, t.platform, JSON.stringify(t.article || {}), t.publishTime || '', t.status || 'pending')
           result.scheduledTasks++
         } catch (e) { log.warn('Store', 'migrate scheduled_task skip: ' + e.message) }
       }
@@ -143,8 +177,9 @@ class BaseStore {
       for (const line of lines) {
         try {
           const h = JSON.parse(line)
-          this.db.prepare('INSERT OR IGNORE INTO publish_history (platform, title, content, status, result) VALUES (?, ?, ?, ?, ?)')
-            .run(h.platform || '', h.title || '', h.content || '', h.status || '', h.result || '')
+          const historyId = String(h.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)))
+          this.db.prepare('INSERT OR IGNORE INTO publish_history (owner_subject, id, platform, title, content, status, result) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            .run(LEGACY_OWNER_SUBJECT, historyId, h.platform || '', h.title || '', h.content || '', h.status || '', h.result || '')
           result.publishHistory++
         } catch (e) { log.warn('Store', 'migrate publish_history skip: ' + e.message) }
       }
@@ -153,6 +188,12 @@ class BaseStore {
     log.info('Store', 'JSONL → SQLite 迁移完成: ' + JSON.stringify(result))
     return result
   }
+}
+
+function normalizeOwnerSubject(value) {
+  if (typeof value !== 'string') return null
+  const subject = value.trim()
+  return subject ? subject : null
 }
 
 module.exports = BaseStore

@@ -3350,3 +3350,49 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - Electron 缓存 ZIP 损坏会表现为 `zip: not a valid zip file`；删除对应版本缓存并重新下载后，仍需完成 ASAR 清单、真实 require 链和 8 秒启动验证。
 
 **最终验证**：Vitest `4809/4809`、功能 E2E `270/270`、像素视觉 `16/16`、preload 双 sandbox 模式、Windows 打包、ASAR require 链和应用启动均通过。
+
+> 以上数字属于 `231174d` 的 IPC/视觉专项范围；Logto 交付的 Desktop 全量 coverage
+> 另按 `TEST-PLAN-LOGTO.md` 记录为 5007 tests，不能混用两个统计口径。
+
+## 2026-07-20：Logto 用户系统质量节拍复盘
+
+### 逃逸与根因
+
+1. **E2E 命中错误 worktree**：默认 `5174` 被其他工作树的 Vite 占用，身份菜单测试因此可能验证旧代码。根因是测试入口只信任端口，不校验 `/main.js` 来源。
+2. **测试替身契约漂移**：浏览器 E2E 的假 `window.electronAPI` 绕过了真实 Electron 的 structured clone、preload sandbox 和主进程 PKCE 回调，导致 UI 通过不能代表桌面链路通过。
+3. **Stryker 原位运行残留与负载超时**：worker 启动失败/高负载中断后留下备份目录和 setup 文件。若不扫描 `stryMutAct_`、`stryCov_`、`__stryker__` 并清理临时物，容易误提交源码备份或把未完成 mutation 当成通过。
+4. **覆盖率时间预算不匹配**：D 盘大量小文件并行读取使 300 秒上限超时，延长到 900 秒并限制并行度后才得到可重复结果。
+5. **Webhook 乱序副作用**：旧事件在幂等 claim 后才做新鲜度判断时，会留下 `processing` 占位；即使 `upsert` 返回 `applied: false`，暂停/删除副作用仍可能提前触发。修复为先验时间窗口，并仅对 `applied: true` 执行撤销。
+6. **边界输入未统一**：UTF-8 BOM、可选依赖缺失、签名篡改等负例若只在单一运行时验证，容易出现 Node/Python 或开发/打包环境语义漂移。本轮将 BOM/可选依赖检查、真实 RSA 篡改负例和 Node/Python `nbf` 类型校验纳入门禁。
+7. **撤销凭据未传导到历史定时任务**：`876dc07` 引入 API Key 管理，`7380ff0` 引入只按时间执行的调度器；`e4496571` 的配置 Key 迁移和 `fe1ed8f` 的 SHA-256 持久化都只覆盖请求入口，未把 Key 生命周期绑定到已持久化任务。结果是 HTTP 请求已被撤销状态拒绝，但旧任务仍可由后台执行器发布。
+
+### API Key 定时任务漏洞逃逸链
+
+- **单元测试**：Key 测试只覆盖创建、验证、撤销和哈希重载；调度测试只覆盖到期成功执行，缺少“创建任务 -> 撤销 Key -> 到期”的组合。
+- **集成测试**：灰度认证只验证 API Key 能创建隔离资源和撤销后不能发起新 HTTP 请求，没有重启服务并恢复 pending 任务。
+- **端到端测试**：身份 E2E 聚焦 Logto UI 和 mock bridge，没有覆盖 Node 后台调度器与 Key 文件的跨重启状态。
+- **代码审查**：关注 owner 隔离和磁盘不存明文，却没有沿“撤销动作 -> 所有异步执行入口”追踪授权失效传播。
+- **系统性漏洞**：凭证撤销测试模板缺少延迟任务、重试队列和进程恢复三类二次授权场景。
+
+**修复与回归保护**：定时任务持久化 `api-key:<sha256>`；`ApiKeyManager.validateOwnerSubject()` 每次从磁盘重读有效性和 scope；`PublishApiServer._authorizeScheduledEntry()` 在调用发布链路前拒绝已撤销 owner。回归测试同时覆盖有效 Key、撤销、跨重启恢复和无 Logto 路径，失败码固定为 `SCHEDULE_OWNER_REVOKED`。
+
+### 已落地的预防措施
+
+- E2E/视觉测试使用当前工作树独立端口，并在运行前检查 `/main.js` 不包含其他 `.worktrees/` 路径。
+- IPC mock 增加纯 JSON/structured clone 合同；真实 Electron sandbox、preload 重启和打包 require 链列为发布门禁，不再由浏览器 mock 代替。
+- Stryker 每次异常后执行污染扫描；提交白名单排除 `stryker-identity-tmp`、setup 文件和 `.pytest-tmp-logto-*`。
+- 覆盖率和全量测试记录实际超时预算、worker 配置和退出码；未生成全树 mutation 报告时明确标记 PENDING。
+- Webhook 处理顺序、JWT/JWK 用途、TTL、`nbf` 类型和身份状态门控均有回归测试，避免只修实现不留保护。
+- 凭证撤销审查新增统一规则：所有延迟任务、重试队列和持久化恢复入口必须使用稳定 owner 标识，并在每次实际执行前重新授权；请求创建时鉴权不能替代执行时鉴权。
+
+### API Key 存储损坏漏洞逃逸链
+
+- **第一性原因**：`876dc07` 引入 Key 存储时，`load()` 把读取、JSON 解析和结构错误统一吞掉并折叠为空数组。当前 Logto 灰度迁移与静态 Key 回退沿用了“空数组等于未配置”的假设，导致损坏文件中的撤销记录可能被忽略或覆盖。
+- **单元测试逃逸**：只覆盖文件不存在、正常持久化和撤销重载，没有损坏 JSON、非数组结构和读取异常。
+- **集成测试逃逸**：只验证静态 Key 正常迁移与撤销，没有验证存储损坏时 HTTP 状态和磁盘内容。
+- **端到端测试逃逸**：身份 E2E 使用 mock bridge，不触及 Node API 的 Key 文件。
+- **代码审查盲区**：审查集中在哈希、定时任务二次授权和静态 Key 兼容，没有区分“文件不存在”与“文件存在但不可读”。
+
+**修复与回归保护**：`ApiKeyManager` 保存明确的加载错误状态；校验返回 `API_KEY_STORE_UNAVAILABLE`，写操作和自动迁移拒绝覆盖；HTTP 返回 503，定时执行同样 fail closed。`api-key-manager.test.js` 和 `logto-optional-auth.test.js` 固定覆盖损坏 JSON、文件不被覆盖和静态 Key 不得恢复权限。
+
+**预防措施**：质量门禁新增“授权/凭据存储读取失败必须 fail closed”；后续所有凭据、entitlement 和会话存储都必须分别测试 missing、empty、corrupt、unreadable 四种状态，禁止用同一个空值代表。

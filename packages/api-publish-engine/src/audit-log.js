@@ -34,6 +34,7 @@ class AuditLog {
   async log(data) {
     var entry = {
       id: genId(),
+      ownerSubject: typeof data.ownerSubject === "string" ? data.ownerSubject : null,
       type: data.type || "publish",
       platform: data.platform || "",
       title: data.title || "",
@@ -48,10 +49,15 @@ class AuditLog {
     return entry;
   }
 
-  list(limit, offset) {
+  list(limit, offset, ownerSubject) {
     limit = limit || 50;
     offset = offset || 0;
-    return this._entries.slice(offset, offset + limit);
+    var filterByOwner = arguments.length >= 3;
+    var expectedOwner = typeof ownerSubject === "string" && ownerSubject ? ownerSubject : null;
+    var entries = filterByOwner
+      ? this._entries.filter(function(entry) { return entry.ownerSubject === expectedOwner; })
+      : this._entries;
+    return entries.slice(offset, offset + limit);
   }
 
   get(id) {
@@ -61,12 +67,17 @@ class AuditLog {
     return null;
   }
 
-  stats() {
-    var total = this._entries.length;
+  stats(ownerSubject) {
+    var filterByOwner = arguments.length >= 1;
+    var expectedOwner = typeof ownerSubject === "string" && ownerSubject ? ownerSubject : null;
+    var entries = filterByOwner
+      ? this._entries.filter(function(entry) { return entry.ownerSubject === expectedOwner; })
+      : this._entries;
+    var total = entries.length;
     var success = 0, failed = 0;
     var byType = {};
-    for (var i = 0; i < this._entries.length; i++) {
-      var e = this._entries[i];
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
       if (e.status === "success") success++;
       if (e.status === "failed") failed++;
       byType[e.type] = (byType[e.type] || 0) + 1;
@@ -74,8 +85,12 @@ class AuditLog {
     return { total: total, success: success, failed: failed, byType: byType };
   }
 
-  clear() {
-    this._entries = [];
+  clear(ownerSubject) {
+    var filterByOwner = arguments.length >= 1;
+    var expectedOwner = typeof ownerSubject === "string" && ownerSubject ? ownerSubject : null;
+    this._entries = filterByOwner
+      ? this._entries.filter(function(entry) { return entry.ownerSubject !== expectedOwner; })
+      : [];
     this._save();
   }
 }

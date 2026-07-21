@@ -13,7 +13,9 @@
  *   - 保存账号信息（昵称、头像等）
  *   - 使用 AES-256-GCM 加密存储
  * 
- * 文件路径: {userData}/credentials/{accountId}.json.enc
+ * 文件路径:
+ *   legacy: {userData}/credentials/{accountId}.json.enc
+ *   Logto:  {userData}/credentials/owners/{sha256(sub)}/{accountId}.json.enc
  */
 const fs = require('fs')
 const path = require('path')
@@ -102,7 +104,27 @@ function decryptData (payload, masterKey) {
  * 获取凭证存储目录
  */
 function getCredentialDir (userDataDir) {
+  if (!userDataDir || typeof userDataDir !== 'string') throw new TypeError('userDataDir must be a non-empty string')
   return path.join(userDataDir, 'credentials')
+}
+
+function normalizeOwnerSubject (ownerSubject) {
+  if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
+    throw new TypeError('ownerSubject must be a non-empty string')
+  }
+  return ownerSubject.trim()
+}
+
+function getOwnerCredentialDir (userDataDir, ownerSubject) {
+  const subject = normalizeOwnerSubject(ownerSubject)
+  const namespace = crypto.createHash('sha256').update(subject, 'utf8').digest('hex')
+  return path.join(getCredentialDir(userDataDir), 'owners', namespace)
+}
+
+function getCredentialNamespaceDir (userDataDir, ownerSubject) {
+  return ownerSubject === undefined
+    ? getCredentialDir(userDataDir)
+    : getOwnerCredentialDir(userDataDir, ownerSubject)
 }
 
 /**
@@ -126,13 +148,15 @@ function getCredentialFilePath (accountId, credDir) {
  * }
  * @param {string} userDataDir
  */
-function saveCredential (accountId, data, userDataDir) {
+function saveCredential (accountId, data, userDataDir, ownerSubject) {
   try {
-    const credDir = getCredentialDir(userDataDir)
-    const masterKey = getMasterKey(credDir)
+    const rootCredentialDir = getCredentialDir(userDataDir)
+    const credDir = getCredentialNamespaceDir(userDataDir, ownerSubject)
+    const masterKey = getMasterKey(rootCredentialDir)
     const payload = encryptData(JSON.stringify(data), masterKey)
 
     const filePath = getCredentialFilePath(accountId, credDir)
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
     // 安全：原子写（写临时文件后 rename），防止崩溃中断损坏凭证文件
     const tmpPath = filePath + '.tmp.' + process.pid
     fs.writeFileSync(tmpPath, payload)
@@ -150,14 +174,15 @@ function saveCredential (accountId, data, userDataDir) {
  * @param {string} userDataDir
  * @returns {object|null} {localStorage, accountInfo} 或 null
  */
-function loadCredential (accountId, userDataDir) {
+function loadCredential (accountId, userDataDir, ownerSubject) {
   try {
-    const credDir = getCredentialDir(userDataDir)
+    const rootCredentialDir = getCredentialDir(userDataDir)
+    const credDir = getCredentialNamespaceDir(userDataDir, ownerSubject)
     const filePath = getCredentialFilePath(accountId, credDir)
     
     if (!fs.existsSync(filePath)) return null
     
-    const masterKey = getMasterKey(credDir)
+    const masterKey = getMasterKey(rootCredentialDir)
     const payload = fs.readFileSync(filePath)
     return decryptData(payload, masterKey)
   } catch (e) {
@@ -169,9 +194,9 @@ function loadCredential (accountId, userDataDir) {
 /**
  * 删除账号凭证
  */
-function deleteCredential (accountId, userDataDir) {
+function deleteCredential (accountId, userDataDir, ownerSubject) {
   try {
-    const credDir = getCredentialDir(userDataDir)
+    const credDir = getCredentialNamespaceDir(userDataDir, ownerSubject)
     const filePath = getCredentialFilePath(accountId, credDir)
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath)
@@ -188,9 +213,9 @@ function deleteCredential (accountId, userDataDir) {
 /**
  * 列出所有已保存凭证的账号
  */
-function listAccounts (userDataDir) {
+function listAccounts (userDataDir, ownerSubject) {
   try {
-    const credDir = getCredentialDir(userDataDir)
+    const credDir = getCredentialNamespaceDir(userDataDir, ownerSubject)
     if (!fs.existsSync(credDir)) return []
     
     return fs.readdirSync(credDir)
@@ -205,8 +230,8 @@ function listAccounts (userDataDir) {
 /**
  * 检查账号是否有凭证
  */
-function hasCredential (accountId, userDataDir) {
-  const credDir = getCredentialDir(userDataDir)
+function hasCredential (accountId, userDataDir, ownerSubject) {
+  const credDir = getCredentialNamespaceDir(userDataDir, ownerSubject)
   return fs.existsSync(getCredentialFilePath(accountId, credDir))
 }
 
@@ -214,6 +239,7 @@ module.exports = {
   getMasterKey,
   getCredentialFilePath,
   getCredentialDir,
+  getOwnerCredentialDir,
   saveCredential,
   loadCredential,
   deleteCredential,

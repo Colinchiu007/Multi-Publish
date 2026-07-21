@@ -28,6 +28,8 @@ let restartCount = 0
 let watchdogTimer = null
 /** @type {NodeJS.Timeout | null} */
 let _restartTimer = null
+/** @type {{ getAccessToken?: Function } | null} */
+let authService = null
 
 /**
  * 获取 Python 后端工作目录（委托 path-utils 统一解析）
@@ -275,7 +277,22 @@ async function stopPythonBackend () {
  * @param {object|null} body - Request body
  * @param {number} [timeout] - Request timeout in ms (default 30000, login 180000)
  */
-function requestBackend (method, path, body = null, timeout = 30000) {
+function _identityAuthRequired () {
+  return ['1', 'true', 'yes', 'on'].includes(String(process.env.IDENTITY_AUTH_REQUIRED || '').trim().toLowerCase())
+}
+
+async function _getBackendAccessToken (forceRefresh = false) {
+  if (!authService || typeof authService.getAccessToken !== 'function') return null
+  try {
+    const token = await authService.getAccessToken(forceRefresh ? { forceRefresh: true } : {})
+    return typeof token === 'string' && token ? token : null
+  } catch (error) {
+    if (_identityAuthRequired()) throw error
+    return null
+  }
+}
+
+function _requestBackendOnce (method, path, body, timeout, accessToken) {
   return new Promise((resolve, reject) => {
     if (!isRunning) {
       reject(new Error('Python backend is not running'))
@@ -287,7 +304,10 @@ function requestBackend (method, path, body = null, timeout = 30000) {
       port: currentPort,
       path,
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
       timeout
     }
 
@@ -295,11 +315,9 @@ function requestBackend (method, path, body = null, timeout = 30000) {
       let data = ''
       res.on('data', chunk => { data += chunk })
       res.on('end', () => {
-        try {
-          resolve(JSON.parse(data))
-        } catch {
-          resolve({ code: -1, message: data })
-        }
+        let parsed
+        try { parsed = JSON.parse(data) } catch { parsed = { code: -1, message: data } }
+        resolve({ status: res.statusCode || 200, data: parsed })
       })
     })
 
@@ -311,10 +329,35 @@ function requestBackend (method, path, body = null, timeout = 30000) {
   })
 }
 
+async function requestBackend (method, path, body = null, timeout = 30000) {
+  if (!isRunning) throw new Error('Python backend is not running')
+  let accessToken = await _getBackendAccessToken(false)
+  let response = await _requestBackendOnce(method, path, body, timeout, accessToken)
+  if (response.status === 401 && authService) {
+    accessToken = await _getBackendAccessToken(true)
+    if (accessToken) response = await _requestBackendOnce(method, path, body, timeout, accessToken)
+  }
+  if (response.status >= 400) {
+    const payload = response.data && typeof response.data === 'object' ? response.data : {}
+    return {
+      ...payload,
+      status: response.status,
+      code: payload.code === undefined ? -response.status : payload.code,
+      message: payload.message || payload.detail || `Python backend request failed (${response.status})`,
+    }
+  }
+  return response.data
+}
+
+function setAuthService (service) {
+  authService = service && typeof service === 'object' ? service : null
+}
+
 module.exports = {
   startPythonBackend,
   stopPythonBackend,
   requestBackend,
+  setAuthService,
   isRunning: () => isRunning,
   currentPort: () => currentPort
 }

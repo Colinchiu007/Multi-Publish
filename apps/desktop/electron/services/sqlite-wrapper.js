@@ -153,6 +153,15 @@ class Database {
   }
 
   /**
+   * 执行 schema/迁移 SQL，错误必须向上抛出，避免启动后静默使用半迁移数据库。
+   */
+  execOrThrow(sql) {
+    if (!this._db) throw new Error('SQLite database is not ready')
+    this._db.exec(sql)
+    this._dirty = true
+  }
+
+  /**
    * 事务支持（修复 P4：原 store.js 调用 this.db.transaction() 但方法不存在）
    * @param {function} fn - 事务体函数
    */

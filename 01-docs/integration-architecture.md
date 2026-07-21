@@ -1,7 +1,9 @@
 # PROJECT-001 + PROJECT-003 集成架构方案
 
 **日期**: 2026-06-03  
-**目标**: 两个项目独立运营 + API 集成 + 统一用户系统
+**目标**: 两个项目独立运营 + API 集成 + 统一用户身份系统
+
+> **2026-07-20 修订**：统一身份以 Logto OIDC/JWKS 方案为准。本文后半部分保留的“共享用户数据库 + 共享 JWT_SECRET”仅作为历史方案，不得用于新代码或生产部署。详细设计见 [ARCH-F14-logto-user-system.md](./ARCH-F14-logto-user-system.md)。
 
 ---
 
@@ -11,7 +13,93 @@
 |------|------|
 | **独立产品** | 各自独立部署、独立域名、独立管理后台 |
 | **API 集成** | 001 改写完成后，调用 003 API 发布（而非代码级耦合） |
-| **统一用户** | 共享用户数据库 + JWT，单点登录 |
+| **统一用户** | Logto OIDC 认证；各业务服务按 `sub` 懒同步本地用户与权益 |
+
+## 当前统一身份架构（权威方案）
+
+```text
+Multi-Publish Desktop                 PROJECT-001 Web
+  系统浏览器 + PKCE                      OIDC Web Flow
+          │                                  │
+          └──────────────┬───────────────────┘
+                         ▼
+                 Logto（身份提供商）
+          PostgreSQL / 可选 Redis / JWKS
+                         │ Access Token
+              ┌──────────┴──────────┐
+              ▼                     ▼
+       PROJECT-003 API        PROJECT-001 API
+       JWKS + scope 校验       JWKS + scope 校验
+              │                     │
+              └──────按 sub 关联────┘
+                    各自业务数据库
+```
+
+核心契约：
+
+1. Logto 只负责认证、会话、MFA 和粗粒度 Scope；业务用户、订阅、订单、额度和平台账号归属保存在各产品业务库。
+2. 外部身份唯一键为 `(auth_provider='logto', auth_subject=sub)`，第一次有效 API 请求时幂等 upsert。本地业务主键不暴露为身份凭证。
+3. API 校验 Logto JWKS、issuer、`aud=https://api.multi-publish.com`、时间声明和 scope；不得共享签名私钥或 `JWT_SECRET`。
+4. 普通用户 Token 来自 Authorization Code + PKCE。Management API 使用单独的 M2M Token，只能存在于后端 Secret Store。
+5. Webhook 仅用于资料/状态辅助同步。Webhook 失败不能阻止登录，因此业务用户创建必须保留 lazy upsert 兜底。
+6. 客户端不能决定资源归属。云端发布接口忽略或拒绝 `user_id`，所有查询和写入使用已验证 Token 的 `sub`。
+
+### API Token 契约
+
+```http
+Authorization: Bearer <Logto access token>
+```
+
+| 校验项 | 要求 |
+|--------|------|
+| `iss` | 等于配置的 `LOGTO_ENDPOINT/oidc` 实际 issuer |
+| `aud` | 包含 `LOGTO_API_RESOURCE` |
+| `exp` / `nbf` | 当前时间有效，时钟偏差最多 60 秒 |
+| `scope` | 路由所需 Scope 全部存在 |
+| `sub` | 非空字符串，作为外部用户键 |
+
+返回语义：Token 缺失、无效或过期为 401；Token 有效但 scope 不足为 403；套餐或额度不足为 402/403；访问其他用户资源为 404，避免资源枚举。
+
+### 业务数据边界
+
+当前仓库 SQLite 迁移使用 `identity_users`、`identity_subscriptions` 和 `identity_entitlement_snapshots`，避免覆盖旧版 `users` 表；下方字段契约保持不变，生产 PostgreSQL 可映射为业务库自己的等价表。
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY,
+  auth_provider VARCHAR(32) NOT NULL,
+  auth_subject VARCHAR(255) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  display_name VARCHAR(100),
+  avatar_url VARCHAR(500),
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (auth_provider, auth_subject)
+);
+
+CREATE TABLE subscriptions (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id),
+  plan VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  current_period_end TIMESTAMPTZ
+);
+
+CREATE TABLE entitlement_snapshots (
+  user_id UUID PRIMARY KEY REFERENCES users(id),
+  version BIGINT NOT NULL,
+  payload JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+```
+
+### 部署与迁移
+
+1. 先部署 Logto 和业务 API 的 JWKS 鉴权，保持旧 API Key 仅供内部回滚。
+2. 桌面端灰度开启 Logto 登录；已登录请求使用 Bearer Token，旧客户端仍可按版本策略降级。
+3. 把本地 license 映射为服务端 entitlement，灰度期读取兼容层但禁止客户端直接提升套餐。
+4. 观察 401/403、刷新失败、JWKS 拉取失败和 webhook 延迟指标后，撤销普通用户的旧 API Key。
+5. 回滚只关闭新客户端入口和恢复受限的旧 API Key，不回滚 `auth_subject` 数据列；Logto 数据与业务数据分别备份。
 
 ---
 
@@ -131,7 +219,7 @@ document.getElementById('publishBtn').addEventListener('click', async () => {
 
 ---
 
-## 统一用户系统设计
+## 历史统一用户系统设计（已废弃，禁止实施）
 
 ### 数据库设计（共享）
 
@@ -172,7 +260,7 @@ CREATE TABLE video_db.publish_accounts (
 );
 ```
 
-### JWT 共享方案
+### JWT 共享方案（已废弃）
 
 ```yaml
 # 两个项目共享同一 JWT_SECRET

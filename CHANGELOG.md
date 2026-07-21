@@ -1,3 +1,25 @@
+## [用户系统] v2.4.0-logto - Logto 身份、权益与租户隔离 (2026-07-20)
+
+### 新增
+- Electron Native App 使用系统浏览器 + Authorization Code/PKCE 登录，Refresh Token 仅保存在 `safeStorage` 加密会话中。
+- Node/Python API 增加 OIDC Discovery/JWKS、issuer/audience/time/scope 验证，业务资源统一按 Token `sub` 隔离。
+- 增加业务用户、订阅、entitlement、用量和 Webhook 的 PostgreSQL repository、迁移与 Logto Docker 部署样例。
+- 增加登录状态菜单、账号切换、离线状态、云端发布 Bearer Token 接入和 license -> entitlement 兼容层。
+
+### 安全与可靠性
+- Webhook 原始体 HMAC、事件时间窗口、幂等事务、乱序事件保护和暂停/删除会话撤销。
+- JWKS 未知 `kid` 主动刷新、负缓存、SSRF/算法降级防护；entitlement 使用 RSA 签名并绑定 `sub + device_id + exp`。
+- 身份 IPC 校验调用来源并统一脱敏错误；服务未配置时稳定降级为 `disabled`。
+- 灰度 API Key 采用 `api-key:<sha256>` 隔离租户；Key 撤销后，跨重启恢复的历史定时任务在执行前重新鉴权并拒绝发布；Key 存储损坏时拒绝静态回退和自动覆盖。
+
+### 验证
+- Desktop 覆盖率：285 files / 5007 tests；branches 60.59%。Node API 61 个测试分组全过；Python 2503 passed / 1 skipped。
+- 故障注入 14/14、Monkey 5/5、像素视觉 16/16、身份 UI E2E 两个 viewport 通过。
+- Windows Electron/NSIS 打包、ASAR require 链和打包应用 8 秒启动通过；纯错误分片 mutation score 90%。
+- 真实 Logto 租户和真实 PostgreSQL 集成验收仍需部署环境，详见 `01-docs/TEST-PLAN-LOGTO.md`。
+
+---
+
 ## [蚁小二复用] v0.17.0 - 账号管理增强 + 内容发布增强 (2026-07-16)
 
 基于蚁小二逆向工程分析，增强账号管理和内容发布模块，使其功能接近蚁小二 4.0。

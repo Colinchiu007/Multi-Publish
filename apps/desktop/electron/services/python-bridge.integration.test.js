@@ -149,6 +149,48 @@ test('requestBackend 转发：调用 http.request 时参数正确，返回解析
   expect(result).toEqual({ platforms: ['douyin'] })
 })
 
+test('requestBackend 自动透传当前 Logto access token', async () => {
+  mockHealthGet(true)
+  await bridge.startPythonBackend()
+  bridge.setAuthService({ getAccessToken: vi.fn(async () => 'access-token-1') })
+  httpRequestSpy.mockImplementationOnce((opts, cb) => {
+    const res = new EventEmitter()
+    res.statusCode = 200
+    setImmediate(() => { cb(res); res.emit('data', JSON.stringify({ code: 0 })); res.emit('end') })
+    const req = new EventEmitter(); req.write = vi.fn(); req.end = vi.fn(); return req
+  })
+
+  await expect(bridge.requestBackend('GET', '/api/accounts')).resolves.toEqual({ code: 0 })
+  const [opts] = httpRequestSpy.mock.calls[0]
+  expect(opts.headers.Authorization).toBe('Bearer access-token-1')
+})
+
+test('requestBackend 收到一次 401 时强制刷新并只重放一次', async () => {
+  mockHealthGet(true)
+  await bridge.startPythonBackend()
+  const getAccessToken = vi.fn()
+    .mockResolvedValueOnce('stale-token')
+    .mockResolvedValueOnce('fresh-token')
+  bridge.setAuthService({ getAccessToken })
+  httpRequestSpy
+    .mockImplementationOnce((opts, cb) => {
+      const res = new EventEmitter(); res.statusCode = 401
+      setImmediate(() => { cb(res); res.emit('data', JSON.stringify({ detail: 'AUTH_TOKEN_EXPIRED' })); res.emit('end') })
+      const req = new EventEmitter(); req.write = vi.fn(); req.end = vi.fn(); return req
+    })
+    .mockImplementationOnce((opts, cb) => {
+      const res = new EventEmitter(); res.statusCode = 200
+      setImmediate(() => { cb(res); res.emit('data', JSON.stringify({ code: 0, retried: true })); res.emit('end') })
+      const req = new EventEmitter(); req.write = vi.fn(); req.end = vi.fn(); return req
+    })
+
+  await expect(bridge.requestBackend('GET', '/api/accounts')).resolves.toEqual({ code: 0, retried: true })
+  expect(httpRequestSpy).toHaveBeenCalledTimes(2)
+  expect(httpRequestSpy.mock.calls[0][0].headers.Authorization).toBe('Bearer stale-token')
+  expect(httpRequestSpy.mock.calls[1][0].headers.Authorization).toBe('Bearer fresh-token')
+  expect(getAccessToken).toHaveBeenNthCalledWith(2, { forceRefresh: true })
+})
+
 test('requestBackend 未运行时立即拒绝，不发起 http 请求', async () => {
   await expect(bridge.requestBackend('GET', '/api/health')).rejects.toThrow('not running')
   expect(httpRequestSpy).not.toHaveBeenCalled()

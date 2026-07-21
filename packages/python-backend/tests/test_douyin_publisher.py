@@ -45,7 +45,7 @@ class TestGetBrowserDataDir:
 
     def test_without_account_id(self, publisher):
         result = publisher._get_browser_data_dir()
-        assert result == os.path.join(publisher.config.data_dir, "browser_data")
+        assert result == os.path.join(publisher.config.data_dir, "accounts", "douyin", "legacy", "browser_data")
 
     def test_with_account_id(self, publisher_with_account):
         result = publisher_with_account._get_browser_data_dir()

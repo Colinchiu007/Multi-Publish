@@ -29,6 +29,7 @@ const PUBLIC_CHANNELS = new Set([
   'render:status', 'render:install-deps',
   'pipeline:list', 'pipeline:get',
   'usage:stats', 'usage:daily', 'usage:track',
+  'identity:get-state', 'identity:sign-in', 'identity:switch-account', 'identity:sign-out',
 ])
 
 const ADMIN_ONLY_CHANNELS = new Set([
@@ -36,7 +37,33 @@ const ADMIN_ONLY_CHANNELS = new Set([
   'proxy:test', 'proxy:test-all', 'proxy:reset',
 ])
 
-function getAccessLevel(licenseManager, env = process.env, app) {
+// 业务权益是服务端权威；本地 license 只在身份服务未启用的兼容模式生效。
+// 本地 RPA 发布沿用现有 cloud_publish 产品权益名，避免客户端自行发明一套套餐。
+const CHANNEL_FEATURE_MAP = Object.freeze({
+  'publish:wechat': 'cloud_publish',
+  'publish:batch': 'cloud_publish',
+  'cloud-publisher:submit': 'cloud_publish',
+  'cloud-publisher:list-tasks': 'cloud_publish',
+  'cloud-publisher:get-task': 'cloud_publish',
+})
+
+const ONLINE_ONLY_FEATURE_CHANNELS = new Set([
+  'cloud-publisher:submit',
+  'cloud-publisher:list-tasks',
+  'cloud-publisher:get-task',
+])
+
+function getAccessLevel(licenseManager, env = process.env, app, identityService) {
+  if (identityService) {
+    try {
+      const status = identityService.getState().status
+      return status === 'authenticated' || status === 'offline_authenticated'
+        ? 'authenticated'
+        : 'public'
+    } catch (_) {
+      return 'public'
+    }
+  }
   const isDevMode = env.NODE_ENV === 'development' || env.ELECTRON_IS_DEV === '1'
   if (isDevMode && app && app.isPackaged === false) return 'admin'
   try {
@@ -55,6 +82,10 @@ function requiredLevelForChannel(channel) {
   return 'authenticated'
 }
 
+function requiredFeatureForChannel(channel) {
+  return CHANNEL_FEATURE_MAP[channel] || null
+}
+
 function hasAccess(currentLevel, requiredLevel) {
   if (requiredLevel === 'public') return true
   if (requiredLevel === 'authenticated') {
@@ -70,6 +101,13 @@ function denied(channel) {
   }
 }
 
+function entitlementDenied(channel) {
+  return {
+    code: ERROR.AUTH_ERROR,
+    message: `当前账号没有所需权益，无法访问 ${channel}`,
+  }
+}
+
 function untrustedSender() {
   return {
     code: ERROR.AUTH_ERROR,
@@ -80,7 +118,7 @@ function untrustedSender() {
 /**
  * 包装 ipcMain.handle。权限在 handler 执行时读取，而不是注册时缓存。
  */
-function createAccessControlledIpcMain(ipcMain, licenseManager, env = process.env, app) {
+function createAccessControlledIpcMain(ipcMain, licenseManager, env = process.env, app, identityService) {
   return new Proxy(ipcMain, {
     get(target, property, receiver) {
       if (property !== 'handle') {
@@ -95,8 +133,19 @@ function createAccessControlledIpcMain(ipcMain, licenseManager, env = process.en
           const event = args[0]
           if (!isTrustedSender(event, app)) return untrustedSender()
           if (requiredLevel !== 'public') {
-            const currentLevel = getAccessLevel(licenseManager, env, app)
+            const currentLevel = getAccessLevel(licenseManager, env, app, identityService)
             if (!hasAccess(currentLevel, requiredLevel)) return denied(channel)
+          }
+          const feature = requiredFeatureForChannel(channel)
+          if (feature && identityService) {
+            if (typeof identityService.requireEntitlement !== 'function') return entitlementDenied(channel)
+            try {
+              await identityService.requireEntitlement(feature, {
+                onlineOnly: ONLINE_ONLY_FEATURE_CHANNELS.has(channel),
+              })
+            } catch (_) {
+              return entitlementDenied(channel)
+            }
           }
           return handler.apply(this, args)
         })
@@ -108,8 +157,10 @@ function createAccessControlledIpcMain(ipcMain, licenseManager, env = process.en
 module.exports = {
   ADMIN_ONLY_CHANNELS,
   PUBLIC_CHANNELS,
+  CHANNEL_FEATURE_MAP,
   createAccessControlledIpcMain,
   getAccessLevel,
   hasAccess,
   requiredLevelForChannel,
+  requiredFeatureForChannel,
 }

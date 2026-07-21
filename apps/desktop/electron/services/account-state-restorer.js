@@ -21,11 +21,36 @@ function getStateFilePath (userDataDir) {
   return path.join(userDataDir, STATE_FILE)
 }
 
+function resolveUserDataDir (userDataDir) {
+  const resolved = userDataDir === undefined
+    ? (process.env.ELECTRON_USER_DATA_DIR || process.cwd())
+    : userDataDir
+  if (typeof resolved !== 'string' || !resolved.trim()) {
+    throw new TypeError('userDataDir must be a non-empty string')
+  }
+  return resolved
+}
+
+function normalizeOwnerSubject (ownerSubject) {
+  if (ownerSubject === undefined) return undefined
+  if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
+    throw new TypeError('ownerSubject must be a non-empty string')
+  }
+  return ownerSubject.trim()
+}
+
+function ownerMatches (record, ownerSubject) {
+  if (ownerSubject === undefined) {
+    return record.owner_subject === undefined || record.owner_subject === null
+  }
+  return record.owner_subject === ownerSubject
+}
+
 /**
  * 初始化状态文件
  */
-function init () {
-  const filePath = getStateFilePath(process.env.ELECTRON_USER_DATA_DIR || process.cwd())
+function init (userDataDir) {
+  const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
   const dir = path.dirname(filePath)
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true })
@@ -49,11 +74,15 @@ function init () {
  *   timestamp: number
  * }
  */
-function saveAccountRecord (record) {
+function saveAccountRecord (record, ownerSubject, userDataDir) {
+  const owner = normalizeOwnerSubject(ownerSubject)
   try {
-    const filePath = getStateFilePath(process.env.ELECTRON_USER_DATA_DIR || process.cwd())
+    const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    const { owner_subject: _ignoredOwner, ...safeRecord } = record || {}
     const line = JSON.stringify({
-      ...record,
+      ...safeRecord,
+      ...(owner === undefined ? {} : { owner_subject: owner }),
       timestamp: Date.now()
     })
     fs.appendFileSync(filePath, line + '\n')
@@ -70,9 +99,10 @@ function saveAccountRecord (record) {
  * @param {string} accountId - 账号ID
  * @returns {object|null} 最近的记录，或 null
  */
-function getAccountRecord (platform, accountId) {
+function getAccountRecord (platform, accountId, ownerSubject, userDataDir) {
+  const owner = normalizeOwnerSubject(ownerSubject)
   try {
-    const filePath = getStateFilePath(process.env.ELECTRON_USER_DATA_DIR || process.cwd())
+    const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
     if (!fs.existsSync(filePath)) return null
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -82,7 +112,7 @@ function getAccountRecord (platform, accountId) {
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const record = JSON.parse(lines[i])
-        if (record.platform === platform && record.accountId === accountId) {
+        if (record.platform === platform && record.accountId === accountId && ownerMatches(record, owner)) {
           return record
         }
       // eslint-disable-next-line no-unused-vars
@@ -101,9 +131,10 @@ function getAccountRecord (platform, accountId) {
  * @param {string} platform 
  * @param {string} accountId 
  */
-function deleteAccountRecord (platform, accountId) {
+function deleteAccountRecord (platform, accountId, ownerSubject, userDataDir) {
+  const owner = normalizeOwnerSubject(ownerSubject)
   try {
-    const filePath = getStateFilePath(process.env.ELECTRON_USER_DATA_DIR || process.cwd())
+    const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
     if (!fs.existsSync(filePath)) return
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -113,7 +144,7 @@ function deleteAccountRecord (platform, accountId) {
     const filtered = lines.filter(line => {
       try {
         const record = JSON.parse(line)
-        return !(record.platform === platform && record.accountId === accountId)
+        return !(record.platform === platform && record.accountId === accountId && ownerMatches(record, owner))
       } catch {
         return true // keep corrupt lines
       }
@@ -134,9 +165,10 @@ function deleteAccountRecord (platform, accountId) {
  * 
  * @returns {Array<{platform, accountId, accountInfo}>}
  */
-function listLoggedInAccounts () {
+function listLoggedInAccounts (ownerSubject, userDataDir) {
+  const owner = normalizeOwnerSubject(ownerSubject)
   try {
-    const filePath = getStateFilePath(process.env.ELECTRON_USER_DATA_DIR || process.cwd())
+    const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
     if (!fs.existsSync(filePath)) return []
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -147,7 +179,7 @@ function listLoggedInAccounts () {
     for (const line of lines) {
       try {
         const record = JSON.parse(line)
-        if (record.platform && record.accountId) {
+        if (record.platform && record.accountId && ownerMatches(record, owner)) {
           const key = `${record.platform}:${record.accountId}`
           const existing = latestByPlatform.get(key)
           if (!existing || record.timestamp > existing.timestamp) {
@@ -169,9 +201,9 @@ function listLoggedInAccounts () {
  * 
  * @param {number} days - 保留天数
  */
-function purgeExpired (days = 90) {
+function purgeExpired (days = 90, userDataDir) {
   try {
-    const filePath = getStateFilePath(process.env.ELECTRON_USER_DATA_DIR || process.cwd())
+    const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
     if (!fs.existsSync(filePath)) return 0
     
     const content = fs.readFileSync(filePath, 'utf8')

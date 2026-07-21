@@ -53,14 +53,21 @@ class RpaVmPublisher {
 
     // 鍔犺浇璐﹀彿 Cookie
     const accountId = task.article?.accountId || task.accountId
+    const ownerSubject = typeof task.owner_subject === 'string' && task.owner_subject.trim()
+      ? task.owner_subject.trim()
+      : undefined
     let authData = { cookies: [] }
     if (accountId) {
-      const account = this.store.getAccount(accountId)
+      const account = ownerSubject === undefined
+        ? this.store.getAccount(accountId)
+        : this.store.getAccount(accountId, ownerSubject)
       if (account?.cookies?.length > 0) {
         authData = { cookies: account.cookies, localStorage: account.local_storage }
       }
     } else {
-      const defaultAccount = this.store.getDefaultAccount(platform)
+      const defaultAccount = ownerSubject === undefined
+        ? this.store.getDefaultAccount(platform)
+        : this.store.getDefaultAccount(platform, ownerSubject)
       if (defaultAccount?.cookies) {
         authData = { cookies: defaultAccount.cookies, localStorage: defaultAccount.local_storage }
       }

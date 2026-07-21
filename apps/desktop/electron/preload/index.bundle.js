@@ -585,6 +585,26 @@ var require_replay = __commonJS({
   }
 });
 
+// electron/preload/identity.js
+var require_identity = __commonJS({
+  "electron/preload/identity.js"(exports2, module2) {
+    function createIdentityApi2(ipcRenderer2) {
+      return {
+        identityGetState: () => ipcRenderer2.invoke("identity:get-state"),
+        identitySignIn: () => ipcRenderer2.invoke("identity:sign-in"),
+        identitySwitchAccount: () => ipcRenderer2.invoke("identity:switch-account"),
+        identitySignOut: () => ipcRenderer2.invoke("identity:sign-out"),
+        onIdentityStateChanged: (callback) => {
+          const handler = (_event, state) => callback(state);
+          ipcRenderer2.on("identity:state-changed", handler);
+          return () => ipcRenderer2.removeListener("identity:state-changed", handler);
+        }
+      };
+    }
+    module2.exports = { createIdentityApi: createIdentityApi2 };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -683,7 +703,12 @@ var require_access_control = __commonJS({
       "renderInstallDeps",
       "onRenderInstallProgress",
       "pipelineList",
-      "pipelineGet"
+      "pipelineGet",
+      "identityGetState",
+      "identitySignIn",
+      "identitySwitchAccount",
+      "identitySignOut",
+      "onIdentityStateChanged"
     ];
     function hasAccess(currentLevel, requiredLevel) {
       if (requiredLevel === "public") return true;
@@ -768,6 +793,7 @@ var { createBoardApi } = require_board();
 var { createContactSheetApi } = require_contact_sheet();
 var { createApprovalGateApi } = require_approval_gate();
 var { createReplayApi } = require_replay();
+var { createIdentityApi } = require_identity();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -796,7 +822,8 @@ var fullApi = {
   ...createBoardApi(ipcRenderer),
   ...createContactSheetApi(ipcRenderer),
   ...createApprovalGateApi(ipcRenderer),
-  ...createReplayApi(ipcRenderer)
+  ...createReplayApi(ipcRenderer),
+  ...createIdentityApi(ipcRenderer)
 };
 var exposedApi = createDynamicAccessApi(fullApi, getAccessLevel);
 exposedApi.getAccessLevel = getAccessLevel;

@@ -26,29 +26,39 @@ import AppSidebar from '@/layouts/AppSidebar.vue'
 import OfflineIndicator from '@/components/OfflineIndicator.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
-import { ref, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLicenseStore } from '@/stores/license'
+import { useIdentityStore } from '@/stores/identity'
 // eslint-disable-next-line no-unused-vars
 import TrialBanner from '@/components/TrialBanner.vue'
 
 const router = useRouter()
 const licenseStore = useLicenseStore()
+const identityStore = useIdentityStore()
 // eslint-disable-next-line no-unused-vars
 const dismissBanner = ref(false)
 
 const showSettingsDialog = ref(false)
+let unsubscribeNavigate = null
 
 onMounted(() => {
   licenseStore.load()
+  identityStore.load()
 
   // 全局快捷键导航
   const api = window.electronAPI
   if (api && api.onNavigate) {
-    api.onNavigate((route) => {
+    unsubscribeNavigate = api.onNavigate((route) => {
       router.push(route)
     })
   }
+})
+
+onBeforeUnmount(() => {
+  if (typeof unsubscribeNavigate === 'function') unsubscribeNavigate()
+  unsubscribeNavigate = null
+  identityStore.dispose()
 })
 </script>
 

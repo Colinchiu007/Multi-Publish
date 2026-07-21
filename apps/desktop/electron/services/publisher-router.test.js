@@ -103,5 +103,27 @@ describe("PublisherRouter", () => {
       // use a platform that has config but no route
       expect(() => r.createPublisher("unknown", {})).toThrow();
     });
+
+    it("按任务 owner 查询账号，不能借用当前用户的默认账号", async () => {
+      const r = new PublisherRouter();
+      const getAccount = vi.fn(() => ({ cookies: [{ name: 'sid', value: 'a' }] }));
+      const getDefaultAccount = vi.fn(() => ({ cookies: [{ name: 'sid', value: 'default' }] }));
+      const publish = vi.fn(async () => ({ success: true, url: 'https://example.test/post' }));
+      const publisher = r.createPublisher("douyin", {
+        rpaViewManager: { publish },
+        store: { getAccount, getDefaultAccount },
+      });
+
+      await publisher.publish({
+        id: 'task-a',
+        platform: 'douyin',
+        owner_subject: 'user-a',
+        accountId: 'account-a',
+        article: { title: 'A' },
+      });
+
+      expect(getAccount).toHaveBeenCalledWith('account-a', 'user-a');
+      expect(getDefaultAccount).not.toHaveBeenCalled();
+    });
   });
 });

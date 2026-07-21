@@ -204,7 +204,10 @@ class KeywordMonitor {
   _loadHistory (keyword) {
     if (!this._store || !this._store._ready) return null
     try {
-      const raw = this._store.getSetting('kw_history_' + keyword)
+      const key = 'kw_history_' + keyword
+      const raw = typeof this._store.getUserSetting === 'function'
+        ? this._store.getUserSetting(key, null)
+        : this._store.getSetting(key)
       return raw || null
     } catch { return null }
   }
@@ -213,7 +216,12 @@ class KeywordMonitor {
     if (!this._store || !this._store._ready) return
     try {
       for (const [keyword, w] of this._watchers) {
-        this._store.setSetting('kw_history_' + keyword, w.history)
+        const key = 'kw_history_' + keyword
+        if (typeof this._store.setUserSetting === 'function') {
+          this._store.setUserSetting(key, w.history)
+        } else {
+          this._store.setSetting(key, w.history)
+        }
       }
     } catch (e) {
       log.warn('KeywordMonitor', `Persist error: ${e.message}`)

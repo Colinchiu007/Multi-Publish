@@ -11,6 +11,7 @@ function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
   const { isTrustedSender } = require('../core/ipc-security')
+  const { getAccessLevel } = require('./license-access-control')
   const { licenseManager } = deps
 
   ipcMain.handle("license:info", async () => {
@@ -62,17 +63,7 @@ function registerHandlers(ipcMain, deps) {
       return
     }
     try {
-      const isDevMode = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1'
-      const isUnpackagedApp = deps && deps.app && deps.app.isPackaged === false
-      if (isDevMode && isUnpackagedApp) {
-        event.returnValue = 'admin'
-        return
-      }
-      if (licenseManager && typeof licenseManager.isPro === 'function' && licenseManager.isPro()) {
-        event.returnValue = 'authenticated'
-      } else {
-        event.returnValue = 'public'
-      }
+      event.returnValue = getAccessLevel(licenseManager, process.env, deps && deps.app, deps && deps.identityService)
     } catch (e) {
       event.returnValue = 'public'
     }

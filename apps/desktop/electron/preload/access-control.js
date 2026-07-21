@@ -40,6 +40,7 @@ const PUBLIC_METHODS = [
   'modelProviderLogs', 'modelProviderCleanLogs',
   'renderGetStatus', 'renderInstallDeps', 'onRenderInstallProgress',
   'pipelineList', 'pipelineGet',
+  'identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'onIdentityStateChanged',
 ]
 
 function hasAccess(currentLevel, requiredLevel) {

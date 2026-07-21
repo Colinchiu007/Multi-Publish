@@ -22,6 +22,7 @@ const { createBoardApi } = require('./board')
 const { createContactSheetApi } = require('./contact-sheet')
 const { createApprovalGateApi } = require('./approval-gate')
 const { createReplayApi } = require('./replay')
+const { createIdentityApi } = require('./identity')
 const {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -55,6 +56,7 @@ const fullApi = {
   ...createContactSheetApi(ipcRenderer),
   ...createApprovalGateApi(ipcRenderer),
   ...createReplayApi(ipcRenderer),
+  ...createIdentityApi(ipcRenderer),
 }
 
 const exposedApi = createDynamicAccessApi(fullApi, getAccessLevel)

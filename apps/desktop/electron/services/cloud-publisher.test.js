@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("../services/logger", () => ({ log: { error: vi.fn(), info: vi.fn() } }));
 
 const CloudPublisher = require("../services/cloud-publisher");
+const { EC } = require("../ipc-handlers/helpers");
 
 describe("CloudPublisher", () => {
   let mockAxios;
@@ -13,22 +14,37 @@ describe("CloudPublisher", () => {
 
   describe("constructor", () => {
     it("default orchestrator URL is empty when no env var (security: no hardcoded IP)", () => {
-      // 清除环境变量确保测试隔离
+      const hadValue = Object.prototype.hasOwnProperty.call(process.env, "ORCHESTRATOR_URL");
       const saved = process.env.ORCHESTRATOR_URL
-      delete process.env.ORCHESTRATOR_URL
-      expect(new CloudPublisher({ axios: mockAxios })._orchestratorUrl).toBe("");
-      if (saved) process.env.ORCHESTRATOR_URL = saved
+      try {
+        delete process.env.ORCHESTRATOR_URL
+        expect(new CloudPublisher({ axios: mockAxios })._orchestratorUrl).toBe("");
+      } finally {
+        if (hadValue) process.env.ORCHESTRATOR_URL = saved
+        else delete process.env.ORCHESTRATOR_URL
+      }
     });
     it("reads orchestrator URL from env var", () => {
+      const hadValue = Object.prototype.hasOwnProperty.call(process.env, "ORCHESTRATOR_URL");
       const saved = process.env.ORCHESTRATOR_URL
-      process.env.ORCHESTRATOR_URL = "https://env.example.com"
-      expect(new CloudPublisher({ axios: mockAxios })._orchestratorUrl).toBe("https://env.example.com");
-      if (saved) process.env.ORCHESTRATOR_URL = saved
-      else delete process.env.ORCHESTRATOR_URL
+      try {
+        process.env.ORCHESTRATOR_URL = "https://env.example.com"
+        expect(new CloudPublisher({ axios: mockAxios })._orchestratorUrl).toBe("https://env.example.com");
+      } finally {
+        if (hadValue) process.env.ORCHESTRATOR_URL = saved
+        else delete process.env.ORCHESTRATOR_URL
+      }
     });
     it("custom URL", () => {
       const cp = new CloudPublisher({ axios: mockAxios, orchestratorUrl: "http://x:3000" });
       expect(cp._orchestratorUrl).toBe("http://x:3000");
+    });
+    it("身份认证开启时拒绝向远程 HTTP 发送 Bearer Token", () => {
+      expect(() => new CloudPublisher({
+        axios: mockAxios,
+        orchestratorUrl: "http://remote.example.com",
+        authService: { getAccessToken: vi.fn() },
+      })).toThrow(/HTTPS/);
     });
     it("injects axios instance", () => {
       const cp = new CloudPublisher({ axios: mockAxios });
@@ -50,6 +66,32 @@ describe("CloudPublisher", () => {
   });
 
   describe("submitTask()", () => {
+    it("提交前在线校验 cloud_publish 权益", async () => {
+      const authService = {
+        requireEntitlement: vi.fn(async () => true),
+        getAccessToken: vi.fn(async () => "access-1"),
+      };
+      mockAxios.post.mockResolvedValueOnce({ data: { task_id: "t-auth" } });
+      const cp = new CloudPublisher({ axios: mockAxios, orchestratorUrl: "https://api.example.com", authService });
+
+      await cp.submitTask({ videoUrl: "v.mp4", platform: "dy", title: "x" });
+
+      expect(authService.requireEntitlement).toHaveBeenCalledWith("cloud_publish", { onlineOnly: true });
+      expect(mockAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it("在线权益校验失败时不发送云端写请求", async () => {
+      const authService = {
+        requireEntitlement: vi.fn(async () => { throw new Error("ENTITLEMENT_REQUIRED"); }),
+        getAccessToken: vi.fn(async () => "access-1"),
+      };
+      const cp = new CloudPublisher({ axios: mockAxios, orchestratorUrl: "https://api.example.com", authService });
+
+      await expect(cp.submitTask({ videoUrl: "v.mp4", platform: "dy", title: "x" }))
+        .rejects.toThrow("ENTITLEMENT_REQUIRED");
+      expect(mockAxios.post).not.toHaveBeenCalled();
+    });
+
     it("POST with full payload", async () => {
       mockAxios.post.mockResolvedValueOnce({ data: { task_id: "t1", status: "queued" } });
       const cp = new CloudPublisher({ axios: mockAxios, orchestratorUrl: "http://t" });
@@ -100,6 +142,28 @@ describe("CloudPublisher", () => {
         "cloud-publisher:get-task",
         "cloud-publisher:platforms",
       ]);
+    });
+
+    it("拒绝不可信页面调用全部云发布通道", async () => {
+      const handlers = new Map();
+      const ipcMain = { handle: vi.fn((channel, handler) => handlers.set(channel, handler)) };
+      new CloudPublisher({ axios: mockAxios }).registerIpcHandlers(ipcMain);
+      const untrustedEvent = { senderFrame: { url: "https://evil.example/" } };
+
+      const calls = [
+        ["cloud-publisher:submit", { videoUrl: "video.mp4", platform: "douyin", title: "x" }],
+        ["cloud-publisher:list-tasks"],
+        ["cloud-publisher:get-task", "task-1"],
+        ["cloud-publisher:platforms"],
+      ];
+      for (const [channel, argument] of calls) {
+        await expect(handlers.get(channel)(untrustedEvent, argument)).resolves.toEqual({
+          code: EC.AUTH_ERROR,
+          message: "未授权的调用来源",
+        });
+      }
+      expect(mockAxios.get).not.toHaveBeenCalled();
+      expect(mockAxios.post).not.toHaveBeenCalled();
     });
   });
 });

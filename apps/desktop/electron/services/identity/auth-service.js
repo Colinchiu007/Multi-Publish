@@ -1,0 +1,410 @@
+const { IdentityError, toIdentityError } = require('./identity-errors')
+
+function errorSignals(error) {
+  const values = []
+  let current = error
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    if (current.code) values.push(String(current.code).toLowerCase())
+    if (current.message) values.push(String(current.message).toLowerCase())
+    current = current.cause
+  }
+  return values.join(' ')
+}
+
+function isNetworkError(error) {
+  const value = errorSignals(error)
+  return ['network', 'fetch failed', 'econnreset', 'econnrefused', 'enotfound', 'eai_again', 'etimedout', 'timeout']
+    .some((signal) => value.includes(signal))
+}
+
+function isSessionRejected(error) {
+  const value = errorSignals(error)
+  return ['invalid_grant', 'not_authenticated', 'token_revoked', 'session_expired']
+    .some((signal) => value.includes(signal))
+}
+
+function claimsExpired(claims, now) {
+  return Boolean(claims && Number.isFinite(claims.exp) && claims.exp <= now)
+}
+
+class AuthService {
+  constructor(options = {}) {
+    if (!options.client) throw new IdentityError('IDENTITY_CONFIG_INVALID', '缺少 Logto client')
+    if (!options.tokenStorage) throw new IdentityError('IDENTITY_CONFIG_INVALID', '缺少安全会话存储')
+    this._client = options.client
+    this._tokenStorage = options.tokenStorage
+    this._entitlementService = options.entitlementService || null
+    this._resource = options.resource
+    this._callbackServerFactory = options.callbackServerFactory
+    this._redirectUri = options.redirectUri
+    this._now = typeof options.now === 'function' ? options.now : () => Math.floor(Date.now() / 1000)
+    this._offlineGraceSeconds = Number.isFinite(options.offlineGraceSeconds)
+      ? Math.max(0, options.offlineGraceSeconds)
+      : 7 * 24 * 60 * 60
+    this._state = { status: 'signed_out', user: null, entitlement: null, error: null }
+    this._accessTokenPromise = null
+    this._signInPromise = null
+    this._signOutPromise = null
+    this._switchAccountPromise = null
+    this._activeCallbackServer = null
+    this._operationId = 0
+    this._sessionMutationQueue = Promise.resolve()
+    this._listeners = new Set()
+  }
+
+  getState() {
+    return JSON.parse(JSON.stringify(this._state))
+  }
+
+  onStateChanged(listener) {
+    this._listeners.add(listener)
+    return () => this._listeners.delete(listener)
+  }
+
+  _setState(next) {
+    this._state = { ...this._state, ...next }
+    const state = this.getState()
+    for (const listener of this._listeners) {
+      try {
+        listener(state)
+      } catch {}
+    }
+  }
+
+  _queueSessionMutation(task) {
+    const queued = this._sessionMutationQueue.then(task, task)
+    this._sessionMutationQueue = queued.then(() => undefined, () => undefined)
+    return queued
+  }
+
+  async getAccessToken(options = {}) {
+    if (this._accessTokenPromise) return this._accessTokenPromise
+    const operationId = this._operationId
+    this._accessTokenPromise = Promise.resolve()
+      .then(async () => {
+        if (options.forceRefresh && typeof this._client.clearAccessToken === 'function') {
+          await this._client.clearAccessToken()
+        }
+        const token = await this._client.getAccessToken(this._resource)
+        if (operationId !== this._operationId) {
+          throw new IdentityError('IDENTITY_SESSION_EXPIRED', '登录会话已失效，请重新登录')
+        }
+        return token
+      })
+      .catch(async (error) => {
+        if (isNetworkError(error)) {
+          if (operationId === this._operationId && this._state.user) {
+            this._setState({ status: 'offline_authenticated', error: null })
+          }
+          throw new IdentityError('IDENTITY_NETWORK_UNAVAILABLE', '网络暂时不可用', error)
+        }
+        if (isSessionRejected(error)) {
+          const cleanupError = await this._clearLocalSessionOrSetError(undefined, operationId)
+          if (cleanupError) throw cleanupError
+          throw new IdentityError('IDENTITY_SESSION_EXPIRED', '登录会话已失效，请重新登录', error)
+        }
+        const identityError = toIdentityError(error, 'IDENTITY_TOKEN_UNAVAILABLE')
+        if (operationId === this._operationId) {
+          this._setState({
+            status: 'error',
+            error: { code: identityError.code, message: '暂时无法获取访问凭证，请稍后重试' },
+          })
+        }
+        throw identityError
+      })
+      .finally(() => { this._accessTokenPromise = null })
+    return this._accessTokenPromise
+  }
+
+  async _clearLocalSession(operationId = null) {
+    return this._queueSessionMutation(async () => {
+      if (operationId !== null && operationId !== this._operationId) return false
+      let clearError = null
+      try {
+        await this._tokenStorage.clear()
+      } catch (error) {
+        clearError = error
+      }
+      if (operationId !== null && operationId !== this._operationId) return false
+      if (this._entitlementService && typeof this._entitlementService.clear === 'function') {
+        try {
+          await this._entitlementService.clear()
+        } catch (error) {
+          if (!clearError) clearError = error
+        }
+      }
+      if (operationId !== null && operationId !== this._operationId) return false
+      if (clearError) throw toIdentityError(clearError, 'IDENTITY_SESSION_CLEAR_FAILED')
+      this._setState({ status: 'signed_out', user: null, entitlement: null, error: null })
+      return true
+    })
+  }
+
+  async _clearLocalSessionOrSetError(message = '无法安全清理本地登录信息，请重试', operationId = null) {
+    try {
+      await this._clearLocalSession(operationId)
+      return null
+    } catch (error) {
+      if (operationId !== null && operationId !== this._operationId) return null
+      const identityError = toIdentityError(error, 'IDENTITY_SESSION_CLEAR_FAILED')
+      this._setState({ status: 'error', error: { code: identityError.code, message } })
+      return identityError
+    }
+  }
+
+  async _syncEntitlement(user) {
+    if (!this._entitlementService || typeof this._entitlementService.sync !== 'function') return null
+    const accessToken = await this.getAccessToken()
+    return this._entitlementService.sync({ subject: user.sub, accessToken })
+  }
+
+  async _restoreEntitlement(subject) {
+    if (!this._entitlementService || typeof this._entitlementService.restore !== 'function') return null
+    return this._entitlementService.restore(subject)
+  }
+
+  _withinOfflineGrace(claims) {
+    return Boolean(claims && Number.isFinite(claims.exp) && this._now() <= claims.exp + this._offlineGraceSeconds)
+  }
+
+  async restore() {
+    const operationId = this._operationId
+    const isCurrentOperation = () => operationId === this._operationId
+    let claims
+    let user
+    try {
+      const authenticated = await this._client.isAuthenticated()
+      if (!isCurrentOperation()) return this.getState()
+      if (!authenticated) {
+        await this._clearLocalSessionOrSetError(undefined, operationId)
+        return this.getState()
+      }
+      claims = await this._client.getIdTokenClaims()
+      if (!isCurrentOperation()) return this.getState()
+      user = sanitizeClaims(claims)
+      if (claimsExpired(claims, this._now())) {
+        try {
+          if (typeof this._client.clearAccessToken === 'function') await this._client.clearAccessToken()
+          await this._client.getAccessToken(this._resource)
+          if (!isCurrentOperation()) return this.getState()
+          claims = await this._client.getIdTokenClaims()
+          if (!isCurrentOperation()) return this.getState()
+          user = sanitizeClaims(claims)
+        } catch (error) {
+          if (!isCurrentOperation()) return this.getState()
+          if (isNetworkError(error) && this._withinOfflineGrace(claims)) {
+            const entitlement = await this._restoreEntitlement(user.sub)
+            if (!isCurrentOperation()) return this.getState()
+            this._setState({ status: 'offline_authenticated', user, entitlement, error: null })
+            return this.getState()
+          }
+          await this._clearLocalSessionOrSetError(undefined, operationId)
+          return this.getState()
+        }
+      }
+      const entitlement = await this._restoreEntitlement(user.sub)
+      if (!isCurrentOperation()) return this.getState()
+      this._setState({ status: 'authenticated', user, entitlement, error: null })
+      return this.getState()
+    } catch (error) {
+      if (!isCurrentOperation()) return this.getState()
+      if (isNetworkError(error) || (error && error.code === 'IDENTITY_SECURE_STORAGE_UNAVAILABLE')) {
+        const code = error && error.code === 'IDENTITY_SECURE_STORAGE_UNAVAILABLE'
+          ? error.code
+          : 'IDENTITY_NETWORK_UNAVAILABLE'
+        this._setState({
+          status: 'error',
+          error: {
+            code,
+            message: code === 'IDENTITY_SECURE_STORAGE_UNAVAILABLE'
+              ? '系统安全存储暂时不可用，已保留本地登录信息'
+              : '网络暂时不可用，已保留本地登录信息',
+          },
+        })
+        return this.getState()
+      }
+      await this._clearLocalSessionOrSetError(undefined, operationId)
+      return this.getState()
+    }
+  }
+
+  signIn() {
+    return this._beginSignIn(false)
+  }
+
+  async _beginSignIn(fromAccountSwitch) {
+    if (this._switchAccountPromise && !fromAccountSwitch) {
+      throw new IdentityError('IDENTITY_OPERATION_IN_PROGRESS', '账号切换正在进行中，请稍后重试')
+    }
+    if (this._signInPromise || this._state.status === 'signing_in') {
+      throw new IdentityError('IDENTITY_SIGN_IN_IN_PROGRESS', '登录已经在进行中')
+    }
+    if (this._signOutPromise || this._state.status === 'signing_out') {
+      throw new IdentityError('IDENTITY_OPERATION_IN_PROGRESS', '退出正在进行中，请稍后重试')
+    }
+    if (typeof this._callbackServerFactory !== 'function' || !this._redirectUri) {
+      throw new IdentityError('IDENTITY_CONFIG_INVALID', '缺少登录回调配置')
+    }
+    if (!fromAccountSwitch && this._state.user && typeof this._state.user.sub === 'string') {
+      throw new IdentityError('IDENTITY_ACCOUNT_SWITCH_REQUIRED', '请使用切换账号入口登录其他账号')
+    }
+    const operationId = ++this._operationId
+    this._setState({ status: 'signing_in', error: null })
+    const task = this._performSignIn(operationId)
+    this._signInPromise = task
+    try {
+      return await task
+    } finally {
+      if (this._signInPromise === task) this._signInPromise = null
+    }
+  }
+
+  switchAccount() {
+    if (this._switchAccountPromise) return this._switchAccountPromise
+    const task = Promise.resolve().then(async () => {
+      if (this._state.user && typeof this._state.user.sub === 'string') await this.signOut()
+      return this._beginSignIn(true)
+    })
+    this._switchAccountPromise = task
+    return task.finally(() => {
+      if (this._switchAccountPromise === task) this._switchAccountPromise = null
+    })
+  }
+
+  async _performSignIn(operationId) {
+    if (typeof this._client.prepareSignInState !== 'function') {
+      throw new IdentityError('IDENTITY_SDK_INVALID', 'Logto client 不支持回调 state 预绑定')
+    }
+    const expectedState = await this._client.prepareSignInState()
+    if (typeof expectedState !== 'string' || !/^[A-Za-z0-9_-]{16,512}$/.test(expectedState)) {
+      throw new IdentityError('IDENTITY_CALLBACK_STATE_INVALID', '登录回调 state 无效')
+    }
+    const callbackServer = this._callbackServerFactory({ expectedState })
+    this._activeCallbackServer = callbackServer
+    try {
+      await callbackServer.start()
+      const callbackPromise = callbackServer.waitForCallback()
+      await this._client.signIn({ redirectUri: this._redirectUri })
+      const callbackUri = await callbackPromise
+      await this._queueSessionMutation(async () => {
+        if (operationId !== this._operationId) {
+          throw new IdentityError('IDENTITY_SIGN_IN_CANCELLED', '登录已取消')
+        }
+        await this._client.handleSignInCallback(callbackUri)
+        if (operationId !== this._operationId) {
+          throw new IdentityError('IDENTITY_SIGN_IN_CANCELLED', '登录已取消')
+        }
+      })
+      const claims = await this._client.getIdTokenClaims()
+      if (operationId !== this._operationId) {
+        throw new IdentityError('IDENTITY_SIGN_IN_CANCELLED', '登录已取消')
+      }
+      const user = sanitizeClaims(claims)
+      const entitlement = await this._syncEntitlement(user)
+      if (operationId !== this._operationId) {
+        throw new IdentityError('IDENTITY_SIGN_IN_CANCELLED', '登录已取消')
+      }
+      this._setState({ status: 'authenticated', user, entitlement, error: null })
+      return this.getState()
+    } catch (error) {
+      const identityError = toIdentityError(error, 'IDENTITY_SIGN_IN_FAILED')
+      const cleanupError = await this._clearLocalSessionOrSetError('登录失败，且本地登录信息未能清理，请重试', operationId)
+      if (!cleanupError && operationId === this._operationId) {
+        this._setState({ status: 'error', error: { code: identityError.code, message: '登录失败，请重试' } })
+      }
+      throw cleanupError || identityError
+    } finally {
+      if (this._activeCallbackServer === callbackServer) this._activeCallbackServer = null
+      await callbackServer.stop()
+    }
+  }
+
+  signOut() {
+    if (this._signOutPromise) return this._signOutPromise
+    const task = this._performSignOut()
+    this._signOutPromise = task
+    return task.finally(() => {
+      if (this._signOutPromise === task) this._signOutPromise = null
+    })
+  }
+
+  async _performSignOut() {
+    ++this._operationId
+    this._setState({ status: 'signing_out', error: null })
+    const activeCallbackServer = this._activeCallbackServer
+    if (activeCallbackServer && typeof activeCallbackServer.cancel === 'function') {
+      await activeCallbackServer.cancel()
+    }
+    const activeSignIn = this._signInPromise
+    if (activeSignIn) await activeSignIn.catch(() => {})
+    const activeAccessToken = this._accessTokenPromise
+    if (activeAccessToken) await activeAccessToken.catch(() => {})
+    let warning = null
+    try {
+      await this._client.signOut()
+    } catch (error) {
+      warning = toIdentityError(error).code
+    }
+    const cleanupError = await this._clearLocalSessionOrSetError('退出失败，本地登录信息未能清理，请重试')
+    if (cleanupError) throw cleanupError
+    return warning ? { ...this.getState(), warning } : this.getState()
+  }
+
+  async dispose() {
+    ++this._operationId
+    const callbackServer = this._activeCallbackServer
+    if (callbackServer && typeof callbackServer.cancel === 'function') {
+      try {
+        await callbackServer.cancel()
+      } catch {}
+    }
+    this._listeners.clear()
+  }
+
+  async requireEntitlement(feature, options = {}) {
+    const statusAllowed = this._state.status === 'authenticated' ||
+      (this._state.status === 'offline_authenticated' && !options.onlineOnly)
+    if (typeof feature !== 'string' || !feature || !statusAllowed ||
+        !this._state.user || typeof this._state.user.sub !== 'string' || !this._state.user.sub) {
+      throw new IdentityError('ENTITLEMENT_REQUIRED', '当前账号没有所需权益')
+    }
+    if (!this._entitlementService) throw new IdentityError('ENTITLEMENT_REQUIRED', '当前账号没有所需权益')
+    if (options.onlineOnly && typeof this._entitlementService.sync === 'function') {
+      const operationId = this._operationId
+      const subject = this._state.user.sub
+      let entitlement
+      try {
+        entitlement = await this._syncEntitlement(this._state.user)
+      } catch (error) {
+        if (operationId !== this._operationId) {
+          throw new IdentityError('ENTITLEMENT_REQUIRED', '当前账号没有所需权益', error)
+        }
+        throw error
+      }
+      if (operationId !== this._operationId || this._state.status !== 'authenticated' ||
+          !this._state.user || this._state.user.sub !== subject) {
+        throw new IdentityError('ENTITLEMENT_REQUIRED', '当前账号没有所需权益')
+      }
+      this._setState({ entitlement })
+    }
+    const hasFeature = typeof this._entitlementService.hasFeature === 'function'
+      ? this._entitlementService.hasFeature(feature, { onlineOnly: Boolean(options.onlineOnly) })
+      : Boolean(this._state.entitlement && this._state.entitlement.features.includes(feature))
+    if (!hasFeature) throw new IdentityError('ENTITLEMENT_REQUIRED', '当前账号没有所需权益')
+    return true
+  }
+}
+
+function sanitizeClaims(claims = {}) {
+  if (!claims || typeof claims.sub !== 'string' || !claims.sub.trim()) {
+    throw new IdentityError('IDENTITY_SESSION_INVALID', '登录会话缺少用户标识')
+  }
+  return {
+    sub: claims.sub,
+    name: typeof claims.name === 'string' ? claims.name : '',
+    username: typeof claims.username === 'string' ? claims.username : '',
+    picture: typeof claims.picture === 'string' ? claims.picture : '',
+  }
+}
+
+module.exports = { AuthService, sanitizeClaims, claimsExpired, isNetworkError, isSessionRejected }

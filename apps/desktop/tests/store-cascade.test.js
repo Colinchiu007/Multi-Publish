@@ -1,6 +1,6 @@
 /**
  * store 级联清理测试 — R33 强制补测试（跨5轮债务）
- * 覆盖：deleteAccount 级联清理关联表（scheduled_tasks/publish_history/settings）
+ * 覆盖：deleteAccount 仅在当前 owner 内级联清理关联表。
  *
  * 使用 __registerMock 拦截 require，避免依赖真实 sql.js 初始化。
  * 注意：用 __registerMock 替代 vi.mock，因为 vitest 4 下 vi.mock 的 factory
@@ -30,11 +30,19 @@ __registerMock('./sqlite-wrapper', function () {
   function MockDatabase () {
     this._runLog = []
     this._getLog = []
+    this._transactionCalls = 0
     this._dirty = false
   }
   MockDatabase.prototype.prepare = function (sql) { return new MockStatement(this, sql) }
   MockDatabase.prototype.exec = function () {}
   MockDatabase.prototype.pragma = function () {}
+  MockDatabase.prototype.transaction = function (fn) {
+    const db = this
+    return function () {
+      db._transactionCalls += 1
+      return fn()
+    }
+  }
   MockDatabase.prototype.persist = function () { return true }
   MockDatabase.prototype.close = function () {}
 
@@ -66,6 +74,7 @@ describe('store deleteAccount 级联清理', () => {
     store.db._runLog = []
     store.db._getLog = []
     store._ready = true
+    store.setOwnerSubjectProvider(() => 'user-a')
   })
 
   it('deleteAccount 清理 accounts 表', () => {
@@ -74,7 +83,7 @@ describe('store deleteAccount 级联清理', () => {
       r => r.sql.indexOf('DELETE FROM accounts') >= 0
     )
     expect(deleteAccountCall).toBeTruthy()
-    expect(deleteAccountCall.params).toEqual(['acc_001'])
+    expect(deleteAccountCall.params).toEqual(['user-a', 'acc_001'])
   })
 
   it('deleteAccount 级联清理 scheduled_tasks', () => {
@@ -83,8 +92,9 @@ describe('store deleteAccount 级联清理', () => {
       r => r.sql.indexOf('DELETE FROM scheduled_tasks') >= 0
     )
     expect(call).toBeTruthy()
-    expect(call.params[0]).toBe('douyin') // platform
-    expect(call.params[1]).toContain('acc_002') // LIKE pattern 含 accountId
+    expect(call.params[0]).toBe('user-a')
+    expect(call.params[1]).toBe('douyin')
+    expect(call.params[2]).toContain('acc_002')
   })
 
   it('deleteAccount 级联清理 publish_history', () => {
@@ -93,19 +103,17 @@ describe('store deleteAccount 级联清理', () => {
       r => r.sql.indexOf('DELETE FROM publish_history') >= 0
     )
     expect(call).toBeTruthy()
-    expect(call.params[0]).toBe('douyin')
-    expect(call.params[1]).toContain('acc_003')
+    expect(call.params[0]).toBe('user-a')
+    expect(call.params[1]).toBe('douyin')
+    expect(call.params[2]).toContain('acc_003')
   })
 
-  it('deleteAccount 级联清理 settings', () => {
+  it('deleteAccount 不删除独立的用户设置', () => {
     store.deleteAccount('acc_004')
     const call = store.db._runLog.find(
       r => r.sql.indexOf('DELETE FROM settings') >= 0
     )
-    expect(call).toBeTruthy()
-    // params: [default_account:platform, %:accountId]
-    expect(call.params[0]).toBe('default_account:douyin')
-    expect(call.params[1]).toContain('acc_004')
+    expect(call).toBeUndefined()
   })
 
   it('deleteAccount 调用 persist 持久化', () => {
@@ -128,7 +136,12 @@ describe('store deleteAccount 级联清理', () => {
     expect(result).toBe(true)
   })
 
-  it('deleteAccount 账号不存在时仍清理关联数据（platform 为 null）', () => {
+  it('deleteAccount 在单一事务内执行全部级联删除', () => {
+    store.deleteAccount('acc_tx')
+    expect(store.db._transactionCalls).toBe(1)
+  })
+
+  it('deleteAccount 账号不存在时 fail-closed，不清理其他数据', () => {
     // mock get 返回 undefined（账号不存在）
     store.db.prepare = function (sql) {
       return {
@@ -137,9 +150,9 @@ describe('store deleteAccount 级联清理', () => {
         all: function () { return [] },
       }
     }
-    store.deleteAccount('nonexistent')
-    // 仍应尝试清理（platform 为 null/空）
+    expect(store.deleteAccount('nonexistent')).toBe(false)
     const calls = store.db._runLog.filter(r => r.sql.indexOf('DELETE') >= 0)
-    expect(calls.length).toBeGreaterThanOrEqual(1)
+    expect(calls).toHaveLength(0)
+    expect(store.db._transactionCalls).toBe(0)
   })
 })

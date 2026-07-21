@@ -92,6 +92,16 @@ describe('usageTracker context 注入', () => {
     await expect(ipcMain._handlers['usage:daily'](makeTrustedEvent())).resolves.toEqual({})
     await expect(ipcMain._handlers['usage:track'](makeTrustedEvent(), { feature: 'x' })).resolves.toBe(true)
   })
+
+  it('生产注册入口向 Store IPC 注入凭证与账号状态存储', () => {
+    const context = {}
+
+    registerAllIpcHandlers({ app, BrowserWindow, context })
+
+    const dependencies = mockRegisterAllHandlers.mock.calls[0][1]
+    expect(dependencies.credentialStore).toBe(require('../services/credential-store'))
+    expect(dependencies.accountStateRestorer).toBe(require('../services/account-state-restorer'))
+  })
 })
 
 describe('IPC 注册生命周期', () => {

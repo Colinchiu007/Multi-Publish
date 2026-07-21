@@ -10,23 +10,95 @@ Multi-Publish Python Backend — FastAPI 服务
 """
 
 import json
+import logging
 import os
 import platform as platform_module
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from multi_publish.auth import AuthError, LogtoJwtVerifier, create_fastapi_dependency
 from multi_publish.core.logging_setup import setup_logging
 from multi_publish.core.publisher_manager import PublisherManager
 from multi_publish.models import PLATFORM_META, PlatformType, PublishPhase
+from multi_publish.publishers.account_paths import build_account_storage_paths
 from multi_publish.video_creation.pipeline.loader import list_pipelines, load_pipeline
 
 app = FastAPI(title="Multi-Publish Backend", version="1.0.0")
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} 必须是明确的布尔值（true/false、1/0、yes/no 或 on/off）")
+
+
+IDENTITY_AUTH_ENABLED = _env_bool("IDENTITY_AUTH_ENABLED")
+IDENTITY_AUTH_REQUIRED = _env_bool("IDENTITY_AUTH_REQUIRED")
+
+
+def _logto_issuer() -> str:
+    configured = os.environ.get("LOGTO_ISSUER") or os.environ.get("LOGTO_ENDPOINT", "")
+    configured = configured.rstrip("/")
+    return configured if configured.endswith("/oidc") else f"{configured}/oidc"
+
+
+def _build_identity_verifier() -> LogtoJwtVerifier | None:
+    if not IDENTITY_AUTH_ENABLED and not IDENTITY_AUTH_REQUIRED:
+        return None
+    issuer = _logto_issuer()
+    audience = os.environ.get("LOGTO_API_RESOURCE", "").strip()
+    if not issuer or issuer == "/oidc" or not audience:
+        return None
+    trusted_hosts = frozenset(
+        item.strip().lower()
+        for item in os.environ.get("LOGTO_TRUSTED_JWKS_HOSTS", "").split(",")
+        if item.strip()
+    )
+    try:
+        return LogtoJwtVerifier(
+            issuer=issuer,
+            audience=audience,
+            cache_ttl_seconds=max(1, int(os.environ.get("LOGTO_JWKS_CACHE_TTL", "300"))),
+            trusted_jwks_hosts=trusted_hosts,
+        )
+    except (AuthError, ValueError):
+        return None
+
+
+IDENTITY_VERIFIER = _build_identity_verifier()
+
+
+def _identity_dependency(required_scopes: list[str]):
+    async def dependency(request: Request) -> dict[str, Any] | None:
+        if not IDENTITY_AUTH_ENABLED and not IDENTITY_AUTH_REQUIRED:
+            return None
+        has_token = bool(request.headers.get("authorization"))
+        if not IDENTITY_AUTH_REQUIRED and not has_token:
+            return None
+        if IDENTITY_VERIFIER is None:
+            raise HTTPException(status_code=503, detail="AUTH_CONFIG_INVALID")
+        return await create_fastapi_dependency(IDENTITY_VERIFIER, required_scopes)(request)
+
+    return dependency
+
+
+_require_publish_read = _identity_dependency(["publish:read"])
+_require_publish_submit = _identity_dependency(["publish:submit"])
+_require_account_manage = _identity_dependency(["account:manage"])
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,6 +119,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR = DATA_DIR.parent / "logs"
 
 setup_logging(log_dir=str(LOG_DIR))
+logger = logging.getLogger(__name__)
 
 publisher_mgr = PublisherManager(data_dir=str(DATA_DIR))
 
@@ -59,6 +132,7 @@ _publish_progress: dict[str, dict] = {}
 
 async def _progress_callback(task_id: str, platform: str, phase: PublishPhase, message: str, percent: int):
     """后端内部进度回调，记录到 _publish_progress"""
+    owner_subject = _publish_progress.get(task_id, {}).get("owner_subject")
     _publish_progress[task_id] = {
         "task_id": task_id,
         "platform": platform,
@@ -66,6 +140,7 @@ async def _progress_callback(task_id: str, platform: str, phase: PublishPhase, m
         "percent": percent,
         "message": message,
         "updated_at": datetime.now().isoformat(),
+        "owner_subject": owner_subject,
     }
 
 
@@ -108,12 +183,45 @@ ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 
 def _load_accounts() -> dict[str, dict]:
     if ACCOUNTS_FILE.exists():
-        return json.loads(ACCOUNTS_FILE.read_text())
+        return json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8-sig"))
     return {}
 
 
 def _save_accounts(accounts: dict):
-    ACCOUNTS_FILE.write_text(json.dumps(accounts, ensure_ascii=False, indent=2))
+    _atomic_write_json(ACCOUNTS_FILE, accounts)
+
+
+def _atomic_write_json(file_path: Path, payload: Any) -> None:
+    """先完整写入同目录临时文件，再原子替换目标文件。"""
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = file_path.with_name(f".{file_path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(temporary_path, file_path)
+        try:
+            file_path.chmod(0o600)
+        except OSError:
+            pass
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+
+def _persist_account_storage(account: dict) -> None:
+    """同步单账号认证文件，并确保浏览器数据目录存在。"""
+    paths = build_account_storage_paths(DATA_DIR, account["platform"], account["id"])
+    auth_data = account.get("auth_data")
+    auth_payload = dict(auth_data) if isinstance(auth_data, dict) else {}
+    auth_payload["cookies"] = list(account.get("cookies", []))
+    auth_payload.setdefault("local_storage", {})
+    auth_payload.setdefault("indexed_db", {})
+
+    _atomic_write_json(paths.auth_file, auth_payload)
+    _atomic_write_json(paths.cookie_file, list(account.get("cookies", [])))
+    paths.browser_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _account_to_dict(a: dict) -> dict:
@@ -130,10 +238,35 @@ def _account_to_dict(a: dict) -> dict:
     }
 
 
+def _request_subject(request: Request) -> str | None:
+    auth = getattr(request.state, "auth", None)
+    subject = auth.get("subject") if isinstance(auth, dict) else None
+    return subject if isinstance(subject, str) and subject else None
+
+
+def _require_authenticated_subject(request: Request) -> str | None:
+    """身份灰度期开启后，敏感操作也必须绑定真实 subject。"""
+    subject = _request_subject(request)
+    if subject:
+        return subject
+    if IDENTITY_AUTH_ENABLED or IDENTITY_AUTH_REQUIRED:
+        raise HTTPException(status_code=401, detail="AUTH_TOKEN_REQUIRED")
+    return None
+
+
+def _is_owned_by(resource: dict, subject: str | None) -> bool:
+    # 灰度期匿名请求只能访问尚未归属的旧版资源。
+    return resource.get("owner_subject") == subject
+
+
+def _without_owner(resource: dict) -> dict:
+    return {key: value for key, value in resource.items() if key != "owner_subject"}
+
+
 # ─── 平台路由 ───────────────────────────────────────────────
 
 
-@app.get("/api/platforms")
+@app.get("/api/platforms", dependencies=[Depends(_require_publish_read)])
 def list_platforms():
     """列出所有支持的平台及状态"""
     results = []
@@ -155,16 +288,18 @@ def list_platforms():
 # ─── 账号 CRUD 路由 ────────────────────────────────────────
 
 
-@app.get("/api/accounts")
-def list_accounts():
+@app.get("/api/accounts", dependencies=[Depends(_require_account_manage)])
+def list_accounts(request: Request):
     """返回已配置的账号列表"""
     accounts = _load_accounts()
-    return {"code": 0, "data": [_account_to_dict(a) for a in accounts.values()]}
+    subject = _request_subject(request)
+    return {"code": 0, "data": [_account_to_dict(a) for a in accounts.values() if _is_owned_by(a, subject)]}
 
 
-@app.post("/api/accounts")
-def create_account(req: AccountCreateRequest):
+@app.post("/api/accounts", dependencies=[Depends(_require_account_manage)])
+def create_account(req: AccountCreateRequest, request: Request):
     """添加新账号（保存 Cookie）"""
+    owner_subject = _require_authenticated_subject(request)
     # 验证平台
     try:
         pt = PlatformType(req.platform)
@@ -173,58 +308,80 @@ def create_account(req: AccountCreateRequest):
 
     account_id = str(uuid.uuid4())[:8]
     accounts = _load_accounts()
-    accounts[account_id] = {
+    auth_data = dict(req.auth_data) if isinstance(req.auth_data, dict) else None
+    if auth_data is not None:
+        auth_data["cookies"] = list(req.cookies)
+    account = {
         "id": account_id,
         "platform": pt.value,
         "name": req.name,
-        "cookies": req.cookies,
-        "auth_data": req.auth_data,
+        "cookies": list(req.cookies),
+        "auth_data": auth_data,
         "is_active": True,
         "last_validated": datetime.now().isoformat(),
         "created_at": datetime.now().isoformat(),
+        "owner_subject": owner_subject,
     }
-    _save_accounts(accounts)
+    accounts[account_id] = account
+    try:
+        _persist_account_storage(account)
+        _save_accounts(accounts)
+    except Exception:
+        paths = build_account_storage_paths(DATA_DIR, pt.value, account_id)
+        if paths.account_dir.exists():
+            shutil.rmtree(paths.account_dir)
+        raise
 
-    return {"code": 0, "message": "账号添加成功", "data": _account_to_dict(accounts[account_id])}
+    return {"code": 0, "message": "账号添加成功", "data": _account_to_dict(account)}
 
 
-@app.get("/api/accounts/{account_id}")
-def get_account(account_id: str):
+@app.get("/api/accounts/{account_id}", dependencies=[Depends(_require_account_manage)])
+def get_account(account_id: str, request: Request):
     accounts = _load_accounts()
     a = accounts.get(account_id)
-    if not a:
+    if not a or not _is_owned_by(a, _request_subject(request)):
         raise HTTPException(status_code=404, detail="账号不存在")
     return {"code": 0, "data": _account_to_dict(a)}
 
 
-@app.get("/api/accounts/{account_id}/cookies")
-def get_account_cookies(account_id: str):
+@app.get("/api/accounts/{account_id}/cookies", dependencies=[Depends(_require_account_manage)])
+def get_account_cookies(account_id: str, request: Request):
     """获取账号的 Cookie（用于 Playwright 恢复会话）"""
+    subject = _require_authenticated_subject(request)
     accounts = _load_accounts()
     a = accounts.get(account_id)
-    if not a:
+    if not a or not _is_owned_by(a, subject):
         raise HTTPException(status_code=404, detail="账号不存在")
     return {"code": 0, "data": {"id": a["id"], "platform": a["platform"], "cookies": a.get("cookies", [])}}
 
 
-@app.put("/api/accounts/{account_id}/cookies")
-def update_account_cookies(account_id: str, req: AccountCreateRequest):
+@app.put("/api/accounts/{account_id}/cookies", dependencies=[Depends(_require_account_manage)])
+def update_account_cookies(account_id: str, req: AccountCreateRequest, request: Request):
     """更新账号 Cookie（重新登录后）"""
+    subject = _require_authenticated_subject(request)
     accounts = _load_accounts()
     a = accounts.get(account_id)
-    if not a:
+    if not a or not _is_owned_by(a, subject):
         raise HTTPException(status_code=404, detail="账号不存在")
-    a["cookies"] = req.cookies
+    a["cookies"] = list(req.cookies)
+    if isinstance(a.get("auth_data"), dict):
+        a["auth_data"] = {**a["auth_data"], "cookies": list(req.cookies)}
     a["last_validated"] = datetime.now().isoformat()
+    _persist_account_storage(a)
     _save_accounts(accounts)
     return {"code": 0, "message": "Cookie 更新成功"}
 
 
-@app.delete("/api/accounts/{account_id}")
-def delete_account(account_id: str):
+@app.delete("/api/accounts/{account_id}", dependencies=[Depends(_require_account_manage)])
+def delete_account(account_id: str, request: Request):
+    subject = _require_authenticated_subject(request)
     accounts = _load_accounts()
-    if account_id not in accounts:
+    account = accounts.get(account_id)
+    if not account or not _is_owned_by(account, subject):
         raise HTTPException(status_code=404, detail="账号不存在")
+    paths = build_account_storage_paths(DATA_DIR, account["platform"], account_id)
+    if paths.account_dir.exists():
+        shutil.rmtree(paths.account_dir)
     del accounts[account_id]
     _save_accounts(accounts)
     return {"code": 0, "message": "账号已删除"}
@@ -233,8 +390,8 @@ def delete_account(account_id: str):
 # ─── 登录路由 ───────────────────────────────────────────────
 
 
-@app.post("/api/login")
-async def login(req: LoginRequest):
+@app.post("/api/login", dependencies=[Depends(_require_account_manage)])
+async def login(req: LoginRequest, request: Request):
     """
     启动平台登录流程（RPA）
 
@@ -245,6 +402,7 @@ async def login(req: LoginRequest):
     2. 收到 200 后显示「请在浏览器中登录」
     3. 轮询 /api/accounts/{id}/cookies 确认登录完成
     """
+    owner_subject = _require_authenticated_subject(request)
     try:
         pt = PlatformType(req.platform)
     except ValueError:
@@ -254,27 +412,26 @@ async def login(req: LoginRequest):
         raise HTTPException(status_code=400, detail=f"平台 {pt.value} 暂不支持 RPA 登录")
 
     # 在后台启动登录
-    success = await publisher_mgr.login_to_platform(pt)
+    account_id = str(uuid.uuid4())[:8]
+    success = await publisher_mgr.login_to_platform(pt, account_id=account_id)
 
     if not success:
         raise HTTPException(status_code=408, detail="登录超时或失败")
 
     # 读取刚保存的认证数据
     auth_data = None
-    auth_file = os.path.join(str(DATA_DIR), f"auth_{pt.value}.json")
-    if os.path.exists(auth_file):
-        auth_data = json.loads(Path(auth_file).read_text())
+    account_paths = build_account_storage_paths(DATA_DIR, pt.value, account_id)
+    if account_paths.auth_file.exists():
+        auth_data = json.loads(account_paths.auth_file.read_text(encoding="utf-8"))
 
     # 兼容旧格式：仅 cookies
-    cookie_path = os.path.join(str(DATA_DIR), f"cookies_{pt.value}.json")
     cookies = []
-    if os.path.exists(cookie_path):
-        cookies = json.loads(Path(cookie_path).read_text())
+    if account_paths.cookie_file.exists():
+        cookies = json.loads(account_paths.cookie_file.read_text(encoding="utf-8"))
     elif auth_data and auth_data.get("cookies"):
         cookies = auth_data["cookies"]
 
     # 自动创建/更新账号记录
-    account_id = str(uuid.uuid4())[:8]
     accounts = _load_accounts()
     accounts[account_id] = {
         "id": account_id,
@@ -285,6 +442,7 @@ async def login(req: LoginRequest):
         "is_active": True,
         "last_validated": datetime.now().isoformat(),
         "created_at": datetime.now().isoformat(),
+        "owner_subject": owner_subject,
     }
     _save_accounts(accounts)
 
@@ -308,23 +466,31 @@ async def login(req: LoginRequest):
     }
 
 
-@app.get("/api/auth-status/{platform}")
-async def auth_status(platform: str):
+@app.get("/api/auth-status/{platform}", dependencies=[Depends(_require_account_manage)])
+async def auth_status(platform: str, account_id: str, request: Request):
     """检查平台认证状态"""
     try:
         pt = PlatformType(platform)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"不支持的平台: {platform}") from None
 
-    ok = await publisher_mgr.get_auth_status(pt)
+    account = _load_accounts().get(account_id)
+    if (
+        not account
+        or account.get("platform") != pt.value
+        or not _is_owned_by(account, _request_subject(request))
+    ):
+        raise HTTPException(status_code=404, detail="账号不存在")
+
+    ok = await publisher_mgr.get_auth_status(pt, account_id=account_id)
     return {"code": 0, "data": {"platform": platform, "valid": ok}}
 
 
 # ─── 发布路由 ───────────────────────────────────────────────
 
 
-@app.post("/api/publish")
-async def publish(req: PublishRequest):
+@app.post("/api/publish", dependencies=[Depends(_require_publish_submit)])
+async def publish(req: PublishRequest, request: Request):
     """
     发布内容到平台
 
@@ -340,18 +506,33 @@ async def publish(req: PublishRequest):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}") from None
 
+    owner_subject = _request_subject(request)
+    if req.account_id:
+        owner_subject = _require_authenticated_subject(request)
+    if owner_subject and not req.account_id:
+        raise HTTPException(status_code=400, detail="ACCOUNT_REQUIRED")
+    if owner_subject and req.account_id:
+        account = _load_accounts().get(req.account_id)
+        if (
+            not account
+            or not _is_owned_by(account, owner_subject)
+            or account.get("platform") != req.platform
+        ):
+            raise HTTPException(status_code=404, detail="账号不存在")
+
     if not publisher_mgr.is_supported(pt):
         raise HTTPException(status_code=400, detail=f"平台 {pt.value} 暂不支持发布")
 
     # 执行发布
     task_id = str(uuid.uuid4())[:8]
-    _publish_tasks[task_id] = {"status": "running", "platform": req.platform}
+    _publish_tasks[task_id] = {"status": "running", "platform": req.platform, "owner_subject": owner_subject}
     _publish_progress[task_id] = {
         "task_id": task_id,
         "platform": req.platform,
         "phase": "preparing",
         "percent": 0,
         "message": "准备中...",
+        "owner_subject": owner_subject,
     }
 
     try:
@@ -364,6 +545,7 @@ async def publish(req: PublishRequest):
                 "percent": percent,
                 "message": message,
                 "updated_at": datetime.now().isoformat(),
+                "owner_subject": owner_subject,
             }
 
         result = await publisher_mgr.publish_to_platform(
@@ -382,6 +564,7 @@ async def publish(req: PublishRequest):
         _publish_tasks[task_id] = {
             "status": "done" if result.success else "failed",
             "platform": req.platform,
+            "owner_subject": owner_subject,
             "result": {
                 "success": result.success,
                 "url": result.url,
@@ -396,6 +579,7 @@ async def publish(req: PublishRequest):
                 "phase": "done",
                 "percent": 100,
                 "message": "发布成功",
+                "owner_subject": owner_subject,
             }
         else:
             _publish_progress[task_id] = {
@@ -404,6 +588,7 @@ async def publish(req: PublishRequest):
                 "phase": "failed",
                 "percent": 100,
                 "message": result.error or "发布失败",
+                "owner_subject": owner_subject,
             }
 
         return {
@@ -419,39 +604,48 @@ async def publish(req: PublishRequest):
         }
 
     except Exception as e:
-        _publish_tasks[task_id] = {"status": "failed", "platform": req.platform, "error": str(e)}
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        logger.error("发布任务执行失败: %s", type(e).__name__)
+        _publish_tasks[task_id] = {
+            "status": "failed",
+            "platform": req.platform,
+            "error": "PUBLISH_FAILED",
+            "owner_subject": owner_subject,
+        }
+        raise HTTPException(status_code=500, detail="PUBLISH_FAILED") from e
 
 
-@app.get("/api/publish/{task_id}/status")
-def publish_status(task_id: str):
+@app.get("/api/publish/{task_id}/status", dependencies=[Depends(_require_publish_read)])
+def publish_status(task_id: str, request: Request):
     """查询发布任务状态"""
     task = _publish_tasks.get(task_id)
-    if not task:
+    if not task or not _is_owned_by(task, _request_subject(request)):
         raise HTTPException(status_code=404, detail="任务不存在")
-    return {"code": 0, "data": task}
+    return {"code": 0, "data": _without_owner(task)}
 
 
-@app.get("/api/publish/{task_id}/progress")
-def publish_progress(task_id: str):
+@app.get("/api/publish/{task_id}/progress", dependencies=[Depends(_require_publish_read)])
+def publish_progress(task_id: str, request: Request):
     """查询发布进度（前端轮询用）"""
     progress = _publish_progress.get(task_id)
+    subject = _request_subject(request)
+    if progress and not _is_owned_by(progress, subject):
+        raise HTTPException(status_code=404, detail="任务不存在")
     if not progress:
         # 查找 task status 作为 fallback
         task = _publish_tasks.get(task_id)
-        if not task:
+        if not task or not _is_owned_by(task, subject):
             raise HTTPException(status_code=404, detail="任务不存在")
         return {
             "code": 0,
             "data": {"task_id": task_id, "phase": task.get("status", "unknown"), "percent": 0, "message": ""},
         }
-    return {"code": 0, "data": progress}
+    return {"code": 0, "data": _without_owner(progress)}
 
 
 # ─── 视频创作流水线路由 ─────────────────────────────────────
 
 
-@app.get("/api/pipelines")
+@app.get("/api/pipelines", dependencies=[Depends(_require_publish_read)])
 def get_pipelines():
     """列出所有可用流水线"""
     try:
@@ -476,7 +670,7 @@ def get_pipelines():
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.get("/api/pipelines/{name}")
+@app.get("/api/pipelines/{name}", dependencies=[Depends(_require_publish_read)])
 def get_pipeline_detail(name: str):
     """获取单个流水线详情"""
     try:
@@ -507,37 +701,37 @@ def health():
 
 # --- AI ?? API (Phase 2) ---
 
-@app.post('/api/ai/generate')
+@app.post('/api/ai/generate', dependencies=[Depends(_require_publish_submit)])
 async def ai_generate(data: dict):
     return {'success': True, 'message': 'AI generation queued'}
 
-@app.get('/api/ai/providers')
+@app.get('/api/ai/providers', dependencies=[Depends(_require_publish_read)])
 async def list_ai_providers():
     return {'success': True, 'providers': []}
 
 # --- ???? API (Phase 2) ---
 
-@app.post('/api/video/process')
+@app.post('/api/video/process', dependencies=[Depends(_require_publish_submit)])
 async def video_process(data: dict):
     return {'success': True, 'message': 'Processing ' + data.get('type', 'unknown')}
 
-@app.post('/api/video/analyze')
+@app.post('/api/video/analyze', dependencies=[Depends(_require_publish_submit)])
 async def video_analyze(data: dict):
     return {'success': True, 'message': 'Analyzing ' + data.get('type', 'unknown')}
 
-@app.post('/api/video/mix-audio')
+@app.post('/api/video/mix-audio', dependencies=[Depends(_require_publish_submit)])
 async def video_mix_audio(data: dict):
     return {'success': True, 'message': 'Audio mixing queued'}
 
-@app.post('/api/video/search-stock')
+@app.post('/api/video/search-stock', dependencies=[Depends(_require_publish_read)])
 async def video_search_stock(data: dict):
     return {'success': True, 'message': 'Searching ' + data.get('source', '')}
 
-@app.post('/api/video/generate-subtitle')
+@app.post('/api/video/generate-subtitle', dependencies=[Depends(_require_publish_submit)])
 async def video_generate_subtitle(data: dict):
     return {'success': True, 'message': 'Subtitle generation'}
 
-@app.get('/api/video/status')
+@app.get('/api/video/status', dependencies=[Depends(_require_publish_read)])
 async def video_status():
     import shutil
     return {'ffmpegAvailable': shutil.which('ffmpeg') is not None, 'success': True}

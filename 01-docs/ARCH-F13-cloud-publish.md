@@ -29,7 +29,7 @@ CloudPublish.vue (新页面)
   │
   ├── IPC: cloud-publisher:list-tasks
   │   └── electron/cloud-publisher.js
-  │       └── GET /api/jobs/publish?user_id=xxx
+  │       └── GET /api/jobs/publish（身份由 Bearer Token 的 sub 决定）
   │
   └── IPC: cloud-publisher:get-task
       └── electron/cloud-publisher.js
@@ -64,12 +64,12 @@ class CloudPublisher {
   // → body: { video_url, platform, title, desc, tags, cover_url, mode: "cloud" }
   async submitTask({ videoUrl, platform, title, desc, tags, coverUrl })
 
-  // 获取当前用户的所有发布任务
-  // → GET /api/jobs/publish
+  // 获取当前用户的所有发布任务；不接收 user_id
+  // → GET /api/jobs/publish + Authorization: Bearer <access_token>
   async listTasks()
 
-  // 获取单个任务状态
-  // → GET /api/jobs/publish/{taskId}
+  // 获取单个任务状态；服务端校验任务归属
+  // → GET /api/jobs/publish/{taskId} + Authorization: Bearer <access_token>
   async getTask(taskId)
 
   // 从 platforms.yaml 中筛选 isPublishable 的平台
@@ -157,3 +157,6 @@ class VideoPublishRequest(BaseModel):
 | orchestrator 不可达 | 前端显示连接状态，提交时友好报错 |
 | background task 耗时过长 | 前端 polling 超时兜底，显示「处理中」|
 | 多个 mode 竞态 | PublishPoller 和 background task 互斥处理 {rpa, cloud} |
+| 客户端伪造 user_id | 服务端忽略请求中的 user_id，使用已验证 Token 的 sub 查询；跨用户资源统一返回 404 |
+| Token 过期/撤销 | CloudPublisher 在 401 时请求 AuthService 刷新一次，失败则通知 renderer 重新登录 |
+| Logto/JWKS 不可达 | JWKS 使用短 TTL 缓存；缓存过期不接受未知 key，服务端返回 503/401 而不是放行 |

@@ -13,6 +13,8 @@ const { ipcMain } = require('electron')
 const { isTrustedSender } = require('../core/ipc-security')
 const { createAccessControlledIpcMain } = require('../ipc-handlers/license-access-control')
 const log = require('../services/logger')
+const credentialStore = require('../services/credential-store')
+const accountStateRestorer = require('../services/account-state-restorer')
 
 const registrationStates = new WeakMap()
 const activeIpcTransactions = new WeakMap()
@@ -177,7 +179,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     BACKEND_PLATFORMS, templateManager, licenseManager, aiWriter,
     compositionManager, aiGenerator, videoEngine, pipelineEngine, modelProviderManager,
     projectService, boardService, contactSheetService, approvalGateService,
-    executionRecorder, usageTracker, cloudPublisher,
+    executionRecorder, usageTracker, cloudPublisher, identityService,
   } = context
 
   const registerAllHandlers = require('../ipc-handlers')
@@ -189,7 +191,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     BACKEND_PLATFORMS, templateManager, licenseManager, aiWriter,
     compositionManager, aiGenerator, videoEngine, pipelineEngine, modelProviderManager,
     projectService, boardService, contactSheetService, approvalGateService,
-    executionRecorder,
+    executionRecorder, identityService, credentialStore, accountStateRestorer,
   }
   let state = registrationStates.get(context)
   if (!state) {
@@ -203,6 +205,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
       licenseManager,
       process.env,
       app,
+      identityService,
     )
     const registerCentralHandlers = () => {
       return registerAllHandlers(controlledIpcMain, handlerDependencies)

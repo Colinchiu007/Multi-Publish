@@ -49,6 +49,12 @@ def _make_publisher(
     login_timeout: int = 120,
 ) -> SimpleNamespace:
     """构造一个最小宿主对象，仅供 douyin_auth 函数使用。"""
+    browser_dir = tmp_path / "accounts" / "douyin" / "legacy" / "browser_data"
+    browser_check_dir = tmp_path / "accounts" / "douyin" / "legacy" / "browser_data_check"
+
+    def get_browser_data_dir(check: bool = False) -> str:
+        return str(browser_check_dir if check else browser_dir)
+
     return SimpleNamespace(
         _cookie_path=cookie_path or str(tmp_path / "cookies_douyin.json"),
         _auth_data_path=auth_data_path or str(tmp_path / "auth_douyin.json"),
@@ -67,6 +73,7 @@ def _make_publisher(
         _playwright_app=None,
         _context=None,
         _page=None,
+        _get_browser_data_dir=get_browser_data_dir,
         # login() 超时时会调用 publisher.close()
         close=AsyncMock(),
     )

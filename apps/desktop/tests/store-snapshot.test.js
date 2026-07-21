@@ -65,7 +65,8 @@ const Store = require('../electron/services/store')
 // ── 期望的公共 API 表面（按功能域分组）─────────────────
 const EXPECTED_API = {
   // 生命周期/基础设施（BaseStore）
-  base: ['init', '_createTables', 'close', '_safeJson', 'migrateFromJsonl'],
+  base: ['init', '_createTables', 'close', '_safeJson', 'migrateFromJsonl',
+    'setOwnerSubjectProvider', '_resolveOwnerSubject'],
   // 账号
   account: ['addAccount', 'getAccount', 'listAccounts', 'deleteAccount',
     'updateAccount', 'setDefaultAccount', 'getDefaultAccount', '_parseAccount'],
@@ -75,7 +76,7 @@ const EXPECTED_API = {
   scheduler: ['addScheduledTask', 'listScheduledTasks', 'getPendingTasks',
     'updateTaskStatus', 'deleteTask'],
   // 设置
-  settings: ['getSetting', 'setSetting'],
+  settings: ['getSetting', 'setSetting', 'getUserSetting', 'setUserSetting'],
   // 回调日志
   callback: ['addCallbackLog', 'listCallbackLogs'],
   // 批量任务
@@ -168,6 +169,8 @@ describe('Store 快照 - 未初始化时降级返回', () => {
     expect(store.getSetting('k', 'default')).toBe('default')
     expect(store.getSetting('k')).toBeNull()
     expect(store.setSetting('k', 'v')).toBeUndefined()
+    expect(store.getUserSetting('k', 'default', 'user-a')).toBe('default')
+    expect(store.setUserSetting('k', 'v', 'user-a')).toBeUndefined()
   })
 
   it('callback 域：返回 undefined/[]', () => {
@@ -203,19 +206,20 @@ describe('Store 快照 - SQL 执行模板', () => {
   })
 
   it('addAccount 执行 INSERT OR REPLACE INTO accounts', () => {
-    store.addAccount({ id: 1, platform: 'douyin', name: 'u' })
+    store.addAccount({ id: 1, platform: 'douyin', name: 'u' }, 'user-a')
     const call = store.db._runLog.find(r => r.sql.includes('INSERT OR REPLACE INTO accounts'))
     expect(call).toBeTruthy()
-    expect(call.params[0]).toBe(1)
-    expect(call.params[1]).toBe('douyin')
+    expect(call.params[0]).toBe('user-a')
+    expect(call.params[1]).toBe('1')
+    expect(call.params[2]).toBe('douyin')
   })
 
-  it('getAccount 执行 SELECT * FROM accounts WHERE id = ?', () => {
+  it('getAccount 同时按 owner_subject 和 id 查询', () => {
     store.db._nextGet = { id: 5, platform: 'wx', cookies: '[]', localStorage: '{}' }
-    store.getAccount(5)
-    const call = store.db._getLog.find(r => r.sql.includes('SELECT * FROM accounts WHERE id = ?'))
+    store.getAccount(5, 'user-a')
+    const call = store.db._getLog.find(r => r.sql.includes('WHERE owner_subject = ? AND id = ?'))
     expect(call).toBeTruthy()
-    expect(call.params).toEqual([5])
+    expect(call.params).toEqual(['user-a', '5'])
   })
 
   it('listAccounts 无平台过滤执行 ORDER BY platform', () => {
@@ -227,20 +231,19 @@ describe('Store 快照 - SQL 执行模板', () => {
 
   it('listAccounts 带平台过滤执行 WHERE platform = ?', () => {
     store.db._nextAll = []
-    store.listAccounts('douyin')
-    const call = store.db._allLog.find(r => r.sql.includes('WHERE platform = ?'))
+    store.listAccounts('douyin', 'user-a')
+    const call = store.db._allLog.find(r => r.sql.includes('owner_subject = ? AND platform = ?'))
     expect(call).toBeTruthy()
-    expect(call.params).toEqual(['douyin'])
+    expect(call.params).toEqual(['user-a', 'douyin'])
   })
 
-  it('deleteAccount 级联清理：accounts + scheduled_tasks + publish_history + settings', () => {
+  it('deleteAccount 仅级联清理当前 owner 的账号、任务和历史', () => {
     store.db._nextGet = { platform: 'wx' }
-    store.deleteAccount('acc1')
+    store.deleteAccount('acc1', 'user-a')
     const deleteCalls = store.db._runLog.filter(r => r.sql.includes('DELETE FROM'))
     const tables = deleteCalls.map(c => c.sql.match(/DELETE FROM (\w+)/)[1])
-    expect(tables).toEqual(expect.arrayContaining([
-      'accounts', 'scheduled_tasks', 'publish_history', 'settings'
-    ]))
+    expect(tables).toEqual(['accounts', 'scheduled_tasks', 'publish_history'])
+    expect(deleteCalls.every(call => call.params[0] === 'user-a')).toBe(true)
   })
 
   it('updateAccount 通过白名单过滤字段', () => {
@@ -252,9 +255,11 @@ describe('Store 快照 - SQL 执行模板', () => {
   })
 
   it('setDefaultAccount 在事务中执行 2 条 UPDATE', () => {
-    store.setDefaultAccount('wx', 'acc1')
+    store.db._nextGet = { id: 'acc1' }
+    store.setDefaultAccount('wx', 'acc1', 'user-a')
     const updates = store.db._runLog.filter(r => r.sql.includes('UPDATE accounts SET is_default'))
     expect(updates.length).toBe(2)
+    expect(updates.every(call => call.params[0] === 'user-a')).toBe(true)
   })
 
   it('addPublishRecord 执行 INSERT OR REPLACE INTO publish_history', () => {
@@ -267,16 +272,17 @@ describe('Store 快照 - SQL 执行模板', () => {
   it('listPublishHistory 执行 COUNT + SELECT', () => {
     store.db._nextGet = { total: 0 }
     store.db._nextAll = []
-    store.listPublishHistory({ platform: 'wx', limit: 10, offset: 5 })
+    store.listPublishHistory({ platform: 'wx', limit: 10, offset: 5 }, 'user-a')
     const countCall = store.db._getLog.find(r => r.sql.includes('COUNT(*)'))
     expect(countCall).toBeTruthy()
+    expect(countCall.params).toEqual(['user-a', 'wx'])
     const selectCall = store.db._allLog.find(r => r.sql.includes('LIMIT') && r.sql.includes('OFFSET'))
     expect(selectCall).toBeTruthy()
   })
 
   it('getPublishStats 执行 SELECT platform, status FROM publish_history', () => {
     store.db._nextAll = [{ platform: 'wx', status: 'success' }, { platform: 'wx', status: 'failed' }]
-    const stats = store.getPublishStats()
+    const stats = store.getPublishStats('user-a')
     expect(stats.total).toBe(2)
     expect(stats.success).toBe(1)
     expect(stats.failed).toBe(1)
@@ -292,9 +298,10 @@ describe('Store 快照 - SQL 执行模板', () => {
 
   it('getPendingTasks 执行 status=pending AND publish_time <= now', () => {
     store.db._nextAll = []
-    store.getPendingTasks()
+    store.getPendingTasks('user-a')
     const call = store.db._allLog.find(r => r.sql.includes("status = 'pending'") && r.sql.includes('publish_time <='))
     expect(call).toBeTruthy()
+    expect(call.params).toEqual(['user-a'])
   })
 
   it('getSetting 执行 SELECT value FROM settings WHERE key = ?', () => {
@@ -414,5 +421,24 @@ describe('Store 快照 - _safeJson 行为', () => {
   it('非法 JSON 返回原字符串', () => {
     const store = new Store()
     expect(store._safeJson('not-json')).toBe('not-json')
+  })
+})
+
+describe('Store 快照 - owner subject 解析', () => {
+  it('未配置身份服务时只使用 legacy 命名空间', () => {
+    const store = new Store()
+    expect(store._resolveOwnerSubject()).toBe('__legacy__')
+  })
+
+  it('身份解析器缺少 sub 时 fail-closed', () => {
+    const store = new Store()
+    store.setOwnerSubjectProvider(() => '')
+    expect(store._resolveOwnerSubject()).toBeNull()
+  })
+
+  it('显式 owner 优先于当前登录用户', () => {
+    const store = new Store()
+    store.setOwnerSubjectProvider(() => 'current-user')
+    expect(store._resolveOwnerSubject('task-owner')).toBe('task-owner')
   })
 })

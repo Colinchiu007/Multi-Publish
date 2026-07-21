@@ -10,6 +10,7 @@
  * @vitest-environment node
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createAccessControlledIpcMain } from './license-access-control'
 
 // Mock logger 防止真实日志污染
 vi.mock('../services/logger', () => ({
@@ -160,5 +161,32 @@ describe('publish IPC 可信来源正常工作', () => {
     const result = await handler(UNTRUSTED_EVENT)
 
     expect(result.code).toBe(0)
+  })
+})
+
+describe('publish IPC Logto 权益门禁', () => {
+  it.each([
+    ['publish:wechat', { title: '无权益' }],
+    ['publish:batch', { platforms: ['wechat', 'douyin'], article: { title: '无权益' } }],
+  ])('%s 无权益时不向队列写入任何任务', async (channel, payload) => {
+    const deps = createMockDeps()
+    const rawIpcMain = createMockIpcMain()
+    const identityService = {
+      getState: () => ({ status: 'authenticated' }),
+      requireEntitlement: vi.fn(async () => { throw new Error('ENTITLEMENT_REQUIRED') }),
+    }
+    const controlledIpcMain = createAccessControlledIpcMain(
+      rawIpcMain,
+      { isPro: () => true },
+      { NODE_ENV: 'production' },
+      __electronMock.app,
+      identityService,
+    )
+    registerHandlers(controlledIpcMain, deps)
+
+    const result = await rawIpcMain._get(channel)(TRUSTED_EVENT, payload)
+
+    expect(result).toMatchObject({ code: -3 })
+    expect(deps.taskQueue.add).not.toHaveBeenCalled()
   })
 })

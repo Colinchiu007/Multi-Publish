@@ -306,6 +306,30 @@ describe('window — createWindow', () => {
     }
   })
 
+  it('Logto 身份启用时服务型 IPC 不接受本地 Pro license 提权', async () => {
+    const originalPackaged = __electronMock.app.isPackaged
+    let identityStatus = 'signed_out'
+    const businessHandler = vi.fn(async () => ({ code: 0, data: 'saved' }))
+    context.licenseManager = { isPro: vi.fn(() => true) }
+    context.identityService = { getState: vi.fn(() => ({ status: identityStatus })) }
+    context.providerManager.registerIpcHandlers.mockImplementation(() => {
+      __electronMock.ipcMain.handle('provider:identity-smoke', businessHandler)
+    })
+    __electronMock.app.isPackaged = true
+
+    try {
+      createWindow(context)
+      const handler = __electronMock.ipcMain._handlers['provider:identity-smoke']
+      const trustedEvent = { senderFrame: { url: 'app://localhost/index.html' } }
+
+      await expect(handler(trustedEvent)).resolves.toMatchObject({ code: -3 })
+      identityStatus = 'authenticated'
+      await expect(handler(trustedEvent)).resolves.toEqual({ code: 0, data: 'saved' })
+    } finally {
+      __electronMock.app.isPackaged = originalPackaged
+    }
+  })
+
   it('IPC 注册中断后只重试未完成项，全部成功后保持幂等', () => {
     mockNextWindowWithDestroy()
     context.oauthManager.registerIpcHandlers.mockImplementationOnce(() => {

@@ -38,6 +38,7 @@ class XiaoHongShuPublisher(BasePublisher):
 
     def __init__(self, config: PublisherConfig, account_id: str | None = None):
         super().__init__(config, account_id=account_id)
+        self._configure_account_storage()
         self._browser = None
         self._context = None
         self._page = None
@@ -47,8 +48,6 @@ class XiaoHongShuPublisher(BasePublisher):
         self._login_timeout = 120
         self._publish_timeout = 300
         self._upload_wait_timeout = 600
-        self._auth_data_path = os.path.join(config.data_dir, f"auth_{self.platform.value}.json")
-        self._cookie_path = os.path.join(config.data_dir, f"cookies_{self.platform.value}.json")
 
     @property
     def platform(self) -> PlatformType:
@@ -64,7 +63,7 @@ class XiaoHongShuPublisher(BasePublisher):
 
         self._playwright_app = await async_playwright().start()
         self._context = await self._playwright_app.chromium.launch_persistent_context(
-            user_data_dir=os.path.join(self.config.data_dir, "browser_data"),
+            user_data_dir=self._get_browser_data_dir(),
             headless=self.config.headless,
             viewport={"width": 1280, "height": 800},
         )
@@ -141,7 +140,7 @@ class XiaoHongShuPublisher(BasePublisher):
 
         self._playwright_app = await async_playwright().start()
         self._context = await self._playwright_app.chromium.launch_persistent_context(
-            user_data_dir=os.path.join(self.config.data_dir, "browser_data"),
+            user_data_dir=self._get_browser_data_dir(),
             headless=self.config.headless,
             viewport={"width": 1280, "height": 800},
         )

@@ -32,10 +32,12 @@ beforeEach(() => {
   const { createPublishApi } = require('./preload/publish')
   const { createAccountApi } = require('./preload/account')
   const { createSystemApi } = require('./preload/system')
+  const { createIdentityApi } = require('./preload/identity')
   api = {
     ...createPublishApi(ipcRenderer),
     ...createAccountApi(ipcRenderer),
     ...createSystemApi(ipcRenderer),
+    ...createIdentityApi(ipcRenderer),
   }
 })
 
@@ -117,6 +119,10 @@ const SYSTEM_METHODS = [
   'modelProviderLogs', 'modelProviderCleanLogs',
 ]
 
+const IDENTITY_METHODS = [
+  'identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'onIdentityStateChanged',
+]
+
 // === 工厂函数导出 ===
 describe('preload 子模块工厂函数', () => {
   it('createPublishApi 应为函数', () => {
@@ -132,6 +138,11 @@ describe('preload 子模块工厂函数', () => {
   it('createSystemApi 应为函数', () => {
     const { createSystemApi } = require('./preload/system')
     expect(typeof createSystemApi).toBe('function')
+  })
+
+  it('createIdentityApi 应为函数', () => {
+    const { createIdentityApi } = require('./preload/identity')
+    expect(typeof createIdentityApi).toBe('function')
   })
 
   it('createPublishApi 返回非空对象', () => {
@@ -179,8 +190,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(133)
   })
 
-  it('合并后 api 总键数应为 229', () => {
-    expect(Object.keys(api).length).toBe(229)
+  it('合并后 api 总键数应为 234', () => {
+    expect(Object.keys(api).length).toBe(234)
   })
 
   it('PUBLISH_METHODS 常量长度应为 55', () => {
@@ -193,6 +204,10 @@ describe('preload 子模块方法数', () => {
 
   it('SYSTEM_METHODS 常量长度应为 133', () => {
     expect(SYSTEM_METHODS.length).toBe(133)
+  })
+
+  it('IDENTITY_METHODS 常量长度应为 5', () => {
+    expect(IDENTITY_METHODS.length).toBe(5)
   })
 })
 
@@ -241,6 +256,13 @@ describe('account 模块方法存在且为函数', () => {
 // === system 模块方法存在性 + 类型（数据驱动）===
 describe('system 模块方法存在且为函数', () => {
   it.each(SYSTEM_METHODS)('%s 应存在于 api 且为函数', (name) => {
+    expect(api).toHaveProperty(name)
+    expect(typeof api[name]).toBe('function')
+  })
+})
+
+describe('identity 模块方法存在且为函数', () => {
+  it.each(IDENTITY_METHODS)('%s 应存在于 api 且为函数', (name) => {
     expect(api).toHaveProperty(name)
     expect(typeof api[name]).toBe('function')
   })
@@ -314,8 +336,8 @@ describe('方法名清单无重复', () => {
     expect(set.size).toBe(SYSTEM_METHODS.length)
   })
 
-  it('三个模块间无方法名冲突', () => {
-    const all = [...PUBLISH_METHODS, ...ACCOUNT_METHODS, ...SYSTEM_METHODS]
+  it('四个模块间无方法名冲突', () => {
+    const all = [...PUBLISH_METHODS, ...ACCOUNT_METHODS, ...SYSTEM_METHODS, ...IDENTITY_METHODS]
     const set = new Set(all)
     expect(set.size).toBe(all.length)
   })

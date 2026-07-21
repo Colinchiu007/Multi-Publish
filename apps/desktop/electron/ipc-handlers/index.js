@@ -4,6 +4,7 @@
  * 将所有 ipcMain.handle 调用从 main.js 拆分到独立模块
  */
 function registerAllHandlers(ipcMain, deps) {
+  require('./identity')(ipcMain, { authService: deps.identityService })
   require('./store')(ipcMain, deps)
   require('./proxy')(ipcMain, deps)
   require('./account')(ipcMain, deps)

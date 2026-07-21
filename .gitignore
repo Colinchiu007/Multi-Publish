@@ -49,6 +49,12 @@ fix_*.js
 # Test artifacts
 *.sched-*.json
 test-*.js
+# Logto/Stryker 本地运行可能包含凭据或完整源码备份
+.pytest-tmp-logto*/
+apps/desktop/stryker-identity-tmp/
+apps/desktop/stryker-setup-*.js
+apps/desktop/stryker.identity.conf.json
+!packages/api-publish-engine/test/test-runner.test.js
 # test-setup.js 是 vitest setupFiles 引用的源文件，必须纳入版本控制
 !apps/desktop/test-setup.js
 !apps/desktop/tests/visual-testing/test-runner.js

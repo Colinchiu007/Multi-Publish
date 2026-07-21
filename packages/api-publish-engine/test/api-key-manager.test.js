@@ -2,6 +2,7 @@
  * ApiKeyManager 测试 — create/revoke/list/validate + scope checking
  */
 const ApiKeyManager = require("../src/api-key-manager");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
@@ -166,6 +167,80 @@ function assert(cond, msg) {
   const r = mgr2.validateKey(created.key);
   assert(r.valid === true, "key persists across instances");
   assert(r.name === "persistent", "name persists across instances");
+  teardown();
+})();
+
+// 15. Reloaded hashed key can still be revoked
+(function testRevokePersistedHash() {
+  const mgr1 = setup();
+  const created = mgr1.createKey("persisted-revoke", ["*"]);
+  const mgr2 = new ApiKeyManager(TEST_KEYS_PATH);
+  mgr2.load();
+  assert(mgr2.revokeKey(created.key) === true, "revokeKey revokes a persisted hashed key");
+  const mgr3 = new ApiKeyManager(TEST_KEYS_PATH);
+  mgr3.load();
+  const result = mgr3.validateKey(created.key);
+  assert(result.valid === false && result.error.includes("revoked"), "revocation persists after reload");
+  teardown();
+})();
+
+// 16. Ensure configured key is idempotent and preserves revocation
+(function testEnsureConfiguredKey() {
+  const mgr = setup();
+  const first = mgr.ensureKey("configured-secret", "configured", ["*"]);
+  const second = mgr.ensureKey("configured-secret", "configured", ["*"]);
+  assert(first.created === true && second.created === false, "ensureKey is idempotent");
+  assert(mgr.validateKey("configured-secret").valid === true, "ensureKey registers the configured key");
+  assert(mgr.revokeKey("configured-secret") === true, "ensureKey key can be revoked");
+  const third = mgr.ensureKey("configured-secret", "configured", ["*"]);
+  assert(third.revoked === true && mgr.validateKey("configured-secret").valid === false,
+    "ensureKey does not revive a revoked key");
+  teardown();
+})();
+
+// 17. 定时任务 ownerSubject 保持 API Key 撤销边界
+(function testValidateOwnerSubject() {
+  const mgr = setup();
+  const created = mgr.createKey("scheduled-owner", ["publish:submit"]);
+  const ownerSubject = `api-key:${crypto.createHash("sha256").update(created.key).digest("hex")}`;
+  const active = mgr.validateOwnerSubject(ownerSubject, "publish:submit");
+  assert(active.valid === true, "validateOwnerSubject 接受有效的 API Key ownerSubject");
+  assert(mgr.revokeKey(created.key) === true, "定时任务所属 API Key 可以被撤销");
+  const revoked = mgr.validateOwnerSubject(ownerSubject, "publish:submit");
+  assert(revoked.valid === false && revoked.code === "API_KEY_REVOKED",
+    "validateOwnerSubject 拒绝已撤销的 API Key ownerSubject");
+  teardown();
+})();
+
+// 18. API Key 管理器重启后仍以持久化撤销状态为准
+(function testValidatePersistedOwnerSubject() {
+  const mgr1 = setup();
+  const created = mgr1.createKey("persisted-scheduled-owner", ["publish:submit"]);
+  const ownerSubject = `api-key:${crypto.createHash("sha256").update(created.key).digest("hex")}`;
+  assert(mgr1.revokeKey(created.key) === true, "持久化的定时任务所属 API Key 可以被撤销");
+  const mgr2 = new ApiKeyManager(TEST_KEYS_PATH);
+  const result = mgr2.validateOwnerSubject(ownerSubject, "publish:submit");
+  assert(result.valid === false && result.code === "API_KEY_REVOKED",
+    "重载后的管理器拒绝已撤销的定时任务 ownerSubject");
+  teardown();
+})();
+
+// 19. 损坏的 Key 存储必须 fail closed，且不能被迁移逻辑覆盖
+(function testCorruptStoreFailsClosed() {
+  teardown();
+  const corruptContent = "{invalid-json";
+  fs.writeFileSync(TEST_KEYS_PATH, corruptContent, "utf-8");
+  const mgr = new ApiKeyManager(TEST_KEYS_PATH);
+  const ownerSubject = `api-key:${crypto.createHash("sha256").update("configured-secret").digest("hex")}`;
+  const result = mgr.validateOwnerSubject(ownerSubject, "publish:submit");
+  assert(result.valid === false && result.code === "API_KEY_STORE_UNAVAILABLE",
+    "validateOwnerSubject 拒绝不可读的 API Key 存储");
+  let migrationError = null;
+  try { mgr.ensureKey("configured-secret", "configured", ["*"]); } catch (error) { migrationError = error; }
+  assert(migrationError && migrationError.code === "API_KEY_STORE_UNAVAILABLE",
+    "ensureKey 不会把损坏的 Key 存储当成空存储");
+  assert(fs.readFileSync(TEST_KEYS_PATH, "utf-8") === corruptContent,
+    "损坏的 Key 存储不会被静态配置覆盖");
   teardown();
 })();
 

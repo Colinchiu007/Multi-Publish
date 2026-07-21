@@ -72,8 +72,8 @@ describe('store-schema sql.js compatibility', function () {
     for (const sql of SCHEMA_SQL) db.exec(sql)
 
     db.run(
-      'INSERT INTO accounts (platform, account_name, created_at, updated_at) VALUES (?, ?, datetime("now"), datetime("now"))',
-      ['wechat', 'test']
+      'INSERT INTO accounts (owner_subject, id, platform, account_name, created_at, updated_at) VALUES (?, ?, ?, ?, datetime("now"), datetime("now"))',
+      ['user-a', 'account-1', 'wechat', 'test']
     )
 
     const result = db.exec('SELECT platform FROM accounts')
@@ -90,6 +90,31 @@ describe('store-schema sql.js compatibility', function () {
       }
     }
     expect(violations).toEqual([])
+  })
+
+  it('旧库按应用启动顺序执行建表和 owner 迁移时不失败', async function () {
+    db.exec(`
+      CREATE TABLE accounts (id INTEGER PRIMARY KEY, platform TEXT NOT NULL);
+      CREATE TABLE publish_history (id INTEGER PRIMARY KEY, platform TEXT NOT NULL);
+      CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, platform TEXT NOT NULL);
+    `)
+    const { SCHEMA_SQL, migrateOwnerIsolationSchema } = await import('./store-schema')
+
+    expect(() => {
+      for (const sql of SCHEMA_SQL) db.exec(sql)
+      migrateOwnerIsolationSchema({
+        exec: (sql) => db.exec(sql),
+        prepare: (sql) => ({
+          all: () => {
+            const result = db.exec(sql)
+            if (result.length === 0) return []
+            return result[0].values.map((values) => Object.fromEntries(
+              result[0].columns.map((column, index) => [column, values[index]]),
+            ))
+          },
+        }),
+      })
+    }).not.toThrow()
   })
 
 })

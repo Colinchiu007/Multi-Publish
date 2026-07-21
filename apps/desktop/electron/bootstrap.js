@@ -166,11 +166,12 @@ function runWhenReady(context, deps) {
 
       servicesResult = await startServices({
         container, store, taskQueue, callbackServer, scheduler,
-        keywordMonitor, analyticsService, usageTracker, CloudPublisher, getMainWin,
+        keywordMonitor, analyticsService, usageTracker, pythonBridge, CloudPublisher, getMainWin,
       })
       context.keywordPersistTimer = servicesResult.keywordPersistTimer
       context.loginStatusMonitor = servicesResult.loginStatusMonitor
       context.cloudPublisher = servicesResult.cloudPublisher
+      context.identityService = servicesResult.identityService
 
       await registerAllIpcHandlers({
         app,

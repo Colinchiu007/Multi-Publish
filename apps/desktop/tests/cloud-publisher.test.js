@@ -101,6 +101,18 @@ describe('CloudPublisher', () => {
         title: 'test',
       })).rejects.toThrow('ECONNREFUSED')
     })
+
+    test('为请求注入 Bearer Token，且不发送 user_id', async () => {
+      const authService = { getAccessToken: vi.fn().mockResolvedValue('access-1') }
+      const pub = createPublisher({ authService })
+      axios.post.mockResolvedValue({ data: { task_id: 'task-auth-001' } })
+
+      await pub.submitTask({ videoUrl: 'https://example.com/video.mp4', platform: 'bilibili', title: 'test', user_id: 'victim' })
+
+      const [, body, config] = axios.post.mock.calls.at(-1)
+      expect(body).not.toHaveProperty('user_id')
+      expect(config.headers.Authorization).toBe('Bearer access-1')
+    })
   })
 
   describe('listTasks', () => {

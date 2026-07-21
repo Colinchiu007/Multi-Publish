@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { EventEmitter } from 'events'
+import { existsSync } from 'fs'
 import { PassThrough } from 'stream'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -7,10 +8,22 @@ const COMPLETE_RESULT = {
   exposed: true,
   getVersion: true,
   publishWechat: true,
+  identityGetState: true,
+  identitySwitchAccount: true,
   adminHidden: true,
   accessLevel: 'authenticated',
   getVersionResult: { code: 0, data: 'preload-sandbox-test' },
   publishResult: { code: 0, data: { accepted: true } },
+  identityStateResult: {
+    code: 0,
+    data: { status: 'disabled', user: null, error: null },
+  },
+  identityStateJson: JSON.stringify({
+    code: 0,
+    data: { status: 'disabled', user: null, error: null },
+  }),
+  identitySwitchResult: { code: -3, message: 'IDENTITY_NOT_CONFIGURED' },
+  identitySwitchJson: JSON.stringify({ code: -3, message: 'IDENTITY_NOT_CONFIGURED' }),
 }
 
 function createElectronApplication(result = COMPLETE_RESULT) {
@@ -38,6 +51,18 @@ describe('preload sandbox 真实验证器', () => {
       .toThrow(/IPC 调用失败/)
     expect(() => assertApi({ ...COMPLETE_RESULT, adminHidden: false }, false))
       .toThrow(/暴露不完整/)
+    expect(() => assertApi({ ...COMPLETE_RESULT, identityGetState: false }, true))
+      .toThrow(/身份 IPC 暴露不完整/)
+    expect(() => assertApi({ ...COMPLETE_RESULT, identitySwitchAccount: false }, true))
+      .toThrow(/身份 IPC 暴露不完整/)
+    expect(() => assertApi({
+      ...COMPLETE_RESULT,
+      identityStateResult: { code: 0, data: { status: 'signed_out' } },
+    }, true)).toThrow(/身份 IPC 返回异常/)
+    expect(() => assertApi({ ...COMPLETE_RESULT, identityStateJson: '{invalid' }, true))
+      .toThrow(/身份 IPC 返回值不是纯 JSON/)
+    expect(() => assertApi({ ...COMPLETE_RESULT, identitySwitchJson: '{invalid' }, true))
+      .toThrow(/身份 IPC 返回值不是纯 JSON/)
   })
 
   it.each([true, false])('通过 Playwright 启动 sandbox=%s 的真实 Electron', async (sandbox) => {
@@ -61,6 +86,12 @@ describe('preload sandbox 真实验证器', () => {
       ]),
       timeout: 1500,
     }))
+    const launchArgs = electronLauncher.launch.mock.calls[0][0].args
+    const profileArgument = launchArgs.find((argument) => {
+      return argument.startsWith('--preload-sandbox-user-data-dir=')
+    })
+    expect(profileArgument).toBeTruthy()
+    expect(existsSync(profileArgument.split('=').slice(1).join('='))).toBe(false)
     expect(page.evaluate).toHaveBeenCalledTimes(1)
     expect(app.close).toHaveBeenCalledTimes(1)
   })
@@ -157,7 +188,11 @@ describe('preload sandbox 真实验证器', () => {
   })
 
   it('超时可配置且非法值回退到安全默认值', () => {
-    const { DEFAULT_VERIFICATION_TIMEOUT_MS, getVerificationTimeout } = require('../../scripts/verify-preload-sandbox')
+    const {
+      DEFAULT_VERIFICATION_TIMEOUT_MS,
+      getChildVerificationTimeout,
+      getVerificationTimeout,
+    } = require('../../scripts/verify-preload-sandbox')
 
     expect(getVerificationTimeout({})).toBe(DEFAULT_VERIFICATION_TIMEOUT_MS)
     expect(getVerificationTimeout({ PRELOAD_SANDBOX_TIMEOUT_MS: '1500' })).toBe(1500)
@@ -165,5 +200,7 @@ describe('preload sandbox 真实验证器', () => {
       .toBe(DEFAULT_VERIFICATION_TIMEOUT_MS)
     expect(getVerificationTimeout({ PRELOAD_SANDBOX_TIMEOUT_MS: '-1' }))
       .toBe(DEFAULT_VERIFICATION_TIMEOUT_MS)
+    expect(getChildVerificationTimeout({ PRELOAD_SANDBOX_TIMEOUT_MS: '1500' }))
+      .toBeGreaterThan(3000)
   })
 })

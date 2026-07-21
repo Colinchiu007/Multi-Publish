@@ -1,0 +1,47 @@
+name: multi-publish-logto
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: logto
+      POSTGRES_USER: logto
+      POSTGRES_PASSWORD: ${LOGTO_DB_PASSWORD:?请在 .env 中设置 LOGTO_DB_PASSWORD（不要使用默认值）}
+    volumes:
+      - logto-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logto -d logto"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  logto:
+    image: svhd/logto:1.41.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: postgresql://logto:${LOGTO_DB_PASSWORD}@postgres:5432/logto
+      ENDPOINT: ${LOGTO_ENDPOINT:?请设置对外可访问的 Logto HTTPS 地址}
+      ADMIN_ENDPOINT: ${LOGTO_ADMIN_ENDPOINT:?请设置仅管理员可访问的 Logto Admin HTTPS 地址}
+      TRUST_PROXY_HEADER: ${LOGTO_TRUST_PROXY_HEADER:-0}
+    entrypoint: ["sh", "-c", "npm run cli db seed -- --swe && npm start"]
+    ports:
+      - "127.0.0.1:3001:3001"
+      - "127.0.0.1:3002:3002"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:3001/oidc/.well-known/openid-configuration')
+          .then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 15s
+      timeout: 8s
+      retries: 12
+      start_period: 45s
+
+volumes:
+  logto-postgres:

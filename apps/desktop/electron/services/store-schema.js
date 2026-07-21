@@ -17,9 +17,12 @@ const TABLE_NAMES = {
   backlot_projects: "backlot_projects",
 };
 
-const SCHEMA_SQL = [
-  `CREATE TABLE IF NOT EXISTS accounts (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+const LEGACY_OWNER_SUBJECT = "__legacy__";
+
+const OWNER_TABLE_SCHEMA_SQL = {
+  accounts: `CREATE TABLE IF NOT EXISTS accounts (
+    owner_subject TEXT NOT NULL,
+    id            TEXT NOT NULL,
     platform      TEXT NOT NULL,
     account_name  TEXT,
     name          TEXT,
@@ -30,26 +33,68 @@ const SCHEMA_SQL = [
     status        TEXT DEFAULT "active",
     is_default    INTEGER DEFAULT 0,
     created_at    TEXT DEFAULT '',
-    updated_at    TEXT DEFAULT ''
+    updated_at    TEXT DEFAULT '',
+    PRIMARY KEY (owner_subject, id)
   )`,
-  `CREATE TABLE IF NOT EXISTS publish_history (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  publish_history: `CREATE TABLE IF NOT EXISTS publish_history (
+    owner_subject TEXT NOT NULL,
+    id            TEXT NOT NULL,
     platform      TEXT NOT NULL,
     article_id    TEXT,
     title         TEXT,
     content       TEXT,
+    task_id       TEXT DEFAULT '',
     status        TEXT DEFAULT "pending",
     result        TEXT DEFAULT "{}",
-    created_at    TEXT DEFAULT ''
+    error         TEXT DEFAULT '',
+    created_at    TEXT DEFAULT '',
+    PRIMARY KEY (owner_subject, id)
   )`,
-  `CREATE TABLE IF NOT EXISTS scheduled_tasks (
-    id            TEXT PRIMARY KEY,
+  scheduled_tasks: `CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    owner_subject TEXT NOT NULL,
+    id            TEXT NOT NULL,
     platform      TEXT NOT NULL,
     article       TEXT DEFAULT "{}",
     publish_time  TEXT,
     status        TEXT DEFAULT "pending",
-    created_at    TEXT DEFAULT ''
+    created_at    TEXT DEFAULT '',
+    PRIMARY KEY (owner_subject, id)
   )`,
+  batch_jobs: `CREATE TABLE IF NOT EXISTS batch_jobs (
+    owner_subject TEXT NOT NULL,
+    id            TEXT NOT NULL,
+    name          TEXT,
+    articles      TEXT DEFAULT "[]",
+    total         INTEGER DEFAULT 0,
+    completed     INTEGER DEFAULT 0,
+    failed        INTEGER DEFAULT 0,
+    status        TEXT DEFAULT "pending",
+    created_at    TEXT DEFAULT '',
+    PRIMARY KEY (owner_subject, id)
+  )`,
+  publish_timeline: `CREATE TABLE IF NOT EXISTS publish_timeline (
+    owner_subject  TEXT NOT NULL,
+    key            TEXT NOT NULL,
+    last_publish_at TEXT,
+    PRIMARY KEY (owner_subject, key)
+  )`,
+};
+
+const OWNER_INDEX_SQL = [
+  `CREATE INDEX IF NOT EXISTS idx_accounts_owner_platform ON accounts(owner_subject, platform)`,
+  `CREATE INDEX IF NOT EXISTS idx_history_owner_platform ON publish_history(owner_subject, platform)`,
+  `CREATE INDEX IF NOT EXISTS idx_history_owner_created ON publish_history(owner_subject, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_scheduled_owner_time ON scheduled_tasks(owner_subject, publish_time)`,
+  `CREATE INDEX IF NOT EXISTS idx_batch_owner_created ON batch_jobs(owner_subject, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_timeline_owner_key ON publish_timeline(owner_subject, key)`,
+];
+
+const SCHEMA_SQL = [
+  OWNER_TABLE_SCHEMA_SQL.accounts,
+  OWNER_TABLE_SCHEMA_SQL.publish_history,
+  OWNER_TABLE_SCHEMA_SQL.scheduled_tasks,
+  OWNER_TABLE_SCHEMA_SQL.batch_jobs,
+  OWNER_TABLE_SCHEMA_SQL.publish_timeline,
   `CREATE TABLE IF NOT EXISTS settings (
     key           TEXT PRIMARY KEY,
     value         TEXT
@@ -61,25 +106,9 @@ const SCHEMA_SQL = [
     payload       TEXT DEFAULT "{}",
     created_at    TEXT DEFAULT ''
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_accounts_platform ON accounts(platform)`,
-  `CREATE INDEX IF NOT EXISTS idx_history_platform ON publish_history(platform)`,
-  `CREATE INDEX IF NOT EXISTS idx_history_created ON publish_history(created_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_scheduled_time ON scheduled_tasks(publish_time)`,
+  // owner 索引由 migrateOwnerIsolationSchema 在旧表重建后统一创建，
+  // 避免升级旧库时先引用尚不存在的 owner_subject 列。
   `CREATE INDEX IF NOT EXISTS idx_callback_created ON callback_logs(created_at)`,
-  `CREATE TABLE IF NOT EXISTS publish_timeline (
-    key             TEXT PRIMARY KEY,
-    last_publish_at TEXT
-  )`,
-  `CREATE TABLE IF NOT EXISTS batch_jobs (
-    id            TEXT PRIMARY KEY,
-    name          TEXT,
-    articles      TEXT DEFAULT "[]",
-    total         INTEGER DEFAULT 0,
-    completed     INTEGER DEFAULT 0,
-    failed        INTEGER DEFAULT 0,
-    status        TEXT DEFAULT "pending",
-    created_at    TEXT DEFAULT ''
-  )`,
   `CREATE TABLE IF NOT EXISTS model_providers (
     id            TEXT PRIMARY KEY,
     name          TEXT NOT NULL,
@@ -188,6 +217,117 @@ function sanitizeUpdateFields(tableName, fields) {
   return result;
 }
 
+const OWNER_TABLE_COLUMNS = {
+  accounts: ["owner_subject", "id", "platform", "account_name", "name", "avatar", "cookies", "localStorage", "avatar_url", "status", "is_default", "created_at", "updated_at"],
+  publish_history: ["owner_subject", "id", "platform", "article_id", "title", "content", "task_id", "status", "result", "error", "created_at"],
+  scheduled_tasks: ["owner_subject", "id", "platform", "article", "publish_time", "status", "created_at"],
+  batch_jobs: ["owner_subject", "id", "name", "articles", "total", "completed", "failed", "status", "created_at"],
+  publish_timeline: ["owner_subject", "key", "last_publish_at"],
+};
+
+const OWNER_TABLE_KEY_COLUMNS = {
+  accounts: "id",
+  publish_history: "id",
+  scheduled_tasks: "id",
+  batch_jobs: "id",
+  publish_timeline: "key",
+};
+
+const OWNER_COLUMN_DEFAULTS = {
+  account_name: "''",
+  name: "''",
+  avatar: "''",
+  cookies: "'[]'",
+  localStorage: "'{}'",
+  avatar_url: "NULL",
+  status: "'pending'",
+  is_default: "0",
+  created_at: "''",
+  updated_at: "''",
+  article_id: "''",
+  title: "''",
+  content: "''",
+  task_id: "''",
+  result: "'{}'",
+  error: "''",
+  article: "'{}'",
+  publish_time: "''",
+  articles: "'[]'",
+  total: "0",
+  completed: "0",
+  failed: "0",
+  last_publish_at: "NULL",
+};
+
+function execSchemaSql(db, sql) {
+  if (typeof db.execOrThrow === "function") return db.execOrThrow(sql);
+  return db.exec(sql);
+}
+
+function getTableInfo(db, tableName) {
+  return db.prepare(`PRAGMA table_info(${tableName})`).all();
+}
+
+function needsOwnerTableRebuild(tableName, columns) {
+  if (columns.length === 0) return false;
+  const names = new Set(columns.map((column) => column.name));
+  const primaryKey = columns
+    .filter((column) => Number(column.pk) > 0)
+    .sort((left, right) => Number(left.pk) - Number(right.pk))
+    .map((column) => column.name);
+  const keyColumn = OWNER_TABLE_KEY_COLUMNS[tableName];
+  return OWNER_TABLE_COLUMNS[tableName].some((column) => !names.has(column)) ||
+    primaryKey.length !== 2 || primaryKey[0] !== "owner_subject" || primaryKey[1] !== keyColumn;
+}
+
+function migrationSelectExpression(tableName, column, oldColumns) {
+  if (column === "owner_subject") {
+    if (!oldColumns.has(column)) return `'${LEGACY_OWNER_SUBJECT}'`;
+    return `COALESCE(NULLIF(TRIM(CAST(owner_subject AS TEXT)), ''), '${LEGACY_OWNER_SUBJECT}')`;
+  }
+  if (column === "id" || column === "key") {
+    return oldColumns.has(column)
+      ? `COALESCE(CAST(${column} AS TEXT), 'legacy-' || rowid)`
+      : `'legacy-' || rowid`;
+  }
+  if (oldColumns.has(column)) return column;
+  if (column === "status" && tableName === "accounts") return "'active'";
+  return OWNER_COLUMN_DEFAULTS[column] || "NULL";
+}
+
+function rebuildOwnerTable(db, tableName, columns) {
+  const oldTableName = `${tableName}__owner_migration_v1`;
+  const oldColumns = new Set(columns.map((column) => column.name));
+  const targetColumns = OWNER_TABLE_COLUMNS[tableName];
+  const selectExpressions = targetColumns.map((column) => migrationSelectExpression(tableName, column, oldColumns));
+
+  execSchemaSql(db, `ALTER TABLE ${tableName} RENAME TO ${oldTableName}`);
+  execSchemaSql(db, OWNER_TABLE_SCHEMA_SQL[tableName]);
+  execSchemaSql(db, `INSERT INTO ${tableName} (${targetColumns.join(", ")}) SELECT ${selectExpressions.join(", ")} FROM ${oldTableName}`);
+  execSchemaSql(db, `DROP TABLE ${oldTableName}`);
+}
+
+/**
+ * 将本地用户数据表迁移为 owner_subject + id 复合主键。
+ * 无归属的历史数据只进入 legacy 命名空间，登录用户不会隐式继承。
+ */
+function migrateOwnerIsolationSchema(db) {
+  const migrate = () => {
+    for (const tableName of Object.keys(OWNER_TABLE_SCHEMA_SQL)) {
+      const columns = getTableInfo(db, tableName);
+      if (columns.length === 0) {
+        execSchemaSql(db, OWNER_TABLE_SCHEMA_SQL[tableName]);
+      } else if (needsOwnerTableRebuild(tableName, columns)) {
+        rebuildOwnerTable(db, tableName, columns);
+      }
+    }
+    for (const sql of OWNER_INDEX_SQL) execSchemaSql(db, sql);
+  };
+
+  if (typeof db.transaction === "function") return db.transaction(migrate)();
+  return migrate();
+}
+
 
 /**
  * 迁移 model_providers 表：添加 api_key_enc BLOB 字段（如果不存在）
@@ -198,8 +338,20 @@ function migrateModelProvidersSchema(db) {
   const cols = db.prepare("PRAGMA table_info(model_providers)").all()
   const colNames = cols.map(c => c.name)
   if (!colNames.includes('api_key_enc')) {
-    db.exec("ALTER TABLE model_providers ADD COLUMN api_key_enc BLOB")
+    execSchemaSql(db, "ALTER TABLE model_providers ADD COLUMN api_key_enc BLOB")
   }
 }
 
-module.exports = { TABLE_NAMES, SCHEMA_SQL, migrateModelProvidersSchema, safeJsonParse, safeJsonStringify, buildUpdateQuery, sanitizeUpdateFields, UPDATE_WHITELIST };
+module.exports = {
+  TABLE_NAMES,
+  SCHEMA_SQL,
+  LEGACY_OWNER_SUBJECT,
+  OWNER_TABLE_SCHEMA_SQL,
+  migrateOwnerIsolationSchema,
+  migrateModelProvidersSchema,
+  safeJsonParse,
+  safeJsonStringify,
+  buildUpdateQuery,
+  sanitizeUpdateFields,
+  UPDATE_WHITELIST,
+};

@@ -13,6 +13,7 @@ class ScheduledPublish {
     this._entries = [];
     this._timer = null;
     this._webhookManager = opts.webhookManager || null;
+    this._authorizeEntry = typeof opts.authorizeEntry === "function" ? opts.authorizeEntry : null;
     this._running = false;
     if (this._storageFile) this._load();
   }
@@ -43,6 +44,7 @@ class ScheduledPublish {
     if (!data.scheduledAt) throw new Error("scheduledAt is required");
     var entry = {
       id: genId(),
+      ownerSubject: typeof data.ownerSubject === "string" ? data.ownerSubject : null,
       platforms: data.platforms,
       taskData: { title: data.title || "", content: data.content || "", tags: data.tags || [] },
       cookie: data.cookie || "",
@@ -115,6 +117,7 @@ class ScheduledPublish {
     entry.status = "publishing";
     self._save();
     try {
+      if (self._authorizeEntry) await self._authorizeEntry(entry);
       var opts = {};
       if (this._dryRun) opts.dryRun = true;
       var results = await _b()(entry.platforms, entry.taskData, entry.cookie, opts);
@@ -122,7 +125,7 @@ class ScheduledPublish {
       entry.results = results;
     } catch (e) {
       entry.status = "failed";
-      entry.error = e.message;
+      entry.error = e && e.code ? e.code : e.message;
     }
     self._save();
     // Fire webhook on completion
@@ -135,7 +138,7 @@ class ScheduledPublish {
         results: entry.results,
         error: entry.error,
         scheduledAt: entry.scheduledAt
-      });
+      }, entry.ownerSubject);
     }
   }
 
