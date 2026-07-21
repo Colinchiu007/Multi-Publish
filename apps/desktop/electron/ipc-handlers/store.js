@@ -7,7 +7,7 @@
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
-  const { app, store, pythonBridge } = deps
+  const { app, store, pythonBridge, identityService } = deps
   const credentialStore = deps.credentialStore || deps.AccountManager?.credentialStore
   const accountStateRestorer = deps.accountStateRestorer || deps.AccountManager?.accountStateRestorer
   const publicAccountFields = [
@@ -19,8 +19,24 @@ function registerHandlers(ipcMain, deps) {
     'name', 'account_name', 'avatar', 'avatar_url', 'status', 'is_default',
   ])
   const rendererAccountCreateFields = new Set([
-    'id', 'platform', 'name', 'avatar', 'status',
+    'id', 'platform', 'name', 'avatar', 'status', 'owner_subject',
   ])
+
+  /**
+   * 从 identityService 提取当前登录用户的 sub（owner_subject）
+   * @returns {string|undefined|null}
+   *   - string: 当前用户 sub
+   *   - undefined: identityService 不存在（legacy 模式，不隔离）
+   *   - null: identityService 存在但 sub 缺失（应拒绝访问）
+   */
+  function _getOwnerSubject() {
+    if (!identityService) return undefined
+    try {
+      const state = identityService.getState()
+      if (state && state.user && state.user.sub) return state.user.sub
+    } catch (_) { void _ }
+    return null
+  }
 
   function toRendererAccountCreate(account) {
     if (!account || typeof account !== 'object' || Array.isArray(account)) return null
@@ -65,6 +81,13 @@ function registerHandlers(ipcMain, deps) {
       if (!safeAccount) {
         return { code: EC.VALIDATION_ERROR, message: '账号创建仅支持公开字段' }
       }
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const accountWithOwner = { ...account, owner_subject: account.owner_subject || undefined }
+      if (owner !== undefined) {
+        const ok = store.addAccount(accountWithOwner, owner)
+        return { code: ok ? 0 : EC.REQUEST_ERROR, data: ok }
+      }
       const ok = store.addAccount(safeAccount)
       return { code: ok ? 0 : EC.REQUEST_ERROR, data: ok }
     } catch (e) {
@@ -74,7 +97,9 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('store:get-account', withSenderCheck((_, id) => {
     try {
-      const account = store.getAccount(id)
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const account = owner !== undefined ? store.getAccount(id, owner) : store.getAccount(id)
       return { code: account ? 0 : EC.NOT_FOUND, data: account ? toPublicAccount(account) : null }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -83,7 +108,10 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('store:list-accounts', withSenderCheck((_, platform) => {
     try {
-      return { code: 0, data: store.listAccounts(platform).map(toPublicAccount) }
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: [] }
+      const accounts = owner !== undefined ? store.listAccounts(platform, owner) : store.listAccounts(platform)
+      return { code: 0, data: accounts.map(toPublicAccount) }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
@@ -94,15 +122,19 @@ function registerHandlers(ipcMain, deps) {
       if (id === null || id === undefined || id === '') {
         return { code: EC.VALIDATION_ERROR, message: '账号不能为空' }
       }
-      const account = store.getAccount(id)
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const account = owner !== undefined ? store.getAccount(id, owner) : store.getAccount(id)
       if (!account) return { code: EC.NOT_FOUND, message: '账号不存在' }
+      const platform = account.platform || ''
       const userDataDir = getUserDataDir()
       if (credentialStore && credentialStore.deleteCredential) {
         if (!userDataDir) return { code: EC.REQUEST_ERROR, message: '无法解析账号凭据目录' }
         const hasCredential = typeof credentialStore.hasCredential === 'function'
           ? credentialStore.hasCredential(id, userDataDir)
           : true
-        if (hasCredential && credentialStore.deleteCredential(id, userDataDir) !== true) {
+        const deleteArgs = owner !== undefined ? [id, userDataDir, owner] : [id, userDataDir]
+        if (hasCredential && credentialStore.deleteCredential(...deleteArgs) !== true) {
           return { code: EC.REQUEST_ERROR, message: '删除账号加密凭据失败' }
         }
       }
@@ -111,7 +143,13 @@ function registerHandlers(ipcMain, deps) {
       if (accountStateRestorer && accountStateRestorer.deleteAccountRecordsById) {
         try { accountStateRestorer.deleteAccountRecordsById(id) } catch (e) { /* 公开状态清理不覆盖删除结果 */ }
       } else if (accountStateRestorer && accountStateRestorer.deleteAccountRecord) {
-        try { accountStateRestorer.deleteAccountRecord(account.platform, id) } catch (e) { /* 兼容旧实现 */ }
+        try {
+          if (owner !== undefined) {
+            accountStateRestorer.deleteAccountRecord(platform, id, owner, userDataDir)
+          } else {
+            accountStateRestorer.deleteAccountRecord(platform, id)
+          }
+        } catch (e) { /* 兼容旧实现 */ }
       }
       return { code: 0, data: true }
     } catch (e) {
@@ -171,6 +209,8 @@ function registerHandlers(ipcMain, deps) {
       if (Object.keys(safeFields).length === 0) {
         return { code: EC.VALIDATION_ERROR, message: '没有可更新的账号字段' }
       }
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       if (!store.getAccount(id)) return { code: EC.NOT_FOUND, message: '账号不存在' }
       const updated = store.updateAccount(id, safeFields)
       if (!updated) return { code: EC.VALIDATION_ERROR, message: '没有可更新的账号字段' }
@@ -182,7 +222,9 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('store:add-publish-record', withSenderCheck((_, record) => {
     try {
-      const id = store.addPublishRecord(record)
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const id = owner !== undefined ? store.addPublishRecord(record, owner) : store.addPublishRecord(record)
       return { code: id ? 0 : EC.REQUEST_ERROR, data: { id } }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -191,7 +233,10 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('store:list-publish-history', withSenderCheck((_, opts) => {
     try {
-      return { code: 0, data: store.listPublishHistory(opts) }
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: { total: 0, records: [] } }
+      const result = owner !== undefined ? store.listPublishHistory(opts, owner) : store.listPublishHistory(opts)
+      return { code: 0, data: result }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, records: [] } }
     }
@@ -199,7 +244,10 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('store:get-publish-stats', withSenderCheck(() => {
     try {
-      return { code: 0, data: store.getPublishStats() }
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: { total: 0, success: 0, failed: 0, byPlatform: {} } }
+      const result = owner !== undefined ? store.getPublishStats(owner) : store.getPublishStats()
+      return { code: 0, data: result }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, success: 0, failed: 0, byPlatform: {} } }
     }
@@ -207,7 +255,9 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('store:add-scheduled-task', withSenderCheck((_, task) => {
     try {
-      const id = store.addScheduledTask(task)
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const id = owner !== undefined ? store.addScheduledTask(task, owner) : store.addScheduledTask(task)
       return { code: id ? 0 : EC.REQUEST_ERROR, data: { id } }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -216,7 +266,10 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('store:list-scheduled-tasks', withSenderCheck(() => {
     try {
-      return { code: 0, data: store.listScheduledTasks() }
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: [] }
+      const tasks = owner !== undefined ? store.listScheduledTasks(owner) : store.listScheduledTasks()
+      return { code: 0, data: tasks }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
@@ -227,8 +280,18 @@ function registerHandlers(ipcMain, deps) {
       if (id === null || id === undefined || id === '') {
         return { code: EC.VALIDATION_ERROR, message: '任务 ID 不能为空' }
       }
-      const deleted = store.deleteTask(id)
-      if (!deleted) return { code: EC.NOT_FOUND, message: '定时任务不存在' }
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      let deleted
+      if (owner !== undefined) {
+        deleted = store.deleteTask(id, owner)
+      } else {
+        deleted = store.deleteTask(id)
+      }
+      if (!deleted) {
+        if (owner !== undefined) return { code: EC.NOT_FOUND, data: false, message: '定时任务不存在' }
+        return { code: EC.NOT_FOUND, message: '定时任务不存在' }
+      }
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -237,6 +300,11 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('store:get-setting', withSenderCheck((_, key) => {
     try {
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      if (owner !== undefined && typeof store.getUserSetting === 'function') {
+        return { code: 0, data: store.getUserSetting(key, null, owner) }
+      }
       return { code: 0, data: store.getSetting(key) }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -245,7 +313,13 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('store:set-setting', withSenderCheck((_, key, value) => {
     try {
-      store.setSetting(key, value)
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      if (owner !== undefined && typeof store.setUserSetting === 'function') {
+        store.setUserSetting(key, value, owner)
+      } else {
+        store.setSetting(key, value)
+      }
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -263,16 +337,29 @@ function registerHandlers(ipcMain, deps) {
   // ─── 草稿箱 IPC handlers（蚁小二复用）─────────────────
   ipcMain.handle('draftSave', withSenderCheck((_, draft) => {
     try {
-      // 草稿存储在 store settings 中（JSON 数组）
-      const raw = store.getSetting('drafts') || '[]'
-      const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
-      const idx = drafts.findIndex(d => d.id === draft.id)
-      if (idx >= 0) {
-        drafts[idx] = { ...draft, updatedAt: new Date().toISOString() }
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      if (owner !== undefined && typeof store.getUserSetting === 'function') {
+        const raw = store.getUserSetting('drafts', [], owner)
+        const drafts = Array.isArray(raw) ? raw : []
+        const idx = drafts.findIndex(d => d.id === draft.id)
+        if (idx >= 0) {
+          drafts[idx] = { ...draft, updatedAt: new Date().toISOString() }
+        } else {
+          drafts.push({ ...draft, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+        }
+        store.setUserSetting('drafts', JSON.stringify(drafts), owner)
       } else {
-        drafts.push({ ...draft, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+        const raw = store.getSetting('drafts') || '[]'
+        const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
+        const idx = drafts.findIndex(d => d.id === draft.id)
+        if (idx >= 0) {
+          drafts[idx] = { ...draft, updatedAt: new Date().toISOString() }
+        } else {
+          drafts.push({ ...draft, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+        }
+        store.setSetting('drafts', JSON.stringify(drafts))
       }
-      store.setSetting('drafts', JSON.stringify(drafts))
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -281,6 +368,11 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('draftList', withSenderCheck(() => {
     try {
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: [] }
+      if (owner !== undefined && typeof store.getUserSetting === 'function') {
+        return { code: 0, data: store.getUserSetting('drafts', [], owner) }
+      }
       const raw = store.getSetting('drafts') || '[]'
       const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
       return { code: 0, data: drafts }
@@ -291,10 +383,19 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('draftDelete', withSenderCheck((_, draftId) => {
     try {
-      const raw = store.getSetting('drafts') || '[]'
-      const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
-      const filtered = drafts.filter(d => d.id !== draftId)
-      store.setSetting('drafts', JSON.stringify(filtered))
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      if (owner !== undefined && typeof store.getUserSetting === 'function') {
+        const raw = store.getUserSetting('drafts', [], owner)
+        const drafts = Array.isArray(raw) ? raw : []
+        const filtered = drafts.filter(d => d.id !== draftId)
+        store.setUserSetting('drafts', JSON.stringify(filtered), owner)
+      } else {
+        const raw = store.getSetting('drafts') || '[]'
+        const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
+        const filtered = drafts.filter(d => d.id !== draftId)
+        store.setSetting('drafts', JSON.stringify(filtered))
+      }
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -303,3 +404,4 @@ function registerHandlers(ipcMain, deps) {
 }
 
 module.exports = registerHandlers
+
