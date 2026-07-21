@@ -15,7 +15,15 @@
  */
 import { ref, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
 import { ElMessage } from 'element-plus'
-import { batchCreate, onProgress } from '@/api/publisher'
+import {
+  batchCreate,
+  batchExecute,
+  batchSchedule,
+  batchGet,
+  onBatchProgress,
+  onProgress,
+} from '@/api/publisher'
+import { buildPublishTargets, validateScheduleEntries } from '@/features/publish/publish-contract'
 
 let _keyCounter = 1
 
@@ -97,9 +105,19 @@ export function useBatchPublish(options) {
 
   const totalPlatformTasks = computed(function () {
     return articles.value.reduce(function (s, a) {
-      return s + (a.platforms ? a.platforms.length : 0)
+      return s + buildPublishTargets(a.platforms || [], a.accounts || a.selectedAccounts || {}).length
     }, 0)
   })
+
+  function getArticleTargets (articleItem) {
+    const normalized = buildPublishTargets(
+      articleItem.platforms || [],
+      articleItem.accounts || articleItem.selectedAccounts || {},
+    )
+    const hasExplicitAccount = normalized.some(target => target.accountId)
+    // 保持旧批量 IPC 的字符串形态；只有实际选择账号时才发送对象目标。
+    return hasExplicitAccount ? normalized : (articleItem.platforms || []).slice()
+  }
 
   function checkBatchAccess() {
     if (batchMode.value && licenseStore && !licenseStore.isPro) {
@@ -127,6 +145,10 @@ export function useBatchPublish(options) {
       title: '',
       content: '',
       platforms: [],
+      accounts: {},
+      author: '',
+      cover_url: '',
+      video_path: '',
       publishTime: '',
     })
   }
@@ -144,6 +166,10 @@ export function useBatchPublish(options) {
       title: orig.title,
       content: orig.content,
       platforms: orig.platforms ? orig.platforms.slice() : [],
+      accounts: JSON.parse(JSON.stringify(orig.accounts || orig.selectedAccounts || {})),
+      author: orig.author || '',
+      cover_url: orig.cover_url || '',
+      video_path: orig.video_path || '',
       publishTime: '',
       _key: freshKey(),
     })
@@ -174,6 +200,21 @@ export function useBatchPublish(options) {
         }
       }
 
+      const scheduleEntries = articles.value.flatMap(function (a) {
+        if (!a.publishTime) return []
+        return buildPublishTargets(
+          a.platforms || [],
+          a.accounts || a.selectedAccounts || {},
+        ).map(function (target) {
+          return { ...target, publishTime: a.publishTime }
+        })
+      })
+      const scheduleCheck = validateScheduleEntries(scheduleEntries)
+      if (!scheduleCheck.valid) {
+        ElMessage.warning(scheduleCheck.message)
+        return
+      }
+
       clearBatchTracking()
       offProgress = onProgress(function (data) {
         batchProgress.value.push({
@@ -189,9 +230,12 @@ export function useBatchPublish(options) {
           return {
             title: a.title,
             content: a.content,
-            platforms: a.platforms,
+            platforms: getArticleTargets(a),
             publishTime: a.publishTime || null,
             precheck: precheckEnabled.value,
+            author: a.author || '',
+            cover_url: a.cover_url || '',
+            video_path: a.video_path || '',
           }
         }),
       }))
@@ -204,12 +248,10 @@ export function useBatchPublish(options) {
       }
 
       const batchId = createRes.data.id
-      const api = window.electronAPI
-
       // 检查是否有定时任务
       const hasScheduled = articles.value.some(function (a) { return a.publishTime })
       if (hasScheduled) {
-        const scheduleRes = await api.batchSchedule(batchId)
+        const scheduleRes = await batchSchedule(batchId)
         if (!scheduleRes || scheduleRes.code !== 0) {
           throw new Error((scheduleRes && scheduleRes.message) || '批量排期失败')
         }
@@ -254,7 +296,7 @@ export function useBatchPublish(options) {
           else completedBeforeSubscribe = true
         }
 
-        const unsubscribe = api.onBatchProgress(function (data) {
+        const unsubscribe = onBatchProgress(function (data) {
           if (!data || (data.batchId && data.batchId !== batchId)) return
           if (data.kind === 'batch-complete') {
             finishBatchProgress(data)
@@ -281,7 +323,7 @@ export function useBatchPublish(options) {
         stopBatchProgress = typeof unsubscribe === 'function' ? unsubscribe : null
         if (completedBeforeSubscribe) clearBatchTracking()
 
-        const executeRes = await api.batchExecute(batchId)
+        const executeRes = await batchExecute(batchId)
         if (!executeRes || executeRes.code !== 0) {
           throw new Error((executeRes && executeRes.message) || '批量执行失败')
         }
@@ -306,8 +348,8 @@ export function useBatchPublish(options) {
           if (batchSettled) return
           pollAttempts += 1
           try {
-            if (typeof api.batchGet === 'function') {
-              const statusRes = await api.batchGet(batchId)
+            if (typeof batchGet === 'function') {
+              const statusRes = await batchGet(batchId)
               const status = statusRes && statusRes.code === 0 ? statusRes.data : null
               if (status && status.status === 'done') {
                 const completed = Number.isInteger(status.completed) ? status.completed : expectedTaskCount

@@ -11,6 +11,7 @@
  * 依赖：accountStore（传入参数）
  */
 import { ref, computed, watch } from 'vue'
+import { normalizeAccountIds } from '@/features/publish/publish-contract'
 
 const VIDEO_PLATFORMS = ['douyin', 'tencent_video', 'kuaishou']
 
@@ -21,7 +22,7 @@ const VIDEO_PLATFORMS = ['douyin', 'tencent_video', 'kuaishou']
  */
 export function usePlatformSelection(accountStore) {
   const selectedPlatforms = ref(['wechat_mp'])
-  const selectedAccounts = ref({}) // { platformId: accountId }
+  const selectedAccounts = ref({}) // { platformId: accountId[] }
 
   const hasVideoPlatforms = computed(function () {
     return selectedPlatforms.value.some(function (p) {
@@ -46,12 +47,35 @@ export function usePlatformSelection(accountStore) {
     return accountStore.getDefault(platformId)
   }
 
+  function getSelectedAccountIds(platformId) {
+    return normalizeAccountIds(selectedAccounts.value[platformId])
+  }
+
+  function setSelectedAccountIds(platformId, accountIds) {
+    selectedAccounts.value[platformId] = normalizeAccountIds(accountIds)
+  }
+
+  function toggleAccount(platformId, accountId) {
+    const current = getSelectedAccountIds(platformId)
+    const index = current.indexOf(accountId)
+    if (index === -1) current.push(accountId)
+    else current.splice(index, 1)
+    setSelectedAccountIds(platformId, current)
+  }
+
+  function isAccountSelected(platformId, accountId) {
+    return getSelectedAccountIds(platformId).includes(accountId)
+  }
+
   // 同步 selectedAccounts 默认值
   watch(selectedPlatforms, function (newPlatforms) {
     for (const pid of newPlatforms) {
-      if (!selectedAccounts.value[pid]) {
+      const selected = getSelectedAccountIds(pid)
+      if (selected.length === 0) {
         const def = getDefaultAccount(pid)
-        if (def) selectedAccounts.value[pid] = def.id
+        if (def) setSelectedAccountIds(pid, [def.id])
+      } else if (!Array.isArray(selectedAccounts.value[pid])) {
+        setSelectedAccountIds(pid, selected)
       }
     }
     // 清理已移除平台的账号
@@ -69,5 +93,9 @@ export function usePlatformSelection(accountStore) {
     togglePlatform,
     getAccounts,
     getDefaultAccount,
+    getSelectedAccountIds,
+    setSelectedAccountIds,
+    toggleAccount,
+    isAccountSelected,
   }
 }

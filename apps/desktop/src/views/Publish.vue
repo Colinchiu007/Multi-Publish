@@ -43,11 +43,24 @@
             </div>
             <div class="cohere-form-item">
               <label class="cohere-form-label">发布目标</label>
-              <div style="display:flex;flex-wrap:wrap;gap:8px">
+              <div class="batch-platform-targets">
                 <label v-for="p in platforms" :key="p.id" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px">
                   <input type="checkbox" :value="p.id" v-model="a.platforms" style="accent-color:var(--coral)" />
                   {{ p.label }}
                 </label>
+                <template v-for="p in platforms" :key="p.id + '-accounts'">
+                  <div v-if="a.platforms.includes(p.id) && getAccounts(p.id).length > 0" class="batch-account-targets">
+                    <span class="batch-account-label">{{ p.label }}账号</span>
+                    <label v-for="account in getAccounts(p.id)" :key="account.id" class="batch-account-option">
+                      <input
+                        type="checkbox"
+                        :checked="isBatchAccountSelected(a, p.id, account.id)"
+                        @change="toggleBatchAccount(a, p.id, account.id)"
+                      />
+                      <span>{{ account.name || account.id?.slice(0, 8) }}</span>
+                    </label>
+                  </div>
+                </template>
               </div>
             </div>
             <div class="cohere-form-item">
@@ -182,18 +195,16 @@
                       <!-- 账号选择器（平台勾选后才显示） -->
                       <template v-if="selectedPlatforms.includes(p.id)">
                         <template v-if="getAccounts(p.id).length > 0">
-                          <select
-                            class="publish-account-select"
-                            :value="selectedAccounts[p.id] || ''"
-                            @change="selectedAccounts[p.id] = $event.target.value"
-                            @click.stop
-                          >
-                            <option
-                              v-for="a in getAccounts(p.id)"
-                              :key="a.id"
-                              :value="a.id"
-                            >{{ a.name || a.id?.slice(0,8) }}</option>
-                          </select>
+                          <div class="publish-account-options" @click.stop>
+                            <label v-for="a in getAccounts(p.id)" :key="a.id" class="publish-account-option">
+                              <input
+                                type="checkbox"
+                                :checked="isAccountSelected(p.id, a.id)"
+                                @change="toggleAccount(p.id, a.id)"
+                              />
+                              <span>{{ a.name || a.id?.slice(0,8) }}</span>
+                            </label>
+                          </div>
                         </template>
                         <span v-else style="font-size:11px;color:var(--coral)">请先添加账号</span>
                       </template>
@@ -206,6 +217,14 @@
               <UiButton variant="ghost" size="sm" style="width:100%;justify-content:center;margin-bottom:8px" @click="showDraftList = true; loadDrafts()">📋 草稿箱</UiButton>
               <UiButton style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
                 {{ publishing ? '发布中...' : '🚀 一键发布' }}
+              </UiButton>
+              <UiButton
+                v-if="activeTaskIds.length > 0 || activeScheduleIds.length > 0"
+                variant="danger"
+                style="width:100%;justify-content:center;margin-top:8px"
+                @click="cancelPublish"
+              >
+                取消任务
               </UiButton>
             </div>
           </div>
@@ -247,6 +266,15 @@
               <span v-else class="cohere-tag cohere-tag-danger">✗ 发布失败</span>
               <span style="font-size:13px;color:var(--muted)">{{ result.message }}</span>
             </div>
+            <UiButton
+              v-if="!result.success && !result.cancelled"
+              variant="secondary"
+              size="sm"
+              style="margin-top:12px"
+              @click="retryPublish"
+            >
+              重试发布
+            </UiButton>
             <div v-if="result.url" style="margin-top:12px;display:flex;align-items:center;gap:8px">
               <a :href="result.url" target="_blank" style="font-size:13px;color:var(--action-blue);text-decoration:none">查看文章 →</a>
               <button @click="copyUrl(result.url)" style="background:none;border:1px solid var(--border,#e0e0e0);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;color:var(--muted,#999);transition:all .2s" :style="copied ? { background:'var(--cohere-green,#67c23a)', color:'var(--surface)', borderColor:'var(--cohere-green,#67c23a)' } : {}">
@@ -306,7 +334,13 @@ async function saveDraft() {
     id: 'draft_' + Date.now(),
     title: article.title,
     content: article.content,
+    author: article.author,
+    cover_url: article.cover_url,
+    video_path: article.video_path,
+    publishTime: article.publishTime,
     platforms: [...selectedPlatforms.value],
+    accounts: JSON.parse(JSON.stringify(selectedAccounts.value)),
+    platformOverrides: JSON.parse(JSON.stringify(diffEdits)),
   })
   ElMessage.success('草稿已保存')
   await loadDrafts()
@@ -317,7 +351,13 @@ async function loadDraft(draftId) {
   if (d) {
     article.title = d.title || ''
     article.content = d.content || ''
+    article.author = d.author || ''
+    article.cover_url = d.cover_url || ''
+    article.video_path = d.video_path || ''
+    article.publishTime = d.publishTime || ''
     if (d.platforms) selectedPlatforms.value = d.platforms
+    if (d.accounts) selectedAccounts.value = JSON.parse(JSON.stringify(d.accounts))
+    if (d.platformOverrides) Object.assign(diffEdits, JSON.parse(JSON.stringify(d.platformOverrides)))
     showDraftList.value = false
     ElMessage.success('已加载草稿')
   }
@@ -394,6 +434,22 @@ async function loadAccounts () {
   await accountStore.load()
 }
 
+function toggleBatchAccount (articleItem, platformId, accountId) {
+  if (!articleItem.accounts) articleItem.accounts = {}
+  const selected = Array.isArray(articleItem.accounts[platformId])
+    ? articleItem.accounts[platformId].slice()
+    : (articleItem.accounts[platformId] ? [articleItem.accounts[platformId]] : [])
+  const index = selected.indexOf(accountId)
+  if (index === -1) selected.push(accountId)
+  else selected.splice(index, 1)
+  articleItem.accounts[platformId] = selected
+}
+
+function isBatchAccountSelected (articleItem, platformId, accountId) {
+  const value = articleItem && articleItem.accounts && articleItem.accounts[platformId]
+  return Array.isArray(value) ? value.includes(accountId) : value === accountId
+}
+
 // ── 非批量模式（本地 UI 状态） ────────────
 const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '', publishTime: '' })
 const showTagPanel = ref(true)
@@ -410,6 +466,10 @@ const {
   togglePlatform,
   getAccounts,
   getDefaultAccount,
+  getSelectedAccountIds,
+  setSelectedAccountIds,
+  toggleAccount,
+  isAccountSelected,
 } = usePlatformSelection(accountStore)
 
 const precheckEnabled = ref(false)
@@ -419,7 +479,11 @@ const {
   progress,
   result,
   copied,
+  activeTaskIds,
+  activeScheduleIds,
   handlePublish,
+  cancelPublish,
+  retryPublish,
   addProgress,
   copyUrl,
 } = usePublishFlow({ article, selectedPlatforms, selectedAccounts, precheckEnabled, diffEdits })
@@ -453,20 +517,26 @@ onMounted(async () => {
   // 初始化默认选中账号
   for (const pid of selectedPlatforms.value) {
     const def = getDefaultAccount(pid)
-    if (def) selectedAccounts.value[pid] = def.id
+    if (def) setSelectedAccountIds(pid, [def.id])
   }
   const precheckVal = await storeGetSetting('precheckEnabled', 'false'); precheckEnabled.value = precheckVal === 'true' || precheckVal === true;
   const draftId = route.query.draft
   if (!draftId) return
 
-  const raw = await storeGetSetting('drafts', '[]')
-  let drafts
-  try { drafts = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { drafts = [] }
-  const draft = drafts.find(d => d.id === draftId)
+  const draftListRes = await draftList()
+  const routeDrafts = draftListRes && draftListRes.code === 0 ? draftListRes.data : []
+  const draft = routeDrafts.find(d => d.id === draftId)
   if (!draft) return
 
   article.title = draft.title || ''
   article.content = draft.content || ''
+  article.author = draft.author || ''
+  article.cover_url = draft.cover_url || ''
+  article.video_path = draft.video_path || ''
+  article.publishTime = draft.publishTime || ''
+  if (draft.platforms) selectedPlatforms.value = draft.platforms
+  if (draft.accounts) selectedAccounts.value = JSON.parse(JSON.stringify(draft.accounts))
+  if (draft.platformOverrides) Object.assign(diffEdits, JSON.parse(JSON.stringify(draft.platformOverrides)))
   ElMessage.success('已加载草稿')
 })
 

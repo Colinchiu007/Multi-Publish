@@ -16,7 +16,18 @@
  */
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { publishBatch, onProgress, sensitiveCheck, offlineStatus, offlineAddToCache } from '@/api/publisher'
+import {
+  publishBatch,
+  onProgress,
+  sensitiveCheck,
+  offlineStatus,
+  offlineAddToCache,
+  schedulerCreate,
+  schedulerCancel,
+  cancelTask,
+  showNotification,
+} from '@/api/publisher'
+import { buildPublishTargets, validateScheduleEntries } from '@/features/publish/publish-contract'
 
 const MARKDOWN_RE = /^#\s|^\*\*|^>\s|^```/m
 const MARKDOWN_LINK_RE = /\[.+\]\(.+\)/
@@ -53,6 +64,8 @@ export function usePublishFlow(options) {
   const progress = ref([])
   const result = ref(null)
   const copied = ref(false)
+  const activeTaskIds = ref([])
+  const activeScheduleIds = ref([])
 
   function addProgress(text, type) {
     const t = type === undefined ? 'primary' : type
@@ -81,7 +94,53 @@ export function usePublishFlow(options) {
       })
   }
 
+  async function notifyFailure (title, body) {
+    try {
+      await showNotification({ title, body })
+    } catch (_) {
+      // 通知失败不应覆盖发布结果。
+    }
+  }
+
+  function getTargets () {
+    return buildPublishTargets(selectedPlatforms.value, selectedAccounts.value)
+  }
+
+  function buildArticleData () {
+    const md = isMarkdownContent(article.content)
+    return {
+      title: article.title,
+      content: article.content,
+      contentFormat: md ? 'markdown' : 'html',
+      author: article.author || '',
+      cover_url: article.cover_url || '',
+      video_path: article.video_path || '',
+      precheck: precheckEnabled.value,
+      platformOverrides: diffEdits
+        ? Object.fromEntries(Object.entries(diffEdits).filter(([, v]) => v && (v.title || v.content)))
+        : {},
+    }
+  }
+
+  async function scheduleTargets (targets, data) {
+    const scheduleIds = []
+    for (const target of targets) {
+      const res = await schedulerCreate(toPlainJson({
+        platform: target.platform,
+        publishTime: article.publishTime,
+        article: { ...data, accountId: target.accountId },
+      }))
+      if (!res || res.code !== 0) {
+        throw new Error((res && res.message) || '定时任务创建失败')
+      }
+      if (res.data && res.data.id) scheduleIds.push(res.data.id)
+    }
+    activeScheduleIds.value = scheduleIds
+    return scheduleIds
+  }
+
   async function handlePublish() {
+    if (publishing.value) return
     if (!article.title.trim()) {
       ElMessage.warning('请输入文章标题')
       return
@@ -98,6 +157,8 @@ export function usePublishFlow(options) {
     publishing.value = true
     progress.value = []
     result.value = null
+    activeTaskIds.value = []
+    activeScheduleIds.value = []
     let off
 
     try {
@@ -122,13 +183,23 @@ export function usePublishFlow(options) {
         }
       }
 
+      const targets = getTargets()
+      const data = buildArticleData()
+      if (article.publishTime) {
+        const scheduleCheck = validateScheduleEntries(
+          targets.map(target => ({ ...target, publishTime: article.publishTime })),
+        )
+        if (!scheduleCheck.valid) {
+          addProgress('✗ ' + scheduleCheck.message, 'danger')
+          result.value = { success: false, message: scheduleCheck.message }
+          return
+        }
+      }
+
       // 离线检测
-      const targets = selectedPlatforms.value.map(function (pid) {
-        return { platform: pid, accountId: selectedAccounts.value[pid] || null }
-      })
       const offlineRes = await offlineStatus()
       if (offlineRes && offlineRes.code === 0 && offlineRes.data && offlineRes.data.offline) {
-        const cacheRes = await offlineAddToCache(toPlainJson({ targets: targets, data: article }))
+        const cacheRes = await offlineAddToCache(toPlainJson({ targets, data }))
         if (!cacheRes || cacheRes.code !== 0 || cacheRes.data === false) {
           throw new Error((cacheRes && cacheRes.message) || '离线任务缓存失败')
         }
@@ -137,26 +208,24 @@ export function usePublishFlow(options) {
         return
       }
 
+      if (article.publishTime) {
+        const scheduleIds = await scheduleTargets(targets, data)
+        addProgress('⏰ 已创建 ' + scheduleIds.length + ' 个定时任务', 'success')
+        result.value = { success: true, message: '定时任务已创建', scheduled: true }
+        return
+      }
+
       off = onProgress(function (data) {
         addProgress('[' + data.platform + '] ' + data.stage)
       })
 
-      const md = isMarkdownContent(article.content)
-      const data = {
-        title: article.title,
-        content: article.content,
-        contentFormat: md ? 'markdown' : 'html',
-        author: article.author || '',
-        cover_url: article.cover_url || '',
-        video_path: article.video_path || '',
-        precheck: precheckEnabled.value,
-        // 差异化内容：每个平台可独立设置标题和内容
-        platformOverrides: diffEdits ? Object.fromEntries(Object.entries(diffEdits).filter(([, v]) => v && (v.title || v.content))) : {},
-      }
       addProgress('发布到 ' + targets.length + ' 个目标（含多账号）...', 'info')
       const payload = toPlainJson({ targets, data })
       const res = await publishBatch(payload.targets, payload.data)
       if (res.code === 0) {
+        activeTaskIds.value = Array.isArray(res.data && res.data.taskIds)
+          ? res.data.taskIds.slice()
+          : []
         const count = (res.data && res.data.taskIds && res.data.taskIds.length) || ''
         addProgress('✓ 已添加 ' + count + ' 个任务', 'success')
         result.value = { success: true, message: res.message || '任务已加入队列', url: '' }
@@ -164,21 +233,44 @@ export function usePublishFlow(options) {
         const message = res.message || '发布失败'
         addProgress('✗ 发布失败: ' + message, 'danger')
         result.value = { success: false, message }
-        if (window.electronAPI?.showNotification) {
-          window.electronAPI.showNotification({ title: '发布失败', body: message })
-        }
+        await notifyFailure('发布失败', message)
       }
     } catch (e) {
       const message = e && e.message ? e.message : '发布异常'
       addProgress('✗ 错误: ' + message, 'danger')
       result.value = { success: false, message }
-      if (window.electronAPI?.showNotification) {
-        window.electronAPI.showNotification({ title: '发布异常', body: message })
-      }
+      await notifyFailure('发布异常', message)
     } finally {
       publishing.value = false
       if (typeof off === 'function') off()
     }
+  }
+
+  async function cancelPublish () {
+    const taskIds = activeTaskIds.value.slice()
+    const scheduleIds = activeScheduleIds.value.slice()
+    if (taskIds.length === 0 && scheduleIds.length === 0) {
+      ElMessage.info('当前没有可取消的任务')
+      return { success: false, cancelled: 0 }
+    }
+    const results = await Promise.all([
+      ...taskIds.map(id => cancelTask(id)),
+      ...scheduleIds.map(id => schedulerCancel(id)),
+    ])
+    const cancelled = results.filter(item => item && item.code === 0 && item.data !== false).length
+    activeTaskIds.value = []
+    activeScheduleIds.value = []
+    addProgress('已取消 ' + cancelled + ' 个任务', 'warning')
+    result.value = { success: false, cancelled, message: '任务已取消' }
+    return { success: cancelled > 0, cancelled }
+  }
+
+  async function retryPublish () {
+    if (!result.value || result.value.success) {
+      ElMessage.info('当前没有失败的发布任务')
+      return
+    }
+    return handlePublish()
   }
 
   return {
@@ -186,7 +278,11 @@ export function usePublishFlow(options) {
     progress,
     result,
     copied,
+    activeTaskIds,
+    activeScheduleIds,
     handlePublish,
+    cancelPublish,
+    retryPublish,
     addProgress,
     copyUrl,
   }

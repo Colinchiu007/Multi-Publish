@@ -23,6 +23,10 @@ vi.mock('@/api/publisher', function () {
   return {
     batchCreate: mockBatchCreate,
     onProgress: mockOnProgress,
+    batchExecute: (...args) => window.electronAPI?.batchExecute?.(...args),
+    batchSchedule: (...args) => window.electronAPI?.batchSchedule?.(...args),
+    batchGet: (...args) => window.electronAPI?.batchGet?.(...args),
+    onBatchProgress: (callback) => window.electronAPI?.onBatchProgress?.(callback),
     // 其他 API 不用，但需要导出避免 import 错误
     publishBatch: vi.fn(),
     sensitiveCheck: vi.fn(),
@@ -41,6 +45,10 @@ vi.mock('element-plus', function () {
 
 import { reactive } from 'vue'
 import { useBatchPublish } from '../composables/useBatchPublish'
+
+function futurePublishTime (minutes = 10) {
+  return new Date(Date.now() + minutes * 60 * 1000).toISOString()
+}
 
 describe('useBatchPublish — composable setup', () => {
   let originalElectronAPI
@@ -145,7 +153,7 @@ describe('useBatchPublish — composable setup', () => {
   it('duplicateArticle publishTime 清空', () => {
     const r = useBatchPublish({ article, licenseStore })
     r.addArticle()
-    r.articles.value[0].publishTime = '2026-01-01T10:00'
+    r.articles.value[0].publishTime = futurePublishTime()
     r.duplicateArticle(0)
     expect(r.articles.value[1].publishTime).toBe('')
   })
@@ -180,6 +188,15 @@ describe('useBatchPublish — composable setup', () => {
     const r = useBatchPublish({ article, licenseStore })
     r.articles.value = [{}, { platforms: ['wx'] }]
     expect(r.totalPlatformTasks.value).toBe(1)
+  })
+
+  it('totalPlatformTasks 按平台账号目标展开', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      platforms: ['wechat_mp', 'zhihu'],
+      accounts: { wechat_mp: ['wx-a', 'wx-b'], zhihu: ['zh-a'] },
+    }]
+    expect(r.totalPlatformTasks.value).toBe(3)
   })
 
   // ─── applyTemplate ────────────────────────────
@@ -422,7 +439,7 @@ describe('useBatchPublish — composable setup', () => {
     r.articles.value[0].title = '标题'
     r.articles.value[0].content = '正文'
     r.articles.value[0].platforms = ['wechat_mp']
-    r.articles.value[0].publishTime = '2026-01-01T10:00'
+    r.articles.value[0].publishTime = futurePublishTime()
     await r.handleBatchPublish()
     expect(window.electronAPI.batchSchedule).toHaveBeenCalledWith('batch1')
   })
@@ -438,7 +455,7 @@ describe('useBatchPublish — composable setup', () => {
       title: '标题',
       content: '正文',
       platforms: ['wechat_mp'],
-      publishTime: '2026-01-01T10:00',
+      publishTime: futurePublishTime(),
     }]
 
     await r.handleBatchPublish()
@@ -498,12 +515,13 @@ describe('useBatchPublish — composable setup', () => {
     mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
     const r = useBatchPublish({ article, licenseStore })
     r.precheckEnabled.value = true
+    const publishTime = futurePublishTime()
     r.articles.value = [{
       _key: 'ui-only',
       title: '标题',
       content: '正文',
       platforms: ['wechat_mp', 'zhihu'],
-      publishTime: '2026-07-18T10:00',
+      publishTime,
     }]
 
     await r.handleBatchPublish()
@@ -513,11 +531,32 @@ describe('useBatchPublish — composable setup', () => {
       title: '标题',
       content: '正文',
       platforms: ['wechat_mp', 'zhihu'],
-      publishTime: '2026-07-18T10:00',
+      publishTime,
       precheck: true,
+      author: '',
+      cover_url: '',
+      video_path: '',
     }])
     expect(window.electronAPI.batchSchedule).toHaveBeenCalledWith('batch1')
     expect(window.electronAPI.batchExecute).not.toHaveBeenCalled()
+  })
+
+  it('创建批次时透传多账号目标', async () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp'],
+      accounts: { wechat_mp: ['wx-a', 'wx-b'] },
+      publishTime: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    }]
+
+    await r.handleBatchPublish()
+
+    expect(mockBatchCreate.mock.calls[0][0].articles[0].platforms).toEqual([
+      { platform: 'wechat_mp', accountId: 'wx-a' },
+      { platform: 'wechat_mp', accountId: 'wx-b' },
+    ])
   })
 
   it('创建批次时传入 IPC 的嵌套文章数据可结构化克隆', async () => {
@@ -530,7 +569,7 @@ describe('useBatchPublish — composable setup', () => {
       title: '标题',
       content: '正文',
       platforms: ['wechat_mp', 'zhihu'],
-      publishTime: '2026-07-18T10:00',
+      publishTime: futurePublishTime(),
     }]
 
     await r.handleBatchPublish()

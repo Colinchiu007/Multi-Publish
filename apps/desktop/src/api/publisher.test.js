@@ -9,7 +9,7 @@ const exportedNames = [
   // 发布
   "publishWechat", "publishBatch", "onProgress",
   // 队列
-  "getQueueStatus", "getQueueHistory", "cancelTask",
+  "getQueueStatus", "getQueueHistory", "cancelTask", "retryTask",
   // 发布历史
   "historyList", "historyGet",
   // 统计
@@ -46,7 +46,9 @@ const exportedNames = [
   // OAuth
   "oauthStart", "oauthClose", "onOAuthCompleted",
   // 批量发布
-  "batchCreate", "batchList", "batchDelete", "onBatchProgress",
+  "batchCreate", "batchExecute", "batchSchedule", "batchGet", "batchList", "batchDelete", "onBatchProgress",
+  // 二维码登录与账号状态事件
+  "authOpenQrCodeLogin", "authQrCodeClose", "onQrCodeOpened", "onQrCodeDetected", "onQrCodeCompleted", "onQrCodeClosed", "onAccountStatusChanged",
   // 支付
   "paymentCreateOrder", "paymentListOrders", "paymentGetOrder",
   "paymentSimulate", "paymentCancel",
@@ -92,6 +94,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   getQueueStatus: { args: [], fallback: {}, returns: "object" },
   getQueueHistory: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
   cancelTask: { args: ["task-1"], fallback: { code: -1 }, returns: "object" },
+  retryTask: { args: ["task-1"], fallback: { code: -1 }, returns: "object" },
   historyList: { args: [{ page: 1 }], fallback: { code: 0, data: { total: 0, records: [] } }, returns: "object" },
   historyGet: { args: ["id-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   dashboardStats: { args: [], fallback: { code: 0, data: { total: 0, success: 0, failed: 0, byPlatform: {}, daily: [] } }, returns: "object" },
@@ -130,9 +133,19 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   oauthClose: { args: [], fallback: undefined, returns: "undefined" },
   onOAuthCompleted: { args: [vi.fn()], fallback: undefined, returns: "function" },
   batchCreate: { args: [{ platforms: ["wx"] }], fallback: { code: -1 }, returns: "object" },
+  batchExecute: { args: ["batch-1"], fallback: { code: -1 }, returns: "object" },
+  batchSchedule: { args: ["batch-1"], fallback: { code: -1 }, returns: "object" },
+  batchGet: { args: ["batch-1"], fallback: { code: -1 }, returns: "object" },
   batchList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
   batchDelete: { args: ["batch-1"], fallback: undefined, returns: "undefined" },
   onBatchProgress: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  authOpenQrCodeLogin: { args: ["wechat_mp"], fallback: { code: -1 }, returns: "object" },
+  authQrCodeClose: { args: [], fallback: { code: -1 }, returns: "object" },
+  onQrCodeOpened: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onQrCodeDetected: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onQrCodeCompleted: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onQrCodeClosed: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onAccountStatusChanged: { args: [vi.fn()], fallback: undefined, returns: "function" },
   paymentCreateOrder: { args: [{ amount: 100 }], fallback: { code: -1 }, returns: "object" },
   paymentListOrders: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
   paymentGetOrder: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },

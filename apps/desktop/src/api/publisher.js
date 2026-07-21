@@ -20,6 +20,8 @@ export async function getQueueHistory() { return invokeWithFallback("getQueueHis
 
 export async function cancelTask(taskId) { return invokeWithFallback("cancelTask", {  code: -1  }, taskId) }
 
+export async function retryTask(taskId) { return invokeWithFallback("retryTask", { code: -1 }, taskId) }
+
 // ─── 发布历史 API ─────────────────────────
 export async function historyList (opts) {
   return invokeWithFallback("historyList", { code: 0, data: { total: 0, records: [] } }, opts)
@@ -68,6 +70,21 @@ export function onAuthViewOpened(callback) { return bridgeOn("AuthViewOpened", c
 export function onAuthCompleted(callback) { return bridgeOn("AuthCompleted", callback) }
 
 export function onAuthViewClosed(callback) { return bridgeOn("AuthViewClosed", callback) }
+
+// ─── 扫码登录与账号状态事件 ────────────────
+export async function authOpenQrCodeLogin(platform) { return invokeWithFallback("authOpenQrCodeLogin", { code: -1 }, platform) }
+
+export async function authQrCodeClose() { return invokeWithFallback("authQrCodeClose", { code: -1 }) }
+
+export function onQrCodeOpened(callback) { return bridgeOn("QrCodeOpened", callback) }
+
+export function onQrCodeDetected(callback) { return bridgeOn("QrCodeDetected", callback) }
+
+export function onQrCodeCompleted(callback) { return bridgeOn("QrCodeCompleted", callback) }
+
+export function onQrCodeClosed(callback) { return bridgeOn("QrCodeClosed", callback) }
+
+export function onAccountStatusChanged(callback) { return bridgeOn("AccountStatusChanged", callback) }
 
 // ─── 渲染 API ────────────────────────────
 export async function renderStart(data) { return invoke("renderStart", data) }
@@ -211,6 +228,12 @@ export function onOAuthCompleted(callback) { return bridgeOn("OAuthCompleted", c
 
 // ─── 批量发布 API ─────────────────────────
 export async function batchCreate(batch) { return invokeWithFallback("batchCreate", {  code: -1  }, batch) }
+
+export async function batchExecute(id) { return invokeWithFallback("batchExecute", { code: -1 }, id) }
+
+export async function batchSchedule(id) { return invokeWithFallback("batchSchedule", { code: -1 }, id) }
+
+export async function batchGet(id) { return invokeWithFallback("batchGet", { code: -1 }, id) }
 
 export async function batchList() { return invokeWithFallback("batchList", {  code: 0, data: []  }) }
 

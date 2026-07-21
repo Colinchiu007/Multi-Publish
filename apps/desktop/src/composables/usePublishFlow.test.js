@@ -11,6 +11,10 @@ const {
   mockSensitiveCheck,
   mockOfflineStatus,
   mockOfflineAddToCache,
+  mockSchedulerCreate,
+  mockSchedulerCancel,
+  mockCancelTask,
+  mockShowNotification,
   mockStoreGetSetting,
   mockElMessage,
   mockElMessageBox,
@@ -21,6 +25,10 @@ const {
     mockSensitiveCheck: vi.fn(),
     mockOfflineStatus: vi.fn(),
     mockOfflineAddToCache: vi.fn(),
+    mockSchedulerCreate: vi.fn(),
+    mockSchedulerCancel: vi.fn(),
+    mockCancelTask: vi.fn(),
+    mockShowNotification: vi.fn(),
     mockStoreGetSetting: vi.fn(),
     mockElMessage: { success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() },
     mockElMessageBox: { confirm: vi.fn() },
@@ -34,6 +42,10 @@ vi.mock('@/api/publisher', function () {
     sensitiveCheck: mockSensitiveCheck,
     offlineStatus: mockOfflineStatus,
     offlineAddToCache: mockOfflineAddToCache,
+    schedulerCreate: mockSchedulerCreate,
+    schedulerCancel: mockSchedulerCancel,
+    cancelTask: mockCancelTask,
+    showNotification: mockShowNotification,
     storeGetSetting: mockStoreGetSetting,
     batchCreate: vi.fn(),
   }
@@ -57,7 +69,7 @@ describe('usePublishFlow — composable setup', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '' })
+    article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '', publishTime: '' })
     selectedPlatforms = { value: ['wechat_mp'] }
     selectedAccounts = { value: { wechat_mp: 'acc1' } }
     precheckEnabled = { value: false }
@@ -68,6 +80,10 @@ describe('usePublishFlow — composable setup', () => {
     mockOfflineStatus.mockResolvedValue({ code: 0, data: { offline: false } })
     mockOfflineAddToCache.mockResolvedValue({ code: 0 })
     mockPublishBatch.mockResolvedValue({ code: 0, data: { taskIds: ['t1'] }, message: 'ok' })
+    mockSchedulerCreate.mockResolvedValue({ code: 0, data: { id: 'schedule-1' } })
+    mockSchedulerCancel.mockResolvedValue({ code: 0, data: true })
+    mockCancelTask.mockResolvedValue({ code: 0, data: true })
+    mockShowNotification.mockResolvedValue({ code: 0 })
     mockElMessageBox.confirm.mockResolvedValue(undefined)
   })
 
@@ -89,6 +105,8 @@ describe('usePublishFlow — composable setup', () => {
     expect(typeof r.handlePublish).toBe('function')
     expect(typeof r.copyUrl).toBe('function')
     expect(typeof r.addProgress).toBe('function')
+    expect(typeof r.cancelPublish).toBe('function')
+    expect(typeof r.retryPublish).toBe('function')
   })
 
   it('初始状态', () => {
@@ -263,6 +281,67 @@ describe('usePublishFlow — composable setup', () => {
     await r.handlePublish()
     const targets = mockPublishBatch.mock.calls[0][0]
     expect(targets).toEqual([{ platform: 'wechat_mp', accountId: null }])
+  })
+
+  it('同一平台多个账号会展开成多个发布目标', async () => {
+    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+
+    await r.handlePublish()
+
+    expect(mockPublishBatch.mock.calls[0][0]).toEqual([
+      { platform: 'wechat_mp', accountId: 'acc1' },
+      { platform: 'wechat_mp', accountId: 'acc2' },
+    ])
+  })
+
+  it('有合法发布时间时为每个目标创建持久化定时任务', async () => {
+    article.title = '定时文章'
+    article.content = '正文'
+    article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    const r = createFlow()
+
+    await r.handlePublish()
+
+    expect(mockSchedulerCreate).toHaveBeenCalledTimes(2)
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+    expect(mockSchedulerCreate.mock.calls[0][0]).toMatchObject({
+      platform: 'wechat_mp',
+      publishTime: article.publishTime,
+      article: expect.objectContaining({ accountId: 'acc1' }),
+    })
+    expect(r.result.value.success).toBe(true)
+  })
+
+  it('非法定时发布时间会在 IPC 前阻止提交', async () => {
+    article.title = '定时文章'
+    article.content = '正文'
+    article.publishTime = 'not-a-date'
+    const r = createFlow()
+
+    await r.handlePublish()
+
+    expect(mockSchedulerCreate).not.toHaveBeenCalled()
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+    expect(r.result.value).toMatchObject({ success: false })
+    expect(r.progress.value.at(-1).text).toContain('定时发布时间无效')
+  })
+
+  it('取消活动任务并支持失败后重试', async () => {
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+    await r.handlePublish()
+    await r.cancelPublish()
+    expect(mockCancelTask).toHaveBeenCalledWith('t1')
+
+    mockPublishBatch.mockResolvedValueOnce({ code: 1, message: '首次失败' })
+    await r.handlePublish()
+    await r.retryPublish()
+    expect(mockPublishBatch).toHaveBeenCalledTimes(3)
   })
 
   // ─── addProgress ──────────────────────────
