@@ -3,15 +3,18 @@
  * usePlatformSelection.test.js — 平台选择 composable 测试（Phase 4.3 TDD）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { nextTick } from 'vue'
+import { nextTick, reactive } from 'vue'
 import { usePlatformSelection } from '../composables/usePlatformSelection'
 
 function makeAccountStore() {
   return {
-    byPlatform: {
-      wechat_mp: [{ id: 'acc1', name: '公众号A', is_default: true }],
+    byPlatform: reactive({
+      wechat_mp: [
+        { id: 'acc1', name: '公众号A', is_default: true },
+        { id: 'acc3', name: '公众号B', is_default: false },
+      ],
       zhihu: [{ id: 'acc2', name: '知乎号', is_default: true }],
-    },
+    }),
     getDefault: vi.fn(function (p) {
       if (p === 'wechat_mp') return { id: 'acc1', name: '公众号A' }
       if (p === 'zhihu') return { id: 'acc2', name: '知乎号' }
@@ -33,6 +36,9 @@ describe('usePlatformSelection — composable setup', () => {
     expect(typeof r.togglePlatform).toBe('function')
     expect(typeof r.getAccounts).toBe('function')
     expect(typeof r.getDefaultAccount).toBe('function')
+    expect(typeof r.getSelectedAccountIds).toBe('function')
+    expect(typeof r.toggleAccount).toBe('function')
+    expect(typeof r.isAccountSelected).toBe('function')
   })
 
   it('初始 selectedPlatforms = ["wechat_mp"]', () => {
@@ -84,7 +90,7 @@ describe('usePlatformSelection — composable setup', () => {
   it('getAccounts 从 accountStore 获取', () => {
     const store = makeAccountStore()
     const r = usePlatformSelection(store)
-    expect(r.getAccounts('wechat_mp')).toHaveLength(1)
+    expect(r.getAccounts('wechat_mp')).toHaveLength(2)
     expect(r.getAccounts('nonexistent')).toEqual([])
   })
 
@@ -101,8 +107,8 @@ describe('usePlatformSelection — composable setup', () => {
     const r = usePlatformSelection(store)
     r.selectedPlatforms.value = ['wechat_mp', 'zhihu']
     await nextTick()
-    expect(r.selectedAccounts.value.wechat_mp).toBe('acc1')
-    expect(r.selectedAccounts.value.zhihu).toBe('acc2')
+    expect(r.selectedAccounts.value.wechat_mp).toEqual(['acc1'])
+    expect(r.selectedAccounts.value.zhihu).toEqual(['acc2'])
   })
 
   it('watch 同步：移除平台时清理账号', async () => {
@@ -110,7 +116,7 @@ describe('usePlatformSelection — composable setup', () => {
     const r = usePlatformSelection(store)
     r.selectedPlatforms.value = ['wechat_mp', 'zhihu']
     await nextTick()
-    expect(r.selectedAccounts.value.zhihu).toBe('acc2')
+    expect(r.selectedAccounts.value.zhihu).toEqual(['acc2'])
     r.selectedPlatforms.value = ['wechat_mp']
     await nextTick()
     expect(r.selectedAccounts.value.zhihu).toBeUndefined()
@@ -133,6 +139,57 @@ describe('usePlatformSelection — composable setup', () => {
     r.selectedPlatforms.value = ['wechat_mp']
     await nextTick()
     // watch 应已设置 wechat_mp 默认账号
-    expect(r.selectedAccounts.value.wechat_mp).toBe('acc1')
+    expect(r.selectedAccounts.value.wechat_mp).toEqual(['acc1'])
+  })
+
+  it('同平台可选择多个账号且重复选择会切换移除', async () => {
+    const r = usePlatformSelection(makeAccountStore())
+    r.selectedPlatforms.value = ['wechat_mp']
+    await nextTick()
+
+    r.toggleAccount('wechat_mp', 'acc3')
+    expect(r.getSelectedAccountIds('wechat_mp')).toEqual(['acc1', 'acc3'])
+    expect(r.isAccountSelected('wechat_mp', 'acc3')).toBe(true)
+
+    r.toggleAccount('wechat_mp', 'acc1')
+    expect(r.getSelectedAccountIds('wechat_mp')).toEqual(['acc3'])
+    expect(r.isAccountSelected('wechat_mp', 'acc1')).toBe(false)
+  })
+
+  it('读取旧版单值账号选择时归一化为数组', () => {
+    const r = usePlatformSelection(makeAccountStore())
+    r.selectedAccounts.value.wechat_mp = 'acc1'
+    expect(r.getSelectedAccountIds('wechat_mp')).toEqual(['acc1'])
+  })
+
+  it('账号列表刷新后移除失效选择并回退到当前默认账号', async () => {
+    const store = makeAccountStore()
+    const r = usePlatformSelection(store)
+    r.selectedPlatforms.value = ['wechat_mp']
+    await nextTick()
+    r.setSelectedAccountIds('wechat_mp', ['acc1', 'acc3'])
+
+    store.byPlatform.wechat_mp = [
+      { id: 'acc3', name: '公众号B' },
+      { id: 'acc4', name: '公众号C', is_default: true },
+    ]
+    store.getDefault = vi.fn(() => ({ id: 'acc4', name: '公众号C' }))
+    await nextTick()
+    expect(r.getSelectedAccountIds('wechat_mp')).toEqual(['acc3'])
+
+    store.byPlatform.wechat_mp = [{ id: 'acc4', name: '公众号C', is_default: true }]
+    await nextTick()
+    expect(r.getSelectedAccountIds('wechat_mp')).toEqual(['acc4'])
+  })
+
+  it('草稿整体替换为失效账号后自动恢复有效默认账号', async () => {
+    const r = usePlatformSelection(makeAccountStore())
+    r.selectedPlatforms.value = ['wechat_mp']
+    await nextTick()
+
+    r.selectedAccounts.value = { wechat_mp: ['deleted-account'] }
+    await nextTick()
+
+    expect(r.getSelectedAccountIds('wechat_mp')).toEqual(['acc1'])
   })
 })

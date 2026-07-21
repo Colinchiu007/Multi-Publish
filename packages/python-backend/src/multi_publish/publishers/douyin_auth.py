@@ -34,6 +34,8 @@ import time
 
 from loguru import logger
 
+from multi_publish.publishers.legacy_auth_policy import require_legacy_plaintext_auth
+
 # ═══════════════════════════════════════════════════════════
 # 认证数据持久化（同步文件 I/O）
 # ═══════════════════════════════════════════════════════════
@@ -46,6 +48,7 @@ def save_cookies(publisher, cookies: list[dict]) -> None:
         publisher: 宿主对象，需提供 ``_cookie_path``
         cookies: Cookie 字典列表
     """
+    require_legacy_plaintext_auth()
     os.makedirs(os.path.dirname(publisher._cookie_path), exist_ok=True)
     with open(publisher._cookie_path, "w") as f:
         json.dump(cookies, f)
@@ -68,6 +71,7 @@ def save_auth_data(
         local_storage: localStorage 键值对
         indexed_db: IndexedDB 嵌套字典 {db_name: {store_name: {key: value}}}
     """
+    require_legacy_plaintext_auth()
     os.makedirs(os.path.dirname(publisher._auth_data_path), exist_ok=True)
     auth_data = {
         "cookies": cookies,
@@ -88,6 +92,7 @@ def load_cookies(publisher) -> list[dict]:
     Returns:
         Cookie 字典列表，文件不存在时返回空列表
     """
+    require_legacy_plaintext_auth()
     if not os.path.exists(publisher._cookie_path):
         return []
     with open(publisher._cookie_path) as f:
@@ -106,6 +111,7 @@ def load_auth_data(publisher) -> dict | None:
     Returns:
         完整认证数据字典，或 None（无任何认证文件时）
     """
+    require_legacy_plaintext_auth()
     if os.path.exists(publisher._auth_data_path):
         with open(publisher._auth_data_path) as f:
             return json.load(f)

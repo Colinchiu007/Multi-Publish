@@ -17,6 +17,7 @@ const log = require('./logger')
 const { getConfigPath } = require('./config-resolver')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
+const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
 
@@ -453,8 +454,18 @@ const platformsMixin = {
     return { success:true, url:win.webContents.getURL()||'', platform:'youtube' }
   },
 
-  // eslint-disable-next-line no-unused-vars
-  async _publish_xiaohongshu(win, article) { return {success:false,error:'xiaohongshu RPA pending',platform:'xiaohongshu'} },
+  async _publish_xiaohongshu(win, article) {
+    if (!article || (!article.title && !article.content && !article.video_path)) {
+      return { success:false, error:'小红书发布至少需要标题、正文或视频', platform:'xiaohongshu' }
+    }
+    const config = this._getPlatformConfig('xiaohongshu')
+    const contentType = article.video_path ? 'video' : 'image'
+    const publishUrl = getPublishUrl('xiaohongshu', contentType)
+    return this._publish_generic(win, article, 'xiaohongshu', {
+      ...config,
+      publish_url: publishUrl || config.publish_url,
+    })
+  },
 
   async _publish_zhihu(win, article) {
     this._emitProgress('zhihu','navigating to write page...',5)

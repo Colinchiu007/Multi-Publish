@@ -363,6 +363,7 @@ describe('主进程许可证动态鉴权', () => {
   })
 
   it.each([
+    'auth:complete-login',
     'auth:open-qrcode-login',
     'auth:qrcode-close',
     'oauth:start',

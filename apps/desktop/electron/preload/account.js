@@ -5,10 +5,10 @@
  *   - ipcRenderer 由调用方（preload/index.js）注入，便于测试 mock
  *   - 不在此处 require('electron')，保持子模块独立可测
  *
- * 涵盖方法（与原 preload.js 完全一致，不改变方法名/IPC 通道/参数顺序）：
+ * 涵盖方法：
  *   - 账号管理：accountAdd / accountDelete / accountCheckLogin / accountList
  *               accountSetDefault / accountGetDefault / accountUpdate
- *   - 内嵌浏览器登录：authOpenLogin / authClose / authSaveCredentials / authLoginSilent
+ *   - 内嵌浏览器登录：authOpenLogin / authClose / authLoginSilent
  *                     onAuthViewOpened / onAuthCompleted / onAuthViewClosed
  *   - 扫码登录：authOpenQrCodeLogin / authQrCodeClose
  *               onQrCodeOpened / onQrCodeDetected / onQrCodeCompleted / onQrCodeClosed
@@ -38,8 +38,8 @@ function createAccountApi(ipcRenderer) {
 
     // 内嵌浏览器登录 API
     authOpenLogin: (platform) => ipcRenderer.invoke('auth:open-login', platform),
+    authCompleteLogin: () => ipcRenderer.invoke('auth:complete-login'),
     authClose: () => ipcRenderer.invoke('auth:close'),
-    authSaveCredentials: (data) => ipcRenderer.invoke('auth:save-credentials', data),
     onAuthViewOpened: (callback) => {
       const h = (_, data) => callback(data)
       ipcRenderer.on('auth:view-opened', h)
@@ -56,7 +56,7 @@ function createAccountApi(ipcRenderer) {
       return () => ipcRenderer.removeListener('auth:view-closed', h)
     },
     // Auth API（静默登录）
-    authLoginSilent: (platform, cookies, localStorage) => ipcRenderer.invoke('auth:login-silent', { platform, cookies, localStorage }),
+    authLoginSilent: (platform, accountId) => ipcRenderer.invoke('auth:login-silent', { platform, accountId }),
 
     // 扫码登录 API
     authOpenQrCodeLogin: (platform) => ipcRenderer.invoke('auth:open-qrcode-login', platform),
@@ -72,6 +72,9 @@ function createAccountApi(ipcRenderer) {
     },
     onQrCodeClosed: (cb) => {
       const h = () => cb(); ipcRenderer.on('qrcode:closed', h); return () => ipcRenderer.removeListener('qrcode:closed', h)
+    },
+    onAccountStatusChanged: (cb) => {
+      const h = (_, d) => cb(d); ipcRenderer.on('account:status-changed', h); return () => ipcRenderer.removeListener('account:status-changed', h)
     },
 
     // OAuth 认证 API

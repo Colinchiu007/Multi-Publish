@@ -83,6 +83,26 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+@pytest.fixture(autouse=True)
+def _legacy_auth_compatibility(monkeypatch):
+    """历史行为测试显式开启兼容开关，生产默认路径必须拒绝明文凭据。"""
+    monkeypatch.setenv("MULTI_PUBLISH_ALLOW_LEGACY_PLAINTEXT_AUTH", "1")
+
+
+class TestPlaintextAuthPolicy:
+    def test_plaintext_persistence_is_disabled_without_explicit_compatibility_flag(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("MULTI_PUBLISH_ALLOW_LEGACY_PLAINTEXT_AUTH", raising=False)
+        pub = _make_publisher(tmp_path)
+
+        with pytest.raises(RuntimeError, match="明文认证持久化已停用"):
+            save_cookies(pub, [{"name": "sid", "value": "secret"}])
+        with pytest.raises(RuntimeError, match="明文认证持久化已停用"):
+            save_auth_data(pub, [{"name": "sid", "value": "secret"}], {}, {})
+
+        assert not os.path.exists(pub._cookie_path)
+        assert not os.path.exists(pub._auth_data_path)
+
+
 # ──────────────────────────────────────────────
 # save_cookies / load_cookies
 # ──────────────────────────────────────────────

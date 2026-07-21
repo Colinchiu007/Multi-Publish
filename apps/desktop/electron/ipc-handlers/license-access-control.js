@@ -11,7 +11,7 @@ const PUBLIC_CHANNELS = new Set([
   'license:info', 'license:activate', 'license:deactivate',
   'license:activate-trial', 'license:has-feature', 'license:features',
   'payment:create-order', 'payment:list-orders', 'payment:get-order', 'payment:cancel',
-  'auth:open-login', 'auth:close', 'auth:login-silent',
+  'auth:open-login', 'auth:complete-login', 'auth:close', 'auth:login-silent',
   'auth:open-qrcode-login', 'auth:qrcode-close',
   'oauth:start', 'oauth:close', 'oauth:get-configs',
   'platform:list', 'platform:get', 'platform:definitions',

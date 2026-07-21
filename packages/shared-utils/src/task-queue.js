@@ -20,7 +20,10 @@ class TaskQueue extends EventEmitter {
     this._running = new Map() // 正在执行的任务 { id -> task }
     this._history = []        // 已完成的任务历史
     this._pendingTimers = new Set()  // R28/R37：跟踪频率控制重排定时器，shutdown 时清理
+    this._delayed = new Map() // 频控等待任务 { id -> { task, timer } }
+    this._abortControllers = new Map() // 运行中任务的协作式取消信号
     this._paused = false
+    this._shutdown = false
     this._idCounter = 0
   }
 
@@ -28,10 +31,21 @@ class TaskQueue extends EventEmitter {
    * R28/R37：清理所有待执行的频率控制重排定时器（应用退出时调用）
    */
   shutdown () {
+    if (this._shutdown) return
+    this._shutdown = true
+    this._paused = true
     for (const t of this._pendingTimers) {
       clearTimeout(t)
     }
     this._pendingTimers.clear()
+    for (const { task } of this._delayed.values()) this._markCancelled(task, true)
+    this._delayed.clear()
+    for (const task of this._queue.splice(0)) this._markCancelled(task, true)
+    for (const [taskId, task] of this._running) {
+      this._markCancelled(task, false)
+      const controller = this._abortControllers.get(taskId)
+      if (controller && !controller.signal.aborted) controller.abort(new Error('任务队列已关闭'))
+    }
   }
 
   /**
@@ -44,6 +58,7 @@ class TaskQueue extends EventEmitter {
    * @returns {string} taskId
    */
   add (task) {
+    if (this._shutdown) throw new Error('任务队列已关闭')
     const taskId = `task_${++this._idCounter}_${Date.now()}`
     const entry = {
       id: taskId,
@@ -57,7 +72,9 @@ class TaskQueue extends EventEmitter {
       startedAt: null,
       completedAt: null,
       result: null,
-      error: null
+      error: null,
+      retryOf: task.retryOf || null,
+      cancelRequested: false
     }
 
     this._queue.push(entry)
@@ -76,37 +93,80 @@ class TaskQueue extends EventEmitter {
   cancel (taskId) {
     const idx = this._queue.findIndex(t => t.id === taskId)
     if (idx === -1) {
-      // 可能已经在执行中 — 标记为 cancelled，_executeTask 会检查
+      const delayed = this._delayed.get(taskId)
+      if (delayed) {
+        clearTimeout(delayed.timer)
+        this._pendingTimers.delete(delayed.timer)
+        this._delayed.delete(taskId)
+        this._markCancelled(delayed.task, true)
+        return true
+      }
+
+      // 可能已经在执行中 — 标记为 cancelled，执行器通过 AbortSignal 协作中止
       const running = this._running.get(taskId)
       if (running) {
-        running.status = 'cancelled'
-        running.completedAt = new Date().toISOString()
-        this.emit('task:cancelled', running)
-        this._saveState()
+        this._markCancelled(running, false)
+        const controller = this._abortControllers.get(taskId)
+        if (controller && !controller.signal.aborted) controller.abort(new Error('任务已取消'))
         return true
       }
       return false
     }
     const task = this._queue.splice(idx, 1)[0]
+    this._markCancelled(task, true)
+    return true
+  }
+
+  _markCancelled (task, addToHistory) {
+    task.cancelRequested = true
     task.status = 'cancelled'
     task.completedAt = new Date().toISOString()
-    this._history.push(task)
+    if (addToHistory && !this._history.some(item => item.id === task.id)) this._history.push(task)
     this.emit('task:cancelled', task)
     this._saveState()
-    return true
+  }
+
+  /**
+   * 将失败任务以新任务 ID 重新加入队列。同一失败记录重复调用时返回
+   * 第一次创建的任务 ID，避免双击造成重复发布。
+   * @param {string} taskId
+   * @returns {string | null}
+   */
+  retry (taskId) {
+    const original = this._history.find(task => task.id === taskId)
+    if (!original || original.status !== 'failed') return null
+    if (original.retriedAs) return original.retriedAs
+
+    const retryTaskId = this.add({
+      platform: original.platform,
+      article: original.article,
+      retry: original.retry,
+      timeout: original.timeout,
+      retryOf: original.id
+    })
+    original.retriedAs = retryTaskId
+    original.retriedAt = new Date().toISOString()
+    this.emit('task:manual-retry', { original, taskId: retryTaskId })
+    this._saveState()
+    return retryTaskId
   }
 
   /**
    * 获取所有等待中的任务（用于持久化）
    */
   getPendingTasks () {
-    return this._queue.map(t => ({
+    const pending = [
+      ...this._queue,
+      ...Array.from(this._delayed.values(), entry => entry.task),
+    ]
+    return pending.map(t => ({
       id: t.id,
       platform: t.platform,
       article: t.article,
       retry: t.retry,
       timeout: t.timeout,
       retriesLeft: t.retriesLeft,
+      retryOf: t.retryOf || null,
       createdAt: t.createdAt
     }))
   }
@@ -124,6 +184,7 @@ class TaskQueue extends EventEmitter {
         retry: t.retry,
         timeout: t.timeout,
         retriesLeft: t.retriesLeft,
+        retryOf: t.retryOf || null,
         createdAt: t.createdAt,
         startedAt: t.startedAt
       }))
@@ -217,6 +278,7 @@ class TaskQueue extends EventEmitter {
    * 恢复队列
    */
   resume () {
+    if (this._shutdown) return
     this._paused = false
     this.emit('queue:resumed')
     this._processNext()
@@ -251,14 +313,14 @@ class TaskQueue extends EventEmitter {
 
   _processNext () {
     if (this._paused) return
-    if (this._running.size >= this.maxConcurrent) return
-    if (this._queue.length === 0) return
-
-    const task = this._queue.shift()
-    this._executeTask(task)
+    while (this._running.size < this.maxConcurrent && this._queue.length > 0) {
+      const task = this._queue.shift()
+      this._executeTask(task)
+    }
   }
 
   async _executeTask (task) {
+    if (task.cancelRequested || task.status === 'cancelled') return
     task.status = 'running'
     task.startedAt = new Date().toISOString()
     this._running.set(task.id, task)
@@ -275,16 +337,19 @@ class TaskQueue extends EventEmitter {
           task.startedAt = null
           this._running.delete(task.id)
           this.emit('publish:blocked', { task, remainingWait: wait })
-          this._saveState()
           // 达到等待时间后重新加入队列
           // R28/R37：保存句柄 + unref + 注册到 _pendingTimers 供 shutdown 清理
           const requeueTimer = setTimeout(() => {
             this._pendingTimers.delete(requeueTimer)
+            this._delayed.delete(task.id)
+            if (task.cancelRequested || task.status === 'cancelled') return
             this._queue.unshift(task)
             this._processNext()
           }, wait)
           if (requeueTimer && requeueTimer.unref) requeueTimer.unref()
           this._pendingTimers.add(requeueTimer)
+          this._delayed.set(task.id, { task, timer: requeueTimer })
+          this._saveState()
           return
         }
       }
@@ -293,6 +358,17 @@ class TaskQueue extends EventEmitter {
     // 创建超时 Promise
     // R28/R37：保存句柄，race 结束后立即 clearTimeout，避免任务成功后定时器驻留最长 task.timeout(180s)
     let timeoutHandle = null
+    const abortController = new AbortController()
+    this._abortControllers.set(task.id, abortController)
+    let abortHandler = null
+    const abortPromise = new Promise((_, reject) => {
+      abortHandler = () => {
+        const reason = abortController.signal.reason
+        reject(reason instanceof Error ? reason : new Error('任务已取消'))
+      }
+      if (abortController.signal.aborted) abortHandler()
+      else abortController.signal.addEventListener('abort', abortHandler, { once: true })
+    })
     const timeoutPromise = new Promise((_, reject) => {
       timeoutHandle = setTimeout(() => reject(new Error(`Task timed out after ${task.timeout}ms`)), task.timeout)
       if (timeoutHandle && timeoutHandle.unref) timeoutHandle.unref()
@@ -301,10 +377,12 @@ class TaskQueue extends EventEmitter {
     try {
       // 执行发布 (由外部注册)
       const result = await Promise.race([
-        this._runTask(task),
-        timeoutPromise
+        this._runTask(task, abortController.signal),
+        timeoutPromise,
+        abortPromise,
       ])
 
+      if (task.cancelRequested || task.status === 'cancelled') return
       task.status = 'success'
       task.result = result
       task.completedAt = new Date().toISOString()
@@ -318,6 +396,7 @@ class TaskQueue extends EventEmitter {
         }
       }
     } catch (e) {
+      if (task.cancelRequested || task.status === 'cancelled') return
       task.error = e.message
 
       if (task.retriesLeft > 0) {
@@ -335,9 +414,12 @@ class TaskQueue extends EventEmitter {
     } finally {
       // R28/R37：无论成功/失败/超时，立即清理超时定时器
       if (timeoutHandle) clearTimeout(timeoutHandle)
+      if (abortHandler) abortController.signal.removeEventListener('abort', abortHandler)
+      this._abortControllers.delete(task.id)
       this._running.delete(task.id)
       // 已完成的任务移入历史
-      if (task.status === 'success' || task.status === 'failed') {
+      if ((task.status === 'success' || task.status === 'failed' || task.status === 'cancelled') &&
+          !this._history.some(item => item.id === task.id)) {
         this._history.push(task)
       }
       this._processNext()
@@ -347,11 +429,11 @@ class TaskQueue extends EventEmitter {
   /**
    * 实际执行任务的钩子 — 由外部设置
    */
-  async _runTask (task) {
+  async _runTask (task, signal) {
     if (!this._executor) {
       throw new Error('No executor registered. Use setExecutor(fn)')
     }
-    const result = await this._executor(task)
+    const result = await this._executor(task, { signal })
     return result
   }
 

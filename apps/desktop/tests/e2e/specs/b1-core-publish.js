@@ -9,6 +9,7 @@
  */
 
 const { FunctionalRunner, assert } = require('../helpers/functional-runner');
+const { fillPublishBody } = require('../helpers/route-functional-suite');
 
 async function testHome(r) {
   console.log('\n=== Home ===');
@@ -77,7 +78,7 @@ async function testPublish(r) {
   await r.page.waitForFunction(() => {
     return (window.__ipcCallsByMethod.getPlatformDefinitions || 0) > 0 &&
       (window.__ipcCallsByMethod.licenseInfo || 0) > 0 &&
-      document.querySelectorAll('.el-checkbox-group input[type="checkbox"]').length > 0;
+      document.querySelectorAll('.target-selector [data-testid^="platform-"]').length > 0;
   }, null, { timeout: 5000 });
 
   // 切换批量模式
@@ -99,18 +100,20 @@ async function testPublish(r) {
       const checkbox = document.querySelector(selector);
       return checkbox && !checkbox.checked;
     }, batchToggleSelector, { timeout: 3000 });
-    await r.page.locator('.cohere-main input[placeholder="搜索平台..."]').waitFor({ state: 'visible', timeout: 3000 });
+    await r.page.locator('.cohere-main .target-selector__search').waitFor({ state: 'visible', timeout: 3000 });
   }
 
   const titleInput = r.page.locator('input[placeholder="请输入文章标题"]').first();
   await titleInput.fill('E2E 测试标题');
 
-  const articleEditor = r.page.locator('.article-editor .ql-editor').first();
-  await articleEditor.fill('E2E 测试正文，用于验证完整发布流程。');
+  assert(
+    await fillPublishBody(r.page, 'E2E 测试正文，用于验证完整发布流程。'),
+    '发布正文编辑器必须可填写',
+  );
 
-  const selectedPlatformSelector = '.cohere-main .el-checkbox-group input[type="checkbox"]:checked';
+  const selectedPlatformSelector = '.cohere-main .target-selector input[data-testid^="platform-"]:checked';
   const selectedPlatformCount = await r.page.locator(selectedPlatformSelector).count();
-  const platformOption = r.page.locator('.cohere-main .el-checkbox-group .el-checkbox:not(.is-disabled):not(.is-checked)').first();
+  const platformOption = r.page.locator('.cohere-main .target-selector input[data-testid^="platform-"]:not(:disabled):not(:checked)').first();
   assert(await platformOption.count() > 0, '发布页必须存在可选平台');
   await platformOption.click();
   await r.page.waitForFunction(([selector, previousCount]) => {

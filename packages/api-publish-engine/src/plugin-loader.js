@@ -23,9 +23,42 @@
 const fs = require("fs");
 const path = require("path");
 
+function resolvePluginsDir(options) {
+  options = options || {};
+  var env = options.env || process.env;
+  var explicitPath = typeof env.MULTI_PUBLISH_PLUGINS_DIR === "string"
+    ? env.MULTI_PUBLISH_PLUGINS_DIR.trim()
+    : "";
+  if (explicitPath) return path.resolve(explicitPath);
+
+  var app = options.app;
+  if (app === undefined && process.versions && process.versions.electron) {
+    try {
+      var electron = require("electron");
+      app = electron && electron.app;
+    } catch (_) {
+      app = null;
+    }
+  }
+  if (app && typeof app.getPath === "function") {
+    try {
+      var userData = app.getPath("userData");
+      if (userData) return path.join(userData, "plugins");
+    } catch (_) { /* 开发环境继续使用项目目录 */ }
+  }
+
+  var customRoot = typeof env.MULTI_PUBLISH_ROOT === "string"
+    ? env.MULTI_PUBLISH_ROOT.trim()
+    : "";
+  if (customRoot) return path.join(customRoot, "apps", "desktop", "plugins");
+
+  var moduleDir = options.moduleDir || __dirname;
+  return path.join(moduleDir, "..", "..", "..", "apps", "desktop", "plugins");
+}
+
 class PluginLoader {
-  constructor(pluginsDir) {
-    this._pluginsDir = pluginsDir || path.join(__dirname, "..", "..", "..", "apps", "desktop", "plugins");
+  constructor(pluginsDir, runtimeOptions) {
+    this._pluginsDir = pluginsDir || resolvePluginsDir(runtimeOptions);
     this._plugins = new Map();
     this._manifests = new Map();
     this._legacy = new Set();
@@ -347,4 +380,5 @@ class PluginLoader {
 
 }
 
+PluginLoader.resolvePluginsDir = resolvePluginsDir;
 module.exports = PluginLoader;

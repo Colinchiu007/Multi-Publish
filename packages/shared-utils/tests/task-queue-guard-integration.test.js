@@ -61,6 +61,22 @@ describe('TaskQueue + PublishIntervalGuard 集成', () => {
     expect(blockedEvents[0].remainingWait).toBeGreaterThan(0)
   })
 
+  test('频控等待中的任务仍可取消，等待结束后不会重新发布', async () => {
+    const guard = new PublishIntervalGuard({ minInterval: 1000 })
+    const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })
+    let executeCount = 0
+    queue.setExecutor(async () => { executeCount++; return { success: true } })
+    guard.recordPublish('wechat_mp', 'acc_001', Date.now())
+
+    const taskId = queue.add({ platform: 'wechat_mp', article: { title: 'T', accountId: 'acc_001' } })
+
+    expect(queue.cancel(taskId)).toBe(true)
+    expect(queue.getHistory().find(task => task.id === taskId)?.status).toBe('cancelled')
+    await new Promise(r => setTimeout(r, 1100))
+    expect(executeCount).toBe(0)
+    queue.shutdown()
+  })
+
   test('不同账号在同一平台不被拦截', async () => {
     const guard = new PublishIntervalGuard({ minInterval: MIN_INTERVAL })
     const queue = new TaskQueue({ defaultRetry: 0, publishIntervalGuard: guard })

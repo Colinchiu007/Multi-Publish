@@ -13,6 +13,7 @@
  */
 const path = require('path')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
+const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { getConfigPath } = require('./config-resolver')
 
 // 鈹€鈹€鈹€ 璺敱琛紙纭害鏉燂級鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -39,6 +40,43 @@ const ROUTE_TABLE = {
   // shipinhao: { mode: 'backend', timeout: 300000 },
 }
 
+function resolvePlatformArticle (task, platform) {
+  const base = task && task.article && typeof task.article === 'object' ? task.article : {}
+  const overrides = base.platformOverrides && typeof base.platformOverrides === 'object'
+    ? base.platformOverrides
+    : {}
+  const override = overrides[platform] && typeof overrides[platform] === 'object'
+    ? overrides[platform]
+    : {}
+  const resolved = {
+    base,
+    title: override.title || base.title || '',
+    content: override.content || base.content || '',
+  }
+  if (platform === 'zhihu') {
+    const declaration = Number(override.declare ?? base.declare ?? 0)
+    resolved.commentPermission = 'anyone'
+    resolved.declare = Number.isInteger(declaration) && declaration >= 0 && declaration <= 5
+      ? declaration
+      : 0
+  }
+  return resolved
+}
+
+function normalizeAuthData (credentials, platform) {
+  if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) return null
+  if (credentials.platform && credentials.platform !== platform) return null
+  const cookies = Array.isArray(credentials.cookies)
+    ? credentials.cookies.filter(cookie => cookie && typeof cookie === 'object' && typeof cookie.domain === 'string' && isPlatformCookieDomain(platform, cookie.domain))
+    : []
+  const storedLocalStorage = credentials.localStorage ?? credentials.local_storage
+  const localStorage = storedLocalStorage && typeof storedLocalStorage === 'object' && !Array.isArray(storedLocalStorage)
+    ? storedLocalStorage
+    : {}
+  if (cookies.length === 0 && Object.keys(localStorage).length === 0) return null
+  return { cookies, localStorage }
+}
+
 // 鈹€鈹€鈹€ 涓ょ Publisher 绛栫暐 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 class RpaVmPublisher {
@@ -46,47 +84,82 @@ class RpaVmPublisher {
     this.route = route
     this.rpaViewManager = deps.rpaViewManager
     this.store = deps.store
+    this.accountManager = deps.accountManager
   }
 
-  async publish (task) {
+  async publish (task, options = {}) {
     const platform = this.route.platform
+    const resolvedArticle = resolvePlatformArticle(task, platform)
 
     // 鍔犺浇璐﹀彿 Cookie
     const accountId = task.article?.accountId || task.accountId
-    const ownerSubject = typeof task.owner_subject === 'string' && task.owner_subject.trim()
-      ? task.owner_subject.trim()
-      : undefined
-    let authData = { cookies: [] }
+    let authData = { cookies: [], localStorage: {} }
     if (accountId) {
-      const account = ownerSubject === undefined
-        ? this.store.getAccount(accountId)
-        : this.store.getAccount(accountId, ownerSubject)
-      if (account?.cookies?.length > 0) {
-        authData = { cookies: account.cookies, localStorage: account.local_storage }
+      try {
+        if (this.accountManager && typeof this.accountManager.loadSavedCredentials === 'function') {
+          authData = normalizeAuthData(this.accountManager.loadSavedCredentials(accountId, platform), platform) || authData
+        }
+      } catch (_) { /* 凭证回退不得阻断 SQLite 读取 */ }
+      if (authData.cookies.length === 0 && (!authData.localStorage || Object.keys(authData.localStorage).length === 0)) {
+        const account = this.store && typeof this.store.getAccount === 'function'
+          ? this.store.getAccount(accountId)
+          : null
+        authData = normalizeAuthData(account, platform) || authData
       }
     } else {
-      const defaultAccount = ownerSubject === undefined
+      const defaultAccount = this.store && typeof this.store.getDefaultAccount === 'function'
         ? this.store.getDefaultAccount(platform)
-        : this.store.getDefaultAccount(platform, ownerSubject)
-      if (defaultAccount?.cookies) {
-        authData = { cookies: defaultAccount.cookies, localStorage: defaultAccount.local_storage }
+        : null
+      if (defaultAccount) {
+        try {
+          if (this.accountManager && typeof this.accountManager.loadSavedCredentials === 'function') {
+            authData = normalizeAuthData(this.accountManager.loadSavedCredentials(defaultAccount.id, platform), platform) || authData
+          }
+        } catch (_) { /* 凭证回退不得阻断 SQLite 读取 */ }
+        if (authData.cookies.length === 0 && (!authData.localStorage || Object.keys(authData.localStorage).length === 0)) {
+          const storeAuthData = normalizeAuthData(defaultAccount, platform)
+          if (storeAuthData) authData = storeAuthData
+        }
       }
     }
 
     const article = {
-      title: task.article?.title || '',
-      content: task.article?.content || '',
-      video_path: task.article?.video_path || (task.article?.media_paths?.[0] ?? null),
-      cover_path: task.article?.cover_url || task.article?.cover_path || null,
-      tags: task.article?.tags || [],
-      draft: task.article?.draft || false,
+      accountId: accountId || null,
+      title: resolvedArticle.title,
+      content: resolvedArticle.content,
+      video_path: resolvedArticle.base.video_path || (resolvedArticle.base.media_paths?.[0] ?? null),
+      cover_path: resolvedArticle.base.cover_url || resolvedArticle.base.cover_path || null,
+      tags: resolvedArticle.base.tags || [],
+      draft: resolvedArticle.base.draft || false,
+      ...(platform === 'zhihu'
+        ? {
+            commentPermission: resolvedArticle.commentPermission,
+            declare: resolvedArticle.declare,
+          }
+        : {}),
     }
 
-    const result = await this.rpaViewManager.publish(platform, article, authData, this.route.timeout)
-    if (result.success) {
-      return { success: true, url: result.url || '', postId: task.id, platform }
+    const signal = options && options.signal
+    if (signal?.aborted) throw new Error('任务已取消')
+    const onAbort = () => {
+      if (this.rpaViewManager && typeof this.rpaViewManager.cancel === 'function') {
+        try {
+          Promise.resolve(this.rpaViewManager.cancel(platform, accountId)).catch(() => {})
+        } catch (_) { /* 取消清理不得覆盖任务取消结果 */ }
+      }
     }
-    throw new Error(result.error || 'RPA 鍙戝竷澶辫触')
+    signal?.addEventListener('abort', onAbort, { once: true })
+    try {
+      const result = await this.rpaViewManager.publish(platform, article, authData, this.route.timeout)
+      // 发布器可能在 await 期间收到取消信号，成功响应不能覆盖取消语义。
+      if (signal?.aborted) throw new Error('任务已取消')
+      if (result.success) {
+        return { success: true, url: result.url || '', postId: task.id, platform }
+      }
+      throw new Error(result.error || 'RPA 鍙戝竷澶辫触')
+    } finally {
+      signal?.removeEventListener('abort', onAbort)
+    }
   }
 }
 
@@ -98,16 +171,23 @@ class BackendPublisher {
 
   async publish (task) {
     const platform = this.route.platform
+    const resolvedArticle = resolvePlatformArticle(task, platform)
     const body = {
-      title: task.article?.title || '',
-      content: task.article?.content || '',
+      title: resolvedArticle.title,
+      content: resolvedArticle.content,
       platform,
-      media_paths: task.article?.video_path
-        ? [task.article.video_path]
-        : (task.article?.media_paths || []),
-      cover_path: task.article?.cover_url || task.article?.cover_path || null,
-      tags: task.article?.tags || [],
-      draft: task.article?.draft || false,
+      media_paths: resolvedArticle.base.video_path
+        ? [resolvedArticle.base.video_path]
+        : (resolvedArticle.base.media_paths || []),
+      cover_path: resolvedArticle.base.cover_url || resolvedArticle.base.cover_path || null,
+      tags: resolvedArticle.base.tags || [],
+      draft: resolvedArticle.base.draft || false,
+      ...(platform === 'zhihu'
+        ? {
+            commentPermission: resolvedArticle.commentPermission,
+            declare: resolvedArticle.declare,
+          }
+        : {}),
     }
 
     const result = await this.pythonBridge.requestBackend('POST', '/api/publish', body)

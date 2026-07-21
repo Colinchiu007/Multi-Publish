@@ -3,9 +3,10 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
+const { createHarness } = require('./harness');
 
-let p=0,f=0;
-function t(n,fn){try{fn();p++;console.log('  \u2705 '+n)}catch(e){f++;console.log('  \u274C '+n+': '+e.message)}}
+const harness = createHarness({ successMark: '\u2705', failureMark: '\u274C' });
+const t = harness.test;
 function eq(a,b){assert.deepStrictEqual(a,b)}
 
 function waitForPort(port, timeout) {
@@ -57,5 +58,4 @@ t('uses custom port', async function() {
   proc.kill();
 });
 
-console.log('\n========== Result: '+p+'/'+(p+f)+' ==========');
-if(f)process.exit(1);
+harness.run();

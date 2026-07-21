@@ -8,10 +8,11 @@ import type { IpcMain, BrowserWindow } from "electron";
 /** IPC Handler 依赖 */
 export interface IpcHandlerDeps {
   taskQueue: {
-    add: (opts: { platform: string; article: unknown; retry: number; timeout: number; accountId?: string | null }) => string;
+    add: (opts: { platform: string; article: unknown; retry?: number; timeout?: number; accountId?: string | null }) => string;
     getStatus: () => unknown;
     getHistory: () => unknown;
     cancel: (id: string) => boolean;
+    retry: (id: string) => string | null;
   };
   store: {
     get: (key: string) => unknown;

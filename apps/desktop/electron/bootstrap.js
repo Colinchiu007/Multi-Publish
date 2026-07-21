@@ -69,8 +69,9 @@ function createAppContext() {
 
   // 保留原位：taskQueue.setExecutor 闭包（依赖 getMainWin + publisherRouter + rpaViewManager，高风险）
   const { taskQueue, publisherRouter, rpaViewManager, store,
-    history, publishMonitor, publishImpactTracker } = ctx
-  taskQueue.setExecutor(async (task) => {
+    history, publishMonitor, publishImpactTracker, AccountManager } = ctx
+  taskQueue.setExecutor(async (task, context = {}) => {
+    if (context.signal?.aborted) throw new Error('任务已取消')
     const platform = task.platform
     const emitProgress = (stage) => {
       const win = getMainWin()
@@ -80,11 +81,11 @@ function createAppContext() {
     }
     emitProgress('准备发布...')
     const publisher = publisherRouter.createPublisher(platform, {
-      rpaViewManager, store, pythonBridge,
+      rpaViewManager, store, pythonBridge, accountManager: AccountManager,
     })
     rpaViewManager.onProgress(({ stage }) => { emitProgress(stage) })
     try {
-      const result = await publisher.publish(task)
+      const result = await publisher.publish(task, { signal: context.signal })
       emitProgress('✓ 发布成功')
       return result
     } catch (e) {

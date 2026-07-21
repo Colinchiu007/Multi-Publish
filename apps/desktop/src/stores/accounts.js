@@ -1,14 +1,17 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { listAccounts, accountDelete, accountSetDefault, accountUpdate } from '@/api/publisher'
+import { usePlatformStore } from '@/stores/platforms'
 
 /**
  * 账号管理 Store（增强版 - 蚁小二复用）
  * 支持：按平台分组展示、账号分组管理、批量操作、搜索过滤、排序
  */
 export const useAccountStore = defineStore('accounts', () => {
+  const platformStore = usePlatformStore()
   const accounts = ref([])
   const groups = ref([])
+  const favoriteIds = ref(new Set())
   const loading = ref(false)
   const error = ref(null)
 
@@ -23,17 +26,22 @@ export const useAccountStore = defineStore('accounts', () => {
   async function load() {
     loading.value = true
     error.value = null
+    let shouldReconcileMetadata = false
     try {
       const res = await listAccounts()
       if (res && res.code === 0 && Array.isArray(res.data)) {
         accounts.value = res.data
+        shouldReconcileMetadata = true
       } else if (Array.isArray(res)) {
         accounts.value = res
+        shouldReconcileMetadata = true
       } else {
         accounts.value = []
       }
       reconcileSelection()
       loadGroups()
+      loadFavorites()
+      if (shouldReconcileMetadata) reconcileAccountMetadata()
     } catch (e) {
       error.value = e.message
       accounts.value = []
@@ -60,10 +68,13 @@ export const useAccountStore = defineStore('accounts', () => {
       result = result.filter(acc =>
         (acc.name || '').toLowerCase().includes(q) ||
         (acc.account_name || '').toLowerCase().includes(q) ||
-        (acc.platform || '').toLowerCase().includes(q)
+        (acc.platform || '').toLowerCase().includes(q) ||
+        String(platformStore.getLabel(acc.platform) || '').toLowerCase().includes(q)
       )
     }
-    if (filterStatus.value !== 'all') {
+    if (filterStatus.value === 'favorite') {
+      result = result.filter(acc => favoriteIds.value.has(acc.id))
+    } else if (filterStatus.value !== 'all') {
       result = result.filter(acc => {
         if (filterStatus.value === 'active') return acc.status === 'active' || acc.status === 'online'
         return acc.status !== 'active' && acc.status !== 'online'
@@ -119,14 +130,49 @@ export const useAccountStore = defineStore('accounts', () => {
   function loadGroups() {
     try {
       const raw = localStorage.getItem('mp_account_groups')
-      groups.value = raw ? JSON.parse(raw) : []
+      const parsed = raw ? JSON.parse(raw) : []
+      if (!Array.isArray(parsed)) {
+        groups.value = []
+        return
+      }
+      let migrated = false
+      groups.value = parsed.map(group => {
+        const platformFilter = group.platformFilter || null
+        let accountIds = group.accountIds
+        if (!Array.isArray(accountIds)) {
+          accountIds = accounts.value
+            .filter(account => !platformFilter || account.platform === platformFilter)
+            .map(account => account.id)
+          migrated = true
+        }
+        return {
+          ...group,
+          platformFilter,
+          accountIds: Array.from(new Set(accountIds)),
+        }
+      })
+      if (migrated) saveGroups()
     } catch { groups.value = [] }
   }
   function saveGroups() {
-    localStorage.setItem('mp_account_groups', JSON.stringify(groups.value))
+    try {
+      localStorage.setItem('mp_account_groups', JSON.stringify(groups.value))
+      return true
+    } catch {
+      return false
+    }
   }
-  function createGroup(name, platformFilter) {
-    const group = { id: 'grp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8), name, platformFilter: platformFilter || null }
+  function createGroup(name, platformFilter, accountIds = []) {
+    const normalizedPlatform = platformFilter || null
+    const validIds = new Set(accounts.value
+      .filter(account => !normalizedPlatform || account.platform === normalizedPlatform)
+      .map(account => account.id))
+    const group = {
+      id: 'grp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+      name,
+      platformFilter: normalizedPlatform,
+      accountIds: Array.from(new Set(accountIds.filter(id => validIds.has(id)))),
+    }
     groups.value.push(group)
     saveGroups()
     return group
@@ -138,8 +184,72 @@ export const useAccountStore = defineStore('accounts', () => {
   function getGroupAccounts(groupId) {
     const group = groups.value.find(g => g.id === groupId)
     if (!group) return []
-    if (group.platformFilter) return accounts.value.filter(a => a.platform === group.platformFilter)
-    return [...accounts.value]
+    const memberIds = new Set(group.accountIds || [])
+    return accounts.value.filter(account =>
+      memberIds.has(account.id) && (!group.platformFilter || account.platform === group.platformFilter)
+    )
+  }
+  function isAccountInGroup(groupId, accountId) {
+    const group = groups.value.find(item => item.id === groupId)
+    return Boolean(group && Array.isArray(group.accountIds) && group.accountIds.includes(accountId))
+  }
+  function toggleAccountInGroup(groupId, accountId) {
+    const group = groups.value.find(item => item.id === groupId)
+    const account = accounts.value.find(item => item.id === accountId)
+    if (!group || !account || (group.platformFilter && account.platform !== group.platformFilter)) return false
+    const next = new Set(group.accountIds || [])
+    if (next.has(accountId)) next.delete(accountId)
+    else next.add(accountId)
+    group.accountIds = Array.from(next)
+    saveGroups()
+    return true
+  }
+
+  function loadFavorites() {
+    try {
+      const raw = localStorage.getItem('mp_account_favorites')
+      const parsed = raw ? JSON.parse(raw) : []
+      favoriteIds.value = new Set(Array.isArray(parsed) ? parsed : [])
+    } catch {
+      favoriteIds.value = new Set()
+    }
+  }
+  function saveFavorites() {
+    try {
+      localStorage.setItem('mp_account_favorites', JSON.stringify(Array.from(favoriteIds.value)))
+      return true
+    } catch {
+      return false
+    }
+  }
+  function isFavorite(accountId) {
+    return favoriteIds.value.has(accountId)
+  }
+  function toggleFavorite(accountId) {
+    if (!accounts.value.some(account => account.id === accountId)) return false
+    const next = new Set(favoriteIds.value)
+    if (next.has(accountId)) next.delete(accountId)
+    else next.add(accountId)
+    favoriteIds.value = next
+    saveFavorites()
+    return true
+  }
+  function reconcileAccountMetadata() {
+    const validIds = new Set(accounts.value.map(account => account.id))
+    const nextFavorites = new Set(Array.from(favoriteIds.value).filter(id => validIds.has(id)))
+    if (nextFavorites.size !== favoriteIds.value.size) {
+      favoriteIds.value = nextFavorites
+      saveFavorites()
+    }
+    let groupsChanged = false
+    for (const group of groups.value) {
+      const nextIds = (group.accountIds || []).filter(id => validIds.has(id))
+      if (nextIds.length !== (group.accountIds || []).length) {
+        group.accountIds = nextIds
+        groupsChanged = true
+      }
+    }
+    if (groupsChanged) saveGroups()
   }
 
   function toggleSelect(accountId) {
@@ -148,10 +258,13 @@ export const useAccountStore = defineStore('accounts', () => {
     selectedIds.value = new Set(selectedIds.value)
     syncAllSelected()
   }
-  function selectAll() {
-    const visibleIds = filteredAccounts.value.map(account => account.id)
+  function selectAll(accountIds) {
+    const visibleIds = Array.isArray(accountIds)
+      ? Array.from(new Set(accountIds))
+      : filteredAccounts.value.map(account => account.id)
     const next = new Set(selectedIds.value)
-    if (isAllSelected.value) visibleIds.forEach(id => next.delete(id))
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => next.has(id))
+    if (allVisibleSelected) visibleIds.forEach(id => next.delete(id))
     else visibleIds.forEach(id => next.add(id))
     selectedIds.value = next
     syncAllSelected()
@@ -160,8 +273,10 @@ export const useAccountStore = defineStore('accounts', () => {
     selectedIds.value = new Set()
     isAllSelected.value = false
   }
-  async function batchDelete() {
-    const ids = Array.from(selectedIds.value)
+  async function batchDelete(accountIds) {
+    const ids = Array.isArray(accountIds)
+      ? Array.from(new Set(accountIds)).filter(id => selectedIds.value.has(id))
+      : Array.from(selectedIds.value)
     let success = 0, failed = 0
     for (const id of ids) {
       try {
@@ -193,6 +308,8 @@ export const useAccountStore = defineStore('accounts', () => {
     return list.find(a => a.is_default) || list[0]
   }
   async function setDefault(accountId, platform) {
+    const account = accounts.value.find(item => item.id === accountId)
+    if (!account || account.platform !== platform) return { code: -2, message: '账号不属于指定平台' }
     try { const res = await accountSetDefault(platform, accountId); if (res.code === 0) await load(); return res }
     catch (e) { return { code: -1, message: e.message } }
   }
@@ -202,10 +319,11 @@ export const useAccountStore = defineStore('accounts', () => {
   }
 
   return {
-    accounts, groups, loading, error, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
+    accounts, groups, favoriteIds, loading, error, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
     byPlatform, filteredAccounts, groupedByPlatform,
-    load, loadGroups, getDefault, setDefault, renameAccount,
-    createGroup, deleteGroup, getGroupAccounts,
+    load, loadGroups, loadFavorites, getDefault, setDefault, renameAccount,
+    createGroup, deleteGroup, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,
+    isFavorite, toggleFavorite,
     toggleSelect, selectAll, clearSelection, batchDelete, batchSetStatus,
   }
 })

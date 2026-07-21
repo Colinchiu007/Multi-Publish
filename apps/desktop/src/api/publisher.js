@@ -11,6 +11,17 @@ export async function publishBatch(platforms, article) { return invokeWithFallba
 
 export function onProgress(callback) { return bridgeOn("Progress", callback) }
 
+// ─── AI 写作 API ──────────────────────────
+export async function modelProviderIsConfigured(category) { return invokeWithFallback("modelProviderIsConfigured", { code: -1, data: false }, category) }
+
+export async function aiIsConfigured() { return invokeWithFallback("aiIsConfigured", { code: -1, data: false }) }
+
+export async function aiGenerateTitles(topic) { return invokeWithFallback("aiGenerateTitles", { code: -1, data: [] }, topic) }
+
+export async function aiEnhanceContent(content, style) { return invokeWithFallback("aiEnhanceContent", { code: -1, data: "" }, content, style) }
+
+export async function aiGenerateSummary(content) { return invokeWithFallback("aiGenerateSummary", { code: -1, data: "" }, content) }
+
 // ─── 队列 API ─────────────────────────────
 export async function getQueueStatus () {
   return invokeWithFallback("getQueueStatus", {})
@@ -19,6 +30,8 @@ export async function getQueueStatus () {
 export async function getQueueHistory() { return invokeWithFallback("getQueueHistory", {  code: 0, data: []  }) }
 
 export async function cancelTask(taskId) { return invokeWithFallback("cancelTask", {  code: -1  }, taskId) }
+
+export async function retryTask(taskId) { return invokeWithFallback("retryTask", { code: -1 }, taskId) }
 
 // ─── 发布历史 API ─────────────────────────
 export async function historyList (opts) {
@@ -59,6 +72,8 @@ export async function accountUpdate (id, fields) {
 // ─── 内嵌浏览器登录 API ──────────────────
 export async function authOpenLogin(platform) { return invokeWithFallback("authOpenLogin", {  code: -1  }, platform) }
 
+export async function authCompleteLogin() { return invokeWithFallback("authCompleteLogin", { code: -1, message: 'electronAPI not available' }) }
+
 export async function authClose () {
   return invoke("authClose")
 }
@@ -68,6 +83,21 @@ export function onAuthViewOpened(callback) { return bridgeOn("AuthViewOpened", c
 export function onAuthCompleted(callback) { return bridgeOn("AuthCompleted", callback) }
 
 export function onAuthViewClosed(callback) { return bridgeOn("AuthViewClosed", callback) }
+
+// ─── 扫码登录与账号状态事件 ────────────────
+export async function authOpenQrCodeLogin(platform) { return invokeWithFallback("authOpenQrCodeLogin", { code: -1 }, platform) }
+
+export async function authQrCodeClose() { return invokeWithFallback("authQrCodeClose", { code: -1 }) }
+
+export function onQrCodeOpened(callback) { return bridgeOn("QrCodeOpened", callback) }
+
+export function onQrCodeDetected(callback) { return bridgeOn("QrCodeDetected", callback) }
+
+export function onQrCodeCompleted(callback) { return bridgeOn("QrCodeCompleted", callback) }
+
+export function onQrCodeClosed(callback) { return bridgeOn("QrCodeClosed", callback) }
+
+export function onAccountStatusChanged(callback) { return bridgeOn("AccountStatusChanged", callback) }
 
 // ─── 渲染 API ────────────────────────────
 export async function renderStart(data) { return invoke("renderStart", data) }
@@ -211,6 +241,12 @@ export function onOAuthCompleted(callback) { return bridgeOn("OAuthCompleted", c
 
 // ─── 批量发布 API ─────────────────────────
 export async function batchCreate(batch) { return invokeWithFallback("batchCreate", {  code: -1  }, batch) }
+
+export async function batchExecute(id) { return invokeWithFallback("batchExecute", { code: -1 }, id) }
+
+export async function batchSchedule(id) { return invokeWithFallback("batchSchedule", { code: -1 }, id) }
+
+export async function batchGet(id) { return invokeWithFallback("batchGet", { code: -1 }, id) }
 
 export async function batchList() { return invokeWithFallback("batchList", {  code: 0, data: []  }) }
 

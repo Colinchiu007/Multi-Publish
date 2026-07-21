@@ -77,10 +77,10 @@ class VisualTestRunner {
     this._loadMeta();
   }
 
-  async _navigateToRoute(route, readySelector, expectedRoute = route) {
+  async _navigateToRoute(route, readySelector, expectedRoute = route, destinationUrl = null) {
     const normalizedBase = this.url.replace(/\/$/, '');
     const expectedHash = '#' + expectedRoute;
-    await this.page.goto(`${normalizedBase}/#${route}`, {
+    await this.page.goto(destinationUrl || `${normalizedBase}/#${route}`, {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
     });

@@ -2,6 +2,7 @@ const http = require("http");
 const assert = require("assert");
 const path = require("path");
 const fs = require("fs");
+const { createHarness } = require('./harness');
 const TEST_KEYS = __dirname + "/.test-open-api-keys.json";
 try { fs.unlinkSync(TEST_KEYS); } catch(e) {}
 
@@ -9,8 +10,8 @@ var mod;
 try { mod = require("../src/publish-api-server"); } catch(e) { mod = null; }
 var PublishApiServer = mod ? mod.PublishApiServer : null;
 
-let p=0,f=0;
-function t(n,fn){ try{fn();p++;console.log("  \u2705 "+n)}catch(e){f++;console.log("  \u274C "+n+": "+e.message)} }
+const harness = createHarness({ successMark: '\u2705', failureMark: '\u274C' });
+const t = harness.test;
 function eq(a,b){ assert.deepStrictEqual(a,b) }
 function ok(v,msg){ assert.ok(v, msg) }
 
@@ -144,5 +145,4 @@ t("Server health includes version and platform count", async function() {
   await server.stop();
 });
 
-console.log("\n========== Result: "+p+"/"+(p+f)+" ==========");
-if(f) process.exit(1);
+harness.run();

@@ -9,6 +9,16 @@ function getApi() {
   return (typeof window !== "undefined" && window.electronAPI) || null;
 }
 
+function toPlainIpcValue(value) {
+  if (value === null || typeof value !== "object") return value;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    throw new TypeError(`IPC 参数必须是可序列化的纯 JSON 对象: ${message}`);
+  }
+}
+
 /**
  * 调用 Electron IPC 方法
  * @param {string} method electronAPI 上的方法名
@@ -18,7 +28,7 @@ function getApi() {
 export async function invoke(method, ...args) {
   const api = getApi();
   if (!api || typeof api[method] !== "function") return undefined;
-  return api[method](...args);
+  return api[method](...args.map(toPlainIpcValue));
 }
 
 /**

@@ -17,6 +17,9 @@ vi.mock("@/stores/platforms", () => ({
     ],
     getLabel: (k) => ({ wechat_mp: "微信", zhihu: "知乎" }[k] || k),
     getIcon: () => "ἱ0",
+    getCategory: () => "国内",
+    getDashboardUrl: () => "",
+    supportsQrCode: () => false,
   })
 }));
 
@@ -32,14 +35,32 @@ vi.mock("@/stores/accounts", () => ({
       wechat_mp: [{ id: "a1", platform: "wechat_mp", name: "MP1", status: "active" }],
       zhihu: [{ id: "a2", platform: "zhihu", name: "Zhihu1", status: "inactive" }],
     },
+    groupedByPlatform: [
+      {
+        platform: "wechat_mp",
+        accounts: [{ id: "a1", platform: "wechat_mp", name: "MP1", status: "active" }],
+        activeCount: 1,
+        inactiveCount: 0,
+      },
+      {
+        platform: "zhihu",
+        accounts: [{ id: "a2", platform: "zhihu", name: "Zhihu1", status: "inactive" }],
+        activeCount: 0,
+        inactiveCount: 1,
+      },
+    ],
     
       searchQuery: "",
+      filterStatus: "all",
       selectedIds: new Set(),
+      favoriteIds: new Set(),
       groups: [],
       loadGroups: vi.fn(),
       toggleSelect: vi.fn(),
       selectAll: vi.fn(),
       clearSelection: vi.fn(),
+      toggleFavorite: vi.fn(),
+      toggleAccountInGroup: vi.fn(),
       batchDelete: vi.fn().mockResolvedValue({ code: 0 }),
       createGroup: vi.fn(),
       deleteGroup: vi.fn(),
@@ -62,7 +83,26 @@ vi.mock("element-plus", () => ({
   ElMessageBox: { confirm: vi.fn() }
 }));
 
-vi.mock("@element-plus/icons-vue", () => ({ UploadFilled: { template: "<span>U</span>" } }));
+vi.mock("@element-plus/icons-vue", () => {
+  const Icon = { template: "<span />" };
+  return {
+    AccountGroupManager: Icon,
+    Cellphone: Icon,
+    CircleCheck: Icon,
+    Close: Icon,
+    Delete: Icon,
+    FolderOpened: Icon,
+    Link: Icon,
+    Monitor: Icon,
+    Plus: Icon,
+    Refresh: Icon,
+    Search: Icon,
+    Star: Icon,
+    StarFilled: Icon,
+    UploadFilled: Icon,
+    UserFilled: Icon,
+  };
+});
 
 async function setupView(path) {
   const mod = await import("./" + path);

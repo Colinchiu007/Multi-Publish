@@ -13,9 +13,7 @@
  *   - 保存账号信息（昵称、头像等）
  *   - 使用 AES-256-GCM 加密存储
  * 
- * 文件路径:
- *   legacy: {userData}/credentials/{accountId}.json.enc
- *   Logto:  {userData}/credentials/owners/{sha256(sub)}/{accountId}.json.enc
+ * 文件路径: {userData}/credentials/{accountId}.json.enc
  */
 const fs = require('fs')
 const path = require('path')
@@ -27,6 +25,71 @@ const KEY_LENGTH = 32
 const IV_LENGTH = 16
 const TAG_LENGTH = 16
 const SALT_LENGTH = 32
+const SAFE_STORAGE_PREFIX = 'safeStorage:v1:'
+const PLAINTEXT_PREFIX = 'plaintext:v1:'
+const MASTER_KEY_PATTERN = /^[0-9a-f]{64}$/i
+
+function validateMasterKey (masterKey) {
+  if (typeof masterKey !== 'string' || !MASTER_KEY_PATTERN.test(masterKey)) {
+    throw new Error('主密钥格式无效')
+  }
+  return masterKey
+}
+
+function resolveSafeStorage (options = {}) {
+  if (Object.prototype.hasOwnProperty.call(options, 'safeStorage')) return options.safeStorage
+  try {
+    const electron = require('electron')
+    return electron && electron.safeStorage
+  } catch (_) {
+    return null
+  }
+}
+
+function canUseSafeStorage (safeStorage) {
+  try {
+    return Boolean(
+      safeStorage &&
+      typeof safeStorage.isEncryptionAvailable === 'function' &&
+      safeStorage.isEncryptionAvailable() &&
+      typeof safeStorage.encryptString === 'function' &&
+      typeof safeStorage.decryptString === 'function'
+    )
+  } catch (_) {
+    return false
+  }
+}
+
+function encodeMasterKey (masterKey, safeStorage) {
+  if (canUseSafeStorage(safeStorage)) {
+    return SAFE_STORAGE_PREFIX + safeStorage.encryptString(masterKey).toString('base64')
+  }
+  throw new Error('系统凭据保护不可用，拒绝创建明文主密钥')
+}
+
+function decodeMasterKey (serialized, safeStorage) {
+  const value = String(serialized || '').trim()
+  if (value.startsWith(SAFE_STORAGE_PREFIX)) {
+    if (!canUseSafeStorage(safeStorage)) throw new Error('系统凭据保护不可用，无法解密主密钥')
+    return validateMasterKey(safeStorage.decryptString(Buffer.from(value.slice(SAFE_STORAGE_PREFIX.length), 'base64')))
+  }
+  if (value.startsWith(PLAINTEXT_PREFIX)) return validateMasterKey(value.slice(PLAINTEXT_PREFIX.length))
+  return validateMasterKey(value)
+}
+
+function writeMasterKeyFiles (keyFile, masterKey, safeStorage) {
+  const serialized = encodeMasterKey(masterKey, safeStorage)
+  const tmpPath = keyFile + '.tmp.' + process.pid
+  fs.writeFileSync(tmpPath, serialized, 'utf8')
+  fs.renameSync(tmpPath, keyFile)
+  try { fs.chmodSync(keyFile, 0o600) } catch (_) { /* Windows 由 safeStorage 保护 */ }
+
+  const backupPath = keyFile + '.bak'
+  const backupTmpPath = backupPath + '.tmp.' + process.pid
+  fs.writeFileSync(backupTmpPath, serialized, 'utf8')
+  fs.renameSync(backupTmpPath, backupPath)
+  try { fs.chmodSync(backupPath, 0o600) } catch (_) { /* Windows 由 safeStorage 保护 */ }
+}
 
 /**
  * 派生 AES-256 密钥
@@ -38,27 +101,45 @@ function deriveKey (masterKey, salt) {
 /**
  * 获取或创建主密钥
  */
-function getMasterKey (credDir) {
+function getMasterKey (credDir, options = {}) {
   const keyFile = path.join(credDir, '.masterkey')
-  let masterKey
-  if (fs.existsSync(keyFile)) {
-    masterKey = fs.readFileSync(keyFile, 'utf8').trim()
-  } else {
-    masterKey = crypto.randomBytes(32).toString('hex')
-    fs.mkdirSync(credDir, { recursive: true })
-    // 修复 P5：主密钥原子写（原 writeFileSync 中断会导致所有凭证永久不可解密）
-    const tmpPath = keyFile + '.tmp'
-    fs.writeFileSync(tmpPath, masterKey, 'utf8')
-    fs.renameSync(tmpPath, keyFile)
-    // 安全：限制主密钥文件权限为 600（仅所有者可读写）
-    try { fs.chmodSync(keyFile, 0o600) } catch (e) { /* Windows 无效，忽略 */ }
-    // 备份主密钥（双副本，防止单文件损坏导致全部凭证不可解密）
+  const backupFile = keyFile + '.bak'
+  const safeStorage = resolveSafeStorage(options)
+  fs.mkdirSync(credDir, { recursive: true })
+
+  const candidates = [keyFile, backupFile].filter(file => fs.existsSync(file))
+  let sourceFile = null
+  let serialized = null
+  let loadedMasterKey = null
+  let lastError = null
+  for (const candidate of candidates) {
     try {
-      const bakPath = keyFile + '.bak'
-      fs.writeFileSync(bakPath, masterKey, 'utf8')
-      try { fs.chmodSync(bakPath, 0o600) } catch (e) { /* ignore */ }
-    } catch (e) { /* best-effort backup */ }
+      const candidateSerialized = fs.readFileSync(candidate, 'utf8').trim()
+      const candidateMasterKey = decodeMasterKey(candidateSerialized, safeStorage)
+      sourceFile = candidate
+      serialized = candidateSerialized
+      loadedMasterKey = candidateMasterKey
+      break
+    } catch (error) {
+      lastError = error
+    }
   }
+  if (sourceFile) {
+    const protectedStorageAvailable = canUseSafeStorage(safeStorage)
+    const needsMigration = sourceFile !== keyFile || !serialized.startsWith(SAFE_STORAGE_PREFIX)
+    if (needsMigration && protectedStorageAvailable) {
+      writeMasterKeyFiles(keyFile, loadedMasterKey, safeStorage)
+    } else if (!serialized.startsWith(SAFE_STORAGE_PREFIX) && !protectedStorageAvailable) {
+      log.warn('CredentialStore', '系统凭据保护不可用，继续使用已校验的历史主密钥')
+    }
+    return loadedMasterKey
+  }
+  if (lastError) {
+    throw lastError
+  }
+
+  const masterKey = crypto.randomBytes(32).toString('hex')
+  writeMasterKeyFiles(keyFile, masterKey, safeStorage)
   return masterKey
 }
 
@@ -104,27 +185,7 @@ function decryptData (payload, masterKey) {
  * 获取凭证存储目录
  */
 function getCredentialDir (userDataDir) {
-  if (!userDataDir || typeof userDataDir !== 'string') throw new TypeError('userDataDir must be a non-empty string')
   return path.join(userDataDir, 'credentials')
-}
-
-function normalizeOwnerSubject (ownerSubject) {
-  if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
-    throw new TypeError('ownerSubject must be a non-empty string')
-  }
-  return ownerSubject.trim()
-}
-
-function getOwnerCredentialDir (userDataDir, ownerSubject) {
-  const subject = normalizeOwnerSubject(ownerSubject)
-  const namespace = crypto.createHash('sha256').update(subject, 'utf8').digest('hex')
-  return path.join(getCredentialDir(userDataDir), 'owners', namespace)
-}
-
-function getCredentialNamespaceDir (userDataDir, ownerSubject) {
-  return ownerSubject === undefined
-    ? getCredentialDir(userDataDir)
-    : getOwnerCredentialDir(userDataDir, ownerSubject)
 }
 
 /**
@@ -148,22 +209,22 @@ function getCredentialFilePath (accountId, credDir) {
  * }
  * @param {string} userDataDir
  */
-function saveCredential (accountId, data, userDataDir, ownerSubject) {
+function saveCredential (accountId, data, userDataDir, options = {}) {
   try {
-    const rootCredentialDir = getCredentialDir(userDataDir)
-    const credDir = getCredentialNamespaceDir(userDataDir, ownerSubject)
-    const masterKey = getMasterKey(rootCredentialDir)
+    const credDir = getCredentialDir(userDataDir)
+    const masterKey = getMasterKey(credDir, options)
     const payload = encryptData(JSON.stringify(data), masterKey)
 
     const filePath = getCredentialFilePath(accountId, credDir)
-    fs.mkdirSync(path.dirname(filePath), { recursive: true })
     // 安全：原子写（写临时文件后 rename），防止崩溃中断损坏凭证文件
     const tmpPath = filePath + '.tmp.' + process.pid
     fs.writeFileSync(tmpPath, payload)
     fs.renameSync(tmpPath, filePath)
     log.info('CredentialStore', `Saved credentials for account: ${accountId}`)
+    return true
   } catch (e) {
     log.error('CredentialStore', `Failed to save credentials for ${accountId}: ${e.message}`)
+    return false
   }
 }
 
@@ -174,15 +235,14 @@ function saveCredential (accountId, data, userDataDir, ownerSubject) {
  * @param {string} userDataDir
  * @returns {object|null} {localStorage, accountInfo} 或 null
  */
-function loadCredential (accountId, userDataDir, ownerSubject) {
+function loadCredential (accountId, userDataDir, options = {}) {
   try {
-    const rootCredentialDir = getCredentialDir(userDataDir)
-    const credDir = getCredentialNamespaceDir(userDataDir, ownerSubject)
+    const credDir = getCredentialDir(userDataDir)
     const filePath = getCredentialFilePath(accountId, credDir)
     
     if (!fs.existsSync(filePath)) return null
     
-    const masterKey = getMasterKey(rootCredentialDir)
+    const masterKey = getMasterKey(credDir, options)
     const payload = fs.readFileSync(filePath)
     return decryptData(payload, masterKey)
   } catch (e) {
@@ -194,9 +254,9 @@ function loadCredential (accountId, userDataDir, ownerSubject) {
 /**
  * 删除账号凭证
  */
-function deleteCredential (accountId, userDataDir, ownerSubject) {
+function deleteCredential (accountId, userDataDir) {
   try {
-    const credDir = getCredentialNamespaceDir(userDataDir, ownerSubject)
+    const credDir = getCredentialDir(userDataDir)
     const filePath = getCredentialFilePath(accountId, credDir)
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath)
@@ -213,9 +273,9 @@ function deleteCredential (accountId, userDataDir, ownerSubject) {
 /**
  * 列出所有已保存凭证的账号
  */
-function listAccounts (userDataDir, ownerSubject) {
+function listAccounts (userDataDir) {
   try {
-    const credDir = getCredentialNamespaceDir(userDataDir, ownerSubject)
+    const credDir = getCredentialDir(userDataDir)
     if (!fs.existsSync(credDir)) return []
     
     return fs.readdirSync(credDir)
@@ -230,8 +290,8 @@ function listAccounts (userDataDir, ownerSubject) {
 /**
  * 检查账号是否有凭证
  */
-function hasCredential (accountId, userDataDir, ownerSubject) {
-  const credDir = getCredentialNamespaceDir(userDataDir, ownerSubject)
+function hasCredential (accountId, userDataDir) {
+  const credDir = getCredentialDir(userDataDir)
   return fs.existsSync(getCredentialFilePath(accountId, credDir))
 }
 
@@ -239,7 +299,6 @@ module.exports = {
   getMasterKey,
   getCredentialFilePath,
   getCredentialDir,
-  getOwnerCredentialDir,
   saveCredential,
   loadCredential,
   deleteCredential,

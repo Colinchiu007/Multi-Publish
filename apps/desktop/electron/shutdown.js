@@ -49,6 +49,9 @@ async function performShutdown(context) {
   await runCleanup('Error stopping impact tracker:', () => {
     if (publishImpactTracker && publishImpactTracker.stopAll) return publishImpactTracker.stopAll()
   })
+  await runCleanup('Error stopping task queue:', () => {
+    if (taskQueue && taskQueue.shutdown) return taskQueue.shutdown()
+  })
   await runCleanup('Error stopping comment manager:', () => {
     if (commentManager && commentManager.stopAll) return commentManager.stopAll()
   })

@@ -11,7 +11,7 @@ const pixelTests = [
   { name: 'home-baseline', route: '/', waitFor: '.cohere-main .page-title:has-text("社媒管家")' },
   { name: 'accounts-list', route: '/accounts', waitFor: '.cohere-main .page-title:has-text("账号管理")' },
   // 发布目标由 IPC 异步加载；等待平台选项，避免在空列表状态截图。
-  { name: 'publish-form', route: '/publish', waitFor: '.cohere-main .el-checkbox-group .el-checkbox' },
+  { name: 'publish-form', route: '/publish', waitFor: '.cohere-main .target-selector [data-testid^="platform-"]' },
   { name: 'create-editor', route: '/create', waitFor: '.cohere-main h1:has-text("视频创作")' },
   { name: 'model-providers', route: '/model-providers', waitFor: '.cohere-main .page-title:has-text("模型服务商设置")' },
   { name: 'first-run', route: '/first-run', waitFor: '.cohere-main h2:has-text("欢迎使用社媒管家")' },
@@ -67,6 +67,11 @@ async function runPixelSuite(tests = pixelTests, options = {}) {
   } finally {
     try {
       await runner.close();
+    } catch (error) {
+      fatalError ||= error;
+    }
+    try {
+      runner.generateReport();
     } catch (error) {
       fatalError ||= error;
     }

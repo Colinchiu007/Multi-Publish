@@ -53,6 +53,7 @@
       </div>
     </div>
   </nav>
+  <UpgradeModal v-if="showUpgradeModal" @close="showUpgradeModal = false" />
 </template>
 
 <script setup>
@@ -60,7 +61,6 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useLicenseStore } from '@/stores/license'
 import { useAuthView } from '@/composables/useAuthView'
-// eslint-disable-next-line no-unused-vars
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import IdentityMenu from '@/components/IdentityMenu.vue'
 

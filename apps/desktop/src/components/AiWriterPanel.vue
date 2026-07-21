@@ -1,9 +1,18 @@
 <template>
-  <div class="ai-writer-panel cohere-card" style="cursor:default;padding:16px">
+  <div id="ai-writer-panel" class="ai-writer-panel cohere-card" style="cursor:default;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);padding-bottom:var(--space-sm);border-bottom:1px solid var(--border)">
       <span style="font-weight:600;font-size:14px">🤖 AI 辅助写作</span>
-      <button class="cohere-btn-ghost" @click="('close')" style="font-size:12px;padding:2px 6px">✕</button>
+      <button
+        type="button"
+        class="cohere-btn-ghost"
+        aria-label="关闭 AI 写作"
+        title="关闭"
+        style="font-size:12px;padding:2px 6px"
+        @click="emit('close')"
+      >✕</button>
     </div>
+
+    <p v-if="panelError" class="panel-error" role="alert">{{ panelError }}</p>
 
     <!-- 未配置 API Key -->
     <div v-if="!configured" class="no-config">
@@ -35,15 +44,16 @@
           </button>
         </div>
         <div v-if="titles.length > 0" class="results">
-          <div
+          <button
             v-for="(t, i) in titles" :key="i"
+            type="button"
             class="result-item"
             @click="selectTitle(t)"
           >
             <span class="result-num">{{ i + 1 }}</span>
             <span class="result-text">{{ t }}</span>
             <span class="result-action">选择</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -66,10 +76,10 @@
           </button>
         </div>
         <div v-if="enhancedResult" class="results">
-          <div class="result-item" @click="selectEnhanced">
+          <button type="button" class="result-item" @click="selectEnhanced">
             <span class="result-text">{{ enhancedResult.slice(0, 100) }}{{ enhancedResult.length > 100 ? '...' : '' }}</span>
             <span class="result-action">应用</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -81,10 +91,10 @@
           </button>
         </div>
         <div v-if="summary" class="results">
-          <div class="result-item" @click="selectSummary">
+          <button type="button" class="result-item" @click="selectSummary">
             <span class="result-text">{{ summary }}</span>
             <span class="result-action">应用</span>
-          </div>
+          </button>
         </div>
       </div>
     </template>
@@ -94,6 +104,13 @@
 <script setup>
 import { ref, onMounted } from "vue"
 import { useRouter } from "vue-router"
+import {
+  aiEnhanceContent,
+  aiGenerateSummary,
+  aiGenerateTitles,
+  aiIsConfigured,
+  modelProviderIsConfigured,
+} from "@/api/publisher"
 
 const emit = defineEmits(["close", "apply-title", "apply-content"])
 const router = useRouter()
@@ -108,6 +125,7 @@ const titles = ref([])
 const selectedStyle = ref("polish")
 const enhancedResult = ref("")
 const summary = ref("")
+const panelError = ref("")
 
 const modes = [
   { key: "titles", label: "🎯 标题生成" },
@@ -121,39 +139,45 @@ const styles = [
   { key: "engaging", label: "社交媒体风" },
 ]
 
-const api = () => window.electronAPI
-
 function goToProviders() {
   router.push("/model-providers")
   emit("close")
 }
 
 async function checkConfig() {
-  const a = api()
-  if (!a) return
-  // 优先使用新的模型服务商 API
-  if (a.modelProviderIsConfigured) {
-    const res = await a.modelProviderIsConfigured('llm')
-    if (res && res.code === 0) {
-      configured.value = res.data
+  panelError.value = ""
+  let providerError = null
+  try {
+    const providerResult = await modelProviderIsConfigured("llm")
+    if (providerResult && providerResult.code === 0) {
+      configured.value = Boolean(providerResult.data)
       return
     }
+  } catch (error) {
+    providerError = error
   }
-  // 降级使用旧的 aiIsConfigured
-  const res = await a.aiIsConfigured()
-  if (res && res.code === 0) configured.value = res.data
+
+  try {
+    const legacyResult = await aiIsConfigured()
+    if (legacyResult && legacyResult.code === 0) {
+      configured.value = Boolean(legacyResult.data)
+      return
+    }
+  } catch (error) {
+    providerError = error
+  }
+  if (providerError) panelError.value = providerError.message || "读取 AI 配置失败"
 }
 
 async function generateTitles() {
   if (!topic.value.trim()) return
+  panelError.value = ""
   generating.value = true
   try {
-    const a = api()
-    if (!a) return
-    const res = await a.aiGenerateTitles(topic.value)
+    const res = await aiGenerateTitles(topic.value)
     if (res && res.code === 0) titles.value = res.data || []
   } catch (e) {
-    console.error(e)
+    panelError.value = e?.message || "生成标题失败"
   } finally {
     generating.value = false
   }
@@ -165,19 +189,18 @@ function selectTitle(t) {
 
 async function enhanceContent() {
   enhancing.value = true
+  panelError.value = ""
   try {
-    const a = api()
-    if (!a) return
     // Read content from parent - passed via prop or get from editor
     const content = props.sourceContent || ""
     if (!content || content.length < 10) {
       enhancedResult.value = "请先在正文编辑器中输入内容"
       return
     }
-    const res = await a.aiEnhanceContent(content, selectedStyle.value)
+    const res = await aiEnhanceContent(content, selectedStyle.value)
     if (res && res.code === 0) enhancedResult.value = res.data
   } catch (e) {
-    console.error(e)
+    panelError.value = e?.message || "润色正文失败"
   } finally {
     enhancing.value = false
   }
@@ -189,18 +212,17 @@ function selectEnhanced() {
 
 async function generateSummary() {
   summarizing.value = true
+  panelError.value = ""
   try {
-    const a = api()
-    if (!a) return
     const content = props.sourceContent || ""
     if (!content || content.length < 20) {
       summary.value = "内容太短，无法生成摘要"
       return
     }
-    const res = await a.aiGenerateSummary(content)
+    const res = await aiGenerateSummary(content)
     if (res && res.code === 0) summary.value = res.data || ""
   } catch (e) {
-    console.error(e)
+    panelError.value = e?.message || "生成摘要失败"
   } finally {
     summarizing.value = false
   }
@@ -215,7 +237,7 @@ const props = defineProps({
 })
 
 onMounted(() => {
-  checkConfig()
+  void checkConfig()
 })
 </script>
 
@@ -229,6 +251,11 @@ onMounted(() => {
   padding: 20px;
   font-size: 13px;
   color: var(--muted);
+}
+.panel-error {
+  margin: 0 0 var(--space-sm);
+  color: var(--danger, #c53b3b);
+  font-size: 12px;
 }
 .cohere-btn-primary {
   padding: 8px 16px;
@@ -305,6 +332,7 @@ onMounted(() => {
   margin-top: var(--space-sm);
 }
 .result-item {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -314,10 +342,18 @@ onMounted(() => {
   margin-bottom: 6px;
   cursor: pointer;
   transition: all 0.1s;
+  background: var(--surface, #fff);
+  color: var(--text-primary);
+  text-align: left;
+  font: inherit;
 }
 .result-item:hover {
   border-color: var(--coral);
   background: var(--soft-stone);
+}
+.result-item:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 2px;
 }
 .result-num {
   width: 20px;

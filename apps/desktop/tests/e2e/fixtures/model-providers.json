@@ -86,6 +86,23 @@
       "created_at": "2026-01-01T00:00:00Z"
     }
   ],
+  "visualProviders": [
+    {
+      "id": "custom_visual",
+      "category": "llm",
+      "name": "视觉测试服务商",
+      "display_name": "视觉测试服务商",
+      "base_url": "https://visual-test.invalid/v1",
+      "default_model": "visual-test-model",
+      "models": ["visual-test-model"],
+      "is_preset": false,
+      "is_default": false,
+      "enabled": true,
+      "api_key_masked": "sk-****test",
+      "configured": true,
+      "created_at": "2026-01-01T00:00:00Z"
+    }
+  ],
   "categories": [
     { "id": "llm", "label": "大语言模型", "description": "用于文本生成、标题优化、内容润色" },
     { "id": "image", "label": "图像生成", "description": "用于封面图、配图生成" },

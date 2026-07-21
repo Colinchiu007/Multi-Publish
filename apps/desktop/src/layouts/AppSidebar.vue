@@ -47,6 +47,9 @@
 import PlatformIcon from '@/components/PlatformIcon.vue'
 import { onMounted } from 'vue'
 import { usePlatformAccounts, platformMeta } from '@/composables/usePlatformAccounts'
+import { useAccountStore } from '@/stores/accounts'
+
+const accountStore = useAccountStore()
 
 const {
   platformSearch,
@@ -58,7 +61,7 @@ const {
   getAccountText,
   getStatusClass,
   getAccountsForPlatform,
-} = usePlatformAccounts()
+} = usePlatformAccounts({ accountStore })
 
 onMounted(() => {
   loadAccounts()

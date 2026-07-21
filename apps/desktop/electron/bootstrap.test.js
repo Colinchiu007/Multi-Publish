@@ -93,6 +93,7 @@ const mockVideoEngine = {}
 const mockPipelineEngine = {}
 const mockChunkedUploader = {}
 const mockPublisherRouter = { createPublisher: vi.fn() }
+const mockAccountManager = { loadSavedCredentials: vi.fn() }
 
 // container.get 返回的 mock 服务映射
 const services = {
@@ -129,7 +130,7 @@ const services = {
 // ─── 注册所有深层依赖 mock（替代 vi.mock） ───
 __registerMock('./services/logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })
 __registerMock('./services/python-bridge', mockPythonBridge)
-__registerMock('./publishers/account-manager', { create: vi.fn() })
+__registerMock('./publishers/account-manager', mockAccountManager)
 __registerMock('./services/scheduler', mockScheduler)
 __registerMock('./services/publish-history', mockHistory)
 __registerMock('./services/auto-updater', mockAutoUpdater)
@@ -327,6 +328,25 @@ describe('bootstrap — createAppContext', () => {
     expect(activeWindow.webContents.send).toHaveBeenCalledWith(
       'publish:progress',
       expect.objectContaining({ taskId: 'task-1', stage: '准备发布...' }),
+    )
+  })
+
+  it('任务执行器把 AbortSignal 传给发布器', async () => {
+    const context = createAppContext()
+    const publisher = { publish: vi.fn().mockResolvedValue({ ok: true }) }
+    mockPublisherRouter.createPublisher.mockReturnValueOnce(publisher)
+    const executor = mockTaskQueue.setExecutor.mock.calls.at(-1)[0]
+    const controller = new AbortController()
+
+    await executor({ id: 'task-signal', platform: 'weibo' }, { signal: controller.signal })
+
+    expect(publisher.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'task-signal' }),
+      { signal: controller.signal },
+    )
+    expect(mockPublisherRouter.createPublisher).toHaveBeenCalledWith(
+      'weibo',
+      expect.objectContaining({ accountManager: mockAccountManager }),
     )
   })
 

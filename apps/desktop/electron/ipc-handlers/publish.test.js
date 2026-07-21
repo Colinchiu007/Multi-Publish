@@ -2,10 +2,7 @@
 /**
  * Publish IPC handlers 合同测试
  *
- * 验证写操作的 sender 来源校验（withSenderCheck）：
- * - publish:wechat / publish:batch / queue:cancel
- *
- * 只读操作不校验：queue:status / queue:history / history:list / history:get / dashboard:stats
+ * 验证所有发布、队列和历史入口的 sender 来源校验（withSenderCheck）。
  *
  * @vitest-environment node
  */
@@ -63,6 +60,7 @@ function createMockDeps(overrides = {}) {
     taskQueue: {
       add: vi.fn(() => 'task-1'),
       cancel: vi.fn(() => true),
+      retry: vi.fn(() => 'task-retry-1'),
       getStatus: vi.fn(() => ({})),
       getHistory: vi.fn(() => []),
     },
@@ -112,6 +110,32 @@ describe('publish IPC 写操作 sender 校验', () => {
 
     expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
   })
+
+  it('queue:retry 拒绝外部网页调用', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps())
+    const handler = ipcMain._get('queue:retry')
+
+    const result = await handler(UNTRUSTED_EVENT, 'task-1')
+
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
+
+  it.each([
+    ['queue:status', undefined],
+    ['queue:history', undefined],
+    ['history:list', {}],
+    ['history:get', 'history-1'],
+    ['dashboard:stats', undefined],
+  ])('%s 拒绝外部网页读取私有发布数据', async (channel, arg) => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get(channel)(UNTRUSTED_EVENT, arg)
+
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
 })
 
 describe('publish IPC 可信来源正常工作', () => {
@@ -140,6 +164,59 @@ describe('publish IPC 可信来源正常工作', () => {
     expect(deps.taskQueue.add).toHaveBeenCalledTimes(2)
   })
 
+  it('publish:batch 将对象目标的账号写入任务和文章', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('publish:batch')
+
+    const result = await handler(TRUSTED_EVENT, {
+      platforms: [{ platform: 'douyin', accountId: 'dy-1' }],
+      article: { title: '视频标题' },
+    })
+
+    expect(result.code).toBe(0)
+    expect(deps.taskQueue.add).toHaveBeenCalledWith({
+      platform: 'douyin',
+      article: { title: '视频标题', accountId: 'dy-1' },
+      accountId: 'dy-1',
+    })
+  })
+
+  it('publish:batch 拒绝缺少平台或账号的对象目标', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('publish:batch')
+
+    expect(await handler(TRUSTED_EVENT, {
+      platforms: [{ platform: '', accountId: 'a' }],
+      article: {},
+    })).toMatchObject({ code: -2 })
+    expect(await handler(TRUSTED_EVENT, {
+      platforms: [{ platform: 'wechat_mp', accountId: null }],
+      article: {},
+    })).toMatchObject({ code: -2 })
+    expect(deps.taskQueue.add).not.toHaveBeenCalled()
+  })
+
+  it('publish:batch 拒绝可能操纵路径的平台和账号标识', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('publish:batch')
+
+    expect(await handler(TRUSTED_EVENT, {
+      platforms: ['../wechat_mp'],
+      article: {},
+    })).toMatchObject({ code: -2 })
+    expect(await handler(TRUSTED_EVENT, {
+      platforms: [{ platform: 'wechat_mp', accountId: 'acc/1' }],
+      article: {},
+    })).toMatchObject({ code: -2 })
+    expect(deps.taskQueue.add).not.toHaveBeenCalled()
+  })
+
   it('queue:cancel 可信来源正常取消', async () => {
     const deps = createMockDeps()
     const ipcMain = createMockIpcMain()
@@ -152,13 +229,29 @@ describe('publish IPC 可信来源正常工作', () => {
     expect(deps.taskQueue.cancel).toHaveBeenCalledWith('task-1')
   })
 
-  it('queue:status 只读操作不加 sender 校验，外部来源也可调用', async () => {
+  it('queue:retry 可信来源返回新任务 ID', async () => {
+    const deps = createMockDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('queue:retry')
+
+    const result = await handler(TRUSTED_EVENT, 'task-1')
+
+    expect(result).toEqual({
+      code: 0,
+      data: { taskId: 'task-retry-1', retryOf: 'task-1' },
+      message: '任务已重新加入队列',
+    })
+    expect(deps.taskQueue.retry).toHaveBeenCalledWith('task-1')
+  })
+
+  it('queue:status 可信来源可读取队列状态', async () => {
     const deps = createMockDeps()
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
     const handler = ipcMain._get('queue:status')
 
-    const result = await handler(UNTRUSTED_EVENT)
+    const result = await handler(TRUSTED_EVENT)
 
     expect(result.code).toBe(0)
   })

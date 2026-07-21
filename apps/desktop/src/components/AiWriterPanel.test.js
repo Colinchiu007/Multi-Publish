@@ -2,6 +2,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 
+const publisherApi = vi.hoisted(() => ({
+  modelProviderIsConfigured: vi.fn((category) => window.electronAPI?.modelProviderIsConfigured?.(category)),
+  aiIsConfigured: vi.fn(() => window.electronAPI?.aiIsConfigured?.()),
+  aiGenerateTitles: vi.fn((topic) => window.electronAPI?.aiGenerateTitles?.(topic)),
+  aiEnhanceContent: vi.fn((content, style) => window.electronAPI?.aiEnhanceContent?.(content, style)),
+  aiGenerateSummary: vi.fn((content) => window.electronAPI?.aiGenerateSummary?.(content)),
+}));
+
+vi.mock("@/api/publisher", () => publisherApi);
+
 vi.mock("vue-router", () => ({
   useRouter: () => ({
     push: vi.fn(),
@@ -45,6 +55,25 @@ describe("AiWriterPanel", () => {
     expect(w.text()).toContain("标题生成");
     expect(w.text()).toContain("内容润色");
     expect(w.text()).toContain("生成摘要");
+  });
+
+  it("通过 API 层查询模型服务商配置", async () => {
+    window.electronAPI.modelProviderIsConfigured = vi.fn().mockResolvedValue({ code: 0, data: true });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "" } });
+    await waitConfig();
+
+    expect(publisherApi.modelProviderIsConfigured).toHaveBeenCalledWith("llm");
+    expect(publisherApi.aiIsConfigured).not.toHaveBeenCalled();
+    expect(w.text()).toContain("标题生成");
+  });
+
+  it("点击关闭按钮时发送 close 事件", async () => {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "" } });
+    await waitConfig();
+
+    await w.get('[aria-label="关闭 AI 写作"]').trigger("click");
+    expect(w.emitted("close")).toEqual([[]]);
   });
 
   it("navigates to providers on configure button click", async () => {
@@ -91,6 +120,29 @@ describe("AiWriterPanel", () => {
     await resultItem.trigger("click");
     expect(w.emitted("apply-title")).toBeTruthy();
     expect(w.emitted("apply-title")[0]).toEqual(["测试标题"]);
+  });
+
+  it("生成结果使用原生按钮，支持键盘聚焦与触发", async () => {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiGenerateTitles.mockResolvedValue({ code: 0, data: ["键盘可用标题"] });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "" } });
+    await waitConfig();
+    await w.find("input").setValue("无障碍");
+    await w.findAll("button").find(b => b.text().includes("生成标题")).trigger("click");
+    await nextTick();
+
+    const result = w.get("button.result-item");
+    expect(result.attributes("type")).toBe("button");
+    await result.trigger("click");
+    expect(w.emitted("apply-title")?.at(-1)).toEqual(["键盘可用标题"]);
+  });
+
+  it("配置查询失败时显示可恢复错误而不产生未处理拒绝", async () => {
+    window.electronAPI.modelProviderIsConfigured = vi.fn().mockRejectedValue(new Error("配置服务不可用"));
+    const w = mount(AiWriterPanel, { props: { sourceContent: "" } });
+    await waitConfig();
+
+    expect(w.get('[role="alert"]').text()).toContain("配置服务不可用");
   });
 
   it("enhances content and displays result", async () => {

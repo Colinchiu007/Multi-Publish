@@ -19,7 +19,7 @@ const PP_DIR = resolve(ROOT, 'electron/preload')
 
 // 已知不应暴露到 preload 的内部 handler（与 check-ipc-bridge.js 保持一致）
 const HIDDEN = new Set([
-  'auth:login-silent', 'auth:save-credentials', 'store:update-account',
+  'auth:login-silent', 'store:update-account',
   'proxy:add', 'proxy:add-batch', 'proxy:get-next', 'proxy:list',
   'proxy:remove', 'proxy:remove-dead', 'proxy:reset', 'proxy:status',
   'proxy:test', 'proxy:test-all',

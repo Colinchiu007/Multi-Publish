@@ -192,6 +192,43 @@ describe('覆盖率与变异测试门禁', () => {
 })
 
 describe('路由通用扫描', () => {
+  it('发布正文等待编辑器初始化并确认内容写入', async () => {
+    let value = ''
+    const editor = {
+      first: vi.fn(function first() { return this }),
+      waitFor: vi.fn().mockResolvedValue(undefined),
+      fill: vi.fn(async (nextValue) => { value = nextValue }),
+      evaluate: vi.fn(async () => value),
+    }
+    const page = {
+      locator: vi.fn((selector) => {
+        expect(selector).toContain('.ql-editor[contenteditable="true"]')
+        expect(selector).toContain('textarea.md-editor')
+        return editor
+      }),
+    }
+
+    await expect(routeSuite.fillPublishBody(page, '正文内容')).resolves.toBe(true)
+    expect(editor.waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 5000 })
+    expect(editor.fill).toHaveBeenCalledWith('正文内容')
+    expect(editor.evaluate).toHaveBeenCalledTimes(1)
+  })
+
+  it('发布正文编辑器初始化超时时返回失败而不抛错', async () => {
+    const timeout = new Error('editor timeout')
+    timeout.name = 'TimeoutError'
+    const editor = {
+      first: vi.fn(function first() { return this }),
+      waitFor: vi.fn().mockRejectedValue(timeout),
+      fill: vi.fn(),
+      evaluate: vi.fn(),
+    }
+    const page = { locator: vi.fn(() => editor) }
+
+    await expect(routeSuite.fillPublishBody(page, '正文内容')).resolves.toBe(false)
+    expect(editor.fill).not.toHaveBeenCalled()
+  })
+
   it('合法重定向按目标路由等待应用就绪', async () => {
     const runner = new FunctionalRunner()
     runner.page = { goto: vi.fn().mockResolvedValue(undefined) }
@@ -248,7 +285,7 @@ describe('路由通用扫描', () => {
     }
     const buttons = {
       evaluateAll: vi.fn().mockResolvedValue([{ index: 0, text: '打开弹窗', disabled: false }]),
-      filter: vi.fn().mockReturnValue({ nth: vi.fn().mockReturnValue(button) }),
+      nth: vi.fn().mockReturnValue(button),
     }
     const emptyCollection = {
       evaluateAll: vi.fn().mockResolvedValue([]),
@@ -267,6 +304,83 @@ describe('路由通用扫描', () => {
 
     expect(r.resetToRoute).toHaveBeenCalledWith('/accounts', { expectedRoute: '/accounts' })
     expect(button.click).toHaveBeenCalledTimes(1)
+  })
+
+  it('重复文本按钮优先使用各自的 data-testid 重新定位', async () => {
+    const firstButton = {
+      count: vi.fn().mockResolvedValue(1),
+      isDisabled: vi.fn().mockResolvedValue(false),
+      click: vi.fn().mockResolvedValue(undefined),
+    }
+    const secondButton = {
+      count: vi.fn().mockResolvedValue(1),
+      isDisabled: vi.fn().mockResolvedValue(false),
+      click: vi.fn().mockResolvedValue(undefined),
+    }
+    const buttons = {
+      evaluateAll: vi.fn().mockResolvedValue([
+        { index: 0, text: '验证', testid: 'check-account-a', disabled: false },
+        { index: 1, text: '验证', testid: 'check-account-b', disabled: false },
+      ]),
+      nth: vi.fn(),
+    }
+    const emptyCollection = {
+      evaluateAll: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    }
+    const r = {
+      checks: [],
+      resetToRoute: vi.fn().mockResolvedValue(undefined),
+      page: {
+        locator: vi.fn((selector) => {
+          if (selector === '.cohere-main button') return buttons
+          if (selector === '.cohere-main button[data-testid="check-account-a"]') return firstButton
+          if (selector === '.cohere-main button[data-testid="check-account-b"]') return secondButton
+          return emptyCollection
+        }),
+      },
+    }
+
+    await routeSuite.auditInitialControls(r, { route: '/accounts' })
+
+    expect(firstButton.click).toHaveBeenCalledTimes(1)
+    expect(secondButton.click).toHaveBeenCalledTimes(1)
+    expect(buttons.nth).not.toHaveBeenCalled()
+  })
+
+  it('按钮在重渲染中失效时仅重新加载并重试一次', async () => {
+    const button = {
+      isDisabled: vi.fn().mockResolvedValue(false),
+      click: vi.fn()
+        .mockRejectedValueOnce(new Error('Element is not attached to the DOM'))
+        .mockResolvedValueOnce(undefined),
+    }
+    const buttons = {
+      evaluateAll: vi.fn().mockResolvedValue([
+        { index: 0, text: '验证', testid: 'check-account-a', disabled: false },
+      ]),
+      nth: vi.fn(),
+    }
+    const emptyCollection = {
+      evaluateAll: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    }
+    const r = {
+      checks: [],
+      resetToRoute: vi.fn().mockResolvedValue(undefined),
+      page: {
+        locator: vi.fn((selector) => {
+          if (selector === '.cohere-main button') return buttons
+          if (selector === '.cohere-main button[data-testid="check-account-a"]') return button
+          return emptyCollection
+        }),
+      },
+    }
+
+    await routeSuite.auditInitialControls(r, { route: '/accounts' })
+
+    expect(button.click).toHaveBeenCalledTimes(2)
+    expect(r.checks.find(item => item.name === '初始可用按钮均完成点击扫描')).toMatchObject({ passed: true })
   })
 
   it('任一初始可编辑字段失败时扫描失败并保留字段详情', async () => {
@@ -414,10 +528,22 @@ describe('平台定义 E2E 契约', () => {
         names: expect.any(Object),
         icons: expect.any(Object),
         content_categories: expect.any(Object),
+        categories: expect.any(Object),
+        dashboardUrls: expect.any(Object),
+        qrCodePlatforms: expect.anything(),
       },
     })
     expect(response.data.names.wechat_mp).toBe('微信公众号')
     expect(response.data.icons.douyin).toBe('🎵')
+    expect(Array.isArray(response.data.qrCodePlatforms)).toBe(true)
+
+    const accountPlatforms = new Set(
+      JSON.parse(fs.readFileSync(accountFixturePath, 'utf8')).accounts.map(account => account.platform),
+    )
+    for (const platform of accountPlatforms) {
+      expect(response.data.names).toHaveProperty(platform)
+      expect(response.data.icons).toHaveProperty(platform)
+    }
   })
 })
 

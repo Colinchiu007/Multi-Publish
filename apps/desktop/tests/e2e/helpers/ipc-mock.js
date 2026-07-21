@@ -26,15 +26,27 @@
   window.__ipcFailNextCall = null;     // { method, code, message } | null
   window.__ipcFailAllForMethod = null; // { method, code, message } | null
 
+  const modelProviderFixtures = (window.__fixtures && window.__fixtures.modelProviders) || {};
+  const visualSearch = window.location && typeof window.location.search === 'string'
+    ? window.location.search
+    : '';
+  const visualView = typeof URLSearchParams === 'function'
+    ? new URLSearchParams(visualSearch).get('visual-view')
+    : null;
+  const providerFixtures = modelProviderFixtures.providers || [];
+  const visualProviders = modelProviderFixtures.visualProviders || [];
+
   // 内部可变状态（mock store）
   const state = {
     accounts: (window.__fixtures && window.__fixtures.accounts && window.__fixtures.accounts.accounts) || [],
     articles: (window.__fixtures && window.__fixtures.articles && window.__fixtures.articles.articles) || [],
     publishHistory: (window.__fixtures && window.__fixtures.publishHistory && window.__fixtures.publishHistory.publishHistory) || [],
     stats: (window.__fixtures && window.__fixtures.publishHistory && window.__fixtures.publishHistory.stats) || { total: 0, success: 0, failed: 0 },
-    providers: (window.__fixtures && window.__fixtures.modelProviders && window.__fixtures.modelProviders.providers) || [],
-    providerDefaults: (window.__fixtures && window.__fixtures.modelProviders && window.__fixtures.modelProviders.defaults) || {},
-    providerCategories: (window.__fixtures && window.__fixtures.modelProviders && window.__fixtures.modelProviders.categories) || [],
+    providers: visualView === 'model-provider-delete-dialog'
+      ? [...providerFixtures, ...visualProviders]
+      : providerFixtures,
+    providerDefaults: modelProviderFixtures.defaults || {},
+    providerCategories: modelProviderFixtures.categories || [],
     comments: (window.__fixtures && window.__fixtures.comments && window.__fixtures.comments.comments) || [],
     schedulerTasks: (window.__fixtures && window.__fixtures.comments && window.__fixtures.comments.schedulerTasks) || [],
     // 运行时状态
@@ -147,20 +159,88 @@
         wechat_mp: '微信公众号',
         zhihu: '知乎',
         weibo: '微博',
-        douyin: '抖音'
+        douyin: '抖音',
+        xiaohongshu: '小红书',
+        tencent_video: '视频号',
+        kuaishou: '快手',
+        toutiao: '今日头条',
+        bilibili: 'B站',
+        baijiahao: '百家号',
+        youtube: 'YouTube',
+        tiktok: 'TikTok',
+        twitter: 'Twitter/X',
+        instagram: 'Instagram',
+        facebook: 'Facebook'
       },
       icons: {
         wechat_mp: '💬',
         zhihu: '❓',
         weibo: '✧',
-        douyin: '🎵'
+        douyin: '🎵',
+        xiaohongshu: '📕',
+        tencent_video: '▶',
+        kuaishou: '🎬',
+        toutiao: '📰',
+        bilibili: '📺',
+        baijiahao: '📖',
+        youtube: '▶',
+        tiktok: '♪',
+        twitter: '✕',
+        instagram: '📷',
+        facebook: '👍'
       },
       content_categories: {
         wechat_mp: 'IMAGE_TEXT',
         zhihu: 'IMAGE_TEXT',
         weibo: 'MIXED',
-        douyin: 'VIDEO'
-      }
+        douyin: 'VIDEO',
+        xiaohongshu: 'MIXED',
+        tencent_video: 'VIDEO',
+        kuaishou: 'VIDEO',
+        toutiao: 'MIXED',
+        bilibili: 'VIDEO',
+        baijiahao: 'IMAGE_TEXT',
+        youtube: 'VIDEO',
+        tiktok: 'VIDEO',
+        twitter: 'MIXED',
+        instagram: 'IMAGE_TEXT',
+        facebook: 'MIXED'
+      },
+      categories: {
+        wechat_mp: '中文',
+        zhihu: '中文',
+        weibo: '中文',
+        douyin: '中文',
+        xiaohongshu: '中文',
+        tencent_video: '中文',
+        kuaishou: '中文',
+        toutiao: '中文',
+        bilibili: '中文',
+        baijiahao: '中文',
+        youtube: '海外',
+        tiktok: '海外',
+        twitter: '海外',
+        instagram: '海外',
+        facebook: '海外'
+      },
+      dashboardUrls: {
+        wechat_mp: 'https://mp.weixin.qq.com/',
+        zhihu: 'https://www.zhihu.com/',
+        weibo: 'https://weibo.com/',
+        douyin: 'https://creator.douyin.com/',
+        xiaohongshu: 'https://creator.xiaohongshu.com/',
+        tencent_video: 'https://channels.weixin.qq.com/',
+        kuaishou: 'https://cp.kuaishou.com/',
+        toutiao: 'https://mp.toutiao.com/',
+        bilibili: 'https://www.bilibili.com/',
+        baijiahao: 'https://baijiahao.baidu.com/',
+        youtube: 'https://studio.youtube.com/',
+        tiktok: 'https://www.tiktok.com/',
+        twitter: 'https://twitter.com/home',
+        instagram: 'https://www.instagram.com/',
+        facebook: 'https://www.facebook.com/'
+      },
+      qrCodePlatforms: ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'toutiao']
     })),
 
     // 敏感词
@@ -556,11 +636,10 @@
     // 嵌入浏览器登录
     authOpenLogin: makeHandler('authOpenLogin', async (platform) => ok({ opened: true, platform })),
     authClose: makeHandler('authClose', async () => ok(true)),
-    authSaveCredentials: makeHandler('authSaveCredentials', async () => ok(true)),
     onAuthViewOpened: makeOn('auth:view-opened'),
     onAuthCompleted: makeOn('auth:completed'),
     onAuthViewClosed: makeOn('auth:view-closed'),
-    authLoginSilent: makeHandler('authLoginSilent', async () => ok({ success: true })),
+    authLoginSilent: makeHandler('authLoginSilent', async (platform, accountId) => ok({ success: true, platform, accountId })),
 
     // QR 扫码登录
     authOpenQrCodeLogin: makeHandler('authOpenQrCodeLogin', async (p) => ok({ opened: true, platform: p })),

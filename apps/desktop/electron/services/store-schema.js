@@ -188,7 +188,7 @@ function buildUpdateQuery(fields, jsonKeys = ["articles"]) {
  * 仅允许这些字段名出现在 UPDATE 的 SET 子句中
  */
 const UPDATE_WHITELIST = {
-  accounts: ["platform", "name", "account_name", "avatar", "avatar_url", "cookies", "localStorage", "status", "is_default"],
+  accounts: ["platform", "name", "account_name", "avatar", "avatar_url", "status", "is_default"],
   publish_history: ["platform", "title", "content", "task_id", "article_id", "status", "result", "error"],
   scheduled_tasks: ["platform", "article", "publish_time", "status"],
   settings: ["value"],

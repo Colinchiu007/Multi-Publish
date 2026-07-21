@@ -116,8 +116,7 @@ function _isTestEnv() {
 
 /**
  * 包装 IPC handler，添加 sender 来源验证
- * 用于敏感操作（写入/删除/激活/支付），防止恶意页面通过 DOM 注入调用
- * 只读 handler（查询类）不应使用此包装，避免过度验证
+ * 用于敏感操作和包含私有数据的查询，防止恶意页面通过 DOM 注入调用。
  *
  * 测试环境兼容：仅未打包应用放行没有 senderFrame 的旧 mock；
  * 已打包应用或已提供 senderFrame 时始终执行真实来源校验。

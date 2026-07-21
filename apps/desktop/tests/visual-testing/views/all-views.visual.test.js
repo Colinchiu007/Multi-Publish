@@ -22,12 +22,12 @@ const viewTests = [
   routeView(
     'publish-form',
     '/publish',
-    '.cohere-main .el-checkbox-group .el-checkbox',
+    '.cohere-main .target-selector [data-testid^="platform-"]',
     '发布目标平台已加载',
     '/publish',
     [
       { name: '页面主标题', selector: '.cohere-main .page-title:has-text("一键发布")' },
-      { name: '发布目标平台已加载', selector: '.cohere-main .el-checkbox-group .el-checkbox' },
+      { name: '发布目标平台已加载', selector: '.cohere-main .target-selector [data-testid^="platform-"]' },
     ],
   ),
   routeView('accounts-list', '/accounts', '.cohere-main .page-title:has-text("账号管理")'),

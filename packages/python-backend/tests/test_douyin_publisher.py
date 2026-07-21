@@ -11,6 +11,12 @@ from multi_publish.publishers.base import PublisherConfig
 from multi_publish.publishers.douyin import DouyinPublisher
 
 
+@fixture(autouse=True)
+def legacy_plaintext_compatibility(monkeypatch):
+    """文件格式兼容测试显式开启旧行为；默认生产路径仍关闭。"""
+    monkeypatch.setenv("MULTI_PUBLISH_ALLOW_LEGACY_PLAINTEXT_AUTH", "1")
+
+
 @fixture
 def config(tmp_path) -> PublisherConfig:
     return PublisherConfig(

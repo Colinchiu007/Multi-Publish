@@ -2,17 +2,72 @@
 /**
  * AccountStateRestorer — 账号登录状态恢复
  * 
- * 基于蚁小二逆向工程的账号状态恢复方案：
- * 1. 保存完整凭证：cookies + localStorage + accountInfo
- * 2. 恢复登录：先注入 cookies，再注入 localStorage，页面自动登录
+ * 基于蚁小二逆向工程的账号状态索引方案。
+ * 此文件只保存账号公开元数据；Cookie 和浏览器存储由 credential-store 加密保存。
  * 
  * 文件路径: {userData}/accounts/state.jsonl
  */
 const fs = require('fs')
 const path = require('path')
+const os = require('os')
 const log = require('./logger')
 
 const STATE_FILE = 'accounts/state.jsonl'
+const SENSITIVE_FIELDS = new Set(['cookies', 'localStorage', 'indexedDB', 'authData', 'auth_data'])
+const PUBLIC_ACCOUNT_INFO_FIELDS = new Set([
+  'id',
+  'nickName',
+  'nickname',
+  'name',
+  'avatar',
+  'platformAccountId',
+  'username',
+  'displayName'
+])
+
+function sanitizeAccountInfo (accountInfo) {
+  if (!accountInfo || typeof accountInfo !== 'object' || Array.isArray(accountInfo)) return {}
+  return Object.fromEntries(
+    Object.entries(accountInfo).filter(([key, value]) => (
+      PUBLIC_ACCOUNT_INFO_FIELDS.has(key) && ['string', 'number', 'boolean'].includes(typeof value)
+    ))
+  )
+}
+
+function sanitizeRecord (record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return record
+  const sanitized = Object.fromEntries(
+    Object.entries(record).filter(([key]) => !SENSITIVE_FIELDS.has(key))
+  )
+  if (Object.prototype.hasOwnProperty.call(sanitized, 'accountInfo')) {
+    sanitized.accountInfo = sanitizeAccountInfo(sanitized.accountInfo)
+  }
+  return sanitized
+}
+
+function sanitizeLegacyRecords (userDataDir) {
+  const filePath = getStateFilePath(userDataDir)
+  if (!fs.existsSync(filePath)) return 0
+  const content = fs.readFileSync(filePath, 'utf8')
+  const lines = content.split('\n').filter(line => line.trim())
+  let redacted = 0
+  const sanitized = lines.map(line => {
+    try {
+      const record = JSON.parse(line)
+      const clean = sanitizeRecord(record)
+      if (Object.keys(record).some(key => SENSITIVE_FIELDS.has(key))) redacted += 1
+      return JSON.stringify(clean)
+    } catch (_) {
+      return line
+    }
+  })
+  if (redacted > 0) {
+    const tmpPath = filePath + '.tmp.' + process.pid
+    fs.writeFileSync(tmpPath, sanitized.join('\n') + (sanitized.length ? '\n' : ''), 'utf8')
+    fs.renameSync(tmpPath, filePath)
+  }
+  return redacted
+}
 
 /**
  * 获取状态文件路径
@@ -21,36 +76,21 @@ function getStateFilePath (userDataDir) {
   return path.join(userDataDir, STATE_FILE)
 }
 
-function resolveUserDataDir (userDataDir) {
-  const resolved = userDataDir === undefined
-    ? (process.env.ELECTRON_USER_DATA_DIR || process.cwd())
-    : userDataDir
-  if (typeof resolved !== 'string' || !resolved.trim()) {
-    throw new TypeError('userDataDir must be a non-empty string')
-  }
-  return resolved
-}
-
-function normalizeOwnerSubject (ownerSubject) {
-  if (ownerSubject === undefined) return undefined
-  if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
-    throw new TypeError('ownerSubject must be a non-empty string')
-  }
-  return ownerSubject.trim()
-}
-
-function ownerMatches (record, ownerSubject) {
-  if (ownerSubject === undefined) {
-    return record.owner_subject === undefined || record.owner_subject === null
-  }
-  return record.owner_subject === ownerSubject
+function resolveUserDataDir () {
+  if (process.env.ELECTRON_USER_DATA_DIR) return process.env.ELECTRON_USER_DATA_DIR
+  try {
+    const electron = require('electron')
+    if (electron?.app && typeof electron.app.getPath === 'function') return electron.app.getPath('userData')
+  } catch (_) { /* 非 Electron 进程使用稳定的用户目录回退 */ }
+  return path.join(os.homedir(), '.multi-publish')
 }
 
 /**
  * 初始化状态文件
  */
-function init (userDataDir) {
-  const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
+function init () {
+  const userDataDir = resolveUserDataDir()
+  const filePath = getStateFilePath(userDataDir)
   const dir = path.dirname(filePath)
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true })
@@ -58,37 +98,35 @@ function init (userDataDir) {
   if (!fs.existsSync(filePath)) {
     fs.writeFileSync(filePath, '')
   }
+  sanitizeLegacyRecords(userDataDir)
 }
 
 /**
- * 保存账号凭证
+ * 保存账号公开状态
  * 写入一条 JSONL 记录
  * 
  * @param {object} record - {
  *   accountId: string,
  *   platform: string,
  *   platformAccountId: string,
- *   cookies: Array<{name, value, domain, path, ...}>,
- *   localStorage: Object<{key, value}>,
  *   accountInfo: {nickName, avatar, ...},
  *   timestamp: number
  * }
  */
-function saveAccountRecord (record, ownerSubject, userDataDir) {
-  const owner = normalizeOwnerSubject(ownerSubject)
+function saveAccountRecord (record) {
   try {
-    const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
+    const filePath = getStateFilePath(resolveUserDataDir())
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
-    const { owner_subject: _ignoredOwner, ...safeRecord } = record || {}
     const line = JSON.stringify({
-      ...safeRecord,
-      ...(owner === undefined ? {} : { owner_subject: owner }),
+      ...sanitizeRecord(record),
       timestamp: Date.now()
     })
     fs.appendFileSync(filePath, line + '\n')
-    log.info('AccountStateRestorer', `Saved credentials for ${record.platform}:${record.accountId}`)
+    log.info('AccountStateRestorer', `Saved account state for ${record.platform}:${record.accountId}`)
+    return true
   } catch (e) {
     log.error('AccountStateRestorer', `Failed to save account record: ${e.message}`)
+    return false
   }
 }
 
@@ -99,10 +137,9 @@ function saveAccountRecord (record, ownerSubject, userDataDir) {
  * @param {string} accountId - 账号ID
  * @returns {object|null} 最近的记录，或 null
  */
-function getAccountRecord (platform, accountId, ownerSubject, userDataDir) {
-  const owner = normalizeOwnerSubject(ownerSubject)
+function getAccountRecord (platform, accountId) {
   try {
-    const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
+    const filePath = getStateFilePath(resolveUserDataDir())
     if (!fs.existsSync(filePath)) return null
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -112,8 +149,8 @@ function getAccountRecord (platform, accountId, ownerSubject, userDataDir) {
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const record = JSON.parse(lines[i])
-        if (record.platform === platform && record.accountId === accountId && ownerMatches(record, owner)) {
-          return record
+        if (record.platform === platform && record.accountId === accountId) {
+          return sanitizeRecord(record)
         }
       // eslint-disable-next-line no-unused-vars
       } catch (e) { /* skip corrupt line */ }
@@ -131,10 +168,9 @@ function getAccountRecord (platform, accountId, ownerSubject, userDataDir) {
  * @param {string} platform 
  * @param {string} accountId 
  */
-function deleteAccountRecord (platform, accountId, ownerSubject, userDataDir) {
-  const owner = normalizeOwnerSubject(ownerSubject)
+function deleteAccountRecord (platform, accountId) {
   try {
-    const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
+    const filePath = getStateFilePath(resolveUserDataDir())
     if (!fs.existsSync(filePath)) return
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -144,19 +180,38 @@ function deleteAccountRecord (platform, accountId, ownerSubject, userDataDir) {
     const filtered = lines.filter(line => {
       try {
         const record = JSON.parse(line)
-        return !(record.platform === platform && record.accountId === accountId && ownerMatches(record, owner))
+        return !(record.platform === platform && record.accountId === accountId)
       } catch {
         return true // keep corrupt lines
       }
     })
     
-    // 安全修复：凭证全文重写原子写（原非原子写中断会丢失全部账号登录态）
+    // 全文重写必须使用原子替换，避免中断时丢失账号状态。
     const tmpPath = filePath + '.tmp'
     fs.writeFileSync(tmpPath, filtered.join('\n') + (filtered.length ? '\n' : ''))
     fs.renameSync(tmpPath, filePath)
-    log.info('AccountStateRestorer', `Deleted credentials for ${platform}:${accountId}`)
+    log.info('AccountStateRestorer', `Deleted account state for ${platform}:${accountId}`)
   } catch (e) {
     log.error('AccountStateRestorer', `Failed to delete account record: ${e.message}`)
+  }
+}
+
+function deleteAccountRecordsById (accountId) {
+  try {
+    const filePath = getStateFilePath(resolveUserDataDir())
+    if (!fs.existsSync(filePath)) return true
+    const lines = fs.readFileSync(filePath, 'utf8').trim().split('\n').filter(line => line.trim())
+    const filtered = lines.filter(line => {
+      try { return JSON.parse(line).accountId !== accountId } catch (_) { return true }
+    })
+    const tmpPath = filePath + '.tmp'
+    fs.writeFileSync(tmpPath, filtered.join('\n') + (filtered.length ? '\n' : ''))
+    fs.renameSync(tmpPath, filePath)
+    log.info('AccountStateRestorer', `Deleted all account state for ${accountId}`)
+    return true
+  } catch (e) {
+    log.error('AccountStateRestorer', `Failed to delete account records for ${accountId}: ${e.message}`)
+    return false
   }
 }
 
@@ -165,10 +220,9 @@ function deleteAccountRecord (platform, accountId, ownerSubject, userDataDir) {
  * 
  * @returns {Array<{platform, accountId, accountInfo}>}
  */
-function listLoggedInAccounts (ownerSubject, userDataDir) {
-  const owner = normalizeOwnerSubject(ownerSubject)
+function listLoggedInAccounts () {
   try {
-    const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
+    const filePath = getStateFilePath(resolveUserDataDir())
     if (!fs.existsSync(filePath)) return []
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -179,7 +233,7 @@ function listLoggedInAccounts (ownerSubject, userDataDir) {
     for (const line of lines) {
       try {
         const record = JSON.parse(line)
-        if (record.platform && record.accountId && ownerMatches(record, owner)) {
+        if (record.platform && record.accountId) {
           const key = `${record.platform}:${record.accountId}`
           const existing = latestByPlatform.get(key)
           if (!existing || record.timestamp > existing.timestamp) {
@@ -189,7 +243,7 @@ function listLoggedInAccounts (ownerSubject, userDataDir) {
       } catch { /* skip */ }
     }
     
-    return Array.from(latestByPlatform.values())
+    return Array.from(latestByPlatform.values()).map(sanitizeRecord)
   } catch (e) {
     log.error('AccountStateRestorer', `Failed to list accounts: ${e.message}`)
     return []
@@ -201,9 +255,9 @@ function listLoggedInAccounts (ownerSubject, userDataDir) {
  * 
  * @param {number} days - 保留天数
  */
-function purgeExpired (days = 90, userDataDir) {
+function purgeExpired (days = 90) {
   try {
-    const filePath = getStateFilePath(resolveUserDataDir(userDataDir))
+    const filePath = getStateFilePath(resolveUserDataDir())
     if (!fs.existsSync(filePath)) return 0
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -220,7 +274,7 @@ function purgeExpired (days = 90, userDataDir) {
     })
     
     const purged = lines.length - valid.length
-    // 安全修复：purgeExpired 全文重写原子写（原非原子写中断丢失全部账号凭证）
+    // 全文重写必须使用原子替换，避免中断时丢失账号状态。
     const tmpPath = filePath + '.tmp'
     fs.writeFileSync(tmpPath, valid.join('\n') + (valid.length ? '\n' : ''))
     fs.renameSync(tmpPath, filePath)
@@ -240,6 +294,9 @@ module.exports = {
   saveAccountRecord,
   getAccountRecord,
   deleteAccountRecord,
+  deleteAccountRecordsById,
   listLoggedInAccounts,
-  purgeExpired
+  purgeExpired,
+  sanitizeLegacyRecords,
+  resolveUserDataDir
 }

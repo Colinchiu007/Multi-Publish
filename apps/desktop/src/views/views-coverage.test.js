@@ -11,11 +11,37 @@ vi.mock("@/stores/platforms", () => ({
   usePlatformStore: () => ({
     load: vi.fn(), platforms: [{ id: "wechat_mp", label: "微信" }, { id: "zhihu", label: "知乎" }],
     getLabel: (k) => ({ wechat_mp: "微信", zhihu: "知乎" }[k] || k), getIcon: () => "📦",
+    getCategory: () => "国内",
+    getDashboardUrl: () => "",
+    supportsQrCode: () => false,
   })
 }));
 
 vi.mock("@/stores/accounts", () => ({
-  useAccountStore: () => ({ load: vi.fn(), loadGroups: vi.fn(), accounts: [], byPlatform: {}, getDefault: () => null })
+  useAccountStore: () => ({
+    load: vi.fn(),
+    loadGroups: vi.fn(),
+    accounts: [],
+    byPlatform: {},
+    groupedByPlatform: [],
+    selectedIds: new Set(),
+    favoriteIds: new Set(),
+    groups: [],
+    filterStatus: "all",
+    searchQuery: "",
+    error: null,
+    getDefault: () => null,
+    toggleSelect: vi.fn(),
+    selectAll: vi.fn(),
+    clearSelection: vi.fn(),
+    toggleFavorite: vi.fn(),
+    createGroup: vi.fn(),
+    deleteGroup: vi.fn(),
+    toggleAccountInGroup: vi.fn(),
+    setDefault: vi.fn(),
+    renameAccount: vi.fn(),
+    batchDelete: vi.fn(),
+  })
 }));
 
 vi.mock("@/stores/license", () => ({
@@ -31,13 +57,40 @@ vi.mock("element-plus", () => ({
   ElMessageBox: { confirm: vi.fn() }
 }));
 
-vi.mock("@element-plus/icons-vue", () => ({ UploadFilled: { template: "<span>U</span>" } }));
+vi.mock("@element-plus/icons-vue", () => {
+  const Icon = { template: "<span />" };
+  return {
+    AccountGroupManager: Icon,
+    Cellphone: Icon,
+    CircleCheck: Icon,
+    Close: Icon,
+    Delete: Icon,
+    FolderOpened: Icon,
+    Link: Icon,
+    Monitor: Icon,
+    Plus: Icon,
+    Refresh: Icon,
+    Search: Icon,
+    Star: Icon,
+    StarFilled: Icon,
+    UploadFilled: Icon,
+    UserFilled: Icon,
+  };
+});
 
 vi.mock("@/api/publisher", () => ({
   renderStart: vi.fn(), renderCancel: vi.fn(), renderGetStatus: vi.fn().mockResolvedValue({ ready: true }),
   renderInstallDeps: vi.fn(), onRenderProgress: vi.fn(() => vi.fn()),
   onRenderComplete: vi.fn(() => vi.fn()), onRenderError: vi.fn(() => vi.fn()),
   onRenderInstallProgress: vi.fn(() => vi.fn()),
+  onAccountStatusChanged: vi.fn(() => vi.fn()),
+  onAuthCompleted: vi.fn(() => vi.fn()),
+  onAuthViewClosed: vi.fn(() => vi.fn()),
+  onAuthViewOpened: vi.fn(() => vi.fn()),
+  onQrCodeClosed: vi.fn(() => vi.fn()),
+  onQrCodeCompleted: vi.fn(() => vi.fn()),
+  onQrCodeDetected: vi.fn(() => vi.fn()),
+  onQrCodeOpened: vi.fn(() => vi.fn()),
   publishBatch: vi.fn(), onProgress: vi.fn(() => vi.fn()),
   sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
   batchCreate: vi.fn(), storeGetSetting: vi.fn(),

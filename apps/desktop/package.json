@@ -27,7 +27,7 @@
         "test:visual:ci": "node tests/visual-testing/scripts/visual-ci.js",
         "test:visual:update-baseline": "cross-env UPDATE_BASELINE=1 node tests/visual-testing/scripts/run-pixel-tests.js",
         "test:visual:quick": "node tests/visual-testing/views/all-views.visual.test.js --single home-default",
-        "test:all:visual": "node tests/visual-testing/views/all-views.visual.test.js && node tests/visual-testing/workflows/all-workflows.visual.test.js",
+        "test:all:visual": "node tests/visual-testing/views/all-views.visual.test.js && node tests/visual-testing/views/supplementary-views.visual.test.js && node tests/visual-testing/workflows/all-workflows.visual.test.js && node tests/visual-testing/workflows/supplementary-workflows.visual.test.js",
         "test:visual:pixel": "node tests/visual-testing/scripts/run-pixel-tests.js",
         "test:visual:agent": "node tests/visual-testing/scripts/agent-visual-judge.js",
         "test:ai:autonomous": "node ../../packages/ai-autonomous-tester/scripts/run-autonomous.js",

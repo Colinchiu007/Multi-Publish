@@ -11,11 +11,17 @@
 const { BrowserWindow, WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
-const { PLATFORM_LOGIN_URLS, PLATFORM_LOGIN_SUCCESS_PATTERNS } = require('@multi-publish/shared-utils/src/platform-definitions')
+const {
+  PLATFORM_LOGIN_URLS,
+  isPlatformCookieDomain,
+  isPlatformLoginSuccessUrl,
+} = require('@multi-publish/shared-utils/src/platform-definitions')
 const { attachCdpDetection } = require('./auth-view-cdp')
 const { createSession, setCookies, restoreLocalStorage, createAuthView } = require('./auth-view-session')
 
 const SIDEBAR_WIDTH = 280
+const SIDEBAR_BREAKPOINT = 1360
+const AUTH_STATUS_HEIGHT = 44
 
 class AuthViewManager {
   constructor() {
@@ -35,6 +41,12 @@ class AuthViewManager {
     this._escHandler = null
     /** @type {import('electron').WebContentsView | null} */
     this._escView = null
+    /** @type {{ id: number, view: import('electron').WebContentsView, platform: string, resolveLogin: (data: any) => void } | null} */
+    this._activeLoginAttempt = null
+    /** @type {number} */
+    this._loginAttemptSequence = 0
+    /** @type {number | null} */
+    this._autoCompletionAttemptId = null
   }
 
   /**
@@ -51,15 +63,81 @@ class AuthViewManager {
    */
   _positionView(bounds) {
     if (!this.currentView) return
+    const sidebarWidth = bounds.width <= SIDEBAR_BREAKPOINT ? 0 : SIDEBAR_WIDTH
+    const top = this._getNavHeight() + AUTH_STATUS_HEIGHT
     this.currentView.setBounds({
-      x: SIDEBAR_WIDTH,
-      y: 56,
-      width: bounds.width - SIDEBAR_WIDTH,
-      height: bounds.height - 56,
+      x: sidebarWidth,
+      y: top,
+      width: bounds.width - sidebarWidth,
+      height: Math.max(0, bounds.height - top),
     })
   }
 
   _getNavHeight() { return 56 }
+
+  _createLoginAttempt() {
+    if (!this.currentView || !this.currentPlatform || !this._resolveLogin) return null
+    this._activeLoginAttempt = {
+      id: ++this._loginAttemptSequence,
+      view: this.currentView,
+      platform: this.currentPlatform,
+      resolveLogin: this._resolveLogin,
+    }
+    this._autoCompletionAttemptId = null
+    return this._activeLoginAttempt
+  }
+
+  _getLoginAttempt() {
+    const attempt = this._activeLoginAttempt
+    if (
+      attempt &&
+      attempt.view === this.currentView &&
+      attempt.platform === this.currentPlatform &&
+      attempt.resolveLogin === this._resolveLogin
+    ) return attempt
+    return this._createLoginAttempt()
+  }
+
+  _isCurrentLoginAttempt(attempt) {
+    return Boolean(
+      attempt &&
+      this._activeLoginAttempt === attempt &&
+      this.currentView === attempt.view &&
+      this.currentPlatform === attempt.platform &&
+      this._resolveLogin === attempt.resolveLogin
+    )
+  }
+
+  _settleLogin(attempt, result) {
+    if (!this._isCurrentLoginAttempt(attempt)) return false
+    this._activeLoginAttempt = null
+    this._autoCompletionAttemptId = null
+    this._resolveLogin = null
+    attempt.resolveLogin(result)
+    this.close()
+    return true
+  }
+
+  _scheduleAutoCompletion(source, attempt = this._getLoginAttempt()) {
+    if (!attempt || !this._isCurrentLoginAttempt(attempt) || this._autoCompletionAttemptId === attempt.id) return
+    this._autoCompletionAttemptId = attempt.id
+
+    const timerKey = source === 'cdp' ? '_cdpExtractTimer' : '_urlExtractTimer'
+    const timer = setTimeout(async () => {
+      try {
+        if (!this._isCurrentLoginAttempt(attempt)) return
+        const authData = await this._extractAuthData(attempt.view, attempt.platform)
+        this._settleLogin(attempt, authData)
+      } catch (e) {
+        log.warn('AuthView', 'Failed to extract auth data: ' + (e instanceof Error ? e.message : String(e)))
+        if (this._isCurrentLoginAttempt(attempt)) this._autoCompletionAttemptId = null
+      } finally {
+        if (this[timerKey] === timer) this[timerKey] = null
+      }
+    }, 3000)
+    this[timerKey] = timer
+    if (this[timerKey] && this[timerKey].unref) this[timerKey].unref()
+  }
 
   /**
    * @param {string} platform
@@ -72,6 +150,8 @@ class AuthViewManager {
       const loginUrl = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
       if (!loginUrl) { reject(new Error(`不支持的平台: ${platform}`)); return }
 
+      if (this.currentView || this._resolveLogin) this.close()
+
       const accountId = `auth-${platform}-${Date.now()}`
       this.currentPlatform = platform
       this.currentAccountId = accountId
@@ -81,6 +161,7 @@ class AuthViewManager {
       const authSession = createSession(accountId, session)
       const view = createAuthView(accountId, this._getPreloadPath(), authSession)
       this.currentView = view
+      const attempt = this._createLoginAttempt()
 
       this._positionView(this.mainWindow.getBounds())
       this.mainWindow.contentView.addChildView(view)
@@ -98,12 +179,7 @@ class AuthViewManager {
        */
       const escHandler = (event, input) => {
         if (input && input.type === 'keyDown' && input.key === 'Escape') {
-          // 先 resolve 再 close（close 会置空 _resolveLogin，导致 Promise 永久泄漏）
-          if (this._resolveLogin) {
-            this._resolveLogin({ cancelled: true })
-            this._resolveLogin = null
-          }
-          this.close()
+          if (attempt) this._settleLogin(attempt, { cancelled: true })
         }
       }
       view.webContents.on("before-input-event", escHandler)
@@ -111,37 +187,19 @@ class AuthViewManager {
       this._escView = view
 
       // URL 检测（备用）
-      view.webContents.on('did-navigate', (/** @type {any} */ _, /** @type {string} */ url) => this._checkLoginCompleted(url))
+      view.webContents.on('did-navigate', (/** @type {any} */ _, /** @type {string} */ url) => this._checkLoginCompleted(url, attempt))
 
       // CDP 检测（主检测方式）
       attachCdpDetection(view, () => {
         log.info('AuthView', 'CDP detected login success')
-        // 安全修复：保存 timer 句柄，close() 中清理（R15 对齐 oauth-manager/qrcode-login）
-        this._cdpExtractTimer = setTimeout(async () => {
-          try {
-            const authData = await this._extractAuthData(view)
-            if (this._resolveLogin) {
-              this._resolveLogin(authData)
-              this._resolveLogin = null
-            }
-            this.close()
-          } catch (e) {
-            log.warn('AuthView', 'Failed to extract auth data: ' + (e instanceof Error ? e.message : String(e)))
-          }
-        }, 3000)
-        // R28 修复：unref 让定时器不阻止进程退出
-        if (this._cdpExtractTimer && this._cdpExtractTimer.unref) this._cdpExtractTimer.unref()
+        this._scheduleAutoCompletion('cdp', attempt)
       })
 
       // 超时
       if (timeout > 0) {
         // 安全修复：保存 timer 句柄，close() 中清理（R15 对齐 oauth-manager/qrcode-login）
         this._loginTimeout = setTimeout(() => {
-          if (this._resolveLogin) {
-            this._resolveLogin({ timeout: true })
-            this._resolveLogin = null
-            this.close()
-          }
+          if (attempt) this._settleLogin(attempt, { timeout: true })
         }, timeout)
         // R28 修复：unref 让定时器不阻止进程退出
         if (this._loginTimeout && this._loginTimeout.unref) this._loginTimeout.unref()
@@ -152,41 +210,63 @@ class AuthViewManager {
   /**
    * @param {import('electron').WebContentsView} view
    */
-  async _extractAuthData(view) {
-    const cookies = await view.webContents.session.cookies.get({})
+  async _extractAuthData(view, platform = this.currentPlatform) {
+    const allCookies = await view.webContents.session.cookies.get({})
+    const cookies = allCookies.filter(cookie => isPlatformCookieDomain(platform, cookie?.domain))
+    let localStorage = {}
+    try {
+      const extracted = await view.webContents.executeJavaScript(
+        'window.__auth_helper__ && typeof window.__auth_helper__.getLocalStorage === "function" ? window.__auth_helper__.getLocalStorage() : {}',
+      )
+      if (extracted && typeof extracted === 'object' && !Array.isArray(extracted)) {
+        localStorage = Object.fromEntries(
+          Object.entries(extracted).filter(([key, value]) => typeof key === 'string' && typeof value === 'string'),
+        )
+      }
+    } catch (_e) { /* 页面未加载完成时没有 localStorage 也可继续检查 Cookie */ }
     let name = ''
     try { name = await view.webContents.executeJavaScript('document.title || ""') } catch (_e) { /* ignore */ }
-    return { cookies, name }
+    return { cookies, name, localStorage }
+  }
+
+  /**
+   * 用户确认平台登录完成后，立即由主进程提取当前隔离视图的凭证。
+   * 渲染进程只触发动作，不接触 Cookie/localStorage。
+   */
+  async completeLogin() {
+    const attempt = this._getLoginAttempt()
+    if (!attempt) throw new Error('没有正在进行的网页登录')
+
+    const authData = await this._extractAuthData(attempt.view, attempt.platform)
+    const hasCookies = Array.isArray(authData.cookies) && authData.cookies.length > 0
+    const hasLocalStorage = Boolean(
+      authData.localStorage &&
+      typeof authData.localStorage === 'object' &&
+      Object.keys(authData.localStorage).length > 0,
+    )
+    if (!hasCookies && !hasLocalStorage) {
+      throw new Error('未检测到登录凭证，请先在平台页面完成登录')
+    }
+    if (!this._settleLogin(attempt, authData)) {
+      throw new Error('登录会话已结束，请重新添加账号')
+    }
+    return true
   }
 
   /**
    * @param {string} url
    */
-  _checkLoginCompleted(url) {
-    if (!this.currentPlatform || !this._resolveLogin) return
-    const patterns = /** @type {Record<string, string[]>} */ (PLATFORM_LOGIN_SUCCESS_PATTERNS)[this.currentPlatform]
-    if (!patterns) return
-    if (patterns.some(p => url.includes(p))) {
-      log.info('AuthView', 'URL pattern detected login success: ' + this.currentPlatform)
-      // 安全修复：保存 timer 句柄，close() 中清理
-      this._urlExtractTimer = setTimeout(async () => {
-        try {
-          const authData = this.currentView ? await this._extractAuthData(this.currentView) : { cookies: [], name: "" }
-          if (this._resolveLogin) {
-            this._resolveLogin(authData)
-            this._resolveLogin = null
-          }
-          this.close()
-        } catch (e) {
-          log.warn('AuthView', 'Extract error: ' + (e instanceof Error ? e.message : String(e)))
-        }
-      }, 3000)
-      // R28 修复：unref 让定时器不阻止进程退出
-      if (this._urlExtractTimer && this._urlExtractTimer.unref) this._urlExtractTimer.unref()
+  _checkLoginCompleted(url, attempt = this._getLoginAttempt()) {
+    if (!attempt || !this._isCurrentLoginAttempt(attempt)) return
+    if (isPlatformLoginSuccessUrl(attempt.platform, url)) {
+      log.info('AuthView', 'URL pattern detected login success: ' + attempt.platform)
+      this._scheduleAutoCompletion('url', attempt)
     }
   }
 
   close() {
+    this._activeLoginAttempt = null
+    this._autoCompletionAttemptId = null
     // 安全修复：清理所有 timer（R15 对齐 oauth-manager/qrcode-login）
     if (this._loginTimeout) { clearTimeout(this._loginTimeout); this._loginTimeout = null }
     if (this._cdpExtractTimer) { clearTimeout(this._cdpExtractTimer); this._cdpExtractTimer = null }
@@ -205,12 +285,22 @@ class AuthViewManager {
       } catch (_e) { /* ignore */ }
     }
     if (this._resolveLogin) {
-      this._resolveLogin({ cancelled: true })
+      const resolveLogin = this._resolveLogin
       this._resolveLogin = null
+      resolveLogin({ cancelled: true })
     }
+    const hadActiveView = Boolean(this.currentView || this.currentPlatform)
     this.currentPlatform = null
     this.currentAccountId = null
     this._rejectLogin = null
+    if (
+      hadActiveView &&
+      this.mainWindow &&
+      !this.mainWindow.isDestroyed?.() &&
+      typeof this.mainWindow.webContents?.send === 'function'
+    ) {
+      this.mainWindow.webContents.send('auth:view-closed')
+    }
   }
 
   /**
@@ -228,7 +318,7 @@ class AuthViewManager {
     this.currentAccountId = accountId
 
     const authSession = createSession(accountId, session)
-    await setCookies(authSession, cookies)
+    await setCookies(authSession, (cookies || []).filter(cookie => isPlatformCookieDomain(platform, cookie?.domain)))
 
     const view = createAuthView(accountId, this._getPreloadPath(), authSession)
     this.currentView = view
@@ -285,7 +375,7 @@ class AuthViewManager {
 
     try {
       if (cookies && cookies.length > 0) {
-        for (const c of cookies) {
+        for (const c of cookies.filter(cookie => isPlatformCookieDomain(platform, cookie?.domain))) {
           try { await win.webContents.session.cookies.set(c) } catch (_e) { /* skip */ }
         }
       }
@@ -309,10 +399,7 @@ class AuthViewManager {
       await new Promise(r => setTimeout(r, 2000))
 
       const currentUrl = win.webContents.getURL()
-      const patterns = /** @type {Record<string, string[]>} */ (PLATFORM_LOGIN_SUCCESS_PATTERNS)[platform]
-      const isValid = patterns
-        ? patterns.some(p => currentUrl.includes(p))
-        : !currentUrl.includes('login') && !currentUrl.includes('passport') && !currentUrl.includes('signin')
+      const isValid = isPlatformLoginSuccessUrl(platform, currentUrl)
 
       let accountName = null
       try { accountName = await win.webContents.getTitle() } catch (_e) { /* ignore */ }

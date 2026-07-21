@@ -7,12 +7,14 @@ import { nextTick } from 'vue'
 
 const {
   mockBatchCreate,
+  mockRetryTask,
   mockOnProgress,
   mockElMessage,
   mockElMessageBox,
 } = vi.hoisted(function () {
   return {
     mockBatchCreate: vi.fn(),
+    mockRetryTask: vi.fn(),
     mockOnProgress: vi.fn(function () { return vi.fn() }),
     mockElMessage: { success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() },
     mockElMessageBox: { confirm: vi.fn() },
@@ -22,7 +24,12 @@ const {
 vi.mock('@/api/publisher', function () {
   return {
     batchCreate: mockBatchCreate,
+    retryTask: mockRetryTask,
     onProgress: mockOnProgress,
+    batchExecute: (...args) => window.electronAPI?.batchExecute?.(...args),
+    batchSchedule: (...args) => window.electronAPI?.batchSchedule?.(...args),
+    batchGet: (...args) => window.electronAPI?.batchGet?.(...args),
+    onBatchProgress: (callback) => window.electronAPI?.onBatchProgress?.(callback),
     // 其他 API 不用，但需要导出避免 import 错误
     publishBatch: vi.fn(),
     sensitiveCheck: vi.fn(),
@@ -41,6 +48,10 @@ vi.mock('element-plus', function () {
 
 import { reactive } from 'vue'
 import { useBatchPublish } from '../composables/useBatchPublish'
+
+function futurePublishTime (minutes = 10) {
+  return new Date(Date.now() + minutes * 60 * 1000).toISOString()
+}
 
 describe('useBatchPublish — composable setup', () => {
   let originalElectronAPI
@@ -76,12 +87,17 @@ describe('useBatchPublish — composable setup', () => {
     expect(r.batchDone).toBeDefined()
     expect(r.batchFail).toBeDefined()
     expect(r.totalPlatformTasks).toBeDefined()
+    expect(r.failedBatchTasks).toBeDefined()
+    expect(r.retryingFailed).toBeDefined()
     expect(typeof r.addArticle).toBe('function')
     expect(typeof r.removeArticle).toBe('function')
     expect(typeof r.duplicateArticle).toBe('function')
     expect(typeof r.handleBatchPublish).toBe('function')
+    expect(typeof r.retryFailedBatch).toBe('function')
     expect(typeof r.applyTemplate).toBe('function')
     expect(typeof r.checkBatchAccess).toBe('function')
+    expect(typeof r.toggleBatchAccount).toBe('function')
+    expect(typeof r.isBatchAccountSelected).toBe('function')
   })
 
   it('初始状态', () => {
@@ -96,6 +112,8 @@ describe('useBatchPublish — composable setup', () => {
     expect(r.batchDone.value).toBe(0)
     expect(r.batchFail.value).toBe(0)
     expect(r.totalPlatformTasks.value).toBe(0)
+    expect(r.failedBatchTasks.value).toEqual([])
+    expect(r.retryingFailed.value).toBe(false)
   })
 
   // ─── addArticle / removeArticle / duplicateArticle ────
@@ -145,9 +163,22 @@ describe('useBatchPublish — composable setup', () => {
   it('duplicateArticle publishTime 清空', () => {
     const r = useBatchPublish({ article, licenseStore })
     r.addArticle()
-    r.articles.value[0].publishTime = '2026-01-01T10:00'
+    r.articles.value[0].publishTime = futurePublishTime()
     r.duplicateArticle(0)
     expect(r.articles.value[1].publishTime).toBe('')
+  })
+
+  it('批量文章账号选择支持多选和再次点击取消', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    const item = { accounts: { wechat_mp: ['wx-a'] } }
+
+    r.toggleBatchAccount(item, 'wechat_mp', 'wx-b')
+    expect(item.accounts.wechat_mp).toEqual(['wx-a', 'wx-b'])
+    expect(r.isBatchAccountSelected(item, 'wechat_mp', 'wx-b')).toBe(true)
+
+    r.toggleBatchAccount(item, 'wechat_mp', 'wx-a')
+    expect(item.accounts.wechat_mp).toEqual(['wx-b'])
+    expect(r.isBatchAccountSelected(item, 'wechat_mp', 'wx-a')).toBe(false)
   })
 
   // ─── batchDone / batchFail / totalPlatformTasks ────
@@ -180,6 +211,15 @@ describe('useBatchPublish — composable setup', () => {
     const r = useBatchPublish({ article, licenseStore })
     r.articles.value = [{}, { platforms: ['wx'] }]
     expect(r.totalPlatformTasks.value).toBe(1)
+  })
+
+  it('totalPlatformTasks 按平台账号目标展开', () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      platforms: ['wechat_mp', 'zhihu'],
+      accounts: { wechat_mp: ['wx-a', 'wx-b'], zhihu: ['zh-a'] },
+    }]
+    expect(r.totalPlatformTasks.value).toBe(3)
   })
 
   // ─── applyTemplate ────────────────────────────
@@ -262,6 +302,22 @@ describe('useBatchPublish — composable setup', () => {
     await nestedPublish
 
     expect(mockElMessage.warning).toHaveBeenCalledTimes(1)
+    expect(mockBatchCreate).not.toHaveBeenCalled()
+    expect(r.batchPublishing.value).toBe(false)
+  })
+
+  it('发布前展示任务数确认，取消后不创建批次', async () => {
+    mockElMessageBox.confirm.mockRejectedValueOnce(new Error('cancel'))
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp', 'zhihu'] }]
+
+    await r.handleBatchPublish()
+
+    expect(mockElMessageBox.confirm).toHaveBeenCalledWith(
+      '即将发布 1 篇内容，共 2 个平台账号任务。请确认各平台表单信息完整。',
+      '确认批量发布',
+      expect.objectContaining({ confirmButtonText: '确认发布', cancelButtonText: '取消' }),
+    )
     expect(mockBatchCreate).not.toHaveBeenCalled()
     expect(r.batchPublishing.value).toBe(false)
   })
@@ -396,6 +452,22 @@ describe('useBatchPublish — composable setup', () => {
     expect(mockElMessage.warning).toHaveBeenCalled()
   })
 
+  it('批量文章引用已失效账号时在创建批次前阻止发布', async () => {
+    const r = useBatchPublish({ article, licenseStore, isAccountAvailable: () => false })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp'],
+      accounts: { wechat_mp: ['deleted-account'] },
+    }]
+
+    await r.handleBatchPublish()
+
+    expect(mockElMessage.warning).toHaveBeenCalledWith('批量文章中有账号已失效，请重新选择发布账号')
+    expect(mockElMessageBox.confirm).not.toHaveBeenCalled()
+    expect(mockBatchCreate).not.toHaveBeenCalled()
+  })
+
   it('handleBatchPublish 成功创建批量任务（无定时）', async () => {
     mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
     window.electronAPI.batchExecute.mockResolvedValueOnce({ code: 0 })
@@ -422,7 +494,7 @@ describe('useBatchPublish — composable setup', () => {
     r.articles.value[0].title = '标题'
     r.articles.value[0].content = '正文'
     r.articles.value[0].platforms = ['wechat_mp']
-    r.articles.value[0].publishTime = '2026-01-01T10:00'
+    r.articles.value[0].publishTime = futurePublishTime()
     await r.handleBatchPublish()
     expect(window.electronAPI.batchSchedule).toHaveBeenCalledWith('batch1')
   })
@@ -438,7 +510,7 @@ describe('useBatchPublish — composable setup', () => {
       title: '标题',
       content: '正文',
       platforms: ['wechat_mp'],
-      publishTime: '2026-01-01T10:00',
+      publishTime: futurePublishTime(),
     }]
 
     await r.handleBatchPublish()
@@ -498,12 +570,13 @@ describe('useBatchPublish — composable setup', () => {
     mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
     const r = useBatchPublish({ article, licenseStore })
     r.precheckEnabled.value = true
+    const publishTime = futurePublishTime()
     r.articles.value = [{
       _key: 'ui-only',
       title: '标题',
       content: '正文',
       platforms: ['wechat_mp', 'zhihu'],
-      publishTime: '2026-07-18T10:00',
+      publishTime,
     }]
 
     await r.handleBatchPublish()
@@ -513,11 +586,32 @@ describe('useBatchPublish — composable setup', () => {
       title: '标题',
       content: '正文',
       platforms: ['wechat_mp', 'zhihu'],
-      publishTime: '2026-07-18T10:00',
+      publishTime,
       precheck: true,
+      author: '',
+      cover_url: '',
+      video_path: '',
     }])
     expect(window.electronAPI.batchSchedule).toHaveBeenCalledWith('batch1')
     expect(window.electronAPI.batchExecute).not.toHaveBeenCalled()
+  })
+
+  it('创建批次时透传多账号目标', async () => {
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{
+      title: '标题',
+      content: '正文',
+      platforms: ['wechat_mp'],
+      accounts: { wechat_mp: ['wx-a', 'wx-b'] },
+      publishTime: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    }]
+
+    await r.handleBatchPublish()
+
+    expect(mockBatchCreate.mock.calls[0][0].articles[0].platforms).toEqual([
+      { platform: 'wechat_mp', accountId: 'wx-a' },
+      { platform: 'wechat_mp', accountId: 'wx-b' },
+    ])
   })
 
   it('创建批次时传入 IPC 的嵌套文章数据可结构化克隆', async () => {
@@ -530,7 +624,7 @@ describe('useBatchPublish — composable setup', () => {
       title: '标题',
       content: '正文',
       platforms: ['wechat_mp', 'zhihu'],
-      publishTime: '2026-07-18T10:00',
+      publishTime: futurePublishTime(),
     }]
 
     await r.handleBatchPublish()
@@ -648,6 +742,41 @@ describe('useBatchPublish — composable setup', () => {
     expect(r.batchFail.value).toBe(1)
     expect(mockElMessage.warning).toHaveBeenCalledWith('批量发布完成：1 个成功，1 个失败')
     expect(unsubscribeBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('记录可重试的失败任务并重新加入发布队列', async () => {
+    let emitBatchProgress
+    mockBatchCreate.mockResolvedValueOnce({ code: 0, data: { id: 'batch1' } })
+    window.electronAPI.onBatchProgress.mockImplementationOnce(function (callback) {
+      emitBatchProgress = callback
+      return vi.fn()
+    })
+    window.electronAPI.batchExecute.mockResolvedValueOnce({ code: 0 })
+    mockRetryTask.mockResolvedValueOnce({ code: 0, data: { taskId: 'retry-1', retryOf: 'failed-1' } })
+    const r = useBatchPublish({ article, licenseStore })
+    r.articles.value = [{ title: '标题', content: '正文', platforms: ['zhihu'] }]
+
+    await r.handleBatchPublish()
+    emitBatchProgress({
+      batchId: 'batch1',
+      taskId: 'failed-1',
+      ok: false,
+      platform: 'zhihu',
+      title: '标题',
+      message: '账号未登录',
+    })
+
+    expect(r.failedBatchTasks.value).toEqual([{
+      taskId: 'failed-1',
+      platform: 'zhihu',
+      title: '标题',
+    }])
+
+    await r.retryFailedBatch()
+
+    expect(mockRetryTask).toHaveBeenCalledWith('failed-1')
+    expect(r.failedBatchTasks.value).toEqual([])
+    expect(mockElMessage.success).toHaveBeenCalledWith('已重新提交 1 个失败任务')
   })
 
   it('全部任务失败时显示明确错误汇总，并忽略其他批次事件', async () => {

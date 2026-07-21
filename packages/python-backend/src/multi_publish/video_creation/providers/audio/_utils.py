@@ -53,19 +53,19 @@ def get_access_token() -> tuple[str, str | None]:
 
     Returns ``(access_token, project_id)``.
     """
+    path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if not path or not os.path.exists(path):
+        raise RuntimeError(
+            "GOOGLE_APPLICATION_CREDENTIALS does not point to an existing "
+            "file; cannot use service-account authentication."
+        ) from None
+
     try:
         from google.auth.transport.requests import Request
         from google.oauth2 import service_account
     except ImportError:
         raise RuntimeError(
             "Service-account auth requires the 'google-auth' package. Install it with: pip install google-auth"
-        ) from None
-
-    path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if not path or not os.path.exists(path):
-        raise RuntimeError(
-            "GOOGLE_APPLICATION_CREDENTIALS does not point to an existing "
-            "file; cannot use service-account authentication."
         ) from None
 
     creds = service_account.Credentials.from_service_account_file(

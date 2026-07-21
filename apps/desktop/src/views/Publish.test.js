@@ -16,7 +16,8 @@ vi.mock("@/stores/platforms", () => ({
     platforms: [
       { id: "wechat_mp", label: "微信" },
       { id: "zhihu", label: "知乎" },
-    ]
+    ],
+    getCategory: () => "中文",
   })
 }));
 
@@ -42,10 +43,15 @@ vi.mock("element-plus", () => ({
   ElMessageBox: { confirm: vi.fn() }
 }));
 
-vi.mock("@element-plus/icons-vue", () => ({ UploadFilled: { template: "<span>U</span>" } }));
+vi.mock("@element-plus/icons-vue", () => ({
+  UploadFilled: { template: "<span>U</span>" },
+  Refresh: { template: "<span>R</span>" },
+}));
 
 import UiButton from "@/components/UiButton.vue";
 import UiInput from "@/components/UiInput.vue";
+import PlatformOverridePanel from "@/features/publish/components/PlatformOverridePanel.vue";
+import PublishTargetSelector from "@/features/publish/components/PublishTargetSelector.vue";
 import PublishView from "./Publish.vue";
 
 async function createWrapper() {
@@ -92,6 +98,11 @@ describe("PublishView", () => {
       batchExecute: vi.fn().mockResolvedValue({ code: 0 }),
       batchSchedule: vi.fn().mockResolvedValue({ code: 0 }),
       onBatchProgress: vi.fn(() => vi.fn()),
+      draftSave: vi.fn().mockResolvedValue({ code: 0 }),
+      draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      draftDelete: vi.fn().mockResolvedValue({ code: 0 }),
+      storeGetSetting: vi.fn().mockResolvedValue(null),
+      storeSetSetting: vi.fn().mockResolvedValue({ code: 0 }),
     };
     mockAccountLoad.mockClear();
   });
@@ -140,6 +151,51 @@ describe("PublishView", () => {
     expect(mockAccountLoad).toHaveBeenCalled();
   });
 
+  it("使用独立目标选择器并可打开平台差异化面板", async () => {
+    const w = await createWrapper();
+
+    expect(w.findComponent(PublishTargetSelector).exists()).toBe(true);
+    w.vm.showDiffPanel = true;
+    await nextTick();
+
+    expect(w.findComponent(PlatformOverridePanel).exists()).toBe(true);
+    expect(w.text()).toContain("平台差异化内容");
+  });
+
+  it("批量发布失败后显示重新发布命令", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    w.vm.batchProgress = [{ type: "danger", text: "发布失败", time: "10:00:00" }];
+    w.vm.failedBatchTasks = [{ taskId: "failed-1", platform: "zhihu", title: "标题" }];
+    await nextTick();
+
+    expect(w.text()).toContain("重新发布失败任务 (1)");
+  });
+
+  it("草稿保存完整往返字段", async () => {
+    const w = await createWrapper();
+    w.vm.article.title = "完整草稿";
+    w.vm.article.content = "正文";
+    w.vm.article.author = "作者";
+    w.vm.article.cover_url = "https://img.test/a.jpg";
+    w.vm.article.video_path = "D:/a.mp4";
+    w.vm.article.publishTime = "2026-07-21T12:00";
+    w.vm.selectedAccounts = { wechat_mp: ["acc1"] };
+    w.vm.replaceDiffEdits({ wechat_mp: { title: "微信标题", content: "" } });
+
+    await w.vm.saveDraft();
+
+    expect(window.electronAPI.draftSave).toHaveBeenCalledWith(expect.objectContaining({
+      title: "完整草稿",
+      author: "作者",
+      cover_url: "https://img.test/a.jpg",
+      video_path: "D:/a.mp4",
+      publishTime: "2026-07-21T12:00",
+      accounts: { wechat_mp: ["acc1"] },
+      platformOverrides: { wechat_mp: { title: "微信标题", content: "" } },
+    }));
+  });
+
   it("copies URL via clipboard API", async () => {
     const clip = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText: clip }, writable: true, configurable: true });
@@ -171,7 +227,7 @@ describe("PublishView", () => {
 
   it("sensitiveCheck warns on sensitive words", async () => {
     window.electronAPI.sensitiveCheck = vi.fn().mockResolvedValue({ code: 0, data: { words: ["badword"] } });
-    ElMessageBox.confirm = vi.fn().mockRejectedValue(new Error("cancel"));
+    ElMessageBox.confirm.mockRejectedValueOnce(new Error("cancel"));
     const w = await createWrapper();
     await nextTick();
     w.vm.article.title = "Test";
@@ -268,6 +324,11 @@ describe("PublishView — extra coverage", () => {
       batchExecute: vi.fn().mockResolvedValue({ code: 0 }),
       batchSchedule: vi.fn().mockResolvedValue({ code: 0 }),
       onBatchProgress: vi.fn(() => vi.fn()),
+      draftSave: vi.fn().mockResolvedValue({ code: 0 }),
+      draftList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+      draftDelete: vi.fn().mockResolvedValue({ code: 0 }),
+      storeGetSetting: vi.fn().mockResolvedValue(null),
+      storeSetSetting: vi.fn().mockResolvedValue({ code: 0 }),
     };
     mockAccountLoad.mockClear();
   });
@@ -371,12 +432,15 @@ describe("PublishView — extra coverage", () => {
     expect(w.vm.article.video_path).toBe("/videos/test.mp4");
   });
 
-  it("showAiWriter toggle works", async () => {
+  it("点击 AI 按钮会打开写作面板", async () => {
     const w = await createWrapper();
     expect(w.vm.showAiWriter).toBe(false);
-    w.vm.showAiWriter = true;
+
+    await w.get('[data-testid="open-ai-writer"]').trigger("click");
     await nextTick();
+
     expect(w.vm.showAiWriter).toBe(true);
+    expect(w.find("ai-writer-panel-stub").exists()).toBe(true);
   });
 
   // 交互测试：点击批量模式 checkbox 应切换 batchMode 状态

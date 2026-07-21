@@ -16,8 +16,8 @@
 
 ```
 apps/desktop/tests/visual-testing/
-├── views/              # 单视图快照测试 (45 个用例)
-├── workflows/          # 多步工作流测试 (32 个用例)
+├── views/              # 单视图快照测试 (43 个用例：23 核心 + 20 补充)
+├── workflows/          # 多步工作流测试 (50 个用例：32 核心 + 18 补充)
 ├── providers/          # 检测器（全部本地运行）
 │   ├── pixel-diff.js   # Resemble.js 像素对比（默认）
 │   └── ocr.js          # Tesseract.js OCR 文字提取
@@ -76,7 +76,7 @@ npm run test:visual:agent
 
 Agent 在会话中读 `judge-report.md` + 用 `view_image` 加载截图,自己判断每项是否预期变化。
 
-### 4. 发版前必跑：全量回归（77 用例 = 45 视图 + 32 工作流）
+### 4. 发版前必跑：全量回归（93 用例 = 43 视图 + 50 工作流）
 
 ```bash
 npm run test:all:visual
