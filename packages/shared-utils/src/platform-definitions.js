@@ -74,6 +74,97 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   facebook: ['facebook.com/'],
 }
 
+// 登录完成判定和凭证提取共用的可信域名边界。
+// 只允许明确的创作者/平台域名，避免把 query/hash 中伪造的成功路径当成登录完成。
+const PLATFORM_AUTH_HOSTS = {
+  wechat_mp: ['mp.weixin.qq.com'],
+  zhihu: ['www.zhihu.com', 'zhihu.com', 'zhuanlan.zhihu.com'],
+  weibo: ['weibo.com', 'www.weibo.com'],
+  douyin: ['www.douyin.com', 'creator.douyin.com'],
+  xiaohongshu: ['creator.xiaohongshu.com'],
+  tencent_video: ['channels.weixin.qq.com'],
+  kuaishou: ['cp.kuaishou.com'],
+  toutiao: ['mp.toutiao.com'],
+  bilibili: ['www.bilibili.com', 'bilibili.com'],
+  baijiahao: ['baijiahao.baidu.com'],
+  youtube: ['studio.youtube.com'],
+  tiktok: ['www.tiktok.com', 'tiktok.com'],
+  twitter: ['twitter.com', 'www.twitter.com', 'x.com', 'www.x.com'],
+  instagram: ['www.instagram.com', 'instagram.com'],
+  facebook: ['www.facebook.com', 'facebook.com'],
+}
+
+// 平台可能使用父域 Cookie；仍然限定在对应平台的根域内。
+const PLATFORM_COOKIE_DOMAINS = {
+  wechat_mp: ['mp.weixin.qq.com', 'weixin.qq.com'],
+  tencent_video: ['channels.weixin.qq.com', 'weixin.qq.com'],
+  zhihu: ['zhihu.com'],
+  weibo: ['weibo.com', 'sina.com.cn'],
+  douyin: ['douyin.com'],
+  xiaohongshu: ['xiaohongshu.com'],
+  kuaishou: ['kuaishou.com'],
+  toutiao: ['toutiao.com'],
+  bilibili: ['bilibili.com'],
+  baijiahao: ['baijiahao.baidu.com', 'passport.baidu.com'],
+  youtube: ['youtube.com', 'studio.youtube.com', 'accounts.google.com'],
+  tiktok: ['tiktok.com'],
+  twitter: ['twitter.com', 'x.com'],
+  instagram: ['instagram.com'],
+  facebook: ['facebook.com'],
+}
+
+function normalizeHost (value) {
+  return String(value || '').trim().toLowerCase().replace(/^\.+/, '').replace(/\.$/, '')
+}
+
+/**
+ * @param {string} platform
+ * @param {string} hostname
+ * @returns {boolean}
+ */
+function isPlatformAuthHost (platform, hostname) {
+  const normalized = normalizeHost(hostname)
+  return (PLATFORM_AUTH_HOSTS[platform] || []).some(host => normalizeHost(host) === normalized)
+}
+
+/**
+ * @param {string} platform
+ * @param {string} rawUrl
+ * @returns {boolean}
+ */
+function isPlatformLoginSuccessUrl (platform, rawUrl) {
+  let parsed
+  try { parsed = new URL(String(rawUrl)) } catch (_) { return false }
+  if (!['http:', 'https:'].includes(parsed.protocol)) return false
+  if (!isPlatformAuthHost(platform, parsed.hostname)) return false
+  try {
+    const loginUrl = new URL(PLATFORM_LOGIN_URLS[platform])
+    const normalizePath = pathname => pathname.replace(/\/+$/, '') || '/'
+    if (
+      parsed.origin === loginUrl.origin &&
+      normalizePath(parsed.pathname) === normalizePath(loginUrl.pathname)
+    ) return false
+  } catch (_) { /* 未配置登录页时由下方模式匹配决定 */ }
+  const haystack = `${parsed.hostname}${parsed.pathname}${parsed.search}`.toLowerCase()
+  return (PLATFORM_LOGIN_SUCCESS_PATTERNS[platform] || [])
+    .some(pattern => haystack.includes(String(pattern).toLowerCase()))
+}
+
+/**
+ * 判断 Cookie domain 是否属于指定平台，允许平台配置的父域。
+ * @param {string} platform
+ * @param {string} domain
+ * @returns {boolean}
+ */
+function isPlatformCookieDomain (platform, domain) {
+  const normalized = normalizeHost(domain)
+  if (!normalized) return false
+  return (PLATFORM_COOKIE_DOMAINS[platform] || []).some(host => {
+    const candidate = normalizeHost(host)
+    return normalized === candidate || normalized.endsWith(`.${candidate}`)
+  })
+}
+
 // ─── 登录成功 CSS 选择器（DOM 检测）──────────
 // 用于 Playwright / RPA 引擎页面内检测登录状态
 const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
@@ -149,6 +240,11 @@ module.exports = {
   PLATFORM_LOGIN_URLS,
   PLATFORM_DASHBOARD_URLS,
   PLATFORM_LOGIN_SUCCESS_PATTERNS,
+  PLATFORM_AUTH_HOSTS,
+  PLATFORM_COOKIE_DOMAINS,
+  isPlatformAuthHost,
+  isPlatformLoginSuccessUrl,
+  isPlatformCookieDomain,
   PLATFORM_LOGIN_SUCCESS_SELECTORS,
   PLATFORM_NAMES,
   PLATFORM_ICONS,

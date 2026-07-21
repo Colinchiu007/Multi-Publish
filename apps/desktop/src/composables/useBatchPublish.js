@@ -14,8 +14,17 @@
  *   - licenseStore: { isPro: boolean }
  */
 import { ref, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
-import { ElMessage } from 'element-plus'
-import { batchCreate, onProgress } from '@/api/publisher'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  batchCreate,
+  batchExecute,
+  batchSchedule,
+  batchGet,
+  retryTask,
+  onBatchProgress,
+  onProgress,
+} from '@/api/publisher'
+import { buildPublishTargets, validateScheduleEntries } from '@/features/publish/publish-contract'
 
 let _keyCounter = 1
 
@@ -44,6 +53,9 @@ function positiveInteger(value, fallback) {
 export function useBatchPublish(options) {
   const article = options.article
   const licenseStore = options.licenseStore
+  const isAccountAvailable = typeof options.isAccountAvailable === 'function'
+    ? options.isAccountAvailable
+    : null
   const batchStatusPollIntervalMs = positiveInteger(
     options.batchStatusPollIntervalMs,
     DEFAULT_BATCH_STATUS_POLL_INTERVAL_MS,
@@ -58,6 +70,8 @@ export function useBatchPublish(options) {
   const precheckEnabled = ref(false)
   const articles = ref([])
   const batchProgress = ref([])
+  const failedBatchTasks = ref([])
+  const retryingFailed = ref(false)
   const templateTargetIdx = ref(-1)
   const showTemplatePicker = ref(false)
   let stopBatchProgress = null
@@ -97,14 +111,40 @@ export function useBatchPublish(options) {
 
   const totalPlatformTasks = computed(function () {
     return articles.value.reduce(function (s, a) {
-      return s + (a.platforms ? a.platforms.length : 0)
+      return s + buildPublishTargets(a.platforms || [], a.accounts || a.selectedAccounts || {}).length
     }, 0)
   })
+
+  function getArticleTargets (articleItem) {
+    const normalized = buildPublishTargets(
+      articleItem.platforms || [],
+      articleItem.accounts || articleItem.selectedAccounts || {},
+    )
+    const hasExplicitAccount = normalized.some(target => target.accountId)
+    // 保持旧批量 IPC 的字符串形态；只有实际选择账号时才发送对象目标。
+    return hasExplicitAccount ? normalized : (articleItem.platforms || []).slice()
+  }
 
   function checkBatchAccess() {
     if (batchMode.value && licenseStore && !licenseStore.isPro) {
       batchMode.value = false
     }
+  }
+
+  function toggleBatchAccount (articleItem, platformId, accountId) {
+    if (!articleItem.accounts) articleItem.accounts = {}
+    const selected = Array.isArray(articleItem.accounts[platformId])
+      ? articleItem.accounts[platformId].slice()
+      : (articleItem.accounts[platformId] ? [articleItem.accounts[platformId]] : [])
+    const index = selected.indexOf(accountId)
+    if (index === -1) selected.push(accountId)
+    else selected.splice(index, 1)
+    articleItem.accounts[platformId] = selected
+  }
+
+  function isBatchAccountSelected (articleItem, platformId, accountId) {
+    const value = articleItem?.accounts?.[platformId]
+    return Array.isArray(value) ? value.includes(accountId) : value === accountId
   }
 
   function applyTemplate(data) {
@@ -127,6 +167,10 @@ export function useBatchPublish(options) {
       title: '',
       content: '',
       platforms: [],
+      accounts: {},
+      author: '',
+      cover_url: '',
+      video_path: '',
       publishTime: '',
     })
   }
@@ -144,11 +188,57 @@ export function useBatchPublish(options) {
       title: orig.title,
       content: orig.content,
       platforms: orig.platforms ? orig.platforms.slice() : [],
+      accounts: JSON.parse(JSON.stringify(orig.accounts || orig.selectedAccounts || {})),
+      author: orig.author || '',
+      cover_url: orig.cover_url || '',
+      video_path: orig.video_path || '',
       publishTime: '',
       _key: freshKey(),
     })
     // 复制标题加后缀
     articles.value[idx + 1].title = orig.title + ' (复制)'
+  }
+
+  async function retryFailedBatch () {
+    if (retryingFailed.value || failedBatchTasks.value.length === 0) return
+    retryingFailed.value = true
+    const pending = failedBatchTasks.value.slice()
+    const remaining = []
+    let accepted = 0
+
+    try {
+      for (const task of pending) {
+        try {
+          const response = await retryTask(task.taskId)
+          if (!response || response.code !== 0) {
+            throw new Error(response?.message || '任务无法重试')
+          }
+          accepted += 1
+          batchProgress.value.push({
+            text: `↻ [${task.platform}] ${task.title || task.taskId}: 已重新提交`,
+            time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            type: 'primary',
+          })
+        } catch (error) {
+          remaining.push(task)
+          batchProgress.value.push({
+            text: `✗ [${task.platform}] ${task.title || task.taskId}: ${error?.message || '重新提交失败'}`,
+            time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            type: 'danger',
+          })
+        }
+      }
+      failedBatchTasks.value = remaining
+      if (accepted > 0 && remaining.length === 0) {
+        ElMessage.success(`已重新提交 ${accepted} 个失败任务`)
+      } else if (accepted > 0) {
+        ElMessage.warning(`已重新提交 ${accepted} 个任务，${remaining.length} 个任务仍失败`)
+      } else {
+        ElMessage.error('失败任务重新提交失败')
+      }
+    } finally {
+      retryingFailed.value = false
+    }
   }
 
   async function handleBatchPublish() {
@@ -172,9 +262,48 @@ export function useBatchPublish(options) {
           ElMessage.warning('"' + a.title.slice(0, 20) + '" 未选择发布平台')
           return
         }
+        if (
+          isAccountAvailable &&
+          buildPublishTargets(a.platforms, a.accounts || a.selectedAccounts || {})
+            .some(target => target.accountId && !isAccountAvailable(target.platform, target.accountId))
+        ) {
+          ElMessage.warning('批量文章中有账号已失效，请重新选择发布账号')
+          return
+        }
+      }
+
+      const scheduleEntries = articles.value.flatMap(function (a) {
+        if (!a.publishTime) return []
+        return buildPublishTargets(
+          a.platforms || [],
+          a.accounts || a.selectedAccounts || {},
+        ).map(function (target) {
+          return { ...target, publishTime: a.publishTime }
+        })
+      })
+      const scheduleCheck = validateScheduleEntries(scheduleEntries)
+      if (!scheduleCheck.valid) {
+        ElMessage.warning(scheduleCheck.message)
+        return
+      }
+
+      try {
+        await ElMessageBox.confirm(
+          `即将发布 ${articles.value.length} 篇内容，共 ${totalPlatformTasks.value} 个平台账号任务。请确认各平台表单信息完整。`,
+          '确认批量发布',
+          {
+            confirmButtonText: '确认发布',
+            cancelButtonText: '取消',
+            type: 'warning',
+          },
+        )
+      } catch (_) {
+        return
       }
 
       clearBatchTracking()
+      batchProgress.value = []
+      failedBatchTasks.value = []
       offProgress = onProgress(function (data) {
         batchProgress.value.push({
           text: '[' + data.platform + '] ' + data.stage,
@@ -189,9 +318,12 @@ export function useBatchPublish(options) {
           return {
             title: a.title,
             content: a.content,
-            platforms: a.platforms,
+            platforms: getArticleTargets(a),
             publishTime: a.publishTime || null,
             precheck: precheckEnabled.value,
+            author: a.author || '',
+            cover_url: a.cover_url || '',
+            video_path: a.video_path || '',
           }
         }),
       }))
@@ -204,12 +336,10 @@ export function useBatchPublish(options) {
       }
 
       const batchId = createRes.data.id
-      const api = window.electronAPI
-
       // 检查是否有定时任务
       const hasScheduled = articles.value.some(function (a) { return a.publishTime })
       if (hasScheduled) {
-        const scheduleRes = await api.batchSchedule(batchId)
+        const scheduleRes = await batchSchedule(batchId)
         if (!scheduleRes || scheduleRes.code !== 0) {
           throw new Error((scheduleRes && scheduleRes.message) || '批量排期失败')
         }
@@ -254,7 +384,7 @@ export function useBatchPublish(options) {
           else completedBeforeSubscribe = true
         }
 
-        const unsubscribe = api.onBatchProgress(function (data) {
+        const unsubscribe = onBatchProgress(function (data) {
           if (!data || (data.batchId && data.batchId !== batchId)) return
           if (data.kind === 'batch-complete') {
             finishBatchProgress(data)
@@ -272,6 +402,14 @@ export function useBatchPublish(options) {
             time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
             type: data.ok ? 'success' : 'danger',
           })
+          if (!data.ok && typeof data.taskId === 'string' && data.taskId &&
+              !failedBatchTasks.value.some(task => task.taskId === data.taskId)) {
+            failedBatchTasks.value.push({
+              taskId: data.taskId,
+              platform,
+              title,
+            })
+          }
 
           receivedTaskCount += 1
           if (data.ok) succeededTaskCount += 1
@@ -281,7 +419,7 @@ export function useBatchPublish(options) {
         stopBatchProgress = typeof unsubscribe === 'function' ? unsubscribe : null
         if (completedBeforeSubscribe) clearBatchTracking()
 
-        const executeRes = await api.batchExecute(batchId)
+        const executeRes = await batchExecute(batchId)
         if (!executeRes || executeRes.code !== 0) {
           throw new Error((executeRes && executeRes.message) || '批量执行失败')
         }
@@ -306,8 +444,8 @@ export function useBatchPublish(options) {
           if (batchSettled) return
           pollAttempts += 1
           try {
-            if (typeof api.batchGet === 'function') {
-              const statusRes = await api.batchGet(batchId)
+            if (typeof batchGet === 'function') {
+              const statusRes = await batchGet(batchId)
               const status = statusRes && statusRes.code === 0 ? statusRes.data : null
               if (status && status.status === 'done') {
                 const completed = Number.isInteger(status.completed) ? status.completed : expectedTaskCount
@@ -386,6 +524,8 @@ export function useBatchPublish(options) {
     precheckEnabled,
     articles,
     batchProgress,
+    failedBatchTasks,
+    retryingFailed,
     templateTargetIdx,
     showTemplatePicker,
     batchDone,
@@ -395,7 +535,10 @@ export function useBatchPublish(options) {
     removeArticle,
     duplicateArticle,
     handleBatchPublish,
+    retryFailedBatch,
     applyTemplate,
     checkBatchAccess,
+    toggleBatchAccount,
+    isBatchAccountSelected,
   }
 }

@@ -2,6 +2,7 @@
 
 from fastapi.testclient import TestClient
 
+import server
 from server import app
 
 client = TestClient(app)
@@ -73,6 +74,50 @@ class TestAccounts:
     def test_create_invalid_platform(self):
         resp = client.post("/api/accounts", json={"platform": "nonexistent", "name": "test"})
         assert resp.status_code in (400, 422)
+
+    def test_create_rejects_credential_payload(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(server, "ACCOUNTS_FILE", tmp_path / "accounts.json")
+        resp = client.post(
+            "/api/accounts",
+            json={
+                "platform": "douyin",
+                "name": "test",
+                "cookies": [{"name": "sid", "value": "secret"}],
+                "auth_data": {"cookies": [{"name": "sid", "value": "secret"}]},
+            },
+        )
+        assert resp.status_code == 400
+        assert not (tmp_path / "accounts.json").exists()
+
+    def test_metadata_account_does_not_persist_secret_fields(self, tmp_path, monkeypatch):
+        accounts_file = tmp_path / "accounts.json"
+        monkeypatch.setattr(server, "ACCOUNTS_FILE", accounts_file)
+        resp = client.post("/api/accounts", json={"platform": "douyin", "name": "test"})
+        assert resp.status_code == 200
+        stored = accounts_file.read_text(encoding="utf-8")
+        assert "cookies" not in stored
+        assert "auth_data" not in stored
+
+    def test_cookie_endpoints_are_disabled(self, monkeypatch):
+        monkeypatch.setattr(server, "_load_accounts", lambda: {"account-1": {"id": "account-1", "platform": "douyin"}})
+        assert client.get("/api/accounts/account-1/cookies").status_code == 410
+        assert client.put(
+            "/api/accounts/account-1/cookies",
+            json={"platform": "douyin", "name": "test", "cookies": []},
+        ).status_code == 410
+
+    def test_legacy_python_login_endpoint_is_disabled(self, monkeypatch):
+        called = False
+
+        def mark_called(_platform):
+            nonlocal called
+            called = True
+            return True
+
+        monkeypatch.setattr(server.publisher_mgr, "is_supported", mark_called)
+        resp = client.post("/api/login", json={"platform": "douyin"})
+        assert resp.status_code == 410
+        assert called is False
 
 
 class TestErrors:

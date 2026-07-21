@@ -75,6 +75,7 @@ module.exports = {
       publish_btn: ['button:has-text("发布")', '.publish-btn', '.confirm-btn'],
     },
     xiaohongshu: {
+      file_input: ['input.upload-input[type="file"]', 'input[type="file"]'],
       title_input: ['input[placeholder*="标题"]', 'input[class*="title"]', '[class*="title"] input'],
       editor: ['[contenteditable="true"]', '[class*="ql-editor"]', '[class*="editor"]'],
       textarea: ['textarea[placeholder*="正文"]', 'textarea[class*="content"]'],

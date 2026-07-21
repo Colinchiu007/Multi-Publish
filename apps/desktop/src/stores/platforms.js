@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { getPlatformDefinitions } from '@/api/publisher'
 
 /**
  * 平台元数据 Store
@@ -11,6 +12,9 @@ export const usePlatformStore = defineStore('platforms', () => {
   const names = ref({})
   const icons = ref({})
   const contentCategories = ref({})  // PRD F9: { platformId -> 'VIDEO'|'IMAGE_TEXT'|'MIXED' }
+  const categories = ref({})
+  const dashboardUrls = ref({})
+  const qrCodePlatforms = ref([])
   const loaded = ref(false)
   const loading = ref(false)
 
@@ -28,6 +32,24 @@ export const usePlatformStore = defineStore('platforms', () => {
     douyin: 'VIDEO', tencent_video: 'VIDEO', kuaishou: 'VIDEO', youtube: 'VIDEO', tiktok: 'VIDEO', bilibili: 'VIDEO',
     weibo: 'MIXED', xiaohongshu: 'MIXED', toutiao: 'MIXED', twitter: 'MIXED', facebook: 'MIXED',
   }
+
+  const DEFAULT_CATEGORIES = {
+    wechat_mp: '中文', zhihu: '中文', weibo: '中文', douyin: '中文', xiaohongshu: '中文',
+    tencent_video: '中文', kuaishou: '中文', toutiao: '中文', bilibili: '中文', baijiahao: '中文',
+    youtube: '海外', tiktok: '海外', twitter: '海外', instagram: '海外', facebook: '海外',
+  }
+
+  const DEFAULT_DASHBOARD_URLS = {
+    wechat_mp: 'https://mp.weixin.qq.com/', zhihu: 'https://www.zhihu.com/', weibo: 'https://weibo.com/',
+    douyin: 'https://creator.douyin.com/', xiaohongshu: 'https://creator.xiaohongshu.com/',
+    tencent_video: 'https://channels.weixin.qq.com/', kuaishou: 'https://cp.kuaishou.com/',
+    toutiao: 'https://mp.toutiao.com/', bilibili: 'https://www.bilibili.com/',
+    baijiahao: 'https://baijiahao.baidu.com/', youtube: 'https://studio.youtube.com/',
+    tiktok: 'https://www.tiktok.com/', twitter: 'https://twitter.com/home',
+    instagram: 'https://www.instagram.com/', facebook: 'https://www.facebook.com/',
+  }
+
+  const DEFAULT_QR_CODE_PLATFORMS = ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'toutiao']
 
   const DEFAULT_PLATFORMS = [
     { id: 'wechat_mp', label: '微信公众号' },
@@ -52,12 +74,22 @@ export const usePlatformStore = defineStore('platforms', () => {
     if (loaded.value) return
     loading.value = true
     try {
-      const res = await window.electronAPI.getPlatformDefinitions()
+      const res = await getPlatformDefinitions()
       if (res && res.code === 0 && res.data) {
-        const { names: nameMap, icons: iconMap, content_categories: catMap } = res.data
+        const {
+          names: nameMap,
+          icons: iconMap,
+          content_categories: contentCategoryMap,
+          categories: categoryMap,
+          dashboardUrls: dashboardMap,
+          qrCodePlatforms: qrPlatforms,
+        } = res.data
         names.value = nameMap || {}
         icons.value = iconMap || {}
-        contentCategories.value = catMap || {}
+        contentCategories.value = contentCategoryMap || {}
+        categories.value = { ...DEFAULT_CATEGORIES, ...(categoryMap || {}) }
+        dashboardUrls.value = { ...DEFAULT_DASHBOARD_URLS, ...(dashboardMap || {}) }
+        qrCodePlatforms.value = Array.isArray(qrPlatforms) ? qrPlatforms.slice() : DEFAULT_QR_CODE_PLATFORMS.slice()
         platforms.value = Object.entries(nameMap || {}).map(([id, label]) => ({ id, label }))
         loaded.value = true
       } else {
@@ -76,6 +108,9 @@ export const usePlatformStore = defineStore('platforms', () => {
     names.value = Object.fromEntries(DEFAULT_PLATFORMS.map(p => [p.id, p.label]))
     icons.value = DEFAULT_ICONS
     contentCategories.value = { ...DEFAULT_CONTENT_CATEGORIES }
+    categories.value = { ...DEFAULT_CATEGORIES }
+    dashboardUrls.value = { ...DEFAULT_DASHBOARD_URLS }
+    qrCodePlatforms.value = DEFAULT_QR_CODE_PLATFORMS.slice()
     loaded.value = true
   }
 
@@ -85,6 +120,18 @@ export const usePlatformStore = defineStore('platforms', () => {
 
   function getIcon(id) {
     return icons.value[id] || ''
+  }
+
+  function getCategory(id) {
+    return categories.value[id] || DEFAULT_CATEGORIES[id] || ''
+  }
+
+  function getDashboardUrl(id) {
+    return dashboardUrls.value[id] || ''
+  }
+
+  function supportsQrCode(id) {
+    return qrCodePlatforms.value.includes(id)
   }
 
   // PRD F9: 获取平台内容类型分类
@@ -97,5 +144,9 @@ export const usePlatformStore = defineStore('platforms', () => {
     return platforms.value.filter(p => getContentCategory(p.id) === category)
   }
 
-  return { platforms, names, icons, contentCategories, loaded, loading, load, getLabel, getIcon, getContentCategory, getPlatformsByContentCategory }
+  return {
+    platforms, names, icons, contentCategories, categories, dashboardUrls, qrCodePlatforms,
+    loaded, loading, load, getLabel, getIcon, getCategory, getDashboardUrl, supportsQrCode,
+    getContentCategory, getPlatformsByContentCategory,
+  }
 })

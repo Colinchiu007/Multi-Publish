@@ -2,244 +2,269 @@
 /**
  * Store IPC handlers
  *
- * 安全：写操作通过 withSenderCheck 校验来源，只读操作不加校验避免过度验证
+ * 安全：所有渲染进程入口都校验来源，账号查询只返回公开字段。
  */
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
-  const { store, credentialStore, accountStateRestorer, identityService, app, userDataDir } = deps
+  const { app, store, pythonBridge } = deps
+  const credentialStore = deps.credentialStore || deps.AccountManager?.credentialStore
+  const accountStateRestorer = deps.accountStateRestorer || deps.AccountManager?.accountStateRestorer
+  const publicAccountFields = [
+    'id', 'platform', 'name', 'account_name', 'username', 'avatar', 'avatar_url',
+    'status', 'is_active', 'is_default', 'has_cookies', 'cookie_count',
+    'has_auth_data', 'last_validated', 'created_at', 'updated_at', 'auth_method',
+  ]
+  const rendererAccountUpdateFields = new Set([
+    'name', 'account_name', 'avatar', 'avatar_url', 'status', 'is_default',
+  ])
+  const rendererAccountCreateFields = new Set([
+    'id', 'platform', 'name', 'avatar', 'status',
+  ])
 
-  function currentOwnerSubject() {
-    if (!identityService) return undefined
-    const state = identityService.getState()
-    const subject = state && state.user && state.user.sub
-    if (typeof subject !== 'string' || !subject.trim()) {
-      const error = new Error('登录会话缺少用户标识')
-      error.isOwnerAuthError = true
-      throw error
+  function toRendererAccountCreate(account) {
+    if (!account || typeof account !== 'object' || Array.isArray(account)) return null
+    const entries = Object.entries(account)
+    if (entries.some(([key]) => !rendererAccountCreateFields.has(key))) return null
+    return Object.fromEntries(entries)
+  }
+
+  function toPublicAccount(account) {
+    const source = account && typeof account === 'object' ? account : {}
+    const safeAccount = {}
+    for (const key of publicAccountFields) {
+      if (source[key] !== undefined) safeAccount[key] = source[key]
     }
-    return subject.trim()
-  }
-
-  function errorCode(error) {
-    return error && error.isOwnerAuthError ? EC.AUTH_ERROR : EC.REQUEST_ERROR
-  }
-
-  function callStoreWithOwner(methodName, args) {
-    const owner = currentOwnerSubject()
-    return owner === undefined
-      ? store[methodName](...args)
-      : store[methodName](...args, owner)
-  }
-
-  function callStoreForOwner(methodName, args, owner) {
-    return owner === undefined
-      ? store[methodName](...args)
-      : store[methodName](...args, owner)
-  }
-
-  function getUserSetting(key, defaultValue) {
-    const owner = currentOwnerSubject()
-    if (owner === undefined) return store.getSetting(key) ?? defaultValue
-    if (typeof store.getUserSetting === 'function') {
-      return store.getUserSetting(key, defaultValue, owner)
+    if (Object.prototype.hasOwnProperty.call(source, 'cookies')) {
+      const cookies = Array.isArray(source.cookies) ? source.cookies : []
+      safeAccount.has_cookies = cookies.length > 0
+      safeAccount.cookie_count = cookies.length
     }
-    return store.getSetting(key) || defaultValue
+    if (Object.prototype.hasOwnProperty.call(source, 'localStorage')) {
+      const localStorageData = source.localStorage
+      safeAccount.has_auth_data = Boolean(
+        localStorageData && typeof localStorageData === 'object' && Object.keys(localStorageData).length > 0,
+      )
+    }
+    return {
+      ...safeAccount,
+      account_name: safeAccount.account_name || safeAccount.name || '',
+      status: safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active'),
+      is_default: Boolean(safeAccount.is_default),
+    }
   }
 
-  function setUserSetting(key, value) {
-    const owner = currentOwnerSubject()
-    if (owner === undefined) {
-      store.setSetting(key, value)
-      return
-    }
-    if (typeof store.setUserSetting === 'function') {
-      store.setUserSetting(key, value, owner)
-      return
-    }
-    store.setSetting(key, value)
-  }
-
-  function credentialUserDataDir() {
-    if (typeof userDataDir === 'string' && userDataDir) return userDataDir
-    if (app && typeof app.getPath === 'function') return app.getPath('userData')
-    return null
+  function getUserDataDir() {
+    if (typeof deps.userDataDir === 'string' && deps.userDataDir) return deps.userDataDir
+    try { return app && typeof app.getPath === 'function' ? app.getPath('userData') : null } catch (_) { return null }
   }
 
   ipcMain.handle('store:add-account', withSenderCheck((_, account) => {
     try {
-      const ok = callStoreWithOwner('addAccount', [account])
+      const safeAccount = toRendererAccountCreate(account)
+      if (!safeAccount) {
+        return { code: EC.VALIDATION_ERROR, message: '账号创建仅支持公开字段' }
+      }
+      const ok = store.addAccount(safeAccount)
       return { code: ok ? 0 : EC.REQUEST_ERROR, data: ok }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))
 
-  ipcMain.handle('store:get-account', (_, id) => {
+  ipcMain.handle('store:get-account', withSenderCheck((_, id) => {
     try {
-      const account = callStoreWithOwner('getAccount', [id])
-      return { code: account ? 0 : EC.NOT_FOUND, data: account }
+      const account = store.getAccount(id)
+      return { code: account ? 0 : EC.NOT_FOUND, data: account ? toPublicAccount(account) : null }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
-  ipcMain.handle('store:list-accounts', (_, platform) => {
+  ipcMain.handle('store:list-accounts', withSenderCheck((_, platform) => {
     try {
-      return { code: 0, data: callStoreWithOwner('listAccounts', [platform]) }
+      return { code: 0, data: store.listAccounts(platform).map(toPublicAccount) }
     } catch (e) {
-      return { code: errorCode(e), message: e.message, data: [] }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
-  })
+  }))
 
   ipcMain.handle('store:delete-account', withSenderCheck((_, id) => {
     try {
-      const owner = currentOwnerSubject()
-      const account = callStoreForOwner('getAccount', [id], owner)
-      const deleted = callStoreForOwner('deleteAccount', [id], owner)
-      if (account === null || deleted === false) return { code: EC.NOT_FOUND, data: false }
-      // 修复 P2：级联清理凭证和登录状态（原仅删 accounts 表，孤儿数据残留）
-      if (credentialStore && credentialStore.deleteCredential) {
-        const targetUserDataDir = credentialUserDataDir()
-        if (!targetUserDataDir) throw new Error('缺少 Electron userData 路径，无法安全删除凭证')
-        try { credentialStore.deleteCredential(String(id), targetUserDataDir, owner) } catch (e) { /* best-effort */ }
+      if (id === null || id === undefined || id === '') {
+        return { code: EC.VALIDATION_ERROR, message: '账号不能为空' }
       }
-      if (account && account.platform && accountStateRestorer && accountStateRestorer.deleteAccountRecord) {
-        try {
-          accountStateRestorer.deleteAccountRecord(
-            account.platform,
-            String(id),
-            owner,
-            credentialUserDataDir(),
-          )
-        } catch (e) { /* best-effort */ }
+      const account = store.getAccount(id)
+      if (!account) return { code: EC.NOT_FOUND, message: '账号不存在' }
+      const userDataDir = getUserDataDir()
+      if (credentialStore && credentialStore.deleteCredential) {
+        if (!userDataDir) return { code: EC.REQUEST_ERROR, message: '无法解析账号凭据目录' }
+        const hasCredential = typeof credentialStore.hasCredential === 'function'
+          ? credentialStore.hasCredential(id, userDataDir)
+          : true
+        if (hasCredential && credentialStore.deleteCredential(id, userDataDir) !== true) {
+          return { code: EC.REQUEST_ERROR, message: '删除账号加密凭据失败' }
+        }
+      }
+      const deleted = store.deleteAccount(id)
+      if (!deleted) return { code: EC.REQUEST_ERROR, message: '删除账号失败' }
+      if (accountStateRestorer && accountStateRestorer.deleteAccountRecordsById) {
+        try { accountStateRestorer.deleteAccountRecordsById(id) } catch (e) { /* 公开状态清理不覆盖删除结果 */ }
+      } else if (accountStateRestorer && accountStateRestorer.deleteAccountRecord) {
+        try { accountStateRestorer.deleteAccountRecord(account.platform, id) } catch (e) { /* 兼容旧实现 */ }
       }
       return { code: 0, data: true }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))
 
-  ipcMain.handle('store:set-default-account', withSenderCheck((_, arg) => {
+  ipcMain.handle('store:set-default-account', withSenderCheck(async (_, arg) => {
     try {
       // R51 P1：解构保护
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { platform, accountId } = arg
-      const updated = callStoreWithOwner('setDefaultAccount', [platform, accountId])
-      return updated === false
-        ? { code: EC.NOT_FOUND, data: false }
-        : { code: 0, data: true }
+      if (typeof platform !== 'string' || !platform.trim() || accountId === null || accountId === undefined || accountId === '') {
+        return { code: EC.VALIDATION_ERROR, message: '平台和账号不能为空' }
+      }
+      const updated = store.setDefaultAccount(platform, accountId)
+      if (!updated) {
+        if (!pythonBridge || typeof pythonBridge.requestBackend !== 'function') {
+          return { code: EC.VALIDATION_ERROR, message: '账号不存在或不属于指定平台' }
+        }
+        const response = await pythonBridge.requestBackend('GET', '/api/accounts')
+        const matched = response?.code === 0 && Array.isArray(response.data) && response.data.some(account =>
+          String(account.id) === String(accountId) && account.platform === platform
+        )
+        if (!matched) return { code: EC.VALIDATION_ERROR, message: '账号不存在或不属于指定平台' }
+      }
+      if (typeof store.setSetting === 'function') {
+        store.setSetting(`default_account:${platform}`, String(accountId))
+      }
+      return { code: 0, data: true }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))
 
-  ipcMain.handle('store:get-default-account', (_, platform) => {
+  ipcMain.handle('store:get-default-account', withSenderCheck((_, platform) => {
     try {
-      const account = callStoreWithOwner('getDefaultAccount', [platform])
-      return { code: account ? 0 : EC.NOT_FOUND, data: account }
+      const account = store.getDefaultAccount(platform)
+      return { code: account ? 0 : EC.NOT_FOUND, data: account ? toPublicAccount(account) : null }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('store:update-account', withSenderCheck((_, arg) => {
     try {
       // R51 P1：解构保护
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { id, fields } = arg
-      const updated = callStoreWithOwner('updateAccount', [id, fields])
-      return updated === false
-        ? { code: EC.NOT_FOUND, data: false }
-        : { code: 0, data: true }
+      if (id === null || id === undefined || id === '') return { code: EC.VALIDATION_ERROR, message: '账号不能为空' }
+      if (!fields || typeof fields !== 'object' || Array.isArray(fields) || Object.keys(fields).length === 0) {
+        return { code: EC.VALIDATION_ERROR, message: '缺少可更新字段' }
+      }
+      const safeFields = Object.fromEntries(
+        Object.entries(fields).filter(([key]) => rendererAccountUpdateFields.has(key)),
+      )
+      if (Object.keys(safeFields).length === 0) {
+        return { code: EC.VALIDATION_ERROR, message: '没有可更新的账号字段' }
+      }
+      if (!store.getAccount(id)) return { code: EC.NOT_FOUND, message: '账号不存在' }
+      const updated = store.updateAccount(id, safeFields)
+      if (!updated) return { code: EC.VALIDATION_ERROR, message: '没有可更新的账号字段' }
+      return { code: 0, data: true }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))
 
   ipcMain.handle('store:add-publish-record', withSenderCheck((_, record) => {
     try {
-      const id = callStoreWithOwner('addPublishRecord', [record])
+      const id = store.addPublishRecord(record)
       return { code: id ? 0 : EC.REQUEST_ERROR, data: { id } }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))
 
-  ipcMain.handle('store:list-publish-history', (_, opts) => {
+  ipcMain.handle('store:list-publish-history', withSenderCheck((_, opts) => {
     try {
-      return { code: 0, data: callStoreWithOwner('listPublishHistory', [opts]) }
+      return { code: 0, data: store.listPublishHistory(opts) }
     } catch (e) {
-      return { code: errorCode(e), message: e.message, data: { total: 0, records: [] } }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, records: [] } }
     }
-  })
+  }))
 
-  ipcMain.handle('store:get-publish-stats', () => {
+  ipcMain.handle('store:get-publish-stats', withSenderCheck(() => {
     try {
-      return { code: 0, data: callStoreWithOwner('getPublishStats', []) }
+      return { code: 0, data: store.getPublishStats() }
     } catch (e) {
-      return { code: errorCode(e), message: e.message, data: { total: 0, success: 0, failed: 0, byPlatform: {} } }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, success: 0, failed: 0, byPlatform: {} } }
     }
-  })
+  }))
 
   ipcMain.handle('store:add-scheduled-task', withSenderCheck((_, task) => {
     try {
-      const id = callStoreWithOwner('addScheduledTask', [task])
+      const id = store.addScheduledTask(task)
       return { code: id ? 0 : EC.REQUEST_ERROR, data: { id } }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))
 
-  ipcMain.handle('store:list-scheduled-tasks', () => {
+  ipcMain.handle('store:list-scheduled-tasks', withSenderCheck(() => {
     try {
-      return { code: 0, data: callStoreWithOwner('listScheduledTasks', []) }
+      return { code: 0, data: store.listScheduledTasks() }
     } catch (e) {
-      return { code: errorCode(e), message: e.message, data: [] }
+      return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
-  })
+  }))
 
   ipcMain.handle('store:delete-task', withSenderCheck((_, id) => {
     try {
-      const deleted = callStoreWithOwner('deleteTask', [id])
-      return deleted === false
-        ? { code: EC.NOT_FOUND, data: false }
-        : { code: 0, data: true }
+      if (id === null || id === undefined || id === '') {
+        return { code: EC.VALIDATION_ERROR, message: '任务 ID 不能为空' }
+      }
+      const deleted = store.deleteTask(id)
+      if (!deleted) return { code: EC.NOT_FOUND, message: '定时任务不存在' }
+      return { code: 0, data: true }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))
 
-  ipcMain.handle('store:get-setting', (_, key) => {
+  ipcMain.handle('store:get-setting', withSenderCheck((_, key) => {
     try {
-      return { code: 0, data: getUserSetting(key, null) }
+      return { code: 0, data: store.getSetting(key) }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
-  })
+  }))
 
   ipcMain.handle('store:set-setting', withSenderCheck((_, key, value) => {
     try {
-      setUserSetting(key, value)
+      store.setSetting(key, value)
       return { code: 0, data: true }
     } catch (e) {
-      return { code: errorCode(e), message: e.message }
+      return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))
 
-  ipcMain.handle('store:list-callback-logs', (_, limit) => {
+  ipcMain.handle('store:list-callback-logs', withSenderCheck((_, limit) => {
     try {
       return { code: 0, data: store.listCallbackLogs(limit) }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
-  })
+  }))
 
   // ─── 草稿箱 IPC handlers（蚁小二复用）─────────────────
   ipcMain.handle('draftSave', withSenderCheck((_, draft) => {
     try {
       // 草稿存储在 store settings 中（JSON 数组）
-      const raw = getUserSetting('drafts', []) || []
+      const raw = store.getSetting('drafts') || '[]'
       const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
       const idx = drafts.findIndex(d => d.id === draft.id)
       if (idx >= 0) {
@@ -247,29 +272,29 @@ function registerHandlers(ipcMain, deps) {
       } else {
         drafts.push({ ...draft, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
       }
-      setUserSetting('drafts', JSON.stringify(drafts))
+      store.setSetting('drafts', JSON.stringify(drafts))
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))
 
-  ipcMain.handle('draftList', () => {
+  ipcMain.handle('draftList', withSenderCheck(() => {
     try {
-      const raw = getUserSetting('drafts', []) || []
+      const raw = store.getSetting('drafts') || '[]'
       const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
       return { code: 0, data: drafts }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
-  })
+  }))
 
   ipcMain.handle('draftDelete', withSenderCheck((_, draftId) => {
     try {
-      const raw = getUserSetting('drafts', []) || []
+      const raw = store.getSetting('drafts') || '[]'
       const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
       const filtered = drafts.filter(d => d.id !== draftId)
-      setUserSetting('drafts', JSON.stringify(filtered))
+      store.setSetting('drafts', JSON.stringify(filtered))
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }

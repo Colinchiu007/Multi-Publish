@@ -7,7 +7,16 @@
  *     getStatusClass / filterPlatforms）
  *   - composable setup 函数测试 window.electronAPI 副作用
  */
+import { ref } from 'vue'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
+
+const publisherApi = vi.hoisted(() => ({
+  accountList: vi.fn(() => window.electronAPI?.accountList?.() ?? Promise.resolve({ code: -1, data: [] })),
+  accountSetDefault: vi.fn((platform, accountId) => window.electronAPI?.accountSetDefault?.(platform, accountId)),
+}))
+
+vi.mock('@/api/publisher', () => publisherApi)
 import {
   platformMeta,
   getDefaultAccount,
@@ -20,9 +29,12 @@ import {
 // ─── 纯函数测试 ────────────────────────────────────────
 describe('usePlatformAccounts — 纯函数', () => {
   describe('platformMeta', () => {
-    it('包含 14 个平台', () => {
+    it('与共享平台定义完全一致', () => {
       const ids = Object.keys(platformMeta)
-      expect(ids.length).toBe(14)
+      expect(ids).toEqual(Object.keys(PLATFORM_NAMES))
+      expect(ids).not.toContain('yidian')
+      expect(ids).toContain('instagram')
+      expect(ids).toContain('facebook')
     })
 
     it('每个平台都有 label 和 icon', () => {
@@ -171,10 +183,10 @@ describe('usePlatformAccounts — composable setup', () => {
     expect(typeof r.getAccountsForPlatform).toBe('function')
   })
 
-  it('filteredPlatforms 初始返回全部 14 个平台', () => {
+  it('filteredPlatforms 初始返回共享定义中的全部平台', () => {
     window.electronAPI = {}
     const r = usePlatformAccounts()
-    expect(r.filteredPlatforms.value).toHaveLength(14)
+    expect(r.filteredPlatforms.value).toHaveLength(Object.keys(PLATFORM_NAMES).length)
   })
 
   it('filteredPlatforms 响应 platformSearch 变化', () => {
@@ -184,7 +196,7 @@ describe('usePlatformAccounts — composable setup', () => {
     expect(r.filteredPlugins).toBeUndefined() // 确认无此字段
     expect(r.filteredPlatforms.value).toContain('wechat_mp')
     r.platformSearch.value = ''
-    expect(r.filteredPlatforms.value).toHaveLength(14)
+    expect(r.filteredPlatforms.value).toHaveLength(Object.keys(PLATFORM_NAMES).length)
   })
 
   it('loadAccounts 无 electronAPI 时安全返回（loaded=true）', async () => {
@@ -218,6 +230,7 @@ describe('usePlatformAccounts — composable setup', () => {
     expect(r.platformAccounts.value.wechat_mp).toHaveLength(2)
     expect(r.platformAccounts.value.zhihu).toHaveLength(1)
     expect(r.loaded.value).toBe(true)
+    expect(publisherApi.accountList).toHaveBeenCalledTimes(1)
   })
 
   it('loadAccounts code!=0 时不更新 platformAccounts', async () => {
@@ -269,6 +282,7 @@ describe('usePlatformAccounts — composable setup', () => {
     const r = usePlatformAccounts()
     await r.switchAccount('wechat_mp', 'a2')
     expect(accountSetDefault).toHaveBeenCalledWith('wechat_mp', 'a2')
+    expect(publisherApi.accountSetDefault).toHaveBeenCalledWith('wechat_mp', 'a2')
     expect(accountList).toHaveBeenCalledTimes(1) // 刷新一次
   })
 
@@ -303,5 +317,34 @@ describe('usePlatformAccounts — composable setup', () => {
     expect(r.getDefaultAccount('bilibili')).toBeNull()
     expect(r.getAccountText('bilibili')).toBe('未登录')
     expect(r.getStatusClass('bilibili')).toBe('offline')
+  })
+
+  it('注入账号 Store 时共享同一响应式账号源并复用账号操作', async () => {
+    const grouped = ref({
+      wechat_mp: [{ id: 'a1', platform: 'wechat_mp', name: '公众号A', is_default: true }],
+    })
+    const accountStore = {
+      get byPlatform() { return grouped.value },
+      load: vi.fn(async () => undefined),
+      setDefault: vi.fn(async () => ({ code: 0, data: true })),
+    }
+    const r = usePlatformAccounts({ accountStore })
+
+    expect(r.getAccountsForPlatform('wechat_mp')).toHaveLength(1)
+    grouped.value = {
+      wechat_mp: [
+        { id: 'a1', platform: 'wechat_mp', name: '公众号A' },
+        { id: 'a2', platform: 'wechat_mp', name: '公众号B', is_default: true },
+      ],
+    }
+    expect(r.getAccountsForPlatform('wechat_mp')).toHaveLength(2)
+
+    await r.loadAccounts()
+    await r.switchAccount('wechat_mp', 'a2')
+
+    expect(accountStore.load).toHaveBeenCalledTimes(1)
+    expect(accountStore.setDefault).toHaveBeenCalledWith('a2', 'wechat_mp')
+    expect(publisherApi.accountList).not.toHaveBeenCalled()
+    expect(publisherApi.accountSetDefault).not.toHaveBeenCalled()
   })
 })

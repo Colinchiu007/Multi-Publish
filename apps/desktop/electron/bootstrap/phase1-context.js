@@ -118,6 +118,9 @@ function extractContext(container) {
   const callbackServer = container.get('callbackServer')
   const qrCodeLogin = container.get('qrCodeLogin')
   const store = container.get('store')
+  if (qrCodeLogin && typeof qrCodeLogin.setAccountManager === 'function') {
+    qrCodeLogin.setAccountManager(AccountManager)
+  }
   const contentIntelligence = container.get('contentIntelligence')
   const publishImpactTracker = container.get('publishImpactTracker')
   const keywordMonitor = container.get('keywordMonitor')

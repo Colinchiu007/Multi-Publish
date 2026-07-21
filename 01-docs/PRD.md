@@ -2,7 +2,7 @@
 
 > **立项日期**: 2026-06-03
 > **最后更新**: 2026-07-20
-> **当前版本**: v2.4.0-logto (2026-07-20) | **上一版本**: v2.3.42 (2026-07-09)
+> **当前版本**: v2.3.53 (2026-07-20) | **上一版本**: v2.3.42 (2026-07-09)
 > **产品定位**: 为内容生产者提供"采集 → 改写 → 发布"全流程闭环的一键发布桌面工具
 > **目标用户**: 自媒体运营者、MCN 机构、企业内容团队
 > **技术架构**: Electron 33 + Vue 3 + Python FastAPI + RpaViewManager RPA（Monorepo）
@@ -100,52 +100,6 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | Multi-account | Multiple accounts per platform | P1 | Done |
 | Expiry Monitor | Auto-detect cookie expiration | P1 | Done |
 | Re-login | One-click re-login flow | P1 | Done |
-
-### 2.4 产品用户身份系统（Logto 集成）
-
-本节描述的是 Multi-Publish 产品用户（使用桌面应用和云端发布服务的账号），与用户绑定的微信公众号、抖音等平台账号是两层不同的身份。平台账号仍由本地加密存储管理，产品用户身份由 Logto 负责认证，业务服务负责授权和权益。
-
-**目标用户与场景**
-
-| 用户 | 主要场景 | 关键诉求 |
-|------|----------|----------|
-| 个人创作者 | 在一台或多台电脑登录、发布、查看历史 | 登录简单、账号切换不串数据、断网有明确提示 |
-| MCN/企业成员 | 多成员使用同一产品、按套餐共享额度 | 服务端权限权威、设备可撤销、不会信任客户端传入的用户 ID |
-| 管理员/运营 | 管理用户、订阅和权益 | 管理接口独立、最小权限、可审计 |
-
-**MVP（P0）**
-
-1. 使用 Logto Native Application，桌面端通过系统浏览器完成 Authorization Code + PKCE（S256）登录。
-2. 使用回环地址 `127.0.0.1` 接收回调，校验 state、nonce、issuer、audience 和 ID Token 签名。
-3. Refresh Token 仅通过 Electron `safeStorage` 加密后保存，渲染进程只得到脱敏用户状态和短时 Access Token 使用结果。
-4. 业务服务按 `(auth_provider, auth_subject=sub)` 懒创建/更新用户；所有资源查询以验证后的 `sub` 为准，客户端不能提交 `user_id` 覆盖身份。
-5. Node API 和 Python API 统一校验 Logto JWKS、issuer、audience、exp/nbf、scope，并返回一致的 401/403 错误语义。
-6. 许可证迁移为服务端 entitlement 权威；桌面端只缓存带签名、绑定 `sub` 与 `device_id` 的短期快照。
-7. 支持登录恢复、退出、账号切换、网络断开、回调超时、Token 过期和服务端拒绝等可恢复状态。
-
-**不在 MVP**
-
-- 短信验证码通道和短信供应商适配（由 Logto 连接器或付费短信 API 解决）。
-- Electron 内嵌登录页、客户端保存 Management API/M2M Token。
-- 客户端自签 JWT、共享 `JWT_SECRET`、仅依赖本地 license 文件做 Pro 权限判断。
-- 完整组织/团队后台 UI；先使用 Logto 角色/权限和服务端 entitlement 接口。
-
-**生产就绪补充（P0）**
-
-身份功能进入生产前，仓库必须提供可重复执行的配置校验、PostgreSQL 版本迁移、深度就绪探针、备份校验、灰度/回滚步骤和 smoke 验收。生产启动不得依赖应用进程临时创建表；缺少关键 Secret、迁移未完成、OIDC Discovery/JWKS 不可用或业务数据库不可用时，实例不得进入 ready 状态。
-
-生产就绪范围和门禁见 [PRD-F14-LOGTO-PRODUCTION-READINESS.md](./PRD-F14-LOGTO-PRODUCTION-READINESS.md)。短信供应商接入、真实租户创建和真实号码验证码仍属于外部基础设施配置，不在仓库内伪造完成。
-
-**验收标准**
-
-- 未登录用户无法提交云端任务，得到可操作的登录入口。
-- 登录成功后，关闭并重新打开应用可恢复会话；退出后 Refresh Token、entitlement 快照和当前用户缓存全部清除。
-- 用户 A 的 Token 不能读取或操作用户 B 的任务，即使请求体带入 B 的 `user_id` 也必须按 Token 的 `sub` 返回 404/403。
-- Access Token 过期时仅在安全存储存在有效 Refresh Token 且 Logto 可达时自动刷新；刷新失败转为登录状态并提示原因。
-- 账号切换后，旧用户的任务、平台账号和 entitlement 不会出现在新用户上下文中。
-- API 对缺失/无效 Token 返回 401，对缺少 Scope 返回 403；日志不得包含 Token、Refresh Token 或完整手机号/邮箱。
-- Logto 暂时不可达时，已登录用户可在 entitlement 快照有效期内查看本地数据；云端 API 明确提示网络不可用，不伪造成功。
-- 灰度期旧 API Key 被撤销后，由该 Key 创建且已持久化的定时任务不得继续执行；应用重启也不能恢复其发布权限。
 
 ---
 
@@ -272,7 +226,6 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 |--------|------|------|
 | 远程发布 API | HTTP API 触发发布 | ✅ |
 | 任务队列 | 异步发布队列 | ✅ |
-| 产品用户身份与租户隔离 | Logto 认证、`sub` 归属和云端权益门禁 | ✅ 本地实现；生产就绪工具开发中，真实环境验收待定（见 2.4） |
 
 #### F15：Pro 版本（v2.0.0）
 
@@ -1020,9 +973,47 @@ Task Queue → 各平台发布器 → 发布完成
 
 ---
 
-## 十八、文档体系 (Documentation Index)
+## 十八、蚁小二账号管理与内容发布对齐
 
-### 18.1 前期流程文档
+### 18.1 范围约束
+
+- 顶部主菜单和最左侧平台账号列表保持现有结构，不复制蚁小二外壳。
+- 重构范围限定为主内容区域、账号管理页、内容发布页及动态加载内容。
+- 蚁小二逆向工程产物只作为字段、状态、交互和视觉证据，不在运行时加载其 bundle。
+
+### 18.2 功能验收
+
+| 能力 | 验收标准 | 状态 |
+|------|----------|------|
+| 多账号管理 | 分组、收藏、筛选、排序、批量删除、默认账号、登录状态刷新 | 已实现 |
+| 登录方式 | 内嵌浏览器、二维码登录、OAuth/API 登录入口 | 已实现 |
+| 多账号发布 | 同平台多个账号展开为独立发布目标 | 已实现 |
+| 定时发布 | 校验过去时间、30 天上限和平台频率间隔，支持取消 | 已实现 |
+| 批量发布 | 每篇文章独立选择平台/账号，支持执行、排期、进度和终态轮询 | 已实现 |
+| 草稿 | 保存并恢复正文、媒体、平台账号、定时和差异化内容 | 已实现 |
+| 差异化内容 | 每个平台独立标题/正文在 RPA 与 backend 路由中生效 | 已实现 |
+| 取消与退出 | 运行中任务可取消；应用退出时停止队列和延迟任务 | 已实现 |
+
+### 18.3 设计与代码分层
+
+```text
+Vue 展示组件
+  -> composables / Pinia（页面状态和用例编排）
+  -> src/api/publisher.js（统一 renderer API）
+  -> preload（最小能力暴露）
+  -> IPC handlers（来源校验、参数白名单）
+  -> 主进程 services / publishers（发布、存储、队列）
+```
+
+展示组件不直接访问 `window.electronAPI`；业务数据通过 props/emits 和 composable 进入组件。Electron 账号查询只返回公开字段，渲染层不能写入 cookies、localStorage 或 Token。详细计划见 `docs/plans/2026-07-20-yixiaoer-account-publish-parity.md`。
+
+### 18.4 验证口径
+
+最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、93 项视觉回归、16 项像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用 8 秒启动。实际命令和结果记录在 `.quality-gates.md`。
+
+## 十九、文档体系 (Documentation Index)
+
+### 19.1 前期流程文档
 
 | 阶段 | 文档 |
 |------|------|
@@ -1034,21 +1025,21 @@ Task Queue → 各平台发布器 → 发布完成
 | 设计评审 | [DESIGN-REVIEW.md](./DESIGN-REVIEW.md) / [DESIGN.md](./DESIGN.md) |
 | 开发计划 | [P0](./P0-IMPLEMENTATION-PLAN.md) / [P1](./P1-IMPLEMENTATION-PLAN.md) / [P2](./P2-IMPLEMENTATION-PLAN.md) / [P3](./P3-IMPLEMENTATION-PLAN.md) |
 
-### 18.2 子 PRD
+### 19.2 子 PRD
 
 - [PM-PRD-v1.1.md](./PM-PRD-v1.1.md) — F1 格式适配器 / F2 封面图 / F3 百家号 / F4 运营启动
 - [PM-PRD-rongmeibao.md](./PM-PRD-rongmeibao.md) — 融媒宝差距分析 → F1-F4 集成规划
 - [PRD-remotion.md](./PRD-remotion.md) — Remotion 视频渲染
 - [PRD-video-creation.md](./PRD-video-creation.md) — 视频创作模块
 
-### 18.3 架构决策记录（ADR）
+### 19.3 架构决策记录（ADR）
 
 - [ADR-001-render-engine-extension.md](./ADR-001-render-engine-extension.md) — RenderEngine 扩展方案
 - [ADR-002-module-layering.md](./ADR-002-module-layering.md) — Electron 主进程模块分层
 
-### 18.4 质量与流程
+### 19.4 质量与流程
 
-- [decision-log.md](./decision-log.md) — 决策日志（D-001 ~ D-031）
+- [decision-log.md](./decision-log.md) — 决策日志（D-001 ~ D-038）
 - [learnings.md](./learnings.md) — 复盘记录
 - [review-process.md](./review-process.md) — 代码评审流程 L1/L2/L3
 - [security-audit-2026-07-08.md](./security-audit-2026-07-08.md) — 安全审计报告（历史）
@@ -1063,6 +1054,7 @@ Task Queue → 各平台发布器 → 发布完成
 |------|------|----------|
 | v2.1.2 | 2026-07-05 | PRD 全面修复 14 项 + TODOs 清空（基线版本） |
 | v2.3.42 | 2026-07-09 | 恢复 mojibake 乱码（从 bba83b0 干净版本）+ 合并 §2.3/§3.3/§4.4 增量 + 新增 §17 安全审计 / §18 文档体系 + 版本号更新 |
+| v2.3.53 | 2026-07-20 | 账号管理与内容发布按蚁小二交互对齐；完成前端分层、多账号发布、草稿、排期、差异化内容、二维码登录、取消/重试及安全边界 |
 
 
 

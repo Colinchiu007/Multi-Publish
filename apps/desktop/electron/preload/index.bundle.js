@@ -63,6 +63,7 @@ var require_publish = __commonJS({
         getQueueStatus: () => ipcRenderer2.invoke("queue:status"),
         getQueueHistory: () => ipcRenderer2.invoke("queue:history"),
         cancelTask: (taskId) => ipcRenderer2.invoke("queue:cancel", taskId),
+        retryTask: (taskId) => ipcRenderer2.invoke("queue:retry", taskId),
         // 发布历史 API
         historyList: (opts) => ipcRenderer2.invoke("history:list", opts),
         historyGet: (id) => ipcRenderer2.invoke("history:get", id),
@@ -101,9 +102,15 @@ var require_publish = __commonJS({
         viralGenerate: (opts) => ipcRenderer2.invoke("viral:generate", opts),
         viralTrending: (articles) => ipcRenderer2.invoke("viral:trending", { articles }),
         // Comment Management API (PRD F13)
-        commentList: (platform, cookie, maxDays) => ipcRenderer2.invoke("comment:list", { platform, cookie, maxDays }),
-        commentReply: (platform, cookie, commentId, content) => ipcRenderer2.invoke("comment:reply", { platform, cookie, commentId, content }),
-        commentStartPolling: (opts) => ipcRenderer2.invoke("comment:start-polling", opts),
+        commentList: (platform, accountId, maxDays) => ipcRenderer2.invoke("comment:list", { platform, accountId, maxDays }),
+        commentReply: (platform, accountId, commentId, content) => ipcRenderer2.invoke("comment:reply", { platform, accountId, commentId, content }),
+        commentStartPolling: (opts = {}) => ipcRenderer2.invoke("comment:start-polling", {
+          platform: opts.platform,
+          accountId: opts.accountId,
+          interval: opts.interval,
+          maxDays: opts.maxDays,
+          template: opts.template
+        }),
         commentStopPolling: (key) => ipcRenderer2.invoke("comment:stop-polling", { key }),
         commentStatus: () => ipcRenderer2.invoke("comment:status"),
         onCommentReplied: (cb) => {
@@ -132,8 +139,8 @@ var require_account = __commonJS({
         accountUpdate: (id, fields) => ipcRenderer2.invoke("store:update-account", { id, fields }),
         // 内嵌浏览器登录 API
         authOpenLogin: (platform) => ipcRenderer2.invoke("auth:open-login", platform),
+        authCompleteLogin: () => ipcRenderer2.invoke("auth:complete-login"),
         authClose: () => ipcRenderer2.invoke("auth:close"),
-        authSaveCredentials: (data) => ipcRenderer2.invoke("auth:save-credentials", data),
         onAuthViewOpened: (callback) => {
           const h = (_, data) => callback(data);
           ipcRenderer2.on("auth:view-opened", h);
@@ -150,7 +157,7 @@ var require_account = __commonJS({
           return () => ipcRenderer2.removeListener("auth:view-closed", h);
         },
         // Auth API（静默登录）
-        authLoginSilent: (platform, cookies, localStorage) => ipcRenderer2.invoke("auth:login-silent", { platform, cookies, localStorage }),
+        authLoginSilent: (platform, accountId) => ipcRenderer2.invoke("auth:login-silent", { platform, accountId }),
         // 扫码登录 API
         authOpenQrCodeLogin: (platform) => ipcRenderer2.invoke("auth:open-qrcode-login", platform),
         authQrCodeClose: () => ipcRenderer2.invoke("auth:qrcode-close"),
@@ -173,6 +180,11 @@ var require_account = __commonJS({
           const h = () => cb();
           ipcRenderer2.on("qrcode:closed", h);
           return () => ipcRenderer2.removeListener("qrcode:closed", h);
+        },
+        onAccountStatusChanged: (cb) => {
+          const h = (_, d) => cb(d);
+          ipcRenderer2.on("account:status-changed", h);
+          return () => ipcRenderer2.removeListener("account:status-changed", h);
         },
         // OAuth 认证 API
         oauthStart: (opts) => ipcRenderer2.invoke("oauth:start", opts),

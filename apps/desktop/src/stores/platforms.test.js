@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
+
+const getPlatformDefinitions = vi.hoisted(() => vi.fn(() => {
+  return window.electronAPI?.getPlatformDefinitions?.() ?? Promise.resolve({ code: -1 });
+}));
+
+vi.mock("@/api/publisher", () => ({ getPlatformDefinitions }));
+
 import { usePlatformStore } from "./platforms.js";
 
 describe("usePlatformStore", () => {
@@ -19,10 +26,23 @@ describe("usePlatformStore", () => {
   });
 
   it("load() fetches from electronAPI when available", async () => {
-    window.electronAPI = { getPlatformDefinitions: vi.fn().mockResolvedValue({ code: 0, data: { names: { test: "Test Platform" }, icons: { test: "🔬" } } }) };
+    window.electronAPI = { getPlatformDefinitions: vi.fn().mockResolvedValue({
+      code: 0,
+      data: {
+        names: { test: "Test Platform" },
+        icons: { test: "🔬" },
+        dashboardUrls: { test: "https://creator.example.com/" },
+        qrCodePlatforms: ["test"],
+        categories: { test: "海外" },
+      }
+    }) };
     const s = usePlatformStore(); await s.load();
     expect(s.platforms).toEqual([{ id: "test", label: "Test Platform" }]);
     expect(s.getIcon("test")).toBe("🔬");
+    expect(s.getDashboardUrl("test")).toBe("https://creator.example.com/");
+    expect(s.supportsQrCode("test")).toBe(true);
+    expect(s.getCategory("test")).toBe("海外");
+    expect(getPlatformDefinitions).toHaveBeenCalledTimes(1);
   });
 
   it("load() falls back on API error", async () => {
@@ -37,7 +57,7 @@ describe("usePlatformStore", () => {
     const s = usePlatformStore();
     s.loaded = true; // already loaded
     await s.load();
-    expect(window.electronAPI.getPlatformDefinitions).not.toHaveBeenCalled();
+    expect(getPlatformDefinitions).not.toHaveBeenCalled();
   });
 
   it("getLabel returns id as fallback", () => {

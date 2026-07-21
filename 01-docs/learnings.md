@@ -3351,186 +3351,78 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **最终验证**：Vitest `4809/4809`、功能 E2E `270/270`、像素视觉 `16/16`、preload 双 sandbox 模式、Windows 打包、ASAR require 链和应用启动均通过。
 
-> 以上数字属于 `231174d` 的 IPC/视觉专项范围；Logto 交付的 Desktop 全量 coverage
-> 另按 `TEST-PLAN-LOGTO.md` 记录为 5007 tests，不能混用两个统计口径。
+## 2026-07-20：蚁小二账号/发布对齐 Bug 反哺
 
-## 2026-07-20：Logto 用户系统质量节拍复盘
+### Bug 1：渲染层可向账号存储写入凭证
 
-### 逃逸与根因
+**第一性原因**：`fbcadfc` 在安全审计中为 Store IPC 补充 try/catch，但 `store:add-account` 仍把渲染器对象原样交给 `store.addAccount`；`d6a8e20` 增加 sender 校验时也没有补字段级信任边界。两次改动分别关注异常处理和调用来源，未审查数据敏感度。
 
-1. **E2E 命中错误 worktree**：默认 `5174` 被其他工作树的 Vite 占用，身份菜单测试因此可能验证旧代码。根因是测试入口只信任端口，不校验 `/main.js` 来源。
-2. **测试替身契约漂移**：浏览器 E2E 的假 `window.electronAPI` 绕过了真实 Electron 的 structured clone、preload sandbox 和主进程 PKCE 回调，导致 UI 通过不能代表桌面链路通过。
-3. **Stryker 原位运行残留与负载超时**：worker 启动失败/高负载中断后留下备份目录和 setup 文件。若不扫描 `stryMutAct_`、`stryCov_`、`__stryker__` 并清理临时物，容易误提交源码备份或把未完成 mutation 当成通过。
-4. **覆盖率时间预算不匹配**：D 盘大量小文件并行读取使 300 秒上限超时，延长到 900 秒并限制并行度后才得到可重复结果。
-5. **Webhook 乱序副作用**：旧事件在幂等 claim 后才做新鲜度判断时，会留下 `processing` 占位；即使 `upsert` 返回 `applied: false`，暂停/删除副作用仍可能提前触发。修复为先验时间窗口，并仅对 `applied: true` 执行撤销。
-6. **边界输入未统一**：UTF-8 BOM、可选依赖缺失、签名篡改等负例若只在单一运行时验证，容易出现 Node/Python 或开发/打包环境语义漂移。本轮将 BOM/可选依赖检查、真实 RSA 篡改负例和 Node/Python `nbf` 类型校验纳入门禁。
-7. **撤销凭据未传导到历史定时任务**：`876dc07` 引入 API Key 管理，`7380ff0` 引入只按时间执行的调度器；`e4496571` 的配置 Key 迁移和 `fe1ed8f` 的 SHA-256 持久化都只覆盖请求入口，未把 Key 生命周期绑定到已持久化任务。结果是 HTTP 请求已被撤销状态拒绝，但旧任务仍可由后台执行器发布。
+**逃逸链**：
+- 单元测试只验证成功透传和 sender 拒绝，没有 cookies/localStorage/Token 输入。
+- 集成测试直接 mock Store，没有检查真实 SQLite 写入内容。
+- E2E 不调用低层 `storeAddAccount`，正常登录流程不会暴露该入口。
+- 代码审查把“可信窗口”误等同于“可信字段”。
 
-### API Key 定时任务漏洞逃逸链
+**修复与保护**：IPC 创建账号使用公开字段白名单；真实 `account-store.test.js` 覆盖空对象、非法平台和合法写入；主进程 AccountManager/OAuth 凭证路径保持独立。
 
-- **单元测试**：Key 测试只覆盖创建、验证、撤销和哈希重载；调度测试只覆盖到期成功执行，缺少“创建任务 -> 撤销 Key -> 到期”的组合。
-- **集成测试**：灰度认证只验证 API Key 能创建隔离资源和撤销后不能发起新 HTTP 请求，没有重启服务并恢复 pending 任务。
-- **端到端测试**：身份 E2E 聚焦 Logto UI 和 mock bridge，没有覆盖 Node 后台调度器与 Key 文件的跨重启状态。
-- **代码审查**：关注 owner 隔离和磁盘不存明文，却没有沿“撤销动作 -> 所有异步执行入口”追踪授权失效传播。
-- **系统性漏洞**：凭证撤销测试模板缺少延迟任务、重试队列和进程恢复三类二次授权场景。
+### Bug 2：TaskQueue shutdown 只清理定时器
 
-**修复与回归保护**：定时任务持久化 `api-key:<sha256>`；`ApiKeyManager.validateOwnerSubject()` 每次从磁盘重读有效性和 scope；`PublishApiServer._authorizeScheduledEntry()` 在调用发布链路前拒绝已撤销 owner。回归测试同时覆盖有效 Key、撤销、跨重启恢复和无 Logto 路径，失败码固定为 `SCHEDULE_OWNER_REVOKED`。
+**第一性原因**：`e5e8e9e` 为退出流程增加频率控制定时器清理，目标是避免 timer 阻止退出，但没有同步定义等待、延迟和运行中任务的终止语义，关闭后仍可入队。
 
-### 已落地的预防措施
+**逃逸链**：
+- 单元测试覆盖任务执行、重试和频控，没有“关闭期间有三类任务”的组合。
+- Electron 退出测试只验证服务调用，没有断言队列最终状态。
+- E2E/视觉测试不会在发布进行中关闭应用。
+- 审查只检查 timer 泄漏，未检查发布副作用是否停止。
 
-- E2E/视觉测试使用当前工作树独立端口，并在运行前检查 `/main.js` 不包含其他 `.worktrees/` 路径。
-- IPC mock 增加纯 JSON/structured clone 合同；真实 Electron sandbox、preload 重启和打包 require 链列为发布门禁，不再由浏览器 mock 代替。
-- Stryker 每次异常后执行污染扫描；提交白名单排除 `stryker-identity-tmp`、setup 文件和 `.pytest-tmp-logto-*`。
-- 覆盖率和全量测试记录实际超时预算、worker 配置和退出码；未生成全树 mutation 报告时明确标记 PENDING。
-- Webhook 处理顺序、JWT/JWK 用途、TTL、`nbf` 类型和身份状态门控均有回归测试，避免只修实现不留保护。
-- 凭证撤销审查新增统一规则：所有延迟任务、重试队列和持久化恢复入口必须使用稳定 owner 标识，并在每次实际执行前重新授权；请求创建时鉴权不能替代执行时鉴权。
+**修复与保护**：shutdown 先暂停并设置关闭标记，取消等待/延迟/运行中任务并 abort executor；关闭后拒绝新增任务；`shutdown.test.js` 验证移除监听器前先关闭队列。
 
-### API Key 存储损坏漏洞逃逸链
+### Bug 3：RPA 取消与成功响应竞态
 
-- **第一性原因**：`876dc07` 引入 Key 存储时，`load()` 把读取、JSON 解析和结构错误统一吞掉并折叠为空数组。当前 Logto 灰度迁移与静态 Key 回退沿用了“空数组等于未配置”的假设，导致损坏文件中的撤销记录可能被忽略或覆盖。
-- **单元测试逃逸**：只覆盖文件不存在、正常持久化和撤销重载，没有损坏 JSON、非数组结构和读取异常。
-- **集成测试逃逸**：只验证静态 Key 正常迁移与撤销，没有验证存储损坏时 HTTP 状态和磁盘内容。
-- **端到端测试逃逸**：身份 E2E 使用 mock bridge，不触及 Node API 的 Key 文件。
-- **代码审查盲区**：审查集中在哈希、定时任务二次授权和静态 Key 兼容，没有区分“文件不存在”与“文件存在但不可读”。
+**第一性原因**：`847cdf3` 迁移 PublisherRouter 时 publisher 只等待 RPA 结果，没有 AbortSignal 契约；后续任务队列引入 abort 后，只在调用前检查会让取消期间返回的成功结果覆盖取消状态。
 
-**修复与回归保护**：`ApiKeyManager` 保存明确的加载错误状态；校验返回 `API_KEY_STORE_UNAVAILABLE`，写操作和自动迁移拒绝覆盖；HTTP 返回 503，定时执行同样 fail closed。`api-key-manager.test.js` 和 `logto-optional-auth.test.js` 固定覆盖损坏 JSON、文件不被覆盖和静态 Key 不得恢复权限。
+**逃逸链**：
+- 单元测试只有正常成功/失败，没有“await 期间取消后返回成功”。
+- 任务队列测试 mock executor，不经过真实 PublisherRouter。
+- E2E 无法稳定制造毫秒级竞态。
+- 审查关注 cancel 是否被调用，没有检查 await 返回后的信号状态。
 
-**预防措施**：质量门禁新增“授权/凭据存储读取失败必须 fail closed”；后续所有凭据、entitlement 和会话存储都必须分别测试 missing、empty、corrupt、unreadable 四种状态，禁止用同一个空值代表。
+**修复与保护**：RPA publisher 注册一次性 abort listener，请求窗口清理，并在 await 返回后再次检查信号；回归测试用受控 Promise 固定复现竞态。
 
-## 2026-07-21：双库备份恢复不能用进程退出码代表可切换
+### Bug 4：平台差异化内容只发送不消费
 
-### 第一性原因
+**第一性原因**：`c9a0ac3` 在前端增加 `platformOverrides`，但发布路由仍只读取 `task.article.title/content`。实现只验证了 payload 生成，没有追踪到最终发布引擎。
 
-- 初版恢复脚本只按顺序执行两个 `pg_restore` 并返回退出码。第一个库成功、第二个库失败时，进程虽然失败，但部署自动化没有持久证据判断哪些库已被修改，重试和切换都依赖人工推断。
-- manifest 校验与实际 `pg_restore` 分别按路径读取 dump，校验后路径仍可能被替换；锁释放和失败清理也只做 `existsSync + unlink`，无法区分本进程创建的 inode 与后来出现的外部文件。
+**逃逸链**：
+- composable 测试断言 IPC payload，未断言 RPA 收到的最终 article。
+- IPC/队列集成只检查任务入队，不检查平台内容解析。
+- 视觉测试只能看到编辑面板，不能确认平台提交内容。
+- 审查在前端边界停止，没有做端到端数据血缘追踪。
 
-### 逃逸链与系统性漏洞
+**修复与保护**：PublisherRouter 统一解析平台覆盖，RPA/backend 测试覆盖完整覆盖、部分回退和多平台隔离。
 
-- 单元测试只验证 `pg_restore` 调用次数和退出码，没有部分成功、并发状态、非空目标、校验后替换、锁/文件所有权和切换门禁。
-- 集成测试没有机器可读的完成状态，也没有通过真实子进程验证无数据库凭据的状态检查。
-- 运维文档写了“失败不得切换”，但没有一条命令把规则变成自动化门禁。
-- 代码审查关注 checksum 和 `shell:false`，没有沿“校验对象是否就是实际使用对象”与“清理对象是否仍属于当前进程”追踪 TOCTOU。
+### Bug 5：安装版存活但平台配置与插件目录失效
 
-### 修复与预防
+**第一性原因**：`27fae487` 在 `rules.js` 和 `presets.js` 中用包内 `__dirname` 四级回退定位仓库配置；`821eaed4` 用同类相对路径定位可写插件目录。开发目录下路径恰好成立，但安装版模块位于 `app.asar/node_modules`，配置落到不存在的 `app.asar/node_modules/config`，插件则尝试在只读 ASAR 内创建目录。
 
-- 恢复在修改任何数据库前用 `psql` 检查两个目标为空；每个 dump 从普通文件的只读 descriptor 重新计算 SHA-256，并把同一 descriptor 作为 `pg_restore` stdin。
-- 备份锁、临时文件、最终文件和恢复状态都记录创建时 `dev + ino`；失败清理只删除仍匹配该身份的文件，路径被替换时 fail closed。
-- `--state-file` 位于备份目录之外，已有 `complete`/`failed`/`in-progress` 任一工件即拒绝覆盖；`--verify-state` 同时核对 manifest 指纹、双库完成集合和冲突工件。
-- 后续所有多资源恢复/迁移测试必须覆盖：部分成功、重复执行、并发争抢、非空目标、工具缺失、校验后替换、清理所有权和机器切换门禁。Windows 的 `chmod` 不等价于 ACL，Runbook 必须要求受限 NTFS 目录。
+**逃逸链**：
+- 单元测试只在源码目录读取仓库 `config/platforms.yaml`，没有模拟 `resourcesPath`。
+- 启动 smoke 只 require 源码模块并检查进程/文件存在，不读取打包进程 stderr。
+- ASAR 门禁只检查路径条目和 require 链，未断言规则/预设实际加载，也未检查写目录。
+- 代码审查检查了 Electron `path-utils`，但没有沿顶层 require 追到 workspace 包中的独立相对路径。
 
-## 2026-07-21：API 全量测试在干净提交快照失败
+**系统性漏洞**：打包验证把“8 秒未退出”当成成功，缺少 stderr 语义门禁；worktree 借用其他工作区 `node_modules` 时也没有核验 workspace junction 的目标分支。
 
-### 第一性原因
+**修复与保护**：
+- 新增 `platform-config-path.test.js`，覆盖安装版 resources、显式路径、远程根目录和开发回退。
+- 新增 `plugin-loader-runtime-path.test.js`，覆盖 Electron userData 与显式插件目录。
+- QM-1 启动验证新增 stderr 禁止模式，并要求打包前核对 `@multi-publish/*` junction 指向当前 worktree。
+- 环境覆盖项写入 `.env.example`，避免自定义部署再次退回硬编码相对路径。
 
-- `40f6b7ec` 引入的多份 Node 测试使用同步 `try { fn() }` 包装 `async` 回调，包装器没有等待 Promise。测试会先打印通过，异步断言和资源清理随后以未处理异常退出。
-- 原测试脚本依赖 shell 展开 `test/*.test.js`；Windows 下无法稳定执行完整集合。跨平台 runner 首次真实运行全部测试后，暴露了这些长期假绿。
-- `1ed43e9` 将大量平台改成配置驱动的 `GenericPlatformAdapter`，但 `api-router.supportsApi()` 和旧测试仍把物理 `REGISTRY` 当成完整平台清单。
-- Logto 本轮增加 Webhook SSRF 防护后，旧测试继续向 `127.0.0.1` 注册回调，与生产安全合同冲突。
+### 系统性预防措施
 
-### 测试逃逸链
-
-- 单元测试：自定义同步包装器没有等待异步断言，错误发生在“通过”日志之后。
-- 集成测试：客户端服务端口、HTTP 压缩和 Webhook 本地服务依赖跨测试共享时序，未使用统一生命周期管理。
-- 端到端测试：身份 UI E2E 不执行 API 发布引擎的独立测试脚本，无法发现 runner 假绿。
-- 代码审查：此前只看测试进程是否打印通过，没有在干净提交快照核对每个子进程退出码，也没有比较脏工作区与提交树。
-
-### 系统性漏洞定位
-
-- 测试质量不足：自定义同步包装器无法表达异步完成条件，产生假绿。
-- 测试场景缺失：配置化平台、签名 secret、Webhook SSRF 与具体业务路由的压缩合同没有同时覆盖。
-- 审查盲区：只审查功能 diff，没有从提交树重新执行 runner 并核对每个子进程退出码。
-- 流程缺失：此前没有“干净提交快照复验”门禁，脏工作区中的其他修正会掩盖提交缺口。
-
-### 修复与回归保护
-
-- 集成测试 `compress.test.js` 和 `publish-api-client.test.js` 使用真实 `PublishApiServer`/`PublishApiClient`，由 `node:test` 等待 Promise，并覆盖平台列表、发布错误、gzip 阈值和服务生命周期。
-- 单元测试 `signer-local.test.js` 显式注入测试 secret，并保留缺失 secret 的拒绝断言；不再依赖环境变量或生产默认值。
-- 合同测试 `unified-registration.test.js`、`upload-orchestrator.test.js` 和 Vitest `api-router.test.js` 通过真实公开入口覆盖自定义适配器、配置化适配器和未知平台。
-- `webhook-manager.test.js` 仅在 DNS/HTTP 边界注入可观测传输，验证固定公网解析、payload 和 owner 隔离；生产 SSRF 实现继续由使用真实 `WebhookManager` 的 `webhook-ssrf.test.js` 覆盖，未放宽回环地址拒绝。
-
-### 防止再次发生
-
-- `.quality-gates.md` 新增“异步测试必须真实等待”和“必须在干净提交快照复验”规则。
-- API runner 继续逐文件检查退出码；任何测试子进程失败都会使总命令非零退出。
-- 平台注册测试只通过公开的 `getAdapter()`/`supportsApi()` 合同判断能力，禁止用物理文件数量推断支持平台数。
-
-## 2026-07-21：外部备份工具不能接收可替换的输出路径
-
-### 第一性原因
-
-- 问题来自本分支尚未提交的初版 `postgres-backup.js`，因此没有可追溯的历史 commit。初版先创建 `.dump.partial`，再把该路径交给 `pg_dump --file`；事后 inode 校验只能发现替换，无法撤销 `pg_dump` 已经跟随符号链接或硬链接写坏外部文件的副作用。
-- 随后的第一版修复虽然从校验后的只读 descriptor 复制，却直接以最终文件名逐块写入，导致消费者可能看到半成品；manifest 又曾在锁释放后发布，形成无锁提交窗口。
-
-### Bug 逃逸链
-
-- **单元测试**：只在 `pg_dump` 返回后替换路径，验证了“最终是否报错”，没有验证外部目标是否在报错前已被写入，也没有断言子进程 stdout 必须绑定 descriptor。
-- **集成测试**：只检查 manifest 存在和 checksum，没有观察发布期间的最终路径，因此非原子复制也会通过。
-- **端到端/恢复演练**：真实 PostgreSQL 与硬链接卷属于外部环境，本地未执行；Runbook 的“失败不发布”无法证明瞬时半成品不可见。
-- **代码审查**：前两轮集中在恢复端“校验对象等于使用对象”，没有把同一原则继续追到生产者 `pg_dump` 的写入入口和 manifest 锁释放顺序。
-
-### 系统性漏洞定位
-
-- 类型：测试场景缺失 + 审查盲区。
-- 具体缺口：`backup-restore.test.js` 没有 stdout descriptor 合同、硬链接原子发布、源描述符打开后路径替换、发布后目标替换、manifest/目录 `fsync` 失败和锁存在时拒绝恢复等场景。
-- 影响范围：所有把外部 CLI 输出到安全工件、再生成索引/manifest 的备份、导出和构建流水线。
-
-### 修复与回归保护
-
-- 父进程以 `O_EXCL` 创建随机私有临时文件，`pg_dump` 不再接收 `--file`，stdout 直接绑定已打开 descriptor；写入完成后执行 `fchmod`、`fsync`、inode/path 校验和 SHA-256。
-- 两个 dump 与 manifest 仅通过同目录硬链接发布；不支持硬链接时返回 `BACKUP_ATOMIC_PUBLISH_UNSUPPORTED`，禁止退回到最终文件名逐块复制。manifest 在锁内最后发布并同步目录，恢复看到 `.backup.lock` 时返回 `BACKUP_IN_PROGRESS`。
-- 回归文件：`packages/api-publish-engine/test/backup-restore.test.js`。模式：Node 集成测试。覆盖 stdout fd、普通/符号链接替换、打开后替换、三工件硬链接、目标替换、`fsync` 失败、锁门禁和最终 bytes/SHA-256。
-
-### 防止再次发生
-
-- `.quality-gates.md` 新增“外部备份工具只写私有 descriptor、最终工件锁内原子发布”的安全门禁。
-- 后续所有外部 CLI 文件输出审查必须沿四个对象核对：创建对象、工具写入对象、checksum 对象、最终发布对象；四者不能仅靠可替换路径名关联。
-- manifest/index 必须定义明确提交点，并测试提交前崩溃、提交后锁残留和目录同步失败；文档承诺不能替代机器可执行门禁。
-
-## 2026-07-21：新增 readiness 时必须同步容器健康语义
-
-### 第一性原因
-
-- `e449657` 在系统只有 liveness 时为 Dockerfile 和 Compose 引入 `/api/v1/health` 探针，当时语义正确。本分支新增依赖数据库 schema、migration 和 OIDC/JWKS 的 `/ready` 后，初版实现只增加路由、smoke 和监控，没有把两份容器探针作为同一接口合同更新。
-- 服务鉴权和路由直接比较完整 `req.url`，使 `/api/v1/ready?source=container` 不再命中免认证与 readiness 路由。
-
-### 逃逸链与系统性漏洞
-
-- 单元测试覆盖 `/health` 与 `/ready` 的 200/503，但没有附带查询参数，也没有读取 Dockerfile/Compose 断言探针目标。
-- 部署合同测试只检查构建上下文、端口和环境变量，没有验证健康检查必须使用 readiness。
-- Compose 解析只能证明 YAML 和变量展开合法，无法判断 `/health` 与 `/ready` 的业务语义。
-- 代码审查先关注 readiness 内部检查、脱敏和缓存，没有沿“新增就绪接口 -> 所有流量门禁消费者”追踪 Docker、Compose 与监控。
-
-### 修复与回归保护
-
-- Dockerfile 和业务 API Compose 健康检查统一访问 `/api/v1/ready`；数据库或身份依赖失败时容器保持 unhealthy。
-- `PublishApiServer` 集中按 pathname 做鉴权、scope、feature 和路由判断，保留原始 URL 供查询参数读取。
-- `logto-deploy-contract.test.js` 直接读取两份部署配置，断言存在 `/ready` 且健康检查中不存在 `/health`；`production-readiness.test.js` 覆盖 required-auth 下带查询参数的 ready 探针。
-- 恢复状态在 Unix 下为进行中创建、终态发布和进行中移除同步父目录，现有恢复集成测试通过注入同步探针固定三个提交点。
-
-### 防止再次发生
-
-- 新增或改变 liveness/readiness 语义时，必须同时检索 Dockerfile、Compose、Kubernetes、负载均衡、监控和 smoke 的所有探针 URL。
-- YAML/Compose 解析门禁之外必须保留语义合同测试，不能把“配置可解析”当作“流量门禁正确”。
-- 恢复/迁移状态机的每个机器可见提交点都要同时定义文件内容持久化和目录项持久化；Windows 无目录 `fsync` 时必须明确依赖受限 NTFS 边界。
-
-## 2026-07-21：Compose 配置挂载必须覆盖运行时真实读写路径
-
-### 第一性原因
-
-- `e449657` 引入 API Key 管理和 Docker Compose 时，`ApiKeyManager` 的默认路径已经是 `/app/packages/api-publish-engine/config/api-keys.json`（由包内 `__dirname` 计算），但 Compose 继续把宿主 `./config` 挂到 `/app/config`。这个挂载目录没有默认消费者，API Key 写入仍落在容器层，重启后丢失。
-
-### 逃逸链与系统性漏洞
-
-- 单元测试覆盖了 `ApiKeyManager` 自定义临时路径和文件读写，没有把默认路径与容器 `WORKDIR` 组合起来验证。
-- 部署合同测试只检查 build context、端口、环境变量和健康检查，Compose YAML 能解析也无法证明挂载目标正确。
-- 代码审查关注 Docker build 和 readiness 探针，没有沿“运行时默认路径 -> Compose volume target -> 容器重启后的持久化”完整追踪。
-
-### 修复与回归保护
-
-- Compose 改为把 `./config` 挂载到 `/app/packages/api-publish-engine/config`；部署合同测试同时断言新目标存在且旧 `/app/config` 目标不存在。
-- Runbook 明确 Linux 主机目录需要预先创建并授权给容器 UID `1001`，避免挂载正确但不可写。
-
-### 防止再次发生
-
-- 每次新增持久化消费者时，部署合同测试必须同时核对默认路径、容器 `WORKDIR`、volume target 和重启后的状态保留语义。
-- Compose 可解析不再视为持久化正确；需要保留运行时路径合同测试，并在代码审查清单中检查死挂载和权限边界。
+1. IPC 安全审查同时检查来源、字段白名单、返回脱敏和真实持久化四层。
+2. 所有取消/退出功能必须覆盖调用前、await 期间、调用后和 shutdown 四个时序。
+3. 用户可编辑字段的测试必须从 UI payload 追踪到最终 adapter/publisher 输入，不能止于队列入参。
+4. 本轮回归测试和 `.quality-gates.md` 执行记录纳入提交，后续 CI 沿用相同测试文件。
+5. 打包启动必须同时满足进程存活、stderr 无关键路径错误、ASAR 入口可 require；三项缺一不可。

@@ -3,7 +3,7 @@
  * 发布 & 队列 & 历史 IPC handlers
  * publish:wechat → 微信发布
  * publish:batch → 批量发布
- * queue:status / queue:history / queue:cancel → 任务队列
+ * queue:status / queue:history / queue:cancel / queue:retry → 任务队列
  * history:list / history:get → 发布历史
  * dashboard:stats → 发布统计
  */
@@ -13,6 +13,11 @@ function registerHandlers(ipcMain, deps) {
   const { withSenderCheck } = require('./helpers')
   // eslint-disable-next-line no-unused-vars
   const { taskQueue, history, BrowserWindow, log } = deps
+
+  // 平台和账号标识会进入发布路由及下游 URL，只允许单一路径段。
+  function isSafePathSegment(value) {
+    return typeof value === 'string' && /^[a-zA-Z0-9_-]+$/.test(value)
+  }
 
   ipcMain.handle('publish:wechat', withSenderCheck(async (event, articleData) => {
     try {
@@ -40,13 +45,31 @@ function registerHandlers(ipcMain, deps) {
     if (!Array.isArray(platforms) || platforms.length === 0) {
       return { code: EC.VALIDATION_ERROR, message: 'platforms 不能为空且必须为数组' }
     }
-    const isObj = platforms && platforms.length > 0 && typeof platforms[0] === 'object'
-    const taskIds = platforms.map(p => {
-      const platform = isObj ? p.platform : p
-      const accountId = isObj ? p.accountId : null
+    if (article !== undefined && (!article || typeof article !== 'object' || Array.isArray(article))) {
+      return { code: EC.VALIDATION_ERROR, message: 'article 必须为对象' }
+    }
+    const normalizedTargets = []
+    for (const target of platforms) {
+      if (typeof target === 'string') {
+        const platform = target.trim()
+        if (!isSafePathSegment(platform)) return { code: EC.VALIDATION_ERROR, message: '发布平台格式无效' }
+        normalizedTargets.push({ platform, accountId: null })
+        continue
+      }
+      if (!target || typeof target !== 'object' || Array.isArray(target)) {
+        return { code: EC.VALIDATION_ERROR, message: '发布目标格式无效' }
+      }
+      const platform = typeof target.platform === 'string' ? target.platform.trim() : ''
+      const accountId = typeof target.accountId === 'string' ? target.accountId.trim() : ''
+      if (!isSafePathSegment(platform)) return { code: EC.VALIDATION_ERROR, message: '发布目标平台格式无效' }
+      if (!isSafePathSegment(accountId)) return { code: EC.VALIDATION_ERROR, message: '发布目标账号格式无效' }
+      normalizedTargets.push({ platform, accountId })
+    }
+    const plainArticle = JSON.parse(JSON.stringify(article || {}))
+    const taskIds = normalizedTargets.map(({ platform, accountId }) => {
       return taskQueue.add({
         platform,
-        article: { ...(article || {}), accountId },
+        article: { ...plainArticle, accountId },
         accountId,
       })
     })
@@ -54,17 +77,17 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
-  ipcMain.handle('queue:status', async () => {
+  ipcMain.handle('queue:status', withSenderCheck(async () => {
     try {
       // M-13 修复：成功路径也包裹为标准格式，与错误路径对称
       return { code: 0, data: taskQueue.getStatus() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
-  ipcMain.handle('queue:history', async () => {
+  }))
+  ipcMain.handle('queue:history', withSenderCheck(async () => {
     try {
       return { code: 0, data: taskQueue.getHistory() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
-  })
+  }))
   ipcMain.handle('queue:cancel', withSenderCheck(async (event, taskId) => {
     try {
       const ok = taskQueue.cancel(taskId)
@@ -73,28 +96,45 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
-  ipcMain.handle('history:list', async (event, opts) => {
+  ipcMain.handle('queue:retry', withSenderCheck(async (event, taskId) => {
+    try {
+      if (typeof taskId !== 'string' || !taskId.trim()) {
+        return { code: EC.VALIDATION_ERROR, message: 'taskId 不能为空' }
+      }
+      const retryTaskId = taskQueue.retry(taskId.trim())
+      if (!retryTaskId) {
+        return { code: EC.NOT_FOUND, data: null, message: '任务不存在或状态不可重试' }
+      }
+      return {
+        code: 0,
+        data: { taskId: retryTaskId, retryOf: taskId.trim() },
+        message: '任务已重新加入队列',
+      }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  ipcMain.handle('history:list', withSenderCheck(async (event, opts) => {
     try {
       const result = history.listRecords(opts)
       return { code: 0, data: result }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, records: [] } }
     }
-  })
+  }))
 
-  ipcMain.handle('history:get', async (event, id) => {
+  ipcMain.handle('history:get', withSenderCheck(async (event, id) => {
     try {
       const record = history.getRecord(id)
       if (!record) return { code: EC.NOT_FOUND, message: '记录不存在' }
       return { code: 0, data: record }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
-  ipcMain.handle('dashboard:stats', async () => {
+  ipcMain.handle('dashboard:stats', withSenderCheck(async () => {
     try {
       return { code: 0, data: history.getStats() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 }
 
 module.exports = registerHandlers

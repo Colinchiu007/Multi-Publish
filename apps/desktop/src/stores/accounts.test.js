@@ -6,9 +6,11 @@ vi.mock("@/api/publisher", () => ({
   accountDelete: vi.fn(),
   accountSetDefault: vi.fn(),
   accountUpdate: vi.fn(),
+  getPlatformDefinitions: vi.fn(),
 }));
 
 import { useAccountStore } from "./accounts.js";
+import { usePlatformStore } from "./platforms.js";
 import {
   accountDelete,
   accountSetDefault,
@@ -38,6 +40,7 @@ describe("useAccountStore", () => {
 
       expect(store.accounts).toEqual([]);
       expect(store.groups).toEqual([]);
+      expect(store.favoriteIds).toEqual(new Set());
       expect(store.loading).toBe(false);
       expect(store.error).toBeNull();
       expect(store.searchQuery).toBe("");
@@ -53,7 +56,7 @@ describe("useAccountStore", () => {
     });
 
     it("从标准成功响应加载账号并恢复本地分组", async () => {
-      const groups = [{ id: "grp-1", name: "公众号" }];
+      const groups = [{ id: "grp-1", name: "公众号", platformFilter: null, accountIds: ["wx-1"] }];
       localStorage.setItem("mp_account_groups", JSON.stringify(groups));
       listAccounts.mockResolvedValue({ code: 0, data: accountsFixture });
       const store = useAccountStore();
@@ -151,6 +154,16 @@ describe("useAccountStore", () => {
       store.searchQuery = query;
 
       expect(store.filteredAccounts.map(account => account.id)).toEqual(expectedIds);
+    });
+
+    it("搜索支持平台中文名称", () => {
+      const platformStore = usePlatformStore();
+      platformStore.names = { wechat_mp: "微信公众号", zhihu: "知乎" };
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+      store.searchQuery = "知乎";
+
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["zh-1"]);
     });
 
     it("搜索时账号缺少所有可搜索字段也不会报错", () => {
@@ -264,7 +277,7 @@ describe("useAccountStore", () => {
 
   describe("本地分组", () => {
     it("loadGroups 从 localStorage 恢复分组", () => {
-      const groups = [{ id: "grp-1", name: "知乎组" }];
+      const groups = [{ id: "grp-1", name: "知乎组", platformFilter: null, accountIds: ["zh-1"] }];
       localStorage.setItem("mp_account_groups", JSON.stringify(groups));
       const store = useAccountStore();
 
@@ -302,7 +315,7 @@ describe("useAccountStore", () => {
 
       const group = store.createGroup("常用账号", "");
 
-      expect(group).toEqual({ id: expect.stringMatching(/^grp_123_/), name: "常用账号", platformFilter: null });
+      expect(group).toEqual({ id: expect.stringMatching(/^grp_123_/), name: "常用账号", platformFilter: null, accountIds: [] });
       expect(store.groups).toEqual([group]);
       expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual([group]);
     });
@@ -337,20 +350,79 @@ describe("useAccountStore", () => {
     it("getGroupAccounts 按分组平台筛选账号", () => {
       const store = useAccountStore();
       store.accounts = accountsFixture;
-      store.groups = [{ id: "wechat", platformFilter: "wechat_mp" }];
+      store.groups = [{ id: "wechat", platformFilter: "wechat_mp", accountIds: ["wx-1", "wx-2"] }];
 
       expect(store.getGroupAccounts("wechat").map(account => account.id)).toEqual(["wx-1", "wx-2"]);
     });
 
-    it("无平台限制的分组返回账号数组副本", () => {
+    it("无平台限制的分组只返回显式成员账号数组副本", () => {
       const store = useAccountStore();
       store.accounts = accountsFixture;
-      store.groups = [{ id: "all", platformFilter: null }];
+      store.groups = [{ id: "all", platformFilter: null, accountIds: ["wx-1", "zh-1"] }];
 
       const result = store.getGroupAccounts("all");
 
-      expect(result).toEqual(accountsFixture);
+      expect(result.map(account => account.id)).toEqual(["wx-1", "zh-1"]);
       expect(result).not.toBe(store.accounts);
+    });
+
+    it("旧分组迁移为显式成员快照并持久化", () => {
+      localStorage.setItem("mp_account_groups", JSON.stringify([
+        { id: "wechat", name: "微信组", platformFilter: "wechat_mp" },
+        { id: "all", name: "全部", platformFilter: null },
+      ]));
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+
+      store.loadGroups();
+
+      expect(store.groups[0].accountIds).toEqual(["wx-1", "wx-2"]);
+      expect(store.groups[1].accountIds).toEqual(["wx-1", "zh-1", "wx-2"]);
+      expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual(store.groups);
+    });
+
+    it("分组成员可增删并持久化", () => {
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+      const group = store.createGroup("运营组", "", ["wx-1"]);
+
+      expect(store.isAccountInGroup(group.id, "wx-1")).toBe(true);
+      store.toggleAccountInGroup(group.id, "zh-1");
+      expect(store.getGroupAccounts(group.id).map(account => account.id)).toEqual(["wx-1", "zh-1"]);
+      store.toggleAccountInGroup(group.id, "wx-1");
+      expect(store.getGroupAccounts(group.id).map(account => account.id)).toEqual(["zh-1"]);
+      expect(JSON.parse(localStorage.getItem("mp_account_groups"))[0].accountIds).toEqual(["zh-1"]);
+    });
+  });
+
+  describe("账号收藏", () => {
+    it("收藏状态可切换、持久化并用于筛选", () => {
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+
+      store.toggleFavorite("zh-1");
+      expect(store.isFavorite("zh-1")).toBe(true);
+      expect(JSON.parse(localStorage.getItem("mp_account_favorites"))).toEqual(["zh-1"]);
+
+      store.filterStatus = "favorite";
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["zh-1"]);
+
+      store.toggleFavorite("zh-1");
+      expect(store.isFavorite("zh-1")).toBe(false);
+    });
+
+    it("加载后清理已不存在账号的收藏和分组成员", async () => {
+      localStorage.setItem("mp_account_favorites", JSON.stringify(["wx-1", "missing"]));
+      localStorage.setItem("mp_account_groups", JSON.stringify([
+        { id: "g1", name: "组", platformFilter: null, accountIds: ["wx-1", "missing"] },
+      ]));
+      listAccounts.mockResolvedValue({ code: 0, data: [accountsFixture[0]] });
+      const store = useAccountStore();
+
+      await store.load();
+
+      expect(store.favoriteIds).toEqual(new Set(["wx-1"]));
+      expect(store.groups[0].accountIds).toEqual(["wx-1"]);
     });
   });
 
@@ -376,6 +448,18 @@ describe("useAccountStore", () => {
       store.selectAll();
       expect(store.selectedIds).toEqual(new Set());
       expect(store.isAllSelected).toBe(false);
+    });
+
+    it("selectAll 可按页面传入的可见账号范围切换选择", () => {
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+      store.toggleSelect("zh-1");
+
+      store.selectAll(["wx-1", "wx-2"]);
+      expect(store.selectedIds).toEqual(new Set(["zh-1", "wx-1", "wx-2"]));
+
+      store.selectAll(["wx-1", "wx-2"]);
+      expect(store.selectedIds).toEqual(new Set(["zh-1"]));
     });
 
     it("空列表全选保持空集合且不进入全选状态", () => {
@@ -463,6 +547,17 @@ describe("useAccountStore", () => {
       expect(listAccounts).toHaveBeenCalledTimes(1);
     });
 
+    it("batchDelete 传入范围时只删除当前页面选中的账号", async () => {
+      accountDelete.mockResolvedValue({ code: 0 });
+      const store = useAccountStore();
+      store.selectedIds = new Set(["wx-1", "zh-1"]);
+
+      await expect(store.batchDelete(["wx-1"])).resolves.toEqual({ success: 1, failed: 0 });
+
+      expect(accountDelete).toHaveBeenCalledTimes(1);
+      expect(accountDelete).toHaveBeenCalledWith("wx-1");
+    });
+
     it("batchSetStatus 为每个选中账号更新状态并汇总结果", async () => {
       accountUpdate
         .mockResolvedValueOnce({ code: 0 })
@@ -520,6 +615,7 @@ describe("useAccountStore", () => {
       const response = { code: 0, data: { id: "a1" } };
       accountSetDefault.mockResolvedValue(response);
       const store = useAccountStore();
+      store.accounts = [{ id: "a1", platform: "wx" }];
 
       await expect(store.setDefault("a1", "wx")).resolves.toBe(response);
       expect(accountSetDefault).toHaveBeenCalledWith("wx", "a1");
@@ -530,14 +626,28 @@ describe("useAccountStore", () => {
       const response = { code: 1, message: "not found" };
       accountSetDefault.mockResolvedValue(response);
       const store = useAccountStore();
+      store.accounts = [{ id: "a1", platform: "wx" }];
 
       await expect(store.setDefault("a1", "wx")).resolves.toBe(response);
+      expect(listAccounts).not.toHaveBeenCalled();
+    });
+
+    it("setDefault 拒绝把其他平台账号设为默认账号", async () => {
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+
+      await expect(store.setDefault("zh-1", "wechat_mp")).resolves.toEqual({
+        code: -2,
+        message: "账号不属于指定平台",
+      });
+      expect(accountSetDefault).not.toHaveBeenCalled();
       expect(listAccounts).not.toHaveBeenCalled();
     });
 
     it("setDefault API 异常时返回统一失败结果", async () => {
       accountSetDefault.mockRejectedValue(new Error("offline"));
       const store = useAccountStore();
+      store.accounts = [{ id: "a1", platform: "wx" }];
 
       await expect(store.setDefault("a1", "wx")).resolves.toEqual({ code: -1, message: "offline" });
       expect(listAccounts).not.toHaveBeenCalled();

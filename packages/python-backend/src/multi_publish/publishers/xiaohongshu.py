@@ -13,6 +13,7 @@ from loguru import logger
 
 from multi_publish.models import PlatformType, PublishPhase, PublishResult
 from multi_publish.publishers.base import BasePublisher, PublisherConfig
+from multi_publish.publishers.legacy_auth_policy import require_legacy_plaintext_auth
 
 DEFAULT_SELECTORS = {
     "login_qrcode": '[class*="qrcode"]',
@@ -251,6 +252,7 @@ class XiaoHongShuPublisher(BasePublisher):
         )
 
     async def _save_auth_data(self):
+        require_legacy_plaintext_auth()
         if not self._context or not self._page:
             return
         try:
@@ -271,6 +273,7 @@ class XiaoHongShuPublisher(BasePublisher):
             logger.warning(f"保存认证数据失败: {e}")
 
     async def _restore_auth_data(self) -> bool:
+        require_legacy_plaintext_auth()
         import json
 
         if not os.path.exists(self._auth_data_path):
@@ -295,6 +298,7 @@ class XiaoHongShuPublisher(BasePublisher):
             return False
 
     async def _restore_cookies_legacy(self) -> bool:
+        require_legacy_plaintext_auth()
         import json
 
         try:

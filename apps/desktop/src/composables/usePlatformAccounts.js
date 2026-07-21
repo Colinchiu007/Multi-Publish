@@ -12,24 +12,18 @@
  *   - usePlatformAccounts() 返回响应式状态 + 方法（包装纯函数 + 副作用）
  */
 import { ref, computed } from 'vue'
+import { accountList, accountSetDefault } from '@/api/publisher'
+import {
+  PLATFORM_NAMES,
+  PLATFORM_ICONS,
+} from '@multi-publish/shared-utils/src/platform-definitions'
 
-// 平台元数据（常量，与原 App.vue 一致）
-export const platformMeta = {
-  wechat_mp: { label: '微信公众号', icon: '💬' },
-  zhihu: { label: '知乎', icon: '❓' },
-  weibo: { label: '微博', icon: '✧' },
-  douyin: { label: '抖音', icon: '🎵' },
-  xiaohongshu: { label: '小红书', icon: '📕' },
-  tencent_video: { label: '视频号', icon: '▶' },
-  kuaishou: { label: '快手', icon: '🎬' },
-  toutiao: { label: '今日头条', icon: '📰' },
-  bilibili: { label: 'B站', icon: '📺' },
-  baijiahao: { label: '百家号', icon: '📖' },
-  yidian: { label: '一点号', icon: '📋' },
-  youtube: { label: 'YouTube', icon: '▶' },
-  tiktok: { label: 'TikTok', icon: '♪' },
-  twitter: { label: 'X (Twitter)', icon: '✕' },
-}
+// 平台元数据直接派生自共享定义，避免前端平台列表漂移。
+export const platformMeta = Object.fromEntries(
+  Object.keys(PLATFORM_NAMES).map(function (id) {
+    return [id, { label: PLATFORM_NAMES[id], icon: PLATFORM_ICONS[id] || '' }]
+  }),
+)
 
 /**
  * 获取平台默认账号
@@ -81,10 +75,13 @@ export function filterPlatforms(ids, search, meta) {
  * 平台账号 composable
  * @returns {object} 响应式状态 + 方法
  */
-export function usePlatformAccounts() {
+export function usePlatformAccounts(options = {}) {
   const platformSearch = ref('')
   const activePlatform = ref(null)
-  const platformAccounts = ref({}) // { platformId: [account, ...] }
+  const accountStore = options && options.accountStore
+  const platformAccounts = accountStore
+    ? computed(() => accountStore.byPlatform || {})
+    : ref({}) // { platformId: [account, ...] }
   const loaded = ref(false)
 
   const filteredPlatforms = computed(function () {
@@ -92,13 +89,13 @@ export function usePlatformAccounts() {
   })
 
   async function loadAccounts() {
-    const api = window.electronAPI
-    if (!api || !api.accountList) {
-      loaded.value = true
-      return
-    }
     try {
-      const res = await api.accountList()
+      if (accountStore) {
+        await accountStore.load()
+        loaded.value = true
+        return
+      }
+      const res = await accountList()
       if (res && res.code === 0 && Array.isArray(res.data)) {
         const grouped = {}
         for (const acc of res.data) {
@@ -115,10 +112,13 @@ export function usePlatformAccounts() {
   }
 
   async function switchAccount(platform, accountId) {
-    const api = window.electronAPI
-    if (!api || !api.accountSetDefault) return
     try {
-      await api.accountSetDefault(platform, accountId)
+      if (accountStore) {
+        await accountStore.setDefault(accountId, platform)
+        loaded.value = true
+        return
+      }
+      await accountSetDefault(platform, accountId)
       await loadAccounts()
     } catch (e) {
       console.warn('Failed to switch account:', e)

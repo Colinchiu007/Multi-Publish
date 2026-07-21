@@ -60,11 +60,26 @@ function createMockStore() {
 describe("store IPC handlers", () => {
   let ipcMain;
   let mockStore;
+  let credentialStore;
+  let accountStateRestorer;
+  let pythonBridge;
 
   beforeEach(() => {
     ipcMain = createMockIpcMain();
     mockStore = createMockStore();
-    registerHandlers(ipcMain, { store: mockStore });
+    credentialStore = {
+      hasCredential: vi.fn().mockReturnValue(true),
+      deleteCredential: vi.fn().mockReturnValue(true),
+    };
+    accountStateRestorer = { deleteAccountRecord: vi.fn() };
+    pythonBridge = { requestBackend: vi.fn() };
+    registerHandlers(ipcMain, {
+      app: { getPath: vi.fn(() => "C:\\test-user-data") },
+      store: mockStore,
+      credentialStore,
+      accountStateRestorer,
+      pythonBridge,
+    });
   });
 
   it("registers all 19 store handlers", () => {
@@ -113,6 +128,55 @@ describe("store IPC handlers", () => {
       expect(mockStore.addAccount).toHaveBeenCalledWith({ id: "acc1", platform: "github" });
     });
 
+    it("rejects credential-bearing renderer input before persistence", async () => {
+      const result = await ipcMain._callHandler("store:add-account", {
+        id: "acc1",
+        platform: "github",
+        name: "公开名称",
+        cookies: [{ name: "session", value: "secret" }],
+        localStorage: { token: "private" },
+        token: "private",
+      });
+
+      expect(result).toEqual({ code: -2, message: "账号创建仅支持公开字段" });
+      expect(mockStore.addAccount).not.toHaveBeenCalled();
+    });
+
+    it("passes only the supported public fields to persistence", async () => {
+      mockStore.addAccount.mockReturnValue(true);
+      const result = await ipcMain._callHandler("store:add-account", {
+        id: "acc1",
+        platform: "github",
+        name: "公开名称",
+        avatar: "avatar.png",
+        status: "active",
+        ignored: "must not reach store",
+      });
+
+      expect(result).toEqual({ code: -2, message: "账号创建仅支持公开字段" });
+      expect(mockStore.addAccount).not.toHaveBeenCalled();
+    });
+
+    it("accepts a complete public account record", async () => {
+      mockStore.addAccount.mockReturnValue(true);
+      const result = await ipcMain._callHandler("store:add-account", {
+        id: "acc1",
+        platform: "github",
+        name: "公开名称",
+        avatar: "avatar.png",
+        status: "active",
+      });
+
+      expect(result).toEqual({ code: 0, data: true });
+      expect(mockStore.addAccount).toHaveBeenCalledWith({
+        id: "acc1",
+        platform: "github",
+        name: "公开名称",
+        avatar: "avatar.png",
+        status: "active",
+      });
+    });
+
     it("returns code -1 on failure", async () => {
       mockStore.addAccount.mockReturnValue(false);
       const result = await ipcMain._callHandler("store:add-account", { id: "acc1" });
@@ -121,11 +185,32 @@ describe("store IPC handlers", () => {
   });
 
   describe("store:get-account", () => {
-    it("returns account data when found", async () => {
-      const account = { id: "acc1", platform: "github", username: "test" };
+    it("returns only public account data when found", async () => {
+      const account = {
+        id: "acc1",
+        platform: "github",
+        name: "test",
+        cookies: [{ name: "session", value: "secret" }],
+        localStorage: { token: "private" },
+      };
       mockStore.getAccount.mockReturnValue(account);
       const result = await ipcMain._callHandler("store:get-account", "acc1");
-      expect(result).toEqual({ code: 0, data: account });
+      expect(result).toEqual({
+        code: 0,
+        data: {
+          id: "acc1",
+          platform: "github",
+          name: "test",
+          account_name: "test",
+          status: "active",
+          is_default: false,
+          has_cookies: true,
+          cookie_count: 1,
+          has_auth_data: true,
+        },
+      });
+      expect(result.data).not.toHaveProperty("cookies");
+      expect(result.data).not.toHaveProperty("localStorage");
       expect(mockStore.getAccount).toHaveBeenCalledWith("acc1");
     });
 
@@ -138,10 +223,18 @@ describe("store IPC handlers", () => {
 
   describe("store:list-accounts", () => {
     it("returns all accounts for platform", async () => {
-      const accounts = [{ id: "acc1" }, { id: "acc2" }];
+      const accounts = [
+        { id: "acc1", platform: "github", cookies: [{ name: "session" }] },
+        { id: "acc2", platform: "github", localStorage: { token: "private" } },
+      ];
       mockStore.listAccounts.mockReturnValue(accounts);
       const result = await ipcMain._callHandler("store:list-accounts", "github");
-      expect(result).toEqual({ code: 0, data: accounts });
+      expect(result.code).toBe(0);
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0]).not.toHaveProperty("cookies");
+      expect(result.data[1]).not.toHaveProperty("localStorage");
+      expect(result.data[0]).toMatchObject({ id: "acc1", has_cookies: true, cookie_count: 1 });
+      expect(result.data[1]).toMatchObject({ id: "acc2", has_auth_data: true });
       expect(mockStore.listAccounts).toHaveBeenCalledWith("github");
     });
 
@@ -154,26 +247,87 @@ describe("store IPC handlers", () => {
 
   describe("store:delete-account", () => {
     it("deletes and returns code 0", async () => {
+      mockStore.getAccount.mockReturnValue({ id: "acc1", platform: "github" });
+      mockStore.deleteAccount.mockReturnValue(true);
       const result = await ipcMain._callHandler("store:delete-account", "acc1");
       expect(result).toEqual({ code: 0, data: true });
       expect(mockStore.deleteAccount).toHaveBeenCalledWith("acc1");
+      expect(credentialStore.deleteCredential).toHaveBeenCalledWith("acc1", "C:\\test-user-data");
+      expect(accountStateRestorer.deleteAccountRecord).toHaveBeenCalledWith("github", "acc1");
+    });
+
+    it("加密凭据删除失败时保留账号记录并返回错误", async () => {
+      mockStore.getAccount.mockReturnValue({ id: "acc1", platform: "github" });
+      credentialStore.deleteCredential.mockReturnValue(false);
+
+      const result = await ipcMain._callHandler("store:delete-account", "acc1");
+
+      expect(result).toEqual({ code: -1, message: "删除账号加密凭据失败" });
+      expect(mockStore.deleteAccount).not.toHaveBeenCalled();
+      expect(accountStateRestorer.deleteAccountRecord).not.toHaveBeenCalled();
+    });
+
+    it("账号不存在时不会误删其他平台的登录状态", async () => {
+      mockStore.getAccount.mockReturnValue(null);
+
+      const result = await ipcMain._callHandler("store:delete-account", "missing");
+
+      expect(result).toEqual({ code: -10, message: "账号不存在" });
+      expect(mockStore.deleteAccount).not.toHaveBeenCalled();
+      expect(credentialStore.deleteCredential).not.toHaveBeenCalled();
+      expect(accountStateRestorer.deleteAccountRecord).not.toHaveBeenCalled();
     });
   });
 
   describe("store:set-default-account", () => {
     it("sets default and returns code 0", async () => {
+      mockStore.setDefaultAccount.mockReturnValue(true);
       const result = await ipcMain._callHandler("store:set-default-account", { platform: "github", accountId: "acc1" });
       expect(result).toEqual({ code: 0, data: true });
       expect(mockStore.setDefaultAccount).toHaveBeenCalledWith("github", "acc1");
+    });
+
+    it("拒绝不存在或不属于指定平台的默认账号", async () => {
+      mockStore.setDefaultAccount.mockReturnValue(false);
+
+      const result = await ipcMain._callHandler("store:set-default-account", { platform: "github", accountId: "other" });
+
+      expect(result).toEqual({ code: -2, message: "账号不存在或不属于指定平台" });
+    });
+
+    it("SQLite 中没有账号时，校验后端账号归属并保存默认账号设置", async () => {
+      mockStore.setDefaultAccount.mockReturnValue(false);
+      pythonBridge.requestBackend.mockResolvedValue({
+        code: 0,
+        data: [{ id: "acc1", platform: "github" }],
+      });
+
+      const result = await ipcMain._callHandler("store:set-default-account", { platform: "github", accountId: "acc1" });
+
+      expect(result).toEqual({ code: 0, data: true });
+      expect(mockStore.setSetting).toHaveBeenCalledWith("default_account:github", "acc1");
+    });
+
+    it.each([
+      [null, "缺少参数对象"],
+      [{ platform: "", accountId: "acc1" }, "平台和账号不能为空"],
+      [{ platform: "github", accountId: null }, "平台和账号不能为空"],
+    ])("参数无效时返回校验错误", async (arg, message) => {
+      const result = await ipcMain._callHandler("store:set-default-account", arg);
+
+      expect(result).toEqual({ code: -2, message });
+      expect(mockStore.setDefaultAccount).not.toHaveBeenCalled();
     });
   });
 
   describe("store:get-default-account", () => {
     it("returns account when found", async () => {
-      const account = { id: "acc1" };
+      const account = { id: "acc1", platform: "github", cookies: [{ name: "session", value: "secret" }] };
       mockStore.getDefaultAccount.mockReturnValue(account);
       const result = await ipcMain._callHandler("store:get-default-account", "github");
-      expect(result).toEqual({ code: 0, data: account });
+      expect(result.code).toBe(0);
+      expect(result.data).toMatchObject({ id: "acc1", platform: "github", has_cookies: true });
+      expect(result.data).not.toHaveProperty("cookies");
     });
 
     it("returns code -10 (NOT_FOUND) when not set", async () => {
@@ -185,11 +339,63 @@ describe("store IPC handlers", () => {
 
   describe("store:update-account", () => {
     it("updates and returns code 0", async () => {
-      const fields = { username: "new_name" };
+      const fields = { name: "new_name" };
+      mockStore.getAccount.mockReturnValue({ id: "acc1" });
+      mockStore.updateAccount.mockReturnValue(true);
       const result = await ipcMain._callHandler("store:update-account", { id: "acc1", fields });
       expect(result).toEqual({ code: 0, data: true });
       expect(mockStore.updateAccount).toHaveBeenCalledWith("acc1", fields);
     });
+
+    it("rejects missing accounts and empty update fields", async () => {
+      mockStore.getAccount.mockReturnValue(null);
+      const missing = await ipcMain._callHandler("store:update-account", { id: "missing", fields: { name: "new" } });
+      const invalid = await ipcMain._callHandler("store:update-account", { id: "acc1", fields: {} });
+
+      expect(missing).toEqual({ code: -10, message: "账号不存在" });
+      expect(invalid).toEqual({ code: -2, message: "缺少可更新字段" });
+      expect(mockStore.updateAccount).not.toHaveBeenCalled();
+    });
+
+    it("returns validation error when store rejects all update fields", async () => {
+      mockStore.getAccount.mockReturnValue({ id: "acc1" });
+      mockStore.updateAccount.mockReturnValue(false);
+
+      const result = await ipcMain._callHandler("store:update-account", { id: "acc1", fields: { unknown: true } });
+
+      expect(result).toEqual({ code: -2, message: "没有可更新的账号字段" });
+    });
+
+    it("rejects credential fields from the renderer", async () => {
+      mockStore.getAccount.mockReturnValue({ id: "acc1" });
+
+      const result = await ipcMain._callHandler("store:update-account", {
+        id: "acc1",
+        fields: {
+          cookies: [{ name: "session", value: "attacker" }],
+          localStorage: { token: "attacker" },
+        },
+      });
+
+      expect(result).toEqual({ code: -2, message: "没有可更新的账号字段" });
+      expect(mockStore.updateAccount).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    ["store:get-account", ["acc1"]],
+    ["store:list-accounts", ["github"]],
+    ["store:get-default-account", ["github"]],
+    ["store:list-publish-history", [{}]],
+    ["store:get-publish-stats", []],
+    ["store:list-scheduled-tasks", []],
+    ["store:get-setting", ["theme"]],
+    ["store:list-callback-logs", [10]],
+    ["draftList", []],
+  ])("%s rejects untrusted senders", async (channel, args) => {
+    const result = await ipcMain._callHandlerFrom(channel, UNTRUSTED_EVENT, ...args);
+
+    expect(result).toEqual({ code: -3, message: "未授权的调用来源" });
   });
 
   describe("store:add-publish-record", () => {
@@ -254,9 +460,19 @@ describe("store IPC handlers", () => {
 
   describe("store:delete-task", () => {
     it("deletes and returns code 0", async () => {
+      mockStore.deleteTask.mockReturnValue(true);
       const result = await ipcMain._callHandler("store:delete-task", "task1");
       expect(result).toEqual({ code: 0, data: true });
       expect(mockStore.deleteTask).toHaveBeenCalledWith("task1");
+    });
+
+    it("returns validation/not-found errors instead of false success", async () => {
+      const invalid = await ipcMain._callHandler("store:delete-task", "");
+      mockStore.deleteTask.mockReturnValue(false);
+      const missing = await ipcMain._callHandler("store:delete-task", "missing");
+
+      expect(invalid).toEqual({ code: -2, message: "任务 ID 不能为空" });
+      expect(missing).toEqual({ code: -10, message: "定时任务不存在" });
     });
   });
 

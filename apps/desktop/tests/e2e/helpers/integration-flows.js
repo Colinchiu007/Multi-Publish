@@ -289,15 +289,15 @@ async function flowProviderToAI(r) {
 
   // Step 3: 跳到 /publish 并打开 AI 写作面板
   await r.goto('/publish');
-  const aiPanelOpened = await clickText(r, 'AI');
+  const aiPanelOpened = await clickText(r, 'AI', { selector: '[data-testid="open-ai-writer"]' });
 
   // Step 4: 面板初始化必须真实查询模型服务商配置
   const aiPanelVisible = aiPanelOpened && await waitForVisible(r.page.locator('.ai-writer-panel'));
-  if (aiPanelVisible) await waitForIpcCall(r, 'modelProviderIsConfigured');
+  const configuredIpcObserved = await waitForIpcCall(r, 'modelProviderIsConfigured');
   const aiContent = aiPanelVisible && await bodyHas(r, 'AI 辅助写作');
   record(r, 'Flow3.4 发布页面 AI 写作面板加载', aiContent, { aiPanelOpened, aiPanelVisible });
   const configuredCalls = await r.getIpcCalls('modelProviderIsConfigured');
-  record(r, 'Flow3.5 AI 服务商配置 IPC 已调用', configuredCalls > 0, { count: configuredCalls });
+  record(r, 'Flow3.5 AI 服务商配置 IPC 已调用', configuredIpcObserved && configuredCalls > 0, { count: configuredCalls });
 }
 
 /**

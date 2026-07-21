@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "mutate": [
+    "packages/shared-utils/src/task-queue.js"
+  ],
+  "testRunner": "vitest",
+  "plugins": [
+    "@stryker-mutator/vitest-runner"
+  ],
+  "inPlace": true,
+  "cleanTempDir": "always",
+  "ignoreStatic": true,
+  "incremental": false,
+  "vitest": {
+    "configFile": "vitest.shared-utils.stryker.config.js",
+    "related": false
+  },
+  "disableBail": true,
+  "dryRunTimeoutMinutes": 10,
+  "concurrency": 4,
+  "reporters": [
+    "html",
+    "progress",
+    "clear-text"
+  ],
+  "htmlReporter": {
+    "fileName": "reports/mutation/shared-utils/index.html"
+  },
+  "thresholds": {
+    "high": 55,
+    "low": 40,
+    "break": 30
+  },
+  "tempDirName": "stryker-shared-utils-tmp"
+}

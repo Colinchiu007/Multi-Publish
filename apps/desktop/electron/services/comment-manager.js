@@ -15,8 +15,11 @@
  *   OrchestratorCommentProvider — 调用 orchestrator API（/api/comments/:platform）
  *   当 ORCHESTRATOR_URL 未配置时，list 返回空数组、reply 返回明确错误
  */
-const { ipcMain } = require('electron')
+const path = require('path')
+const os = require('os')
+const { app, ipcMain } = require('electron')
 const log = require('./logger')
+const credentialStore = require('./credential-store')
 const {
   CommentMessageService,
   CommentProvider,
@@ -27,6 +30,26 @@ const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 
 const ORCHESTRATOR_BASE = process.env.ORCHESTRATOR_URL || ''
+const SAFE_IDENTIFIER = /^[a-zA-Z0-9_-]+$/
+const SAFE_COOKIE_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
+
+function getUserDataDir () {
+  try { return app.getPath('userData') } catch { return path.join(os.homedir(), '.multi-publish') }
+}
+
+function serializeCookieHeader (cookies) {
+  if (!Array.isArray(cookies)) return ''
+  return cookies
+    .filter(cookie => (
+      cookie &&
+      typeof cookie.name === 'string' &&
+      typeof cookie.value === 'string' &&
+      SAFE_COOKIE_NAME.test(cookie.name) &&
+      !/[\r\n;]/.test(cookie.value)
+    ))
+    .map(cookie => `${cookie.name}=${cookie.value}`)
+    .join('; ')
+}
 
 /**
  * OrchestratorCommentProvider — 通过 orchestrator API 拉取/回复评论
@@ -102,6 +125,20 @@ class CommentManager {
 
   setGetMainWin (fn) { this._getMainWin = fn }
 
+  /**
+   * 仅在主进程中把加密 Cookie 转成 HTTP 请求头。
+   * @param {string} accountId
+   */
+  resolveCookieHeader (accountId) {
+    if (typeof accountId !== 'string' || !SAFE_IDENTIFIER.test(accountId)) {
+      throw new Error('缺少或非法账号 ID')
+    }
+    const credentials = credentialStore.loadCredential(accountId, getUserDataDir())
+    const cookieHeader = serializeCookieHeader(credentials && credentials.cookies)
+    if (!cookieHeader) throw new Error('未找到账号登录凭证')
+    return cookieHeader
+  }
+
   _emit (channel, data) {
     const win = this._getMainWin && this._getMainWin()
     if (win && !win.isDestroyed()) {
@@ -112,10 +149,11 @@ class CommentManager {
   /**
    * 一次性拉取评论
    * @param {string} platform
-   * @param {string} cookie
+   * @param {string} accountId
    * @param {{maxDays?: number}} [opts]
    */
-  async listComments (platform, cookie, opts) {
+  async listComments (platform, accountId, opts) {
+    const cookie = this.resolveCookieHeader(accountId)
     const provider = new OrchestratorCommentProvider(platform)
     const list = await provider.getCommentList(cookie, { maxDays: (opts && opts.maxDays) || 7 })
     return list
@@ -124,23 +162,26 @@ class CommentManager {
   /**
    * 一次性回复评论
    * @param {string} platform
-   * @param {string} cookie
+   * @param {string} accountId
    * @param {string} commentId
    * @param {string} content
    */
-  async replyComment (platform, cookie, commentId, content) {
+  async replyComment (platform, accountId, commentId, content) {
+    const cookie = this.resolveCookieHeader(accountId)
     const provider = new OrchestratorCommentProvider(platform)
     return provider.replyComment(cookie, commentId, content)
   }
 
   /**
    * 启动后台轮询
-   * @param {{platform: string, accountId: string, cookie: string, interval?: number, maxDays?: number, template?: string}} opts
+   * @param {{platform: string, accountId: string, interval?: number, maxDays?: number, template?: string}} opts
    * @returns {Promise<{key: string, started: boolean, message?: string}>}
    */
   async startPolling (opts) {
     const platform = opts.platform
-    const accountId = opts.accountId || 'default'
+    const accountId = opts.accountId
+    if (typeof platform !== 'string' || !SAFE_IDENTIFIER.test(platform)) throw new Error('缺少或非法平台')
+    const cookie = this.resolveCookieHeader(accountId)
     const key = platform + ':' + accountId
     if (this._services.has(key)) {
       return { key: key, started: false, message: 'already running' }
@@ -149,7 +190,7 @@ class CommentManager {
       ? new TemplateReplyGenerator({ template: opts.template })
       : new EchoReplyGenerator()
     const service = new CommentMessageService(
-      { platform: platform, cookie: opts.cookie || '' },
+      { platform: platform, cookie: cookie },
       {
         interval: opts.interval || 30000,
         maxDays: opts.maxDays || 7,
@@ -217,22 +258,22 @@ class CommentManager {
   }
 
   registerIpcHandlers () {
-    ipcMain.handle('comment:list', async (_event, arg) => {
+    ipcMain.handle('comment:list', withSenderCheck(async (_event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
-      const { platform, cookie, maxDays } = arg
+      const { platform, accountId, maxDays } = arg
       try {
-        const data = await this.listComments(platform, cookie, { maxDays: maxDays })
+        const data = await this.listComments(platform, accountId, { maxDays: maxDays })
         return { code: 0, data: data }
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
       }
-    })
+    }))
 
     ipcMain.handle('comment:reply', withSenderCheck(async (_event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
-      const { platform, cookie, commentId, content } = arg
+      const { platform, accountId, commentId, content } = arg
       try {
-        const result = await this.replyComment(platform, cookie, commentId, content)
+        const result = await this.replyComment(platform, accountId, commentId, content)
         if (result && result.success) return { code: 0, data: result.data }
         return { code: EC.REQUEST_ERROR, message: (result && result.error) || '回复失败' }
       } catch (e) {
@@ -260,13 +301,13 @@ class CommentManager {
       }
     }))
 
-    ipcMain.handle('comment:status', async () => {
+    ipcMain.handle('comment:status', withSenderCheck(async () => {
       try {
         return { code: 0, data: this.getStatus() }
       } catch (e) {
         return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
       }
-    })
+    }))
   }
 }
 

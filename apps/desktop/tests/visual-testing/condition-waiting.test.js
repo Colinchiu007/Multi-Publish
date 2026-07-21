@@ -117,6 +117,53 @@ describe('视觉测试条件等待合同', () => {
     expect(firstUrl).toContain('#/create');
   });
 
+  it('同一路由的不同补充视图使用独立文档 URL，避免弹窗状态串用', () => {
+    const { viewUrl } = require('./views/supplementary-views.visual.test');
+
+    const addUrl = viewUrl('http://127.0.0.1:5174', '/model-providers', 'provider-add');
+    const editUrl = viewUrl('http://127.0.0.1:5174', '/model-providers', 'provider-edit');
+
+    expect(addUrl).not.toBe(editUrl);
+    expect(addUrl).toContain('visual-view=provider-add');
+    expect(addUrl).toContain('#/model-providers');
+  });
+
+  it('删除弹窗用例使用隔离的可删除服务商 fixture', () => {
+    const fixture = require('../e2e/fixtures/model-providers.json');
+    const customProvider = fixture.visualProviders.find(provider => !provider.is_preset);
+
+    expect(fixture.providers.some(provider => !provider.is_preset)).toBe(false);
+    expect(customProvider).toMatchObject({
+      id: expect.any(String),
+      name: expect.any(String),
+      is_preset: false,
+    });
+
+    const ipcMock = fs.readFileSync(path.join(VISUAL_ROOT, '../e2e/helpers/ipc-mock.js'), 'utf8');
+    expect(ipcMock).toContain('visual-view');
+    expect(ipcMock).toContain('visualProviders');
+  });
+
+  it('完整视觉命令聚合四套用例并覆盖 93 个场景', () => {
+    const packageJson = require('../../package.json');
+    const { viewTests } = require('./views/all-views.visual.test');
+    const { supplementaryViewTests } = require('./views/supplementary-views.visual.test');
+    const { workflowTests } = require('./workflows/all-workflows.visual.test');
+    const { supplementaryWorkflowTests } = require('./workflows/supplementary-workflows.visual.test');
+    const command = packageJson.scripts['test:all:visual'];
+
+    expect(command).toContain('views/all-views.visual.test.js');
+    expect(command).toContain('views/supplementary-views.visual.test.js');
+    expect(command).toContain('workflows/all-workflows.visual.test.js');
+    expect(command).toContain('workflows/supplementary-workflows.visual.test.js');
+    expect(
+      viewTests.length
+        + supplementaryViewTests.length
+        + workflowTests.length
+        + supplementaryWorkflowTests.length,
+    ).toBe(93);
+  });
+
   it('浏览器原生文本变化轮询只使用标准 CSS 选择器', () => {
     const { supplementaryWorkflowTests } = require('./workflows/supplementary-workflows.visual.test');
     const textChangeConditions = supplementaryWorkflowTests

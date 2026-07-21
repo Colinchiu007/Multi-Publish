@@ -80,6 +80,18 @@ async function fillByPlaceholder(r, placeholder, value) {
   return true;
 }
 
+async function fillPublishBody(page, value) {
+  const editor = page.locator(
+    '.cohere-main .ql-editor[contenteditable="true"], .cohere-main textarea.md-editor',
+  ).first();
+  if (!(await waitForVisible(editor))) return false;
+  await editor.fill(value);
+  const actualValue = await editor.evaluate((element) => (
+    'value' in element ? element.value : element.textContent
+  ));
+  return String(actualValue || '').includes(value);
+}
+
 async function selectFirstUsable(r, selector = '.cohere-main select') {
   const locator = r.page.locator(selector).first();
   if (!(await waitForVisible(locator))) return false;
@@ -133,15 +145,9 @@ async function exerciseFirstRun(r) {
 async function exercisePublish(r) {
   // initPro 已在 FunctionalRunner 构造时通过 addInitScript 注入，页面首次加载即为 Pro
   record(r, '标题字段可填写', await fillByPlaceholder(r, '文章标题', 'E2E 发布标题'));
-  const editor = r.page.locator('.cohere-main [contenteditable="true"]').first();
-  let contentFilled = false;
-  if (await editor.count() && await editor.isVisible().catch(() => false)) {
-    await editor.fill('E2E 发布正文内容');
-    contentFilled = true;
-  }
-  record(r, '正文字段可填写', contentFilled);
-  const platform = r.page.locator('.cohere-main input[type="checkbox"]').nth(1);
-  if (await waitForVisible(platform, 1000)) await platform.click();
+  record(r, '正文字段可填写', await fillPublishBody(r.page, 'E2E 发布正文内容'));
+  const platform = r.page.locator('.cohere-main [data-testid="platform-weibo"]').first();
+  if (await waitForVisible(platform, 3000)) await platform.click();
   const batch = r.page.locator('.cohere-main label:has-text("批量模式") input[type="checkbox"]').first();
   if (await batch.count()) {
     await batch.click();
@@ -153,8 +159,15 @@ async function exercisePublish(r) {
 }
 
 async function exerciseAccounts(r) {
-  record(r, '账号 fixture 渲染', await r.page.locator('.account-row').count() > 0, { count: await r.page.locator('.account-row').count() });
-  const filters = r.page.locator('.cohere-filter-chip');
+  const expectedAccountCount = await r.page.evaluate(() => window.__fixtures?.accounts?.accounts?.length || 0);
+  const accountsReady = expectedAccountCount > 0 && await waitForPageCondition(
+    r,
+    (expected) => document.querySelectorAll('.account-row').length === expected,
+    expectedAccountCount,
+  );
+  const accountCount = await r.page.locator('.account-row').count();
+  record(r, '账号 fixture 渲染', accountsReady, { count: accountCount, expected: expectedAccountCount });
+  const filters = r.page.locator('.filter-tabs button[role="tab"]');
   for (let i = 0; i < await filters.count(); i++) await filters.nth(i).click();
   record(r, '账号状态筛选均可点击', await filters.count() >= 3);
   const add = await clickText(r, '添加账号');
@@ -171,7 +184,7 @@ async function exerciseAccounts(r) {
     record(r, '添加账号打开弹窗', false);
   }
   await r.goto('/accounts');
-  const allFilter = r.page.locator('.cohere-filter-chip:has-text("全部")').first();
+  const allFilter = r.page.locator('.filter-tabs button[role="tab"]:has-text("全部")').first();
   if (await allFilter.count() > 0) await allFilter.click();
   // 寻找 “验证” 按钮（不依赖具体位置）
   const verifyBtn = r.page.locator('.account-row button:has-text("验证")').first();
@@ -402,16 +415,37 @@ async function resetDefinitionRoute(r, definition) {
   return gotoDefinition(r, definition);
 }
 
+function initialButtonLocator(r, control) {
+  return control.testid
+    ? r.page.locator(`.cohere-main button[data-testid=${JSON.stringify(control.testid)}]`)
+    : r.page.locator('.cohere-main button').nth(control.index);
+}
+
+async function clickInitialButton(r, control) {
+  const locator = initialButtonLocator(r, control);
+  if (!(await waitForVisible(locator, CONDITION_TIMEOUT))) {
+    throw new Error(`初始按钮不可见: ${control.testid || control.text || control.index}`);
+  }
+  if (await locator.isDisabled()) {
+    throw new Error(`初始按钮意外变为禁用: ${control.testid || control.text || control.index}`);
+  }
+  await locator.click({ timeout: CONDITION_TIMEOUT });
+}
+
 async function auditInitialControls(r, definition) {
   await resetDefinitionRoute(r, definition);
   const controls = await r.page.locator('.cohere-main button').evaluateAll((buttons) => {
-    const occurrences = new Map();
-    return buttons.filter((button) => button.getClientRects().length > 0 && !button.closest('details:not([open])')).map((button) => {
-      const text = (button.textContent || '').trim().slice(0, 60);
-      const occurrence = occurrences.get(text) || 0;
-      occurrences.set(text, occurrence + 1);
-      return { text, occurrence, disabled: button.disabled };
+    const visibleButtons = [];
+    buttons.forEach((button, index) => {
+      if (button.getClientRects().length === 0 || button.closest('details:not([open])')) return;
+      visibleButtons.push({
+        index,
+        text: (button.textContent || '').trim().slice(0, 60),
+        testid: button.getAttribute('data-testid') || '',
+        disabled: button.disabled,
+      });
     });
+    return visibleButtons;
   });
   let clicked = 0;
   let skipped = 0;
@@ -419,15 +453,24 @@ async function auditInitialControls(r, definition) {
   for (const control of controls) {
     if (control.disabled) { skipped++; continue; }
     await resetDefinitionRoute(r, definition);
-    const locator = r.page.locator('.cohere-main button').filter({ hasText: control.text, visible: true }).nth(control.occurrence);
-    try {
-      if (await waitForVisible(locator, 2500) && !(await locator.isDisabled())) {
-        await locator.click({ timeout: 2500 });
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (attempt > 0) await resetDefinitionRoute(r, definition);
+        await clickInitialButton(r, control);
         clicked++;
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
       }
-    } catch (error) {
-      failures.push({ text: control.text, error: error.message.slice(0, 120) });
     }
+    if (lastError) failures.push({
+      text: control.text,
+      testid: control.testid,
+      attempts: 2,
+      error: lastError.message.slice(0, 500),
+    });
   }
   record(r, '初始可用按钮均完成点击扫描', failures.length === 0, { total: controls.length, clicked, skipped, failures });
 
@@ -611,4 +654,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { definitions, runRouteSpec, auditInitialControls, auditInitialFields };
+module.exports = { definitions, runRouteSpec, auditInitialControls, auditInitialFields, fillPublishBody };

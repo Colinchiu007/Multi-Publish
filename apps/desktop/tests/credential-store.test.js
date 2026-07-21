@@ -11,6 +11,13 @@ const cs = require('../electron/services/credential-store')
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cred-test-'))
 
+const safeStorage = {
+  isEncryptionAvailable: () => true,
+  encryptString: value => Buffer.from(`protected:${value}`, 'utf8'),
+  decryptString: value => Buffer.from(value).toString('utf8').replace(/^protected:/, ''),
+}
+const protectedOptions = { safeStorage }
+
 describe('credential-store', () => {
   let userDataDir
 
@@ -32,7 +39,7 @@ describe('credential-store', () => {
     const keyFile = path.join(credDir, '.masterkey')
     const bakFile = keyFile + '.bak'
 
-    const key1 = cs.getMasterKey(credDir)
+    const key1 = cs.getMasterKey(credDir, protectedOptions)
     expect(key1).toBeTruthy()
     expect(typeof key1).toBe('string')
     expect(fs.existsSync(keyFile)).toBe(true)
@@ -48,8 +55,8 @@ describe('credential-store', () => {
 
   it('getMasterKey 二次调用返回相同密钥', () => {
     const credDir = path.join(userDataDir, 'credentials')
-    const key1 = cs.getMasterKey(credDir)
-    const key2 = cs.getMasterKey(credDir)
+    const key1 = cs.getMasterKey(credDir, protectedOptions)
+    const key2 = cs.getMasterKey(credDir, protectedOptions)
     expect(key1).toBe(key2)
   })
 
@@ -60,8 +67,8 @@ describe('credential-store', () => {
       accountInfo: { nickName: 'TestUser', avatar: 'http://example.com/a.png' },
     }
 
-    cs.saveCredential(accountId, data, userDataDir)
-    const loaded = cs.loadCredential(accountId, userDataDir)
+    cs.saveCredential(accountId, data, userDataDir, protectedOptions)
+    const loaded = cs.loadCredential(accountId, userDataDir, protectedOptions)
 
     expect(loaded).toBeTruthy()
     expect(loaded.localStorage.token).toBe('abc123')
@@ -88,13 +95,13 @@ describe('credential-store', () => {
   it('hasCredential 正确反映存在性', () => {
     const accountId = 'acc_has_001'
     expect(cs.hasCredential(accountId, userDataDir)).toBe(false)
-    cs.saveCredential(accountId, { localStorage: {}, accountInfo: {} }, userDataDir)
+    cs.saveCredential(accountId, { localStorage: {}, accountInfo: {} }, userDataDir, protectedOptions)
     expect(cs.hasCredential(accountId, userDataDir)).toBe(true)
   })
 
   it('deleteCredential 删除凭证文件', () => {
     const accountId = 'acc_del_001'
-    cs.saveCredential(accountId, { localStorage: { x: '1' }, accountInfo: {} }, userDataDir)
+    cs.saveCredential(accountId, { localStorage: { x: '1' }, accountInfo: {} }, userDataDir, protectedOptions)
     expect(cs.hasCredential(accountId, userDataDir)).toBe(true)
     cs.deleteCredential(accountId, userDataDir)
     expect(cs.hasCredential(accountId, userDataDir)).toBe(false)
@@ -102,7 +109,7 @@ describe('credential-store', () => {
 
   it('saveCredential 原子写不残留 .tmp', () => {
     const accountId = 'acc_atom_001'
-    cs.saveCredential(accountId, { localStorage: {}, accountInfo: {} }, userDataDir)
+    cs.saveCredential(accountId, { localStorage: {}, accountInfo: {} }, userDataDir, protectedOptions)
     const credDir = path.join(userDataDir, 'credentials')
     const files = fs.readdirSync(credDir)
     // 不应有 .tmp 残留（只应有 .json.enc + .masterkey + .masterkey.bak）
@@ -111,8 +118,8 @@ describe('credential-store', () => {
   })
 
   it('listAccounts 返回已保存的账号列表', () => {
-    cs.saveCredential('acc_list_1', { localStorage: {}, accountInfo: {} }, userDataDir)
-    cs.saveCredential('acc_list_2', { localStorage: {}, accountInfo: {} }, userDataDir)
+    cs.saveCredential('acc_list_1', { localStorage: {}, accountInfo: {} }, userDataDir, protectedOptions)
+    cs.saveCredential('acc_list_2', { localStorage: {}, accountInfo: {} }, userDataDir, protectedOptions)
     const accounts = cs.listAccounts(userDataDir)
     expect(accounts).toContain('acc_list_1')
     expect(accounts).toContain('acc_list_2')

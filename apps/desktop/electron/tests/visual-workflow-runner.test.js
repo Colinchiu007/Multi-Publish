@@ -52,6 +52,33 @@ describe('视觉工作流执行器', () => {
       .toBeLessThan(selectors.indexOf('waitFor:.mode-tab:nth-child(1).active'))
   })
 
+  it('账号工作流使用当前筛选器和命令按钮的稳定选择器', () => {
+    const accountWorkflows = workflowRunner.workflowTests.filter(item => item.name.startsWith('accounts-'))
+    const byName = Object.fromEntries(accountWorkflows.map(item => [item.name, item]))
+    const searchSteps = byName['accounts-search-clear'].steps
+    const activeSteps = byName['accounts-active-filter-reset'].steps
+    const addSteps = byName['accounts-add-dialog-cancel'].steps
+    const groupSteps = byName['accounts-group-dialog-close'].steps
+
+    expect(searchSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'fill', selector: 'input[aria-label="搜索账号或平台"]' }),
+      expect.objectContaining({ action: 'click', selector: 'button.clear-search' }),
+    ]))
+    expect(activeSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'click', selector: '.filter-tabs button[role="tab"]:nth-child(2)' }),
+      expect.objectContaining({ action: 'waitFor', selector: '.filter-tabs button[role="tab"]:nth-child(2).active' }),
+    ]))
+    expect(addSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'click', selector: '.page-actions button:has-text("添加账号")' }),
+    ]))
+    expect(groupSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'click', selector: '.page-actions button:has-text("分组管理")' }),
+    ]))
+
+    const selectors = accountWorkflows.flatMap(item => item.steps.map(step => step.selector || ''))
+    expect(JSON.stringify(selectors)).not.toMatch(/filter-chips|cohere-filter-chip|search-clear|cohere-btn-primary|cohere-btn-ghost/)
+  })
+
   it('执行文件上传和日期输入动作', async () => {
     const page = {
       setInputFiles: vi.fn().mockResolvedValue(undefined),

@@ -11,7 +11,12 @@ const {
   mockSensitiveCheck,
   mockOfflineStatus,
   mockOfflineAddToCache,
+  mockSchedulerCreate,
+  mockSchedulerCancel,
+  mockCancelTask,
+  mockShowNotification,
   mockStoreGetSetting,
+  mockStoreSetSetting,
   mockElMessage,
   mockElMessageBox,
 } = vi.hoisted(function () {
@@ -21,7 +26,12 @@ const {
     mockSensitiveCheck: vi.fn(),
     mockOfflineStatus: vi.fn(),
     mockOfflineAddToCache: vi.fn(),
+    mockSchedulerCreate: vi.fn(),
+    mockSchedulerCancel: vi.fn(),
+    mockCancelTask: vi.fn(),
+    mockShowNotification: vi.fn(),
     mockStoreGetSetting: vi.fn(),
+    mockStoreSetSetting: vi.fn(),
     mockElMessage: { success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() },
     mockElMessageBox: { confirm: vi.fn() },
   }
@@ -34,7 +44,12 @@ vi.mock('@/api/publisher', function () {
     sensitiveCheck: mockSensitiveCheck,
     offlineStatus: mockOfflineStatus,
     offlineAddToCache: mockOfflineAddToCache,
+    schedulerCreate: mockSchedulerCreate,
+    schedulerCancel: mockSchedulerCancel,
+    cancelTask: mockCancelTask,
+    showNotification: mockShowNotification,
     storeGetSetting: mockStoreGetSetting,
+    storeSetSetting: mockStoreSetSetting,
     batchCreate: vi.fn(),
   }
 })
@@ -57,7 +72,7 @@ describe('usePublishFlow — composable setup', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '' })
+    article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '', publishTime: '' })
     selectedPlatforms = { value: ['wechat_mp'] }
     selectedAccounts = { value: { wechat_mp: 'acc1' } }
     precheckEnabled = { value: false }
@@ -68,6 +83,12 @@ describe('usePublishFlow — composable setup', () => {
     mockOfflineStatus.mockResolvedValue({ code: 0, data: { offline: false } })
     mockOfflineAddToCache.mockResolvedValue({ code: 0 })
     mockPublishBatch.mockResolvedValue({ code: 0, data: { taskIds: ['t1'] }, message: 'ok' })
+    mockSchedulerCreate.mockResolvedValue({ code: 0, data: { id: 'schedule-1' } })
+    mockSchedulerCancel.mockResolvedValue({ code: 0, data: true })
+    mockCancelTask.mockResolvedValue({ code: 0, data: true })
+    mockShowNotification.mockResolvedValue({ code: 0 })
+    mockStoreGetSetting.mockResolvedValue(false)
+    mockStoreSetSetting.mockResolvedValue({ code: 0, data: true })
     mockElMessageBox.confirm.mockResolvedValue(undefined)
   })
 
@@ -89,6 +110,9 @@ describe('usePublishFlow — composable setup', () => {
     expect(typeof r.handlePublish).toBe('function')
     expect(typeof r.copyUrl).toBe('function')
     expect(typeof r.addProgress).toBe('function')
+    expect(typeof r.cancelPublish).toBe('function')
+    expect(typeof r.retryPublish).toBe('function')
+    expect(typeof r.loadPrecheckPreference).toBe('function')
   })
 
   it('初始状态', () => {
@@ -113,6 +137,25 @@ describe('usePublishFlow — composable setup', () => {
     expect(mockElMessage.warning).toHaveBeenCalledWith('请输入正文内容')
   })
 
+  it('账号已从当前列表移除时在 IPC 前阻止发布', async () => {
+    article.title = '标题'
+    article.content = '正文'
+    selectedAccounts.value = { wechat_mp: ['deleted-account'] }
+    const r = usePublishFlow({
+      article,
+      selectedPlatforms,
+      selectedAccounts,
+      precheckEnabled,
+      isAccountAvailable: () => false,
+    })
+
+    await r.handlePublish()
+
+    expect(mockElMessage.warning).toHaveBeenCalledWith('所选账号已失效，请重新选择发布账号')
+    expect(mockSensitiveCheck).not.toHaveBeenCalled()
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+  })
+
   it('handlePublish 成功发布', async () => {
     const r = createFlow()
     article.title = 'Test'
@@ -121,6 +164,23 @@ describe('usePublishFlow — composable setup', () => {
     await nextTick()
     expect(mockPublishBatch).toHaveBeenCalled()
     expect(r.result.value.success).toBe(true)
+    expect(r.activeTaskIds.value).toEqual(['t1'])
+  })
+
+  it('发布进行中会拒绝重复提交', async () => {
+    let resolvePublish
+    mockPublishBatch.mockReturnValueOnce(new Promise(resolve => { resolvePublish = resolve }))
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+
+    const firstPublish = r.handlePublish()
+    const duplicatePublish = r.handlePublish()
+    await duplicatePublish
+    resolvePublish({ code: 0, data: { taskIds: ['t1'] }, message: 'ok' })
+    await firstPublish
+
+    expect(mockPublishBatch).toHaveBeenCalledTimes(1)
   })
 
   it('handlePublish API 失败时设置 result.success=false', async () => {
@@ -132,6 +192,19 @@ describe('usePublishFlow — composable setup', () => {
     await nextTick()
     expect(r.result.value.success).toBe(false)
     expect(r.result.value.message).toBe('API 错误')
+  })
+
+  it('失败通知发送异常不会覆盖发布失败结果', async () => {
+    mockPublishBatch.mockResolvedValueOnce({ code: 1, message: 'API 错误' })
+    mockShowNotification.mockRejectedValueOnce(new Error('系统通知不可用'))
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+
+    await expect(r.handlePublish()).resolves.toBeUndefined()
+
+    expect(mockShowNotification).toHaveBeenCalledWith({ title: '发布失败', body: 'API 错误' })
+    expect(r.result.value).toEqual({ success: false, message: 'API 错误' })
   })
 
   it('handlePublish publishBatch 抛错时记录错误', async () => {
@@ -254,15 +327,211 @@ describe('usePublishFlow — composable setup', () => {
     ])
   })
 
-  it('targets accountId 缺失时为 null', async () => {
+  it('targets accountId 缺失时在 IPC 前阻止发布', async () => {
     selectedPlatforms.value = ['wechat_mp']
     selectedAccounts.value = {}
     const r = createFlow()
     article.title = 'Test'
     article.content = 'Content'
     await r.handlePublish()
-    const targets = mockPublishBatch.mock.calls[0][0]
-    expect(targets).toEqual([{ platform: 'wechat_mp', accountId: null }])
+    expect(mockElMessage.warning).toHaveBeenCalledWith('请为微信公众号选择至少一个账号')
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+  })
+
+  it('同一平台多个账号会展开成多个发布目标', async () => {
+    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+
+    await r.handlePublish()
+
+    expect(mockPublishBatch.mock.calls[0][0]).toEqual([
+      { platform: 'wechat_mp', accountId: 'acc1' },
+      { platform: 'wechat_mp', accountId: 'acc2' },
+    ])
+  })
+
+  it('有合法发布时间时为每个目标创建持久化定时任务', async () => {
+    article.title = '定时文章'
+    article.content = '正文'
+    article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    mockSchedulerCreate
+      .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-1' } })
+      .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-2' } })
+    const r = createFlow()
+
+    await r.handlePublish()
+
+    expect(mockSchedulerCreate).toHaveBeenCalledTimes(2)
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+    expect(mockSchedulerCreate.mock.calls[0][0]).toMatchObject({
+      platform: 'wechat_mp',
+      publishTime: article.publishTime,
+      article: expect.objectContaining({ accountId: 'acc1' }),
+    })
+    expect(r.result.value.success).toBe(true)
+    expect(r.activeScheduleIds.value).toEqual(['schedule-1', 'schedule-2'])
+  })
+
+  it('定时任务业务失败无消息时使用稳定错误文案', async () => {
+    article.title = '定时文章'
+    article.content = '正文'
+    article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    mockSchedulerCreate.mockResolvedValueOnce({ code: -1 })
+    const r = createFlow()
+
+    await r.handlePublish()
+
+    expect(r.result.value).toEqual({ success: false, message: '定时任务创建失败' })
+    expect(r.activeScheduleIds.value).toEqual([])
+  })
+
+  it('后续定时任务创建失败时自动取消此前已创建任务', async () => {
+    article.title = '定时文章'
+    article.content = '正文'
+    article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    mockSchedulerCreate
+      .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-1' } })
+      .mockRejectedValueOnce(new Error('第二个任务创建失败'))
+    const r = createFlow()
+
+    await r.handlePublish()
+
+    expect(mockSchedulerCancel).toHaveBeenCalledWith('schedule-1')
+    expect(r.activeScheduleIds.value).toEqual([])
+    expect(r.result.value).toEqual({ success: false, message: '第二个任务创建失败' })
+  })
+
+  it('自动回滚失败时保留任务 ID 供用户再次取消', async () => {
+    article.title = '定时文章'
+    article.content = '正文'
+    article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    mockSchedulerCreate
+      .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-1' } })
+      .mockResolvedValueOnce({ code: -1, message: '创建失败' })
+    mockSchedulerCancel.mockResolvedValueOnce({ code: -1, data: false })
+    const r = createFlow()
+
+    await r.handlePublish()
+
+    expect(r.activeScheduleIds.value).toEqual(['schedule-1'])
+    expect(r.result.value.success).toBe(false)
+    expect(r.result.value.message).toContain('1 个定时任务回滚失败')
+
+    mockSchedulerCancel.mockResolvedValueOnce({ code: 0, data: true })
+    await expect(r.cancelPublish()).resolves.toEqual({ success: true, cancelled: 1 })
+  })
+
+  it('自动回滚 Promise 被拒绝时保留任务 ID 供用户再次取消', async () => {
+    article.title = '定时文章'
+    article.content = '正文'
+    article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    mockSchedulerCreate
+      .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-1' } })
+      .mockResolvedValueOnce({ code: -1, message: '创建失败' })
+    mockSchedulerCancel.mockRejectedValueOnce(new Error('取消服务不可用'))
+    const r = createFlow()
+
+    await r.handlePublish()
+
+    expect(r.activeScheduleIds.value).toEqual(['schedule-1'])
+    expect(r.result.value).toEqual({
+      success: false,
+      message: '创建失败；1 个定时任务回滚失败，请点击取消重试',
+    })
+  })
+
+  it('定时任务成功响应缺少 ID 时按失败处理并回滚前序任务', async () => {
+    article.title = '定时文章'
+    article.content = '正文'
+    article.publishTime = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    selectedAccounts.value = { wechat_mp: ['acc1', 'acc2'] }
+    mockSchedulerCreate
+      .mockResolvedValueOnce({ code: 0, data: { id: 'schedule-1' } })
+      .mockResolvedValueOnce({ code: 0, data: {} })
+    const r = createFlow()
+
+    await r.handlePublish()
+
+    expect(mockSchedulerCancel).toHaveBeenCalledWith('schedule-1')
+    expect(r.result.value).toEqual({ success: false, message: '定时任务创建成功但未返回任务 ID' })
+  })
+
+  it('非法定时发布时间会在 IPC 前阻止提交', async () => {
+    article.title = '定时文章'
+    article.content = '正文'
+    article.publishTime = 'not-a-date'
+    const r = createFlow()
+
+    await r.handlePublish()
+
+    expect(mockSchedulerCreate).not.toHaveBeenCalled()
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+    expect(r.result.value).toMatchObject({ success: false })
+    expect(r.progress.value.at(-1).text).toContain('定时发布时间无效')
+  })
+
+  it('取消活动任务并支持失败后重试', async () => {
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+    await r.handlePublish()
+    await r.cancelPublish()
+    expect(mockCancelTask).toHaveBeenCalledWith('t1')
+
+    mockPublishBatch.mockResolvedValueOnce({ code: 1, message: '首次失败' })
+    await r.handlePublish()
+    await r.retryPublish()
+    expect(mockPublishBatch).toHaveBeenCalledTimes(3)
+  })
+
+  it('没有活动任务时取消返回稳定结果且不调用 IPC', async () => {
+    const r = createFlow()
+
+    await expect(r.cancelPublish()).resolves.toEqual({ success: false, cancelled: 0 })
+
+    expect(mockElMessage.info).toHaveBeenCalledWith('当前没有可取消的任务')
+    expect(mockCancelTask).not.toHaveBeenCalled()
+    expect(mockSchedulerCancel).not.toHaveBeenCalled()
+  })
+
+  it('取消任务只统计业务成功结果并清空活动 ID', async () => {
+    mockPublishBatch.mockResolvedValueOnce({ code: 0, data: { taskIds: ['t1', 't2'] }, message: 'ok' })
+    mockCancelTask
+      .mockResolvedValueOnce({ code: 0, data: true })
+      .mockResolvedValueOnce({ code: 0, data: false })
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+    await r.handlePublish()
+
+    await expect(r.cancelPublish()).resolves.toEqual({ success: true, cancelled: 1 })
+
+    expect(mockCancelTask).toHaveBeenCalledTimes(2)
+    expect(r.activeTaskIds.value).toEqual([])
+    expect(r.activeScheduleIds.value).toEqual([])
+    expect(r.result.value).toEqual({ success: false, cancelled: 1, message: '任务已取消' })
+  })
+
+  it('没有失败结果或最近发布成功时不执行重试', async () => {
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+
+    await r.retryPublish()
+    expect(mockPublishBatch).not.toHaveBeenCalled()
+
+    await r.handlePublish()
+    await r.retryPublish()
+
+    expect(mockPublishBatch).toHaveBeenCalledTimes(1)
+    expect(mockElMessage.info).toHaveBeenCalledTimes(2)
+    expect(mockElMessage.info).toHaveBeenLastCalledWith('当前没有失败的发布任务')
   })
 
   // ─── addProgress ──────────────────────────
@@ -330,6 +599,20 @@ describe('usePublishFlow — composable setup', () => {
     await r.handlePublish()
     const data = mockPublishBatch.mock.calls[0][1]
     expect(data.precheck).toBe(true)
+  })
+
+  it('预检开关由 composable 加载并在初始化后持久化', async () => {
+    precheckEnabled = ref(false)
+    mockStoreGetSetting.mockResolvedValueOnce(true)
+    const r = createFlow()
+
+    await r.loadPrecheckPreference()
+    expect(precheckEnabled.value).toBe(true)
+    expect(mockStoreSetSetting).not.toHaveBeenCalled()
+
+    precheckEnabled.value = false
+    await nextTick()
+    expect(mockStoreSetSetting).toHaveBeenCalledWith('precheckEnabled', false)
   })
 
   // ─── 核心流程边界与资源清理 ───────────────
@@ -441,7 +724,7 @@ describe('usePublishFlow — composable setup', () => {
   it('只透传有实际差异内容的平台覆盖项', async () => {
     const diffEdits = {
       wechat_mp: { title: '微信标题', content: '' },
-      zhihu: { title: '', content: '' },
+      zhihu: { title: '', content: '', commentPermission: 'anyone', declare: 5 },
       douyin: null,
     }
     const r = usePublishFlow({
@@ -458,7 +741,22 @@ describe('usePublishFlow — composable setup', () => {
 
     expect(mockPublishBatch.mock.calls[0][1].platformOverrides).toEqual({
       wechat_mp: { title: '微信标题', content: '' },
+      zhihu: { title: '', content: '', commentPermission: 'anyone', declare: 5 },
     })
+  })
+
+  it('平台内容超过限制时在 IPC 前阻止发布', async () => {
+    selectedPlatforms.value = ['xiaohongshu']
+    selectedAccounts.value = { xiaohongshu: ['xhs-1'] }
+    const r = createFlow()
+    article.title = '超'.repeat(21)
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    expect(mockElMessage.warning).toHaveBeenCalledWith('小红书标题最多 20 个字符，当前 21 个')
+    expect(mockSensitiveCheck).not.toHaveBeenCalled()
+    expect(mockPublishBatch).not.toHaveBeenCalled()
   })
 
   it('在线发布时传入 IPC 的响应式载荷可结构化克隆', async () => {

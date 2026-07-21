@@ -18,7 +18,12 @@ const { WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
 // eslint-disable-next-line no-unused-vars
-const { PLATFORM_LOGIN_URLS, QR_CODE_PLATFORMS } = require('@multi-publish/shared-utils/src/platform-definitions')
+const {
+  PLATFORM_LOGIN_URLS,
+  QR_CODE_PLATFORMS,
+  isPlatformCookieDomain,
+  isPlatformLoginSuccessUrl,
+} = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
 
@@ -31,8 +36,9 @@ const QR_SCAN_INTERVAL_MS = 2000
 const QR_REFRESH_INTERVAL_MS = 30000  // 微信码 30s 过期刷新
 
 class QrCodeLogin {
-  constructor () {
+  constructor (options = {}) {
     this.mainWindow = null
+    this.accountManager = options.accountManager || null
     this.currentView = null
     this.currentPlatform = null
     this.currentAccountId = null
@@ -40,22 +46,33 @@ class QrCodeLogin {
     this._rejectLogin = null
     this._scanTimer = null
     this._lastQrHash = null
+    this._activeSession = null
+    this._sessionSequence = 0
   }
 
   setMainWindow (win) {
     this.mainWindow = win
   }
 
+  setAccountManager (accountManager) {
+    this.accountManager = accountManager
+  }
+
   /**
    * 打开扫码登录
    * @param {string} platform
    * @param {number} timeout - 超时(ms)，默认 5 分钟
-   * @returns {Promise<{cookies: Array, name: string, accountId: string}>}
+   * @returns {Promise<{platform: string, accountId: string, accountName: string}>}
    */
   openLogin (platform, timeout = 300000) {
     return new Promise((resolve, reject) => {
       if (!this.mainWindow) {
         reject(new Error('主窗口未初始化'))
+        return
+      }
+
+      if (!QR_CODE_PLATFORMS.includes(platform)) {
+        reject(new Error(`不支持扫码登录的平台: ${platform}`))
         return
       }
 
@@ -65,7 +82,30 @@ class QrCodeLogin {
         return
       }
 
-      const accountId = `auth-${platform}-${Date.now()}`
+      if (this._activeSession) {
+        this._closeSession(this._activeSession, {
+          notifyRenderer: false,
+          reason: new Error('扫码登录已被新的登录会话替代'),
+        })
+      }
+
+      const accountId = `auth-${platform}-${Date.now()}-${++this._sessionSequence}`
+      const loginSession = {
+        accountId,
+        platform,
+        view: null,
+        resolve,
+        reject,
+        settled: false,
+        cancelled: false,
+        cleaned: false,
+        phase: 'waiting',
+        scanTimer: null,
+        loginTimeout: null,
+        extractTimer: null,
+        lastQrHash: null,
+      }
+      this._activeSession = loginSession
       this.currentPlatform = platform
       this.currentAccountId = accountId
       this._resolveLogin = resolve
@@ -85,10 +125,11 @@ class QrCodeLogin {
           sandbox: true,
         }
       })
+      loginSession.view = view
       this.currentView = view
 
       // 定位到窗口中央
-      this._positionView()
+      this._positionView(loginSession)
 
       // 添加到主窗口
       this.mainWindow.contentView.addChildView(view)
@@ -100,13 +141,14 @@ class QrCodeLogin {
 
       // 页面加载后开始检测 QR 码
       view.webContents.on('did-finish-load', () => {
+        if (!this._isSessionActive(loginSession)) return
         log.info('QrCodeLogin', `Page loaded for ${platform}, starting QR detection`)
-        this._startQrDetection()
+        this._startQrDetection(loginSession)
       })
 
       // 监听导航检测登录完成
       view.webContents.on('did-navigate', (event, url) => {
-        this._checkLoginCompleted(url)
+        this._checkLoginCompleted(url, loginSession)
       })
 
       // 监听同页面内导航
@@ -117,12 +159,14 @@ class QrCodeLogin {
 
       // 超时
       if (timeout > 0) {
-        this._loginTimeout = setTimeout(() => {
-          this.close()
-          reject(new Error(`${platform} 扫码登录超时（${Math.round(timeout / 1000 / 60)} 分钟）`))
+        loginSession.loginTimeout = setTimeout(() => {
+          this._closeSession(loginSession, {
+            reason: new Error(`${platform} 扫码登录超时（${Math.round(timeout / 1000 / 60)} 分钟）`),
+          })
         }, timeout)
+        this._loginTimeout = loginSession.loginTimeout
         // R28 修复：unref 让定时器不阻止进程退出
-        if (this._loginTimeout && this._loginTimeout.unref) this._loginTimeout.unref()
+        if (loginSession.loginTimeout.unref) loginSession.loginTimeout.unref()
       }
 
       // 通知渲染进程
@@ -135,41 +179,45 @@ class QrCodeLogin {
   /**
    * 定位 View 到窗口中央
    */
-  _positionView () {
-    if (!this.currentView || !this.mainWindow) return
+  _positionView (loginSession = this._activeSession) {
+    const view = loginSession?.view
+    if (!view || !this.mainWindow) return
     const bounds = this.mainWindow.getBounds()
     const viewWidth = Math.min(420, bounds.width - 40)
     const viewHeight = Math.min(560, bounds.height - 100)
     const x = Math.max(0, Math.floor((bounds.width - viewWidth) / 2))
     const y = 56 + Math.max(0, Math.floor((bounds.height - 56 - viewHeight) / 2))
-    this.currentView.setBounds({ x, y, width: viewWidth, height: viewHeight })
+    view.setBounds({ x, y, width: viewWidth, height: viewHeight })
   }
 
   /**
    * 启动 QR 码定时检测
    */
-  _startQrDetection () {
-    this._stopQrDetection()
-    this._scanTimer = setInterval(() => {
-      this._detectQrCodeOnce()
+  _startQrDetection (loginSession = this._activeSession) {
+    if (!this._isSessionActive(loginSession)) return
+    this._stopQrDetection(loginSession)
+    loginSession.scanTimer = setInterval(() => {
+      this._detectQrCodeOnce(loginSession)
     }, QR_SCAN_INTERVAL_MS)
+    this._scanTimer = loginSession.scanTimer
     // R28 修复：unref 让定时器不阻止进程退出
-    if (this._scanTimer && this._scanTimer.unref) this._scanTimer.unref()
+    if (loginSession.scanTimer.unref) loginSession.scanTimer.unref()
   }
 
-  _stopQrDetection () {
-    if (this._scanTimer) {
-      clearInterval(this._scanTimer)
-      this._scanTimer = null
+  _stopQrDetection (loginSession = this._activeSession) {
+    if (loginSession?.scanTimer) {
+      clearInterval(loginSession.scanTimer)
+      loginSession.scanTimer = null
+      if (this._activeSession === loginSession) this._scanTimer = null
     }
   }
 
   /**
    * 通过 executeJavaScript 检测页面中的二维码
    */
-  async _detectQrCodeOnce () {
-    const view = this.currentView
-    if (!view || view.webContents.isDestroyed()) return
+  async _detectQrCodeOnce (loginSession = this._activeSession) {
+    const view = loginSession?.view
+    if (!this._isSessionActive(loginSession) || !view || view.webContents.isDestroyed()) return
 
     try {
       const result = await view.webContents.executeJavaScript(`
@@ -219,78 +267,78 @@ class QrCodeLogin {
         })()
       `)
 
+      if (!this._isSessionActive(loginSession)) return
       if (result && result.src) {
         // 去重（相同 URL 不重复发送）
         const hash = result.src.slice(0, 100)
-        if (hash !== this._lastQrHash) {
+        if (hash !== loginSession.lastQrHash) {
+          loginSession.lastQrHash = hash
           this._lastQrHash = hash
           // 通知渲染进程展示二维码
           if (this.mainWindow && !this.mainWindow.isDestroyed()) {
             this.mainWindow.webContents.send('qrcode:detected', {
-              platform: this.currentPlatform,
-              accountId: this.currentAccountId,
+              platform: loginSession.platform,
+              accountId: loginSession.accountId,
               image: result,
               timestamp: Date.now(),
             })
           }
-          log.info('QrCodeLogin', `QR code detected for ${this.currentPlatform}: ${result.type} ${result.width}x${result.height}`)
+          log.info('QrCodeLogin', `QR code detected for ${loginSession.platform}: ${result.type} ${result.width}x${result.height}`)
         }
       }
     } catch (e) {
       // executeJavaScript 可能因页面跳转失败，静默忽略
-      log.debug('QrCodeLogin', `QR detection error: ${e.message}`)
+      if (this._isSessionActive(loginSession)) {
+        log.debug('QrCodeLogin', `QR detection error: ${e.message}`)
+      }
     }
   }
 
   /**
    * 检测登录是否完成
    */
-  _checkLoginCompleted (url) {
-    // 微信生态登录完成: 进入管理后台
-    const patterns = {
-      wechat_mp: ['cgi-bin/home', 'cgi-bin/appmsg', 'cgi-bin/token'],
-      tencent_video: ['channels.weixin.qq.com/home', 'channels.weixin.qq.com/dashboard'],
-      zhihu: ['zhihu.com/creator', 'zhihu.com/'],
-      weibo: ['weibo.com/u/', 'weibo.com/my'],
-      toutiao: ['mp.toutiao.com/profile'],
-    }
+  _checkLoginCompleted (url, loginSession = this._activeSession) {
+    if (!this._isSessionActive(loginSession) || loginSession.phase !== 'waiting') return
+    if (!isPlatformLoginSuccessUrl(loginSession.platform, url)) return
 
-    const platformPatterns = patterns[this.currentPlatform]
-    if (!platformPatterns) return
+    loginSession.phase = 'extract-pending'
+    log.info('QrCodeLogin', `Login completed for ${loginSession.platform}: ${url}`)
 
-    const matched = platformPatterns.some(p => url.includes(p))
-    if (!matched) return
-
-    log.info('QrCodeLogin', `Login completed for ${this.currentPlatform}: ${url}`)
-
-    this._stopQrDetection()
+    this._stopQrDetection(loginSession)
 
     // 等待页面稳定后提取凭证
-    // 安全修复：保存 timer 句柄，close() 中清理（原未保存导致 close 后仍触发虚假登录成功事件）
-    this._extractTimer = setTimeout(async () => {
+    loginSession.extractTimer = setTimeout(async () => {
+      loginSession.extractTimer = null
+      if (!this._isSessionActive(loginSession)) return
+      loginSession.phase = 'extracting'
       try {
-        const authData = await this._extractAuthData()
-        this._onLoginSuccess(authData)
+        const authData = await this._extractAuthData(loginSession)
+        if (!this._isSessionActive(loginSession)) return
+        await this._onLoginSuccess(authData, loginSession)
       } catch (e) {
+        if (!this._isSessionActive(loginSession)) return
         log.error('QrCodeLogin', `Extract auth failed: ${e.message}`)
-        this._onLoginSuccess({ cookies: [], localStorage: {}, accountName: this.currentPlatform })
+        this._closeSession(loginSession, { reason: e })
       }
     }, 2000)
+    this._extractTimer = loginSession.extractTimer
     // R28 修复：unref 让定时器不阻止进程退出
-    if (this._extractTimer && this._extractTimer.unref) this._extractTimer.unref()
+    if (loginSession.extractTimer.unref) loginSession.extractTimer.unref()
   }
 
   /**
    * 提取登录凭证
    */
-  async _extractAuthData () {
-    const view = this.currentView
-    if (!view || view.webContents.isDestroyed()) {
+  async _extractAuthData (loginSession = this._activeSession) {
+    const view = loginSession?.view
+    if (!this._isSessionActive(loginSession) || !view || view.webContents.isDestroyed()) {
       throw new Error('浏览器已关闭')
     }
 
     // Cookie
-    const cookies = await view.webContents.session.cookies.get({})
+    const allCookies = await view.webContents.session.cookies.get({})
+    const cookies = allCookies.filter(cookie => isPlatformCookieDomain(loginSession.platform, cookie?.domain))
+    if (!this._isSessionActive(loginSession)) throw new Error('扫码登录已取消')
 
     // localStorage
     let localStorage = {}
@@ -307,16 +355,19 @@ class QrCodeLogin {
         })()
       `)
     } catch (e) {
+      if (!this._isSessionActive(loginSession)) throw new Error('扫码登录已取消', { cause: e })
       log.warn('QrCodeLogin', `localStorage extract failed: ${e.message}`)
     }
+    if (!this._isSessionActive(loginSession)) throw new Error('扫码登录已取消')
 
     // 账号名称
-    let accountName = this.currentPlatform
+    let accountName = loginSession.platform
     try {
       const title = await view.webContents.getTitle()
-      if (title) accountName = `${this.currentPlatform} (${title.slice(0, 20)})`
+      if (title) accountName = `${loginSession.platform} (${title.slice(0, 20)})`
     // eslint-disable-next-line no-unused-vars
     } catch (e) { /* ignore */ }
+    if (!this._isSessionActive(loginSession)) throw new Error('扫码登录已取消')
 
     return { cookies, localStorage, accountName }
   }
@@ -324,83 +375,133 @@ class QrCodeLogin {
   /**
    * 登录成功处理
    */
-  _onLoginSuccess (authData) {
-    if (this._loginTimeout) {
-      clearTimeout(this._loginTimeout)
+  async _onLoginSuccess (authData, loginSession = this._activeSession) {
+    if (!this._isSessionActive(loginSession)) throw new Error('扫码登录已取消')
+    if (loginSession.loginTimeout) {
+      clearTimeout(loginSession.loginTimeout)
+      loginSession.loginTimeout = null
       this._loginTimeout = null
     }
 
     const { cookies, localStorage, accountName } = authData
     log.info('QrCodeLogin', `Login success: ${cookies.length} cookies, account: ${accountName}`)
 
-    // 通知渲染进程
+    if (!this.accountManager || typeof this.accountManager.saveCapturedAccount !== 'function') {
+      throw new Error('账号持久化服务未初始化')
+    }
+    loginSession.phase = 'saving'
+    const platform = loginSession.platform
+    const account = await this.accountManager.saveCapturedAccount(platform, {
+      cookies,
+      localStorage,
+      name: accountName,
+    })
+    const savedAccountId = account.id || account.accountId
+    if (!this._isSessionActive(loginSession)) {
+      if (savedAccountId && typeof this.accountManager.deleteAccount === 'function') {
+        try {
+          await this.accountManager.deleteAccount(savedAccountId)
+        } catch (e) {
+          log.error('QrCodeLogin', `回滚已取消的扫码账号失败: ${e.message}`)
+        }
+      }
+      return null
+    }
+    const completed = {
+      platform,
+      accountId: savedAccountId,
+      accountName: account.name || accountName,
+    }
+    if (!completed.accountId) throw new Error('保存账号后未返回账号 ID')
+
+    // 只发送脱敏后的账号元数据，Cookie/localStorage 不跨越主进程边界。
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('qrcode:completed', {
-        platform: this.currentPlatform,
-        accountId: this.currentAccountId,
-        accountName,
-        cookies,
-        localStorage,
-      })
+      this.mainWindow.webContents.send('qrcode:completed', completed)
     }
 
     // resolve
-    if (this._resolveLogin) {
-      this._resolveLogin({ cookies, name: accountName, accountId: this.currentAccountId })
-    }
+    loginSession.settled = true
+    loginSession.resolve(completed)
+    this._closeSession(loginSession, { notifyRenderer: false })
+    return completed
+  }
 
-    this._resolveLogin = null
-    this._rejectLogin = null
-    this.close()
+  _isSessionActive (loginSession) {
+    return Boolean(
+      loginSession &&
+      this._activeSession === loginSession &&
+      !loginSession.cancelled &&
+      !loginSession.cleaned &&
+      !loginSession.settled
+    )
   }
 
   /**
    * 窗口大小变化时重新定位
    */
   _onWindowResize () {
-    if (!this.mainWindow || !this.currentView) return
-    this._positionView()
+    if (!this.mainWindow || !this._activeSession?.view) return
+    this._positionView(this._activeSession)
   }
 
   /**
-   * 关闭
+   * 清理指定会话。所有异步回调都持有自己的会话引用，因此旧会话不能关闭新视图。
    */
-  close () {
-    this._stopQrDetection()
-    if (this._loginTimeout) {
-      clearTimeout(this._loginTimeout)
-      this._loginTimeout = null
+  _closeSession (loginSession, options = {}) {
+    if (!loginSession || loginSession.cleaned) return
+    const notifyRenderer = options.notifyRenderer !== false
+    const wasActive = this._activeSession === loginSession
+    loginSession.cancelled = true
+    this._stopQrDetection(loginSession)
+    if (loginSession.loginTimeout) {
+      clearTimeout(loginSession.loginTimeout)
+      loginSession.loginTimeout = null
     }
-    // 安全修复：清理 extract timer（原未清理导致 close 后仍触发虚假登录成功事件）
-    if (this._extractTimer) {
-      clearTimeout(this._extractTimer)
-      this._extractTimer = null
+    if (loginSession.extractTimer) {
+      clearTimeout(loginSession.extractTimer)
+      loginSession.extractTimer = null
     }
 
-    if (this.currentView) {
+    if (loginSession.view) {
       // eslint-disable-next-line no-unused-vars
-      try { this.mainWindow.contentView.removeChildView(this.currentView) } catch (e) { /* ignore */ }
+      try { this.mainWindow.contentView.removeChildView(loginSession.view) } catch (e) { /* ignore */ }
       // eslint-disable-next-line no-unused-vars
-      try { this.currentView.webContents.close() } catch (e) { /* ignore */ }
+      try { loginSession.view.webContents.close() } catch (e) { /* ignore */ }
       // eslint-disable-next-line no-unused-vars
-      try { this.currentView.webContents.destroy() } catch (e) { /* ignore */ }
+      try { loginSession.view.webContents.destroy() } catch (e) { /* ignore */ }
+      loginSession.view = null
+    }
+
+    if (!loginSession.settled) {
+      loginSession.settled = true
+      loginSession.reject(options.reason || new Error('扫码登录窗口已关闭'))
+    }
+    loginSession.cleaned = true
+
+    if (wasActive) {
+      this._activeSession = null
       this.currentView = null
+      this.currentPlatform = null
+      this.currentAccountId = null
+      this._resolveLogin = null
+      this._rejectLogin = null
+      this._scanTimer = null
+      this._loginTimeout = null
+      this._extractTimer = null
+      this._lastQrHash = null
     }
 
-    this.currentPlatform = null
-    this.currentAccountId = null
-    // 先 reject pending Promise 再置空（否则 openLogin 的 await 永久挂起）
-    if (this._rejectLogin) {
-      this._rejectLogin(new Error('QR code login window closed'))
-    }
-    this._resolveLogin = null
-    this._rejectLogin = null
-    this._lastQrHash = null
-
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+    if (notifyRenderer && wasActive && this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send('qrcode:closed')
     }
     log.info('QrCodeLogin', 'Closed')
+  }
+
+  /**
+   * 关闭当前扫码登录会话。
+   */
+  close (options = {}) {
+    this._closeSession(this._activeSession, options)
   }
 
   /**

@@ -142,22 +142,22 @@ const supplementaryViewTests = [
   {
     name: 'model-provider-edit-dialog',
     route: '/model-providers',
-    waitFor: 'button[aria-label="编辑"]',
-    trigger: 'button[aria-label="编辑"]',
+    waitFor: '.provider-card:has-text("deepseek") button[aria-label="编辑"]',
+    trigger: '.provider-card:has-text("deepseek") button[aria-label="编辑"]',
     afterTrigger: '.el-dialog:has-text("编辑服务商")',
     checks: [
-      check('编辑按钮', 'button[aria-label="编辑"]', '显示编辑服务商按钮'),
+      check('编辑按钮', '.provider-card:has-text("deepseek") button[aria-label="编辑"]', '显示编辑服务商按钮'),
       check('编辑弹窗', '.el-dialog:has-text("编辑服务商")', '点击后显示编辑弹窗'),
     ],
   },
   {
     name: 'model-provider-delete-dialog',
     route: '/model-providers',
-    waitFor: 'button[aria-label="删除"]',
-    trigger: 'button[aria-label="删除"]',
+    waitFor: '.provider-card:has-text("custom_visual") button[aria-label="删除"]',
+    trigger: '.provider-card:has-text("custom_visual") button[aria-label="删除"]',
     afterTrigger: '.el-dialog:has-text("确认删除")',
     checks: [
-      check('删除按钮', 'button[aria-label="删除"]', '显示删除服务商按钮'),
+      check('删除按钮', '.provider-card:has-text("custom_visual") button[aria-label="删除"]', '显示删除服务商按钮'),
       check('确认弹窗', '.el-dialog:has-text("确认删除")', '点击后显示删除确认弹窗'),
     ],
   },
@@ -211,10 +211,20 @@ const supplementaryViewTests = [
   },
 ];
 
+function viewUrl(baseUrl, route, viewName) {
+  const isolatedDocument = `visual-view=${encodeURIComponent(viewName)}`;
+  return `${baseUrl.replace(/\/$/, '')}/?${isolatedDocument}#${route}`;
+}
+
 async function runViewTest(runner, test) {
   const consoleOffset = runner.consoleErrors.length;
   const pageOffset = runner.pageErrors.length;
-  await runner._navigateToRoute(test.route, test.waitFor, test.expectedRoute || test.route);
+  await runner._navigateToRoute(
+    test.route,
+    test.waitFor,
+    test.expectedRoute || test.route,
+    viewUrl(runner.url, test.route, test.name),
+  );
 
   if (test.trigger) {
     await runner.page.click(test.trigger, { timeout: 5000 });
@@ -302,6 +312,7 @@ if (require.main === module) {
 
 module.exports = {
   supplementaryViewTests,
+  viewUrl,
   runViewTest,
   runViewSuite,
   runSupplementaryTests,

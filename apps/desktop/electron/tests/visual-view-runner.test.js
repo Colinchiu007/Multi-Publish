@@ -10,6 +10,7 @@ const pixelRunnerPath = path.join(
   'tests/visual-testing/scripts/run-pixel-tests.js',
 )
 const pixelRunnerSource = fs.readFileSync(pixelRunnerPath, 'utf8')
+const pixelRunner = require(pixelRunnerPath)
 const routerSource = fs.readFileSync(path.join(desktopRoot, 'src/router/index.js'), 'utf8')
 const routerPaths = [...routerSource.matchAll(/\bpath:\s*['"]([^'"]+)['"]/g)]
   .map(match => match[1])
@@ -81,10 +82,29 @@ describe('单视图视觉门禁合同', () => {
 })
 
 describe('像素视觉门禁合同', () => {
+  it('像素用例失败后仍生成可供视觉判断读取的报告', async () => {
+    const runner = {
+      launch: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      generateReport: vi.fn(),
+      pixelRegressionTest: vi.fn().mockRejectedValue(new Error('像素差异超限')),
+    }
+
+    const summary = await pixelRunner.runPixelSuite([
+      { name: 'accounts-list', route: '/accounts', waitFor: '.page-title' },
+    ], { runner })
+
+    expect(summary.failed).toBe(1)
+    expect(runner.close).toHaveBeenCalledOnce()
+    expect(runner.generateReport).toHaveBeenCalledOnce()
+    expect(runner.close.mock.invocationCallOrder[0])
+      .toBeLessThan(runner.generateReport.mock.invocationCallOrder[0])
+  })
+
   it('发布页必须等待异步平台选项后截图', () => {
     const publishView = viewRunner.viewTests.find(test => test.name === 'publish-form')
 
-    expect(publishView.waitFor).toContain('.el-checkbox-group .el-checkbox')
+    expect(publishView.waitFor).toBe('.cohere-main .target-selector [data-testid^="platform-"]')
     expect(publishView.checks).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: '页面主标题',
@@ -92,10 +112,11 @@ describe('像素视觉门禁合同', () => {
       }),
       expect.objectContaining({
         name: '发布目标平台已加载',
-        selector: '.cohere-main .el-checkbox-group .el-checkbox',
+        selector: '.cohere-main .target-selector [data-testid^="platform-"]',
       }),
     ]))
-    expect(pixelRunnerSource).toContain("waitFor: '.cohere-main .el-checkbox-group .el-checkbox'")
+    expect(pixelRunnerSource).toContain("waitFor: '.cohere-main .target-selector [data-testid^=\"platform-\"]'")
+    expect(pixelRunnerSource).not.toContain('.el-checkbox-group .el-checkbox')
   })
 
   it('不把跳过和固定等待计入成功，也不强制提前退出进程', () => {

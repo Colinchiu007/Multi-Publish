@@ -157,7 +157,7 @@ describe('IPC Handlers', () => {
     expect(handlers['auth:open-login']).toBeDefined()
     expect(handlers['auth:login-silent']).toBeDefined()
     expect(handlers['auth:close']).toBeDefined()
-    expect(handlers['auth:save-credentials']).toBeDefined()
+    expect(handlers['auth:save-credentials']).toBeUndefined()
     expect(handlers['account:add']).toBeDefined()
     expect(handlers['account:delete']).toBeDefined()
     expect(handlers['account:check-login']).toBeDefined()

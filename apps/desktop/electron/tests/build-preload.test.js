@@ -1,8 +1,32 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const fs = require('fs')
 const path = require('path')
+
+function collectApiPaths(value, prefix = '') {
+  const paths = []
+  for (const key of Object.keys(value || {})) {
+    const current = prefix ? `${prefix}.${key}` : key
+    if (typeof value[key] === 'function') paths.push(current)
+    else if (value[key] && typeof value[key] === 'object') paths.push(...collectApiPaths(value[key], current))
+  }
+  return paths.sort()
+}
+
+function loadExposedApi(modulePath) {
+  delete require.cache[require.resolve(modulePath)]
+  __electronMock.contextBridge.exposeInMainWorld = vi.fn()
+  __electronMock.ipcRenderer.sendSync = vi.fn(() => 'admin')
+  __enableElectronMock()
+  require(modulePath)
+  return __electronMock.contextBridge.exposeInMainWorld.mock.calls[0][1]
+}
+
+afterEach(() => {
+  __disableElectronMock()
+  delete __electronMock.ipcRenderer.sendSync
+})
 
 describe('preload 单文件构建', () => {
   it('声明直接构建依赖，避免依赖包提升变化导致打包失败', () => {
@@ -31,5 +55,16 @@ describe('preload 单文件构建', () => {
 
     expect(path.basename(OUTPUT_FILE)).toBe('index.bundle.js')
     expect(result.outputFiles[0].text).toBe(committedBundle)
+  })
+
+  it('提交的 bundle 与源码暴露完全相同的 API 路径', () => {
+    const { OUTPUT_FILE } = require('../../scripts/build-preload')
+    const sourceApi = loadExposedApi(path.resolve(__dirname, '../preload/index.js'))
+    const bundleApi = loadExposedApi(OUTPUT_FILE)
+
+    expect(collectApiPaths(bundleApi)).toEqual(collectApiPaths(sourceApi))
+    expect(bundleApi).toHaveProperty('retryTask')
+    expect(bundleApi).toHaveProperty('onAccountStatusChanged')
+    expect(bundleApi).not.toHaveProperty('authSaveCredentials')
   })
 })

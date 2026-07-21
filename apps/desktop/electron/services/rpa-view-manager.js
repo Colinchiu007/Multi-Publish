@@ -14,7 +14,7 @@
  * 与 store/index.js 的 mixin 模式一致，保证 require('./rpa-view-manager') 接口不变。
  */
 const log = require('./logger')
-const { supportsApi, publishViaApi } = require('@multi-publish/api-publish-engine')
+const { supportsApi, publishViaApi, apiRouter } = require('@multi-publish/api-publish-engine')
 const { ProgressThrottle } = require('./rpa-progress-throttle')
 const { FieldRetryState } = require('./rpa-field-retry')
 
@@ -44,7 +44,10 @@ class RpaViewManager {
   async publish(platform, article, authData, timeout) {
     timeout = timeout||120000
     // API-first: if we have an API adapter for this platform, use it (no browser needed)
-    if (supportsApi(platform)) {
+    const apiEnabled = apiRouter && typeof apiRouter.shouldUseApi === 'function'
+      ? apiRouter.shouldUseApi(platform)
+      : false
+    if (apiEnabled && supportsApi(platform)) {
       this._emitProgress(platform,'using API publish engine...',5)
       try {
         const cookie = authData?.cookies
@@ -80,6 +83,15 @@ class RpaViewManager {
     } catch(e) { log.error('RpaView','publish '+platform+': '+e.message); return { success:false, error:e.message, platform:platform } }
     // eslint-disable-next-line no-unused-vars
     finally { try { win.destroy() } catch (e) { /* ignore */ }; delete this.windows[key] }
+  }
+
+  cancel(platform, accountId) {
+    const key = this._windowKey(platform, accountId)
+    const win = this.windows[key]
+    if (!win) return false
+    try { win.destroy() } catch (e) { /* ignore */ }
+    delete this.windows[key]
+    return true
   }
 
   cleanup() {

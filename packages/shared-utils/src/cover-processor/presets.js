@@ -2,10 +2,10 @@
 /**
  * 各平台封面图预设 — 从 PlatformConfig 加载
  */
-const path = require('path')
 const PlatformConfig = require('../platform-config')
+const { resolvePlatformConfigPath } = require('../platform-config-path')
 
-const configPath = path.resolve(__dirname, '..', '..', '..', '..', 'config', 'platforms.yaml')
+const configPath = resolvePlatformConfigPath()
 let config = null
 try {
   config = new PlatformConfig(configPath)

@@ -64,6 +64,7 @@ apps/desktop/stryker.identity.conf.json
 !apps/desktop/tests/visual-testing/test-runner.js
 !apps/desktop/tests/visual-testing/test-runner.test.js
 !packages/visual-test-runner/src/test-runner.js
+!packages/api-publish-engine/test/test-runner.test.js
 apps/desktop/tests/screenshots/
 
 # Scratch files

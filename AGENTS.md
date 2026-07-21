@@ -226,6 +226,9 @@ dist-electron/win-unpacked/Multi-Publish.exe &
 sleep 8 && kill $!
 ```
 
+- 启动进程存活不等于通过：必须捕获 stderr；出现 `Failed to load platform config`、`PluginLoader.*mkdir failed`、`ENOTDIR.*app.asar` 或配置/插件路径指向 ASAR 内部时，QM-1 失败。
+- Git worktree 打包前必须确认 `node_modules/@multi-publish/*` junction 指向当前 worktree；禁止借用指向其他分支源码的 workspace junction 生成交付产物。
+
 > 本文件由 Hermes `professional-ai-coding-workflow` 技能转换生成，适配通用 AI 编码工具。
 
 ---
@@ -303,7 +306,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
   ```bash
   cd apps/desktop && npm run test:visual:pixel
   ```
-- **发版前（必须通过）**：完整回归（77 个测试：45 视图 + 32 工作流）
+- **发版前（必须通过）**：完整回归（93 个测试：43 视图 + 50 工作流）
   ```bash
   npm run test:all:visual
   ```
@@ -335,8 +338,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 ```
 apps/desktop/tests/visual-testing/
-├── views/        # 单视图快照(45 用例)
-├── workflows/    # 多步工作流(32 用例)
+├── views/        # 单视图快照(43 用例：23 核心 + 20 补充)
+├── workflows/    # 多步工作流(50 用例：32 核心 + 18 补充)
 ├── providers/    # 本地检测器:像素对比 + OCR
 ├── base-screenshots/  # 基准图(8 张核心视图)
 └── reports/      # diff 图 + judge-report.md + JSON
@@ -362,7 +365,7 @@ npm run test:visual:pixel
 # 像素失败后生成 Agent 判断报告
 npm run test:visual:agent
 
-# 发版前(必跑,77 用例全量)
+# 发版前(必跑,93 用例全量)
 npm run test:all:visual
 ```
 

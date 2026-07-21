@@ -33,6 +33,7 @@ function buildMockContext(overrides) {
     callbackServer: { stop: vi.fn() },
     store: { close: vi.fn() },
     usageTracker: { save: vi.fn() },
+    taskQueue: { shutdown: vi.fn(), removeAllListeners: vi.fn() },
     stopBridges: vi.fn(function () { return Promise.resolve() }),
     loginStatusMonitor: { stop: vi.fn() },
   }, overrides)
@@ -242,6 +243,16 @@ describe('shutdown — registerShutdownHandlers', () => {
     registerShutdownHandlers(context)
     await __electronMock.app._handlers['window-all-closed']()
     expect(context.usageTracker.save).toHaveBeenCalledTimes(1)
+  })
+
+  it('触发回调先停止任务队列再移除监听器', async () => {
+    registerShutdownHandlers(context)
+    await __electronMock.app._handlers['window-all-closed']()
+
+    expect(context.taskQueue.shutdown).toHaveBeenCalledTimes(1)
+    expect(context.taskQueue.removeAllListeners).toHaveBeenCalledTimes(1)
+    expect(context.taskQueue.shutdown.mock.invocationCallOrder[0])
+      .toBeLessThan(context.taskQueue.removeAllListeners.mock.invocationCallOrder[0])
   })
 
   it('注册后注入的 keyword 持久化定时器仍会在退出时清理', async () => {

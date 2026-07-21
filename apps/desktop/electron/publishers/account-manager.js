@@ -1,7 +1,7 @@
 // @ts-check
 /**
  * 账号管理器
- * 负责通过 Playwright 捕获平台 Cookie，并通过 Python API 持久化
+ * 负责通过 Playwright 捕获平台凭证；Python 后端只保存公开元数据，凭证保留在主进程加密存储。
  */
 // eslint-disable-next-line no-unused-vars
 const path = require('path')
@@ -18,40 +18,16 @@ function getUserDataDir () {
   try { return app.getPath('userData') } catch { return path.join(os.homedir(), '.multi-publish') }
 }
 
-let ownerSubjectProvider = null
-
-function normalizeOwnerSubject (ownerSubject) {
-  if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
-    const error = new Error('登录会话缺少用户标识')
-    error.isOwnerAuthError = true
-    throw error
-  }
-  return ownerSubject.trim()
+function isSafePathSegment (value) {
+  return typeof value === 'string' && /^[a-zA-Z0-9_-]+$/.test(value)
 }
-
-function setOwnerSubjectProvider (provider) {
-  if (provider !== null && provider !== undefined && typeof provider !== 'function') {
-    throw new TypeError('ownerSubjectProvider 必须是函数或 null')
-  }
-  ownerSubjectProvider = provider || null
-}
-
-function resolveOwnerSubject (explicitOwnerSubject) {
-  if (explicitOwnerSubject !== undefined) return normalizeOwnerSubject(explicitOwnerSubject)
-  if (!ownerSubjectProvider) return undefined
-  return normalizeOwnerSubject(ownerSubjectProvider())
-}
-
-function isSafeAccountId (accountId) {
-  return typeof accountId === 'string' &&
-    /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(accountId) &&
-    !accountId.includes('..')
-}
-
-function hasObjectValues (value) {
-  return value && typeof value === 'object' && Object.keys(value).length > 0
-}
-const { PLATFORM_LOGIN_URLS, PLATFORM_NAMES, PLATFORM_LOGIN_SUCCESS_SELECTORS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
+const {
+  PLATFORM_LOGIN_URLS,
+  PLATFORM_NAMES,
+  PLATFORM_LOGIN_SUCCESS_SELECTORS,
+  getPlatformName,
+  isPlatformCookieDomain,
+} = require('@multi-publish/shared-utils/src/platform-definitions')
 
 // 平台登录 URL / 名称 / 选择器 → @multi-publish/shared-utils/src/platform-definitions
 
@@ -94,7 +70,7 @@ async function captureCookies (platform, timeout = 300000) {
   log.info('AccountManager', ` 打开登录页面: ${loginUrl}`)
 
   // 获取 Playwright 上下文
-  const context = await playwrightManager.getContext()
+  const context = await playwrightManager.getContext({ show: true })
   const page = await context.newPage()
 
   // 反检测
@@ -207,50 +183,86 @@ async function captureCookies (platform, timeout = 300000) {
  * @param {string} platform - 平台标识
  * @returns {Promise<Object>} 保存后的账号信息
  */
-async function addAccount (platform, options = {}) {
-  const ownerSubject = resolveOwnerSubject(options.ownerSubject)
-  const userDataDir = getUserDataDir()
+async function addAccount (platform) {
   const { cookies, name, localStorage: localStorageData, accountInfo } = await captureCookies(platform)
 
-  // 通过 Python API 保存
+  return saveCapturedAccount(platform, {
+    cookies,
+    name,
+    localStorage: localStorageData,
+    accountInfo,
+  })
+}
+
+/**
+ * 保存已由浏览器或扫码流程捕获的账号凭证。
+ * 凭证只在主进程流转，渲染进程只接收后端返回的脱敏账号信息。
+ * @param {string} platform
+ * @param {{cookies?: Array, name?: string, localStorage?: object, indexedDB?: object, accountInfo?: object}} captured
+ * @returns {Promise<object>}
+ */
+async function saveCapturedAccount (platform, captured) {
+  if (!PLATFORM_LOGIN_URLS[platform]) throw new Error(`不支持的平台: ${platform}`)
+  const source = captured && typeof captured === 'object' ? captured : {}
+  const cookies = Array.isArray(source.cookies)
+    ? source.cookies.filter(cookie => isPlatformCookieDomain(platform, cookie?.domain))
+    : []
+  const localStorageData = source.localStorage && typeof source.localStorage === 'object' && !Array.isArray(source.localStorage)
+    ? source.localStorage
+    : {}
+  const indexedDB = source.indexedDB && typeof source.indexedDB === 'object' && !Array.isArray(source.indexedDB)
+    ? source.indexedDB
+    : {}
+  if (cookies.length === 0 && Object.keys(localStorageData).length === 0 && Object.keys(indexedDB).length === 0) {
+    throw new Error('未捕获到有效登录凭证')
+  }
+  const name = typeof source.name === 'string' && source.name.trim()
+    ? source.name.trim()
+    : getPlatformName(platform)
+  const accountInfo = source.accountInfo && typeof source.accountInfo === 'object' && !Array.isArray(source.accountInfo)
+    ? source.accountInfo
+    : {}
+
+  // 后端只保存公开元数据，避免在 accounts.json 中重复落盘凭证。
   const result = await pythonBridge.requestBackend('POST', '/api/accounts', {
     platform,
     name,
-    cookies,
   })
 
   if (result.code !== 0) {
     throw new Error(result.message || '保存账号失败')
   }
 
-  // 本地持久化：localStorage + accountInfo + accountStateRecord
-  const accountId = result.data?.accountId || result.data?.id || platform + '-' + Date.now()
+  const accountId = result.data?.accountId || result.data?.id
+  if (!accountId) throw new Error('保存账号后未返回账号 ID')
+  if (!isSafePathSegment(accountId)) throw new Error('保存账号后返回了非法账号 ID')
+
+  const credentialSaved = credentialStore.saveCredential(accountId, {
+    platform,
+    cookies,
+    localStorage: localStorageData,
+    indexedDB,
+    accountInfo,
+  }, getUserDataDir())
+  if (!credentialSaved) {
+    try { await pythonBridge.requestBackend('DELETE', `/api/accounts/${accountId}`) } catch (_) { /* 回滚失败由后端日志记录 */ }
+    throw new Error('加密凭证保存失败，账号创建已回滚')
+  }
+  log.info('AccountManager', `Saved credential store for account ${accountId}`)
+
+  // 状态记录仅含公开元数据，用于列表恢复和删除清理。
   try {
-    // eslint-disable-next-line no-unused-vars
-    const platformLoginUrl = PLATFORM_LOGIN_URLS[platform]
-    accountStateRestorer.saveAccountRecord({
+    const stateSaved = accountStateRestorer.saveAccountRecord({
       accountId,
       platform,
       platformAccountId: accountInfo?.platformAccountId || '',
-      cookies,
-      localStorage: localStorageData,
       accountInfo,
       timestamp: Date.now(),
-    }, ownerSubject, userDataDir)
-    log.info('AccountManager', `Saved account state record for ${platform}:${accountId}`)
+    })
+    if (stateSaved) log.info('AccountManager', `Saved account state record for ${platform}:${accountId}`)
+    else log.warn('AccountManager', `Failed to save account state record for ${platform}:${accountId}`)
   } catch (e) {
     log.warn('AccountManager', `Failed to save account state record: ${e.message}`)
-  }
-
-  try {
-    credentialStore.saveCredential(accountId, {
-      platform,
-      localStorage: localStorageData,
-      accountInfo,
-    }, userDataDir, ownerSubject)
-    log.info('AccountManager', `Saved credential store for account ${accountId}`)
-  } catch (e) {
-    log.warn('AccountManager', `Failed to save credential: ${e.message}`)
   }
 
   log.info('AccountManager', ` 账号添加成功: ${name} (${platform})`)
@@ -262,37 +274,45 @@ async function addAccount (platform, options = {}) {
  * @param {string} accountId
  * @returns {Promise<boolean>}
  */
-async function deleteAccount (accountId, options = {}) {
-  if (!isSafeAccountId(accountId)) throw new TypeError('账号 ID 格式无效')
-  const ownerSubject = resolveOwnerSubject(options.ownerSubject)
-  const userDataDir = getUserDataDir()
-  let platform = options.platform
-
-  if (!platform) {
-    try {
-      const detail = await pythonBridge.requestBackend('GET', `/api/accounts/${accountId}`)
-      if (detail.code === 0) platform = detail.data?.platform
-    } catch (e) {
-      log.warn('AccountManager', `读取账号元数据失败，继续删除账号: ${e.message}`)
-    }
+async function deleteAccount (accountId) {
+  if (!accountId || typeof accountId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(accountId)) {
+    throw new Error('缺少或非法账号 ID')
   }
+  let platform = ''
+  try {
+    const current = await pythonBridge.requestBackend('GET', `/api/accounts/${accountId}`)
+    if (current?.code === 0 && typeof current.data?.platform === 'string') platform = current.data.platform
+  } catch (_) { /* 删除仍可继续，凭证清理使用本地记录回退 */ }
 
   const result = await pythonBridge.requestBackend('DELETE', `/api/accounts/${accountId}`)
-  if (result.code !== 0) {
+  const alreadyDeleted = result && result.code === undefined && result.detail === '账号不存在'
+  if (result.code !== 0 && !alreadyDeleted) {
     throw new Error(result.message || '删除账号失败')
   }
-
-  try {
-    credentialStore.deleteCredential(accountId, userDataDir, ownerSubject)
-  } catch (e) {
-    log.warn('AccountManager', `清理账号加密凭证失败: ${e.message}`)
-  }
-  if (platform) {
+  if (!platform) {
     try {
-      accountStateRestorer.deleteAccountRecord(platform, accountId, ownerSubject, userDataDir)
+      const record = accountStateRestorer.listLoggedInAccounts().find(item => item.accountId === accountId)
+      platform = record?.platform || ''
     } catch (e) {
-      log.warn('AccountManager', `清理账号状态记录失败: ${e.message}`)
+      log.warn('AccountManager', `查找账号本地状态失败: ${e.message}`)
     }
+  }
+  try {
+    const userDataDir = getUserDataDir()
+    const hadCredential = credentialStore.hasCredential(accountId, userDataDir)
+    const deletedCredential = credentialStore.deleteCredential(accountId, userDataDir)
+    if (hadCredential && !deletedCredential) throw new Error('加密凭据文件删除失败')
+  } catch (e) {
+    throw new Error(`账号元数据已删除，但清理本地加密凭据失败: ${e.message}`)
+  }
+  try {
+    if (typeof accountStateRestorer.deleteAccountRecordsById === 'function') {
+      accountStateRestorer.deleteAccountRecordsById(accountId)
+    } else if (platform) {
+      accountStateRestorer.deleteAccountRecord(platform, accountId)
+    }
+  } catch (e) {
+    log.warn('AccountManager', `清理账号本地状态失败: ${e.message}`)
   }
   log.info('AccountManager', ` 账号已删除: ${accountId}`)
   return true
@@ -317,28 +337,34 @@ async function listAccounts () {
  * @returns {Promise<{valid: boolean, message: string}>}
  */
 async function checkLoginStatus (platform, accountId) {
+  if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) {
+    return { valid: false, message: '缺少或非法平台/账号参数' }
+  }
+
+  const loginUrl = PLATFORM_LOGIN_URLS[platform]
+  const successSelector = PLATFORM_LOGIN_SUCCESS_SELECTORS[platform]
+  if (!loginUrl) return { valid: false, message: `不支持的平台: ${platform}` }
+
   try {
-    // 从 Python API 获取已保存的 Cookie
-    const result = await pythonBridge.requestBackend('GET', `/api/accounts/${accountId}/cookies`)
-    if (result.code !== 0 || !result.data || !result.data.cookies || result.data.cookies.length === 0) {
+    const credentials = loadSavedCredentials(accountId, platform)
+    const cookies = Array.isArray(credentials?.cookies) ? credentials.cookies : []
+    const localStorageData = credentials?.localStorage && typeof credentials.localStorage === 'object' && !Array.isArray(credentials.localStorage)
+      ? credentials.localStorage
+      : {}
+    if (!credentials || (cookies.length === 0 && Object.keys(localStorageData).length === 0)) {
       return { valid: false, message: '未配置 Cookie' }
     }
 
-    const cookies = result.data.cookies
-    const loginUrl = PLATFORM_LOGIN_URLS[platform]
-    const successSelector = PLATFORM_LOGIN_SUCCESS_SELECTORS[platform]
-
-    if (!loginUrl) {
-      return { valid: false, message: `不支持的平台: ${platform}` }
-    }
-
     // 创建临时 context 加载 Cookie 进行验证
-    const browser = await playwrightManager.getContext()
+    const browser = await playwrightManager.getContext({ show: false })
     const page = await browser.newPage()
 
     try {
       // 注入 Cookie
-      await page.context().addCookies(cookies)
+      if (cookies.length > 0) await page.context().addCookies(cookies)
+      if (Object.keys(localStorageData).length > 0) {
+        await page.addInitScript(buildLocalStorageRestoreScript(localStorageData))
+      }
 
       // 访问平台页面
       await page.goto(loginUrl, { waitUntil: 'networkidle', timeout: 30000 })
@@ -446,10 +472,40 @@ function restoreLocalStorage (webContents, localStorageObj) {
 
   // 安全修复：原 escape 顺序错误（先替换单引号导致 \'; 注入）
   // 改用 JSON.stringify 整体序列化，杜绝字符串拼接注入
-  const json = JSON.stringify(Object.fromEntries(items))
-  const script = `(function(){var d=${json};Object.keys(d).forEach(function(k){try{localStorage.setItem(k,d[k])}catch(e){}})})()`
+  const script = buildLocalStorageRestoreScript(Object.fromEntries(items))
 
   return webContents.executeJavaScript(script).catch(() => {})
+}
+
+function buildLocalStorageRestoreScript (localStorageObj) {
+  const json = JSON.stringify(localStorageObj || {})
+  return `(function(){var d=${json};Object.keys(d).forEach(function(k){try{localStorage.setItem(k,d[k])}catch(e){}})})()`
+}
+
+/**
+ * 从主进程本地存储读取账号凭证，禁止通过 preload 暴露给渲染进程。
+ * @param {string} accountId
+ * @param {string} platform
+ * @returns {{cookies: Array, localStorage: object, indexedDB: object, accountInfo: object}|null}
+ */
+function loadSavedCredentials (accountId, platform) {
+  const credentialData = credentialStore.loadCredential(accountId, getUserDataDir())
+  const accountRecord = accountStateRestorer.getAccountRecord(platform, accountId)
+  if (!credentialData) return null
+  const credentialPlatform = typeof credentialData.platform === 'string' ? credentialData.platform : ''
+  const recordPlatform = typeof accountRecord?.platform === 'string' ? accountRecord.platform : ''
+  if (credentialPlatform && credentialPlatform !== platform) return null
+  if (recordPlatform && recordPlatform !== platform) return null
+  if (!credentialPlatform && !recordPlatform) return null
+
+  return {
+    cookies: Array.isArray(credentialData.cookies)
+      ? credentialData.cookies.filter(cookie => isPlatformCookieDomain(platform, cookie?.domain))
+      : [],
+    localStorage: credentialData.localStorage || {},
+    indexedDB: credentialData.indexedDB || {},
+    accountInfo: credentialData.accountInfo || accountRecord?.accountInfo || {},
+  }
 }
 
 /**
@@ -462,77 +518,46 @@ function restoreLocalStorage (webContents, localStorageObj) {
  * @returns {Promise<{view?, isLoggedIn: boolean}>}
  */
 async function openSavedAccount (accountId, platform, opts = {}) {
-  if (!isSafeAccountId(accountId) || !PLATFORM_LOGIN_URLS[platform]) {
-    return { isLoggedIn: false }
-  }
+  // eslint-disable-next-line no-unused-vars
   const { mainWindow, session } = opts
-  const webContents = opts.webContents || mainWindow?.webContents
-  const ownerSubject = resolveOwnerSubject(opts.ownerSubject)
-  const userDataDir = getUserDataDir()
-
+  
   // 从本地存储加载完整凭证
-  const loadedCredential = credentialStore.loadCredential(accountId, userDataDir, ownerSubject)
-  const credentialData = loadedCredential?.platform === platform ? loadedCredential : null
-  const accountRecord = accountStateRestorer.getAccountRecord(platform, accountId, ownerSubject, userDataDir)
+  const credentials = loadSavedCredentials(accountId, platform)
 
-  if (!credentialData && !accountRecord) {
+  if (!credentials) {
     log.info('AccountManager', `No saved credentials for ${platform}:${accountId}`)
     return { isLoggedIn: false }
   }
 
-  const localStorageData = credentialData?.localStorage || accountRecord?.localStorage || {}
-  const cookies = accountRecord?.cookies || []
-  const accountInfo = credentialData?.accountInfo || accountRecord?.accountInfo || {}
-  const baseUrl = PLATFORM_LOGIN_URLS[platform]
-  if (cookies.length === 0 && !hasObjectValues(localStorageData)) {
-    return { isLoggedIn: false }
-  }
-
+  const { localStorage: localStorageData, cookies, accountInfo } = credentials
+  const baseUrl = PLATFORM_LOGIN_URLS[platform] || ''
+  
   if (!session) {
     log.info('AccountManager', `Restoring credentials for ${platform}:${accountId}`)
     return { isLoggedIn: true, accountInfo, localStorageData }
   }
-
+  
   // 有 session 时恢复 cookies
   try {
     await restoreCookies(session, cookies, baseUrl)
   } catch (e) {
     log.warn('AccountManager', `restoreCookies failed: ${e.message}`)
   }
-
-  if (webContents) {
-    try {
-      await restoreLocalStorage(webContents, localStorageData)
-    } catch (e) {
-      log.warn('AccountManager', `restoreLocalStorage failed: ${e.message}`)
-    }
-  }
-
+  
   return { isLoggedIn: true, accountInfo, localStorageData }
 }
 
 /**
  * 检查本地是否有账号凭证
  */
-function checkLocalCredentials (platform, accountId, options = {}) {
-  if (!isSafeAccountId(accountId) || !PLATFORM_LOGIN_URLS[platform]) return false
-  const ownerSubject = resolveOwnerSubject(options.ownerSubject)
-  const userDataDir = getUserDataDir()
-  const accountRecord = accountStateRestorer.getAccountRecord(platform, accountId, ownerSubject, userDataDir)
-  if (accountRecord) return true
-
-  try {
-    if (!credentialStore.hasCredential(accountId, userDataDir, ownerSubject)) return false
-    const credentialData = credentialStore.loadCredential(accountId, userDataDir, ownerSubject)
-    return credentialData?.platform === platform && hasObjectValues(credentialData.localStorage)
-  } catch (e) {
-    log.warn('AccountManager', `检查本地账号凭证失败: ${e.message}`)
-    return false
-  }
+function checkLocalCredentials (platform, accountId) {
+  if (!credentialStore.hasCredential(accountId, getUserDataDir())) return false
+  return Boolean(loadSavedCredentials(accountId, platform))
 }
 
 module.exports = {
   addAccount,
+  saveCapturedAccount,
   deleteAccount,
   listAccounts,
   checkLoginStatus,
@@ -543,9 +568,9 @@ module.exports = {
   extractAccountInfo,
   restoreCookies,
   restoreLocalStorage,
+  loadSavedCredentials,
   openSavedAccount,
   checkLocalCredentials,
-  setOwnerSubjectProvider,
   accountStateRestorer,
   credentialStore,
 }

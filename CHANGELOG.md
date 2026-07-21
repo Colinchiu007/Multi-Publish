@@ -1,35 +1,26 @@
-## [生产就绪] v2.4.1-logto-production-readiness (2026-07-21)
+## [未发布] 蚁小二账号管理与内容发布对齐 (2026-07-20)
 
-### 新增
-- 生产配置 fail-closed、版本化 PostgreSQL migration ledger/checksum/readiness 和独立 smoke CLI。
-- 停写确认后的双库备份、`quiesced` manifest 校验、不可覆盖快照、独占锁、私有文件权限、空隔离目标预检，以及 Prometheus + blackbox + Alertmanager 监控模板。`pg_dump` stdout 直接写入私有 descriptor，三个工件以硬链接在锁内原子发布；锁残留时恢复 fail closed。
-- 恢复使用已校验的 dump 文件描述符和单库事务；`complete`/`failed`/`in-progress` 状态可审计，Unix 同步状态目录，`--verify-state` 为数据库切换提供 fail-closed 机器门禁。
-- API 容器改用 monorepo lockfile 构建，携带 production scripts 与 PostgreSQL migrations，并以 `/ready` 而非 liveness 判定可接流量；带查询参数的 readiness 探针同样免认证。
-- 修正业务 API Compose 的配置持久化挂载目标，并明确监控 Compose 必须作为基础 Logto Compose 的 overlay 使用。
+### 账号管理
+- 保留顶部导航和最左侧平台账号栏，重构主内容区及二级交互。
+- 增加账号分组、收藏、搜索、状态筛选、排序、批量删除、默认账号和状态事件刷新。
+- 接入内嵌浏览器、二维码和 OAuth/API 登录入口；账号查询统一脱敏。
+- `store:add-account` 仅接受公开元数据，拒绝 cookies、localStorage、Token 和未知字段。
 
-### 验证边界
-- 本地 API、容器合同、配置、迁移、readiness、smoke、备份恢复、状态切换门禁和监控测试纳入全量 runner。
-- 真实 Logto 登录、真实 PostgreSQL migration/恢复/压力和云端撤销保持 `PENDING_EXTERNAL`。
+### 内容发布
+- 同一平台支持选择多个账号，并展开为独立发布目标。
+- 支持单篇/批量发布、定时排期、取消、重试、草稿完整恢复和平台差异化标题/正文。
+- RPA 与 backend 发布路由均应用当前平台的差异化内容。
+- 任务队列退出时取消等待、延迟和运行中任务，防止应用关闭后继续产生发布副作用。
 
-## [用户系统] v2.4.0-logto - Logto 身份、权益与租户隔离 (2026-07-20)
+### 架构与界面
+- 页面拆分为展示组件、composable/Pinia、renderer API、preload、IPC 和主进程服务六层。
+- 账号页和发布页主内容区按蚁小二的信息结构与工作流对齐，现有应用外壳保持不变。
+- 修复安装版平台规则/封面预设的配置路径，插件目录改为 Electron 用户数据目录，避免向只读 ASAR 写入。
 
-### 新增
-- Electron Native App 使用系统浏览器 + Authorization Code/PKCE 登录，Refresh Token 仅保存在 `safeStorage` 加密会话中。
-- Node/Python API 增加 OIDC Discovery/JWKS、issuer/audience/time/scope 验证，业务资源统一按 Token `sub` 隔离。
-- 增加业务用户、订阅、entitlement、用量和 Webhook 的 PostgreSQL repository、迁移与 Logto Docker 部署样例。
-- 增加登录状态菜单、账号切换、离线状态、云端发布 Bearer Token 接入和 license -> entitlement 兼容层。
-
-### 安全与可靠性
-- Webhook 原始体 HMAC、事件时间窗口、幂等事务、乱序事件保护和暂停/删除会话撤销。
-- JWKS 未知 `kid` 主动刷新、负缓存、SSRF/算法降级防护；entitlement 使用 RSA 签名并绑定 `sub + device_id + exp`。
-- 身份 IPC 校验调用来源并统一脱敏错误；服务未配置时稳定降级为 `disabled`。
-- 灰度 API Key 采用 `api-key:<sha256>` 隔离租户；Key 撤销后，跨重启恢复的历史定时任务在执行前重新鉴权并拒绝发布；Key 存储损坏时拒绝静态回退和自动覆盖。
-
-### 验证
-- Desktop 覆盖率：285 files / 5007 tests；branches 60.59%。Node API 61 个测试分组全过；Python 2503 passed / 1 skipped。
-- 故障注入 14/14、Monkey 5/5、像素视觉 16/16、身份 UI E2E 两个 viewport 通过。
-- Windows Electron/NSIS 打包、ASAR require 链和打包应用 8 秒启动通过；纯错误分片 mutation score 90%。
-- 真实 Logto 租户和真实 PostgreSQL 集成验收仍需部署环境，详见 `01-docs/TEST-PLAN-LOGTO.md`。
+### 质量
+- 新增账号安全边界、平台差异化内容、取消竞态、队列关闭、IPC、E2E 和视觉回归测试。
+- 新增打包运行时配置路径与插件目录回归测试；QM-1 启动验证同时检查 stderr 和 worktree junction 来源。
+- 最终门禁结果以 `.quality-gates.md` 本次执行记录为准。
 
 ---
 

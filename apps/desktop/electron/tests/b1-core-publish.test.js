@@ -62,7 +62,7 @@ function createPublishRunner(options = {}) {
         return selector.includes('label.cohere-toggle') ? 0 : 1
       },
       async click() {
-        if (selector.includes('.el-checkbox-group .el-checkbox')) {
+        if (selector.includes('[data-testid^="platform-"]') && selector.includes(':not(:checked)')) {
           state.selectedPlatform = true
           return
         }
@@ -70,9 +70,10 @@ function createPublishRunner(options = {}) {
 
         state.publishClicks += 1
         if (options.incrementPublishCalls !== false) {
+          const contentSelector = Object.keys(state.filled).find((key) => key.includes('.ql-editor'))
           const payload = {
             title: state.filled['input[placeholder="请输入文章标题"]'],
-            content: state.filled['.article-editor .ql-editor'],
+            content: state.filled[contentSelector],
           }
           if (options.cyclicPayload === true) payload.self = payload
           state.ipcCalls.push({ method: 'publishBatch', args: [['wechat_mp'], payload] })
@@ -82,6 +83,9 @@ function createPublishRunner(options = {}) {
       },
       async fill(value) {
         state.filled[selector] = value
+      },
+      async evaluate() {
+        return state.filled[selector]
       },
       async waitFor() {
         if (selector.includes('cohere-tag-success') && state.result !== 'success') {
@@ -201,14 +205,15 @@ describe('B1 run 退出契约', () => {
 })
 
 describe('B1 发布场景', () => {
-  it('切回单篇模式时只等待主内容中的平台搜索框', () => {
+  it('切回单篇模式时等待独立发布目标组件的搜索框', () => {
     const source = fs.readFileSync(specPath, 'utf8')
-    expect(source).toContain(".cohere-main input[placeholder=\"搜索平台...\"]")
+    expect(source).toContain('.cohere-main .target-selector__search')
   })
 
-  it('发布前只点击可用且未选中的平台', () => {
+  it('发布前按稳定 testid 只点击可用且未选中的平台', () => {
     const source = fs.readFileSync(specPath, 'utf8')
-    expect(source).toContain('.el-checkbox:not(.is-disabled):not(.is-checked)')
+    expect(source).toContain('.target-selector input[data-testid^="platform-"]:not(:disabled):not(:checked)')
+    expect(source).toContain("document.querySelectorAll('.target-selector [data-testid^=\"platform-\"]')")
     expect(source).toContain('document.querySelectorAll(selector).length > previousCount')
   })
 
@@ -222,7 +227,9 @@ describe('B1 发布场景', () => {
     expect(state.ipcCalls).toHaveLength(2)
     expect(() => JSON.stringify(state.ipcCalls.map((call) => call.args))).not.toThrow()
     expect(state.filled['input[placeholder="请输入文章标题"]']).toBe('E2E 测试标题')
-    expect(state.filled['.article-editor .ql-editor']).toContain('E2E 测试正文')
+    expect(Object.entries(state.filled).some(([selector, value]) => (
+      selector.includes('.ql-editor') && value.includes('E2E 测试正文')
+    ))).toBe(true)
     expect(state.expectedTexts).toEqual(expect.arrayContaining(['发布成功', '发布失败', 'B1 注入发布失败']))
     expect(runner.failNextIpc).toHaveBeenCalledWith('publishBatch', 'B1 注入发布失败')
   })

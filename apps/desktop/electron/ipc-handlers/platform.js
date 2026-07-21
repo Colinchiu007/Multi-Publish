@@ -25,9 +25,11 @@ function registerHandlers(ipcMain, deps) {
     try {
       // PRD F9: 附带 content_category 映射（从 platformConfig 提取）
       let contentCategories = {}
+      let categories = {}
       if (_platformConfig) {
         for (const p of _platformConfig.listPlatforms()) {
           if (p.content_category) contentCategories[p.id] = p.content_category
+          if (p.category) categories[p.id] = p.category
         }
       }
       return {
@@ -40,6 +42,7 @@ function registerHandlers(ipcMain, deps) {
           successPatterns: definitions.PLATFORM_LOGIN_SUCCESS_PATTERNS,
           qrCodePlatforms: definitions.QR_CODE_PLATFORMS,
           content_categories: contentCategories,  // PRD F9
+          categories,
         },
       }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }

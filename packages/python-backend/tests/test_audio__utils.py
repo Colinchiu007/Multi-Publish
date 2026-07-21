@@ -79,8 +79,10 @@ class TestServiceAccountConfigured:
 class TestGetAccessToken:
     """get_access_token() -- OAuth token minting."""
 
-    def test_no_google_auth_import(self):
-        with patch.dict("os.environ", {"GOOGLE_APPLICATION_CREDENTIALS": "/tmp/creds.json"}):
+    def test_no_google_auth_import(self, tmp_path):
+        creds_file = tmp_path / "creds.json"
+        creds_file.write_text("{}")
+        with patch.dict("os.environ", {"GOOGLE_APPLICATION_CREDENTIALS": str(creds_file)}):
             with patch("builtins.__import__", side_effect=ImportError("no google.auth")):
                 with pytest.raises(RuntimeError, match="google-auth"):
                     get_access_token()

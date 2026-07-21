@@ -16,6 +16,7 @@ vi.mock("@/stores/platforms", () => ({
     platforms: [{ id: "wechat_mp", label: "微信" }, { id: "zhihu", label: "知乎" }],
     getLabel: (k) => ({ wechat_mp: "微信", zhihu: "知乎" }[k] || k),
     getIcon: () => "ἱ0",
+    getCategory: () => "国内",
   })
 }));
 

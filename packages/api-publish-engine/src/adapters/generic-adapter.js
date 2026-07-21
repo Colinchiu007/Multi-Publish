@@ -3,7 +3,7 @@ const { upload } = require("../../upload/orchestrator");
 const platformConfigs = require("./platform-configs");
 
 /**
- * GenericPlatformAdapter ¡ª config-driven adapter for simple publish platforms.
+ * GenericPlatformAdapter - config-driven adapter for simple publish platforms.
  * Created during Phase 1.3 refactoring to eliminate ~20 boilerplate adapters.
  */
 class GenericPlatformAdapter extends BasePlatformAdapter {

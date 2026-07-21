@@ -14,18 +14,30 @@
  */
 __enableElectronMock()
 
+const mockLoadCredential = vi.fn()
+
 __registerMock('./logger', {
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
 })
+__registerMock('./credential-store', {
+  loadCredential: mockLoadCredential,
+})
 
 const CommentManager = require('../electron/services/comment-manager')
+const TRUSTED_EVENT = { senderFrame: { url: 'app://localhost/index.html' } }
+const UNTRUSTED_EVENT = { senderFrame: { url: 'https://evil.example/' } }
 
 describe('CommentManager', () => {
   let cm
 
   beforeEach(() => {
+    vi.clearAllMocks()
+    __resetElectronMock()
+    mockLoadCredential.mockReturnValue({
+      cookies: [{ name: 'session', value: 'stored-cookie' }],
+    })
     cm = new CommentManager()
   })
 
@@ -50,18 +62,20 @@ describe('CommentManager', () => {
     it('应返回空数组（graceful degradation）', async () => {
       // 确保 ORCHESTRATOR_URL 未设置
       delete process.env.ORCHESTRATOR_URL
-      const list = await cm.listComments('douyin', 'fake-cookie', { maxDays: 7 })
+      const list = await cm.listComments('douyin', 'acc1', { maxDays: 7 })
       expect(Array.isArray(list)).toBe(true)
       expect(list.length).toBe(0)
+      expect(mockLoadCredential).toHaveBeenCalledWith('acc1', '/tmp/test-electron-path')
     })
   })
 
   describe('replyComment — ORCHESTRATOR_URL 未配置', () => {
     it('应返回 success=false + 明确错误信息', async () => {
       delete process.env.ORCHESTRATOR_URL
-      const result = await cm.replyComment('douyin', 'fake-cookie', 'cmt-123', '感谢评论')
+      const result = await cm.replyComment('douyin', 'acc1', 'cmt-123', '感谢评论')
       expect(result.success).toBe(false)
       expect(result.error).toContain('ORCHESTRATOR_URL')
+      expect(mockLoadCredential).toHaveBeenCalledWith('acc1', '/tmp/test-electron-path')
     })
   })
 
@@ -71,7 +85,6 @@ describe('CommentManager', () => {
       const result = await cm.startPolling({
         platform: 'douyin',
         accountId: 'acc1',
-        cookie: 'fake-cookie',
         interval: 60000,
       })
       expect(result.key).toBe('douyin:acc1')
@@ -80,15 +93,15 @@ describe('CommentManager', () => {
 
     it('重复 startPolling 同 key 返回 started=false', async () => {
       delete process.env.ORCHESTRATOR_URL
-      await cm.startPolling({ platform: 'douyin', accountId: 'acc1', cookie: 'c' })
-      const result = await cm.startPolling({ platform: 'douyin', accountId: 'acc1', cookie: 'c' })
+      await cm.startPolling({ platform: 'douyin', accountId: 'acc1' })
+      const result = await cm.startPolling({ platform: 'douyin', accountId: 'acc1' })
       expect(result.started).toBe(false)
       expect(result.message).toContain('already running')
     })
 
     it('stopPolling 已运行的 key 返回 stopped=true', async () => {
       delete process.env.ORCHESTRATOR_URL
-      const startResult = await cm.startPolling({ platform: 'weibo', accountId: 'acc2', cookie: 'c' })
+      const startResult = await cm.startPolling({ platform: 'weibo', accountId: 'acc2' })
       const result = await cm.stopPolling(startResult.key)
       expect(result.stopped).toBe(true)
     })
@@ -106,7 +119,7 @@ describe('CommentManager', () => {
 
     it('有活跃轮询时返回条目', async () => {
       delete process.env.ORCHESTRATOR_URL
-      await cm.startPolling({ platform: 'douyin', accountId: 'a1', cookie: 'c' })
+      await cm.startPolling({ platform: 'douyin', accountId: 'a1' })
       const status = cm.getStatus()
       expect(status.length).toBe(1)
       expect(status[0].key).toBe('douyin:a1')
@@ -117,8 +130,8 @@ describe('CommentManager', () => {
   describe('stopAll', () => {
     it('停止所有轮询', async () => {
       delete process.env.ORCHESTRATOR_URL
-      await cm.startPolling({ platform: 'douyin', accountId: 'a1', cookie: 'c' })
-      await cm.startPolling({ platform: 'weibo', accountId: 'a2', cookie: 'c' })
+      await cm.startPolling({ platform: 'douyin', accountId: 'a1' })
+      await cm.startPolling({ platform: 'weibo', accountId: 'a2' })
       expect(cm.getStatus().length).toBe(2)
       await cm.stopAll()
       expect(cm.getStatus().length).toBe(0)
@@ -131,11 +144,70 @@ describe('CommentManager', () => {
       const result = await cm.startPolling({
         platform: 'zhihu',
         accountId: 'a3',
-        cookie: 'c',
         template: '谢谢 {author}: {content}',
       })
       expect(result.started).toBe(true)
       await cm.stopPolling(result.key)
+    })
+  })
+
+  describe('主进程凭据边界', () => {
+    it('缺少加密凭据时拒绝评论请求', async () => {
+      mockLoadCredential.mockReturnValue(null)
+
+      await expect(cm.listComments('douyin', 'missing-account', { maxDays: 7 }))
+        .rejects.toThrow('未找到账号登录凭证')
+    })
+
+    it('过滤非法 Cookie 项并生成请求头', () => {
+      mockLoadCredential.mockReturnValue({
+        cookies: [
+          { name: 'session', value: 'stored-cookie' },
+          { name: 'bad\nname', value: 'ignored' },
+          { name: 'unsafe', value: 'line\r\nbreak' },
+        ],
+      })
+
+      expect(cm.resolveCookieHeader('acc1')).toBe('session=stored-cookie')
+    })
+  })
+
+  describe('IPC 来源与参数合同', () => {
+    beforeEach(() => {
+      cm.registerIpcHandlers()
+    })
+
+    it('comment:list 拒绝不可信来源', async () => {
+      const handler = __electronMock.ipcMain._handlers['comment:list']
+      const listComments = vi.spyOn(cm, 'listComments')
+
+      await expect(handler(UNTRUSTED_EVENT, {
+        platform: 'douyin',
+        accountId: 'acc1',
+      })).resolves.toEqual({ code: -3, message: '未授权的调用来源' })
+      expect(listComments).not.toHaveBeenCalled()
+    })
+
+    it('comment:list 只把 accountId 交给主进程凭据解析', async () => {
+      const handler = __electronMock.ipcMain._handlers['comment:list']
+      const listComments = vi.spyOn(cm, 'listComments').mockResolvedValue([])
+
+      await expect(handler(TRUSTED_EVENT, {
+        platform: 'douyin',
+        accountId: 'acc1',
+        cookie: 'renderer-secret',
+        maxDays: 3,
+      })).resolves.toEqual({ code: 0, data: [] })
+      expect(listComments).toHaveBeenCalledWith('douyin', 'acc1', { maxDays: 3 })
+    })
+
+    it('comment:status 拒绝不可信来源', async () => {
+      const handler = __electronMock.ipcMain._handlers['comment:status']
+
+      await expect(handler(UNTRUSTED_EVENT)).resolves.toEqual({
+        code: -3,
+        message: '未授权的调用来源',
+      })
     })
   })
 })

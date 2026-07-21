@@ -5,14 +5,14 @@
  *   - ipcRenderer 由调用方（preload/index.js）注入，便于测试 mock
  *   - 不在此处 require('electron')，保持子模块独立可测
  *
- * 涵盖方法（与原 preload.js 完全一致，不改变方法名/IPC 通道/参数顺序）：
+ * 涵盖方法（保持公开方法名和 IPC 通道稳定）：
  *   - 发布：publishWechat / publishBatch / listAccounts
  *   - 渲染：renderStart / renderCancel / renderGetStatus / renderInstallDeps
  *           onRenderProgress / onRenderComplete / onRenderError / onRenderInstallProgress
  *           renderListCompositions / renderGetComposition / renderValidateProps
  *   - 流水线（对象）：pipelines.list / pipelines.get
  *   - 内容情报：intelligenceSuggestTags / intelligenceGetOptimalTime
- *   - 队列：getQueueStatus / getQueueHistory / cancelTask
+ *   - 队列：getQueueStatus / getQueueHistory / cancelTask / retryTask
  *   - 历史：historyList / historyGet
  *   - 仪表盘：dashboardStats
  *   - 定时发布：schedulerCreate / schedulerList / schedulerCancel
@@ -75,6 +75,7 @@ function createPublishApi(ipcRenderer) {
     getQueueStatus: () => ipcRenderer.invoke('queue:status'),
     getQueueHistory: () => ipcRenderer.invoke('queue:history'),
     cancelTask: (taskId) => ipcRenderer.invoke('queue:cancel', taskId),
+    retryTask: (taskId) => ipcRenderer.invoke('queue:retry', taskId),
 
     // 发布历史 API
     historyList: (opts) => ipcRenderer.invoke('history:list', opts),
@@ -122,9 +123,15 @@ function createPublishApi(ipcRenderer) {
     viralTrending: (articles) => ipcRenderer.invoke('viral:trending', { articles }),
 
     // Comment Management API (PRD F13)
-    commentList: (platform, cookie, maxDays) => ipcRenderer.invoke('comment:list', { platform, cookie, maxDays }),
-    commentReply: (platform, cookie, commentId, content) => ipcRenderer.invoke('comment:reply', { platform, cookie, commentId, content }),
-    commentStartPolling: (opts) => ipcRenderer.invoke('comment:start-polling', opts),
+    commentList: (platform, accountId, maxDays) => ipcRenderer.invoke('comment:list', { platform, accountId, maxDays }),
+    commentReply: (platform, accountId, commentId, content) => ipcRenderer.invoke('comment:reply', { platform, accountId, commentId, content }),
+    commentStartPolling: (opts = {}) => ipcRenderer.invoke('comment:start-polling', {
+      platform: opts.platform,
+      accountId: opts.accountId,
+      interval: opts.interval,
+      maxDays: opts.maxDays,
+      template: opts.template,
+    }),
     commentStopPolling: (key) => ipcRenderer.invoke('comment:stop-polling', { key }),
     commentStatus: () => ipcRenderer.invoke('comment:status'),
     onCommentReplied: (cb) => {

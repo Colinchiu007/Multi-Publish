@@ -89,6 +89,18 @@ describe("store-schema", () => {
     expect(result).toEqual({});
   });
 
+  it("sanitizeUpdateFields 不允许通用更新接口覆盖账号凭证", async () => {
+    const { sanitizeUpdateFields } = await import("../services/store-schema");
+
+    const result = sanitizeUpdateFields("accounts", {
+      name: "安全名称",
+      cookies: [{ name: "session", value: "attacker" }],
+      localStorage: { token: "attacker" },
+    });
+
+    expect(result).toEqual({ name: "安全名称" });
+  });
+
   it("sanitizeUpdateFields handles unknown table gracefully", async () => {
     const { sanitizeUpdateFields } = await import("../services/store-schema");
     const result = sanitizeUpdateFields("nonexistent_table", { name: "x" });

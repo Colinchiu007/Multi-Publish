@@ -8,8 +8,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const exportedNames = [
   // 发布
   "publishWechat", "publishBatch", "onProgress",
+  // AI 写作
+  "modelProviderIsConfigured", "aiIsConfigured", "aiGenerateTitles",
+  "aiEnhanceContent", "aiGenerateSummary",
   // 队列
-  "getQueueStatus", "getQueueHistory", "cancelTask",
+  "getQueueStatus", "getQueueHistory", "cancelTask", "retryTask",
   // 发布历史
   "historyList", "historyGet",
   // 统计
@@ -20,7 +23,7 @@ const exportedNames = [
   "listAccounts", "accountAdd", "accountDelete", "accountCheckLogin",
   "accountList", "accountSetDefault", "accountUpdate",
   // 内嵌浏览器登录
-  "authOpenLogin", "authClose", "onAuthViewOpened",
+  "authOpenLogin", "authCompleteLogin", "authClose", "onAuthViewOpened",
   "onAuthCompleted", "onAuthViewClosed",
   // 渲染
   "renderStart", "renderCancel", "renderGetStatus", "renderInstallDeps",
@@ -46,7 +49,9 @@ const exportedNames = [
   // OAuth
   "oauthStart", "oauthClose", "onOAuthCompleted",
   // 批量发布
-  "batchCreate", "batchList", "batchDelete", "onBatchProgress",
+  "batchCreate", "batchExecute", "batchSchedule", "batchGet", "batchList", "batchDelete", "onBatchProgress",
+  // 二维码登录与账号状态事件
+  "authOpenQrCodeLogin", "authQrCodeClose", "onQrCodeOpened", "onQrCodeDetected", "onQrCodeCompleted", "onQrCodeClosed", "onAccountStatusChanged",
   // 支付
   "paymentCreateOrder", "paymentListOrders", "paymentGetOrder",
   "paymentSimulate", "paymentCancel",
@@ -89,9 +94,15 @@ const apiMeta = {
 publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, returns: "undefined" },
   publishBatch: { args: [["wx"], { title: "t" }], fallback: { code: -1, message: "electronAPI not available" }, throws: false },
   onProgress: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  modelProviderIsConfigured: { args: ["llm"], fallback: { code: -1, data: false }, returns: "object" },
+  aiIsConfigured: { args: [], fallback: { code: -1, data: false }, returns: "object" },
+  aiGenerateTitles: { args: ["AI 技术"], fallback: { code: -1, data: [] }, returns: "object" },
+  aiEnhanceContent: { args: ["正文", "polish"], fallback: { code: -1, data: "" }, returns: "object" },
+  aiGenerateSummary: { args: ["正文"], fallback: { code: -1, data: "" }, returns: "object" },
   getQueueStatus: { args: [], fallback: {}, returns: "object" },
   getQueueHistory: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
   cancelTask: { args: ["task-1"], fallback: { code: -1 }, returns: "object" },
+  retryTask: { args: ["task-1"], fallback: { code: -1 }, returns: "object" },
   historyList: { args: [{ page: 1 }], fallback: { code: 0, data: { total: 0, records: [] } }, returns: "object" },
   historyGet: { args: ["id-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   dashboardStats: { args: [], fallback: { code: 0, data: { total: 0, success: 0, failed: 0, byPlatform: {}, daily: [] } }, returns: "object" },
@@ -106,6 +117,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   accountSetDefault: { args: ["wechat_mp", "acc-1"], fallback: undefined, returns: "undefined" },
   accountUpdate: { args: ["acc-1", { name: "new" }], fallback: undefined, returns: "undefined" },
   authOpenLogin: { args: ["weibo"], fallback: { code: -1 }, returns: "object" },
+  authCompleteLogin: { args: [], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   authClose: { args: [], fallback: undefined, returns: "undefined" },
   onAuthViewOpened: { args: [vi.fn()], fallback: undefined, returns: "function" },
   onAuthCompleted: { args: [vi.fn()], fallback: undefined, returns: "function" },
@@ -130,9 +142,19 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   oauthClose: { args: [], fallback: undefined, returns: "undefined" },
   onOAuthCompleted: { args: [vi.fn()], fallback: undefined, returns: "function" },
   batchCreate: { args: [{ platforms: ["wx"] }], fallback: { code: -1 }, returns: "object" },
+  batchExecute: { args: ["batch-1"], fallback: { code: -1 }, returns: "object" },
+  batchSchedule: { args: ["batch-1"], fallback: { code: -1 }, returns: "object" },
+  batchGet: { args: ["batch-1"], fallback: { code: -1 }, returns: "object" },
   batchList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
   batchDelete: { args: ["batch-1"], fallback: undefined, returns: "undefined" },
   onBatchProgress: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  authOpenQrCodeLogin: { args: ["wechat_mp"], fallback: { code: -1 }, returns: "object" },
+  authQrCodeClose: { args: [], fallback: { code: -1 }, returns: "object" },
+  onQrCodeOpened: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onQrCodeDetected: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onQrCodeCompleted: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onQrCodeClosed: { args: [vi.fn()], fallback: undefined, returns: "function" },
+  onAccountStatusChanged: { args: [vi.fn()], fallback: undefined, returns: "function" },
   paymentCreateOrder: { args: [{ amount: 100 }], fallback: { code: -1 }, returns: "object" },
   paymentListOrders: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
   paymentGetOrder: { args: ["ord-1"], fallback: { code: -1 }, returns: "object" },

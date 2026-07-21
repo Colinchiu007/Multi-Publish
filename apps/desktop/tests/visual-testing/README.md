@@ -18,8 +18,8 @@
 
 ```
 tests/visual-testing/
-├── views/                # 单视图快照测试 (45 用例)
-├── workflows/            # 多步工作流测试 (32 用例)
+├── views/                # 单视图快照测试 (43 用例：23 核心 + 20 补充)
+├── workflows/            # 多步工作流测试 (50 用例：32 核心 + 18 补充)
 ├── providers/            # 检测器
 │   ├── pixel-diff.js     # 像素对比（默认）
 │   └── ocr.js            # OCR 文字提取
@@ -54,7 +54,7 @@ tests/visual-testing/
 | `npm run test:visual:pixel` | 像素对比测试（无需 API Key）✅ |
 | `npm run test:visual:agent` | 生成 Agent 视觉判断报告（无需 Key）✅ |
 | `npm run test:visual:update-baseline` | 更新基线截图 |
-| `npm run test:all:visual` | 全量回归（77 用例） |
+| `npm run test:all:visual` | 全量回归（93 用例） |
 
 ## 强制规则（MUST）
 

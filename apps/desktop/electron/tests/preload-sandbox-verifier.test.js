@@ -2,6 +2,8 @@
 import { EventEmitter } from 'events'
 import { existsSync } from 'fs'
 import { PassThrough } from 'stream'
+import fs from 'fs'
+import path from 'path'
 import { describe, expect, it, vi } from 'vitest'
 
 const COMPLETE_RESULT = {
@@ -83,6 +85,8 @@ describe('preload sandbox 真实验证器', () => {
       args: expect.arrayContaining([
         ELECTRON_HARNESS_ARG,
         `--preload-sandbox-mode=${sandbox}`,
+        '--disable-gpu',
+        expect.stringMatching(/^--user-data-dir=/),
       ]),
       timeout: 1500,
     }))
@@ -131,6 +135,33 @@ describe('preload sandbox 真实验证器', () => {
     expect(combined).toContain(MODE_SUCCESS_MARKERS.true)
     expect(combined).toContain(MODE_SUCCESS_MARKERS.false)
     expect(combined).toContain(SUCCESS_MARKER)
+  })
+
+  it('Electron harness 在 app.ready 前隔离可写目录并关闭硬件加速', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../scripts/preload-sandbox-electron-harness.js'),
+      'utf8',
+    )
+    const setUserDataAt = source.indexOf("app.setPath('userData'")
+    const setCacheAt = source.indexOf("app.setPath('cache'")
+    const whenReadyAt = source.indexOf('app.whenReady()')
+
+    expect(setUserDataAt).toBeGreaterThan(-1)
+    expect(setCacheAt).toBeGreaterThan(-1)
+    expect(source).toContain('app.disableHardwareAcceleration()')
+    expect(setUserDataAt).toBeLessThan(whenReadyAt)
+    expect(setCacheAt).toBeLessThan(whenReadyAt)
+  })
+
+  it('Electron harness 使用内联页面，避免临时 HTTP 导航导致窗口提前关闭', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../scripts/preload-sandbox-electron-harness.js'),
+      'utf8',
+    )
+
+    expect(source).not.toContain("require('http')")
+    expect(source).not.toContain('http.createServer')
+    expect(source).toContain('data:text/html')
   })
 
   it('外层门禁同时校验退出码、两个模式标记和总成功标记', () => {
@@ -202,5 +233,29 @@ describe('preload sandbox 真实验证器', () => {
       .toBe(DEFAULT_VERIFICATION_TIMEOUT_MS)
     expect(getChildVerificationTimeout({ PRELOAD_SANDBOX_TIMEOUT_MS: '1500' }))
       .toBeGreaterThan(3000)
+  })
+
+  it('Electron 子进程超时时保留 stderr，便于定位渲染器启动失败', async () => {
+    const { runChildVerification } = require('../../scripts/verify-preload-sandbox')
+    const child = new EventEmitter()
+    child.stdout = new PassThrough()
+    child.stderr = new PassThrough()
+    child.kill = vi.fn()
+    const spawnImpl = vi.fn(() => child)
+
+    vi.useFakeTimers()
+    try {
+      const verification = runChildVerification(spawnImpl, {
+        PRELOAD_SANDBOX_TIMEOUT_MS: '20',
+      })
+      child.stderr.write('GPU process fatal')
+      await vi.advanceTimersByTimeAsync(25)
+      child.emit('close', null)
+
+      await expect(verification).rejects.toThrow(/GPU process fatal/)
+      expect(child.kill).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
