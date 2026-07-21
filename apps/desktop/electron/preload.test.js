@@ -66,10 +66,11 @@ const PUBLISH_METHODS = [
 const ACCOUNT_METHODS = [
   'accountAdd', 'accountDelete', 'accountCheckLogin', 'accountList',
   'accountSetDefault', 'accountGetDefault', 'accountUpdate',
-  'authOpenLogin', 'authClose', 'authSaveCredentials', 'authLoginSilent',
+  'authOpenLogin', 'authClose', 'authCompleteLogin', 'authLoginSilent',
   'onAuthViewOpened', 'onAuthCompleted', 'onAuthViewClosed',
   'authOpenQrCodeLogin', 'authQrCodeClose',
   'onQrCodeOpened', 'onQrCodeDetected', 'onQrCodeCompleted', 'onQrCodeClosed',
+    'onAccountStatusChanged',
   'oauthStart', 'oauthClose', 'oauthGetConfigs',
   'onOAuthOpened', 'onOAuthCompleted', 'onOAuthFailed', 'onOAuthClosed',
   'storeAddAccount', 'storeGetAccount', 'storeListAccounts', 'storeDeleteAccount',
@@ -172,16 +173,16 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 56 个键（55 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 60 个键（59 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(56)
+    expect(Object.keys(r).length).toBe(60)
   })
 
-  it('account 模块应导出 40 个方法', () => {
+  it('account 模块应导出 41 个方法', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(40)
+    expect(Object.keys(r).length).toBe(41)
   })
 
   it('system 模块应导出 133 个方法', () => {
@@ -190,8 +191,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(133)
   })
 
-  it('合并后 api 总键数应为 234', () => {
-    expect(Object.keys(api).length).toBe(234)
+  it('合并后 api 总键数应为 239', () => {
+    expect(Object.keys(api).length).toBe(239)
   })
 
   it('PUBLISH_METHODS 常量长度应为 55', () => {
@@ -199,7 +200,7 @@ describe('preload 子模块方法数', () => {
   })
 
   it('ACCOUNT_METHODS 常量长度应为 40', () => {
-    expect(ACCOUNT_METHODS.length).toBe(40)
+    expect(ACCOUNT_METHODS.length).toBe(41)
   })
 
   it('SYSTEM_METHODS 常量长度应为 133', () => {

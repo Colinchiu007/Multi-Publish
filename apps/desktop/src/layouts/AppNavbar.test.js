@@ -5,6 +5,8 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ path: '/' }),
 }))
 
+vi.mock('@/composables/useIdentity', () => ({ useIdentity: () => ({ status: 'unauthenticated', isAuthenticated: false, subject: null, loading: false, error: null, user: null, displayName: 'Guest' }) }))
+
 vi.mock('@/stores/license', () => ({
   useLicenseStore: () => ({ isPro: false }),
 }))
