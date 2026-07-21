@@ -102,7 +102,7 @@ class RpaVmPublisher {
       } catch (_) { /* 凭证回退不得阻断 SQLite 读取 */ }
       if (authData.cookies.length === 0 && (!authData.localStorage || Object.keys(authData.localStorage).length === 0)) {
         const account = this.store && typeof this.store.getAccount === 'function'
-          ? this.store.getAccount(accountId)
+          ? this.store.getAccount(accountId, task.owner_subject)
           : null
         authData = normalizeAuthData(account, platform) || authData
       }

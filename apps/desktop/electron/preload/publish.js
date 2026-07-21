@@ -122,6 +122,10 @@ function createPublishApi(ipcRenderer) {
     viralGenerate: (opts) => ipcRenderer.invoke('viral:generate', opts),
     viralTrending: (articles) => ipcRenderer.invoke('viral:trending', { articles }),
 
+    // Draft API
+    draftSave: (draft) => ipcRenderer.invoke('draftSave', draft),
+    draftList: () => ipcRenderer.invoke('draftList'),
+    draftDelete: (draftId) => ipcRenderer.invoke('draftDelete', draftId),
     // Comment Management API (PRD F13)
     commentList: (platform, accountId, maxDays) => ipcRenderer.invoke('comment:list', { platform, accountId, maxDays }),
     commentReply: (platform, accountId, commentId, content) => ipcRenderer.invoke('comment:reply', { platform, accountId, commentId, content }),
