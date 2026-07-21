@@ -1,3 +1,14 @@
+## [1.4.0] — 2026-07-21
+
+### 新增
+- 新增生产配置校验、PostgreSQL 迁移 runner/readiness、smoke 检查、停写一致性备份与恢复校验（含 `--verify-only`/`--verify-state`）和监控合同。
+- 备份/恢复增加独占锁、私有权限、空目标预检、文件描述符 checksum 绑定、单库事务、Unix 状态目录同步和 `complete`/`failed`/`in-progress` 状态；`pg_dump` stdout 只写私有 descriptor，dump/manifest 以硬链接在锁内原子发布，锁残留时恢复拒绝执行。
+- 容器构建改用 monorepo lockfile，包含生产启动所需的迁移文件和脚本，并以 `/ready` 作为容器健康检查；带查询参数的 readiness 探针保持免认证。
+- 修正 Docker Compose 配置持久化挂载，`./config` 现在映射到 API 实际读写的包内 `config/`，避免 API Key 状态在容器重启后丢失。
+
+### 验证
+- 本地生产就绪检查已纳入 API 全量测试 runner；真实 Logto、PostgreSQL 和云端验收保持 `PENDING_EXTERNAL`。
+
 ## [1.3.0] — 2026-07-03
 
 ### Added

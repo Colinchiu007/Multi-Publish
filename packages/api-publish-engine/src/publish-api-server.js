@@ -45,6 +45,10 @@ function apiKeyOwnerSubject(key) {
   return `api-key:${crypto.createHash("sha256").update(String(key)).digest("hex")}`;
 }
 
+function requestPath(req) {
+  return String(req && req.url ? req.url : "/").split("?", 1)[0];
+}
+
 class PublishApiServer {
   constructor(opts) {
     this._opts = opts || {};
@@ -56,6 +60,7 @@ class PublishApiServer {
     this._businessIdentityRepository = this._opts.businessIdentityRepository || null
     this._entitlementProvider = this._opts.entitlementProvider || null
     this._entitlementSigner = this._opts.entitlementSigner || null
+    this._readinessProbe = this._opts.readinessProbe || null
     this._publishViaApi = typeof this._opts.publishViaApi === "function" ? this._opts.publishViaApi : publishViaApi
     this._keyManager = new ApiKeyManager(this._opts.keysPath)
     // 将配置型 Key 以原值纳入统一管理，磁盘上只保存哈希。
@@ -88,8 +93,8 @@ class PublishApiServer {
         self._handle(req, res);
       });
       self._server.on("error", reject);
-      // 安全：绑定 127.0.0.1（原默认绑定 0.0.0.0 暴露到整个网络）
-      self._server.listen(port, "127.0.0.1", function() {
+      // 本地默认仅绑定回环；容器部署必须显式传入 host=0.0.0.0。
+      self._server.listen(port, self._opts.host || "127.0.0.1", function() {
         self._startedAt = new Date().toISOString();
         if (self._scheduler) self._scheduler.start();
         // Register process signal handlers for graceful shutdown
@@ -160,7 +165,8 @@ class PublishApiServer {
   }
 
   _checkApiKeyAuth(req, requiredScope, allowAnonymous) {
-    if (req.url === "/api/v1/health") return { authorized: true }
+    const url = requestPath(req)
+    if (url === "/api/v1/health" || url === "/api/v1/ready") return { authorized: true }
     this._keyManager.load()
     if (this._keyManager.loadError) {
       return { authorized: false, status: 503, error: "API_KEY_STORE_UNAVAILABLE" }
@@ -193,7 +199,8 @@ class PublishApiServer {
 
   _checkAuth(req, requiredScope) {
     if (!this._logtoVerifier) return this._checkApiKeyAuth(req, requiredScope, true)
-    if (req.url === "/api/v1/health") return { authorized: true }
+    const url = requestPath(req)
+    if (url === "/api/v1/health" || url === "/api/v1/ready") return { authorized: true }
     const auth = (req.headers["authorization"] || "").trim()
     const key = auth.startsWith("Bearer ") ? auth.slice(7) : ""
     if (!key) {
@@ -251,8 +258,8 @@ class PublishApiServer {
   }
 
   _requiredScope(req) {
-    const url = req.url || ""
-    if (url === "/api/v1/health") return null
+    const url = requestPath(req)
+    if (url === "/api/v1/health" || url === "/api/v1/ready") return null
     if (url === "/api/v1/me") return "profile:read"
     if (url.startsWith("/api/v1/keys") || url.startsWith("/api/v1/plugins") || url.startsWith("/api/v1/logs")) return "admin:users"
     if (req.method === "POST" || url.startsWith("/api/v1/schedule") || url.startsWith("/api/v1/plan")) return "publish:submit"
@@ -261,7 +268,7 @@ class PublishApiServer {
 
   _requiredFeature(req) {
     if (!req || req.method !== "POST") return null
-    const url = String(req.url || "").split("?", 1)[0]
+    const url = requestPath(req)
     if (url === "/api/v1/publish" || url === "/api/v1/batch-publish" ||
       url === "/api/v1/schedule" || url === "/api/v1/schedule/cancel" ||
       url === "/api/v1/plan" || url === "/api/v1/plan/execute" || url === "/api/v1/plan/delete" ||
@@ -431,7 +438,7 @@ class PublishApiServer {
   }
 
   async _handle(req, res) {
-    var url = req.url || "/";
+    var url = requestPath(req);
     var method = req.method || "GET";
     var _startTime = Date.now();
     var _self = this;
@@ -520,6 +527,27 @@ class PublishApiServer {
       // --- Health ---
       if (method === "GET" && url === "/api/v1/health") {
         this._json(res, 200, { status: "ok", version: "1.0.0", platforms: Object.keys(require("./index").REGISTRY).length });
+        return;
+      }
+
+      // --- Readiness ---
+      if (method === "GET" && url === "/api/v1/ready") {
+        if (!this._readinessProbe || typeof this._readinessProbe.check !== "function") {
+          this._json(res, 503, {
+            status: "not_ready",
+            checks: { runtime: { status: "failed", code: "READINESS_NOT_CONFIGURED" } },
+          });
+          return;
+        }
+        try {
+          var readiness = await this._readinessProbe.check();
+          this._json(res, readiness && readiness.status === "ready" ? 200 : 503, readiness);
+        } catch (error) {
+          this._json(res, 503, {
+            status: "not_ready",
+            checks: { runtime: { status: "failed", code: safeErrorCode(error, "READINESS_CHECK_FAILED") } },
+          });
+        }
         return;
       }
 
@@ -888,7 +916,8 @@ p{color:#6e6e73}
 <p>Multi-platform publish HTTP API. All POST endpoints accept JSON body. Auth via <code>Authorization: Bearer &lt;key&gt;</code> header.</p>
 <h2>Endpoints</h2>`;
         var endpoints = [
-          { m: "GET", p: "/api/v1/health", d: "Health check, no auth required" },
+          { m: "GET", p: "/api/v1/health", d: "Liveness check, no auth required" },
+          { m: "GET", p: "/api/v1/ready", d: "Readiness check for business DB, migrations and OIDC/JWKS, no auth required" },
           { m: "GET", p: "/api/v1/me", d: "Get current business user and authoritative entitlement. Signed snapshots require X-Device-ID" },
           { m: "GET", p: "/api/v1/platforms", d: "List all supported platforms" },
           { m: "POST", p: "/api/v1/publish", d: "Publish to one platform. Body: { platform, title, content, tags, cookie }" },
@@ -917,7 +946,8 @@ p{color:#6e6e73}
       if (method === "GET" && url === "/api/v1/openapi.json") {
         var spec = { openapi: "3.0.3", info: { title: "PublishApiServer", version: "1.0.0", description: "多平台一键发布 HTTP API" }, servers: [], paths: {} };
         var pathItems = {
-          "/api/v1/health": { get: { summary: "健康检查", responses: { "200": { description: "OK", content: { "application/json": { schema: { type: "object", properties: { status: { type: "string" }, version: { type: "string" } } } } } } } } },
+          "/api/v1/health": { get: { summary: "存活检查", responses: { "200": { description: "OK", content: { "application/json": { schema: { type: "object", properties: { status: { type: "string" }, version: { type: "string" } } } } } } } } },
+          "/api/v1/ready": { get: { summary: "生产就绪检查", responses: { "200": { description: "所有身份依赖就绪" }, "503": { description: "数据库、迁移或 OIDC/JWKS 未就绪" } } } },
           "/api/v1/me": { get: { summary: "获取当前业务用户和权威权益", parameters: [{ name: "X-Device-ID", in: "header", required: false, schema: { type: "string", minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9._:-]+$" } }], responses: { "200": { description: "用户与 entitlement" }, "400": { description: "设备标识无效" }, "503": { description: "业务用户或权益服务不可用" } }, security: [{ bearerAuth: [] }] } },
           "/api/v1/platforms": { get: { summary: "平台列表", responses: { "200": { description: "平台列表" } } } },
           "/api/v1/publish": { post: { summary: "单平台发布", requestBody: { content: { "application/json": { schema: { type: "object", properties: { platform: { type: "string" }, title: { type: "string" }, content: { type: "string" }, tags: { type: "array", items: { type: "string" } }, cookie: { type: "string" } }, required: ["platform"] } } } }, responses: { "200": { description: "发布结果" } } } },

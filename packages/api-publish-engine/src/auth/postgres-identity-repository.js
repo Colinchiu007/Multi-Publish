@@ -1,4 +1,18 @@
 const crypto = require('crypto')
+const path = require('path')
+const { discoverMigrations, validateMigrationLedger } = require('./postgres-migrations')
+
+const DEFAULT_MIGRATION_DIRECTORY = path.resolve(__dirname, '../../../..', 'migrations', 'postgresql')
+
+const REQUIRED_SCHEMA_RELATIONS = [
+  'identity_schema_migrations',
+  'identity_users',
+  'identity_subscriptions',
+  'identity_entitlement_snapshots',
+  'identity_entitlement_usage',
+  'identity_webhook_events',
+  'identity_user_sessions',
+]
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS identity_users (
@@ -154,10 +168,46 @@ class PostgresIdentityRepository {
       this.pool = new Pool({ connectionString: options.connectionString, max: options.maxConnections || 10 })
       this._ownsPool = true
     }
+    this.migrationDirectory = options.migrationDirectory || DEFAULT_MIGRATION_DIRECTORY
+    this.production = options.production === undefined
+      ? String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production'
+      : options.production === true
   }
 
   async initialize() {
+    if (this.production) {
+      const error = new Error('PRODUCTION_AUTO_MIGRATE_FORBIDDEN')
+      error.code = 'PRODUCTION_AUTO_MIGRATE_FORBIDDEN'
+      throw error
+    }
     for (const statement of SCHEMA) await this.pool.query(statement)
+  }
+
+  async assertReady() {
+    await this.pool.query('SELECT 1 AS ok')
+    const result = await this.pool.query(
+      'SELECT name, to_regclass(name) AS relation FROM unnest($1::text[]) AS name',
+      [REQUIRED_SCHEMA_RELATIONS],
+    )
+    const relations = new Map((result.rows || []).map((row) => [row.name, row.relation]))
+    const missing = REQUIRED_SCHEMA_RELATIONS.filter((name) => !relations.get(name))
+    if (missing.length > 0) {
+      const error = new Error('BUSINESS_DATABASE_SCHEMA_NOT_READY')
+      error.code = 'BUSINESS_DATABASE_SCHEMA_NOT_READY'
+      error.missingRelations = missing
+      throw error
+    }
+    try {
+      const migrations = discoverMigrations(this.migrationDirectory)
+      const ledger = await this.pool.query('SELECT name, checksum FROM identity_schema_migrations ORDER BY name')
+      validateMigrationLedger(migrations, ledger.rows || [], { allowPending: false })
+    } catch (error) {
+      if (error && ['MIGRATION_PENDING', 'MIGRATION_CHECKSUM_MISMATCH', 'MIGRATION_FILE_MISSING', 'MIGRATION_LEDGER_INVALID'].includes(error.code)) throw error
+      const wrapped = new Error('BUSINESS_DATABASE_MIGRATIONS_UNAVAILABLE')
+      wrapped.code = 'BUSINESS_DATABASE_MIGRATIONS_UNAVAILABLE'
+      throw wrapped
+    }
+    return { database: 'ready', schema: 'ready' }
   }
 
   async findBySubject(provider, subject) {
@@ -330,4 +380,11 @@ class PostgresEntitlementProvider {
   }
 }
 
-module.exports = { PostgresEntitlementProvider, PostgresIdentityRepository, PostgresWebhookTransaction, SCHEMA }
+module.exports = {
+  PostgresEntitlementProvider,
+  PostgresIdentityRepository,
+  PostgresWebhookTransaction,
+  REQUIRED_SCHEMA_RELATIONS,
+  SCHEMA,
+  DEFAULT_MIGRATION_DIRECTORY,
+}

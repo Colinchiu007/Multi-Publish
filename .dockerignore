@@ -1,0 +1,12 @@
+.git
+.worktrees
+node_modules
+**/node_modules
+**/dist
+**/dist-electron
+**/coverage
+**/test
+**/tests
+**/.env
+**/.env.*
+**/*.log

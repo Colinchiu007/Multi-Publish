@@ -30,6 +30,7 @@ const {
 } = require("./auth/logto-webhook");
 const { createLogtoRuntime, LogtoRuntimeError } = require("./auth/logto-runtime");
 const { PostgresEntitlementProvider, PostgresIdentityRepository } = require("./auth/postgres-identity-repository");
+const { createProductionReadinessProbe } = require("./auth/production-readiness");
 const platformConfigs = require("./adapters/platform-configs");
 const PluginLoader = require("./plugin-loader");
 
@@ -118,6 +119,7 @@ module.exports = {
   DEFAULT_MAX_BODY_BYTES, LOGTO_WEBHOOK_EVENTS, LOGTO_WEBHOOK_SIGNATURE_HEADER,
   LogtoWebhookConsumer, LogtoWebhookError, deriveLogtoWebhookEventId,
   createLogtoRuntime, LogtoRuntimeError, PostgresEntitlementProvider, PostgresIdentityRepository,
+  createProductionReadinessProbe,
   apiRouter: require("./api-router"),
   batchPublishWithRouting: require("./api-router").batchPublishWithRouting,
   publishWithFallback: require("./api-router").publishWithFallback,

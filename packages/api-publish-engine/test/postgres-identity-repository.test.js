@@ -47,6 +47,85 @@ test('PostgresIdentityRepository', async (t) => {
     assert.match(sql, /ALTER TABLE identity_users\s+ADD COLUMN IF NOT EXISTS last_event_created_at/)
   })
 
+  await t.test('生产 readiness 只检查连接、migration ledger 和关键表，不执行 DDL', async () => {
+    const calls = []
+    const expected = [
+      'identity_schema_migrations', 'identity_users', 'identity_subscriptions',
+      'identity_entitlement_snapshots', 'identity_entitlement_usage',
+      'identity_webhook_events', 'identity_user_sessions',
+    ]
+    const pool = {
+      async query(text, values) {
+        calls.push({ text, values })
+        if (/unnest/.test(text)) return { rows: expected.map((name) => ({ name, relation: name })) }
+        if (/SELECT name, checksum FROM identity_schema_migrations/.test(text)) {
+          const { discoverMigrations } = require('../src/auth/postgres-migrations')
+          return { rows: discoverMigrations(path.resolve(__dirname, '../../../migrations/postgresql')) }
+        }
+        return { rows: [{ ok: 1 }] }
+      },
+    }
+    const { PostgresIdentityRepository } = require('../src/auth/postgres-identity-repository')
+    const repository = new PostgresIdentityRepository({ pool })
+
+    const result = await repository.assertReady()
+
+    assert.deepStrictEqual(result, { database: 'ready', schema: 'ready' })
+    assert.deepStrictEqual(calls[1].values, [expected])
+    assert.strictEqual(calls.some((call) => /CREATE|ALTER|INSERT|UPDATE|DELETE/i.test(call.text)), false)
+  })
+
+  await t.test('生产 readiness 在 migration 待执行、checksum 漂移或文件丢失时 fail closed', async () => {
+    const migrationDirectory = path.resolve(__dirname, '../../../migrations/postgresql')
+    const { discoverMigrations } = require('../src/auth/postgres-migrations')
+    const migrations = discoverMigrations(migrationDirectory)
+    const expectedRelations = [
+      'identity_schema_migrations', 'identity_users', 'identity_subscriptions',
+      'identity_entitlement_snapshots', 'identity_entitlement_usage',
+      'identity_webhook_events', 'identity_user_sessions',
+    ]
+    const makeRepository = (ledgerRows) => {
+      const pool = {
+        async query(text) {
+          if (/unnest/.test(text)) return { rows: expectedRelations.map((name) => ({ name, relation: name })) }
+          if (/SELECT name, checksum FROM identity_schema_migrations/.test(text)) return { rows: ledgerRows }
+          return { rows: [{ ok: 1 }] }
+        },
+      }
+      const { PostgresIdentityRepository } = require('../src/auth/postgres-identity-repository')
+      return new PostgresIdentityRepository({ pool, migrationDirectory })
+    }
+
+    await assert.rejects(makeRepository(migrations.slice(0, 1)).assertReady(), (error) => error.code === 'MIGRATION_PENDING')
+    await assert.rejects(makeRepository([{ ...migrations[0], checksum: 'wrong' }, migrations[1]]).assertReady(), (error) => error.code === 'MIGRATION_CHECKSUM_MISMATCH')
+    await assert.rejects(makeRepository([...migrations, { name: '001_removed.sql', checksum: 'a'.repeat(64) }]).assertReady(), (error) => error.code === 'MIGRATION_FILE_MISSING')
+  })
+
+  await t.test('生产 readiness 在关键表缺失时 fail closed', async () => {
+    const pool = {
+      async query(text) {
+        if (/unnest/.test(text)) return { rows: [{ name: 'identity_users', relation: null }] }
+        return { rows: [{ ok: 1 }] }
+      },
+    }
+    const { PostgresIdentityRepository } = require('../src/auth/postgres-identity-repository')
+    const repository = new PostgresIdentityRepository({ pool })
+
+    await assert.rejects(repository.assertReady(), (error) => {
+      return error && error.code === 'BUSINESS_DATABASE_SCHEMA_NOT_READY'
+    })
+  })
+
+  await t.test('生产仓储即使被直接调用 initialize 也拒绝执行 DDL', async () => {
+    const calls = []
+    const pool = { query: async (text) => { calls.push(text); return { rows: [] } } }
+    const { PostgresIdentityRepository } = require('../src/auth/postgres-identity-repository')
+    const repository = new PostgresIdentityRepository({ pool, production: true })
+
+    await assert.rejects(repository.initialize(), (error) => error.code === 'PRODUCTION_AUTO_MIGRATE_FORBIDDEN')
+    assert.strictEqual(calls.length, 0)
+  })
+
   await t.test('生产 PostgreSQL 迁移与运行时所需表保持一致', () => {
     const migrationDirectory = path.resolve(__dirname, '../../../migrations/postgresql')
     const sql = ['002_logto_identity.sql', '003_logto_webhook_events.sql']

@@ -3397,6 +3397,27 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **预防措施**：质量门禁新增“授权/凭据存储读取失败必须 fail closed”；后续所有凭据、entitlement 和会话存储都必须分别测试 missing、empty、corrupt、unreadable 四种状态，禁止用同一个空值代表。
 
+## 2026-07-21：双库备份恢复不能用进程退出码代表可切换
+
+### 第一性原因
+
+- 初版恢复脚本只按顺序执行两个 `pg_restore` 并返回退出码。第一个库成功、第二个库失败时，进程虽然失败，但部署自动化没有持久证据判断哪些库已被修改，重试和切换都依赖人工推断。
+- manifest 校验与实际 `pg_restore` 分别按路径读取 dump，校验后路径仍可能被替换；锁释放和失败清理也只做 `existsSync + unlink`，无法区分本进程创建的 inode 与后来出现的外部文件。
+
+### 逃逸链与系统性漏洞
+
+- 单元测试只验证 `pg_restore` 调用次数和退出码，没有部分成功、并发状态、非空目标、校验后替换、锁/文件所有权和切换门禁。
+- 集成测试没有机器可读的完成状态，也没有通过真实子进程验证无数据库凭据的状态检查。
+- 运维文档写了“失败不得切换”，但没有一条命令把规则变成自动化门禁。
+- 代码审查关注 checksum 和 `shell:false`，没有沿“校验对象是否就是实际使用对象”与“清理对象是否仍属于当前进程”追踪 TOCTOU。
+
+### 修复与预防
+
+- 恢复在修改任何数据库前用 `psql` 检查两个目标为空；每个 dump 从普通文件的只读 descriptor 重新计算 SHA-256，并把同一 descriptor 作为 `pg_restore` stdin。
+- 备份锁、临时文件、最终文件和恢复状态都记录创建时 `dev + ino`；失败清理只删除仍匹配该身份的文件，路径被替换时 fail closed。
+- `--state-file` 位于备份目录之外，已有 `complete`/`failed`/`in-progress` 任一工件即拒绝覆盖；`--verify-state` 同时核对 manifest 指纹、双库完成集合和冲突工件。
+- 后续所有多资源恢复/迁移测试必须覆盖：部分成功、重复执行、并发争抢、非空目标、工具缺失、校验后替换、清理所有权和机器切换门禁。Windows 的 `chmod` 不等价于 ACL，Runbook 必须要求受限 NTFS 目录。
+
 ## 2026-07-21：API 全量测试在干净提交快照失败
 
 ### 第一性原因
@@ -3432,3 +3453,84 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 - `.quality-gates.md` 新增“异步测试必须真实等待”和“必须在干净提交快照复验”规则。
 - API runner 继续逐文件检查退出码；任何测试子进程失败都会使总命令非零退出。
 - 平台注册测试只通过公开的 `getAdapter()`/`supportsApi()` 合同判断能力，禁止用物理文件数量推断支持平台数。
+
+## 2026-07-21：外部备份工具不能接收可替换的输出路径
+
+### 第一性原因
+
+- 问题来自本分支尚未提交的初版 `postgres-backup.js`，因此没有可追溯的历史 commit。初版先创建 `.dump.partial`，再把该路径交给 `pg_dump --file`；事后 inode 校验只能发现替换，无法撤销 `pg_dump` 已经跟随符号链接或硬链接写坏外部文件的副作用。
+- 随后的第一版修复虽然从校验后的只读 descriptor 复制，却直接以最终文件名逐块写入，导致消费者可能看到半成品；manifest 又曾在锁释放后发布，形成无锁提交窗口。
+
+### Bug 逃逸链
+
+- **单元测试**：只在 `pg_dump` 返回后替换路径，验证了“最终是否报错”，没有验证外部目标是否在报错前已被写入，也没有断言子进程 stdout 必须绑定 descriptor。
+- **集成测试**：只检查 manifest 存在和 checksum，没有观察发布期间的最终路径，因此非原子复制也会通过。
+- **端到端/恢复演练**：真实 PostgreSQL 与硬链接卷属于外部环境，本地未执行；Runbook 的“失败不发布”无法证明瞬时半成品不可见。
+- **代码审查**：前两轮集中在恢复端“校验对象等于使用对象”，没有把同一原则继续追到生产者 `pg_dump` 的写入入口和 manifest 锁释放顺序。
+
+### 系统性漏洞定位
+
+- 类型：测试场景缺失 + 审查盲区。
+- 具体缺口：`backup-restore.test.js` 没有 stdout descriptor 合同、硬链接原子发布、源描述符打开后路径替换、发布后目标替换、manifest/目录 `fsync` 失败和锁存在时拒绝恢复等场景。
+- 影响范围：所有把外部 CLI 输出到安全工件、再生成索引/manifest 的备份、导出和构建流水线。
+
+### 修复与回归保护
+
+- 父进程以 `O_EXCL` 创建随机私有临时文件，`pg_dump` 不再接收 `--file`，stdout 直接绑定已打开 descriptor；写入完成后执行 `fchmod`、`fsync`、inode/path 校验和 SHA-256。
+- 两个 dump 与 manifest 仅通过同目录硬链接发布；不支持硬链接时返回 `BACKUP_ATOMIC_PUBLISH_UNSUPPORTED`，禁止退回到最终文件名逐块复制。manifest 在锁内最后发布并同步目录，恢复看到 `.backup.lock` 时返回 `BACKUP_IN_PROGRESS`。
+- 回归文件：`packages/api-publish-engine/test/backup-restore.test.js`。模式：Node 集成测试。覆盖 stdout fd、普通/符号链接替换、打开后替换、三工件硬链接、目标替换、`fsync` 失败、锁门禁和最终 bytes/SHA-256。
+
+### 防止再次发生
+
+- `.quality-gates.md` 新增“外部备份工具只写私有 descriptor、最终工件锁内原子发布”的安全门禁。
+- 后续所有外部 CLI 文件输出审查必须沿四个对象核对：创建对象、工具写入对象、checksum 对象、最终发布对象；四者不能仅靠可替换路径名关联。
+- manifest/index 必须定义明确提交点，并测试提交前崩溃、提交后锁残留和目录同步失败；文档承诺不能替代机器可执行门禁。
+
+## 2026-07-21：新增 readiness 时必须同步容器健康语义
+
+### 第一性原因
+
+- `e449657` 在系统只有 liveness 时为 Dockerfile 和 Compose 引入 `/api/v1/health` 探针，当时语义正确。本分支新增依赖数据库 schema、migration 和 OIDC/JWKS 的 `/ready` 后，初版实现只增加路由、smoke 和监控，没有把两份容器探针作为同一接口合同更新。
+- 服务鉴权和路由直接比较完整 `req.url`，使 `/api/v1/ready?source=container` 不再命中免认证与 readiness 路由。
+
+### 逃逸链与系统性漏洞
+
+- 单元测试覆盖 `/health` 与 `/ready` 的 200/503，但没有附带查询参数，也没有读取 Dockerfile/Compose 断言探针目标。
+- 部署合同测试只检查构建上下文、端口和环境变量，没有验证健康检查必须使用 readiness。
+- Compose 解析只能证明 YAML 和变量展开合法，无法判断 `/health` 与 `/ready` 的业务语义。
+- 代码审查先关注 readiness 内部检查、脱敏和缓存，没有沿“新增就绪接口 -> 所有流量门禁消费者”追踪 Docker、Compose 与监控。
+
+### 修复与回归保护
+
+- Dockerfile 和业务 API Compose 健康检查统一访问 `/api/v1/ready`；数据库或身份依赖失败时容器保持 unhealthy。
+- `PublishApiServer` 集中按 pathname 做鉴权、scope、feature 和路由判断，保留原始 URL 供查询参数读取。
+- `logto-deploy-contract.test.js` 直接读取两份部署配置，断言存在 `/ready` 且健康检查中不存在 `/health`；`production-readiness.test.js` 覆盖 required-auth 下带查询参数的 ready 探针。
+- 恢复状态在 Unix 下为进行中创建、终态发布和进行中移除同步父目录，现有恢复集成测试通过注入同步探针固定三个提交点。
+
+### 防止再次发生
+
+- 新增或改变 liveness/readiness 语义时，必须同时检索 Dockerfile、Compose、Kubernetes、负载均衡、监控和 smoke 的所有探针 URL。
+- YAML/Compose 解析门禁之外必须保留语义合同测试，不能把“配置可解析”当作“流量门禁正确”。
+- 恢复/迁移状态机的每个机器可见提交点都要同时定义文件内容持久化和目录项持久化；Windows 无目录 `fsync` 时必须明确依赖受限 NTFS 边界。
+
+## 2026-07-21：Compose 配置挂载必须覆盖运行时真实读写路径
+
+### 第一性原因
+
+- `e449657` 引入 API Key 管理和 Docker Compose 时，`ApiKeyManager` 的默认路径已经是 `/app/packages/api-publish-engine/config/api-keys.json`（由包内 `__dirname` 计算），但 Compose 继续把宿主 `./config` 挂到 `/app/config`。这个挂载目录没有默认消费者，API Key 写入仍落在容器层，重启后丢失。
+
+### 逃逸链与系统性漏洞
+
+- 单元测试覆盖了 `ApiKeyManager` 自定义临时路径和文件读写，没有把默认路径与容器 `WORKDIR` 组合起来验证。
+- 部署合同测试只检查 build context、端口、环境变量和健康检查，Compose YAML 能解析也无法证明挂载目标正确。
+- 代码审查关注 Docker build 和 readiness 探针，没有沿“运行时默认路径 -> Compose volume target -> 容器重启后的持久化”完整追踪。
+
+### 修复与回归保护
+
+- Compose 改为把 `./config` 挂载到 `/app/packages/api-publish-engine/config`；部署合同测试同时断言新目标存在且旧 `/app/config` 目标不存在。
+- Runbook 明确 Linux 主机目录需要预先创建并授权给容器 UID `1001`，避免挂载正确但不可写。
+
+### 防止再次发生
+
+- 每次新增持久化消费者时，部署合同测试必须同时核对默认路径、容器 `WORKDIR`、volume target 和重启后的状态保留语义。
+- Compose 可解析不再视为持久化正确；需要保留运行时路径合同测试，并在代码审查清单中检查死挂载和权限边界。
