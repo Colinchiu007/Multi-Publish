@@ -42,7 +42,10 @@ jobs:
         run: npm ci
 
       - name: Install Python backend runtime
-        run: python3 -m pip install -e packages/python-backend
+        run: python3 -m pip install -e "packages/python-backend[web,video]"
+
+      - name: Verify Python backend imports
+        run: python3 -c "import multi_publish, uvicorn, yaml; print('Python backend imports ready')"
 
       - name: Install Playwright (for GUI tests)
         run: npx playwright install --with-deps chromium
