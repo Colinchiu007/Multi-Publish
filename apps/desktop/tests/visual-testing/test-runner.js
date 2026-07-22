@@ -17,6 +17,23 @@ const fs = require('fs');
 const path = require('path');
 const { buildInitScript } = require('../e2e/helpers/fixture-loader');
 
+const DEFAULT_READY_TIMEOUT = 15000;
+const MIN_READY_TIMEOUT = 1000;
+const MAX_READY_TIMEOUT = 30000;
+
+function resolveReadyTimeout(explicitTimeout) {
+  const configuredTimeout = explicitTimeout ?? process.env.VISUAL_READY_TIMEOUT;
+  const timeout = Number(configuredTimeout);
+  if (!Number.isSafeInteger(timeout) || timeout < MIN_READY_TIMEOUT || timeout > MAX_READY_TIMEOUT) {
+    return DEFAULT_READY_TIMEOUT;
+  }
+  return timeout;
+}
+
+function isTimeoutError(error) {
+  return error?.name === 'TimeoutError' || /timeout .* exceeded/i.test(error?.message || '');
+}
+
 class VisualTestRunner {
   constructor(options = {}) {
     this.url = options.url || process.env.TEST_URL || 'http://127.0.0.1:5174';
@@ -25,7 +42,7 @@ class VisualTestRunner {
     this.reportDir = options.reportDir || 'tests/visual-testing/reports';
     this.metaDir = options.metaDir || 'tests/visual-testing/meta';
     this.baselineDir = options.baselineDir || 'tests/visual-testing/base-screenshots';
-    this.readyTimeout = options.readyTimeout ?? 5000;
+    this.readyTimeout = resolveReadyTimeout(options.readyTimeout);
     this.useFixtures = options.useFixtures !== false;
     
     this.browser = null;
@@ -77,6 +94,84 @@ class VisualTestRunner {
     this._loadMeta();
   }
 
+  async _collectReadinessDiagnostics() {
+    const diagnostics = {
+      url: 'unavailable',
+      hash: 'unavailable',
+      appPresent: 'unavailable',
+      appMounted: 'unavailable',
+      appTextLength: 'unavailable',
+    };
+
+    try {
+      if (typeof this.page.url === 'function') diagnostics.url = this.page.url();
+    } catch (error) {
+      diagnostics.url = `unavailable (${error.message})`;
+    }
+
+    if (typeof this.page.evaluate !== 'function') return diagnostics;
+
+    try {
+      return {
+        ...diagnostics,
+        ...await this.page.evaluate(() => {
+          const app = document.querySelector('#app');
+          return {
+            hash: window.location.hash,
+            appPresent: Boolean(app),
+            appMounted: Boolean(app?.hasAttribute('data-v-app')),
+            appTextLength: (app?.textContent || '').trim().length,
+          };
+        }),
+      };
+    } catch (error) {
+      diagnostics.diagnosticsError = error.message;
+      return diagnostics;
+    }
+  }
+
+  async _waitForApplicationReady(expectedHash, readySelector) {
+    const startedAt = Date.now();
+    let stage = 'Vue 挂载';
+    try {
+      if (typeof this.page.waitForFunction === 'function') {
+        await this.page.waitForFunction((hash) => {
+          const app = document.querySelector('#app');
+          return window.location.hash === hash
+            && app
+            && app.hasAttribute('data-v-app')
+            && (app.textContent || '').trim().length > 0;
+        }, expectedHash, { timeout: this.readyTimeout });
+      }
+      if (readySelector) {
+        stage = `业务选择器(${readySelector})`;
+        const elapsed = Math.max(0, Date.now() - startedAt);
+        const remainingTimeout = this.readyTimeout - elapsed;
+        if (remainingTimeout <= 0) {
+          const exhaustedBudgetError = new Error(`Timeout ${this.readyTimeout}ms exceeded`);
+          exhaustedBudgetError.name = 'TimeoutError';
+          throw exhaustedBudgetError;
+        }
+        await this.page.waitForSelector(readySelector, { timeout: remainingTimeout });
+      }
+    } catch (error) {
+      if (!isTimeoutError(error)) throw error;
+      const diagnostics = await this._collectReadinessDiagnostics();
+      const timeoutError = new Error(
+        `视觉测试就绪超时（${this.readyTimeout}ms）：stage=${stage}；expectedHash=${expectedHash}；`
+        + `url=${diagnostics.url}；hash=${diagnostics.hash}；`
+        + `appPresent=${diagnostics.appPresent}；appMounted=${diagnostics.appMounted}；`
+        + `appTextLength=${diagnostics.appTextLength}`
+        + (diagnostics.diagnosticsError ? `；diagnosticsError=${diagnostics.diagnosticsError}` : ''),
+      );
+      timeoutError.code = stage === 'Vue 挂载'
+        ? 'ERR_VISUAL_APP_READY_TIMEOUT'
+        : 'ERR_VISUAL_READY_SELECTOR_TIMEOUT';
+      timeoutError.cause = error;
+      throw timeoutError;
+    }
+  }
+
   async _navigateToRoute(route, readySelector, expectedRoute = route, destinationUrl = null) {
     const normalizedBase = this.url.replace(/\/$/, '');
     const expectedHash = '#' + expectedRoute;
@@ -84,18 +179,7 @@ class VisualTestRunner {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
     });
-    if (typeof this.page.waitForFunction === 'function') {
-      await this.page.waitForFunction((hash) => {
-        const app = document.querySelector('#app');
-        return window.location.hash === hash
-          && app
-          && app.hasAttribute('data-v-app')
-          && (app.textContent || '').trim().length > 0;
-      }, expectedHash, { timeout: this.readyTimeout });
-    }
-    if (readySelector) {
-      await this.page.waitForSelector(readySelector, { timeout: this.readyTimeout });
-    }
+    await this._waitForApplicationReady(expectedHash, readySelector);
     if (typeof this.page.evaluate === 'function') {
       await this.page.evaluate(async () => {
         if (document.fonts && document.fonts.ready) await document.fonts.ready;

@@ -161,3 +161,118 @@ describe('视觉视图门禁', () => {
     }
   })
 })
+
+describe('视觉应用就绪预算', () => {
+  afterEach(() => {
+    delete process.env.VISUAL_READY_TIMEOUT
+  })
+
+  it('读取有效的 CI 就绪预算，且显式配置优先', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-ready-timeout-'))
+    process.env.VISUAL_READY_TIMEOUT = '15000'
+
+    try {
+      expect(createRunner(tempDir).readyTimeout).toBe(15000)
+      expect(new VisualTestRunner({ readyTimeout: 9000 }).readyTimeout).toBe(9000)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('非法的 CI 就绪预算使用有限默认值', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-ready-timeout-invalid-'))
+    process.env.VISUAL_READY_TIMEOUT = 'not-a-number'
+
+    try {
+      expect(createRunner(tempDir).readyTimeout).toBe(15000)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(['500', '30001', '1000.5', '-1', 'Infinity'])('越界的 CI 就绪预算 %s 使用有限默认值', (value) => {
+    process.env.VISUAL_READY_TIMEOUT = value
+    expect(new VisualTestRunner().readyTimeout).toBe(15000)
+  })
+
+  it('业务选择器只使用 Vue 挂载后的剩余总预算', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-ready-budget-'))
+    const runner = createRunner(tempDir)
+    let now = 0
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    runner.page.waitForFunction = vi.fn().mockImplementation(async () => {
+      now = 14999
+    })
+
+    try {
+      await runner._navigateToRoute('/accounts', '.page-title')
+      expect(runner.page.waitForSelector).toHaveBeenCalledWith('.page-title', { timeout: 1 })
+    } finally {
+      nowSpy.mockRestore()
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('应用挂载超时附带路由与挂载状态诊断，且不继续截图', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-ready-diagnostics-'))
+    const runner = createRunner(tempDir)
+    const timeout = new Error('Timeout 5000ms exceeded')
+    timeout.name = 'TimeoutError'
+    runner.page.waitForFunction = vi.fn().mockRejectedValue(timeout)
+    runner.page.url = vi.fn().mockReturnValue('http://127.0.0.1:5174/#/accounts')
+    runner.page.evaluate = vi.fn().mockResolvedValue({
+      hash: '#/accounts',
+      appPresent: true,
+      appMounted: false,
+      appTextLength: 0,
+    })
+
+    try {
+      let failure
+      try {
+        await runner._navigateToRoute('/accounts', '.page-title')
+      } catch (error) {
+        failure = error
+      }
+
+      expect(failure).toMatchObject({ code: 'ERR_VISUAL_APP_READY_TIMEOUT' })
+      expect(failure.message).toContain('url=http://127.0.0.1:5174/#/accounts')
+      expect(failure.message).toContain('hash=#/accounts')
+      expect(failure.message).toContain('appMounted=false')
+      expect(runner.page.waitForSelector).not.toHaveBeenCalled()
+      expect(runner.page.screenshot).not.toHaveBeenCalled()
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('业务选择器超时保留独立错误码和阶段信息', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-selector-diagnostics-'))
+    const runner = createRunner(tempDir)
+    const timeout = new Error('Timeout 15000ms exceeded')
+    timeout.name = 'TimeoutError'
+    runner.page.waitForFunction = vi.fn().mockResolvedValue(undefined)
+    runner.page.waitForSelector = vi.fn().mockRejectedValue(timeout)
+    runner.page.url = vi.fn().mockReturnValue('http://127.0.0.1:5174/#/accounts')
+    runner.page.evaluate = vi.fn().mockResolvedValue({
+      hash: '#/accounts',
+      appPresent: true,
+      appMounted: true,
+      appTextLength: 32,
+    })
+
+    try {
+      let failure
+      try {
+        await runner._navigateToRoute('/accounts', '.page-title')
+      } catch (error) {
+        failure = error
+      }
+
+      expect(failure).toMatchObject({ code: 'ERR_VISUAL_READY_SELECTOR_TIMEOUT' })
+      expect(failure.message).toContain('stage=业务选择器(.page-title)')
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+})
