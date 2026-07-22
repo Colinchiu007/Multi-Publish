@@ -55,6 +55,7 @@ describe('CommentManager', () => {
       expect(typeof cm.getStatus).toBe('function')
       expect(typeof cm.registerIpcHandlers).toBe('function')
       expect(typeof cm.setGetMainWin).toBe('function')
+      expect(typeof cm.setOwnerSubjectProvider).toBe('function')
     })
   })
 
@@ -152,6 +153,20 @@ describe('CommentManager', () => {
   })
 
   describe('主进程凭据边界', () => {
+    it('身份服务启用后只从当前用户的加密凭据命名空间读取 Cookie', () => {
+      cm.setOwnerSubjectProvider(() => 'user-a')
+
+      expect(cm.resolveCookieHeader('acc1')).toBe('session=stored-cookie')
+      expect(mockLoadCredential).toHaveBeenCalledWith('acc1', '/tmp/test-electron-path', 'user-a')
+    })
+
+    it('身份服务缺少 sub 时拒绝读取 legacy 凭据', () => {
+      cm.setOwnerSubjectProvider(() => null)
+
+      expect(() => cm.resolveCookieHeader('acc1')).toThrow('登录会话缺少用户标识')
+      expect(mockLoadCredential).not.toHaveBeenCalled()
+    })
+
     it('缺少加密凭据时拒绝评论请求', async () => {
       mockLoadCredential.mockReturnValue(null)
 

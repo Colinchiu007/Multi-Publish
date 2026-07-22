@@ -167,6 +167,11 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
         cleanups.push(() => accountManager.setOwnerSubjectProvider(null))
       }
     }
+    const commentManager = container.get('commentManager')
+    if (commentManager && typeof commentManager.setOwnerSubjectProvider === 'function') {
+      commentManager.setOwnerSubjectProvider(ownerSubjectProvider)
+      cleanups.push(() => commentManager.setOwnerSubjectProvider(null))
+    }
 
     if (scheduler && typeof scheduler.setOwnerSubjectProvider === 'function') {
       scheduler.setOwnerSubjectProvider(ownerSubjectProvider)
@@ -205,6 +210,11 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (identityService && typeof identityService.onStateChanged === 'function') {
       const unsubscribeIdentity = identityService.onStateChanged((state) => {
         restoreForOwner(state)
+        if (commentManager && typeof commentManager.stopAll === 'function') {
+          Promise.resolve(commentManager.stopAll()).catch((error) => {
+            log.warn('CommentManager', '身份切换时停止评论轮询失败: ' + errorMessage(error))
+          })
+        }
         if (taskQueue && typeof taskQueue.setOwnerSubjectProvider === 'function') {
           taskQueue.setOwnerSubjectProvider(ownerSubjectProvider)
         }

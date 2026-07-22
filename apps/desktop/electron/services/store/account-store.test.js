@@ -113,8 +113,10 @@ describe("account-store 创建账号输入校验", () => {
     expect(store.addAccount({ id: 1, platform: "github", name: "名称", avatar: "a.png", status: "active" })).toBe(true);
     expect(store.addAccount({ platform: "zhihu", name: "知乎" })).toBe(true);
 
-    expect(store.getAccount(1)).toMatchObject({ id: 1, platform: "github", name: "名称", avatar: "a.png" });
-    expect(store.getAccount(2)).toMatchObject({ id: 2, platform: "zhihu", name: "知乎" });
+    expect(store.getAccount(1)).toMatchObject({ id: "1", platform: "github", name: "名称", avatar: "a.png" });
+    expect(store.listAccounts("zhihu")).toEqual([
+      expect.objectContaining({ platform: "zhihu", name: "知乎" }),
+    ]);
   });
 });
 
@@ -135,8 +137,8 @@ describe("account-store 删除账号级联", () => {
     ];
     for (const [id, platform, article] of tasks) {
       rawDb.run(
-        "INSERT INTO scheduled_tasks (id, platform, article) VALUES (?, ?, ?)",
-        [id, platform, article],
+        "INSERT INTO scheduled_tasks (owner_subject, id, platform, article) VALUES (?, ?, ?, ?)",
+        ["__legacy__", id, platform, article],
       );
     }
 
@@ -146,8 +148,11 @@ describe("account-store 删除账号级联", () => {
       ["wechat_mp", '{"accountId":"10"}'],
       ["zhihu", '{"accountId":1}'],
     ];
-    for (const [platform, result] of history) {
-      rawDb.run("INSERT INTO publish_history (platform, result) VALUES (?, ?)", [platform, result]);
+    for (const [index, [platform, result]] of history.entries()) {
+      rawDb.run(
+        "INSERT INTO publish_history (owner_subject, id, platform, result) VALUES (?, ?, ?, ?)",
+        ["__legacy__", `history-${index}`, platform, result],
+      );
     }
     rawDb.run("INSERT INTO settings (key, value) VALUES (?, ?)", ["default_account:wechat_mp", "1"]);
     rawDb.run("INSERT INTO settings (key, value) VALUES (?, ?)", ["custom:1", "保留"]);
@@ -161,7 +166,7 @@ describe("account-store 删除账号级联", () => {
       { platform: "wechat_mp", result: '{"accountId":"10"}' },
       { platform: "zhihu", result: '{"accountId":1}' },
     ]);
-    expect(createStatement("SELECT value FROM settings WHERE key = ?").get("default_account:wechat_mp")).toBeUndefined();
+    expect(createStatement("SELECT value FROM settings WHERE key = ?").get("default_account:wechat_mp")).toEqual({ value: "1" });
     expect(createStatement("SELECT value FROM settings WHERE key = ?").get("custom:1")).toEqual({ value: "保留" });
   });
 
@@ -169,8 +174,8 @@ describe("account-store 删除账号级联", () => {
     const store = createStoreContext();
     store.addAccount({ id: 1, platform: "wechat_mp", name: "目标账号" });
     rawDb.run(
-      "INSERT INTO scheduled_tasks (id, platform, article) VALUES (?, ?, ?)",
-      ["task-1", "wechat_mp", '{"accountId":1}'],
+      "INSERT INTO scheduled_tasks (owner_subject, id, platform, article) VALUES (?, ?, ?, ?)",
+      ["__legacy__", "task-1", "wechat_mp", '{"accountId":1}'],
     );
     const prepare = store.db.prepare;
     store.db.prepare = (sql) => {
@@ -178,7 +183,7 @@ describe("account-store 删除账号级联", () => {
       return prepare(sql);
     };
 
-    expect(() => store.deleteAccount(1)).toThrow("模拟级联删除失败");
+    expect(store.deleteAccount(1)).toBe(false);
     expect(store.getAccount(1)).not.toBeNull();
     expect(createStatement("SELECT id FROM scheduled_tasks WHERE id = ?").get("task-1")).toEqual({ id: "task-1" });
   });

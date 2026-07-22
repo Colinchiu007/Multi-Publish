@@ -43,10 +43,8 @@ jobs:
       # --- Gate 3: 硬编码密钥扫描 ---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
-          echo "checking for hardcoded secrets..."
-          $hasSecret = Get-ChildItem -Recurse -Filter *.js -Path apps/desktop/electron | Select-String -Pattern "(?i)(api[_-]?key|secret|token|password)\s*=\s*['""][a-zA-Z0-9_\-]{16,}" -Quiet
-          if ($hasSecret) { echo "hardcoded secrets found"; exit 1 }
-          echo "code quality scan done"
+          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js
+          node .github/scripts/check-hardcoded-secrets.js
 
       # --- Gate 4: 单元测试（Vitest 全量，卡点要求）---
       - name: "Gate 4 - Unit tests (Vitest)"

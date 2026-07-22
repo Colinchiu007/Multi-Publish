@@ -1,6 +1,7 @@
 /**
- * E2E Smoke Test — 无头运行，无需 Electron
- * 测试 API 层基础功能是否正常
+ * 静态跨层合同 Smoke Test — 无头运行，无需 Electron
+ * 检查开发服务、配置和流水线 IPC/preload/Renderer 源码合同。
+ * 真实 Electron 与 sandbox 行为由后续 GUI/preload 门禁验证。
  * 
  * 运行: node tests/e2e-smoke.js
  */
@@ -9,7 +10,7 @@ const path = require("path");
 const fs = require("fs");
 
 const PORT = 5174;
-const BASE = "http://127.0.0.1:" + PORT;
+const BASE = (process.env.TEST_URL || "http://127.0.0.1:" + PORT).replace(/\/$/, "");
 let pass = 0, fail = 0;
 
 function assert(ok, msg) {
@@ -101,8 +102,8 @@ async function run() {
     assert(pipelineExists, 'pipeline.js handler 存在');
     if (pipelineExists) {
       const pipelineContent = fs.readFileSync(pipelinePath, 'utf-8');
-      assert(pipelineContent.includes('pipelines:list'), '注册 pipelines:list handler');
-      assert(pipelineContent.includes('pipelines:get'), '注册 pipelines:get handler');
+      assert(pipelineContent.includes('pipeline:list'), '注册 pipeline:list handler');
+      assert(pipelineContent.includes('pipeline:get'), '注册 pipeline:get handler');
     }
   } catch (e) {
     assert(false, 'Pipeline IPC 检查失败: ' + e.message);
@@ -111,13 +112,17 @@ async function run() {
   // 7. Preload bridge
   console.log('\x37. IPC 桥接完整性');
   try {
-    const preloadPath = path.join(__dirname, '..', 'electron', 'preload.js');
-    const preloadExists = fs.existsSync(preloadPath);
-    assert(preloadExists, 'preload.js 存在');
+    const preloadIndexPath = path.join(__dirname, '..', 'electron', 'preload', 'index.js');
+    const publishPreloadPath = path.join(__dirname, '..', 'electron', 'preload', 'publish.js');
+    const preloadExists = fs.existsSync(preloadIndexPath) && fs.existsSync(publishPreloadPath);
+    assert(preloadExists, '模块化 preload 入口和发布桥接存在');
     if (preloadExists) {
-      const preloadContent = fs.readFileSync(preloadPath, 'utf-8');
-      assert(preloadContent.includes('pipelines:list'), 'preload 暴露 pipelines:list');
-      assert(preloadContent.includes('pipelines:get'), 'preload 暴露 pipelines:get');
+      const preloadIndex = fs.readFileSync(preloadIndexPath, 'utf-8');
+      const publishPreload = fs.readFileSync(publishPreloadPath, 'utf-8');
+      assert(preloadIndex.includes('createPublishApi'), 'preload 聚合发布 API');
+      assert(preloadIndex.includes("exposeInMainWorld('electronAPI'"), 'preload 暴露 electronAPI');
+      assert(publishPreload.includes("ipcRenderer.invoke('pipeline:list')"), 'preload 映射 pipeline:list');
+      assert(publishPreload.includes("ipcRenderer.invoke('pipeline:get'"), 'preload 映射 pipeline:get');
     }
   } catch (e) {
     assert(false, 'Preload 检查失败: ' + e.message);
@@ -131,8 +136,9 @@ async function run() {
     assert(cvExists, 'CreateView.vue 存在');
     if (cvExists) {
       const cvContent = fs.readFileSync(cvPath, 'utf-8');
-      assert(cvContent.includes('PipelineBrowser'), 'CreateView 引用 PipelineBrowser');
-      assert(cvContent.includes('browse-pipelines'), '有 browse-pipelines 模式');
+      assert(cvContent.includes("view === 'pipelines'"), 'CreateView 包含 pipelines 视图');
+      assert(cvContent.includes('pipeline-grid'), 'CreateView 包含流水线网格');
+      assert(cvContent.includes('pipeline-card'), 'CreateView 包含流水线卡片');
     }
   } catch (e) {
     assert(false, 'CreateView 检查失败: ' + e.message);

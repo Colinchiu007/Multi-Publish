@@ -85,8 +85,7 @@ describe('preload sandbox 真实验证器', () => {
       args: expect.arrayContaining([
         ELECTRON_HARNESS_ARG,
         `--preload-sandbox-mode=${sandbox}`,
-        '--disable-gpu',
-        expect.stringMatching(/^--user-data-dir=/),
+        expect.stringMatching(/^--preload-sandbox-user-data-dir=/),
       ]),
       timeout: 1500,
     }))
@@ -153,7 +152,7 @@ describe('preload sandbox 真实验证器', () => {
     expect(setCacheAt).toBeLessThan(whenReadyAt)
   })
 
-  it('Electron harness 使用内联页面，避免临时 HTTP 导航导致窗口提前关闭', () => {
+  it('Electron harness 使用受信任 app 协议，避免放宽真实 IPC 来源校验', () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, '../../scripts/preload-sandbox-electron-harness.js'),
       'utf8',
@@ -161,7 +160,8 @@ describe('preload sandbox 真实验证器', () => {
 
     expect(source).not.toContain("require('http')")
     expect(source).not.toContain('http.createServer')
-    expect(source).toContain('data:text/html')
+    expect(source).toContain("protocol.handle('app'")
+    expect(source).toContain("app://localhost/index.html")
   })
 
   it('外层门禁同时校验退出码、两个模式标记和总成功标记', () => {
@@ -236,7 +236,10 @@ describe('preload sandbox 真实验证器', () => {
   })
 
   it('Electron 子进程超时时保留 stderr，便于定位渲染器启动失败', async () => {
-    const { runChildVerification } = require('../../scripts/verify-preload-sandbox')
+    const {
+      getChildVerificationTimeout,
+      runChildVerification,
+    } = require('../../scripts/verify-preload-sandbox')
     const child = new EventEmitter()
     child.stdout = new PassThrough()
     child.stderr = new PassThrough()
@@ -245,11 +248,12 @@ describe('preload sandbox 真实验证器', () => {
 
     vi.useFakeTimers()
     try {
-      const verification = runChildVerification(spawnImpl, {
+      const env = {
         PRELOAD_SANDBOX_TIMEOUT_MS: '20',
-      })
+      }
+      const verification = runChildVerification(spawnImpl, env)
       child.stderr.write('GPU process fatal')
-      await vi.advanceTimersByTimeAsync(25)
+      await vi.advanceTimersByTimeAsync(getChildVerificationTimeout(env) + 1)
       child.emit('close', null)
 
       await expect(verification).rejects.toThrow(/GPU process fatal/)

@@ -37,7 +37,7 @@ describe('account-manager — userData fallback', () => {
       .spyOn(accountManager.credentialStore, 'hasCredential')
       .mockReturnValue(false)
     expect(accountManager.checkLocalCredentials('wechat_mp', 'account-1')).toBe(false)
-    expect(hasCredential).toHaveBeenCalledWith('account-1', expectedDir, undefined)
+    expect(hasCredential).toHaveBeenCalledWith('account-1', expectedDir)
   })
 })
 
@@ -49,6 +49,7 @@ describe('account-manager — Logto owner 隔离', () => {
   })
 
   afterEach(() => {
+    global.__electronMock.app.getPath = function () { return '/tmp/test-electron-path' }
     vi.restoreAllMocks()
   })
 
@@ -78,7 +79,7 @@ describe('account-manager — Logto owner 隔离', () => {
     const saveRecord = vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord')
       .mockImplementation(() => {})
     const saveCredential = vi.spyOn(accountManager.credentialStore, 'saveCredential')
-      .mockImplementation(() => {})
+      .mockReturnValue(true)
 
     await accountManager.addAccount('wechat_mp')
 
@@ -120,11 +121,12 @@ describe('account-manager — Logto owner 隔离', () => {
     const loadCredential = vi.spyOn(accountManager.credentialStore, 'loadCredential')
       .mockReturnValue({
         platform: 'douyin',
+        cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }],
         localStorage: { token: 'local-token' },
         accountInfo: { nickName: '用户 A' },
       })
     const getRecord = vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord')
-      .mockReturnValue({ cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }] })
+      .mockReturnValue({ platform: 'douyin', accountId: 'account-a' })
     const session = { cookies: { set: vi.fn(async () => {}) } }
     const webContents = { executeJavaScript: vi.fn(async () => {}) }
 

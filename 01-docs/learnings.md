@@ -3351,6 +3351,30 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **最终验证**：Vitest `4809/4809`、功能 E2E `270/270`、像素视觉 `16/16`、preload 双 sandbox 模式、Windows 打包、ASAR require 链和应用启动均通过。
 
+## 2026-07-22：Logto 登录窗口 PR 的 CI 合同漂移
+
+**第一性原因**：`43f454f6` 为统一 CI runner，只把视觉任务从 Ubuntu 改为 Windows，却保留了 `apt-get` 和 Bash readiness；流水线 IPC 和 CreateView 后续重构时，静态 smoke 仍断言旧的复数通道、单文件 preload 和已移除的组件集成；Stryker 配置从根目录引用 workspace Vitest 后，depcheck 仍按根依赖边界判断。
+
+**测试逃逸链**：
+- 单元测试只覆盖业务模块，没有校验 workflow runner 与脚本语法的匹配关系。
+- GUI smoke 本身属于门禁，但检查实现细节而非当前主进程、preload、Renderer 三方合同，重构后成为永久红灯。
+- 依赖门禁没有覆盖根配置消费 workspace 工具的 monorepo 合法模式。
+- 密钥扫描使用 `-Quiet`，失败时不提供文件和行号，无法区分生产代码与测试夹具，也无法低成本复核。
+
+**修复与回归保护**：新增 workflow 合同测试；密钥扫描改为跨平台 Node 脚本，覆盖赋值与对象配置、排除测试文件并输出脱敏位置；视觉 workflow 恢复 Ubuntu，并在同一步骤用独立进程组管理 Vite 生命周期；depcheck 明确忽略 workspace 提供的 Vitest；GUI smoke 改为核对 `pipeline:*`、模块化 preload 和 CreateView 内联流水线视图。
+
+**系统性预防**：workflow 中出现 `apt-get`、`seq`、`sleep` 等 Linux/Bash 命令时，必须有匹配的 Ubuntu runner 和显式 Bash shell；静态 smoke 只检查稳定的跨层契约，架构重构必须同步更新；安全门禁失败必须提供脱敏后的文件和行号，禁止只返回布尔值。
+
+## 2026-07-22：用户隔离与预加载交付物复验
+
+**第一性原因**：`owner_subject` 隔离改动只把 owner 传给删除凭证的后半段，`hasCredential()` 仍读取 legacy 根目录；评论模块没有注入身份解析器，可能读取 legacy 凭证。另有测试 fixture 被 IPC 生产扫描器误识别为 handler，而 preload sandbox harness 使用 `data:` 页面，被真实 IPC 来源校验正确拒绝。
+
+**逃逸链**：Store/AccountManager 单测只检查删除调用，不检查存在性查询的 owner；评论测试只覆盖 legacy 凭证；IPC 扫描器没有排除 `.test.js`；sandbox 单测 mock 了页面返回值，没有以可信来源调用真实 handler。
+
+**修复与保护**：删除前的凭证存在性查询、评论 Cookie 读取和身份切换后的轮询停止都使用当前 owner；新增多用户凭证回归测试。IPC 扫描器排除测试文件并有 Node 回归测试。sandbox harness 改用最小 `app://localhost` 协议，维持生产同等来源校验，真实 `sandbox:true/false` 均通过。
+
+**默认账号补充**：初次修复后，`store:set-default-account` 在 Logto owner 模式下仍可能在成功路径写入旧的全局 `default_account:*` setting；失败时也曾尝试向全局后端账号列表回退。这会制造跨用户旧状态，并给后续兼容代码留下绕过边界。现在 owner 模式只调用 owner-scoped `setDefaultAccount()`，失败立即拒绝，且成功不写 legacy setting；新增成功和失败两条 IPC 回归测试。
+
 ## 2026-07-20：蚁小二账号/发布对齐 Bug 反哺
 
 ### Bug 1：渲染层可向账号存储写入凭证

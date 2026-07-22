@@ -121,19 +121,39 @@ class CommentManager {
     /** @type {Map<string, CommentMessageService>} */
     this._services = new Map()
     this._getMainWin = null
+    this._ownerSubjectProvider = null
   }
 
   setGetMainWin (fn) { this._getMainWin = fn }
+
+  setOwnerSubjectProvider (provider) {
+    if (provider !== null && provider !== undefined && typeof provider !== 'function') {
+      throw new TypeError('ownerSubjectProvider 必须是函数或 null')
+    }
+    this._ownerSubjectProvider = provider || null
+  }
+
+  _resolveOwnerSubject () {
+    if (!this._ownerSubjectProvider) return undefined
+    const ownerSubject = this._ownerSubjectProvider()
+    if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
+      throw new Error('登录会话缺少用户标识')
+    }
+    return ownerSubject.trim()
+  }
 
   /**
    * 仅在主进程中把加密 Cookie 转成 HTTP 请求头。
    * @param {string} accountId
    */
-  resolveCookieHeader (accountId) {
+  resolveCookieHeader (accountId, ownerSubject = this._resolveOwnerSubject()) {
     if (typeof accountId !== 'string' || !SAFE_IDENTIFIER.test(accountId)) {
       throw new Error('缺少或非法账号 ID')
     }
-    const credentials = credentialStore.loadCredential(accountId, getUserDataDir())
+    const userDataDir = getUserDataDir()
+    const credentials = ownerSubject === undefined
+      ? credentialStore.loadCredential(accountId, userDataDir)
+      : credentialStore.loadCredential(accountId, userDataDir, ownerSubject)
     const cookieHeader = serializeCookieHeader(credentials && credentials.cookies)
     if (!cookieHeader) throw new Error('未找到账号登录凭证')
     return cookieHeader

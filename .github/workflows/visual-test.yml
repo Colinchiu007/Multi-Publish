@@ -10,15 +10,19 @@ on:
     branches: [main]
     paths:
       - 'apps/desktop/**'
+      - '.github/workflows/visual-test.yml'
+      - '.github/scripts/workflow-contract.test.js'
   push:
     branches: [main]
     paths:
       - 'apps/desktop/**'
+      - '.github/workflows/visual-test.yml'
+      - '.github/scripts/workflow-contract.test.js'
   workflow_dispatch:
 
 jobs:
   visual-test:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       TEST_URL: http://127.0.0.1:5174
@@ -47,28 +51,46 @@ jobs:
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
-      - name: Start Vite dev server (background)
+      - name: Pixel-comparison tests (default, no API Key needed)
+        shell: bash
         run: |
-          cd apps/desktop
-          npx vite --port 5174 &
+          set -euo pipefail
+          setsid bash -c 'cd apps/desktop && exec npx vite --host 127.0.0.1 --port 5174' \
+            > apps/desktop/vite-visual.log 2>&1 &
+          vite_pid=$!
+          cleanup() {
+            kill -- -"$vite_pid" 2>/dev/null || true
+            wait "$vite_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          vite_ready=0
           for i in $(seq 1 30); do
-            if curl -s http://127.0.0.1:5174/ > /dev/null 2>&1; then
+            if curl --fail --silent --show-error http://127.0.0.1:5174/ > /dev/null 2>&1; then
               echo "Vite ready after ${i}s"
-              exit 0
+              vite_ready=1
+              break
+            fi
+            if ! kill -0 "$vite_pid" 2>/dev/null; then
+              echo "Vite exited before becoming ready"
+              cat apps/desktop/vite-visual.log
+              exit 1
             fi
             sleep 1
           done
-          echo "❌ Vite never became ready"
-          exit 1
+          if [ "$vite_ready" -ne 1 ]; then
+            echo "Vite never became ready"
+            cat apps/desktop/vite-visual.log
+            exit 1
+          fi
 
-      - name: Pixel-comparison tests (default, no API Key needed)
-        run: npm run test:visual:pixel -w @multi-publish/desktop
+          npm run test:visual:pixel -w @multi-publish/desktop
 
       - name: Generate Agent visual-judge report
         if: always()
         run: |
           echo "=== Agent Visual Judge ==="
-          node apps/desktop/tests/visual-testing/scripts/agent-visual-judge.js || true
+          node apps/desktop/tests/visual-testing/scripts/agent-visual-judge.js
 
       - name: Upload screenshots and reports
         if: always()
@@ -78,4 +100,5 @@ jobs:
           path: |
             apps/desktop/tests/visual-testing/screenshots
             apps/desktop/tests/visual-testing/reports
+            apps/desktop/vite-visual.log
           retention-days: 7

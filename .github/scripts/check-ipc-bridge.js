@@ -34,6 +34,10 @@ const GAPS = new Set([]);
 const RE1 = /ipcMain\.handle\s*\(\s*['"]([^'"]+)['"]/g;
 const RE2 = /ipcRenderer\.invoke\s*\(\s*['"]([^'"]+)['"]/g;
 
+function isProductionSourceFile(name) {
+  return name.endsWith('.js') && !name.endsWith('.test.js') && name !== 'types.js';
+}
+
 function extract(content, re) {
   const s = new Set(); let m;
   while ((m = re.exec(content)) !== null) s.add(m[1]);
@@ -42,7 +46,7 @@ function extract(content, re) {
 
 const all = new Set();
 for (const d of [HD, SD]) {
-  for (const f of fs.readdirSync(d).filter(x => x.endsWith('.js') && x !== 'types.js')) {
+  for (const f of fs.readdirSync(d).filter(isProductionSourceFile)) {
     const c = fs.readFileSync(path.join(d, f), 'utf8');
     if (c.length < 100) continue;
     extract(c, RE1).forEach(x => all.add(x));
@@ -83,4 +87,6 @@ if (gaps.length) {
 console.log('  统计: ' + all.size + ' handlers / ' + pre.size + ' preload');
 console.log('        ' + HIDDEN.size + ' 有意隐藏 / ' + gaps.length + ' 已知缺口');
 console.log('');
-process.exit(code);
+if (require.main === module) process.exit(code);
+
+module.exports = { isProductionSourceFile };

@@ -8,6 +8,8 @@
 ### 质量
 - 新增窗口安全、加载失败、关闭取消、并发窗口和 OAuth 回退测试。
 - 完成 Vue/preload 构建、preload 双 sandbox、Windows QM-1 打包、ASAR/启动、真实 Logto 页面和像素 16/16 验证。
+- 修复视觉 CI 运行系统、workspace Vitest 依赖检查和过期 GUI smoke 契约；密钥扫描改为可定位且排除测试夹具。
+- 补齐账号凭证、评论 Cookie 和后台轮询的 `owner_subject` 隔离；预加载 bundle、双 sandbox、身份 E2E 与像素回归均已复验。
 
 ---
 

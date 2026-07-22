@@ -40,8 +40,32 @@ describe('Scheduler 共享实现', () => {
 
   it('暴露完整且稳定的实例 API', () => {
     expect(Object.keys(scheduler).sort()).toEqual([
-      'cancel', 'create', 'list', 'restore', 'setTaskQueue', 'stopAll'
+      'cancel', 'create', 'list', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
     ])
+  })
+
+  it('按 owner 隔离相同 ID 的任务列表和取消操作', () => {
+    const entries = [
+      { id: 'shared', owner_subject: 'user-a', platform: 'wechat', article: {}, status: 'pending', publishTime: futureTime() },
+      { id: 'shared', owner_subject: 'user-b', platform: 'douyin', article: {}, status: 'pending', publishTime: futureTime() },
+    ]
+    fs.writeFileSync(filePath, entries.map(JSON.stringify).join('\n') + '\n', 'utf-8')
+
+    expect(scheduler.list('user-a')).toEqual([entries[0]])
+    expect(scheduler.cancel('shared', 'user-a')).toBe(true)
+    expect(scheduler.list('user-a')[0].status).toBe('cancelled')
+    expect(scheduler.list('user-b')[0].status).toBe('pending')
+  })
+
+  it('注入身份 provider 后创建任务写入 owner，缺少 sub 时 fail-closed', () => {
+    scheduler.setOwnerSubjectProvider(() => 'user-a')
+    const entry = scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime() })
+
+    expect(entry.owner_subject).toBe('user-a')
+    expect(scheduler.list()).toEqual([entry])
+
+    scheduler.setOwnerSubjectProvider(() => null)
+    expect(() => scheduler.list()).toThrow('登录会话缺少用户标识')
   })
 
   it('create 以 JSONL 持久化 pending 任务并注册未来定时器', () => {
@@ -427,7 +451,7 @@ describe('Scheduler 共享兼容入口', () => {
     const schedulerModule = require('../scheduler')
     const sharedUtils = require('..')
     expect(Object.keys(schedulerModule).sort()).toEqual([
-      'cancel', 'create', 'createScheduler', 'list', 'restore', 'setTaskQueue', 'stopAll'
+      'cancel', 'create', 'createScheduler', 'list', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
     ])
     expect(sharedUtils.createScheduler).toBe(schedulerModule.createScheduler)
   })

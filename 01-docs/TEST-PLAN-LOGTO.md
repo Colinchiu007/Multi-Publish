@@ -144,6 +144,7 @@ node ../../node_modules/electron-builder/cli.js --win --x64
 | 真实 Logto 页面 | 打包应用内独立窗口加载 `https://auth.iart.work/sign-in`，显示用户名、密码、登录和注册入口 |
 | 像素视觉 | 两项主线基线漂移经人工审阅后提升基准；复验 16/16 |
 | 代码审查 | 发现旧窗口延迟失败误关新窗口的 MAJOR 竞态，补回归测试并修复；复审无 CRITICAL/MAJOR |
+| CI 合同 | 密钥扫描、依赖检查、视觉 runner 与 GUI smoke 已按当前 workspace/Electron 架构修复，并有仓库级回归测试 |
 
 ### 7.2 已知限制与未执行外部场景
 
@@ -157,6 +158,8 @@ node ../../node_modules/electron-builder/cli.js --win --x64
 - preload 真实 Electron 验证在受限进程沙箱中会触发系统 GPU 子进程访问失败；在非受限本机环境重跑后 `sandbox:true/false` 均通过。此处的“非受限”仅指测试宿主权限，不改变 BrowserWindow 的 sandbox 配置。
 - 覆盖率全量使用单 worker 时在 900 秒上限超时且无断言失败；改用 `--maxWorkers=4` 后 572.7 秒完成并通过。Windows/D 盘高负载环境不能把单 worker 超时当成源码失败。
 - 历史 Node API 测试曾使用同步 `try { fn() }` 包装 `async` 回调，导致测试先打印通过、Promise 随后在进程中未处理失败；最终门禁已改为 `node:test` 的真实等待，并在独立干净工作树复验，避免其他未提交改动掩盖提交缺口。
+- 2026-07-22 已修复并复验此前 owner 隔离、preload bundle 和测试合同漂移：Electron services 113 files / 2119 tests、其他 Electron 62 files / 1188 tests、shared-utils 213 passed / 10 skipped、故障注入 14/14、Monkey 5/5、Node CI 合同 5/5、身份 E2E 和像素视觉 16/16 均通过。默认账号的 owner 隔离补丁另以 threads 池复验：Store IPC 55/55，账户存储与级联清理 58/58；Logto 模式不会回退全局账号列表或写入 legacy setting。直接整库 Vitest 仍不作为唯一门禁，因为 D 盘 jsdom 环境创建会在 10 分钟命令上限内无法汇总。
+- 本轮 `electron-builder --win --x64` 已生成新的 `win-unpacked`，ASAR 清单和 8 秒启动均通过。一次短超时后，以更长上限重跑获得 exit 0；NSIS、blockmap 与未配置签名的跳过路径均完成。
 
 ### 7.3 E2E 前置条件
 
