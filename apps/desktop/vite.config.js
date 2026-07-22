@@ -23,11 +23,19 @@ export default defineConfig({
   },
   build: {
     outDir: path.resolve(__dirname, 'dist'),
-    emptyOutDir: true
+    emptyOutDir: true,
+    // 共享包通过 workspace junction 解析到 packages/，默认只转换 node_modules
+    // 会把 platform-definitions.js 的 module.exports 原样送进浏览器。
+    commonjsOptions: {
+      include: [/node_modules[\\/]*/, /packages[\\/]shared-utils[\\/]/],
+    },
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src')
+      '@': path.resolve(__dirname, 'src'),
+      // 浏览器不能执行共享包中的 CommonJS module.exports。
+      '@multi-publish/shared-utils/src/platform-definitions':
+        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/platform-definitions.browser.js'),
     }
   }
 })
