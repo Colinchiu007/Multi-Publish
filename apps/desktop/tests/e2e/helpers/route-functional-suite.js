@@ -2,6 +2,7 @@ const { FunctionalRunner } = require('./functional-runner');
 
 const SUITE_OPTIONS = { initPro: true };
 const CONDITION_TIMEOUT = 5000;
+const CONFIRMATION_APPEAR_TIMEOUT = 1000;
 
 function record(r, name, passed, details) {
   r.checks.push({ kind: 'functional', name, passed: Boolean(passed), details: details || null });
@@ -421,6 +422,54 @@ function initialButtonLocator(r, control) {
     : r.page.locator('.cohere-main button').nth(control.index);
 }
 
+function firstLocator(locator) {
+  return typeof locator.first === 'function' ? locator.first() : locator;
+}
+
+function lastLocator(locator) {
+  return typeof locator.last === 'function' ? locator.last() : locator;
+}
+
+function mayOpenConfirmation(control) {
+  return /(删除|移除|清空|重置|退出|断开|delete|remove|clear|reset|signout|disconnect)/i
+    .test(`${control.text || ''} ${control.testid || ''}`);
+}
+
+async function hasVisibleConfirmation(r) {
+  const dialogs = r.page.locator('.el-message-box:visible');
+  if (typeof dialogs.count === 'function') return (await dialogs.count()) > 0;
+  return typeof dialogs.isVisible === 'function' && await dialogs.isVisible();
+}
+
+async function dismissTransientConfirmation(r, control) {
+  const dialog = lastLocator(r.page.locator('.el-message-box:visible'));
+  const alreadyVisible = typeof dialog.isVisible === 'function' && await dialog.isVisible();
+  if (!alreadyVisible && (!mayOpenConfirmation(control)
+    || !(await waitForVisible(dialog, CONFIRMATION_APPEAR_TIMEOUT)))) return false;
+
+  const namedCancel = typeof dialog.getByRole === 'function'
+    ? dialog.getByRole('button', { name: '取消', exact: true })
+    : null;
+  let cancel = namedCancel;
+  if (!cancel || !(await waitForVisible(cancel, CONFIRMATION_APPEAR_TIMEOUT))) {
+    const buttons = typeof dialog.locator === 'function'
+      ? dialog.locator('.el-message-box__btns button:not(.el-button--primary)')
+      : r.page.locator('.el-message-box:visible .el-message-box__btns button:not(.el-button--primary)');
+    cancel = firstLocator(buttons);
+  }
+  if (!(await waitForVisible(cancel, CONDITION_TIMEOUT))) {
+    throw new Error('确认弹窗缺少可点击的取消按钮');
+  }
+  await cancel.click({ timeout: CONDITION_TIMEOUT });
+  if (!(await waitForHidden(dialog, CONDITION_TIMEOUT))) {
+    throw new Error('确认弹窗取消后仍未关闭');
+  }
+  if (await hasVisibleConfirmation(r)) {
+    throw new Error('确认弹窗取消后仍有残留遮罩');
+  }
+  return true;
+}
+
 async function clickInitialButton(r, control) {
   const locator = initialButtonLocator(r, control);
   if (!(await waitForVisible(locator, CONDITION_TIMEOUT))) {
@@ -458,6 +507,7 @@ async function auditInitialControls(r, definition) {
       try {
         if (attempt > 0) await resetDefinitionRoute(r, definition);
         await clickInitialButton(r, control);
+        await dismissTransientConfirmation(r, control);
         clicked++;
         lastError = null;
         break;

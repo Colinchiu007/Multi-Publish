@@ -363,6 +363,81 @@ describe('路由通用扫描', () => {
     expect(button.click).toHaveBeenCalledTimes(1)
   })
 
+  it('危险按钮打开确认框后必须取消并清理遮罩，才能扫描下一控件', async () => {
+    let confirmationVisible = false
+    let confirmationRequested = false
+    const clickOrder = []
+    const dangerButton = {
+      isDisabled: vi.fn().mockResolvedValue(false),
+      click: vi.fn(async () => {
+        confirmationRequested = true
+        clickOrder.push('danger')
+      }),
+    }
+    const nextButton = {
+      isDisabled: vi.fn().mockResolvedValue(false),
+      click: vi.fn(async () => {
+        if (confirmationVisible) throw new Error('确认遮罩仍可见')
+        clickOrder.push('next')
+      }),
+    }
+    const buttons = {
+      evaluateAll: vi.fn().mockResolvedValue([
+        { index: 0, text: '删除', testid: 'delete-account-a', disabled: false },
+        { index: 1, text: '验证', testid: 'check-account-a', disabled: false },
+      ]),
+      nth: vi.fn(),
+    }
+    const cancelButton = {
+      isVisible: vi.fn(async () => confirmationVisible),
+      click: vi.fn(async () => {
+        confirmationVisible = false
+        clickOrder.push('cancel')
+      }),
+    }
+    const confirmationDialog = {
+      last: vi.fn(function last () { return this }),
+      count: vi.fn(async () => confirmationVisible ? 1 : 0),
+      isVisible: vi.fn(async () => confirmationVisible),
+      waitFor: vi.fn(async ({ state }) => {
+        if (state === 'visible' && confirmationRequested) {
+          confirmationVisible = true
+          return
+        }
+        if (state === 'hidden' && !confirmationVisible) return
+        throw new Error(`确认框未进入 ${state} 状态`)
+      }),
+      getByRole: vi.fn(() => cancelButton),
+    }
+    const emptyCollection = {
+      evaluateAll: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    }
+    const r = {
+      checks: [],
+      resetToRoute: vi.fn().mockResolvedValue(undefined),
+      page: {
+        locator: vi.fn((selector) => {
+          if (selector === '.cohere-main button') return buttons
+          if (selector === '.cohere-main button[data-testid="delete-account-a"]') return dangerButton
+          if (selector === '.cohere-main button[data-testid="check-account-a"]') return nextButton
+          if (selector === '.el-message-box:visible') return confirmationDialog
+          if (selector === '.el-message-box:visible .el-message-box__btns button:not(.el-button--primary)') return cancelButton
+          return emptyCollection
+        }),
+      },
+    }
+
+    await routeSuite.auditInitialControls(r, { route: '/accounts' })
+
+    expect(cancelButton.click).toHaveBeenCalledTimes(1)
+    expect(nextButton.click).toHaveBeenCalledTimes(1)
+    expect(confirmationVisible).toBe(false)
+    expect(clickOrder).toEqual(['danger', 'cancel', 'next'])
+    expect(confirmationDialog.waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 1000 })
+    expect(r.checks.find(item => item.name === '初始可用按钮均完成点击扫描')).toMatchObject({ passed: true })
+  })
+
   it('重复文本按钮优先使用各自的 data-testid 重新定位', async () => {
     const firstButton = {
       count: vi.fn().mockResolvedValue(1),
