@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Python backend runtime
+        run: python3 -m pip install -e packages/python-backend
+
       - name: Install Playwright (for GUI tests)
         run: npx playwright install --with-deps chromium
 

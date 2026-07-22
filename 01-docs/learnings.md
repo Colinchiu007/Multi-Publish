@@ -3385,6 +3385,8 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **后续复验补充**：Windows runner 仍存在 1.02%-1.92% 的可重复字体和抗锯齿噪声，故仅在 CI 通过 `PIXEL_THRESHOLD=0.02` 明确容忍该范围，本地默认仍为 1%，超过 2% 的变化继续失败。另修复 API Router 未接入 `resolvePlatformConfigPath()` 的实现遗漏，避免显式运行时配置路径被静默忽略；既有 runtime-path 测试已由红转绿。GUI 测试为每次启动创建独立 user-data 目录、禁用 GPU 并保留主进程输出，避免单实例锁冲突且将下一次启动失败变为可诊断证据。
 
+**GUI CI 补充**：主进程诊断确认 Electron 无窗口的直接原因是 GUI workflow 只安装了系统 Python，未安装 `packages/python-backend` 的 `pyproject.toml` 依赖，导致 `uvicorn` 缺失、后端健康检查超时。工作流现在显式执行 `python3 -m pip install -e packages/python-backend`，把运行时依赖纳入 GUI 门禁。
+
 ## 2026-07-20：蚁小二账号/发布对齐 Bug 反哺
 
 ### Bug 1：渲染层可向账号存储写入凭证
