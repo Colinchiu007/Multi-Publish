@@ -69,6 +69,10 @@ jobs:
       - name: "Gate 7 - Visual regression"
         id: visual-gate
         shell: pwsh
+        env:
+          TEST_URL: http://127.0.0.1:5174
+          HEADLESS: "true"
+          PIXEL_THRESHOLD: "0.02"
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           Write-Host "=== Gate 7: Visual Regression Test ==="
