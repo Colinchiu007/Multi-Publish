@@ -4,6 +4,7 @@
  * 修改 selectors.json 即可适配界面变化，无需改测试逻辑
  */
 const { _electron: electron } = require("playwright");
+const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const {
@@ -401,15 +402,24 @@ async function run() {
   const consoleErrors = [];
   const pageErrors = [];
   let runnerError = null;
+  let userDataDir = null;
+  const mainProcessOutput = [];
 
   try {
     if (!fs.existsSync(SS)) fs.mkdirSync(SS, { recursive: true });
     if (!await checkVite()) throw new Error("Vite 未运行");
     console.log("✅ Vite\n");
 
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-gui-'));
     app = await electron.launch({
-      executablePath: EL, args: [MAIN, "--no-sandbox"], timeout: 60000,
+      executablePath: EL,
+      args: [MAIN, '--no-sandbox', '--disable-gpu', `--user-data-dir=${userDataDir}`],
+      timeout: 60000,
     });
+    const mainProcess = app.process();
+    for (const stream of [mainProcess.stdout, mainProcess.stderr]) {
+      stream?.on('data', (chunk) => mainProcessOutput.push(String(chunk).slice(0, 2000)));
+    }
     const observedWindows = new WeakSet();
     const captureWindowErrors = (window) => {
       if (observedWindows.has(window)) return;
@@ -433,6 +443,7 @@ async function run() {
           catch(e) { return { error: e.message }; }
         });
       } catch(_) {}
+      if (mainProcessOutput.length) debugInfo.mainProcessOutput = mainProcessOutput.join('').slice(-4000);
       console.error("\n❌ 未找到主窗口:", JSON.stringify(debugInfo, null, 2));
       // Take screenshot of any window available
       const firstWin = app.windows()[0];
@@ -484,6 +495,7 @@ async function run() {
         console.error(`\n❌ Electron 关闭失败: ${closeError.message}`);
       }
     }
+    if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true });
 
     console.log("\n═══ 控制台错误 ═══");
     if (consoleErrors.length) {

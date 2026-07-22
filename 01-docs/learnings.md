@@ -3383,6 +3383,8 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **修复与预防**：预加载测试保留构建安全检查和源码/bundle API 路径一致性检查，移除跨平台不可靠的字节比较。像素视觉流恢复到与基线一致的 Windows runner，并用 PowerShell 显式管理 Vite 进程；Linux GUI 流只验证浏览器/Electron 功能。workflow 合同测试现锁定 Windows runner、PowerShell 启动和 `taskkill` 清理，同时拒绝 Linux 专用命令，防止平台错配再次进入 CI。
 
+**后续复验补充**：Windows runner 仍存在 1.02%-1.92% 的可重复字体和抗锯齿噪声，故仅在 CI 通过 `PIXEL_THRESHOLD=0.02` 明确容忍该范围，本地默认仍为 1%，超过 2% 的变化继续失败。另修复 API Router 未接入 `resolvePlatformConfigPath()` 的实现遗漏，避免显式运行时配置路径被静默忽略；既有 runtime-path 测试已由红转绿。GUI 测试为每次启动创建独立 user-data 目录、禁用 GPU 并保留主进程输出，避免单实例锁冲突且将下一次启动失败变为可诊断证据。
+
 ## 2026-07-20：蚁小二账号/发布对齐 Bug 反哺
 
 ### Bug 1：渲染层可向账号存储写入凭证
