@@ -5,15 +5,14 @@ const test = require('node:test');
 
 const workflowPath = path.join(__dirname, '..', 'workflows', 'visual-test.yml');
 
-test('视觉工作流的运行系统与 Linux 命令保持一致', () => {
+test('视觉工作流使用与基线一致的 Windows 渲染环境', () => {
   const workflow = fs.readFileSync(workflowPath, 'utf8');
 
-  assert.match(workflow, /runs-on:\s*ubuntu-latest/);
-  assert.match(workflow, /sudo apt-get update/);
-  assert.match(workflow, /shell:\s*bash/);
-  assert.match(workflow, /trap cleanup EXIT/);
-  assert.match(workflow, /setsid bash -c/);
-  assert.match(workflow, /kill -- -"\$vite_pid"/);
-  assert.match(workflow, /npm run test:visual:pixel -w @multi-publish\/desktop/);
+  assert.match(workflow, /runs-on:\s*windows-latest/);
+  assert.match(workflow, /shell:\s*pwsh/);
+  assert.match(workflow, /Start-Process -FilePath "npx\.cmd"/);
+  assert.match(workflow, /taskkill \/PID/);
+  assert.match(workflow, /npm\.cmd run test:visual:pixel/);
+  assert.doesNotMatch(workflow, /sudo apt-get|setsid bash|trap cleanup EXIT/);
   assert.doesNotMatch(workflow, /agent-visual-judge\.js \|\| true/);
 });

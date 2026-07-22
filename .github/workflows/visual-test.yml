@@ -22,7 +22,7 @@ on:
 
 jobs:
   visual-test:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 20
     env:
       TEST_URL: http://127.0.0.1:5174
@@ -37,54 +37,50 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Install Linux system deps (libvips + xvfb)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libvips libvips-dev build-essential python3 xvfb
-
       - name: Install dependencies
         run: npm ci
 
       - name: Install Playwright + Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
       - name: Pixel-comparison tests (default, no API Key needed)
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          setsid bash -c 'cd apps/desktop && exec npx vite --host 127.0.0.1 --port 5174' \
-            > apps/desktop/vite-visual.log 2>&1 &
-          vite_pid=$!
-          cleanup() {
-            kill -- -"$vite_pid" 2>/dev/null || true
-            wait "$vite_pid" 2>/dev/null || true
+          $desktopDir = Join-Path $PWD "apps/desktop"
+          $viteProcess = Start-Process -FilePath "npx.cmd" `
+            -ArgumentList @("vite", "--host", "127.0.0.1", "--port", "5174") `
+            -WorkingDirectory $desktopDir `
+            -RedirectStandardOutput (Join-Path $desktopDir "vite-visual.stdout.log") `
+            -RedirectStandardError (Join-Path $desktopDir "vite-visual.stderr.log") `
+            -WindowStyle Hidden -PassThru
+          try {
+            $viteReady = $false
+            for ($i = 1; $i -le 30; $i++) {
+              Start-Sleep -Seconds 1
+              $viteProcess.Refresh()
+              if ($viteProcess.HasExited) { throw "Vite exited before becoming ready (exit=$($viteProcess.ExitCode))" }
+              try {
+                if ((Invoke-WebRequest -Uri "http://127.0.0.1:5174/" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) {
+                  Write-Host "Vite ready after $i seconds"
+                  $viteReady = $true
+                  break
+                }
+              } catch {}
+            }
+            if (-not $viteReady) { throw "Vite never became ready" }
+            Push-Location $desktopDir
+            try {
+              npm.cmd run test:visual:pixel
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            if (-not $viteProcess.HasExited) { taskkill /PID $viteProcess.Id /T /F 2>$null | Out-Null }
           }
-          trap cleanup EXIT
-
-          vite_ready=0
-          for i in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:5174/ > /dev/null 2>&1; then
-              echo "Vite ready after ${i}s"
-              vite_ready=1
-              break
-            fi
-            if ! kill -0 "$vite_pid" 2>/dev/null; then
-              echo "Vite exited before becoming ready"
-              cat apps/desktop/vite-visual.log
-              exit 1
-            fi
-            sleep 1
-          done
-          if [ "$vite_ready" -ne 1 ]; then
-            echo "Vite never became ready"
-            cat apps/desktop/vite-visual.log
-            exit 1
-          fi
-
-          npm run test:visual:pixel -w @multi-publish/desktop
 
       - name: Generate Agent visual-judge report
         if: always()
@@ -100,5 +96,5 @@ jobs:
           path: |
             apps/desktop/tests/visual-testing/screenshots
             apps/desktop/tests/visual-testing/reports
-            apps/desktop/vite-visual.log
+            apps/desktop/vite-visual.*.log
           retention-days: 7

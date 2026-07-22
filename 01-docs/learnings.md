@@ -3375,6 +3375,14 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 
 **默认账号补充**：初次修复后，`store:set-default-account` 在 Logto owner 模式下仍可能在成功路径写入旧的全局 `default_account:*` setting；失败时也曾尝试向全局后端账号列表回退。这会制造跨用户旧状态，并给后续兼容代码留下绕过边界。现在 owner 模式只调用 owner-scoped `setDefaultAccount()`，失败立即拒绝，且成功不写 legacy setting；新增成功和失败两条 IPC 回归测试。
 
+## 2026-07-22：跨平台 CI 门禁误报
+
+**第一性原因**：预加载测试把 Windows 生成并提交的 esbuild bundle 与 Linux CI 重新生成的 bundle 做逐字节比较。两份 bundle 的 API 行为一致，但 esbuild 生成的内部符号和模块顺序不保证跨平台字节稳定，导致 CI 只因运行环境不同而失败。另一个提交把 Windows 视觉基线的像素门禁迁移到 Ubuntu，1% 阈值下 15/16 视图产生渲染差异；Linux GUI 流又重复执行了该视觉门禁。
+
+**逃逸链**：本地只在 Windows 重新生成和验证 preload，未在 Linux 复验字节稳定性；工作流合同测试只验证 Linux 命令与 Ubuntu runner 的一致性，未把视觉基线的平台作为合同；GUI 流与独立视觉流对同一像素门禁重复覆盖。
+
+**修复与预防**：预加载测试保留构建安全检查和源码/bundle API 路径一致性检查，移除跨平台不可靠的字节比较。像素视觉流恢复到与基线一致的 Windows runner，并用 PowerShell 显式管理 Vite 进程；Linux GUI 流只验证浏览器/Electron 功能。workflow 合同测试现锁定 Windows runner、PowerShell 启动和 `taskkill` 清理，同时拒绝 Linux 专用命令，防止平台错配再次进入 CI。
+
 ## 2026-07-20：蚁小二账号/发布对齐 Bug 反哺
 
 ### Bug 1：渲染层可向账号存储写入凭证

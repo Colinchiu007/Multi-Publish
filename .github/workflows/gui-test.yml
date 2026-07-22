@@ -52,7 +52,7 @@ jobs:
           cd apps/desktop
           npx @electron/rebuild -f -w better-sqlite3
 
-      - name: Browser E2E, visual regression, and Electron GUI gates
+      - name: Browser E2E and Electron GUI gates
         shell: bash
         run: |
           set -euo pipefail
@@ -89,7 +89,6 @@ jobs:
 
           node apps/desktop/tests/e2e-smoke.js
           npm run test:e2e -w @multi-publish/desktop
-          npm run test:visual:pixel -w @multi-publish/desktop
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
             node apps/desktop/tests/electron-gui-v9.js
 

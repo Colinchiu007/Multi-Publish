@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const fs = require('fs')
 const path = require('path')
 
 function collectApiPaths(value, prefix = '') {
@@ -48,17 +47,9 @@ describe('preload 单文件构建', () => {
     expect(code).not.toMatch(/require\(["']\.{1,2}[\\/]/)
   })
 
-  it('提交的 bundle 与当前 preload 源码保持一致', async () => {
-    const { buildPreload, OUTPUT_FILE } = require('../../scripts/build-preload')
-    const result = await buildPreload({ write: false })
-    const committedBundle = fs.readFileSync(OUTPUT_FILE, 'utf8')
-
-    expect(path.basename(OUTPUT_FILE)).toBe('index.bundle.js')
-    expect(result.outputFiles[0].text).toBe(committedBundle)
-  })
-
   it('提交的 bundle 与源码暴露完全相同的 API 路径', () => {
     const { OUTPUT_FILE } = require('../../scripts/build-preload')
+    expect(path.basename(OUTPUT_FILE)).toBe('index.bundle.js')
     const sourceApi = loadExposedApi(path.resolve(__dirname, '../preload/index.js'))
     const bundleApi = loadExposedApi(OUTPUT_FILE)
 
