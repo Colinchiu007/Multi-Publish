@@ -285,7 +285,19 @@ class AuthService {
       await callbackServer.start()
       const callbackPromise = callbackServer.waitForCallback()
       await this._client.signIn({ redirectUri: this._redirectUri })
-      const callbackUri = await callbackPromise
+      let callbackUri
+      if (typeof this._client.waitForSignInWindowClosed === 'function') {
+        const result = await Promise.race([
+          callbackPromise.then((uri) => ({ type: 'callback', uri })),
+          this._client.waitForSignInWindowClosed().then(() => ({ type: 'window-closed' })),
+        ])
+        if (result.type === 'window-closed') {
+          throw new IdentityError('IDENTITY_SIGN_IN_CANCELLED', '登录窗口已关闭')
+        }
+        callbackUri = result.uri
+      } else {
+        callbackUri = await callbackPromise
+      }
       await this._queueSessionMutation(async () => {
         if (operationId !== this._operationId) {
           throw new IdentityError('IDENTITY_SIGN_IN_CANCELLED', '登录已取消')
@@ -315,6 +327,9 @@ class AuthService {
       throw cleanupError || identityError
     } finally {
       if (this._activeCallbackServer === callbackServer) this._activeCallbackServer = null
+      if (typeof this._client.closeSignInWindow === 'function') {
+        try { await this._client.closeSignInWindow() } catch {}
+      }
       await callbackServer.stop()
     }
   }

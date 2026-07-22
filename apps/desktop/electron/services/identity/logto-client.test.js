@@ -25,6 +25,29 @@ describe('createLogtoClient', () => {
     expect(constructed[0].adapter.storage).toBe(storage)
   })
 
+  it('配置认证窗口时优先在应用内导航，并暴露关闭/取消钩子', async () => {
+    const navigated = []
+    const authWindow = {
+      open: vi.fn(async (url, parameters) => { navigated.push({ url, parameters }) }),
+      close: vi.fn(async () => {}),
+      waitForClosed: vi.fn(() => new Promise(() => {})),
+    }
+    class FakeClient { constructor(config, adapter) { this.adapter = adapter } }
+    const { createLogtoClient } = require('./logto-client')
+    const client = await createLogtoClient({
+      endpoint: 'https://id.example.com', appId: 'native-app', resource: 'https://api.multi-publish.com',
+      authWindow,
+      storage: { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} },
+      loadModule: async () => ({ default: FakeClient, createRequester: (fn) => fn }),
+      shell: { openExternal: vi.fn() },
+    })
+    await client.adapter.navigate('https://id.example.com/oidc/auth', { for: 'sign-in' })
+    expect(navigated).toEqual([{ url: 'https://id.example.com/oidc/auth', parameters: { for: 'sign-in' } }])
+    await client.closeSignInWindow()
+    expect(authWindow.close).toHaveBeenCalledTimes(1)
+    expect(client.waitForSignInWindowClosed()).toBeInstanceOf(Promise)
+  })
+
   it('缺少 endpoint/appId/resource 时拒绝启动', async () => {
     const { createLogtoClient } = require('./logto-client')
     await expect(createLogtoClient({ endpoint: '', appId: '', resource: '' })).rejects.toMatchObject({ code: 'IDENTITY_CONFIG_INVALID' })

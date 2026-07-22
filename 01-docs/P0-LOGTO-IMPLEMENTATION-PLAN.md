@@ -19,6 +19,7 @@
 | E-01 | safeStorage Token Storage 测试与实现 | 2.5h | D-03 | 无明文降级、损坏恢复、原子写 |
 | E-02 | Loopback Callback Server 测试与实现 | 3h | E-01 | Host/路径/state/超时/并发/关闭 |
 | E-03 | Logto Adapter 与 AuthService 状态机 | 4h | E-01,E-02 | 登录、刷新单飞、恢复、退出 |
+| E-03B | Electron 独立认证窗口 | 3h | E-02,E-03 | 隔离 Session、导航白名单、关闭取消、外部回退 |
 | E-04 | Identity IPC/preload | 2.5h | E-03 | sender 校验、纯 JSON、双 sandbox |
 | E-05 | CloudPublisher Bearer Token 接入 | 2.5h | E-03,B-02 | 一次刷新重放、移除 user_id |
 | U-01 | Pinia identity store/composable/API | 3h | E-04 | 启动恢复、状态更新、错误映射 |
@@ -35,7 +36,7 @@
 ```text
 D-01 → D-02 → D-03
           ├─ B-01 → B-02/B-03/B-04 → O-02
-          └─ E-01 → E-02 → E-03 → E-04/E-05 → U-01 → U-02
+          └─ E-01 → E-02 → E-03 → E-03B → E-04/E-05 → U-01 → U-02
                                └───────────────→ L-01
 O-01 可在 B/E 任务期间独立完成
 全部完成 → Q-01 → Q-02 → Q-03

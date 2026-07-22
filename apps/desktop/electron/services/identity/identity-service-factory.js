@@ -4,6 +4,7 @@ const SecureTokenStorage = require('./secure-token-storage')
 const { AuthService } = require('./auth-service')
 const { LoopbackCallbackServer } = require('./loopback-callback-server')
 const { createLogtoClient, normalizeEndpoint } = require('./logto-client')
+const { IdentityAuthWindow } = require('./identity-auth-window')
 const { IdentityError } = require('./identity-errors')
 const { EntitlementService } = require('./entitlement-service')
 
@@ -80,12 +81,22 @@ async function createIdentityService(options = {}) {
     storage: entitlementStorage,
   })
   const createClient = options.createClient || createLogtoClient
+  let authWindow = options.authWindow || null
+  if (!authWindow && (options.createAuthWindow || !options.createClient)) {
+    const createAuthWindow = options.createAuthWindow || ((windowOptions) => new IdentityAuthWindow(windowOptions))
+    authWindow = createAuthWindow({
+      endpoint,
+      redirectUri,
+      getParentWindow: options.getMainWin,
+    })
+  }
   const client = await createClient({
     endpoint,
     appId,
     resource,
     scopes: String(env.LOGTO_SCOPES || DEFAULT_SCOPES).split(/\s+/).filter(Boolean),
     storage: tokenStorage,
+    authWindow,
   })
   const createAuthService = options.createAuthService || ((serviceOptions) => new AuthService(serviceOptions))
   const authService = createAuthService({

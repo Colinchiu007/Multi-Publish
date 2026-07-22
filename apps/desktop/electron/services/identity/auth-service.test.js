@@ -105,6 +105,35 @@ describe('AuthService', () => {
     expect(service.getState().user).not.toHaveProperty('email')
   })
 
+  it('用户关闭独立认证窗口时立即取消登录并停止回调服务', async () => {
+    const { AuthService } = require('./auth-service')
+    let closeWindow
+    const windowClosed = new Promise((resolve) => { closeWindow = resolve })
+    const callbackServer = {
+      start: vi.fn(async () => {}),
+      waitForCallback: vi.fn(() => new Promise(() => {})),
+      stop: vi.fn(async () => {}),
+    }
+    const service = new AuthService({
+      client: {
+        prepareSignInState: async () => 'state-1234567890123456',
+        signIn: vi.fn(async () => {}),
+        waitForSignInWindowClosed: () => windowClosed,
+        closeSignInWindow: vi.fn(async () => {}),
+      },
+      tokenStorage: { clear: vi.fn(async () => {}) },
+      callbackServerFactory: () => callbackServer,
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+    })
+
+    const signingIn = service.signIn()
+    await Promise.resolve()
+    closeWindow()
+    await expect(signingIn).rejects.toMatchObject({ code: 'IDENTITY_SIGN_IN_CANCELLED' })
+    expect(callbackServer.stop).toHaveBeenCalledTimes(1)
+    expect(service.getState()).toMatchObject({ status: 'error', error: { code: 'IDENTITY_SIGN_IN_CANCELLED' } })
+  })
+
   it('退出登录先调用 Logto 撤销，再清理本地会话', async () => {
     const { AuthService } = require('./auth-service')
     const order = []

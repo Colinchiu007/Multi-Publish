@@ -28,6 +28,7 @@
 7. **监控告警**：提供 Prometheus/blackbox 示例，至少覆盖 API ready、OIDC discovery、连续失败和高延迟。
 8. **灰度与回滚**：提供 shadow、required、rollback 三阶段检查清单；回滚只切认证开关，不删除身份和 migration 数据。
 9. **高风险回归测试**：覆盖并发额度扣减和并发重复 Webhook；所有测试由 API 全量测试入口真实等待。
+10. **桌面认证体验**：登录和注册在 Electron 独立认证窗口中完成，不嵌入主 Renderer、不由应用收集密码；窗口仅允许 Logto issuer 与固定回环地址，用户关闭窗口视为取消。第三方身份提供商拒绝嵌入式 user-agent 时回退系统浏览器。
 
 ## 4. P1 范围
 
@@ -58,6 +59,7 @@
 - API Compose 的配置持久化挂载必须覆盖运行时实际读写目录，容器重启后 API Key 状态不得丢失。
 - 并发额度测试在 quota=1 时恰好一个成功；同一 Webhook 并发投递只执行一次副作用。
 - Node API 全量测试、`git diff --check`、安全审查和 `.quality-gates.md` 自检通过。
+- 独立认证窗口使用隔离 Session、`contextIsolation: true`、`nodeIntegration: false`、`sandbox: true`；非法导航和新窗口请求被阻止，登录成功、取消、加载失败均关闭窗口并清理回调服务。
 
 ## 7. 外部验收门禁
 

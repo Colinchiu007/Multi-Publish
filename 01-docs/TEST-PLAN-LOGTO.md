@@ -21,6 +21,9 @@
 |------|------|------|
 | 首次登录成功 | 集成/E2E | PKCE 回调成功，状态为 authenticated，Token 不进 Renderer |
 | 用户取消或回调超时 | 单元/E2E | 服务关闭、临时数据清理、可重试错误 |
+| 独立认证窗口 | 单元/Electron | 隔离 Session、安全 webPreferences、父窗口、稳定尺寸和 ready-to-show 后展示 |
+| 非 Logto 导航/新窗口/下载 | 单元/Electron | 阻止应用内导航；安全 HTTPS 外链按策略回退系统浏览器 |
+| 认证窗口关闭/加载失败 | 单元/E2E | 立即取消登录、关闭回调服务、状态可重试 |
 | 非 callback 路径/错误 state/重复 callback | 单元 | 400 或忽略，不交换 Token |
 | 16526 端口被占用 | 集成 | 明确错误，不改用未注册端口 |
 | safeStorage 不可用/密文损坏 | 单元 | 拒绝明文保存，清理损坏会话 |
@@ -80,6 +83,7 @@ npm run test:visual:pixel
 - 检查所有 identity IPC 的 sender、参数 schema、序列化和错误脱敏。
 - 在 `sandbox:true/false`、`contextIsolation:true`、`nodeIntegration:false` 下验证 preload。
 - 验证回环服务只绑定 `127.0.0.1`，拒绝非 GET、非 callback 路径、超大 URL 和重复请求。
+- 验证认证窗口无 preload、`contextIsolation:true`、`nodeIntegration:false`、`sandbox:true`，Session 不与平台账号分区复用；窗口只允许 Logto issuer 与注册回调地址。
 - 使用两个真实签名测试 key 验证 rotation；测试 key 仅放 fixtures，不复用生产 key。
 - 确认 Electron 包中没有 `.env`、M2M secret、测试私钥或明文会话文件。
 - 撤销 API Key 后重启 API 服务，验证其历史 pending 定时任务执行失败；无 Logto 模式也不得绕过撤销状态。
@@ -127,7 +131,21 @@ node ../../node_modules/electron-builder/cli.js --win --x64
 | 变异分片 | `identity-errors.js` + 专属测试 | exit 0；mutation score 90.00%，9 killed、0 survived、1 no coverage |
 | 代码与安全复审 | 冻结 Logto diff 与最终 11 文件暂存 diff 的两轮独立审查 | 未报告 CRITICAL/MAJOR；最终审查的 MINOR 压缩路由覆盖已补回 |
 
-### 7.1 已知限制与未执行外部场景
+### 7.1 独立认证窗口复验（2026-07-22）
+
+| 门禁 | 结果 |
+|------|------|
+| 身份窗口聚焦测试 | 4 files / 54 tests，包含安全选项、导航、加载失败、关闭取消和并发窗口 |
+| 故障注入 | 14/14 |
+| Vue/preload 构建 | 1824 modules transformed，exit 0 |
+| Preload 双 sandbox | `sandbox:true` / `sandbox:false` 均通过 |
+| Windows QM-1 | Electron Builder 25.1.8，NSIS 2.3.53，exit 0 |
+| ASAR/启动 | `identity-auth-window.js` 已入包；打包应用持续运行 10 秒；既有 updater `latest.yml` 404 不影响启动 |
+| 真实 Logto 页面 | 打包应用内独立窗口加载 `https://auth.iart.work/sign-in`，显示用户名、密码、登录和注册入口 |
+| 像素视觉 | 两项主线基线漂移经人工审阅后提升基准；复验 16/16 |
+| 代码审查 | 发现旧窗口延迟失败误关新窗口的 MAJOR 竞态，补回归测试并修复；复审无 CRITICAL/MAJOR |
+
+### 7.2 已知限制与未执行外部场景
 
 - `identity-menu.e2e.js` 通过浏览器注入假的 `window.electronAPI`，证明 UI 状态、键盘和布局合同，不证明 Electron 主进程、PKCE、回环、safeStorage 或真实 Logto 会话链路。
 - 未提供真实 Logto 租户、Management API/M2M 凭据或真实业务 PostgreSQL，因此真实登录/刷新/退出/切换、生产迁移和 PostgreSQL 并发额度压力测试仍需在集成环境执行。
@@ -140,7 +158,7 @@ node ../../node_modules/electron-builder/cli.js --win --x64
 - 覆盖率全量使用单 worker 时在 900 秒上限超时且无断言失败；改用 `--maxWorkers=4` 后 572.7 秒完成并通过。Windows/D 盘高负载环境不能把单 worker 超时当成源码失败。
 - 历史 Node API 测试曾使用同步 `try { fn() }` 包装 `async` 回调，导致测试先打印通过、Promise 随后在进程中未处理失败；最终门禁已改为 `node:test` 的真实等待，并在独立干净工作树复验，避免其他未提交改动掩盖提交缺口。
 
-### 7.2 E2E 前置条件
+### 7.3 E2E 前置条件
 
 默认 `5174` 可能被其他 worktree 的 Vite 服务占用。运行身份 E2E/视觉门禁前必须启动当前工作树的 Vite，并用 `TEST_URL` 指向独立端口；同时检查 `/main.js` 不包含其他 `.worktrees/` 路径，避免测试命中旧代码。
 
