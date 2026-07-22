@@ -239,7 +239,7 @@ describe('路由通用扫描', () => {
     expect(runner.waitForAppReady).toHaveBeenCalledWith('/create')
   })
 
-  it('重置路由使用唯一地址完成且仅完成一次全页导航', async () => {
+  it('重置路由使用唯一地址完成且给予重复全页加载更长的就绪窗口', async () => {
     const runner = new FunctionalRunner()
     runner.goto = vi.fn().mockResolvedValue(undefined)
     runner.waitForAppReady = vi.fn().mockResolvedValue(undefined)
@@ -256,7 +256,64 @@ describe('路由通用扫描', () => {
       { waitUntil: 'domcontentloaded', timeout: 20000 },
     )
     expect(runner.page.reload).not.toHaveBeenCalled()
-    expect(runner.waitForAppReady).toHaveBeenCalledWith('/create')
+    expect(runner.waitForAppReady).toHaveBeenCalledWith('/create', 10000)
+  })
+
+  it('重置路由允许特定用例收紧或放宽就绪超时', async () => {
+    const runner = new FunctionalRunner()
+    runner.waitForAppReady = vi.fn().mockResolvedValue(undefined)
+    runner.page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runner.resetToRoute('/accounts', { readyTimeout: 12000 })
+
+    expect(runner.waitForAppReady).toHaveBeenCalledWith('/accounts', 12000)
+  })
+
+  it('路由就绪把总预算分配给每个条件，而不是为每步重复计时', async () => {
+    const app = { waitFor: vi.fn().mockResolvedValue(undefined) }
+    const runner = new FunctionalRunner()
+    runner.page = {
+      waitForURL: vi.fn().mockResolvedValue(undefined),
+      locator: vi.fn().mockReturnValue(app),
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
+    }
+    const now = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(1100)
+      .mockReturnValueOnce(2200)
+
+    try {
+      await runner.waitForAppReady('/accounts', 10000)
+    } finally {
+      now.mockRestore()
+    }
+
+    expect(runner.page.waitForURL).toHaveBeenCalledWith(expect.any(Function), { timeout: 10000 })
+    expect(app.waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 9000 })
+    expect(runner.page.waitForFunction).toHaveBeenCalledWith(expect.any(Function), '#/accounts', { timeout: 7900 })
+  })
+
+  it('总就绪预算耗尽时仍向调用方报告失败', async () => {
+    const runner = new FunctionalRunner()
+    runner.page = {
+      waitForURL: vi.fn().mockResolvedValue(undefined),
+      locator: vi.fn(),
+      waitForFunction: vi.fn(),
+    }
+    const now = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(10100)
+
+    try {
+      await expect(runner.waitForAppReady('/accounts', 10000)).rejects.toThrow('等待应用就绪超时')
+    } finally {
+      now.mockRestore()
+    }
+
+    expect(runner.page.locator).not.toHaveBeenCalled()
   })
 
   it('扫描任何控件前先完整重置到定义路由', async () => {
