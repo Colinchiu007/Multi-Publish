@@ -108,9 +108,13 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(workflowSteps(workflow).filter((step) => step['continue-on-error'] === true)).toEqual([]);
   });
 
-  it('GUI 工作流真实执行浏览器 E2E 和 Electron GUI 门禁', () => {
+  it('GUI 工作流分层执行浏览器 E2E 和 Electron GUI 门禁', () => {
     const { source } = readWorkflow('gui-test.yml');
 
+    expect(source).toContain('- name: Start Vite server');
+    expect(source).toContain('- name: Browser E2E gates');
+    expect(source).toContain('- name: Electron GUI gate');
+    expect(source).toContain('- name: Stop Vite server');
     expect(source).toContain('npm run test:e2e');
     expect(source).toContain('node apps/desktop/tests/electron-gui-v9.js');
     expect(source).not.toMatch(/electron-gui-v9\.js\s*\|\|/);
