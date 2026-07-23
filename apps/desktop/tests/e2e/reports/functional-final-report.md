@@ -3,13 +3,13 @@
 ## 总览
 
 - 路由覆盖: 18/18 (100%)
-- 路由检查: 226/226 通过 (0 失败)
+- 路由检查: 231/231 通过 (0 失败)
 - 路由 console errors: 0
 - 路由 page errors: 0
 - 集成流: 6/6 通过
 - 集成检查: 44/44 通过
 - 集成流 console errors: 0
-- **总计: 270/270 checks 通过, 0 errors**
+- **总计: 275/275 checks 通过, 0 errors**
 
 ## 路由覆盖矩阵
 
@@ -19,7 +19,7 @@
 | 评论管理 | `/comments` | 11 | 11 | 0 | 0 | ✅ PASS |
 | 首次运行 / 配置向导 | `/first-run` | 11 | 11 | 0 | 0 | ✅ PASS |
 | 一键发布 | `/publish` | 12 | 12 | 0 | 0 | ✅ PASS |
-| 账号管理 | `/accounts` | 14 | 14 | 0 | 0 | ✅ PASS |
+| 账号管理 | `/accounts` | 19 | 19 | 0 | 0 | ✅ PASS |
 | 数据看板 | `/dashboard` | 14 | 14 | 0 | 0 | ✅ PASS |
 | 内容采集 | `/collection` | 13 | 13 | 0 | 0 | ✅ PASS |
 | 文章监控 | `/monitor` | 12 | 12 | 0 | 0 | ✅ PASS |

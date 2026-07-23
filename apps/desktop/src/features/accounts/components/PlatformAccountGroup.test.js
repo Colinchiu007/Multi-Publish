@@ -52,15 +52,21 @@ describe('PlatformAccountGroup', () => {
     const nameInput = secondRow.get('.account-name-input')
     await nameInput.setValue('新名称')
     await nameInput.trigger('blur')
-    const buttons = secondRow.findAll('.account-actions button')
-    await buttons.find(button => button.text().includes('设为默认')).trigger('click')
-    await buttons.find(button => button.text().includes('打开')).trigger('click')
-    await buttons.find(button => button.text().includes('删除')).trigger('click')
+    const setDefault = secondRow.get('[data-testid="set-default-a2"]')
+    const open = secondRow.get('[data-testid="open-a2"]')
+    const check = secondRow.get('[data-testid="check-a2"]')
+    const remove = secondRow.get('[data-testid="delete-a2"]')
+    await setDefault.trigger('click')
+    await open.trigger('click')
+    await remove.trigger('click')
 
     expect(wrapper.emitted('rename')?.[0]).toEqual([group.accounts[1], '新名称'])
     expect(wrapper.emitted('set-default')?.[0]).toEqual([group.accounts[1]])
     expect(wrapper.emitted('open')?.[0]).toEqual([group.accounts[1]])
     expect(wrapper.emitted('remove')?.[0]).toEqual([group.accounts[1]])
+    for (const control of [setDefault, open, check, remove]) {
+      expect(control.attributes('data-e2e-scan')).toBe('manual')
+    }
   })
 
   it('平台标题和状态摘要具有可访问名称', () => {

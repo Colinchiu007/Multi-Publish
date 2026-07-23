@@ -3,6 +3,7 @@ const { FunctionalRunner } = require('./functional-runner');
 const SUITE_OPTIONS = { initPro: true };
 const CONDITION_TIMEOUT = 5000;
 const CONFIRMATION_APPEAR_TIMEOUT = 1000;
+const OPEN_PLATFORM_STUB_KEY = '__multiPublishE2eOpenPlatformStub';
 
 function record(r, name, passed, details) {
   r.checks.push({ kind: 'functional', name, passed: Boolean(passed), details: details || null });
@@ -72,6 +73,41 @@ async function clickText(r, text, options = {}) {
   if (!(await waitForVisible(locator, options.timeout || 3000))) return false;
   await locator.click({ timeout: 3000 });
   return true;
+}
+
+async function installOpenPlatformStub(page) {
+  await page.evaluate((key) => {
+    const previousStateDescriptor = Object.getOwnPropertyDescriptor(window, key);
+    if (previousStateDescriptor && !previousStateDescriptor.configurable) {
+      throw new Error(`无法安装平台打开替身: ${key} 已被不可配置属性占用`);
+    }
+    const openDescriptor = Object.getOwnPropertyDescriptor(window, 'open');
+    Object.defineProperty(window, key, {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: { previousStateDescriptor, openDescriptor, calls: [] },
+    });
+    window.open = (url, target) => {
+      window[key].calls.push({ url, target });
+      return null;
+    };
+  }, OPEN_PLATFORM_STUB_KEY);
+}
+
+async function readOpenPlatformCalls(page) {
+  return page.evaluate((key) => window[key]?.calls || [], OPEN_PLATFORM_STUB_KEY);
+}
+
+async function restoreOpenPlatformStub(page) {
+  await page.evaluate((key) => {
+    const state = window[key];
+    if (!state) return;
+    if (state.openDescriptor) Object.defineProperty(window, 'open', state.openDescriptor);
+    else delete window.open;
+    if (state.previousStateDescriptor) Object.defineProperty(window, key, state.previousStateDescriptor);
+    else delete window[key];
+  }, OPEN_PLATFORM_STUB_KEY);
 }
 
 async function closeLatestVisibleUiModal(r) {
@@ -198,8 +234,39 @@ async function exerciseAccounts(r) {
   await r.goto('/accounts');
   const allFilter = r.page.locator('.filter-tabs button[role="tab"]:has-text("全部")').first();
   if (await allFilter.count() > 0) await allFilter.click();
-  // 寻找 “验证” 按钮（不依赖具体位置）
-  const verifyBtn = r.page.locator('.account-row button:has-text("验证")').first();
+  const setDefaultBtn = r.page.locator('.account-row button[data-testid^="set-default-"]').first();
+  let setDefault = false;
+  if (await waitForVisible(setDefaultBtn)) {
+    await setDefaultBtn.click({ timeout: 3000 });
+    setDefault = await expectIpc(r, 'accountSetDefault', '账号设为默认调用 IPC');
+  }
+  record(r, '账号可设为默认', setDefault);
+  if (setDefault) {
+    await r.goto('/accounts');
+    const refreshedAllFilter = r.page.locator('.filter-tabs button[role="tab"]:has-text("全部")').first();
+    if (await refreshedAllFilter.count() > 0) await refreshedAllFilter.click();
+  }
+
+  const openBtn = r.page.locator('.account-row button[data-testid^="open-"]').first();
+  let opened = false;
+  if (await waitForVisible(openBtn)) {
+    await installOpenPlatformStub(r.page);
+    try {
+      await openBtn.click({ timeout: 3000 });
+      opened = await waitForPageCondition(r, (key) => {
+        const [call] = window[key]?.calls || [];
+        return window[key]?.calls.length === 1
+          && typeof call?.url === 'string'
+          && /^https?:\/\//.test(call.url)
+          && call.target === '_blank';
+      }, OPEN_PLATFORM_STUB_KEY);
+    } finally {
+      await restoreOpenPlatformStub(r.page);
+    }
+  }
+  record(r, '账号平台入口可打开', opened);
+
+  const verifyBtn = r.page.locator('.account-row button[data-testid^="check-"]').first();
   let verify = false;
   if (await waitForVisible(verifyBtn)) {
     await verifyBtn.click({ timeout: 3000 });
@@ -207,6 +274,20 @@ async function exerciseAccounts(r) {
   }
   record(r, '账号登录验证可执行', verify);
   if (verify) await expectIpc(r, 'accountCheckLogin', '账号验证调用 IPC');
+
+  const removeBtn = r.page.locator('.account-row button[data-testid^="delete-"]').first();
+  const deleteCallsBefore = await r.getIpcCalls('accountDelete');
+  let removeCancelled = false;
+  if (await waitForVisible(removeBtn)) {
+    await removeBtn.click({ timeout: 3000 });
+    removeCancelled = await dismissTransientConfirmation(r, { text: '删除', testid: 'delete-account' });
+  }
+  record(r, '账号删除确认可取消', removeCancelled);
+  const deleteCallsAfter = await r.getIpcCalls('accountDelete');
+  record(r, '取消账号删除不调用删除 IPC', removeCancelled && deleteCallsAfter === deleteCallsBefore, {
+    before: deleteCallsBefore,
+    after: deleteCallsAfter,
+  });
 }
 
 async function exerciseDashboard(r) {
@@ -394,7 +475,12 @@ const definitions = {
   comments: { route: '/comments', title: '评论管理', exercise: exerciseComments },
   'first-run': { route: '/first-run', title: '欢迎使用社媒管家', exercise: exerciseFirstRun },
   publish: { route: '/publish', title: '一键发布', exercise: exercisePublish },
-  accounts: { route: '/accounts', title: '账号管理', exercise: exerciseAccounts },
+  accounts: {
+    route: '/accounts',
+    title: '账号管理',
+    exercise: exerciseAccounts,
+    manualControls: ['set-default-', 'open-', 'check-', 'delete-'],
+  },
   dashboard: { route: '/dashboard', title: '数据看板', exercise: exerciseDashboard },
   collection: { route: '/collection', title: '内容采集', exercise: exerciseCollection },
   monitor: { route: '/monitor', title: '分屏监控', exercise: exerciseMonitor },
@@ -432,6 +518,11 @@ function initialButtonLocator(r, control) {
   return control.testid
     ? r.page.locator(`.cohere-main button[data-testid=${JSON.stringify(control.testid)}]`)
     : r.page.locator('.cohere-main button').nth(control.index);
+}
+
+function isDeclaredManualControl(definition, control) {
+  return Array.isArray(definition?.manualControls)
+    && definition.manualControls.some((prefix) => control.testid.startsWith(prefix));
 }
 
 function firstLocator(locator) {
@@ -503,6 +594,7 @@ async function auditInitialControls(r, definition) {
         index,
         text: (button.textContent || '').trim().slice(0, 60),
         testid: button.getAttribute('data-testid') || '',
+        scan: button.getAttribute('data-e2e-scan') || '',
         disabled: button.disabled,
       });
     });
@@ -513,6 +605,19 @@ async function auditInitialControls(r, definition) {
   const failures = [];
   for (const control of controls) {
     if (control.disabled) { skipped++; continue; }
+    if (control.scan) {
+      if (control.scan !== 'manual' || !isDeclaredManualControl(definition, control)) {
+        failures.push({
+          text: control.text,
+          testid: control.testid,
+          attempts: 0,
+          error: `未声明的手工扫描控件: ${control.testid || control.text || control.index}`,
+        });
+      } else {
+        skipped++;
+      }
+      continue;
+    }
     await resetDefinitionRoute(r, definition);
     let lastError = null;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -599,31 +704,42 @@ async function auditInitialFields(r, definition) {
     try {
       let field = fields.nth(descriptor.index);
       if (definition) {
-        const identityReady = await waitForPageCondition(r, (expected) => {
-          const matches = Array.from(document.querySelectorAll('.cohere-main input, .cohere-main textarea, .cohere-main select'))
-            .filter((element) => element.getClientRects().length > 0
-              && !element.closest('details:not([open])')
-              && element.tagName.toLowerCase() === expected.tag
+        if (descriptor.testid) {
+          const stableField = r.page.locator(`.cohere-main ${descriptor.tag}[data-testid=${JSON.stringify(descriptor.testid)}]`);
+          if (!(await waitForVisible(stableField))) {
+            throw new Error(`重置后找不到对应的初始字段: ${descriptor.testid}`);
+          }
+          if (typeof stableField.count === 'function' && await stableField.count() !== 1) {
+            throw new Error(`重置后的字段标识不唯一: ${descriptor.testid}`);
+          }
+          field = firstLocator(stableField);
+        } else {
+          const identityReady = await waitForPageCondition(r, (expected) => {
+            const matches = Array.from(document.querySelectorAll('.cohere-main input, .cohere-main textarea, .cohere-main select'))
+              .filter((element) => element.getClientRects().length > 0
+                && !element.closest('details:not([open])')
+                && element.tagName.toLowerCase() === expected.tag
+                && (element.getAttribute('type') || '') === expected.type
+                && (element.getAttribute('placeholder') || '') === expected.placeholder
+                && (element.getAttribute('name') || '') === expected.name
+                && (element.getAttribute('data-testid') || '') === expected.testid);
+            return matches.length > expected.occurrence;
+          }, descriptor);
+          if (!identityReady) throw new Error('重置后找不到对应的初始字段');
+          const currentFields = r.page.locator('.cohere-main input, .cohere-main textarea, .cohere-main select');
+          const currentVisibleIndex = await currentFields.evaluateAll((elements, expected) => {
+            const visibleElements = elements.filter((element) => element.getClientRects().length > 0 && !element.closest('details:not([open])'));
+            const matchingElements = visibleElements.filter((element) =>
+              element.tagName.toLowerCase() === expected.tag
               && (element.getAttribute('type') || '') === expected.type
               && (element.getAttribute('placeholder') || '') === expected.placeholder
               && (element.getAttribute('name') || '') === expected.name
               && (element.getAttribute('data-testid') || '') === expected.testid);
-          return matches.length > expected.occurrence;
-        }, descriptor);
-        if (!identityReady) throw new Error('重置后找不到对应的初始字段');
-        const currentFields = r.page.locator('.cohere-main input, .cohere-main textarea, .cohere-main select');
-        const currentVisibleIndex = await currentFields.evaluateAll((elements, expected) => {
-          const visibleElements = elements.filter((element) => element.getClientRects().length > 0 && !element.closest('details:not([open])'));
-          const matchingElements = visibleElements.filter((element) =>
-            element.tagName.toLowerCase() === expected.tag
-            && (element.getAttribute('type') || '') === expected.type
-            && (element.getAttribute('placeholder') || '') === expected.placeholder
-            && (element.getAttribute('name') || '') === expected.name
-            && (element.getAttribute('data-testid') || '') === expected.testid);
-          return visibleElements.indexOf(matchingElements[expected.occurrence]);
-        }, descriptor);
-        if (currentVisibleIndex < 0) throw new Error('重置后找不到对应的初始字段');
-        field = r.page.locator('.cohere-main input:visible, .cohere-main textarea:visible, .cohere-main select:visible').nth(currentVisibleIndex);
+            return visibleElements.indexOf(matchingElements[expected.occurrence]);
+          }, descriptor);
+          if (currentVisibleIndex < 0) throw new Error('重置后找不到对应的初始字段');
+          field = r.page.locator('.cohere-main input:visible, .cohere-main textarea:visible, .cohere-main select:visible').nth(currentVisibleIndex);
+        }
         if (!(await waitForVisible(field))) throw new Error('重置后的初始字段不可见');
         const resolvedIdentity = await field.evaluate((element) => ({
           tag: element.tagName.toLowerCase(),
@@ -716,4 +832,14 @@ if (require.main === module) {
   });
 }
 
-module.exports = { definitions, runRouteSpec, auditInitialControls, auditInitialFields, fillPublishBody };
+module.exports = {
+  definitions,
+  runRouteSpec,
+  auditInitialControls,
+  auditInitialFields,
+  fillPublishBody,
+  OPEN_PLATFORM_STUB_KEY,
+  installOpenPlatformStub,
+  readOpenPlatformCalls,
+  restoreOpenPlatformStub,
+};
