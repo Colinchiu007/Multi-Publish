@@ -129,6 +129,30 @@ class StageExecutor {
     // SPLIT - 文本分句
     map.set(STAGE_TYPES.SPLIT, async ({ stage, params, context }) => {
       const text = _resolveInput(stage, params, context);
+      // 图片轮播模式可以没有文案：为每张用户素材建立一个可优化、可配音的场景。
+      // 这样 renderer 传入的图片不会在 split 阶段被误判为缺少输入。
+      if (!text && params?.inputMode === 'images' && Array.isArray(params.images) && params.images.length > 0) {
+        const scenes = params.images.map((image, index) => {
+          const name = typeof image === 'object' ? image.name : ''
+          return { index, text: name || ('图片 ' + (index + 1)), sourceImage: image }
+        })
+        return { success: true, output: { scenes, sentences: scenes } }
+      }
+      // 音频模式没有文案时，以每个用户音频建立一个场景；后续阶段会跳过 TTS。
+      if (!text && params?.inputMode === 'audio' && Array.isArray(params.audio) && params.audio.length > 0) {
+        const scenes = params.audio.map((audio, index) => {
+          const item = audio && typeof audio === 'object' ? audio : {}
+          const name = typeof item.name === 'string' ? item.name : ''
+          const transcript = typeof item.transcript === 'string' ? item.transcript.trim() : ''
+          const manualText = typeof item.text === 'string' ? item.text.trim() : ''
+          return {
+            index,
+            text: transcript || manualText || name || ('音频片段 ' + (index + 1)),
+            sourceAudio: audio,
+          }
+        })
+        return { success: true, output: { scenes, sentences: scenes } }
+      }
       if (!text) {
         return { success: false, error: 'No text input for split stage' };
       }
@@ -164,9 +188,9 @@ class StageExecutor {
       // 自动从 scenes/sentences 提取文本作为 prompts 数组
       if (prompts && !Array.isArray(prompts)) {
         if (Array.isArray(prompts.scenes)) {
-          prompts = prompts.scenes.map(s => s.text || s).filter(Boolean);
+          prompts = prompts.scenes.map(s => s.imagePromptSeed || s.prompt || s.text || s).filter(Boolean);
         } else if (Array.isArray(prompts.sentences)) {
-          prompts = prompts.sentences.map(s => s.text || s).filter(Boolean);
+          prompts = prompts.sentences.map(s => s.imagePromptSeed || s.prompt || s.text || s).filter(Boolean);
         }
       }
       if (!Array.isArray(prompts)) {
@@ -175,7 +199,13 @@ class StageExecutor {
       const result = await self.serviceBus.optimizePromptsBatch(prompts, stage.options || {});
       // 响应格式适配：Bridge 返回数组或 { results: [...] } 或 { code: 0, data: ... }
       if (result && (Array.isArray(result) || Array.isArray(result.results) || (result.code === 0 && result.data))) {
-        const output = result.code === 0 ? (result.data || result) : result;
+        const output = normalizeBatchOptimizeResult(result);
+        if (output.length !== prompts.length) {
+          return {
+            success: false,
+            error: 'Batch optimize result count mismatch: expected ' + prompts.length + ', got ' + output.length,
+          };
+        }
         return { success: true, output };
       }
       return { success: false, error: (result && (result.message || (result.detail && JSON.stringify(result.detail)))) || 'Batch optimize failed' };
@@ -197,7 +227,16 @@ class StageExecutor {
     // COMPOSE - 视频合成（基于 ffmpeg 的真实合成引擎）
     map.set(STAGE_TYPES.COMPOSE, async ({ stage, params, context }) => {
       const assets = _resolveInput(stage, params, context);
-      const result = await self.serviceBus.composeVideo(assets, stage.options || {});
+      const composeOptionKeys = [
+        'transition', 'transitionDuration', 'imageEffect', 'subtitleEnabled', 'subtitleStyle',
+        'watermark', 'watermarkText', 'watermarkConfig', 'resolution', 'fps', 'format',
+        'bgmPath', 'bgmVolume', 'voiceVolume', 'defaultSceneDuration',
+      ];
+      const composeOptions = { ...(stage.options || {}) };
+      for (const key of composeOptionKeys) {
+        if (params[key] !== undefined) composeOptions[key] = params[key];
+      }
+      const result = await self.serviceBus.composeVideo(assets, composeOptions);
       // code === 0 或 code === undefined（直接返回数据的桥接）都算成功
       if (result && (result.code === 0 || result.code === undefined)) {
         return { success: true, output: result.data || result };
@@ -209,29 +248,39 @@ class StageExecutor {
     // PUBLISH - 多平台发布
     // P2-10: 重写为 createPublisher 模式，匹配 PublisherRouter 真实 API
     map.set(STAGE_TYPES.PUBLISH, async ({ stage, params, context }) => {
+      const composeOut = _resolveInput(stage, params, context);
+      const configuredPlatforms = stage.platforms || stage.options?.platforms || params.platforms;
+      const explicitPublishEnabled = stage.options?.publishEnabled ?? params.publishEnabled;
+      // 未显式开启且没有平台选择时，发布是可选步骤，明确标记为跳过。
+      // 一旦用户传入平台，则视为明确要求发布，不能静默伪造成功。
+      const publishEnabled = explicitPublishEnabled !== undefined
+        ? explicitPublishEnabled === true
+        : Array.isArray(configuredPlatforms) && configuredPlatforms.length > 0;
+      if (!publishEnabled) {
+        return {
+          success: true,
+          output: {
+            skipped: true,
+            placeholder: false,
+            message: 'Publishing disabled or no platforms selected',
+            publishedTo: [],
+            failedPlatforms: [],
+            videoPath: typeof composeOut === 'string'
+              ? composeOut
+              : (composeOut && composeOut.videoPath) || (params && params.videoPath) || null,
+          },
+        };
+      }
+
       const router = (self.container && typeof self.container.get === 'function')
         ? self.container.get('publisherRouter')
         : null;
 
-      // 占位分支：router 未配置（E2E 编排验证 / 开发环境）
-      // 真实 PublisherRouter 只有 createPublisher 方法，没有 publish 方法
+      // 真实发布已开启但 router 未配置时必须失败，避免把“未发布”报告为成功。
       if (!router || typeof router.createPublisher !== 'function') {
         self.log.warn('StageExecutor',
-          'PUBLISH: publisherRouter not available, returning placeholder success');
-        // 提取 videoPath 用于日志（不做验证，占位模式允许文件不存在）
-        const composeOut = _resolveInput(stage, params, context);
-        const phVideoPath = typeof composeOut === 'string'
-          ? composeOut
-          : (composeOut && composeOut.videoPath) || (params && params.videoPath) || null;
-        return {
-          success: true,
-          output: {
-            placeholder: true,
-            message: 'PublisherRouter not available (placeholder)',
-            publishedTo: [],
-            videoPath: phVideoPath,
-          },
-        };
+          'PUBLISH: publisherRouter not available while publishing is enabled');
+        return { success: false, error: 'PUBLISH: publisherRouter not available' };
       }
 
       // 1. 解析并验证 videoPath
@@ -250,15 +299,21 @@ class StageExecutor {
         return { success: false, error: 'PUBLISH: No videoPath resolved from context/params' };
       }
       const fs = require('fs');
-      if (!fs.existsSync(videoPath)) {
+      let videoStat;
+      try {
+        videoStat = fs.statSync(videoPath);
+      } catch {
+        videoStat = null;
+      }
+      if (!videoStat || !videoStat.isFile() || videoStat.size <= 0) {
         return {
           success: false,
-          error: 'PUBLISH: videoPath does not exist: ' + videoPath,
+          error: 'PUBLISH: videoPath does not exist or is empty: ' + videoPath,
         };
       }
 
       // 2. 解析并验证 platforms
-      const platforms = stage.platforms || params.platforms || [];
+      const platforms = stage.platforms || stage.options?.platforms || params.platforms || [];
       if (!Array.isArray(platforms) || platforms.length === 0) {
         return {
           success: false,
@@ -415,4 +470,15 @@ function _resolveInput(stage, params, context) {
   return null;
 }
 
-module.exports = { StageExecutor, STAGE_TYPES };
+/** 将不同 Bridge 响应包装统一为提示词结果数组。 */
+function normalizeBatchOptimizeResult(result) {
+  let value = result;
+  if (result && result.code === 0) value = result.data || result;
+  if (Array.isArray(value)) return value;
+  if (value && Array.isArray(value.results)) return value.results;
+  if (value && Array.isArray(value.optimized_prompts)) return value.optimized_prompts;
+  if (value && (value.optimized_prompt !== undefined || value.prompt !== undefined)) return [value];
+  return [];
+}
+
+module.exports = { StageExecutor, STAGE_TYPES, normalizeBatchOptimizeResult };

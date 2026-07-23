@@ -12,6 +12,11 @@ const { CompositionManager } = require('./composition-manager');
 const { getComposerDir } = require('./path-utils');
 
 const COMPOSER_DIR = getComposerDir();
+const QUICK_RENDER_DIR = path.join(os.tmpdir(), 'story2video', 'quick-render');
+
+function getDefaultOutputPath(timestamp = Date.now()) {
+  return path.join(QUICK_RENDER_DIR, `remotion_${timestamp}.mp4`);
+}
 
 const MEDIA_PROFILES = {
   'youtube-landscape': { width: 1920, height: 1080, fps: 30 },
@@ -78,7 +83,7 @@ class RenderEngine {
 
   render(props, options = {}) {
     return new Promise((resolve) => {
-      const { composition = 'Explainer', outputPath = path.join(os.tmpdir(), `remotion_${Date.now()}.mp4`), onProgress = () => {}, profile } = options;
+      const { composition = 'Explainer', outputPath = getDefaultOutputPath(), onProgress = () => {}, profile } = options;
 
       if (!props || !Array.isArray(props.cuts) || props.cuts.length === 0) { resolve({ success: false, error: 'Props must contain cuts array' }); return; }
       for (const [i, cut] of props.cuts.entries()) {
@@ -89,9 +94,16 @@ class RenderEngine {
 
       this._canceled = false;
 
-      // 写 props 到临时 JSON
-      const propsPath = path.join(os.tmpdir(), `.remotion_props_${Date.now()}.json`);
-      fs.writeFileSync(propsPath, JSON.stringify(props), 'utf-8');
+      let propsPath;
+      try {
+        fs.mkdirSync(QUICK_RENDER_DIR, { recursive: true });
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+        propsPath = path.join(QUICK_RENDER_DIR, `.remotion_props_${Date.now()}.json`);
+        fs.writeFileSync(propsPath, JSON.stringify(props), 'utf-8');
+      } catch (error) {
+        resolve({ success: false, error: `无法准备渲染输出目录: ${error.message}` });
+        return;
+      }
 
       const cmd = ['npx', 'remotion', 'render', 'src/index.tsx', composition, outputPath, `--props=${propsPath}`];
       if (profile && MEDIA_PROFILES[profile]) { const p = MEDIA_PROFILES[profile]; cmd.push('--width', String(p.width), '--height', String(p.height), '--fps', String(p.fps)); }
@@ -192,5 +204,8 @@ class RenderEngine {
     try { fs.unlinkSync(propsPath); } catch { /* ignore */ }
   }
 }
+
+RenderEngine.getDefaultOutputPath = getDefaultOutputPath;
+RenderEngine.QUICK_RENDER_DIR = QUICK_RENDER_DIR;
 
 module.exports = RenderEngine

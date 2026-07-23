@@ -10,7 +10,7 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { loadFont } from "@remotion/google-fonts/SpaceGrotesk";
+import { SANS_FONT_FAMILY } from "./fonts";
 
 // Resolve asset path — handle URLs, absolute paths (Windows/Unix), and public/ relative paths
 function resolveAsset(src: string): string {
@@ -49,11 +49,7 @@ import { ProviderChip } from "./components/ProviderChip";
 import type { ParticleType } from "./components/ParticleOverlay";
 import { resolveTheme, type ThemeConfig, DEFAULT_THEME } from "./Root";
 
-// Load Space Grotesk font for cinematic typography
-const { fontFamily } = loadFont("normal", {
-  weights: ["400", "700"],
-  subsets: ["latin"],
-});
+const fontFamily = SANS_FONT_FAMILY;
 
 // ---------------------------------------------------------------------------
 // Animated Background — Gradient Mesh + Floating Orbs

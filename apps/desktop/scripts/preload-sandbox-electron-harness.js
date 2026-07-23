@@ -5,6 +5,8 @@ const path = require('path')
 const { app, BrowserWindow, ipcMain } = require('electron')
 const registerIdentityHandlers = require('../electron/ipc-handlers/identity')
 
+const HARNESS_RESULT_PREFIX = 'PRELOAD_SANDBOX_RESULT:'
+
 const sandboxArgument = process.argv.find((argument) => {
   return argument.startsWith('--preload-sandbox-mode=')
 })
@@ -23,10 +25,11 @@ if (!userDataDirectory) {
 }
 app.setPath('userData', userDataDirectory)
 app.setPath('sessionData', path.join(userDataDirectory, 'session'))
+app.setPath('cache', path.join(userDataDirectory, 'cache'))
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
 
-function listen() {
+function listen () {
   return new Promise((resolve, reject) => {
     verificationServer = http.createServer((_request, response) => {
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
@@ -42,12 +45,49 @@ function listen() {
   })
 }
 
-function closeServer() {
+function closeServer () {
   if (!verificationServer) return
   const server = verificationServer
   verificationServer = null
   server.close()
   server.closeAllConnections?.()
+}
+
+function verifyRendererApi () {
+  return verificationWindow.webContents.executeJavaScript(`
+    (async () => {
+      const api = window.electronAPI
+      const identityStateResult = await api?.identityGetState?.()
+      const identitySwitchResult = await api?.identitySwitchAccount?.()
+      const story2videoCapabilitiesResult = await api?.story2videoCapabilities?.()
+      return {
+        exposed: typeof api === 'object' && api !== null,
+        getVersion: typeof api?.getVersion === 'function',
+        publishWechat: typeof api?.publishWechat === 'function',
+        story2videoCapabilities: typeof api?.story2videoCapabilities === 'function',
+        identityGetState: typeof api?.identityGetState === 'function',
+        identitySwitchAccount: typeof api?.identitySwitchAccount === 'function',
+        adminHidden: typeof api?.paymentComplete === 'undefined',
+        accessLevel: api?.getAccessLevel?.(),
+        getVersionResult: await api?.getVersion?.(),
+        publishResult: await api?.publishWechat?.({ title: 'sandbox-smoke' }),
+        story2videoCapabilitiesResult,
+        identityStateResult,
+        identityStateJson: JSON.stringify(identityStateResult),
+        identitySwitchResult,
+        identitySwitchJson: JSON.stringify(identitySwitchResult),
+      }
+    })()
+  `, true)
+}
+
+function writeHarnessResult (result) {
+  return new Promise((resolve, reject) => {
+    process.stdout.write(
+      HARNESS_RESULT_PREFIX + JSON.stringify({ sandbox, result }) + '\n',
+      (error) => error ? reject(error) : resolve(),
+    )
+  })
 }
 
 ipcMain.on('auth:get-access-level', (event) => {
@@ -59,6 +99,13 @@ ipcMain.handle('app:get-version', async () => {
 ipcMain.handle('publish:wechat', async () => {
   return { code: 0, data: { accepted: true } }
 })
+ipcMain.handle('story2video:capabilities', async () => ({
+  code: 0,
+  data: {
+    transcription: { available: false },
+    remix: { available: false },
+  },
+}))
 registerIdentityHandlers(ipcMain)
 
 app.on('before-quit', closeServer)
@@ -86,9 +133,10 @@ app.whenReady()
       console.error(`preload sandbox 加载失败：${preloadPath}`, error)
     })
     await verificationWindow.loadURL(url)
+    await writeHarnessResult(await verifyRendererApi())
+    app.quit()
   })
   .catch((error) => {
     console.error('preload sandbox harness 启动失败：', error)
-    process.exitCode = 1
-    app.quit()
+    app.exit(1)
   })

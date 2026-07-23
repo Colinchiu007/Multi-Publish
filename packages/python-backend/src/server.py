@@ -15,6 +15,7 @@ import os
 import platform as platform_module
 import shutil
 import uuid
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ from multi_publish.core.publisher_manager import PublisherManager
 from multi_publish.models import PLATFORM_META, PlatformType, PublishPhase
 from multi_publish.publishers.account_paths import build_account_storage_paths
 from multi_publish.video_creation.pipeline.loader import list_pipelines, load_pipeline
+from multi_publish.video_creation.providers.video.video_trimmer import VideoTrimmer
 
 app = FastAPI(title="Multi-Publish Backend", version="1.0.0")
 
@@ -713,7 +715,17 @@ async def list_ai_providers():
 
 @app.post('/api/video/process', dependencies=[Depends(_require_publish_submit)])
 async def video_process(data: dict):
-    return {'success': True, 'message': 'Processing ' + data.get('type', 'unknown')}
+    process_type = data.get('type')
+    params = data.get('params')
+    if process_type != 'trim':
+        raise HTTPException(status_code=501, detail=f'视频处理类型尚未实现: {process_type or "unknown"}')
+    if not isinstance(params, dict):
+        raise HTTPException(status_code=400, detail='裁剪参数必须为对象')
+    result = VideoTrimmer().execute({**params, 'operation': 'cut'})
+    payload = asdict(result)
+    if not result.success:
+        raise HTTPException(status_code=422, detail=result.error or '视频裁剪失败')
+    return {**payload, **result.data}
 
 @app.post('/api/video/analyze', dependencies=[Depends(_require_publish_submit)])
 async def video_analyze(data: dict):

@@ -7,11 +7,7 @@
 const path = require('path');
 const fs = require('fs');
 
-const PROCESS_TYPES = [
-  'green-screen', 'reframe', 'trim', 'silence-remove',
-  'bg-remove', 'face-enhance', 'upscale', 'color-grade',
-  'lip-sync', 'talking-head',
-];
+const PROCESS_TYPES = ['trim'];
 
 const ANALYZE_TYPES = [
   'scene-detect', 'transcript', 'face-track', 'audio-energy',
@@ -87,13 +83,48 @@ class VideoEngine {
     if (!PROCESS_TYPES.includes(type)) {
       throw new Error('Unsupported process type: ' + type);
     }
+    let normalizedParams = params
+    if (type === 'trim') normalizedParams = this._normalizeTrimParams(params)
     const bridge = this._getPythonBridge();
     if (bridge && bridge.isRunning()) {
       return bridge.requestBackend('POST', '/api/video/process', {
-        type, params,
+        type, params: normalizedParams,
       }, 300000);
     }
     throw new Error('Python backend not available');
+  }
+
+  _normalizeTrimParams(params) {
+    if (!params || typeof params !== 'object' || Array.isArray(params)) {
+      throw new Error('裁剪参数无效')
+    }
+    const inputPath = path.resolve(String(params.input_path || ''))
+    let inputStat
+    try {
+      inputStat = fs.lstatSync(inputPath)
+    } catch {
+      throw new Error('裁剪输入视频不存在')
+    }
+    if (!inputStat.isFile() || inputStat.isSymbolicLink() || inputStat.size <= 0) {
+      throw new Error('裁剪输入视频无效')
+    }
+    const startSeconds = Number(params.start_seconds ?? 0)
+    const endSeconds = Number(params.end_seconds)
+    if (!Number.isFinite(startSeconds) || startSeconds < 0 || !Number.isFinite(endSeconds) || endSeconds <= startSeconds) {
+      throw new Error('裁剪时间范围无效')
+    }
+    const extension = path.extname(inputPath).toLowerCase() || '.mp4'
+    const outputPath = path.join(
+      path.dirname(inputPath),
+      path.basename(inputPath, extension) + '_trim_' + Date.now() + extension,
+    )
+    return {
+      input_path: fs.realpathSync.native(inputPath),
+      output_path: outputPath,
+      start_seconds: startSeconds,
+      end_seconds: endSeconds,
+      codec: 'libx264',
+    }
   }
 
   /** 视频/音频分析 */

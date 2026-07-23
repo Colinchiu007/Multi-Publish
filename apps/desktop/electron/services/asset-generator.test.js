@@ -34,7 +34,12 @@ __registerMock('fs', {
   statSync: vi.fn(() => ({ size: 1024 })),
 })
 
-const { AssetGenerator } = require('./asset-generator')
+const {
+  AssetGenerator,
+  buildEdgeTtsScript,
+  resolveImageSize,
+  escapeDrawtextText,
+} = require('./asset-generator')
 
 // 辅助：从 mockSpawn.mock.calls 中找 python 调用
 function findPythonSpawn() {
@@ -91,5 +96,32 @@ describe('AssetGenerator P0-1: command injection prevention', () => {
     const pythonSpawn = findPythonSpawn()
     // 空文本应直接返回 null，不调用 python
     expect(pythonSpawn).toBeUndefined()
+  })
+
+  it('edge-tts 使用可执行的单表达式脚本，不在分号后声明 async def', () => {
+    const script = buildEdgeTtsScript()
+    expect(script).toContain('asyncio.run')
+    expect(script).not.toMatch(/;\s*async\s+def/)
+  })
+
+  it('UI 暴露的水彩和极简样式拥有稳定画布尺寸', () => {
+    expect(resolveImageSize('16:9', 'watercolor')).toEqual({ width: 1280, height: 720 })
+    expect(resolveImageSize('9:16', 'minimalist')).toEqual({ width: 720, height: 1280 })
+  })
+
+  it('按安全的 runId 隔离图片和音频输出，并拒绝路径穿越索引', async () => {
+    const gen = new AssetGenerator({ outputDir: '/tmp/test' })
+    await gen.generateTTS('hello', { index: '../escape', runId: '../run/id' })
+    const ttsSpawn = findPythonSpawn()
+    expect(ttsSpawn).toBeDefined()
+    const audioPath = ttsSpawn.args[ttsSpawn.args.length - 1]
+    expect(audioPath).toContain('run_id')
+    expect(audioPath).not.toContain('..')
+    expect(audioPath).toMatch(/tts_0000\.mp3$/)
+  })
+
+  it('drawtext 文本会折叠换行并转义滤镜分隔符', () => {
+    const escaped = escapeDrawtextText("a:b,c%{x}\nnext")
+    expect(escaped).toBe("a\\:b\\,c\\%\\{x\\} next")
   })
 })

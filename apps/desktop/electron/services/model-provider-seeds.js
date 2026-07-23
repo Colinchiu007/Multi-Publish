@@ -112,7 +112,7 @@ const PRESET_PROVIDERS = [
   },
   {
     id: 'doubao-tts', name: '豆包 TTS', category: 'tts',
-    base_url: 'https://openspeech.bytedance.com/api/v1/tts',
+    base_url: 'https://openspeech.bytedance.com',
     models: ['doubao-tts', 'doubao-streaming-tts'],
     is_preset: 1,
   },
@@ -156,7 +156,7 @@ const PRESET_PROVIDERS = [
   },
   {
     id: 'doubao-stt', name: '豆包语音识别', category: 'speech_recognition',
-    base_url: 'https://openspeech.bytedance.com/api/v2/asr',
+    base_url: 'https://openspeech.bytedance.com',
     models: ['doubao-asr', 'doubao-streaming-asr'],
     is_preset: 1,
   },
@@ -195,7 +195,7 @@ const PRESET_PROVIDERS = [
   {
     id: 'imagen', name: 'Imagen', category: 'image',
     base_url: 'https://generativelanguage.googleapis.com',
-    models: ['imagen-3'],
+    models: ['imagen-4.0-generate-001', 'imagen-4.0-fast-generate-001', 'imagen-4.0-ultra-generate-001'],
     is_preset: 1,
   },
   {

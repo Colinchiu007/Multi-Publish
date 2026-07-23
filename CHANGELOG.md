@@ -1,3 +1,42 @@
+## [未发布] Story2Video 流水线对齐与真实合成 (2026-07-22)
+
+### 流水线
+- `story2video-compose` 完整阶段更新为 `split → domain_enrich → optimize → generate_assets → compose → publish`。
+- CreateView 将历史内容、模板、图片动效、转场、字幕、BGM、水印、分辨率/FPS、图片轮播输入和发布参数透传到编排器。
+- 编排启动默认自动推进到第一个检查点，修复“创建运行后没有阶段执行”的停滞问题。
+
+### 合成与资源
+- Electron 侧 `Story2VideoComposeEngine` 使用 ffmpeg 真实生成并校验非空视频，支持本地图片摄取、字幕、动效、转场、BGM 和水印。
+- 合成阶段改为探测音频/片段真实时长；缺失时长不再默认截断为 3 秒，短片段转场会按边界收敛并同步使用 `acrossfade`。
+- BGM/视频文件通过 preload 的 `webUtils.getPathForFile` 获取绝对路径，拒绝把仅有文件名的值传入主进程。
+- 完成项目按用户隔离持久化，最多保留最近 100 项；成片、完整旁白、BGM 和分段图片/音频/视频均复制到受控项目目录。
+- 结果页支持分段编辑、排序、删除、旁白替换、图片/视频重试和重新合成；重试失败会回滚旧媒体并清理本次部分产物。
+- 完整旁白和逐段媒体可单独下载或纳入流式 ZIP；本地历史支持状态筛选、恢复和删除。
+- 成片裁剪改为 Python `VideoTrimmer` + ffmpeg 真实输出，结果页提供双范围选择和区间预览；移除通用视频处理接口的假成功类型。
+- 已接语音识别 provider 和逐段手动 STT；全自动音频识别创作、Remix、音色克隆和云分享仍明确标为外部/后续边界。
+- 模型 Provider 配置已贯通 Story2Video 资产链：豆包 TTS/STT 映射 App ID 与加密 Access Token，豆包 TTS 改按真实业务成功码 `3000` 判断；`dall-e` 兼容旧 ID，Imagen 预设与适配器模型同步。
+- 图片 Provider 明确输出合同：OpenAI/Imagen 可按 Story2Video 的宽高和数量生成；ComfyUI 因没有 workflow、异步轮询和下载输出合同，在 S2V 主链显式失败而非伪造图片成功。
+- Provider 返回的远程图片 URL 只允许 HTTPS 和固定的可公开路由地址；下载会拒绝内网、特殊网段及 DNS 重绑定，避免生成链路访问本机服务。受控本机 loopback Provider endpoint 必须与已配置地址的主机名、协议和端口完全匹配；本机与远程图片响应均按流式 25MiB 上限读取，DNS 与远程下载共用 30 秒总预算。
+- 发布阶段在未开启时明确 `skipped`，开启但缺少路由器/凭据时失败，移除占位成功语义。
+- YAML 与 PRD/架构文档同步当前混合执行边界和外部服务前提（8002/8013、ffmpeg）。
+
+### 安全与测试
+- Pipeline 查询、运行上下文和历史 IPC 统一执行可信 sender 校验，并补充名称/runId 参数校验。
+- 增加 renderer 参数合同、图片轮播、真实 ffmpeg 合成和发布失败语义的回归覆盖。
+- 增加历史 `contentType → domain_enrich → prompt-engine` 的编排回归、完成项目的 `contentType` 持久化回归，以及豆包/Imagen provider 契约回归。
+- preload 源码与生产 bundle 同步 Story2Video API，并在 sandbox=true/false 下实际调用 IPC 验证。
+- 媒体清理同时 canonicalize 候选路径和项目根目录，拒绝目录符号链接/junction 越界；替换旁白的受控临时副本在成功和异常路径都会清理。
+- 逐段 STT 仅接受应用已导入或项目自有的音频；禁用供应商和缺少远程执行器不再被误报为可用。
+- Story2Video 默认媒体白名单收紧为受控临时区和项目目录；renderer 不能借导出、路径复制或本地播放操作访问整个用户目录，外部 ZIP 保存位置仅由原生保存对话框授权。
+- 项目持久化使用分段位置生成媒体文件名前缀，重复的上游 `segment.index` 不再覆盖其他分段的图片、旁白或视频。
+- Remotion Composition 改用本地系统字体栈，离线渲染不再在模块加载时请求 Google Fonts。
+- 新增本地项目重启恢复、共享引用、删除/重试/重合成清理、真实裁剪和 UI 裁剪边界回归测试。
+
+### 明确边界
+- 8002 分句、8013 prompt-engine、真实 AI provider 和多平台发布仍需目标环境凭据与联网验收。
+- 本地 file URL、复制路径和打开目录不是公网分享链接；最近 100 项本地历史不是云历史或失败运行断点续作。
+- 旧项目的 Sora/Supabase Remix、membership/quota 和音色克隆依赖未验证外部服务，未以占位成功冒充迁移完成。
+
 ## [未发布] 蚁小二账号管理与内容发布对齐 (2026-07-20)
 
 ### 账号管理

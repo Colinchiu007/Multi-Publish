@@ -73,6 +73,7 @@ function createContainer(options) {
       serviceBus: c.get("serviceBus"),
       container: c,
       log: c.get("logger"),
+      story2videoProjectService: c.get("story2videoProjectService"),
     });
     // 注册 story2video-compose 流水线的自定义阶段执行器
     if (engine.stageExecutor) {
@@ -171,10 +172,20 @@ function createContainer(options) {
     const { Story2VideoComposeEngine } = require('../services/story2video-compose-engine');
     return new Story2VideoComposeEngine({ log: c.get("logger") });
   });
+  container.register("story2videoProjectService", function(c) {
+    const { Story2VideoProjectService } = require('../services/story2video-project-service');
+    return new Story2VideoProjectService({
+      store: c.get("store"),
+      composeEngine: c.get("story2videoEngine"),
+      assetGenerator: c.get("assetGenerator"),
+      aiGenerator: c.get("aiGenerator"),
+      log: c.get("logger"),
+    });
+  });
   // AssetGenerator - 资源生成（图片 + TTS），供 generate_assets 阶段使用
   container.register("assetGenerator", function(c) {
     const { AssetGenerator } = require('../services/asset-generator');
-    return new AssetGenerator({ log: c.get("logger") });
+    return new AssetGenerator({ log: c.get("logger"), aiGenerator: c.get("aiGenerator") });
   });
   // ServiceBus 统一聚合所有 Bridge
   container.register("serviceBus", function(c) {

@@ -1,5 +1,5 @@
 // stage-executor PUBLISH 阶段单元测试 (P2-10)
-// 测试多平台发布的各种场景：占位/验证/单平台/多平台/失败处理
+// 测试多平台发布的各种场景：跳过/验证/单平台/多平台/失败处理
 //
 // 运行：vitest run electron/tests/stage-executor-publish.test.js
 import { describe, expect, it, vi } from 'vitest'
@@ -79,7 +79,7 @@ describe('StageExecutor PUBLISH 阶段', () => {
 // 1. 占位分支（router 未配置）
 // ============================================================
 
-it('PUBLISH: router 为 null 时返回占位成功 + warn 日志', async function () {
+it('PUBLISH: 未选择平台时明确跳过，不伪造发布成功', async function () {
   const log = makeMockLogger();
   const exec = new StageExecutor({
     serviceBus: makeMockServiceBus(),
@@ -93,12 +93,13 @@ it('PUBLISH: router 为 null 时返回占位成功 + warn 日志', async functio
     context: { compose: { videoPath: '/tmp/out.mp4' } },
   });
   eq(result.success, true);
-  eq(result.output.placeholder, true);
+  eq(result.output.skipped, true);
+  eq(result.output.placeholder, false);
   eq(result.output.publishedTo.length, 0);
-  ok(log._logs.warn.length > 0, '应记录 warn 日志');
+  eq(log._logs.warn.length, 0);
 });
 
-it('PUBLISH: container 为 null 时返回占位成功', async function () {
+it('PUBLISH: 显式开启但没有 publisherRouter 时失败', async function () {
   const log = makeMockLogger();
   const exec = new StageExecutor({
     serviceBus: makeMockServiceBus(),
@@ -108,14 +109,14 @@ it('PUBLISH: container 为 null 时返回占位成功', async function () {
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'publish', type: STAGE_TYPES.PUBLISH },
-    params: {},
-    context: {},
+    params: { publishEnabled: true, platforms: ['douyin'] },
+    context: { compose: { videoPath: '/tmp/out.mp4' } },
   });
-  eq(result.success, true);
-  eq(result.output.placeholder, true);
+  eq(result.success, false);
+  ok(/publisherRouter/.test(result.error));
 });
 
-it('PUBLISH: router 无 createPublisher 方法时返回占位成功', async function () {
+it('PUBLISH: router 无 createPublisher 方法时失败', async function () {
   // 旧代码检查 router.publish，新代码检查 router.createPublisher
   // 如果 router 只有 publish 方法（不存在的情况），应走占位分支
   const log = makeMockLogger();
@@ -129,11 +130,11 @@ it('PUBLISH: router 无 createPublisher 方法时返回占位成功', async func
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'publish', type: STAGE_TYPES.PUBLISH },
-    params: {},
-    context: {},
+    params: { publishEnabled: true, platforms: ['douyin'] },
+    context: { compose: { videoPath: '/tmp/out.mp4' } },
   });
-  eq(result.success, true);
-  eq(result.output.placeholder, true);
+  eq(result.success, false);
+  ok(/publisherRouter/.test(result.error));
 });
 
 // ============================================================
@@ -150,7 +151,7 @@ it('PUBLISH: videoPath 为 undefined 时失败', async function () {
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'publish', type: STAGE_TYPES.PUBLISH, inputFrom: 'compose' },
-    params: {},
+    params: { publishEnabled: true, platforms: ['douyin'] },
     context: { compose: null }, // videoPath 为 null
   });
   eq(result.success, false);
@@ -167,7 +168,7 @@ it('PUBLISH: videoPath 文件不存在时失败', async function () {
   const result = await exec.execute({
     runId: 'r1',
     stage: { name: 'publish', type: STAGE_TYPES.PUBLISH, inputFrom: 'compose' },
-    params: {},
+    params: { publishEnabled: true, platforms: ['douyin'] },
     context: { compose: { videoPath: '/nonexistent/path/video.mp4' } },
   });
   eq(result.success, false);
@@ -186,7 +187,7 @@ it('PUBLISH: platforms 为空数组时失败', async function () {
     const result = await exec.execute({
       runId: 'r1',
       stage: { name: 'publish', type: STAGE_TYPES.PUBLISH, inputFrom: 'compose' },
-      params: { platforms: [] },
+      params: { publishEnabled: true, platforms: [] },
       context: { compose: { videoPath } },
     });
     eq(result.success, false);
@@ -208,7 +209,7 @@ it('PUBLISH: platforms 未指定时失败', async function () {
     const result = await exec.execute({
       runId: 'r1',
       stage: { name: 'publish', type: STAGE_TYPES.PUBLISH, inputFrom: 'compose' },
-      params: {}, // 无 platforms
+      params: { publishEnabled: true }, // 无 platforms
       context: { compose: { videoPath } },
     });
     eq(result.success, false);

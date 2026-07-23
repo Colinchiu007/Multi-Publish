@@ -1,0 +1,212 @@
+// @ts-check
+'use strict'
+
+const path = require('path')
+const { withSenderCheck } = require('./helpers')
+const { ERROR: EC } = require('../core/error-codes')
+const {
+  MAX_EXPORT_BYTES,
+  createShareFileUrl,
+  createZipFromFiles,
+} = require('../services/story2video-export')
+const {
+  cleanupImportedMediaPaths,
+  getAllowedMediaRoots,
+  importUserSelectedMedia,
+  resolveReadableFile,
+} = require('../services/story2video-paths')
+
+function safeZipName (value) {
+  const base = path.basename(typeof value === 'string' && value.trim() ? value.trim() : 'story2video-export.zip')
+  const sanitized = base.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120)
+  return sanitized.toLowerCase().endsWith('.zip') ? sanitized : sanitized + '.zip'
+}
+
+function validateFilePath (filePath, extraRoots = []) {
+  if (typeof filePath !== 'string' || !filePath.trim()) return null
+  return resolveReadableFile(filePath, {
+    allowedRoots: getAllowedMediaRoots(extraRoots),
+    maxBytes: MAX_EXPORT_BYTES,
+  })
+}
+
+function isSafeId (value) {
+  return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value)
+}
+
+function registerHandlers (ipcMain, deps = {}) {
+  const electron = require('electron')
+  const BrowserWindow = deps.BrowserWindow || electron.BrowserWindow
+  const dialog = deps.dialog || electron.dialog
+  const shell = deps.shell || electron.shell
+  const clipboard = deps.clipboard || electron.clipboard
+  const projectService = deps.story2videoProjectService || null
+  const projectRoots = projectService && typeof projectService.projectsDir === 'string'
+    ? [projectService.projectsDir]
+    : []
+  const allowedMediaRoots = (extraRoots = []) => getAllowedMediaRoots([...projectRoots, ...extraRoots])
+
+  const requireProjectService = () => {
+    if (!projectService) throw new Error('Story2Video 项目服务不可用')
+    return projectService
+  }
+
+  ipcMain.handle('story2video:list-projects', withSenderCheck(async () => {
+    try { return { code: 0, data: requireProjectService().listProjects() } }
+    catch (error) { return { code: EC.REQUEST_ERROR, message: error.message, data: [] } }
+  }))
+
+  ipcMain.handle('story2video:get-project', withSenderCheck(async (_event, projectId) => {
+    if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
+    try { return { code: 0, data: requireProjectService().getProject(projectId) } }
+    catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:delete-project', withSenderCheck(async (_event, projectId) => {
+    if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
+    try { return { code: 0, data: requireProjectService().deleteProject(projectId) } }
+    catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:update-segments', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) ||
+        !Array.isArray(request.segments) || request.segments.length === 0) {
+      return { code: EC.VALIDATION_ERROR, message: '分段更新参数无效' }
+    }
+    try { return { code: 0, data: requireProjectService().updateSegments(request.projectId, request.segments) } }
+    catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:replace-segment-audio', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) ||
+        !isSafeId(request.segmentId) || typeof request.filePath !== 'string' || !request.filePath.trim()) {
+      return { code: EC.VALIDATION_ERROR, message: '分段音频替换参数无效' }
+    }
+    try {
+      return {
+        code: 0,
+        data: await requireProjectService().replaceSegmentAudio(request.projectId, request.segmentId, request.filePath),
+      }
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: error.message }
+    } finally {
+      cleanupImportedMediaPaths({ audio: [{ path: request.filePath }] })
+    }
+  }))
+
+  ipcMain.handle('story2video:retry-segment', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) ||
+        !isSafeId(request.segmentId) || !['image', 'video'].includes(request.mode)) {
+      return { code: EC.VALIDATION_ERROR, message: '分段重试参数无效' }
+    }
+    try {
+      const data = await requireProjectService().retrySegment(request.projectId, request.segmentId, request.mode)
+      return { code: 0, data }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:recompose-project', withSenderCheck(async (_event, projectId) => {
+    if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
+    try { return { code: 0, data: await requireProjectService().recomposeProject(projectId) } }
+    catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:transcribe', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || typeof request.filePath !== 'string') {
+      return { code: EC.VALIDATION_ERROR, message: '语音识别参数无效' }
+    }
+    try { return { code: 0, data: await requireProjectService().transcribeFile(request.filePath) } }
+    catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:capabilities', withSenderCheck(async () => {
+    try { return { code: 0, data: requireProjectService().getCapabilities() } }
+    catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:import-media', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+      return { code: EC.VALIDATION_ERROR, message: '媒体导入参数必须为对象' }
+    }
+    try {
+      const data = importUserSelectedMedia(request.filePath, request.kind)
+      return { code: 0, data }
+    } catch (error) {
+      return { code: EC.VALIDATION_ERROR, message: error.message }
+    }
+  }))
+
+  ipcMain.handle('story2video:export-zip', withSenderCheck(async (event, request) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+      return { code: EC.VALIDATION_ERROR, message: '导出参数必须为对象' }
+    }
+    if (!Array.isArray(request.files) || request.files.length === 0) {
+      return { code: EC.VALIDATION_ERROR, message: '至少选择一个视频文件' }
+    }
+
+    let destinationPath = request.destinationPath
+    let allowedRoots = allowedMediaRoots()
+    if (destinationPath !== undefined && (typeof destinationPath !== 'string' || !path.isAbsolute(destinationPath))) {
+      return { code: EC.VALIDATION_ERROR, message: '导出目标路径无效' }
+    }
+    if (!destinationPath) {
+      if (!dialog || typeof dialog.showSaveDialog !== 'function') {
+        return { code: EC.REQUEST_ERROR, message: '系统保存对话框不可用' }
+      }
+      const options = {
+        title: '导出 Story2Video ZIP',
+        defaultPath: safeZipName(request.suggestedName),
+        filters: [{ name: 'ZIP 归档', extensions: ['zip'] }],
+      }
+      const win = BrowserWindow && typeof BrowserWindow.fromWebContents === 'function'
+        ? BrowserWindow.fromWebContents(event.sender)
+        : null
+      const selection = win
+        ? await dialog.showSaveDialog(win, options)
+        : await dialog.showSaveDialog(options)
+      if (selection.canceled || !selection.filePath) return { code: 0, data: { cancelled: true } }
+      destinationPath = selection.filePath
+      allowedRoots = allowedMediaRoots([path.dirname(destinationPath)])
+    }
+
+    try {
+      const data = await createZipFromFiles(request.files, destinationPath, { allowedRoots })
+      return { code: 0, data }
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: error.message }
+    }
+  }))
+
+  ipcMain.handle('story2video:create-share-url', withSenderCheck(async (_event, filePath) => {
+    try {
+      const allowedRoots = allowedMediaRoots()
+      const resolved = validateFilePath(filePath, projectRoots)
+      if (!resolved) return { code: EC.VALIDATION_ERROR, message: '视频文件路径无效或不允许访问' }
+      return { code: 0, data: { url: createShareFileUrl(resolved, { allowedRoots }), path: resolved } }
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: error.message }
+    }
+  }))
+
+  ipcMain.handle('story2video:copy-path', withSenderCheck(async (_event, filePath) => {
+    const resolved = validateFilePath(filePath, projectRoots)
+    if (!resolved) return { code: EC.VALIDATION_ERROR, message: '视频文件路径无效或不允许访问' }
+    if (!clipboard || typeof clipboard.writeText !== 'function') {
+      return { code: EC.REQUEST_ERROR, message: '系统剪贴板不可用' }
+    }
+    clipboard.writeText(resolved)
+    return { code: 0, data: { path: resolved } }
+  }))
+
+  ipcMain.handle('story2video:show-in-folder', withSenderCheck(async (_event, filePath) => {
+    const resolved = validateFilePath(filePath, projectRoots)
+    if (!resolved) return { code: EC.VALIDATION_ERROR, message: '视频文件路径无效或不允许访问' }
+    if (!shell || typeof shell.showItemInFolder !== 'function') {
+      return { code: EC.REQUEST_ERROR, message: '系统文件管理器不可用' }
+    }
+    shell.showItemInFolder(resolved)
+    return { code: 0, data: { path: resolved } }
+  }))
+}
+
+module.exports = registerHandlers

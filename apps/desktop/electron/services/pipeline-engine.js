@@ -19,6 +19,7 @@
 
 const path = require('path');
 const { StageExecutor, STAGE_TYPES } = require('./stage-executor');
+const { cleanupRunInputDir, cleanupImportedMediaPaths } = require('./story2video-paths');
 
 // --- 流水线元数据（与 Python pipeline_defs 同步） ---
 const PIPELINES = [
@@ -117,7 +118,7 @@ const PIPELINES = [
     name: 'story2video-compose',
     description: 'Story2Video 文案转视频 - 分句+提示词优化+资源生成+合成+发布',
     category: 'generated',
-    stages: ['split', 'optimize', 'generate_assets', 'compose', 'publish'],
+    stages: ['split', 'domain_enrich', 'optimize', 'generate_assets', 'compose', 'publish'],
     estimatedCost: 'high',
     // stageDefs 定义每个阶段的执行类型和参数（供 StageExecutor 使用）
     // 旧流水线无 stageDefs 字段，回退为 MANUAL_CHECKPOINT
@@ -126,6 +127,7 @@ const PIPELINES = [
         name: 'split',
         type: 'split', // 内置 STAGE_TYPES.SPLIT
         description: '文案分句',
+        checkpointRequired: false,
         options: {
           // smart-sentence-splitter 选项
           mode: 'semantic',
@@ -133,18 +135,30 @@ const PIPELINES = [
         inputFrom: null, // 从 params.text 取
       },
       {
+        name: 'domain_enrich',
+        type: 'story2video_domain_enrich', // 历史内容领域增强（可选）
+        description: '时代/朝代识别与视觉上下文增强',
+        checkpointRequired: false,
+        options: {
+          contentType: 'general',
+        },
+        inputFrom: 'split',
+      },
+      {
         name: 'optimize',
         type: 'optimize_batch', // 内置 STAGE_TYPES.OPTIMIZE_BATCH
         description: '批量提示词优化',
+        checkpointRequired: true,
         options: {
           style: 'realistic', // 必须是 prompt-engine StyleType 枚举值
         },
-        inputFrom: 'split', // 从 context.split 取
+        inputFrom: 'domain_enrich', // 从 context.domain_enrich 取
       },
       {
         name: 'generate_assets',
         type: 'story2video_generate_assets', // 自定义类型，由 story2video-stages.js 注册
         description: '并行资源生成（图片 + TTS）',
+        checkpointRequired: true,
         options: {
           concurrency: 3,
           imageStyle: 'cinematic',
@@ -157,6 +171,7 @@ const PIPELINES = [
         name: 'compose',
         type: 'compose', // 内置 STAGE_TYPES.COMPOSE
         description: '视频合成',
+        checkpointRequired: true,
         options: {
           // Story2Video 引擎选项
           transition: 'fade',
@@ -168,6 +183,7 @@ const PIPELINES = [
         name: 'publish',
         type: 'publish', // 内置 STAGE_TYPES.PUBLISH
         description: '多平台发布',
+        checkpointRequired: true,
         options: {},
         inputFrom: 'compose', // 从 context.compose 取 videoPath
       },
@@ -193,6 +209,7 @@ class PipelineEngine {
     this.serviceBus = deps.serviceBus || null;
     this.container = deps.container || null;
     this.log = deps.log || require('./logger');
+    this.story2videoProjectService = deps.story2videoProjectService || null;
 
     // 自动构造 StageExecutor（仅在 serviceBus 可用时）
     if (deps.stageExecutor) {
@@ -318,6 +335,8 @@ class PipelineEngine {
     const pl = this.getPipeline(pipelineName);
     if (!pl) return { success: false, error: 'Unknown pipeline: ' + pipelineName };
 
+    const stageDefs = Array.isArray(pl.stageDefs) ? pl.stageDefs : [];
+    const stageDefByName = new Map(stageDefs.map((def) => [def.name, def]));
     const runId = 'run_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     const run = {
       id: runId,
@@ -326,11 +345,17 @@ class PipelineEngine {
       currentStage: 0,
       stages: pl.stages.map((s, i) => ({
         name: s,
+        type: stageDefByName.get(s)?.type,
+        requiresCheckpoint: Boolean(
+          stageDefByName.get(s)?.checkpointRequired ??
+          stageDefByName.get(s)?.requiresCheckpoint,
+        ),
+        checkpointType: stageDefByName.get(s)?.checkpointType || 'stage',
         status: i === 0 ? 'running' : 'pending',
         startedAt: i === 0 ? new Date().toISOString() : null,
         completedAt: null,
       })),
-      params,
+      params: params || {},
       progress: 0,
       checkpoint: null,
       createdAt: new Date().toISOString(),
@@ -377,14 +402,12 @@ class PipelineEngine {
     const run = this._getCurrentRun();
     if (!run) return { success: false, error: 'No active pipeline' };
 
+    run.cancelled = true;
     run.status = 'cancelled';
     run.stages[run.currentStage].status = 'cancelled';
     // Backlot 事件：流水线取消
     this._emit('pipeline:fail', { runId: run.id, pipelineType: run.pipeline, error: 'cancelled' });
-    this._history.push({ ...run, endedAt: new Date().toISOString() });
-    this._runs.delete(run.id);
-    this._runs.delete('_' + run.pipeline);
-    this._currentPipeline = null;
+    this._finalizeRun(run, 'cancelled', 'cancelled');
     return { success: true };
   }
 
@@ -420,7 +443,21 @@ class PipelineEngine {
     const run = this._getCurrentRun();
     if (!run) return { success: false, error: 'No active pipeline' };
 
+    return this._advanceRun(run);
+  }
+
+  /**
+   * 只推进指定运行，避免 orchestrator 按 runId 执行后误用全局 currentPipeline。
+   * @param {object} run
+   */
+  _advanceRun(run) {
+    if (!run || !Array.isArray(run.stages) || !run.stages[run.currentStage]) {
+      return { success: false, error: 'No active stage' };
+    }
+
     const completedStageName = run.stages[run.currentStage].name;
+    // 检查点只代表当前阶段的暂停状态，推进后不能泄漏到下一个运行快照。
+    run.checkpoint = null;
     // Complete current stage
     run.stages[run.currentStage].status = 'completed';
     run.stages[run.currentStage].completedAt = new Date().toISOString();
@@ -431,13 +468,9 @@ class PipelineEngine {
     // Advance to next stage
     run.currentStage++;
     if (run.currentStage >= run.stages.length) {
-      run.status = 'completed';
-      this._history.push({ ...run, endedAt: new Date().toISOString() });
       // Backlot 事件：流水线完成
       this._emit('pipeline:complete', { runId: run.id, pipelineType: run.pipeline, totalDuration: Date.now() - new Date(run.createdAt).getTime() });
-      this._runs.delete(run.id);
-      this._runs.delete('_' + run.pipeline);
-      this._currentPipeline = null;
+      this._finalizeRun(run, 'completed');
       return { success: true, message: 'Pipeline completed' };
     }
 
@@ -493,8 +526,23 @@ class PipelineEngine {
     if (!pl) return { success: false, error: 'Unknown pipeline: ' + pipelineName };
 
     params = params || {};
+    if (typeof params !== 'object' || Array.isArray(params)) {
+      return { success: false, error: 'Pipeline params must be an object' };
+    }
+    const initialContext = params.initialContext !== undefined
+      ? params.initialContext
+      : (params.context !== undefined ? params.context : {});
+    if (!initialContext || typeof initialContext !== 'object' || Array.isArray(initialContext)) {
+      return { success: false, error: 'Invalid initialContext: expected an object' };
+    }
+    let serializedContext;
+    try {
+      serializedContext = JSON.parse(JSON.stringify(initialContext));
+    } catch (e) {
+      return { success: false, error: 'Invalid initialContext: ' + e.message };
+    }
 
-    // 先调用同步 start 创建 run
+    // 上下文验证通过后再创建 run，避免非法输入留下孤儿运行。
     const startResult = this.start(pipelineName, params);
     if (!startResult.success) return startResult;
 
@@ -504,7 +552,7 @@ class PipelineEngine {
 
     // 标记为编排模式
     run.orchestrationMode = 'orchestrator';
-    run.context = {};
+    run.context = serializedContext;
     run.stageResults = [];
 
     if (params.autoAdvance) {
@@ -521,16 +569,42 @@ class PipelineEngine {
    */
   async executeStage(runId) {
     const result = await this._executeStage(runId);
-    // 手动模式下，执行成功后推进到下一阶段
-    if (result.success) {
-      const run = this._runs.get(runId);
-      if (run && run.orchestrationMode === 'orchestrator') {
-        const advResult = this.advance();
-        if (!advResult.success && advResult.message !== 'Pipeline completed') {
-          // 推进失败（非完成），保留错误信息但不覆盖执行结果
-          this.log.warn('PipelineEngine', 'advance after executeStage: ' + (advResult.message || advResult.error));
-        }
+    const run = this._runs.get(runId);
+    if (!result.success) {
+      if (run && !run.cancelled) {
+        this._emit('stage:fail', { runId, stageName: run.stages[run.currentStage]?.name, error: result.error });
+        this._emit('pipeline:fail', { runId, pipelineType: run.pipeline, error: result.error });
+        this._finalizeRun(run, 'failed', result.error);
       }
+      return result;
+    }
+    if (!run || run.orchestrationMode !== 'orchestrator') return result;
+
+    if (result.checkpoint) {
+      const stage = run.stages[run.currentStage];
+      const checkpoint = this._buildCheckpoint(run, result.checkpointMeta || {
+        stageName: stage?.name,
+        stageIndex: run.currentStage,
+        required: true,
+        type: result.checkpoint,
+      });
+      run.checkpoint = checkpoint;
+      run.status = 'paused';
+      if (stage) stage.status = 'paused';
+      this._emit('checkpoint:pause', {
+        runId,
+        stageName: stage?.name,
+        checkpointType: result.checkpoint,
+      });
+      return { ...result, checkpointData: checkpoint, paused: true };
+    }
+
+    const advResult = this._advanceRun(run);
+    if (advResult.message === 'Pipeline completed') {
+      return { ...result, completed: true, context: run.context };
+    }
+    if (!advResult.success && advResult.message !== 'Pipeline completed') {
+      this.log.warn('PipelineEngine', 'advance after executeStage: ' + (advResult.message || advResult.error));
     }
     return result;
   }
@@ -545,6 +619,16 @@ class PipelineEngine {
     if (!run) return { success: false, error: 'Run not found: ' + runId };
     if (run.orchestrationMode !== 'orchestrator') {
       return { success: false, error: 'Run is not in orchestrator mode' };
+    }
+    if (run.status === 'paused') {
+      // 检查点阶段已经执行完毕，确认操作应先完成该阶段，再执行后续阶段。
+      const advanced = this._advanceRun(run);
+      if (!advanced.success) return advanced;
+      if (advanced.message === 'Pipeline completed') {
+        return { success: true, runId, context: run.context, completed: true, results: [] };
+      }
+      run.status = 'running';
+      if (run.stages[run.currentStage]) run.stages[run.currentStage].status = 'running';
     }
     return this._autoAdvanceRun(runId);
   }
@@ -561,6 +645,30 @@ class PipelineEngine {
   }
 
   /**
+   * 获取供 renderer 使用的运行快照。
+   * getRunContext 保持返回原始 context 的兼容性；新接口同时返回状态、阶段和检查点。
+   */
+  getRunSnapshot(runId) {
+    const run = this._runs.get(runId);
+    if (!run) return null;
+    return {
+      runId: run.id,
+      pipeline: run.pipeline,
+      status: {
+        status: run.status,
+        currentStage: run.currentStage,
+        progress: this._calcProgress(run),
+      },
+      currentStage: run.currentStage,
+      stages: run.stages,
+      context: run.context || {},
+      checkpoint: run.checkpoint || null,
+      orchestrationMode: run.orchestrationMode || 'state_machine',
+      createdAt: run.createdAt,
+    };
+  }
+
+  /**
    * 暂停 + 保存检查点（编排模式增强）
    * 检查点包含 currentStage + context 快照
    */
@@ -571,11 +679,10 @@ class PipelineEngine {
     if (!result.success) return result;
 
     if (run.orchestrationMode === 'orchestrator') {
-      run.checkpoint = {
-        currentStage: run.currentStage,
-        context: JSON.parse(JSON.stringify(run.context || {})),
-        savedAt: new Date().toISOString(),
-      };
+      run.checkpoint = this._buildCheckpoint(run, {
+        stageName: run.stages[run.currentStage]?.name,
+        required: true,
+      });
     }
     return { success: true, checkpoint: run.checkpoint };
   }
@@ -623,6 +730,46 @@ class PipelineEngine {
     return this._runs.get('_' + this._currentPipeline);
   }
 
+  _finalizeRun(run, status, error) {
+    if (!run || run.endedAt) return;
+    run.status = status;
+    if (error) run.error = error;
+    run.endedAt = new Date().toISOString();
+    if (run.pipeline === 'story2video-compose' && status === 'completed' && this.story2videoProjectService) {
+      try {
+        const project = this.story2videoProjectService.saveRun(run);
+        if (project) {
+          run.projectId = project.projectId;
+          run.context = run.context || {};
+          run.context.story2videoProject = project;
+        }
+      } catch (persistError) {
+        run.status = 'failed';
+        run.error = 'Story2Video 项目保存失败: ' + persistError.message;
+        status = 'failed';
+        this.log.error('PipelineEngine', run.error);
+      }
+    }
+    this._history.push({
+      ...run,
+      stages: Array.isArray(run.stages) ? run.stages.map(stage => ({ ...stage })) : [],
+      context: run.context || {},
+    });
+    this._runs.delete(run.id);
+    if (this._runs.get('_' + run.pipeline) === run) {
+      this._runs.delete('_' + run.pipeline);
+      if (this._currentPipeline === run.pipeline) this._currentPipeline = null;
+    }
+    if (run.pipeline === 'story2video-compose') {
+      try {
+        cleanupRunInputDir(run.id);
+        cleanupImportedMediaPaths(run.params);
+      } catch (cleanupError) {
+        this.log.warn('PipelineEngine', 'Story2Video input cleanup failed: ' + cleanupError.message);
+      }
+    }
+  }
+
   _calcProgress(run) {
     const completed = run.stages.filter((s) => s.status === 'completed').length;
     return Math.round((completed / run.stages.length) * 100);
@@ -652,7 +799,15 @@ class PipelineEngine {
     const stageDef = (pl && Array.isArray(pl.stageDefs))
       ? (pl.stageDefs.find((s) => s.name === stage.name) || {})
       : {};
-    const fullStage = { ...stageDef, ...stage };
+    const fullStage = {
+      ...stageDef,
+      ...stage,
+      options: {
+        ...(stageDef.options || {}),
+        ...(stage.options || {}),
+        ...resolveRuntimeStageOptions(stage.name, run.params),
+      },
+    };
 
     const result = await this.stageExecutor.execute({
       runId,
@@ -660,20 +815,54 @@ class PipelineEngine {
       params: run.params,
       context: run.context || {},
     });
+    if (run.cancelled || this._runs.get(runId) !== run) {
+      return { success: false, cancelled: true, error: 'Run cancelled' };
+    }
 
     // 阶段执行成功且有输出 -> 写入 context 供后续阶段使用
     if (result.success && result.output !== undefined) {
       run.context = run.context || {};
       run.context[stage.name] = result.output;
     }
+    const normalizedResult = { ...result };
+    if (normalizedResult.success && this._shouldCheckpoint(fullStage, run.params)) {
+      normalizedResult.checkpoint = normalizedResult.checkpoint || fullStage.checkpointType || 'stage';
+      normalizedResult.checkpointMeta = {
+        stageName: stage.name,
+        stageIndex: run.currentStage,
+        required: true,
+        type: normalizedResult.checkpoint,
+      };
+    }
+
     run.stageResults.push({
       stage: stage.name,
-      success: result.success,
-      error: result.error,
+      success: normalizedResult.success,
+      error: normalizedResult.error,
+      checkpoint: normalizedResult.checkpointMeta || null,
       timestamp: new Date().toISOString(),
     });
 
-    return result;
+    return normalizedResult;
+  }
+
+  _shouldCheckpoint(stage, params) {
+    const policy = params && params.checkpointPolicy;
+    if (policy === 'none') return false;
+    if (policy === 'manual_all') return stage.name !== 'split';
+    if (policy === 'auto_noncreative') {
+      return ['optimize', 'compose', 'publish'].includes(stage.name);
+    }
+    return Boolean(stage.requiresCheckpoint || stage.checkpointRequired);
+  }
+
+  _buildCheckpoint(run, meta) {
+    return {
+      ...(meta || {}),
+      currentStage: run.currentStage,
+      context: JSON.parse(JSON.stringify(run.context || {})),
+      savedAt: new Date().toISOString(),
+    };
   }
 
   /**
@@ -694,11 +883,10 @@ class PipelineEngine {
       results.push({ stage: stage.name, ...execResult });
 
       if (!execResult.success) {
-        run.status = 'failed';
-        run.error = execResult.error;
         // Backlot 事件：阶段失败 + 流水线失败
         this._emit('stage:fail', { runId, stageName: stage.name, error: execResult.error });
         this._emit('pipeline:fail', { runId, pipelineType: run.pipeline, error: execResult.error });
+        this._finalizeRun(run, 'failed', execResult.error);
         return {
           success: false,
           runId,
@@ -710,7 +898,15 @@ class PipelineEngine {
 
       // 遇到人工检查点 → 暂停并返回
       if (execResult.checkpoint) {
-        this.pause();
+        const checkpoint = this._buildCheckpoint(run, execResult.checkpointMeta || {
+          stageName: stage.name,
+          stageIndex: run.currentStage,
+          required: true,
+          type: execResult.checkpoint,
+        });
+        run.checkpoint = checkpoint;
+        run.status = 'paused';
+        stage.status = 'paused';
         // Backlot 事件：检查点暂停
         this._emit('checkpoint:pause', { runId, stageName: stage.name, checkpointType: execResult.checkpoint });
         return {
@@ -718,12 +914,13 @@ class PipelineEngine {
           runId,
           results,
           context: run.context,
+          checkpoint,
           paused: true,
         };
       }
 
       // 推进到下一阶段（同步 advance）
-      const advResult = this.advance();
+      const advResult = this._advanceRun(run);
       if (!advResult.success) {
         // 流水线完成或出错
         if (advResult.message === 'Pipeline completed') {
@@ -732,6 +929,7 @@ class PipelineEngine {
             runId,
             results,
             context: run.context,
+            completed: true,
           };
         }
         break;
@@ -743,8 +941,75 @@ class PipelineEngine {
       runId,
       results,
       context: run.context,
+      completed: run.status === 'completed',
     };
   }
+}
+
+/**
+ * 将 renderer 传入的运行时配置合并到阶段 options。
+ * 阶段定义提供安全默认值，用户参数只覆盖同一阶段允许的配置键。
+ */
+function resolveRuntimeStageOptions(stageName, params) {
+  const input = params || {};
+  const stageOptions = input.stageOptions && input.stageOptions[stageName];
+  const result = stageOptions && typeof stageOptions === 'object' ? { ...stageOptions } : {};
+  const set = (key, value) => {
+    if (value !== undefined && value !== null) result[key] = value;
+  };
+
+  if (stageName === 'split') {
+    set('mode', input.splitMode);
+    set('language', input.language);
+  } else if (stageName === 'optimize') {
+    set('style', input.promptStyle || input.imageStyle || input.style);
+    set('platform', input.promptPlatform || input.platform);
+    set('creative_level', input.creativeLevel);
+    set('num_candidates', input.numCandidates);
+  } else if (stageName === 'generate_assets') {
+    set('concurrency', input.concurrency);
+    set('imageStyle', input.imageStyle);
+    set('imageProvider', input.imageProvider);
+    set('imageModel', input.imageModel);
+    set('aspectRatio', input.aspectRatio);
+    set('voiceId', input.voiceId);
+    set('voiceProvider', input.voiceProvider);
+    set('voiceModel', input.voiceModel);
+    set('voiceSpeed', input.voiceSpeed);
+    set('voicePitch', input.voicePitch);
+    set('voiceEmotion', input.voiceEmotion);
+    set('contentType', input.contentType);
+    set('inputMode', input.inputMode);
+    set('images', input.images);
+    set('audio', input.audio);
+    set('allowPartialAssets', input.allowPartialAssets);
+    set('templateId', input.templateId);
+  } else if (stageName === 'domain_enrich') {
+    set('contentType', input.contentType);
+  } else if (stageName === 'compose') {
+    set('transition', input.transition);
+    set('imageEffect', input.imageEffect);
+    set('subtitleEnabled', input.subtitleEnabled);
+    set('subtitleStyle', input.subtitleStyle);
+    set('bgmPath', input.bgmPath);
+    set('bgmVolume', input.bgmVolume);
+    set('watermark', input.watermark);
+    set('watermarkText', input.watermarkText);
+    set('watermarkConfig', input.watermarkConfig);
+    set('voiceVolume', input.voiceVolume);
+    set('templateId', input.templateId);
+    set('resolution', input.resolution || input.output?.resolution);
+    set('fps', input.fps || input.output?.fps);
+    set('format', input.format || input.output?.format);
+  } else if (stageName === 'publish') {
+    set('platforms', input.platforms);
+    set('title', input.title || input.output?.title);
+    set('content', input.content || input.text);
+    set('tags', input.tags);
+    set('publishEnabled', input.publishEnabled);
+  }
+
+  return result;
 }
 
 module.exports = { PipelineEngine, STAGE_TYPES };

@@ -6,8 +6,17 @@ var __commonJS = (cb, mod) => function __require() {
 // electron/preload/publish.js
 var require_publish = __commonJS({
   "electron/preload/publish.js"(exports2, module2) {
-    function createPublishApi2(ipcRenderer2) {
+    function createPublishApi2(ipcRenderer2, options = {}) {
+      const resolveFilePath = typeof options.getPathForFile === "function" ? options.getPathForFile : () => "";
       return {
+        // Electron 32+ 移除了 File.path；路径解析必须在可信 preload 中完成。
+        getPathForFile: (file) => {
+          try {
+            return String(resolveFilePath(file) || "");
+          } catch {
+            return "";
+          }
+        },
         // 发布 API
         publishWechat: (articleData) => ipcRenderer2.invoke("publish:wechat", articleData),
         publishBatch: (platforms, article) => ipcRenderer2.invoke("publish:batch", { platforms, article }),
@@ -90,6 +99,35 @@ var require_publish = __commonJS({
         pipelineAdvance: () => ipcRenderer2.invoke("pipeline:advance"),
         pipelineHistory: () => ipcRenderer2.invoke("pipeline:history"),
         pipelineFetch: (name) => ipcRenderer2.invoke("pipeline:fetch", name),
+        // 编排模式 API（story2video-compose）
+        pipelineStartOrchestrated: (name, params) => ipcRenderer2.invoke("pipeline:startOrchestrated", name, params),
+        pipelineExecuteStage: (runId) => ipcRenderer2.invoke("pipeline:executeStage", runId),
+        pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer2.invoke("pipeline:advanceToNextCheckpoint", runId),
+        pipelineGetRunContext: (runId) => ipcRenderer2.invoke("pipeline:getRunContext", runId),
+        // Story2Video 本地交付
+        story2videoImportMedia: (file, kind) => {
+          let filePath = "";
+          try {
+            filePath = String(resolveFilePath(file) || "");
+          } catch {
+            return Promise.resolve({ code: -1, message: "无法读取媒体文件路径" });
+          }
+          if (!filePath) return Promise.resolve({ code: -1, message: "无法读取媒体文件路径" });
+          return ipcRenderer2.invoke("story2video:import-media", { filePath, kind });
+        },
+        story2videoExportZip: (files, destinationPath) => ipcRenderer2.invoke("story2video:export-zip", { files, destinationPath }),
+        story2videoCreateShareUrl: (filePath) => ipcRenderer2.invoke("story2video:create-share-url", filePath),
+        story2videoCopyPath: (filePath) => ipcRenderer2.invoke("story2video:copy-path", filePath),
+        story2videoShowInFolder: (filePath) => ipcRenderer2.invoke("story2video:show-in-folder", filePath),
+        story2videoListProjects: () => ipcRenderer2.invoke("story2video:list-projects"),
+        story2videoGetProject: (projectId) => ipcRenderer2.invoke("story2video:get-project", projectId),
+        story2videoDeleteProject: (projectId) => ipcRenderer2.invoke("story2video:delete-project", projectId),
+        story2videoUpdateSegments: (projectId, segments) => ipcRenderer2.invoke("story2video:update-segments", { projectId, segments }),
+        story2videoReplaceSegmentAudio: (projectId, segmentId, filePath) => ipcRenderer2.invoke("story2video:replace-segment-audio", { projectId, segmentId, filePath }),
+        story2videoRetrySegment: (projectId, segmentId, mode) => ipcRenderer2.invoke("story2video:retry-segment", { projectId, segmentId, mode }),
+        story2videoRecomposeProject: (projectId) => ipcRenderer2.invoke("story2video:recompose-project", projectId),
+        story2videoTranscribe: (filePath) => ipcRenderer2.invoke("story2video:transcribe", { filePath }),
+        story2videoCapabilities: () => ipcRenderer2.invoke("story2video:capabilities"),
         // Cloud Publisher API
         cloudPublishSubmit: (params) => ipcRenderer2.invoke("cloud-publisher:submit", params),
         cloudPublishListTasks: () => ipcRenderer2.invoke("cloud-publisher:list-tasks"),
@@ -101,6 +139,10 @@ var require_publish = __commonJS({
         viralAnalyze: (articles, topic) => ipcRenderer2.invoke("viral:analyze", { articles, topic }),
         viralGenerate: (opts) => ipcRenderer2.invoke("viral:generate", opts),
         viralTrending: (articles) => ipcRenderer2.invoke("viral:trending", { articles }),
+        // Draft API
+        draftSave: (draft) => ipcRenderer2.invoke("draftSave", draft),
+        draftList: () => ipcRenderer2.invoke("draftList"),
+        draftDelete: (draftId) => ipcRenderer2.invoke("draftDelete", draftId),
         // Comment Management API (PRD F13)
         commentList: (platform, accountId, maxDays) => ipcRenderer2.invoke("comment:list", { platform, accountId, maxDays }),
         commentReply: (platform, accountId, commentId, content) => ipcRenderer2.invoke("comment:reply", { platform, accountId, commentId, content }),
@@ -796,7 +838,7 @@ var require_access_control = __commonJS({
 });
 
 // electron/preload/index.js
-var { contextBridge, ipcRenderer } = require("electron");
+var { contextBridge, ipcRenderer, webUtils } = require("electron");
 var { createPublishApi } = require_publish();
 var { createAccountApi } = require_account();
 var { createSystemApi } = require_system();
@@ -827,7 +869,9 @@ function getAccessLevel() {
   return isDevMode ? "admin" : "public";
 }
 var fullApi = {
-  ...createPublishApi(ipcRenderer),
+  ...createPublishApi(ipcRenderer, {
+    getPathForFile: (file) => webUtils?.getPathForFile(file) || ""
+  }),
   ...createAccountApi(ipcRenderer),
   ...createSystemApi(ipcRenderer),
   ...createProjectApi(ipcRenderer),

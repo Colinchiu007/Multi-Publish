@@ -19,7 +19,7 @@ class ServiceBus {
    * @param {object} deps.pythonBridge - Python 后端桥接（模块导出，非类实例）
    * @param {object} deps.splitterBridge - SplitterBridge 实例
    * @param {object} deps.promptBridge - PromptBridge 实例
-   * @param {object|null} deps.story2videoEngine - Story2Video 引擎（暂为 null）
+   * @param {object|null} deps.story2videoEngine - 基于 ffmpeg 的 Story2Video 合成引擎
    * @param {object} deps.log - 日志模块
    */
   constructor({ pythonBridge, splitterBridge, promptBridge, story2videoEngine, log }) {
@@ -62,18 +62,18 @@ class ServiceBus {
   }
 
   /**
-   * 视频合成 — 委托 Story2Video 引擎
-   * 注意：story2videoEngine 当前为 null，返回占位响应
+   * 视频合成 — 委托基于 ffmpeg 的 Story2Video 引擎
+   * 引擎未注入时明确返回失败，禁止把占位结果报告为成功。
    * @param {object} assets
    * @param {object} [options]
    * @returns {Promise<object>}
    */
   async composeVideo (assets, options) {
     if (!this.story2videoEngine) {
-      this.log.warn('ServiceBus', 'Story2Video engine not implemented yet, returning placeholder')
+      this.log.warn('ServiceBus', 'Story2Video compose engine is unavailable')
       return {
         code: -1,
-        message: 'Story2Video engine not implemented yet',
+        message: 'Story2Video compose engine is unavailable',
         assets,
         options
       }
@@ -178,8 +178,7 @@ class ServiceBus {
       try { results.promptBridge = await this.promptBridge.healthCheck() } catch { results.promptBridge = false }
     }
 
-    // story2videoEngine 暂未实现，标记为 null
-    results.story2videoEngine = this.story2videoEngine ? 'unknown' : null
+    results.story2videoEngine = this.story2videoEngine ? 'ready' : null
 
     return results
   }

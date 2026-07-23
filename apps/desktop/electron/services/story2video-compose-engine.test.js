@@ -5,7 +5,28 @@
  * 测试 ffmpeg drawtext 滤镜中字幕文本的转义逻辑。
  * 重点：转义顺序（\ 必须最先）+ 字符覆盖（: , ' % { } \）
  */
-const { escapeSubtitleText } = require('./story2video-compose-engine')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const {
+  Story2VideoComposeEngine,
+  findFfmpeg,
+  buildTransitionPlan,
+  escapeSubtitleText,
+  normalizeComposeScenes,
+  buildImageEffectFilter,
+  buildSubtitleFilter,
+  buildWatermarkFilter,
+  buildScaleFilter,
+  parseResolution,
+} = require('./story2video-compose-engine')
+const { MAX_SCENES } = require('./story2video-paths')
+
+function writeFixture (root, name, content = 'media') {
+  const filePath = path.join(root, name)
+  fs.writeFileSync(filePath, content)
+  return filePath
+}
 
 describe('escapeSubtitleText — ffmpeg drawtext 字幕转义', () => {
   // 1. 正常路径：纯中文无需转义
@@ -75,5 +96,335 @@ describe('escapeSubtitleText — ffmpeg drawtext 字幕转义', () => {
   // 12. 换行符保留（ffmpeg drawtext 支持换行）
   it('12. 换行符保留不转义', () => {
     expect(escapeSubtitleText('第一行\n第二行')).toBe('第一行\n第二行')
+  })
+})
+
+describe('Story2VideoComposeEngine 资源与效果契约', () => {
+  it('默认成片上限与旧 PRD 一致为 10 分钟', () => {
+    const engine = new Story2VideoComposeEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    expect(engine.maxDurationSeconds).toBe(10 * 60)
+    expect(engine.maxAudioDurationSeconds).toBe(15 * 60)
+    expect(engine.maxSegmentDurationSeconds).toBe(3 * 60)
+  })
+
+  it('缺少 duration 时保留 null，不在 normalize 阶段伪造 3 秒', () => {
+    const scenes = normalizeComposeScenes({
+      scenes: [{ imagePath: 'image.png', audioPath: 'audio.mp3' }],
+    })
+    expect(scenes[0].duration).toBeNull()
+  })
+
+  it('转场时长按相邻片段真实时长收敛，并为极短片段关闭转场', () => {
+    const plan = buildTransitionPlan([0.2, 0.35], 1.2)
+    expect(plan.enabled).toBe(true)
+    expect(plan.transitions[0].duration).toBeLessThan(0.2)
+    expect(plan.transitions[0].offset).toBeGreaterThan(0)
+
+    const fallback = buildTransitionPlan([0.01, 0.4], 0.4)
+    expect(fallback.enabled).toBe(false)
+  })
+
+  it('优先使用 scenes 的原始 index，部分资源不会错配字幕', () => {
+    const scenes = normalizeComposeScenes({
+      scenes: [
+        { index: 2, imagePath: 'image-2.png', audioPath: 'audio-2.mp3', text: '第三句' },
+      ],
+      images: [{ index: 0, path: 'wrong.png' }],
+      audio: [{ index: 0, path: 'wrong.mp3' }],
+      sentences: [{ text: '第一句' }, { text: '第二句' }, { text: '第三句' }],
+    })
+    expect(scenes).toEqual([
+      expect.objectContaining({ index: 2, imagePath: 'image-2.png', audioPath: 'audio-2.mp3', text: '第三句' }),
+    ])
+  })
+
+  it('保留素材来源元数据，供项目持久化和结果页提示使用', () => {
+    const scenes = normalizeComposeScenes({
+      scenes: [{
+        imagePath: 'image.png',
+        audioPath: 'audio.mp3',
+        imageMeta: { source: 'model-provider', degraded: false },
+        audioMeta: { source: 'ffmpeg-silence', degraded: true },
+      }],
+    })
+
+    expect(scenes[0]).toMatchObject({
+      imageMeta: { source: 'model-provider', degraded: false },
+      audioMeta: { source: 'ffmpeg-silence', degraded: true },
+    })
+  })
+
+  it('支持旧项目的图片动效、字幕样式、水印和分辨率约束', () => {
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).toContain('zoompan')
+    expect(buildImageEffectFilter('pan-left', 1280, 720, 30)).toContain('pan')
+    expect(buildSubtitleFilter('字幕', { size: 'lg', style: 'style2' })).toContain('box=1')
+    expect(buildWatermarkFilter({
+      watermark: { enabled: true, text: '品牌', position: 'top-left', opacity: 0.5 },
+    })).toContain('x=20:y=40')
+    expect(parseResolution('1920x1080')).toEqual({ width: 1920, height: 1080 })
+    expect(parseResolution('../bad')).toEqual({ width: 1280, height: 720 })
+    expect(buildScaleFilter(1920, 1080)).toContain('scale=1920:1080')
+    expect(buildScaleFilter(1920, 1080)).toContain('pad=1920:1080')
+  })
+
+  it('compose 以 scenes 为权威并把效果/BGM参数传给合成阶段', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-contract-'))
+    const image = path.join(root, 'image.png')
+    const audio = path.join(root, 'audio.mp3')
+    fs.writeFileSync(image, Buffer.from('image'))
+    fs.writeFileSync(audio, Buffer.from('audio'))
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    const segmentCalls = []
+    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
+      segmentCalls.push(options)
+      fs.writeFileSync(output, Buffer.from('segment'))
+    })
+    engine._concatSegments = vi.fn(async (_segments, output) => {
+      fs.writeFileSync(output, Buffer.from('video'))
+    })
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => {
+      fs.writeFileSync(output, Buffer.from('narration'))
+    })
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [
+          { index: 3, imagePath: image, audioPath: audio, duration: 2, text: '原始第三句' },
+        ],
+        images: [],
+        audio: [],
+      }, {
+        transition: 'slide-left',
+        imageEffect: 'zoom-in',
+        subtitleStyle: { size: 'lg' },
+        watermark: true,
+        watermarkText: '品牌',
+        voiceVolume: 0.75,
+        validateOutput: false,
+      })
+      expect(result.code).toBe(0)
+      expect(segmentCalls).toHaveLength(1)
+      expect(segmentCalls[0]).toMatchObject({
+        duration: 2,
+        subtitleText: '原始第三句',
+        transition: 'slide-left',
+        imageEffect: 'zoom-in',
+        voiceVolume: 0.75,
+      })
+      expect(result.data.segmentCount).toBe(1)
+      expect(result.data.segments).toEqual([
+        expect.objectContaining({ index: 3, text: '原始第三句', videoPath: expect.any(String) }),
+      ])
+      expect(result.data.audioPath).toEqual(expect.any(String))
+      expect(fs.existsSync(result.data.audioPath)).toBe(true)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('多段旁白导出会消费所有音频，而不是只使用第一段', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-narration-'))
+    const scenes = [0, 1].map(index => ({
+      index,
+      imagePath: writeFixture(root, 'image-' + index + '.png'),
+      audioPath: writeFixture(root, 'audio-' + index + '.mp3'),
+      duration: 1,
+      text: '第' + (index + 1) + '段',
+    }))
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._concatNarrationAudio = vi.fn(async (audioPaths, output) => {
+      expect(audioPaths).toEqual(scenes.map(scene => scene.audioPath))
+      fs.writeFileSync(output, 'narration')
+    })
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({ scenes }, { transition: 'none', validateOutput: false })
+      expect(result.code).toBe(0)
+      expect(engine._concatNarrationAudio).toHaveBeenCalledTimes(1)
+      expect(result.data.segments).toHaveLength(2)
+      expect(fs.existsSync(result.data.audioPath)).toBe(true)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('format=webm 时执行最终转码并返回 webm 路径', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-webm-'))
+    const image = path.join(root, 'image.png')
+    const audio = path.join(root, 'audio.mp3')
+    fs.writeFileSync(image, Buffer.from('image'))
+    fs.writeFileSync(audio, Buffer.from('audio'))
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, Buffer.from('segment')))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
+    engine._transcodeWebm = vi.fn(async (_input, output) => fs.writeFileSync(output, Buffer.from('webm')))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [{ imagePath: image, audioPath: audio, duration: 1, text: '字幕' }],
+      }, { format: 'webm', validateOutput: false })
+
+      expect(result.code).toBe(0)
+      expect(engine._transcodeWebm).toHaveBeenCalledTimes(1)
+      expect(result.data.videoPath).toMatch(/\.webm$/)
+      expect(result.data.format).toBe('webm')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('缺少场景 duration 时不向 ffmpeg 传固定截断值，并使用探测时长', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-probe-'))
+    const image = path.join(root, 'image.png')
+    const audio = path.join(root, 'audio.mp3')
+    fs.writeFileSync(image, Buffer.from('image'))
+    fs.writeFileSync(audio, Buffer.from('audio'))
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    const segmentCalls = []
+    engine._probeMediaDuration = vi.fn()
+      .mockResolvedValueOnce(1.75)
+      .mockResolvedValueOnce(1.7)
+      .mockResolvedValueOnce(1.7)
+    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
+      segmentCalls.push(options)
+      fs.writeFileSync(output, Buffer.from('segment'))
+    })
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [{ imagePath: image, audioPath: audio, text: '按真实时长' }],
+      }, { transition: 'none', validateOutput: false })
+      expect(result.code).toBe(0)
+      expect(segmentCalls[0].duration).toBeNull()
+      expect(result.data.duration).toBe(1.7)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('拒绝超出场景上限和像素上限的合成请求', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-limits-'))
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+
+    try {
+      const tooMany = await engine.compose({
+        scenes: Array.from({ length: MAX_SCENES + 1 }, () => ({
+          imagePath: 'image.png',
+          audioPath: 'audio.mp3',
+        })),
+      })
+      expect(tooMany).toMatchObject({ code: -1 })
+      expect(tooMany.message).toMatch(/scene|场景|limit/i)
+
+      const invalidResolution = await engine.compose({
+        scenes: [{ imagePath: 'image.png', audioPath: 'audio.mp3' }],
+      }, { resolution: '10000x10000' })
+      expect(invalidResolution).toMatchObject({ code: -1 })
+      expect(invalidResolution.message).toMatch(/resolution|分辨率|pixel/i)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('合成阶段拒绝允许目录之外的本地媒体', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-allowed-'))
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-outside-'))
+    const image = path.join(outside, 'image.png')
+    const audio = path.join(outside, 'audio.mp3')
+    fs.writeFileSync(image, 'image')
+    fs.writeFileSync(audio, 'audio')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      allowedMediaRoots: [root],
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+
+    try {
+      const result = await engine.compose({ scenes: [{ imagePath: image, audioPath: audio }] })
+      expect(result).toMatchObject({ code: -1 })
+      expect(result.message).toMatch(/path|路径|media|媒体/i)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('在执行 ffmpeg 前拒绝超过 10 分钟的声明时长', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-duration-'))
+    const image = path.join(root, 'image.png')
+    const audio = path.join(root, 'audio.mp3')
+    fs.writeFileSync(image, 'image')
+    fs.writeFileSync(audio, 'audio')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    engine._createSegment = vi.fn()
+
+    try {
+      const result = await engine.compose({
+        scenes: [{ imagePath: image, audioPath: audio, duration: 601 }],
+      })
+      expect(result).toMatchObject({ code: -1 })
+      expect(result.message).toMatch(/10 分钟|时长|duration/i)
+      expect(engine._createSegment).not.toHaveBeenCalled()
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('批量旁白单段超过 3 分钟时在合成前失败', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-segment-duration-'))
+    const scenes = [0, 1].map(index => {
+      const imagePath = path.join(root, 'image-' + index + '.png')
+      const audioPath = path.join(root, 'audio-' + index + '.mp3')
+      fs.writeFileSync(imagePath, 'image')
+      fs.writeFileSync(audioPath, 'audio')
+      return { imagePath, audioPath }
+    })
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    engine._probeMediaDuration = vi.fn().mockResolvedValueOnce(181).mockResolvedValueOnce(2)
+    engine._createSegment = vi.fn()
+
+    try {
+      const result = await engine.compose({ scenes })
+      expect(result).toMatchObject({ code: -1 })
+      expect(result.message).toMatch(/单段|3 分钟|时长/)
+      expect(engine._createSegment).not.toHaveBeenCalled()
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 })

@@ -58,3 +58,45 @@ export interface EffectMeta {
   /** CSS \u6216\u6e32\u67d3\u63d0\u793a\uff08\u53ef\u9009\uff09 */
   hint?: string;
 }
+
+// ==================== 视频模板类型 ====================
+
+/** 模板分类，与旧 Story2Video 的模板筛选保持兼容。 */
+export type TemplateCategory =
+  | 'popular'
+  | 'business'
+  | 'creative'
+  | 'vlog'
+  | 'education'
+  | 'custom';
+
+/** 字幕样式配置。 */
+export interface SubtitleStyleConfig {
+  enabled: boolean;
+  font: string;
+  size: 'sm' | 'md' | 'lg' | 'xl';
+  style: string;
+  color?: string;
+}
+
+/** BGM 模板配置。 */
+export interface TemplateBgmConfig {
+  url: string;
+  name: string;
+  volume: number;
+}
+
+/** 可复用的视频创作模板。 */
+export interface VideoTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: TemplateCategory;
+  imageEffect: ImageEffect;
+  transitionEffect: TransitionEffect;
+  perImageDuration: number;
+  size: string;
+  seconds: number;
+  subtitleStyle?: SubtitleStyleConfig;
+  bgm?: TemplateBgmConfig;
+}

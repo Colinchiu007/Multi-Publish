@@ -5,8 +5,7 @@
  * 验证写操作的 sender 来源校验（withSenderCheck）：
  * - 所有启动、控制、检查点推进和注册类写通道
  *
- * 只读操作不校验：pipeline:list / pipeline:status / pipeline:get
- *                / pipeline:definitions / pipeline:list-orchestrated
+ * 运行状态和流水线定义也属于应用私有数据，统一执行 sender 校验。
  *
  * @vitest-environment node
  */
@@ -97,6 +96,15 @@ const NEW_PROTECTED_CHANNELS = [
   ['pipeline:registerStageExecutor', 'registerStageExecutor', ['render', vi.fn()]],
 ]
 
+const READ_PROTECTED_CHANNELS = [
+  ['pipeline:list', 'listPipelines', []],
+  ['pipeline:get', 'getPipeline', ['default']],
+  ['pipeline:status', 'getStatus', ['default']],
+  ['pipeline:history', 'getHistory', []],
+  ['pipeline:fetch', 'fetchPipelineFromBackend', ['default']],
+  ['pipeline:getRunContext', 'getRunContext', ['run-1']],
+]
+
 describe('pipeline IPC 写操作 sender 校验', () => {
   it('pipeline:start 拒绝外部网页调用', async () => {
     const ipcMain = createMockIpcMain()
@@ -143,20 +151,32 @@ describe('pipeline IPC 写操作 sender 校验', () => {
   )
 })
 
-describe('pipeline IPC 只读操作不加 sender 校验', () => {
-  it('pipeline:list 外部来源也可调用，返回正常数据', async () => {
-    const mockList = [{ name: 'default', stages: [] }]
-    const deps = createMockDeps({
-      pipelineEngine: { listPipelines: vi.fn(() => mockList) },
-    })
+describe('pipeline IPC 查询 sender 校验', () => {
+  it.each([...NEW_PROTECTED_CHANNELS, ...READ_PROTECTED_CHANNELS])(
+    '%s 拒绝外部网页调用且不执行 pipelineEngine.%s',
+    async (channel, method, args) => {
+      const deps = createMockDeps()
+      const ipcMain = createMockIpcMain()
+      registerHandlers(ipcMain, deps)
+
+      const result = await ipcMain._get(channel)(UNTRUSTED_EVENT, ...args)
+
+      expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+      expect(deps.pipelineEngine[method]).not.toHaveBeenCalled()
+    },
+  )
+
+  it('拒绝非法流水线名和 runId', async () => {
+    const deps = createMockDeps()
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
-    const handler = ipcMain._get('pipeline:list')
 
-    const result = await handler(UNTRUSTED_EVENT)
-
-    expect(result).toEqual({ code: 0, data: mockList })
-    expect(deps.pipelineEngine.listPipelines).toHaveBeenCalled()
+    await expect(ipcMain._get('pipeline:get')(TRUSTED_EVENT, '')).resolves.toEqual({
+      code: -2, message: '缺少或非法流水线名称',
+    })
+    await expect(ipcMain._get('pipeline:getRunContext')(TRUSTED_EVENT, 42)).resolves.toEqual({
+      code: -2, message: '缺少或非法 runId',
+    })
   })
 })
 

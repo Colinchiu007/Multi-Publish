@@ -43,8 +43,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 ### QM-3：测试策略
 
-- 单元测试（56 个）：覆盖核心业务逻辑 ✅
-- 本地打包验证：覆盖 require 链、文件包含、语法 ✅（新增）
-- 后续补充：main.js 启动测试（`node -e "require('./electron/main.js')"`）
+- 旧“56 个单元测试”是历史快照，不能作为当前质量结论。
+- 当前任务的真实执行结果、Story2Video 聚焦集、串行全量、preload 双 sandbox、真实 ffmpeg、视觉与 Windows 打包门禁统一记录在仓库根 `.quality-gates.md`。
+- 本地打包验证覆盖 require 链、文件包含、语法；启动验证必须同时检查 stderr，不能只看进程存活。
 
 ## 新增模块（蚁小二逆向工程集成）

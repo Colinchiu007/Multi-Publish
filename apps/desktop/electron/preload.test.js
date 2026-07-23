@@ -43,6 +43,7 @@ beforeEach(() => {
 
 // === 方法名清单（从原 preload.js 351 行提取，不改变任何名称/IPC 通道/参数顺序）===
 const PUBLISH_METHODS = [
+  'getPathForFile',
   'publishWechat', 'publishBatch', 'listAccounts',
   'renderStart', 'renderCancel', 'renderGetStatus', 'renderInstallDeps',
   'onRenderProgress', 'onRenderComplete', 'onRenderError', 'onRenderInstallProgress',
@@ -57,6 +58,14 @@ const PUBLISH_METHODS = [
   'onProgress',
   'pipelineList', 'pipelineGet', 'pipelineStart', 'pipelinePause', 'pipelineResume',
   'pipelineCancel', 'pipelineStatus', 'pipelineAdvance', 'pipelineHistory', 'pipelineFetch',
+  'pipelineStartOrchestrated', 'pipelineExecuteStage',
+  'pipelineAdvanceToNextCheckpoint', 'pipelineGetRunContext',
+  'story2videoImportMedia', 'story2videoExportZip', 'story2videoCreateShareUrl',
+  'story2videoCopyPath', 'story2videoShowInFolder', 'story2videoListProjects',
+  'story2videoGetProject', 'story2videoDeleteProject', 'story2videoUpdateSegments',
+  'story2videoReplaceSegmentAudio',
+  'story2videoRetrySegment', 'story2videoRecomposeProject', 'story2videoTranscribe',
+  'story2videoCapabilities',
   'cloudPublishSubmit', 'cloudPublishListTasks', 'cloudPublishGetTask', 'cloudPublishPlatforms',
   'urlCollectFetch',
   'viralAnalyze', 'viralGenerate', 'viralTrending',
@@ -173,10 +182,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 60 个键（59 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 79 个键（78 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(60)
+    expect(Object.keys(r).length).toBe(79)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -191,12 +200,18 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(133)
   })
 
-  it('合并后 api 总键数应为 239', () => {
-    expect(Object.keys(api).length).toBe(239)
+  it('合并后 api 总键数应为 258', () => {
+    expect(Object.keys(api).length).toBe(258)
   })
 
-  it('PUBLISH_METHODS 常量长度应为 55', () => {
-    expect(PUBLISH_METHODS.length).toBe(55)
+  it('PUBLISH_METHODS 常量包含编排 API', () => {
+    expect(PUBLISH_METHODS.length).toBe(74)
+    expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
+      'pipelineStartOrchestrated',
+      'pipelineExecuteStage',
+      'pipelineAdvanceToNextCheckpoint',
+      'pipelineGetRunContext',
+    ]))
   })
 
   it('ACCOUNT_METHODS 常量长度应为 40', () => {
@@ -235,6 +250,27 @@ describe('pipelines 嵌套对象结构', () => {
   it('api.pipelines.get("foo") 调用应转发到 ipcRenderer.invoke("pipeline:get", "foo")', () => {
     api.pipelines.get('foo')
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('pipeline:get', 'foo')
+  })
+})
+
+describe('本地文件路径桥接', () => {
+  it('通过 webUtils 解析绝对路径，不把文件对象传给主进程', () => {
+    const { createPublishApi } = require('./preload/publish')
+    const resolver = vi.fn(() => 'C:/media/music.mp3')
+    const file = { name: 'music.mp3' }
+    const scopedApi = createPublishApi(ipcRenderer, { getPathForFile: resolver })
+
+    expect(scopedApi.getPathForFile(file)).toBe('C:/media/music.mp3')
+    expect(resolver).toHaveBeenCalledWith(file)
+    expect(ipcRenderer.invoke).not.toHaveBeenCalled()
+  })
+
+  it('路径解析异常时返回空字符串', () => {
+    const { createPublishApi } = require('./preload/publish')
+    const scopedApi = createPublishApi(ipcRenderer, {
+      getPathForFile: () => { throw new Error('invalid File') },
+    })
+    expect(scopedApi.getPathForFile({ name: 'music.mp3' })).toBe('')
   })
 })
 
@@ -284,6 +320,16 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
     ['proxyAdd', 'proxy:add', [{ host: '127.0.0.1' }]],
     ['modelProviderLogs', 'model-provider:logs', [{ category: 'llm' }]],
     ['modelProviderCleanLogs', 'model-provider:clean-logs', [7]],
+    ['pipelineStartOrchestrated', 'pipeline:startOrchestrated', ['story2video-compose', { text: '测试' }]],
+    ['pipelineExecuteStage', 'pipeline:executeStage', ['run-1']],
+    ['pipelineAdvanceToNextCheckpoint', 'pipeline:advanceToNextCheckpoint', ['run-1']],
+    ['pipelineGetRunContext', 'pipeline:getRunContext', ['run-1']],
+    ['story2videoExportZip', 'story2video:export-zip', [[{ path: 'C:/video.mp4' }], 'C:/videos.zip']],
+    ['story2videoCreateShareUrl', 'story2video:create-share-url', ['C:/video.mp4']],
+    ['story2videoCopyPath', 'story2video:copy-path', ['C:/video.mp4']],
+    ['story2videoShowInFolder', 'story2video:show-in-folder', ['C:/video.mp4']],
+    ['story2videoDeleteProject', 'story2video:delete-project', ['project-1']],
+    ['story2videoReplaceSegmentAudio', 'story2video:replace-segment-audio', ['project-1', 'segment-0', 'C:/voice.mp3']],
   ]
 
   beforeEach(() => {
@@ -294,6 +340,36 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
     api[method](...args)
     expect(ipcRenderer.invoke).toHaveBeenCalledTimes(1)
     expect(ipcRenderer.invoke.mock.calls[0][0]).toBe(channel)
+  })
+})
+
+describe('Story2Video 媒体导入桥接', () => {
+  it('先通过可信 webUtils 解析 File 路径，再发送纯 JSON 参数', async () => {
+    const { createPublishApi } = require('./preload/publish')
+    const resolver = vi.fn().mockReturnValue('D:/media/voice.mp3')
+    const scopedApi = createPublishApi(ipcRenderer, { getPathForFile: resolver })
+    const file = { name: 'voice.mp3' }
+
+    await scopedApi.story2videoImportMedia(file, 'audio')
+
+    expect(resolver).toHaveBeenCalledWith(file)
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('story2video:import-media', {
+      filePath: 'D:/media/voice.mp3',
+      kind: 'audio',
+    })
+  })
+
+  it('无法由 webUtils 解析的伪造路径不会发送到主进程', async () => {
+    const { createPublishApi } = require('./preload/publish')
+    const scopedIpcRenderer = { invoke: vi.fn() }
+    const resolver = vi.fn(() => { throw new TypeError('需要真实 File 对象') })
+    const scopedApi = createPublishApi(scopedIpcRenderer, { getPathForFile: resolver })
+
+    const result = await scopedApi.story2videoImportMedia('C:/Users/user/private.mp3', 'audio')
+
+    expect(resolver).toHaveBeenCalledWith('C:/Users/user/private.mp3')
+    expect(result).toEqual({ code: -1, message: '无法读取媒体文件路径' })
+    expect(scopedIpcRenderer.invoke).not.toHaveBeenCalled()
   })
 })
 

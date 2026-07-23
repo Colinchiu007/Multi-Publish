@@ -10,6 +10,26 @@ const log = require('./logger')
 const { PRESET_PROVIDERS, CATEGORY_LABELS, CATEGORIES } = require('./model-provider-seeds')
 const crypto = require('./crypto')
 
+// 这些适配器只允许在回环地址且无凭据时直连，避免把无 API Key 的配置变成远程请求通道。
+const LOCAL_NO_KEY_PROVIDER_IDS = new Set(['piper', 'local-diffusion', 'comfyui'])
+
+function isLoopbackBaseUrl (value) {
+  if (value === undefined || value === null || String(value).trim() === '') return true
+  try {
+    const url = new URL(String(value))
+    const host = url.hostname.toLowerCase()
+    return (url.protocol === 'http:' || url.protocol === 'https:') &&
+      (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]')
+  } catch (_) {
+    return false
+  }
+}
+
+function canUseWithoutApiKey (provider) {
+  return Boolean(provider && LOCAL_NO_KEY_PROVIDER_IDS.has(provider.id) &&
+    isLoopbackBaseUrl(provider.base_url))
+}
+
 class ModelProviderManager {
   constructor (store) {
     this._store = store
@@ -56,7 +76,7 @@ class ModelProviderManager {
     if (!provider) {
       return { code: -1, message: `Provider "${providerId}" not found` }
     }
-    if (!provider.api_key) {
+    if (!provider.api_key && !canUseWithoutApiKey(provider)) {
       return { code: -1, message: 'API Key not configured for provider "' + providerId + '"' }
     }
 
@@ -135,12 +155,28 @@ class ModelProviderManager {
 
     // 创建新实例
     const factory = this._adapterFactories.get(providerId)
+    const config = provider.config && typeof provider.config === 'object'
+      ? { ...provider.config }
+      : {}
     const credentials = {
       id: provider.id,
       apiKey: provider.api_key,
       baseUrl: provider.base_url,
       models: provider.models,
-      config: provider.config,
+      config,
+    }
+    // 豆包语音接口把 App ID 与 Access Token 分开：Token 复用已加密的 api_key，
+    // App ID 保存在非敏感 config 中，避免把 Token 泄露到可读配置列。
+    if (providerId === 'doubao-tts' || providerId === 'doubao-stt') {
+      const appId = typeof config.appId === 'string' && config.appId.trim()
+        ? config.appId.trim()
+        : (typeof config.app_id === 'string' ? config.app_id.trim() : '')
+      credentials.appId = appId
+      credentials.app_id = appId
+      credentials.token = provider.api_key
+      if (typeof config.cluster === 'string' && config.cluster.trim()) {
+        credentials.cluster = config.cluster.trim()
+      }
     }
     const adapter = factory(credentials)
     this._adapterCache.set(providerId, adapter)
@@ -456,7 +492,7 @@ class ModelProviderManager {
       return { code: -1, message: 'Provider does not belong to category "' + (CATEGORY_LABELS[category] || category) + '"' }
     }
     const providerWithKey = this.getProviderWithKey(providerId)
-    if (!providerWithKey || !providerWithKey.api_key) {
+    if (!providerWithKey || (!providerWithKey.api_key && !canUseWithoutApiKey(providerWithKey))) {
       return { code: -1, message: 'Please configure API Key before setting as default' }
     }
     try {
@@ -491,7 +527,7 @@ class ModelProviderManager {
     if (!provider) {
       return { code: -1, message: 'Provider "' + id + '" not found' }
     }
-    if (!provider.api_key) {
+    if (!provider.api_key && !canUseWithoutApiKey(provider)) {
       return { code: -1, message: 'API Key not configured' }
     }
     // P3.2: 若已注册 Adapter，通过 Adapter 实际调用 testConnection
@@ -553,4 +589,4 @@ function safeJsonParse (str, fallback) {
   try { return JSON.parse(str) } catch { return fallback }
 }
 
-module.exports = { ModelProviderManager }
+module.exports = { ModelProviderManager, canUseWithoutApiKey, isLoopbackBaseUrl }

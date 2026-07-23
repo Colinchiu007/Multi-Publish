@@ -10,12 +10,17 @@ const COMPLETE_RESULT = {
   exposed: true,
   getVersion: true,
   publishWechat: true,
+  story2videoCapabilities: true,
   identityGetState: true,
   identitySwitchAccount: true,
   adminHidden: true,
   accessLevel: 'authenticated',
   getVersionResult: { code: 0, data: 'preload-sandbox-test' },
   publishResult: { code: 0, data: { accepted: true } },
+  story2videoCapabilitiesResult: {
+    code: 0,
+    data: { transcription: { available: false }, remix: { available: false } },
+  },
   identityStateResult: {
     code: 0,
     data: { status: 'disabled', user: null, error: null },
@@ -49,6 +54,10 @@ describe('preload sandbox 真实验证器', () => {
     expect(() => assertApi(COMPLETE_RESULT, true)).not.toThrow()
     expect(() => assertApi({ ...COMPLETE_RESULT, publishWechat: false }, false))
       .toThrow(/暴露不完整/)
+    expect(() => assertApi({ ...COMPLETE_RESULT, story2videoCapabilities: false }, true))
+      .toThrow(/Story2Video IPC 暴露不完整/)
+    expect(() => assertApi({ ...COMPLETE_RESULT, story2videoCapabilitiesResult: { code: -1 } }, true))
+      .toThrow(/Story2Video IPC 调用失败/)
     expect(() => assertApi({ ...COMPLETE_RESULT, getVersionResult: { code: -1 } }, true))
       .toThrow(/IPC 调用失败/)
     expect(() => assertApi({ ...COMPLETE_RESULT, adminHidden: false }, false))
@@ -85,9 +94,8 @@ describe('preload sandbox 真实验证器', () => {
       args: expect.arrayContaining([
         ELECTRON_HARNESS_ARG,
         `--preload-sandbox-mode=${sandbox}`,
-        '--disable-gpu',
-        expect.stringMatching(/^--user-data-dir=/),
       ]),
+      env: { PATH: 'test-path' },
       timeout: 1500,
     }))
     const launchArgs = electronLauncher.launch.mock.calls[0][0].args
@@ -153,15 +161,27 @@ describe('preload sandbox 真实验证器', () => {
     expect(setCacheAt).toBeLessThan(whenReadyAt)
   })
 
-  it('Electron harness 使用内联页面，避免临时 HTTP 导航导致窗口提前关闭', () => {
+  it('Electron harness 使用受控本地 HTTP 页面，避免 sandbox data URL 崩溃', () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, '../../scripts/preload-sandbox-electron-harness.js'),
       'utf8',
     )
 
-    expect(source).not.toContain("require('http')")
-    expect(source).not.toContain('http.createServer')
-    expect(source).toContain('data:text/html')
+    expect(source).toContain("require('http')")
+    expect(source).toContain('http.createServer')
+    expect(source).toContain("verificationServer.listen(0, '127.0.0.1'")
+    expect(source).toContain('await verificationWindow.loadURL(url)')
+    expect(source).not.toContain('data:text/html')
+  })
+
+  it('Electron harness 启动失败时以非零退出码退出，不能用 app.quit 掩盖渲染器故障', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../scripts/preload-sandbox-electron-harness.js'),
+      'utf8',
+    )
+
+    expect(source).toContain('app.exit(1)')
+    expect(source).toMatch(/preload sandbox harness 启动失败[\s\S]*app\.exit\(1\)/)
   })
 
   it('外层门禁同时校验退出码、两个模式标记和总成功标记', () => {
@@ -184,10 +204,34 @@ describe('preload sandbox 真实验证器', () => {
       .toThrow(/退出码/)
   })
 
-  it('父门禁使用 Node 工作进程并传递可配置超时', async () => {
+  it('Electron harness 验证器必须检查两个 sandbox 模式的真实回传', async () => {
     const {
       MODE_SUCCESS_MARKERS,
-      PLAYWRIGHT_WORKER_ARG,
+      SUCCESS_MARKER,
+      runElectronHarnessVerification,
+    } = require('../../scripts/verify-preload-sandbox')
+    const verifyModeImpl = vi.fn(async () => COMPLETE_RESULT)
+    const output = vi.fn()
+
+    await runElectronHarnessVerification({
+      verifyModeImpl,
+      timeoutMs: 1500,
+      env: { PATH: 'test-path' },
+      output,
+    })
+
+    expect(verifyModeImpl).toHaveBeenCalledTimes(2)
+    expect(verifyModeImpl.mock.calls.map(([options]) => options.sandbox)).toEqual([true, false])
+    const combined = output.mock.calls.map(([message]) => message).join('')
+    expect(combined).toContain(MODE_SUCCESS_MARKERS.true)
+    expect(combined).toContain(MODE_SUCCESS_MARKERS.false)
+    expect(combined).toContain(SUCCESS_MARKER)
+  })
+
+  it('父门禁使用 Node 工作进程并传递可配置超时', async () => {
+    const {
+      ELECTRON_HARNESS_WORKER_ARG,
+      MODE_SUCCESS_MARKERS,
       SUCCESS_MARKER,
       runChildVerification,
     } = require('../../scripts/verify-preload-sandbox')
@@ -212,7 +256,7 @@ describe('preload sandbox 真实验证器', () => {
     await expect(verification).resolves.toBeUndefined()
     expect(spawnImpl).toHaveBeenCalledWith(
       process.execPath,
-      expect.arrayContaining([PLAYWRIGHT_WORKER_ARG]),
+      expect.arrayContaining([ELECTRON_HARNESS_WORKER_ARG]),
       expect.objectContaining({ env: expect.objectContaining({ PRELOAD_SANDBOX_TIMEOUT_MS: '1500' }) }),
     )
     expect(child.kill).not.toHaveBeenCalled()
@@ -236,7 +280,8 @@ describe('preload sandbox 真实验证器', () => {
   })
 
   it('Electron 子进程超时时保留 stderr，便于定位渲染器启动失败', async () => {
-    const { runChildVerification } = require('../../scripts/verify-preload-sandbox')
+    const { getChildVerificationTimeout, runChildVerification } =
+      require('../../scripts/verify-preload-sandbox')
     const child = new EventEmitter()
     child.stdout = new PassThrough()
     child.stderr = new PassThrough()
@@ -249,7 +294,8 @@ describe('preload sandbox 真实验证器', () => {
         PRELOAD_SANDBOX_TIMEOUT_MS: '20',
       })
       child.stderr.write('GPU process fatal')
-      await vi.advanceTimersByTimeAsync(25)
+      const timeoutMs = getChildVerificationTimeout({ PRELOAD_SANDBOX_TIMEOUT_MS: '20' })
+      await vi.advanceTimersByTimeAsync(timeoutMs + 1)
       child.emit('close', null)
 
       await expect(verification).rejects.toThrow(/GPU process fatal/)

@@ -1,54 +1,222 @@
 <template>
   <div class="result-page">
     <div class="page-header">
-      <h1>视频预览</h1>
+      <div>
+        <h1>视频预览</h1>
+        <p v-if="projectId" class="page-subtitle">项目 {{ projectId }}</p>
+      </div>
+      <span v-if="project?.dirty" class="status-badge">有未合成修改</span>
     </div>
 
-    <!-- 加载 -->
     <div v-if="loading" class="loading-state">
       <p>加载中...</p>
     </div>
 
-    <!-- 无结果 -->
     <div v-else-if="!videoPath" class="empty-state">
       <p>没有可预览的视频</p>
       <UiButton @click="$router.push('/create')">去创作</UiButton>
     </div>
 
-    <!-- 视频播放器 -->
     <div v-else class="video-section">
       <video
         ref="videoPlayer"
         :src="videoSrc"
         controls
         class="video-player"
+        @loadedmetadata="handleVideoMetadata"
+        @timeupdate="handleTrimPreviewProgress"
         @error="handleError"
       ></video>
 
       <div class="video-info">
-        <p>格式: MP4</p>
-        <p>位置: {{ videoPath }}</p>
+        <p>格式: {{ formatLabel }}</p>
+        <p class="path-text">位置: {{ videoPath }}</p>
       </div>
 
       <div class="actions">
         <UiButton @click="download">下载视频</UiButton>
+        <UiButton variant="secondary" @click="exportZip">导出 ZIP</UiButton>
+        <UiButton variant="secondary" @click="copyLocalPath">复制路径</UiButton>
+        <UiButton variant="secondary" @click="showInFolder">打开文件夹</UiButton>
         <UiButton variant="secondary" @click="$router.push('/publish')">去发布</UiButton>
-        <UiButton variant="secondary" @click="$router.push('/create')">重新创作</UiButton>
+        <UiButton variant="ghost" @click="$router.push('/create')">重新创作</UiButton>
       </div>
+      <p v-if="exportMessage" class="result-message">{{ exportMessage }}</p>
+      <p v-if="hasDegradedAssets" class="asset-warning" role="status">
+        此成片包含离线降级素材（{{ degradedAssetKinds.join('、') }}），请在发布前预览确认。
+      </p>
     </div>
 
-    <!-- 错误 -->
+    <section v-if="videoPath" class="project-section trim-section">
+      <div class="section-heading">
+        <div>
+          <h2>视频裁剪</h2>
+          <p>导出一个新的 MP4 片段，不覆盖原视频</p>
+        </div>
+      </div>
+      <div v-if="videoDuration" class="trim-range-panel">
+        <div class="trim-range-values" aria-live="polite">
+          <span>{{ formatTrimTime(trimStart) }}</span>
+          <span>{{ formatTrimTime(trimEnd) }}</span>
+        </div>
+        <label class="trim-range-control">
+          <span>开始</span>
+          <input
+            data-testid="trim-start-range"
+            aria-label="裁剪开始时间"
+            type="range"
+            min="0"
+            :max="trimMax"
+            step="0.1"
+            :value="trimStart"
+            @input="setTrimBoundary('start', $event.target.value)"
+          />
+        </label>
+        <label class="trim-range-control">
+          <span>结束</span>
+          <input
+            data-testid="trim-end-range"
+            aria-label="裁剪结束时间"
+            type="range"
+            min="0.1"
+            :max="trimMax"
+            step="0.1"
+            :value="trimEnd"
+            @input="setTrimBoundary('end', $event.target.value)"
+          />
+        </label>
+      </div>
+      <div class="trim-controls">
+        <label>
+          开始时间（秒）
+          <input
+            :value="trimStart"
+            type="number"
+            min="0"
+            :max="trimEnd || videoDuration || undefined"
+            step="0.1"
+            @change="setTrimBoundary('start', $event.target.value)"
+          />
+        </label>
+        <label>
+          结束时间（秒）
+          <input
+            :value="trimEnd"
+            type="number"
+            :min="Number(trimStart || 0) + 0.1"
+            :max="videoDuration || undefined"
+            step="0.1"
+            @change="setTrimBoundary('end', $event.target.value)"
+          />
+        </label>
+        <UiButton variant="secondary" :disabled="!canTrim" @click="previewTrimRange">预览区间</UiButton>
+        <UiButton :disabled="trimming || !canTrim" @click="trimVideo">
+          {{ trimming ? '裁剪中...' : '导出片段' }}
+        </UiButton>
+      </div>
+      <progress v-if="trimming" class="trim-progress" aria-label="视频裁剪进度"></progress>
+      <p v-if="videoDuration" class="trim-duration">视频时长：{{ videoDuration.toFixed(1) }} 秒</p>
+      <div v-if="trimmedPath" class="trim-result">
+        <video :src="trimmedSrc" controls class="trimmed-player"></video>
+        <div class="section-actions">
+          <UiButton size="sm" variant="secondary" @click="downloadTrimmed">下载裁剪片段</UiButton>
+          <UiButton size="sm" variant="ghost" @click="showTrimmedInFolder">打开所在文件夹</UiButton>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="projectId && audioPath" class="project-section narration-section">
+      <div class="section-heading">
+        <div>
+          <h2>完整旁白</h2>
+          <p>由全部分段音频按顺序合并</p>
+        </div>
+        <UiButton size="sm" variant="secondary" @click="downloadNarration">下载旁白</UiButton>
+      </div>
+      <audio :src="audioSrc" controls class="audio-player"></audio>
+    </section>
+
+    <section v-if="projectId && segments.length" class="project-section">
+      <div class="section-heading">
+        <div>
+          <h2>分段编辑</h2>
+          <p>{{ segments.length }} 个分段</p>
+        </div>
+        <div class="section-actions">
+          <UiButton size="sm" variant="secondary" :disabled="saving" @click="saveSegments">
+            {{ saving ? '保存中...' : '保存分段' }}
+          </UiButton>
+          <UiButton size="sm" :disabled="recomposing" @click="recomposeProject">
+            {{ recomposing ? '合成中...' : '重新合成' }}
+          </UiButton>
+        </div>
+      </div>
+
+      <div class="segment-list">
+        <article v-for="(segment, index) in segments" :key="segment.id" class="segment-item">
+          <div class="segment-header">
+            <strong>分段 {{ index + 1 }}</strong>
+            <span class="segment-status" :class="segment.status">{{ segment.status || 'completed' }}</span>
+            <div class="segment-order">
+              <button type="button" :disabled="index === 0" title="上移" @click="moveSegment(index, -1)">上移</button>
+              <button type="button" :disabled="index === segments.length - 1" title="下移" @click="moveSegment(index, 1)">下移</button>
+              <button type="button" :disabled="segments.length === 1" title="删除分段" @click="removeSegment(index)">删除</button>
+            </div>
+          </div>
+
+          <label class="field-label">
+            旁白文字
+            <textarea v-model="segment.text" rows="3" @input="segmentsDirty = true"></textarea>
+          </label>
+          <label class="field-label">
+            画面提示词
+            <textarea v-model="segment.prompt" rows="3" @input="segmentsDirty = true"></textarea>
+          </label>
+
+          <div class="segment-actions">
+            <label class="segment-file-action" :class="{ disabled: isSegmentBusy(segment.id) }">
+              替换旁白
+              <input
+                type="file"
+                accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg"
+                :disabled="isSegmentBusy(segment.id)"
+                @change="replaceSegmentAudio(segment.id, $event)"
+              />
+            </label>
+            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'image')">重试图片</UiButton>
+            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'video')">重试视频</UiButton>
+            <UiButton v-if="segment.imagePath" size="sm" variant="ghost" @click="downloadArtifact(segment.imagePath, segmentName(index, 'image', segment.imagePath))">下载图片</UiButton>
+            <UiButton v-if="segment.audioPath" size="sm" variant="ghost" @click="downloadArtifact(segment.audioPath, segmentName(index, 'audio', segment.audioPath))">下载音频</UiButton>
+            <UiButton v-if="segment.videoPath" size="sm" variant="ghost" @click="downloadArtifact(segment.videoPath, segmentName(index, 'video', segment.videoPath))">下载视频</UiButton>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <div v-if="error" class="error-banner">
-      <p>❌ {{ error }}</p>
+      <p>{{ error }}</p>
     </div>
   </div>
 </template>
 
 <script>
-
 import UiButton from '../components/UiButton.vue'
+import {
+  story2videoExportZip,
+  story2videoCreateShareUrl,
+  story2videoCopyPath,
+  story2videoShowInFolder,
+  story2videoGetProject,
+  story2videoImportMedia,
+  story2videoUpdateSegments,
+  story2videoReplaceSegmentAudio,
+  story2videoRetrySegment,
+  story2videoRecomposeProject,
+  videoProcess,
+} from '@/api/publisher'
+
 export default {
-  
+  name: 'ResultView',
   components: { UiButton },
   data() {
     return {
@@ -56,41 +224,460 @@ export default {
       loading: true,
       error: null,
       videoSrc: null,
+      exportMessage: null,
+      projectId: null,
+      project: null,
+      audioPath: null,
+      audioSrc: null,
+      segments: [],
+      segmentsDirty: false,
+      saving: false,
+      recomposing: false,
+      segmentBusy: {},
+      trimStart: 0,
+      trimEnd: null,
+      videoDuration: null,
+      trimming: false,
+      trimPreviewing: false,
+      trimmedPath: null,
+      trimmedSrc: null,
     }
   },
-  mounted() {
-    const state = this.$route?.query?.path
-    if (state) {
-      this.videoPath = state
-      this.videoSrc = `file://${state}`
-    }
-    this.loading = false
+  async mounted() {
+    const projectId = this.$route?.query?.project
+    const filePath = this.$route?.query?.path
+    if (projectId) await this.loadProject(String(projectId))
+    else if (filePath) await this.loadVideoPath(String(filePath))
+    else this.loading = false
+  },
+  computed: {
+    formatLabel() {
+      const extension = String(this.videoPath || '').split('.').pop()
+      return extension ? extension.toUpperCase() : '视频'
+    },
+    canTrim() {
+      const start = Number(this.trimStart)
+      const end = Number(this.trimEnd)
+      const duration = Number(this.videoDuration)
+      return Boolean(this.videoPath) && Number.isFinite(start) && start >= 0 && Number.isFinite(end) && end > start &&
+        (!Number.isFinite(duration) || duration <= 0 || end <= duration)
+    },
+    trimMax() {
+      const duration = Number(this.videoDuration)
+      if (Number.isFinite(duration) && duration > 0) return duration
+      const end = Number(this.trimEnd)
+      return Number.isFinite(end) && end > 0 ? end : 0.1
+    },
+    degradedAssetKinds() {
+      const kinds = new Set()
+      for (const segment of this.segments) {
+        if (segment?.imageMeta?.degraded === true) kinds.add('占位图片')
+        if (segment?.audioMeta?.degraded === true) kinds.add('静音旁白')
+      }
+      return [...kinds]
+    },
+    hasDegradedAssets() {
+      return this.degradedAssetKinds.length > 0
+    },
   },
   methods: {
+    async resolveLocalUrl(filePath) {
+      if (!filePath) return null
+      const result = await story2videoCreateShareUrl(filePath)
+      const url = result?.code === 0 ? (result.data?.url || result.data) : null
+      if (!url) throw new Error(result?.message || '无法读取本地文件')
+      return url
+    },
+    async loadVideoPath(filePath) {
+      this.loading = true
+      this.error = null
+      this.videoPath = filePath || null
+      if (!this.videoPath) {
+        this.videoSrc = null
+        this.loading = false
+        return
+      }
+      try {
+        this.videoSrc = await this.resolveLocalUrl(this.videoPath)
+      } catch (error) {
+        this.videoSrc = null
+        this.error = error?.message || '无法读取视频文件'
+      } finally {
+        this.loading = false
+      }
+    },
+    async loadProject(projectId) {
+      this.loading = true
+      this.error = null
+      try {
+        const result = await story2videoGetProject(projectId)
+        if (result?.code !== 0 || !result.data) throw new Error(result?.message || '项目加载失败')
+        const project = result.data
+        this.project = project
+        this.projectId = project.projectId
+        this.segments = Array.isArray(project.segments) ? project.segments.map(segment => ({ ...segment })) : []
+        this.segmentsDirty = false
+        this.audioPath = project.audioPath || null
+        this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
+        this.videoPath = project.videoPath || null
+        this.videoSrc = this.videoPath ? await this.resolveLocalUrl(this.videoPath) : null
+      } catch (error) {
+        this.project = null
+        this.projectId = null
+        this.error = error?.message || '项目加载失败'
+      } finally {
+        this.loading = false
+      }
+    },
     handleError() {
       this.error = '视频无法播放，文件可能已被移动'
     },
+    handleVideoMetadata(event) {
+      const duration = Number(event?.target?.duration)
+      if (!Number.isFinite(duration) || duration <= 0) return
+      this.videoDuration = duration
+      if (!Number.isFinite(Number(this.trimEnd)) || Number(this.trimEnd) <= Number(this.trimStart) || Number(this.trimEnd) > duration) {
+        this.trimEnd = duration
+      }
+      this.normalizeTrimRange('start')
+    },
+    normalizeTrimRange(preferredBoundary = 'start') {
+      const maximum = Number(this.trimMax)
+      if (!Number.isFinite(maximum) || maximum <= 0) return
+      const gap = Math.min(0.1, maximum)
+      let start = Number(this.trimStart)
+      let end = Number(this.trimEnd)
+      if (!Number.isFinite(start)) start = 0
+      if (!Number.isFinite(end)) end = maximum
+      start = Math.min(Math.max(start, 0), Math.max(0, maximum - gap))
+      end = Math.min(Math.max(end, gap), maximum)
+      if (end - start < gap) {
+        if (preferredBoundary === 'end') start = Math.max(0, end - gap)
+        else end = Math.min(maximum, start + gap)
+      }
+      if (end - start < gap) start = Math.max(0, end - gap)
+      this.trimStart = start
+      this.trimEnd = end
+    },
+    setTrimBoundary(boundary, value) {
+      const numeric = Number(value)
+      if (!Number.isFinite(numeric) || !['start', 'end'].includes(boundary)) return
+      if (boundary === 'start') this.trimStart = numeric
+      else this.trimEnd = numeric
+      this.normalizeTrimRange(boundary)
+      this.seekTrimPreview(boundary === 'start' ? this.trimStart : this.trimEnd)
+    },
+    seekTrimPreview(value) {
+      const player = this.$refs.videoPlayer
+      const time = Number(value)
+      if (!player || !Number.isFinite(time)) return
+      player.currentTime = Math.min(Math.max(time, 0), Number(this.trimMax))
+    },
+    async previewTrimRange() {
+      if (!this.canTrim) return
+      const player = this.$refs.videoPlayer
+      if (!player || typeof player.play !== 'function') return
+      this.seekTrimPreview(this.trimStart)
+      this.trimPreviewing = true
+      try {
+        const playback = player.play()
+        if (playback && typeof playback.then === 'function') await playback
+      } catch (error) {
+        this.trimPreviewing = false
+        this.error = error?.message || '无法预览裁剪区间'
+      }
+    },
+    handleTrimPreviewProgress(event) {
+      if (!this.trimPreviewing) return
+      const player = event?.target || this.$refs.videoPlayer
+      if (!player || Number(player.currentTime) < Number(this.trimEnd)) return
+      if (typeof player.pause === 'function') player.pause()
+      player.currentTime = Number(this.trimStart)
+      this.trimPreviewing = false
+    },
+    formatTrimTime(value) {
+      const seconds = Math.max(0, Number(value) || 0)
+      const minutes = Math.floor(seconds / 60)
+      const remainder = (seconds % 60).toFixed(1).padStart(4, '0')
+      return String(minutes).padStart(2, '0') + ':' + remainder
+    },
+    triggerDownload(url, name) {
+      if (!url) return
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = name
+      anchor.click()
+    },
     download() {
       if (!this.videoPath) return
-      const a = document.createElement('a')
-      a.href = this.videoSrc
-      a.download = `video_${Date.now()}.mp4`
-      a.click()
+      this.triggerDownload(this.videoSrc, 'video_' + Date.now() + '.' + this.formatLabel.toLowerCase())
+    },
+    async downloadArtifact(filePath, name) {
+      try {
+        this.triggerDownload(await this.resolveLocalUrl(filePath), name)
+      } catch (error) {
+        this.error = error?.message || '文件下载失败'
+      }
+    },
+    async downloadNarration() {
+      if (!this.audioPath) return
+      await this.downloadArtifact(this.audioPath, this.fileName(this.audioPath, 'narration.m4a'))
+    },
+    fileName(filePath, fallback) {
+      return String(filePath || '').split(/[\\/]/).pop() || fallback
+    },
+    extension(filePath, fallback) {
+      const name = this.fileName(filePath, '')
+      const match = name.match(/(\.[a-z0-9]{2,5})$/i)
+      return match ? match[1].toLowerCase() : fallback
+    },
+    segmentName(index, kind, filePath) {
+      const fallback = kind === 'image' ? '.png' : kind === 'audio' ? '.mp3' : '.mp4'
+      return 'segment-' + String(index + 1).padStart(3, '0') + '-' + kind + this.extension(filePath, fallback)
+    },
+    exportFiles() {
+      const files = []
+      if (this.videoPath) files.push({ path: this.videoPath, name: this.fileName(this.videoPath, 'video.mp4') })
+      if (this.audioPath) files.push({ path: this.audioPath, name: this.fileName(this.audioPath, 'narration.m4a') })
+      this.segments.forEach((segment, index) => {
+        if (segment.imagePath) files.push({ path: segment.imagePath, name: this.segmentName(index, 'image', segment.imagePath) })
+        if (segment.audioPath) files.push({ path: segment.audioPath, name: this.segmentName(index, 'audio', segment.audioPath) })
+        if (segment.videoPath) files.push({ path: segment.videoPath, name: this.segmentName(index, 'video', segment.videoPath) })
+      })
+      return files
+    },
+    async exportZip() {
+      const files = this.exportFiles()
+      if (!files.length) return
+      this.exportMessage = null
+      const result = await story2videoExportZip(files)
+      if (result?.code === 0) {
+        this.exportMessage = result.data?.cancelled ? '已取消导出' : 'ZIP 导出完成'
+      } else {
+        this.error = result?.message || 'ZIP 导出失败'
+      }
+    },
+    async copyLocalPath() {
+      if (!this.videoPath) return
+      const result = await story2videoCopyPath(this.videoPath)
+      if (result?.code === 0) this.exportMessage = '路径已复制'
+      else this.error = result?.message || '复制路径失败'
+    },
+    async showInFolder() {
+      if (!this.videoPath) return
+      const result = await story2videoShowInFolder(this.videoPath)
+      if (result?.code !== 0) this.error = result?.message || '无法打开文件夹'
+    },
+    async trimVideo() {
+      if (!this.canTrim || this.trimming) return
+      this.trimPreviewing = false
+      if (this.$refs.videoPlayer && typeof this.$refs.videoPlayer.pause === 'function') this.$refs.videoPlayer.pause()
+      this.trimming = true
+      this.error = null
+      try {
+        const result = await videoProcess('trim', {
+          input_path: this.videoPath,
+          start_seconds: Number(this.trimStart),
+          end_seconds: Number(this.trimEnd),
+          codec: 'libx264',
+        })
+        const output = result?.data?.output || result?.data?.data?.output
+        if (result?.code !== 0 || !result.data?.success || !output) {
+          throw new Error(result?.message || result?.data?.error || '视频裁剪失败')
+        }
+        this.trimmedPath = output
+        this.trimmedSrc = await this.resolveLocalUrl(output)
+        this.exportMessage = '裁剪片段已生成'
+      } catch (error) {
+        this.trimmedPath = null
+        this.trimmedSrc = null
+        this.error = error?.message || '视频裁剪失败'
+      } finally {
+        this.trimming = false
+      }
+    },
+    downloadTrimmed() {
+      if (!this.trimmedPath) return
+      this.triggerDownload(this.trimmedSrc, this.fileName(this.trimmedPath, 'video-clip.mp4'))
+    },
+    async showTrimmedInFolder() {
+      if (!this.trimmedPath) return
+      const result = await story2videoShowInFolder(this.trimmedPath)
+      if (result?.code !== 0) this.error = result?.message || '无法打开裁剪片段所在文件夹'
+    },
+    moveSegment(index, offset) {
+      const target = index + offset
+      if (target < 0 || target >= this.segments.length) return
+      const next = this.segments.slice()
+      const [segment] = next.splice(index, 1)
+      next.splice(target, 0, segment)
+      this.segments = next
+      this.segmentsDirty = true
+    },
+    removeSegment(index) {
+      if (this.segments.length <= 1) return
+      this.segments.splice(index, 1)
+      this.segmentsDirty = true
+    },
+    async saveSegments() {
+      if (!this.projectId || !this.segments.length) return false
+      this.saving = true
+      this.error = null
+      try {
+        const updates = this.segments.map(segment => ({
+          id: segment.id,
+          text: segment.text || '',
+          prompt: segment.prompt || '',
+        }))
+        const result = await story2videoUpdateSegments(this.projectId, updates)
+        if (result?.code !== 0) throw new Error(result?.message || '分段保存失败')
+        if (Array.isArray(result.data?.segments) && result.data.segments.length) {
+          this.segments = result.data.segments.map(segment => ({ ...segment }))
+        }
+        this.project = result.data || this.project
+        this.segmentsDirty = false
+        this.exportMessage = '分段已保存'
+        return true
+      } catch (error) {
+        this.error = error?.message || '分段保存失败'
+        return false
+      } finally {
+        this.saving = false
+      }
+    },
+    isSegmentBusy(segmentId) {
+      return Boolean(this.segmentBusy[segmentId])
+    },
+    async replaceSegmentAudio(segmentId, event) {
+      const input = event?.target
+      const file = input?.files?.[0]
+      if (!file || !this.projectId || this.isSegmentBusy(segmentId)) return
+      this.segmentBusy = { ...this.segmentBusy, [segmentId]: 'audio' }
+      this.error = null
+      try {
+        const imported = await story2videoImportMedia(file, 'audio')
+        const filePath = imported?.code === 0 ? imported.data?.path : null
+        if (!filePath) throw new Error(imported?.message || '旁白导入失败')
+        const result = await story2videoReplaceSegmentAudio(this.projectId, segmentId, filePath)
+        if (result?.code !== 0 || !result.data) throw new Error(result?.message || '旁白替换失败')
+        this.project = result.data
+        this.segments = Array.isArray(result.data.segments)
+          ? result.data.segments.map(segment => ({ ...segment }))
+          : this.segments
+        this.segmentsDirty = true
+        this.exportMessage = '旁白已替换，请重新合成项目'
+      } catch (error) {
+        this.error = error?.message || '旁白替换失败'
+      } finally {
+        if (input) input.value = ''
+        const next = { ...this.segmentBusy }
+        delete next[segmentId]
+        this.segmentBusy = next
+      }
+    },
+    async retrySegment(segmentId, mode) {
+      if (!this.projectId || this.isSegmentBusy(segmentId)) return
+      this.segmentBusy = { ...this.segmentBusy, [segmentId]: mode }
+      this.error = null
+      try {
+        const result = await story2videoRetrySegment(this.projectId, segmentId, mode)
+        if (result?.code !== 0) throw new Error(result?.message || '分段重试失败')
+        if (Array.isArray(result.data?.segments) && result.data.segments.length) {
+          this.segments = result.data.segments.map(segment => ({ ...segment }))
+        }
+        this.project = result.data || this.project
+        this.segmentsDirty = true
+        this.exportMessage = mode === 'image' ? '图片已重新生成' : '分段视频已重新生成'
+      } catch (error) {
+        this.error = error?.message || '分段重试失败'
+      } finally {
+        const next = { ...this.segmentBusy }
+        delete next[segmentId]
+        this.segmentBusy = next
+      }
+    },
+    async recomposeProject() {
+      if (!this.projectId || this.recomposing) return
+      if (this.segmentsDirty && !(await this.saveSegments())) return
+      this.recomposing = true
+      this.error = null
+      try {
+        const result = await story2videoRecomposeProject(this.projectId)
+        if (result?.code !== 0 || !result.data) throw new Error(result?.message || '重新合成失败')
+        this.project = result.data
+        if (Array.isArray(result.data.segments) && result.data.segments.length) {
+          this.segments = result.data.segments.map(segment => ({ ...segment }))
+        }
+        this.audioPath = result.data.audioPath || this.audioPath
+        this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
+        await this.loadVideoPath(result.data.videoPath)
+        this.projectId = result.data.projectId || this.projectId
+        this.segmentsDirty = false
+        this.exportMessage = '项目已重新合成'
+      } catch (error) {
+        this.error = error?.message || '重新合成失败'
+      } finally {
+        this.recomposing = false
+      }
     },
   },
 }
 </script>
 
 <style scoped>
-.result-page { padding: 24px; max-width: 900px; margin: 0 auto; }
-.page-header { margin-bottom: 20px; }
+.result-page { padding: 24px; max-width: 1040px; margin: 0 auto; }
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .page-header h1 { font-size: 24px; font-weight: 700; margin: 0; }
+.page-subtitle { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
+.status-badge { padding: 5px 8px; border-radius: 4px; background: var(--warning-bg); color: var(--warning); font-size: 12px; }
 .loading-state, .empty-state { text-align: center; padding: 60px 0; color: #888; }
-.video-section { }
-.video-player { width: 100%; max-height: 70vh; border-radius: 8px; background: #000; }
+.video-player { width: 100%; max-height: 68vh; border-radius: 8px; background: #000; }
 .video-info { margin: 12px 0; font-size: 13px; color: var(--text-muted); }
-.actions { display: flex; gap: 12px; margin-top: 16px; }
-.btn-primary { padding: 10px 24px; border: none; border-radius: 6px; background: #1a73e8; color: var(--surface); cursor: pointer; font-size: 14px; font-weight: 600; }
-.btn-secondary { padding: 8px 16px; border: 1px solid #ddd; border-radius: 6px; background: var(--surface); cursor: pointer; font-size: 13px; }
+.video-info p { margin: 4px 0; }
+.path-text { overflow-wrap: anywhere; }
+.actions, .section-actions, .segment-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions { margin-top: 16px; }
+.result-message { margin-top: 12px; color: var(--text-muted); font-size: 13px; }
+.asset-warning { margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid #b7791f; background: #fff8e6; color: #6b4f16; font-size: 13px; line-height: 1.5; }
+.project-section { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border); }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.section-heading h2 { margin: 0; font-size: 18px; }
+.section-heading p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
+.audio-player { width: 100%; height: 42px; }
+.trim-range-panel { display: grid; gap: 8px; margin-bottom: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.trim-range-values { display: flex; justify-content: space-between; color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.trim-range-control { display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 10px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.trim-range-control input { width: 100%; min-width: 0; accent-color: var(--primary); }
+.trim-controls { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) auto auto; gap: 12px; align-items: end; }
+.trim-controls label { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.trim-controls input { min-width: 0; border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px; background: var(--bg); color: var(--text); }
+.trim-progress { width: 100%; height: 4px; margin-top: 10px; accent-color: var(--primary); }
+.trim-duration { margin: 8px 0 0; color: var(--text-muted); font-size: 12px; }
+.trim-result { display: grid; gap: 10px; margin-top: 14px; }
+.trimmed-player { width: 100%; max-height: 360px; background: #000; border-radius: 6px; }
+.segment-list { display: grid; gap: 12px; }
+.segment-item { border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--surface); }
+.segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: 11px; }
+.segment-status.failed { background: #fee2e2; color: #991b1b; }
+.segment-status.processing { background: var(--warning-bg); color: var(--warning); }
+.segment-order { display: flex; gap: 4px; margin-left: auto; }
+.segment-order button { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); border-radius: 4px; padding: 5px 8px; cursor: pointer; }
+.segment-order button:disabled { opacity: 0.4; cursor: not-allowed; }
+.field-label { display: grid; gap: 6px; margin-top: 10px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.field-label textarea { width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; line-height: 1.5; }
+.segment-actions { margin-top: 12px; }
+.segment-file-action { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 12px; font-weight: 600; }
+.segment-file-action:hover { border-color: var(--primary); color: var(--primary); }
+.segment-file-action.disabled { opacity: 0.45; cursor: not-allowed; }
+.segment-file-action input { display: none; }
 .error-banner { margin-top: 16px; padding: 12px; background: #f8d7da; color: #721c24; border-radius: 8px; }
+.error-banner p { margin: 0; }
+@media (max-width: 720px) {
+  .result-page { padding: 16px; }
+  .section-heading, .segment-header { align-items: flex-start; flex-direction: column; }
+  .trim-controls { grid-template-columns: 1fr; }
+  .segment-order { margin-left: 0; }
+  .actions > *, .section-actions > * { flex: 1 1 auto; }
+}
 </style>

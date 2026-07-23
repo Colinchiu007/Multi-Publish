@@ -400,6 +400,38 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
       expect(result.code).toBe(-1)
       expect(result.message).toMatch(/api key|not configured/i)
     })
+
+    it('将加密保存的豆包 Access Token 与 App ID 映射给语音识别适配器', async () => {
+      manager.createProvider({
+        id: 'doubao-stt', name: '豆包语音识别', category: 'speech_recognition',
+        api_key: 'secure-access-token',
+        base_url: 'https://openspeech.bytedance.com/api/v2/asr',
+        config: { appId: 'doubao-app-id', cluster: 'volcano_asr' },
+      })
+
+      let receivedCreds = null
+      const transcribe = vi.fn(async () => ({ text: '识别完成' }))
+      manager.registerAdapter('doubao-stt', (creds) => {
+        receivedCreds = creds
+        return {
+          id: 'doubao-stt',
+          supports: (method) => method === 'transcribe',
+          transcribe,
+        }
+      })
+
+      const result = await manager.callAdapter('doubao-stt', 'transcribe', { audio: 'base64-audio' })
+
+      expect(result).toMatchObject({ code: 0, data: { text: '识别完成' } })
+      expect(receivedCreds).toMatchObject({
+        apiKey: 'secure-access-token',
+        token: 'secure-access-token',
+        appId: 'doubao-app-id',
+        app_id: 'doubao-app-id',
+        cluster: 'volcano_asr',
+      })
+      expect(receivedCreds.config).toEqual({ appId: 'doubao-app-id', cluster: 'volcano_asr' })
+    })
   })
 
   describe('callAdapter — 实例缓存', () => {

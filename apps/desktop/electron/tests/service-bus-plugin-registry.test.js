@@ -111,7 +111,7 @@ it('ServiceBus.optimizePromptsBatch 委托 promptBridge.optimizeBatch', async fu
   ]);
 });
 
-it('ServiceBus.composeVideo 在 story2videoEngine 为 null 时返回占位响应', async function () {
+it('ServiceBus.composeVideo 在 story2videoEngine 缺失时明确返回失败', async function () {
   const bus = new ServiceBus({
     pythonBridge: makeMockPythonBridge(),
     splitterBridge: makeMockSplitterBridge(),
@@ -121,7 +121,7 @@ it('ServiceBus.composeVideo 在 story2videoEngine 为 null 时返回占位响应
   });
   const result = await bus.composeVideo({ images: [] }, {});
   eq(result.code, -1);
-  ok(/not implemented/.test(result.message));
+  ok(/unavailable/.test(result.message));
 });
 
 it('ServiceBus.composeVideo 在 story2videoEngine 存在时委托 engine.compose', async function () {

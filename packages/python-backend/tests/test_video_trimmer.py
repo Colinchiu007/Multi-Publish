@@ -8,8 +8,14 @@ This test focuses on:
 
 from __future__ import annotations
 
-import pytest
+import asyncio
+import shutil
+import subprocess
 
+import pytest
+from fastapi import HTTPException
+
+from multi_publish.video_creation.base_tool import ToolResult
 from multi_publish.video_creation.providers.video.video_trimmer import VideoTrimmer
 
 
@@ -122,3 +128,80 @@ class TestVideoTrimmerExecute:
         })
         assert result.success is False
         assert "not found" in result.error
+
+    def test_cut_rejects_invalid_time_range(self, tmp_path):
+        source = tmp_path / "source.mp4"
+        source.write_bytes(b"video")
+        trimmer = VideoTrimmer()
+
+        result = trimmer.execute({
+            "operation": "cut",
+            "input_path": str(source),
+            "start_seconds": 3,
+            "end_seconds": 1,
+        })
+
+        assert result.success is False
+        assert "end_seconds" in result.error
+
+    @pytest.mark.skipif(
+        shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+        reason="需要本机 FFmpeg/FFprobe",
+    )
+    def test_cut_creates_real_playable_clip(self, tmp_path):
+        source = tmp_path / "source.mp4"
+        output = tmp_path / "clip.mp4"
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=blue:s=320x240:d=2",
+            "-f", "lavfi", "-i", "sine=frequency=880:duration=2", "-shortest",
+            "-c:v", "libx264", "-c:a", "aac", str(source),
+        ], check=True, capture_output=True)
+
+        result = VideoTrimmer().execute({
+            "operation": "cut", "input_path": str(source),
+            "start_seconds": 0.5, "end_seconds": 1.5,
+            "codec": "libx264", "output_path": str(output),
+        })
+        probe = subprocess.run([
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(output),
+        ], check=True, capture_output=True, text=True)
+
+        assert result.success is True
+        assert output.stat().st_size > 0
+        assert 0.8 <= float(probe.stdout.strip()) <= 1.2
+
+
+class TestVideoProcessEndpoint:
+    def test_trim_dispatches_to_real_tool_contract(self, monkeypatch, tmp_path):
+        from server import video_process
+
+        source = tmp_path / "source.mp4"
+        source.write_bytes(b"video")
+        output = tmp_path / "clip.mp4"
+        captured = {}
+
+        def fake_execute(_self, inputs):
+            captured.update(inputs)
+            output.write_bytes(b"clip")
+            return ToolResult(success=True, data={"output": str(output)}, artifacts=[str(output)])
+
+        monkeypatch.setattr(VideoTrimmer, "execute", fake_execute)
+        response = asyncio.run(video_process({
+            "type": "trim",
+            "params": {
+                "input_path": str(source), "output_path": str(output),
+                "start_seconds": 1, "end_seconds": 2, "codec": "libx264",
+            },
+        }))
+
+        assert captured["operation"] == "cut"
+        assert response["success"] is True
+        assert response["output"] == str(output)
+
+    def test_unimplemented_process_type_returns_501(self):
+        from server import video_process
+
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(video_process({"type": "green-screen", "params": {}}))
+        assert exc.value.status_code == 501

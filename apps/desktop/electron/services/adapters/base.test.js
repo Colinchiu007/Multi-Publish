@@ -81,9 +81,11 @@ describe('BaseAdapter — P3.0 接口契约', () => {
     it('子类通过覆盖方法自动获得 supports() === true', () => {
       class TestAdapter extends BaseAdapter {
         chatCompletion() { return 'ok' }
+        transcribe() { return 'ok' }
       }
       const adapter = new TestAdapter({ id: 'test', apiKey: 'sk-test' })
       expect(adapter.supports('chatCompletion')).toBe(true)
+      expect(adapter.supports('transcribe')).toBe(true)
       expect(adapter.supports('synthesize')).toBe(false)
     })
   })
@@ -120,6 +122,11 @@ describe('BaseAdapter — P3.0 接口契约', () => {
       const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
       expect(() => adapter.synthesize()).toThrow(NotImplementedError)
       expect(() => adapter.listVoices()).toThrow(NotImplementedError)
+    })
+
+    it('语音识别方法 transcribe 默认抛 NotImplementedError', () => {
+      const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
+      expect(() => adapter.transcribe()).toThrow(NotImplementedError)
     })
 
     it('Image 方法（generateImage/editImage）默认抛 NotImplementedError', () => {

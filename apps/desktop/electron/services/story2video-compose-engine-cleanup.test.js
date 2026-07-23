@@ -69,6 +69,18 @@ describe('Story2VideoComposeEngine — _cleanupSession (P2-7)', () => {
     expect(() => engine._cleanupSession(nonExist)).not.toThrow()
   })
 
+  it('拒绝删除 outputDir 之外的目录', () => {
+    const outside = createTestOutputDir()
+    const marker = path.join(outside, 'keep.txt')
+    fs.writeFileSync(marker, 'keep')
+    try {
+      engine._cleanupSession(outside)
+      expect(fs.existsSync(marker)).toBe(true)
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
   it('3. 清理 sessionDir 后 segments 和 concat_list 全部删除', () => {
     const sessionDir = createMockSessionDir(outputDir, 's2v_test_files')
     expect(fs.existsSync(path.join(sessionDir, 'seg_0000.mp4'))).toBe(true)

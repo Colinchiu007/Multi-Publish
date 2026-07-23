@@ -3426,3 +3426,226 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 3. 用户可编辑字段的测试必须从 UI payload 追踪到最终 adapter/publisher 输入，不能止于队列入参。
 4. 本轮回归测试和 `.quality-gates.md` 执行记录纳入提交，后续 CI 沿用相同测试文件。
 5. 打包启动必须同时满足进程存活、stderr 无关键路径错误、ASAR 入口可 require；三项缺一不可。
+
+## Bug 6：Story2Video 编排创建后不执行与参数断链（2026-07-22）
+
+**第一性原因**：CreateView 只创建了 orchestrator run，没有传 `autoAdvance`；PipelineEngine
+默认返回 `runId`，而界面仅在暂停检查点显示推进按钮，导致流水线停在第一个阶段之前。
+同时，合成器虽已支持动效、转场、字幕、BGM、水印和发布，renderer 没有把这些参数传到
+阶段 options，旧项目能力因此在真实链路中不可达。
+
+**逃逸链**：
+- 单元测试只断言 `pipelineStartOrchestrated` 被调用，没有断言完整参数和首阶段执行。
+- 编排测试使用 mock service，不经过 CreateView → preload → IPC → 主进程的参数合同。
+- 视觉测试只检查配置面板是否渲染，未验证生成视频的 ffmpeg 输出。
+- 文档仍描述旧的 Remotion/Python 架构，审查没有把 YAML、运行时注入阶段和 Electron 合成器对齐。
+
+**修复与保护**：
+- UI 默认自动推进到检查点，所有 S2V 选项以纯 JSON 传递；图片模式可直接摄取本地图片/data URL。
+- Pipeline 查询和运行上下文 IPC 加入 sender 来源与参数校验，禁止外部页面读取私有运行数据。
+- YAML、PRD、架构和 CHANGELOG 记录真实六阶段链路、ffmpeg 校验和外部服务边界。
+- 回归测试必须断言参数完整透传、图片轮播场景配对、非空视频可解码以及发布缺少 router 时失败。
+
+**剩余边界**：旧项目 Remix、全自动音频创作、音色克隆、会员配额和云分享依赖外部
+provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段编辑、完整旁白、ZIP、
+本地项目历史和裁剪已经迁移，不能继续在文档中标成未实现。
+## Story2Video 对齐复盘 (2026-07-22)
+
+### 根因与逃逸链
+- 合成器把缺失的音频 `duration` 固定成 3 秒，并把用户转场值直接用于 xfade；单元测试只覆盖显式时长，真实短音频场景未覆盖，因此问题逃过单测和原有集成检查。
+- Electron 43 的沙箱渲染器不再保证 `File.path`；BGM 处理回退到 `File.name`，主进程收到文件名后才报不存在。原有 preload 合同测试只验证 IPC 转发，没有验证真实文件选择路径。
+
+### 修复与预防
+- 合成前/后用 ffprobe 探测媒体时长，缺失时不传 `-t`；转场按相邻片段边界收敛，音频同步使用 acrossfade，过短或未知时长降级为 concat。
+- preload 在可信上下文暴露 `webUtils.getPathForFile`，CreateView 只接受绝对路径；新增短音频真实 ffmpeg、preload 和 CreateView 回归测试。
+- 以后涉及媒体输入必须同时验证 renderer → preload → IPC → 主进程文件存在性，不能只测字符串转发或 mock 文件对象。
+
+## Story2Video 完整对齐与 Bug 逃逸复盘（2026-07-22）
+
+### 第一性原因与引入历史
+
+- `91ab02b52f4f0036910fd09afbc2944194374c4e`（OpenMontage Phase 1-3）首次引入
+  `VideoEngine`，把 10 类处理请求统一转发到当时并不具备对应实现的 `/api/video/process`。
+  目标是快速建立桥接面，但“请求成功”没有绑定真实输出工件校验，最终形成假成功合同。
+- `57bec4d7f59d3bc5a0f5a3f945fd154b531f5a59` 首次引入浏览器 `VideoTrimmer`。
+  目标是迁移旧 UI，但没有验证编码后的媒体是否存在、可解码及起止时长是否正确。
+- `2d509abe226f8d10281de9d983e93e6df5d3fd2e` 引入 Story2Video 编排时只保存临时运行上下文，
+  没有定义完成项目、完整旁白、分段媒体和重启恢复的持久化生命周期。
+- `e39e22cfa9e304e7c23125fe618d2927fc9cb02e` 用 ffmpeg 替换合成占位响应，解决了主成片问题，
+  但没有把 renderer 参数、preload 生产 bundle、分段后处理和完整工件验证纳入同一合同。
+- `847e43013ffe89acd8e7e66daf8a41e21fb68590` 补了 session 临时目录清理，目标是避免运行垃圾；
+  它没有覆盖项目编辑、媒体替换、共享引用、失败回滚和重合成后的持久文件生命周期。
+
+旧项目 PRD 还把 Sora/Supabase Remix、membership/quota、云分享等外部 orchestrator 能力写成
+产品合同，而旧代码本身也存在“多段旁白合并只取第一段”等不完整实现。对齐时必须以可执行
+代码和真实输出为准，不能把规划文档或外部 API 调用存在等同于功能已跑通。
+
+### 测试逃逸链
+
+- **单元测试**：大量 mock bridge、`execFile` 和媒体路径，只断言调用参数或 `code === 0`，
+  没有用 ffmpeg/ffprobe 验证文件存在、可解码、真实时长和轨道内容。
+- **集成测试**：没有覆盖 renderer → preload bundle → IPC → StageExecutor → ComposeEngine →
+  ProjectService 的完整参数和工件血缘，源码 API 存在时也未发现生产 bundle 漏导出。
+- **端到端/视觉测试**：只看到按钮、进度和结果页，没有检查成片可播放、字幕/转场/BGM 生效、
+  重试失败回滚、重启恢复和裁剪区间。
+- **文件生命周期测试**：只测即时成功，没有测删除、共享引用、部分失败、目录 junction 越界、
+  受控临时文件异常清理和重合成替换旧产物。
+- **代码审查**：分别审查 UI、IPC 或合成器，没有沿成功 envelope 追到最终可交付工件；
+  文档评审也没有区分本地能力、外部服务和旧项目仅规划的能力。
+
+### 修复与回归保护
+
+- `VideoEngine` 只保留真实接通的 `trim`；Python `VideoTrimmer` 调用 ffmpeg，结果页使用双范围
+  控件和区间预览，不再依赖 Canvas/MediaRecorder 或伪造进度百分比。
+- `Story2VideoProjectService` 按用户隔离持久化最近 100 个完成项目，保存成片、完整旁白、BGM
+  和分段媒体，并支持编辑、排序、删除、旁白替换、图片/视频重试和重新合成。
+- 项目清理同时 canonicalize 候选路径与根目录，拒绝目录 symlink/junction 越界；共享引用保留，
+  失败重试恢复旧媒体并删除本次部分产物，重合成后删除不再引用的旧文件。
+- preload 改动必须重建 `index.bundle.js`，sandbox=true/false 两种 Electron 模式均验证
+  `story2videoCapabilities` 存在并实际发起 IPC，不能只测源码对象。
+- 回归测试同时覆盖真实 ffmpeg 合成/裁剪、项目重启恢复、分段生命周期、临时文件异常清理、
+  renderer 参数合同和 Vue 生产构建。
+
+### 系统性预防措施
+
+1. 所有媒体“成功”响应必须绑定 artifact validator：普通非空文件、允许路径、ffprobe/解码通过。
+2. 新增或修改视频处理类型时，必须有真实 ffmpeg/ffprobe 用例；只有 mock 调用测试不得标为完成。
+3. preload 源码变化后必须重建 bundle，并运行 sandbox=true/false 的生产 preload 回归。
+4. 项目媒体变更必须测试成功、失败、共享引用、删除、重启恢复和 symlink/junction 边界。
+5. PRD、YAML 和 CHANGELOG 必须分别标注本地已实现、外部待验收、后续产品范围；外部服务
+   不可用时只能失败或明确跳过，禁止占位成功。
+
+---
+## Story2Video Provider 图片 URL SSRF 与 DNS 重绑定复盘（2026-07-22）
+
+### 第一性原因
+
+- Provider 图片下载最初只在自定义 `lookup` 回调中检查 DNS 地址。若 HTTPS 客户端因连接重建再次
+  调用 `lookup`，实现会重新解析域名，攻击者可让首次解析为公网、后续解析为内网地址。
+- 地址策略把“私网”当成完整的“不允许连接”集合，漏掉 RFC6598 共享地址段、RFC2544 基准测试段、
+  文档段及部分 IPv6 特殊前缀；这会把不可公开路由的目标误当作公网。
+- 本机 Provider 例外曾用 `hostname.startsWith('127.')` 判定回环地址，`127.attacker.example` 这类
+  DNS 名称可被误判并绕过远程 HTTPS/DNS 边界；IPv4 保留段也遗漏了 `240.0.0.0/4`。
+- 本机例外还曾把“任意 loopback 地址”当成同一个受信任 endpoint，允许配置 `127.0.0.1` 后访问
+  `127.0.0.2` 的其他本机服务；受信任例外必须精确绑定配置地址。
+- 本机 endpoint 下载仍使用 `response.arrayBuffer()`，缺失或伪造较小 `Content-Length` 时会先把超大
+  响应完整放入内存，再执行 25MiB 判断；远程 `https.request` 路径已有流式上限，形成两条下载路径漂移。
+- 远程下载对 DNS 解析没有超时，且只用 socket 空闲超时；故障 resolver 或每隔不足 30 秒发送一字节的
+  响应可长期占住流水线，不能把 idle timeout 当作端到端总预算。
+
+### 测试逃逸链
+
+- **单元测试**：仅模拟一次 `lookup` 返回 `127.0.0.1`，没有测试同一请求第二次解析结果变化，
+  也没有覆盖特殊 IPv4/IPv6 段。
+- **集成测试**：只验证 Provider 二进制输出和普通 URL 下载成功，没有把 DNS 解析、连接复用和
+  地址可路由性视为下载合同的一部分。
+- **代码审查**：审查了“预检 DNS 与真实连接共用 lookup”的表面结构，没有继续推演连接重试、
+  全局 agent socket 复用和 IANA 特殊地址集合。
+
+### 修复与回归保护
+
+- 每次远程下载先解析一次并验证所有结果均为可公开路由地址，再把选中的地址固定到该请求的
+  `lookup`；禁用全局 `https` agent 复用，重复 lookup 也不会再次 DNS 查询。
+- IPv4 地址策略覆盖 current-network、RFC1918、RFC6598、link-local、基准测试、文档、
+  multicast/reserved；IPv6 覆盖未指定、ULA、link-local、multicast、文档、ORCHIDv2 和 6to4。
+- `asset-generator-provider.test.js` 新增特殊网段集合和“第二次 lookup 返回 127.0.0.1”回归，
+  断言仍固定到首次已验证公网地址；同时覆盖伪造 `127.*` 主机名、`240.0.0.0/4` 和不同的 loopback
+  endpoint；并覆盖无 `Content-Length` 的超大本机响应在首个超限分块即取消；资产 Provider 两个测试
+  文件还覆盖 DNS 永不返回和远程 HTTPS 永不结束；共 26/26 通过。
+
+### 系统性预防措施
+
+1. 所有由 Provider、网页或回调返回的 URL 必须按“可公开路由地址”而非仅“私网地址”判定。
+2. 任何 DNS 校验测试都必须覆盖同一请求重复 lookup、连接复用和至少一个 IANA 特殊地址段。
+3. 修改 Electron 网络边界后，除单元测试外必须完成 Windows 打包、ASAR require 链和独立 8 秒启动日志验证。
+4. Hostname 例外必须先经语义解析再比较，禁止使用前缀、后缀或子串匹配来授予 loopback/内网信任。
+5. 本机 URL 例外必须与用户配置的 hostname、协议和端口精确匹配，不能把同类地址段视为同一服务。
+6. 同类下载通道必须共享流式大小上限；禁止在任何不可信响应上先调用 `arrayBuffer()` 再检查大小。
+7. 网络请求必须有覆盖 DNS、连接和响应读取的端到端总预算；socket idle timeout 只能作为补充。
+
+---
+## Story2Video 媒体边界与离线渲染复盘 (2026-07-22)
+
+### 根因与逃逸链
+- STT 集成直接信任默认 provider，未再次核验 `enabled` 和执行器；同时转录读取规则沿用了通用媒体根目录，误把用户目录中的任意音频当成可上传输入。
+- 单元测试只覆盖了“已配置 provider + 正常路径”，没有覆盖禁用默认项、缺少 `aiGenerator`、嵌套本地 Whisper 地址或未导入文件；因此未经过服务能力、IPC 和真实安全边界的组合验证。
+- Remotion 组件在模块加载阶段调用 `@remotion/google-fonts`，普通组件测试未执行离线真实渲染，直到 Chrome 渲染进程被网络策略阻断才暴露。
+- 项目服务的纯 Node 测试因无条件 `require('electron')` 触发 Electron binary downloader，说明服务层必须先判断是否运行在 Electron，而不是把桌面运行时当作 Node 依赖。
+
+### 防护措施
+- `Story2VideoProjectService` 只接受应用导入目录或项目目录中的音频，能力查询同时检查 provider 启用状态、local Whisper 地址和远程执行器。
+- 项目服务回归测试固定覆盖禁用默认 provider、嵌套 local Whisper 配置、缺少执行器和未导入音频。
+- Remotion Composition 统一使用本地系统字体栈；真实离线单帧渲染列入 Story2Video 收尾门禁。
+- 项目服务测试显式拒绝加载 Electron，防止未来的纯 Node 回归测试重新依赖下载或 GUI 运行时。
+
+---
+## Story2Video 工件命名与导出路径边界复盘 (2026-07-22)
+
+### 第一性原因
+- `_persistComposeArtifacts()` 将外部阶段传入的 `segment.index` 同时用作媒体文件名前缀；两个分段带相同索引时，原子复制会替换已有目标文件，造成先前分段产物静默丢失。
+- 通用 `getAllowedMediaRoots()` 把整个用户主目录、系统临时目录和多个用户特殊目录加入默认白名单。受信任 renderer 一旦被 XSS 或错误调用突破，Story2Video 导出、复制路径、打开目录和本地 file URL 就能作用于本机不属于项目的普通文件。
+
+### 测试逃逸链
+- 项目服务测试只使用唯一 `segment.index`，没有断言两个输入段位相同仍保留两份媒体内容。
+- 路径测试只验证显式 `allowedRoots` 与 symlink/junction 越界，没有测试默认白名单是否意外扩展为用户目录。
+- IPC 测试只覆盖受控临时文件的成功导出，没有区分 renderer 直接提供的外部目标路径与主进程保存对话框返回的用户选择。
+
+### 系统性漏洞
+- 文件名的唯一性依赖了外部数据字段，而不是服务内部已验证的列表位置。
+- “用户可选择文件”与“renderer 可以再次任意引用该路径”混为一谈，缺少一次导入后只使用受控副本的边界。
+
+### 修复与回归保护
+- 媒体前缀改用数组 `position`；`sourceIndex` 仍保留诊断信息。回归用例固定构造两个 `index: 0` 的分段并校验两份图片路径和字节内容不同。
+- 默认可读根收紧为 `os.tmpdir()/story2video`、`userData/story2video-projects` 和显式项目根；IPC 用例断言外部路径被拒绝，同时保存对话框选择的目录可完成 ZIP 导出。
+
+### 预防措施
+1. 所有持久化媒体文件名必须只由服务内部可信 ID 或有序位置构造；外部索引只能作为显示或诊断元数据。
+2. 新增文件路径 IPC 时必须分别测试默认根拒绝、导入后的受控副本、符号链接/junction 和主进程原生对话框授权。
+3. Story2Video 的默认路径白名单不得重新加入用户主目录或通用用户特殊目录；需要自定义根时只能在主进程创建服务时显式传入。
+
+---
+## Story2Video 阶段顺序 E2E 回归（2026-07-22）
+
+### 第一性原因
+- 旧 E2E 在 `e2e-pipeline-orchestrator.test.js` 中把第二次 `executeStage()` 硬编码为
+  `optimize`。本轮加入 `domain_enrich` 后，真实顺序变为 `split → domain_enrich → optimize`，
+  测试没有随流水线定义同步更新。
+
+### 测试逃逸链与系统性漏洞
+- 单元测试只检查 Story2Video 的阶段总数，没有验证需要外部服务的前置阶段顺序和对应
+  `context` 工件。
+- 原 E2E 以阶段序号而非阶段名称作为合同，阶段插入后仍把成功的领域增强误判为优化失败。
+
+### 修复与预防
+- E2E 现在依次执行并断言 `split`、`domain_enrich`、`optimize` 的成功结果和三个 context
+  工件；真实连接 8002/8013 时可直接发现定义与测试不一致。
+- 以后新增、删除或重排编排阶段时，必须同步更新命名阶段序列断言，并运行一次连接真实
+  Bridge 的 E2E；仅更新阶段数不构成回归保护。
+
+---
+## Story2Video Provider 契约与模型预设漂移复盘（2026-07-22）
+
+### 第一性原因
+- `4736094409229f9b8f58977bce92c7a16503c5f4` 批量新增 Adapter 时，豆包 TTS 注释写明成功响应为
+  `code: 3000`，实现和 mock 却把 `3` 当作成功，正常外部合成会被错误拒绝。
+- `b00d5a70` 写入 Imagen 预设为 `imagen-3`；适配器之后切换到 Imagen 4，但设置种子与 adapter
+  没有共享或校验模型集合，用户仍可能从设置选择过时模型。
+
+### 测试逃逸链与系统性漏洞
+- Adapter 单测全部使用简化的 `code: 3` mock，未覆盖实际业务成功码；没有参考请求/响应契约测试。
+- Provider 设置、凭据映射和 Adapter 模型列表分别测试，缺少跨模块一致性断言。
+- Story2Video 只断言“调用了 provider”，没有要求每个图片 provider 具备 workflow、轮询、下载和
+  可验证媒体输出的完整合同；批量 Adapter 审查也没有逐项核对外部协议。
+
+### 修复与回归保护
+- 豆包 TTS 只将 `3000` 视为业务成功，回归测试用真实成功码、错误码和缺少数据三条路径固定语义。
+- Imagen 设置预设与 `IMAGEN_MODELS` 建立一致性断言；`dall-e` 兼容旧 ID，资产链测试覆盖尺寸、数量
+  参数传递。
+- 豆包 App ID/加密 Access Token 到 TTS/STT adapter 的映射受测试保护；ComfyUI 在 S2V 中因缺完整
+  输出合同显式失败。
+
+### 预防措施
+1. Provider 改动必须按 `.quality-gates.md` 的“Provider 请求与输出契约”执行，覆盖成功码、认证、端点、
+   预设、凭据映射和最终媒体工件。
+2. 没有真实凭据的本地回归只能证明调用合同；合并前记录外部 smoke 验收为待办，不能把 mock 成功写成
+   服务可用。

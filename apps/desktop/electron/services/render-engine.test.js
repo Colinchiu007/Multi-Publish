@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+const os = require('os')
+const path = require('path')
 const RenderEngine = require('./render-engine')
 
 describe('RenderEngine', () => {
@@ -42,5 +44,11 @@ describe('RenderEngine', () => {
         expect(status.nodeModulesExist).toBe(true)
       }
     })
+  })
+
+  it('将默认快速渲染输出限制在受控的 Story2Video 临时目录', () => {
+    expect(RenderEngine.getDefaultOutputPath(123)).toBe(
+      path.join(os.tmpdir(), 'story2video', 'quick-render', 'remotion_123.mp4'),
+    )
   })
 })

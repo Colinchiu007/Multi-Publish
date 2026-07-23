@@ -51,6 +51,7 @@ function createFetchMock(responses = []) {
 
 // 模拟 Base64 编码的音频数据
 const MOCK_BASE64_AUDIO = Buffer.from('mock-audio-data').toString('base64')
+const SUCCESS_CODE = 3000
 
 describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
   let originalFetch
@@ -175,9 +176,9 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
   })
 
   describe('认证头', () => {
-    it('请求头使用 Bearer token', async () => {
+    it('请求头使用火山引擎 Bearer;token 格式', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 3, data: MOCK_BASE64_AUDIO }),
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO }),
       ])
       global.fetch = fetchMock
 
@@ -185,7 +186,7 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
       await adapter.synthesize({ text: '你好' })
 
       const headers = fetchMock.calls[0].opts.headers
-      expect(headers['Authorization']).toContain('my-token')
+      expect(headers['Authorization']).toBe('Bearer;my-token')
       expect(headers['Content-Type']).toBe('application/json')
     })
   })
@@ -193,7 +194,7 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
   describe('synthesize', () => {
     it('POST /api/v1/tts 返回 audio Buffer + format', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 3, data: MOCK_BASE64_AUDIO, duration: '1.234' }),
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO, duration: '1.234' }),
       ])
       global.fetch = fetchMock
 
@@ -209,9 +210,24 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
       expect(fetchMock.calls[0].opts.method).toBe('POST')
     })
 
+    it('兼容已保存的完整 TTS 端点，不重复拼接路径', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new DoubaoTtsAdapter({
+        id: 'doubao', appId: 'app', token: 'tok',
+        baseUrl: 'https://openspeech.bytedance.com/api/v1/tts',
+      })
+      await adapter.synthesize({ text: '兼容旧配置' })
+
+      expect(fetchMock.calls[0].url).toBe('https://openspeech.bytedance.com/api/v1/tts')
+    })
+
     it('请求体包含 app/user/audio/request 四段', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 3, data: MOCK_BASE64_AUDIO }),
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO }),
       ])
       global.fetch = fetchMock
 
@@ -244,8 +260,8 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
 
     it('每次请求生成不同的 reqid', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 3, data: MOCK_BASE64_AUDIO }),
-        createFetchResponse({ code: 3, data: MOCK_BASE64_AUDIO }),
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO }),
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO }),
       ])
       global.fetch = fetchMock
 
@@ -260,7 +276,7 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
 
     it('支持 format 参数覆盖默认 encoding', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 3, data: MOCK_BASE64_AUDIO }),
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO }),
       ])
       global.fetch = fetchMock
 
@@ -274,7 +290,7 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
 
     it('支持 speedRatio 参数', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 3, data: MOCK_BASE64_AUDIO }),
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO }),
       ])
       global.fetch = fetchMock
 
@@ -287,7 +303,7 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
 
     it('支持 operation 参数（submit）', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 3, data: MOCK_BASE64_AUDIO }),
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO }),
       ])
       global.fetch = fetchMock
 
@@ -310,7 +326,7 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
         .rejects.toThrow(/text.*required/i)
     })
 
-    it('响应 code 非 3 → ProviderError(PROVIDER_ERROR)', async () => {
+    it('响应 code 非 3000 → ProviderError(PROVIDER_ERROR)', async () => {
       global.fetch = createFetchMock([
         createFetchResponse({ code: 3001, message: 'Invalid voice type' }),
       ])
@@ -327,7 +343,7 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
 
     it('响应缺少 data 字段 → ProviderError', async () => {
       global.fetch = createFetchMock([
-        createFetchResponse({ code: 3 }),
+        createFetchResponse({ code: SUCCESS_CODE }),
       ])
       const adapter = new DoubaoTtsAdapter({ id: 'doubao', appId: 'app', token: 'tok' })
       try {
@@ -342,7 +358,7 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
 
     it('响应无 duration 时不附加 duration 字段', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 3, data: MOCK_BASE64_AUDIO }),
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO }),
       ])
       global.fetch = fetchMock
 
@@ -403,7 +419,7 @@ describe('DoubaoTtsAdapter — 豆包 TTS Adapter', () => {
   describe('baseUrl 自定义', () => {
     it('自定义 baseUrl 用于请求', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 3, data: MOCK_BASE64_AUDIO }),
+        createFetchResponse({ code: SUCCESS_CODE, data: MOCK_BASE64_AUDIO }),
       ])
       global.fetch = fetchMock
 

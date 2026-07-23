@@ -308,3 +308,52 @@ export async function pipelinePauseWithCheckpoint() { return invokeWithFallback(
 export async function pipelineResumeFromCheckpoint() { return invokeWithFallback("pipelineResumeFromCheckpoint", { code: -1 }) }
 export async function pipelineRegisterPipeline(def) { return invokeWithFallback("pipelineRegisterPipeline", { code: -1 }, def) }
 
+// ─── Story2Video 本地交付 API ──────────────────────
+export async function story2videoImportMedia(file, kind) {
+  return invokeWithFallback("story2videoImportMedia", { code: -1, message: 'electronAPI not available' }, file, kind)
+}
+export async function story2videoExportZip(files, destinationPath) {
+  return destinationPath === undefined
+    ? invokeWithFallback("story2videoExportZip", { code: -1, message: 'electronAPI not available' }, files)
+    : invokeWithFallback("story2videoExportZip", { code: -1, message: 'electronAPI not available' }, files, destinationPath)
+}
+export async function story2videoCreateShareUrl(filePath) {
+  return invokeWithFallback("story2videoCreateShareUrl", { code: -1, message: 'electronAPI not available' }, filePath)
+}
+export async function story2videoCopyPath(filePath) {
+  return invokeWithFallback("story2videoCopyPath", { code: -1, message: 'electronAPI not available' }, filePath)
+}
+export async function story2videoShowInFolder(filePath) {
+  return invokeWithFallback("story2videoShowInFolder", { code: -1, message: 'electronAPI not available' }, filePath)
+}
+export async function story2videoListProjects() {
+  return invokeWithFallback("story2videoListProjects", { code: -1, message: 'electronAPI not available', data: [] })
+}
+export async function story2videoGetProject(projectId) {
+  return invokeWithFallback("story2videoGetProject", { code: -1, message: 'electronAPI not available' }, projectId)
+}
+export async function story2videoDeleteProject(projectId) {
+  return invokeWithFallback("story2videoDeleteProject", { code: -1, message: 'electronAPI not available' }, projectId)
+}
+export async function story2videoUpdateSegments(projectId, segments) {
+  return invokeWithFallback("story2videoUpdateSegments", { code: -1, message: 'electronAPI not available' }, projectId, segments)
+}
+export async function story2videoReplaceSegmentAudio(projectId, segmentId, filePath) {
+  return invokeWithFallback("story2videoReplaceSegmentAudio", { code: -1, message: 'electronAPI not available' }, projectId, segmentId, filePath)
+}
+export async function story2videoRetrySegment(projectId, segmentId, mode) {
+  return invokeWithFallback("story2videoRetrySegment", { code: -1, message: 'electronAPI not available' }, projectId, segmentId, mode)
+}
+export async function story2videoRecomposeProject(projectId) {
+  return invokeWithFallback("story2videoRecomposeProject", { code: -1, message: 'electronAPI not available' }, projectId)
+}
+export async function story2videoTranscribe(filePath) {
+  return invokeWithFallback("story2videoTranscribe", { code: -1, message: 'electronAPI not available' }, filePath)
+}
+export async function story2videoCapabilities() {
+  return invokeWithFallback("story2videoCapabilities", { code: -1, message: 'electronAPI not available' })
+}
+export async function videoProcess(type, params) {
+  return invokeWithFallback("videoProcess", { code: -1, message: 'electronAPI not available' }, type, params)
+}
+

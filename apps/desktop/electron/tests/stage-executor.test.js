@@ -72,6 +72,25 @@ it('SPLIT 阶段调用 serviceBus.splitText', async function () {
   expect(bus.splitText).toHaveBeenCalledOnce();
 });
 
+it('SPLIT 音频模式在无文案时按音频数量生成场景', async function () {
+  const bus = makeMockServiceBus();
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'audio-run',
+    stage: { name: 'split', type: STAGE_TYPES.SPLIT },
+    params: {
+      inputMode: 'audio',
+      audio: [{ name: 'part-a.mp3', transcript: '识别后的第一段' }, { name: 'part-b.mp3' }],
+    },
+    context: {},
+  });
+  eq(result.success, true);
+  eq(result.output.sentences.length, 2);
+  eq(result.output.scenes[0].text, '识别后的第一段');
+  eq(result.output.scenes[1].text, 'part-b.mp3');
+  expect(bus.splitText).not.toHaveBeenCalled();
+});
+
 it('OPTIMIZE 阶段调用 serviceBus.optimizePrompt', async function () {
   const bus = makeMockServiceBus();
   const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
@@ -120,6 +139,27 @@ it('COMPOSE 阶段处理 code === 0 成功', async function () {
   });
   eq(result.success, true);
   eq(result.output.videoPath, '/tmp/out.mp4');
+});
+
+it('COMPOSE 阶段把用户选择的合成参数按白名单覆盖流水线默认值', async function () {
+  const bus = makeMockServiceBus();
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  await exec.execute({
+    runId: 'compose-options',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets', options: { transition: 'fade' } },
+    params: {
+      transition: 'slide-left', imageEffect: 'pan-up', subtitleEnabled: false,
+      defaultSceneDuration: 5, resolution: '1080x1920', fps: 25, voiceVolume: 0.8,
+      untrustedOption: 'must-not-pass',
+    },
+    context: { assets: { scenes: [] } },
+  });
+
+  expect(bus.composeVideo).toHaveBeenCalledWith({ scenes: [] }, expect.objectContaining({
+    transition: 'slide-left', imageEffect: 'pan-up', subtitleEnabled: false,
+    defaultSceneDuration: 5, resolution: '1080x1920', fps: 25, voiceVolume: 0.8,
+  }));
+  expect(bus.composeVideo.mock.calls[0][1]).not.toHaveProperty('untrustedOption');
 });
 
 it('COMPOSE 阶段处理 code === -1 引擎不可用', async function () {
@@ -390,6 +430,30 @@ it('advanceToNextCheckpoint 推进到检查点', async function () {
   eq(r.paused, true, '应在 report 检查点暂停');
 });
 
+it('executeStage 遇到检查点时暂停，不提前推进或重复执行', async function () {
+  const bus = makeMockServiceBus();
+  const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  pe.registerPipeline({
+    name: 'test-execute-checkpoint-pipeline',
+    description: '测试 executeStage 检查点',
+    category: 'custom',
+    stages: ['review', 'done'],
+    stageDefs: [
+      { name: 'review', type: STAGE_TYPES.MANUAL_CHECKPOINT, checkpointRequired: true },
+      { name: 'done', type: STAGE_TYPES.CALL_SKILL, skillName: 'verify_pipeline' },
+    ],
+  });
+  const startR = await pe.startOrchestrated('test-execute-checkpoint-pipeline', { autoAdvance: false });
+  const result = await pe.executeStage(startR.runId);
+  eq(result.success, true);
+  ok(result.checkpoint, '应返回 checkpoint');
+  const snapshot = pe.getRunSnapshot(startR.runId);
+  eq(snapshot.status.status, 'paused');
+  eq(snapshot.currentStage, 0);
+  eq(snapshot.stages[0].status, 'paused');
+  eq(bus.callPythonSkill.mock.calls.length, 0, '下一阶段不应被提前执行');
+});
+
 it('pauseWithCheckpoint 保存 context 快照', async function () {
   const bus = makeMockServiceBus();
   const pe = new PipelineEngine({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
@@ -528,12 +592,13 @@ it('story2video-compose 流水线已注册为第 14 条', function () {
   ok(s2v, 'story2video-compose 应存在于流水线列表');
   eq(s2v.category, 'generated');
   const detail = pe.getPipeline('story2video-compose');
-  eq(detail.stages.length, 5);
+  eq(detail.stages.length, 6);
   eq(detail.stageDefs[0].name, 'split');
-  eq(detail.stageDefs[1].name, 'optimize');
-  eq(detail.stageDefs[2].name, 'generate_assets');
-  eq(detail.stageDefs[3].name, 'compose');
-  eq(detail.stageDefs[4].name, 'publish');
+  eq(detail.stageDefs[1].name, 'domain_enrich');
+  eq(detail.stageDefs[2].name, 'optimize');
+  eq(detail.stageDefs[3].name, 'generate_assets');
+  eq(detail.stageDefs[4].name, 'compose');
+  eq(detail.stageDefs[5].name, 'publish');
 });
 
 it('现有 14 条流水线可完整 advance 到完成', function () {

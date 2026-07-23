@@ -134,7 +134,7 @@ describe('DoubaoSttAdapter — 豆包（字节跳动）语音识别', () => {
       expect(adapter.supports('generateImage')).toBe(false)
     })
 
-    it('capabilities() 包含 transcribe（手动添加）', () => {
+    it('capabilities() 包含 transcribe', () => {
       const adapter = new DoubaoSttAdapter({ id: 'doubao-stt', app_id: 'dou', token: 't' })
       const caps = adapter.capabilities()
       expect(caps).toContain('transcribe')
@@ -142,13 +142,13 @@ describe('DoubaoSttAdapter — 豆包（字节跳动）语音识别', () => {
       expect(caps).not.toContain('chatCompletion')
     })
 
-    it('supports("transcribe") 因不在 KNOWN_METHODS 中返回 false', () => {
+    it('supports("transcribe") 返回 true，允许通过 ModelProviderManager 调用', () => {
       const adapter = new DoubaoSttAdapter({ id: 'doubao-stt', app_id: 'dou', token: 't' })
-      expect(adapter.supports('transcribe')).toBe(false)
+      expect(adapter.supports('transcribe')).toBe(true)
     })
   })
 
-  describe('认证方式（关键差异：app_id + token 在请求体内）', () => {
+  describe('认证方式（app_id + token 在请求体内，且使用火山引擎协议头）', () => {
     it('请求体含 app.appid 和 app.token', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ code: 1000, message: 'Success', result: ['hello'] }),
@@ -162,6 +162,7 @@ describe('DoubaoSttAdapter — 豆包（字节跳动）语音识别', () => {
       expect(body.app.appid).toBe('dou-app')
       expect(body.app.token).toBe('dou-secret')
       expect(body.app.cluster).toBe('volcano_asr')
+      expect(fetchMock.calls[0].opts.headers['Authorization']).toBe('Bearer;dou-secret')
     })
 
     it('请求 URL 为 /api/v2/asr', async () => {
@@ -174,6 +175,21 @@ describe('DoubaoSttAdapter — 豆包（字节跳动）语音识别', () => {
       await adapter.transcribe({ audio: 'data' })
 
       expect(fetchMock.calls[0].url).toContain('/api/v2/asr')
+    })
+
+    it('兼容已保存的完整 ASR 端点，不重复拼接路径', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ code: 1000, result: ['hi'] }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new DoubaoSttAdapter({
+        id: 'doubao-stt', app_id: 'dou', token: 't',
+        baseUrl: 'https://openspeech.bytedance.com/api/v2/asr',
+      })
+      await adapter.transcribe({ audio: 'data' })
+
+      expect(fetchMock.calls[0].url).toBe('https://openspeech.bytedance.com/api/v2/asr')
     })
   })
 

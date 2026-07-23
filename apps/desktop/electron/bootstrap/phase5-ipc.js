@@ -180,6 +180,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     compositionManager, aiGenerator, videoEngine, pipelineEngine, modelProviderManager,
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, usageTracker, cloudPublisher, identityService,
+    story2videoProjectService,
   } = context
 
   const registerAllHandlers = require('../ipc-handlers')
@@ -192,6 +193,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     compositionManager, aiGenerator, videoEngine, pipelineEngine, modelProviderManager,
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, identityService, credentialStore, accountStateRestorer,
+    story2videoProjectService,
   }
   let state = registrationStates.get(context)
   if (!state) {

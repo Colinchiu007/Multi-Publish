@@ -9,17 +9,14 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { loadFont } from "@remotion/google-fonts/NotoSansSC";
+import { SANS_FONT_FAMILY } from "./fonts";
 import type {
   ImageEffect,
   TransitionEffect,
   WatermarkConfig,
 } from "@multi-publish/story2video-engine";
 
-const { fontFamily } = loadFont("normal", {
-  weights: ["400", "700"],
-  subsets: ["latin"],
-});
+const fontFamily = SANS_FONT_FAMILY;
 
 // ---------------------------------------------------------------------------
 // Scene & Props Types
