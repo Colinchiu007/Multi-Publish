@@ -3507,3 +3507,24 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **修复与回归保护**：视觉运行器现在从 `VISUAL_READY_TIMEOUT` 读取 1 至 30 秒的有限预算，默认和 Gate 7 均为 15 秒，显式运行器配置优先。Vue 挂载和后续业务选择器共用同一个总预算，避免串行等待放大到两倍。超时仍会阻断截图和门禁，并分别抛出 `ERR_VISUAL_APP_READY_TIMEOUT` 或 `ERR_VISUAL_READY_SELECTOR_TIMEOUT`，包含阶段、期望 hash、当前 URL/hash、`#app` 存在性、Vue 挂载标记和文本长度。`test-runner.test.js` 覆盖有效配置、越界与非法配置回退、总预算扣减、Vue 挂载超时及业务选择器超时诊断。
 
 **系统性预防**：浏览器测试必须将服务可访问与应用业务就绪分开建模；异步页面使用受上限约束的条件等待，禁止以固定 sleep 取代；任何就绪超时都必须记录足以复现边界状态的诊断信息，才能在 CI 中区分产品回归和测试基础设施时序问题。
+
+---
+
+## 2026-07-23：项目更新时间戳与 Teleport 模态 E2E 的 CI 时序缺陷
+
+**第一性原因**：
+- `4f33523d` 的 `ProjectService.updateProject()` 每次直接使用 `new Date().toISOString()`；创建和连续更新发生在同一毫秒时，`updatedAt` 不变，破坏了项目排序和修改语义。
+- `6d048d01` 为内容情报 E2E 补充了 ReferenceFinder 关闭逻辑，但用全局 `.ui-modal` / `.ui-modal-close` 的 `.first()` 定位。UiModal 通过 Teleport 渲染，存在其他同类节点或遮罩时可能选错目标，导致 `.ui-modal-overlay` 留在页面上并拦截后台“清空”按钮。
+
+**逃逸链**：
+- ProjectService 单元测试使用真实时钟，只断言字符串不同，未在固定同一毫秒下验证连续更新的严格递增；Gate 5 覆盖率运行恰好复现了竞争。
+- E2E 基础设施此前只覆盖 Element Plus 的确认框清理，没有覆盖 Teleport UiModal 的“打开参考内容 -> 精确关闭最新可见遮罩 -> 点击后台按钮”序列。
+- 内容情报路由报告把“参考内容弹窗可关闭”记录为失败后仍继续点击后台控件，最终只以遮罩拦截的 Playwright 超时表现出来，增加了定位成本。
+- 代码审查只验证关闭选择器存在，没有校验选择器是否被限制在当前可见遮罩的作用域内。
+
+**修复与回归保护**：
+- `ProjectService` 使用 `max(Date.now(), Date.parse(previousUpdatedAt) + 1)` 生成更新时刻；`project-service.test.js` 用固定时钟覆盖同一毫秒内两次连续更新。
+- 内容情报 E2E 现在定位 `.ui-modal-overlay:visible` 的最新实例，在其内部点击 `.ui-modal-close` 并等待该遮罩隐藏；关闭失败时不再尝试点击后台按钮。清空操作改为精确的 `button[title="清空"]`。
+- `e2e-quality-infrastructure.test.js` 以状态化 mock 复现遮罩拦截，断言关闭动作发生在清空动作之前；真实 Playwright 复验通过 intelligence 15/15 和完整 Gate 8 等价套件 270/270。
+
+**系统性预防**：所有时间序列字段都必须在业务需要排序或审计语义时定义单调性，并用 fake timer 覆盖同一时钟粒度。E2E 操作 Teleport/Modal 时必须使用“可见遮罩 + 子元素”的作用域选择器；任何模态关闭失败都必须阻止后续后台点击，不能继续执行并把根因伪装成元素点击超时。

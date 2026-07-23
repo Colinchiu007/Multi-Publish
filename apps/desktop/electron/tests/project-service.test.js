@@ -186,6 +186,22 @@ describe('ProjectService — Backlot 项目库', () => {
       expect(updated.id).toBe(created.id);
     });
 
+    it('同一毫秒内连续更新时 updatedAt 严格递增', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-23T00:00:00.000Z'));
+
+      try {
+        const created = service.createProject({ name: '原名称', pipelineType: 'p' });
+        const first = service.updateProject(created.id, { name: '第一次更新' });
+        const second = service.updateProject(created.id, { name: '第二次更新' });
+
+        expect(Date.parse(first.updatedAt)).toBeGreaterThan(Date.parse(created.updatedAt));
+        expect(Date.parse(second.updatedAt)).toBeGreaterThan(Date.parse(first.updatedAt));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('写入磁盘持久化', () => {
       const created = service.createProject({ name: 'A', pipelineType: 'p' });
       service.updateProject(created.id, { name: 'B' });

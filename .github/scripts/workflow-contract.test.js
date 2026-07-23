@@ -5,6 +5,7 @@ const test = require('node:test');
 
 const workflowPath = path.join(__dirname, '..', 'workflows', 'visual-test.yml');
 const qualityGatePath = path.join(__dirname, '..', 'workflows', 'quality-gate.yml');
+const desktopPackagePath = path.join(__dirname, '..', '..', 'apps', 'desktop', 'package.json');
 
 test('视觉工作流使用与基线一致的 Windows 渲染环境', () => {
   const workflow = fs.readFileSync(workflowPath, 'utf8');
@@ -26,4 +27,12 @@ test('Quality Gate Gate 7 与视觉工作流使用一致的渲染参数', () => 
   assert.match(gate7, /TEST_URL:\s*http:\/\/127\.0\.0\.1:5174/);
   assert.match(gate7, /HEADLESS:\s*["']?true["']?/);
   assert.match(gate7, /PIXEL_THRESHOLD:\s*["']?0\.02["']?/);
+});
+
+test('桌面覆盖率门禁串行运行，避免全量 V8 coverage 资源竞争', () => {
+  const desktopPackage = JSON.parse(fs.readFileSync(desktopPackagePath, 'utf8'));
+  const coverageScript = desktopPackage.scripts['test:coverage'];
+
+  assert.match(coverageScript, /--maxWorkers=1/);
+  assert.match(coverageScript, /--no-file-parallelism/);
 });

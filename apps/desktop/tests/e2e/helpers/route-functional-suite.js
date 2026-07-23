@@ -74,6 +74,17 @@ async function clickText(r, text, options = {}) {
   return true;
 }
 
+async function closeLatestVisibleUiModal(r) {
+  const overlays = r.page.locator('.ui-modal-overlay:visible');
+  const overlay = typeof overlays.last === 'function' ? overlays.last() : overlays;
+  if (!(await waitForVisible(overlay))) return false;
+
+  const closeButton = overlay.locator('.ui-modal-close').first();
+  if (!(await waitForVisible(closeButton))) return false;
+  await closeButton.click({ timeout: 3000 });
+  return waitForHidden(overlay);
+}
+
 async function fillByPlaceholder(r, placeholder, value) {
   const locator = r.page.locator(`.cohere-main input[placeholder*="${placeholder}"], .cohere-main textarea[placeholder*="${placeholder}"]`).first();
   if (!(await waitForVisible(locator))) return false;
@@ -350,14 +361,15 @@ async function exerciseIntelligence(r) {
   await expectIpc(r, 'intelligenceSearch', '情报搜索调用 IPC');
   const reference = await clickText(r, '参考');
   record(r, '搜索结果可作为参考', reference);
-  // 关闭 ReferenceFinder 弹窗（UiModal 不支持 ESC，必须点击 .ui-modal-close）
+  // UiModal 通过 Teleport 渲染；必须限定到最新可见遮罩，避免点到后台同名控件。
   if (reference) {
-    const modal = r.page.locator('.ui-modal').first();
-    const closeButton = r.page.locator('.ui-modal-close').first();
-    if (await waitForVisible(closeButton)) await closeButton.click({ force: true, timeout: 3000 });
-    record(r, '参考内容弹窗可关闭', await waitForHidden(modal));
+    const closed = await closeLatestVisibleUiModal(r);
+    record(r, '参考内容弹窗可关闭', closed);
+    if (!closed) return;
   }
-  record(r, '清空搜索可执行', await clickText(r, '✕'));
+  record(r, '清空搜索可执行', await clickText(r, '✕', {
+    selector: '.cohere-main button[title="清空"]',
+  }));
 }
 
 async function exerciseCalendar(r) {

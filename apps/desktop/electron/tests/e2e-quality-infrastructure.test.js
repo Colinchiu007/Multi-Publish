@@ -438,6 +438,100 @@ describe('路由通用扫描', () => {
     expect(r.checks.find(item => item.name === '初始可用按钮均完成点击扫描')).toMatchObject({ passed: true })
   })
 
+  it('参考内容弹窗必须关闭最新可见遮罩，才能点击后台清空按钮', async () => {
+    let referenceVisible = false
+    const events = []
+    const makeTimeout = () => Object.assign(new Error('Timeout 3000ms exceeded'), { name: 'TimeoutError' })
+    const input = {
+      first() { return this },
+      waitFor: vi.fn().mockResolvedValue(undefined),
+      fill: vi.fn().mockResolvedValue(undefined),
+    }
+    const searchButton = {
+      first() { return this },
+      waitFor: vi.fn().mockResolvedValue(undefined),
+      click: vi.fn().mockResolvedValue(undefined),
+    }
+    const referenceButton = {
+      first() { return this },
+      waitFor: vi.fn().mockResolvedValue(undefined),
+      click: vi.fn(async () => { referenceVisible = true }),
+    }
+    const closeButton = {
+      first() { return this },
+      waitFor: vi.fn(async ({ state }) => {
+        if (state === 'visible' && referenceVisible) return
+        throw makeTimeout()
+      }),
+      click: vi.fn(async () => {
+        referenceVisible = false
+        events.push('close')
+      }),
+    }
+    const latestOverlay = {
+      waitFor: vi.fn(async ({ state }) => {
+        if (state === 'visible' && referenceVisible) return
+        if (state === 'hidden' && !referenceVisible) return
+        throw makeTimeout()
+      }),
+      locator: vi.fn((selector) => selector === '.ui-modal-close' ? closeButton : null),
+    }
+    const staleModal = {
+      first() { return this },
+      waitFor: vi.fn(async () => { throw makeTimeout() }),
+    }
+    const staleVisibleOverlay = {
+      waitFor: vi.fn(async () => { throw makeTimeout() }),
+      locator: vi.fn(() => staleCloseButton),
+    }
+    const visibleOverlays = {
+      first: vi.fn(() => staleVisibleOverlay),
+      last: vi.fn(() => latestOverlay),
+    }
+    const staleCloseButton = {
+      first() { return this },
+      waitFor: vi.fn(async () => { throw makeTimeout() }),
+    }
+    const clearButton = {
+      first() { return this },
+      waitFor: vi.fn().mockResolvedValue(undefined),
+      click: vi.fn(async () => {
+        if (referenceVisible) throw new Error('参考内容遮罩仍可见')
+        events.push('clear')
+      }),
+    }
+    const body = { innerText: vi.fn().mockResolvedValue('热门讨论 标题中加入') }
+    const r = {
+      checks: [],
+      getIpcCalls: vi.fn().mockResolvedValue(1),
+      page: {
+        locator: vi.fn((selector) => {
+          if (selector === 'body') return body
+          if (selector.includes('input[placeholder*="输入关键词"]')) return input
+          if (selector.includes('button:has-text("搜索")')) return searchButton
+          if (selector.includes('button:has-text("参考")')) return referenceButton
+          if (selector === '.ui-modal-overlay:visible') return visibleOverlays
+          if (selector === '.ui-modal') return staleModal
+          if (selector === '.ui-modal-close') return staleCloseButton
+          if (selector === '.cohere-main button[title="清空"]') return clearButton
+          if (selector.includes('button:has-text("✕")')) return clearButton
+          throw new Error(`未覆盖的 selector: ${selector}`)
+        }),
+      },
+    }
+
+    await routeSuite.definitions.intelligence.exercise(r)
+
+    expect(visibleOverlays.last).toHaveBeenCalledTimes(1)
+    expect(staleVisibleOverlay.waitFor).not.toHaveBeenCalled()
+    expect(staleVisibleOverlay.locator).not.toHaveBeenCalled()
+    expect(latestOverlay.locator).toHaveBeenCalledWith('.ui-modal-close')
+    expect(closeButton.click).toHaveBeenCalledTimes(1)
+    expect(clearButton.click).toHaveBeenCalledTimes(1)
+    expect(events).toEqual(['close', 'clear'])
+    expect(r.checks.find(item => item.name === '参考内容弹窗可关闭')).toMatchObject({ passed: true })
+  })
+
   it('重复文本按钮优先使用各自的 data-testid 重新定位', async () => {
     const firstButton = {
       count: vi.fn().mockResolvedValue(1),

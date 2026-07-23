@@ -74,6 +74,20 @@ function _getUserDataDir() {
   }
 }
 
+/**
+ * 为项目更新生成严格递增的时间戳，避免同一毫秒的更新丢失排序语义。
+ * @param {string} previousUpdatedAt
+ * @returns {string}
+ */
+function _nextUpdatedAt(previousUpdatedAt) {
+  const previousMs = Date.parse(previousUpdatedAt);
+  const nowMs = Date.now();
+  const nextMs = Number.isFinite(previousMs)
+    ? Math.max(nowMs, previousMs + 1)
+    : nowMs;
+  return new Date(nextMs).toISOString();
+}
+
 class ProjectService {
   /**
    * @param {object} [store] - SQLite Store 实例（可选，无则纯文件模式）
@@ -228,7 +242,7 @@ class ProjectService {
    */
   updateProject(id, updates) {
     const existing = this.getProject(id);
-    const merged = { ...existing, ...updates, id, updatedAt: new Date().toISOString() };
+    const merged = { ...existing, ...updates, id, updatedAt: _nextUpdatedAt(existing.updatedAt) };
 
     // 写入磁盘
     const projectJsonPath = path.join(this.getProjectsDir(), id, 'project.json');
