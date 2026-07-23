@@ -28,8 +28,12 @@ const pixelTests = [
 ];
 
 function createRunner(options = {}) {
+  const configuredThreshold = Number(process.env.PIXEL_THRESHOLD);
   return new VisualTestRunner({
     url: options.url || process.env.TEST_URL || 'http://127.0.0.1:5174',
+    pixelThreshold: Number.isFinite(configuredThreshold) && configuredThreshold > 0
+      ? configuredThreshold
+      : undefined,
   });
 }
 

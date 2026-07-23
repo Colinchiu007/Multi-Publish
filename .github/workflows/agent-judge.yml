@@ -2,8 +2,8 @@ name: AI Agent Judge
 
 # AI AgentJudge 需求覆盖审计（v0.8.0+）
 # - 触发：PR / push 主分支 / 手动 dispatch
-# - 默认：无 LLM Key → 输出 prompt 包给 Agent 读（exit 2 = NEED_HUMAN）
-# - 可选：注入 OPENAI_API_KEY / ANTHROPIC_API_KEY → 自动跑 verdict 并 PR 评论
+# - 默认：无 LLM Key → 输出 prompt 包给 Agent 读（exit 2 = NEED_HUMAN，CI 只告警）
+# - 可选：手动 dispatch 选择 provider 并注入对应密钥 → 自动跑 verdict 并 PR 评论
 # - 始终上传 verdict.json + reports 作为 artifact
 
 on:
@@ -44,6 +44,8 @@ jobs:
       COVERAGE_THRESHOLD: ${{ github.event.inputs.threshold || '0.8' }}
       PRD_PATH: 01-docs/PRD.md
       SRC_PATH: apps/desktop/src
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -61,22 +63,30 @@ jobs:
       - name: Run AI Agent Judge
         id: judge
         continue-on-error: true
+        shell: pwsh
         run: |
-          echo "================================================================"
-          echo "  AI Agent Judge — Coverage Audit"
-          echo "================================================================"
-          echo "PRD:         $PRD_PATH"
-          echo "Source:      $SRC_PATH"
-          echo "LLM:         $LLM_PROVIDER"
-          echo "Threshold:   $COVERAGE_THRESHOLD"
-          echo "================================================================"
-          node packages/ai-autonomous-tester/scripts/run-agent-judge.js \
-            --prd="$PRD_PATH" \
-            --src="$SRC_PATH" \
-            --llm="$LLM_PROVIDER" \
-            --threshold="$COVERAGE_THRESHOLD" \
-            --out=apps/desktop/tests/visual-testing/reports
-          echo "Exit: $?"
+          Write-Host "================================================================"
+          Write-Host "  AI Agent Judge — Coverage Audit"
+          Write-Host "================================================================"
+          Write-Host "PRD:         $env:PRD_PATH"
+          Write-Host "Source:      $env:SRC_PATH"
+          Write-Host "LLM:         $env:LLM_PROVIDER"
+          Write-Host "Threshold:   $env:COVERAGE_THRESHOLD"
+          Write-Host "================================================================"
+          $reportStart = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          "AGENT_JUDGE_REPORT_START=$reportStart" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $judgeArgs = @(
+            "packages/ai-autonomous-tester/scripts/run-agent-judge.js",
+            "--prd=$env:PRD_PATH",
+            "--src=$env:SRC_PATH",
+            "--llm=$env:LLM_PROVIDER",
+            "--coverageThreshold=$env:COVERAGE_THRESHOLD",
+            "--out=apps/desktop/tests/visual-testing/reports"
+          )
+          & node @judgeArgs
+          $judgeExit = $LASTEXITCODE
+          Write-Host "Exit: $judgeExit"
+          exit $judgeExit
 
       # ---- 上传 artifacts（始终）----
       - name: Upload reports
@@ -92,7 +102,7 @@ jobs:
 
       # ---- PR 评论: 仅 verdict 可用时 ----
       - name: Comment PR with verdict
-        if: always() && github.event_name == 'pull_request' && hashFiles('apps/desktop/tests/visual-testing/reports/agent-judge-verdict-*.json') != ''
+        if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
@@ -100,6 +110,11 @@ jobs:
             const path = require('path');
 
             const reportsDir = 'apps/desktop/tests/visual-testing/reports';
+            const reportStart = Number(process.env.AGENT_JUDGE_REPORT_START);
+            if (!Number.isFinite(reportStart) || !fs.existsSync(reportsDir)) {
+              console.log('No current-run Agent Judge report directory found, skipping comment');
+              return;
+            }
             const verdictFiles = fs.readdirSync(reportsDir)
               .filter(f => f.startsWith('agent-judge-verdict-') && f.endsWith('.json'))
               .map(f => ({
@@ -107,6 +122,7 @@ jobs:
                 path: path.join(reportsDir, f),
                 mtime: fs.statSync(path.join(reportsDir, f)).mtime.getTime(),
               }))
+              .filter(({ mtime }) => mtime >= reportStart)
               .sort((a, b) => b.mtime - a.mtime);
 
             if (verdictFiles.length === 0) {
@@ -194,23 +210,14 @@ jobs:
       # ---- 决策 gate: PASS 允许合入，FAIL/NEED_HUMAN 阻塞 ----
       - name: Enforce coverage gate
         if: github.event_name == 'pull_request'
+        shell: pwsh
         run: |
-          $verdictFiles = Get-ChildItem -Path apps/desktop/tests/visual-testing/reports/agent-judge-verdict-*.json -ErrorAction SilentlyContinue
-          if ($verdictFiles.Count -eq 0) {
-            Write-Host "::warning::No verdict.json found — Agent must review prompt package manually."
-            Write-Host "::warning::See artifact 'agent-judge-reports' for the prompt package."
-            exit 1
-          }
-          $latest = $verdictFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          $verdict = Get-Content $latest.FullName -Raw | ConvertFrom-Json
-          Write-Host "Verdict decision: $($verdict.decision)"
-          Write-Host "Coverage rate: $($verdict.summary.coverageRate)"
-          if ($verdict.decision -eq "FAIL") {
-            Write-Host "::error::Agent judge verdict is FAIL — PR cannot merge until covered."
-            exit 1
-          }
-          if ($verdict.decision -eq "NEED_HUMAN") {
-            Write-Host "::warning::Agent judge verdict is NEED_HUMAN — manual review required."
-            exit 1
-          }
-          Write-Host "Agent judge verdict is PASS — coverage gate cleared."
+          $gateArgs = @(
+            ".github/scripts/agent-review-gate.js",
+            "agent-judge",
+            "--report-dir=apps/desktop/tests/visual-testing/reports",
+            "--started-after=$env:AGENT_JUDGE_REPORT_START",
+            "--llm-provider=$env:LLM_PROVIDER"
+          )
+          & node @gateArgs
+          exit $LASTEXITCODE

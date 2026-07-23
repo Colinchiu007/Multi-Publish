@@ -6,18 +6,17 @@
  * P1: New platform adapters prioritize API, RPA as fallback
  * P2: Auto-route from platforms.yaml, auto-fallback on failure
  */
-const path = require("path");
 const fs = require("fs");
 const yaml = require("js-yaml");
+const { resolvePlatformConfigPath } = require('./runtime-config-path')
 
-const CONFIG_PATH = path.resolve(__dirname, "..", "..", "..", "config", "platforms.yaml");
 let _platforms = null;
 let _apiPlatforms = null;
 
 function loadConfig() {
   if (_platforms) return _platforms;
   try {
-    const raw = fs.readFileSync(CONFIG_PATH, "utf8");
+    const raw = fs.readFileSync(resolvePlatformConfigPath(), "utf8");
     _platforms = yaml.load(raw).platforms;
     _apiPlatforms = Object.entries(_platforms)
       .filter(function(e) { return e[1].has_api; })

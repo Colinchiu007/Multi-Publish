@@ -69,10 +69,10 @@
         </div>
 
         <div class="account-actions">
-          <button v-if="!account.is_default" type="button" @click="$emit('set-default', account)">设为默认</button>
-          <button type="button" @click="$emit('open', account)"><Link />打开</button>
-          <button :data-testid="`check-${account.id}`" type="button" @click="$emit('check', account)"><CircleCheck />验证</button>
-          <button class="danger" type="button" @click="$emit('remove', account)"><Delete />删除</button>
+          <button v-if="!account.is_default" :data-testid="`set-default-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('set-default', account)">设为默认</button>
+          <button :data-testid="`open-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('open', account)"><Link />打开</button>
+          <button :data-testid="`check-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('check', account)"><CircleCheck />验证</button>
+          <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('remove', account)"><Delete />删除</button>
         </div>
       </article>
     </div>

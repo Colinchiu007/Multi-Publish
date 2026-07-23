@@ -43,10 +43,8 @@ jobs:
       # --- Gate 3: 硬编码密钥扫描 ---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
-          echo "checking for hardcoded secrets..."
-          $hasSecret = Get-ChildItem -Recurse -Filter *.js -Path apps/desktop/electron | Select-String -Pattern "(?i)(api[_-]?key|secret|token|password)\s*=\s*['""][a-zA-Z0-9_\-]{16,}" -Quiet
-          if ($hasSecret) { echo "hardcoded secrets found"; exit 1 }
-          echo "code quality scan done"
+          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/agent-review-gate.test.js
+          node .github/scripts/check-hardcoded-secrets.js
 
       # --- Gate 4: 单元测试（Vitest 全量，卡点要求）---
       - name: "Gate 4 - Unit tests (Vitest)"
@@ -71,6 +69,11 @@ jobs:
       - name: "Gate 7 - Visual regression"
         id: visual-gate
         shell: pwsh
+        env:
+          TEST_URL: http://127.0.0.1:5174
+          HEADLESS: "true"
+          PIXEL_THRESHOLD: "0.02"
+          VISUAL_READY_TIMEOUT: "15000"
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           Write-Host "=== Gate 7: Visual Regression Test ==="
@@ -209,6 +212,7 @@ jobs:
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           Write-Host "=== Gate 9: Autonomous Coverage Audit ==="
+          $reportStart = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
           $auditArgs = @(
             "packages/ai-autonomous-tester/scripts/run-autonomous-e2e.js",
             "--prd=01-docs/PRD.md",
@@ -225,16 +229,23 @@ jobs:
           $output | ForEach-Object { Write-Host $_ }
           Write-Host "Autonomous audit exit code: $exitCode"
 
-          if ($exitCode -eq 0) {
-            echo "AUTONOMOUS_GATE=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            Write-Host "[GATE-9] Autonomous audit passed"
+          $gateArgs = @(
+            ".github/scripts/agent-review-gate.js",
+            "autonomous",
+            "--report-dir=apps/desktop/tests/visual-testing/reports",
+            "--started-after=$reportStart",
+            "--audit-exit-code=$exitCode",
+            "--has-openai-key=$([bool]$env:OPENAI_API_KEY)"
+          )
+          & node @gateArgs
+          $gateExit = $LASTEXITCODE
+          if ($gateExit -eq 0) {
+            $gateStatus = if ($exitCode -eq 0) { "PASS" } else { "PROMPT_REVIEW_REQUIRED" }
+            echo "AUTONOMOUS_GATE=$gateStatus" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
             exit 0
-          } elseif ($exitCode -eq 1) {
-            echo "AUTONOMOUS_GATE=FAIL" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            exit 1
           }
-          echo "AUTONOMOUS_GATE=INFRA_ERROR" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          exit $exitCode
+          echo "AUTONOMOUS_GATE=FAIL" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          exit $gateExit
 
       - name: "Upload GUI quality artifacts"
         if: always()

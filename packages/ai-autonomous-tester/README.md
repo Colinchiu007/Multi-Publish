@@ -296,9 +296,9 @@ on:
 ```
 
 **行为**：
-- 无 `OPENAI_API_KEY` → exit 2 (NEED_HUMAN)，Agent 读 prompt 包
-- 有 Key → 自动 verdict + PR 评论 markdown 表格
-- 决策 gate：PASS 放行，FAIL/NEED_HUMAN 阻塞 PR
+- 默认 `LLM_PROVIDER=none` → exit 2 (NEED_HUMAN)，上传 prompt 包并标记 `PROMPT_REVIEW_REQUIRED` 告警；该包需要在 CI 外人工审计，不会伪造自动 verdict 或改写真实 verdict 的失败结果
+- 手动选择 `openai` 或 `anthropic` 且配置对应密钥 → 自动 verdict + PR 评论 markdown 表格
+- 有自动 verdict 时：PASS 放行，FAIL/NEED_HUMAN 阻塞 PR；缺少模型但成功生成 prompt 包时不阻塞其他确定性质量门禁
 
 **PR 评论示例**：
 ```

@@ -559,7 +559,10 @@ describe("store IPC handlers", () => {
       const identityService = {
         getState: () => ({ status: "authenticated", user: { sub: "user-a" } }),
       };
-      const credentialStore = { deleteCredential: vi.fn(() => true) };
+      const credentialStore = {
+        hasCredential: vi.fn(() => true),
+        deleteCredential: vi.fn(() => true),
+      };
       const accountStateRestorer = { deleteAccountRecord: vi.fn() };
       ipcMain = createMockIpcMain();
       mockStore = createMockStore();
@@ -577,6 +580,9 @@ describe("store IPC handlers", () => {
 
       expect(result).toMatchObject({ code: 0, data: true });
       expect(credentialStore.deleteCredential).toHaveBeenCalledWith(
+        "acc1", "C:/test-user-data", "user-a",
+      );
+      expect(credentialStore.hasCredential).toHaveBeenCalledWith(
         "acc1", "C:/test-user-data", "user-a",
       );
       expect(accountStateRestorer.deleteAccountRecord).toHaveBeenCalledWith(
@@ -640,5 +646,45 @@ describe("store IPC handlers", () => {
 
       expect(result).toMatchObject({ code: -10, data: false });
       expect(mockStore.deleteTask).toHaveBeenCalledWith("task-from-b", "user-a");
+    });
+
+    it("设置默认账号时拒绝跨用户后端回退，也不写 legacy setting", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      mockStore.setDefaultAccount.mockReturnValue(false);
+      pythonBridge.requestBackend.mockResolvedValue({
+        code: 0,
+        data: [{ id: "account-from-user-b", platform: "github" }],
+      });
+      registerHandlers(ipcMain, { store: mockStore, identityService, pythonBridge });
+
+      await expect(ipcMain._callHandler("store:set-default-account", {
+        platform: "github",
+        accountId: "account-from-user-b",
+      })).resolves.toEqual({ code: -2, message: "账号不存在或不属于指定平台" });
+      expect(pythonBridge.requestBackend).not.toHaveBeenCalled();
+      expect(mockStore.setSetting).not.toHaveBeenCalled();
+    });
+
+    it("Logto 用户设置默认账号时不写全局 legacy setting", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      mockStore.setDefaultAccount.mockReturnValue(true);
+      registerHandlers(ipcMain, { store: mockStore, identityService, pythonBridge });
+
+      await expect(ipcMain._callHandler("store:set-default-account", {
+        platform: "github",
+        accountId: "account-from-user-a",
+      })).resolves.toEqual({ code: 0, data: true });
+      expect(mockStore.setDefaultAccount).toHaveBeenCalledWith(
+        "github", "account-from-user-a", "user-a",
+      );
+      expect(mockStore.setSetting).not.toHaveBeenCalled();
     });
 });

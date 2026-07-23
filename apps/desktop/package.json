@@ -40,7 +40,7 @@
         "test:enforce": "node tests/visual-testing/autonomous-enforce-loop.js",
         "test:mutation": "cd ../.. && npx stryker run stryker.conf.json",
         "test:mutation:identity": "stryker run stryker.identity.conf.json",
-        "test:coverage": "vitest run --coverage",
+        "test:coverage": "vitest run --coverage --maxWorkers=1 --no-file-parallelism",
         "test:fault": "cross-env INJECT_FAULTS=1 vitest run electron/tests/fault-injection.test.js",
         "test:monkey": "vitest run electron/tests/monkey.test.js",
         "test:quality": "npm run test:fault && npm run test:monkey",

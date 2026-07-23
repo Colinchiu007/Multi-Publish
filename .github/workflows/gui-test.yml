@@ -41,6 +41,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Python backend runtime
+        run: python3 -m pip install -e "packages/python-backend[web,video]"
+
+      - name: Verify Python backend imports
+        run: python3 -c "import multi_publish, uvicorn, yaml; print('Python backend imports ready')"
+
       - name: Install Playwright (for GUI tests)
         run: npx playwright install --with-deps chromium
 
@@ -52,7 +58,7 @@ jobs:
           cd apps/desktop
           npx @electron/rebuild -f -w better-sqlite3
 
-      - name: Browser E2E, visual regression, and Electron GUI gates
+      - name: Start Vite server
         shell: bash
         run: |
           set -euo pipefail
@@ -61,11 +67,7 @@ jobs:
             exec npx vite --host 127.0.0.1 --port 5174
           ) > apps/desktop/vite-ci.log 2>&1 &
           vite_pid=$!
-          cleanup() {
-            kill "$vite_pid" 2>/dev/null || true
-            wait "$vite_pid" 2>/dev/null || true
-          }
-          trap cleanup EXIT
+          echo "$vite_pid" > "$RUNNER_TEMP/multi-publish-vite.pid"
 
           vite_ready=0
           for i in $(seq 1 30); do
@@ -87,11 +89,29 @@ jobs:
             exit 1
           fi
 
+      - name: Browser E2E gates
+        shell: bash
+        run: |
+          set -euo pipefail
           node apps/desktop/tests/e2e-smoke.js
           npm run test:e2e -w @multi-publish/desktop
-          npm run test:visual:pixel -w @multi-publish/desktop
+
+      - name: Electron GUI gate
+        shell: bash
+        run: |
+          set -euo pipefail
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
             node apps/desktop/tests/electron-gui-v9.js
+
+      - name: Stop Vite server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/multi-publish-vite.pid" ]; then
+            vite_pid=$(cat "$RUNNER_TEMP/multi-publish-vite.pid")
+            kill "$vite_pid" 2>/dev/null || true
+            wait "$vite_pid" 2>/dev/null || true
+          fi
 
       - name: Upload test screenshots
         if: always()

@@ -1,6 +1,6 @@
 # F14：Logto 用户身份与权益系统技术架构
 
-> **版本**：v1.0
+> **版本**：v1.1
 > **日期**：2026-07-20
 > **状态**：批准实施
 > **对应 PRD**：[PRD.md 2.4](./PRD.md)
@@ -8,9 +8,9 @@
 
 ## 1. 决策摘要
 
-采用 Logto 作为独立身份提供商，Multi-Publish 保留业务用户、订阅、权益、用量、设备和平台账号归属。桌面端使用系统浏览器 + Authorization Code + PKCE S256；API 使用 OIDC Discovery/JWKS 验证 Access Token；`sub` 是唯一外部身份键。
+采用 Logto 作为独立身份提供商，Multi-Publish 保留业务用户、订阅、权益、用量、设备和平台账号归属。桌面端默认使用受限 Electron 独立认证窗口 + Authorization Code + PKCE S256，第三方身份提供商拒绝嵌入式 user-agent 时回退系统浏览器；API 使用 OIDC Discovery/JWKS 验证 Access Token；`sub` 是唯一外部身份键。
 
-不采用共享用户数据库、共享 `JWT_SECRET`、Electron 内嵌登录、客户端持有 M2M Token 或用本地 license 文件作为 Pro 权限权威。
+不采用共享用户数据库、共享 `JWT_SECRET`、主 Renderer/iframe 内嵌登录、自建密码表单、客户端持有 M2M Token 或用本地 license 文件作为 Pro 权限权威。
 
 ## 2. 源码验证结论
 
@@ -36,9 +36,9 @@
 
 ```text
 ┌──────────────────────────── Electron（不可信客户端）───────────────────────────┐
-│ Renderer ──窄 IPC──> AuthService ──> @logto/client ──> 系统浏览器              │
-│                         │                   │                                   │
-│                  safeStorage         127.0.0.1 回环回调                         │
+│ Renderer ──窄 IPC──> AuthService ──> @logto/client ──> 独立认证 BrowserWindow  │
+│                         │                   │                    │              │
+│                  safeStorage         127.0.0.1 回环回调       隔离 Session      │
 └─────────────────────────┼───────────────────┼───────────────────────────────────┘
                           │ TLS               │ OIDC
                           ▼                   ▼
@@ -92,6 +92,7 @@ Resource Indicator：`https://api.multi-publish.com`
 ```text
 apps/desktop/electron/services/identity/
 ├── logto-client.js              # ESM SDK 动态加载、自定义 Adapter
+├── identity-auth-window.js      # 受限独立认证窗口与导航策略
 ├── auth-service.js              # 登录状态机与令牌生命周期
 ├── secure-token-storage.js      # safeStorage 加密会话存储
 ├── loopback-callback-server.js  # 单次回环 HTTP 服务
@@ -122,12 +123,13 @@ authenticated
 ### 5.3 登录时序
 
 1. `AuthService.signIn()` 拒绝并发登录，启动固定端口的单次回调服务。
-2. `@logto/client.signIn(redirectUri)` 生成 state、nonce 和 PKCE verifier；Adapter 调用 Electron `shell.openExternal()`。
-3. 系统浏览器打开 Logto。回环服务接收 callback URL，不记录 query。
-4. `handleSignInCallback(url)` 校验 state/nonce 并交换 Token；SDK 验证 ID Token。
-5. Session 数据通过 `safeStorage.encryptString()` 加密后原子写入用户数据目录。
-6. 获取 API Resource 的 Access Token，调用 `/v1/me` 完成业务用户 lazy upsert 和 entitlement 同步。
-7. 广播脱敏状态；无论成功或失败都关闭回调服务并清理临时 PKCE 数据。
+2. `@logto/client.signIn(redirectUri)` 生成 state、nonce 和 PKCE verifier；Adapter 打开独立认证窗口。
+3. 认证窗口只加载 Logto issuer，使用独立持久化 Session；固定回环地址可导航，其他导航和新窗口请求被阻止。第三方身份提供商拒绝内嵌时显式回退系统浏览器。
+4. 回环服务接收 callback URL，不记录 query；用户关闭认证窗口时立即取消回调等待。
+5. `handleSignInCallback(url)` 校验 state/nonce 并交换 Token；SDK 验证 ID Token。
+6. Session 数据通过 `safeStorage.encryptString()` 加密后原子写入用户数据目录。
+7. 获取 API Resource 的 Access Token，调用 `/v1/me` 完成业务用户 lazy upsert 和 entitlement 同步。
+8. 广播脱敏状态；无论成功、取消或失败都关闭认证窗口、回调服务并清理临时 PKCE 数据。
 
 ### 5.4 刷新、退出与恢复
 
@@ -230,6 +232,7 @@ auth = {
 | 授权码截获 | PKCE S256、state/nonce、回环只监听 localhost、短超时、单次消费 |
 | 恶意本地进程抢占端口 | 固定端口失败即停止登录；校验 state；不把 Token 返回浏览器页面 |
 | Renderer 被注入后窃取 Token | contextIsolation、sandbox、窄 preload、Refresh Token 永不进入 Renderer |
+| 认证窗口越权导航/窗口注入 | 独立 Session、无 preload、nodeIntegration=false、导航白名单、禁止任意新窗口与下载 |
 | 磁盘凭证泄露 | `safeStorage` 加密、原子写入、严格权限、无明文降级 |
 | Token 替换/错误 audience | 完整 JWKS + issuer + audience + time + algorithm 验证 |
 | 跨用户访问 | 服务端从 `sub` 计算 owner，忽略 `user_id`，404 防枚举 |
@@ -255,6 +258,7 @@ Logto 使用 PostgreSQL 持久化；多实例部署时启用 Redis central cache
 - 两个用户的任务隔离集成测试通过；请求体伪造 `user_id` 无效。
 - safeStorage 不可用时拒绝持久化登录，不明文降级。
 - 登录、恢复、刷新、退出、离线和账号切换端到端路径有证据。
+- 独立认证窗口的安全选项、导航白名单、用户取消、加载失败、回调关闭和系统浏览器回退有自动化证据。
 - Electron 完整打包、preload 双 sandbox 验证、Vue 构建和视觉回归门禁通过。
 
 ## 12. 落地状态与边界（2026-07-20）

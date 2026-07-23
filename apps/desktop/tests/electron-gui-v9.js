@@ -4,6 +4,7 @@
  * 修改 selectors.json 即可适配界面变化，无需改测试逻辑
  */
 const { _electron: electron } = require("playwright");
+const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const {
@@ -12,6 +13,13 @@ const {
   checkVite, findMainWindow, injectAccounts, ensurePlatformStore,
   setBatchMode, assertTitle, PROJECT_ROOT,
 } = require("./test-helpers.js");
+
+function isIgnorableConsoleError(message) {
+  const text = String(message || '')
+  return text.includes("Request Autofill.enable failed") ||
+    text.includes("Request Autofill.setAddresses failed") ||
+    text.includes("net::ERR_NETWORK_ACCESS_DENIED")
+}
 
 // ════════════════════════════════════════════════════
 // 页面测试套件（按路由配置驱动）
@@ -58,7 +66,7 @@ async function testAccountPage(win) {
 
   // 筛选
   for (const label of ["未登录", "已登录", "全部"]) {
-    const btn = await win.$(`button.cohere-filter-chip:has-text("${label}")`);
+    const btn = await win.$(`${SEL.filterChips}:has-text("${label}")`);
     if (btn) { await btn.click(); await wait(800); }
     const cnt = await win.evaluate((sel) => document.querySelectorAll(sel.accountRow).length, SEL);
     const expected = { "未登录": 3, "已登录": 9, "全部": 12 }[label];
@@ -70,9 +78,9 @@ async function testAccountPage(win) {
     Array.from(document.querySelectorAll("button")).find(b => b.textContent.includes("添加账号"))?.click();
   });
   await wait(1500);
-  const dialogOpen = await win.evaluate(() => !!document.querySelector(".el-dialog"));
+  const dialogOpen = await win.evaluate((sel) => !!document.querySelector(sel.accountModal), SEL);
   assert("添加账号弹窗", dialogOpen);
-  await win.evaluate(() => document.querySelector(".el-dialog__headerbtn")?.click());
+  await win.evaluate(() => document.querySelector(".ui-modal-close")?.click());
   await wait(500);
 
   await win.screenshot({ path: path.join(SS, "v9-01-accounts.png") });
@@ -184,6 +192,8 @@ async function testCreatePage(win) {
     return (pt?.textContent || h1?.textContent || '').trim();
   });
   assert('页面标题包含「创作」', createTitle.includes('创作'), 'got: ' + createTitle);
+  await win.getByRole('button', { name: '快速渲染' }).click();
+  await wait(500);
   const modeTabs = await win.evaluate(() => {
     const tabs = document.querySelectorAll('.mode-tab');
     return Array.from(tabs).map(t => t.textContent.trim());
@@ -204,10 +214,12 @@ async function testProvidersPage(win) {
   console.log("\n╔══ Provider 配置页 ══╗");
   await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.providers);
   await wait(3000);
-  await assertTitle(win, 'Provider');
-  const chips = await win.evaluate(() => {
-    return Array.from(document.querySelectorAll('.cohere-filter-chip')).map(c => c.textContent.trim());
-  });
+  await assertTitle(win, '模型服务商');
+  await win.getByRole('button', { name: /全部/ }).first().click();
+  await wait(500);
+  const chips = await win.evaluate(() =>
+    Array.from(document.querySelectorAll('.filter-chip')).map(c => c.textContent.trim())
+  );
   assert('过滤器芯片 ≥3', chips.length >= 3, 'found: ' + chips.join(', '));
   const hasAdd = await win.evaluate(() =>
     Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('添加'))
@@ -364,7 +376,8 @@ async function testNavigation(win) {
     await wait(1500);
     if (!skipHashCheck.includes(hash)) {
       const h = await win.evaluate(() => window.location.hash);
-      assert(`${name} 导航`, h.includes(hash));
+      const expectedHash = name === 'providers' ? '/model-providers' : hash;
+      assert(`${name} 导航`, h.includes(expectedHash));
     } else {
       assert(`${name} 导航`, true);
     }
@@ -401,21 +414,37 @@ async function run() {
   const consoleErrors = [];
   const pageErrors = [];
   let runnerError = null;
+  let userDataDir = null;
+  const mainProcessOutput = [];
 
   try {
     if (!fs.existsSync(SS)) fs.mkdirSync(SS, { recursive: true });
     if (!await checkVite()) throw new Error("Vite 未运行");
     console.log("✅ Vite\n");
 
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-gui-'));
     app = await electron.launch({
-      executablePath: EL, args: [MAIN, "--no-sandbox"], timeout: 60000,
+      executablePath: EL,
+      args: [MAIN, '--no-sandbox', '--disable-gpu', `--user-data-dir=${userDataDir}`],
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+        ELECTRON_IS_DEV: '1',
+      },
+      timeout: 60000,
     });
+    const mainProcess = app.process();
+    for (const stream of [mainProcess.stdout, mainProcess.stderr]) {
+      stream?.on('data', (chunk) => mainProcessOutput.push(String(chunk).slice(0, 2000)));
+    }
     const observedWindows = new WeakSet();
     const captureWindowErrors = (window) => {
       if (observedWindows.has(window)) return;
       observedWindows.add(window);
       window.on("console", (message) => {
-        if (message.type() === "error") consoleErrors.push(message.text());
+        if (message.type() === "error" && !isIgnorableConsoleError(message.text())) {
+          consoleErrors.push(message.text());
+        }
       });
       window.on("pageerror", (error) => pageErrors.push(error.message || String(error)));
     };
@@ -433,6 +462,7 @@ async function run() {
           catch(e) { return { error: e.message }; }
         });
       } catch(_) {}
+      if (mainProcessOutput.length) debugInfo.mainProcessOutput = mainProcessOutput.join('').slice(-4000);
       console.error("\n❌ 未找到主窗口:", JSON.stringify(debugInfo, null, 2));
       // Take screenshot of any window available
       const firstWin = app.windows()[0];
@@ -484,6 +514,7 @@ async function run() {
         console.error(`\n❌ Electron 关闭失败: ${closeError.message}`);
       }
     }
+    if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true });
 
     console.log("\n═══ 控制台错误 ═══");
     if (consoleErrors.length) {
@@ -518,4 +549,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { resolveGuiExitCode, run };
+module.exports = { isIgnorableConsoleError, resolveGuiExitCode, run };

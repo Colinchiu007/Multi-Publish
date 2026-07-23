@@ -48,6 +48,7 @@ async function createLogtoClient(options = {}) {
   const storage = options.storage || require('./secure-token-storage')
   const adapterStorage = typeof storage === 'function' ? new storage(options.storageOptions) : storage
   const shell = options.shell || require('electron').shell
+  const authWindow = options.authWindow || null
   const fetcher = options.fetcher || globalThis.fetch
   if (typeof fetcher !== 'function') throw new IdentityError('IDENTITY_FETCH_UNAVAILABLE', '系统缺少 fetch')
   const requester = typeof module.createRequester === 'function' ? module.createRequester(fetcher) : fetcher
@@ -57,6 +58,10 @@ async function createLogtoClient(options = {}) {
     storage: adapterStorage,
     unstable_cache: options.cache || createMemoryStorage(),
     navigate: async (url, parameters) => {
+      if (parameters.for === 'sign-in' && authWindow) {
+        await authWindow.open(url, parameters)
+        return
+      }
       if (parameters.for === 'sign-in' || parameters.for === 'sign-out') await shell.openExternal(url)
     },
     generateState: () => {
@@ -81,6 +86,25 @@ async function createLogtoClient(options = {}) {
       return preparedSignInState
     },
   })
+  if (authWindow) {
+    Object.defineProperties(client, {
+      waitForSignInWindowClosed: {
+        configurable: false,
+        enumerable: false,
+        value: () => authWindow.waitForClosed(),
+      },
+      closeSignInWindow: {
+        configurable: false,
+        enumerable: false,
+        value: () => authWindow.close(),
+      },
+      clearSignInWindowSession: {
+        configurable: false,
+        enumerable: false,
+        value: () => typeof authWindow.clearSession === 'function' ? authWindow.clearSession() : undefined,
+      },
+    })
+  }
   return client
 }
 

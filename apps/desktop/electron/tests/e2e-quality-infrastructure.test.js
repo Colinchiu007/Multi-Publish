@@ -239,7 +239,7 @@ describe('路由通用扫描', () => {
     expect(runner.waitForAppReady).toHaveBeenCalledWith('/create')
   })
 
-  it('重置路由使用唯一地址完成且仅完成一次全页导航', async () => {
+  it('重置路由使用唯一地址完成且给予重复全页加载更长的就绪窗口', async () => {
     const runner = new FunctionalRunner()
     runner.goto = vi.fn().mockResolvedValue(undefined)
     runner.waitForAppReady = vi.fn().mockResolvedValue(undefined)
@@ -256,7 +256,64 @@ describe('路由通用扫描', () => {
       { waitUntil: 'domcontentloaded', timeout: 20000 },
     )
     expect(runner.page.reload).not.toHaveBeenCalled()
-    expect(runner.waitForAppReady).toHaveBeenCalledWith('/create')
+    expect(runner.waitForAppReady).toHaveBeenCalledWith('/create', 10000)
+  })
+
+  it('重置路由允许特定用例收紧或放宽就绪超时', async () => {
+    const runner = new FunctionalRunner()
+    runner.waitForAppReady = vi.fn().mockResolvedValue(undefined)
+    runner.page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runner.resetToRoute('/accounts', { readyTimeout: 12000 })
+
+    expect(runner.waitForAppReady).toHaveBeenCalledWith('/accounts', 12000)
+  })
+
+  it('路由就绪把总预算分配给每个条件，而不是为每步重复计时', async () => {
+    const app = { waitFor: vi.fn().mockResolvedValue(undefined) }
+    const runner = new FunctionalRunner()
+    runner.page = {
+      waitForURL: vi.fn().mockResolvedValue(undefined),
+      locator: vi.fn().mockReturnValue(app),
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
+    }
+    const now = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(1100)
+      .mockReturnValueOnce(2200)
+
+    try {
+      await runner.waitForAppReady('/accounts', 10000)
+    } finally {
+      now.mockRestore()
+    }
+
+    expect(runner.page.waitForURL).toHaveBeenCalledWith(expect.any(Function), { timeout: 10000 })
+    expect(app.waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 9000 })
+    expect(runner.page.waitForFunction).toHaveBeenCalledWith(expect.any(Function), '#/accounts', { timeout: 7900 })
+  })
+
+  it('总就绪预算耗尽时仍向调用方报告失败', async () => {
+    const runner = new FunctionalRunner()
+    runner.page = {
+      waitForURL: vi.fn().mockResolvedValue(undefined),
+      locator: vi.fn(),
+      waitForFunction: vi.fn(),
+    }
+    const now = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(10100)
+
+    try {
+      await expect(runner.waitForAppReady('/accounts', 10000)).rejects.toThrow('等待应用就绪超时')
+    } finally {
+      now.mockRestore()
+    }
+
+    expect(runner.page.locator).not.toHaveBeenCalled()
   })
 
   it('扫描任何控件前先完整重置到定义路由', async () => {
@@ -304,6 +361,218 @@ describe('路由通用扫描', () => {
 
     expect(r.resetToRoute).toHaveBeenCalledWith('/accounts', { expectedRoute: '/accounts' })
     expect(button.click).toHaveBeenCalledTimes(1)
+  })
+
+  it('路由声明的手工场景按钮不参与初始点击扫描', async () => {
+    const refreshButton = {
+      isDisabled: vi.fn().mockResolvedValue(false),
+      click: vi.fn().mockResolvedValue(undefined),
+    }
+    const buttons = {
+      evaluateAll: vi.fn().mockResolvedValue([
+        { index: 0, text: '设为默认', testid: 'set-default-account', scan: 'manual', disabled: false },
+        { index: 1, text: '打开', testid: 'open-account', scan: 'manual', disabled: false },
+        { index: 2, text: '验证', testid: 'check-account', scan: 'manual', disabled: false },
+        { index: 3, text: '删除', testid: 'delete-account', scan: 'manual', disabled: false },
+        { index: 4, text: '刷新', testid: 'refresh-accounts', scan: '', disabled: false },
+      ]),
+      nth: vi.fn(),
+    }
+    const emptyCollection = {
+      evaluateAll: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    }
+    const r = {
+      checks: [],
+      resetToRoute: vi.fn().mockResolvedValue(undefined),
+      page: {
+        locator: vi.fn((selector) => {
+          if (selector === '.cohere-main button') return buttons
+          if (selector.includes('input') || selector === '.cohere-main a') return emptyCollection
+          return refreshButton
+        }),
+      },
+    }
+
+    await routeSuite.auditInitialControls(r, routeSuite.definitions.accounts)
+
+    expect(refreshButton.click).toHaveBeenCalledTimes(1)
+    expect(routeSuite.definitions.accounts.manualControls).toEqual([
+      'set-default-', 'open-', 'check-', 'delete-',
+    ])
+    expect(r.checks.find(item => item.name === '初始可用按钮均完成点击扫描')).toMatchObject({
+      passed: true,
+      details: { total: 5, clicked: 1, skipped: 4 },
+    })
+  })
+
+  it('危险按钮打开确认框后必须取消并清理遮罩，才能扫描下一控件', async () => {
+    let confirmationVisible = false
+    let confirmationRequested = false
+    const clickOrder = []
+    const dangerButton = {
+      isDisabled: vi.fn().mockResolvedValue(false),
+      click: vi.fn(async () => {
+        confirmationRequested = true
+        clickOrder.push('danger')
+      }),
+    }
+    const nextButton = {
+      isDisabled: vi.fn().mockResolvedValue(false),
+      click: vi.fn(async () => {
+        if (confirmationVisible) throw new Error('确认遮罩仍可见')
+        clickOrder.push('next')
+      }),
+    }
+    const buttons = {
+      evaluateAll: vi.fn().mockResolvedValue([
+        { index: 0, text: '删除', testid: 'delete-account-a', disabled: false },
+        { index: 1, text: '验证', testid: 'check-account-a', disabled: false },
+      ]),
+      nth: vi.fn(),
+    }
+    const cancelButton = {
+      isVisible: vi.fn(async () => confirmationVisible),
+      click: vi.fn(async () => {
+        confirmationVisible = false
+        clickOrder.push('cancel')
+      }),
+    }
+    const confirmationDialog = {
+      last: vi.fn(function last () { return this }),
+      count: vi.fn(async () => confirmationVisible ? 1 : 0),
+      isVisible: vi.fn(async () => confirmationVisible),
+      waitFor: vi.fn(async ({ state }) => {
+        if (state === 'visible' && confirmationRequested) {
+          confirmationVisible = true
+          return
+        }
+        if (state === 'hidden' && !confirmationVisible) return
+        throw new Error(`确认框未进入 ${state} 状态`)
+      }),
+      getByRole: vi.fn(() => cancelButton),
+    }
+    const emptyCollection = {
+      evaluateAll: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    }
+    const r = {
+      checks: [],
+      resetToRoute: vi.fn().mockResolvedValue(undefined),
+      page: {
+        locator: vi.fn((selector) => {
+          if (selector === '.cohere-main button') return buttons
+          if (selector === '.cohere-main button[data-testid="delete-account-a"]') return dangerButton
+          if (selector === '.cohere-main button[data-testid="check-account-a"]') return nextButton
+          if (selector === '.el-message-box:visible') return confirmationDialog
+          if (selector === '.el-message-box:visible .el-message-box__btns button:not(.el-button--primary)') return cancelButton
+          return emptyCollection
+        }),
+      },
+    }
+
+    await routeSuite.auditInitialControls(r, { route: '/accounts' })
+
+    expect(cancelButton.click).toHaveBeenCalledTimes(1)
+    expect(nextButton.click).toHaveBeenCalledTimes(1)
+    expect(confirmationVisible).toBe(false)
+    expect(clickOrder).toEqual(['danger', 'cancel', 'next'])
+    expect(confirmationDialog.waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 1000 })
+    expect(r.checks.find(item => item.name === '初始可用按钮均完成点击扫描')).toMatchObject({ passed: true })
+  })
+
+  it('参考内容弹窗必须关闭最新可见遮罩，才能点击后台清空按钮', async () => {
+    let referenceVisible = false
+    const events = []
+    const makeTimeout = () => Object.assign(new Error('Timeout 3000ms exceeded'), { name: 'TimeoutError' })
+    const input = {
+      first() { return this },
+      waitFor: vi.fn().mockResolvedValue(undefined),
+      fill: vi.fn().mockResolvedValue(undefined),
+    }
+    const searchButton = {
+      first() { return this },
+      waitFor: vi.fn().mockResolvedValue(undefined),
+      click: vi.fn().mockResolvedValue(undefined),
+    }
+    const referenceButton = {
+      first() { return this },
+      waitFor: vi.fn().mockResolvedValue(undefined),
+      click: vi.fn(async () => { referenceVisible = true }),
+    }
+    const closeButton = {
+      first() { return this },
+      waitFor: vi.fn(async ({ state }) => {
+        if (state === 'visible' && referenceVisible) return
+        throw makeTimeout()
+      }),
+      click: vi.fn(async () => {
+        referenceVisible = false
+        events.push('close')
+      }),
+    }
+    const latestOverlay = {
+      waitFor: vi.fn(async ({ state }) => {
+        if (state === 'visible' && referenceVisible) return
+        if (state === 'hidden' && !referenceVisible) return
+        throw makeTimeout()
+      }),
+      locator: vi.fn((selector) => selector === '.ui-modal-close' ? closeButton : null),
+    }
+    const staleModal = {
+      first() { return this },
+      waitFor: vi.fn(async () => { throw makeTimeout() }),
+    }
+    const staleVisibleOverlay = {
+      waitFor: vi.fn(async () => { throw makeTimeout() }),
+      locator: vi.fn(() => staleCloseButton),
+    }
+    const visibleOverlays = {
+      first: vi.fn(() => staleVisibleOverlay),
+      last: vi.fn(() => latestOverlay),
+    }
+    const staleCloseButton = {
+      first() { return this },
+      waitFor: vi.fn(async () => { throw makeTimeout() }),
+    }
+    const clearButton = {
+      first() { return this },
+      waitFor: vi.fn().mockResolvedValue(undefined),
+      click: vi.fn(async () => {
+        if (referenceVisible) throw new Error('参考内容遮罩仍可见')
+        events.push('clear')
+      }),
+    }
+    const body = { innerText: vi.fn().mockResolvedValue('热门讨论 标题中加入') }
+    const r = {
+      checks: [],
+      getIpcCalls: vi.fn().mockResolvedValue(1),
+      page: {
+        locator: vi.fn((selector) => {
+          if (selector === 'body') return body
+          if (selector.includes('input[placeholder*="输入关键词"]')) return input
+          if (selector.includes('button:has-text("搜索")')) return searchButton
+          if (selector.includes('button:has-text("参考")')) return referenceButton
+          if (selector === '.ui-modal-overlay:visible') return visibleOverlays
+          if (selector === '.ui-modal') return staleModal
+          if (selector === '.ui-modal-close') return staleCloseButton
+          if (selector === '.cohere-main button[title="清空"]') return clearButton
+          if (selector.includes('button:has-text("✕")')) return clearButton
+          throw new Error(`未覆盖的 selector: ${selector}`)
+        }),
+      },
+    }
+
+    await routeSuite.definitions.intelligence.exercise(r)
+
+    expect(visibleOverlays.last).toHaveBeenCalledTimes(1)
+    expect(staleVisibleOverlay.waitFor).not.toHaveBeenCalled()
+    expect(staleVisibleOverlay.locator).not.toHaveBeenCalled()
+    expect(latestOverlay.locator).toHaveBeenCalledWith('.ui-modal-close')
+    expect(closeButton.click).toHaveBeenCalledTimes(1)
+    expect(clearButton.click).toHaveBeenCalledTimes(1)
+    expect(events).toEqual(['close', 'clear'])
+    expect(r.checks.find(item => item.name === '参考内容弹窗可关闭')).toMatchObject({ passed: true })
   })
 
   it('重复文本按钮优先使用各自的 data-testid 重新定位', async () => {
@@ -412,6 +681,90 @@ describe('路由通用扫描', () => {
       name: '全部初始可编辑表单字段完成输入扫描',
       passed: false,
     })
+  })
+
+  it('带 data-testid 的字段复位后按稳定选择器等待，不依赖可见序号', async () => {
+    const descriptor = {
+      index: 16,
+      tag: 'input',
+      type: 'checkbox',
+      visible: true,
+      disabled: false,
+      readOnly: false,
+      placeholder: '',
+      name: '',
+      testid: 'select-acc_zhihu_001',
+      occurrence: 0,
+    }
+    const initialFields = {
+      evaluateAll: vi.fn()
+        .mockResolvedValueOnce([descriptor])
+        .mockResolvedValue([]),
+      nth: vi.fn(),
+    }
+    let stableFieldReady = false
+    const stableField = {
+      count: vi.fn().mockImplementation(async () => stableFieldReady ? 1 : 0),
+      waitFor: vi.fn(async () => { stableFieldReady = true }),
+      check: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi.fn(async (callback) => callback({
+        tagName: 'INPUT',
+        getAttribute: (name) => ({ type: 'checkbox', 'data-testid': 'select-acc_zhihu_001' }[name] || ''),
+      })),
+    }
+    const r = {
+      checks: [],
+      resetToRoute: vi.fn().mockResolvedValue(undefined),
+      page: {
+        waitForFunction: vi.fn().mockResolvedValue({ dispose: vi.fn() }),
+        locator: vi.fn((selector) => {
+          if (selector === '.cohere-main input, .cohere-main textarea, .cohere-main select') return initialFields
+          if (selector.includes('[data-testid="select-acc_zhihu_001"]')) return stableField
+          return initialFields
+        }),
+      },
+    }
+
+    const result = await routeSuite.auditInitialFields(r, { route: '/accounts' })
+
+    expect(result).toMatchObject({ passed: true, details: { exercised: 1, failures: [] } })
+    expect(stableField.count).toHaveBeenCalledTimes(1)
+    expect(stableField.check).toHaveBeenCalledTimes(1)
+    expect(initialFields.evaluateAll).toHaveBeenCalledTimes(1)
+    expect(stableField.waitFor.mock.invocationCallOrder[0]).toBeLessThan(stableField.count.mock.invocationCallOrder[0])
+  })
+
+  it('临时平台打开替身无损恢复已有窗口全局状态', async () => {
+    const key = routeSuite.OPEN_PLATFORM_STUB_KEY
+    const originalOpenDescriptor = Object.getOwnPropertyDescriptor(window, 'open')
+    const previousValue = { preserved: true }
+    Object.defineProperty(window, key, {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: previousValue,
+    })
+    const page = {
+      evaluate: vi.fn(async (callback, argument) => callback(argument)),
+    }
+
+    try {
+      await routeSuite.installOpenPlatformStub(page)
+      window.open('https://example.com/dashboard', '_blank')
+      await expect(routeSuite.readOpenPlatformCalls(page)).resolves.toEqual([
+        { url: 'https://example.com/dashboard', target: '_blank' },
+      ])
+
+      await routeSuite.restoreOpenPlatformStub(page)
+
+      expect(Object.getOwnPropertyDescriptor(window, 'open')).toEqual(originalOpenDescriptor)
+      expect(window.open).toEqual(expect.any(Function))
+      expect(window[key]).toBe(previousValue)
+    } finally {
+      if (originalOpenDescriptor) Object.defineProperty(window, 'open', originalOpenDescriptor)
+      else delete window.open
+      delete window[key]
+    }
   })
 })
 

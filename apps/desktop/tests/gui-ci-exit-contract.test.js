@@ -8,7 +8,7 @@ const {
   getResults,
   resetResults,
 } = require('./test-helpers');
-const { resolveGuiExitCode } = require('./electron-gui-v9');
+const { isIgnorableConsoleError, resolveGuiExitCode } = require('./electron-gui-v9');
 
 const WORKFLOW_DIR = path.join(PROJECT_ROOT, '.github', 'workflows');
 
@@ -56,6 +56,15 @@ describe('GUI CI 退出码契约', () => {
     expect(resolveGuiExitCode({ results: getResults() })).toBe(0);
   });
 
+  it('只忽略 CI 环境已知的 Chromium/网络噪声', () => {
+    expect(isIgnorableConsoleError("Request Autofill.enable failed. {'code':-32601}"))
+      .toBe(true);
+    expect(isIgnorableConsoleError('Failed to load resource: net::ERR_NETWORK_ACCESS_DENIED'))
+      .toBe(true);
+    expect(isIgnorableConsoleError('Error: 许可证权限不足'))
+      .toBe(false);
+  });
+
   it('没有执行任何断言时返回非零退出码', () => {
     expect(resolveGuiExitCode({ results: getResults() })).toBe(1);
   });
@@ -69,7 +78,7 @@ describe('GUI CI 退出码契约', () => {
     expect(closeIndex).toBeGreaterThan(-1);
     expect(exitCodeIndex).toBeGreaterThan(closeIndex);
     expect(source).toContain('window.on("pageerror"');
-    expect(source).toContain('if (message.type() === "error")');
+    expect(source).toContain('message.type() === "error" && !isIgnorableConsoleError');
     expect(source).toContain(
       'resolveGuiExitCode({ results, consoleErrors, pageErrors, runnerError })',
     );
@@ -108,11 +117,14 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(workflowSteps(workflow).filter((step) => step['continue-on-error'] === true)).toEqual([]);
   });
 
-  it('GUI 工作流真实执行浏览器 E2E、像素视觉和 Electron GUI 门禁', () => {
+  it('GUI 工作流分层执行浏览器 E2E 和 Electron GUI 门禁', () => {
     const { source } = readWorkflow('gui-test.yml');
 
+    expect(source).toContain('- name: Start Vite server');
+    expect(source).toContain('- name: Browser E2E gates');
+    expect(source).toContain('- name: Electron GUI gate');
+    expect(source).toContain('- name: Stop Vite server');
     expect(source).toContain('npm run test:e2e');
-    expect(source).toContain('npm run test:visual:pixel');
     expect(source).toContain('node apps/desktop/tests/electron-gui-v9.js');
     expect(source).not.toMatch(/electron-gui-v9\.js\s*\|\|/);
     expect(source).not.toMatch(/e2e-smoke\.js;\s*echo/);

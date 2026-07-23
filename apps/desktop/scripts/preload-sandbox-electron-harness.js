@@ -1,9 +1,13 @@
 'use strict'
 
-const http = require('http')
 const path = require('path')
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, protocol } = require('electron')
 const registerIdentityHandlers = require('../electron/ipc-handlers/identity')
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'app',
+  privileges: { standard: true, secure: true },
+}])
 
 const sandboxArgument = process.argv.find((argument) => {
   return argument.startsWith('--preload-sandbox-mode=')
@@ -15,7 +19,6 @@ const sandbox = !sandboxArgument || sandboxArgument.endsWith('=true')
 const userDataDirectory = userDataArgument?.slice(
   '--preload-sandbox-user-data-dir='.length,
 )
-let verificationServer = null
 let verificationWindow = null
 
 if (!userDataDirectory) {
@@ -23,32 +26,9 @@ if (!userDataDirectory) {
 }
 app.setPath('userData', userDataDirectory)
 app.setPath('sessionData', path.join(userDataDirectory, 'session'))
+app.setPath('cache', path.join(userDataDirectory, 'cache'))
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
-
-function listen() {
-  return new Promise((resolve, reject) => {
-    verificationServer = http.createServer((_request, response) => {
-      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-      response.end('<!doctype html><html><body>preload-sandbox-smoke</body></html>')
-    })
-    verificationServer.once('error', reject)
-    verificationServer.listen(0, '127.0.0.1', () => {
-      verificationServer.removeListener('error', reject)
-      const address = verificationServer.address()
-      process.env.DEV_SERVER_PORT = String(address.port)
-      resolve(`http://127.0.0.1:${address.port}/`)
-    })
-  })
-}
-
-function closeServer() {
-  if (!verificationServer) return
-  const server = verificationServer
-  verificationServer = null
-  server.close()
-  server.closeAllConnections?.()
-}
 
 ipcMain.on('auth:get-access-level', (event) => {
   event.returnValue = 'authenticated'
@@ -61,7 +41,6 @@ ipcMain.handle('publish:wechat', async () => {
 })
 registerIdentityHandlers(ipcMain)
 
-app.on('before-quit', closeServer)
 app.on('window-all-closed', () => app.quit())
 app.on('render-process-gone', (_event, webContents, details) => {
   console.error('preload sandbox renderer 异常退出：', {
@@ -69,10 +48,13 @@ app.on('render-process-gone', (_event, webContents, details) => {
     exitCode: details.exitCode,
     url: webContents && typeof webContents.getURL === 'function' ? webContents.getURL() : '',
   })
-})
+  })
 app.whenReady()
   .then(async () => {
-    const url = await listen()
+    protocol.handle('app', () => new Response(
+      '<!doctype html><html><body>preload-sandbox-smoke</body></html>',
+      { headers: { 'content-type': 'text/html' } },
+    ))
     verificationWindow = new BrowserWindow({
       show: false,
       webPreferences: {
@@ -85,7 +67,7 @@ app.whenReady()
     verificationWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
       console.error(`preload sandbox 加载失败：${preloadPath}`, error)
     })
-    await verificationWindow.loadURL(url)
+    await verificationWindow.loadURL('app://localhost/index.html')
   })
   .catch((error) => {
     console.error('preload sandbox harness 启动失败：', error)

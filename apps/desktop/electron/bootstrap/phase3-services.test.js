@@ -26,8 +26,13 @@ function makeMockDeps(overrides) {
   const mockContainer = {
     get: vi.fn((key) => {
       if (key === 'publishIntervalGuard') return {}
+      if (key === 'commentManager') return mockCommentManager
       return {}
     }),
+  }
+  const mockCommentManager = {
+    setOwnerSubjectProvider: vi.fn(),
+    stopAll: vi.fn(async () => {}),
   }
   const mockStore = {
     init: vi.fn(),
@@ -202,6 +207,8 @@ describe('phase3-services.startServices', () => {
     expect(result.identityService).toBe(identityService)
     expect(deps.scheduler.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
     expect(deps.taskQueue.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    const commentManager = deps.container.get('commentManager')
+    expect(commentManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
   })
 
   it.each(['1', 'true', 'yes', 'on', ' TRUE '])('required=%s 时身份初始化失败必须阻止启动', async (required) => {

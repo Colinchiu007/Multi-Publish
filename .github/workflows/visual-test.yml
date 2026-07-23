@@ -10,10 +10,14 @@ on:
     branches: [main]
     paths:
       - 'apps/desktop/**'
+      - '.github/workflows/visual-test.yml'
+      - '.github/scripts/workflow-contract.test.js'
   push:
     branches: [main]
     paths:
       - 'apps/desktop/**'
+      - '.github/workflows/visual-test.yml'
+      - '.github/scripts/workflow-contract.test.js'
   workflow_dispatch:
 
 jobs:
@@ -23,6 +27,7 @@ jobs:
     env:
       TEST_URL: http://127.0.0.1:5174
       HEADLESS: "true"
+      PIXEL_THRESHOLD: "0.02"
 
     steps:
       - uses: actions/checkout@v4
@@ -33,42 +38,56 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Install Linux system deps (libvips + xvfb)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libvips libvips-dev build-essential python3 xvfb
-
       - name: Install dependencies
         run: npm ci
 
       - name: Install Playwright + Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Build Vue frontend
         run: npm run build:vue -w @multi-publish/desktop
 
-      - name: Start Vite dev server (background)
-        run: |
-          cd apps/desktop
-          npx vite --port 5174 &
-          for i in $(seq 1 30); do
-            if curl -s http://127.0.0.1:5174/ > /dev/null 2>&1; then
-              echo "Vite ready after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "❌ Vite never became ready"
-          exit 1
-
       - name: Pixel-comparison tests (default, no API Key needed)
-        run: npm run test:visual:pixel -w @multi-publish/desktop
+        shell: pwsh
+        run: |
+          $desktopDir = Join-Path $PWD "apps/desktop"
+          $viteProcess = Start-Process -FilePath "npx.cmd" `
+            -ArgumentList @("vite", "--host", "127.0.0.1", "--port", "5174") `
+            -WorkingDirectory $desktopDir `
+            -RedirectStandardOutput (Join-Path $desktopDir "vite-visual.stdout.log") `
+            -RedirectStandardError (Join-Path $desktopDir "vite-visual.stderr.log") `
+            -WindowStyle Hidden -PassThru
+          try {
+            $viteReady = $false
+            for ($i = 1; $i -le 30; $i++) {
+              Start-Sleep -Seconds 1
+              $viteProcess.Refresh()
+              if ($viteProcess.HasExited) { throw "Vite exited before becoming ready (exit=$($viteProcess.ExitCode))" }
+              try {
+                if ((Invoke-WebRequest -Uri "http://127.0.0.1:5174/" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) {
+                  Write-Host "Vite ready after $i seconds"
+                  $viteReady = $true
+                  break
+                }
+              } catch {}
+            }
+            if (-not $viteReady) { throw "Vite never became ready" }
+            Push-Location $desktopDir
+            try {
+              npm.cmd run test:visual:pixel
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            if (-not $viteProcess.HasExited) { taskkill /PID $viteProcess.Id /T /F 2>$null | Out-Null }
+          }
 
       - name: Generate Agent visual-judge report
         if: always()
         run: |
           echo "=== Agent Visual Judge ==="
-          node apps/desktop/tests/visual-testing/scripts/agent-visual-judge.js || true
+          node apps/desktop/tests/visual-testing/scripts/agent-visual-judge.js
 
       - name: Upload screenshots and reports
         if: always()
@@ -78,4 +97,5 @@ jobs:
           path: |
             apps/desktop/tests/visual-testing/screenshots
             apps/desktop/tests/visual-testing/reports
+            apps/desktop/vite-visual.*.log
           retention-days: 7

@@ -22,11 +22,11 @@ describe('account-state-restorer owner 隔离', () => {
   })
 
   it('相同 platform/accountId 的不同 owner 记录互不覆盖', () => {
-    restorer.saveAccountRecord({ platform: 'douyin', accountId: 'shared', cookies: [{ value: 'a' }] }, 'user-a')
-    restorer.saveAccountRecord({ platform: 'douyin', accountId: 'shared', cookies: [{ value: 'b' }] }, 'user-b')
+    restorer.saveAccountRecord({ platform: 'douyin', accountId: 'shared', accountInfo: { name: 'A' } }, 'user-a')
+    restorer.saveAccountRecord({ platform: 'douyin', accountId: 'shared', accountInfo: { name: 'B' } }, 'user-b')
 
-    expect(restorer.getAccountRecord('douyin', 'shared', 'user-a').cookies[0].value).toBe('a')
-    expect(restorer.getAccountRecord('douyin', 'shared', 'user-b').cookies[0].value).toBe('b')
+    expect(restorer.getAccountRecord('douyin', 'shared', 'user-a').accountInfo.name).toBe('A')
+    expect(restorer.getAccountRecord('douyin', 'shared', 'user-b').accountInfo.name).toBe('B')
     expect(restorer.listLoggedInAccounts('user-a')).toHaveLength(1)
     expect(restorer.listLoggedInAccounts('user-b')).toHaveLength(1)
   })

@@ -26,6 +26,9 @@ const fs = require('fs');
 const path = require('path');
 const { buildInitScript } = require('./fixture-loader');
 
+const DEFAULT_APP_READY_TIMEOUT = 5000;
+const RESET_APP_READY_TIMEOUT = 10000;
+
 class FunctionalRunner {
   constructor(options = {}) {
     this.specName = options.specName || 'unnamed';
@@ -121,22 +124,32 @@ class FunctionalRunner {
     const expectedRoute = options.expectedRoute || route;
     const resetUrl = `${this.url}/?__e2e_reset=${++this.resetSequence}#${route}`;
     await this.page.goto(resetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await this.waitForAppReady(expectedRoute);
-    this.actions.push({ kind: 'resetToRoute', route, expectedRoute, at: Date.now() });
+    const readyTimeout = options.readyTimeout ?? RESET_APP_READY_TIMEOUT;
+    await this.waitForAppReady(expectedRoute, readyTimeout);
+    this.actions.push({ kind: 'resetToRoute', route, expectedRoute, readyTimeout, at: Date.now() });
   }
 
   /** 等待 Vue 完成挂载并切换到目标路由 */
-  async waitForAppReady(route, timeout = 5000) {
+  async waitForAppReady(route, timeout = DEFAULT_APP_READY_TIMEOUT) {
     const expectedHash = '#' + route;
-    await this.page.waitForURL((currentUrl) => currentUrl.hash === expectedHash, { timeout });
-    await this.page.locator('#app').waitFor({ state: 'visible', timeout });
+    const deadline = Date.now() + timeout;
+    const remainingTimeout = () => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new Error(`等待应用就绪超时（${timeout}ms）：${route}`);
+      }
+      return remaining;
+    };
+
+    await this.page.waitForURL((currentUrl) => currentUrl.hash === expectedHash, { timeout: remainingTimeout() });
+    await this.page.locator('#app').waitFor({ state: 'visible', timeout: remainingTimeout() });
     await this.page.waitForFunction((hash) => {
       const app = document.querySelector('#app');
       return window.location.hash === hash &&
         app &&
         app.hasAttribute('data-v-app') &&
         (app.textContent || '').trim().length > 0;
-    }, expectedHash, { timeout });
+    }, expectedHash, { timeout: remainingTimeout() });
   }
 
   /** 等待指定选择器出现 */

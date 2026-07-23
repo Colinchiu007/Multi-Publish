@@ -152,6 +152,21 @@ class AuthService {
     }
   }
 
+  async _clearSignInWindowSessionOrSetError() {
+    if (typeof this._client.clearSignInWindowSession !== 'function') return null
+    try {
+      await this._client.clearSignInWindowSession()
+      return null
+    } catch (error) {
+      const identityError = toIdentityError(error, 'IDENTITY_AUTH_WINDOW_SESSION_CLEAR_FAILED')
+      this._setState({
+        status: 'error',
+        error: { code: identityError.code, message: '退出失败，认证窗口会话未能清理，请重试' },
+      })
+      return identityError
+    }
+  }
+
   async _syncEntitlement(user) {
     if (!this._entitlementService || typeof this._entitlementService.sync !== 'function') return null
     const accessToken = await this.getAccessToken()
@@ -285,7 +300,19 @@ class AuthService {
       await callbackServer.start()
       const callbackPromise = callbackServer.waitForCallback()
       await this._client.signIn({ redirectUri: this._redirectUri })
-      const callbackUri = await callbackPromise
+      let callbackUri
+      if (typeof this._client.waitForSignInWindowClosed === 'function') {
+        const result = await Promise.race([
+          callbackPromise.then((uri) => ({ type: 'callback', uri })),
+          this._client.waitForSignInWindowClosed().then(() => ({ type: 'window-closed' })),
+        ])
+        if (result.type === 'window-closed') {
+          throw new IdentityError('IDENTITY_SIGN_IN_CANCELLED', '登录窗口已关闭')
+        }
+        callbackUri = result.uri
+      } else {
+        callbackUri = await callbackPromise
+      }
       await this._queueSessionMutation(async () => {
         if (operationId !== this._operationId) {
           throw new IdentityError('IDENTITY_SIGN_IN_CANCELLED', '登录已取消')
@@ -315,6 +342,9 @@ class AuthService {
       throw cleanupError || identityError
     } finally {
       if (this._activeCallbackServer === callbackServer) this._activeCallbackServer = null
+      if (typeof this._client.closeSignInWindow === 'function') {
+        try { await this._client.closeSignInWindow() } catch {}
+      }
       await callbackServer.stop()
     }
   }
@@ -345,6 +375,8 @@ class AuthService {
     } catch (error) {
       warning = toIdentityError(error).code
     }
+    const authWindowCleanupError = await this._clearSignInWindowSessionOrSetError()
+    if (authWindowCleanupError) throw authWindowCleanupError
     const cleanupError = await this._clearLocalSessionOrSetError('退出失败，本地登录信息未能清理，请重试')
     if (cleanupError) throw cleanupError
     return warning ? { ...this.getState(), warning } : this.getState()

@@ -63,6 +63,31 @@ describe('createIdentityService', () => {
     expect(win.webContents.send).toHaveBeenCalledWith('identity:state-changed', { status: 'authenticated', user: { sub: 'sub-1' } })
   })
 
+  it('生产客户端获得受限认证窗口并在打开时解析主窗口', async () => {
+    const { createIdentityService } = require('./identity-service-factory')
+    const authWindow = { open: vi.fn(), close: vi.fn(), waitForClosed: vi.fn() }
+    const createAuthWindow = vi.fn(() => authWindow)
+    const createClient = vi.fn(async () => ({}))
+    const authService = { restore: vi.fn(async () => ({ status: 'signed_out' })) }
+    const getMainWin = vi.fn(() => ({ id: 'main-window' }))
+    await createIdentityService({
+      env: enabledEnv(),
+      store: { getSetting: () => 'device-1234567890', setSetting: vi.fn() },
+      createAuthWindow,
+      createClient,
+      createTokenStorage: vi.fn(() => ({})),
+      createEntitlementStorage: vi.fn(() => ({})),
+      createAuthService: vi.fn(() => authService),
+      getMainWin,
+    })
+    expect(createAuthWindow).toHaveBeenCalledWith(expect.objectContaining({
+      endpoint: 'https://id.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      getParentWindow: getMainWin,
+    }))
+    expect(createClient).toHaveBeenCalledWith(expect.objectContaining({ authWindow }))
+  })
+
   it('主窗口在状态广播期间销毁时不向认证流程传播异常', async () => {
     const { createIdentityService } = require('./identity-service-factory')
     let listener
