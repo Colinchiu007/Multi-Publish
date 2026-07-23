@@ -30,6 +30,7 @@ describe('createLogtoClient', () => {
     const authWindow = {
       open: vi.fn(async (url, parameters) => { navigated.push({ url, parameters }) }),
       close: vi.fn(async () => {}),
+      clearSession: vi.fn(async () => {}),
       waitForClosed: vi.fn(() => new Promise(() => {})),
     }
     class FakeClient { constructor(config, adapter) { this.adapter = adapter } }
@@ -45,6 +46,8 @@ describe('createLogtoClient', () => {
     expect(navigated).toEqual([{ url: 'https://id.example.com/oidc/auth', parameters: { for: 'sign-in' } }])
     await client.closeSignInWindow()
     expect(authWindow.close).toHaveBeenCalledTimes(1)
+    await client.clearSignInWindowSession()
+    expect(authWindow.clearSession).toHaveBeenCalledTimes(1)
     expect(client.waitForSignInWindowClosed()).toBeInstanceOf(Promise)
   })
 

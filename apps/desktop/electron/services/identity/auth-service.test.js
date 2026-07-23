@@ -149,6 +149,40 @@ describe('AuthService', () => {
     expect(order).toEqual(['remote-sign-out', 'clear-local'])
   })
 
+  it('退出登录会在清理本地凭证前清除应用内认证窗口会话', async () => {
+    const { AuthService } = require('./auth-service')
+    const order = []
+    const service = new AuthService({
+      client: {
+        signOut: async () => { order.push('remote-sign-out') },
+        clearSignInWindowSession: async () => { order.push('clear-auth-window') },
+      },
+      tokenStorage: { clear: async () => { order.push('clear-local') } },
+    })
+
+    await expect(service.signOut()).resolves.toMatchObject({ status: 'signed_out' })
+    expect(order).toEqual(['remote-sign-out', 'clear-auth-window', 'clear-local'])
+  })
+
+  it('认证窗口会话无法清理时保留本地凭证并报告可重试错误', async () => {
+    const { AuthService } = require('./auth-service')
+    const clearLocal = vi.fn(async () => {})
+    const service = new AuthService({
+      client: {
+        signOut: async () => {},
+        clearSignInWindowSession: async () => { throw new Error('session locked') },
+      },
+      tokenStorage: { clear: clearLocal },
+    })
+
+    await expect(service.signOut()).rejects.toMatchObject({ code: 'IDENTITY_AUTH_WINDOW_SESSION_CLEAR_FAILED' })
+    expect(clearLocal).not.toHaveBeenCalled()
+    expect(service.getState()).toMatchObject({
+      status: 'error',
+      error: { code: 'IDENTITY_AUTH_WINDOW_SESSION_CLEAR_FAILED' },
+    })
+  })
+
   it('显式切换账号会先完整退出旧账号，再建立新账号会话', async () => {
     const { AuthService } = require('./auth-service')
     const order = []

@@ -101,6 +101,9 @@ temp_debug.txt
 coverage/
 stryker-tmp/
 reports/mutation/
+# Stryker 报告和增量缓存由本地测试自动生成，不进入版本控制。
+apps/desktop/reports/mutation/
+reports/stryker-incremental.json
 tests/sessions/
 # TypeScript compiled output
 dist-ts/

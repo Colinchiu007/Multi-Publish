@@ -49,10 +49,11 @@ const prdPath = args.prd
 const srcDir = args.src
   ? path.resolve(args.src)
   : path.join(ROOT, "apps/desktop/src");
-const llmProvider = args.llm || process.env.LLM_PROVIDER || null; // openai | anthropic | none
+const llmProvider = normalizeLlmProvider(args.llm || process.env.LLM_PROVIDER); // openai | anthropic | none
 const llmModel = args.model || process.env.LLM_MODEL || defaultModel(llmProvider);
 const iterations = parseInt(args.iterations, 10) || 1;
-const coverageThreshold = parseFloat(args.coverageThreshold ?? process.env.COVERAGE_THRESHOLD) || 0.8;
+const parsedCoverageThreshold = parseFloat(args.coverageThreshold ?? args.threshold ?? process.env.COVERAGE_THRESHOLD);
+const coverageThreshold = Number.isFinite(parsedCoverageThreshold) ? parsedCoverageThreshold : 0.8;
 const reportDir = args.out
   ? path.resolve(args.out)
   : path.join(ROOT, "apps/desktop/tests/visual-testing/reports");
@@ -62,6 +63,12 @@ function defaultModel(provider) {
   if (provider === "openai") return "gpt-4o-mini";
   if (provider === "anthropic") return "claude-3-5-sonnet-latest";
   return null;
+}
+
+function normalizeLlmProvider(provider) {
+  if (typeof provider !== "string") return provider || null;
+  const normalized = provider.trim().toLowerCase();
+  return normalized === "" || normalized === "none" ? null : normalized;
 }
 
 async function main() {

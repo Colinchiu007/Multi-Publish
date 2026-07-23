@@ -98,6 +98,11 @@ async function createLogtoClient(options = {}) {
         enumerable: false,
         value: () => authWindow.close(),
       },
+      clearSignInWindowSession: {
+        configurable: false,
+        enumerable: false,
+        value: () => typeof authWindow.clearSession === 'function' ? authWindow.clearSession() : undefined,
+      },
     })
   }
   return client

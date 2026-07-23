@@ -88,16 +88,28 @@ describe('ProjectService — Backlot 项目库', () => {
     });
 
     it('按 updatedAt 降序排序', () => {
-      const a = service.createProject({ name: 'A', pipelineType: 'p' });
-      // 确保 updatedAt 不同
-      const b = service.createProject({ name: 'B', pipelineType: 'p' });
-      // 手动修改 a 的 updatedAt 使其更晚
-      service.updateProject(a.id, { name: 'A2' });
-      const list = service.scanProjects();
-      expect(list.length).toBe(2);
-      // A2 被更新过，updatedAt 更晚，应排在前面
-      expect(list[0].name).toBe('A2');
-      expect(list[1].name).toBe('B');
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date('2026-07-23T00:00:00.000Z'));
+        const a = service.createProject({ name: 'A', pipelineType: 'p' });
+
+        vi.setSystemTime(new Date('2026-07-23T00:00:00.001Z'));
+        const b = service.createProject({ name: 'B', pipelineType: 'p' });
+
+        vi.setSystemTime(new Date('2026-07-23T00:00:00.002Z'));
+        service.updateProject(a.id, { name: 'A2' });
+
+        const list = service.scanProjects();
+        expect(list.length).toBe(2);
+        expect(list[0].name).toBe('A2');
+        expect(list[1].name).toBe('B');
+        expect(list.map(project => project.updatedAt)).toEqual([
+          '2026-07-23T00:00:00.002Z',
+          '2026-07-23T00:00:00.001Z',
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

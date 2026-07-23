@@ -50,6 +50,7 @@ describe('IdentityAuthWindow', () => {
       on: vi.fn(),
       removeListener: vi.fn(),
       setPermissionRequestHandler: vi.fn(),
+      clearStorageData: vi.fn(async () => {}),
     }
   })
 
@@ -156,8 +157,156 @@ describe('IdentityAuthWindow', () => {
     const closed = authWindow.waitForClosed()
     authWindow.close()
     await expect(closed).resolves.toBeUndefined()
-    expect(authSession.removeListener).toHaveBeenCalledWith('will-download', expect.any(Function))
+    expect(authSession.removeListener).not.toHaveBeenCalled()
+    expect(authSession.setPermissionRequestHandler).not.toHaveBeenCalledWith(null)
     expect(() => authWindow.close()).not.toThrow()
+  })
+
+  it('退出或切换账号时关闭窗口并清理隔离认证会话', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    const session = { fromPartition: vi.fn(() => authSession) }
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: fake.FakeBrowserWindow,
+      session,
+      shell,
+    })
+    await authWindow.open('https://auth.example.com/sign-in')
+
+    await authWindow.clearSession()
+
+    expect(fake.instances[0].closed).toBe(true)
+    expect(authSession.clearStorageData).toHaveBeenCalledTimes(1)
+    expect(authSession.removeListener).toHaveBeenCalledWith('will-download', expect.any(Function))
+    expect(authSession.setPermissionRequestHandler).toHaveBeenLastCalledWith(null)
+    expect(session.fromPartition).toHaveBeenCalledWith('persist:logto-identity', { cache: true })
+  })
+
+  it('重开认证窗口时保留 session 安全处理器，仅在清理会话后释放', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: fake.FakeBrowserWindow,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+
+    await authWindow.open('https://auth.example.com/sign-in?attempt=1')
+    await authWindow.open('https://auth.example.com/sign-in?attempt=2')
+
+    expect(authSession.on).toHaveBeenCalledTimes(1)
+    expect(authSession.setPermissionRequestHandler).toHaveBeenCalledTimes(1)
+    expect(authSession.setPermissionRequestHandler).not.toHaveBeenCalledWith(null)
+
+    await authWindow.clearSession()
+
+    expect(authSession.removeListener).toHaveBeenCalledTimes(1)
+    expect(authSession.setPermissionRequestHandler).toHaveBeenCalledTimes(2)
+    expect(authSession.setPermissionRequestHandler).toHaveBeenLastCalledWith(null)
+  })
+
+  it('窗口已销毁但未触发 closed 回调时仍会完成会话清理', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: fake.FakeBrowserWindow,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+    await authWindow.open('https://auth.example.com/sign-in')
+
+    fake.instances[0].closed = true
+    const clearing = authWindow.clearSession()
+    let settledBeforeFallback = false
+    clearing.then(() => { settledBeforeFallback = true })
+    await new Promise(resolve => setImmediate(resolve))
+    if (!settledBeforeFallback) fake.instances[0].emit('closed')
+
+    await expect(clearing).resolves.toBeUndefined()
+    expect(settledBeforeFallback).toBe(true)
+  })
+
+  it('窗口拒绝常规关闭时使用 destroy 强制结算并清理会话', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    class CloseBlockedWindow extends fake.FakeBrowserWindow {
+      constructor(options) {
+        super(options)
+        this.destroy = vi.fn(() => {
+          this.closed = true
+          this.handlers.get('closed')?.()
+        })
+      }
+
+      close() {
+        this.closeWasRequested = true
+      }
+    }
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: CloseBlockedWindow,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+    await authWindow.open('https://auth.example.com/sign-in')
+    const window = fake.instances[0]
+
+    const clearing = authWindow.clearSession()
+    let settledBeforeFallback = false
+    clearing.then(() => { settledBeforeFallback = true })
+    await new Promise(resolve => setImmediate(resolve))
+    const destroyCallsBeforeFallback = window.destroy.mock.calls.length
+    if (!settledBeforeFallback) window.destroy()
+
+    await expect(clearing).resolves.toBeUndefined()
+    expect(destroyCallsBeforeFallback).toBe(1)
+    expect(window.closeWasRequested).toBeUndefined()
+  })
+
+  it('认证 session 监听器清理异常不会阻塞会话清理', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    authSession.removeListener.mockImplementation(() => { throw new Error('session already destroyed') })
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: fake.FakeBrowserWindow,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+    await authWindow.open('https://auth.example.com/sign-in')
+
+    await expect(authWindow.clearSession()).resolves.toBeUndefined()
+    expect(authSession.clearStorageData).toHaveBeenCalledTimes(1)
+  })
+
+  it('忽略旧认证窗口迟到的阻断导航，仅当前窗口回退自己的授权地址', async () => {
+    const { IdentityAuthWindow } = require('./identity-auth-window')
+    const authWindow = new IdentityAuthWindow({
+      endpoint: 'https://auth.example.com',
+      redirectUri: 'http://127.0.0.1:16526/auth/callback',
+      BrowserWindow: fake.FakeBrowserWindow,
+      session: { fromPartition: vi.fn(() => authSession) },
+      shell,
+    })
+    await authWindow.open('https://auth.example.com/sign-in?attempt=1')
+    const oldWindow = fake.instances[0]
+    await authWindow.open('https://auth.example.com/sign-in?attempt=2')
+    const currentWindow = fake.instances[1]
+
+    const oldEvent = { preventDefault: vi.fn() }
+    oldWindow.handlers.get('webContents:will-navigate')(oldEvent, 'https://attacker.example.test/')
+
+    expect(oldEvent.preventDefault).toHaveBeenCalledTimes(1)
+    expect(shell.openExternal).not.toHaveBeenCalled()
+
+    const currentEvent = { preventDefault: vi.fn() }
+    currentWindow.handlers.get('webContents:will-navigate')(currentEvent, 'https://attacker.example.test/')
+
+    expect(currentEvent.preventDefault).toHaveBeenCalledTimes(1)
+    expect(shell.openExternal).toHaveBeenCalledWith('https://auth.example.com/sign-in?attempt=2')
   })
 
   it('旧窗口延迟加载失败不会误关后续认证窗口', async () => {

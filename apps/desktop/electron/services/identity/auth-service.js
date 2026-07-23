@@ -152,6 +152,21 @@ class AuthService {
     }
   }
 
+  async _clearSignInWindowSessionOrSetError() {
+    if (typeof this._client.clearSignInWindowSession !== 'function') return null
+    try {
+      await this._client.clearSignInWindowSession()
+      return null
+    } catch (error) {
+      const identityError = toIdentityError(error, 'IDENTITY_AUTH_WINDOW_SESSION_CLEAR_FAILED')
+      this._setState({
+        status: 'error',
+        error: { code: identityError.code, message: '退出失败，认证窗口会话未能清理，请重试' },
+      })
+      return identityError
+    }
+  }
+
   async _syncEntitlement(user) {
     if (!this._entitlementService || typeof this._entitlementService.sync !== 'function') return null
     const accessToken = await this.getAccessToken()
@@ -360,6 +375,8 @@ class AuthService {
     } catch (error) {
       warning = toIdentityError(error).code
     }
+    const authWindowCleanupError = await this._clearSignInWindowSessionOrSetError()
+    if (authWindowCleanupError) throw authWindowCleanupError
     const cleanupError = await this._clearLocalSessionOrSetError('退出失败，本地登录信息未能清理，请重试')
     if (cleanupError) throw cleanupError
     return warning ? { ...this.getState(), warning } : this.getState()

@@ -25,6 +25,10 @@ class IdentityAuthWindow {
     this._window = null
     this._authorizationUrl = null
     this._closedPromise = Promise.resolve()
+    this._closeHandler = null
+    this._authSession = null
+    this._denyDownload = null
+    this._permissionHandler = null
   }
 
   _isAllowedNavigation(value) {
@@ -39,15 +43,45 @@ class IdentityAuthWindow {
       target.pathname === this._redirectUri.pathname
   }
 
-  _fallbackToSystemBrowser() {
-    const authorizationUrl = this._authorizationUrl
+  _fallbackToSystemBrowser(authorizationUrl = this._authorizationUrl) {
     if (!authorizationUrl) return
     Promise.resolve(this._shell.openExternal(authorizationUrl)).catch(() => {})
   }
 
   _handleClosed(window, resolveClosed) {
     if (this._window === window) this._window = null
+    if (this._closeHandler?.window === window) this._closeHandler = null
     resolveClosed()
+  }
+
+  _settleWindowClosed(window) {
+    if (this._closeHandler?.window === window) this._closeHandler.settle()
+  }
+
+  _getAuthSession() {
+    const authSession = this._session.fromPartition(this._partition, { cache: true })
+    if (this._authSession === authSession) return authSession
+
+    this._releaseAuthSession()
+    this._authSession = authSession
+    this._denyDownload = (event) => event.preventDefault()
+    this._permissionHandler = (_webContents, _permission, callback) => callback(false)
+    authSession.on('will-download', this._denyDownload)
+    authSession.setPermissionRequestHandler(this._permissionHandler)
+    return authSession
+  }
+
+  _releaseAuthSession() {
+    const authSession = this._authSession
+    const denyDownload = this._denyDownload
+    this._authSession = null
+    this._denyDownload = null
+    this._permissionHandler = null
+    if (!authSession) return
+    if (denyDownload) {
+      try { authSession.removeListener('will-download', denyDownload) } catch {}
+    }
+    try { authSession.setPermissionRequestHandler(null) } catch {}
   }
 
   async open(url) {
@@ -57,13 +91,11 @@ class IdentityAuthWindow {
     const previousClosed = this._closedPromise
     this.close()
     await previousClosed
-    this._authorizationUrl = new URL(url).toString()
+    const authorizationUrl = new URL(url).toString()
+    this._authorizationUrl = authorizationUrl
 
     const parent = this._getParentWindow()
-    const authSession = this._session.fromPartition(this._partition, { cache: true })
-    const denyDownload = (event) => event.preventDefault()
-    authSession.on('will-download', denyDownload)
-    authSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
+    const authSession = this._getAuthSession()
     const window = new this._BrowserWindow({
       width: 520,
       height: 720,
@@ -87,25 +119,30 @@ class IdentityAuthWindow {
     let resolveClosed
     const closedPromise = new Promise((resolve) => { resolveClosed = resolve })
     this._closedPromise = closedPromise
+    let settled = false
+    const settleClosed = () => {
+      if (settled) return
+      settled = true
+      this._handleClosed(window, resolveClosed)
+    }
+    this._closeHandler = { window, settle: settleClosed }
 
     window.once('ready-to-show', () => {
       if (this._window === window && !window.isDestroyed?.()) window.show()
     })
-    window.once('closed', () => {
-      authSession.removeListener('will-download', denyDownload)
-      authSession.setPermissionRequestHandler(null)
-      this._handleClosed(window, resolveClosed)
-    })
+    window.once('closed', settleClosed)
 
     const guardNavigation = (event, targetUrl) => {
       if (this._isAllowedNavigation(targetUrl)) return
       event.preventDefault()
-      this._fallbackToSystemBrowser()
+      if (this._window === window) this._fallbackToSystemBrowser(authorizationUrl)
     }
     window.webContents.on('will-navigate', guardNavigation)
     window.webContents.on('will-redirect', guardNavigation)
     window.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
-      if (!this._isAllowedNavigation(targetUrl)) this._fallbackToSystemBrowser()
+      if (!this._isAllowedNavigation(targetUrl) && this._window === window) {
+        this._fallbackToSystemBrowser(authorizationUrl)
+      }
       return { action: 'deny' }
     })
 
@@ -117,7 +154,7 @@ class IdentityAuthWindow {
       closedPromise.then(() => ({ type: 'closed' })),
     ])
     if (loadResult.type === 'failed') {
-      if (this._window === window && !window.isDestroyed?.()) window.close()
+      if (this._window === window) this.close()
       throw new IdentityError('IDENTITY_AUTH_WINDOW_LOAD_FAILED', '登录页面加载失败', loadResult.error)
     }
   }
@@ -129,7 +166,31 @@ class IdentityAuthWindow {
   close() {
     const window = this._window
     if (!window) return
-    if (typeof window.isDestroyed !== 'function' || !window.isDestroyed()) window.close()
+    if (typeof window.isDestroyed === 'function' && window.isDestroyed()) {
+      this._settleWindowClosed(window)
+      return
+    }
+    if (typeof window.destroy === 'function') window.destroy()
+    else window.close()
+    if (typeof window.isDestroyed === 'function' && window.isDestroyed()) {
+      this._settleWindowClosed(window)
+    }
+  }
+
+  async clearSession() {
+    const previousClosed = this._closedPromise
+    this.close()
+    await previousClosed
+    try {
+      const authSession = this._authSession || this._session.fromPartition(this._partition, { cache: true })
+      if (!authSession || typeof authSession.clearStorageData !== 'function') {
+        throw new Error('Electron session 不支持清理认证存储')
+      }
+      await authSession.clearStorageData()
+      if (this._authSession === authSession) this._releaseAuthSession()
+    } catch (error) {
+      throw new IdentityError('IDENTITY_AUTH_WINDOW_SESSION_CLEAR_FAILED', '认证窗口会话清理失败', error)
+    }
   }
 }
 

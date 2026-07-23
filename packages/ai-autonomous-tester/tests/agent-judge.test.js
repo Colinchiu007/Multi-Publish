@@ -1,5 +1,9 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { AgentJudge } = require("../src/agent/agent-judge");
 
 function fakeFacts(prdCount = 2) {
@@ -13,6 +17,62 @@ function fakeFacts(prdCount = 2) {
 }
 
 describe("AgentJudge", () => {
+  it("CLI 将 none provider 作为 prompt 模式并兼容 --threshold", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-judge-cli-"));
+    const prdPath = path.join(tempDir, "PRD.md");
+    const srcDir = path.join(tempDir, "src");
+    const outDir = path.join(tempDir, "reports");
+    const cliPath = path.join(__dirname, "..", "scripts", "run-agent-judge.js");
+
+    fs.mkdirSync(srcDir);
+    fs.writeFileSync(prdPath, "# PRD\n\n## 功能需求\n\n- F1 登录\n");
+    fs.writeFileSync(path.join(srcDir, "login.js"), "export const login = () => true;\n");
+
+    try {
+      const result = spawnSync(process.execPath, [
+        cliPath,
+        `--prd=${prdPath}`,
+        `--src=${srcDir}`,
+        "--llm=none",
+        "--threshold=0.75",
+        `--out=${outDir}`,
+      ], { encoding: "utf8" });
+
+      assert.equal(result.status, 2, result.stderr || result.stdout);
+      assert.match(result.stdout, /LLM:\s+\(none, will output prompt package\)/);
+      assert.match(result.stdout, /Threshold:\s+0\.75/);
+      assert.ok(fs.readdirSync(outDir).some(file => file.startsWith("agent-judge-prompt-")));
+
+      const summaryFile = fs.readdirSync(outDir).find(file => file.startsWith("agent-judge-summary-"));
+      const summary = JSON.parse(fs.readFileSync(path.join(outDir, summaryFile), "utf8"));
+      assert.equal(summary.llmProvider, null);
+      assert.equal(summary.coverageThreshold, 0.75);
+      assert.equal(summary.finalReport.mode, "prompt");
+      assert.equal(summary.exitCode, 2);
+
+      const envOutDir = path.join(tempDir, "env-reports");
+      const envResult = spawnSync(process.execPath, [
+        cliPath,
+        `--prd=${prdPath}`,
+        `--src=${srcDir}`,
+        "--coverageThreshold=0.65",
+        `--out=${envOutDir}`,
+      ], {
+        encoding: "utf8",
+        env: { ...process.env, LLM_PROVIDER: " NONE " },
+      });
+
+      assert.equal(envResult.status, 2, envResult.stderr || envResult.stdout);
+      const envSummaryFile = fs.readdirSync(envOutDir).find(file => file.startsWith("agent-judge-summary-"));
+      const envSummary = JSON.parse(fs.readFileSync(path.join(envOutDir, envSummaryFile), "utf8"));
+      assert.equal(envSummary.llmProvider, null);
+      assert.equal(envSummary.coverageThreshold, 0.65);
+      assert.equal(envSummary.finalReport.mode, "prompt");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("无 LLM 时返回 prompt 包", async () => {
     const j = new AgentJudge();
     const result = await j.judge({ facts: fakeFacts(2) });

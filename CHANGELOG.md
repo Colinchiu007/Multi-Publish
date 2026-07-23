@@ -4,12 +4,15 @@
 - 登录和注册改为在 Electron 独立认证窗口中完成，继续使用 Logto 托管页面、Authorization Code、PKCE 和固定回环回调。
 - 认证窗口使用隔离 Session 和安全 BrowserWindow 配置，阻止下载、权限请求、任意导航与新窗口；第三方身份提供商不支持嵌入时回退系统浏览器。
 - 关闭认证窗口会立即取消登录并清理回调服务；修正生产 Logto Native App ID。
+- 退出登录或切换账号时会清理隔离认证窗口的 Cookie 与浏览器存储；即使窗口已销毁但关闭事件尚未到达，也不会让退出流程永久等待。
+- 重开认证窗口时保持同一会话的下载与权限保护；过期窗口的迟到导航不会错误打开新一轮授权地址。
 
 ### 质量
 - 新增窗口安全、加载失败、关闭取消、并发窗口和 OAuth 回退测试。
 - 完成 Vue/preload 构建、preload 双 sandbox、Windows QM-1 打包、ASAR/启动、真实 Logto 页面和像素 16/16 验证。
 - 修复视觉 CI 运行系统、workspace Vitest 依赖检查和过期 GUI smoke 契约；密钥扫描改为可定位且排除测试夹具。
 - 补齐账号凭证、评论 Cookie 和后台轮询的 `owner_subject` 隔离；预加载 bundle、双 sandbox、身份 E2E 与像素回归均已复验。
+- CI 审计门禁只接受本轮生成的报告；自主审计即使返回零退出码，也必须提供 `overall: PASS` 的机器可读报告才能放行。
 
 ---
 
