@@ -13,10 +13,10 @@ describe('VideoEngine 能力清单', () => {
     expect(VideoEngine).toBeTypeOf('function')
   })
 
-  it('返回包含 green-screen 的处理类型副本', () => {
+  it('只公布已经接通真实后端的处理类型', () => {
     const types = engine.listProcessTypes()
 
-    expect(types).toContain('green-screen')
+    expect(types).toEqual(['trim'])
     types.push('mutated')
     expect(engine.listProcessTypes()).not.toContain('mutated')
   })
@@ -44,9 +44,37 @@ describe('VideoEngine 能力清单', () => {
 
     expect(engine.getStatus()).toEqual({
       ffmpegAvailable: false,
-      processTypes: expect.arrayContaining(['green-screen']),
+      processTypes: ['trim'],
       analyzeTypes: expect.arrayContaining(['scene-detect']),
     })
     expect(ffmpegCheck).toHaveBeenCalledOnce()
+  })
+
+  it('裁剪时校验输入和时间范围，并忽略 renderer 伪造的输出路径', async () => {
+    const fs = require('fs')
+    const os = require('os')
+    const path = require('path')
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'video-engine-trim-'))
+    const input = path.join(root, 'video.mp4')
+    fs.writeFileSync(input, 'video')
+    const requestBackend = vi.fn(async (_method, _path, body) => ({ success: true, output: body.params.output_path }))
+    vi.spyOn(engine, '_getPythonBridge').mockReturnValue({ isRunning: () => true, requestBackend })
+
+    const result = await engine.process('trim', {
+      input_path: input,
+      output_path: 'C:/Windows/System32/evil.mp4',
+      start_seconds: 1,
+      end_seconds: 3,
+      codec: 'copy',
+    })
+    const params = requestBackend.mock.calls[0][2].params
+
+    expect(params.input_path).toBe(fs.realpathSync.native(input))
+    expect(params.output_path).toMatch(new RegExp('^' + root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    expect(params.output_path).toMatch(/_trim_.*\.mp4$/)
+    expect(params.codec).toBe('libx264')
+    expect(result.success).toBe(true)
+    expect(() => engine.process('trim', { input_path: input, start_seconds: 3, end_seconds: 1 })).rejects.toThrow(/时间/)
+    fs.rmSync(root, { recursive: true, force: true })
   })
 })

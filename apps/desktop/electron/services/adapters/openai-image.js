@@ -27,6 +27,18 @@ const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider
 const DEFAULT_MODEL = 'dall-e-3'
 const DEFAULT_SIZE = '1024x1024'
 
+function resolveDallESize (params) {
+  if (typeof params?.size === 'string' && /^\d+x\d+$/.test(params.size)) return params.size
+  const width = Number(params?.width)
+  const height = Number(params?.height)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return DEFAULT_SIZE
+  }
+  if (width > height) return '1792x1024'
+  if (height > width) return '1024x1792'
+  return DEFAULT_SIZE
+}
+
 class OpenAIImageAdapter extends OpenAIAdapter {
   /**
    * POST /images/generations — 图像生成
@@ -49,7 +61,7 @@ class OpenAIImageAdapter extends OpenAIAdapter {
       model,
       prompt: params.prompt,
       n: params.n || 1,
-      size: params.size || DEFAULT_SIZE,
+      size: resolveDallESize(params),
     }
     if (params.response_format) {
       body.response_format = params.response_format

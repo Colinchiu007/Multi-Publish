@@ -20,3 +20,5 @@ export * from './segment';
 export * from './share';
 export * from './utils';
 export * from './zip-utils';
+export * from './template-library';
+export * from './history-prompt';

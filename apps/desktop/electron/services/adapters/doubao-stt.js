@@ -3,7 +3,7 @@
  * doubao-stt.js — 豆包（字节跳动）语音识别 Adapter
  *
  * 字节跳动火山引擎 ASR API 关键特性：
- * - 认证方式：app_id + token（token 在请求体内，非 Authorization Header）
+ * - 认证方式：app_id + token（请求体）和火山引擎协议 Authorization Header
  * - baseUrl: https://openspeech.bytedance.com，端点 /api/v2/asr
  * - transcribe: POST /api/v2/asr，请求体含 app/user/audio/request 四段
  * - audio.data 为 Base64 编码的音频数据
@@ -16,8 +16,6 @@
  *   - transcribe()        POST /api/v2/asr
  *
  * 设计决策：
- * - transcribe 不在 KNOWN_METHODS 中，需在类中直接定义为实例方法
- * - capabilities() 覆盖为 super.capabilities().concat(['transcribe'])
  * - app_id + token 在请求体内（字节跳特的非标准认证方式）
  * - reqid 每次调用随机生成（用 crypto.randomUUID，Node 19+）
  * - sequence=-1 表示单次完整识别（非流式）
@@ -71,10 +69,10 @@ class DoubaoSttAdapter extends BaseAdapter {
     return errors.length === 0 ? { valid: true } : { valid: false, errors }
   }
 
-  /** 构造请求头 — 豆包使用 Bearer token（双重认证：Header + Body） */
+  /** 构造请求头 — 火山引擎旧接口要求 Bearer;token 格式 */
   _headers() {
     return {
-      'Authorization': `Bearer; ${this.credentials.token}`,
+      'Authorization': `Bearer;${this.credentials.token}`,
       'Content-Type': 'application/json',
       'Resource-Id': 'volc.bigasr.sauc.duration',
     }
@@ -83,7 +81,7 @@ class DoubaoSttAdapter extends BaseAdapter {
   /** 构造完整 URL */
   _url(path) {
     const base = this.credentials.baseUrl.replace(/\/$/, '')
-    return `${base}${path}`
+    return base.endsWith(path) ? base : `${base}${path}`
   }
 
   /**
@@ -249,13 +247,6 @@ class DoubaoSttAdapter extends BaseAdapter {
     }
   }
 
-  /**
-   * capabilities() — 覆盖以手动添加 'transcribe'
-   * transcribe 不在 BaseAdapter 的 KNOWN_METHODS 中，supports() 默认返回 false
-   */
-  capabilities() {
-    return super.capabilities().concat(['transcribe'])
-  }
 }
 
 module.exports = { DoubaoSttAdapter }

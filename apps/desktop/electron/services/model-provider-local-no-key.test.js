@@ -1,0 +1,47 @@
+// @vitest-environment node
+'use strict'
+
+const { ModelProviderManager } = require('./model-provider-manager')
+
+function createManager(provider) {
+  const manager = new ModelProviderManager(null)
+  manager._ready = true
+  manager.getProviderWithKey = vi.fn(() => provider)
+  manager._writeLog = vi.fn()
+  manager._adapterFactories.set(provider.id, () => ({}))
+  manager._getOrCreateAdapter = vi.fn(() => ({
+    supports: () => true,
+    synthesize: vi.fn(async () => ({ audio: Buffer.from('audio'), format: 'wav' })),
+  }))
+  return manager
+}
+
+describe('ModelProviderManager local no-key adapters', () => {
+  it('allows a loopback Piper provider without an API key', async () => {
+    const manager = createManager({
+      id: 'piper',
+      name: 'Piper',
+      category: 'tts',
+      base_url: 'http://127.0.0.1:5000',
+      api_key: '',
+    })
+
+    await expect(manager.callAdapter('piper', 'synthesize', { text: '本地语音' }))
+      .resolves.toMatchObject({ code: 0, data: { format: 'wav' } })
+    expect(manager._getOrCreateAdapter).toHaveBeenCalledTimes(1)
+  })
+
+  it('still rejects a no-key local adapter when its endpoint is remote', async () => {
+    const manager = createManager({
+      id: 'piper',
+      name: 'Piper',
+      category: 'tts',
+      base_url: 'https://example.invalid',
+      api_key: '',
+    })
+
+    await expect(manager.callAdapter('piper', 'synthesize', { text: '不应发出远程请求' }))
+      .resolves.toMatchObject({ code: -1, message: expect.stringMatching(/API Key/i) })
+    expect(manager._getOrCreateAdapter).not.toHaveBeenCalled()
+  })
+})

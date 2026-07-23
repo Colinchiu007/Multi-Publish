@@ -75,10 +75,10 @@ class DoubaoTtsAdapter extends BaseAdapter {
     return errors.length === 0 ? { valid: true } : { valid: false, errors }
   }
 
-  /** 构造请求头 — 火山引擎使用 Bearer token */
+  /** 构造请求头 — 火山引擎旧接口要求 Bearer;token 格式 */
   _headers() {
     return {
-      'Authorization': `Bearer; ${this.credentials.token}`,
+      'Authorization': `Bearer;${this.credentials.token}`,
       'Content-Type': 'application/json',
     }
   }
@@ -86,7 +86,7 @@ class DoubaoTtsAdapter extends BaseAdapter {
   /** 构造完整 URL */
   _url(path) {
     const base = this.credentials.baseUrl.replace(/\/$/, '')
-    return `${base}${path}`
+    return base.endsWith(path) ? base : `${base}${path}`
   }
 
   /**
@@ -180,10 +180,9 @@ class DoubaoTtsAdapter extends BaseAdapter {
 
     const data = await resp.json()
 
-    // 火山引擎响应：{ code: 3000, data: "<base64>", duration: "1.234", ... }
-    // code 非 3xxx 成功；失败时抛 ProviderError
-    if (data.code !== undefined && data.code !== 3) {
-      // code !== 3 视为业务错误（3 = 成功）
+    // 火山引擎成功响应：{ code: 3000, data: "<base64>", duration: "1.234", ... }。
+    // HTTP 200 不代表业务成功，必须校验业务成功码，避免把错误响应当作音频落盘。
+    if (data.code !== undefined && data.code !== 3000) {
       const errMsg = data.message || data.msg || `Doubao TTS error code: ${data.code}`
       throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, errMsg, {
         providerId: this.id,

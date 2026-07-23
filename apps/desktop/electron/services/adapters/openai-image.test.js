@@ -144,6 +144,19 @@ describe('OpenAIImageAdapter — OpenAI DALL-E Image Adapter', () => {
   })
 
   describe('generateImage', () => {
+    it('将 Story2Video 横屏尺寸映射为 DALL-E 横向输出尺寸', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ created: 0, data: [{ b64_json: 'image' }] }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new OpenAIImageAdapter({ id: 'dall-e', apiKey: 'sk-test' })
+      await adapter.generateImage({ prompt: 'a cinematic landscape', width: 1280, height: 720 })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.size).toBe('1792x1024')
+    })
+
     it('POST /images/generations 返回 { images, model, created }', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({

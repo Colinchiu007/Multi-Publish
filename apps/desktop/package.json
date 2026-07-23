@@ -67,6 +67,7 @@
         "@multi-publish/api-publish-engine": "*",
         "@multi-publish/rpa-engine": "*",
         "@multi-publish/shared-utils": "*",
+        "@multi-publish/story2video-engine": "*",
         "@vitejs/plugin-vue": "^5.2.0",
         "@vueup/vue-quill": "^1.5.3",
         "axios": "^1.9.0",

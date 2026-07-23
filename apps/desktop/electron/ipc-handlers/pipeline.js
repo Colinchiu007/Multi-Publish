@@ -8,20 +8,25 @@ function registerHandlers(ipcMain, deps) {
   const { withSenderCheck } = require('./helpers')
   const { pipelineEngine, BrowserWindow, log } = deps
 
-  ipcMain.handle('pipeline:list', () => {
+  ipcMain.handle('pipeline:list', withSenderCheck(() => {
     try {
       const list = pipelineEngine.listPipelines()
       return { code: 0, data: Array.isArray(list) ? list : [] }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
-  })
+  }))
 
-  ipcMain.handle('pipeline:get', (_event, name) => {
+  ipcMain.handle('pipeline:get', withSenderCheck((_event, name) => {
+    if (typeof name !== 'string' || !name.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法流水线名称' }
     try {
       return { code: 0, data: pipelineEngine.getPipeline(name) }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   ipcMain.handle('pipeline:start', withSenderCheck(async (_event, name, params) => {
+    if (typeof name !== 'string' || !name.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法流水线名称' }
+    if (params !== undefined && (params === null || typeof params !== 'object' || Array.isArray(params))) {
+      return { code: EC.VALIDATION_ERROR, message: '流水线参数必须为对象' }
+    }
     try {
       const result = await pipelineEngine.start(name, params || {})
       return { code: 0, data: result }
@@ -49,14 +54,15 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
-  ipcMain.handle('pipeline:status', (_event, name) => {
+  ipcMain.handle('pipeline:status', withSenderCheck((_event, name) => {
+    if (typeof name !== 'string' || !name.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法流水线名称' }
     try {
       return { code: 0, data: pipelineEngine.getStatus(name) }
     } catch (err) {
       log.error('[pipeline] status error:', err)
       return { code: EC.REQUEST_ERROR, message: err.message }
     }
-  })
+  }))
 
   ipcMain.handle('pipeline:advance', withSenderCheck(() => {
     try {
@@ -64,14 +70,15 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
-  ipcMain.handle('pipeline:history', () => {
+  ipcMain.handle('pipeline:history', withSenderCheck(() => {
     try {
       const history = pipelineEngine.getHistory()
       return { code: 0, data: Array.isArray(history) ? history : [] }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
-  })
+  }))
 
-  ipcMain.handle('pipeline:fetch', async (_event, name) => {
+  ipcMain.handle('pipeline:fetch', withSenderCheck(async (_event, name) => {
+    if (typeof name !== 'string' || !name.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法流水线名称' }
     try {
       const result = await pipelineEngine.fetchPipelineFromBackend(name)
       return { code: 0, data: result }
@@ -79,11 +86,15 @@ function registerHandlers(ipcMain, deps) {
       log.error('[pipeline] fetch error:', err)
       return { code: EC.REQUEST_ERROR, message: err.message }
     }
-  })
+  }))
 
   // ---- 编排模式（Orchestrator）IPC handlers ----
 
   ipcMain.handle('pipeline:startOrchestrated', withSenderCheck(async (_event, name, params) => {
+    if (typeof name !== 'string' || !name.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法流水线名称' }
+    if (params !== undefined && (params === null || typeof params !== 'object' || Array.isArray(params))) {
+      return { code: EC.VALIDATION_ERROR, message: '编排参数必须为对象' }
+    }
     try {
       const result = await pipelineEngine.startOrchestrated(name, params || {})
       return { code: 0, data: result }
@@ -94,6 +105,7 @@ function registerHandlers(ipcMain, deps) {
   }))
 
   ipcMain.handle('pipeline:executeStage', withSenderCheck(async (_event, runId) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
     try {
       const result = await pipelineEngine.executeStage(runId)
       return { code: 0, data: result }
@@ -104,6 +116,7 @@ function registerHandlers(ipcMain, deps) {
   }))
 
   ipcMain.handle('pipeline:advanceToNextCheckpoint', withSenderCheck(async (_event, runId) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
     try {
       const result = await pipelineEngine.advanceToNextCheckpoint(runId)
       return { code: 0, data: result }
@@ -113,11 +126,15 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
-  ipcMain.handle('pipeline:getRunContext', (_event, runId) => {
+  ipcMain.handle('pipeline:getRunContext', withSenderCheck((_event, runId) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
     try {
-      return { code: 0, data: pipelineEngine.getRunContext(runId) }
+      const snapshot = typeof pipelineEngine.getRunSnapshot === 'function'
+        ? pipelineEngine.getRunSnapshot(runId)
+        : pipelineEngine.getRunContext(runId)
+      return { code: 0, data: snapshot }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
   ipcMain.handle('pipeline:pauseWithCheckpoint', withSenderCheck(() => {
     try {

@@ -13,7 +13,7 @@
  * 访问级别在每次受限 API 调用时通过同步 IPC auth:get-access-level 获取，
  * fallback 到环境变量判断（development → admin，其他 → public）。
  */
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 const { createPublishApi } = require('./publish')
 const { createAccountApi } = require('./account')
 const { createSystemApi } = require('./system')
@@ -48,7 +48,9 @@ function getAccessLevel() {
 }
 
 const fullApi = {
-  ...createPublishApi(ipcRenderer),
+  ...createPublishApi(ipcRenderer, {
+    getPathForFile: (file) => webUtils?.getPathForFile(file) || '',
+  }),
   ...createAccountApi(ipcRenderer),
   ...createSystemApi(ipcRenderer),
   ...createProjectApi(ipcRenderer),

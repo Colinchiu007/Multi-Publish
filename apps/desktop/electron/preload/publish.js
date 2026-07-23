@@ -1,7 +1,7 @@
 /**
  * 发布相关 preload API（Phase 3.3 拆分自原 preload.js）
  *
- * 工厂函数：createPublishApi(ipcRenderer)
+ * 工厂函数：createPublishApi(ipcRenderer, options)
  *   - ipcRenderer 由调用方（preload/index.js）注入，便于测试 mock
  *   - 不在此处 require('electron')，保持子模块独立可测
  *
@@ -30,8 +30,21 @@
  * @param {Electron.IpcRenderer} ipcRenderer - 由 index.js 注入
  * @returns {Object} 发布相关方法集合
  */
-function createPublishApi(ipcRenderer) {
+function createPublishApi(ipcRenderer, options = {}) {
+  const resolveFilePath = typeof options.getPathForFile === 'function'
+    ? options.getPathForFile
+    : () => ''
+
   return {
+    // Electron 32+ 移除了 File.path；路径解析必须在可信 preload 中完成。
+    getPathForFile: (file) => {
+      try {
+        return String(resolveFilePath(file) || '')
+      } catch {
+        return ''
+      }
+    },
+
     // 发布 API
     publishWechat: (articleData) => ipcRenderer.invoke('publish:wechat', articleData),
     publishBatch: (platforms, article) => ipcRenderer.invoke('publish:batch', { platforms, article }),
@@ -107,6 +120,36 @@ function createPublishApi(ipcRenderer) {
     pipelineAdvance: () => ipcRenderer.invoke('pipeline:advance'),
     pipelineHistory: () => ipcRenderer.invoke('pipeline:history'),
     pipelineFetch: (name) => ipcRenderer.invoke('pipeline:fetch', name),
+    // 编排模式 API（story2video-compose）
+    pipelineStartOrchestrated: (name, params) => ipcRenderer.invoke('pipeline:startOrchestrated', name, params),
+    pipelineExecuteStage: (runId) => ipcRenderer.invoke('pipeline:executeStage', runId),
+    pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer.invoke('pipeline:advanceToNextCheckpoint', runId),
+    pipelineGetRunContext: (runId) => ipcRenderer.invoke('pipeline:getRunContext', runId),
+
+    // Story2Video 本地交付
+    story2videoImportMedia: (file, kind) => {
+      let filePath = ''
+      try {
+        filePath = String(resolveFilePath(file) || '')
+      } catch {
+        return Promise.resolve({ code: -1, message: '无法读取媒体文件路径' })
+      }
+      if (!filePath) return Promise.resolve({ code: -1, message: '无法读取媒体文件路径' })
+      return ipcRenderer.invoke('story2video:import-media', { filePath, kind })
+    },
+    story2videoExportZip: (files, destinationPath) => ipcRenderer.invoke('story2video:export-zip', { files, destinationPath }),
+    story2videoCreateShareUrl: (filePath) => ipcRenderer.invoke('story2video:create-share-url', filePath),
+    story2videoCopyPath: (filePath) => ipcRenderer.invoke('story2video:copy-path', filePath),
+    story2videoShowInFolder: (filePath) => ipcRenderer.invoke('story2video:show-in-folder', filePath),
+    story2videoListProjects: () => ipcRenderer.invoke('story2video:list-projects'),
+    story2videoGetProject: (projectId) => ipcRenderer.invoke('story2video:get-project', projectId),
+    story2videoDeleteProject: (projectId) => ipcRenderer.invoke('story2video:delete-project', projectId),
+    story2videoUpdateSegments: (projectId, segments) => ipcRenderer.invoke('story2video:update-segments', { projectId, segments }),
+    story2videoReplaceSegmentAudio: (projectId, segmentId, filePath) => ipcRenderer.invoke('story2video:replace-segment-audio', { projectId, segmentId, filePath }),
+    story2videoRetrySegment: (projectId, segmentId, mode) => ipcRenderer.invoke('story2video:retry-segment', { projectId, segmentId, mode }),
+    story2videoRecomposeProject: (projectId) => ipcRenderer.invoke('story2video:recompose-project', projectId),
+    story2videoTranscribe: (filePath) => ipcRenderer.invoke('story2video:transcribe', { filePath }),
+    story2videoCapabilities: () => ipcRenderer.invoke('story2video:capabilities'),
 
     // Cloud Publisher API
     cloudPublishSubmit: (params) => ipcRenderer.invoke('cloud-publisher:submit', params),

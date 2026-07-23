@@ -93,22 +93,22 @@ test('PipelineEngine orchestrator - stage 1 (split) 执行成功并写入 contex
   console.log('  stage 1 (split) 完成，场景数:', ctx.split.scenes?.length);
 });
 
-test('PipelineEngine orchestrator - stage 2 (optimize) 执行成功', { timeout: 60000 }, async () => {
+test('PipelineEngine orchestrator - domain_enrich 后执行 optimize', { timeout: 60000 }, async () => {
   const { pipelineEngine } = await buildContainer();
   const res = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: '美丽的日落。海边的椰子树。',
     autoAdvance: false,
   });
-  // 执行 stage 1
-  const r1 = await pipelineEngine.executeStage(res.runId);
-  if (!r1.success) console.log('  stage 1 error:', r1.error);
-  // 执行 stage 2
-  const execRes = await pipelineEngine.executeStage(res.runId);
-  if (!execRes.success) console.log('  stage 2 error:', execRes.error, execRes.details);
-  assert.ok(execRes.success, 'stage 2 应执行成功');
+  for (const stageName of ['split', 'domain_enrich', 'optimize']) {
+    const execRes = await pipelineEngine.executeStage(res.runId);
+    if (!execRes.success) console.log('  ' + stageName + ' error:', execRes.error, execRes.details);
+    assert.ok(execRes.success, stageName + ' 应执行成功');
+  }
   const ctx = pipelineEngine.getRunContext(res.runId);
+  assert.ok(ctx.split, 'context 应包含 split 结果');
+  assert.ok(ctx.domain_enrich, 'context 应包含 domain_enrich 结果');
   assert.ok(ctx.optimize, 'context 应包含 optimize 结果');
-  console.log('  stage 2 (optimize) 完成');
+  console.log('  domain_enrich + optimize 完成');
 });
 
 test('PipelineEngine orchestrator - advanceToNextCheckpoint 推进到完成', { timeout: 120000 }, async () => {

@@ -21,13 +21,41 @@ const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider
 
 const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com'
 const DEFAULT_TIMEOUT = 120000
-const DEFAULT_MODEL = 'imagen-3'
+const DEFAULT_MODEL = 'imagen-4.0-generate-001'
+
+const IMAGEN_ASPECT_RATIOS = Object.freeze({
+  '1:1': 1,
+  '3:4': 3 / 4,
+  '4:3': 4 / 3,
+  '9:16': 9 / 16,
+  '16:9': 16 / 9,
+})
 
 // 静态预定义 Imagen 模型列表
 const IMAGEN_MODELS = [
-  { id: 'imagen-3', name: 'Imagen 3', description: 'Google Imagen 3 模型' },
-  { id: 'imagen-3-fast', name: 'Imagen 3 Fast', description: '快速版本' },
+  { id: 'imagen-4.0-generate-001', name: 'Imagen 4', description: 'Google Imagen 4 标准模型' },
+  { id: 'imagen-4.0-fast-generate-001', name: 'Imagen 4 Fast', description: 'Google Imagen 4 快速模型' },
+  { id: 'imagen-4.0-ultra-generate-001', name: 'Imagen 4 Ultra', description: 'Google Imagen 4 高质量模型' },
 ]
+
+function normalizeSampleCount (value) {
+  const count = Number(value)
+  return Number.isInteger(count) && count > 0 ? count : 1
+}
+
+function resolveAspectRatio (params) {
+  const explicit = typeof params?.aspectRatio === 'string' ? params.aspectRatio : params?.aspect_ratio
+  if (Object.hasOwn(IMAGEN_ASPECT_RATIOS, explicit)) return explicit
+
+  const width = Number(params?.width)
+  const height = Number(params?.height)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return '1:1'
+
+  const target = width / height
+  return Object.entries(IMAGEN_ASPECT_RATIOS).reduce((best, [ratio, value]) => {
+    return Math.abs(value - target) < Math.abs(IMAGEN_ASPECT_RATIOS[best] - target) ? ratio : best
+  }, '1:1')
+}
 
 class ImagenAdapter extends BaseAdapter {
   /**
@@ -126,10 +154,13 @@ class ImagenAdapter extends BaseAdapter {
     }
 
     const model = params.model || DEFAULT_MODEL
-    const sampleCount = params.sampleCount || 1
+    const sampleCount = normalizeSampleCount(
+      params.sampleCount ?? params.number_of_images ?? params.n ?? params.batch_size,
+    )
+    const aspectRatio = resolveAspectRatio(params)
     const body = {
       instances: [{ prompt: params.prompt }],
-      parameters: { sampleCount },
+      parameters: { sampleCount, aspectRatio },
     }
 
     const resp = await this._request(`/v1beta/models/${model}:predict`, {

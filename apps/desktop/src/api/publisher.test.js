@@ -63,6 +63,12 @@ const exportedNames = [
   "showNotification",
   // 草稿箱（蚁小二复用）
   "draftSave", "draftList", "draftDelete",
+  "story2videoImportMedia", "story2videoExportZip", "story2videoCreateShareUrl",
+  "story2videoCopyPath", "story2videoShowInFolder", "story2videoListProjects",
+  "story2videoGetProject", "story2videoDeleteProject", "story2videoUpdateSegments",
+  "story2videoReplaceSegmentAudio",
+  "story2videoRetrySegment", "story2videoRecomposeProject", "story2videoTranscribe",
+  "story2videoCapabilities", "videoProcess",
 ];
 
 const apiMeta = {
@@ -169,7 +175,22 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   showNotification: { args: [{ title: "test" }], fallback: undefined, returns: "undefined" },
   draftSave: { args: [{ id: "d1", title: "t" }], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   draftList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },
-  draftDelete: { args: ["d1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" }
+  draftDelete: { args: ["d1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoImportMedia: { args: [{ name: "voice.mp3" }, "audio"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoExportZip: { args: [[{ path: "C:/video.mp4" }]], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoCreateShareUrl: { args: ["C:/video.mp4"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoCopyPath: { args: ["C:/video.mp4"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoShowInFolder: { args: ["C:/video.mp4"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoListProjects: { args: [], fallback: { code: -1, message: "electronAPI not available", data: [] }, returns: "object" },
+  story2videoGetProject: { args: ["project-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoDeleteProject: { args: ["project-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoUpdateSegments: { args: ["project-1", [{ id: "segment-0" }]], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoReplaceSegmentAudio: { args: ["project-1", "segment-0", "C:/voice.mp3"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoRetrySegment: { args: ["project-1", "segment-0", "image"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoRecomposeProject: { args: ["project-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoTranscribe: { args: ["C:/voice.mp3"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoCapabilities: { args: [], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  videoProcess: { args: ["trim", { input_path: "C:/video.mp4", start_seconds: 1, end_seconds: 3 }], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" }
 };
 
 function createMockApi() {

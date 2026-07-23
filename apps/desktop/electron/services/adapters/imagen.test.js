@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 __registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
 const { ImagenAdapter, IMAGEN_MODELS } = require('./imagen')
+const { PRESET_PROVIDERS } = require('../model-provider-seeds')
 const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
 const { BaseAdapter, ADAPTER_VERSION } = require('./_base/base')
 
@@ -156,7 +157,7 @@ describe('ImagenAdapter — Google Imagen Image Adapter', () => {
   })
 
   describe('generateImage', () => {
-    it('POST /v1beta/models/imagen-3:predict 返回 b64_json', async () => {
+    it('POST /v1beta/models/imagen-4.0-generate-001:predict 返回 b64_json', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({
           predictions: [{ bytesBase64Encoded: 'base64data', mimeType: 'image/png' }],
@@ -172,10 +173,10 @@ describe('ImagenAdapter — Google Imagen Image Adapter', () => {
       expect(result.images).toHaveLength(1)
       expect(result.images[0].b64_json).toBe('base64data')
       expect(result.images[0].mimeType).toBe('image/png')
-      expect(result.model).toBe('imagen-3')
+      expect(result.model).toBe('imagen-4.0-generate-001')
 
       // 验证 URL
-      expect(fetchMock.calls[0].url).toContain('/v1beta/models/imagen-3:predict')
+      expect(fetchMock.calls[0].url).toContain('/v1beta/models/imagen-4.0-generate-001:predict')
 
       // 验证请求体
       const body = JSON.parse(fetchMock.calls[0].opts.body)
@@ -183,7 +184,7 @@ describe('ImagenAdapter — Google Imagen Image Adapter', () => {
       expect(body.parameters.sampleCount).toBe(1)
     })
 
-    it('默认 model 为 imagen-3', async () => {
+    it('默认 model 为 imagen-4.0-generate-001', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ predictions: [{ bytesBase64Encoded: 'x' }] }),
       ])
@@ -192,7 +193,20 @@ describe('ImagenAdapter — Google Imagen Image Adapter', () => {
       const adapter = new ImagenAdapter({ id: 'imagen', apiKey: 'google-test' })
       await adapter.generateImage({ prompt: 'test' })
 
-      expect(fetchMock.calls[0].url).toContain('imagen-3:predict')
+      expect(fetchMock.calls[0].url).toContain('imagen-4.0-generate-001:predict')
+    })
+
+    it('接收 Story2Video 的 n 和宽高，并映射为 Imagen sampleCount 与 aspectRatio', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ predictions: [{ bytesBase64Encoded: 'image', mimeType: 'image/png' }] }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new ImagenAdapter({ id: 'imagen', apiKey: 'google-test' })
+      await adapter.generateImage({ prompt: 'a vertical portrait', n: 2, width: 720, height: 1280 })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.parameters).toMatchObject({ sampleCount: 2, aspectRatio: '9:16' })
     })
 
     it('支持 sampleCount 参数', async () => {
@@ -290,7 +304,7 @@ describe('ImagenAdapter — Google Imagen Image Adapter', () => {
       expect(Array.isArray(models)).toBe(true)
       expect(models.length).toBeGreaterThan(0)
       const ids = models.map(m => m.id || m.model_id)
-      expect(ids).toContain('imagen-3')
+      expect(ids).toContain('imagen-4.0-generate-001')
     })
 
     it('返回的模型包含 id 和 name 字段', async () => {
@@ -318,9 +332,17 @@ describe('ImagenAdapter — Google Imagen Image Adapter', () => {
 
       const list2 = await adapter.listModels()
       const ids = list2.map(m => m.id)
-      expect(ids).toContain('imagen-3')
+      expect(ids).toContain('imagen-4.0-generate-001')
       expect(ids).not.toContain('injected')
       expect(ids).not.toContain('tampered')
+    })
+  })
+
+  describe('预设配置契约', () => {
+    it('模型设置中的 Imagen 预设与适配器可用模型保持一致', () => {
+      const preset = PRESET_PROVIDERS.find(provider => provider.id === 'imagen')
+
+      expect(preset?.models).toEqual(IMAGEN_MODELS.map(model => model.id))
     })
   })
 

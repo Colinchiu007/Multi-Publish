@@ -181,6 +181,8 @@ function extractContext(container) {
   if (aiGenerator && aiGenerator.setRouter) {
     aiGenerator.setRouter(providerRouter)
   }
+  const story2videoProjectService = container.get('story2videoProjectService')
+  story2videoProjectService.modelProviderManager = modelProviderManager
 
   // ─── 平台配置 + 敏感词 + 横切服务 ───
   const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
@@ -222,6 +224,7 @@ function extractContext(container) {
       splitterBridge, promptBridge, serviceBus, pluginRegistry,
       projectService, boardService, contactSheetService, approvalGateService,
       executionRecorder,
+      story2videoProjectService,
     },
     windows: {
       authViewManager, rpaViewManager, webviewManager, qrCodeLogin,

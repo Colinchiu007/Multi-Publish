@@ -1,5 +1,10 @@
 # Remotion 合成能力接入 Multi-Publish — 技术设计方案
 
+> **文档状态：历史设计/独立快速路径参考（2026-07-22）**。Remotion Composition
+> 已接入，但不承担当前 `story2video-compose` 的主链合成；当前主链以
+> `CreateView → 六阶段 StageExecutor → Story2VideoComposeEngine/ffmpeg` 为准。
+> 本文中的“新建页面/复制模块/实施步骤”是历史迁移记录，不是未完成任务清单。
+
 ## 1. 背景与目标
 
 **现状：** 视频合成走 ECS 服务端（orchestrator pipeline），串行排队，4G 内存吃紧。
@@ -80,8 +85,8 @@ RenderEngine
   │   ├── gallery → { cuts: [{ type: 'anime-scene', images, effect }] }
   │   └── batch → { cuts: [...segments] }
   │
-  ├── getStatus()             → 检查 Node.js / npx / 模块就绪
-  ├── installDeps()           → 首次运行 npm install
+  ├── getStatus()             → 检查已打包/锁定的 Composer、Remotion 依赖和 Chromium 就绪
+  ├── installDeps()           → 历史开发期操作；应用运行时禁止在线安装
   └── cancel()                → 终止当前渲染进程
 ```
 
@@ -119,7 +124,8 @@ onRenderError: (callback) => ipcRenderer.on('render:error', callback),
 
 直接从 OpenMontage 复制 `remotion-composer/` 目录，保留所有组件。后续按需裁剪。
 
-**初始化脚本：** 安装依赖 `cd packages/remotion-composer && npm install`
+**初始化脚本：** `cd packages/remotion-composer && npm install` 仅用于开发机或 CI 构建准备；
+安装版运行时必须使用已打包或锁定的依赖，不能自行联网安装。
 
 ### 3.4 创作页面 — Vue 前端（新建）
 
@@ -218,13 +224,13 @@ child.on('close', (code) => {
 });
 ```
 
-## 5. 实施步骤（TDD 顺序）
+## 5. 历史实施步骤（TDD 顺序，已完成或由现行链路替代）
 
 ### Step 1: 复制 remotion-composer + 安装验证
 
 ```
 1. cp -r OpenMontage/remotion-composer packages/remotion-composer
-2. cd packages/remotion-composer && npm install
+2. 在开发机或 CI 执行 `cd packages/remotion-composer && npm install`，再由打包流程带入锁定依赖
 3. npx remotion render src/index.tsx Explainer out/test.mp4 --props=test-props.json
    → 验证能渲染出视频
 ```
@@ -286,18 +292,18 @@ child.on('close', (code) => {
 
 | 场景 | 处理方式 |
 |------|---------|
-| Node.js 未安装 | RenderEngine.getStatus() 返回不可用，引导用户安装 |
-| 首次运行 npm install | 自动执行，显示进度 |
+| 已打包/锁定的 Composer、依赖或 Chromium 缺失 | RenderEngine.getStatus() 返回不可用，阻断渲染并提示修复安装包或开发环境 |
+| 首次运行 | 不执行 `npm install`、浏览器下载或其他在线依赖安装 |
 | 渲染超时 | TaskQueue timeout=600s，超时后自动取消 |
 | 渲染失败 | 通过 IPC render:error 推送错误详情 |
 | 用户关闭窗口 | 主进程监听 `before-quit`，终止子进程 |
 | 并发渲染 | TaskQueue maxConcurrent=1，串行渲染 |
-| 大视频（>10min） | 太长的视频切成多段分别渲染，最后拼接 |
+| 大视频（>10min） | Remotion 快速路径应拒绝或由独立任务切段；S2V 主链直接拒绝超过 10 分钟的成片 |
 
-## 7. 排除项
+## 7. 历史排除项（已按当前实现修订）
 
 - ❌ 不改造现有发布流程
-- ❌ 不迁移 Story2Video 前端页面到统一前端（留到以后）
+- ✅ Story2Video 已统一到 `CreateView.vue`；本文只描述独立 Remotion 快速路径
 - ❌ 不修改 OpenMontage 组件源码（直接复制使用）
 - ❌ 不引入 TypeScript（Multi-Publish 用纯 JS）
 
@@ -307,6 +313,6 @@ child.on('close', (code) => {
 2. 渲染进度实时显示（每 5% 更新一次）
 3. 渲染完成后视频可本地播放
 4. 渲染过程中可取消
-5. Node.js 未安装时有明确引导
+5. 已打包/锁定的 Remotion 资源缺失时有明确阻断和修复指引，且应用不会在运行时联网安装依赖
 6. 所有组件覆盖 loading/error/empty 三态
 7. 测试通过（单元测试 + 集成测试）

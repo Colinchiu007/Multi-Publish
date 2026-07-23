@@ -21,6 +21,11 @@ describe('PipelineEngine 状态机模式', () => {
     ]))
   })
 
+  it('列表同时提供 stageCount，供桌面卡片显示阶段数', () => {
+    const pipeline = engine.listPipelines().find(item => item.name === 'story2video-compose')
+    expect(pipeline.stageCount).toBe(6)
+  })
+
   it('每条 pipeline 都包含非空名称和描述', () => {
     for (const pipeline of engine.listPipelines()) {
       expect(pipeline.name).toEqual(expect.any(String))
@@ -87,5 +92,28 @@ describe('PipelineEngine 状态机模式', () => {
       pipeline: pipeline.name,
       status: 'completed',
     }))
+  })
+
+  it('确认检查点后运行快照不保留已消费的检查点', () => {
+    const run = {
+      id: 'run-checkpoint',
+      pipeline: 'story2video-compose',
+      status: 'paused',
+      currentStage: 0,
+      stages: [
+        { name: 'optimize', status: 'paused', requiresCheckpoint: true, startedAt: null, completedAt: null },
+        { name: 'generate_assets', status: 'pending', requiresCheckpoint: false, startedAt: null, completedAt: null },
+      ],
+      checkpoint: { stageName: 'optimize', stageIndex: 0, required: true },
+      progress: 0,
+      createdAt: new Date().toISOString(),
+      orchestrationMode: 'orchestrator',
+      context: {},
+      stageResults: [],
+    }
+    engine._runs.set(run.id, run)
+
+    expect(engine._advanceRun(run)).toMatchObject({ success: true, currentStage: 'generate_assets' })
+    expect(engine.getRunSnapshot(run.id).checkpoint).toBeNull()
   })
 })

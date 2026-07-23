@@ -24,6 +24,7 @@ function registerAllHandlers(ipcMain, deps) {
   require('./offline')(ipcMain, deps)
   require('./payment')(ipcMain, deps)
   require('./pipeline')(ipcMain, deps)
+  require('./story2video')(ipcMain, deps)
   require('./video')(ipcMain, deps)
   require('./misc')(ipcMain, deps)
   require('./onboarding')(ipcMain, deps)

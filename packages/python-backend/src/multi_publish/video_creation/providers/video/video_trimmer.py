@@ -69,21 +69,18 @@ class VideoTrimmer(BaseTool):
         if not input_path.exists():
             return ToolResult(success=False, error=f"Input not found: {input_path}")
 
-        start_s = inputs.get("start_seconds", 0)
+        start_s = float(inputs.get("start_seconds", 0))
         end_s = inputs.get("end_seconds")
+        end_s = float(end_s) if end_s is not None else None
+        if start_s < 0 or (end_s is not None and end_s <= start_s):
+            return ToolResult(success=False, error="end_seconds must be greater than start_seconds")
         codec = inputs.get("codec", "copy")
         output_path = Path(inputs.get("output_path", str(input_path.with_stem(f"{input_path.stem}_cut"))))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(input_path),
-            "-ss",
-            str(start_s),
-        ]
+        cmd = ["ffmpeg", "-y", "-ss", str(start_s), "-i", str(input_path)]
         if end_s is not None:
-            cmd.extend(["-to", str(end_s)])
+            cmd.extend(["-t", str(end_s - start_s)])
         if codec == "copy":
             cmd.extend(["-c", "copy"])
         else:
@@ -91,6 +88,8 @@ class VideoTrimmer(BaseTool):
         cmd.append(str(output_path))
 
         self.run_command(cmd)
+        if not output_path.is_file() or output_path.stat().st_size <= 0:
+            return ToolResult(success=False, error="FFmpeg did not create a valid output file")
 
         return ToolResult(
             success=True,

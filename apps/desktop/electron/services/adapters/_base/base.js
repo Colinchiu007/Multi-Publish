@@ -41,6 +41,8 @@ const KNOWN_METHODS = [
   'chatCompletion', 'streamChat', 'embeddings',
   // TTS mixin
   'synthesize', 'listVoices',
+  // Speech-to-text mixin
+  'transcribe',
   // Image mixin
   'generateImage', 'editImage',
   // Video mixin
@@ -62,6 +64,7 @@ const KNOWN_METHODS = [
  * Mixin 方法（子类按需覆盖，默认抛 NotImplementedError）：
  *   - ILlmAdapter:     chatCompletion / streamChat / embeddings
  *   - ITtsAdapter:     synthesize / listVoices
+ *   - ISttAdapter:     transcribe
  *   - IImageAdapter:   generateImage / editImage
  *   - IVideoAdapter:   generateVideo / getVideoStatus
  */
@@ -139,6 +142,9 @@ class BaseAdapter {
   // ─── ITtsAdapter mixin ───
   synthesize()        { throw new NotImplementedError('synthesize') }
   listVoices()        { throw new NotImplementedError('listVoices') }
+
+  // ─── ISttAdapter mixin ───
+  transcribe()        { throw new NotImplementedError('transcribe') }
 
   // ─── IImageAdapter mixin ───
   generateImage()     { throw new NotImplementedError('generateImage') }
