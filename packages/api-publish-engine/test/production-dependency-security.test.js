@@ -23,6 +23,6 @@ test('生产依赖不允许解析到存在高危公告的 Axios 版本', () => {
   const apiPackage = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8'))
   const lockfile = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../..', 'package-lock.json'), 'utf8'))
 
-  assert(isAtLeast(apiPackage.dependencies.axios, '1.18.0'))
-  assert(isAtLeast(lockfile.packages['node_modules/axios'].version, '1.18.0'))
+  assert(isAtLeast(apiPackage.dependencies.axios, '1.18.1'))
+  assert(isAtLeast(lockfile.packages['node_modules/axios'].version, '1.18.1'))
 })
