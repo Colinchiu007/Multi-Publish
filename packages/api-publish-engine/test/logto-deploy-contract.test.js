@@ -27,11 +27,14 @@ for (const variable of [
 }
 assert.match(apiEnv, /^BUSINESS_DATABASE_AUTO_MIGRATE=false$/m)
 assert.match(apiEnv, /^HOST=0\.0\.0\.0$/m)
+assert.doesNotMatch(apiEnv, /^PUBLISH_API_HOST_PORT=/m)
 
 const apiCompose = yaml.load(fs.readFileSync(path.resolve(__dirname, '../docker-compose.yml'), 'utf8'))
 assert.strictEqual(apiCompose.services['publish-api'].build.context, '../..')
 assert.strictEqual(apiCompose.services['publish-api'].build.dockerfile, 'packages/api-publish-engine/Dockerfile')
-assert.deepStrictEqual(apiCompose.services['publish-api'].ports, ['127.0.0.1:3000:3000'])
+assert.deepStrictEqual(apiCompose.services['publish-api'].ports, [
+  '127.0.0.1:3030:3000',
+])
 const apiVolumes = apiCompose.services['publish-api'].volumes
 assert(apiVolumes.includes(
   './config:/app/packages/api-publish-engine/config',
@@ -58,5 +61,10 @@ assert.match(dockerfile, /COPY --chown=publishapi:publishapi packages\/api-publi
 assert.match(dockerfile, /ENV NODE_ENV=production/)
 assert.match(dockerfile, /HEALTHCHECK[\s\S]*\/api\/v1\/ready/)
 assert.doesNotMatch(dockerfile, /HEALTHCHECK[\s\S]*\/api\/v1\/health/)
+
+const runbook = fs.readFileSync(path.resolve(__dirname, '../../../01-docs/RUNBOOK-LOGTO-PRODUCTION.md'), 'utf8')
+assert.match(runbook, /publish-api --port 3000/)
+assert.match(runbook, /production-smoke\.js --logto https:\/\/id\.example\.com --api http:\/\/127\.0\.0\.1:3000/)
+assert.match(runbook, /docker compose -f packages\/api-publish-engine\/docker-compose\.yml[\s\S]*production-smoke\.js --logto https:\/\/id\.example\.com --api http:\/\/127\.0\.0\.1:3030/)
 
 console.log('  ✅ Logto Compose 与业务 API 生产配置合同完整且不包含默认密钥')

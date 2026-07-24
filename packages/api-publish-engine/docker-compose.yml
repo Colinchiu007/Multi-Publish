@@ -4,7 +4,8 @@ services:
       context: ../..
       dockerfile: packages/api-publish-engine/Dockerfile
     ports:
-      - "127.0.0.1:3000:3000"
+      # 容器内端口保持稳定；生产宿主机的 3000 已被占用，仅通过回环端口暴露。
+      - "127.0.0.1:3030:3000"
     environment:
       - NODE_ENV=production
       - HOST=0.0.0.0
