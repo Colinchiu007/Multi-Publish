@@ -188,6 +188,27 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(workflow.jobs['electron-tests']['runs-on']).toEqual(['self-hosted', 'linux', 'x64']);
   });
 
+  it('Electron CI 在运行 Vitest 前显式安装开发依赖和 Electron 运行时', () => {
+    const { workflow } = readWorkflow('electron-ci.yml');
+    const steps = workflow.jobs['electron-tests'].steps;
+    const dependencySteps = steps.filter((step) => step.name === 'Install dependencies');
+    const electronSteps = steps.filter((step) => step.name === 'Install Electron runtime');
+    const testSteps = steps.filter((step) => step.name === 'Unit tests (Vitest, non-Electron)');
+
+    expect(dependencySteps).toHaveLength(1);
+    expect(electronSteps).toHaveLength(1);
+    expect(testSteps).toHaveLength(1);
+    expect(dependencySteps[0].run.trim()).toBe('npm ci --include=dev');
+    expect(electronSteps[0].run.trim()).toBe('node node_modules/electron/install.js');
+
+    const dependencyIndex = steps.indexOf(dependencySteps[0]);
+    const electronIndex = steps.indexOf(electronSteps[0]);
+    const testIndex = steps.indexOf(testSteps[0]);
+
+    expect(dependencyIndex).toBeLessThan(electronIndex);
+    expect(electronIndex).toBeLessThan(testIndex);
+  });
+
   it('自主审计成功分支不会继续写入基础设施失败状态', () => {
     const { source } = readWorkflow('quality-gate.yml');
 
