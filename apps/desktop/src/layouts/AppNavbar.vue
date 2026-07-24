@@ -9,8 +9,8 @@
       <router-link to="/accounts" class="nav-item" :class="{ active: route.path.startsWith('/accounts') }">
         账号管理
       </router-link>
-      <router-link to="/publish" class="nav-item" :class="{ active: route.path === '/publish' }">
-        一键发布
+      <router-link to="/publish/history" class="nav-item" :class="{ active: route.path.startsWith('/publish') }">
+        发布记录
       </router-link>
       <router-link to="/collection" class="nav-item" :class="{ active: route.path === '/collection' }">
         采集

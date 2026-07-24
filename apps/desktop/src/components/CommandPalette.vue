@@ -115,7 +115,7 @@ const router = useRouter()
 // ─── 搜索项定义 ────────────────────────────
 const searchItems = [
   // 页面导航
-  { id: 'nav-publish',    type: 'route',   label: '一键发布',       path: '/publish',      icon: '↗',    shortcut: '⌘N', keywords: ['publish', '发布', '发布文章'] },
+  { id: 'nav-publish',    type: 'route',   label: '发布记录',       path: '/publish/history', icon: '↗', shortcut: '⌘N', keywords: ['publish', '发布', '发布记录', '发布文章'] },
   { id: 'nav-accounts',   type: 'route',   label: '账号管理',       path: '/accounts',     icon: '○',    shortcut: '',   keywords: ['account', '账号', '登录'] },
   { id: 'nav-collection', type: 'route',   label: '采集',           path: '/collection',   icon: '📋',   shortcut: '',   keywords: ['collect', '采集', '热榜'] },
   { id: 'nav-monitor',    type: 'route',   label: '监控',           path: '/monitor',      icon: '🖥',   shortcut: '',   keywords: ['monitor', '监控', '分屏'] },

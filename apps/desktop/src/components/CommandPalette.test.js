@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 
+const pushMock = vi.fn();
+
 vi.mock("vue-router", () => ({
   useRouter: () => ({
-    push: vi.fn(),
+    push: pushMock,
     replace: vi.fn(),
     currentRoute: { value: { path: "/" } }
   })
@@ -42,7 +44,15 @@ describe("CommandPalette", () => {
     mount(CommandPalette, { props: { visible: true } });
     await nextTick();
     expect(qs(".cp-item")).not.toBeNull();
-    expect(document.body.textContent).toContain("一键发布");
+    expect(document.body.textContent).toContain("发布记录");
+  });
+
+  it("发布记录导航进入独立历史页", async () => {
+    mount(CommandPalette, { props: { visible: true } });
+    await nextTick();
+    qs(".cp-item").click();
+    await nextTick();
+    expect(pushMock).toHaveBeenCalledWith("/publish/history");
   });
 
   it("emits close on overlay click", async () => {

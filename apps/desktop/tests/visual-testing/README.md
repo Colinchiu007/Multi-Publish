@@ -54,7 +54,7 @@ tests/visual-testing/
 | `npm run test:visual:pixel` | 像素对比测试（无需 API Key）✅ |
 | `npm run test:visual:agent` | 生成 Agent 视觉判断报告（无需 Key）✅ |
 | `npm run test:visual:update-baseline` | 更新基线截图 |
-| `npm run test:all:visual` | 全量回归（93 用例） |
+| `npm run test:all:visual` | 全量回归（94 用例） |
 
 ## 强制规则（MUST）
 

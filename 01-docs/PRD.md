@@ -1009,7 +1009,7 @@ Vue 展示组件
 
 ### 18.4 验证口径
 
-最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、93 项视觉回归、16 项像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用 8 秒启动。实际命令和结果记录在 `.quality-gates.md`。
+最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、94 项视觉回归、17 项像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用 8 秒启动。实际命令和结果记录在 `.quality-gates.md`。
 
 ## 十九、文档体系 (Documentation Index)
 

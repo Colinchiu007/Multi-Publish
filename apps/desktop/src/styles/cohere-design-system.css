@@ -106,12 +106,27 @@ body {
   font-weight: 500;
   color: var(--primary);
   margin-right: var(--space-xxl);
-  letter-spacing: -0.3px;
+  letter-spacing: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.cohere-topnav .nav-primary {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.cohere-topnav .nav-primary::-webkit-scrollbar {
+  display: none;
 }
 
 .cohere-topnav .brand .logo-dot {
@@ -140,6 +155,7 @@ body {
   line-height: 1;
   letter-spacing: 0;
   text-decoration: none;
+  flex: 0 0 auto;
 }
 
 .cohere-topnav .nav-item:hover {
@@ -207,8 +223,11 @@ body {
 
 .cohere-topnav .nav-right {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: var(--space-lg);
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .cohere-topnav .status-indicator {
@@ -1349,6 +1368,21 @@ body {
 
 /* --- 响应式 --- */
 @media (max-width: 1024px) {
+  .cohere-topnav {
+    padding: 0 var(--space-lg);
+  }
+  .cohere-topnav .brand {
+    margin-right: var(--space-md);
+  }
+  .cohere-topnav .nav-item {
+    padding: 8px 10px;
+  }
+  .cohere-topnav .nav-right {
+    gap: var(--space-sm);
+  }
+  .cohere-topnav .status-indicator {
+    display: none;
+  }
   .cohere-stat-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1358,6 +1392,16 @@ body {
 }
 
 @media (max-width: 768px) {
+  .cohere-topnav {
+    padding: 0 var(--space-md);
+  }
+  .cohere-topnav .brand {
+    margin-right: var(--space-sm);
+    font-size: 0;
+  }
+  .cohere-topnav .nav-item {
+    padding: 8px;
+  }
   .cohere-sidebar { display: none; }
   .cohere-stat-grid { grid-template-columns: repeat(2, 1fr); }
   .cohere-platform-grid { grid-template-columns: repeat(2, 1fr); }
