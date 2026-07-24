@@ -31,7 +31,7 @@ describe('index.html Content Security Policy', () => {
     expect(windowSource).not.toContain("'Content-Security-Policy'")
   })
 
-  it('允许应用所需的本机服务、字体和媒体资源', () => {
+  it('允许应用所需的本机服务、本地字体和媒体资源', () => {
     const directives = getCspDirectives()
 
     expect(directives.get('connect-src')).toEqual(expect.arrayContaining([
@@ -42,16 +42,14 @@ describe('index.html Content Security Policy', () => {
       'http://localhost:*',
       'http://127.0.0.1:*',
     ]))
-    expect(directives.get('style-src')).toEqual(expect.arrayContaining([
-      'https://api.fontshare.com',
-      'https://fonts.googleapis.com',
-    ]))
-    expect(directives.get('font-src')).toEqual(expect.arrayContaining([
-      'https://api.fontshare.com',
-      'https://fonts.gstatic.com',
-    ]))
+    expect(directives.get('style-src')).toEqual(["'self'", "'unsafe-inline'"])
+    expect(directives.get('font-src')).toEqual(["'self'", 'data:'])
     expect(directives.get('img-src')).toContain('blob:')
     expect(directives.get('media-src')).toContain('blob:')
+  })
+
+  it('不在生产入口中加载第三方字体', () => {
+    expect(html).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com|api\.fontshare\.com/)
   })
 
   it('阻止插件对象、外部基址和跨来源表单提交', () => {

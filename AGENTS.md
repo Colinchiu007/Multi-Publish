@@ -306,7 +306,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
   ```bash
   cd apps/desktop && npm run test:visual:pixel
   ```
-- **发版前（必须通过）**：完整回归（93 个测试：43 视图 + 50 工作流）
+- **发版前（必须通过）**：完整回归（94 个测试：44 视图 + 50 工作流）
   ```bash
   npm run test:all:visual
   ```
@@ -365,7 +365,7 @@ npm run test:visual:pixel
 # 像素失败后生成 Agent 判断报告
 npm run test:visual:agent
 
-# 发版前(必跑,93 用例全量)
+# 发版前(必跑,94 用例全量)
 npm run test:all:visual
 ```
 

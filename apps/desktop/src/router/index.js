@@ -5,6 +5,7 @@ const routes = [
   { path: '/comments', name: 'Comments', component: () => import('@/views/Comments.vue') },
   { path: '/first-run', name: 'FirstRun', component: () => import('@/views/FirstRun.vue') },
   { path: '/publish', name: 'Publish', component: () => import('@/views/Publish.vue') },
+  { path: '/publish/history', name: 'PublishHistory', component: () => import('@/views/PublishHistory.vue') },
   { path: '/accounts', name: 'Accounts', component: () => import('@/views/Accounts.vue') },
   { path: '/dashboard', name: 'Dashboard', component: () => import('@/views/Dashboard.vue') },
   { path: '/collection', name: 'Collection', component: () => import('@/views/Collection.vue') },

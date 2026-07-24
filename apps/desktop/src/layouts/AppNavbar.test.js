@@ -19,7 +19,10 @@ function mountNavbar () {
   wrapper = mount(AppNavbar, {
     global: {
       stubs: {
-        RouterLink: { template: '<a><slot /></a>' },
+        RouterLink: {
+          props: { to: { type: String, default: '' } },
+          template: '<a :data-route="to"><slot /></a>',
+        },
         UpgradeModal: {
           emits: ['close'],
           template: '<div class="upgrade-modal"><button class="close-upgrade" @click="$emit(\'close\')">关闭</button></div>',
@@ -45,5 +48,10 @@ describe('AppNavbar 升级入口', () => {
 
     await navbar.get('.close-upgrade').trigger('click')
     expect(navbar.find('.upgrade-modal').exists()).toBe(false)
+  })
+
+  it('发布导航进入发布记录页', () => {
+    const navbar = mountNavbar()
+    expect(navbar.get('[data-route="/publish/history"]').text()).toContain('发布记录')
   })
 })

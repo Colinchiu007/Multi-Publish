@@ -12,6 +12,7 @@ const pixelTests = [
   { name: 'accounts-list', route: '/accounts', waitFor: '.cohere-main .page-title:has-text("账号管理")' },
   // 发布目标由 IPC 异步加载；等待平台选项，避免在空列表状态截图。
   { name: 'publish-form', route: '/publish', waitFor: '.cohere-main .target-selector [data-testid^="platform-"]' },
+  { name: 'publish-history', route: '/publish/history', waitFor: '.cohere-main .publish-history-page h1:has-text("发布记录")' },
   { name: 'create-editor', route: '/create', waitFor: '.cohere-main h1:has-text("视频创作")' },
   { name: 'model-providers', route: '/model-providers', waitFor: '.cohere-main .page-title:has-text("模型服务商设置")' },
   { name: 'first-run', route: '/first-run', waitFor: '.cohere-main h2:has-text("欢迎使用社媒管家")' },
