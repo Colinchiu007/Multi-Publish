@@ -30,6 +30,17 @@ const viewTests = [
       { name: '发布目标平台已加载', selector: '.cohere-main .target-selector [data-testid^="platform-"]' },
     ],
   ),
+  routeView(
+    'publish-history',
+    '/publish/history',
+    '.cohere-main .publish-history-page h1:has-text("发布记录")',
+    '页面主标题',
+    '/publish/history',
+    [
+      { name: '页面主标题', selector: '.cohere-main .publish-history-page h1:has-text("发布记录")' },
+      { name: '新建发布入口', selector: '.cohere-main [data-testid="new-publish"]' },
+    ],
+  ),
   routeView('accounts-list', '/accounts', '.cohere-main .page-title:has-text("账号管理")'),
   routeView('dashboard', '/dashboard', '.cohere-main .page-title:has-text("数据看板")'),
   routeView('collection', '/collection', '.cohere-main .page-title:has-text("内容采集")'),

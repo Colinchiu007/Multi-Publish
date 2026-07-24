@@ -16,7 +16,7 @@
 
 ```
 apps/desktop/tests/visual-testing/
-├── views/              # 单视图快照测试 (43 个用例：23 核心 + 20 补充)
+├── views/              # 单视图快照测试 (44 个用例：24 核心 + 20 补充)
 ├── workflows/          # 多步工作流测试 (50 个用例：32 核心 + 18 补充)
 ├── providers/          # 检测器（全部本地运行）
 │   ├── pixel-diff.js   # Resemble.js 像素对比（默认）
@@ -96,7 +96,7 @@ reports/yixiaoer-pixel-diff/
 它是外部人工验收阻断，不纳入 `test:visual:pixel`、`test:all:visual` 或常规 CI；不得用
 Multi-Publish 自身的基准图替代。捕获时固定窗口尺寸、显示缩放和登录状态，且不得读取或提交凭据。
 
-### 5. 发版前必跑：全量回归（93 用例 = 43 视图 + 50 工作流）
+### 5. 发版前必跑：全量回归（94 用例 = 44 视图 + 50 工作流）
 
 ```bash
 npm run test:all:visual
