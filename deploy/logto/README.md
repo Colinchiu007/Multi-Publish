@@ -68,6 +68,8 @@ ENTITLEMENT_PRIVATE_KEY=<RSA private key, server only>
 
 API 入口在开发模式可自动创建 `identity_*` 表；生产模式只检查 schema readiness。迁移系统使用 `migrations/postgresql/002_logto_identity.sql` 和 `003_logto_webhook_events.sql`，并在 `identity_schema_migrations` 记录 checksum；根目录同名脚本是本地 SQLite 兼容版本，不能在 PostgreSQL 执行。缺少业务数据库、issuer 或 audience 时会 fail closed，不会静默退回 API Key 模式。`ENTITLEMENT_PRIVATE_KEY` 只用于签发绑定 `sub + device_id` 的短期离线快照，绝不能打包到 Electron；桌面端仅配置对应公钥 `ENTITLEMENT_PUBLIC_KEY`。
 
+业务 API 容器内部始终监听 `3000`，生产 Compose 固定只绑定宿主机回环地址 `127.0.0.1:3030`；Nginx 反代和监控目标必须使用该端口。
+
 验证 discovery：
 
 ```text
@@ -77,9 +79,9 @@ curl -fsS "%LOGTO_ENDPOINT%/oidc/.well-known/openid-configuration"
 验证 API 存活和就绪（`health` 不访问外部依赖，`ready` 会检查业务数据库、migration 和 OIDC/JWKS）：
 
 ```text
-curl -fsS http://127.0.0.1:3000/api/v1/health
-curl -fsS http://127.0.0.1:3000/api/v1/ready
-node ../../packages/api-publish-engine/scripts/production-smoke.js --logto "%LOGTO_ENDPOINT%" --api http://127.0.0.1:3000
+curl -fsS http://127.0.0.1:3030/api/v1/health
+curl -fsS http://127.0.0.1:3030/api/v1/ready
+node ../../packages/api-publish-engine/scripts/production-smoke.js --logto "%LOGTO_ENDPOINT%" --api http://127.0.0.1:3030
 ```
 
 首次打开 `LOGTO_ADMIN_ENDPOINT` 完成管理员初始化。创建 Native Application（桌面端）和业务 API Resource 时，记录 issuer、audience 和 redirect URI；桌面端只保存公开的 endpoint/app id，不保存 client secret。

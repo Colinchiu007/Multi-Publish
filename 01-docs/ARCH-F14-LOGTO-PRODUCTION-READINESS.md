@@ -50,6 +50,12 @@ backup job
 - `BUSINESS_DATABASE_URL` 与 Logto `DB_URL` 必须指向不同数据库名。
 - Webhook signing key、权益 RSA 私钥和 operations token 只来自 Secret Store。
 
+### 3.1 真实登录验收的 API 路径决策（2026-07-24）
+
+真实普通用户注册已经证明 Logto OIDC 与回环 callback 可用；登录后失败的根因是业务 API 未部署，且历史 `LOGTO_API_RESOURCE` 不能同时充当可访问 API base URL。本轮把 API 容器绑定在 `127.0.0.1:3030`，由 `auth.iart.work` 的精确 `/api/` 路径反代。桌面端保持现有 Token audience，并以 `BUSINESS_API_URL=https://auth.iart.work` 单独指定权益同步地址。
+
+这是一条验收兼容路径，不合并身份和业务数据边界：业务 API 使用独立 `multi_publish` 数据库，Logto 继续使用 `logto` 数据库，Admin 端口不公开。长期迁移到独立 `api.iart.work` 域名、TLS vhost 和 Logto API Resource 后才移除兼容路径。完整操作、验证和回滚见 [DEPLOYMENT-F14-BUSINESS-API-2026-07-24.md](./DEPLOYMENT-F14-BUSINESS-API-2026-07-24.md)。
+
 ## 4. Migration 协议
 
 1. runner 使用单一 PostgreSQL session 获取固定 advisory lock。

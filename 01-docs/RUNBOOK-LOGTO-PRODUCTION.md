@@ -46,15 +46,20 @@ node deploy/logto/scripts/postgres-backup.js --confirm-writes-paused
 ```text
 docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env up -d
 docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env ps
+```
 
-node packages/api-publish-engine/bin/publish-api
+本机裸进程诊断与生产 Compose 是两条互斥路径，不要同时启动。选择裸进程诊断时，API 默认监听 `3000`：
+
+```text
+node packages/api-publish-engine/bin/publish-api --port 3000
 node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.example.com --api http://127.0.0.1:3000
 ```
 
-需要容器化运行时，从仓库根目录执行：
+需要容器化运行时，从仓库根目录执行。Compose 将容器内的 `3000` 固定映射到宿主机回环 `3030`，因此该路径的 smoke 必须访问 `3030`：
 
 ```text
 docker compose -f packages/api-publish-engine/docker-compose.yml --env-file deploy/logto/api.env up -d
+node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.example.com --api http://127.0.0.1:3030
 ```
 
 该 Compose 的 `./config` 必须预先创建，并在 Linux 主机上授权给容器 UID `1001`。它挂载到 `/app/packages/api-publish-engine/config`，与 `ApiKeyManager` 和默认配置文件路径一致；不要改回 `/app/config`。监控 overlay 也不能单独启动，必须和基础 Logto Compose 一起传给 `docker compose -f`。
@@ -135,7 +140,7 @@ set ALERTMANAGER_CONFIG_FILE=D:\secure-config\alertmanager.yml
 docker compose -f deploy/logto/docker-compose.yml -f deploy/logto/docker-compose.monitoring.yml --env-file deploy/logto/.env up -d
 ```
 
-Prometheus 仅绑定 `127.0.0.1:9090`。生产环境通过受控运维通道访问，不直接暴露公网。默认探测宿主机 `3000` 端口和 Compose 内 Logto；部署拓扑不同则修改 `monitoring/prometheus.yml` 的 target。
+Prometheus 仅绑定 `127.0.0.1:9090`。生产环境通过受控运维通道访问，不直接暴露公网。默认探测业务 API 的宿主机回环 `3030` 端口和 Compose 内 Logto；变更部署拓扑时必须同步修改 Compose 和 `monitoring/prometheus.yml`。
 
 不要直接使用示例通知地址。备份超时告警由生产调度平台接入，未接入前保持 `PENDING_EXTERNAL`。
 

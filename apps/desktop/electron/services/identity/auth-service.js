@@ -385,12 +385,29 @@ class AuthService {
   async dispose() {
     ++this._operationId
     const callbackServer = this._activeCallbackServer
+    const activeSignIn = this._signInPromise
+    let disposeError = null
     if (callbackServer && typeof callbackServer.cancel === 'function') {
       try {
         await callbackServer.cancel()
+      } catch (error) {
+        disposeError = error
+      }
+    }
+    if (typeof this._client.closeSignInWindow === 'function') {
+      try {
+        await this._client.closeSignInWindow()
+      } catch (error) {
+        if (!disposeError) disposeError = error
+      }
+    }
+    if (activeSignIn) {
+      try {
+        await activeSignIn
       } catch {}
     }
     this._listeners.clear()
+    if (disposeError) throw toIdentityError(disposeError, 'IDENTITY_DISPOSE_FAILED')
   }
 
   async requireEntitlement(feature, options = {}) {

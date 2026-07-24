@@ -15,6 +15,8 @@ test('生产监控配置可解析并覆盖关键身份依赖', () => {
   const jobs = prometheus.scrape_configs.map((entry) => entry.job_name)
   assert(jobs.includes('multi-publish-api-ready'))
   assert(jobs.includes('logto-oidc-discovery'))
+  const apiReadyJob = prometheus.scrape_configs.find((entry) => entry.job_name === 'multi-publish-api-ready')
+  assert.strictEqual(apiReadyJob.static_configs[0].targets[0], 'http://host.docker.internal:3030/api/v1/ready')
   assert.strictEqual(blackbox.modules.http_2xx.prober, 'http')
 
   const names = alerts.groups.flatMap((group) => group.rules.map((rule) => rule.alert))
