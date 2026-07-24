@@ -209,6 +209,17 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(electronIndex).toBeLessThan(testIndex);
   });
 
+  it('Electron CI 使用测试环境和单 worker 运行桌面全量 Vitest', () => {
+    const { workflow } = readWorkflow('electron-ci.yml');
+    const job = workflow.jobs['electron-tests'];
+    const testStep = job.steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron)');
+
+    expect(job.env).toMatchObject({ NODE_ENV: 'test' });
+    expect(testStep.run.trim()).toBe(
+      'npm run test -w @multi-publish/desktop -- --maxWorkers=1 --no-file-parallelism',
+    );
+  });
+
   it('自主审计成功分支不会继续写入基础设施失败状态', () => {
     const { source } = readWorkflow('quality-gate.yml');
 
