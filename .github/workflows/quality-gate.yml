@@ -10,6 +10,7 @@ jobs:
   gate:
     name: Quality Gate
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -46,9 +47,62 @@ jobs:
           node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/agent-review-gate.test.js
           node .github/scripts/check-hardcoded-secrets.js
 
-      # --- Gate 4: 单元测试（Vitest 全量，卡点要求）---
-      - name: "Gate 4 - Unit tests (Vitest)"
-        run: npm test
+      # --- Gate 4: 全工作区单元测试（含 Vitest 和 Node 测试）---
+      - name: "Gate 4 - Workspace unit tests"
+        shell: pwsh
+        run: |
+          function Get-TestProcessTree {
+            param([int] $RootProcessId)
+
+            $processes = @(Get-CimInstance Win32_Process)
+            $processIds = [System.Collections.Generic.HashSet[int]]::new()
+            [void] $processIds.Add($RootProcessId)
+            $foundChild = $true
+
+            while ($foundChild) {
+              $foundChild = $false
+              foreach ($process in $processes) {
+                if ($processIds.Contains([int] $process.ParentProcessId) -and $processIds.Add([int] $process.ProcessId)) {
+                  $foundChild = $true
+                }
+              }
+            }
+
+            $processes |
+              Where-Object { $processIds.Contains([int] $_.ProcessId) } |
+              Select-Object ProcessId, ParentProcessId, Name
+          }
+
+          $testProcess = Start-Process -FilePath "npm.cmd" `
+            -ArgumentList @(
+              "run",
+              "test",
+              "--workspaces",
+              "--if-present"
+            ) `
+            -NoNewWindow -PassThru
+
+          if (-not $testProcess.WaitForExit(1800000)) {
+            Write-Host "Gate 4 exceeded its 30-minute execution budget."
+            Get-TestProcessTree -RootProcessId $testProcess.Id | Format-Table -AutoSize
+            taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
+            throw "Gate 4 timed out; terminated the npm process tree."
+          }
+
+          if ($testProcess.ExitCode -ne 0) {
+            Get-TestProcessTree -RootProcessId $testProcess.Id | Format-Table -AutoSize
+            exit $testProcess.ExitCode
+          }
+
+          $remainingTestProcesses = @(Get-TestProcessTree -RootProcessId $testProcess.Id)
+          if ($remainingTestProcesses.Count -gt 0) {
+            Write-Host "Gate 4 completed but left test child processes alive."
+            $remainingTestProcesses | Format-Table -AutoSize
+            foreach ($process in $remainingTestProcesses) {
+              taskkill /PID $process.ProcessId /T /F 2>$null | Out-Null
+            }
+            throw "Gate 4 left child processes alive after npm exited."
+          }
 
       - name: "Gate 4b - Startup and require smoke tests"
         run: npm run test:startup -w @multi-publish/desktop

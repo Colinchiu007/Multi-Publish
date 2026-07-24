@@ -1,0 +1,378 @@
+<template>
+  <article
+    class="account-row account-card"
+    :class="{ 'is-selected': selected, 'is-default': account.is_default }"
+    :aria-label="`${platformLabel}账号：${accountName(account)}`"
+  >
+    <header class="account-card-header">
+      <label class="select-account" :title="`选择 ${accountName(account)}`">
+        <input
+          :data-testid="`select-${account.id}`"
+          type="checkbox"
+          :checked="selected"
+          :aria-label="`选择 ${accountName(account)}`"
+          @change="$emit('toggle-select', account.id)"
+        >
+      </label>
+      <span class="platform-chip">
+        <span class="platform-icon" aria-hidden="true">{{ platformIcon }}</span>
+        {{ platformLabel }}
+      </span>
+      <button
+        class="favorite-button"
+        :class="{ active: favorite }"
+        type="button"
+        :title="favorite ? '取消收藏' : '收藏账号'"
+        :aria-label="favorite ? '取消收藏' : '收藏账号'"
+        :data-testid="`favorite-${account.id}`"
+        @click="$emit('toggle-favorite', account.id)"
+      >
+        <StarFilled v-if="favorite" />
+        <Star v-else />
+      </button>
+    </header>
+
+    <div class="account-profile">
+      <div class="account-avatar">
+        <img v-if="account.avatar || account.avatar_url" :src="account.avatar || account.avatar_url" alt="">
+        <UserFilled v-else />
+      </div>
+      <span class="login-badge" :class="isActive(account) ? 'online' : 'offline'">
+        {{ isActive(account) ? '登录有效' : '登录失效' }}
+      </span>
+      <div class="account-identity">
+        <button
+          v-if="!editing"
+          class="account-name-button"
+          type="button"
+          title="重命名账号"
+          @click="startEditing"
+        >
+          <span>{{ accountName(account) }}</span>
+          <EditPen aria-hidden="true" />
+        </button>
+        <input
+          v-else
+          ref="nameInput"
+          class="account-name-input"
+          :value="accountName(account)"
+          :aria-label="`账号名称：${accountName(account)}`"
+          spellcheck="false"
+          @blur="finishEditing"
+          @keyup.enter="$event.target.blur()"
+        >
+        <div class="account-details">
+          <span v-if="account.is_default" class="default-label">默认账号</span>
+          <span v-if="account.created_at">添加于 {{ formatDate(account.created_at) }}</span>
+          <span v-else>账号信息已同步</span>
+        </div>
+      </div>
+    </div>
+
+    <footer class="account-actions">
+      <button
+        v-if="!account.is_default"
+        :data-testid="`set-default-${account.id}`"
+        data-e2e-scan="manual"
+        type="button"
+        @click="$emit('set-default', account)"
+      >
+        <CircleCheck />设默认
+      </button>
+      <button :data-testid="`open-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('open', account)">
+        <Link />打开主页
+      </button>
+      <button :data-testid="`check-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('check', account)">
+        <Refresh />验证
+      </button>
+      <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('remove', account)">
+        <Delete />删除
+      </button>
+    </footer>
+  </article>
+</template>
+
+<script setup>
+import { nextTick, ref } from 'vue'
+import { CircleCheck, Delete, EditPen, Link, Refresh, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
+
+const props = defineProps({
+  account: { type: Object, required: true },
+  platformLabel: { type: String, required: true },
+  platformIcon: { type: String, default: '' },
+  selected: { type: Boolean, default: false },
+  favorite: { type: Boolean, default: false },
+})
+
+const emit = defineEmits([
+  'toggle-select',
+  'toggle-favorite',
+  'set-default',
+  'rename',
+  'open',
+  'check',
+  'remove',
+])
+
+const editing = ref(false)
+const nameInput = ref(null)
+
+function startEditing () {
+  editing.value = true
+  nextTick(() => {
+    nameInput.value?.focus()
+    nameInput.value?.select()
+  })
+}
+
+function finishEditing (event) {
+  editing.value = false
+  const name = String(event.target.value || '').trim()
+  if (!name || name === accountName(props.account)) return
+  emit('rename', props.account, name)
+}
+
+function accountName (account) {
+  return account.account_name || account.name || '未命名账号'
+}
+
+function isActive (account) {
+  return account.status === 'active' || account.status === 'online'
+}
+
+function formatDate (value) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '未知日期' : date.toLocaleDateString('zh-CN')
+}
+</script>
+
+<style scoped>
+.account-card {
+  position: relative;
+  min-width: 0;
+  min-height: 252px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-light, #e8e8ec);
+  border-radius: 8px;
+  background: var(--canvas, #fff);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.account-card:hover {
+  border-color: #d8d6ef;
+  box-shadow: 0 5px 18px rgba(40, 40, 55, 0.07);
+}
+
+.account-card.is-selected {
+  border-color: var(--primary, #5048e5);
+  box-shadow: 0 0 0 2px rgba(80, 72, 229, 0.1);
+}
+
+.account-card.is-default::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  background: var(--primary, #5048e5);
+  content: '';
+}
+
+.account-card-header {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+}
+
+.select-account {
+  display: grid;
+  place-items: center;
+}
+
+.select-account input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary, #5048e5);
+}
+
+.platform-chip {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--text-muted, #707080);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  border-radius: 6px;
+  background: #f1f0ff;
+  color: var(--primary, #5048e5);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.favorite-button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: #a4a4ad;
+  cursor: pointer;
+}
+
+.favorite-button.active { color: #d99a43; }
+.favorite-button svg { width: 16px; height: 16px; }
+
+.account-profile {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  flex-direction: column;
+  padding: 8px 18px 18px;
+  text-align: center;
+}
+
+.account-avatar {
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #e5e5ea;
+  border-radius: 50%;
+  background: #f1f2f5;
+  color: #81838d;
+}
+
+.account-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.account-avatar svg { width: 27px; height: 27px; }
+
+.login-badge {
+  margin-top: -4px;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.login-badge.online { background: #e7f7ef; color: #18794e; }
+.login-badge.offline { background: #f2f2f4; color: #777985; }
+
+.account-identity {
+  width: 100%;
+  min-width: 0;
+  margin-top: 8px;
+}
+
+.account-name-button,
+.account-name-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--text-primary, #25252b);
+  font-size: 15px;
+  font-weight: 600;
+  outline: none;
+  text-align: center;
+}
+
+.account-name-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: text;
+}
+.account-name-button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-name-button svg { width: 13px; height: 13px; flex: 0 0 13px; color: #a4a4ad; opacity: 0; }
+.account-name-button:hover { background: #f7f7f9; }
+.account-name-button:hover svg { opacity: 1; }
+.account-name-input:hover { background: #f7f7f9; }
+.account-name-input:focus { border-color: var(--primary, #5048e5); background: #fff; }
+
+.account-details {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--text-muted, #85858f);
+  font-size: 11px;
+}
+
+.default-label {
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: #eeecff;
+  color: var(--primary, #5048e5);
+}
+
+.account-actions {
+  min-height: 42px;
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid var(--border-light, #efeff2);
+}
+
+.account-actions button {
+  min-width: 0;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  gap: 4px;
+  border: 0;
+  border-right: 1px solid var(--border-light, #efeff2);
+  padding: 5px 6px;
+  background: transparent;
+  color: #555761;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.account-actions button:last-child { border-right: 0; }
+.account-actions button:hover { background: #f7f6ff; color: var(--primary, #5048e5); }
+.account-actions button.danger { color: #c43d4d; }
+.account-actions button.danger:hover { background: #fff0f2; }
+.account-actions svg { width: 13px; height: 13px; }
+
+.favorite-button:focus-visible,
+.account-actions button:focus-visible,
+.account-name-button:focus-visible,
+.account-name-input:focus-visible,
+.select-account input:focus-visible {
+  outline: 2px solid var(--primary, #5048e5);
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  .account-card { min-height: 232px; }
+  .account-actions { flex-wrap: wrap; }
+  .account-actions button { flex-basis: 50%; border-bottom: 1px solid var(--border-light, #efeff2); }
+}
+</style>

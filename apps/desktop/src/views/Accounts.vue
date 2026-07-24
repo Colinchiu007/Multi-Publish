@@ -31,6 +31,7 @@
         <button
           v-for="(item, index) in filterOptions"
           :key="item.value"
+          :id="`account-status-tab-${item.value}`"
           type="button"
           role="tab"
           :class="{ active: filter === item.value }"
@@ -43,7 +44,7 @@
           {{ item.label }}
         </button>
       </div>
-      <span class="account-count">{{ groupedPlatforms.length }} 个平台，{{ totalAccounts }} 个账号</span>
+      <span class="account-count">{{ visiblePlatformCount }} 个平台，{{ visibleAccountCount }} 个账号</span>
     </section>
 
     <div v-if="totalAccounts > 0" class="batch-toolbar">
@@ -70,30 +71,66 @@
       </div>
     </div>
 
-    <main id="account-results" class="accounts-content" role="tabpanel">
-      <div v-if="loading" class="loading-state">正在加载账号...</div>
-      <div v-else-if="groupedPlatforms.length === 0" class="empty-state">
-        <UserFilled />
-        <h2>{{ totalAccounts === 0 ? '暂无账号' : '没有匹配的账号' }}</h2>
-      </div>
-      <div v-else class="platform-groups">
-        <PlatformAccountGroup
-          v-for="group in groupedPlatforms"
-          :key="group.platform"
-          :group="group"
-          :platform-label="platformLabel(group.platform)"
-          :platform-icon="platformIcon(group.platform)"
-          :selected-ids="accountStore.selectedIds"
-          :favorite-ids="accountStore.favoriteIds || emptyIds"
-          @add="addAccountForPlatform"
-          @toggle-select="toggleSelect"
-          @toggle-favorite="toggleFavorite"
-          @set-default="setDefault"
+    <main
+      id="account-results"
+      class="accounts-content"
+      role="tabpanel"
+      :aria-labelledby="`account-status-tab-${filter}`"
+    >
+      <div class="account-workspace">
+        <aside class="platform-filter-panel" aria-label="平台筛选">
+          <div class="platform-filter-heading">平台</div>
+          <button
+            type="button"
+            :class="{ active: !platformFilter }"
+            :aria-pressed="!platformFilter"
+            data-testid="platform-filter-all"
+            @click="setPlatformFilter('')"
+          >
+            <span class="platform-filter-icon">全</span>
+            <span>全部平台</span>
+            <strong>{{ filteredAccountCount }}</strong>
+          </button>
+          <button
+            v-for="item in platformOptions"
+            :key="item.id"
+            type="button"
+            :class="{ active: platformFilter === item.id }"
+            :aria-pressed="platformFilter === item.id"
+            :data-testid="`platform-filter-${item.id}`"
+            @click="setPlatformFilter(item.id)"
+          >
+            <span class="platform-filter-icon">{{ platformIcon(item.id) }}</span>
+            <span>{{ platformLabel(item.id) }}</span>
+            <strong>{{ item.count }}</strong>
+          </button>
+        </aside>
+
+        <section class="account-results-panel" aria-label="账号列表">
+          <div v-if="loading" class="loading-state">正在加载账号...</div>
+          <div v-else-if="visibleAccounts.length === 0" class="empty-state">
+            <UserFilled />
+            <h2>{{ totalAccounts === 0 ? '暂无账号' : '没有匹配的账号' }}</h2>
+          </div>
+          <div v-else class="account-card-grid">
+            <AccountManagementCard
+              v-for="account in visibleAccounts"
+              :key="account.id"
+              :account="account"
+              :platform-label="platformLabel(account.platform)"
+              :platform-icon="platformIcon(account.platform)"
+              :selected="accountStore.selectedIds.has(account.id)"
+              :favorite="(accountStore.favoriteIds || emptyIds).has(account.id)"
+              @toggle-select="toggleSelect"
+              @toggle-favorite="toggleFavorite"
+              @set-default="setDefault"
           @rename="renameAccount"
           @open="openPlatform"
           @check="checkLogin"
           @remove="removeAccount"
-        />
+            />
+          </div>
+        </section>
       </div>
     </main>
 
@@ -138,7 +175,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import AccountGroupManager from '@/features/accounts/components/AccountGroupManager.vue'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
 import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialog.vue'
-import PlatformAccountGroup from '@/features/accounts/components/PlatformAccountGroup.vue'
+import AccountManagementCard from '@/features/accounts/components/AccountManagementCard.vue'
 import { useAccountActions } from '@/composables/useAccountActions'
 import { useAccountEvents } from '@/composables/useAccountEvents'
 import { useAccountStore } from '@/stores/accounts'
@@ -164,6 +201,7 @@ const showAuthorizationGuide = ref(false)
 const newPlatform = ref('')
 const selectedLoginMode = ref('browser')
 const filter = ref('all')
+const platformFilter = ref(accountStore.filterPlatform || '')
 const searchInput = ref('')
 let searchTimer = null
 let resolveAuthorizationGuide = null
@@ -236,6 +274,14 @@ watch(filter, value => {
   accountStore.filterStatus = value
 }, { flush: 'sync', immediate: true })
 
+watch(() => accountStore.filterPlatform, value => {
+  platformFilter.value = value || ''
+}, { flush: 'sync', immediate: true })
+
+watch(platformFilter, value => {
+  if ((accountStore.filterPlatform || '') !== value) accountStore.filterPlatform = value
+}, { flush: 'sync' })
+
 function platformLabel (id) {
   return platformStore.getLabel(id) || id
 }
@@ -251,13 +297,41 @@ const groupedPlatforms = computed(() => {
   return accountStore.groupedByPlatform
 })
 
-const visibleAccountIds = computed(() => groupedPlatforms.value.flatMap(group => group.accounts.map(account => account.id)))
+const accountsBeforePlatformFilter = computed(() => {
+  void filter.value
+  return accountStore.accountsBeforePlatformFilter
+    || accountStore.filteredAccounts
+    || accountStore.accounts
+    || []
+})
+const visibleAccounts = computed(() => {
+  const accounts = groupedPlatforms.value.flatMap(group => group.accounts)
+  return platformFilter.value
+    ? accounts.filter(account => account.platform === platformFilter.value)
+    : accounts
+})
+const filteredAccountCount = computed(() => accountsBeforePlatformFilter.value.length)
+const visibleAccountCount = computed(() => visibleAccounts.value.length)
+const visiblePlatformCount = computed(() => new Set(visibleAccounts.value.map(account => account.platform)).size)
+const platformOptions = computed(() => {
+  const counts = new Map()
+  for (const account of accountsBeforePlatformFilter.value) {
+    counts.set(account.platform, (counts.get(account.platform) || 0) + 1)
+  }
+  return [...counts.entries()].map(([id, count]) => ({ id, count }))
+})
+
+const visibleAccountIds = computed(() => visibleAccounts.value.map(account => account.id))
 const selectedVisibleIds = computed(() => visibleAccountIds.value.filter(id => accountStore.selectedIds.has(id)))
 const selectedCount = computed(() => selectedVisibleIds.value.length)
 const isAllSelected = computed(() => visibleAccountIds.value.length > 0 && selectedCount.value === visibleAccountIds.value.length)
 
 function setFilter (value) {
   filter.value = value
+}
+
+function setPlatformFilter (value) {
+  platformFilter.value = value
 }
 
 function onFilterKeydown (event, index) {
@@ -556,8 +630,42 @@ onUnmounted(() => {
 .login-state-actions button { border: 0; background: transparent; color: #5048e5; font-size: 12px; cursor: pointer; }
 .login-state-actions .complete-login { min-height: 28px; padding: 4px 9px; border: 1px solid #5048e5; border-radius: 5px; background: #5048e5; color: #fff; }
 .login-state-actions button:disabled { opacity: 0.58; cursor: not-allowed; }
-.accounts-content { padding: 16px 24px 28px; }
-.platform-groups { display: flex; flex-direction: column; gap: 12px; }
+.accounts-content { min-height: 520px; padding: 0; }
+.account-workspace { min-height: 520px; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+.platform-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-right: 1px solid var(--border-light, #e8e8ec);
+  padding: 16px 12px 24px;
+  background: #fff;
+}
+.platform-filter-heading { padding: 0 8px 7px; color: #85858f; font-size: 12px; }
+.platform-filter-panel button {
+  min-width: 0;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: transparent;
+  color: #595a64;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.platform-filter-panel button:hover { background: #f6f6f9; }
+.platform-filter-panel button.active { background: #efedff; color: #5048e5; font-weight: 600; }
+.platform-filter-panel button:focus-visible { outline: 2px solid #5048e5; outline-offset: 2px; }
+.platform-filter-panel button > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-filter-panel button strong { color: #9697a0; font-size: 11px; font-weight: 500; }
+.platform-filter-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; background: #f3f3f6; font-size: 12px; }
+.platform-filter-panel button.active .platform-filter-icon { background: #fff; }
+.account-results-panel { min-width: 0; padding: 24px 32px 32px; background: #f6f7fb; }
+.account-card-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 370px)); align-items: start; gap: 24px; }
 .loading-state, .empty-state { min-height: 260px; display: flex; align-items: center; justify-content: center; color: #85858f; font-size: 13px; }
 .empty-state { flex-direction: column; gap: 10px; }
 .empty-state svg { width: 38px; height: 38px; color: #b3b4bc; }
@@ -584,8 +692,19 @@ onUnmounted(() => {
 @media (max-width: 900px) {
   .account-controls { grid-template-columns: 1fr; }
   .account-count { justify-self: start; }
-  .accounts-content { padding: 12px; }
+  .account-workspace { grid-template-columns: 1fr; }
+  .platform-filter-panel { overflow-x: auto; flex-direction: row; border-right: 0; border-bottom: 1px solid var(--border-light, #e8e8ec); padding: 10px 12px; }
+  .platform-filter-heading { display: none; }
+  .platform-filter-panel button { min-width: max-content; grid-template-columns: 26px auto auto; }
+  .account-results-panel { padding: 14px 12px 24px; }
+  .account-card-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
   .floating-close-button { display: none; }
+}
+@media (min-width: 901px) and (max-width: 1500px) {
+  .account-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+}
+@media (min-width: 1501px) and (max-width: 2050px) {
+  .account-card-grid { grid-template-columns: repeat(3, minmax(0, 370px)); }
 }
 @media (max-width: 1360px) {
   .login-state { left: 0; }

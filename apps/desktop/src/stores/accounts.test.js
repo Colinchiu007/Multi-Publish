@@ -51,6 +51,7 @@ describe("useAccountStore", () => {
       expect(store.selectedIds).toEqual(new Set());
       expect(store.isAllSelected).toBe(false);
       expect(store.byPlatform).toEqual({});
+      expect(store.accountsBeforePlatformFilter).toEqual([]);
       expect(store.filteredAccounts).toEqual([]);
       expect(store.groupedByPlatform).toEqual([]);
     });
@@ -191,6 +192,7 @@ describe("useAccountStore", () => {
       store.searchQuery = "a";
       store.filterPlatform = "wechat_mp";
 
+      expect(store.accountsBeforePlatformFilter.map(account => account.id)).toEqual(["zh-1", "wx-1", "wx-2"]);
       expect(store.filteredAccounts.map(account => account.id)).toEqual(["wx-1", "wx-2"]);
       expect(store.accounts.map(account => account.id)).toEqual(["wx-1", "zh-1", "wx-2"]);
     });

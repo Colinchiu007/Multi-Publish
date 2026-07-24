@@ -23,10 +23,17 @@ function mountView () {
   return mount(PublishHistory)
 }
 
+async function flushHistory () {
+  await Promise.resolve()
+  await nextTick()
+  await Promise.resolve()
+  await nextTick()
+}
+
 describe('PublishHistory', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    historyListMock.mockResolvedValue({
+    historyListMock.mockReset().mockResolvedValue({
       code: 0,
       data: {
         total: 1,
@@ -36,10 +43,21 @@ describe('PublishHistory', () => {
           platform: 'zhihu',
           status: 'success',
           timestamp: '2026-07-24T08:00:00.000Z',
+          publisher: '秋叔',
+          contentType: 'video',
+          publishMode: 'rpa',
+          accountCount: 1,
+          taskCount: 1,
+          failedCount: 0,
+          views: 120,
+          comments: 4,
+          likes: 8,
+          favorites: 2,
+          shares: 3,
         }],
       },
     })
-    draftListMock.mockResolvedValue({
+    draftListMock.mockReset().mockResolvedValue({
       code: 0,
       data: [{ id: 'draft-1', title: '待完成草稿', created_at: '2026-07-23T08:00:00.000Z' }],
     })
@@ -50,11 +68,182 @@ describe('PublishHistory', () => {
     await nextTick()
     await nextTick()
 
-    expect(historyListMock).toHaveBeenCalledWith({ limit: 50 })
+    expect(historyListMock).toHaveBeenCalledWith({ limit: 50, offset: 0 })
     expect(wrapper.text()).toContain('发布记录')
     expect(wrapper.text()).toContain('已发布文章')
     expect(wrapper.text()).toContain('知乎')
     expect(wrapper.text()).toContain('发布成功')
+  })
+
+  it('提供蚁小二对齐的搜索、四类筛选、视图切换和导出工具', async () => {
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="history-search"]').attributes('placeholder')).toContain('搜索作品描述或任务标题')
+    expect(wrapper.get('[data-testid="publisher-filter"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="content-type-filter"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="status-filter"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="publish-mode-filter"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="view-grid"]').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('[data-testid="view-list"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="export-history"]').text()).toContain('导出')
+  })
+
+  it('发布记录标签提供面板关联、roving tabindex 和方向键切换', async () => {
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    const recordsTab = wrapper.get('[data-testid="records-tab"]')
+    const draftsTab = wrapper.get('[data-testid="drafts-tab"]')
+    expect(recordsTab.attributes('aria-controls')).toBe('records-panel')
+    expect(recordsTab.attributes('tabindex')).toBe('0')
+    expect(draftsTab.attributes('aria-controls')).toBe('drafts-panel')
+    expect(draftsTab.attributes('tabindex')).toBe('-1')
+
+    await recordsTab.trigger('keydown', { key: 'ArrowRight' })
+    await nextTick()
+    expect(draftsTab.attributes('aria-selected')).toBe('true')
+    expect(draftListMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('展示服务端总数并使用 offset 加载剩余发布记录', async () => {
+    historyListMock
+      .mockResolvedValueOnce({
+        code: 0,
+        data: {
+          total: 75,
+          records: [{ id: 'page-1', title: '第一页', platform: 'zhihu', status: 'success' }],
+        },
+      })
+      .mockResolvedValueOnce({
+        code: 0,
+        data: {
+          total: 75,
+          records: [{ id: 'page-2', title: '第二页', platform: 'weibo', status: 'success' }],
+        },
+      })
+
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.text()).toContain('75 条发布任务')
+    expect(wrapper.findAll('.record-card')).toHaveLength(1)
+    await wrapper.get('[data-testid="load-more-history"]').trigger('click')
+    await nextTick()
+    await nextTick()
+
+    expect(historyListMock).toHaveBeenNthCalledWith(2, { limit: 50, offset: 1 })
+    expect(wrapper.findAll('.record-card')).toHaveLength(2)
+    expect(wrapper.text()).toContain('第二页')
+  })
+
+  it('列表展示发布人、内容属性和完整统计字段', async () => {
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.text()).toContain('秋叔')
+    expect(wrapper.text()).toContain('账号数')
+    expect(wrapper.text()).toContain('任务数')
+    expect(wrapper.text()).toContain('失败')
+    expect(wrapper.text()).toContain('播放')
+    expect(wrapper.text()).toContain('评论')
+    expect(wrapper.text()).toContain('点赞')
+    expect(wrapper.text()).toContain('收藏')
+    expect(wrapper.text()).toContain('分享')
+    expect(wrapper.text()).toContain('120')
+  })
+
+  it('搜索和状态筛选只保留匹配记录', async () => {
+    historyListMock.mockResolvedValue({
+      code: 0,
+      data: {
+        records: [
+          { id: 'ok', title: '正常发布', platform: 'zhihu', status: 'success' },
+          { id: 'failed', title: '需要重试', platform: 'weibo', status: 'failed' },
+        ],
+      },
+    })
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    await wrapper.get('[data-testid="history-search"]').setValue('重试')
+    expect(wrapper.findAll('.record-card')).toHaveLength(1)
+    expect(wrapper.text()).toContain('需要重试')
+
+    await wrapper.get('[data-testid="history-search"]').setValue('')
+    await wrapper.get('[data-testid="status-filter"]').setValue('failed')
+    expect(wrapper.findAll('.record-card')).toHaveLength(1)
+    expect(wrapper.text()).toContain('需要重试')
+  })
+
+  it('筛选时补取后续页，避免遗漏第 51 条以后的记录', async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      id: `first-${index}`,
+      title: `第一页记录 ${index}`,
+      platform: 'zhihu',
+      status: 'success',
+    }))
+    historyListMock
+      .mockResolvedValueOnce({ code: 0, data: { total: 51, records: firstPage } })
+      .mockResolvedValueOnce({
+        code: 0,
+        data: {
+          total: 51,
+          records: [{ id: 'second-page-match', title: '第二页唯一待重试记录', platform: 'weibo', status: 'failed' }],
+        },
+      })
+
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="history-search"]').setValue('唯一待重试')
+    await flushHistory()
+
+    expect(historyListMock).toHaveBeenNthCalledWith(2, { limit: 50, offset: 50 })
+    expect(wrapper.findAll('.record-card')).toHaveLength(1)
+    expect(wrapper.text()).toContain('第二页唯一待重试记录')
+
+    await wrapper.get('[data-testid="history-search"]').setValue('')
+    await wrapper.get('[data-testid="status-filter"]').setValue('failed')
+    await flushHistory()
+    expect(wrapper.findAll('.record-card')).toHaveLength(1)
+    expect(wrapper.text()).toContain('第二页唯一待重试记录')
+  })
+
+  it('筛选补页遇到重复响应时停止，避免无限请求和重复记录', async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      id: `repeat-${index}`,
+      title: `重复页记录 ${index}`,
+      platform: 'zhihu',
+      status: 'success',
+    }))
+    historyListMock
+      .mockResolvedValueOnce({ code: 0, data: { total: 100, records: firstPage } })
+      .mockResolvedValue({ code: 0, data: { total: 100, records: firstPage } })
+
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="history-search"]').setValue('重复页')
+    await flushHistory()
+
+    expect(historyListMock).toHaveBeenCalledTimes(2)
+    expect(historyListMock).toHaveBeenNthCalledWith(2, { limit: 50, offset: 50 })
+    expect(wrapper.findAll('.record-card')).toHaveLength(50)
+    expect(wrapper.find('[data-testid="load-more-history"]').exists()).toBe(false)
+  })
+
+  it('网格与列表视图使用稳定的显式模式类', async () => {
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    await wrapper.get('[data-testid="view-grid"]').trigger('click')
+    expect(wrapper.get('.record-list').classes()).toContain('grid-view')
+    expect(wrapper.get('[data-testid="view-grid"]').attributes('aria-pressed')).toBe('true')
   })
 
   it('空记录时提供新建发布入口', async () => {

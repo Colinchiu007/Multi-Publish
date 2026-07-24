@@ -47,7 +47,8 @@ async function run() {
   try {
     const sel = JSON.parse(fs.readFileSync(selPath, "utf-8"));
     assert(!!sel, "selectors.json 可解析");
-    assert(sel.selectors?.platformGroup, "selectors.platformGroup 存在");
+    assert(sel.selectors?.platformFilterButton, "selectors.platformFilterButton 存在");
+    assert(sel.selectors?.accountNameButton, "selectors.accountNameButton 存在");
     assert(sel.selectors?.accountRow, "selectors.accountRow 存在");
     assert(sel.routes?.accounts, "routes.accounts 存在");
   } catch (e) {

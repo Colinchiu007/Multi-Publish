@@ -8,7 +8,12 @@ module.exports = defineConfig({
   plugins: [vue()],
   test: {
     environment: 'jsdom',
-    maxWorkers: 4,
+    maxWorkers: 1,
+    fileParallelism: false,
+    testTimeout: 10000,
+    hookTimeout: 10000,
+    teardownTimeout: 10000,
+    ...(process.env.CI ? { reporters: ['verbose'] } : {}),
     deps: { inline: ['electron', 'axios'] },
     globals: true,
     setupFiles: ['./test-setup.js'],

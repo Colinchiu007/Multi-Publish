@@ -116,6 +116,7 @@ gen_*.py
 
 # Test artifacts
 *.png
+!01-docs/yixiaoer-reverse/screenshots/yxe-live-20260724/*.png
 
 # Python build artifacts
 .pytest_cache/

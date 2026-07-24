@@ -34,10 +34,10 @@ async function testAccountPage(win) {
 
   // 基线
   const state = await win.evaluate((sel) => {
-    const groups = document.querySelectorAll(sel.platformGroup);
-    return { groupCount: groups.length, rows: document.querySelectorAll(sel.accountRow).length };
+    const platformFilters = document.querySelectorAll(sel.platformFilterButton);
+    return { platformFilterCount: platformFilters.length, rows: document.querySelectorAll(sel.accountRow).length };
   }, SEL);
-  assert(`${state.groupCount} 分组、${state.rows} 行`, state.groupCount === 6 && state.rows === 12);
+  assert(`${state.platformFilterCount} 个平台筛选、${state.rows} 行`, state.platformFilterCount === 7 && state.rows === 12);
 
   // 删除
   await win.evaluate((sel) => {
@@ -58,8 +58,8 @@ async function testAccountPage(win) {
   }, SEL);
   await wait(500);
   const defaultName = await win.evaluate((sel) => {
-    const row = document.querySelector(`${sel.accountRow}.is-default ${sel.accountNameInput}`);
-    return row?.value || "";
+    const nameButton = document.querySelector(`${sel.accountRow}.is-default ${sel.accountNameButton}`);
+    return nameButton?.textContent?.trim() || "";
   }, SEL);
   assert(`默认账号「科技号」`, defaultName === "科技号");
   await injectAccounts(win);
