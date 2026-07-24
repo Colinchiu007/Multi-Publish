@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "referenceStatus": "PENDING_REAL_CAPTURE",
+  "referenceCaptureRequirements": [
+    "从已登录的真实蚁小二桌面客户端捕获，不读取、复制或提交 Cookie、会话或其他凭据。",
+    "三个页面使用相同的窗口尺寸、显示缩放和登录状态。",
+    "捕获完成后填写参考图的 SHA-256 和尺寸，并将 referenceStatus 更新为 CAPTURED_VERIFIED。"
+  ],
+  "comparison": {
+    "mismatchThreshold": 0.1,
+    "pixelThreshold": 0.1
+  },
+  "targets": [
+    {
+      "name": "accounts",
+      "reference": "01-docs/yixiaoer-reverse/screenshots/yxe-live-20260722/accounts.png",
+      "current": "apps/desktop/tests/visual-testing/screenshots/yixiaoer-parity/accounts.png",
+      "source": "PENDING_REAL_CAPTURE"
+    },
+    {
+      "name": "publish",
+      "reference": "01-docs/yixiaoer-reverse/screenshots/yxe-live-20260722/publish.png",
+      "current": "apps/desktop/tests/visual-testing/screenshots/yixiaoer-parity/publish.png",
+      "source": "PENDING_REAL_CAPTURE"
+    },
+    {
+      "name": "batch-publish",
+      "reference": "01-docs/yixiaoer-reverse/screenshots/yxe-live-20260722/batch-publish.png",
+      "current": "apps/desktop/tests/visual-testing/screenshots/yixiaoer-parity/batch-publish.png",
+      "source": "PENDING_REAL_CAPTURE"
+    }
+  ]
+}
