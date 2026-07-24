@@ -14,10 +14,27 @@ const { buildInitScript } = require('../../e2e/helpers/fixture-loader')
 const DEFAULT_BASE_URL = 'http://127.0.0.1:5174'
 const DEFAULT_OUTPUT_DIR = path.resolve(__dirname, '../screenshots/yixiaoer-parity')
 const READY_TIMEOUT = 15000
+const STABLE_CONTEXT_OPTIONS = Object.freeze({
+  colorScheme: 'light',
+  deviceScaleFactor: 1,
+  locale: 'zh-CN',
+  reducedMotion: 'reduce',
+  timezoneId: 'Asia/Shanghai',
+})
+const STABLE_RENDERING_CSS = `
+  *, *::before, *::after {
+    animation-delay: 0s !important;
+    animation-duration: 0s !important;
+    caret-color: transparent !important;
+    transition-delay: 0s !important;
+    transition-duration: 0s !important;
+  }
+`
 
 const VIEWPORTS = Object.freeze([
   Object.freeze({ name: 'desktop', width: 1440, height: 900 }),
   Object.freeze({ name: 'mobile', width: 480, height: 800 }),
+  Object.freeze({ name: 'audit', width: 2560, height: 1328 }),
 ])
 
 const CAPTURE_SCENARIOS = Object.freeze([
@@ -135,7 +152,15 @@ async function captureScenario (page, scenario, viewport, options = {}) {
       && app?.hasAttribute('data-v-app')
       && (app.textContent || '').trim().length > 0
   }, expectedHash, { timeout: READY_TIMEOUT })
-  await page.waitForSelector(scenario.readySelector, { timeout: READY_TIMEOUT })
+  try {
+    await page.waitForSelector(scenario.readySelector, { timeout: READY_TIMEOUT })
+  } catch (cause) {
+    throw new Error(
+      `${scenario.name} 未在 ${baseUrl} 渲染预期页面（${scenario.route}）。`
+      + `请从当前 worktree 启动 Vite 或通过 TEST_URL 指向正确端口：${cause.message}`,
+    )
+  }
+  await page.addStyleTag({ content: STABLE_RENDERING_CSS })
 
   if (scenario.actionSelector) {
     await page.click(scenario.actionSelector)
@@ -176,26 +201,30 @@ async function runCapture (options = {}) {
   try {
     for (const viewport of VIEWPORTS) {
       const context = await browser.newContext({
+        ...STABLE_CONTEXT_OPTIONS,
         viewport: { width: viewport.width, height: viewport.height },
-        locale: 'zh-CN',
       })
       await context.addInitScript({ content: buildInitScript() })
-      const page = await context.newPage()
-      const runtimeErrors = []
-      page.on('pageerror', error => runtimeErrors.push(error.message))
-      page.on('console', message => {
-        if (message.type() === 'error' && !message.text().includes('[vite]')) {
-          runtimeErrors.push(message.text())
-        }
-      })
 
       for (const scenario of CAPTURE_SCENARIOS) {
-        const outputPath = await captureScenario(page, scenario, viewport, { baseUrl, outputDir })
-        if (runtimeErrors.length > 0) {
-          throw new Error(`${scenario.name}/${viewport.name} 页面错误：${runtimeErrors.join(' | ')}`)
+        const page = await context.newPage()
+        const runtimeErrors = []
+        page.on('pageerror', error => runtimeErrors.push(error.message))
+        page.on('console', message => {
+          if (message.type() === 'error' && !message.text().includes('[vite]')) {
+            runtimeErrors.push(message.text())
+          }
+        })
+        try {
+          const outputPath = await captureScenario(page, scenario, viewport, { baseUrl, outputDir })
+          if (runtimeErrors.length > 0) {
+            throw new Error(`${scenario.name}/${viewport.name} 页面错误：${runtimeErrors.join(' | ')}`)
+          }
+          captures.push(outputPath)
+          console.log(`已捕获 ${scenario.name}/${viewport.name}: ${outputPath}`)
+        } finally {
+          await page.close()
         }
-        captures.push(outputPath)
-        console.log(`已捕获 ${scenario.name}/${viewport.name}: ${outputPath}`)
       }
       await context.close()
     }
@@ -221,6 +250,8 @@ module.exports = {
   CAPTURE_SCENARIOS,
   DEFAULT_BASE_URL,
   DEFAULT_OUTPUT_DIR,
+  STABLE_CONTEXT_OPTIONS,
+  STABLE_RENDERING_CSS,
   VIEWPORTS,
   assertServerReady,
   captureScenario,

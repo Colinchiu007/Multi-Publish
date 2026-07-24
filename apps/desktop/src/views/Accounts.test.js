@@ -27,7 +27,7 @@ vi.mock("@/stores/platforms", () => ({
 const _testAccounts = vi.hoisted(() => ([]));
 const _favoriteIds = vi.hoisted(() => new Set());
 const _selectedIds = vi.hoisted(() => new Set());
-const _accountFilters = vi.hoisted(() => ({ searchQuery: "", filterStatus: "all" }));
+const _accountFilters = vi.hoisted(() => ({ searchQuery: "", filterStatus: "all", filterPlatform: "" }));
 const _eventCallbacks = vi.hoisted(() => ({
   authOpened: null,
   authCompleted: null,
@@ -76,14 +76,16 @@ vi.mock("@/stores/accounts", () => ({
     set searchQuery(value) { _accountFilters.searchQuery = value; },
     get filterStatus() { return _accountFilters.filterStatus; },
     set filterStatus(value) { _accountFilters.filterStatus = value; },
+    get filterPlatform() { return _accountFilters.filterPlatform; },
+    set filterPlatform(value) { _accountFilters.filterPlatform = value; },
     selectedIds: _selectedIds,
     isAllSelected: false,
     favoriteIds: _favoriteIds,
     groups: [],
-    get groupedByPlatform() {
+    get accountsBeforePlatformFilter() {
       const query = _accountFilters.searchQuery.toLowerCase();
       const labels = { wechat_mp: "微信", zhihu: "知乎", douyin: "抖音" };
-      const filtered = _testAccounts.filter(account => {
+      return _testAccounts.filter(account => {
         const active = account.status === "active" || account.status === "online";
         if (_accountFilters.filterStatus === "active" && !active) return false;
         if (_accountFilters.filterStatus === "inactive" && active) return false;
@@ -93,6 +95,11 @@ vi.mock("@/stores/accounts", () => ({
           || (account.platform || "").toLowerCase().includes(query)
           || (labels[account.platform] || "").toLowerCase().includes(query);
       });
+    },
+    get groupedByPlatform() {
+      const filtered = this.accountsBeforePlatformFilter.filter(account => (
+        !_accountFilters.filterPlatform || account.platform === _accountFilters.filterPlatform
+      ));
       const groups = new Map();
       for (const account of filtered) {
         if (!groups.has(account.platform)) groups.set(account.platform, { platform: account.platform, accounts: [], activeCount: 0, inactiveCount: 0 });
@@ -191,6 +198,7 @@ describe("AccountsView", () => {
     _testAccounts.length = 0;
     _accountFilters.searchQuery = "";
     _accountFilters.filterStatus = "all";
+    _accountFilters.filterPlatform = "";
     _favoriteIds.clear();
     _selectedIds.clear();
     Object.keys(_eventCallbacks).forEach(key => { _eventCallbacks[key] = null; });
@@ -220,19 +228,68 @@ describe("AccountsView", () => {
     expect(w.text()).toContain("已登录");
   });
 
+  it("使用平台筛选侧栏和账号卡片网格展示主内容", async () => {
+    _testAccounts.push(
+      { id: "zh-1", platform: "zhihu", status: "active", account_name: "知乎账号" },
+      { id: "dy-1", platform: "douyin", status: "inactive", account_name: "抖音账号" },
+    );
+    const w = await mountView();
+
+    expect(w.get(".account-workspace").exists()).toBe(true);
+    expect(w.get(".platform-filter-panel").exists()).toBe(true);
+    expect(w.get(".account-card-grid").exists()).toBe(true);
+    expect(w.findAll(".account-card")).toHaveLength(2);
+    expect(w.get('[data-testid="platform-filter-all"]').attributes("aria-pressed")).toBe("true");
+
+    await w.get('[data-testid="platform-filter-zhihu"]').trigger("click");
+    await nextTick();
+
+    expect(w.vm.accountStore.filterPlatform).toBe("zhihu");
+    expect(w.get('[data-testid="platform-filter-all"]').attributes("aria-pressed")).toBe("false");
+    expect(w.get('[data-testid="platform-filter-zhihu"]').attributes("aria-pressed")).toBe("true");
+    expect(w.findAll(".account-card")).toHaveLength(1);
+    expect(w.text()).toContain("知乎账号");
+  });
+
   it("筛选按钮提供 tab 语义、选中状态和方向键切换", async () => {
     const w = await mountView();
     const tabs = w.findAll('[role="tab"]');
 
     expect(tabs).toHaveLength(4);
+    expect(tabs[0].attributes("id")).toBe("account-status-tab-all");
     expect(tabs[0].attributes("aria-selected")).toBe("true");
     expect(tabs[0].attributes("tabindex")).toBe("0");
+    expect(w.get('[role="tabpanel"]').attributes("aria-labelledby")).toBe("account-status-tab-all");
 
     await tabs[0].trigger("keydown", { key: "ArrowRight" });
     await nextTick();
 
     expect(w.vm.filter).toBe("active");
     expect(w.vm.accountStore.filterStatus).toBe("active");
+    expect(w.get('[role="tabpanel"]').attributes("aria-labelledby")).toBe("account-status-tab-active");
+  });
+
+  it("状态和搜索筛选后，账号与平台计数只统计当前结果", async () => {
+    _testAccounts.push(
+      { id: "wx-active", platform: "wechat_mp", status: "active", account_name: "微信有效账号" },
+      { id: "wx-inactive", platform: "wechat_mp", status: "inactive", account_name: "微信失效账号" },
+      { id: "zh-active", platform: "zhihu", status: "active", account_name: "知乎有效账号" },
+    );
+    const w = await mountView();
+
+    w.vm.accountStore.searchQuery = "微信";
+    w.vm.filter = "active";
+    await nextTick();
+
+    expect(w.get(".account-count").text()).toBe("1 个平台，1 个账号");
+    expect(w.get('[data-testid="platform-filter-all"] strong').text()).toBe("1");
+    expect(w.get('[data-testid="platform-filter-wechat_mp"] strong').text()).toBe("1");
+    expect(w.find('[data-testid="platform-filter-zhihu"]').exists()).toBe(false);
+  });
+
+  it("平台筛选按钮保留键盘焦点样式", () => {
+    const source = fs.readFileSync("./src/views/Accounts.vue", "utf8");
+    expect(source).toMatch(/\.platform-filter-panel button:focus-visible\s*\{[^}]*outline:/);
   });
 
   it("shows empty state when no accounts", async () => {

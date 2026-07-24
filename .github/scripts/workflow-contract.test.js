@@ -7,6 +7,8 @@ const workflowPath = path.join(__dirname, '..', 'workflows', 'visual-test.yml');
 const qualityGatePath = path.join(__dirname, '..', 'workflows', 'quality-gate.yml');
 const agentJudgePath = path.join(__dirname, '..', 'workflows', 'agent-judge.yml');
 const desktopPackagePath = path.join(__dirname, '..', '..', 'apps', 'desktop', 'package.json');
+const desktopVitestConfigPath = path.join(__dirname, '..', '..', 'apps', 'desktop', 'vitest.config.js');
+const rootPackagePath = path.join(__dirname, '..', '..', 'package.json');
 
 test('视觉工作流使用与基线一致的 Windows 渲染环境', () => {
   const workflow = fs.readFileSync(workflowPath, 'utf8');
@@ -36,6 +38,39 @@ test('桌面覆盖率门禁串行运行，避免全量 V8 coverage 资源竞争'
 
   assert.match(coverageScript, /--maxWorkers=1/);
   assert.match(coverageScript, /--no-file-parallelism/);
+});
+
+test('桌面默认 Vitest 串行收集，避免共享 mock 和资源型测试争用', () => {
+  const source = fs.readFileSync(desktopVitestConfigPath, 'utf8');
+
+  assert.match(source, /maxWorkers:\s*1/);
+  assert.match(source, /fileParallelism:\s*false/);
+  assert.match(source, /testTimeout:\s*10000/);
+  assert.match(source, /hookTimeout:\s*10000/);
+  assert.match(source, /teardownTimeout:\s*10000/);
+  assert.match(source, /\.\.\.\(process\.env\.CI\s*\?\s*\{ reporters: \['verbose'\] \}\s*:\s*\{\}\)/);
+});
+
+test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
+  const workflow = fs.readFileSync(qualityGatePath, 'utf8');
+  const rootPackage = JSON.parse(fs.readFileSync(rootPackagePath, 'utf8'));
+  const unitTestStep = workflow.match(
+    /- name: "Gate 4 - Workspace unit tests"[\s\S]*?(?=\n\s*- name: "Gate 4b)/,
+  )?.[0];
+
+  assert.ok(unitTestStep, 'Gate 4 全工作区单元测试步骤必须存在');
+  assert.equal(rootPackage.scripts.test, 'npm run test --workspaces --if-present');
+  assert.match(unitTestStep, /shell:\s*pwsh/);
+  assert.match(unitTestStep, /Start-Process -FilePath "npm\.cmd"/);
+  assert.match(unitTestStep, /"run",\s*"test",\s*"--workspaces",\s*"--if-present"/);
+  assert.match(unitTestStep, /WaitForExit\(1800000\)/);
+  assert.match(unitTestStep, /taskkill \/PID \$testProcess\.Id \/T \/F/);
+  assert.doesNotMatch(unitTestStep, /--maxWorkers=1|--reporter=verbose|--testTimeout=10000/);
+  assert.match(unitTestStep, /function Get-TestProcessTree/);
+  assert.match(unitTestStep, /Get-TestProcessTree -RootProcessId \$testProcess\.Id/);
+  assert.match(unitTestStep, /\$remainingTestProcesses = @\(Get-TestProcessTree -RootProcessId \$testProcess\.Id\)/);
+  assert.match(unitTestStep, /Gate 4 left child processes alive after npm exited/);
+  assert.doesNotMatch(unitTestStep, /CommandLine/);
 });
 
 test('Agent Judge 在 Windows 下使用 PowerShell 参数数组，并将无模型审计包降级为告警', () => {

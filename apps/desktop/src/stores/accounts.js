@@ -61,7 +61,27 @@ export const useAccountStore = defineStore('accounts', () => {
     return map
   })
 
-  const filteredAccounts = computed(() => {
+  function sortAccounts (result) {
+    result.sort((a, b) => {
+      let valA, valB
+      if (sortBy.value === 'name') {
+        valA = (a.name || a.account_name || '').toLowerCase()
+        valB = (b.name || b.account_name || '').toLowerCase()
+      } else if (sortBy.value === 'created_at') {
+        valA = new Date(a.created_at || 0).getTime()
+        valB = new Date(b.created_at || 0).getTime()
+      } else {
+        valA = a[sortBy.value] || ''
+        valB = b[sortBy.value] || ''
+      }
+      if (valA < valB) return sortOrder.value === 'asc' ? -1 : 1
+      if (valA > valB) return sortOrder.value === 'asc' ? 1 : -1
+      return 0
+    })
+    return result
+  }
+
+  const accountsBeforePlatformFilter = computed(() => {
     let result = [...accounts.value]
     if (searchQuery.value) {
       const q = searchQuery.value.toLowerCase()
@@ -80,26 +100,14 @@ export const useAccountStore = defineStore('accounts', () => {
         return acc.status !== 'active' && acc.status !== 'online'
       })
     }
-    if (filterPlatform.value) {
-      result = result.filter(acc => acc.platform === filterPlatform.value)
-    }
-    result.sort((a, b) => {
-      let valA, valB
-      if (sortBy.value === 'name') {
-        valA = (a.name || a.account_name || '').toLowerCase()
-        valB = (b.name || b.account_name || '').toLowerCase()
-      } else if (sortBy.value === 'created_at') {
-        valA = new Date(a.created_at || 0).getTime()
-        valB = new Date(b.created_at || 0).getTime()
-      } else {
-        valA = a[sortBy.value] || ''
-        valB = b[sortBy.value] || ''
-      }
-      if (valA < valB) return sortOrder.value === 'asc' ? -1 : 1
-      if (valA > valB) return sortOrder.value === 'asc' ? 1 : -1
-      return 0
-    })
-    return result
+    return sortAccounts(result)
+  })
+
+  const filteredAccounts = computed(() => {
+    const result = accountsBeforePlatformFilter.value
+    return filterPlatform.value
+      ? result.filter(acc => acc.platform === filterPlatform.value)
+      : result
   })
 
   const groupedByPlatform = computed(() => {
@@ -320,7 +328,7 @@ export const useAccountStore = defineStore('accounts', () => {
 
   return {
     accounts, groups, favoriteIds, loading, error, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
-    byPlatform, filteredAccounts, groupedByPlatform,
+    byPlatform, accountsBeforePlatformFilter, filteredAccounts, groupedByPlatform,
     load, loadGroups, loadFavorites, getDefault, setDefault, renameAccount,
     createGroup, deleteGroup, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,
     isFavorite, toggleFavorite,

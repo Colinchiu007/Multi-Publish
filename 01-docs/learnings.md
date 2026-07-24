@@ -3604,3 +3604,44 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **修复与回归保护**：runner 显式复制 `upload/`，npm `files` 同步包含 `upload/`，API workspace 直接声明 `js-yaml`；Compose 将插件目录设置为 `/app/data/plugins`，两个 bind mount 均使用 `create_host_path: false`，运行手册要求部署前以 UID/GID 1001 创建 config、data 和 plugins，避免 Docker 生成 root-owned 目录；Dockerfile 与 Compose healthcheck 固定使用 `127.0.0.1`。`logto-deploy-contract.test.js` 依据 runner 的本地 `COPY` 清单构造隔离 staging，以依赖声明守卫加载真实 `src/index.js`，同时固定 bind mount fail-closed 合同；`npm pack --dry-run` 验证 tarball。Node/Python 验证器只允许 `RS256 + RSA` 与 `ES384 + EC + P-384`，拒绝算法、密钥类型、曲线和签名编码错配，并以 `alg:kid` 作为 JWKS/未知密钥缓存键；两端均增加真实签名和负缓存隔离回归。生产候选还必须在 ECS 无缓存 build、以非 root 用户启动，并验证 health、ready、未认证 `/me`、production smoke 和错误日志。
 
 **系统性预防**：选择性 Docker COPY、npm `files` 和 workspace `dependencies` 都属于独立运行时清单，审查必须同时核对；容器测试必须覆盖最终用户、持久卷权限和 loopback 地址族；OIDC 算法白名单必须以目标租户实时 JWKS 为准，同时严格绑定 `alg/kty/crv`，不能以“只允许一种算法”替代互操作验证。上述规则已写入 `AGENTS.md`，后续新增静态/懒加载依赖、修改 Dockerfile、迁移身份提供方或轮换签名算法时自动触发对应合同测试。
+---
+## 2026-07-24：self-hosted Electron CI 的 Vitest 缺少资源上限和超时诊断
+
+**第一性原因**：`71b1e979b0fa05eed215984d87428aaac0f40c14` 在扩大 Electron 与 preload 测试收集范围时，将桌面 Vitest 默认并发固定为 `maxWorkers: 4`。该改动在开发机上能够退出，但 self-hosted Linux runner 上两次运行都在单元测试步骤静默占满 30 分钟后被 job 级超时取消。根因边界是“共享 runner 上的并发资源竞争，加上没有测试步骤 watchdog 和进程诊断”；本机 Loopback 单文件约 3 秒退出、四 worker 全量约 6 分钟退出，因此不能把某个 HTTP server 或单个测试文件写成已确认根因。
+
+**逃逸链**：
+- 单元测试：测试只验证业务断言，没有验证完整收集集在受限 runner 上能于预算内退出，也没有对默认 worker 数设置合同。
+- 集成测试：Electron smoke 位于 Vitest 之后，单元测试不退出时永远到不了 smoke，因此无法提供进程生命周期证据。
+- 端到端测试：GUI 和视觉工作流使用其他 runner/命令路径，未复现 self-hosted Electron job 的资源配置。
+- CI：只有 30 分钟 job 级超时；Vitest 步骤没有更短 watchdog、verbose reporter、test/hook/teardown timeout，失败后也没有进程树快照，日志只能说明“被取消”，无法定位仍存活的 worker 或子进程。
+- 代码审查：`maxWorkers: 4` 被当成加速参数评估，没有同步核算扩大收集范围、jsdom、Electron mock 与 self-hosted 机器容量的组合成本。
+
+**系统性漏洞**：仓库过去只约束 coverage 脚本串行，没有约束默认 Vitest 配置与 Electron CI 命令；工作流合同也没有测试“单元测试必须在 job 超时前自行失败并输出诊断”。这使资源型退化既能绕过本地功能测试，又会在 CI 中消耗完整 runner 配额。
+
+**修复与回归保护**：`apps/desktop/vitest.config.js` 固定 `maxWorkers: 1` 和 `fileParallelism: false`。`.github/workflows/electron-ci.yml` 使用 20 分钟 GNU `timeout` 包裹串行 Vitest，并开启 verbose reporter、10 秒 test/hook/teardown timeout；失败后执行 `ps -eo ... --forest`。`.github/scripts/workflow-contract.test.js` 固化默认配置，`apps/desktop/tests/gui-ci-exit-contract.test.js` 固化 workflow 参数、诊断步骤和禁止回退到四 worker。
+
+**系统性预防**：self-hosted runner 上的全量测试必须显式声明 worker/file parallelism、步骤级 watchdog 和失败诊断；job 级 timeout 只作为最后保险，不能代替步骤预算。增加测试收集范围或真实子进程测试时，必须同时复核 runner 资源预算和退出行为；对根因的描述必须区分“已在 CI 证实”“本机复现”和“待诊断假设”，不得把可疑测试文件写成确认结论。
+
+---
+
+## 2026-07-24：多 worktree 下蚁小二截图可能误连旧 Vite 服务
+
+**第一性原因**：截图脚本默认连接 `http://127.0.0.1:5174`。并行 worktree 开发时，该端口已经由旧版本 Vite 占用；旧页面返回 HTTP 200，却没有 `/publish/history` 路由，所以发布记录和批量发布在等待就绪选择器时超时。目标 worktree 的路由和组件本身是完整的，切换到独立端口后九张截图均能生成。
+
+**逃逸链**：`assertServerReady()` 只验证根路径状态码，不能证明服务属于当前 worktree；截图合同测试使用 page mock，不会连接真实 Vite；之前的手工捕获没有把 `TEST_URL` 和工作目录作为同一个前置条件记录，因而将“端口可访问”误读为“目标页面可审计”。
+
+**修复与回归保护**：`captureScenario()` 在路由就绪元素缺失时会明确指出场景、路由、当前 base URL，并提示从当前 worktree 启动 Vite 或设置 `TEST_URL`。`capture-yixiaoer-current.test.js` 覆盖该错误信息，视觉测试使用说明增加独立端口启动命令。真实审计固定使用 `TEST_URL=http://127.0.0.1:5181`，三张 audit 图与已验证参考基线均在 10% 阈值内通过。
+
+**系统性预防**：并行 worktree 的浏览器审计必须使用 `--strictPort` 启动当前工作树的 Vite，并在同一命令环境中显式传入 `TEST_URL`；HTTP 200 只能代表服务存活，不能代表路由、fixture 或构建版本正确。
+
+---
+
+## 2026-07-24：根工作区测试预算不能套用桌面 Vitest 的短时限
+
+**第一性原因**：根 `package.json` 的 `test` 脚本使用 `npm run test --workspaces --if-present`，会依次运行九个工作区；桌面 Vitest 又按 self-hosted 资源约束固定为单 worker。先前使用 15 分钟外层命令预算时，完整回归被超时中断，容易被误判为本轮发布记录分页代码挂起。
+
+**逃逸链**：桌面定向和单文件测试均能快速通过，但它们不覆盖根脚本的工作区串行语义；原 `quality-gate.yml` 的 Gate 4 直接执行裸 `npm test`，没有 Windows 步骤级预算、详细报告或进程树，因此与 `electron-ci.yml` 的 self-hosted 保护不一致。分页重复页保护测试只含已解析 Promise，并以稳定 `record.id` 去重后在无新增时停止请求，不是超时来源。
+
+**修复与回归保护**：`quality-gate.yml` 的 Gate 4 现在在 Windows 上用 `Start-Process` 启动根 `npm run test --workspaces --if-present`，并以 30 分钟 `WaitForExit` 预算、受限进程树诊断、`taskkill /T` 超时终止和正常退出后的残留子进程核验保护。桌面 Vitest 配置在 `CI=true` 时启用详细 reporter 和 10 秒 test/hook/teardown 超时；`workflow-contract.test.js` 固化参数传播、预算和进程树合同。最终 Gate 4 等价命令在 `CI=true` 下于 21 分 41 秒退出：桌面 `312 files / 5375 tests`，所有其余工作区通过。
+
+**系统性预防**：为全仓命令设预算时，先展开根脚本的 workspace 扇出；不可把单 workspace 或单测试文件耗时外推为根命令总时长。任何 CI 执行全仓测试都必须有短于 job 的步骤级 watchdog、失败诊断和可终止的进程树。

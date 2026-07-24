@@ -79,8 +79,25 @@ Agent 在会话中读 `judge-report.md` + 用 `view_image` 加载截图,自己�
 ### 4. 真实蚁小二对照审计（独立于常规视觉门禁）
 
 ```bash
+npm run test:visual:yixiaoer:capture
 npm run test:visual:yixiaoer
 ```
+
+捕获命令固定生成三个语义场景：`accounts` 对应账号管理，`publish` 对应发布记录普通态，
+`batch-publish` 对应发布记录进入批量选择后的状态。每个场景同时生成 `desktop`、`mobile`
+和 `audit (2560×1328)` 三个 viewport，共 9 张当前图；真实审计使用 `*-audit.png` 并按 manifest
+中的 `currentCrop` 对齐主内容区域。执行前必须先启动 Vite，默认 `http://127.0.0.1:5174`，
+其他端口通过 `TEST_URL` 覆盖。
+
+多个 worktree 同时开发时，不要复用未知来源的 `5174`。从当前 worktree 启动独立端口，并把同一地址传给捕获命令：
+
+```powershell
+npm run dev:vue -- --host 127.0.0.1 --port 5181 --strictPort
+$env:TEST_URL = 'http://127.0.0.1:5181'
+npm run test:visual:yixiaoer:capture
+```
+
+若目标页面没有渲染预期路由，捕获会明确提示检查当前 worktree 与 `TEST_URL`，而不是把旧页面的 HTTP 200 当作可用基线。
 
 配置位于 `01-docs/yixiaoer-reverse/visual-baseline-manifest.json`，报告写入：
 

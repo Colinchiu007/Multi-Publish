@@ -164,6 +164,34 @@ function normalizeSha256(value, name) {
   return value.toLowerCase()
 }
 
+function normalizeRect(value, name) {
+  if (value == null) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw createManifestError(`${name}必须是矩形对象`)
+  }
+  const rect = {
+    x: value.x,
+    y: value.y,
+    width: value.width,
+    height: value.height,
+  }
+  if (!Number.isInteger(rect.x) || rect.x < 0
+    || !Number.isInteger(rect.y) || rect.y < 0
+    || !Number.isInteger(rect.width) || rect.width <= 0
+    || !Number.isInteger(rect.height) || rect.height <= 0) {
+    throw createManifestError(`${name}必须包含非负整数 x/y 和正整数 width/height`)
+  }
+  return rect
+}
+
+function normalizeRectList(value, name) {
+  if (value == null) return []
+  if (!Array.isArray(value)) {
+    throw createManifestError(`${name}必须是矩形数组`)
+  }
+  return value.map((rect, index) => normalizeRect(rect, `${name}[${index}]`))
+}
+
 function normalizeReferenceStatus(value) {
   if (value !== REFERENCE_STATUS_PENDING && value !== REFERENCE_STATUS_VERIFIED) {
     throw createManifestError(
@@ -184,6 +212,9 @@ function normalizeTarget(target) {
     source: typeof target.source === 'string' ? target.source : '',
     referenceSha256: normalizeSha256(target.referenceSha256, 'referenceSha256'),
     referenceDimensions: normalizeDimensions(target.referenceDimensions, 'referenceDimensions'),
+    referenceCrop: normalizeRect(target.referenceCrop, 'referenceCrop'),
+    currentCrop: normalizeRect(target.currentCrop, 'currentCrop'),
+    ignoreRegions: normalizeRectList(target.ignoreRegions, 'ignoreRegions'),
   }
 }
 
@@ -264,46 +295,168 @@ function readPng(filePath, label, displayPath = filePath) {
   }
 }
 
-function compareImages(reference, current, options = {}) {
-  if (reference.width !== current.width || reference.height !== current.height) {
-    return {
-      status: 'DIMENSION_MISMATCH',
-      passed: false,
-      blocked: true,
-      dimensions: {
-        reference: [reference.width, reference.height],
-        current: [current.width, current.height],
-      },
-      mismatchPixels: null,
-      mismatchPercentage: null,
-    }
-  }
+function fullImageRect(image) {
+  return { x: 0, y: 0, width: image.width, height: image.height }
+}
 
-  const diffImage = new PNG({ width: reference.width, height: reference.height })
-  const mismatchPixels = pixelmatch(
-    reference.data,
-    current.data,
-    diffImage.data,
-    reference.width,
-    reference.height,
-    {
-      threshold: options.pixelThreshold,
-      includeAA: false,
-      alpha: 0.5,
-    },
-  )
-  const totalPixels = reference.width * reference.height
-  const mismatchPercentage = totalPixels === 0 ? 100 : (mismatchPixels / totalPixels) * 100
+function isRectWithinImage(rect, image) {
+  return rect.x + rect.width <= image.width && rect.y + rect.height <= image.height
+}
+
+function cropImage(image, rect) {
+  const cropped = new PNG({ width: rect.width, height: rect.height })
+  for (let row = 0; row < rect.height; row += 1) {
+    const sourceStart = ((rect.y + row) * image.width + rect.x) * 4
+    const sourceEnd = sourceStart + rect.width * 4
+    cropped.data.set(image.data.subarray(sourceStart, sourceEnd), row * rect.width * 4)
+  }
+  return cropped
+}
+
+function invalidCropResult(reason, reference, current, referenceCrop, currentCrop) {
   return {
-    status: mismatchPercentage <= options.mismatchThreshold ? 'PASS' : 'FAIL',
-    passed: mismatchPercentage <= options.mismatchThreshold,
-    blocked: false,
+    status: 'CROP_INVALID',
+    passed: false,
+    blocked: true,
+    reason,
     dimensions: {
       reference: [reference.width, reference.height],
       current: [current.width, current.height],
     },
+    referenceCrop,
+    currentCrop,
+    mismatchPixels: null,
+    mismatchPercentage: null,
+    maskedPixels: null,
+    effectivePixels: null,
+  }
+}
+
+function compareImages(reference, current, options = {}) {
+  let referenceCrop
+  let currentCrop
+  let ignoreRegions
+  try {
+    referenceCrop = normalizeRect(options.referenceCrop, 'referenceCrop') || fullImageRect(reference)
+    currentCrop = normalizeRect(options.currentCrop, 'currentCrop') || fullImageRect(current)
+    ignoreRegions = normalizeRectList(options.ignoreRegions, 'ignoreRegions')
+  } catch (cause) {
+    return invalidCropResult(cause.message, reference, current, referenceCrop, currentCrop)
+  }
+
+  if (!isRectWithinImage(referenceCrop, reference)) {
+    return invalidCropResult('referenceCrop 超出参考图边界', reference, current, referenceCrop, currentCrop)
+  }
+  if (!isRectWithinImage(currentCrop, current)) {
+    return invalidCropResult('currentCrop 超出当前图边界', reference, current, referenceCrop, currentCrop)
+  }
+
+  const croppedReference = cropImage(reference, referenceCrop)
+  const croppedCurrent = cropImage(current, currentCrop)
+  if (croppedReference.width !== croppedCurrent.width || croppedReference.height !== croppedCurrent.height) {
+    return {
+      status: options.referenceCrop || options.currentCrop
+        ? 'CROP_DIMENSION_MISMATCH'
+        : 'DIMENSION_MISMATCH',
+      passed: false,
+      blocked: true,
+      dimensions: {
+        reference: [croppedReference.width, croppedReference.height],
+        current: [croppedCurrent.width, croppedCurrent.height],
+      },
+      referenceCrop,
+      currentCrop,
+      mismatchPixels: null,
+      mismatchPercentage: null,
+      maskedPixels: 0,
+      effectivePixels: null,
+    }
+  }
+
+  const width = croppedReference.width
+  const height = croppedReference.height
+  const totalPixels = width * height
+  const masked = new Uint8Array(totalPixels)
+  let maskedPixels = 0
+  for (let index = 0; index < ignoreRegions.length; index += 1) {
+    const rect = ignoreRegions[index]
+    if (!isRectWithinImage(rect, croppedReference)) {
+      return invalidCropResult(
+        `ignoreRegions[${index}] 超出裁剪后图像边界`,
+        reference,
+        current,
+        referenceCrop,
+        currentCrop,
+      )
+    }
+    for (let y = rect.y; y < rect.y + rect.height; y += 1) {
+      for (let x = rect.x; x < rect.x + rect.width; x += 1) {
+        const pixelIndex = y * width + x
+        if (masked[pixelIndex] === 0) {
+          masked[pixelIndex] = 1
+          maskedPixels += 1
+        }
+      }
+    }
+  }
+
+  const effectivePixels = totalPixels - maskedPixels
+  if (effectivePixels === 0) {
+    return {
+      status: 'NO_EFFECTIVE_PIXELS',
+      passed: false,
+      blocked: true,
+      reason: 'ignoreRegions 覆盖了全部比较区域',
+      dimensions: { reference: [width, height], current: [width, height] },
+      referenceCrop,
+      currentCrop,
+      ignoreRegions,
+      mismatchPixels: null,
+      mismatchPercentage: null,
+      maskedPixels,
+      effectivePixels,
+    }
+  }
+
+  const referenceData = Buffer.from(croppedReference.data)
+  const currentData = Buffer.from(croppedCurrent.data)
+  for (let pixelIndex = 0; pixelIndex < masked.length; pixelIndex += 1) {
+    if (masked[pixelIndex] === 0) continue
+    const offset = pixelIndex * 4
+    referenceData.fill(0, offset, offset + 4)
+    currentData.fill(0, offset, offset + 4)
+  }
+
+  const comparisonOptions = normalizeComparisonOptions(options)
+  const diffImage = new PNG({ width, height })
+  const mismatchPixels = pixelmatch(
+    referenceData,
+    currentData,
+    diffImage.data,
+    width,
+    height,
+    {
+      threshold: comparisonOptions.pixelThreshold,
+      includeAA: false,
+      alpha: 0.5,
+    },
+  )
+  const mismatchPercentage = (mismatchPixels / effectivePixels) * 100
+  return {
+    status: mismatchPercentage <= comparisonOptions.mismatchThreshold ? 'PASS' : 'FAIL',
+    passed: mismatchPercentage <= comparisonOptions.mismatchThreshold,
+    blocked: false,
+    dimensions: {
+      reference: [width, height],
+      current: [width, height],
+    },
+    referenceCrop,
+    currentCrop,
+    ignoreRegions,
     mismatchPixels,
     mismatchPercentage,
+    maskedPixels,
+    effectivePixels,
     diffImage,
   }
 }
@@ -395,6 +548,9 @@ async function compareTarget(target, options = {}) {
 
   const comparison = compareImages(reference.image, current.image, {
     ...comparisonOptions,
+    referenceCrop: normalizedTarget.referenceCrop,
+    currentCrop: normalizedTarget.currentCrop,
+    ignoreRegions: normalizedTarget.ignoreRegions,
   })
   result.status = comparison.status
   result.passed = comparison.passed
@@ -402,6 +558,12 @@ async function compareTarget(target, options = {}) {
   result.dimensions = comparison.dimensions
   result.mismatchPixels = comparison.mismatchPixels
   result.mismatchPercentage = comparison.mismatchPercentage
+  result.referenceCrop = comparison.referenceCrop
+  result.currentCrop = comparison.currentCrop
+  result.ignoreRegions = comparison.ignoreRegions || normalizedTarget.ignoreRegions
+  result.maskedPixels = comparison.maskedPixels
+  result.effectivePixels = comparison.effectivePixels
+  result.reason = comparison.reason || null
   result.referenceBytes = reference.bytes
   result.currentBytes = current.bytes
   result.referenceSha256 = reference.sha256
@@ -424,7 +586,9 @@ function summarize(results) {
     failed: results.filter((result) => !result.passed && !result.blocked).length,
     blocked: results.filter((result) => result.blocked).length,
     referenceUnverified: results.filter((result) => result.status === 'REFERENCE_UNVERIFIED').length,
-    dimensionMismatch: results.filter((result) => result.status === 'DIMENSION_MISMATCH').length,
+    dimensionMismatch: results.filter((result) => (
+      result.status === 'DIMENSION_MISMATCH' || result.status === 'CROP_DIMENSION_MISMATCH'
+    )).length,
     configurationInvalid: results.filter((result) => result.status === 'CONFIG_INVALID').length,
   }
 }
@@ -456,6 +620,16 @@ function renderMarkdown(report) {
     const mismatch = Number.isFinite(result.mismatchPercentage)
       ? `${result.mismatchPercentage.toFixed(4)}%`
       : '-'
+    const auditDetails = []
+    if (result.referenceCrop) {
+      auditDetails.push(`参考裁剪 ${result.referenceCrop.x},${result.referenceCrop.y},${result.referenceCrop.width}x${result.referenceCrop.height}`)
+    }
+    if (result.currentCrop) {
+      auditDetails.push(`当前裁剪 ${result.currentCrop.x},${result.currentCrop.y},${result.currentCrop.width}x${result.currentCrop.height}`)
+    }
+    if (Number.isInteger(result.effectivePixels)) {
+      auditDetails.push(`有效像素 ${result.effectivePixels}，遮罩 ${result.maskedPixels || 0}`)
+    }
     lines.push([
       escapeMarkdownCell(result.name),
       escapeMarkdownCell(result.status),
@@ -463,7 +637,7 @@ function renderMarkdown(report) {
       escapeMarkdownCell(result.currentPath),
       escapeMarkdownCell(dimensions),
       mismatch,
-      escapeMarkdownCell(result.reason || result.source),
+      escapeMarkdownCell([result.reason || result.source, ...auditDetails].filter(Boolean).join('；')),
     ].join(' | ').replace(/^/, '| ').concat(' |'))
   }
   lines.push('', '> `REFERENCE_UNVERIFIED` 不是通过；必须在同一窗口尺寸和登录状态下从真实蚁小二捕获参考图后复跑。')
@@ -612,8 +786,10 @@ module.exports = {
   DEFAULT_MANIFEST,
   DEFAULT_MISMATCH_THRESHOLD,
   DEFAULT_PIXEL_THRESHOLD,
+  compareImages,
   compareTarget,
   loadManifest,
+  normalizeTarget,
   parseCliArgs,
   renderMarkdown,
   runAudit,

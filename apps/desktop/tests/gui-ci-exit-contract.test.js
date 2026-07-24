@@ -209,15 +209,24 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(electronIndex).toBeLessThan(testIndex);
   });
 
-  it('Electron CI 使用测试环境和单 worker 运行桌面全量 Vitest', () => {
-    const { workflow } = readWorkflow('electron-ci.yml');
+  it('Electron CI 使用测试环境、串行 watchdog 和失败进程诊断', () => {
+    const { source, workflow } = readWorkflow('electron-ci.yml');
     const job = workflow.jobs['electron-tests'];
-    const testStep = job.steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron)');
+    const steps = job.steps;
+    const unitStep = steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron)');
+    const diagnosticStep = steps.find((step) => step.name === 'Vitest failure diagnostics');
 
     expect(job.env).toMatchObject({ NODE_ENV: 'test' });
-    expect(testStep.run.trim()).toBe(
-      'npm run test -w @multi-publish/desktop -- --maxWorkers=1 --no-file-parallelism',
-    );
+    expect(unitStep.run).toContain('timeout --signal=TERM --kill-after=30s 20m');
+    expect(unitStep.run).toContain('--maxWorkers=1');
+    expect(unitStep.run).toContain('--no-file-parallelism');
+    expect(unitStep.run).toContain('--reporter=verbose');
+    expect(unitStep.run).toContain('--testTimeout=10000');
+    expect(unitStep.run).toContain('--hookTimeout=10000');
+    expect(unitStep.run).toContain('--teardownTimeout=10000');
+    expect(diagnosticStep.if).toBe('failure()');
+    expect(diagnosticStep.run).toContain('ps -eo');
+    expect(source).not.toContain('maxWorkers=4');
   });
 
   it('自主审计成功分支不会继续写入基础设施失败状态', () => {

@@ -37,7 +37,17 @@ jobs:
         run: node node_modules/electron/install.js
 
       - name: Unit tests (Vitest, non-Electron)
-        run: npm run test -w @multi-publish/desktop -- --maxWorkers=1 --no-file-parallelism
+        run: |
+          timeout --signal=TERM --kill-after=30s 20m \
+            npm run test -w @multi-publish/desktop -- \
+            --maxWorkers=1 --no-file-parallelism --reporter=verbose \
+            --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=10000
+
+      - name: Vitest failure diagnostics
+        if: failure()
+        run: |
+          echo "Vitest 或前置步骤失败，输出 runner 进程树"
+          ps -eo pid,ppid,stat,etimes,pcpu,pmem,cmd --forest
 
       - name: Electron smoke test (xvfb)
         run: |
