@@ -71,6 +71,7 @@ function makeMockDeps(overrides) {
   const mockCloudPublisher = vi.fn()
   mockCloudPublisher.prototype.registerIpcHandlers = vi.fn()
   const mockGetMainWin = vi.fn(() => null)
+  const mockLoadIdentityRuntimeEnv = vi.fn(({ env }) => env)
 
   return Object.assign({
     container: mockContainer,
@@ -84,6 +85,7 @@ function makeMockDeps(overrides) {
     pythonBridge: mockPythonBridge,
     CloudPublisher: mockCloudPublisher,
     getMainWin: mockGetMainWin,
+    loadIdentityRuntimeEnv: mockLoadIdentityRuntimeEnv,
   }, overrides)
 }
 
@@ -205,10 +207,58 @@ describe('phase3-services.startServices', () => {
     const ownerProvider = deps.store.setOwnerSubjectProvider.mock.calls[0][0]
     expect(ownerProvider()).toBe('user-a')
     expect(result.identityService).toBe(identityService)
+    expect(deps.scheduler.restore).toHaveBeenCalledWith('user-a')
     expect(deps.scheduler.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
     expect(deps.taskQueue.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
     const commentManager = deps.container.get('commentManager')
     expect(commentManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+  })
+
+  it('身份服务使用合并后的公开运行时配置', async () => {
+    const identityEnv = {
+      IDENTITY_AUTH_ENABLED: 'true',
+      IDENTITY_AUTH_REQUIRED: 'false',
+      LOGTO_ENDPOINT: 'https://auth.example.com',
+    }
+    const identityService = {
+      getState: vi.fn(() => ({ status: 'signed_out' })),
+    }
+    const createIdentityService = vi.fn(async () => identityService)
+    const loadIdentityRuntimeEnv = vi.fn(() => identityEnv)
+    const deps = makeMockDeps({ createIdentityService, loadIdentityRuntimeEnv })
+
+    await startServices(deps)
+
+    expect(loadIdentityRuntimeEnv).toHaveBeenCalledWith({ env: process.env })
+    expect(createIdentityService).toHaveBeenCalledWith(expect.objectContaining({
+      env: identityEnv,
+      store: deps.store,
+    }))
+  })
+
+  it('发行配置加载失败时不允许在 shadow 阶段静默降级', async () => {
+    const failure = new Error('identity public config is invalid')
+    const deps = makeMockDeps({
+      loadIdentityRuntimeEnv: vi.fn(() => { throw failure }),
+      createIdentityService: vi.fn(),
+    })
+
+    await expect(startServices(deps)).rejects.toBe(failure)
+    expect(deps.createIdentityService).not.toHaveBeenCalled()
+    expect(deps.CloudPublisher).not.toHaveBeenCalled()
+  })
+
+  it('shadow 阶段的身份配置错误不允许静默降级', async () => {
+    const failure = Object.assign(new Error('identity config is invalid'), {
+      code: 'IDENTITY_CONFIG_INVALID',
+    })
+    const deps = makeMockDeps({
+      loadIdentityRuntimeEnv: vi.fn(() => ({ IDENTITY_AUTH_REQUIRED: 'false' })),
+      createIdentityService: vi.fn(async () => { throw failure }),
+    })
+
+    await expect(startServices(deps)).rejects.toBe(failure)
+    expect(deps.CloudPublisher).not.toHaveBeenCalled()
   })
 
   it.each(['1', 'true', 'yes', 'on', ' TRUE '])('required=%s 时身份初始化失败必须阻止启动', async (required) => {
@@ -223,6 +273,17 @@ describe('phase3-services.startServices', () => {
       if (previous === undefined) delete process.env.IDENTITY_AUTH_REQUIRED
       else process.env.IDENTITY_AUTH_REQUIRED = previous
     }
+  })
+
+  it('公开配置声明 required 时身份初始化失败必须阻止启动', async () => {
+    const failure = new Error('identity public config bootstrap failed')
+    const deps = makeMockDeps({
+      loadIdentityRuntimeEnv: vi.fn(() => ({ IDENTITY_AUTH_REQUIRED: 'true' })),
+      createIdentityService: vi.fn(async () => { throw failure }),
+    })
+
+    await expect(startServices(deps)).rejects.toBe(failure)
+    expect(deps.CloudPublisher).not.toHaveBeenCalled()
   })
 
   it('启动成功时返回退出阶段需要的定时器和登录监控引用', async () => {

@@ -86,6 +86,14 @@ node ../../packages/api-publish-engine/scripts/production-smoke.js --logto "%LOG
 
 首次打开 `LOGTO_ADMIN_ENDPOINT` 完成管理员初始化。创建 Native Application（桌面端）和业务 API Resource 时，记录 issuer、audience 和 redirect URI；桌面端只保存公开的 endpoint/app id，不保存 client secret。
 
+## 桌面端公开配置
+
+桌面发行包通过 `apps/desktop/package.json` 的 `extraResources` 将仓库 `config/` 复制到 `resources/config/`。`config/identity-public.json` 是其中唯一的身份发行配置：启动时会映射到主进程身份服务的公开环境变量。配置存在时，`identityAuthEnabled` 是发行契约，`IDENTITY_AUTH_ENABLED` 不能覆盖它；受控启动环境只可覆盖 `identityAuthRequired` 和其余公开值以支持灰度或紧急回滚。没有发行配置的旧式开发环境仍可使用进程环境声明启用开关；这些覆盖只控制客户端启动策略，不能替代服务端 Bearer 验证。
+
+该 JSON 只允许 endpoint、Native Application ID、API resource、业务 API URL、回环回调、scope、entitlement key id 和 RSA 公钥等公开字段。它拒绝未知字段、无效 RSA 公钥，以及数据库 URL、Webhook signing key、Management Token、client secret 或任何私钥。环境覆盖合并后仍会拒绝 `enabled=false`、`required=true` 等矛盾开关，并且不能将已发行的身份服务静默关闭；配置文件存在时，读取或校验失败会阻止桌面端启动。`identityAuthRequired` 必须与业务 API 的灰度阶段一致；当前 Shadow 阶段为 `IDENTITY_AUTH_ENABLED=true`、`IDENTITY_AUTH_REQUIRED=false`。`BUSINESS_API_URL=https://auth.iart.work` 是 Nginx 暴露 `/api/` 的请求基址，`LOGTO_API_RESOURCE=https://api.multi-publish.com` 仍是 access token audience。
+
+轮换 entitlement 签名密钥时，先在服务端 Secret Store 切换私钥并验证业务 API，再把对应的新公钥和 key id 更新到该 JSON，重新发布桌面安装包。不要用客户端配置代替服务端的密钥轮换或撤销机制。
+
 ## Webhook 配置
 
 在 Logto Console 创建 Web Hook，URL 指向业务 API 的公开地址，例如：

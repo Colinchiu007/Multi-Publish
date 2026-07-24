@@ -53,6 +53,7 @@ const CRITICAL_FILES = [
   'apps/desktop/electron/services/store.js',
   'apps/desktop/electron/services/rpa-view-manager.js',
   'config/platforms.yaml',
+  'config/identity-public.json',
 ]
 
 function checkFilesExist() {
@@ -66,6 +67,18 @@ function checkFilesExist() {
         ERRORS.push(`[EMPTY] ${cf}`)
       }
     }
+  }
+}
+
+function checkIdentityPublicConfig() {
+  const configFile = 'config/identity-public.json'
+  const full = path.join(ROOT, configFile)
+  if (!fs.existsSync(full)) return
+  try {
+    const { parseIdentityPublicConfig } = require('./electron/services/identity/identity-runtime-config')
+    parseIdentityPublicConfig(fs.readFileSync(full, 'utf8'))
+  } catch (e) {
+    ERRORS.push(`[IDENTITY_CONFIG] ${configFile}: ${e.message}`)
   }
 }
 
@@ -122,6 +135,7 @@ console.log('=== Multi-Publish 构建前自检 ===\n')
 
 checkNullBytes(ROOT)
 checkFilesExist()
+checkIdentityPublicConfig()
 checkSymlinks()
 checkPackageConfig()
 

@@ -3604,3 +3604,27 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **修复与回归保护**：runner 显式复制 `upload/`，npm `files` 同步包含 `upload/`，API workspace 直接声明 `js-yaml`；Compose 将插件目录设置为 `/app/data/plugins`，两个 bind mount 均使用 `create_host_path: false`，运行手册要求部署前以 UID/GID 1001 创建 config、data 和 plugins，避免 Docker 生成 root-owned 目录；Dockerfile 与 Compose healthcheck 固定使用 `127.0.0.1`。`logto-deploy-contract.test.js` 依据 runner 的本地 `COPY` 清单构造隔离 staging，以依赖声明守卫加载真实 `src/index.js`，同时固定 bind mount fail-closed 合同；`npm pack --dry-run` 验证 tarball。Node/Python 验证器只允许 `RS256 + RSA` 与 `ES384 + EC + P-384`，拒绝算法、密钥类型、曲线和签名编码错配，并以 `alg:kid` 作为 JWKS/未知密钥缓存键；两端均增加真实签名和负缓存隔离回归。生产候选还必须在 ECS 无缓存 build、以非 root 用户启动，并验证 health、ready、未认证 `/me`、production smoke 和错误日志。
 
 **系统性预防**：选择性 Docker COPY、npm `files` 和 workspace `dependencies` 都属于独立运行时清单，审查必须同时核对；容器测试必须覆盖最终用户、持久卷权限和 loopback 地址族；OIDC 算法白名单必须以目标租户实时 JWKS 为准，同时严格绑定 `alg/kty/crv`，不能以“只允许一种算法”替代互操作验证。上述规则已写入 `AGENTS.md`，后续新增静态/懒加载依赖、修改 Dockerfile、迁移身份提供方或轮换签名算法时自动触发对应合同测试。
+
+---
+
+## 2026-07-24：Bootstrap 测试不能隐式依赖工作树身份配置
+
+**第一性原因**：发行包公开配置接入后，`config/identity-public.json` 在测试工作树中把身份服务显式启用。`bootstrap.test.js` 没有隔离身份工厂，沿用原本依赖 `process.env` 默认关闭身份的隐含前提；因此实际身份服务恢复到无 `user.sub` 的已登出状态。owner 隔离保护会正确跳过 `scheduler.restore()`，但旧测试仍断言它必定被调用。
+
+**逃逸链**：Phase 3 单元测试覆盖了身份工厂注入和 owner provider，却没有断言已登录 subject 传入 `scheduler.restore()`；bootstrap 测试只验证 legacy 无身份路径，没有 mock 文件系统驱动的运行时身份配置。此前工作树没有自动启用身份服务，故该环境耦合未暴露。
+
+**修复与回归保护**：bootstrap 测试固定 mock 身份工厂默认返回 `null`，并分别覆盖无身份恢复、身份已启用但未识别用户时拒绝恢复、已认证用户按 `sub` 恢复。Phase 3 测试明确断言认证用户调用 `scheduler.restore('user-a')`。
+
+**系统性预防**：主进程测试不得通过真实 `process.env`、仓库配置文件或当前用户数据推断身份模式；必须显式注入或 mock 身份工厂。涉及 `owner_subject` 的调度恢复至少覆盖无身份、无 subject 和已认证 subject 三种状态，不能为让 legacy 断言通过而放宽生产隔离保护。
+
+---
+
+## 2026-07-25：发行级身份启用开关与 ECS 磁盘容量门禁
+
+**第一性原因**：公开运行时配置初版把 `IDENTITY_AUTH_ENABLED` 和 `IDENTITY_AUTH_REQUIRED` 一并列为可覆盖环境变量。发行包已将 `identityAuthEnabled=true` 固化在 `identity-public.json`，但任意继承到桌面进程的 `IDENTITY_AUTH_ENABLED=false` 仍可让身份工厂返回 `null`，并在 Shadow 阶段静默继续启动。独立的 ECS 根盘也因 Runner 诊断日志和系统日志积累到 `40G` 中仅剩约 `848MB`，没有容量门禁时下一次镜像拉取或日志写入可能耗尽磁盘。
+
+**逃逸链**：运行时配置测试只验证了两个开关同时覆盖后产生矛盾的情况，没有覆盖发行配置已启用、环境单独关闭的路径；Phase 3 测试 mock 了加载器，因此不会观察实际合并规则。部署 Runbook 和 Prometheus overlay 只覆盖应用健康、OIDC 探针和备份超时，没有宿主机或卷容量阈值。
+
+**修复与回归保护**：配置文件存在时，加载器只允许环境覆盖 `identityAuthRequired` 与其余公开字段，固定发行级 `identityAuthEnabled`；新增回归测试验证环境不能静默关闭已发行的身份服务，并保留无配置旧式环境的布尔校验。Runbook 要求根盘至少同时保留 `5 GiB` 与 `10%` 可用空间，低于门槛时停止发布、拉取、备份和迁移；本次只删除超过两天的 Runner 诊断日志并把 journal 收缩到 `200MB`，不触碰 Docker 卷、容器或项目数据。
+
+**系统性预防**：发布前容量检查必须作为命令门禁执行，云监控或受控调度必须为根盘和备份卷提供容量告警；不得以自动 `docker system prune` 或删除持久化卷替代保留期治理。凡是把“是否启用安全边界”从发行配置与环境变量合并的模块，测试必须分别覆盖发行配置优先、可回滚字段覆盖、无发行配置兼容和非法覆盖值四种场景。

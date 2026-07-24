@@ -104,6 +104,12 @@ apps/desktop/src/stores/identity.js
 apps/desktop/src/composables/useIdentity.js
 ```
 
+### 5.1.1 发行公开配置
+
+发行包通过 `extraResources` 将 `config/identity-public.json` 放入 `resources/config/`。主进程在创建身份服务前读取该版本化 JSON，并只映射公开字段到身份服务环境：Logto endpoint、Native Application ID、API resource、业务 API URL、回环 callback、scope、entitlement key id 和 RSA 公钥。发行配置中的 `identityAuthEnabled` 是发行契约，配置存在时不接受 `IDENTITY_AUTH_ENABLED` 覆盖；受控进程环境只能覆盖 `identityAuthRequired` 和其余公开值，用于 Shadow/Required 切换。没有发行配置的旧式开发环境仍可通过进程环境声明启用开关；桌面端不加载 `.env`。
+
+加载器拒绝未知字段、私钥字段、非布尔开关、不完整或非 RSA 的 entitlement 公钥配置和缺少 `openid`、`profile`、`offline_access` 的显式 scope。发行配置与受控环境合并后会再次校验认证开关，拒绝 `enabled=false`、`required=true` 等矛盾组合；任何环境变量都不能把已发行的身份服务静默关闭。发行配置存在时，读取、大小、解析或字段校验失败一律阻止应用继续启动；身份工厂返回 `IDENTITY_CONFIG_INVALID` 或 `ENTITLEMENT_CONFIG_INVALID` 也同样 fail closed。仅 Shadow 的临时非配置初始化失败允许降级，`IDENTITY_AUTH_REQUIRED=true` 时任何身份初始化失败都阻止启动。受控进程环境覆盖只控制桌面端启动策略，服务端 Bearer 验证和 Required 开关才是授权边界。服务端私钥、Webhook signing key、Management Token、数据库 URL 和 client secret 永远不进入该资源或 Renderer。
+
 ### 5.2 状态机
 
 ```text
