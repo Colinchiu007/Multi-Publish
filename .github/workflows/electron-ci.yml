@@ -12,6 +12,8 @@ jobs:
   electron-tests:
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
+    env:
+      NODE_ENV: test
 
     steps:
       - uses: actions/checkout@v4
@@ -29,11 +31,13 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --include=dev
+
+      - name: Install Electron runtime
+        run: node node_modules/electron/install.js
 
       - name: Unit tests (Vitest, non-Electron)
-        run: |
-          npm run test -w @multi-publish/desktop
+        run: npm run test -w @multi-publish/desktop -- --maxWorkers=1 --no-file-parallelism
 
       - name: Electron smoke test (xvfb)
         run: |

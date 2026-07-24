@@ -188,6 +188,38 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(workflow.jobs['electron-tests']['runs-on']).toEqual(['self-hosted', 'linux', 'x64']);
   });
 
+  it('Electron CI 在运行 Vitest 前显式安装开发依赖和 Electron 运行时', () => {
+    const { workflow } = readWorkflow('electron-ci.yml');
+    const steps = workflow.jobs['electron-tests'].steps;
+    const dependencySteps = steps.filter((step) => step.name === 'Install dependencies');
+    const electronSteps = steps.filter((step) => step.name === 'Install Electron runtime');
+    const testSteps = steps.filter((step) => step.name === 'Unit tests (Vitest, non-Electron)');
+
+    expect(dependencySteps).toHaveLength(1);
+    expect(electronSteps).toHaveLength(1);
+    expect(testSteps).toHaveLength(1);
+    expect(dependencySteps[0].run.trim()).toBe('npm ci --include=dev');
+    expect(electronSteps[0].run.trim()).toBe('node node_modules/electron/install.js');
+
+    const dependencyIndex = steps.indexOf(dependencySteps[0]);
+    const electronIndex = steps.indexOf(electronSteps[0]);
+    const testIndex = steps.indexOf(testSteps[0]);
+
+    expect(dependencyIndex).toBeLessThan(electronIndex);
+    expect(electronIndex).toBeLessThan(testIndex);
+  });
+
+  it('Electron CI 使用测试环境和单 worker 运行桌面全量 Vitest', () => {
+    const { workflow } = readWorkflow('electron-ci.yml');
+    const job = workflow.jobs['electron-tests'];
+    const testStep = job.steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron)');
+
+    expect(job.env).toMatchObject({ NODE_ENV: 'test' });
+    expect(testStep.run.trim()).toBe(
+      'npm run test -w @multi-publish/desktop -- --maxWorkers=1 --no-file-parallelism',
+    );
+  });
+
   it('自主审计成功分支不会继续写入基础设施失败状态', () => {
     const { source } = readWorkflow('quality-gate.yml');
 
