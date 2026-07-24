@@ -3645,3 +3645,15 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **修复与回归保护**：`quality-gate.yml` 的 Gate 4 现在在 Windows 上用 `Start-Process` 启动根 `npm run test --workspaces --if-present`，并以 30 分钟 `WaitForExit` 预算、受限进程树诊断、`taskkill /T` 超时终止和正常退出后的残留子进程核验保护。桌面 Vitest 配置在 `CI=true` 时启用详细 reporter 和 10 秒 test/hook/teardown 超时；`workflow-contract.test.js` 固化参数传播、预算和进程树合同。最终 Gate 4 等价命令在 `CI=true` 下于 21 分 41 秒退出：桌面 `312 files / 5375 tests`，所有其余工作区通过。
 
 **系统性预防**：为全仓命令设预算时，先展开根脚本的 workspace 扇出；不可把单 workspace 或单测试文件耗时外推为根命令总时长。任何 CI 执行全仓测试都必须有短于 job 的步骤级 watchdog、失败诊断和可终止的进程树。
+
+---
+
+## 2026-07-24：账号页视觉重构后 GUI 选择器合同未同步
+
+**第一性原因**：本轮账号页重构将旧的 `.account-platform-group` 分组列表替换为左侧平台筛选面板和账号卡片，并将账号名称输入框改为仅在编辑态出现；`electron-gui-v9.js` 与 `server-gui-test.js` 仍沿用 `0257eda8` 的旧 DOM 选择器。PR #334 的真实 Electron GUI 门禁因此在账号页稳定得到 `0 分组、12 行` 和空默认账号名，尽管新页面的行数、筛选和其它 66 项交互均正确。
+
+**逃逸链**：组件测试已覆盖新的 `.platform-filter-panel`、`.account-name-button` 和编辑态输入框，但 GUI 测试配置的选择器没有由组件拥有者更新；常规 Vitest 不执行真实 Electron 路径，完整 GUI 门禁只在 PR CI 运行，因此该陈旧合同直到远端才暴露。
+
+**修复与回归保护**：选择器配置改为 `platformFilterButton` 与 `accountNameButton`；两个 GUI runner 现在验证“全部 + 六个平台”共七个筛选按钮、12 张账号卡片，以及默认账号卡片的可见名称按钮。静态 smoke 同时要求这两个语义选择器存在，避免配置退回到旧分组或编辑态专用输入框。
+
+**系统性预防**：任何替换页面级 DOM 结构或把常驻控件改为条件渲染控件的改动，都必须在同一提交中搜索并更新 `selectors.json` 的全部消费者；除组件 Vitest 外，至少保留一条真实 GUI 合同验证用户可见、非编辑态的语义元素。

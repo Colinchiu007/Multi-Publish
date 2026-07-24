@@ -106,10 +106,10 @@ async function testAccountPage(page) {
 
   // 基线
   const state = await page.evaluate((sel) => {
-    const groups = document.querySelectorAll(sel.platformGroup);
-    return { groupCount: groups.length, rows: document.querySelectorAll(sel.accountRow).length };
+    const platformFilters = document.querySelectorAll(sel.platformFilterButton);
+    return { platformFilterCount: platformFilters.length, rows: document.querySelectorAll(sel.accountRow).length };
   }, SEL);
-  assert(`${state.groupCount} 分组、${state.rows} 行`, state.groupCount === 6 && state.rows === 12);
+  assert(`${state.platformFilterCount} 个平台筛选、${state.rows} 行`, state.platformFilterCount === 7 && state.rows === 12);
 
   // 删除
   await page.evaluate((sel) => {
@@ -130,15 +130,15 @@ async function testAccountPage(page) {
   }, SEL);
   await wait(500);
   const defaultName = await page.evaluate((sel) => {
-    const row = document.querySelector(`${sel.accountRow}.is-default ${sel.accountNameInput}`);
-    return row?.value || "";
+    const nameButton = document.querySelector(`${sel.accountRow}.is-default ${sel.accountNameButton}`);
+    return nameButton?.textContent?.trim() || "";
   }, SEL);
   assert(`默认账号「科技号」`, defaultName === "科技号");
   await injectAccounts(page);
 
   // 筛选
   for (const label of ["未登录", "已登录", "全部"]) {
-    const btn = await page.$(`button.cohere-filter-chip:has-text("${label}")`);
+    const btn = await page.$(`${SEL.filterChips}:has-text("${label}")`);
     if (btn) { await btn.click(); await wait(800); }
     const cnt = await page.evaluate((sel) => document.querySelectorAll(sel.accountRow).length, SEL);
     const expected = { "未登录": 3, "已登录": 9, "全部": 12 }[label];
