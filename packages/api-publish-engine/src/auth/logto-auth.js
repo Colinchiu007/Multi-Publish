@@ -30,16 +30,32 @@ function audienceMatches(actual, expected) {
   return typeof actual === 'string' ? actual === expected : Array.isArray(actual) && actual.includes(expected)
 }
 
+const JWT_ALGORITHMS = Object.freeze({
+  RS256: { keyType: 'rsa', digest: 'RSA-SHA256' },
+  ES384: { keyType: 'ec', curve: 'secp384r1', digest: 'sha384', dsaEncoding: 'ieee-p1363' },
+})
+
 function verifyJwtClaims(token, options = {}) {
   const parts = typeof token === 'string' ? token.split('.') : []
   if (parts.length !== 3) throw new AuthError('AUTH_TOKEN_INVALID')
   const header = decodePart(parts[0], 'AUTH_TOKEN_INVALID')
   const claims = decodePart(parts[1], 'AUTH_TOKEN_INVALID')
-  if (header.alg !== 'RS256') throw new AuthError('AUTH_ALGORITHM_INVALID')
+  const algorithm = JWT_ALGORITHMS[header.alg]
+  if (!algorithm || (options.algorithm && header.alg !== options.algorithm)) {
+    throw new AuthError('AUTH_ALGORITHM_INVALID')
+  }
+  if (!options.publicKey || options.publicKey.asymmetricKeyType !== algorithm.keyType) {
+    throw new AuthError('AUTH_KEY_INVALID')
+  }
+  if (algorithm.curve && options.publicKey.asymmetricKeyDetails?.namedCurve !== algorithm.curve) {
+    throw new AuthError('AUTH_KEY_INVALID')
+  }
   const verified = crypto.verify(
-    'RSA-SHA256',
+    algorithm.digest,
     Buffer.from(`${parts[0]}.${parts[1]}`),
-    options.publicKey,
+    algorithm.dsaEncoding
+      ? { key: options.publicKey, dsaEncoding: algorithm.dsaEncoding }
+      : options.publicKey,
     Buffer.from(parts[2], 'base64url'),
   )
   if (!verified) throw new AuthError('AUTH_SIGNATURE_INVALID')

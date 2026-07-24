@@ -3590,3 +3590,17 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **修复与回归保护**：`.nav-primary` 现在是可收缩的单行 flex 容器，在空间不足时仅自身横向滚动；导航项和右侧操作区禁止收缩，1024px/768px 下收紧间距并隐藏非关键状态文字。发布记录移动端 `.record-main` 改为 `width: auto; flex: 1 1 0`，由剩余空间决定宽度。`cohere-design-system.test.js` 固化导航容器合同，`PublishHistory.test.js` 覆盖批量选择、全选/取消和移动宽度合同；`capture-yixiaoer-current.js` 用测试 fixture 在 1440x900 与 480x800 捕获账号、发布记录和批量模式，并对页面横向溢出、卡片边界、文字控件和导航重叠执行真实 Chromium 断言。
 
 **系统性预防**：任何给 flex/grid 布局新增包裹层或条件列的改动，都必须同时列出容器、固定项、弹性项、gap 和 padding 的宽度预算，并至少用一个窄视口和条件元素开启状态验证。响应式视觉脚本必须 fail closed 检查 `documentElement.scrollWidth <= clientWidth`、主要区域边界和固定导航相交；新视图在人工基线批准前保持像素门禁阻断，不能自动复制当前图或把自身截图冒充外部产品参考图。
+
+---
+
+## 2026-07-24：业务 API Docker runner、依赖闭包与 Logto ES384 生产热修
+
+**第一性原因**：五个演进决策叠加后才在真实 ECS 暴露。`17865c9` 将 Dockerfile 改成 monorepo 多阶段构建时不再复制 `upload/`；`abd904e` 建立的 npm `files` 清单一直没有 `upload/`，而 `789afd6` 把已使用的 `js-yaml` 带入 API 启动闭包却未声明为所属 workspace 的直接依赖。`44e2c6e` 为插件加载器增加 `MULTI_PUBLISH_PLUGINS_DIR`，后续 Compose 仍让非 root 用户回退到不可写的 `/app/apps/desktop/plugins`。`23ed997` 初始 Alpine 健康检查使用 `localhost`，但服务只监听 IPv4，容器内解析到 `::1` 后误判 unhealthy。`789afd6` 出于禁止算法降级的正确安全意图，将 Node/Python OIDC 验证器锁定为 RS256/RSA；真实 Logto v1.41 租户使用 ES384/EC/P-384，该白名单与生产能力不匹配。
+
+**逃逸链**：单元测试和上传/适配器测试均在完整源码工作树运行，根 `node_modules` 的依赖提升遮蔽了 `js-yaml` 未声明；`prepublishOnly` 未检查 tarball 文件表，部署合同只做 Dockerfile 文本正则，没有按 runner `COPY` 文件集加载真实入口；CI 没有构建并启动业务 API 镜像，也未覆盖非 root 插件目录和 Alpine IPv4/IPv6 行为。OIDC 测试只用自生成 RS256/RSA fixture，没有对生产 discovery/JWKS 做算法契约验证。于是单元、集成、静态审查和 CI 都通过，首次 ECS 启动才依次暴露 `Cannot find module`、插件 `EACCES`、healthcheck 失败，以及生产 JWKS 无可用签名密钥。
+
+**系统性漏洞**：当前测试把“源码树可运行”“npm 发布包完整”“Docker runner 文件集完整”“容器以最终用户可运行”和“目标身份提供方互操作”混成一个结论。它们其实是五个独立边界；任何一个边界缺失，都可能在源码测试全绿时阻断生产。
+
+**修复与回归保护**：runner 显式复制 `upload/`，npm `files` 同步包含 `upload/`，API workspace 直接声明 `js-yaml`；Compose 将插件目录设置为 `/app/data/plugins`，两个 bind mount 均使用 `create_host_path: false`，运行手册要求部署前以 UID/GID 1001 创建 config、data 和 plugins，避免 Docker 生成 root-owned 目录；Dockerfile 与 Compose healthcheck 固定使用 `127.0.0.1`。`logto-deploy-contract.test.js` 依据 runner 的本地 `COPY` 清单构造隔离 staging，以依赖声明守卫加载真实 `src/index.js`，同时固定 bind mount fail-closed 合同；`npm pack --dry-run` 验证 tarball。Node/Python 验证器只允许 `RS256 + RSA` 与 `ES384 + EC + P-384`，拒绝算法、密钥类型、曲线和签名编码错配，并以 `alg:kid` 作为 JWKS/未知密钥缓存键；两端均增加真实签名和负缓存隔离回归。生产候选还必须在 ECS 无缓存 build、以非 root 用户启动，并验证 health、ready、未认证 `/me`、production smoke 和错误日志。
+
+**系统性预防**：选择性 Docker COPY、npm `files` 和 workspace `dependencies` 都属于独立运行时清单，审查必须同时核对；容器测试必须覆盖最终用户、持久卷权限和 loopback 地址族；OIDC 算法白名单必须以目标租户实时 JWKS 为准，同时严格绑定 `alg/kty/crv`，不能以“只允许一种算法”替代互操作验证。上述规则已写入 `AGENTS.md`，后续新增静态/懒加载依赖、修改 Dockerfile、迁移身份提供方或轮换签名算法时自动触发对应合同测试。

@@ -58,11 +58,15 @@ node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.
 需要容器化运行时，从仓库根目录执行。Compose 将容器内的 `3000` 固定映射到宿主机回环 `3030`，因此该路径的 smoke 必须访问 `3030`：
 
 ```text
+sudo install -d -m 0750 -o 1001 -g 1001 \
+  packages/api-publish-engine/config \
+  packages/api-publish-engine/data \
+  packages/api-publish-engine/data/plugins
 docker compose -f packages/api-publish-engine/docker-compose.yml --env-file deploy/logto/api.env up -d
 node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.example.com --api http://127.0.0.1:3030
 ```
 
-该 Compose 的 `./config` 必须预先创建，并在 Linux 主机上授权给容器 UID `1001`。它挂载到 `/app/packages/api-publish-engine/config`，与 `ApiKeyManager` 和默认配置文件路径一致；不要改回 `/app/config`。监控 overlay 也不能单独启动，必须和基础 Logto Compose 一起传给 `docker compose -f`。
+该 Compose 的 `./config`、`./data` 和 `./data/plugins` 必须由上面的命令预先创建，并授权给容器 UID/GID `1001`。Compose 使用 `create_host_path: false`，目录缺失时会 fail closed，而不是让 Docker 自动创建 root-owned bind source。`config` 挂载到 `/app/packages/api-publish-engine/config`，与 `ApiKeyManager` 和默认配置文件路径一致；不要改回 `/app/config`。监控 overlay 也不能单独启动，必须和基础 Logto Compose 一起传给 `docker compose -f`。
 
 `/api/v1/health` 只表示进程存活；只有 `/api/v1/ready` 返回 200 才能把实例加入负载均衡。
 
