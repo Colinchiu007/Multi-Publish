@@ -1,24 +1,25 @@
 """Logto OIDC Access Token 验证。
 
-该模块只接受 RS256 + JWKS，禁止把 JWT decode 当作验证，也不允许对称算法降级。
+该模块只接受 RS256/RSA 与 ES384/EC P-384，禁止把 JWT decode 当作验证，也不允许对称算法降级。
 """
 
 from __future__ import annotations
 
-import base64
 import asyncio
+import base64
 import json
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from fastapi import HTTPException, Request
-
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
@@ -30,7 +31,7 @@ def _parse_secure_url(value: str, error_code: str):
     if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username or parsed.password:
         raise AuthError(error_code)
     try:
-        parsed.port
+        _ = parsed.port
     except ValueError as exc:
         raise AuthError(error_code) from exc
     if parsed.scheme != "https" and parsed.hostname.lower() not in _LOCAL_HOSTS:
@@ -87,7 +88,12 @@ def _audience_matches(actual: Any, expected: str) -> bool:
 
 
 def _public_key_from_jwk(jwk: dict[str, Any]):
-    if jwk.get("kty") != "RSA" or jwk.get("alg") not in (None, "RS256"):
+    algorithm = jwk.get("alg")
+    key_type = jwk.get("kty")
+    if (algorithm, key_type, jwk.get("crv")) not in {
+        ("RS256", "RSA", None),
+        ("ES384", "EC", "P-384"),
+    }:
         raise AuthError("AUTH_KEY_INVALID")
     if jwk.get("use") not in (None, "sig"):
         raise AuthError("AUTH_KEY_INVALID")
@@ -95,9 +101,19 @@ def _public_key_from_jwk(jwk: dict[str, Any]):
     if key_ops is not None and (not isinstance(key_ops, list) or "verify" not in key_ops):
         raise AuthError("AUTH_KEY_INVALID")
     try:
-        n = int.from_bytes(base64.urlsafe_b64decode(jwk["n"] + "=" * (-len(jwk["n"]) % 4)), "big")
-        e = int.from_bytes(base64.urlsafe_b64decode(jwk["e"] + "=" * (-len(jwk["e"]) % 4)), "big")
-        return RSAPublicNumbers(e, n).public_key()
+        if algorithm == "RS256":
+            n = int.from_bytes(base64.urlsafe_b64decode(jwk["n"] + "=" * (-len(jwk["n"]) % 4)), "big")
+            e = int.from_bytes(base64.urlsafe_b64decode(jwk["e"] + "=" * (-len(jwk["e"]) % 4)), "big")
+            return RSAPublicNumbers(e, n).public_key()
+        x_bytes = base64.urlsafe_b64decode(jwk["x"] + "=" * (-len(jwk["x"]) % 4))
+        y_bytes = base64.urlsafe_b64decode(jwk["y"] + "=" * (-len(jwk["y"]) % 4))
+        if len(x_bytes) != 48 or len(y_bytes) != 48:
+            raise ValueError("P-384 坐标长度无效")
+        return ec.EllipticCurvePublicNumbers(
+            int.from_bytes(x_bytes, "big"),
+            int.from_bytes(y_bytes, "big"),
+            ec.SECP384R1(),
+        ).public_key()
     except (KeyError, ValueError, TypeError) as exc:
         raise AuthError("AUTH_KEY_INVALID") from exc
 
@@ -116,11 +132,29 @@ def verify_logto_jwt(
         raise AuthError("AUTH_TOKEN_INVALID")
     header = _decode_part(parts[0])
     claims = _decode_part(parts[1])
-    if header.get("alg") != "RS256":
+    algorithm = header.get("alg")
+    if algorithm not in {"RS256", "ES384"}:
         raise AuthError("AUTH_ALGORITHM_INVALID")
+    if algorithm == "RS256" and not isinstance(public_key, rsa.RSAPublicKey):
+        raise AuthError("AUTH_KEY_INVALID")
+    if algorithm == "ES384" and (
+        not isinstance(public_key, ec.EllipticCurvePublicKey)
+        or not isinstance(public_key.curve, ec.SECP384R1)
+    ):
+        raise AuthError("AUTH_KEY_INVALID")
     try:
         signature = base64.urlsafe_b64decode(parts[2] + "=" * (-len(parts[2]) % 4))
-        public_key.verify(signature, f"{parts[0]}.{parts[1]}".encode(), padding.PKCS1v15(), hashes.SHA256())
+        signing_input = f"{parts[0]}.{parts[1]}".encode()
+        if algorithm == "RS256":
+            public_key.verify(signature, signing_input, padding.PKCS1v15(), hashes.SHA256())
+        else:
+            if len(signature) != 96:
+                raise ValueError("ES384 签名长度无效")
+            der_signature = encode_dss_signature(
+                int.from_bytes(signature[:48], "big"),
+                int.from_bytes(signature[48:], "big"),
+            )
+            public_key.verify(der_signature, signing_input, ec.ECDSA(hashes.SHA384()))
     except Exception as exc:  # cryptography 使用统一异常类型，避免把密钥细节返回调用方
         raise AuthError("AUTH_SIGNATURE_INVALID") from exc
     if claims.get("iss") != issuer:
@@ -244,17 +278,20 @@ class LogtoJwtVerifier:
             for key in keys:
                 if not isinstance(key, dict) or not isinstance(key.get("kid"), str) or not key.get("kid"):
                     continue
-                if key.get("kty") != "RSA" or key.get("alg") not in (None, "RS256"):
+                algorithm = key.get("alg")
+                profile = (algorithm, key.get("kty"), key.get("crv"))
+                if profile not in {("RS256", "RSA", None), ("ES384", "EC", "P-384")}:
                     continue
                 if key.get("use") not in (None, "sig"):
                     continue
                 key_ops = key.get("key_ops")
                 if key_ops is not None and (not isinstance(key_ops, list) or "verify" not in key_ops):
                     continue
-                if key["kid"] in usable_keys:
+                cache_key = f"{algorithm}:{key['kid']}"
+                if cache_key in usable_keys:
                     continue
                 try:
-                    usable_keys[key["kid"]] = _public_key_from_jwk(key)
+                    usable_keys[cache_key] = _public_key_from_jwk(key)
                 except AuthError:
                     continue
             self._keys = usable_keys
@@ -268,26 +305,34 @@ class LogtoJwtVerifier:
             raise AuthError("AUTH_TOKEN_INVALID")
         header = _decode_part(parts[0])
         kid = header.get("kid")
-        if header.get("alg") != "RS256" or not isinstance(kid, str):
+        algorithm = header.get("alg")
+        if algorithm not in {"RS256", "ES384"} or not isinstance(kid, str):
             raise AuthError("AUTH_ALGORITHM_INVALID")
         if not kid or len(kid) > 128 or any(not (char.isalnum() or char in "._:-") for char in kid):
             raise AuthError("AUTH_KEY_NOT_FOUND")
         current = self.now()
-        negative_expiry = self._unknown_kid_cache.get(kid)
+        cache_key = f"{algorithm}:{kid}"
+        negative_expiry = self._unknown_kid_cache.get(cache_key)
         if negative_expiry and negative_expiry > current:
             raise AuthError("AUTH_KEY_NOT_FOUND")
         if negative_expiry:
-            self._unknown_kid_cache.pop(kid, None)
+            self._unknown_kid_cache.pop(cache_key, None)
         keys = await self._get_keys()
-        if kid not in keys:
+        if cache_key not in keys:
             keys = await self._get_keys(force=True)
-        if kid not in keys:
+        if cache_key not in keys:
             if len(self._unknown_kid_cache) >= self.unknown_kid_cache_max:
                 self._unknown_kid_cache.pop(next(iter(self._unknown_kid_cache)), None)
-            self._unknown_kid_cache[kid] = current + self.unknown_kid_cache_ttl_seconds
+            self._unknown_kid_cache[cache_key] = current + self.unknown_kid_cache_ttl_seconds
             raise AuthError("AUTH_KEY_NOT_FOUND")
-        self._unknown_kid_cache.pop(kid, None)
-        return verify_logto_jwt(token, public_key=keys[kid], issuer=self.issuer, audience=self.audience, now=self.now())
+        self._unknown_kid_cache.pop(cache_key, None)
+        return verify_logto_jwt(
+            token,
+            public_key=keys[cache_key],
+            issuer=self.issuer,
+            audience=self.audience,
+            now=self.now(),
+        )
 
 
 def create_fastapi_dependency(verifier: LogtoJwtVerifier, required_scopes: list[str] | None = None):

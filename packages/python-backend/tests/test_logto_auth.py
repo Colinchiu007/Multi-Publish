@@ -1,16 +1,17 @@
+import asyncio
 import base64
-import json
 import importlib.util
 import inspect
+import json
 import sys
 import time
 import unittest
 from pathlib import Path
 
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from fastapi import Request
-
 
 _MODULE_PATH = Path(__file__).parents[1] / "src" / "multi_publish" / "auth" / "logto.py"
 _SPEC = importlib.util.spec_from_file_location("multi_publish_logto_auth_test_target", _MODULE_PATH)
@@ -29,6 +30,45 @@ def _token(private_key, claims: dict, kid: str = "key-1") -> str:
     signing_input = f"{header}.{payload}".encode()
     signature = private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
     return f"{header}.{payload}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"
+
+
+def _ec_token(private_key, claims: dict, kid: str = "ec-key-1", alg: str = "ES384") -> str:
+    header = _encode({"alg": alg, "typ": "JWT", "kid": kid})
+    payload = _encode(claims)
+    signing_input = f"{header}.{payload}".encode()
+    der_signature = private_key.sign(signing_input, ec.ECDSA(hashes.SHA384()))
+    r, s = decode_dss_signature(der_signature)
+    signature = r.to_bytes(48, "big") + s.to_bytes(48, "big")
+    return f"{header}.{payload}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"
+
+
+def _rsa_jwk(private_key, kid: str) -> dict:
+    numbers = private_key.public_key().public_numbers()
+    return {
+        "kid": kid,
+        "kty": "RSA",
+        "alg": "RS256",
+        "use": "sig",
+        "n": base64.urlsafe_b64encode(numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big"))
+        .rstrip(b"=")
+        .decode(),
+        "e": base64.urlsafe_b64encode(numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big"))
+        .rstrip(b"=")
+        .decode(),
+    }
+
+
+def _ec_jwk(private_key, kid: str) -> dict:
+    numbers = private_key.public_key().public_numbers()
+    return {
+        "kid": kid,
+        "kty": "EC",
+        "alg": "ES384",
+        "crv": "P-384",
+        "use": "sig",
+        "x": base64.urlsafe_b64encode(numbers.x.to_bytes(48, "big")).rstrip(b"=").decode(),
+        "y": base64.urlsafe_b64encode(numbers.y.to_bytes(48, "big")).rstrip(b"=").decode(),
+    }
 
 
 class LogtoAuthTest(unittest.TestCase):
@@ -113,7 +153,7 @@ class LogtoAuthTest(unittest.TestCase):
 
             asyncio.run(verifier._get_keys())
 
-    def test_jwks_filters_encryption_and_non_rsa_keys(self):
+    def test_jwks_filters_encryption_and_unsupported_ec_keys(self):
         async def fetcher(url):
             class Response:
                 status_code = 200
@@ -135,8 +175,84 @@ class LogtoAuthTest(unittest.TestCase):
 
         self.assertEqual(asyncio.run(verifier._get_keys()), {})
 
+    def test_jwks_accepts_logto_es384_p384_key(self):
+        private_key = ec.generate_private_key(ec.SECP384R1())
+        public_numbers = private_key.public_key().public_numbers()
+        jwk = {
+            "kid": "ec-key-1",
+            "kty": "EC",
+            "alg": "ES384",
+            "crv": "P-384",
+            "use": "sig",
+            "x": base64.urlsafe_b64encode(public_numbers.x.to_bytes(48, "big")).rstrip(b"=").decode(),
+            "y": base64.urlsafe_b64encode(public_numbers.y.to_bytes(48, "big")).rstrip(b"=").decode(),
+        }
+
+        async def fetcher(url):
+            class Response:
+                status_code = 200
+
+                def json(self):
+                    if url.endswith("openid-configuration"):
+                        return {"issuer": "https://id.example.com", "jwks_uri": "https://id.example.com/jwks"}
+                    return {"keys": [jwk]}
+
+            return Response()
+
+        verifier = logto_auth.LogtoJwtVerifier("https://id.example.com", "audience", fetcher=fetcher)
+        keys = asyncio.run(verifier._get_keys())
+        self.assertEqual(list(keys), ["ES384:ec-key-1"])
+
+    def test_verifies_logto_es384_token_and_rejects_wrong_curve_or_signature_length(self):
+        private_key = ec.generate_private_key(ec.SECP384R1())
+        wrong_curve_key = ec.generate_private_key(ec.SECP256R1())
+        now = int(time.time())
+        claims = {
+            "sub": "sub-es384",
+            "iss": "https://id.example.com/oidc",
+            "aud": "https://api.multi-publish.com",
+            "scope": "publish:read",
+            "iat": now - 10,
+            "exp": now + 300,
+        }
+        token = _ec_token(private_key, claims)
+        auth = logto_auth.verify_logto_jwt(
+            token,
+            public_key=private_key.public_key(),
+            issuer=claims["iss"],
+            audience=claims["aud"],
+            now=now,
+        )
+        self.assertEqual(auth, {"subject": "sub-es384", "scopes": ["publish:read"]})
+        with self.assertRaisesRegex(logto_auth.AuthError, "AUTH_KEY_INVALID"):
+            logto_auth.verify_logto_jwt(
+                token,
+                public_key=wrong_curve_key.public_key(),
+                issuer=claims["iss"],
+                audience=claims["aud"],
+                now=now,
+            )
+        header, payload, _ = token.split(".")
+        short_signature = base64.urlsafe_b64encode(b"short").rstrip(b"=").decode()
+        with self.assertRaisesRegex(logto_auth.AuthError, "AUTH_SIGNATURE_INVALID"):
+            logto_auth.verify_logto_jwt(
+                f"{header}.{payload}.{short_signature}",
+                public_key=private_key.public_key(),
+                issuer=claims["iss"],
+                audience=claims["aud"],
+                now=now,
+            )
+        with self.assertRaisesRegex(logto_auth.AuthError, "AUTH_ALGORITHM_INVALID"):
+            logto_auth.verify_logto_jwt(
+                _ec_token(private_key, claims, alg="ES256"),
+                public_key=private_key.public_key(),
+                issuer=claims["iss"],
+                audience=claims["aud"],
+                now=now,
+            )
+
     def test_verify_logto_jwt_checks_signature_claims_and_scopes(self):
-        AuthError = logto_auth.AuthError
+        auth_error_type = logto_auth.AuthError
         require_scopes = logto_auth.require_scopes
         verify_logto_jwt = logto_auth.verify_logto_jwt
 
@@ -160,9 +276,9 @@ class LogtoAuthTest(unittest.TestCase):
         )
         self.assertEqual(auth, {"subject": "sub-1", "scopes": ["publish:read", "publish:submit"]})
         self.assertTrue(require_scopes(auth, ["publish:submit"]))
-        with self.assertRaisesRegex(AuthError, "AUTH_SCOPE_MISSING"):
+        with self.assertRaisesRegex(auth_error_type, "AUTH_SCOPE_MISSING"):
             require_scopes(auth, ["admin:users"])
-        with self.assertRaisesRegex(AuthError, "AUTH_AUDIENCE_INVALID"):
+        with self.assertRaisesRegex(auth_error_type, "AUTH_AUDIENCE_INVALID"):
             verify_logto_jwt(
                 token,
                 public_key=private_key.public_key(),
@@ -172,7 +288,7 @@ class LogtoAuthTest(unittest.TestCase):
             )
 
     def test_rejects_algorithm_downgrade_and_expired_token(self):
-        AuthError = logto_auth.AuthError
+        auth_error_type = logto_auth.AuthError
         verify_logto_jwt = logto_auth.verify_logto_jwt
 
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -181,7 +297,7 @@ class LogtoAuthTest(unittest.TestCase):
             private_key,
             {"sub": "sub-1", "iss": "issuer", "aud": "audience", "iat": now - 500, "exp": now - 120},
         )
-        with self.assertRaisesRegex(AuthError, "AUTH_TOKEN_EXPIRED"):
+        with self.assertRaisesRegex(auth_error_type, "AUTH_TOKEN_EXPIRED"):
             verify_logto_jwt(
                 expired,
                 public_key=private_key.public_key(),
@@ -191,7 +307,7 @@ class LogtoAuthTest(unittest.TestCase):
             )
         _, payload, signature = expired.split(".")
         bad_header = _encode({"alg": "none", "typ": "JWT", "kid": "key-1"})
-        with self.assertRaisesRegex(AuthError, "AUTH_ALGORITHM_INVALID"):
+        with self.assertRaisesRegex(auth_error_type, "AUTH_ALGORITHM_INVALID"):
             verify_logto_jwt(
                 f"{bad_header}.{payload}.{signature}",
                 public_key=private_key.public_key(),
@@ -328,6 +444,61 @@ class LogtoAuthTest(unittest.TestCase):
         self.assertLessEqual(len(verifier._unknown_kid_cache), 8)
         with self.assertRaisesRegex(logto_auth.AuthError, "AUTH_KEY_NOT_FOUND"):
             asyncio.run(verifier.verify(unknown_token("x" * 129)))
+
+    def test_unknown_kid_negative_cache_is_isolated_by_algorithm(self):
+        issuer = "https://id.example.com"
+        audience = "audience"
+        now = int(time.time())
+        claims = {
+            "sub": "subject-1",
+            "iss": issuer,
+            "aud": audience,
+            "iat": now - 10,
+            "exp": now + 300,
+        }
+        rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        ec_key = ec.generate_private_key(ec.SECP384R1())
+
+        async def assert_isolated(jwk, missing_token, valid_token, expected_cache_key):
+            async def fetcher(url):
+                class Response:
+                    status_code = 200
+
+                    def json(self):
+                        if url.endswith("openid-configuration"):
+                            return {"issuer": issuer, "jwks_uri": f"{issuer}/jwks"}
+                        return {"keys": [jwk]}
+
+                return Response()
+
+            verifier = logto_auth.LogtoJwtVerifier(
+                issuer,
+                audience,
+                fetcher=fetcher,
+                unknown_kid_cache_ttl_seconds=60,
+                forced_refresh_cooldown_seconds=60,
+                now=lambda: now,
+            )
+            with self.assertRaisesRegex(logto_auth.AuthError, "AUTH_KEY_NOT_FOUND"):
+                await verifier.verify(missing_token)
+            self.assertIn(expected_cache_key, verifier._unknown_kid_cache)
+            self.assertEqual((await verifier.verify(valid_token))["subject"], "subject-1")
+
+        async def run():
+            await assert_isolated(
+                _rsa_jwk(rsa_key, "shared-kid"),
+                _ec_token(ec_key, claims, kid="shared-kid"),
+                _token(rsa_key, claims, kid="shared-kid"),
+                "ES384:shared-kid",
+            )
+            await assert_isolated(
+                _ec_jwk(ec_key, "shared-kid"),
+                _token(rsa_key, claims, kid="shared-kid"),
+                _ec_token(ec_key, claims, kid="shared-kid"),
+                "RS256:shared-kid",
+            )
+
+        asyncio.run(run())
 
 
 if __name__ == "__main__":

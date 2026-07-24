@@ -2,8 +2,8 @@ const assert = require('assert')
 const crypto = require('crypto')
 const { createLogtoJwtVerifier } = require('../src/auth/logto-jwks')
 
-function createToken(privateKey, kid, issuer, audience) {
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid })).toString('base64url')
+function createToken(privateKey, kid, issuer, audience, algorithm = 'RS256') {
+  const header = Buffer.from(JSON.stringify({ alg: algorithm, typ: 'JWT', kid })).toString('base64url')
   const claims = Buffer.from(JSON.stringify({ sub: `subject-${kid}`, iss: issuer, aud: audience, exp: 200 })).toString('base64url')
   const input = `${header}.${claims}`
   return `${input}.${crypto.sign('RSA-SHA256', Buffer.from(input), privateKey).toString('base64url')}`
@@ -71,6 +71,23 @@ async function main() {
   assert.strictEqual(jwksCalls, 2, '首次未知 kid 应强制刷新一次 JWKS')
   await assert.rejects(negativeVerifier.verify(unknownToken), (error) => error && error.code === 'AUTH_KEY_NOT_FOUND')
   assert.strictEqual(jwksCalls, 2, '负缓存有效期内不能重复刷新 JWKS')
+
+  const algorithmIsolationVerifier = createLogtoJwtVerifier({
+    issuer,
+    audience,
+    fetcher: async (url) => response(url.endsWith('/.well-known/openid-configuration')
+      ? { issuer, jwks_uri: `${issuer}/jwks` }
+      : { keys: [publicJwk] }),
+    now: () => 100,
+  })
+  await assert.rejects(
+    algorithmIsolationVerifier.verify(createToken(privateKey, 'key-1', issuer, audience, 'ES384')),
+    (error) => error && error.code === 'AUTH_KEY_NOT_FOUND',
+  )
+  await assert.doesNotReject(
+    algorithmIsolationVerifier.verify(jwt),
+    '另一算法的未知 key 负缓存不得阻断同 kid 的合法 RS256 Token',
+  )
 
   const restrictedUseVerifier = createLogtoJwtVerifier({
     issuer,

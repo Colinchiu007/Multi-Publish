@@ -8,6 +8,7 @@
   },
   "files": [
     "src/",
+    "upload/",
     "bin/",
     "scripts/",
     "README.md",
@@ -47,6 +48,7 @@
   },
   "dependencies": {
     "axios": "^1.18.1",
+    "js-yaml": "^4.2.0",
     "pg": "8.16.3"
   }
 }

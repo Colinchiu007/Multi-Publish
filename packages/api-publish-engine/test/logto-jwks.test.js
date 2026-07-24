@@ -8,6 +8,17 @@ function token(privateKey, kid, claims) {
   return `${input}.${crypto.sign('RSA-SHA256', Buffer.from(input), privateKey).toString('base64url')}`
 }
 
+function ecToken(privateKey, kid, claims) {
+  const header = Buffer.from(JSON.stringify({ alg: 'ES384', typ: 'JWT', kid })).toString('base64url')
+  const payload = Buffer.from(JSON.stringify(claims)).toString('base64url')
+  const input = `${header}.${payload}`
+  const signature = crypto.sign('sha384', Buffer.from(input), {
+    key: privateKey,
+    dsaEncoding: 'ieee-p1363',
+  }).toString('base64url')
+  return `${input}.${signature}`
+}
+
 async function main() {
   const { createLogtoJwtVerifier, createLogtoAuthMiddleware } = require('../src/auth/logto-jwks')
   const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 })
@@ -41,6 +52,50 @@ async function main() {
   await denied({ headers: { authorization: `Bearer ${jwt}` } }, response, () => {})
   assert.strictEqual(response.status, 403)
   assert.match(response.body, /AUTH_SCOPE_MISSING/)
+
+  const ec = crypto.generateKeyPairSync('ec', { namedCurve: 'secp384r1' })
+  const ecJwk = ec.publicKey.export({ format: 'jwk' })
+  const ecFetcher = async (url) => ({
+    ok: true,
+    json: async () => url.endsWith('/.well-known/openid-configuration')
+      ? { issuer, jwks_uri: `${issuer}/jwks` }
+      : { keys: [{ ...ecJwk, kid: 'ec-key-1', alg: 'ES384', use: 'sig' }] },
+  })
+  const ecVerifier = createLogtoJwtVerifier({ issuer, audience, fetcher: ecFetcher, now: () => 150 })
+  const ecJwt = ecToken(ec.privateKey, 'ec-key-1', {
+    sub: 'sub-ec', iss: issuer, aud: audience, scope: 'publish:read', iat: 100, exp: 200,
+  })
+  assert.deepStrictEqual(await ecVerifier.verify(ecJwt), { subject: 'sub-ec', scopes: ['publish:read'] })
+  assert.deepStrictEqual(await ecVerifier.checkReady(), { oidc: 'ready', jwks: 'ready', signingKeys: 1 })
+
+  const wrongCurve = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+  const wrongCurveJwk = wrongCurve.publicKey.export({ format: 'jwk' })
+  const wrongCurveVerifier = createLogtoJwtVerifier({
+    issuer,
+    audience,
+    fetcher: async (url) => ({
+      ok: true,
+      json: async () => url.endsWith('/.well-known/openid-configuration')
+        ? { issuer, jwks_uri: `${issuer}/jwks` }
+        : { keys: [{ ...wrongCurveJwk, kid: 'wrong-curve', alg: 'ES384', use: 'sig' }] },
+    }),
+  })
+  await assert.rejects(wrongCurveVerifier.checkReady(), (error) => error && error.code === 'AUTH_JWKS_INVALID')
+
+  const mismatchedProfileVerifier = createLogtoJwtVerifier({
+    issuer,
+    audience,
+    fetcher: async (url) => ({
+      ok: true,
+      json: async () => url.endsWith('/.well-known/openid-configuration')
+        ? { issuer, jwks_uri: `${issuer}/jwks` }
+        : { keys: [{ ...jwk, kid: 'rsa-as-es384', alg: 'ES384', use: 'sig' }] },
+    }),
+  })
+  await assert.rejects(
+    mismatchedProfileVerifier.checkReady(),
+    (error) => error && error.code === 'AUTH_JWKS_INVALID',
+  )
   console.log('  ✅ Logto JWKS 缓存、验签和 scope middleware')
 }
 

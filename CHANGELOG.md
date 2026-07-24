@@ -1,3 +1,18 @@
+## [未发布] 业务 API Docker 运行时修复 (2026-07-24)
+
+### 修复
+- 业务 API runner 镜像补入上传编排目录，修复容器启动时无法加载 `upload/orchestrator` 的生产阻断。
+- 补齐 `js-yaml` 直接生产依赖和 npm `upload/` 发布清单，避免依赖根工作区偶然提升或发布包漏文件。
+- 将插件目录固定到可写持久卷，并把 Alpine 容器健康检查改为 IPv4 loopback，消除非 root 权限与 `localhost -> ::1` 误报。
+- Bind mount 禁止隐式创建宿主目录；部署前显式以 UID/GID 1001 准备 config、data 和 plugins，首次部署权限不正确时直接失败。
+- Node/Python Logto 验证器严格支持 `RS256/RSA` 与生产租户使用的 `ES384/EC/P-384`，并按 `alg:kid` 隔离 JWKS 与未知密钥负缓存。
+
+### 质量
+- 生产部署合同现在按 Dockerfile runner `COPY` 清单构造隔离文件集，并加载真实 API 入口验证完整 require 链。
+- 增加 ES384 签名、算法/密钥/曲线错配、JOSE 签名长度及跨算法负缓存回归；部署候选必须在 ECS 真实 build、启动并通过 health/readiness/smoke。
+
+---
+
 ## [未发布] 业务 API 生产依赖安全修复 (2026-07-24)
 
 ### 安全

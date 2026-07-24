@@ -15,6 +15,17 @@ function signToken(privateKey, claims, headerValue = { alg: 'RS256', typ: 'JWT' 
   return `${input}.${signature}`
 }
 
+function signEcToken(privateKey, claims, headerValue = { alg: 'ES384', typ: 'JWT' }) {
+  const header = Buffer.from(JSON.stringify(headerValue)).toString('base64url')
+  const payload = Buffer.from(JSON.stringify(claims)).toString('base64url')
+  const input = `${header}.${payload}`
+  const signature = crypto.sign('sha384', Buffer.from(input), {
+    key: privateKey,
+    dsaEncoding: 'ieee-p1363',
+  }).toString('base64url')
+  return `${input}.${signature}`
+}
+
 console.log('--- Logto JWT claims ---')
 
 test('解析 Bearer token 并拒绝缺失 header', () => {
@@ -33,6 +44,62 @@ test('验证 issuer、audience、时间和签名算法', () => {
   assert.deepStrictEqual(verifyJwtClaims(token, { publicKey, issuer: 'https://logto.example/oidc', audience: 'https://api.multi-publish.com', now: 150 }), { subject: 'sub-1', scopes: ['publish:read'] })
   assert.throws(() => verifyJwtClaims(token, { publicKey, issuer: 'https://other.example', audience: 'https://api.multi-publish.com', now: 150 }), /AUTH_ISSUER_INVALID/)
   assert.throws(() => verifyJwtClaims(token, { publicKey, issuer: 'https://logto.example/oidc', audience: 'https://api.multi-publish.com', now: 261 }), /AUTH_TOKEN_EXPIRED/)
+})
+
+test('验证 Logto 默认 ES384/P-384 Token 并拒绝算法与密钥类型错配', () => {
+  const ec = crypto.generateKeyPairSync('ec', { namedCurve: 'secp384r1' })
+  const wrongCurve = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+  const rsa = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const claims = {
+    sub: 'sub-es384', iss: 'https://logto.example/oidc', aud: 'https://api.multi-publish.com',
+    scope: 'publish:read', iat: 100, exp: 200,
+  }
+  const token = signEcToken(ec.privateKey, claims)
+  assert.deepStrictEqual(
+    verifyJwtClaims(token, {
+      publicKey: ec.publicKey,
+      issuer: claims.iss,
+      audience: claims.aud,
+      now: 150,
+    }),
+    { subject: 'sub-es384', scopes: ['publish:read'] },
+  )
+  assert.throws(
+    () => verifyJwtClaims(token, {
+      publicKey: rsa.publicKey,
+      issuer: claims.iss,
+      audience: claims.aud,
+      now: 150,
+    }),
+    /AUTH_KEY_INVALID/,
+  )
+  assert.throws(
+    () => verifyJwtClaims(token, {
+      publicKey: wrongCurve.publicKey,
+      issuer: claims.iss,
+      audience: claims.aud,
+      now: 150,
+    }),
+    /AUTH_KEY_INVALID/,
+  )
+  assert.throws(
+    () => verifyJwtClaims(signEcToken(ec.privateKey, claims, { alg: 'ES256', typ: 'JWT' }), {
+      publicKey: ec.publicKey,
+      issuer: claims.iss,
+      audience: claims.aud,
+      now: 150,
+    }),
+    /AUTH_ALGORITHM_INVALID/,
+  )
+  assert.throws(
+    () => verifyJwtClaims(signToken(rsa.privateKey, claims, { alg: 'ES384', typ: 'JWT' }), {
+      publicKey: rsa.publicKey,
+      issuer: claims.iss,
+      audience: claims.aud,
+      now: 150,
+    }),
+    /AUTH_KEY_INVALID/,
+  )
 })
 
 test('scope 不足返回 AUTH_SCOPE_MISSING', () => {

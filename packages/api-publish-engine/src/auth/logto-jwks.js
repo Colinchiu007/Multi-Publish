@@ -1,6 +1,11 @@
 const crypto = require('crypto')
 const { AuthError, parseBearerToken, verifyJwtClaims, requireScopes } = require('./logto-auth')
 
+const ALLOWED_JWK_PROFILES = Object.freeze({
+  RS256: { kty: 'RSA' },
+  ES384: { kty: 'EC', crv: 'P-384' },
+})
+
 function jsonResponseError(code, cause) {
   return new AuthError(code, 401, cause)
 }
@@ -125,7 +130,9 @@ class LogtoJwtVerifier {
       const body = await this._fetchJson(discovery.jwks_uri, 'AUTH_JWKS_UNAVAILABLE')
       if (!body || !Array.isArray(body.keys)) throw new AuthError('AUTH_JWKS_INVALID')
       this._jwks = body.keys.filter((key) => {
-        if (!key || !key.kid || key.kty !== 'RSA' || key.alg !== 'RS256') return false
+        const profile = key && ALLOWED_JWK_PROFILES[key.alg]
+        if (!profile || !key.kid || key.kty !== profile.kty) return false
+        if (profile.crv && key.crv !== profile.crv) return false
         if (key.use !== undefined && key.use !== 'sig') return false
         if (key.key_ops !== undefined && (!Array.isArray(key.key_ops) || !key.key_ops.includes('verify'))) return false
         return true
@@ -153,27 +160,28 @@ class LogtoJwtVerifier {
     return promise
   }
 
-  async _getKey(kid) {
+  async _getKey(kid, algorithm) {
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(kid)) throw new AuthError('AUTH_KEY_NOT_FOUND')
     const currentMs = this.clockMs()
-    const negativeExpiry = this._unknownKidCache.get(kid)
+    const cacheKey = `${algorithm}:${kid}`
+    const negativeExpiry = this._unknownKidCache.get(cacheKey)
     if (negativeExpiry && negativeExpiry > currentMs) throw new AuthError('AUTH_KEY_NOT_FOUND')
-    if (negativeExpiry) this._unknownKidCache.delete(kid)
+    if (negativeExpiry) this._unknownKidCache.delete(cacheKey)
     let keys = await this._getJwks()
-    let jwk = keys.find((key) => key.kid === kid)
+    let jwk = keys.find((key) => key.kid === kid && key.alg === algorithm)
     if (!jwk) {
       keys = await this._getJwks(true)
-      jwk = keys.find((key) => key.kid === kid)
+      jwk = keys.find((key) => key.kid === kid && key.alg === algorithm)
     }
     if (!jwk) {
       if (this._unknownKidCache.size >= this.unknownKidCacheMax) {
         const oldest = this._unknownKidCache.keys().next().value
         if (oldest !== undefined) this._unknownKidCache.delete(oldest)
       }
-      this._unknownKidCache.set(kid, currentMs + this.unknownKidCacheTtlMs)
+      this._unknownKidCache.set(cacheKey, currentMs + this.unknownKidCacheTtlMs)
       throw new AuthError('AUTH_KEY_NOT_FOUND')
     }
-    this._unknownKidCache.delete(kid)
+    this._unknownKidCache.delete(cacheKey)
     try { return crypto.createPublicKey({ key: jwk, format: 'jwk' }) } catch (error) { throw jsonResponseError('AUTH_KEY_INVALID', error) }
   }
 
@@ -182,9 +190,17 @@ class LogtoJwtVerifier {
     if (parts.length !== 3) throw new AuthError('AUTH_TOKEN_INVALID')
     let header
     try { header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8')) } catch { throw new AuthError('AUTH_TOKEN_INVALID') }
-    if (header.alg !== 'RS256' || typeof header.kid !== 'string' || !header.kid) throw new AuthError('AUTH_ALGORITHM_INVALID')
-    const publicKey = await this._getKey(header.kid)
-    return verifyJwtClaims(token, { publicKey, issuer: this.issuer, audience: this.audience, now: this.now() })
+    if (!ALLOWED_JWK_PROFILES[header.alg] || typeof header.kid !== 'string' || !header.kid) {
+      throw new AuthError('AUTH_ALGORITHM_INVALID')
+    }
+    const publicKey = await this._getKey(header.kid, header.alg)
+    return verifyJwtClaims(token, {
+      publicKey,
+      algorithm: header.alg,
+      issuer: this.issuer,
+      audience: this.audience,
+      now: this.now(),
+    })
   }
 
   async checkReady() {
