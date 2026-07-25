@@ -62,20 +62,23 @@ function registerHandlers(ipcMain, deps) {
   // 所有 authenticated 级别方法（storeGetPublishStats / onRenderProgress 等）被错误拦截。
   // 根因：同步 IPC 与异步 IPC 的权限校验路径不一致。
   ipcMain.on("auth:get-access-level", (event) => {
-    // 开发模式短路：未打包应用 + NODE_ENV=development / ELECTRON_IS_DEV=1 → admin
-    // 与 license-access-control.js getAccessLevel() 的 dev 短路逻辑完全一致
-    const isDevMode = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1'
-    if (isDevMode && deps && deps.app && deps.app.isPackaged === false) {
+    // Bug fix (QM-5 v2): dev 短路判断必须与项目其他模块一致！
+    // window.js:216 用 `!app.isPackaged` 作为 dev 判断，license-access-control.js 和本文件
+    // 之前用 `NODE_ENV === 'development'`，但 npm script 没有设置该变量，导致 dev 短路不生效。
+    // 修复：直接用 `!app.isPackaged` 作为 dev 判断，与项目保持一致。
+    const app = deps && deps.app
+    const isDevMode = app && app.isPackaged === false
+    if (isDevMode) {
       event.returnValue = 'admin'
       return
     }
-    if (!isTrustedSender(event, deps && deps.app)) {
+    if (!isTrustedSender(event, app)) {
       // 不可信来源返回最低权限，防止外部页面探测许可证状态
       event.returnValue = 'public'
       return
     }
     try {
-      event.returnValue = getAccessLevel(licenseManager, process.env, deps && deps.app, deps && deps.identityService)
+      event.returnValue = getAccessLevel(licenseManager, process.env, app, deps && deps.identityService)
     } catch (e) {
       event.returnValue = 'public'
     }

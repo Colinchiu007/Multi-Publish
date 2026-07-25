@@ -866,8 +866,7 @@ function getAccessLevel() {
   } catch (_) {
     void _;
   }
-  const isDevMode = process.env.NODE_ENV === "development" || process.env.ELECTRON_IS_DEV === "1";
-  return isDevMode ? "admin" : "public";
+  return "public";
 }
 var fullApi = {
   ...createPublishApi(ipcRenderer, {
