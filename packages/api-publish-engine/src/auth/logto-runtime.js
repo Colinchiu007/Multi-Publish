@@ -86,10 +86,16 @@ async function createLogtoRuntime(options = {}) {
   }
   const issuer = normalizeIssuer(env)
   const createVerifier = options.createVerifier || createLogtoJwtVerifier
+  const clientId = String(env.LOGTO_CLIENT_ID || '').trim() || null
+  const clientSecret = String(env.LOGTO_CLIENT_SECRET || '').trim() || null
+  if ((clientId && !clientSecret) || (!clientId && clientSecret)) {
+    throw new LogtoRuntimeError('LOGTO_RUNTIME_CONFIG_INVALID', 'LOGTO_CLIENT_ID 和 LOGTO_CLIENT_SECRET 必须同时配置或同时省略')
+  }
   const verifier = createVerifier({
     issuer,
     audience,
     cacheTtlMs: durationSeconds(env.LOGTO_JWKS_CACHE_TTL, 300, 'LOGTO_JWKS_CACHE_TTL'),
+    ...(clientId && clientSecret ? { clientId, clientSecret } : {}),
   })
   const migrationDirectory = options.migrationDirectory || String(env.BUSINESS_DATABASE_MIGRATIONS_DIR || '').trim() || undefined
   const repository = options.repository || new PostgresIdentityRepository({

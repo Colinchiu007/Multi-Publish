@@ -3915,3 +3915,54 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
    预设、凭据映射和最终媒体工件。
 2. 没有真实凭据的本地回归只能证明调用合同；合并前记录外部 smoke 验收为待办，不能把 mock 成功写成
    服务可用。
+
+---
+
+## Opaque Token Introspection 缺失复盘（2026-07-25）
+
+### 现象
+桌面端登录提交后返回主界面，登录区域显示「登录暂时不可用，请稍后重试」。EntitlementService.sync()
+调用业务 API `/api/v1/me` 返回 401 "Valid API key required"，AuthService 进入 error 状态，
+IdentityMenu.vue 显示兜底错误文案。
+
+### 第一性原因
+- `b7ab4ca merge: record Logto business API deployment branch` 引入 Logto OIDC 验证时，
+  `LogtoJwtVerifier.verify` 假设所有 access token 都是 JWT 格式，按 `header.payload.signature` 三段
+  解析并走 JWKS 验签。
+- Logto 默认签发的 access token 是 **Opaque Token**（非 JWT 格式，无法本地验签），需要通过
+  `/oidc/token/introspection` 端点验证有效性。
+- 客户端持有 Opaque Token 进入业务 API 时，`_verifyJwt` 在 `parts.length !== 3` 处直接抛
+  `AUTH_TOKEN_INVALID`，业务 API 返回 401 "Valid API key required"。
+
+### 测试逃逸链与系统性漏洞
+1. **单元测试逃逸**：`logto-jwks.test.js` 仅覆盖 JWT 验签路径，所有 token 都是测试代码构造的合法 JWT，
+   没有用例验证 "token 不是 JWT 格式" 的场景，也没断言未配置 client credentials 时的兜底行为。
+2. **集成测试逃逸**：`logto-optional-auth.test.js` 中间件测试用的也是 JWT，未覆盖 Logto 真实签发的
+   Opaque Token 路径。
+3. **合同测试逃逸**：`production-smoke.js` 只验证 `/api/v1/health` 和路径前缀守卫，没有验证
+   `/api/v1/me` 在携带真实 Logto access token 时是否返回 200。
+4. **审查盲区**：业务 API 部署合同审查时未对照 Logto 默认 token 格式配置，默认假设 token 为 JWT。
+5. **流程缺失**：缺少 "Logto 默认行为探查" 步骤 — 上线前没有真实跑一次完整登录链路。
+
+### 修复与回归保护
+- `packages/api-publish-engine/src/auth/logto-jwks.js`：新增 `_isJwtFormat`、`_introspectOpaqueToken`、
+  `_introspectionCacheGet`、`_introspectionCacheSet` 方法。`verify` 根据 token 格式路由到 JWT 验签
+  或 introspection 端点，未配置 client credentials 时仍抛 `AUTH_TOKEN_INVALID`（向后兼容）。
+- `packages/api-publish-engine/src/auth/logto-runtime.js`：读取 `LOGTO_CLIENT_ID` 和
+  `LOGTO_CLIENT_SECRET` 环境变量，校验两者必须同时配置或同时省略，传递给 verifier 构造函数。
+- `packages/api-publish-engine/test/logto-jwks.test.js`：新增 9 个回归测试用例，覆盖 introspection
+  成功、缓存命中、active=false 拒绝、aud/iss 不匹配拒绝、过期拒绝、JWT 向后兼容、introspection 端点
+  不可用抛 `AUTH_INTROSPECTION_UNAVAILABLE` 等场景。
+- `deploy/logto/api.env.example`：补充 `LOGTO_CLIENT_ID` / `LOGTO_CLIENT_SECRET` 配置说明和
+  M2M 应用创建流程。
+
+### 预防措施
+1. **AGENTS.md QM-2 新增检查项**：Logto access token 验证必须同时支持 JWT 和 Opaque Token 两种格式，
+   introspection 端点的可用性必须在 readiness probe 中验证。
+2. **回归合同**：修改 `auth/logto-*` 时必须运行 `node packages/api-publish-engine/test/logto-jwks.test.js`
+   和 `logto-runtime.test.js`，确认 Opaque Token 测试用例全部通过。
+3. **生产部署合同**：部署 Logto 业务 API 时必须在 `api.env` 配置 `LOGTO_CLIENT_ID` 和
+   `LOGTO_CLIENT_SECRET`（在 Logto Admin Console 创建 M2M 应用并授予 publish:submit / profile:read 等
+   权限），否则 Opaque Token 验证会因缺少 client credentials 而失败。
+4. **端到端冒烟**：`production-smoke.js` 应增加 `/api/v1/me` 携带真实 Logto access token 的验证用例，
+   覆盖从登录到权益同步的完整链路。
