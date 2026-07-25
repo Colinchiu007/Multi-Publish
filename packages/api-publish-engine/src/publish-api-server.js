@@ -479,6 +479,18 @@ class PublishApiServer {
       return;
     }
 
+    // 路径前缀守卫：业务 API 仅接管 /api/v1/，其他路径（如 Logto 自身的 /api/users、/api/forgot-password）
+    // 必须由 Nginx 反代到 Logto container 而非业务 API container。
+    // 误路由时返回 404 + 明确错误码，避免误导为鉴权问题（QM-5 回归：forgot-password 报 "Valid API key required" bug）。
+    if (url.indexOf("/api/v1/") !== 0) {
+      this._json(res, 404, {
+        error: "PATH_NOT_UNDER_BUSINESS_API",
+        message: "Path is not handled by business API. Check Nginx reverse_proxy rules to ensure Logto internal paths (/api/users, /api/forgot-password, etc.) route to Logto container, not the business API container.",
+        path: url,
+      });
+      return;
+    }
+
     // Rate limiting
     if (this._rateLimiter && !this._rateLimiter.check(req.socket.remoteAddress || req.headers["x-forwarded-for"] || "unknown")) {
       this._json(res, 429, { error: "Too Many Requests", message: "Rate limit exceeded. Try again later." });

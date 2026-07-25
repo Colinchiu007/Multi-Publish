@@ -123,6 +123,28 @@ async function runSmokeChecks(options = {}) {
         results.push(check('api.me', 'failed', 'API_ME_UNAVAILABLE', Date.now() - started))
       }
     }
+
+    // 路由分离验证：Logto 内部路径（/api/users、/api/forgot-password）被 Nginx 误路由到
+    // 业务 API container 时，业务 API 必须返回 404 + PATH_NOT_UNDER_BUSINESS_API，
+    // 而非 401 "Valid API key required"。这能自动检测 Nginx /api/ 宽匹配误路由问题。
+    // 关联 bug：用户忘记密码报 "Valid API key required"（2026-07-25）。
+    // 两种正确状态：
+    //   (a) 业务 API 守卫触发：404 + PATH_NOT_UNDER_BUSINESS_API（Nginx 误路由，但业务 API 守住）
+    //   (b) Nginx 正确路由到 Logto：响应来自 Logto（非 "Valid API key required"）
+    // 失败状态：响应包含 "Valid API key required"（业务 API 错误地走了鉴权流程）
+    for (const logtoPath of ['/api/users', '/api/forgot-password']) {
+      const started = Date.now()
+      try {
+        const { response, body } = await requestJson(`${apiEndpoint.value}${logtoPath}`, { timeoutMs })
+        const bodyText = body ? JSON.stringify(body) : ''
+        const isBusinessApiGuard = response.status === 404 && body && body.error === 'PATH_NOT_UNDER_BUSINESS_API'
+        const isLogtoResponse = !/Valid API key required/.test(bodyText)
+        const passed = isBusinessApiGuard || isLogtoResponse
+        results.push(check(`api.path-guard${logtoPath}`, passed ? 'passed' : 'failed', passed ? null : 'API_PATH_GUARD_VIOLATION', Date.now() - started))
+      } catch {
+        results.push(check(`api.path-guard${logtoPath}`, 'failed', 'API_PATH_GUARD_UNAVAILABLE', Date.now() - started))
+      }
+    }
   }
 
   return { status: results.every((result) => result.status === 'passed') ? 'passed' : 'failed', checks: results }
