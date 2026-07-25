@@ -69,6 +69,10 @@ export async function accountUpdate (id, fields) {
   return invoke("accountUpdate", id, fields)
 }
 
+export async function accountSetProxy (accountId, platform, proxy) {
+  return invokeWithFallback('accountSetProxy', { code: -1, message: 'electronAPI not available' }, accountId, platform, proxy)
+}
+
 // ─── 内嵌浏览器登录 API ──────────────────
 export async function authOpenLogin(platform) { return invokeWithFallback("authOpenLogin", {  code: -1  }, platform) }
 

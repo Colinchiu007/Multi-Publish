@@ -1,11 +1,13 @@
 import { beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import initSqlJs from 'sql.js'
+import EventEmitter from 'events'
 
 __enableElectronMock()
 
 let SQL
 let Store
 let schema
+let BatchManager
 let rawDb
 let store
 
@@ -104,6 +106,7 @@ beforeAll(async () => {
   SQL = await initSqlJs()
   Store = require('./store')
   schema = require('./store-schema')
+  BatchManager = require('./batch-manager')
 })
 
 beforeEach(() => {
@@ -115,6 +118,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  BatchManager.setTaskQueue(null)
   if (rawDb) rawDb.close()
 })
 
@@ -281,6 +285,55 @@ describe('Store 多用户隔离', () => {
     expect(store.updateBatchJob('batch-a', { name: 'B' }, 'user-b')).toBe(false)
     expect(store.deleteBatchJob('batch-a', 'user-b')).toBe(false)
     expect(store.getBatchJob('batch-a', 'user-a').name).toBe('A')
+  })
+
+  it('批量任务执行期间切换当前用户也必须持续更新创建者的记录', async () => {
+    let currentOwner = 'user-a'
+    store.setOwnerSubjectProvider(() => currentOwner)
+    store.addBatchJob({
+      id: 'shared-batch',
+      name: 'A',
+      articles: [{ title: 'A', content: '正文', platforms: ['douyin'] }],
+      total: 1,
+      status: 'pending',
+    }, 'user-a')
+    store.addBatchJob({
+      id: 'shared-batch',
+      name: 'B',
+      articles: [{ title: 'B', content: '正文', platforms: ['douyin'] }],
+      total: 1,
+      status: 'pending',
+    }, 'user-b')
+
+    const queue = new EventEmitter()
+    let queuedTask
+    queue.addForOwner = (task, ownerSubject) => {
+      queuedTask = task
+      expect(ownerSubject).toBe('user-a')
+      return 'task-a'
+    }
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+
+    await manager.executeBatch('shared-batch')
+    expect(queuedTask).toMatchObject({
+      owner_subject: 'user-a',
+      batchId: 'shared-batch',
+      accountId: null,
+    })
+    currentOwner = 'user-b'
+    queue.emit('task:success', { id: 'task-a', status: 'success', result: {} })
+
+    expect(store.getBatchJob('shared-batch', 'user-a')).toMatchObject({
+      completed: 1,
+      failed: 0,
+      status: 'done',
+    })
+    expect(store.getBatchJob('shared-batch', 'user-b')).toMatchObject({
+      completed: 0,
+      failed: 0,
+      status: 'pending',
+    })
   })
 
   it('草稿设置和发布频率时间线按 owner 隔离', () => {

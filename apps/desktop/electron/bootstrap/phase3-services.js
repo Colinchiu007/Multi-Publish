@@ -171,11 +171,22 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (store && typeof store.setOwnerSubjectProvider === 'function') {
       store.setOwnerSubjectProvider(ownerSubjectProvider)
       cleanups.push(() => store.setOwnerSubjectProvider(null))
-      const accountManager = require('../publishers/account-manager')
-      if (typeof accountManager.setOwnerSubjectProvider === 'function') {
-        accountManager.setOwnerSubjectProvider(ownerSubjectProvider)
-        cleanups.push(() => accountManager.setOwnerSubjectProvider(null))
-      }
+    }
+    const accountManager = require('../publishers/account-manager')
+    if (typeof accountManager.setOwnerSubjectProvider === 'function') {
+      accountManager.setOwnerSubjectProvider(ownerSubjectProvider)
+      cleanups.push(() => accountManager.setOwnerSubjectProvider(null))
+    }
+    const getOptionalService = (name) => {
+      try { return container.get(name) } catch (_) { return null }
+    }
+    const commentManager = getOptionalService('commentManager')
+    const batchManager = getOptionalService('batchManager')
+    let offlineManager = null
+    try { offlineManager = require('../services/offline-manager') } catch (_) { /* 离线服务可选 */ }
+    if (commentManager && typeof commentManager.setOwnerSubjectProvider === 'function') {
+      commentManager.setOwnerSubjectProvider(ownerSubjectProvider)
+      cleanups.push(() => commentManager.setOwnerSubjectProvider(null))
     }
     const commentManager = container.get('commentManager')
     if (commentManager && typeof commentManager.setOwnerSubjectProvider === 'function') {
@@ -190,6 +201,14 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (taskQueue && typeof taskQueue.setOwnerSubjectProvider === 'function') {
       taskQueue.setOwnerSubjectProvider(ownerSubjectProvider)
       cleanups.push(() => taskQueue.setOwnerSubjectProvider(null))
+    }
+    if (batchManager && typeof batchManager.setOwnerSubjectProvider === 'function') {
+      batchManager.setOwnerSubjectProvider(ownerSubjectProvider)
+      cleanups.push(() => batchManager.setOwnerSubjectProvider(null))
+    }
+    if (offlineManager && typeof offlineManager.setOwnerSubjectProvider === 'function') {
+      offlineManager.setOwnerSubjectProvider(ownerSubjectProvider)
+      cleanups.push(() => offlineManager.setOwnerSubjectProvider(null))
     }
 
     const restoreForOwner = (state) => {

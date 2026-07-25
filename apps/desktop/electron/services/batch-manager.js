@@ -13,8 +13,29 @@ const { ipcMain } = require('electron')
 const log = require('./logger')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
+const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 
 let _taskQueue = null
+
+function createOwnerAuthError () {
+  const error = new Error('登录会话缺少用户标识')
+  error.isOwnerAuthError = true
+  return error
+}
+
+function normalizeOwnerSubject (ownerSubject) {
+  if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) throw createOwnerAuthError()
+  return ownerSubject.trim()
+}
+
+function toIpcError (error) {
+  const message = error instanceof Error ? error.message : String(error)
+  log.error('BatchManager', message)
+  if (error && error.isOwnerAuthError) {
+    return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+  }
+  return { code: EC.REQUEST_ERROR, message: '批量操作失败' }
+}
 
 /**
  * @typedef {object} PlannedBatchTask
@@ -30,10 +51,59 @@ class BatchManager {
   constructor (store) {
     this.store = store
     this._timers = new Set()   // 跟踪 scheduleBatch 创建的所有 setTimeout 句柄
+    this._ownerSubjectProvider = null
   }
 
   static setTaskQueue (taskQueue) {
     _taskQueue = taskQueue
+  }
+
+  setOwnerSubjectProvider (provider) {
+    if (provider !== null && provider !== undefined && typeof provider !== 'function') {
+      throw new TypeError('owner subject provider must be a function or null')
+    }
+    this._ownerSubjectProvider = provider || null
+  }
+
+  _getOwnerSubject () {
+    if (this._ownerSubjectProvider) {
+      try {
+        return normalizeOwnerSubject(this._ownerSubjectProvider())
+      } catch (_) {
+        return null
+      }
+    }
+    // 兼容尚未接线的旧启动路径：若 Store 已开启身份隔离，仍在操作起点冻结其当前 owner。
+    if (this.store && typeof this.store.getOwnerSubject === 'function') {
+      const owner = this.store.getOwnerSubject()
+      if (owner === null) return null
+      if (owner !== undefined && owner !== LEGACY_OWNER_SUBJECT) {
+        try { return normalizeOwnerSubject(owner) } catch (_) { return null }
+      }
+    }
+    return undefined
+  }
+
+  _requireOwnerSubject () {
+    const owner = this._getOwnerSubject()
+    if (owner === null) throw createOwnerAuthError()
+    return owner
+  }
+
+  _enqueueForOwner (task, ownerSubject) {
+    if (!_taskQueue) throw new Error('任务队列未初始化')
+    const payload = {
+      ...task,
+      ...(ownerSubject === undefined ? {} : { owner_subject: ownerSubject }),
+    }
+    if (ownerSubject !== undefined) {
+      if (typeof _taskQueue.addForOwner !== 'function') {
+        throw new Error('任务队列不支持租户隔离入队')
+      }
+      return _taskQueue.addForOwner(payload, ownerSubject)
+    }
+    if (typeof _taskQueue.add !== 'function') throw new Error('任务队列未初始化')
+    return _taskQueue.add(payload)
   }
 
   /**
@@ -64,6 +134,7 @@ class BatchManager {
    * @returns {string} batchId
    */
   createBatch (batch) {
+    const ownerSubject = this._requireOwnerSubject()
     const id = `batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
     const record = {
       id,
@@ -76,7 +147,7 @@ class BatchManager {
       createdAt: Date.now(),
     }
 
-    this.store.addBatchJob(record)
+    if (!this.store.addBatchJob(record, ownerSubject)) throw new Error('批量任务保存失败')
     log.info('BatchManager', `Created batch ${id}: ${record.total} articles`)
     return id
   }
@@ -86,7 +157,8 @@ class BatchManager {
    * 每篇文章提交到任务队列
    */
   async executeBatch (batchId) {
-    const batch = this.store.getBatchJob(batchId)
+    const ownerSubject = this._requireOwnerSubject()
+    const batch = this.store.getBatchJob(batchId, ownerSubject)
     if (!batch) {
       log.warn('BatchManager', `Batch ${batchId} not found`)
       return null
@@ -120,7 +192,7 @@ class BatchManager {
 
     const queueCanTrackResults = Boolean(
       taskQueue &&
-      typeof taskQueue.add === 'function' &&
+      (typeof taskQueue.add === 'function' || typeof taskQueue.addForOwner === 'function') &&
       typeof taskQueue.on === 'function' &&
       typeof taskQueue.off === 'function'
     )
@@ -137,7 +209,7 @@ class BatchManager {
         completed,
         failed,
         status: completed >= total ? 'done' : 'running',
-      })
+      }, ownerSubject)
     }
 
     const emitBatchCompleteIfReady = () => {
@@ -197,7 +269,7 @@ class BatchManager {
       completed: 0,
       failed: 0,
       status: total === 0 ? 'done' : 'running',
-    })
+    }, ownerSubject)
 
     if (queueCanTrackResults) {
       taskQueue.on('task:success', onResult)
@@ -215,7 +287,7 @@ class BatchManager {
       }
 
       try {
-        const taskId = await taskQueue.add({
+        const taskId = await this._enqueueForOwner({
           platform: metadata.platform,
           article: {
             title: metadata.article.title,
@@ -226,8 +298,9 @@ class BatchManager {
             accountId: metadata.accountId,
           },
           batchId,
+          accountId: metadata.accountId,
           retry: 2,
-        })
+        }, ownerSubject)
         if (typeof taskId !== 'string' || !taskId) {
           throw new Error('任务队列未返回有效任务 ID')
         }
@@ -272,7 +345,8 @@ class BatchManager {
    * 为每篇文章设置发布时间，到点自动提交
    */
   scheduleBatch (batchId) {
-    const batch = this.store.getBatchJob(batchId)
+    const ownerSubject = this._requireOwnerSubject()
+    const batch = this.store.getBatchJob(batchId, ownerSubject)
     if (!batch) return false
 
     // R40：复用类静态方法归一化（禁止本地副本，避免与 executeBatch 解析逻辑漂移）
@@ -294,7 +368,14 @@ class BatchManager {
         }
         for (const platform of article.platforms) {
           const r = BatchManager.resolvePlatform(platform)
-          _taskQueue.add({ platform: r.platform, article, batchId, accountId: r.accountId })
+          try {
+            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId }, ownerSubject)
+            Promise.resolve(queued).catch(error => {
+              log.error('BatchManager', 'Failed to submit immediate batch task for ' + batchId + ': ' + error.message)
+            })
+          } catch (error) {
+            log.error('BatchManager', 'Failed to submit immediate batch task for ' + batchId + ': ' + error.message)
+          }
         }
         continue
       }
@@ -309,7 +390,10 @@ class BatchManager {
           }
           for (const platform of article.platforms) {
             const r = BatchManager.resolvePlatform(platform)
-            _taskQueue.add({ platform: r.platform, article, batchId, accountId: r.accountId })
+            const queued = this._enqueueForOwner({ platform: r.platform, article, batchId, accountId: r.accountId }, ownerSubject)
+            Promise.resolve(queued).catch(error => {
+              log.error('BatchManager', 'Failed to schedule batch task for ' + batchId + ': ' + error.message)
+            })
           }
         } catch (e) {
           log.error('BatchManager', 'Failed to schedule batch task for batch ' + batchId + ': ' + e.message)
@@ -320,7 +404,7 @@ class BatchManager {
       this._timers.add(timer)
     }
 
-    this.store.updateBatchJob(batchId, { status: 'scheduled' })
+    this.store.updateBatchJob(batchId, { status: 'scheduled' }, ownerSubject)
     log.info('BatchManager', `Batch ${batchId} scheduled (${batch.articles.length} articles)`)
     return true
   }
@@ -361,7 +445,7 @@ class BatchManager {
         const id = this.createBatch(batch)
         return { code: 0, data: { id } }
       } catch (e) {
-        return { code: EC.REQUEST_ERROR, message: e.message }
+        return toIpcError(e)
       }
     }))
 
@@ -372,7 +456,7 @@ class BatchManager {
           ? { code: 0, data: result }
           : { code: EC.REQUEST_ERROR, message: '批量任务不存在' }
       } catch (e) {
-        return { code: EC.REQUEST_ERROR, message: e.message }
+        return toIpcError(e)
       }
     }))
 
@@ -380,24 +464,33 @@ class BatchManager {
       try {
         const ok = this.scheduleBatch(batchId)
         return ok ? { code: 0 } : { code: EC.REQUEST_ERROR, message: '批量任务不存在' }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      } catch (e) { return toIpcError(e) }
     }))
 
-    ipcMain.handle('batch:list', () => {
-      try { return { code: 0, data: this.store.listBatchJobs() } }
-      catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
-    })
-
-    ipcMain.handle('batch:get', (_, id) => {
+    ipcMain.handle('batch:list', withSenderCheck(() => {
       try {
-        const batch = this.store.getBatchJob(id)
+        const ownerSubject = this._requireOwnerSubject()
+        return { code: 0, data: this.store.listBatchJobs(ownerSubject) }
+      } catch (e) {
+        return { ...toIpcError(e), data: [] }
+      }
+    }))
+
+    ipcMain.handle('batch:get', withSenderCheck((_, id) => {
+      try {
+        const ownerSubject = this._requireOwnerSubject()
+        const batch = this.store.getBatchJob(id, ownerSubject)
         return batch ? { code: 0, data: batch } : { code: EC.REQUEST_ERROR, message: '未找到' }
-      } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-    })
+      } catch (e) { return toIpcError(e) }
+    }))
 
     ipcMain.handle('batch:delete', withSenderCheck((_, id) => {
-      try { this.store.deleteBatchJob(id); return { code: 0 } }
-      catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+      try {
+        const ownerSubject = this._requireOwnerSubject()
+        return this.store.deleteBatchJob(id, ownerSubject)
+          ? { code: 0 }
+          : { code: EC.REQUEST_ERROR, message: '未找到' }
+      } catch (e) { return toIpcError(e) }
     }))
 
     ipcMain.handle('batch:duplicate-article', withSenderCheck((_, article) => {

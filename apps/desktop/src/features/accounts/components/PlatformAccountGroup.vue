@@ -64,6 +64,7 @@
           <div class="account-status">
             <span class="status-dot" :class="isActive(account) ? 'online' : 'offline'" aria-hidden="true"></span>
             <span class="account-status-text">{{ isActive(account) ? '登录有效' : '登录失效' }}</span>
+            <span v-if="account.proxy?.configured" class="account-proxy-status" :title="proxyStatusLabel(account)">代理</span>
             <span v-if="account.created_at" class="account-date">{{ formatDate(account.created_at) }}</span>
           </div>
         </div>
@@ -72,6 +73,7 @@
           <button v-if="!account.is_default" :data-testid="`set-default-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('set-default', account)">设为默认</button>
           <button :data-testid="`open-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('open', account)"><Link />打开</button>
           <button :data-testid="`check-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('check', account)"><CircleCheck />验证</button>
+          <button :data-testid="`proxy-${account.id}`" data-e2e-scan="manual" type="button" title="配置账号代理" :aria-label="`配置 ${accountName(account)} 的代理`" @click="$emit('configure-proxy', account)"><Connection /></button>
           <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('remove', account)"><Delete />删除</button>
         </div>
       </article>
@@ -81,7 +83,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { CircleCheck, Delete, Link, Plus, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
+import { CircleCheck, Connection, Delete, Link, Plus, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
   group: { type: Object, required: true },
@@ -99,6 +101,7 @@ defineEmits([
   'rename',
   'open',
   'check',
+  'configure-proxy',
   'remove',
 ])
 
@@ -111,6 +114,13 @@ function accountName (account) {
 
 function isActive (account) {
   return account.status === 'active' || account.status === 'online'
+}
+
+function proxyStatusLabel (account) {
+  const proxy = account?.proxy
+  if (proxy?.invalid) return '代理配置无效'
+  const endpoint = `${proxy?.hostMasked || ''}${proxy?.port ? `:${proxy.port}` : ''}`
+  return endpoint ? `已绑定 ${String(proxy?.type || 'http').toUpperCase()} 代理 ${endpoint}` : '已绑定代理'
 }
 
 function formatDate (value) {
@@ -227,6 +237,7 @@ function formatDate (value) {
 .default-label { flex: 0 1 auto; padding: 2px 6px; border-radius: 4px; background: #eeecff; color: #5048e5; font-size: 11px; line-height: 16px; text-align: center; white-space: normal; }
 .account-status { min-width: 0; display: flex; align-items: center; gap: 5px; margin-top: 3px; color: var(--muted, #85858f); font-size: 12px; }
 .account-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-proxy-status { color: #356f9f; font-size: 11px; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; }
 .status-dot.online { background: #2aa876; }
 .status-dot.offline { background: #b9bac2; }

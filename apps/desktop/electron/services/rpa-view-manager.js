@@ -44,7 +44,8 @@ class RpaViewManager {
   async publish(platform, article, authData, timeout) {
     timeout = timeout||120000
     // API-first: if we have an API adapter for this platform, use it (no browser needed)
-    const apiEnabled = apiRouter && typeof apiRouter.shouldUseApi === 'function'
+    const hasAccountProxy = Boolean(authData?.proxy)
+    const apiEnabled = !hasAccountProxy && apiRouter && typeof apiRouter.shouldUseApi === 'function'
       ? apiRouter.shouldUseApi(platform)
       : false
     if (apiEnabled && supportsApi(platform)) {
@@ -74,15 +75,18 @@ class RpaViewManager {
     this._emitProgress(platform,'starting browser...',0)
     const win = this._createWindow(partition)
     this.windows[key] = win
+    let removeProxyAuthHandler = function () {}
     try {
+      if (hasAccountProxy) removeProxyAuthHandler = await this._configureProxy(win, authData.proxy)
       if (authData&&authData.cookies) { await this._restoreCookies(win,authData.cookies); this._emitProgress(platform,'cookies restored',2) }
+      await this._restoreBrowserStorage(win, platform, authData)
       const mn = '_publish_'+platform
       if (typeof this[mn]==='function') return await Promise.race([this[mn](win,article),new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})])
       const cfg = this._getPlatformConfig(platform)
       return await Promise.race([this._publish_generic(win,article,platform,cfg),new Promise(function(_,rj){const _t=setTimeout(function(){rj(new Error('timeout ('+(timeout/1000)+'s)'))},timeout);if(_t&&_t.unref)_t.unref()})])
     } catch(e) { log.error('RpaView','publish '+platform+': '+e.message); return { success:false, error:e.message, platform:platform } }
     // eslint-disable-next-line no-unused-vars
-    finally { try { win.destroy() } catch (e) { /* ignore */ }; delete this.windows[key] }
+    finally { try { removeProxyAuthHandler() } catch (e) { /* ignore */ }; try { win.destroy() } catch (e) { /* ignore */ }; delete this.windows[key] }
   }
 
   cancel(platform, accountId) {

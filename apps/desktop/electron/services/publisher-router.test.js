@@ -165,6 +165,24 @@ describe("PublisherRouter", () => {
 
       await expect(pending).rejects.toThrow("已取消")
     });
+    it("向 RPA 传递仅由 IndexedDB 保存的账号登录态", async () => {
+      const indexedDB = { auth: { tokens: [{ __multi_publish_indexeddb_key__: 7, value: { token: 'private' } }] } }
+      const rpaViewManager = { publish: vi.fn(async () => ({ success: true, url: 'https://example.test/post' })) }
+      const r = new PublisherRouter()
+      const publisher = r.createPublisher("wechat_mp", {
+        rpaViewManager,
+        store: { getAccount: vi.fn(() => ({ cookies: [], localStorage: {}, indexedDB })) },
+      })
+
+      await publisher.publish({ id: 'task-indexed-db', article: { accountId: 'acc-indexed-db' } })
+
+      expect(rpaViewManager.publish).toHaveBeenCalledWith(
+        'wechat_mp',
+        expect.any(Object),
+        { cookies: [], localStorage: {}, indexedDB },
+        120000,
+      )
+    })
     it("刚保存的账号可从主进程账号管理器恢复凭证并立即发布", async () => {
       const credentials = {
         cookies: [{ name: "session", value: "captured", domain: ".mp.weixin.qq.com" }, { name: "third-party", value: "drop", domain: ".qq.com" }],
@@ -201,6 +219,65 @@ describe("PublisherRouter", () => {
         "wechat_mp",
         expect.objectContaining({ title: "标题", content: "正文" }),
         { cookies: [credentials.cookies[0]], localStorage: credentials.localStorage },
+        120000,
+      );
+    });
+    it("账号加密凭证中的代理随 RPA 发布传递，不经渲染层", async () => {
+      const credentials = {
+        cookies: [{ name: "session", value: "captured", domain: ".mp.weixin.qq.com" }],
+        localStorage: { token: "captured-token" },
+        proxy: { host: "127.0.0.1", port: 8080, type: "http" },
+      };
+      const rpaViewManager = { publish: vi.fn(async () => ({ success: true })) };
+      const publisher = new PublisherRouter().createPublisher("wechat_mp", {
+        rpaViewManager,
+        accountManager: { loadSavedCredentials: vi.fn(() => credentials) },
+        store: { getAccount: vi.fn(() => null) },
+      });
+
+      await publisher.publish({ id: "task-proxy", article: { accountId: "account-proxy" } });
+
+      expect(rpaViewManager.publish).toHaveBeenCalledWith(
+        "wechat_mp",
+        expect.any(Object),
+        expect.objectContaining({ proxy: credentials.proxy }),
+        120000,
+      );
+    });
+    it("将富文本语义和平台发布选项完整传递给发布器", async () => {
+      const rpaViewManager = {
+        publish: vi.fn(async () => ({ success: true, url: "https://example.com/post/semantic" })),
+      };
+      const r = new PublisherRouter();
+      const publisher = r.createPublisher("zhihu", {
+        rpaViewManager,
+        store: { getAccount: vi.fn(() => null) },
+      });
+
+      await publisher.publish({
+        id: "task-semantic",
+        article: {
+          accountId: "account-semantic",
+          title: "语义标题",
+          content: '<p>正文 <topic>人工智能</topic> <friend>小李</friend><img src="https://example.com/a.jpg"></p>',
+          tags: ["已有标签"],
+          platformOverrides: {
+            zhihu: { topics: ["专属话题"], draft: true, declare: 5 },
+          },
+        },
+      });
+
+      expect(rpaViewManager.publish).toHaveBeenCalledWith(
+        "zhihu",
+        expect.objectContaining({
+          content: expect.stringContaining("#人工智能#"),
+          tags: expect.arrayContaining(["已有标签", "人工智能", "专属话题"]),
+          draft: true,
+          declare: 5,
+          mentions: [expect.objectContaining({ name: "小李" })],
+          images: ["https://example.com/a.jpg"],
+        }),
+        expect.any(Object),
         120000,
       );
     });
@@ -444,6 +521,43 @@ describe("PublisherRouter", () => {
         ROUTE_TABLE.zhihu.mode = originalMode;
       }
     });
+    it("backend 发布也传递富文本语义和可执行的知乎选项", async () => {
+      const originalMode = ROUTE_TABLE.zhihu.mode;
+      ROUTE_TABLE.zhihu.mode = "backend";
+      try {
+        const pythonBridge = {
+          requestBackend: vi.fn(async () => ({ code: 0, data: { success: true } })),
+        };
+        const r = new PublisherRouter();
+        const publisher = r.createPublisher("zhihu", { pythonBridge });
+
+        await publisher.publish({
+          id: "task-backend-semantic",
+          article: {
+            title: "标题",
+            content: '<p>正文 <topic>人工智能</topic> <friend>小李</friend><img src="https://example.com/a.jpg"></p>',
+            tags: ["已有标签"],
+            platformOverrides: {
+              zhihu: { topics: ["专属话题"], draft: true, declare: 5 },
+            },
+          },
+        });
+
+        expect(pythonBridge.requestBackend).toHaveBeenCalledWith(
+          "POST",
+          "/api/publish",
+          expect.objectContaining({
+            content: expect.stringContaining("#人工智能#"),
+            tags: expect.arrayContaining(["已有标签", "人工智能", "专属话题"]),
+            draft: true,
+            mentions: [expect.objectContaining({ name: "小李" })],
+            images: ["https://example.com/a.jpg"],
+          }),
+        );
+      } finally {
+        ROUTE_TABLE.zhihu.mode = originalMode;
+      }
+    });
     it("throws for unknown mode platform", () => {
       const r = new PublisherRouter();
       // PlatformConfig returns config, but no route entry = error
@@ -471,6 +585,28 @@ describe("PublisherRouter", () => {
 
       expect(getAccount).toHaveBeenCalledWith('account-a', 'user-a');
       expect(getDefaultAccount).not.toHaveBeenCalled();
+    });
+
+    it("按任务 owner 查询默认账号和加密凭据", async () => {
+      const r = new PublisherRouter();
+      const getDefaultAccount = vi.fn(() => ({ id: 'default-a', cookies: [] }));
+      const loadSavedCredentials = vi.fn(() => ({ cookies: [{ name: 'sid', value: 'a' }], localStorage: {} }));
+      const publish = vi.fn(async () => ({ success: true, url: 'https://example.test/post' }));
+      const publisher = r.createPublisher("douyin", {
+        rpaViewManager: { publish },
+        store: { getDefaultAccount },
+        accountManager: { loadSavedCredentials },
+      });
+
+      await publisher.publish({
+        id: 'task-default-a',
+        platform: 'douyin',
+        owner_subject: 'user-a',
+        article: { title: 'A' },
+      });
+
+      expect(getDefaultAccount).toHaveBeenCalledWith('douyin', 'user-a');
+      expect(loadSavedCredentials).toHaveBeenCalledWith('default-a', 'douyin', { ownerSubject: 'user-a' });
     });
   });
 });

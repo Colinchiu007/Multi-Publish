@@ -54,6 +54,14 @@ class BaseStore {
   }
 
   /**
+   * 获取当前操作应绑定的 owner。异步服务必须在开始时调用一次并持有快照，
+   * 不能在回调或定时器中重新读取可变的登录态。
+   */
+  getOwnerSubject () {
+    return this._resolveOwnerSubject()
+  }
+
+  /**
    * 初始化数据库（应用启动时调用）
    */
   init () {

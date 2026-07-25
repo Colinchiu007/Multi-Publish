@@ -64,6 +64,7 @@ vi.mock("@element-plus/icons-vue", () => {
     Cellphone: Icon,
     CircleCheck: Icon,
     Close: Icon,
+    Connection: Icon,
     Delete: Icon,
     EditPen: Icon,
     FolderOpened: Icon,

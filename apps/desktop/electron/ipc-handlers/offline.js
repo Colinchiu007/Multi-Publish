@@ -8,23 +8,23 @@ function registerHandlers(ipcMain, deps) {
   const { withSenderCheck } = require('./helpers')
   const offlineManager = require("../services/offline-manager")
 
-  ipcMain.handle("offline:status", async function() {
+  ipcMain.handle("offline:status", withSenderCheck(async function() {
     try {
       return { code: 0, data: offlineManager.getStatus() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-  })
+  }))
 
-  ipcMain.handle("offline:is-offline", async function() {
+  ipcMain.handle("offline:is-offline", withSenderCheck(async function() {
     try {
       return { code: 0, data: offlineManager.isOffline() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: false } }
-  })
+  }))
 
-  ipcMain.handle("offline:cached-tasks", async function() {
+  ipcMain.handle("offline:cached-tasks", withSenderCheck(async function() {
     try {
       return { code: 0, data: offlineManager.loadCache() }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
-  })
+  }))
 
   ipcMain.handle("offline:add-to-cache", withSenderCheck(async function(event, task) {
     try {

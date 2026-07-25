@@ -13,6 +13,7 @@ const os = require('os')
 const log = require('./logger')
 
 const STATE_FILE = 'accounts/state.jsonl'
+const LEGACY_OWNER_SUBJECT = '__legacy__'
 const SENSITIVE_FIELDS = new Set(['cookies', 'localStorage', 'indexedDB', 'authData', 'auth_data'])
 const PUBLIC_ACCOUNT_INFO_FIELDS = new Set([
   'id',
@@ -86,7 +87,10 @@ function normalizeOwnerSubject (ownerSubject) {
 
 function ownerMatches (record, ownerSubject) {
   if (ownerSubject === undefined) {
-    return record.owner_subject === undefined || record.owner_subject === null
+    // 早期迁移曾把 legacy 状态显式标为 __legacy__，而旧 JSONL 没有该字段。
+    // 两种形态都属于未启用身份服务时的同一命名空间。
+    return record.owner_subject === undefined || record.owner_subject === null ||
+      record.owner_subject === LEGACY_OWNER_SUBJECT
   }
   return record.owner_subject === ownerSubject
 }

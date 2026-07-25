@@ -11,6 +11,7 @@ const mockLog = {
 __registerMock('./logger', mockLog)
 
 const BatchManager = require('./batch-manager')
+const EC = require('../core/error-codes').ERROR
 
 function createStore(articles) {
   const batch = {
@@ -217,5 +218,44 @@ describe('BatchManager.executeBatch 入队与终态合同', () => {
         failed: 1,
       },
     })
+  })
+
+  it('身份模式冻结创建者 owner，用户切换后仍只更新原批次并可信入队', async () => {
+    let currentOwner = 'user-a'
+    const store = createStore([
+      { title: '文章', content: '正文', platforms: ['wechat_mp'] },
+    ])
+    const queue = new EventEmitter()
+    queue.addForOwner = vi.fn(() => 'task-a')
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+    manager.setOwnerSubjectProvider(() => currentOwner)
+
+    await manager.executeBatch('batch-1')
+    expect(store.getBatchJob).toHaveBeenCalledWith('batch-1', 'user-a')
+    expect(queue.addForOwner).toHaveBeenCalledWith(
+      expect.objectContaining({ owner_subject: 'user-a', batchId: 'batch-1', accountId: null }),
+      'user-a',
+    )
+
+    currentOwner = 'user-b'
+    queue.emit('task:success', { id: 'task-a', status: 'success', result: {} })
+    expect(store.updateBatchJob).toHaveBeenLastCalledWith(
+      'batch-1',
+      expect.objectContaining({ completed: 1, status: 'done' }),
+      'user-a',
+    )
+  })
+
+  it('batch:list 在身份服务缺少 owner 时 fail-closed', async () => {
+    const store = { listBatchJobs: vi.fn() }
+    const manager = new BatchManager(store)
+    manager.setOwnerSubjectProvider(() => null)
+    manager.registerIpcHandlers()
+
+    const response = await __electronMock.ipcMain._handlers['batch:list']({})
+
+    expect(response).toMatchObject({ code: EC.AUTH_ERROR })
+    expect(store.listBatchJobs).not.toHaveBeenCalled()
   })
 })

@@ -12,6 +12,8 @@ const path = require('node:path')
 
 const electronRoot = path.resolve(__dirname, '..')
 const preloadRoot = path.join(electronRoot, 'preload')
+// esbuild 会把聚合 preload 中的 ipcRenderer 重命名为 ipcRenderer2；两种名称都必须受合同检查保护。
+const IPC_INVOKE_PATTERN = /ipcRenderer\d*\.invoke\(\s*['"]([^'"]+)['"]/g
 
 function walkJsFiles(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -44,7 +46,11 @@ describe('preload 与主进程 IPC 合同', () => {
   it('每个 preload invoke 通道都应有主进程 handler，代表性参数应可结构化克隆', () => {
     const preloadChannels = collectChannels(
       walkJsFiles(preloadRoot),
-      /ipcRenderer\.invoke\(\s*['"]([^'"]+)['"]/g,
+      IPC_INVOKE_PATTERN,
+    )
+    const bundleChannels = collectChannels(
+      [path.join(preloadRoot, 'index.bundle.js')],
+      IPC_INVOKE_PATTERN,
     )
     const productionFiles = walkJsFiles(electronRoot).filter((file) => !file.endsWith('.test.js'))
     const handlerChannels = collectChannels(
@@ -54,6 +60,7 @@ describe('preload 与主进程 IPC 合同', () => {
 
     expect(preloadChannels.size).toBeGreaterThan(200)
     expect([...preloadChannels].filter((channel) => !handlerChannels.has(channel))).toEqual([])
+    expect([...bundleChannels]).toEqual(expect.arrayContaining(['draftSave', 'draftList', 'draftDelete']))
 
     const ipcRenderer = {
       invoke: vi.fn((_channel, ...args) => structuredClone(args)),

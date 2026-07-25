@@ -39,6 +39,14 @@ describe('account-state-restorer owner 隔离', () => {
     expect(restorer.getAccountRecord('douyin', 'legacy')).not.toBeNull()
   })
 
+  it('legacy 清理兼容历史 __legacy__ 标记记录', () => {
+    restorer.saveAccountRecord({ platform: 'douyin', accountId: 'legacy-marked' }, '__legacy__')
+
+    expect(restorer.getAccountRecord('douyin', 'legacy-marked')).not.toBeNull()
+    expect(restorer.deleteAccountRecordsById('legacy-marked')).toBe(true)
+    expect(restorer.getAccountRecord('douyin', 'legacy-marked')).toBeNull()
+  })
+
   it('删除只移除指定 owner 的记录', () => {
     restorer.saveAccountRecord({ platform: 'douyin', accountId: 'shared', cookies: [{ value: 'a' }] }, 'user-a')
     restorer.saveAccountRecord({ platform: 'douyin', accountId: 'shared', cookies: [{ value: 'b' }] }, 'user-b')

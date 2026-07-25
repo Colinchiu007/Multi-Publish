@@ -12,6 +12,7 @@ const playwrightManager = require('../services/playwright-manager')
 const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
+const { normalizeProxyConfig, toPublicProxyConfig } = require('../services/proxy-config')
 
 // 安全：凭证写入路径使用 Electron userData 目录，而非当前工作目录
 function getUserDataDir () {
@@ -367,7 +368,16 @@ async function listAccounts () {
   if (result.code !== 0) {
     throw new Error(result.message || '获取账号列表失败')
   }
-  return result.data || []
+  return (result.data || []).map(account => {
+    const accountId = account?.id || account?.accountId || account?.account_id
+    const platform = account?.platform
+    if (!isSafePathSegment(accountId) || !isSafePathSegment(platform)) return account
+    try {
+      return { ...account, proxy: getAccountProxyStatus(accountId, platform) }
+    } catch (_) {
+      return { ...account, proxy: { configured: false } }
+    }
+  })
 }
 
 /**
@@ -544,7 +554,7 @@ function loadSavedCredentials (accountId, platform, options = {}) {
   if (recordPlatform && recordPlatform !== platform) return null
   if (!credentialPlatform && !recordPlatform) return null
 
-  return {
+  const credentials = {
     cookies: Array.isArray(credentialData.cookies)
       ? credentialData.cookies.filter(cookie => isPlatformCookieDomain(platform, cookie?.domain))
       : [],
@@ -552,6 +562,44 @@ function loadSavedCredentials (accountId, platform, options = {}) {
     indexedDB: credentialData.indexedDB || {},
     accountInfo: credentialData.accountInfo || accountRecord?.accountInfo || {},
   }
+  if (credentialData.proxy !== undefined) credentials.proxy = credentialData.proxy
+  return credentials
+}
+
+function getAccountProxyStatus (accountId, platform, options = {}) {
+  const credentials = loadSavedCredentials(accountId, platform, options)
+  if (!credentials || credentials.proxy === undefined || credentials.proxy === null) {
+    return { configured: false }
+  }
+  try {
+    return toPublicProxyConfig(credentials.proxy)
+  } catch (_) {
+    return { configured: true, invalid: true }
+  }
+}
+
+function setAccountProxy (accountId, platform, proxy, options = {}) {
+  if (!isSafePathSegment(accountId) || !isSafePathSegment(platform) || !PLATFORM_LOGIN_URLS[platform]) {
+    throw new Error('缺少或非法 accountId/platform 参数')
+  }
+  const ownerSubject = resolveOwnerSubject(options.ownerSubject)
+  const credentials = loadSavedCredentials(accountId, platform, { ownerSubject })
+  if (!credentials) throw new Error('账号不存在或本地凭证不可用')
+  const normalizedProxy = normalizeProxyConfig(proxy)
+  const userDataDir = getUserDataDir()
+  const payload = {
+    platform,
+    cookies: credentials.cookies,
+    localStorage: credentials.localStorage,
+    indexedDB: credentials.indexedDB,
+    accountInfo: credentials.accountInfo,
+  }
+  if (normalizedProxy) payload.proxy = normalizedProxy
+  const saveArgs = ownerSubject === undefined
+    ? [accountId, payload, userDataDir]
+    : [accountId, payload, userDataDir, ownerSubject]
+  if (!credentialStore.saveCredential(...saveArgs)) throw new Error('加密代理配置保存失败')
+  return toPublicProxyConfig(normalizedProxy)
 }
 
 /**
@@ -625,6 +673,8 @@ module.exports = {
   restoreCookies,
   restoreLocalStorage,
   loadSavedCredentials,
+  getAccountProxyStatus,
+  setAccountProxy,
   openSavedAccount,
   checkLocalCredentials,
   setOwnerSubjectProvider,

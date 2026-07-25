@@ -27,10 +27,10 @@ function registerHandlers(ipcMain, deps) {
   }, { requireArgs: true, label: 'scheduler:create' })))
 
   // 迁移至 wrapIpcHandlerRaw：catchData 保留 catch 时 data: [] 兜底语义
-  ipcMain.handle('scheduler:list', wrapIpcHandlerRaw(async () => {
+  ipcMain.handle('scheduler:list', withSenderCheck(wrapIpcHandlerRaw(async () => {
     const ownerSubject = currentOwnerSubject()
     return { code: 0, data: ownerSubject === undefined ? scheduler.list() : scheduler.list(ownerSubject) }
-  }, { label: 'scheduler:list', catchData: [] }))
+  }, { label: 'scheduler:list', catchData: [] })))
 
   ipcMain.handle('scheduler:cancel', withSenderCheck(wrapIpcHandlerRaw(async (event, id) => {
     const ownerSubject = currentOwnerSubject()

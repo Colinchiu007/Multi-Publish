@@ -1,6 +1,7 @@
 import {
   accountCheckLogin,
   accountDelete,
+  accountSetProxy,
   authClose,
   authCompleteLogin,
   authOpenLogin,
@@ -37,5 +38,10 @@ export function useAccountActions() {
     return accountDelete(accountId)
   }
 
-  return { openLogin, completeLogin, closeLogin, checkLogin, remove }
+  async function setProxy(account, proxy) {
+    if (!account?.id || !account?.platform) throw new Error('账号信息不完整')
+    return accountSetProxy(account.id, account.platform, proxy)
+  }
+
+  return { openLogin, completeLogin, closeLogin, checkLogin, remove, setProxy }
 }

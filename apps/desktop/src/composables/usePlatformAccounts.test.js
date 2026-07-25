@@ -10,6 +10,7 @@
 import { ref } from 'vue'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
+import platformDisplayDefinitions from '@multi-publish/shared-utils/src/platform-display-definitions.json'
 
 const publisherApi = vi.hoisted(() => ({
   accountList: vi.fn(() => window.electronAPI?.accountList?.() ?? Promise.resolve({ code: -1, data: [] })),
@@ -32,6 +33,7 @@ describe('usePlatformAccounts — 纯函数', () => {
     it('与共享平台定义完全一致', () => {
       const ids = Object.keys(platformMeta)
       expect(ids).toEqual(Object.keys(PLATFORM_NAMES))
+      expect(ids).toEqual(Object.keys(platformDisplayDefinitions.PLATFORM_NAMES))
       expect(ids).not.toContain('yidian')
       expect(ids).toContain('instagram')
       expect(ids).toContain('facebook')

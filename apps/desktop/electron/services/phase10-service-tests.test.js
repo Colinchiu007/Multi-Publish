@@ -26,6 +26,7 @@ describe("offline-manager", () => {
       expect(typeof offline.startMonitoring).toBe("function");
       expect(typeof offline.getStatus).toBe("function");
       expect(typeof offline.setTaskQueue).toBe("function");
+      expect(typeof offline.setOwnerSubjectProvider).toBe("function");
       expect(typeof offline.processCachedTasks).toBe("function");
     });
   });

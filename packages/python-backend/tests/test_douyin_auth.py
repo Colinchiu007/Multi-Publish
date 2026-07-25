@@ -87,6 +87,7 @@ def _run(coro):
 def _legacy_auth_compatibility(monkeypatch):
     """历史行为测试显式开启兼容开关，生产默认路径必须拒绝明文凭据。"""
     monkeypatch.setenv("MULTI_PUBLISH_ALLOW_LEGACY_PLAINTEXT_AUTH", "1")
+    monkeypatch.setenv("MULTI_PUBLISH_LEGACY_AUTH_MIGRATION", "1")
 
 
 class TestPlaintextAuthPolicy:

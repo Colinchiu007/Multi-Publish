@@ -9,8 +9,8 @@
  *     async onEnable(ctx)      // optional
  *     async onDisable(ctx)     // optional
  *     async onUnload(ctx)      // optional
- *     async publish(postData, cookie)         // optional
- *     async publishViaApi(postData, config)   // optional
+ *     async publish(postData, cookie, opts)   // optional，须返回 { success: boolean, error?: string }
+ *     async publishViaApi(taskData, cookie, opts) // optional，须返回 { success: boolean, error?: string }
  *     async validate()         // optional
  *     async beforePublish(ctx) // optional (PRD F16.3) — 返回 {proceed:false,reason} 拒绝；返回 {article} 修改
  *     async afterPublish(ctx)  // optional (PRD F16.3) — 发布完成后调用，ctx={article,account,result,success}

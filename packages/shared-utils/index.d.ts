@@ -4,8 +4,18 @@
 
 // ---- 任务队列 ----
 export class TaskQueue {
-  constructor(opts?: { maxConcurrent?: number });
-  add(task: any): Promise<any>;
+  constructor(opts?: { maxConcurrent?: number; defaultRetry?: number; defaultTimeout?: number });
+  add(task: any): string;
+  addForOwner(task: any, ownerSubject: string): string;
+  setOwnerSubjectProvider(provider: (() => string | null | undefined) | null): void;
+  getPendingTasks(): any[];
+  getStatus(): { pending: number; running: number; history: number; paused: boolean };
+  getHistory(): any[];
+  retry(taskId: string): string | null;
+  cancel(taskId: string): boolean;
+  clearPending(): number;
+  serialize(): string;
+  deserialize(json: string): number;
   getTasks(): any[];
   getActiveCount(): number;
   getQueueLength(): number;
@@ -80,15 +90,21 @@ export interface ScheduledTask {
 }
 
 export interface Scheduler {
-  setTaskQueue(taskQueue: { add(task: unknown): unknown | Promise<unknown> }): void;
+  setTaskQueue(taskQueue: {
+    add?(task: unknown): unknown | Promise<unknown>;
+    addForOwner?(task: unknown, ownerSubject: string): unknown | Promise<unknown>;
+  }): void;
+  setOwnerSubjectProvider(provider: (() => string | null | undefined) | null): void;
   create(schedule: {
     platform: string;
     article: Record<string, unknown>;
     publishTime: string;
+    accountId?: string | null;
+    owner_subject?: string;
   }): ScheduledTask;
-  list(): ScheduledTask[];
-  cancel(id: string): boolean;
-  restore(): number;
+  list(ownerSubject?: string): ScheduledTask[];
+  cancel(id: string, ownerSubject?: string): boolean;
+  restore(ownerSubject?: string): number;
   stopAll(): Promise<unknown[]>;
 }
 

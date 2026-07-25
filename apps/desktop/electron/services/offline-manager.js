@@ -12,6 +12,7 @@
 const fs = require("fs")
 const path = require("path")
 const log = require("./logger")
+const { LEGACY_OWNER_SUBJECT } = require("./store-schema")
 
 const OFFLINE_CACHE_FILE = "offline-publish-cache.json"
 let _isOffline = false
@@ -19,6 +20,35 @@ let _isOffline = false
 const _retryQueue = []
 let _mainWin = null
 let _taskQueue = null
+let _ownerSubjectProvider = null
+
+function isThenable(value) {
+  return value && typeof value.then === "function"
+}
+
+function normalizeOwnerSubject(ownerSubject) {
+  if (typeof ownerSubject !== "string" || !ownerSubject.trim()) {
+    throw new Error("离线任务无法识别当前用户")
+  }
+  return ownerSubject.trim()
+}
+
+function getCurrentOwnerSubject() {
+  if (!_ownerSubjectProvider) return undefined
+  try {
+    return normalizeOwnerSubject(_ownerSubjectProvider())
+  } catch (_) {
+    return null
+  }
+}
+
+function taskBelongsToOwner(task, ownerSubject) {
+  if (!task || typeof task !== "object") return false
+  if (ownerSubject === undefined) {
+    return task.owner_subject === undefined || task.owner_subject === null || task.owner_subject === LEGACY_OWNER_SUBJECT
+  }
+  return ownerSubject !== null && task.owner_subject === ownerSubject
+}
 
 function getCachePath() {
   let userDataDir
@@ -46,28 +76,63 @@ function setTaskQueue(tq) {
   _taskQueue = tq
 }
 
+function setOwnerSubjectProvider(provider) {
+  if (provider !== null && provider !== undefined && typeof provider !== "function") {
+    throw new TypeError("owner subject provider must be a function or null")
+  }
+  _ownerSubjectProvider = provider || null
+}
+
 function processCachedTasks() {
   if (!_taskQueue || _isOffline) return 0
-  const tasks = loadCache()
+  const ownerSubject = getCurrentOwnerSubject()
+  if (ownerSubject === null) return 0
+  const allTasks = loadAllCache()
+  const tasks = allTasks.filter(task => taskBelongsToOwner(task, ownerSubject))
   if (tasks.length === 0) return 0
   let count = 0
+  const remainingTasks = allTasks.filter(task => !taskBelongsToOwner(task, ownerSubject))
   tasks.forEach(function(task) {
     if (task.platform && task.article) {
-      _taskQueue.add({
+      const payload = {
         platform: task.platform,
         article: task.article,
         accountId: task.accountId || null,
-      })
-      count++
+      }
+      try {
+        if (ownerSubject !== undefined) {
+          if (typeof _taskQueue.addForOwner !== "function") {
+            throw new Error("任务队列不支持租户隔离入队")
+          }
+          const enqueueResult = _taskQueue.addForOwner({ ...payload, owner_subject: ownerSubject }, ownerSubject)
+          // 当前 TaskQueue 是同步入队。若未来改成异步，不能在 Promise 结果未知时删除缓存。
+          if (isThenable(enqueueResult)) {
+            Promise.resolve(enqueueResult).catch(error => {
+              log.warn("offline", "Async re-queue failed: " + error.message)
+            })
+            throw new Error("任务队列重放必须同步完成")
+          }
+        } else {
+          _taskQueue.add(payload)
+        }
+        count++
+      } catch (error) {
+        remainingTasks.push(task)
+        log.warn("offline", "Failed to re-queue cached task: " + error.message)
+      }
+    } else {
+      remainingTasks.push(task)
     }
   })
-  saveCache([])
+  saveCache(remainingTasks)
   log.info("offline", "Re-queued " + count + " cached tasks after network restored")
   return count
 }
 
 function clearAllCached() {
-  saveCache([])
+  const ownerSubject = getCurrentOwnerSubject()
+  if (ownerSubject === null) return false
+  return saveCache(loadAllCache().filter(task => !taskBelongsToOwner(task, ownerSubject)))
 }
 
 
@@ -75,17 +140,24 @@ function isOffline() {
   return _isOffline
 }
 
-function loadCache() {
+function loadAllCache() {
   try {
     const cachePath = getCachePath()
     if (fs.existsSync(cachePath)) {
       const data = fs.readFileSync(cachePath, "utf8")
-      return JSON.parse(data)
+      const parsed = JSON.parse(data)
+      return Array.isArray(parsed) ? parsed : []
     }
   } catch (e) {
     log.error("offline", "Failed to load cache: " + e.message)
   }
   return []
+}
+
+function loadCache() {
+  const ownerSubject = getCurrentOwnerSubject()
+  if (ownerSubject === null) return []
+  return loadAllCache().filter(task => taskBelongsToOwner(task, ownerSubject))
 }
 
 function saveCache(tasks) {
@@ -102,19 +174,28 @@ function saveCache(tasks) {
 }
 
 function addToCache(task) {
-  const tasks = loadCache()
+  if (!task || typeof task !== "object" || Array.isArray(task)) return false
+  const ownerSubject = getCurrentOwnerSubject()
+  if (ownerSubject === null) return false
+  const tasks = loadAllCache()
+  const { owner_subject: _untrustedOwner, ...safeTask } = task
   tasks.push({
-    ...task,
+    ...safeTask,
+    ...(ownerSubject === undefined ? {} : { owner_subject: ownerSubject }),
     cachedAt: new Date().toISOString(),
   })
   return saveCache(tasks)
 }
 
 function clearSuccessfulTasks() {
-  const tasks = loadCache()
-  const pending = tasks.filter(function(t) { return !t.success })
+  const ownerSubject = getCurrentOwnerSubject()
+  if (ownerSubject === null) return []
+  const tasks = loadAllCache()
+  const pending = tasks.filter(function(task) {
+    return !taskBelongsToOwner(task, ownerSubject) || !task.success
+  })
   saveCache(pending)
-  return pending
+  return pending.filter(task => taskBelongsToOwner(task, ownerSubject))
 }
 
 function onNetworkChange(isOffline) {
@@ -174,5 +255,6 @@ module.exports = {
   startMonitoring: startMonitoring,
   getStatus: getStatus,
   setTaskQueue: setTaskQueue,
+  setOwnerSubjectProvider: setOwnerSubjectProvider,
   processCachedTasks: processCachedTasks,
 }

@@ -14,6 +14,7 @@
 const path = require('path')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
+const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/rich-text-processor')
 const { getConfigPath } = require('./config-resolver')
 
 // 鈹€鈹€鈹€ 璺敱琛紙纭害鏉燂級鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -40,6 +41,23 @@ const ROUTE_TABLE = {
   // shipinhao: { mode: 'backend', timeout: 300000 },
 }
 
+function normalizeStringList (value) {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter(item => typeof item === 'string')
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+function mergeUniqueStrings (...lists) {
+  return [...new Set(lists.flat().filter(Boolean))]
+}
+
+function resolveBooleanOption (override, base, key) {
+  if (typeof override[key] === 'boolean') return override[key]
+  return base[key] === true
+}
+
 function resolvePlatformArticle (task, platform) {
   const base = task && task.article && typeof task.article === 'object' ? task.article : {}
   const overrides = base.platformOverrides && typeof base.platformOverrides === 'object'
@@ -59,8 +77,41 @@ function resolvePlatformArticle (task, platform) {
     resolved.declare = Number.isInteger(declaration) && declaration >= 0 && declaration <= 5
       ? declaration
       : 0
+    resolved.topics = normalizeStringList(override.topics)
+    resolved.draft = resolveBooleanOption(override, base, 'draft')
+  } else if (platform === 'douyin') {
+    resolved.draft = resolveBooleanOption(override, base, 'draft')
+  } else if (platform === 'wechat_mp') {
+    resolved.massSend = resolveBooleanOption(override, base, 'massSend')
   }
   return resolved
+}
+
+function buildPublishArticle (task, platform) {
+  const resolved = resolvePlatformArticle(task, platform)
+  const processed = new RichTextProcessor().process(resolved.content)
+  const tags = mergeUniqueStrings(
+    normalizeStringList(resolved.base.tags),
+    processed.topics.map(topic => topic.name),
+    resolved.topics || [],
+  )
+  const article = {
+    accountId: task?.article?.accountId || task?.accountId || null,
+    title: resolved.title,
+    content: processed.content,
+    video_path: resolved.base.video_path || (resolved.base.media_paths?.[0] ?? null),
+    cover_path: resolved.base.cover_url || resolved.base.cover_path || null,
+    tags,
+    draft: resolved.draft ?? resolveBooleanOption({}, resolved.base, 'draft'),
+    mentions: processed.mentions,
+    images: processed.images,
+  }
+  if (platform === 'zhihu') {
+    article.commentPermission = resolved.commentPermission
+    article.declare = resolved.declare
+  }
+  if (platform === 'wechat_mp') article.massSend = resolved.massSend
+  return article
 }
 
 function normalizeAuthData (credentials, platform) {
@@ -73,8 +124,35 @@ function normalizeAuthData (credentials, platform) {
   const localStorage = storedLocalStorage && typeof storedLocalStorage === 'object' && !Array.isArray(storedLocalStorage)
     ? storedLocalStorage
     : {}
-  if (cookies.length === 0 && Object.keys(localStorage).length === 0) return null
-  return { cookies, localStorage }
+  const indexedDB = credentials.indexedDB && typeof credentials.indexedDB === 'object' && !Array.isArray(credentials.indexedDB)
+    ? credentials.indexedDB
+    : {}
+  if (cookies.length === 0 && Object.keys(localStorage).length === 0 && Object.keys(indexedDB).length === 0) return null
+  const authData = { cookies, localStorage }
+  if (Object.keys(indexedDB).length > 0) authData.indexedDB = indexedDB
+  if (credentials.proxy !== undefined && credentials.proxy !== null) authData.proxy = credentials.proxy
+  return authData
+}
+
+function getAccountForTask (store, accountId, ownerSubject) {
+  if (!store || typeof store.getAccount !== 'function') return null
+  return ownerSubject === undefined
+    ? store.getAccount(accountId)
+    : store.getAccount(accountId, ownerSubject)
+}
+
+function getDefaultAccountForTask (store, platform, ownerSubject) {
+  if (!store || typeof store.getDefaultAccount !== 'function') return null
+  return ownerSubject === undefined
+    ? store.getDefaultAccount(platform)
+    : store.getDefaultAccount(platform, ownerSubject)
+}
+
+function loadCredentialsForTask (accountManager, accountId, platform, ownerSubject) {
+  if (!accountManager || typeof accountManager.loadSavedCredentials !== 'function') return null
+  return ownerSubject === undefined
+    ? accountManager.loadSavedCredentials(accountId, platform)
+    : accountManager.loadSavedCredentials(accountId, platform, { ownerSubject })
 }
 
 // 鈹€鈹€鈹€ 涓ょ Publisher 绛栫暐 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -89,54 +167,39 @@ class RpaVmPublisher {
 
   async publish (task, options = {}) {
     const platform = this.route.platform
-    const resolvedArticle = resolvePlatformArticle(task, platform)
+    const ownerSubject = task && task.owner_subject
 
     // 鍔犺浇璐﹀彿 Cookie
-    const accountId = task.article?.accountId || task.accountId
+    const article = buildPublishArticle(task, platform)
+    let accountId = article.accountId
     let authData = { cookies: [], localStorage: {} }
     if (accountId) {
       try {
-        if (this.accountManager && typeof this.accountManager.loadSavedCredentials === 'function') {
-          authData = normalizeAuthData(this.accountManager.loadSavedCredentials(accountId, platform), platform) || authData
-        }
+        authData = normalizeAuthData(
+          loadCredentialsForTask(this.accountManager, accountId, platform, ownerSubject),
+          platform,
+        ) || authData
       } catch (_) { /* 凭证回退不得阻断 SQLite 读取 */ }
       if (authData.cookies.length === 0 && (!authData.localStorage || Object.keys(authData.localStorage).length === 0)) {
-        const account = this.store && typeof this.store.getAccount === 'function'
-          ? this.store.getAccount(accountId, task.owner_subject)
-          : null
+        const account = getAccountForTask(this.store, accountId, ownerSubject)
         authData = normalizeAuthData(account, platform) || authData
       }
     } else {
-      const defaultAccount = this.store && typeof this.store.getDefaultAccount === 'function'
-        ? this.store.getDefaultAccount(platform)
-        : null
+      const defaultAccount = getDefaultAccountForTask(this.store, platform, ownerSubject)
       if (defaultAccount) {
+        accountId = defaultAccount.id || null
+        article.accountId = accountId
         try {
-          if (this.accountManager && typeof this.accountManager.loadSavedCredentials === 'function') {
-            authData = normalizeAuthData(this.accountManager.loadSavedCredentials(defaultAccount.id, platform), platform) || authData
-          }
+          authData = normalizeAuthData(
+            loadCredentialsForTask(this.accountManager, defaultAccount.id, platform, ownerSubject),
+            platform,
+          ) || authData
         } catch (_) { /* 凭证回退不得阻断 SQLite 读取 */ }
         if (authData.cookies.length === 0 && (!authData.localStorage || Object.keys(authData.localStorage).length === 0)) {
           const storeAuthData = normalizeAuthData(defaultAccount, platform)
           if (storeAuthData) authData = storeAuthData
         }
       }
-    }
-
-    const article = {
-      accountId: accountId || null,
-      title: resolvedArticle.title,
-      content: resolvedArticle.content,
-      video_path: resolvedArticle.base.video_path || (resolvedArticle.base.media_paths?.[0] ?? null),
-      cover_path: resolvedArticle.base.cover_url || resolvedArticle.base.cover_path || null,
-      tags: resolvedArticle.base.tags || [],
-      draft: resolvedArticle.base.draft || false,
-      ...(platform === 'zhihu'
-        ? {
-            commentPermission: resolvedArticle.commentPermission,
-            declare: resolvedArticle.declare,
-          }
-        : {}),
     }
 
     const signal = options && options.signal
@@ -171,23 +234,22 @@ class BackendPublisher {
 
   async publish (task) {
     const platform = this.route.platform
-    const resolvedArticle = resolvePlatformArticle(task, platform)
+    const article = buildPublishArticle(task, platform)
     const body = {
-      title: resolvedArticle.title,
-      content: resolvedArticle.content,
+      title: article.title,
+      content: article.content,
       platform,
-      media_paths: resolvedArticle.base.video_path
-        ? [resolvedArticle.base.video_path]
-        : (resolvedArticle.base.media_paths || []),
-      cover_path: resolvedArticle.base.cover_url || resolvedArticle.base.cover_path || null,
-      tags: resolvedArticle.base.tags || [],
-      draft: resolvedArticle.base.draft || false,
-      ...(platform === 'zhihu'
-        ? {
-            commentPermission: resolvedArticle.commentPermission,
-            declare: resolvedArticle.declare,
-          }
-        : {}),
+      media_paths: article.video_path ? [article.video_path] : (task?.article?.media_paths || []),
+      cover_path: article.cover_path,
+      tags: article.tags,
+      draft: article.draft,
+      mentions: article.mentions,
+      images: article.images,
+      ...(platform === 'zhihu' ? {
+        commentPermission: article.commentPermission,
+        declare: article.declare,
+      } : {}),
+      ...(platform === 'wechat_mp' ? { massSend: article.massSend } : {}),
     }
 
     const result = await this.pythonBridge.requestBackend('POST', '/api/publish', body)

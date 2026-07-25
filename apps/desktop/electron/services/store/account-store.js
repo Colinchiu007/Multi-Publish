@@ -128,6 +128,24 @@ module.exports = {
         ).run(owner, normalizedId)
         assertWriteSucceeded(accountResult, '删除账号', true)
 
+        // 旧版默认账号存于全局 settings。仅在删除的正是该平台默认账号时清理，
+        // 不能误删同平台其他账号仍在使用的默认设置。
+        if (owner === LEGACY_OWNER_SUBJECT) {
+          const defaultSettingKey = `default_account:${row.platform}`
+          const defaultSetting = this.db.prepare(
+            'SELECT value FROM settings WHERE key = ?',
+          ).get(defaultSettingKey)
+          const configuredAccountId = defaultSetting
+            ? safeJsonParse(defaultSetting.value, defaultSetting.value)
+            : null
+          if (String(configuredAccountId) === normalizedId) {
+            const result = this.db.prepare(
+              'DELETE FROM settings WHERE key = ?',
+            ).run(defaultSettingKey)
+            assertWriteSucceeded(result, '清理默认账号设置', true)
+          }
+        }
+
         const scheduledTasks = this.db.prepare(
           'SELECT id, article FROM scheduled_tasks WHERE owner_subject = ? AND platform = ?',
         ).all(owner, row.platform)

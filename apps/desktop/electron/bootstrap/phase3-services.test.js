@@ -9,11 +9,14 @@ const mockCreateLoginStatusMonitor = vi.fn(() => mockLoginStatusMonitor)
 __registerMock('../services/login-status-monitor', {
   createLoginStatusMonitor: mockCreateLoginStatusMonitor,
 })
-__registerMock('../publishers/account-manager', {})
+const mockAccountManager = { setOwnerSubjectProvider: vi.fn() }
+__registerMock('../publishers/account-manager', mockAccountManager)
 __registerMock('../services/analytics-providers', {
   xiaohongshuProvider: { name: 'xhs' },
   douyinProvider: { name: 'douyin' },
 })
+const mockOfflineManager = { setOwnerSubjectProvider: vi.fn() }
+__registerMock('../services/offline-manager', mockOfflineManager)
 
 const log = require('../services/logger')
 const { startServices } = require('./phase3-services')
@@ -27,12 +30,16 @@ function makeMockDeps(overrides) {
     get: vi.fn((key) => {
       if (key === 'publishIntervalGuard') return {}
       if (key === 'commentManager') return mockCommentManager
+      if (key === 'batchManager') return mockBatchManager
       return {}
     }),
   }
   const mockCommentManager = {
     setOwnerSubjectProvider: vi.fn(),
     stopAll: vi.fn(async () => {}),
+  }
+  const mockBatchManager = {
+    setOwnerSubjectProvider: vi.fn(),
   }
   const mockStore = {
     init: vi.fn(),
@@ -210,8 +217,12 @@ describe('phase3-services.startServices', () => {
     expect(deps.scheduler.restore).toHaveBeenCalledWith('user-a')
     expect(deps.scheduler.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
     expect(deps.taskQueue.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    expect(mockAccountManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
     const commentManager = deps.container.get('commentManager')
     expect(commentManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    const batchManager = deps.container.get('batchManager')
+    expect(batchManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    expect(mockOfflineManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
   })
 
   it('身份服务使用合并后的公开运行时配置', async () => {
@@ -316,9 +327,26 @@ describe('phase3-services.startServices', () => {
     expect(deps.taskQueue.setStateSaver).toHaveBeenLastCalledWith(null)
     expect(deps.scheduler.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
     expect(deps.taskQueue.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
+    expect(mockOfflineManager.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
     expect(deps.pythonBridge.setAuthService).toHaveBeenLastCalledWith(null)
     expect(identityService.dispose).toHaveBeenCalledTimes(1)
     expect(deps.store.close).toHaveBeenCalledTimes(1)
     expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('Store 不支持 owner provider 时仍绑定账号凭据归属', async () => {
+    const identityService = {
+      getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })),
+    }
+    const deps = makeMockDeps({ createIdentityService: vi.fn(async () => identityService) })
+    delete deps.store.setOwnerSubjectProvider
+
+    const result = await startServices(deps)
+
+    expect(mockAccountManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    const ownerProvider = mockAccountManager.setOwnerSubjectProvider.mock.calls[0][0]
+    expect(ownerProvider()).toBe('user-a')
+    await result.rollback()
+    expect(mockAccountManager.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
   })
 })

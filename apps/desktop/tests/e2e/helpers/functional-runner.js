@@ -32,7 +32,7 @@ const RESET_APP_READY_TIMEOUT = 10000;
 class FunctionalRunner {
   constructor(options = {}) {
     this.specName = options.specName || 'unnamed';
-    this.url = options.url || 'http://127.0.0.1:5174';
+    this.url = options.url || process.env.TEST_URL || 'http://127.0.0.1:5174';
     this.headless = options.headless !== false;
     this.viewport = options.viewport || { width: 1920, height: 1080 };
     this.reportsDir = options.reportsDir || path.join(__dirname, '..', 'reports');
@@ -395,10 +395,10 @@ class FunctionalRunner {
   }
 
   /** 保存报告到 JSON */
-  saveReport() {
-    const report = this.generateReport();
+  saveReport(report) {
+    const reportToSave = report || this.generateReport();
     const filename = path.join(this.reportsDir, this.specName + '.json');
-    fs.writeFileSync(filename, JSON.stringify(report, null, 2));
+    fs.writeFileSync(filename, JSON.stringify(reportToSave, null, 2));
     return filename;
   }
 }

@@ -56,6 +56,24 @@ t('adjacent topic and mention',()=>{
   eq(r.segments[0].type,'topic');
   eq(r.segments[1].type,'mention');
 });
+t('semantic topic/friend/image markup is normalized and extracted',()=>{
+  var r=rtp.process('<p>正文 <topic>人工智能</topic> <friend>小李</friend><img src="https://example.com/a.jpg"></p>');
+  eq(r.content.includes('#人工智能#'),true);
+  eq(r.content.includes('@小李'),true);
+  eq(r.topics.map(function(item){return item.name}),['人工智能']);
+  eq(r.mentions.map(function(item){return item.name}),['小李']);
+  eq(r.images,['https://example.com/a.jpg']);
+});
+t('semantic friend keeps a complete display name with spaces and hyphens',()=>{
+  var r=rtp.process('<friend>张 三-test</friend>');
+  eq(r.content,'@张 三-test');
+  eq(r.mentions.map(function(item){return item.name}),['张 三-test']);
+});
+t('unsafe image source is not exposed to a publisher adapter',()=>{
+  var r=rtp.process('<img src="javascript:alert(1)"><img src="https://example.com/safe.jpg">');
+  eq(r.images,['https://example.com/safe.jpg']);
+  eq(r.content.includes('javascript:'),false);
+});
 
 console.log('\n========== Result: '+p+'/'+(p+f)+' ==========');
 if(f)process.exit(1);

@@ -71,9 +71,20 @@ function getAdapter(p) {
 async function publishViaApi(platform, taskData, cookie, opts) {
   var adapter = getAdapter(platform);
   if (!adapter) throw new Error("No API adapter for platform: " + platform);
-  if (typeof adapter.publishViaApi === "function") return adapter.publishViaApi(taskData, cookie, opts);
-  if (typeof adapter.publish === "function") return adapter.publish(taskData, cookie);
-  var result = await adapter.execute(taskData, cookie, opts);
+
+  // 内置适配器的 execute 负责上传、构造发布数据及调用 publish。必须优先走该路径，
+  // 否则会把 taskData 当成 Cookie 传给 publish，并跳过上传流程。
+  var result;
+  if (typeof adapter.execute === "function") {
+    result = await adapter.execute(taskData, cookie, opts);
+  } else if (typeof adapter.publishViaApi === "function") {
+    result = await adapter.publishViaApi(taskData, cookie, opts);
+  } else if (typeof adapter.publish === "function") {
+    result = await adapter.publish(taskData, cookie, opts);
+  } else {
+    throw new Error("API adapter has no publish entrypoint for platform: " + platform);
+  }
+
   if (!result || !result.success) throw new Error((result && result.error) || "API publish failed for " + platform);
   return result;
 }

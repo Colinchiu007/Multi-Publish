@@ -65,8 +65,18 @@ function normalizePlatformOverrides (overrides) {
       normalized.declare = Number.isInteger(declaration) && declaration >= 0 && declaration <= 5
         ? declaration
         : 0
+      const topics = Array.isArray(value.topics)
+        ? [...new Set(value.topics.filter(topic => typeof topic === 'string').map(topic => topic.trim()).filter(Boolean))]
+        : []
+      if (topics.length > 0) normalized.topics = topics
+      if (value.draft === true) normalized.draft = true
+    } else if (platform === 'douyin') {
+      if (value.draft === true) normalized.draft = true
+    } else if (platform === 'wechat_mp') {
+      if (value.massSend === true) normalized.massSend = true
     }
-    if (!normalized.title && !normalized.content && platform !== 'zhihu') return []
+    const hasExecutableOption = normalized.draft === true || normalized.massSend === true
+    if (!normalized.title && !normalized.content && platform !== 'zhihu' && !hasExecutableOption) return []
     return [[platform, normalized]]
   }))
 }

@@ -151,14 +151,14 @@ describe('preload sandbox 真实验证器', () => {
       'utf8',
     )
     const setUserDataAt = source.indexOf("app.setPath('userData'")
-    const setCacheAt = source.indexOf("app.setPath('cache'")
+    const setSessionDataAt = source.indexOf("app.setPath('sessionData'")
     const whenReadyAt = source.indexOf('app.whenReady()')
 
     expect(setUserDataAt).toBeGreaterThan(-1)
-    expect(setCacheAt).toBeGreaterThan(-1)
+    expect(setSessionDataAt).toBeGreaterThan(-1)
     expect(source).toContain('app.disableHardwareAcceleration()')
     expect(setUserDataAt).toBeLessThan(whenReadyAt)
-    expect(setCacheAt).toBeLessThan(whenReadyAt)
+    expect(setSessionDataAt).toBeLessThan(whenReadyAt)
   })
 
   it('Electron harness 使用受控本地 HTTP 页面，避免 sandbox data URL 崩溃', () => {

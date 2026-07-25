@@ -3,7 +3,7 @@ import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 
-const pushSpy = vi.fn();
+const pushSpy = vi.hoisted(() => vi.fn());
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: pushSpy }), useRoute: () => ({ query: {} }) }));
 
 vi.mock("@/stores/platforms", () => ({
@@ -17,8 +17,14 @@ vi.mock("@/stores/license", () => ({ useLicenseStore: () => ({ isPro: true }) })
 vi.mock("@/stores/templates", () => ({ useTemplateStore: () => ({ load: vi.fn() }) }));
 vi.mock("@/stores/accounts", () => ({ useAccountStore: () => ({ load: vi.fn(), loadGroups: vi.fn(), accounts: [], byPlatform: {}, getDefault: () => null }) }));
 vi.mock("@element-plus/icons-vue", () => ({ UploadFilled: { template: "<span>U</span>" } }));
+vi.mock("@/components/TrendingPanel.vue", () => ({
+  default: { name: "TrendingPanel", template: "<div data-testid='trending-panel-stub'/>" },
+}));
+vi.mock("@/components/ReferenceFinder.vue", () => ({
+  default: { name: "ReferenceFinder", template: "<div data-testid='reference-finder-stub'/>" },
+}));
 
-const mockApi = {
+const mockApi = vi.hoisted(() => ({
   renderStart: vi.fn(), renderCancel: vi.fn(), renderGetStatus: vi.fn().mockResolvedValue({ ready: true }),
   renderInstallDeps: vi.fn(), onRenderProgress: vi.fn(() => vi.fn()),
   onRenderComplete: vi.fn(() => vi.fn()), onRenderError: vi.fn(() => vi.fn()),
@@ -34,8 +40,14 @@ const mockApi = {
   cloudPublishHistory: vi.fn().mockResolvedValue({ ok: true, data: [] }),
   cloudPublishListTasks: vi.fn().mockResolvedValue({ ok: true, data: [] }),
   cloudPublishPublish: vi.fn().mockResolvedValue({ ok: true }),
-};
+  intelligenceSearch: vi.fn().mockResolvedValue({ code: 0, data: { total: 0, results: [] } }),
+  intelligenceSearchTitles: vi.fn().mockResolvedValue({ code: 0, data: { titleAnalysis: null } }),
+  intelligenceFetchTrending: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+  intelligenceFindReferences: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+}));
 vi.mock("@/api/publisher", () => mockApi);
+import IntelligenceView from "./Intelligence.vue";
+import ProvidersView from "./Providers.vue";
 
 // ====== Intelligence.vue ======
 describe("IntelligenceView (coverage)", () => {
@@ -43,17 +55,17 @@ describe("IntelligenceView (coverage)", () => {
     window.electronAPI = { intelligenceSearch: vi.fn().mockResolvedValue({ total: 0, results: [] }) };
   });
 
-  async function mnt() {
-    const m = await import("./Intelligence.vue");
-    return mount(m.default || m, {
-      global: { stubs: { TrendingPanel: { template: "<div>trending</div>" }, ReferenceFinder: { template: "<div>ref</div>" }, UiModal: { template: "<div v-if='visible'><slot/></div>", props: ["visible"] } } }
+  function mnt() {
+    return mount(IntelligenceView, {
+      global: { stubs: { UiModal: { template: "<div v-if='visible'><slot/></div>", props: ["visible"] } } }
     });
   }
 
-  it("renders search input and trending panel", { timeout: 30000 }, async () => {
+  it("renders search input and trending panel", async () => {
     const w = await mnt();
     await nextTick();
     expect(w.text()).toContain("内容情报");
+    expect(w.find("[data-testid='trending-panel-stub']").exists()).toBe(true);
     const input = w.find("input");
     expect(input.exists()).toBe(true);
     expect(input.attributes("placeholder")).toContain("搜索");
@@ -83,9 +95,8 @@ describe("IntelligenceView (coverage)", () => {
 describe("ProvidersView (coverage)", () => {
   beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); window.electronAPI = {}; });
 
-  async function mnt() {
-    const m = await import("./Providers.vue");
-    return mount(m.default || m, {
+  function mnt() {
+    return mount(ProvidersView, {
       global: { plugins: [createPinia()],
         stubs: { "el-dialog": { template: "<div v-if='visible'><slot/></div>", props: ["visible"] },
           "el-input": { template: "<input/>" }, "el-form": { template: "<form><slot/></form>" },

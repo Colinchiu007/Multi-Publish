@@ -7,6 +7,7 @@ describe('PlatformOverridePanel', () => {
     { id: 'wechat_mp', label: '微信公众号', titleMax: 64, contentMax: 20000 },
     { id: 'xiaohongshu', label: '小红书', titleMax: 20, contentMax: 1000 },
     { id: 'zhihu', label: '知乎', titleMax: 120, contentMax: 100000 },
+    { id: 'douyin', label: '抖音', titleMax: 55, contentMax: 2200 },
   ]
 
   it('渲染已选平台并展示限制', () => {
@@ -60,6 +61,8 @@ describe('PlatformOverridePanel', () => {
         content: '',
         commentPermission: 'anyone',
         declare: 0,
+        topics: [],
+        draft: false,
       },
     })
   })
@@ -81,5 +84,32 @@ describe('PlatformOverridePanel', () => {
       commentPermission: 'anyone',
       declare: 5,
     })
+  })
+
+  it('知乎话题、草稿和公众号群发会产生受限的结构化选项', async () => {
+    const wrapper = mount(PlatformOverridePanel, {
+      props: {
+        platforms,
+        modelValue: {
+          zhihu: { title: '', content: '', commentPermission: 'anyone', declare: 0, topics: [], draft: false },
+          wechat_mp: { title: '', content: '', massSend: false },
+          douyin: { title: '', content: '', draft: false },
+        },
+      },
+    })
+
+    await wrapper.get('[data-testid="override-topics-zhihu"]').setValue('AI, 人工智能，AI')
+    await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue').at(-1)[0] })
+    await wrapper.get('[data-testid="override-draft-zhihu"]').setValue(true)
+    await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue').at(-1)[0] })
+    await wrapper.get('[data-testid="override-mass-send-wechat_mp"]').setValue(true)
+    await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue').at(-1)[0] })
+    await wrapper.get('[data-testid="override-draft-douyin"]').setValue(true)
+
+    const latest = wrapper.emitted('update:modelValue').at(-1)[0]
+    expect(latest.zhihu.topics).toEqual(['AI', '人工智能'])
+    expect(latest.zhihu.draft).toBe(true)
+    expect(latest.wechat_mp.massSend).toBe(true)
+    expect(latest.douyin.draft).toBe(true)
   })
 })

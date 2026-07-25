@@ -2,11 +2,9 @@
 /**
  * Proxy IPC handlers 合同测试
  *
- * 验证写操作的 sender 来源校验（withSenderCheck）：
- * - proxy:add / proxy:add-batch / proxy:remove / proxy:remove-dead
- *
- * 只读操作不校验：proxy:list / proxy:test / proxy:test-all / proxy:status / proxy:get-next
- * 注意：proxy:reset 虽然是状态变更但不在本次迁移范围。
+ * 验证所有代理管理操作的 sender 来源校验与公开数据脱敏：
+ * - 外部网页不能探测、测试、读取或修改代理池
+ * - 返回给 renderer 的代理条目不能携带原始地址之外的未知字段
  *
  * @vitest-environment node
  */
@@ -69,7 +67,7 @@ const UNTRUSTED_EVENT = { senderFrame: { url: 'https://evil.example/' } }
 // 可信来源（dev localhost）
 const TRUSTED_EVENT = { senderFrame: { url: 'http://localhost:5174/' } }
 
-describe('proxy IPC 写操作 sender 校验', () => {
+describe('proxy IPC sender 校验', () => {
   it('proxy:add 拒绝外部网页调用', async () => {
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, createMockDeps())
@@ -109,9 +107,24 @@ describe('proxy IPC 写操作 sender 校验', () => {
 
     expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
   })
+
+  it.each([
+    ['proxy:list', undefined],
+    ['proxy:test', { id: 'proxy-1' }],
+    ['proxy:test-all', undefined],
+    ['proxy:status', undefined],
+    ['proxy:get-next', undefined],
+    ['proxy:reset', undefined],
+  ])('%s 拒绝外部网页调用', async (channel, arg) => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps())
+
+    const result = await ipcMain._get(channel)(UNTRUSTED_EVENT, arg)
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
 })
 
-describe('proxy IPC 可信来源与只读操作正常工作', () => {
+describe('proxy IPC 可信来源正常工作', () => {
   it('proxy:add 可信来源正常调用 proxyPool.addProxy', async () => {
     const deps = createMockDeps()
     const ipcMain = createMockIpcMain()
@@ -124,23 +137,35 @@ describe('proxy IPC 可信来源与只读操作正常工作', () => {
     expect(deps.proxyPool.addProxy).toHaveBeenCalledWith('1.1.1.1', 8080, 'http')
   })
 
-  it('proxy:list 只读操作不加 sender 校验，外部来源也可调用', async () => {
+  it('proxy:list 对可信来源返回字段白名单，不泄露未知字段', async () => {
     const deps = createMockDeps({
       proxyPool: {
         ...createMockDeps().proxyPool,
-        getProxies: vi.fn(() => [{ id: 'proxy-1', host: '1.1.1.1' }]),
+        getProxies: vi.fn(() => [{
+          id: 'proxy-1', host: '1.1.1.1', port: 8080, type: 'http',
+          alive: true, latency: 12, lastTested: 123, failCount: 0,
+          username: 'account', password: 'secret', internal: 'drop',
+        }]),
       },
     })
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
     const handler = ipcMain._get('proxy:list')
 
-    const result = await handler(UNTRUSTED_EVENT)
+    const result = await handler(TRUSTED_EVENT)
 
-    expect(result).toEqual({ code: 0, data: [{ id: 'proxy-1', host: '1.1.1.1' }] })
+    expect(result).toEqual({
+      code: 0,
+      data: [{
+        id: 'proxy-1', type: 'http', hostMasked: '1.1.*.*', port: 8080, hasAuthentication: false,
+        alive: true, latency: 12, lastTested: 123, failCount: 0,
+      }],
+    })
+    expect(JSON.stringify(result)).not.toContain('secret')
+    expect(JSON.stringify(result)).not.toContain('internal')
   })
 
-  it('proxy:status 只读操作不加 sender 校验', async () => {
+  it('proxy:status 对可信来源返回汇总', async () => {
     const deps = createMockDeps({
       proxyPool: {
         ...createMockDeps().proxyPool,
@@ -151,7 +176,7 @@ describe('proxy IPC 可信来源与只读操作正常工作', () => {
     registerHandlers(ipcMain, deps)
     const handler = ipcMain._get('proxy:status')
 
-    const result = await handler(UNTRUSTED_EVENT)
+    const result = await handler(TRUSTED_EVENT)
 
     expect(result).toEqual({ code: 0, data: { total: 5, alive: 3, dead: 2 } })
   })

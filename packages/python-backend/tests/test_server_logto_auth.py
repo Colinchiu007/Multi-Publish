@@ -99,17 +99,16 @@ def test_accounts_are_isolated_by_authenticated_subject(monkeypatch, tmp_path):
     ).status_code == 404
 
 
-def test_login_uses_same_owned_account_id_for_rpa_session(monkeypatch, tmp_path):
+def test_legacy_login_is_disabled_before_identity_or_rpa(monkeypatch, tmp_path):
     calls = []
 
     async def login_to_platform(platform, account_id=None):
         calls.append((platform.value, account_id))
         return True
 
-    verifier = StubVerifier(["account:manage"], subject="sub-a")
     monkeypatch.setattr(server, "IDENTITY_AUTH_ENABLED", True)
     monkeypatch.setattr(server, "IDENTITY_AUTH_REQUIRED", True)
-    monkeypatch.setattr(server, "IDENTITY_VERIFIER", verifier)
+    monkeypatch.setattr(server, "IDENTITY_VERIFIER", None)
     monkeypatch.setattr(server, "DATA_DIR", tmp_path)
     monkeypatch.setattr(server, "ACCOUNTS_FILE", tmp_path / "accounts.json")
     monkeypatch.setattr(server.publisher_mgr, "is_supported", lambda _platform: True)
@@ -117,14 +116,13 @@ def test_login_uses_same_owned_account_id_for_rpa_session(monkeypatch, tmp_path)
 
     response = TestClient(server.app).post(
         "/api/login",
-        headers={"Authorization": "Bearer token-a"},
-        json={"platform": "douyin"},
+        json={"platform": "not-supported"},
     )
 
-    assert response.status_code == 200
-    account_id = response.json()["data"]["account_id"]
-    assert calls == [("douyin", account_id)]
-    assert server._load_accounts()[account_id]["owner_subject"] == "sub-a"
+    assert response.status_code == 410
+    assert response.json()["detail"] == "LEGACY_LOGIN_ENDPOINT_DISABLED"
+    assert calls == []
+    assert not (tmp_path / "accounts.json").exists()
 
 
 def test_publish_task_records_owner_subject(monkeypatch):
@@ -160,6 +158,58 @@ def test_publish_task_records_owner_subject(monkeypatch):
     assert response.status_code == 200
     task_id = response.json()["data"]["task_id"]
     assert server._publish_tasks[task_id]["owner_subject"] == "sub-a"
+
+
+def test_publish_forwards_platform_options_to_publisher_manager(monkeypatch):
+    captured = {}
+
+    class Result:
+        success = True
+        url = "https://example.com/published"
+        error = None
+        duration = 1
+
+    async def publish_to_platform(**kwargs):
+        captured.update(kwargs)
+        return Result()
+
+    verifier = StubVerifier(["publish:submit"], subject="sub-a")
+    monkeypatch.setattr(server, "IDENTITY_AUTH_ENABLED", True)
+    monkeypatch.setattr(server, "IDENTITY_AUTH_REQUIRED", True)
+    monkeypatch.setattr(server, "IDENTITY_VERIFIER", verifier)
+    monkeypatch.setattr(server, "_publish_tasks", {})
+    monkeypatch.setattr(server, "_publish_progress", {})
+    monkeypatch.setattr(
+        server,
+        "_load_accounts",
+        lambda: {"account-a": {"id": "account-a", "platform": "zhihu", "owner_subject": "sub-a"}},
+    )
+    monkeypatch.setattr(server.publisher_mgr, "is_supported", lambda _platform: True)
+    monkeypatch.setattr(server.publisher_mgr, "publish_to_platform", publish_to_platform)
+
+    response = TestClient(server.app).post(
+        "/api/publish",
+        headers={"Authorization": "Bearer token-a"},
+        json={
+            "title": "测试",
+            "platform": "zhihu",
+            "account_id": "account-a",
+            "topics": ["人工智能"],
+            "mentions": [{"name": "小李"}],
+            "images": ["https://example.com/a.jpg"],
+            "commentPermission": "anyone",
+            "declare": 5,
+            "massSend": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["topics"] == ["人工智能"]
+    assert captured["mentions"] == [{"name": "小李"}]
+    assert captured["images"] == ["https://example.com/a.jpg"]
+    assert captured["commentPermission"] == "anyone"
+    assert captured["declare"] == 5
+    assert captured["massSend"] is True
 
 
 def test_publish_rejects_account_owned_by_another_subject(monkeypatch):
@@ -231,7 +281,7 @@ def test_publish_status_and_progress_hide_other_subjects(monkeypatch):
     assert "owner_subject" not in progress.json()["data"]
 
 
-def test_gray_release_anonymous_only_accesses_legacy_accounts(monkeypatch, tmp_path):
+def test_gray_release_anonymous_only_accesses_legacy_account_metadata(monkeypatch, tmp_path):
     accounts_file = tmp_path / "accounts.json"
     accounts_file.write_text(
         json.dumps(
@@ -263,7 +313,7 @@ def test_gray_release_anonymous_only_accesses_legacy_accounts(monkeypatch, tmp_p
 
     listed_ids = {item["id"] for item in client.get("/api/accounts").json()["data"]}
     assert listed_ids == {"legacy"}
-    assert client.get("/api/accounts/owned/cookies").status_code == 401
+    assert client.get("/api/accounts/owned/cookies").status_code == 410
     assert client.delete("/api/accounts/owned").status_code == 401
     assert "owned" in server._load_accounts()
     assert client.get("/api/accounts/legacy").status_code == 200
@@ -296,7 +346,7 @@ def test_gray_release_anonymous_cannot_read_owned_publish_tasks(monkeypatch):
     assert client.get("/api/publish/legacy/status").status_code == 200
 
 
-def test_gray_release_anonymous_cannot_read_or_mutate_legacy_account_cookies(monkeypatch, tmp_path):
+def test_gray_release_legacy_cookie_endpoints_are_disabled_before_owner_checks(monkeypatch, tmp_path):
     accounts_file = tmp_path / "accounts.json"
     accounts_file.write_text(
         json.dumps({
@@ -315,11 +365,15 @@ def test_gray_release_anonymous_cannot_read_or_mutate_legacy_account_cookies(mon
     monkeypatch.setattr(server, "ACCOUNTS_FILE", accounts_file)
     client = TestClient(server.app)
 
-    assert client.get("/api/accounts/legacy/cookies").status_code == 401
-    assert client.put(
+    get_response = client.get("/api/accounts/legacy/cookies")
+    put_response = client.put(
         "/api/accounts/legacy/cookies",
         json={"platform": "douyin", "name": "legacy", "cookies": []},
-    ).status_code == 401
+    )
+    assert get_response.status_code == 410
+    assert get_response.json()["detail"] == "CREDENTIAL_ENDPOINT_DISABLED"
+    assert put_response.status_code == 410
+    assert put_response.json()["detail"] == "CREDENTIAL_ENDPOINT_DISABLED"
     assert client.delete("/api/accounts/legacy").status_code == 401
 
 
@@ -340,6 +394,26 @@ def test_gray_release_anonymous_cannot_publish_with_account_id(monkeypatch):
     )
 
     assert response.status_code == 401
+
+
+def test_gray_release_anonymous_cannot_publish_without_account_id(monkeypatch):
+    monkeypatch.setattr(server, "IDENTITY_AUTH_ENABLED", True)
+    monkeypatch.setattr(server, "IDENTITY_AUTH_REQUIRED", False)
+    monkeypatch.setattr(server, "IDENTITY_VERIFIER", None)
+    called = []
+
+    async def should_not_publish(**_kwargs):
+        called.append(True)
+
+    monkeypatch.setattr(server.publisher_mgr, "publish_to_platform", should_not_publish)
+    response = TestClient(server.app).post(
+        "/api/publish",
+        json={"title": "测试", "platform": "douyin"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "ACCOUNT_REQUIRED"
+    assert called == []
 
 
 def test_publish_exception_does_not_expose_internal_error(monkeypatch):
@@ -369,7 +443,7 @@ def test_publish_exception_does_not_expose_internal_error(monkeypatch):
     assert "secret" not in response.text
 
 
-def test_login_reads_auth_data_from_generated_account_directory(monkeypatch, tmp_path):
+def test_legacy_login_endpoint_is_disabled_before_starting_rpa(monkeypatch, tmp_path):
     calls = []
 
     async def login_to_platform(platform, account_id=None):
@@ -397,11 +471,10 @@ def test_login_reads_auth_data_from_generated_account_directory(monkeypatch, tmp
         json={"platform": "douyin"},
     )
 
-    assert response.status_code == 200
-    account_id = response.json()["data"]["account_id"]
-    assert calls == [("douyin", account_id)]
-    assert response.json()["data"]["cookie_count"] == 1
-    assert server._load_accounts()[account_id]["auth_data"]["local_storage"] == {"token": "ok"}
+    assert response.status_code == 410
+    assert response.json()["detail"] == "LEGACY_LOGIN_ENDPOINT_DISABLED"
+    assert calls == []
+    assert not (tmp_path / "accounts.json").exists()
 
 
 def test_auth_status_requires_owned_account_and_passes_account_id(monkeypatch, tmp_path):
