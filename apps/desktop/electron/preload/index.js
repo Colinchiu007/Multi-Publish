@@ -43,8 +43,10 @@ function getAccessLevel() {
       }
     }
   } catch (_) { void _ /* IPC 未注册时 fallback */ }
-  const isDevMode = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1'
-  return isDevMode ? 'admin' : 'public'
+  // Bug fix (QM-5 v2): preload 无法访问 app.isPackaged，但 electron 进程会以 !isPackaged
+  // 作为 dev 判断（window.js:216），npm script 没设置 NODE_ENV 时只能依赖 sendSync 返回值。
+  // sendSync 失败时按最低权限 public 处理（与生产环境一致），由主进程判断 dev 短路。
+  return 'public'
 }
 
 const fullApi = {

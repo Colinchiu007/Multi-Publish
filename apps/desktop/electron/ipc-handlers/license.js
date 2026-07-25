@@ -56,14 +56,29 @@ function registerHandlers(ipcMain, deps) {
   // Bug-2 三级分离：同步 IPC 供 preload 查询访问级别
   // 返回 'public' | 'authenticated' | 'admin'
   // 安全：同步 IPC 不走 controlledIpcMain Proxy，需手动校验 sender 来源
+  //
+  // Bug fix (QM-5): 开发模式 admin 短路必须与异步 IPC (license-access-control.js getAccessLevel) 保持一致。
+  // 之前同步 IPC 直接调用 isTrustedSender，未走 dev 短路，导致开发环境下 preload sendSync 拿到 'public'，
+  // 所有 authenticated 级别方法（storeGetPublishStats / onRenderProgress 等）被错误拦截。
+  // 根因：同步 IPC 与异步 IPC 的权限校验路径不一致。
   ipcMain.on("auth:get-access-level", (event) => {
-    if (!isTrustedSender(event, deps && deps.app)) {
+    // Bug fix (QM-5 v2): dev 短路判断必须与项目其他模块一致！
+    // window.js:216 用 `!app.isPackaged` 作为 dev 判断，license-access-control.js 和本文件
+    // 之前用 `NODE_ENV === 'development'`，但 npm script 没有设置该变量，导致 dev 短路不生效。
+    // 修复：直接用 `!app.isPackaged` 作为 dev 判断，与项目保持一致。
+    const app = deps && deps.app
+    const isDevMode = app && app.isPackaged === false
+    if (isDevMode) {
+      event.returnValue = 'admin'
+      return
+    }
+    if (!isTrustedSender(event, app)) {
       // 不可信来源返回最低权限，防止外部页面探测许可证状态
       event.returnValue = 'public'
       return
     }
     try {
-      event.returnValue = getAccessLevel(licenseManager, process.env, deps && deps.app, deps && deps.identityService)
+      event.returnValue = getAccessLevel(licenseManager, process.env, app, deps && deps.identityService)
     } catch (e) {
       event.returnValue = 'public'
     }

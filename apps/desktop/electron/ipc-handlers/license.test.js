@@ -37,9 +37,46 @@ describe('许可证同步访问级别', () => {
   })
 
   it('不可信来源始终返回 public，防止外部页面探测许可证状态', () => {
-    process.env.NODE_ENV = 'development'
-    const handler = registerAccessLevelHandler({ app: { isPackaged: false }, isPro: true })
+    // 生产模式：不可信来源返回 public
+    process.env.NODE_ENV = 'production'
+    const handler = registerAccessLevelHandler({ app: { isPackaged: true }, isPro: true })
     const event = { senderFrame: { url: 'https://evil.example/' } }
+
+    handler(event)
+
+    expect(event.returnValue).toBe('public')
+  })
+
+  // Bug fix (QM-5) 回归保护：开发模式 admin 短路必须优先于 isTrustedSender
+  // 之前同步 IPC 没有复用异步 IPC 的 dev 短路，导致开发环境下 preload sendSync 拿到 'public'，
+  // authenticated 级别方法（storeGetPublishStats / onRenderProgress 等）被错误拦截。
+  it('开发模式 + app.isPackaged=false → admin 短路优先，不依赖 isTrustedSender', () => {
+    process.env.NODE_ENV = 'development'
+    const handler = registerAccessLevelHandler({ app: { isPackaged: false }, isPro: false })
+    // 即使来源不可信，开发模式短路也应该返回 admin
+    const event = { senderFrame: { url: 'https://evil.example/' } }
+
+    handler(event)
+
+    expect(event.returnValue).toBe('admin')
+  })
+
+  it('开发模式 + ELECTRON_IS_DEV=1 + 未打包 → admin 短路', () => {
+    process.env.ELECTRON_IS_DEV = '1'
+    delete process.env.NODE_ENV
+    const handler = registerAccessLevelHandler({ app: { isPackaged: false }, isPro: false })
+    const event = { senderFrame: { url: 'http://localhost:5174/' } }
+
+    handler(event)
+
+    expect(event.returnValue).toBe('admin')
+  })
+
+  it('生产模式 + app.isPackaged=true → 不走 dev 短路，走 isTrustedSender', () => {
+    process.env.NODE_ENV = 'production'
+    const handler = registerAccessLevelHandler({ app: { isPackaged: true }, isPro: false })
+    // app:// 协议可信
+    const event = makeTrustedEvent()
 
     handler(event)
 

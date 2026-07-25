@@ -54,6 +54,25 @@ describe('ipc-security — isTrustedSender', () => {
     expect(isTrustedSender(makeEvent('http://localhost/'), mockApp)).toBe(false)
   })
 
+  // Bug fix (QM-5) 回归保护：Vite 端口漂移容错
+  // 当 5174 被占用时 Vite 会自动切到 5175/5176 等，严格端口匹配会导致开发环境 IPC 来源校验失败
+  it('开发环境允许 Vite 端口漂移（5175-5180 范围）', () => {
+    expect(isTrustedSender(makeEvent('http://localhost:5175/'), mockApp)).toBe(true)
+    expect(isTrustedSender(makeEvent('http://localhost:5176/'), mockApp)).toBe(true)
+    expect(isTrustedSender(makeEvent('http://localhost:5180/'), mockApp)).toBe(true)
+    // 超出范围仍拒绝
+    expect(isTrustedSender(makeEvent('http://localhost:5181/'), mockApp)).toBe(false)
+    expect(isTrustedSender(makeEvent('http://localhost:5173/'), mockApp)).toBe(false)
+  })
+
+  it('DEV_SERVER_PORT 自定义时严格匹配', () => {
+    process.env.DEV_SERVER_PORT = '3000'
+    expect(isTrustedSender(makeEvent('http://localhost:3000/'), mockApp)).toBe(true)
+    // 自定义端口时，5174-5180 范围仍容错
+    expect(isTrustedSender(makeEvent('http://localhost:5174/'), mockApp)).toBe(true)
+    expect(isTrustedSender(makeEvent('http://localhost:3001/'), mockApp)).toBe(false)
+  })
+
   it('拒绝 localhost 前缀绕过和 app 协议伪造', () => {
     expect(isTrustedSender(makeEvent('http://localhost.evil.example:5174/'), mockApp)).toBe(false)
     expect(isTrustedSender(makeEvent('http://127.0.0.1.evil.example:5174/'), mockApp)).toBe(false)
