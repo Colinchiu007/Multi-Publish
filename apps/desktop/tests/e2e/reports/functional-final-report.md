@@ -9,6 +9,7 @@
 - 集成流: 6/6 通过
 - 集成检查: 44/44 通过
 - 集成流 console errors: 0
+- 集成流 page errors: 0
 - **总计: 270/270 checks 通过, 0 errors**
 
 ## 路由覆盖矩阵

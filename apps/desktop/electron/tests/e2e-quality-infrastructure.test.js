@@ -2,10 +2,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 
 const e2eRunner = require('../../tests/e2e/helpers/run-all')
+const finalReport = require('../../tests/e2e/helpers/final-report')
 const routeSuite = require('../../tests/e2e/helpers/route-functional-suite')
 const integrationFlows = require('../../tests/e2e/helpers/integration-flows')
 const { FunctionalRunner } = require('../../tests/e2e/helpers/functional-runner')
@@ -42,6 +44,7 @@ function loadProviderMock() {
 describe('E2E 统一入口门禁', () => {
   afterEach(() => {
     delete process.env.E2E_CONCURRENCY
+    vi.restoreAllMocks()
   })
 
   it.each(['abc', '0', '-1', '1.5', 'Infinity'])('拒绝非法或非正并发值 %s', (value) => {
@@ -77,6 +80,38 @@ describe('E2E 统一入口门禁', () => {
     expect(e2eRunner.expectedResultCount('flows')).toBe(6)
     expect(e2eRunner.expectedResultCount('all')).toBe(24)
     expect(e2eRunner.expectedResultCount('report')).toBe(0)
+  })
+
+  it('最终报告只汇总本轮结果，不能把旧磁盘报告当成本轮通过', () => {
+    const report = finalReport.createReport({
+      results: {
+        home: {
+          checks: { total: 1, passed: 1, failed: 0 },
+          consoleErrors: [{ text: '本轮控制台错误' }],
+          pageErrors: [{ message: '本轮页面错误' }],
+        },
+      },
+    })
+    const home = report.routes.matrix.find((item) => item.spec === 'home')
+
+    expect(home).toMatchObject({
+      status: '❌ FAIL',
+      consoleErrors: 1,
+      pageErrors: 1,
+    })
+    expect(report.summary).toMatchObject({
+      totalConsoleErrors: 1,
+      totalPageErrors: 1,
+    })
+  })
+
+  it('统一入口向最终报告传递本轮结果', () => {
+    const results = { home: makeReport() }
+    const report = { summary: { totalFailed: 0 } }
+    const main = vi.spyOn(finalReport, 'main').mockReturnValue(report)
+
+    expect(e2eRunner.buildReport(results)).toBe(report)
+    expect(main).toHaveBeenCalledWith({ results })
   })
 })
 
@@ -239,7 +274,7 @@ describe('路由通用扫描', () => {
     expect(runner.waitForAppReady).toHaveBeenCalledWith('/create')
   })
 
-  it('重置路由使用唯一地址完成且仅完成一次全页导航', async () => {
+  it('重置路由使用唯一地址完成、仅完成一次全页导航并给予更长就绪窗口', async () => {
     const runner = new FunctionalRunner()
     runner.goto = vi.fn().mockResolvedValue(undefined)
     runner.waitForAppReady = vi.fn().mockResolvedValue(undefined)
@@ -256,7 +291,73 @@ describe('路由通用扫描', () => {
       { waitUntil: 'domcontentloaded', timeout: 20000 },
     )
     expect(runner.page.reload).not.toHaveBeenCalled()
-    expect(runner.waitForAppReady).toHaveBeenCalledWith('/create')
+    expect(runner.waitForAppReady).toHaveBeenCalledWith('/create', 10000)
+  })
+
+  it('重置路由允许特定用例收紧或放宽就绪超时', async () => {
+    const runner = new FunctionalRunner()
+    runner.waitForAppReady = vi.fn().mockResolvedValue(undefined)
+    runner.page = { goto: vi.fn().mockResolvedValue(undefined) }
+
+    await runner.resetToRoute('/accounts', { readyTimeout: 12000 })
+
+    expect(runner.waitForAppReady).toHaveBeenCalledWith('/accounts', 12000)
+  })
+
+  it('路由就绪把总预算分配给每个条件，而不是为每步重复计时', async () => {
+    const app = { waitFor: vi.fn().mockResolvedValue(undefined) }
+    const runner = new FunctionalRunner()
+    runner.page = {
+      waitForURL: vi.fn().mockResolvedValue(undefined),
+      locator: vi.fn().mockReturnValue(app),
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
+    }
+    const now = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(1100)
+      .mockReturnValueOnce(2200)
+
+    await runner.waitForAppReady('/accounts', 10000)
+
+    expect(runner.page.waitForURL).toHaveBeenCalledWith(expect.any(Function), { timeout: 10000 })
+    expect(app.waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 9000 })
+    expect(runner.page.waitForFunction).toHaveBeenCalledWith(expect.any(Function), '#/accounts', { timeout: 7900 })
+  })
+
+  it('总就绪预算耗尽时向调用方报告失败', async () => {
+    const runner = new FunctionalRunner()
+    runner.page = {
+      waitForURL: vi.fn().mockResolvedValue(undefined),
+      locator: vi.fn(),
+      waitForFunction: vi.fn(),
+    }
+    const now = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(10100)
+
+    await expect(runner.waitForAppReady('/accounts', 10000)).rejects.toThrow('等待应用就绪超时')
+    expect(runner.page.locator).not.toHaveBeenCalled()
+  })
+
+  it('保存已过滤报告时不得重新写入 runner 收集到的原始错误', () => {
+    const reportsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-e2e-'))
+    const runner = new FunctionalRunner({ reportsDir, specName: 'filtered-report' })
+    runner.consoleErrors = [{ text: '已过滤错误' }]
+    const filtered = {
+      specName: 'filtered-report',
+      checks: { total: 1, passed: 1, failed: 0 },
+      consoleErrors: [],
+      pageErrors: [],
+      details: [],
+    }
+
+    try {
+      const filename = runner.saveReport(filtered)
+      expect(JSON.parse(fs.readFileSync(filename, 'utf8'))).toEqual(filtered)
+    } finally {
+      fs.rmSync(reportsDir, { recursive: true, force: true })
+    }
   })
 
   it('扫描任何控件前先完整重置到定义路由', async () => {
@@ -412,6 +513,59 @@ describe('路由通用扫描', () => {
       name: '全部初始可编辑表单字段完成输入扫描',
       passed: false,
     })
+  })
+
+  it('账号页仅合并重复账号行操作，保留不同语义的控件', () => {
+    const controls = [
+      { testid: 'check-a1', text: '验证' },
+      { testid: 'check-a2', text: '验证' },
+      { testid: 'proxy-a1', text: '' },
+      { testid: 'proxy-a2', text: '' },
+      { text: '打开' },
+      { text: '删除' },
+      { ariaLabel: '添加此平台账号', text: '' },
+      { ariaLabel: '添加此平台账号', text: '' },
+    ]
+
+    const sampled = routeSuite.selectInitialAuditSamples(
+      controls,
+      routeSuite.controlSemanticKey,
+      'semantic',
+    )
+
+    expect(sampled.selected).toEqual([
+      controls[0],
+      controls[2],
+      controls[4],
+      controls[5],
+      controls[6],
+    ])
+    expect(sampled.suppressed).toHaveLength(3)
+  })
+
+  it('账号页字段采样不会把搜索、全选和账号名混为一类', () => {
+    const fields = [
+      { tag: 'input', type: 'search', placeholder: '搜索账号或平台', name: '', testid: '', className: '' },
+      { tag: 'input', type: 'checkbox', placeholder: '', name: '', testid: '', className: '' },
+      { tag: 'input', type: 'checkbox', placeholder: '', name: '', testid: 'select-a1', className: '' },
+      { tag: 'input', type: 'checkbox', placeholder: '', name: '', testid: 'select-a2', className: '' },
+      { tag: 'input', type: 'text', placeholder: '', name: '', testid: '', className: 'account-name-input' },
+      { tag: 'input', type: 'text', placeholder: '', name: '', testid: '', className: 'account-name-input' },
+    ]
+
+    const sampled = routeSuite.selectInitialAuditSamples(
+      fields,
+      routeSuite.fieldSemanticKey,
+      'semantic',
+    )
+
+    expect(sampled.selected).toEqual([fields[0], fields[1], fields[2], fields[4]])
+    expect(sampled.suppressed).toHaveLength(2)
+  })
+
+  it('账号页显式启用语义采样，其他路由仍执行完整扫描', () => {
+    expect(routeSuite.definitions.accounts.initialAuditStrategy).toBe('semantic')
+    expect(routeSuite.definitions.publish.initialAuditStrategy).toBeUndefined()
   })
 })
 

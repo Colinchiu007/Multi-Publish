@@ -68,6 +68,48 @@
                 </option>
               </select>
             </label>
+            <label class="override-field">
+              <span>话题</span>
+              <input
+                :data-testid="'override-topics-' + platform.id"
+                :value="getValue(platform.id, 'topics').join(', ')
+                "
+                type="text"
+                placeholder="用逗号分隔话题"
+                @input="updateField(platform.id, 'topics', $event.target.value)"
+              />
+            </label>
+            <label class="override-check">
+              <input
+                :data-testid="'override-draft-' + platform.id"
+                :checked="Boolean(getValue(platform.id, 'draft'))"
+                type="checkbox"
+                @change="updateField(platform.id, 'draft', $event.target.checked)"
+              />
+              <span>保存为草稿</span>
+            </label>
+          </template>
+          <template v-else-if="platform.id === 'douyin'">
+            <label class="override-check">
+              <input
+                :data-testid="'override-draft-' + platform.id"
+                :checked="Boolean(getValue(platform.id, 'draft'))"
+                type="checkbox"
+                @change="updateField(platform.id, 'draft', $event.target.checked)"
+              />
+              <span>保存为草稿</span>
+            </label>
+          </template>
+          <template v-else-if="platform.id === 'wechat_mp'">
+            <label class="override-check">
+              <input
+                :data-testid="'override-mass-send-' + platform.id"
+                :checked="Boolean(getValue(platform.id, 'massSend'))"
+                type="checkbox"
+                @change="updateField(platform.id, 'massSend', $event.target.checked)"
+              />
+              <span>保存草稿后群发</span>
+            </label>
           </template>
         </div>
       </article>
@@ -94,7 +136,7 @@ const zhihuStatements = [
 
 function defaultOverride (platformId) {
   if (platformId === 'zhihu') {
-    return { title: '', content: '', commentPermission: 'anyone', declare: 0 }
+    return { title: '', content: '', commentPermission: 'anyone', declare: 0, topics: [], draft: false }
   }
   return { title: '', content: '' }
 }
@@ -105,6 +147,11 @@ function normalizeValue (platformId, field, value) {
     return Number.isInteger(number) && number >= 0 && number <= 5 ? number : 0
   }
   if (platformId === 'zhihu' && field === 'commentPermission') return 'anyone'
+  if (platformId === 'zhihu' && field === 'topics') {
+    return [...new Set(String(value || '').split(/[,，]/).map(item => item.trim()).filter(Boolean))]
+  }
+  if ((platformId === 'zhihu' || platformId === 'douyin') && field === 'draft') return Boolean(value)
+  if (platformId === 'wechat_mp' && field === 'massSend') return Boolean(value)
   return value
 }
 
@@ -156,6 +203,8 @@ function updateField (platformId, field, value) {
 .override-field small { margin-left: 6px; color: var(--muted, #9aa0a6); }
 .override-field input, .override-field textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; padding: 7px 9px; color: var(--text-primary, #202124); background: var(--surface, #fff); font: inherit; resize: vertical; }
 .override-field select { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #e0e0e0); border-radius: 4px; padding: 7px 9px; color: var(--text-primary, #202124); background: var(--surface, #fff); font: inherit; }
+.override-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted, #73777d); }
+.override-check input { accent-color: var(--coral, #f56c6c); }
 .override-field input:focus, .override-field textarea:focus { outline: 2px solid color-mix(in srgb, var(--action-blue, #1890ff) 25%, transparent); border-color: var(--action-blue, #1890ff); }
 .override-field select:focus { outline: 2px solid color-mix(in srgb, var(--action-blue, #1890ff) 25%, transparent); border-color: var(--action-blue, #1890ff); }
 </style>

@@ -184,6 +184,30 @@ describe('PublishPoller', () => {
       )
     })
 
+    test('preserves task owner and selected account when delegating to the publisher', async () => {
+      const ownedTask = {
+        ...FAKE_TASK,
+        owner_subject: 'user-a',
+        input_data: { ...FAKE_TASK.input_data, account_id: 'account-a' },
+      }
+      mockAxiosPut()
+      mockFsTemp()
+      mockFsDownload([ownedTask])
+
+      const mockPublisher = { publish: vi.fn().mockResolvedValue({ success: true, url: 'https://bilibili.com/video/BV1xxx', postId: ownedTask.id, platform: 'bilibili' }) }
+      const router = { createPublisher: vi.fn().mockReturnValue(mockPublisher) }
+      const poller = createPoller({ publisherRouter: router })
+
+      await poller._poll()
+
+      expect(mockPublisher.publish).toHaveBeenCalledWith(expect.objectContaining({
+        id: ownedTask.id,
+        platform: 'bilibili',
+        owner_subject: 'user-a',
+        article: expect.objectContaining({ accountId: 'account-a' }),
+      }))
+    })
+
     test('updates status to failed when publisher throws', async () => {
       mockAxiosPut()
       mockFsTemp()

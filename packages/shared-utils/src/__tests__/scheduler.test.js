@@ -40,7 +40,7 @@ describe('Scheduler 共享实现', () => {
 
   it('暴露完整且稳定的实例 API', () => {
     expect(Object.keys(scheduler).sort()).toEqual([
-      'cancel', 'create', 'list', 'restore', 'setTaskQueue', 'stopAll'
+      'cancel', 'create', 'list', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
     ])
   })
 
@@ -59,6 +59,67 @@ describe('Scheduler 共享实现', () => {
     expect(readEntries()).toEqual([entry])
     expect(app.getPath).toHaveBeenCalledWith('userData')
     expect(vi.getTimerCount()).toBe(1)
+  })
+
+  it('身份模式持久化可信 owner，并以该 owner 提交到队列', async () => {
+    scheduler.setOwnerSubjectProvider(() => 'user-a')
+    const taskQueue = { addForOwner: vi.fn(() => 'queue-task-a') }
+    scheduler.setTaskQueue(taskQueue)
+
+    const entry = scheduler.create({
+      platform: 'wechat',
+      article: { title: '归属文章' },
+      owner_subject: 'forged-user',
+      publishTime: futureTime(),
+    })
+
+    expect(entry).toMatchObject({ owner_subject: 'user-a' })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(taskQueue.addForOwner).toHaveBeenCalledWith(
+      expect.objectContaining({ owner_subject: 'user-a' }),
+      'user-a',
+    )
+  })
+
+  it('身份模式下队列缺少 addForOwner 时拒绝降级为无归属入队', async () => {
+    scheduler.setOwnerSubjectProvider(() => 'user-a')
+    const taskQueue = { add: vi.fn(() => 'legacy-task') }
+    scheduler.setTaskQueue(taskQueue)
+    const entry = scheduler.create({
+      platform: 'wechat',
+      article: { title: '不能降级' },
+      publishTime: futureTime(),
+    })
+
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(taskQueue.add).not.toHaveBeenCalled()
+    expect(scheduler.list('user-a').find(task => task.id === entry.id)).toMatchObject({ status: 'failed' })
+  })
+
+  it('身份切换发生在认领期间时保留原任务，且不向新用户会话派发', async () => {
+    let currentOwner = 'user-a'
+    scheduler.setOwnerSubjectProvider(() => currentOwner)
+    const taskQueue = { addForOwner: vi.fn(() => 'queue-task-a') }
+    scheduler.setTaskQueue(taskQueue)
+    const entry = scheduler.create({
+      platform: 'wechat',
+      article: { title: '切换保护' },
+      publishTime: futureTime(),
+    })
+
+    currentOwner = 'user-b'
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(taskQueue.addForOwner).not.toHaveBeenCalled()
+
+    currentOwner = 'user-a'
+    expect(scheduler.list('user-a').find(task => task.id === entry.id).status).toBe('pending')
+    expect(scheduler.restore('user-a')).toBe(1)
+    await vi.runAllTimersAsync()
+    expect(taskQueue.addForOwner).toHaveBeenCalledWith(
+      expect.objectContaining({ owner_subject: 'user-a' }),
+      'user-a',
+    )
   })
 
   it.each([
@@ -427,7 +488,7 @@ describe('Scheduler 共享兼容入口', () => {
     const schedulerModule = require('../scheduler')
     const sharedUtils = require('..')
     expect(Object.keys(schedulerModule).sort()).toEqual([
-      'cancel', 'create', 'createScheduler', 'list', 'restore', 'setTaskQueue', 'stopAll'
+      'cancel', 'create', 'createScheduler', 'list', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
     ])
     expect(sharedUtils.createScheduler).toBe(schedulerModule.createScheduler)
   })

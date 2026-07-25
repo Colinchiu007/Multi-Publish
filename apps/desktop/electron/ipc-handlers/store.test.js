@@ -7,6 +7,8 @@ vi.mock("../services/logger", () => ({
   error: vi.fn(),
 }));
 
+__enableElectronMock();
+
 let registerHandlers;
 const TRUSTED_EVENT = { senderFrame: { url: "app://localhost/index.html" } };
 const UNTRUSTED_EVENT = { senderFrame: { url: "https://evil.example/" } };
@@ -69,7 +71,9 @@ describe("store IPC handlers", () => {
     mockStore = createMockStore();
     credentialStore = {
       hasCredential: vi.fn().mockReturnValue(true),
+      loadCredential: vi.fn(() => ({ platform: 'github', cookies: [], localStorage: {} })),
       deleteCredential: vi.fn().mockReturnValue(true),
+      saveCredential: vi.fn().mockReturnValue(true),
     };
     accountStateRestorer = { deleteAccountRecord: vi.fn() };
     pythonBridge = { requestBackend: vi.fn() };
@@ -264,6 +268,24 @@ describe("store IPC handlers", () => {
 
       expect(result).toEqual({ code: -1, message: "删除账号加密凭据失败" });
       expect(mockStore.deleteAccount).not.toHaveBeenCalled();
+      expect(accountStateRestorer.deleteAccountRecord).not.toHaveBeenCalled();
+    });
+
+    it("账号元数据删除失败时恢复已删除的加密凭据", async () => {
+      mockStore.getAccount.mockReturnValue({ id: "acc1", platform: "github" });
+      mockStore.deleteAccount.mockReturnValue(false);
+      const snapshot = { platform: "github", cookies: [{ name: "sid" }], localStorage: { token: "a" } };
+      credentialStore.loadCredential.mockReturnValue(snapshot);
+
+      const result = await ipcMain._callHandler("store:delete-account", "acc1");
+
+      expect(result).toEqual({ code: -1, message: "删除账号失败" });
+      expect(credentialStore.deleteCredential).toHaveBeenCalledWith("acc1", "C:\\test-user-data");
+      expect(credentialStore.saveCredential).toHaveBeenCalledWith(
+        "acc1",
+        snapshot,
+        "C:\\test-user-data",
+      );
       expect(accountStateRestorer.deleteAccountRecord).not.toHaveBeenCalled();
     });
 
@@ -527,10 +549,7 @@ describe("store IPC handlers", () => {
       await ipcMain._callHandler("store:list-scheduled-tasks");
       await ipcMain._callHandler("store:delete-task", "task-1");
 
-      expect(mockStore.addAccount).toHaveBeenCalledWith(
-        { id: "acc1", owner_subject: "forged" },
-        "user-a",
-      );
+      expect(mockStore.addAccount).toHaveBeenCalledWith({ id: "acc1" }, "user-a");
       expect(mockStore.getAccount).toHaveBeenCalledWith("acc1", "user-a");
       expect(mockStore.listAccounts).toHaveBeenCalledWith("github", "user-a");
       expect(mockStore.addPublishRecord).toHaveBeenCalledWith({ id: "history-1" }, "user-a");
@@ -559,7 +578,12 @@ describe("store IPC handlers", () => {
       const identityService = {
         getState: () => ({ status: "authenticated", user: { sub: "user-a" } }),
       };
-      const credentialStore = { deleteCredential: vi.fn(() => true) };
+      const credentialStore = {
+        hasCredential: vi.fn(() => true),
+        loadCredential: vi.fn(() => ({ platform: "douyin", cookies: [], localStorage: {} })),
+        deleteCredential: vi.fn(() => true),
+        saveCredential: vi.fn(() => true),
+      };
       const accountStateRestorer = { deleteAccountRecord: vi.fn() };
       ipcMain = createMockIpcMain();
       mockStore = createMockStore();
@@ -577,6 +601,9 @@ describe("store IPC handlers", () => {
 
       expect(result).toMatchObject({ code: 0, data: true });
       expect(credentialStore.deleteCredential).toHaveBeenCalledWith(
+        "acc1", "C:/test-user-data", "user-a",
+      );
+      expect(credentialStore.hasCredential).toHaveBeenCalledWith(
         "acc1", "C:/test-user-data", "user-a",
       );
       expect(accountStateRestorer.deleteAccountRecord).toHaveBeenCalledWith(
@@ -640,5 +667,114 @@ describe("store IPC handlers", () => {
 
       expect(result).toMatchObject({ code: -10, data: false });
       expect(mockStore.deleteTask).toHaveBeenCalledWith("task-from-b", "user-a");
+    });
+
+    it("设置默认账号时拒绝跨用户后端回退，也不写 legacy setting", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      mockStore.setDefaultAccount.mockReturnValue(false);
+      pythonBridge.requestBackend.mockResolvedValue({
+        code: 0,
+        data: [{ id: "account-from-user-b", platform: "github" }],
+      });
+      registerHandlers(ipcMain, { store: mockStore, identityService, pythonBridge });
+
+      await expect(ipcMain._callHandler("store:set-default-account", {
+        platform: "github",
+        accountId: "account-from-user-b",
+      })).resolves.toEqual({ code: -2, message: "账号不存在或不属于指定平台" });
+      expect(pythonBridge.requestBackend).not.toHaveBeenCalled();
+      expect(mockStore.setSetting).not.toHaveBeenCalled();
+    });
+
+    it("Logto 用户设置默认账号时不写全局 legacy setting", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      mockStore.setDefaultAccount.mockReturnValue(true);
+      registerHandlers(ipcMain, { store: mockStore, identityService, pythonBridge });
+
+      await expect(ipcMain._callHandler("store:set-default-account", {
+        platform: "github",
+        accountId: "account-from-user-a",
+      })).resolves.toEqual({ code: 0, data: true });
+      expect(mockStore.setDefaultAccount).toHaveBeenCalledWith(
+        "github", "account-from-user-a", "user-a",
+      );
+      expect(mockStore.setSetting).not.toHaveBeenCalled();
+    });
+
+    it("身份模式缺少 scoped setting 能力时草稿接口必须 fail-closed", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      delete mockStore.getUserSetting;
+      delete mockStore.setUserSetting;
+      registerHandlers(ipcMain, { store: mockStore, identityService, pythonBridge });
+
+      await expect(ipcMain._callHandler("draftSave", { id: "draft-a", title: "A" }))
+        .resolves.toMatchObject({ code: -1 });
+      await expect(ipcMain._callHandler("draftList"))
+        .resolves.toMatchObject({ code: -1, data: [] });
+      await expect(ipcMain._callHandler("draftDelete", "draft-a"))
+        .resolves.toMatchObject({ code: -1 });
+      expect(mockStore.getSetting).not.toHaveBeenCalled();
+      expect(mockStore.setSetting).not.toHaveBeenCalled();
+    });
+
+    it("身份模式缺少 scoped setting 能力时通用设置不得回退到 legacy", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      delete mockStore.getUserSetting;
+      delete mockStore.setUserSetting;
+      registerHandlers(ipcMain, { store: mockStore, identityService, pythonBridge });
+
+      await expect(ipcMain._callHandler("store:get-setting", "theme"))
+        .resolves.toMatchObject({ code: -1 });
+      await expect(ipcMain._callHandler("store:set-setting", "theme", "dark"))
+        .resolves.toMatchObject({ code: -1 });
+      expect(mockStore.getSetting).not.toHaveBeenCalled();
+      expect(mockStore.setSetting).not.toHaveBeenCalled();
+    });
+
+    it("scoped 草稿的历史 JSON 字符串不会在保存时被清空", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      const existing = JSON.stringify([{ id: "draft-old", title: "旧草稿" }]);
+      let persisted = existing;
+      mockStore.getUserSetting.mockImplementation(() => persisted);
+      mockStore.setUserSetting.mockImplementation((key, value) => {
+        if (key === "drafts") persisted = value;
+      });
+      registerHandlers(ipcMain, { store: mockStore, identityService, pythonBridge });
+
+      await expect(ipcMain._callHandler("draftSave", { id: "draft-new", title: "新草稿" }))
+        .resolves.toMatchObject({ code: 0 });
+      const listed = await ipcMain._callHandler("draftList");
+      expect(listed.code).toBe(0);
+      expect(listed.data).toEqual([
+        { id: "draft-old", title: "旧草稿" },
+        expect.objectContaining({
+          id: "draft-new",
+          title: "新草稿",
+          createdAt: expect.any(String),
+          updatedAt: expect.any(String),
+        }),
+      ]);
+      const savedDrafts = JSON.parse(mockStore.setUserSetting.mock.calls[0][1]);
+      expect(savedDrafts.map(draft => draft.id)).toEqual(["draft-old", "draft-new"]);
     });
 });

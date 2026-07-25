@@ -5,7 +5,6 @@
  *   authViewManager: import('../services/auth-view-manager'),
  *   pythonBridge: import('../services/python-bridge'),
  *   AccountManager: any,
- *   BACKEND_PLATFORMS: Set<string>,
  *   store?: { getSetting?: (key: string) => unknown },
  *   log: { info: Function, warn: Function, error: Function },
  *   BrowserWindow: typeof import('electron').BrowserWindow
@@ -14,7 +13,8 @@
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
-  const { authViewManager, pythonBridge, AccountManager, BACKEND_PLATFORMS, log, BrowserWindow, store } = deps
+  const { toPublicProxyConfig } = require('../services/proxy-config')
+  const { authViewManager, pythonBridge, AccountManager, log, BrowserWindow, store } = deps
 
   // R51 P1 修复：URL 路径段白名单校验，防止路径注入
   // 仅允许字母/数字/下划线/短横线，拒绝 / ? # .. 等路径操纵字符
@@ -31,7 +31,7 @@ function registerHandlers(ipcMain, deps) {
 
   function toPublicAccount(account) {
     const raw = account && typeof account === 'object' ? account : {}
-    // 后端登录接口使用 account_id；统一映射后再经过字段白名单，避免把原始响应透传给渲染层。
+    // 统一映射后再经过字段白名单，避免把原始响应透传给渲染层。
     const source = {
       ...raw,
       id: raw.id ?? raw.account_id,
@@ -40,15 +40,35 @@ function registerHandlers(ipcMain, deps) {
     for (const key of publicAccountFields) {
       if (source[key] !== undefined) safeAccount[key] = source[key]
     }
-    const defaultId = store && typeof store.getSetting === 'function'
-      ? store.getSetting(`default_account:${safeAccount.platform}`)
-      : null
-    return {
+    const defaultAccountKey = `default_account:${safeAccount.platform}`
+    // 已接入身份服务的 Store 必须只读取当前用户命名空间，不能回退到 legacy 全局值。
+    const defaultId = store && typeof store.getUserSetting === 'function'
+      ? store.getUserSetting(defaultAccountKey)
+      : store && typeof store.getSetting === 'function'
+        ? store.getSetting(defaultAccountKey)
+        : null
+    const publicAccount = {
       ...safeAccount,
       account_name: safeAccount.account_name || safeAccount.name || '',
       status: safeAccount.status || (safeAccount.is_active === false ? 'inactive' : 'active'),
       is_default: Boolean(safeAccount.is_default) || String(defaultId) === String(safeAccount.id),
     }
+    if (raw.proxy !== undefined) {
+      if (raw.proxy && typeof raw.proxy === 'object' && typeof raw.proxy.configured === 'boolean') {
+        publicAccount.proxy = {
+          configured: raw.proxy.configured,
+          ...(typeof raw.proxy.type === 'string' ? { type: raw.proxy.type } : {}),
+          ...(typeof raw.proxy.hostMasked === 'string' ? { hostMasked: raw.proxy.hostMasked } : {}),
+          ...(Number.isInteger(raw.proxy.port) ? { port: raw.proxy.port } : {}),
+          ...(raw.proxy.hasAuthentication === true ? { hasAuthentication: true } : {}),
+          ...(raw.proxy.invalid === true ? { invalid: true } : {}),
+        }
+      } else {
+        try { publicAccount.proxy = toPublicProxyConfig(raw.proxy) }
+        catch (_) { publicAccount.proxy = { configured: true, invalid: true } }
+      }
+    }
+    return publicAccount
   }
 
   ipcMain.handle('accounts:list', withSenderCheck(async () => {
@@ -68,22 +88,6 @@ function registerHandlers(ipcMain, deps) {
     try {
       // R51 P1：platform 用于 URL 拼接，必须校验
       if (!_isSafePathSegment(platform)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 platform 参数' }
-      if (BACKEND_PLATFORMS.has(platform)) {
-        const result = await pythonBridge.requestBackend('POST', '/api/login', { platform }, 180000)
-        if (result.code === 0) {
-          const win = BrowserWindow.getAllWindows()[0]
-          if (win && !win.isDestroyed()) {
-            win.webContents.send('auth:completed', { platform, accountId: result.data?.account_id })
-          }
-          return {
-            code: 0,
-            data: toPublicAccount({ ...result.data, platform: result.data?.platform || platform }),
-            message: '登录成功',
-          }
-        }
-        return { code: EC.REQUEST_ERROR, message: result.message || '登录失败' }
-      }
-
       const result = await authViewManager.openLogin(platform)
       const savedAccount = await AccountManager.saveCapturedAccount(platform, result)
       const savedAccountId = savedAccount?.id || savedAccount?.accountId
@@ -118,7 +122,12 @@ function registerHandlers(ipcMain, deps) {
       }
       const credentials = AccountManager.loadSavedCredentials(accountId, platform)
       if (!credentials) return { code: 0, data: { valid: false, accountName: null } }
-      const result = await authViewManager.loginSilent(platform, credentials.cookies, credentials.localStorage)
+      const result = await authViewManager.loginSilent(
+        platform,
+        credentials.cookies,
+        credentials.localStorage,
+        credentials.indexedDB,
+      )
       return { code: 0, data: result }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { valid: false, accountName: null } }
@@ -173,6 +182,20 @@ function registerHandlers(ipcMain, deps) {
       const status = await AccountManager.checkLoginStatus(platform, accountId)
       return { code: 0, data: status }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e), data: { valid: false } } }
+  }))
+
+  ipcMain.handle('account:set-proxy', withSenderCheck(async (event, arg) => {
+    try {
+      if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      const { accountId, platform, proxy } = arg
+      if (!_isSafePathSegment(accountId) || !_isSafePathSegment(platform)) {
+        return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId/platform 参数' }
+      }
+      const status = AccountManager.setAccountProxy(accountId, platform, proxy)
+      return { code: 0, data: status, message: status.configured ? '账号代理已保存' : '账号代理已清除' }
+    } catch (e) {
+      return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
+    }
   }))
 
   ipcMain.handle('account:list', withSenderCheck(async () => {

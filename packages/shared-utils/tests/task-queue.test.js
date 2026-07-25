@@ -21,6 +21,152 @@ describe('TaskQueue', () => {
     expect(taskId).toMatch(/^task_\d+_\d+$/)
   })
 
+  test('租户和批次上下文会在入队、重试与持久化时保持不变', async () => {
+    const snapshotQueue = new TaskQueue()
+    snapshotQueue.setOwnerSubjectProvider(() => 'user-a')
+    snapshotQueue.pause()
+    snapshotQueue.add({
+      platform: 'douyin',
+      article: { title: '租户文章', accountId: 'account-a' },
+      owner_subject: 'user-a',
+      batchId: 'batch-a',
+      accountId: 'account-a',
+    })
+    expect(JSON.parse(snapshotQueue.serialize()).queue[0]).toMatchObject({
+      owner_subject: 'user-a',
+      batchId: 'batch-a',
+      accountId: 'account-a',
+    })
+
+    const queue = new TaskQueue({ defaultRetry: 0 })
+    queue.setOwnerSubjectProvider(() => 'user-a')
+    let attempts = 0
+    const failed = new Promise(resolve => queue.once('task:failed', resolve))
+    const retried = new Promise(resolve => queue.on('task:success', task => {
+      if (task.retryOf) resolve(task)
+    }))
+    queue.setExecutor(async () => {
+      attempts += 1
+      if (attempts === 1) throw new Error('首次失败')
+      return { success: true }
+    })
+
+    const originalId = queue.add({
+      platform: 'douyin',
+      article: { title: '租户文章', accountId: 'account-a' },
+      owner_subject: 'user-a',
+      batchId: 'batch-a',
+      accountId: 'account-a',
+    })
+    const failedTask = await failed
+    expect(failedTask).toMatchObject({ owner_subject: 'user-a', batchId: 'batch-a', accountId: 'account-a' })
+
+    const retryId = queue.retry(originalId)
+    expect(retryId).toBeTruthy()
+    const retryTask = await retried
+    expect(retryTask).toMatchObject({
+      owner_subject: 'user-a',
+      batchId: 'batch-a',
+      accountId: 'account-a',
+      retryOf: originalId,
+    })
+  })
+
+  test('身份模式从可信 provider 固化 owner，不接受调用方伪造的 owner', () => {
+    const queue = new TaskQueue()
+    let currentOwner = 'user-a'
+    queue.setOwnerSubjectProvider(() => currentOwner)
+    queue.pause()
+
+    queue.add({
+      platform: 'douyin',
+      article: { title: '可信归属' },
+      owner_subject: 'forged-user',
+    })
+
+    expect(queue.getPendingTasks()).toEqual([
+      expect.objectContaining({ owner_subject: 'user-a' }),
+    ])
+
+    currentOwner = 'user-b'
+    expect(queue.getPendingTasks()).toEqual([])
+    expect(() => queue.addForOwner({ platform: 'douyin', article: {} }, 'user-a'))
+      .toThrow('当前登录用户不匹配')
+  })
+
+  test('身份模式只清除当前用户的等待任务', () => {
+    const queue = new TaskQueue()
+    let currentOwner = 'user-a'
+    queue.setOwnerSubjectProvider(() => currentOwner)
+    queue.pause()
+
+    queue.add({ platform: 'douyin', article: { title: 'A' } })
+    currentOwner = 'user-b'
+    queue.add({ platform: 'douyin', article: { title: 'B' } })
+
+    expect(queue.clearPending()).toBe(1)
+    expect(queue.getPendingTasks()).toEqual([])
+    currentOwner = 'user-a'
+    expect(queue.getPendingTasks()).toEqual([
+      expect.objectContaining({ article: { title: 'A' }, owner_subject: 'user-a' }),
+    ])
+  })
+
+  test('身份切换会中止前一用户正在执行的任务', async () => {
+    const queue = new TaskQueue({ defaultRetry: 0 })
+    let currentOwner = 'user-a'
+    let resolveTask
+    let signal
+    queue.setOwnerSubjectProvider(() => currentOwner)
+    queue.setExecutor((task, context) => {
+      signal = context.signal
+      return new Promise(resolve => { resolveTask = resolve })
+    })
+
+    const taskId = queue.add({ platform: 'douyin', article: { title: 'A' } })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(signal.aborted).toBe(false)
+
+    currentOwner = 'user-b'
+    queue.setOwnerSubjectProvider(() => currentOwner)
+    expect(signal.aborted).toBe(true)
+    resolveTask({ success: true })
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    currentOwner = 'user-a'
+    queue.setOwnerSubjectProvider(() => currentOwner)
+    expect(queue.getHistory().find(task => task.id === taskId)).toMatchObject({ status: 'cancelled' })
+  })
+
+  test('身份模式拒绝恢复无 owner 或其他用户的旧快照', () => {
+    const queue = new TaskQueue()
+    queue.setOwnerSubjectProvider(() => 'user-b')
+    queue.pause()
+
+    expect(queue.deserialize(JSON.stringify({ queue: [
+      { id: 'legacy-task', platform: 'douyin', article: { title: 'legacy' } },
+      { id: 'task-a', platform: 'douyin', article: { title: 'A' }, owner_subject: 'user-a' },
+      { id: 'task-b', platform: 'douyin', article: { title: 'B' }, owner_subject: 'user-b' },
+    ] }))).toBe(1)
+
+    expect(queue.getPendingTasks()).toEqual([
+      expect.objectContaining({ id: 'task-b', owner_subject: 'user-b' }),
+    ])
+  })
+
+  test('身份 provider 暂时不可用时查询 fail-closed 且不启动历史任务', () => {
+    const queue = new TaskQueue()
+    queue.pause()
+    queue.add({ platform: 'douyin', article: { title: '等待任务' } })
+    queue.setOwnerSubjectProvider(() => null)
+
+    expect(() => queue.getStatus()).not.toThrow()
+    expect(queue.getStatus()).toMatchObject({ pending: 0, running: 0, history: 0 })
+    expect(queue.getPendingTasks()).toEqual([])
+    expect(JSON.parse(queue.serialize())).toEqual({ queue: [], running: [] })
+    expect(() => queue.add({ platform: 'douyin', article: {} })).toThrow('任务队列无法识别当前用户')
+  })
+
   test('addBatch 添加多个平台任务', () => {
     const queue = new TaskQueue()
     const ids = queue.addBatch(['wechat_mp', 'zhihu', 'weibo'], { title: 'Test' })

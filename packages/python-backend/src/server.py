@@ -3,8 +3,8 @@ Multi-Publish Python Backend — FastAPI 服务
 通过 HTTP 与 Electron 主进程通信
 
 提供：
-- 平台账号 CRUD（Cookie 管理）
-- 登录流程（RPA 浏览器自动化）
+- 平台账号元数据 CRUD
+- 发布流程（Playwright RPA / API）
 - 发布流程（Playwright RPA / API）
 - 健康检查
 """
@@ -22,7 +22,7 @@ from typing import Any
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from multi_publish.auth import AuthError, LogtoJwtVerifier, create_fastapi_dependency
 from multi_publish.core.logging_setup import setup_logging
@@ -116,7 +116,8 @@ app.add_middleware(
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-LOG_DIR = DATA_DIR.parent / "logs"
+_configured_log_dir = os.environ.get("MULTI_PUBLISH_LOG_DIR", "").strip()
+LOG_DIR = Path(_configured_log_dir).expanduser() if _configured_log_dir else DATA_DIR.parent / "logs"
 
 setup_logging(log_dir=str(LOG_DIR))
 logger = logging.getLogger(__name__)
@@ -148,10 +149,13 @@ async def _progress_callback(task_id: str, platform: str, phase: PublishPhase, m
 
 
 class AccountCreateRequest(BaseModel):
+    # 兼容旧客户端的字段仅用于返回明确的 400；不再接受或持久化任何凭据。
+    model_config = ConfigDict(extra="forbid")
+
     platform: str
     name: str
-    cookies: list[dict] = []
-    auth_data: dict | None = None  # {cookies, local_storage, indexed_db} 完整认证数据
+    cookies: list[dict] | None = None
+    auth_data: dict | None = None
 
 
 class PublishRequest(BaseModel):
@@ -164,10 +168,12 @@ class PublishRequest(BaseModel):
     draft: bool = False
     account_id: str | None = None  # P1-2: Per-Account Session 隔离
     proxy: dict | None = None  # P2-1: SOCKS5 代理配置 {server, username?, password?}
-
-
-class LoginRequest(BaseModel):
-    platform: str
+    topics: list[str] = []
+    mentions: list[dict] = []
+    images: list[str] = []
+    commentPermission: str | None = None
+    declare: int | None = None
+    massSend: bool = False
 
 
 class HealthResponse(BaseModel):
@@ -210,29 +216,12 @@ def _atomic_write_json(file_path: Path, payload: Any) -> None:
             temporary_path.unlink()
 
 
-def _persist_account_storage(account: dict) -> None:
-    """同步单账号认证文件，并确保浏览器数据目录存在。"""
-    paths = build_account_storage_paths(DATA_DIR, account["platform"], account["id"])
-    auth_data = account.get("auth_data")
-    auth_payload = dict(auth_data) if isinstance(auth_data, dict) else {}
-    auth_payload["cookies"] = list(account.get("cookies", []))
-    auth_payload.setdefault("local_storage", {})
-    auth_payload.setdefault("indexed_db", {})
-
-    _atomic_write_json(paths.auth_file, auth_payload)
-    _atomic_write_json(paths.cookie_file, list(account.get("cookies", [])))
-    paths.browser_dir.mkdir(parents=True, exist_ok=True)
-
-
 def _account_to_dict(a: dict) -> dict:
     return {
         "id": a["id"],
         "platform": a["platform"],
         "name": a["name"],
         "is_active": a.get("is_active", True),
-        "has_cookies": len(a.get("cookies", [])) > 0,
-        "cookie_count": len(a.get("cookies", [])),
-        "has_auth_data": a.get("auth_data") is not None,
         "last_validated": a.get("last_validated"),
         "created_at": a.get("created_at"),
     }
@@ -298,7 +287,9 @@ def list_accounts(request: Request):
 
 @app.post("/api/accounts", dependencies=[Depends(_require_account_manage)])
 def create_account(req: AccountCreateRequest, request: Request):
-    """添加新账号（保存 Cookie）"""
+    """添加账号公开元数据；平台凭据只由 Electron 主进程加密保存。"""
+    if {"cookies", "auth_data"} & req.model_fields_set:
+        raise HTTPException(status_code=400, detail="ACCOUNT_METADATA_ONLY")
     owner_subject = _require_authenticated_subject(request)
     # 验证平台
     try:
@@ -308,29 +299,17 @@ def create_account(req: AccountCreateRequest, request: Request):
 
     account_id = str(uuid.uuid4())[:8]
     accounts = _load_accounts()
-    auth_data = dict(req.auth_data) if isinstance(req.auth_data, dict) else None
-    if auth_data is not None:
-        auth_data["cookies"] = list(req.cookies)
     account = {
         "id": account_id,
         "platform": pt.value,
         "name": req.name,
-        "cookies": list(req.cookies),
-        "auth_data": auth_data,
         "is_active": True,
         "last_validated": datetime.now().isoformat(),
         "created_at": datetime.now().isoformat(),
         "owner_subject": owner_subject,
     }
     accounts[account_id] = account
-    try:
-        _persist_account_storage(account)
-        _save_accounts(accounts)
-    except Exception:
-        paths = build_account_storage_paths(DATA_DIR, pt.value, account_id)
-        if paths.account_dir.exists():
-            shutil.rmtree(paths.account_dir)
-        raise
+    _save_accounts(accounts)
 
     return {"code": 0, "message": "账号添加成功", "data": _account_to_dict(account)}
 
@@ -344,32 +323,16 @@ def get_account(account_id: str, request: Request):
     return {"code": 0, "data": _account_to_dict(a)}
 
 
-@app.get("/api/accounts/{account_id}/cookies", dependencies=[Depends(_require_account_manage)])
-def get_account_cookies(account_id: str, request: Request):
-    """获取账号的 Cookie（用于 Playwright 恢复会话）"""
-    subject = _require_authenticated_subject(request)
-    accounts = _load_accounts()
-    a = accounts.get(account_id)
-    if not a or not _is_owned_by(a, subject):
-        raise HTTPException(status_code=404, detail="账号不存在")
-    return {"code": 0, "data": {"id": a["id"], "platform": a["platform"], "cookies": a.get("cookies", [])}}
+@app.get("/api/accounts/{account_id}/cookies")
+def get_account_cookies(account_id: str):
+    """旧明文 Cookie 端点已移除，凭据仅由 Electron 主进程管理。"""
+    raise HTTPException(status_code=410, detail="CREDENTIAL_ENDPOINT_DISABLED")
 
 
-@app.put("/api/accounts/{account_id}/cookies", dependencies=[Depends(_require_account_manage)])
-def update_account_cookies(account_id: str, req: AccountCreateRequest, request: Request):
-    """更新账号 Cookie（重新登录后）"""
-    subject = _require_authenticated_subject(request)
-    accounts = _load_accounts()
-    a = accounts.get(account_id)
-    if not a or not _is_owned_by(a, subject):
-        raise HTTPException(status_code=404, detail="账号不存在")
-    a["cookies"] = list(req.cookies)
-    if isinstance(a.get("auth_data"), dict):
-        a["auth_data"] = {**a["auth_data"], "cookies": list(req.cookies)}
-    a["last_validated"] = datetime.now().isoformat()
-    _persist_account_storage(a)
-    _save_accounts(accounts)
-    return {"code": 0, "message": "Cookie 更新成功"}
+@app.put("/api/accounts/{account_id}/cookies")
+def update_account_cookies(account_id: str):
+    """旧明文 Cookie 端点已移除，凭据仅由 Electron 主进程管理。"""
+    raise HTTPException(status_code=410, detail="CREDENTIAL_ENDPOINT_DISABLED")
 
 
 @app.delete("/api/accounts/{account_id}", dependencies=[Depends(_require_account_manage)])
@@ -382,6 +345,10 @@ def delete_account(account_id: str, request: Request):
     paths = build_account_storage_paths(DATA_DIR, account["platform"], account_id)
     if paths.account_dir.exists():
         shutil.rmtree(paths.account_dir)
+    # 根目录的旧格式凭据不再被运行时读取；删除账号时一并移除，防止残留泄露。
+    for legacy_file in (paths.legacy_auth_file, paths.legacy_cookie_file):
+        if legacy_file.exists():
+            legacy_file.unlink()
     del accounts[account_id]
     _save_accounts(accounts)
     return {"code": 0, "message": "账号已删除"}
@@ -390,80 +357,10 @@ def delete_account(account_id: str, request: Request):
 # ─── 登录路由 ───────────────────────────────────────────────
 
 
-@app.post("/api/login", dependencies=[Depends(_require_account_manage)])
-async def login(req: LoginRequest, request: Request):
-    """
-    启动平台登录流程（RPA）
-
-    打开浏览器窗口 → 用户手动登录（扫码） → 捕获 Cookie → 返回
-
-    前端应该：
-    1. 调用此接口
-    2. 收到 200 后显示「请在浏览器中登录」
-    3. 轮询 /api/accounts/{id}/cookies 确认登录完成
-    """
-    owner_subject = _require_authenticated_subject(request)
-    try:
-        pt = PlatformType(req.platform)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}") from None
-
-    if not publisher_mgr.is_supported(pt):
-        raise HTTPException(status_code=400, detail=f"平台 {pt.value} 暂不支持 RPA 登录")
-
-    # 在后台启动登录
-    account_id = str(uuid.uuid4())[:8]
-    success = await publisher_mgr.login_to_platform(pt, account_id=account_id)
-
-    if not success:
-        raise HTTPException(status_code=408, detail="登录超时或失败")
-
-    # 读取刚保存的认证数据
-    auth_data = None
-    account_paths = build_account_storage_paths(DATA_DIR, pt.value, account_id)
-    if account_paths.auth_file.exists():
-        auth_data = json.loads(account_paths.auth_file.read_text(encoding="utf-8"))
-
-    # 兼容旧格式：仅 cookies
-    cookies = []
-    if account_paths.cookie_file.exists():
-        cookies = json.loads(account_paths.cookie_file.read_text(encoding="utf-8"))
-    elif auth_data and auth_data.get("cookies"):
-        cookies = auth_data["cookies"]
-
-    # 自动创建/更新账号记录
-    accounts = _load_accounts()
-    accounts[account_id] = {
-        "id": account_id,
-        "platform": pt.value,
-        "name": PLATFORM_META[pt]["name"],
-        "cookies": cookies,
-        "auth_data": auth_data,
-        "is_active": True,
-        "last_validated": datetime.now().isoformat(),
-        "created_at": datetime.now().isoformat(),
-        "owner_subject": owner_subject,
-    }
-    _save_accounts(accounts)
-
-    ls_count = len(auth_data.get("local_storage", {})) if auth_data else 0
-    idb_count = (
-        sum(len(v) for v in auth_data.get("indexed_db", {}).values())
-        if auth_data and auth_data.get("indexed_db")
-        else 0
-    )
-
-    return {
-        "code": 0,
-        "message": "登录成功",
-        "data": {
-            "account_id": account_id,
-            "cookie_count": len(cookies),
-            "local_storage_count": ls_count,
-            "indexed_db_count": idb_count,
-            "auth_complete": bool(auth_data and auth_data.get("local_storage")),
-        },
-    }
+@app.post("/api/login")
+async def login():
+    """旧 Python RPA 登录端点已移除，统一由 Electron 授权视图完成登录。"""
+    raise HTTPException(status_code=410, detail="LEGACY_LOGIN_ENDPOINT_DISABLED")
 
 
 @app.get("/api/auth-status/{platform}", dependencies=[Depends(_require_account_manage)])
@@ -506,11 +403,9 @@ async def publish(req: PublishRequest, request: Request):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}") from None
 
-    owner_subject = _request_subject(request)
-    if req.account_id:
-        owner_subject = _require_authenticated_subject(request)
-    if owner_subject and not req.account_id:
+    if not req.account_id:
         raise HTTPException(status_code=400, detail="ACCOUNT_REQUIRED")
+    owner_subject = _require_authenticated_subject(request)
     if owner_subject and req.account_id:
         account = _load_accounts().get(req.account_id)
         if (
@@ -559,6 +454,12 @@ async def publish(req: PublishRequest, request: Request):
             progress_callback=_on_progress,
             account_id=req.account_id,
             proxy=req.proxy,  # P2-1: SOCKS5 代理
+            topics=req.topics,
+            mentions=req.mentions,
+            images=req.images,
+            commentPermission=req.commentPermission,
+            declare=req.declare,
+            massSend=req.massSend,
         )
 
         _publish_tasks[task_id] = {

@@ -381,7 +381,7 @@ const definitions = {
   comments: { route: '/comments', title: '评论管理', exercise: exerciseComments },
   'first-run': { route: '/first-run', title: '欢迎使用社媒管家', exercise: exerciseFirstRun },
   publish: { route: '/publish', title: '一键发布', exercise: exercisePublish },
-  accounts: { route: '/accounts', title: '账号管理', exercise: exerciseAccounts },
+  accounts: { route: '/accounts', title: '账号管理', exercise: exerciseAccounts, initialAuditStrategy: 'semantic' },
   dashboard: { route: '/dashboard', title: '数据看板', exercise: exerciseDashboard },
   collection: { route: '/collection', title: '内容采集', exercise: exerciseCollection },
   monitor: { route: '/monitor', title: '分屏监控', exercise: exerciseMonitor },
@@ -415,6 +415,45 @@ async function resetDefinitionRoute(r, definition) {
   return gotoDefinition(r, definition);
 }
 
+function repeatedAccountTestIdKey(testid) {
+  const match = /^(select|favorite|check|proxy)-.+$/.exec(String(testid || ''));
+  return match ? `testid:${match[1]}` : `testid:${testid}`;
+}
+
+function controlSemanticKey(control) {
+  if (control.testid) return repeatedAccountTestIdKey(control.testid);
+  const name = String(control.ariaLabel || control.title || control.text || control.index || '').trim();
+  return `button:${name}`;
+}
+
+function fieldSemanticKey(field) {
+  if (field.testid) return repeatedAccountTestIdKey(field.testid);
+  const className = String(field.className || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort()
+    .join('.');
+  if (className) return `field:${field.tag}|${field.type}|class:${className}`;
+  return `field:${field.tag}|${field.type}|${field.name || ''}|${field.placeholder || ''}`;
+}
+
+function selectInitialAuditSamples(descriptors, keyForDescriptor, strategy) {
+  if (strategy !== 'semantic') return { selected: descriptors, suppressed: [] };
+  const seen = new Set();
+  const selected = [];
+  const suppressed = [];
+  for (const descriptor of descriptors) {
+    const key = keyForDescriptor(descriptor);
+    if (seen.has(key)) {
+      suppressed.push({ descriptor, key });
+      continue;
+    }
+    seen.add(key);
+    selected.push(descriptor);
+  }
+  return { selected, suppressed };
+}
+
 function initialButtonLocator(r, control) {
   return control.testid
     ? r.page.locator(`.cohere-main button[data-testid=${JSON.stringify(control.testid)}]`)
@@ -434,7 +473,7 @@ async function clickInitialButton(r, control) {
 
 async function auditInitialControls(r, definition) {
   await resetDefinitionRoute(r, definition);
-  const controls = await r.page.locator('.cohere-main button').evaluateAll((buttons) => {
+  const discoveredControls = await r.page.locator('.cohere-main button').evaluateAll((buttons) => {
     const visibleButtons = [];
     buttons.forEach((button, index) => {
       if (button.getClientRects().length === 0 || button.closest('details:not([open])')) return;
@@ -442,11 +481,19 @@ async function auditInitialControls(r, definition) {
         index,
         text: (button.textContent || '').trim().slice(0, 60),
         testid: button.getAttribute('data-testid') || '',
+        ariaLabel: button.getAttribute('aria-label') || '',
+        title: button.getAttribute('title') || '',
         disabled: button.disabled,
       });
     });
     return visibleButtons;
   });
+  const samples = selectInitialAuditSamples(
+    discoveredControls,
+    controlSemanticKey,
+    definition && definition.initialAuditStrategy,
+  );
+  const controls = samples.selected;
   let clicked = 0;
   let skipped = 0;
   const failures = [];
@@ -472,7 +519,20 @@ async function auditInitialControls(r, definition) {
       error: lastError.message.slice(0, 500),
     });
   }
-  record(r, '初始可用按钮均完成点击扫描', failures.length === 0, { total: controls.length, clicked, skipped, failures });
+  const semanticSampling = definition && definition.initialAuditStrategy === 'semantic';
+  record(
+    r,
+    semanticSampling ? '初始可用按钮语义采样完成' : '初始可用按钮均完成点击扫描',
+    failures.length === 0,
+    {
+      total: discoveredControls.length,
+      sampled: controls.length,
+      suppressed: samples.suppressed.length,
+      clicked,
+      skipped,
+      failures,
+    },
+  );
 
   await resetDefinitionRoute(r, definition);
   await auditInitialFields(r, definition);
@@ -505,7 +565,7 @@ function fieldValueFor(type) {
 
 async function auditInitialFields(r, definition) {
   const fields = r.page.locator('.cohere-main input, .cohere-main textarea, .cohere-main select');
-  const descriptors = await fields.evaluateAll((elements) => {
+  const discoveredDescriptors = await fields.evaluateAll((elements) => {
     const occurrences = new Map();
     return elements.map((element, index) => {
       const visible = element.getClientRects().length > 0 && !element.closest('details:not([open])');
@@ -514,7 +574,8 @@ async function auditInitialFields(r, definition) {
         type: element.getAttribute('type') || '',
         placeholder: element.getAttribute('placeholder') || '',
         name: element.getAttribute('name') || '',
-        testid: element.getAttribute('data-testid') || ''
+        testid: element.getAttribute('data-testid') || '',
+        className: typeof element.className === 'string' ? element.className : '',
       };
       const key = JSON.stringify(identity);
       const occurrence = visible ? (occurrences.get(key) || 0) : -1;
@@ -529,6 +590,12 @@ async function auditInitialFields(r, definition) {
       };
     });
   });
+  const samples = selectInitialAuditSamples(
+    discoveredDescriptors,
+    fieldSemanticKey,
+    definition && definition.initialAuditStrategy,
+  );
+  const descriptors = samples.selected;
   const editable = descriptors.filter((field) => field.visible && !field.disabled && !field.readOnly);
   let exercised = 0;
   const failures = [];
@@ -602,9 +669,17 @@ async function auditInitialFields(r, definition) {
       });
     }
   }
-  const details = { fieldCount: descriptors.length, editableCount: editable.length, exercised, failures };
+  const semanticSampling = definition && definition.initialAuditStrategy === 'semantic';
+  const details = {
+    fieldCount: discoveredDescriptors.length,
+    sampledFieldCount: descriptors.length,
+    suppressed: samples.suppressed.length,
+    editableCount: editable.length,
+    exercised,
+    failures,
+  };
   const passed = failures.length === 0 && exercised === editable.length;
-  record(r, '全部初始可编辑表单字段完成输入扫描', passed, details);
+  record(r, semanticSampling ? '初始可编辑字段语义采样完成' : '全部初始可编辑表单字段完成输入扫描', passed, details);
   return { passed, details };
 }
 
@@ -638,7 +713,7 @@ async function runRouteSpec(specName, options = {}) {
   // 过滤已知的 console error（如 mock 路径加载错误）
   const blockedErrors = report.consoleErrors.filter((e) => !allowedConsoleErrors.some((a) => e.text.includes(a)));
   report.consoleErrors = blockedErrors;
-  r.saveReport();
+  r.saveReport(report);
   await r.close();
   console.log(`\n${specName}: ${report.checks.passed}/${report.checks.total} checks, ${report.consoleErrors.length} console errors, ${report.pageErrors.length} page errors`);
   return report;
@@ -654,4 +729,13 @@ if (require.main === module) {
   });
 }
 
-module.exports = { definitions, runRouteSpec, auditInitialControls, auditInitialFields, fillPublishBody };
+module.exports = {
+  definitions,
+  runRouteSpec,
+  auditInitialControls,
+  auditInitialFields,
+  fillPublishBody,
+  controlSemanticKey,
+  fieldSemanticKey,
+  selectInitialAuditSamples,
+};

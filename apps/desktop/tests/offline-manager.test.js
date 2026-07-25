@@ -20,6 +20,8 @@ var offlineManager = require("../electron/services/offline-manager")
 describe("OfflineManager", function() {
   beforeEach(function() {
     vi.clearAllMocks()
+    offlineManager.setOwnerSubjectProvider(null)
+    offlineManager.setTaskQueue(null)
   })
 
   test("isOffline returns false initially", function() {
@@ -99,6 +101,8 @@ describe("OfflineManager integration", function() {
 
   beforeEach(function() {
     vi.clearAllMocks()
+    offlineManager.setOwnerSubjectProvider(null)
+    offlineManager.setTaskQueue(null)
     mockTaskQueue = { add: vi.fn().mockReturnValue("mock_task_id") }
   })
 
@@ -121,6 +125,26 @@ describe("OfflineManager integration", function() {
     expect(count).toBe(2)
     expect(mockTaskQueue.add).toHaveBeenCalledTimes(2)
     expect(mockTaskQueue.add).toHaveBeenCalledWith({ platform: "weibo", article: { title: "T1" }, accountId: null })
+  })
+
+  test("legacy mode replays cache entries explicitly marked as legacy", function() {
+    var fs = require("fs")
+    fs.existsSync.mockReturnValue(true)
+    fs.readFileSync.mockReturnValue(JSON.stringify([
+      { platform: "weibo", article: { title: "Legacy" }, owner_subject: "__legacy__" },
+    ]))
+    offlineManager.onNetworkChange(false)
+    offlineManager.setTaskQueue(mockTaskQueue)
+
+    expect(offlineManager.loadCache()).toEqual([
+      expect.objectContaining({ owner_subject: "__legacy__", platform: "weibo" }),
+    ])
+    expect(offlineManager.processCachedTasks()).toBe(1)
+    expect(mockTaskQueue.add).toHaveBeenCalledWith({
+      platform: "weibo",
+      article: { title: "Legacy" },
+      accountId: null,
+    })
   })
 
   test("processCachedTasks skips when offline", function() {
@@ -163,5 +187,59 @@ describe("OfflineManager integration", function() {
     expect(offlineManager.isOffline()).toBe(false)
     // Should have re-queued
     expect(mockTaskQueue.add).toHaveBeenCalled()
+  })
+
+  test("身份模式只重放当前用户缓存，并使用可信 addForOwner", function() {
+    var fs = require("fs")
+    fs.existsSync.mockReturnValue(true)
+    fs.readFileSync.mockReturnValue(JSON.stringify([
+      { platform: "weibo", article: { title: "A" }, owner_subject: "user-a" },
+      { platform: "wechat_mp", article: { title: "B" }, owner_subject: "user-b" },
+    ]))
+    var queue = { addForOwner: vi.fn(() => "task-a") }
+    offlineManager.setOwnerSubjectProvider(() => "user-a")
+    offlineManager.setTaskQueue(queue)
+
+    expect(offlineManager.processCachedTasks()).toBe(1)
+    expect(queue.addForOwner).toHaveBeenCalledWith(
+      expect.objectContaining({ platform: "weibo", owner_subject: "user-a" }),
+      "user-a",
+    )
+    var persisted = JSON.parse(fs.writeFileSync.mock.calls[0][1])
+    expect(persisted).toEqual([
+      expect.objectContaining({ owner_subject: "user-b" }),
+    ])
+  })
+
+  test("身份模式异步入队失败时保留缓存，不能把未确认任务当作已重放", async function() {
+    var fs = require("fs")
+    fs.existsSync.mockReturnValue(true)
+    fs.readFileSync.mockReturnValue(JSON.stringify([
+      { platform: "weibo", article: { title: "A" }, owner_subject: "user-a" },
+    ]))
+    var queue = { addForOwner: vi.fn(() => Promise.reject(new Error("queue unavailable"))) }
+    offlineManager.setOwnerSubjectProvider(() => "user-a")
+    offlineManager.setTaskQueue(queue)
+
+    expect(offlineManager.processCachedTasks()).toBe(0)
+    var persisted = JSON.parse(fs.writeFileSync.mock.calls[0][1])
+    expect(persisted).toEqual([
+      expect.objectContaining({ owner_subject: "user-a", platform: "weibo" }),
+    ])
+    await Promise.resolve()
+  })
+
+  test("身份模式缓存时忽略渲染层伪造的 owner", function() {
+    var fs = require("fs")
+    fs.existsSync.mockReturnValue(false)
+    offlineManager.setOwnerSubjectProvider(() => "user-a")
+
+    expect(offlineManager.addToCache({
+      platform: "weibo",
+      article: { title: "A" },
+      owner_subject: "forged-user",
+    })).toBe(true)
+    var persisted = JSON.parse(fs.writeFileSync.mock.calls[0][1])
+    expect(persisted[0]).toMatchObject({ owner_subject: "user-a" })
   })
 })

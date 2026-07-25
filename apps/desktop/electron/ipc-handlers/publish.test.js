@@ -257,6 +257,46 @@ describe('publish IPC 可信来源正常工作', () => {
   })
 })
 
+describe('publish IPC 历史归属隔离', () => {
+  it('身份模式读取历史时只把可信当前 owner 交给历史服务', async () => {
+    const history = {
+      listRecords: vi.fn(() => ({ total: 1, records: [{ id: 'a-1', owner_subject: 'user-a' }] })),
+      getRecord: vi.fn(() => ({ id: 'a-1', owner_subject: 'user-a' })),
+      getStats: vi.fn(() => ({ total: 1 })),
+    }
+    const identityService = { getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })) }
+    const deps = createMockDeps({ history, identityService })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    await expect(ipcMain._get('history:list')(TRUSTED_EVENT, { owner_subject: 'forged-user' }))
+      .resolves.toMatchObject({ code: 0 })
+    await expect(ipcMain._get('history:get')(TRUSTED_EVENT, 'a-1')).resolves.toMatchObject({ code: 0 })
+    await expect(ipcMain._get('dashboard:stats')(TRUSTED_EVENT)).resolves.toMatchObject({ code: 0 })
+
+    expect(history.listRecords).toHaveBeenCalledWith({ owner_subject: 'forged-user' }, 'user-a')
+    expect(history.getRecord).toHaveBeenCalledWith('a-1', 'user-a')
+    expect(history.getStats).toHaveBeenCalledWith('user-a')
+  })
+
+  it('身份服务存在但缺少用户标识时历史读取 fail-closed', async () => {
+    const history = createMockDeps().history
+    const deps = createMockDeps({
+      history,
+      identityService: { getState: vi.fn(() => ({ status: 'signed_out', user: null })) },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    await expect(ipcMain._get('history:list')(TRUSTED_EVENT, {})).resolves.toMatchObject({ code: -3 })
+    await expect(ipcMain._get('history:get')(TRUSTED_EVENT, 'a-1')).resolves.toMatchObject({ code: -3 })
+    await expect(ipcMain._get('dashboard:stats')(TRUSTED_EVENT)).resolves.toMatchObject({ code: -3 })
+    expect(history.listRecords).not.toHaveBeenCalled()
+    expect(history.getRecord).not.toHaveBeenCalled()
+    expect(history.getStats).not.toHaveBeenCalled()
+  })
+})
+
 describe('publish IPC Logto 权益门禁', () => {
   it.each([
     ['publish:wechat', { title: '无权益' }],

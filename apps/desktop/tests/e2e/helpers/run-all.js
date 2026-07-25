@@ -108,9 +108,9 @@ async function runFlows() {
   return results;
 }
 
-function buildReport() {
+function buildReport(results) {
   const { main } = require('./final-report');
-  main();
+  return results === undefined ? main() : main({ results });
 }
 
 async function main(mode = process.argv[2] || 'all') {
@@ -130,7 +130,7 @@ async function main(mode = process.argv[2] || 'all') {
   }
   if (arg === 'all' || arg === 'report') {
     console.log('=== 阶段 C: 生成最终报告 ===');
-    buildReport();
+    buildReport(arg === 'all' ? results : undefined);
     console.log('');
   }
   const failed = hasFailures(results, expectedResultCount(arg));

@@ -4,7 +4,7 @@ import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 import { ElMessage } from "element-plus";
 
-const pushSpy = vi.fn();
+const pushSpy = vi.hoisted(() => vi.fn());
 vi.mock("vue-router", () => ({
   useRouter: () => ({ push: pushSpy }),
   useRoute: () => ({ query: {} }),
@@ -38,6 +38,15 @@ vi.mock("element-plus", () => ({
 }));
 
 vi.mock("@element-plus/icons-vue", () => ({ UploadFilled: { template: "<span>U</span>" } }));
+vi.mock("@/components/TagSuggester.vue", () => ({ default: { template: "<div/>" } }));
+vi.mock("@/components/OptimalTimeTip.vue", () => ({ default: { template: "<div/>" } }));
+vi.mock("@/components/TitleAssistantPanel.vue", () => ({ default: { template: "<div/>" } }));
+vi.mock("@/components/ArticleEditor.vue", () => ({ default: { template: "<div/>" } }));
+vi.mock("@/components/TemplatePicker.vue", () => ({ default: { template: "<div/>" } }));
+vi.mock("@/components/UpgradeModal.vue", () => ({ default: { template: "<div/>" } }));
+vi.mock("@/components/AiWriterPanel.vue", () => ({ default: { template: "<div/>" } }));
+vi.mock("@/features/publish/components/PlatformOverridePanel.vue", () => ({ default: { template: "<div/>" } }));
+vi.mock("@/features/publish/components/PublishTargetSelector.vue", () => ({ default: { template: "<div/>" } }));
 
 vi.mock("@/api/publisher", () => ({
   renderStart: vi.fn(),
@@ -65,14 +74,16 @@ vi.mock("@/api/publisher", () => ({
   pipelineAdvance: vi.fn(),
   pipelineHistory: vi.fn().mockResolvedValue({ code: 0, data: [] }),
 }));
+import PublishView from "./Publish.vue";
+import CreateView from "./CreateView.vue";
+import ResultView from "./ResultView.vue";
 
 // Publish.vue
 describe("PublishView (deep)", () => {
   beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); });
 
-  async function mountPublish() {
-    const m = await import("./Publish.vue");
-    return mount(m.default || m, {
+  function mountPublish() {
+    return mount(PublishView, {
       global: { plugins: [createPinia()],
         components: { UiButton: { template: "<button><slot/></button>" }, UiInput: { template: "<input/>" } },
         stubs: { "el-checkbox-group": true, "el-checkbox": true, "el-upload": true, "el-icon": true, TagSuggester: true, OptimalTimeTip: true, TitleAssistantPanel: true, ArticleEditor: true, TemplatePicker: true, UpgradeModal: true, AiWriterPanel: true }
@@ -101,10 +112,14 @@ describe("PublishView (deep)", () => {
 describe("CreateView (deep)", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  async function mountCreate() {
-    const m = await import("./CreateView.vue");
-    return mount(m.default || m, {
-      global: { components: { UiButton: { template: "<button><slot/></button>" }, UiSelect: { template: "<select><slot/></select>" } } }
+  function mountCreate() {
+    return mount(CreateView, {
+      global: {
+        components: {
+          UiButton: { template: "<button><slot/></button>" },
+          UiSelect: { props: ["modelValue", "options"], template: "<div><slot/></div>" },
+        },
+      },
     });
   }
 
@@ -140,8 +155,7 @@ describe("CreateView (deep)", () => {
 // ResultView.vue
 describe("ResultView (deep)", () => {
   it("shows empty state", async () => {
-    const m = await import("./ResultView.vue");
-    const w = mount(m.default || m, {
+    const w = mount(ResultView, {
       global: { components: { UiButton: { template: "<button><slot/></button>" } } }
     });
     await nextTick();

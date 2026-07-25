@@ -29,10 +29,11 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
         platform: task.platform, stage: '✓ 发布成功', taskId: task.id, result: task.result,
       })
     }
+    const ownerSubject = task.owner_subject
     history.addRecord({
       platform: task.platform, title: task.article?.title || '', taskId: task.id,
       status: 'success', result: task.result,
-    })
+    }, ownerSubject)
     try {
       const postId = task.result?.postId || task.result?.id
       if (postId) {
@@ -43,7 +44,7 @@ function wireTaskQueueEvents({ taskQueue, history, publishMonitor, publishImpact
             history.addRecord({
               platform: task.platform, title: task.article?.title || '',
               taskId: task.id, status: monitorResult.status, result: monitorResult,
-            })
+            }, ownerSubject)
           },
         })
       }

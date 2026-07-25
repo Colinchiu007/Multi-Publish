@@ -745,6 +745,30 @@ describe('usePublishFlow — composable setup', () => {
     })
   })
 
+  it('透传可执行的平台选项而不携带 Vue 响应式包装', async () => {
+    selectedPlatforms.value = ['wechat_mp', 'zhihu', 'douyin']
+    selectedAccounts.value = { wechat_mp: 'wx-1', zhihu: 'zh-1', douyin: 'dy-1' }
+    const diffEdits = reactive({
+      wechat_mp: { title: '', content: '', massSend: true },
+      zhihu: { title: '', content: '', commentPermission: 'anyone', declare: 5, topics: ['AI', '人工智能'], draft: true },
+      douyin: { title: '', content: '', draft: true },
+    })
+    const r = usePublishFlow({ article, selectedPlatforms, selectedAccounts, precheckEnabled, diffEdits })
+    article.title = '标题'
+    article.content = '正文'
+
+    await r.handlePublish()
+
+    expect(mockPublishBatch.mock.calls[0][1].platformOverrides).toEqual({
+      wechat_mp: { title: '', content: '', massSend: true },
+      zhihu: {
+        title: '', content: '', commentPermission: 'anyone', declare: 5,
+        topics: ['AI', '人工智能'], draft: true,
+      },
+      douyin: { title: '', content: '', draft: true },
+    })
+  })
+
   it('平台内容超过限制时在 IPC 前阻止发布', async () => {
     selectedPlatforms.value = ['xiaohongshu']
     selectedAccounts.value = { xiaohongshu: ['xhs-1'] }

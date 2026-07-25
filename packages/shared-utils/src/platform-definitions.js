@@ -67,9 +67,9 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   toutiao: ['mp.toutiao.com'],
   bilibili: ['www.bilibili.com/'],
   baijiahao: ['baijiahao.baidu.com'],
-  youtube: ['studio.youtube.com'],
+  youtube: ['studio.youtube.com', 'accounts.google.com/o/oauth2/approval'],
   tiktok: ['tiktok.com/upload'],
-  twitter: ['twitter.com/home', 'twitter.com/explore'],
+  twitter: ['twitter.com/home', 'twitter.com/explore', 'x.com/home', 'x.com/explore'],
   instagram: ['instagram.com/'],
   facebook: ['facebook.com/'],
 }
@@ -87,7 +87,7 @@ const PLATFORM_AUTH_HOSTS = {
   toutiao: ['mp.toutiao.com'],
   bilibili: ['www.bilibili.com', 'bilibili.com'],
   baijiahao: ['baijiahao.baidu.com'],
-  youtube: ['studio.youtube.com'],
+  youtube: ['studio.youtube.com', 'accounts.google.com'],
   tiktok: ['www.tiktok.com', 'tiktok.com'],
   twitter: ['twitter.com', 'www.twitter.com', 'x.com', 'www.x.com'],
   instagram: ['www.instagram.com', 'instagram.com'],
@@ -185,44 +185,9 @@ const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
   facebook: ['a[aria-label*="profile"]', 'a[aria-label*="Profile"]', 'div[aria-label*="Account"]', 'div[data-pagelet*="root"]'],
 }
 
-// ─── 平台显示名称 ───────────────────────────
-const PLATFORM_NAMES = {
-  wechat_mp: '微信公众号',
-  zhihu: '知乎',
-  weibo: '微博',
-  douyin: '抖音',
-  xiaohongshu: '小红书',
-  tencent_video: '视频号',
-  kuaishou: '快手',
-  toutiao: '今日头条',
-  bilibili: 'B站',
-  baijiahao: '百家号',
-  youtube: 'YouTube',
-  tiktok: 'TikTok',
-  twitter: 'Twitter/X',
-  instagram: 'Instagram',
-  facebook: 'Facebook',
-}
-
-
-// ─── 平台图标（展示用）────────────────────────
-const PLATFORM_ICONS = {
-  wechat_mp: '💬',
-  zhihu: '❓',
-  weibo: '✧',
-  douyin: '🎵',
-  xiaohongshu: '📕',
-  tencent_video: '▶',
-  kuaishou: '🎬',
-  toutiao: '📰',
-  bilibili: '📺',
-  baijiahao: '📖',
-  youtube: '▶',
-  tiktok: '♪',
-  twitter: '✕',
-  instagram: '📷',
-  facebook: '👍',
-}
+// ─── 平台展示元数据 ───────────────────────────
+// JSON 同时被 Vite 浏览器端与 CommonJS 主进程消费，避免跨模块复制和 CJS 命名导入失败。
+const { PLATFORM_NAMES, PLATFORM_ICONS } = require('./platform-display-definitions.json')
 
 // ─── 支持二维码登录的平台列表 ─────────────────
 const QR_CODE_PLATFORMS = ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'toutiao']

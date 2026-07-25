@@ -37,7 +37,7 @@ describe('account-manager — userData fallback', () => {
       .spyOn(accountManager.credentialStore, 'hasCredential')
       .mockReturnValue(false)
     expect(accountManager.checkLocalCredentials('wechat_mp', 'account-1')).toBe(false)
-    expect(hasCredential).toHaveBeenCalledWith('account-1', expectedDir, undefined)
+    expect(hasCredential).toHaveBeenCalledWith('account-1', expectedDir)
   })
 })
 
@@ -49,6 +49,7 @@ describe('account-manager — Logto owner 隔离', () => {
   })
 
   afterEach(() => {
+    global.__electronMock.app.getPath = function () { return '/tmp/test-electron-path' }
     vi.restoreAllMocks()
   })
 
@@ -78,7 +79,7 @@ describe('account-manager — Logto owner 隔离', () => {
     const saveRecord = vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord')
       .mockImplementation(() => {})
     const saveCredential = vi.spyOn(accountManager.credentialStore, 'saveCredential')
-      .mockImplementation(() => {})
+      .mockReturnValue(true)
 
     await accountManager.addAccount('wechat_mp')
 
@@ -120,11 +121,12 @@ describe('account-manager — Logto owner 隔离', () => {
     const loadCredential = vi.spyOn(accountManager.credentialStore, 'loadCredential')
       .mockReturnValue({
         platform: 'douyin',
+        cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }],
         localStorage: { token: 'local-token' },
         accountInfo: { nickName: '用户 A' },
       })
     const getRecord = vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord')
-      .mockReturnValue({ cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }] })
+      .mockReturnValue({ platform: 'douyin', accountId: 'account-a' })
     const session = { cookies: { set: vi.fn(async () => {}) } }
     const webContents = { executeJavaScript: vi.fn(async () => {}) }
 
@@ -188,6 +190,52 @@ describe('account-manager — 捕获凭证持久化', () => {
       indexedDB: { secure: { token: 'indexed' } },
       accountInfo: { nickname: '公众号' },
     })
+  })
+
+  it('账号代理仅写入加密凭证，公开状态不含认证信息', () => {
+    const accountManager = loadAccountManager()
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+      platform: 'wechat_mp',
+      cookies: [{ name: 'session', value: 'secret', domain: '.mp.weixin.qq.com' }],
+      localStorage: { token: 'private' },
+      accountInfo: {},
+    })
+    vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue({
+      accountId: 'account-proxy',
+      platform: 'wechat_mp',
+    })
+    const saveCredential = vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(true)
+
+    expect(accountManager.setAccountProxy('account-proxy', 'wechat_mp', {
+      host: '10.0.0.8',
+      port: 1080,
+      type: 'socks5',
+      username: 'account',
+      password: 'secret',
+    })).toEqual({
+      configured: true,
+      type: 'socks5',
+      hostMasked: '10.0.*.*',
+      port: 1080,
+      hasAuthentication: true,
+    })
+    expect(saveCredential).toHaveBeenCalledWith(
+      'account-proxy',
+      expect.objectContaining({
+        proxy: {
+          host: '10.0.0.8',
+          port: 1080,
+          type: 'socks5',
+          username: 'account',
+          password: 'secret',
+        },
+      }),
+      '/tmp/test-electron-path',
+    )
+
+    const publicStatus = accountManager.getAccountProxyStatus('account-proxy', 'wechat_mp')
+    expect(JSON.stringify(publicStatus)).not.toContain('account')
+    expect(JSON.stringify(publicStatus)).not.toContain('secret')
   })
 
   it('拒绝与请求平台不匹配的加密凭证，避免跨平台 Cookie 注入', () => {

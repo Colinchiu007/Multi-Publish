@@ -50,6 +50,7 @@ class PublishPoller {
    * @param {object} opts.publisherRouter - PublisherRouter instance
    * @param {object} opts.rpaViewManager - RpaViewManager instance
    * @param {object} opts.store - Store (SQLite) instance for account loading
+   * @param {object} [opts.accountManager] - Encrypted credential manager
    */
   constructor (opts) {
     const Axios = opts.axios || require("axios")
@@ -64,6 +65,7 @@ class PublishPoller {
     this.publisherRouter = opts.publisherRouter
     this.rpaViewManager = opts.rpaViewManager
     this.store = opts.store
+    this.accountManager = opts.accountManager
     this._rpaCheck = typeof opts.rpaCheck === 'function' ? opts.rpaCheck : null
     this._timer = null
     this._running = false
@@ -232,10 +234,18 @@ class PublishPoller {
       const publisher = this.publisherRouter.createPublisher(platform, {
         rpaViewManager: this.rpaViewManager,
         store: this.store,
+        accountManager: this.accountManager,
       })
 
-      const publishResult = await publisher.publish({
+      const accountId = input.account_id ?? input.accountId ?? task.account_id ?? task.accountId ?? null
+      const ownerSubject = typeof task.owner_subject === 'string' && task.owner_subject
+        ? task.owner_subject
+        : (typeof task.ownerSubject === 'string' && task.ownerSubject ? task.ownerSubject : undefined)
+      const publishTask = {
+        id: taskId,
+        platform,
         article: {
+          accountId,
           title: input.title || '',
           content: input.desc || '',
           desc: input.desc || '',
@@ -244,7 +254,9 @@ class PublishPoller {
           cover_path: coverPath,
           cover_url: coverPath,
         },
-      })
+      }
+      if (ownerSubject !== undefined) publishTask.owner_subject = ownerSubject
+      const publishResult = await publisher.publish(publishTask)
 
       // Phase 4: Update to success
       await this._updateTaskStatus(taskId, 'success', {

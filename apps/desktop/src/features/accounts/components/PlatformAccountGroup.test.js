@@ -55,11 +55,13 @@ describe('PlatformAccountGroup', () => {
     const buttons = secondRow.findAll('.account-actions button')
     await buttons.find(button => button.text().includes('设为默认')).trigger('click')
     await buttons.find(button => button.text().includes('打开')).trigger('click')
+    await secondRow.get('[data-testid="proxy-a2"]').trigger('click')
     await buttons.find(button => button.text().includes('删除')).trigger('click')
 
     expect(wrapper.emitted('rename')?.[0]).toEqual([group.accounts[1], '新名称'])
     expect(wrapper.emitted('set-default')?.[0]).toEqual([group.accounts[1]])
     expect(wrapper.emitted('open')?.[0]).toEqual([group.accounts[1]])
+    expect(wrapper.emitted('configure-proxy')?.[0]).toEqual([group.accounts[1]])
     expect(wrapper.emitted('remove')?.[0]).toEqual([group.accounts[1]])
   })
 

@@ -12,11 +12,22 @@ function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
   // eslint-disable-next-line no-unused-vars
-  const { taskQueue, history, BrowserWindow, log } = deps
+  const { taskQueue, history, BrowserWindow, log, identityService } = deps
 
   // 平台和账号标识会进入发布路由及下游 URL，只允许单一路径段。
   function isSafePathSegment(value) {
     return typeof value === 'string' && /^[a-zA-Z0-9_-]+$/.test(value)
+  }
+
+  // identityService 存在时，历史记录必须以当前认证用户为唯一归属来源。
+  function getOwnerSubject () {
+    if (!identityService) return undefined
+    try {
+      const state = identityService.getState()
+      const subject = state && state.user && state.user.sub
+      if (typeof subject === 'string' && subject.trim()) return subject.trim()
+    } catch (_) { /* 身份服务不可用时按未登录处理 */ }
+    return null
   }
 
   ipcMain.handle('publish:wechat', withSenderCheck(async (event, articleData) => {
@@ -115,7 +126,9 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('history:list', withSenderCheck(async (event, opts) => {
     try {
-      const result = history.listRecords(opts)
+      const owner = getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: { total: 0, records: [] } }
+      const result = history.listRecords(opts, owner)
       return { code: 0, data: result }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message, data: { total: 0, records: [] } }
@@ -124,7 +137,9 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('history:get', withSenderCheck(async (event, id) => {
     try {
-      const record = history.getRecord(id)
+      const owner = getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const record = history.getRecord(id, owner)
       if (!record) return { code: EC.NOT_FOUND, message: '记录不存在' }
       return { code: 0, data: record }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
@@ -132,7 +147,9 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('dashboard:stats', withSenderCheck(async () => {
     try {
-      return { code: 0, data: history.getStats() }
+      const owner = getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      return { code: 0, data: history.getStats(owner) }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 }

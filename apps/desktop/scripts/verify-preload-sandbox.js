@@ -187,7 +187,10 @@ function runChildVerification(spawnImpl = spawn, env = process.env) {
     child.on('close', (code) => {
       clearTimeout(timeout)
       try {
-        if (timedOut) throw new Error(`preload sandbox 验证超过 ${timeoutMs}ms`)
+        if (timedOut) {
+          const details = stderr ? `：${stderr}` : ''
+          throw new Error(`preload sandbox 验证超过 ${timeoutMs}ms${details}`)
+        }
         evaluateVerificationResult({ code, stdout, stderr })
         process.stdout.write(stdout)
         resolve()

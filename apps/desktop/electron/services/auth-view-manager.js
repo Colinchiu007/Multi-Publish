@@ -17,11 +17,42 @@ const {
   isPlatformLoginSuccessUrl,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { attachCdpDetection } = require('./auth-view-cdp')
-const { createSession, setCookies, restoreLocalStorage, createAuthView } = require('./auth-view-session')
+const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 
 const SIDEBAR_WIDTH = 280
 const SIDEBAR_BREAKPOINT = 1360
 const AUTH_STATUS_HEIGHT = 44
+const MAX_INDEXED_DB_SNAPSHOT_BYTES = 524288
+
+function normalizeIndexedDBSnapshot(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  try {
+    const serialized = JSON.stringify(value)
+    if (!serialized || serialized.length > MAX_INDEXED_DB_SNAPSHOT_BYTES) return {}
+    const normalized = JSON.parse(serialized)
+    return normalized && typeof normalized === 'object' && !Array.isArray(normalized) ? normalized : {}
+  } catch (_) {
+    return {}
+  }
+}
+
+function hasCapturedCredentials(authData) {
+  if (!authData || typeof authData !== 'object' || Array.isArray(authData)) return false
+  const hasCookies = Array.isArray(authData.cookies) && authData.cookies.length > 0
+  const hasLocalStorage = Boolean(
+    authData.localStorage &&
+    typeof authData.localStorage === 'object' &&
+    !Array.isArray(authData.localStorage) &&
+    Object.keys(authData.localStorage).length > 0,
+  )
+  const hasIndexedDB = Boolean(
+    authData.indexedDB &&
+    typeof authData.indexedDB === 'object' &&
+    !Array.isArray(authData.indexedDB) &&
+    Object.keys(authData.indexedDB).length > 0,
+  )
+  return hasCookies || hasLocalStorage || hasIndexedDB
+}
 
 class AuthViewManager {
   constructor() {
@@ -127,6 +158,10 @@ class AuthViewManager {
       try {
         if (!this._isCurrentLoginAttempt(attempt)) return
         const authData = await this._extractAuthData(attempt.view, attempt.platform)
+        if (!hasCapturedCredentials(authData)) {
+          if (this._isCurrentLoginAttempt(attempt)) this._autoCompletionAttemptId = null
+          return
+        }
         this._settleLogin(attempt, authData)
       } catch (e) {
         log.warn('AuthView', 'Failed to extract auth data: ' + (e instanceof Error ? e.message : String(e)))
@@ -224,9 +259,16 @@ class AuthViewManager {
         )
       }
     } catch (_e) { /* 页面未加载完成时没有 localStorage 也可继续检查 Cookie */ }
+    let indexedDB = {}
+    try {
+      const extracted = await view.webContents.executeJavaScript(
+        'window.__auth_helper__ && typeof window.__auth_helper__.getIndexedDB === "function" ? window.__auth_helper__.getIndexedDB() : {}',
+      )
+      indexedDB = normalizeIndexedDBSnapshot(extracted)
+    } catch (_e) { /* IndexedDB 不可用时仍可使用 Cookie 或 localStorage 完成登录 */ }
     let name = ''
     try { name = await view.webContents.executeJavaScript('document.title || ""') } catch (_e) { /* ignore */ }
-    return { cookies, name, localStorage }
+    return { cookies, name, localStorage, indexedDB }
   }
 
   /**
@@ -238,13 +280,7 @@ class AuthViewManager {
     if (!attempt) throw new Error('没有正在进行的网页登录')
 
     const authData = await this._extractAuthData(attempt.view, attempt.platform)
-    const hasCookies = Array.isArray(authData.cookies) && authData.cookies.length > 0
-    const hasLocalStorage = Boolean(
-      authData.localStorage &&
-      typeof authData.localStorage === 'object' &&
-      Object.keys(authData.localStorage).length > 0,
-    )
-    if (!hasCookies && !hasLocalStorage) {
+    if (!hasCapturedCredentials(authData)) {
       throw new Error('未检测到登录凭证，请先在平台页面完成登录')
     }
     if (!this._settleLogin(attempt, authData)) {
@@ -307,8 +343,9 @@ class AuthViewManager {
    * @param {string} platform
    * @param {any[]} cookies
    * @param {Record<string, string>} [localStorage]
+   * @param {Record<string, Record<string, Record<string, unknown>>>} [indexedDB]
    */
-  async openSavedAccount(platform, cookies, localStorage) {
+  async openSavedAccount(platform, cookies, localStorage, indexedDB) {
     const loginUrl = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
     if (!loginUrl) return
     if (!this.mainWindow) return
@@ -326,6 +363,13 @@ class AuthViewManager {
     this._positionView(this.mainWindow.getBounds())
     this.mainWindow.contentView.addChildView(view)
     view.setVisible(true)
+    const restorations = []
+    if (localStorage && Object.keys(localStorage).length > 0) {
+      restorations.push(restoreLocalStorage(view, localStorage))
+    }
+    if (indexedDB && typeof indexedDB === 'object' && Object.keys(indexedDB).length > 0) {
+      restorations.push(restoreIndexedDB(view, indexedDB))
+    }
     // R49 修复：loadURL 返回 Promise，必须 .catch()
     view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
 
@@ -347,8 +391,8 @@ class AuthViewManager {
     this._escHandler = escHandler
     this._escView = view
 
-    if (localStorage && Object.keys(localStorage).length > 0) {
-      restoreLocalStorage(view, localStorage)
+    if (restorations.length > 0) {
+      void Promise.all(restorations).catch(() => {})
     }
 
     this.mainWindow.webContents.send('auth:view-opened', { platform, accountId })
@@ -359,8 +403,9 @@ class AuthViewManager {
    * @param {string} platform
    * @param {any[]} [cookies]
    * @param {Record<string, string>} [localStorage]
+   * @param {Record<string, Record<string, Record<string, unknown>>>} [indexedDB]
    */
-  async loginSilent(platform, cookies, localStorage) {
+  async loginSilent(platform, cookies, localStorage, indexedDB) {
     const loginUrl = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
     if (!loginUrl) return { valid: false, accountName: null }
 
@@ -380,20 +425,20 @@ class AuthViewManager {
         }
       }
 
+      const restorationView = { webContents: win.webContents }
+      const restorations = []
+      if (localStorage && Object.keys(localStorage).length > 0) {
+        restorations.push(restoreLocalStorage(restorationView, localStorage))
+      }
+      if (indexedDB && typeof indexedDB === 'object' && Object.keys(indexedDB).length > 0) {
+        restorations.push(restoreIndexedDB(restorationView, indexedDB))
+      }
+
       await win.webContents.loadURL(loginUrl)
       await new Promise(r => setTimeout(r, 3000))
 
-      if (localStorage && Object.keys(localStorage).length > 0) {
-        try {
-          await win.webContents.executeJavaScript(`
-            (function() {
-              let data = ${JSON.stringify(localStorage)};
-              Object.keys(data).forEach(function(k) {
-                try { localStorage.setItem(k, data[k]); } catch (_e) { /* ignore */ }
-              });
-            })()
-          `)
-        } catch (_e) { /* ignore */ }
+      if (restorations.length > 0) {
+        await Promise.all(restorations)
       }
 
       await new Promise(r => setTimeout(r, 2000))

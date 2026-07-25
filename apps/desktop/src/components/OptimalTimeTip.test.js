@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 
 // 组件已 import { intelligenceGetOptimalTime } from '@/api/publisher'
@@ -13,7 +13,12 @@ import OptimalTimeTip from './OptimalTimeTip.vue';
 
 describe('OptimalTimeTip', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.mocked(intelligenceGetOptimalTime).mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders initial state (no keyword)', () => {
@@ -30,7 +35,7 @@ describe('OptimalTimeTip', () => {
     vi.mocked(intelligenceGetOptimalTime).mockResolvedValue({ code: 0, data: { recommendation: { topHours: [] } } });
     const w = mount(OptimalTimeTip, { props: { keyword: '' } });
     await w.setProps({ keyword: 'test' });
-    await new Promise(r => setTimeout(r, 700));
+    await vi.advanceTimersByTimeAsync(600);
     expect(intelligenceGetOptimalTime).toHaveBeenCalled();
   });
 
@@ -38,7 +43,7 @@ describe('OptimalTimeTip', () => {
     vi.mocked(intelligenceGetOptimalTime).mockRejectedValue(new Error('err'));
     const w = mount(OptimalTimeTip, { props: { keyword: '' } });
     await w.setProps({ keyword: 'test' });
-    await new Promise(r => setTimeout(r, 700));
+    await vi.advanceTimersByTimeAsync(600);
     expect(w.text()).toMatch(/err|失败/);
   });
 
@@ -52,7 +57,7 @@ describe('OptimalTimeTip', () => {
     });
     const w = mount(OptimalTimeTip, { props: { keyword: '' } });
     await w.setProps({ keyword: 'test' });
-    await new Promise(r => setTimeout(r, 700));
+    await vi.advanceTimersByTimeAsync(600);
     expect(w.text()).toContain('10:00');
   });
 });

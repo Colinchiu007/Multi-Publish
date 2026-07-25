@@ -101,6 +101,10 @@ var require_publish = __commonJS({
         viralAnalyze: (articles, topic) => ipcRenderer2.invoke("viral:analyze", { articles, topic }),
         viralGenerate: (opts) => ipcRenderer2.invoke("viral:generate", opts),
         viralTrending: (articles) => ipcRenderer2.invoke("viral:trending", { articles }),
+        // Draft API
+        draftSave: (draft) => ipcRenderer2.invoke("draftSave", draft),
+        draftList: () => ipcRenderer2.invoke("draftList"),
+        draftDelete: (draftId) => ipcRenderer2.invoke("draftDelete", draftId),
         // Comment Management API (PRD F13)
         commentList: (platform, accountId, maxDays) => ipcRenderer2.invoke("comment:list", { platform, accountId, maxDays }),
         commentReply: (platform, accountId, commentId, content) => ipcRenderer2.invoke("comment:reply", { platform, accountId, commentId, content }),
@@ -137,6 +141,7 @@ var require_account = __commonJS({
         accountSetDefault: (platform, accountId) => ipcRenderer2.invoke("store:set-default-account", { platform, accountId }),
         accountGetDefault: (platform) => ipcRenderer2.invoke("store:get-default-account", platform),
         accountUpdate: (id, fields) => ipcRenderer2.invoke("store:update-account", { id, fields }),
+        accountSetProxy: (accountId, platform, proxy) => ipcRenderer2.invoke("account:set-proxy", { accountId, platform, proxy }),
         // 内嵌浏览器登录 API
         authOpenLogin: (platform) => ipcRenderer2.invoke("auth:open-login", platform),
         authCompleteLogin: () => ipcRenderer2.invoke("auth:complete-login"),

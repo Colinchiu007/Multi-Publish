@@ -9,12 +9,19 @@
  */
 const EventEmitter = require('events')
 
+function normalizeOwnerSubject (ownerSubject) {
+  if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
+    throw new Error('任务队列无法识别当前用户')
+  }
+  return ownerSubject.trim()
+}
+
 class TaskQueue extends EventEmitter {
   constructor (options = {}) {
     super()
     this.maxConcurrent = options.maxConcurrent || 1
-    this.defaultRetry = options.defaultRetry || 2
-    this.defaultTimeout = options.defaultTimeout || 180000  // 3 min
+    this.defaultRetry = options.defaultRetry ?? 2
+    this.defaultTimeout = options.defaultTimeout ?? 180000  // 3 min
     this._publishIntervalGuard = options.publishIntervalGuard || null
     this._queue = []          // 等待队列
     this._running = new Map() // 正在执行的任务 { id -> task }
@@ -25,6 +32,7 @@ class TaskQueue extends EventEmitter {
     this._paused = false
     this._shutdown = false
     this._idCounter = 0
+    this._ownerSubjectProvider = null
   }
 
   /**
@@ -49,6 +57,49 @@ class TaskQueue extends EventEmitter {
   }
 
   /**
+   * 注入登录用户解析器。身份模式下任务只能由当前用户创建、查看和执行；
+   * 未注入时保留旧版单用户行为。
+   */
+  setOwnerSubjectProvider (provider) {
+    if (provider !== null && provider !== undefined && typeof provider !== 'function') {
+      throw new TypeError('owner subject provider must be a function or null')
+    }
+    this._ownerSubjectProvider = provider || null
+
+    // 登录用户切换时停止正在执行的其他用户任务，避免旧凭据在新会话中继续发布。
+    if (this._ownerSubjectProvider) {
+      for (const [taskId, task] of this._running) {
+        if (this._isTaskOwnedByCurrentUser(task)) continue
+        this._markCancelled(task, false)
+        const controller = this._abortControllers.get(taskId)
+        if (controller && !controller.signal.aborted) controller.abort(new Error('登录用户已切换'))
+      }
+    }
+    this._processNext()
+  }
+
+  _getCurrentOwnerSubject () {
+    if (!this._ownerSubjectProvider) return undefined
+    try {
+      return normalizeOwnerSubject(this._ownerSubjectProvider())
+    } catch (_) {
+      // 登录态正在初始化、登出或失效时，查询接口不能把异常抛回渲染层；
+      // 以 null 表示身份模式下暂时没有可用 owner，并由调用方 fail-closed。
+      return null
+    }
+  }
+
+  _isTaskOwnedByCurrentUser (task) {
+    const ownerSubject = this._getCurrentOwnerSubject()
+    if (ownerSubject === undefined) return true
+    return Boolean(ownerSubject && task && task.owner_subject === ownerSubject)
+  }
+
+  _visibleTasks (tasks) {
+    return tasks.filter(task => this._isTaskOwnedByCurrentUser(task))
+  }
+
+  /**
    * 添加发布任务
    * @param {object} task
    * @param {string} task.platform - 平台标识
@@ -58,12 +109,35 @@ class TaskQueue extends EventEmitter {
    * @returns {string} taskId
    */
   add (task) {
+    const ownerSubject = this._getCurrentOwnerSubject()
+    if (ownerSubject === null) throw new Error('任务队列无法识别当前用户')
+    return this._add(task, ownerSubject)
+  }
+
+  /**
+   * 供已完成身份校验的主进程异步服务使用。显式 owner 仍必须等于当前用户，
+   * 从而阻止定时器、离线缓存和重试在用户切换后跨租户发布。
+   */
+  addForOwner (task, ownerSubject) {
+    const normalizedOwner = normalizeOwnerSubject(ownerSubject)
+    const currentOwner = this._getCurrentOwnerSubject()
+    if (currentOwner === null) throw new Error('任务队列无法识别当前用户')
+    if (currentOwner !== undefined && currentOwner !== normalizedOwner) {
+      throw new Error('当前登录用户不匹配')
+    }
+    return this._add(task, normalizedOwner)
+  }
+
+  _add (task, ownerSubject) {
     if (this._shutdown) throw new Error('任务队列已关闭')
     const taskId = `task_${++this._idCounter}_${Date.now()}`
     const entry = {
       id: taskId,
       platform: task.platform,
       article: task.article,
+      owner_subject: ownerSubject,
+      batchId: task.batchId || null,
+      accountId: task.accountId ?? task.article?.accountId ?? null,
       retry: task.retry ?? this.defaultRetry,
       timeout: task.timeout ?? this.defaultTimeout,
       status: 'pending',    // pending | running | success | failed | cancelled
@@ -91,10 +165,10 @@ class TaskQueue extends EventEmitter {
    * @returns {boolean} 是否成功取消
    */
   cancel (taskId) {
-    const idx = this._queue.findIndex(t => t.id === taskId)
+    const idx = this._queue.findIndex(t => t.id === taskId && this._isTaskOwnedByCurrentUser(t))
     if (idx === -1) {
       const delayed = this._delayed.get(taskId)
-      if (delayed) {
+      if (delayed && this._isTaskOwnedByCurrentUser(delayed.task)) {
         clearTimeout(delayed.timer)
         this._pendingTimers.delete(delayed.timer)
         this._delayed.delete(taskId)
@@ -104,7 +178,7 @@ class TaskQueue extends EventEmitter {
 
       // 可能已经在执行中 — 标记为 cancelled，执行器通过 AbortSignal 协作中止
       const running = this._running.get(taskId)
-      if (running) {
+      if (running && this._isTaskOwnedByCurrentUser(running)) {
         this._markCancelled(running, false)
         const controller = this._abortControllers.get(taskId)
         if (controller && !controller.signal.aborted) controller.abort(new Error('任务已取消'))
@@ -133,17 +207,22 @@ class TaskQueue extends EventEmitter {
    * @returns {string | null}
    */
   retry (taskId) {
-    const original = this._history.find(task => task.id === taskId)
+    const original = this._history.find(task => task.id === taskId && this._isTaskOwnedByCurrentUser(task))
     if (!original || original.status !== 'failed') return null
     if (original.retriedAs) return original.retriedAs
 
-    const retryTaskId = this.add({
+    const task = {
       platform: original.platform,
       article: original.article,
+      batchId: original.batchId,
+      accountId: original.accountId,
       retry: original.retry,
       timeout: original.timeout,
       retryOf: original.id
-    })
+    }
+    const retryTaskId = original.owner_subject === undefined
+      ? this.add(task)
+      : this.addForOwner(task, original.owner_subject)
     original.retriedAs = retryTaskId
     original.retriedAt = new Date().toISOString()
     this.emit('task:manual-retry', { original, taskId: retryTaskId })
@@ -159,10 +238,13 @@ class TaskQueue extends EventEmitter {
       ...this._queue,
       ...Array.from(this._delayed.values(), entry => entry.task),
     ]
-    return pending.map(t => ({
+    return this._visibleTasks(pending).map(t => ({
       id: t.id,
       platform: t.platform,
       article: t.article,
+      owner_subject: t.owner_subject,
+      batchId: t.batchId || null,
+      accountId: t.accountId || null,
       retry: t.retry,
       timeout: t.timeout,
       retriesLeft: t.retriesLeft,
@@ -177,10 +259,13 @@ class TaskQueue extends EventEmitter {
   serialize () {
     return JSON.stringify({
       queue: this.getPendingTasks(),
-      running: Array.from(this._running.values()).map(t => ({
+      running: this._visibleTasks(Array.from(this._running.values())).map(t => ({
         id: t.id,
         platform: t.platform,
         article: t.article,
+        owner_subject: t.owner_subject,
+        batchId: t.batchId || null,
+        accountId: t.accountId || null,
         retry: t.retry,
         timeout: t.timeout,
         retriesLeft: t.retriesLeft,
@@ -200,34 +285,53 @@ class TaskQueue extends EventEmitter {
     if (!jsonStr) return 0
     try {
       const state = JSON.parse(jsonStr)
+      if (!state || typeof state !== 'object' || Array.isArray(state)) return 0
+      const currentOwner = this._getCurrentOwnerSubject()
+      if (currentOwner === null) return 0
+      const restoreEntry = (task, message) => {
+        if (!task || typeof task !== 'object' || Array.isArray(task) ||
+          typeof task.id !== 'string' || !task.id ||
+          typeof task.platform !== 'string' || !task.platform.trim() ||
+          !task.article || typeof task.article !== 'object' || Array.isArray(task.article)) {
+          return false
+        }
+        if (this._queue.some(entry => entry.id === task.id) || this._running.has(task.id)) return false
+
+        const persistedOwner = task.owner_subject
+        let ownerSubject
+        if (currentOwner === undefined) {
+          // 未启用身份服务的旧模式只能恢复旧快照，不能接管用户隔离模式写入的任务。
+          if (persistedOwner !== undefined && persistedOwner !== null) return false
+          ownerSubject = undefined
+        } else {
+          // 旧版无 owner 快照没有可信归属，不能在任意登录用户下重新发布。
+          if (persistedOwner !== currentOwner) return false
+          ownerSubject = currentOwner
+        }
+        this._queue.push({
+          ...task,
+          owner_subject: ownerSubject,
+          batchId: task.batchId || null,
+          accountId: task.accountId ?? task.article?.accountId ?? null,
+          status: 'pending',
+          startedAt: null,
+          completedAt: null,
+          result: null,
+          error: message || null
+        })
+        return true
+      }
       let count = 0
       // 恢复等待中的任务
-      if (state.queue) {
+      if (Array.isArray(state.queue)) {
         for (const t of state.queue) {
-          this._queue.push({
-            ...t,
-            status: 'pending',
-            startedAt: null,
-            completedAt: null,
-            result: null,
-            error: null
-          })
-          count++
+          if (restoreEntry(t)) count++
         }
       }
       // 恢复运行中被中断的任务 — 重新加入队列尾部重试
-      if (state.running) {
+      if (Array.isArray(state.running)) {
         for (const t of state.running) {
-          this._queue.push({
-            ...t,
-            status: 'pending',
-            retriesLeft: Math.max(t.retriesLeft, 1),
-            startedAt: null,
-            completedAt: null,
-            result: null,
-            error: '进程中断恢复'
-          })
-          count++
+          if (restoreEntry({ ...t, retriesLeft: Math.max(t.retriesLeft, 1) }, '进程中断恢复')) count++
         }
       }
       if (count > 0) this._processNext()
@@ -251,10 +355,11 @@ class TaskQueue extends EventEmitter {
    * 获取队列状态
    */
   getStatus () {
+    const isVisible = task => this._isTaskOwnedByCurrentUser(task)
     return {
-      pending: this._queue.length,
-      running: this._running.size,
-      history: this._history.length,
+      pending: this._queue.filter(isVisible).length,
+      running: Array.from(this._running.values()).filter(isVisible).length,
+      history: this._history.filter(isVisible).length,
       paused: this._paused
     }
   }
@@ -263,7 +368,7 @@ class TaskQueue extends EventEmitter {
    * 获取所有历史记录
    */
   getHistory () {
-    return [...this._history]
+    return this._visibleTasks(this._history)
   }
 
   /**
@@ -288,8 +393,23 @@ class TaskQueue extends EventEmitter {
    * 清空等待队列 (不中断运行中的任务)
    */
   clearPending () {
-    this._queue = []
-    this.emit('queue:cleared')
+    const ownerSubject = this._getCurrentOwnerSubject()
+    if (ownerSubject === null) return 0
+    const isOwned = task => ownerSubject === undefined || Boolean(task && task.owner_subject === ownerSubject)
+    const removed = this._queue.filter(isOwned)
+    this._queue = this._queue.filter(task => !isOwned(task))
+    for (const [taskId, delayed] of this._delayed) {
+      if (!isOwned(delayed.task)) continue
+      clearTimeout(delayed.timer)
+      this._pendingTimers.delete(delayed.timer)
+      this._delayed.delete(taskId)
+      removed.push(delayed.task)
+    }
+    if (removed.length > 0) {
+      this.emit('queue:cleared', removed)
+      this._saveState()
+    }
+    return removed.length
   }
 
   // ─── 内部方法 ─────────────────────────────
@@ -313,8 +433,14 @@ class TaskQueue extends EventEmitter {
 
   _processNext () {
     if (this._paused) return
-    while (this._running.size < this.maxConcurrent && this._queue.length > 0) {
+    let inspected = this._queue.length
+    while (this._running.size < this.maxConcurrent && this._queue.length > 0 && inspected > 0) {
       const task = this._queue.shift()
+      inspected -= 1
+      if (!this._isTaskOwnedByCurrentUser(task)) {
+        this._queue.push(task)
+        continue
+      }
       this._executeTask(task)
     }
   }

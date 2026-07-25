@@ -107,6 +107,12 @@ describe("scheduler IPC handlers", () => {
   });
 
   describe("scheduler:list", () => {
+    it("拒绝外部网页读取排期任务", async () => {
+      const result = await ipcMain._callHandlerFrom("scheduler:list", UNTRUSTED_EVENT);
+      expect(result).toEqual({ code: -3, message: "未授权的调用来源" });
+      expect(scheduler.list).not.toHaveBeenCalled();
+    });
+
     it("lists scheduled tasks", async () => {
       const result = await ipcMain._callHandler("scheduler:list");
       expect(result.code).toBe(0);

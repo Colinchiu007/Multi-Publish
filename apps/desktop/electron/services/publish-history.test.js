@@ -105,6 +105,50 @@ describe("publish-history", () => {
     expect(stats.success + stats.failed).toBe(stats.total);
   });
 
+  it("按 owner_subject 隔离读取、单条查询和统计", () => {
+    vi.resetModules();
+    process.env.PH_TEST_DATA_DIR = testDir;
+    const ph = require("../services/publish-history");
+    const recordA = ph.addRecord({ platform: "wechat_mp", title: "用户 A" }, "user-a");
+    const recordB = ph.addRecord({ platform: "douyin", title: "用户 B" }, "user-b");
+
+    expect(ph.listRecords({}, "user-a").records).toEqual([
+      expect.objectContaining({ id: recordA.id, owner_subject: "user-a" }),
+    ]);
+    expect(ph.getRecord(recordB.id, "user-a")).toBeNull();
+    expect(ph.getStats("user-b")).toMatchObject({ total: 1, perPlatform: { douyin: { total: 1 } } });
+    expect(ph.listRecords({}, null)).toEqual({ total: 0, records: [] });
+  });
+
+  it("未启用身份服务时兼容显式 legacy 历史记录", () => {
+    const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), "ph-legacy-"));
+    const legacyRecord = {
+      id: "legacy-record",
+      platform: "wechat_mp",
+      title: "迁移前发布记录",
+      owner_subject: "__legacy__",
+      timestamp: "2026-07-22T00:00:00.000Z",
+    };
+
+    try {
+      fs.writeFileSync(
+        path.join(legacyDir, "publish-history.jsonl"),
+        JSON.stringify(legacyRecord) + "\n",
+        "utf8",
+      );
+      process.env.PH_TEST_DATA_DIR = legacyDir;
+      vi.resetModules();
+      const ph = require("../services/publish-history");
+
+      expect(ph.listRecords()).toEqual({ total: 1, records: [legacyRecord] });
+      expect(ph.getRecord(legacyRecord.id)).toEqual(legacyRecord);
+      expect(ph.getStats()).toMatchObject({ total: 1, perPlatform: { wechat_mp: { total: 1 } } });
+    } finally {
+      process.env.PH_TEST_DATA_DIR = testDir;
+      try { fs.rmSync(legacyDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  });
+
   it("handles empty state", () => {
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "ph-empty-"));
     process.env.PH_TEST_DATA_DIR = emptyDir;

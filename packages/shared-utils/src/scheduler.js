@@ -20,6 +20,13 @@ function getErrorMessage (error) {
   return error instanceof Error ? error.message : String(error)
 }
 
+function normalizeOwnerSubject (ownerSubject) {
+  if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
+    throw new Error('登录会话缺少用户标识')
+  }
+  return ownerSubject.trim()
+}
+
 /**
  * 创建隔离的调度器实例。
  * @param {{ app: { getPath: (name: string) => string }, fs?: typeof defaultFs, logger?: { error: Function, warn: Function } }} dependencies
@@ -30,6 +37,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
   const activeDispatches = new Map()
   let taskQueue = null
   let stopped = false
+  let ownerSubjectProvider = null
 
   function getSchedulerPath () {
     return path.join(app.getPath('userData'), 'scheduled-tasks.jsonl')
@@ -39,7 +47,43 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     taskQueue = nextTaskQueue
   }
 
-  function updateStatus (id, status, expectedStatus) {
+  function setOwnerSubjectProvider (provider) {
+    if (provider !== null && provider !== undefined && typeof provider !== 'function') {
+      throw new TypeError('owner subject provider must be a function or null')
+    }
+    ownerSubjectProvider = provider || null
+  }
+
+  function resolveOwnerSubject (explicitOwnerSubject) {
+    if (!ownerSubjectProvider) {
+      return explicitOwnerSubject === undefined
+        ? undefined
+        : normalizeOwnerSubject(explicitOwnerSubject)
+    }
+    let currentOwner
+    try {
+      currentOwner = normalizeOwnerSubject(ownerSubjectProvider())
+    } catch (_) {
+      return null
+    }
+    if (explicitOwnerSubject !== undefined && normalizeOwnerSubject(explicitOwnerSubject) !== currentOwner) {
+      return null
+    }
+    return currentOwner
+  }
+
+  function entryMatchesOwner (entry, ownerSubject) {
+    if (ownerSubject === undefined) return entry.owner_subject === undefined || entry.owner_subject === null
+    return entry.owner_subject === ownerSubject
+  }
+
+  function canDispatchEntry (entry) {
+    if (!ownerSubjectProvider) return true
+    const currentOwner = resolveOwnerSubject()
+    return Boolean(currentOwner && entryMatchesOwner(entry, currentOwner))
+  }
+
+  function updateStatus (id, status, expectedStatus, ownerSubject) {
     const filePath = getSchedulerPath()
     if (!fs.existsSync(filePath)) return false
 
@@ -48,7 +92,8 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     const updated = lines.map(line => {
       try {
         const entry = JSON.parse(line)
-        if (entry.id === id && (expectedStatus === undefined || entry.status === expectedStatus)) {
+        if (entry.id === id && entryMatchesOwner(entry, ownerSubject) &&
+          (expectedStatus === undefined || entry.status === expectedStatus)) {
           entry.status = status
           updatedTask = true
         }
@@ -95,7 +140,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     for (let attempt = 1; attempt <= DISPATCH_CLAIM_MAX_ATTEMPTS; attempt += 1) {
       if (stopped) return false
       try {
-        return updateStatus(entry.id, 'dispatching', expectedStatus)
+        return updateStatus(entry.id, 'dispatching', expectedStatus, entry.owner_subject)
       } catch (error) {
         const message = getErrorMessage(error)
         if (attempt === DISPATCH_CLAIM_MAX_ATTEMPTS) {
@@ -116,15 +161,44 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
   }
 
   async function dispatch (entry, expectedStatus) {
+    if (!canDispatchEntry(entry)) {
+      logger.warn('Scheduler', 'Skipping scheduled task for inactive owner ' + entry.id)
+      return
+    }
     if (!await claimForDispatch(entry, expectedStatus) || stopped) return
+    // claimForDispatch 的重试期间登录态可能已切换。此时将状态交还给原 owner，
+    // 等其重新登录时 restore() 再注册，而不是让新用户会话继续派发。
+    if (!canDispatchEntry(entry)) {
+      try { updateStatus(entry.id, 'pending', 'dispatching', entry.owner_subject) } catch { /* 下次恢复时重试 */ }
+      logger.warn('Scheduler', 'Deferred scheduled task after owner switched ' + entry.id)
+      return
+    }
     try {
       if (!taskQueue) throw new Error('Task queue is not configured')
-      await taskQueue.add({ platform: entry.platform, article: entry.article })
-      if (!stopped) updateStatus(entry.id, 'executed', 'dispatching')
+      const accountId = entry.accountId ?? entry.article?.accountId ?? null
+      const task = {
+        platform: entry.platform,
+        article: entry.article,
+        ...(accountId === null ? {} : { accountId }),
+        ...(entry.owner_subject === undefined ? {} : { owner_subject: entry.owner_subject }),
+      }
+      if (entry.owner_subject !== undefined) {
+        if (ownerSubjectProvider && typeof taskQueue.addForOwner !== 'function') {
+          throw new Error('任务队列不支持租户隔离入队')
+        }
+        if (typeof taskQueue.addForOwner === 'function') {
+          await taskQueue.addForOwner(task, entry.owner_subject)
+        } else {
+          await taskQueue.add(task)
+        }
+      } else {
+        await taskQueue.add(task)
+      }
+      if (!stopped) updateStatus(entry.id, 'executed', 'dispatching', entry.owner_subject)
     } catch (error) {
       logger.error('Scheduler', 'Failed to execute scheduled task ' + entry.id + ': ' + getErrorMessage(error))
       if (!stopped) {
-        try { updateStatus(entry.id, 'failed', 'dispatching') } catch { /* 忽略失败路径中的持久化异常 */ }
+        try { updateStatus(entry.id, 'failed', 'dispatching', entry.owner_subject) } catch { /* 忽略失败路径中的持久化异常 */ }
       }
     }
   }
@@ -177,6 +251,12 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
       throw new TypeError('任务参数必须是对象')
     }
     const { platform, article, publishTime } = schedule
+    // 身份模式下 owner 只能来自可信 provider，忽略调用方携带的字段。
+    // legacy 模式仍兼容历史调用方显式写入的 owner。
+    const ownerSubject = ownerSubjectProvider
+      ? resolveOwnerSubject()
+      : resolveOwnerSubject(schedule.owner_subject)
+    if (ownerSubject === null) throw new Error('登录会话缺少用户标识')
     if (typeof platform !== 'string' || !platform.trim()) {
       throw new TypeError('platform 必须是非空字符串')
     }
@@ -192,6 +272,8 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
       id,
       platform,
       article,
+      accountId: schedule.accountId ?? article.accountId ?? null,
+      ...(ownerSubject === undefined ? {} : { owner_subject: ownerSubject }),
       status: 'pending',
       publishTime,
       createdAt: new Date().toISOString()
@@ -207,29 +289,33 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     try {
       if (!scheduleTimer(entry)) throw new Error('无法注册定时任务')
     } catch (error) {
-      try { updateStatus(entry.id, 'failed', 'pending') } catch { /* 保留原始定时器异常 */ }
+      try { updateStatus(entry.id, 'failed', 'pending', entry.owner_subject) } catch { /* 保留原始定时器异常 */ }
       throw error
     }
     return entry
   }
 
-  function list () {
+  function list (ownerSubject) {
+    const owner = resolveOwnerSubject(ownerSubject)
+    if (owner === null) return []
     const filePath = getSchedulerPath()
     if (!fs.existsSync(filePath)) return []
     try {
       const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
       return lines.map(line => {
         try { return JSON.parse(line) } catch { return null }
-      }).filter(Boolean)
+      }).filter(entry => entry && entryMatchesOwner(entry, owner))
     } catch (error) {
       logger.error('Scheduler', 'Failed to list scheduled tasks: ' + getErrorMessage(error))
       return []
     }
   }
 
-  function cancel (id) {
+  function cancel (id, ownerSubject) {
+    const owner = resolveOwnerSubject(ownerSubject)
+    if (owner === null) return false
     // 先完成原子持久化，再清定时器；写盘失败时任务仍可执行，不会形成幽灵 pending。
-    if (!updateStatus(id, 'cancelled', 'pending')) return false
+    if (!updateStatus(id, 'cancelled', 'pending', owner)) return false
     const cancelRetry = retryWaiters.get(id)
     if (cancelRetry) cancelRetry()
     if (timers[id]) {
@@ -239,8 +325,10 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     return true
   }
 
-  function restore () {
-    const tasks = list().filter(task => task.status === 'pending' || task.status === 'dispatching')
+  function restore (ownerSubject) {
+    const owner = resolveOwnerSubject(ownerSubject)
+    if (owner === null) return 0
+    const tasks = list(owner).filter(task => task.status === 'pending' || task.status === 'dispatching')
     let restored = 0
     for (const entry of tasks) {
       if (isTaskTracked(entry.id)) {
@@ -251,7 +339,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
       let expectedStatus = entry.status
       if (entry.status === 'dispatching') {
         try {
-          if (!updateStatus(entry.id, 'pending', 'dispatching')) continue
+          if (!updateStatus(entry.id, 'pending', 'dispatching', entry.owner_subject)) continue
           expectedStatus = 'pending'
         } catch (error) {
           // 若恢复时暂时无法写盘，到期认领仍会按 dispatching 状态进行有界重试。
@@ -273,7 +361,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
     return Promise.allSettled([...activeDispatches.values()])
   }
 
-  return { setTaskQueue, create, list, cancel, restore, stopAll }
+  return { setTaskQueue, setOwnerSubjectProvider, create, list, cancel, restore, stopAll }
 }
 
 let defaultScheduler = null
@@ -288,6 +376,7 @@ function getDefaultScheduler () {
 
 module.exports = {
   setTaskQueue: (...args) => getDefaultScheduler().setTaskQueue(...args),
+  setOwnerSubjectProvider: (...args) => getDefaultScheduler().setOwnerSubjectProvider(...args),
   create: (...args) => getDefaultScheduler().create(...args),
   list: (...args) => getDefaultScheduler().list(...args),
   cancel: (...args) => getDefaultScheduler().cancel(...args),

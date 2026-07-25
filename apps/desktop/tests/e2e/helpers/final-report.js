@@ -48,8 +48,8 @@ const FLOW_LIST = [
   { key: 'flow-6', name: '错误路径', spec: 'integration.flow-6' }
 ];
 
-function loadJson(filename) {
-  const filepath = path.join(REPORTS_DIR, filename);
+function loadJson(filename, reportsDir = REPORTS_DIR) {
+  const filepath = path.join(reportsDir, filename);
   if (!fs.existsSync(filepath)) return null;
   try {
     return JSON.parse(fs.readFileSync(filepath, 'utf-8'));
@@ -58,7 +58,19 @@ function loadJson(filename) {
   }
 }
 
-function aggregateRouteCoverage() {
+function hasRuntimeResults(options) {
+  return Object.prototype.hasOwnProperty.call(options || {}, 'results');
+}
+
+function resolveReport(options, key, filename) {
+  if (hasRuntimeResults(options)) {
+    const results = options.results || {};
+    return Object.prototype.hasOwnProperty.call(results, key) ? results[key] : null;
+  }
+  return loadJson(filename, options.reportsDir || REPORTS_DIR);
+}
+
+function aggregateRouteCoverage(options = {}) {
   const matrix = [];
   let totalChecks = 0;
   let totalPassed = 0;
@@ -67,7 +79,7 @@ function aggregateRouteCoverage() {
   let totalPageErrors = 0;
 
   for (const r of ROUTE_LIST) {
-    const report = loadJson(`${r.spec}.functional.json`);
+    const report = resolveReport(options, r.spec, `${r.spec}.functional.json`);
     if (!report) {
       matrix.push({
         spec: r.spec,
@@ -82,11 +94,8 @@ function aggregateRouteCoverage() {
       continue;
     }
     const checks = report.checks || { total: 0, passed: 0, failed: 0 };
-    // 以 expectNoConsoleError / expectNoPageError 检查的实际结果为准（已被 route-functional-suite 过滤后写入 details 里）
-    const expectNoConsoleErrors = (report.details || []).filter((c) => c.kind === 'expectNoConsoleError').pop();
-    const expectNoPageErrors = (report.details || []).filter((c) => c.kind === 'expectNoPageError').pop();
-    const consoleErrors = expectNoConsoleErrors ? (expectNoConsoleErrors.errors || []).length : 0;
-    const pageErrors = expectNoPageErrors ? (expectNoPageErrors.errors || []).length : 0;
+    const consoleErrors = (report.consoleErrors || []).length;
+    const pageErrors = (report.pageErrors || []).length;
     const kinds = {};
     for (const c of report.details || []) {
       const k = c.kind || 'unknown';
@@ -103,7 +112,7 @@ function aggregateRouteCoverage() {
       spec: r.spec,
       route: r.route,
       title: r.title,
-      status: checks.failed === 0 && consoleErrors === 0 ? '✅ PASS' : '❌ FAIL',
+      status: checks.failed === 0 && consoleErrors === 0 && pageErrors === 0 ? '✅ PASS' : '❌ FAIL',
       checks,
       consoleErrors,
       pageErrors,
@@ -125,37 +134,42 @@ function aggregateRouteCoverage() {
   };
 }
 
-function aggregateFlowCoverage() {
+function aggregateFlowCoverage(options = {}) {
   const flows = [];
   let totalChecks = 0;
   let totalPassed = 0;
   let totalFailed = 0;
   let totalConsoleErrors = 0;
+  let totalPageErrors = 0;
 
   for (const f of FLOW_LIST) {
-    const report = loadJson(`${f.spec}.json`);
+    const report = resolveReport(options, f.key, `${f.spec}.json`);
     if (!report) {
       flows.push({
         key: f.key,
         name: f.name,
         status: 'MISSING',
         checks: { total: 0, passed: 0, failed: 0 },
-        consoleErrors: 0
+        consoleErrors: 0,
+        pageErrors: 0
       });
       continue;
     }
     const checks = report.checks || { total: 0, passed: 0, failed: 0 };
     const consoleErrors = (report.consoleErrors || []).length;
+    const pageErrors = (report.pageErrors || []).length;
     totalChecks += checks.total;
     totalPassed += checks.passed;
     totalFailed += checks.failed;
     totalConsoleErrors += consoleErrors;
+    totalPageErrors += pageErrors;
     flows.push({
       key: f.key,
       name: f.name,
-      status: checks.failed === 0 && consoleErrors === 0 ? '✅ PASS' : '❌ FAIL',
+      status: checks.failed === 0 && consoleErrors === 0 && pageErrors === 0 ? '✅ PASS' : '❌ FAIL',
       checks,
-      consoleErrors
+      consoleErrors,
+      pageErrors
     });
   }
 
@@ -165,7 +179,8 @@ function aggregateFlowCoverage() {
       totalChecks,
       totalPassed,
       totalFailed,
-      totalConsoleErrors
+      totalConsoleErrors,
+      totalPageErrors
     }
   };
 }
@@ -216,8 +231,8 @@ function buildIssues(routes, flows) {
         severity: 'MAJOR',
         category: '集成流失败',
         spec: f.key,
-        issue: `${f.name} failed=${f.checks.failed} consoleErrors=${f.consoleErrors}`,
-        recommendation: '查看 reports/' + f.spec + '.json'
+        issue: `${f.name} failed=${f.checks.failed} consoleErrors=${f.consoleErrors} pageErrors=${f.pageErrors}`,
+        recommendation: '查看 reports/integration.' + f.key + '.json'
       });
     }
   }
@@ -238,6 +253,7 @@ function buildCanvasSummary(report) {
   lines.push(`- 集成流: ${report.flows.flows.filter((f) => f.status === '✅ PASS').length}/${report.flows.flows.length} 通过`);
   lines.push(`- 集成检查: ${report.flows.totals.totalPassed}/${report.flows.totals.totalChecks} 通过`);
   lines.push(`- 集成流 console errors: ${report.flows.totals.totalConsoleErrors}`);
+  lines.push(`- 集成流 page errors: ${report.flows.totals.totalPageErrors}`);
   lines.push(`- **总计: ${report.totals.totalPassed}/${report.totals.totalChecks} checks 通过, ${report.totals.totalConsoleErrors + report.totals.totalPageErrors} errors**`);
   lines.push('');
   lines.push('## 路由覆盖矩阵');
@@ -267,20 +283,20 @@ function buildCanvasSummary(report) {
   return lines.join('\n');
 }
 
-function main() {
-  const routes = aggregateRouteCoverage();
-  const flows = aggregateFlowCoverage();
+function createReport(options = {}) {
+  const routes = aggregateRouteCoverage(options);
+  const flows = aggregateFlowCoverage(options);
   const issues = buildIssues(routes, flows);
   const totalChecks = routes.totals.totalChecks + flows.totals.totalChecks;
   const totalPassed = routes.totals.totalPassed + flows.totals.totalPassed;
   const totalFailed = routes.totals.totalFailed + flows.totals.totalFailed;
   const totalConsoleErrors = routes.totals.totalConsoleErrors + flows.totals.totalConsoleErrors;
-  const totalPageErrors = routes.totals.totalPageErrors;
+  const totalPageErrors = routes.totals.totalPageErrors + flows.totals.totalPageErrors;
 
-  const report = {
+  return {
     meta: {
       generatedAt: new Date().toISOString(),
-      vite: 'http://127.0.0.1:5174',
+      vite: options.vite || process.env.TEST_URL || 'http://127.0.0.1:5174',
       spec: '前端全量功能 E2E 测试 (task-29a)',
       version: '1.0.0',
       phase: 'Phase 0-4 全部完成'
@@ -305,16 +321,28 @@ function main() {
       totalPageErrors
     }
   };
+}
 
-  fs.writeFileSync(OUTPUT_JSON, JSON.stringify(report, null, 2));
+function writeReport(report, options = {}) {
+  const reportsDir = options.reportsDir || REPORTS_DIR;
+  const outputJson = options.outputJson || path.join(reportsDir, 'functional-final-report.json');
+  const outputMd = options.outputMd || path.join(reportsDir, 'functional-final-report.md');
+  fs.mkdirSync(reportsDir, { recursive: true });
+
+  fs.writeFileSync(outputJson, JSON.stringify(report, null, 2));
   const md = buildCanvasSummary(report);
-  fs.writeFileSync(OUTPUT_MD, md);
+  fs.writeFileSync(outputMd, md);
   console.log(md);
-  console.log(`\n报告已生成：\n  - ${OUTPUT_JSON}\n  - ${OUTPUT_MD}`);
+  console.log(`\n报告已生成：\n  - ${outputJson}\n  - ${outputMd}`);
+  return report;
+}
+
+function main(options = {}) {
+  return writeReport(createReport(options), options);
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { main };
+module.exports = { main, createReport, writeReport, aggregateRouteCoverage, aggregateFlowCoverage };

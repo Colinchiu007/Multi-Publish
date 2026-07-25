@@ -34,4 +34,37 @@ describe("auth-view-session", () => {
       )
     })
   })
+
+  describe("restoreIndexedDB", () => {
+    it("registers a schema-creating IndexedDB restoration before the page finishes loading", async () => {
+      let didFinishLoad
+      const mockView = {
+        webContents: {
+          once: vi.fn((_event, listener) => { didFinishLoad = listener }),
+          executeJavaScript: vi.fn().mockResolvedValue(undefined),
+        },
+      }
+
+      const restored = session.restoreIndexedDB(mockView, { auth: { token: "private" } })
+
+      expect(mockView.webContents.once).toHaveBeenCalledWith(
+        "did-finish-load",
+        expect.any(Function),
+      )
+      await didFinishLoad()
+      await restored
+      expect(mockView.webContents.executeJavaScript).toHaveBeenCalledWith(
+        expect.stringContaining("createObjectStore(storeName)"),
+      )
+      expect(mockView.webContents.executeJavaScript).toHaveBeenCalledWith(
+        expect.stringContaining("__multi_publish_indexeddb_key__"),
+      )
+      expect(mockView.webContents.executeJavaScript).toHaveBeenCalledWith(
+        expect.stringContaining("db.version + 1"),
+      )
+      expect(mockView.webContents.executeJavaScript).toHaveBeenCalledWith(
+        expect.stringContaining("Array.isArray(records)"),
+      )
+    })
+  })
 })

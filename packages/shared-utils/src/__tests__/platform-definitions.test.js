@@ -24,6 +24,15 @@ describe('platform authentication URL boundaries', () => {
     }
   })
 
+  it('recognizes explicit YouTube OAuth completion and X success pages without accepting login pages', () => {
+    expect(isPlatformLoginSuccessUrl('youtube', 'https://accounts.google.com/o/oauth2/approval?state=done')).toBe(true)
+    expect(isPlatformLoginSuccessUrl('youtube', 'https://accounts.google.com/ServiceLogin?service=youtube')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('youtube', 'https://accounts.google.com.evil.example/o/oauth2/approval')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('twitter', 'https://x.com/home')).toBe(true)
+    expect(isPlatformLoginSuccessUrl('twitter', 'https://x.com/explore')).toBe(true)
+    expect(isPlatformLoginSuccessUrl('twitter', 'https://x.com/i/flow/login')).toBe(false)
+  })
+
   it('only preserves cookies belonging to the selected platform', () => {
     expect(isPlatformCookieDomain('wechat_mp', '.mp.weixin.qq.com')).toBe(true)
     expect(isPlatformCookieDomain('wechat_mp', '.qq.com')).toBe(false)

@@ -92,6 +92,7 @@
           @rename="renameAccount"
           @open="openPlatform"
           @check="checkLogin"
+          @configure-proxy="openProxyDialog"
           @remove="removeAccount"
         />
       </div>
@@ -108,6 +109,15 @@
       @update:mode="selectedLoginMode = $event"
       @submit="addAccount"
       @close="showAddDialog = false"
+    />
+
+    <AccountProxyDialog
+      :visible="showProxyDialog"
+      :account="proxyAccount"
+      :busy="savingProxy"
+      @save="saveProxy"
+      @clear="clearProxy"
+      @close="closeProxyDialog"
     />
 
     <AccountGroupManager
@@ -138,6 +148,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import AccountGroupManager from '@/features/accounts/components/AccountGroupManager.vue'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
 import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialog.vue'
+import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
 import PlatformAccountGroup from '@/features/accounts/components/PlatformAccountGroup.vue'
 import { useAccountActions } from '@/composables/useAccountActions'
 import { useAccountEvents } from '@/composables/useAccountEvents'
@@ -157,6 +168,9 @@ const accountStore = useAccountStore()
 const accountActions = useAccountActions()
 const loading = ref(false)
 const showAddDialog = ref(false)
+const showProxyDialog = ref(false)
+const proxyAccount = ref(null)
+const savingProxy = ref(false)
 const showGroupManager = ref(false)
 const adding = ref(false)
 const completingLogin = ref(false)
@@ -410,6 +424,55 @@ async function renameAccount (account, nextName) {
 function openPlatform (account) {
   const url = platformStore.getDashboardUrl(account.platform)
   if (url) window.open(url, '_blank')
+}
+
+function openProxyDialog (account) {
+  proxyAccount.value = account
+  showProxyDialog.value = true
+}
+
+function closeProxyDialog () {
+  if (savingProxy.value) return
+  showProxyDialog.value = false
+  proxyAccount.value = null
+}
+
+async function saveProxy (proxy) {
+  if (!proxyAccount.value) return
+  savingProxy.value = true
+  try {
+    const result = await accountActions.setProxy(proxyAccount.value, proxy)
+    if (result?.code !== 0) {
+      ElMessage.error(result?.message || '保存代理失败')
+      return
+    }
+    ElMessage.success('账号代理已保存')
+    await refresh()
+    closeProxyDialog()
+  } catch (error) {
+    ElMessage.error(error?.message || '保存代理失败')
+  } finally {
+    savingProxy.value = false
+  }
+}
+
+async function clearProxy () {
+  if (!proxyAccount.value) return
+  savingProxy.value = true
+  try {
+    const result = await accountActions.setProxy(proxyAccount.value, null)
+    if (result?.code !== 0) {
+      ElMessage.error(result?.message || '清除代理失败')
+      return
+    }
+    ElMessage.success('账号代理已清除')
+    await refresh()
+    closeProxyDialog()
+  } catch (error) {
+    ElMessage.error(error?.message || '清除代理失败')
+  } finally {
+    savingProxy.value = false
+  }
 }
 
 async function checkLogin (account) {

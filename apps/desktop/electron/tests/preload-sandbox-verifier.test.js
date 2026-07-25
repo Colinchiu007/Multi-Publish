@@ -85,8 +85,7 @@ describe('preload sandbox 真实验证器', () => {
       args: expect.arrayContaining([
         ELECTRON_HARNESS_ARG,
         `--preload-sandbox-mode=${sandbox}`,
-        '--disable-gpu',
-        expect.stringMatching(/^--user-data-dir=/),
+        expect.stringMatching(/^--preload-sandbox-user-data-dir=/),
       ]),
       timeout: 1500,
     }))
@@ -143,25 +142,25 @@ describe('preload sandbox 真实验证器', () => {
       'utf8',
     )
     const setUserDataAt = source.indexOf("app.setPath('userData'")
-    const setCacheAt = source.indexOf("app.setPath('cache'")
+    const setSessionDataAt = source.indexOf("app.setPath('sessionData'")
     const whenReadyAt = source.indexOf('app.whenReady()')
 
     expect(setUserDataAt).toBeGreaterThan(-1)
-    expect(setCacheAt).toBeGreaterThan(-1)
+    expect(setSessionDataAt).toBeGreaterThan(-1)
     expect(source).toContain('app.disableHardwareAcceleration()')
     expect(setUserDataAt).toBeLessThan(whenReadyAt)
-    expect(setCacheAt).toBeLessThan(whenReadyAt)
+    expect(setSessionDataAt).toBeLessThan(whenReadyAt)
   })
 
-  it('Electron harness 使用内联页面，避免临时 HTTP 导航导致窗口提前关闭', () => {
+  it('Electron harness 使用隔离 HTTP 页面完成真实 preload 导航', () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, '../../scripts/preload-sandbox-electron-harness.js'),
       'utf8',
     )
 
-    expect(source).not.toContain("require('http')")
-    expect(source).not.toContain('http.createServer')
-    expect(source).toContain('data:text/html')
+    expect(source).toContain("require('http')")
+    expect(source).toContain('http.createServer')
+    expect(source).toContain('verificationWindow.loadURL(url)')
   })
 
   it('外层门禁同时校验退出码、两个模式标记和总成功标记', () => {
@@ -249,7 +248,8 @@ describe('preload sandbox 真实验证器', () => {
         PRELOAD_SANDBOX_TIMEOUT_MS: '20',
       })
       child.stderr.write('GPU process fatal')
-      await vi.advanceTimersByTimeAsync(25)
+      const { getChildVerificationTimeout } = require('../../scripts/verify-preload-sandbox')
+      await vi.advanceTimersByTimeAsync(getChildVerificationTimeout({ PRELOAD_SANDBOX_TIMEOUT_MS: '20' }))
       child.emit('close', null)
 
       await expect(verification).rejects.toThrow(/GPU process fatal/)

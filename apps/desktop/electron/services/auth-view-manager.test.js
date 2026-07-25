@@ -17,13 +17,15 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function createView(cookies = [], localStorage = {}) {
+function createView(cookies = [], localStorage = {}, indexedDB = {}) {
   return {
     webContents: {
       session: { cookies: { get: vi.fn().mockResolvedValue(cookies) } },
-      executeJavaScript: vi.fn(script => Promise.resolve(
-        script.includes('__auth_helper__') ? localStorage : '测试账号',
-      )),
+      executeJavaScript: vi.fn(script => {
+        if (script.includes('getIndexedDB')) return Promise.resolve(indexedDB)
+        if (script.includes('getLocalStorage')) return Promise.resolve(localStorage)
+        return Promise.resolve('测试账号')
+      }),
       close: vi.fn(),
     },
   }
@@ -68,12 +70,13 @@ describe('AuthViewManager 凭证边界', () => {
     const view = createView([
       { name: 'valid', value: '1', domain: '.mp.weixin.qq.com' },
       { name: 'invalid', value: '2', domain: '.evil.example' },
-    ])
+    ], {}, { auth: { token: 'indexed-token', ignored: () => 'not-json' } })
 
     await expect(manager._extractAuthData(view, 'wechat_mp')).resolves.toEqual({
       cookies: [{ name: 'valid', value: '1', domain: '.mp.weixin.qq.com' }],
       name: '测试账号',
       localStorage: {},
+      indexedDB: { auth: { token: 'indexed-token' } },
     })
   })
 
@@ -93,6 +96,7 @@ describe('AuthViewManager 凭证边界', () => {
       cookies: [{ name: 'session', value: '1', domain: '.mp.weixin.qq.com' }],
       name: '测试账号',
       localStorage: {},
+      indexedDB: {},
     })
     expect(manager.currentView).toBeNull()
     expect(manager.mainWindow.webContents.send).toHaveBeenCalledWith('auth:view-closed')
@@ -113,6 +117,26 @@ describe('AuthViewManager 凭证边界', () => {
       cookies: [],
       name: '测试账号',
       localStorage: { accessToken: 'token-value' },
+      indexedDB: {},
+    })
+  })
+
+  it('只有 IndexedDB 登录态时也能确认并保存 JSON 安全快照', async () => {
+    const manager = new AuthViewManager()
+    const view = createView([], {}, { auth: { refreshToken: 'indexed-only' } })
+    const resolveLogin = vi.fn()
+    manager.mainWindow = createMainWindow()
+    manager.currentView = view
+    manager.currentPlatform = 'wechat_mp'
+    manager.currentAccountId = 'auth-wechat_mp-indexed-db'
+    manager._resolveLogin = resolveLogin
+
+    await expect(manager.completeLogin()).resolves.toBe(true)
+    expect(resolveLogin).toHaveBeenCalledWith({
+      cookies: [],
+      name: '测试账号',
+      localStorage: {},
+      indexedDB: { auth: { refreshToken: 'indexed-only' } },
     })
   })
 
@@ -157,6 +181,44 @@ describe('AuthViewManager 凭证边界', () => {
     await vi.advanceTimersByTimeAsync(3000)
 
     expect(extract).toHaveBeenCalledTimes(1)
+  })
+
+  it('自动完成未提取到凭据时保持登录视图可继续操作', async () => {
+    const manager = new AuthViewManager()
+    const view = createView()
+    const resolveLogin = vi.fn()
+    manager.mainWindow = createMainWindow()
+    manager.currentView = view
+    manager.currentPlatform = 'wechat_mp'
+    manager.currentAccountId = 'auth-wechat_mp-empty'
+    manager._resolveLogin = resolveLogin
+
+    manager._checkLoginCompleted('https://mp.weixin.qq.com/cgi-bin/home?t=home/index')
+    await vi.advanceTimersByTimeAsync(3500)
+
+    expect(resolveLogin).not.toHaveBeenCalled()
+    expect(manager.currentView).toBe(view)
+    expect(manager._autoCompletionAttemptId).toBeNull()
+  })
+
+  it('自动完成可接受仅由 IndexedDB 保存的登录态', async () => {
+    const manager = new AuthViewManager()
+    const view = createView([], {}, { auth: { refreshToken: 'indexed-only' } })
+    const resolveLogin = vi.fn()
+    manager.mainWindow = createMainWindow()
+    manager.currentView = view
+    manager.currentPlatform = 'wechat_mp'
+    manager.currentAccountId = 'auth-wechat_mp-indexed-auto'
+    manager._resolveLogin = resolveLogin
+
+    manager._checkLoginCompleted('https://mp.weixin.qq.com/cgi-bin/home?t=home/index')
+    await vi.advanceTimersByTimeAsync(3500)
+
+    expect(resolveLogin).toHaveBeenCalledWith(expect.objectContaining({
+      cookies: [],
+      localStorage: {},
+      indexedDB: { auth: { refreshToken: 'indexed-only' } },
+    }))
   })
 
   it('旧会话已开始的异步提取不能完成后续新会话', async () => {

@@ -239,6 +239,11 @@ describe('Store 快照 - SQL 执行模板', () => {
 
   it('deleteAccount 仅级联清理当前 owner 的账号、任务和历史', () => {
     store.db._nextGet = { platform: 'wx' }
+    store.db._nextAll = [{
+      id: 'related-1',
+      article: JSON.stringify({ accountId: 'acc1' }),
+      result: JSON.stringify({ accountId: 'acc1' }),
+    }]
     store.deleteAccount('acc1', 'user-a')
     const deleteCalls = store.db._runLog.filter(r => r.sql.includes('DELETE FROM'))
     const tables = deleteCalls.map(c => c.sql.match(/DELETE FROM (\w+)/)[1])

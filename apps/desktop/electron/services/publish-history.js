@@ -6,8 +6,44 @@
 const fs = require('fs')
 const path = require('path')
 const log = require('./logger')
+const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 
 const MAX_RECORDS = 500
+
+function normalizeOwnerSubject (ownerSubject) {
+  if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
+    throw new Error('发布历史缺少用户标识')
+  }
+  return ownerSubject.trim()
+}
+
+function resolveOwnerSubject (ownerSubject) {
+  if (ownerSubject === undefined) return undefined
+  if (ownerSubject === null) return null
+  return normalizeOwnerSubject(ownerSubject)
+}
+
+function matchesOwner (record, ownerSubject) {
+  if (ownerSubject === undefined) {
+    // SQLite 迁移会把无身份服务的历史显式标记为 legacy，旧 JSONL 则没有该字段。
+    return record.owner_subject === undefined || record.owner_subject === null ||
+      record.owner_subject === LEGACY_OWNER_SUBJECT
+  }
+  return record.owner_subject === ownerSubject
+}
+
+function readRecords (ownerSubject) {
+  const owner = resolveOwnerSubject(ownerSubject)
+  if (owner === null) return []
+  const filePath = getHistoryPath()
+  if (!fs.existsSync(filePath)) return []
+
+  return fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
+    .map(line => {
+      try { return JSON.parse(line) } catch { return null }
+    })
+    .filter(record => record && matchesOwner(record, owner))
+}
 
 function getHistoryPath () {
   // 测试时可通过环境变量注入路径，否则使用 Electron 的 userData
@@ -22,11 +58,15 @@ function getHistoryPath () {
 /**
  * 添加一条发布记录
  */
-function addRecord (record) {
+function addRecord (record, ownerSubject) {
+  const owner = resolveOwnerSubject(ownerSubject)
+  if (owner === null) return null
   const filePath = getHistoryPath()
+  const { owner_subject: _untrustedOwner, ...safeRecord } = record || {}
   const entry = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    ...record,
+    ...safeRecord,
+    ...(owner === undefined ? {} : { owner_subject: owner }),
     timestamp: new Date().toISOString()
   }
   // R14 错误处理：appendFileSync 可能因磁盘满/权限拒绝抛错，与 scheduler.js 一致加 try/catch
@@ -44,15 +84,9 @@ function addRecord (record) {
  * 查询发布历史
  * @param {object} opts - { platform?, limit?, offset? }
  */
-function listRecords (opts = {}) {
+function listRecords (opts = {}, ownerSubject) {
   const { platform, limit = 50, offset = 0 } = opts
-  const filePath = getHistoryPath()
-  if (!fs.existsSync(filePath)) return { total: 0, records: [] }
-
-  const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
-  let records = lines.map(l => {
-    try { return JSON.parse(l) } catch { return null }
-  }).filter(Boolean)
+  let records = readRecords(ownerSubject)
 
   if (platform) records = records.filter(r => r.platform === platform)
 
@@ -64,8 +98,8 @@ function listRecords (opts = {}) {
 /**
  * 获取单条记录
  */
-function getRecord (id) {
-  const { records } = listRecords({ limit: MAX_RECORDS })
+function getRecord (id, ownerSubject) {
+  const { records } = listRecords({ limit: MAX_RECORDS }, ownerSubject)
   return records.find(r => r.id === id) || null
 }
 
@@ -73,16 +107,8 @@ function getRecord (id) {
  * 获取发布统计
  * @returns {object} { total, success, failed, perPlatform, daily }
  */
-function getStats () {
-  const filePath = getHistoryPath()
-  if (!fs.existsSync(filePath)) {
-    return { total: 0, success: 0, failed: 0, perPlatform: {}, daily: [] }
-  }
-
-  const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean)
-  const records = lines.map(l => {
-    try { return JSON.parse(l) } catch { return null }
-  }).filter(Boolean)
+function getStats (ownerSubject) {
+  const records = readRecords(ownerSubject)
 
   const total = records.length
   const success = records.filter(r => r.success !== false).length

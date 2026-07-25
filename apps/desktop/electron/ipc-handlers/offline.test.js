@@ -2,10 +2,7 @@
 /**
  * Offline IPC handlers 合同测试
  *
- * 验证写操作的 sender 来源校验（withSenderCheck）：
- * - offline:add-to-cache / offline:clear-cache
- *
- * 只读操作不校验：offline:status / offline:is-offline / offline:cached-tasks
+ * 验证所有离线缓存入口的 sender 来源校验（withSenderCheck）。
  *
  * @vitest-environment node
  */
@@ -94,16 +91,16 @@ describe('offline IPC 写操作 sender 校验', () => {
   })
 })
 
-describe('offline IPC 只读操作不加 sender 校验', () => {
-  it('offline:status 外部来源也可调用（只读）', async () => {
+describe('offline IPC 只读操作也校验 sender', () => {
+  it('offline:status 拒绝外部来源，避免暴露其他用户缓存摘要', async () => {
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, {})
     const handler = ipcMain._get('offline:status')
 
     const result = await handler(UNTRUSTED_EVENT)
 
-    expect(result.code).toBe(0)
-    expect(result.data).toEqual({ offline: false, cachedCount: 0, cachedTasks: [] })
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(mockOfflineManager.getStatus).not.toHaveBeenCalled()
   })
 })
 

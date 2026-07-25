@@ -62,6 +62,8 @@ function createMockDeps(overrides = {}) {
       listAccounts: vi.fn(),
       checkLoginStatus: vi.fn(),
       loadSavedCredentials: vi.fn(),
+      setAccountProxy: vi.fn(),
+      getAccountProxyStatus: vi.fn(() => ({ configured: false })),
     },
     BACKEND_PLATFORMS: new Set(),
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -153,6 +155,17 @@ describe('account IPC 写操作 sender 校验', () => {
     expect(deps.AccountManager.checkLoginStatus).not.toHaveBeenCalled()
   })
 
+  it('account:set-proxy 拒绝外部网页写入代理凭证', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps())
+
+    await expect(ipcMain._get('account:set-proxy')(UNTRUSTED_EVENT, {
+      accountId: 'acc-1',
+      platform: 'wechat_mp',
+      proxy: { host: '127.0.0.1', port: 8080, type: 'http', password: 'secret' },
+    })).resolves.toEqual({ code: -3, message: '未授权的调用来源' })
+  })
+
   it('不再注册允许渲染层提交敏感凭证的 auth:save-credentials', () => {
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, createMockDeps())
@@ -199,6 +212,26 @@ describe('account IPC 可信来源正常工作', () => {
     })
   })
 
+  it('accounts:list 优先使用当前用户的默认账号设置，不能读取 legacy 全局默认值', async () => {
+    const scopedStore = {
+      getUserSetting: vi.fn(() => 'other-account'),
+      getSetting: vi.fn(() => 'acc-1'),
+    }
+    const deps = createMockDeps({ store: scopedStore })
+    deps.pythonBridge.requestBackend.mockResolvedValue({
+      code: 0,
+      data: [{ id: 'acc-1', platform: 'wechat_mp', name: '当前用户账号' }],
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
+    expect(result.data[0].is_default).toBe(false)
+    expect(scopedStore.getUserSetting).toHaveBeenCalledWith('default_account:wechat_mp')
+    expect(scopedStore.getSetting).not.toHaveBeenCalled()
+  })
+
   it('auth:open-login 可信来源缺参返回校验错误', async () => {
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, createMockDeps())
@@ -211,7 +244,7 @@ describe('account IPC 可信来源正常工作', () => {
     expect(result.message).toMatch(/platform/)
   })
 
-  it('auth:open-login 后端登录成功时只返回脱敏账号字段', async () => {
+  it('auth:open-login 对旧后端平台也走本地授权视图并只返回脱敏账号字段', async () => {
     const send = vi.fn()
     const deps = createMockDeps({
       BACKEND_PLATFORMS: new Set(['youtube']),
@@ -222,15 +255,17 @@ describe('account IPC 可信来源正常工作', () => {
         }]),
       },
     })
-    deps.pythonBridge.requestBackend.mockResolvedValue({
-      code: 0,
-      data: {
-        account_id: 'yt-1',
-        platform: 'youtube',
-        name: '频道账号',
-        cookies: [{ name: 'session', value: 'secret' }],
-        access_token: 'private-token',
-      },
+    const captured = {
+      name: '频道账号',
+      cookies: [{ name: 'session', value: 'secret', domain: '.youtube.com' }],
+      localStorage: { access_token: 'private-token' },
+      indexedDB: { auth: { token: 'private-token' } },
+    }
+    deps.authViewManager.openLogin.mockResolvedValue(captured)
+    deps.AccountManager.saveCapturedAccount.mockResolvedValue({
+      id: 'yt-1',
+      platform: 'youtube',
+      name: '频道账号',
     })
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, deps)
@@ -247,8 +282,11 @@ describe('account IPC 可信来源正常工作', () => {
         status: 'active',
         is_default: false,
       },
-      message: '登录成功',
+      message: '账号添加成功',
     })
+    expect(deps.authViewManager.openLogin).toHaveBeenCalledWith('youtube')
+    expect(deps.AccountManager.saveCapturedAccount).toHaveBeenCalledWith('youtube', captured)
+    expect(deps.pythonBridge.requestBackend).not.toHaveBeenCalled()
     expect(JSON.stringify(result)).not.toContain('secret')
     expect(JSON.stringify(result)).not.toContain('private-token')
     expect(send).toHaveBeenCalledWith('auth:completed', { platform: 'youtube', accountId: 'yt-1' })
@@ -331,6 +369,7 @@ describe('account IPC 可信来源正常工作', () => {
       'wechat_mp',
       credentials.cookies,
       credentials.localStorage,
+      credentials.indexedDB,
     )
     expect(result).toEqual({ code: 0, data: { valid: true, accountName: '公众号' } })
   })

@@ -25,11 +25,12 @@ __registerMock('./sqlite-wrapper', function () {
     }
     return undefined
   }
-  MockStatement.prototype.all = function () { return [] }
+  MockStatement.prototype.all = function () { return this._db._nextAll || [] }
 
   function MockDatabase () {
     this._runLog = []
     this._getLog = []
+    this._nextAll = []
     this._transactionCalls = 0
     this._dirty = false
   }
@@ -87,25 +88,23 @@ describe('store deleteAccount 级联清理', () => {
   })
 
   it('deleteAccount 级联清理 scheduled_tasks', () => {
+    store.db._nextAll = [{ id: 'task-1', article: '{"accountId":"acc_002"}' }]
     store.deleteAccount('acc_002')
     const call = store.db._runLog.find(
       r => r.sql.indexOf('DELETE FROM scheduled_tasks') >= 0
     )
     expect(call).toBeTruthy()
-    expect(call.params[0]).toBe('user-a')
-    expect(call.params[1]).toBe('douyin')
-    expect(call.params[2]).toContain('acc_002')
+    expect(call.params).toEqual(['user-a', 'task-1'])
   })
 
   it('deleteAccount 级联清理 publish_history', () => {
+    store.db._nextAll = [{ id: 'history-1', result: '{"accountId":"acc_003"}' }]
     store.deleteAccount('acc_003')
     const call = store.db._runLog.find(
       r => r.sql.indexOf('DELETE FROM publish_history') >= 0
     )
     expect(call).toBeTruthy()
-    expect(call.params[0]).toBe('user-a')
-    expect(call.params[1]).toBe('douyin')
-    expect(call.params[2]).toContain('acc_003')
+    expect(call.params).toEqual(['user-a', 'history-1'])
   })
 
   it('deleteAccount 不删除独立的用户设置', () => {

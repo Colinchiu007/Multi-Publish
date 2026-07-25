@@ -13,6 +13,7 @@ const os = require('os')
 const log = require('./logger')
 
 const STATE_FILE = 'accounts/state.jsonl'
+const LEGACY_OWNER_SUBJECT = '__legacy__'
 const SENSITIVE_FIELDS = new Set(['cookies', 'localStorage', 'indexedDB', 'authData', 'auth_data'])
 const PUBLIC_ACCOUNT_INFO_FIELDS = new Set([
   'id',
@@ -76,6 +77,32 @@ function getStateFilePath (userDataDir) {
   return path.join(userDataDir, STATE_FILE)
 }
 
+function normalizeOwnerSubject (ownerSubject) {
+  if (ownerSubject === undefined) return undefined
+  if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
+    throw new TypeError('ownerSubject must be a non-empty string')
+  }
+  return ownerSubject.trim()
+}
+
+function ownerMatches (record, ownerSubject) {
+  if (ownerSubject === undefined) {
+    // 早期迁移曾把 legacy 状态显式标为 __legacy__，而旧 JSONL 没有该字段。
+    // 两种形态都属于未启用身份服务时的同一命名空间。
+    return record.owner_subject === undefined || record.owner_subject === null ||
+      record.owner_subject === LEGACY_OWNER_SUBJECT
+  }
+  return record.owner_subject === ownerSubject
+}
+
+function resolveStateUserDataDir (userDataDir) {
+  if (userDataDir === undefined) return resolveUserDataDir()
+  if (typeof userDataDir !== 'string' || !userDataDir.trim()) {
+    throw new TypeError('userDataDir must be a non-empty string')
+  }
+  return userDataDir
+}
+
 function resolveUserDataDir () {
   if (process.env.ELECTRON_USER_DATA_DIR) return process.env.ELECTRON_USER_DATA_DIR
   try {
@@ -113,12 +140,14 @@ function init () {
  *   timestamp: number
  * }
  */
-function saveAccountRecord (record) {
+function saveAccountRecord (record, ownerSubject, userDataDir) {
+  const owner = normalizeOwnerSubject(ownerSubject)
   try {
-    const filePath = getStateFilePath(resolveUserDataDir())
+    const filePath = getStateFilePath(resolveStateUserDataDir(userDataDir))
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
     const line = JSON.stringify({
       ...sanitizeRecord(record),
+      ...(owner === undefined ? {} : { owner_subject: owner }),
       timestamp: Date.now()
     })
     fs.appendFileSync(filePath, line + '\n')
@@ -137,9 +166,10 @@ function saveAccountRecord (record) {
  * @param {string} accountId - 账号ID
  * @returns {object|null} 最近的记录，或 null
  */
-function getAccountRecord (platform, accountId) {
+function getAccountRecord (platform, accountId, ownerSubject, userDataDir) {
+  const owner = normalizeOwnerSubject(ownerSubject)
   try {
-    const filePath = getStateFilePath(resolveUserDataDir())
+    const filePath = getStateFilePath(resolveStateUserDataDir(userDataDir))
     if (!fs.existsSync(filePath)) return null
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -149,7 +179,7 @@ function getAccountRecord (platform, accountId) {
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const record = JSON.parse(lines[i])
-        if (record.platform === platform && record.accountId === accountId) {
+        if (record.platform === platform && record.accountId === accountId && ownerMatches(record, owner)) {
           return sanitizeRecord(record)
         }
       // eslint-disable-next-line no-unused-vars
@@ -168,9 +198,10 @@ function getAccountRecord (platform, accountId) {
  * @param {string} platform 
  * @param {string} accountId 
  */
-function deleteAccountRecord (platform, accountId) {
+function deleteAccountRecord (platform, accountId, ownerSubject, userDataDir) {
+  const owner = normalizeOwnerSubject(ownerSubject)
   try {
-    const filePath = getStateFilePath(resolveUserDataDir())
+    const filePath = getStateFilePath(resolveStateUserDataDir(userDataDir))
     if (!fs.existsSync(filePath)) return
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -180,7 +211,7 @@ function deleteAccountRecord (platform, accountId) {
     const filtered = lines.filter(line => {
       try {
         const record = JSON.parse(line)
-        return !(record.platform === platform && record.accountId === accountId)
+        return !(record.platform === platform && record.accountId === accountId && ownerMatches(record, owner))
       } catch {
         return true // keep corrupt lines
       }
@@ -196,13 +227,17 @@ function deleteAccountRecord (platform, accountId) {
   }
 }
 
-function deleteAccountRecordsById (accountId) {
+function deleteAccountRecordsById (accountId, ownerSubject, userDataDir) {
+  const owner = normalizeOwnerSubject(ownerSubject)
   try {
-    const filePath = getStateFilePath(resolveUserDataDir())
+    const filePath = getStateFilePath(resolveStateUserDataDir(userDataDir))
     if (!fs.existsSync(filePath)) return true
     const lines = fs.readFileSync(filePath, 'utf8').trim().split('\n').filter(line => line.trim())
     const filtered = lines.filter(line => {
-      try { return JSON.parse(line).accountId !== accountId } catch (_) { return true }
+      try {
+        const record = JSON.parse(line)
+        return !(record.accountId === accountId && ownerMatches(record, owner))
+      } catch (_) { return true }
     })
     const tmpPath = filePath + '.tmp'
     fs.writeFileSync(tmpPath, filtered.join('\n') + (filtered.length ? '\n' : ''))
@@ -220,9 +255,10 @@ function deleteAccountRecordsById (accountId) {
  * 
  * @returns {Array<{platform, accountId, accountInfo}>}
  */
-function listLoggedInAccounts () {
+function listLoggedInAccounts (ownerSubject, userDataDir) {
+  const owner = normalizeOwnerSubject(ownerSubject)
   try {
-    const filePath = getStateFilePath(resolveUserDataDir())
+    const filePath = getStateFilePath(resolveStateUserDataDir(userDataDir))
     if (!fs.existsSync(filePath)) return []
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -233,7 +269,7 @@ function listLoggedInAccounts () {
     for (const line of lines) {
       try {
         const record = JSON.parse(line)
-        if (record.platform && record.accountId) {
+        if (record.platform && record.accountId && ownerMatches(record, owner)) {
           const key = `${record.platform}:${record.accountId}`
           const existing = latestByPlatform.get(key)
           if (!existing || record.timestamp > existing.timestamp) {

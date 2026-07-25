@@ -15,6 +15,7 @@ from multi_publish.publishers.douyin import DouyinPublisher
 def legacy_plaintext_compatibility(monkeypatch):
     """文件格式兼容测试显式开启旧行为；默认生产路径仍关闭。"""
     monkeypatch.setenv("MULTI_PUBLISH_ALLOW_LEGACY_PLAINTEXT_AUTH", "1")
+    monkeypatch.setenv("MULTI_PUBLISH_LEGACY_AUTH_MIGRATION", "1")
 
 
 @fixture

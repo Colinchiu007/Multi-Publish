@@ -1,11 +1,19 @@
 ﻿"""E2E API Tests -- FastAPI backend integration tests."""
 
+import os
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 import server
 from server import app
 
 client = TestClient(app)
+
+
+class TestRuntime:
+    def test_server_uses_configured_log_directory(self):
+        assert server.LOG_DIR == Path(os.environ["MULTI_PUBLISH_LOG_DIR"])
 
 
 class TestHealth:
@@ -87,6 +95,22 @@ class TestAccounts:
             },
         )
         assert resp.status_code == 400
+        assert resp.json()["detail"] == "ACCOUNT_METADATA_ONLY"
+        assert not (tmp_path / "accounts.json").exists()
+
+    def test_create_rejects_empty_legacy_credential_fields(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(server, "ACCOUNTS_FILE", tmp_path / "accounts.json")
+        resp = client.post(
+            "/api/accounts",
+            json={
+                "platform": "douyin",
+                "name": "test",
+                "cookies": [],
+                "auth_data": None,
+            },
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "ACCOUNT_METADATA_ONLY"
         assert not (tmp_path / "accounts.json").exists()
 
     def test_metadata_account_does_not_persist_secret_fields(self, tmp_path, monkeypatch):
@@ -100,11 +124,15 @@ class TestAccounts:
 
     def test_cookie_endpoints_are_disabled(self, monkeypatch):
         monkeypatch.setattr(server, "_load_accounts", lambda: {"account-1": {"id": "account-1", "platform": "douyin"}})
-        assert client.get("/api/accounts/account-1/cookies").status_code == 410
-        assert client.put(
+        get_response = client.get("/api/accounts/account-1/cookies")
+        put_response = client.put(
             "/api/accounts/account-1/cookies",
-            json={"platform": "douyin", "name": "test", "cookies": []},
-        ).status_code == 410
+            json={"cookies": "malformed-but-disabled"},
+        )
+        assert get_response.status_code == 410
+        assert get_response.json()["detail"] == "CREDENTIAL_ENDPOINT_DISABLED"
+        assert put_response.status_code == 410
+        assert put_response.json()["detail"] == "CREDENTIAL_ENDPOINT_DISABLED"
 
     def test_legacy_python_login_endpoint_is_disabled(self, monkeypatch):
         called = False
@@ -117,6 +145,7 @@ class TestAccounts:
         monkeypatch.setattr(server.publisher_mgr, "is_supported", mark_called)
         resp = client.post("/api/login", json={"platform": "douyin"})
         assert resp.status_code == 410
+        assert resp.json()["detail"] == "LEGACY_LOGIN_ENDPOINT_DISABLED"
         assert called is False
 
 
