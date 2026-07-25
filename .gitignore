@@ -163,6 +163,16 @@ subtitles*.json
 apps/desktop/tests/visual-testing/reports/agent-judge-prompt-*.md
 apps/desktop/tests/visual-testing/reports/agent-judge-summary-*.json
 
+# 本机 Agent 技能与工作区状态（不属于应用源码）
+/.agents/
+/skills-lock.json
+/.claude/settings.local.json
+/.tmp/
+/.tmp-logto-qm1-*/
+
+# 本地质量门禁生成报告
+apps/desktop/tests/e2e/reports/e2e-preflight.json
+
 # Test artifacts
 packages/ai-autonomous-tester/tests/.tmp
 packages/ai-autonomous-tester/tests/.tmp-*
