@@ -3604,3 +3604,17 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **修复与回归保护**：runner 显式复制 `upload/`，npm `files` 同步包含 `upload/`，API workspace 直接声明 `js-yaml`；Compose 将插件目录设置为 `/app/data/plugins`，两个 bind mount 均使用 `create_host_path: false`，运行手册要求部署前以 UID/GID 1001 创建 config、data 和 plugins，避免 Docker 生成 root-owned 目录；Dockerfile 与 Compose healthcheck 固定使用 `127.0.0.1`。`logto-deploy-contract.test.js` 依据 runner 的本地 `COPY` 清单构造隔离 staging，以依赖声明守卫加载真实 `src/index.js`，同时固定 bind mount fail-closed 合同；`npm pack --dry-run` 验证 tarball。Node/Python 验证器只允许 `RS256 + RSA` 与 `ES384 + EC + P-384`，拒绝算法、密钥类型、曲线和签名编码错配，并以 `alg:kid` 作为 JWKS/未知密钥缓存键；两端均增加真实签名和负缓存隔离回归。生产候选还必须在 ECS 无缓存 build、以非 root 用户启动，并验证 health、ready、未认证 `/me`、production smoke 和错误日志。
 
 **系统性预防**：选择性 Docker COPY、npm `files` 和 workspace `dependencies` 都属于独立运行时清单，审查必须同时核对；容器测试必须覆盖最终用户、持久卷权限和 loopback 地址族；OIDC 算法白名单必须以目标租户实时 JWKS 为准，同时严格绑定 `alg/kty/crv`，不能以“只允许一种算法”替代互操作验证。上述规则已写入 `AGENTS.md`，后续新增静态/懒加载依赖、修改 Dockerfile、迁移身份提供方或轮换签名算法时自动触发对应合同测试。
+
+---
+
+## 2026-07-24：业务 API Compose 缺少 Logto PostgreSQL 服务网络
+
+**第一性原因**：`BUSINESS_DATABASE_URL` 在 ECS 使用基础 Logto Compose 的 `postgres:5432` 服务名，而业务 API Compose 只创建自己的默认网络。正式 release 的 `docker compose run` 因此在 `multi-publish-business-api_default` 内返回 `ENOTFOUND`；同一正式镜像接入 `multi-publish-logto_default` 后 migration dry-run 立即通过，说明数据库凭据和 migration 本身没有问题。
+
+**逃逸链**：环境校验只确认连接串存在，并不验证容器 DNS；静态部署合同覆盖 Docker COPY、依赖、bind mount、健康检查和 OIDC，却没有断言 API 的外部网络。候选阶段把“可在某个网络里执行 migration”误作“实际 Compose 服务具备网络连通性”，没有以正式 `docker compose run` 的网络集合复验。CI 不拥有 ECS 的 `postgres` 服务网络，无法自然暴露这个部署拓扑错误。
+
+**系统性漏洞**：容器镜像可启动、环境变量完整和数据库凭据可用是三件事，不能替代“实际 Compose 服务加入能够解析依赖服务名的网络”。临时 `docker run --network` 是诊断工具，不是部署合同验证。
+
+**修复与回归保护**：业务 API 现在同时加入默认网络与名为 `logto` 的外部网络，默认映射 `LOGTO_COMPOSE_NETWORK=multi-publish-logto_default`；环境模板和 runbook 固化基础项目名与覆盖规则。`logto-deploy-contract.test.js` 断言服务网络、外部网络名和模板变量，ECS 验收必须使用真实 `docker compose run` 运行 DNS 和 migration dry-run。
+
+**系统性预防**：`AGENTS.md` 新增跨 Compose 网络与服务 DNS 门禁。以后凡是连接串使用 Docker 服务名，代码评审要同时检查 Compose `networks`、外部网络生命周期、环境模板和真实 Compose DNS/migration 证据；不得把镜像层、临时容器或宿主机 DNS 成功当作服务部署成功。

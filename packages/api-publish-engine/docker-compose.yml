@@ -6,6 +6,10 @@ services:
     ports:
       # 容器内端口保持稳定；生产宿主机的 3000 已被占用，仅通过回环端口暴露。
       - "127.0.0.1:3030:3000"
+    # BUSINESS_DATABASE_URL 使用 deploy/logto 的 postgres 服务名时，必须加入该 Compose 网络。
+    networks:
+      - default
+      - logto
     environment:
       - NODE_ENV=production
       - HOST=0.0.0.0
@@ -43,3 +47,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+networks:
+  logto:
+    external: true
+    name: ${LOGTO_COMPOSE_NETWORK:-multi-publish-logto_default}
