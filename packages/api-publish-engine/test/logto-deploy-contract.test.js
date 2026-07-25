@@ -37,18 +37,26 @@ const apiEnv = fs.readFileSync(path.resolve(__dirname, '../../../deploy/logto/ap
 for (const variable of [
   'NODE_ENV', 'HOST', 'IDENTITY_AUTH_ENABLED', 'IDENTITY_AUTH_REQUIRED',
   'BUSINESS_DATABASE_AUTO_MIGRATE', 'BUSINESS_DATABASE_MIGRATIONS_DIR', 'LOGTO_ENDPOINT', 'LOGTO_API_RESOURCE',
-  'BUSINESS_DATABASE_URL', 'LOGTO_WEBHOOK_SIGNING_KEY', 'ENTITLEMENT_KEY_ID',
+  'BUSINESS_DATABASE_URL', 'LOGTO_COMPOSE_NETWORK', 'LOGTO_WEBHOOK_SIGNING_KEY', 'ENTITLEMENT_KEY_ID',
   'ENTITLEMENT_PRIVATE_KEY',
 ]) {
   assert.match(apiEnv, new RegExp(`^${variable}=`, 'm'))
 }
 assert.match(apiEnv, /^BUSINESS_DATABASE_AUTO_MIGRATE=false$/m)
 assert.match(apiEnv, /^HOST=0\.0\.0\.0$/m)
+assert.match(apiEnv, /^LOGTO_COMPOSE_NETWORK=multi-publish-logto_default$/m)
 assert.doesNotMatch(apiEnv, /^PUBLISH_API_HOST_PORT=/m)
 
 const apiCompose = yaml.load(fs.readFileSync(path.resolve(__dirname, '../docker-compose.yml'), 'utf8'))
 assert.strictEqual(apiCompose.services['publish-api'].build.context, '../..')
 assert.strictEqual(apiCompose.services['publish-api'].build.dockerfile, 'packages/api-publish-engine/Dockerfile')
+assert.deepStrictEqual(apiCompose.services['publish-api'].networks, ['default', 'logto'])
+assert.deepStrictEqual(apiCompose.networks, {
+  logto: {
+    external: true,
+    name: '${LOGTO_COMPOSE_NETWORK:-multi-publish-logto_default}',
+  },
+}, '业务 API 必须加入 Logto Compose 网络，才能解析 BUSINESS_DATABASE_URL=postgres')
 assert.deepStrictEqual(apiCompose.services['publish-api'].ports, [
   '127.0.0.1:3030:3000',
 ])

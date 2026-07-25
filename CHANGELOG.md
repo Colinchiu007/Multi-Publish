@@ -5,6 +5,7 @@
 - 补齐 `js-yaml` 直接生产依赖和 npm `upload/` 发布清单，避免依赖根工作区偶然提升或发布包漏文件。
 - 将插件目录固定到可写持久卷，并把 Alpine 容器健康检查改为 IPv4 loopback，消除非 root 权限与 `localhost -> ::1` 误报。
 - Bind mount 禁止隐式创建宿主目录；部署前显式以 UID/GID 1001 准备 config、data 和 plugins，首次部署权限不正确时直接失败。
+- 业务 API Compose 显式加入 Logto 外部网络，修复 `BUSINESS_DATABASE_URL` 使用 `postgres` 服务名时正式 release 的 DNS 解析失败。
 - Node/Python Logto 验证器严格支持 `RS256/RSA` 与生产租户使用的 `ES384/EC/P-384`，并按 `alg:kid` 隔离 JWKS 与未知密钥负缓存。
 
 ### 质量

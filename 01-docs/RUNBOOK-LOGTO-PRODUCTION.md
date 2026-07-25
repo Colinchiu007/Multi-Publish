@@ -66,7 +66,7 @@ docker compose -f packages/api-publish-engine/docker-compose.yml --env-file depl
 node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.example.com --api http://127.0.0.1:3030
 ```
 
-该 Compose 的 `./config`、`./data` 和 `./data/plugins` 必须由上面的命令预先创建，并授权给容器 UID/GID `1001`。Compose 使用 `create_host_path: false`，目录缺失时会 fail closed，而不是让 Docker 自动创建 root-owned bind source。`config` 挂载到 `/app/packages/api-publish-engine/config`，与 `ApiKeyManager` 和默认配置文件路径一致；不要改回 `/app/config`。监控 overlay 也不能单独启动，必须和基础 Logto Compose 一起传给 `docker compose -f`。
+该 Compose 的 `./config`、`./data` 和 `./data/plugins` 必须由上面的命令预先创建，并授权给容器 UID/GID `1001`。Compose 使用 `create_host_path: false`，目录缺失时会 fail closed，而不是让 Docker 自动创建 root-owned bind source。`config` 挂载到 `/app/packages/api-publish-engine/config`，与 `ApiKeyManager` 和默认配置文件路径一致；不要改回 `/app/config`。业务 API 同时加入 `LOGTO_COMPOSE_NETWORK` 指定的外部网络；基础 `deploy/logto/docker-compose.yml` 的项目名固定为 `multi-publish-logto`，因此默认网络名是 `multi-publish-logto_default`。当 `BUSINESS_DATABASE_URL` 使用 `postgres` 服务名时，这个网络连接不可省略；自定义基础项目名时必须同步覆盖该变量。监控 overlay 也不能单独启动，必须和基础 Logto Compose 一起传给 `docker compose -f`。
 
 `/api/v1/health` 只表示进程存活；只有 `/api/v1/ready` 返回 200 才能把实例加入负载均衡。
 

@@ -3657,3 +3657,16 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **修复与回归保护**：选择器配置改为 `platformFilterButton` 与 `accountNameButton`；两个 GUI runner 现在验证“全部 + 六个平台”共七个筛选按钮、12 张账号卡片，以及默认账号卡片的可见名称按钮。静态 smoke 同时要求这两个语义选择器存在，避免配置退回到旧分组或编辑态专用输入框。
 
 **系统性预防**：任何替换页面级 DOM 结构或把常驻控件改为条件渲染控件的改动，都必须在同一提交中搜索并更新 `selectors.json` 的全部消费者；除组件 Vitest 外，至少保留一条真实 GUI 合同验证用户可见、非编辑态的语义元素。
+---
+
+## 2026-07-24：业务 API Compose 缺少 Logto PostgreSQL 服务网络
+
+**第一性原因**：`BUSINESS_DATABASE_URL` 在 ECS 使用基础 Logto Compose 的 `postgres:5432` 服务名，而业务 API Compose 只创建自己的默认网络。正式 release 的 `docker compose run` 因此在 `multi-publish-business-api_default` 内返回 `ENOTFOUND`；同一正式镜像接入 `multi-publish-logto_default` 后 migration dry-run 立即通过，说明数据库凭据和 migration 本身没有问题。
+
+**逃逸链**：环境校验只确认连接串存在，并不验证容器 DNS；静态部署合同覆盖 Docker COPY、依赖、bind mount、健康检查和 OIDC，却没有断言 API 的外部网络。候选阶段把“可在某个网络里执行 migration”误作“实际 Compose 服务具备网络连通性”，没有以正式 `docker compose run` 的网络集合复验。CI 不拥有 ECS 的 `postgres` 服务网络，无法自然暴露这个部署拓扑错误。
+
+**系统性漏洞**：容器镜像可启动、环境变量完整和数据库凭据可用是三件事，不能替代“实际 Compose 服务加入能够解析依赖服务名的网络”。临时 `docker run --network` 是诊断工具，不是部署合同验证。
+
+**修复与回归保护**：业务 API 现在同时加入默认网络与名为 `logto` 的外部网络，默认映射 `LOGTO_COMPOSE_NETWORK=multi-publish-logto_default`；环境模板和 runbook 固化基础项目名与覆盖规则。`logto-deploy-contract.test.js` 断言服务网络、外部网络名和模板变量，ECS 验收必须使用真实 `docker compose run` 运行 DNS 和 migration dry-run。
+
+**系统性预防**：`AGENTS.md` 新增跨 Compose 网络与服务 DNS 门禁。以后凡是连接串使用 Docker 服务名，代码评审要同时检查 Compose `networks`、外部网络生命周期、环境模板和真实 Compose DNS/migration 证据；不得把镜像层、临时容器或宿主机 DNS 成功当作服务部署成功。
