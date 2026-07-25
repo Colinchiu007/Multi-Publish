@@ -99,6 +99,24 @@ describe('account IPC 写操作 sender 校验', () => {
     expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
   })
 
+  it.each([
+    ['auth:open-login', async (handler) => handler(TRUSTED_EVENT, 'wechat_mp')],
+    ['auth:login-silent', async (handler) => handler(TRUSTED_EVENT, { platform: 'wechat_mp', accountId: 'acc-1' })],
+  ])('%s 在身份服务存在但 sub 缺失时 fail-closed', async (channel, invoke) => {
+    const deps = createMockDeps({
+      identityService: { getState: vi.fn(() => ({ status: 'authenticated', user: null })) },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await invoke(ipcMain._get(channel))
+
+    expect(result).toEqual({ code: -3, message: '无法识别当前用户' })
+    expect(deps.authViewManager.openLogin).not.toHaveBeenCalled()
+    expect(deps.AccountManager.saveCapturedAccount).not.toHaveBeenCalled()
+    expect(deps.AccountManager.loadSavedCredentials).not.toHaveBeenCalled()
+  })
+
   it('account:add 拒绝外部网页调用', async () => {
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, createMockDeps())

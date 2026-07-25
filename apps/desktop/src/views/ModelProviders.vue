@@ -341,8 +341,12 @@
           <input class="input" v-model="form.name" placeholder="如 OpenAI" />
           <label class="input-label">Base URL</label>
           <input class="input" v-model="form.base_url" placeholder="https://api.example.com/v1" />
-          <label class="input-label">API Key</label>
-          <input class="input" v-model="form.api_key" type="password" placeholder="sk-..." />
+          <template v-if="form.id === 'doubao-tts' || form.id === 'doubao-stt'">
+            <label class="input-label">豆包 App ID</label>
+            <input class="input" v-model.trim="form.config.appId" placeholder="火山引擎 App ID" />
+          </template>
+          <label class="input-label">{{ form.id === 'doubao-tts' || form.id === 'doubao-stt' ? '豆包 Access Token' : 'API Key' }}</label>
+          <input class="input" v-model="form.api_key" type="password" :placeholder="form.id === 'doubao-tts' || form.id === 'doubao-stt' ? 'Access Token' : 'sk-...'" />
           <template v-if="form.models.length === 1">
             <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
           </template>
@@ -372,8 +376,12 @@
         <input class="input" v-model="form.name" />
         <label class="input-label">Base URL</label>
         <input class="input" v-model="form.base_url" />
-        <label class="input-label">API Key</label>
-        <input class="input" v-model="form.api_key" type="password" placeholder="留空保持不变" />
+        <template v-if="form.id === 'doubao-tts' || form.id === 'doubao-stt'">
+          <label class="input-label">豆包 App ID</label>
+          <input class="input" v-model.trim="form.config.appId" placeholder="火山引擎 App ID" />
+        </template>
+        <label class="input-label">{{ form.id === 'doubao-tts' || form.id === 'doubao-stt' ? '豆包 Access Token' : 'API Key' }}</label>
+        <input class="input" v-model="form.api_key" type="password" :placeholder="form.id === 'doubao-tts' || form.id === 'doubao-stt' ? '留空保持原 Token' : '留空保持不变'" />
         <template v-if="form.models.length === 1">
           <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
         </template>

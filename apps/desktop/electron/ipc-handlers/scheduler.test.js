@@ -60,7 +60,7 @@ describe("scheduler IPC handlers", () => {
       expect(scheduler.create).not.toHaveBeenCalled();
     });
 
-  it("creates a scheduled task", async () => {
+    it("creates a scheduled task in the legacy namespace when identity is unavailable", async () => {
       const result = await ipcMain._callHandler("scheduler:create", {
         platform: "github",
         article: { title: "test" },
@@ -72,7 +72,7 @@ describe("scheduler IPC handlers", () => {
         platform: "github",
         article: { title: "test" },
         publishTime: "2026-07-06T10:00:00Z",
-      });
+      }, undefined);
     });
 
     it("returns error when scheduler.create throws", async () => {
@@ -101,9 +101,39 @@ describe("scheduler IPC handlers", () => {
     await ipcMain._callHandler("scheduler:list");
     await ipcMain._callHandler("scheduler:cancel", "sched-a");
 
-    expect(scheduler.create).toHaveBeenCalledWith(expect.objectContaining({ owner_subject: "user-a" }));
+    expect(scheduler.create).toHaveBeenCalledWith({
+      platform: "douyin",
+      article: {},
+      publishTime: "2026-07-06T10:00:00Z",
+    }, "user-a");
     expect(scheduler.list).toHaveBeenCalledWith("user-a");
     expect(scheduler.cancel).toHaveBeenCalledWith("sched-a", "user-a");
+  });
+
+  it("身份服务存在但 sub 缺失时拒绝创建、查询和取消，且不回落 legacy", async () => {
+    const identityService = {
+      getState: vi.fn(() => ({ status: "authenticated", user: null })),
+    };
+    ipcMain = createMockIpcMain();
+    scheduler = {
+      create: vi.fn(),
+      list: vi.fn(),
+      cancel: vi.fn(),
+    };
+    registerHandlers(ipcMain, { scheduler, identityService });
+
+    const createResult = await ipcMain._callHandler("scheduler:create", {
+      platform: "douyin", article: {}, publishTime: "2026-07-06T10:00:00Z",
+    });
+    const listResult = await ipcMain._callHandler("scheduler:list");
+    const cancelResult = await ipcMain._callHandler("scheduler:cancel", "sched-a");
+
+    expect(createResult).toMatchObject({ code: -1, message: "登录会话缺少用户标识" });
+    expect(listResult).toMatchObject({ code: -1, data: [] });
+    expect(cancelResult).toMatchObject({ code: -1, message: "登录会话缺少用户标识" });
+    expect(scheduler.create).not.toHaveBeenCalled();
+    expect(scheduler.list).not.toHaveBeenCalled();
+    expect(scheduler.cancel).not.toHaveBeenCalled();
   });
 
   describe("scheduler:list", () => {
@@ -131,7 +161,7 @@ describe("scheduler IPC handlers", () => {
     it("cancels a scheduled task", async () => {
       const result = await ipcMain._callHandler("scheduler:cancel", "sched-1");
       expect(result.code).toBe(0);
-      expect(scheduler.cancel).toHaveBeenCalledWith("sched-1");
+      expect(scheduler.cancel).toHaveBeenCalledWith("sched-1", undefined);
     });
   });
 });
