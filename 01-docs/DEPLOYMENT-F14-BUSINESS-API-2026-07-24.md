@@ -92,3 +92,123 @@ BUSINESS_API_URL=https://auth.iart.work
 4. 重启该独立验收实例后会话恢复；退出和切换账号不会遗留旧 session。
 
 回滚只停止新 API 容器并恢复 Nginx 配置，不删除 `multi_publish` 数据库、identity schema、Logto 用户或 migration ledger。桌面端保留 `IDENTITY_AUTH_REQUIRED=false`，并明确提示业务 API 不可用。
+
+## 8. Nginx 路由分离合同（2026-07-25 修订，QM-5 回归）
+
+### 8.1 背景
+
+2026-07-25 用户在桌面端登录页点击「忘记密码」→ 填写手机号 → 提交，前端报错：
+
+```
+Valid API key required via Authorization: Bearer <key>
+```
+
+**根因**：Nginx 在 `auth.iart.work` 上对 `/api/` 做了宽匹配反代到 publish-api container（`127.0.0.1:3030`），导致 Logto 自身的 `/api/users`、`/api/forgot-password`、`/api/sign-in` 等内部路径被误路由到业务 API container。业务 API 收到无 Bearer token 的请求后走鉴权流程，返回 401 "Valid API key required"，对用户造成误导。
+
+### 8.2 正确的 Nginx 路由配置（必须遵循）
+
+```nginx
+# auth.iart.work server 块内
+
+# ✅ 正确：精确匹配 /api/v1/ 反代到业务 API container
+location /api/v1/ {
+    proxy_pass http://127.0.0.1:3030;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+    client_max_body_size 2m;
+    proxy_read_timeout 60s;
+    proxy_send_timeout 60s;
+}
+
+# ✅ 正确：其他 /api/ 反代到 Logto container（Admin/Management API + 内部路径）
+location /api/ {
+    proxy_pass http://127.0.0.1:3001;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+    client_max_body_size 2m;
+}
+
+# ✅ 正确：/oidc/、/console/、/sign-in/、/register/、/.well-known/ 等 Logto 路径
+# 反代到 Logto container
+location / {
+    proxy_pass http://127.0.0.1:3001;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+
+# ❌ 禁止：以下任一配置都会导致 forgot-password / sign-in 等路径误路由
+# location /api/ {
+#     proxy_pass http://127.0.0.1:3030;   # 错误：所有 /api/ 都去业务 API
+# }
+# location ^~ /api {
+#     proxy_pass http://127.0.0.1:3030;   # 错误：覆盖 Logto 内部路径
+# }
+```
+
+### 8.3 关键约束
+
+1. **业务 API 路径前缀固定为 `/api/v1/`**：业务 API container 已加路径前缀守卫，非 `/api/v1/` 前缀的请求直接返回 404 + `PATH_NOT_UNDER_BUSINESS_API`，不进入鉴权流程（见 [publish-api-server.js:482-492](../packages/api-publish-engine/src/publish-api-server.js#L482-L492)）。
+2. **Logto 内部路径必须反代到 Logto container**：`/api/users`、`/api/forgot-password`、`/api/sign-in`、`/api/sign-up`、`/api/verification` 等都是 Logto Management API 或 Logto Experience API 路径，必须反代到 Logto container（`127.0.0.1:3001` 或对应宿主机端口）。
+3. **`/api/v1/` 路径独占给业务 API**：不得让 Logto 接管 `/api/v1/` 前缀，避免业务 API 路径被 Logto 抢答。
+
+### 8.4 验证方法
+
+修改 Nginx 配置后，**必须**执行：
+
+```bash
+# 1. Nginx 语法检查
+nginx -t
+
+# 2. 平滑 reload
+systemctl reload nginx
+
+# 3. 路由分离验证（使用 production-smoke）
+node packages/api-publish-engine/scripts/production-smoke.js \
+  --logto https://auth.iart.work \
+  --api https://auth.iart.work
+
+# 期望：所有 api.path-guard/api/users、api.path-guard/api/forgot-password 检查 passed
+# 如果 failed + API_PATH_GUARD_VIOLATION，说明 Nginx 仍存在 /api/ 宽匹配
+
+# 4. 手动验证 Logto 路径可达
+curl -s -o /dev/null -w "%{http_code}\n" https://auth.iart.work/api/forgot-password
+# 期望：非 404 PATH_NOT_UNDER_BUSINESS_API
+# 期望：非 401 Valid API key required
+```
+
+### 8.5 长期域名迁移后的调整
+
+完成 [§4 长期域名迁移](#4-长期域名迁移) 后，业务 API 迁到 `api.iart.work`：
+
+```nginx
+# api.iart.work server 块
+location /api/v1/ {
+    proxy_pass http://127.0.0.1:3030;
+    # ... 其他 header
+}
+# /api/v1/ 是业务 API 的全部，不再需要 /api/ 的 Logto 兜底规则
+
+# auth.iart.work server 块简化
+location / {
+    proxy_pass http://127.0.0.1:3001;
+    # ... 其他 header
+}
+# 不再需要 /api/v1/ 规则
+```
+
+### 8.6 自动化合同测试
+
+仓库内已集成自动化检测，避免再次发生同类问题：
+
+| 测试 | 文件 | 验证内容 |
+|---|---|---|
+| 单元测试 | [packages/api-publish-engine/test/publish-api-server-path-guard.test.js](../packages/api-publish-engine/test/publish-api-server-path-guard.test.js) | 业务 API 对非 `/api/v1/` 前缀路径返回 404 + `PATH_NOT_UNDER_BUSINESS_API`，而非 401 |
+| Smoke 集成 | [packages/api-publish-engine/scripts/production-smoke.js](../packages/api-publish-engine/scripts/production-smoke.js) | 自动访问 `/api/users`、`/api/forgot-password` 验证守卫生效，未通过则返回 `API_PATH_GUARD_VIOLATION` |
+
+部署时必须确保 production-smoke 全绿才能视为业务 API 可用。
+

@@ -281,6 +281,9 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **Bridge/子进程启动验证**：新增或修改 Bridge（BasePythonBridge 子类）时，必须验证：(1) `pythonModule` 指向的模块有 `__main__.py` 入口；(2) 真实执行一次 spawn + health check。不能只断言 `pythonModule` 字符串值。
 - **composable↔模板导出一致性**：composable 新增/重命名导出属性时，必须同步更新所有使用该 composable 的 Vue 模板的解构列表。新增属性后应运行 composable 导出完整性测试。
 - **AI 工具修改后的完整性校验**：使用 MCP node_repl splice / PowerShell 字符串替换 / apply_patch 修改大文件时，修改后必须用 `rg` 或 `git diff` 验证所有目标变更都已写入，不能假设「操作成功 = 内容正确」。
+- **HTTP 路径前缀守卫**：任何 HTTP 服务（Express/Koa/http.createService/publish-api-server）的 `_handle` 入口必须在鉴权逻辑之前增加路径前缀守卫——只允许声明的业务路径前缀（如 `/api/v1/`）通过，非业务前缀直接返回 404 + 明确错误码（如 `PATH_NOT_UNDER_BUSINESS_API`），不进入鉴权。避免反向代理误路由时返回误导性鉴权错误（如 "Valid API key required"）。回归测试必须覆盖 5 个场景：(1) 业务路径前缀正常通过；(2) 非 /api/v1/ 的 Logto 内部路径返回 404 守卫错误码；(3) 根路径被守卫拦截；(4) 守卫在 webhook 之后（webhook 路径仍能通过）；(5) 守卫不调用 keyManager.load（避免副作用）。详见 [publish-api-server-path-guard.test.js](packages/api-publish-engine/test/publish-api-server-path-guard.test.js)。
+- **Nginx 反向代理路由分离合同**：当一台 Nginx 同时反代业务 API container（如 `127.0.0.1:3030`）和 Logto container（如 `127.0.0.1:3021`）时，**禁止**用 `location /api/` 宽匹配反代到业务 API container，否则 Logto 自身的 `/api/users`、`/api/forgot-password`、`/api/sign-in` 等内部路径会被误路由。必须用精确前缀 `location /api/v1/` 反代到业务 API，其余路径兜底反代到 Logto。详见 [DEPLOYMENT-F14-BUSINESS-API-2026-07-24.md §8](01-docs/DEPLOYMENT-F14-BUSINESS-API-2026-07-24.md#8-nginx-路由分离合同2026-07-25-修订qm-5-回归)。部署后**必须**运行 `production-smoke.js` 验证 `api.path-guard/api/users` 和 `api.path-guard/api/forgot-password` 检查 passed，否则视为路由配置错误。
+- **production-smoke 路由分离检查**：每次修改 Nginx 配置、业务 API 路由或新增 API 路径前缀后，必须运行 `node packages/api-publish-engine/scripts/production-smoke.js --logto <LOGTO_URL> --api <API_URL>` 验证：(1) 业务 API 的 `/api/v1/health`、`/api/v1/ready` 返回 200；(2) Logto 内部路径 `/api/users`、`/api/forgot-password` 不被业务 API 错误处理（返回非 "Valid API key required" 响应）。这是部署后自动检测反向代理误路由的合同测试。
 
 ### QM-3：测试策略
 

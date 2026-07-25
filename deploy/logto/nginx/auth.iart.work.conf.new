@@ -1,0 +1,60 @@
+# Logto public identity endpoint
+# 修订：2026-07-25 QM-5 回归 — 路径前缀守卫
+# 详见 01-docs/DEPLOYMENT-F14-BUSINESS-API-2026-07-24.md §8
+server {
+    listen 80;
+    server_name auth.iart.work;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/acme;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name auth.iart.work;
+
+    ssl_certificate /etc/nginx/ssl/auth.iart.work/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/auth.iart.work/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:LogtoTLS:10m;
+    ssl_session_timeout 1d;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    client_max_body_size 10m;
+
+    # ✅ 业务 API：仅 /api/v1/ 前缀反代到业务 API container
+    # 业务 API container 已加路径前缀守卫，非 /api/v1/ 前缀直接返回 404
+    # PATH_NOT_UNDER_BUSINESS_API，不进入鉴权流程。
+    location /api/v1/ {
+        proxy_pass http://127.0.0.1:3030;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_read_timeout 60s;
+    }
+
+    # ✅ Logto 兜底：/oidc/、/console/、/sign-in/、/api/users、/api/forgot-password 等
+    # 所有非 /api/v1/ 前缀的路径都反代到 Logto container（127.0.0.1:3021）。
+    # 关键：之前 location /api/ 宽匹配反代到 3030 导致 Logto 忘记密码报
+    # "Valid API key required via Authorization: Bearer <key>"（2026-07-25 bug）。
+    location / {
+        proxy_pass http://127.0.0.1:3021;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 60s;
+    }
+}
