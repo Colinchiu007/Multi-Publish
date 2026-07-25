@@ -5,7 +5,7 @@
 
 ## 1. 发布前
 
-1. 在 Secret Store 配置 `deploy/logto/.env.example` 和 `api.env.example` 对应变量，不创建带真实值的仓库文件。
+1. 在 Secret Store 配置 `deploy/logto/.env.example` 和 `api.env.example` 对应变量，不创建带真实值的仓库文件。必须先在 Logto Admin Console 创建供业务 API 使用的 M2M Application，并把 `LOGTO_CLIENT_ID`、`LOGTO_CLIENT_SECRET` 同时写入 Secret Store；任一缺失都禁止启动生产 API。
 2. 确认 Logto DB 与业务 DB 的主机/数据库组合不同。
 3. 生成 2048 位以上 RSA entitlement 私钥，私钥仅进入业务 API Secret Store。
 4. 在 ECS 部署宿主机先检查根盘；可用空间少于 `5 GiB` 或少于总容量的 `10%` 时停止发布、镜像拉取、备份和迁移，先由运维人员确认可再生日志的保留期后清理。禁止把 `docker system prune`、Docker 卷删除或项目目录删除当作自动恢复手段：
@@ -79,7 +79,7 @@ node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.
 
 该 Compose 的 `./config`、`./data` 和 `./data/plugins` 必须由上面的命令预先创建，并授权给容器 UID/GID `1001`。Compose 使用 `create_host_path: false`，目录缺失时会 fail closed，而不是让 Docker 自动创建 root-owned bind source。`config` 挂载到 `/app/packages/api-publish-engine/config`，与 `ApiKeyManager` 和默认配置文件路径一致；不要改回 `/app/config`。业务 API 同时加入 `LOGTO_COMPOSE_NETWORK` 指定的外部网络；基础 `deploy/logto/docker-compose.yml` 的项目名固定为 `multi-publish-logto`，因此默认网络名是 `multi-publish-logto_default`。当 `BUSINESS_DATABASE_URL` 使用 `postgres` 服务名时，这个网络连接不可省略；自定义基础项目名时必须同步覆盖该变量。监控 overlay 也不能单独启动，必须和基础 Logto Compose 一起传给 `docker compose -f`。
 
-`/api/v1/health` 只表示进程存活；只有 `/api/v1/ready` 返回 200 才能把实例加入负载均衡。
+`/api/v1/health` 只表示进程存活；只有 `/api/v1/ready` 返回 200，且响应中的 `checks.introspection.status` 为 `ready`，才能把实例加入负载均衡。该检查会向 discovery 声明的同源 HTTPS introspection endpoint 发送随机无效 token；只有 M2M 凭据有效且响应为 `active:false` 才通过。`production-smoke.js` 会拒绝缺少该检查的旧镜像。
 
 ### 桌面端发行配置
 
@@ -95,9 +95,11 @@ node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.
 IDENTITY_AUTH_ENABLED=true
 IDENTITY_AUTH_REQUIRED=false
 BUSINESS_DATABASE_AUTO_MIGRATE=false
+LOGTO_CLIENT_ID=<Logto M2M application id>
+LOGTO_CLIENT_SECRET=<Logto M2M application secret>
 ```
 
-确认真实登录、刷新、退出、账号切换、Webhook 和云端发布后，观察至少一个完整业务高峰。API ready、OIDC discovery、401/403、Webhook 失败和额度拒绝均在预期范围内才进入 required。
+确认真实登录、刷新、退出、账号切换、Webhook 和云端发布后，观察至少一个完整业务高峰。API ready、OIDC discovery、introspection readiness、401/403/503、Webhook 失败和额度拒绝均在预期范围内才进入 required；身份依赖故障不得通过 API Key 回退掩盖。
 
 ### Required
 

@@ -1,3 +1,16 @@
+## [未发布] Logto Opaque Token 生产加固 (2026-07-25)
+
+### 修复
+- 业务 API 现在同时验证 Logto JWT 与 Opaque Access Token；Opaque Token 通过受信任的同源 introspection endpoint 校验，并强制检查 `active`、`sub` 和目标 `aud`。
+- 身份依赖不可用时返回 503，Shadow 模式不再回退到旧 API Key，从而避免把上游故障伪装成用户凭据错误。
+- `/api/v1/ready` 增加 M2M introspection 探针，生产配置缺少任一 M2M 凭据时 fail closed，production smoke 会拒绝缺少该检查的旧镜像。
+
+### 安全与质量
+- introspection endpoint 在发送 M2M Secret 前必须通过 HTTPS、同源和 userinfo 校验，且鉴权与生产 smoke 请求拒绝 HTTP 重定向；production smoke 也会在请求 JWKS 前完成同源校验，仅同源 loopback 开发环境允许 HTTP。
+- Token 缓存改用 SHA-256 指纹，同 Token 并发请求合并；API 测试 runner 固定为单 Vitest worker 并关闭文件并行。
+
+---
+
 ## [未发布] Logto 桌面公开运行时配置 (2026-07-24)
 
 ### 用户身份

@@ -11,6 +11,8 @@ function validEnv(overrides = {}) {
     BUSINESS_DATABASE_AUTO_MIGRATE: 'false',
     LOGTO_ENDPOINT: 'https://id.example.com',
     LOGTO_API_RESOURCE: 'https://api.example.com',
+    LOGTO_CLIENT_ID: 'publish-api-m2m',
+    LOGTO_CLIENT_SECRET: 'fixture-client-secret',
     BUSINESS_DATABASE_URL: 'postgresql://app:strongpassword@databases.example.com:5432/multi_publish',
     LOGTO_DATABASE_URL: 'postgresql://logto:strongpassword@databases.example.com:5432/logto',
     LOGTO_WEBHOOK_SIGNING_KEY: 'w'.repeat(48),
@@ -73,6 +75,21 @@ test('生产配置校验', async (t) => {
     assert.strictEqual(result.valid, false)
     assert(result.errors.some((entry) => entry.code === 'DATABASE_PASSWORD_TOO_SHORT' && entry.variable === 'BUSINESS_DATABASE_URL'))
     assert(result.errors.some((entry) => entry.code === 'DATABASE_CREDENTIALS_REQUIRED' && entry.variable === 'LOGTO_DATABASE_URL'))
+  })
+
+  await t.test('生产环境缺失任一 M2M 凭据时 fail closed', () => {
+    const missingBoth = validateProductionConfig(validEnv({
+      LOGTO_CLIENT_ID: '',
+      LOGTO_CLIENT_SECRET: '',
+    }))
+    assert.strictEqual(missingBoth.valid, false)
+    assert(missingBoth.errors.some((entry) => entry.code === 'LOGTO_CLIENT_ID_REQUIRED'))
+    assert(missingBoth.errors.some((entry) => entry.code === 'LOGTO_CLIENT_SECRET_REQUIRED'))
+
+    const missingSecret = validateProductionConfig(validEnv({ LOGTO_CLIENT_SECRET: '' }))
+    assert.strictEqual(missingSecret.valid, false)
+    assert(missingSecret.errors.some((entry) => entry.code === 'LOGTO_CLIENT_SECRET_REQUIRED'))
+    assert.strictEqual(missingSecret.config.introspectionConfigured, false)
   })
 
   await t.test('错误结果不包含任何 Secret 原文', () => {

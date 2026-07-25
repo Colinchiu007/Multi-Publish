@@ -41,6 +41,11 @@ function safeErrorCode(error, fallback) {
   return /^[A-Z][A-Z0-9_]{2,63}$/.test(code) ? code : fallback;
 }
 
+function authDependencyUnavailable(error) {
+  const code = safeErrorCode(error, '')
+  return /^AUTH_[A-Z0-9_]*_UNAVAILABLE$/.test(code) || Boolean(error && error.status >= 500)
+}
+
 function apiKeyOwnerSubject(key) {
   return `api-key:${crypto.createHash("sha256").update(String(key)).digest("hex")}`;
 }
@@ -223,6 +228,13 @@ class PublishApiServer {
         }
       })
       .catch((error) => {
+        if (authDependencyUnavailable(error)) {
+          return {
+            authorized: false,
+            status: 503,
+            error: safeErrorCode(error, 'AUTH_PROVIDER_UNAVAILABLE'),
+          }
+        }
         if (!this._identityAuthRequired) {
           const legacyResult = this._checkApiKeyAuth(req, requiredScope, false)
           if (legacyResult.authorized) return legacyResult

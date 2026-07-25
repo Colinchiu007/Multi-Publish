@@ -15,10 +15,12 @@ function request(port, path) {
 test('生产 readiness probe', async (t) => {
   const { createProductionReadinessProbe } = require('../src/auth/production-readiness')
 
-  await t.test('数据库 schema、OIDC 和 JWKS 全部正常时 ready', async () => {
+  await t.test('数据库 schema、OIDC、JWKS 和 introspection 全部正常时 ready', async () => {
     const probe = createProductionReadinessProbe({
       repository: { assertReady: async () => ({ database: 'ready', schema: 'ready' }) },
-      verifier: { checkReady: async () => ({ oidc: 'ready', jwks: 'ready', signingKeys: 2 }) },
+      verifier: { checkReady: async () => ({
+        oidc: 'ready', jwks: 'ready', introspection: 'ready', signingKeys: 2,
+      }) },
       clockMs: (() => { let value = 100; return () => value += 5 })(),
     })
 
@@ -29,6 +31,7 @@ test('生产 readiness probe', async (t) => {
         schema: { status: 'ready' },
         oidc: { status: 'ready' },
         jwks: { status: 'ready', signingKeys: 2 },
+        introspection: { status: 'ready' },
       },
       durationMs: 5,
     })
@@ -60,7 +63,10 @@ test('生产 readiness probe', async (t) => {
     const database = new Promise((resolve) => { releaseDatabase = resolve })
     const probe = createProductionReadinessProbe({
       repository: { assertReady: async () => { databaseCalls += 1; await database } },
-      verifier: { checkReady: async () => { oidcCalls += 1; return { signingKeys: 1 } } },
+      verifier: { checkReady: async () => {
+        oidcCalls += 1
+        return { oidc: 'ready', jwks: 'ready', introspection: 'ready', signingKeys: 1 }
+      } },
       clockMs: () => now,
       cacheTtlMs: 1000,
     })
@@ -78,6 +84,20 @@ test('生产 readiness probe', async (t) => {
     now += 1001
     await probe.check()
     assert.strictEqual(databaseCalls, 2)
+  })
+
+  await t.test('OIDC/JWKS 正常但未验证 introspection 时仍 not_ready', async () => {
+    const probe = createProductionReadinessProbe({
+      repository: { assertReady: async () => ({ database: 'ready', schema: 'ready' }) },
+      verifier: { checkReady: async () => ({ oidc: 'ready', jwks: 'ready', signingKeys: 1 }) },
+    })
+
+    const result = await probe.check()
+    assert.strictEqual(result.status, 'not_ready')
+    assert.deepStrictEqual(result.checks.introspection, {
+      status: 'failed',
+      code: 'AUTH_INTROSPECTION_READINESS_UNAVAILABLE',
+    })
   })
 })
 

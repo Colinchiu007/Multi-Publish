@@ -3926,7 +3926,8 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
 IdentityMenu.vue 显示兜底错误文案。
 
 ### 第一性原因
-- `b7ab4ca merge: record Logto business API deployment branch` 引入 Logto OIDC 验证时，
+- `789afd6 feat(auth): 集成 Logto 用户系统与租户隔离` 首次引入 Logto OIDC 验证；该提交随后由
+  `b7ab4ca merge: record Logto business API deployment branch` 合入时，
   `LogtoJwtVerifier.verify` 假设所有 access token 都是 JWT 格式，按 `header.payload.signature` 三段
   解析并走 JWKS 验签。
 - Logto 默认签发的 access token 是 **Opaque Token**（非 JWT 格式，无法本地验签），需要通过
@@ -3956,11 +3957,30 @@ IdentityMenu.vue 显示兜底错误文案。
 - `deploy/logto/api.env.example`：补充 `LOGTO_CLIENT_ID` / `LOGTO_CLIENT_SECRET` 配置说明和
   M2M 应用创建流程。
 
+### 二次审查发现的生产缺口
+
+`4f33c49` 修复了 JWT/Opaque Token 分流，但仍留下六个可在生产触发的缺口：
+
+1. discovery 返回的 `introspection_endpoint` 未复用 JWKS 的 HTTPS、同源和 userinfo 校验，且 Fetch
+   默认跟随 HTTP 重定向；恶意或错误元数据可把 M2M Basic Secret 或用户 Token 请求带到非预期地址。
+2. `aud` 缺失会被放行；`iss` 空值和非数字 `exp` 出现时也没有严格拒绝。
+3. 生产配置允许 `LOGTO_CLIENT_ID`、`LOGTO_CLIENT_SECRET` 同时省略，服务可以在不支持 Logto 默认
+   Opaque Token 的状态下启动。
+4. `/ready` 只验证 discovery/JWKS，不验证 introspection endpoint 和 M2M 凭据；旧镜像仍可返回 200。
+5. `AUTH_INTROSPECTION_UNAVAILABLE` 被映射为 401，并在 Shadow 模式尝试 API Key 回退，掩盖身份依赖故障。
+6. introspection cache 以原始 Bearer Token 为 Map key，且同 token 并发请求会重复访问上游。
+
+本轮在测试先红后绿后补齐：可信 endpoint 校验、禁止鉴权/smoke 重定向、production smoke 在请求 JWKS 前完成同源校验、
+`active/sub/aud` 强制合同、可选 claim 严格校验、生产 M2M fail-closed、随机无效 token readiness、503 无回退语义、
+SHA-256 缓存键和 in-flight 合并。
+`production-smoke.js` 还会显式检查 `checks.introspection.status=ready`，防止旧版本 readiness 被误判通过。
+
 ### 预防措施
 1. **AGENTS.md QM-2 新增检查项**：Logto access token 验证必须同时支持 JWT 和 Opaque Token 两种格式，
-   introspection 端点的可用性必须在 readiness probe 中验证。
-2. **回归合同**：修改 `auth/logto-*` 时必须运行 `node packages/api-publish-engine/test/logto-jwks.test.js`
-   和 `logto-runtime.test.js`，确认 Opaque Token 测试用例全部通过。
+   并强制检查 endpoint 信任边界、claims、readiness、503 语义和缓存脱敏/并发合同。
+2. **回归合同**：修改 `auth/logto-*`、认证回退或 readiness 时必须运行 `logto-jwks.test.js`、
+   `logto-runtime.test.js`、`production-config.test.js`、`production-readiness.test.js`、
+   `logto-optional-auth.test.js`、`production-operations.test.js` 和 `logto-deploy-contract.test.js`。
 3. **生产部署合同**：部署 Logto 业务 API 时必须在 `api.env` 配置 `LOGTO_CLIENT_ID` 和
    `LOGTO_CLIENT_SECRET`（在 Logto Admin Console 创建 M2M 应用并授予 publish:submit / profile:read 等
    权限），否则 Opaque Token 验证会因缺少 client credentials 而失败。

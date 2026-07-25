@@ -97,6 +97,10 @@ function validateProductionConfig(env = {}, options = {}) {
 
   parseHttpsUrl(env.LOGTO_ISSUER || env.LOGTO_ENDPOINT, env.LOGTO_ISSUER ? 'LOGTO_ISSUER' : 'LOGTO_ENDPOINT', errors, 'LOGTO_ENDPOINT_HTTPS_REQUIRED')
   parseHttpsUrl(env.LOGTO_API_RESOURCE, 'LOGTO_API_RESOURCE', errors, 'LOGTO_API_RESOURCE_INVALID')
+  const logtoClientId = String(env.LOGTO_CLIENT_ID || '').trim()
+  const logtoClientSecret = String(env.LOGTO_CLIENT_SECRET || '').trim()
+  if (!logtoClientId) errors.push(error('LOGTO_CLIENT_ID_REQUIRED', 'LOGTO_CLIENT_ID'))
+  if (!logtoClientSecret) errors.push(error('LOGTO_CLIENT_SECRET_REQUIRED', 'LOGTO_CLIENT_SECRET'))
   const businessDatabase = parsePostgresUrl(env.BUSINESS_DATABASE_URL, 'BUSINESS_DATABASE_URL', errors)
 
   let logtoDatabase = null
@@ -127,6 +131,7 @@ function validateProductionConfig(env = {}, options = {}) {
       authEnabled,
       authRequired,
       autoMigrate,
+      introspectionConfigured: Boolean(logtoClientId && logtoClientSecret),
       businessDatabaseConfigured: Boolean(businessDatabase),
       logtoDatabaseCompared: Boolean(logtoDatabase),
       webhookConfigured: webhookKey.length >= 32,

@@ -70,6 +70,40 @@ test('JWKS 允许同源回环 HTTP，但继续拒绝外部 HTTP', async () => {
   })), (error) => error.code === 'AUTH_ISSUER_INVALID')
 })
 
+test('Opaque Token introspection 允许同源回环 HTTP', async () => {
+  const issuer = 'http://127.0.0.1:3001/oidc'
+  const audience = 'https://api.multi-publish.com'
+  const calls = []
+  const verifier = createLogtoJwtVerifier({
+    issuer,
+    audience,
+    clientId: 'local-client',
+    clientSecret: 'local-secret',
+    fetcher: async (url, options) => {
+      calls.push({ url, options })
+      if (url.endsWith('/.well-known/openid-configuration')) {
+        return {
+          ok: true,
+          json: async () => ({
+            issuer,
+            jwks_uri: `${issuer}/jwks`,
+            introspection_endpoint: `${issuer}/token/introspection`,
+          }),
+        }
+      }
+      return { ok: true, json: async () => ({ active: true, sub: 'sub-local-opaque', aud: audience }) }
+    },
+  })
+
+  assert.deepStrictEqual(await verifier.verify('local-opaque-token'), {
+    subject: 'sub-local-opaque',
+    scopes: [],
+  })
+  assert.strictEqual(calls.length, 2)
+  assert.strictEqual(calls[1].url, `${issuer}/token/introspection`)
+  assert.match(calls[1].options.headers.Authorization, /^Basic /)
+})
+
 test('WebhookManager 按 ownerSubject 隔离列表、删除和事件投递', async () => {
   const manager = new WebhookManager()
   const sent = []
