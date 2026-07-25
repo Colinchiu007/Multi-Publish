@@ -17,6 +17,23 @@ const fs = require('fs');
 const path = require('path');
 const { buildInitScript } = require('../e2e/helpers/fixture-loader');
 
+function isCiEnvironment(value = process.env.CI) {
+  return /^(1|true|yes)$/i.test(String(value || '').trim());
+}
+
+function assertSafeVisualTestName(testName) {
+  const isBasename = typeof testName === 'string'
+    && path.basename(testName) === testName
+    && path.posix.basename(testName) === testName
+    && path.win32.basename(testName) === testName;
+  if (!isBasename || !testName || testName === '.' || testName === '..' || testName.includes('\0')) {
+    const error = new Error(`无效的视觉测试名: ${String(testName)}`);
+    error.code = 'ERR_VISUAL_TEST_NAME_INVALID';
+    throw error;
+  }
+  return testName;
+}
+
 class VisualTestRunner {
   constructor(options = {}) {
     this.url = options.url || process.env.TEST_URL || 'http://127.0.0.1:5174';
@@ -141,6 +158,7 @@ class VisualTestRunner {
    * 截图并分析
    */
   async captureAndAnalyze(viewName, prompt, options = {}) {
+    viewName = assertSafeVisualTestName(viewName);
     const screenshotPath = path.join(this.screenshotDir, `${viewName}.png`);
     await this.page.screenshot({ path: screenshotPath, fullPage: options.fullPage });
     
@@ -156,6 +174,7 @@ class VisualTestRunner {
    * 像素对比测试
    */
   async pixelRegressionTest(testName, route, options = {}) {
+    testName = assertSafeVisualTestName(testName);
     const consoleOffset = this.consoleErrors.length;
     const pageOffset = this.pageErrors.length;
     await this._navigateToRoute(
@@ -172,7 +191,10 @@ class VisualTestRunner {
     
     // 如果没有基准图，创建
     if (!fs.existsSync(baselinePath)) {
-      if (process.env.UPDATE_BASELINE !== '1') {
+      const baselineMaintenance = process.env.UPDATE_BASELINE === '1'
+        && process.env.VISUAL_BASELINE_MAINTENANCE === '1'
+        && !isCiEnvironment();
+      if (!baselineMaintenance) {
         const error = new Error(`缺少人工审核的视觉基线: ${baselinePath}`);
         error.code = 'ERR_VISUAL_BASELINE_MISSING';
         this.results.push({
@@ -228,6 +250,7 @@ class VisualTestRunner {
    * AI 视觉测试：导航到路由，截图，对每个 check 做 OCR + 快照记录
    */
   async aiVisionTest(testName, route, checks = [], options = {}) {
+    testName = assertSafeVisualTestName(testName);
     if (checks.length === 0 || checks.some((check) => !check.selector && !check.text)) {
       const error = new Error(`视觉测试 ${testName} 缺少可执行的 selector/text 断言`);
       error.code = 'ERR_VISUAL_CHECK_INVALID';
@@ -327,12 +350,4 @@ class VisualTestRunner {
   }
 }
 
-module.exports = { VisualTestRunner };
-
-
-
-
-
-
-
-
+module.exports = { VisualTestRunner, isCiEnvironment, assertSafeVisualTestName };

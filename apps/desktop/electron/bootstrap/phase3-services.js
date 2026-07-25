@@ -42,6 +42,7 @@ async function runCleanups(cleanups) {
  * @param {object} deps.usageTracker - 使用量统计服务
  * @param {object} deps.store - Store 实例
  * @param {object} deps.taskQueue - 任务队列
+ * @param {{setOwnerSubjectProvider?: (provider: Function|null) => void}} [deps.commentManager] - 评论服务
  * @param {object} deps.callbackServer - 回调服务器
  * @param {object} deps.scheduler - 调度器
  * @param {object} deps.keywordMonitor - 关键词监控
@@ -51,7 +52,7 @@ async function runCleanups(cleanups) {
  * @param {Function} deps.getMainWin - 获取主窗口函数
  * @param {Function} [deps.createIdentityService] - 用户身份服务工厂
  */
-async function startServices({ container, usageTracker, store, taskQueue, callbackServer, scheduler,
+async function startServices({ container, usageTracker, store, taskQueue, commentManager, callbackServer, scheduler,
   keywordMonitor, analyticsService, pythonBridge, CloudPublisher, getMainWin, createIdentityService }) {
   /** @type {Array<() => unknown | Promise<unknown>>} */
   const cleanups = []
@@ -77,14 +78,34 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
       }
     })
 
+    let callbackServerStopped = false
+    let callbackServerStopping = null
+    const stopCallbackServer = async () => {
+      if (callbackServerStopped) return
+      if (callbackServerStopping) return callbackServerStopping
+      callbackServerStopping = (async () => {
+        if (callbackServer && typeof callbackServer.stop === 'function') await callbackServer.stop()
+        callbackServerStopped = true
+      })()
+      try {
+        await callbackServerStopping
+      } finally {
+        callbackServerStopping = null
+      }
+    }
+    cleanups.push(stopCallbackServer)
     try {
       await callbackServer.start((data) => {
         const win = getMainWin()
         if (win && !win.isDestroyed()) win.webContents.send('callback:received', data)
         if (data) store.addCallbackLog(data.type || 'unknown', data.source || data.platform, data)
       })
-      cleanups.push(() => callbackServer.stop && callbackServer.stop())
     } catch (e) {
+      try {
+        await stopCallbackServer()
+      } catch (stopError) {
+        log.warn('App', 'Callback server cleanup failed: ' + errorMessage(stopError))
+      }
       log.warn('App', 'Callback server failed to start (port may be in use): ' + errorMessage(e))
     }
 
@@ -161,11 +182,28 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (store && typeof store.setOwnerSubjectProvider === 'function') {
       store.setOwnerSubjectProvider(ownerSubjectProvider)
       cleanups.push(() => store.setOwnerSubjectProvider(null))
-      const accountManager = require('../publishers/account-manager')
-      if (typeof accountManager.setOwnerSubjectProvider === 'function') {
-        accountManager.setOwnerSubjectProvider(ownerSubjectProvider)
-        cleanups.push(() => accountManager.setOwnerSubjectProvider(null))
+    }
+    const accountManager = require('../publishers/account-manager')
+    if (typeof accountManager.setOwnerSubjectProvider === 'function') {
+      accountManager.setOwnerSubjectProvider(ownerSubjectProvider)
+      cleanups.push(() => accountManager.setOwnerSubjectProvider(null))
+    }
+    const qrCodeLogin = container && typeof container.get === 'function' ? container.get('qrCodeLogin') : null
+    if (qrCodeLogin) {
+      if (typeof qrCodeLogin.setOwnerSubjectProvider === 'function') {
+        qrCodeLogin.setOwnerSubjectProvider(ownerSubjectProvider)
       }
+      cleanups.push(async () => {
+        try {
+          if (typeof qrCodeLogin.close === 'function') {
+            await qrCodeLogin.close({ notifyRenderer: false })
+          }
+        } finally {
+          if (typeof qrCodeLogin.setOwnerSubjectProvider === 'function') {
+            qrCodeLogin.setOwnerSubjectProvider(null)
+          }
+        }
+      })
     }
 
     if (scheduler && typeof scheduler.setOwnerSubjectProvider === 'function') {
@@ -175,6 +213,10 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (taskQueue && typeof taskQueue.setOwnerSubjectProvider === 'function') {
       taskQueue.setOwnerSubjectProvider(ownerSubjectProvider)
       cleanups.push(() => taskQueue.setOwnerSubjectProvider(null))
+    }
+    if (commentManager && typeof commentManager.setOwnerSubjectProvider === 'function') {
+      commentManager.setOwnerSubjectProvider(ownerSubjectProvider)
+      cleanups.push(() => commentManager.setOwnerSubjectProvider(null))
     }
 
     const restoreForOwner = (state) => {
@@ -204,9 +246,13 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
 
     if (identityService && typeof identityService.onStateChanged === 'function') {
       const unsubscribeIdentity = identityService.onStateChanged((state) => {
-        restoreForOwner(state)
-        if (taskQueue && typeof taskQueue.setOwnerSubjectProvider === 'function') {
-          taskQueue.setOwnerSubjectProvider(ownerSubjectProvider)
+        try {
+          restoreForOwner(state)
+          if (taskQueue && typeof taskQueue.setOwnerSubjectProvider === 'function') {
+            taskQueue.setOwnerSubjectProvider(ownerSubjectProvider)
+          }
+        } catch (e) {
+          log.warn('Identity', 'State change restore failed: ' + errorMessage(e))
         }
       })
       if (typeof unsubscribeIdentity === 'function') cleanups.push(unsubscribeIdentity)

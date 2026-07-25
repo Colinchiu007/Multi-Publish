@@ -15,6 +15,7 @@
 const { PublishApiServer } = require("../src/publish-api-server");
 const { loadConfig, parseCLI } = require("../src/config-loader");
 const { createLogtoRuntime } = require("../src/auth/logto-runtime");
+const { resolvePlatformConfigPath } = require("../src/runtime-config-path");
 const path = require("path");
 
 const HELP_TEXT = [
@@ -54,6 +55,25 @@ function findConfigFile() {
   return null;
 }
 
+function loadPlatformSummary(options = {}) {
+  const yamlPath = options.yamlPath || resolvePlatformConfigPath(options.runtimePathOptions);
+  try {
+    if (!require("fs").statSync(yamlPath).isFile()) return null;
+    const yaml = require("js-yaml");
+    const config = yaml.load(require("fs").readFileSync(yamlPath, "utf8"));
+    if (!config || !config.platforms) return null;
+    return {
+      yamlPath,
+      allCount: Object.keys(config.platforms).length,
+      apiCount: Object.values(config.platforms).filter(function(platform) {
+        return platform && platform.has_api;
+      }).length,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
 async function main() {
   var args = process.argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) {
@@ -61,20 +81,10 @@ async function main() {
     return;
   }
   var configFile = findConfigFile();
-  // ???? platforms.yaml???????????
-  var yamlPath = path.resolve(__dirname, "..", "..", "..", "config", "platforms.yaml");
-  try {
-    if (require("fs").statSync(yamlPath).isFile()) {
-      var yaml = require("js-yaml");
-      var raw = require("fs").readFileSync(yamlPath, "utf8");
-      var cfg = yaml.load(raw);
-      if (cfg && cfg.platforms) {
-        var apiCount = Object.values(cfg.platforms).filter(function(p) { return p && p.has_api; }).length;
-        var allCount = Object.keys(cfg.platforms).length;
-        console.log("[publish-api] Loaded platforms.yaml: " + allCount + " platforms, " + apiCount + " API-capable");
-      }
-    }
-  } catch(e) { /* platforms.yaml not available, that is OK */ }
+  var platformSummary = loadPlatformSummary();
+  if (platformSummary) {
+    console.log("[publish-api] Loaded platforms.yaml: " + platformSummary.allCount + " platforms, " + platformSummary.apiCount + " API-capable");
+  }
   var config = loadConfig({
     configFile: configFile,
     readEnv: true,
@@ -135,7 +145,13 @@ async function main() {
   }
 }
 
-main().catch(function(err) {
+if (require.main === module) main().catch(function(err) {
     console.error("[publish-api] 启动失败:", err.message);
     process.exit(1);
 });
+
+module.exports = {
+  findConfigFile,
+  loadPlatformSummary,
+  main,
+};

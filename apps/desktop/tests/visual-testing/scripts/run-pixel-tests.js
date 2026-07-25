@@ -5,7 +5,8 @@
 
 try { require('dotenv').config({ path: __dirname + '/../.env' }); } catch (_) {}
 
-const { VisualTestRunner } = require('../test-runner');
+const path = require('path');
+const { VisualTestRunner, isCiEnvironment } = require('../test-runner');
 
 const pixelTests = [
   { name: 'home-baseline', route: '/', waitFor: '.cohere-main .page-title:has-text("社媒管家")' },
@@ -41,6 +42,14 @@ async function runPixelSuite(tests = pixelTests, options = {}) {
   try {
     await runner.launch();
     for (const test of tests) {
+      const artifacts = {
+        screenshotPath: runner.screenshotDir
+          ? path.join(runner.screenshotDir, `${test.name}-current.png`)
+          : null,
+        baselinePath: runner.baselineDir
+          ? path.join(runner.baselineDir, `${test.name}.png`)
+          : null,
+      };
       console.log(test.name + ' (' + test.route + ')...');
       try {
         const result = await runner.pixelRegressionTest(test.name, test.route, {
@@ -49,15 +58,29 @@ async function runPixelSuite(tests = pixelTests, options = {}) {
         });
         const status = result && result.status === 'BASELINE_CREATED'
           ? 'BASELINE_CREATED'
-          : 'PASSED';
-        results.push({ test: test.name, route: test.route, status, result });
+          : result && result.passed === true
+            ? 'PASSED'
+            : 'FAILED';
+        const error = status === 'FAILED'
+          ? result.error || '像素对比未通过'
+          : undefined;
+        results.push({ test: test.name, route: test.route, status, result, error, ...artifacts });
         console.log('  ' + status);
       } catch (error) {
+        const recorded = Array.isArray(runner.results)
+          ? runner.results.slice().reverse().find(result => result.test === test.name)
+          : null;
         results.push({
           test: test.name,
           route: test.route,
           status: 'FAILED',
           error: error.message,
+          result: recorded ? {
+            misMatchPercentage: recorded.misMatchPercentage,
+            diffImagePath: recorded.diffImagePath || recorded.diffPath || null,
+            threshold: runner.pixelDiff && runner.pixelDiff.threshold,
+          } : null,
+          ...artifacts,
         });
         console.log('  FAILED: ' + error.message.split('\n')[0]);
       }
@@ -79,21 +102,29 @@ async function runPixelSuite(tests = pixelTests, options = {}) {
 
   if (fatalError) throw fatalError;
 
-  const failed = results.filter(result => result.status === 'FAILED').length;
+  const actualFailures = results.filter(result => result.status === 'FAILED').length;
   const baselined = results.filter(result => result.status === 'BASELINE_CREATED').length;
-  const passed = results.length - failed - baselined;
-  return { results, failed, passed, baselined };
+  const maintenanceMode = !isCiEnvironment() && (
+    options.allowBaselineCreation === true || (
+      process.env.UPDATE_BASELINE === '1'
+      && process.env.VISUAL_BASELINE_MAINTENANCE === '1'
+    )
+  );
+  const failed = actualFailures + (maintenanceMode ? 0 : baselined);
+  const passed = results.length - actualFailures - baselined;
+  return { results, failed, passed, baselined, maintenanceMode };
 }
 
-async function main() {
+async function main(options = {}) {
   console.log('像素视觉门禁');
   console.log('目标: ' + (process.env.TEST_URL || 'http://127.0.0.1:5174'));
-  const summary = await runPixelSuite();
+  const summary = await runPixelSuite(options.tests || pixelTests, options);
   console.log(
     '像素结果: '
-    + (summary.passed + summary.baselined)
+    + summary.passed
     + '/' + summary.results.length
-    + ' 通过，' + summary.failed + ' 失败',
+    + ' 通过，' + summary.failed + ' 门禁失败'
+    + (summary.baselined ? '，' + summary.baselined + ' 个新基线' : ''),
   );
   if (summary.failed > 0) {
     const error = new Error('像素视觉门禁存在 ' + summary.failed + ' 个失败');

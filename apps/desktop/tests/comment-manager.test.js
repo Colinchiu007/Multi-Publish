@@ -65,7 +65,7 @@ describe('CommentManager', () => {
       const list = await cm.listComments('douyin', 'acc1', { maxDays: 7 })
       expect(Array.isArray(list)).toBe(true)
       expect(list.length).toBe(0)
-      expect(mockLoadCredential).toHaveBeenCalledWith('acc1', '/tmp/test-electron-path')
+      expect(mockLoadCredential).toHaveBeenCalledWith('acc1', '/tmp/test-electron-path', undefined)
     })
   })
 
@@ -75,7 +75,7 @@ describe('CommentManager', () => {
       const result = await cm.replyComment('douyin', 'acc1', 'cmt-123', '感谢评论')
       expect(result.success).toBe(false)
       expect(result.error).toContain('ORCHESTRATOR_URL')
-      expect(mockLoadCredential).toHaveBeenCalledWith('acc1', '/tmp/test-electron-path')
+      expect(mockLoadCredential).toHaveBeenCalledWith('acc1', '/tmp/test-electron-path', undefined)
     })
   })
 

@@ -3426,3 +3426,71 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 3. 用户可编辑字段的测试必须从 UI payload 追踪到最终 adapter/publisher 输入，不能止于队列入参。
 4. 本轮回归测试和 `.quality-gates.md` 执行记录纳入提交，后续 CI 沿用相同测试文件。
 5. 打包启动必须同时满足进程存活、stderr 无关键路径错误、ASAR 入口可 require；三项缺一不可。
+
+## 2026-07-22：scheduler:list 缺失 IPC 来源校验
+
+### 第一性原因
+
+`13fe7d2` 将 scheduler IPC 迁移到统一异常包装器时，`scheduler:create` 和 `scheduler:cancel` 使用了 `withSenderCheck`，但只读的 `scheduler:list` 仅使用 `wrapIpcHandlerRaw`。后续 `owner_subject` 隔离改动只增强了 handler 内的数据归属，没有检查外层来源校验是否三条通道一致，因此不可信 frame 仍可读取当前用户的定时任务元数据。
+
+### 测试逃逸链
+
+- 单元测试覆盖了 `scheduler:create` 的不可信来源拒绝，但没有给 `scheduler:list` 建立同类合同。
+- 身份隔离测试只从可信 renderer mock 调用列表接口，验证了 owner 过滤，没有验证调用来源。
+- 功能 E2E 和视觉测试运行在受信任应用页面，无法构造外部 frame 的 IPC 请求。
+- 代码审查聚焦多租户参数传递，未对同一 handler 文件逐条比较读取和写入通道的 `withSenderCheck` 包装。
+
+### 修复与回归保护
+
+- `scheduler:list` 改为 `withSenderCheck(wrapIpcHandlerRaw(...))`，与创建、取消接口使用同一来源边界。
+- `scheduler.test.js` 先新增“不可信来源读取定时任务”失败用例，确认旧实现错误返回任务列表；修复后 11/11 通过，并断言 `scheduler.list` 未被调用。
+
+### 预防措施
+
+`.quality-gates.md` 新增规则：所有读取、创建、更新、删除 IPC 通道均要有来源校验；每个新增或修改通道至少覆盖一个不可信来源拒绝测试。审核时不能因接口只读而降低 sender 验证要求。
+
+## 2026-07-22：E2E 预检报告写入掩盖真实环境错误
+
+### 第一性原因
+
+本轮未提交的 `run-all.js` 新增预检报告后，使用固定 `e2e-preflight.json` 直接 `writeFileSync`，没有隔离 Windows 的 `EPERM/EACCES`。当报告目录出现瞬时文件锁时，写报告异常在预检 catch 中再次抛出，覆盖了原本的 Chromium/Vite 环境错误，使 E2E 在业务断言前失去可诊断性。
+
+### 测试逃逸链
+
+- 原有 E2E 基础设施测试只验证预检失败会调用报告器，没有模拟报告器写入失败。
+- 功能 E2E 在受限沙箱中首先被 Chromium `spawn EPERM` 阻断，报告异常又掩盖了该根因。
+- 视觉和业务流程测试不覆盖测试报告文件锁。
+- 审查关注预检是否存在，未审查 catch 分支中的二次 I/O 是否保持原始错误。
+
+### 修复与回归保护
+
+- 预检报告改为临时文件写入后原子 rename；Windows 已存在目标时先受控替换再 rename，失败时清理临时文件、记录 `reportWriteError`，并保留原始 `E2E_ENVIRONMENT_BLOCKED`。
+- 主入口同时隔离自定义报告器异常，避免测试替身或未来报告实现再次遮蔽环境状态。
+- `e2e-quality-infrastructure.test.js` 覆盖原子写入、已有目标替换、`EPERM` 和自定义报告器抛错；55/55 通过。
+
+### 预防措施
+
+所有测试基础设施的诊断/报告 I/O 都必须是非遮蔽型辅助路径：失败只能附加诊断，不能替换被测系统或环境的原始错误。每个新增 catch 分支都要覆盖“辅助操作失败”的测试。
+
+## 2026-07-22：CI 视觉门禁分叉为错误路由与过期基线
+
+### 第一性原因
+
+`476b4d13` 在 `visual-ci.js` 中复制了一份 8 项视图清单，并使用第三方 runner 访问 history URL；应用实际采用 hash 路由。后续 `6d048d01` 扩展了 `run-pixel-tests.js` 的批准清单、等待条件和本地 runner，但没有同步 CI。CI 因此把所有页面回落为首页截图，得到 100% mismatch，还引用了不存在的 `monitor-dashboard` 基线。
+
+### 测试逃逸链
+
+- 单元测试覆盖了单个视觉 runner 的像素失败处理，未断言 CI 与日常门禁共享同一测试集合。
+- `test:visual:pixel` 的 16/16 通过不能证明独立 CI 入口的路由协议正确。
+- CI 没有在启动浏览器前验证批准基线完整性，也没有检查截图的实际 hash 路由。
+- 代码审查未识别重复的硬编码清单和不同 runner 的导航语义。
+
+### 修复与回归保护
+
+- `visual-ci.js` 改为复用 `run-pixel-tests.js` 的 `pixelTests` 与 `runPixelSuite`，统一 hash 路由、夹具、locale、等待条件和阈值。
+- 新增批准基线预检；Agent 判断器仅从本轮像素报告读取 route、mismatch 和 diff，禁止共享 meta/diff 目录混入历史数据。
+- `visual-ci.test.js` 覆盖注册表引用、基线缺失、默认 URL、空 runner 返回、Agent 报告来源和失败闭环；修复后 CI 视觉门禁 16/16、全量视觉回归退出码 0。
+
+### 预防措施
+
+`.quality-gates.md` 新增规则 6：CI 视觉入口只能复用单一批准注册表；新增视图、基线或导航协议时，集合合同和基线完整性测试必须同时更新。

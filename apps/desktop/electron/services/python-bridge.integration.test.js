@@ -78,6 +78,22 @@ function mockHealthGetError () {
   })
 }
 
+function mockBackendResponse (statusCode, payload) {
+  httpRequestSpy.mockImplementationOnce((opts, cb) => {
+    const res = new EventEmitter()
+    res.statusCode = statusCode
+    setImmediate(() => {
+      cb(res)
+      res.emit('data', JSON.stringify(payload))
+      res.emit('end')
+    })
+    const req = new EventEmitter()
+    req.write = vi.fn()
+    req.end = vi.fn()
+    return req
+  })
+}
+
 test('startPythonBackend 成功路径：spawn 正确参数 + 健康检查通过 + isRunning=true', async () => {
   mockHealthGet(true)
   await bridge.startPythonBackend()
@@ -163,6 +179,66 @@ test('requestBackend 自动透传当前 Logto access token', async () => {
   await expect(bridge.requestBackend('GET', '/api/accounts')).resolves.toEqual({ code: 0 })
   const [opts] = httpRequestSpy.mock.calls[0]
   expect(opts.headers.Authorization).toBe('Bearer access-token-1')
+})
+
+test('requestBackend 在等待访问令牌期间切换 owner 时拒绝发送旧用户请求', async () => {
+  mockHealthGet(true)
+  await bridge.startPythonBackend()
+  let ownerSubject = 'user-a'
+  let resolveToken
+  const tokenPromise = new Promise(resolve => { resolveToken = resolve })
+  bridge.setAuthService({
+    getState: vi.fn(() => ({ user: { sub: ownerSubject } })),
+    getAccessToken: vi.fn(() => tokenPromise),
+  })
+  mockBackendResponse(200, { code: 0 })
+
+  const request = bridge.requestBackend('DELETE', '/api/accounts/account-a', null, 30000, 'user-a')
+  ownerSubject = 'user-b'
+  resolveToken('token-b')
+
+  await expect(request).rejects.toMatchObject({ code: 'AUTH_OWNER_CHANGED' })
+  expect(httpRequestSpy).not.toHaveBeenCalled()
+})
+
+test('requestBackend 在响应返回后切换 owner 时拒绝接受旧用户结果', async () => {
+  mockHealthGet(true)
+  await bridge.startPythonBackend()
+  let ownerSubject = 'user-a'
+  let completeResponse
+  bridge.setAuthService({
+    getState: vi.fn(() => ({ user: { sub: ownerSubject } })),
+    getAccessToken: vi.fn(async () => 'token-a'),
+  })
+  httpRequestSpy.mockImplementationOnce((opts, cb) => {
+    const res = new EventEmitter()
+    res.statusCode = 200
+    const req = new EventEmitter()
+    req.write = vi.fn()
+    req.end = vi.fn(() => { completeResponse = () => {
+      cb(res)
+      res.emit('data', JSON.stringify({ code: 0 }))
+      res.emit('end')
+    } })
+    return req
+  })
+
+  const request = bridge.requestBackend('GET', '/api/accounts', null, 30000, 'user-a')
+  await vi.waitFor(() => expect(completeResponse).toEqual(expect.any(Function)))
+  ownerSubject = 'user-b'
+  completeResponse()
+
+  await expect(request).rejects.toMatchObject({ code: 'AUTH_OWNER_CHANGED' })
+})
+
+test('requestBackend 提供 expected owner 但身份服务不能解析 owner 时 fail closed', async () => {
+  mockHealthGet(true)
+  await bridge.startPythonBackend()
+  bridge.setAuthService({ getAccessToken: vi.fn(async () => 'token-a') })
+
+  await expect(bridge.requestBackend('GET', '/api/accounts', null, 30000, 'user-a'))
+    .rejects.toMatchObject({ code: 'AUTH_OWNER_CHANGED' })
+  expect(httpRequestSpy).not.toHaveBeenCalled()
 })
 
 test('requestBackend 收到一次 401 时强制刷新并只重放一次', async () => {

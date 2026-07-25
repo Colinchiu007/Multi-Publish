@@ -118,4 +118,44 @@ describe('account-state-restorer', () => {
       expect.objectContaining({ accountId: 'acct-keep', platform: 'zhihu' }),
     ])
   })
+
+  it('相同账号 ID 在不同 owner 下隔离查询和删除', () => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-state-'))
+    process.env.ELECTRON_USER_DATA_DIR = userDataDir
+    restorer.saveAccountRecord({ accountId: 'acct-shared', platform: 'douyin', accountInfo: { name: 'A' } }, 'user-a')
+    restorer.saveAccountRecord({ accountId: 'acct-shared', platform: 'douyin', accountInfo: { name: 'B' } }, 'user-b')
+
+    expect(restorer.getAccountRecord('douyin', 'acct-shared', 'user-a').accountInfo).toEqual({ name: 'A' })
+    expect(restorer.getAccountRecord('douyin', 'acct-shared', 'user-b').accountInfo).toEqual({ name: 'B' })
+    expect(restorer.listLoggedInAccounts('user-a')).toEqual([
+      expect.objectContaining({ accountId: 'acct-shared', owner_subject: 'user-a' }),
+    ])
+    expect(restorer.deleteAccountRecordsById('acct-shared', 'user-a')).toBe(true)
+    expect(restorer.getAccountRecord('douyin', 'acct-shared', 'user-a')).toBeNull()
+    expect(restorer.getAccountRecord('douyin', 'acct-shared', 'user-b')).not.toBeNull()
+  })
+
+  it('显式非法 owner 不会被吞掉并回退到 legacy 数据', () => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-state-'))
+    process.env.ELECTRON_USER_DATA_DIR = userDataDir
+
+    expect(() => restorer.saveAccountRecord({ accountId: 'acct', platform: 'douyin' }, null)).toThrow('登录会话缺少用户标识')
+    expect(() => restorer.getAccountRecord('douyin', 'acct', null)).toThrow('登录会话缺少用户标识')
+    expect(() => restorer.deleteAccountRecord('douyin', 'acct', null)).toThrow('登录会话缺少用户标识')
+    expect(() => restorer.deleteAccountRecordsById('acct', null)).toThrow('登录会话缺少用户标识')
+    expect(() => restorer.listLoggedInAccounts(null)).toThrow('登录会话缺少用户标识')
+  })
+
+  it('purgeExpired 继续支持显式 userDataDir', () => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-state-'))
+    const stateDir = path.join(userDataDir, 'accounts')
+    fs.mkdirSync(stateDir, { recursive: true })
+    fs.writeFileSync(path.join(stateDir, 'state.jsonl'), [
+      JSON.stringify({ accountId: 'old', platform: 'douyin', timestamp: 0 }),
+      JSON.stringify({ accountId: 'new', platform: 'douyin', timestamp: Date.now() }),
+    ].join('\n') + '\n')
+
+    expect(restorer.purgeExpired(90, userDataDir)).toBe(1)
+    expect(fs.readFileSync(path.join(stateDir, 'state.jsonl'), 'utf8')).not.toContain('"old"')
+  })
 })

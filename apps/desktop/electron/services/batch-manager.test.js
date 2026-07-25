@@ -24,14 +24,17 @@ function createStore(articles) {
 
   return {
     batch,
+    addBatchJob: vi.fn(() => true),
     getBatchJob: vi.fn(function (id) {
       return id === batch.id ? batch : null
     }),
+    listBatchJobs: vi.fn(() => [batch]),
     updateBatchJob: vi.fn(function (id, updates) {
       if (id !== batch.id) return false
       Object.assign(batch, updates)
       return true
     }),
+    deleteBatchJob: vi.fn(() => true),
   }
 }
 
@@ -217,5 +220,83 @@ describe('BatchManager.executeBatch 入队与终态合同', () => {
         failed: 1,
       },
     })
+  })
+
+  it('batch:list 和 batch:get 拒绝不受信任来源，并允许受信任来源读取', async () => {
+    const store = createStore([])
+    const listed = [{ id: 'batch-visible', articles: [] }]
+    store.listBatchJobs = vi.fn(() => listed)
+    store.getBatchJob = vi.fn((id) => id === 'batch-visible' ? listed[0] : null)
+    const manager = new BatchManager(store)
+    manager.setOwnerSubjectProvider(() => 'user-a')
+    manager.registerIpcHandlers()
+
+    const listHandler = __electronMock.ipcMain._handlers['batch:list']
+    const getHandler = __electronMock.ipcMain._handlers['batch:get']
+    const evilEvent = { senderFrame: { url: 'https://evil.example/' } }
+    const trustedEvent = { senderFrame: { url: 'app://localhost/index.html' } }
+
+    await expect(listHandler(evilEvent)).resolves.toMatchObject({ code: -3, message: '未授权的调用来源' })
+    await expect(getHandler(evilEvent, 'batch-visible')).resolves.toMatchObject({ code: -3, message: '未授权的调用来源' })
+    expect(store.listBatchJobs).not.toHaveBeenCalled()
+    expect(store.getBatchJob).not.toHaveBeenCalled()
+
+    await expect(listHandler(trustedEvent)).resolves.toEqual({ code: 0, data: listed })
+    await expect(getHandler(trustedEvent, 'batch-visible')).resolves.toEqual({ code: 0, data: listed[0] })
+    expect(store.listBatchJobs).toHaveBeenCalledWith('user-a')
+    expect(store.getBatchJob).toHaveBeenCalledWith('batch-visible', 'user-a')
+  })
+
+  it('身份缺少 sub 时批量读取 fail-closed，且不调用 Store', async () => {
+    const store = createStore([])
+    const manager = new BatchManager(store)
+    manager.setOwnerSubjectProvider(() => null)
+    manager.registerIpcHandlers()
+    const trustedEvent = { senderFrame: { url: 'app://localhost/index.html' } }
+
+    await expect(__electronMock.ipcMain._handlers['batch:list'](trustedEvent))
+      .resolves.toEqual({ code: -3, message: '无法识别当前用户', data: [] })
+    await expect(__electronMock.ipcMain._handlers['batch:get'](trustedEvent, 'batch-1'))
+      .resolves.toEqual({ code: -3, message: '无法识别当前用户', data: null })
+    expect(store.listBatchJobs).not.toHaveBeenCalled()
+    expect(store.getBatchJob).not.toHaveBeenCalled()
+  })
+
+  it('批量执行在身份切换后仍使用发起时 owner 更新状态，并且不把进度推给新用户', async () => {
+    let owner = 'user-a'
+    let resolveAdd
+    const store = createStore([
+      { title: '文章', content: '正文', platforms: ['wechat_mp'] },
+    ])
+    const queue = createQueue(() => new Promise(resolve => { resolveAdd = resolve }))
+    BatchManager.setTaskQueue(queue)
+    const manager = new BatchManager(store)
+    manager.setOwnerSubjectProvider(() => owner)
+
+    const execution = manager.executeBatch('batch-1')
+    expect(queue.add).toHaveBeenCalledOnce()
+    owner = 'user-b'
+    resolveAdd('task-owner-a')
+    await execution
+    queue.emit('task:success', { id: 'task-owner-a', status: 'success', result: {} })
+
+    expect(store.getBatchJob).toHaveBeenCalledWith('batch-1', 'user-a')
+    expect(store.updateBatchJob.mock.calls.every(call => call[2] === 'user-a')).toBe(true)
+    expect(emittedEvents(send)).toEqual([])
+  })
+
+  it('批量 IPC 不向渲染层泄露底层存储错误', async () => {
+    const store = createStore([])
+    store.listBatchJobs.mockImplementation(() => {
+      throw new Error('SQLite error: C:\\Users\\secret\\multi-publish.db')
+    })
+    const manager = new BatchManager(store)
+    manager.registerIpcHandlers()
+    const trustedEvent = { senderFrame: { url: 'app://localhost/index.html' } }
+
+    const result = await __electronMock.ipcMain._handlers['batch:list'](trustedEvent)
+
+    expect(result).toEqual({ code: -1, message: '批量任务读取失败', data: [] })
+    expect(JSON.stringify(result)).not.toContain('multi-publish.db')
   })
 })

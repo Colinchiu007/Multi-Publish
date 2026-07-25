@@ -72,6 +72,12 @@ class PluginLoader {
     this._appVersion = version;
   }
 
+  _recordDirectoryError(error) {
+    const message = error && error.message ? error.message : String(error);
+    this._errors.push({ file: this._pluginsDir, stage: "directory", error: message });
+    console.warn("[PluginLoader] directory unavailable: " + message);
+  }
+
   loadAll() {
     this._plugins.clear();
     this._manifests.clear();
@@ -81,11 +87,18 @@ class PluginLoader {
     this._errors = [];
 
     if (!fs.existsSync(this._pluginsDir)) {
-      try { fs.mkdirSync(this._pluginsDir, { recursive: true }); } catch (e) { console.warn('[PluginLoader] mkdir failed:', e.message); }
+      try { fs.mkdirSync(this._pluginsDir, { recursive: true }); }
+      catch (e) { this._recordDirectoryError(e); }
       return this._plugins;
     }
 
-    const entries = fs.readdirSync(this._pluginsDir, { withFileTypes: true });
+    let entries;
+    try {
+      entries = fs.readdirSync(this._pluginsDir, { withFileTypes: true });
+    } catch (e) {
+      this._recordDirectoryError(e);
+      return this._plugins;
+    }
     for (const entry of entries) {
       try {
         if (entry.isFile() && entry.name.endsWith(".js")) {

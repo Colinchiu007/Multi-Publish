@@ -170,6 +170,35 @@ describe('QrCodeLogin 凭证边界', () => {
     expect(mainWindow.webContents.send).not.toHaveBeenCalledWith('qrcode:completed', expect.anything())
   })
 
+  it('扫码会话从保存到取消回滚始终使用开始时的 owner', async () => {
+    let ownerSubject = 'user-a'
+    const save = deferred()
+    const accountManager = createManager({ saveCapturedAccount: vi.fn(() => save.promise) })
+    const qrCodeLogin = new QrCodeLogin({
+      accountManager,
+      ownerSubjectProvider: () => ownerSubject,
+    })
+    qrCodeLogin.setMainWindow(createMainWindow())
+    const loginPromise = qrCodeLogin.openLogin('wechat_mp', 0).catch(error => error)
+    const saving = qrCodeLogin._onLoginSuccess(
+      { cookies: [{ name: 'session', value: 'secret' }], localStorage: {}, accountName: '公众号' },
+      qrCodeLogin._activeSession,
+    )
+
+    expect(accountManager.saveCapturedAccount).toHaveBeenCalledWith('wechat_mp', {
+      cookies: [{ name: 'session', value: 'secret' }],
+      localStorage: {},
+      name: '公众号',
+    }, 'user-a')
+    ownerSubject = 'user-b'
+    qrCodeLogin.close()
+    save.resolve({ id: 'owner-bound-account', platform: 'wechat_mp', name: '公众号' })
+
+    await saving
+    await expect(loginPromise).resolves.toBeInstanceOf(Error)
+    expect(accountManager.deleteAccount).toHaveBeenCalledWith('owner-bound-account', 'user-a')
+  })
+
   it('新会话替换旧会话后，旧提取结果不能污染新平台', async () => {
     const extract = deferred()
     const accountManager = createManager()

@@ -117,4 +117,49 @@ describe('store-schema sql.js compatibility', function () {
     }).not.toThrow()
   })
 
+  it('旧 callback_logs 表按应用启动顺序迁移后保留历史记录并建立 owner 索引', async function () {
+    db.exec(`
+      CREATE TABLE callback_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        source TEXT DEFAULT '',
+        payload TEXT DEFAULT '{}',
+        created_at TEXT DEFAULT ''
+      );
+      INSERT INTO callback_logs (type, source, payload, created_at)
+      VALUES ('publish', 'wechat_mp', '{"ok":true}', '2026-07-22T00:00:00.000Z');
+    `)
+    const {
+      LEGACY_OWNER_SUBJECT,
+      SCHEMA_SQL,
+      migrateCallbackLogOwnerSchema,
+      migrateOwnerIsolationSchema,
+    } = await import('./store-schema')
+    const schemaDb = {
+      exec: (sql) => db.exec(sql),
+      prepare: (sql) => ({
+        all: () => {
+          const result = db.exec(sql)
+          if (result.length === 0) return []
+          return result[0].values.map((values) => Object.fromEntries(
+            result[0].columns.map((column, index) => [column, values[index]]),
+          ))
+        },
+      }),
+    }
+
+    expect(() => {
+      for (const sql of SCHEMA_SQL) db.exec(sql)
+      migrateOwnerIsolationSchema(schemaDb)
+      migrateCallbackLogOwnerSchema(schemaDb)
+    }).not.toThrow()
+
+    const columns = db.exec('PRAGMA table_info(callback_logs)')[0].values.map((row) => row[1])
+    const owner = db.exec('SELECT owner_subject FROM callback_logs WHERE id = 1')[0].values[0][0]
+    const indexes = db.exec('PRAGMA index_list(callback_logs)')[0].values.map((row) => row[1])
+    expect(columns).toContain('owner_subject')
+    expect(owner).toBe(LEGACY_OWNER_SUBJECT)
+    expect(indexes).toContain('idx_callback_owner_created')
+  })
+
 })

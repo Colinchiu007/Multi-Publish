@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import fs from 'fs'
+import path from 'path'
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ path: '/' }),
@@ -45,5 +47,15 @@ describe('AppNavbar 升级入口', () => {
 
     await navbar.get('.close-upgrade').trigger('click')
     expect(navbar.find('.upgrade-modal').exists()).toBe(false)
+  })
+
+  it('主导航保持单行弹性布局，窄屏时允许横向滚动', () => {
+    const css = fs.readFileSync(
+      path.resolve(__dirname, '../styles/cohere-design-system.css'),
+      'utf8',
+    )
+
+    expect(css).toMatch(/\.cohere-topnav \.nav-primary\s*\{[^}]*display:\s*flex;/s)
+    expect(css).toMatch(/\.cohere-topnav \.nav-primary\s*\{[^}]*overflow-x:\s*auto;/s)
   })
 })

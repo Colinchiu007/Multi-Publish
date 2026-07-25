@@ -60,6 +60,54 @@ describe('credential-store', () => {
     expect(fs.existsSync(path.join(userDataDir, 'credentials', 'acct-unsafe.json.enc'))).toBe(false)
   })
 
+  it('相同账号 ID 在不同 owner 下使用独立凭证文件和密钥空间', () => {
+    const userDataDir = createTempDir()
+    const ownerA = 'user-a'
+    const ownerB = 'user-b'
+
+    expect(credentialStore.saveCredential('shared', { owner: ownerA }, userDataDir, {
+      ownerSubject: ownerA,
+      safeStorage: createSafeStorage(),
+    })).toBe(true)
+    expect(credentialStore.saveCredential('shared', { owner: ownerB }, userDataDir, {
+      ownerSubject: ownerB,
+      safeStorage: createSafeStorage(),
+    })).toBe(true)
+    expect(credentialStore.loadCredential('shared', userDataDir, {
+      ownerSubject: ownerA,
+      safeStorage: createSafeStorage(),
+    })).toEqual({ owner: ownerA })
+    expect(credentialStore.loadCredential('shared', userDataDir, {
+      ownerSubject: ownerB,
+      safeStorage: createSafeStorage(),
+    })).toEqual({ owner: ownerB })
+    expect(credentialStore.getCredentialDir(userDataDir, ownerA)).not.toBe(
+      credentialStore.getCredentialDir(userDataDir, ownerB),
+    )
+    expect(credentialStore.hasCredential('shared', userDataDir, { ownerSubject: ownerA })).toBe(true)
+    expect(credentialStore.listAccounts(userDataDir, { ownerSubject: ownerA })).toEqual(['shared'])
+    expect(credentialStore.deleteCredential('shared', userDataDir, { ownerSubject: ownerA })).toBe(true)
+    expect(credentialStore.loadCredential('shared', userDataDir, {
+      ownerSubject: ownerA,
+      safeStorage: createSafeStorage(),
+    })).toBeNull()
+    expect(credentialStore.loadCredential('shared', userDataDir, {
+      ownerSubject: ownerB,
+      safeStorage: createSafeStorage(),
+    })).toEqual({ owner: ownerB })
+  })
+
+  it('显式非法 owner 在所有凭证操作中都 fail-closed', () => {
+    const userDataDir = createTempDir()
+    const invalidOwner = { ownerSubject: null, safeStorage: createSafeStorage() }
+
+    expect(() => credentialStore.saveCredential('acct', {}, userDataDir, invalidOwner)).toThrow('登录会话缺少用户标识')
+    expect(() => credentialStore.loadCredential('acct', userDataDir, invalidOwner)).toThrow('登录会话缺少用户标识')
+    expect(() => credentialStore.hasCredential('acct', userDataDir, invalidOwner)).toThrow('登录会话缺少用户标识')
+    expect(() => credentialStore.listAccounts(userDataDir, invalidOwner)).toThrow('登录会话缺少用户标识')
+    expect(() => credentialStore.deleteCredential('acct', userDataDir, invalidOwner)).toThrow('登录会话缺少用户标识')
+  })
+
   it('兼容历史无前缀主密钥并在可用时迁移到系统保护格式', () => {
     const userDataDir = createTempDir()
     const credDir = path.join(userDataDir, 'credentials')

@@ -1009,7 +1009,9 @@ Vue 展示组件
 
 ### 18.4 验证口径
 
-最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、93 项视觉回归、16 项像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用 8 秒启动。实际命令和结果记录在 `.quality-gates.md`。
+最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、93 项视觉回归、16 项像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用 8 秒启动。视觉命令依赖已启动且隔离的 Vite/Electron 测试环境；实际命令、端口和结果记录在 `.quality-gates.md`。
+
+项目内 16 项像素门禁只验证 Multi-Publish 自身的受控基线，不能证明与蚁小二客户端像素一致。蚁小二对齐需要以 `01-docs/yixiaoer-reverse/visual-baseline-manifest.json` 中记录的真实登录态截图为参考；在参考 PNG 未捕获或未人工确认前，状态必须为 `REFERENCE_UNVERIFIED`，不得作为发布通过依据。
 
 ## 十九、文档体系 (Documentation Index)
 
@@ -1055,6 +1057,7 @@ Vue 展示组件
 | v2.1.2 | 2026-07-05 | PRD 全面修复 14 项 + TODOs 清空（基线版本） |
 | v2.3.42 | 2026-07-09 | 恢复 mojibake 乱码（从 bba83b0 干净版本）+ 合并 §2.3/§3.3/§4.4 增量 + 新增 §17 安全审计 / §18 文档体系 + 版本号更新 |
 | v2.3.53 | 2026-07-20 | 账号管理与内容发布按蚁小二交互对齐；完成前端分层、多账号发布、草稿、排期、差异化内容、二维码登录、取消/重试及安全边界 |
+| v2.3.53 | 2026-07-22 | 补充多租户 owner_subject 隔离、草稿 preload 契约、运行时配置路径、IPC 读取来源校验和真实蚁小二参考图验证口径 |
 
 
 

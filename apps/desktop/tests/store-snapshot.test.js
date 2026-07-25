@@ -239,11 +239,21 @@ describe('Store 快照 - SQL 执行模板', () => {
 
   it('deleteAccount 仅级联清理当前 owner 的账号、任务和历史', () => {
     store.db._nextGet = { platform: 'wx' }
+    store.db._nextAll = [
+      { id: 'task-linked', article: JSON.stringify({ accountId: 'acc1' }) },
+      { id: 'task-unrelated', article: JSON.stringify({ accountId: 'other' }) },
+      { id: 'history-linked', result: JSON.stringify({ account_id: 'acc1' }) },
+      { id: 'history-unrelated', result: JSON.stringify({ account_id: 'other' }) },
+    ]
     store.deleteAccount('acc1', 'user-a')
     const deleteCalls = store.db._runLog.filter(r => r.sql.includes('DELETE FROM'))
     const tables = deleteCalls.map(c => c.sql.match(/DELETE FROM (\w+)/)[1])
     expect(tables).toEqual(['accounts', 'scheduled_tasks', 'publish_history'])
     expect(deleteCalls.every(call => call.params[0] === 'user-a')).toBe(true)
+    expect(deleteCalls.find(call => call.sql.includes('scheduled_tasks')).params).toEqual(['user-a', 'task-linked'])
+    expect(deleteCalls.find(call => call.sql.includes('publish_history')).params).toEqual(['user-a', 'history-linked'])
+    expect(deleteCalls.some(call => call.params.includes('task-unrelated'))).toBe(false)
+    expect(deleteCalls.some(call => call.params.includes('history-unrelated'))).toBe(false)
   })
 
   it('updateAccount 通过白名单过滤字段', () => {
@@ -319,20 +329,48 @@ describe('Store 快照 - SQL 执行模板', () => {
     expect(call).toBeTruthy()
   })
 
-  it('addCallbackLog 执行 INSERT INTO callback_logs', () => {
+  it('addCallbackLog 按当前 owner_subject 写入 callback_logs', () => {
+    store.setOwnerSubjectProvider(() => 'user-a')
     store.addCallbackLog('comment', 'wx', { foo: 1 })
     const call = store.db._runLog.find(r => r.sql.includes('INSERT INTO callback_logs'))
     expect(call).toBeTruthy()
-    expect(call.params[0]).toBe('comment')
-    expect(call.params[1]).toBe('wx')
+    expect(call.sql).toContain('owner_subject')
+    expect(call.params[0]).toBe('user-a')
+    expect(call.params[1]).toBe('comment')
+    expect(call.params[2]).toBe('wx')
   })
 
-  it('listCallbackLogs 执行 ORDER BY created_at DESC LIMIT ?', () => {
+  it('listCallbackLogs 按当前 owner_subject 查询并限制条数', () => {
+    store.setOwnerSubjectProvider(() => 'user-a')
     store.db._nextAll = []
     store.listCallbackLogs(20)
-    const call = store.db._allLog.find(r => r.sql.includes('ORDER BY created_at DESC LIMIT ?'))
+    const call = store.db._allLog.find(r => r.sql.includes('owner_subject = ?') && r.sql.includes('ORDER BY created_at DESC LIMIT ?'))
     expect(call).toBeTruthy()
-    expect(call.params).toEqual([20])
+    expect(call.params).toEqual(['user-a', 20])
+  })
+
+  it('listCallbackLogs 将负数、超大和非数值 limit 收敛为有限安全范围', () => {
+    store.setOwnerSubjectProvider(() => 'user-a')
+    store.db._nextAll = []
+
+    store.listCallbackLogs(-1)
+    store.listCallbackLogs(10000)
+    store.listCallbackLogs('all')
+
+    const calls = store.db._allLog.filter(r => r.sql.includes('ORDER BY created_at DESC LIMIT ?'))
+    expect(calls.slice(-3).map(call => call.params)).toEqual([
+      ['user-a', 0],
+      ['user-a', 200],
+      ['user-a', 50],
+    ])
+  })
+
+  it('身份服务存在但无法解析 sub 时不读写 callback_logs', () => {
+    store.setOwnerSubjectProvider(() => '')
+    store.addCallbackLog('comment', 'wx', { foo: 1 })
+    expect(store.listCallbackLogs(20)).toEqual([])
+    expect(store.db._runLog.some(r => r.sql.includes('callback_logs'))).toBe(false)
+    expect(store.db._allLog.some(r => r.sql.includes('callback_logs'))).toBe(false)
   })
 
   it('addBatchJob 执行 INSERT OR REPLACE INTO batch_jobs', () => {

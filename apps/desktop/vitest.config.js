@@ -39,7 +39,6 @@ module.exports = defineConfig({
       'electron/tests/e2e-bridge-integration.test.js',
       'electron/tests/e2e-full-pipeline.test.js',
       'electron/tests/e2e-pipeline-orchestrator.test.js',
-      'src/__tests__/ipc-handlers.test.js',
       'node_modules/**',
       'dist/**',
     ],

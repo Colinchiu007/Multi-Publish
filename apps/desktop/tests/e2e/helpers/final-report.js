@@ -6,8 +6,8 @@
  *   2. 6 条跨视图集成流结果
  *   3. 输出 functional-final-report.json + 控制台摘要
  *
- * 使用：
- *   node tests/e2e/helpers/final-report.js
+ * 仅由 run-all.js 在携带本轮运行标识时调用；直接执行会以非零状态失败，
+ * 防止历史报告被误认作本轮门禁结果。
  */
 
 const fs = require('fs');
@@ -58,7 +58,56 @@ function loadJson(filename) {
   }
 }
 
-function aggregateRouteCoverage() {
+function normalizeRunContext(options = {}, viteUrl) {
+  const source = options.runContext || options;
+  const id = typeof source.id === 'string' ? source.id.trim() : '';
+  const startedAt = typeof source.startedAt === 'string' ? source.startedAt : '';
+  const url = source.url || viteUrl;
+  if (!id || !startedAt || !url || Number.isNaN(Date.parse(startedAt))) return null;
+  return { id, startedAt, url };
+}
+
+function validateRunReport(report, runContext) {
+  if (!report) return { valid: false, reason: 'MISSING_REPORT' };
+  if (!runContext) return { valid: false, reason: 'RUN_CONTEXT_REQUIRED' };
+  if (report.url !== runContext.url) return { valid: false, reason: 'URL_MISMATCH' };
+  if (!report.run || report.run.id !== runContext.id) return { valid: false, reason: 'RUN_ID_MISMATCH' };
+  if (report.run.startedAt !== runContext.startedAt) return { valid: false, reason: 'RUN_START_MISMATCH' };
+  const timestamp = Date.parse(report.timestamp || '');
+  if (Number.isNaN(timestamp) || timestamp < Date.parse(runContext.startedAt)) {
+    return { valid: false, reason: 'STALE_REPORT' };
+  }
+  return { valid: true };
+}
+
+function validateChecks(checks) {
+  if (!checks || !Number.isInteger(checks.total) || !Number.isInteger(checks.passed) || !Number.isInteger(checks.failed)) {
+    return { valid: false, reason: 'INVALID_CHECKS' };
+  }
+  if (checks.total < 1 || checks.passed < 0 || checks.failed < 0 || checks.passed + checks.failed !== checks.total) {
+    return { valid: false, reason: 'INVALID_CHECKS' };
+  }
+  return { valid: true };
+}
+
+function validateReportPayload(report) {
+  const checks = validateChecks(report && report.checks);
+  if (!checks.valid) return checks;
+  if (!Array.isArray(report.consoleErrors) || !Array.isArray(report.pageErrors) || !Array.isArray(report.details)) {
+    return { valid: false, reason: 'INVALID_REPORT_PAYLOAD' };
+  }
+  if (!report.details.every((detail) => detail && typeof detail.kind === 'string' && typeof detail.passed === 'boolean')) {
+    return { valid: false, reason: 'INVALID_REPORT_PAYLOAD' };
+  }
+  return { valid: true };
+}
+
+function validateCompleteRunReport(report, runContext) {
+  const run = validateRunReport(report, runContext);
+  return run.valid ? validateReportPayload(report) : run;
+}
+
+function aggregateRouteCoverage(runContext, reportLoader = loadJson) {
   const matrix = [];
   let totalChecks = 0;
   let totalPassed = 0;
@@ -67,13 +116,15 @@ function aggregateRouteCoverage() {
   let totalPageErrors = 0;
 
   for (const r of ROUTE_LIST) {
-    const report = loadJson(`${r.spec}.functional.json`);
-    if (!report) {
+    const report = reportLoader(`${r.spec}.functional.json`);
+    const validation = validateCompleteRunReport(report, runContext);
+    if (!validation.valid) {
       matrix.push({
         spec: r.spec,
         route: r.route,
         title: r.title,
-        status: 'MISSING',
+        status: validation.reason === 'MISSING_REPORT' ? 'MISSING' : 'INVALID_RUN',
+        integrity: validation.reason,
         checks: { total: 0, passed: 0, failed: 0 },
         consoleErrors: 0,
         pageErrors: 0,
@@ -81,12 +132,10 @@ function aggregateRouteCoverage() {
       });
       continue;
     }
-    const checks = report.checks || { total: 0, passed: 0, failed: 0 };
-    // 以 expectNoConsoleError / expectNoPageError 检查的实际结果为准（已被 route-functional-suite 过滤后写入 details 里）
-    const expectNoConsoleErrors = (report.details || []).filter((c) => c.kind === 'expectNoConsoleError').pop();
-    const expectNoPageErrors = (report.details || []).filter((c) => c.kind === 'expectNoPageError').pop();
-    const consoleErrors = expectNoConsoleErrors ? (expectNoConsoleErrors.errors || []).length : 0;
-    const pageErrors = expectNoPageErrors ? (expectNoPageErrors.errors || []).length : 0;
+    const checks = report.checks;
+    // route-functional-suite 会在落盘前过滤允许的 console 错误；这里以实际报告数组为准。
+    const consoleErrors = report.consoleErrors.length;
+    const pageErrors = report.pageErrors.length;
     const kinds = {};
     for (const c of report.details || []) {
       const k = c.kind || 'unknown';
@@ -103,7 +152,7 @@ function aggregateRouteCoverage() {
       spec: r.spec,
       route: r.route,
       title: r.title,
-      status: checks.failed === 0 && consoleErrors === 0 ? '✅ PASS' : '❌ FAIL',
+      status: checks.failed === 0 && consoleErrors === 0 && pageErrors === 0 ? '✅ PASS' : '❌ FAIL',
       checks,
       consoleErrors,
       pageErrors,
@@ -119,43 +168,50 @@ function aggregateRouteCoverage() {
       totalFailed,
       totalConsoleErrors,
       totalPageErrors,
-      coveredRoutes: matrix.filter((m) => m.status !== 'MISSING').length,
+      coveredRoutes: matrix.filter((m) => m.status === '✅ PASS' || m.status === '❌ FAIL').length,
       totalRoutes: ROUTE_LIST.length
     }
   };
 }
 
-function aggregateFlowCoverage() {
+function aggregateFlowCoverage(runContext, reportLoader = loadJson) {
   const flows = [];
   let totalChecks = 0;
   let totalPassed = 0;
   let totalFailed = 0;
   let totalConsoleErrors = 0;
+  let totalPageErrors = 0;
 
   for (const f of FLOW_LIST) {
-    const report = loadJson(`${f.spec}.json`);
-    if (!report) {
+    const report = reportLoader(`${f.spec}.json`);
+    const validation = validateCompleteRunReport(report, runContext);
+    if (!validation.valid) {
       flows.push({
         key: f.key,
         name: f.name,
-        status: 'MISSING',
+        status: validation.reason === 'MISSING_REPORT' ? 'MISSING' : 'INVALID_RUN',
+        integrity: validation.reason,
         checks: { total: 0, passed: 0, failed: 0 },
-        consoleErrors: 0
+        consoleErrors: 0,
+        pageErrors: 0
       });
       continue;
     }
-    const checks = report.checks || { total: 0, passed: 0, failed: 0 };
-    const consoleErrors = (report.consoleErrors || []).length;
+    const checks = report.checks;
+    const consoleErrors = report.consoleErrors.length;
+    const pageErrors = report.pageErrors.length;
     totalChecks += checks.total;
     totalPassed += checks.passed;
     totalFailed += checks.failed;
     totalConsoleErrors += consoleErrors;
+    totalPageErrors += pageErrors;
     flows.push({
       key: f.key,
       name: f.name,
-      status: checks.failed === 0 && consoleErrors === 0 ? '✅ PASS' : '❌ FAIL',
+      status: checks.failed === 0 && consoleErrors === 0 && pageErrors === 0 ? '✅ PASS' : '❌ FAIL',
       checks,
-      consoleErrors
+      consoleErrors,
+      pageErrors
     });
   }
 
@@ -165,7 +221,8 @@ function aggregateFlowCoverage() {
       totalChecks,
       totalPassed,
       totalFailed,
-      totalConsoleErrors
+      totalConsoleErrors,
+      totalPageErrors
     }
   };
 }
@@ -184,39 +241,43 @@ function classifySeverity(failures) {
 function buildIssues(routes, flows) {
   const issues = [];
   for (const r of routes.matrix) {
-    if (r.status === 'MISSING') {
+    if (r.status === 'MISSING' || r.status === 'INVALID_RUN') {
       issues.push({
         severity: 'CRITICAL',
-        category: '路由覆盖缺失',
+        category: r.status === 'MISSING' ? '路由覆盖缺失' : '路由报告完整性失败',
         spec: r.spec,
-        issue: `路由 ${r.route} (${r.title}) 没有 functional 测试报告`,
-        recommendation: '运行 node tests/e2e/helpers/route-functional-suite.js ' + r.spec
+        issue: r.status === 'MISSING'
+          ? `路由 ${r.route} (${r.title}) 没有 functional 测试报告`
+          : `路由 ${r.route} (${r.title}) 报告不属于本轮运行: ${r.integrity}`,
+        recommendation: '重新运行 node tests/e2e/helpers/run-all.js，禁止复用历史报告'
       });
     } else if (r.status !== '✅ PASS') {
       issues.push({
         severity: 'CRITICAL',
         category: '路由检查失败',
         spec: r.spec,
-        issue: `${r.title} (${r.route}) failed=${r.checks.failed} consoleErrors=${r.consoleErrors}`,
+        issue: `${r.title} (${r.route}) failed=${r.checks.failed} consoleErrors=${r.consoleErrors} pageErrors=${r.pageErrors}`,
         recommendation: '查看 reports/' + r.spec + '.functional.json 并修复'
       });
     }
   }
   for (const f of flows.flows) {
-    if (f.status === 'MISSING') {
+    if (f.status === 'MISSING' || f.status === 'INVALID_RUN') {
       issues.push({
         severity: 'CRITICAL',
-        category: '集成流缺失',
+        category: f.status === 'MISSING' ? '集成流缺失' : '集成流报告完整性失败',
         spec: f.key,
-        issue: `Flow ${f.name} 没有报告`,
-        recommendation: '运行 node tests/e2e/helpers/integration-flows.js ' + f.key
+        issue: f.status === 'MISSING'
+          ? `Flow ${f.name} 没有报告`
+          : `Flow ${f.name} 报告不属于本轮运行: ${f.integrity}`,
+        recommendation: '重新运行 node tests/e2e/helpers/run-all.js，禁止复用历史报告'
       });
     } else if (f.status !== '✅ PASS') {
       issues.push({
         severity: 'MAJOR',
         category: '集成流失败',
         spec: f.key,
-        issue: `${f.name} failed=${f.checks.failed} consoleErrors=${f.consoleErrors}`,
+        issue: `${f.name} failed=${f.checks.failed} consoleErrors=${f.consoleErrors} pageErrors=${f.pageErrors}`,
         recommendation: '查看 reports/' + f.spec + '.json'
       });
     }
@@ -242,18 +303,18 @@ function buildCanvasSummary(report) {
   lines.push('');
   lines.push('## 路由覆盖矩阵');
   lines.push('');
-  lines.push('| 路由 | 路径 | 检查 | 通过 | 失败 | Console | 状态 |');
-  lines.push('|------|------|------|------|------|---------|------|');
+  lines.push('| 路由 | 路径 | 检查 | 通过 | 失败 | Console | Page | 状态 |');
+  lines.push('|------|------|------|------|------|---------|------|------|');
   for (const r of report.routes.matrix) {
-    lines.push(`| ${r.title} | \`${r.route}\` | ${r.checks.total} | ${r.checks.passed} | ${r.checks.failed} | ${r.consoleErrors} | ${r.status} |`);
+    lines.push(`| ${r.title} | \`${r.route}\` | ${r.checks.total} | ${r.checks.passed} | ${r.checks.failed} | ${r.consoleErrors} | ${r.pageErrors} | ${r.status} |`);
   }
   lines.push('');
   lines.push('## 集成流');
   lines.push('');
-  lines.push('| Flow | 名称 | 检查 | 通过 | 失败 | 状态 |');
-  lines.push('|------|------|------|------|------|------|');
+  lines.push('| Flow | 名称 | 检查 | 通过 | 失败 | Console | Page | 状态 |');
+  lines.push('|------|------|------|------|------|---------|------|------|');
   for (const f of report.flows.flows) {
-    lines.push(`| ${f.key} | ${f.name} | ${f.checks.total} | ${f.checks.passed} | ${f.checks.failed} | ${f.status} |`);
+    lines.push(`| ${f.key} | ${f.name} | ${f.checks.total} | ${f.checks.passed} | ${f.checks.failed} | ${f.consoleErrors} | ${f.pageErrors} | ${f.status} |`);
   }
   if (report.issues.length > 0) {
     lines.push('');
@@ -267,20 +328,23 @@ function buildCanvasSummary(report) {
   return lines.join('\n');
 }
 
-function main() {
-  const routes = aggregateRouteCoverage();
-  const flows = aggregateFlowCoverage();
+function main(options = {}) {
+  const viteUrl = options.url || process.env.TEST_URL || 'http://127.0.0.1:5174';
+  const runContext = normalizeRunContext(options, viteUrl);
+  const routes = aggregateRouteCoverage(runContext);
+  const flows = aggregateFlowCoverage(runContext);
   const issues = buildIssues(routes, flows);
   const totalChecks = routes.totals.totalChecks + flows.totals.totalChecks;
   const totalPassed = routes.totals.totalPassed + flows.totals.totalPassed;
   const totalFailed = routes.totals.totalFailed + flows.totals.totalFailed;
   const totalConsoleErrors = routes.totals.totalConsoleErrors + flows.totals.totalConsoleErrors;
-  const totalPageErrors = routes.totals.totalPageErrors;
+  const totalPageErrors = routes.totals.totalPageErrors + flows.totals.totalPageErrors;
 
   const report = {
     meta: {
       generatedAt: new Date().toISOString(),
-      vite: 'http://127.0.0.1:5174',
+      vite: viteUrl,
+      run: runContext,
       spec: '前端全量功能 E2E 测试 (task-29a)',
       version: '1.0.0',
       phase: 'Phase 0-4 全部完成'
@@ -311,10 +375,29 @@ function main() {
   fs.writeFileSync(OUTPUT_MD, md);
   console.log(md);
   console.log(`\n报告已生成：\n  - ${OUTPUT_JSON}\n  - ${OUTPUT_MD}`);
+  return report;
+}
+
+function exitCodeForReport(report) {
+  const summary = report && report.summary;
+  if (!summary || !Number.isInteger(summary.totalChecks) || summary.totalChecks < 1) return 1;
+  if (!Number.isInteger(summary.totalFailed) || summary.totalFailed !== 0) return 1;
+  if (!Number.isInteger(summary.totalConsoleErrors) || summary.totalConsoleErrors !== 0) return 1;
+  if (!Number.isInteger(summary.totalPageErrors) || summary.totalPageErrors !== 0) return 1;
+  return Array.isArray(report.issues) && report.issues.length === 0 ? 0 : 1;
 }
 
 if (require.main === module) {
-  main();
+  process.exitCode = exitCodeForReport(main());
 }
 
-module.exports = { main };
+module.exports = {
+  main,
+  normalizeRunContext,
+  validateRunReport,
+  validateChecks,
+  validateReportPayload,
+  aggregateRouteCoverage,
+  aggregateFlowCoverage,
+  exitCodeForReport,
+};

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 describe("store-schema", () => {
   it("exports SCHEMA_SQL array", async () => {
@@ -43,6 +43,24 @@ describe("store-schema", () => {
     const { SCHEMA_SQL } = await import("../services/store-schema");
     const indexSqls = SCHEMA_SQL.filter(s => s.includes("idx_model_provider_logs"));
     expect(indexSqls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("callback_logs schema 和迁移均包含 owner_subject 隔离", async () => {
+    const { SCHEMA_SQL, migrateCallbackLogOwnerSchema } = await import("../services/store-schema");
+    const tableSql = SCHEMA_SQL.find(s => s.includes("CREATE TABLE IF NOT EXISTS callback_logs"));
+    expect(tableSql).toContain("owner_subject");
+
+    const exec = vi.fn();
+    const db = {
+      prepare: vi.fn(() => ({
+        all: () => [{ name: "id" }, { name: "type" }, { name: "source" }, { name: "payload" }],
+      })),
+      exec,
+    };
+    migrateCallbackLogOwnerSchema(db);
+
+    expect(exec).toHaveBeenCalledWith(expect.stringContaining("ALTER TABLE callback_logs ADD COLUMN owner_subject"));
+    expect(exec).toHaveBeenCalledWith(expect.stringContaining("idx_callback_owner_created"));
   });
 
   it("safeJsonParse parses JSON strings safely", async () => {

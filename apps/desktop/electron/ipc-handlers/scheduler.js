@@ -1,5 +1,5 @@
 // @ts-check
-const { wrapIpcHandlerRaw, withSenderCheck } = require('./helpers')
+const { wrapIpcHandlerRaw, withSenderCheck, EC } = require('./helpers')
 
 function registerHandlers(ipcMain, deps) {
   const { scheduler, identityService } = deps
@@ -21,22 +21,25 @@ function registerHandlers(ipcMain, deps) {
     const { platform, article, publishTime } = arg
     const ownerSubject = currentOwnerSubject()
     const task = { platform, article, publishTime }
-    if (ownerSubject !== undefined) task.owner_subject = ownerSubject
-    const entry = scheduler.create(task)
+    // owner_subject 只来自主进程身份上下文，不混入可被渲染层观察或伪造的任务对象。
+    const entry = scheduler.create(task, ownerSubject)
     return { code: 0, data: entry, message: '定时任务已创建' }
   }, { requireArgs: true, label: 'scheduler:create' })))
 
   // 迁移至 wrapIpcHandlerRaw：catchData 保留 catch 时 data: [] 兜底语义
-  ipcMain.handle('scheduler:list', wrapIpcHandlerRaw(async () => {
+  ipcMain.handle('scheduler:list', withSenderCheck(wrapIpcHandlerRaw(async () => {
     const ownerSubject = currentOwnerSubject()
-    return { code: 0, data: ownerSubject === undefined ? scheduler.list() : scheduler.list(ownerSubject) }
-  }, { label: 'scheduler:list', catchData: [] }))
+    return { code: 0, data: scheduler.list(ownerSubject) }
+  }, { label: 'scheduler:list', catchData: [] })))
 
   ipcMain.handle('scheduler:cancel', withSenderCheck(wrapIpcHandlerRaw(async (event, id) => {
     const ownerSubject = currentOwnerSubject()
-    if (ownerSubject === undefined) scheduler.cancel(id)
-    else scheduler.cancel(id, ownerSubject)
-    return { code: 0, data: true, message: '定时任务已取消' }
+    const cancelled = scheduler.cancel(id, ownerSubject)
+    return {
+      code: cancelled ? 0 : EC.NOT_FOUND,
+      data: cancelled,
+      message: cancelled ? '定时任务已取消' : '定时任务不存在或已完成',
+    }
   }, { label: 'scheduler:cancel' })))
 }
 

@@ -9,6 +9,12 @@ const e2eRunner = require('../../tests/e2e/helpers/run-all')
 const routeSuite = require('../../tests/e2e/helpers/route-functional-suite')
 const integrationFlows = require('../../tests/e2e/helpers/integration-flows')
 const { FunctionalRunner } = require('../../tests/e2e/helpers/functional-runner')
+const finalReport = require('../../tests/e2e/helpers/final-report')
+const {
+  E2EEnvironmentError,
+  preflightE2EEnvironment,
+  resetPreflightCache,
+} = require('../../tests/e2e/helpers/e2e-preflight')
 
 const desktopRoot = path.resolve(__dirname, '../..')
 const projectRoot = path.resolve(desktopRoot, '../..')
@@ -21,6 +27,22 @@ function makeReport() {
     checks: { total: 1, passed: 1, failed: 0 },
     consoleErrors: [],
     pageErrors: [],
+  }
+}
+
+function makeFinalSubReport(context, overrides = {}) {
+  return {
+    url: context.url,
+    timestamp: '2026-07-22T10:01:00.000Z',
+    run: { id: context.id, startedAt: context.startedAt },
+    checks: { total: 2, passed: 2, failed: 0 },
+    consoleErrors: [],
+    pageErrors: [],
+    details: [
+      { kind: 'expectNoConsoleError', passed: true, errors: [] },
+      { kind: 'expectNoPageError', passed: true, errors: [] },
+    ],
+    ...overrides,
   }
 }
 
@@ -42,6 +64,77 @@ function loadProviderMock() {
 describe('E2E 统一入口门禁', () => {
   afterEach(() => {
     delete process.env.E2E_CONCURRENCY
+    resetPreflightCache()
+  })
+
+  it('预检成功时同时确认 Vite 可达和 Chromium 可启动', async () => {
+    const close = vi.fn().mockResolvedValue(undefined)
+    const launch = vi.fn().mockResolvedValue({ close })
+
+    const result = await preflightE2EEnvironment({
+      url: 'http://127.0.0.1:5174',
+      httpProbe: vi.fn().mockResolvedValue({ status: 200 }),
+      chromiumImpl: { launch },
+    })
+
+    expect(result).toMatchObject({ ok: true, url: 'http://127.0.0.1:5174' })
+    expect(launch).toHaveBeenCalledWith({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    })
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('Vite 不可达时标记环境阻塞，不尝试启动 Chromium', async () => {
+    const launch = vi.fn()
+    const error = new Error('connect ECONNREFUSED')
+
+    await expect(preflightE2EEnvironment({
+      url: 'http://127.0.0.1:5174',
+      httpProbe: vi.fn().mockRejectedValue(error),
+      chromiumImpl: { launch },
+    })).rejects.toMatchObject({
+      code: 'E2E_ENVIRONMENT_BLOCKED',
+      stage: 'vite',
+    })
+    expect(launch).not.toHaveBeenCalled()
+  })
+
+  it('Chromium 启动失败时提供明确的环境阻塞错误', async () => {
+    const launchError = new Error('spawn EPERM')
+
+    await expect(preflightE2EEnvironment({
+      url: 'http://127.0.0.1:5174',
+      httpProbe: vi.fn().mockResolvedValue({ status: 200 }),
+      chromiumImpl: { launch: vi.fn().mockRejectedValue(launchError) },
+    })).rejects.toMatchObject({
+      code: 'E2E_ENVIRONMENT_BLOCKED',
+      stage: 'chromium',
+      cause: launchError,
+    })
+  })
+
+  it('统一入口预检失败时不启动路由/流程套件并写入环境报告', async () => {
+    const environmentError = new E2EEnvironmentError(
+      'Vite 未启动',
+      { stage: 'vite', url: 'http://127.0.0.1:5174' },
+    )
+    const runRoutes = vi.fn()
+    const runFlows = vi.fn()
+    const buildReport = vi.fn()
+
+    const result = await e2eRunner.main('all', {
+      preflight: vi.fn().mockRejectedValue(environmentError),
+      runRoutes,
+      runFlows,
+      buildReport,
+      writePreflightReport: vi.fn(),
+    })
+
+    expect(result).toMatchObject({ failed: true, environmentBlocked: true })
+    expect(runRoutes).not.toHaveBeenCalled()
+    expect(runFlows).not.toHaveBeenCalled()
+    expect(buildReport).not.toHaveBeenCalled()
   })
 
   it.each(['abc', '0', '-1', '1.5', 'Infinity'])('拒绝非法或非正并发值 %s', (value) => {
@@ -70,6 +163,7 @@ describe('E2E 统一入口门禁', () => {
     expect(e2eRunner.hasFailures({}, 1)).toBe(true)
     expect(e2eRunner.hasFailures({ home: makeReport() }, 2)).toBe(true)
     expect(e2eRunner.hasFailures({ home: makeReport() }, 1)).toBe(false)
+    expect(e2eRunner.hasFailures({ home: { checks: { total: 1, passed: 1 } } }, 1)).toBe(true)
   })
 
   it('各执行模式声明固定的预期报告数量', () => {
@@ -77,6 +171,343 @@ describe('E2E 统一入口门禁', () => {
     expect(e2eRunner.expectedResultCount('flows')).toBe(6)
     expect(e2eRunner.expectedResultCount('all')).toBe(24)
     expect(e2eRunner.expectedResultCount('report')).toBe(0)
+  })
+
+  it('CLI 默认启用预检，只有显式参数才允许跳过', () => {
+    expect(e2eRunner.parseCliOptions([])).toEqual({ mode: 'all', skipPreflight: false })
+    expect(e2eRunner.parseCliOptions(['routes', '--skip-preflight'])).toEqual({ mode: 'routes', skipPreflight: true })
+  })
+
+  it('报告模式依据汇总失败数返回失败，不能把 0/24 当作成功', async () => {
+    const buildReport = vi.fn().mockReturnValue({
+      summary: {
+        totalChecks: 24,
+        totalPassed: 0,
+        totalFailed: 24,
+        totalConsoleErrors: 0,
+        totalPageErrors: 0,
+      },
+    })
+
+    const result = await e2eRunner.main('report', {
+      buildReport,
+      runContext: { id: 'report-failed', startedAt: '2026-07-22T10:00:00.000Z' },
+    })
+
+    expect(buildReport).toHaveBeenCalledOnce()
+    expect(result).toMatchObject({ failed: true, report: expect.any(Object) })
+  })
+
+  it('报告模式在没有任何有效检查时也必须失败', async () => {
+    const buildReport = vi.fn().mockReturnValue({
+      summary: {
+        totalChecks: 0,
+        totalPassed: 0,
+        totalFailed: 0,
+        totalConsoleErrors: 0,
+        totalPageErrors: 0,
+      },
+    })
+
+    const result = await e2eRunner.main('report', {
+      buildReport,
+      runContext: { id: 'report-empty', startedAt: '2026-07-22T10:00:00.000Z' },
+    })
+
+    expect(result).toMatchObject({ failed: true, report: expect.any(Object) })
+  })
+
+  it('报告模式没有本轮运行上下文时拒绝读取历史报告', async () => {
+    const buildReport = vi.fn()
+
+    const result = await e2eRunner.main('report', { buildReport })
+
+    expect(result).toMatchObject({ failed: true, report: null })
+    expect(buildReport).not.toHaveBeenCalled()
+  })
+
+  it('预检报告使用原子写入并保留环境阻塞详情', () => {
+    const filename = path.join(desktopRoot, 'tests/e2e/reports/e2e-preflight-unit.json')
+    const error = new E2EEnvironmentError('Chromium 无法启动', {
+      stage: 'chromium',
+      url: 'http://127.0.0.1:5176',
+    })
+    const fileSystem = {
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(),
+      renameSync: vi.fn(),
+      unlinkSync: vi.fn(),
+    }
+
+    const report = e2eRunner.writePreflightReport(error, filename, {
+      fs: fileSystem,
+      random: () => 'unit',
+      now: () => 42,
+      warn: vi.fn(),
+    })
+
+    expect(fileSystem.writeFileSync).toHaveBeenCalledWith(
+      `${filename}.42-unit.tmp`,
+      expect.stringContaining('E2E_ENVIRONMENT_BLOCKED'),
+      'utf8',
+    )
+    expect(fileSystem.renameSync).toHaveBeenCalledWith(`${filename}.42-unit.tmp`, filename)
+    expect(report).toMatchObject({ status: 'ENVIRONMENT_BLOCKED', stage: 'chromium' })
+    expect(report.reportWriteError).toBeUndefined()
+  })
+
+  it('预检报告写入遭遇 EPERM 时不遮蔽原始环境阻塞', async () => {
+    const environmentError = new E2EEnvironmentError('Vite 未启动', {
+      stage: 'vite',
+      url: 'http://127.0.0.1:5176',
+    })
+    const writeError = Object.assign(new Error('operation not permitted'), { code: 'EPERM' })
+    const fileSystem = {
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(() => { throw writeError }),
+      renameSync: vi.fn(),
+      unlinkSync: vi.fn(),
+    }
+    const warn = vi.fn()
+
+    const report = e2eRunner.writePreflightReport(environmentError, 'C:\\locked\\e2e-preflight.json', {
+      fs: fileSystem,
+      random: () => 'unit',
+      now: () => 42,
+      warn,
+    })
+    const result = await e2eRunner.main('all', {
+      preflight: vi.fn().mockRejectedValue(environmentError),
+      writePreflightReport: () => { throw writeError },
+    })
+
+    expect(report).toMatchObject({
+      status: 'ENVIRONMENT_BLOCKED',
+      code: 'E2E_ENVIRONMENT_BLOCKED',
+      stage: 'vite',
+      reportWriteError: { code: 'EPERM' },
+    })
+    expect(warn).toHaveBeenCalledOnce()
+    expect(result).toMatchObject({
+      failed: true,
+      environmentBlocked: true,
+      error: environmentError,
+      preflightReport: {
+        status: 'ENVIRONMENT_BLOCKED',
+        reportWriteError: { code: 'EPERM' },
+      },
+    })
+  })
+
+  it('预检缓存必须按浏览器启动参数隔离，不能复用不同参数的成功结果', async () => {
+    const close = vi.fn().mockResolvedValue(undefined)
+    const launch = vi.fn().mockResolvedValue({ close })
+    const httpProbe = vi.fn().mockResolvedValue({ status: 200 })
+    const options = {
+      url: 'http://127.0.0.1:5174',
+      httpProbe,
+      chromiumImpl: { launch },
+    }
+
+    await preflightE2EEnvironment({ ...options, headless: true, browserArgs: ['--first'] })
+    await preflightE2EEnvironment({ ...options, headless: false, browserArgs: ['--second'] })
+
+    expect(launch).toHaveBeenCalledTimes(2)
+    expect(launch).toHaveBeenNthCalledWith(1, { headless: true, args: ['--first'] })
+    expect(launch).toHaveBeenNthCalledWith(2, { headless: false, args: ['--second'] })
+  })
+
+  it('Windows 已存在预检报告时以兼容替换策略发布新报告', () => {
+    const filename = 'C:\\reports\\e2e-preflight.json'
+    const renameError = Object.assign(new Error('destination exists'), { code: 'EEXIST' })
+    const fileSystem = {
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(),
+      renameSync: vi.fn()
+        .mockImplementationOnce(() => { throw renameError })
+        .mockImplementationOnce(() => undefined),
+      unlinkSync: vi.fn(),
+    }
+
+    const report = e2eRunner.writePreflightReport(
+      new E2EEnvironmentError('Chromium 无法启动', { stage: 'chromium' }),
+      filename,
+      { fs: fileSystem, now: () => 42, random: () => 'unit', warn: vi.fn() },
+    )
+
+    expect(fileSystem.unlinkSync).toHaveBeenCalledWith(filename)
+    expect(fileSystem.renameSync).toHaveBeenNthCalledWith(1, `${filename}.42-unit.tmp`, filename)
+    expect(fileSystem.renameSync).toHaveBeenNthCalledWith(2, `${filename}.42-unit.tmp`, filename)
+    expect(report.reportWriteError).toBeUndefined()
+  })
+
+  it('最终报告拒绝 URL、运行标识或时间窗口不匹配的旧子报告', () => {
+    const context = {
+      id: 'run-current',
+      startedAt: '2026-07-22T10:00:00.000Z',
+      url: 'http://127.0.0.1:5174',
+    }
+    const current = {
+      url: context.url,
+      timestamp: '2026-07-22T10:01:00.000Z',
+      run: { id: context.id, startedAt: context.startedAt },
+    }
+
+    expect(finalReport.validateRunReport(current, context)).toEqual({ valid: true })
+    expect(finalReport.validateRunReport({ ...current, url: 'http://127.0.0.1:5187' }, context))
+      .toMatchObject({ valid: false, reason: 'URL_MISMATCH' })
+    expect(finalReport.validateRunReport({ ...current, timestamp: '2026-07-22T09:59:59.000Z' }, context))
+      .toMatchObject({ valid: false, reason: 'STALE_REPORT' })
+    expect(finalReport.validateRunReport({ ...current, run: { id: 'run-old', startedAt: context.startedAt } }, context))
+      .toMatchObject({ valid: false, reason: 'RUN_ID_MISMATCH' })
+  })
+
+  it('最终路由汇总把页面错误判为失败，且不把损坏报告计入覆盖率', () => {
+    const context = {
+      id: 'run-current',
+      startedAt: '2026-07-22T10:00:00.000Z',
+      url: 'http://127.0.0.1:5174',
+    }
+    const reports = {
+      'home.functional.json': makeFinalSubReport(context, {
+        pageErrors: [{ message: '页面运行时错误' }],
+        details: [
+          { kind: 'expectNoConsoleError', passed: true, errors: [] },
+          { kind: 'expectNoPageError', passed: false, errors: ['页面运行时错误'] },
+        ],
+      }),
+      'comments.functional.json': makeFinalSubReport(context, {
+        checks: { total: 2, passed: 3, failed: 0 },
+      }),
+    }
+
+    const coverage = finalReport.aggregateRouteCoverage(context, (filename) => reports[filename] || null)
+    const home = coverage.matrix.find((item) => item.spec === 'home')
+    const comments = coverage.matrix.find((item) => item.spec === 'comments')
+
+    expect(home).toMatchObject({ status: '❌ FAIL', pageErrors: 1 })
+    expect(comments).toMatchObject({ status: 'INVALID_RUN', integrity: 'INVALID_CHECKS' })
+    expect(coverage.totals).toMatchObject({ totalPageErrors: 1, coveredRoutes: 1 })
+  })
+
+  it('最终集成流汇总把页面错误判为失败并写入总计', () => {
+    const context = {
+      id: 'run-current',
+      startedAt: '2026-07-22T10:00:00.000Z',
+      url: 'http://127.0.0.1:5174',
+    }
+    const reports = {
+      'integration.flow-1.json': makeFinalSubReport(context, {
+        pageErrors: [{ message: '流程页面错误' }],
+      }),
+    }
+
+    const coverage = finalReport.aggregateFlowCoverage(context, (filename) => reports[filename] || null)
+    const flow = coverage.flows.find((item) => item.key === 'flow-1')
+
+    expect(flow).toMatchObject({ status: '❌ FAIL', pageErrors: 1 })
+    expect(coverage.totals).toMatchObject({ totalPageErrors: 1 })
+  })
+
+  it('最终报告 CLI 对无效或失败报告必须给出非零退出码', () => {
+    expect(finalReport.exitCodeForReport({
+      summary: { totalChecks: 0, totalFailed: 0, totalConsoleErrors: 0, totalPageErrors: 0 },
+      issues: [],
+    })).toBe(1)
+    expect(finalReport.exitCodeForReport({
+      summary: { totalChecks: 1, totalFailed: 0, totalConsoleErrors: 0, totalPageErrors: 0 },
+      issues: [{ severity: 'CRITICAL' }],
+    })).toBe(1)
+    expect(finalReport.exitCodeForReport({
+      summary: { totalChecks: 1, totalFailed: 0, totalConsoleErrors: 0, totalPageErrors: 0 },
+      issues: [],
+    })).toBe(0)
+  })
+
+  it('主入口按运行标识写入独立的预检报告，避免多进程覆盖同一诊断文件', async () => {
+    const environmentError = new E2EEnvironmentError('Vite 未启动', {
+      stage: 'vite',
+      url: 'http://127.0.0.1:5174',
+    })
+    const writePreflightReport = vi.fn()
+    const runContext = { id: 'run / current', startedAt: '2026-07-22T10:00:00.000Z' }
+
+    const result = await e2eRunner.main('all', {
+      runContext,
+      preflight: vi.fn().mockRejectedValue(environmentError),
+      writePreflightReport,
+    })
+
+    expect(result).toMatchObject({ failed: true, environmentBlocked: true })
+    expect(writePreflightReport).toHaveBeenCalledWith(
+      environmentError,
+      path.join(desktopRoot, 'tests/e2e/reports/e2e-preflight-run-current.json'),
+    )
+  })
+
+  it('全量运行把同一运行上下文交给路由、流程和最终报告', async () => {
+    const runRoutes = vi.fn().mockResolvedValue(
+      Object.fromEntries(Array.from({ length: 18 }, (_, index) => [`route-${index}`, makeReport()])),
+    )
+    const runFlows = vi.fn().mockResolvedValue(
+      Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`flow-${index}`, makeReport()])),
+    )
+    const buildReport = vi.fn().mockReturnValue({
+      summary: { totalChecks: 1, totalPassed: 1, totalFailed: 0, totalConsoleErrors: 0, totalPageErrors: 0 },
+      issues: [],
+    })
+    const context = { id: 'run-current', startedAt: '2026-07-22T10:00:00.000Z' }
+
+    await e2eRunner.main('all', {
+      url: 'http://127.0.0.1:5175',
+      runContext: context,
+      preflight: vi.fn().mockResolvedValue({ ok: true, url: 'http://127.0.0.1:5175' }),
+      runRoutes,
+      runFlows,
+      buildReport,
+    })
+
+    const expectedContext = {
+      url: 'http://127.0.0.1:5175',
+      runId: context.id,
+      runStartedAt: context.startedAt,
+    }
+    expect(runRoutes).toHaveBeenCalledWith(expect.objectContaining(expectedContext))
+    expect(runFlows).toHaveBeenCalledWith(expect.objectContaining(expectedContext))
+    expect(buildReport).toHaveBeenCalledWith(expect.objectContaining(expectedContext))
+  })
+
+  it('预检通过后把同一个 TEST_URL 传给路由、流程和最终报告', async () => {
+    const runRoutes = vi.fn().mockResolvedValue(
+      Object.fromEntries(Array.from({ length: 18 }, (_, index) => [`route-${index}`, makeReport()])),
+    )
+    const runFlows = vi.fn().mockResolvedValue(
+      Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`flow-${index}`, makeReport()])),
+    )
+    const buildReport = vi.fn().mockReturnValue({
+      summary: {
+        totalChecks: 1,
+        totalPassed: 1,
+        totalFailed: 0,
+        totalConsoleErrors: 0,
+        totalPageErrors: 0,
+      },
+    })
+    const preflight = vi.fn().mockResolvedValue({ ok: true, url: 'http://127.0.0.1:5175' })
+
+    const result = await e2eRunner.main('all', {
+      url: 'http://127.0.0.1:5175',
+      preflight,
+      runRoutes,
+      runFlows,
+      buildReport,
+    })
+
+    expect(result.failed).toBe(false)
+    expect(preflight).toHaveBeenCalledOnce()
+    expect(runRoutes).toHaveBeenCalledWith(expect.objectContaining({ url: 'http://127.0.0.1:5175' }))
+    expect(runFlows).toHaveBeenCalledWith(expect.objectContaining({ url: 'http://127.0.0.1:5175' }))
+    expect(buildReport).toHaveBeenCalledWith(expect.objectContaining({ url: 'http://127.0.0.1:5175' }))
   })
 })
 
@@ -192,6 +623,31 @@ describe('覆盖率与变异测试门禁', () => {
 })
 
 describe('路由通用扫描', () => {
+  it('FunctionalRunner 默认继承 TEST_URL', () => {
+    const previous = process.env.TEST_URL
+    process.env.TEST_URL = 'http://127.0.0.1:5175'
+    try {
+      expect(new FunctionalRunner().url).toBe('http://127.0.0.1:5175')
+      expect(new FunctionalRunner({ url: 'http://127.0.0.1:5176' }).url).toBe('http://127.0.0.1:5176')
+    } finally {
+      if (previous === undefined) delete process.env.TEST_URL
+      else process.env.TEST_URL = previous
+    }
+  })
+
+  it('FunctionalRunner 将本轮运行上下文写入子报告', () => {
+    const runner = new FunctionalRunner({
+      url: 'http://127.0.0.1:5175',
+      runId: 'run-current',
+      runStartedAt: '2026-07-22T10:00:00.000Z',
+    })
+
+    expect(runner.generateReport()).toMatchObject({
+      url: 'http://127.0.0.1:5175',
+      run: { id: 'run-current', startedAt: '2026-07-22T10:00:00.000Z' },
+    })
+  })
+
   it('发布正文等待编辑器初始化并确认内容写入', async () => {
     let value = ''
     const editor = {

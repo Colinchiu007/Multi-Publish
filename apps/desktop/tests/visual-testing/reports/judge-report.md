@@ -1,7 +1,7 @@
 # Agent Visual Judge Report
 
-**Generated**: 7/21/2026, 2:08:10 PM
-**Total Tests**: 1 | **Pixel Diff Failed**: 1 | **Needs Agent Review**: 1
+**Generated**: 7/23/2026, 2:56:05 AM
+**Total Tests**: 16 | **Pixel Diff Failed**: 0 | **Needs Agent Review**: 0
 
 ## Agent Review Guide
 
@@ -11,29 +11,131 @@ Which are **unexpected regressions** (Bug / style error).
 
 ---
 
-### 1. publish-form
+### 1. home-baseline
+
+- **Route**: `/`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\home-baseline-current.png`
+
+---
+
+### 2. accounts-list
+
+- **Route**: `/accounts`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\accounts-list-current.png`
+
+---
+
+### 3. publish-form
 
 - **Route**: `/publish`
-- **Pixel Diff**: **FAILED** (mismatch: 1.76%)
-- **Current Screenshot**: `D:\Data\projects\Multi-Publish\.worktrees\codex-yixiaoer-parity\apps\desktop\tests\visual-testing\screenshots\publish-form-current.png`
-- **Diff Image**: `D:\Data\projects\Multi-Publish\.worktrees\codex-yixiaoer-parity\apps\desktop\tests\visual-testing\reports\pixel-diff\publish-form-1784571213209.png`
-- **Threshold**: 1%
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\publish-form-current.png`
 
-**Comparison Images**
+---
 
-| Type | Path |
-|------|------|
-| Baseline | file:///D:/Data/projects/Multi-Publish/.worktrees/codex-yixiaoer-parity/apps/desktop/tests/visual-testing/base-screenshots/publish-form.png |
-| Current | file:///D:/Data/projects/Multi-Publish/.worktrees/codex-yixiaoer-parity/apps/desktop/tests/visual-testing/screenshots/publish-form-current.png |
-| Diff | file:///D:/Data/projects/Multi-Publish/.worktrees/codex-yixiaoer-parity/apps/desktop/tests/visual-testing/reports/pixel-diff/publish-form-1784571213209.png |
+### 4. create-editor
 
-**Agent Judgment**
+- **Route**: `/create`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\create-editor-current.png`
 
-- [ ] **PASS**: UI change is expected design update
-- [ ] **FAIL**: UI has issues, fix and re-run test
-- [ ] **UPDATE BASELINE**: If change is expected, promote current as new baseline
+---
 
-**Result**: _(please fill: PASS / FAIL / BASELINE_UPDATED)_
+### 5. model-providers
+
+- **Route**: `/model-providers`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\model-providers-current.png`
+
+---
+
+### 6. first-run
+
+- **Route**: `/first-run`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\first-run-current.png`
+
+---
+
+### 7. dashboard
+
+- **Route**: `/dashboard`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\dashboard-current.png`
+
+---
+
+### 8. calendar
+
+- **Route**: `/calendar`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\calendar-current.png`
+
+---
+
+### 9. cloud-publish
+
+- **Route**: `/cloud-publish`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\cloud-publish-current.png`
+
+---
+
+### 10. viral-analysis
+
+- **Route**: `/viral-analysis`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\viral-analysis-current.png`
+
+---
+
+### 11. create-result
+
+- **Route**: `/create/result`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\create-result-current.png`
+
+---
+
+### 12. create-pipeline
+
+- **Route**: `/create/pipeline`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\create-pipeline-current.png`
+
+---
+
+### 13. create-history
+
+- **Route**: `/create/history`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\create-history-current.png`
+
+---
+
+### 14. intelligence
+
+- **Route**: `/intelligence`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\intelligence-current.png`
+
+---
+
+### 15. keyword-monitor
+
+- **Route**: `/keywords`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\keyword-monitor-current.png`
+
+---
+
+### 16. collection
+
+- **Route**: `/collection`
+- **Pixel Diff**: **PASSED**
+- **Current Screenshot**: `tests\visual-testing\screenshots\collection-current.png`
 
 ---
 
@@ -41,7 +143,22 @@ Which are **unexpected regressions** (Bug / style error).
 
 | Test | Pixel Diff | Agent Judgment |
 |------|------------|---------------|
-| publish-form | 1.76% FAILED | _pending_ |
+| home-baseline | PASSED | _pending_ |
+| accounts-list | PASSED | _pending_ |
+| publish-form | PASSED | _pending_ |
+| create-editor | PASSED | _pending_ |
+| model-providers | PASSED | _pending_ |
+| first-run | PASSED | _pending_ |
+| dashboard | PASSED | _pending_ |
+| calendar | PASSED | _pending_ |
+| cloud-publish | PASSED | _pending_ |
+| viral-analysis | PASSED | _pending_ |
+| create-result | PASSED | _pending_ |
+| create-pipeline | PASSED | _pending_ |
+| create-history | PASSED | _pending_ |
+| intelligence | PASSED | _pending_ |
+| keyword-monitor | PASSED | _pending_ |
+| collection | PASSED | _pending_ |
 
 ---
 *This report is auto-generated by agent-visual-judge.js for Agent visual review.*

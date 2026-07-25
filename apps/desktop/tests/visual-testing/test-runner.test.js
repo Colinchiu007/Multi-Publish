@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 const { VisualTestRunner } = require('./test-runner')
+const { runPixelSuite } = require('./scripts/run-pixel-tests')
 
 function createRunner(tempDir) {
   const runner = new VisualTestRunner({
@@ -45,6 +46,8 @@ function makeCheckLocator(visible) {
 describe('视觉基线门禁', () => {
   afterEach(() => {
     delete process.env.UPDATE_BASELINE
+    delete process.env.VISUAL_BASELINE_MAINTENANCE
+    delete process.env.CI
   })
 
   it('默认模式缺少人工审核基线时失败且不写基线', async () => {
@@ -65,12 +68,16 @@ describe('视觉基线门禁', () => {
     }
   })
 
-  it('显式更新模式才允许创建基线', async () => {
+  it('只有显式人工维护模式才允许创建基线', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-baseline-update-'))
     const runner = createRunner(tempDir)
     process.env.UPDATE_BASELINE = '1'
 
     try {
+      await expect(runner.pixelRegressionTest('approved', '/accounts')).rejects.toMatchObject({
+        code: 'ERR_VISUAL_BASELINE_MISSING',
+      })
+      process.env.VISUAL_BASELINE_MAINTENANCE = '1'
       await expect(runner.pixelRegressionTest('approved', '/accounts')).resolves.toMatchObject({
         status: 'BASELINE_CREATED',
       })
@@ -78,6 +85,68 @@ describe('视觉基线门禁', () => {
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }
+  })
+
+  it.each(['true', 'TRUE', '1', 'yes', ' YES '])('CI=%s 时即使显式维护也不允许创建基线', async (ciValue) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-baseline-ci-'))
+    const runner = createRunner(tempDir)
+    process.env.UPDATE_BASELINE = '1'
+    process.env.VISUAL_BASELINE_MAINTENANCE = '1'
+    process.env.CI = ciValue
+
+    try {
+      await expect(runner.pixelRegressionTest('blocked-by-ci', '/accounts'))
+        .rejects.toMatchObject({ code: 'ERR_VISUAL_BASELINE_MISSING' })
+      expect(fs.existsSync(path.join(tempDir, 'baselines', 'blocked-by-ci.png'))).toBe(false)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(['1', 'yes', ' TRUE '])('CI=%s 时像素门禁将 BASELINE_CREATED 计为失败', async (ciValue) => {
+    process.env.CI = ciValue
+    const runner = {
+      launch: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      generateReport: vi.fn(),
+      pixelRegressionTest: vi.fn().mockResolvedValue({ status: 'BASELINE_CREATED' }),
+    }
+
+    const summary = await runPixelSuite([{ name: 'new-baseline', route: '/accounts' }], {
+      runner,
+      allowBaselineCreation: true,
+    })
+
+    expect(summary).toMatchObject({ failed: 1, passed: 0, baselined: 1, maintenanceMode: false })
+  })
+
+  it('拒绝通过截图和基线文件路径逃逸的测试名', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-test-name-'))
+    const runner = createRunner(tempDir)
+
+    try {
+      await expect(runner.pixelRegressionTest('../outside', '/accounts'))
+        .rejects.toMatchObject({ code: 'ERR_VISUAL_TEST_NAME_INVALID' })
+      await expect(runner.captureAndAnalyze('..\\outside', 'inspect'))
+        .rejects.toMatchObject({ code: 'ERR_VISUAL_TEST_NAME_INVALID' })
+      expect(fs.existsSync(path.join(tempDir, 'outside-current.png'))).toBe(false)
+      expect(fs.existsSync(path.join(tempDir, 'outside.png'))).toBe(false)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('默认 PR 门禁把新建基线视为失败', async () => {
+    const runner = {
+      launch: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      generateReport: vi.fn(),
+      pixelRegressionTest: vi.fn().mockResolvedValue({ status: 'BASELINE_CREATED' }),
+    }
+
+    const summary = await runPixelSuite([{ name: 'new-baseline', route: '/accounts' }], { runner })
+
+    expect(summary).toMatchObject({ failed: 1, passed: 0, baselined: 1 })
   })
 })
 

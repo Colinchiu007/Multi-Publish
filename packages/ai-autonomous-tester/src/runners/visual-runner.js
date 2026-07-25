@@ -16,6 +16,23 @@ const { BaseTestRunner } = require("./base-runner");
 const { PixelDiffProvider } = require("../providers/pixel-diff");
 const { OCRProvider } = require("../providers/ocr");
 
+function isCiEnvironment(value = process.env.CI) {
+  return /^(1|true|yes)$/i.test(String(value || "").trim());
+}
+
+function assertSafeTestName(testName) {
+  const isBasename = typeof testName === "string"
+    && path.basename(testName) === testName
+    && path.posix.basename(testName) === testName
+    && path.win32.basename(testName) === testName;
+  if (!isBasename || !testName || testName === "." || testName === ".." || testName.includes("\0")) {
+    const error = new Error(`Invalid visual test name: ${String(testName)}`);
+    error.code = "ERR_VISUAL_TEST_NAME_INVALID";
+    throw error;
+  }
+  return testName;
+}
+
 class VisualTestRunner extends BaseTestRunner {
   constructor(options = {}) {
     super({ ...options, label: "visual" });
@@ -26,6 +43,7 @@ class VisualTestRunner extends BaseTestRunner {
     this.baselineDir = options.baselineDir || "tests/visual-testing/base-screenshots";
     this.metaDir = options.metaDir || "tests/visual-testing/meta";
     this.threshold = options.threshold || 0.1;
+    this.allowBaselineCreation = options.allowBaselineCreation === true && !isCiEnvironment();
 
     this.browser = null;
     this.context = null;
@@ -54,7 +72,11 @@ class VisualTestRunner extends BaseTestRunner {
   }
 
   async close() {
-    if (this.browser) await this.browser.close();
+    const browser = this.browser;
+    this.browser = null;
+    this.context = null;
+    this.page = null;
+    if (browser) await browser.close();
   }
 
   /**
@@ -74,7 +96,7 @@ class VisualTestRunner extends BaseTestRunner {
         details.push({
           testName: target.name,
           route: target.route,
-          status: r.passed ? "PASSED" : (r.status === "BASELINE_CREATED" ? "BASELINE_CREATED" : "FAILED"),
+          status: r.status === "BASELINE_CREATED" ? "BASELINE_CREATED" : (r.passed ? "PASSED" : "FAILED"),
           misMatchPercentage: r.misMatchPercentage ?? 0,
           diffPath: r.diffImagePath || null,
         });
@@ -103,7 +125,8 @@ class VisualTestRunner extends BaseTestRunner {
   }
 
   async _runOne(target) {
-    const { name: testName, route, waitFor, waitMs } = target;
+    const { route, waitFor, waitMs } = target;
+    const testName = assertSafeTestName(target.name);
 
     await this.page.goto(`${this.url}${route}`);
     if (waitFor) await this.page.waitForSelector(waitFor);
@@ -114,6 +137,11 @@ class VisualTestRunner extends BaseTestRunner {
     await this.page.screenshot({ path: currentPath });
 
     if (!fs.existsSync(baselinePath)) {
+      if (!this.allowBaselineCreation) {
+        const error = new Error(`Missing approved visual baseline: ${baselinePath}`);
+        error.code = "ERR_VISUAL_BASELINE_MISSING";
+        throw error;
+      }
       fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
       fs.copyFileSync(currentPath, baselinePath);
       this._saveMetaFor(testName, { route, createdAt: new Date().toISOString() });

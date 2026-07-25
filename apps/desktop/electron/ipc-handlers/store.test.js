@@ -528,7 +528,7 @@ describe("store IPC handlers", () => {
       await ipcMain._callHandler("store:delete-task", "task-1");
 
       expect(mockStore.addAccount).toHaveBeenCalledWith(
-        { id: "acc1", owner_subject: "forged" },
+        { id: "acc1" },
         "user-a",
       );
       expect(mockStore.getAccount).toHaveBeenCalledWith("acc1", "user-a");
@@ -601,10 +601,152 @@ describe("store IPC handlers", () => {
       expect(mockStore.getUserSetting).toHaveBeenCalledWith("drafts", [], "user-a");
       const setCall = mockStore.setUserSetting.mock.calls[0];
       expect(setCall[0]).toBe("drafts");
-      expect(JSON.parse(setCall[1])).toEqual(expect.arrayContaining([
+      expect(setCall[1]).toEqual(expect.arrayContaining([
         expect.objectContaining({ id: "draft-a" }),
       ]));
       expect(setCall[2]).toBe("user-a");
+    });
+
+    it("草稿保存和读取保持结构化数组，避免双重 JSON 编码", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      mockStore.getUserSetting.mockReturnValue([{ id: "draft-old", title: "旧草稿" }]);
+      registerHandlers(ipcMain, { store: mockStore, identityService });
+
+      await expect(ipcMain._callHandler("draftSave", { id: "draft-new", title: "新草稿" }))
+        .resolves.toEqual({ code: 0, data: true });
+
+      const persistedDrafts = mockStore.setUserSetting.mock.calls[0][1];
+      expect(Array.isArray(persistedDrafts)).toBe(true);
+      expect(persistedDrafts).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "draft-old" }),
+        expect.objectContaining({ id: "draft-new" }),
+      ]));
+
+      mockStore.getUserSetting.mockReturnValue(persistedDrafts);
+      await expect(ipcMain._callHandler("draftList")).resolves.toEqual({
+        code: 0,
+        data: persistedDrafts,
+      });
+    });
+
+    it("身份已启用但 scoped 草稿接口缺失时拒绝回退到全局 drafts", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      delete mockStore.getUserSetting;
+      delete mockStore.setUserSetting;
+      mockStore.getSetting.mockReturnValue([{ id: "legacy-draft", title: "不应泄露" }]);
+      registerHandlers(ipcMain, { store: mockStore, identityService });
+
+      await expect(ipcMain._callHandler("draftList")).resolves.toEqual({
+        code: -1,
+        message: "草稿读取失败",
+        data: [],
+      });
+      await expect(ipcMain._callHandler("draftSave", { id: "draft-a", title: "A" })).resolves.toEqual({
+        code: -1,
+        message: "草稿保存失败",
+      });
+      await expect(ipcMain._callHandler("draftDelete", "legacy-draft")).resolves.toEqual({
+        code: -1,
+        message: "草稿删除失败",
+      });
+      expect(mockStore.getSetting).not.toHaveBeenCalled();
+      expect(mockStore.setSetting).not.toHaveBeenCalled();
+    });
+
+    it("未启用身份服务时保留 legacy 草稿存储兼容性", async () => {
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      delete mockStore.getUserSetting;
+      delete mockStore.setUserSetting;
+      mockStore.getSetting.mockReturnValue([{ id: "legacy-draft", title: "旧草稿" }]);
+      registerHandlers(ipcMain, { store: mockStore });
+
+      await expect(ipcMain._callHandler("draftList")).resolves.toEqual({
+        code: 0,
+        data: [{ id: "legacy-draft", title: "旧草稿" }],
+      });
+      await expect(ipcMain._callHandler("draftSave", { id: "draft-a", title: "A" })).resolves.toMatchObject({
+        code: 0,
+        data: true,
+      });
+      expect(mockStore.getSetting).toHaveBeenCalledWith("drafts");
+      expect(mockStore.setSetting).toHaveBeenCalledWith(
+        "drafts",
+        expect.arrayContaining([expect.objectContaining({ id: "draft-a" })]),
+      );
+    });
+
+    it.each([
+      ["draftSave", null, "草稿格式无效"],
+      ["draftSave", { title: "没有 ID" }, "草稿 ID 无效"],
+      ["draftDelete", "   ", "草稿 ID 无效"],
+    ])("%s 拒绝非法草稿输入", async (channel, value, message) => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      registerHandlers(ipcMain, { store: mockStore, identityService });
+
+      await expect(ipcMain._callHandler(channel, value)).resolves.toEqual({
+        code: -2,
+        message,
+      });
+      expect(mockStore.setUserSetting).not.toHaveBeenCalled();
+    });
+
+    it("草稿读取失败不向渲染层泄露内部路径", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      mockStore.getUserSetting.mockImplementation(() => {
+        throw new Error("SQLite error: C:\\Users\\secret\\multi-publish.db");
+      });
+      registerHandlers(ipcMain, { store: mockStore, identityService });
+
+      const result = await ipcMain._callHandler("draftList");
+
+      expect(result).toEqual({ code: -1, message: "草稿读取失败", data: [] });
+      expect(JSON.stringify(result)).not.toContain("multi-publish.db");
+    });
+
+    it("回调日志读取透传当前 owner_subject 并拒绝缺失身份", async () => {
+      const identityService = {
+        getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+      };
+      ipcMain = createMockIpcMain();
+      mockStore = createMockStore();
+      mockStore.listCallbackLogs.mockReturnValue([{ id: 1, owner_subject: "user-a" }]);
+      registerHandlers(ipcMain, { store: mockStore, identityService });
+
+      await expect(ipcMain._callHandler("store:list-callback-logs", 20)).resolves.toEqual({
+        code: 0,
+        data: [{ id: 1, owner_subject: "user-a" }],
+      });
+      expect(mockStore.listCallbackLogs).toHaveBeenCalledWith(20, "user-a");
+
+      const blockedIpc = createMockIpcMain();
+      const blockedStore = createMockStore();
+      registerHandlers(blockedIpc, {
+        store: blockedStore,
+        identityService: { getState: vi.fn(() => ({ status: "authenticated", user: null })) },
+      });
+      await expect(blockedIpc._callHandler("store:list-callback-logs", 20)).resolves.toEqual({
+        code: -3,
+        message: "无法识别当前用户",
+        data: [],
+      });
+      expect(blockedStore.listCallbackLogs).not.toHaveBeenCalled();
     });
 
     it("通用 setting IPC 也必须使用当前用户命名空间", async () => {

@@ -9,7 +9,8 @@ const mockCreateLoginStatusMonitor = vi.fn(() => mockLoginStatusMonitor)
 __registerMock('../services/login-status-monitor', {
   createLoginStatusMonitor: mockCreateLoginStatusMonitor,
 })
-__registerMock('../publishers/account-manager', {})
+const mockAccountManager = { setOwnerSubjectProvider: vi.fn() }
+__registerMock('../publishers/account-manager', mockAccountManager)
 __registerMock('../services/analytics-providers', {
   xiaohongshuProvider: { name: 'xhs' },
   douyinProvider: { name: 'douyin' },
@@ -26,6 +27,7 @@ function makeMockDeps(overrides) {
   const mockContainer = {
     get: vi.fn((key) => {
       if (key === 'publishIntervalGuard') return {}
+      if (key === 'batchManager') return mockBatchManager
       return {}
     }),
   }
@@ -43,6 +45,12 @@ function makeMockDeps(overrides) {
     setStateSaver: vi.fn(),
     setOwnerSubjectProvider: vi.fn(),
     deserialize: vi.fn(() => 0),
+  }
+  const mockCommentManager = {
+    setOwnerSubjectProvider: vi.fn(),
+  }
+  const mockBatchManager = {
+    setOwnerSubjectProvider: vi.fn(),
   }
   const mockCallbackServer = {
     start: vi.fn(async () => {}),
@@ -72,6 +80,8 @@ function makeMockDeps(overrides) {
     usageTracker: mockUsageTracker,
     store: mockStore,
     taskQueue: mockTaskQueue,
+    commentManager: mockCommentManager,
+    batchManager: mockBatchManager,
     callbackServer: mockCallbackServer,
     scheduler: mockScheduler,
     keywordMonitor: mockKeywordMonitor,
@@ -120,6 +130,36 @@ describe('phase3-services.startServices', () => {
     })
     await startServices(deps)
     expect(log.warn).toHaveBeenCalledWith('App', 'Callback server failed to start (port may be in use): port in use')
+  })
+
+  it('callbackServer 半启动失败时立即清理，并且后续 rollback 不重复停止', async () => {
+    const callbackServer = {
+      start: vi.fn(async () => { throw new Error('partial startup failure') }),
+      stop: vi.fn(async () => {}),
+    }
+    const deps = makeMockDeps({ callbackServer })
+
+    const result = await startServices(deps)
+
+    expect(callbackServer.stop).toHaveBeenCalledTimes(1)
+    await result.rollback()
+    expect(callbackServer.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('callbackServer 首次清理失败后，rollback 会重新尝试停止', async () => {
+    const callbackServer = {
+      start: vi.fn(async () => { throw new Error('partial startup failure') }),
+      stop: vi.fn()
+        .mockRejectedValueOnce(new Error('stop failed'))
+        .mockResolvedValueOnce(undefined),
+    }
+    const deps = makeMockDeps({ callbackServer })
+
+    const result = await startServices(deps)
+
+    expect(callbackServer.stop).toHaveBeenCalledTimes(1)
+    await result.rollback()
+    expect(callbackServer.stop).toHaveBeenCalledTimes(2)
   })
 
   it('scheduler.restore 被调用', async () => {
@@ -202,6 +242,117 @@ describe('phase3-services.startServices', () => {
     expect(result.identityService).toBe(identityService)
     expect(deps.scheduler.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
     expect(deps.taskQueue.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    expect(deps.commentManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    expect(deps.batchManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    expect(mockAccountManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+  })
+
+  it('身份服务把 owner provider 注入扫码登录服务，并在回滚时先关闭会话再移除 provider', async () => {
+    const qrCodeLogin = { close: vi.fn(), setOwnerSubjectProvider: vi.fn() }
+    const identityService = {
+      getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })),
+    }
+    const deps = makeMockDeps({ createIdentityService: vi.fn(async () => identityService) })
+    deps.container.get.mockImplementation((key) => {
+      if (key === 'publishIntervalGuard') return {}
+      if (key === 'qrCodeLogin') return qrCodeLogin
+      return {}
+    })
+
+    const result = await startServices(deps)
+
+    expect(qrCodeLogin.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    const ownerProvider = qrCodeLogin.setOwnerSubjectProvider.mock.calls[0][0]
+    expect(ownerProvider()).toBe('user-a')
+    await result.rollback()
+    expect(qrCodeLogin.close).toHaveBeenCalledWith({ notifyRenderer: false })
+    expect(qrCodeLogin.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
+    expect(qrCodeLogin.close.mock.invocationCallOrder[0])
+      .toBeLessThan(qrCodeLogin.setOwnerSubjectProvider.mock.invocationCallOrder.at(-1))
+  })
+
+  it('扫码服务仅实现 close 时，回滚仍会关闭遗留会话', async () => {
+    const qrCodeLogin = { close: vi.fn() }
+    const deps = makeMockDeps()
+    deps.container.get.mockImplementation((key) => {
+      if (key === 'publishIntervalGuard') return {}
+      if (key === 'qrCodeLogin') return qrCodeLogin
+      return {}
+    })
+
+    const result = await startServices(deps)
+
+    await result.rollback()
+    expect(qrCodeLogin.close).toHaveBeenCalledWith({ notifyRenderer: false })
+  })
+
+  it('扫码会话关闭失败时仍会移除 owner provider', async () => {
+    const qrCodeLogin = {
+      close: vi.fn(() => { throw new Error('close failed') }),
+      setOwnerSubjectProvider: vi.fn(),
+    }
+    const identityService = {
+      getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })),
+    }
+    const deps = makeMockDeps({ createIdentityService: vi.fn(async () => identityService) })
+    deps.container.get.mockImplementation((key) => {
+      if (key === 'publishIntervalGuard') return {}
+      if (key === 'qrCodeLogin') return qrCodeLogin
+      return {}
+    })
+
+    const result = await startServices(deps)
+
+    await result.rollback()
+    expect(qrCodeLogin.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
+  })
+
+  it('身份状态变更时恢复任务失败不会向身份服务回抛', async () => {
+    let onStateChanged
+    const scheduler = {
+      restore: vi.fn()
+        .mockReturnValueOnce(0)
+        .mockImplementationOnce(() => { throw new Error('restore failed') }),
+      setOwnerSubjectProvider: vi.fn(),
+      stopAll: vi.fn(),
+    }
+    const identityService = {
+      getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })),
+      onStateChanged: vi.fn((listener) => {
+        onStateChanged = listener
+        return vi.fn()
+      }),
+    }
+    const deps = makeMockDeps({
+      scheduler,
+      createIdentityService: vi.fn(async () => identityService),
+    })
+
+    await startServices(deps)
+
+    expect(() => onStateChanged({ status: 'authenticated', user: { sub: 'user-b' } })).not.toThrow()
+    expect(log.warn).toHaveBeenCalledWith('Identity', 'State change restore failed: restore failed')
+  })
+
+  it('AccountManager 身份注入不依赖 Store 是否实现 owner provider', async () => {
+    const deps = makeMockDeps({
+      store: {
+        init: vi.fn(),
+        close: vi.fn(),
+        setSetting: vi.fn(),
+        getSetting: vi.fn(() => null),
+        setUserSetting: vi.fn(),
+        getUserSetting: vi.fn(() => null),
+        addCallbackLog: vi.fn(),
+      },
+      createIdentityService: vi.fn(async () => ({
+        getState: vi.fn(() => ({ user: { sub: 'user-a' } })),
+      })),
+    })
+
+    await startServices(deps)
+
+    expect(mockAccountManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
   })
 
   it.each(['1', 'true', 'yes', 'on', ' TRUE '])('required=%s 时身份初始化失败必须阻止启动', async (required) => {
@@ -248,6 +399,9 @@ describe('phase3-services.startServices', () => {
     expect(deps.taskQueue.setStateSaver).toHaveBeenLastCalledWith(null)
     expect(deps.scheduler.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
     expect(deps.taskQueue.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
+    expect(deps.commentManager.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
+    expect(deps.batchManager.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
+    expect(mockAccountManager.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
     expect(deps.pythonBridge.setAuthService).toHaveBeenLastCalledWith(null)
     expect(identityService.dispose).toHaveBeenCalledTimes(1)
     expect(deps.store.close).toHaveBeenCalledTimes(1)

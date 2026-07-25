@@ -63,7 +63,7 @@ beforeAll(() => {
       if (entry.name === 'node_modules') continue
       const full = resolve(dir, entry.name)
       if (entry.isDirectory()) { walkDir(full); continue }
-      if (!entry.name.endsWith('.js') || entry.name === 'types.js') continue
+        if (!entry.name.endsWith('.js') || entry.name.endsWith('.test.js') || entry.name === 'types.js') continue
       const content = readFileSync(full, 'utf-8')
       if (content.length < 100) continue
       extractAll(content, RE_HANDLE).forEach(c => handlerChannels.add(c))
@@ -125,6 +125,12 @@ describe('IPC Handler Registration Completeness', () => {
 
   it('should register at least 70 handlers', () => {
     expect(handlerChannels.size).toBeGreaterThanOrEqual(70)
+  })
+
+  it('ignores IPC channels declared only by test fixtures', () => {
+    expect(handlerChannels.has('phase5:concurrent-first')).toBe(false)
+    expect(handlerChannels.has('provider:identity-smoke')).toBe(false)
+    expect(handlerChannels.has('publish:recursion-contract')).toBe(false)
   })
 
   it('every handler channel should be exposed in preload (except HIDDEN)', () => {

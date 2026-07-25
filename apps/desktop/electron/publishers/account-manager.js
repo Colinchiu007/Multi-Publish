@@ -13,6 +13,61 @@ const pythonBridge = require('../services/python-bridge')
 const accountStateRestorer = require('../services/account-state-restorer')
 const credentialStore = require('../services/credential-store')
 
+let ownerSubjectProvider = null
+const OWNER_CHANGED_MESSAGE = '登录用户已变更，请重新发起登录'
+
+function setOwnerSubjectProvider (provider) {
+  if (provider !== null && provider !== undefined && typeof provider !== 'function') {
+    throw new TypeError('owner subject provider must be a function or null')
+  }
+  ownerSubjectProvider = provider || null
+}
+
+function resolveOwnerSubject () {
+  if (!ownerSubjectProvider) return undefined
+  let owner
+  try { owner = ownerSubjectProvider() } catch (_) { owner = null }
+  if (typeof owner !== 'string' || !owner.trim()) throw new Error('登录会话缺少用户标识')
+  return owner.trim()
+}
+
+function ownerChangedError () {
+  const error = new Error(OWNER_CHANGED_MESSAGE)
+  error.code = 'AUTH_OWNER_CHANGED'
+  return error
+}
+
+function resolveAttemptOwner (expectedOwnerSubject) {
+  if (expectedOwnerSubject === undefined) return resolveOwnerSubject()
+  if (typeof expectedOwnerSubject !== 'string' || !expectedOwnerSubject.trim()) throw ownerChangedError()
+  const owner = expectedOwnerSubject.trim()
+  if (resolveOwnerSubject() !== owner) throw ownerChangedError()
+  return owner
+}
+
+function assertAttemptOwner (owner) {
+  if (owner !== undefined && resolveOwnerSubject() !== owner) throw ownerChangedError()
+}
+
+function requestBackendForOwner (method, requestPath, body, timeout, owner) {
+  if (owner === undefined) {
+    if (timeout === undefined) {
+      if (body === undefined) return pythonBridge.requestBackend(method, requestPath)
+      return pythonBridge.requestBackend(method, requestPath, body)
+    }
+    return pythonBridge.requestBackend(method, requestPath, body, timeout)
+  }
+  return pythonBridge.requestBackend(method, requestPath, body === undefined ? null : body, timeout === undefined ? 30000 : timeout, owner)
+}
+
+async function rollbackBackendAccount (accountId, owner) {
+  try {
+    await requestBackendForOwner('DELETE', `/api/accounts/${accountId}`, undefined, undefined, owner)
+  } catch (error) {
+    log.warn('AccountManager', `Failed to roll back account metadata: ${error.message}`)
+  }
+}
+
 // 安全：凭证写入路径使用 Electron userData 目录，而非当前工作目录
 function getUserDataDir () {
   try { return app.getPath('userData') } catch { return path.join(os.homedir(), '.multi-publish') }
@@ -181,9 +236,10 @@ async function captureCookies (platform, timeout = 300000) {
 /**
  * 添加账号 — 通过 Playwright 捕获 Cookie 后调用 Python API 保存
  * @param {string} platform - 平台标识
+ * @param {string|undefined} expectedOwnerSubject - 登录开始时绑定的用户标识
  * @returns {Promise<Object>} 保存后的账号信息
  */
-async function addAccount (platform) {
+async function addAccount (platform, expectedOwnerSubject) {
   const { cookies, name, localStorage: localStorageData, accountInfo } = await captureCookies(platform)
 
   return saveCapturedAccount(platform, {
@@ -191,7 +247,7 @@ async function addAccount (platform) {
     name,
     localStorage: localStorageData,
     accountInfo,
-  })
+  }, expectedOwnerSubject)
 }
 
 /**
@@ -199,10 +255,12 @@ async function addAccount (platform) {
  * 凭证只在主进程流转，渲染进程只接收后端返回的脱敏账号信息。
  * @param {string} platform
  * @param {{cookies?: Array, name?: string, localStorage?: object, indexedDB?: object, accountInfo?: object}} captured
+ * @param {string|undefined} expectedOwnerSubject - 登录开始时绑定的用户标识
  * @returns {Promise<object>}
  */
-async function saveCapturedAccount (platform, captured) {
+async function saveCapturedAccount (platform, captured, expectedOwnerSubject) {
   if (!PLATFORM_LOGIN_URLS[platform]) throw new Error(`不支持的平台: ${platform}`)
+  const owner = resolveAttemptOwner(expectedOwnerSubject)
   const source = captured && typeof captured === 'object' ? captured : {}
   const cookies = Array.isArray(source.cookies)
     ? source.cookies.filter(cookie => isPlatformCookieDomain(platform, cookie?.domain))
@@ -224,10 +282,10 @@ async function saveCapturedAccount (platform, captured) {
     : {}
 
   // 后端只保存公开元数据，避免在 accounts.json 中重复落盘凭证。
-  const result = await pythonBridge.requestBackend('POST', '/api/accounts', {
+  const result = await requestBackendForOwner('POST', '/api/accounts', {
     platform,
     name,
-  })
+  }, undefined, owner)
 
   if (result.code !== 0) {
     throw new Error(result.message || '保存账号失败')
@@ -236,35 +294,52 @@ async function saveCapturedAccount (platform, captured) {
   const accountId = result.data?.accountId || result.data?.id
   if (!accountId) throw new Error('保存账号后未返回账号 ID')
   if (!isSafePathSegment(accountId)) throw new Error('保存账号后返回了非法账号 ID')
+  try {
+    assertAttemptOwner(owner)
+  } catch (error) {
+    await rollbackBackendAccount(accountId, owner)
+    throw error
+  }
 
-  const credentialSaved = credentialStore.saveCredential(accountId, {
+  const userDataDir = getUserDataDir()
+  const credentialData = {
     platform,
     cookies,
     localStorage: localStorageData,
     indexedDB,
     accountInfo,
-  }, getUserDataDir())
+  }
+  const credentialSaved = owner === undefined
+    ? credentialStore.saveCredential(accountId, credentialData, userDataDir)
+    : credentialStore.saveCredential(accountId, credentialData, userDataDir, owner)
+  assertAttemptOwner(owner)
   if (!credentialSaved) {
-    try { await pythonBridge.requestBackend('DELETE', `/api/accounts/${accountId}`) } catch (_) { /* 回滚失败由后端日志记录 */ }
+    await rollbackBackendAccount(accountId, owner)
     throw new Error('加密凭证保存失败，账号创建已回滚')
   }
   log.info('AccountManager', `Saved credential store for account ${accountId}`)
 
   // 状态记录仅含公开元数据，用于列表恢复和删除清理。
   try {
-    const stateSaved = accountStateRestorer.saveAccountRecord({
+    assertAttemptOwner(owner)
+    const stateRecord = {
       accountId,
       platform,
       platformAccountId: accountInfo?.platformAccountId || '',
       accountInfo,
       timestamp: Date.now(),
-    })
+    }
+    const stateSaved = owner === undefined
+      ? accountStateRestorer.saveAccountRecord(stateRecord)
+      : accountStateRestorer.saveAccountRecord(stateRecord, owner, userDataDir)
     if (stateSaved) log.info('AccountManager', `Saved account state record for ${platform}:${accountId}`)
     else log.warn('AccountManager', `Failed to save account state record for ${platform}:${accountId}`)
   } catch (e) {
+    if (e && e.code === 'AUTH_OWNER_CHANGED') throw e
     log.warn('AccountManager', `Failed to save account state record: ${e.message}`)
   }
 
+  assertAttemptOwner(owner)
   log.info('AccountManager', ` 账号添加成功: ${name} (${platform})`)
   return result.data
 }
@@ -272,46 +347,65 @@ async function saveCapturedAccount (platform, captured) {
 /**
  * 删除账号
  * @param {string} accountId
+ * @param {string|undefined} expectedOwnerSubject - 删除开始时绑定的用户标识
  * @returns {Promise<boolean>}
  */
-async function deleteAccount (accountId) {
+async function deleteAccount (accountId, expectedOwnerSubject) {
   if (!accountId || typeof accountId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(accountId)) {
     throw new Error('缺少或非法账号 ID')
   }
+  const owner = resolveAttemptOwner(expectedOwnerSubject)
+  const userDataDir = getUserDataDir()
   let platform = ''
   try {
-    const current = await pythonBridge.requestBackend('GET', `/api/accounts/${accountId}`)
+    const current = await requestBackendForOwner('GET', `/api/accounts/${accountId}`, undefined, undefined, owner)
     if (current?.code === 0 && typeof current.data?.platform === 'string') platform = current.data.platform
   } catch (_) { /* 删除仍可继续，凭证清理使用本地记录回退 */ }
 
-  const result = await pythonBridge.requestBackend('DELETE', `/api/accounts/${accountId}`)
+  assertAttemptOwner(owner)
+
+  const result = await requestBackendForOwner('DELETE', `/api/accounts/${accountId}`, undefined, undefined, owner)
+  assertAttemptOwner(owner)
   const alreadyDeleted = result && result.code === undefined && result.detail === '账号不存在'
   if (result.code !== 0 && !alreadyDeleted) {
     throw new Error(result.message || '删除账号失败')
   }
   if (!platform) {
+    assertAttemptOwner(owner)
     try {
-      const record = accountStateRestorer.listLoggedInAccounts().find(item => item.accountId === accountId)
+      const records = owner === undefined
+        ? accountStateRestorer.listLoggedInAccounts()
+        : accountStateRestorer.listLoggedInAccounts(owner, userDataDir)
+      const record = records.find(item => item.accountId === accountId)
       platform = record?.platform || ''
     } catch (e) {
       log.warn('AccountManager', `查找账号本地状态失败: ${e.message}`)
     }
   }
   try {
-    const userDataDir = getUserDataDir()
-    const hadCredential = credentialStore.hasCredential(accountId, userDataDir)
-    const deletedCredential = credentialStore.deleteCredential(accountId, userDataDir)
+    assertAttemptOwner(owner)
+    const hadCredential = owner === undefined
+      ? credentialStore.hasCredential(accountId, userDataDir)
+      : credentialStore.hasCredential(accountId, userDataDir, owner)
+    const deletedCredential = owner === undefined
+      ? credentialStore.deleteCredential(accountId, userDataDir)
+      : credentialStore.deleteCredential(accountId, userDataDir, owner)
     if (hadCredential && !deletedCredential) throw new Error('加密凭据文件删除失败')
   } catch (e) {
+    if (e && e.code === 'AUTH_OWNER_CHANGED') throw e
     throw new Error(`账号元数据已删除，但清理本地加密凭据失败: ${e.message}`)
   }
   try {
-    if (typeof accountStateRestorer.deleteAccountRecordsById === 'function') {
+    assertAttemptOwner(owner)
+    if (owner === undefined && typeof accountStateRestorer.deleteAccountRecordsById === 'function') {
       accountStateRestorer.deleteAccountRecordsById(accountId)
-    } else if (platform) {
-      accountStateRestorer.deleteAccountRecord(platform, accountId)
+    } else if (platform && typeof accountStateRestorer.deleteAccountRecord === 'function') {
+      accountStateRestorer.deleteAccountRecord(platform, accountId, owner, owner === undefined ? undefined : userDataDir)
+    } else if (typeof accountStateRestorer.deleteAccountRecordsById === 'function') {
+      accountStateRestorer.deleteAccountRecordsById(accountId, owner, userDataDir)
     }
   } catch (e) {
+    if (e && e.code === 'AUTH_OWNER_CHANGED') throw e
     log.warn('AccountManager', `清理账号本地状态失败: ${e.message}`)
   }
   log.info('AccountManager', ` 账号已删除: ${accountId}`)
@@ -320,10 +414,13 @@ async function deleteAccount (accountId) {
 
 /**
  * 获取账号列表
+ * @param {string|undefined} expectedOwnerSubject - 查询开始时绑定的用户标识
  * @returns {Promise<Array>}
  */
-async function listAccounts () {
-  const result = await pythonBridge.requestBackend('GET', '/api/accounts')
+async function listAccounts (expectedOwnerSubject) {
+  const owner = resolveAttemptOwner(expectedOwnerSubject)
+  const result = await requestBackendForOwner('GET', '/api/accounts', undefined, undefined, owner)
+  assertAttemptOwner(owner)
   if (result.code !== 0) {
     throw new Error(result.message || '获取账号列表失败')
   }
@@ -334,9 +431,10 @@ async function listAccounts () {
  * 检查账号登录状态 — 通过加载 Cookie 并访问平台主页来判断
  * @param {string} platform - 平台标识
  * @param {string} accountId - 账号 ID
+ * @param {string|undefined} expectedOwnerSubject - 校验开始时绑定的用户标识
  * @returns {Promise<{valid: boolean, message: string}>}
  */
-async function checkLoginStatus (platform, accountId) {
+async function checkLoginStatus (platform, accountId, expectedOwnerSubject) {
   if (!isSafePathSegment(platform) || !isSafePathSegment(accountId)) {
     return { valid: false, message: '缺少或非法平台/账号参数' }
   }
@@ -344,9 +442,11 @@ async function checkLoginStatus (platform, accountId) {
   const loginUrl = PLATFORM_LOGIN_URLS[platform]
   const successSelector = PLATFORM_LOGIN_SUCCESS_SELECTORS[platform]
   if (!loginUrl) return { valid: false, message: `不支持的平台: ${platform}` }
+  const owner = resolveAttemptOwner(expectedOwnerSubject)
 
   try {
-    const credentials = loadSavedCredentials(accountId, platform)
+    const credentials = loadSavedCredentials(accountId, platform, owner)
+    assertAttemptOwner(owner)
     const cookies = Array.isArray(credentials?.cookies) ? credentials.cookies : []
     const localStorageData = credentials?.localStorage && typeof credentials.localStorage === 'object' && !Array.isArray(credentials.localStorage)
       ? credentials.localStorage
@@ -357,30 +457,40 @@ async function checkLoginStatus (platform, accountId) {
 
     // 创建临时 context 加载 Cookie 进行验证
     const browser = await playwrightManager.getContext({ show: false })
+    assertAttemptOwner(owner)
     const page = await browser.newPage()
+    assertAttemptOwner(owner)
 
     try {
       // 注入 Cookie
-      if (cookies.length > 0) await page.context().addCookies(cookies)
+      if (cookies.length > 0) {
+        await page.context().addCookies(cookies)
+        assertAttemptOwner(owner)
+      }
       if (Object.keys(localStorageData).length > 0) {
         await page.addInitScript(buildLocalStorageRestoreScript(localStorageData))
+        assertAttemptOwner(owner)
       }
 
       // 访问平台页面
       await page.goto(loginUrl, { waitUntil: 'networkidle', timeout: 30000 })
+      assertAttemptOwner(owner)
 
       // 检查登录状态选择器
       if (successSelector) {
         try {
           await page.waitForSelector(successSelector, { timeout: 10000 })
+          assertAttemptOwner(owner)
           return { valid: true, message: 'Cookie 有效，登录正常' }
         } catch {
+          assertAttemptOwner(owner)
           return { valid: false, message: 'Cookie 已过期，请重新登录' }
         }
       }
 
       // 无特定选择器时，检查 URL 是否跳离登录页
       const currentUrl = page.url()
+      assertAttemptOwner(owner)
       if (currentUrl.includes('login') || currentUrl.includes('signin')) {
         return { valid: false, message: 'Cookie 已过期，请重新登录' }
       }
@@ -390,6 +500,7 @@ async function checkLoginStatus (platform, accountId) {
       await page.close().catch(() => {})
     }
   } catch (e) {
+    if (e && e.code === 'AUTH_OWNER_CHANGED') throw e
     return { valid: false, message: `检查失败: ${e.message}` }
   }
 }
@@ -486,11 +597,19 @@ function buildLocalStorageRestoreScript (localStorageObj) {
  * 从主进程本地存储读取账号凭证，禁止通过 preload 暴露给渲染进程。
  * @param {string} accountId
  * @param {string} platform
+ * @param {string|undefined} expectedOwnerSubject - 读取开始时绑定的用户标识
  * @returns {{cookies: Array, localStorage: object, indexedDB: object, accountInfo: object}|null}
  */
-function loadSavedCredentials (accountId, platform) {
-  const credentialData = credentialStore.loadCredential(accountId, getUserDataDir())
-  const accountRecord = accountStateRestorer.getAccountRecord(platform, accountId)
+function loadSavedCredentials (accountId, platform, expectedOwnerSubject) {
+  const owner = resolveAttemptOwner(expectedOwnerSubject)
+  const userDataDir = getUserDataDir()
+  const credentialData = owner === undefined
+    ? credentialStore.loadCredential(accountId, userDataDir)
+    : credentialStore.loadCredential(accountId, userDataDir, owner)
+  const accountRecord = owner === undefined
+    ? accountStateRestorer.getAccountRecord(platform, accountId)
+    : accountStateRestorer.getAccountRecord(platform, accountId, owner, userDataDir)
+  assertAttemptOwner(owner)
   if (!credentialData) return null
   const credentialPlatform = typeof credentialData.platform === 'string' ? credentialData.platform : ''
   const recordPlatform = typeof accountRecord?.platform === 'string' ? accountRecord.platform : ''
@@ -519,10 +638,12 @@ function loadSavedCredentials (accountId, platform) {
  */
 async function openSavedAccount (accountId, platform, opts = {}) {
   // eslint-disable-next-line no-unused-vars
-  const { mainWindow, session } = opts
+  const { mainWindow, session, webContents, ownerSubject } = opts
+  const owner = resolveAttemptOwner(ownerSubject)
   
   // 从本地存储加载完整凭证
-  const credentials = loadSavedCredentials(accountId, platform)
+  const credentials = loadSavedCredentials(accountId, platform, owner)
+  assertAttemptOwner(owner)
 
   if (!credentials) {
     log.info('AccountManager', `No saved credentials for ${platform}:${accountId}`)
@@ -533,6 +654,7 @@ async function openSavedAccount (accountId, platform, opts = {}) {
   const baseUrl = PLATFORM_LOGIN_URLS[platform] || ''
   
   if (!session) {
+    assertAttemptOwner(owner)
     log.info('AccountManager', `Restoring credentials for ${platform}:${accountId}`)
     return { isLoggedIn: true, accountInfo, localStorageData }
   }
@@ -540,8 +662,14 @@ async function openSavedAccount (accountId, platform, opts = {}) {
   // 有 session 时恢复 cookies
   try {
     await restoreCookies(session, cookies, baseUrl)
+    assertAttemptOwner(owner)
   } catch (e) {
+    if (e && e.code === 'AUTH_OWNER_CHANGED') throw e
     log.warn('AccountManager', `restoreCookies failed: ${e.message}`)
+  }
+  if (webContents && localStorageData && Object.keys(localStorageData).length > 0) {
+    await restoreLocalStorage(webContents, localStorageData)
+    assertAttemptOwner(owner)
   }
   
   return { isLoggedIn: true, accountInfo, localStorageData }
@@ -550,9 +678,14 @@ async function openSavedAccount (accountId, platform, opts = {}) {
 /**
  * 检查本地是否有账号凭证
  */
-function checkLocalCredentials (platform, accountId) {
-  if (!credentialStore.hasCredential(accountId, getUserDataDir())) return false
-  return Boolean(loadSavedCredentials(accountId, platform))
+function checkLocalCredentials (platform, accountId, expectedOwnerSubject) {
+  const owner = resolveAttemptOwner(expectedOwnerSubject)
+  const userDataDir = getUserDataDir()
+  const hasCredential = owner === undefined
+    ? credentialStore.hasCredential(accountId, userDataDir)
+    : credentialStore.hasCredential(accountId, userDataDir, owner)
+  if (!hasCredential) return false
+  return Boolean(loadSavedCredentials(accountId, platform, owner))
 }
 
 module.exports = {
@@ -571,6 +704,7 @@ module.exports = {
   loadSavedCredentials,
   openSavedAccount,
   checkLocalCredentials,
+  setOwnerSubjectProvider,
   accountStateRestorer,
   credentialStore,
 }

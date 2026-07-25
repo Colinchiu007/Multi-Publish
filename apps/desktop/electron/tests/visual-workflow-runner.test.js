@@ -431,20 +431,25 @@ describe('视觉工作流执行器', () => {
 describe('E2E 统一入口', () => {
   it('任一路由检查、控制台或页面错误都使门禁失败', () => {
     expect(e2eRunner.hasFailures({ ok: {
-      checks: { failed: 0 },
+      checks: { total: 1, passed: 1, failed: 0 },
       consoleErrors: [],
       pageErrors: [],
     } })).toBe(false)
 
     expect(e2eRunner.hasFailures({ failedCheck: {
-      checks: { failed: 1 },
+      checks: { total: 1, passed: 0, failed: 1 },
       consoleErrors: [],
       pageErrors: [],
     } })).toBe(true)
     expect(e2eRunner.hasFailures({ consoleError: {
-      checks: { failed: 0 },
+      checks: { total: 1, passed: 1, failed: 0 },
       consoleErrors: [{}],
       pageErrors: [],
+    } })).toBe(true)
+    expect(e2eRunner.hasFailures({ pageError: {
+      checks: { total: 1, passed: 1, failed: 0 },
+      consoleErrors: [],
+      pageErrors: [{}],
     } })).toBe(true)
   })
 })

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "capturedAt": null,
+  "captureMethod": "真实蚁小二安装程序 + CDP；需要在同一窗口尺寸下完成登录后捕获",
+  "status": "PENDING_EXTERNAL",
+  "reason": "尚未取得真实蚁小二登录态截图，不能使用 Multi-Publish 自身基线替代",
+  "targets": [
+    {
+      "name": "accounts",
+      "reference": "01-docs/yixiaoer-reverse/screenshots/yxe-live-20260722/accounts.png",
+      "current": "01-docs/yixiaoer-reverse/screenshots/current-pageaccounts.png",
+      "source": "真实蚁小二账号管理页",
+      "status": "PENDING_EXTERNAL"
+    },
+    {
+      "name": "publish",
+      "reference": "01-docs/yixiaoer-reverse/screenshots/yxe-live-20260722/publish.png",
+      "current": "01-docs/yixiaoer-reverse/screenshots/current-pagepublish.png",
+      "source": "真实蚁小二内容发布页",
+      "status": "PENDING_EXTERNAL"
+    },
+    {
+      "name": "batch-publish",
+      "reference": "01-docs/yixiaoer-reverse/screenshots/yxe-live-20260722/batch-publish.png",
+      "current": "01-docs/yixiaoer-reverse/screenshots/current-pagebatch-publish.png",
+      "source": "真实蚁小二批量发布页",
+      "status": "PENDING_EXTERNAL"
+    }
+  ]
+}

@@ -101,13 +101,13 @@ const SCHEMA_SQL = [
   )`,
   `CREATE TABLE IF NOT EXISTS callback_logs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_subject TEXT NOT NULL DEFAULT '${LEGACY_OWNER_SUBJECT}',
     type          TEXT NOT NULL,
     source        TEXT DEFAULT "",
     payload       TEXT DEFAULT "{}",
     created_at    TEXT DEFAULT ''
   )`,
-  // owner 索引由 migrateOwnerIsolationSchema 在旧表重建后统一创建，
-  // 避免升级旧库时先引用尚不存在的 owner_subject 列。
+  // owner 索引必须在 callback_logs 迁移补列后创建，避免旧库初始化时引用不存在的 owner_subject。
   `CREATE INDEX IF NOT EXISTS idx_callback_created ON callback_logs(created_at)`,
   `CREATE TABLE IF NOT EXISTS model_providers (
     id            TEXT PRIMARY KEY,
@@ -328,6 +328,21 @@ function migrateOwnerIsolationSchema(db) {
   return migrate();
 }
 
+/**
+ * callback_logs 的主键不需要变更，但历史表缺少 owner_subject，必须单独补列。
+ * 未归属的历史记录固定落入 legacy 命名空间，认证用户不会读取它们。
+ */
+function migrateCallbackLogOwnerSchema(db) {
+  const columns = getTableInfo(db, 'callback_logs')
+  if (columns.length === 0) {
+    const createTableSql = SCHEMA_SQL.find((sql) => sql.includes('CREATE TABLE IF NOT EXISTS callback_logs'))
+    if (createTableSql) execSchemaSql(db, createTableSql)
+  } else if (!columns.some((column) => column.name === 'owner_subject')) {
+    execSchemaSql(db, `ALTER TABLE callback_logs ADD COLUMN owner_subject TEXT NOT NULL DEFAULT '${LEGACY_OWNER_SUBJECT}'`)
+  }
+  execSchemaSql(db, 'CREATE INDEX IF NOT EXISTS idx_callback_owner_created ON callback_logs(owner_subject, created_at)')
+}
+
 
 /**
  * 迁移 model_providers 表：添加 api_key_enc BLOB 字段（如果不存在）
@@ -348,6 +363,7 @@ module.exports = {
   LEGACY_OWNER_SUBJECT,
   OWNER_TABLE_SCHEMA_SQL,
   migrateOwnerIsolationSchema,
+  migrateCallbackLogOwnerSchema,
   migrateModelProvidersSchema,
   safeJsonParse,
   safeJsonStringify,

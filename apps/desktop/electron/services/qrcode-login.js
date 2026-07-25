@@ -39,6 +39,7 @@ class QrCodeLogin {
   constructor (options = {}) {
     this.mainWindow = null
     this.accountManager = options.accountManager || null
+    this.ownerSubjectProvider = typeof options.ownerSubjectProvider === 'function' ? options.ownerSubjectProvider : null
     this.currentView = null
     this.currentPlatform = null
     this.currentAccountId = null
@@ -56,6 +57,20 @@ class QrCodeLogin {
 
   setAccountManager (accountManager) {
     this.accountManager = accountManager
+  }
+
+  setOwnerSubjectProvider (provider) {
+    if (provider !== null && provider !== undefined && typeof provider !== 'function') {
+      throw new TypeError('owner subject provider must be a function or null')
+    }
+    this.ownerSubjectProvider = provider || null
+  }
+
+  _getOwnerSubject () {
+    if (!this.ownerSubjectProvider) return undefined
+    let owner
+    try { owner = this.ownerSubjectProvider() } catch (_) { return null }
+    return typeof owner === 'string' && owner.trim() ? owner.trim() : null
   }
 
   /**
@@ -82,6 +97,12 @@ class QrCodeLogin {
         return
       }
 
+      const ownerSubject = this._getOwnerSubject()
+      if (ownerSubject === null) {
+        reject(new Error('登录会话缺少用户标识'))
+        return
+      }
+
       if (this._activeSession) {
         this._closeSession(this._activeSession, {
           notifyRenderer: false,
@@ -93,6 +114,7 @@ class QrCodeLogin {
       const loginSession = {
         accountId,
         platform,
+        ownerSubject,
         view: null,
         resolve,
         reject,
@@ -391,16 +413,20 @@ class QrCodeLogin {
     }
     loginSession.phase = 'saving'
     const platform = loginSession.platform
-    const account = await this.accountManager.saveCapturedAccount(platform, {
+    const captured = {
       cookies,
       localStorage,
       name: accountName,
-    })
+    }
+    const account = loginSession.ownerSubject === undefined
+      ? await this.accountManager.saveCapturedAccount(platform, captured)
+      : await this.accountManager.saveCapturedAccount(platform, captured, loginSession.ownerSubject)
     const savedAccountId = account.id || account.accountId
     if (!this._isSessionActive(loginSession)) {
       if (savedAccountId && typeof this.accountManager.deleteAccount === 'function') {
         try {
-          await this.accountManager.deleteAccount(savedAccountId)
+          if (loginSession.ownerSubject === undefined) await this.accountManager.deleteAccount(savedAccountId)
+          else await this.accountManager.deleteAccount(savedAccountId, loginSession.ownerSubject)
         } catch (e) {
           log.error('QrCodeLogin', `回滚已取消的扫码账号失败: ${e.message}`)
         }

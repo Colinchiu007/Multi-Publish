@@ -76,6 +76,12 @@ const UNTRUSTED_EVENT = { senderFrame: { url: 'https://evil.example/' } }
 // 可信来源（dev localhost）
 const TRUSTED_EVENT = { senderFrame: { url: 'http://localhost:5174/' } }
 
+function createDeferred () {
+  let resolve
+  const promise = new Promise((resolvePromise) => { resolve = resolvePromise })
+  return { promise, resolve }
+}
+
 describe('account IPC 写操作 sender 校验', () => {
   it('auth:open-login 拒绝外部网页调用', async () => {
     const ipcMain = createMockIpcMain()
@@ -95,6 +101,24 @@ describe('account IPC 写操作 sender 校验', () => {
     const result = await handler(UNTRUSTED_EVENT, { platform: 'wechat', cookies: [] })
 
     expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
+
+  it.each([
+    ['auth:open-login', async (handler) => handler(TRUSTED_EVENT, 'wechat_mp')],
+    ['auth:login-silent', async (handler) => handler(TRUSTED_EVENT, { platform: 'wechat_mp', accountId: 'acc-1' })],
+  ])('%s 在身份服务存在但 sub 缺失时 fail-closed', async (channel, invoke) => {
+    const deps = createMockDeps({
+      identityService: { getState: vi.fn(() => ({ status: 'authenticated', user: null })) },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await invoke(ipcMain._get(channel))
+
+    expect(result).toEqual({ code: -3, message: '无法识别当前用户' })
+    expect(deps.authViewManager.openLogin).not.toHaveBeenCalled()
+    expect(deps.AccountManager.saveCapturedAccount).not.toHaveBeenCalled()
+    expect(deps.AccountManager.loadSavedCredentials).not.toHaveBeenCalled()
   })
 
   it('account:add 拒绝外部网页调用', async () => {
@@ -125,6 +149,19 @@ describe('account IPC 写操作 sender 校验', () => {
     const result = await ipcMain._get('auth:complete-login')(UNTRUSTED_EVENT)
 
     expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(deps.authViewManager.completeLogin).not.toHaveBeenCalled()
+  })
+
+  it('auth:complete-login 在身份服务存在但 sub 缺失时 fail-closed', async () => {
+    const deps = createMockDeps({
+      identityService: { getState: vi.fn(() => ({ status: 'authenticated', user: null })) },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('auth:complete-login')(TRUSTED_EVENT)
+
+    expect(result).toEqual({ code: -3, message: '无法识别当前用户' })
     expect(deps.authViewManager.completeLogin).not.toHaveBeenCalled()
   })
 
@@ -298,6 +335,57 @@ describe('account IPC 可信来源正常工作', () => {
     expect(send).toHaveBeenCalledWith('auth:completed', { platform: 'wechat_mp', accountId: 'account-1' })
   })
 
+  it('auth:open-login 在浏览器登录期间切换用户时不保存捕获的凭据', async () => {
+    let ownerSubject = 'user-a'
+    const captured = {
+      name: '公众号',
+      cookies: [{ name: 'session', value: 'secret' }],
+      localStorage: { token: 'private' },
+    }
+    const deps = createMockDeps({
+      identityService: {
+        getState: vi.fn(() => ({ status: 'authenticated', user: { sub: ownerSubject } })),
+      },
+    })
+    deps.authViewManager.openLogin.mockImplementation(async () => {
+      ownerSubject = 'user-b'
+      return captured
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('auth:open-login')(TRUSTED_EVENT, 'wechat_mp')
+
+    expect(result).toEqual({ code: -3, message: '登录用户已变更，请重新发起登录' })
+    expect(deps.AccountManager.saveCapturedAccount).not.toHaveBeenCalled()
+  })
+
+  it('auth:open-login 后端登录期间切换用户时不返回账号数据', async () => {
+    let ownerSubject = 'user-a'
+    const send = vi.fn()
+    const deps = createMockDeps({
+      identityService: {
+        getState: vi.fn(() => ({ status: 'authenticated', user: { sub: ownerSubject } })),
+      },
+      BACKEND_PLATFORMS: new Set(['weibo']),
+    })
+    deps.pythonBridge.requestBackend.mockImplementation(async () => {
+      ownerSubject = 'user-b'
+      return { code: 0, data: { account_id: 'weibo-1', platform: 'weibo', name: '微博账号' } }
+    })
+    deps.BrowserWindow.getAllWindows.mockReturnValue([{
+      isDestroyed: vi.fn(() => false),
+      webContents: { send },
+    }])
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('auth:open-login')(TRUSTED_EVENT, 'weibo')
+
+    expect(result).toEqual({ code: -3, message: '登录用户已变更，请重新发起登录' })
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it('auth:complete-login 只触发主进程提取，不接收渲染层凭证', async () => {
     const deps = createMockDeps()
     deps.authViewManager.completeLogin.mockResolvedValue(true)
@@ -452,5 +540,140 @@ describe('account IPC 可信来源正常工作', () => {
       status: 'active',
       is_default: false,
     }] })
+  })
+})
+
+describe('account IPC owner 切换回归', () => {
+  function createIdentityDeps (ownerRef) {
+    return createMockDeps({
+      identityService: {
+        getState: vi.fn(() => ({ status: 'authenticated', user: { sub: ownerRef.current } })),
+      },
+    })
+  }
+
+  it('accounts:list 后端请求等待期间切换用户时不返回旧用户账号', async () => {
+    const ownerRef = { current: 'user-a' }
+    const deferred = createDeferred()
+    const deps = createIdentityDeps(ownerRef)
+    deps.pythonBridge.requestBackend.mockReturnValue(deferred.promise)
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const resultPromise = ipcMain._get('accounts:list')(TRUSTED_EVENT)
+    ownerRef.current = 'user-b'
+    deferred.resolve({ code: 0, data: [{ id: 'account-a', platform: 'wechat_mp', name: '账号 A' }] })
+
+    await expect(resultPromise).resolves.toEqual({
+      code: -3,
+      message: '登录用户已变更，请重新发起登录',
+      data: [],
+    })
+  })
+
+  it('auth:login-silent 等待静默登录期间切换用户时不返回旧结果', async () => {
+    const ownerRef = { current: 'user-a' }
+    const deferred = createDeferred()
+    const deps = createIdentityDeps(ownerRef)
+    const credentials = { cookies: [{ name: 'sid', value: 'secret' }], localStorage: { token: 'private' } }
+    deps.AccountManager.loadSavedCredentials.mockReturnValue(credentials)
+    deps.authViewManager.loginSilent.mockReturnValue(deferred.promise)
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const resultPromise = ipcMain._get('auth:login-silent')(TRUSTED_EVENT, {
+      platform: 'wechat_mp',
+      accountId: 'account-a',
+    })
+    ownerRef.current = 'user-b'
+    deferred.resolve({ valid: true, accountName: '账号 A' })
+
+    await expect(resultPromise).resolves.toEqual({ code: -3, message: '登录用户已变更，请重新发起登录' })
+    expect(deps.AccountManager.loadSavedCredentials).toHaveBeenCalledWith('account-a', 'wechat_mp', 'user-a')
+  })
+
+  it('auth:complete-login 等待主进程提取期间切换用户时不返回成功', async () => {
+    const ownerRef = { current: 'user-a' }
+    const deferred = createDeferred()
+    const deps = createIdentityDeps(ownerRef)
+    deps.authViewManager.completeLogin.mockReturnValue(deferred.promise)
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const resultPromise = ipcMain._get('auth:complete-login')(TRUSTED_EVENT)
+    ownerRef.current = 'user-b'
+    deferred.resolve(true)
+
+    await expect(resultPromise).resolves.toEqual({ code: -3, message: '登录用户已变更，请重新发起登录' })
+  })
+
+  it('account:delete 等待删除期间切换用户时不返回成功', async () => {
+    const ownerRef = { current: 'user-a' }
+    const deferred = createDeferred()
+    const deps = createIdentityDeps(ownerRef)
+    deps.AccountManager.deleteAccount.mockReturnValue(deferred.promise)
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const resultPromise = ipcMain._get('account:delete')(TRUSTED_EVENT, 'account-a')
+    ownerRef.current = 'user-b'
+    deferred.resolve(true)
+
+    await expect(resultPromise).resolves.toEqual({ code: -3, message: '登录用户已变更，请重新发起登录' })
+    expect(deps.AccountManager.deleteAccount).toHaveBeenCalledWith('account-a', 'user-a')
+  })
+
+  it('account:check-login 等待验证期间切换用户时不返回旧登录状态', async () => {
+    const ownerRef = { current: 'user-a' }
+    const deferred = createDeferred()
+    const deps = createIdentityDeps(ownerRef)
+    deps.AccountManager.checkLoginStatus.mockReturnValue(deferred.promise)
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const resultPromise = ipcMain._get('account:check-login')(TRUSTED_EVENT, {
+      platform: 'wechat_mp',
+      accountId: 'account-a',
+    })
+    ownerRef.current = 'user-b'
+    deferred.resolve({ valid: true, message: '登录有效' })
+
+    await expect(resultPromise).resolves.toEqual({ code: -3, message: '登录用户已变更，请重新发起登录' })
+    expect(deps.AccountManager.checkLoginStatus).toHaveBeenCalledWith('wechat_mp', 'account-a', 'user-a')
+  })
+
+  it('account:list 等待列表期间切换用户时不返回旧用户账号', async () => {
+    const ownerRef = { current: 'user-a' }
+    const deferred = createDeferred()
+    const deps = createIdentityDeps(ownerRef)
+    deps.AccountManager.listAccounts.mockReturnValue(deferred.promise)
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const resultPromise = ipcMain._get('account:list')(TRUSTED_EVENT)
+    ownerRef.current = 'user-b'
+    deferred.resolve([{ id: 'account-a', platform: 'wechat_mp', name: '账号 A' }])
+
+    await expect(resultPromise).resolves.toEqual({
+      code: -3,
+      message: '登录用户已变更，请重新发起登录',
+      data: [],
+    })
+    expect(deps.AccountManager.listAccounts).toHaveBeenCalledWith('user-a')
+  })
+
+  it('account:list 将底层 owner 变更错误保持为授权错误', async () => {
+    const ownerRef = { current: 'user-a' }
+    const deps = createIdentityDeps(ownerRef)
+    const ownerChanged = Object.assign(new Error('owner changed'), { code: 'AUTH_OWNER_CHANGED' })
+    deps.AccountManager.listAccounts.mockRejectedValue(ownerChanged)
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    await expect(ipcMain._get('account:list')(TRUSTED_EVENT)).resolves.toEqual({
+      code: -3,
+      message: '登录用户已变更，请重新发起登录',
+      data: [],
+    })
   })
 })

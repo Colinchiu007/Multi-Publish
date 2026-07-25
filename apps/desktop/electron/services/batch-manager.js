@@ -383,17 +383,17 @@ class BatchManager {
       } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 
-    ipcMain.handle('batch:list', () => {
+    ipcMain.handle('batch:list', withSenderCheck(() => {
       try { return { code: 0, data: this.store.listBatchJobs() } }
       catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
-    })
+    }))
 
-    ipcMain.handle('batch:get', (_, id) => {
+    ipcMain.handle('batch:get', withSenderCheck((_, id) => {
       try {
         const batch = this.store.getBatchJob(id)
         return batch ? { code: 0, data: batch } : { code: EC.REQUEST_ERROR, message: '未找到' }
       } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
-    })
+    }))
 
     ipcMain.handle('batch:delete', withSenderCheck((_, id) => {
       try { this.store.deleteBatchJob(id); return { code: 0 } }

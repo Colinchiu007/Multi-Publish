@@ -36,6 +36,7 @@ const mockApi = {
   cloudPublishPublish: vi.fn().mockResolvedValue({ ok: true }),
 };
 vi.mock("@/api/publisher", () => mockApi);
+const { default: IntelligenceView } = await import("./Intelligence.vue");
 
 // ====== Intelligence.vue ======
 describe("IntelligenceView (coverage)", () => {
@@ -43,39 +44,41 @@ describe("IntelligenceView (coverage)", () => {
     window.electronAPI = { intelligenceSearch: vi.fn().mockResolvedValue({ total: 0, results: [] }) };
   });
 
-  async function mnt() {
-    const m = await import("./Intelligence.vue");
-    return mount(m.default || m, {
+  function mnt() {
+    return mount(IntelligenceView, {
       global: { stubs: { TrendingPanel: { template: "<div>trending</div>" }, ReferenceFinder: { template: "<div>ref</div>" }, UiModal: { template: "<div v-if='visible'><slot/></div>", props: ["visible"] } } }
     });
   }
 
-  it("renders search input and trending panel", { timeout: 30000 }, async () => {
-    const w = await mnt();
+  it("renders search input and trending panel", async () => {
+    const w = mnt();
     await nextTick();
     expect(w.text()).toContain("内容情报");
     const input = w.find("input");
     expect(input.exists()).toBe(true);
     expect(input.attributes("placeholder")).toContain("搜索");
+    w.unmount();
   });
 
   it("sets query on input change", async () => {
-    const w = await mnt();
+    const w = mnt();
     await nextTick();
     const input = w.find("input");
     await input.setValue("AI technology");
     await input.trigger("input");
     expect(w.vm.query).toBe("AI technology");
+    w.unmount();
   });
 
   it("triggers search on Enter key", async () => {
-    const w = await mnt();
+    const w = mnt();
     await nextTick();
     const input = w.find("input");
     w.vm.query = "test query";
     // doSearch is async and sets searching=true, then calls API and sets false
     w.vm.searching = true;
     expect(w.vm.searching).toBe(true);
+    w.unmount();
   });
 });
 

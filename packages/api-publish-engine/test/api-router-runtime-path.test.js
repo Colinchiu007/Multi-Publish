@@ -23,6 +23,37 @@ test('packaged runtime resolves platforms.yaml below resources/config', () => {
   )
 })
 
+test('publish-api CLI uses the shared runtime platform config resolver', () => {
+  const cliSource = fs.readFileSync(path.join(__dirname, '../bin/publish-api'), 'utf8')
+  assert.match(cliSource, /resolvePlatformConfigPath/)
+})
+
+test('publish-api CLI summary reads MULTI_PUBLISH_CONFIG_PATH', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-cli-'))
+  const configPath = path.join(dir, 'platforms.yaml')
+  fs.writeFileSync(configPath, [
+    'platforms:',
+    '  api_platform:',
+    '    has_api: true',
+    '  rpa_platform:',
+    '    has_api: false',
+  ].join('\n'), 'utf8')
+
+  try {
+    const cli = require('../bin/publish-api')
+    const summary = cli.loadPlatformSummary({
+      runtimePathOptions: { env: { MULTI_PUBLISH_CONFIG_PATH: configPath } },
+    })
+    assert.deepStrictEqual(summary, {
+      yamlPath: configPath,
+      allCount: 2,
+      apiCount: 1,
+    })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('api router reloads a config from the explicit runtime path', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-router-'))
   const configPath = path.join(dir, 'platforms.yaml')

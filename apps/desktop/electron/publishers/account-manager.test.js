@@ -37,7 +37,7 @@ describe('account-manager — userData fallback', () => {
       .spyOn(accountManager.credentialStore, 'hasCredential')
       .mockReturnValue(false)
     expect(accountManager.checkLocalCredentials('wechat_mp', 'account-1')).toBe(false)
-    expect(hasCredential).toHaveBeenCalledWith('account-1', expectedDir, undefined)
+    expect(hasCredential).toHaveBeenCalledWith('account-1', expectedDir)
   })
 })
 
@@ -78,7 +78,7 @@ describe('account-manager — Logto owner 隔离', () => {
     const saveRecord = vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord')
       .mockImplementation(() => {})
     const saveCredential = vi.spyOn(accountManager.credentialStore, 'saveCredential')
-      .mockImplementation(() => {})
+      .mockImplementation(() => true)
 
     await accountManager.addAccount('wechat_mp')
 
@@ -108,10 +108,79 @@ describe('account-manager — Logto owner 隔离', () => {
 
     await expect(accountManager.deleteAccount('account-a')).resolves.toBe(true)
 
-    expect(requestBackend).toHaveBeenNthCalledWith(1, 'GET', '/api/accounts/account-a')
-    expect(requestBackend).toHaveBeenNthCalledWith(2, 'DELETE', '/api/accounts/account-a')
+    expect(requestBackend).toHaveBeenNthCalledWith(1, 'GET', '/api/accounts/account-a', null, 30000, 'user-a')
+    expect(requestBackend).toHaveBeenNthCalledWith(2, 'DELETE', '/api/accounts/account-a', null, 30000, 'user-a')
     expect(deleteCredential).toHaveBeenCalledWith('account-a', 'C:/test-user-data', 'user-a')
     expect(deleteRecord).toHaveBeenCalledWith('douyin', 'account-a', 'user-a', 'C:/test-user-data')
+  })
+
+  it('删除账号查询期间切换 owner 时不继续删除或清理旧命名空间', async () => {
+    let ownerSubject = 'user-a'
+    let resolveLookup
+    const lookup = new Promise(resolve => { resolveLookup = resolve })
+    const accountManager = loadAccountManager()
+    accountManager.setOwnerSubjectProvider(() => ownerSubject)
+    const requestBackend = vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockReturnValue(lookup)
+    const deleteCredential = vi.spyOn(accountManager.credentialStore, 'deleteCredential')
+    const deleteRecord = vi.spyOn(accountManager.accountStateRestorer, 'deleteAccountRecord')
+
+    try {
+      const deletion = accountManager.deleteAccount('account-a', 'user-a')
+      ownerSubject = 'user-b'
+      resolveLookup({ code: 0, data: { id: 'account-a', platform: 'douyin' } })
+
+      await expect(deletion).rejects.toMatchObject({ code: 'AUTH_OWNER_CHANGED' })
+      expect(requestBackend).toHaveBeenCalledTimes(1)
+      expect(requestBackend).toHaveBeenCalledWith('GET', '/api/accounts/account-a', null, 30000, 'user-a')
+      expect(deleteCredential).not.toHaveBeenCalled()
+      expect(deleteRecord).not.toHaveBeenCalled()
+    } finally {
+      accountManager.setOwnerSubjectProvider(null)
+    }
+  })
+
+  it('删除请求已发出后切换 owner 时不继续清理旧命名空间', async () => {
+    let ownerSubject = 'user-a'
+    const accountManager = loadAccountManager()
+    accountManager.setOwnerSubjectProvider(() => ownerSubject)
+    const requestBackend = vi.spyOn(require('../services/python-bridge'), 'requestBackend')
+      .mockResolvedValueOnce({ code: 0, data: { id: 'account-a', platform: 'douyin' } })
+      .mockImplementationOnce(async () => {
+        ownerSubject = 'user-b'
+        return { code: 0 }
+      })
+    const deleteCredential = vi.spyOn(accountManager.credentialStore, 'deleteCredential')
+    const deleteRecord = vi.spyOn(accountManager.accountStateRestorer, 'deleteAccountRecord')
+
+    try {
+      await expect(accountManager.deleteAccount('account-a', 'user-a'))
+        .rejects.toMatchObject({ code: 'AUTH_OWNER_CHANGED' })
+      expect(requestBackend).toHaveBeenCalledTimes(2)
+      expect(deleteCredential).not.toHaveBeenCalled()
+      expect(deleteRecord).not.toHaveBeenCalled()
+    } finally {
+      accountManager.setOwnerSubjectProvider(null)
+    }
+  })
+
+  it('获取账号列表期间切换 owner 时不返回旧用户账号', async () => {
+    let ownerSubject = 'user-a'
+    let resolveAccounts
+    const accountsPromise = new Promise(resolve => { resolveAccounts = resolve })
+    const accountManager = loadAccountManager()
+    accountManager.setOwnerSubjectProvider(() => ownerSubject)
+    vi.spyOn(require('../services/python-bridge'), 'requestBackend').mockReturnValue(accountsPromise)
+
+    try {
+      const list = accountManager.listAccounts('user-a')
+      ownerSubject = 'user-b'
+      resolveAccounts({ code: 0, data: [{ id: 'account-a' }] })
+
+      await expect(list).rejects.toMatchObject({ code: 'AUTH_OWNER_CHANGED' })
+    } finally {
+      accountManager.setOwnerSubjectProvider(null)
+    }
   })
 
   it('恢复账号时只读取当前 owner，并恢复 Cookie 与 localStorage', async () => {
@@ -120,11 +189,15 @@ describe('account-manager — Logto owner 隔离', () => {
     const loadCredential = vi.spyOn(accountManager.credentialStore, 'loadCredential')
       .mockReturnValue({
         platform: 'douyin',
+        cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }],
         localStorage: { token: 'local-token' },
         accountInfo: { nickName: '用户 A' },
       })
     const getRecord = vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord')
-      .mockReturnValue({ cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }] })
+      .mockReturnValue({
+        cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }],
+        platform: 'douyin',
+      })
     const session = { cookies: { set: vi.fn(async () => {}) } }
     const webContents = { executeJavaScript: vi.fn(async () => {}) }
 
@@ -155,6 +228,65 @@ describe('account-manager — Logto owner 隔离', () => {
     expect(() => accountManager.checkLocalCredentials('douyin', 'account-a'))
       .toThrow('登录会话缺少用户标识')
   })
+
+  it('检查登录状态等待浏览器上下文期间切换 owner 时中止验证', async () => {
+    let ownerSubject = 'user-a'
+    let resolveContext
+    const contextPromise = new Promise(resolve => { resolveContext = resolve })
+    const accountManager = loadAccountManager()
+    accountManager.setOwnerSubjectProvider(() => ownerSubject)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+      platform: 'wechat_mp',
+      cookies: [{ name: 'sid', value: 'cookie-a', domain: '.mp.weixin.qq.com' }],
+      localStorage: {},
+    })
+    vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue({ platform: 'wechat_mp' })
+    const newPage = vi.fn()
+    vi.spyOn(require('../services/playwright-manager'), 'getContext').mockReturnValue(contextPromise)
+
+    try {
+      const check = accountManager.checkLoginStatus('wechat_mp', 'account-a', 'user-a')
+      ownerSubject = 'user-b'
+      resolveContext({ newPage })
+
+      await expect(check).rejects.toMatchObject({ code: 'AUTH_OWNER_CHANGED' })
+      expect(newPage).not.toHaveBeenCalled()
+    } finally {
+      accountManager.setOwnerSubjectProvider(null)
+    }
+  })
+
+  it('恢复 Cookie 期间切换 owner 时不继续写入 localStorage', async () => {
+    let ownerSubject = 'user-a'
+    let resolveCookie
+    const cookiePromise = new Promise(resolve => { resolveCookie = resolve })
+    const accountManager = loadAccountManager()
+    accountManager.setOwnerSubjectProvider(() => ownerSubject)
+    vi.spyOn(accountManager.credentialStore, 'loadCredential').mockReturnValue({
+      platform: 'douyin',
+      cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }],
+      localStorage: { token: 'private' },
+      accountInfo: {},
+    })
+    vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord').mockReturnValue({ platform: 'douyin' })
+    const session = { cookies: { set: vi.fn(() => cookiePromise) } }
+    const webContents = { executeJavaScript: vi.fn().mockResolvedValue(undefined) }
+
+    try {
+      const restore = accountManager.openSavedAccount('account-a', 'douyin', {
+        session,
+        webContents,
+        ownerSubject: 'user-a',
+      })
+      ownerSubject = 'user-b'
+      resolveCookie(undefined)
+
+      await expect(restore).rejects.toMatchObject({ code: 'AUTH_OWNER_CHANGED' })
+      expect(webContents.executeJavaScript).not.toHaveBeenCalled()
+    } finally {
+      accountManager.setOwnerSubjectProvider(null)
+    }
+  })
 })
 
 describe('account-manager — 捕获凭证持久化', () => {
@@ -180,7 +312,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(typeof accountManager.loadSavedCredentials).toBe('function')
     const result = accountManager.loadSavedCredentials('account-1', 'wechat_mp')
 
-    expect(loadCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(loadCredential).toHaveBeenCalledWith('account-1', 'C:/test-user-data')
     expect(getAccountRecord).toHaveBeenCalledWith('wechat_mp', 'account-1')
     expect(result).toEqual({
       cookies: [{ name: 'session', value: 'secret', domain: '.mp.weixin.qq.com' }],
@@ -257,8 +389,63 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(saveCredential).toHaveBeenCalledWith(
       'account-1',
       { platform: 'wechat_mp', cookies, localStorage, indexedDB: {}, accountInfo: { platformAccountId: 'wx-1' } },
-      '/tmp/test-electron-path',
+      'C:/test-user-data',
     )
+  })
+
+  it('保存账号期间 owner 变更时回滚后端元数据且不写入新用户凭证库', async () => {
+    let ownerSubject = 'user-a'
+    const accountManager = loadAccountManager()
+    accountManager.setOwnerSubjectProvider(() => ownerSubject)
+    const pythonBridge = require('../services/python-bridge')
+    const requestBackend = vi.spyOn(pythonBridge, 'requestBackend').mockImplementation(async (method) => {
+      if (method === 'POST') {
+        ownerSubject = 'user-b'
+        return { code: 0, data: { id: 'account-race' } }
+      }
+      return { code: 0 }
+    })
+    const saveCredential = vi.spyOn(accountManager.credentialStore, 'saveCredential').mockReturnValue(true)
+
+    try {
+      await expect(accountManager.saveCapturedAccount('wechat_mp', {
+        cookies: [{ name: 'session', value: 'secret', domain: '.mp.weixin.qq.com' }],
+        name: '公众号',
+      }, 'user-a')).rejects.toMatchObject({ code: 'AUTH_OWNER_CHANGED' })
+
+      expect(saveCredential).not.toHaveBeenCalled()
+      expect(requestBackend).toHaveBeenNthCalledWith(2, 'DELETE', '/api/accounts/account-race', null, 30000, 'user-a')
+    } finally {
+      accountManager.setOwnerSubjectProvider(null)
+    }
+  })
+
+  it('加密凭证写入后切换 owner 时不继续写入公开状态', async () => {
+    let ownerSubject = 'user-a'
+    const accountManager = loadAccountManager()
+    accountManager.setOwnerSubjectProvider(() => ownerSubject)
+    const pythonBridge = require('../services/python-bridge')
+    vi.spyOn(pythonBridge, 'requestBackend').mockResolvedValue({
+      code: 0,
+      data: { id: 'account-owner-race', platform: 'wechat_mp', name: '公众号' },
+    })
+    const saveCredential = vi.spyOn(accountManager.credentialStore, 'saveCredential').mockImplementation(() => {
+      ownerSubject = 'user-b'
+      return true
+    })
+    const saveRecord = vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord')
+
+    try {
+      await expect(accountManager.saveCapturedAccount('wechat_mp', {
+        cookies: [{ name: 'session', value: 'secret', domain: '.mp.weixin.qq.com' }],
+        name: '公众号',
+      }, 'user-a')).rejects.toMatchObject({ code: 'AUTH_OWNER_CHANGED' })
+
+      expect(saveCredential).toHaveBeenCalledTimes(1)
+      expect(saveRecord).not.toHaveBeenCalled()
+    } finally {
+      accountManager.setOwnerSubjectProvider(null)
+    }
   })
 
   it('没有有效 Cookie 时拒绝创建空登录账号', async () => {
@@ -326,7 +513,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(saveCredential).toHaveBeenCalledWith(
       'account-indexed-db',
       { platform: 'wechat_mp', cookies: [], localStorage: {}, indexedDB: { auth: { token: 'private' } }, accountInfo: {} },
-      '/tmp/test-electron-path',
+      'C:/test-user-data',
     )
   })
 
@@ -417,7 +604,7 @@ describe('account-manager — 捕获凭证持久化', () => {
 
     await expect(accountManager.deleteAccount('account-1')).resolves.toBe(true)
     expect(deleteRecords).toHaveBeenCalledWith('account-1')
-    expect(deleteCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(deleteCredential).toHaveBeenCalledWith('account-1', 'C:/test-user-data')
   })
 
   it('只从加密存储恢复凭证，账号状态仅补充公开元数据', () => {
@@ -479,7 +666,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     await expect(accountManager.deleteAccount('account-1')).resolves.toBe(true)
 
     expect(deleteRecords).toHaveBeenCalledWith('account-1')
-    expect(deleteCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(deleteCredential).toHaveBeenCalledWith('account-1', 'C:/test-user-data')
   })
 
   it('后端删除成功后本地状态清理异常不改变删除结果，并继续清理其他凭证', async () => {
@@ -494,7 +681,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     const deleteCredential = vi.spyOn(accountManager.credentialStore, 'deleteCredential').mockReturnValue(true)
 
     await expect(accountManager.deleteAccount('account-1')).resolves.toBe(true)
-    expect(deleteCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(deleteCredential).toHaveBeenCalledWith('account-1', 'C:/test-user-data')
   })
 
   it('加密凭据文件存在但删除失败时返回可重试错误并保留公开状态索引', async () => {
@@ -523,7 +710,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     const deleteRecords = vi.spyOn(accountManager.accountStateRestorer, 'deleteAccountRecordsById').mockReturnValue(true)
 
     await expect(accountManager.deleteAccount('account-1')).resolves.toBe(true)
-    expect(deleteCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(deleteCredential).toHaveBeenCalledWith('account-1', 'C:/test-user-data')
     expect(deleteRecords).toHaveBeenCalledWith('account-1')
   })
 

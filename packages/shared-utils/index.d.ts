@@ -77,18 +77,23 @@ export interface ScheduledTask {
   status: 'pending' | 'dispatching' | 'executed' | 'failed' | 'cancelled';
   publishTime: string;
   createdAt?: string;
+  /** 登录用户 subject；旧版 legacy 任务可能没有该字段。 */
+  owner_subject?: string;
 }
+
+export type OwnerSubjectProvider = () => string | null | undefined;
 
 export interface Scheduler {
   setTaskQueue(taskQueue: { add(task: unknown): unknown | Promise<unknown> }): void;
+  setOwnerSubjectProvider(provider: OwnerSubjectProvider | null): void;
   create(schedule: {
     platform: string;
     article: Record<string, unknown>;
     publishTime: string;
-  }): ScheduledTask;
-  list(): ScheduledTask[];
-  cancel(id: string): boolean;
-  restore(): number;
+  }, ownerSubject?: string): ScheduledTask;
+  list(ownerSubject?: string): ScheduledTask[];
+  cancel(id: string, ownerSubject?: string): boolean;
+  restore(ownerSubject?: string): number;
   stopAll(): Promise<unknown[]>;
 }
 

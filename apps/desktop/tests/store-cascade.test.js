@@ -25,11 +25,23 @@ __registerMock('./sqlite-wrapper', function () {
     }
     return undefined
   }
-  MockStatement.prototype.all = function () { return [] }
+  MockStatement.prototype.all = function (...params) {
+    this._db._allLog.push({ sql: this._sql, params })
+    if (this._sql.indexOf('SELECT id, article FROM scheduled_tasks') >= 0) {
+      return this._db._scheduledRows
+    }
+    if (this._sql.indexOf('SELECT id, result FROM publish_history') >= 0) {
+      return this._db._historyRows
+    }
+    return []
+  }
 
   function MockDatabase () {
     this._runLog = []
     this._getLog = []
+    this._allLog = []
+    this._scheduledRows = []
+    this._historyRows = []
     this._transactionCalls = 0
     this._dirty = false
   }
@@ -87,25 +99,29 @@ describe('store deleteAccount 级联清理', () => {
   })
 
   it('deleteAccount 级联清理 scheduled_tasks', () => {
+    store.db._scheduledRows = [
+      { id: 'task-linked', article: JSON.stringify({ accountId: 'acc_002' }) },
+      { id: 'task-unrelated', article: JSON.stringify({ accountId: 'other' }) },
+    ]
     store.deleteAccount('acc_002')
-    const call = store.db._runLog.find(
+    const calls = store.db._runLog.filter(
       r => r.sql.indexOf('DELETE FROM scheduled_tasks') >= 0
     )
-    expect(call).toBeTruthy()
-    expect(call.params[0]).toBe('user-a')
-    expect(call.params[1]).toBe('douyin')
-    expect(call.params[2]).toContain('acc_002')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].params).toEqual(['user-a', 'task-linked'])
   })
 
   it('deleteAccount 级联清理 publish_history', () => {
+    store.db._historyRows = [
+      { id: 'history-linked', result: JSON.stringify({ account_id: 'acc_003' }) },
+      { id: 'history-unrelated', result: JSON.stringify({ account_id: 'other' }) },
+    ]
     store.deleteAccount('acc_003')
-    const call = store.db._runLog.find(
+    const calls = store.db._runLog.filter(
       r => r.sql.indexOf('DELETE FROM publish_history') >= 0
     )
-    expect(call).toBeTruthy()
-    expect(call.params[0]).toBe('user-a')
-    expect(call.params[1]).toBe('douyin')
-    expect(call.params[2]).toContain('acc_003')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].params).toEqual(['user-a', 'history-linked'])
   })
 
   it('deleteAccount 不删除独立的用户设置', () => {
@@ -153,6 +169,6 @@ describe('store deleteAccount 级联清理', () => {
     expect(store.deleteAccount('nonexistent')).toBe(false)
     const calls = store.db._runLog.filter(r => r.sql.indexOf('DELETE') >= 0)
     expect(calls).toHaveLength(0)
-    expect(store.db._transactionCalls).toBe(0)
+    expect(store.db._transactionCalls).toBe(1)
   })
 })

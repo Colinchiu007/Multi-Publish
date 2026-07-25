@@ -122,6 +122,21 @@ body {
   display: inline-block;
 }
 
+.cohere-topnav .nav-primary {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: var(--space-xs);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.cohere-topnav .nav-primary::-webkit-scrollbar {
+  display: none;
+}
+
 .cohere-topnav .nav-item {
   font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
@@ -140,6 +155,7 @@ body {
   line-height: 1;
   letter-spacing: 0;
   text-decoration: none;
+  flex: 0 0 auto;
 }
 
 .cohere-topnav .nav-item:hover {
@@ -209,6 +225,8 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-lg);
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .cohere-topnav .status-indicator {

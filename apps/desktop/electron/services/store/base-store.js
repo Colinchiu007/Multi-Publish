@@ -13,6 +13,7 @@ const {
   SCHEMA_SQL,
   LEGACY_OWNER_SUBJECT,
   migrateOwnerIsolationSchema,
+  migrateCallbackLogOwnerSchema,
   migrateModelProvidersSchema,
 } = require('../store-schema')
 const log = require('../logger')
@@ -72,6 +73,7 @@ class BaseStore {
       this.db.pragma('foreign_keys = ON')
       this._createTables()
       migrateOwnerIsolationSchema(this.db)
+      migrateCallbackLogOwnerSchema(this.db)
       migrateModelProvidersSchema(this.db)
       this._ready = true
       // 修复 P1：定时持久化（原仅 close() 时持久化，崩溃丢全部数据）

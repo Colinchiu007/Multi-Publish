@@ -85,9 +85,8 @@ describe('preload sandbox 真实验证器', () => {
       args: expect.arrayContaining([
         ELECTRON_HARNESS_ARG,
         `--preload-sandbox-mode=${sandbox}`,
-        '--disable-gpu',
-        expect.stringMatching(/^--user-data-dir=/),
       ]),
+      env: { PATH: 'test-path' },
       timeout: 1500,
     }))
     const launchArgs = electronLauncher.launch.mock.calls[0][0].args
@@ -153,7 +152,7 @@ describe('preload sandbox 真实验证器', () => {
     expect(setCacheAt).toBeLessThan(whenReadyAt)
   })
 
-  it('Electron harness 使用内联页面，避免临时 HTTP 导航导致窗口提前关闭', () => {
+  it('Electron harness 使用可信 app 协议承载内联页面', () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, '../../scripts/preload-sandbox-electron-harness.js'),
       'utf8',
@@ -161,7 +160,10 @@ describe('preload sandbox 真实验证器', () => {
 
     expect(source).not.toContain("require('http')")
     expect(source).not.toContain('http.createServer')
-    expect(source).toContain('data:text/html')
+    expect(source).toContain('protocol.registerSchemesAsPrivileged')
+    expect(source).toContain("protocol.handle('app'")
+    expect(source).toContain("loadURL('app://localhost/preload-sandbox-smoke')")
+    expect(source).not.toContain('data:text/html')
   })
 
   it('外层门禁同时校验退出码、两个模式标记和总成功标记', () => {
@@ -236,7 +238,8 @@ describe('preload sandbox 真实验证器', () => {
   })
 
   it('Electron 子进程超时时保留 stderr，便于定位渲染器启动失败', async () => {
-    const { runChildVerification } = require('../../scripts/verify-preload-sandbox')
+    const { getChildVerificationTimeout, runChildVerification } =
+      require('../../scripts/verify-preload-sandbox')
     const child = new EventEmitter()
     child.stdout = new PassThrough()
     child.stderr = new PassThrough()
@@ -249,7 +252,8 @@ describe('preload sandbox 真实验证器', () => {
         PRELOAD_SANDBOX_TIMEOUT_MS: '20',
       })
       child.stderr.write('GPU process fatal')
-      await vi.advanceTimersByTimeAsync(25)
+      const timeoutMs = getChildVerificationTimeout({ PRELOAD_SANDBOX_TIMEOUT_MS: '20' })
+      await vi.advanceTimersByTimeAsync(timeoutMs + 1)
       child.emit('close', null)
 
       await expect(verification).rejects.toThrow(/GPU process fatal/)

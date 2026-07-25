@@ -270,15 +270,30 @@ async function stopPythonBackend () {
   log.info('PythonBridge', 'Backend stopped')
 }
 
-/**
- * 发送 HTTP 请求到 Python 后端
- * @param {string} method - HTTP method
- * @param {string} path - URL path
- * @param {object|null} body - Request body
- * @param {number} [timeout] - Request timeout in ms (default 30000, login 180000)
- */
 function _identityAuthRequired () {
   return ['1', 'true', 'yes', 'on'].includes(String(process.env.IDENTITY_AUTH_REQUIRED || '').trim().toLowerCase())
+}
+
+function _ownerChangedError () {
+  const error = new Error('登录用户已变更，请重新发起操作')
+  error.code = 'AUTH_OWNER_CHANGED'
+  return error
+}
+
+function _assertRequestOwner (expectedOwnerSubject) {
+  if (expectedOwnerSubject === undefined) return
+  if (typeof expectedOwnerSubject !== 'string' || !expectedOwnerSubject.trim()) throw _ownerChangedError()
+  if (!authService || typeof authService.getState !== 'function') throw _ownerChangedError()
+  let state
+  try { state = authService.getState() } catch (_) { throw _ownerChangedError() }
+  const subject = state && state.user && typeof state.user.sub === 'string' ? state.user.sub.trim() : ''
+  if (subject !== expectedOwnerSubject.trim()) throw _ownerChangedError()
+}
+
+function _tokenUnavailableError () {
+  const error = new Error('无法获取当前用户访问令牌')
+  error.code = 'AUTH_TOKEN_UNAVAILABLE'
+  return error
 }
 
 async function _getBackendAccessToken (forceRefresh = false) {
@@ -329,13 +344,31 @@ function _requestBackendOnce (method, path, body, timeout, accessToken) {
   })
 }
 
-async function requestBackend (method, path, body = null, timeout = 30000) {
+/**
+ * 发送 HTTP 请求到 Python 后端。
+ * @param {string} method - HTTP method
+ * @param {string} path - URL path
+ * @param {object|null} body - Request body
+ * @param {number} [timeout] - Request timeout in ms
+ * @param {string} [expectedOwnerSubject] - 发起请求时绑定的用户标识
+ */
+async function requestBackend (method, path, body = null, timeout = 30000, expectedOwnerSubject) {
   if (!isRunning) throw new Error('Python backend is not running')
+  _assertRequestOwner(expectedOwnerSubject)
   let accessToken = await _getBackendAccessToken(false)
+  _assertRequestOwner(expectedOwnerSubject)
+  if (expectedOwnerSubject !== undefined && !accessToken) throw _tokenUnavailableError()
   let response = await _requestBackendOnce(method, path, body, timeout, accessToken)
+  _assertRequestOwner(expectedOwnerSubject)
   if (response.status === 401 && authService) {
+    _assertRequestOwner(expectedOwnerSubject)
     accessToken = await _getBackendAccessToken(true)
-    if (accessToken) response = await _requestBackendOnce(method, path, body, timeout, accessToken)
+    _assertRequestOwner(expectedOwnerSubject)
+    if (expectedOwnerSubject !== undefined && !accessToken) throw _tokenUnavailableError()
+    if (accessToken) {
+      response = await _requestBackendOnce(method, path, body, timeout, accessToken)
+      _assertRequestOwner(expectedOwnerSubject)
+    }
   }
   if (response.status >= 400) {
     const payload = response.data && typeof response.data === 'object' ? response.data : {}

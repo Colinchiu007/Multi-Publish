@@ -1,7 +1,12 @@
 {
   "meta": {
-    "generatedAt": "2026-07-21T06:04:19.061Z",
-    "vite": "http://127.0.0.1:5174",
+    "generatedAt": "2026-07-22T19:00:48.315Z",
+    "vite": "http://127.0.0.1:5176",
+    "run": {
+      "id": "e2e-mrwg3wbh-sb7q1z",
+      "startedAt": "2026-07-22T18:58:26.525Z",
+      "url": "http://127.0.0.1:5176"
+    },
     "spec": "前端全量功能 E2E 测试 (task-29a)",
     "version": "1.0.0",
     "phase": "Phase 0-4 全部完成"
@@ -525,7 +530,8 @@
           "passed": 12,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       },
       {
         "key": "flow-2",
@@ -536,7 +542,8 @@
           "passed": 8,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       },
       {
         "key": "flow-3",
@@ -547,7 +554,8 @@
           "passed": 7,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       },
       {
         "key": "flow-4",
@@ -558,7 +566,8 @@
           "passed": 6,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       },
       {
         "key": "flow-5",
@@ -569,7 +578,8 @@
           "passed": 6,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       },
       {
         "key": "flow-6",
@@ -580,14 +590,16 @@
           "passed": 5,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       }
     ],
     "totals": {
       "totalChecks": 44,
       "totalPassed": 44,
       "totalFailed": 0,
-      "totalConsoleErrors": 0
+      "totalConsoleErrors": 0,
+      "totalPageErrors": 0
     }
   },
   "issues": [],

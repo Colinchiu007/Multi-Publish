@@ -41,6 +41,19 @@ function createPlugin(dir, name, code) {
   teardown();
 })();
 
+// Test 1b: 不可读取的插件路径不得在启动时抛出，且必须保留诊断记录
+(function testUnreadablePluginPath() {
+  fs.mkdirSync(TMP, { recursive: true });
+  const blockedPath = path.join(TMP, "not-a-directory");
+  fs.writeFileSync(blockedPath, "blocked", "utf-8");
+  const loader = new PluginLoader(blockedPath);
+  loader.loadAll();
+  assert(loader.count === 0, "non-directory plugin path loads no plugins");
+  assert(loader.getErrors().length === 1, "non-directory plugin path records one error");
+  assert(loader.getErrors()[0].stage === "directory", "non-directory error is classified as directory error");
+  teardown();
+})();
+
 // Test 2: Load single-file plugin
 (function testSingleFile() {
   const loader = setup();
