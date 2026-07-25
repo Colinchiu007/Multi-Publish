@@ -12,6 +12,7 @@
  * 验收标准 BUGFIX-PLAN Bug-1: phase 文件 <= 80 行（注释/空行不计）
  */
 const log = require('../services/logger')
+const { loadIdentityRuntimeEnv: loadDefaultIdentityRuntimeEnv } = require('../services/identity/identity-runtime-config')
 
 /**
  * @param {unknown} value
@@ -19,6 +20,12 @@ const log = require('../services/logger')
  */
 function errorMessage(value) {
   return value instanceof Error ? value.message : String(value)
+}
+
+function isIdentityConfigError(error) {
+  return Boolean(error && typeof error === 'object' && (
+    error.code === 'IDENTITY_CONFIG_INVALID' || error.code === 'ENTITLEMENT_CONFIG_INVALID'
+  ))
 }
 
 /**
@@ -50,9 +57,10 @@ async function runCleanups(cleanups) {
  * @param {new (options: {orchestratorUrl: string, store: object}) => {registerIpcHandlers(): void}} deps.CloudPublisher - 云端发布构造函数
  * @param {Function} deps.getMainWin - 获取主窗口函数
  * @param {Function} [deps.createIdentityService] - 用户身份服务工厂
+ * @param {Function} [deps.loadIdentityRuntimeEnv] - 身份公开运行时配置加载器
  */
 async function startServices({ container, usageTracker, store, taskQueue, callbackServer, scheduler,
-  keywordMonitor, analyticsService, pythonBridge, CloudPublisher, getMainWin, createIdentityService }) {
+  keywordMonitor, analyticsService, pythonBridge, CloudPublisher, getMainWin, createIdentityService, loadIdentityRuntimeEnv }) {
   /** @type {Array<() => unknown | Promise<unknown>>} */
   const cleanups = []
   let rollbackPromise = null
@@ -142,11 +150,13 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
 
     const identityModule = require('../services/identity/identity-service-factory')
     const identityFactory = createIdentityService || identityModule.createIdentityService
+    const resolveIdentityEnv = loadIdentityRuntimeEnv || loadDefaultIdentityRuntimeEnv
+    const identityEnv = resolveIdentityEnv({ env: process.env })
     let identityService = null
     try {
-      identityService = await identityFactory({ env: process.env, store, getMainWin })
+      identityService = await identityFactory({ env: identityEnv, store, getMainWin })
     } catch (error) {
-      if (identityModule.enabled(process.env.IDENTITY_AUTH_REQUIRED)) throw error
+      if (isIdentityConfigError(error) || identityModule.enabled(identityEnv.IDENTITY_AUTH_REQUIRED)) throw error
       log.warn('Identity', 'Identity service disabled after initialization failure: ' + errorMessage(error))
     }
     if (identityService && typeof identityService.dispose === 'function') {

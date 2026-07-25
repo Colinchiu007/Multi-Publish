@@ -94,6 +94,10 @@ const mockPipelineEngine = {}
 const mockChunkedUploader = {}
 const mockPublisherRouter = { createPublisher: vi.fn() }
 const mockAccountManager = { loadSavedCredentials: vi.fn() }
+const mockIdentityServiceFactory = {
+  createIdentityService: vi.fn(async () => null),
+  enabled: vi.fn(() => false),
+}
 
 // container.get 返回的 mock 服务映射
 const services = {
@@ -131,6 +135,8 @@ const services = {
 __registerMock('./services/logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })
 __registerMock('./services/python-bridge', mockPythonBridge)
 __registerMock('./publishers/account-manager', mockAccountManager)
+// 固定身份工厂结果，避免 bootstrap 测试依赖工作树的公开身份配置。
+__registerMock('./services/identity/identity-service-factory', mockIdentityServiceFactory)
 __registerMock('./services/scheduler', mockScheduler)
 __registerMock('./services/publish-history', mockHistory)
 __registerMock('./services/auto-updater', mockAutoUpdater)
@@ -541,6 +547,29 @@ describe('bootstrap — runWhenReady', () => {
     const context = createAppContext()
     await runWhenReady(context, { createWindow: vi.fn() })
     expect(mockScheduler.restore).toHaveBeenCalledTimes(1)
+    expect(mockScheduler.restore).toHaveBeenCalledWith()
+  })
+
+  it('身份服务尚未识别用户时不恢复任务', async () => {
+    mockIdentityServiceFactory.createIdentityService.mockResolvedValueOnce({
+      getState: vi.fn(() => ({ status: 'signed_out' })),
+    })
+    const context = createAppContext()
+
+    await runWhenReady(context, { createWindow: vi.fn() })
+
+    expect(mockScheduler.restore).not.toHaveBeenCalled()
+  })
+
+  it('身份服务识别用户后按 subject 恢复任务', async () => {
+    mockIdentityServiceFactory.createIdentityService.mockResolvedValueOnce({
+      getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })),
+    })
+    const context = createAppContext()
+
+    await runWhenReady(context, { createWindow: vi.fn() })
+
+    expect(mockScheduler.restore).toHaveBeenCalledWith('user-a')
   })
 
   it('runWhenReady 调用 keywordMonitor.onAlert', async () => {

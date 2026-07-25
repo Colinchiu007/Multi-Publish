@@ -3670,3 +3670,26 @@ E2E mock IPC 直接操作内存对象，完全绕过了 Electron 的 structured 
 **修复与回归保护**：业务 API 现在同时加入默认网络与名为 `logto` 的外部网络，默认映射 `LOGTO_COMPOSE_NETWORK=multi-publish-logto_default`；环境模板和 runbook 固化基础项目名与覆盖规则。`logto-deploy-contract.test.js` 断言服务网络、外部网络名和模板变量，ECS 验收必须使用真实 `docker compose run` 运行 DNS 和 migration dry-run。
 
 **系统性预防**：`AGENTS.md` 新增跨 Compose 网络与服务 DNS 门禁。以后凡是连接串使用 Docker 服务名，代码评审要同时检查 Compose `networks`、外部网络生命周期、环境模板和真实 Compose DNS/migration 证据；不得把镜像层、临时容器或宿主机 DNS 成功当作服务部署成功。
+---
+
+## 2026-07-24：Bootstrap 测试不能隐式依赖工作树身份配置
+
+**第一性原因**：发行包公开配置接入后，`config/identity-public.json` 在测试工作树中把身份服务显式启用。`bootstrap.test.js` 没有隔离身份工厂，沿用原本依赖 `process.env` 默认关闭身份的隐含前提；因此实际身份服务恢复到无 `user.sub` 的已登出状态。owner 隔离保护会正确跳过 `scheduler.restore()`，但旧测试仍断言它必定被调用。
+
+**逃逸链**：Phase 3 单元测试覆盖了身份工厂注入和 owner provider，却没有断言已登录 subject 传入 `scheduler.restore()`；bootstrap 测试只验证 legacy 无身份路径，没有 mock 文件系统驱动的运行时身份配置。此前工作树没有自动启用身份服务，故该环境耦合未暴露。
+
+**修复与回归保护**：bootstrap 测试固定 mock 身份工厂默认返回 `null`，并分别覆盖无身份恢复、身份已启用但未识别用户时拒绝恢复、已认证用户按 `sub` 恢复。Phase 3 测试明确断言认证用户调用 `scheduler.restore('user-a')`。
+
+**系统性预防**：主进程测试不得通过真实 `process.env`、仓库配置文件或当前用户数据推断身份模式；必须显式注入或 mock 身份工厂。涉及 `owner_subject` 的调度恢复至少覆盖无身份、无 subject 和已认证 subject 三种状态，不能为让 legacy 断言通过而放宽生产隔离保护。
+
+---
+
+## 2026-07-25：发行级身份启用开关与 ECS 磁盘容量门禁
+
+**第一性原因**：公开运行时配置初版把 `IDENTITY_AUTH_ENABLED` 和 `IDENTITY_AUTH_REQUIRED` 一并列为可覆盖环境变量。发行包已将 `identityAuthEnabled=true` 固化在 `identity-public.json`，但任意继承到桌面进程的 `IDENTITY_AUTH_ENABLED=false` 仍可让身份工厂返回 `null`，并在 Shadow 阶段静默继续启动。独立的 ECS 根盘也因 Runner 诊断日志和系统日志积累到 `40G` 中仅剩约 `848MB`，没有容量门禁时下一次镜像拉取或日志写入可能耗尽磁盘。
+
+**逃逸链**：运行时配置测试只验证了两个开关同时覆盖后产生矛盾的情况，没有覆盖发行配置已启用、环境单独关闭的路径；Phase 3 测试 mock 了加载器，因此不会观察实际合并规则。部署 Runbook 和 Prometheus overlay 只覆盖应用健康、OIDC 探针和备份超时，没有宿主机或卷容量阈值。
+
+**修复与回归保护**：配置文件存在时，加载器只允许环境覆盖 `identityAuthRequired` 与其余公开字段，固定发行级 `identityAuthEnabled`；新增回归测试验证环境不能静默关闭已发行的身份服务，并保留无配置旧式环境的布尔校验。Runbook 要求根盘至少同时保留 `5 GiB` 与 `10%` 可用空间，低于门槛时停止发布、拉取、备份和迁移；本次只删除超过两天的 Runner 诊断日志并把 journal 收缩到 `200MB`，不触碰 Docker 卷、容器或项目数据。
+
+**系统性预防**：发布前容量检查必须作为命令门禁执行，云监控或受控调度必须为根盘和备份卷提供容量告警；不得以自动 `docker system prune` 或删除持久化卷替代保留期治理。凡是把“是否启用安全边界”从发行配置与环境变量合并的模块，测试必须分别覆盖发行配置优先、可回滚字段覆盖、无发行配置兼容和非法覆盖值四种场景。

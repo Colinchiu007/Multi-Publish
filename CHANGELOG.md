@@ -1,3 +1,14 @@
+## [未发布] Logto 桌面公开运行时配置 (2026-07-24)
+
+### 用户身份
+- 发行包现在从 `resources/config/identity-public.json` 读取 Logto endpoint、Native App ID、API resource、业务 API、回环回调、scope 和 entitlement 公钥；发行配置存在时 `identityAuthEnabled` 不可被进程环境静默关闭，开发环境继续兼容旧式环境开关，受控覆盖仅用于 `identityAuthRequired` 和其余公开字段。
+- 配置文件被限制为版本化白名单字段，缺少必需身份字段、使用矛盾开关、漏掉 OIDC 刷新 scope、包含未知字段、私钥字段或无效 RSA 公钥时会 fail closed；发行配置读取和校验失败不会在 Shadow 阶段静默降级。
+
+### 质量与安全
+- 构建前完整性检查和单元测试均验证 `identity-public.json` 存在、可解析、RSA 公钥有效且不含私钥字段；Windows 目录包另行核对资源文件存在和内容一致，防止发行包漏带生产身份配置。
+
+---
+
 ## [未发布] 业务 API Docker 运行时修复 (2026-07-24)
 
 ### 修复
