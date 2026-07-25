@@ -56,7 +56,19 @@ function registerHandlers(ipcMain, deps) {
   // Bug-2 三级分离：同步 IPC 供 preload 查询访问级别
   // 返回 'public' | 'authenticated' | 'admin'
   // 安全：同步 IPC 不走 controlledIpcMain Proxy，需手动校验 sender 来源
+  //
+  // Bug fix (QM-5): 开发模式 admin 短路必须与异步 IPC (license-access-control.js getAccessLevel) 保持一致。
+  // 之前同步 IPC 直接调用 isTrustedSender，未走 dev 短路，导致开发环境下 preload sendSync 拿到 'public'，
+  // 所有 authenticated 级别方法（storeGetPublishStats / onRenderProgress 等）被错误拦截。
+  // 根因：同步 IPC 与异步 IPC 的权限校验路径不一致。
   ipcMain.on("auth:get-access-level", (event) => {
+    // 开发模式短路：未打包应用 + NODE_ENV=development / ELECTRON_IS_DEV=1 → admin
+    // 与 license-access-control.js getAccessLevel() 的 dev 短路逻辑完全一致
+    const isDevMode = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1'
+    if (isDevMode && deps && deps.app && deps.app.isPackaged === false) {
+      event.returnValue = 'admin'
+      return
+    }
     if (!isTrustedSender(event, deps && deps.app)) {
       // 不可信来源返回最低权限，防止外部页面探测许可证状态
       event.returnValue = 'public'
