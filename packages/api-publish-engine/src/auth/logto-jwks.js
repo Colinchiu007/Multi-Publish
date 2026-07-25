@@ -42,6 +42,15 @@ class LogtoJwtVerifier {
     this.unknownKidCacheMax = Number.isInteger(options.unknownKidCacheMax) && options.unknownKidCacheMax > 0
       ? options.unknownKidCacheMax
       : 256
+    // Opaque Token Introspection 配置（可选，未配置时仅支持 JWT）
+    this.clientId = options.clientId || null
+    this.clientSecret = options.clientSecret || null
+    this.introspectionCacheTtlMs = Number.isFinite(options.introspectionCacheTtlMs) && options.introspectionCacheTtlMs > 0
+      ? options.introspectionCacheTtlMs
+      : 60 * 1000
+    this.introspectionCacheMax = Number.isInteger(options.introspectionCacheMax) && options.introspectionCacheMax > 0
+      ? options.introspectionCacheMax
+      : 1024
     this.clockMs = typeof options.clockMs === 'function' ? options.clockMs : Date.now
     this.now = options.now || (() => Math.floor(Date.now() / 1000))
     this._discovery = null
@@ -52,7 +61,33 @@ class LogtoJwtVerifier {
     this._jwksRefreshPromise = null
     this._lastForcedRefreshAt = 0
     this._unknownKidCache = new Map()
+    this._introspectionCache = new Map()
     if (!this.issuer || !this.audience || typeof this.fetcher !== 'function') throw new Error('Logto JWKS 配置无效')
+  }
+
+  _isJwtFormat(token) {
+    if (typeof token !== 'string' || !token) return false
+    const parts = token.split('.')
+    if (parts.length !== 3) return false
+    return parts.every((part) => part.length > 0 && /^[A-Za-z0-9_-]+$/.test(part))
+  }
+
+  _introspectionCacheGet(token) {
+    const entry = this._introspectionCache.get(token)
+    if (!entry) return null
+    if (entry.expiresAt <= this.clockMs()) {
+      this._introspectionCache.delete(token)
+      return null
+    }
+    return entry
+  }
+
+  _introspectionCacheSet(token, value, expiresAtMs) {
+    if (this._introspectionCache.size >= this.introspectionCacheMax) {
+      const oldest = this._introspectionCache.keys().next().value
+      if (oldest !== undefined) this._introspectionCache.delete(oldest)
+    }
+    this._introspectionCache.set(token, { ...value, expiresAt: expiresAtMs })
   }
 
   async _fetchJson(url, code) {
@@ -186,6 +221,11 @@ class LogtoJwtVerifier {
   }
 
   async verify(token) {
+    if (this._isJwtFormat(token)) return this._verifyJwt(token)
+    return this._introspectOpaqueToken(token)
+  }
+
+  async _verifyJwt(token) {
     const parts = typeof token === 'string' ? token.split('.') : []
     if (parts.length !== 3) throw new AuthError('AUTH_TOKEN_INVALID')
     let header
@@ -201,6 +241,98 @@ class LogtoJwtVerifier {
       audience: this.audience,
       now: this.now(),
     })
+  }
+
+  async _introspectOpaqueToken(token) {
+    if (!this.clientId || !this.clientSecret) {
+      // 未配置 client credentials，不支持 Opaque Token
+      throw new AuthError('AUTH_TOKEN_INVALID')
+    }
+    const cached = this._introspectionCacheGet(token)
+    if (cached) {
+      if (!cached.active) throw new AuthError('AUTH_TOKEN_INVALID')
+      return cached.result
+    }
+    const discovery = await this._getDiscovery()
+    const introspectionEndpoint = discovery.introspection_endpoint || `${this.issuer}/token/introspection`
+    const credentials = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64')
+    const body = `token=${encodeURIComponent(token)}&token_type_hint=access_token`
+    const payload = await this._fetchJsonWithBody(introspectionEndpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    }, 'AUTH_INTROSPECTION_UNAVAILABLE')
+    if (!payload || payload.active !== true) {
+      // 短期缓存负向结果，避免对相同失效 token 重复 introspection
+      this._introspectionCacheSet(token, { active: false }, this.clockMs() + this.introspectionCacheTtlMs)
+      throw new AuthError('AUTH_TOKEN_INVALID')
+    }
+    if (payload.iss && payload.iss !== this.issuer) {
+      throw new AuthError('AUTH_ISSUER_INVALID')
+    }
+    const aud = Array.isArray(payload.aud) ? payload.aud : (payload.aud ? [payload.aud] : [])
+    if (aud.length > 0 && !aud.includes(this.audience)) {
+      throw new AuthError('AUTH_AUDIENCE_INVALID')
+    }
+    const now = this.now()
+    if (Number.isFinite(payload.exp) && payload.exp <= now) {
+      throw new AuthError('AUTH_TOKEN_EXPIRED')
+    }
+    if (typeof payload.sub !== 'string' || !payload.sub) {
+      throw new AuthError('AUTH_SUBJECT_INVALID')
+    }
+    const scopes = Array.isArray(payload.scope)
+      ? payload.scope.filter((value) => typeof value === 'string')
+      : typeof payload.scope === 'string'
+        ? payload.scope.split(/\s+/).filter(Boolean)
+        : []
+    const result = { subject: payload.sub, scopes }
+    // 缓存正向结果直到 token 过期或缓存 TTL 到期
+    const expiresAtSec = Number.isFinite(payload.exp) ? payload.exp : now + Math.floor(this.introspectionCacheTtlMs / 1000)
+    const expiresAtMs = Math.min(expiresAtSec * 1000, this.clockMs() + this.introspectionCacheTtlMs)
+    this._introspectionCacheSet(token, { active: true, result }, expiresAtMs)
+    return result
+  }
+
+  async _fetchJsonWithBody(url, options, code) {
+    let response
+    let timer
+    let controller
+    try {
+      controller = typeof AbortController === 'function' ? new AbortController() : null
+      const requestOptions = controller
+        ? { ...options, signal: controller.signal }
+        : { ...options }
+      const request = Promise.resolve().then(() => this.fetcher(url, requestOptions))
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          if (controller) controller.abort()
+          reject(new AuthError(code))
+        }, this.fetchTimeoutMs)
+      })
+      response = await Promise.race([request, timeout])
+    } catch (error) {
+      if (error && error.code === code) throw error
+      throw jsonResponseError(code, error)
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+    if (!response || response.ok !== true || typeof response.json !== 'function') throw new AuthError(code)
+    try {
+      const parse = Promise.resolve().then(() => response.json())
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new AuthError(code)), this.fetchTimeoutMs)
+      })
+      return await Promise.race([parse, timeout])
+    } catch (error) {
+      if (error && error.code === code) throw error
+      throw jsonResponseError(code, error)
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   }
 
   async checkReady() {
