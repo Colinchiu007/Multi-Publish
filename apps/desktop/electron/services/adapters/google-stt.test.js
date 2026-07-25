@@ -11,7 +11,7 @@
  * 验证维度：
  * - 构造与配置（默认 baseUrl、版本号）
  * - validateConfig（apiKey 必填）
- * - capabilities 包含 'transcribe'（手动添加，非 KNOWN_METHODS）
+ * - capabilities 包含且仅包含一个 'transcribe'（由 KNOWN_METHODS 统一发现）
  * - transcribe 成功调用（验证 URL 含 ?key=xxx、headers 无 Authorization、body 结构）
  * - 错误处理（401/429/500 → ProviderError）
  * - testConnection（成功/认证失败）
@@ -120,18 +120,18 @@ describe('GoogleSttAdapter — Google Speech-to-Text', () => {
       expect(adapter.supports('generateVideo')).toBe(false)
     })
 
-    it('capabilities() 包含 transcribe（手动添加，非 KNOWN_METHODS）', () => {
+    it('capabilities() 从 KNOWN_METHODS 提供唯一的 transcribe', () => {
       const adapter = new GoogleSttAdapter({ id: 'google-stt', apiKey: 'g-test' })
       const caps = adapter.capabilities()
       expect(caps).toContain('transcribe')
+      expect(caps.filter(capability => capability === 'transcribe')).toHaveLength(1)
       expect(caps).toContain('testConnection')
       expect(caps).not.toContain('chatCompletion')
     })
 
-    it('supports("transcribe") 因不在 KNOWN_METHODS 中返回 false', () => {
+    it('supports("transcribe") 对标准 STT 能力返回 true', () => {
       const adapter = new GoogleSttAdapter({ id: 'google-stt', apiKey: 'g-test' })
-      // supports() 只对 KNOWN_METHODS 返回 true，transcribe 通过 capabilities() 手动添加
-      expect(adapter.supports('transcribe')).toBe(false)
+      expect(adapter.supports('transcribe')).toBe(true)
     })
   })
 

@@ -144,6 +144,32 @@ async function main() {
           }),
         }
       }
+      if (token === 'opaque.active.token') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true,
+            sub: 'sub-dotted-opaque',
+            scope: 'profile:read',
+            aud: audience,
+            iss: issuer,
+            exp: 250,
+          }),
+        }
+      }
+      if (token === 'e30.active.token') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true,
+            sub: 'sub-json-prefix-opaque',
+            scope: 'profile:read',
+            aud: audience,
+            iss: issuer,
+            exp: 250,
+          }),
+        }
+      }
       if (token === 'opaque-inactive-token') {
         return { ok: true, json: async () => ({ active: false }) }
       }
@@ -151,7 +177,39 @@ async function main() {
         return {
           ok: true,
           json: async () => ({
-            active: true, sub: 'sub-expired', scope: 'profile:read', aud: audience, iss: issuer, exp: 100,
+            active: true, sub: 'sub-expired', scope: 'profile:read', aud: audience, iss: issuer, exp: 89,
+          }),
+        }
+      }
+      if (token === 'opaque-tolerated-expiry') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true, sub: 'sub-tolerated-expiry', scope: 'profile:read', aud: audience, iss: issuer, exp: 100,
+          }),
+        }
+      }
+      if (token === 'opaque-future-nbf') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true, sub: 'sub-future', scope: 'profile:read', aud: audience, iss: issuer, nbf: 211, exp: 250,
+          }),
+        }
+      }
+      if (token === 'opaque-tolerated-nbf') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true, sub: 'sub-tolerated-nbf', scope: 'profile:read', aud: audience, iss: issuer, nbf: 200, exp: 250,
+          }),
+        }
+      }
+      if (token === 'opaque-invalid-nbf') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true, sub: 'sub-invalid-nbf', scope: 'profile:read', aud: audience, iss: issuer, nbf: 'later', exp: 250,
           }),
         }
       }
@@ -236,6 +294,21 @@ async function main() {
     '缓存键必须使用固定长度的 SHA-256 指纹')
   console.log('  ✅ Opaque Token introspection 结果缓存生效')
 
+  // Opaque Token 的语法不受 JWT 三段格式约束；带两个点也必须走 introspection。
+  const callsBeforeDottedOpaque = introspectionCalls.length
+  assert.deepStrictEqual(
+    await introspectionVerifier.verify('opaque.active.token'),
+    { subject: 'sub-dotted-opaque', scopes: ['profile:read'] },
+  )
+  assert.strictEqual(introspectionCalls.length, callsBeforeDottedOpaque + 1,
+    '带点 Opaque Token 必须调用 introspection，不能误判为 JWT')
+  assert.deepStrictEqual(
+    await introspectionVerifier.verify('e30.active.token'),
+    { subject: 'sub-json-prefix-opaque', scopes: ['profile:read'] },
+    '仅能解码为 JSON 对象但没有 alg 的首段不是 JOSE header',
+  )
+  console.log('  ✅ 带点 Opaque Token 不会被误判为 JWT')
+
   // 4) introspection 返回 active=false 时拒绝
   await assert.rejects(
     introspectionVerifier.verify('opaque-inactive-token'),
@@ -262,7 +335,25 @@ async function main() {
     introspectionVerifier.verify('opaque-expired-token'),
     (error) => error && error.code === 'AUTH_TOKEN_EXPIRED',
   )
+  assert.deepStrictEqual(
+    await introspectionVerifier.verify('opaque-tolerated-expiry'),
+    { subject: 'sub-tolerated-expiry', scopes: ['profile:read'] },
+  )
   console.log('  ✅ introspection 返回的 token 已过期时正确拒绝')
+
+  await assert.rejects(
+    introspectionVerifier.verify('opaque-future-nbf'),
+    (error) => error && error.code === 'AUTH_TOKEN_NOT_ACTIVE',
+  )
+  await assert.rejects(
+    introspectionVerifier.verify('opaque-invalid-nbf'),
+    (error) => error && error.code === 'AUTH_TOKEN_NOT_ACTIVE',
+  )
+  assert.deepStrictEqual(
+    await introspectionVerifier.verify('opaque-tolerated-nbf'),
+    { subject: 'sub-tolerated-nbf', scopes: ['profile:read'] },
+  )
+  console.log('  ✅ introspection 返回未来或非法 nbf 时正确拒绝')
 
   // 8) aud/sub 必填；iss/exp 可省略，但一旦出现必须合法
   await assert.rejects(
@@ -298,6 +389,15 @@ async function main() {
   // 9) JWT token 仍然走原 JWKS 验证流程（向后兼容）
   const jwtStillWorks = await introspectionVerifier.verify(jwt)
   assert.deepStrictEqual(jwtStillWorks, { subject: 'sub-1', scopes: ['publish:read', 'publish:submit'] })
+  const introspectionCallsBeforeInvalidJwt = introspectionCalls.length
+  const jwtParts = jwt.split('.')
+  const invalidJwt = `${jwtParts[0]}.${jwtParts[1]}.${'A'.repeat(jwtParts[2].length)}`
+  await assert.rejects(
+    introspectionVerifier.verify(invalidJwt),
+    (error) => error && error.code === 'AUTH_SIGNATURE_INVALID',
+  )
+  assert.strictEqual(introspectionCalls.length, introspectionCallsBeforeInvalidJwt,
+    'JWT 验签失败后不得降级到 introspection')
   console.log('  ✅ JWT Token 仍走原 JWKS 验证流程（向后兼容）')
 
   // 10) readiness 必须验证 introspection endpoint 和 M2M 凭据

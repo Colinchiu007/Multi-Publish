@@ -53,7 +53,7 @@ const ONLINE_ONLY_FEATURE_CHANNELS = new Set([
   'cloud-publisher:get-task',
 ])
 
-function getAccessLevel(licenseManager, env = process.env, app, identityService) {
+function getAccessLevel(licenseManager, _env = process.env, app, identityService) {
   if (identityService) {
     try {
       const status = identityService.getState().status
@@ -64,10 +64,8 @@ function getAccessLevel(licenseManager, env = process.env, app, identityService)
       return 'public'
     }
   }
-  // Bug fix (QM-5 v2): dev 短路判断必须与项目其他模块一致（window.js:216 用 !app.isPackaged）。
-  // npm script 没设置 NODE_ENV，原条件不生效。改为同时支持环境变量和 !app.isPackaged。
-  const isDevMode = env.NODE_ENV === 'development' || env.ELECTRON_IS_DEV === '1' ||
-    (app && app.isPackaged === false)
+  // app.isPackaged 是主进程可信状态；环境变量不能把已打包应用提升为管理员。
+  const isDevMode = Boolean(app && app.isPackaged === false)
   if (isDevMode) return 'admin'
   try {
     if (licenseManager && typeof licenseManager.isPro === 'function' && licenseManager.isPro()) {

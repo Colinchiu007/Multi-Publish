@@ -16,8 +16,7 @@
  *   - transcribe()        POST /server_api（自动获取/复用 access_token）
  *
  * 设计决策：
- * - transcribe 不在 KNOWN_METHODS 中，需在类中直接定义为实例方法
- * - capabilities() 覆盖为 super.capabilities().concat(['transcribe'])
+ * - transcribe 是 BaseAdapter 的标准 STT 能力，由 supports()/capabilities() 自动检测
  * - access_token 缓存到实例（_tokenCache），过期前 60s 提前刷新
  * - cuid 固定为 'multi-publish'（百度要求唯一设备标识，用产品名即可）
  * - 错误码 err_no != 0 时抛 ProviderError(PROVIDER_ERROR)
@@ -248,13 +247,6 @@ class BaiduSttAdapter extends BaseAdapter {
     }
   }
 
-  /**
-   * capabilities() — 覆盖以手动添加 'transcribe'
-   * transcribe 不在 BaseAdapter 的 KNOWN_METHODS 中，supports() 默认返回 false
-   */
-  capabilities() {
-    return super.capabilities().concat(['transcribe'])
-  }
 }
 
 module.exports = { BaiduSttAdapter }

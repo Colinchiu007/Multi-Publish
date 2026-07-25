@@ -317,7 +317,9 @@ async function exercisePipeline(r) {
   // /create/pipeline 已合并到 /create（CreateView.vue），此处仅验证重定向后渲染创作页 + 流水线卡片
   record(r, '流水线卡片渲染阶段', await waitForVisible(r.page.locator('.pipeline-card')));
   record(r, '历史记录可切换', await clickText(r, '历史记录'));
-  record(r, '流水线历史 fixture 渲染', await bodyHas(r, 'completed'));
+  record(r, '流水线历史 fixture 渲染', await waitForVisible(
+    r.page.locator('.history-status.completed:has-text("已完成")').first(),
+  ));
 }
 
 async function exerciseCreateHistory(r) {

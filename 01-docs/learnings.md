@@ -3959,7 +3959,7 @@ IdentityMenu.vue 显示兜底错误文案。
 
 ### 二次审查发现的生产缺口
 
-`4f33c49` 修复了 JWT/Opaque Token 分流，但仍留下六个可在生产触发的缺口：
+`4f33c49` 修复了 JWT/Opaque Token 分流，但仍留下八个可在生产触发的缺口：
 
 1. discovery 返回的 `introspection_endpoint` 未复用 JWKS 的 HTTPS、同源和 userinfo 校验，且 Fetch
    默认跟随 HTTP 重定向；恶意或错误元数据可把 M2M Basic Secret 或用户 Token 请求带到非预期地址。
@@ -3969,10 +3969,13 @@ IdentityMenu.vue 显示兜底错误文案。
 4. `/ready` 只验证 discovery/JWKS，不验证 introspection endpoint 和 M2M 凭据；旧镜像仍可返回 200。
 5. `AUTH_INTROSPECTION_UNAVAILABLE` 被映射为 401，并在 Shadow 模式尝试 API Key 回退，掩盖身份依赖故障。
 6. introspection cache 以原始 Bearer Token 为 Map key，且同 token 并发请求会重复访问上游。
+7. `_isJwtFormat` 只检查三段 base64url；合法 Opaque Token 若恰好包含两个点会被误送到 JWT 路径，并在
+   JSON header 解析处返回 401，永远不会 introspection。
+8. Opaque claims 未检查 `nbf`，与 JWT 路径的时间边界不一致。
 
 本轮在测试先红后绿后补齐：可信 endpoint 校验、禁止鉴权/smoke 重定向、production smoke 在请求 JWKS 前完成同源校验、
 `active/sub/aud` 强制合同、可选 claim 严格校验、生产 M2M fail-closed、随机无效 token readiness、503 无回退语义、
-SHA-256 缓存键和 in-flight 合并。
+SHA-256 缓存键和 in-flight 合并、JOSE header 类型判定，以及 `nbf` 时间边界一致性。
 `production-smoke.js` 还会显式检查 `checks.introspection.status=ready`，防止旧版本 readiness 被误判通过。
 
 ### 预防措施
@@ -3986,3 +3989,46 @@ SHA-256 缓存键和 in-flight 合并。
    权限），否则 Opaque Token 验证会因缺少 client credentials 而失败。
 4. **端到端冒烟**：`production-smoke.js` 应增加 `/api/v1/me` 携带真实 Logto access token 的验证用例，
    覆盖从登录到权益同步的完整链路。
+
+---
+
+## PR #336 CI 基线失败与二次安全复盘（2026-07-25）
+
+### 第一性原因
+
+1. **打包权限提权**：`b6b87b4` 为修复未打包开发环境权限，把 `NODE_ENV`、`ELECTRON_IS_DEV` 与
+   `app.isPackaged === false` 用 OR 合并。该表达式让打包应用也能被环境变量提升到 `admin`，违背了提交本身
+   “以 `!app.isPackaged` 为准”的意图。
+2. **STT 能力合同漂移**：`4736094` 创建 Google/Baidu/Local Whisper Adapter 时，`transcribe` 尚未进入
+   `KNOWN_METHODS`，所以三者手工追加能力且测试期望 `supports=false`；`e1b46eb` 将 `transcribe` 加入基类后，
+   没有同步删除手工追加或更新旧断言，产生重复 capability 和三个稳定失败。
+3. **流水线 E2E 文案漂移**：`c4fae09` 的 E2E 用内部枚举 `completed` 断言页面；`e1b46eb` 把状态渲染为
+   用户可见的「已完成」后没有同步测试，导致 `/create/pipeline` 固定失败，但页面本身没有 console/page error。
+4. **带点 Opaque Token**：`4f33c49` 用“三段 base64url”区分 JWT 与 Opaque Token，忽略 OAuth token 语法
+   不透明；独立安全复核才发现 `opaque.active.token` 会被误判。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：权限安全断言早已存在却未在 `b6b87b4` 合并前跑到全套；STT 只验证“包含”而没有验证
+   capability 唯一性；Opaque 用例只使用不含点的示例 token。
+2. **集成测试**：Story2Video 合并改变共享 `KNOWN_METHODS` 和 CreateView 文案，但未把所有 Provider Adapter
+   与路由功能测试列入影响面。
+3. **端到端测试**：流水线路由测试确实失败，但直到 PR #336 的完整 GUI job 才被当作阻断项处理。
+4. **视觉回归**：状态文案变化视觉上合理，像素结果无法发现测试仍在查找内部英文枚举。
+5. **代码审查与流程**：共享能力注册表、权限模式来源和 token 类型判定缺少系统性搜索清单；分支的聚焦绿灯
+   被误当成仓库基线健康。
+
+### 修复与回归保护
+
+- `logto-jwks.test.js` 先观察带点 Opaque Token 与未来/非法 `nbf` RED，再以 JSON JOSE header 区分 JWT；
+  已进入 JWT 路径的损坏签名保持失败且不降级 introspection。
+- 三个 STT 测试先观察重复 `transcribe` RED，再删除过时 `capabilities()` 拼接；104 个聚焦用例通过。
+- 复用既有许可证安全用例观察 6 个 RED 后，仅保留 `app.isPackaged === false` 的开发管理员短路；45 个聚焦
+  用例通过。
+- 流水线 E2E 改为 `.history-status.completed` 加用户可见文本「已完成」，独立工作树 Vite 端口上的
+  `pipeline` 路由 11/11 通过且无 console/page error。
+
+### 预防措施
+
+`AGENTS.md` QM-2 已增加 Token 类型判定、打包权限模式、Adapter 能力注册表同步和 E2E 渲染语义四项规则；
+PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁和 Electron QM-1，不再用聚焦测试替代。

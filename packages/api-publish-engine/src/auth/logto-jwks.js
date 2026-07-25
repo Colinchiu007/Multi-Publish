@@ -66,6 +66,9 @@ class LogtoJwtVerifier {
       : 1024
     this.clockMs = typeof options.clockMs === 'function' ? options.clockMs : Date.now
     this.now = options.now || (() => Math.floor(Date.now() / 1000))
+    this.clockTolerance = Number.isFinite(options.clockTolerance) && options.clockTolerance >= 0
+      ? options.clockTolerance
+      : 60
     this._discovery = null
     this._discoveryPromise = null
     this._jwks = null
@@ -83,7 +86,14 @@ class LogtoJwtVerifier {
     if (typeof token !== 'string' || !token) return false
     const parts = token.split('.')
     if (parts.length !== 3) return false
-    return parts.every((part) => part.length > 0 && /^[A-Za-z0-9_-]+$/.test(part))
+    if (!parts.every((part) => part.length > 0 && /^[A-Za-z0-9_-]+$/.test(part))) return false
+    try {
+      const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'))
+      return Boolean(header && typeof header === 'object' && !Array.isArray(header) &&
+        typeof header.alg === 'string' && header.alg)
+    } catch (_) {
+      return false
+    }
   }
 
   _introspectionCacheKey(token) {
@@ -265,6 +275,7 @@ class LogtoJwtVerifier {
       issuer: this.issuer,
       audience: this.audience,
       now: this.now(),
+      clockTolerance: this.clockTolerance,
     })
   }
 
@@ -318,9 +329,13 @@ class LogtoJwtVerifier {
       throw new AuthError('AUTH_AUDIENCE_INVALID')
     }
     const now = this.now()
+    if (Object.prototype.hasOwnProperty.call(payload, 'nbf') &&
+        (!Number.isFinite(payload.nbf) || payload.nbf > now + this.clockTolerance)) {
+      throw new AuthError('AUTH_TOKEN_NOT_ACTIVE')
+    }
     if (Object.prototype.hasOwnProperty.call(payload, 'exp')) {
       if (!Number.isFinite(payload.exp)) throw new AuthError('AUTH_TOKEN_INVALID')
-      if (payload.exp <= now) throw new AuthError('AUTH_TOKEN_EXPIRED')
+      if (payload.exp <= now - this.clockTolerance) throw new AuthError('AUTH_TOKEN_EXPIRED')
     }
     if (typeof payload.sub !== 'string' || !payload.sub) {
       throw new AuthError('AUTH_SUBJECT_INVALID')
@@ -332,7 +347,9 @@ class LogtoJwtVerifier {
         : []
     const result = { subject: payload.sub, scopes }
     // 缓存正向结果直到 token 过期或缓存 TTL 到期
-    const expiresAtSec = Number.isFinite(payload.exp) ? payload.exp : now + Math.floor(this.introspectionCacheTtlMs / 1000)
+    const expiresAtSec = Number.isFinite(payload.exp)
+      ? payload.exp + this.clockTolerance
+      : now + Math.floor(this.introspectionCacheTtlMs / 1000)
     const expiresAtMs = Math.min(expiresAtSec * 1000, this.clockMs() + this.introspectionCacheTtlMs)
     this._introspectionCacheSet(cacheKey, { active: true, result }, expiresAtMs)
     return result

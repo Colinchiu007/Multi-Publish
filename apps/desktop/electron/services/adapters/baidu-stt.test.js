@@ -13,7 +13,7 @@
  * 验证维度：
  * - 构造与配置（默认 baseUrl/oauthUrl、版本号、token 缓存初始化）
  * - validateConfig（apiKey + apiSecret 必填）
- * - capabilities 包含 'transcribe'（手动添加）
+ * - capabilities 包含且仅包含一个 'transcribe'（由 KNOWN_METHODS 统一发现）
  * - transcribe 成功调用（验证先 OAuth、后 ASR 两步请求）
  * - access_token 缓存（第二次调用不重新获取）
  * - 错误处理（OAuth 失败 / ASR 401/429/500 / 业务 err_no 非 0）
@@ -141,17 +141,18 @@ describe('BaiduSttAdapter — 百度语音识别', () => {
       expect(adapter.supports('generateImage')).toBe(false)
     })
 
-    it('capabilities() 包含 transcribe（手动添加）', () => {
+    it('capabilities() 从 KNOWN_METHODS 提供唯一的 transcribe', () => {
       const adapter = new BaiduSttAdapter({ id: 'baidu-stt', apiKey: 'k', apiSecret: 's' })
       const caps = adapter.capabilities()
       expect(caps).toContain('transcribe')
+      expect(caps.filter(capability => capability === 'transcribe')).toHaveLength(1)
       expect(caps).toContain('testConnection')
       expect(caps).not.toContain('chatCompletion')
     })
 
-    it('supports("transcribe") 因不在 KNOWN_METHODS 中返回 false', () => {
+    it('supports("transcribe") 对标准 STT 能力返回 true', () => {
       const adapter = new BaiduSttAdapter({ id: 'baidu-stt', apiKey: 'k', apiSecret: 's' })
-      expect(adapter.supports('transcribe')).toBe(false)
+      expect(adapter.supports('transcribe')).toBe(true)
     })
   })
 
