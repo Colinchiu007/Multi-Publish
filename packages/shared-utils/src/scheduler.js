@@ -297,7 +297,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
 
   function list (ownerSubject) {
     const owner = resolveOwnerSubject(ownerSubject)
-    if (owner === null) return []
+    if (owner === null) throw new Error('登录会话缺少用户标识')
     const filePath = getSchedulerPath()
     if (!fs.existsSync(filePath)) return []
     try {
@@ -313,7 +313,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
 
   function cancel (id, ownerSubject) {
     const owner = resolveOwnerSubject(ownerSubject)
-    if (owner === null) return false
+    if (owner === null) throw new Error('登录会话缺少用户标识')
     // 先完成原子持久化，再清定时器；写盘失败时任务仍可执行，不会形成幽灵 pending。
     if (!updateStatus(id, 'cancelled', 'pending', owner)) return false
     const cancelRetry = retryWaiters.get(id)
@@ -327,7 +327,7 @@ function createScheduler ({ app, fs = defaultFs, logger = createConsoleLogger() 
 
   function restore (ownerSubject) {
     const owner = resolveOwnerSubject(ownerSubject)
-    if (owner === null) return 0
+    if (owner === null) throw new Error('登录会话缺少用户标识')
     const tasks = list(owner).filter(task => task.status === 'pending' || task.status === 'dispatching')
     let restored = 0
     for (const entry of tasks) {

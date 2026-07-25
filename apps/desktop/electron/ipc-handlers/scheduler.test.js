@@ -72,7 +72,7 @@ describe("scheduler IPC handlers", () => {
         platform: "github",
         article: { title: "test" },
         publishTime: "2026-07-06T10:00:00Z",
-      }, undefined);
+      });
     });
 
     it("returns error when scheduler.create throws", async () => {
@@ -96,7 +96,7 @@ describe("scheduler IPC handlers", () => {
     registerHandlers(ipcMain, { scheduler, identityService });
 
     await ipcMain._callHandler("scheduler:create", {
-      platform: "douyin", article: {}, publishTime: "2026-07-06T10:00:00Z",
+      platform: "douyin", article: {}, publishTime: "2026-07-06T10:00:00Z", owner_subject: "forged-user",
     });
     await ipcMain._callHandler("scheduler:list");
     await ipcMain._callHandler("scheduler:cancel", "sched-a");
@@ -105,7 +105,8 @@ describe("scheduler IPC handlers", () => {
       platform: "douyin",
       article: {},
       publishTime: "2026-07-06T10:00:00Z",
-    }, "user-a");
+      owner_subject: "user-a",
+    });
     expect(scheduler.list).toHaveBeenCalledWith("user-a");
     expect(scheduler.cancel).toHaveBeenCalledWith("sched-a", "user-a");
   });
@@ -161,7 +162,7 @@ describe("scheduler IPC handlers", () => {
     it("cancels a scheduled task", async () => {
       const result = await ipcMain._callHandler("scheduler:cancel", "sched-1");
       expect(result.code).toBe(0);
-      expect(scheduler.cancel).toHaveBeenCalledWith("sched-1", undefined);
+      expect(scheduler.cancel).toHaveBeenCalledWith("sched-1");
     });
   });
 });

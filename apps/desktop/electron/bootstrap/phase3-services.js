@@ -188,12 +188,6 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
       commentManager.setOwnerSubjectProvider(ownerSubjectProvider)
       cleanups.push(() => commentManager.setOwnerSubjectProvider(null))
     }
-    const commentManager = container.get('commentManager')
-    if (commentManager && typeof commentManager.setOwnerSubjectProvider === 'function') {
-      commentManager.setOwnerSubjectProvider(ownerSubjectProvider)
-      cleanups.push(() => commentManager.setOwnerSubjectProvider(null))
-    }
-
     if (scheduler && typeof scheduler.setOwnerSubjectProvider === 'function') {
       scheduler.setOwnerSubjectProvider(ownerSubjectProvider)
       cleanups.push(() => scheduler.setOwnerSubjectProvider(null))

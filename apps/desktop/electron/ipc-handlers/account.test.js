@@ -117,6 +117,29 @@ describe('account IPC 写操作 sender 校验', () => {
     expect(deps.AccountManager.loadSavedCredentials).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['accounts:list', async (handler) => handler(TRUSTED_EVENT), { code: -3, message: '无法识别当前用户', data: [] }],
+    ['account:add', async (handler) => handler(TRUSTED_EVENT, 'wechat_mp'), { code: -3, message: '无法识别当前用户' }],
+    ['account:delete', async (handler) => handler(TRUSTED_EVENT, 'acc-1'), { code: -3, message: '无法识别当前用户' }],
+    ['account:check-login', async (handler) => handler(TRUSTED_EVENT, { platform: 'wechat_mp', accountId: 'acc-1' }), { code: -3, message: '无法识别当前用户', data: { valid: false } }],
+    ['account:set-proxy', async (handler) => handler(TRUSTED_EVENT, { accountId: 'acc-1', platform: 'wechat_mp', proxy: { host: '127.0.0.1', port: 8080, type: 'http' } }), { code: -3, message: '无法识别当前用户' }],
+    ['account:list', async (handler) => handler(TRUSTED_EVENT), { code: -3, message: '无法识别当前用户', data: [] }],
+  ])('%s 在身份服务存在但 sub 缺失时拒绝访问账号数据', async (channel, invoke, expected) => {
+    const deps = createMockDeps({
+      identityService: { getState: vi.fn(() => ({ status: 'authenticated', user: null })) },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    await expect(invoke(ipcMain._get(channel))).resolves.toEqual(expected)
+    expect(deps.pythonBridge.requestBackend).not.toHaveBeenCalled()
+    expect(deps.AccountManager.addAccount).not.toHaveBeenCalled()
+    expect(deps.AccountManager.deleteAccount).not.toHaveBeenCalled()
+    expect(deps.AccountManager.checkLoginStatus).not.toHaveBeenCalled()
+    expect(deps.AccountManager.setAccountProxy).not.toHaveBeenCalled()
+    expect(deps.AccountManager.listAccounts).not.toHaveBeenCalled()
+  })
+
   it('account:add 拒绝外部网页调用', async () => {
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, createMockDeps())

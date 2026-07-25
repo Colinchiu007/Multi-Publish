@@ -6,6 +6,7 @@
  *   pythonBridge: import('../services/python-bridge'),
  *   AccountManager: any,
  *   store?: { getSetting?: (key: string) => unknown },
+ *   identityService?: { getState: () => unknown },
  *   log: { info: Function, warn: Function, error: Function },
  *   BrowserWindow: typeof import('electron').BrowserWindow
  * }} deps
@@ -14,7 +15,18 @@ function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
   const { toPublicProxyConfig } = require('../services/proxy-config')
-  const { authViewManager, pythonBridge, AccountManager, log, BrowserWindow, store } = deps
+  const { authViewManager, pythonBridge, AccountManager, log, BrowserWindow, store, identityService } = deps
+
+  function getOwnerSubject () {
+    if (!identityService) return undefined
+    try {
+      const state = identityService.getState()
+      if (state && typeof state === 'object' && state.user && typeof state.user.sub === 'string' && state.user.sub.trim()) {
+        return state.user.sub.trim()
+      }
+    } catch (_) { /* fail closed below */ }
+    return null
+  }
 
   // R51 P1 修复：URL 路径段白名单校验，防止路径注入
   // 仅允许字母/数字/下划线/短横线，拒绝 / ? # .. 等路径操纵字符
@@ -73,6 +85,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('accounts:list', withSenderCheck(async () => {
     try {
+      if (getOwnerSubject() === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: [] }
       const response = await pythonBridge.requestBackend('GET', '/api/accounts')
       if (response?.code !== 0 || !Array.isArray(response.data)) {
         return { code: response?.code ?? EC.REQUEST_ERROR, message: response?.message || '获取账号列表失败', data: [] }
@@ -86,6 +99,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('auth:open-login', withSenderCheck(async (event, platform) => {
     try {
+      if (getOwnerSubject() === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       // R51 P1：platform 用于 URL 拼接，必须校验
       if (!_isSafePathSegment(platform)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 platform 参数' }
       const result = await authViewManager.openLogin(platform)
@@ -112,6 +126,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('auth:login-silent', withSenderCheck(async (event, arg) => {
     try {
+      if (getOwnerSubject() === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { platform, accountId } = arg
       if (!_isSafePathSegment(platform) || !_isSafePathSegment(accountId)) {
@@ -155,6 +170,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('account:add', withSenderCheck(async (event, platform) => {
     try {
+      if (getOwnerSubject() === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       if (!_isSafePathSegment(platform)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 platform 参数' }
       const account = await AccountManager.addAccount(platform)
       return { code: 0, data: toPublicAccount(account), message: '账号添加成功' }
@@ -163,6 +179,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('account:delete', withSenderCheck(async (event, accountId) => {
     try {
+      if (getOwnerSubject() === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       // R51 P1：accountId 用于 URL 拼接，必须校验
       if (!_isSafePathSegment(accountId)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId 参数' }
       await AccountManager.deleteAccount(accountId)
@@ -173,6 +190,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('account:check-login', withSenderCheck(async (event, arg) => {
     try {
+      if (getOwnerSubject() === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: { valid: false } }
       // R51 P1：解构保护 + platform 用于 URL 拼接必须校验
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { platform, accountId } = arg
@@ -186,6 +204,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('account:set-proxy', withSenderCheck(async (event, arg) => {
     try {
+      if (getOwnerSubject() === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { accountId, platform, proxy } = arg
       if (!_isSafePathSegment(accountId) || !_isSafePathSegment(platform)) {
@@ -200,6 +219,7 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('account:list', withSenderCheck(async () => {
     try {
+      if (getOwnerSubject() === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: [] }
       const accounts = await AccountManager.listAccounts()
       return { code: 0, data: Array.isArray(accounts) ? accounts.map(toPublicAccount) : [] }
     }

@@ -65,7 +65,10 @@ describe('Scheduler 共享实现', () => {
     expect(scheduler.list()).toEqual([entry])
 
     scheduler.setOwnerSubjectProvider(() => null)
+    expect(() => scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime() })).toThrow('登录会话缺少用户标识')
     expect(() => scheduler.list()).toThrow('登录会话缺少用户标识')
+    expect(() => scheduler.cancel(entry.id)).toThrow('登录会话缺少用户标识')
+    expect(() => scheduler.restore()).toThrow('登录会话缺少用户标识')
   })
 
   it('create 以 JSONL 持久化 pending 任务并注册未来定时器', () => {

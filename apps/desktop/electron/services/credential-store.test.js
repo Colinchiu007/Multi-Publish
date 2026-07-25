@@ -81,8 +81,8 @@ describe('credential-store', () => {
       ownerSubject: ownerB,
       safeStorage: createSafeStorage(),
     })).toEqual({ owner: ownerB })
-    expect(credentialStore.getCredentialDir(userDataDir, ownerA)).not.toBe(
-      credentialStore.getCredentialDir(userDataDir, ownerB),
+    expect(credentialStore.getOwnerCredentialDir(userDataDir, ownerA)).not.toBe(
+      credentialStore.getOwnerCredentialDir(userDataDir, ownerB),
     )
     expect(credentialStore.hasCredential('shared', userDataDir, ownerA)).toBe(true)
     expect(credentialStore.deleteCredential('shared', userDataDir, ownerA)).toBe(true)

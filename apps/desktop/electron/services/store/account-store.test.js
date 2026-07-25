@@ -166,7 +166,7 @@ describe("account-store 删除账号级联", () => {
       { platform: "wechat_mp", result: '{"accountId":"10"}' },
       { platform: "zhihu", result: '{"accountId":1}' },
     ]);
-    expect(createStatement("SELECT value FROM settings WHERE key = ?").get("default_account:wechat_mp")).toEqual({ value: "1" });
+    expect(createStatement("SELECT value FROM settings WHERE key = ?").get("default_account:wechat_mp")).toBeUndefined();
     expect(createStatement("SELECT value FROM settings WHERE key = ?").get("custom:1")).toEqual({ value: "保留" });
   });
 

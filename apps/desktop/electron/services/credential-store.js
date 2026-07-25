@@ -216,10 +216,14 @@ function resolveCredentialArgs (userDataDir, ownerOrOptions, maybeOptions) {
     }
   }
   if (ownerOrOptions === null) normalizeOwnerSubject(ownerOrOptions)
+  const options = ownerOrOptions || {}
+  const ownerSubject = options.ownerSubject
   return {
     rootDir: getCredentialDir(userDataDir),
-    namespaceDir: getCredentialDir(userDataDir),
-    options: ownerOrOptions || {},
+    namespaceDir: ownerSubject === undefined
+      ? getCredentialDir(userDataDir)
+      : getOwnerCredentialDir(userDataDir, ownerSubject),
+    options,
   }
 }
 

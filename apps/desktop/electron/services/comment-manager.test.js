@@ -64,7 +64,6 @@ describe('CommentManager owner 隔离', () => {
     expect(credentialStore.loadCredential).toHaveBeenCalledWith(
       'shared',
       expect.any(String),
-      undefined,
     )
   })
 })

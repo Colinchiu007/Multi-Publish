@@ -74,7 +74,7 @@ const PUBLISH_METHODS = [
 
 const ACCOUNT_METHODS = [
   'accountAdd', 'accountDelete', 'accountCheckLogin', 'accountList',
-  'accountSetDefault', 'accountGetDefault', 'accountUpdate',
+  'accountSetDefault', 'accountGetDefault', 'accountUpdate', 'accountSetProxy',
   'authOpenLogin', 'authClose', 'authCompleteLogin', 'authLoginSilent',
   'onAuthViewOpened', 'onAuthCompleted', 'onAuthViewClosed',
   'authOpenQrCodeLogin', 'authQrCodeClose',
@@ -191,7 +191,7 @@ describe('preload 子模块方法数', () => {
   it('account 模块应导出 41 个方法', () => {
     const { createAccountApi } = require('./preload/account')
     const r = createAccountApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(41)
+    expect(Object.keys(r).length).toBe(42)
   })
 
   it('system 模块应导出 133 个方法', () => {
@@ -200,8 +200,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(133)
   })
 
-  it('合并后 api 总键数应为 258', () => {
-    expect(Object.keys(api).length).toBe(258)
+  it('合并后 api 总键数应为 259', () => {
+    expect(Object.keys(api).length).toBe(259)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -214,8 +214,8 @@ describe('preload 子模块方法数', () => {
     ]))
   })
 
-  it('ACCOUNT_METHODS 常量长度应为 40', () => {
-    expect(ACCOUNT_METHODS.length).toBe(41)
+  it('ACCOUNT_METHODS 常量长度应为 42', () => {
+    expect(ACCOUNT_METHODS.length).toBe(42)
   })
 
   it('SYSTEM_METHODS 常量长度应为 133', () => {

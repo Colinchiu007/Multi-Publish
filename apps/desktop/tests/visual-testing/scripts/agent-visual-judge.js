@@ -33,15 +33,12 @@ function findProjectRoot(startDir) {
 const ROOT = findProjectRoot(__dirname);
 const REPORT_DIR = path.join(ROOT, 'apps/desktop/tests/visual-testing/reports');
 const SCREENSHOT_DIR = path.join(ROOT, 'apps/desktop/tests/visual-testing/screenshots');
-const DIFF_DIR = path.join(REPORT_DIR, 'pixel-diff');
 const BASELINE_DIR = path.join(ROOT, 'apps/desktop/tests/visual-testing/base-screenshots');
-const META_DIR = path.join(ROOT, 'apps/desktop/tests/visual-testing/meta');
-const META_FILE = path.join(META_DIR, 'pixel-tests-meta.json');
 const OUTPUT_MD = path.join(REPORT_DIR, 'judge-report.md');
 const OUTPUT_JSON = path.join(REPORT_DIR, 'agent-judge-results.json');
+const PIXEL_STATUSES = new Set(['PASSED', 'FAILED']);
 
-// Ensure directories exist
-[REPORT_DIR, SCREENSHOT_DIR, DIFF_DIR, BASELINE_DIR, META_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
+[REPORT_DIR, SCREENSHOT_DIR, BASELINE_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
 
 function log(tag, msg, color = '') {
   const prefix = color ? `\x1b[${color}m[${tag}]\x1b[0m ` : `[${tag}] `;
@@ -53,41 +50,24 @@ function toFileUrl(absPath) {
   return 'file:///' + absPath.replace(/\\/g, '/');
 }
 
-/**
- * Load meta.json to get route and misMatchPercentage
- */
-function loadMeta() {
-  if (!fs.existsSync(META_FILE)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(META_FILE, 'utf8'));
-  } catch (e) {
-    return {};
-  }
+function toFiniteMetric(value) {
+  if (typeof value !== 'number' && (typeof value !== 'string' || value.trim() === '')) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
-/**
- * Scan pixel-diff directory for all diff images, sorted by mtime
- */
-function scanDiffImages() {
-  if (!fs.existsSync(DIFF_DIR)) return [];
-  return fs.readdirSync(DIFF_DIR)
-    .filter(f => f.endsWith('.png'))
-    .map(f => path.join(DIFF_DIR, f))
-    .sort((a, b) => fs.statSync(b).mtime - fs.statSync(a).mtime);
+function formatMismatch(value) {
+  return Number.isFinite(value) ? `${value.toFixed(2)}%` : 'N/A';
 }
 
-/**
- * Extract test name from diff filename (remove trailing timestamp)
- */
-function extractTestName(diffPath) {
-  const basename = path.basename(diffPath, '.png');
-  return basename.replace(/-\d+$/, '');
+function formatThreshold(value) {
+  return Number.isFinite(value) ? `${(value * 100).toFixed(0)}%` : 'N/A';
 }
 
 /**
  * Generate Markdown report (for Agent view_image tool)
  */
-function generateMarkdownReport(results, diffImages) {
+function generateMarkdownReport(results) {
   const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' });
   const total = results.length;
   const failed = results.filter(r => r.pixelDiff && !r.pixelDiff.passed).length;
@@ -107,16 +87,16 @@ function generateMarkdownReport(results, diffImages) {
   results.forEach((r, i) => {
     const diff = r.pixelDiff;
     const hasPixelDiff = diff && !diff.passed;
-    const mismatch = hasPixelDiff ? Number(diff.misMatchPercentage).toFixed(2) : '0.00';
+    const mismatch = hasPixelDiff ? formatMismatch(diff.misMatchPercentage) : '0.00%';
 
     md += `### ${i + 1}. ${r.testName}\n\n`;
     md += `- **Route**: \`${r.route}\`\n`;
-    md += `- **Pixel Diff**: ${hasPixelDiff ? `**FAILED** (mismatch: ${mismatch}%)` : '**PASSED**'}\n`;
+    md += `- **Pixel Diff**: ${hasPixelDiff ? `**FAILED** (mismatch: ${mismatch})` : '**PASSED**'}\n`;
     md += `- **Current Screenshot**: \`${r.screenshotPath || 'N/A'}\`\n`;
 
     if (hasPixelDiff) {
       md += `- **Diff Image**: \`${diff.diffImagePath || 'N/A'}\`\n`;
-      md += `- **Threshold**: ${((r.threshold || 0.1) * 100).toFixed(0)}%\n\n`;
+      md += `- **Threshold**: ${formatThreshold(r.threshold)}\n\n`;
       md += `**Comparison Images**\n\n`;
       md += `| Type | Path |\n`;
       md += `|------|------|\n`;
@@ -142,7 +122,7 @@ function generateMarkdownReport(results, diffImages) {
   results.forEach(r => {
     const diff = r.pixelDiff;
     const hasPixelDiff = diff && !diff.passed;
-    const mismatch = hasPixelDiff ? `${Number(diff.misMatchPercentage).toFixed(2)}% FAILED` : 'PASSED';
+    const mismatch = hasPixelDiff ? `${formatMismatch(diff.misMatchPercentage)} FAILED` : 'PASSED';
     md += `| ${r.testName} | ${mismatch} | _pending_ |\n`;
   });
 
@@ -155,7 +135,7 @@ function generateMarkdownReport(results, diffImages) {
 /**
  * Generate JSON report for other tools
  */
-function generateJsonReport(results, diffImages) {
+function generateJsonReport(results) {
   return {
     generatedAt: new Date().toISOString(),
     summary: {
@@ -172,7 +152,8 @@ function generateJsonReport(results, diffImages) {
         passed: r.pixelDiff.passed,
         misMatchPercentage: r.pixelDiff.misMatchPercentage,
         diffImagePath: r.pixelDiff.diffImagePath,
-        threshold: r.threshold
+        threshold: r.threshold,
+        invalidMetrics: r.pixelDiff.invalidMetrics,
       } : null,
       needsAgentReview: !!(r.pixelDiff && !r.pixelDiff.passed)
     })),
@@ -181,71 +162,97 @@ function generateJsonReport(results, diffImages) {
   };
 }
 
-function main() {
-  console.log("\n[INFO] Starting Agent Visual Judge Report Generation\n");
-  
-  // Load meta data
-  const meta = loadMeta();
-  log('INFO', `Loaded meta data: ${Object.keys(meta).length} records`, '34');
-  
-  // Find latest test report
-  let reportData = null;
-  const reportFiles = fs.readdirSync(REPORT_DIR)
-    .filter(f => f.startsWith("report-") && f.endsWith(".json"))
-    .sort().reverse();
-    
-  if (reportFiles.length === 0) {
-    log('WARN', 'No test report found. Run npm run test:visual:pixel first.', '33');
-    process.exit(0);
+function selectLatestReportFile(reportDirectory, fileSystem = fs) {
+  if (!fileSystem.existsSync(reportDirectory)) return null;
+  const candidates = [];
+  for (const name of fileSystem.readdirSync(reportDirectory)) {
+    if (!name.startsWith('report-') || !name.endsWith('.json')) continue;
+    const filename = path.join(reportDirectory, name);
+    try {
+      const stat = fileSystem.statSync(filename);
+      if (stat.isFile()) candidates.push({ filename, name, mtimeMs: stat.mtimeMs });
+    } catch (_) {
+      // 无法读取元数据的历史报告不能作为本轮候选。
+    }
   }
-  
-  const reportPath = path.join(REPORT_DIR, reportFiles[0]);
-  try { 
-    reportData = JSON.parse(fs.readFileSync(reportPath, 'utf8')); 
-  } catch (e) { 
-    log('ERROR', 'Report parse failed: ' + e.message, '31'); 
-    process.exit(1); 
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs || left.name.localeCompare(right.name));
+  return candidates.length > 0 ? candidates[0].filename : null;
+}
+
+function resolveReportPath(args = process.argv.slice(2)) {
+  const reportDirectory = path.resolve(REPORT_DIR);
+  const reportIndex = args.indexOf('--report');
+  if (reportIndex >= 0) {
+    const requestedPath = args[reportIndex + 1];
+    if (!requestedPath) return null;
+    const resolvedPath = path.resolve(requestedPath);
+    const relativePath = path.relative(reportDirectory, resolvedPath);
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) return null;
+    return resolvedPath;
   }
-  
-  log('INFO', `Read ${reportData.results.length} test results from report`, '34');
-  
-  // Build diff map
-  const diffImages = scanDiffImages();
-  const diffMap = new Map();
-  diffImages.forEach(d => diffMap.set(extractTestName(d), d));
-  
-  // Build results: prioritize meta.json for route and misMatchPercentage
-  const results = [];
-  reportData.results.forEach(r => {
-    const testName = r.test;
-    const metaInfo = meta[testName] || {};
-    
-    // Priority: meta.json > report JSON
-    const route = metaInfo.route || r.route || '/';
-    const misMatchPercentage = metaInfo.misMatchPercentage ?? r.misMatchPercentage;
-    
-    const screenshotPath = path.join(SCREENSHOT_DIR, testName + "-current.png");
-    const baselinePath = path.join(BASELINE_DIR, testName + ".png");
-    const hasDiff = diffMap.has(testName);
-    const isFailed = r.status === "FAILED";
-    
-    const pixelDiff = isFailed ? {
-      passed: false,
-      // Get real misMatchPercentage from meta to avoid 50% anomaly
-      misMatchPercentage: misMatchPercentage !== undefined ? parseFloat(misMatchPercentage) : (hasDiff ? 0.01 : 0),
-      diffImagePath: diffMap.get(testName) || null,
-      threshold: metaInfo.threshold || 0.1
-    } : null;
-    
-    results.push({ 
-      testName, 
+  return selectLatestReportFile(REPORT_DIR);
+}
+
+function buildJudgeResults(reportData) {
+  return reportData.results.map(result => {
+    const testName = result.test || result.name;
+    const route = typeof result.route === 'string' && result.route ? result.route : '/';
+    const threshold = toFiniteMetric(result.threshold);
+    const misMatchPercentage = toFiniteMetric(result.misMatchPercentage);
+    const isPassed = result.status === 'PASSED';
+    const isFailed = result.status === 'FAILED';
+    const invalidMetrics = !isPassed && (!isFailed || threshold === null || misMatchPercentage === null);
+    const screenshotPath = typeof result.screenshotPath === 'string'
+      ? result.screenshotPath
+      : path.join(SCREENSHOT_DIR, testName + '-current.png');
+    const baselinePath = typeof result.baselinePath === 'string'
+      ? result.baselinePath
+      : path.join(BASELINE_DIR, testName + '.png');
+
+    return {
+      testName,
       route,
       screenshotPath: fs.existsSync(screenshotPath) ? screenshotPath : null,
       baselinePath: fs.existsSync(baselinePath) ? baselinePath : null,
-      pixelDiff, 
-      threshold: metaInfo.threshold || 0.1 
-    });
+      pixelDiff: isPassed ? null : {
+        passed: false,
+        misMatchPercentage,
+        diffImagePath: typeof result.diffImagePath === 'string' ? result.diffImagePath : null,
+        threshold,
+        ...(invalidMetrics ? { invalidMetrics: true } : {}),
+      },
+      threshold,
+    };
   });
+}
+
+function main(args = process.argv.slice(2)) {
+  console.log("\n[INFO] Starting Agent Visual Judge Report Generation\n");
+
+  let reportData = null;
+  const reportPath = resolveReportPath(args);
+  if (!reportPath || !fs.existsSync(reportPath) || !fs.statSync(reportPath).isFile()) {
+    log('WARN', 'No test report found. Run npm run test:visual:pixel first.', '33');
+    process.exit(1);
+  }
+  try {
+    reportData = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  } catch (e) {
+    log('ERROR', 'Report parse failed: ' + e.message, '31');
+    process.exit(1);
+  }
+
+  if (!reportData || !Array.isArray(reportData.results) || reportData.results.length === 0) {
+    log('ERROR', 'Report must contain at least one test result', '31');
+    process.exit(1);
+  }
+  if (!reportData.results.every(r => r && typeof (r.test || r.name) === 'string' && PIXEL_STATUSES.has(r.status))) {
+    log('ERROR', 'Report contains an invalid test result', '31');
+    process.exit(1);
+  }
+
+  log('INFO', `Read ${reportData.results.length} test results from report`, '34');
+  const results = buildJudgeResults(reportData);
   
   // Filter failed tests only
   const failedResults = results.filter(r => r.pixelDiff && !r.pixelDiff.passed)
@@ -253,8 +260,8 @@ function main() {
   
   if (failedResults.length === 0) {
     log('RESULT', 'All pixel diff tests passed, no Agent review needed', '32');
-    const md = generateMarkdownReport(results, diffImages);
-    const json = generateJsonReport(results, diffImages);
+    const md = generateMarkdownReport(results);
+    const json = generateJsonReport(results);
     fs.writeFileSync(OUTPUT_MD, md, 'utf8');
     fs.writeFileSync(OUTPUT_JSON, JSON.stringify(json, null, 2), 'utf8');
     log('OUTPUT', OUTPUT_MD, '34');
@@ -264,8 +271,8 @@ function main() {
   
   log('FOUND', `${failedResults.length} pixel diff failures, report generated for Agent review`, '33');
   
-  const md = generateMarkdownReport(failedResults, diffImages);
-  const json = generateJsonReport(failedResults, diffImages);
+  const md = generateMarkdownReport(results);
+  const json = generateJsonReport(results);
   
   fs.writeFileSync(OUTPUT_MD, md, 'utf8');
   fs.writeFileSync(OUTPUT_JSON, JSON.stringify(json, null, 2), 'utf8');
@@ -281,4 +288,12 @@ function main() {
   process.exit(0);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = {
+  buildJudgeResults,
+  generateJsonReport,
+  generateMarkdownReport,
+  resolveReportPath,
+  selectLatestReportFile,
+};
