@@ -78,7 +78,7 @@ describe('account-manager — Logto owner 隔离', () => {
     const saveRecord = vi.spyOn(accountManager.accountStateRestorer, 'saveAccountRecord')
       .mockImplementation(() => {})
     const saveCredential = vi.spyOn(accountManager.credentialStore, 'saveCredential')
-      .mockImplementation(() => {})
+      .mockImplementation(() => true)
 
     await accountManager.addAccount('wechat_mp')
 
@@ -120,11 +120,15 @@ describe('account-manager — Logto owner 隔离', () => {
     const loadCredential = vi.spyOn(accountManager.credentialStore, 'loadCredential')
       .mockReturnValue({
         platform: 'douyin',
+        cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }],
         localStorage: { token: 'local-token' },
         accountInfo: { nickName: '用户 A' },
       })
     const getRecord = vi.spyOn(accountManager.accountStateRestorer, 'getAccountRecord')
-      .mockReturnValue({ cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }] })
+      .mockReturnValue({
+        cookies: [{ name: 'sid', value: 'cookie-a', domain: '.douyin.com' }],
+        platform: 'douyin',
+      })
     const session = { cookies: { set: vi.fn(async () => {}) } }
     const webContents = { executeJavaScript: vi.fn(async () => {}) }
 
@@ -180,7 +184,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(typeof accountManager.loadSavedCredentials).toBe('function')
     const result = accountManager.loadSavedCredentials('account-1', 'wechat_mp')
 
-    expect(loadCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(loadCredential).toHaveBeenCalledWith('account-1', 'C:/test-user-data')
     expect(getAccountRecord).toHaveBeenCalledWith('wechat_mp', 'account-1')
     expect(result).toEqual({
       cookies: [{ name: 'session', value: 'secret', domain: '.mp.weixin.qq.com' }],
@@ -257,7 +261,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(saveCredential).toHaveBeenCalledWith(
       'account-1',
       { platform: 'wechat_mp', cookies, localStorage, indexedDB: {}, accountInfo: { platformAccountId: 'wx-1' } },
-      '/tmp/test-electron-path',
+      'C:/test-user-data',
     )
   })
 
@@ -326,7 +330,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     expect(saveCredential).toHaveBeenCalledWith(
       'account-indexed-db',
       { platform: 'wechat_mp', cookies: [], localStorage: {}, indexedDB: { auth: { token: 'private' } }, accountInfo: {} },
-      '/tmp/test-electron-path',
+      'C:/test-user-data',
     )
   })
 
@@ -417,7 +421,7 @@ describe('account-manager — 捕获凭证持久化', () => {
 
     await expect(accountManager.deleteAccount('account-1')).resolves.toBe(true)
     expect(deleteRecords).toHaveBeenCalledWith('account-1')
-    expect(deleteCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(deleteCredential).toHaveBeenCalledWith('account-1', 'C:/test-user-data')
   })
 
   it('只从加密存储恢复凭证，账号状态仅补充公开元数据', () => {
@@ -479,7 +483,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     await expect(accountManager.deleteAccount('account-1')).resolves.toBe(true)
 
     expect(deleteRecords).toHaveBeenCalledWith('account-1')
-    expect(deleteCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(deleteCredential).toHaveBeenCalledWith('account-1', 'C:/test-user-data')
   })
 
   it('后端删除成功后本地状态清理异常不改变删除结果，并继续清理其他凭证', async () => {
@@ -494,7 +498,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     const deleteCredential = vi.spyOn(accountManager.credentialStore, 'deleteCredential').mockReturnValue(true)
 
     await expect(accountManager.deleteAccount('account-1')).resolves.toBe(true)
-    expect(deleteCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(deleteCredential).toHaveBeenCalledWith('account-1', 'C:/test-user-data')
   })
 
   it('加密凭据文件存在但删除失败时返回可重试错误并保留公开状态索引', async () => {
@@ -523,7 +527,7 @@ describe('account-manager — 捕获凭证持久化', () => {
     const deleteRecords = vi.spyOn(accountManager.accountStateRestorer, 'deleteAccountRecordsById').mockReturnValue(true)
 
     await expect(accountManager.deleteAccount('account-1')).resolves.toBe(true)
-    expect(deleteCredential).toHaveBeenCalledWith('account-1', '/tmp/test-electron-path')
+    expect(deleteCredential).toHaveBeenCalledWith('account-1', 'C:/test-user-data')
     expect(deleteRecords).toHaveBeenCalledWith('account-1')
   })
 

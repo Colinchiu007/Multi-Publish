@@ -40,8 +40,50 @@ describe('Scheduler 共享实现', () => {
 
   it('暴露完整且稳定的实例 API', () => {
     expect(Object.keys(scheduler).sort()).toEqual([
-      'cancel', 'create', 'list', 'restore', 'setTaskQueue', 'stopAll'
+      'cancel', 'create', 'list', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
     ])
+  })
+
+  it('相同任务 ID 在不同 owner 下隔离查询和取消', () => {
+    fs.writeFileSync(filePath, [
+      JSON.stringify({ id: 'shared-task', owner_subject: 'user-a', status: 'pending' }),
+      JSON.stringify({ id: 'shared-task', owner_subject: 'user-b', status: 'pending' }),
+    ].join('\n') + '\n', 'utf8')
+
+    scheduler.setOwnerSubjectProvider(() => 'user-a')
+    expect(scheduler.list()).toEqual([
+      expect.objectContaining({ id: 'shared-task', owner_subject: 'user-a' }),
+    ])
+    expect(scheduler.cancel('shared-task')).toBe(true)
+    scheduler.setOwnerSubjectProvider(() => 'user-b')
+    expect(scheduler.list()).toEqual([
+      expect.objectContaining({ id: 'shared-task', owner_subject: 'user-b', status: 'pending' }),
+    ])
+  })
+
+  it('create 使用显式 owner，并忽略任务对象中伪造的 owner_subject', () => {
+    scheduler.setOwnerSubjectProvider(() => 'provider-owner')
+    const entry = scheduler.create({
+      platform: 'wechat',
+      article: { title: '隔离任务' },
+      publishTime: futureTime(),
+      owner_subject: 'forged-owner',
+    }, 'explicit-owner')
+
+    expect(entry.owner_subject).toBe('explicit-owner')
+    expect(readEntries()).toEqual([expect.objectContaining({ owner_subject: 'explicit-owner' })])
+    expect(scheduler.list('provider-owner')).toEqual([])
+    expect(scheduler.list('explicit-owner')).toEqual([expect.objectContaining({ owner_subject: 'explicit-owner' })])
+  })
+
+  it.each([
+    [null, '登录会话缺少用户标识'],
+    ['', '登录会话缺少用户标识'],
+    [() => { throw new Error('provider failed') }, '登录会话缺少用户标识'],
+  ])('owner provider 无效时拒绝访问（%#）', (provider, message) => {
+    scheduler.setOwnerSubjectProvider(typeof provider === 'function' ? provider : () => provider)
+    expect(() => scheduler.list()).toThrow(message)
+    expect(() => scheduler.create({ platform: 'wechat', article: {}, publishTime: futureTime() })).toThrow(message)
   })
 
   it('create 以 JSONL 持久化 pending 任务并注册未来定时器', () => {
@@ -427,7 +469,7 @@ describe('Scheduler 共享兼容入口', () => {
     const schedulerModule = require('../scheduler')
     const sharedUtils = require('..')
     expect(Object.keys(schedulerModule).sort()).toEqual([
-      'cancel', 'create', 'createScheduler', 'list', 'restore', 'setTaskQueue', 'stopAll'
+      'cancel', 'create', 'createScheduler', 'list', 'restore', 'setOwnerSubjectProvider', 'setTaskQueue', 'stopAll'
     ])
     expect(sharedUtils.createScheduler).toBe(schedulerModule.createScheduler)
   })

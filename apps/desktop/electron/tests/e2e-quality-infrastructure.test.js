@@ -9,6 +9,11 @@ const e2eRunner = require('../../tests/e2e/helpers/run-all')
 const routeSuite = require('../../tests/e2e/helpers/route-functional-suite')
 const integrationFlows = require('../../tests/e2e/helpers/integration-flows')
 const { FunctionalRunner } = require('../../tests/e2e/helpers/functional-runner')
+const {
+  E2EEnvironmentError,
+  preflightE2EEnvironment,
+  resetPreflightCache,
+} = require('../../tests/e2e/helpers/e2e-preflight')
 
 const desktopRoot = path.resolve(__dirname, '../..')
 const projectRoot = path.resolve(desktopRoot, '../..')
@@ -42,6 +47,77 @@ function loadProviderMock() {
 describe('E2E 统一入口门禁', () => {
   afterEach(() => {
     delete process.env.E2E_CONCURRENCY
+    resetPreflightCache()
+  })
+
+  it('预检成功时同时确认 Vite 可达和 Chromium 可启动', async () => {
+    const close = vi.fn().mockResolvedValue(undefined)
+    const launch = vi.fn().mockResolvedValue({ close })
+
+    const result = await preflightE2EEnvironment({
+      url: 'http://127.0.0.1:5174',
+      httpProbe: vi.fn().mockResolvedValue({ status: 200 }),
+      chromiumImpl: { launch },
+    })
+
+    expect(result).toMatchObject({ ok: true, url: 'http://127.0.0.1:5174' })
+    expect(launch).toHaveBeenCalledWith({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    })
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('Vite 不可达时标记环境阻塞，不尝试启动 Chromium', async () => {
+    const launch = vi.fn()
+    const error = new Error('connect ECONNREFUSED')
+
+    await expect(preflightE2EEnvironment({
+      url: 'http://127.0.0.1:5174',
+      httpProbe: vi.fn().mockRejectedValue(error),
+      chromiumImpl: { launch },
+    })).rejects.toMatchObject({
+      code: 'E2E_ENVIRONMENT_BLOCKED',
+      stage: 'vite',
+    })
+    expect(launch).not.toHaveBeenCalled()
+  })
+
+  it('Chromium 启动失败时提供明确的环境阻塞错误', async () => {
+    const launchError = new Error('spawn EPERM')
+
+    await expect(preflightE2EEnvironment({
+      url: 'http://127.0.0.1:5174',
+      httpProbe: vi.fn().mockResolvedValue({ status: 200 }),
+      chromiumImpl: { launch: vi.fn().mockRejectedValue(launchError) },
+    })).rejects.toMatchObject({
+      code: 'E2E_ENVIRONMENT_BLOCKED',
+      stage: 'chromium',
+      cause: launchError,
+    })
+  })
+
+  it('统一入口预检失败时不启动路由/流程套件并写入环境报告', async () => {
+    const environmentError = new E2EEnvironmentError(
+      'Vite 未启动',
+      { stage: 'vite', url: 'http://127.0.0.1:5174' },
+    )
+    const runRoutes = vi.fn()
+    const runFlows = vi.fn()
+    const buildReport = vi.fn()
+
+    const result = await e2eRunner.main('all', {
+      preflight: vi.fn().mockRejectedValue(environmentError),
+      runRoutes,
+      runFlows,
+      buildReport,
+      writePreflightReport: vi.fn(),
+    })
+
+    expect(result).toMatchObject({ failed: true, environmentBlocked: true })
+    expect(runRoutes).not.toHaveBeenCalled()
+    expect(runFlows).not.toHaveBeenCalled()
+    expect(buildReport).not.toHaveBeenCalled()
   })
 
   it.each(['abc', '0', '-1', '1.5', 'Infinity'])('拒绝非法或非正并发值 %s', (value) => {
@@ -77,6 +153,77 @@ describe('E2E 统一入口门禁', () => {
     expect(e2eRunner.expectedResultCount('flows')).toBe(6)
     expect(e2eRunner.expectedResultCount('all')).toBe(24)
     expect(e2eRunner.expectedResultCount('report')).toBe(0)
+  })
+
+  it('CLI 默认启用预检，只有显式参数才允许跳过', () => {
+    expect(e2eRunner.parseCliOptions([])).toEqual({ mode: 'all', skipPreflight: false })
+    expect(e2eRunner.parseCliOptions(['routes', '--skip-preflight'])).toEqual({ mode: 'routes', skipPreflight: true })
+  })
+
+  it('报告模式依据汇总失败数返回失败，不能把 0/24 当作成功', async () => {
+    const buildReport = vi.fn().mockReturnValue({
+      summary: {
+        totalChecks: 24,
+        totalPassed: 0,
+        totalFailed: 24,
+        totalConsoleErrors: 0,
+        totalPageErrors: 0,
+      },
+    })
+
+    const result = await e2eRunner.main('report', { buildReport })
+
+    expect(buildReport).toHaveBeenCalledOnce()
+    expect(result).toMatchObject({ failed: true, report: expect.any(Object) })
+  })
+
+  it('报告模式在没有任何有效检查时也必须失败', async () => {
+    const buildReport = vi.fn().mockReturnValue({
+      summary: {
+        totalChecks: 0,
+        totalPassed: 0,
+        totalFailed: 0,
+        totalConsoleErrors: 0,
+        totalPageErrors: 0,
+      },
+    })
+
+    const result = await e2eRunner.main('report', { buildReport })
+
+    expect(result).toMatchObject({ failed: true, report: expect.any(Object) })
+  })
+
+  it('预检通过后把同一个 TEST_URL 传给路由、流程和最终报告', async () => {
+    const runRoutes = vi.fn().mockResolvedValue(
+      Object.fromEntries(Array.from({ length: 18 }, (_, index) => [`route-${index}`, makeReport()])),
+    )
+    const runFlows = vi.fn().mockResolvedValue(
+      Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`flow-${index}`, makeReport()])),
+    )
+    const buildReport = vi.fn().mockReturnValue({
+      summary: {
+        totalChecks: 1,
+        totalPassed: 1,
+        totalFailed: 0,
+        totalConsoleErrors: 0,
+        totalPageErrors: 0,
+      },
+    })
+    const preflight = vi.fn().mockResolvedValue({ ok: true, url: 'http://127.0.0.1:5175' })
+
+    const result = await e2eRunner.main('all', {
+      url: 'http://127.0.0.1:5175',
+      preflight,
+      runRoutes,
+      runFlows,
+      buildReport,
+    })
+
+    expect(result.failed).toBe(false)
+    expect(preflight).toHaveBeenCalledOnce()
+    expect(runRoutes).toHaveBeenCalledWith({ url: 'http://127.0.0.1:5175' })
+    expect(runFlows).toHaveBeenCalledWith({ url: 'http://127.0.0.1:5175' })
+    expect(buildReport).toHaveBeenCalledWith({ url: 'http://127.0.0.1:5175' })
   })
 })
 
@@ -192,6 +339,18 @@ describe('覆盖率与变异测试门禁', () => {
 })
 
 describe('路由通用扫描', () => {
+  it('FunctionalRunner 默认继承 TEST_URL', () => {
+    const previous = process.env.TEST_URL
+    process.env.TEST_URL = 'http://127.0.0.1:5175'
+    try {
+      expect(new FunctionalRunner().url).toBe('http://127.0.0.1:5175')
+      expect(new FunctionalRunner({ url: 'http://127.0.0.1:5176' }).url).toBe('http://127.0.0.1:5176')
+    } finally {
+      if (previous === undefined) delete process.env.TEST_URL
+      else process.env.TEST_URL = previous
+    }
+  })
+
   it('发布正文等待编辑器初始化并确认内容写入', async () => {
     let value = ''
     const editor = {

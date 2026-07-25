@@ -528,7 +528,7 @@ describe("store IPC handlers", () => {
       await ipcMain._callHandler("store:delete-task", "task-1");
 
       expect(mockStore.addAccount).toHaveBeenCalledWith(
-        { id: "acc1", owner_subject: "forged" },
+        { id: "acc1" },
         "user-a",
       );
       expect(mockStore.getAccount).toHaveBeenCalledWith("acc1", "user-a");

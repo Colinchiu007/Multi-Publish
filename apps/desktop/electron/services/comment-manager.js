@@ -121,9 +121,34 @@ class CommentManager {
     /** @type {Map<string, CommentMessageService>} */
     this._services = new Map()
     this._getMainWin = null
+    this._ownerSubjectProvider = null
   }
 
   setGetMainWin (fn) { this._getMainWin = fn }
+
+  /**
+   * 注入当前登录用户 subject。未配置身份服务时保留 legacy 模式；一旦
+   * provider 存在但返回空 subject，所有凭证访问都必须 fail-closed。
+   * @param {(() => string|null|undefined)|null} provider
+   */
+  setOwnerSubjectProvider (provider) {
+    if (provider !== null && provider !== undefined && typeof provider !== 'function') {
+      throw new TypeError('owner subject provider must be a function or null')
+    }
+    this._ownerSubjectProvider = provider || null
+  }
+
+  resolveOwnerSubject () {
+    if (!this._ownerSubjectProvider) return undefined
+    let owner
+    try { owner = this._ownerSubjectProvider() } catch (_) { owner = null }
+    if (typeof owner !== 'string' || !owner.trim()) throw new Error('登录会话缺少用户标识')
+    return owner.trim()
+  }
+
+  _scopeServiceKey (publicKey, ownerSubject) {
+    return JSON.stringify([ownerSubject === undefined ? null : ownerSubject, publicKey])
+  }
 
   /**
    * 仅在主进程中把加密 Cookie 转成 HTTP 请求头。
@@ -133,7 +158,8 @@ class CommentManager {
     if (typeof accountId !== 'string' || !SAFE_IDENTIFIER.test(accountId)) {
       throw new Error('缺少或非法账号 ID')
     }
-    const credentials = credentialStore.loadCredential(accountId, getUserDataDir())
+    const ownerSubject = this.resolveOwnerSubject()
+    const credentials = credentialStore.loadCredential(accountId, getUserDataDir(), ownerSubject)
     const cookieHeader = serializeCookieHeader(credentials && credentials.cookies)
     if (!cookieHeader) throw new Error('未找到账号登录凭证')
     return cookieHeader
@@ -181,10 +207,12 @@ class CommentManager {
     const platform = opts.platform
     const accountId = opts.accountId
     if (typeof platform !== 'string' || !SAFE_IDENTIFIER.test(platform)) throw new Error('缺少或非法平台')
+    const ownerSubject = this.resolveOwnerSubject()
     const cookie = this.resolveCookieHeader(accountId)
-    const key = platform + ':' + accountId
-    if (this._services.has(key)) {
-      return { key: key, started: false, message: 'already running' }
+    const publicKey = platform + ':' + accountId
+    const scopedKey = this._scopeServiceKey(publicKey, ownerSubject)
+    if (this._services.has(scopedKey)) {
+      return { key: publicKey, started: false, message: 'already running' }
     }
     const replyGen = opts.template
       ? new TemplateReplyGenerator({ template: opts.template })
@@ -201,16 +229,18 @@ class CommentManager {
     service.onReply((comment, reply) => {
       this._emit('comment:replied', { platform: platform, accountId: accountId, comment: comment, reply: reply })
     })
+    service._ownerSubject = ownerSubject
+    service._publicKey = publicKey
     // M-4 修复：TOCTOU 竞态——先占位再 await start()，避免并发调用导致 service 孤立泄漏
-    this._services.set(key, service)
+    this._services.set(scopedKey, service)
     try {
       await service.start()
     } catch (e) {
-      this._services.delete(key)
+      this._services.delete(scopedKey)
       throw e
     }
-    log.info('CommentManager', 'Started polling for ' + key)
-    return { key: key, started: true }
+    log.info('CommentManager', 'Started polling for ' + publicKey)
+    return { key: publicKey, started: true }
   }
 
   /**
@@ -218,10 +248,11 @@ class CommentManager {
    * @param {string} key  形如 "platform:accountId"
    */
   async stopPolling (key) {
-    const service = this._services.get(key)
+    const ownerSubject = this.resolveOwnerSubject()
+    const service = this._services.get(this._scopeServiceKey(key, ownerSubject))
     if (!service) return { stopped: false, message: 'not running' }
     await service.stop()
-    this._services.delete(key)
+    this._services.delete(this._scopeServiceKey(key, ownerSubject))
     log.info('CommentManager', 'Stopped polling for ' + key)
     return { stopped: true }
   }
@@ -243,10 +274,12 @@ class CommentManager {
    * 列出活跃轮询
    */
   getStatus () {
+    const ownerSubject = this.resolveOwnerSubject()
     const result = []
-    for (const [key, service] of this._services) {
+    for (const service of this._services.values()) {
+      if (service._ownerSubject !== ownerSubject) continue
       result.push({
-        key: key,
+        key: service._publicKey,
         platform: service.account && service.account.platform,
         interval: service.interval,
         maxDays: service.maxDays,

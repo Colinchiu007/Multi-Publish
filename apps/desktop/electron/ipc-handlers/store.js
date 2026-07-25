@@ -19,7 +19,7 @@ function registerHandlers(ipcMain, deps) {
     'name', 'account_name', 'avatar', 'avatar_url', 'status', 'is_default',
   ])
   const rendererAccountCreateFields = new Set([
-    'id', 'platform', 'name', 'avatar', 'status', 'owner_subject',
+    'id', 'platform', 'name', 'avatar', 'status',
   ])
 
   /**
@@ -40,7 +40,8 @@ function registerHandlers(ipcMain, deps) {
 
   function toRendererAccountCreate(account) {
     if (!account || typeof account !== 'object' || Array.isArray(account)) return null
-    const entries = Object.entries(account)
+    // owner_subject 由主进程身份上下文注入；兼容旧客户端携带该字段，但绝不信任其值。
+    const entries = Object.entries(account).filter(([key]) => key !== 'owner_subject')
     if (entries.some(([key]) => !rendererAccountCreateFields.has(key))) return null
     return Object.fromEntries(entries)
   }
@@ -83,9 +84,8 @@ function registerHandlers(ipcMain, deps) {
       }
       const owner = _getOwnerSubject()
       if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
-      const accountWithOwner = { ...account, owner_subject: account.owner_subject || undefined }
       if (owner !== undefined) {
-        const ok = store.addAccount(accountWithOwner, owner)
+        const ok = store.addAccount(safeAccount, owner)
         return { code: ok ? 0 : EC.REQUEST_ERROR, data: ok }
       }
       const ok = store.addAccount(safeAccount)
@@ -131,17 +131,20 @@ function registerHandlers(ipcMain, deps) {
       if (credentialStore && credentialStore.deleteCredential) {
         if (!userDataDir) return { code: EC.REQUEST_ERROR, message: '无法解析账号凭据目录' }
         const hasCredential = typeof credentialStore.hasCredential === 'function'
-          ? credentialStore.hasCredential(id, userDataDir)
+          ? credentialStore.hasCredential(id, userDataDir, owner === undefined ? undefined : owner)
           : true
         const deleteArgs = owner !== undefined ? [id, userDataDir, owner] : [id, userDataDir]
         if (hasCredential && credentialStore.deleteCredential(...deleteArgs) !== true) {
           return { code: EC.REQUEST_ERROR, message: '删除账号加密凭据失败' }
         }
       }
-      const deleted = store.deleteAccount(id)
+      const deleted = owner !== undefined ? store.deleteAccount(id, owner) : store.deleteAccount(id)
       if (!deleted) return { code: EC.REQUEST_ERROR, message: '删除账号失败' }
       if (accountStateRestorer && accountStateRestorer.deleteAccountRecordsById) {
-        try { accountStateRestorer.deleteAccountRecordsById(id) } catch (e) { /* 公开状态清理不覆盖删除结果 */ }
+        try {
+          if (owner !== undefined) accountStateRestorer.deleteAccountRecordsById(id, owner)
+          else accountStateRestorer.deleteAccountRecordsById(id)
+        } catch (e) { /* 公开状态清理不覆盖删除结果 */ }
       } else if (accountStateRestorer && accountStateRestorer.deleteAccountRecord) {
         try {
           if (owner !== undefined) {
@@ -165,7 +168,11 @@ function registerHandlers(ipcMain, deps) {
       if (typeof platform !== 'string' || !platform.trim() || accountId === null || accountId === undefined || accountId === '') {
         return { code: EC.VALIDATION_ERROR, message: '平台和账号不能为空' }
       }
-      const updated = store.setDefaultAccount(platform, accountId)
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const updated = owner !== undefined
+        ? store.setDefaultAccount(platform, accountId, owner)
+        : store.setDefaultAccount(platform, accountId)
       if (!updated) {
         if (!pythonBridge || typeof pythonBridge.requestBackend !== 'function') {
           return { code: EC.VALIDATION_ERROR, message: '账号不存在或不属于指定平台' }
@@ -176,7 +183,9 @@ function registerHandlers(ipcMain, deps) {
         )
         if (!matched) return { code: EC.VALIDATION_ERROR, message: '账号不存在或不属于指定平台' }
       }
-      if (typeof store.setSetting === 'function') {
+      if (owner !== undefined && typeof store.setUserSetting === 'function') {
+        store.setUserSetting(`default_account:${platform}`, String(accountId), owner)
+      } else if (typeof store.setSetting === 'function') {
         store.setSetting(`default_account:${platform}`, String(accountId))
       }
       return { code: 0, data: true }
@@ -187,7 +196,9 @@ function registerHandlers(ipcMain, deps) {
 
   ipcMain.handle('store:get-default-account', withSenderCheck((_, platform) => {
     try {
-      const account = store.getDefaultAccount(platform)
+      const owner = _getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const account = owner !== undefined ? store.getDefaultAccount(platform, owner) : store.getDefaultAccount(platform)
       return { code: account ? 0 : EC.NOT_FOUND, data: account ? toPublicAccount(account) : null }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
@@ -211,8 +222,11 @@ function registerHandlers(ipcMain, deps) {
       }
       const owner = _getOwnerSubject()
       if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
-      if (!store.getAccount(id)) return { code: EC.NOT_FOUND, message: '账号不存在' }
-      const updated = store.updateAccount(id, safeFields)
+      const account = owner !== undefined ? store.getAccount(id, owner) : store.getAccount(id)
+      if (!account) return { code: EC.NOT_FOUND, message: '账号不存在' }
+      const updated = owner !== undefined
+        ? store.updateAccount(id, safeFields, owner)
+        : store.updateAccount(id, safeFields)
       if (!updated) return { code: EC.VALIDATION_ERROR, message: '没有可更新的账号字段' }
       return { code: 0, data: true }
     } catch (e) {

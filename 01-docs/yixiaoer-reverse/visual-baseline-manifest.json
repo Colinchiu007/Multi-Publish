@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "capturedAt": "2026-07-22",
+  "captureMethod": "真实蚁小二安装程序 + CDP；需要在同一窗口尺寸下完成登录后捕获",
+  "targets": [
+    {
+      "name": "accounts",
+      "reference": "01-docs/yixiaoer-reverse/screenshots/yxe-live-20260722/accounts.png",
+      "current": "01-docs/yixiaoer-reverse/screenshots/current-pageaccounts.png",
+      "source": "真实蚁小二账号管理页"
+    },
+    {
+      "name": "publish",
+      "reference": "01-docs/yixiaoer-reverse/screenshots/yxe-live-20260722/publish.png",
+      "current": "01-docs/yixiaoer-reverse/screenshots/current-pagepublish.png",
+      "source": "真实蚁小二内容发布页"
+    },
+    {
+      "name": "batch-publish",
+      "reference": "01-docs/yixiaoer-reverse/screenshots/yxe-live-20260722/batch-publish.png",
+      "current": "01-docs/yixiaoer-reverse/screenshots/current-pagebatch-publish.png",
+      "source": "真实蚁小二批量发布页"
+    }
+  ]
+}

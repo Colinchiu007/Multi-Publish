@@ -122,6 +122,12 @@ body {
   display: inline-block;
 }
 
+.cohere-topnav .nav-primary {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
 .cohere-topnav .nav-item {
   font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
@@ -1358,6 +1364,26 @@ body {
 }
 
 @media (max-width: 768px) {
+  .cohere-topnav {
+    padding: 0 var(--space-sm);
+    gap: 4px;
+  }
+  .cohere-topnav .brand {
+    margin-right: 4px;
+    font-size: 16px;
+  }
+  .cohere-topnav .nav-primary {
+    flex: 1 1 auto;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .cohere-topnav .nav-primary::-webkit-scrollbar { display: none; }
+  .cohere-topnav .nav-item {
+    flex: 0 0 auto;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .cohere-topnav .nav-right { display: none; }
   .cohere-sidebar { display: none; }
   .cohere-stat-grid { grid-template-columns: repeat(2, 1fr); }
   .cohere-platform-grid { grid-template-columns: repeat(2, 1fr); }

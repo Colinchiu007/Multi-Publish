@@ -267,7 +267,8 @@ function buildCanvasSummary(report) {
   return lines.join('\n');
 }
 
-function main() {
+function main(options = {}) {
+  const viteUrl = options.url || process.env.TEST_URL || 'http://127.0.0.1:5174';
   const routes = aggregateRouteCoverage();
   const flows = aggregateFlowCoverage();
   const issues = buildIssues(routes, flows);
@@ -280,7 +281,7 @@ function main() {
   const report = {
     meta: {
       generatedAt: new Date().toISOString(),
-      vite: 'http://127.0.0.1:5174',
+      vite: viteUrl,
       spec: '前端全量功能 E2E 测试 (task-29a)',
       version: '1.0.0',
       phase: 'Phase 0-4 全部完成'
@@ -311,6 +312,7 @@ function main() {
   fs.writeFileSync(OUTPUT_MD, md);
   console.log(md);
   console.log(`\n报告已生成：\n  - ${OUTPUT_JSON}\n  - ${OUTPUT_MD}`);
+  return report;
 }
 
 if (require.main === module) {

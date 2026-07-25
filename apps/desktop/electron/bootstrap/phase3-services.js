@@ -42,6 +42,7 @@ async function runCleanups(cleanups) {
  * @param {object} deps.usageTracker - 使用量统计服务
  * @param {object} deps.store - Store 实例
  * @param {object} deps.taskQueue - 任务队列
+ * @param {{setOwnerSubjectProvider?: (provider: Function|null) => void}} [deps.commentManager] - 评论服务
  * @param {object} deps.callbackServer - 回调服务器
  * @param {object} deps.scheduler - 调度器
  * @param {object} deps.keywordMonitor - 关键词监控
@@ -51,7 +52,7 @@ async function runCleanups(cleanups) {
  * @param {Function} deps.getMainWin - 获取主窗口函数
  * @param {Function} [deps.createIdentityService] - 用户身份服务工厂
  */
-async function startServices({ container, usageTracker, store, taskQueue, callbackServer, scheduler,
+async function startServices({ container, usageTracker, store, taskQueue, commentManager, callbackServer, scheduler,
   keywordMonitor, analyticsService, pythonBridge, CloudPublisher, getMainWin, createIdentityService }) {
   /** @type {Array<() => unknown | Promise<unknown>>} */
   const cleanups = []
@@ -175,6 +176,10 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
     if (taskQueue && typeof taskQueue.setOwnerSubjectProvider === 'function') {
       taskQueue.setOwnerSubjectProvider(ownerSubjectProvider)
       cleanups.push(() => taskQueue.setOwnerSubjectProvider(null))
+    }
+    if (commentManager && typeof commentManager.setOwnerSubjectProvider === 'function') {
+      commentManager.setOwnerSubjectProvider(ownerSubjectProvider)
+      cleanups.push(() => commentManager.setOwnerSubjectProvider(null))
     }
 
     const restoreForOwner = (state) => {

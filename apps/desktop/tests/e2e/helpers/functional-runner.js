@@ -29,7 +29,8 @@ const { buildInitScript } = require('./fixture-loader');
 class FunctionalRunner {
   constructor(options = {}) {
     this.specName = options.specName || 'unnamed';
-    this.url = options.url || 'http://127.0.0.1:5174';
+    // 预检和实际浏览器必须使用同一个服务地址；TEST_URL 允许并行端口复验。
+    this.url = options.url || process.env.TEST_URL || 'http://127.0.0.1:5174';
     this.headless = options.headless !== false;
     this.viewport = options.viewport || { width: 1920, height: 1080 };
     this.reportsDir = options.reportsDir || path.join(__dirname, '..', 'reports');

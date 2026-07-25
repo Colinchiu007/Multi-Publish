@@ -29,5 +29,9 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, 'src')
     }
-  }
+  },
+  // workspace 包不在 node_modules 下，开发服务器不会默认预构建其 CommonJS 入口。
+  optimizeDeps: {
+    include: ['@multi-publish/shared-utils/src/platform-definitions'],
+  },
 })

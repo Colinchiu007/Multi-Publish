@@ -13,6 +13,7 @@ const os = require('os')
 const log = require('./logger')
 
 const STATE_FILE = 'accounts/state.jsonl'
+const LEGACY_OWNER_SUBJECT = '__legacy__'
 const SENSITIVE_FIELDS = new Set(['cookies', 'localStorage', 'indexedDB', 'authData', 'auth_data'])
 const PUBLIC_ACCOUNT_INFO_FIELDS = new Set([
   'id',
@@ -43,6 +44,20 @@ function sanitizeRecord (record) {
     sanitized.accountInfo = sanitizeAccountInfo(sanitized.accountInfo)
   }
   return sanitized
+}
+
+function normalizeOwnerSubject (value) {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || !value.trim()) throw new Error('登录会话缺少用户标识')
+  return value.trim()
+}
+
+function ownerMatches (record, ownerSubject) {
+  const owner = normalizeOwnerSubject(ownerSubject)
+  if (owner === undefined || owner === LEGACY_OWNER_SUBJECT) {
+    return !record.owner_subject || record.owner_subject === LEGACY_OWNER_SUBJECT
+  }
+  return record.owner_subject === owner
 }
 
 function sanitizeLegacyRecords (userDataDir) {
@@ -113,12 +128,15 @@ function init () {
  *   timestamp: number
  * }
  */
-function saveAccountRecord (record) {
+function saveAccountRecord (record, ownerSubject, userDataDir) {
   try {
-    const filePath = getStateFilePath(resolveUserDataDir())
+    const owner = normalizeOwnerSubject(ownerSubject)
+    const filePath = getStateFilePath(userDataDir || resolveUserDataDir())
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    const sanitized = sanitizeRecord(record)
+    if (owner !== undefined) sanitized.owner_subject = owner
     const line = JSON.stringify({
-      ...sanitizeRecord(record),
+      ...sanitized,
       timestamp: Date.now()
     })
     fs.appendFileSync(filePath, line + '\n')
@@ -137,9 +155,10 @@ function saveAccountRecord (record) {
  * @param {string} accountId - 账号ID
  * @returns {object|null} 最近的记录，或 null
  */
-function getAccountRecord (platform, accountId) {
+function getAccountRecord (platform, accountId, ownerSubject, userDataDir) {
   try {
-    const filePath = getStateFilePath(resolveUserDataDir())
+    const owner = normalizeOwnerSubject(ownerSubject)
+    const filePath = getStateFilePath(userDataDir || resolveUserDataDir())
     if (!fs.existsSync(filePath)) return null
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -149,7 +168,7 @@ function getAccountRecord (platform, accountId) {
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const record = JSON.parse(lines[i])
-        if (record.platform === platform && record.accountId === accountId) {
+        if (record.platform === platform && record.accountId === accountId && ownerMatches(record, owner)) {
           return sanitizeRecord(record)
         }
       // eslint-disable-next-line no-unused-vars
@@ -168,9 +187,10 @@ function getAccountRecord (platform, accountId) {
  * @param {string} platform 
  * @param {string} accountId 
  */
-function deleteAccountRecord (platform, accountId) {
+function deleteAccountRecord (platform, accountId, ownerSubject, userDataDir) {
   try {
-    const filePath = getStateFilePath(resolveUserDataDir())
+    const owner = normalizeOwnerSubject(ownerSubject)
+    const filePath = getStateFilePath(userDataDir || resolveUserDataDir())
     if (!fs.existsSync(filePath)) return
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -180,7 +200,7 @@ function deleteAccountRecord (platform, accountId) {
     const filtered = lines.filter(line => {
       try {
         const record = JSON.parse(line)
-        return !(record.platform === platform && record.accountId === accountId)
+        return !(record.platform === platform && record.accountId === accountId && ownerMatches(record, owner))
       } catch {
         return true // keep corrupt lines
       }
@@ -196,13 +216,17 @@ function deleteAccountRecord (platform, accountId) {
   }
 }
 
-function deleteAccountRecordsById (accountId) {
+function deleteAccountRecordsById (accountId, ownerSubject, userDataDir) {
   try {
-    const filePath = getStateFilePath(resolveUserDataDir())
+    const owner = normalizeOwnerSubject(ownerSubject)
+    const filePath = getStateFilePath(userDataDir || resolveUserDataDir())
     if (!fs.existsSync(filePath)) return true
     const lines = fs.readFileSync(filePath, 'utf8').trim().split('\n').filter(line => line.trim())
     const filtered = lines.filter(line => {
-      try { return JSON.parse(line).accountId !== accountId } catch (_) { return true }
+      try {
+        const record = JSON.parse(line)
+        return record.accountId !== accountId || !ownerMatches(record, owner)
+      } catch (_) { return true }
     })
     const tmpPath = filePath + '.tmp'
     fs.writeFileSync(tmpPath, filtered.join('\n') + (filtered.length ? '\n' : ''))
@@ -220,9 +244,10 @@ function deleteAccountRecordsById (accountId) {
  * 
  * @returns {Array<{platform, accountId, accountInfo}>}
  */
-function listLoggedInAccounts () {
+function listLoggedInAccounts (ownerSubject, userDataDir) {
   try {
-    const filePath = getStateFilePath(resolveUserDataDir())
+    const owner = normalizeOwnerSubject(ownerSubject)
+    const filePath = getStateFilePath(userDataDir || resolveUserDataDir())
     if (!fs.existsSync(filePath)) return []
     
     const content = fs.readFileSync(filePath, 'utf8')
@@ -233,7 +258,7 @@ function listLoggedInAccounts () {
     for (const line of lines) {
       try {
         const record = JSON.parse(line)
-        if (record.platform && record.accountId) {
+        if (record.platform && record.accountId && ownerMatches(record, owner)) {
           const key = `${record.platform}:${record.accountId}`
           const existing = latestByPlatform.get(key)
           if (!existing || record.timestamp > existing.timestamp) {
@@ -298,5 +323,6 @@ module.exports = {
   listLoggedInAccounts,
   purgeExpired,
   sanitizeLegacyRecords,
+  normalizeOwnerSubject,
   resolveUserDataDir
 }

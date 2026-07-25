@@ -13,10 +13,9 @@
  */
 import { ref, computed } from 'vue'
 import { accountList, accountSetDefault } from '@/api/publisher'
-import {
-  PLATFORM_NAMES,
-  PLATFORM_ICONS,
-} from '@multi-publish/shared-utils/src/platform-definitions'
+import * as platformDefinitions from '@multi-publish/shared-utils/src/platform-definitions'
+
+const { PLATFORM_NAMES, PLATFORM_ICONS } = platformDefinitions
 
 // 平台元数据直接派生自共享定义，避免前端平台列表漂移。
 export const platformMeta = Object.fromEntries(

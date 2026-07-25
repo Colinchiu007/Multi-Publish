@@ -44,6 +44,9 @@ function makeMockDeps(overrides) {
     setOwnerSubjectProvider: vi.fn(),
     deserialize: vi.fn(() => 0),
   }
+  const mockCommentManager = {
+    setOwnerSubjectProvider: vi.fn(),
+  }
   const mockCallbackServer = {
     start: vi.fn(async () => {}),
     stop: vi.fn(async () => {}),
@@ -72,6 +75,7 @@ function makeMockDeps(overrides) {
     usageTracker: mockUsageTracker,
     store: mockStore,
     taskQueue: mockTaskQueue,
+    commentManager: mockCommentManager,
     callbackServer: mockCallbackServer,
     scheduler: mockScheduler,
     keywordMonitor: mockKeywordMonitor,
@@ -202,6 +206,7 @@ describe('phase3-services.startServices', () => {
     expect(result.identityService).toBe(identityService)
     expect(deps.scheduler.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
     expect(deps.taskQueue.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
+    expect(deps.commentManager.setOwnerSubjectProvider).toHaveBeenCalledWith(expect.any(Function))
   })
 
   it.each(['1', 'true', 'yes', 'on', ' TRUE '])('required=%s 时身份初始化失败必须阻止启动', async (required) => {
@@ -248,6 +253,7 @@ describe('phase3-services.startServices', () => {
     expect(deps.taskQueue.setStateSaver).toHaveBeenLastCalledWith(null)
     expect(deps.scheduler.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
     expect(deps.taskQueue.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
+    expect(deps.commentManager.setOwnerSubjectProvider).toHaveBeenLastCalledWith(null)
     expect(deps.pythonBridge.setAuthService).toHaveBeenLastCalledWith(null)
     expect(identityService.dispose).toHaveBeenCalledTimes(1)
     expect(deps.store.close).toHaveBeenCalledTimes(1)

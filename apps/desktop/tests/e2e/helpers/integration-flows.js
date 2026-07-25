@@ -490,10 +490,10 @@ const flows = {
   'flow-6': { name: 'Flow 6: 错误路径', exercise: flowErrorPaths }
 };
 
-async function runFlow(flowKey) {
+async function runFlow(flowKey, options = {}) {
   const flow = flows[flowKey];
   if (!flow) throw new Error(`Unknown flow: ${flowKey}`);
-  const r = new FunctionalRunner({ specName: `integration.${flowKey}`, ...SUITE_OPTIONS });
+  const r = new FunctionalRunner({ specName: `integration.${flowKey}`, ...SUITE_OPTIONS, ...options });
   await r.launch();
   try {
     await flow.exercise(r);
@@ -510,11 +510,11 @@ async function runFlow(flowKey) {
   return report;
 }
 
-async function runAllFlows() {
+async function runAllFlows(options = {}) {
   console.log('=== Phase 3: 跨视图集成流 ===');
   const results = {};
   for (const key of Object.keys(flows)) {
-    results[key] = await runFlow(key);
+    results[key] = await runFlow(key, options);
   }
   return results;
 }

@@ -28,6 +28,23 @@ const SALT_LENGTH = 32
 const SAFE_STORAGE_PREFIX = 'safeStorage:v1:'
 const PLAINTEXT_PREFIX = 'plaintext:v1:'
 const MASTER_KEY_PATTERN = /^[0-9a-f]{64}$/i
+const LEGACY_OWNER_SUBJECT = '__legacy__'
+
+function normalizeOwnerSubject (value) {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || !value.trim()) throw new Error('登录会话缺少用户标识')
+  return value.trim()
+}
+
+function normalizeCredentialOptions (optionsOrOwner) {
+  if (typeof optionsOrOwner === 'string') return { ownerSubject: normalizeOwnerSubject(optionsOrOwner) }
+  if (!optionsOrOwner || typeof optionsOrOwner !== 'object' || Array.isArray(optionsOrOwner)) return {}
+  const options = { ...optionsOrOwner }
+  if (Object.prototype.hasOwnProperty.call(options, 'ownerSubject')) {
+    options.ownerSubject = normalizeOwnerSubject(options.ownerSubject)
+  }
+  return options
+}
 
 function validateMasterKey (masterKey) {
   if (typeof masterKey !== 'string' || !MASTER_KEY_PATTERN.test(masterKey)) {
@@ -184,8 +201,12 @@ function decryptData (payload, masterKey) {
 /**
  * 获取凭证存储目录
  */
-function getCredentialDir (userDataDir) {
-  return path.join(userDataDir, 'credentials')
+function getCredentialDir (userDataDir, ownerSubject) {
+  const owner = normalizeOwnerSubject(ownerSubject)
+  const baseDir = path.join(userDataDir, 'credentials')
+  if (owner === undefined || owner === LEGACY_OWNER_SUBJECT) return baseDir
+  const namespace = crypto.createHash('sha256').update(owner, 'utf8').digest('hex')
+  return path.join(baseDir, 'owners', namespace)
 }
 
 /**
@@ -209,9 +230,10 @@ function getCredentialFilePath (accountId, credDir) {
  * }
  * @param {string} userDataDir
  */
-function saveCredential (accountId, data, userDataDir, options = {}) {
+function saveCredential (accountId, data, userDataDir, optionsOrOwner = {}) {
   try {
-    const credDir = getCredentialDir(userDataDir)
+    const options = normalizeCredentialOptions(optionsOrOwner)
+    const credDir = getCredentialDir(userDataDir, options.ownerSubject)
     const masterKey = getMasterKey(credDir, options)
     const payload = encryptData(JSON.stringify(data), masterKey)
 
@@ -235,9 +257,10 @@ function saveCredential (accountId, data, userDataDir, options = {}) {
  * @param {string} userDataDir
  * @returns {object|null} {localStorage, accountInfo} 或 null
  */
-function loadCredential (accountId, userDataDir, options = {}) {
+function loadCredential (accountId, userDataDir, optionsOrOwner = {}) {
   try {
-    const credDir = getCredentialDir(userDataDir)
+    const options = normalizeCredentialOptions(optionsOrOwner)
+    const credDir = getCredentialDir(userDataDir, options.ownerSubject)
     const filePath = getCredentialFilePath(accountId, credDir)
     
     if (!fs.existsSync(filePath)) return null
@@ -254,9 +277,9 @@ function loadCredential (accountId, userDataDir, options = {}) {
 /**
  * 删除账号凭证
  */
-function deleteCredential (accountId, userDataDir) {
+function deleteCredential (accountId, userDataDir, ownerSubject) {
   try {
-    const credDir = getCredentialDir(userDataDir)
+    const credDir = getCredentialDir(userDataDir, ownerSubject)
     const filePath = getCredentialFilePath(accountId, credDir)
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath)
@@ -273,9 +296,9 @@ function deleteCredential (accountId, userDataDir) {
 /**
  * 列出所有已保存凭证的账号
  */
-function listAccounts (userDataDir) {
+function listAccounts (userDataDir, ownerSubject) {
   try {
-    const credDir = getCredentialDir(userDataDir)
+    const credDir = getCredentialDir(userDataDir, ownerSubject)
     if (!fs.existsSync(credDir)) return []
     
     return fs.readdirSync(credDir)
@@ -290,8 +313,8 @@ function listAccounts (userDataDir) {
 /**
  * 检查账号是否有凭证
  */
-function hasCredential (accountId, userDataDir) {
-  const credDir = getCredentialDir(userDataDir)
+function hasCredential (accountId, userDataDir, ownerSubject) {
+  const credDir = getCredentialDir(userDataDir, ownerSubject)
   return fs.existsSync(getCredentialFilePath(accountId, credDir))
 }
 
@@ -299,6 +322,7 @@ module.exports = {
   getMasterKey,
   getCredentialFilePath,
   getCredentialDir,
+  normalizeOwnerSubject,
   saveCredential,
   loadCredential,
   deleteCredential,
