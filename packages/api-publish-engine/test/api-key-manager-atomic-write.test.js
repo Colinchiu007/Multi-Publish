@@ -15,7 +15,7 @@ function holdExclusiveWindowsFileLock(filePath, holdMs) {
     'try {',
     '[Console]::Out.WriteLine("LOCKED")',
     '[Console]::Out.Flush()',
-    'Start-Sleep -Milliseconds ([int]$holdMs)',
+    '[Threading.Thread]::Sleep([int]$holdMs)',
     '} finally { $handle.Dispose() }',
     '}',
   ].join('\n')

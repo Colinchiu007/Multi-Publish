@@ -1,5 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { VisualTestRunner } = require('../src/runners/visual-runner');
@@ -27,15 +28,17 @@ describe('VisualTestRunner', () => {
     assert.equal(targets[0].name, 'home-baseline');
   });
   it('_saveMetaFor and _loadMeta: persist metadata', () => {
-    const tmp = path.join(__dirname, '.tmp-vr');
-    fs.mkdirSync(tmp, { recursive: true });
-    const v = new VisualTestRunner({ metaDir: tmp });
-    v._saveMetaFor('test-view', { route: '/test', misMatchPercentage: 5 });
-    const metaPath = path.join(tmp, 'pixel-tests-meta.json');
-    assert.ok(fs.existsSync(metaPath));
-    const content = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-    assert.ok(content['test-view']);
-    assert.equal(content['test-view'].route, '/test');
-    fs.rmSync(tmp, { recursive: true, force: true });
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-autonomous-visual-runner-'));
+    try {
+      const v = new VisualTestRunner({ metaDir: tmp });
+      v._saveMetaFor('test-view', { route: '/test', misMatchPercentage: 5 });
+      const metaPath = path.join(tmp, 'pixel-tests-meta.json');
+      assert.ok(fs.existsSync(metaPath));
+      const content = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      assert.ok(content['test-view']);
+      assert.equal(content['test-view'].route, '/test');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
