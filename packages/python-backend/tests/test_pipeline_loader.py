@@ -50,6 +50,15 @@ class TestPipelineLoader:
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["size"] == "720x1280"
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["bgm"]["volume"] == 5
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["concurrency"] == 3
+        optimize = next(stage for stage in manifest["stages"] if stage["name"] == "optimize")
+        assert optimize["options"] == {
+            "platform": "generic",
+            "style": "realistic",
+            "creative_level": 5,
+            "negative_prompt": "",
+            "num_candidates": 1,
+            "auto_detect_style": True,
+        }
 
     def test_get_stage_order_default(self):
         stages = get_stage_order(SAMPLE_MANIFEST)

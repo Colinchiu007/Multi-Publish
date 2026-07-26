@@ -83,6 +83,31 @@ describe('story2video 编排契约', () => {
     )
   })
 
+  it('真实 text 默认参数传给 prompt-engine 时不包含无效的空可选字段', async () => {
+    const { engine, serviceBus } = createEngine()
+    registerStory2VideoStages(engine)
+    const started = await engine.startOrchestrated('story2video-compose', {
+      text: '城市夜景。未来交通。',
+      autoAdvance: false,
+    })
+
+    await engine.executeStage(started.runId)
+    await engine.executeStage(started.runId)
+    const optimized = await engine.executeStage(started.runId)
+
+    expect(optimized.success).toBe(true)
+    const options = serviceBus.optimizePromptsBatch.mock.calls.at(-1)[1]
+    expect(options).toMatchObject({
+      platform: 'generic',
+      style: 'realistic',
+      creative_level: 5,
+      num_candidates: 1,
+      auto_detect_style: true,
+    })
+    expect(options).not.toHaveProperty('max_length')
+    expect(options).not.toHaveProperty('context')
+  })
+
   it('启动时保留 initialContext，并让运行快照同时提供 context 与 status', async () => {
     const { engine } = createEngine()
     engine.registerPipeline({

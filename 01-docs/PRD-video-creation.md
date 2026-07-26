@@ -1,7 +1,7 @@
 # PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
-> **版本**: v1.4
-> **日期**: 2026-07-25
+> **版本**: v1.5
+> **日期**: 2026-07-26
 > **状态**: 实现基线已更新（持续迭代）
 > **产品定位**: 将 OpenMontage 的视频生成能力集成到 Multi-Publish 桌面客户端，实现"创作→渲染→发布"完整闭环  
 > **目标用户**: 自媒体创作者、内容运营、企业内容团队  
@@ -46,12 +46,12 @@ Multi-Publish 现有系统（发布侧）
          └── PublisherRouter（显式开启且有平台时发布）
 ```
 
-### 1.4 当前实现基线（2026-07-25）
+### 1.4 当前实现基线（2026-07-26）
 
 | 能力 | 当前状态 | 说明 |
 |------|----------|------|
 | 文案分句 | 已接入 | 通过 smart-sentence-splitter；服务不可用时必须显示失败 |
-| 提示词优化 | 已接入 | 通过 prompt-engine 批量优化，结果数量不一致会阻断 |
+| 提示词优化 | 已接入并完成本地真实服务验收 | 通过 prompt-engine 批量优化，平台/风格枚举和数值范围与其 Pydantic 合同一致；结果数量不一致会阻断 |
 | 历史领域增强 | 已接入 | `contentType=history` 自动识别时代/朝代并生成 `imagePromptSeed` |
 | Story2Video 标准模式 | 已接入 | `story2video-compose` 只接受文案；图片、音频、视频素材模式不再属于该流水线 |
 | TTS | 已接入 | text 标准模式通过已配置 TTS adapter 生成逐段旁白；edge-tts 优先，ffmpeg 静音音频作为离线降级。结果页仍可替换单段旁白，但上传音频不是该模式的创作输入。音色克隆仍未实现，真实外部服务需单独验收 |
@@ -70,7 +70,8 @@ Multi-Publish 现有系统（发布侧）
 | 时长约束 | 已接入 | text 标准模式成片 <=10 分钟；普通流水线/结果编辑使用旁白工具时仍执行总时长和单段时长限制，合成前通过 ffprobe 二次校验 |
 
 运行前提：本地可执行 `ffmpeg`；`8002`（分句）和 `8013`（提示词）是外部服务边界，
-未运行时应明确阻断对应阶段。真实多平台发布还需要已配置账号、凭据和
+未运行时应明确阻断对应阶段。2026-07-26 已在开发环境通过真实 `PipelineEngine` 六阶段 E2E，
+但安装包内 sidecar/依赖仍需目标环境验收。真实多平台发布还需要已配置账号、凭据和
 `PublisherRouter`，本地合成测试不等于发布验收。
 
 ---
@@ -141,7 +142,7 @@ Multi-Publish 现有系统（发布侧）
 |--------|------------------|------------|
 | 基础 | `mode=text`、`prompt` 必填、`size=720x1280`、`seconds=8` | 创建运行前校验；`size` 映射专属输出，`seconds` 保留为兼容目标时长 |
 | 分句 | `language=zh`、`mode=balanced`、`maxSentenceLength=200`、`targetSeconds=6`、`speechRate=1`、`minWords=10`、`maxWords=50` | `split` stage options |
-| 提示词 | `platform=generic`、`style=realistic`、`creativeLevel=5`、`numCandidates=1`、`autoDetectStyle=true` | `optimize` stage options，字段转换为 prompt-engine snake_case |
+| 提示词 | `platform=generic`、`style=realistic`、`creativeLevel=5`（1-10）、`maxLength=null`（启用时 50-2000）、`negativePrompt<=500`、`numCandidates=1`（1-5）、`autoDetectStyle=true`、`context=''` | `optimize` stage options，字段转换为 prompt-engine snake_case；空 `maxLength/context` 不发送，文本上下文转换为 `{ synopsis }`，对象上下文按 JSON 字典透传；图片风格不参与提示词风格回退 |
 | 图片 | `style=cinematic`、`effect=zoom-in`、Provider/模型可选 | `generate_assets` 与 `compose` |
 | 旁白 | 豆包兼容音色 ID、`speed=1`、`volume=1`、`pitch=0`、`emotion=default` | `generate_assets` 与 `compose`；凭据仍由加密 Provider 管理器持有 |
 | 字幕 | `enabled=false`、Noto Sans SC 字体栈、`size=size3`、`style=style1` | `compose`，兼容字号映射后交给 ffmpeg |
@@ -326,7 +327,8 @@ Multi-Publish 现有系统（发布侧）
 - [x] 本地播放、复制路径、打开目录和 ZIP 源文件只接受受控 Story2Video 临时区或项目目录；外部保存目录只能由主进程原生保存对话框明确授权。
 - [x] 历史内容在 `contentType=history` 时经过领域增强，富化提示词再进入批量 prompt-engine 优化；完成项目保留 `contentType` 选项。
 - [x] 已选择图片 Provider 时，`dall-e`/Imagen 参数合同有回归测试；ComfyUI 因缺完整输出协议在 S2V 主链 fail-closed。
-- [ ] 8002 分句服务、8013 提示词服务和真实多平台发布需在目标环境单独验收。
+- [x] 开发环境真实 `PipelineEngine` 已调用 8002/8013，依次完成六阶段并通过 ffmpeg 解码；默认图片/旁白为明确标记的占位图/静音降级，发布按配置跳过。
+- [ ] 目标安装环境的 8002/8013 sidecar、真实图片/TTS Provider 和真实多平台发布仍需单独验收。
 - [ ] 音色克隆、旧会员配额、云分享和跨设备历史仍需外部能力或产品设计；被排除的五种旧模式不计入缺口。
 
 ### 独立 Remotion 快速路径验收（历史设计范围）

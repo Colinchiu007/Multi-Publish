@@ -168,11 +168,9 @@ const PIPELINES = [
           platform: 'generic',
           style: 'realistic', // 必须是 prompt-engine StyleType 枚举值
           creative_level: 5,
-          max_length: null,
           negative_prompt: '',
           num_candidates: 1,
           auto_detect_style: true,
-          context: '',
         },
         inputFrom: 'domain_enrich', // 从 context.domain_enrich 取
       },

@@ -4153,3 +4153,55 @@ IdentityMenu.vue 显示兜底错误文案。
   `realpath` 合同构造，禁止用原始字符串、`path.normalize()` 或 `path.resolve()` 替代。
 - Windows CI 的 workspace 测试继续作为短路径回归保护；不得为了让断言通过而移除生产 `realpath`
   校验，否则会削弱符号链接越界和受控根目录防护。
+
+---
+
+## Story2Video text 参数与 prompt-engine 真实合同漂移（2026-07-26）
+
+### 第一性原因
+- `ed60c1a` 为收敛 Story2Video text 模式新建参数归一化器，但把 UI/旧项目的宽松兼容值直接当成
+  prompt-engine 传输合同：`imageStyle` 可回退为 `optimize.style`，`creativeLevel` 接受 0，
+  `maxLength/negativePrompt/numCandidates` 范围也宽于真实服务。
+- 同一提交把 `max_length: null` 与 `context: ""` 写入 Electron/YAML 阶段默认值。prompt-engine 的
+  `OptimizeRequest` 要求 `max_length` 为 50-2000 的整数、`context` 为字典；默认图片风格 `cinematic`
+  也不属于 `StyleType`。因此真实六阶段首次在 `optimize` 阻断。
+- 提交前独立审查又发现，新加的 PromptBridge 防御性清理只在批量入口预先把数字、布尔值等原始值
+  转为 prompt，单条入口则把这些值展开成空对象。根因是两个入口没有把所有输入形态直接交给同一个
+  归一化函数；该问题在进入历史提交前已修复。
+
+### 测试逃逸链与系统性漏洞
+1. **单元测试**：归一化器只验证 Multi-Publish 自己的默认值和宽松范围，没有从 prompt-engine Pydantic
+   模型派生枚举、范围和空可选字段语义。
+2. **集成测试**：`pipeline-story2video-contract.test.js` mock 了 `optimizePromptsBatch`，任何参数都会返回成功，
+   未模拟服务端 422 schema 校验。
+3. **E2E**：旧 `e2e-full-pipeline.test.js` 虽名为全链路，却直接串接 ServiceBus/AssetGenerator/ComposeEngine，
+   没有调用 `PipelineEngine.startOrchestrated()`，因而绕过参数归一化、六阶段定义和 publish 语义。
+4. **真实 ffmpeg/打包**：只证明已有媒体可合成和产物可启动，不会触发 8002/8013 的请求 schema。
+5. **代码审查**：检查了 text-only、持久化和媒体安全，却没有逐字段对照并行 prompt-engine 仓库的权威模型。
+6. **入口一致性**：PromptBridge 既有测试只覆盖对象请求；批量入口保留了原始值兼容逻辑，却没有用同一组
+   输入同时断言 `optimize()` 与 `optimizeBatch()` 的请求体，导致提交前实现一度出现分叉。
+
+系统性漏洞属于**跨仓库合同漂移 + E2E 入口绕过 + Mock 过度**：本地字段存在不等于外部服务会接受，
+命名为 E2E 的测试也不能绕开生产编排入口。
+
+### 修复与回归保护
+- 提示词平台/风格改为白名单并保留受控兼容映射；图片风格不再覆盖提示词风格，`cinematic` 仅在显式
+  作为提示词风格时映射为 `photography`。
+- 数值和文本范围与 `OptimizeRequest` 对齐；空 `max_length/context` 从请求删除，文本 context 转换为
+  `{ synopsis }`。PromptBridge 对单条/批量请求重复执行防御性清理且不修改调用方对象。
+- Electron 和 YAML 默认阶段参数不再声明无效空字段；Python loader 测试精确断言合法 options。
+- `e2e-full-pipeline.test.js` 改为真实调用 `PipelineEngine`，依次验证六阶段、8002/8013、媒体来源、
+  ffmpeg 可解码成片和 publish skipped。2026-07-26 本地结果为 1/1，通过并产出 5.6 秒视频。
+- `optimize.context` 同时接受字符串和 prompt-engine 允许的 JSON 对象；对象在敏感字段扫描后深拷贝，空
+  `maxLength` 与 `null` 一样不发送。真实 E2E 使用每次运行专属的受控临时根目录，绝不扫描或删除共享
+  `story2video` 临时目录中的其他任务产物。
+- PromptBridge 的单条和批量入口现在直接复用同一归一化函数；新增原始数字输入回归用例，先复现单条
+  发送 `{}`、批量发送 `{ prompt: "42" }`，再验证两者都发送相同 prompt 且不修改调用方对象。
+
+### 预防措施
+1. 外部 sidecar 的枚举、范围、可选字段和数据形状必须以其权威 schema 为准，并用集合外但格式合法的值做负例。
+2. 标记为流水线 E2E 的测试必须从生产入口创建 run，并断言完整阶段序列；手工串接服务只能命名为组件集成测试。
+3. Mock 合同测试之外必须保留一条可条件运行的真实服务 E2E；外部服务不可用时应明确失败或由 CI 显式跳过，不能伪造成功。
+4. 降级资产和跳过发布必须记录来源/状态；它们证明编排闭环，不证明真实图片、TTS 或平台发布已验收。
+5. 同一外部 API 的单条/批量入口必须把代表性对象、字符串、数字和空可选字段交给同一归一化函数，并以
+   请求体等价测试防止两个入口再次漂移。
