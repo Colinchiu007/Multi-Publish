@@ -1,3 +1,22 @@
+## [未发布] Story2Video Text 标准模式与参数合同 (2026-07-26)
+
+### 视频创作
+- `story2video-compose` 收敛为唯一 `text` 标准模式，创建运行前拒绝图片、音频、视频及畸形媒体字段；`image/remix/gallery/audio/batch` 明确不属于该流水线。
+- 视频创作页仅为 Story2Video 显示文案输入，并使用独立输出配置；其他视频流水线继续保留文字、图片、音频和视频输入。
+- 新增版本化 `Story2VideoTextConfig` v1，统一校验并映射分句、提示词、图片/TTS、字幕、BGM、模板、版本、合成、输出和发布参数。
+- Story2Video 项目清单升级为 manifest v2，只持久化白名单配置；BGM 复制到受控项目目录，旧 manifest v1 继续可读。
+
+### 架构与安全
+- 参数归一化只在 `story2video-compose` 的 Electron 适配层执行，不修改共享 `StageExecutor`、`ServiceBus` 或普通 `pipelineStart` 合同。
+- 运行上下文递归拒绝 Provider 密钥、Token、密码等敏感字段；未知配置不进入运行记录或项目清单。
+- YAML 运行合同改为 `required: [text]` 和 `supported_modes: [text]`，并与 renderer、PipelineEngine 和项目持久化使用同一组默认值。
+
+### 质量
+- Story2Video 聚焦回归、归一化器覆盖率、真实 ffmpeg、Vue/preload 构建、双 sandbox、桌面/移动视觉、17 项像素门禁、Windows x64 打包、ASAR/RPA require 链和 8 秒启动检查均通过。
+- 全桌面 coverage 仍有 5 个未修改文件的 9 个基线失败：6 个许可证开发环境判断和 3 个 STT `supports("transcribe")` 旧预期；未混入本分支修复。
+
+---
+
 ## [未发布] Logto 桌面公开运行时配置 (2026-07-24)
 
 ### 用户身份

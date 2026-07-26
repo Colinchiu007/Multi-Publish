@@ -445,7 +445,7 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
-  it("S2V 编排完整透传合成、输入、检查点和发布参数", async () => {
+  it("S2V 编排发送版本化 text 配置并使用独立输出参数", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-contract" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
@@ -457,7 +457,8 @@ describe("CreateView - S2V orchestration", () => {
     w.vm.pipelineText = "唐朝长安的夜景";
     w.vm.selectedStyle = "cinematic-dark";
     w.vm.checkpointPolicy = "manual_all";
-    w.vm.outputConfig = { resolution: "1080x1920", fps: 24, format: "mp4" };
+    w.vm.outputConfig = { resolution: "3840x2160", fps: 60, format: "mp4" };
+    w.vm.s2vOutputConfig = { resolution: "1080x1920", fps: 24, format: "webm" };
     w.vm.s2vConfig = {
       ...w.vm.s2vConfig,
       contentType: "history",
@@ -472,8 +473,24 @@ describe("CreateView - S2V orchestration", () => {
       voiceVolume: 0.8,
       transition: "slide-right",
       subtitleEnabled: false,
+      subtitleFont: "Noto Sans SC",
+      subtitleSize: "size4",
+      subtitleStyleName: "style2",
       bgmPath: "C:/media/bgm.mp3",
-      bgmVolume: 0.45,
+      bgmVolume: 7,
+      seconds: 12,
+      perImageDuration: 4,
+      generateBase: false,
+      generateMerged: true,
+      splitLanguage: "auto",
+      splitMode: "precise",
+      splitMaxSentenceLength: 120,
+      splitTargetSeconds: 4,
+      promptPlatform: "douyin",
+      promptStyle: "anime",
+      creativeLevel: 8,
+      numCandidates: 2,
+      autoDetectStyle: false,
       watermarkText: "测试水印",
       platforms: ["bilibili"],
       publishEnabled: true,
@@ -486,35 +503,34 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("story2video-compose", expect.objectContaining({
       text: "唐朝长安的夜景",
-      contentType: "history",
-      imageStyle: "watercolor",
-      imageProvider: "local-diffusion",
-      imageEffect: "pan-left",
-      voiceProvider: "piper",
-      voiceId: "custom-voice-id",
-      voiceSpeed: 1.2,
-      voicePitch: -1,
-      voiceEmotion: "warm",
-      voiceVolume: 0.8,
-      transition: "slide-right",
-      subtitleEnabled: false,
-      bgmPath: "C:/media/bgm.mp3",
-      bgmVolume: 0.45,
-      watermarkText: "测试水印",
-      resolution: "1080x1920",
-      fps: 24,
+      inputMode: "text",
       checkpointPolicy: "manual_all",
       autoAdvance: true,
-      platforms: ["bilibili"],
-      publishEnabled: true,
-      title: "长安夜景",
-      tags: ["历史", "夜景"],
-      output: { resolution: "1080x1920", fps: 24, format: "mp4" },
+      story2videoTextConfig: expect.objectContaining({
+        version: 1,
+        mode: "text",
+        prompt: "唐朝长安的夜景",
+        size: "1080x1920",
+        seconds: 12,
+        contentType: "history",
+        split: expect.objectContaining({ language: "auto", mode: "precise", maxSentenceLength: 120, targetSeconds: 4 }),
+        optimize: expect.objectContaining({ platform: "douyin", style: "anime", creativeLevel: 8, numCandidates: 2, autoDetectStyle: false }),
+        image: expect.objectContaining({ provider: "local-diffusion", style: "watercolor", effect: "pan-left" }),
+        voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8, pitch: -1, emotion: "warm" }),
+        subtitle: expect.objectContaining({ enabled: false, font: "Noto Sans SC", size: "size4", style: "style2" }),
+        bgm: { enabled: true, path: "C:/media/bgm.mp3", volume: 7 },
+        versions: { generateBase: false, generateMerged: true },
+        perImageDuration: 4,
+        transition: "slide-right",
+        output: { fps: 24, format: "webm" },
+        publish: expect.objectContaining({ enabled: true, platforms: ["bilibili"], title: "长安夜景", tags: ["历史", "夜景"] }),
+      }),
     }));
+    expect(w.vm.outputConfig).toEqual({ resolution: "3840x2160", fps: 60, format: "mp4" });
     w.unmount();
   });
 
-  it("图片模式没有文案时仍可启动编排并传递图片素材", async () => {
+  it("Story2Video 只显示文字输入并拒绝旧图片模式", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-images" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {} } });
@@ -525,64 +541,47 @@ describe("CreateView - S2V orchestration", () => {
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     w.vm.inputMode = "images";
     w.vm.pipelineImages = [{ preview: "data:image/png;base64,aW1hZ2U=" }];
+    await nextTick();
 
     await w.vm.startPipeline();
 
-    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("story2video-compose", expect.objectContaining({
-      text: "",
-      inputMode: "images",
-      images: ["data:image/png;base64,aW1hZ2U="],
-    }));
+    const inputTabs = w.findAll(".input-tab").map(tab => tab.text());
+    expect(inputTabs).toContain("文案");
+    expect(inputTabs).not.toContain("图片");
+    expect(inputTabs).not.toContain("旁白/批量音频");
+    expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
     w.unmount();
   });
 
-  it("音频模式可传递多个已解析的旁白文件并在无文案时启动", async () => {
+  it("普通流水线仍保留图片、音频和视频输入", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-audio" } });
-    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {} } });
-    mocks.story2videoImportMedia
-      .mockResolvedValueOnce({ code: 0, data: { path: "C:/controlled/scene-1.mp3" } })
-      .mockResolvedValueOnce({ code: 0, data: { path: "C:/controlled/scene-2.mp3" } });
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
-    w.vm.inputMode = "audio";
-    await w.vm.handlePipelineAudio({ target: { files: [{ name: "scene-1.mp3", size: 5 }, { name: "scene-2.mp3", size: 5 }] } });
-    await w.vm.startPipeline();
-
-    expect(w.vm.canStartPipeline).toBe(true);
-    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("story2video-compose", expect.objectContaining({
-      inputMode: "audio",
-      text: "",
-      audio: [
-        { name: "scene-1.mp3", path: "C:/controlled/scene-1.mp3", transcript: "" },
-        { name: "scene-2.mp3", path: "C:/controlled/scene-2.mp3", transcript: "" },
-      ],
-    }));
+    w.vm.selectedPipeline = { name: "cinematic", stages: [] };
+    await nextTick();
+    const inputTabs = w.findAll(".input-tab").map(tab => tab.text());
+    expect(inputTabs).toEqual(expect.arrayContaining(["文案", "图片", "旁白/批量音频", "视频素材"]));
+    expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
     w.unmount();
   });
 
-  it("可识别上传旁白并把逐段文字传入编排参数", async () => {
+  it("普通流水线仍可识别上传旁白", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoTranscribe.mockResolvedValue({ code: 0, data: { text: "识别后的第一段" } });
-    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-transcript" } });
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.selectedPipeline = { name: "podcast-repurpose", stages: [] };
     w.vm.inputMode = "audio";
     w.vm.pipelineAudio = [{ name: "voice.mp3", path: "C:/controlled/voice.mp3", transcript: "" }];
 
     await w.vm.transcribePipelineAudio(0);
-    await w.vm.startPipeline();
 
     expect(w.vm.pipelineAudio[0].transcript).toBe("识别后的第一段");
-    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("story2video-compose", expect.objectContaining({
-      audio: [expect.objectContaining({ transcript: "识别后的第一段" })],
-    }));
+    expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
     w.unmount();
   });
 
@@ -694,7 +693,7 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.startPipeline();
 
     expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/Story2Video.*视频素材/));
+    expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/Story2Video.*只支持文案输入/));
     alertSpy.mockRestore();
     w.unmount();
   });
@@ -835,7 +834,7 @@ describe("CreateView - UI interactions", () => {
     w.vm.s2vConfig.imageEffect = "pan-up";
     w.vm.s2vConfig.transition = "slide-down";
     w.vm.s2vConfig.subtitleStyle.size = "xl";
-    w.vm.outputConfig.resolution = "1080x1920";
+    w.vm.s2vOutputConfig.resolution = "1080x1920";
     w.vm.s2vCustomTemplateName = "我的竖屏模板";
 
     w.vm.saveCurrentS2VTemplate();

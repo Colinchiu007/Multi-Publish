@@ -135,6 +135,67 @@ describe('Story2VideoProjectService', () => {
     expect(fs.readFileSync(project.options.bgmPath, 'utf8')).toBe('background-music')
   })
 
+  it('保存版本化 text 配置并丢弃 Provider Secret', () => {
+    const source = path.join(root, 'versioned-config-source')
+    const bgm = writeFile(path.join(source, 'bgm.mp3'), 'background-music')
+    const output = writeFile(path.join(source, 'output.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_versioned_config',
+      pipeline: 'story2video-compose',
+      status: 'completed',
+      params: {
+        text: '版本化项目',
+        apiKey: 'top-level-secret',
+        token: 'top-level-token',
+        story2videoTextConfig: {
+          version: 1,
+          mode: 'text',
+          prompt: '版本化项目',
+          size: '1080x1920',
+          image: { provider: 'local-diffusion', apiKey: 'nested-secret' },
+          voice: { provider: 'piper', token: 'nested-token' },
+          bgm: { enabled: true, path: bgm, volume: 7 },
+          publish: { enabled: false, platforms: [] },
+          unknown: 'drop-me',
+        },
+      },
+      context: { compose: { videoPath: output, segments: [] } },
+    })
+
+    expect(project.manifestVersion).toBe(2)
+    expect(project.story2videoTextConfig).toMatchObject({
+      version: 1,
+      config: {
+        version: 1,
+        mode: 'text',
+        prompt: '版本化项目',
+        size: '1080x1920',
+        image: { provider: 'local-diffusion' },
+        voice: { provider: 'piper' },
+        bgm: { enabled: true, volume: 7 },
+      },
+    })
+    expect(project.story2videoTextConfig.config.bgm.path).not.toBe(bgm)
+    expect(fs.readFileSync(project.story2videoTextConfig.config.bgm.path, 'utf8')).toBe('background-music')
+    expect(JSON.stringify(project)).not.toMatch(/top-level-secret|top-level-token|nested-secret|nested-token|drop-me/)
+    expect(service.getProject(project.projectId).story2videoTextConfig).toEqual(project.story2videoTextConfig)
+    expect(JSON.parse(fs.readFileSync(path.join(service._projectDir(project.projectId), 'project.json'), 'utf8')))
+      .toMatchObject({ story2videoTextConfig: { version: 1 } })
+  })
+
+  it('旧项目没有版本化 text 配置时仍可读取', () => {
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    service._writeProjects([{ manifestVersion: 1, projectId: 'legacy-project', status: 'completed', segments: [] }])
+
+    expect(service.getProject('legacy-project')).toMatchObject({
+      manifestVersion: 1,
+      projectId: 'legacy-project',
+      segments: [],
+    })
+  })
+
   it('编辑和排序只接受可编辑字段，不信任 renderer 传入的媒体路径', () => {
     const imageA = writeFile(path.join(root, 'a.png'))
     const imageB = writeFile(path.join(root, 'b.png'))
