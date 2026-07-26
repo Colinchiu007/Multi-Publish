@@ -4101,3 +4101,27 @@ IdentityMenu.vue 显示兜底错误文案。
 1. 声明在工具 `dependencies` 中的 Python 包必须延迟到工具执行时导入，禁止在 Provider 包入口强制加载。
 2. Bridge/子进程 CI 必须导入或启动真实入口，不能用顶层 namespace 的浅层 import 代替。
 3. GUI job 有串行门禁时，修复前置失败后必须继续观察后续 gate，直到所有步骤真实执行。
+
+---
+
+## Production smoke 检查集合扩展后旧断言失配（2026-07-26）
+
+### 第一性原因
+- `2a46d4a8` 为修复 Nginx `/api/` 宽匹配，在 `production-smoke.js` 中新增
+  `api.path-guard/api/users` 与 `api.path-guard/api/forgot-password` 两项检查。
+- `production-operations.test.js` 仍保留 `cb0230b0` 的四项固定数组，并用 `checks.at(-1)` 断言
+  `api.me`。路径守卫追加到结果尾部后，两处断言同时失效，但生产 smoke 行为本身正确。
+
+### 测试逃逸链与系统性漏洞
+1. **单元测试**：路径守卫的专项测试覆盖了生产代码，却没有同步运行生产运维 CLI 的聚合结果合同。
+2. **工作区集成测试**：本地 Story2Video 聚焦回归不包含 `api-publish-engine` 全量脚本，问题在 PR Gate 4 才暴露。
+3. **代码审查**：新增结果项时只审查了安全语义，遗漏了同一结果数组的顺序敏感消费者。
+
+系统性漏洞属于**测试场景缺失 + 断言质量不足**：固定完整数组适合校验无 token 的标准 smoke 集合，
+但可选检查不能用“最后一项”表达语义，否则任何安全检查追加都会制造无关失败。
+
+### 修复与预防
+- 标准 smoke 合同显式纳入两个路径守卫名称，保证安全检查不会被误删。
+- `api.me` 改为按 `name` 与 `status` 查找，不再依赖可扩展结果集合的物理顺序。
+- 以后修改 `runSmokeChecks()` 的检查集合或顺序时，必须同轮运行
+  `node --test test/production-operations.test.js` 和 workspace `api-publish-engine` 测试。

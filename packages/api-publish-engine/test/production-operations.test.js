@@ -48,7 +48,7 @@ test('生产运维 CLI', async (t) => {
     assert.match(runbook, /销毁两个隔离目标数据库.*重新创建/s)
   })
 
-  await t.test('smoke 对本地 OIDC、JWKS、health 和 ready 做真实 HTTP 检查', async () => {
+  await t.test('smoke 对本地 OIDC、JWKS、health、ready 和路径守卫做真实 HTTP 检查', async () => {
     const { runSmokeChecks } = require('../scripts/production-smoke')
     const server = await startFixtureServer()
     const origin = `http://127.0.0.1:${server.address().port}`
@@ -57,6 +57,7 @@ test('生产运维 CLI', async (t) => {
       assert.strictEqual(result.status, 'passed')
       assert.deepStrictEqual(result.checks.map((entry) => entry.name), [
         'logto.discovery', 'logto.jwks', 'api.health', 'api.ready',
+        'api.path-guard/api/users', 'api.path-guard/api/forgot-password',
       ])
     } finally {
       await new Promise((resolve) => server.close(resolve))
@@ -103,7 +104,7 @@ test('生产运维 CLI', async (t) => {
     try {
       const result = await runSmokeChecks({ logto: origin, api: origin, token: 'fixture-token', deviceId: 'fixture-device-0001', timeoutMs: 1000 })
       assert.strictEqual(result.status, 'passed')
-      assert.strictEqual(JSON.parse(JSON.stringify(result)).checks.at(-1).name, 'api.me')
+      assert(JSON.parse(JSON.stringify(result)).checks.some((entry) => entry.name === 'api.me' && entry.status === 'passed'))
       assert.strictEqual(requests[0].authorization, 'Bearer fixture-token')
       assert.strictEqual(requests[0]['x-device-id'], 'fixture-device-0001')
     } finally {

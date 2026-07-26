@@ -18,6 +18,7 @@
 - Story2Video 源分支曾被 6 个许可证旧断言和 3 个 STT 旧预期阻塞；集成分支已通过独立提交纳入对应基线修复，最终结果以 `.quality-gates.md` 为准。
 - 流水线历史 GUI 合同改为同时校验 `completed` 语义 class 与“已完成”可见文案，避免本地化后继续断言内部状态值。
 - Python backend 的视频 Provider 可选帧处理依赖改为按执行加载；GUI CI 直接导入真实 `server` 入口，避免缺少单个实验性 Provider 依赖时阻断 Electron 主窗口。
+- 生产 smoke 合同测试同步覆盖 `/api/users` 与 `/api/forgot-password` 路径守卫，并按语义查找 `api.me`，避免新增检查改变数组尾部后误报 Quality Gate。
 
 ---
 
