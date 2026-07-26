@@ -797,9 +797,12 @@ describe("CreateView - UI interactions", () => {
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
-    await w.find(".history-open").trigger("click");
 
     expect(w.text()).toContain("历史成片");
+    expect(w.find(".history-status").text()).toBe("已完成");
+    expect(w.find(".history-status").classes()).toContain("completed");
+
+    await w.find(".history-open").trigger("click");
     expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "project-history" } });
     pushSpy.mockRestore();
   });
