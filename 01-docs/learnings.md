@@ -4125,3 +4125,31 @@ IdentityMenu.vue 显示兜底错误文案。
 - `api.me` 改为按 `name` 与 `status` 查找，不再依赖可扩展结果集合的物理顺序。
 - 以后修改 `runSmokeChecks()` 的检查集合或顺序时，必须同轮运行
   `node --test test/production-operations.test.js` 和 workspace `api-publish-engine` 测试。
+
+---
+
+## Windows 8.3 路径表示导致 Story2Video canonical 断言失配（2026-07-26）
+
+### 第一性原因
+- `e1b46eba` 同时引入 Story2Video 受控媒体目录加固和对应阶段测试。生产读取链通过
+  `fs.realpathSync.native()` 返回 canonical 路径，测试却把结果与 `importUserSelectedMedia()` 返回的原始
+  目标路径字符串直接比较。
+- GitHub Windows runner 的临时目录可表示为 `C:\Users\RUNNER~1`，而 `realpath` 返回
+  `C:\Users\runneradmin`。两者指向同一文件，但字符串断言在 Quality Gate 中失败；生产路径安全行为正确。
+
+### 测试逃逸链与系统性漏洞
+1. **单元测试**：本地临时目录的原始路径与 canonical 路径文本相同，旧断言无法暴露 8.3 别名差异。
+2. **集成测试**：Story2Video 聚焦回归验证了受控目录和拒绝越界，却没有构造 Windows 短路径表示。
+3. **CI**：Windows 全工作区 Gate 4 首次提供了短路径与长路径并存的真实环境，才稳定复现。
+4. **代码审查**：审查确认了 `realpath` 安全边界，但遗漏同一提交中的测试仍按原始路径字符串断言。
+
+系统性漏洞属于**断言质量不足 + 环境差异**：`path.resolve()` 或 `path.normalize()` 只能处理语法，不能
+消除 Windows 8.3 别名；canonical 文件合同必须使用 `fs.realpathSync.native()` 表达。
+
+### 修复与预防
+- 阶段测试把预期音频路径规范化为 `fs.realpathSync.native(imported.path)`，继续断言输出为受控目录中的
+  canonical 文件；生产实现、模式入口和共享流水线架构均不修改。
+- 凡测试 `resolveReadableFile()`、`resolveReadableMediaFile()` 或其调用链输出，预期路径必须按同一
+  `realpath` 合同构造，禁止用原始字符串、`path.normalize()` 或 `path.resolve()` 替代。
+- Windows CI 的 workspace 测试继续作为短路径回归保护；不得为了让断言通过而移除生产 `realpath`
+  校验，否则会削弱符号链接越界和受控根目录防护。

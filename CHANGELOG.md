@@ -19,6 +19,7 @@
 - 流水线历史 GUI 合同改为同时校验 `completed` 语义 class 与“已完成”可见文案，避免本地化后继续断言内部状态值。
 - Python backend 的视频 Provider 可选帧处理依赖改为按执行加载；GUI CI 直接导入真实 `server` 入口，避免缺少单个实验性 Provider 依赖时阻断 Electron 主窗口。
 - 生产 smoke 合同测试同步覆盖 `/api/users` 与 `/api/forgot-password` 路径守卫，并按语义查找 `api.me`，避免新增检查改变数组尾部后误报 Quality Gate。
+- Story2Video 受控音频路径测试按 `realpath` canonical 合同比较，兼容 Windows 8.3 短路径与长路径表示同一文件的场景。
 
 ---
 
