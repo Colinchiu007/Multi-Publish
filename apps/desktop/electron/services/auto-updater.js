@@ -6,10 +6,11 @@
  */
 const { autoUpdater } = require('electron-updater')
 // eslint-disable-next-line no-unused-vars
-const { BrowserWindow } = require('electron')
+const { app, BrowserWindow } = require('electron')
 
 let _mainWin = null
 let _statusCallback = null
+const _reportedUnavailableErrors = new WeakSet()
 
 // 网络超时/阻断错误特征码（GFW 场景）
 const NETWORK_ERROR_PATTERNS = [
@@ -30,9 +31,35 @@ const NETWORK_ERROR_PATTERNS = [
   'socket hang up'
 ]
 
+function errorMessage (err) {
+  if (!err) return ''
+  if (typeof err.message === 'string') return err.message
+  return String(err)
+}
+
 function isNetworkError (err) {
-  const msg = (err && (err.message || err.toString() || ''))
+  const msg = errorMessage(err)
   return NETWORK_ERROR_PATTERNS.some(p => msg.includes(p))
+}
+
+function isLatestManifestMissing (err) {
+  const msg = errorMessage(err)
+  const statusCode = Number(err?.statusCode ?? err?.status ?? err?.response?.statusCode)
+  const isNotFound = statusCode === 404 || /\b404\b/.test(msg)
+  const manifestMissing = /(?:cannot find|not found)[^\r\n]*latest(?:-[a-z0-9_-]+)?\.ya?ml|latest(?:-[a-z0-9_-]+)?\.ya?ml[^\r\n]*(?:cannot find|not found)/i.test(msg)
+  return isNotFound && manifestMissing
+}
+
+function isUpdateCheckUnavailable (err) {
+  return isNetworkError(err) || isLatestManifestMissing(err)
+}
+
+function sendUnavailableOnce (err) {
+  if (err && (typeof err === 'object' || typeof err === 'function')) {
+    if (_reportedUnavailableErrors.has(err)) return
+    _reportedUnavailableErrors.add(err)
+  }
+  _sendStatus('not-available', '当前已是最新版本')
 }
 
 /**
@@ -46,10 +73,9 @@ function init (win, onStatus) {
   _mainWin = win
   _statusCallback = onStatus
 
-  // 日志（仅开发环境打印）
-  if (process.env.NODE_ENV === 'development') {
-    autoUpdater.logger = console
-  }
+  // 打包状态是权威来源，避免机器残留环境变量让生产更新错误写入 stderr。
+  const isUnpackagedDevelopment = app?.isPackaged === false && process.env.NODE_ENV === 'development'
+  autoUpdater.logger = isUnpackagedDevelopment ? console : null
 
   // 自动下载
   autoUpdater.autoDownload = false
@@ -86,12 +112,12 @@ function init (win, onStatus) {
   })
 
   autoUpdater.on('error', (err) => {
-    // GFW 阻断：静默忽略，不弹错误
-    if (isNetworkError(err)) {
-      _sendStatus('not-available', '当前已是最新版本')
+    // GFW 阻断或发布缺少 latest.yml：按无可用更新静默处理。
+    if (isUpdateCheckUnavailable(err)) {
+      sendUnavailableOnce(err)
       return
     }
-    _sendStatus('error', err.message || err.toString())
+    _sendStatus('error', errorMessage(err))
   })
 }
 
@@ -100,17 +126,11 @@ function init (win, onStatus) {
  */
 function check () {
   autoUpdater.checkForUpdates().catch(err => {
-    // 404 = 暂无最新版本（非错误）
-    if (err.message && err.message.includes('404')) {
-      _sendStatus('not-available', '当前已是最新版本')
+    if (isUpdateCheckUnavailable(err)) {
+      sendUnavailableOnce(err)
       return
     }
-    // GFW 阻断：静默忽略
-    if (isNetworkError(err)) {
-      _sendStatus('not-available', '当前已是最新版本')
-      return
-    }
-    _sendStatus('error', err.message)
+    _sendStatus('error', errorMessage(err))
   })
 }
 
@@ -120,7 +140,7 @@ function check () {
 function download () {
   autoUpdater.downloadUpdate().catch(err => {
     if (isNetworkError(err)) {
-      _sendStatus('not-available', '当前已是最新版本')
+      sendUnavailableOnce(err)
       return
     }
     _sendStatus('error', err.message)

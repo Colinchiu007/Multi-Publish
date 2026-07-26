@@ -1,3 +1,17 @@
+## [未发布] 桌面权限、STT 与自动更新基线修复 (2026-07-26)
+
+### 安全
+- 打包应用不再允许 `NODE_ENV=development` 或 `ELECTRON_IS_DEV=1` 绕过许可证权限边界；只有明确未打包的 Electron 运行时可获得开发管理员权限。
+
+### 模型能力
+- 百度、Google 和本地 Whisper STT 统一从 `BaseAdapter.KNOWN_METHODS` 派生 `transcribe` 能力，避免重复 capability，并恢复 `ModelProviderManager` 的标准调用路径。
+
+### 稳定性
+- 打包应用关闭 electron-updater 控制台 logger；网络阻断或 Release 缺少 `latest.yml` 时静默归类为无可用更新，签名、安装等真实错误仍正常上报。
+- 新增许可证、四类 STT 和自动更新回归，覆盖打包状态优先、能力唯一性及 404 双错误路径。
+
+---
+
 ## [未发布] Logto 桌面公开运行时配置 (2026-07-24)
 
 ### 用户身份

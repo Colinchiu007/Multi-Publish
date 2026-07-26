@@ -20,8 +20,7 @@
  *   - transcribe()        POST /asr 或 /transcribe（FormData）
  *
  * 设计决策：
- * - transcribe 不在 KNOWN_METHODS 中，需在类中直接定义为实例方法
- * - capabilities() 覆盖为 super.capabilities().concat(['transcribe'])
+ * - transcribe 属于 BaseAdapter 的 KNOWN_METHODS，由 supports()/capabilities() 自动识别
  * - 音频以 Buffer 传入，由 Adapter 写入 FormData（调用方无需关心编码）
  * - 使用 Node 18+ 原生 FormData 与 fetch（无需 form-data 第三方库）
  * - 所有 HTTP 错误统一抛 ProviderError，网络错误区分 TIMEOUT / NETWORK_ERROR
@@ -262,13 +261,6 @@ class LocalWhisperAdapter extends BaseAdapter {
     }
   }
 
-  /**
-   * capabilities() — 覆盖以手动添加 'transcribe'
-   * transcribe 不在 BaseAdapter 的 KNOWN_METHODS 中，supports() 默认返回 false
-   */
-  capabilities() {
-    return super.capabilities().concat(['transcribe'])
-  }
 }
 
 module.exports = { LocalWhisperAdapter }

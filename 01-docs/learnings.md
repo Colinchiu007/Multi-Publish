@@ -3966,3 +3966,42 @@ IdentityMenu.vue 显示兜底错误文案。
    权限），否则 Opaque Token 验证会因缺少 client credentials 而失败。
 4. **端到端冒烟**：`production-smoke.js` 应增加 `/api/v1/me` 携带真实 Logto access token 的验证用例，
    覆盖从登录到权益同步的完整链路。
+
+---
+
+## 桌面许可证、STT 能力与自动更新基线回归复盘（2026-07-26）
+
+### 第一性原因
+- `b6b87b42` 为兼容开发启动方式，把 `NODE_ENV=development`、`ELECTRON_IS_DEV=1` 与
+  `app.isPackaged === false` 并列为许可证管理员短路；因此已打包应用只要继承残留环境变量就会提权。
+- `e1b46eba` 已把 `transcribe` 加入 `BaseAdapter.KNOWN_METHODS`，百度、Google 和本地 Whisper Adapter
+  仍保留旧的 `capabilities().concat(['transcribe'])`，而源自 `47360944` 的测试继续断言
+  `supports('transcribe') === false`，实现、基类和测试形成三套能力合同。
+- 自动更新服务从 `847cdf30` 起只在 Promise catch 中把包含 `404` 的消息视为无可用更新；
+  electron-updater 的 `error` 事件和默认 logger 仍会把缺失 `latest.yml` 的完整栈写入 stderr。
+  `2c8fb0b6` 增加启动 3 秒自动检查后，这条路径稳定出现在打包启动门禁中。
+
+### 测试逃逸链
+1. **单元测试**：许可证测试没有把打包状态与残留开发环境变量组合；STT 测试固化旧断言，未检查
+   capability 唯一性；自动更新没有服务层测试。
+2. **集成测试**：ModelProviderManager 的能力门控与具体 STT Adapter 没有形成共同合同，自动更新 IPC
+   只断言方法转发，没有覆盖 EventEmitter error 路径。
+3. **打包测试**：此前只检查进程存活，没有把 stderr 中的 updater 404 栈作为失败证据。
+4. **代码审查**：评审分别查看了环境开关、Adapter 实现和 updater catch，没有检查权威状态、基类能力
+   集合及同一错误的事件/Promise 双通道。
+
+### 修复与回归保护
+- 许可证开发管理员短路只接受 `app.isPackaged === false`；打包状态成为唯一权威，环境变量不能覆盖。
+- STT Adapter 删除重复 `capabilities()` 覆盖；四个 STT 测试统一断言 `supports('transcribe')` 为真且
+  capability 只出现一次。
+- updater 在打包状态下关闭 console logger，统一识别网络错误与缺失 `latest*.yml`；error 事件和
+  `checkForUpdates()` rejection 都发送 `not-available`，非网络/元数据错误继续发送 `error`。
+- 新增 `auto-updater.test.js`，覆盖打包应用继承 development 环境、404 error 事件、结构化 404 rejection
+  和真实错误保留；打包后继续以 8 秒启动 stderr 作为最终门禁。
+
+### 系统性预防措施
+1. 任何开发权限、调试日志或安全短路都必须先证明应用未打包，禁止仅凭可继承环境变量判断。
+2. `BaseAdapter.KNOWN_METHODS` 是 capability 唯一来源；变更后必须全库检索手动 override，并验证
+   `supports`、唯一性和 Manager 调用链。
+3. 同一异步故障同时存在 EventEmitter 与 Promise 通道时，两条路径必须共用分类 helper 并分别测试。
+4. Electron 主进程改动的启动门禁必须捕获 stderr；进程存活但出现生产错误栈仍不能视为通过。
