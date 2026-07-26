@@ -14,6 +14,10 @@ const {
   resolveReadableFile,
   resolveReadableMediaFile,
 } = require('./story2video-paths')
+const {
+  STORY2VIDEO_TEXT_CONFIG_VERSION,
+  normalizeStory2VideoTextParams,
+} = require('./story2video-text-config')
 
 const SETTING_KEY = 'story2video_projects_v1'
 const MAX_PROJECTS = 100
@@ -298,14 +302,17 @@ class Story2VideoProjectService {
     if (!compose || !(compose.videoPath || compose.path)) return null
     const projectId = this._assertId(String(run.id || ''))
     const artifacts = this._persistComposeArtifacts(projectId, compose, run.context?.generate_assets?.scenes || [])
+    const options = this._safeOptions(run.params, projectId)
+    const story2videoTextConfig = this._persistTextConfig(run.params, projectId, options)
+    const sourceText = safeText(run.params?.text || story2videoTextConfig?.config?.prompt, 100000)
     const now = new Date().toISOString()
     const project = {
-      manifestVersion: 1,
+      manifestVersion: 2,
       projectId,
       pipeline: 'story2video-compose',
       status: run.status || 'completed',
-      title: safeText(run.params?.title || run.params?.text, 160),
-      sourceText: safeText(run.params?.text, 100000),
+      title: safeText(run.params?.title || story2videoTextConfig?.config?.publish?.title || sourceText, 160),
+      sourceText,
       createdAt: run.createdAt || now,
       updatedAt: now,
       endedAt: run.endedAt || now,
@@ -315,9 +322,32 @@ class Story2VideoProjectService {
       audioPath: artifacts.audioPath,
       segments: artifacts.segments,
       dirty: false,
-      options: this._safeOptions(run.params, projectId),
+      options,
+      ...(story2videoTextConfig ? { story2videoTextConfig } : {}),
     }
     return this._upsertProject(project)
+  }
+
+  _persistTextConfig (params, projectId, options) {
+    if (!params || typeof params !== 'object' || Array.isArray(params)) return null
+    const hasPrompt = typeof params.text === 'string' && params.text.trim()
+    const hasVersionedConfig = params.story2videoTextConfig &&
+      typeof params.story2videoTextConfig === 'object' &&
+      !Array.isArray(params.story2videoTextConfig)
+    if (!hasPrompt && !hasVersionedConfig) return null
+
+    const normalized = normalizeStory2VideoTextParams(params)
+    const config = JSON.parse(JSON.stringify(normalized.story2videoTextConfig))
+    if (normalized.bgmPath) {
+      const persistedBgm = options.bgmPath || this._copyRequired(
+        normalized.bgmPath,
+        path.join(this._projectDir(projectId), 'bgm' + sourceExtension(normalized.bgmPath, '.mp3')),
+        'bgm',
+      )
+      options.bgmPath = persistedBgm
+      config.bgm.path = persistedBgm
+    }
+    return { version: STORY2VIDEO_TEXT_CONFIG_VERSION, config }
   }
 
   _safeOptions (params = {}, projectId = null) {

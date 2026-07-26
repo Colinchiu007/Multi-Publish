@@ -6,12 +6,13 @@
  */
 const { autoUpdater } = require('electron-updater')
 // eslint-disable-next-line no-unused-vars
-const { BrowserWindow } = require('electron')
+const { app, BrowserWindow } = require('electron')
 const logger = require('./logger')
 
 let _mainWin = null
 let _statusCallback = null
 let _listenersRegistered = false
+const _reportedUnavailableErrors = new WeakSet()
 
 // 网络超时/阻断错误特征码（GFW 场景）
 const NETWORK_ERROR_PATTERNS = [
@@ -34,8 +35,8 @@ const NETWORK_ERROR_PATTERNS = [
 
 function errorMessage (err) {
   if (!err) return ''
-  if (typeof err === 'string') return err
-  return err.message || err.toString() || ''
+  if (typeof err.message === 'string') return err.message
+  return String(err)
 }
 
 function isNetworkError (err) {
@@ -43,21 +44,30 @@ function isNetworkError (err) {
   return NETWORK_ERROR_PATTERNS.some(p => msg.includes(p))
 }
 
-function isUpdateUnavailableError (err) {
+function isLatestManifestMissing (err) {
   const msg = errorMessage(err)
-  return msg.includes('404') && (
-    msg.includes('latest.yml') ||
-    msg.includes('latest release artifacts')
-  )
+  const statusCode = Number(err?.statusCode ?? err?.status ?? err?.response?.statusCode)
+  const details = [
+    msg,
+    err?.url,
+    err?.response?.url,
+    err?.response?.config?.url,
+    err?.request?.responseURL,
+  ].filter(value => typeof value === 'string').join(' ')
+  const hasManifestReference = /latest(?:-[a-z0-9_-]+)?\.ya?ml/i.test(details)
+  const hasNotFoundMarker = /(?:cannot find|not found|request(?:ed)?[^\r\n]*\b404\b)/i.test(details)
+  const isNotFound = statusCode === 404 || /\b404\b/.test(details)
+  const isSignatureFailure = /(?:signature|signing|checksum|integrity|verification)/i.test(details)
+  return isNotFound && hasManifestReference && !isSignatureFailure && (statusCode === 404 || hasNotFoundMarker || /\b404\b/.test(details))
 }
 
-function isRecoverableUpdateError (err) {
-  return isUpdateUnavailableError(err) || isNetworkError(err)
+function isUpdateCheckUnavailable (err) {
+  return isLatestManifestMissing(err) || isNetworkError(err)
 }
 
 function createProductionLogger () {
   const write = (level, message) => {
-    if (level === 'error' && isRecoverableUpdateError(message)) return
+    if (level === 'error' && isUpdateCheckUnavailable(message)) return
     logger[level](`auto-updater ${errorMessage(message)}`)
   }
 
@@ -69,8 +79,11 @@ function createProductionLogger () {
   }
 }
 
-function sendRecoverableStatus (err) {
-  if (!isRecoverableUpdateError(err)) return false
+function sendUnavailableOnce (err) {
+  if (err && (typeof err === 'object' || typeof err === 'function')) {
+    if (_reportedUnavailableErrors.has(err)) return false
+    _reportedUnavailableErrors.add(err)
+  }
   _sendStatus('not-available', '当前已是最新版本')
   return true
 }
@@ -86,7 +99,9 @@ function init (win, onStatus) {
 
   if (_listenersRegistered) return
 
-  autoUpdater.logger = process.env.NODE_ENV === 'development'
+  // 打包状态是权威来源，残留开发环境变量不能重新启用 console logger。
+  const isUnpackagedDevelopment = app?.isPackaged === false && process.env.NODE_ENV === 'development'
+  autoUpdater.logger = isUnpackagedDevelopment
     ? console
     : createProductionLogger()
 
@@ -125,7 +140,10 @@ function init (win, onStatus) {
   })
 
   autoUpdater.on('error', (err) => {
-    if (sendRecoverableStatus(err)) return
+    if (isUpdateCheckUnavailable(err)) {
+      sendUnavailableOnce(err)
+      return
+    }
     _sendStatus('error', errorMessage(err))
   })
 
@@ -137,7 +155,10 @@ function init (win, onStatus) {
  */
 function check () {
   autoUpdater.checkForUpdates().catch(err => {
-    if (sendRecoverableStatus(err)) return
+    if (isUpdateCheckUnavailable(err)) {
+      sendUnavailableOnce(err)
+      return
+    }
     _sendStatus('error', errorMessage(err))
   })
 }
@@ -147,7 +168,10 @@ function check () {
  */
 function download () {
   autoUpdater.downloadUpdate().catch(err => {
-    if (sendRecoverableStatus(err)) return
+    if (isNetworkError(err)) {
+      sendUnavailableOnce(err)
+      return
+    }
     _sendStatus('error', errorMessage(err))
   })
 }

@@ -12,7 +12,7 @@
  * 验证维度：
  * - 构造与配置（默认 baseUrl、默认 maxRetries=0、版本号）
  * - validateConfig（baseUrl 必填，apiKey 可选）
- * - capabilities 包含 'transcribe' + 'listModels'，且能力列表无重复项
+ * - capabilities 包含 'transcribe' + 'listModels'（手动添加 transcribe）
  * - transcribe 成功调用（验证 URL、FormData、不设 Content-Type）
  * - 支持 endpoint='asr' 和 'transcribe' 两种模式
  * - 错误处理（401/429/500 → ProviderError）
@@ -143,7 +143,7 @@ describe('LocalWhisperAdapter — 本地 Whisper 语音识别', () => {
       expect(adapter.supports('generateImage')).toBe(false)
     })
 
-    it('capabilities() 从 KNOWN_METHODS 提供唯一的 transcribe', () => {
+    it('capabilities() 仅包含一个 transcribe', () => {
       const adapter = new LocalWhisperAdapter({ id: 'local-whisper' })
       const caps = adapter.capabilities()
       expect(caps).toContain('transcribe')
@@ -153,7 +153,7 @@ describe('LocalWhisperAdapter — 本地 Whisper 语音识别', () => {
       expect(caps).not.toContain('chatCompletion')
     })
 
-    it('supports("transcribe") 对标准 STT 能力返回 true', () => {
+    it('supports("transcribe") 返回 true，允许通过 ModelProviderManager 调用', () => {
       const adapter = new LocalWhisperAdapter({ id: 'local-whisper' })
       expect(adapter.supports('transcribe')).toBe(true)
     })

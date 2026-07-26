@@ -27,6 +27,46 @@
 
 ---
 
+## [未发布] Story2Video Text 标准模式与参数合同 (2026-07-26)
+
+### 视频创作
+- `story2video-compose` 收敛为唯一 `text` 标准模式，创建运行前拒绝图片、音频、视频及畸形媒体字段；`image/remix/gallery/audio/batch` 明确不属于该流水线。
+- 视频创作页仅为 Story2Video 显示文案输入，并使用独立输出配置；其他视频流水线继续保留文字、图片、音频和视频输入。
+- 新增版本化 `Story2VideoTextConfig` v1，统一校验并映射分句、提示词、图片/TTS、字幕、BGM、模板、版本、合成、输出和发布参数。
+- Story2Video 项目清单升级为 manifest v2，只持久化白名单配置；BGM 复制到受控项目目录，旧 manifest v1 继续可读。
+- 版本化配置可在缺少重复顶层 `text` 时从 `prompt` 恢复项目；图片宽高比限制为受支持集合，合成层场景回退统一为 1..60 秒、默认 6 秒。
+
+### 架构与安全
+- 参数归一化只在 `story2video-compose` 的 Electron 适配层执行，不修改共享 `StageExecutor`、`ServiceBus` 或普通 `pipelineStart` 合同。
+- 运行上下文递归拒绝 Provider 密钥、Token、密码等敏感字段；未知配置不进入运行记录或项目清单。
+- YAML 运行合同改为 `required: [text]` 和 `supported_modes: [text]`，并与 renderer、PipelineEngine 和项目持久化使用同一组默认值。
+
+### 质量
+- Story2Video 聚焦回归、归一化器覆盖率、真实 ffmpeg、Vue/preload 构建、双 sandbox、桌面/移动视觉、17 项像素门禁、Windows x64 打包、ASAR/RPA require 链和 8 秒启动检查均通过。
+- 审查回补以 5 个 RED 固定配置恢复、非支持宽高比和合成时长漂移；六文件聚焦回归现为 167/167。
+- Story2Video 源分支曾被 6 个许可证旧断言和 3 个 STT 旧预期阻塞；集成分支已通过独立提交纳入对应基线修复，最终结果以 `.quality-gates.md` 为准。
+- 流水线历史 GUI 合同改为同时校验 `completed` 语义 class 与“已完成”可见文案，避免本地化后继续断言内部状态值。
+- Python backend 的视频 Provider 可选帧处理依赖改为按执行加载；GUI CI 直接导入真实 `server` 入口，避免缺少单个实验性 Provider 依赖时阻断 Electron 主窗口。
+- 生产 smoke 合同测试同步覆盖 `/api/users` 与 `/api/forgot-password` 路径守卫，并按语义查找 `api.me`，避免新增检查改变数组尾部后误报 Quality Gate。
+- Story2Video 受控音频路径测试按 `realpath` canonical 合同比较，兼容 Windows 8.3 短路径与长路径表示同一文件的场景。
+
+---
+
+## [未发布] 桌面权限、STT 与自动更新基线修复 (2026-07-26)
+
+### 安全
+- 打包应用不再允许 `NODE_ENV=development` 或 `ELECTRON_IS_DEV=1` 绕过许可证权限边界；只有明确未打包的 Electron 运行时可获得开发管理员权限。
+
+### 模型能力
+- 百度、Google 和本地 Whisper STT 统一从 `BaseAdapter.KNOWN_METHODS` 派生 `transcribe` 能力，避免重复 capability，并恢复 `ModelProviderManager` 的标准调用路径。
+
+### 稳定性
+- 打包应用关闭 electron-updater 控制台 logger；网络阻断或 Release 缺少 `latest.yml` 时静默归类为无可用更新，签名、安装等真实错误仍正常上报。
+- 自动更新器同时识别 `statusCode`、消息和 URL 中的结构化 `latest*.yml` 404；signature、checksum、integrity 和 verification 错误即使携带相同 404/URL 仍按真实错误上报。
+- 新增许可证、四类 STT 和自动更新回归，覆盖打包状态优先、能力唯一性及 404 双错误路径。
+
+---
+
 ## [未发布] Logto 桌面公开运行时配置 (2026-07-24)
 
 ### 用户身份

@@ -4237,3 +4237,207 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
    回归应在独立工作树中运行 `node --test tests/*.test.js`，确认完整套件不再依赖仓库目录权限。
 5. **预防措施**：`.quality-gates.md` 与 `AGENTS.md` 的文件系统测试隔离规则现在覆盖 AI tester；新增测试不得在
    `__dirname` 下创建状态目录，必须使用系统临时目录和唯一前缀，并在异常路径也清理最终文件及中间文件。
+
+---
+
+## Story2Video 版本化配置与合成默认值审查回归（2026-07-26）
+
+### 第一性原因
+- `7ade600` 首次引入版本化 text 合同时，项目服务计算 `sourceText` 已允许回退到
+  `story2videoTextConfig.config.prompt`，但持久化前的 normalizer 仍强制读取顶层 `params.text`；
+  renderer 总会重复发送两份文案，因此正常创建流程掩盖了项目恢复路径的失败。
+- `image.aspectRatio` 只校验 `W:H` 字符格式，没有校验下游 Provider 支持集合，`7:11` 等值能进入资产阶段。
+- normalizer、UI 和 YAML 已统一 `perImageDuration` 为 1..60 秒、默认 6 秒，compose engine 的防御性
+  直调仍保留旧的 0.1 秒下限和 3 秒默认值。
+
+### 测试逃逸链与系统性漏洞
+1. 项目持久化测试始终同时传 `text` 与版本化 `prompt`，没有构造只剩项目配置的恢复形状。
+2. 宽高比测试只拒绝自由文本，没有使用格式合法但合同不支持的比例。
+3. 合成测试优先使用音频探测或显式 scene duration，从未进入 `defaultSceneDuration` 的最终回退。
+4. 代码审查分别核对各层默认值，没有用同一张边界表比较 renderer、normalizer、YAML 和 compose 直调。
+
+### 修复与回归保护
+- normalizer 在顶层 `text` 缺失时使用版本化 `prompt`，两者同时存在时仍要求严格一致；项目服务测试
+  验证 config-only 运行可持久化 `sourceText` 和 manifest v2 配置。
+- 宽高比限制为 `16:9/9:16/1:1/4:3/3:4`，测试拒绝格式合法但不支持的 `7:11`。
+- compose engine 防御性回退统一为 1..60 秒、默认 6 秒；真实 compose 路径分别验证 `0.5 -> 1`
+  和 `undefined -> 6`。审查回补 5 个 RED 后，六文件聚焦回归 167/167 通过。
+
+### 预防措施
+1. 版本化配置必须测试“仅 config”“仅扁平参数”“两者一致”“两者冲突”四种输入形状。
+2. 枚举合同必须用格式合法但集合外的值做负例，不能用语法错误代替白名单测试。
+3. 同一参数跨 renderer、normalizer、YAML 与执行器时，范围、单位和默认值必须用表驱动回归逐层核对。
+
+---
+
+## 桌面许可证、STT 能力与自动更新基线回归复盘（2026-07-26）
+
+### 第一性原因
+- `b6b87b42` 为兼容开发启动方式，把 `NODE_ENV=development`、`ELECTRON_IS_DEV=1` 与
+  `app.isPackaged === false` 并列为许可证管理员短路；因此已打包应用只要继承残留环境变量就会提权。
+- `e1b46eba` 已把 `transcribe` 加入 `BaseAdapter.KNOWN_METHODS`，百度、Google 和本地 Whisper Adapter
+  仍保留旧的 `capabilities().concat(['transcribe'])`，而源自 `47360944` 的测试继续断言
+  `supports('transcribe') === false`，实现、基类和测试形成三套能力合同。
+- 自动更新服务从 `847cdf30` 起只在 Promise catch 中把包含 `404` 的消息视为无可用更新；
+  electron-updater 的 `error` 事件和默认 logger 仍会把缺失 `latest.yml` 的完整栈写入 stderr。
+  `2c8fb0b6` 增加启动 3 秒自动检查后，这条路径稳定出现在打包启动门禁中。
+
+### 测试逃逸链
+1. **单元测试**：许可证测试没有把打包状态与残留开发环境变量组合；STT 测试固化旧断言，未检查
+   capability 唯一性；自动更新没有服务层测试。
+2. **集成测试**：ModelProviderManager 的能力门控与具体 STT Adapter 没有形成共同合同，自动更新 IPC
+   只断言方法转发，没有覆盖 EventEmitter error 路径。
+3. **打包测试**：此前只检查进程存活，没有把 stderr 中的 updater 404 栈作为失败证据。
+4. **代码审查**：评审分别查看了环境开关、Adapter 实现和 updater catch，没有检查权威状态、基类能力
+   集合及同一错误的事件/Promise 双通道。
+
+### 修复与回归保护
+- 许可证开发管理员短路只接受 `app.isPackaged === false`；打包状态成为唯一权威，环境变量不能覆盖。
+- STT Adapter 删除重复 `capabilities()` 覆盖；四个 STT 测试统一断言 `supports('transcribe')` 为真且
+  capability 只出现一次。
+- updater 在打包状态下关闭 console logger，统一识别网络错误与缺失 `latest*.yml`；error 事件和
+  `checkForUpdates()` rejection 都发送 `not-available`，非网络/元数据错误继续发送 `error`。
+- 新增 `auto-updater.test.js`，覆盖打包应用继承 development 环境、404 error 事件、结构化 404 rejection
+  和真实错误保留；打包后继续以 8 秒启动 stderr 作为最终门禁。
+
+### 系统性预防措施
+1. 任何开发权限、调试日志或安全短路都必须先证明应用未打包，禁止仅凭可继承环境变量判断。
+2. `BaseAdapter.KNOWN_METHODS` 是 capability 唯一来源；变更后必须全库检索手动 override，并验证
+   `supports`、唯一性和 Manager 调用链。
+3. 同一异步故障同时存在 EventEmitter 与 Promise 通道时，两条路径必须共用分类 helper 并分别测试。
+4. Electron 主进程改动的启动门禁必须捕获 stderr；进程存活但出现生产错误栈仍不能视为通过。
+
+### AutoUpdater 结构化 manifest 404 形态补充（2026-07-27）
+
+1. **第一性原因**：`564a8142` 为避免把包含 `latest.yml` 和 `404` 的签名失败误降级，收紧了
+   `isLatestManifestMissing()`；但实现要求错误消息同时出现 `cannot find/not found`。electron-updater 的
+   `HttpError` 也可能只在 `statusCode` 和 `url` 字段表达相同事实，因而被误报为真实更新错误。
+2. **测试逃逸链**：名为“结构化 404”的单元测试虽然设置了 `statusCode`，消息仍沿用 `Cannot find latest.yml`；
+   集成测试只验证 IPC 转发；浏览器 E2E 不运行 updater；打包启动只覆盖当次网络返回的单一错误形态；终审才用
+   `{ statusCode: 404, url: '.../latest.yml', message: 'HttpError: 404' }` 捕获缺口。
+3. **系统性漏洞**：错误分类测试按当前实现中的英文句式取样，没有建立“状态码字段、URL 字段、消息文本、错误阶段”
+   的输入形态矩阵；测试名称声称覆盖结构化错误，但断言实际仍依赖消息文本。
+4. **修复与回归保护**：分类器统一读取 `message`、顶层/response URL 和结构化状态码，只有“404 +
+   `latest*.yml` 引用”才降级，并显式排除 signature/signing/checksum/integrity/verification 错误。新增仅靠
+   `statusCode + url` 的 Promise 回归先得到 `error` RED，修复后 updater 聚焦套件 11/11 GREEN；结构化签名错误
+   继续上报 `error`。
+5. **预防措施**：以后修改第三方错误分类器时，正例必须至少覆盖纯消息与结构化字段两种形态，负例必须使用相同
+   状态码和资源 URL 验证真实安全错误不被吞掉；测试夹具不得用实现正在匹配的句式伪装结构化覆盖。
+
+---
+
+## 流水线历史状态本地化 GUI 合同回归（2026-07-26）
+
+### 第一性原因
+- `c4fae09` 创建 `/create/pipeline` 功能 E2E 时，历史状态直接渲染原始 `h.status`，因此测试以正文
+  `completed` 作为 fixture 到达页面的证据。
+- `e1b46eb` 为 Story2Video 历史列表增加 `historyStatusLabel()`，把 `completed` 本地化为“已完成”，但没有
+  同步更新跨文件 E2E 合同。内部状态仍正确，用户可见正文已不再包含英文值。
+
+### 测试逃逸链与系统性漏洞
+1. **组件单元测试**：历史项目用例只断言标题和打开跳转，没有同时锁定状态 class 与本地化文案。
+2. **集成与 E2E**：路由 E2E 已存在，但推送前聚焦回归没有执行该浏览器套件；PR 的 `gui-test` 最终以
+   269/270 检查捕获了失败，问题没有越过合入门禁。
+3. **视觉回归**：像素门禁用于布局和外观变化，不校验 fixture 的内部枚举与可见文案是否使用同一合同。
+4. **代码审查**：大型 Story2Video 对齐提交审查了新历史功能，却没有沿 `historyStatusLabel()` 反查现有
+   `bodyHas('completed')` 断言。
+
+系统性漏洞属于**测试质量不足**：E2E 通过整页正文寻找内部枚举值，把数据语义与显示文案错误地耦合；
+组件测试又缺少能明确连接两者的状态元素合同。
+
+### 修复与回归保护
+- `CreateView.test.js` 使用真实挂载的历史项目，同时断言 `.history-status` 含 `completed` class 且可见文字
+  为“已完成”。
+- `/create/pipeline` 功能 E2E 定位 `.history-status.completed` 并校验“已完成”，既证明 fixture 状态到达，
+  也验证最终用户文案，不再从整页正文猜测内部状态。
+
+### 预防措施
+1. 状态枚举经过本地化函数后，组件测试必须同时断言稳定语义选择器和用户可见文案。
+2. 功能 E2E 禁止用整页正文搜索内部枚举值证明渲染；应定位具体状态元素或 `data-testid`。
+3. 修改显示标签、本地化映射或状态模板后，除组件测试外必须运行对应 route functional GUI 用例。
+
+---
+
+## Python 视频 Provider 可选依赖阻断 Electron GUI（2026-07-26）
+
+### 第一性原因
+- `f46ed75` 引入 `GreenScreenComposite` 时，在模块顶层导入 `numpy` 和 `PIL`，同时又把它们声明为
+  `python:numpy`、`python:PIL` 可选工具依赖。任何代码导入 `video_trimmer` 都会先执行
+  `providers.video.__init__`，进而被一个未使用的实验性 Provider 阻断。
+- `5effc65` 为 GUI workflow 安装 `[web,video]` 后，只验证 `multi_publish/uvicorn/yaml` 浅层导入；
+  `server.py` 的真实入口链没有在 Electron 启动前单独验证。
+
+### 测试逃逸链与系统性漏洞
+1. **单元测试**：没有在屏蔽单个 Provider 可选依赖的干净子进程中导入视频 Provider 包。
+2. **集成测试**：workflow 安装了声明依赖，却没有导入 Electron 实际启动的 `server.py`。
+3. **GUI E2E**：第一轮 Browser E2E 先失败，Electron gate 被跳过；修复 Browser 合同后才暴露第二层失败。
+4. **代码审查**：审查了每个工具的 `dependencies` 元数据，但没有核对模块顶层 import 是否仍把可选依赖
+   变成整个包的强制依赖。
+
+系统性漏洞属于**测试场景缺失 + 测试质量不足**：可选依赖只在工具执行边界可失败，包导入、backend
+健康检查和主窗口创建必须保持可用；原 workflow 的浅层 import 无法证明真实入口满足这个合同。
+
+### 修复与回归保护
+- `GreenScreenComposite` 仅在 `execute()`、颜色解析和帧合成实际调用时导入 `PIL/numpy`，保留现有
+  `dependencies` 与安装提示，不把重型实验性依赖扩散到所有视频流水线。
+- 新增隔离子进程回归，显式拒绝 `numpy/PIL` 后导入真实 `VideoTrimmer` 路径，覆盖
+  `providers.video.__init__` 的完整包链。
+- GUI workflow 的 Python 检查改为从 `packages/python-backend/src` 导入 `server`，让真实 Electron backend
+  入口在浏览器与 Electron 门禁之前快速失败并给出精确堆栈。
+
+### 预防措施
+1. 声明在工具 `dependencies` 中的 Python 包必须延迟到工具执行时导入，禁止在 Provider 包入口强制加载。
+2. Bridge/子进程 CI 必须导入或启动真实入口，不能用顶层 namespace 的浅层 import 代替。
+3. GUI job 有串行门禁时，修复前置失败后必须继续观察后续 gate，直到所有步骤真实执行。
+
+---
+
+## Production smoke 检查集合扩展后旧断言失配（2026-07-26）
+
+### 第一性原因
+- `2a46d4a8` 为修复 Nginx `/api/` 宽匹配，在 `production-smoke.js` 中新增
+  `api.path-guard/api/users` 与 `api.path-guard/api/forgot-password` 两项检查。
+- `production-operations.test.js` 仍保留 `cb0230b0` 的四项固定数组，并用 `checks.at(-1)` 断言
+  `api.me`。路径守卫追加到结果尾部后，两处断言同时失效，但生产 smoke 行为本身正确。
+
+### 测试逃逸链与系统性漏洞
+1. **单元测试**：路径守卫的专项测试覆盖了生产代码，却没有同步运行生产运维 CLI 的聚合结果合同。
+2. **工作区集成测试**：本地 Story2Video 聚焦回归不包含 `api-publish-engine` 全量脚本，问题在 PR Gate 4 才暴露。
+3. **代码审查**：新增结果项时只审查了安全语义，遗漏了同一结果数组的顺序敏感消费者。
+
+系统性漏洞属于**测试场景缺失 + 断言质量不足**：固定完整数组适合校验无 token 的标准 smoke 集合，
+但可选检查不能用“最后一项”表达语义，否则任何安全检查追加都会制造无关失败。
+
+### 修复与预防
+- 标准 smoke 合同显式纳入两个路径守卫名称，保证安全检查不会被误删。
+- `api.me` 改为按 `name` 与 `status` 查找，不再依赖可扩展结果集合的物理顺序。
+- 以后修改 `runSmokeChecks()` 的检查集合或顺序时，必须同轮运行
+  `node --test test/production-operations.test.js` 和 workspace `api-publish-engine` 测试。
+
+---
+
+## Windows 8.3 路径表示导致 Story2Video canonical 断言失配（2026-07-26）
+
+### 第一性原因
+- `e1b46eba` 同时引入 Story2Video 受控媒体目录加固和对应阶段测试。生产读取链通过
+  `fs.realpathSync.native()` 返回 canonical 路径，测试却把结果与 `importUserSelectedMedia()` 返回的原始
+  目标路径字符串直接比较。
+- GitHub Windows runner 的临时目录可表示为 `C:\Users\RUNNER~1`，而 `realpath` 返回
+  `C:\Users\runneradmin`。两者指向同一文件，但字符串断言在 Quality Gate 中失败；生产路径安全行为正确。
+
+### 测试逃逸链与系统性漏洞
+1. **单元测试**：本地临时目录的原始路径与 canonical 路径文本相同，旧断言无法暴露 8.3 别名差异。
+2. **集成测试**：Story2Video 聚焦回归验证了受控目录和拒绝越界，却没有构造 Windows 短路径表示。
+3. **CI**：Windows 全工作区 Gate 4 首次提供了短路径与长路径并存的真实环境，才稳定复现。
+4. **代码审查**：审查确认了 `realpath` 安全边界，但遗漏同一提交中的测试仍按原始路径字符串断言。
+
+系统性漏洞属于**断言质量不足 + 环境差异**：`path.resolve()` 或 `path.normalize()` 只能处理语法，不能
+消除 Windows 8.3 别名；canonical 文件合同必须使用 `fs.realpathSync.native()` 表达。
+
+### 修复与预防
+- 阶段测试把预期音频路径规范化为 `fs.realpathSync.native(imported.path)`，继续断言输出为受控目录中的
+  canonical 文件；生产实现、模式入口和共享流水线架构均不修改。
+- 凡测试 `resolveReadableFile()`、`resolveReadableMediaFile()` 或其调用链输出，预期路径必须按同一
+  `realpath` 合同构造，禁止用原始字符串、`path.normalize()` 或 `path.resolve()` 替代。
+- Windows CI 的 workspace 测试继续作为短路径回归保护；不得为了让断言通过而移除生产 `realpath`
+  校验，否则会削弱符号链接越界和受控根目录防护。

@@ -57,7 +57,7 @@ test('生产运维 CLI', async (t) => {
     assert.match(runbook, /销毁两个隔离目标数据库.*重新创建/s)
   })
 
-  await t.test('smoke 对本地 OIDC、JWKS、health 和 ready 做真实 HTTP 检查', async () => {
+  await t.test('smoke 对本地 OIDC、JWKS、health、ready 和路径守卫做真实 HTTP 检查', async () => {
     const { runSmokeChecks } = require('../scripts/production-smoke')
     const server = await startFixtureServer()
     const origin = `http://127.0.0.1:${server.address().port}`

@@ -16,7 +16,7 @@
  *   - transcribe()        POST /server_api（自动获取/复用 access_token）
  *
  * 设计决策：
- * - transcribe 是 BaseAdapter 的标准 STT 能力，由 supports()/capabilities() 自动检测
+ * - transcribe 属于 BaseAdapter 的 KNOWN_METHODS，由 supports()/capabilities() 自动识别
  * - access_token 缓存到实例（_tokenCache），过期前 60s 提前刷新
  * - cuid 固定为 'multi-publish'（百度要求唯一设备标识，用产品名即可）
  * - 错误码 err_no != 0 时抛 ProviderError(PROVIDER_ERROR)

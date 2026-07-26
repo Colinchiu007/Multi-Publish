@@ -29,6 +29,26 @@ function createEngine() {
 }
 
 describe('story2video 编排契约', () => {
+  it('本地阶段默认值与版本化 text 合同一致', () => {
+    const { engine } = createEngine()
+    const pipeline = engine.getPipeline('story2video-compose')
+    const stages = Object.fromEntries(pipeline.stageDefs.map(stage => [stage.name, stage]))
+
+    expect(stages.split.options).toMatchObject({ language: 'zh', mode: 'balanced', target_duration: 6 })
+    expect(stages.generate_assets.options).toMatchObject({
+      inputMode: 'text',
+      aspectRatio: '9:16',
+      voiceId: 'zh_female_qingxinnvsheng_uranus_bigtts',
+    })
+    expect(stages.compose.options).toMatchObject({
+      resolution: '720x1280',
+      subtitleEnabled: false,
+      bgmVolume: 0.5,
+      defaultSceneDuration: 6,
+    })
+    expect(stages.publish.options).toMatchObject({ publishEnabled: false, platforms: [] })
+  })
+
   it('历史内容将 contentType 传入领域增强，并把富化提示词交给批量优化', async () => {
     const { engine, serviceBus } = createEngine()
     registerStory2VideoStages(engine)
@@ -216,6 +236,62 @@ describe('story2video 编排契约', () => {
     expect(engine._runs.size).toBe(0)
   })
 
+  it('Story2Video 在创建运行前拒绝非 text 模式且不留下孤儿运行', async () => {
+    const { engine } = createEngine()
+
+    const started = await engine.startOrchestrated('story2video-compose', {
+      inputMode: 'images',
+      images: [{ name: '封面.png', preview: 'data:image/png;base64,aW1hZ2U=' }],
+      autoAdvance: false,
+    })
+
+    expect(started).toMatchObject({ success: false })
+    expect(started.error).toContain('只支持 text')
+    expect(engine._runs.size).toBe(0)
+  })
+
+  it('Story2Video 使用版本化 text 配置执行分句和优化，普通编排流水线保持旧合同', async () => {
+    const { engine, serviceBus } = createEngine()
+    registerStory2VideoStages(engine)
+    const started = await engine.startOrchestrated('story2video-compose', {
+      text: '海上日出',
+      story2videoTextConfig: {
+        mode: 'text',
+        prompt: '海上日出',
+        split: { language: 'auto', mode: 'precise', maxSentenceLength: 120 },
+        optimize: { style: 'anime', creativeLevel: 8, numCandidates: 2 },
+      },
+      autoAdvance: false,
+    })
+
+    expect(started.success).toBe(true)
+    await engine.executeStage(started.runId)
+    await engine.executeStage(started.runId)
+    await engine.executeStage(started.runId)
+    expect(serviceBus.splitText).toHaveBeenCalledWith('海上日出', expect.objectContaining({
+      language: 'auto', mode: 'precise', max_sentence_length: 120,
+    }))
+    expect(serviceBus.optimizePromptsBatch).toHaveBeenCalledWith(
+      ['第一幕。', '第二幕。'],
+      expect.objectContaining({ style: 'anime', creative_level: 8, num_candidates: 2 }),
+    )
+
+    engine.registerPipeline({
+      name: 'contract-unchanged',
+      description: 'contract',
+      stages: ['split'],
+      stageDefs: [{ name: 'split', type: 'split' }],
+    })
+    const regular = await engine.startOrchestrated('contract-unchanged', {
+      inputMode: 'images',
+      images: [{ name: '普通流水线图片' }],
+      autoAdvance: false,
+    })
+    expect(regular.success).toBe(true)
+    const split = await engine.executeStage(regular.runId)
+    expect(split.output.scenes[0].text).toBe('普通流水线图片')
+  })
+
   it('取消 Story2Video 运行时清理 data URL 输入目录', async () => {
     const { engine } = createEngine()
     const started = await engine.startOrchestrated('story2video-compose', {
@@ -231,7 +307,7 @@ describe('story2video 编排契约', () => {
     expect(fs.existsSync(inputDir)).toBe(false)
   })
 
-  it('Story2Video 完成、失败或取消时清理已导入的旁白临时文件', async () => {
+  it('Story2Video 拒绝旧音频模式时清理已导入的旁白临时文件', async () => {
     const sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-import-source-'))
     const source = path.join(sourceRoot, 'voice.mp3')
     fs.writeFileSync(source, 'voice')
@@ -246,9 +322,8 @@ describe('story2video 编排契约', () => {
         audio: [{ name: 'voice.mp3', path: imported.path }],
         autoAdvance: false,
       })
-      expect(fs.existsSync(imported.path)).toBe(true)
-      engine.cancel()
-      expect(engine.getRunSnapshot(started.runId)).toBeNull()
+      expect(started.success).toBe(false)
+      expect(started.error).toContain('只支持 text')
       expect(fs.existsSync(imported.path)).toBe(false)
     } finally {
       fs.rmSync(sourceRoot, { recursive: true, force: true })

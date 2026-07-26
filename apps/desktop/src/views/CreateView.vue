@@ -76,15 +76,15 @@
           <h3>输入内容</h3>
           <div class="input-tabs">
             <button :class="['input-tab', { active: inputMode === 'text' }]" @click="inputMode = 'text'">文案</button>
-            <button :class="['input-tab', { active: inputMode === 'images' }]" @click="inputMode = 'images'">图片</button>
-            <button :class="['input-tab', { active: inputMode === 'audio' }]" @click="inputMode = 'audio'">旁白/批量音频</button>
+            <button v-if="!isOrchestratedPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'images' }]" @click="inputMode = 'images'">图片</button>
+            <button v-if="!isOrchestratedPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'audio' }]" @click="inputMode = 'audio'">旁白/批量音频</button>
             <button v-if="!isOrchestratedPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'video' }]" @click="inputMode = 'video'">视频素材</button>
           </div>
 
           <div v-if="inputMode === 'text'" class="input-area">
             <textarea v-model="pipelineText" placeholder="输入视频文案、主题描述或脚本..." rows="8" class="form-textarea"></textarea>
           </div>
-          <div v-if="inputMode === 'images'" class="input-area">
+          <div v-if="inputMode === 'images' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
             <div class="upload-zone" @click="$refs.pipelineFileInput?.click()" @dragover.prevent @drop.prevent="handlePipelineDrop">
               <p v-if="pipelineImages.length === 0">点击或拖拽图片到此处</p>
               <div v-else class="image-grid">
@@ -96,7 +96,7 @@
             </div>
             <input ref="pipelineFileInput" type="file" accept="image/jpeg,image/png,image/webp" multiple style="display:none" @change="handlePipelineFiles" />
           </div>
-          <div v-if="inputMode === 'audio'" class="input-area">
+          <div v-if="inputMode === 'audio' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
             <div class="upload-zone" @click="$refs.pipelineAudioInput?.click()">
               <p v-if="pipelineAudio.length === 0">点击选择旁白音频，可一次选择多个片段</p>
               <div v-else class="file-list">
@@ -252,6 +252,7 @@
             <div class="config-item">
               <label>情绪</label>
               <select v-model="s2vConfig.voiceEmotion" class="form-select">
+                <option value="default">默认</option>
                 <option value="neutral">自然</option>
                 <option value="warm">温暖</option>
                 <option value="energetic">活力</option>
@@ -265,11 +266,84 @@
             </div>
             <div class="config-item">
               <label>并发数</label>
-              <input type="number" v-model.number="s2vConfig.concurrency" min="1" max="10" class="form-input" />
+              <input type="number" v-model.number="s2vConfig.concurrency" min="1" max="8" class="form-input" />
             </div>
             <div class="config-item">
-              <label>无旁白场景时长（秒）</label>
-              <input type="number" v-model.number="s2vConfig.defaultSceneDuration" min="1" max="60" step="0.5" class="form-input" />
+              <label>目标视频时长（秒）</label>
+              <input type="number" v-model.number="s2vConfig.seconds" min="1" max="60" step="1" class="form-input" />
+            </div>
+            <div class="config-item">
+              <label>单画面时长（秒）</label>
+              <input type="number" v-model.number="s2vConfig.perImageDuration" min="1" max="60" step="0.5" class="form-input" />
+            </div>
+            <div class="config-item">
+              <label>基础版</label>
+              <input type="checkbox" v-model="s2vConfig.generateBase" />
+            </div>
+            <div class="config-item">
+              <label>整合版</label>
+              <input type="checkbox" v-model="s2vConfig.generateMerged" />
+            </div>
+            <div class="config-item">
+              <label>分句语言</label>
+              <select v-model="s2vConfig.splitLanguage" class="form-select">
+                <option value="zh">中文</option>
+                <option value="en">英文</option>
+                <option value="auto">自动识别</option>
+              </select>
+            </div>
+            <div class="config-item">
+              <label>分句模式</label>
+              <select v-model="s2vConfig.splitMode" class="form-select">
+                <option value="fast">快速</option>
+                <option value="balanced">均衡</option>
+                <option value="precise">精确</option>
+              </select>
+            </div>
+            <div class="config-item">
+              <label>单句最大长度</label>
+              <input type="number" v-model.number="s2vConfig.splitMaxSentenceLength" min="20" max="1000" class="form-input" />
+            </div>
+            <div class="config-item">
+              <label>分镜目标时长（秒）</label>
+              <input type="number" v-model.number="s2vConfig.splitTargetSeconds" min="1" max="60" step="0.5" class="form-input" />
+            </div>
+            <div class="config-item">
+              <label>提示词平台</label>
+              <select v-model="s2vConfig.promptPlatform" class="form-select">
+                <option value="generic">通用</option>
+                <option value="douyin">抖音</option>
+                <option value="xiaohongshu">小红书</option>
+                <option value="bilibili">B站</option>
+                <option value="youtube">YouTube</option>
+                <option value="tiktok">TikTok</option>
+              </select>
+            </div>
+            <div class="config-item">
+              <label>提示词风格</label>
+              <select v-model="s2vConfig.promptStyle" class="form-select">
+                <option value="realistic">写实</option>
+                <option value="cinematic">电影感</option>
+                <option value="anime">动漫</option>
+                <option value="watercolor">水彩</option>
+                <option value="minimalist">极简</option>
+              </select>
+            </div>
+            <div class="config-item">
+              <label>创意强度: {{ s2vConfig.creativeLevel }}</label>
+              <input type="range" v-model.number="s2vConfig.creativeLevel" min="0" max="10" step="1" class="form-range" />
+            </div>
+            <div class="config-item">
+              <label>候选数</label>
+              <input type="number" v-model.number="s2vConfig.numCandidates" min="1" max="10" class="form-input" />
+            </div>
+            <div class="config-item">
+              <label>自动识别风格</label>
+              <input type="checkbox" v-model="s2vConfig.autoDetectStyle" />
+            </div>
+            <div class="config-item config-span-2">
+              <label>负向提示词</label>
+              <textarea v-model.trim="s2vConfig.negativePrompt" rows="2" maxlength="2000" class="form-textarea"></textarea>
             </div>
             <div class="config-item">
               <label>模板分类</label>
@@ -330,11 +404,25 @@
             </div>
             <div class="config-item">
               <label>字幕字号</label>
-              <select v-model="s2vConfig.subtitleStyle.size" class="form-select">
-                <option value="sm">小</option>
-                <option value="md">中</option>
-                <option value="lg">大</option>
-                <option value="xl">超大</option>
+              <select v-model="s2vConfig.subtitleSize" class="form-select">
+                <option value="size1">特小</option>
+                <option value="size2">小</option>
+                <option value="size3">中</option>
+                <option value="size4">大</option>
+                <option value="size5">特大</option>
+                <option value="size6">超大</option>
+              </select>
+            </div>
+            <div class="config-item">
+              <label>字幕字体</label>
+              <input v-model.trim="s2vConfig.subtitleFont" class="form-input" maxlength="240" />
+            </div>
+            <div class="config-item">
+              <label>字幕样式</label>
+              <select v-model="s2vConfig.subtitleStyleName" class="form-select">
+                <option value="style1">描边</option>
+                <option value="style2">背景框</option>
+                <option value="style3">粗描边</option>
               </select>
             </div>
             <div class="config-item">
@@ -354,7 +442,7 @@
             </div>
             <div class="config-item">
               <label>背景音乐音量: {{ s2vConfig.bgmVolume }}</label>
-              <input type="range" v-model.number="s2vConfig.bgmVolume" min="0" max="1" step="0.05" class="form-range" />
+              <input type="range" v-model.number="s2vConfig.bgmVolume" min="0" max="10" step="1" class="form-range" />
             </div>
             <div class="config-item">
               <label>水印文字</label>
@@ -390,6 +478,14 @@
               <label>发布标签</label>
               <input v-model.trim="s2vConfig.tagsText" class="form-input" placeholder="用逗号分隔" />
             </div>
+            <div class="config-item config-span-2">
+              <label>发布正文</label>
+              <textarea v-model.trim="s2vConfig.publishContent" rows="3" maxlength="20000" class="form-textarea"></textarea>
+            </div>
+            <div class="config-item config-span-2">
+              <label>封面 URL</label>
+              <input v-model.trim="s2vConfig.coverUrl" class="form-input" maxlength="4096" />
+            </div>
           </div>
         </div>
 
@@ -399,7 +495,8 @@
           <div class="config-grid">
             <div class="config-item">
               <label>分辨率</label>
-              <select v-model="outputConfig.resolution" class="form-select">
+              <select v-model="activeOutputConfig.resolution" class="form-select">
+                <option value="720x1280">720×1280 (Story2Video)</option>
                 <option value="1920x1080">1920×1080 (Full HD)</option>
                 <option value="3840x2160">3840×2160 (4K)</option>
                 <option value="1080x1920">1080×1920 (竖屏)</option>
@@ -408,7 +505,7 @@
             </div>
             <div class="config-item">
               <label>帧率</label>
-              <select v-model.number="outputConfig.fps" class="form-select">
+              <select v-model.number="activeOutputConfig.fps" class="form-select">
                 <option :value="24">24 fps (电影)</option>
                 <option :value="30">30 fps (标准)</option>
                 <option :value="60">60 fps (流畅)</option>
@@ -416,7 +513,7 @@
             </div>
             <div class="config-item">
               <label>格式</label>
-              <select v-model="outputConfig.format" class="form-select">
+              <select v-model="activeOutputConfig.format" class="form-select">
                 <option value="mp4">MP4 (H.264)</option>
                 <option value="webm">WebM (VP9)</option>
               </select>
@@ -593,6 +690,7 @@ export default {
       budgetConfig: { mode: 'warn', totalUsd: 10 },
       checkpointPolicy: 'guided',
       outputConfig: { resolution: '1920x1080', fps: 30, format: 'mp4' },
+      s2vOutputConfig: { resolution: '720x1280', fps: 30, format: 'mp4' },
       // 快速渲染
       quickMode: 'text', quickText: '', quickImages: [],
       quickProfile: 'youtube-landscape', quickTheme: 'clean-professional',
@@ -602,14 +700,25 @@ export default {
       renderStatus: null, installing: false, installLog: '',
       // S2V 编排模式（story2video-compose）
       s2vConfig: {
-        contentType: 'general', imageStyle: 'cinematic', aspectRatio: '16:9',
-        imageProvider: '', voiceId: 'default', voiceProvider: '', voiceSpeed: 1, voicePitch: 0, voiceEmotion: 'neutral', voiceVolume: 1,
-        concurrency: 3, templateId: '', imageEffect: 'none', defaultSceneDuration: 3,
-        transition: 'fade', subtitleEnabled: true,
+        contentType: 'general', imageStyle: 'cinematic', aspectRatio: '9:16',
+        imageProvider: '', imageModel: '',
+        voiceId: 'zh_female_qingxinnvsheng_uranus_bigtts', voiceProvider: '', voiceModel: '',
+        voiceSpeed: 1, voicePitch: 0, voiceEmotion: 'default', voiceVolume: 1,
+        concurrency: 3, templateId: '', imageEffect: 'zoom-in',
+        seconds: 8, perImageDuration: 6, generateBase: true, generateMerged: true,
+        splitLanguage: 'zh', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
+        splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
+        splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
+        splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
+        promptPlatform: 'generic', promptStyle: 'realistic', creativeLevel: 5, promptMaxLength: null,
+        negativePrompt: '', numCandidates: 1, autoDetectStyle: true, promptContext: '',
+        transition: 'fade', subtitleEnabled: false,
+        subtitleFont: '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
+        subtitleSize: 'size3', subtitleStyleName: 'style1',
         subtitleStyle: { size: 'md', style: 'style1', color: 'white' },
-        bgmPath: '', bgmVolume: 0.3, watermark: false, watermarkText: '',
+        bgmPath: '', bgmVolume: 5, watermark: false, watermarkText: '',
         watermarkConfig: { enabled: false, position: 'bottom-right', fontSize: 24, opacity: 0.6, color: 'white' },
-        autoAdvance: true, platforms: [], publishEnabled: false, title: '', tagsText: '',
+        autoAdvance: true, platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null,
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
@@ -641,6 +750,9 @@ export default {
       if (this.historyFilter === 'all') return this.history
       return this.history.filter(item => item.status === this.historyFilter)
     },
+    activeOutputConfig() {
+      return this.isOrchestratedPipeline(this.selectedPipeline?.name) ? this.s2vOutputConfig : this.outputConfig
+    },
     s2vPlatforms() { return S2V_PLATFORMS },
     profileOptions() {
       return [
@@ -657,6 +769,9 @@ export default {
     },
     canStartPipeline() {
       if (!this.selectedPipeline) return false
+      if (this.isOrchestratedPipeline(this.selectedPipeline.name)) {
+        return this.inputMode === 'text' && this.pipelineText.trim().length > 0
+      }
       if (this.inputMode === 'text') return this.pipelineText.trim().length > 0
       if (this.inputMode === 'images') return this.pipelineImages.length > 0
       if (this.inputMode === 'audio') return this.pipelineAudio.length > 0
@@ -699,7 +814,7 @@ export default {
       this.orchestrationRunId = null
       this.orchestrationContext = null
       this.orchestrationResultPath = null
-      if (this.isOrchestratedPipeline(p?.name) && this.inputMode === 'video') this.inputMode = 'text'
+      if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
     async startPipeline() {
@@ -723,57 +838,99 @@ export default {
     },
     async startOrchestratedPipeline() {
       try {
-        if (this.inputMode === 'video') {
-          alert('Story2Video 当前不支持视频素材输入，请使用文案、图片或旁白音频')
+        if (this.inputMode !== 'text') {
+          alert('Story2Video 标准流水线只支持文案输入')
           return
         }
-        const output = this.cloneForIpc(this.outputConfig)
+        const output = this.cloneForIpc(this.s2vOutputConfig)
         const config = this.cloneForIpc(this.s2vConfig)
         const tags = String(config.tagsText || '')
           .split(',')
           .map(tag => tag.trim())
           .filter(Boolean)
-        const params = {
-          text: this.pipelineText.trim(),
-          inputMode: this.inputMode,
-        images: this.inputMode === 'images' ? this.pipelineImages.map(image => image.preview) : [],
-        audio: this.inputMode === 'audio'
-          ? this.pipelineAudio.map(audio => ({ name: audio.name, path: audio.path, transcript: audio.transcript || '' }))
-          : [],
-        video: this.inputMode === 'video' ? (this.pipelineVideo?.path || null) : null,
-          imageStyle: config.imageStyle,
-          imageProvider: config.imageProvider || null,
-          aspectRatio: config.aspectRatio,
-          voiceId: config.voiceId,
-          voiceProvider: config.voiceProvider || null,
-          voiceSpeed: config.voiceSpeed,
-          voicePitch: config.voicePitch,
-          voiceEmotion: config.voiceEmotion || null,
-          voiceVolume: config.voiceVolume,
-          concurrency: config.concurrency,
+        const text = this.pipelineText.trim()
+        const story2videoTextConfig = {
+          version: 1,
+          mode: 'text',
+          prompt: text,
+          size: output.resolution,
+          seconds: config.seconds,
           contentType: config.contentType,
-          templateId: config.templateId || null,
-          defaultSceneDuration: config.defaultSceneDuration,
-          imageEffect: config.imageEffect,
+          split: {
+            language: config.splitLanguage,
+            mode: config.splitMode,
+            maxSentenceLength: config.splitMaxSentenceLength,
+            targetSeconds: config.splitTargetSeconds,
+            baseWordsPerSecond: config.splitBaseWordsPerSecond,
+            speechRate: config.splitSpeechRate,
+            minWords: config.splitMinWords,
+            maxWords: config.splitMaxWords,
+            enforceSentenceBoundary: config.splitEnforceSentenceBoundary,
+            overflowToNext: config.splitOverflowToNext,
+            subtitleMinChars: config.splitSubtitleMinChars,
+            subtitleMaxChars: config.splitSubtitleMaxChars,
+            subtitleTiming: config.splitSubtitleTiming,
+          },
+          optimize: {
+            platform: config.promptPlatform,
+            style: config.promptStyle,
+            creativeLevel: config.creativeLevel,
+            maxLength: config.promptMaxLength,
+            negativePrompt: config.negativePrompt,
+            numCandidates: config.numCandidates,
+            autoDetectStyle: config.autoDetectStyle,
+            context: config.promptContext,
+          },
+          image: {
+            provider: config.imageProvider || '',
+            model: config.imageModel || '',
+            style: config.imageStyle,
+            effect: config.imageEffect,
+            aspectRatio: config.aspectRatio,
+          },
+          voice: {
+            provider: config.voiceProvider || '',
+            model: config.voiceModel || '',
+            id: config.voiceId,
+            speed: config.voiceSpeed,
+            volume: config.voiceVolume,
+            pitch: config.voicePitch,
+            emotion: config.voiceEmotion || 'default',
+          },
+          subtitle: {
+            enabled: config.subtitleEnabled,
+            font: config.subtitleFont,
+            size: config.subtitleSize,
+            style: config.subtitleStyleName,
+            color: config.subtitleStyle?.color || 'white',
+          },
+          bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
+          versions: { generateBase: config.generateBase, generateMerged: config.generateMerged },
+          perImageDuration: config.perImageDuration,
           transition: config.transition,
-          subtitleEnabled: config.subtitleEnabled,
-          subtitleStyle: config.subtitleStyle,
-          bgmPath: config.bgmPath || null,
-          bgmVolume: config.bgmVolume,
-          watermark: Boolean(config.watermarkText),
-          watermarkText: config.watermarkText || '',
-          watermarkConfig: config.watermarkConfig,
-          resolution: output.resolution,
-          fps: output.fps,
-          format: output.format,
-          style: this.selectedStyle,
+          templateId: config.templateId || '',
+          concurrency: config.concurrency,
+          watermark: {
+            ...config.watermarkConfig,
+            enabled: Boolean(config.watermarkText),
+            text: config.watermarkText || '',
+          },
+          output: { fps: output.fps, format: output.format },
+          publish: {
+            enabled: config.publishEnabled === true || (Array.isArray(config.platforms) && config.platforms.length > 0),
+            platforms: Array.isArray(config.platforms) ? config.platforms : [],
+            title: config.title || '',
+            content: config.publishContent || text,
+            tags,
+            coverUrl: config.coverUrl || '',
+          },
+        }
+        const params = {
+          text,
+          inputMode: 'text',
           checkpointPolicy: this.checkpointPolicy,
           autoAdvance: config.autoAdvance !== false,
-          platforms: Array.isArray(config.platforms) ? config.platforms : [],
-          publishEnabled: config.publishEnabled === true || (Array.isArray(config.platforms) && config.platforms.length > 0),
-          title: config.title || '',
-          tags,
-          output,
+          story2videoTextConfig,
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
@@ -797,8 +954,12 @@ export default {
       if (!template) return
       this.s2vConfig.imageEffect = template.imageEffect
       this.s2vConfig.transition = template.transitionEffect
-      this.s2vConfig.defaultSceneDuration = Number(template.perImageDuration) || 3
+      this.s2vConfig.perImageDuration = Number(template.perImageDuration) || 6
+      this.s2vConfig.seconds = Number(template.seconds) || 8
       this.s2vConfig.subtitleEnabled = template.subtitleStyle?.enabled !== false
+      this.s2vConfig.subtitleFont = template.subtitleStyle?.font || this.s2vConfig.subtitleFont
+      this.s2vConfig.subtitleSize = template.subtitleStyle?.size || 'size3'
+      this.s2vConfig.subtitleStyleName = template.subtitleStyle?.style || this.s2vConfig.subtitleStyleName
       this.s2vConfig.subtitleStyle = {
         ...this.s2vConfig.subtitleStyle,
         size: template.subtitleStyle?.size || 'md',
@@ -806,9 +967,9 @@ export default {
         color: template.subtitleStyle?.color || this.s2vConfig.subtitleStyle.color,
       }
       if (template.bgm && Number.isFinite(Number(template.bgm.volume))) {
-        this.s2vConfig.bgmVolume = Math.min(1, Math.max(0, Number(template.bgm.volume) / 10))
+        this.s2vConfig.bgmVolume = Math.min(10, Math.max(0, Number(template.bgm.volume)))
       }
-      if (template.size) this.outputConfig.resolution = template.size
+      if (template.size) this.s2vOutputConfig.resolution = template.size
     },
     refreshS2VTemplates() {
       this.s2vTemplateLibrary = getAllTemplates('all', window.localStorage)
@@ -824,18 +985,18 @@ export default {
         category: 'custom',
         imageEffect: this.s2vConfig.imageEffect,
         transitionEffect: this.s2vConfig.transition,
-        perImageDuration: Number(this.s2vConfig.defaultSceneDuration) || 3,
-        size: this.outputConfig.resolution,
-        seconds: 30,
+        perImageDuration: Number(this.s2vConfig.perImageDuration) || 6,
+        size: this.s2vOutputConfig.resolution,
+        seconds: Number(this.s2vConfig.seconds) || 8,
         subtitleStyle: {
           enabled: this.s2vConfig.subtitleEnabled !== false,
-          font: 'sans-serif',
-          size: this.s2vConfig.subtitleStyle.size || 'md',
-          style: this.s2vConfig.subtitleStyle.style || 'style1',
+          font: this.s2vConfig.subtitleFont || 'sans-serif',
+          size: this.s2vConfig.subtitleSize || 'size3',
+          style: this.s2vConfig.subtitleStyleName || 'style1',
           color: this.s2vConfig.subtitleStyle.color || 'white',
         },
         bgm: this.s2vConfig.bgmPath
-          ? { url: '', name: '自定义背景音乐', volume: Math.round(Number(this.s2vConfig.bgmVolume || 0) * 10) }
+          ? { url: '', name: '自定义背景音乐', volume: Math.round(Number(this.s2vConfig.bgmVolume || 0)) }
           : undefined,
       }, window.localStorage)
       this.refreshS2VTemplates()

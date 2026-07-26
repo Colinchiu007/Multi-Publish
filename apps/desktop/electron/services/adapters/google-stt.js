@@ -15,7 +15,7 @@
  *   - transcribe()        POST /v1/speech:recognize
  *
  * 设计决策：
- * - transcribe 是 BaseAdapter 的标准 STT 能力，由 supports()/capabilities() 自动检测
+ * - transcribe 属于 BaseAdapter 的 KNOWN_METHODS，由 supports()/capabilities() 自动识别
  * - API Key 通过 query param 传递（Google 的非标准认证方式）
  * - 音频内容统一以 Base64 字符串传入，由调用方负责编码
  * - 所有 HTTP 错误统一抛 ProviderError，网络错误区分 TIMEOUT / NETWORK_ERROR

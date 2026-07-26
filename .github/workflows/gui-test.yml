@@ -41,11 +41,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Python backend runtime
-        run: python3 -m pip install -e "packages/python-backend[web,video]"
+      - name: Install Python backend runtime and test dependencies
+        run: python3 -m pip install -e "packages/python-backend[web,video]" pytest
+
+      - name: Verify optional Python provider imports
+        run: python3 -m pytest packages/python-backend/tests/test_video_provider_imports.py -q
 
       - name: Verify Python backend imports
-        run: python3 -c "import multi_publish, uvicorn, yaml; print('Python backend imports ready')"
+        working-directory: packages/python-backend/src
+        run: python3 -c "import server, uvicorn, yaml; print('Python backend entrypoint imports ready')"
 
       - name: Install Playwright (for GUI tests)
         run: npx playwright install --with-deps chromium

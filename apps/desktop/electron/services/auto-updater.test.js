@@ -39,7 +39,7 @@ const mocks = vi.hoisted(() => {
     Object.values(logger).forEach(mock => mock.mockReset())
 
     updater.on('error', error => {
-      updater.logger.error(`Error: ${error.stack || error.message}`)
+      updater.logger?.error?.(`Error: ${error.stack || error.message}`)
     })
   }
 
@@ -55,12 +55,14 @@ describe('AutoUpdater 生产错误降级', () => {
   beforeEach(async () => {
     vi.resetModules()
     mocks.reset()
+    __resetElectronMock()
     __enableElectronMock()
+    __electronMock.app.isPackaged = true
     __registerMock('electron-updater', { autoUpdater: mocks.updater })
     __registerMock('./logger', mocks.logger)
     statuses = []
     originalNodeEnv = process.env.NODE_ENV
-    process.env.NODE_ENV = 'production'
+    process.env.NODE_ENV = 'development'
 
     const imported = await import('./auto-updater')
     autoUpdaterService = imported.default || imported
@@ -72,9 +74,15 @@ describe('AutoUpdater 生产错误降级', () => {
   })
 
   afterEach(() => {
+    __electronMock.app.isPackaged = false
     if (originalNodeEnv === undefined) delete process.env.NODE_ENV
     else process.env.NODE_ENV = originalNodeEnv
     vi.restoreAllMocks()
+  })
+
+  it('打包应用不能被 development 环境变量重新启用 console logger', () => {
+    expect(mocks.updater.logger).not.toBe(console)
+    expect(mocks.updater.logger).toEqual(expect.objectContaining({ error: expect.any(Function) }))
   })
 
   it('latest.yml 404 事件静默降级且不写入 stderr', () => {
@@ -100,6 +108,35 @@ describe('AutoUpdater 生产错误降级', () => {
     })
   })
 
+  it('检查更新遇到结构化 latest.yml 404 时静默降级', async () => {
+    const error = Object.assign(
+      new Error('Cannot find latest.yml in the latest release artifacts'),
+      { statusCode: 404 },
+    )
+    mocks.updater.checkForUpdates.mockRejectedValue(error)
+
+    autoUpdaterService.check()
+
+    await vi.waitFor(() => {
+      expect(statuses.at(-1)).toEqual({ type: 'not-available', data: '当前已是最新版本' })
+    })
+  })
+
+  it('检查更新遇到 HttpError 404 和 manifest URL 时静默降级', async () => {
+    const error = Object.assign(
+      new Error('HttpError: 404'),
+      { statusCode: 404, url: 'https://github.com/example/app/releases/latest.yml' },
+    )
+    mocks.updater.checkForUpdates.mockRejectedValue(error)
+
+    autoUpdaterService.check()
+
+    await vi.waitFor(() => {
+      expect(statuses.at(-1)).toEqual({ type: 'not-available', data: '当前已是最新版本' })
+    })
+    expect(mocks.logger.error).not.toHaveBeenCalled()
+  })
+
   it('下载更新的网络阻断 Promise 静默降级', async () => {
     mocks.updater.downloadUpdate.mockRejectedValue(new Error('net::ERR_NAME_NOT_RESOLVED'))
 
@@ -117,6 +154,41 @@ describe('AutoUpdater 生产错误降级', () => {
 
     expect(statuses.at(-1)).toEqual({ type: 'error', data: '签名校验失败' })
     expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining('签名校验失败'))
+  })
+
+  it('包含 latest.yml 和 404 字样的签名错误仍按真实错误上报', () => {
+    const error = new Error('signature verification failed for latest.yml after HttpError: 404')
+
+    mocks.updater.emit('error', error)
+
+    expect(statuses.at(-1)).toEqual({ type: 'error', data: error.message })
+    expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining(error.message))
+  })
+
+  it('结构化 404 的签名错误仍按真实错误上报', () => {
+    const error = Object.assign(
+      new Error('signature verification failed'),
+      { statusCode: 404, url: 'https://github.com/example/app/releases/latest.yml' },
+    )
+
+    mocks.updater.emit('error', error)
+
+    expect(statuses.at(-1)).toEqual({ type: 'error', data: error.message })
+    expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining(error.message))
+  })
+
+  it('同一个检查错误经事件和 Promise 双通道到达时只通知一次', async () => {
+    const error = new Error('Cannot find latest.yml in the latest release artifacts: HttpError: 404')
+    mocks.updater.checkForUpdates.mockImplementation(() => {
+      mocks.updater.emit('error', error)
+      return Promise.reject(error)
+    })
+
+    autoUpdaterService.check()
+
+    await vi.waitFor(() => {
+      expect(statuses).toEqual([{ type: 'not-available', data: '当前已是最新版本' }])
+    })
   })
 
   it('主窗口重建时复用全局监听器并将状态切换到新窗口', () => {

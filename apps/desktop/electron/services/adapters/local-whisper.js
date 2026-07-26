@@ -20,7 +20,7 @@
  *   - transcribe()        POST /asr 或 /transcribe（FormData）
  *
  * 设计决策：
- * - transcribe 是 BaseAdapter 的标准 STT 能力，由 supports()/capabilities() 自动检测
+ * - transcribe 属于 BaseAdapter 的 KNOWN_METHODS，由 supports()/capabilities() 自动识别
  * - 音频以 Buffer 传入，由 Adapter 写入 FormData（调用方无需关心编码）
  * - 使用 Node 18+ 原生 FormData 与 fetch（无需 form-data 第三方库）
  * - 所有 HTTP 错误统一抛 ProviderError，网络错误区分 TIMEOUT / NETWORK_ERROR

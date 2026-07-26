@@ -53,7 +53,7 @@ const ONLINE_ONLY_FEATURE_CHANNELS = new Set([
   'cloud-publisher:get-task',
 ])
 
-function getAccessLevel(licenseManager, _env = process.env, app, identityService) {
+function getAccessLevel(licenseManager, env = process.env, app, identityService) {
   if (identityService) {
     try {
       const status = identityService.getState().status
@@ -64,8 +64,8 @@ function getAccessLevel(licenseManager, _env = process.env, app, identityService
       return 'public'
     }
   }
-  // app.isPackaged 是主进程可信状态；环境变量不能把已打包应用提升为管理员。
-  const isDevMode = Boolean(app && app.isPackaged === false)
+  // 打包状态是开发管理员短路的唯一权威，避免残留环境变量在生产包中提权。
+  const isDevMode = app && app.isPackaged === false
   if (isDevMode) return 'admin'
   try {
     if (licenseManager && typeof licenseManager.isPro === 'function' && licenseManager.isPro()) {
