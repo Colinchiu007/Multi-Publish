@@ -4441,3 +4441,15 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
   `realpath` 合同构造，禁止用原始字符串、`path.normalize()` 或 `path.resolve()` 替代。
 - Windows CI 的 workspace 测试继续作为短路径回归保护；不得为了让断言通过而移除生产 `realpath`
   校验，否则会削弱符号链接越界和受控根目录防护。
+
+### 同一提交中的 compose 测试漏修（2026-07-27）
+
+这次 PR 合并后的两条 Windows Quality Gate 又稳定暴露了同一类问题：`story2video-compose-engine.test.js`
+仍把 `scenes` 的原始音频路径与 `compose()` 传给 `_concatNarrationAudio` 的 canonical 路径直接比较。
+在本机长路径临时目录中字符串恰好相同，GitHub Windows 的 8.3 短路径表示不同，mock 断言抛错后被
+`compose()` 转成 `code: -1`，最终只看到“多段旁白导出”失败。此前只修 `story2video-stages.test.js`，检索范围
+没有覆盖同一调用链的第二个路径断言，属于断言质量不足和修复范围不足。
+
+回归修复把测试期望同样规范化为 `fs.realpathSync.native()`，并 mock 无关的伪媒体 `ffprobe` 探测；生产
+canonical 白名单和真实 `_concatNarrationAudio` 实现不变。以后修改 `resolveReadableMediaFile()` 的调用链时，
+必须检索所有返回路径的测试断言，并在 Windows workspace Gate 4 中验证完整 Electron 测试。
