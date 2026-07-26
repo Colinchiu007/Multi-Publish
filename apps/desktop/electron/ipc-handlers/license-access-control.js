@@ -64,10 +64,8 @@ function getAccessLevel(licenseManager, env = process.env, app, identityService)
       return 'public'
     }
   }
-  // Bug fix (QM-5 v2): dev 短路判断必须与项目其他模块一致（window.js:216 用 !app.isPackaged）。
-  // npm script 没设置 NODE_ENV，原条件不生效。改为同时支持环境变量和 !app.isPackaged。
-  const isDevMode = env.NODE_ENV === 'development' || env.ELECTRON_IS_DEV === '1' ||
-    (app && app.isPackaged === false)
+  // 打包状态是开发管理员短路的唯一权威，避免残留环境变量在生产包中提权。
+  const isDevMode = app && app.isPackaged === false
   if (isDevMode) return 'admin'
   try {
     if (licenseManager && typeof licenseManager.isPro === 'function' && licenseManager.isPro()) {

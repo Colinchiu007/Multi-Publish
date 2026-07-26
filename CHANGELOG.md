@@ -15,7 +15,21 @@
 ### 质量
 - Story2Video 聚焦回归、归一化器覆盖率、真实 ffmpeg、Vue/preload 构建、双 sandbox、桌面/移动视觉、17 项像素门禁、Windows x64 打包、ASAR/RPA require 链和 8 秒启动检查均通过。
 - 审查回补以 5 个 RED 固定配置恢复、非支持宽高比和合成时长漂移；六文件聚焦回归现为 167/167。
-- 全桌面 coverage 仍有 5 个未修改文件的 9 个基线失败：6 个许可证开发环境判断和 3 个 STT `supports("transcribe")` 旧预期；未混入本分支修复。
+- Story2Video 源分支曾被 6 个许可证旧断言和 3 个 STT 旧预期阻塞；集成分支已通过独立提交纳入对应基线修复，最终结果以 `.quality-gates.md` 为准。
+
+---
+
+## [未发布] 桌面权限、STT 与自动更新基线修复 (2026-07-26)
+
+### 安全
+- 打包应用不再允许 `NODE_ENV=development` 或 `ELECTRON_IS_DEV=1` 绕过许可证权限边界；只有明确未打包的 Electron 运行时可获得开发管理员权限。
+
+### 模型能力
+- 百度、Google 和本地 Whisper STT 统一从 `BaseAdapter.KNOWN_METHODS` 派生 `transcribe` 能力，避免重复 capability，并恢复 `ModelProviderManager` 的标准调用路径。
+
+### 稳定性
+- 打包应用关闭 electron-updater 控制台 logger；网络阻断或 Release 缺少 `latest.yml` 时静默归类为无可用更新，签名、安装等真实错误仍正常上报。
+- 新增许可证、四类 STT 和自动更新回归，覆盖打包状态优先、能力唯一性及 404 双错误路径。
 
 ---
 
