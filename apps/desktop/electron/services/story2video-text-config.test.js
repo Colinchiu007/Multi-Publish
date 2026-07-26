@@ -125,6 +125,26 @@ describe('Story2Video text 参数合同', () => {
     })
   })
 
+  it('仅提供版本化配置时使用 prompt 恢复 text 合同', () => {
+    const result = normalizeStory2VideoTextParams({
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '从项目配置恢复的文案',
+      },
+    })
+
+    expect(result).toMatchObject({
+      mode: 'text',
+      text: '从项目配置恢复的文案',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '从项目配置恢复的文案',
+      },
+    })
+  })
+
   it.each([
     [{ inputMode: 'images', images: ['data:image/png;base64,aQ=='] }, '只支持 text'],
     [{ text: '测试', images: {} }, 'images 必须是数组'],
@@ -132,11 +152,11 @@ describe('Story2Video text 参数合同', () => {
     [{ text: '测试', video: false }, '只支持 text'],
     [{ story2videoTextConfig: { version: 2, mode: 'text', prompt: '测试' } }, '版本不受支持'],
     [{ story2videoTextConfig: { mode: 'audio', prompt: '测试' } }, '只支持 text'],
-    [{ story2videoTextConfig: { mode: 'text', prompt: '测试' } }, '文案不能为空'],
     [{ text: '文案 A', story2videoTextConfig: { prompt: '文案 B' } }, '必须一致'],
     [{ text: '   ' }, '文案不能为空'],
     [{ text: '测试', checkpointPolicy: 'unsafe' }, 'checkpointPolicy'],
     [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: 'free-form' } } }, 'image.aspectRatio'],
+    [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: '7:11' } } }, 'image.aspectRatio'],
     [{ text: '测试', story2videoTextConfig: { seconds: 0 } }, 'seconds'],
     [{ text: '测试', story2videoTextConfig: { bgm: { volume: 11 } } }, 'bgm.volume'],
     [{ text: '测试', story2videoTextConfig: { versions: { generateBase: false, generateMerged: false } } }, '至少选择一个视频版本'],

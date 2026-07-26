@@ -437,7 +437,7 @@ class Story2VideoComposeEngine {
     const subtitleEnabled = options?.subtitleEnabled !== false
     const resolution = parseResolution(options?.resolution)
     const fps = clampNumber(options?.fps, 1, 120, 30)
-    const defaultSceneDuration = clampNumber(options?.defaultSceneDuration, 0.1, 60, 3)
+    const defaultSceneDuration = clampNumber(options?.defaultSceneDuration, 1, 60, 6)
     const voiceVolume = clampNumber(options?.voiceVolume, 0, 2, 1)
     const outputFormat = options?.format === 'webm' ? 'webm' : 'mp4'
 

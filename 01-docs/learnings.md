@@ -3966,3 +3966,33 @@ IdentityMenu.vue 显示兜底错误文案。
    权限），否则 Opaque Token 验证会因缺少 client credentials 而失败。
 4. **端到端冒烟**：`production-smoke.js` 应增加 `/api/v1/me` 携带真实 Logto access token 的验证用例，
    覆盖从登录到权益同步的完整链路。
+
+---
+
+## Story2Video 版本化配置与合成默认值审查回归（2026-07-26）
+
+### 第一性原因
+- `7ade600` 首次引入版本化 text 合同时，项目服务计算 `sourceText` 已允许回退到
+  `story2videoTextConfig.config.prompt`，但持久化前的 normalizer 仍强制读取顶层 `params.text`；
+  renderer 总会重复发送两份文案，因此正常创建流程掩盖了项目恢复路径的失败。
+- `image.aspectRatio` 只校验 `W:H` 字符格式，没有校验下游 Provider 支持集合，`7:11` 等值能进入资产阶段。
+- normalizer、UI 和 YAML 已统一 `perImageDuration` 为 1..60 秒、默认 6 秒，compose engine 的防御性
+  直调仍保留旧的 0.1 秒下限和 3 秒默认值。
+
+### 测试逃逸链与系统性漏洞
+1. 项目持久化测试始终同时传 `text` 与版本化 `prompt`，没有构造只剩项目配置的恢复形状。
+2. 宽高比测试只拒绝自由文本，没有使用格式合法但合同不支持的比例。
+3. 合成测试优先使用音频探测或显式 scene duration，从未进入 `defaultSceneDuration` 的最终回退。
+4. 代码审查分别核对各层默认值，没有用同一张边界表比较 renderer、normalizer、YAML 和 compose 直调。
+
+### 修复与回归保护
+- normalizer 在顶层 `text` 缺失时使用版本化 `prompt`，两者同时存在时仍要求严格一致；项目服务测试
+  验证 config-only 运行可持久化 `sourceText` 和 manifest v2 配置。
+- 宽高比限制为 `16:9/9:16/1:1/4:3/3:4`，测试拒绝格式合法但不支持的 `7:11`。
+- compose engine 防御性回退统一为 1..60 秒、默认 6 秒；真实 compose 路径分别验证 `0.5 -> 1`
+  和 `undefined -> 6`。审查回补 5 个 RED 后，六文件聚焦回归 167/167 通过。
+
+### 预防措施
+1. 版本化配置必须测试“仅 config”“仅扁平参数”“两者一致”“两者冲突”四种输入形状。
+2. 枚举合同必须用格式合法但集合外的值做负例，不能用语法错误代替白名单测试。
+3. 同一参数跨 renderer、normalizer、YAML 与执行器时，范围、单位和默认值必须用表驱动回归逐层核对。

@@ -324,6 +324,36 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     }
   })
 
+  it.each([
+    [0.5, 1],
+    [undefined, 6],
+  ])('无可探测时长时把默认场景时长 %s 收敛为 %s 秒', async (defaultSceneDuration, expectedDuration) => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-default-duration-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [{ imagePath: image, audioPath: audio, text: '时长回退' }],
+      }, { defaultSceneDuration, transition: 'none', validateOutput: false })
+
+      expect(result.code).toBe(0)
+      expect(result.data.duration).toBe(expectedDuration)
+      expect(result.data.segments[0].duration).toBe(expectedDuration)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('拒绝超出场景上限和像素上限的合成请求', async () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-limits-'))

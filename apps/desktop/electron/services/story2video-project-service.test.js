@@ -185,6 +185,37 @@ describe('Story2VideoProjectService', () => {
       .toMatchObject({ story2videoTextConfig: { version: 1 } })
   })
 
+  it('仅有版本化配置时仍可保存项目并恢复源文案', () => {
+    const output = writeFile(path.join(root, 'config-only-source', 'output.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_config_only',
+      pipeline: 'story2video-compose',
+      status: 'completed',
+      params: {
+        story2videoTextConfig: {
+          version: 1,
+          mode: 'text',
+          prompt: '仅保存在版本化配置中的文案',
+        },
+      },
+      context: { compose: { videoPath: output, segments: [] } },
+    })
+
+    expect(project).toMatchObject({
+      sourceText: '仅保存在版本化配置中的文案',
+      story2videoTextConfig: {
+        version: 1,
+        config: {
+          version: 1,
+          mode: 'text',
+          prompt: '仅保存在版本化配置中的文案',
+        },
+      },
+    })
+  })
+
   it('旧项目没有版本化 text 配置时仍可读取', () => {
     const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
     service._writeProjects([{ manifestVersion: 1, projectId: 'legacy-project', status: 'completed', segments: [] }])

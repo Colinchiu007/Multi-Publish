@@ -95,6 +95,7 @@ const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
 const OUTPUT_FORMATS = new Set(['mp4', 'webm'])
 const CONTENT_TYPES = new Set(['general', 'history'])
 const CHECKPOINT_POLICIES = new Set(['guided', 'manual_all', 'auto_noncreative'])
+const ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4'])
 const SENSITIVE_CONTEXT_KEYS = new Set([
   'api_key', 'access_token', 'refresh_token', 'auth_token', 'bearer_token', 'token',
   'secret', 'secret_key', 'client_secret', 'app_secret', 'password', 'authorization',
@@ -207,10 +208,7 @@ function deriveAspectRatio(size) {
 
 function normalizeAspectRatio(value, size) {
   const ratio = textValue(value, deriveAspectRatio(size), 'image.aspectRatio', 32).trim()
-  if (!/^[1-9]\d{0,3}:[1-9]\d{0,3}$/.test(ratio)) {
-    throw new Error('Story2Video image.aspectRatio 必须使用 W:H 格式')
-  }
-  return ratio
+  return enumValue(ratio, deriveAspectRatio(size), 'image.aspectRatio', ASPECT_RATIOS)
 }
 
 function normalizeSubtitleSize(value) {
@@ -245,9 +243,9 @@ function normalizeStory2VideoTextParams(params = {}) {
     throw new Error('Story2Video 标准流水线只支持 text 模式')
   }
 
-  const text = textValue(params.text, '', 'text').trim()
-  if (!text) throw new Error('Story2Video 文案不能为空')
   const suppliedPrompt = own(suppliedConfig, 'prompt')
+  const text = textValue(firstDefined(params.text, suppliedPrompt), '', 'text').trim()
+  if (!text) throw new Error('Story2Video 文案不能为空')
   const prompt = suppliedPrompt === undefined || suppliedPrompt === null || String(suppliedPrompt).trim() === ''
     ? text
     : textValue(suppliedPrompt, text, 'prompt').trim()
