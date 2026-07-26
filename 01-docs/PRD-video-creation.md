@@ -1,7 +1,7 @@
 # PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
-> **版本**: v1.2
-> **日期**: 2026-07-22
+> **版本**: v1.4
+> **日期**: 2026-07-25
 > **状态**: 实现基线已更新（持续迭代）
 > **产品定位**: 将 OpenMontage 的视频生成能力集成到 Multi-Publish 桌面客户端，实现"创作→渲染→发布"完整闭环  
 > **目标用户**: 自媒体创作者、内容运营、企业内容团队  
@@ -46,15 +46,15 @@ Multi-Publish 现有系统（发布侧）
          └── PublisherRouter（显式开启且有平台时发布）
 ```
 
-### 1.4 当前实现基线（2026-07-22）
+### 1.4 当前实现基线（2026-07-25）
 
 | 能力 | 当前状态 | 说明 |
 |------|----------|------|
 | 文案分句 | 已接入 | 通过 smart-sentence-splitter；服务不可用时必须显示失败 |
 | 提示词优化 | 已接入 | 通过 prompt-engine 批量优化，结果数量不一致会阻断 |
 | 历史领域增强 | 已接入 | `contentType=history` 自动识别时代/朝代并生成 `imagePromptSeed` |
-| 图片轮播 | 已接入 | 文案模式生成图片；图片模式可直接摄取本地图片或 data URL |
-| TTS | 已接入 | edge-tts 优先，ffmpeg 静音音频作为离线降级；也支持按段摄取用户旁白和已配置 TTS adapter。音色克隆仍未实现，真实外部服务需单独验收 |
+| Story2Video 标准模式 | 已接入 | `story2video-compose` 只接受文案；图片、音频、视频素材模式不再属于该流水线 |
+| TTS | 已接入 | text 标准模式通过已配置 TTS adapter 生成逐段旁白；edge-tts 优先，ffmpeg 静音音频作为离线降级。结果页仍可替换单段旁白，但上传音频不是该模式的创作输入。音色克隆仍未实现，真实外部服务需单独验收 |
 | 外部模型 Provider | 已接入（外部待验收） | `ModelProviderManager` 已把选择的图片/TTS/STT provider 接入资产链；豆包 App ID 与加密 Access Token 已映射到 adapter。真实凭据、网络和配额不属于本地自动化验收 |
 | 图片 Provider 合同 | 已接入 | 使用注册 ID `dall-e`，兼容旧 `openai-image`；Imagen 将数量和宽高映射为 `sampleCount` 与宽高比；远程图片 URL 仅接受 HTTPS，解析结果必须是固定的可公开路由地址；仅已配置且主机名、协议、端口完全匹配的本机 loopback Provider endpoint 可下载；下载响应按流式 25MiB 上限读取，DNS 和远程下载共用 30 秒总预算；ComfyUI 因缺 workflow、轮询和下载输出合同而在 S2V 主链显式失败 |
 | 合成 | 已接入 | Electron + ffmpeg；支持字幕、图片动效、转场、BGM、水印和输出校验 |
@@ -63,11 +63,11 @@ Multi-Publish 现有系统（发布侧）
 | 结果交付/ZIP | 已接入 | 编排完成自动进入结果页；本地播放 URL 由主进程生成，可下载、复制路径、打开目录，并以流式 ZIP 导出 |
 | 本地项目历史 | 已接入 | 完成项目按用户隔离持久化，最多保留 100 项；重启后可恢复成片和分段媒体。失败运行断点续作与云历史不在本地合同内 |
 | 分段项目编辑 | 已接入 | 结果页支持编辑、排序、删除、替换旁白、图片/视频重试和重新合成；不再把旧项目 `batch` 编辑器列为缺失 |
-| 旁白与转录 | 部分实现 | 完整旁白可单独交付；已接语音识别 provider 和逐段手动 STT，仅将应用已导入或项目自有的音频传给 provider；尚无“一次上传音频后自动分场景并生成成片”的专用模式 |
+| 旁白与转录 | 已接入（TTS） | text 标准模式由配置的 TTS Provider 生成逐段旁白并交付完整旁白；上传音频和手动 STT 不属于该模式 |
 | 成片裁剪 | 已接入 | 通过 Python `VideoTrimmer` + ffmpeg 真实裁剪；结果页提供双范围控件和区间预览 |
-| 六种旧模式 | 部分实现 | text/gallery/image、逐段 audio 摄取及后生成 batch 编辑已接入；remix 专用链路仍需可验证的外部 provider |
-| 媒体安全约束 | 已接入 | 图片仅 JPEG/PNG/WebP 且 <=10MB；旁白仅 WAV/M4A/MP3 且 <=50MB；BGM <=15MB；外部文件只在用户明确选择时复制到受控临时区，后续读取和本地交付仅接受 Story2Video 临时区或项目目录 |
-| 时长约束 | 已接入 | 成片 <=10 分钟；上传旁白总时长 <=15 分钟；多段旁白单段 <=3 分钟，合成前通过 ffprobe 二次校验 |
+| 创作模式 | 已收敛 | `story2video-compose` 仅保留 `text`；`image/remix/gallery/audio/batch` 不再作为该流水线的创作模式 |
+| 媒体安全约束 | 已接入 | text 标准模式只直接接收 BGM（<=15MB）；普通流水线与结果页使用的图片/旁白工具仍执行格式、大小和受控路径校验，不构成 Story2Video 创作模式 |
+| 时长约束 | 已接入 | text 标准模式成片 <=10 分钟；普通流水线/结果编辑使用旁白工具时仍执行总时长和单段时长限制，合成前通过 ffprobe 二次校验 |
 
 运行前提：本地可执行 `ffmpeg`；`8002`（分句）和 `8013`（提示词）是外部服务边界，
 未运行时应明确阻断对应阶段。真实多平台发布还需要已配置账号、凭据和
@@ -80,7 +80,7 @@ Multi-Publish 现有系统（发布侧）
 ### 2.1 核心流程
 
 ```
-用户输入（文字/图片/素材/主题）
+用户输入（文字文案/主题）
     │
     ▼
 场景构建器（自动或手动编排场景）
@@ -111,8 +111,7 @@ Multi-Publish 现有系统（发布侧）
 
 | 优先级 | 模式 | 说明 | 输入 | 底层引擎 |
 |--------|------|------|------|---------|
-| **P0** | 文字→视频 | 输入文案自动生成解释视频 | 多行文本 + 主题 | `story2video-compose` 六阶段 + ffmpeg |
-| **P0** | 图片轮播 | 上传图片生成幻灯片视频 | 多张图片 + 主题 | `story2video-compose` 图片摄取 + ffmpeg |
+| **P0** | Story2Video 文字→视频 | 输入文案自动生成分镜、图片、旁白和成片 | 多行文本 + 参数 | `story2video-compose` 六阶段 + ffmpeg |
 | **P1** | 说话头像 | 上传视频 + 文案，生成带字幕的讲话视频 | 视频文件 + 文本 | 独立 Remotion TalkingHead（与 S2V 主链分开） |
 | **P1** | 电影感短片 | 素材视频 → 电影感渲染 | 视频素材 + 描述 | 独立 Remotion CinematicRenderer |
 | **P1** | 标题叠加 | 视频 + 图文标题叠加 | 视频 + 标题文字 | 独立 Remotion TitledVideo |
@@ -121,15 +120,12 @@ Multi-Publish 现有系统（发布侧）
 | **P2** | 屏幕录制 | 录制屏幕 + 自动标注 | 屏幕操作 | 独立工具链（不属于 S2V 六阶段） |
 | **P2** | AI 视频生成 | 文字→AI 生成视频片段 | 描述文字 | 第三方 AI（Hunyuan/Kling 等） |
 
-### 3.1.1 旧 Story2Video 模式对齐状态
+### 3.1.1 Story2Video 标准模式合同
 
-| 旧模式/能力 | 当前状态 | 当前合同 |
+| 模式/能力 | 当前状态 | 当前合同 |
 |-------------|----------|----------|
-| `text` 文案成片 | 已实现 | 分句 → 领域增强（可选）→ prompt-engine → 图片/TTS → ffmpeg |
-| `gallery/image` 图片成片 | 已实现 | JPEG/PNG/WebP、单图 <=10MB；图片转受控 data URL 输入，仍生成或摄取逐段旁白 |
-| `audio` 音频成片 | 部分实现 | WAV/M4A/MP3、单文件 <=50MB；可逐段摄取旁白并手动调用 STT，但未形成全自动“音频识别 → 语义分场景 → 成片”模式 |
-| `batch` 分段管理 | 已实现 | 完成项目可编辑、排序、删除分段，替换旁白，重试图片/视频并重新合成；不复用旧 orchestrator 的云任务语义 |
-| `remix` 视频重混 | 未实现 | Story2Video 主链明确拒绝视频素材输入；需来源视频解析、片段编辑和重新生成适配器 |
+| `text` 文案成片 | 标准模式 | 分句 → 领域增强（可选）→ prompt-engine → 图片/TTS → ffmpeg |
+| `image/remix/gallery/audio/batch` | 排除 | 不属于 `story2video-compose`；普通视频流水线和结果页编辑能力不因此删除 |
 | 单图/单段重试 | 已实现 | 项目结果页可重生目标图片并重新渲染单段视频，也可仅重渲染视频；失败会回滚旧媒体并清理本次临时产物 |
 | 本地结果交付 | 已实现 | 安全本地播放、下载、复制路径、打开目录、流式 ZIP |
 | 合成音频下载 | 已实现 | 完整旁白轨持久化到项目目录并可单独下载；ZIP 同时包含成片、旁白和分段媒体 |
@@ -139,16 +135,32 @@ Multi-Publish 现有系统（发布侧）
 | 音色克隆/外部 Provider | 部分实现 | 常规 provider 的配置、凭据映射和 adapter 调用已接入；音色克隆未实现，真实服务仍需要凭据、网络和配额验收，不能以本地静音降级冒充 |
 | 会员/视频配额 | 外部产品边界 | 旧项目依赖独立 orchestrator 的 membership/quota；当前仅有通用 entitlement 基础，S2V 未按旧套餐扣减视频配额 |
 
-### 3.1.2 输入与时长限制
+### 3.1.2 Text 参数合同
 
-| 输入 | 格式 | 大小 | 时长 |
+| 参数组 | 兼容字段与默认值 | 六阶段映射 |
+|--------|------------------|------------|
+| 基础 | `mode=text`、`prompt` 必填、`size=720x1280`、`seconds=8` | 创建运行前校验；`size` 映射专属输出，`seconds` 保留为兼容目标时长 |
+| 分句 | `language=zh`、`mode=balanced`、`maxSentenceLength=200`、`targetSeconds=6`、`speechRate=1`、`minWords=10`、`maxWords=50` | `split` stage options |
+| 提示词 | `platform=generic`、`style=realistic`、`creativeLevel=5`、`numCandidates=1`、`autoDetectStyle=true` | `optimize` stage options，字段转换为 prompt-engine snake_case |
+| 图片 | `style=cinematic`、`effect=zoom-in`、Provider/模型可选 | `generate_assets` 与 `compose` |
+| 旁白 | 豆包兼容音色 ID、`speed=1`、`volume=1`、`pitch=0`、`emotion=default` | `generate_assets` 与 `compose`；凭据仍由加密 Provider 管理器持有 |
+| 字幕 | `enabled=false`、Noto Sans SC 字体栈、`size=size3`、`style=style1` | `compose`，兼容字号映射后交给 ffmpeg |
+| BGM | `enabled=false`、`volume=5`（兼容范围 0-10） | 启用且有受控路径时转换为 ffmpeg `0-1` 音量 |
+| 版本/效果 | `generateBase=true`、`generateMerged=true`、`perImageDuration=6`、`transition=fade` | 至少选择一个版本；无旁白场景时使用 `perImageDuration` |
+| 输出/发布 | 独立分辨率、FPS、格式；平台、标题、描述、标签、封面可选 | `compose` 与 `publish`，未启用发布时明确 `skipped` |
+
+所有运行参数必须是纯 JSON；归一化器只接受白名单字段并在创建 run 之前拒绝非法值。API Key、Access Token 和 Provider Secret 不得写入运行参数、项目历史或结果清单。
+
+### 3.1.3 媒体工具与时长限制
+
+| 媒体 | 格式 | 大小 | 时长 |
 |------|------|------|------|
-| 图片 | JPEG / PNG / WebP | 单图 <=10MB | 不适用 |
-| 旁白音频 | WAV / M4A / MP3 | 单文件 <=50MB | 总计 <=15 分钟；多文件时单段 <=3 分钟 |
-| 背景音乐 | WAV / M4A / MP3 | 单文件 <=15MB | 成片混音以视频结束为准 |
-| 输出视频 | MP4 / WebM | 由本地磁盘决定 | 所有模式成片 <=10 分钟 |
+| 图片（普通流水线/结果编辑） | JPEG / PNG / WebP | 单图 <=10MB | 不适用 |
+| 旁白音频（结果编辑/STT 工具） | WAV / M4A / MP3 | 单文件 <=50MB | 总计 <=15 分钟；多文件时单段 <=3 分钟 |
+| 背景音乐（text 标准模式） | WAV / M4A / MP3 | 单文件 <=15MB | 成片混音以视频结束为准 |
+| 输出视频 | MP4 / WebM | 由本地磁盘决定 | Story2Video 成片 <=10 分钟 |
 
-前端先检查扩展名和文件大小；可信 preload 将用户选择的音频复制到应用临时目录，
+这些媒体工具不恢复 `image/audio/gallery/batch` 创作模式。前端先检查扩展名和文件大小；可信 preload 将用户选择的音频复制到应用临时目录，
 主进程再做 canonical path、符号链接、大小和 ffprobe 时长检查。任意磁盘文件选择因此
 无需把整个盘符加入白名单。流水线完成、失败或取消时删除导入的临时媒体。
 
@@ -259,8 +271,8 @@ Multi-Publish 现有系统（发布侧）
 ## 五、历史阶段规划与当前补齐项
 
 > 下列 Phase 1-5 是早期 Remotion/Python 路线的规划记录，已完成的部分不再作为当前待办。
-> 当前仍未完全迁移的旧 Story2Video 能力是：`remix` 模式、全自动音频识别创作模式、
-> 音色克隆、旧 orchestrator 会员配额，以及云历史/云分享。已接入的 Provider 仍需在真实
+> `image/remix/gallery/audio/batch` 已明确排除，不再作为 Story2Video 待迁移能力。
+> 当前外部产品缺口只包括音色克隆、旧 orchestrator 会员配额，以及云历史/云分享。已接入的 Provider 仍需在真实
 > 凭据、网络和配额齐全的目标环境完成外部验收。
 > 分段编辑、单段重试、完整旁白、本地项目历史、流式 ZIP 和真实裁剪已经接通；
 > 本地路径操作不等同于云端分享链接。
@@ -277,13 +289,11 @@ Multi-Publish 现有系统（发布侧）
 - 已完成：Python 后端桥接和 YAML 清单；具体 provider 是否可用取决于本地依赖与凭据。
 - S2V 默认使用本地 `AssetGenerator`，外部服务不可用时必须明确失败或降级。
 
-### 当前补齐项（P1/P2）— 旧模式与交付体验
-- [x] `audio` 旁白摄取：多文件逐段输入 → 跳过 TTS → 合成；格式/大小/时长均有双层校验。
-- [x] 逐段语音识别：选择受控音频 → 调用已配置的 speech-recognition provider → 回填文字。
-- [ ] `audio` 自动创作模式：一次上传/录音 → 自动识别 → 按语义拆分多场景并直接生成成片。
-- [x] `batch` 分段管理：编辑/排序/删除分段、替换旁白、图片/视频重试和重新合成。
-- [x] `image` 专用模式：图片输入、无文案场景编排和安全 data URL 摄取。
-- [ ] `remix` 模式：来源视频、片段编辑和重新生成。
+### 当前补齐项（P1/P2）— 交付体验与外部能力
+- [x] text 标准模式：唯一创作输入为文案；图片和逐段旁白由生成阶段产生。
+- [x] 结果页项目编辑：编辑/排序/删除分段、替换旁白、图片/视频重试和重新合成；这不是 `batch` 创作模式。
+- [x] 普通流水线/工具继续支持图片、音频、视频素材和逐段 STT，不受 Story2Video text-only 合同影响。
+- [x] `image/remix/gallery/audio/batch` 明确排除，不计入 Story2Video 功能缺口。
 - [x] 结果页本地交付：预览、下载、完整旁白、逐段媒体、复制路径、打开目录和流式 ZIP 导出。
 - [x] 本地项目历史：用户隔离持久化、最近 100 项、筛选/打开/删除和重启恢复。
 - [x] 真实视频裁剪：双范围选择、区间预览和 ffmpeg 输出校验。
@@ -302,7 +312,9 @@ Multi-Publish 现有系统（发布侧）
 ## 六、验收标准
 
 ### 当前 `story2video-compose` 验收
-- [x] 文案模式和图片模式可通过 CreateView 发起六阶段编排。
+- [x] 仅文案模式可通过 CreateView 发起六阶段编排，图片/音频/视频输入在 UI 和主进程两层被拒绝。
+- [x] 独立 `Story2VideoTextConfig` 覆盖兼容默认值、边界校验、阶段映射和项目持久化。
+- [x] Story2Video 输出配置与其他视频流水线隔离，切换流水线不会继承分辨率或素材状态。
 - [x] 图片动效、转场、字幕、BGM、水印、分辨率/FPS 和 MP4/WebM 输出有自动化合同测试与真实 ffmpeg 验证。
 - [x] 缺失音频时长不会被固定截断；短片段转场会自动收敛或降级。
 - [x] 输出文件必须非空并通过 ffmpeg 解码校验。
@@ -315,7 +327,7 @@ Multi-Publish 现有系统（发布侧）
 - [x] 历史内容在 `contentType=history` 时经过领域增强，富化提示词再进入批量 prompt-engine 优化；完成项目保留 `contentType` 选项。
 - [x] 已选择图片 Provider 时，`dall-e`/Imagen 参数合同有回归测试；ComfyUI 因缺完整输出协议在 S2V 主链 fail-closed。
 - [ ] 8002 分句服务、8013 提示词服务和真实多平台发布需在目标环境单独验收。
-- [ ] remix、全自动音频创作、音色克隆、旧会员配额、云分享和跨设备历史仍需外部能力或产品设计。
+- [ ] 音色克隆、旧会员配额、云分享和跨设备历史仍需外部能力或产品设计；被排除的五种旧模式不计入缺口。
 
 ### 独立 Remotion 快速路径验收（历史设计范围）
 - [x] Composition 注册、参数校验和渲染 IPC 已接入。

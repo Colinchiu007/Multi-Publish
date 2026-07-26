@@ -120,18 +120,18 @@ describe('GoogleSttAdapter — Google Speech-to-Text', () => {
       expect(adapter.supports('generateVideo')).toBe(false)
     })
 
-    it('capabilities() 包含 transcribe（手动添加，非 KNOWN_METHODS）', () => {
+    it('capabilities() 仅包含一个 transcribe', () => {
       const adapter = new GoogleSttAdapter({ id: 'google-stt', apiKey: 'g-test' })
       const caps = adapter.capabilities()
       expect(caps).toContain('transcribe')
+      expect(caps.filter(capability => capability === 'transcribe')).toHaveLength(1)
       expect(caps).toContain('testConnection')
       expect(caps).not.toContain('chatCompletion')
     })
 
-    it('supports("transcribe") 因不在 KNOWN_METHODS 中返回 false', () => {
+    it('supports("transcribe") 返回 true，允许通过 ModelProviderManager 调用', () => {
       const adapter = new GoogleSttAdapter({ id: 'google-stt', apiKey: 'g-test' })
-      // supports() 只对 KNOWN_METHODS 返回 true，transcribe 通过 capabilities() 手动添加
-      expect(adapter.supports('transcribe')).toBe(false)
+      expect(adapter.supports('transcribe')).toBe(true)
     })
   })
 

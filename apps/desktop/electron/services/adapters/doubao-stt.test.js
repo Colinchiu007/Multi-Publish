@@ -134,10 +134,11 @@ describe('DoubaoSttAdapter — 豆包（字节跳动）语音识别', () => {
       expect(adapter.supports('generateImage')).toBe(false)
     })
 
-    it('capabilities() 包含 transcribe', () => {
+    it('capabilities() 仅包含一个 transcribe', () => {
       const adapter = new DoubaoSttAdapter({ id: 'doubao-stt', app_id: 'dou', token: 't' })
       const caps = adapter.capabilities()
       expect(caps).toContain('transcribe')
+      expect(caps.filter(capability => capability === 'transcribe')).toHaveLength(1)
       expect(caps).toContain('testConnection')
       expect(caps).not.toContain('chatCompletion')
     })

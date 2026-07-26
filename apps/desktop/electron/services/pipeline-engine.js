@@ -20,6 +20,10 @@
 const path = require('path');
 const { StageExecutor, STAGE_TYPES } = require('./stage-executor');
 const { cleanupRunInputDir, cleanupImportedMediaPaths } = require('./story2video-paths');
+const {
+  STORY2VIDEO_PIPELINE,
+  normalizeStory2VideoTextParams,
+} = require('./story2video-text-config');
 
 // --- 流水线元数据（与 Python pipeline_defs 同步） ---
 const PIPELINES = [
@@ -129,8 +133,19 @@ const PIPELINES = [
         description: '文案分句',
         checkpointRequired: false,
         options: {
-          // smart-sentence-splitter 选项
-          mode: 'semantic',
+          language: 'zh',
+          mode: 'balanced',
+          max_sentence_length: 200,
+          target_duration: 6,
+          base_words_per_second: 3.3,
+          speech_rate: 1,
+          min_words: 10,
+          max_words: 50,
+          enforce_sentence_boundary: true,
+          overflow_to_next: true,
+          subtitle_min_chars: 8,
+          subtitle_max_chars: 15,
+          subtitle_timing: 'proportional',
         },
         inputFrom: null, // 从 params.text 取
       },
@@ -150,7 +165,14 @@ const PIPELINES = [
         description: '批量提示词优化',
         checkpointRequired: true,
         options: {
+          platform: 'generic',
           style: 'realistic', // 必须是 prompt-engine StyleType 枚举值
+          creative_level: 5,
+          max_length: null,
+          negative_prompt: '',
+          num_candidates: 1,
+          auto_detect_style: true,
+          context: '',
         },
         inputFrom: 'domain_enrich', // 从 context.domain_enrich 取
       },
@@ -162,8 +184,18 @@ const PIPELINES = [
         options: {
           concurrency: 3,
           imageStyle: 'cinematic',
-          aspectRatio: '16:9',
-          voiceId: 'default',
+          imageProvider: null,
+          imageModel: null,
+          aspectRatio: '9:16',
+          voiceId: 'zh_female_qingxinnvsheng_uranus_bigtts',
+          voiceProvider: null,
+          voiceModel: null,
+          voiceSpeed: 1,
+          voicePitch: 0,
+          voiceEmotion: 'default',
+          contentType: 'general',
+          inputMode: 'text',
+          templateId: null,
         },
         // 从 context.optimize + context.split 取（执行器内部处理）
       },
@@ -175,7 +207,34 @@ const PIPELINES = [
         options: {
           // Story2Video 引擎选项
           transition: 'fade',
-          subtitleEnabled: true,
+          imageEffect: 'zoom-in',
+          subtitleEnabled: false,
+          subtitleStyle: {
+            font: '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
+            size: 'md',
+            style: 'style1',
+            color: 'white',
+          },
+          bgmPath: null,
+          bgmVolume: 0.5,
+          voiceVolume: 1,
+          watermark: false,
+          watermarkText: '',
+          watermarkConfig: {
+            enabled: false,
+            text: '',
+            position: 'bottom-right',
+            fontSize: 24,
+            opacity: 0.6,
+            color: 'white',
+          },
+          resolution: '720x1280',
+          fps: 30,
+          format: 'mp4',
+          defaultSceneDuration: 6,
+          generateBase: true,
+          generateMerged: true,
+          seconds: 8,
         },
         inputFrom: 'generate_assets', // 从 context.generate_assets 取
       },
@@ -184,7 +243,14 @@ const PIPELINES = [
         type: 'publish', // 内置 STAGE_TYPES.PUBLISH
         description: '多平台发布',
         checkpointRequired: true,
-        options: {},
+        options: {
+          publishEnabled: false,
+          platforms: [],
+          title: '',
+          content: '',
+          tags: [],
+          coverUrl: '',
+        },
         inputFrom: 'compose', // 从 context.compose 取 videoPath
       },
     ],
@@ -528,6 +594,17 @@ class PipelineEngine {
     params = params || {};
     if (typeof params !== 'object' || Array.isArray(params)) {
       return { success: false, error: 'Pipeline params must be an object' };
+    }
+    if (pipelineName === STORY2VIDEO_PIPELINE) {
+      try {
+        params = normalizeStory2VideoTextParams(params);
+      } catch (error) {
+        try { cleanupImportedMediaPaths(params); } catch (_) { /* 拒绝非法模式时尽力清理已导入媒体。 */ }
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
     const initialContext = params.initialContext !== undefined
       ? params.initialContext

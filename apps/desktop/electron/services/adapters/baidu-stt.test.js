@@ -141,17 +141,18 @@ describe('BaiduSttAdapter — 百度语音识别', () => {
       expect(adapter.supports('generateImage')).toBe(false)
     })
 
-    it('capabilities() 包含 transcribe（手动添加）', () => {
+    it('capabilities() 仅包含一个 transcribe', () => {
       const adapter = new BaiduSttAdapter({ id: 'baidu-stt', apiKey: 'k', apiSecret: 's' })
       const caps = adapter.capabilities()
       expect(caps).toContain('transcribe')
+      expect(caps.filter(capability => capability === 'transcribe')).toHaveLength(1)
       expect(caps).toContain('testConnection')
       expect(caps).not.toContain('chatCompletion')
     })
 
-    it('supports("transcribe") 因不在 KNOWN_METHODS 中返回 false', () => {
+    it('supports("transcribe") 返回 true，允许通过 ModelProviderManager 调用', () => {
       const adapter = new BaiduSttAdapter({ id: 'baidu-stt', apiKey: 'k', apiSecret: 's' })
-      expect(adapter.supports('transcribe')).toBe(false)
+      expect(adapter.supports('transcribe')).toBe(true)
     })
   })
 
