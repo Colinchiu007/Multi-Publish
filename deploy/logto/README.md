@@ -58,6 +58,7 @@ LOGTO_ENDPOINT=https://id.example.com
 LOGTO_API_RESOURCE=https://api.multi-publish.com
 LOGTO_CLIENT_ID=<Logto M2M application id>
 LOGTO_CLIENT_SECRET=<Logto M2M application secret>
+API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
 BUSINESS_DATABASE_URL=postgresql://multi_publish:<password>@db.example.com:5432/multi_publish
 LOGTO_WEBHOOK_SIGNING_KEY=<Logto Webhook signing key>
 LOGTO_WEBHOOK_MAX_EVENT_AGE_SECONDS=900
@@ -66,7 +67,7 @@ ENTITLEMENT_KEY_ID=entitlement-2026-01
 ENTITLEMENT_PRIVATE_KEY=<RSA private key, server only>
 ```
 
-若使用 `packages/api-publish-engine/docker-compose.yml` 启动业务 API，先创建其相对路径的 `config/` 目录，并确保 Linux 主机上该目录可由容器 UID `1001` 写入。Compose 会把它挂载到 `/app/packages/api-publish-engine/config`，这是 API Key 哈希和可选 `publish-api.json` 的实际读写目录；不要挂载到无消费者的 `/app/config`，否则容器重启可能丢失 API Key 状态。
+若使用 `packages/api-publish-engine/docker-compose.yml` 启动业务 API，先创建其相对路径的 `config/` 目录，并确保 Linux 主机上该目录可由容器 UID `1001` 写入。Compose 会把它挂载到 `/app/packages/api-publish-engine/config`，并把 `API_KEYS_PATH` 固定为其中的 `api-keys.json`；这是 API Key 哈希、writer lock 和可选 `publish-api.json` 的实际读写目录。不要挂载到无消费者的 `/app/config`，否则容器重启可能丢失 API Key 状态。同一持久卷只允许一个业务 API writer；横向扩容前必须迁移到具备事务或 CAS 的共享存储。
 
 API 入口在开发模式可自动创建 `identity_*` 表；生产模式只检查 schema readiness。迁移系统使用 `migrations/postgresql/002_logto_identity.sql` 和 `003_logto_webhook_events.sql`，并在 `identity_schema_migrations` 记录 checksum；根目录同名脚本是本地 SQLite 兼容版本，不能在 PostgreSQL 执行。缺少业务数据库、issuer、audience 或任一 M2M 凭据时会 fail closed；身份依赖故障返回 503，不会静默退回 API Key 模式。`ENTITLEMENT_PRIVATE_KEY` 只用于签发绑定 `sub + device_id` 的短期离线快照，绝不能打包到 Electron；桌面端仅配置对应公钥 `ENTITLEMENT_PUBLIC_KEY`。
 

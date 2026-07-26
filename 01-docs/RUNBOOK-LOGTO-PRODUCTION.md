@@ -8,7 +8,8 @@
 1. 在 Secret Store 配置 `deploy/logto/.env.example` 和 `api.env.example` 对应变量，不创建带真实值的仓库文件。必须先在 Logto Admin Console 创建供业务 API 使用的 M2M Application，并把 `LOGTO_CLIENT_ID`、`LOGTO_CLIENT_SECRET` 同时写入 Secret Store；任一缺失都禁止启动生产 API。
 2. 确认 Logto DB 与业务 DB 的主机/数据库组合不同。
 3. 生成 2048 位以上 RSA entitlement 私钥，私钥仅进入业务 API Secret Store。
-4. 在 ECS 部署宿主机先检查根盘；可用空间少于 `5 GiB` 或少于总容量的 `10%` 时停止发布、镜像拉取、备份和迁移，先由运维人员确认可再生日志的保留期后清理。禁止把 `docker system prune`、Docker 卷删除或项目目录删除当作自动恢复手段：
+4. 将 `API_KEYS_PATH` 指向 UID `1001` 可写的持久卷（Compose 默认 `/app/packages/api-publish-engine/config/api-keys.json`），并确认该持久卷只有一个 `publish-api` writer。第二 writer 返回 `API_KEY_WRITER_LOCKED` 时必须停止扩容或重复启动，不能删除锁目录或放宽门禁；横向扩容前迁移到具备事务或 CAS 的共享存储。
+5. 在 ECS 部署宿主机先检查根盘；可用空间少于 `5 GiB` 或少于总容量的 `10%` 时停止发布、镜像拉取、备份和迁移，先由运维人员确认可再生日志的保留期后清理。禁止把 `docker system prune`、Docker 卷删除或项目目录删除当作自动恢复手段：
 
 ```text
 df -Pk / | awk 'NR == 2 {
@@ -19,7 +20,7 @@ df -Pk / | awk 'NR == 2 {
 }'
 ```
 
-5. shadow 阶段运行：
+6. shadow 阶段运行：
 
 ```text
 node packages/api-publish-engine/scripts/validate-production-config.js --phase shadow
@@ -95,6 +96,7 @@ node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.
 IDENTITY_AUTH_ENABLED=true
 IDENTITY_AUTH_REQUIRED=false
 BUSINESS_DATABASE_AUTO_MIGRATE=false
+API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
 LOGTO_CLIENT_ID=<Logto M2M application id>
 LOGTO_CLIENT_SECRET=<Logto M2M application secret>
 ```
@@ -107,6 +109,7 @@ LOGTO_CLIENT_SECRET=<Logto M2M application secret>
 IDENTITY_AUTH_ENABLED=true
 IDENTITY_AUTH_REQUIRED=true
 BUSINESS_DATABASE_AUTO_MIGRATE=false
+API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
 ```
 
 切换前运行 `validate-production-config.js --phase required`。旧 API Key 立即撤销；已排期任务会在执行前重新验证 owner。

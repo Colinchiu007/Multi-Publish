@@ -2,11 +2,72 @@ import { afterEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 
 import * as restorer from './account-state-restorer.js'
 
 const previousUserDataDir = process.env.ELECTRON_USER_DATA_DIR
 let userDataDir
+
+function holdExclusiveWindowsFileLock (filePath, holdMs) {
+  const script = [
+    '& {',
+    'param($file, $holdMs)',
+    '$handle = [IO.File]::Open($file, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)',
+    'try {',
+    '[Console]::Out.WriteLine("LOCKED")',
+    '[Console]::Out.Flush()',
+    'Start-Sleep -Milliseconds ([int]$holdMs)',
+    '} finally { $handle.Dispose() }',
+    '}',
+  ].join('\n')
+  const child = spawn('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    script,
+    filePath,
+    String(holdMs),
+  ], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  let stderr = ''
+  let locked = false
+  let resolveLocked
+  let rejectLocked
+  const lockedPromise = new Promise((resolve, reject) => {
+    resolveLocked = resolve
+    rejectLocked = reject
+  })
+  const exitPromise = new Promise((resolve, reject) => {
+    child.once('error', error => {
+      rejectLocked(error)
+      reject(error)
+    })
+    child.stderr.on('data', chunk => { stderr += chunk.toString() })
+    child.stdout.on('data', chunk => {
+      if (!locked && chunk.toString().includes('LOCKED')) {
+        locked = true
+        resolveLocked()
+      }
+    })
+    child.once('exit', code => {
+      if (!locked) rejectLocked(new Error(`PowerShell exited before locking the file: ${stderr}`))
+      if (code === 0) resolve()
+      else reject(new Error(`PowerShell file lock exited with code ${code}: ${stderr}`))
+    })
+  })
+
+  return lockedPromise.then(
+    () => ({ exitPromise }),
+    async error => {
+      try { await exitPromise } catch (_) { /* 原始锁定错误包含更完整的上下文 */ }
+      throw error
+    },
+  )
+}
 
 afterEach(() => {
   if (previousUserDataDir === undefined) delete process.env.ELECTRON_USER_DATA_DIR
@@ -105,6 +166,36 @@ describe('account-state-restorer', () => {
       accountInfo: { nickname: '知乎' },
     }))
   })
+
+  if (process.platform === 'win32') {
+    it('遗留状态文件被 Windows 短暂占用时会在释放后完成原子脱敏迁移', async () => {
+      userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-state-'))
+      process.env.ELECTRON_USER_DATA_DIR = userDataDir
+      const dir = path.join(userDataDir, 'accounts')
+      const statePath = path.join(dir, 'state.jsonl')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(statePath, JSON.stringify({
+        accountId: 'acct-locked-legacy',
+        platform: 'zhihu',
+        cookies: [{ name: 'session', value: 'locked-secret' }],
+        accountInfo: { nickname: '知乎' },
+      }) + '\n', 'utf8')
+
+      const { exitPromise } = await holdExclusiveWindowsFileLock(statePath, 250)
+      try {
+        restorer.init()
+      } finally {
+        await exitPromise
+      }
+
+      const state = fs.readFileSync(statePath, 'utf8')
+      expect(state).not.toContain('locked-secret')
+      expect(JSON.parse(state)).toEqual(expect.objectContaining({
+        accountId: 'acct-locked-legacy',
+        platform: 'zhihu',
+      }))
+    })
+  }
 
   it('按账号 ID 删除所有平台的历史状态记录', () => {
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-state-'))

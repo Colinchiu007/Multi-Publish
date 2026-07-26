@@ -86,6 +86,7 @@ async function main() {
     host: config.host,
     dryRun: config.dryRun,
     apiKey: config.apiKey,
+    keysPath: config.keysPath,
     maxRpm: config.maxRpm,
     enableSchedule: config.enableSchedule,
     auditLogFile: config.auditLogFile,

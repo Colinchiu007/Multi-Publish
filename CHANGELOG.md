@@ -12,6 +12,18 @@
 - introspection endpoint 在发送 M2M Secret 前必须通过 HTTPS、同源和 userinfo 校验，且鉴权与生产 smoke 请求拒绝 HTTP 重定向；production smoke 也会在请求 JWKS 前完成同源校验，仅同源 loopback 开发环境允许 HTTP。
 - Token 缓存改用 SHA-256 指纹，同 Token 并发请求合并；API 测试 runner 固定为单 Vitest worker 并关闭文件并行。
 - 流水线 E2E 按用户可见的「已完成」状态验收，修复内部英文枚举与本地化文案不一致造成的稳定失败。
+- Electron GUI runner 改用 45 秒条件等待主窗口，覆盖可选 Python bridge 缺依赖时的两阶段降级启动，不再在窗口创建前误报失败。
+- Story2Video 音频阶段测试按 canonical realpath 判断文件身份，兼容 Windows Runner 的 8.3 短路径与长路径别名。
+- API Key 管理器测试改用每进程唯一的系统临时文件，避免多个本地会话并发运行时争用同一原子写临时文件。
+- API Key 原子保存会对 Windows 杀毒软件、索引器造成的短暂 `EPERM/EACCES/EBUSY` 做有界退避，避免有效请求偶发返回存储错误。
+- Windows 上账号状态脱敏迁移与全文重写会对杀毒软件、索引器造成的短暂 `EPERM/EACCES/EBUSY` 做有界退避；保留原子替换，永久文件错误仍按原路径失败。
+- Windows 上系统保护主密钥、主密钥备份和账号加密凭据的原子替换采用同一有界退避，避免短暂文件锁导致凭据迁移或保存失败。
+- 自动更新器在主窗口关闭后重建时复用全局事件监听器，并把状态目标切换到新窗口，避免重复更新通知和旧窗口引用泄漏。
+- 业务 API 使用 `proper-lockfile@4.1.2` 对同一 API Key 持久卷实施单 writer 所有权；第二实例返回 `API_KEY_WRITER_LOCKED`，监听失败和停止后可安全接管，重复启动同一实例会被拒绝。
+- 新增 `API_KEYS_PATH` 运行时配置，Docker Compose 显式指向 UID `1001` 可写的 `config/api-keys.json`；API 测试服务器统一使用停止后清理的唯一临时 Key 存储。
+- Story2Video 桌面安装包固定内置完整 FFmpeg/ffprobe，并在 `beforePack` 按资产锁校验字节数/SHA-256、真实编码器、滤镜、目标平台和许可证材料；有效安装包运行时强制优先从 `resources/media-tools` 解析，不允许环境变量覆盖锁定资源，也不会误用 Playwright 裁剪版。
+- 新增 FFmpeg 第三方声明与 GPLv3+ 发布约束；公开分发前仍需确认对应源码和构建材料的提供方式。
+- 业务 API Docker runner 合同测试改用系统临时目录和逐文件 staging，避免 Windows 受控工作树的权限差异造成假失败。
 
 ---
 

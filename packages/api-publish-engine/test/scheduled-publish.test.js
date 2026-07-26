@@ -1,12 +1,19 @@
 const assert = require("assert");
+const crypto = require("crypto");
+const os = require("os");
 const path = require("path");
 const fs2 = require("fs");
 var mod; try { mod = require("../src/scheduled-publish"); } catch(e) { mod = null; }
 var ScheduledPublish = mod ? mod.ScheduledPublish : null;
-var sf = path.join(__dirname, ".sched-" + Date.now() + ".json");
-var p = 0, f = 0;
-function t(n, fn) { try { fn(); p++; console.log("  \u2705 " + n); } catch(e) { f++; console.log("  \u274C " + n + ": " + e.message); } }
+var sf = path.join(os.tmpdir(), ".sched-" + process.pid + "-" + crypto.randomUUID() + ".json");
+var tests = [];
+function t(n, fn) { tests.push([n, fn]); }
 function eq(a, b) { assert.deepStrictEqual(a, b); }
+function cleanupStorage() {
+  for (const filePath of [sf, sf + ".tmp"]) {
+    try { fs2.unlinkSync(filePath); } catch(e) {}
+  }
+}
 console.log("--- Structure ---");
 t("ScheduledPublish is exported", function() { eq(typeof ScheduledPublish, "function"); });
 if (!ScheduledPublish) { console.log("SKIP: module not loaded"); process.exit(1); }
@@ -68,6 +75,21 @@ t("all entry fields present", async function() {
   eq(/^\d{4}-\d{2}-\d{2}T/.test(e.scheduledAt), true); eq(/^\d{4}-\d{2}-\d{2}T/.test(e.createdAt), true);
   await sp.stop();
 });
-console.log("\n========== Result: " + p + "/" + (p + f) + " ==========");
-if(f)process.exit(1);
-try { fs2.unlinkSync(sf); } catch(e) {}
+(async function run() {
+  var p = 0, f = 0;
+  for (const [name, fn] of tests) {
+    cleanupStorage();
+    try {
+      await fn();
+      p++;
+      console.log("  \u2705 " + name);
+    } catch(e) {
+      f++;
+      console.log("  \u274C " + name + ": " + e.message);
+    } finally {
+      cleanupStorage();
+    }
+  }
+  console.log("\n========== Result: " + p + "/" + (p + f) + " ==========");
+  if(f) process.exitCode = 1;
+})();

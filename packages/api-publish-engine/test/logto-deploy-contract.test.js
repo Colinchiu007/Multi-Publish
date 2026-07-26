@@ -1,13 +1,27 @@
 const assert = require('assert')
 const { spawnSync } = require('child_process')
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const yaml = require('js-yaml')
+
+function copyTree(sourcePath, destinationPath) {
+  const stat = fs.lstatSync(sourcePath)
+  if (stat.isDirectory()) {
+    fs.mkdirSync(destinationPath, { recursive: true })
+    for (const entry of fs.readdirSync(sourcePath)) {
+      copyTree(path.join(sourcePath, entry), path.join(destinationPath, entry))
+    }
+    return
+  }
+  fs.mkdirSync(path.dirname(destinationPath), { recursive: true })
+  fs.copyFileSync(sourcePath, destinationPath)
+}
 
 function stageDockerRunner(dockerfile, repositoryRoot) {
   const runner = dockerfile.split(/FROM\s+\S+\s+AS\s+runner\s*/i)[1]
   assert(runner, 'Dockerfile 必须包含 runner stage')
-  const stagingRoot = fs.mkdtempSync(path.join(repositoryRoot, '.publish-api-runner-'))
+  const stagingRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-api-runner-'))
   const copies = [...runner.matchAll(/^COPY\s+(?!.*--from=)(?:--chown=\S+\s+)?(\S+)\s+(\S+)\s*$/gm)]
   assert(copies.length > 0, 'runner stage 必须包含本地 COPY 指令')
 
@@ -15,7 +29,7 @@ function stageDockerRunner(dockerfile, repositoryRoot) {
     const sourcePath = path.resolve(repositoryRoot, source)
     assert(fs.existsSync(sourcePath), `Docker COPY 源不存在：${source}`)
     const relativeDestination = destination.replace(/^\.\//, '').replace(/^\/app\/?/, '')
-    fs.cpSync(sourcePath, path.join(stagingRoot, relativeDestination), { recursive: true })
+    copyTree(sourcePath, path.join(stagingRoot, relativeDestination))
   }
   return stagingRoot
 }
@@ -45,6 +59,7 @@ for (const variable of [
 }
 assert.match(apiEnv, /^BUSINESS_DATABASE_AUTO_MIGRATE=false$/m)
 assert.match(apiEnv, /^HOST=0\.0\.0\.0$/m)
+assert.match(apiEnv, /^API_KEYS_PATH=\/app\/packages\/api-publish-engine\/config\/api-keys\.json$/m)
 assert.match(apiEnv, /^LOGTO_COMPOSE_NETWORK=multi-publish-logto_default$/m)
 assert.doesNotMatch(apiEnv, /^PUBLISH_API_HOST_PORT=/m)
 
@@ -84,6 +99,7 @@ assert.doesNotMatch(composeHealthcheck, /\/api\/v1\/health/)
 for (const required of [
   'NODE_ENV=production',
   'MULTI_PUBLISH_PLUGINS_DIR=/app/data/plugins',
+  'API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json',
   'IDENTITY_AUTH_ENABLED=${IDENTITY_AUTH_ENABLED:?请设置 IDENTITY_AUTH_ENABLED}',
   'BUSINESS_DATABASE_AUTO_MIGRATE=false',
   'BUSINESS_DATABASE_URL=${BUSINESS_DATABASE_URL:?请设置 BUSINESS_DATABASE_URL}',

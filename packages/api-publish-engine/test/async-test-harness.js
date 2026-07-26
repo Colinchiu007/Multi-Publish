@@ -8,6 +8,12 @@ function createHarness() {
   }
 
   async function run() {
+    if (cases.length === 0) {
+      console.error('  ❌ 未注册任何测试用例')
+      process.exitCode = 1
+      return { passed: 0, failed: 1 }
+    }
+
     let passed = 0
     let failed = 0
     for (const testCase of cases) {

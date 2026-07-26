@@ -54,10 +54,27 @@ function requestPath(req) {
   return String(req && req.url ? req.url : "/").split("?", 1)[0];
 }
 
+function serverAlreadyStartedError() {
+  return Object.assign(new Error("PublishApiServer 已启动或正在启动"), {
+    code: "API_SERVER_ALREADY_STARTED",
+  });
+}
+
+function closeHttpServer(server) {
+  if (!server) return Promise.resolve();
+  return new Promise(function(resolve, reject) {
+    server.close(function(error) {
+      if (!error || error.code === "ERR_SERVER_NOT_RUNNING") resolve();
+      else reject(error);
+    });
+  });
+}
+
 class PublishApiServer {
   constructor(opts) {
     this._opts = opts || {};
     this._server = null;
+    this._startPromise = null;
     this._apiKey = this._opts.apiKey || null
     this._logtoVerifier = this._opts.logtoVerifier || null
     this._identityAuthRequired = this._logtoVerifier ? this._opts.identityAuthRequired !== false : false
@@ -68,11 +85,7 @@ class PublishApiServer {
     this._readinessProbe = this._opts.readinessProbe || null
     this._publishViaApi = typeof this._opts.publishViaApi === "function" ? this._opts.publishViaApi : publishViaApi
     this._keyManager = new ApiKeyManager(this._opts.keysPath)
-    // 将配置型 Key 以原值纳入统一管理，磁盘上只保存哈希。
-    if (this._apiKey && this._opts.autoMigrate !== false) {
-      this._keyManager.load()
-      this._keyManager.ensureKey(this._apiKey, "migrated-from-config", ["*"])
-    };
+    this._autoMigrateApiKey = Boolean(this._apiKey && this._opts.autoMigrate !== false)
     this._scheduler = null;
     this._webhookManager = new WebhookManager();
     this._auditLog = new AuditLog({ storageFile: this._opts.auditLogFile || null });
@@ -92,46 +105,82 @@ class PublishApiServer {
   }
 
   start(port) {
-    var self = this;
-    return new Promise(function(resolve, reject) {
-      self._server = http.createServer(function(req, res) {
-        self._handle(req, res);
-      });
-      self._server.on("error", reject);
-      // 本地默认仅绑定回环；容器部署必须显式传入 host=0.0.0.0。
-      self._server.listen(port, self._opts.host || "127.0.0.1", function() {
-        self._startedAt = new Date().toISOString();
-        if (self._scheduler) self._scheduler.start();
-        // Register process signal handlers for graceful shutdown
-        self._processSignals = [];
-        function onSig() { self.stop(); }
-        self._processSignals.push(["SIGTERM", onSig]);
-        self._processSignals.push(["SIGINT", onSig]);
-        process.on("SIGTERM", onSig);
-        process.on("SIGINT", onSig);
-        resolve(self._server.address().port);
-      });
+    if (this._server || this._startPromise) return Promise.reject(serverAlreadyStartedError());
+    const attempt = this._startOnce(port);
+    this._startPromise = attempt;
+    return attempt.finally(() => {
+      if (this._startPromise === attempt) this._startPromise = null;
     });
   }
 
-  stop() {
+  async _startOnce(port) {
     var self = this;
-    return new Promise(function(resolve) {
-      if (self._scheduler) self._scheduler.stop();
-      if (self._rateLimiter) self._rateLimiter.stop();
-      if (self._processSignals) {
-        for (var i = 0; i < self._processSignals.length; i++) {
-          process.removeListener(self._processSignals[i][0], self._processSignals[i][1]);
-        }
-        self._processSignals = null;
+    await this._keyManager.acquireWriterLock()
+    try {
+      // 将配置型 Key 以原值纳入统一管理，磁盘上只保存哈希。
+      if (this._autoMigrateApiKey) {
+        this._keyManager.load()
+        this._keyManager.ensureKey(this._apiKey, "migrated-from-config", ["*"])
       }
-      if (self._server) {
-        self._server.close(function() { resolve(); });
-        self._server = null;
-      } else {
-        resolve();
+      return await new Promise(function(resolve, reject) {
+        self._server = http.createServer(function(req, res) {
+          self._handle(req, res);
+        });
+        self._server.once("error", reject);
+        // 本地默认仅绑定回环；容器部署必须显式传入 host=0.0.0.0。
+        self._server.listen(port, self._opts.host || "127.0.0.1", function() {
+          self._startedAt = new Date().toISOString();
+          if (self._scheduler) self._scheduler.start();
+          // Register process signal handlers for graceful shutdown
+          self._processSignals = [];
+          function onSig() { self.stop(); }
+          self._processSignals.push(["SIGTERM", onSig]);
+          self._processSignals.push(["SIGINT", onSig]);
+          process.on("SIGTERM", onSig);
+          process.on("SIGINT", onSig);
+          resolve(self._server.address().port);
+        });
+      });
+    } catch (error) {
+      var failedServer = this._server
+      this._server = null
+      try {
+        await closeHttpServer(failedServer)
+      } catch (cleanupError) {
+        error.cleanupError = cleanupError
       }
-    });
+      try {
+        await this._keyManager.releaseWriterLock()
+      } catch (releaseError) {
+        error.releaseError = releaseError
+      }
+      throw error
+    }
+  }
+
+  async stop() {
+    var self = this;
+    var pendingStart = self._startPromise;
+    if (pendingStart) {
+      try { await pendingStart; } catch (error) { /* start() 已负责释放锁并保留原始错误 */ }
+    }
+    if (self._scheduler) self._scheduler.stop();
+    if (self._rateLimiter) self._rateLimiter.stop();
+    if (self._processSignals) {
+      for (var i = 0; i < self._processSignals.length; i++) {
+        process.removeListener(self._processSignals[i][0], self._processSignals[i][1]);
+      }
+      self._processSignals = null;
+    }
+    var server = self._server;
+    self._server = null;
+    try {
+      if (server) {
+        await closeHttpServer(server);
+      }
+    } finally {
+      await self._keyManager.releaseWriterLock()
+    }
   }
 
   _parseBody(req) {

@@ -257,13 +257,14 @@ async function main() {
     }
     return { ok: true, json: async () => ({ keys: [{ ...jwk, kid: 'key-1', alg: 'RS256', use: 'sig' }] }) }
   }
+  let currentClockMs = 150000
   const introspectionVerifier = createLogtoJwtVerifier({
     issuer, audience,
     clientId: 'm2m-client-id',
     clientSecret: 'm2m-client-secret',
     fetcher: introspectionFetcher,
     now: () => 150,
-    clockMs: () => 150000,
+    clockMs: () => currentClockMs,
     introspectionCacheTtlMs: 1000,
   })
   const introspectionResult = await introspectionVerifier.verify('opaque-active-token')
@@ -293,6 +294,13 @@ async function main() {
   assert([...introspectionVerifier._introspectionCache.keys()].every((key) => /^[A-Za-z0-9_-]{43}$/.test(key)),
     '缓存键必须使用固定长度的 SHA-256 指纹')
   console.log('  ✅ Opaque Token introspection 结果缓存生效')
+
+  // 缓存 TTL 到期后必须重新 introspection，不能永久复用旧授权结果。
+  currentClockMs += 1001
+  const refreshedResult = await introspectionVerifier.verify('opaque-active-token')
+  assert.deepStrictEqual(refreshedResult, { subject: 'sub-opaque', scopes: ['profile:read', 'publish:submit'] })
+  assert.strictEqual(introspectionCalls.length, 2, '缓存 TTL 到期后必须重新调用 introspection')
+  console.log('  ✅ Opaque Token 缓存到期后重新 introspection')
 
   // Opaque Token 的语法不受 JWT 三段格式约束；带两个点也必须走 introspection。
   const callsBeforeDottedOpaque = introspectionCalls.length

@@ -4032,3 +4032,176 @@ SHA-256 缓存键和 in-flight 合并、JOSE header 类型判定，以及 `nbf` 
 
 `AGENTS.md` QM-2 已增加 Token 类型判定、打包权限模式、Adapter 能力注册表同步和 E2E 渲染语义四项规则；
 PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁和 Electron QM-1，不再用聚焦测试替代。
+
+### GUI CI 主窗口等待合同复盘
+
+1. **第一性原因**：`49ac2b6` 在 2026-07-02 将 `findMainWindow()` 固定为 15 次一秒轮询；`2d509ab`
+   在 2026-07-22 把 Python backend 健康检查和 Splitter/Prompt bridge 健康检查串行放到 `createWindow()` 之前，
+   却没有同步更新 GUI runner 的等待预算。Linux Runner 缺少 `numpy`、`splitter` 和 `prompt_engine` 时，两阶段
+   各等待约 10 秒，GUI runner 会在主窗口按降级合同创建前先失败。
+2. **测试逃逸链**：单元层没有“第 15 秒后才建窗”的用例；bridge 集成测试使用 mock，失败会立即 settle；浏览器
+   E2E 只连接 Vite，不启动 Electron；视觉测试不经过主进程；代码审查没有比较测试 timeout 与启动阶段 timeout
+   的总预算。由此形成“各层独立通过、真实 GUI CI 稳定超时”的系统性漏洞。
+3. **系统性漏洞**：窗口 readiness 的固定循环次数与启动编排完全解耦，也没有假时钟边界测试；workflow 只验证
+   `python-backend` 的部分 import，无法提供两个外部 sidecar，因此缺依赖的降级启动是 CI 的正常路径而非偶发环境噪声。
+4. **修复与回归保护**：新增 `tests/test-helpers.test.js`，用假时钟复现窗口在第 16 秒后出现时旧实现返回
+   `undefined` 的 RED；`findMainWindow()` 改为 45 秒 deadline 条件轮询后，与既有 GUI 退出合同共 30/30 GREEN。
+5. **预防措施**：`AGENTS.md` QM-2 增加 GUI 启动等待预算规则。今后改变 bridge 顺序、健康检查 timeout 或窗口创建
+   时机时，必须同步更新条件等待合同与假时钟边界测试；不得用静默跳过 sidecar 的测试专用开关掩盖启动路径。
+
+### Windows 8.3 路径别名测试逃逸复盘
+
+1. **第一性原因**：`e1b46eb` 同时引入了 Story2Video 媒体摄取的 canonical 路径安全合同和音频阶段测试，
+   但测试把 `importUserSelectedMedia()` 返回的原始目标字符串直接与阶段输出比较。生产路径会经过
+   `resolveReadableMediaFile()` 并返回 `fs.realpathSync.native()`；GitHub Windows Runner 的临时目录环境值使用
+   `C:\Users\RUNNER~1`，真实路径返回 `C:\Users\runneradmin`，二者指向同一文件却被断言误判。
+2. **测试逃逸链**：单元测试只在本机长路径临时目录运行；集成和 E2E 不构造 Windows 8.3 别名；视觉测试不检查
+   文件路径；代码审查关注受控根和 symlink 防护，没有核对测试断言是否匹配 canonical 输出合同。两个并行
+   Quality Gate 在同一断言上稳定 RED，证明这不是 30 分钟 watchdog 超时。
+3. **系统性漏洞**：跨平台测试没有统一的“文件身份”断言规则，`path.resolve()` 与字符串相等都不能消除 Windows
+   短路径、长路径和 junction 的别名差异，导致安全规范化正确时仍可能产生环境相关假失败。
+4. **修复与回归保护**：保留真实文件复制、受控目录校验、场景索引和声明时长断言；仅将 `audioPath` 比较改为
+   对实际值和 `imported.path` 同时执行 `fs.realpathSync.native()`。回归直接使用真实文件系统，不 mock 路径解析。
+5. **预防措施**：`AGENTS.md` QM-2 增加 Windows 路径身份断言规则。生产代码返回 canonical 路径时，测试必须比较
+   双方 realpath；不得用 `path.resolve()`、`path.normalize()` 或放宽白名单安全检查来规避平台差异。
+
+### API Key 测试固定路径并发争用复盘
+
+1. **第一性原因**：`876dc07` 将 API Key 管理器测试固定到仓库内 `.test-api-keys.json`；`3240938` 为生产安全
+   引入 final/tmp 原子写，但测试仍让所有进程共享同一 final 和 `.tmp`。两个本地 runner 重叠时会互相删除或覆盖
+   文件，Windows `renameSync()` 最终以 `EPERM` 失败。
+2. **测试逃逸链**：单进程直接测试按文件串行；包级 runner 也使用 `spawnSync`；GitHub job 各有独立 workspace；
+   因而单会话单元、集成、E2E、视觉和常规审查都不会触发跨进程共享路径冲突。完整本地 workspace 与另一本地 runner
+   重叠时才在 `testListKeys` 第二次保存命中竞争窗口。
+3. **系统性漏洞**：文件系统测试没有强制使用每进程唯一临时目录，也只清理 final、不清理原子写 `.tmp`；
+   失败进程留下的状态会影响后续会话，尤其不适合多代理和多终端并行开发。
+4. **修复与回归保护**：测试存储改为 `os.tmpdir()` 下包含 PID 和 UUID 的唯一文件；setup/teardown 同时清理
+   final 与 `.tmp`。生产 `ApiKeyManager` 的原子写安全语义保持不变。
+5. **预防措施**：`AGENTS.md` QM-2 增加文件系统测试隔离规则。任何会写磁盘的测试都必须使用独立临时路径，
+   原子写测试必须成对清理最终文件与中间文件；不得依赖仓库内固定隐藏文件作为测试状态。
+
+### API Key 多进程 writer 冲突复盘
+
+1. **第一性原因**：`876dc07` 首次引入 JSON API Key 管理器时没有定义进程所有权；`3240938` 把保存改为固定
+   `.tmp` 加原子 rename，只保证单次替换完整，不能防止两个 manager 互相覆盖；`e4496571` 又让每个
+   `PublishApiServer` 实例独立创建 manager。多个服务指向同一个默认 `config/api-keys.json` 时，撤销、创建和
+   `lastUsed` 更新都可能丢失，固定 `.tmp` 还会产生 rename 竞争。
+2. **测试逃逸链**：manager 单元测试只顺序重启实例；API 集成测试没有同时启动同路径的两个真实 server；端到端和
+   视觉测试不启动两个业务 API 进程；Compose 默认单副本使部署 smoke 无法触发；代码审查只验证原子写与损坏存储
+   fail closed，没有审查持久卷 writer 所有权。旧 `api-key-auth.test.js` 还同步统计 async callback，先打印通过再产生
+   未处理拒绝，进一步掩盖了真实锁竞争。
+3. **系统性漏洞**：JSON 持久化没有“启动前取得跨进程锁、失败和停止时释放”的生命周期合同，CLI 也不能显式配置
+   Key 存储路径；大量服务器测试隐式写仓库默认路径，既污染状态又无法区分预期的锁冲突与夹具冲突。
+4. **修复与回归保护**：业务 API 直接依赖 `proper-lockfile@4.1.2`，在自动迁移和监听前取得锁；同路径第二 writer
+   返回 `API_KEY_WRITER_LOCKED`，监听失败和 `stop()` 释放锁，同一实例重复 `start()` 返回
+   `API_SERVER_ALREADY_STARTED`。回归使用真实文件系统和真实 HTTP server 覆盖第二 writer 拒绝、停止后接管、
+   端口占用失败后接管、启动期间停止及重复启动。`API_KEYS_PATH` 现可由环境变量配置，Compose 固定到持久卷；普通 API 测试统一
+   使用唯一临时目录并在停止后清理，async harness 会真实等待 callback。
+5. **预防措施**：`AGENTS.md` QM-2 增加 API Key 单 writer 合同，部署合同断言 `API_KEYS_PATH` 与持久卷一致，
+   `.quality-gates.md` 分开记录“单 writer 锁已通过”和“横向多 writer 仍待事务存储”。文件锁不提供跨副本的事务或
+   CAS 语义；需要横向扩容时必须先迁移共享存储，不能通过放宽锁、随机 `.tmp` 或重试第二 writer 伪造支持。
+
+### Story2Video 安装包缺少完整 FFmpeg/ffprobe 复盘
+
+1. **第一性原因**：`e39e22c` 在 2026-07-14 首次加入真实视频合成时，只实现了 `FFMPEG_PATH`、系统 `PATH`
+   和常见开发机目录探测；该提交没有增加桌面生产依赖或 `extraResources`。`e1b46eb` 在 2026-07-23 扩展
+   ffprobe、时长校验和媒体安全后仍沿用宿主探测，因此源码工作树能合成，不等于干净安装的应用携带媒体工具。
+2. **测试逃逸链**：单元测试大量注入 `execFile` 或在找不到系统 FFmpeg 时 skip；集成层只证明开发机上的真实
+   FFmpeg 能处理样例；E2E/视觉层不执行打包后的 Story2Video；QM-1 只检查 ASAR、RPA require 和进程存活，
+   又把 Playwright 自带的裁剪版 `ffmpeg-win64.exe` 误记为产品媒体能力。代码审查没有检查 `resources/media-tools`
+   以及 ffprobe、编码器和滤镜闭包，五层门禁都未拦住。
+3. **系统性漏洞**：发布验证把“构建主机能找到可执行文件”与“安装包携带目标平台可执行文件”混为一谈；同时
+   未区分 Playwright 裁剪版、Remotion 定制版和 Story2Video 所需完整构建，也没有使用 electron-builder 的目标
+   平台/架构上下文，交叉构建可能静默混入错误平台二进制。
+4. **修复与回归保护**：新增 `media-tool-paths.js`，有效安装包无条件优先解析 `resources/media-tools`，只有未找到打包资源的开发环境才回退到环境变量、直接依赖和系统路径；
+   固定直接生产依赖 `ffmpeg-ffprobe-static@6.1.2-rc.1`。`beforePack` 按目标平台/架构执行 staging，并拒绝非原生
+   交叉构建；staging 真实检查 `libx264`、AAC/MP3/PNG 编码器、Story2Video 所需滤镜及 ffprobe，再复制二进制、
+   二进制许可证、包装层许可证、来源说明和第三方声明。回归覆盖 resolver 优先级、缺失失败关闭、目标不匹配、
+   真实依赖能力和 electron-builder hook 参数传递。
+5. **预防措施**：`AGENTS.md` QM-2 与 `.quality-gates.md` 增加媒体工具资源闭包规则。任何 Story2Video 媒体命令、
+   `beforePack` 或 `extraResources` 变更，都必须在目标平台打包后检查 `resources/media-tools/ffmpeg(.exe)`、
+   `ffprobe(.exe)` 和许可证材料，按 `media-tools-lock.json` 校验字节数/SHA-256，执行能力清单，并在隔离用户目录中
+   完成真实短视频生成与 ffprobe 解码；宿主 PATH、Playwright/Remotion 二进制或单纯进程存活不能替代该门禁。
+
+供应链与许可证边界：`postinstall` 下载的 Windows/Linux x64 二进制由仓库资产锁固定 SHA-256；未登记平台直接失败。
+当前 Windows x64 构建包含 `--enable-gpl --enable-version3`，技术门禁按 GPLv3+ 处理并随包保留 GPLv3 原文和声明。
+公开分发前，发布负责人仍须完成对应源码/构建材料提供方式和法律审查；本次代码修复不把许可证合规自动标记为完成。
+
+独立安全复审进一步发现，若让 `FFMPEG_PATH`/`FFPROBE_PATH` 覆盖有效打包资源，本地父进程即可绕过资产锁选择任意可执行文件。回归现已固定“打包资源优先、环境变量仅开发回退”，并覆盖目标 Windows drive 路径下的 ffprobe sibling 解析。
+
+### Windows 账号状态原子替换瞬时锁复盘
+
+1. **第一性原因**：`d991fea` 为避免账号 JSONL 全文重写中断时丢失数据，引入“写临时文件后
+   `renameSync`”的原子替换；`44e2c6e` 又把同一模式用于启动时的遗留明文凭据脱敏。两次改动的原子性意图
+   正确，但都假设 Windows 目标文件不会被杀毒软件或索引器短暂占用，没有处理系统返回的瞬时
+   `EPERM/EACCES/EBUSY`。启动迁移没有上层容错，因此一次短锁就会让初始化失败。
+2. **测试逃逸链**：普通单元测试只在无竞争的临时目录中顺序读写；集成测试没有持有真实 Windows 文件句柄；
+   Electron E2E 使用新用户目录，不触发遗留记录迁移；视觉测试不经过主进程文件迁移；代码审查只检查了原子性，
+   没有检查 Windows delete-share 冲突。根全量偶发失败后，定向连续 10 次得到 1 次 `EPERM`、9 次通过，证明
+   它是可复现的环境竞态，不是业务断言漂移。
+3. **系统性漏洞**：项目把“原子替换不会产生半文件”误等同于“原子替换不会暂时失败”，且没有面向真实 OS 锁的
+   回归模式。相同模块四个全文重写点都直接调用 `renameSync`，修单一调用点会留下同类风险。
+4. **修复与回归保护**：`account-state-restorer.js` 统一使用同步原子重命名 helper；仅在 Windows 且错误码为
+   `EPERM`、`EACCES`、`EBUSY` 时按 20/40/80/160/320/640ms 有界退避，预算耗尽或其他错误仍原样抛出。
+   `account-state-restorer.test.js` 用真实 PowerShell `FileStream` 允许读取但拒绝 delete-share，先稳定复现
+   `renameSync` RED，再验证锁释放后脱敏迁移完成且敏感字段消失；不 mock `fs.renameSync`。
+5. **预防措施**：`AGENTS.md` QM-2 新增 Windows 原子文件替换规则。今后修改用户状态迁移或全文重写时，必须保留
+   临时文件 + rename 原子语义，只对已知瞬时锁错误做短、有界重试，并使用真实文件句柄冲突回归；禁止无限重试、
+   直接覆盖或吞掉磁盘、权限、路径等永久错误。
+
+### AutoUpdater 窗口重建监听器累积复盘
+
+1. **第一性原因**：`847cdf30` 首次实现自动更新时，在每次 `init()` 中向进程级 `electron-updater` 单例注册六个
+   事件监听器；`81023141` 为修复重复初始化增加 `_mainWin === win` 守卫，但只覆盖同一个 BrowserWindow。
+   macOS 关闭窗口后通过 `activate` 创建新窗口时对象身份变化，守卫失效，旧监听器继续存活并与新监听器一起读取
+   模块级窗口和回调，导致一次 updater 事件被重复发送。
+2. **测试逃逸链**：单元测试每次只初始化一个窗口；窗口集成测试不触发 macOS `activate` 重建；浏览器 E2E 不运行
+   Electron 的全局 updater；视觉回归不观察事件监听器数量；Windows QM-1 只经历单次主窗口创建；此前审查看到
+   “防止重复 init”注释后没有验证不同窗口身份。因而同窗重复调用通过，跨窗口泄漏没有被任何层拦住。
+3. **系统性漏洞**：初始化函数把“当前状态发送目标”和“进程级监听器是否已经绑定”错误地绑在窗口对象身份上，
+   测试也只验证错误降级文案，没有覆盖 Electron 全局单例与 BrowserWindow 生命周期不同步的合同。
+4. **修复与回归保护**：`init()` 每次都更新当前窗口和状态回调，只在模块生命周期首次调用时注册六个 updater 事件。
+   新增双窗口回归，旧实现稳定得到 13 次 `.on()` 调用 RED；修复后保持基础 logger 加六个服务监听器共 7 次，
+   单次 `checking-for-update` 只发送到新窗口和新回调一次，聚焦套件 5/5 GREEN。
+5. **预防措施**：`AGENTS.md` QM-2 增加全局单例事件监听器生命周期规则。任何进程级 EventEmitter 初始化都必须
+   分开管理一次性绑定和可替换的窗口/回调引用；测试必须连续传入两个不同窗口并断言监听器数量、旧目标静默和
+   新目标单次送达，不能用窗口对象相等作为全局绑定状态。
+
+### API Key 原子保存 Windows 瞬时锁复盘
+
+1. **第一性原因**：`3240938b` 为避免 API Key JSON 写入中断产生半文件，将保存改为固定 `.tmp` 后
+   `renameSync()` 原子替换；`789afd65` 增加损坏存储 fail-closed 时保留了这一正确的原子语义，但没有处理 Windows
+   杀毒软件、索引器或备份程序短暂持有目标文件且拒绝 delete-share 的情况。Writer lock 只约束业务进程，不能阻止
+   操作系统外部进程短暂打开文件。
+2. **测试逃逸链**：manager 单元测试在无竞争临时目录顺序运行；writer-lock 集成只制造两个业务实例的锁竞争；
+   Logto/API 集成不会主动持有文件句柄；Electron E2E 和视觉测试不覆盖业务 API 的磁盘保存；审查把唯一临时路径
+   误当成不会发生 OS 文件锁。最终聚焦 `logto-optional-auth` 在唯一系统临时文件上真实命中 `EPERM`，证明测试隔离
+   只能消除跨 runner 争用，不能消除外部文件锁。
+3. **系统性漏洞**：项目只为账号状态定义了 Windows 原子替换重试合同，QM-2 文案限定在 Electron 主进程，未覆盖
+   Node 业务服务的本地持久化；`ApiKeyManager._save()` 同样位于请求路径并直接调用一次 `renameSync()`。
+4. **修复与回归保护**：API Key 保存保持 SHA-256 哈希、固定临时文件和原子 rename；仅在 Windows 且错误码为
+   `EPERM`、`EACCES`、`EBUSY` 时按 20/40/80/160/320/640ms 有界退避，预算耗尽或其他错误原样抛出。新增
+   `api-key-manager-atomic-write.test.js`，用真实 PowerShell `FileStream` 拒绝 delete-share：旧实现稳定 RED，锁释放
+   后保存两个 Key 的 GREEN 验证同时确认磁盘只含哈希且 `.tmp` 已消失；原先失败的 OIDC 灰度回归重新通过。
+5. **预防措施**：`AGENTS.md` QM-2 的 Windows 原子文件替换规则扩展到 Electron 与 Node 业务服务。任何安全状态、
+   身份凭据或任务元数据的 `tmp + rename` 保存都必须区分业务 writer 所有权与 OS 瞬时锁，并用真实 Windows 文件句柄
+   回归；不得通过随机临时文件、直接覆盖、吞错或无限重试破坏原子性和 fail-closed 语义。
+
+### 加密凭据原子保存 Windows 瞬时锁复盘
+
+1. **第一性原因**：`317a76ee` 为防止主密钥写入中断导致全部凭据永久不可解密，首次把直接写入改为
+   `tmp + renameSync` 并增加 `.bak`；`44e2c6ea` 又将同一模式扩展到 safeStorage 主密钥迁移、备份替换和账号加密
+   凭据保存。原子性目标正确，但三个 rename 点都假设目标文件不会被外部进程短暂拒绝 delete-share。Windows 杀毒、
+   索引或备份程序持有目标文件时会返回瞬时 `EPERM/EACCES/EBUSY`，导致迁移抛错或 `saveCredential()` 返回 false。
+2. **测试逃逸链**：单元测试只在无竞争临时目录验证最终内容；集成测试没有持有真实 Windows 文件句柄；Electron E2E
+   使用新用户目录，不触发旧主密钥迁移；视觉回归不经过主进程凭据磁盘路径；QM-1 启动不执行已有凭据升级；审查只
+   检查了“临时文件 + rename”的崩溃原子性，没有逐一验证主文件、备份和业务文件在 Windows 短锁下的可恢复性。
+3. **系统性漏洞**：此前 Windows 原子替换合同先覆盖账号状态、再覆盖 API Key，却没有枚举 `credential-store` 的三个
+   安全状态目标。普通全量曾通过，覆盖率复跑才在“损坏主密钥从备份恢复”路径真实命中 `renameSync EPERM`，说明唯一
+   临时目录只能消除测试互相争用，不能消除操作系统外部文件锁。
+4. **修复与回归保护**：`credential-store.js` 的主密钥、备份和账号凭据替换统一使用同步原子 rename helper；仅在
+   Windows 且错误码为 `EPERM`、`EACCES`、`EBUSY` 时按 20/40/80/160/320/640ms 有界退避，预算耗尽或其他错误仍
+   进入既有 fail-closed 路径。`credential-store.test.js` 用真实 PowerShell `FileStream` 分别锁住三个目标；旧实现
+   3/3 稳定 RED，修复后 10/10 GREEN，并验证迁移内容、解密内容和临时文件清理。
+5. **预防措施**：`AGENTS.md` QM-2 明确把系统保护主密钥、备份和加密凭据纳入 Windows 原子替换合同。以后新增双副本
+   或多阶段安全状态保存时，必须枚举并锁测每一个 rename 目标，不能只验证主文件或只 mock `fs.renameSync`。

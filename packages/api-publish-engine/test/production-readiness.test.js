@@ -102,7 +102,7 @@ test('生产 readiness probe', async (t) => {
 })
 
 test('PublishApiServer 分离 liveness 和 readiness', async (t) => {
-  const { PublishApiServer } = require('../src/publish-api-server')
+  const { TestPublishApiServer: PublishApiServer } = require('./test-publish-api-server')
 
   await t.test('required auth 模式下 ready 无需 Token 且成功返回 200', async () => {
     const server = new PublishApiServer({

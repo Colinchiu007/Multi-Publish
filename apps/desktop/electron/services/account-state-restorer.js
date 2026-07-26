@@ -15,6 +15,9 @@ const log = require('./logger')
 const STATE_FILE = 'accounts/state.jsonl'
 const LEGACY_OWNER_SUBJECT = '__legacy__'
 const SENSITIVE_FIELDS = new Set(['cookies', 'localStorage', 'indexedDB', 'authData', 'auth_data'])
+const TRANSIENT_WINDOWS_RENAME_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const ATOMIC_RENAME_RETRY_DELAYS_MS = [20, 40, 80, 160, 320, 640]
+const ATOMIC_RENAME_WAIT_BUFFER = new Int32Array(new SharedArrayBuffer(4))
 const PUBLIC_ACCOUNT_INFO_FIELDS = new Set([
   'id',
   'nickName',
@@ -25,6 +28,23 @@ const PUBLIC_ACCOUNT_INFO_FIELDS = new Set([
   'username',
   'displayName'
 ])
+
+function atomicRenameSync (sourcePath, targetPath) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.renameSync(sourcePath, targetPath)
+      return
+    } catch (error) {
+      const delayMs = ATOMIC_RENAME_RETRY_DELAYS_MS[attempt]
+      const isTransientWindowsLock = process.platform === 'win32' &&
+        TRANSIENT_WINDOWS_RENAME_ERRORS.has(error?.code)
+      if (!isTransientWindowsLock || delayMs === undefined) throw error
+
+      // 杀毒软件和索引器可能短暂占用目标文件；保持同步 API 并做有界退避。
+      Atomics.wait(ATOMIC_RENAME_WAIT_BUFFER, 0, 0, delayMs)
+    }
+  }
+}
 
 function sanitizeAccountInfo (accountInfo) {
   if (!accountInfo || typeof accountInfo !== 'object' || Array.isArray(accountInfo)) return {}
@@ -65,7 +85,7 @@ function sanitizeLegacyRecords (userDataDir) {
   if (redacted > 0) {
     const tmpPath = filePath + '.tmp.' + process.pid
     fs.writeFileSync(tmpPath, sanitized.join('\n') + (sanitized.length ? '\n' : ''), 'utf8')
-    fs.renameSync(tmpPath, filePath)
+    atomicRenameSync(tmpPath, filePath)
   }
   return redacted
 }
@@ -220,7 +240,7 @@ function deleteAccountRecord (platform, accountId, ownerSubject, userDataDir) {
     // 全文重写必须使用原子替换，避免中断时丢失账号状态。
     const tmpPath = filePath + '.tmp'
     fs.writeFileSync(tmpPath, filtered.join('\n') + (filtered.length ? '\n' : ''))
-    fs.renameSync(tmpPath, filePath)
+    atomicRenameSync(tmpPath, filePath)
     log.info('AccountStateRestorer', `Deleted account state for ${platform}:${accountId}`)
   } catch (e) {
     log.error('AccountStateRestorer', `Failed to delete account record: ${e.message}`)
@@ -241,7 +261,7 @@ function deleteAccountRecordsById (accountId, ownerSubject, userDataDir) {
     })
     const tmpPath = filePath + '.tmp'
     fs.writeFileSync(tmpPath, filtered.join('\n') + (filtered.length ? '\n' : ''))
-    fs.renameSync(tmpPath, filePath)
+    atomicRenameSync(tmpPath, filePath)
     log.info('AccountStateRestorer', `Deleted all account state for ${accountId}`)
     return true
   } catch (e) {
@@ -313,7 +333,7 @@ function purgeExpired (days = 90) {
     // 全文重写必须使用原子替换，避免中断时丢失账号状态。
     const tmpPath = filePath + '.tmp'
     fs.writeFileSync(tmpPath, valid.join('\n') + (valid.length ? '\n' : ''))
-    fs.renameSync(tmpPath, filePath)
+    atomicRenameSync(tmpPath, filePath)
     
     if (purged > 0) {
       log.info('AccountStateRestorer', `Purged ${purged} expired records (>${days}d)`)

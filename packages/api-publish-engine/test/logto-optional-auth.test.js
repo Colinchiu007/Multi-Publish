@@ -3,7 +3,7 @@ const fs = require('fs')
 const http = require('http')
 const os = require('os')
 const path = require('path')
-const { PublishApiServer } = require('../src/publish-api-server')
+const { TestPublishApiServer: PublishApiServer } = require('./test-publish-api-server')
 
 function request(port, token) {
   return new Promise((resolve, reject) => {
@@ -169,11 +169,17 @@ async function main() {
   } finally {
     await corruptConfigured.stop()
   }
-  assert.throws(
-    () => new PublishApiServer({ dryRun: true, apiKey: corruptConfiguredKey, keysPath: corruptKeysPath }),
+  const corruptAutomaticMigration = new PublishApiServer({
+    dryRun: true,
+    apiKey: corruptConfiguredKey,
+    keysPath: corruptKeysPath,
+  })
+  await assert.rejects(
+    corruptAutomaticMigration.start(0),
     (error) => error && error.code === 'API_KEY_STORE_UNAVAILABLE',
-    '自动迁移不能覆盖损坏的 Key 存储',
+    '自动迁移必须在监听前拒绝损坏的 Key 存储',
   )
+  await corruptAutomaticMigration.stop()
   for (const file of [corruptKeysPath, `${corruptKeysPath}.tmp`]) {
     if (fs.existsSync(file)) fs.unlinkSync(file)
   }

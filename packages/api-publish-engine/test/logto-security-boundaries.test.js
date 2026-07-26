@@ -5,7 +5,7 @@ const test = require('node:test')
 
 const { createLogtoJwtVerifier } = require('../src/auth/logto-jwks')
 const { ensureBusinessUser } = require('../src/auth/business-identity')
-const { PublishApiServer } = require('../src/publish-api-server')
+const { TestPublishApiServer: PublishApiServer } = require('./test-publish-api-server')
 const { ScheduledPublish } = require('../src/scheduled-publish')
 const { WebhookManager } = require('../src/webhook-manager')
 

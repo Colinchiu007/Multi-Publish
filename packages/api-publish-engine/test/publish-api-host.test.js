@@ -1,6 +1,6 @@
 const assert = require('assert')
 const test = require('node:test')
-const { PublishApiServer } = require('../src/publish-api-server')
+const { TestPublishApiServer: PublishApiServer } = require('./test-publish-api-server')
 
 test('PublishApiServer 监听地址', async (t) => {
   await t.test('默认只绑定本机', async () => {

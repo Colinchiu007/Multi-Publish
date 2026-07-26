@@ -14,6 +14,7 @@ services:
       - NODE_ENV=production
       - HOST=0.0.0.0
       - PORT=3000
+      - API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
       - MULTI_PUBLISH_PLUGINS_DIR=/app/data/plugins
       - DRY_RUN=false
       - API_KEY=${API_KEY:-}

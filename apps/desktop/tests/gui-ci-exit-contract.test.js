@@ -5,6 +5,7 @@ const yaml = require('js-yaml');
 const {
   PROJECT_ROOT,
   assert,
+  findMainWindow,
   getResults,
   resetResults,
 } = require('./test-helpers');
@@ -31,6 +32,30 @@ describe('GUI CI 退出码契约', () => {
     const expectedRoot = path.resolve(__dirname, '../../..').replace(/\\/g, '/');
 
     expect(PROJECT_ROOT).toBe(expectedRoot);
+  });
+
+  it('可选 bridge 降级启动超过 15 秒时仍能找到主窗口', async () => {
+    vi.useFakeTimers();
+    const mainWindow = {
+      url: vi.fn(async () => 'http://127.0.0.1:5174/#/'),
+    };
+    let windowQueries = 0;
+    const app = {
+      windows: vi.fn(() => {
+        windowQueries += 1;
+        return windowQueries >= 17 ? [mainWindow] : [];
+      }),
+    };
+
+    try {
+      const result = findMainWindow(app);
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      await expect(result).resolves.toBe(mainWindow);
+      expect(app.windows).toHaveBeenCalledTimes(17);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('存在失败断言时返回非零退出码', () => {

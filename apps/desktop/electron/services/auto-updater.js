@@ -7,9 +7,11 @@
 const { autoUpdater } = require('electron-updater')
 // eslint-disable-next-line no-unused-vars
 const { BrowserWindow } = require('electron')
+const logger = require('./logger')
 
 let _mainWin = null
 let _statusCallback = null
+let _listenersRegistered = false
 
 // 网络超时/阻断错误特征码（GFW 场景）
 const NETWORK_ERROR_PATTERNS = [
@@ -30,9 +32,47 @@ const NETWORK_ERROR_PATTERNS = [
   'socket hang up'
 ]
 
+function errorMessage (err) {
+  if (!err) return ''
+  if (typeof err === 'string') return err
+  return err.message || err.toString() || ''
+}
+
 function isNetworkError (err) {
-  const msg = (err && (err.message || err.toString() || ''))
+  const msg = errorMessage(err)
   return NETWORK_ERROR_PATTERNS.some(p => msg.includes(p))
+}
+
+function isUpdateUnavailableError (err) {
+  const msg = errorMessage(err)
+  return msg.includes('404') && (
+    msg.includes('latest.yml') ||
+    msg.includes('latest release artifacts')
+  )
+}
+
+function isRecoverableUpdateError (err) {
+  return isUpdateUnavailableError(err) || isNetworkError(err)
+}
+
+function createProductionLogger () {
+  const write = (level, message) => {
+    if (level === 'error' && isRecoverableUpdateError(message)) return
+    logger[level](`auto-updater ${errorMessage(message)}`)
+  }
+
+  return {
+    debug: message => write('debug', message),
+    info: message => write('info', message),
+    warn: message => write('warn', message),
+    error: message => write('error', message)
+  }
+}
+
+function sendRecoverableStatus (err) {
+  if (!isRecoverableUpdateError(err)) return false
+  _sendStatus('not-available', '当前已是最新版本')
+  return true
 }
 
 /**
@@ -41,15 +81,14 @@ function isNetworkError (err) {
  * @param {Function} onStatus - (status: string, data?: any) => void
  */
 function init (win, onStatus) {
-  // 防止重复 init 导致 autoUpdater 监听器累积（每次 init 都会 .on 注册新监听器）
-  if (_mainWin === win) return
   _mainWin = win
   _statusCallback = onStatus
 
-  // 日志（仅开发环境打印）
-  if (process.env.NODE_ENV === 'development') {
-    autoUpdater.logger = console
-  }
+  if (_listenersRegistered) return
+
+  autoUpdater.logger = process.env.NODE_ENV === 'development'
+    ? console
+    : createProductionLogger()
 
   // 自动下载
   autoUpdater.autoDownload = false
@@ -86,13 +125,11 @@ function init (win, onStatus) {
   })
 
   autoUpdater.on('error', (err) => {
-    // GFW 阻断：静默忽略，不弹错误
-    if (isNetworkError(err)) {
-      _sendStatus('not-available', '当前已是最新版本')
-      return
-    }
-    _sendStatus('error', err.message || err.toString())
+    if (sendRecoverableStatus(err)) return
+    _sendStatus('error', errorMessage(err))
   })
+
+  _listenersRegistered = true
 }
 
 /**
@@ -100,17 +137,8 @@ function init (win, onStatus) {
  */
 function check () {
   autoUpdater.checkForUpdates().catch(err => {
-    // 404 = 暂无最新版本（非错误）
-    if (err.message && err.message.includes('404')) {
-      _sendStatus('not-available', '当前已是最新版本')
-      return
-    }
-    // GFW 阻断：静默忽略
-    if (isNetworkError(err)) {
-      _sendStatus('not-available', '当前已是最新版本')
-      return
-    }
-    _sendStatus('error', err.message)
+    if (sendRecoverableStatus(err)) return
+    _sendStatus('error', errorMessage(err))
   })
 }
 
@@ -119,11 +147,8 @@ function check () {
  */
 function download () {
   autoUpdater.downloadUpdate().catch(err => {
-    if (isNetworkError(err)) {
-      _sendStatus('not-available', '当前已是最新版本')
-      return
-    }
-    _sendStatus('error', err.message)
+    if (sendRecoverableStatus(err)) return
+    _sendStatus('error', errorMessage(err))
   })
 }
 
