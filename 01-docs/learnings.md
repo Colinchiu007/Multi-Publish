@@ -4067,3 +4067,37 @@ IdentityMenu.vue 显示兜底错误文案。
 1. 状态枚举经过本地化函数后，组件测试必须同时断言稳定语义选择器和用户可见文案。
 2. 功能 E2E 禁止用整页正文搜索内部枚举值证明渲染；应定位具体状态元素或 `data-testid`。
 3. 修改显示标签、本地化映射或状态模板后，除组件测试外必须运行对应 route functional GUI 用例。
+
+---
+
+## Python 视频 Provider 可选依赖阻断 Electron GUI（2026-07-26）
+
+### 第一性原因
+- `f46ed75` 引入 `GreenScreenComposite` 时，在模块顶层导入 `numpy` 和 `PIL`，同时又把它们声明为
+  `python:numpy`、`python:PIL` 可选工具依赖。任何代码导入 `video_trimmer` 都会先执行
+  `providers.video.__init__`，进而被一个未使用的实验性 Provider 阻断。
+- `5effc65` 为 GUI workflow 安装 `[web,video]` 后，只验证 `multi_publish/uvicorn/yaml` 浅层导入；
+  `server.py` 的真实入口链没有在 Electron 启动前单独验证。
+
+### 测试逃逸链与系统性漏洞
+1. **单元测试**：没有在屏蔽单个 Provider 可选依赖的干净子进程中导入视频 Provider 包。
+2. **集成测试**：workflow 安装了声明依赖，却没有导入 Electron 实际启动的 `server.py`。
+3. **GUI E2E**：第一轮 Browser E2E 先失败，Electron gate 被跳过；修复 Browser 合同后才暴露第二层失败。
+4. **代码审查**：审查了每个工具的 `dependencies` 元数据，但没有核对模块顶层 import 是否仍把可选依赖
+   变成整个包的强制依赖。
+
+系统性漏洞属于**测试场景缺失 + 测试质量不足**：可选依赖只在工具执行边界可失败，包导入、backend
+健康检查和主窗口创建必须保持可用；原 workflow 的浅层 import 无法证明真实入口满足这个合同。
+
+### 修复与回归保护
+- `GreenScreenComposite` 仅在 `execute()`、颜色解析和帧合成实际调用时导入 `PIL/numpy`，保留现有
+  `dependencies` 与安装提示，不把重型实验性依赖扩散到所有视频流水线。
+- 新增隔离子进程回归，显式拒绝 `numpy/PIL` 后导入真实 `VideoTrimmer` 路径，覆盖
+  `providers.video.__init__` 的完整包链。
+- GUI workflow 的 Python 检查改为从 `packages/python-backend/src` 导入 `server`，让真实 Electron backend
+  入口在浏览器与 Electron 门禁之前快速失败并给出精确堆栈。
+
+### 预防措施
+1. 声明在工具 `dependencies` 中的 Python 包必须延迟到工具执行时导入，禁止在 Provider 包入口强制加载。
+2. Bridge/子进程 CI 必须导入或启动真实入口，不能用顶层 namespace 的浅层 import 代替。
+3. GUI job 有串行门禁时，修复前置失败后必须继续观察后续 gate，直到所有步骤真实执行。

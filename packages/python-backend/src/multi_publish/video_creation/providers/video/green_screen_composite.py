@@ -15,10 +15,11 @@ import logging
 import shutil
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
-from PIL import Image
+if TYPE_CHECKING:
+    import numpy as np
+    from PIL import Image
 
 from multi_publish.video_creation.base_tool import (
     BaseTool,
@@ -142,9 +143,6 @@ class GreenScreenComposite(BaseTool):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         start = time.time()
 
-        # Parse bg color
-        bg_color = self._parse_hex_color(bg_color_hex)
-
         # Step 1: Probe both videos
         speaker_info = self._probe_video(speaker_path)
         bg_info = self._probe_video(background_path)
@@ -192,6 +190,9 @@ class GreenScreenComposite(BaseTool):
 
             frame_count = min(len(speaker_frames), len(bg_frames))
             log_interval = max(1, frame_count // 10)
+            from PIL import Image
+
+            bg_color = self._parse_hex_color(bg_color_hex)
 
             # Step 4: Composite each frame pair
             for i in range(frame_count):
@@ -251,6 +252,8 @@ class GreenScreenComposite(BaseTool):
 
     def _parse_hex_color(self, hex_str: str) -> np.ndarray:
         """Parse a hex color string like '#0E172A' to an RGB numpy array."""
+        import numpy as np
+
         hex_str = hex_str.lstrip("#")
         r = int(hex_str[0:2], 16)
         g = int(hex_str[2:4], 16)
@@ -328,6 +331,9 @@ class GreenScreenComposite(BaseTool):
         out_h: int,
     ) -> Image.Image:
         """Composite a single speaker frame over a background frame using the given layout."""
+        import numpy as np
+        from PIL import Image
+
         # Create alpha mask from speaker frame
         speaker_arr = np.array(speaker_img).astype(float)
         dist = np.sqrt(np.sum((speaker_arr - bg_color.astype(float)) ** 2, axis=2))
