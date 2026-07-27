@@ -1,3 +1,15 @@
+## [未发布] PostgreSQL migration 最小权限修复 (2026-07-27)
+
+### 修复
+- migration runner 在 advisory lock 内先探测 `identity_schema_migrations`；已有完整 ledger 时不再无条件执行 `CREATE TABLE IF NOT EXISTS`，因此受限的 `multi_publish_api` 角色无需 schema `CREATE` 权限即可完成无 pending 的正式迁移检查。
+- ledger 缺失时仍创建迁移表并应用 migration；缺少所需 DDL 权限时继续 fail closed，并始终释放 advisory lock。
+
+### 质量
+- 新增 PostgreSQL `42501` 回归，覆盖已有 ledger、首次初始化和缺少 CREATE 权限三种正式 runner 场景。
+- ECS 发布门禁要求用真实运行角色执行正式 migration runner；dry-run 不能替代最小权限验收。
+
+---
+
 ## [未发布] Logto Opaque Token 生产加固 (2026-07-25)
 
 ### 修复
