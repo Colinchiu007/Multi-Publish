@@ -66,11 +66,15 @@ describe('媒体工具路径解析', () => {
     }))).toBe(configured)
   })
 
-  it('未显式配置 ffprobe 时从绝对 FFMPEG_PATH 的同目录解析', () => {
-    const ffmpeg = createFile('suite/ffmpeg.exe')
-    const ffprobe = createFile('suite/ffprobe.exe')
+  it('按当前宿主平台语义从绝对 FFMPEG_PATH 的同目录解析 ffprobe', () => {
+    const executableExtension = process.platform === 'win32' ? '.exe' : ''
+    const ffmpeg = createFile(`suite/ffmpeg${executableExtension}`)
+    const ffprobe = createFile(`suite/ffprobe${executableExtension}`)
 
-    expect(findFfprobe(isolatedOptions({ env: { FFMPEG_PATH: ffmpeg } }))).toBe(ffprobe)
+    expect(findFfprobe(isolatedOptions({
+      env: { FFMPEG_PATH: ffmpeg },
+      platform: process.platform,
+    }))).toBe(ffprobe)
   })
 
   it('按目标 Windows 语义解析 drive 路径中的 ffprobe sibling', () => {

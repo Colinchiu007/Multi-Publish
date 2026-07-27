@@ -4453,3 +4453,21 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 回归修复把测试期望同样规范化为 `fs.realpathSync.native()`，并 mock 无关的伪媒体 `ffprobe` 探测；生产
 canonical 白名单和真实 `_concatNarrationAudio` 实现不变。以后修改 `resolveReadableMediaFile()` 的调用链时，
 必须检索所有返回路径的测试断言，并在 Windows workspace Gate 4 中验证完整 Electron 测试。
+
+### 宿主路径与模拟平台不一致导致 Linux CI 失败（2026-07-27）
+
+`b05da3c` 为完成 Windows 媒体资源闭包，同时引入 `media-tool-paths.js` 和对应测试。测试辅助函数默认把
+`platform` 固定为 `win32`，但“同目录解析 ffprobe”用例通过 `os.tmpdir()` 创建真实文件：Windows 得到 drive
+路径并通过，Linux Runner 得到 `/tmp/...`，随后 `path.win32.isAbsolute('/tmp/...')` 返回 false，导致 sibling
+分支被跳过并返回 `null`。生产解析算法按目标平台选择 `path.win32`/`path.posix`，第一性原因是测试夹具把宿主
+文件系统路径与另一平台的路径语义混在一起，而不是产品回归。
+
+逃逸链为：Windows 单元测试只覆盖 drive 路径，未暴露混用；Windows workspace/coverage Gate 均通过；打包
+验证只检查 Windows 资源；E2E 与视觉测试不执行 Linux 路径解析；代码审查关注了资源优先级和恶意环境变量，
+却未核对真实临时路径与注入 `platform` 的一致性。ECS 自托管 `electron-tests` 最终稳定复现 1 个失败，手工按
+同一 Node 22 命令复跑仍为 331/332 文件、5772 passed、1 failed、3 skipped，排除了瞬时网络误判。
+
+修复仅让该真实文件用例使用当前宿主的 `process.platform` 和原生可执行文件后缀；显式 Windows drive 合同继续
+独立使用 `platform: 'win32'`，生产安全逻辑不变。以后跨平台路径测试若访问真实文件，注入平台必须与宿主
+一致；若要模拟其他平台，必须使用该平台的字面路径和受控 `existsSync`，禁止把 `os.tmpdir()` 结果直接交给
+另一平台的 `path` 实现。
