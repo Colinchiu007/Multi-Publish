@@ -168,12 +168,19 @@ describe('GUI/CI 工作流门禁契约', () => {
   });
 
   it('质量门禁执行真实 E2E 和视觉测试，并且只清理自己启动的服务', () => {
-    const { source } = readWorkflow('quality-gate.yml');
+    const { source, workflow } = readWorkflow('quality-gate.yml');
+    const gate8 = workflowSteps(workflow).find((step) => step.name === 'Gate 8 - Browser E2E');
 
-    expect(source).toMatch(/npm(?:\.cmd)? run test:e2e -w @multi-publish\/desktop/);
+    expect(gate8).toBeDefined();
+    expect(gate8.run).toMatch(/node apps\/desktop\/tests\/e2e\/helpers\/route-functional-suite\.test\.js/);
+    expect(gate8.run).toMatch(/npm(?:\.cmd)? run test:e2e -w @multi-publish\/desktop/);
+    expect(gate8.run.indexOf('route-functional-suite.test.js')).toBeLessThan(gate8.run.indexOf('npm.cmd run test:e2e'));
+    expect(gate8.run).toMatch(/\$contractExit\s*=\s*\$LASTEXITCODE/);
+    expect(gate8.run).toMatch(/if \(\$contractExit -ne 0\) \{ exit \$contractExit \}/);
+    expect(gate8.run).toMatch(/\$e2eExit\s*=\s*\$LASTEXITCODE/);
+    expect(gate8.run).toMatch(/finally\s*\{[\s\S]*?taskkill \/PID \$viteProcess\.Id \/T \/F/);
     expect(source).toMatch(/npm(?:\.cmd)? run test:visual:pixel/);
-    expect(source).not.toContain('taskkill /F /IM node.exe');
-    expect(source).toMatch(/taskkill \/PID .*\/T \/F/);
+    expect(gate8.run).not.toContain('taskkill /F /IM node.exe');
   });
 
   it('质量门禁不会掩盖 Playwright 安装和 Vue 构建失败', () => {

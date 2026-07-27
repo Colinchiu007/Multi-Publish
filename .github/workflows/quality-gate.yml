@@ -242,6 +242,10 @@ jobs:
             }
             if (-not $viteReady) { throw "Vite never became ready" }
 
+            node apps/desktop/tests/e2e/helpers/route-functional-suite.test.js
+            $contractExit = $LASTEXITCODE
+            if ($contractExit -ne 0) { exit $contractExit }
+
             npm.cmd run test:e2e -w @multi-publish/desktop
             $e2eExit = $LASTEXITCODE
           } finally {

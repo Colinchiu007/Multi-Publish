@@ -4508,3 +4508,55 @@ canonical 白名单和真实 `_concatNarrationAudio` 实现不变。以后修改
 独立使用 `platform: 'win32'`，生产安全逻辑不变。以后跨平台路径测试若访问真实文件，注入平台必须与宿主
 一致；若要模拟其他平台，必须使用该平台的字面路径和受控 `existsSync`，禁止把 `os.tmpdir()` 结果直接交给
 另一平台的 `path` 实现。
+
+---
+
+## E2E 通用扫描器误触 manual 账号按钮（2026-07-27）
+
+### 现象
+
+PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
+`delete-acc_baijiahao_001` 并超时；再次运行时，账号页扫描持续约 79 秒，随后出现模态遮罩拦截、
+`#app` 不可见和 `ERR_NO_BUFFER_SPACE`。资源耗尽是连续副作用后的次生现象，不是第一性原因。
+
+### 第一性原因
+
+- `5effc65` 已在账号“设为默认、打开、验证、代理、删除”等副作用按钮上声明
+  `data-e2e-scan="manual"`，组件测试也只验证了标记存在。
+- `17458ef` 随后把账号页接入通用语义扫描：扫描器收集所有可见按钮，按语义去重后逐个点击，却从未读取
+  `data-e2e-scan`。因此 producer 已声明“仅手工执行”，consumer 仍把删除等按钮当成自动覆盖目标。
+- 根因是跨组件的扫描合同没有接通；删除超时、遮罩和 socket buffer 耗尽都只是同一错误点击链的后果。
+
+### 测试逃逸链与系统性漏洞
+
+1. **组件单元测试**：`PlatformAccountGroup.test.js` 只断言 manual 属性写入 DOM，没有验证 E2E 扫描器消费它。
+2. **扫描器单元测试**：`route-functional-suite.js` 没有针对 manual 控件的独立合同测试，语义去重测试只关注
+   “少点几个”，没有约束“哪些绝不能点”。
+3. **端到端测试**：旧报告只统计点击是否完成以及页面能否恢复，没有断言删除、打开主页等副作用按钮的点击
+   次数必须为零；可恢复的副作用会被误记为覆盖成功。
+4. **CI 门禁**：Gate 8 直接进入真实 Browser E2E，没有先运行扫描器的快速合同测试，错误只能在完整账号数据
+   和真实模态交互中晚失败。
+5. **代码审查**：组件标记与通用扫描器由不同提交维护，审查分别确认了 DOM 属性和语义采样，却没有沿
+   producer 到 consumer 的调用链核对合同。
+
+系统性漏洞属于**跨模块合同缺失 + 测试场景缺失 + 审查盲区**：副作用控件的“可见、可用”不等于“允许
+自动执行”，自动扫描必须显式消费控件声明，而不能凭按钮类型或文案猜测。
+
+### 修复与回归保护
+
+- `auditInitialControls()` 收集 `data-e2e-scan`，在语义采样和点击之前排除 `manual` 控件；报告仍记录
+  `total` 和 `manual` 数量，避免用过滤掩盖页面控件覆盖情况。
+- 新增 `route-functional-suite.test.js`，用真实 `auditInitialControls()` 验证普通按钮点击一次、manual 删除
+  按钮零次，并锁定 `total/manual/sampled/clicked` 报告合同。
+- Quality Gate Gate 8 先运行该 Node 合同测试，再启动全量 Browser E2E；
+  `workflow-contract.test.js` 和 `gui-ci-exit-contract.test.js` 同步锁定命令存在及执行顺序。
+- 完整 Browser E2E 仍必须复验 18 条路由和 6 条流程，保证过滤副作用控件没有降低其余功能覆盖。
+  本轮在目标工作树的独立 `127.0.0.1:5182 --strictPort` 服务上复验为 18/18 路由、6/6 流程、
+  270/270 检查通过，`/accounts` 14/14，console/page error 均为 0。
+
+### 预防措施
+
+1. 任何自动 UI 扫描器新增或修改控件发现逻辑时，必须同时测试 `data-e2e-scan="manual"` producer/consumer
+   合同；manual 控件只计数，不采样、不点击。
+2. 通用扫描报告必须分别暴露发现数、manual 数、采样数和实际点击数，禁止只用最终通过数掩盖过滤范围。
+3. 快速扫描合同必须位于真实 Browser E2E 之前；合同失败时不得继续执行长时间 GUI 扫描。
