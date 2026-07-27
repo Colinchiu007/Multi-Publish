@@ -13,6 +13,9 @@ const {
   stageMediaTools,
 } = require('../../scripts/stage-media-tools')
 
+const skipNativeMediaTests = process.env.NODE_ENV === 'test' &&
+  process.env.SKIP_NATIVE_MEDIA_TOOL_TESTS === '1'
+
 describe('媒体工具打包 staging', () => {
   let root
 
@@ -210,7 +213,7 @@ describe('媒体工具打包 staging', () => {
     expect(files).toContain('!node_modules/ffmpeg-ffprobe-static/ffprobe*')
   })
 
-  it('直接生产依赖同时提供真实 ffmpeg、ffprobe 和许可证材料', () => {
+  it.skipIf(skipNativeMediaTests)('直接生产依赖同时提供真实 ffmpeg、ffprobe 和许可证材料', () => {
     const sources = resolveSources()
 
     for (const source of Object.values(sources)) {

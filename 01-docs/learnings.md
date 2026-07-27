@@ -4129,6 +4129,43 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
 
 独立安全复审进一步发现，若让 `FFMPEG_PATH`/`FFPROBE_PATH` 覆盖有效打包资源，本地父进程即可绕过资产锁选择任意可执行文件。回归现已固定“打包资源优先、环境变量仅开发回退”，并覆盖目标 Windows drive 路径下的 ffprobe sibling 解析。
 
+### ECS Electron CI 下载桌面 FFmpeg 导致超时复盘
+
+1. **第一性原因**：`b05da3c` 为 Windows 安装包补齐 `ffmpeg-ffprobe-static@6.1.2-rc.1` 后，沿用自
+   `9683c10` 起的 ECS `npm ci --include=dev` 会执行该依赖的 `install.js`。脚本需要从 GitHub Release 下载
+   桌面媒体二进制；ECS 实测固定资源地址约 18.5 KB/s，job 在进入 Vitest 前已耗尽 30 分钟预算。磁盘、inode、
+   npm 解包和测试断言都不是本次超时原因。改成生命周期 allowlist 后，ECS 的默认 GitHub Electron Release
+   下载又直接 `fetch failed`；镜像 Range 探测确认 `cdn.npmmirror.com` 可用，因此 Electron runtime 下载必须
+   使用专用镜像，同时继续由 Electron 自带 `checksums.json` 校验资产。
+2. **测试逃逸链**：单元测试尚未启动，无法拦截安装阶段超时；集成测试没有覆盖 npm 生命周期脚本集合；Electron
+   smoke 和 Vue build 都位于依赖安装之后；Windows QM-1 使用目标平台本地资产，无法暴露 ECS 到 GitHub Release
+   的链路速度；代码审查只确认“安装开发依赖和 Electron”，没有审查 Linux job 是否误下载桌面发布资产。
+3. **系统性漏洞**：同一条无限定 npm 生命周期链同时承担 Linux headless 测试和 Windows 桌面发布依赖准备，
+   两种职责没有 allowlist。并且真实媒体测试会自动发现宿主 `PATH` 中的 FFmpeg；`91ab02b` 引入的
+   `VideoEngine._checkFfmpeg()` 还绕过统一 resolver，直接 `spawnSync('ffmpeg', ['-version'])`。其单元测试只 mock
+   `_checkFfmpeg()` 的返回值，工作流合同也只检查两个显式媒体测试入口，因此 ECS 即使不下载依赖仍可能启动
+   本应属于桌面发布门禁的系统 FFmpeg。
+4. **修复与回归保护**：ECS Electron job 改为 `npm ci --ignore-scripts --no-audit --no-fund`，安装上限 5 分钟，
+   随后只显式恢复两版 esbuild、Vue-demi 和 Electron runtime；Electron 安装步骤单独使用
+   `https://cdn.npmmirror.com/binaries/electron/`，不改变 npm 或 Windows 发布资产来源。为避免镜像同时控制
+   二进制和校验值，workflow 在安装前固定 `electron-v43.1.1-linux-x64.zip` 的 SHA-256
+   `c1f479c52747caf1510e17500e1c8a556d0e40802837bd48c5647a84688a3880`，核对 npm 包内
+   `electron/checksums.json`，并清除 `electron_use_remote_checksums` 两个环境入口；`electron/install.js` 因而只能
+   使用被 lockfile integrity 约束的本地 checksum。job 设置
+   `NODE_ENV=test` 与 `SKIP_NATIVE_MEDIA_TOOL_TESTS=1`，真实依赖
+   能力测试与独立 FFmpeg 合成 smoke 明确 skip；媒体 resolver 在测试模式与该变量同时生效时不探测直接依赖、
+   `PATH` 或常见安装目录，但随包锁定资源仍保持最高优先级。`VideoEngine` 改为复用 `findFfmpeg()`，不再直接
+   启动固定命令。`gui-ci-exit-contract.test.js` 锁定安装命令、恢复 allowlist、超时、环境变量、两个原生测试入口
+   和 `VideoEngine` 的 resolver 合同；`media-tool-paths.test.js` 锁定 fail-closed 解析，`video-engine.test.js` 用真实
+   resolver 证明禁用时不会调用 `spawnSync`，防止后续重新引入隐式媒体下载或执行。
+5. **预防措施**：ECS `electron-tests` 只证明 Linux 单元测试、headless Electron、Vue 构建和依赖检查，不证明
+   Story2Video 媒体能力。完整 FFmpeg/ffprobe 下载、资产锁、许可证、编码器/滤镜、真实生成和解码仍只由 Windows
+   QM-1 目标平台门禁证明；未来给该 job 增加任何 install/postinstall 或原生媒体测试前，必须同步更新 workflow
+   合同并在一次性 ECS checkout 中验证总时限。Electron 镜像 URL 也属于 allowlist 合同，变更时必须以 Range
+   探测、本地 checksum pin 和安装后的版本验证为证据。进程审计只包裹媒体相关集合、安装、Electron smoke 和构建；不要用
+   `strace` 包裹全部 5777 项测试，否则观测开销会把原本 804.55 秒的套件推到 20 分钟 watchdog 之外，混淆
+   “测试超时”和“FFmpeg 被执行”两个不同问题。
+
 ### Windows 账号状态原子替换瞬时锁复盘
 
 1. **第一性原因**：`d991fea` 为避免账号 JSONL 全文重写中断时丢失数据，引入“写临时文件后

@@ -45,6 +45,37 @@ describe('媒体工具路径解析', () => {
     }))).toBe(packaged)
   })
 
+  it('远程 CI 没有随包资源时不探测配置、依赖或系统命令', () => {
+    const configured = createFile('configured/ffmpeg.exe')
+    const installed = createFile('installed/ffmpeg.exe')
+    const common = createFile('common/ffmpeg.exe')
+    const commandAvailable = vi.fn(() => true)
+
+    expect(findFfmpeg(isolatedOptions({
+      env: {
+        NODE_ENV: 'test',
+        SKIP_NATIVE_MEDIA_TOOL_TESTS: '1',
+        FFMPEG_PATH: configured,
+      },
+      resourcesPath: null,
+      installedPaths: { ffmpeg: installed },
+      commandAvailable,
+      commonPaths: [common],
+    }))).toBeNull()
+    expect(commandAvailable).not.toHaveBeenCalled()
+  })
+
+  it('远程 CI 禁用宿主工具时仍保持随包资源最高优先级', () => {
+    const ffmpeg = createFile('media-tools/ffmpeg.exe')
+    const ffprobe = createFile('media-tools/ffprobe.exe')
+    const options = isolatedOptions({
+      env: { NODE_ENV: 'test', SKIP_NATIVE_MEDIA_TOOL_TESTS: '1' },
+    })
+
+    expect(findFfmpeg(options)).toBe(ffmpeg)
+    expect(findFfprobe(options)).toBe(ffprobe)
+  })
+
   it('没有打包资源时允许开发环境使用显式环境变量', () => {
     const configured = createFile('configured/ffmpeg.exe')
     const installed = createFile('installed/ffmpeg.exe')

@@ -23,6 +23,10 @@ function assertDecodable (ffmpeg, filePath) {
 }
 
 test('真实 ffmpeg：图片/TTS → xfade → BGM/水印 → MP4/WebM', { timeout: 240000 }, async (t) => {
+  if (process.env.NODE_ENV === 'test' && process.env.SKIP_NATIVE_MEDIA_TOOL_TESTS === '1') {
+    return t.skip('远程 CI 不执行桌面 FFmpeg 合成门禁')
+  }
+
   const ffmpeg = findFfmpeg() || findAssetFfmpeg()
   if (!ffmpeg) return t.skip('ffmpeg 不可用')
 

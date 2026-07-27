@@ -213,25 +213,86 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(workflow.jobs['electron-tests']['runs-on']).toEqual(['self-hosted', 'linux', 'x64']);
   });
 
-  it('Electron CI 在运行 Vitest 前显式安装开发依赖和 Electron 运行时', () => {
+  it('Electron CI 跳过桌面媒体下载脚本，并显式恢复测试所需运行时', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
     const steps = workflow.jobs['electron-tests'].steps;
     const dependencySteps = steps.filter((step) => step.name === 'Install dependencies');
+    const runtimeSteps = steps.filter((step) => step.name === 'Restore required JavaScript runtimes');
+    const checksumSteps = steps.filter((step) => step.name === 'Verify Electron checksum pin');
     const electronSteps = steps.filter((step) => step.name === 'Install Electron runtime');
     const testSteps = steps.filter((step) => step.name === 'Unit tests (Vitest, non-Electron)');
 
     expect(dependencySteps).toHaveLength(1);
+    expect(runtimeSteps).toHaveLength(1);
+    expect(checksumSteps).toHaveLength(1);
     expect(electronSteps).toHaveLength(1);
     expect(testSteps).toHaveLength(1);
-    expect(dependencySteps[0].run.trim()).toBe('npm ci --include=dev');
-    expect(electronSteps[0].run.trim()).toBe('node node_modules/electron/install.js');
+    expect(dependencySteps[0].run.trim()).toBe(
+      'npm ci --include=dev --ignore-scripts --no-audit --no-fund',
+    );
+    expect(dependencySteps[0]['timeout-minutes']).toBe(5);
+
+    const runtimeInstall = runtimeSteps[0].run;
+    expect(runtimeInstall).toContain('node node_modules/esbuild/install.js');
+    expect(runtimeInstall).toContain(
+      'node node_modules/@remotion/bundler/node_modules/esbuild/install.js',
+    );
+    expect(runtimeInstall).toContain('node node_modules/vue-demi/scripts/postinstall.js');
+    expect(runtimeInstall).not.toContain('ffmpeg-ffprobe-static');
+
+    const checksumPolicy = checksumSteps[0].run;
+    expect(checksumPolicy).toContain('electron-v43.1.1-linux-x64.zip');
+    expect(checksumPolicy).toContain(
+      'c1f479c52747caf1510e17500e1c8a556d0e40802837bd48c5647a84688a3880',
+    );
+    expect(checksumPolicy).toContain("require('./node_modules/electron/checksums.json')");
+
+    expect(electronSteps[0].run).toContain(
+      'unset electron_use_remote_checksums npm_config_electron_use_remote_checksums',
+    );
+    expect(electronSteps[0].run).toContain('node node_modules/electron/install.js');
+    expect(electronSteps[0]['timeout-minutes']).toBe(5);
+    expect(electronSteps[0].env).toEqual({
+      ELECTRON_MIRROR: 'https://cdn.npmmirror.com/binaries/electron/',
+    });
 
     const dependencyIndex = steps.indexOf(dependencySteps[0]);
+    const runtimeIndex = steps.indexOf(runtimeSteps[0]);
+    const checksumIndex = steps.indexOf(checksumSteps[0]);
     const electronIndex = steps.indexOf(electronSteps[0]);
     const testIndex = steps.indexOf(testSteps[0]);
 
-    expect(dependencyIndex).toBeLessThan(electronIndex);
+    expect(dependencyIndex).toBeLessThan(runtimeIndex);
+    expect(runtimeIndex).toBeLessThan(checksumIndex);
+    expect(checksumIndex).toBeLessThan(electronIndex);
     expect(electronIndex).toBeLessThan(testIndex);
+  });
+
+  it('Electron CI 不执行仅供桌面发布门禁使用的真实媒体工具测试', () => {
+    const { workflow } = readWorkflow('electron-ci.yml');
+    const job = workflow.jobs['electron-tests'];
+    const nativeDependencyTest = fs.readFileSync(
+      path.join(PROJECT_ROOT, 'apps/desktop/electron/tests/stage-media-tools.test.js'),
+      'utf8',
+    );
+    const realComposeSmoke = fs.readFileSync(
+      path.join(PROJECT_ROOT, 'apps/desktop/electron/tests/story2video-real-ffmpeg.node-test.cjs'),
+      'utf8',
+    );
+    const videoEngine = fs.readFileSync(
+      path.join(PROJECT_ROOT, 'apps/desktop/electron/services/video-engine.js'),
+      'utf8',
+    );
+
+    expect(job.env).toMatchObject({ SKIP_NATIVE_MEDIA_TOOL_TESTS: '1' });
+    expect(nativeDependencyTest).toContain("process.env.NODE_ENV === 'test'");
+    expect(nativeDependencyTest).toContain("process.env.SKIP_NATIVE_MEDIA_TOOL_TESTS === '1'");
+    expect(nativeDependencyTest).toContain('it.skipIf(skipNativeMediaTests)');
+    expect(realComposeSmoke).toContain("process.env.NODE_ENV === 'test'");
+    expect(realComposeSmoke).toContain("process.env.SKIP_NATIVE_MEDIA_TOOL_TESTS === '1'");
+    expect(realComposeSmoke).toContain("t.skip('远程 CI 不执行桌面 FFmpeg 合成门禁')");
+    expect(videoEngine).toContain("const { findFfmpeg } = require('./media-tool-paths');");
+    expect(videoEngine).not.toMatch(/spawnSync\(\s*['"]ffmpeg['"]/);
   });
 
   it('Electron CI 使用测试环境、串行 watchdog 和失败进程诊断', () => {

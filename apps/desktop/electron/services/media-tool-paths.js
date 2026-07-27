@@ -51,9 +51,6 @@ function findMediaTool (tool, options = {}) {
   const platform = options.platform || process.platform
   const existsSync = options.existsSync || fs.existsSync
   const resourcesPath = options.resourcesPath === undefined ? process.resourcesPath : options.resourcesPath
-  const installedPaths = options.installedPaths === undefined ? loadInstalledPaths() : options.installedPaths
-  const commandAvailable = options.commandAvailable || defaultCommandAvailable
-  const commonPaths = options.commonPaths || defaultCommonPaths(tool, platform, env)
   const envName = tool === 'ffmpeg' ? 'FFMPEG_PATH' : 'FFPROBE_PATH'
 
   if (typeof resourcesPath === 'string' && resourcesPath) {
@@ -63,6 +60,12 @@ function findMediaTool (tool, options = {}) {
     )
     if (packaged) return packaged
   }
+
+  if (env.NODE_ENV === 'test' && env.SKIP_NATIVE_MEDIA_TOOL_TESTS === '1') return null
+
+  const installedPaths = options.installedPaths === undefined ? loadInstalledPaths() : options.installedPaths
+  const commandAvailable = options.commandAvailable || defaultCommandAvailable
+  const commonPaths = options.commonPaths || defaultCommonPaths(tool, platform, env)
 
   const configured = existingFile(env[envName], existsSync)
   if (configured) return configured
