@@ -7,9 +7,11 @@
 const { autoUpdater } = require('electron-updater')
 // eslint-disable-next-line no-unused-vars
 const { app, BrowserWindow } = require('electron')
+const logger = require('./logger')
 
 let _mainWin = null
 let _statusCallback = null
+let _listenersRegistered = false
 const _reportedUnavailableErrors = new WeakSet()
 
 // 网络超时/阻断错误特征码（GFW 场景）
@@ -45,21 +47,45 @@ function isNetworkError (err) {
 function isLatestManifestMissing (err) {
   const msg = errorMessage(err)
   const statusCode = Number(err?.statusCode ?? err?.status ?? err?.response?.statusCode)
-  const isNotFound = statusCode === 404 || /\b404\b/.test(msg)
-  const manifestMissing = /(?:cannot find|not found)[^\r\n]*latest(?:-[a-z0-9_-]+)?\.ya?ml|latest(?:-[a-z0-9_-]+)?\.ya?ml[^\r\n]*(?:cannot find|not found)/i.test(msg)
-  return isNotFound && manifestMissing
+  const details = [
+    msg,
+    err?.url,
+    err?.response?.url,
+    err?.response?.config?.url,
+    err?.request?.responseURL,
+  ].filter(value => typeof value === 'string').join(' ')
+  const hasManifestReference = /latest(?:-[a-z0-9_-]+)?\.ya?ml/i.test(details)
+  const hasNotFoundMarker = /(?:cannot find|not found|request(?:ed)?[^\r\n]*\b404\b)/i.test(details)
+  const isNotFound = statusCode === 404 || /\b404\b/.test(details)
+  const isSignatureFailure = /(?:signature|signing|checksum|integrity|verification)/i.test(details)
+  return isNotFound && hasManifestReference && !isSignatureFailure && (statusCode === 404 || hasNotFoundMarker || /\b404\b/.test(details))
 }
 
 function isUpdateCheckUnavailable (err) {
-  return isNetworkError(err) || isLatestManifestMissing(err)
+  return isLatestManifestMissing(err) || isNetworkError(err)
+}
+
+function createProductionLogger () {
+  const write = (level, message) => {
+    if (level === 'error' && isUpdateCheckUnavailable(message)) return
+    logger[level](`auto-updater ${errorMessage(message)}`)
+  }
+
+  return {
+    debug: message => write('debug', message),
+    info: message => write('info', message),
+    warn: message => write('warn', message),
+    error: message => write('error', message)
+  }
 }
 
 function sendUnavailableOnce (err) {
   if (err && (typeof err === 'object' || typeof err === 'function')) {
-    if (_reportedUnavailableErrors.has(err)) return
+    if (_reportedUnavailableErrors.has(err)) return false
     _reportedUnavailableErrors.add(err)
   }
   _sendStatus('not-available', '当前已是最新版本')
+  return true
 }
 
 /**
@@ -68,14 +94,16 @@ function sendUnavailableOnce (err) {
  * @param {Function} onStatus - (status: string, data?: any) => void
  */
 function init (win, onStatus) {
-  // 防止重复 init 导致 autoUpdater 监听器累积（每次 init 都会 .on 注册新监听器）
-  if (_mainWin === win) return
   _mainWin = win
   _statusCallback = onStatus
 
-  // 打包状态是权威来源，避免机器残留环境变量让生产更新错误写入 stderr。
+  if (_listenersRegistered) return
+
+  // 打包状态是权威来源，残留开发环境变量不能重新启用 console logger。
   const isUnpackagedDevelopment = app?.isPackaged === false && process.env.NODE_ENV === 'development'
-  autoUpdater.logger = isUnpackagedDevelopment ? console : null
+  autoUpdater.logger = isUnpackagedDevelopment
+    ? console
+    : createProductionLogger()
 
   // 自动下载
   autoUpdater.autoDownload = false
@@ -112,13 +140,14 @@ function init (win, onStatus) {
   })
 
   autoUpdater.on('error', (err) => {
-    // GFW 阻断或发布缺少 latest.yml：按无可用更新静默处理。
     if (isUpdateCheckUnavailable(err)) {
       sendUnavailableOnce(err)
       return
     }
     _sendStatus('error', errorMessage(err))
   })
+
+  _listenersRegistered = true
 }
 
 /**
@@ -143,7 +172,7 @@ function download () {
       sendUnavailableOnce(err)
       return
     }
-    _sendStatus('error', err.message)
+    _sendStatus('error', errorMessage(err))
   })
 }
 

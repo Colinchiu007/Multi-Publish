@@ -1,10 +1,12 @@
 const http = require("http");
 const assert = require("assert");
+const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const { createHarness } = require('./harness');
-const TEST_KEYS = __dirname + "/.test-open-api-keys.json";
-try { fs.unlinkSync(TEST_KEYS); } catch(e) {}
+const TEST_ROOT = path.join(os.tmpdir(), `multi-publish-open-api-${process.pid}-${crypto.randomUUID()}`);
+const TEST_KEYS = path.join(TEST_ROOT, "api-keys.json");
 
 var mod;
 try { mod = require("../src/publish-api-server"); } catch(e) { mod = null; }
@@ -145,4 +147,6 @@ t("Server health includes version and platform count", async function() {
   await server.stop();
 });
 
-harness.run();
+harness.run().finally(function() {
+  fs.rmSync(TEST_ROOT, { recursive: true, force: true });
+});

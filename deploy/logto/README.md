@@ -27,7 +27,7 @@ docker compose logs -f logto
 
 Compose 会等待 PostgreSQL `pg_isready` 成功，再启动 Logto。Logto 容器的健康检查访问 OIDC discovery；因此健康不代表业务 API 已接入，只代表数据库迁移完成且 OIDC 端点可响应。
 
-业务 API 的 Dockerfile 和 Compose 健康检查访问 `/api/v1/ready`，数据库 schema、migration 或 OIDC/JWKS 任一未就绪时容器保持 unhealthy。启用 `docker-compose.monitoring.yml` 前还必须把 `monitoring/alertmanager.example.yml` 复制到受控路径、替换示例通知地址，并单独设置 `ALERTMANAGER_CONFIG_FILE`；该变量不在基础 `.env.example` 中，缺失时 monitoring overlay 会 fail closed。
+业务 API 的 Dockerfile 和 Compose 健康检查访问 `/api/v1/ready`，数据库 schema、migration、OIDC/JWKS 或 Opaque Token introspection 任一未就绪时容器保持 unhealthy。introspection readiness 会用随机无效 token 验证 endpoint 和 M2M 凭据，并且只接受 `active:false`。启用 `docker-compose.monitoring.yml` 前还必须把 `monitoring/alertmanager.example.yml` 复制到受控路径、替换示例通知地址，并单独设置 `ALERTMANAGER_CONFIG_FILE`；该变量不在基础 `.env.example` 中，缺失时 monitoring overlay 会 fail closed。
 
 监控 Compose 是叠加层，禁止单独启动；必须与基础 Logto Compose 合并：
 
@@ -56,6 +56,9 @@ node ../../packages/api-publish-engine/scripts/migrate-postgres.js
 IDENTITY_AUTH_ENABLED=true
 LOGTO_ENDPOINT=https://id.example.com
 LOGTO_API_RESOURCE=https://api.multi-publish.com
+LOGTO_CLIENT_ID=<Logto M2M application id>
+LOGTO_CLIENT_SECRET=<Logto M2M application secret>
+API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
 BUSINESS_DATABASE_URL=postgresql://multi_publish:<password>@db.example.com:5432/multi_publish
 LOGTO_WEBHOOK_SIGNING_KEY=<Logto Webhook signing key>
 LOGTO_WEBHOOK_MAX_EVENT_AGE_SECONDS=900
@@ -64,9 +67,9 @@ ENTITLEMENT_KEY_ID=entitlement-2026-01
 ENTITLEMENT_PRIVATE_KEY=<RSA private key, server only>
 ```
 
-若使用 `packages/api-publish-engine/docker-compose.yml` 启动业务 API，先创建其相对路径的 `config/` 目录，并确保 Linux 主机上该目录可由容器 UID `1001` 写入。Compose 会把它挂载到 `/app/packages/api-publish-engine/config`，这是 API Key 哈希和可选 `publish-api.json` 的实际读写目录；不要挂载到无消费者的 `/app/config`，否则容器重启可能丢失 API Key 状态。
+若使用 `packages/api-publish-engine/docker-compose.yml` 启动业务 API，先创建其相对路径的 `config/` 目录，并确保 Linux 主机上该目录可由容器 UID `1001` 写入。Compose 会把它挂载到 `/app/packages/api-publish-engine/config`，并把 `API_KEYS_PATH` 固定为其中的 `api-keys.json`；这是 API Key 哈希、writer lock 和可选 `publish-api.json` 的实际读写目录。不要挂载到无消费者的 `/app/config`，否则容器重启可能丢失 API Key 状态。同一持久卷只允许一个业务 API writer；横向扩容前必须迁移到具备事务或 CAS 的共享存储。
 
-API 入口在开发模式可自动创建 `identity_*` 表；生产模式只检查 schema readiness。迁移系统使用 `migrations/postgresql/002_logto_identity.sql` 和 `003_logto_webhook_events.sql`，并在 `identity_schema_migrations` 记录 checksum；根目录同名脚本是本地 SQLite 兼容版本，不能在 PostgreSQL 执行。缺少业务数据库、issuer 或 audience 时会 fail closed，不会静默退回 API Key 模式。`ENTITLEMENT_PRIVATE_KEY` 只用于签发绑定 `sub + device_id` 的短期离线快照，绝不能打包到 Electron；桌面端仅配置对应公钥 `ENTITLEMENT_PUBLIC_KEY`。
+API 入口在开发模式可自动创建 `identity_*` 表；生产模式只检查 schema readiness。迁移系统使用 `migrations/postgresql/002_logto_identity.sql` 和 `003_logto_webhook_events.sql`，并在 `identity_schema_migrations` 记录 checksum；根目录同名脚本是本地 SQLite 兼容版本，不能在 PostgreSQL 执行。缺少业务数据库、issuer、audience 或任一 M2M 凭据时会 fail closed；身份依赖故障返回 503，不会静默退回 API Key 模式。`ENTITLEMENT_PRIVATE_KEY` 只用于签发绑定 `sub + device_id` 的短期离线快照，绝不能打包到 Electron；桌面端仅配置对应公钥 `ENTITLEMENT_PUBLIC_KEY`。
 
 业务 API 容器内部始终监听 `3000`，生产 Compose 固定只绑定宿主机回环地址 `127.0.0.1:3030`；Nginx 反代和监控目标必须使用该端口。
 
@@ -76,7 +79,7 @@ API 入口在开发模式可自动创建 `identity_*` 表；生产模式只检�
 curl -fsS "%LOGTO_ENDPOINT%/oidc/.well-known/openid-configuration"
 ```
 
-验证 API 存活和就绪（`health` 不访问外部依赖，`ready` 会检查业务数据库、migration 和 OIDC/JWKS）：
+验证 API 存活和就绪（`health` 不访问外部依赖，`ready` 会检查业务数据库、migration、OIDC/JWKS 和 introspection；响应必须包含 `checks.introspection.status=ready`）：
 
 ```text
 curl -fsS http://127.0.0.1:3030/api/v1/health
@@ -84,7 +87,7 @@ curl -fsS http://127.0.0.1:3030/api/v1/ready
 node ../../packages/api-publish-engine/scripts/production-smoke.js --logto "%LOGTO_ENDPOINT%" --api http://127.0.0.1:3030
 ```
 
-首次打开 `LOGTO_ADMIN_ENDPOINT` 完成管理员初始化。创建 Native Application（桌面端）和业务 API Resource 时，记录 issuer、audience 和 redirect URI；桌面端只保存公开的 endpoint/app id，不保存 client secret。
+首次打开 `LOGTO_ADMIN_ENDPOINT` 完成管理员初始化。创建 Native Application（桌面端）、业务 API Resource 和供业务 API introspection 使用的 M2M Application；M2M Secret 只进入服务端 Secret Store。记录 issuer、audience 和 redirect URI；桌面端只保存公开的 endpoint/app id，不保存 client secret。
 
 ## 桌面端公开配置
 

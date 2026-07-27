@@ -1,6 +1,6 @@
 const assert = require('assert')
 const http = require('http')
-const { PublishApiServer } = require('../src/publish-api-server')
+const { TestPublishApiServer: PublishApiServer } = require('./test-publish-api-server')
 
 function request(port, method, path, token, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {

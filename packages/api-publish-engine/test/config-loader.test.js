@@ -123,13 +123,16 @@ t("loadConfig reads env vars", function() {
   process.env.PORT = "9999";
   process.env.HOST = "0.0.0.0";
   process.env.DRY_RUN = "true";
+  process.env.API_KEYS_PATH = path.join(tmpDir, "api-keys.json");
   var result = loadConfig({ readEnv: true });
   eq(result.port, 9999);
   eq(result.host, "0.0.0.0");
   eq(result.dryRun, true);
+  eq(result.keysPath, process.env.API_KEYS_PATH);
   delete process.env.PORT;
   delete process.env.HOST;
   delete process.env.DRY_RUN;
+  delete process.env.API_KEYS_PATH;
 });
 
 t("loadConfig --config CLI arg works", function() {

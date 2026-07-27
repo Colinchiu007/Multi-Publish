@@ -194,13 +194,10 @@ describe('story2video 资源索引契约', () => {
 
       expect(result.success).toBe(true)
       expect(assetGenerator.generateTTS).not.toHaveBeenCalled()
-      expect(result.output.scenes).toEqual([
-        expect.objectContaining({
-          index: 0,
-          audioPath: fs.realpathSync.native(imported.path),
-          duration: 1.25,
-        }),
-      ])
+      expect(result.output.scenes).toHaveLength(1)
+      expect(result.output.scenes[0]).toMatchObject({ index: 0, duration: 1.25 })
+      expect(fs.realpathSync.native(result.output.scenes[0].audioPath))
+        .toBe(fs.realpathSync.native(imported.path))
     } finally {
       fs.rmSync(imported.path, { force: true })
       fs.rmSync(root, { recursive: true, force: true })

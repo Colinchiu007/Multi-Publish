@@ -3,7 +3,7 @@ const fs = require('fs')
 const http = require('http')
 const os = require('os')
 const path = require('path')
-const { PublishApiServer } = require('../src/publish-api-server')
+const { TestPublishApiServer: PublishApiServer } = require('./test-publish-api-server')
 
 function request(port, token) {
   return new Promise((resolve, reject) => {
@@ -51,6 +51,25 @@ async function runServer(identityAuthRequired) {
   return server
 }
 
+async function runUnavailableServer(identityAuthRequired) {
+  const server = new PublishApiServer({
+    dryRun: true,
+    apiKey: 'legacy-key',
+    autoMigrate: false,
+    identityAuthRequired,
+    logtoVerifier: {
+      verify: async () => {
+        throw Object.assign(new Error('identity provider unavailable'), {
+          code: 'AUTH_INTROSPECTION_UNAVAILABLE',
+          status: 503,
+        })
+      },
+    },
+  })
+  await server.start(0)
+  return server
+}
+
 async function main() {
   const optional = await runServer(false)
   try {
@@ -68,6 +87,21 @@ async function main() {
       '强制模式不能降级到 API Key')
   } finally {
     await required.stop()
+  }
+
+  for (const identityAuthRequired of [false, true]) {
+    const unavailable = await runUnavailableServer(identityAuthRequired)
+    try {
+      const port = unavailable._server.address().port
+      for (const suppliedToken of ['legacy-key', 'opaque-user-token']) {
+        const response = await request(port, suppliedToken)
+        assert.strictEqual(response.status, 503,
+          '身份依赖故障必须返回 503，不能降级为 401 或 API Key 成功')
+        assert.strictEqual(response.body.message, 'AUTH_INTROSPECTION_UNAVAILABLE')
+      }
+    } finally {
+      await unavailable.stop()
+    }
   }
 
   const unmanagedConfiguredKey = 'unmanaged-configured-key'
@@ -135,11 +169,17 @@ async function main() {
   } finally {
     await corruptConfigured.stop()
   }
-  assert.throws(
-    () => new PublishApiServer({ dryRun: true, apiKey: corruptConfiguredKey, keysPath: corruptKeysPath }),
+  const corruptAutomaticMigration = new PublishApiServer({
+    dryRun: true,
+    apiKey: corruptConfiguredKey,
+    keysPath: corruptKeysPath,
+  })
+  await assert.rejects(
+    corruptAutomaticMigration.start(0),
     (error) => error && error.code === 'API_KEY_STORE_UNAVAILABLE',
-    '自动迁移不能覆盖损坏的 Key 存储',
+    '自动迁移必须在监听前拒绝损坏的 Key 存储',
   )
+  await corruptAutomaticMigration.stop()
   for (const file of [corruptKeysPath, `${corruptKeysPath}.tmp`]) {
     if (fs.existsSync(file)) fs.unlinkSync(file)
   }

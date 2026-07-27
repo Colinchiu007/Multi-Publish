@@ -13,6 +13,7 @@
 const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const BASE = path.resolve(__dirname, "..");
@@ -33,7 +34,7 @@ class MockFunctionalRunner {
 }
 
 describe("Orchestrator 集成测试", () => {
-  const TMPDIR = path.join(__dirname, ".tmp-int");
+  const TMPDIR = fs.mkdtempSync(path.join(os.tmpdir(), "ai-autonomous-orchestrator-"));
   const REPORT_DIR = path.join(TMPDIR, "reports");
 
   before(() => {
@@ -41,7 +42,7 @@ describe("Orchestrator 集成测试", () => {
   });
 
   after(() => {
-    // fs.rmSync(TMPDIR, { recursive: true, force: true });
+    fs.rmSync(TMPDIR, { recursive: true, force: true });
   });
 
   // ===============================================

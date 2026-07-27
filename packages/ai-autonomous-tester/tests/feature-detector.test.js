@@ -1,10 +1,15 @@
-const { describe, it } = require("node:test");
+const { describe, it, after } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { FeatureDetector } = require("../src/detectors/feature-detector");
 
-const TMP = path.join(__dirname, ".tmp-features");
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "ai-autonomous-features-"));
+
+after(() => {
+  fs.rmSync(TMP, { recursive: true, force: true });
+});
 
 function write(f, content) {
   const full = path.join(TMP, f);

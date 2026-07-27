@@ -26,66 +26,13 @@ const {
   isPathWithin,
   resolveReadableMediaFile,
 } = require('./story2video-paths')
+const { findFfmpeg, findFfprobe } = require('./media-tool-paths')
 
 const execFileAsync = promisify(execFile)
 const DEFAULT_MAX_DURATION_SECONDS = 10 * 60
 const DEFAULT_MAX_AUDIO_DURATION_SECONDS = 15 * 60
 const DEFAULT_MAX_SEGMENT_DURATION_SECONDS = 3 * 60
 const DEFAULT_MAX_OUTPUT_PIXELS = 7680 * 4320
-
-// 查找 ffmpeg 可执行文件
-function findFfmpeg () {
-  // 1. 环境变量 FFMPEG_PATH（最高优先级）
-  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
-    return process.env.FFMPEG_PATH
-  }
-  // 2. 系统 PATH 查找
-  try {
-    require('child_process').execSync('ffmpeg -version', { stdio: 'ignore' })
-    return 'ffmpeg'
-  } catch {
-    // 3. 常见安装位置（跨平台，非开发者路径）
-    const commonPaths = process.platform === 'win32'
-      ? [
-          'C:\\ffmpeg\\bin\\ffmpeg.exe',
-          path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'ffmpeg', 'bin', 'ffmpeg.exe'),
-        ]
-      : ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg']
-    for (const p of commonPaths) {
-      if (p && fs.existsSync(p)) return p
-    }
-  }
-  return null
-}
-
-// ffprobe 与 ffmpeg 通常随同一套发行包提供，用于读取媒体真实时长。
-function findFfprobe () {
-  const configured = process.env.FFPROBE_PATH
-  if (configured && fs.existsSync(configured)) return configured
-
-  const ffmpegPath = process.env.FFMPEG_PATH
-  if (ffmpegPath && path.isAbsolute(ffmpegPath)) {
-    const sibling = path.join(path.dirname(ffmpegPath),
-      path.basename(ffmpegPath).replace(/ffmpeg/i, 'ffprobe'))
-    if (fs.existsSync(sibling)) return sibling
-  }
-
-  try {
-    require('child_process').execSync('ffprobe -version', { stdio: 'ignore' })
-    return 'ffprobe'
-  } catch {
-    const commonPaths = process.platform === 'win32'
-      ? [
-          'C:\\ffmpeg\\bin\\ffprobe.exe',
-          path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'ffmpeg', 'bin', 'ffprobe.exe'),
-        ]
-      : ['/usr/bin/ffprobe', '/usr/local/bin/ffprobe', '/opt/homebrew/bin/ffprobe']
-    for (const p of commonPaths) {
-      if (p && fs.existsSync(p)) return p
-    }
-  }
-  return null
-}
 
 const FFMPEG = findFfmpeg()
 const FFPROBE = findFfprobe()
