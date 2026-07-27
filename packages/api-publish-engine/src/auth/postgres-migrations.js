@@ -73,10 +73,10 @@ function validateMigrationLedger(migrations, applied, options = {}) {
 }
 
 async function loadApplied(client, dryRun) {
-  if (dryRun) {
-    const table = await client.query("SELECT to_regclass('public.identity_schema_migrations') AS relation")
-    if (!table.rows || !table.rows[0] || !table.rows[0].relation) return []
-  } else {
+  const table = await client.query("SELECT to_regclass('public.identity_schema_migrations') AS relation")
+  const tableExists = Boolean(table.rows && table.rows[0] && table.rows[0].relation)
+  if (!tableExists) {
+    if (dryRun) return []
     await client.query(`CREATE TABLE IF NOT EXISTS identity_schema_migrations (
       name TEXT PRIMARY KEY,
       checksum TEXT NOT NULL,

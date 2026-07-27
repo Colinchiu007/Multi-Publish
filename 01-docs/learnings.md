@@ -4560,3 +4560,46 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
    合同；manual 控件只计数，不采样、不点击。
 2. 通用扫描报告必须分别暴露发现数、manual 数、采样数和实际点击数，禁止只用最终通过数掩盖过滤范围。
 3. 快速扫描合同必须位于真实 Browser E2E 之前；合同失败时不得继续执行长时间 GUI 扫描。
+
+---
+
+## PostgreSQL migration ledger 存在时仍要求 schema CREATE 权限（2026-07-27）
+
+### 第一性原因
+
+- `cb0230b0` 首次引入 `postgres-migrations.js` 时，让正式 `loadApplied()` 无条件执行
+  `CREATE TABLE IF NOT EXISTS identity_schema_migrations`，再读取 ledger。PostgreSQL 的 `IF NOT EXISTS`
+  只避免重复创建对象，不跳过 schema `CREATE` 权限检查。
+- ECS 的 `multi_publish_api` 是正确的最小权限运行角色：对 `public` 只有 `USAGE`，对 7 张业务表有 DML，
+  没有 schema `CREATE`；ledger 和业务表均归 `multi_publish` 所有。正式 runner 因此返回 PostgreSQL
+  `42501`，即使 dry-run 已证明 `pending=[]`。
+- 旧发布 `83b558a1` 与新发布 `645ec4cd` 的迁移文件 blob 完全相同。上一轮
+  `migration-apply.json` 虽记录成功，但没有保留足以解释当时权限状态的审计证据，不能据此推断当前代码正确。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：重复执行用例的 fake client 对任意 `CREATE TABLE` 都返回成功，只断言 migration SQL 被跳过，
+   没有模拟 `42501` 或断言无 DDL。
+2. **集成测试**：dry-run 会先用 `to_regclass` 探测 ledger，因此天然不执行 DDL；它与正式 runner 走不同分支，
+   无法证明正式路径兼容最小权限角色。
+3. **端到端测试**：本地和 CI 没有使用“有 ledger、无 schema CREATE”的真实 PostgreSQL 角色执行正式 runner。
+4. **部署验收**：上一轮只保存迁移结果 JSON，没有保存执行角色权限快照与无 DDL 查询证据，历史成功掩盖了缺陷。
+5. **代码审查**：把 `CREATE TABLE IF NOT EXISTS` 误认为无副作用的存在性检查，没有按 PostgreSQL 权限语义审查。
+
+系统性漏洞属于**测试场景缺失 + Mock 过度 + 环境差异 + 审查盲区**：无 pending 不等于无 SQL；最小权限
+合同必须明确约束正式 runner 不发 DDL，而不能由最终 `applied=[]` 间接推断。
+
+### 修复与回归保护
+
+- `loadApplied()` 在 advisory lock 内统一先查询 `to_regclass`。ledger 存在时直接读取；缺失且为 dry-run 时
+  返回空；缺失且为正式迁移时才创建表。
+- `postgres-migrations.test.js` 用 PostgreSQL `42501` 固定三个边界：已有 ledger 且无 pending 时不要求
+  CREATE；缺失 ledger 时仍创建并应用；缺失 ledger 且无 CREATE 时失败并释放 advisory lock。
+- ECS 发布使用真实 `multi_publish_api` 角色运行正式 runner，并以 `applied=[]`、两项 `skipped`、
+  `pending=[]` 作为生产回归证据；该验证不读取或输出数据库密码。
+
+### 预防措施
+
+1. `AGENTS.md` QM-2 新增 PostgreSQL migration 最小权限规则，禁止用 DDL 做 ledger 存在性检查。
+2. migration 回归必须同时覆盖 dry-run 与正式模式，并对无 pending 的正式模式断言无 CREATE/BEGIN/INSERT。
+3. 发布记录必须同时保存执行角色名、schema 权限快照和正式 runner 结果；不能用 dry-run 或旧发布成功替代。
