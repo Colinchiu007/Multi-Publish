@@ -86,7 +86,7 @@ node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.
 
 桌面包使用 `config/identity-public.json` 作为公开身份配置，并在打包后从 `resources/config/identity-public.json` 加载。该文件只能包含 Logto endpoint、Native Application ID、resource、业务 API URL、回环 callback、scope、entitlement key id 和 RSA 公钥；加载器拒绝未知字段、任何私钥字段和无效 RSA 公钥。构建前执行 `node apps/desktop/check-integrity.js`，它会解析并校验源配置；随后在 Windows 目录包中确认同一文件位于 `resources/config/` 且内容一致。
 
-发行配置存在时，`identityAuthEnabled` 只能由 `identity-public.json` 声明，`IDENTITY_AUTH_ENABLED` 不会覆盖它；`IDENTITY_AUTH_REQUIRED` 和其余公开字段才允许由受控进程环境覆盖，合并后仍会拒绝 `enabled=false`、`required=true` 等矛盾开关。没有发行配置的旧式开发环境继续兼容环境变量启用开关。Shadow 阶段桌面端保持 `IDENTITY_AUTH_ENABLED=true`、`IDENTITY_AUTH_REQUIRED=false`，业务 API 也保持 `IDENTITY_AUTH_REQUIRED=false`；这只允许观测真实身份链路，不放松服务端 Bearer 验证。配置读取或校验失败一律阻止桌面端启动，Shadow 仅允许临时非配置初始化失败降级。`BUSINESS_API_URL=https://auth.iart.work` 是业务 API 的公开反代基址（`/api/`），而 `LOGTO_API_RESOURCE=https://api.multi-publish.com` 是 Token audience。进入 Required 前必须先完成真实登录、刷新、退出、账号切换和带 Bearer Token 的 `/api/v1/me` 验收。entitlement key 轮换需要先验证服务端私钥，再更新公开 JSON 的 key id/公钥并重发桌面安装包。
+发行配置存在时，`identityAuthEnabled` 只能由 `identity-public.json` 声明，`IDENTITY_AUTH_ENABLED` 不会覆盖它；`IDENTITY_AUTH_REQUIRED` 和其余公开字段才允许由受控进程环境覆盖，合并后仍会拒绝 `enabled=false`、`required=true` 等矛盾开关。没有发行配置的旧式开发环境继续兼容环境变量启用开关。Shadow 阶段桌面端保持 `IDENTITY_AUTH_ENABLED=true`、`IDENTITY_AUTH_REQUIRED=false`，业务 API 也保持 `IDENTITY_AUTH_REQUIRED=false`；这只允许观测真实身份链路，不放松服务端 Bearer 验证。配置读取或校验失败一律阻止桌面端启动，Shadow 仅允许临时非配置初始化失败降级。`BUSINESS_API_URL=https://auth.iart.work` 是业务 API 的公开反代基址（`/api/`），而 `LOGTO_API_RESOURCE=https://api.multi-publish.com` 是 Token audience。进入 Required 前必须先完成真实登录、refresh token 轮换、退出、真正 A→B 账号切换和带 Bearer Token 的 `/api/v1/me` 验收；同账号重新认证不能替代 A→B 主体隔离。entitlement key 轮换需要先验证服务端私钥，再更新公开 JSON 的 key id/公钥并重发桌面安装包。
 
 ## 4. 灰度
 
@@ -101,7 +101,7 @@ LOGTO_CLIENT_ID=<Logto M2M application id>
 LOGTO_CLIENT_SECRET=<Logto M2M application secret>
 ```
 
-确认真实登录、刷新、退出、账号切换、Webhook 和云端发布后，观察至少一个完整业务高峰。API ready、OIDC discovery、introspection readiness、401/403/503、Webhook 失败和额度拒绝均在预期范围内才进入 required；身份依赖故障不得通过 API Key 回退掩盖。
+确认真实登录、refresh token 轮换、退出、真正 A→B 账号切换、Webhook 和云端发布后，观察至少一个完整业务高峰。API ready、OIDC discovery、introspection readiness、401/403/503、Webhook 失败和额度拒绝均在预期范围内才进入 required；身份依赖故障不得通过 API Key 回退掩盖。
 
 ### Required
 
@@ -174,4 +174,4 @@ Prometheus 仅绑定 `127.0.0.1:9090`。生产环境通过受控运维通道访�
 
 ## 8. 外部验收状态
 
-没有真实 Logto 租户、真实 PostgreSQL 和云发布环境时，以下状态保持 `PENDING_EXTERNAL`：登录/刷新/退出/切换、真实 migration/恢复、并发压力、真实 Webhook 重试及云端发布撤销。仓库测试通过不能替代这些证据。
+2026-07-28 已使用真实 Logto、PostgreSQL 与最终 Windows 包证明登录、`free` entitlement、同 profile 恢复、同账号重新认证和退出；专用测试主体已安全回收。以下状态仍保持 `PENDING_EXTERNAL`：refresh token 轮换、真正 A→B 主体隔离、最新业务 API 镜像部署后的 migration/readiness/smoke、真实 Webhook 重试与乱序、恢复演练、并发压力及云端发布撤销。仓库测试或同账号 UAT 不能替代这些证据。

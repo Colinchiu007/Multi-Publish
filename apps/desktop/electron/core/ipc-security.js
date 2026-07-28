@@ -4,6 +4,7 @@
  *
  * 只放与来源可信度判断有关的纯逻辑，避免 ipc-handlers 反向依赖 bootstrap。
  */
+const fs = require('fs')
 const path = require('path')
 const { fileURLToPath } = require('url')
 
@@ -48,7 +49,9 @@ function isTrustedSender(event, app) {
       const appRoot = app && typeof app.getAppPath === 'function'
         ? app.getAppPath()
         : path.resolve(__dirname, '../..')
-      return isPathInside(path.resolve(appRoot, 'dist'), path.resolve(fileURLToPath(senderUrl)))
+      const trustedDistPath = fs.realpathSync.native(path.resolve(appRoot, 'dist'))
+      const senderPath = fs.realpathSync.native(path.resolve(fileURLToPath(senderUrl)))
+      return isPathInside(trustedDistPath, senderPath)
     } catch {
       return false
     }
