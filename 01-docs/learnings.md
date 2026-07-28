@@ -4778,3 +4778,55 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
 2. `01-docs/TEST-PLAN-LOGTO.md` 增加真实 Electron + raw/canonical junction 场景；Vite 浏览器测试不得替代。
 3. 最终 Windows 包必须从 renderer 调用至少一个受保护 IPC，并断言不返回 `AUTH_ERROR`；进程存活不再充分。
 4. 路径安全测试只使用真实存在文件，并同时覆盖不存在路径、相邻前缀、遍历、凭据 URL 和链接逃逸。
+
+---
+
+## canonical IPC 测试依赖未跟踪 dist 导致 clean CI 失败（2026-07-28）
+
+### 第一性原因
+
+- `812dc54 fix(auth): harden packaged identity validation` 为修复 Windows junction 下 renderer 的合法
+  `file://` URL 被拒绝，将 `isTrustedSender()` 从词法 `path.resolve()` 比较改为对受信 `dist` 和 sender
+  文件执行 `fs.realpathSync.native()`。路径不存在时进入既有 `catch` 并返回 `false`，这是正确的 fail-closed
+  生产合同。
+- 同一提交保留了两个指向仓库 `apps/desktop/dist/index.html` 的“合法来源”测试。该目录被 `.gitignore`
+  排除，干净 GitHub checkout 不包含它；本地工作树却因此前 Vue/Builder 运行留下该文件，导致同一测试在本地
+  通过、在 Windows Quality Gate 和 ECS `electron-tests` 稳定得到 `expected false to be true`。
+
+### Bug 逃逸链
+
+1. **单元测试**：`ipc-security.test.js` 虽新增系统临时 junction/escape fixture，原有合法路径断言仍使用仓库
+   `dist/index.html`，没有让 `mockApp.getAppPath()` 指向自建 fixture。
+2. **集成测试**：`phase5-ipc.test.js` 只修正了 `../..` 层级，仍把 Git 忽略的构建输出当作静态测试数据；
+   词法旧实现不要求文件存在，因此夹具错误长期被掩盖。
+3. **端到端/打包测试**：这些流程会先生成 `dist`，无法模拟 unit-test job 的干净 checkout；产物中的真实文件
+   存在也不能证明单元测试自身具备隔离性。
+4. **视觉回归**：视觉测试主动启动 Vite 并依赖构建页面，只验证界面结果，不检查 IPC fixture 是否来自 Git
+   跟踪文件或测试 setup。
+5. **代码审查与 CI**：审查确认了 realpath 和链接逃逸安全语义，却未执行 `git check-ignore`/`git ls-files`
+   核对合法测试文件来源；本地全量测试被残留构建产物污染，直到三个 clean runner 才暴露缺陷。
+
+### 系统性漏洞
+
+该问题属于**测试数据失真 + 测试隔离缺失 + 环境差异 + 审查盲区**。当生产代码从词法路径升级为真实文件
+身份校验时，测试前置条件也随之变为“目录和文件必须真实存在”；但测试计划只覆盖路径边界，没有约束 fixture
+必须由 setup 创建并独立于 ignored build artifact。
+
+### 修复与回归保护
+
+- `ipc-security.test.js` 的 packaged app、合法入口、不存在文件和真实 `dist-evil` 相邻目录统一使用同一系统
+  临时 app root；既有 junction 与链接逃逸覆盖保持不变。
+- `phase5-ipc.test.js` 在 `beforeAll` 中创建独立临时 `app/dist/index.html`，在 `afterAll` 精确删除；不再读取
+  仓库 `dist`。
+- GitHub 旧 SHA 提供稳定 RED：两项失败、331/333 files、5792/5794 tests（Quality Gate）以及
+  331/333 files、5787 passed/4 skipped/2 failed（ECS electron-tests）。修复后本地聚焦为 34/34；临时移走
+  并在 `finally` 恢复仓库 `dist` 后仍为 34/34，证明测试不再依赖构建残留。
+
+### 预防措施
+
+1. `AGENTS.md` QM-2 明确要求 canonical IPC 测试在 `os.tmpdir()` 自建真实 `dist/index.html`，禁止依赖
+   Git 忽略的仓库构建输出。
+2. 路径安全实现新增 `realpath`、存在性或权限前置条件时，测试必须同步覆盖真实存在、真实不存在和链接逃逸，
+   并至少一次在仓库构建输出缺失的条件下运行。
+3. 评审任何以 `dist`、`build`、`coverage` 或临时缓存为 fixture 的测试时，必须用 `git check-ignore` 或
+   `git ls-files` 判断其是否属于 clean checkout；未跟踪产物不得成为测试成功前置条件。

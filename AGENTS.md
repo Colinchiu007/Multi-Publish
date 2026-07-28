@@ -268,7 +268,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **preload 重启验证**：修改 preload.js 后必须重启 Electron 应用（preload 只在窗口创建时加载，Vite HMR 不会热更新 preload）
 - **IPC 测试环境**：涉及 IPC 调用的功能必须在 Electron 窗口中测试，浏览器打开 Vite 开发服务器无 `window.electronAPI`，所有 IPC 调用静默 fallback
 - **IPC 参数序列化安全**：所有传给 `ipcRenderer.invoke()` / `window.electronAPI.*()` 的参数必须是纯 JSON 对象。Vue ref/reactive 包装的嵌套对象是 reactive proxy，直接传入会报 "An object could not be cloned"。规则：从 Vue ref 取出的对象一律 `JSON.parse(JSON.stringify(obj))` 脱壳后再传 IPC。
-- **IPC file URL canonical 合同**：打包 renderer 的 `file://` sender 必须将受信 `app.getAppPath()/dist` 与 sender 文件同时用 `fs.realpathSync.native()` 规范化后再做目录边界比较；允许 worktree/dist-electron junction 的 raw/canonical 根差异，但必须拒绝不存在文件、`dist-evil`、路径遍历及 `dist` 内链接逃逸。修改该逻辑后必须用真实 junction 回归，并在最终打包 Electron 窗口调用受保护 IPC，存活测试不能替代。
+- **IPC file URL canonical 合同**：打包 renderer 的 `file://` sender 必须将受信 `app.getAppPath()/dist` 与 sender 文件同时用 `fs.realpathSync.native()` 规范化后再做目录边界比较；允许 worktree/dist-electron junction 的 raw/canonical 根差异，但必须拒绝不存在文件、`dist-evil`、路径遍历及 `dist` 内链接逃逸。修改该逻辑后必须用真实 junction 回归，并在最终打包 Electron 窗口调用受保护 IPC，存活测试不能替代。单元/集成测试必须在 `os.tmpdir()` 自建真实 `dist/index.html`，禁止依赖被 Git 忽略的 `apps/desktop/dist` 构建残留；至少一次在仓库 `dist` 不存在时运行受影响测试。
 - **路径层级**：多包工作区中 `..` 层级必须用 path-utils 统一模块，禁止凭直觉估算
 - **注释语法**：`/* */` 成对出现，`* text` 开头的行必须前面有 `/*`
 - **模块导出**：`module.exports = {` 后不能有多余逗号

@@ -17,9 +17,7 @@ function makeEvent (url) {
 }
 
 const mockApp = { isPackaged: false }
-const appRoot = path.resolve(__dirname, '../..')
-const mockAppPackaged = { isPackaged: true, getAppPath: () => appRoot }
-const allowedEntryUrl = pathToFileURL(path.join(appRoot, 'dist/index.html')).href
+const mockAppPackaged = { isPackaged: true, getAppPath: () => canonicalAppRoot }
 
 let previousDevServerPort
 let tempRoot
@@ -34,9 +32,11 @@ beforeAll(() => {
   outsideRoot = path.join(tempRoot, 'outside')
 
   fs.mkdirSync(path.join(canonicalAppRoot, 'dist', 'assets'), { recursive: true })
+  fs.mkdirSync(path.join(canonicalAppRoot, 'dist-evil'), { recursive: true })
   fs.mkdirSync(outsideRoot, { recursive: true })
   fs.writeFileSync(path.join(canonicalAppRoot, 'dist', 'index.html'), '<!doctype html>')
   fs.writeFileSync(path.join(canonicalAppRoot, 'dist', 'assets', 'app.js'), 'export {}')
+  fs.writeFileSync(path.join(canonicalAppRoot, 'dist-evil', 'index.html'), '<!doctype html>')
   fs.writeFileSync(path.join(outsideRoot, 'index.html'), '<!doctype html>')
   fs.symlinkSync(canonicalAppRoot, junctionAppRoot, process.platform === 'win32' ? 'junction' : 'dir')
   fs.symlinkSync(outsideRoot, path.join(canonicalAppRoot, 'dist', 'escape'), process.platform === 'win32' ? 'junction' : 'dir')
@@ -62,14 +62,15 @@ describe('ipc-security — isTrustedSender', () => {
   })
 
   it('仅信任应用 dist 目录内的 file URL', () => {
+    const allowedEntryUrl = pathToFileURL(path.join(canonicalAppRoot, 'dist', 'index.html')).href
     expect(isTrustedSender(makeEvent(allowedEntryUrl), mockAppPackaged)).toBe(true)
     expect(isTrustedSender(
-      makeEvent(pathToFileURL(path.join(appRoot, 'dist', 'missing.js')).href),
+      makeEvent(pathToFileURL(path.join(canonicalAppRoot, 'dist', 'missing.js')).href),
       mockAppPackaged,
     )).toBe(false)
     expect(isTrustedSender(makeEvent('file:///C:/app/index.html'), mockAppPackaged)).toBe(false)
     expect(isTrustedSender(
-      makeEvent(pathToFileURL(path.join(appRoot, 'dist-evil/index.html')).href),
+      makeEvent(pathToFileURL(path.join(canonicalAppRoot, 'dist-evil', 'index.html')).href),
       mockAppPackaged,
     )).toBe(false)
   })
