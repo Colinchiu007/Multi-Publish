@@ -4603,3 +4603,178 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 1. `AGENTS.md` QM-2 新增 PostgreSQL migration 最小权限规则，禁止用 DDL 做 ledger 存在性检查。
 2. migration 回归必须同时覆盖 dry-run 与正式模式，并对无 pending 的正式模式断言无 CREATE/BEGIN/INSERT。
 3. 发布记录必须同时保存执行角色名、schema 权限快照和正式 runner 结果；不能用 dry-run 或旧发布成功替代。
+
+---
+
+## Entitlement 零时钟偏差导致真实登录失败（2026-07-28）
+
+### 第一性原因
+
+- 普通用户角色补齐 5 个业务 scope 后，真实 `/api/v1/me` 已从 `403` 恢复为 `200`，桌面端却进入
+  `ENTITLEMENT_EXPIRED`。Electron 主进程真实验签断点显示：快照 `iat=1785175846`、`exp=1785780646`，
+  客户端 `now=1785175844`；服务端只快 2 秒，并非权益真的过期。
+- `789afd65 feat(auth): 集成 Logto 用户系统与租户隔离` 首次同时创建桌面与 API entitlement verifier。
+  两端都直接使用 `iat > now || exp <= now`，等价于要求签发节点与桌面客户端零时钟偏差。该提交的意图是
+  fail closed 校验权益时间，却把分布式系统正常的小幅时钟差误判成无效快照。
+
+### Bug 逃逸链
+
+1. **单元测试**：桌面测试用同一个合成 `now` 构造快照，API 测试也固定 `iat=100/exp=200/now=150`；
+   旧用例还断言未来 1 秒必须失败，实际固化了零容差错误合同。
+2. **集成测试**：`entitlement-service.test.js` 的服务端快照和客户端时钟来自同一 fixture，没有模拟两个节点
+   独立取时；在线 `sync()` 与离线 `restore()` 因而都没有覆盖偏差。
+3. **端到端测试**：`identity-menu.e2e.js` 注入假的 `window.electronAPI`，只验证 UI 状态，不运行真实 OIDC、
+   `/api/v1/me` 或 RSA entitlement 验签。
+4. **视觉回归**：只检查身份菜单布局和文案，无法判断已签名快照的 `iat/exp` 语义。
+5. **代码审查**：原 QM-2 覆盖 OIDC JWT 的 `exp/nbf` 容差，却没有要求 entitlement 双实现、在线/离线路径
+   使用相同的独立时钟偏差合同。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 测试质量不足 + 审查盲区 + 环境差异**。测试计划只为 OIDC JWT 写明 60 秒
+偏差，entitlement 场景仅笼统写“signature/time”；本地 mock、浏览器 E2E 和公网 smoke 之间没有一个门禁
+同时覆盖真实服务端签发时间、桌面本地时间和 RSA 验签。
+
+### 修复与回归保护
+
+- 桌面与 API verifier 统一采用可信本地 `clockTolerance`：默认 `60s`，数值钳制到 `0..300s`；固定拒绝
+  `iat > now + tolerance` 和 `exp <= now - tolerance`，容差不得来自 token。
+- `EntitlementService` 把同一容差传给在线同步与离线恢复；显式 `0` 可恢复严格模式。
+- `apps/desktop/electron/services/identity/entitlement.test.js` 和
+  `packages/api-publish-engine/test/entitlement.test.js` 使用真实 RSA 签名覆盖默认窗口、严格模式、负值、
+  非有限值、`300s` 上限和越界；`entitlement-service.test.js` 直接回归真实故障的 2 秒偏差及 61 秒拒绝。
+- TDD 证据：旧实现的桌面新增场景 4 项 RED、API 在首个容差断言 RED；最小实现后桌面 23/23 与 API
+  entitlement 脚本均 GREEN。
+
+### 预防措施
+
+1. `AGENTS.md` QM-2 新增 entitlement 独立时钟合同，要求双实现、在线/离线和真实 RSA 边界一起修改与验证。
+2. `01-docs/TEST-PLAN-LOGTO.md` 增加 `iat/exp` 偏差矩阵、`0..300s` 配置边界及生产 UTC/NTP 记录。
+3. `.quality-gates.md` 必须分别记录本地边界回归、Windows QM-1 和真实桌面登录；本地 GREEN 不得替代真人验收。
+4. 真实身份 smoke 以后必须保存脱敏的服务端 `iat`、客户端 `now` 和差值，不记录 token、Secret 或私钥。
+
+---
+
+## 打包应用被残留开发信号带回 Vite（2026-07-28）
+
+### 第一性原因
+
+- 在最终 NSIS 产物上同时设置 `NODE_ENV=development` 和 `ELECTRON_IS_DEV=1` 后，主进程尝试加载
+  `http://localhost:5174/`，stderr 返回 `ERR_CONNECTION_REFUSED`。该行为发生在 `app.isPackaged=true`
+  的真实打包应用中，违反“打包状态优先于开发环境变量”的安全合同。
+- `c834e9f5 feat: 项目重构方案分析` 从 `main.js` 拆出 `window.js` 时引入
+  `NODE_ENV === 'development' || --dev || !app.isPackaged`。提交意图是保留开发服务器启动方式，但把可由
+  外部继承的环境变量和命令行参数置于打包状态之前，使生产包可退回开发 URL 并打开 DevTools。
+
+### Bug 逃逸链
+
+1. **单元测试**：`window.test.js` 分别覆盖未打包开发模式和无残留信号的打包模式，没有组合
+   `app.isPackaged=true` 与 `NODE_ENV=development`、`ELECTRON_IS_DEV=1`、`--dev`。
+2. **集成测试**：IPC sender 测试已验证打包状态优先，但窗口加载模式没有复用同一判定函数，形成两套合同。
+3. **端到端测试**：浏览器 E2E 直接访问 Vite，不启动最终 `Multi-Publish.exe`，无法观察生产包加载了哪个 URL。
+4. **视觉回归**：截图由开发服务器生成，页面正常反而掩盖了打包应用对开发服务器的错误依赖。
+5. **发布验证**：历史隐藏启动使用干净环境；只有本轮用残留开发变量启动最终包才稳定复现。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 审查盲区 + 环境差异**。仓库已经为许可证、IPC 和 updater 写入“打包状态
+优先”规则，但窗口加载测试没有同一矩阵，QM-1 也未固定使用受污染环境验证最终包。
+
+### 修复与回归保护
+
+- `window.js` 现在只以 `app.isPackaged === false` 进入开发加载路径。未打包应用仍加载 Vite；打包应用忽略
+  `NODE_ENV`、`ELECTRON_IS_DEV` 和 `--dev`，加载归档内 `dist/index.html`，且不打开 DevTools。
+- `window.test.js` 新增真实组合回归；旧实现得到 1 RED / 41 GREEN，修复后 42/42 GREEN。
+- 最终 QM-1 必须在上述三个开发信号同时存在时隐藏启动重打包产物，并断言存活、stderr 无
+  `ERR_CONNECTION_REFUSED`，同时没有配置、插件、ASAR 或 updater 禁止错误。
+
+### 预防措施
+
+1. 保留 `window.test.js` 的打包残留信号矩阵，任何窗口加载模式变更必须同时覆盖打包和未打包状态。
+2. Windows QM-1 启动命令固定注入残留开发信号，确保最终产物本身执行该合同，而不是只信任单元测试。
+3. 开发权限、开发日志和开发 URL 均只允许由 `app.isPackaged === false` 启用；环境变量不能覆盖该事实。
+
+---
+
+## 打包应用的模拟支付禁用依赖 NODE_ENV（2026-07-28）
+
+### 第一性原因
+
+- `payment:simulate` 可把待支付订单直接标记为 paid 并激活本地 Pro。handler 注释声称生产环境禁用，实际只在
+  `NODE_ENV === 'production'` 时拒绝；打包应用未设置该变量或继承 `development` 时会进入模拟路径。
+- `fbcadfc4 fix(security): 安全审计修复` 首次增加该生产禁用判断，意图是修复支付绕过，却把可变环境变量
+  当成生产事实。当前外层 access-control 仍把该通道限制为 admin，因此这是防御纵深 MAJOR，而不是普通打包
+  用户可直接利用的单点绕过；handler 自身的生产安全合同仍然失效。
+
+### Bug 逃逸链
+
+1. **单元测试**：`payment-manager.test.js` 只验证模拟支付业务方法；没有与 `payment.js` 同目录的 handler 测试。
+2. **集成测试**：`license-access-control.test.js` 证明打包用户在外层被拒绝，但调用在到达 payment handler 前结束，
+   因而掩盖了内层生产判断错误。
+3. **端到端测试**：preload 会按权限隐藏 `paymentSimulate`，没有直接验证打包主进程 handler 的 fail-closed 行为。
+4. **视觉回归**：只能确认按钮是否可见，不能证明 IPC 通道在异常注册或未来权限改动后仍拒绝。
+5. **代码审查**：原安全修复把 `NODE_ENV=production` 视为打包应用必然条件，没有用 `app.isPackaged` 核验。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 间接断言 + 审查盲区**。外层授权和内层危险操作是两道不同防线，测试只覆盖
+外层，无法证明模拟支付 handler 自身在环境变量缺失、污染或未来注册方式变化时仍安全。
+
+### 修复与回归保护
+
+- `payment.js` 仅在 `app.isPackaged === false` 时进入模拟支付；app 不可用、状态不明确或已打包都拒绝。
+- 新增 `payment.test.js`，使用真实 `PaymentManager` 和可信 IPC 来源直接调用 handler，覆盖打包且变量未设置、
+  打包且残留开发变量、未打包但 `NODE_ENV=production` 三种组合。
+- 旧实现 3/3 RED；最小修复后支付 handler、许可证外层和窗口加载组合回归 80/80 GREEN。
+
+### 预防措施
+
+1. 危险开发入口必须同时有外层权限控制和 handler 内部打包状态校验，两层测试不得互相替代。
+2. 保留 `payment.test.js` 的三态矩阵；任何支付、许可证或 IPC 注册变更必须运行该文件。
+3. Electron 主进程审查固定检索生产代码中的 `NODE_ENV` / `ELECTRON_IS_DEV`，逐项确认不能启用开发权限、
+   模拟支付、开发 URL 或生产日志。
+
+---
+
+## 打包 renderer 的 canonical file URL 被 IPC 来源校验拒绝（2026-07-28）
+
+### 第一性原因
+
+- 最终包从 C 盘隔离 worktree 启动，但 `apps/desktop/dist-electron` 是指向 E 盘产物目录的 junction。主进程
+  `app.getAppPath()` 返回 C 盘 raw `resources/app.asar`；其 `fs.realpathSync.native()` 与 renderer 的实际
+  `file://` URL 都位于 E 盘 canonical `resources/app.asar`。真实 `identityGetState()` 因此返回
+  `{ code: -3, message: "未授权的调用来源" }`。
+- `d6a8e20b refactor(ipc): 三层防御架构 + main.js 稳定性改进` 首次将 `file://` 白名单收紧到
+  `app.getAppPath()/dist`，但只对 raw 字符串执行 `path.relative()`。提交意图是拒绝任意本地页面，却没有把
+  Windows junction、Electron/Chromium canonical URL 与主进程 raw 路径统一为同一文件身份。
+
+### Bug 逃逸链
+
+1. **单元测试**：`ipc-security.test.js` 的 app root 与 sender URL 使用同一字符串根；没有真实 junction。旧测试还把
+   不存在的 `dist/assets/app.js` 当成可信路径，只验证词法前缀。
+2. **集成测试**：`phase5-ipc.test.js` 的 mock app root 和 sender 路径各少一层，二者都指向不存在位置；旧词法比较
+   仍返回 true，掩盖了 fixture 错误。
+3. **端到端测试**：浏览器 E2E 直接访问 Vite，`window.electronAPI` 不存在，不会运行真实 `withSenderCheck()`。
+4. **视觉回归**：页面能渲染并不证明受保护 IPC 可调用；身份区把 `code=-3` 映射为通用“登录暂时不可用”。
+5. **发布验证**：旧隐藏启动只断言进程存活和 stderr，没有从最终 renderer 调用 `identityGetState()`；故障包因此通过。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 测试数据失真 + 环境差异 + 发布门禁缺失**。路径安全测试没有同时验证 raw 与
+canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC 可用性被进程存活和浏览器页面渲染间接替代。
+
+### 修复与回归保护
+
+- `isTrustedSender()` 对受信 `appRoot/dist` 与 sender 文件同时执行 `fs.realpathSync.native()`，再沿用严格目录
+  边界比较。路径不存在或无法 canonicalize 时继续 fail closed。
+- 真实临时目录测试覆盖两个相反边界：app root 是 junction 而 sender URL 是 canonical 路径时必须放行；
+  `dist` 内 junction 指向应用外部时必须拒绝。该修复同时消除了旧实现的链接逃逸风险。
+- TDD 证据：旧实现得到 2/12 RED（合法路径误拒绝、链接逃逸误放行）；最小修复后核心 12/12、IPC/身份/
+  许可证/bootstrap/window/托盘 8 个直接调用测试文件 165/165 GREEN。最终打包真人验收仍是独立门禁。
+
+### 预防措施
+
+1. `AGENTS.md` QM-2 固定 canonical sender 合同：同时 realpath 受信根和 sender，禁止放宽到整个安装目录。
+2. `01-docs/TEST-PLAN-LOGTO.md` 增加真实 Electron + raw/canonical junction 场景；Vite 浏览器测试不得替代。
+3. 最终 Windows 包必须从 renderer 调用至少一个受保护 IPC，并断言不返回 `AUTH_ERROR`；进程存活不再充分。
+4. 路径安全测试只使用真实存在文件，并同时覆盖不存在路径、相邻前缀、遍历、凭据 URL 和链接逃逸。

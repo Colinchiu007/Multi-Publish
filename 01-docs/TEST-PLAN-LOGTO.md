@@ -10,6 +10,7 @@
 | P0 | Token 泄露、错误验签、跨用户访问、本地提权 | 单元 + 集成 + 安全 + Electron |
 | P0 | Refresh Token 旋转竞态导致会话损坏 | 并发测试 + 故障注入 |
 | P1 | 回调端口冲突/超时、网络断开、Logto/JWKS 失败 | 单元 + E2E + 故障注入 |
+| P1 | 桌面端与业务 API 时钟不同步导致有效 entitlement 被拒绝 | 真实签名边界 + 独立时钟 + 生产 UTC/NTP 核验 |
 | P1 | 账号切换残留旧用户数据 | Electron E2E + 手动验证 |
 | P2 | UI 状态、错误提示和可访问性 | 组件 + 视觉 + 键盘 |
 
@@ -22,6 +23,7 @@
 | 首次登录成功 | 集成/E2E | PKCE 回调成功，状态为 authenticated，Token 不进 Renderer |
 | 用户取消或回调超时 | 单元/E2E | 服务关闭、临时数据清理、可重试错误 |
 | 独立认证窗口 | 单元/Electron | 隔离 Session、安全 webPreferences、父窗口、稳定尺寸和 ready-to-show 后展示 |
+| 打包 `file://` IPC sender | 单元/真实 Electron | raw worktree junction 与 canonical renderer URL 均可调用受保护 IPC；不存在文件、相邻目录和链接逃逸拒绝 |
 | 非 Logto 导航/新窗口/下载 | 单元/Electron | 阻止应用内导航；安全 HTTPS 外链按策略回退系统浏览器 |
 | 认证窗口关闭/加载失败 | 单元/E2E | 立即取消登录、关闭回调服务、状态可重试 |
 | 非 callback 路径/错误 state/重复 callback | 单元 | 400 或忽略，不交换 Token |
@@ -57,6 +59,8 @@
 | 请求体伪造 user_id | 被拒绝或忽略，owner 仍为 Token sub |
 | A 查询 B 的 taskId | 404，不泄露存在性 |
 | entitlement 正常 | sub/device/signature/time 均通过 |
+| entitlement 独立时钟偏差 | 默认允许 `iat <= now + 60` 且 `exp > now - 60`；显式 `0` 恢复严格模式，配置钳制到 `0..300s` |
+| entitlement 偏差越界 | `iat > now + tolerance` 或 `exp <= now - tolerance` 拒绝；在线同步与离线恢复语义一致 |
 | entitlement 过期/错 sub/错 device/未知 kid/篡改 | 权限拒绝并清缓存 |
 | 额度并发扣减 | 事务原子，只允许额度内请求成功 |
 | webhook 伪造/重放 | HMAC 失败拒绝；重复 event id 幂等 |
@@ -106,28 +110,30 @@ npm run test:visual:pixel
 node ../../node_modules/electron-builder/cli.js --win --x64
 ```
 
-变异测试至少覆盖新增身份纯函数、callback validator、JWT claims 和 entitlement verifier；分数不得低于 30%。最后人工验证一次真实 Logto 测试租户登录、重启恢复、Token 刷新、云端调用、退出和账号切换。
+变异测试至少覆盖新增身份纯函数、callback validator、JWT claims 和 entitlement verifier；分数不得低于 30%。执行真实 Electron IPC 与打包前，逐项确认 `node_modules/@multi-publish/*` junction 指向当前 checkout；若 `dist-electron` 位于其他盘，必须保留 raw/canonical 路径不同的回归。最后人工验证一次真实 Logto 测试租户登录、重启恢复、Token 刷新、云端调用、退出和账号切换；生产验收同时记录桌面端与 ECS 的 UTC 时间，确认 NTP 同步且偏差不超过回归窗口。
 
 ## 6. 完成定义
 
 所有 P0/P1 场景有自动化或明确的手动证据；受影响测试无失败；分支覆盖率不低于 40%；故障注入通过；视觉 diff 已审核；Electron 完整打包和启动验证通过；安全审查无 CRITICAL；测试报告记录实际命令、退出码和已知限制。
 
-## 7. 本地执行记录（2026-07-20；2026-07-21 最终复验）
+## 7. 本地执行记录（2026-07-20；2026-07-21；2026-07-28 最终复验）
 
 | 门禁 | 命令/范围 | 结果 |
 |------|-----------|------|
 | Node API 全量 | 干净提交快照中执行 `packages/api-publish-engine: npm test` | exit 0；61 个测试分组全部通过，Vitest 8 files / 24 tests 通过 |
-| Desktop 全量 + 覆盖率 | `apps/desktop: npm run test:coverage -- --maxWorkers=4` | exit 0；285 files / 5007 tests；statements 68.37%、branches 60.59%、functions 69.86%、lines 70.51% |
+| Desktop 全量 + 覆盖率 | 串行最终回归与 `npm run test:coverage` | exit 0；333 files / 5794 tests；statements 72.04%、branches 63.88%、functions 74.81%、lines 74.24% |
 | Python 全量 | `packages/python-backend: <bundled-python> -m pytest -q --basetemp C:\tmp\multi-publish-pytest-logto-20260721-final -p no:cacheprovider` | exit 0；2503 passed、1 skipped、10 warnings |
 | 故障注入 | `npm run test:fault` | exit 0；14/14 |
 | Monkey | `npm run test:monkey` | exit 0；5/5 |
-| Vue/preload 构建 | 根目录 `npm run build:vue --workspace @multi-publish/desktop` | exit 0；1806 modules transformed |
+| Vue/preload 构建 | 根目录 Vue build + preload build | exit 0；`sandbox:true` 与 `sandbox:false` 的 preload 真实 Electron IPC 均通过 |
 | Preload 双 sandbox | `apps/desktop: npm run test:preload:sandbox` | exit 0；`sandbox:true` 与 `sandbox:false` 的真实 Electron IPC 均通过 |
 | 身份 UI E2E | `TEST_URL=http://127.0.0.1:5175/ npm run test:e2e:identity` | exit 0；1440x900 与 1024x600 均通过，无 console/page/request error |
 | 单视图视觉 | `all-views.visual.test.js --single home-default` | exit 0 |
 | 像素视觉 | `TEST_URL=http://127.0.0.1:5175 npm run test:visual:pixel` | exit 0；16/16，0 failed |
-| Electron QM-1 | `node ../../node_modules/electron-builder/cli.js --win --x64` | exit 0；Electron 43.1.1，NSIS 2.3.53 |
-| ASAR/启动 | ASAR list + 敏感文件扫描 + extract/require + packaged exe | 身份模块和 logger 已入包；无 `.env`/私钥；require 成功；应用稳定运行 8 秒并关闭 |
+| Electron QM-1 | `node ../../node_modules/electron-builder/cli.js --win --x64` | exit 0；Electron 43.1.1，NSIS 2.3.53；NSIS SHA-256 `7726fe3f...d3ea8`，ASAR SHA-256 `6f886ed8...ba4b2` |
+| ASAR/启动 | ASAR list + 敏感文件扫描 + extract/require + packaged exe | 身份模块已入包；无 `.env`/私钥；真实 require 链、公开配置解析、受污染环境隐藏启动与受保护 IPC 调用通过 |
+| 打包 Logto UAT | 最终 Windows 包 + 专用普通用户 | 登录、`free` entitlement、同 profile 重启恢复、同账号重新认证、退出和会话文件删除通过；真正 A→B 未证明 |
+| 测试主体回收 | 60 秒临时 Management API 授权 + 独立数据库复核 | DELETE 204；Logto 用户计数 0、TTL 3600、临时角色关联 0；业务 tombstone `deleted`、活跃会话 0；本地凭据/profile 已清理 |
 | 变异分片 | `identity-errors.js` + 专属测试 | exit 0；mutation score 90.00%，9 killed、0 survived、1 no coverage |
 | 代码与安全复审 | 冻结 Logto diff 与最终 11 文件暂存 diff 的两轮独立审查 | 未报告 CRITICAL/MAJOR；最终审查的 MINOR 压缩路由覆盖已补回 |
 
@@ -149,7 +155,7 @@ node ../../node_modules/electron-builder/cli.js --win --x64
 ### 7.2 已知限制与未执行外部场景
 
 - `identity-menu.e2e.js` 通过浏览器注入假的 `window.electronAPI`，证明 UI 状态、键盘和布局合同，不证明 Electron 主进程、PKCE、回环、safeStorage 或真实 Logto 会话链路。
-- 未提供真实 Logto 租户、Management API/M2M 凭据或真实业务 PostgreSQL，因此真实登录/刷新/退出/切换、生产迁移和 PostgreSQL 并发额度压力测试仍需在集成环境执行。
+- 真实 Logto 租户、M2M introspection、业务 PostgreSQL 和最终 Windows 包已用于本轮 UAT；已证明登录、`free` entitlement、同 profile 恢复、同账号重新认证和退出。仍需单独验证 refresh token 轮换、真正 A→B 第二主体隔离、Webhook 重试/乱序和 Required 灰度；测试所用 Management API 临时授权已回收。
 - 最终完整身份变异测试共 1505 mutants；一次初始 worker 启动失败，一次在 15 分钟负载上限内未生成最终报告。随后执行的专属纯函数分片达到 90%。`entitlement.js` 分片也受 Windows Stryker 原位 I/O 负载影响超时，不能把超时记为通过。
 - Stryker 使用 `inPlace: true`；每次异常后均扫描 `stryMutAct_`、`stryCov_`、`__stryker__`，最终源码无污染。临时目录不进入提交。
 - Windows 符号链接相关 Python 场景保持跳过；最终 Python 复验有 6 个 httpx 弃用警告、4 个 Windows asyncio transport 警告和 1 个 pytest cache ACL 警告。Desktop 有 `punycode` 弃用、jsdom `alert()` 未实现及 Git ignore 权限警告。
@@ -158,11 +164,11 @@ node ../../node_modules/electron-builder/cli.js --win --x64
 - preload 真实 Electron 验证在受限进程沙箱中会触发系统 GPU 子进程访问失败；在非受限本机环境重跑后 `sandbox:true/false` 均通过。此处的“非受限”仅指测试宿主权限，不改变 BrowserWindow 的 sandbox 配置。
 - 覆盖率全量使用单 worker 时在 900 秒上限超时且无断言失败；改用 `--maxWorkers=4` 后 572.7 秒完成并通过。Windows/D 盘高负载环境不能把单 worker 超时当成源码失败。
 - 历史 Node API 测试曾使用同步 `try { fn() }` 包装 `async` 回调，导致测试先打印通过、Promise 随后在进程中未处理失败；最终门禁已改为 `node:test` 的真实等待，并在独立干净工作树复验，避免其他未提交改动掩盖提交缺口。
-- 2026-07-22 已修复并复验此前 owner 隔离、preload bundle 和测试合同漂移：Electron services 113 files / 2119 tests、其他 Electron 62 files / 1188 tests、shared-utils 213 passed / 10 skipped、故障注入 14/14、Monkey 5/5、Node CI 合同 5/5、身份 E2E 和像素视觉 16/16 均通过。默认账号的 owner 隔离补丁另以 threads 池复验：Store IPC 55/55，账户存储与级联清理 58/58；Logto 模式不会回退全局账号列表或写入 legacy setting。直接整库 Vitest 仍不作为唯一门禁，因为 D 盘 jsdom 环境创建会在 10 分钟命令上限内无法汇总。
-- 本轮 `electron-builder --win --x64` 已生成新的 `win-unpacked`，ASAR 清单和 8 秒启动均通过。一次短超时后，以更长上限重跑获得 exit 0；NSIS、blockmap 与未配置签名的跳过路径均完成。
+- 2026-07-22 的 owner 隔离与 Store IPC 数字保留为历史快照；2026-07-28 当前工作树已用 8 个直接调用文件完成 IPC 聚焦 166/166，并以 Desktop 333/333 文件、5794/5794 用例作为最新整库证据。Logto 模式不会回退全局账号列表或写入 legacy setting。
+- 本轮 `electron-builder --win --x64` 已生成新的 `win-unpacked`，ASAR 清单、真实 require、受污染环境隐藏启动和 renderer 受保护 IPC 均通过；最终 UAT 进程与 `8002/8013/9341/16521/16526` 监听已清理。
 
 ### 7.3 E2E 前置条件
 
 默认 `5174` 可能被其他 worktree 的 Vite 服务占用。运行身份 E2E/视觉门禁前必须启动当前工作树的 Vite，并用 `TEST_URL` 指向独立端口；同时检查 `/main.js` 不包含其他 `.worktrees/` 路径，避免测试命中旧代码。
 
-本地工程验收已完成；生产验收在 7.1 列出的外部场景完成前保持 `PENDING`。
+本地工程与同账号打包 UAT 已完成；真正 A→B、refresh token 轮换、Webhook、最新业务 API 镜像部署和 Required 灰度完成前，生产闭环保持 `PENDING`。

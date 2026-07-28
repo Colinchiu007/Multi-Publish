@@ -124,7 +124,7 @@ docker inspect --format "{{json .State.Health}}" multi-publish-logto-logto-1
 docker compose down
 ```
 
-生产就绪架构、备份校验、恢复状态机器门禁、监控和灰度回滚步骤见 `01-docs/ARCH-F14-LOGTO-PRODUCTION-READINESS.md` 和 `01-docs/TEST-PLAN-LOGTO-PRODUCTION.md`。真实恢复必须提供备份目录之外的 `--state-file`，切换前运行 `postgres-restore.js --verify-state`；真实 Logto、PostgreSQL 和云端验收没有凭据时保持 `PENDING_EXTERNAL`。
+生产就绪架构、备份校验、恢复状态机器门禁、监控和灰度回滚步骤见 `01-docs/ARCH-F14-LOGTO-PRODUCTION-READINESS.md` 和 `01-docs/TEST-PLAN-LOGTO-PRODUCTION.md`。真实恢复必须提供备份目录之外的 `--state-file`，切换前运行 `postgres-restore.js --verify-state`。2026-07-28 的最终 Windows 包已完成同账号登录、`free` entitlement、重启恢复、重新认证和退出 UAT；真正 A→B、refresh token 轮换、Webhook、最新业务 API 镜像部署与 Required 灰度仍保持 `PENDING_EXTERNAL`。
 
 `docker compose down` 不会删除 PostgreSQL 卷。只有确认完成备份且需要销毁租户数据时，才显式执行 `docker compose down -v`。
 

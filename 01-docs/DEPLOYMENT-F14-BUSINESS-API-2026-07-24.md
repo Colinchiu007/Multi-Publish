@@ -1,12 +1,12 @@
 # F14 真实业务 API 接入与登录恢复方案
 
-> 状态：`APPROVED_FOR_EXECUTION`
+> 状态：`DEPLOYED_SHADOW_PENDING_DESKTOP_ACCEPTANCE`
 > 日期：2026-07-24
 > 关联：[PRD-F14-LOGTO-PRODUCTION-READINESS.md](./PRD-F14-LOGTO-PRODUCTION-READINESS.md)、[ARCH-F14-LOGTO-PRODUCTION-READINESS.md](./ARCH-F14-LOGTO-PRODUCTION-READINESS.md)、[RUNBOOK-LOGTO-PRODUCTION.md](./RUNBOOK-LOGTO-PRODUCTION.md)
 
 ## 1. 触发事实
 
-普通用户已能在 `auth.iart.work` 完成注册，OIDC 授权端点接受当前 Native Application 与固定回环回调。回调完成后，桌面端会以 Access Token 请求 `BUSINESS_API_URL/api/v1/me` 同步业务用户与权益。当前验收实例的 `LOGTO_API_RESOURCE` 使用历史占位资源 `https://api.multi-publish.com`，该地址不可达；现有服务器也没有部署 `@multi-publish/api-publish-engine`，导致 `EntitlementService.sync()` 返回 `ENTITLEMENT_SYNC_FAILED`，登录状态机清理未完成会话并显示重试提示。
+本方案首次触发时，普通用户已能在 `auth.iart.work` 完成注册，OIDC 授权端点接受当前 Native Application 与固定回环回调。回调完成后，桌面端会以 Access Token 请求 `BUSINESS_API_URL/api/v1/me` 同步业务用户与权益。当时验收实例的 `LOGTO_API_RESOURCE` 使用历史占位资源 `https://api.multi-publish.com`，该地址不可达；服务器也尚未部署 `@multi-publish/api-publish-engine`，导致 `EntitlementService.sync()` 返回 `ENTITLEMENT_SYNC_FAILED`。当前执行结果见 §9。
 
 这不是 Logto 注册、PKCE、回环 callback 或 Electron 认证窗口的问题。
 
@@ -211,4 +211,17 @@ location / {
 | Smoke 集成 | [packages/api-publish-engine/scripts/production-smoke.js](../packages/api-publish-engine/scripts/production-smoke.js) | 自动访问 `/api/users`、`/api/forgot-password` 验证守卫生效，未通过则返回 `API_PATH_GUARD_VIOLATION` |
 
 部署时必须确保 production-smoke 全绿才能视为业务 API 可用。
+
+## 9. 执行状态（2026-07-28）
+
+| 项目 | 状态 | 当前证据 |
+|---|---|---|
+| ECS 容量 | PASS | 根文件系统约 `49G`，可用约 `16G`，使用率约 `68%` |
+| 容器与依赖 | PASS | Logto、PostgreSQL、业务 API 均 `healthy`；`/ready` 的 database/schema/oidc/jwks/introspection 全部 `ready` |
+| 公网路由 | PASS | `production-smoke.js` 全部通过，Logto 内部 `/api/*` 未被业务 API 错误接管 |
+| 普通用户 scopes | PASS | `default` tenant 默认用户角色绑定 5 个业务 scope，并已赋予 2 个活跃用户；`/api/v1/me` 由 `403` 恢复为 `200` |
+| Entitlement 时钟偏差 | PASS_PACKAGED_UAT_PENDING_DEPLOY | 真实登录发现服务端 `iat` 比桌面 `now` 快 2 秒；双端默认 `60s`、上限 `300s` 的回归、新 Windows 包 QM-1 与同账号登录/恢复/退出 UAT 已通过；最新业务 API 代码仍待部署 |
+| Webhook 与 Required 灰度 | PENDING_EXTERNAL | Webhook 尚未配置并完成真实验收，真正 A→B 主体隔离与 refresh token 轮换也未证明；保持 `IDENTITY_AUTH_REQUIRED=false` |
+
+业务 API、数据库、OIDC 与公网路由基线已不再是阻塞项。同账号桌面 UAT 已完成，剩余阻塞为本分支 API 镜像部署、真正 A→B、refresh token 轮换、Webhook 和 Required 灰度；本表不能替代每次新镜像的 production smoke。
 

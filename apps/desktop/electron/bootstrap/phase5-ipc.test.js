@@ -285,7 +285,7 @@ describe('IPC 注册生命周期', () => {
 
 describe('P1-B: isTrustedSender', () => {
   const mockApp = { isPackaged: false }
-  const mockAppPackaged = { isPackaged: true, getAppPath: () => require('path').resolve(__dirname, '..') }
+  const mockAppPackaged = { isPackaged: true, getAppPath: () => require('path').resolve(__dirname, '../..') }
 
   function makeEvent(url) {
     return { senderFrame: { url } }
@@ -296,7 +296,7 @@ describe('P1-B: isTrustedSender', () => {
   })
 
   it('accepts file:// protocol', () => {
-    const fileUrl = require('url').pathToFileURL(require('path').resolve(__dirname, '../dist/index.html')).href
+    const fileUrl = require('url').pathToFileURL(require('path').resolve(__dirname, '../../dist/index.html')).href
     expect(isTrustedSender(makeEvent(fileUrl), mockAppPackaged)).toBe(true)
   })
 

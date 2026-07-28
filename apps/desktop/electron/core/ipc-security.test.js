@@ -4,7 +4,9 @@
  *
  * 目标：sender 来源判断不依赖 bootstrap 或 ipc-handlers，避免安全工具层形成循环依赖。
  */
-import { afterEach, beforeEach, describe, it, expect } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -18,9 +20,31 @@ const mockApp = { isPackaged: false }
 const appRoot = path.resolve(__dirname, '../..')
 const mockAppPackaged = { isPackaged: true, getAppPath: () => appRoot }
 const allowedEntryUrl = pathToFileURL(path.join(appRoot, 'dist/index.html')).href
-const allowedAssetUrl = pathToFileURL(path.join(appRoot, 'dist/assets/app.js')).href
 
 let previousDevServerPort
+let tempRoot
+let canonicalAppRoot
+let junctionAppRoot
+let outsideRoot
+
+beforeAll(() => {
+  tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-ipc-security-'))
+  canonicalAppRoot = path.join(tempRoot, 'canonical-app')
+  junctionAppRoot = path.join(tempRoot, 'junction-app')
+  outsideRoot = path.join(tempRoot, 'outside')
+
+  fs.mkdirSync(path.join(canonicalAppRoot, 'dist', 'assets'), { recursive: true })
+  fs.mkdirSync(outsideRoot, { recursive: true })
+  fs.writeFileSync(path.join(canonicalAppRoot, 'dist', 'index.html'), '<!doctype html>')
+  fs.writeFileSync(path.join(canonicalAppRoot, 'dist', 'assets', 'app.js'), 'export {}')
+  fs.writeFileSync(path.join(outsideRoot, 'index.html'), '<!doctype html>')
+  fs.symlinkSync(canonicalAppRoot, junctionAppRoot, process.platform === 'win32' ? 'junction' : 'dir')
+  fs.symlinkSync(outsideRoot, path.join(canonicalAppRoot, 'dist', 'escape'), process.platform === 'win32' ? 'junction' : 'dir')
+})
+
+afterAll(() => {
+  fs.rmSync(tempRoot, { recursive: true, force: true })
+})
 
 beforeEach(() => {
   previousDevServerPort = process.env.DEV_SERVER_PORT
@@ -39,12 +63,39 @@ describe('ipc-security — isTrustedSender', () => {
 
   it('仅信任应用 dist 目录内的 file URL', () => {
     expect(isTrustedSender(makeEvent(allowedEntryUrl), mockAppPackaged)).toBe(true)
-    expect(isTrustedSender(makeEvent(allowedAssetUrl), mockAppPackaged)).toBe(true)
+    expect(isTrustedSender(
+      makeEvent(pathToFileURL(path.join(appRoot, 'dist', 'missing.js')).href),
+      mockAppPackaged,
+    )).toBe(false)
     expect(isTrustedSender(makeEvent('file:///C:/app/index.html'), mockAppPackaged)).toBe(false)
     expect(isTrustedSender(
       makeEvent(pathToFileURL(path.join(appRoot, 'dist-evil/index.html')).href),
       mockAppPackaged,
     )).toBe(false)
+  })
+
+  it('appPath 位于 junction 时信任 canonical dist sender URL', () => {
+    const app = { isPackaged: true, getAppPath: () => junctionAppRoot }
+    const canonicalEntryUrl = pathToFileURL(path.join(canonicalAppRoot, 'dist', 'index.html')).href
+    const canonicalAssetUrl = pathToFileURL(path.join(canonicalAppRoot, 'dist', 'assets', 'app.js')).href
+
+    expect(isTrustedSender(makeEvent(canonicalEntryUrl), app)).toBe(true)
+    expect(isTrustedSender(makeEvent(canonicalAssetUrl), app)).toBe(true)
+  })
+
+  it('拒绝 dist 内链接逃逸到应用目录外的 file URL', () => {
+    const escapedEntryUrl = pathToFileURL(path.join(canonicalAppRoot, 'dist', 'escape', 'index.html')).href
+    const app = { isPackaged: true, getAppPath: () => canonicalAppRoot }
+
+    expect(isTrustedSender(makeEvent(escapedEntryUrl), app)).toBe(false)
+  })
+
+  it('拒绝路径遍历和带凭据的 file URL', () => {
+    const app = { isPackaged: true, getAppPath: () => canonicalAppRoot }
+    const distUrl = pathToFileURL(path.join(canonicalAppRoot, 'dist')).href.replace(/\/$/, '')
+
+    expect(isTrustedSender(makeEvent(`${distUrl}/%2e%2e/%2e%2e/outside/index.html`), app)).toBe(false)
+    expect(isTrustedSender(makeEvent('file://user:secret@localhost/C:/app/index.html'), app)).toBe(false)
   })
 
   it('开发环境仅信任 localhost / 127.0.0.1 的配置端口', () => {
