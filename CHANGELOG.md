@@ -1,3 +1,14 @@
+## [未发布] Story2Video 双层分句与字幕时间轴 (2026-07-28)
+
+### 视频创作
+- `story2video-compose` 的场景层固定优先调用 8002 `smart-sentence-splitter`；仅连接拒绝、超时、连接重置或服务未运行时使用本地 TypeScript 降级，业务错误和非法响应不再被静默掩盖。
+- 字幕层固定在每个服务场景内部本地二次分页，并持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks` 和 `subtitleTimeline`。
+- Story2Video 分句别名现在映射到 8002 实际消费的 `SplitRequest.config.sentence_tokenizer/scene`，自定义场景时长、语速、字数、句界和单句溢出开关不再被 FastAPI 忽略；字幕配置不会发送给 sidecar。
+- compose 使用 ffprobe 读取的逐场景真实 TTS 时长生成连续字幕时间轴；FFmpeg 字幕页采用 `[start,end)` 半开启用区间，消除分页边界帧的双字幕叠加。
+- 旧项目没有字幕块时会按场景文本自动分页；TTS 提供方上报的 `duration` 只作为参考元数据，不会截断真实旁白，显式裁剪继续由 trim 流程负责。
+
+---
+
 ## [未发布] Logto Opaque Token 生产加固 (2026-07-25)
 
 ### 修复

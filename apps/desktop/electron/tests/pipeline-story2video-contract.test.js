@@ -34,7 +34,13 @@ describe('story2video 编排契约', () => {
     const pipeline = engine.getPipeline('story2video-compose')
     const stages = Object.fromEntries(pipeline.stageDefs.map(stage => [stage.name, stage]))
 
-    expect(stages.split.options).toMatchObject({ language: 'zh', mode: 'balanced', target_duration: 6 })
+    expect(stages.split.options).toMatchObject({
+      language: 'zh',
+      mode: 'balanced',
+      target_duration: 6,
+      fallback_to_local: true,
+      require_scene_output: true,
+    })
     expect(stages.generate_assets.options).toMatchObject({
       inputMode: 'text',
       aspectRatio: '9:16',
@@ -269,8 +275,14 @@ describe('story2video 编排契约', () => {
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
     expect(serviceBus.splitText).toHaveBeenCalledWith('海上日出', expect.objectContaining({
-      language: 'auto', mode: 'precise', max_sentence_length: 120,
+      language: 'auto',
+      mode: 'precise',
+      config: expect.objectContaining({
+        sentence_tokenizer: expect.objectContaining({ max_sentence_length: 120 }),
+        scene: expect.objectContaining({ target_seconds: 6 }),
+      }),
     }))
+    expect(serviceBus.splitText.mock.calls[0][1]).not.toHaveProperty('max_sentence_length')
     expect(serviceBus.optimizePromptsBatch).toHaveBeenCalledWith(
       ['第一幕。', '第二幕。'],
       expect.objectContaining({ style: 'anime', creative_level: 8, num_candidates: 2 }),

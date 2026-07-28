@@ -4560,3 +4560,44 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
    合同；manual 控件只计数，不采样、不点击。
 2. 通用扫描报告必须分别暴露发现数、manual 数、采样数和实际点击数，禁止只用最终通过数掩盖过滤范围。
 3. 快速扫描合同必须位于真实 Browser E2E 之前；合同失败时不得继续执行长时间 GUI 扫描。
+
+---
+
+## Story2Video 分句参数被 8002 忽略与字幕边界帧叠加（2026-07-28）
+
+### 第一性原因
+
+- `ed60c1a0` 将 `max_sentence_length/target_duration/min_words/max_words` 等 Story2Video 兼容字段
+  写入 `split` stage options，`StageExecutor` 随后把它们原样作为 `/v1/split` 顶层字段发送。
+  8002 的 `SplitRequest` 顶层只声明 `text/language/mode/enable_*/config`，真正的场景参数位于
+  `config.sentence_tokenizer` 和 `config.scene`。默认值恰好相同，导致默认 smoke 看似正确，定制值却被静默忽略。
+- 本轮多页字幕初版使用 FFmpeg `between(t,start,end)`。`between` 两端都包含，前一页的 `endTime`
+  又等于后一页的 `startTime`，因此切换边界可能在同一帧同时绘制两页字幕。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：StageExecutor mock 只验证调用发生和本地控制字段被删除，没有断言 8002 的精确嵌套请求体。
+2. **集成测试**：8002 验证只使用与 sidecar 默认值一致的参数，没有检查响应 `config_snapshot` 是否反映定制值。
+3. **媒体回归**：真实 ffmpeg smoke 验证可解码和字幕存在，没有在分页交界时间抽帧检查单页显示。
+4. **端到端测试**：来源字段能证明服务或 fallback 路径，却不能证明服务实际消费了定制配置。
+5. **代码审查**：第一轮关注双层职责和总时长同步，独立复审才沿 FastAPI `SplitRequest` 与 FFmpeg
+   `enable` 表达式查到两个精确合同缺口。
+
+系统性漏洞属于**跨仓 API 合同缺失 + 边界断言缺失**：Multi-Publish 的界面别名、8002 的 Pydantic
+请求模型和 sidecar 内部配置键没有一条端到端测试连接；字幕测试只验证时间连续，没有验证区间集合互斥。
+
+### 修复与回归保护
+
+- Story2Video 专用映射把句长写入 `config.sentence_tokenizer`，把目标时长、语速、场景字数、句界和单句溢出开关写入
+  `config.scene`；字幕长度和时间轴配置只留在 Multi-Publish 本地。
+- 请求体测试使用非默认值，精确断言 `target_seconds/min_words_per_segment/max_words_per_segment` 等键，
+  并断言顶层不再出现 `target_duration` 或字幕字段。
+- FFmpeg 每页字幕改用 `gte(t,start)*lt(t,end)` 的 `[start,end)` 半开区间；回归同时断言两页区间和
+  禁止 `between(t,...)`，真实 ffmpeg smoke 继续验证表达式可执行和输出可解码。
+
+### 预防措施
+
+1. 跨仓 HTTP 适配器必须以服务端真实 schema 为准，别名转换测试必须使用非默认值并断言完整请求结构。
+2. 8002 真实 smoke 除 `sceneSource` 外必须核对 `config_snapshot`，否则默认值一致会掩盖请求字段被忽略。
+3. 连续媒体时间区间统一使用半开区间；任何分页或分段测试必须同时断言连续性和互斥性。
+4. `.quality-gates.md` 已加入 8002 请求体、来源、半开字幕时间轴和真实服务/ffmpeg 门禁。

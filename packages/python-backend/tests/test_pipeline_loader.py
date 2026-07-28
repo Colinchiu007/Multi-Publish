@@ -51,6 +51,14 @@ class TestPipelineLoader:
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["bgm"]["volume"] == 5
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["concurrency"] == 3
 
+        split_stage = next(stage for stage in manifest["stages"] if stage["name"] == "split")
+        assert split_stage["produces"] == ["scenes", "sentences", "segmentation_metadata"]
+        assert split_stage["options"]["subtitle_min_chars"] == 8
+        assert split_stage["options"]["subtitle_max_chars"] == 15
+        assert split_stage["options"]["subtitle_timing"] == "proportional"
+        assert split_stage["options"]["fallback_to_local"] is True
+        assert split_stage["options"]["require_scene_output"] is True
+
     def test_get_stage_order_default(self):
         stages = get_stage_order(SAMPLE_MANIFEST)
         assert stages == ["analysis", "generation", "review"]
