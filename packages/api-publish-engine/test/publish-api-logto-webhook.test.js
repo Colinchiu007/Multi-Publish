@@ -1,7 +1,7 @@
 const assert = require('assert')
 const crypto = require('crypto')
 const http = require('http')
-const { PublishApiServer } = require('../src/publish-api-server')
+const { TestPublishApiServer: PublishApiServer } = require('./test-publish-api-server')
 const { LogtoWebhookConsumer } = require('../src/auth/logto-webhook')
 
 function request(port, rawBody, signature) {

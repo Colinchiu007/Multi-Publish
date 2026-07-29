@@ -32,6 +32,22 @@ test('Quality Gate Gate 7 与视觉工作流使用一致的渲染参数', () => 
   assert.match(gate7, /PIXEL_THRESHOLD:\s*["']?0\.02["']?/);
 });
 
+test('Quality Gate Gate 8 在真实浏览器扫描前执行 manual 控件合同测试', () => {
+  const workflow = fs.readFileSync(qualityGatePath, 'utf8');
+  const gate8 = workflow.match(/- name: "Gate 8 - Browser E2E"[\s\S]*?(?=\n      # --- Gate 9)/)?.[0];
+
+  assert.ok(gate8, 'Gate 8 workflow step must exist');
+  assert.match(gate8, /node apps\/desktop\/tests\/e2e\/helpers\/route-functional-suite\.test\.js/);
+  assert.ok(
+    gate8.indexOf('route-functional-suite.test.js') < gate8.indexOf('npm.cmd run test:e2e'),
+    'manual 控件合同测试必须先于真实 Browser E2E',
+  );
+  assert.match(gate8, /\$contractExit\s*=\s*\$LASTEXITCODE/);
+  assert.match(gate8, /if \(\$contractExit -ne 0\) \{ exit \$contractExit \}/);
+  assert.match(gate8, /\$e2eExit\s*=\s*\$LASTEXITCODE/);
+  assert.match(gate8, /finally\s*\{[\s\S]*?taskkill \/PID \$viteProcess\.Id \/T \/F/);
+});
+
 test('桌面覆盖率门禁串行运行，避免全量 V8 coverage 资源竞争', () => {
   const desktopPackage = JSON.parse(fs.readFileSync(desktopPackagePath, 'utf8'));
   const coverageScript = desktopPackage.scripts['test:coverage'];

@@ -1,11 +1,13 @@
 const assert = require("assert");
+const crypto = require("crypto");
+const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const { AuditLog } = require("../src/audit-log");
 
-var globalSf = path.join(__dirname, ".audit-" + Date.now() + ".json");
-var p = 0, f = 0;
-function t(n, fn) { try { fn(); p++; console.log("  ✅ " + n); } catch (e) { f++; console.log("  ❌ " + n + ": " + e.message); } }
+var globalSf = path.join(os.tmpdir(), ".audit-" + process.pid + "-" + crypto.randomUUID() + ".json");
+var tests = [];
+function t(n, fn) { tests.push([n, fn]); }
 function eq(a, b) { assert.deepStrictEqual(a, b); }
 
 console.log("--- Structure ---");
@@ -73,7 +75,7 @@ t("clear removes all entries", async function() {
 });
 
 t("persists entries across instances", async function() {
-  var sf = path.join(__dirname, ".audit-persist-" + Date.now() + ".json");
+  var sf = path.join(os.tmpdir(), ".audit-persist-" + process.pid + "-" + crypto.randomUUID() + ".json");
   var al1 = new AuditLog({ storageFile: sf });
   await al1.log({ type: "publish", platform: "zhihu", title: "Persist", status: "success" });
   var al2 = new AuditLog({ storageFile: sf });
@@ -82,6 +84,19 @@ t("persists entries across instances", async function() {
   try { fs.unlinkSync(sf); } catch(e) {}
 });
 
-console.log("\n========== Result: " + p + "/" + (p + f) + " ==========");
-if (f) process.exit(1);
-try { fs.unlinkSync(globalSf); } catch(e) {}
+(async function run() {
+  var p = 0, f = 0;
+  for (const [name, fn] of tests) {
+    try {
+      await fn();
+      p++;
+      console.log("  ✅ " + name);
+    } catch (e) {
+      f++;
+      console.log("  ❌ " + name + ": " + e.message);
+    }
+  }
+  console.log("\n========== Result: " + p + "/" + (p + f) + " ==========");
+  if (f) process.exitCode = 1;
+  try { fs.unlinkSync(globalSf); } catch(e) {}
+})();

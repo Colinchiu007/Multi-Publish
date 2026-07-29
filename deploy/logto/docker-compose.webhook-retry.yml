@@ -1,0 +1,6 @@
+services:
+  logto:
+    image: multi-publish-logto:1.41.0-webhook-post-retry.1
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook-retry

@@ -1,9 +1,14 @@
-const { describe, it } = require("node:test");
+const { describe, it, after } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { PRDParser } = require("../src/parsers/prd-parser");
-const TMPDIR = path.join(__dirname, ".tmp");
+const TMPDIR = fs.mkdtempSync(path.join(os.tmpdir(), "ai-autonomous-prd-"));
+
+after(() => {
+  fs.rmSync(TMPDIR, { recursive: true, force: true });
+});
 
 function mkPrd(content) {
   fs.mkdirSync(TMPDIR, { recursive: true });

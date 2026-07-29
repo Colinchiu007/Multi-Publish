@@ -43,7 +43,11 @@ async function requestJson(url, options = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), options.timeoutMs || 5000)
   try {
-    const response = await fetch(url, { signal: controller.signal, headers: options.headers || {} })
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: options.headers || {},
+      redirect: 'error',
+    })
     let body = null
     try { body = await response.json() } catch { body = null }
     return { response, body }
@@ -76,12 +80,18 @@ async function runSmokeChecks(options = {}) {
         try {
           const jwksUrl = new URL(body.jwks_uri)
           const issuerUrl = new URL(issuer)
-          const jwks = await requestJson(jwksUrl.toString(), { timeoutMs })
           const trustedProtocol = jwksUrl.protocol === 'https:' ||
             (jwksUrl.protocol === 'http:' && issuerUrl.protocol === 'http:' && isLoopback(jwksUrl) && isLoopback(issuerUrl))
-          const valid = jwksUrl.origin === issuerUrl.origin && trustedProtocol &&
-            jwks.response.ok && jwks.body && Array.isArray(jwks.body.keys) && jwks.body.keys.length > 0
-          results.push(check('logto.jwks', valid ? 'passed' : 'failed', valid ? null : 'OIDC_JWKS_INVALID', Date.now() - jwksStarted))
+          const trustedEndpoint = !jwksUrl.username && !jwksUrl.password &&
+            jwksUrl.origin === issuerUrl.origin && trustedProtocol
+          if (!trustedEndpoint) {
+            results.push(check('logto.jwks', 'failed', 'OIDC_JWKS_INVALID', Date.now() - jwksStarted))
+          } else {
+            const jwks = await requestJson(jwksUrl.toString(), { timeoutMs })
+            const valid = jwks.response.ok && jwks.body &&
+              Array.isArray(jwks.body.keys) && jwks.body.keys.length > 0
+            results.push(check('logto.jwks', valid ? 'passed' : 'failed', valid ? null : 'OIDC_JWKS_INVALID', Date.now() - jwksStarted))
+          }
         } catch {
           results.push(check('logto.jwks', 'failed', 'OIDC_JWKS_UNAVAILABLE', Date.now() - jwksStarted))
         }
@@ -102,10 +112,16 @@ async function runSmokeChecks(options = {}) {
       try {
         const headers = options.token ? { Authorization: `Bearer ${options.token}` } : {}
         const { response, body } = await requestJson(`${apiEndpoint.value}/api/v1/${endpoint}`, { timeoutMs, headers })
+        const processReady = response.status === 200 && body && body.status === 'ready'
+        const introspectionReady = processReady && body.checks &&
+          body.checks.introspection && body.checks.introspection.status === 'ready'
         const passed = endpoint === 'health'
           ? response.ok && body && body.status === 'ok'
-          : response.status === 200 && body && body.status === 'ready'
-        results.push(check(`api.${endpoint}`, passed ? 'passed' : 'failed', passed ? null : `API_${endpoint.toUpperCase()}_NOT_READY`, Date.now() - started))
+          : introspectionReady
+        const failureCode = endpoint === 'ready' && processReady && !introspectionReady
+          ? 'API_INTROSPECTION_NOT_READY'
+          : `API_${endpoint.toUpperCase()}_NOT_READY`
+        results.push(check(`api.${endpoint}`, passed ? 'passed' : 'failed', passed ? null : failureCode, Date.now() - started))
       } catch {
         results.push(check(`api.${endpoint}`, 'failed', `API_${endpoint.toUpperCase()}_UNAVAILABLE`, Date.now() - started))
       }

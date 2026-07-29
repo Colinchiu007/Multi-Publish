@@ -15,6 +15,7 @@
 // eslint-disable-next-line no-unused-vars
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
+  const { app } = require('electron')
   const { withSenderCheck } = require('./helpers')
   const PaymentManager = require('../services/payment-manager')
   const pm = new PaymentManager()
@@ -61,8 +62,8 @@ function registerHandlers(ipcMain, deps) {
   }))
 
   ipcMain.handle('payment:simulate', withSenderCheck(async function(event, options) {
-    // 安全：生产环境禁用模拟支付（可绕过支付直接激活 Pro）
-    if (process.env.NODE_ENV === 'production') {
+    // 安全：只有明确未打包的开发应用才能模拟支付，环境变量不能覆盖打包事实。
+    if (!app || app.isPackaged !== false) {
       return { code: EC.REQUEST_ERROR, message: '模拟支付在生产环境禁用' }
     }
     // M-6 修复：参数校验

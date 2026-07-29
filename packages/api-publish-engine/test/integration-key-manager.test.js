@@ -2,6 +2,13 @@
 // Test that ApiKeyManager integrates correctly with PublishApiServer
 const { PublishApiServer } = require("../src/publish-api-server");
 const http = require("http");
+const crypto = require("crypto");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const testRoot = path.join(os.tmpdir(), `multi-publish-key-manager-${process.pid}-${crypto.randomUUID()}`);
+const keysPath = path.join(testRoot, "api-keys.json");
 
 let fail = 0;
 function assert(cond, msg) {
@@ -10,7 +17,7 @@ function assert(cond, msg) {
 }
 
 // 1. Server can be constructed with key manager
-const server = new PublishApiServer({ port: 0, keysPath: __dirname + "/.test-server-keys.json" });
+const server = new PublishApiServer({ port: 0, keysPath });
 assert(server._keyManager !== undefined, "server has _keyManager");
 assert(typeof server._keyManager.createKey === "function", "_keyManager.createKey exists");
 assert(typeof server._checkAuth === "function", "_checkAuth exists");
@@ -34,10 +41,7 @@ const r4 = server._checkAuth({ headers: { authorization: "Bearer " + scopedKey.k
 assert(r4.authorized === false, "_checkAuth rejects scope mismatch");
 
 // Cleanup
-const fs = require("fs");
-const path = require("path");
-const f = __dirname + "/.test-server-keys.json";
-if (fs.existsSync(f)) fs.unlinkSync(f);
+fs.rmSync(testRoot, { recursive: true, force: true });
 
 console.log(`\n=== ${fail === 0 ? "ALL PASSED" : fail + " FAILED"} ===`);
 process.exit(fail > 0 ? 1 : 0);

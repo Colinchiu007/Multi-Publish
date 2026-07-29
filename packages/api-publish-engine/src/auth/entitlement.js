@@ -1,5 +1,8 @@
 const crypto = require('crypto')
 
+const DEFAULT_CLOCK_TOLERANCE = 60
+const MAX_CLOCK_TOLERANCE = 300
+
 class EntitlementError extends Error {
   constructor(code, message) {
     super(`${code}: ${message || code}`)
@@ -13,6 +16,11 @@ function encode(value) {
 
 function decode(value) {
   return Buffer.from(value, 'base64url')
+}
+
+function normalizeClockTolerance(value) {
+  if (!Number.isFinite(value)) return DEFAULT_CLOCK_TOLERANCE
+  return Math.min(MAX_CLOCK_TOLERANCE, Math.max(0, value))
 }
 
 function signEntitlement(payload, privateKey) {
@@ -30,10 +38,14 @@ function verifyEntitlement(token, options = {}) {
   if (!payload.kid || !options.publicKeys || !options.publicKeys[payload.kid]) throw new EntitlementError('ENTITLEMENT_KEY_INVALID')
   if (payload.sub !== options.subject || payload.device_id !== options.deviceId) throw new EntitlementError('ENTITLEMENT_BINDING_INVALID')
   const now = Number.isFinite(options.now) ? options.now : Math.floor(Date.now() / 1000)
-  if (!Number.isFinite(payload.iat) || !Number.isFinite(payload.exp) || payload.iat > now || payload.exp <= now) throw new EntitlementError('ENTITLEMENT_EXPIRED')
+  const clockTolerance = normalizeClockTolerance(options.clockTolerance)
+  if (!Number.isFinite(payload.iat) || !Number.isFinite(payload.exp) ||
+      payload.iat > now + clockTolerance || payload.exp <= now - clockTolerance) {
+    throw new EntitlementError('ENTITLEMENT_EXPIRED')
+  }
   const valid = crypto.verify('RSA-SHA256', Buffer.from(parts[0]), options.publicKeys[payload.kid], decode(parts[1]))
   if (!valid) throw new EntitlementError('ENTITLEMENT_SIGNATURE_INVALID')
   return payload
 }
 
-module.exports = { EntitlementError, signEntitlement, verifyEntitlement }
+module.exports = { EntitlementError, normalizeClockTolerance, signEntitlement, verifyEntitlement }

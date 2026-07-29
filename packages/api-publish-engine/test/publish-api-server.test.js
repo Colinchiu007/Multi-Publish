@@ -4,7 +4,7 @@ const { createHarness } = require("./async-test-harness");
 
 var mod;
 try { mod = require("../src/publish-api-server"); } catch(e) { mod = null; }
-var PublishApiServer = mod ? mod.PublishApiServer : null;
+var PublishApiServer = mod ? require("./test-publish-api-server").TestPublishApiServer : null;
 
 const { test: t, run } = createHarness();
 function eq(a,b){assert.deepStrictEqual(a,b)}

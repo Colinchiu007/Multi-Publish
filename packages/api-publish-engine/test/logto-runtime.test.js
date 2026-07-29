@@ -8,6 +8,7 @@ function productionEnv(overrides = {}) {
     NODE_ENV: 'production', IDENTITY_AUTH_ENABLED: 'true', IDENTITY_AUTH_REQUIRED: 'false',
     BUSINESS_DATABASE_AUTO_MIGRATE: 'false',
     LOGTO_ENDPOINT: 'https://id.example.com', LOGTO_API_RESOURCE: 'https://api.example.com',
+    LOGTO_CLIENT_ID: 'publish-api-m2m', LOGTO_CLIENT_SECRET: 'fixture-client-secret',
     BUSINESS_DATABASE_URL: 'postgresql://app:fixturepassword@db.example.com/multi_publish',
     LOGTO_WEBHOOK_SIGNING_KEY: 'w'.repeat(32), ENTITLEMENT_KEY_ID: 'key-1',
     ENTITLEMENT_PRIVATE_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
@@ -62,6 +63,7 @@ test('createLogtoRuntime', async (t) => {
     const env = {
       IDENTITY_AUTH_ENABLED: 'true', LOGTO_ENDPOINT: 'https://id.example.com',
       LOGTO_API_RESOURCE: 'https://api.multi-publish.com', BUSINESS_DATABASE_URL: 'postgres://db',
+      LOGTO_CLIENT_ID: 'publish-api-m2m', LOGTO_CLIENT_SECRET: 'fixture-client-secret',
       LOGTO_WEBHOOK_SIGNING_KEY: 'webhook-secret',
       LOGTO_WEBHOOK_MAX_EVENT_AGE_SECONDS: '600',
       LOGTO_WEBHOOK_MAX_FUTURE_SKEW_SECONDS: '30',
@@ -70,7 +72,12 @@ test('createLogtoRuntime', async (t) => {
     const runtime = await createLogtoRuntime({
       env,
       repository,
-      createVerifier: (options) => { assert.strictEqual(options.issuer, 'https://id.example.com/oidc'); return verifier },
+      createVerifier: (options) => {
+        assert.strictEqual(options.issuer, 'https://id.example.com/oidc')
+        assert.strictEqual(options.clientId, 'publish-api-m2m')
+        assert.strictEqual(options.clientSecret, 'fixture-client-secret')
+        return verifier
+      },
       createWebhookConsumer: (options) => ({ options }),
       entitlementProvider: { getForUser: async () => ({ plan: 'free', features: [] }) },
     })
@@ -183,6 +190,21 @@ test('createLogtoRuntime', async (t) => {
       createVerifier: () => ({}),
       entitlementProvider: {},
     }), (error) => error && error.code === 'LOGTO_RUNTIME_CONFIG_INVALID')
+  })
+
+  await t.test('生产环境缺失 M2M 凭据时在创建依赖前 fail closed', async () => {
+    let verifierCreated = false
+    const repository = { initialize: async () => {}, assertReady: async () => {}, close: async () => {} }
+    const { createLogtoRuntime } = require('../src/auth/logto-runtime')
+    await assert.rejects(createLogtoRuntime({
+      env: productionEnv({ LOGTO_CLIENT_ID: '', LOGTO_CLIENT_SECRET: '' }),
+      repository,
+      createVerifier: () => { verifierCreated = true; return {} },
+      createWebhookConsumer: () => ({}),
+      entitlementProvider: {},
+    }), (error) => error && error.code === 'LOGTO_RUNTIME_CONFIG_INVALID' &&
+      /LOGTO_CLIENT_ID_REQUIRED/.test(error.message) && /LOGTO_CLIENT_SECRET_REQUIRED/.test(error.message))
+    assert.strictEqual(verifierCreated, false)
   })
 
   await t.test('生产环境缺失 Webhook 或权益签名配置时 fail closed', async () => {

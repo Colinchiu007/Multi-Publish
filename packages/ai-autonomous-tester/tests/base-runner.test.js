@@ -1,5 +1,6 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
+const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const { BaseTestRunner } = require("../src/runners/base-runner");
@@ -20,12 +21,15 @@ describe("BaseTestRunner", () => {
     assert.equal(s.passRate, "66.7%");
   });
   it("generateReportFile: creates JSON", () => {
-    const tmp = path.join(__dirname, ".tmp-br");
-    const r = new BaseTestRunner({ label: "t", reportDir: tmp });
-    const p = r.generateReportFile("x", { a: 1 });
-    assert.ok(fs.existsSync(p));
-    assert.equal(JSON.parse(fs.readFileSync(p, "utf8")).a, 1);
-    fs.rmSync(tmp, { recursive: true, force: true });
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ai-autonomous-base-runner-"));
+    try {
+      const r = new BaseTestRunner({ label: "t", reportDir: tmp });
+      const p = r.generateReportFile("x", { a: 1 });
+      assert.ok(fs.existsSync(p));
+      assert.equal(JSON.parse(fs.readFileSync(p, "utf8")).a, 1);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
   it("runTests: not implemented throws", async () => {
     const r = new BaseTestRunner({ label: "t" });

@@ -30,6 +30,25 @@ const SALT_LENGTH = 32
 const SAFE_STORAGE_PREFIX = 'safeStorage:v1:'
 const PLAINTEXT_PREFIX = 'plaintext:v1:'
 const MASTER_KEY_PATTERN = /^[0-9a-f]{64}$/i
+const TRANSIENT_WINDOWS_RENAME_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const ATOMIC_RENAME_RETRY_DELAYS_MS = [20, 40, 80, 160, 320, 640]
+const ATOMIC_RENAME_WAIT_BUFFER = new Int32Array(new SharedArrayBuffer(4))
+
+function atomicRenameSync (sourcePath, targetPath) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.renameSync(sourcePath, targetPath)
+      return
+    } catch (error) {
+      const delayMs = ATOMIC_RENAME_RETRY_DELAYS_MS[attempt]
+      const isTransientWindowsLock = process.platform === 'win32' &&
+        TRANSIENT_WINDOWS_RENAME_ERRORS.has(error?.code)
+      if (!isTransientWindowsLock || delayMs === undefined) throw error
+
+      Atomics.wait(ATOMIC_RENAME_WAIT_BUFFER, 0, 0, delayMs)
+    }
+  }
+}
 
 function validateMasterKey (masterKey) {
   if (typeof masterKey !== 'string' || !MASTER_KEY_PATTERN.test(masterKey)) {
@@ -83,13 +102,13 @@ function writeMasterKeyFiles (keyFile, masterKey, safeStorage) {
   const serialized = encodeMasterKey(masterKey, safeStorage)
   const tmpPath = keyFile + '.tmp.' + process.pid
   fs.writeFileSync(tmpPath, serialized, 'utf8')
-  fs.renameSync(tmpPath, keyFile)
+  atomicRenameSync(tmpPath, keyFile)
   try { fs.chmodSync(keyFile, 0o600) } catch (_) { /* Windows 由 safeStorage 保护 */ }
 
   const backupPath = keyFile + '.bak'
   const backupTmpPath = backupPath + '.tmp.' + process.pid
   fs.writeFileSync(backupTmpPath, serialized, 'utf8')
-  fs.renameSync(backupTmpPath, backupPath)
+  atomicRenameSync(backupTmpPath, backupPath)
   try { fs.chmodSync(backupPath, 0o600) } catch (_) { /* Windows 由 safeStorage 保护 */ }
 }
 
@@ -263,7 +282,7 @@ function saveCredential (accountId, data, userDataDir, ownerOrOptions, maybeOpti
     // 安全：原子写（写临时文件后 rename），防止崩溃中断损坏凭证文件
     const tmpPath = filePath + '.tmp.' + process.pid
     fs.writeFileSync(tmpPath, payload)
-    fs.renameSync(tmpPath, filePath)
+    atomicRenameSync(tmpPath, filePath)
     log.info('CredentialStore', `Saved credentials for account: ${accountId}`)
     return true
   } catch (e) {

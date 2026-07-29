@@ -8,18 +8,10 @@
 
 const assert = require("assert");
 const http = require("http");
+const { createHarness } = require("./async-test-harness");
+const { TestPublishApiServer: PublishApiServer } = require("./test-publish-api-server");
 
-var mod;
-try { mod = require("../src/publish-api-server"); } catch(e) { mod = null; }
-var PublishApiServer = mod ? mod.PublishApiServer : null;
-
-let p = 0, f = 0;
-function t(n, fn) {
-  return Promise.resolve()
-    .then(() => fn())
-    .then(() => { p++; console.log('  \u2705 ' + n); })
-    .catch((e) => { f++; console.log('  \u274C ' + n + ': ' + e.message); });
-}
+const { test: t, run } = createHarness();
 function eq(a, b) { assert.deepStrictEqual(a, b); }
 
 function request(port, method, path, body) {
@@ -275,5 +267,4 @@ if (PublishApiServer) {
   });
 }
 
-console.log('\n========== Result: ' + p + '/' + (p + f) + ' ==========');
-if (f) process.exit(1);
+run();

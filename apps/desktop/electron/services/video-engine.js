@@ -6,6 +6,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { findFfmpeg } = require('./media-tool-paths');
 
 const PROCESS_TYPES = ['trim'];
 
@@ -57,9 +58,12 @@ class VideoEngine {
 
   /** 检测 FFmpeg 可用性 */
   _checkFfmpeg() {
+    const ffmpeg = findFfmpeg();
+    if (!ffmpeg) return false;
+
     try {
       const { spawnSync } = require('child_process');
-      const result = spawnSync('ffmpeg', ['-version'], { timeout: 3000 });
+      const result = spawnSync(ffmpeg, ['-version'], { timeout: 3000 });
       return result.status === 0;
     } catch {
       return false;

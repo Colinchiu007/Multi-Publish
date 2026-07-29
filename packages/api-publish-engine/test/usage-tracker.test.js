@@ -2,10 +2,12 @@
  * UsageTracker 测试 — record/stats/reset
  */
 const UsageTracker = require("../src/usage-tracker");
+const crypto = require("crypto");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
-const TEST_PATH = path.join(__dirname, ".test-usage.json");
+const TEST_PATH = path.join(os.tmpdir(), "multi-publish-test-usage-" + process.pid + "-" + crypto.randomUUID() + ".json");
 
 function setup() {
   if (fs.existsSync(TEST_PATH)) fs.unlinkSync(TEST_PATH);

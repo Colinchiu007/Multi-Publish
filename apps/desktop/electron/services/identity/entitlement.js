@@ -1,6 +1,14 @@
 const crypto = require('crypto')
 const { IdentityError } = require('./identity-errors')
 
+const DEFAULT_CLOCK_TOLERANCE = 60
+const MAX_CLOCK_TOLERANCE = 300
+
+function normalizeClockTolerance(value) {
+  if (!Number.isFinite(value)) return DEFAULT_CLOCK_TOLERANCE
+  return Math.min(MAX_CLOCK_TOLERANCE, Math.max(0, value))
+}
+
 function verifyEntitlementSnapshot(snapshot, options) {
   if (!snapshot || typeof snapshot !== 'object' || !options || typeof options !== 'object') {
     throw new IdentityError('ENTITLEMENT_INVALID', '权益快照格式无效')
@@ -12,10 +20,12 @@ function verifyEntitlementSnapshot(snapshot, options) {
     throw new IdentityError('ENTITLEMENT_BINDING_INVALID', '权益快照与当前账号或设备不匹配')
   }
   const now = Number.isFinite(options.now) ? options.now : Math.floor(Date.now() / 1000)
-  if (!Number.isFinite(snapshot.iat) || !Number.isFinite(snapshot.exp) || snapshot.iat > now || snapshot.exp <= now) {
+  const clockTolerance = normalizeClockTolerance(options.clockTolerance)
+  if (!Number.isFinite(snapshot.iat) || !Number.isFinite(snapshot.exp) ||
+      snapshot.iat > now + clockTolerance || snapshot.exp <= now - clockTolerance) {
     throw new IdentityError('ENTITLEMENT_EXPIRED', '权益快照已过期或尚未生效')
   }
-  let valid = false
+  let valid
   try {
     valid = typeof options.verify === 'function' && options.verify(snapshot) === true
   } catch (_) {
@@ -45,6 +55,7 @@ function verifyEntitlementToken(token, options = {}) {
     subject: options.subject,
     deviceId: options.deviceId,
     now: options.now,
+    clockTolerance: options.clockTolerance,
     verify: () => crypto.verify(
       'RSA-SHA256',
       Buffer.from(parts[0]),
@@ -54,4 +65,4 @@ function verifyEntitlementToken(token, options = {}) {
   })
 }
 
-module.exports = { verifyEntitlementSnapshot, verifyEntitlementToken }
+module.exports = { normalizeClockTolerance, verifyEntitlementSnapshot, verifyEntitlementToken }
