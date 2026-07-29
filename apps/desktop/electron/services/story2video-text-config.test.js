@@ -67,6 +67,43 @@ describe('Story2Video text 参数合同', () => {
       seconds: 8,
     }))
     expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.mode).toBe('text')
+    expect(result.stageOptions.optimize).not.toHaveProperty('max_length')
+    expect(result.stageOptions.optimize).not.toHaveProperty('context')
+  })
+
+  it('将图片风格与提示词风格隔离，并把兼容值映射为 prompt-engine 合法值', () => {
+    const result = normalizeStory2VideoTextParams({
+      text: '未来城市',
+      imageStyle: 'cinematic',
+      promptPlatform: 'douyin',
+      promptStyle: '3d-render',
+    })
+
+    expect(result.imageStyle).toBe('cinematic')
+    expect(result.promptStyle).toBe('3d_render')
+    expect(result.stageOptions.optimize).toMatchObject({
+      platform: 'generic',
+      style: '3d_render',
+    })
+  })
+
+  it('保留 prompt-engine 对象上下文，并将空 maxLength 视为未设置', () => {
+    const context = {
+      synopsis: '未来城市中的交通故事',
+      setting: '雨夜街道',
+      character: { name: '林夏' },
+      character_list: [{ name: '林夏' }, { name: '周舟' }],
+    }
+    const result = normalizeStory2VideoTextParams({
+      text: '未来城市',
+      story2videoTextConfig: {
+        optimize: { context, maxLength: '' },
+      },
+    })
+
+    expect(result.story2videoTextConfig.optimize.context).toEqual(context)
+    expect(result.stageOptions.optimize.context).toEqual(context)
+    expect(result.stageOptions.optimize).not.toHaveProperty('max_length')
   })
 
   it('将完整兼容配置映射到对应阶段，并转换 BGM 兼容音量单位', () => {
@@ -160,6 +197,13 @@ describe('Story2Video text 参数合同', () => {
     [{ text: '测试', story2videoTextConfig: { seconds: 0 } }, 'seconds'],
     [{ text: '测试', story2videoTextConfig: { bgm: { volume: 11 } } }, 'bgm.volume'],
     [{ text: '测试', story2videoTextConfig: { versions: { generateBase: false, generateMerged: false } } }, '至少选择一个视频版本'],
+    [{ text: '测试', story2videoTextConfig: { optimize: { platform: 'unknown' } } }, '不支持 prompt-engine 值'],
+    [{ text: '测试', story2videoTextConfig: { optimize: { style: 'unknown' } } }, '不支持 prompt-engine 值'],
+    [{ text: '测试', story2videoTextConfig: { optimize: { creativeLevel: 0 } } }, '1-10'],
+    [{ text: '测试', story2videoTextConfig: { optimize: { numCandidates: 6 } } }, '1-5'],
+    [{ text: '测试', story2videoTextConfig: { optimize: { maxLength: 49 } } }, '50-2000'],
+    [{ text: '测试', story2videoTextConfig: { optimize: { negativePrompt: 'x'.repeat(501) } } }, '超过 500 字符'],
+    [{ text: '测试', story2videoTextConfig: { optimize: { context: { accessToken: 'secret' } } } }, '敏感凭据'],
   ])('拒绝非法配置且给出明确错误 %#', (input, expected) => {
     expect(() => normalizeStory2VideoTextParams(input)).toThrow(expected)
   })

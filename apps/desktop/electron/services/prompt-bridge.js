@@ -14,6 +14,22 @@ const PROMPT_HOST = config.promptBridge.host
 // P1-A: 移除硬编码开发者路径，必须通过环境变量配置
 const PROMPT_DIR = process.env.PROMPT_DIR || process.cwd()
 
+function normalizeOptimizeRequest (request) {
+  const normalized = request !== null && typeof request === 'object' && !Array.isArray(request)
+    ? { ...request }
+    : { prompt: String(request) }
+
+  if (normalized.max_length === null || normalized.max_length === undefined || normalized.max_length === '') {
+    delete normalized.max_length
+  }
+  if (normalized.context === null || normalized.context === undefined || normalized.context === '') {
+    delete normalized.context
+  } else if (typeof normalized.context === 'string') {
+    normalized.context = { synopsis: normalized.context }
+  }
+  return normalized
+}
+
 class PromptBridge extends BasePythonBridge {
   /**
    * @param {{ log?: any }} opts
@@ -36,7 +52,7 @@ class PromptBridge extends BasePythonBridge {
    * @returns {Promise<object>}
    */
   optimize (request) {
-    return this._post('/v1/optimize', JSON.stringify(request))
+    return this._post('/v1/optimize', JSON.stringify(normalizeOptimizeRequest(request)))
   }
 
   /**
@@ -45,11 +61,7 @@ class PromptBridge extends BasePythonBridge {
    * @returns {Promise<object>}
    */
   optimizeBatch (requests) {
-    const normalized = requests.map(r => {
-      if (typeof r === 'string') return { prompt: r }
-      if (r.prompt !== undefined) return r
-      return { prompt: String(r) }
-    })
+    const normalized = requests.map(normalizeOptimizeRequest)
     return this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }))
   }
 }

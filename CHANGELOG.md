@@ -73,6 +73,9 @@
 - 参数归一化只在 `story2video-compose` 的 Electron 适配层执行，不修改共享 `StageExecutor`、`ServiceBus` 或普通 `pipelineStart` 合同。
 - 运行上下文递归拒绝 Provider 密钥、Token、密码等敏感字段；未知配置不进入运行记录或项目清单。
 - YAML 运行合同改为 `required: [text]` 和 `supported_modes: [text]`，并与 renderer、PipelineEngine 和项目持久化使用同一组默认值。
+- 提示词参数严格对齐 prompt-engine 平台/风格枚举及数值范围；图片风格与提示词风格分离，空 `max_length/context` 不再发送，文本上下文转换为 `synopsis` 对象。
+- `optimize.context` 兼容 prompt-engine JSON 字典并阻断敏感字段；空字符串 `maxLength` 与未设置一致，真实 E2E 清理限定在本次运行的专属临时目录。
+- PromptBridge 对单条和批量请求执行同一防御性清理，且不修改调用方对象；旧社交平台值映射到 `generic`。
 
 ### 质量
 - Story2Video 聚焦回归、归一化器覆盖率、真实 ffmpeg、Vue/preload 构建、双 sandbox、桌面/移动视觉、17 项像素门禁、Windows x64 打包、ASAR/RPA require 链和 8 秒启动检查均通过。
@@ -82,6 +85,7 @@
 - Python backend 的视频 Provider 可选帧处理依赖改为按执行加载；GUI CI 直接导入真实 `server` 入口，避免缺少单个实验性 Provider 依赖时阻断 Electron 主窗口。
 - 生产 smoke 合同测试同步覆盖 `/api/users` 与 `/api/forgot-password` 路径守卫，并按语义查找 `api.me`，避免新增检查改变数组尾部后误报 Quality Gate。
 - Story2Video 受控音频路径测试按 `realpath` canonical 合同比较，兼容 Windows 8.3 短路径与长路径表示同一文件的场景。
+- 真实服务 E2E 改为经过 `PipelineEngine` 的六阶段入口，实际调用 8002/8013、生成媒体文件、完成 ffmpeg 解码并验证发布禁用时明确跳过；默认降级资产不冒充真实图片/TTS Provider 验收。
 
 ---
 
