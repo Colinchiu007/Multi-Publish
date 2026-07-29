@@ -1,3 +1,16 @@
+## [未发布] autonomous-loop CI 修复 (2026-07-29)
+
+### 修复
+- 修复 `.github/workflows/autonomous-loop.yml` 的 YAML 块缩进和残缺 PowerShell，消除 GitHub Actions 即时失败且无 job/log 的问题。
+- 最终状态改为严格解析 `LOOP_EXIT`；缺失、非法或非零退出码均 fail closed。
+
+### 安全与质量
+- PR 运行改为只读 checkout，且仅 `autonomous-loop` 标签触发；PR 不再获得模型密钥。
+- 自动生成的报告、截图、基线候选和补丁只上传 artifacts，取消 `git add -A`、自动 commit/push 和空提交，保留人工审核基线合同。
+- 新增全量 workflow YAML 解析与 autonomous-loop 行为合同，并接入 `quality-gate`。
+
+---
+
 ## [未发布] PostgreSQL migration 最小权限修复 (2026-07-27)
 
 ### 修复

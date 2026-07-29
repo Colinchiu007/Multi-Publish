@@ -4830,3 +4830,52 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
    并至少一次在仓库构建输出缺失的条件下运行。
 3. 评审任何以 `dist`、`build`、`coverage` 或临时缓存为 fixture 的测试时，必须用 `git check-ignore` 或
    `git ls-files` 判断其是否属于 clean checkout；未跟踪产物不得成为测试成功前置条件。
+
+## autonomous-loop YAML 编译失败导致零 job（2026-07-29）
+
+### 第一性原因
+
+- GitHub Actions run 创建后立即失败且 `jobs=[]`，因为 `.github/workflows/autonomous-loop.yml` 的
+  `run: |` 首行比后续脚本多缩进一格，YAML 解析稳定报 `bad indentation of a mapping entry (64:11)`。
+- `git blame/show` 定位到 `43f454f6`。该提交原意是解决 detached HEAD 推送，却在编辑 PowerShell 时把
+  `$branch` 清空为 `= git rev-parse ...`，把条件清空为 `if ( -eq "HEAD")`，并留下空的
+  `git push origin`。即使只修 YAML 缩进，job 启动后仍会失败。
+- 文件 BOM 会增加工具兼容噪声，但 `js-yaml` 能处理 BOM；本次零 job 的直接原因是块缩进，不把伴随现象
+  误判为根因。
+
+### Bug 逃逸链
+
+1. **单元/静态测试**：既有 `workflow-contract.test.js` 只用正则检查 visual、quality-gate 和 agent-judge，
+   没有解析 autonomous-loop，也没有覆盖 PowerShell 分支变量。
+2. **集成测试**：`quality-gate` 没有执行任何全量 workflow YAML 解析合同，因此损坏配置可以随普通代码测试
+   一起通过。
+3. **端到端测试**：GitHub 在构造 job 前即拒绝 workflow，没有 step 日志；历史排查只看到红色 run，未把
+   `jobs=[]` 作为编译阶段信号自动升级处理。
+4. **视觉回归**：视觉测试只能在 runner 启动后执行，无法覆盖 GitHub Actions 自身的 YAML 编译阶段。
+5. **代码审查**：引入提交的说明记录“93/93 tests passing”，但这些测试没有加载被改 workflow；同时未审查
+   `git add -A`、`--allow-empty` 和 PR 写凭据的副作用边界。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 审查盲区 + 配置编译门禁缺失**。仓库把 workflow 当作文本审查，没有把它作为
+可执行配置解析；也没有真实执行最终状态 PowerShell。自动基线流程还绕过了 QM-4 的人工审核要求，将整个
+runner 工作树纳入自动提交候选。
+
+### 修复与回归保护
+
+- 删除残缺的 checkout/branch/push 脚本和 BOM，workflow 使用只读权限与不保留凭据的 checkout。
+- PR 仅在 `autonomous-loop` 标签下运行，并显式不注入 `OPENAI_API_KEY`；手动 `functional=false` 不再被
+  `|| 'true'` 覆盖。
+- 报告、截图、基线候选和补丁只上传 artifacts，不再自动 `git add -A`、commit 或 push；基线必须人工审核。
+- `autonomous-loop-workflow.test.js` 先得到 5/5 RED，修复后验证全量 workflow 可解析、权限/标签/密钥边界、
+  artifacts 路径，以及 `LOOP_EXIT` 缺失、非法、非零、零四态的真实 PowerShell 退出行为。
+
+### 预防措施
+
+1. `quality-gate` 固定执行 autonomous-loop 合同；任何 `.github/workflows/*.yml|yaml` 解析失败都阻断提交。
+2. PR 中执行仓库代码的 workflow 默认 `contents: read`、`persist-credentials: false`，第三方密钥必须按事件
+   显式隔离。
+3. 自动化不得直接提交视觉基线；只允许生成待审 artifacts，由人工查看 diff 后更新基线。
+4. 遇到 Actions 即时失败且 `jobs=[]` 时，优先检查 workflow 编译/解析，而不是等待不存在的 step 日志。
+
+---

@@ -1,11 +1,7 @@
-﻿name: autonomous-loop
+name: autonomous-loop
 
-# AI 全自动多轮视觉测试循环（方向2）
-# 特性：
-#   - 多轮重试：视觉 diff 检测到后可自动更新基线并重试
-#   - 智能基线管理：优先使用 Agent 判断 diff 性质
-#   - 修复脚本：每轮生成 auto-fix-commands.bat
-#   - 触发方式：手动 dispatch 或 PR 标签触发
+# AI 全自动多轮视觉测试循环。
+# PR 仅运行只读检查；基线和补丁作为 artifacts 输出，必须人工审核后提交。
 
 on:
   push:
@@ -16,20 +12,33 @@ on:
       - "packages/ai-autonomous-tester/**"
       - "01-docs/PRD.md"
       - ".github/workflows/autonomous-loop.yml"
+      - ".github/scripts/autonomous-loop-workflow.test.js"
   workflow_dispatch:
     inputs:
       iterations:
         description: "最大循环轮数"
         required: false
         default: "3"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "3"
+          - "5"
       threshold:
-        description: "像素对比阈值 (0.0-1.0)"
+        description: "像素对比阈值"
         required: false
         default: "0.1"
+        type: choice
+        options:
+          - "0.02"
+          - "0.05"
+          - "0.1"
       functional:
-        description: "启用功能测试 (true/false)"
+        description: "启用功能测试"
         required: false
-        default: "true"
+        default: true
+        type: boolean
   pull_request:
     branches: [main]
     types: [labeled]
@@ -38,31 +47,26 @@ on:
       - "apps/desktop/tests/visual-testing/**"
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   loop:
-    name: "Autonomous Loop (迭代 ${{ github.event.inputs.iterations || 3 }} 轮)"
+    if: github.event_name != 'pull_request' || github.event.label.name == 'autonomous-loop'
+    name: "Autonomous Loop (迭代 ${{ inputs.iterations || 3 }} 轮)"
     runs-on: windows-latest
     timeout-minutes: 30
     env:
-      MAX_ITER: ${{ github.event.inputs.iterations || 3 }}
+      MAX_ITER: ${{ inputs.iterations || 3 }}
+      FUNCTIONAL_ENABLED: ${{ github.event_name != 'workflow_dispatch' || inputs.functional }}
       LLM_PROVIDER: openai
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_API_KEY: ${{ github.event_name != 'pull_request' && secrets.OPENAI_API_KEY || '' }}
       COVERAGE_THRESHOLD: 0.5
 
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          persist-credentials: true
-
-      - name: Checkout branch (for git push)
-        run: |
-           = git rev-parse --abbrev-ref HEAD
-          if ( -eq "HEAD") { git checkout main }
-          Write-Host "Branch: codex/quality-optimization-analysis"
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -82,63 +86,57 @@ jobs:
       - name: Run autonomous loop
         id: loop
         continue-on-error: true
+        shell: pwsh
         run: |
           Write-Host "=== Autonomous Visual Test Loop ==="
           Write-Host "Max iterations: $env:MAX_ITER"
-          Write-Host "Functional: ${{ github.event.inputs.functional || 'true' }}"
+          Write-Host "Functional: $env:FUNCTIONAL_ENABLED"
           Write-Host ""
 
           $funcFlag = ""
-          if ("${{ github.event.inputs.functional || 'true' }}" -eq "true") { $funcFlag = "--functional" }
+          if ($env:FUNCTIONAL_ENABLED -eq "true") { $funcFlag = "--functional" }
 
-          cd apps/desktop
-          node ../../packages/ai-autonomous-tester/scripts/run-autonomous-e2e.js `
-            --iterations=$env:MAX_ITER `
-            $funcFlag `
-            --docs="01-docs/PRD.md,README.md" `
-            --threshold="${{ github.event.inputs.threshold || '0.1' }}" 2>&1
+          Push-Location apps/desktop
+          try {
+            node ../../packages/ai-autonomous-tester/scripts/run-autonomous-e2e.js `
+              --iterations=$env:MAX_ITER `
+              $funcFlag `
+              --docs="01-docs/PRD.md,README.md" `
+              --threshold="${{ inputs.threshold || '0.1' }}" 2>&1
+            $exitCode = $LASTEXITCODE
+          } finally {
+            Pop-Location
+          }
 
-          $exitCode = $LASTEXITCODE
+          if ($null -eq $exitCode) { $exitCode = 1 }
           Write-Host "Exit code: $exitCode"
-          echo "LOOP_EXIT=$exitCode" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LOOP_EXIT=$exitCode" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Upload reports
+      - name: Upload reports and review candidates
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: autonomous-loop-reports
           path: |
             apps/desktop/tests/visual-testing/reports/
-            patches/
+            apps/desktop/tests/visual-testing/screenshots/
+            apps/desktop/tests/visual-testing/base-screenshots/
+            apps/desktop/patches/
           retention-days: 14
           if-no-files-found: warn
 
-      - name: Commit auto-fixes if any
-        if: always()
-        run: |
-          # Check if patches or baseline changes exist
-          git add -A
-          $hasChanges = git diff --cached --quiet; $hasChanges = !$?
-
-          if ($hasChanges) {
-            git config user.name "autonomous-loop[bot]"
-            git config user.email "autonomous-loop[bot]@users.noreply.github.com"
-             = git rev-parse --abbrev-ref HEAD
-            git commit -m "chore(autonomous-loop): auto-fix baseline/patches [skip ci]" --allow-empty
-            git push origin 
-            Write-Host "Auto-fix committed and pushed"
-          } else {
-            Write-Host "No auto-fixable changes"
-          }
-
       - name: Report final status
         if: always()
+        shell: pwsh
         run: |
-          $exit = [int]($env:LOOP_EXIT || 1)
-          if ($exit -eq 0) {
+          $exitCode = 1
+          if (-not [int]::TryParse($env:LOOP_EXIT, [ref]$exitCode)) {
+            $exitCode = 1
+          }
+
+          if ($exitCode -eq 0) {
             Write-Host "::notice::Autonomous loop PASSED after all iterations"
           } else {
             Write-Host "::error::Autonomous loop FAILED - see artifacts for details"
             exit 1
           }
-
