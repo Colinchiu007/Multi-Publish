@@ -188,3 +188,8 @@ packages/ai-autonomous-tester/*.traineddata
 
 .gstack/
 .publish-api-runner-*/
+
+# Local agent/runtime acceptance artifacts
+.codex-runtime-acceptance/
+.tmp-*/
+deploy-temp/
