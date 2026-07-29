@@ -38,6 +38,9 @@ const composePath = path.resolve(__dirname, '../../../deploy/logto/docker-compos
 const compose = yaml.load(fs.readFileSync(composePath, 'utf8'))
 const ports = compose?.services?.logto?.ports
 
+assert.strictEqual(compose.services.logto.image, 'svhd/logto:1.41.0', '基础 Compose 必须保留官方镜像作为回滚路径')
+assert.strictEqual(compose.services.logto.build, undefined, '基础 Compose 不得隐式构建派生镜像')
+
 assert.deepStrictEqual(ports, [
   '127.0.0.1:3001:3001',
   '127.0.0.1:3002:3002',
@@ -46,6 +49,45 @@ assert.match(compose.services.postgres.environment.POSTGRES_PASSWORD, /\$\{LOGTO
 assert.strictEqual(compose.services.logto.environment.TRUST_PROXY_HEADER, '${LOGTO_TRUST_PROXY_HEADER:-0}')
 const deployEnv = fs.readFileSync(path.resolve(__dirname, '../../../deploy/logto/.env.example'), 'utf8')
 assert.match(deployEnv, /^LOGTO_TRUST_PROXY_HEADER=0$/m)
+
+const webhookRetryOverlayPath = path.resolve(__dirname, '../../../deploy/logto/docker-compose.webhook-retry.yml')
+assert(fs.existsSync(webhookRetryOverlayPath), '必须提供可独立移除的 Webhook POST 重试 Compose 叠加层')
+const webhookRetryOverlay = yaml.load(fs.readFileSync(webhookRetryOverlayPath, 'utf8'))
+assert.deepStrictEqual(webhookRetryOverlay, {
+  services: {
+    logto: {
+      image: 'multi-publish-logto:1.41.0-webhook-post-retry.1',
+      build: {
+        context: '.',
+        dockerfile: 'Dockerfile.webhook-retry',
+      },
+    },
+  },
+}, 'Webhook 重试叠加层只能替换 Logto 镜像，不得修改数据库、端口、网络或运行参数')
+
+const webhookRetryDockerfilePath = path.resolve(__dirname, '../../../deploy/logto/Dockerfile.webhook-retry')
+assert(fs.existsSync(webhookRetryDockerfilePath), '必须提供 Logto Webhook POST 重试派生镜像 Dockerfile')
+const webhookRetryDockerfile = fs.readFileSync(webhookRetryDockerfilePath, 'utf8')
+assert.match(webhookRetryDockerfile,
+  /^FROM docker\.m\.daocloud\.io\/svhd\/logto@sha256:7f79547e3d1fe569a3ecae757968a7cfc579687aa8164eec35113c0adc983c5b$/m,
+  '派生镜像必须绑定 ECS 已验收的 Logto 1.41.0 manifest digest')
+assert.match(webhookRetryDockerfile,
+  /^LABEL org\.opencontainers\.image\.base\.digest="sha256:7f79547e3d1fe569a3ecae757968a7cfc579687aa8164eec35113c0adc983c5b"$/m)
+assert.match(webhookRetryDockerfile, /^COPY patch-webhook-post-retry\.cjs \/tmp\/patch-webhook-post-retry\.cjs$/m)
+assert.match(webhookRetryDockerfile, /^RUN node \/tmp\/patch-webhook-post-retry\.cjs && rm \/tmp\/patch-webhook-post-retry\.cjs$/m)
+assert.doesNotMatch(webhookRetryDockerfile, /^(?:ENTRYPOINT|CMD|USER|WORKDIR)\b/m,
+  '派生镜像不得覆盖上游启动命令、用户或工作目录')
+
+const dockerignorePath = path.resolve(__dirname, '../../../deploy/logto/.dockerignore')
+assert(fs.existsSync(dockerignorePath), 'Logto build context 必须使用白名单式 .dockerignore 隔离生产 Secret')
+const dockerignoreRules = fs.readFileSync(dockerignorePath, 'utf8')
+  .split(/\r?\n/)
+  .filter(Boolean)
+assert.deepStrictEqual(dockerignoreRules, [
+  '*',
+  '!Dockerfile.webhook-retry',
+  '!patch-webhook-post-retry.cjs',
+], 'Logto 派生镜像构建上下文只能包含 Dockerfile 和补丁脚本')
 
 const apiEnv = fs.readFileSync(path.resolve(__dirname, '../../../deploy/logto/api.env.example'), 'utf8')
 for (const variable of [
@@ -174,5 +216,12 @@ assert.match(runbook, /install -d -m 0750 -o 1001 -g 1001[\s\S]*packages\/api-pu
 assert.match(runbook, /publish-api --port 3000/)
 assert.match(runbook, /production-smoke\.js --logto https:\/\/id\.example\.com --api http:\/\/127\.0\.0\.1:3000/)
 assert.match(runbook, /docker compose -f packages\/api-publish-engine\/docker-compose\.yml[\s\S]*production-smoke\.js --logto https:\/\/id\.example\.com --api http:\/\/127\.0\.0\.1:3030/)
+assert.match(runbook, /docker-compose\.yml -f deploy\/logto\/docker-compose\.webhook-retry\.yml[\s\S]*build --no-cache logto/)
+assert.match(runbook, /docker compose -f deploy\/logto\/docker-compose\.yml[\s\S]*up -d --no-deps --force-recreate logto/,
+  'Runbook 必须保留不加载叠加层即可回到官方镜像的命令')
+
+const deployReadme = fs.readFileSync(path.resolve(__dirname, '../../../deploy/logto/README.md'), 'utf8')
+assert.match(deployReadme, /docker-compose\.yml -f docker-compose\.webhook-retry\.yml[\s\S]*build --no-cache logto/)
+assert.match(deployReadme, /docker compose -f docker-compose\.yml --env-file \.env up -d --no-deps --force-recreate logto/)
 
 console.log('  ✅ Logto Compose 与业务 API 生产配置合同完整且不包含默认密钥')

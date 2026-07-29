@@ -60,6 +60,16 @@ docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env u
 docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env ps
 ```
 
+基础 Compose 固定官方 `svhd/logto:1.41.0`，也是 Webhook 补丁的回滚路径。启用哈希绑定的 Webhook POST 重试派生镜像时，先通过第 1 节磁盘门禁，再执行：
+
+```text
+docker compose -f deploy/logto/docker-compose.yml -f deploy/logto/docker-compose.webhook-retry.yml --env-file deploy/logto/.env build --no-cache logto
+docker compose -f deploy/logto/docker-compose.yml -f deploy/logto/docker-compose.webhook-retry.yml --env-file deploy/logto/.env up -d --no-deps --force-recreate logto
+docker compose -f deploy/logto/docker-compose.yml -f deploy/logto/docker-compose.webhook-retry.yml --env-file deploy/logto/.env ps
+```
+
+派生 Dockerfile 必须绑定 ECS 已验收的基础镜像 manifest digest，白名单式 `.dockerignore` 必须确保生产 `.env` 和其他运维文件不进入 build context。构建日志还必须记录运行时文件的补丁前后 SHA-256；目标文件缺失、重复、哈希漂移或上游已包含修复时构建必须失败。切换后检查 OIDC discovery、Logto health、业务 API `/ready` 和 production smoke。随后创建独立 signing key 的临时 Hook 与精确 Nginx 探针路径：接收端前两次返回 503、第三次返回 204，三次请求均须通过 HMAC 校验；只记录 UTC 时间、次数和签名有效性，不记录 payload 或用户资料。Ky 1.2.3 的 `TimeoutError` 不会重试，不能用超时场景替代该探针。验收后立即删除临时 Hook、测试用户、Nginx location、接收进程和日志，主业务 Hook 不变。
+
 本机裸进程诊断与生产 Compose 是两条互斥路径，不要同时启动。选择裸进程诊断时，API 默认监听 `3000`：
 
 ```text
@@ -116,7 +126,7 @@ API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
 
 ## 5. 回滚
 
-回滚只改变认证流量，不回滚或删除 schema：
+身份灰度回滚只改变认证流量，不回滚或删除 schema：
 
 1. 设置 `IDENTITY_AUTH_REQUIRED=false`，保持 `IDENTITY_AUTH_ENABLED=true`。
 2. 运行 `validate-production-config.js --phase rollback`。
@@ -125,6 +135,14 @@ API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
 5. 重新运行 `/health`、`/ready` 和 production smoke。
 
 禁止重新启用共享 `JWT_SECRET`，禁止删除 `auth_subject`、Webhook 事件或 `identity_schema_migrations`。
+
+Webhook 派生镜像异常时，从仓库根目录只加载基础 Compose，强制重建 Logto 服务即可回到官方镜像；不要停止 PostgreSQL、不要使用 `down -v`：
+
+```text
+docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env up -d --no-deps --force-recreate logto
+```
+
+回滚后重新验证 OIDC discovery、容器 health、业务 API `/ready` 与 production smoke，并保留派生镜像和失败日志到审查完成；不得先删除证据。
 
 ## 6. 恢复演练
 
