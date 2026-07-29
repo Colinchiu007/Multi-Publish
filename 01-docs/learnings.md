@@ -4830,3 +4830,91 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
    并至少一次在仓库构建输出缺失的条件下运行。
 3. 评审任何以 `dist`、`build`、`coverage` 或临时缓存为 fixture 的测试时，必须用 `git check-ignore` 或
    `git ls-files` 判断其是否属于 clean checkout；未跟踪产物不得成为测试成功前置条件。
+
+---
+
+## Logto 1.41.0 Webhook POST 未自动重试复盘（2026-07-29）
+
+### 现象
+
+生产 Webhook 验收中，业务接收端对 Logto Webhook 首次返回可重试 HTTP 失败时，没有观察到后续
+POST。正常 2xx 投递、HMAC 验签和业务消费者幂等均可用，因此问题只在发送端故障恢复路径出现，不影响
+OIDC 登录、Token 或正常请求。
+
+### 第一性原因
+
+- `789afd65137389a42af84a3b59e7d88ba8363c3b feat(auth): 集成 Logto 用户系统与租户隔离` 首次固定
+  `svhd/logto:1.41.0`，同时在架构文档写入“Webhook 使用 HMAC、超时和重试”。该提交的意图是建立完整
+  身份与租户隔离，并未对上游发送器做失败后黑盒投递验证。
+- Logto 1.41.0 的 `packages/core/src/libraries/hook/utils.ts` 对 Ky 配置
+  `retry: { limit: retries ?? 3 }`，但 Ky 1.2.3 默认可重试方法只有
+  `get/put/head/delete/options/trace`。`ky.post()` 在进入 `_retry()` 前先检查 method，POST 因而直接绕过
+  整个重试链。
+- 生产运行时 `/etc/logto/packages/core/build/main-Z4BG2XWW.js` 的 SHA-256 为
+  `77441c2d030d064343cfb22aa61b0e0ed45bff8fb33a1d4ce2beed6a8f1c752c`，其中仍只有
+  `retry: { limit: retries ?? 3 }`。这不是 Console Hook 配置、签名或业务 API 路由问题。
+- Ky 1.2.3 的 `_calculateRetryDelay()` 还显式排除 `TimeoutError`。本次最小修复让 POST 进入 Ky 的默认
+  重试集合：408/429/500/502/503/504、带 `Retry-After` 的 413，以及非超时网络错误；不把 10 秒 Ky
+  超时冒充为已解决。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：`logto-webhook.test.js` 测的是消费者收到同一 payload 两次时能从事务失败恢复；没有启动
+   Logto，也没有断言发送端 HTTP attempt 数。
+2. **集成测试**：`publish-api-logto-webhook.test.js` 覆盖 HMAC 200、错误签名 401 和超大请求 413，但所有
+   请求都由测试直接发给 API；“第二次请求”不是 Logto 自动重试。
+3. **部署合同**：`logto-deploy-contract.test.js` 只固定端口、Secret、网络和健康检查，没有核对上游镜像内
+   Webhook client 的 method 白名单，也没有派生镜像的 fail-closed 补丁合同。
+4. **端到端与审查**：架构审查把源码中的 `retry.limit` 当成已经生效的行为，没有继续读取 Ky 1.2.3 的
+   method gate。先前 UAT 没有让真实接收端返回 503，因此正常 Webhook 通过也无法暴露该缺口。
+5. **流程缺失**：真实 Webhook 重试长期标记 `PENDING_EXTERNAL`，却没有“失败两次、恢复一次、观察三次
+   签名 POST”的机器化验收步骤；消费者幂等证据被误当作发送端可靠性证据。
+
+### 修复与回归保护
+
+- 基础 `docker-compose.yml` 保持 `svhd/logto:1.41.0` 不变；独立
+  `docker-compose.webhook-retry.yml` 才启用派生镜像，因此移除叠加层即可回滚且不会触碰 PostgreSQL 卷。
+- 派生 Dockerfile 绑定 ECS 已验收的基础镜像 manifest digest；白名单式 `.dockerignore` 只允许 Dockerfile
+  和补丁脚本进入 context，防止同目录生产 `.env` 或备份文件被发送给 Docker daemon。
+- `patch-webhook-post-retry.cjs` 只扫描非 source-map 的 `main-*.js`，要求目标文件和目标片段均恰好一个，
+  并在写入前校验生产运行时 SHA-256。路径先经 `lstat` 拒绝 symlink/hardlink，再由同一文件描述符完成
+  `fstat`、读取、哈希、写入、`fsync` 和读回，提交前后复核 `dev/ino`；多文件中途失败会关闭此前已打开的
+  全部描述符，部分写入失败会尝试恢复原字节。它只把目标改为
+  `retry: { limit: retries ?? 3, methods: ["post"] }`；任何基线漂移、重复命中、路径身份变化或上游已修复均停止构建。
+- `logto-webhook-runtime-patch.test.js` 先因补丁脚本缺失 RED，随后覆盖唯一目标成功、哈希漂移、目标缺失、
+  单文件重复、多文件命中、上游已修复、路径身份漂移、部分写入恢复、多文件打开失败的 fd 回收和 symlink
+  打开前拒绝十类场景；所有拒绝场景均验证原目标不被错误覆盖。
+- `logto-deploy-contract.test.js` 固定官方基础镜像、最小叠加层、Dockerfile 不覆盖上游
+  `ENTRYPOINT/CMD/USER/WORKDIR`，并要求 README 与 Runbook 同时保留构建、切换和官方镜像回滚命令。
+
+### 生产验收结果
+
+- ECS 使用基础 RepoDigest `sha256:7f79547e3d1fe569a3ecae757968a7cfc579687aa8164eec35113c0adc983c5b`
+  构建派生镜像 `multi-publish-logto:1.41.0-webhook-post-retry.1`，镜像 ID 为
+  `sha256:9e946d21842f45670e4478eb38b51fa1a565586ac0f2ccf16999d45fda92b0a6`。运行时文件补丁后
+  SHA-256 为 `5108a3c6f3e60a627d32351687368cbf4510743b87ba7fbcad33e7fb7bcbb55e`，旧片段 0 次、
+  新片段恰好 1 次。
+- `2026-07-29T05:22:31Z` 到 `05:23:07Z` 仅重建 Logto；PostgreSQL 与业务 API 未重建。三个容器
+  均保持 healthy，本机 discovery、`/api/v1/ready` 与公网 production smoke 六项通过，Shadow 开关仍为
+  `IDENTITY_AUTH_ENABLED=true`、`IDENTITY_AUTH_REQUIRED=false`。
+- 独立临时 Hook 在 `06:17:09.978Z`、`06:17:10.322Z`、`06:17:10.934Z` 收到三次真实 POST，
+  HMAC 均有效、payload 哈希一致，接收端依次返回 `503 -> 503 -> 204`。这关闭了发送端 HTTP 状态码
+  重试门禁，但没有证明 Ky `TimeoutError` 会重试。
+- 主业务 Hook 同时将验收主体的 `User.Created` 与 `User.Deleted` 处理为 `processed`；业务库最终状态
+  `deleted`、活跃会话 0，删除 tombstone 为抵抗乱序旧事件而保留。验收后 Logto 用户数 `3 -> 3`、Hook
+  数 `1 -> 1`，临时角色关联、Hook、用户、Nginx 路径、21676 监听、systemd 单元、容器审计脚本和远端
+  临时目录均为 0，Management Resource TTL 保持 3600。
+- 该脚本的安全边界是 Dockerfile 单个 `RUN` 的隔离构建层，不支持通过 `docker exec` 在线修改容器，也不
+  支持多个进程并发写同一运行时目录。写入或原字节恢复失败时依靠 Docker build 非零退出丢弃整个层；
+  不能把失败层的文件状态复制出来继续部署。
+
+### 预防措施
+
+1. `AGENTS.md` QM-2 增加 Logto Webhook POST 重试合同：不得用 `retry.limit` 或消费者手工重放推断上游
+   自动重试；修改后必须运行两个聚焦合同并完成真实 503 探针。
+2. `ARCH-F14-logto-user-system.md` 修正错误架构事实，`TEST-PLAN-LOGTO-PRODUCTION.md` 分离发送端和消费者
+   两层测试，不再把两者合并为一个“Webhook 重试”结论。
+3. 生产验收使用独立 signing key、精确 Nginx 路径和一次性接收端：前两次 503、第三次 204，只记录 UTC
+   时间、计数和签名有效性；完成后删除 Hook、用户、路由、进程和日志，主 Hook 不参与故障注入。
+4. Ky 1.2.3 `TimeoutError` 继续作为显式限制进入运行手册和风险清单；若后续需要超时自动重试，应升级并
+   验证支持该能力的 Logto/Ky，或采用持久化 outbox，而不是继续扩大编译产物补丁。

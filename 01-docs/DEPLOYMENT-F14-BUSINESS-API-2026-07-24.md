@@ -1,6 +1,6 @@
 # F14 真实业务 API 接入与登录恢复方案
 
-> 状态：`DEPLOYED_SHADOW_PENDING_DESKTOP_ACCEPTANCE`
+> 状态：`DEPLOYED_SHADOW_UAT_PENDING_API_UPDATE_AND_REQUIRED`
 > 日期：2026-07-24
 > 关联：[PRD-F14-LOGTO-PRODUCTION-READINESS.md](./PRD-F14-LOGTO-PRODUCTION-READINESS.md)、[ARCH-F14-LOGTO-PRODUCTION-READINESS.md](./ARCH-F14-LOGTO-PRODUCTION-READINESS.md)、[RUNBOOK-LOGTO-PRODUCTION.md](./RUNBOOK-LOGTO-PRODUCTION.md)
 
@@ -212,16 +212,16 @@ location / {
 
 部署时必须确保 production-smoke 全绿才能视为业务 API 可用。
 
-## 9. 执行状态（2026-07-28）
+## 9. 执行状态（更新于 2026-07-29）
 
 | 项目 | 状态 | 当前证据 |
 |---|---|---|
-| ECS 容量 | PASS | 根文件系统约 `49G`，可用约 `16G`，使用率约 `68%` |
+| ECS 容量 | PASS | 2026-07-29 最终审计：根文件系统约 `49G`，可用约 `15.2GiB`、可用比例 `32%`，满足至少 `5GiB` 且 `10%` 的门槛 |
 | 容器与依赖 | PASS | Logto、PostgreSQL、业务 API 均 `healthy`；`/ready` 的 database/schema/oidc/jwks/introspection 全部 `ready` |
 | 公网路由 | PASS | `production-smoke.js` 全部通过，Logto 内部 `/api/*` 未被业务 API 错误接管 |
 | 普通用户 scopes | PASS | `default` tenant 默认用户角色绑定 5 个业务 scope，并已赋予 2 个活跃用户；`/api/v1/me` 由 `403` 恢复为 `200` |
 | Entitlement 时钟偏差 | PASS_PACKAGED_UAT_PENDING_DEPLOY | 真实登录发现服务端 `iat` 比桌面 `now` 快 2 秒；双端默认 `60s`、上限 `300s` 的回归、新 Windows 包 QM-1 与同账号登录/恢复/退出 UAT 已通过；最新业务 API 代码仍待部署 |
-| Webhook 与 Required 灰度 | PENDING_EXTERNAL | Webhook 尚未配置并完成真实验收，真正 A→B 主体隔离与 refresh token 轮换也未证明；保持 `IDENTITY_AUTH_REQUIRED=false` |
+| Webhook 与 Required 灰度 | PASS_RETRY_PENDING_REQUIRED | 主业务 Hook 已处理真实 `User.Created`/`User.Deleted`，Logto 派生镜像已通过三次 HMAC 有效 POST 的 `503 -> 503 -> 204` 发送端验收。Ky `TimeoutError`、主 Hook 更新/暂停与生产真实乱序、真正 A→B、refresh token 和 Required 灰度仍未证明；保持 `IDENTITY_AUTH_REQUIRED=false` |
 
-业务 API、数据库、OIDC 与公网路由基线已不再是阻塞项。同账号桌面 UAT 已完成，剩余阻塞为本分支 API 镜像部署、真正 A→B、refresh token 轮换、Webhook 和 Required 灰度；本表不能替代每次新镜像的 production smoke。
+业务 API、数据库、OIDC、公网路由和 Webhook HTTP 503 重试已不再是阻塞项。同账号桌面 UAT 已完成，剩余阻塞为本分支 API 镜像部署、真正 A→B、refresh token 轮换、主 Hook 更新/暂停与真实乱序、Ky 超时补偿和 Required 灰度；本表不能替代每次新镜像的 production smoke。
 
