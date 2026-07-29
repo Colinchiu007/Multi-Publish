@@ -4831,6 +4831,177 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
 3. 评审任何以 `dist`、`build`、`coverage` 或临时缓存为 fixture 的测试时，必须用 `git check-ignore` 或
    `git ls-files` 判断其是否属于 clean checkout；未跟踪产物不得成为测试成功前置条件。
 
+## autonomous-loop YAML 编译失败导致零 job（2026-07-29）
+
+### 第一性原因
+
+- GitHub Actions run 创建后立即失败且 `jobs=[]`，因为 `.github/workflows/autonomous-loop.yml` 的
+  `run: |` 首行比后续脚本多缩进一格，YAML 解析稳定报 `bad indentation of a mapping entry (64:11)`。
+- `git blame/show` 定位到 `43f454f6`。该提交原意是解决 detached HEAD 推送，却在编辑 PowerShell 时把
+  `$branch` 清空为 `= git rev-parse ...`，把条件清空为 `if ( -eq "HEAD")`，并留下空的
+  `git push origin`。即使只修 YAML 缩进，job 启动后仍会失败。
+- 文件 BOM 会增加工具兼容噪声，但 `js-yaml` 能处理 BOM；本次零 job 的直接原因是块缩进，不把伴随现象
+  误判为根因。
+
+### Bug 逃逸链
+
+1. **单元/静态测试**：既有 `workflow-contract.test.js` 只用正则检查 visual、quality-gate 和 agent-judge，
+   没有解析 autonomous-loop，也没有覆盖 PowerShell 分支变量。
+2. **集成测试**：`quality-gate` 没有执行任何全量 workflow YAML 解析合同，因此损坏配置可以随普通代码测试
+   一起通过。
+3. **端到端测试**：GitHub 在构造 job 前即拒绝 workflow，没有 step 日志；历史排查只看到红色 run，未把
+   `jobs=[]` 作为编译阶段信号自动升级处理。
+4. **视觉回归**：视觉测试只能在 runner 启动后执行，无法覆盖 GitHub Actions 自身的 YAML 编译阶段。
+5. **代码审查**：引入提交的说明记录“93/93 tests passing”，但这些测试没有加载被改 workflow；同时未审查
+   `git add -A`、`--allow-empty` 和 PR 写凭据的副作用边界。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 审查盲区 + 配置编译门禁缺失**。仓库把 workflow 当作文本审查，没有把它作为
+可执行配置解析；也没有真实执行最终状态 PowerShell。自动基线流程还绕过了 QM-4 的人工审核要求，将整个
+runner 工作树纳入自动提交候选。
+
+### 修复与回归保护
+
+- 删除残缺的 checkout/branch/push 脚本和 BOM，workflow 使用只读权限与不保留凭据的 checkout。
+- PR 仅在 `autonomous-loop` 标签下运行，并显式不注入 `OPENAI_API_KEY`；手动 `functional=false` 不再被
+  `|| 'true'` 覆盖。
+- 报告、截图、基线候选和补丁只上传 artifacts，不再自动 `git add -A`、commit 或 push；基线必须人工审核。
+- `autonomous-loop-workflow.test.js` 先得到 5/5 RED，修复后验证全量 workflow 可解析、权限/标签/密钥边界、
+  artifacts 路径，以及 `LOOP_EXIT` 缺失、非法、非零、零四态的真实 PowerShell 退出行为。
+
+### 预防措施
+
+1. `quality-gate` 固定执行 autonomous-loop 合同；任何 `.github/workflows/*.yml|yaml` 解析失败都阻断提交。
+2. PR 中执行仓库代码的 workflow 默认 `contents: read`、`persist-credentials: false`，第三方密钥必须按事件
+   显式隔离。
+3. 自动化不得直接提交视觉基线；只允许生成待审 artifacts，由人工查看 diff 后更新基线。
+4. 遇到 Actions 即时失败且 `jobs=[]` 时，优先检查 workflow 编译/解析，而不是等待不存在的 step 日志。
+
+### 后续运行期 Bug：Windows Runner 被全局 taskkill 终止
+
+#### 第一性原因
+
+- workflow 编译修复后，真实手动运行 `30423812727` 已创建 job `90485807072`，checkout、依赖安装、
+  Playwright、Vue build 和 artifacts 均正常；日志在“启动 Vite dev server”后立即结束并写入退出码 1。
+- `git blame/show` 定位到 `fb45e3b` 首次创建统一 E2E 脚本，`8536261c` 重构时保留缺陷。启动与清理都执行
+  `taskkill /F /IM node.exe /T`。注释声称清理占用端口的进程，命令却按镜像名终止整台 Windows runner 上的
+  所有 Node 进程，其中包含 GitHub Actions Runner 当前进程本身。
+- 这不是原零-job编译问题的延续：前者发生在 GitHub 构造 job 之前；本问题发生在真实 job 已启动、执行到
+  autonomous tester 后。两者必须分别归因和验收。
+
+#### Bug 逃逸链
+
+1. **单元测试**：ai-autonomous-tester 既有测试只覆盖抽出的参数和报告纯函数，没有加载
+   `run-autonomous-e2e.js`，也没有验证启动/清理的进程所有权。
+2. **集成测试**：脚本末尾无条件执行 `main()`，导致它无法被测试安全 `require`；既有 Windows taskkill 合同
+   只扫描部分 workflow 文本，没有扫描真实执行脚本。
+3. **端到端测试**：YAML 损坏长期让 run 停在 `jobs=[]`，因此 runner 内的进程误杀路径从未被执行；编译修复后
+   第一轮真实 dispatch 才把第二层缺陷暴露出来。
+4. **视觉回归**：Node Runner 在 Vite 就绪前已被终止，视觉测试根本没有机会启动，无法承担进程边界门禁。
+5. **代码审查**：注释“清理端口”与 `/IM node.exe` 的实际全局语义矛盾，但引入和重构审查都没有按 PID、父子树
+   和无关进程三个维度验证 Windows 命令。
+
+#### 系统性漏洞
+
+该问题属于**进程所有权边界缺失 + 真实 Runner 场景缺失 + 审查语义盲区**。脚本把“本次创建的 Vite 子进程”
+错误建模为“机器上的全部 Node 进程”，同时没有 strict port、提前退出监听或有界 HTTP 探针，端口冲突与启动
+失败也只能在长超时后得到低质量错误。
+
+#### 修复与回归保护
+
+- 新增 `dev-server-controller.js`：启动只记录本次 `spawn` 返回的进程；Windows 使用
+  `taskkill /PID <pid> /T /F`，POSIX 使用独立进程组；任何路径都不再按镜像名终止 Node。
+- Vite 固定 `--host 127.0.0.1 --port <port> --strictPort`，端口冲突 fail closed，不允许自动漂移到另一个端口
+  后误连旧服务；子进程提前退出会立即带出 stderr 和退出状态。
+- HTTP readiness 即使自身悬空也受总 deadline 约束；启动失败自动清理。终止命令和回退都未生效时明确报错，
+  不以“清理完成”掩盖残留进程。
+- 脚本改为 `require.main === module` 才执行，并以返回退出码配合 `finally` 等待清理，允许单元测试安全加载。
+- 新增 8 个回归用例；其中真实 Windows 用例同时启动受管 Node 与无关 Node 哨兵，确认只终止受管 PID 树，
+  哨兵仍可接收信号 0。
+
+#### 预防措施
+
+1. 任何启动外部服务的 CI 脚本必须保存自身 child handle/PID；禁止使用 `/IM node.exe`、`pkill node` 等按名称
+   全局清理命令。
+2. 服务启动合同必须同时覆盖固定 host、strict port、提前退出、探针悬空超时、重复清理和清理失败 fail closed。
+3. Windows 进程清理回归必须包含一个无关同名进程哨兵；只断言命令字符串不足以证明没有误杀。
+4. workflow 从编译失败恢复后必须继续做一次真实 dispatch；“已创建 job”只关闭编译缺陷，不能替代 job 内运行验收。
+
+### 后续裁决 Bug：无模型 prompt 包被误报为 PASS
+
+#### 第一性原因
+
+- 真实运行 `30431180830` 已证明 Vite 约 1 秒就绪、视觉 diff 为 0，并执行 `[CLEAN] 关闭 Vite`；因此进程生命周期
+  修复有效。但该 run 没有 `OPENAI_API_KEY`，不能据此宣称需求覆盖审计通过。
+- `RequirementsTestRunner` 在没有 LLM 时返回外层 `_mode: "agent-required"`、内层
+  `_verdict._mode: "prompt"`。`git blame/show` 定位到 `8536261c`：简单模式的报告和退出码分别检查
+  `_verdict.decision` 与错误的外层 `_mode === "prompt"`，没有识别真实 prompt 结构。
+- 两套重复逻辑都把“没有看到明确 FAIL”当作 PASS，导致 JSON/Markdown 报告写入 `overall: "PASS"`、脚本返回 0，
+  workflow 又按 `LOOP_EXIT=0` 报告绿色。这是语义假绿，不是 Vite 或 GitHub Runner 再次失败。
+
+#### Bug 逃逸链
+
+1. **单元测试**：`requirements-runner.test.js` 已断言 `agent-required`，`AgentJudge` 测试也知道 prompt 模式，但没有测试
+   CLI 如何把该结构映射为报告和退出码。
+2. **集成测试**：多轮 `AIAnalyzer` 能把 prompt 映射为 `NEED_HUMAN`，简单模式却绕过它并复制两份判定，两个路径没有
+   共用裁决合同。
+3. **端到端测试**：workflow 最终步骤只严格解析 `LOOP_EXIT`，没有能力纠正上游脚本错误返回的 0；首次跑通 Vite 后
+   才出现足以检查语义结果的真实日志与报告。
+4. **视觉回归**：diff 为 0 只说明像素结果稳定，不能替代需求覆盖的模型或人工裁决。
+5. **代码审查**：审查关注了 workflow 能否创建 job、Vite 是否存活和 cleanup 是否误杀，没有追问“整体 PASS 是否存在
+   明确的覆盖 verdict”这一不变量。
+
+#### 系统性漏洞
+
+该问题属于**裁决单一来源缺失 + 结果结构契约遗漏 + 进程成功与审计成功混淆**。同一个覆盖结果由日志、报告和主流程
+分别解释；任一解释遗漏嵌套 prompt 结构，就会让展示状态与退出状态漂移。绿色 workflow 只能证明脚本返回 0，不能反向
+证明脚本的业务裁决正确。
+
+#### 修复与回归保护
+
+- 新增 `classifyCoverageResult()`：显式 `PASS` 才通过，明确 `FAIL`、错误或未知结果均 fail closed；外层
+  `agent-required`、内层 prompt 或明确 `NEED_HUMAN` 统一归类为 `NEED_HUMAN`；只有不携带错误或裁决的纯
+  `skipped` 不阻断，矛盾状态一律失败。
+- 新增 `evaluateRunResults()`，统一计算视觉、覆盖和功能阶段的 `exitCodes` 与 `overall`；畸形结果和基础设施错误也不能
+  再以零失败数冒充成功。
+- `generateReport()` 直接写入归一化的 `coverageStatus`、`exitCodes`、`overall`，Markdown 主 Verdict 始终显示归一化
+  状态，冲突的原始 decision 仅作为诊断行；`main()` 复用同一 evaluation 并返回非零，不再维护第三套判断。
+- 回归测试首轮 6/6 RED，合入前复审再补 3 类红灯，最终 12/12 GREEN；包级 167/167、workflow 合同 25/25、GUI 合同 31/31、Fault 14/14、
+  Monkey 5/5，`npm pack --dry-run` 为 44 个文件。
+- GitHub Quality Gate `30434647574` 的 Gate 1-9 全部成功；受控 dispatch `30436205736` 在 Vite 就绪、视觉 diff 0、
+  报告与 cleanup 均完成后，以 `NEED_HUMAN` / `COVERAGE_NEED_HUMAN` 返回 1。artifact JSON 与 Markdown 均保留该
+  归一化状态，workflow 顶层红灯是 fail-closed 合同的预期结果。
+
+#### 预防措施
+
+1. 自主测试的日志、报告和退出码必须来自同一 evaluator；禁止各层重新解释 `_mode` 或 `_verdict`。
+2. prompt 包在生产脚本源头必须返回非零并标记 `NEED_HUMAN`。上层门禁若允许“无 Key 时仅告警”，必须读取同一轮
+   一致的 `NEED_HUMAN` 报告后显式降级，不能伪造 PASS。
+3. 任何 CI 绿色结论都要区分基础设施、测试执行和业务裁决；Vite 就绪、像素无 diff、进程退出 0 均不能替代明确 verdict。
+4. `autonomous-e2e-result.test.js` 纳入包级测试，固定覆盖明确 PASS/FAIL、prompt、矛盾/未知结果、畸形或基础设施错误、
+   纯跳过，以及 JSON/Markdown 报告与退出裁决一致性。
+
+#### 合入前复审补充：视觉命令与功能零执行仍可假绿
+
+**第一性原因**：`git blame` 定位到 `8536261c`。该提交在简单模式中用两个空 `catch` 吞掉像素测试和 Agent
+视觉判断的非零退出，随后只统计 `pixel-diff` 目录中的 PNG 数；命令在生成 diff 前崩溃时会得到 `diffCount=0`。
+后续 `8ef0c7d` 虽统一了结果 evaluator，但功能阶段只检查 `summary.failed`，因此 `{total: 0, passed: 0,
+failed: 0}` 或不自洽汇总仍可通过。
+
+**逃逸链与系统性漏洞**：单元测试只直接构造 `error` 结果，没有让真实 `runVisualTests()` 的命令执行器抛错；集成
+测试覆盖已形成的 diff 和显式失败，没有覆盖命令在产物生成前退出；PR workflow 的 `paths` 又未包含 tester 包和 workflow
+自身，相关修复即使加标签也可能不创建 autonomous-loop job。根本漏洞是把“没有失败产物”等同于“测试成功”，且执行证据、
+结果汇总和 workflow 触发范围没有同一份合同。
+
+**修复与回归保护**：视觉阶段继续执行两条命令以保留诊断产物，但收集任一命令的 stderr/message 并写入 `error`，统一
+evaluator 因此返回 `VISUAL_FAIL`；功能阶段要求非负整数汇总、`total > 0` 且 `passed + failed === total`。新增回归先稳定
+得到三类 RED，再达到结果合同 12/12、包级 167/167；workflow 合同要求 PR 与 push 使用相同路径集合，专项合同 6/6。
+
+**预防措施**：外部测试命令的退出状态是一等执行证据，禁止空 `catch` 后仅根据产物目录推断成功；任何启用的测试阶段
+必须证明至少执行一个用例并校验汇总守恒；修改测试 runner、workflow 或其合同文件时，PR 与 main push 必须同样触发检查。
+显式禁用阶段仍可返回纯 `skipped`，但不得携带错误、裁决或伪造通过数。
+
 ---
 
 ## Logto 1.41.0 Webhook POST 未自动重试复盘（2026-07-29）

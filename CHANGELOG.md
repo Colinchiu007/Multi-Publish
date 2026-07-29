@@ -1,3 +1,24 @@
+## [未发布] autonomous-loop CI 修复 (2026-07-29)
+
+### 修复
+- 修复 `.github/workflows/autonomous-loop.yml` 的 YAML 块缩进和残缺 PowerShell，消除 GitHub Actions 即时失败且无 job/log 的问题。
+- 最终状态改为严格解析 `LOOP_EXIT`；缺失、非法或非零退出码均 fail closed。
+- 修复 autonomous E2E 启动和清理阶段按镜像名终止全部 `node.exe`、连带杀死 Windows Runner 的问题；现在只终止本次创建的 Vite PID 树。
+- Vite 启动固定使用 `127.0.0.1` 与 `--strictPort`，提前退出、探针悬空和清理失败均提供明确且有界的失败结果。
+- 修复无模型时需求覆盖 prompt 包被错误报告为 `PASS` 的假绿；现在统一报告 `NEED_HUMAN` 并返回非零，矛盾/未知结果和基础设施错误均 fail closed。
+- 修复像素测试或 Agent 视觉判断命令非零时被空 `catch` 吞掉、再因无 diff 文件误报通过的问题；命令错误现在进入统一裁决并返回非零。
+- 功能测试只有在至少执行一个用例且 `passed + failed === total` 时才可通过，零执行或畸形汇总均 fail closed。
+
+### 安全与质量
+- PR 运行改为只读 checkout，且仅 `autonomous-loop` 标签触发；PR 不再获得模型密钥。
+- 自动生成的报告、截图、基线候选和补丁只上传 artifacts，取消 `git add -A`、自动 commit/push 和空提交，保留人工审核基线合同。
+- 新增全量 workflow YAML 解析与 autonomous-loop 行为合同，并接入 `quality-gate`。
+- 新增受管进程生命周期合同和真实 Windows 无关 Node 哨兵回归；脚本仅在作为入口执行时运行，测试加载不再触发 E2E 副作用。
+- 报告、日志和退出码改用同一结果 evaluator；JSON 增加 `coverageStatus` 与 `exitCodes`，并新增 prompt、PASS/FAIL、错误、跳过及报告一致性回归。
+- PR 标签触发路径与 main push 保持一致，tester 包、PRD、workflow 及其合同测试变更不再绕过 autonomous-loop 检查。
+
+---
+
 ## [未发布] PostgreSQL migration 最小权限修复 (2026-07-27)
 
 ### 修复

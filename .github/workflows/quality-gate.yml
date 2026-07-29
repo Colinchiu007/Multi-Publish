@@ -44,7 +44,7 @@ jobs:
       # --- Gate 3: 硬编码密钥扫描 ---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
-          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/agent-review-gate.test.js
+          node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js
           node .github/scripts/check-hardcoded-secrets.js
 
       # --- Gate 4: 全工作区单元测试（含 Vitest 和 Node 测试）---

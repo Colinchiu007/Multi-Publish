@@ -307,11 +307,13 @@ on:
 
 Workflow: utonomous-loop.yml
 
-- **触发**：push main / PR labeled / 手动 dispatch
+- **触发**：push main / PR 添加 `autonomous-loop` 标签 / 手动 dispatch
 - **行为**：启动 dev server → 像素对比 → 功能测试 → 多文档审计 → 修复 → 重测（最多 N 轮）
-- **基线管理**：Agent 智能判断 diff 是否预期变更，自动更新 baseline
+- **基线管理**：Agent 生成 baseline 候选，CI 只上传 artifacts；人工审核 diff 后才能提交
 - **修复脚本**：生成 uto-fix-commands.bat 和 patches/*.patch 供 Agent 执行
 - **报告**：每轮输出 JSON + Markdown 报告，归档 artifacts
+- **权限**：PR 使用只读 checkout，不注入模型密钥，也不自动 commit/push
+- **进程隔离**：Vite 固定监听 `127.0.0.1` 且启用 strict port；清理仅终止当前运行创建的 PID 树
 
 `yaml
 # 手动触发
