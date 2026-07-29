@@ -5,7 +5,7 @@ const path = require('path')
 const { spawnSync } = require('child_process')
 const test = require('node:test')
 
-function startFixtureServer({ ready = true, invalidReadyJson = false, onMe } = {}) {
+function startFixtureServer({ ready = true, introspectionReady = true, invalidReadyJson = false, onMe, meRedirect } = {}) {
   const server = http.createServer((request, response) => {
     const origin = `http://127.0.0.1:${server.address().port}`
     response.setHeader('Content-Type', 'application/json')
@@ -17,8 +17,17 @@ function startFixtureServer({ ready = true, invalidReadyJson = false, onMe } = {
       response.end(JSON.stringify({ status: 'ok' }))
     } else if (request.url === '/api/v1/ready') {
       response.statusCode = ready ? 200 : 503
-      response.end(invalidReadyJson ? '{invalid' : JSON.stringify({ status: ready ? 'ready' : 'not_ready' }))
+      response.end(invalidReadyJson ? '{invalid' : JSON.stringify({
+        status: ready ? 'ready' : 'not_ready',
+        checks: introspectionReady ? { introspection: { status: 'ready' } } : {},
+      }))
     } else if (request.url === '/api/v1/me') {
+      if (meRedirect) {
+        response.statusCode = 307
+        response.setHeader('Location', meRedirect)
+        response.end('{}')
+        return
+      }
       if (onMe) onMe(request)
       response.end(JSON.stringify({ user: { id: 'fixture-user' } }))
     } else {
@@ -77,6 +86,19 @@ test('生产运维 CLI', async (t) => {
     }
   })
 
+  await t.test('ready=200 但未验证 introspection 时 smoke 仍返回 failed', async () => {
+    const { runSmokeChecks } = require('../scripts/production-smoke')
+    const server = await startFixtureServer({ introspectionReady: false })
+    const origin = `http://127.0.0.1:${server.address().port}`
+    try {
+      const result = await runSmokeChecks({ logto: origin, api: origin, timeoutMs: 1000 })
+      assert.strictEqual(result.status, 'failed')
+      assert(result.checks.some((entry) => entry.code === 'API_INTROSPECTION_NOT_READY'))
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+    }
+  })
+
   await t.test('公网 HTTP Logto/API 地址在发起请求前被拒绝', async () => {
     const { runSmokeChecks } = require('../scripts/production-smoke')
 
@@ -84,6 +106,37 @@ test('生产运维 CLI', async (t) => {
     assert(logtoResult.checks.some((entry) => entry.code === 'LOGTO_ENDPOINT_HTTPS_REQUIRED'))
     const apiResult = await runSmokeChecks({ api: 'http://api.example.com' })
     assert(apiResult.checks.some((entry) => entry.code === 'API_ENDPOINT_HTTPS_REQUIRED'))
+  })
+
+  await t.test('discovery 返回跨源 JWKS 时 smoke 必须在联网前拒绝', async () => {
+    const { runSmokeChecks } = require('../scripts/production-smoke')
+    let untrustedRequests = 0
+    const untrustedJwks = http.createServer((_request, response) => {
+      untrustedRequests += 1
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify({ keys: [{ kid: 'untrusted-key' }] }))
+    })
+    await new Promise((resolve) => untrustedJwks.listen(0, '127.0.0.1', resolve))
+
+    const discovery = http.createServer((_request, response) => {
+      const origin = `http://127.0.0.1:${discovery.address().port}`
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify({
+        issuer: `${origin}/oidc`,
+        jwks_uri: `http://127.0.0.1:${untrustedJwks.address().port}/jwks`,
+      }))
+    })
+    await new Promise((resolve) => discovery.listen(0, '127.0.0.1', resolve))
+    const origin = `http://127.0.0.1:${discovery.address().port}`
+
+    try {
+      const result = await runSmokeChecks({ logto: origin, timeoutMs: 1000 })
+      assert(result.checks.some((entry) => entry.name === 'logto.jwks' && entry.status === 'failed'))
+      assert.strictEqual(untrustedRequests, 0, '不可信 JWKS 端点不得收到任何请求')
+    } finally {
+      await new Promise((resolve) => discovery.close(resolve))
+      await new Promise((resolve) => untrustedJwks.close(resolve))
+    }
   })
 
   await t.test('非法 JSON 会失败，可选 token 会验证 /me 且输出可序列化', async () => {
@@ -109,6 +162,35 @@ test('生产运维 CLI', async (t) => {
       assert.strictEqual(requests[0]['x-device-id'], 'fixture-device-0001')
     } finally {
       await new Promise((resolve) => server.close(resolve))
+    }
+  })
+
+  await t.test('携带 Bearer Token 的 smoke 请求不得跟随重定向', async () => {
+    const { runSmokeChecks } = require('../scripts/production-smoke')
+    let redirectedRequests = 0
+    const redirectTarget = http.createServer((_request, response) => {
+      redirectedRequests += 1
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify({ user: { id: 'redirected-user' } }))
+    })
+    await new Promise((resolve) => redirectTarget.listen(0, '127.0.0.1', resolve))
+    const target = `http://127.0.0.1:${redirectTarget.address().port}/api/v1/me`
+    const source = await startFixtureServer({ meRedirect: target })
+    const origin = `http://127.0.0.1:${source.address().port}`
+
+    try {
+      const result = await runSmokeChecks({
+        logto: origin,
+        api: origin,
+        token: 'fixture-token',
+        timeoutMs: 1000,
+      })
+      assert.strictEqual(result.status, 'failed')
+      assert(result.checks.some((entry) => entry.name === 'api.me' && entry.status === 'failed'))
+      assert.strictEqual(redirectedRequests, 0)
+    } finally {
+      await new Promise((resolve) => source.close(resolve))
+      await new Promise((resolve) => redirectTarget.close(resolve))
     }
   })
 

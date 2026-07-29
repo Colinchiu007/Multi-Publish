@@ -242,8 +242,10 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
     engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._probeMediaDuration = vi.fn(async () => null)
+    const expectedAudioPaths = scenes.map(scene => fs.realpathSync.native(scene.audioPath))
     engine._concatNarrationAudio = vi.fn(async (audioPaths, output) => {
-      expect(audioPaths).toEqual(scenes.map(scene => scene.audioPath))
+      expect(audioPaths).toEqual(expectedAudioPaths)
       fs.writeFileSync(output, 'narration')
     })
     engine._validateOutput = vi.fn(async () => {})

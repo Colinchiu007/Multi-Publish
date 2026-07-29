@@ -1,3 +1,13 @@
+## [未发布] - 2026-07-25
+
+### 修复
+- 支持 Logto Opaque Access Token introspection，并保持 JWT/JWKS 验证兼容。
+- 生产 M2M 凭据、introspection readiness 与 503 错误语义改为 fail closed。
+
+### 安全与测试
+- 在发送 M2M Secret 前校验 introspection endpoint 的协议、同源性和 userinfo，拒绝鉴权及生产 smoke 请求的 HTTP 重定向，并在 production smoke 请求 JWKS 前完成同源校验。
+- 缓存仅使用 Token 指纹并合并并发 introspection；全量 runner 的 Vitest 固定串行执行。
+
 ## [1.4.0] — 2026-07-21
 
 ### 新增

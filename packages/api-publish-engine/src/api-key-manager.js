@@ -6,6 +6,32 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const lockfile = require("proper-lockfile");
+
+const WINDOWS_RENAME_RETRY_DELAYS_MS = Object.freeze([20, 40, 80, 160, 320, 640]);
+const WINDOWS_TRANSIENT_RENAME_ERRORS = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+function sleepSync(delayMs) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+}
+
+function atomicRenameSync(sourcePath, targetPath) {
+  let attempt = 0;
+  while (true) {
+    try {
+      fs.renameSync(sourcePath, targetPath);
+      return;
+    } catch (error) {
+      const retryable = process.platform === "win32"
+        && error
+        && WINDOWS_TRANSIENT_RENAME_ERRORS.has(error.code)
+        && attempt < WINDOWS_RENAME_RETRY_DELAYS_MS.length;
+      if (!retryable) throw error;
+      sleepSync(WINDOWS_RENAME_RETRY_DELAYS_MS[attempt]);
+      attempt += 1;
+    }
+  }
+}
 
 function hashKey(key) {
   return crypto.createHash("sha256").update(key).digest("hex");
@@ -21,6 +47,13 @@ function storeUnavailableError() {
   return Object.assign(new Error("API Key 存储不可用"), { code: "API_KEY_STORE_UNAVAILABLE" });
 }
 
+function writerLockedError(cause) {
+  return Object.assign(new Error("API Key 存储已由另一个服务实例占用"), {
+    code: "API_KEY_WRITER_LOCKED",
+    cause,
+  });
+}
+
 class ApiKeyManager {
   /**
    * @param {string} [keysPath]  — JSON 文件路径，默认 config/api-keys.json
@@ -30,6 +63,7 @@ class ApiKeyManager {
     this._keys = [];   // [{ key, name, scopes[], createdAt, revokedAt, lastUsed }]
     this._loaded = false;
     this._loadError = null;
+    this._releaseWriterLock = null;
   }
 
   get loaded() { return this._loaded; }
@@ -59,6 +93,34 @@ class ApiKeyManager {
     if (this._loadError) throw storeUnavailableError();
   }
 
+  async acquireWriterLock() {
+    if (this._releaseWriterLock) return;
+    const dir = path.dirname(this._keysPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    try {
+      this._releaseWriterLock = await lockfile.lock(this._keysPath, {
+        realpath: false,
+        retries: 0,
+        stale: 30000,
+        update: 10000,
+      });
+    } catch (error) {
+      if (error && error.code === "ELOCKED") throw writerLockedError(error);
+      throw error;
+    }
+  }
+
+  async releaseWriterLock() {
+    const release = this._releaseWriterLock;
+    this._releaseWriterLock = null;
+    if (!release) return;
+    try {
+      await release();
+    } catch (error) {
+      if (!error || error.code !== "ERELEASED") throw error;
+    }
+  }
+
   /** 持久化到文件（原子写：tmp + rename）— API Key 以 SHA-256 哈希存储 */
   _save() {
     this._assertStoreAvailable();
@@ -73,7 +135,7 @@ class ApiKeyManager {
     })
     const tmpPath = this._keysPath + ".tmp";
     fs.writeFileSync(tmpPath, JSON.stringify(hashed, null, 2), "utf-8");
-    fs.renameSync(tmpPath, this._keysPath);
+    atomicRenameSync(tmpPath, this._keysPath);
   }
 
   /** 生成随机 API Key */

@@ -1,14 +1,14 @@
 {
   "meta": {
-    "generatedAt": "2026-07-23T05:25:26.733Z",
-    "vite": "http://127.0.0.1:5174",
+    "generatedAt": "2026-07-25T13:14:18.610Z",
+    "vite": "http://127.0.0.1:5188",
     "spec": "前端全量功能 E2E 测试 (task-29a)",
     "version": "1.0.0",
     "phase": "Phase 0-4 全部完成"
   },
   "summary": {
-    "totalChecks": 275,
-    "totalPassed": 275,
+    "totalChecks": 270,
+    "totalPassed": 270,
     "totalFailed": 0,
     "totalConsoleErrors": 0,
     "totalPageErrors": 0,
@@ -131,16 +131,16 @@
         "title": "账号管理",
         "status": "✅ PASS",
         "checks": {
-          "total": 19,
-          "passed": 19,
+          "total": 14,
+          "passed": 14,
           "failed": 0
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 17,
-            "passed": 17
+            "total": 12,
+            "passed": 12
           },
           "expectNoConsoleError": {
             "total": 1,
@@ -505,8 +505,8 @@
       }
     ],
     "totals": {
-      "totalChecks": 231,
-      "totalPassed": 231,
+      "totalChecks": 226,
+      "totalPassed": 226,
       "totalFailed": 0,
       "totalConsoleErrors": 0,
       "totalPageErrors": 0,
@@ -525,7 +525,8 @@
           "passed": 12,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       },
       {
         "key": "flow-2",
@@ -536,7 +537,8 @@
           "passed": 8,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       },
       {
         "key": "flow-3",
@@ -547,7 +549,8 @@
           "passed": 7,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       },
       {
         "key": "flow-4",
@@ -558,7 +561,8 @@
           "passed": 6,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       },
       {
         "key": "flow-5",
@@ -569,7 +573,8 @@
           "passed": 6,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       },
       {
         "key": "flow-6",
@@ -580,20 +585,22 @@
           "passed": 5,
           "failed": 0
         },
-        "consoleErrors": 0
+        "consoleErrors": 0,
+        "pageErrors": 0
       }
     ],
     "totals": {
       "totalChecks": 44,
       "totalPassed": 44,
       "totalFailed": 0,
-      "totalConsoleErrors": 0
+      "totalConsoleErrors": 0,
+      "totalPageErrors": 0
     }
   },
   "issues": [],
   "totals": {
-    "totalChecks": 275,
-    "totalPassed": 275,
+    "totalChecks": 270,
+    "totalPassed": 270,
     "totalFailed": 0,
     "totalConsoleErrors": 0,
     "totalPageErrors": 0

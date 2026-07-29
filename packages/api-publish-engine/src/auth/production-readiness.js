@@ -6,6 +6,7 @@ function stableCode(error, fallback) {
 function createProductionReadinessProbe(options = {}) {
   const repository = options.repository
   const verifier = options.verifier
+  const requireIntrospection = options.requireIntrospection !== false
   const clockMs = typeof options.clockMs === 'function' ? options.clockMs : Date.now
   const cacheTtlMs = Number.isFinite(options.cacheTtlMs) && options.cacheTtlMs > 0 ? options.cacheTtlMs : 1000
   let cached = null
@@ -39,10 +40,19 @@ function createProductionReadinessProbe(options = {}) {
         status: 'ready',
         ...(Number.isInteger(value.signingKeys) ? { signingKeys: value.signingKeys } : {}),
       }
+      if (value.introspection === 'ready') {
+        checks.introspection = { status: 'ready' }
+      } else if (requireIntrospection) {
+        checks.introspection = {
+          status: 'failed',
+          code: 'AUTH_INTROSPECTION_READINESS_UNAVAILABLE',
+        }
+      }
     } else {
       const code = stableCode(oidcResult.reason, 'OIDC_UNAVAILABLE')
       checks.oidc = { status: 'failed', code }
       checks.jwks = { status: 'failed', code }
+      if (requireIntrospection) checks.introspection = { status: 'failed', code }
     }
 
     const finishedAt = clockMs()

@@ -4,20 +4,29 @@
 const ApiKeyManager = require("../src/api-key-manager");
 const crypto = require("crypto");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
-const TEST_KEYS_PATH = path.join(__dirname, ".test-api-keys.json");
+const TEST_KEYS_PATH = path.join(
+  os.tmpdir(),
+  `multi-publish-api-keys-${process.pid}-${crypto.randomUUID()}.json`,
+);
+
+function removeTestStore() {
+  for (const candidate of [TEST_KEYS_PATH, `${TEST_KEYS_PATH}.tmp`]) {
+    if (fs.existsSync(candidate)) fs.unlinkSync(candidate);
+  }
+}
 
 function setup() {
-  // Clean up before each test
-  if (fs.existsSync(TEST_KEYS_PATH)) fs.unlinkSync(TEST_KEYS_PATH);
+  removeTestStore();
   const mgr = new ApiKeyManager(TEST_KEYS_PATH);
   mgr.load();
   return mgr;
 }
 
 function teardown() {
-  if (fs.existsSync(TEST_KEYS_PATH)) fs.unlinkSync(TEST_KEYS_PATH);
+  removeTestStore();
 }
 
 // --- Tests ---

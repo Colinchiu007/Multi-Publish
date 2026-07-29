@@ -21,6 +21,7 @@ const net = require('net')
 const https = require('https')
 const { promisify } = require('util')
 const { spawn } = require('child_process')
+const { findFfmpeg } = require('./media-tool-paths')
 
 const execFileAsync = promisify(execFile)
 const MAX_PROVIDER_IMAGE_BYTES = 25 * 1024 * 1024
@@ -43,20 +44,6 @@ const IMAGE_PROVIDER_ALIASES = Object.freeze({
 const UNSUPPORTED_STORY2VIDEO_IMAGE_PROVIDERS = Object.freeze({
   comfyui: 'requires a workflow template and asynchronous result polling',
 })
-
-function findFfmpeg () {
-  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) return process.env.FFMPEG_PATH
-  try {
-    require('child_process').execSync('ffmpeg -version', { stdio: 'ignore' })
-    return 'ffmpeg'
-  } catch {
-    const programFilesPath = process.platform === 'win32'
-      ? path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'ffmpeg', 'bin', 'ffmpeg.exe')
-      : null
-    if (programFilesPath && fs.existsSync(programFilesPath)) return programFilesPath
-  }
-  return null
-}
 
 const FFMPEG = findFfmpeg()
 

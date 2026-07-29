@@ -3,6 +3,7 @@
  * Tests: preset lookup, cover size parsing, process flow
  */
 const { getPreset, parseCoverSize, processCover } = require('../src/cover-processor')
+const os = require('os')
 const path = require('path')
 const fs = require('fs')
 
@@ -41,8 +42,7 @@ describe('CoverProcessor', () => {
 
   test('processCover with real image', async () => {
     // Create a test image using sharp
-    const testDir = path.join(__dirname, '.test-covers')
-    fs.mkdirSync(testDir, { recursive: true })
+    const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-cover-'))
     const testFile = path.join(testDir, 'test.jpg')
 
     try {

@@ -5,10 +5,11 @@
 
 ## 1. 发布前
 
-1. 在 Secret Store 配置 `deploy/logto/.env.example` 和 `api.env.example` 对应变量，不创建带真实值的仓库文件。
+1. 在 Secret Store 配置 `deploy/logto/.env.example` 和 `api.env.example` 对应变量，不创建带真实值的仓库文件。必须先在 Logto Admin Console 创建供业务 API 使用的 M2M Application，并把 `LOGTO_CLIENT_ID`、`LOGTO_CLIENT_SECRET` 同时写入 Secret Store；任一缺失都禁止启动生产 API。
 2. 确认 Logto DB 与业务 DB 的主机/数据库组合不同。
 3. 生成 2048 位以上 RSA entitlement 私钥，私钥仅进入业务 API Secret Store。
-4. 在 ECS 部署宿主机先检查根盘；可用空间少于 `5 GiB` 或少于总容量的 `10%` 时停止发布、镜像拉取、备份和迁移，先由运维人员确认可再生日志的保留期后清理。禁止把 `docker system prune`、Docker 卷删除或项目目录删除当作自动恢复手段：
+4. 将 `API_KEYS_PATH` 指向 UID `1001` 可写的持久卷（Compose 默认 `/app/packages/api-publish-engine/config/api-keys.json`），并确认该持久卷只有一个 `publish-api` writer。第二 writer 返回 `API_KEY_WRITER_LOCKED` 时必须停止扩容或重复启动，不能删除锁目录或放宽门禁；横向扩容前迁移到具备事务或 CAS 的共享存储。
+5. 在 ECS 部署宿主机先检查根盘；可用空间少于 `5 GiB` 或少于总容量的 `10%` 时停止发布、镜像拉取、备份和迁移，先由运维人员确认可再生日志的保留期后清理。禁止把 `docker system prune`、Docker 卷删除或项目目录删除当作自动恢复手段：
 
 ```text
 df -Pk / | awk 'NR == 2 {
@@ -19,7 +20,7 @@ df -Pk / | awk 'NR == 2 {
 }'
 ```
 
-5. shadow 阶段运行：
+6. shadow 阶段运行：
 
 ```text
 node packages/api-publish-engine/scripts/validate-production-config.js --phase shadow
@@ -59,6 +60,16 @@ docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env u
 docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env ps
 ```
 
+基础 Compose 固定官方 `svhd/logto:1.41.0`，也是 Webhook 补丁的回滚路径。启用哈希绑定的 Webhook POST 重试派生镜像时，先通过第 1 节磁盘门禁，再执行：
+
+```text
+docker compose -f deploy/logto/docker-compose.yml -f deploy/logto/docker-compose.webhook-retry.yml --env-file deploy/logto/.env build --no-cache logto
+docker compose -f deploy/logto/docker-compose.yml -f deploy/logto/docker-compose.webhook-retry.yml --env-file deploy/logto/.env up -d --no-deps --force-recreate logto
+docker compose -f deploy/logto/docker-compose.yml -f deploy/logto/docker-compose.webhook-retry.yml --env-file deploy/logto/.env ps
+```
+
+派生 Dockerfile 必须绑定 ECS 已验收的基础镜像 manifest digest，白名单式 `.dockerignore` 必须确保生产 `.env` 和其他运维文件不进入 build context。补丁脚本只允许由 Dockerfile 的单个 `RUN` 在隔离构建层中执行，不是在线热补丁工具；禁止通过 `docker exec` 修改运行中容器或并发修改同一运行时目录。补丁或恢复失败必须让 build 非零退出并丢弃该层。构建日志还必须记录运行时文件的补丁前后 SHA-256；目标文件缺失、重复、哈希漂移或上游已包含修复时构建必须失败。切换后检查 OIDC discovery、Logto health、业务 API `/ready` 和 production smoke。随后创建独立 signing key 的临时 Hook 与精确 Nginx 探针路径：接收端前两次返回 503、第三次返回 204，三次请求均须通过 HMAC 校验；只记录 UTC 时间、次数和签名有效性，不记录 payload 或用户资料。Ky 1.2.3 的 `TimeoutError` 不会重试，不能用超时场景替代该探针。验收后立即删除临时 Hook、测试用户、Nginx location、接收进程和日志，主业务 Hook 不变。
+
 本机裸进程诊断与生产 Compose 是两条互斥路径，不要同时启动。选择裸进程诊断时，API 默认监听 `3000`：
 
 ```text
@@ -79,13 +90,13 @@ node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.
 
 该 Compose 的 `./config`、`./data` 和 `./data/plugins` 必须由上面的命令预先创建，并授权给容器 UID/GID `1001`。Compose 使用 `create_host_path: false`，目录缺失时会 fail closed，而不是让 Docker 自动创建 root-owned bind source。`config` 挂载到 `/app/packages/api-publish-engine/config`，与 `ApiKeyManager` 和默认配置文件路径一致；不要改回 `/app/config`。业务 API 同时加入 `LOGTO_COMPOSE_NETWORK` 指定的外部网络；基础 `deploy/logto/docker-compose.yml` 的项目名固定为 `multi-publish-logto`，因此默认网络名是 `multi-publish-logto_default`。当 `BUSINESS_DATABASE_URL` 使用 `postgres` 服务名时，这个网络连接不可省略；自定义基础项目名时必须同步覆盖该变量。监控 overlay 也不能单独启动，必须和基础 Logto Compose 一起传给 `docker compose -f`。
 
-`/api/v1/health` 只表示进程存活；只有 `/api/v1/ready` 返回 200 才能把实例加入负载均衡。
+`/api/v1/health` 只表示进程存活；只有 `/api/v1/ready` 返回 200，且响应中的 `checks.introspection.status` 为 `ready`，才能把实例加入负载均衡。该检查会向 discovery 声明的同源 HTTPS introspection endpoint 发送随机无效 token；只有 M2M 凭据有效且响应为 `active:false` 才通过。`production-smoke.js` 会拒绝缺少该检查的旧镜像。
 
 ### 桌面端发行配置
 
 桌面包使用 `config/identity-public.json` 作为公开身份配置，并在打包后从 `resources/config/identity-public.json` 加载。该文件只能包含 Logto endpoint、Native Application ID、resource、业务 API URL、回环 callback、scope、entitlement key id 和 RSA 公钥；加载器拒绝未知字段、任何私钥字段和无效 RSA 公钥。构建前执行 `node apps/desktop/check-integrity.js`，它会解析并校验源配置；随后在 Windows 目录包中确认同一文件位于 `resources/config/` 且内容一致。
 
-发行配置存在时，`identityAuthEnabled` 只能由 `identity-public.json` 声明，`IDENTITY_AUTH_ENABLED` 不会覆盖它；`IDENTITY_AUTH_REQUIRED` 和其余公开字段才允许由受控进程环境覆盖，合并后仍会拒绝 `enabled=false`、`required=true` 等矛盾开关。没有发行配置的旧式开发环境继续兼容环境变量启用开关。Shadow 阶段桌面端保持 `IDENTITY_AUTH_ENABLED=true`、`IDENTITY_AUTH_REQUIRED=false`，业务 API 也保持 `IDENTITY_AUTH_REQUIRED=false`；这只允许观测真实身份链路，不放松服务端 Bearer 验证。配置读取或校验失败一律阻止桌面端启动，Shadow 仅允许临时非配置初始化失败降级。`BUSINESS_API_URL=https://auth.iart.work` 是业务 API 的公开反代基址（`/api/`），而 `LOGTO_API_RESOURCE=https://api.multi-publish.com` 是 Token audience。进入 Required 前必须先完成真实登录、刷新、退出、账号切换和带 Bearer Token 的 `/api/v1/me` 验收。entitlement key 轮换需要先验证服务端私钥，再更新公开 JSON 的 key id/公钥并重发桌面安装包。
+发行配置存在时，`identityAuthEnabled` 只能由 `identity-public.json` 声明，`IDENTITY_AUTH_ENABLED` 不会覆盖它；`IDENTITY_AUTH_REQUIRED` 和其余公开字段才允许由受控进程环境覆盖，合并后仍会拒绝 `enabled=false`、`required=true` 等矛盾开关。没有发行配置的旧式开发环境继续兼容环境变量启用开关。Shadow 阶段桌面端保持 `IDENTITY_AUTH_ENABLED=true`、`IDENTITY_AUTH_REQUIRED=false`，业务 API 也保持 `IDENTITY_AUTH_REQUIRED=false`；这只允许观测真实身份链路，不放松服务端 Bearer 验证。配置读取或校验失败一律阻止桌面端启动，Shadow 仅允许临时非配置初始化失败降级。`BUSINESS_API_URL=https://auth.iart.work` 是业务 API 的公开反代基址（`/api/`），而 `LOGTO_API_RESOURCE=https://api.multi-publish.com` 是 Token audience。进入 Required 前必须先完成真实登录、refresh token 轮换、退出、真正 A→B 账号切换和带 Bearer Token 的 `/api/v1/me` 验收；同账号重新认证不能替代 A→B 主体隔离。entitlement key 轮换需要先验证服务端私钥，再更新公开 JSON 的 key id/公钥并重发桌面安装包。
 
 ## 4. 灰度
 
@@ -95,9 +106,12 @@ node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.
 IDENTITY_AUTH_ENABLED=true
 IDENTITY_AUTH_REQUIRED=false
 BUSINESS_DATABASE_AUTO_MIGRATE=false
+API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
+LOGTO_CLIENT_ID=<Logto M2M application id>
+LOGTO_CLIENT_SECRET=<Logto M2M application secret>
 ```
 
-确认真实登录、刷新、退出、账号切换、Webhook 和云端发布后，观察至少一个完整业务高峰。API ready、OIDC discovery、401/403、Webhook 失败和额度拒绝均在预期范围内才进入 required。
+确认真实登录、refresh token 轮换、退出、真正 A→B 账号切换、Webhook 和云端发布后，观察至少一个完整业务高峰。API ready、OIDC discovery、introspection readiness、401/403/503、Webhook 失败和额度拒绝均在预期范围内才进入 required；身份依赖故障不得通过 API Key 回退掩盖。
 
 ### Required
 
@@ -105,13 +119,14 @@ BUSINESS_DATABASE_AUTO_MIGRATE=false
 IDENTITY_AUTH_ENABLED=true
 IDENTITY_AUTH_REQUIRED=true
 BUSINESS_DATABASE_AUTO_MIGRATE=false
+API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
 ```
 
 切换前运行 `validate-production-config.js --phase required`。旧 API Key 立即撤销；已排期任务会在执行前重新验证 owner。
 
 ## 5. 回滚
 
-回滚只改变认证流量，不回滚或删除 schema：
+身份灰度回滚只改变认证流量，不回滚或删除 schema：
 
 1. 设置 `IDENTITY_AUTH_REQUIRED=false`，保持 `IDENTITY_AUTH_ENABLED=true`。
 2. 运行 `validate-production-config.js --phase rollback`。
@@ -120,6 +135,14 @@ BUSINESS_DATABASE_AUTO_MIGRATE=false
 5. 重新运行 `/health`、`/ready` 和 production smoke。
 
 禁止重新启用共享 `JWT_SECRET`，禁止删除 `auth_subject`、Webhook 事件或 `identity_schema_migrations`。
+
+Webhook 派生镜像异常时，从仓库根目录只加载基础 Compose，强制重建 Logto 服务即可回到官方镜像；不要停止 PostgreSQL、不要使用 `down -v`：
+
+```text
+docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env up -d --no-deps --force-recreate logto
+```
+
+回滚后重新验证 OIDC discovery、容器 health、业务 API `/ready` 与 production smoke，并保留派生镜像和失败日志到审查完成；不得先删除证据。
 
 ## 6. 恢复演练
 
@@ -169,4 +192,6 @@ Prometheus 仅绑定 `127.0.0.1:9090`。生产环境通过受控运维通道访�
 
 ## 8. 外部验收状态
 
-没有真实 Logto 租户、真实 PostgreSQL 和云发布环境时，以下状态保持 `PENDING_EXTERNAL`：登录/刷新/退出/切换、真实 migration/恢复、并发压力、真实 Webhook 重试及云端发布撤销。仓库测试通过不能替代这些证据。
+2026-07-28 已使用真实 Logto、PostgreSQL 与最终 Windows 包证明登录、`free` entitlement、同 profile 恢复、同账号重新认证和退出；专用测试主体已安全回收。2026-07-29 已部署哈希绑定的 Logto 派生镜像，真实临时 Hook 收到三次 HMAC 有效 POST 并依次返回 `503 -> 503 -> 204`，主业务 Hook 同时完成 `User.Created` 与 `User.Deleted` 投递，验收后临时 Hook、用户、权限关系、Nginx 路径、监听进程和脚本均已清理。
+
+以下状态仍保持 `PENDING_EXTERNAL`：Ky `TimeoutError` 重试或替代补偿、refresh token 轮换、真正 A→B 主体隔离、主 Hook 更新/暂停与生产真实乱序、最新业务 API 镜像部署后的 migration/readiness/smoke、恢复演练、并发压力及云端发布撤销。`IDENTITY_AUTH_REQUIRED=false` 保持不变；仓库测试、同账号 UAT 或本次 HTTP 503 探针都不能替代这些证据。

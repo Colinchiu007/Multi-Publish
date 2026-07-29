@@ -1,7 +1,7 @@
 # PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
 > **版本**: v1.5
-> **日期**: 2026-07-26
+> **日期**: 2026-07-27
 > **状态**: 实现基线已更新（持续迭代）
 > **产品定位**: 将 OpenMontage 的视频生成能力集成到 Multi-Publish 桌面客户端，实现"创作→渲染→发布"完整闭环  
 > **目标用户**: 自媒体创作者、内容运营、企业内容团队  
@@ -50,8 +50,8 @@ Multi-Publish 现有系统（发布侧）
 
 | 能力 | 当前状态 | 说明 |
 |------|----------|------|
-| 文案分句 | 已接入 | 通过 smart-sentence-splitter；服务不可用时必须显示失败 |
-| 提示词优化 | 已接入并完成本地真实服务验收 | 通过 prompt-engine 批量优化，平台/风格枚举和数值范围与其 Pydantic 合同一致；结果数量不一致会阻断 |
+| 文案分句 | 已接入（外部 sidecar） | Multi-Publish 通过 `SplitterBridge` 调用 `smart-sentence-splitter`；服务不可用时必须显示失败 |
+| 提示词优化 | 已接入（外部 sidecar；本地真实服务已验收） | Multi-Publish 通过 `PromptBridge` 调用 `prompt-engine` 批量优化；平台/风格枚举和数值范围与其 Pydantic 合同一致，结果数量不一致会阻断 |
 | 历史领域增强 | 已接入 | `contentType=history` 自动识别时代/朝代并生成 `imagePromptSeed` |
 | Story2Video 标准模式 | 已接入 | `story2video-compose` 只接受文案；图片、音频、视频素材模式不再属于该流水线 |
 | TTS | 已接入 | text 标准模式通过已配置 TTS adapter 生成逐段旁白；edge-tts 优先，ffmpeg 静音音频作为离线降级。结果页仍可替换单段旁白，但上传音频不是该模式的创作输入。音色克隆仍未实现，真实外部服务需单独验收 |
@@ -73,6 +73,49 @@ Multi-Publish 现有系统（发布侧）
 未运行时应明确阻断对应阶段。2026-07-26 已在开发环境通过真实 `PipelineEngine` 六阶段 E2E，
 但安装包内 sidecar/依赖仍需目标环境验收。真实多平台发布还需要已配置账号、凭据和
 `PublisherRouter`，本地合成测试不等于发布验收。
+
+### 1.5 语义服务维护与交付边界（已确认）
+
+分句引擎和生图提示词优化引擎是与 Multi-Publish 并行维护的两个独立 Python 项目，
+不是当前 Multi-Publish npm workspace 内的源码包：
+
+| 项目 | 权威源码与算法 | Multi-Publish 侧责任 | 本地 REST 合同 |
+|------|----------------|---------------------|----------------|
+| `smart-sentence-splitter` | `D:\Data\projects\smart-sentence-splitter` | 进程生命周期、目录/端口配置、健康检查、错误边界、阶段编排 | `python -m splitter.api.rest_api`；`GET /health`；`POST /v1/split`；默认 `127.0.0.1:8002` |
+| `prompt-engine` | `D:\Data\projects\prompt-engine` | 进程生命周期、目录/端口配置、请求字段映射、批量结果数量校验、错误边界、阶段编排 | `python -m prompt_engine.api`；`GET /health`；`POST /v1/optimize`、`POST /v1/optimize/batch`；默认 `127.0.0.1:8013` |
+
+实际调用链为：
+
+```text
+StageExecutor
+  -> ServiceBus
+  -> SplitterBridge / PromptBridge
+  -> 本地 Python sidecar REST API
+```
+
+`apps/desktop/electron/services/splitter-bridge.js` 和 `prompt-bridge.js` 使用
+`SPLITTER_DIR`、`PROMPT_DIR` 指定两个独立项目根目录；未设置时回退到当前工作目录，
+因此开发、部署和打包环境必须显式提供正确的目录与 Python 依赖。Bridge 支持
+`start()` 启动子进程，也支持 `attach()` 连接已经运行的服务；当前 Electron 正常启动流程
+默认调用 `start()`，外部服务模式必须由启动编排明确采用 attach 策略，不能仅因端口存在就
+推断两个实现已经被应用内置。
+
+Multi-Publish 中的 `packages/story2video-engine/src/text-segmentation.ts` 是独立的
+TypeScript 文本/场景/字幕切分工具，`history-prompt.ts` 是本地领域增强和 `promptSeed`
+生成逻辑。它们不替代 `story2video-compose` 标准模式中的 8002/8013 主链；修改这些本地
+工具不会自动修改两个 Python sidecar 的算法行为。
+
+当前 Electron 安装包的 `files`/`extraResources` 只包含应用代码、配置、Playwright 和
+Remotion 资源，不包含上述两个项目源码、Python 运行时或其依赖。因此 8002/8013 当前仍是
+独立运行时边界；不能把本地 Bridge 能够 `spawn` 理解为安装包已经完成 sidecar 分发。干净
+Windows 安装环境中的 Python、依赖、服务启动和真实接口验收必须单独记录。
+
+**维护决策规则：**
+
+1. 只调整分句算法、分句模型或 prompt 优化策略、模板、Provider 时，在对应独立 Python 仓库修改、测试、提交和推送。
+2. 调整 Electron 启停、端口、超时、错误提示、阶段顺序、UI、参数归一化或结果适配时，在 Multi-Publish 修改。
+3. 修改 REST 路径、请求/响应字段、枚举、默认值、错误码或批量结果语义时，必须同时修改两个仓库，并用真实 8002/8013 服务做跨仓库回归。
+4. 发布前必须分别确认独立仓库的 commit/分支和 Multi-Publish 的适配 commit；禁止只更新一侧后宣称接口已完成。
 
 ---
 

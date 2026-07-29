@@ -1,0 +1,672 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>汤姆鱼 — AI 内容工作站</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --primary: #17171c; --black: #000; --ink: #212121; --white: #fff; --canvas: #fff;
+  --soft-stone: #eeece7; --pale-green: #edfce9; --pale-blue: #f1f5ff;
+  --dark-navy: #071829; --deep-green: #003c33; --hairline: #d9d9dd;
+  --border-light: #e5e7eb; --card-border: #f2f2f2; --muted: #93939f;
+  --slate: #75758a; --body-muted: #616161; --coral: #ff7759; --coral-soft: #ffad9b;
+  --action-blue: #1863dc; --focus-blue: #4c6ee6; --form-focus: #9b60aa;
+  --r-lg: 22px; --r-pill: 9999px;
+  --content-max-width: 1280px; --nav-height: 72px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { font-family: 'Inter', Arial, sans-serif; font-size: 16px; line-height: 1.6; color: var(--ink); background: var(--canvas); }
+.display-font { font-family: 'Space Grotesk', Inter, sans-serif; }
+.container { width: 100%; max-width: var(--content-max-width); margin: 0 auto; padding: 0 48px; }
+@media (max-width: 1024px) { .container { padding: 0 24px; } }
+@media (max-width: 640px) { .container { padding: 0 16px; } }
+
+.top-nav { position: fixed; top: 0; left: 0; right: 0; height: var(--nav-height); background: rgba(255,255,255,0.95); backdrop-filter: blur(12px); border-bottom: 1px solid transparent; z-index: 1000; transition: border-color 0.3s ease, box-shadow 0.3s ease; }
+.top-nav.scrolled { border-bottom-color: var(--hairline); }
+.nav-inner { height: 100%; display: flex; align-items: center; justify-content: space-between; }
+.nav-brand { display: flex; align-items: center; gap: 8px; font-family: 'Space Grotesk', Inter, sans-serif; font-size: 20px; font-weight: 500; color: var(--primary); text-decoration: none; letter-spacing: -0.5px; }
+.brand-dot { width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--coral); }
+.nav-links { display: flex; align-items: center; gap: 6px; }
+.nav-link { font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500; color: var(--body-muted); text-decoration: none; padding: 8px 12px; border-radius: 8px; transition: all 0.2s ease; }
+.nav-link:hover { color: var(--primary); background: var(--soft-stone); }
+.nav-actions { display: flex; align-items: center; gap: 16px; }
+.nav-cta { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 24px; background: var(--primary); color: var(--white); font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500; border-radius: var(--r-pill); text-decoration: none; transition: all 0.25s ease; }
+.nav-cta:hover { background: var(--black); transform: translateY(-1px); }
+.mobile-menu-btn { display: none; background: none; border: none; cursor: pointer; padding: 8px; }
+.mobile-menu-btn span { display: block; width: 24px; height: 2px; background: var(--primary); margin: 5px 0; }
+@media (max-width: 1024px) { .nav-links, .nav-actions { display: none; } .mobile-menu-btn { display: block; } }
+.mobile-menu { display: none; position: fixed; top: var(--nav-height); left: 0; right: 0; bottom: 0; background: var(--canvas); z-index: 999; flex-direction: column; padding: 24px; gap: 6px; }
+.mobile-menu.open { display: flex; }
+.mobile-menu .nav-link { font-size: 24px; padding: 12px 0; }
+.mobile-menu .nav-cta { margin-top: 24px; height: 56px; font-size: 16px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: 'Inter', sans-serif; font-weight: 500; border: none; cursor: pointer; text-decoration: none; transition: all 0.25s ease; }
+.btn-primary { height: 52px; padding: 0 32px; background: var(--primary); color: var(--white); font-size: 15px; border-radius: var(--r-pill); }
+.btn-primary:hover { background: var(--black); transform: translateY(-1px); }
+.btn-secondary { height: 52px; padding: 0 24px; background: transparent; color: var(--primary); font-size: 15px; border-radius: var(--r-pill); border: 1.5px solid var(--primary); }
+.btn-secondary:hover { background: var(--primary); color: var(--white); }
+.btn-coral { height: 52px; padding: 0 32px; background: var(--coral); color: var(--primary); font-size: 15px; border-radius: var(--r-pill); }
+.btn-coral:hover { background: var(--coral-soft); transform: translateY(-1px); }
+.link-arrow { display: inline-flex; align-items: center; gap: 6px; color: var(--action-blue); font-size: 15px; font-weight: 500; text-decoration: none; }
+.link-arrow:hover { color: var(--primary); }
+.link-arrow .arrow { transition: transform 0.2s ease; }
+.link-arrow:hover .arrow { transform: translateX(4px); }
+
+.section-label { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; color: var(--body-muted); margin-bottom: 16px; }
+.section-label .dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--coral); }
+.hero-title { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 64px; line-height: 1.05; font-weight: 500; letter-spacing: -0.03em; color: var(--primary); }
+.section-title { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 40px; line-height: 1.15; font-weight: 500; letter-spacing: -0.02em; color: var(--primary); }
+.section-subtitle { font-size: 18px; line-height: 1.6; color: var(--body-muted); margin-top: 16px; }
+.badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--soft-stone); border-radius: var(--r-pill); font-size: 13px; font-weight: 500; color: var(--body-muted); }
+.badge-coral { background: rgba(255,119,89,0.12); color: var(--coral); }
+.fade-in-up { opacity: 0; transform: translateY(24px); transition: opacity 0.6s ease, transform 0.6s ease; }
+.fade-in-up.visible { opacity: 1; transform: translateY(0); }
+@media (max-width: 1024px) { .hero-title { font-size: 48px; } .section-title { font-size: 32px; } }
+@media (max-width: 640px) { .hero-title { font-size: 40px; } .section-title { font-size: 28px; } }
+
+.hero { position: relative; min-height: auto; padding-top: calc(var(--nav-height) + 96px); padding-bottom: 96px; background: radial-gradient(ellipse 80% 60% at 70% 20%, rgba(255,119,89,0.08) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 20% 80%, rgba(24,99,220,0.06) 0%, transparent 60%), var(--canvas); overflow: hidden; }
+.hero-grid { display: grid; grid-template-columns: 1fr 1.1fr; gap: 96px; align-items: center; }
+.hero-content { max-width: 620px; }
+.hero-badge { margin-bottom: 24px; }
+.hero-title { margin-bottom: 24px; }
+.hero-desc { font-size: 18px; line-height: 1.6; color: var(--body-muted); margin-bottom: 32px; }
+.hero-ctas { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+.hero-trust { display: flex; align-items: center; gap: 24px; font-size: 14px; color: var(--slate); flex-wrap: wrap; }
+.hero-visual { position: relative; border-radius: var(--r-lg); overflow: hidden; background: var(--white); border: 1px solid var(--card-border); box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+.carousel { position: relative; width: 100%; aspect-ratio: 4/3; }
+.carousel-track { position: relative; width: 100%; height: 100%; }
+.carousel-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 0.8s ease; z-index: 0; }
+.carousel-slide.active { opacity: 1; z-index: 1; }
+.carousel-slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.carousel-btn { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; border: none; background: rgba(255,255,255,0.9); color: var(--primary); font-size: 22px; font-weight: 300; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.carousel-btn:hover { background: var(--white); transform: translateY(-50%) scale(1.05); }
+.carousel-btn.prev { left: 16px; }
+.carousel-btn.next { right: 16px; }
+.carousel-dots { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 2; }
+.carousel-dots .dot { width: 8px; height: 8px; border-radius: 50%; border: none; background: rgba(0,0,0,0.25); cursor: pointer; transition: all 0.2s ease; }
+.carousel-dots .dot.active { background: var(--coral); width: 24px; border-radius: 9999px; }
+@media (max-width: 1024px) { .hero { padding-top: calc(var(--nav-height) + 48px); padding-bottom: 64px; } .hero-grid { grid-template-columns: 1fr; gap: 48px; } .hero-visual { order: -1; width: min(100%, 640px); margin: 0 auto; } .carousel-btn { width: 36px; height: 36px; font-size: 18px; } }
+@media (max-width: 640px) { .hero { padding-top: calc(var(--nav-height) + 24px); padding-bottom: 40px; } .hero-grid { gap: 28px; } .carousel { aspect-ratio: 16/10; } .hero-badge { margin-bottom: 12px; } .hero-title { font-size: 36px; margin-bottom: 16px; } .hero-desc { font-size: 16px; line-height: 1.5; margin-bottom: 20px; } .hero-ctas { margin-bottom: 16px; } .hero-trust { gap: 12px; } }
+
+.logo-wall { padding: 64px 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); overflow: hidden; }
+.logo-wall-label { text-align: center; font-size: 14px; color: var(--slate); margin-bottom: 24px; }
+.marquee { display: flex; gap: 24px; animation: marquee 30s linear infinite; width: max-content; }
+@keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+.logo-card { display: flex; align-items: center; justify-content: center; height: 72px; padding: 0 32px; background: var(--white); border: 1px solid var(--card-border); border-radius: 16px; font-size: 14px; font-weight: 500; color: var(--slate); min-width: 140px; white-space: nowrap; }
+
+.section { padding: 160px 0; }
+@media (max-width: 640px) { .section { padding: 80px 0; } }
+.section-header { max-width: 720px; margin-bottom: 64px; }
+.section-header.center { text-align: center; margin-left: auto; margin-right: auto; }
+.pain-points { background: var(--soft-stone); }
+.pain-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.pain-card { background: var(--white); border-radius: var(--r-lg); padding: 32px; border: 1px solid var(--card-border); }
+.pain-icon { font-size: 28px; margin-bottom: 12px; }
+.pain-card h3 { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 500; margin-bottom: 8px; }
+.pain-card p { font-size: 15px; color: var(--body-muted); line-height: 1.5; }
+@media (max-width: 1024px) { .pain-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .pain-grid { grid-template-columns: 1fr; } }
+
+.features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.feature-card { background: var(--white); border: 1px solid var(--card-border); border-radius: var(--r-lg); padding: 32px; transition: all 0.3s ease; }
+.feature-card:hover { background: var(--soft-stone); transform: translateY(-4px); border-color: var(--soft-stone); }
+.feature-icon { width: 48px; height: 48px; border-radius: 16px; background: var(--soft-stone); display: flex; align-items: center; justify-content: center; font-size: 22px; margin-bottom: 16px; }
+.feature-card h3 { font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 500; margin-bottom: 8px; }
+.feature-card p { font-size: 15px; color: var(--body-muted); line-height: 1.5; margin-bottom: 16px; }
+@media (max-width: 1024px) { .features-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .features-grid { grid-template-columns: 1fr; } }
+
+.ai-section { background: var(--pale-blue); }
+.ai-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+.ai-card { background: var(--white); border-radius: var(--r-lg); padding: 32px; border: 1px solid var(--card-border); }
+.ai-card h3 { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 500; margin-bottom: 16px; }
+.ai-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-tag { padding: 6px 12px; background: var(--pale-blue); border-radius: var(--r-pill); font-size: 13px; color: var(--body-muted); }
+.ai-note { margin-top: 32px; text-align: center; font-size: 15px; color: var(--slate); }
+@media (max-width: 640px) { .ai-grid { grid-template-columns: 1fr; } }
+
+.video-card { background: var(--white); border: 1px solid var(--card-border); border-radius: var(--r-lg); overflow: hidden; }
+.video-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 32px; }
+.video-item { background: var(--soft-stone); border-radius: 16px; padding: 24px; text-align: center; }
+.video-item-icon { font-size: 28px; margin-bottom: 8px; }
+.video-item h4 { font-size: 15px; font-weight: 500; margin-bottom: 4px; }
+.video-item p { font-size: 13px; color: var(--slate); }
+@media (max-width: 1024px) { .video-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .video-grid { grid-template-columns: 1fr; } }
+
+.security-section { background: linear-gradient(135deg, var(--deep-green) 0%, var(--dark-navy) 100%); color: var(--white); }
+.security-section .section-title, .security-section .section-subtitle { color: var(--white); }
+.security-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.security-card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--r-lg); padding: 32px; }
+.security-card h3 { font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 500; margin-bottom: 8px; }
+.security-card p { font-size: 15px; color: rgba(255,255,255,0.75); line-height: 1.5; }
+.security-badges { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 64px; justify-content: center; }
+.security-badge { display: flex; align-items: center; gap: 8px; font-size: 14px; color: rgba(255,255,255,0.8); }
+@media (max-width: 1024px) { .security-grid { grid-template-columns: 1fr; } }
+
+.compare-table-wrap { overflow-x: auto; border: 1px solid var(--card-border); border-radius: var(--r-lg); }
+.compare-table { width: 100%; border-collapse: collapse; min-width: 640px; }
+.compare-table th, .compare-table td { padding: 16px 24px; text-align: left; border-bottom: 1px solid var(--card-border); }
+.compare-table th { font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 500; color: var(--body-muted); background: var(--soft-stone); }
+.compare-table td { font-size: 15px; color: var(--ink); }
+.compare-table tr:last-child td { border-bottom: none; }
+.compare-table .winner { color: var(--deep-green); font-weight: 500; }
+
+.pricing-section { background: var(--soft-stone); }
+.pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; align-items: start; }
+.pricing-card { background: var(--white); border: 1px solid var(--border-light); border-radius: var(--r-lg); padding: 48px 32px; transition: all 0.3s ease; }
+.pricing-card.featured { border-color: var(--primary); background: #fafafa; transform: scale(1.02); }
+.pricing-card:hover { border-color: var(--primary); }
+.pricing-card .plan-name { font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 500; margin-bottom: 6px; }
+.pricing-card .plan-price { font-family: 'Space Grotesk', sans-serif; font-size: 40px; font-weight: 500; margin-bottom: 6px; }
+.pricing-card .plan-price span { font-size: 16px; font-weight: 400; color: var(--slate); }
+.pricing-card .plan-desc { font-size: 14px; color: var(--slate); margin-bottom: 24px; }
+.pricing-card ul { list-style: none; margin-bottom: 32px; }
+.pricing-card li { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; color: var(--body-muted); margin-bottom: 12px; }
+.pricing-card li::before { content: "✓"; color: var(--deep-green); font-weight: 600; }
+.pricing-card .btn { width: 100%; }
+@media (max-width: 1024px) { .pricing-grid { grid-template-columns: 1fr; max-width: 480px; margin: 0 auto; } .pricing-card.featured { transform: none; } }
+
+.testimonial-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.testimonial-card { background: var(--white); border: 1px solid var(--card-border); border-radius: var(--r-lg); padding: 32px; }
+.testimonial-card p { font-size: 16px; line-height: 1.6; color: var(--ink); margin-bottom: 24px; }
+.testimonial-author { display: flex; align-items: center; gap: 12px; }
+.testimonial-avatar { width: 44px; height: 44px; border-radius: var(--r-pill); background: var(--soft-stone); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.testimonial-author strong { display: block; font-size: 14px; color: var(--primary); }
+.testimonial-author span { font-size: 13px; color: var(--slate); }
+@media (max-width: 1024px) { .testimonial-grid { grid-template-columns: 1fr; } }
+
+.cta-section { background: linear-gradient(135deg, var(--coral) 0%, var(--form-focus) 50%, var(--action-blue) 100%); color: var(--white); text-align: center; }
+.cta-section .section-title, .cta-section .section-subtitle { color: var(--white); }
+.cta-buttons { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 32px; flex-wrap: wrap; }
+.cta-section .btn-primary { background: var(--white); color: var(--primary); }
+.cta-section .btn-primary:hover { background: var(--soft-stone); }
+.cta-section .btn-secondary { border-color: var(--white); color: var(--white); }
+.cta-section .btn-secondary:hover { background: var(--white); color: var(--primary); }
+
+.footer { background: linear-gradient(135deg, var(--deep-green) 0%, var(--dark-navy) 100%); color: var(--white); padding: 96px 0 32px; }
+.footer-grid { display: grid; grid-template-columns: 2fr repeat(4, 1fr); gap: 48px; margin-bottom: 96px; }
+.footer-brand .brand { display: flex; align-items: center; gap: 8px; font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 500; color: var(--white); text-decoration: none; margin-bottom: 16px; }
+.footer-brand p { font-size: 14px; color: rgba(255,255,255,0.7); line-height: 1.6; max-width: 280px; }
+.footer-col h4 { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.5); margin-bottom: 16px; }
+.footer-col a { display: block; font-size: 14px; color: rgba(255,255,255,0.8); text-decoration: none; margin-bottom: 12px; transition: color 0.2s ease; }
+.footer-col a:hover { color: var(--white); }
+.footer-bottom { border-top: 1px solid rgba(255,255,255,0.1); padding-top: 24px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: rgba(255,255,255,0.5); flex-wrap: wrap; gap: 16px; }
+@media (max-width: 1024px) { .footer-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .footer-grid { grid-template-columns: 1fr; } }
+
+/* Lucide Icon Styles */
+[data-lucide] {
+  width: 1em;
+  height: 1em;
+  stroke-width: 2;
+  stroke: currentColor;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: middle;
+}
+.pain-icon [data-lucide],
+.feature-icon [data-lucide],
+.video-item-icon [data-lucide] {
+  width: 28px;
+  height: 28px;
+}
+.hero-badge [data-lucide] {
+  width: 14px;
+  height: 14px;
+  color: var(--coral);
+}
+.hero-trust [data-lucide] {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+}
+.section-title [data-lucide] {
+  width: 1em;
+  height: 1em;
+  margin-right: 8px;
+}
+.ai-note [data-lucide] {
+  width: 18px;
+  height: 18px;
+  color: var(--coral);
+  margin-right: 6px;
+}
+
+</style>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="top-nav" id="topNav">
+  <div class="container nav-inner">
+    <a href="#" class="nav-brand"><span class="brand-dot"></span>汤姆鱼</a>
+    <div class="nav-links">
+      <a href="#features" class="nav-link">功能</a>
+      <a href="#platforms" class="nav-link">平台</a>
+      <a href="#ai" class="nav-link">AI</a>
+      <a href="#pricing" class="nav-link">价格</a>
+      <a href="#compare" class="nav-link">对比</a>
+      <a href="#" class="nav-link">文档</a>
+    </div>
+    <div class="nav-actions">
+      <a href="https://download.iart.work" class="nav-link">下载</a>
+      <a href="#download" class="nav-cta">免费下载</a>
+    </div>
+    <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="菜单"><span></span><span></span><span></span></button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobileMenu">
+  <a href="#features" class="nav-link">功能</a>
+  <a href="#platforms" class="nav-link">平台</a>
+  <a href="#ai" class="nav-link">AI</a>
+  <a href="#pricing" class="nav-link">价格</a>
+  <a href="#compare" class="nav-link">对比</a>
+  <a href="#download" class="nav-cta">免费下载</a>
+</div>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-grid">
+      <div class="hero-content fade-in-up">
+        <div class="badge hero-badge"><i data-lucide="sparkles"></i>v2.4.0 已发布 · AI 驱动</div>
+        <h1 class="hero-title display-font">From Idea to Everywhere</h1>
+        <p class="hero-desc">AI 内容工作站 · 一份内容，触达全网。15+ 平台一键发布 · 50+ AI 服务商 · 13 视频创作管线。Cookie 本地 AES-256-GCM 加密 · 可离线运行。</p>
+        <div class="hero-ctas">
+          <a href="#download" class="btn btn-primary">免费下载</a>
+          <a href="https://download.iart.work" class="btn btn-secondary">立即下载</a>
+        </div>
+        <div class="hero-trust">
+          <i data-lucide="rocket"></i> 15+ 平台
+          <i data-lucide="bot"></i> 50+ AI
+          <i data-lucide="film"></i> 13 视频管线
+          <span>✓ 私有化部署</span>
+        </div>
+      </div>
+      <div class="hero-visual fade-in-up">
+        <div class="carousel" id="heroCarousel" aria-label="产品概念展示">
+          <div class="carousel-track">
+            <div class="carousel-slide active"><img src="images/ai-content.jpg" alt="AI 内容创作：打字机与人工智能"></div>
+            <div class="carousel-slide"><img src="images/global-distribution.jpg" alt="全球内容分发：手机中的世界地图"></div>
+            <div class="carousel-slide"><img src="images/video-creation.jpg" alt="视频创作：专业摄影机监视器"></div>
+          </div>
+          <button class="carousel-btn prev" aria-label="上一张">‹</button>
+          <button class="carousel-btn next" aria-label="下一张">›</button>
+          <div class="carousel-dots">
+            <button class="dot active" data-index="0" aria-label="第 1 张"></button>
+            <button class="dot" data-index="1" aria-label="第 2 张"></button>
+            <button class="dot" data-index="2" aria-label="第 3 张"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Logo Wall -->
+<section class="logo-wall">
+  <div class="container">
+    <p class="logo-wall-label">已被这些团队选择</p>
+    <div class="marquee">
+      <div class="logo-card">某 MCN 机构</div>
+      <div class="logo-card">某科技公司</div>
+      <div class="logo-card">某内容团队</div>
+      <div class="logo-card">某自媒体联盟</div>
+      <div class="logo-card">某出海品牌</div>
+      <div class="logo-card">某教育机构</div>
+      <div class="logo-card">某 MCN 机构</div>
+      <div class="logo-card">某科技公司</div>
+      <div class="logo-card">某内容团队</div>
+      <div class="logo-card">某自媒体联盟</div>
+      <div class="logo-card">某出海品牌</div>
+      <div class="logo-card">某教育机构</div>
+    </div>
+  </div>
+</section>
+
+<!-- Pain Points -->
+<section class="section pain-points" id="pain-points">
+  <div class="container">
+    <div class="section-header fade-in-up">
+      <div class="section-label"><span class="dot"></span>痛点</div>
+      <h2 class="section-title display-font">还在这样发内容吗？</h2>
+      <p class="section-subtitle">是时候换个方式了。</p>
+    </div>
+    <div class="pain-grid">
+      <div class="pain-card fade-in-up"><div class="pain-icon"><i data-lucide="frown"></i></div><h3>多平台手动切换</h3><p>一篇内容发 5 个平台要 2 小时，反复登录、复制、排版、检查。</p></div>
+      <div class="pain-card fade-in-up"><div class="pain-icon"><i data-lucide="wallet"></i></div><h3>工具价格不透明</h3><p>蚁小二 ¥49/月只支持 5-7 平台，融媒宝 ¥99/月起且无 AI 能力。</p></div>
+      <div class="pain-card fade-in-up"><div class="pain-icon"><i data-lucide="lock"></i></div><h3>账号安全焦虑</h3><p>Cookie 上云担心被盗号，但找不到本地加密、可离线的方案。</p></div>
+      <div class="pain-card fade-in-up"><div class="pain-icon"><i data-lucide="video"></i></div><h3>视频制作门槛高</h3><p>想做视频但不会剪辑，外包太贵、自己学太慢，错过流量红利。</p></div>
+      <div class="pain-card fade-in-up"><div class="pain-icon"><i data-lucide="moon"></i></div><h3>定时发布熬夜班</h3><p>批量操作靠复制粘贴，定时发布要守电脑，效率低下。</p></div>
+      <div class="pain-card fade-in-up"><div class="pain-icon"><i data-lucide="bot"></i></div><h3>AI 工具订阅分散</h3><p>十几个 AI 订阅每月 ¥500+，账单混乱，协同困难。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="section" id="features">
+  <div class="container">
+    <div class="section-header center fade-in-up">
+      <div class="section-label"><span class="dot"></span>核心能力</div>
+      <h2 class="section-title display-font">一个工作站，搞定内容创作全链路</h2>
+      <p class="section-subtitle">从采集到发布，从图文到视频，从单平台到全网——你只需要 汤姆鱼。</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card fade-in-up"><div class="feature-icon"><i data-lucide="rocket"></i></div><h3>15 平台一键发布</h3><p>微信/知乎/微博/抖音/小红书/视频号/快手/今日头条/百家号/B站/YouTube/TikTok 全覆盖。API+RPA 双模式，自动降级，稳定性 99%+。</p><a href="#platforms" class="link-arrow">查看平台矩阵 <span class="arrow">→</span></a></div>
+      <div class="feature-card fade-in-up"><div class="feature-icon"><i data-lucide="bot"></i></div><h3>50+ AI 服务商</h3><p>OpenAI / Claude / Gemini / DeepSeek / Doubao / Ollama / OpenRouter 等 LLM，TTS、STT、图像、视频生成全集成。AI 写稿全免费。</p><a href="#ai" class="link-arrow">了解 AI 能力 <span class="arrow">→</span></a></div>
+      <div class="feature-card fade-in-up"><div class="feature-icon"><i data-lucide="film"></i></div><h3>13 视频创作管线</h3><p>Remotion + Story2Video + Avatar 数字人 + Explainer 解释器。真实 ffmpeg 合成，不学剪辑也能做视频。</p><a href="#video" class="link-arrow">观看视频样片 <span class="arrow">→</span></a></div>
+      <div class="feature-card fade-in-up"><div class="feature-icon"><i data-lucide="lock"></i></div><h3>Cookie 本地加密</h3><p>AES-256-GCM 加密存储，永不上云。可离线运行，账号安全 + 合规审计一步到位。</p><a href="#security" class="link-arrow">查看安全设计 <span class="arrow">→</span></a></div>
+      <div class="feature-card fade-in-up"><div class="feature-icon"><i data-lucide="users"></i></div><h3>多账号矩阵管理</h3><p>同平台多账号同时发布，团队共享账号池，矩阵号运营神器。</p><a href="#" class="link-arrow">查看矩阵玩法 <span class="arrow">→</span></a></div>
+      <div class="feature-card fade-in-up"><div class="feature-icon"><i data-lucide="bar-chart-3"></i></div><h3>分屏监控 + 实时回调</h3><p>2/3/4/6 分屏布局，HTTP POST 回调实时入库，数据及时响应不遗漏。</p><a href="#" class="link-arrow">体验监控能力 <span class="arrow">→</span></a></div>
+    </div>
+  </div>
+</section>
+
+<!-- Platforms -->
+<section class="section" id="platforms" style="background: var(--soft-stone);">
+  <div class="container">
+    <div class="section-header center fade-in-up">
+      <div class="section-label"><span class="dot"></span>平台矩阵</div>
+      <h2 class="section-title display-font">支持 15+ 平台，覆盖国内外主流渠道</h2>
+      <p class="section-subtitle">国内：微信公众号 · 知乎 · 微博 · 抖音 · 小红书 · 视频号 · 快手 · 今日头条 · 百家号 · B站<br>海外：YouTube · TikTok · Twitter/X · Instagram · Facebook</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card fade-in-up"><div class="feature-icon"><i data-lucide="flag"></i></div><h3>国内平台</h3><p>微信公众号、知乎、微博、抖音、小红书、视频号、快手、今日头条、百家号、B站。</p></div>
+      <div class="feature-card fade-in-up"><div class="feature-icon"><i data-lucide="globe"></i></div><h3>海外平台</h3><p>YouTube、TikTok、Twitter/X、Instagram、Facebook，出海内容一站分发。</p></div>
+      <div class="feature-card fade-in-up"><div class="feature-icon"><i data-lucide="zap"></i></div><h3>双模式发布</h3><p>RPA+API 双模式，自动降级。多账号支持，同平台同时发，登录状态自动检测。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- AI -->
+<section class="section ai-section" id="ai">
+  <div class="container">
+    <div class="section-header center fade-in-up">
+      <div class="section-label"><span class="dot"></span>AI 能力</div>
+      <h2 class="section-title display-font">50+ AI 服务商，一个工作站全搞定</h2>
+      <p class="section-subtitle">你只需配置自己的 API Key，我们不加价。对比 OpenAI Plus 省 75%。</p>
+    </div>
+    <div class="ai-grid">
+      <div class="ai-card fade-in-up">
+        <h3>LLM 文字</h3>
+        <div class="ai-tags"><span class="ai-tag">OpenAI</span><span class="ai-tag">Anthropic</span><span class="ai-tag">Gemini</span><span class="ai-tag">DeepSeek</span><span class="ai-tag">Doubao</span><span class="ai-tag">Ollama</span><span class="ai-tag">OpenRouter</span></div>
+      </div>
+      <div class="ai-card fade-in-up">
+        <h3>TTS 语音</h3>
+        <div class="ai-tags"><span class="ai-tag">ElevenLabs</span><span class="ai-tag">OpenAI</span><span class="ai-tag">Google</span><span class="ai-tag">Doubao</span><span class="ai-tag">MiniMax</span></div>
+      </div>
+      <div class="ai-card fade-in-up">
+        <h3>STT 识别</h3>
+        <div class="ai-tags"><span class="ai-tag">OpenAI Whisper</span><span class="ai-tag">Baidu</span><span class="ai-tag">Google</span><span class="ai-tag">本地 Whisper</span></div>
+      </div>
+      <div class="ai-card fade-in-up">
+        <h3>图像 / 视频生成</h3>
+        <div class="ai-tags"><span class="ai-tag">Flux</span><span class="ai-tag">DALL-E</span><span class="ai-tag">Imagen</span><span class="ai-tag">Recraft</span><span class="ai-tag">ComfyUI</span><span class="ai-tag">Hunyuan</span><span class="ai-tag">Kling</span><span class="ai-tag">Runway</span><span class="ai-tag">VEO</span><span class="ai-tag">WAN</span></div>
+      </div>
+    </div>
+    <p class="ai-note fade-in-up">标题 / 标签 / 爆款分析 / AI 写稿 / 视频脚本 —— 全部内置，不额外收费。</p>
+  </div>
+</section>
+
+<!-- Video -->
+<section class="section" id="video">
+  <div class="container">
+    <div class="section-header center fade-in-up">
+      <div class="section-label"><span class="dot"></span>视频创作</div>
+      <h2 class="section-title display-font">不学剪辑，也能做出爆款视频</h2>
+      <p class="section-subtitle">13 种视频创作 Pipeline + Remotion 13 Composition + Story2Video 文本转视频。</p>
+    </div>
+    <div class="video-card fade-in-up">
+      <div class="video-grid">
+        <div class="video-item"><div class="video-item-icon"><i data-lucide="film"></i></div><h4>Story2Video</h4><p>文本 → 字幕 + BGM + 转场 + 水印</p></div>
+        <div class="video-item"><div class="video-item-icon"><i data-lucide="user"></i></div><h4>Avatar 数字人</h4><p>HeyGen + 11Labs 口播视频</p></div>
+        <div class="video-item"><div class="video-item-icon"><i data-lucide="bar-chart-3"></i></div><h4>Explainer 解释器</h4><p>自动生成动画科普视频</p></div>
+        <div class="video-item"><div class="video-item-icon"><i data-lucide="message-circle"></i></div><h4>Talking Head</h4><p>图片 + 文本 → 会说话头像</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Security -->
+<section class="section security-section" id="security">
+  <div class="container">
+    <div class="section-header center fade-in-up">
+      <div class="section-label"><span class="dot"></span>安全与私有化</div>
+      <h2 class="section-title display-font"><i data-lucide="shield"></i> 私有化部署 · Cookie 本地加密 · 可离线运行</h2>
+      <p class="section-subtitle">支持私有化部署，数据完全可控。你的数据永远属于你。</p>
+    </div>
+    <div class="security-grid">
+      <div class="security-card fade-in-up"><h3>私有化部署</h3><p>支持私有化部署与本地运行，数据完全可控，满足企业合规要求。</p></div>
+      <div class="security-card fade-in-up"><h3>AES-256-GCM</h3><p>Cookie 本地加密，永不上云。账号安全 + 合规审计。</p></div>
+      <div class="security-card fade-in-up"><h3>可离线运行</h3><p>无网络也能用，桌面应用常驻，数据不依赖云端。</p></div>
+    </div>
+    <div class="security-badges fade-in-up">
+      <span class="security-badge">✓ 7×24 稳定运行</span>
+      <span class="security-badge">✓ 企业级安全</span>
+      <span class="security-badge">✓ 私有化部署</span>
+      <span class="security-badge">✓ 多账号协作</span>
+      <span class="security-badge">✓ 定时批量</span>
+      <span class="security-badge">✓ 实时数据看板</span>
+    </div>
+  </div>
+</section>
+
+<!-- Compare -->
+<section class="section" id="compare">
+  <div class="container">
+    <div class="section-header center fade-in-up">
+      <div class="section-label"><span class="dot"></span>竞品对比</div>
+      <h2 class="section-title display-font">为什么选 汤姆鱼？</h2>
+      <p class="section-subtitle">同样的功能，我们便宜 20-60%；同样的价格，我们多 70% 平台。</p>
+    </div>
+    <div class="compare-table-wrap fade-in-up">
+      <table class="compare-table">
+        <thead><tr><th>维度</th><th>汤姆鱼</th><th>蚁小二</th><th>融媒宝</th></tr></thead>
+        <tbody>
+          <tr><td>价格</td><td class="winner">¥39/月</td><td>¥49/月</td><td>¥99/月起</td></tr>
+          <tr><td>平台数</td><td class="winner">15+</td><td>5-7</td><td>40+</td></tr>
+          <tr><td>发布模式</td><td class="winner">API+RPA 双模式</td><td>纯 RPA</td><td>纯 RPA</td></tr>
+          <tr><td>AI 增强</td><td class="winner"><i data-lucide="check-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#003c33;"></i> 50+ Provider</td><td><i data-lucide="x-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#999;"></i></td><td><i data-lucide="x-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#999;"></i></td></tr>
+          <tr><td>视频创作</td><td class="winner"><i data-lucide="check-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#003c33;"></i> 13 Pipeline</td><td><i data-lucide="x-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#999;"></i></td><td><i data-lucide="x-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#999;"></i></td></tr>
+          <tr><td>私有化部署</td><td class="winner"><i data-lucide="check-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#003c33;"></i> 支持</td><td><i data-lucide="x-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#999;"></i> 不支持</td><td><i data-lucide="x-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#999;"></i> 不支持</td></tr>
+          <tr><td>离线</td><td class="winner"><i data-lucide="check-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#003c33;"></i> 本地加密</td><td><i data-lucide="x-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#999;"></i> 上云</td><td><i data-lucide="x-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#999;"></i> 上云</td></tr>
+          <tr><td>海外平台</td><td class="winner"><i data-lucide="check-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#003c33;"></i> YT/TikTok/IG/FB/X</td><td><i data-lucide="x-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#999;"></i></td><td><i data-lucide="x-circle" style="width:16px;height:16px;display:inline-block;vertical-align:middle;color:#999;"></i></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section class="section pricing-section" id="pricing">
+  <div class="container">
+    <div class="section-header center fade-in-up">
+      <div class="section-label"><span class="dot"></span>价格</div>
+      <h2 class="section-title display-font">选择适合你的版本</h2>
+      <p class="section-subtitle">透明定价，性价比之王。</p>
+    </div>
+    <div class="pricing-grid">
+      <div class="pricing-card fade-in-up">
+        <div class="plan-name">免费版</div>
+        <div class="plan-price">¥0<span>/月</span></div>
+        <p class="plan-desc">永久免费</p>
+        <ul><li>3 个平台</li><li>每日 5 篇</li><li>基础 AI 写稿</li><li>本地加密</li></ul>
+        <a href="#download" class="btn btn-secondary">免费下载</a>
+      </div>
+      <div class="pricing-card featured fade-in-up">
+        <div class="badge badge-coral" style="margin-bottom:12px;">最受欢迎</div>
+        <div class="plan-name">Pro 版</div>
+        <div class="plan-price">¥39<span>/月</span></div>
+        <p class="plan-desc">或 ¥299/年，省 36%</p>
+        <ul><li>15+ 平台</li><li>全部 AI 能力</li><li>视频创作</li><li>定时批量发布</li><li>统计看板</li></ul>
+        <a href="#" class="btn btn-primary">7 天免费试用</a>
+      </div>
+      <div class="pricing-card fade-in-up">
+        <div class="plan-name">企业版</div>
+        <div class="plan-price">¥199<span>/月</span></div>
+        <p class="plan-desc">或 ¥1999/年</p>
+        <ul><li>Pro 全部功能</li><li>多账号团队协作</li><li>API 接入</li><li>SLA 支持</li><li>私有部署</li></ul>
+        <a href="#" class="btn btn-secondary">预约演示</a>
+      </div>
+    </div>
+    <p class="ai-note fade-in-up" style="margin-top:48px;"><i data-lucide="flame"></i> 前 200 名 Pro 年付 ¥99（原价 ¥299）终身锁定 — 限时早鸟价</p>
+  </div>
+</section>
+
+<!-- Testimonials -->
+<section class="section" id="testimonials">
+  <div class="container">
+    <div class="section-header center fade-in-up">
+      <div class="section-label"><span class="dot"></span>用户证言</div>
+      <h2 class="section-title display-font">听听早期用户怎么说</h2>
+    </div>
+    <div class="testimonial-grid">
+      <div class="testimonial-card fade-in-up">
+        <p>"5 个平台手动切换要 2 小时，现在 15 平台一键发，省下时间做内容。"</p>
+        <div class="testimonial-author"><div class="testimonial-avatar">张</div><div><strong>张某某</strong><span>某 MCN 运营负责人</span></div></div>
+      </div>
+      <div class="testimonial-card fade-in-up">
+        <p>"私有化部署 + Cookie 本地加密，这点碾压所有闭源工具。我们团队合规要求高，这是唯一选择。"</p>
+        <div class="testimonial-author"><div class="testimonial-avatar">李</div><div><strong>李某某</strong><span>某企业内容总监</span></div></div>
+      </div>
+      <div class="testimonial-card fade-in-up">
+        <p>"AI 写稿 + 视频创作全免费，对比我之前每月花 ¥500+ 订阅各种 AI 工具，省太多了。"</p>
+        <div class="testimonial-author"><div class="testimonial-avatar">王</div><div><strong>王某某</strong><span>自媒体博主</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="section cta-section" id="download">
+  <div class="container">
+    <div class="section-header center fade-in-up">
+      <h2 class="section-title display-font">现在就开始你的内容工厂</h2>
+      <p class="section-subtitle">私有化部署 · 7×24 稳定运行 · 15+ 平台 · 50+ AI · ¥39/月起</p>
+      <div class="cta-buttons">
+        <a href="#" class="btn btn-primary">免费下载</a>
+        <a href="https://download.iart.work" class="btn btn-secondary">立即下载</a>
+        <a href="#" class="btn btn-secondary">预约企业演示</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="#" class="brand"><span class="brand-dot"></span>汤姆鱼</a>
+        <p>From Idea to Everywhere<br>AI 内容工作站 · 一份内容，触达全网。</p>
+      </div>
+      <div class="footer-col">
+        <h4>产品</h4>
+        <a href="#features">功能总览</a>
+        <a href="#platforms">15 平台矩阵</a>
+        <a href="#ai">AI 能力</a>
+        <a href="#video">视频创作</a>
+        <a href="#">多账号管理</a>
+        <a href="#">分屏监控</a>
+      </div>
+      <div class="footer-col">
+        <h4>资源</h4>
+        <a href="#">博客</a>
+        <a href="#">文档</a>
+        <a href="#">教程</a>
+        <a href="#">更新日志</a>
+        <a href="#">路线图</a>
+      </div>
+      <div class="footer-col">
+        <h4>服务</h4>
+        <a href="#">私有化部署</a>
+        <a href="#">企业定制</a>
+        <a href="#">技术支持</a>
+        <a href="#">安全白皮书</a>
+      </div>
+      <div class="footer-col">
+        <h4>公司</h4>
+        <a href="#pricing">价格</a>
+        <a href="#compare">竞品对比</a>
+        <a href="#">企业版</a>
+        <a href="#">关于我们</a>
+        <a href="#download">下载</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 汤姆鱼 · 保留所有权利</span>
+      <span>Windows · Linux · macOS</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+const nav = document.getElementById('topNav');
+window.addEventListener('scroll', () => {
+  if (window.scrollY > 20) nav.classList.add('scrolled');
+  else nav.classList.remove('scrolled');
+});
+const menuBtn = document.getElementById('mobileMenuBtn');
+const mobileMenu = document.getElementById('mobileMenu');
+menuBtn.addEventListener('click', () => mobileMenu.classList.toggle('open'));
+document.querySelectorAll('.mobile-menu .nav-link, .mobile-menu .nav-cta').forEach(link => {
+  link.addEventListener('click', () => mobileMenu.classList.remove('open'));
+});
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) { entry.target.classList.add('visible'); observer.unobserve(entry.target); }
+  });
+}, { threshold: 0.1 });
+document.querySelectorAll('.fade-in-up').forEach(el => observer.observe(el));
+
+// Hero carousel
+(function() {
+  const carousel = document.getElementById('heroCarousel');
+  if (!carousel) return;
+  const slides = carousel.querySelectorAll('.carousel-slide');
+  const dots = carousel.querySelectorAll('.carousel-dots .dot');
+  const prevBtn = carousel.querySelector('.carousel-btn.prev');
+  const nextBtn = carousel.querySelector('.carousel-btn.next');
+  let current = 0;
+  let interval;
+  const duration = 5000;
+  function show(index) {
+    if (index < 0) index = slides.length - 1;
+    if (index >= slides.length) index = 0;
+    slides[current].classList.remove('active');
+    dots[current].classList.remove('active');
+    current = index;
+    slides[current].classList.add('active');
+    dots[current].classList.add('active');
+  }
+  function next() { show(current + 1); }
+  function prev() { show(current - 1); }
+  function start() { interval = setInterval(next, duration); }
+  function stop() { clearInterval(interval); }
+  nextBtn.addEventListener('click', () => { stop(); next(); start(); });
+  prevBtn.addEventListener('click', () => { stop(); prev(); start(); });
+  dots.forEach(dot => {
+    dot.addEventListener('click', () => {
+      stop();
+      show(parseInt(dot.dataset.index, 10));
+      start();
+    });
+  });
+  carousel.addEventListener('mouseenter', stop);
+  carousel.addEventListener('mouseleave', start);
+  start();
+})();
+</script>
+
+<script>
+  // Initialize Lucide icons
+  lucide.createIcons();
+</script>
+</body>
+</html>

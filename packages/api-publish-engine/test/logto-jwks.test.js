@@ -144,6 +144,32 @@ async function main() {
           }),
         }
       }
+      if (token === 'opaque.active.token') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true,
+            sub: 'sub-dotted-opaque',
+            scope: 'profile:read',
+            aud: audience,
+            iss: issuer,
+            exp: 250,
+          }),
+        }
+      }
+      if (token === 'e30.active.token') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true,
+            sub: 'sub-json-prefix-opaque',
+            scope: 'profile:read',
+            aud: audience,
+            iss: issuer,
+            exp: 250,
+          }),
+        }
+      }
       if (token === 'opaque-inactive-token') {
         return { ok: true, json: async () => ({ active: false }) }
       }
@@ -151,7 +177,39 @@ async function main() {
         return {
           ok: true,
           json: async () => ({
-            active: true, sub: 'sub-expired', scope: 'profile:read', aud: audience, iss: issuer, exp: 100,
+            active: true, sub: 'sub-expired', scope: 'profile:read', aud: audience, iss: issuer, exp: 89,
+          }),
+        }
+      }
+      if (token === 'opaque-tolerated-expiry') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true, sub: 'sub-tolerated-expiry', scope: 'profile:read', aud: audience, iss: issuer, exp: 100,
+          }),
+        }
+      }
+      if (token === 'opaque-future-nbf') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true, sub: 'sub-future', scope: 'profile:read', aud: audience, iss: issuer, nbf: 211, exp: 250,
+          }),
+        }
+      }
+      if (token === 'opaque-tolerated-nbf') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true, sub: 'sub-tolerated-nbf', scope: 'profile:read', aud: audience, iss: issuer, nbf: 200, exp: 250,
+          }),
+        }
+      }
+      if (token === 'opaque-invalid-nbf') {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true, sub: 'sub-invalid-nbf', scope: 'profile:read', aud: audience, iss: issuer, nbf: 'later', exp: 250,
           }),
         }
       }
@@ -171,17 +229,42 @@ async function main() {
           }),
         }
       }
+      if (token === 'opaque-missing-audience') {
+        return { ok: true, json: async () => ({ active: true, sub: 'sub-no-aud', scope: 'profile:read' }) }
+      }
+      if (token === 'opaque-missing-subject') {
+        return { ok: true, json: async () => ({ active: true, aud: audience, scope: 'profile:read' }) }
+      }
+      if (token === 'opaque-invalid-subject') {
+        return { ok: true, json: async () => ({ active: true, sub: 42, aud: audience, scope: 'profile:read' }) }
+      }
+      if (token === 'opaque-audience-array') {
+        return {
+          ok: true,
+          json: async () => ({ active: true, sub: 'sub-aud-array', aud: ['https://other.example.com', audience] }),
+        }
+      }
+      if (token === 'opaque-invalid-expiry') {
+        return { ok: true, json: async () => ({ active: true, sub: 'sub-bad-exp', aud: audience, exp: 'later' }) }
+      }
+      if (token === 'opaque-empty-issuer') {
+        return { ok: true, json: async () => ({ active: true, sub: 'sub-empty-iss', aud: audience, iss: '' }) }
+      }
+      if (token === 'opaque-without-optional-claims') {
+        return { ok: true, json: async () => ({ active: true, sub: 'sub-optional', aud: audience, scope: ['profile:read'] }) }
+      }
       return { ok: true, json: async () => ({ active: false }) }
     }
     return { ok: true, json: async () => ({ keys: [{ ...jwk, kid: 'key-1', alg: 'RS256', use: 'sig' }] }) }
   }
+  let currentClockMs = 150000
   const introspectionVerifier = createLogtoJwtVerifier({
     issuer, audience,
     clientId: 'm2m-client-id',
     clientSecret: 'm2m-client-secret',
     fetcher: introspectionFetcher,
     now: () => 150,
-    clockMs: () => 150000,
+    clockMs: () => currentClockMs,
     introspectionCacheTtlMs: 1000,
   })
   const introspectionResult = await introspectionVerifier.verify('opaque-active-token')
@@ -193,6 +276,7 @@ async function main() {
   // 验证 Basic Auth header
   const introspectionOptions = introspectionCalls[0].options
   const authHeader = introspectionOptions.headers.Authorization
+  assert.strictEqual(introspectionOptions.redirect, 'error', 'introspection 不得跟随重定向')
   assert.ok(authHeader.startsWith('Basic '), '应使用 Basic Auth')
   const decodedCredentials = Buffer.from(authHeader.slice(6), 'base64').toString('utf8')
   assert.strictEqual(decodedCredentials, 'm2m-client-id:m2m-client-secret', 'client credentials 应正确编码')
@@ -205,7 +289,33 @@ async function main() {
   const cachedResult = await introspectionVerifier.verify('opaque-active-token')
   assert.deepStrictEqual(cachedResult, { subject: 'sub-opaque', scopes: ['profile:read', 'publish:submit'] })
   assert.strictEqual(introspectionCalls.length, 1, 'introspection 应命中缓存不重复调用')
+  assert.strictEqual(introspectionVerifier._introspectionCache.has('opaque-active-token'), false,
+    '缓存键不得保留 Bearer Token 原文')
+  assert([...introspectionVerifier._introspectionCache.keys()].every((key) => /^[A-Za-z0-9_-]{43}$/.test(key)),
+    '缓存键必须使用固定长度的 SHA-256 指纹')
   console.log('  ✅ Opaque Token introspection 结果缓存生效')
+
+  // 缓存 TTL 到期后必须重新 introspection，不能永久复用旧授权结果。
+  currentClockMs += 1001
+  const refreshedResult = await introspectionVerifier.verify('opaque-active-token')
+  assert.deepStrictEqual(refreshedResult, { subject: 'sub-opaque', scopes: ['profile:read', 'publish:submit'] })
+  assert.strictEqual(introspectionCalls.length, 2, '缓存 TTL 到期后必须重新调用 introspection')
+  console.log('  ✅ Opaque Token 缓存到期后重新 introspection')
+
+  // Opaque Token 的语法不受 JWT 三段格式约束；带两个点也必须走 introspection。
+  const callsBeforeDottedOpaque = introspectionCalls.length
+  assert.deepStrictEqual(
+    await introspectionVerifier.verify('opaque.active.token'),
+    { subject: 'sub-dotted-opaque', scopes: ['profile:read'] },
+  )
+  assert.strictEqual(introspectionCalls.length, callsBeforeDottedOpaque + 1,
+    '带点 Opaque Token 必须调用 introspection，不能误判为 JWT')
+  assert.deepStrictEqual(
+    await introspectionVerifier.verify('e30.active.token'),
+    { subject: 'sub-json-prefix-opaque', scopes: ['profile:read'] },
+    '仅能解码为 JSON 对象但没有 alg 的首段不是 JOSE header',
+  )
+  console.log('  ✅ 带点 Opaque Token 不会被误判为 JWT')
 
   // 4) introspection 返回 active=false 时拒绝
   await assert.rejects(
@@ -233,14 +343,83 @@ async function main() {
     introspectionVerifier.verify('opaque-expired-token'),
     (error) => error && error.code === 'AUTH_TOKEN_EXPIRED',
   )
+  assert.deepStrictEqual(
+    await introspectionVerifier.verify('opaque-tolerated-expiry'),
+    { subject: 'sub-tolerated-expiry', scopes: ['profile:read'] },
+  )
   console.log('  ✅ introspection 返回的 token 已过期时正确拒绝')
 
-  // 8) JWT token 仍然走原 JWKS 验证流程（向后兼容）
+  await assert.rejects(
+    introspectionVerifier.verify('opaque-future-nbf'),
+    (error) => error && error.code === 'AUTH_TOKEN_NOT_ACTIVE',
+  )
+  await assert.rejects(
+    introspectionVerifier.verify('opaque-invalid-nbf'),
+    (error) => error && error.code === 'AUTH_TOKEN_NOT_ACTIVE',
+  )
+  assert.deepStrictEqual(
+    await introspectionVerifier.verify('opaque-tolerated-nbf'),
+    { subject: 'sub-tolerated-nbf', scopes: ['profile:read'] },
+  )
+  console.log('  ✅ introspection 返回未来或非法 nbf 时正确拒绝')
+
+  // 8) aud/sub 必填；iss/exp 可省略，但一旦出现必须合法
+  await assert.rejects(
+    introspectionVerifier.verify('opaque-missing-audience'),
+    (error) => error && error.code === 'AUTH_AUDIENCE_INVALID',
+  )
+  await assert.rejects(
+    introspectionVerifier.verify('opaque-missing-subject'),
+    (error) => error && error.code === 'AUTH_SUBJECT_INVALID',
+  )
+  await assert.rejects(
+    introspectionVerifier.verify('opaque-invalid-subject'),
+    (error) => error && error.code === 'AUTH_SUBJECT_INVALID',
+  )
+  await assert.rejects(
+    introspectionVerifier.verify('opaque-invalid-expiry'),
+    (error) => error && error.code === 'AUTH_TOKEN_INVALID',
+  )
+  await assert.rejects(
+    introspectionVerifier.verify('opaque-empty-issuer'),
+    (error) => error && error.code === 'AUTH_ISSUER_INVALID',
+  )
+  assert.deepStrictEqual(
+    await introspectionVerifier.verify('opaque-without-optional-claims'),
+    { subject: 'sub-optional', scopes: ['profile:read'] },
+  )
+  assert.deepStrictEqual(
+    await introspectionVerifier.verify('opaque-audience-array'),
+    { subject: 'sub-aud-array', scopes: [] },
+  )
+  console.log('  ✅ Opaque Token introspection claims 合同完整')
+
+  // 9) JWT token 仍然走原 JWKS 验证流程（向后兼容）
   const jwtStillWorks = await introspectionVerifier.verify(jwt)
   assert.deepStrictEqual(jwtStillWorks, { subject: 'sub-1', scopes: ['publish:read', 'publish:submit'] })
+  const introspectionCallsBeforeInvalidJwt = introspectionCalls.length
+  const jwtParts = jwt.split('.')
+  const invalidJwt = `${jwtParts[0]}.${jwtParts[1]}.${'A'.repeat(jwtParts[2].length)}`
+  await assert.rejects(
+    introspectionVerifier.verify(invalidJwt),
+    (error) => error && error.code === 'AUTH_SIGNATURE_INVALID',
+  )
+  assert.strictEqual(introspectionCalls.length, introspectionCallsBeforeInvalidJwt,
+    'JWT 验签失败后不得降级到 introspection')
   console.log('  ✅ JWT Token 仍走原 JWKS 验证流程（向后兼容）')
 
-  // 9) introspection 端点不可用时抛 AUTH_INTROSPECTION_UNAVAILABLE
+  // 10) readiness 必须验证 introspection endpoint 和 M2M 凭据
+  const callsBeforeReadiness = introspectionCalls.length
+  assert.deepStrictEqual(await introspectionVerifier.checkReady(), {
+    oidc: 'ready', jwks: 'ready', introspection: 'ready', signingKeys: 1,
+  })
+  assert.strictEqual(introspectionCalls.length, callsBeforeReadiness + 1,
+    'readiness 必须真实调用 introspection endpoint')
+  assert.match(introspectionCalls.at(-1).options.body, /^token=multi-publish-readiness-[A-Za-z0-9_-]+&/,
+    'readiness 必须使用随机无效探针，不得复用用户 Token')
+  console.log('  ✅ readiness 真实验证 introspection endpoint 和 M2M 凭据')
+
+  // 11) introspection 端点不可用时抛 AUTH_INTROSPECTION_UNAVAILABLE
   const unavailableVerifier = createLogtoJwtVerifier({
     issuer, audience,
     clientId: 'm2m-client-id',
@@ -259,6 +438,93 @@ async function main() {
     (error) => error && error.code === 'AUTH_INTROSPECTION_UNAVAILABLE',
   )
   console.log('  ✅ introspection 端点不可用时正确抛 AUTH_INTROSPECTION_UNAVAILABLE')
+
+  // 12) discovery 不得把 M2M Secret 发送到不可信 introspection endpoint
+  for (const introspectionEndpoint of [
+    'http://id.example.com/oidc/token/introspection',
+    'https://evil.example.com/token/introspection',
+    'https://user:password@id.example.com/oidc/token/introspection',
+  ]) {
+    const endpointCalls = []
+    const endpointVerifier = createLogtoJwtVerifier({
+      issuer, audience,
+      clientId: 'm2m-client-id',
+      clientSecret: 'm2m-client-secret',
+      fetcher: async (url, options) => {
+        endpointCalls.push({ url, options })
+        return {
+          ok: true,
+          json: async () => ({ issuer, jwks_uri: `${issuer}/jwks`, introspection_endpoint: introspectionEndpoint }),
+        }
+      },
+    })
+    await assert.rejects(
+      endpointVerifier.verify('opaque-endpoint-probe'),
+      (error) => error && error.code === 'AUTH_INTROSPECTION_URL_INVALID',
+    )
+    assert.strictEqual(endpointCalls.length, 1, '不可信 endpoint 只能触发 discovery 请求')
+    assert.strictEqual(endpointCalls[0].options?.redirect, 'error', 'discovery 不得跟随重定向')
+    assert.strictEqual(endpointCalls[0].options?.headers?.Authorization, undefined,
+      'M2M Authorization 不得发送到 discovery 请求')
+  }
+  console.log('  ✅ 不可信 introspection endpoint 在发送 M2M Secret 前被拒绝')
+
+  // 13) 同一 Opaque Token 的并发验证必须合并为一次 introspection
+  let concurrentIntrospectionCalls = 0
+  const concurrentVerifier = createLogtoJwtVerifier({
+    issuer, audience,
+    clientId: 'm2m-client-id',
+    clientSecret: 'm2m-client-secret',
+    fetcher: async (url) => {
+      if (url.endsWith('/.well-known/openid-configuration')) {
+        return { ok: true, json: async () => ({
+          issuer, jwks_uri: `${issuer}/jwks`, introspection_endpoint: `${issuer}/token/introspection`,
+        }) }
+      }
+      if (url.endsWith('/token/introspection')) {
+        concurrentIntrospectionCalls += 1
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        return { ok: true, json: async () => ({ active: true, sub: 'sub-concurrent', aud: audience }) }
+      }
+      return { ok: true, json: async () => ({ keys: [{ ...jwk, kid: 'key-1', alg: 'RS256', use: 'sig' }] }) }
+    },
+  })
+  assert.deepStrictEqual(
+    await Promise.all([
+      concurrentVerifier.verify('opaque-concurrent-token'),
+      concurrentVerifier.verify('opaque-concurrent-token'),
+    ]),
+    [
+      { subject: 'sub-concurrent', scopes: [] },
+      { subject: 'sub-concurrent', scopes: [] },
+    ],
+  )
+  assert.strictEqual(concurrentIntrospectionCalls, 1, '并发请求不得重复调用 introspection endpoint')
+  assert.strictEqual(concurrentVerifier._introspectionInFlight.size, 0, '完成后必须释放 in-flight 状态')
+  console.log('  ✅ Opaque Token 并发 introspection 已合并')
+
+  // 14) auth middleware 将身份依赖故障映射为 503
+  const unavailableMiddleware = createLogtoAuthMiddleware({
+    verifier: {
+      verify: async () => {
+        throw Object.assign(new Error('upstream down'), { code: 'AUTH_INTROSPECTION_UNAVAILABLE' })
+      },
+    },
+  })
+  const unavailableResponse = {
+    status: null,
+    body: '',
+    writeHead(status) { this.status = status },
+    end(body) { this.body = body },
+  }
+  await unavailableMiddleware(
+    { headers: { authorization: 'Bearer opaque-middleware-token' } },
+    unavailableResponse,
+    () => {},
+  )
+  assert.strictEqual(unavailableResponse.status, 503)
+  assert.match(unavailableResponse.body, /AUTH_INTROSPECTION_UNAVAILABLE/)
+  console.log('  ✅ auth middleware 将身份依赖故障映射为 503')
 }
 
 main().catch((error) => {
