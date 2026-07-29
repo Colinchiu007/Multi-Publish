@@ -91,18 +91,48 @@ async function startDevServer() {
 }
 
 // ===== Visual Tests (Phase 2, Simple Mode) =====
-async function runVisualTests() {
+function formatCommandFailure(label, error) {
+  const stderr = error?.stderr?.toString?.().trim();
+  const detail = stderr || error?.message || String(error);
+  return `${label}失败: ${detail}`;
+}
+
+async function runVisualTests(options = {}) {
   if (SKIP_VISUAL) return { type: "visual", summary: { total: 0, passed: 0, failed: 0 }, skipped: true };
+  const appsDir = options.appsDir || APPS_DIR;
+  const reportDir = options.reportDir || REPORT_DIR;
+  const execute = options.execute || execSync;
   log("VISUAL", "启动像素对比测试...");
-  fs.mkdirSync(REPORT_DIR, { recursive: true });
+  fs.mkdirSync(reportDir, { recursive: true });
   try {
-    try { execSync(`cd "${APPS_DIR}" && npm run test:visual:pixel`, { stdio: "pipe", timeout: 120000 }); } catch (_) {}
-    try { execSync(`node "${path.join(APPS_DIR, "tests/visual-testing/scripts/agent-visual-judge.js")}"`, { cwd: APPS_DIR, stdio: "pipe", timeout: 30000 }); } catch (_) {}
-    const diffDir = path.join(APPS_DIR, "tests/visual-testing/reports/pixel-diff");
+    const commandFailures = [];
+    try {
+      execute(`cd "${appsDir}" && npm run test:visual:pixel`, { stdio: "pipe", timeout: 120000 });
+    } catch (error) {
+      commandFailures.push(formatCommandFailure("像素对比测试", error));
+    }
+    try {
+      execute(`node "${path.join(appsDir, "tests/visual-testing/scripts/agent-visual-judge.js")}"`, {
+        cwd: appsDir,
+        stdio: "pipe",
+        timeout: 30000,
+      });
+    } catch (error) {
+      commandFailures.push(formatCommandFailure("Agent 视觉判断", error));
+    }
+
+    const diffDir = path.join(appsDir, "tests/visual-testing/reports/pixel-diff");
     let diffCount = 0;
     if (fs.existsSync(diffDir)) diffCount = fs.readdirSync(diffDir).filter(f => f.endsWith(".png")).length;
-    log("VISUAL", `完成, diffs: ${diffCount}`);
-    return { type: "visual", summary: { total: -1, passed: -1, failed: diffCount }, details: [{ testName: "pixel-diff", status: diffCount > 0 ? "FAILED" : "PASSED" }], diffCount };
+    const error = commandFailures.length > 0 ? commandFailures.join("；") : undefined;
+    log("VISUAL", error ? `失败: ${error}` : `完成, diffs: ${diffCount}`);
+    return {
+      type: "visual",
+      summary: { total: -1, passed: -1, failed: diffCount },
+      details: [{ testName: "pixel-diff", status: diffCount > 0 || error ? "FAILED" : "PASSED" }],
+      diffCount,
+      ...(error ? { error } : {}),
+    };
   } catch (e) { log("VISUAL", `失败: ${e.message}`); return { type: "visual", summary: { total: 0, passed: 0, failed: 0 }, details: [], error: e.message }; }
 }
 
@@ -143,26 +173,31 @@ function classifyCoverageResult(coverageResult) {
   return "FAIL";
 }
 
-function isValidFailureCount(value) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+function isValidCount(value) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
 function evaluateRunResults(visualResult, coverageResult, functionalResult) {
   const visualFail = !visualResult || Boolean(visualResult.error) || (
     visualResult.skipped !== true
     && (
-      !isValidFailureCount(visualResult.diffCount)
-      || !isValidFailureCount(visualResult.summary?.failed)
+      !isValidCount(visualResult.diffCount)
+      || !isValidCount(visualResult.summary?.failed)
       || visualResult.diffCount > 0
       || visualResult.summary.failed > 0
     )
   );
   const coverageStatus = classifyCoverageResult(coverageResult);
+  const functionalSummary = functionalResult?.summary;
   const functionalFail = !functionalResult || Boolean(functionalResult.error) || (
     functionalResult.skipped !== true
     && (
-      !isValidFailureCount(functionalResult.summary?.failed)
-      || functionalResult.summary.failed > 0
+      !isValidCount(functionalSummary?.total)
+      || functionalSummary.total === 0
+      || !isValidCount(functionalSummary?.passed)
+      || !isValidCount(functionalSummary?.failed)
+      || functionalSummary.passed + functionalSummary.failed !== functionalSummary.total
+      || functionalSummary.failed > 0
     )
   );
   const exitCodes = [];
@@ -428,4 +463,5 @@ module.exports = {
   generateReport,
   main,
   startDevServer,
+  runVisualTests,
 };

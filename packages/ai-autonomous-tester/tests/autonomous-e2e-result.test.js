@@ -8,10 +8,11 @@ const {
   classifyCoverageResult,
   evaluateRunResults,
   generateReport,
+  runVisualTests,
 } = require('../scripts/run-autonomous-e2e');
 
 const visualPass = { diffCount: 0, summary: { failed: 0 } };
-const functionalPass = { summary: { failed: 0 } };
+const functionalPass = { summary: { total: 1, passed: 1, failed: 0 } };
 
 describe('自主 E2E 结果合同', () => {
   it('无模型 prompt 包必须标记 NEED_HUMAN 并返回非零', () => {
@@ -97,6 +98,31 @@ describe('自主 E2E 结果合同', () => {
     );
   });
 
+  it('视觉命令非零退出时即使没有 diff 文件也必须阻断', async (t) => {
+    const appsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autonomous-visual-command-'));
+    let commandCount = 0;
+
+    t.after(() => fs.rmSync(appsDir, { recursive: true, force: true }));
+
+    const result = await runVisualTests({
+      appsDir,
+      reportDir: path.join(appsDir, 'reports'),
+      execute() {
+        commandCount += 1;
+        throw new Error(`命令 ${commandCount} 失败`);
+      },
+    });
+
+    assert.equal(commandCount, 2, '像素测试失败后仍应运行 Agent 诊断');
+    assert.equal(result.diffCount, 0, '测试夹具刻意不生成 diff 文件');
+    assert.match(result.error, /像素对比测试失败: 命令 1 失败/);
+    assert.match(result.error, /Agent 视觉判断失败: 命令 2 失败/);
+    assert.deepEqual(
+      evaluateRunResults(result, { _verdict: { decision: 'PASS' } }, functionalPass).exitCodes,
+      ['VISUAL_FAIL'],
+    );
+  });
+
   it('视觉或功能阶段的未知和畸形结果必须 fail closed', () => {
     const coverage = { _verdict: { decision: 'PASS' } };
 
@@ -113,6 +139,21 @@ describe('自主 E2E 结果合同', () => {
       evaluateRunResults(visualPass, coverage, { summary: { failed: Number.NaN } }).exitCodes,
       ['FUNCTIONAL_FAIL'],
     );
+  });
+
+  it('功能阶段必须证明至少执行一个测试且汇总自洽', () => {
+    const coverage = { _verdict: { decision: 'PASS' } };
+
+    for (const functional of [
+      { summary: { total: 0, passed: 0, failed: 0 } },
+      { summary: { total: 2, passed: 1, failed: 0 } },
+      { summary: { total: 1, passed: 2, failed: 0 } },
+    ]) {
+      assert.deepEqual(
+        evaluateRunResults(visualPass, coverage, functional).exitCodes,
+        ['FUNCTIONAL_FAIL'],
+      );
+    }
   });
 
   it('显式跳过覆盖审计不应伪造裁决，也不阻断其他成功阶段', () => {

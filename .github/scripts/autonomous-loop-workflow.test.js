@@ -54,6 +54,16 @@ test('自主循环只响应指定 PR 标签，并以只读凭据运行 PR 代码
   assert.doesNotMatch(source, /github\.event\.inputs\.functional\s*\|\|\s*'true'/);
 });
 
+test('PR 标签运行覆盖自主测试器及其 workflow 合同变更', () => {
+  const workflow = readWorkflow(autonomousLoopPath);
+
+  assert.deepEqual(
+    [...workflow.on.pull_request.paths].sort(),
+    [...workflow.on.push.paths].sort(),
+    'PR 与 main push 必须对同一组自主测试相关路径触发',
+  );
+});
+
 test('自主循环只产出待审 artifacts，不自动提交或推送工作树内容', () => {
   const source = fs.readFileSync(autonomousLoopPath, 'utf8');
   const workflow = readWorkflow(autonomousLoopPath);

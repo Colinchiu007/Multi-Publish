@@ -4967,7 +4967,7 @@ runner 工作树纳入自动提交候选。
   再以零失败数冒充成功。
 - `generateReport()` 直接写入归一化的 `coverageStatus`、`exitCodes`、`overall`，Markdown 主 Verdict 始终显示归一化
   状态，冲突的原始 decision 仅作为诊断行；`main()` 复用同一 evaluation 并返回非零，不再维护第三套判断。
-- 回归测试首轮 6/6 RED，最终 10/10 GREEN；包级 165/165、workflow 合同 19/19、GUI 合同 31/31、Fault 14/14、
+- 回归测试首轮 6/6 RED，合入前复审再补 3 类红灯，最终 12/12 GREEN；包级 167/167、workflow 合同 25/25、GUI 合同 31/31、Fault 14/14、
   Monkey 5/5，`npm pack --dry-run` 为 44 个文件。
 - GitHub Quality Gate `30434647574` 的 Gate 1-9 全部成功；受控 dispatch `30436205736` 在 Vite 就绪、视觉 diff 0、
   报告与 cleanup 均完成后，以 `NEED_HUMAN` / `COVERAGE_NEED_HUMAN` 返回 1。artifact JSON 与 Markdown 均保留该
@@ -4981,6 +4981,26 @@ runner 工作树纳入自动提交候选。
 3. 任何 CI 绿色结论都要区分基础设施、测试执行和业务裁决；Vite 就绪、像素无 diff、进程退出 0 均不能替代明确 verdict。
 4. `autonomous-e2e-result.test.js` 纳入包级测试，固定覆盖明确 PASS/FAIL、prompt、矛盾/未知结果、畸形或基础设施错误、
    纯跳过，以及 JSON/Markdown 报告与退出裁决一致性。
+
+#### 合入前复审补充：视觉命令与功能零执行仍可假绿
+
+**第一性原因**：`git blame` 定位到 `8536261c`。该提交在简单模式中用两个空 `catch` 吞掉像素测试和 Agent
+视觉判断的非零退出，随后只统计 `pixel-diff` 目录中的 PNG 数；命令在生成 diff 前崩溃时会得到 `diffCount=0`。
+后续 `8ef0c7d` 虽统一了结果 evaluator，但功能阶段只检查 `summary.failed`，因此 `{total: 0, passed: 0,
+failed: 0}` 或不自洽汇总仍可通过。
+
+**逃逸链与系统性漏洞**：单元测试只直接构造 `error` 结果，没有让真实 `runVisualTests()` 的命令执行器抛错；集成
+测试覆盖已形成的 diff 和显式失败，没有覆盖命令在产物生成前退出；PR workflow 的 `paths` 又未包含 tester 包和 workflow
+自身，相关修复即使加标签也可能不创建 autonomous-loop job。根本漏洞是把“没有失败产物”等同于“测试成功”，且执行证据、
+结果汇总和 workflow 触发范围没有同一份合同。
+
+**修复与回归保护**：视觉阶段继续执行两条命令以保留诊断产物，但收集任一命令的 stderr/message 并写入 `error`，统一
+evaluator 因此返回 `VISUAL_FAIL`；功能阶段要求非负整数汇总、`total > 0` 且 `passed + failed === total`。新增回归先稳定
+得到三类 RED，再达到结果合同 12/12、包级 167/167；workflow 合同要求 PR 与 push 使用相同路径集合，专项合同 6/6。
+
+**预防措施**：外部测试命令的退出状态是一等执行证据，禁止空 `catch` 后仅根据产物目录推断成功；任何启用的测试阶段
+必须证明至少执行一个用例并校验汇总守恒；修改测试 runner、workflow 或其合同文件时，PR 与 main push 必须同样触发检查。
+显式禁用阶段仍可返回纯 `skipped`，但不得携带错误、裁决或伪造通过数。
 
 ---
 

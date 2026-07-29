@@ -45,6 +45,10 @@ on:
     paths:
       - "apps/desktop/src/**"
       - "apps/desktop/tests/visual-testing/**"
+      - "packages/ai-autonomous-tester/**"
+      - "01-docs/PRD.md"
+      - ".github/workflows/autonomous-loop.yml"
+      - ".github/scripts/autonomous-loop-workflow.test.js"
 
 permissions:
   contents: read
