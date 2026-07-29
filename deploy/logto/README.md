@@ -31,7 +31,7 @@ Compose 会等待 PostgreSQL `pg_isready` 成功，再启动 Logto。Logto 容�
 
 Logto 1.41.0 虽把 Webhook `retry.limit` 默认设为 3，但其 Ky 1.2.3 默认可重试方法不含 `POST`。基础 `docker-compose.yml` 继续固定官方 `svhd/logto:1.41.0`，作为明确回滚路径；生产需要让 POST 按 Ky 默认集合重试 HTTP 408/429/500/502/503/504、带 `Retry-After` 的 413 以及非超时网络错误时，才叠加 `docker-compose.webhook-retry.yml`。派生 Dockerfile 同时绑定 ECS 已验收的镜像 manifest digest 和运行时文件 SHA-256；补丁脚本还要求目标文件数和片段次数唯一，任一漂移都在镜像构建阶段 fail closed。白名单式 `.dockerignore` 只允许 Dockerfile 与补丁脚本进入 build context，`.env`、`api.env`、备份和其他运维文件不会发送给 Docker daemon。
 
-以下命令从 `deploy/logto` 目录执行。构建日志必须包含补丁前后 SHA-256；构建成功后仅重建 Logto 服务，不重建 PostgreSQL：
+以下命令从 `deploy/logto` 目录执行。补丁脚本只允许由 Dockerfile 的单个 `RUN` 在隔离构建层中执行；禁止通过 `docker exec` 修改运行中容器，也禁止多个进程并发修改同一 `buildDirectory`。补丁或原字节恢复失败时必须让 Docker build 失败并丢弃该层，不得把中间文件系统当成交付产物。构建日志必须包含补丁前后 SHA-256；构建成功后仅重建 Logto 服务，不重建 PostgreSQL：
 
 ```text
 docker compose -f docker-compose.yml -f docker-compose.webhook-retry.yml --env-file .env build --no-cache logto
@@ -40,6 +40,8 @@ docker compose -f docker-compose.yml -f docker-compose.webhook-retry.yml --env-f
 ```
 
 切换后必须验证 OIDC discovery、业务 API `/ready` 和 production smoke，再用独立 signing key 的临时 Hook 做 `503 -> 503 -> 204` 黑盒探针，确认收到三次签名有效的真实 POST。Ky 1.2.3 明确不重试自身的 `TimeoutError`，因此不能用数据库锁、10 秒超时或客户端主动断开替代该 HTTP 状态码探针。
+
+2026-07-29 的 ECS 验收已按上述流程完成：只重建 Logto，PostgreSQL 与业务 API 未重建；三个容器保持 healthy，公网 production smoke 六项通过。临时 Hook 在 `06:17:09.978Z`、`06:17:10.322Z`、`06:17:10.934Z` 收到三次 HMAC 有效 POST，依次返回 `503 -> 503 -> 204`。验收后 Nginx、临时 Hook、用户、权限关系、监听进程和临时目录均恢复或删除。该记录只关闭 HTTP 状态码重试门禁，不关闭 `TimeoutError` 风险。
 
 如构建、启动、健康检查或探针失败，只加载基础 Compose 即回到官方镜像；该命令不会删除 `logto-postgres` 卷：
 
@@ -144,7 +146,7 @@ docker inspect --format "{{json .State.Health}}" multi-publish-logto-logto-1
 docker compose down
 ```
 
-生产就绪架构、备份校验、恢复状态机器门禁、监控和灰度回滚步骤见 `01-docs/ARCH-F14-LOGTO-PRODUCTION-READINESS.md` 和 `01-docs/TEST-PLAN-LOGTO-PRODUCTION.md`。真实恢复必须提供备份目录之外的 `--state-file`，切换前运行 `postgres-restore.js --verify-state`。2026-07-28 的最终 Windows 包已完成同账号登录、`free` entitlement、重启恢复、重新认证和退出 UAT；真正 A→B、refresh token 轮换、Webhook、最新业务 API 镜像部署与 Required 灰度仍保持 `PENDING_EXTERNAL`。
+生产就绪架构、备份校验、恢复状态机器门禁、监控和灰度回滚步骤见 `01-docs/ARCH-F14-LOGTO-PRODUCTION-READINESS.md` 和 `01-docs/TEST-PLAN-LOGTO-PRODUCTION.md`。真实恢复必须提供备份目录之外的 `--state-file`，切换前运行 `postgres-restore.js --verify-state`。2026-07-28 的最终 Windows 包已完成同账号登录、`free` entitlement、重启恢复、重新认证和退出 UAT；2026-07-29 已完成 Webhook Created/Deleted 与 HTTP 503 POST 重试验收。真正 A→B、refresh token 轮换、主 Hook 更新/暂停与真实乱序、Ky `TimeoutError` 补偿、最新业务 API 镜像部署与 Required 灰度仍保持 `PENDING_EXTERNAL`。
 
 `docker compose down` 不会删除 PostgreSQL 卷。只有确认完成备份且需要销毁租户数据时，才显式执行 `docker compose down -v`。
 

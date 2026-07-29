@@ -4837,7 +4837,7 @@ canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC
 
 ### 现象
 
-生产 A→B 与 Webhook 验收中，业务接收端对 Logto Webhook 首次返回可重试 HTTP 失败时，没有观察到后续
+生产 Webhook 验收中，业务接收端对 Logto Webhook 首次返回可重试 HTTP 失败时，没有观察到后续
 POST。正常 2xx 投递、HMAC 验签和业务消费者幂等均可用，因此问题只在发送端故障恢复路径出现，不影响
 OIDC 登录、Token 或正常请求。
 
@@ -4886,6 +4886,27 @@ OIDC 登录、Token 或正常请求。
   打开前拒绝十类场景；所有拒绝场景均验证原目标不被错误覆盖。
 - `logto-deploy-contract.test.js` 固定官方基础镜像、最小叠加层、Dockerfile 不覆盖上游
   `ENTRYPOINT/CMD/USER/WORKDIR`，并要求 README 与 Runbook 同时保留构建、切换和官方镜像回滚命令。
+
+### 生产验收结果
+
+- ECS 使用基础 RepoDigest `sha256:7f79547e3d1fe569a3ecae757968a7cfc579687aa8164eec35113c0adc983c5b`
+  构建派生镜像 `multi-publish-logto:1.41.0-webhook-post-retry.1`，镜像 ID 为
+  `sha256:9e946d21842f45670e4478eb38b51fa1a565586ac0f2ccf16999d45fda92b0a6`。运行时文件补丁后
+  SHA-256 为 `5108a3c6f3e60a627d32351687368cbf4510743b87ba7fbcad33e7fb7bcbb55e`，旧片段 0 次、
+  新片段恰好 1 次。
+- `2026-07-29T05:22:31Z` 到 `05:23:07Z` 仅重建 Logto；PostgreSQL 与业务 API 未重建。三个容器
+  均保持 healthy，本机 discovery、`/api/v1/ready` 与公网 production smoke 六项通过，Shadow 开关仍为
+  `IDENTITY_AUTH_ENABLED=true`、`IDENTITY_AUTH_REQUIRED=false`。
+- 独立临时 Hook 在 `06:17:09.978Z`、`06:17:10.322Z`、`06:17:10.934Z` 收到三次真实 POST，
+  HMAC 均有效、payload 哈希一致，接收端依次返回 `503 -> 503 -> 204`。这关闭了发送端 HTTP 状态码
+  重试门禁，但没有证明 Ky `TimeoutError` 会重试。
+- 主业务 Hook 同时将验收主体的 `User.Created` 与 `User.Deleted` 处理为 `processed`；业务库最终状态
+  `deleted`、活跃会话 0，删除 tombstone 为抵抗乱序旧事件而保留。验收后 Logto 用户数 `3 -> 3`、Hook
+  数 `1 -> 1`，临时角色关联、Hook、用户、Nginx 路径、21676 监听、systemd 单元、容器审计脚本和远端
+  临时目录均为 0，Management Resource TTL 保持 3600。
+- 该脚本的安全边界是 Dockerfile 单个 `RUN` 的隔离构建层，不支持通过 `docker exec` 在线修改容器，也不
+  支持多个进程并发写同一运行时目录。写入或原字节恢复失败时依靠 Docker build 非零退出丢弃整个层；
+  不能把失败层的文件状态复制出来继续部署。
 
 ### 预防措施
 
