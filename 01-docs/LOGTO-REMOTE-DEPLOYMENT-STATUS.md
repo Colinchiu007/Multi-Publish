@@ -1,11 +1,11 @@
-# Logto 远程部署与生产验收记录（更新于 2026-07-28）
+# Logto 远程部署与生产验收记录（更新于 2026-07-29）
 
 ## 部署结果
 
 - ECS：`39.105.42.85`；SSH 私钥仅在本机安全存储，不写入仓库。
 - Docker Engine `26.1.3` + Compose `v2.27.0` 已安装。
 - 部署目录：`/srv/projects/Multi-Publish/deploy/logto`。
-- Logto `1.41.0` 与 PostgreSQL `16-alpine` 均为 `healthy`。
+- Logto `1.41.0` 已使用哈希绑定的 Webhook POST 重试派生镜像，PostgreSQL `16-alpine` 未重建，二者均为 `healthy`。
 - 业务 API 容器已部署并为 `healthy`；`/api/v1/health` 与 `/api/v1/ready` 均经公网验证。
 - Logto 仅绑定 `127.0.0.1:3021`，Admin Console 仅绑定 `127.0.0.1:3022`。
 - 阿里云 DNS A 记录：`auth.iart.work -> 39.105.42.85`，TTL 600 秒。
@@ -28,7 +28,11 @@
 - Nginx 配置检查通过，公网 443 可访问，三个容器健康。
 - `production-smoke.js` 的 discovery、JWKS、health、ready 与 Nginx 路径分离检查全部通过。
 - `/api/v1/ready` 的 database、schema、oidc、jwks、introspection 均为 `ready`。
-- ECS 根文件系统约 `49G`，可用约 `16G`，使用率约 `68%`，已满足至少 `5GiB` 且 `10%` 可用的发布门槛。
+- 2026-07-29 最终审计中，ECS 根文件系统约 `49G`，可用约 `15.2GiB`、可用比例 `32%`，已满足至少 `5GiB` 且 `10%` 可用的发布门槛。
+- Webhook 派生镜像 ID 为 `sha256:9e946d21842f45670e4478eb38b51fa1a565586ac0f2ccf16999d45fda92b0a6`；运行时文件补丁前后 SHA-256 分别为 `77441c2d030d064343cfb22aa61b0e0ed45bff8fb33a1d4ce2beed6a8f1c752c` 与 `5108a3c6f3e60a627d32351687368cbf4510743b87ba7fbcad33e7fb7bcbb55e`。
+- 临时 Hook 在 `2026-07-29T06:17:09.978Z`、`06:17:10.322Z`、`06:17:10.934Z` 收到三次 HMAC 有效 POST，响应序列为 `503 -> 503 -> 204`；该结果不包含 Ky `TimeoutError`。
+- 主业务 Hook 对验收主体的 `User.Created`、`User.Deleted` 均处理成功；最终业务状态为 `deleted`、活跃会话 0，删除 tombstone 按防乱序合同保留。
+- 验收后 Nginx 恢复原配置 SHA，临时 Hook、Logto 用户、角色关联、监听端口、systemd 单元、容器审计脚本和远端临时目录均无残留；Logto 用户数 `3 -> 3`、Hook 数 `1 -> 1`、Management Resource TTL 3600。
 
 ## 管理控制台
 
@@ -59,5 +63,5 @@ ssh -i <本机私钥路径> -L 3022:127.0.0.1:3022 root@39.105.42.85
 
 1. 使用两个不同主体完成真正 A→B 账号切换与 owner/entitlement 隔离验收，并单独验证 refresh token 轮换；同账号重新认证不能替代。
 2. 将本分支业务 API entitlement 代码构建并部署到 ECS，重新运行 migration、`/ready` 与 production smoke；当前远端镜像仍是合并前版本。
-3. 配置并完成真实 Webhook 创建、更新、暂停、删除、重试和乱序验收；完成前保持 `IDENTITY_AUTH_REQUIRED=false`。
+3. Webhook 临时创建/删除、主 Hook Created/Deleted 和 HTTP 503 重试已完成；仍需验证主 Hook 更新/暂停、生产真实乱序，以及为 Ky `TimeoutError` 选择升级或持久化补偿。完成这些门禁前保持 `IDENTITY_AUTH_REQUIRED=false`。
 4. 若启用手机验证码，在 Logto 中接入选定的短信 connector；短信供应商不属于当前部署范围。
