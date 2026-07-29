@@ -4969,6 +4969,9 @@ runner 工作树纳入自动提交候选。
   状态，冲突的原始 decision 仅作为诊断行；`main()` 复用同一 evaluation 并返回非零，不再维护第三套判断。
 - 回归测试首轮 6/6 RED，最终 10/10 GREEN；包级 165/165、workflow 合同 19/19、GUI 合同 31/31、Fault 14/14、
   Monkey 5/5，`npm pack --dry-run` 为 44 个文件。
+- GitHub Quality Gate `30434647574` 的 Gate 1-9 全部成功；受控 dispatch `30436205736` 在 Vite 就绪、视觉 diff 0、
+  报告与 cleanup 均完成后，以 `NEED_HUMAN` / `COVERAGE_NEED_HUMAN` 返回 1。artifact JSON 与 Markdown 均保留该
+  归一化状态，workflow 顶层红灯是 fail-closed 合同的预期结果。
 
 #### 预防措施
 
