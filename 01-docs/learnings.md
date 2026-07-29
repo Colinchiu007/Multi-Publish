@@ -4928,4 +4928,55 @@ runner 工作树纳入自动提交候选。
 3. Windows 进程清理回归必须包含一个无关同名进程哨兵；只断言命令字符串不足以证明没有误杀。
 4. workflow 从编译失败恢复后必须继续做一次真实 dispatch；“已创建 job”只关闭编译缺陷，不能替代 job 内运行验收。
 
+### 后续裁决 Bug：无模型 prompt 包被误报为 PASS
+
+#### 第一性原因
+
+- 真实运行 `30431180830` 已证明 Vite 约 1 秒就绪、视觉 diff 为 0，并执行 `[CLEAN] 关闭 Vite`；因此进程生命周期
+  修复有效。但该 run 没有 `OPENAI_API_KEY`，不能据此宣称需求覆盖审计通过。
+- `RequirementsTestRunner` 在没有 LLM 时返回外层 `_mode: "agent-required"`、内层
+  `_verdict._mode: "prompt"`。`git blame/show` 定位到 `8536261c`：简单模式的报告和退出码分别检查
+  `_verdict.decision` 与错误的外层 `_mode === "prompt"`，没有识别真实 prompt 结构。
+- 两套重复逻辑都把“没有看到明确 FAIL”当作 PASS，导致 JSON/Markdown 报告写入 `overall: "PASS"`、脚本返回 0，
+  workflow 又按 `LOOP_EXIT=0` 报告绿色。这是语义假绿，不是 Vite 或 GitHub Runner 再次失败。
+
+#### Bug 逃逸链
+
+1. **单元测试**：`requirements-runner.test.js` 已断言 `agent-required`，`AgentJudge` 测试也知道 prompt 模式，但没有测试
+   CLI 如何把该结构映射为报告和退出码。
+2. **集成测试**：多轮 `AIAnalyzer` 能把 prompt 映射为 `NEED_HUMAN`，简单模式却绕过它并复制两份判定，两个路径没有
+   共用裁决合同。
+3. **端到端测试**：workflow 最终步骤只严格解析 `LOOP_EXIT`，没有能力纠正上游脚本错误返回的 0；首次跑通 Vite 后
+   才出现足以检查语义结果的真实日志与报告。
+4. **视觉回归**：diff 为 0 只说明像素结果稳定，不能替代需求覆盖的模型或人工裁决。
+5. **代码审查**：审查关注了 workflow 能否创建 job、Vite 是否存活和 cleanup 是否误杀，没有追问“整体 PASS 是否存在
+   明确的覆盖 verdict”这一不变量。
+
+#### 系统性漏洞
+
+该问题属于**裁决单一来源缺失 + 结果结构契约遗漏 + 进程成功与审计成功混淆**。同一个覆盖结果由日志、报告和主流程
+分别解释；任一解释遗漏嵌套 prompt 结构，就会让展示状态与退出状态漂移。绿色 workflow 只能证明脚本返回 0，不能反向
+证明脚本的业务裁决正确。
+
+#### 修复与回归保护
+
+- 新增 `classifyCoverageResult()`：显式 `PASS` 才通过，明确 `FAIL`、错误或未知结果均 fail closed；外层
+  `agent-required`、内层 prompt 或明确 `NEED_HUMAN` 统一归类为 `NEED_HUMAN`；只有不携带错误或裁决的纯
+  `skipped` 不阻断，矛盾状态一律失败。
+- 新增 `evaluateRunResults()`，统一计算视觉、覆盖和功能阶段的 `exitCodes` 与 `overall`；畸形结果和基础设施错误也不能
+  再以零失败数冒充成功。
+- `generateReport()` 直接写入归一化的 `coverageStatus`、`exitCodes`、`overall`，Markdown 主 Verdict 始终显示归一化
+  状态，冲突的原始 decision 仅作为诊断行；`main()` 复用同一 evaluation 并返回非零，不再维护第三套判断。
+- 回归测试首轮 6/6 RED，最终 10/10 GREEN；包级 165/165、workflow 合同 19/19、GUI 合同 31/31、Fault 14/14、
+  Monkey 5/5，`npm pack --dry-run` 为 44 个文件。
+
+#### 预防措施
+
+1. 自主测试的日志、报告和退出码必须来自同一 evaluator；禁止各层重新解释 `_mode` 或 `_verdict`。
+2. prompt 包在生产脚本源头必须返回非零并标记 `NEED_HUMAN`。上层门禁若允许“无 Key 时仅告警”，必须读取同一轮
+   一致的 `NEED_HUMAN` 报告后显式降级，不能伪造 PASS。
+3. 任何 CI 绿色结论都要区分基础设施、测试执行和业务裁决；Vite 就绪、像素无 diff、进程退出 0 均不能替代明确 verdict。
+4. `autonomous-e2e-result.test.js` 纳入包级测试，固定覆盖明确 PASS/FAIL、prompt、矛盾/未知结果、畸形或基础设施错误、
+   纯跳过，以及 JSON/Markdown 报告与退出裁决一致性。
+
 ---
