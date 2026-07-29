@@ -313,6 +313,7 @@ Workflow: utonomous-loop.yml
 - **修复脚本**：生成 uto-fix-commands.bat 和 patches/*.patch 供 Agent 执行
 - **报告**：每轮输出 JSON + Markdown 报告，归档 artifacts
 - **权限**：PR 使用只读 checkout，不注入模型密钥，也不自动 commit/push
+- **进程隔离**：Vite 固定监听 `127.0.0.1` 且启用 strict port；清理仅终止当前运行创建的 PID 树
 
 `yaml
 # 手动触发

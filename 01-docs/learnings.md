@@ -4878,4 +4878,54 @@ runner 工作树纳入自动提交候选。
 3. 自动化不得直接提交视觉基线；只允许生成待审 artifacts，由人工查看 diff 后更新基线。
 4. 遇到 Actions 即时失败且 `jobs=[]` 时，优先检查 workflow 编译/解析，而不是等待不存在的 step 日志。
 
+### 后续运行期 Bug：Windows Runner 被全局 taskkill 终止
+
+#### 第一性原因
+
+- workflow 编译修复后，真实手动运行 `30423812727` 已创建 job `90485807072`，checkout、依赖安装、
+  Playwright、Vue build 和 artifacts 均正常；日志在“启动 Vite dev server”后立即结束并写入退出码 1。
+- `git blame/show` 定位到 `fb45e3b` 首次创建统一 E2E 脚本，`8536261c` 重构时保留缺陷。启动与清理都执行
+  `taskkill /F /IM node.exe /T`。注释声称清理占用端口的进程，命令却按镜像名终止整台 Windows runner 上的
+  所有 Node 进程，其中包含 GitHub Actions Runner 当前进程本身。
+- 这不是原零-job编译问题的延续：前者发生在 GitHub 构造 job 之前；本问题发生在真实 job 已启动、执行到
+  autonomous tester 后。两者必须分别归因和验收。
+
+#### Bug 逃逸链
+
+1. **单元测试**：ai-autonomous-tester 既有测试只覆盖抽出的参数和报告纯函数，没有加载
+   `run-autonomous-e2e.js`，也没有验证启动/清理的进程所有权。
+2. **集成测试**：脚本末尾无条件执行 `main()`，导致它无法被测试安全 `require`；既有 Windows taskkill 合同
+   只扫描部分 workflow 文本，没有扫描真实执行脚本。
+3. **端到端测试**：YAML 损坏长期让 run 停在 `jobs=[]`，因此 runner 内的进程误杀路径从未被执行；编译修复后
+   第一轮真实 dispatch 才把第二层缺陷暴露出来。
+4. **视觉回归**：Node Runner 在 Vite 就绪前已被终止，视觉测试根本没有机会启动，无法承担进程边界门禁。
+5. **代码审查**：注释“清理端口”与 `/IM node.exe` 的实际全局语义矛盾，但引入和重构审查都没有按 PID、父子树
+   和无关进程三个维度验证 Windows 命令。
+
+#### 系统性漏洞
+
+该问题属于**进程所有权边界缺失 + 真实 Runner 场景缺失 + 审查语义盲区**。脚本把“本次创建的 Vite 子进程”
+错误建模为“机器上的全部 Node 进程”，同时没有 strict port、提前退出监听或有界 HTTP 探针，端口冲突与启动
+失败也只能在长超时后得到低质量错误。
+
+#### 修复与回归保护
+
+- 新增 `dev-server-controller.js`：启动只记录本次 `spawn` 返回的进程；Windows 使用
+  `taskkill /PID <pid> /T /F`，POSIX 使用独立进程组；任何路径都不再按镜像名终止 Node。
+- Vite 固定 `--host 127.0.0.1 --port <port> --strictPort`，端口冲突 fail closed，不允许自动漂移到另一个端口
+  后误连旧服务；子进程提前退出会立即带出 stderr 和退出状态。
+- HTTP readiness 即使自身悬空也受总 deadline 约束；启动失败自动清理。终止命令和回退都未生效时明确报错，
+  不以“清理完成”掩盖残留进程。
+- 脚本改为 `require.main === module` 才执行，并以返回退出码配合 `finally` 等待清理，允许单元测试安全加载。
+- 新增 8 个回归用例；其中真实 Windows 用例同时启动受管 Node 与无关 Node 哨兵，确认只终止受管 PID 树，
+  哨兵仍可接收信号 0。
+
+#### 预防措施
+
+1. 任何启动外部服务的 CI 脚本必须保存自身 child handle/PID；禁止使用 `/IM node.exe`、`pkill node` 等按名称
+   全局清理命令。
+2. 服务启动合同必须同时覆盖固定 host、strict port、提前退出、探针悬空超时、重复清理和清理失败 fail closed。
+3. Windows 进程清理回归必须包含一个无关同名进程哨兵；只断言命令字符串不足以证明没有误杀。
+4. workflow 从编译失败恢复后必须继续做一次真实 dispatch；“已创建 job”只关闭编译缺陷，不能替代 job 内运行验收。
+
 ---

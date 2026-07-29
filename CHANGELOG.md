@@ -3,11 +3,14 @@
 ### 修复
 - 修复 `.github/workflows/autonomous-loop.yml` 的 YAML 块缩进和残缺 PowerShell，消除 GitHub Actions 即时失败且无 job/log 的问题。
 - 最终状态改为严格解析 `LOOP_EXIT`；缺失、非法或非零退出码均 fail closed。
+- 修复 autonomous E2E 启动和清理阶段按镜像名终止全部 `node.exe`、连带杀死 Windows Runner 的问题；现在只终止本次创建的 Vite PID 树。
+- Vite 启动固定使用 `127.0.0.1` 与 `--strictPort`，提前退出、探针悬空和清理失败均提供明确且有界的失败结果。
 
 ### 安全与质量
 - PR 运行改为只读 checkout，且仅 `autonomous-loop` 标签触发；PR 不再获得模型密钥。
 - 自动生成的报告、截图、基线候选和补丁只上传 artifacts，取消 `git add -A`、自动 commit/push 和空提交，保留人工审核基线合同。
 - 新增全量 workflow YAML 解析与 autonomous-loop 行为合同，并接入 `quality-gate`。
+- 新增受管进程生命周期合同和真实 Windows 无关 Node 哨兵回归；脚本仅在作为入口执行时运行，测试加载不再触发 E2E 副作用。
 
 ---
 

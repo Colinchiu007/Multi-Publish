@@ -19,7 +19,8 @@
 
 const path = require("path");
 const fs = require("fs");
-const { spawn, execSync } = require("child_process");
+const { execSync } = require("child_process");
+const { createDevServerController } = require("../src/dev-server-controller");
 
 const ROOT = path.resolve(__dirname, "../..", "..");
 const APPS_DIR = path.join(ROOT, "apps/desktop");
@@ -60,7 +61,7 @@ const FUNCTIONAL_TARGETS = (() => {
   return ["navigation", "login", "publish", "accounts", "settings"];
 })();
 
-let viteProcess = null;
+let devServerController = null;
 
 // ===== Logging =====
 function log(tag, msg) { const ts = new Date().toISOString().slice(11, 19); console.log(`[${ts}] [${tag}] ${msg}`); }
@@ -76,15 +77,17 @@ async function startDevServer() {
   if (SKIP_SERVER) { log("SKIP", "跳过 dev server"); return; }
   log("SERVER", `启动 Vite dev server (port ${TARGET_PORT})...`);
   if (!fs.existsSync(DEV_DIR)) throw new Error(`Dev dir not found: ${DEV_DIR}`);
-  try { execSync("taskkill /F /IM node.exe /T 2>nul", { stdio: "ignore" }); } catch (_) {}
-  viteProcess = spawn("npx", ["vite", "--port", TARGET_PORT], { cwd: DEV_DIR, stdio: ["ignore", "pipe", "pipe"], shell: true });
-  viteProcess.stderr.on("data", d => { const s = d.toString(); if (s.includes("Error")) log("VITE", s.trim().slice(0, 120)); });
+  devServerController = createDevServerController({
+    cwd: DEV_DIR,
+    port: TARGET_PORT,
+    maxWaitMs: MAX_WAIT * 1000,
+    onStderr: (text) => {
+      if (text.includes("Error")) log("VITE", text.trim().slice(0, 120));
+    },
+  });
   log("SERVER", `等待 Vite 就绪 (最多 ${MAX_WAIT}s)...`);
-  for (let i = 1; i <= MAX_WAIT; i++) {
-    await sleep(1000);
-    try { const resp = await fetch(TEST_URL, { method: "HEAD" }); if (resp.ok || resp.status === 304) { log("SERVER", `就绪 (${i}s)`); return; } } catch (_) {}
-  }
-  throw new Error(`Vite 未能在 ${MAX_WAIT}s 内启动`);
+  await devServerController.start();
+  log("SERVER", "Vite 已就绪");
 }
 
 // ===== Visual Tests (Phase 2, Simple Mode) =====
@@ -243,11 +246,12 @@ function generateReport(visualResult, coverageResult, functionalResult) {
 }
 
 // ===== Cleanup =====
-function cleanup() {
-  if (viteProcess) {
+async function cleanup() {
+  if (devServerController) {
     log("CLEAN", "关闭 Vite...");
-    try { viteProcess.kill("SIGTERM"); execSync("taskkill /F /IM node.exe /T 2>nul", { stdio: "ignore" }); } catch (_) {}
-    viteProcess = null;
+    const controller = devServerController;
+    devServerController = null;
+    await controller.stop();
   }
 }
 
@@ -281,9 +285,12 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ===== Main =====
 async function main() {
-  process.on("exit", cleanup);
-  process.on("SIGINT", () => { cleanup(); process.exit(1); });
-  process.on("SIGTERM", () => { cleanup(); process.exit(1); });
+  const handleSignal = async () => {
+    await cleanup();
+    process.exit(1);
+  };
+  process.once("SIGINT", handleSignal);
+  process.once("SIGTERM", handleSignal);
 
   logBox("自主测试端到端循环 v0.12.0", [
     `模式: ${ENABLE_MULTI_ROUND ? "多轮循环" : "单次直通"}`, `迭代: ${MAX_ITERATIONS}`,
@@ -320,8 +327,7 @@ async function main() {
         fs.writeFileSync(fixScriptPath, fixLines.join("\r\n"));
         log("FIX", "修复脚本已生成: " + fixScriptPath);
       }
-      process.exit(success ? 0 : 1);
-      return;
+      return success ? 0 : 1;
     }
 
     // === SIMPLE MODE ===
@@ -343,10 +349,19 @@ async function main() {
 
     const status = exitCodes.length === 0 ? "PASS" : exitCodes.join(" + ");
     logBox("完成", [`状态: ${status}`]);
-    process.exit(exitCodes.length === 0 ? 0 : 1);
+    return exitCodes.length === 0 ? 0 : 1;
 
-  } catch (e) { log("FATAL", e.message); process.exit(2); }
-  finally { cleanup(); }
+  } catch (e) { log("FATAL", e.message); return 2; }
+  finally { await cleanup(); }
 }
 
-main();
+if (require.main === module) {
+  main()
+    .then((exitCode) => { process.exitCode = exitCode; })
+    .catch((error) => {
+      log("FATAL", error.message);
+      process.exitCode = 2;
+    });
+}
+
+module.exports = { cleanup, main, startDevServer };
