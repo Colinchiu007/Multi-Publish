@@ -41,3 +41,10 @@ Scene/subtitles 最终 Critical 0、Warning 0，可以创建 merge commit 并进
 - antigravity 与 Claude 未执行，属于用户明确批准的本次流程豁免；后续若恢复完整 CCG 审查，不得把本记录当作两个外部模型的历史通过证据。
 - baseline 产品树、本地 fresh 构建门禁和两个隔离本地复核均无阻断项；按用户指令可精确暂存审计文件、创建 merge commit 并进入 GitHub PR checks。
 - PR #345 首轮 `Doc Sync Gate` 把 `.ccg/task.json` 视为代码/配置，且 workflow 中的 `bypass-doc-gate` 说明没有对应 label 事件或脚本分支；没有使用无效标签或虚构 PRD 变更，而是在 `01-docs/DEVELOPMENT_REPORT.md` 增加真实的祖先关系整合记录。
+
+## GitHub 整合终态
+
+- Baseline 双父 merge commit 为 `b5c067e`，父提交依次为 `df36d6a` 与 `df188100`；文档同步补充提交为 `01476cf`，PR #345 的产品代码净差异为零。
+- PR #345 最新 head 上，Doc Sync、单元测试/Lint、Ubuntu build、Windows build、Electron tests 和两组 Quality Gate 全部通过；`release` 在 PR 上按设计跳过。关键耗时分别为 Windows 4m57s、Electron 18m23s、两组 Quality Gate 22m28s / 23m14s。
+- PR #345 于 `2026-07-30T15:27:14Z` 以 merge commit `15390140596bf5562cbc1b042f479f5d6cec16bf` 合入 `main`，远端 `codex/desktop-baseline-fixes` 已删除。
+- 本归档提交只关闭 CCG 任务记录并补充最终开发报告；归档 PR 合入后再执行本地工作树、已合并分支和远端 Scene 分支的机械清理与最终审计。

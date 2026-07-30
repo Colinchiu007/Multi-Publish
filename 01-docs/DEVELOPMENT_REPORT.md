@@ -23,6 +23,7 @@
 - Windows x64 QM-1 使用 electron-builder 25.1.8 / Electron 43.1.1 生成最终 NSIS/ASAR；离线 Chromium 610 files / 721,890,062 bytes，源码与产物逐文件哈希一致；随包 FFmpeg 编码、ffprobe 探测和完整解码通过。
 - 污染开发环境变量下隐藏启动 10 秒，8 个本次进程存活且 stderr 0；`16521/8002/8013` 均归属本次进程树，精确清理后无 PID、端口或临时目录残留。stdout 中既有通用 Python backend、托盘图标/快捷键和 orchestrator 降级保持显式记录。
 - 两个隔离本地复核无阻断项；用户明确选择暂不向 antigravity/Claude 外发审计差异，因此不把本次流程豁免记作 CCG 双模型通过。
+- PR #345 最新 head 的 Doc Sync、单元测试/Lint、Windows/Linux build、Electron tests 和两组 Quality Gate 全部通过，并于 `2026-07-30T15:27:14Z` 以 merge commit `1539014` 合入 `main`。
 
 ---
 
