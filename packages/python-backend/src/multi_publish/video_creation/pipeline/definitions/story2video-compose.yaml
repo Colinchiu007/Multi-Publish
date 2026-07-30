@@ -202,11 +202,9 @@ stages:
       platform: generic
       style: realistic
       creative_level: 5
-      max_length: null
       negative_prompt: ""
       num_candidates: 1
       auto_detect_style: true
-      context: ""
     checkpoint_required: true
     human_approval_default: true
     review_focus:

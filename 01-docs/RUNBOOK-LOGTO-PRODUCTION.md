@@ -60,6 +60,16 @@ docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env u
 docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env ps
 ```
 
+基础 Compose 固定官方 `svhd/logto:1.41.0`，也是 Webhook 补丁的回滚路径。启用哈希绑定的 Webhook POST 重试派生镜像时，先通过第 1 节磁盘门禁，再执行：
+
+```text
+docker compose -f deploy/logto/docker-compose.yml -f deploy/logto/docker-compose.webhook-retry.yml --env-file deploy/logto/.env build --no-cache logto
+docker compose -f deploy/logto/docker-compose.yml -f deploy/logto/docker-compose.webhook-retry.yml --env-file deploy/logto/.env up -d --no-deps --force-recreate logto
+docker compose -f deploy/logto/docker-compose.yml -f deploy/logto/docker-compose.webhook-retry.yml --env-file deploy/logto/.env ps
+```
+
+派生 Dockerfile 必须绑定 ECS 已验收的基础镜像 manifest digest，白名单式 `.dockerignore` 必须确保生产 `.env` 和其他运维文件不进入 build context。补丁脚本只允许由 Dockerfile 的单个 `RUN` 在隔离构建层中执行，不是在线热补丁工具；禁止通过 `docker exec` 修改运行中容器或并发修改同一运行时目录。补丁或恢复失败必须让 build 非零退出并丢弃该层。构建日志还必须记录运行时文件的补丁前后 SHA-256；目标文件缺失、重复、哈希漂移或上游已包含修复时构建必须失败。切换后检查 OIDC discovery、Logto health、业务 API `/ready` 和 production smoke。随后创建独立 signing key 的临时 Hook 与精确 Nginx 探针路径：接收端前两次返回 503、第三次返回 204，三次请求均须通过 HMAC 校验；只记录 UTC 时间、次数和签名有效性，不记录 payload 或用户资料。Ky 1.2.3 的 `TimeoutError` 不会重试，不能用超时场景替代该探针。验收后立即删除临时 Hook、测试用户、Nginx location、接收进程和日志，主业务 Hook 不变。
+
 本机裸进程诊断与生产 Compose 是两条互斥路径，不要同时启动。选择裸进程诊断时，API 默认监听 `3000`：
 
 ```text
@@ -86,7 +96,7 @@ node packages/api-publish-engine/scripts/production-smoke.js --logto https://id.
 
 桌面包使用 `config/identity-public.json` 作为公开身份配置，并在打包后从 `resources/config/identity-public.json` 加载。该文件只能包含 Logto endpoint、Native Application ID、resource、业务 API URL、回环 callback、scope、entitlement key id 和 RSA 公钥；加载器拒绝未知字段、任何私钥字段和无效 RSA 公钥。构建前执行 `node apps/desktop/check-integrity.js`，它会解析并校验源配置；随后在 Windows 目录包中确认同一文件位于 `resources/config/` 且内容一致。
 
-发行配置存在时，`identityAuthEnabled` 只能由 `identity-public.json` 声明，`IDENTITY_AUTH_ENABLED` 不会覆盖它；`IDENTITY_AUTH_REQUIRED` 和其余公开字段才允许由受控进程环境覆盖，合并后仍会拒绝 `enabled=false`、`required=true` 等矛盾开关。没有发行配置的旧式开发环境继续兼容环境变量启用开关。Shadow 阶段桌面端保持 `IDENTITY_AUTH_ENABLED=true`、`IDENTITY_AUTH_REQUIRED=false`，业务 API 也保持 `IDENTITY_AUTH_REQUIRED=false`；这只允许观测真实身份链路，不放松服务端 Bearer 验证。配置读取或校验失败一律阻止桌面端启动，Shadow 仅允许临时非配置初始化失败降级。`BUSINESS_API_URL=https://auth.iart.work` 是业务 API 的公开反代基址（`/api/`），而 `LOGTO_API_RESOURCE=https://api.multi-publish.com` 是 Token audience。进入 Required 前必须先完成真实登录、刷新、退出、账号切换和带 Bearer Token 的 `/api/v1/me` 验收。entitlement key 轮换需要先验证服务端私钥，再更新公开 JSON 的 key id/公钥并重发桌面安装包。
+发行配置存在时，`identityAuthEnabled` 只能由 `identity-public.json` 声明，`IDENTITY_AUTH_ENABLED` 不会覆盖它；`IDENTITY_AUTH_REQUIRED` 和其余公开字段才允许由受控进程环境覆盖，合并后仍会拒绝 `enabled=false`、`required=true` 等矛盾开关。没有发行配置的旧式开发环境继续兼容环境变量启用开关。Shadow 阶段桌面端保持 `IDENTITY_AUTH_ENABLED=true`、`IDENTITY_AUTH_REQUIRED=false`，业务 API 也保持 `IDENTITY_AUTH_REQUIRED=false`；这只允许观测真实身份链路，不放松服务端 Bearer 验证。配置读取或校验失败一律阻止桌面端启动，Shadow 仅允许临时非配置初始化失败降级。`BUSINESS_API_URL=https://auth.iart.work` 是业务 API 的公开反代基址（`/api/`），而 `LOGTO_API_RESOURCE=https://api.multi-publish.com` 是 Token audience。进入 Required 前必须先完成真实登录、refresh token 轮换、退出、真正 A→B 账号切换和带 Bearer Token 的 `/api/v1/me` 验收；同账号重新认证不能替代 A→B 主体隔离。entitlement key 轮换需要先验证服务端私钥，再更新公开 JSON 的 key id/公钥并重发桌面安装包。
 
 ## 4. 灰度
 
@@ -101,7 +111,7 @@ LOGTO_CLIENT_ID=<Logto M2M application id>
 LOGTO_CLIENT_SECRET=<Logto M2M application secret>
 ```
 
-确认真实登录、刷新、退出、账号切换、Webhook 和云端发布后，观察至少一个完整业务高峰。API ready、OIDC discovery、introspection readiness、401/403/503、Webhook 失败和额度拒绝均在预期范围内才进入 required；身份依赖故障不得通过 API Key 回退掩盖。
+确认真实登录、refresh token 轮换、退出、真正 A→B 账号切换、Webhook 和云端发布后，观察至少一个完整业务高峰。API ready、OIDC discovery、introspection readiness、401/403/503、Webhook 失败和额度拒绝均在预期范围内才进入 required；身份依赖故障不得通过 API Key 回退掩盖。
 
 ### Required
 
@@ -116,7 +126,7 @@ API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
 
 ## 5. 回滚
 
-回滚只改变认证流量，不回滚或删除 schema：
+身份灰度回滚只改变认证流量，不回滚或删除 schema：
 
 1. 设置 `IDENTITY_AUTH_REQUIRED=false`，保持 `IDENTITY_AUTH_ENABLED=true`。
 2. 运行 `validate-production-config.js --phase rollback`。
@@ -125,6 +135,14 @@ API_KEYS_PATH=/app/packages/api-publish-engine/config/api-keys.json
 5. 重新运行 `/health`、`/ready` 和 production smoke。
 
 禁止重新启用共享 `JWT_SECRET`，禁止删除 `auth_subject`、Webhook 事件或 `identity_schema_migrations`。
+
+Webhook 派生镜像异常时，从仓库根目录只加载基础 Compose，强制重建 Logto 服务即可回到官方镜像；不要停止 PostgreSQL、不要使用 `down -v`：
+
+```text
+docker compose -f deploy/logto/docker-compose.yml --env-file deploy/logto/.env up -d --no-deps --force-recreate logto
+```
+
+回滚后重新验证 OIDC discovery、容器 health、业务 API `/ready` 与 production smoke，并保留派生镜像和失败日志到审查完成；不得先删除证据。
 
 ## 6. 恢复演练
 
@@ -174,4 +192,6 @@ Prometheus 仅绑定 `127.0.0.1:9090`。生产环境通过受控运维通道访�
 
 ## 8. 外部验收状态
 
-没有真实 Logto 租户、真实 PostgreSQL 和云发布环境时，以下状态保持 `PENDING_EXTERNAL`：登录/刷新/退出/切换、真实 migration/恢复、并发压力、真实 Webhook 重试及云端发布撤销。仓库测试通过不能替代这些证据。
+2026-07-28 已使用真实 Logto、PostgreSQL 与最终 Windows 包证明登录、`free` entitlement、同 profile 恢复、同账号重新认证和退出；专用测试主体已安全回收。2026-07-29 已部署哈希绑定的 Logto 派生镜像，真实临时 Hook 收到三次 HMAC 有效 POST 并依次返回 `503 -> 503 -> 204`，主业务 Hook 同时完成 `User.Created` 与 `User.Deleted` 投递，验收后临时 Hook、用户、权限关系、Nginx 路径、监听进程和脚本均已清理。
+
+以下状态仍保持 `PENDING_EXTERNAL`：Ky `TimeoutError` 重试或替代补偿、refresh token 轮换、真正 A→B 主体隔离、主 Hook 更新/暂停与生产真实乱序、最新业务 API 镜像部署后的 migration/readiness/smoke、恢复演练、并发压力及云端发布撤销。`IDENTITY_AUTH_REQUIRED=false` 保持不变；仓库测试、同账号 UAT 或本次 HTTP 503 探针都不能替代这些证据。

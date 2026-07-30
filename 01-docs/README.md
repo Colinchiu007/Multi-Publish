@@ -161,6 +161,16 @@ multi-publish/
 | [docs/user-manual.md](01-docs/user-manual.md) | 用户手册 |
 | [docs/rpa-verification-report.md](01-docs/rpa-verification-report.md) | RPA 验证报告 |
 
+### 🎯 商业化发布方案（v1.0 · 2026-07-26）
+
+| 文档 | 说明 |
+|------|------|
+| [PRODUCT-POSITIONING.md](PRODUCT-POSITIONING.md) | **产品定位方案** — 一句话定位、品牌升级、Slogan 矩阵、三层用户分层、价值主张、竞争定位图、定位声明、品牌故事 |
+| [MARKETING-HANDBOOK.md](MARKETING-HANDBOOK.md) | **产品营销手册** — OKR、FAB 卖点矩阵、6 类话术库、三层订阅价格、冷启动优惠、6 大渠道 CAC、AARRR 漏斗、内容营销 3 月节奏 |
+| [WEBSITE-PLAN.md](WEBSITE-PLAN.md) | **官网完整方案** — 信息架构、视觉设计系统、首页 14 区块完整文案、6 大子页面框架、Next.js 技术栈、SEO 策略、6 周开发路线图 |
+
+> 三份文档构成商业化发布的完整方案基准，所有对外沟通（官网、营销、销售、媒体）以此为准。
+
 ## 📝 发布流程
 
 CI 自动处理版本号和 Release（GitHub Actions）：

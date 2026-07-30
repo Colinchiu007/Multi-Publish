@@ -107,7 +107,8 @@ CreateView.vue
 `packages/python-backend/.../story2video-compose.yaml` 是阶段和产品契约，
 但自定义的 `domain_enrich`、`generate_assets` 执行器在 Electron 启动时由
 `registerStory2VideoStages()` 注入。合成结果必须是非空普通文件并通过 ffmpeg
-解码校验；外部服务或发布凭据缺失时必须返回失败/跳过，而不是占位成功。
+解码校验；8002 仅在连接拒绝、超时等已允许的服务不可用错误下本地降级并记录来源，
+8013 或服务非法响应必须明确失败，发布凭据缺失只能显式跳过，不得占位成功。
 
 当前 `story2video-compose` 收敛为唯一 `text` 标准模式，直接支持：`contentType`、模板预设、
 分句/提示词参数、图片动效、转场、字幕样式、BGM/音量、水印、独立分辨率/FPS 和可选多平台发布。
@@ -425,7 +426,7 @@ class PipelineEngine {
 | Python 3.10+ | Python 工具执行 | ✅ 已有 |
 | python-bridge.js | Electron↔Python IPC | ✅ 已有 |
 | Remotion 4.0.x | 独立快速渲染 | ✅ 已在 remotion-composer 锁定 |
-| FFmpeg/ffprobe | Story2Video 合成、音频混流和媒体时长探测 | ⚠️ 当前依赖系统可执行文件，安装包尚未内置 |
+| FFmpeg/ffprobe | Story2Video 合成、音频混流和媒体时长探测 | ✅ 安装包按 `media-tools-lock.json` 锁定并内置；打包资源优先，宿主工具仅作开发回退 |
 | 8002/8013 服务 | 文本分句与提示词优化 | ⚠️ 目标环境必须单独启动并验收 |
 
 ### 5.2 风险
@@ -436,7 +437,7 @@ class PipelineEngine {
 | AI 服务 API 变更 | 功能不可用 | 中 | 2 | 多提供商备选 |
 | Electron iframe 限制 | 预览无法内嵌 | 低 | 3 | 受控 file URL + IPC；生产和开发均不关闭 `webSecurity` |
 | Remotion 渲染慢 | 用户体验差 | 低 | 1 | 进度条 + 可取消 |
-| 系统 FFmpeg 缺失 | 合成与裁剪不可用 | 中 | 3 | 启动/执行前检测并明确报错，不在运行时静默安装 |
+| 随包 FFmpeg/ffprobe 缺失或字节漂移 | 合成与裁剪不可用 | 低 | 3 | `beforePack` 校验大小、SHA-256、能力与许可证并 fail closed；运行时优先解析随包资源 |
 | 外部分句/提示词服务缺失 | 六阶段主链阻断 | 中 | 3 | 健康检查并明确失败，不伪造本地成功 |
 
 ---
@@ -479,7 +480,7 @@ class PipelineEngine {
 ## 八、启用/禁用策略
 
 视频创作功能默认禁用（设置页开关）。启用时：
-1. 检测 Python 环境、ffmpeg/ffprobe 和外部服务 → 缺失时明确引导或阻断对应能力
+1. 检测 Python 环境、锁定的随包 ffmpeg/ffprobe 和外部服务 → 缺失时明确引导或阻断对应能力
 2. 检测已随应用打包/锁定的 remotion-composer；Composition 只使用本地系统字体栈，不在应用运行时请求远程字体或执行在线 `npm install`
 3. 加载 composition-manager.js 等新 Service
 4. 在侧边栏添加"创作"入口

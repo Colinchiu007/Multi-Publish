@@ -1,12 +1,45 @@
+## [未发布] autonomous-loop CI 修复 (2026-07-29)
+
+### 修复
+- 修复 `.github/workflows/autonomous-loop.yml` 的 YAML 块缩进和残缺 PowerShell，消除 GitHub Actions 即时失败且无 job/log 的问题。
+- 最终状态改为严格解析 `LOOP_EXIT`；缺失、非法或非零退出码均 fail closed。
+- 修复 autonomous E2E 启动和清理阶段按镜像名终止全部 `node.exe`、连带杀死 Windows Runner 的问题；现在只终止本次创建的 Vite PID 树。
+- Vite 启动固定使用 `127.0.0.1` 与 `--strictPort`，提前退出、探针悬空和清理失败均提供明确且有界的失败结果。
+- 修复无模型时需求覆盖 prompt 包被错误报告为 `PASS` 的假绿；现在统一报告 `NEED_HUMAN` 并返回非零，矛盾/未知结果和基础设施错误均 fail closed。
+- 修复像素测试或 Agent 视觉判断命令非零时被空 `catch` 吞掉、再因无 diff 文件误报通过的问题；命令错误现在进入统一裁决并返回非零。
+- 功能测试只有在至少执行一个用例且 `passed + failed === total` 时才可通过，零执行或畸形汇总均 fail closed。
+
+### 安全与质量
+- PR 运行改为只读 checkout，且仅 `autonomous-loop` 标签触发；PR 不再获得模型密钥。
+- 自动生成的报告、截图、基线候选和补丁只上传 artifacts，取消 `git add -A`、自动 commit/push 和空提交，保留人工审核基线合同。
+- 新增全量 workflow YAML 解析与 autonomous-loop 行为合同，并接入 `quality-gate`。
+- 新增受管进程生命周期合同和真实 Windows 无关 Node 哨兵回归；脚本仅在作为入口执行时运行，测试加载不再触发 E2E 副作用。
+- 报告、日志和退出码改用同一结果 evaluator；JSON 增加 `coverageStatus` 与 `exitCodes`，并新增 prompt、PASS/FAIL、错误、跳过及报告一致性回归。
+- PR 标签触发路径与 main push 保持一致，tester 包、PRD、workflow 及其合同测试变更不再绕过 autonomous-loop 检查。
+
+---
+
 ## [未发布] Story2Video 双层分句与字幕时间轴 (2026-07-28)
 
 ### 视频创作
 - `story2video-compose` 的场景层固定优先调用 8002 `smart-sentence-splitter`；仅连接拒绝、超时、连接重置或服务未运行时使用本地 TypeScript 降级，业务错误和非法响应不再被静默掩盖。
+- 8002 不可用无论通过 Promise reject 还是 `{ code, message }` / `{ success, error }` 失败对象返回，都进入同一受控降级路径；返回的业务错误继续 fail closed。
 - 字幕层固定在每个服务场景内部本地二次分页，并持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks` 和 `subtitleTimeline`。
 - Story2Video 分句别名现在映射到 8002 实际消费的 `SplitRequest.config.sentence_tokenizer/scene`，自定义场景时长、语速、字数、句界和单句溢出开关不再被 FastAPI 忽略；字幕配置不会发送给 sidecar。
 - compose 使用 ffprobe 读取的逐场景真实 TTS 时长生成连续字幕时间轴；FFmpeg 字幕页采用 `[start,end)` 半开启用区间，消除分页边界帧的双字幕叠加。
 - 旧项目没有字幕块时会按场景文本自动分页；TTS 提供方上报的 `duration` 只作为参考元数据，不会截断真实旁白，显式裁剪继续由 trim 流程负责。
 
+---
+
+## [未发布] PostgreSQL migration 最小权限修复 (2026-07-27)
+
+### 修复
+- migration runner 在 advisory lock 内先探测 `identity_schema_migrations`；已有完整 ledger 时不再无条件执行 `CREATE TABLE IF NOT EXISTS`，因此受限的 `multi_publish_api` 角色无需 schema `CREATE` 权限即可完成无 pending 的正式迁移检查。
+- ledger 缺失时仍创建迁移表并应用 migration；缺少所需 DDL 权限时继续 fail closed，并始终释放 advisory lock。
+
+### 质量
+- 新增 PostgreSQL `42501` 回归，覆盖已有 ledger、首次初始化和缺少 CREATE 权限三种正式 runner 场景。
+- ECS 发布门禁要求用真实运行角色执行正式 migration runner；dry-run 不能替代最小权限验收。
 ---
 
 ## [未发布] Logto Opaque Token 生产加固 (2026-07-25)
@@ -51,6 +84,9 @@
 - 参数归一化只在 `story2video-compose` 的 Electron 适配层执行，不修改共享 `StageExecutor`、`ServiceBus` 或普通 `pipelineStart` 合同。
 - 运行上下文递归拒绝 Provider 密钥、Token、密码等敏感字段；未知配置不进入运行记录或项目清单。
 - YAML 运行合同改为 `required: [text]` 和 `supported_modes: [text]`，并与 renderer、PipelineEngine 和项目持久化使用同一组默认值。
+- 提示词参数严格对齐 prompt-engine 平台/风格枚举及数值范围；图片风格与提示词风格分离，空 `max_length/context` 不再发送，文本上下文转换为 `synopsis` 对象。
+- `optimize.context` 兼容 prompt-engine JSON 字典并阻断敏感字段；空字符串 `maxLength` 与未设置一致，真实 E2E 清理限定在本次运行的专属临时目录。
+- PromptBridge 对单条和批量请求执行同一防御性清理，且不修改调用方对象；旧社交平台值映射到 `generic`。
 
 ### 质量
 - Story2Video 聚焦回归、归一化器覆盖率、真实 ffmpeg、Vue/preload 构建、双 sandbox、桌面/移动视觉、17 项像素门禁、Windows x64 打包、ASAR/RPA require 链和 8 秒启动检查均通过。
@@ -60,6 +96,7 @@
 - Python backend 的视频 Provider 可选帧处理依赖改为按执行加载；GUI CI 直接导入真实 `server` 入口，避免缺少单个实验性 Provider 依赖时阻断 Electron 主窗口。
 - 生产 smoke 合同测试同步覆盖 `/api/users` 与 `/api/forgot-password` 路径守卫，并按语义查找 `api.me`，避免新增检查改变数组尾部后误报 Quality Gate。
 - Story2Video 受控音频路径测试按 `realpath` canonical 合同比较，兼容 Windows 8.3 短路径与长路径表示同一文件的场景。
+- 真实服务 E2E 改为经过 `PipelineEngine` 的六阶段入口，实际调用 8002/8013、生成媒体文件、完成 ffmpeg 解码并验证发布禁用时明确跳过；默认降级资产不冒充真实图片/TTS Provider 验收。
 
 ---
 

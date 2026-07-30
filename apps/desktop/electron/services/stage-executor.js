@@ -234,17 +234,21 @@ class StageExecutor {
         ? _buildStorySplitterOptions(splitOptions)
         : splitOptions;
 
-      let result;
-      try {
-        result = await self.serviceBus.splitText(text, serviceOptions);
-      } catch (error) {
-        if (!fallbackToLocal || !isSplitterUnavailableError(error)) throw error;
+      const createFallback = (error) => {
         const output = createLocalSplitResult(text, stage.options || {}, error);
         self.log.warn(
           'StageExecutor',
           'smart-sentence-splitter 不可用，Story2Video 已降级为本地场景分句: ' + output.fallbackReason,
         );
         return { success: true, output };
+      };
+
+      let result;
+      try {
+        result = await self.serviceBus.splitText(text, serviceOptions);
+      } catch (error) {
+        if (!fallbackToLocal || !isSplitterUnavailableError(error)) throw error;
+        return createFallback(error);
       }
       // 响应格式适配：Bridge 返回原始数据 { scenes, sentences, ... }
       // 也兼容 Python 后端包装格式 { code: 0, data: ... }
@@ -265,7 +269,11 @@ class StageExecutor {
         }
         return { success: true, output };
       }
-      return { success: false, error: (result && result.message) || 'Split failed' };
+      if (fallbackToLocal && isSplitterUnavailableError(result)) {
+        return createFallback(result);
+      }
+      const resultError = result && (result.message || result.error);
+      return { success: false, error: resultError ? String(resultError) : 'Split failed' };
     });
 
     // OPTIMIZE - 单个提示词优化
@@ -306,6 +314,13 @@ class StageExecutor {
           return {
             success: false,
             error: 'Batch optimize result count mismatch: expected ' + prompts.length + ', got ' + output.length,
+          };
+        }
+        const invalidIndex = output.findIndex(item => !hasValidBatchOptimizePrompt(item));
+        if (invalidIndex !== -1) {
+          return {
+            success: false,
+            error: 'Batch optimize result item ' + invalidIndex + ' is missing a non-empty prompt',
           };
         }
         return { success: true, output };
@@ -581,6 +596,13 @@ function normalizeBatchOptimizeResult(result) {
   if (value && Array.isArray(value.optimized_prompts)) return value.optimized_prompts;
   if (value && (value.optimized_prompt !== undefined || value.prompt !== undefined)) return [value];
   return [];
+}
+
+function hasValidBatchOptimizePrompt(item) {
+  if (typeof item === 'string') return item.trim().length > 0;
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const prompt = item.prompt || item.optimized_prompt || item.optimized;
+  return typeof prompt === 'string' && prompt.trim().length > 0;
 }
 
 module.exports = { StageExecutor, STAGE_TYPES, normalizeBatchOptimizeResult };

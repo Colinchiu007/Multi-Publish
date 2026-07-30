@@ -1,5 +1,5 @@
 const { IdentityError } = require('./identity-errors')
-const { verifyEntitlementToken } = require('./entitlement')
+const { normalizeClockTolerance, verifyEntitlementToken } = require('./entitlement')
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
@@ -35,6 +35,7 @@ class EntitlementService {
     this._storage = options.storage || null
     this._fetcher = options.fetcher || globalThis.fetch
     this._now = typeof options.now === 'function' ? options.now : () => Math.floor(Date.now() / 1000)
+    this._clockTolerance = normalizeClockTolerance(options.clockTolerance)
     if (typeof this._fetcher !== 'function') throw new IdentityError('ENTITLEMENT_FETCH_UNAVAILABLE', '系统缺少 fetch')
     this._current = null
     this._generation = 0
@@ -102,7 +103,8 @@ class EntitlementService {
     let snapshot = null
     if (token && Object.keys(this._publicKeys).length > 0) {
       snapshot = verifyEntitlementToken(token, {
-        publicKeys: this._publicKeys, subject, deviceId: this._deviceId, now: this._now(),
+        publicKeys: this._publicKeys, subject, deviceId: this._deviceId,
+        now: this._now(), clockTolerance: this._clockTolerance,
       })
       await this._queueStorageTask(async () => {
         if (!this._isCurrentGeneration(generation)) return false
@@ -135,7 +137,8 @@ class EntitlementService {
       if (!this._isCurrentGeneration(generation)) return null
       if (!cached || typeof cached.token !== 'string') return null
       const snapshot = verifyEntitlementToken(cached.token, {
-        publicKeys: this._publicKeys, subject, deviceId: this._deviceId, now: this._now(),
+        publicKeys: this._publicKeys, subject, deviceId: this._deviceId,
+        now: this._now(), clockTolerance: this._clockTolerance,
       })
       if (!this._isCurrentGeneration(generation)) return null
       this._current = {

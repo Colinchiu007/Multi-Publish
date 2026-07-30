@@ -1,6 +1,8 @@
 // stage-executor + orchestrator mode tests
 import { describe, expect, it, vi } from 'vitest'
 
+const http = require('http')
+
 function eq(actual, expected, message) {
   expect(actual, message).toEqual(expected)
 }
@@ -11,6 +13,8 @@ function ok(value, message) {
 
 const { StageExecutor, STAGE_TYPES } = require('../services/stage-executor');
 const { PipelineEngine } = require('../services/pipeline-engine');
+const PromptBridge = require('../services/prompt-bridge');
+const ServiceBus = require('../services/service-bus');
 
 // ---------- Mock ServiceBus ----------
 function makeMockServiceBus(overrides) {
@@ -208,6 +212,38 @@ it.each([
   expect(result.output.scenes.map(scene => scene.text).join('')).toBe(text);
 });
 
+it.each([
+  ['code/message', { code: -1, message: 'connect ECONNREFUSED 127.0.0.1:8002' }, 'ECONNREFUSED'],
+  ['success/error', { success: false, error: 'SplitterBridge is not running' }, 'not running'],
+])('Story2Video SPLIT 在 8002 返回 %s 失败对象时允许本地降级', async function (_label, unavailable, reason) {
+  const bus = makeMockServiceBus({
+    splitText: vi.fn(async () => unavailable),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const text = '第一句话用于建立场景。第二句话继续补充信息。';
+  const result = await exec.execute({
+    runId: 'story-returned-fallback-' + _label,
+    stage: {
+      name: 'split',
+      type: STAGE_TYPES.SPLIT,
+      options: { fallback_to_local: true, require_scene_output: true },
+    },
+    params: { text },
+    context: {},
+  });
+
+  expect(result).toMatchObject({
+    success: true,
+    output: {
+      sceneSource: 'local-typescript-fallback',
+      subtitleSource: 'local-typescript',
+      degraded: true,
+      fallbackReason: expect.stringContaining(reason),
+    },
+  });
+  expect(result.output.scenes.map(scene => scene.text).join('')).toBe(text);
+});
+
 it('Story2Video SPLIT 对 8002 业务错误禁止本地降级', async function () {
   const businessError = Object.assign(new Error('splitter service rejected invalid mode'), {
     code: 'ERR_BAD_REQUEST',
@@ -224,6 +260,27 @@ it('Story2Video SPLIT 对 8002 业务错误禁止本地降级', async function (
       options: { fallback_to_local: true, require_scene_output: true },
     },
     params: { text: '业务错误必须暴露给调用方。' },
+    context: {},
+  });
+
+  expect(result.success).toBe(false);
+  expect(result.error).toContain('invalid mode');
+  expect(result.output).toBeUndefined();
+});
+
+it('Story2Video SPLIT 对 8002 返回的业务错误对象禁止本地降级', async function () {
+  const bus = makeMockServiceBus({
+    splitText: vi.fn(async () => ({ code: -1, message: 'splitter service rejected invalid mode' })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'story-returned-business-error',
+    stage: {
+      name: 'split',
+      type: STAGE_TYPES.SPLIT,
+      options: { fallback_to_local: true, require_scene_output: true },
+    },
+    params: { text: '返回的业务错误也必须暴露给调用方。' },
     context: {},
   });
 
@@ -306,6 +363,100 @@ it('OPTIMIZE_BATCH 阶段需要数组输入', async function () {
   });
   eq(r2.success, true);
   eq(r2.output.length, 2);
+});
+
+it.each([
+  ['服务错误对象', { code: -1, message: 'prompt-engine quota exceeded' }, /quota exceeded/],
+  ['结果数量错配', { code: 0, data: { results: [{ optimized_prompt: 'only one' }] } }, /count mismatch/i],
+])('OPTIMIZE_BATCH 对%s保持 fail closed', async function (_label, response, expectedError) {
+  const bus = makeMockServiceBus({
+    optimizePromptsBatch: vi.fn(async () => response),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'optimize-batch-failure-' + _label,
+    stage: { name: 'ob', type: STAGE_TYPES.OPTIMIZE_BATCH, inputFrom: 'prompts' },
+    params: {},
+    context: { prompts: ['prompt1', 'prompt2'] },
+  });
+
+  expect(result.success).toBe(false);
+  expect(result.error).toMatch(expectedError);
+  expect(result.output).toBeUndefined();
+});
+
+it('OPTIMIZE_BATCH 接受非空字符串及支持的对象 prompt 字段', async function () {
+  const response = [
+    'direct prompt',
+    { prompt: 'prompt field' },
+    { optimized_prompt: 'optimized_prompt field' },
+    { optimized: 'optimized field' },
+  ];
+  const bus = makeMockServiceBus({
+    optimizePromptsBatch: vi.fn(async () => ({ code: 0, data: { results: response } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'optimize-batch-valid-shapes',
+    stage: { name: 'ob', type: STAGE_TYPES.OPTIMIZE_BATCH, inputFrom: 'prompts' },
+    params: {},
+    context: { prompts: ['prompt1', 'prompt2', 'prompt3', 'prompt4'] },
+  });
+
+  expect(result).toEqual({ success: true, output: response });
+});
+
+it.each([
+  ['空对象', [{}, {}]],
+  ['null', [null, null]],
+  ['空白 prompt 字段', [{ optimized_prompt: '  ' }, { prompt: '\t', optimized: '' }]],
+  ['前置空白字段遮蔽后续值', [{ prompt: ' ', optimized_prompt: 'valid but shadowed' }, { optimized: 'valid' }]],
+])('OPTIMIZE_BATCH 对真实 PromptBridge 返回的等长%s结果保持 fail closed', async function (_label, response) {
+  let receivedBody = null;
+  const server = http.createServer((request, reply) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', chunk => { body += chunk; });
+    request.on('end', () => {
+      receivedBody = JSON.parse(body);
+      reply.writeHead(200, { 'Content-Type': 'application/json' });
+      reply.end(JSON.stringify({ code: 0, data: { results: response } }));
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const promptBridge = new PromptBridge({ log: { info() {}, warn() {}, error() {} } });
+  promptBridge.host = '127.0.0.1';
+  promptBridge.port = server.address().port;
+  promptBridge.isRunning = true;
+  const serviceBus = new ServiceBus({
+    pythonBridge: null,
+    splitterBridge: null,
+    promptBridge,
+    story2videoEngine: null,
+    log: { info() {}, warn() {}, error() {} },
+  });
+  const exec = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } });
+
+  try {
+    const result = await exec.execute({
+      runId: 'optimize-batch-malformed-' + _label,
+      stage: { name: 'ob', type: STAGE_TYPES.OPTIMIZE_BATCH, inputFrom: 'prompts' },
+      params: {},
+      context: { prompts: ['prompt1', 'prompt2'] },
+    });
+
+    expect(receivedBody).toEqual({ requests: [{ prompt: 'prompt1' }, { prompt: 'prompt2' }] });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/item 0.*non-empty prompt/i);
+    expect(result.output).toBeUndefined();
+  } finally {
+    promptBridge.isRunning = false;
+    await new Promise(resolve => server.close(resolve));
+  }
 });
 
 it('COMPOSE 阶段处理 code === 0 成功', async function () {

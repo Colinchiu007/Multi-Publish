@@ -1,0 +1,12 @@
+{
+  "id": "finish-worktree-consolidation",
+  "title": "完成剩余工作树分支验证、合并、推送与清理",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "release-integration",
+  "currentPhase": "implementation",
+  "nextAction": "创建 scene merge commit，推送分支并通过 GitHub PR checks 后合并",
+  "createdAt": "2026-07-30T00:00:00+08:00",
+  "branch": "codex/story2video-scene-subtitles"
+}

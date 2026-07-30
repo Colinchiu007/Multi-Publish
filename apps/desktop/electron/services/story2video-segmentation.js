@@ -238,9 +238,19 @@ function splitScenesLocally (text, options = {}) {
   return { scenes: sceneTexts, sentences }
 }
 
+function errorMessage (error) {
+  const detail = error && (error.message || error.error || error.detail)
+  if (detail instanceof Error) return detail.message
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object') {
+    try { return JSON.stringify(detail) } catch (_) { /* fall through */ }
+  }
+  return String(detail || error || '服务不可用')
+}
+
 function fallbackReason (error) {
   const code = error && typeof error.code === 'string' ? error.code : ''
-  const message = error && error.message ? String(error.message) : String(error || '服务不可用')
+  const message = errorMessage(error)
   const combined = code && !message.includes(code) ? code + ': ' + message : message
   return combined.slice(0, 300)
 }
@@ -249,7 +259,7 @@ function isSplitterUnavailableError (error) {
   let current = error
   for (let depth = 0; current && depth < 4; depth++) {
     if (UNAVAILABLE_CODES.has(String(current.code || '').toUpperCase())) return true
-    const message = String(current.message || current)
+    const message = errorMessage(current)
     if (/splitterbridge is not running/i.test(message) ||
         /splitterbridge request timeout/i.test(message) ||
         /\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EPIPE)\b/i.test(message) ||

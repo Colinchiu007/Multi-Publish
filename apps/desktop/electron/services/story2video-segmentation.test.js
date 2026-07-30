@@ -21,6 +21,28 @@ describe('Story2Video 双层分句合同', () => {
     expect([...firstBlocks, ...secondBlocks].filter(block => block.length < 8)).toHaveLength(0)
   })
 
+  it.each([
+    ['短于最小值的单页', '短字幕', [3]],
+    ['恰好最小值', '一二三四五六七八', [8]],
+    ['恰好最大值', '一二三四五六七八九十甲乙丙丁戊', [15]],
+  ])('字幕%s时不丢字', (_label, text, expectedLengths) => {
+    const blocks = splitSubtitleBlocks(text, { minChars: 8, maxChars: 15 })
+
+    expect(blocks.join('')).toBe(text)
+    expect(blocks.map(block => Array.from(block).length)).toEqual(expectedLengths)
+  })
+
+  it.each([
+    ['超长无标点文本', '甲'.repeat(31)],
+    ['emoji 文本', '😀'.repeat(31)],
+  ])('%s按 Unicode 字符分页并保持 8-15 字边界', (_label, text) => {
+    const blocks = splitSubtitleBlocks(text, { minChars: 8, maxChars: 15 })
+    const lengths = blocks.map(block => Array.from(block).length)
+
+    expect(blocks.join('')).toBe(text)
+    expect(lengths.every(length => length >= 8 && length <= 15)).toBe(true)
+  })
+
   it('服务场景保持原边界，并为每个场景附加本地字幕块和来源', () => {
     const result = normalizeServiceSplitResult({
       tier_used: 'tier3_rule',

@@ -11,6 +11,7 @@ const path = require('path')
 const {
   Story2VideoComposeEngine,
   findFfmpeg,
+  findFfprobe,
   buildTransitionPlan,
   escapeSubtitleText,
   normalizeComposeScenes,
@@ -435,6 +436,24 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(result.code).toBe(0)
       expect(segmentCalls[0].duration).toBeNull()
       expect(result.data.duration).toBe(1.7)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('真实 ffprobe 遇到损坏媒体时返回 null，不伪造时长', async () => {
+    if (!findFfprobe()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-invalid-probe-'))
+    const invalidMedia = writeFixture(root, 'invalid.mp3', 'not-a-media-file')
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log })
+
+    try {
+      await expect(engine._probeMediaDuration(invalidMedia)).resolves.toBeNull()
+      expect(log.warn).toHaveBeenCalledWith(
+        'Story2VideoCompose',
+        expect.stringContaining('Failed to probe media duration'),
+      )
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }

@@ -284,8 +284,25 @@ describe('IPC 注册生命周期', () => {
 })
 
 describe('P1-B: isTrustedSender', () => {
+  const fs = require('fs')
+  const os = require('os')
+  const path = require('path')
+  const { pathToFileURL } = require('url')
   const mockApp = { isPackaged: false }
-  const mockAppPackaged = { isPackaged: true, getAppPath: () => require('path').resolve(__dirname, '..') }
+  const mockAppPackaged = { isPackaged: true, getAppPath: () => fixtureAppRoot }
+  let fixtureRoot
+  let fixtureAppRoot
+
+  beforeAll(() => {
+    fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-phase5-ipc-'))
+    fixtureAppRoot = path.join(fixtureRoot, 'app')
+    fs.mkdirSync(path.join(fixtureAppRoot, 'dist'), { recursive: true })
+    fs.writeFileSync(path.join(fixtureAppRoot, 'dist', 'index.html'), '<!doctype html>')
+  })
+
+  afterAll(() => {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  })
 
   function makeEvent(url) {
     return { senderFrame: { url } }
@@ -296,7 +313,7 @@ describe('P1-B: isTrustedSender', () => {
   })
 
   it('accepts file:// protocol', () => {
-    const fileUrl = require('url').pathToFileURL(require('path').resolve(__dirname, '../dist/index.html')).href
+    const fileUrl = pathToFileURL(path.join(fixtureAppRoot, 'dist', 'index.html')).href
     expect(isTrustedSender(makeEvent(fileUrl), mockAppPackaged)).toBe(true)
   })
 

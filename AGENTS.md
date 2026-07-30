@@ -227,7 +227,7 @@ sleep 8 && kill $!
 ```
 
 - 启动进程存活不等于通过：必须捕获 stderr；出现 `Failed to load platform config`、`PluginLoader.*mkdir failed`、`ENOTDIR.*app.asar` 或配置/插件路径指向 ASAR 内部时，QM-1 失败。
-- Git worktree 打包前必须确认 `node_modules/@multi-publish/*` junction 指向当前 worktree；禁止借用指向其他分支源码的 workspace junction 生成交付产物。
+- Git worktree 打包或执行真实 Electron IPC 验证前，必须确认 `node_modules/@multi-publish/*` junction 指向当前 worktree；禁止借用指向其他分支源码的 workspace junction 生成交付产物或测试证据。
 
 > 本文件由 Hermes `professional-ai-coding-workflow` 技能转换生成，适配通用 AI 编码工具。
 
@@ -268,10 +268,12 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **preload 重启验证**：修改 preload.js 后必须重启 Electron 应用（preload 只在窗口创建时加载，Vite HMR 不会热更新 preload）
 - **IPC 测试环境**：涉及 IPC 调用的功能必须在 Electron 窗口中测试，浏览器打开 Vite 开发服务器无 `window.electronAPI`，所有 IPC 调用静默 fallback
 - **IPC 参数序列化安全**：所有传给 `ipcRenderer.invoke()` / `window.electronAPI.*()` 的参数必须是纯 JSON 对象。Vue ref/reactive 包装的嵌套对象是 reactive proxy，直接传入会报 "An object could not be cloned"。规则：从 Vue ref 取出的对象一律 `JSON.parse(JSON.stringify(obj))` 脱壳后再传 IPC。
+- **IPC file URL canonical 合同**：打包 renderer 的 `file://` sender 必须将受信 `app.getAppPath()/dist` 与 sender 文件同时用 `fs.realpathSync.native()` 规范化后再做目录边界比较；允许 worktree/dist-electron junction 的 raw/canonical 根差异，但必须拒绝不存在文件、`dist-evil`、路径遍历及 `dist` 内链接逃逸。修改该逻辑后必须用真实 junction 回归，并在最终打包 Electron 窗口调用受保护 IPC，存活测试不能替代。单元/集成测试必须在 `os.tmpdir()` 自建真实 `dist/index.html`，禁止依赖被 Git 忽略的 `apps/desktop/dist` 构建残留；至少一次在仓库 `dist` 不存在时运行受影响测试。
 - **路径层级**：多包工作区中 `..` 层级必须用 path-utils 统一模块，禁止凭直觉估算
 - **注释语法**：`/* */` 成对出现，`* text` 开头的行必须前面有 `/*`
 - **模块导出**：`module.exports = {` 后不能有多余逗号
 - **Story2Video 版本化配置一致性**：`Story2VideoTextConfig` 必须能在没有重复顶层 `text` 时从 `config.prompt` 恢复；renderer、normalizer、YAML 和 compose engine 的枚举、数值边界及默认值必须一致。修改任一层时必须覆盖仅配置恢复、非支持枚举和绕过 renderer 的直接调用。
+- **Prompt 批量结果内容合同**：`OPTIMIZE_BATCH` 不得只校验 prompt-engine 返回数组的数量；每项必须是非空字符串，或按资产阶段实际读取顺序包含非空 `prompt` / `optimized_prompt` / `optimized`。等长的 `{}`、`null`、空白字段必须在 `StageExecutor` 立即 fail closed。回归测试必须经真实 `PromptBridge`、`ServiceBus` 和本机临时 HTTP 服务覆盖包装响应，不能只 mock 最终数组。
 - **打包状态优先于开发环境变量**：许可证、调试入口、logger 和开发短路必须以 `app.isPackaged === false` 为前提；`NODE_ENV=development`、`ELECTRON_IS_DEV=1` 等环境变量不得让已打包应用进入开发权限或开发日志路径。测试必须同时覆盖打包/未打包状态和残留环境变量。
 - **Adapter capability 单一来源**：修改 `BaseAdapter.KNOWN_METHODS` 后必须检索所有 Adapter 的 `capabilities()` 手动覆盖；已进入 `KNOWN_METHODS` 的能力不得再次 `concat`。回归测试必须断言 `supports(method) === true`、能力只出现一次，并覆盖 `ModelProviderManager` 的调用入口。
 - **自动更新静默合同**：打包应用必须关闭 electron-updater console logger；检查更新阶段的网络阻断和缺失 `latest*.yml` 按 `not-available` 处理，签名、下载和安装等真实错误不得吞掉。修改更新服务后必须打包启动 8 秒并确认 stderr 无 updater 网络/404 栈。
@@ -280,9 +282,12 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **Docker runner 文件集**：修改 Dockerfile 或其构建上下文时，必须按最终 runner stage 的本地 `COPY` 清单构造隔离 staging，并加载真实入口验证完整 require 链；Docker daemon 可用时还必须真实 build、启动容器并验证 `/ready`，静态合同不能替代镜像启动。
 - **容器运行用户与健康检查**：非 root 容器的插件、缓存、上传和状态目录必须显式落到可写持久卷；Alpine 健康检查固定使用 `127.0.0.1`，除非服务同时验证过 IPv4/IPv6 监听。
 - **跨 Compose 网络与服务 DNS**：当容器通过 `postgres` 等 Compose 服务名访问数据库或身份依赖时，业务 Compose 必须显式加入正确的外部网络；合同测试要断言网络名和服务归属，ECS 必须用真实 `docker compose run` 执行 DNS 与 migration dry-run，不能用临时 `docker run --network` 替代。
+- **PostgreSQL migration 最小权限**：migration runner 在 advisory lock 内必须先探测 `identity_schema_migrations`；ledger 已存在时只能读取并校验，不得用 `CREATE TABLE IF NOT EXISTS` 等 DDL 作为存在性检查，因为 PostgreSQL 仍会校验 schema `CREATE` 权限。只有 ledger 缺失时才允许建表；回归必须覆盖“已有 ledger + 无 pending + 运行角色无 CREATE”成功、“缺失 ledger”创建，以及“缺失 ledger + 无 CREATE”失败并释放 advisory lock。ECS 发布还必须用真实 `multi_publish_api` 角色执行正式 runner，不能只以 dry-run 代替。
 - **OIDC 算法互操作**：JWT 算法白名单必须由目标租户真实 discovery/JWKS 证据驱动，并严格绑定 `alg`、`kty`、曲线和签名编码；Node/Python 双实现必须使用同一生产 JWKS fixture 回归，不能只以自生成 RSA fixture 证明兼容。
 - **OIDC access token 格式兼容**：业务 API 验证 Logto access token 时必须同时支持 JWT 和 Opaque Token 两种格式。Logto 默认签发 Opaque Token（非 JWT，无法本地验签），需通过 `/oidc/token/introspection` 验证。修改 `packages/api-publish-engine/src/auth/logto-*`、readiness 或认证回退逻辑时必须：(1) 在发送 M2M Basic 凭据前校验 discovery 的 introspection endpoint 使用 HTTPS、与 issuer 同源且不含 userinfo；仅本机 loopback issuer 允许同源 HTTP；discovery、JWKS、introspection 及携带 Bearer Token 的生产 smoke 请求禁止跟随 HTTP 重定向；(2) 对 active token 强制要求非空 `sub` 和目标 `aud`，`iss`/`exp` 可省略但存在时必须严格匹配且类型有效；(3) 生产环境强制同时配置 `LOGTO_CLIENT_ID` 和 `LOGTO_CLIENT_SECRET`，`/ready` 必须用随机无效 token 得到 `active:false` 后才报告 `checks.introspection=ready`；(4) `AUTH_*_UNAVAILABLE` 必须返回 503，且不得回退到 API Key；(5) introspection 缓存只能使用 token 指纹作为键，同 token 并发请求必须合并；(6) 至少运行 `logto-jwks.test.js`、`logto-runtime.test.js`、`production-config.test.js`、`production-readiness.test.js`、`logto-optional-auth.test.js`、`production-operations.test.js` 和 `logto-deploy-contract.test.js`。详见 [01-docs/learnings.md Opaque Token Introspection 缺失复盘](01-docs/learnings.md)。
+- **Logto Webhook POST 重试合同**：不得根据 `retry.limit` 或消费者端手工重放测试推断 Logto 会自动重试 Webhook。Logto 1.41.0 使用 Ky 1.2.3，默认可重试方法不含 `POST`，且 `TimeoutError` 不重试。派生镜像必须绑定已验收运行时文件 SHA-256、精确匹配一次后才显式加入 `methods: ["post"]`，目标缺失、重复、哈希漂移、路径替换、symlink/hardlink、部分写入或已被上游修复时一律 fail closed；补丁读取、哈希、写入和读回必须使用同一文件描述符，失败时恢复原字节并关闭全部描述符。基础 Compose 必须继续保留 `svhd/logto:1.41.0` 作为不删除 PostgreSQL 卷的回滚路径。修改相关 Dockerfile、补丁或 Compose 后必须运行 `logto-webhook-runtime-patch.test.js`、`logto-deploy-contract.test.js`，并在生产切换前后用独立签名密钥的临时 Hook 验证 `503 -> 503 -> 204` 共三次真实 POST、签名均有效、临时资源全部清理。超时场景必须单独标为未覆盖，不得用数据库锁或客户端超时冒充 HTTP 状态码重试证据。
 - **OIDC Token 类型判定**：不得仅按点号数量或三段 base64url 结构把 access token 判定为 JWT；OAuth Opaque Token 可以包含任意字符。只有首段能解析为 JSON JOSE header 时才进入 JWT 验签，进入后任何算法、密钥、签名或 claims 失败都不得降级到 introspection。Opaque introspection claims 必须与 JWT 路径一致检查 `nbf`/`exp` 时间边界，回归必须包含带两个点的有效 Opaque Token、未来/非法 `nbf` 和损坏 JWT 不降级三个场景。
+- **Entitlement 独立时钟偏差合同**：桌面端与 API 的 entitlement 验签必须统一使用默认 `60s`、可配置范围 `0..300s` 的可信本地时钟容差；不得从 token payload 读取容差。时间边界固定为 `iat > now + tolerance` 拒绝、`exp <= now - tolerance` 拒绝，在线同步与离线恢复必须使用同一参数。修改 `apps/desktop/electron/services/identity/entitlement*` 或 `packages/api-publish-engine/src/auth/entitlement.js` 时，必须用真实 RSA 签名覆盖客户端/服务端独立时钟、默认窗口、显式零容差、`300s` 上限及越界，并在真实登录验收中记录两端 UTC 时间差。
 - **打包权限模式不可由环境变量提权**：`app.isPackaged` 是 Electron 主进程判断开发/打包状态的权威来源。`NODE_ENV=development`、`ELECTRON_IS_DEV=1` 等环境变量不得让 `app.isPackaged=true` 的应用获得 `admin`；权限相关修改必须覆盖打包应用、未打包应用、本地 Pro 和 Logto 身份四组合同。
 - **Adapter 能力注册表同步**：修改 `BaseAdapter.KNOWN_METHODS` 后必须全局检索同名 `supports()` / `capabilities()` 手工覆盖和旧测试断言；标准能力只能出现一次，所有受影响 Adapter 必须断言 `supports()` 为 true 且 `capabilities()` 无重复项。
 - **E2E fixture 断言渲染语义**：路由/工作流测试不得用内部枚举值断言已经过本地化或格式化的 UI 文案。优先使用稳定状态 class/testid 加用户可见文本，并在 UI 映射函数变更时同步运行受影响路由用例。

@@ -4601,3 +4601,657 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 2. 8002 真实 smoke 除 `sceneSource` 外必须核对 `config_snapshot`，否则默认值一致会掩盖请求字段被忽略。
 3. 连续媒体时间区间统一使用半开区间；任何分页或分段测试必须同时断言连续性和互斥性。
 4. `.quality-gates.md` 已加入 8002 请求体、来源、半开字幕时间轴和真实服务/ffmpeg 门禁。
+## PostgreSQL migration ledger 存在时仍要求 schema CREATE 权限（2026-07-27）
+
+### 第一性原因
+
+- `cb0230b0` 首次引入 `postgres-migrations.js` 时，让正式 `loadApplied()` 无条件执行
+  `CREATE TABLE IF NOT EXISTS identity_schema_migrations`，再读取 ledger。PostgreSQL 的 `IF NOT EXISTS`
+  只避免重复创建对象，不跳过 schema `CREATE` 权限检查。
+- ECS 的 `multi_publish_api` 是正确的最小权限运行角色：对 `public` 只有 `USAGE`，对 7 张业务表有 DML，
+  没有 schema `CREATE`；ledger 和业务表均归 `multi_publish` 所有。正式 runner 因此返回 PostgreSQL
+  `42501`，即使 dry-run 已证明 `pending=[]`。
+- 旧发布 `83b558a1` 与新发布 `645ec4cd` 的迁移文件 blob 完全相同。上一轮
+  `migration-apply.json` 虽记录成功，但没有保留足以解释当时权限状态的审计证据，不能据此推断当前代码正确。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：重复执行用例的 fake client 对任意 `CREATE TABLE` 都返回成功，只断言 migration SQL 被跳过，
+   没有模拟 `42501` 或断言无 DDL。
+2. **集成测试**：dry-run 会先用 `to_regclass` 探测 ledger，因此天然不执行 DDL；它与正式 runner 走不同分支，
+   无法证明正式路径兼容最小权限角色。
+3. **端到端测试**：本地和 CI 没有使用“有 ledger、无 schema CREATE”的真实 PostgreSQL 角色执行正式 runner。
+4. **部署验收**：上一轮只保存迁移结果 JSON，没有保存执行角色权限快照与无 DDL 查询证据，历史成功掩盖了缺陷。
+5. **代码审查**：把 `CREATE TABLE IF NOT EXISTS` 误认为无副作用的存在性检查，没有按 PostgreSQL 权限语义审查。
+
+系统性漏洞属于**测试场景缺失 + Mock 过度 + 环境差异 + 审查盲区**：无 pending 不等于无 SQL；最小权限
+合同必须明确约束正式 runner 不发 DDL，而不能由最终 `applied=[]` 间接推断。
+
+### 修复与回归保护
+
+- `loadApplied()` 在 advisory lock 内统一先查询 `to_regclass`。ledger 存在时直接读取；缺失且为 dry-run 时
+  返回空；缺失且为正式迁移时才创建表。
+- `postgres-migrations.test.js` 用 PostgreSQL `42501` 固定三个边界：已有 ledger 且无 pending 时不要求
+  CREATE；缺失 ledger 时仍创建并应用；缺失 ledger 且无 CREATE 时失败并释放 advisory lock。
+- ECS 发布使用真实 `multi_publish_api` 角色运行正式 runner，并以 `applied=[]`、两项 `skipped`、
+  `pending=[]` 作为生产回归证据；该验证不读取或输出数据库密码。
+
+### 预防措施
+
+1. `AGENTS.md` QM-2 新增 PostgreSQL migration 最小权限规则，禁止用 DDL 做 ledger 存在性检查。
+2. migration 回归必须同时覆盖 dry-run 与正式模式，并对无 pending 的正式模式断言无 CREATE/BEGIN/INSERT。
+3. 发布记录必须同时保存执行角色名、schema 权限快照和正式 runner 结果；不能用 dry-run 或旧发布成功替代。
+
+---
+
+## Entitlement 零时钟偏差导致真实登录失败（2026-07-28）
+
+### 第一性原因
+
+- 普通用户角色补齐 5 个业务 scope 后，真实 `/api/v1/me` 已从 `403` 恢复为 `200`，桌面端却进入
+  `ENTITLEMENT_EXPIRED`。Electron 主进程真实验签断点显示：快照 `iat=1785175846`、`exp=1785780646`，
+  客户端 `now=1785175844`；服务端只快 2 秒，并非权益真的过期。
+- `789afd65 feat(auth): 集成 Logto 用户系统与租户隔离` 首次同时创建桌面与 API entitlement verifier。
+  两端都直接使用 `iat > now || exp <= now`，等价于要求签发节点与桌面客户端零时钟偏差。该提交的意图是
+  fail closed 校验权益时间，却把分布式系统正常的小幅时钟差误判成无效快照。
+
+### Bug 逃逸链
+
+1. **单元测试**：桌面测试用同一个合成 `now` 构造快照，API 测试也固定 `iat=100/exp=200/now=150`；
+   旧用例还断言未来 1 秒必须失败，实际固化了零容差错误合同。
+2. **集成测试**：`entitlement-service.test.js` 的服务端快照和客户端时钟来自同一 fixture，没有模拟两个节点
+   独立取时；在线 `sync()` 与离线 `restore()` 因而都没有覆盖偏差。
+3. **端到端测试**：`identity-menu.e2e.js` 注入假的 `window.electronAPI`，只验证 UI 状态，不运行真实 OIDC、
+   `/api/v1/me` 或 RSA entitlement 验签。
+4. **视觉回归**：只检查身份菜单布局和文案，无法判断已签名快照的 `iat/exp` 语义。
+5. **代码审查**：原 QM-2 覆盖 OIDC JWT 的 `exp/nbf` 容差，却没有要求 entitlement 双实现、在线/离线路径
+   使用相同的独立时钟偏差合同。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 测试质量不足 + 审查盲区 + 环境差异**。测试计划只为 OIDC JWT 写明 60 秒
+偏差，entitlement 场景仅笼统写“signature/time”；本地 mock、浏览器 E2E 和公网 smoke 之间没有一个门禁
+同时覆盖真实服务端签发时间、桌面本地时间和 RSA 验签。
+
+### 修复与回归保护
+
+- 桌面与 API verifier 统一采用可信本地 `clockTolerance`：默认 `60s`，数值钳制到 `0..300s`；固定拒绝
+  `iat > now + tolerance` 和 `exp <= now - tolerance`，容差不得来自 token。
+- `EntitlementService` 把同一容差传给在线同步与离线恢复；显式 `0` 可恢复严格模式。
+- `apps/desktop/electron/services/identity/entitlement.test.js` 和
+  `packages/api-publish-engine/test/entitlement.test.js` 使用真实 RSA 签名覆盖默认窗口、严格模式、负值、
+  非有限值、`300s` 上限和越界；`entitlement-service.test.js` 直接回归真实故障的 2 秒偏差及 61 秒拒绝。
+- TDD 证据：旧实现的桌面新增场景 4 项 RED、API 在首个容差断言 RED；最小实现后桌面 23/23 与 API
+  entitlement 脚本均 GREEN。
+
+### 预防措施
+
+1. `AGENTS.md` QM-2 新增 entitlement 独立时钟合同，要求双实现、在线/离线和真实 RSA 边界一起修改与验证。
+2. `01-docs/TEST-PLAN-LOGTO.md` 增加 `iat/exp` 偏差矩阵、`0..300s` 配置边界及生产 UTC/NTP 记录。
+3. `.quality-gates.md` 必须分别记录本地边界回归、Windows QM-1 和真实桌面登录；本地 GREEN 不得替代真人验收。
+4. 真实身份 smoke 以后必须保存脱敏的服务端 `iat`、客户端 `now` 和差值，不记录 token、Secret 或私钥。
+
+---
+
+## 打包应用被残留开发信号带回 Vite（2026-07-28）
+
+### 第一性原因
+
+- 在最终 NSIS 产物上同时设置 `NODE_ENV=development` 和 `ELECTRON_IS_DEV=1` 后，主进程尝试加载
+  `http://localhost:5174/`，stderr 返回 `ERR_CONNECTION_REFUSED`。该行为发生在 `app.isPackaged=true`
+  的真实打包应用中，违反“打包状态优先于开发环境变量”的安全合同。
+- `c834e9f5 feat: 项目重构方案分析` 从 `main.js` 拆出 `window.js` 时引入
+  `NODE_ENV === 'development' || --dev || !app.isPackaged`。提交意图是保留开发服务器启动方式，但把可由
+  外部继承的环境变量和命令行参数置于打包状态之前，使生产包可退回开发 URL 并打开 DevTools。
+
+### Bug 逃逸链
+
+1. **单元测试**：`window.test.js` 分别覆盖未打包开发模式和无残留信号的打包模式，没有组合
+   `app.isPackaged=true` 与 `NODE_ENV=development`、`ELECTRON_IS_DEV=1`、`--dev`。
+2. **集成测试**：IPC sender 测试已验证打包状态优先，但窗口加载模式没有复用同一判定函数，形成两套合同。
+3. **端到端测试**：浏览器 E2E 直接访问 Vite，不启动最终 `Multi-Publish.exe`，无法观察生产包加载了哪个 URL。
+4. **视觉回归**：截图由开发服务器生成，页面正常反而掩盖了打包应用对开发服务器的错误依赖。
+5. **发布验证**：历史隐藏启动使用干净环境；只有本轮用残留开发变量启动最终包才稳定复现。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 审查盲区 + 环境差异**。仓库已经为许可证、IPC 和 updater 写入“打包状态
+优先”规则，但窗口加载测试没有同一矩阵，QM-1 也未固定使用受污染环境验证最终包。
+
+### 修复与回归保护
+
+- `window.js` 现在只以 `app.isPackaged === false` 进入开发加载路径。未打包应用仍加载 Vite；打包应用忽略
+  `NODE_ENV`、`ELECTRON_IS_DEV` 和 `--dev`，加载归档内 `dist/index.html`，且不打开 DevTools。
+- `window.test.js` 新增真实组合回归；旧实现得到 1 RED / 41 GREEN，修复后 42/42 GREEN。
+- 最终 QM-1 必须在上述三个开发信号同时存在时隐藏启动重打包产物，并断言存活、stderr 无
+  `ERR_CONNECTION_REFUSED`，同时没有配置、插件、ASAR 或 updater 禁止错误。
+
+### 预防措施
+
+1. 保留 `window.test.js` 的打包残留信号矩阵，任何窗口加载模式变更必须同时覆盖打包和未打包状态。
+2. Windows QM-1 启动命令固定注入残留开发信号，确保最终产物本身执行该合同，而不是只信任单元测试。
+3. 开发权限、开发日志和开发 URL 均只允许由 `app.isPackaged === false` 启用；环境变量不能覆盖该事实。
+
+---
+
+## 打包应用的模拟支付禁用依赖 NODE_ENV（2026-07-28）
+
+### 第一性原因
+
+- `payment:simulate` 可把待支付订单直接标记为 paid 并激活本地 Pro。handler 注释声称生产环境禁用，实际只在
+  `NODE_ENV === 'production'` 时拒绝；打包应用未设置该变量或继承 `development` 时会进入模拟路径。
+- `fbcadfc4 fix(security): 安全审计修复` 首次增加该生产禁用判断，意图是修复支付绕过，却把可变环境变量
+  当成生产事实。当前外层 access-control 仍把该通道限制为 admin，因此这是防御纵深 MAJOR，而不是普通打包
+  用户可直接利用的单点绕过；handler 自身的生产安全合同仍然失效。
+
+### Bug 逃逸链
+
+1. **单元测试**：`payment-manager.test.js` 只验证模拟支付业务方法；没有与 `payment.js` 同目录的 handler 测试。
+2. **集成测试**：`license-access-control.test.js` 证明打包用户在外层被拒绝，但调用在到达 payment handler 前结束，
+   因而掩盖了内层生产判断错误。
+3. **端到端测试**：preload 会按权限隐藏 `paymentSimulate`，没有直接验证打包主进程 handler 的 fail-closed 行为。
+4. **视觉回归**：只能确认按钮是否可见，不能证明 IPC 通道在异常注册或未来权限改动后仍拒绝。
+5. **代码审查**：原安全修复把 `NODE_ENV=production` 视为打包应用必然条件，没有用 `app.isPackaged` 核验。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 间接断言 + 审查盲区**。外层授权和内层危险操作是两道不同防线，测试只覆盖
+外层，无法证明模拟支付 handler 自身在环境变量缺失、污染或未来注册方式变化时仍安全。
+
+### 修复与回归保护
+
+- `payment.js` 仅在 `app.isPackaged === false` 时进入模拟支付；app 不可用、状态不明确或已打包都拒绝。
+- 新增 `payment.test.js`，使用真实 `PaymentManager` 和可信 IPC 来源直接调用 handler，覆盖打包且变量未设置、
+  打包且残留开发变量、未打包但 `NODE_ENV=production` 三种组合。
+- 旧实现 3/3 RED；最小修复后支付 handler、许可证外层和窗口加载组合回归 80/80 GREEN。
+
+### 预防措施
+
+1. 危险开发入口必须同时有外层权限控制和 handler 内部打包状态校验，两层测试不得互相替代。
+2. 保留 `payment.test.js` 的三态矩阵；任何支付、许可证或 IPC 注册变更必须运行该文件。
+3. Electron 主进程审查固定检索生产代码中的 `NODE_ENV` / `ELECTRON_IS_DEV`，逐项确认不能启用开发权限、
+   模拟支付、开发 URL 或生产日志。
+
+---
+
+## 打包 renderer 的 canonical file URL 被 IPC 来源校验拒绝（2026-07-28）
+
+### 第一性原因
+
+- 最终包从 C 盘隔离 worktree 启动，但 `apps/desktop/dist-electron` 是指向 E 盘产物目录的 junction。主进程
+  `app.getAppPath()` 返回 C 盘 raw `resources/app.asar`；其 `fs.realpathSync.native()` 与 renderer 的实际
+  `file://` URL 都位于 E 盘 canonical `resources/app.asar`。真实 `identityGetState()` 因此返回
+  `{ code: -3, message: "未授权的调用来源" }`。
+- `d6a8e20b refactor(ipc): 三层防御架构 + main.js 稳定性改进` 首次将 `file://` 白名单收紧到
+  `app.getAppPath()/dist`，但只对 raw 字符串执行 `path.relative()`。提交意图是拒绝任意本地页面，却没有把
+  Windows junction、Electron/Chromium canonical URL 与主进程 raw 路径统一为同一文件身份。
+
+### Bug 逃逸链
+
+1. **单元测试**：`ipc-security.test.js` 的 app root 与 sender URL 使用同一字符串根；没有真实 junction。旧测试还把
+   不存在的 `dist/assets/app.js` 当成可信路径，只验证词法前缀。
+2. **集成测试**：`phase5-ipc.test.js` 的 mock app root 和 sender 路径各少一层，二者都指向不存在位置；旧词法比较
+   仍返回 true，掩盖了 fixture 错误。
+3. **端到端测试**：浏览器 E2E 直接访问 Vite，`window.electronAPI` 不存在，不会运行真实 `withSenderCheck()`。
+4. **视觉回归**：页面能渲染并不证明受保护 IPC 可调用；身份区把 `code=-3` 映射为通用“登录暂时不可用”。
+5. **发布验证**：旧隐藏启动只断言进程存活和 stderr，没有从最终 renderer 调用 `identityGetState()`；故障包因此通过。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 测试数据失真 + 环境差异 + 发布门禁缺失**。路径安全测试没有同时验证 raw 与
+canonical 身份，也没有用真实文件测试链接逃逸；最终包的 IPC 可用性被进程存活和浏览器页面渲染间接替代。
+
+### 修复与回归保护
+
+- `isTrustedSender()` 对受信 `appRoot/dist` 与 sender 文件同时执行 `fs.realpathSync.native()`，再沿用严格目录
+  边界比较。路径不存在或无法 canonicalize 时继续 fail closed。
+- 真实临时目录测试覆盖两个相反边界：app root 是 junction 而 sender URL 是 canonical 路径时必须放行；
+  `dist` 内 junction 指向应用外部时必须拒绝。该修复同时消除了旧实现的链接逃逸风险。
+- TDD 证据：旧实现得到 2/12 RED（合法路径误拒绝、链接逃逸误放行）；最小修复后核心 12/12、IPC/身份/
+  许可证/bootstrap/window/托盘 8 个直接调用测试文件 165/165 GREEN。最终打包真人验收仍是独立门禁。
+
+### 预防措施
+
+1. `AGENTS.md` QM-2 固定 canonical sender 合同：同时 realpath 受信根和 sender，禁止放宽到整个安装目录。
+2. `01-docs/TEST-PLAN-LOGTO.md` 增加真实 Electron + raw/canonical junction 场景；Vite 浏览器测试不得替代。
+3. 最终 Windows 包必须从 renderer 调用至少一个受保护 IPC，并断言不返回 `AUTH_ERROR`；进程存活不再充分。
+4. 路径安全测试只使用真实存在文件，并同时覆盖不存在路径、相邻前缀、遍历、凭据 URL 和链接逃逸。
+
+---
+
+## canonical IPC 测试依赖未跟踪 dist 导致 clean CI 失败（2026-07-28）
+
+### 第一性原因
+
+- `812dc54 fix(auth): harden packaged identity validation` 为修复 Windows junction 下 renderer 的合法
+  `file://` URL 被拒绝，将 `isTrustedSender()` 从词法 `path.resolve()` 比较改为对受信 `dist` 和 sender
+  文件执行 `fs.realpathSync.native()`。路径不存在时进入既有 `catch` 并返回 `false`，这是正确的 fail-closed
+  生产合同。
+- 同一提交保留了两个指向仓库 `apps/desktop/dist/index.html` 的“合法来源”测试。该目录被 `.gitignore`
+  排除，干净 GitHub checkout 不包含它；本地工作树却因此前 Vue/Builder 运行留下该文件，导致同一测试在本地
+  通过、在 Windows Quality Gate 和 ECS `electron-tests` 稳定得到 `expected false to be true`。
+
+### Bug 逃逸链
+
+1. **单元测试**：`ipc-security.test.js` 虽新增系统临时 junction/escape fixture，原有合法路径断言仍使用仓库
+   `dist/index.html`，没有让 `mockApp.getAppPath()` 指向自建 fixture。
+2. **集成测试**：`phase5-ipc.test.js` 只修正了 `../..` 层级，仍把 Git 忽略的构建输出当作静态测试数据；
+   词法旧实现不要求文件存在，因此夹具错误长期被掩盖。
+3. **端到端/打包测试**：这些流程会先生成 `dist`，无法模拟 unit-test job 的干净 checkout；产物中的真实文件
+   存在也不能证明单元测试自身具备隔离性。
+4. **视觉回归**：视觉测试主动启动 Vite 并依赖构建页面，只验证界面结果，不检查 IPC fixture 是否来自 Git
+   跟踪文件或测试 setup。
+5. **代码审查与 CI**：审查确认了 realpath 和链接逃逸安全语义，却未执行 `git check-ignore`/`git ls-files`
+   核对合法测试文件来源；本地全量测试被残留构建产物污染，直到三个 clean runner 才暴露缺陷。
+
+### 系统性漏洞
+
+该问题属于**测试数据失真 + 测试隔离缺失 + 环境差异 + 审查盲区**。当生产代码从词法路径升级为真实文件
+身份校验时，测试前置条件也随之变为“目录和文件必须真实存在”；但测试计划只覆盖路径边界，没有约束 fixture
+必须由 setup 创建并独立于 ignored build artifact。
+
+### 修复与回归保护
+
+- `ipc-security.test.js` 的 packaged app、合法入口、不存在文件和真实 `dist-evil` 相邻目录统一使用同一系统
+  临时 app root；既有 junction 与链接逃逸覆盖保持不变。
+- `phase5-ipc.test.js` 在 `beforeAll` 中创建独立临时 `app/dist/index.html`，在 `afterAll` 精确删除；不再读取
+  仓库 `dist`。
+- GitHub 旧 SHA 提供稳定 RED：两项失败、331/333 files、5792/5794 tests（Quality Gate）以及
+  331/333 files、5787 passed/4 skipped/2 failed（ECS electron-tests）。修复后本地聚焦为 34/34；临时移走
+  并在 `finally` 恢复仓库 `dist` 后仍为 34/34，证明测试不再依赖构建残留。
+
+### 预防措施
+
+1. `AGENTS.md` QM-2 明确要求 canonical IPC 测试在 `os.tmpdir()` 自建真实 `dist/index.html`，禁止依赖
+   Git 忽略的仓库构建输出。
+2. 路径安全实现新增 `realpath`、存在性或权限前置条件时，测试必须同步覆盖真实存在、真实不存在和链接逃逸，
+   并至少一次在仓库构建输出缺失的条件下运行。
+3. 评审任何以 `dist`、`build`、`coverage` 或临时缓存为 fixture 的测试时，必须用 `git check-ignore` 或
+   `git ls-files` 判断其是否属于 clean checkout；未跟踪产物不得成为测试成功前置条件。
+
+## autonomous-loop YAML 编译失败导致零 job（2026-07-29）
+
+### 第一性原因
+
+- GitHub Actions run 创建后立即失败且 `jobs=[]`，因为 `.github/workflows/autonomous-loop.yml` 的
+  `run: |` 首行比后续脚本多缩进一格，YAML 解析稳定报 `bad indentation of a mapping entry (64:11)`。
+- `git blame/show` 定位到 `43f454f6`。该提交原意是解决 detached HEAD 推送，却在编辑 PowerShell 时把
+  `$branch` 清空为 `= git rev-parse ...`，把条件清空为 `if ( -eq "HEAD")`，并留下空的
+  `git push origin`。即使只修 YAML 缩进，job 启动后仍会失败。
+- 文件 BOM 会增加工具兼容噪声，但 `js-yaml` 能处理 BOM；本次零 job 的直接原因是块缩进，不把伴随现象
+  误判为根因。
+
+### Bug 逃逸链
+
+1. **单元/静态测试**：既有 `workflow-contract.test.js` 只用正则检查 visual、quality-gate 和 agent-judge，
+   没有解析 autonomous-loop，也没有覆盖 PowerShell 分支变量。
+2. **集成测试**：`quality-gate` 没有执行任何全量 workflow YAML 解析合同，因此损坏配置可以随普通代码测试
+   一起通过。
+3. **端到端测试**：GitHub 在构造 job 前即拒绝 workflow，没有 step 日志；历史排查只看到红色 run，未把
+   `jobs=[]` 作为编译阶段信号自动升级处理。
+4. **视觉回归**：视觉测试只能在 runner 启动后执行，无法覆盖 GitHub Actions 自身的 YAML 编译阶段。
+5. **代码审查**：引入提交的说明记录“93/93 tests passing”，但这些测试没有加载被改 workflow；同时未审查
+   `git add -A`、`--allow-empty` 和 PR 写凭据的副作用边界。
+
+### 系统性漏洞
+
+该问题属于**测试场景缺失 + 审查盲区 + 配置编译门禁缺失**。仓库把 workflow 当作文本审查，没有把它作为
+可执行配置解析；也没有真实执行最终状态 PowerShell。自动基线流程还绕过了 QM-4 的人工审核要求，将整个
+runner 工作树纳入自动提交候选。
+
+### 修复与回归保护
+
+- 删除残缺的 checkout/branch/push 脚本和 BOM，workflow 使用只读权限与不保留凭据的 checkout。
+- PR 仅在 `autonomous-loop` 标签下运行，并显式不注入 `OPENAI_API_KEY`；手动 `functional=false` 不再被
+  `|| 'true'` 覆盖。
+- 报告、截图、基线候选和补丁只上传 artifacts，不再自动 `git add -A`、commit 或 push；基线必须人工审核。
+- `autonomous-loop-workflow.test.js` 先得到 5/5 RED，修复后验证全量 workflow 可解析、权限/标签/密钥边界、
+  artifacts 路径，以及 `LOOP_EXIT` 缺失、非法、非零、零四态的真实 PowerShell 退出行为。
+
+### 预防措施
+
+1. `quality-gate` 固定执行 autonomous-loop 合同；任何 `.github/workflows/*.yml|yaml` 解析失败都阻断提交。
+2. PR 中执行仓库代码的 workflow 默认 `contents: read`、`persist-credentials: false`，第三方密钥必须按事件
+   显式隔离。
+3. 自动化不得直接提交视觉基线；只允许生成待审 artifacts，由人工查看 diff 后更新基线。
+4. 遇到 Actions 即时失败且 `jobs=[]` 时，优先检查 workflow 编译/解析，而不是等待不存在的 step 日志。
+
+### 后续运行期 Bug：Windows Runner 被全局 taskkill 终止
+
+#### 第一性原因
+
+- workflow 编译修复后，真实手动运行 `30423812727` 已创建 job `90485807072`，checkout、依赖安装、
+  Playwright、Vue build 和 artifacts 均正常；日志在“启动 Vite dev server”后立即结束并写入退出码 1。
+- `git blame/show` 定位到 `fb45e3b` 首次创建统一 E2E 脚本，`8536261c` 重构时保留缺陷。启动与清理都执行
+  `taskkill /F /IM node.exe /T`。注释声称清理占用端口的进程，命令却按镜像名终止整台 Windows runner 上的
+  所有 Node 进程，其中包含 GitHub Actions Runner 当前进程本身。
+- 这不是原零-job编译问题的延续：前者发生在 GitHub 构造 job 之前；本问题发生在真实 job 已启动、执行到
+  autonomous tester 后。两者必须分别归因和验收。
+
+#### Bug 逃逸链
+
+1. **单元测试**：ai-autonomous-tester 既有测试只覆盖抽出的参数和报告纯函数，没有加载
+   `run-autonomous-e2e.js`，也没有验证启动/清理的进程所有权。
+2. **集成测试**：脚本末尾无条件执行 `main()`，导致它无法被测试安全 `require`；既有 Windows taskkill 合同
+   只扫描部分 workflow 文本，没有扫描真实执行脚本。
+3. **端到端测试**：YAML 损坏长期让 run 停在 `jobs=[]`，因此 runner 内的进程误杀路径从未被执行；编译修复后
+   第一轮真实 dispatch 才把第二层缺陷暴露出来。
+4. **视觉回归**：Node Runner 在 Vite 就绪前已被终止，视觉测试根本没有机会启动，无法承担进程边界门禁。
+5. **代码审查**：注释“清理端口”与 `/IM node.exe` 的实际全局语义矛盾，但引入和重构审查都没有按 PID、父子树
+   和无关进程三个维度验证 Windows 命令。
+
+#### 系统性漏洞
+
+该问题属于**进程所有权边界缺失 + 真实 Runner 场景缺失 + 审查语义盲区**。脚本把“本次创建的 Vite 子进程”
+错误建模为“机器上的全部 Node 进程”，同时没有 strict port、提前退出监听或有界 HTTP 探针，端口冲突与启动
+失败也只能在长超时后得到低质量错误。
+
+#### 修复与回归保护
+
+- 新增 `dev-server-controller.js`：启动只记录本次 `spawn` 返回的进程；Windows 使用
+  `taskkill /PID <pid> /T /F`，POSIX 使用独立进程组；任何路径都不再按镜像名终止 Node。
+- Vite 固定 `--host 127.0.0.1 --port <port> --strictPort`，端口冲突 fail closed，不允许自动漂移到另一个端口
+  后误连旧服务；子进程提前退出会立即带出 stderr 和退出状态。
+- HTTP readiness 即使自身悬空也受总 deadline 约束；启动失败自动清理。终止命令和回退都未生效时明确报错，
+  不以“清理完成”掩盖残留进程。
+- 脚本改为 `require.main === module` 才执行，并以返回退出码配合 `finally` 等待清理，允许单元测试安全加载。
+- 新增 8 个回归用例；其中真实 Windows 用例同时启动受管 Node 与无关 Node 哨兵，确认只终止受管 PID 树，
+  哨兵仍可接收信号 0。
+
+#### 预防措施
+
+1. 任何启动外部服务的 CI 脚本必须保存自身 child handle/PID；禁止使用 `/IM node.exe`、`pkill node` 等按名称
+   全局清理命令。
+2. 服务启动合同必须同时覆盖固定 host、strict port、提前退出、探针悬空超时、重复清理和清理失败 fail closed。
+3. Windows 进程清理回归必须包含一个无关同名进程哨兵；只断言命令字符串不足以证明没有误杀。
+4. workflow 从编译失败恢复后必须继续做一次真实 dispatch；“已创建 job”只关闭编译缺陷，不能替代 job 内运行验收。
+
+### 后续裁决 Bug：无模型 prompt 包被误报为 PASS
+
+#### 第一性原因
+
+- 真实运行 `30431180830` 已证明 Vite 约 1 秒就绪、视觉 diff 为 0，并执行 `[CLEAN] 关闭 Vite`；因此进程生命周期
+  修复有效。但该 run 没有 `OPENAI_API_KEY`，不能据此宣称需求覆盖审计通过。
+- `RequirementsTestRunner` 在没有 LLM 时返回外层 `_mode: "agent-required"`、内层
+  `_verdict._mode: "prompt"`。`git blame/show` 定位到 `8536261c`：简单模式的报告和退出码分别检查
+  `_verdict.decision` 与错误的外层 `_mode === "prompt"`，没有识别真实 prompt 结构。
+- 两套重复逻辑都把“没有看到明确 FAIL”当作 PASS，导致 JSON/Markdown 报告写入 `overall: "PASS"`、脚本返回 0，
+  workflow 又按 `LOOP_EXIT=0` 报告绿色。这是语义假绿，不是 Vite 或 GitHub Runner 再次失败。
+
+#### Bug 逃逸链
+
+1. **单元测试**：`requirements-runner.test.js` 已断言 `agent-required`，`AgentJudge` 测试也知道 prompt 模式，但没有测试
+   CLI 如何把该结构映射为报告和退出码。
+2. **集成测试**：多轮 `AIAnalyzer` 能把 prompt 映射为 `NEED_HUMAN`，简单模式却绕过它并复制两份判定，两个路径没有
+   共用裁决合同。
+3. **端到端测试**：workflow 最终步骤只严格解析 `LOOP_EXIT`，没有能力纠正上游脚本错误返回的 0；首次跑通 Vite 后
+   才出现足以检查语义结果的真实日志与报告。
+4. **视觉回归**：diff 为 0 只说明像素结果稳定，不能替代需求覆盖的模型或人工裁决。
+5. **代码审查**：审查关注了 workflow 能否创建 job、Vite 是否存活和 cleanup 是否误杀，没有追问“整体 PASS 是否存在
+   明确的覆盖 verdict”这一不变量。
+
+#### 系统性漏洞
+
+该问题属于**裁决单一来源缺失 + 结果结构契约遗漏 + 进程成功与审计成功混淆**。同一个覆盖结果由日志、报告和主流程
+分别解释；任一解释遗漏嵌套 prompt 结构，就会让展示状态与退出状态漂移。绿色 workflow 只能证明脚本返回 0，不能反向
+证明脚本的业务裁决正确。
+
+#### 修复与回归保护
+
+- 新增 `classifyCoverageResult()`：显式 `PASS` 才通过，明确 `FAIL`、错误或未知结果均 fail closed；外层
+  `agent-required`、内层 prompt 或明确 `NEED_HUMAN` 统一归类为 `NEED_HUMAN`；只有不携带错误或裁决的纯
+  `skipped` 不阻断，矛盾状态一律失败。
+- 新增 `evaluateRunResults()`，统一计算视觉、覆盖和功能阶段的 `exitCodes` 与 `overall`；畸形结果和基础设施错误也不能
+  再以零失败数冒充成功。
+- `generateReport()` 直接写入归一化的 `coverageStatus`、`exitCodes`、`overall`，Markdown 主 Verdict 始终显示归一化
+  状态，冲突的原始 decision 仅作为诊断行；`main()` 复用同一 evaluation 并返回非零，不再维护第三套判断。
+- 回归测试首轮 6/6 RED，合入前复审再补 3 类红灯，最终 12/12 GREEN；包级 167/167、workflow 合同 25/25、GUI 合同 31/31、Fault 14/14、
+  Monkey 5/5，`npm pack --dry-run` 为 44 个文件。
+- GitHub Quality Gate `30434647574` 的 Gate 1-9 全部成功；受控 dispatch `30436205736` 在 Vite 就绪、视觉 diff 0、
+  报告与 cleanup 均完成后，以 `NEED_HUMAN` / `COVERAGE_NEED_HUMAN` 返回 1。artifact JSON 与 Markdown 均保留该
+  归一化状态，workflow 顶层红灯是 fail-closed 合同的预期结果。
+
+#### 预防措施
+
+1. 自主测试的日志、报告和退出码必须来自同一 evaluator；禁止各层重新解释 `_mode` 或 `_verdict`。
+2. prompt 包在生产脚本源头必须返回非零并标记 `NEED_HUMAN`。上层门禁若允许“无 Key 时仅告警”，必须读取同一轮
+   一致的 `NEED_HUMAN` 报告后显式降级，不能伪造 PASS。
+3. 任何 CI 绿色结论都要区分基础设施、测试执行和业务裁决；Vite 就绪、像素无 diff、进程退出 0 均不能替代明确 verdict。
+4. `autonomous-e2e-result.test.js` 纳入包级测试，固定覆盖明确 PASS/FAIL、prompt、矛盾/未知结果、畸形或基础设施错误、
+   纯跳过，以及 JSON/Markdown 报告与退出裁决一致性。
+
+#### 合入前复审补充：视觉命令与功能零执行仍可假绿
+
+**第一性原因**：`git blame` 定位到 `8536261c`。该提交在简单模式中用两个空 `catch` 吞掉像素测试和 Agent
+视觉判断的非零退出，随后只统计 `pixel-diff` 目录中的 PNG 数；命令在生成 diff 前崩溃时会得到 `diffCount=0`。
+后续 `8ef0c7d` 虽统一了结果 evaluator，但功能阶段只检查 `summary.failed`，因此 `{total: 0, passed: 0,
+failed: 0}` 或不自洽汇总仍可通过。
+
+**逃逸链与系统性漏洞**：单元测试只直接构造 `error` 结果，没有让真实 `runVisualTests()` 的命令执行器抛错；集成
+测试覆盖已形成的 diff 和显式失败，没有覆盖命令在产物生成前退出；PR workflow 的 `paths` 又未包含 tester 包和 workflow
+自身，相关修复即使加标签也可能不创建 autonomous-loop job。根本漏洞是把“没有失败产物”等同于“测试成功”，且执行证据、
+结果汇总和 workflow 触发范围没有同一份合同。
+
+**修复与回归保护**：视觉阶段继续执行两条命令以保留诊断产物，但收集任一命令的 stderr/message 并写入 `error`，统一
+evaluator 因此返回 `VISUAL_FAIL`；功能阶段要求非负整数汇总、`total > 0` 且 `passed + failed === total`。新增回归先稳定
+得到三类 RED，再达到结果合同 12/12、包级 167/167；workflow 合同要求 PR 与 push 使用相同路径集合，专项合同 6/6。
+
+**预防措施**：外部测试命令的退出状态是一等执行证据，禁止空 `catch` 后仅根据产物目录推断成功；任何启用的测试阶段
+必须证明至少执行一个用例并校验汇总守恒；修改测试 runner、workflow 或其合同文件时，PR 与 main push 必须同样触发检查。
+显式禁用阶段仍可返回纯 `skipped`，但不得携带错误、裁决或伪造通过数。
+
+---
+
+## Logto 1.41.0 Webhook POST 未自动重试复盘（2026-07-29）
+
+### 现象
+
+生产 Webhook 验收中，业务接收端对 Logto Webhook 首次返回可重试 HTTP 失败时，没有观察到后续
+POST。正常 2xx 投递、HMAC 验签和业务消费者幂等均可用，因此问题只在发送端故障恢复路径出现，不影响
+OIDC 登录、Token 或正常请求。
+
+### 第一性原因
+
+- `789afd65137389a42af84a3b59e7d88ba8363c3b feat(auth): 集成 Logto 用户系统与租户隔离` 首次固定
+  `svhd/logto:1.41.0`，同时在架构文档写入“Webhook 使用 HMAC、超时和重试”。该提交的意图是建立完整
+  身份与租户隔离，并未对上游发送器做失败后黑盒投递验证。
+- Logto 1.41.0 的 `packages/core/src/libraries/hook/utils.ts` 对 Ky 配置
+  `retry: { limit: retries ?? 3 }`，但 Ky 1.2.3 默认可重试方法只有
+  `get/put/head/delete/options/trace`。`ky.post()` 在进入 `_retry()` 前先检查 method，POST 因而直接绕过
+  整个重试链。
+- 生产运行时 `/etc/logto/packages/core/build/main-Z4BG2XWW.js` 的 SHA-256 为
+  `77441c2d030d064343cfb22aa61b0e0ed45bff8fb33a1d4ce2beed6a8f1c752c`，其中仍只有
+  `retry: { limit: retries ?? 3 }`。这不是 Console Hook 配置、签名或业务 API 路由问题。
+- Ky 1.2.3 的 `_calculateRetryDelay()` 还显式排除 `TimeoutError`。本次最小修复让 POST 进入 Ky 的默认
+  重试集合：408/429/500/502/503/504、带 `Retry-After` 的 413，以及非超时网络错误；不把 10 秒 Ky
+  超时冒充为已解决。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：`logto-webhook.test.js` 测的是消费者收到同一 payload 两次时能从事务失败恢复；没有启动
+   Logto，也没有断言发送端 HTTP attempt 数。
+2. **集成测试**：`publish-api-logto-webhook.test.js` 覆盖 HMAC 200、错误签名 401 和超大请求 413，但所有
+   请求都由测试直接发给 API；“第二次请求”不是 Logto 自动重试。
+3. **部署合同**：`logto-deploy-contract.test.js` 只固定端口、Secret、网络和健康检查，没有核对上游镜像内
+   Webhook client 的 method 白名单，也没有派生镜像的 fail-closed 补丁合同。
+4. **端到端与审查**：架构审查把源码中的 `retry.limit` 当成已经生效的行为，没有继续读取 Ky 1.2.3 的
+   method gate。先前 UAT 没有让真实接收端返回 503，因此正常 Webhook 通过也无法暴露该缺口。
+5. **流程缺失**：真实 Webhook 重试长期标记 `PENDING_EXTERNAL`，却没有“失败两次、恢复一次、观察三次
+   签名 POST”的机器化验收步骤；消费者幂等证据被误当作发送端可靠性证据。
+
+### 修复与回归保护
+
+- 基础 `docker-compose.yml` 保持 `svhd/logto:1.41.0` 不变；独立
+  `docker-compose.webhook-retry.yml` 才启用派生镜像，因此移除叠加层即可回滚且不会触碰 PostgreSQL 卷。
+- 派生 Dockerfile 绑定 ECS 已验收的基础镜像 manifest digest；白名单式 `.dockerignore` 只允许 Dockerfile
+  和补丁脚本进入 context，防止同目录生产 `.env` 或备份文件被发送给 Docker daemon。
+- `patch-webhook-post-retry.cjs` 只扫描非 source-map 的 `main-*.js`，要求目标文件和目标片段均恰好一个，
+  并在写入前校验生产运行时 SHA-256。路径先经 `lstat` 拒绝 symlink/hardlink，再由同一文件描述符完成
+  `fstat`、读取、哈希、写入、`fsync` 和读回，提交前后复核 `dev/ino`；多文件中途失败会关闭此前已打开的
+  全部描述符，部分写入失败会尝试恢复原字节。它只把目标改为
+  `retry: { limit: retries ?? 3, methods: ["post"] }`；任何基线漂移、重复命中、路径身份变化或上游已修复均停止构建。
+- `logto-webhook-runtime-patch.test.js` 先因补丁脚本缺失 RED，随后覆盖唯一目标成功、哈希漂移、目标缺失、
+  单文件重复、多文件命中、上游已修复、路径身份漂移、部分写入恢复、多文件打开失败的 fd 回收和 symlink
+  打开前拒绝十类场景；所有拒绝场景均验证原目标不被错误覆盖。
+- `logto-deploy-contract.test.js` 固定官方基础镜像、最小叠加层、Dockerfile 不覆盖上游
+  `ENTRYPOINT/CMD/USER/WORKDIR`，并要求 README 与 Runbook 同时保留构建、切换和官方镜像回滚命令。
+
+### 生产验收结果
+
+- ECS 使用基础 RepoDigest `sha256:7f79547e3d1fe569a3ecae757968a7cfc579687aa8164eec35113c0adc983c5b`
+  构建派生镜像 `multi-publish-logto:1.41.0-webhook-post-retry.1`，镜像 ID 为
+  `sha256:9e946d21842f45670e4478eb38b51fa1a565586ac0f2ccf16999d45fda92b0a6`。运行时文件补丁后
+  SHA-256 为 `5108a3c6f3e60a627d32351687368cbf4510743b87ba7fbcad33e7fb7bcbb55e`，旧片段 0 次、
+  新片段恰好 1 次。
+- `2026-07-29T05:22:31Z` 到 `05:23:07Z` 仅重建 Logto；PostgreSQL 与业务 API 未重建。三个容器
+  均保持 healthy，本机 discovery、`/api/v1/ready` 与公网 production smoke 六项通过，Shadow 开关仍为
+  `IDENTITY_AUTH_ENABLED=true`、`IDENTITY_AUTH_REQUIRED=false`。
+- 独立临时 Hook 在 `06:17:09.978Z`、`06:17:10.322Z`、`06:17:10.934Z` 收到三次真实 POST，
+  HMAC 均有效、payload 哈希一致，接收端依次返回 `503 -> 503 -> 204`。这关闭了发送端 HTTP 状态码
+  重试门禁，但没有证明 Ky `TimeoutError` 会重试。
+- 主业务 Hook 同时将验收主体的 `User.Created` 与 `User.Deleted` 处理为 `processed`；业务库最终状态
+  `deleted`、活跃会话 0，删除 tombstone 为抵抗乱序旧事件而保留。验收后 Logto 用户数 `3 -> 3`、Hook
+  数 `1 -> 1`，临时角色关联、Hook、用户、Nginx 路径、21676 监听、systemd 单元、容器审计脚本和远端
+  临时目录均为 0，Management Resource TTL 保持 3600。
+- 该脚本的安全边界是 Dockerfile 单个 `RUN` 的隔离构建层，不支持通过 `docker exec` 在线修改容器，也不
+  支持多个进程并发写同一运行时目录。写入或原字节恢复失败时依靠 Docker build 非零退出丢弃整个层；
+  不能把失败层的文件状态复制出来继续部署。
+
+### 预防措施
+
+1. `AGENTS.md` QM-2 增加 Logto Webhook POST 重试合同：不得用 `retry.limit` 或消费者手工重放推断上游
+   自动重试；修改后必须运行两个聚焦合同并完成真实 503 探针。
+2. `ARCH-F14-logto-user-system.md` 修正错误架构事实，`TEST-PLAN-LOGTO-PRODUCTION.md` 分离发送端和消费者
+   两层测试，不再把两者合并为一个“Webhook 重试”结论。
+3. 生产验收使用独立 signing key、精确 Nginx 路径和一次性接收端：前两次 503、第三次 204，只记录 UTC
+   时间、计数和签名有效性；完成后删除 Hook、用户、路由、进程和日志，主 Hook 不参与故障注入。
+4. Ky 1.2.3 `TimeoutError` 继续作为显式限制进入运行手册和风险清单；若后续需要超时自动重试，应升级并
+   验证支持该能力的 Logto/Ky，或采用持久化 outbox，而不是继续扩大编译产物补丁。
+
+---
+
+## Story2Video text 参数与 prompt-engine 真实合同漂移（2026-07-26）
+
+### 第一性原因
+
+- `ed60c1a` 为收敛 Story2Video text 模式新建参数归一化器，但把 UI/旧项目的宽松兼容值直接当成
+  prompt-engine 传输合同：`imageStyle` 可回退为 `optimize.style`，`creativeLevel` 接受 0，
+  `maxLength/negativePrompt/numCandidates` 范围也宽于真实服务。
+- 同一提交把 `max_length: null` 与 `context: ""` 写入 Electron/YAML 阶段默认值。prompt-engine 的
+  `OptimizeRequest` 要求 `max_length` 为 50-2000 的整数、`context` 为字典；默认图片风格 `cinematic`
+  也不属于 `StyleType`。因此真实六阶段首次在 `optimize` 阻断。
+- 提交前独立审查又发现，新加的 PromptBridge 防御性清理只在批量入口预先把数字、布尔值等原始值
+  转为 prompt，单条入口则把这些值展开成空对象。根因是两个入口没有把所有输入形态直接交给同一个
+  归一化函数；该问题在进入历史提交前已修复。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：归一化器只验证 Multi-Publish 自己的默认值和宽松范围，没有从 prompt-engine Pydantic
+   模型派生枚举、范围和空可选字段语义。
+2. **集成测试**：`pipeline-story2video-contract.test.js` mock 了 `optimizePromptsBatch`，任何参数都会返回成功，
+   未模拟服务端 422 schema 校验。
+3. **E2E**：旧 `e2e-full-pipeline.test.js` 虽名为全链路，却直接串接 ServiceBus/AssetGenerator/ComposeEngine，
+   没有调用 `PipelineEngine.startOrchestrated()`，因而绕过参数归一化、六阶段定义和 publish 语义。
+4. **真实 ffmpeg/打包**：只证明已有媒体可合成和产物可启动，不会触发 8002/8013 的请求 schema。
+5. **代码审查**：检查了 text-only、持久化和媒体安全，却没有逐字段对照并行 prompt-engine 仓库的权威模型。
+6. **入口一致性**：PromptBridge 既有测试只覆盖对象请求；批量入口保留了原始值兼容逻辑，却没有用同一组
+   输入同时断言 `optimize()` 与 `optimizeBatch()` 的请求体，导致提交前实现一度出现分叉。
+
+系统性漏洞属于**跨仓库合同漂移 + E2E 入口绕过 + Mock 过度**：本地字段存在不等于外部服务会接受，
+命名为 E2E 的测试也不能绕开生产编排入口。
+
+### 修复与回归保护
+
+- 提示词平台/风格改为白名单并保留受控兼容映射；图片风格不再覆盖提示词风格，`cinematic` 仅在显式
+  作为提示词风格时映射为 `photography`。
+- 数值和文本范围与 `OptimizeRequest` 对齐；空 `max_length/context` 从请求删除，文本 context 转换为
+  `{ synopsis }`。PromptBridge 对单条/批量请求重复执行防御性清理且不修改调用方对象。
+- Electron 和 YAML 默认阶段参数不再声明无效空字段；Python loader 测试精确断言合法 options。
+- `e2e-full-pipeline.test.js` 改为真实调用 `PipelineEngine`，依次验证六阶段、8002/8013、媒体来源、
+  ffmpeg 可解码成片和 publish skipped。2026-07-26 本地结果为 1/1，通过并产出 5.6 秒视频。
+- `optimize.context` 同时接受字符串和 prompt-engine 允许的 JSON 对象；对象在敏感字段扫描后深拷贝，空
+  `maxLength` 与 `null` 一样不发送。真实 E2E 使用每次运行专属的受控临时根目录，绝不扫描或删除共享
+  `story2video` 临时目录中的其他任务产物。
+- PromptBridge 的单条和批量入口现在直接复用同一归一化函数；新增原始数字输入回归用例，先复现单条
+  发送 `{}`、批量发送 `{ prompt: "42" }`，再验证两者都发送相同 prompt 且不修改调用方对象。
+
+### 预防措施
+
+1. 外部 sidecar 的枚举、范围、可选字段和数据形状必须以其权威 schema 为准，并用集合外但格式合法的值做负例。
+2. 标记为流水线 E2E 的测试必须从生产入口创建 run，并断言完整阶段序列；手工串接服务只能命名为组件集成测试。
+3. Mock 合同测试之外必须保留一条可条件运行的真实服务 E2E；外部服务不可用时应明确失败或由 CI 显式跳过，不能伪造成功。
+4. 降级资产和跳过发布必须记录来源/状态；它们证明编排闭环，不证明真实图片、TTS 或平台发布已验收。
+5. 同一外部 API 的单条/批量入口必须把代表性对象、字符串、数字和空可选字段交给同一归一化函数，并以
+   请求体等价测试防止两个入口再次漂移。
+
+---
+
+## Story2Video 8002 失败对象绕过本地降级（2026-07-29）
+
+### 第一性原因
+
+- `29b1cf6` 在 `StageExecutor` 中加入 8002 不可用时的本地场景降级，但只在
+  `serviceBus.splitText()` 抛异常的 `catch` 分支检查 `isSplitterUnavailableError()`。
+- `BasePythonBridge._post()` 的网络错误会 reject，但已经收到的 JSON 或非 JSON 响应会 resolve 为普通对象；
+  因此 `{ code: -1, message: "ECONNREFUSED" }` 或 `{ success: false, error: "SplitterBridge is not running" }`
+  会绕过降级并直接返回 `Split failed`。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：只覆盖 ECONNREFUSED/ETIMEDOUT/ECONNRESET 抛异常，没有覆盖同一错误以失败对象返回。
+2. **集成测试**：停止真实 8002 只会触发 socket reject，无法覆盖服务或代理已经返回错误体的路径。
+3. **端到端测试**：健康 sidecar 返回成功对象，离线 smoke 返回异常，两种场景都没有经过 resolved failure envelope。
+4. **CI 门禁**：聚焦回归断言来源和降级原因，但没有把 reject 与 resolve 两种传输形态列为同一合同。
+5. **代码审查**：检查了允许降级的错误类型，却没有沿 `_post()` 的 resolve/reject 双出口核对调用方。
+
+系统性漏洞属于**错误传输形态缺失 + 测试场景缺失 + 审查盲区**：同一外部失败既可能抛异常，也可能作为
+普通对象返回，业务层不能只覆盖其中一种。
+
+### 修复与回归保护
+
+- `StageExecutor` 对成功响应完成结构验证后，再对失败对象执行同一不可用判定和本地降级构造；返回的业务错误
+  与非法成功响应继续 fail closed。
+- `story2video-segmentation.js` 统一读取 `message/error/detail`，降级原因仍限长并只接受明确的网络不可用特征。
+- `stage-executor.test.js` 完成红绿回归：修复前 2/46 失败；修复后首次聚焦分句与 segmentation 为 52/52，
+  补齐 prompt-engine 失败传播后为 54/54；同时锁定返回业务错误对象不降级，以及错误对象/结果数量错配 fail closed。
+
+### 预防措施
+
+1. 外部 Bridge 的错误合同必须成对测试 Promise reject 与 resolved failure envelope。
+2. 允许降级的适配器必须同时覆盖网络不可用、业务错误和非法成功响应，三者不得共享宽泛 fallback。
+3. 质量门禁明确要求返回形态不改变降级语义；新增 Bridge 或 ServiceBus 方法时按同一矩阵补测试。
+
+---
+
+## Story2Video 批量 Prompt 等长畸形响应被误判成功（2026-07-30）
+
+### 第一性原因
+
+- `2d509ab` 首次加入 `OPTIMIZE_BATCH` 时只检查 prompt-engine 顶层 `code === 0`，没有验证批量结果的逐项内容。
+- `e1b46eb` 为兼容包装响应加入 `normalizeBatchOptimizeResult()` 和结果数量校验，但仍把“数组长度正确”误当成
+  “每个场景都有可消费的 prompt”。因此等长的 `{}`、`null` 或空白 `optimized_prompt` 会由
+  `StageExecutor` 返回 `success: true`，直到资产阶段读取空 prompt 后才延迟失败。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：已有负例只覆盖服务错误对象和结果数量错配，没有覆盖等长但逐项内容非法的数组。
+2. **Bridge 测试**：验证了请求清理和单条/批量入口一致性，但没有把真实 HTTP 响应送回 `StageExecutor`。
+3. **集成测试**：流水线合同直接 mock `optimizePromptsBatch()` 的正常数据，绕过 `PromptBridge` 的包装响应。
+4. **真实 E2E**：健康的 8013 返回完整 prompt，只能证明正常路径，无法触发畸形等长数组。
+5. **代码审查**：审查了顶层错误传播和数量一致性，没有沿资产阶段的字段读取顺序检查逐项可消费性。
+
+系统性漏洞属于**响应内容校验缺失 + Mock 过度 + 审查盲区**：批量数组的基数正确并不代表元素满足下游合同。
+
+### 修复与回归保护
+
+- `StageExecutor` 在数量校验后逐项按资产阶段的实际读取顺序验证
+  `prompt || optimized_prompt || optimized`；只接受 trim 后非空的字符串，首个非法下标立即 fail closed。
+- 新增本机临时 HTTP 服务回归，真实串联 `PromptBridge -> ServiceBus -> StageExecutor`，分别让等长 `{}`、
+  `null` 和空白字段先红后绿，同时断言发往服务的请求体没有绕过生产适配层。
+- 正向回归锁定非空字符串以及 `prompt`、`optimized_prompt`、`optimized` 三种对象形态，防止校验过严破坏兼容性。
+
+### 预防措施
+
+1. 外部批量 API 必须同时校验容器形状、元素数量和逐项业务内容；任一层失败都不得推迟到下游阶段。
+2. Bridge 合同至少保留一条本机真实传输测试，覆盖请求序列化和响应包装；最终数组 mock 只能作为补充。
+3. `AGENTS.md` QM-2 增加 Prompt 批量结果内容合同，后续修改 `OPTIMIZE_BATCH` 或资产 prompt 读取顺序时必须同步更新回归矩阵。

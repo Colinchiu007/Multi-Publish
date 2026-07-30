@@ -11,14 +11,18 @@ function migrationDirectory() {
   return directory
 }
 
-function fakeClient(existing = []) {
+function fakeClient(existing = [], options = {}) {
   const calls = []
+  const tableExists = options.tableExists ?? existing.length > 0
   return {
     calls,
     async query(text, values) {
       calls.push({ text, values })
+      if (/CREATE TABLE IF NOT EXISTS identity_schema_migrations/.test(text) && options.rejectCreate) {
+        throw Object.assign(new Error('permission denied for schema public'), { code: '42501' })
+      }
       if (/SELECT name, checksum FROM identity_schema_migrations/.test(text)) return { rows: existing }
-      if (/to_regclass/.test(text)) return { rows: [{ relation: existing.length ? 'identity_schema_migrations' : null }] }
+      if (/to_regclass/.test(text)) return { rows: [{ relation: tableExists ? 'identity_schema_migrations' : null }] }
       return { rows: [] }
     },
   }
@@ -44,15 +48,66 @@ test('PostgreSQL migration runner', async (t) => {
     assert.match(sql.at(-1), /pg_advisory_unlock/)
   })
 
-  await t.test('重复执行跳过已应用 migration', async () => {
+  await t.test('正式 runner 在 ledger 已存在且无 pending 时不要求 schema CREATE 权限', async () => {
     const directory = migrationDirectory()
     const discovered = discoverMigrations(directory)
-    const client = fakeClient(discovered.map(({ name, checksum }) => ({ name, checksum })))
+    const client = fakeClient(
+      discovered.map(({ name, checksum }) => ({ name, checksum })),
+      { tableExists: true, rejectCreate: true },
+    )
     const result = await runMigrations({ client, directory })
 
-    assert.deepStrictEqual(result.applied, [])
-    assert.deepStrictEqual(result.skipped, ['002_first.sql', '003_second.sql'])
-    assert.strictEqual(client.calls.some((call) => call.text === 'SELECT 2;\n'), false)
+    assert.deepStrictEqual(result, {
+      applied: [],
+      skipped: ['002_first.sql', '003_second.sql'],
+      pending: [],
+    })
+    const sql = client.calls.map((call) => call.text)
+    assert.deepStrictEqual(sql, [
+      'SELECT pg_advisory_lock($1)',
+      "SELECT to_regclass('public.identity_schema_migrations') AS relation",
+      'SELECT name, checksum FROM identity_schema_migrations ORDER BY name',
+      'SELECT pg_advisory_unlock($1)',
+    ])
+    assert.strictEqual(sql.some((value) => /CREATE TABLE/.test(value)), false)
+  })
+
+  await t.test('正式 runner 在 ledger 缺失时创建 ledger 后应用 migration', async () => {
+    const directory = migrationDirectory()
+    const client = fakeClient([], { tableExists: false })
+    const result = await runMigrations({ client, directory })
+
+    assert.deepStrictEqual(result.applied, ['002_first.sql', '003_second.sql'])
+    const sql = client.calls.map((call) => call.text)
+    const lockIndex = sql.findIndex((value) => /pg_advisory_lock/.test(value))
+    const probeIndex = sql.indexOf("SELECT to_regclass('public.identity_schema_migrations') AS relation")
+    const createIndex = sql.findIndex((value) => /CREATE TABLE IF NOT EXISTS identity_schema_migrations/.test(value))
+    const ledgerIndex = sql.indexOf('SELECT name, checksum FROM identity_schema_migrations ORDER BY name')
+    const firstMigrationIndex = sql.indexOf('SELECT 2;\n')
+    assert.deepStrictEqual(
+      [lockIndex, probeIndex, createIndex, ledgerIndex, firstMigrationIndex],
+      [0, 1, 2, 3, 5],
+    )
+    assert.match(sql.at(-1), /pg_advisory_unlock/)
+  })
+
+  await t.test('正式 runner 在 ledger 缺失且无 CREATE 权限时失败并释放 advisory lock', async () => {
+    const directory = migrationDirectory()
+    const client = fakeClient([], { tableExists: false, rejectCreate: true })
+
+    await assert.rejects(runMigrations({ client, directory }), (error) => error.code === '42501')
+    const sql = client.calls.map((call) => call.text)
+    const normalizedSql = sql.map((value) => (
+      /CREATE TABLE IF NOT EXISTS identity_schema_migrations/.test(value) ? 'CREATE_LEDGER' : value
+    ))
+    assert.deepStrictEqual(normalizedSql, [
+      'SELECT pg_advisory_lock($1)',
+      "SELECT to_regclass('public.identity_schema_migrations') AS relation",
+      'CREATE_LEDGER',
+      'SELECT pg_advisory_unlock($1)',
+    ])
+    assert.strictEqual(sql.some((value) => value === 'BEGIN' || /INSERT INTO identity_schema_migrations/.test(value)), false)
+    assert.strictEqual(sql.some((value) => value === 'SELECT 2;\n' || value === 'SELECT 3;\n'), false)
   })
 
   await t.test('已应用文件 checksum 漂移时拒绝执行', async () => {
@@ -98,8 +153,15 @@ test('PostgreSQL migration runner', async (t) => {
     const client = fakeClient()
     const result = await runMigrations({ client, directory, dryRun: true })
 
-    assert.deepStrictEqual(result.pending, ['002_first.sql', '003_second.sql'])
-    assert.strictEqual(client.calls.some((call) => /CREATE TABLE/.test(call.text)), false)
-    assert.strictEqual(client.calls.some((call) => call.text === 'SELECT 2;\n'), false)
+    assert.deepStrictEqual(result, {
+      applied: [],
+      skipped: [],
+      pending: ['002_first.sql', '003_second.sql'],
+    })
+    assert.deepStrictEqual(client.calls.map((call) => call.text), [
+      'SELECT pg_advisory_lock($1)',
+      "SELECT to_regclass('public.identity_schema_migrations') AS relation",
+      'SELECT pg_advisory_unlock($1)',
+    ])
   })
 })
