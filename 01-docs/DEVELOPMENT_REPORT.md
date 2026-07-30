@@ -1,11 +1,28 @@
 # PROJECT-003 多平台一键发布 — 开发报告
 
-**最后更新**: 2026-07-26
+**最后更新**: 2026-07-30
 **当前版本**: 2.3.53
-**当前状态**: Story2Video Text 标准模式对齐已完成本地实现与专项门禁
+**当前状态**: Story2Video Text 标准模式对齐与剩余工作树祖先关系整合已完成本地门禁
 
 > 本文件顶部保留 2026-06-03 的历史基线；当前 Logto 用户系统交付以文末
 > “2026-07-20：Logto 用户系统交付补充”为准。
+
+---
+
+## 2026-07-30：剩余工作树祖先关系整合
+
+### 整合边界
+
+- `codex/desktop-baseline-fixes@df36d6a` 的许可证权限和四类 STT 行为已由主线等价吸收；与 `main@df188100` 创建双父 merge commit 只闭合提交祖先关系，不回退主线产品实现。
+- 6 个冲突路径均保留主线增强版本；冲突消解后的产品树与 `main` 无净差异。
+- PR #345 的净差异仅为 CCG 任务记录、质量门禁和本开发报告，不包含产品代码、配置、依赖或运行时产物。
+
+### 验证与流程
+
+- 聚焦回归 9 files / 191 tests；Desktop 全量 335 files / 5839 tests；Fault 14/14、Monkey 5/5、Vue 1825 modules 和 preload 双 sandbox 均通过。
+- Windows x64 QM-1 使用 electron-builder 25.1.8 / Electron 43.1.1 生成最终 NSIS/ASAR；离线 Chromium 610 files / 721,890,062 bytes，源码与产物逐文件哈希一致；随包 FFmpeg 编码、ffprobe 探测和完整解码通过。
+- 污染开发环境变量下隐藏启动 10 秒，8 个本次进程存活且 stderr 0；`16521/8002/8013` 均归属本次进程树，精确清理后无 PID、端口或临时目录残留。stdout 中既有通用 Python backend、托盘图标/快捷键和 orchestrator 降级保持显式记录。
+- 两个隔离本地复核无阻断项；用户明确选择暂不向 antigravity/Claude 外发审计差异，因此不把本次流程豁免记作 CCG 双模型通过。
 
 ---
 

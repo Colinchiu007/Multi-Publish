@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "release-integration",
   "currentPhase": "implementation",
-  "nextAction": "创建 scene merge commit，推送分支并通过 GitHub PR checks 后合并",
+  "nextAction": "精确暂存审计记录，创建 merge commit 并推送 desktop baseline PR",
   "createdAt": "2026-07-30T00:00:00+08:00",
-  "branch": "codex/story2video-scene-subtitles"
+  "branch": "codex/desktop-baseline-fixes"
 }
