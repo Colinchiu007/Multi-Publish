@@ -65,6 +65,15 @@ describe('Story2VideoProjectService', () => {
             duration: 2,
             imageMeta: { source: 'model-provider', provider: 'local-diffusion', degraded: false },
             audioMeta: { source: 'ffmpeg-silence', degraded: true, format: 'mp3' },
+            subtitleBlocks: ['第一段字幕，', '继续显示。'],
+            subtitleTimeline: [
+              { index: 0, text: '第一段字幕，', startTime: 0, endTime: 1, duration: 1 },
+              { index: 1, text: '继续显示。', startTime: 1, endTime: 2, duration: 1 },
+            ],
+            sceneSource: 'local-typescript-fallback',
+            subtitleSource: 'local-typescript',
+            degraded: true,
+            fallbackReason: 'ECONNREFUSED',
           }],
         },
       },
@@ -80,6 +89,15 @@ describe('Story2VideoProjectService', () => {
     expect(project.segments[0]).toMatchObject({
       imageMeta: { source: 'model-provider', provider: 'local-diffusion', degraded: false },
       audioMeta: { source: 'ffmpeg-silence', degraded: true, format: 'mp3' },
+      subtitleBlocks: ['第一段字幕，', '继续显示。'],
+      subtitleTimeline: [
+        { index: 0, text: '第一段字幕，', startTime: 0, endTime: 1, duration: 1 },
+        { index: 1, text: '继续显示。', startTime: 1, endTime: 2, duration: 1 },
+      ],
+      sceneSource: 'local-typescript-fallback',
+      subtitleSource: 'local-typescript',
+      degraded: true,
+      fallbackReason: 'ECONNREFUSED',
     })
     expect(project.options).toMatchObject({ transition: 'fade', contentType: 'history' })
     expect(store.setUserSetting).toHaveBeenCalled()
@@ -133,6 +151,98 @@ describe('Story2VideoProjectService', () => {
     expect(project.options.bgmPath).not.toBe(bgm)
     expect(fs.existsSync(project.options.bgmPath)).toBe(true)
     expect(fs.readFileSync(project.options.bgmPath, 'utf8')).toBe('background-music')
+  })
+
+  it('保存版本化 text 配置并丢弃 Provider Secret', () => {
+    const source = path.join(root, 'versioned-config-source')
+    const bgm = writeFile(path.join(source, 'bgm.mp3'), 'background-music')
+    const output = writeFile(path.join(source, 'output.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_versioned_config',
+      pipeline: 'story2video-compose',
+      status: 'completed',
+      params: {
+        text: '版本化项目',
+        apiKey: 'top-level-secret',
+        token: 'top-level-token',
+        story2videoTextConfig: {
+          version: 1,
+          mode: 'text',
+          prompt: '版本化项目',
+          size: '1080x1920',
+          image: { provider: 'local-diffusion', apiKey: 'nested-secret' },
+          voice: { provider: 'piper', token: 'nested-token' },
+          bgm: { enabled: true, path: bgm, volume: 7 },
+          publish: { enabled: false, platforms: [] },
+          unknown: 'drop-me',
+        },
+      },
+      context: { compose: { videoPath: output, segments: [] } },
+    })
+
+    expect(project.manifestVersion).toBe(2)
+    expect(project.story2videoTextConfig).toMatchObject({
+      version: 1,
+      config: {
+        version: 1,
+        mode: 'text',
+        prompt: '版本化项目',
+        size: '1080x1920',
+        image: { provider: 'local-diffusion' },
+        voice: { provider: 'piper' },
+        bgm: { enabled: true, volume: 7 },
+      },
+    })
+    expect(project.story2videoTextConfig.config.bgm.path).not.toBe(bgm)
+    expect(fs.readFileSync(project.story2videoTextConfig.config.bgm.path, 'utf8')).toBe('background-music')
+    expect(JSON.stringify(project)).not.toMatch(/top-level-secret|top-level-token|nested-secret|nested-token|drop-me/)
+    expect(service.getProject(project.projectId).story2videoTextConfig).toEqual(project.story2videoTextConfig)
+    expect(JSON.parse(fs.readFileSync(path.join(service._projectDir(project.projectId), 'project.json'), 'utf8')))
+      .toMatchObject({ story2videoTextConfig: { version: 1 } })
+  })
+
+  it('仅有版本化配置时仍可保存项目并恢复源文案', () => {
+    const output = writeFile(path.join(root, 'config-only-source', 'output.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_config_only',
+      pipeline: 'story2video-compose',
+      status: 'completed',
+      params: {
+        story2videoTextConfig: {
+          version: 1,
+          mode: 'text',
+          prompt: '仅保存在版本化配置中的文案',
+        },
+      },
+      context: { compose: { videoPath: output, segments: [] } },
+    })
+
+    expect(project).toMatchObject({
+      sourceText: '仅保存在版本化配置中的文案',
+      story2videoTextConfig: {
+        version: 1,
+        config: {
+          version: 1,
+          mode: 'text',
+          prompt: '仅保存在版本化配置中的文案',
+        },
+      },
+    })
+  })
+
+  it('旧项目没有版本化 text 配置时仍可读取', () => {
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    service._writeProjects([{ manifestVersion: 1, projectId: 'legacy-project', status: 'completed', segments: [] }])
+
+    expect(service.getProject('legacy-project')).toMatchObject({
+      manifestVersion: 1,
+      projectId: 'legacy-project',
+      segments: [],
+    })
   })
 
   it('编辑和排序只接受可编辑字段，不信任 renderer 传入的媒体路径', () => {

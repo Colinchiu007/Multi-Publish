@@ -73,6 +73,28 @@ describe('EntitlementService', () => {
     expect(storage.clear).toHaveBeenCalled()
   })
 
+  it('在线同步和离线恢复默认允许服务端快 2 秒', async () => {
+    const online = createFixture({ now: () => 98 })
+    await expect(online.service.sync({ subject: 'sub-1', accessToken: 'access-1' }))
+      .resolves.toMatchObject({ subject: 'sub-1', source: 'online' })
+
+    const offline = createFixture({ now: () => 98 })
+    await offline.storage.save({ token: offline.token })
+    await expect(offline.service.restore('sub-1'))
+      .resolves.toMatchObject({ subject: 'sub-1', source: 'offline' })
+  })
+
+  it('显式严格模式和超过 60 秒的偏差仍然拒绝权益快照', async () => {
+    const strict = createFixture({ now: () => 98, clockTolerance: 0 })
+    await expect(strict.service.sync({ subject: 'sub-1', accessToken: 'access-1' }))
+      .rejects.toMatchObject({ code: 'ENTITLEMENT_EXPIRED' })
+
+    const beyondTolerance = createFixture({ now: () => 39 })
+    await beyondTolerance.storage.save({ token: beyondTolerance.token })
+    await expect(beyondTolerance.service.restore('sub-1')).resolves.toBeNull()
+    expect(beyondTolerance.storage.clear).toHaveBeenCalled()
+  })
+
   it('服务端用户被暂停时拒绝同步权益并清缓存', async () => {
     const { service, storage } = createFixture({
       fetcher: async () => ({

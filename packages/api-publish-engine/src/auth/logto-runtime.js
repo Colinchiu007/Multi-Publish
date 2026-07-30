@@ -131,7 +131,11 @@ async function createLogtoRuntime(options = {}) {
       maxEventAgeMs: durationSeconds(env.LOGTO_WEBHOOK_MAX_EVENT_AGE_SECONDS, 15 * 60, 'LOGTO_WEBHOOK_MAX_EVENT_AGE_SECONDS'),
       maxFutureSkewMs: durationSeconds(env.LOGTO_WEBHOOK_MAX_FUTURE_SKEW_SECONDS, 5 * 60, 'LOGTO_WEBHOOK_MAX_FUTURE_SKEW_SECONDS', { allowZero: true }),
     }) : null
-    const readinessProbe = createProductionReadinessProbe({ repository, verifier })
+    const readinessProbe = createProductionReadinessProbe({
+      repository,
+      verifier,
+      requireIntrospection: production,
+    })
     return {
       required: authRequired,
       verifier,

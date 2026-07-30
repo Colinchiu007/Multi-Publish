@@ -194,9 +194,10 @@ describe('story2video 资源索引契约', () => {
 
       expect(result.success).toBe(true)
       expect(assetGenerator.generateTTS).not.toHaveBeenCalled()
-      expect(result.output.scenes).toEqual([
-        expect.objectContaining({ index: 0, audioPath: imported.path, duration: 1.25 }),
-      ])
+      expect(result.output.scenes).toHaveLength(1)
+      expect(result.output.scenes[0]).toMatchObject({ index: 0, duration: 1.25 })
+      expect(fs.realpathSync.native(result.output.scenes[0].audioPath))
+        .toBe(fs.realpathSync.native(imported.path))
     } finally {
       fs.rmSync(imported.path, { force: true })
       fs.rmSync(root, { recursive: true, force: true })
@@ -304,6 +305,38 @@ describe('story2video 资源索引契约', () => {
       audioMeta: { source: 'ffmpeg-silence', degraded: true },
     })
     expect(result.output.stats).toMatchObject({ degradedImages: 0, degradedTts: 1 })
+  })
+
+  it('资源清单保留场景分句来源和每场景字幕块', async () => {
+    const fn = makePipeline({
+      generateImage: vi.fn(async () => ({ code: 0, data: { path: 'image-0.png' } })),
+      generateTTS: vi.fn(async () => ({ code: 0, data: { path: 'audio-0.mp3', duration: 1.5 } })),
+    })
+    const scene = {
+      index: 0,
+      text: '场景层由服务确定，字幕层由本地逻辑继续切分。',
+      subtitleBlocks: ['场景层由服务确定，', '字幕层由本地逻辑', '继续切分。'],
+      sceneSource: 'smart-sentence-splitter',
+      subtitleSource: 'local-typescript',
+      degraded: false,
+    }
+
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: { scenes: [scene] }, optimize: ['画面提示词'] },
+      serviceBus: {},
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.output.scenes[0]).toMatchObject(scene)
+    expect(result.output.sentences[0]).toMatchObject(scene)
+    expect(result.output.segmentation).toEqual({
+      sceneSource: 'smart-sentence-splitter',
+      subtitleSource: 'local-typescript',
+      degraded: false,
+      fallbackReason: null,
+    })
   })
 
   it('超过最大场景数时在生成资源前失败', async () => {

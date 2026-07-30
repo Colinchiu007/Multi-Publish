@@ -317,7 +317,8 @@ async function exercisePipeline(r) {
   // /create/pipeline 已合并到 /create（CreateView.vue），此处仅验证重定向后渲染创作页 + 流水线卡片
   record(r, '流水线卡片渲染阶段', await waitForVisible(r.page.locator('.pipeline-card')));
   record(r, '历史记录可切换', await clickText(r, '历史记录'));
-  record(r, '流水线历史 fixture 渲染', await bodyHas(r, 'completed'));
+  const completedStatus = r.page.locator('.history-status.completed').filter({ hasText: '已完成' });
+  record(r, '流水线历史 fixture 渲染', await waitForVisible(completedStatus));
 }
 
 async function exerciseCreateHistory(r) {
@@ -483,13 +484,16 @@ async function auditInitialControls(r, definition) {
         testid: button.getAttribute('data-testid') || '',
         ariaLabel: button.getAttribute('aria-label') || '',
         title: button.getAttribute('title') || '',
+        scanMode: button.getAttribute('data-e2e-scan') || '',
         disabled: button.disabled,
       });
     });
     return visibleButtons;
   });
+  const automaticControls = discoveredControls.filter((control) => control.scanMode !== 'manual');
+  const manualControls = discoveredControls.filter((control) => control.scanMode === 'manual');
   const samples = selectInitialAuditSamples(
-    discoveredControls,
+    automaticControls,
     controlSemanticKey,
     definition && definition.initialAuditStrategy,
   );
@@ -526,6 +530,7 @@ async function auditInitialControls(r, definition) {
     failures.length === 0,
     {
       total: discoveredControls.length,
+      manual: manualControls.length,
       sampled: controls.length,
       suppressed: samples.suppressed.length,
       clicked,

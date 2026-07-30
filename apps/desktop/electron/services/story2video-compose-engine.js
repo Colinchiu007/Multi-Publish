@@ -26,66 +26,17 @@ const {
   isPathWithin,
   resolveReadableMediaFile,
 } = require('./story2video-paths')
+const { findFfmpeg, findFfprobe } = require('./media-tool-paths')
+const {
+  buildSubtitleTimeline,
+  splitSubtitleBlocks,
+} = require('./story2video-segmentation')
 
 const execFileAsync = promisify(execFile)
 const DEFAULT_MAX_DURATION_SECONDS = 10 * 60
 const DEFAULT_MAX_AUDIO_DURATION_SECONDS = 15 * 60
 const DEFAULT_MAX_SEGMENT_DURATION_SECONDS = 3 * 60
 const DEFAULT_MAX_OUTPUT_PIXELS = 7680 * 4320
-
-// 查找 ffmpeg 可执行文件
-function findFfmpeg () {
-  // 1. 环境变量 FFMPEG_PATH（最高优先级）
-  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
-    return process.env.FFMPEG_PATH
-  }
-  // 2. 系统 PATH 查找
-  try {
-    require('child_process').execSync('ffmpeg -version', { stdio: 'ignore' })
-    return 'ffmpeg'
-  } catch {
-    // 3. 常见安装位置（跨平台，非开发者路径）
-    const commonPaths = process.platform === 'win32'
-      ? [
-          'C:\\ffmpeg\\bin\\ffmpeg.exe',
-          path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'ffmpeg', 'bin', 'ffmpeg.exe'),
-        ]
-      : ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg']
-    for (const p of commonPaths) {
-      if (p && fs.existsSync(p)) return p
-    }
-  }
-  return null
-}
-
-// ffprobe 与 ffmpeg 通常随同一套发行包提供，用于读取媒体真实时长。
-function findFfprobe () {
-  const configured = process.env.FFPROBE_PATH
-  if (configured && fs.existsSync(configured)) return configured
-
-  const ffmpegPath = process.env.FFMPEG_PATH
-  if (ffmpegPath && path.isAbsolute(ffmpegPath)) {
-    const sibling = path.join(path.dirname(ffmpegPath),
-      path.basename(ffmpegPath).replace(/ffmpeg/i, 'ffprobe'))
-    if (fs.existsSync(sibling)) return sibling
-  }
-
-  try {
-    require('child_process').execSync('ffprobe -version', { stdio: 'ignore' })
-    return 'ffprobe'
-  } catch {
-    const commonPaths = process.platform === 'win32'
-      ? [
-          'C:\\ffmpeg\\bin\\ffprobe.exe',
-          path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'ffmpeg', 'bin', 'ffprobe.exe'),
-        ]
-      : ['/usr/bin/ffprobe', '/usr/local/bin/ffprobe', '/opt/homebrew/bin/ffprobe']
-    for (const p of commonPaths) {
-      if (p && fs.existsSync(p)) return p
-    }
-  }
-  return null
-}
 
 const FFMPEG = findFfmpeg()
 const FFPROBE = findFfprobe()
@@ -193,6 +144,14 @@ function normalizeComposeScenes (assetManifest) {
       prompt: scene?.prompt || '',
       imageMeta: scene?.imageMeta || image?.meta || null,
       audioMeta: scene?.audioMeta || sound?.meta || null,
+      subtitleBlocks: Array.isArray(scene?.subtitleBlocks)
+        ? [...scene.subtitleBlocks]
+        : (Array.isArray(sentence?.subtitleBlocks) ? [...sentence.subtitleBlocks] : []),
+      subtitleTimeline: Array.isArray(scene?.subtitleTimeline) ? [...scene.subtitleTimeline] : [],
+      sceneSource: scene?.sceneSource || sentence?.sceneSource || null,
+      subtitleSource: scene?.subtitleSource || sentence?.subtitleSource || null,
+      degraded: scene?.degraded === true || sentence?.degraded === true,
+      fallbackReason: scene?.fallbackReason || sentence?.fallbackReason || null,
     }
   })
 }
@@ -229,8 +188,13 @@ function buildImageEffectFilter (effect, width, height, fps) {
   }
 }
 
-function buildSubtitleFilter (text, style) {
-  if (!text) return ''
+function buildSubtitleFilter (textOrTimeline, style) {
+  const entries = Array.isArray(textOrTimeline)
+    ? textOrTimeline
+      .map(item => (typeof item === 'string' ? { text: item } : item))
+      .filter(item => item && item.text)
+    : (textOrTimeline ? [{ text: textOrTimeline }] : [])
+  if (entries.length === 0) return ''
   const config = typeof style === 'string' ? { style } : (style || {})
   const sizeMap = { sm: 18, md: 24, lg: 32, xl: 40 }
   const fontSize = Math.round(clampNumber(config.fontSize || sizeMap[config.size], 12, 96, 24))
@@ -239,9 +203,30 @@ function buildSubtitleFilter (text, style) {
     : 'white'
   const borderWidth = config.style === 'style3' ? 4 : 2
   const box = config.style === 'style2' ? ':box=1:boxcolor=black@0.55:boxborderw=10' : ''
-  return "drawtext=text='" + escapeSubtitleText(text) + "':fontcolor=" + color +
-    ':fontsize=' + fontSize + ':borderw=' + borderWidth + ':bordercolor=black' +
-    box + ':x=(w-text_w)/2:y=h-th-40'
+  return entries.map(item => {
+    const startTime = Number(item.startTime)
+    const endTime = Number(item.endTime)
+    const enable = Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime
+      ? ":enable='gte(t," + Math.max(0, startTime).toFixed(3) + ')*lt(t,' + endTime.toFixed(3) + ")'"
+      : ''
+    return "drawtext=text='" + escapeSubtitleText(item.text) + "':fontcolor=" + color +
+      ':fontsize=' + fontSize + ':borderw=' + borderWidth + ':bordercolor=black' +
+      box + ':x=(w-text_w)/2:y=h-th-40' + enable
+  }).join(',')
+}
+
+function normalizeSceneSubtitleBlocks (scene) {
+  if (Array.isArray(scene?.subtitleBlocks) && scene.subtitleBlocks.length > 0) {
+    return scene.subtitleBlocks
+      .map(item => String(typeof item === 'string' ? item : item?.text || '').trim())
+      .filter(Boolean)
+  }
+  if (Array.isArray(scene?.subtitleTimeline) && scene.subtitleTimeline.length > 0) {
+    return scene.subtitleTimeline
+      .map(item => String(item?.text || '').trim())
+      .filter(Boolean)
+  }
+  return splitSubtitleBlocks(scene?.text || '')
 }
 
 function buildWatermarkFilter (options) {
@@ -400,11 +385,6 @@ class Story2VideoComposeEngine {
       if (!accountInput(bgmPath)) return { code: -1, message: 'Input media exceeds the total size limit' }
     }
 
-    const declaredDuration = scenes.reduce((total, scene) => total + (Number(scene.duration) || 0), 0)
-    if (declaredDuration > this.maxDurationSeconds) {
-      return { code: -1, message: 'Requested video duration exceeds the allowed limit' }
-    }
-
     const probedAudioDurations = []
     let totalAudioDuration = 0
     for (let index = 0; index < scenes.length; index++) {
@@ -422,6 +402,12 @@ class Story2VideoComposeEngine {
     if (totalAudioDuration > this.maxDurationSeconds) {
       return { code: -1, message: '成片总时长不能超过 10 分钟' }
     }
+    const effectiveRequestedDuration = scenes.reduce((total, scene, index) => (
+      total + (probedAudioDurations[index] || Number(scene.duration) || 0)
+    ), 0)
+    if (effectiveRequestedDuration > this.maxDurationSeconds) {
+      return { code: -1, message: 'Requested video duration exceeds the allowed limit' }
+    }
 
     // 确保输出目录存在
     fs.mkdirSync(this.outputDir, { recursive: true })
@@ -437,7 +423,7 @@ class Story2VideoComposeEngine {
     const subtitleEnabled = options?.subtitleEnabled !== false
     const resolution = parseResolution(options?.resolution)
     const fps = clampNumber(options?.fps, 1, 120, 30)
-    const defaultSceneDuration = clampNumber(options?.defaultSceneDuration, 0.1, 60, 3)
+    const defaultSceneDuration = clampNumber(options?.defaultSceneDuration, 1, 60, 6)
     const voiceVolume = clampNumber(options?.voiceVolume, 0, 2, 1)
     const outputFormat = options?.format === 'webm' ? 'webm' : 'mp4'
 
@@ -453,20 +439,22 @@ class Story2VideoComposeEngine {
     for (let i = 0; i < scenes.length; i++) {
       const scene = scenes[i]
       const segPath = path.join(sessionDir, 'seg_' + String(i).padStart(4, '0') + '.mp4')
-      const declaredDuration = scene.duration === null || scene.duration === undefined
+      const reportedDuration = scene.duration === null || scene.duration === undefined
         ? null
         : clampNumber(scene.duration, 0.1, 3600, null)
       const audioDuration = probedAudioDurations[i]
-      // 缺少 duration 时不传 -t，避免把真实 TTS 截断成固定 3 秒。
-      // 显式 duration 仍作为用户要求的上限，但不会超过音频实际时长。
-      const duration = declaredDuration && audioDuration
-        ? Math.min(declaredDuration, audioDuration)
-        : declaredDuration
+      // scene.duration 是 TTS 提供方上报的非权威元数据，不是剪辑上限；裁剪由 trim API 负责。
+      // ffprobe 成功时以真实音频时长为准，避免旁白被截断；缺少上报值时由 -shortest 跟随音频。
+      const duration = reportedDuration && audioDuration ? audioDuration : reportedDuration
+      const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
+      const subtitleDuration = audioDuration || duration || defaultSceneDuration
+      const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
 
       try {
         await this._createSegment(scene.imagePath, scene.audioPath, segPath, {
           duration,
           subtitleText: subtitleEnabled ? scene.text : '',
+          subtitleTimeline: subtitleEnabled ? subtitleTimeline : [],
           transition,
           imageEffect: options?.imageEffect || 'none',
           subtitleStyle: options?.subtitleStyle,
@@ -490,6 +478,8 @@ class Story2VideoComposeEngine {
         segmentRecords.push({
           ...scene,
           duration: segmentDuration,
+          subtitleBlocks,
+          subtitleTimeline: buildSubtitleTimeline(subtitleBlocks, segmentDuration),
           videoPath: segPath,
           status: 'completed',
         })
@@ -658,13 +648,16 @@ class Story2VideoComposeEngine {
     if (!imagePath || !audioPath) return { code: -1, message: 'Segment media path is not allowed or unreadable' }
     fs.mkdirSync(path.dirname(destinationPath), { recursive: true })
     const audioDuration = await this._probeMediaDuration(audioPath)
-    const duration = scene.duration && audioDuration
-      ? Math.min(Number(scene.duration), audioDuration)
-      : (Number(scene.duration) || null)
+    const reportedDuration = Number(scene.duration) || null
+    const duration = reportedDuration && audioDuration ? audioDuration : reportedDuration
+    const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
+    const subtitleDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
+    const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
     try {
       await this._createSegment(imagePath, audioPath, destinationPath, {
         duration,
         subtitleText: options.subtitleEnabled === false ? '' : (scene.text || ''),
+        subtitleTimeline: options.subtitleEnabled === false ? [] : subtitleTimeline,
         transition: options.transition || 'none',
         imageEffect: options.imageEffect || 'none',
         subtitleStyle: options.subtitleStyle,
@@ -676,7 +669,16 @@ class Story2VideoComposeEngine {
         fps: clampNumber(options.fps, 1, 120, 30),
       })
       const measuredDuration = await this._probeMediaDuration(destinationPath)
-      return { code: 0, data: { videoPath: destinationPath, duration: measuredDuration || duration || audioDuration } }
+      const finalDuration = measuredDuration || audioDuration || duration
+      return {
+        code: 0,
+        data: {
+          videoPath: destinationPath,
+          duration: finalDuration,
+          subtitleBlocks,
+          subtitleTimeline: buildSubtitleTimeline(subtitleBlocks, finalDuration),
+        },
+      }
     } catch (error) {
       try { fs.unlinkSync(destinationPath) } catch (_) { /* ignore */ }
       return { code: -1, message: error.message }
@@ -803,7 +805,12 @@ class Story2VideoComposeEngine {
     const filters = [buildScaleFilter(opts.width, opts.height)]
     const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps)
     if (imageEffect) filters.push(imageEffect)
-    const subtitleFilter = buildSubtitleFilter(opts.subtitleText, opts.subtitleStyle)
+    const subtitleFilter = buildSubtitleFilter(
+      Array.isArray(opts.subtitleTimeline) && opts.subtitleTimeline.length > 0
+        ? opts.subtitleTimeline
+        : opts.subtitleText,
+      opts.subtitleStyle,
+    )
     if (subtitleFilter) filters.push(subtitleFilter)
     const watermarkFilter = buildWatermarkFilter(opts)
     if (watermarkFilter) filters.push(watermarkFilter)

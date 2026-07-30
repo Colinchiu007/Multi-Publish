@@ -163,6 +163,38 @@ describe('window — createWindow', () => {
     }
   })
 
+  it('打包应用忽略残留开发信号并加载 dist/index.html', () => {
+    const originalNodeEnv = process.env.NODE_ENV
+    const originalElectronIsDev = process.env.ELECTRON_IS_DEV
+    const originalArgv = process.argv
+    const originalPackaged = __electronMock.app.isPackaged
+
+    process.env.NODE_ENV = 'development'
+    process.env.ELECTRON_IS_DEV = '1'
+    process.argv = ['Multi-Publish.exe', '--dev']
+    __electronMock.app.isPackaged = true
+
+    try {
+      const originalImplementation = __electronMock.BrowserWindow.getMockImplementation()
+      __electronMock.BrowserWindow.mockImplementationOnce(function (options) {
+        originalImplementation.call(this, options)
+        this.webContents.openDevTools = vi.fn()
+      })
+      createWindow(context)
+      const win = lastWindow()
+      expect(win.loadFile).toHaveBeenCalled()
+      expect(win.loadURL).not.toHaveBeenCalled()
+      expect(win.webContents.openDevTools).not.toHaveBeenCalled()
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = originalNodeEnv
+      if (originalElectronIsDev === undefined) delete process.env.ELECTRON_IS_DEV
+      else process.env.ELECTRON_IS_DEV = originalElectronIsDev
+      process.argv = originalArgv
+      __electronMock.app.isPackaged = originalPackaged
+    }
+  })
+
   it('主窗口导航只允许可信应用来源', () => {
     process.env.NODE_ENV = 'development'
     expect(isAllowedMainWindowUrl('http://localhost:5174/#/accounts')).toBe(true)

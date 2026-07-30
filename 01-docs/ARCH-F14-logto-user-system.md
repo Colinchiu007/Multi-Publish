@@ -22,7 +22,7 @@
 | API Resource 决定 Access Token audience | Core `middleware/koa-auth/index.ts` | 每次取 Token 指定 `https://api.multi-publish.com` |
 | Application Access Control 可按用户/角色限制 | Core `libraries/application-access-control.ts` | 封闭测试期限制允许登录的人群 |
 | Sentinel 保护登录和验证码尝试 | Core `sentinel/basic-sentinel.ts` | 仍需在业务 API 单独做速率/额度限制 |
-| Webhook 使用 HMAC、超时和重试但不阻塞认证 | Core `libraries/hook/utils.ts` | Webhook 仅辅助同步，首个有效请求必须 lazy upsert |
+| Webhook 使用 HMAC 和 10 秒超时；1.41.0 的 Ky 配置未把 POST 加入可重试方法 | Core `libraries/hook/utils.ts`、Ky 1.2.3 `core/Ky.js` | 哈希绑定派生镜像补齐 POST 对 Ky 默认状态码和非超时网络错误的重试；`TimeoutError` 仍需监控和补偿，消费者保持幂等，首个有效请求必须 lazy upsert |
 | OSS 不执行 Cloud quota | Core `isCloud=false` 分支 | 自托管配额由 Multi-Publish entitlement 服务负责 |
 
 参考链接：

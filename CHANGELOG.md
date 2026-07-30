@@ -1,3 +1,105 @@
+## [未发布] autonomous-loop CI 修复 (2026-07-29)
+
+### 修复
+- 修复 `.github/workflows/autonomous-loop.yml` 的 YAML 块缩进和残缺 PowerShell，消除 GitHub Actions 即时失败且无 job/log 的问题。
+- 最终状态改为严格解析 `LOOP_EXIT`；缺失、非法或非零退出码均 fail closed。
+- 修复 autonomous E2E 启动和清理阶段按镜像名终止全部 `node.exe`、连带杀死 Windows Runner 的问题；现在只终止本次创建的 Vite PID 树。
+- Vite 启动固定使用 `127.0.0.1` 与 `--strictPort`，提前退出、探针悬空和清理失败均提供明确且有界的失败结果。
+- 修复无模型时需求覆盖 prompt 包被错误报告为 `PASS` 的假绿；现在统一报告 `NEED_HUMAN` 并返回非零，矛盾/未知结果和基础设施错误均 fail closed。
+- 修复像素测试或 Agent 视觉判断命令非零时被空 `catch` 吞掉、再因无 diff 文件误报通过的问题；命令错误现在进入统一裁决并返回非零。
+- 功能测试只有在至少执行一个用例且 `passed + failed === total` 时才可通过，零执行或畸形汇总均 fail closed。
+
+### 安全与质量
+- PR 运行改为只读 checkout，且仅 `autonomous-loop` 标签触发；PR 不再获得模型密钥。
+- 自动生成的报告、截图、基线候选和补丁只上传 artifacts，取消 `git add -A`、自动 commit/push 和空提交，保留人工审核基线合同。
+- 新增全量 workflow YAML 解析与 autonomous-loop 行为合同，并接入 `quality-gate`。
+- 新增受管进程生命周期合同和真实 Windows 无关 Node 哨兵回归；脚本仅在作为入口执行时运行，测试加载不再触发 E2E 副作用。
+- 报告、日志和退出码改用同一结果 evaluator；JSON 增加 `coverageStatus` 与 `exitCodes`，并新增 prompt、PASS/FAIL、错误、跳过及报告一致性回归。
+- PR 标签触发路径与 main push 保持一致，tester 包、PRD、workflow 及其合同测试变更不再绕过 autonomous-loop 检查。
+
+---
+
+## [未发布] Story2Video 双层分句与字幕时间轴 (2026-07-28)
+
+### 视频创作
+- `story2video-compose` 的场景层固定优先调用 8002 `smart-sentence-splitter`；仅连接拒绝、超时、连接重置或服务未运行时使用本地 TypeScript 降级，业务错误和非法响应不再被静默掩盖。
+- 8002 不可用无论通过 Promise reject 还是 `{ code, message }` / `{ success, error }` 失败对象返回，都进入同一受控降级路径；返回的业务错误继续 fail closed。
+- 字幕层固定在每个服务场景内部本地二次分页，并持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks` 和 `subtitleTimeline`。
+- Story2Video 分句别名现在映射到 8002 实际消费的 `SplitRequest.config.sentence_tokenizer/scene`，自定义场景时长、语速、字数、句界和单句溢出开关不再被 FastAPI 忽略；字幕配置不会发送给 sidecar。
+- compose 使用 ffprobe 读取的逐场景真实 TTS 时长生成连续字幕时间轴；FFmpeg 字幕页采用 `[start,end)` 半开启用区间，消除分页边界帧的双字幕叠加。
+- 旧项目没有字幕块时会按场景文本自动分页；TTS 提供方上报的 `duration` 只作为参考元数据，不会截断真实旁白，显式裁剪继续由 trim 流程负责。
+
+---
+
+## [未发布] PostgreSQL migration 最小权限修复 (2026-07-27)
+
+### 修复
+- migration runner 在 advisory lock 内先探测 `identity_schema_migrations`；已有完整 ledger 时不再无条件执行 `CREATE TABLE IF NOT EXISTS`，因此受限的 `multi_publish_api` 角色无需 schema `CREATE` 权限即可完成无 pending 的正式迁移检查。
+- ledger 缺失时仍创建迁移表并应用 migration；缺少所需 DDL 权限时继续 fail closed，并始终释放 advisory lock。
+
+### 质量
+- 新增 PostgreSQL `42501` 回归，覆盖已有 ledger、首次初始化和缺少 CREATE 权限三种正式 runner 场景。
+- ECS 发布门禁要求用真实运行角色执行正式 migration runner；dry-run 不能替代最小权限验收。
+---
+
+## [未发布] Logto Opaque Token 生产加固 (2026-07-25)
+
+### 修复
+- 业务 API 现在同时验证 Logto JWT 与 Opaque Access Token；Opaque Token 通过受信任的同源 introspection endpoint 校验，并强制检查 `active`、`sub` 和目标 `aud`。
+- 带两个点的 Opaque Token 不再被误判为 JWT，introspection 与 JWT 路径统一拒绝未来或非法 `nbf`。
+- 身份依赖不可用时返回 503，Shadow 模式不再回退到旧 API Key，从而避免把上游故障伪装成用户凭据错误。
+- `/api/v1/ready` 增加 M2M introspection 探针，生产配置缺少任一 M2M 凭据时 fail closed，production smoke 会拒绝缺少该检查的旧镜像。
+- 打包应用不再因 `NODE_ENV` 或 `ELECTRON_IS_DEV` 环境变量获得管理员权限。
+- Google、百度和本地 Whisper 的 `transcribe` 能力统一由 `BaseAdapter` 注册，不再重复出现在能力列表中。
+
+### 安全与质量
+- introspection endpoint 在发送 M2M Secret 前必须通过 HTTPS、同源和 userinfo 校验，且鉴权与生产 smoke 请求拒绝 HTTP 重定向；production smoke 也会在请求 JWKS 前完成同源校验，仅同源 loopback 开发环境允许 HTTP。
+- Token 缓存改用 SHA-256 指纹，同 Token 并发请求合并；API 测试 runner 固定为单 Vitest worker 并关闭文件并行。
+- 流水线 E2E 按用户可见的「已完成」状态验收，修复内部英文枚举与本地化文案不一致造成的稳定失败。
+- Electron GUI runner 改用 45 秒条件等待主窗口，覆盖可选 Python bridge 缺依赖时的两阶段降级启动，不再在窗口创建前误报失败。
+- Story2Video 音频阶段测试按 canonical realpath 判断文件身份，兼容 Windows Runner 的 8.3 短路径与长路径别名。
+- API Key 管理器测试改用每进程唯一的系统临时文件，避免多个本地会话并发运行时争用同一原子写临时文件。
+- API Key 原子保存会对 Windows 杀毒软件、索引器造成的短暂 `EPERM/EACCES/EBUSY` 做有界退避，避免有效请求偶发返回存储错误。
+- Windows 上账号状态脱敏迁移与全文重写会对杀毒软件、索引器造成的短暂 `EPERM/EACCES/EBUSY` 做有界退避；保留原子替换，永久文件错误仍按原路径失败。
+- Windows 上系统保护主密钥、主密钥备份和账号加密凭据的原子替换采用同一有界退避，避免短暂文件锁导致凭据迁移或保存失败。
+- 自动更新器在主窗口关闭后重建时复用全局事件监听器，并把状态目标切换到新窗口，避免重复更新通知和旧窗口引用泄漏。
+- 业务 API 使用 `proper-lockfile@4.1.2` 对同一 API Key 持久卷实施单 writer 所有权；第二实例返回 `API_KEY_WRITER_LOCKED`，监听失败和停止后可安全接管，重复启动同一实例会被拒绝。
+- 新增 `API_KEYS_PATH` 运行时配置，Docker Compose 显式指向 UID `1001` 可写的 `config/api-keys.json`；API 测试服务器统一使用停止后清理的唯一临时 Key 存储。
+- Story2Video 桌面安装包固定内置完整 FFmpeg/ffprobe，并在 `beforePack` 按资产锁校验字节数/SHA-256、真实编码器、滤镜、目标平台和许可证材料；有效安装包运行时强制优先从 `resources/media-tools` 解析，不允许环境变量覆盖锁定资源，也不会误用 Playwright 裁剪版。
+- 新增 FFmpeg 第三方声明与 GPLv3+ 发布约束；公开分发前仍需确认对应源码和构建材料的提供方式。
+- 业务 API Docker runner 合同测试改用系统临时目录和逐文件 staging，避免 Windows 受控工作树的权限差异造成假失败。
+
+---
+
+## [未发布] Story2Video Text 标准模式与参数合同 (2026-07-26)
+
+### 视频创作
+- `story2video-compose` 收敛为唯一 `text` 标准模式，创建运行前拒绝图片、音频、视频及畸形媒体字段；`image/remix/gallery/audio/batch` 明确不属于该流水线。
+- 视频创作页仅为 Story2Video 显示文案输入，并使用独立输出配置；其他视频流水线继续保留文字、图片、音频和视频输入。
+- 新增版本化 `Story2VideoTextConfig` v1，统一校验并映射分句、提示词、图片/TTS、字幕、BGM、模板、版本、合成、输出和发布参数。
+- Story2Video 项目清单升级为 manifest v2，只持久化白名单配置；BGM 复制到受控项目目录，旧 manifest v1 继续可读。
+- 版本化配置可在缺少重复顶层 `text` 时从 `prompt` 恢复项目；图片宽高比限制为受支持集合，合成层场景回退统一为 1..60 秒、默认 6 秒。
+
+### 架构与安全
+- 参数归一化只在 `story2video-compose` 的 Electron 适配层执行，不修改共享 `StageExecutor`、`ServiceBus` 或普通 `pipelineStart` 合同。
+- 运行上下文递归拒绝 Provider 密钥、Token、密码等敏感字段；未知配置不进入运行记录或项目清单。
+- YAML 运行合同改为 `required: [text]` 和 `supported_modes: [text]`，并与 renderer、PipelineEngine 和项目持久化使用同一组默认值。
+- 提示词参数严格对齐 prompt-engine 平台/风格枚举及数值范围；图片风格与提示词风格分离，空 `max_length/context` 不再发送，文本上下文转换为 `synopsis` 对象。
+- `optimize.context` 兼容 prompt-engine JSON 字典并阻断敏感字段；空字符串 `maxLength` 与未设置一致，真实 E2E 清理限定在本次运行的专属临时目录。
+- PromptBridge 对单条和批量请求执行同一防御性清理，且不修改调用方对象；旧社交平台值映射到 `generic`。
+
+### 质量
+- Story2Video 聚焦回归、归一化器覆盖率、真实 ffmpeg、Vue/preload 构建、双 sandbox、桌面/移动视觉、17 项像素门禁、Windows x64 打包、ASAR/RPA require 链和 8 秒启动检查均通过。
+- 审查回补以 5 个 RED 固定配置恢复、非支持宽高比和合成时长漂移；六文件聚焦回归现为 167/167。
+- Story2Video 源分支曾被 6 个许可证旧断言和 3 个 STT 旧预期阻塞；集成分支已通过独立提交纳入对应基线修复，最终结果以 `.quality-gates.md` 为准。
+- 流水线历史 GUI 合同改为同时校验 `completed` 语义 class 与“已完成”可见文案，避免本地化后继续断言内部状态值。
+- Python backend 的视频 Provider 可选帧处理依赖改为按执行加载；GUI CI 直接导入真实 `server` 入口，避免缺少单个实验性 Provider 依赖时阻断 Electron 主窗口。
+- 生产 smoke 合同测试同步覆盖 `/api/users` 与 `/api/forgot-password` 路径守卫，并按语义查找 `api.me`，避免新增检查改变数组尾部后误报 Quality Gate。
+- Story2Video 受控音频路径测试按 `realpath` canonical 合同比较，兼容 Windows 8.3 短路径与长路径表示同一文件的场景。
+- 真实服务 E2E 改为经过 `PipelineEngine` 的六阶段入口，实际调用 8002/8013、生成媒体文件、完成 ffmpeg 解码并验证发布禁用时明确跳过；默认降级资产不冒充真实图片/TTS Provider 验收。
+
+---
+
 ## [未发布] 桌面权限、STT 与自动更新基线修复 (2026-07-26)
 
 ### 安全
@@ -8,6 +110,7 @@
 
 ### 稳定性
 - 打包应用关闭 electron-updater 控制台 logger；网络阻断或 Release 缺少 `latest.yml` 时静默归类为无可用更新，签名、安装等真实错误仍正常上报。
+- 自动更新器同时识别 `statusCode`、消息和 URL 中的结构化 `latest*.yml` 404；signature、checksum、integrity 和 verification 错误即使携带相同 404/URL 仍按真实错误上报。
 - 新增许可证、四类 STT 和自动更新回归，覆盖打包状态优先、能力唯一性及 404 双错误路径。
 
 ---

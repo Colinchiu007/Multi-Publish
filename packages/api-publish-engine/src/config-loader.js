@@ -14,6 +14,7 @@ var DEFAULTS = {
   apiKey: null,
   maxRpm: null,
   enableSchedule: false,
+  keysPath: null,
   auditLogFile: null,
   scheduleFile: null,
   planFile: null,
@@ -27,6 +28,7 @@ var ENV_MAP = {
   port: "PORT",
   dryRun: "DRY_RUN",
   apiKey: "API_KEY",
+  keysPath: "API_KEYS_PATH",
   maxRpm: "MAX_RPM",
   enableSchedule: "ENABLE_SCHEDULE"
 };

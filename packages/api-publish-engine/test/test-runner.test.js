@@ -59,4 +59,6 @@ test('runner 执行全部分组并聚合任一子进程失败', () => {
   assert.strictEqual(status, 1)
   assert.strictEqual(calls.length, 3)
   assert(calls[2].args.includes('C:/repo/test/signer.test.js'))
+  assert(calls[2].args.includes('--maxWorkers=1'))
+  assert(calls[2].args.includes('--no-file-parallelism'))
 })

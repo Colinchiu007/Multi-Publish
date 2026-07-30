@@ -11,6 +11,7 @@ const path = require('path')
 const {
   Story2VideoComposeEngine,
   findFfmpeg,
+  findFfprobe,
   buildTransitionPlan,
   escapeSubtitleText,
   normalizeComposeScenes,
@@ -156,6 +157,29 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     })
   })
 
+  it('归一化场景时保留双层分句结果和降级来源', () => {
+    const scenes = normalizeComposeScenes({
+      scenes: [{
+        imagePath: 'image.png',
+        audioPath: 'audio.mp3',
+        text: '场景文本需要显示为多页字幕。',
+        subtitleBlocks: ['场景文本需要', '显示为多页字幕。'],
+        sceneSource: 'local-typescript-fallback',
+        subtitleSource: 'local-typescript',
+        degraded: true,
+        fallbackReason: 'ECONNREFUSED',
+      }],
+    })
+
+    expect(scenes[0]).toMatchObject({
+      subtitleBlocks: ['场景文本需要', '显示为多页字幕。'],
+      sceneSource: 'local-typescript-fallback',
+      subtitleSource: 'local-typescript',
+      degraded: true,
+      fallbackReason: 'ECONNREFUSED',
+    })
+  })
+
   it('支持旧项目的图片动效、字幕样式、水印和分辨率约束', () => {
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).toContain('zoompan')
     expect(buildImageEffectFilter('pan-left', 1280, 720, 30)).toContain('pan')
@@ -167,6 +191,18 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(parseResolution('../bad')).toEqual({ width: 1280, height: 720 })
     expect(buildScaleFilter(1920, 1080)).toContain('scale=1920:1080')
     expect(buildScaleFilter(1920, 1080)).toContain('pad=1920:1080')
+  })
+
+  it('为每个字幕页生成首尾不重叠的 FFmpeg 半开时间区间', () => {
+    const filter = buildSubtitleFilter([
+      { text: '第一屏字幕', startTime: 0, endTime: 1.25 },
+      { text: '第二屏字幕', startTime: 1.25, endTime: 2.5 },
+    ], { size: 'lg' })
+
+    expect(filter.match(/drawtext=/g)).toHaveLength(2)
+    expect(filter).toContain("enable='gte(t,0.000)*lt(t,1.250)'")
+    expect(filter).toContain("enable='gte(t,1.250)*lt(t,2.500)'")
+    expect(filter).not.toContain('between(t,')
   })
 
   it('compose 以 scenes 为权威并把效果/BGM参数传给合成阶段', async () => {
@@ -229,6 +265,85 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     }
   })
 
+  it('以 ffprobe 的 TTS 真实时长覆盖估算值，并同步分页字幕时间轴', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-subtitle-timing-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    const segmentCalls = []
+    engine._probeMediaDuration = vi.fn(async () => 4)
+    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
+      segmentCalls.push(options)
+      fs.writeFileSync(output, 'segment')
+    })
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [{
+          imagePath: image,
+          audioPath: audio,
+          duration: 1,
+          text: '第一屏字幕内容，第二屏字幕内容。',
+          subtitleBlocks: ['第一屏字幕内容，', '第二屏字幕内容。'],
+        }],
+      }, { transition: 'none', validateOutput: false })
+
+      expect(result.code).toBe(0)
+      expect(segmentCalls[0].duration).toBe(4)
+      expect(segmentCalls[0].subtitleTimeline.at(-1).endTime).toBe(4)
+      expect(result.data.segments[0].subtitleBlocks).toEqual(['第一屏字幕内容，', '第二屏字幕内容。'])
+      expect(result.data.segments[0].subtitleTimeline.at(-1).endTime).toBe(4)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('旧项目没有字幕块时会按场景文本自动分页，并同步真实音频时长', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-legacy-subtitles-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
+    const text = '第一屏字幕内容需要完整呈现，第二屏字幕内容也要连续显示。'
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    const segmentCalls = []
+    engine._probeMediaDuration = vi.fn(async () => 4)
+    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
+      segmentCalls.push(options)
+      fs.writeFileSync(output, 'segment')
+    })
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [{ imagePath: image, audioPath: audio, duration: 1, text }],
+      }, { transition: 'none', validateOutput: false })
+
+      expect(result.code).toBe(0)
+      const timeline = segmentCalls[0].subtitleTimeline
+      expect(timeline.length).toBeGreaterThan(1)
+      expect(timeline[0].startTime).toBe(0)
+      timeline.slice(1).forEach((item, index) => {
+        expect(item.startTime).toBe(timeline[index].endTime)
+      })
+      expect(timeline.at(-1).endTime).toBe(4)
+      expect(timeline.map(item => item.text).join('')).toBe(text)
+      expect(result.data.segments[0].subtitleBlocks).toEqual(timeline.map(item => item.text))
+      expect(result.data.segments[0].subtitleTimeline.at(-1).endTime).toBe(4)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('多段旁白导出会消费所有音频，而不是只使用第一段', async () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-narration-'))
@@ -242,8 +357,10 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
     engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._probeMediaDuration = vi.fn(async () => null)
+    const expectedAudioPaths = scenes.map(scene => fs.realpathSync.native(scene.audioPath))
     engine._concatNarrationAudio = vi.fn(async (audioPaths, output) => {
-      expect(audioPaths).toEqual(scenes.map(scene => scene.audioPath))
+      expect(audioPaths).toEqual(expectedAudioPaths)
       fs.writeFileSync(output, 'narration')
     })
     engine._validateOutput = vi.fn(async () => {})
@@ -319,6 +436,54 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(result.code).toBe(0)
       expect(segmentCalls[0].duration).toBeNull()
       expect(result.data.duration).toBe(1.7)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('真实 ffprobe 遇到损坏媒体时返回 null，不伪造时长', async () => {
+    if (!findFfprobe()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-invalid-probe-'))
+    const invalidMedia = writeFixture(root, 'invalid.mp3', 'not-a-media-file')
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log })
+
+    try {
+      await expect(engine._probeMediaDuration(invalidMedia)).resolves.toBeNull()
+      expect(log.warn).toHaveBeenCalledWith(
+        'Story2VideoCompose',
+        expect.stringContaining('Failed to probe media duration'),
+      )
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    [0.5, 1],
+    [undefined, 6],
+  ])('无可探测时长时把默认场景时长 %s 收敛为 %s 秒', async (defaultSceneDuration, expectedDuration) => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-default-duration-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [{ imagePath: image, audioPath: audio, text: '时长回退' }],
+      }, { defaultSceneDuration, transition: 'none', validateOutput: false })
+
+      expect(result.code).toBe(0)
+      expect(result.data.duration).toBe(expectedDuration)
+      expect(result.data.segments[0].duration).toBe(expectedDuration)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }

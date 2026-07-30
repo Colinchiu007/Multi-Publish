@@ -1,11 +1,50 @@
 # PROJECT-003 多平台一键发布 — 开发报告
 
-**最后更新**: 2026-07-20
+**最后更新**: 2026-07-26
 **当前版本**: 2.3.53
-**当前状态**: 蚁小二账号管理与内容发布对齐进入最终交付门禁
+**当前状态**: Story2Video Text 标准模式对齐已完成本地实现与专项门禁
 
 > 本文件顶部保留 2026-06-03 的历史基线；当前 Logto 用户系统交付以文末
 > “2026-07-20：Logto 用户系统交付补充”为准。
+
+---
+
+## 2026-07-26：Story2Video Text 标准模式对齐
+
+### 交付范围
+
+- `story2video-compose` 只接受 `text`；`image/remix/gallery/audio/batch` 明确排除，不再作为待实现模式。
+- 对齐文案、分句、提示词优化、图片/TTS Provider、字幕、BGM、动效、模板、输出版本、项目历史、结果交付和发布参数。
+- 普通视频流水线继续支持文字、图片、音频和视频输入；结果页的分段编辑、旁白替换、STT、重试、裁剪和 ZIP 不因创作模式收敛而删除。
+
+### 实现与数据合同
+
+- Electron 适配层新增 `Story2VideoTextConfig` v1，在创建 run 前完成默认值、枚举、数值范围、text-only、敏感上下文和纯 JSON 白名单校验。
+- CreateView 只为 Story2Video 展示文案输入，构造版本化嵌套配置，并以独立 `s2vOutputConfig` 隔离分辨率、FPS 和格式。
+- PipelineEngine 仅在 `story2video-compose` 启动路径调用归一化器，再把参数映射到既有六阶段；共享 `StageExecutor`、`ServiceBus` 和普通 `pipelineStart` 未修改。
+- Python YAML 收敛为 `required: [text]`、`supported_modes: [text]`，默认值和阶段 options 与 Electron 合同同步。
+- 完成项目使用 manifest v2 保存白名单配置，BGM 先复制到受控项目目录；旧 manifest v1 保持可读。
+
+### 整体架构影响评估
+
+| 边界 | 影响 | 结论 |
+|------|------|------|
+| 普通视频流水线 | 不经过 Story2Video 归一化，原有 text/images/audio/video 参数继续进入既有 stage 映射 | 低风险，无流程变更 |
+| `StageExecutor` / `ServiceBus` | 接口和实现均未修改 | 无架构变更 |
+| Story2Video 调用方 | 旧图片、音频、视频创作输入会在创建 run 前失败 | 预期的合同收紧 |
+| 项目持久化 | 新项目写 manifest v2；读取端继续接受 v1 | 低风险、向后兼容 |
+| 外部服务 | 8002、8013、真实 Provider、发布账号、音色克隆、配额和公网分享仍在外部边界 | 不冒充本地完成 |
+
+### 质量结果
+
+- TDD text-only 边界：新增畸形媒体输入用例先 `3 failed`，实现后归一化器 `21/21` 通过；四个相关测试文件 `97/97` 通过。
+- 新归一化器覆盖率：statements 84.31%、branches 76.57%、functions 100%、lines 89.31%。
+- 故障注入 `14/14`、Monkey `5/5`、真实 ffmpeg MP4/WebM + BGM/水印/转场 `1/1`。
+- 真实 YAML loader + JSON Schema 合同通过；当前可用 Python 环境缺少 pytest，未将直接 loader 验证写成 pytest 全套通过。
+- Vue 生产构建通过（1825 modules），preload 在 `sandbox:true/false` 两种模式通过。
+- Story2Video 详情页只出现“文案”输入；桌面和 390px 移动 viewport 无横向溢出或运行时错误；像素门禁 `17/17`。
+- Windows x64 electron-builder 通过；关键文件进入 ASAR，从解包文件集加载 RPA 入口成功，应用 8 秒存活且 stderr 为空。
+- 全桌面 coverage：323 files / 5720 tests 通过，5 files / 9 tests 失败。失败文件在本分支无 diff，分别是许可证环境判断 6 项和 STT 旧能力预期 3 项，作为基线阻断单独处理。
 
 ---
 

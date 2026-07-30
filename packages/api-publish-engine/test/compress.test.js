@@ -3,7 +3,7 @@ const http = require("http");
 const test = require("node:test");
 const zlib = require("zlib");
 
-const { PublishApiServer } = require("../src/publish-api-server");
+const { TestPublishApiServer: PublishApiServer } = require("./test-publish-api-server");
 
 function request(port, method, path, headers) {
   return new Promise(function(resolve, reject) {

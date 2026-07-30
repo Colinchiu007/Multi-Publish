@@ -1,7 +1,7 @@
 name: story2video-compose
-version: "1.0"
+version: "1.1"
 description: >
-  Story-to-Video composition pipeline. Takes a long-form text (script or rewritten content),
+  Story-to-Video composition pipeline. Takes text input only (script or rewritten content),
   splits it into sentences via smart-sentence-splitter, optimizes each sentence into image/video
   prompts via prompt-engine, generates assets (images + TTS) in parallel, composes a slideshow
   video via the Electron ffmpeg compose engine, and optionally publishes to selected platforms.
@@ -10,7 +10,7 @@ stability: beta
 default_checkpoint_policy: guided
 
 # Story2Video-compose 横切依赖：
-#   - smart-sentence-splitter (port 8002) - 文本分句（未运行时明确失败）
+#   - smart-sentence-splitter (port 8002) - 场景分句（不可用时明确标记并本地降级）
 #   - prompt-engine (port 8013) - 提示词优化（未运行时明确失败）
 #   - Electron Story2VideoComposeEngine - Node.js + ffmpeg 视频合成
 #   - PublisherRouter - 多平台发布
@@ -22,39 +22,100 @@ required_skills:
   - pipelines/story2video/publish-director
 
 runtime_defaults:
-  contentType: general
-  imageStyle: cinematic
-  aspectRatio: "16:9"
-  voiceId: default
-  voiceProvider: null
-  voiceSpeed: null
-  voicePitch: null
-  voiceEmotion: null
-  voiceVolume: 1
-  audio: []
-  concurrency: 3
-  transition: fade
-  imageEffect: none
-  subtitleEnabled: true
-  subtitleStyle:
-    size: md
-    style: style1
-  bgmVolume: 0.3
-  allowPartialAssets: false
-  publishEnabled: false
+  story2videoTextConfig:
+    version: 1
+    mode: text
+    prompt: ""
+    size: "720x1280"
+    seconds: 8
+    contentType: general
+    split:
+      language: zh
+      mode: balanced
+      maxSentenceLength: 200
+      targetSeconds: 6
+      baseWordsPerSecond: 3.3
+      speechRate: 1
+      minWords: 10
+      maxWords: 50
+      enforceSentenceBoundary: true
+      overflowToNext: true
+      subtitleMinChars: 8
+      subtitleMaxChars: 15
+      subtitleTiming: proportional
+    optimize:
+      platform: generic
+      style: realistic
+      creativeLevel: 5
+      maxLength: null
+      negativePrompt: ""
+      numCandidates: 1
+      autoDetectStyle: true
+      context: ""
+    image:
+      provider: ""
+      model: ""
+      style: cinematic
+      effect: zoom-in
+      aspectRatio: "9:16"
+    voice:
+      provider: ""
+      model: ""
+      id: zh_female_qingxinnvsheng_uranus_bigtts
+      speed: 1
+      volume: 1
+      pitch: 0
+      emotion: default
+    subtitle:
+      enabled: false
+      font: '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif'
+      size: size3
+      style: style1
+      color: white
+    bgm:
+      enabled: false
+      path: ""
+      volume: 5
+    versions:
+      generateBase: true
+      generateMerged: true
+    perImageDuration: 6
+    transition: fade
+    templateId: ""
+    concurrency: 3
+    watermark:
+      enabled: false
+      text: ""
+      position: bottom-right
+      fontSize: 24
+      opacity: 0.6
+      color: white
+    output:
+      fps: 30
+      format: mp4
+    publish:
+      enabled: false
+      platforms: []
+      title: ""
+      content: ""
+      tags: []
+      coverUrl: ""
 
 runtime_contract:
   input:
-    required_any: [text, images, audio]
-    optional: [inputMode, images, audio, contentType, templateId, platforms, title, tags, voiceProvider, voiceSpeed, voicePitch, voiceEmotion, voiceVolume]
+    required: [text]
+    optional: [story2videoTextConfig, checkpointPolicy, autoAdvance, initialContext]
+    supported_modes: [text]
+    config_version: 1
     media_limits:
-      image: { formats: [jpg, jpeg, png, webp], max_bytes: 10485760 }
-      audio: { formats: [wav, m4a, mp3], max_bytes: 52428800, max_total_seconds: 900, max_segment_seconds: 180 }
       bgm: { formats: [wav, m4a, mp3], max_bytes: 15728640 }
       output_max_seconds: 600
     unsupported_modes:
-      audio_transcription: "逐段手动 STT 已接入，自动音频识别并分场景的专用模式未实现"
-      video_remix: "Story2Video 主链不接受视频素材输入"
+      image: "不接受图片作为流水线输入；图片由 generate_assets 阶段生成"
+      remix: "不接受视频素材重混输入"
+      gallery: "不接受图库轮播输入"
+      audio: "不接受旁白音频作为流水线输入；旁白由 TTS 阶段生成"
+      batch: "不接受批任务输入；每次启动创建一个标准 text 运行"
     post_generation:
       batch_editor: "已实现分段编辑、排序、删除、旁白替换、图片/视频重试和重新合成"
       local_history: "按用户持久化最近 100 个完成项目，不包含云历史或失败运行断点续作"
@@ -62,7 +123,7 @@ runtime_contract:
   external_services:
     splitter: "127.0.0.1:8002"
     prompt_engine: "127.0.0.1:8013"
-    note: "两项服务未运行时必须返回明确错误，不得伪造成功。"
+    note: "splitter 仅在连接/超时等不可用错误时本地降级并标记来源；非法响应仍失败。prompt-engine 未运行时必须返回明确错误。"
   output:
     required: [videoPath, audioPath, segments, projectId, fileSize, segmentCount, duration]
     validation: "非空普通文件，并通过 ffmpeg 解码检查"
@@ -84,11 +145,29 @@ compatible_playbooks:
 
 stages:
   - name: split
-    description: 文案分句 - 调用 smart-sentence-splitter 将长文案切分为句子
+    description: 双层分句 - smart-sentence-splitter 生成场景，本地逻辑在每个场景内生成字幕块
     produces:
+      - scenes
       - sentences
+      - segmentation_metadata
     tools_available:
       - smart_sentence_splitter
+    options:
+      language: zh
+      mode: balanced
+      max_sentence_length: 200
+      target_duration: 6
+      base_words_per_second: 3.3
+      speech_rate: 1
+      min_words: 10
+      max_words: 50
+      enforce_sentence_boundary: true
+      overflow_to_next: true
+      subtitle_min_chars: 8
+      subtitle_max_chars: 15
+      subtitle_timing: proportional
+      fallback_to_local: true
+      require_scene_output: true
     checkpoint_required: false
     human_approval_default: false
     review_focus:
@@ -119,6 +198,13 @@ stages:
       - optimized_prompts
     tools_available:
       - prompt_engine
+    options:
+      platform: generic
+      style: realistic
+      creative_level: 5
+      negative_prompt: ""
+      num_candidates: 1
+      auto_detect_style: true
     checkpoint_required: true
     human_approval_default: true
     review_focus:
@@ -131,7 +217,7 @@ stages:
       - 所有提示词通过 schema 验证
 
   - name: generate_assets
-    description: 并行资源生成 - 为每个提示词生成图片 + 为每句生成 TTS 音频（或摄取用户旁白）
+    description: 并行资源生成 - 为每个提示词生成图片 + 为每句生成 TTS 音频
     produces:
       - asset_manifest
     required_tools:
@@ -143,19 +229,22 @@ stages:
     tools_available:
       - image_generator
       - tts_engine
-      - local_asset_ingest
     runtime_executor: story2video_generate_assets
     options:
       concurrency: 3
       imageStyle: cinematic
-      aspectRatio: "16:9"
-      voiceId: default
+      imageProvider: null
+      imageModel: null
+      aspectRatio: "9:16"
+      voiceId: zh_female_qingxinnvsheng_uranus_bigtts
       voiceProvider: null
-      voiceSpeed: null
-      voicePitch: null
-      voiceEmotion: null
-      voiceVolume: 1
-      audio: []
+      voiceModel: null
+      voiceSpeed: 1
+      voicePitch: 0
+      voiceEmotion: default
+      contentType: general
+      inputMode: text
+      templateId: null
       allowPartialAssets: false
     output_schema:
       required: [scenes, images, audio, sentences, optimizedPrompts, stats]
@@ -179,19 +268,51 @@ stages:
       - ffmpeg
     tools_available:
       - ffmpeg
+    options:
+      transition: fade
+      imageEffect: zoom-in
+      subtitleEnabled: false
+      subtitleStyle:
+        font: '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif'
+        size: md
+        style: style1
+        color: white
+      bgmPath: null
+      bgmVolume: 0.5
+      voiceVolume: 1
+      watermark: false
+      watermarkText: ""
+      watermarkConfig:
+        enabled: false
+        text: ""
+        position: bottom-right
+        fontSize: 24
+        opacity: 0.6
+        color: white
+      resolution: "720x1280"
+      fps: 30
+      format: mp4
+      defaultSceneDuration: 6
+      generateBase: true
+      generateMerged: true
+      seconds: 8
     runtime_options:
       transition: "none|fade|slide-left|slide-right|slide-up|slide-down"
       imageEffect: "none|zoom-in|zoom-out|pan-left|pan-right|pan-up|pan-down|zoom-pan|rotate|blur-in"
       subtitleEnabled: boolean
       subtitleStyle: object
       bgmPath: local_file
-      bgmVolume: "0..1"
+      bgmVolume: "0..1，由 Story2VideoTextConfig.bgm.volume(0..10) 归一化"
       voiceVolume: "0..2，作用于每段旁白与导出的完整旁白"
       watermarkText: string
       watermarkConfig: object
       resolution: "<width>x<height>"
       fps: "1..120"
-      defaultSceneDuration: "0.1..60 秒，仅用于无音频或无法探测音频时的场景回退"
+      format: "mp4|webm"
+      generateBase: boolean
+      generateMerged: boolean
+      seconds: "1..60"
+      defaultSceneDuration: "1..60 秒，仅用于无音频或无法探测音频时的场景回退"
       limits: "output<=600s; narration total<=900s; multi-audio segment<=180s"
     checkpoint_required: true
     human_approval_default: false
@@ -211,6 +332,13 @@ stages:
       - publish_log
     tools_available:
       - publisher_router
+    options:
+      publishEnabled: false
+      platforms: []
+      title: ""
+      content: ""
+      tags: []
+      coverUrl: ""
     checkpoint_required: true
     human_approval_default: true
     review_focus:

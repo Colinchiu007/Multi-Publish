@@ -31,9 +31,19 @@ var mockIpcMain = { handle: vi.fn() }
 var registerHandlers = require('../electron/ipc-handlers/payment')
 
 describe('Payment IPC handlers', function() {
+  var originalPackaged
+
   beforeEach(function() {
     vi.clearAllMocks()
+    originalPackaged = __electronMock.app.isPackaged
+    __enableElectronMock()
+    __electronMock.app.isPackaged = false
     registerHandlers(mockIpcMain, {})
+  })
+
+  afterEach(function() {
+    __electronMock.app.isPackaged = originalPackaged
+    __disableElectronMock()
   })
 
   test('registers all payment handlers', function() {

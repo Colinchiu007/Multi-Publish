@@ -213,7 +213,8 @@ function createWindow(context) {
     },
     show: false,
   })
-  const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev') || !app.isPackaged
+  // 打包状态是窗口加载模式的唯一权威，生产包不能被残留开发信号降级到本地服务器。
+  const isDev = app.isPackaged === false
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!isAllowedMainWindowUrl(url)) {
       event.preventDefault()

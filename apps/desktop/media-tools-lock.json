@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "package": "ffmpeg-ffprobe-static",
+  "packageVersion": "6.1.2-rc.1",
+  "binaryRelease": "b6.1.2-rc.1",
+  "releaseUrl": "https://github.com/descriptinc/ffmpeg-ffprobe-static/releases/tag/b6.1.2-rc.1",
+  "assets": {
+    "win32-x64": {
+      "ffmpeg": {
+        "asset": "ffmpeg-win32-x64",
+        "size": 126518784,
+        "sha256": "4b3a7a7c41a4064a8738536da6a304371c1fdc567c599ccb768bebd49ccdb9fb"
+      },
+      "ffprobe": {
+        "asset": "ffprobe-win32-x64",
+        "size": 126382080,
+        "sha256": "c75d3ea9d6ab334ee2e90f15232af80aeac24d8a3185cd6ba19680acb8f43732"
+      }
+    },
+    "linux-x64": {
+      "ffmpeg": {
+        "asset": "ffmpeg-linux-x64",
+        "size": 128513072,
+        "sha256": "d7791526ff9447dbdf88b78c43a2b98975862c8b18980b56b0f11e5bf1eafc08"
+      },
+      "ffprobe": {
+        "asset": "ffprobe-linux-x64",
+        "size": 128374768,
+        "sha256": "33e4d1be0482dce5355a04c62ccbda3d3f9f91fe4aa40cdb3585493278d91a1d"
+      }
+    }
+  }
+}

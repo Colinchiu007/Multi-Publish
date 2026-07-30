@@ -13,6 +13,7 @@ from multi_publish.video_creation.pipeline.loader import (
     get_stage_order,
     get_stage_review_focus,
     get_stage_skill,
+    load_pipeline,
     pipeline_supports_reference_input,
 )
 
@@ -38,6 +39,35 @@ SAMPLE_MANIFEST = {
 
 
 class TestPipelineLoader:
+    def test_story2video_manifest_declares_text_only_versioned_contract(self):
+        manifest = load_pipeline("story2video-compose")
+
+        assert manifest["runtime_contract"]["input"]["required"] == ["text"]
+        assert "required_any" not in manifest["runtime_contract"]["input"]
+        assert manifest["runtime_contract"]["input"]["supported_modes"] == ["text"]
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["version"] == 1
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["mode"] == "text"
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["size"] == "720x1280"
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["bgm"]["volume"] == 5
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["concurrency"] == 3
+        optimize = next(stage for stage in manifest["stages"] if stage["name"] == "optimize")
+        assert optimize["options"] == {
+            "platform": "generic",
+            "style": "realistic",
+            "creative_level": 5,
+            "negative_prompt": "",
+            "num_candidates": 1,
+            "auto_detect_style": True,
+        }
+
+        split_stage = next(stage for stage in manifest["stages"] if stage["name"] == "split")
+        assert split_stage["produces"] == ["scenes", "sentences", "segmentation_metadata"]
+        assert split_stage["options"]["subtitle_min_chars"] == 8
+        assert split_stage["options"]["subtitle_max_chars"] == 15
+        assert split_stage["options"]["subtitle_timing"] == "proportional"
+        assert split_stage["options"]["fallback_to_local"] is True
+        assert split_stage["options"]["require_scene_output"] is True
+
     def test_get_stage_order_default(self):
         stages = get_stage_order(SAMPLE_MANIFEST)
         assert stages == ["analysis", "generation", "review"]

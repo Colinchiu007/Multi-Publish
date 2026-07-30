@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { VideoEngine } = require('../services/video-engine')
 
@@ -7,6 +7,11 @@ describe('VideoEngine 能力清单', () => {
 
   beforeEach(() => {
     engine = new VideoEngine()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
   })
 
   it('导出 VideoEngine 类', () => {
@@ -50,6 +55,36 @@ describe('VideoEngine 能力清单', () => {
     expect(ffmpegCheck).toHaveBeenCalledOnce()
   })
 
+  it('远程 CI 禁用原生媒体工具时不启动宿主 FFmpeg', () => {
+    vi.stubEnv('NODE_ENV', 'test')
+    vi.stubEnv('SKIP_NATIVE_MEDIA_TOOL_TESTS', '1')
+    const childProcess = require('child_process')
+    const spawnSync = vi.spyOn(childProcess, 'spawnSync')
+
+    expect(engine._checkFfmpeg()).toBe(false)
+    expect(spawnSync).not.toHaveBeenCalled()
+  })
+
+  it('使用统一解析器返回的 FFmpeg 路径执行可用性检查', () => {
+    const fs = require('fs')
+    const os = require('os')
+    const path = require('path')
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'video-engine-ffmpeg-'))
+    const executable = path.join(root, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+    fs.writeFileSync(executable, 'binary')
+    vi.stubEnv('SKIP_NATIVE_MEDIA_TOOL_TESTS', '0')
+    vi.stubEnv('FFMPEG_PATH', executable)
+    const childProcess = require('child_process')
+    const spawnSync = vi.spyOn(childProcess, 'spawnSync').mockReturnValue({ status: 0 })
+
+    try {
+      expect(engine._checkFfmpeg()).toBe(true)
+      expect(spawnSync).toHaveBeenCalledWith(executable, ['-version'], { timeout: 3000 })
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('裁剪时校验输入和时间范围，并忽略 renderer 伪造的输出路径', async () => {
     const fs = require('fs')
     const os = require('os')
@@ -74,7 +109,11 @@ describe('VideoEngine 能力清单', () => {
     expect(params.output_path).toMatch(/_trim_.*\.mp4$/)
     expect(params.codec).toBe('libx264')
     expect(result.success).toBe(true)
-    expect(() => engine.process('trim', { input_path: input, start_seconds: 3, end_seconds: 1 })).rejects.toThrow(/时间/)
+    await expect(engine.process('trim', {
+      input_path: input,
+      start_seconds: 3,
+      end_seconds: 1,
+    })).rejects.toThrow(/时间/)
     fs.rmSync(root, { recursive: true, force: true })
   })
 })

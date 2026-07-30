@@ -331,6 +331,11 @@ function registerStory2VideoStages(pipelineEngine) {
           duration: audio.duration || null,
           imageMeta: image.meta || null,
           audioMeta: audio.meta || null,
+          subtitleBlocks: Array.isArray(sentence?.subtitleBlocks) ? [...sentence.subtitleBlocks] : [],
+          sceneSource: sentence?.sceneSource || null,
+          subtitleSource: sentence?.subtitleSource || null,
+          degraded: sentence?.degraded === true,
+          fallbackReason: sentence?.fallbackReason || null,
         });
       }
 
@@ -349,6 +354,11 @@ function registerStory2VideoStages(pipelineEngine) {
           audioPath: ttsResults[i]?.path || null,
           duration: ttsResults[i]?.duration || null,
           audioMeta: ttsResults[i]?.meta || null,
+          subtitleBlocks: Array.isArray(s?.subtitleBlocks) ? [...s.subtitleBlocks] : [],
+          sceneSource: s?.sceneSource || null,
+          subtitleSource: s?.subtitleSource || null,
+          degraded: s?.degraded === true,
+          fallbackReason: s?.fallbackReason || null,
         })),
         optimizedPrompts: optimizedPrompts.map((p, i) => ({
           index: i,
@@ -359,6 +369,12 @@ function registerStory2VideoStages(pipelineEngine) {
         failures: {
           images: failedImages.map(item => ({ index: item.index, error: item.error || 'Image generation failed' })),
           audio: failedTts.map(item => ({ index: item.index, error: item.error || 'TTS generation failed' })),
+        },
+        segmentation: {
+          sceneSource: pairedScenes.find(scene => scene.sceneSource)?.sceneSource || null,
+          subtitleSource: pairedScenes.find(scene => scene.subtitleSource)?.subtitleSource || null,
+          degraded: pairedScenes.some(scene => scene.degraded === true),
+          fallbackReason: pairedScenes.find(scene => scene.fallbackReason)?.fallbackReason || null,
         },
         stats: {
           totalImages: imageResults.length,

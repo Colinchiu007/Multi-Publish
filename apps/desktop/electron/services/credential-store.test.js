@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -23,6 +24,60 @@ function createSafeStorage () {
     encryptString: value => Buffer.from(`protected:${value}`, 'utf8'),
     decryptString: value => Buffer.from(value).toString('utf8').replace(/^protected:/, ''),
   }
+}
+
+function holdExclusiveWindowsFileLock (filePath, holdMs) {
+  const script = [
+    '& {',
+    'param($file, $holdMs)',
+    '$handle = [IO.File]::Open($file, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)',
+    'try {',
+    '[Console]::Out.WriteLine("LOCKED")',
+    '[Console]::Out.Flush()',
+    '[Threading.Thread]::Sleep([int]$holdMs)',
+    '} finally { $handle.Dispose() }',
+    '}',
+  ].join('\n')
+  const child = spawn('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    script,
+    filePath,
+    String(holdMs),
+  ], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  let stderr = ''
+  let locked = false
+  let resolveLocked
+  let rejectLocked
+  const lockedPromise = new Promise((resolve, reject) => {
+    resolveLocked = resolve
+    rejectLocked = reject
+  })
+  const exitPromise = new Promise((resolve, reject) => {
+    child.once('error', error => {
+      rejectLocked(error)
+      reject(error)
+    })
+    child.stderr.on('data', chunk => { stderr += chunk.toString() })
+    child.stdout.on('data', chunk => {
+      if (!locked && chunk.toString().includes('LOCKED')) {
+        locked = true
+        resolveLocked()
+      }
+    })
+    child.once('exit', code => {
+      if (!locked) rejectLocked(new Error(`PowerShell exited before locking the file: ${stderr}`))
+      if (code === 0) resolve()
+      else reject(new Error(`PowerShell file lock exited with code ${code}: ${stderr}`))
+    })
+  })
+
+  return lockedPromise.then(() => ({ exitPromise }))
 }
 
 describe('credential-store', () => {
@@ -126,5 +181,63 @@ describe('credential-store', () => {
 
     expect(credentialStore.getMasterKey(credDir, { safeStorage: createSafeStorage() })).toBe(legacyKey)
     expect(fs.readFileSync(path.join(credDir, '.masterkey'), 'utf8')).toMatch(/^safeStorage:v1:/)
+  })
+
+  it.skipIf(process.platform !== 'win32')('Windows 主密钥短暂锁释放后仍能完成格式迁移', async () => {
+    const userDataDir = createTempDir()
+    const credDir = path.join(userDataDir, 'credentials')
+    const keyFile = path.join(credDir, '.masterkey')
+    const legacyKey = 'c'.repeat(64)
+    fs.mkdirSync(credDir, { recursive: true })
+    fs.writeFileSync(keyFile, legacyKey, 'utf8')
+    const fileLock = await holdExclusiveWindowsFileLock(keyFile, 180)
+
+    try {
+      expect(credentialStore.getMasterKey(credDir, { safeStorage: createSafeStorage() })).toBe(legacyKey)
+      await fileLock.exitPromise
+      expect(fs.readFileSync(keyFile, 'utf8')).toMatch(/^safeStorage:v1:/)
+      expect(fs.existsSync(`${keyFile}.tmp.${process.pid}`)).toBe(false)
+    } finally {
+      await fileLock.exitPromise.catch(() => {})
+    }
+  })
+
+  it.skipIf(process.platform !== 'win32')('Windows 主密钥备份短暂锁释放后仍能完成格式迁移', async () => {
+    const userDataDir = createTempDir()
+    const credDir = path.join(userDataDir, 'credentials')
+    const keyFile = path.join(credDir, '.masterkey')
+    const backupFile = `${keyFile}.bak`
+    const legacyKey = 'd'.repeat(64)
+    fs.mkdirSync(credDir, { recursive: true })
+    fs.writeFileSync(keyFile, legacyKey, 'utf8')
+    fs.writeFileSync(backupFile, legacyKey, 'utf8')
+    const fileLock = await holdExclusiveWindowsFileLock(backupFile, 180)
+
+    try {
+      expect(credentialStore.getMasterKey(credDir, { safeStorage: createSafeStorage() })).toBe(legacyKey)
+      await fileLock.exitPromise
+      expect(fs.readFileSync(backupFile, 'utf8')).toMatch(/^safeStorage:v1:/)
+      expect(fs.existsSync(`${backupFile}.tmp.${process.pid}`)).toBe(false)
+    } finally {
+      await fileLock.exitPromise.catch(() => {})
+    }
+  })
+
+  it.skipIf(process.platform !== 'win32')('Windows 凭据文件短暂锁释放后原子保存成功', async () => {
+    const userDataDir = createTempDir()
+    const options = { safeStorage: createSafeStorage() }
+    const accountId = 'locked-account'
+    const filePath = path.join(userDataDir, 'credentials', `${accountId}.json.enc`)
+    expect(credentialStore.saveCredential(accountId, { version: 1 }, userDataDir, options)).toBe(true)
+    const fileLock = await holdExclusiveWindowsFileLock(filePath, 180)
+
+    try {
+      expect(credentialStore.saveCredential(accountId, { version: 2 }, userDataDir, options)).toBe(true)
+      await fileLock.exitPromise
+      expect(credentialStore.loadCredential(accountId, userDataDir, options)).toEqual({ version: 2 })
+      expect(fs.existsSync(`${filePath}.tmp.${process.pid}`)).toBe(false)
+    } finally {
+      await fileLock.exitPromise.catch(() => {})
+    }
   })
 })

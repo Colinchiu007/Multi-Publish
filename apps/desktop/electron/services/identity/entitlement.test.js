@@ -47,7 +47,9 @@ describe('verifyEntitlementSnapshot', () => {
   it('拒绝过期、签名失败和缺少 kid 的快照', () => {
     const { verifyEntitlementSnapshot } = require('./entitlement')
     const base = { sub: 'sub-1', device_id: 'device-1', iat: 10, exp: 20, kid: 'key-1' }
-    expect(() => verifyEntitlementSnapshot(base, { subject: 'sub-1', deviceId: 'device-1', now: 21, verify: () => true }))
+    expect(() => verifyEntitlementSnapshot(base, {
+      subject: 'sub-1', deviceId: 'device-1', now: 21, clockTolerance: 0, verify: () => true,
+    }))
       .toThrow(/ENTITLEMENT_EXPIRED/)
     expect(() => verifyEntitlementSnapshot({ ...base, exp: 100 }, { subject: 'sub-1', deviceId: 'device-1', now: 21, verify: () => false }))
       .toThrow(/ENTITLEMENT_SIGNATURE_INVALID/)
@@ -62,12 +64,40 @@ describe('verifyEntitlementSnapshot', () => {
     expect(() => verifyEntitlementSnapshot(null, {})).toThrow(/ENTITLEMENT_INVALID/)
     expect(() => verifyEntitlementSnapshot(base, null)).toThrow(/ENTITLEMENT_INVALID/)
     expect(() => verifyEntitlementSnapshot({ ...base, iat: 51 }, {
-      subject: 'sub-1', deviceId: 'device-1', now: 50, verify: () => true,
+      subject: 'sub-1', deviceId: 'device-1', now: 50, clockTolerance: 0, verify: () => true,
     })).toThrow(/ENTITLEMENT_EXPIRED/)
     expect(() => verifyEntitlementSnapshot(base, {
       subject: 'sub-1', deviceId: 'device-1', now: 50,
       verify: () => { throw new Error('验签器异常') },
     })).toThrow(/ENTITLEMENT_SIGNATURE_INVALID/)
+  })
+
+  it('默认允许 60 秒内的独立时钟偏差，并拒绝越过边界的快照', () => {
+    const { verifyEntitlementSnapshot } = require('./entitlement')
+    const base = { sub: 'sub-1', device_id: 'device-1', iat: 0, exp: 500, kid: 'key-1' }
+    const options = { subject: 'sub-1', deviceId: 'device-1', now: 100, verify: () => true }
+
+    expect(verifyEntitlementSnapshot({ ...base, iat: 160 }, options).iat).toBe(160)
+    expect(verifyEntitlementSnapshot({ ...base, exp: 41 }, options).exp).toBe(41)
+    expect(() => verifyEntitlementSnapshot({ ...base, iat: 161 }, options))
+      .toThrow(/ENTITLEMENT_EXPIRED/)
+    expect(() => verifyEntitlementSnapshot({ ...base, exp: 40 }, options))
+      .toThrow(/ENTITLEMENT_EXPIRED/)
+  })
+
+  it('将可信时钟偏差配置限制在 0 到 300 秒', () => {
+    const { verifyEntitlementSnapshot } = require('./entitlement')
+    const base = { sub: 'sub-1', device_id: 'device-1', iat: 0, exp: 1_000, kid: 'key-1' }
+    const options = { subject: 'sub-1', deviceId: 'device-1', now: 100, verify: () => true }
+
+    expect(() => verifyEntitlementSnapshot({ ...base, iat: 101 }, { ...options, clockTolerance: -1 }))
+      .toThrow(/ENTITLEMENT_EXPIRED/)
+    expect(verifyEntitlementSnapshot({ ...base, iat: 160 }, { ...options, clockTolerance: Number.NaN }).iat)
+      .toBe(160)
+    expect(verifyEntitlementSnapshot({ ...base, iat: 400 }, { ...options, clockTolerance: 300 }).iat)
+      .toBe(400)
+    expect(() => verifyEntitlementSnapshot({ ...base, iat: 401 }, { ...options, clockTolerance: 301 }))
+      .toThrow(/ENTITLEMENT_EXPIRED/)
   })
 })
 
@@ -82,6 +112,21 @@ describe('verifyEntitlementToken', () => {
       now,
       publicKeys: { 'key-1': publicKey },
     })).toEqual(snapshot)
+  })
+
+  it('真实 RSA token 同样遵守默认时钟偏差窗口', () => {
+    const { verifyEntitlementToken } = require('./entitlement')
+    const withinTolerance = createSignedToken({ iat: 1_700_000_002 })
+    const beyondTolerance = createSignedToken({ iat: 1_700_000_061 })
+
+    expect(verifyEntitlementToken(withinTolerance.token, {
+      subject: 'sub-1', deviceId: 'device-1', now: withinTolerance.now,
+      publicKeys: { 'key-1': withinTolerance.publicKey },
+    })).toEqual(withinTolerance.snapshot)
+    expect(() => verifyEntitlementToken(beyondTolerance.token, {
+      subject: 'sub-1', deviceId: 'device-1', now: beyondTolerance.now,
+      publicKeys: { 'key-1': beyondTolerance.publicKey },
+    })).toThrow(/ENTITLEMENT_EXPIRED/)
   })
 
   it('拒绝篡改签名和未知 kid', () => {

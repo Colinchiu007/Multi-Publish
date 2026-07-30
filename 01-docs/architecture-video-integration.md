@@ -1,7 +1,7 @@
 ﻿# OpenMontage 视频集成 — 架构设计方案
 
-> **版本**: v2.2
-> **日期**: 2026-07-22
+> **版本**: v2.4
+> **日期**: 2026-07-25
 > **状态**: 当前实现基线（历史计划保留）
 > **审查框架**: 质量节拍 Phase 1.1（技术架构）+ Phase 5（审查模式）  
 > **相关文档**: PRD-video-creation.md, ADR-001, ADR-002, remotion-integration-design.md, refactoring-review-2026-07-08.md  
@@ -78,7 +78,7 @@ TextCard, TerminalScene, AnimeScene, HeroTitle, CaptionOverlay, StatCard, StatRe
 | `apps/desktop/electron/ipc-handlers/story2video.js` | ✅ 已实现 | 项目 CRUD、受控媒体导入、分段操作、STT、真实裁剪、ZIP、本地播放 URL 和路径操作 | ✅ |
 | `apps/desktop/electron/ipc-handlers/render.js` | ✅ 已扩展 | 新增 composition 管理 IPC | ✅ |
 | preload source + bundle + main.js 接线 | ✅ 已接线 | Story2Video API 已进入生产 bundle；sandbox=true/false 均实际调用 IPC 验证 | ✅ |
-| CreateView.vue | ✅ 已实现 | 文案/图片双模式 + 渲染 | ✅ |
+| CreateView.vue | ✅ 已收敛 | Story2Video 仅文案标准模式；普通流水线保留各自输入，输出状态彼此隔离 | ✅ |
 | PipelineView.vue | 已移除 | S2V 管线浏览、配置和检查点已统一到 CreateView.vue | ✅ |
 | CreateHistory.vue / ResultView.vue | ✅ 已实现 | 本地项目筛选/恢复与分段编辑、重试、裁剪、重新合成 | ✅ |
 | PipelineBrowser.vue | ✅ 已修复 | IPC 调用已对接 publisher API | ✅ |
@@ -87,13 +87,15 @@ TextCard, TerminalScene, AnimeScene, HeroTitle, CaptionOverlay, StatCard, StatRe
 
 ```text
 CreateView.vue
-  └─ preload.publish.js / pipelineStartOrchestrated
+  └─ Story2VideoTextConfig（纯 JSON、版本化、text-only）
+       └─ preload.publish.js / pipelineStartOrchestrated
        └─ pipeline IPC（可信 sender + 参数校验）
             └─ PipelineEngine
+                 ├─ Story2Video text 参数归一化（仅 story2video-compose）
                  ├─ split → SplitterBridge（8002）
                  ├─ domain_enrich → story2video-domain.js（可选 history）
                  ├─ optimize → PromptBridge（8013）
-                 ├─ generate_assets → AssetGenerator / 本地图片与旁白摄取
+                 ├─ generate_assets → AssetGenerator（图片生成 + TTS）
                  ├─ compose → Story2VideoComposeEngine（Electron + ffmpeg）
                  ├─ publish → PublisherRouter（显式开启才执行）
                  └─ Story2VideoProjectService
@@ -105,14 +107,33 @@ CreateView.vue
 `packages/python-backend/.../story2video-compose.yaml` 是阶段和产品契约，
 但自定义的 `domain_enrich`、`generate_assets` 执行器在 Electron 启动时由
 `registerStory2VideoStages()` 注入。合成结果必须是非空普通文件并通过 ffmpeg
-解码校验；外部服务或发布凭据缺失时必须返回失败/跳过，而不是占位成功。
+解码校验；8002 仅在连接拒绝、超时等已允许的服务不可用错误下本地降级并记录来源，
+8013 或服务非法响应必须明确失败，发布凭据缺失只能显式跳过，不得占位成功。
 
-当前 `story2video-compose` 直接支持：`contentType`、模板预设、图片动效、转场、
-字幕样式、BGM/音量、水印、分辨率/FPS、图片轮播输入和可选多平台发布。
-旧项目的后生成 batch 编辑能力已经由本地项目服务覆盖：分段编辑、排序、删除、旁白替换、
+当前 `story2video-compose` 收敛为唯一 `text` 标准模式，直接支持：`contentType`、模板预设、
+分句/提示词参数、图片动效、转场、字幕样式、BGM/音量、水印、独立分辨率/FPS 和可选多平台发布。
+旧项目的后生成编辑能力已经由本地项目服务覆盖：分段编辑、排序、删除、旁白替换、
 图片/视频重试和重新合成均走真实媒体文件。逐段手动 STT、完整旁白、流式 ZIP、真实裁剪
-和重启后的完成项目恢复也已接通。仍不支持的是 Sora/Supabase Remix、一次上传音频后自动
-识别并分场景的专用模式、音色克隆、旧 orchestrator 会员配额以及云端分享/跨设备历史。
+和重启后的完成项目恢复也已接通。`image/remix/gallery/audio/batch` 是明确排除的创作模式，
+不属于待实现缺口；外部缺口是音色克隆、旧 orchestrator 会员配额以及云端分享/跨设备历史。
+
+#### Text 参数隔离边界（v2.4）
+
+```text
+普通流水线 params ───────────────────────→ PipelineEngine.start（保持原合同）
+
+story2video-compose
+  → Story2VideoTextConfig
+  → normalizeStory2VideoTextParams（创建 run 前校验）
+  → stageOptions.split / optimize / generate_assets / compose / publish
+  → 现有 StageExecutor 与 ServiceBus
+```
+
+归一化器位于 Electron Story2Video 适配层，不修改 `StageExecutor.execute()`、
+`ServiceBus.composeVideo()` 或普通 `pipelineStart` 的接口。CreateView 使用独立的
+`s2vOutputConfig`，模板只修改 Story2Video 输出；切换到其他流水线时不携带 Story2Video
+的分辨率、Provider 或发布配置。运行和项目清单只保存非敏感配置，Provider Secret 仍由
+`ModelProviderManager` 的加密存储管理。
 
 #### Provider 配置与调用边界
 
@@ -140,7 +161,8 @@ renderer File
   → run completed/failed/cancelled 时清理导入临时文件
 ```
 
-用户可以从任意盘符选择旁白或 BGM，但路径本身不会成为永久授权。图片转为受限 data URL
+text 标准模式只允许用户选择 BGM；结果编辑、STT 工具和普通流水线仍可从任意盘符选择旁白或图片，
+但路径本身不会成为永久授权。图片转为受限 data URL
 并落到 run 临时目录。旁白仅 WAV/M4A/MP3 且 <=50MB，BGM <=15MB，图片仅
 JPEG/PNG/WebP 且 <=10MB；成片 <=10 分钟，多段旁白单段 <=3 分钟、总输入 <=15 分钟。
 
@@ -157,7 +179,7 @@ ZIP 使用 STORE + data descriptor 流式写入临时文件，按 64KB 分块计
 #### 项目持久化与媒体生命周期
 
 `Story2VideoProjectService` 以身份 `sub` 的 SHA-256 目录隔离项目，并把索引写入用户设置。
-每个项目保存 `project.json`、成片、完整旁白、BGM 和分段图片/音频/视频；索引只保留最近
+每个新项目以 manifest v2 保存 `Story2VideoTextConfig` v1 白名单配置、`project.json`、成片、完整旁白、BGM 和分段图片/音频/视频；旧 manifest v1 仍可读取。索引只保留最近
 100 项，淘汰或删除项目时同步删除受控目录。编辑、重试和重新合成采用“先持久化新清单，
 再删除旧清单中不再引用的普通文件”的顺序，共享媒体仍被引用时不会删除。
 
@@ -404,7 +426,7 @@ class PipelineEngine {
 | Python 3.10+ | Python 工具执行 | ✅ 已有 |
 | python-bridge.js | Electron↔Python IPC | ✅ 已有 |
 | Remotion 4.0.x | 独立快速渲染 | ✅ 已在 remotion-composer 锁定 |
-| FFmpeg/ffprobe | Story2Video 合成、音频混流和媒体时长探测 | ⚠️ 当前依赖系统可执行文件，安装包尚未内置 |
+| FFmpeg/ffprobe | Story2Video 合成、音频混流和媒体时长探测 | ✅ 安装包按 `media-tools-lock.json` 锁定并内置；打包资源优先，宿主工具仅作开发回退 |
 | 8002/8013 服务 | 文本分句与提示词优化 | ⚠️ 目标环境必须单独启动并验收 |
 
 ### 5.2 风险
@@ -415,7 +437,7 @@ class PipelineEngine {
 | AI 服务 API 变更 | 功能不可用 | 中 | 2 | 多提供商备选 |
 | Electron iframe 限制 | 预览无法内嵌 | 低 | 3 | 受控 file URL + IPC；生产和开发均不关闭 `webSecurity` |
 | Remotion 渲染慢 | 用户体验差 | 低 | 1 | 进度条 + 可取消 |
-| 系统 FFmpeg 缺失 | 合成与裁剪不可用 | 中 | 3 | 启动/执行前检测并明确报错，不在运行时静默安装 |
+| 随包 FFmpeg/ffprobe 缺失或字节漂移 | 合成与裁剪不可用 | 低 | 3 | `beforePack` 校验大小、SHA-256、能力与许可证并 fail closed；运行时优先解析随包资源 |
 | 外部分句/提示词服务缺失 | 六阶段主链阻断 | 中 | 3 | 健康检查并明确失败，不伪造本地成功 |
 
 ---
@@ -458,7 +480,7 @@ class PipelineEngine {
 ## 八、启用/禁用策略
 
 视频创作功能默认禁用（设置页开关）。启用时：
-1. 检测 Python 环境、ffmpeg/ffprobe 和外部服务 → 缺失时明确引导或阻断对应能力
+1. 检测 Python 环境、锁定的随包 ffmpeg/ffprobe 和外部服务 → 缺失时明确引导或阻断对应能力
 2. 检测已随应用打包/锁定的 remotion-composer；Composition 只使用本地系统字体栈，不在应用运行时请求远程字体或执行在线 `npm install`
 3. 加载 composition-manager.js 等新 Service
 4. 在侧边栏添加"创作"入口

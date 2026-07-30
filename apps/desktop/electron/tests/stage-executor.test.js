@@ -1,6 +1,8 @@
 // stage-executor + orchestrator mode tests
 import { describe, expect, it, vi } from 'vitest'
 
+const http = require('http')
+
 function eq(actual, expected, message) {
   expect(actual, message).toEqual(expected)
 }
@@ -11,6 +13,8 @@ function ok(value, message) {
 
 const { StageExecutor, STAGE_TYPES } = require('../services/stage-executor');
 const { PipelineEngine } = require('../services/pipeline-engine');
+const PromptBridge = require('../services/prompt-bridge');
+const ServiceBus = require('../services/service-bus');
 
 // ---------- Mock ServiceBus ----------
 function makeMockServiceBus(overrides) {
@@ -72,6 +76,239 @@ it('SPLIT 阶段调用 serviceBus.splitText', async function () {
   expect(bus.splitText).toHaveBeenCalledOnce();
 });
 
+it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块', async function () {
+  const bus = makeMockServiceBus({
+    splitText: vi.fn(async () => ({
+      tier_used: 'tier3_rule',
+      scenes: [{ text: '第一幕包含足够长的画面说明，随后继续补充细节。' }],
+      sentences: ['第一幕包含足够长的画面说明，', '随后继续补充细节。'],
+    })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'story-service',
+    stage: {
+      name: 'split',
+      type: STAGE_TYPES.SPLIT,
+      options: {
+        language: 'zh',
+        mode: 'precise',
+        max_sentence_length: 120,
+        target_duration: 4,
+        base_words_per_second: 2.8,
+        speech_rate: 1.2,
+        min_words: 12,
+        max_words: 40,
+        enforce_sentence_boundary: false,
+        overflow_to_next: false,
+        fallback_to_local: true,
+        require_scene_output: true,
+        subtitle_min_chars: 8,
+        subtitle_max_chars: 15,
+      },
+    },
+    params: { text: '第一幕包含足够长的画面说明，随后继续补充细节。' },
+    context: {},
+  });
+
+  expect(result).toMatchObject({
+    success: true,
+    output: {
+      sceneSource: 'smart-sentence-splitter',
+      subtitleSource: 'local-typescript',
+      degraded: false,
+    },
+  });
+  expect(result.output.scenes[0].subtitleBlocks.join('')).toBe(result.output.scenes[0].text);
+  const sentOptions = bus.splitText.mock.calls[0][1];
+  expect(sentOptions).toMatchObject({
+    language: 'zh',
+    mode: 'precise',
+    config: {
+      sentence_tokenizer: {
+        max_sentence_length: 120,
+        language_specific: {
+          zh: { max_sentence_length: 120 },
+          en: { max_sentence_length: 120 },
+        },
+      },
+      scene: {
+        target_seconds: 4,
+        base_words_per_second: 2.8,
+        speech_rate: 1.2,
+        min_words_per_segment: 12,
+        max_words_per_segment: 40,
+        enforce_sentence_boundary: false,
+        allow_single_sentence_overflow: false,
+      },
+    },
+  });
+  expect(sentOptions).not.toHaveProperty('fallback_to_local');
+  expect(sentOptions).not.toHaveProperty('require_scene_output');
+  expect(sentOptions).not.toHaveProperty('target_duration');
+  expect(sentOptions).not.toHaveProperty('subtitle_min_chars');
+});
+
+it('Story2Video SPLIT 仅在 8002 不可用时降级到本地双层分句', async function () {
+  const unavailable = new Error('connect ECONNREFUSED 127.0.0.1:8002');
+  unavailable.code = 'ECONNREFUSED';
+  const bus = makeMockServiceBus({
+    splitText: vi.fn(async () => { throw unavailable; }),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const text = '第一句话用于建立场景。第二句话继续补充信息。第三句话切换画面。';
+  const result = await exec.execute({
+    runId: 'story-fallback',
+    stage: {
+      name: 'split',
+      type: STAGE_TYPES.SPLIT,
+      options: { fallback_to_local: true, require_scene_output: true },
+    },
+    params: { text },
+    context: {},
+  });
+
+  expect(result).toMatchObject({
+    success: true,
+    output: {
+      sceneSource: 'local-typescript-fallback',
+      subtitleSource: 'local-typescript',
+      degraded: true,
+      fallbackReason: expect.stringContaining('ECONNREFUSED'),
+    },
+  });
+  expect(result.output.scenes.map(scene => scene.text).join('')).toBe(text);
+});
+
+it.each([
+  ['请求超时', Object.assign(new Error('splitterbridge request timeout'), { code: 'ETIMEDOUT' }), 'ETIMEDOUT'],
+  ['连接重置', Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }), 'ECONNRESET'],
+])('Story2Video SPLIT 在 8002 %s时允许本地降级', async function (_label, unavailable, reason) {
+  const bus = makeMockServiceBus({
+    splitText: vi.fn(async () => { throw unavailable; }),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const text = '第一句话用于建立场景。第二句话继续补充信息。';
+  const result = await exec.execute({
+    runId: 'story-fallback-' + reason.toLowerCase(),
+    stage: {
+      name: 'split',
+      type: STAGE_TYPES.SPLIT,
+      options: { fallback_to_local: true, require_scene_output: true },
+    },
+    params: { text },
+    context: {},
+  });
+
+  expect(result).toMatchObject({
+    success: true,
+    output: {
+      sceneSource: 'local-typescript-fallback',
+      subtitleSource: 'local-typescript',
+      degraded: true,
+      fallbackReason: expect.stringContaining(reason),
+    },
+  });
+  expect(result.output.scenes.map(scene => scene.text).join('')).toBe(text);
+});
+
+it.each([
+  ['code/message', { code: -1, message: 'connect ECONNREFUSED 127.0.0.1:8002' }, 'ECONNREFUSED'],
+  ['success/error', { success: false, error: 'SplitterBridge is not running' }, 'not running'],
+])('Story2Video SPLIT 在 8002 返回 %s 失败对象时允许本地降级', async function (_label, unavailable, reason) {
+  const bus = makeMockServiceBus({
+    splitText: vi.fn(async () => unavailable),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const text = '第一句话用于建立场景。第二句话继续补充信息。';
+  const result = await exec.execute({
+    runId: 'story-returned-fallback-' + _label,
+    stage: {
+      name: 'split',
+      type: STAGE_TYPES.SPLIT,
+      options: { fallback_to_local: true, require_scene_output: true },
+    },
+    params: { text },
+    context: {},
+  });
+
+  expect(result).toMatchObject({
+    success: true,
+    output: {
+      sceneSource: 'local-typescript-fallback',
+      subtitleSource: 'local-typescript',
+      degraded: true,
+      fallbackReason: expect.stringContaining(reason),
+    },
+  });
+  expect(result.output.scenes.map(scene => scene.text).join('')).toBe(text);
+});
+
+it('Story2Video SPLIT 对 8002 业务错误禁止本地降级', async function () {
+  const businessError = Object.assign(new Error('splitter service rejected invalid mode'), {
+    code: 'ERR_BAD_REQUEST',
+  });
+  const bus = makeMockServiceBus({
+    splitText: vi.fn(async () => { throw businessError; }),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'story-business-error',
+    stage: {
+      name: 'split',
+      type: STAGE_TYPES.SPLIT,
+      options: { fallback_to_local: true, require_scene_output: true },
+    },
+    params: { text: '业务错误必须暴露给调用方。' },
+    context: {},
+  });
+
+  expect(result.success).toBe(false);
+  expect(result.error).toContain('invalid mode');
+  expect(result.output).toBeUndefined();
+});
+
+it('Story2Video SPLIT 对 8002 返回的业务错误对象禁止本地降级', async function () {
+  const bus = makeMockServiceBus({
+    splitText: vi.fn(async () => ({ code: -1, message: 'splitter service rejected invalid mode' })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'story-returned-business-error',
+    stage: {
+      name: 'split',
+      type: STAGE_TYPES.SPLIT,
+      options: { fallback_to_local: true, require_scene_output: true },
+    },
+    params: { text: '返回的业务错误也必须暴露给调用方。' },
+    context: {},
+  });
+
+  expect(result.success).toBe(false);
+  expect(result.error).toContain('invalid mode');
+  expect(result.output).toBeUndefined();
+});
+
+it('Story2Video SPLIT 对服务非法响应明确失败，不静默降级', async function () {
+  const bus = makeMockServiceBus({
+    splitText: vi.fn(async () => ({ code: 0, data: { unexpected: true } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'story-malformed',
+    stage: {
+      name: 'split',
+      type: STAGE_TYPES.SPLIT,
+      options: { fallback_to_local: true, require_scene_output: true },
+    },
+    params: { text: '服务合同不能被静默掩盖。' },
+    context: {},
+  });
+
+  expect(result.success).toBe(false);
+  expect(result.error).toMatch(/场景|响应|scenes/i);
+});
+
 it('SPLIT 音频模式在无文案时按音频数量生成场景', async function () {
   const bus = makeMockServiceBus();
   const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
@@ -126,6 +363,100 @@ it('OPTIMIZE_BATCH 阶段需要数组输入', async function () {
   });
   eq(r2.success, true);
   eq(r2.output.length, 2);
+});
+
+it.each([
+  ['服务错误对象', { code: -1, message: 'prompt-engine quota exceeded' }, /quota exceeded/],
+  ['结果数量错配', { code: 0, data: { results: [{ optimized_prompt: 'only one' }] } }, /count mismatch/i],
+])('OPTIMIZE_BATCH 对%s保持 fail closed', async function (_label, response, expectedError) {
+  const bus = makeMockServiceBus({
+    optimizePromptsBatch: vi.fn(async () => response),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'optimize-batch-failure-' + _label,
+    stage: { name: 'ob', type: STAGE_TYPES.OPTIMIZE_BATCH, inputFrom: 'prompts' },
+    params: {},
+    context: { prompts: ['prompt1', 'prompt2'] },
+  });
+
+  expect(result.success).toBe(false);
+  expect(result.error).toMatch(expectedError);
+  expect(result.output).toBeUndefined();
+});
+
+it('OPTIMIZE_BATCH 接受非空字符串及支持的对象 prompt 字段', async function () {
+  const response = [
+    'direct prompt',
+    { prompt: 'prompt field' },
+    { optimized_prompt: 'optimized_prompt field' },
+    { optimized: 'optimized field' },
+  ];
+  const bus = makeMockServiceBus({
+    optimizePromptsBatch: vi.fn(async () => ({ code: 0, data: { results: response } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'optimize-batch-valid-shapes',
+    stage: { name: 'ob', type: STAGE_TYPES.OPTIMIZE_BATCH, inputFrom: 'prompts' },
+    params: {},
+    context: { prompts: ['prompt1', 'prompt2', 'prompt3', 'prompt4'] },
+  });
+
+  expect(result).toEqual({ success: true, output: response });
+});
+
+it.each([
+  ['空对象', [{}, {}]],
+  ['null', [null, null]],
+  ['空白 prompt 字段', [{ optimized_prompt: '  ' }, { prompt: '\t', optimized: '' }]],
+  ['前置空白字段遮蔽后续值', [{ prompt: ' ', optimized_prompt: 'valid but shadowed' }, { optimized: 'valid' }]],
+])('OPTIMIZE_BATCH 对真实 PromptBridge 返回的等长%s结果保持 fail closed', async function (_label, response) {
+  let receivedBody = null;
+  const server = http.createServer((request, reply) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', chunk => { body += chunk; });
+    request.on('end', () => {
+      receivedBody = JSON.parse(body);
+      reply.writeHead(200, { 'Content-Type': 'application/json' });
+      reply.end(JSON.stringify({ code: 0, data: { results: response } }));
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const promptBridge = new PromptBridge({ log: { info() {}, warn() {}, error() {} } });
+  promptBridge.host = '127.0.0.1';
+  promptBridge.port = server.address().port;
+  promptBridge.isRunning = true;
+  const serviceBus = new ServiceBus({
+    pythonBridge: null,
+    splitterBridge: null,
+    promptBridge,
+    story2videoEngine: null,
+    log: { info() {}, warn() {}, error() {} },
+  });
+  const exec = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } });
+
+  try {
+    const result = await exec.execute({
+      runId: 'optimize-batch-malformed-' + _label,
+      stage: { name: 'ob', type: STAGE_TYPES.OPTIMIZE_BATCH, inputFrom: 'prompts' },
+      params: {},
+      context: { prompts: ['prompt1', 'prompt2'] },
+    });
+
+    expect(receivedBody).toEqual({ requests: [{ prompt: 'prompt1' }, { prompt: 'prompt2' }] });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/item 0.*non-empty prompt/i);
+    expect(result.output).toBeUndefined();
+  } finally {
+    promptBridge.isRunning = false;
+    await new Promise(resolve => server.close(resolve));
+  }
 });
 
 it('COMPOSE 阶段处理 code === 0 成功', async function () {

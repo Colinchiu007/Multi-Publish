@@ -23,6 +23,10 @@ function assertDecodable (ffmpeg, filePath) {
 }
 
 test('真实 ffmpeg：图片/TTS → xfade → BGM/水印 → MP4/WebM', { timeout: 240000 }, async (t) => {
+  if (process.env.NODE_ENV === 'test' && process.env.SKIP_NATIVE_MEDIA_TOOL_TESTS === '1') {
+    return t.skip('远程 CI 不执行桌面 FFmpeg 合成门禁')
+  }
+
   const ffmpeg = findFfmpeg() || findAssetFfmpeg()
   if (!ffmpeg) return t.skip('ffmpeg 不可用')
 
@@ -54,13 +58,19 @@ test('真实 ffmpeg：图片/TTS → xfade → BGM/水印 → MP4/WebM', { timeo
     ], { stdio: 'pipe', timeout: 30000 })
 
     const manifest = {
-      scenes: [0, 1].map(index => ({
-        index,
-        text: index === 0 ? '长安城夜景' : '清晨海边',
-        imagePath: images[index].data.path,
-        audioPath: audio[index].data.path,
-        duration: 2,
-      })),
+      scenes: [0, 1].map(index => {
+        const subtitleBlocks = index === 0
+          ? ['长安城夜景，', '灯火与宫殿。']
+          : ['清晨海边，', '远处的帆船。']
+        return {
+          index,
+          text: subtitleBlocks.join(''),
+          subtitleBlocks,
+          imagePath: images[index].data.path,
+          audioPath: audio[index].data.path,
+          duration: 2,
+        }
+      }),
     }
     const baseOptions = {
       transition: 'slide-left',
@@ -80,6 +90,12 @@ test('真实 ffmpeg：图片/TTS → xfade → BGM/水印 → MP4/WebM', { timeo
     assert.equal(mp4.code, 0, mp4.message)
     assert.equal(mp4.data.segmentCount, 2)
     assert.equal(mp4.data.bgmApplied, true)
+    assert.equal(mp4.data.segments[0].subtitleTimeline.length, 2)
+    assert.equal(mp4.data.segments[0].subtitleTimeline[0].startTime, 0)
+    assert.equal(
+      mp4.data.segments[0].subtitleTimeline.at(-1).endTime,
+      mp4.data.segments[0].duration,
+    )
     assertDecodable(ffmpeg, mp4.data.videoPath)
 
     const webm = await composeEngine.compose({ scenes: [manifest.scenes[0]] }, {

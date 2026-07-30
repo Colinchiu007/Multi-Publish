@@ -1,0 +1,12 @@
+{
+  "id": "finish-worktree-consolidation",
+  "title": "完成剩余工作树分支验证、合并、推送与清理",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "release-integration",
+  "currentPhase": "implementation",
+  "nextAction": "精确暂存审计记录，创建 merge commit 并推送 desktop baseline PR",
+  "createdAt": "2026-07-30T00:00:00+08:00",
+  "branch": "codex/desktop-baseline-fixes"
+}

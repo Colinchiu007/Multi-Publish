@@ -1,0 +1,10 @@
+# 与 ECS 当前 svhd/logto:1.41.0 的 RepoDigest 一致，避免可变 tag 漂移。
+FROM docker.m.daocloud.io/svhd/logto@sha256:7f79547e3d1fe569a3ecae757968a7cfc579687aa8164eec35113c0adc983c5b
+
+LABEL org.opencontainers.image.title="Multi-Publish Logto Webhook POST retry"
+LABEL org.opencontainers.image.version="1.41.0-webhook-post-retry.1"
+LABEL org.opencontainers.image.base.name="svhd/logto:1.41.0"
+LABEL org.opencontainers.image.base.digest="sha256:7f79547e3d1fe569a3ecae757968a7cfc579687aa8164eec35113c0adc983c5b"
+
+COPY patch-webhook-post-retry.cjs /tmp/patch-webhook-post-retry.cjs
+RUN node /tmp/patch-webhook-post-retry.cjs && rm /tmp/patch-webhook-post-retry.cjs

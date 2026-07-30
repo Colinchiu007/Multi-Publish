@@ -49,7 +49,7 @@ t("metrics() is a function", function() { eq(typeof new PublishApiClient({baseUr
 
 console.log("\n--- Integration test (with real server) ---");
 // Start a real PublishApiServer for integration testing
-var PublishApiServer = require("../src/publish-api-server").PublishApiServer;
+var PublishApiServer = require("./test-publish-api-server").TestPublishApiServer;
 var testServer = null;
 var testPort = null;
 

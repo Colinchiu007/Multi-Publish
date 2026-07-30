@@ -19,7 +19,8 @@
 
 const path = require("path");
 const fs = require("fs");
-const { spawn, execSync } = require("child_process");
+const { execSync } = require("child_process");
+const { createDevServerController } = require("../src/dev-server-controller");
 
 const ROOT = path.resolve(__dirname, "../..", "..");
 const APPS_DIR = path.join(ROOT, "apps/desktop");
@@ -60,7 +61,7 @@ const FUNCTIONAL_TARGETS = (() => {
   return ["navigation", "login", "publish", "accounts", "settings"];
 })();
 
-let viteProcess = null;
+let devServerController = null;
 
 // ===== Logging =====
 function log(tag, msg) { const ts = new Date().toISOString().slice(11, 19); console.log(`[${ts}] [${tag}] ${msg}`); }
@@ -76,30 +77,62 @@ async function startDevServer() {
   if (SKIP_SERVER) { log("SKIP", "跳过 dev server"); return; }
   log("SERVER", `启动 Vite dev server (port ${TARGET_PORT})...`);
   if (!fs.existsSync(DEV_DIR)) throw new Error(`Dev dir not found: ${DEV_DIR}`);
-  try { execSync("taskkill /F /IM node.exe /T 2>nul", { stdio: "ignore" }); } catch (_) {}
-  viteProcess = spawn("npx", ["vite", "--port", TARGET_PORT], { cwd: DEV_DIR, stdio: ["ignore", "pipe", "pipe"], shell: true });
-  viteProcess.stderr.on("data", d => { const s = d.toString(); if (s.includes("Error")) log("VITE", s.trim().slice(0, 120)); });
+  devServerController = createDevServerController({
+    cwd: DEV_DIR,
+    port: TARGET_PORT,
+    maxWaitMs: MAX_WAIT * 1000,
+    onStderr: (text) => {
+      if (text.includes("Error")) log("VITE", text.trim().slice(0, 120));
+    },
+  });
   log("SERVER", `等待 Vite 就绪 (最多 ${MAX_WAIT}s)...`);
-  for (let i = 1; i <= MAX_WAIT; i++) {
-    await sleep(1000);
-    try { const resp = await fetch(TEST_URL, { method: "HEAD" }); if (resp.ok || resp.status === 304) { log("SERVER", `就绪 (${i}s)`); return; } } catch (_) {}
-  }
-  throw new Error(`Vite 未能在 ${MAX_WAIT}s 内启动`);
+  await devServerController.start();
+  log("SERVER", "Vite 已就绪");
 }
 
 // ===== Visual Tests (Phase 2, Simple Mode) =====
-async function runVisualTests() {
+function formatCommandFailure(label, error) {
+  const stderr = error?.stderr?.toString?.().trim();
+  const detail = stderr || error?.message || String(error);
+  return `${label}失败: ${detail}`;
+}
+
+async function runVisualTests(options = {}) {
   if (SKIP_VISUAL) return { type: "visual", summary: { total: 0, passed: 0, failed: 0 }, skipped: true };
+  const appsDir = options.appsDir || APPS_DIR;
+  const reportDir = options.reportDir || REPORT_DIR;
+  const execute = options.execute || execSync;
   log("VISUAL", "启动像素对比测试...");
-  fs.mkdirSync(REPORT_DIR, { recursive: true });
+  fs.mkdirSync(reportDir, { recursive: true });
   try {
-    try { execSync(`cd "${APPS_DIR}" && npm run test:visual:pixel`, { stdio: "pipe", timeout: 120000 }); } catch (_) {}
-    try { execSync(`node "${path.join(APPS_DIR, "tests/visual-testing/scripts/agent-visual-judge.js")}"`, { cwd: APPS_DIR, stdio: "pipe", timeout: 30000 }); } catch (_) {}
-    const diffDir = path.join(APPS_DIR, "tests/visual-testing/reports/pixel-diff");
+    const commandFailures = [];
+    try {
+      execute(`cd "${appsDir}" && npm run test:visual:pixel`, { stdio: "pipe", timeout: 120000 });
+    } catch (error) {
+      commandFailures.push(formatCommandFailure("像素对比测试", error));
+    }
+    try {
+      execute(`node "${path.join(appsDir, "tests/visual-testing/scripts/agent-visual-judge.js")}"`, {
+        cwd: appsDir,
+        stdio: "pipe",
+        timeout: 30000,
+      });
+    } catch (error) {
+      commandFailures.push(formatCommandFailure("Agent 视觉判断", error));
+    }
+
+    const diffDir = path.join(appsDir, "tests/visual-testing/reports/pixel-diff");
     let diffCount = 0;
     if (fs.existsSync(diffDir)) diffCount = fs.readdirSync(diffDir).filter(f => f.endsWith(".png")).length;
-    log("VISUAL", `完成, diffs: ${diffCount}`);
-    return { type: "visual", summary: { total: -1, passed: -1, failed: diffCount }, details: [{ testName: "pixel-diff", status: diffCount > 0 ? "FAILED" : "PASSED" }], diffCount };
+    const error = commandFailures.length > 0 ? commandFailures.join("；") : undefined;
+    log("VISUAL", error ? `失败: ${error}` : `完成, diffs: ${diffCount}`);
+    return {
+      type: "visual",
+      summary: { total: -1, passed: -1, failed: diffCount },
+      details: [{ testName: "pixel-diff", status: diffCount > 0 || error ? "FAILED" : "PASSED" }],
+      diffCount,
+      ...(error ? { error } : {}),
+    };
   } catch (e) { log("VISUAL", `失败: ${e.message}`); return { type: "visual", summary: { total: 0, passed: 0, failed: 0 }, details: [], error: e.message }; }
 }
 
@@ -117,10 +150,66 @@ async function runCoverageAudit() {
       llmFn: makeLlmFn(LLM_PROVIDER),
       task: "coverage",
     });
-    const v = result._verdict || { decision: "N/A", score: 0 };
-    log("COVERAGE", `verdict: ${v.decision}, score: ${v.score}, items: ${result.details.length}`);
+    const v = result._verdict || {};
+    const coverageStatus = classifyCoverageResult(result);
+    log("COVERAGE", `verdict: ${v.decision || coverageStatus}, score: ${v.score ?? "N/A"}, items: ${result.details.length}`);
     return result;
   } catch (e) { log("COVERAGE", `失败: ${e.message}`); return { type: "requirements", summary: { total: 0, passed: 0, failed: 0 }, error: e.message, verdict: { decision: "INFRA_ERROR" }, mode: "error" }; }
+}
+
+function classifyCoverageResult(coverageResult) {
+  if (!coverageResult || coverageResult.error) return "FAIL";
+
+  const verdict = coverageResult._verdict;
+  const decision = verdict?.decision;
+  const requiresAgent = coverageResult._mode === "agent-required" || verdict?._mode === "prompt";
+
+  if (coverageResult.skipped === true) return (verdict || requiresAgent) ? "FAIL" : "SKIPPED";
+  if (decision === "FAIL") return "FAIL";
+  if (decision === "NEED_HUMAN") return "NEED_HUMAN";
+  if (decision === "PASS") return requiresAgent ? "FAIL" : "PASS";
+  if (decision !== undefined && decision !== null) return "FAIL";
+  if (requiresAgent) return "NEED_HUMAN";
+  return "FAIL";
+}
+
+function isValidCount(value) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function evaluateRunResults(visualResult, coverageResult, functionalResult) {
+  const visualFail = !visualResult || Boolean(visualResult.error) || (
+    visualResult.skipped !== true
+    && (
+      !isValidCount(visualResult.diffCount)
+      || !isValidCount(visualResult.summary?.failed)
+      || visualResult.diffCount > 0
+      || visualResult.summary.failed > 0
+    )
+  );
+  const coverageStatus = classifyCoverageResult(coverageResult);
+  const functionalSummary = functionalResult?.summary;
+  const functionalFail = !functionalResult || Boolean(functionalResult.error) || (
+    functionalResult.skipped !== true
+    && (
+      !isValidCount(functionalSummary?.total)
+      || functionalSummary.total === 0
+      || !isValidCount(functionalSummary?.passed)
+      || !isValidCount(functionalSummary?.failed)
+      || functionalSummary.passed + functionalSummary.failed !== functionalSummary.total
+      || functionalSummary.failed > 0
+    )
+  );
+  const exitCodes = [];
+
+  if (visualFail) exitCodes.push("VISUAL_FAIL");
+  if (coverageStatus === "FAIL") exitCodes.push("COVERAGE_FAIL");
+  if (coverageStatus === "NEED_HUMAN") exitCodes.push("COVERAGE_NEED_HUMAN");
+  if (functionalFail) exitCodes.push("FUNCTIONAL_FAIL");
+
+  const hasFailure = exitCodes.some(code => code !== "COVERAGE_NEED_HUMAN");
+  const overall = hasFailure ? "FAIL" : coverageStatus === "NEED_HUMAN" ? "NEED_HUMAN" : "PASS";
+  return { coverageStatus, exitCodes, overall };
 }
 
 // ===== Functional Tests (Simple Mode) =====
@@ -199,21 +288,24 @@ async function runOrchestratorLoop() {
 }
 
 // ===== Report (Simple Mode) =====
-function generateReport(visualResult, coverageResult, functionalResult) {
-  const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const jsonPath = path.join(REPORT_DIR, `autonomous-e2e-report-${ts}.json`);
-  const mdPath = path.join(REPORT_DIR, `autonomous-e2e-report-${ts}.md`);
+function generateReport(visualResult, coverageResult, functionalResult, options = {}) {
+  const reportDir = options.reportDir || REPORT_DIR;
+  const ts = (options.now || new Date()).toISOString().replace(/[:.]/g, "-");
+  const jsonPath = path.join(reportDir, `autonomous-e2e-report-${ts}.json`);
+  const mdPath = path.join(reportDir, `autonomous-e2e-report-${ts}.md`);
 
-  const visualFail = visualResult?.diffCount > 0 || (visualResult?.summary?.failed > 0);
-  const coverageFail = coverageResult?._verdict?.decision === "FAIL" || coverageResult?.error;
-  const functionalFail = functionalResult?.summary?.failed > 0;
-  const needHuman = coverageResult?._verdict?.decision === "NEED_HUMAN" || coverageResult?._mode === "prompt";
-  const overall = visualFail || coverageFail || functionalFail ? "FAIL" : needHuman ? "NEED_HUMAN" : "PASS";
+  const evaluation = evaluateRunResults(visualResult, coverageResult, functionalResult);
+  const { coverageStatus, exitCodes, overall } = evaluation;
+  const visualFail = exitCodes.includes("VISUAL_FAIL");
+  const functionalFail = exitCodes.includes("FUNCTIONAL_FAIL");
+  const visualStatus = visualFail ? "失败" : visualResult?.skipped === true ? "跳过" : "通过";
+  const functionalStatus = functionalFail ? "失败" : functionalResult?.skipped === true ? "跳过" : "通过";
 
-  const report = { timestamp: ts, mode: "e2e-simple", overall, visual: visualResult, coverage: coverageResult, functional: functionalResult,
+  const report = { timestamp: ts, mode: "e2e-simple", overall, coverageStatus, exitCodes,
+    visual: visualResult, coverage: coverageResult, functional: functionalResult,
     docSources: coverageResult?.docSources || (coverageResult?._facts?.docSources || undefined) };
 
-  fs.mkdirSync(REPORT_DIR, { recursive: true });
+  fs.mkdirSync(reportDir, { recursive: true });
   fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2));
 
   const md = [];
@@ -221,7 +313,9 @@ function generateReport(visualResult, coverageResult, functionalResult) {
   md.push(`**时间**: ${ts}  **状态**: ${overall}\n\n`);
   md.push(`## 视觉回归\n| 项目 | 值 |\n|------|----|\n`);
   md.push(`| Diff 数 | ${visualResult?.diffCount ?? "N/A"} |\n`);
-  md.push(`| 状态 | ${visualFail ? "❌ 失败" : "✅ 通过"} |\n\n`);
+  md.push(`| 状态 | ${visualStatus} |\n`);
+  if (visualResult?.error) md.push(`| 错误 | ${visualResult.error} |\n`);
+  md.push("\n");
   if (coverageResult?.docSources?.length > 0) {
     md.push(`## 多文档覆盖审计\n`);
     md.push(`| 文档 | 类型 | 提取项 |\n|------|------|------:|\n`);
@@ -230,24 +324,33 @@ function generateReport(visualResult, coverageResult, functionalResult) {
   }
   md.push(`## 需求覆盖\n| 项目 | 值 |\n|------|----|\n`);
   md.push(`| 覆盖率 | ${((coverageResult?.coverageRate ?? 0) * 100).toFixed(1)}% |\n`);
-  md.push(`| Verdict | ${coverageResult?._verdict?.decision ?? "N/A"} |\n\n`);
-  if (ENABLE_FUNCTIONAL) {
+  md.push(`| Verdict | ${coverageStatus} |\n`);
+  const rawCoverageDecision = coverageResult?._verdict?.decision;
+  if (rawCoverageDecision && rawCoverageDecision !== coverageStatus) {
+    md.push(`| 原始 Verdict | ${rawCoverageDecision} |\n`);
+  }
+  md.push("\n");
+  if (ENABLE_FUNCTIONAL || functionalResult?.skipped !== true) {
     md.push(`## 功能测试\n| 项 | 值 |\n|----|----|\n`);
     md.push(`| 总数 | ${functionalResult?.summary?.total ?? 0} |\n`);
     md.push(`| 通过 | ${functionalResult?.summary?.passed ?? 0} |\n`);
-    md.push(`| 失败 | ${functionalResult?.summary?.failed ?? 0} |\n\n`);
+    md.push(`| 失败 | ${functionalResult?.summary?.failed ?? 0} |\n`);
+    md.push(`| 状态 | ${functionalStatus} |\n`);
+    if (functionalResult?.error) md.push(`| 错误 | ${functionalResult.error} |\n`);
+    md.push("\n");
   }
   md.push("---\n*由 run-autonomous-e2e.js v0.12.0 自动生成*\n");
   fs.writeFileSync(mdPath, md.join(""));
-  return { jsonPath, mdPath, report };
+  return { jsonPath, mdPath, report, evaluation };
 }
 
 // ===== Cleanup =====
-function cleanup() {
-  if (viteProcess) {
+async function cleanup() {
+  if (devServerController) {
     log("CLEAN", "关闭 Vite...");
-    try { viteProcess.kill("SIGTERM"); execSync("taskkill /F /IM node.exe /T 2>nul", { stdio: "ignore" }); } catch (_) {}
-    viteProcess = null;
+    const controller = devServerController;
+    devServerController = null;
+    await controller.stop();
   }
 }
 
@@ -281,9 +384,12 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ===== Main =====
 async function main() {
-  process.on("exit", cleanup);
-  process.on("SIGINT", () => { cleanup(); process.exit(1); });
-  process.on("SIGTERM", () => { cleanup(); process.exit(1); });
+  const handleSignal = async () => {
+    await cleanup();
+    process.exit(1);
+  };
+  process.once("SIGINT", handleSignal);
+  process.once("SIGTERM", handleSignal);
 
   logBox("自主测试端到端循环 v0.12.0", [
     `模式: ${ENABLE_MULTI_ROUND ? "多轮循环" : "单次直通"}`, `迭代: ${MAX_ITERATIONS}`,
@@ -320,8 +426,7 @@ async function main() {
         fs.writeFileSync(fixScriptPath, fixLines.join("\r\n"));
         log("FIX", "修复脚本已生成: " + fixScriptPath);
       }
-      process.exit(success ? 0 : 1);
-      return;
+      return success ? 0 : 1;
     }
 
     // === SIMPLE MODE ===
@@ -331,22 +436,32 @@ async function main() {
       ENABLE_FUNCTIONAL ? runFunctionalTests() : Promise.resolve({ type: "functional", summary: { total: 0, passed: 0, failed: 0 }, skipped: true }),
     ]);
     const coverageResult = await runCoverageAudit();
-    const { jsonPath, mdPath, report } = generateReport(visualResult, coverageResult, functionalResult);
+    const { jsonPath, mdPath, evaluation } = generateReport(visualResult, coverageResult, functionalResult);
     log("REPORT", `JSON: ${jsonPath}  MD: ${mdPath}`);
 
-    const exitCodes = [];
-    if (visualResult?.diffCount > 0) exitCodes.push("VISUAL_FAIL");
-    const verdict = coverageResult?._verdict?.decision;
-    if (verdict === "FAIL") exitCodes.push("COVERAGE_FAIL");
-    if (verdict === "NEED_HUMAN" || coverageResult?._mode === "prompt") exitCodes.push("COVERAGE_NEED_HUMAN");
-    if (functionalResult?.summary?.failed > 0) exitCodes.push("FUNCTIONAL_FAIL");
+    const reason = evaluation.exitCodes.length === 0 ? "无阻断项" : evaluation.exitCodes.join(" + ");
+    logBox("完成", [`状态: ${evaluation.overall}`, `原因: ${reason}`]);
+    return evaluation.exitCodes.length === 0 ? 0 : 1;
 
-    const status = exitCodes.length === 0 ? "PASS" : exitCodes.join(" + ");
-    logBox("完成", [`状态: ${status}`]);
-    process.exit(exitCodes.length === 0 ? 0 : 1);
-
-  } catch (e) { log("FATAL", e.message); process.exit(2); }
-  finally { cleanup(); }
+  } catch (e) { log("FATAL", e.message); return 2; }
+  finally { await cleanup(); }
 }
 
-main();
+if (require.main === module) {
+  main()
+    .then((exitCode) => { process.exitCode = exitCode; })
+    .catch((error) => {
+      log("FATAL", error.message);
+      process.exitCode = 2;
+    });
+}
+
+module.exports = {
+  classifyCoverageResult,
+  cleanup,
+  evaluateRunResults,
+  generateReport,
+  main,
+  startDevServer,
+  runVisualTests,
+};

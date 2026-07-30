@@ -29,6 +29,8 @@ const ROUTES = config.routes;
 const SEL = config.selectors;
 const MOCK = config.mockAccounts;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const MAIN_WINDOW_TIMEOUT_MS = 45_000;
+const MAIN_WINDOW_POLL_INTERVAL_MS = 1_000;
 
 // 测试结果计数器
 let pass = 0, fail = 0;
@@ -57,13 +59,21 @@ async function checkVite() {
 }
 
 // 查找主窗口
-async function findMainWindow(app) {
-  for (let i = 0; i < 15; i++) {
+async function findMainWindow(app, options = {}) {
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+    ? options.timeoutMs
+    : MAIN_WINDOW_TIMEOUT_MS;
+  const pollIntervalMs = Number.isFinite(options.pollIntervalMs) && options.pollIntervalMs > 0
+    ? options.pollIntervalMs
+    : MAIN_WINDOW_POLL_INTERVAL_MS;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
     const wins = app.windows();
     for (const w of wins) {
       try { if ((await w.url()).includes("5174")) return w; } catch (_) {}
     }
-    await wait(1000);
+    await wait(Math.min(pollIntervalMs, Math.max(deadline - Date.now(), 0)));
   }
   return app.windows().pop();
 }

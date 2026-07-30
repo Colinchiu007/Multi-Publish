@@ -68,7 +68,16 @@ function runAllTests(options = {}) {
 
   if (groups.vitest.length > 0) {
     const vitestCli = options.vitestCli || resolveVitestCli()
-    const args = [vitestCli, 'run', '--globals', '--environment', 'node', ...groups.vitest]
+    const args = [
+      vitestCli,
+      'run',
+      '--globals',
+      '--environment',
+      'node',
+      '--maxWorkers=1',
+      '--no-file-parallelism',
+      ...groups.vitest,
+    ]
     const name = `Vitest（${groups.vitest.length} 个文件）`
     report(options, '开始', name)
     const passed = runProcess(process.execPath, args, options)
