@@ -40,3 +40,4 @@ Scene/subtitles 最终 Critical 0、Warning 0，可以创建 merge commit 并进
 - 两个隔离只读审查员均确认产品合并 Critical 0；审查提出的阶段标题、冲突路径措辞和精确暂存 Warning 已关闭。
 - antigravity 与 Claude 未执行，属于用户明确批准的本次流程豁免；后续若恢复完整 CCG 审查，不得把本记录当作两个外部模型的历史通过证据。
 - baseline 产品树、本地 fresh 构建门禁和两个隔离本地复核均无阻断项；按用户指令可精确暂存审计文件、创建 merge commit 并进入 GitHub PR checks。
+- PR #345 首轮 `Doc Sync Gate` 把 `.ccg/task.json` 视为代码/配置，且 workflow 中的 `bypass-doc-gate` 说明没有对应 label 事件或脚本分支；没有使用无效标签或虚构 PRD 变更，而是在 `01-docs/DEVELOPMENT_REPORT.md` 增加真实的祖先关系整合记录。
