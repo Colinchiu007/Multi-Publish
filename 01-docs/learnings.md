@@ -4563,6 +4563,44 @@ PR #336 的 Windows Quality Gate Gate 8 在 `/accounts` 扫描中自动点击
 
 ---
 
+## Story2Video 分句参数被 8002 忽略与字幕边界帧叠加（2026-07-28）
+
+### 第一性原因
+
+- `ed60c1a0` 将 `max_sentence_length/target_duration/min_words/max_words` 等 Story2Video 兼容字段
+  写入 `split` stage options，`StageExecutor` 随后把它们原样作为 `/v1/split` 顶层字段发送。
+  8002 的 `SplitRequest` 顶层只声明 `text/language/mode/enable_*/config`，真正的场景参数位于
+  `config.sentence_tokenizer` 和 `config.scene`。默认值恰好相同，导致默认 smoke 看似正确，定制值却被静默忽略。
+- 本轮多页字幕初版使用 FFmpeg `between(t,start,end)`。`between` 两端都包含，前一页的 `endTime`
+  又等于后一页的 `startTime`，因此切换边界可能在同一帧同时绘制两页字幕。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：StageExecutor mock 只验证调用发生和本地控制字段被删除，没有断言 8002 的精确嵌套请求体。
+2. **集成测试**：8002 验证只使用与 sidecar 默认值一致的参数，没有检查响应 `config_snapshot` 是否反映定制值。
+3. **媒体回归**：真实 ffmpeg smoke 验证可解码和字幕存在，没有在分页交界时间抽帧检查单页显示。
+4. **端到端测试**：来源字段能证明服务或 fallback 路径，却不能证明服务实际消费了定制配置。
+5. **代码审查**：第一轮关注双层职责和总时长同步，独立复审才沿 FastAPI `SplitRequest` 与 FFmpeg
+   `enable` 表达式查到两个精确合同缺口。
+
+系统性漏洞属于**跨仓 API 合同缺失 + 边界断言缺失**：Multi-Publish 的界面别名、8002 的 Pydantic
+请求模型和 sidecar 内部配置键没有一条端到端测试连接；字幕测试只验证时间连续，没有验证区间集合互斥。
+
+### 修复与回归保护
+
+- Story2Video 专用映射把句长写入 `config.sentence_tokenizer`，把目标时长、语速、场景字数、句界和单句溢出开关写入
+  `config.scene`；字幕长度和时间轴配置只留在 Multi-Publish 本地。
+- 请求体测试使用非默认值，精确断言 `target_seconds/min_words_per_segment/max_words_per_segment` 等键，
+  并断言顶层不再出现 `target_duration` 或字幕字段。
+- FFmpeg 每页字幕改用 `gte(t,start)*lt(t,end)` 的 `[start,end)` 半开区间；回归同时断言两页区间和
+  禁止 `between(t,...)`，真实 ffmpeg smoke 继续验证表达式可执行和输出可解码。
+
+### 预防措施
+
+1. 跨仓 HTTP 适配器必须以服务端真实 schema 为准，别名转换测试必须使用非默认值并断言完整请求结构。
+2. 8002 真实 smoke 除 `sceneSource` 外必须核对 `config_snapshot`，否则默认值一致会掩盖请求字段被忽略。
+3. 连续媒体时间区间统一使用半开区间；任何分页或分段测试必须同时断言连续性和互斥性。
+4. `.quality-gates.md` 已加入 8002 请求体、来源、半开字幕时间轴和真实服务/ffmpeg 门禁。
 ## PostgreSQL migration ledger 存在时仍要求 schema CREATE 权限（2026-07-27）
 
 ### 第一性原因
@@ -5145,3 +5183,75 @@ OIDC 登录、Token 或正常请求。
 4. 降级资产和跳过发布必须记录来源/状态；它们证明编排闭环，不证明真实图片、TTS 或平台发布已验收。
 5. 同一外部 API 的单条/批量入口必须把代表性对象、字符串、数字和空可选字段交给同一归一化函数，并以
    请求体等价测试防止两个入口再次漂移。
+
+---
+
+## Story2Video 8002 失败对象绕过本地降级（2026-07-29）
+
+### 第一性原因
+
+- `29b1cf6` 在 `StageExecutor` 中加入 8002 不可用时的本地场景降级，但只在
+  `serviceBus.splitText()` 抛异常的 `catch` 分支检查 `isSplitterUnavailableError()`。
+- `BasePythonBridge._post()` 的网络错误会 reject，但已经收到的 JSON 或非 JSON 响应会 resolve 为普通对象；
+  因此 `{ code: -1, message: "ECONNREFUSED" }` 或 `{ success: false, error: "SplitterBridge is not running" }`
+  会绕过降级并直接返回 `Split failed`。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：只覆盖 ECONNREFUSED/ETIMEDOUT/ECONNRESET 抛异常，没有覆盖同一错误以失败对象返回。
+2. **集成测试**：停止真实 8002 只会触发 socket reject，无法覆盖服务或代理已经返回错误体的路径。
+3. **端到端测试**：健康 sidecar 返回成功对象，离线 smoke 返回异常，两种场景都没有经过 resolved failure envelope。
+4. **CI 门禁**：聚焦回归断言来源和降级原因，但没有把 reject 与 resolve 两种传输形态列为同一合同。
+5. **代码审查**：检查了允许降级的错误类型，却没有沿 `_post()` 的 resolve/reject 双出口核对调用方。
+
+系统性漏洞属于**错误传输形态缺失 + 测试场景缺失 + 审查盲区**：同一外部失败既可能抛异常，也可能作为
+普通对象返回，业务层不能只覆盖其中一种。
+
+### 修复与回归保护
+
+- `StageExecutor` 对成功响应完成结构验证后，再对失败对象执行同一不可用判定和本地降级构造；返回的业务错误
+  与非法成功响应继续 fail closed。
+- `story2video-segmentation.js` 统一读取 `message/error/detail`，降级原因仍限长并只接受明确的网络不可用特征。
+- `stage-executor.test.js` 完成红绿回归：修复前 2/46 失败；修复后首次聚焦分句与 segmentation 为 52/52，
+  补齐 prompt-engine 失败传播后为 54/54；同时锁定返回业务错误对象不降级，以及错误对象/结果数量错配 fail closed。
+
+### 预防措施
+
+1. 外部 Bridge 的错误合同必须成对测试 Promise reject 与 resolved failure envelope。
+2. 允许降级的适配器必须同时覆盖网络不可用、业务错误和非法成功响应，三者不得共享宽泛 fallback。
+3. 质量门禁明确要求返回形态不改变降级语义；新增 Bridge 或 ServiceBus 方法时按同一矩阵补测试。
+
+---
+
+## Story2Video 批量 Prompt 等长畸形响应被误判成功（2026-07-30）
+
+### 第一性原因
+
+- `2d509ab` 首次加入 `OPTIMIZE_BATCH` 时只检查 prompt-engine 顶层 `code === 0`，没有验证批量结果的逐项内容。
+- `e1b46eb` 为兼容包装响应加入 `normalizeBatchOptimizeResult()` 和结果数量校验，但仍把“数组长度正确”误当成
+  “每个场景都有可消费的 prompt”。因此等长的 `{}`、`null` 或空白 `optimized_prompt` 会由
+  `StageExecutor` 返回 `success: true`，直到资产阶段读取空 prompt 后才延迟失败。
+
+### 测试逃逸链与系统性漏洞
+
+1. **单元测试**：已有负例只覆盖服务错误对象和结果数量错配，没有覆盖等长但逐项内容非法的数组。
+2. **Bridge 测试**：验证了请求清理和单条/批量入口一致性，但没有把真实 HTTP 响应送回 `StageExecutor`。
+3. **集成测试**：流水线合同直接 mock `optimizePromptsBatch()` 的正常数据，绕过 `PromptBridge` 的包装响应。
+4. **真实 E2E**：健康的 8013 返回完整 prompt，只能证明正常路径，无法触发畸形等长数组。
+5. **代码审查**：审查了顶层错误传播和数量一致性，没有沿资产阶段的字段读取顺序检查逐项可消费性。
+
+系统性漏洞属于**响应内容校验缺失 + Mock 过度 + 审查盲区**：批量数组的基数正确并不代表元素满足下游合同。
+
+### 修复与回归保护
+
+- `StageExecutor` 在数量校验后逐项按资产阶段的实际读取顺序验证
+  `prompt || optimized_prompt || optimized`；只接受 trim 后非空的字符串，首个非法下标立即 fail closed。
+- 新增本机临时 HTTP 服务回归，真实串联 `PromptBridge -> ServiceBus -> StageExecutor`，分别让等长 `{}`、
+  `null` 和空白字段先红后绿，同时断言发往服务的请求体没有绕过生产适配层。
+- 正向回归锁定非空字符串以及 `prompt`、`optimized_prompt`、`optimized` 三种对象形态，防止校验过严破坏兼容性。
+
+### 预防措施
+
+1. 外部批量 API 必须同时校验容器形状、元素数量和逐项业务内容；任一层失败都不得推迟到下游阶段。
+2. Bridge 合同至少保留一条本机真实传输测试，覆盖请求序列化和响应包装；最终数组 mock 只能作为补充。
+3. `AGENTS.md` QM-2 增加 Prompt 批量结果内容合同，后续修改 `OPTIMIZE_BATCH` 或资产 prompt 读取顺序时必须同步更新回归矩阵。

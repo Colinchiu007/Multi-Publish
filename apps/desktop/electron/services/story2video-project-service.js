@@ -49,6 +49,34 @@ function safeAssetMeta (value) {
   return Object.values(meta).some(Boolean) ? meta : null
 }
 
+function safeSubtitleBlocks (value) {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 200)
+    .map(item => safeText(typeof item === 'string' ? item : item?.text, 500))
+    .filter(Boolean)
+}
+
+function safeSubtitleTimeline (value) {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 200).map((item, position) => {
+    if (!item || typeof item !== 'object') return null
+    const text = safeText(item.text, 500)
+    const startTime = Number(item.startTime)
+    const endTime = Number(item.endTime)
+    if (!text || !Number.isFinite(startTime) || !Number.isFinite(endTime) ||
+        startTime < 0 || endTime <= startTime || endTime > 3600) {
+      return null
+    }
+    return {
+      index: Number.isInteger(item.index) && item.index >= 0 ? item.index : position,
+      text,
+      startTime,
+      endTime,
+      duration: endTime - startTime,
+    }
+  }).filter(Boolean)
+}
+
 function sourceExtension (filePath, fallback) {
   const extension = path.extname(String(filePath || '')).toLowerCase()
   return /^\.[a-z0-9]{2,5}$/.test(extension) ? extension : fallback
@@ -290,6 +318,12 @@ class Story2VideoProjectService {
         duration: Number.isFinite(Number(segment.duration)) ? Number(segment.duration) : null,
         imageMeta: safeAssetMeta(segment.imageMeta),
         audioMeta: safeAssetMeta(segment.audioMeta),
+        subtitleBlocks: safeSubtitleBlocks(segment.subtitleBlocks),
+        subtitleTimeline: safeSubtitleTimeline(segment.subtitleTimeline),
+        sceneSource: safeText(segment.sceneSource, 80) || null,
+        subtitleSource: safeText(segment.subtitleSource, 80) || null,
+        degraded: segment.degraded === true,
+        fallbackReason: safeText(segment.fallbackReason, 300) || null,
         status: segment.status || 'completed',
       }
     })

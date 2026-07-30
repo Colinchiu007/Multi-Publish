@@ -19,6 +19,18 @@
 
 ---
 
+## [未发布] Story2Video 双层分句与字幕时间轴 (2026-07-28)
+
+### 视频创作
+- `story2video-compose` 的场景层固定优先调用 8002 `smart-sentence-splitter`；仅连接拒绝、超时、连接重置或服务未运行时使用本地 TypeScript 降级，业务错误和非法响应不再被静默掩盖。
+- 8002 不可用无论通过 Promise reject 还是 `{ code, message }` / `{ success, error }` 失败对象返回，都进入同一受控降级路径；返回的业务错误继续 fail closed。
+- 字幕层固定在每个服务场景内部本地二次分页，并持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks` 和 `subtitleTimeline`。
+- Story2Video 分句别名现在映射到 8002 实际消费的 `SplitRequest.config.sentence_tokenizer/scene`，自定义场景时长、语速、字数、句界和单句溢出开关不再被 FastAPI 忽略；字幕配置不会发送给 sidecar。
+- compose 使用 ffprobe 读取的逐场景真实 TTS 时长生成连续字幕时间轴；FFmpeg 字幕页采用 `[start,end)` 半开启用区间，消除分页边界帧的双字幕叠加。
+- 旧项目没有字幕块时会按场景文本自动分页；TTS 提供方上报的 `duration` 只作为参考元数据，不会截断真实旁白，显式裁剪继续由 trim 流程负责。
+
+---
+
 ## [未发布] PostgreSQL migration 最小权限修复 (2026-07-27)
 
 ### 修复
@@ -28,7 +40,6 @@
 ### 质量
 - 新增 PostgreSQL `42501` 回归，覆盖已有 ledger、首次初始化和缺少 CREATE 权限三种正式 runner 场景。
 - ECS 发布门禁要求用真实运行角色执行正式 migration runner；dry-run 不能替代最小权限验收。
-
 ---
 
 ## [未发布] Logto Opaque Token 生产加固 (2026-07-25)

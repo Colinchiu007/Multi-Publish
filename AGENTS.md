@@ -273,6 +273,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **注释语法**：`/* */` 成对出现，`* text` 开头的行必须前面有 `/*`
 - **模块导出**：`module.exports = {` 后不能有多余逗号
 - **Story2Video 版本化配置一致性**：`Story2VideoTextConfig` 必须能在没有重复顶层 `text` 时从 `config.prompt` 恢复；renderer、normalizer、YAML 和 compose engine 的枚举、数值边界及默认值必须一致。修改任一层时必须覆盖仅配置恢复、非支持枚举和绕过 renderer 的直接调用。
+- **Prompt 批量结果内容合同**：`OPTIMIZE_BATCH` 不得只校验 prompt-engine 返回数组的数量；每项必须是非空字符串，或按资产阶段实际读取顺序包含非空 `prompt` / `optimized_prompt` / `optimized`。等长的 `{}`、`null`、空白字段必须在 `StageExecutor` 立即 fail closed。回归测试必须经真实 `PromptBridge`、`ServiceBus` 和本机临时 HTTP 服务覆盖包装响应，不能只 mock 最终数组。
 - **打包状态优先于开发环境变量**：许可证、调试入口、logger 和开发短路必须以 `app.isPackaged === false` 为前提；`NODE_ENV=development`、`ELECTRON_IS_DEV=1` 等环境变量不得让已打包应用进入开发权限或开发日志路径。测试必须同时覆盖打包/未打包状态和残留环境变量。
 - **Adapter capability 单一来源**：修改 `BaseAdapter.KNOWN_METHODS` 后必须检索所有 Adapter 的 `capabilities()` 手动覆盖；已进入 `KNOWN_METHODS` 的能力不得再次 `concat`。回归测试必须断言 `supports(method) === true`、能力只出现一次，并覆盖 `ModelProviderManager` 的调用入口。
 - **自动更新静默合同**：打包应用必须关闭 electron-updater console logger；检查更新阶段的网络阻断和缺失 `latest*.yml` 按 `not-available` 处理，签名、下载和安装等真实错误不得吞掉。修改更新服务后必须打包启动 8 秒并确认 stderr 无 updater 网络/404 栈。

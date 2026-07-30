@@ -65,6 +65,15 @@ describe('Story2VideoProjectService', () => {
             duration: 2,
             imageMeta: { source: 'model-provider', provider: 'local-diffusion', degraded: false },
             audioMeta: { source: 'ffmpeg-silence', degraded: true, format: 'mp3' },
+            subtitleBlocks: ['第一段字幕，', '继续显示。'],
+            subtitleTimeline: [
+              { index: 0, text: '第一段字幕，', startTime: 0, endTime: 1, duration: 1 },
+              { index: 1, text: '继续显示。', startTime: 1, endTime: 2, duration: 1 },
+            ],
+            sceneSource: 'local-typescript-fallback',
+            subtitleSource: 'local-typescript',
+            degraded: true,
+            fallbackReason: 'ECONNREFUSED',
           }],
         },
       },
@@ -80,6 +89,15 @@ describe('Story2VideoProjectService', () => {
     expect(project.segments[0]).toMatchObject({
       imageMeta: { source: 'model-provider', provider: 'local-diffusion', degraded: false },
       audioMeta: { source: 'ffmpeg-silence', degraded: true, format: 'mp3' },
+      subtitleBlocks: ['第一段字幕，', '继续显示。'],
+      subtitleTimeline: [
+        { index: 0, text: '第一段字幕，', startTime: 0, endTime: 1, duration: 1 },
+        { index: 1, text: '继续显示。', startTime: 1, endTime: 2, duration: 1 },
+      ],
+      sceneSource: 'local-typescript-fallback',
+      subtitleSource: 'local-typescript',
+      degraded: true,
+      fallbackReason: 'ECONNREFUSED',
     })
     expect(project.options).toMatchObject({ transition: 'fade', contentType: 'history' })
     expect(store.setUserSetting).toHaveBeenCalled()

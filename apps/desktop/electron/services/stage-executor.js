@@ -19,6 +19,75 @@
 
 'use strict';
 
+const {
+  createLocalSplitResult,
+  isSplitterUnavailableError,
+  normalizeServiceSplitResult,
+} = require('./story2video-segmentation');
+
+function _firstDefined(...values) {
+  return values.find(value => value !== undefined && value !== null);
+}
+
+function _isPlainObject(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+/** 将 Story2Video 的界面别名转换为 8002 SplitRequest.config 的真实结构。 */
+function _buildStorySplitterOptions(options) {
+  const source = _isPlainObject(options) ? options : {};
+  const request = {};
+  for (const key of ['language', 'mode', 'enable_era', 'enable_topic_segmentation', 'enable_llm']) {
+    if (source[key] !== undefined) request[key] = source[key];
+  }
+
+  const config = _isPlainObject(source.config) ? { ...source.config } : {};
+  const maxSentenceLength = _firstDefined(source.max_sentence_length, source.maxSentenceLength);
+  if (maxSentenceLength !== undefined) {
+    const tokenizer = _isPlainObject(config.sentence_tokenizer)
+      ? { ...config.sentence_tokenizer }
+      : {};
+    const languageSpecific = _isPlainObject(tokenizer.language_specific)
+      ? { ...tokenizer.language_specific }
+      : {};
+    tokenizer.max_sentence_length = maxSentenceLength;
+    tokenizer.language_specific = {
+      ...languageSpecific,
+      zh: { ...(_isPlainObject(languageSpecific.zh) ? languageSpecific.zh : {}), max_sentence_length: maxSentenceLength },
+      en: { ...(_isPlainObject(languageSpecific.en) ? languageSpecific.en : {}), max_sentence_length: maxSentenceLength },
+    };
+    config.sentence_tokenizer = tokenizer;
+  }
+
+  const scene = _isPlainObject(config.scene) ? { ...config.scene } : {};
+  const sceneAliases = [
+    ['target_seconds', _firstDefined(source.target_seconds, source.target_duration, source.targetDuration)],
+    ['base_words_per_second', _firstDefined(source.base_words_per_second, source.baseWordsPerSecond)],
+    ['speech_rate', _firstDefined(source.speech_rate, source.speechRate)],
+    ['min_words_per_segment', _firstDefined(source.min_words_per_segment, source.min_words, source.minWords)],
+    ['max_words_per_segment', _firstDefined(source.max_words_per_segment, source.max_words, source.maxWords)],
+    ['enforce_sentence_boundary', _firstDefined(source.enforce_sentence_boundary, source.enforceSentenceBoundary)],
+    ['allow_single_sentence_overflow', _firstDefined(
+      source.allow_single_sentence_overflow,
+      source.allowSingleSentenceOverflow,
+      source.overflow_to_next,
+      source.overflowToNext,
+    )],
+  ];
+  for (const [key, value] of sceneAliases) {
+    if (value !== undefined) scene[key] = value;
+  }
+  if (Object.keys(scene).length > 0) config.scene = scene;
+  if (source.enable_paragraph_aware !== undefined) {
+    config.enable_paragraph_aware = source.enable_paragraph_aware;
+  }
+  if (source.enable_script_analysis !== undefined) {
+    config.enable_script_analysis = source.enable_script_analysis;
+  }
+  if (Object.keys(config).length > 0) request.config = config;
+  return request;
+}
+
 /**
  * 阶段类型枚举
  */
@@ -156,14 +225,55 @@ class StageExecutor {
       if (!text) {
         return { success: false, error: 'No text input for split stage' };
       }
-      const result = await self.serviceBus.splitText(text, stage.options || {});
+      const splitOptions = { ...(stage.options || {}) };
+      const fallbackToLocal = splitOptions.fallback_to_local === true;
+      const requireSceneOutput = splitOptions.require_scene_output === true;
+      delete splitOptions.fallback_to_local;
+      delete splitOptions.require_scene_output;
+      const serviceOptions = fallbackToLocal || requireSceneOutput
+        ? _buildStorySplitterOptions(splitOptions)
+        : splitOptions;
+
+      const createFallback = (error) => {
+        const output = createLocalSplitResult(text, stage.options || {}, error);
+        self.log.warn(
+          'StageExecutor',
+          'smart-sentence-splitter 不可用，Story2Video 已降级为本地场景分句: ' + output.fallbackReason,
+        );
+        return { success: true, output };
+      };
+
+      let result;
+      try {
+        result = await self.serviceBus.splitText(text, serviceOptions);
+      } catch (error) {
+        if (!fallbackToLocal || !isSplitterUnavailableError(error)) throw error;
+        return createFallback(error);
+      }
       // 响应格式适配：Bridge 返回原始数据 { scenes, sentences, ... }
       // 也兼容 Python 后端包装格式 { code: 0, data: ... }
       if (result && (result.scenes || result.sentences || (result.code === 0 && result.data))) {
         const output = result.code === 0 ? (result.data || result) : result;
+        if (fallbackToLocal || requireSceneOutput) {
+          try {
+            return {
+              success: true,
+              output: normalizeServiceSplitResult(output, stage.options || {}),
+            };
+          } catch (error) {
+            return {
+              success: false,
+              error: 'smart-sentence-splitter 响应无效: ' + error.message,
+            };
+          }
+        }
         return { success: true, output };
       }
-      return { success: false, error: (result && result.message) || 'Split failed' };
+      if (fallbackToLocal && isSplitterUnavailableError(result)) {
+        return createFallback(result);
+      }
+      const resultError = result && (result.message || result.error);
+      return { success: false, error: resultError ? String(resultError) : 'Split failed' };
     });
 
     // OPTIMIZE - 单个提示词优化
@@ -204,6 +314,13 @@ class StageExecutor {
           return {
             success: false,
             error: 'Batch optimize result count mismatch: expected ' + prompts.length + ', got ' + output.length,
+          };
+        }
+        const invalidIndex = output.findIndex(item => !hasValidBatchOptimizePrompt(item));
+        if (invalidIndex !== -1) {
+          return {
+            success: false,
+            error: 'Batch optimize result item ' + invalidIndex + ' is missing a non-empty prompt',
           };
         }
         return { success: true, output };
@@ -479,6 +596,13 @@ function normalizeBatchOptimizeResult(result) {
   if (value && Array.isArray(value.optimized_prompts)) return value.optimized_prompts;
   if (value && (value.optimized_prompt !== undefined || value.prompt !== undefined)) return [value];
   return [];
+}
+
+function hasValidBatchOptimizePrompt(item) {
+  if (typeof item === 'string') return item.trim().length > 0;
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const prompt = item.prompt || item.optimized_prompt || item.optimized;
+  return typeof prompt === 'string' && prompt.trim().length > 0;
 }
 
 module.exports = { StageExecutor, STAGE_TYPES, normalizeBatchOptimizeResult };

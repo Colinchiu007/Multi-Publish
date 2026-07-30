@@ -1,7 +1,7 @@
 # PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
-> **版本**: v1.5
-> **日期**: 2026-07-27
+> **版本**: v1.8
+> **日期**: 2026-07-29
 > **状态**: 实现基线已更新（持续迭代）
 > **产品定位**: 将 OpenMontage 的视频生成能力集成到 Multi-Publish 桌面客户端，实现"创作→渲染→发布"完整闭环  
 > **目标用户**: 自媒体创作者、内容运营、企业内容团队  
@@ -50,14 +50,14 @@ Multi-Publish 现有系统（发布侧）
 
 | 能力 | 当前状态 | 说明 |
 |------|----------|------|
-| 文案分句 | 已接入（外部 sidecar） | Multi-Publish 通过 `SplitterBridge` 调用 `smart-sentence-splitter`；服务不可用时必须显示失败 |
+| 文案分句 | 已接入（双层） | 场景层优先由 `smart-sentence-splitter` 决定；仅连接拒绝、超时、连接重置等服务不可用错误可降级到本地场景分句，无论桥接层以 reject 还是失败对象返回。字幕层始终在每个场景内部由本地逻辑二次切分 |
 | 提示词优化 | 已接入（外部 sidecar；本地真实服务已验收） | Multi-Publish 通过 `PromptBridge` 调用 `prompt-engine` 批量优化；平台/风格枚举和数值范围与其 Pydantic 合同一致，结果数量不一致会阻断 |
 | 历史领域增强 | 已接入 | `contentType=history` 自动识别时代/朝代并生成 `imagePromptSeed` |
 | Story2Video 标准模式 | 已接入 | `story2video-compose` 只接受文案；图片、音频、视频素材模式不再属于该流水线 |
-| TTS | 已接入 | text 标准模式通过已配置 TTS adapter 生成逐段旁白；edge-tts 优先，ffmpeg 静音音频作为离线降级。结果页仍可替换单段旁白，但上传音频不是该模式的创作输入。音色克隆仍未实现，真实外部服务需单独验收 |
+| TTS | 已接入 | text 标准模式通过已配置 TTS adapter 生成逐段旁白；edge-tts 优先，ffmpeg 静音音频作为离线降级。生成阶段时长可为估算值，compose 必须以 ffprobe 的真实音频时长生成字幕时间轴并避免截断。结果页仍可替换单段旁白，但上传音频不是该模式的创作输入 |
 | 外部模型 Provider | 已接入（外部待验收） | `ModelProviderManager` 已把选择的图片/TTS/STT provider 接入资产链；豆包 App ID 与加密 Access Token 已映射到 adapter。真实凭据、网络和配额不属于本地自动化验收 |
 | 图片 Provider 合同 | 已接入 | 使用注册 ID `dall-e`，兼容旧 `openai-image`；Imagen 将数量和宽高映射为 `sampleCount` 与宽高比；远程图片 URL 仅接受 HTTPS，解析结果必须是固定的可公开路由地址；仅已配置且主机名、协议、端口完全匹配的本机 loopback Provider endpoint 可下载；下载响应按流式 25MiB 上限读取，DNS 和远程下载共用 30 秒总预算；ComfyUI 因缺 workflow、轮询和下载输出合同而在 S2V 主链显式失败 |
-| 合成 | 已接入 | Electron + ffmpeg；支持字幕、图片动效、转场、BGM、水印和输出校验 |
+| 合成 | 已接入 | Electron + ffmpeg；支持按场景多页定时字幕、图片动效、转场、BGM、水印和输出校验 |
 | 模板 | 已接入 | 7 个模板预设和自定义模板库；CreateView 可将预设映射到运行参数（不等同于 7 个 Remotion Composition） |
 | 发布 | 已接入 | 未选择平台时明确 `skipped`；开启发布但缺 router/凭据时失败，不报告假成功 |
 | 结果交付/ZIP | 已接入 | 编排完成自动进入结果页；本地播放 URL 由主进程生成，可下载、复制路径、打开目录，并以流式 ZIP 导出 |
@@ -69,9 +69,10 @@ Multi-Publish 现有系统（发布侧）
 | 媒体安全约束 | 已接入 | text 标准模式只直接接收 BGM（<=15MB）；普通流水线与结果页使用的图片/旁白工具仍执行格式、大小和受控路径校验，不构成 Story2Video 创作模式 |
 | 时长约束 | 已接入 | text 标准模式成片 <=10 分钟；普通流水线/结果编辑使用旁白工具时仍执行总时长和单段时长限制，合成前通过 ffprobe 二次校验 |
 
-运行前提：本地可执行 `ffmpeg`；`8002`（分句）和 `8013`（提示词）是外部服务边界，
-未运行时应明确阻断对应阶段。2026-07-26 已在开发环境通过真实 `PipelineEngine` 六阶段 E2E，
-但安装包内 sidecar/依赖仍需目标环境验收。真实多平台发布还需要已配置账号、凭据和
+运行前提：本地可执行 `ffmpeg`；`8002`（场景分句）和 `8013`（提示词）是外部服务边界。
+8002 不可用时允许明确标记的本地场景降级，非法响应仍阻断；8013 不可用时阻断优化阶段。
+2026-07-26 已在开发环境通过真实 `PipelineEngine` 六阶段 E2E，但安装包内 sidecar/依赖仍需目标环境验收。
+真实多平台发布还需要已配置账号、凭据和
 `PublisherRouter`，本地合成测试不等于发布验收。
 
 ### 1.5 语义服务维护与交付边界（已确认）
@@ -102,8 +103,10 @@ StageExecutor
 
 Multi-Publish 中的 `packages/story2video-engine/src/text-segmentation.ts` 是独立的
 TypeScript 文本/场景/字幕切分工具，`history-prompt.ts` 是本地领域增强和 `promptSeed`
-生成逻辑。它们不替代 `story2video-compose` 标准模式中的 8002/8013 主链；修改这些本地
-工具不会自动修改两个 Python sidecar 的算法行为。
+生成逻辑；Electron 主链使用兼容 CommonJS 实现
+`apps/desktop/electron/services/story2video-segmentation.js` 执行字幕二次切分和场景降级。
+正常场景边界仍由 8002 决定，8013 仍是提示词优化主链；修改这些本地逻辑不会自动修改两个
+Python sidecar 的算法行为。
 
 当前 Electron 安装包的 `files`/`extraResources` 只包含应用代码、配置、Playwright 和
 Remotion 资源，不包含上述两个项目源码、Python 运行时或其依赖。因此 8002/8013 当前仍是
@@ -112,10 +115,11 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 **维护决策规则：**
 
-1. 只调整分句算法、分句模型或 prompt 优化策略、模板、Provider 时，在对应独立 Python 仓库修改、测试、提交和推送。
+1. 调整正常场景分句算法/模型或 prompt 优化策略、模板、Provider 时，在对应独立 Python 仓库修改、测试、提交和推送。
 2. 调整 Electron 启停、端口、超时、错误提示、阶段顺序、UI、参数归一化或结果适配时，在 Multi-Publish 修改。
-3. 修改 REST 路径、请求/响应字段、枚举、默认值、错误码或批量结果语义时，必须同时修改两个仓库，并用真实 8002/8013 服务做跨仓库回归。
-4. 发布前必须分别确认独立仓库的 commit/分支和 Multi-Publish 的适配 commit；禁止只更新一侧后宣称接口已完成。
+3. 调整本地字幕二次切分、字幕时间轴或 8002 不可用时的场景降级算法时，在 Multi-Publish 修改，并保证服务正常路径不被本地算法改写。
+4. 修改 REST 路径、请求/响应字段、枚举、默认值、错误码或批量结果语义时，必须同时修改两个仓库，并用真实 8002/8013 服务做跨仓库回归。
+5. 发布前必须分别确认独立仓库的 commit/分支和 Multi-Publish 的适配 commit；禁止只更新一侧后宣称接口已完成。
 
 ---
 
@@ -184,7 +188,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 参数组 | 兼容字段与默认值 | 六阶段映射 |
 |--------|------------------|------------|
 | 基础 | `mode=text`、`prompt` 必填、`size=720x1280`、`seconds=8` | 创建运行前校验；`size` 映射专属输出，`seconds` 保留为兼容目标时长 |
-| 分句 | `language=zh`、`mode=balanced`、`maxSentenceLength=200`、`targetSeconds=6`、`speechRate=1`、`minWords=10`、`maxWords=50` | `split` stage options |
+| 分句 | `language=zh`、`mode=balanced`、`maxSentenceLength=200`、`targetSeconds=6`、`speechRate=1`、`minWords=10`、`maxWords=50` | `split` stage options；发送 8002 前映射到 `SplitRequest.config.sentence_tokenizer/scene`，不得作为会被忽略的顶层扩展字段 |
 | 提示词 | `platform=generic`、`style=realistic`、`creativeLevel=5`（1-10）、`maxLength=null`（启用时 50-2000）、`negativePrompt<=500`、`numCandidates=1`（1-5）、`autoDetectStyle=true`、`context=''` | `optimize` stage options，字段转换为 prompt-engine snake_case；空 `maxLength/context` 不发送，文本上下文转换为 `{ synopsis }`，对象上下文按 JSON 字典透传；图片风格不参与提示词风格回退 |
 | 图片 | `style=cinematic`、`effect=zoom-in`、Provider/模型可选 | `generate_assets` 与 `compose` |
 | 旁白 | 豆包兼容音色 ID、`speed=1`、`volume=1`、`pitch=0`、`emotion=default` | `generate_assets` 与 `compose`；凭据仍由加密 Provider 管理器持有 |
@@ -195,7 +199,29 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 所有运行参数必须是纯 JSON；归一化器只接受白名单字段并在创建 run 之前拒绝非法值。API Key、Access Token 和 Provider Secret 不得写入运行参数、项目历史或结果清单。
 
-### 3.1.3 媒体工具与时长限制
+### 3.1.3 双层分句与字幕同步合同
+
+| 层级 | 权威实现 | 输出与降级合同 |
+|------|----------|----------------|
+| 场景层 | `smart-sentence-splitter` 8002 | 正常响应的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界；Multi-Publish 不得再次改写。仅 `ECONNREFUSED`、`ETIMEDOUT`、`ECONNRESET`、服务未运行等不可用错误可使用本地场景降级；业务错误或缺失 `scenes` 的非法响应必须失败 |
+| 字幕层 | Multi-Publish 本地逻辑 | 对每个场景的 `text` 独立二次切分，目标为每页 8-15 个字符，优先在标点后断开；字幕不得跨越场景，按顺序拼接后必须等于该场景规范化文本 |
+| 可观测性 | 运行结果与项目清单 | 每个场景持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks` 和 `subtitleTimeline`；`tier_used=tier3_rule` 仍表示经过 8002，只是 sidecar 内部选择规则层，不等于本地降级 |
+
+Story2Video 的 `target_duration/base_words_per_second/speech_rate/min_words/max_words` 必须转换为
+8002 实际消费的 `config.scene.target_seconds/base_words_per_second/speech_rate/min_words_per_segment/max_words_per_segment/enforce_sentence_boundary/allow_single_sentence_overflow`；
+`max_sentence_length` 同步写入 `config.sentence_tokenizer`。字幕页长度和时间轴选项只由本地逻辑消费，
+不得混入 8002 请求。为兼容 sidecar 现有中文算法，`min_words/max_words` 名称保留但计量单位是字数/字符数。
+
+字幕时间轴必须在 compose 阶段基于 ffprobe 读取的逐场景真实音频时长生成，不能把
+edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `0` 开始，字幕区间连续且
+不重叠，最后一页的 `endTime` 必须精确等于该场景有效时长；TTS 语速变化导致音频时长
+变化时，时间轴按字幕可见字符和标点停顿权重等比例缩放。旧项目没有 `subtitleBlocks`
+时，compose 需从场景文本现场生成，以保持重新合成兼容。
+
+当前 TTS Provider 未统一提供词级/音素级时间戳，因此本合同保证“按真实总时长的分页近似同步”，
+不宣称逐词精准对齐。未来 Provider 提供可信词级时间戳时，可在不改变场景边界的前提下替换页内分配算法。
+
+### 3.1.4 媒体工具与时长限制
 
 | 媒体 | 格式 | 大小 | 时长 |
 |------|------|------|------|
@@ -239,7 +265,8 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 |------|------|
 | S2V 烧录字幕 | 已实现：逐场景文本、字号/颜色/边框/背景样式 |
 | 逐词高亮 | 仅独立 Remotion 快速路径；S2V 主链未实现词级时间轴 |
-| 多页显示 | 仅独立 Remotion 快速路径；S2V 主链未实现分页字幕 |
+| 多页显示 | 已实现：每个场景内部本地二次切分，ffmpeg 通过独立的 `[start,end)` 半开 `enable` 区间分页显示，边界帧不会同时叠加前后两页 |
+| TTS 同步 | 已实现：以 ffprobe 真实音频时长按字幕文本权重分配，末页精确结束；未提供词级时间戳时不宣称逐词精准同步 |
 
 ### 3.5 音频系统（P1）
 
@@ -360,6 +387,10 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 - [x] 独立 `Story2VideoTextConfig` 覆盖兼容默认值、边界校验、阶段映射和项目持久化。
 - [x] Story2Video 输出配置与其他视频流水线隔离，切换流水线不会继承分辨率或素材状态。
 - [x] 图片动效、转场、字幕、BGM、水印、分辨率/FPS 和 MP4/WebM 输出有自动化合同测试与真实 ffmpeg 验证。
+- [x] 场景层正常路径由 8002 的 `scenes` 决定；仅服务不可用时本地降级，非法响应不降级，并在运行结果和项目清单保留来源字段。
+- [x] Story2Video 分句别名映射到 8002 的 `config.sentence_tokenizer/scene`；自定义时长、语速和场景字数不会被 FastAPI 静默忽略，字幕选项不发送给服务。
+- [x] 每个场景独立生成 8-15 字目标的字幕块；字幕不跨场景，旧项目缺少字幕块时可在 compose 阶段兼容生成。
+- [x] 分页字幕时间轴以 ffprobe 真实 TTS 时长生成，区间连续不重叠，语速变化时等比例缩放，最后一页精确结束。
 - [x] 缺失音频时长不会被固定截断；短片段转场会自动收敛或降级。
 - [x] 输出文件必须非空并通过 ffmpeg 解码校验。
 - [x] 图片/音频/BGM 输入格式、大小、路径和总时长受控；成片不超过 10 分钟。

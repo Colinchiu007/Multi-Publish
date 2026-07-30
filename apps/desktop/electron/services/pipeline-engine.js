@@ -146,6 +146,8 @@ const PIPELINES = [
           subtitle_min_chars: 8,
           subtitle_max_chars: 15,
           subtitle_timing: 'proportional',
+          fallback_to_local: true,
+          require_scene_output: true,
         },
         inputFrom: null, // 从 params.text 取
       },
