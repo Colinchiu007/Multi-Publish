@@ -1,0 +1,12 @@
+{
+  "id": "fix-settings-navigation",
+  "title": "修复桌面端顶部设置入口点击无响应",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已通过真实桌面窗口验证，待归档",
+  "createdAt": "2026-07-31T00:00:00Z",
+  "branch": "codex/fix-desktop-dev-startup"
+}

@@ -33,15 +33,7 @@
       <router-link to="/calendar" class="nav-item" :class="{ active: route.path === '/calendar' }">
         发布日历
       </router-link>
-      <!-- 设置下拉菜单 -->
-      <div class="nav-dropdown-wrapper" ref="settingsDropdownRef">
-        <button class="nav-item nav-dropdown-trigger" :class="{ active: showSettingsMenu }" @click="toggleSettingsMenu">
-          设置 ▾
-        </button>
-        <div v-if="showSettingsMenu" class="nav-dropdown-menu">
-          <button class="nav-dropdown-item" @click="openSettings">模型设置</button>
-        </div>
-      </div>
+      <button class="nav-item nav-settings-trigger" @click="openSettings">设置</button>
     </div>
     <div class="nav-right">
       <button v-if="authViewVisible" @click="closeLogin" class="btn-ghost-close">✕ 关闭登录</button>
@@ -57,7 +49,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useLicenseStore } from '@/stores/license'
 import { useAuthView } from '@/composables/useAuthView'
@@ -70,23 +62,8 @@ const route = useRoute()
 const licenseStore = useLicenseStore()
 const showUpgradeModal = ref(false)
 
-// 设置弹窗 + 下拉菜单
-const showSettingsMenu = ref(false)
-const settingsDropdownRef = ref(null)
-
-function toggleSettingsMenu () {
-  showSettingsMenu.value = !showSettingsMenu.value
-}
-
 function openSettings () {
-  showSettingsMenu.value = false
   emit('openSettings')
-}
-
-function handleOutsideClick (e) {
-  if (settingsDropdownRef.value && !settingsDropdownRef.value.contains(e.target)) {
-    showSettingsMenu.value = false
-  }
 }
 
 // 登录视图
@@ -94,10 +71,6 @@ const { authViewVisible, registerListeners: registerAuthListeners, closeLogin } 
 
 onMounted(() => {
   registerAuthListeners()
-  document.addEventListener('click', handleOutsideClick)
 })
 
-onBeforeUnmount(() => {
-  document.removeEventListener('click', handleOutsideClick)
-})
 </script>

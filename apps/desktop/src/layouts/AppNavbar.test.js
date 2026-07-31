@@ -55,3 +55,13 @@ describe('AppNavbar 升级入口', () => {
     expect(navbar.get('[data-route="/publish/history"]').text()).toContain('发布记录')
   })
 })
+
+describe('AppNavbar 设置入口', () => {
+  it('点击设置后立即请求打开设置弹窗', async () => {
+    const navbar = mountNavbar()
+
+    await navbar.get('.nav-settings-trigger').trigger('click')
+
+    expect(navbar.emitted('openSettings')).toHaveLength(1)
+  })
+})
