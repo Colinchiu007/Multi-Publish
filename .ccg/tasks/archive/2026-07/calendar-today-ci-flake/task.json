@@ -1,0 +1,13 @@
+{
+  "id": "calendar-today-ci-flake",
+  "title": "修复 Calendar 今天标记的 CI 不稳定失败",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend-test",
+  "currentPhase": "completed",
+  "nextAction": "归档任务记录并提交到现有 PR",
+  "createdAt": "2026-07-31T00:00:00Z",
+  "branch": "codex/logto-production-closure",
+  "externalModelWaiver": "用户明确要求暂不使用 Antigravity 和 Claude；本任务使用本地分析与独立子代理审查。"
+}
