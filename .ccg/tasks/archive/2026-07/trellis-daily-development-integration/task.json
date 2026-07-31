@@ -1,12 +1,12 @@
 {
   "id": "trellis-daily-development-integration",
   "title": "接入 Trellis 作为日常开发的任务与规格层",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "low",
   "domain": "documentation",
-  "currentPhase": "analysis",
-  "nextAction": "补齐 Trellis 的仓库内结构，并保留现有质量节拍与任务系统",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
   "createdAt": "2026-07-31T00:00:00Z",
   "branch": "codex/trellis-daily-development"
 }
