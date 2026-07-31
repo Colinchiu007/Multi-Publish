@@ -30,4 +30,4 @@ type: bug-reflection
 - [x] RED: 新用例初始得到 `type: error`。
 - [x] GREEN: auto-updater 13 条测试通过。
 - [x] 保护测试: `EACCES app-update.yml` 仍上报真实错误。
-- [ ] 新打包应用现场复测（当前隔离 worktree 出现其他会话未提交文件，避免混入产物）。
+- [x] 新打包应用现场复测: 纯净 `origin/main@362c172` worktree 成功生成 Windows unpacked 产物；等待自动更新检查后页面无 `更新失败`、`app-update.yml` 或 `ENOENT` 文案。
