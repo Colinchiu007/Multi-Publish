@@ -1,0 +1,32 @@
+{
+  "id": "07-31-trellis-daily-development",
+  "name": "trellis-daily-development",
+  "title": "将 Trellis 接入日常开发流程",
+  "description": "为 Multi-Publish 建立最小可用的 Trellis 入口、spec 和示例任务。",
+  "status": "in_progress",
+  "dev_type": "docs",
+  "scope": "workflow",
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-07-31",
+  "completedAt": null,
+  "branch": "codex/trellis-daily-development",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/README.md",
+    ".trellis/spec/backend/index.md",
+    ".trellis/spec/frontend/index.md",
+    ".trellis/spec/guides/index.md",
+    ".trellis/workspace/README.md"
+  ],
+  "notes": "保持 AGENTS.md 和 .quality-rhythm 仍为强约束，Trellis 只做上下文与任务组织层。",
+  "meta": {}
+}

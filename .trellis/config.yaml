@@ -1,0 +1,11 @@
+# Multi-Publish Trellis project config
+#
+# Trellis 读取这个文件来控制会话日志、任务 hook 和 Codex 调度模式。
+# 这里保留最小安全默认值，不放机器路径、密钥或用户身份信息。
+
+session_commit_message: "chore: record trellis journal"
+max_journal_lines: 2000
+session_auto_commit: false
+
+codex:
+  dispatch_mode: inline

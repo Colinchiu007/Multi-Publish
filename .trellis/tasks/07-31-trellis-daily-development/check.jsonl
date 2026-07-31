@@ -1,0 +1,4 @@
+{"file":".trellis/README.md","reason":"Trellis entry guide"}
+{"file":".trellis/spec/guides/index.md","reason":"General development guide"}
+{"file":".trellis/spec/backend/index.md","reason":"Backend coding guide"}
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend coding guide"}
