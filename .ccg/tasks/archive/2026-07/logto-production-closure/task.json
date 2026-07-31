@@ -1,0 +1,12 @@
+{
+  "id": "logto-production-closure",
+  "title": "继续 Logto 生产验收并部署最新业务 API",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "release-integration",
+  "currentPhase": "completed",
+  "nextAction": "归档任务记录，并将已审查的文档审计提交到 GitHub",
+  "createdAt": "2026-07-31T08:32:00+08:00",
+  "branch": "codex/logto-production-closure"
+}

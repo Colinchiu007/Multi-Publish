@@ -1,4 +1,4 @@
-# Logto 远程部署与生产验收记录（更新于 2026-07-29）
+# Logto 远程部署与生产验收记录（更新于 2026-07-31）
 
 ## 部署结果
 
@@ -29,6 +29,7 @@
 - `production-smoke.js` 的 discovery、JWKS、health、ready 与 Nginx 路径分离检查全部通过。
 - `/api/v1/ready` 的 database、schema、oidc、jwks、introspection 均为 `ready`。
 - 2026-07-29 最终审计中，ECS 根文件系统约 `49G`，可用约 `15.2GiB`、可用比例 `32%`，已满足至少 `5GiB` 且 `10%` 可用的发布门槛。
+- 2026-07-31 `00:41:39Z` 复核中，根文件系统为 `51,217,788 KiB`，可用 `15,780,308 KiB`（约 `15.0 GiB`、`32%`），仍通过发布门槛。运行中的健康业务 API 镜像标识为 `multi-publish-business-api-publish-api:e19a36b588a78a69ef4f5cf27ea79ccbba16783e`（image ID `sha256:23aa578093839cfd88d4310cb487da1961054adbb853f4d0876ef18c9d8ac4b2`）。该标签可解析为提交 `e19a36b588a78a69ef4f5cf27ea79ccbba16783e`，它是本次对照的 `main@feac9e91aac038c5359e62867ca27ce59c0f1db8` 祖先，且二者的目标 `packages/api-publish-engine/src/auth/entitlement.js` 无源文件差异；容器文件与该 Windows checkout 文件字节 SHA-256 同为 `a9ba9d5b120f8042a28cb342c23ac46f03065f7e6d4b725678972ab2a297bbf6`。这只证明 entitlement 时钟容差目标文件已在运行容器中，不证明整套镜像由当前 `main` 构建。该容器的 migration dry-run 跳过 `002_logto_identity.sql`、`003_logto_webhook_events.sql`，无 pending migration；本机受控网络下的公网 smoke 对 discovery、JWKS、health、ready 与两条 Nginx 路由分离检查全部通过。额外的匿名 GET 实测中，`/api/users` 返回 `401`、`/api/forgot-password` 返回 `404`，均未命中业务 API guard 或 API-key 鉴权响应。此轮没有重建镜像、重启容器或更改认证灰度。
 - Webhook 派生镜像 ID 为 `sha256:9e946d21842f45670e4478eb38b51fa1a565586ac0f2ccf16999d45fda92b0a6`；运行时文件补丁前后 SHA-256 分别为 `77441c2d030d064343cfb22aa61b0e0ed45bff8fb33a1d4ce2beed6a8f1c752c` 与 `5108a3c6f3e60a627d32351687368cbf4510743b87ba7fbcad33e7fb7bcbb55e`。
 - 临时 Hook 在 `2026-07-29T06:17:09.978Z`、`06:17:10.322Z`、`06:17:10.934Z` 收到三次 HMAC 有效 POST，响应序列为 `503 -> 503 -> 204`；该结果不包含 Ky `TimeoutError`。
 - 主业务 Hook 对验收主体的 `User.Created`、`User.Deleted` 均处理成功；最终业务状态为 `deleted`、活跃会话 0，删除 tombstone 按防乱序合同保留。
@@ -62,6 +63,9 @@ ssh -i <本机私钥路径> -L 3022:127.0.0.1:3022 root@39.105.42.85
 ## 尚未闭环
 
 1. 使用两个不同主体完成真正 A→B 账号切换与 owner/entitlement 隔离验收，并单独验证 refresh token 轮换；同账号重新认证不能替代。
-2. 将本分支业务 API entitlement 代码构建并部署到 ECS，重新运行 migration、`/ready` 与 production smoke；当前远端镜像仍是合并前版本。
-3. Webhook 临时创建/删除、主 Hook Created/Deleted 和 HTTP 503 重试已完成；仍需验证主 Hook 更新/暂停、生产真实乱序，以及为 Ky `TimeoutError` 选择升级或持久化补偿。完成这些门禁前保持 `IDENTITY_AUTH_REQUIRED=false`。
-4. 若启用手机验证码，在 Logto 中接入选定的短信 connector；短信供应商不属于当前部署范围。
+2. Webhook 临时创建/删除、主 Hook Created/Deleted 和 HTTP 503 重试已完成；仍需验证主 Hook 更新/暂停、生产真实乱序，以及为 Ky `TimeoutError` 选择升级或持久化补偿。完成这些门禁前保持 `IDENTITY_AUTH_REQUIRED=false`。
+3. 在隔离的双数据库目标上完成 restore drill；不得把恢复步骤直接指向生产库。
+4. 以受控测试完成 API/身份依赖的并发压力验收，并完成云端发布撤销验证。
+5. 若启用手机验证码，在 Logto 中接入选定的短信 connector；短信供应商不属于当前部署范围。
+
+已确认的 entitlement 时钟容差变更不再是 ECS 部署阻塞项。任何后续业务 API 镜像变更仍必须重新运行 migration dry-run、`/api/v1/ready` 与 production smoke，不能仅凭本次文件哈希复用验收。

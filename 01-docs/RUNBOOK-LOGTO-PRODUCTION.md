@@ -192,6 +192,6 @@ Prometheus 仅绑定 `127.0.0.1:9090`。生产环境通过受控运维通道访�
 
 ## 8. 外部验收状态
 
-2026-07-28 已使用真实 Logto、PostgreSQL 与最终 Windows 包证明登录、`free` entitlement、同 profile 恢复、同账号重新认证和退出；专用测试主体已安全回收。2026-07-29 已部署哈希绑定的 Logto 派生镜像，真实临时 Hook 收到三次 HMAC 有效 POST 并依次返回 `503 -> 503 -> 204`，主业务 Hook 同时完成 `User.Created` 与 `User.Deleted` 投递，验收后临时 Hook、用户、权限关系、Nginx 路径、监听进程和脚本均已清理。
+2026-07-28 已使用真实 Logto、PostgreSQL 与最终 Windows 包证明登录、`free` entitlement、同 profile 恢复、同账号重新认证和退出；专用测试主体已安全回收。2026-07-29 已部署哈希绑定的 Logto 派生镜像，真实临时 Hook 收到三次 HMAC 有效 POST 并依次返回 `503 -> 503 -> 204`，主业务 Hook 同时完成 `User.Created` 与 `User.Deleted` 投递，验收后临时 Hook、用户、权限关系、Nginx 路径、监听进程和脚本均已清理。2026-07-31 已以无写入方式复核业务 API：镜像标签可解析为 `e19a36b588a78a69ef4f5cf27ea79ccbba16783e`，它是对照 `main@feac9e91aac038c5359e62867ca27ce59c0f1db8` 的祖先且目标 entitlement 文件无差异；容器与 Windows checkout 的该文件 SHA-256 一致。该结论只覆盖时钟容差目标文件，migration dry-run 无 pending，`/api/v1/ready` 和公网 production smoke 均通过；未重建镜像、重启容器或切换 Required。
 
-以下状态仍保持 `PENDING_EXTERNAL`：Ky `TimeoutError` 重试或替代补偿、refresh token 轮换、真正 A→B 主体隔离、主 Hook 更新/暂停与生产真实乱序、最新业务 API 镜像部署后的 migration/readiness/smoke、恢复演练、并发压力及云端发布撤销。`IDENTITY_AUTH_REQUIRED=false` 保持不变；仓库测试、同账号 UAT 或本次 HTTP 503 探针都不能替代这些证据。
+以下状态仍保持 `PENDING_EXTERNAL`：Ky `TimeoutError` 重试或替代补偿、refresh token 轮换、真正 A→B 主体隔离、主 Hook 更新/暂停与生产真实乱序、恢复演练、并发压力及云端发布撤销。`IDENTITY_AUTH_REQUIRED=false` 保持不变；仓库测试、同账号 UAT 或本次 HTTP 503 探针都不能替代这些证据。任何后续 API 镜像变更必须重新取得 migration/readiness/smoke 证据。

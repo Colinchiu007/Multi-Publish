@@ -212,16 +212,16 @@ location / {
 
 部署时必须确保 production-smoke 全绿才能视为业务 API 可用。
 
-## 9. 执行状态（更新于 2026-07-29）
+## 9. 执行状态（更新于 2026-07-31）
 
 | 项目 | 状态 | 当前证据 |
 |---|---|---|
-| ECS 容量 | PASS | 2026-07-29 最终审计：根文件系统约 `49G`，可用约 `15.2GiB`、可用比例 `32%`，满足至少 `5GiB` 且 `10%` 的门槛 |
-| 容器与依赖 | PASS | Logto、PostgreSQL、业务 API 均 `healthy`；`/ready` 的 database/schema/oidc/jwks/introspection 全部 `ready` |
-| 公网路由 | PASS | `production-smoke.js` 全部通过，Logto 内部 `/api/*` 未被业务 API 错误接管 |
+| ECS 容量 | PASS | 2026-07-31 `00:41:39Z`：根文件系统 `51,217,788 KiB`，可用 `15,780,308 KiB`（约 `15.0 GiB`、`32%`），满足至少 `5GiB` 且 `10%` 的门槛 |
+| 容器与依赖 | PASS | Logto、PostgreSQL、业务 API 均 `healthy`；业务 API migration dry-run 跳过 `002_logto_identity.sql`、`003_logto_webhook_events.sql` 且无 pending；`/ready` 的 database/schema/oidc/jwks/introspection 全部 `ready` |
+| 公网路由 | PASS | 2026-07-31 `production-smoke.js` 对 discovery、JWKS、health、ready 及 Logto 内部 `/api/users`、`/api/forgot-password` 路由分离检查全部通过 |
 | 普通用户 scopes | PASS | `default` tenant 默认用户角色绑定 5 个业务 scope，并已赋予 2 个活跃用户；`/api/v1/me` 由 `403` 恢复为 `200` |
-| Entitlement 时钟偏差 | PASS_PACKAGED_UAT_PENDING_DEPLOY | 真实登录发现服务端 `iat` 比桌面 `now` 快 2 秒；双端默认 `60s`、上限 `300s` 的回归、新 Windows 包 QM-1 与同账号登录/恢复/退出 UAT 已通过；最新业务 API 代码仍待部署 |
+| Entitlement 时钟偏差 | PASS_DEPLOYED | 真实登录发现服务端 `iat` 比桌面 `now` 快 2 秒；双端默认 `60s`、上限 `300s` 的回归、新 Windows 包 QM-1 与同账号登录/恢复/退出 UAT 已通过。运行镜像标签可解析为 `e19a36b588a78a69ef4f5cf27ea79ccbba16783e`，它是 `main@feac9e91aac038c5359e62867ca27ce59c0f1db8` 的祖先，且二者目标 entitlement 文件无差异；容器文件与该 Windows checkout 的 SHA-256 一致。该证据只覆盖目标时钟容差文件，不将整个镜像宣称为当前 `main` 构建；本轮只读复核，无镜像重建或服务重启 |
 | Webhook 与 Required 灰度 | PASS_RETRY_PENDING_REQUIRED | 主业务 Hook 已处理真实 `User.Created`/`User.Deleted`，Logto 派生镜像已通过三次 HMAC 有效 POST 的 `503 -> 503 -> 204` 发送端验收。Ky `TimeoutError`、主 Hook 更新/暂停与生产真实乱序、真正 A→B、refresh token 和 Required 灰度仍未证明；保持 `IDENTITY_AUTH_REQUIRED=false` |
 
-业务 API、数据库、OIDC、公网路由和 Webhook HTTP 503 重试已不再是阻塞项。同账号桌面 UAT 已完成，剩余阻塞为本分支 API 镜像部署、真正 A→B、refresh token 轮换、主 Hook 更新/暂停与真实乱序、Ky 超时补偿和 Required 灰度；本表不能替代每次新镜像的 production smoke。
+业务 API、数据库、OIDC、公网路由、目标 entitlement 变更和 Webhook HTTP 503 重试已不再是阻塞项。同账号桌面 UAT 已完成，剩余阻塞为真正 A→B、refresh token 轮换、主 Hook 更新/暂停与真实乱序、Ky 超时补偿、隔离 restore drill、并发压力、云端发布撤销和 Required 灰度；本表不能替代每次新镜像的 migration dry-run、`/ready` 与 production smoke。
 
