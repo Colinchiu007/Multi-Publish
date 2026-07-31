@@ -96,6 +96,30 @@ describe('AutoUpdater 生产错误降级', () => {
     expect(mocks.logger.error).not.toHaveBeenCalled()
   })
 
+  it('打包应用缺少本地 app-update.yml 时静默降级', () => {
+    const error = Object.assign(
+      new Error("ENOENT: no such file or directory, open 'C:/app/resources/app-update.yml'"),
+      { code: 'ENOENT', path: 'C:/app/resources/app-update.yml' },
+    )
+
+    mocks.updater.emit('error', error)
+
+    expect(statuses.at(-1)).toEqual({ type: 'not-available', data: '当前已是最新版本' })
+    expect(mocks.logger.error).not.toHaveBeenCalled()
+  })
+
+  it('app-update.yml 的非缺失错误仍按真实错误上报', () => {
+    const error = Object.assign(
+      new Error("EACCES: permission denied, open 'C:/app/resources/app-update.yml'"),
+      { code: 'EACCES', path: 'C:/app/resources/app-update.yml' },
+    )
+
+    mocks.updater.emit('error', error)
+
+    expect(statuses.at(-1)).toEqual({ type: 'error', data: error.message })
+    expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining(error.message))
+  })
+
   it('检查更新的 latest.yml 404 Promise 也静默降级', async () => {
     mocks.updater.checkForUpdates.mockRejectedValue(
       new Error('Cannot find latest.yml in the latest release artifacts: HttpError: 404'),

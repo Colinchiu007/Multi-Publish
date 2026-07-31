@@ -61,8 +61,16 @@ function isLatestManifestMissing (err) {
   return isNotFound && hasManifestReference && !isSignatureFailure && (statusCode === 404 || hasNotFoundMarker || /\b404\b/.test(details))
 }
 
+function isPackagedUpdateConfigMissing (err) {
+  const details = [errorMessage(err), err?.path]
+    .filter(value => typeof value === 'string')
+    .join(' ')
+  const isMissingFile = err?.code === 'ENOENT' || /\bENOENT\b/.test(details)
+  return isMissingFile && /(?:^|[\\/])app-update\.ya?ml(?:['"\s]|$)/i.test(details)
+}
+
 function isUpdateCheckUnavailable (err) {
-  return isLatestManifestMissing(err) || isNetworkError(err)
+  return isPackagedUpdateConfigMissing(err) || isLatestManifestMissing(err) || isNetworkError(err)
 }
 
 function createProductionLogger () {

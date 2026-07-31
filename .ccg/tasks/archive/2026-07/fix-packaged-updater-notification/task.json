@@ -1,0 +1,12 @@
+{
+  "id": "fix-packaged-updater-notification",
+  "title": "修复打包应用缺少更新元数据时的失败提示",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-runtime",
+  "currentPhase": "completed",
+  "nextAction": "单元回归通过，待归档并推送；打包复测在干净工作树完成",
+  "createdAt": "2026-07-31T14:30:00Z",
+  "branch": "codex/fix-packaged-updater-notification"
+}
