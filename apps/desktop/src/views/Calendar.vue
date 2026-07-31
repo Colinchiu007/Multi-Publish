@@ -83,6 +83,75 @@ platformStore.load()
 // eslint-disable-next-line no-unused-vars
 function platformName(id) { return platformStore.getLabel(id) || id }
 
+function formatCalendarDatePart(value) {
+  return String(value).padStart(2, "0")
+}
+
+function hasValidCalendarDate(year, month, day) {
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+function parseCalendarDate(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : { date: value, isDateKey: false }
+  }
+
+  if (typeof value === "number") {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : { date, isDateKey: false }
+  }
+
+  if (typeof value !== "string") return null
+
+  const dateKeyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateKeyMatch) {
+    const year = Number(dateKeyMatch[1])
+    const month = Number(dateKeyMatch[2])
+    const day = Number(dateKeyMatch[3])
+    if (!hasValidCalendarDate(year, month, day)) return null
+    return { date: new Date(year, month - 1, day), isDateKey: true }
+  }
+
+  const datetimeMatch = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?$/.exec(value)
+  if (!datetimeMatch) return null
+
+  const year = Number(datetimeMatch[1])
+  const month = Number(datetimeMatch[2])
+  const day = Number(datetimeMatch[3])
+  const hours = Number(datetimeMatch[4])
+  const minutes = Number(datetimeMatch[5])
+  const seconds = datetimeMatch[6] ? Number(datetimeMatch[6]) : 0
+  if (!hasValidCalendarDate(year, month, day) || hours >= 24 || minutes >= 60 || seconds >= 60) return null
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : { date, isDateKey: false }
+}
+
+function toCalendarDateKey(value) {
+  const parsed = parseCalendarDate(value)
+  if (!parsed) return ""
+  if (parsed.isDateKey) return value
+
+  const date = parsed.date
+
+  return date.getFullYear() + "-" + formatCalendarDatePart(date.getMonth() + 1) + "-" + formatCalendarDatePart(date.getDate())
+}
+
+function toCalendarTime(value) {
+  const parsed = parseCalendarDate(value)
+  if (!parsed || parsed.isDateKey) return ""
+
+  const date = parsed.date
+
+  return formatCalendarDatePart(date.getHours()) + ":" + formatCalendarDatePart(date.getMinutes())
+}
+
+function calendarTimestamp(value) {
+  const parsed = parseCalendarDate(value)
+  return parsed ? parsed.date.getTime() : Number.POSITIVE_INFINITY
+}
+
 const now = new Date()
 const currentYear = ref(now.getFullYear())
 const currentMonth = ref(now.getMonth())
@@ -103,27 +172,27 @@ const calendarDays = computed(() => {
   const firstDay = new Date(year, month, 1).getDay()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const daysInPrev = new Date(year, month, 0).getDate()
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = toCalendarDateKey(new Date())
 
   const days = []
 
   // Previous month days
   for (let i = firstDay - 1; i >= 0; i--) {
     const d = daysInPrev - i
-    const dateStr = new Date(year, month - 1, d).toISOString().slice(0, 10)
+    const dateStr = toCalendarDateKey(new Date(year, month - 1, d))
     days.push({ day: d, dateStr, isCurrentMonth: false, isToday: dateStr === todayStr, events: getEventsForDate(dateStr) })
   }
 
   // Current month days
   for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = new Date(year, month, d).toISOString().slice(0, 10)
+    const dateStr = toCalendarDateKey(new Date(year, month, d))
     days.push({ day: d, dateStr, isCurrentMonth: true, isToday: dateStr === todayStr, events: getEventsForDate(dateStr) })
   }
 
   // Next month days to fill grid
   const remaining = 42 - days.length
   for (let d = 1; d <= remaining; d++) {
-    const dateStr = new Date(year, month + 1, d).toISOString().slice(0, 10)
+    const dateStr = toCalendarDateKey(new Date(year, month + 1, d))
     days.push({ day: d, dateStr, isCurrentMonth: false, isToday: dateStr === todayStr, events: getEventsForDate(dateStr) })
   }
 
@@ -144,23 +213,23 @@ function getEventsForDate(dateStr) {
   const events = []
   // Add scheduled tasks
   for (const t of scheduledTasks.value) {
-    if (t.publishTime && t.publishTime.slice(0, 10) === dateStr) {
+    if (t.publishTime && toCalendarDateKey(t.publishTime) === dateStr) {
       events.push({ ...t, type: "scheduled" })
     }
   }
   // Add history
   for (const r of publishHistory.value) {
-    if (r.timestamp && r.timestamp.slice(0, 10) === dateStr) {
+    if (r.timestamp && toCalendarDateKey(r.timestamp) === dateStr) {
       events.push({ ...r, type: r.success !== false ? "success" : "failed" })
     }
   }
-  return events.sort((a, b) => ((a.publishTime || a.timestamp) > (b.publishTime || b.timestamp) ? 1 : -1))
+  return events.sort((a, b) => calendarTimestamp(a.publishTime || a.timestamp) - calendarTimestamp(b.publishTime || b.timestamp))
 }
 
 function formatEventTime(e) {
   const t = e.publishTime || e.timestamp
   if (!t) return ""
-  return t.slice(11, 16)
+  return toCalendarTime(t)
 }
 
 function selectDay(day) {
@@ -189,7 +258,7 @@ function today() {
   const t = new Date()
   currentYear.value = t.getFullYear()
   currentMonth.value = t.getMonth()
-  selectedDate.value = t.toISOString().slice(0, 10)
+  selectedDate.value = toCalendarDateKey(t)
 }
 
 async function loadData() {
@@ -213,7 +282,7 @@ async function loadData() {
 
 onMounted(() => {
   loadData()
-  selectedDate.value = new Date().toISOString().slice(0, 10)
+  selectedDate.value = toCalendarDateKey(new Date())
 })
 </script>
 
