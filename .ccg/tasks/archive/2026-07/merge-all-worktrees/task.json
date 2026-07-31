@@ -1,0 +1,12 @@
+{
+  "id": "merge-all-worktrees",
+  "title": "合并所有已提交工作树分支并推送 GitHub main",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "release-integration",
+  "currentPhase": "completed",
+  "nextAction": "合并完成，待归档与推送远端 main",
+  "createdAt": "2026-07-31T13:30:00Z",
+  "branch": "codex/merge-all-worktrees"
+}
