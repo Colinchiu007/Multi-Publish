@@ -36,9 +36,10 @@ const electronMock = {
       this._opts = opts || {}
       this._handlers = {}
       this.webContents = {
+        _handlers: {},
         send: function () {},
         on: function () {},
-        once: function () {},
+        once: function (evt, handler) { this._handlers[evt] = handler; return this },
         openDevTools: function () {},
         closeDevTools: function () {},
         isDestroyed: function () { return false },

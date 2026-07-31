@@ -10,6 +10,23 @@
  *   5. second-instance / activate   聚焦或重建主窗口
  */
 const { app, BrowserWindow } = require('electron')
+const { configureGraphics, configureUserDataPath } = require('./startup-compat')
+
+let storageConfig
+try {
+  storageConfig = configureUserDataPath({ app })
+  const graphicsConfig = configureGraphics({ app })
+  if (storageConfig.fallback) {
+    console.warn(`[startup] 默认 userData 不可写，已切换到 ${storageConfig.path}`)
+  }
+  if (graphicsConfig.disabled && graphicsConfig.reason === 'windows-default') {
+    console.warn('[startup] Windows 默认使用软件渲染；设置 ELECTRON_ENABLE_GPU=1 可显式启用硬件加速')
+  }
+} catch (error) {
+  console.error('[startup] 无法准备应用运行目录:', error instanceof Error ? error.message : String(error))
+  app.quit()
+  throw error
+}
 const { createAppContext, runWhenReady } = require('./bootstrap')
 const { createWindow } = require('./window')
 const { registerShutdownHandlers } = require('./shutdown')

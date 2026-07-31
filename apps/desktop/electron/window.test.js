@@ -251,6 +251,13 @@ describe('window — createWindow', () => {
     expect(typeof win._handlers['ready-to-show']).toBe('function')
   })
 
+  it('绑定 did-finish-load 事件以避免窗口永久隐藏', () => {
+    createWindow(context)
+    const win = lastWindow()
+    expect(win.webContents._handlers['did-finish-load']).toBeDefined()
+    expect(typeof win.webContents._handlers['did-finish-load']).toBe('function')
+  })
+
   it('绑定 closed 事件', () => {
     createWindow(context)
     const win = lastWindow()
@@ -268,6 +275,35 @@ describe('window — createWindow', () => {
     const win = lastWindow()
     win._handlers['ready-to-show']()
     expect(win.show).toHaveBeenCalledTimes(1)
+    expect(mockLogger.info).toHaveBeenCalledWith('window', '主窗口已显示')
+  })
+
+  it('did-finish-load 在 ready-to-show 未到达时仍显示主窗口', () => {
+    createWindow(context)
+    const win = lastWindow()
+    win.webContents._handlers['did-finish-load']()
+    expect(win.show).toHaveBeenCalledTimes(1)
+  })
+
+  it('两个显示事件只显示主窗口一次', () => {
+    createWindow(context)
+    const win = lastWindow()
+    win._handlers['ready-to-show']()
+    win.webContents._handlers['did-finish-load']()
+    expect(win.show).toHaveBeenCalledTimes(1)
+  })
+
+  it('显示事件缺失时在五秒后显示主窗口', () => {
+    vi.useFakeTimers()
+    try {
+      createWindow(context)
+      const win = lastWindow()
+      vi.advanceTimersByTime(5000)
+      expect(win.show).toHaveBeenCalledTimes(1)
+      expect(mockLogger.warn).toHaveBeenCalledWith('window', '主窗口未触发显示事件，使用可见性兜底')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('resize 回调调用 authViewManager._onWindowResize / webviewManager.resize / qrCodeLogin._onWindowResize', () => {

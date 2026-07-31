@@ -143,6 +143,10 @@ function destroyFailedWindow(mainWindow) {
   }
 }
 
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function clearMainWindowBindings(context) {
   for (const name of [
     'authViewManager', 'rpaViewManager', 'webviewManager', 'qrCodeLogin', 'oauthManager',
@@ -213,6 +217,19 @@ function createWindow(context) {
     },
     show: false,
   })
+  let shown = false
+  const showMainWindow = () => {
+    if (shown || (typeof mainWindow.isDestroyed === 'function' && mainWindow.isDestroyed())) return
+    shown = true
+    if (showFallbackTimer) clearTimeout(showFallbackTimer)
+    log.info('window', '主窗口已显示')
+    mainWindow.show()
+  }
+  const reportLoadFailure = (error) => {
+    log.error('window', '加载主窗口失败：' + errorMessage(error))
+    // Keep the native error page visible instead of leaving a hidden process behind.
+    showMainWindow()
+  }
   // 打包状态是窗口加载模式的唯一权威，生产包不能被残留开发信号降级到本地服务器。
   const isDev = app.isPackaged === false
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -228,14 +245,21 @@ function createWindow(context) {
     })
   }
   if (isDev) {
-    // R49 修复：loadURL 返回 Promise，必须 .catch() 否则导航失败产生 unhandledRejection
-    mainWindow.loadURL(getUrl(config.devServer)).catch(function () { /* dev 模式忽略 */ })
+    mainWindow.loadURL(getUrl(config.devServer)).catch(reportLoadFailure)
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html')).catch(function () { /* ignore */ })
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html')).catch(reportLoadFailure)
   }
-  mainWindow.once('ready-to-show', () => { mainWindow.show() })
-  mainWindow.on('closed', () => { /* mainWindow 已通过返回值管理 */ })
+  mainWindow.once('ready-to-show', showMainWindow)
+  mainWindow.webContents.once('did-finish-load', showMainWindow)
+  const showFallbackTimer = setTimeout(() => {
+    log.warn('window', '主窗口未触发显示事件，使用可见性兜底')
+    showMainWindow()
+  }, 5000)
+  if (typeof showFallbackTimer.unref === 'function') showFallbackTimer.unref()
+  mainWindow.on('closed', () => {
+    if (showFallbackTimer) clearTimeout(showFallbackTimer)
+  })
   mainWindow.on('resize', () => {
     authViewManager._onWindowResize()
     webviewManager.resize()

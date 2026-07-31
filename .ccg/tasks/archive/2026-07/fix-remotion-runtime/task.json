@@ -1,0 +1,12 @@
+{
+  "id": "fix-remotion-runtime",
+  "title": "Bundle the Remotion runtime required by packaged video creation",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-packaging",
+  "currentPhase": "completed",
+  "nextAction": "已验证打包运行时闭包，待归档",
+  "createdAt": "2026-07-31T10:25:00Z",
+  "branch": "codex/fix-desktop-dev-startup"
+}

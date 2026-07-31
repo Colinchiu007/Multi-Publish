@@ -18,6 +18,18 @@ function getDefaultOutputPath(timestamp = Date.now()) {
   return path.join(QUICK_RENDER_DIR, `remotion_${timestamp}.mp4`);
 }
 
+function resolveRemotionCli(composerDir = COMPOSER_DIR, resolveModule = require.resolve, readFile = fs.readFileSync) {
+  const cliPackageJson = resolveModule('@remotion/cli/package.json', { paths: [composerDir] });
+  const remotionPackageJson = resolveModule('remotion/package.json', { paths: [composerDir] });
+  const cliManifest = JSON.parse(readFile(cliPackageJson, 'utf8'));
+  const cliEntry = cliManifest.bin && cliManifest.bin.remotion;
+  if (typeof cliEntry !== 'string' || !cliEntry) throw new Error('Remotion CLI 未声明 remotion 命令入口');
+  return {
+    cliPath: path.resolve(path.dirname(cliPackageJson), cliEntry),
+    remotionPackageJson,
+  };
+}
+
 const MEDIA_PROFILES = {
   'youtube-landscape': { width: 1920, height: 1080, fps: 30 },
   'youtube-4k': { width: 3840, height: 2160, fps: 30 },
@@ -39,11 +51,11 @@ class RenderEngine {
 
   getStatus() {
     const composerExists = fs.existsSync(path.join(COMPOSER_DIR, 'package.json'));
-    // 检查根目录 node_modules（workspace hoisting）或本地 node_modules
-    // COMPOSER_DIR = <project>/packages/remotion-composer，2 级 .. 到达项目根
-    const rootNodeModulesExist = fs.existsSync(path.resolve(COMPOSER_DIR, '..', '..', 'node_modules', 'remotion'));
-    const localNodeModulesExist = fs.existsSync(path.join(COMPOSER_DIR, 'node_modules'));
-    const nodeModulesExist = rootNodeModulesExist || localNodeModulesExist;
+    let nodeModulesExist = false;
+    try {
+      resolveRemotionCli();
+      nodeModulesExist = true;
+    } catch (_) { /* Renderer status reports missing dependencies below. */ }
     return { ready: composerExists && nodeModulesExist, composerExists, nodeModulesExist, composerDir: COMPOSER_DIR };
   }
 
@@ -105,10 +117,18 @@ class RenderEngine {
         return;
       }
 
-      const cmd = ['npx', 'remotion', 'render', 'src/index.tsx', composition, outputPath, `--props=${propsPath}`];
+      let command;
+      try {
+        command = resolveRemotionCli();
+      } catch (error) {
+        this._cleanup(propsPath);
+        resolve({ success: false, error: 'Remotion 渲染引擎未就绪: ' + error.message });
+        return;
+      }
+      const cmd = [command.cliPath, 'render', 'src/index.tsx', composition, outputPath, `--props=${propsPath}`];
       if (profile && MEDIA_PROFILES[profile]) { const p = MEDIA_PROFILES[profile]; cmd.push('--width', String(p.width), '--height', String(p.height), '--fps', String(p.fps)); }
 
-      const child = spawn(cmd[0], cmd.slice(1), {
+      const child = spawn(process.execPath, cmd, {
         cwd: COMPOSER_DIR,
         shell: true,
         windowsHide: true,
@@ -207,5 +227,6 @@ class RenderEngine {
 
 RenderEngine.getDefaultOutputPath = getDefaultOutputPath;
 RenderEngine.QUICK_RENDER_DIR = QUICK_RENDER_DIR;
+RenderEngine.resolveRemotionCli = resolveRemotionCli;
 
 module.exports = RenderEngine

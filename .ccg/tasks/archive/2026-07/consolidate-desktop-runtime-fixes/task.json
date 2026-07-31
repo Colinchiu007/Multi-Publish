@@ -1,0 +1,12 @@
+{
+  "id": "consolidate-desktop-runtime-fixes",
+  "title": "提交已验证的桌面启动兼容与 Remotion 运行时修复",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "desktop-runtime",
+  "currentPhase": "completed",
+  "nextAction": "已完成定点回归，待归档与提交",
+  "createdAt": "2026-07-31T12:30:00Z",
+  "branch": "codex/fix-desktop-dev-startup"
+}

@@ -7,7 +7,7 @@
     "scripts": {
         "dev:vue": "vite",
         "dev:electron": "npm run build:preload && wait-on http://localhost:5174 && electron .",
-        "dev": "concurrently \"npm run dev:vue\" \"npm run dev:electron\"",
+        "dev": "node scripts/dev.js",
         "build:preload": "node scripts/build-preload.js",
         "build:vue": "npm run build:preload && vite build",
         "build": "npm run build:vue && electron-builder",
@@ -85,7 +85,6 @@
         "@eslint/js": "^10.0.1",
         "@vitest/coverage-v8": "^4.1.9",
         "@vue/test-utils": "^2.4.11",
-        "concurrently": "^9.0.0",
         "cross-env": "^10.1.0",
         "electron": "^43.1.1",
         "electron-builder": "^25.1.8",
@@ -142,6 +141,10 @@
                     "**/*",
                     "!node_modules/**"
                 ]
+            },
+            {
+                "from": ".remotion-runtime/node_modules",
+                "to": "packages/remotion-composer/node_modules"
             }
         ],
         "win": {

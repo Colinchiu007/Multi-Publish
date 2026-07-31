@@ -51,4 +51,17 @@ describe('RenderEngine', () => {
       path.join(os.tmpdir(), 'story2video', 'quick-render', 'remotion_123.mp4'),
     )
   })
+
+  it('解析 Composer 可见的随包 Remotion CLI 入口', () => {
+    const resolveModule = (name) => ({
+      '@remotion/cli/package.json': 'C:/runtime/node_modules/@remotion/cli/package.json',
+      'remotion/package.json': 'C:/runtime/node_modules/remotion/package.json',
+    })[name]
+    const readFile = () => JSON.stringify({ bin: { remotion: 'remotion-cli.js' } })
+
+    expect(RenderEngine.resolveRemotionCli('C:/composer', resolveModule, readFile)).toEqual({
+      cliPath: path.resolve('C:/runtime/node_modules/@remotion/cli/remotion-cli.js'),
+      remotionPackageJson: 'C:/runtime/node_modules/remotion/package.json',
+    })
+  })
 })
