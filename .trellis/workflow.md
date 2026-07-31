@@ -9,8 +9,9 @@
 1. 先读 `AGENTS.md`
 2. 再读 `.quality-rhythm`
 3. 再读 `.trellis/spec/` 中与当前层相关的规范
-4. 新工作先落到 `.trellis/tasks/`
-5. 工作结束后，把结论写回 `.trellis/workspace/`
+4. 新工作先从 `.trellis/templates/` 复制模板
+5. 再把任务落到 `.trellis/tasks/`
+6. 工作结束后，把结论写回 `.trellis/workspace/`
 
 ## 任务分流
 

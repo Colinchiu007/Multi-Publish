@@ -24,6 +24,7 @@
 - 通用规则放在 `.trellis/spec/guides/index.md`
 - 项目级默认值放在 `.trellis/config.yaml`
 - 工作流说明放在 `.trellis/workflow.md`
+- 日常开发模板放在 `.trellis/templates/`
 - 会话记录索引放在 `.trellis/workspace/index.md`
 - 当前这套接入是最小可用版本，先不覆盖已有 `.codex/skills` 和 `.cursor/commands`
 

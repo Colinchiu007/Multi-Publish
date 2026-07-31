@@ -1,0 +1,12 @@
+{
+  "id": "trellis-day-to-day-template",
+  "title": "压一版 Trellis 日常开发模板",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "documentation",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-07-31T00:00:00Z",
+  "branch": "codex/trellis-daily-development"
+}
