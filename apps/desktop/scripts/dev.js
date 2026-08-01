@@ -9,6 +9,7 @@ const repoRoot = path.resolve(desktopDir, '..', '..');
 const vitePort = 5174;
 const viteUrl = `http://127.0.0.1:${vitePort}`;
 const electronUserDataDir = process.env.ELECTRON_USER_DATA_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-electron-dev-'));
+const electronCacheDir = path.join(electronUserDataDir, 'cache');
 
 function spawnCommand(command, args, options = {}) {
   return spawn(command, args, {
@@ -65,21 +66,23 @@ function waitForVite(remainingMs) {
       const electronArgs = process.platform === 'win32'
         ? [
             `--user-data-dir=${electronUserDataDir}`,
-            '--disable-gpu',
-            '--disable-gpu-compositing',
-            '--disable-gpu-sandbox',
-            '--use-gl=swiftshader',
+            `--disk-cache-dir=${electronCacheDir}`,
+            '--in-process-gpu',
+            '--no-sandbox',
+            '--use-gl=angle',
             '--use-angle=swiftshader',
+            '--enable-unsafe-swiftshader',
             desktopDir,
           ]
         : [
             electronScript,
             `--user-data-dir=${electronUserDataDir}`,
-            '--disable-gpu',
-            '--disable-gpu-compositing',
-            '--disable-gpu-sandbox',
-            '--use-gl=swiftshader',
+            `--disk-cache-dir=${electronCacheDir}`,
+            '--in-process-gpu',
+            '--no-sandbox',
+            '--use-gl=angle',
             '--use-angle=swiftshader',
+            '--enable-unsafe-swiftshader',
             desktopDir,
           ];
       electron = spawn(electronCommand, electronArgs, {
@@ -88,8 +91,6 @@ function waitForVite(remainingMs) {
         shell: false,
         env: {
           ...process.env,
-          ELECTRON_DISABLE_GPU: '1',
-          ELECTRON_GPU_SAFE_MODE: '1',
           ELECTRON_USER_DATA_DIR: electronUserDataDir,
         },
       });

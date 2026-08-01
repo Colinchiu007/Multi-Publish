@@ -82,17 +82,23 @@ function configureGraphics ({
 } = {}) {
   const explicitlyDisabled = env.ELECTRON_DISABLE_GPU === '1'
   const safeMode = env.ELECTRON_GPU_SAFE_MODE === '1'
-  const windowsSafeDefault = platform === 'win32' && env.ELECTRON_ENABLE_GPU !== '1'
-  if (!explicitlyDisabled && !windowsSafeDefault && !safeMode) {
+  const windowsSoftwareDefault = platform === 'win32' && env.ELECTRON_ENABLE_GPU !== '1'
+  if (!explicitlyDisabled && !windowsSoftwareDefault && !safeMode) {
     return { disabled: false, reason: null }
   }
 
   const appendSwitch = app?.commandLine?.appendSwitch
+  if (windowsSoftwareDefault && !explicitlyDisabled && !safeMode) {
+    if (typeof appendSwitch === 'function') {
+      appendSwitch.call(app.commandLine, 'use-gl', 'angle')
+      appendSwitch.call(app.commandLine, 'use-angle', 'swiftshader')
+    }
+    return { disabled: false, reason: 'windows-software' }
+  }
+
   if (typeof appendSwitch === 'function') {
     appendSwitch.call(app.commandLine, 'disable-gpu')
     appendSwitch.call(app.commandLine, 'disable-gpu-compositing')
-    appendSwitch.call(app.commandLine, 'use-gl', 'swiftshader')
-    appendSwitch.call(app.commandLine, 'use-angle', 'swiftshader')
     if (safeMode) appendSwitch.call(app.commandLine, 'disable-gpu-sandbox')
   }
   if (typeof app?.disableHardwareAcceleration === 'function') {
@@ -101,7 +107,7 @@ function configureGraphics ({
 
   return {
     disabled: true,
-    reason: safeMode ? 'safe-mode' : explicitlyDisabled ? 'explicit' : 'windows-default',
+    reason: safeMode ? 'safe-mode' : 'explicit',
   }
 }
 

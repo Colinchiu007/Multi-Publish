@@ -60,18 +60,19 @@ describe('startup compatibility', () => {
     )
   })
 
-  it('uses software rendering by default on Windows but allows explicit GPU opt-in', () => {
+  it('uses ANGLE SwiftShader by default on Windows but allows explicit GPU opt-in', () => {
     const app = {
       commandLine: { appendSwitch: vi.fn() },
       disableHardwareAcceleration: vi.fn(),
     }
 
     expect(configureGraphics({ app, env: {}, platform: 'win32' })).toMatchObject({
-      disabled: true,
-      reason: 'windows-default',
+      disabled: false,
+      reason: 'windows-software',
     })
-    expect(app.disableHardwareAcceleration).toHaveBeenCalledTimes(1)
-    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('disable-gpu')
+    expect(app.disableHardwareAcceleration).not.toHaveBeenCalled()
+    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('use-gl', 'angle')
+    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('use-angle', 'swiftshader')
 
     app.commandLine.appendSwitch.mockClear()
     app.disableHardwareAcceleration.mockClear()

@@ -137,11 +137,11 @@ describe('window — createWindow', () => {
     expect(opts.show).toBe(false)
   })
 
-  it('开发环境加载 localhost:5174', () => {
+  it('开发环境加载 127.0.0.1:5174', () => {
     process.env.NODE_ENV = 'development'
     createWindow(context)
     const win = lastWindow()
-    expect(win.loadURL).toHaveBeenCalledWith('http://localhost:5174')
+    expect(win.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5174')
     delete process.env.NODE_ENV
   })
 

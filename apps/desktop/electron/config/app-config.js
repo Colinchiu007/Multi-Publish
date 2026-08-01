@@ -9,7 +9,7 @@
  */
 const config = {
   devServer: {
-    host: process.env.DEV_SERVER_HOST || 'localhost',
+    host: process.env.DEV_SERVER_HOST || '127.0.0.1',
     port: parseInt(process.env.DEV_SERVER_PORT || '5174', 10),
   },
   callbackServer: {
