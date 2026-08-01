@@ -293,6 +293,24 @@ describe('useModelProviderCrud', function () {
       expect(crud.showAddDialog.value).toBe(false)
     })
 
+    it('loadAvailablePresets 转发 IPC 返回的非空预设列表', async function () {
+      const { modelProviderPresets } = await import('@/api/model-providers')
+      modelProviderPresets.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'flux', name: 'Flux', category: 'image', base_url: 'https://api.bfl.ml/v1', models: ['flux-pro'] },
+          { id: 'dall-e', name: 'DALL-E', category: 'image', base_url: 'https://api.openai.com/v1', models: ['dall-e-3'] },
+        ],
+      })
+      crud.addCategory.value = 'image'
+
+      await crud.loadAvailablePresets()
+
+      expect(modelProviderPresets).toHaveBeenCalledWith('image')
+      expect(crud.availablePresets.value.map(p => p.id)).toEqual(['flux', 'dall-e'])
+      expect(crud.availablePresets.value[0].base_url).toBeTruthy()
+    })
+
     it('setDefault 在未配置密钥时拦截 IPC', async function () {
       await crud.setDefault({ id: 'openai', category: 'llm', api_key: '', api_key_masked: '' })
 
@@ -442,7 +460,7 @@ describe('useModelProviderCrud', function () {
         'filteredProviders', 'configuredCount', 'presetCount',
         'categoryCounts', 'configuredCategoryCounts', 'activeCategoryCounts',
         // 方法
-        'loadProviders', 'openAdd', 'nextAddStep',
+        'loadProviders', 'openAdd', 'nextAddStep', 'loadAvailablePresets',
         'selectPreset', 'selectCustom', 'openEdit',
         'submitForm', 'confirmDelete', 'doDelete',
         'toggleEnabled', 'setDefault', 'testProvider',

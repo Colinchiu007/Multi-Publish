@@ -365,6 +365,30 @@ describe("ModelProviderManager", function () {
       // custom-new 不在预设中，所以预设列表不变
       expect(presets.every(p => p.id !== "custom-new")).toBe(true)
     })
+
+    it("种子预设仍可选择并通过更新补填 API Key", function () {
+      const createRes = manager.createProvider({
+        id: "flux", name: "Flux", category: "image", base_url: "https://api.bfl.ml/v1",
+        api_key: "sk-flux-key", models: ["flux-pro"],
+      })
+      expect(createRes.code).toBe(-1)
+      expect(createRes.message).toContain("already exists")
+
+      const updateRes = manager.updateProvider("flux", { api_key: "sk-flux-key", enabled: true })
+      expect(updateRes.code).toBe(0)
+      const provider = manager.getProvider("flux")
+      expect(provider.is_preset).toBe(true)
+      expect(provider.api_key_masked).toBeTruthy()
+      expect(provider.enabled).toBe(true)
+    })
+
+    it("预设包含表单所需的 base_url 和 models", function () {
+      const flux = manager.getAvailablePresets("image").find(p => p.id === "flux")
+      expect(flux).toBeDefined()
+      expect(flux.base_url).toBeTruthy()
+      expect(Array.isArray(flux.models)).toBe(true)
+      expect(flux.models.length).toBeGreaterThan(0)
+    })
   })
 
   describe("isConfigured", function () {

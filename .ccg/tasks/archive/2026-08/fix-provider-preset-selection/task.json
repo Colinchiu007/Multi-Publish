@@ -1,0 +1,12 @@
+{
+  "id": "fix-provider-preset-selection",
+  "title": "恢复新增模型服务商时的内置预设选择",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交修复分支",
+  "createdAt": "2026-08-01T00:00:00Z",
+  "branch": "codex/fix-provider-preset-selection"
+}

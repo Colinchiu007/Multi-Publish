@@ -1,0 +1,3 @@
+{"file":"apps/desktop/electron/services/model-provider-manager.js","reason":"种子初始化与新增预设 IPC 的语义冲突。"}
+{"file":"apps/desktop/tests/model-provider-manager.test.js","reason":"当前测试错误地断言预设列表为空。"}
+{"file":"apps/desktop/src/composables/useModelProviderCrud.js","reason":"新增向导加载和选择预设的客户端路径。"}

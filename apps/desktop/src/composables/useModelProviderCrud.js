@@ -410,6 +410,7 @@ export function useModelProviderCrud () {
     loadProviders,
     openAdd,
     nextAddStep,
+    loadAvailablePresets,
     selectPreset,
     selectCustom,
     openEdit,

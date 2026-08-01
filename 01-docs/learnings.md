@@ -3917,6 +3917,31 @@ provider/orchestrator；8002/8013 与真实发布也需要目标环境。分段�
    服务可用。
 
 ---
+## 模型预设目录为空复盘（2026-08-01）
+
+### 第一性原因
+- `b00d5a7` 引入 `_seedPresets()`，启动时把全部内置预设写入 `model_providers`，表示目录已初始化。
+- `b60a2b96` 的 `getAvailablePresets()` 又以 `SELECT id` 结果过滤预设，把“种子行已存在”误当成“用户已完成配置”，因此图片、LLM、视频等类别全部显示为空。
+- 新增向导的保存路径本来支持重复 ID 的更新降级，但缺少“目录返回完整预设”的前置合同，导致该路径无法被用户触发。
+
+### 测试逃逸链与系统性漏洞
+1. **单元测试逃逸**：旧测试明确断言“预设已初始化后列表为空”，把初始化副作用固化成错误行为。
+2. **集成测试逃逸**：IPC 测试 mock manager/store，没有覆盖真实种子初始化后的 `model-provider:presets` 链路。
+3. **UI 测试逃逸**：composable 只 mock IPC 返回空数组，未验证非空预设能进入 `availablePresets` 并渲染。
+4. **审查盲区**：没有区分“可配置目录”和“已配置状态”；后者应由 `api_key_enc IS NOT NULL AND enabled = 1` 判断。
+5. **流程缺失**：新增预设/种子时没有强制要求“空 userData 初始化后仍可添加”的回归用例。
+
+### 修复与回归保护
+- `ModelProviderManager.getAvailablePresets(category)` 现在返回该类别全部内置预设，不再按数据库行 ID 过滤。
+- 新增向导继续沿用 ID 冲突后 `updateProvider` 降级，补填种子行而不创建重复记录。
+- 新增真实 `sql.js` 数据库 + IPC 集成测试，覆盖空库初始化、种子行仍可选和 Flux API Key 更新；composable 测试覆盖 IPC 非空数组转发。
+
+### 预防措施
+1. 所有 `getAvailablePresets` / `getAvailableTemplates` 等目录 API 必须返回完整内置目录；“已配置”只能由业务字段判断。
+2. 种子初始化改动必须同时覆盖空 userData、种子已存在、选择后更新三条路径，禁止只断言数据库行数。
+3. composable 测试必须包含一条 IPC 返回非空数据的真实响应路径；UI 集成测试使用稳定状态和用户可见文案断言。
+
+---
 
 ## Opaque Token Introspection 缺失复盘（2026-07-25）
 

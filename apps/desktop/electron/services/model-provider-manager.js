@@ -542,8 +542,9 @@ class ModelProviderManager {
 
   getAvailablePresets (category) {
     if (!this._ready) return []
-    const existingIds = new Set(this._store.db.prepare('SELECT id FROM model_providers').all().map(r => r.id))
-    return PRESET_PROVIDERS.filter(p => p.category === category && !existingIds.has(p.id)).map(p => ({
+    // Seed rows describe the built-in catalog, not completed user configuration.
+    // Keep every preset selectable; saving an existing preset updates its seeded row.
+    return PRESET_PROVIDERS.filter(p => p.category === category).map(p => ({
       id: p.id, name: p.name, category: p.category, base_url: p.base_url, models: p.models,
     }))
   }
