@@ -1,0 +1,12 @@
+{
+  "id": "fix-desktop-dev-startup",
+  "title": "Fix desktop dev startup so it does not depend on concurrently",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "Archived after implementation and verification",
+  "createdAt": "2026-07-31T00:00:00Z",
+  "branch": "main"
+}
