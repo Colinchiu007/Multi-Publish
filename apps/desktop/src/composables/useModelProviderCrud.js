@@ -141,6 +141,12 @@ export function useModelProviderCrud () {
     return counts
   })
 
+  const activeCategoryCounts = computed(() => {
+    return viewMode.value === 'configured'
+      ? configuredCategoryCounts.value
+      : categoryCounts.value
+  })
+
   // ─── 数据加载 ─────────────────────────────────
   async function loadProviders () {
     loading.value = true
@@ -399,6 +405,7 @@ export function useModelProviderCrud () {
     presetCount,
     categoryCounts,
     configuredCategoryCounts,
+    activeCategoryCounts,
     // 方法
     loadProviders,
     openAdd,

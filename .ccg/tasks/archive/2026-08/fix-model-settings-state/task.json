@@ -1,0 +1,12 @@
+{
+  "id": "fix-model-settings-state",
+  "title": "纠正模型设置的配置状态与类别标签展示",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已完成，归档后提交",
+  "createdAt": "2026-08-01T00:00:00Z",
+  "branch": "codex/fix-model-settings-state"
+}

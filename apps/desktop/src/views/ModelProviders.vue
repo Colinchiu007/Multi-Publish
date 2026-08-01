@@ -40,7 +40,7 @@
     </div>
 
     <!-- 分类筛选条 -->
-    <div class="cohere-filter-bar" v-if="!loading && viewMode === 'all'">
+    <div class="cohere-filter-bar" v-if="!loading">
       <button
         v-for="opt in CATEGORY_OPTIONS" :key="opt.value"
         class="filter-chip"
@@ -48,8 +48,8 @@
         @click="filterCategory = opt.value"
       >
         <span class="chip-label">{{ opt.label }}</span>
-        <span class="chip-count" v-if="opt.value !== 'all'">{{ categoryCounts[opt.value] || 0 }}</span>
-        <span class="chip-count" v-else>{{ providers.length }}</span>
+        <span class="chip-count" v-if="opt.value !== 'all'">{{ activeCategoryCounts[opt.value] || 0 }}</span>
+        <span class="chip-count" v-else>{{ activeCategoryCounts.all || 0 }}</span>
       </button>
     </div>
     <!-- 内容区 -->
@@ -449,8 +449,7 @@ const {
   unconfiguredPresets,
   customProviders,
   presetCount,
-  configuredCategoryCounts,
-  categoryCounts,
+  activeCategoryCounts,
   loadProviders,
   openAdd,
   nextAddStep,

@@ -556,7 +556,7 @@ class ModelProviderManager {
 
   _safeRow (row) {
     if (!row) return null
-    let apiKeyMasked = '****'
+    let apiKeyMasked = ''
     if (row.api_key_enc) {
       try {
         const decrypted = crypto.decrypt(row.api_key_enc)

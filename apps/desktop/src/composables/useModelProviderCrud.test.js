@@ -391,6 +391,21 @@ describe('useModelProviderCrud', function () {
       expect(crud.configuredCategoryCounts.value).toEqual({ all: 2, llm: 1, tts: 1 })
     })
 
+    it('activeCategoryCounts 随当前视图显示对应的类别计数', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key_masked: 'sk-***' },
+          { id: 'b', name: 'B', category: 'tts', is_preset: 1, api_key_masked: '' },
+        ],
+      })
+      await crud.loadProviders()
+
+      expect(crud.activeCategoryCounts.value).toEqual({ all: 1, llm: 1 })
+      crud.viewMode.value = 'all'
+      expect(crud.activeCategoryCounts.value).toEqual({ all: 2, llm: 1, tts: 1 })
+    })
+
     it('presetCount 统计全部预设数量', async function () {
       modelProviderList.mockResolvedValueOnce({
         code: 0,
@@ -425,7 +440,7 @@ describe('useModelProviderCrud', function () {
         // 计算属性
         'configuredProviders', 'unconfiguredPresets', 'customProviders',
         'filteredProviders', 'configuredCount', 'presetCount',
-        'categoryCounts', 'configuredCategoryCounts',
+        'categoryCounts', 'configuredCategoryCounts', 'activeCategoryCounts',
         // 方法
         'loadProviders', 'openAdd', 'nextAddStep',
         'selectPreset', 'selectCustom', 'openEdit',

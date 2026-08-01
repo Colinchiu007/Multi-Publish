@@ -226,6 +226,12 @@ describe("ModelProviderManager", function () {
       const all = manager.listProviders()
       all.forEach(p => expect(p.api_key).toBeUndefined())
     })
+
+    it("空 API Key 的预设不应被序列化为已配置", function () {
+      const all = manager.listProviders()
+      expect(all).not.toHaveLength(0)
+      all.forEach(p => expect(p.api_key_masked).toBe(""))
+    })
   })
 
   describe("createProvider", function () {

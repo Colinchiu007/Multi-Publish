@@ -1,0 +1,3 @@
+{"file":"apps/desktop/electron/services/model-provider-manager.js","reason":"安全序列化 API Key 状态，当前空 Key 也返回掩码。"}
+{"file":"apps/desktop/src/composables/useModelProviderCrud.js","reason":"按服务商安全状态计算已配置和类别计数。"}
+{"file":"apps/desktop/src/views/ModelProviders.vue","reason":"模型类别筛选标签的渲染范围。"}
