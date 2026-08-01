@@ -19,6 +19,7 @@ afterEach(() => {
 
 function createView(cookies = [], localStorage = {}, indexedDB = {}) {
   return {
+    setBounds: vi.fn(),
     webContents: {
       session: { cookies: { get: vi.fn().mockResolvedValue(cookies) } },
       executeJavaScript: vi.fn(script => {
@@ -78,6 +79,25 @@ describe('AuthViewManager 凭证边界', () => {
       localStorage: {},
       indexedDB: { auth: { token: 'indexed-token' } },
     })
+  })
+
+  it('窗口 resize 时重新定位当前登录视图（回归 _onWindowResize 缺失崩溃）', () => {
+    const manager = new AuthViewManager()
+    const view = createView()
+    const mainWindow = createMainWindow()
+    manager.mainWindow = mainWindow
+    manager.currentView = view
+    const position = vi.spyOn(manager, '_positionView')
+
+    expect(() => manager._onWindowResize()).not.toThrow()
+    expect(position).toHaveBeenCalledWith(mainWindow.getBounds())
+  })
+
+  it('无当前视图时 _onWindowResize 不抛异常', () => {
+    const manager = new AuthViewManager()
+    manager.mainWindow = createMainWindow()
+
+    expect(() => manager._onWindowResize()).not.toThrow()
   })
 
   it('用户确认完成登录后由主进程提取凭证并结束当前会话', async () => {

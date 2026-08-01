@@ -106,6 +106,15 @@ class AuthViewManager {
 
   _getNavHeight() { return 56 }
 
+  /**
+   * 主窗口大小变化时重新定位当前登录视图。
+   * window.js 的 resize 回调会调用此方法，缺失会导致未捕获异常。
+   */
+  _onWindowResize() {
+    if (!this.mainWindow || !this.currentView) return
+    this._positionView(this.mainWindow.getBounds())
+  }
+
   _createLoginAttempt() {
     if (!this.currentView || !this.currentPlatform || !this._resolveLogin) return null
     this._activeLoginAttempt = {
