@@ -425,7 +425,7 @@ describe('ModelProviderManager — P2 加密集成', () => {
       expect(provider.api_key).toBeUndefined()
     })
 
-    it('getProvider 无 api_key 时 api_key_masked 为 ****', () => {
+    it('getProvider 无 api_key 时 api_key_masked 为空字符串（未配置）', () => {
       manager.createProvider({
         id: 'no-key-provider',
         name: 'No Key Provider',
@@ -434,7 +434,7 @@ describe('ModelProviderManager — P2 加密集成', () => {
       })
 
       const provider = manager.getProvider('no-key-provider')
-      expect(provider.api_key_masked).toBe('****')
+      expect(provider.api_key_masked).toBe('')
     })
   })
 
@@ -459,7 +459,7 @@ describe('ModelProviderManager — P2 加密集成', () => {
       expect(provider.api_key).toBe('sk-new-key-67890')
     })
 
-    it('updateProvider 清空 api_key', () => {
+    it('updateProvider api_key 留空时保留已保存的 Key（不误清除）', () => {
       manager.createProvider({
         id: 'test-provider',
         name: 'Test Provider',
@@ -468,11 +468,31 @@ describe('ModelProviderManager — P2 加密集成', () => {
         models: ['gpt-4o'],
       })
 
-      const result = manager.updateProvider('test-provider', { api_key: '' })
+      const result = manager.updateProvider('test-provider', { api_key: '', name: 'Renamed' })
       expect(result.code).toBe(0)
 
+      const provider = manager.getProviderWithKey('test-provider')
+      expect(provider.api_key).toBe('sk-test-key-12345')
+      expect(provider.name).toBe('Renamed')
+    })
+
+    it('updateProvider clearApiKey=true 时才显式清除 API Key', () => {
+      manager.createProvider({
+        id: 'test-provider',
+        name: 'Test Provider',
+        category: 'llm',
+        api_key: 'sk-test-key-12345',
+        models: ['gpt-4o'],
+      })
+
+      const result = manager.updateProvider('test-provider', { clearApiKey: true })
+      expect(result.code).toBe(0)
+
+      const provider = manager.getProviderWithKey('test-provider')
+      expect(provider.api_key).toBe('')
       const row = mockTables.model_providers.find(r => r.id === 'test-provider')
-      expect(row.api_key).toBe('')
+      expect(row.api_key_enc).toBeFalsy()
+      expect(row.enabled).toBe(0)
     })
   })
 

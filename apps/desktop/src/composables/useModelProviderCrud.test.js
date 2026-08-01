@@ -274,6 +274,26 @@ describe('useModelProviderCrud', function () {
       expect(crud.submitting.value).toBe(false)
     })
 
+    it('编辑保存时 API Key 留空不得上送空值（避免清除已保存 Key）', async function () {
+      crud.isEditing.value = true
+      crud.form.value = {
+        id: 'minimax-image',
+        name: 'MiniMax Image',
+        category: 'image',
+        base_url: 'https://api.minimaxi.com/v1',
+        api_key: '', // 用户未填写新 Key，按“留空保持不变”语义
+        models: ['image-01', 'image-01-live'],
+        modelsText: 'image-01, image-01-live',
+        config: {},
+      }
+
+      await crud.submitForm()
+
+      expect(modelProviderUpdate).toHaveBeenCalledTimes(1)
+      const calledData = modelProviderUpdate.mock.calls[0][1]
+      expect(calledData).not.toHaveProperty('api_key')
+    })
+
     it('预设已存在时自动改为更新并刷新列表', async function () {
       modelProviderCreate.mockResolvedValueOnce({ code: 1, message: 'provider already exists' })
       modelProviderUpdate.mockResolvedValueOnce({ code: 0 })

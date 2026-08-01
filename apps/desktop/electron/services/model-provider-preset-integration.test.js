@@ -122,4 +122,22 @@ describe('model-provider preset catalog integration', function () {
     expect(row.count).toBe(countBefore)
     expect(row.enabled).toBe(1)
   })
+
+  it('保存 MiniMax Image API Key 后 testConnection 不再报 API Key not configured', async function () {
+    const update = await ipcMain.call('model-provider:update', 'minimax-image', { api_key: 'mm-image-test-key', enabled: true })
+    expect(update.code).toBe(0)
+
+    const test = await ipcMain.call('model-provider:test', 'minimax-image')
+    expect(test.code).toBe(0)
+    expect(test.data && test.data.success).toBe(true)
+  })
+
+  it('更新服务商但 API Key 留空时保留已保存的 Key（不误清除）', async function () {
+    await ipcMain.call('model-provider:update', 'minimax-image', { api_key: 'mm-image-test-key', enabled: true })
+    const keep = await ipcMain.call('model-provider:update', 'minimax-image', { api_key: '', name: 'MiniMax Image 2' })
+    expect(keep.code).toBe(0)
+
+    const test = await ipcMain.call('model-provider:test', 'minimax-image')
+    expect(test.code).toBe(0)
+  })
 })
