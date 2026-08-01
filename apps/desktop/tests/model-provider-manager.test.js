@@ -348,10 +348,14 @@ describe("ModelProviderManager", function () {
   describe("getAvailablePresets", function () {
     beforeEach(function () { manager.init() })
 
-    it("应返回该类别未添加的预设", function () {
-      const presets = manager.getAvailablePresets("llm")
-      // 预设已经初始化写入，所以应该为空
-      expect(presets.length).toBe(0)
+    it("应返回该类别可配置的预设，即使种子行已经初始化", function () {
+      const presets = manager.getAvailablePresets("image")
+
+      expect(presets.map(p => p.id)).toEqual(expect.arrayContaining([
+        "flux",
+        "dall-e",
+      ]))
+      presets.forEach(p => expect(p.category).toBe("image"))
     })
 
     it("自定义服务商删除后应出现在预设列表中", function () {
