@@ -30,6 +30,10 @@ function canUseWithoutApiKey (provider) {
     isLoopbackBaseUrl(provider.base_url))
 }
 
+function hasUsableApiKey (apiKey) {
+  return typeof apiKey === 'string' && apiKey.trim() !== ''
+}
+
 class ModelProviderManager {
   constructor (store) {
     this._store = store
@@ -63,21 +67,21 @@ class ModelProviderManager {
    * @returns {Promise<{code: number, data?: any, message?: string, error?: Error}>}
    */
   async callAdapter (providerId, method, params = {}) {
-    if (!this._ready) return { code: -1, message: 'Store not initialized' }
+    if (!this._ready) return { code: -1, message: '模型服务尚未初始化，请稍后重试（Store not initialized）' }
 
     // 检查 Adapter 工厂是否注册
     const factory = this._adapterFactories.get(providerId)
     if (!factory) {
-      return { code: -1, message: `No adapter registered for provider "${providerId}"` }
+      return { code: -1, message: `未找到 ${providerId} 的适配器，请检查服务商配置后重试（No adapter registered for provider "${providerId}"）` }
     }
 
     // 获取 provider（含解密后的 api_key）
     const provider = this.getProviderWithKey(providerId)
     if (!provider) {
-      return { code: -1, message: `Provider "${providerId}" not found` }
+      return { code: -1, message: `未找到服务商 ${providerId}，请刷新列表后重试（Provider "${providerId}" not found）` }
     }
-    if (!provider.api_key && !canUseWithoutApiKey(provider)) {
-      return { code: -1, message: 'API Key not configured for provider "' + providerId + '"' }
+    if (!hasUsableApiKey(provider.api_key) && !canUseWithoutApiKey(provider)) {
+      return { code: -1, message: `尚未配置 API Key，请先在“模型设置”中填写 ${provider.name || providerId} 的 API Key 后重试（API Key not configured）` }
     }
 
     // 获取或创建 Adapter 实例（factory 可能同步抛异常）
@@ -89,12 +93,12 @@ class ModelProviderManager {
       if (e instanceof ProviderError) {
         return { code: -1, error: e, message: e.message }
       }
-      return { code: -1, message: 'Factory initialization failed: ' + e.message }
+      return { code: -1, message: `适配器初始化失败：${e.message}（Factory initialization failed）` }
     }
 
     // 能力检查（在调用前完成，避免不必要的日志记录）
     if (typeof adapter.supports === 'function' && !adapter.supports(method)) {
-      return { code: -1, message: `Method "${method}" not supported by adapter "${providerId}"` }
+      return { code: -1, message: `服务商 ${providerId} 不支持该操作，请检查模型配置后重试（Method "${method}" not supported by adapter "${providerId}"）` }
     }
 
     // 调用 + 统一日志记录（所有路径覆盖，不依赖 router logHandler）
@@ -338,17 +342,7 @@ class ModelProviderManager {
     if (!this._ready) return null
     const row = this._store.db.prepare('SELECT * FROM model_providers WHERE id = ?').get(id)
     if (!row) return null
-    let apiKey = ''
-    if (row.api_key_enc) {
-      try {
-        apiKey = crypto.decrypt(row.api_key_enc)
-      } catch (e) {
-        log.error('ModelProviderManager', 'Decrypt failed for ' + id + ': ' + e.message)
-      }
-    } else if (row.api_key) {
-      apiKey = row.api_key
-    }
-    return { ...this._safeRow(row), api_key: apiKey }
+    return { ...this._safeRow(row), api_key: this._getApiKey(row) }
   }
 
   createProvider (data) {
@@ -431,6 +425,7 @@ class ModelProviderManager {
           sets.push('api_key = ?')
           vals.push('')
         }
+        // api_key 为空且未显式 clearApiKey 时保持原 Key 不变
       } else if (k === 'clearApiKey') {
         if (v) {
           sets.push('api_key_enc = ?')
@@ -502,7 +497,7 @@ class ModelProviderManager {
       return { code: -1, message: 'Provider does not belong to category "' + (CATEGORY_LABELS[category] || category) + '"' }
     }
     const providerWithKey = this.getProviderWithKey(providerId)
-    if (!providerWithKey || (!providerWithKey.api_key && !canUseWithoutApiKey(providerWithKey))) {
+    if (!providerWithKey || (!hasUsableApiKey(providerWithKey.api_key) && !canUseWithoutApiKey(providerWithKey))) {
       return { code: -1, message: 'Please configure API Key before setting as default' }
     }
     try {
@@ -525,20 +520,19 @@ class ModelProviderManager {
 
   getDefault (category) {
     if (!this._ready) return null
-    const row = this._store.db.prepare('SELECT * FROM model_providers WHERE category = ? AND is_default = 1').get(category)
-    if (row) return this._safeRow(row)
-    const fallback = this._store.db.prepare("SELECT * FROM model_providers WHERE category = ? AND api_key_enc IS NOT NULL ORDER BY name ASC LIMIT 1").get(category)
-    return fallback ? this._safeRow(fallback) : null
+    const rows = this._store.db.prepare('SELECT * FROM model_providers WHERE category = ? AND enabled = 1 ORDER BY is_default DESC, name ASC').all(category)
+    const provider = rows.find(row => hasUsableApiKey(this._getApiKey(row)) || canUseWithoutApiKey(row))
+    return provider ? this._safeRow(provider) : null
   }
 
   async testConnection (id) {
-    if (!this._ready) return { code: -1, message: 'Store not initialized' }
+    if (!this._ready) return { code: -1, message: '模型服务尚未初始化，请稍后重试（Store not initialized）' }
     const provider = this.getProviderWithKey(id)
     if (!provider) {
-      return { code: -1, message: 'Provider "' + id + '" not found' }
+      return { code: -1, message: `未找到服务商 ${id}，请刷新列表后重试（Provider "${id}" not found）` }
     }
-    if (!provider.api_key && !canUseWithoutApiKey(provider)) {
-      return { code: -1, message: 'API Key not configured' }
+    if (!hasUsableApiKey(provider.api_key) && !canUseWithoutApiKey(provider)) {
+      return { code: -1, message: `尚未配置 API Key，请先在“模型设置”中填写 ${provider.name || id} 的 API Key 后重试（API Key not configured）` }
     }
     // P3.2: 若已注册 Adapter，通过 Adapter 实际调用 testConnection
     const factory = this._adapterFactories.get(id)
@@ -547,11 +541,13 @@ class ModelProviderManager {
       return result
     }
     // Fallback: 仅配置校验（无 Adapter 注册时）
-    return { code: 0, message: provider.name + ' config valid (' + provider.base_url + ')' }
+    return { code: 0, message: provider.name + ' 配置有效（config valid: ' + (provider.base_url || '默认地址') + '）' }
   }
 
   getAvailablePresets (category) {
     if (!this._ready) return []
+    // Seed rows describe the built-in catalog, not completed user configuration.
+    // Keep every preset selectable; saving an existing preset updates its seeded row.
     return PRESET_PROVIDERS.filter(p => p.category === category).map(p => ({
       id: p.id, name: p.name, category: p.category, base_url: p.base_url, models: p.models,
     }))
@@ -559,23 +555,14 @@ class ModelProviderManager {
 
   isConfigured (category) {
     if (!this._ready) return false
-    const row = this._store.db.prepare('SELECT COUNT(*) as cnt FROM model_providers WHERE category = ? AND api_key_enc IS NOT NULL AND enabled = 1').get(category)
-    return row && row.cnt > 0
+    const rows = this._store.db.prepare('SELECT * FROM model_providers WHERE category = ? AND enabled = 1').all(category)
+    return rows.some(row => hasUsableApiKey(this._getApiKey(row)))
   }
 
   _safeRow (row) {
     if (!row) return null
-    let apiKeyMasked = ''
-    if (row.api_key_enc) {
-      try {
-        const decrypted = crypto.decrypt(row.api_key_enc)
-        apiKeyMasked = crypto.mask(decrypted)
-      } catch {
-        apiKeyMasked = ''
-      }
-    } else if (row.api_key) {
-      apiKeyMasked = crypto.mask(row.api_key)
-    }
+    const apiKey = this._getApiKey(row)
+    const apiKeyMasked = hasUsableApiKey(apiKey) ? crypto.mask(apiKey) : ''
     return {
       id: row.id,
       name: row.name,
@@ -591,6 +578,20 @@ class ModelProviderManager {
       updated_at: row.updated_at,
     }
   }
+
+  _getApiKey (row) {
+    if (!row) return ''
+    if (row.api_key_enc) {
+      try {
+        const decrypted = crypto.decrypt(row.api_key_enc)
+        return typeof decrypted === 'string' ? decrypted : ''
+      } catch (e) {
+        log.error('ModelProviderManager', 'Decrypt failed for ' + (row.id || 'unknown') + ': ' + e.message)
+        return ''
+      }
+    }
+    return typeof row.api_key === 'string' ? row.api_key : ''
+  }
 }
 
 function safeJsonParse (str, fallback) {
@@ -598,4 +599,4 @@ function safeJsonParse (str, fallback) {
   try { return JSON.parse(str) } catch { return fallback }
 }
 
-module.exports = { ModelProviderManager, canUseWithoutApiKey, isLoopbackBaseUrl }
+module.exports = { ModelProviderManager, canUseWithoutApiKey, hasUsableApiKey, isLoopbackBaseUrl }

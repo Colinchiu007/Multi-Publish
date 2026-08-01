@@ -44,4 +44,30 @@ describe('ModelProviderManager local no-key adapters', () => {
       .resolves.toMatchObject({ code: -1, message: expect.stringMatching(/API Key/i) })
     expect(manager._getOrCreateAdapter).not.toHaveBeenCalled()
   })
+  it('returns an enabled loopback Piper provider as the default without an API key', () => {
+    const provider = {
+      id: 'piper',
+      name: 'Piper',
+      category: 'tts',
+      base_url: 'http://127.0.0.1:5000',
+      api_key_enc: null,
+      api_key: '',
+      models: '[]',
+      config: '{}',
+      enabled: 1,
+      is_default: 1,
+      is_preset: 1,
+    }
+    const manager = new ModelProviderManager({
+      db: {
+        prepare: vi.fn(() => ({ all: vi.fn(() => [provider]) })),
+      },
+    })
+    manager._ready = true
+
+    expect(manager.getDefault('tts')).toMatchObject({
+      id: 'piper',
+      api_key_masked: '',
+    })
+  })
 })

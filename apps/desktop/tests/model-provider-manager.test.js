@@ -145,7 +145,7 @@ describe("ModelProviderManager", function () {
               const results = []
               for (const [, v] of data) {
                 if (args.length > 0 && sql.includes("category = ?")) {
-                  if (v.category === args[0]) results.push(v)
+                  if (v.category === args[0] && (!sql.includes("enabled = 1") || v.enabled)) results.push(v)
                 } else {
                   results.push(v)
                 }
@@ -241,6 +241,48 @@ describe("ModelProviderManager", function () {
       expect(manager._safeRow({ id: 'broken', api_key_enc: Buffer.from('bad') }).api_key_masked).toBe("")
 
       crypto.decrypt = decrypt
+    })
+
+    it("解密为空的密钥不应伪装为已配置", function () {
+      const crypto = require("./crypto")
+      const decrypt = crypto.decrypt
+      try {
+        crypto.decrypt = () => ''
+
+        expect(manager._safeRow({ id: 'empty', api_key_enc: Buffer.from('enc_') }).api_key_masked).toBe("")
+      } finally {
+        crypto.decrypt = decrypt
+      }
+    })
+
+    it("解密为空的已启用服务商不应被计为已配置或通过测试", async function () {
+      const crypto = require("./crypto")
+      const decrypt = crypto.decrypt
+      manager.updateProvider('openai', { api_key: 'sk-valid-before-decrypt', enabled: true })
+
+      try {
+        crypto.decrypt = () => ''
+
+        expect(manager.isConfigured('llm')).toBe(false)
+        await expect(manager.testConnection('openai')).resolves.toMatchObject({
+          code: -1,
+          message: expect.stringContaining('API Key not configured'),
+        })
+        expect(manager.getDefault('llm')).toBeNull()
+      } finally {
+        crypto.decrypt = decrypt
+      }
+    })
+
+    it("纯空白 API Key 不应被计为已配置或进入适配器调用", async function () {
+      manager.updateProvider('openai', { api_key: '   ', enabled: true })
+
+      expect(manager.isConfigured('llm')).toBe(false)
+      await expect(manager.testConnection('openai')).resolves.toMatchObject({
+        code: -1,
+        message: expect.stringContaining('API Key not configured'),
+      })
+      expect(manager.getDefault('llm')).toBeNull()
     })
   })
 

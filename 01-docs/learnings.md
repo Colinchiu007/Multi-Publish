@@ -5395,3 +5395,24 @@ getAvailablePresets (category) {
 2. **测试断言不得反向固化错误行为** — 任何断言“X 已初始化所以 Y 应为空”的测试必须额外验证“Y 为空是用户期望行为”而非“实现副作用”。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为“Y 应返回全部可配置项”。
 3. **mock 不得掩盖真实数据流** — composable 测试如果只 mock IPC 返回空数组，就无法发现“真实 IPC 返回非空时 composable 是否正确转发”。每个 composable 测试至少包含一条“IPC 返回非空数据 → composable 转发到响应式状态”的用例，覆盖真实数据路径。
 4. **新增真实 DB + IPC 集成回归** — `apps/desktop/electron/services/model-provider-preset-integration.test.js` 必须在每次修改 `model-provider-manager.js` 的预设相关方法（`getAvailablePresets` / `createProvider` / `updateProvider` / `_seedPresets`）后运行，确保从 IPC 入口到 DB 的完整链路不被破坏。
+
+---
+
+## 模型 API Key 解密空值伪装为已配置复盘（2026-08-01）
+
+### 第一性原因
+
+- `ModelProviderManager._safeRow()` 只要发现 `api_key_enc` 有值就调用 `crypto.mask()`；而 `crypto.decrypt()` 遇到旧密钥、无效安全存储或解密失败时会返回空字符串，`crypto.mask('')` 却会生成 `****`。
+- 因此渲染层把 `****` 当作“已配置”，但 `getProviderWithKey()`/`testConnection()` 实际拿到空 Key 并正确拒绝调用，造成同一条记录在列表与测试入口表现矛盾。
+
+### 测试逃逸链与修复
+
+1. 单元测试只覆盖“解密抛异常”和“无加密字段”，没有覆盖“解密正常返回空字符串”。
+2. `isConfigured()` 只统计 `api_key_enc IS NOT NULL AND enabled = 1`，把不可解密历史 blob 当成可用凭据。
+3. 修复把明文读取统一收敛到 `_getApiKey()`；列表遮罩、测试连接与类别状态都基于同一条解密结果判定。
+4. `model-provider-manager.test.js` 新增两条回归：解密为空不得显示遮罩；已启用但解密为空不得计为已配置。
+
+### 预防措施
+
+- 模型凭据状态不得以“加密字段存在”作为可用性依据；任何面向 UI、默认选择或调用前置检查的“已配置”判断都必须以可解密且非空的 Key 为准。
+- 修改加密凭据读取或掩码逻辑时，必须同时覆盖：可解密、解密抛错、解密返回空字符串，以及同一记录在列表统计和实际测试调用中的一致性。
