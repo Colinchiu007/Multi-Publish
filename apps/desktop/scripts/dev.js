@@ -3,6 +3,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const { buildElectronArgs } = require('./dev-launcher');
 
 const desktopDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopDir, '..', '..');
@@ -63,29 +64,9 @@ function waitForVite(remainingMs) {
     if (res.statusCode && res.statusCode < 500) {
       if (stopping) return;
       const electronCommand = process.platform === 'win32' ? electronBinary : process.execPath;
-      const electronArgs = process.platform === 'win32'
-        ? [
-            `--user-data-dir=${electronUserDataDir}`,
-            `--disk-cache-dir=${electronCacheDir}`,
-            '--in-process-gpu',
-            '--no-sandbox',
-            '--use-gl=angle',
-            '--use-angle=swiftshader',
-            '--enable-unsafe-swiftshader',
-            desktopDir,
-          ]
-        : [
-            electronScript,
-            `--user-data-dir=${electronUserDataDir}`,
-            `--disk-cache-dir=${electronCacheDir}`,
-            '--in-process-gpu',
-            '--no-sandbox',
-            '--use-gl=angle',
-            '--use-angle=swiftshader',
-            '--enable-unsafe-swiftshader',
-            desktopDir,
-          ];
-      electron = spawn(electronCommand, electronArgs, {
+      const electronArgs = buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir });
+      const electronSpawnArgs = process.platform === 'win32' ? electronArgs : [electronScript, ...electronArgs];
+      electron = spawn(electronCommand, electronSpawnArgs, {
         cwd: desktopDir,
         stdio: 'inherit',
         shell: false,
