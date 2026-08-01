@@ -5325,3 +5325,73 @@ OIDC 登录、Token 或正常请求。
    `toISOString().slice(0, 10)`。
 2. 任何依赖“今天”“当前月”或日期边界的 Vue 测试必须冻结时钟；至少增加一条非 UTC 时区和一条跨月重算回归。
 3. 代码审查针对日期展示时检查日期键、事件归属、选中日期和显示时间是否使用同一时区语义。
+
+---
+
+## 模型预设列表为空 Bug 复盘 (2026-08-01)
+
+### 根因（第一性原因）
+
+**Bug 现象**：模型服务商新增向导中，图片、视频、LLM 等所有类别的预设列表都为空，界面显示“暂无可添加”。
+
+**5 Whys 根因溯源**：
+
+1. 为什么图片类别为空 → IPC `model-provider:presets("image")` 返回空预设数组。
+2. 为什么 IPC 为空 → [`getAvailablePresets(category)`](../apps/desktop/electron/services/model-provider-manager.js) 排除了“已存在于 `model_providers` 表”的预设 ID。
+3. 为什么所有 ID 都已入库 → 应用启动时 [`_seedPresets()`](../apps/desktop/electron/services/model-provider-manager.js) 已将全部 52 个预设写入本地数据库。
+4. 为什么仍以“是否已入库”判定能否添加 → 把“预设目录存在”（`_seedPresets` 已写入）和“用户已完成配置”（用户已填 API Key 并启用）混为同一状态。
+5. **根因**：`getAvailablePresets` 的语义错误，应返回“可配置的内置预设”，而不是“数据库中不存在的预设”。
+
+**历史追溯**：该矛盾由 commit `b00d5a7`（全局模型服务商系统）引入，`b60a2b96` 固化了过滤逻辑；不是“已配置 0”修复造成的回归。
+
+### 测试逃逸链
+
+1. **单元测试**：[`model-provider-manager.test.js`](../apps/desktop/tests/model-provider-manager.test.js) 甚至明确断言“预设已初始化写入，所以应该为空” — 将错误行为当成正确合同固化下来。
+2. **composable 测试**：使用脱离真实 IPC 的 mock，`modelProviderPresets.mockResolvedValueOnce({ data: [] })` 未覆盖非空预设路径。
+3. **集成测试缺失**：没有“空 userData → init 种子 → IPC presets 返回非空”端到端回归。
+4. **代码审查盲区**：种子初始化（写入全部预设）与 `getAvailablePresets`（排除已入库）的语义冲突没有被识别。
+
+### 系统性漏洞
+
+- **状态语义混淆**：`is_preset` 标志同时表示“种子目录存在”和“用户已完成配置”，导致 `getAvailablePresets` 用错误的状态判定能否添加。
+- **测试断言反向**：测试断言“预设已入库 → 列表应为空”把 Bug 当成正确合同，反向固化了错误行为。
+- **mock 过度**：composable 测试 mock 了 IPC，没有覆盖“IPC 返回非空 → composable 转发到模板”的真实路径。
+
+### 修复 + 回归保护
+
+**修复方案**（`apps/desktop/electron/services/model-provider-manager.js`）：
+
+```javascript
+getAvailablePresets (category) {
+  if (!this._ready) return []
+  // 内置预设始终可被"添加" — 用户选预设后只是把已入库的种子行补填 API Key，
+  // 走 createProvider 的 "ID 冲突 -> already exists" 路径降级为 updateProvider。
+  // 不能用 "是否已入库" 判断能否添加：种子初始化已写入全部预设，
+  // 那样会把 "目录存在" 误当成 "用户已配置"，导致预设列表恒为空。
+  return PRESET_PROVIDERS.filter(p => p.category === category).map(p => ({
+    id: p.id, name: p.name, category: p.category, base_url: p.base_url, models: p.models,
+  }))
+}
+```
+
+**回归保护测试**（3 层防护）：
+
+1. **后端单元测试**（`apps/desktop/tests/model-provider-manager.test.js`）：
+   - 修正原错误断言“预设已初始化写入应为空”为“应返回该类别可配置的预设，即使种子行已经初始化”。
+   - 新增“选预设后 createProvider 返回 already exists，updateProvider 补填 API Key 成功”测试覆盖降级更新路径。
+   - 新增“getAvailablePresets 返回的预设包含 base_url 和 models 字段”测试覆盖字段完整性。
+
+2. **composable 测试**（`apps/desktop/src/composables/useModelProviderCrud.test.js`）：
+   - 新增“loadAvailablePresets 转发 IPC 返回的预设列表到 availablePresets”测试，mock 返回非空数组（flux、dall-e）。
+   - 更新 composable 导出完整性测试，包含 `loadAvailablePresets` 导出断言。
+
+3. **真实 DB + IPC 集成回归**（`apps/desktop/electron/services/model-provider-preset-integration.test.js`）：
+   - 用真实 sql.js Database + 真实 store-schema + 真实 ModelProviderManager + 真实 IPC handler，覆盖从 IPC 入口到 DB 的完整链路。
+   - 4 个用例：(1) 空 userData init 后 IPC `model-provider:presets("image")` 返回 flux/dall-e；(2) 种子已写入 DB 但 `getAvailablePresets` 仍返回全部预设；(3) 选 flux 预设后 createProvider 返回 already exists，updateProvider 补填 API Key 成功；(4) 其他类别（llm）也能通过 IPC 返回。
+
+### 预防措施（R85）
+
+1. **R85：预设/种子类语义合同** — `getAvailablePresets`、`getAvailableTemplates`、`getAvailableProfiles` 等“可配置目录”类 API 必须返回该类别全部内置预设，**不得用“是否已入库”判断能否添加**。种子初始化（`_seedPresets` / `INSERT OR IGNORE`）只表示“目录存在”，不表示“用户已完成配置”。“是否已配置”必须用 `api_key_enc IS NOT NULL AND enabled = 1` 等业务字段判定，不能与“种子是否写入”混为一谈。修改此类 API 时必须：(1) 验证空 userData 初始化后预设列表非空；(2) 验证种子已入库但预设列表仍返回全部项；(3) 验证用户选预设后保存路径走“ID 冲突 → 降级更新”而非创建重复行。
+2. **测试断言不得反向固化错误行为** — 任何断言“X 已初始化所以 Y 应为空”的测试必须额外验证“Y 为空是用户期望行为”而非“实现副作用”。当 X 的初始化是系统自动行为（如种子写入）时，Y 的空状态几乎一定是 Bug，必须改为“Y 应返回全部可配置项”。
+3. **mock 不得掩盖真实数据流** — composable 测试如果只 mock IPC 返回空数组，就无法发现“真实 IPC 返回非空时 composable 是否正确转发”。每个 composable 测试至少包含一条“IPC 返回非空数据 → composable 转发到响应式状态”的用例，覆盖真实数据路径。
+4. **新增真实 DB + IPC 集成回归** — `apps/desktop/electron/services/model-provider-preset-integration.test.js` 必须在每次修改 `model-provider-manager.js` 的预设相关方法（`getAvailablePresets` / `createProvider` / `updateProvider` / `_seedPresets`）后运行，确保从 IPC 入口到 DB 的完整链路不被破坏。
