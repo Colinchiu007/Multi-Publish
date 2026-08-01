@@ -1,0 +1,12 @@
+{
+  "domain": "desktop-model-provider",
+  "createdAt": "2026-08-01T00:00:00Z",
+  "id": "model-provider-create-list-minimax-default",
+  "nextAction": "已完成并归档",
+  "currentPhase": "completed",
+  "branch": "codex/story2video-scope-e2e",
+  "status": "completed",
+  "title": "修复新增模型列表遗漏与 MiniMax 图片默认模型",
+  "risk": "medium",
+  "complexity": "M"
+}

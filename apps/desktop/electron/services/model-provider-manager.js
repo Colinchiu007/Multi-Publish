@@ -34,6 +34,15 @@ function hasUsableApiKey (apiKey) {
   return typeof apiKey === 'string' && apiKey.trim() !== ''
 }
 
+const FIXED_PROVIDER_MODELS = new Map([
+  ['minimax-image', ['image-01']],
+])
+
+function normalizeProviderModels (providerId, models) {
+  const fixedModels = FIXED_PROVIDER_MODELS.get(providerId)
+  return fixedModels ? [...fixedModels] : (Array.isArray(models) ? models : [])
+}
+
 class ModelProviderManager {
   constructor (store) {
     this._store = store
@@ -350,21 +359,25 @@ class ModelProviderManager {
     if (!data || !data.id || !data.name || !data.category) {
       return { code: -1, message: 'Missing required fields (id/name/category)' }
     }
-    const existing = this._store.db.prepare('SELECT id FROM model_providers WHERE id = ?').get(data.id)
-    if (existing) {
-      return { code: -1, message: 'ID "' + data.id + '" already exists' }
-    }
     const validCategories = Object.values(CATEGORIES)
     if (!validCategories.includes(data.category)) {
       return { code: -1, message: 'Invalid category, options: ' + validCategories.join(', ') }
     }
+    const apiKey = typeof data.api_key === 'string' ? data.api_key.trim() : ''
+    if (!hasUsableApiKey(apiKey) && !canUseWithoutApiKey(data)) {
+      return { code: -1, message: 'API Key is required for remote providers' }
+    }
+    const existing = this._store.db.prepare('SELECT id FROM model_providers WHERE id = ?').get(data.id)
+    if (existing) {
+      return { code: -1, message: 'ID "' + data.id + '" already exists' }
+    }
     let apiKeyEnc = null
-    if (data.api_key) {
+    if (apiKey) {
       if (!crypto.isAvailable()) {
         return { code: -1, message: 'safeStorage not available, cannot encrypt API Key' }
       }
       try {
-        apiKeyEnc = crypto.encrypt(data.api_key)
+        apiKeyEnc = crypto.encrypt(apiKey)
       } catch (e) {
         return { code: -1, message: 'API Key encryption failed: ' + e.message }
       }
@@ -377,8 +390,8 @@ class ModelProviderManager {
       `).run(
         data.id, data.name, data.category,
         data.base_url || '', apiKeyEnc,
-        JSON.stringify(data.models || []),
-        data.api_key ? 1 : 0,
+        JSON.stringify(normalizeProviderModels(data.id, data.models)),
+        (hasUsableApiKey(apiKey) || canUseWithoutApiKey(data)) ? 1 : 0,
         JSON.stringify(data.config || {})
       )
       log.info('ModelProviderManager', 'Provider created: ' + data.id)
@@ -402,7 +415,7 @@ class ModelProviderManager {
       if (!allowedFields.includes(k)) continue
       if (k === 'models') {
         sets.push('models = ?')
-        vals.push(JSON.stringify(v))
+        vals.push(JSON.stringify(normalizeProviderModels(id, v)))
       } else if (k === 'config') {
         sets.push('config = ?')
         vals.push(JSON.stringify(v))
@@ -549,14 +562,14 @@ class ModelProviderManager {
     // Seed rows describe the built-in catalog, not completed user configuration.
     // Keep every preset selectable; saving an existing preset updates its seeded row.
     return PRESET_PROVIDERS.filter(p => p.category === category).map(p => ({
-      id: p.id, name: p.name, category: p.category, base_url: p.base_url, models: p.models,
+      id: p.id, name: p.name, category: p.category, base_url: p.base_url, models: normalizeProviderModels(p.id, p.models),
     }))
   }
 
   isConfigured (category) {
     if (!this._ready) return false
     const rows = this._store.db.prepare('SELECT * FROM model_providers WHERE category = ? AND enabled = 1').all(category)
-    return rows.some(row => hasUsableApiKey(this._getApiKey(row)))
+    return rows.some(row => hasUsableApiKey(this._getApiKey(row)) || canUseWithoutApiKey(row))
   }
 
   _safeRow (row) {
@@ -568,11 +581,12 @@ class ModelProviderManager {
       name: row.name,
       category: row.category,
       base_url: row.base_url || '',
-      models: safeJsonParse(row.models, []),
+      models: normalizeProviderModels(row.id, safeJsonParse(row.models, [])),
       enabled: !!row.enabled,
       is_default: !!row.is_default,
       is_preset: !!row.is_preset,
       config: safeJsonParse(row.config, {}),
+      is_configured: !!row.enabled && (hasUsableApiKey(apiKey) || canUseWithoutApiKey(row)),
       api_key_masked: apiKeyMasked,
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -599,4 +613,4 @@ function safeJsonParse (str, fallback) {
   try { return JSON.parse(str) } catch { return fallback }
 }
 
-module.exports = { ModelProviderManager, canUseWithoutApiKey, hasUsableApiKey, isLoopbackBaseUrl }
+module.exports = { ModelProviderManager, canUseWithoutApiKey, hasUsableApiKey, isLoopbackBaseUrl, normalizeProviderModels }

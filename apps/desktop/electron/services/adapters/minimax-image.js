@@ -10,7 +10,7 @@
  * - 支持 aspect_ratio 自动从 size 解析（如 1024x1024 → 1:1，1920x1080 → 16:9）
  *
  * 默认端点 https://api.minimaxi.com/v1，需 API Key。
- * 支持模型：image-01、image-01-live。
+ * 固定模型：image-01。
  *
  * 实现的方法（capabilities）：
  *   - generateImage()    POST /image_generation
@@ -32,10 +32,9 @@ const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
 const DEFAULT_TIMEOUT = 120000
 const DEFAULT_MODEL = 'image-01'
 
-// 静态预定义 MiniMax Image 模型列表
+// MiniMax Image 目前只支持产品配置中的固定模型，避免 UI 与调用参数漂移。
 const MINIMAX_IMAGE_MODELS = [
-  { id: 'image-01',       name: 'Image 01',       description: 'MiniMax 图像生成模型' },
-  { id: 'image-01-live',  name: 'Image 01 Live',  description: 'MiniMax 实时图像生成' },
+  { id: 'image-01', name: 'Image 01', description: 'MiniMax 图像生成模型' },
 ]
 
 // size → aspect_ratio 映射表
@@ -149,7 +148,7 @@ class MinimaxImageAdapter extends BaseAdapter {
    *
    * @param {object} params
    * @param {string} params.prompt - 生成提示词（必填）
-   * @param {string} [params.model='image-01'] - 模型 ID
+   * @param {string} [params.model] - 忽略；MiniMax Image 固定使用 image-01
    * @param {string} [params.size] - 尺寸（如 1024x1024），自动解析为 aspect_ratio
    * @param {string} [params.aspect_ratio] - 宽高比（如 1:1/16:9），优先于 size
    * @param {number} [params.n=1] - 生成数量
@@ -160,7 +159,7 @@ class MinimaxImageAdapter extends BaseAdapter {
       throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'params.prompt is required')
     }
 
-    const model = params.model || DEFAULT_MODEL
+    const model = DEFAULT_MODEL
     const aspect_ratio = params.aspect_ratio || parseAspectRatio(params.size)
 
     const body = {

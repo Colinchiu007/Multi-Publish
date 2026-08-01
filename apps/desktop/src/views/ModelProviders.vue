@@ -134,7 +134,7 @@
                 <div class="provider-field">
                   <span class="field-label">API Key</span>
                   <span class="field-value mono configured">
-                    {{ p.api_key_masked || (p.api_key ? '已配置' : '未配置') }}
+                    {{ p.api_key_masked || (p.is_configured ? '本地免 Key' : (p.api_key ? '已配置' : '未配置')) }}
                   </span>
                 </div>
               </div>
@@ -148,7 +148,7 @@
               </div>
               <div class="card-actions">
                 <button class="cohere-icon-btn" aria-label="测试连接" title="测试连接"
-                  @click="testProvider(p.id)" :disabled="!(p.api_key_masked || p.api_key)">
+                  @click="testProvider(p.id)" :disabled="!(isProviderConfigured(p))">
                   <span v-if="testingId !== p.id">⚡</span>
                   <span v-else class="rotating">⟳</span>
                 </button>
@@ -157,7 +157,7 @@
                   :aria-label="p.is_default ? '当前默认' : '设为默认'"
                   :title="p.is_default ? '当前默认' : '设为默认'"
                   @click="!p.is_default && setDefault(p)"
-                  :disabled="p.is_default || !(p.api_key_masked || p.api_key)"
+                  :disabled="p.is_default || !(isProviderConfigured(p))"
                 >★</button>
                 <button class="cohere-icon-btn"
                   :aria-label="p.enabled ? '禁用' : '启用'"
@@ -219,9 +219,9 @@
                 </div>
                 <div class="card-badges">
                   <span v-if="p.is_default" class="default-badge" title="默认服务商">★ 默认</span>
-                  <span v-if="p.api_key_masked || p.api_key" class="configured-badge" title="已配置">✓ 已配置</span>
+                  <span v-if="isProviderConfigured(p)" class="configured-badge" title="已配置">✓ 已配置</span>
                   <span v-if="!p.is_preset" class="custom-badge" title="自定义服务商">自定义</span>
-                  <span v-if="p.is_preset && !(p.api_key_masked || p.api_key)" class="preset-badge" title="预设服务商">预设</span>
+                  <span v-if="p.is_preset && !(isProviderConfigured(p))" class="preset-badge" title="预设服务商">预设</span>
                 </div>
               </div>
               <div class="provider-name">{{ p.name }}</div>
@@ -245,8 +245,8 @@
               </div>
               <div class="provider-field">
                 <span class="field-label">API Key</span>
-                <span class="field-value mono" :class="(p.api_key_masked || p.api_key) ? 'configured' : 'not-configured'">
-                  {{ p.api_key_masked || (p.api_key ? '已配置' : '未配置') }}
+                <span class="field-value mono" :class="(isProviderConfigured(p)) ? 'configured' : 'not-configured'">
+                  {{ p.api_key_masked || (p.is_configured ? '本地免 Key' : (p.api_key ? '已配置' : '未配置')) }}
                 </span>
               </div>
             </div>
@@ -260,7 +260,7 @@
             </div>
             <div class="card-actions">
               <button class="cohere-icon-btn" aria-label="测试连接" title="测试连接"
-                @click="testProvider(p.id)" :disabled="!(p.api_key_masked || p.api_key)">
+                @click="testProvider(p.id)" :disabled="!(isProviderConfigured(p))">
                 <span v-if="testingId !== p.id">⚡</span>
                 <span v-else class="rotating">⟳</span>
               </button>
@@ -269,7 +269,7 @@
                 :aria-label="p.is_default ? '当前默认' : '设为默认'"
                 :title="p.is_default ? '当前默认' : '设为默认'"
                 @click="!p.is_default && setDefault(p)"
-                :disabled="p.is_default || !(p.api_key_masked || p.api_key)"
+                :disabled="p.is_default || !(isProviderConfigured(p))"
               >★</button>
               <button class="cohere-icon-btn"
                 :aria-label="p.enabled ? '禁用' : '启用'"
@@ -450,6 +450,7 @@ const {
   customProviders,
   presetCount,
   activeCategoryCounts,
+  isProviderConfigured,
   loadProviders,
   openAdd,
   nextAddStep,

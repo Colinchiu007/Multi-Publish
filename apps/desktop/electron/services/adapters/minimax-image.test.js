@@ -8,7 +8,7 @@
  * - 请求体 { model, prompt, aspect_ratio, response_format: 'url', n: 1 }
  * - 响应中 data.image_urls 为图片 URL 数组
  * - 支持 size 参数自动解析为 aspect_ratio（1024x1024 → 1:1，1920x1080 → 16:9）
- * - listModels: 静态返回 2 个模型
+ * - listModels: 静态返回固定 image-01
  * - testConnection: 验证 apiKey 存在
  *
  * 使用 fetch mock，不发起真实 HTTP 请求
@@ -183,7 +183,7 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
       expect(body.n).toBe(1)
     })
 
-    it('支持自定义 model（image-01-live）', async () => {
+    it('忽略调用方传入的 model，始终使用固定 image-01', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ data: { image_urls: ['x'] } }),
       ])
@@ -193,7 +193,7 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
       await adapter.generateImage({ prompt: 'test', model: 'image-01-live' })
 
       const body = JSON.parse(fetchMock.calls[0].opts.body)
-      expect(body.model).toBe('image-01-live')
+      expect(body.model).toBe('image-01')
     })
 
     it('size 1024x1024 → aspect_ratio 1:1', async () => {
@@ -272,13 +272,12 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
   })
 
   describe('listModels', () => {
-    it('返回静态预定义的 MiniMax Image 模型列表（2 个）', async () => {
+    it('返回固定的 MiniMax Image 模型列表（仅 image-01）', async () => {
       const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
       const models = await adapter.listModels()
-      expect(models).toHaveLength(2)
+      expect(models).toHaveLength(1)
       const ids = models.map(m => m.id)
-      expect(ids).toContain('image-01')
-      expect(ids).toContain('image-01-live')
+      expect(ids).toEqual(['image-01'])
     })
 
     it('不发起 HTTP 请求（静态列表）', async () => {

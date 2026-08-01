@@ -231,7 +231,7 @@ const PRESET_PROVIDERS = [
   {
     id: 'minimax-image', name: 'MiniMax Image', category: 'image',
     base_url: 'https://api.minimaxi.com/v1',
-    models: ['image-01', 'image-01-live'],
+    models: ['image-01'],
     is_preset: 1,
   },
   {

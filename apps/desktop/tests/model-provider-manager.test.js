@@ -222,6 +222,13 @@ describe("ModelProviderManager", function () {
       expect(image.length).toBeGreaterThan(0)
     })
 
+    it("MiniMax Image 的存量多模型配置也应规范为固定 image-01", function () {
+      manager.updateProvider("minimax-image", { models: ["image-01-live", "image-01"] })
+
+      const minimax = manager.listProviders("image").find(p => p.id === "minimax-image")
+      expect(minimax.models).toEqual(["image-01"])
+    })
+
     it("返回结果不应包含 api_key", function () {
       const all = manager.listProviders()
       all.forEach(p => expect(p.api_key).toBeUndefined())
@@ -302,9 +309,18 @@ describe("ModelProviderManager", function () {
       expect(res.data.id).toBe("custom-llm")
     })
 
+    it("远程服务商缺少 API Key 时应拒绝创建", function () {
+      const res = manager.createProvider({
+        id: "no-key", name: "No Key", category: "image", base_url: "https://api.example.com/v1",
+      })
+
+      expect(res).toMatchObject({ code: -1, message: expect.stringContaining("API Key") })
+      expect(manager.listProviders("image").some(p => p.id === "no-key")).toBe(false)
+    })
+
     it("应拒绝重复 ID", function () {
-      manager.createProvider({ id: "dup", name: "Dup", category: "llm" })
-      const res = manager.createProvider({ id: "dup", name: "Dup2", category: "llm" })
+      manager.createProvider({ id: "dup", name: "Dup", category: "llm", api_key: "sk-test" })
+      const res = manager.createProvider({ id: "dup", name: "Dup2", category: "llm", api_key: "sk-test" })
       expect(res.code).toBe(-1)
       expect(res.message).toContain("already exists")
     })
@@ -325,7 +341,7 @@ describe("ModelProviderManager", function () {
     beforeEach(function () { manager.init() })
 
     it("应成功更新服务商", function () {
-      manager.createProvider({ id: "test-update", name: "Test", category: "llm" })
+      manager.createProvider({ id: "test-update", name: "Test", category: "llm", api_key: "sk-test" })
       const res = manager.updateProvider("test-update", { name: "Updated" })
       expect(res.code).toBe(0)
     })
@@ -346,7 +362,7 @@ describe("ModelProviderManager", function () {
     })
 
     it("应成功删除自定义服务商", function () {
-      manager.createProvider({ id: "to-delete", name: "Delete Me", category: "llm" })
+      manager.createProvider({ id: "to-delete", name: "Delete Me", category: "llm", api_key: "sk-test" })
       const res = manager.deleteProvider("to-delete")
       expect(res.code).toBe(0)
     })
@@ -400,18 +416,51 @@ describe("ModelProviderManager", function () {
   describe("getAvailablePresets", function () {
     beforeEach(function () { manager.init() })
 
-    it("种子初始化后仍应返回该类别完整预设目录", function () {
-      const presets = manager.getAvailablePresets("llm")
-      expect(presets.length).toBeGreaterThan(0)
-      expect(presets.every(p => p.category === "llm")).toBe(true)
+    it("应返回该类别可配置的预设，即使种子行已经初始化", function () {
+      const presets = manager.getAvailablePresets("image")
+
+      expect(presets.map(p => p.id)).toEqual(expect.arrayContaining([
+        "flux",
+        "dall-e",
+      ]))
+      presets.forEach(p => expect(p.category).toBe("image"))
     })
 
     it("自定义服务商删除后应出现在预设列表中", function () {
       // 先手动添加一个预设中有的
-      manager.createProvider({ id: "custom-new", name: "New", category: "llm" })
+      manager.createProvider({ id: "custom-new", name: "New", category: "llm", api_key: "sk-test" })
       const presets = manager.getAvailablePresets("llm")
       // custom-new 不在预设中，所以预设列表不变
       expect(presets.every(p => p.id !== "custom-new")).toBe(true)
+    })
+
+    it("种子预设仍可选择并通过更新补填 API Key", function () {
+      const createRes = manager.createProvider({
+        id: "flux", name: "Flux", category: "image", base_url: "https://api.bfl.ml/v1",
+        api_key: "sk-flux-key", models: ["flux-pro"],
+      })
+      expect(createRes.code).toBe(-1)
+      expect(createRes.message).toContain("already exists")
+
+      const updateRes = manager.updateProvider("flux", { api_key: "sk-flux-key", enabled: true })
+      expect(updateRes.code).toBe(0)
+      const provider = manager.getProvider("flux")
+      expect(provider.is_preset).toBe(true)
+      expect(provider.api_key_masked).toBeTruthy()
+      expect(provider.enabled).toBe(true)
+    })
+
+    it("预设包含表单所需的 base_url 和 models", function () {
+      const flux = manager.getAvailablePresets("image").find(p => p.id === "flux")
+      expect(flux).toBeDefined()
+      expect(flux.base_url).toBeTruthy()
+      expect(Array.isArray(flux.models)).toBe(true)
+      expect(flux.models.length).toBeGreaterThan(0)
+    })
+
+    it("MiniMax Image 预设只暴露固定 image-01，表单无需填写模型 ID", function () {
+      const minimax = manager.getAvailablePresets("image").find(p => p.id === "minimax-image")
+      expect(minimax.models).toEqual(["image-01"])
     })
   })
 

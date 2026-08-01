@@ -165,7 +165,7 @@ describe('useModelProviderCrud', function () {
         name: 'Test',
         category: 'llm',
         base_url: '',
-        api_key: '',
+        api_key: 'sk-test',
         models: [],
         modelsText: '',
         config: { nested: { deep: true } },
@@ -186,7 +186,7 @@ describe('useModelProviderCrud', function () {
         name: 'Test',
         category: 'llm',
         base_url: '',
-        api_key: '',
+        api_key: 'sk-test',
         models: [],
         modelsText: '',
         config: undefined,
@@ -212,6 +212,48 @@ describe('useModelProviderCrud', function () {
       expect(crud.providers.value).toHaveLength(1)
       expect(crud.providers.value[0].id).toBe('test')
       expect(crud.loading.value).toBe(false)
+    })
+
+    it('新增远程服务商未填写 API Key 时阻止保存', async function () {
+      crud.form.value = {
+        id: 'minimax-image', name: 'MiniMax Image', category: 'image', base_url: 'https://api.minimaxi.com/v1',
+        api_key: '   ', models: ['image-01'], modelsText: 'image-01', config: {},
+      }
+
+      await crud.submitForm()
+
+      expect(modelProviderCreate).not.toHaveBeenCalled()
+    })
+
+    it('新增本地免 Key 预设遇到种子冲突时启用该服务商', async function () {
+      modelProviderCreate.mockResolvedValueOnce({ code: 1, message: 'provider already exists' })
+      modelProviderUpdate.mockResolvedValueOnce({ code: 0 })
+      modelProviderList.mockResolvedValueOnce({ code: 0, data: [{ id: 'piper', name: 'Piper', category: 'tts', enabled: true, is_configured: true }] })
+      crud.form.value = { id: 'piper', name: 'Piper', category: 'tts', base_url: '', api_key: '', models: ['piper'], modelsText: 'piper', config: {} }
+
+      await crud.submitForm()
+
+      expect(modelProviderUpdate).toHaveBeenCalledWith('piper', expect.objectContaining({ enabled: true }))
+    })
+
+    it('新增远程服务商成功后刷新列表包含新增项', async function () {
+      modelProviderCreate.mockResolvedValueOnce({
+        code: 0,
+        data: { id: 'custom-image', name: 'Custom Image', category: 'image' },
+      })
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [{ id: 'custom-image', name: 'Custom Image', category: 'image', is_preset: false, api_key_masked: 'sk-***' }],
+      })
+      crud.form.value = {
+        id: 'custom-image', name: 'Custom Image', category: 'image', base_url: 'https://api.example.com/v1',
+        api_key: 'sk-test', models: [], modelsText: '', config: {},
+      }
+
+      await crud.submitForm()
+
+      expect(crud.providers.value.map(p => p.id)).toContain('custom-image')
+      expect(crud.filteredProviders.value.map(p => p.id)).toContain('custom-image')
     })
 
     it('filteredProviders 按类别过滤', async function () {
@@ -277,7 +319,7 @@ describe('useModelProviderCrud', function () {
       modelProviderCreate.mockResolvedValueOnce({})
       crud.form.value = {
         id: 'bad-response', name: 'Bad Response', category: 'llm', base_url: '',
-        api_key: '', models: [], modelsText: '', config: {},
+        api_key: 'sk-test', models: [], modelsText: '', config: {},
       }
 
       await expect(crud.submitForm()).resolves.toBeUndefined()
@@ -384,6 +426,18 @@ describe('useModelProviderCrud', function () {
       await crud.loadProviders()
       expect(crud.configuredProviders.value).toHaveLength(2)
       expect(crud.configuredProviders.value.map(p => p.id)).toEqual(['a', 'c'])
+    })
+
+    it('本地免 Key 服务商以主进程的 is_configured 状态显示为已配置', async function () {
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [{ id: 'piper', name: 'Piper', category: 'tts', is_preset: true, is_configured: true, api_key_masked: '' }],
+      })
+
+      await crud.loadProviders()
+
+      expect(crud.configuredProviders.value.map(p => p.id)).toEqual(['piper'])
+      expect(crud.configuredCount.value).toBe(1)
     })
 
     it('unconfiguredPresets 只返回未配置的预设', async function () {

@@ -37,6 +37,24 @@ const CATEGORY_LABELS = {
   audio: '音频生成',
 }
 
+const LOCAL_NO_KEY_PROVIDER_IDS = new Set(['piper', 'local-diffusion', 'comfyui'])
+
+function canUseWithoutApiKey (provider) {
+  if (!provider || !LOCAL_NO_KEY_PROVIDER_IDS.has(provider.id)) return false
+  const baseUrl = String(provider.base_url || '').trim()
+  if (!baseUrl) return true
+  try {
+    const url = new URL(baseUrl)
+    return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname.toLowerCase())
+  } catch (_) {
+    return false
+  }
+}
+
+function isProviderConfigured (provider) {
+  return Boolean(provider && (provider.is_configured || provider.api_key_masked || provider.api_key))
+}
+
 function createDefaultForm () {
   return {
     id: '',
@@ -96,11 +114,11 @@ export function useModelProviderCrud () {
   // ─── 计算属性 ─────────────────────────────────
   const configuredProviders = computed(() => {
     if (!providers.value) return []
-    return providers.value.filter(p => p.api_key_masked || p.api_key)
+    return providers.value.filter(isProviderConfigured)
   })
 
   const unconfiguredPresets = computed(() => {
-    return providers.value.filter(p => p.is_preset && !(p.api_key_masked || p.api_key))
+    return providers.value.filter(p => p.is_preset && !isProviderConfigured(p))
   })
 
   const customProviders = computed(() => {
@@ -116,7 +134,7 @@ export function useModelProviderCrud () {
 
   const configuredCount = computed(() => {
     if (!providers.value) return 0
-    return providers.value.filter(p => p.api_key_masked || p.api_key).length
+    return providers.value.filter(isProviderConfigured).length
   })
 
   const presetCount = computed(() => {
@@ -230,6 +248,10 @@ export function useModelProviderCrud () {
       ElMessage.warning('请填写服务商名称')
       return
     }
+    if (!isEditing.value && !String(form.value.api_key || '').trim() && !canUseWithoutApiKey(form.value)) {
+      ElMessage.warning('请填写 API Key；仅本地 Piper、Local Diffusion 或 ComfyUI 可免填')
+      return
+    }
 
     submitting.value = true
     try {
@@ -248,6 +270,7 @@ export function useModelProviderCrud () {
         config: form.value.config || {},
       }))
       if (form.value.api_key) data.api_key = form.value.api_key
+      if (!isEditing.value && canUseWithoutApiKey(form.value)) data.enabled = true
 
       let res
       if (isEditing.value) {
@@ -327,7 +350,7 @@ export function useModelProviderCrud () {
 
   // ─── 设为默认 ─────────────────────────────────
   async function setDefault (provider) {
-    if (!provider.api_key_masked && !provider.api_key) {
+    if (!isProviderConfigured(provider)) {
       ElMessage.warning('请先配置 API Key 后再设为默认')
       return
     }
@@ -406,6 +429,7 @@ export function useModelProviderCrud () {
     categoryCounts,
     configuredCategoryCounts,
     activeCategoryCounts,
+    isProviderConfigured,
     // 方法
     loadProviders,
     openAdd,

@@ -67,6 +67,7 @@ describe('ModelProviderManager local no-key adapters', () => {
 
     expect(manager.getDefault('tts')).toMatchObject({
       id: 'piper',
+      is_configured: true,
       api_key_masked: '',
     })
   })
