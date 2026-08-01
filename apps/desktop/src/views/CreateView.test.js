@@ -410,6 +410,96 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
+  it("Story2Video 隐藏通用视觉、LLM、温度和预算配置，但保留检查点策略", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+
+    expect(w.text()).not.toContain("视觉风格");
+    expect(w.text()).not.toContain("LLM 模型");
+    expect(w.text()).not.toContain("温度:");
+    expect(w.text()).not.toContain("预算模式");
+    expect(w.text()).not.toContain("预算上限");
+    expect(w.text()).toContain("检查点策略");
+    w.unmount();
+  });
+
+  it("Story2Video 图片生成器列出已启用的图片服务商", async () => {
+    const listImageProviders = vi.fn().mockResolvedValue({
+      code: 0,
+      data: [
+        { id: "minimax-image", name: "MiniMax Image", category: "image", enabled: true },
+        { id: "disabled-image", name: "Disabled Image", category: "image", enabled: false },
+      ],
+    });
+    window.electronAPI = { modelProviderList: listImageProviders };
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    const imageProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "图片生成器");
+    expect(listImageProviders).toHaveBeenCalledWith("image");
+    expect(imageProviderItem.find('option[value="minimax-image"]').text()).toContain("MiniMax Image");
+    expect(imageProviderItem.find('option[value="disabled-image"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it.each([
+    [{ code: 1, message: "轮询 IPC 失败" }, "轮询 IPC 失败"],
+    [{ code: 0, data: null }, "编排状态未返回"],
+  ])("编排轮询遇到无效响应时向用户显示错误并停止轮询", async (response, expectedMessage) => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineGetRunContext.mockResolvedValueOnce(response);
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.orchestrationRunId = "run-poll-error";
+    w.vm.pollTimer = 1;
+
+    await w.vm.updateOrchestrationStatus();
+
+    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining(expectedMessage));
+    expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
+    expect(w.vm.pollTimer).toBeNull();
+    alertSpy.mockRestore();
+    w.unmount();
+  });
+
+  it("编排轮询终态失败时显示状态中的具体错误并停止轮询", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineGetRunContext.mockResolvedValueOnce({
+      code: 0,
+      data: {
+        context: {},
+        status: { status: "failed", error: "图片生成服务拒绝请求" },
+      },
+    });
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.orchestrationRunId = "run-terminal-error";
+    w.vm.pollTimer = 1;
+
+    await w.vm.updateOrchestrationStatus();
+
+    expect(alertSpy).toHaveBeenCalledWith("图片生成服务拒绝请求");
+    expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
+    expect(w.vm.pollTimer).toBeNull();
+    alertSpy.mockRestore();
+    w.unmount();
+  });
+
   it("startPipeline dispatches to orchestrated for story2video-compose", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-123" } });
