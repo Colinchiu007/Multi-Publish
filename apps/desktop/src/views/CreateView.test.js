@@ -516,6 +516,58 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
+  it("完成但缺少可预览视频时使用应用内弹窗", async () => {
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+
+    const handled = w.vm.applyOrchestrationOutcome({
+      completed: true,
+      context: { story2videoProject: { projectId: "project-no-preview" } },
+    });
+
+    expect(handled).toBe(true);
+    expect(w.vm.orchestrationError).toBe("编排已完成，但未返回可预览的视频文件");
+    expect(w.vm.story2videoErrorDialog).toEqual({
+      visible: true,
+      message: "编排已完成，但未返回可预览的视频文件",
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    alertSpy.mockRestore();
+    w.unmount();
+  });
+  it("Story2Video 模型配置错误使用应用内弹窗，不调用原生 alert", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({
+      code: -1,
+      message: "Story2Video 默认 LLM 不可用，请先完成模型设置",
+    });
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
+    w.vm.pipelineText = "测试文案";
+
+    await w.vm.startPipeline();
+    await nextTick();
+
+    expect(w.vm.story2videoErrorDialog).toEqual({
+      visible: true,
+      message: "未找到需要的相关模型，请在设置中添加模型",
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    w.vm.closeStory2VideoErrorDialog();
+    await nextTick();
+    expect(w.vm.story2videoErrorDialog.visible).toBe(false);
+    alertSpy.mockRestore();
+    w.unmount();
+  });
   it("startPipeline dispatches to orchestrated for story2video-compose", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-123" } });
@@ -794,7 +846,11 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.startPipeline();
 
     expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/Story2Video.*只支持文案输入/));
+    expect(w.vm.story2videoErrorDialog).toEqual({
+      visible: true,
+      message: "Story2Video 标准流水线只支持文案输入",
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
     w.unmount();
   });

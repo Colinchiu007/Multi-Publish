@@ -597,11 +597,24 @@
         </div>
       </div>
     </div>
+
+    <UiModal
+      :visible="story2videoErrorDialog.visible"
+      title="Story2Video 提示"
+      size="sm"
+      @close="closeStory2VideoErrorDialog"
+    >
+      <p class="story2video-error-dialog-message">{{ story2videoErrorDialog.message }}</p>
+      <template #footer>
+        <UiButton @click="closeStory2VideoErrorDialog">知道了</UiButton>
+      </template>
+    </UiModal>
   </div>
 </template>
 
 <script>
 import UiButton from '@/components/UiButton.vue'
+import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import {
   deleteCustomTemplate,
@@ -622,6 +635,15 @@ import {
 import { modelProviderList } from '@/api/model-providers'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
+const STORY2VIDEO_MODEL_CONFIGURATION_MESSAGE = '未找到需要的相关模型，请在设置中添加模型'
+const STORY2VIDEO_MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用|API\s*Key\s*not\s*configured|尚未配置\s*API\s*Key)/i
+
+function normalizeStory2VideoErrorMessage (message) {
+  const normalized = String(message || '').trim()
+  return STORY2VIDEO_MODEL_CONFIGURATION_PATTERN.test(normalized)
+    ? STORY2VIDEO_MODEL_CONFIGURATION_MESSAGE
+    : (normalized || '编排执行失败')
+}
 
 function settleHistoryRequest (request) {
   let timeoutId
@@ -663,7 +685,7 @@ const STABILITY_MAP = {
 
 export default {
   name: 'CreateView',
-  components: { UiButton, UiSelect },
+  components: { UiButton, UiModal, UiSelect },
   data() {
     return {
       // 视图
@@ -710,6 +732,7 @@ export default {
         autoAdvance: true, platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '',
+      story2videoErrorDialog: { visible: false, message: '' },
       s2vImageProviders: [], s2vVoiceProviders: [],
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       // 历史
@@ -807,6 +830,7 @@ export default {
       this.orchestrationContext = null
       this.orchestrationResultPath = null
       this.orchestrationError = ''
+      this.closeStory2VideoErrorDialog()
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
@@ -832,7 +856,7 @@ export default {
     async startOrchestratedPipeline() {
       try {
         if (this.inputMode !== 'text') {
-          alert('Story2Video 标准流水线只支持文案输入')
+          this.setOrchestrationError('Story2Video 标准流水线只支持文案输入')
           return
         }
         this.orchestrationError = ''
@@ -1010,8 +1034,16 @@ export default {
       this.s2vConfig.templateId = ''
       this.refreshS2VTemplates()
     },
+    showStory2VideoErrorDialog(message) {
+      this.story2videoErrorDialog.message = normalizeStory2VideoErrorMessage(message)
+      this.story2videoErrorDialog.visible = true
+    },
+    closeStory2VideoErrorDialog() {
+      this.story2videoErrorDialog.visible = false
+    },
     setOrchestrationError(message) {
-      this.orchestrationError = String(message || '编排执行失败')
+      this.orchestrationError = normalizeStory2VideoErrorMessage(message)
+      this.showStory2VideoErrorDialog(this.orchestrationError)
       this.stopPipelinePolling()
       this.needsCheckpoint = false
       if (this.pipelineRunStatus?.status !== 'completed') {
@@ -1077,7 +1109,7 @@ export default {
       this.needsCheckpoint = false
       this.orchestrationRunId = null
       if (!videoPath) {
-        this.orchestrationError = '编排已完成，但未返回可预览的视频文件'
+        this.setOrchestrationError('编排已完成，但未返回可预览的视频文件')
         return true
       }
       if (this.orchestrationResultPath === videoPath) return true
@@ -1108,6 +1140,7 @@ export default {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''
+      this.closeStory2VideoErrorDialog()
       this.stopPipelinePolling()
     },
     async advancePipeline() { await pipelineAdvance(); await this.updatePipelineStatus() },
