@@ -76,6 +76,21 @@ describe('BasePythonBridge — start()', () => {
     await b.start()
     expect(b._launchProcess).not.toHaveBeenCalled()
   })
+
+  it('4a. 健康的外部服务存在时附加而不重复 spawn', async () => {
+    const b = createTestBridge()
+    b.attach = vi.fn(() => Promise.resolve(true))
+    b._launchProcess = vi.fn()
+    b._waitForHealthy = vi.fn()
+    b._startWatchdog = vi.fn()
+
+    await b.start()
+
+    expect(b.attach).toHaveBeenCalledTimes(1)
+    expect(b._launchProcess).not.toHaveBeenCalled()
+    expect(b._waitForHealthy).not.toHaveBeenCalled()
+    expect(b._startWatchdog).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('BasePythonBridge — attach()', () => {
@@ -146,6 +161,18 @@ describe('BasePythonBridge — stop()', () => {
     const b = createTestBridge()
     await b.stop()
     expect(b.isRunning).toBe(false)
+  })
+
+  it('10a. 停止已附加的外部服务时清理本地运行状态', async () => {
+    const b = createTestBridge()
+    b.isRunning = true
+    b.watchdogTimer = setTimeout(() => {}, 100000)
+
+    await b.stop()
+
+    expect(b.process).toBe(null)
+    expect(b.isRunning).toBe(false)
+    expect(b.watchdogTimer).toBe(null)
   })
 
   it('11. stop 清理状态（process/isRunning/watchdog）', async () => {

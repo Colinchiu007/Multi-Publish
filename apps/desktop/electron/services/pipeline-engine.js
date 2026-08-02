@@ -726,7 +726,7 @@ class PipelineEngine {
    * getRunContext 保持返回原始 context 的兼容性；新接口同时返回状态、阶段和检查点。
    */
   getRunSnapshot(runId) {
-    const run = this._runs.get(runId);
+    const run = this._runs.get(runId) || this._history.find((item) => item.id === runId);
     if (!run) return null;
     return {
       runId: run.id,
@@ -742,6 +742,9 @@ class PipelineEngine {
       checkpoint: run.checkpoint || null,
       orchestrationMode: run.orchestrationMode || 'state_machine',
       createdAt: run.createdAt,
+      endedAt: run.endedAt || null,
+      error: run.error || null,
+      projectId: run.projectId || null,
     };
   }
 

@@ -63,6 +63,8 @@
         </div>
 
         <!-- 编排模式中间结果预览 -->
+        <div v-if="orchestrationError" class="orchestration-error" role="alert">⚠️ {{ orchestrationError }}</div>
+
         <div v-if="orchestrationContext" class="orchestration-context">
           <h4>中间结果</h4>
           <div v-for="(value, key) in orchestrationContext" :key="key" class="context-item">
@@ -135,7 +137,7 @@
         </div>
 
         <!-- 风格选择 -->
-        <div class="config-section">
+        <div v-if="!isOrchestratedPipeline(selectedPipeline.name)" class="config-section">
           <h3>视觉风格</h3>
           <div class="style-grid">
             <button v-for="s in styles" :key="s.value" :class="['style-card', { active: selectedStyle === s.value }]" @click="selectedStyle = s.value">
@@ -145,8 +147,8 @@
           </div>
         </div>
 
-        <!-- 高级配置 -->
-        <div class="config-section">
+        <!-- 常规流水线高级配置 -->
+        <div v-if="!isOrchestratedPipeline(selectedPipeline.name)" class="config-section">
           <h3>高级配置</h3>
           <div class="config-grid">
             <div class="config-item">
@@ -170,6 +172,20 @@
               <label>预算上限 ($)</label>
               <input type="number" v-model.number="budgetConfig.totalUsd" min="0" step="0.5" class="form-input" />
             </div>
+            <div class="config-item">
+              <label>检查点策略</label>
+              <select v-model="checkpointPolicy" class="form-select">
+                <option value="guided">引导式（推荐）</option>
+                <option value="manual_all">全部手动确认</option>
+                <option value="auto_noncreative">自动跳过非创意阶段</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="config-section">
+          <h3>执行控制</h3>
+          <div class="config-grid">
             <div class="config-item">
               <label>检查点策略</label>
               <select v-model="checkpointPolicy" class="form-select">
@@ -205,10 +221,7 @@
             <div class="config-item">
               <label>图片生成器</label>
               <select v-model="s2vConfig.imageProvider" class="form-select">
-                <option value="">离线占位图</option>
-                <option value="local-diffusion">本地 Stable Diffusion</option>
-                <option value="dall-e">OpenAI 图像</option>
-                <option value="imagen">Google Imagen</option>
+                <option v-for="provider in s2vImageProviderOptions" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
               </select>
             </div>
             <div class="config-item">
@@ -232,13 +245,7 @@
             <div class="config-item">
               <label>语音生成器</label>
               <select v-model="s2vConfig.voiceProvider" class="form-select">
-                <option value="">自动 Edge TTS</option>
-                <option value="piper">本地 Piper</option>
-                <option value="openai-tts">OpenAI TTS</option>
-                <option value="elevenlabs">ElevenLabs</option>
-                <option value="doubao-tts">豆包语音</option>
-                <option value="mimo-tts">MiMo 语音</option>
-                <option value="minimax-tts">MiniMax 语音</option>
+                <option v-for="provider in s2vVoiceProviderOptions" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
               </select>
             </div>
             <div class="config-item">
@@ -269,20 +276,8 @@
               <input type="number" v-model.number="s2vConfig.concurrency" min="1" max="8" class="form-input" />
             </div>
             <div class="config-item">
-              <label>目标视频时长（秒）</label>
-              <input type="number" v-model.number="s2vConfig.seconds" min="1" max="60" step="1" class="form-input" />
-            </div>
-            <div class="config-item">
               <label>单画面时长（秒）</label>
               <input type="number" v-model.number="s2vConfig.perImageDuration" min="1" max="60" step="0.5" class="form-input" />
-            </div>
-            <div class="config-item">
-              <label>基础版</label>
-              <input type="checkbox" v-model="s2vConfig.generateBase" />
-            </div>
-            <div class="config-item">
-              <label>整合版</label>
-              <input type="checkbox" v-model="s2vConfig.generateMerged" />
             </div>
             <div class="config-item">
               <label>分句语言</label>
@@ -307,17 +302,6 @@
             <div class="config-item">
               <label>分镜目标时长（秒）</label>
               <input type="number" v-model.number="s2vConfig.splitTargetSeconds" min="1" max="60" step="0.5" class="form-input" />
-            </div>
-            <div class="config-item">
-              <label>提示词平台</label>
-              <select v-model="s2vConfig.promptPlatform" class="form-select">
-                <option value="generic">通用</option>
-                <option value="douyin">抖音</option>
-                <option value="xiaohongshu">小红书</option>
-                <option value="bilibili">B站</option>
-                <option value="youtube">YouTube</option>
-                <option value="tiktok">TikTok</option>
-              </select>
             </div>
             <div class="config-item">
               <label>提示词风格</label>
@@ -640,6 +624,7 @@ import {
   story2videoImportMedia, story2videoTranscribe, story2videoListProjects,
   story2videoDeleteProject
 } from '@/api/publisher'
+import { modelProviderList } from '@/api/model-providers'
 
 const STYLES = [
   { value: 'clean-professional', label: '简洁专业', desc: '干净排版，适合商业内容' },
@@ -705,12 +690,12 @@ export default {
         voiceId: 'zh_female_qingxinnvsheng_uranus_bigtts', voiceProvider: '', voiceModel: '',
         voiceSpeed: 1, voicePitch: 0, voiceEmotion: 'default', voiceVolume: 1,
         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
-        seconds: 8, perImageDuration: 6, generateBase: true, generateMerged: true,
+        perImageDuration: 6,
         splitLanguage: 'zh', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
         splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
-        promptPlatform: 'generic', promptStyle: 'realistic', creativeLevel: 5, promptMaxLength: null,
+        promptStyle: 'realistic', creativeLevel: 5, promptMaxLength: null,
         negativePrompt: '', numCandidates: 1, autoDetectStyle: true, promptContext: '',
         transition: 'fade', subtitleEnabled: false,
         subtitleFont: '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
@@ -720,7 +705,8 @@ export default {
         watermarkConfig: { enabled: false, position: 'bottom-right', fontSize: 24, opacity: 0.6, color: 'white' },
         autoAdvance: true, platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
-      orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null,
+      orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '',
+      s2vImageProviders: [], s2vVoiceProviders: [],
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       // 历史
       history: [], historyLoading: false, historyFilter: 'all',
@@ -753,6 +739,8 @@ export default {
     activeOutputConfig() {
       return this.isOrchestratedPipeline(this.selectedPipeline?.name) ? this.s2vOutputConfig : this.outputConfig
     },
+    s2vImageProviderOptions() { return [{ id: '', name: '离线占位图' }, ...this.s2vImageProviders] },
+    s2vVoiceProviderOptions() { return [{ id: '', name: '自动 Edge TTS' }, ...this.s2vVoiceProviders] },
     s2vPlatforms() { return S2V_PLATFORMS },
     profileOptions() {
       return [
@@ -814,6 +802,7 @@ export default {
       this.orchestrationRunId = null
       this.orchestrationContext = null
       this.orchestrationResultPath = null
+      this.orchestrationError = ''
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
@@ -842,6 +831,7 @@ export default {
           alert('Story2Video 标准流水线只支持文案输入')
           return
         }
+        this.orchestrationError = ''
         const output = this.cloneForIpc(this.s2vOutputConfig)
         const config = this.cloneForIpc(this.s2vConfig)
         const tags = String(config.tagsText || '')
@@ -854,7 +844,6 @@ export default {
           mode: 'text',
           prompt: text,
           size: output.resolution,
-          seconds: config.seconds,
           contentType: config.contentType,
           split: {
             language: config.splitLanguage,
@@ -872,7 +861,7 @@ export default {
             subtitleTiming: config.splitSubtitleTiming,
           },
           optimize: {
-            platform: config.promptPlatform,
+            platform: 'generic',
             style: config.promptStyle,
             creativeLevel: config.creativeLevel,
             maxLength: config.promptMaxLength,
@@ -905,7 +894,6 @@ export default {
             color: config.subtitleStyle?.color || 'white',
           },
           bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
-          versions: { generateBase: config.generateBase, generateMerged: config.generateMerged },
           perImageDuration: config.perImageDuration,
           transition: config.transition,
           templateId: config.templateId || '',
@@ -941,9 +929,9 @@ export default {
           if (this.orchestrationRunId && !this.pollTimer) {
             this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
           }
-        } else { alert(res?.message || outcome?.error || '编排启动失败') }
+        } else { this.setOrchestrationError(res?.message || outcome?.error || '编排启动失败') }
       } catch (e) {
-        alert('编排启动失败: ' + (e?.message || String(e)))
+        this.setOrchestrationError('编排启动失败: ' + (e?.message || String(e)))
       }
     },
     cloneForIpc(value) {
@@ -955,7 +943,6 @@ export default {
       this.s2vConfig.imageEffect = template.imageEffect
       this.s2vConfig.transition = template.transitionEffect
       this.s2vConfig.perImageDuration = Number(template.perImageDuration) || 6
-      this.s2vConfig.seconds = Number(template.seconds) || 8
       this.s2vConfig.subtitleEnabled = template.subtitleStyle?.enabled !== false
       this.s2vConfig.subtitleFont = template.subtitleStyle?.font || this.s2vConfig.subtitleFont
       this.s2vConfig.subtitleSize = template.subtitleStyle?.size || 'size3'
@@ -974,6 +961,19 @@ export default {
     refreshS2VTemplates() {
       this.s2vTemplateLibrary = getAllTemplates('all', window.localStorage)
     },
+    async loadS2VProviders() {
+      const [imageResult, voiceResult] = await Promise.allSettled([
+        modelProviderList('image'),
+        modelProviderList('tts'),
+      ])
+      const enabledProviders = (result) => result.status === 'fulfilled' && result.value?.code === 0 && Array.isArray(result.value.data)
+        ? result.value.data.filter(provider => provider?.enabled === true && provider.id && provider.name)
+        : []
+      this.s2vImageProviders = enabledProviders(imageResult)
+      this.s2vVoiceProviders = enabledProviders(voiceResult)
+      if (!this.s2vConfig.imageProvider && this.s2vImageProviders[0]) this.s2vConfig.imageProvider = this.s2vImageProviders[0].id
+      if (!this.s2vConfig.voiceProvider && this.s2vVoiceProviders[0]) this.s2vConfig.voiceProvider = this.s2vVoiceProviders[0].id
+    },
     saveCurrentS2VTemplate() {
       const name = String(this.s2vCustomTemplateName || '').trim()
       if (!name) return
@@ -987,7 +987,6 @@ export default {
         transitionEffect: this.s2vConfig.transition,
         perImageDuration: Number(this.s2vConfig.perImageDuration) || 6,
         size: this.s2vOutputConfig.resolution,
-        seconds: Number(this.s2vConfig.seconds) || 8,
         subtitleStyle: {
           enabled: this.s2vConfig.subtitleEnabled !== false,
           font: this.s2vConfig.subtitleFont || 'sans-serif',
@@ -1012,21 +1011,39 @@ export default {
       this.s2vConfig.templateId = ''
       this.refreshS2VTemplates()
     },
+    setOrchestrationError(message) {
+      this.orchestrationError = String(message || '编排执行失败')
+      this.stopPipelinePolling()
+      this.needsCheckpoint = false
+      if (this.pipelineRunStatus?.status !== 'completed') {
+        this.pipelineRunStatus = { status: 'failed', progress: this.pipelineRunStatus?.progress || 0 }
+      }
+    },
     async updateOrchestrationStatus() {
       if (!this.orchestrationRunId) return
-      const s = await pipelineGetRunContext(this.orchestrationRunId)
-      if (s?.code === 0 && s.data) {
-        this.orchestrationContext = s.data.context || null
-        this.pipelineRunStatus = s.data.status || null
-        this.needsCheckpoint = s.data.status?.status === 'paused'
-        if (['completed', 'failed', 'cancelled'].includes(s.data.status?.status)) {
+      try {
+        const statusResult = await pipelineGetRunContext(this.orchestrationRunId)
+        if (statusResult?.code !== 0) {
+          this.setOrchestrationError(statusResult?.message || '无法获取 Story2Video 编排状态')
+          return
+        }
+        if (!statusResult.data) {
+          this.setOrchestrationError('编排状态未返回，请在历史记录中查看详情')
+          return
+        }
+        this.orchestrationContext = statusResult.data.context || null
+        this.pipelineRunStatus = statusResult.data.status || null
+        this.needsCheckpoint = statusResult.data.status?.status === 'paused'
+        if (['completed', 'failed', 'cancelled'].includes(statusResult.data.status?.status)) {
           this.applyOrchestrationOutcome({
-            success: s.data.status.status === 'completed',
-            completed: s.data.status.status === 'completed',
-            context: s.data.context,
-            error: s.data.error,
+            success: statusResult.data.status.status === 'completed',
+            completed: statusResult.data.status.status === 'completed',
+            context: statusResult.data.context,
+            error: statusResult.data.error || statusResult.data.status.error,
           })
         }
+      } catch (error) {
+        this.setOrchestrationError('获取 Story2Video 编排状态失败: ' + (error?.message || String(error)))
       }
     },
     async advanceOrchestration() {
@@ -1035,7 +1052,7 @@ export default {
       if (res?.code === 0 && res.data?.success !== false) {
         if (!this.applyOrchestrationOutcome(res.data || {})) await this.updateOrchestrationStatus()
       }
-      else { alert(res?.message || '推进失败') }
+      else { this.setOrchestrationError(res?.message || res?.data?.error || '推进失败') }
     },
     extractOrchestrationVideoPath(context) {
       const publish = context?.publish?.data || context?.publish
@@ -1049,9 +1066,7 @@ export default {
         this.needsCheckpoint = true
       }
       if (outcome?.success === false) {
-        this.stopPipelinePolling()
-        this.pipelineRunStatus = { status: 'failed', progress: this.pipelineRunStatus?.progress || 0 }
-        alert(outcome.error || '编排执行失败')
+        this.setOrchestrationError(outcome.error || '编排执行失败')
         return true
       }
       if (!outcome?.completed) return false
@@ -1063,7 +1078,7 @@ export default {
       this.needsCheckpoint = false
       this.orchestrationRunId = null
       if (!videoPath) {
-        alert('编排已完成，但未返回可预览的视频文件')
+        this.orchestrationError = '编排已完成，但未返回可预览的视频文件'
         return true
       }
       if (this.orchestrationResultPath === videoPath) return true
@@ -1093,7 +1108,7 @@ export default {
     async cancelPipeline() {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
-      this.orchestrationRunId = null; this.orchestrationContext = null
+      this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''
       this.stopPipelinePolling()
     },
     async advancePipeline() { await pipelineAdvance(); await this.updatePipelineStatus() },
@@ -1307,7 +1322,7 @@ export default {
   },
   async mounted() {
     this.refreshS2VTemplates()
-    await this.loadPipelines()
+    await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
@@ -1333,6 +1348,7 @@ export default {
 .detail { opacity: 0.7; }
 .btn-install { padding: 4px 12px; border: 1px solid var(--warning); border-radius: 4px; background: transparent; color: var(--warning); cursor: pointer; font-size: 12px; margin-left: auto; }
 .install-log { padding: 8px 12px; background: var(--bg); border-radius: 4px; font-size: 11px; font-family: monospace; max-height: 100px; overflow-y: auto; margin-bottom: 16px; white-space: pre-wrap; }
+.orchestration-error { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--danger, #dc2626); border-radius: 8px; background: #fef2f2; color: #991b1b; white-space: pre-wrap; }
 
 /* 视图切换 */
 .view-tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }

@@ -247,7 +247,6 @@ export function useModelProviderCrud () {
         models,
         config: form.value.config || {},
       }))
-      // API Key 留空 = 保持不变；只有填写了新 Key 才上送，避免误清除已保存的 Key
       if (form.value.api_key) data.api_key = form.value.api_key
 
       let res
@@ -411,7 +410,6 @@ export function useModelProviderCrud () {
     loadProviders,
     openAdd,
     nextAddStep,
-    loadAvailablePresets,
     selectPreset,
     selectCustom,
     openEdit,

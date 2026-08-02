@@ -68,6 +68,12 @@ class BasePythonBridge {
    */
   async start () {
     if (this.isRunning) return
+
+    if (await this.attach()) {
+      this._startWatchdog()
+      return
+    }
+
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
     this.log.info(this.name, `Starting ${this.pythonModule}: ${pythonCmd} -m ${this.pythonModule} on port ${this.port}`)
     this.process = await this._launchProcess(pythonCmd)
@@ -242,7 +248,10 @@ class BasePythonBridge {
    */
   async stop () {
     this._stopWatchdog()
-    if (!this.process) return
+    if (!this.process) {
+      this.isRunning = false
+      return
+    }
     this.log.info(this.name, `Stopping ${this.name}...`)
     if (process.platform === 'win32') {
       try { spawnSync('taskkill', ['/PID', String(this.process.pid), '/F', '/T'], { timeout: 5000 }) } catch (e) { this.log.warn(this.name, 'taskkill failed: ' + e.message) }

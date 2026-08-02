@@ -116,4 +116,28 @@ describe('PipelineEngine 状态机模式', () => {
     expect(engine._advanceRun(run)).toMatchObject({ success: true, currentStage: 'generate_assets' })
     expect(engine.getRunSnapshot(run.id).checkpoint).toBeNull()
   })
+
+  it('归档后的失败运行快照仍提供终态和可序列化错误详情', async () => {
+    const error = '图片生成服务暂时不可用'
+    const failingEngine = new PipelineEngine({
+      stageExecutor: { execute: vi.fn().mockResolvedValue({ success: false, error }) },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    failingEngine.registerPipeline({
+      name: 'terminal-snapshot-failure',
+      description: 'terminal snapshot regression',
+      stages: ['generate'],
+    })
+
+    const started = await failingEngine.startOrchestrated('terminal-snapshot-failure', { autoAdvance: false })
+    expect(started).toMatchObject({ success: true })
+    await expect(failingEngine.executeStage(started.runId)).resolves.toMatchObject({ success: false, error })
+
+    const snapshot = JSON.parse(JSON.stringify(failingEngine.getRunSnapshot(started.runId)))
+    expect(snapshot).toMatchObject({
+      runId: started.runId,
+      status: { status: 'failed', currentStage: 0 },
+      error,
+    })
+  })
 })

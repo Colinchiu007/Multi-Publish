@@ -63,21 +63,21 @@ class ModelProviderManager {
    * @returns {Promise<{code: number, data?: any, message?: string, error?: Error}>}
    */
   async callAdapter (providerId, method, params = {}) {
-    if (!this._ready) return { code: -1, message: '模型服务尚未初始化，请稍后重试（Store not initialized）' }
+    if (!this._ready) return { code: -1, message: 'Store not initialized' }
 
     // 检查 Adapter 工厂是否注册
     const factory = this._adapterFactories.get(providerId)
     if (!factory) {
-      return { code: -1, message: `未找到 ${providerId} 的适配器，请检查服务商配置后重试（No adapter registered for provider "${providerId}"）` }
+      return { code: -1, message: `No adapter registered for provider "${providerId}"` }
     }
 
     // 获取 provider（含解密后的 api_key）
     const provider = this.getProviderWithKey(providerId)
     if (!provider) {
-      return { code: -1, message: `未找到服务商 ${providerId}，请刷新列表后重试（Provider "${providerId}" not found）` }
+      return { code: -1, message: `Provider "${providerId}" not found` }
     }
     if (!provider.api_key && !canUseWithoutApiKey(provider)) {
-      return { code: -1, message: `尚未配置 API Key，请先在“模型设置”中填写 ${provider.name || providerId} 的 API Key 后重试（API Key not configured）` }
+      return { code: -1, message: 'API Key not configured for provider "' + providerId + '"' }
     }
 
     // 获取或创建 Adapter 实例（factory 可能同步抛异常）
@@ -89,12 +89,12 @@ class ModelProviderManager {
       if (e instanceof ProviderError) {
         return { code: -1, error: e, message: e.message }
       }
-      return { code: -1, message: `适配器初始化失败：${e.message}（Factory initialization failed）` }
+      return { code: -1, message: 'Factory initialization failed: ' + e.message }
     }
 
     // 能力检查（在调用前完成，避免不必要的日志记录）
     if (typeof adapter.supports === 'function' && !adapter.supports(method)) {
-      return { code: -1, message: `服务商 ${providerId} 不支持该操作，请检查模型配置后重试（Method "${method}" not supported by adapter "${providerId}"）` }
+      return { code: -1, message: `Method "${method}" not supported by adapter "${providerId}"` }
     }
 
     // 调用 + 统一日志记录（所有路径覆盖，不依赖 router logHandler）
@@ -431,7 +431,6 @@ class ModelProviderManager {
           sets.push('api_key = ?')
           vals.push('')
         }
-        // api_key 为空且未显式 clearApiKey 时保持原 Key 不变
       } else if (k === 'clearApiKey') {
         if (v) {
           sets.push('api_key_enc = ?')
@@ -533,13 +532,13 @@ class ModelProviderManager {
   }
 
   async testConnection (id) {
-    if (!this._ready) return { code: -1, message: '模型服务尚未初始化，请稍后重试（Store not initialized）' }
+    if (!this._ready) return { code: -1, message: 'Store not initialized' }
     const provider = this.getProviderWithKey(id)
     if (!provider) {
-      return { code: -1, message: `未找到服务商 ${id}，请刷新列表后重试（Provider "${id}" not found）` }
+      return { code: -1, message: 'Provider "' + id + '" not found' }
     }
     if (!provider.api_key && !canUseWithoutApiKey(provider)) {
-      return { code: -1, message: `尚未配置 API Key，请先在“模型设置”中填写 ${provider.name || id} 的 API Key 后重试（API Key not configured）` }
+      return { code: -1, message: 'API Key not configured' }
     }
     // P3.2: 若已注册 Adapter，通过 Adapter 实际调用 testConnection
     const factory = this._adapterFactories.get(id)
@@ -548,13 +547,11 @@ class ModelProviderManager {
       return result
     }
     // Fallback: 仅配置校验（无 Adapter 注册时）
-    return { code: 0, message: provider.name + ' 配置有效（config valid: ' + (provider.base_url || '默认地址') + '）' }
+    return { code: 0, message: provider.name + ' config valid (' + provider.base_url + ')' }
   }
 
   getAvailablePresets (category) {
     if (!this._ready) return []
-    // Seed rows describe the built-in catalog, not completed user configuration.
-    // Keep every preset selectable; saving an existing preset updates its seeded row.
     return PRESET_PROVIDERS.filter(p => p.category === category).map(p => ({
       id: p.id, name: p.name, category: p.category, base_url: p.base_url, models: p.models,
     }))
@@ -574,7 +571,7 @@ class ModelProviderManager {
         const decrypted = crypto.decrypt(row.api_key_enc)
         apiKeyMasked = crypto.mask(decrypted)
       } catch {
-        apiKeyMasked = '****'
+        apiKeyMasked = ''
       }
     } else if (row.api_key) {
       apiKeyMasked = crypto.mask(row.api_key)

@@ -28,20 +28,24 @@ try {
 }
 
 class Statement {
-  constructor(db, sql) {
-    this._db = db
+  constructor(database, sql) {
+    this._database = database
     this._sql = sql
   }
 
   run(...params) {
     // 修复 P3：原 catch 静默吞掉所有错误且 changes 恒为 0
-    if (!this._db) return { changes: 0 }
+    const db = this._database?._db
+    if (!db) return { changes: 0 }
     let stmt
     try {
-      stmt = this._db.prepare(this._sql)
+      stmt = db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
       stmt.step()
-      const changes = this._db.getRowsModified()
+      const changes = db.getRowsModified()
+      if (!/^(?:SELECT|PRAGMA|EXPLAIN)\b/i.test(this._sql.trim())) {
+        this._database._dirty = true
+      }
       return { changes }
     } catch (e) {
       // 表不存在等启动期错误降级为 changes:0，其余错误记录日志
@@ -55,10 +59,11 @@ class Statement {
   }
 
   get(...params) {
-    if (!this._db) return undefined
+    const db = this._database?._db
+    if (!db) return undefined
     let stmt
     try {
-      stmt = this._db.prepare(this._sql)
+      stmt = db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
       if (stmt.step()) {
         return stmt.getAsObject()
@@ -75,10 +80,11 @@ class Statement {
 
   all(...params) {
     const rows = []
-    if (!this._db) return rows
+    const db = this._database?._db
+    if (!db) return rows
     let stmt
     try {
-      stmt = this._db.prepare(this._sql)
+      stmt = db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
       while (stmt.step()) {
         rows.push(stmt.getAsObject())
@@ -137,8 +143,7 @@ class Database {
   }
 
   prepare(sql) {
-    if (!this._db) return new Statement(null, sql)
-    return new Statement(this._db, sql)
+    return new Statement(this, sql)
   }
 
   exec(sql) {

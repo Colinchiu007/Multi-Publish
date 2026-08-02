@@ -13,7 +13,6 @@ describe('Story2Video text 参数合同', () => {
       inputMode: 'text',
       text: '长安城的灯火。',
       size: '720x1280',
-      seconds: 8,
       resolution: '720x1280',
       defaultSceneDuration: 6,
       imageEffect: 'zoom-in',
@@ -21,8 +20,6 @@ describe('Story2Video text 参数合同', () => {
       subtitleEnabled: false,
       bgmPath: null,
       bgmVolume: 0.5,
-      generateBase: true,
-      generateMerged: true,
     })
     expect(result.images).toEqual([])
     expect(result.audio).toEqual([])
@@ -64,9 +61,13 @@ describe('Story2Video text 参数合同', () => {
       mode: 'text',
       prompt: '长安城的灯火。',
       size: '720x1280',
-      seconds: 8,
     }))
     expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.mode).toBe('text')
+    expect(result).not.toHaveProperty('seconds')
+    expect(result).not.toHaveProperty('generateBase')
+    expect(result).not.toHaveProperty('generateMerged')
+    expect(result.story2videoTextConfig).not.toHaveProperty('seconds')
+    expect(result.story2videoTextConfig).not.toHaveProperty('versions')
     expect(result.stageOptions.optimize).not.toHaveProperty('max_length')
     expect(result.stageOptions.optimize).not.toHaveProperty('context')
   })
@@ -136,7 +137,6 @@ describe('Story2Video text 参数合同', () => {
       checkpointPolicy: 'manual_all',
       text: '海上日出',
       size: '1920x1080',
-      seconds: 12,
       imageProvider: 'dall-e',
       imageModel: 'gpt-image-1',
       voiceProvider: 'doubao-tts',
@@ -160,6 +160,17 @@ describe('Story2Video text 参数合同', () => {
       fps: 24,
       format: 'webm',
     })
+  })
+
+  it('兼容忽略旧时长、版本和提示词平台字段', () => {
+    const result = normalizeStory2VideoTextParams({
+      text: '兼容旧配置',
+      story2videoTextConfig: { seconds: 12, versions: { generateBase: false, generateMerged: false }, optimize: { platform: 'unknown' } },
+    })
+
+    expect(result.stageOptions.optimize.platform).toBe('generic')
+    expect(result).not.toHaveProperty('seconds')
+    expect(result.story2videoTextConfig).not.toHaveProperty('versions')
   })
 
   it('仅提供版本化配置时使用 prompt 恢复 text 合同', () => {
@@ -194,10 +205,7 @@ describe('Story2Video text 参数合同', () => {
     [{ text: '测试', checkpointPolicy: 'unsafe' }, 'checkpointPolicy'],
     [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: 'free-form' } } }, 'image.aspectRatio'],
     [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: '7:11' } } }, 'image.aspectRatio'],
-    [{ text: '测试', story2videoTextConfig: { seconds: 0 } }, 'seconds'],
     [{ text: '测试', story2videoTextConfig: { bgm: { volume: 11 } } }, 'bgm.volume'],
-    [{ text: '测试', story2videoTextConfig: { versions: { generateBase: false, generateMerged: false } } }, '至少选择一个视频版本'],
-    [{ text: '测试', story2videoTextConfig: { optimize: { platform: 'unknown' } } }, '不支持 prompt-engine 值'],
     [{ text: '测试', story2videoTextConfig: { optimize: { style: 'unknown' } } }, '不支持 prompt-engine 值'],
     [{ text: '测试', story2videoTextConfig: { optimize: { creativeLevel: 0 } } }, '1-10'],
     [{ text: '测试', story2videoTextConfig: { optimize: { numCandidates: 6 } } }, '1-5'],

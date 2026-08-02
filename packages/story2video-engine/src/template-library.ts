@@ -4,36 +4,36 @@ import type { VideoTemplate, TemplateCategory } from './types';
 export const BUILT_IN_TEMPLATES: VideoTemplate[] = [
   {
     id: 'tpl-quick', name: '快速成片', description: '标准模式，适合大多数场景', category: 'popular',
-    imageEffect: 'zoom-in', transitionEffect: 'fade', perImageDuration: 4, size: '1920x1080', seconds: 30,
+    imageEffect: 'zoom-in', transitionEffect: 'fade', perImageDuration: 4, size: '1920x1080',
   },
   {
     id: 'tpl-slideshow', name: '幻灯片演示', description: '平稳切换，适合产品展示', category: 'business',
-    imageEffect: 'none', transitionEffect: 'slide-left', perImageDuration: 5, size: '1920x1080', seconds: 30,
+    imageEffect: 'none', transitionEffect: 'slide-left', perImageDuration: 5, size: '1920x1080',
     subtitleStyle: { enabled: true, font: 'sans-serif', size: 'lg', style: 'style1' },
   },
   {
     id: 'tpl-dynamic', name: '动感快剪', description: '快速切换，适合精彩集锦', category: 'creative',
-    imageEffect: 'zoom-out', transitionEffect: 'slide-right', perImageDuration: 3, size: '1920x1080', seconds: 20,
+    imageEffect: 'zoom-out', transitionEffect: 'slide-right', perImageDuration: 3, size: '1920x1080',
     bgm: { url: '', name: '节奏明快', volume: 5 },
   },
   {
     id: 'tpl-vlog', name: 'Vlog 日常', description: '自然温馨风格，适合生活记录', category: 'vlog',
-    imageEffect: 'pan-left', transitionEffect: 'fade', perImageDuration: 4, size: '1080x1920', seconds: 60,
+    imageEffect: 'pan-left', transitionEffect: 'fade', perImageDuration: 4, size: '1080x1920',
     subtitleStyle: { enabled: true, font: 'sans-serif', size: 'md', style: 'style2' },
   },
   {
     id: 'tpl-education', name: '知识讲解', description: '清晰展示，适合教程内容', category: 'education',
-    imageEffect: 'none', transitionEffect: 'fade', perImageDuration: 6, size: '1920x1080', seconds: 60,
+    imageEffect: 'none', transitionEffect: 'fade', perImageDuration: 6, size: '1920x1080',
     subtitleStyle: { enabled: true, font: 'serif', size: 'lg', style: 'style3' },
   },
   {
     id: 'tpl-promo', name: '营销推广', description: '强视觉冲击，适合广告宣传', category: 'business',
-    imageEffect: 'zoom-in', transitionEffect: 'slide-up', perImageDuration: 3, size: '1920x1080', seconds: 15,
+    imageEffect: 'zoom-in', transitionEffect: 'slide-up', perImageDuration: 3, size: '1920x1080',
     bgm: { url: '', name: '活力电子', volume: 7 },
   },
   {
     id: 'tpl-cinematic', name: '电影质感', description: '沉稳大气，适合品牌宣传', category: 'creative',
-    imageEffect: 'pan-right', transitionEffect: 'fade', perImageDuration: 5, size: '1920x1080', seconds: 30,
+    imageEffect: 'pan-right', transitionEffect: 'fade', perImageDuration: 5, size: '1920x1080',
     subtitleStyle: { enabled: true, font: 'serif', size: 'lg', style: 'style1' },
   },
 ];
@@ -65,8 +65,7 @@ function isVideoTemplate(value: unknown): value is VideoTemplate {
     && IMAGE_EFFECTS.has(template.imageEffect as VideoTemplate['imageEffect'])
     && TRANSITION_EFFECTS.has(template.transitionEffect as VideoTemplate['transitionEffect'])
     && Number.isFinite(template.perImageDuration) && Number(template.perImageDuration) > 0
-    && typeof template.size === 'string' && /^\d{3,5}x\d{3,5}$/.test(template.size)
-    && Number.isFinite(template.seconds) && Number(template.seconds) > 0;
+    && typeof template.size === 'string' && /^\d{3,5}x\d{3,5}$/.test(template.size);
 }
 
 /** 获取内置模板和自定义模板。 */

@@ -239,7 +239,11 @@ describe('story2video 编排契约', () => {
     const executed = await engine.executeStage(first.runId)
 
     expect(executed.success).toBe(true)
-    expect(engine.getRunSnapshot(first.runId)).toBeNull()
+    expect(engine.getRunSnapshot(first.runId)).toMatchObject({
+      runId: first.runId,
+      status: { status: 'completed', currentStage: 1 },
+      endedAt: expect.any(String),
+    })
     expect(engine.getRunSnapshot(second.runId)).toMatchObject({
       runId: second.runId,
       status: { status: 'running', currentStage: 0 },

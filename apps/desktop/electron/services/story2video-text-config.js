@@ -9,7 +9,6 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
   mode: 'text',
   prompt: '',
   size: '720x1280',
-  seconds: 8,
   contentType: 'general',
   split: Object.freeze({
     language: 'zh',
@@ -60,7 +59,6 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     color: 'white',
   }),
   bgm: Object.freeze({ enabled: false, path: '', volume: 5 }),
-  versions: Object.freeze({ generateBase: true, generateMerged: true }),
   perImageDuration: 6,
   transition: 'fade',
   templateId: '',
@@ -95,23 +93,11 @@ const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
 const OUTPUT_FORMATS = new Set(['mp4', 'webm'])
 const CONTENT_TYPES = new Set(['general', 'history'])
 const CHECKPOINT_POLICIES = new Set(['guided', 'manual_all', 'auto_noncreative'])
-const PROMPT_ENGINE_PLATFORMS = new Set([
-  'midjourney', 'stable_diffusion', 'dalle', 'tongyi', 'yizhang', 'jimeng', 'generic',
-])
 const PROMPT_ENGINE_STYLES = new Set([
   'realistic', 'cartoon', 'anime', 'oil_painting', 'watercolor', 'pixel',
   'cyberpunk', 'fantasy', 'photography', '3d_render', 'minimalist', 'abstract',
   'portrait', 'landscape',
 ])
-const PROMPT_PLATFORM_ALIASES = Object.freeze({
-  'dall-e': 'dalle',
-  'stable-diffusion': 'stable_diffusion',
-  douyin: 'generic',
-  xiaohongshu: 'generic',
-  bilibili: 'generic',
-  youtube: 'generic',
-  tiktok: 'generic',
-})
 const PROMPT_STYLE_ALIASES = Object.freeze({
   cinematic: 'photography',
   '3d-render': '3d_render',
@@ -312,14 +298,12 @@ function normalizeStory2VideoTextParams(params = {}) {
   if (prompt !== text) throw new Error('Story2Video text 与 story2videoTextConfig.prompt 必须一致')
 
   const size = normalizeSize(firstDefined(own(suppliedConfig, 'size'), params.resolution, params.output?.resolution))
-  const seconds = numberValue(own(suppliedConfig, 'seconds'), params.seconds ?? 8, 'seconds', 1, 60, true)
   const splitInput = objectValue(suppliedConfig.split)
   const optimizeInput = objectValue(suppliedConfig.optimize)
   const imageInput = objectValue(suppliedConfig.image)
   const voiceInput = objectValue(suppliedConfig.voice)
   const subtitleInput = objectValue(suppliedConfig.subtitle)
   const bgmInput = objectValue(suppliedConfig.bgm)
-  const versionsInput = objectValue(suppliedConfig.versions)
   const watermarkInput = objectValue(suppliedConfig.watermark)
   const outputInput = objectValue(suppliedConfig.output)
   const publishInput = objectValue(suppliedConfig.publish)
@@ -345,10 +329,7 @@ function normalizeStory2VideoTextParams(params = {}) {
   }
 
   const optimize = {
-    platform: promptEngineValue(
-      firstDefined(own(optimizeInput, 'platform'), params.promptPlatform, params.platform),
-      'generic', 'optimize.platform', PROMPT_ENGINE_PLATFORMS, PROMPT_PLATFORM_ALIASES,
-    ),
+    platform: 'generic',
     style: promptEngineValue(
       firstDefined(own(optimizeInput, 'style'), params.promptStyle, params.style),
       'realistic', 'optimize.style', PROMPT_ENGINE_STYLES, PROMPT_STYLE_ALIASES,
@@ -398,14 +379,6 @@ function normalizeStory2VideoTextParams(params = {}) {
     volume: numberValue(firstDefined(own(bgmInput, 'volume'), hasNestedBgm ? undefined : legacyBgmVolume), 5, 'bgm.volume', 0, 10),
   }
 
-  const versions = {
-    generateBase: booleanValue(firstDefined(own(versionsInput, 'generateBase'), params.generateBase), true),
-    generateMerged: booleanValue(firstDefined(own(versionsInput, 'generateMerged'), params.generateMerged), true),
-  }
-  if (!versions.generateBase && !versions.generateMerged) {
-    throw new Error('Story2Video 请至少选择一个视频版本')
-  }
-
   const perImageDuration = numberValue(
     firstDefined(own(suppliedConfig, 'perImageDuration'), params.defaultSceneDuration),
     6,
@@ -443,7 +416,6 @@ function normalizeStory2VideoTextParams(params = {}) {
     mode: 'text',
     prompt,
     size,
-    seconds,
     contentType,
     split,
     optimize,
@@ -451,7 +423,6 @@ function normalizeStory2VideoTextParams(params = {}) {
     voice,
     subtitle,
     bgm,
-    versions,
     perImageDuration,
     transition,
     templateId,
@@ -528,9 +499,6 @@ function normalizeStory2VideoTextParams(params = {}) {
       fps: output.fps,
       format: output.format,
       defaultSceneDuration: perImageDuration,
-      generateBase: versions.generateBase,
-      generateMerged: versions.generateMerged,
-      seconds,
     },
     publish: {
       publishEnabled: publish.enabled || publish.platforms.length > 0,
@@ -554,11 +522,9 @@ function normalizeStory2VideoTextParams(params = {}) {
     audio: [],
     video: null,
     size,
-    seconds,
     contentType,
     splitMode: split.mode,
     language: split.language,
-    promptPlatform: optimize.platform,
     promptStyle: optimize.style,
     creativeLevel: optimize.creativeLevel,
     numCandidates: optimize.numCandidates,
@@ -589,8 +555,6 @@ function normalizeStory2VideoTextParams(params = {}) {
     resolution: size,
     fps: output.fps,
     format: output.format,
-    generateBase: versions.generateBase,
-    generateMerged: versions.generateMerged,
     platforms: publish.platforms,
     publishEnabled: publish.enabled || publish.platforms.length > 0,
     title: publish.title,

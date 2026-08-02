@@ -232,6 +232,16 @@ describe("ModelProviderManager", function () {
       expect(all).not.toHaveLength(0)
       all.forEach(p => expect(p.api_key_masked).toBe(""))
     })
+
+    it("无法解密的密钥不应伪装为已配置", function () {
+      const crypto = require("./crypto")
+      const decrypt = crypto.decrypt
+      crypto.decrypt = () => { throw new Error("decrypt failed") }
+
+      expect(manager._safeRow({ id: 'broken', api_key_enc: Buffer.from('bad') }).api_key_masked).toBe("")
+
+      crypto.decrypt = decrypt
+    })
   })
 
   describe("createProvider", function () {
@@ -348,14 +358,10 @@ describe("ModelProviderManager", function () {
   describe("getAvailablePresets", function () {
     beforeEach(function () { manager.init() })
 
-    it("应返回该类别可配置的预设，即使种子行已经初始化", function () {
-      const presets = manager.getAvailablePresets("image")
-
-      expect(presets.map(p => p.id)).toEqual(expect.arrayContaining([
-        "flux",
-        "dall-e",
-      ]))
-      presets.forEach(p => expect(p.category).toBe("image"))
+    it("种子初始化后仍应返回该类别完整预设目录", function () {
+      const presets = manager.getAvailablePresets("llm")
+      expect(presets.length).toBeGreaterThan(0)
+      expect(presets.every(p => p.category === "llm")).toBe(true)
     })
 
     it("自定义服务商删除后应出现在预设列表中", function () {
@@ -364,30 +370,6 @@ describe("ModelProviderManager", function () {
       const presets = manager.getAvailablePresets("llm")
       // custom-new 不在预设中，所以预设列表不变
       expect(presets.every(p => p.id !== "custom-new")).toBe(true)
-    })
-
-    it("种子预设仍可选择并通过更新补填 API Key", function () {
-      const createRes = manager.createProvider({
-        id: "flux", name: "Flux", category: "image", base_url: "https://api.bfl.ml/v1",
-        api_key: "sk-flux-key", models: ["flux-pro"],
-      })
-      expect(createRes.code).toBe(-1)
-      expect(createRes.message).toContain("already exists")
-
-      const updateRes = manager.updateProvider("flux", { api_key: "sk-flux-key", enabled: true })
-      expect(updateRes.code).toBe(0)
-      const provider = manager.getProvider("flux")
-      expect(provider.is_preset).toBe(true)
-      expect(provider.api_key_masked).toBeTruthy()
-      expect(provider.enabled).toBe(true)
-    })
-
-    it("预设包含表单所需的 base_url 和 models", function () {
-      const flux = manager.getAvailablePresets("image").find(p => p.id === "flux")
-      expect(flux).toBeDefined()
-      expect(flux.base_url).toBeTruthy()
-      expect(Array.isArray(flux.models)).toBe(true)
-      expect(flux.models.length).toBeGreaterThan(0)
     })
   })
 

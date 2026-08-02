@@ -395,7 +395,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.s2vConfig).toHaveProperty("concurrency");
   });
 
-  it("uses the registered DALL-E provider ID and keeps ComfyUI out of the Story2Video selector", async () => {
+  it("does not expose unconfigured static image providers in the Story2Video selector", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
@@ -404,7 +404,8 @@ describe("CreateView - S2V orchestration", () => {
     await nextTick();
 
     const optionValues = w.findAll("option").map(option => option.attributes("value"));
-    expect(optionValues).toContain("dall-e");
+    expect(optionValues).toContain("");
+    expect(optionValues).not.toContain("dall-e");
     expect(optionValues).not.toContain("openai-image");
     expect(optionValues).not.toContain("comfyui");
     w.unmount();
@@ -457,7 +458,6 @@ describe("CreateView - S2V orchestration", () => {
   ])("编排轮询遇到无效响应时向用户显示错误并停止轮询", async (response, expectedMessage) => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineGetRunContext.mockResolvedValueOnce(response);
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
@@ -467,10 +467,9 @@ describe("CreateView - S2V orchestration", () => {
 
     await w.vm.updateOrchestrationStatus();
 
-    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining(expectedMessage));
+    expect(w.vm.orchestrationError).toContain(expectedMessage);
     expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
     expect(w.vm.pollTimer).toBeNull();
-    alertSpy.mockRestore();
     w.unmount();
   });
 
@@ -483,7 +482,6 @@ describe("CreateView - S2V orchestration", () => {
         status: { status: "failed", error: "图片生成服务拒绝请求" },
       },
     });
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
     });
@@ -493,10 +491,28 @@ describe("CreateView - S2V orchestration", () => {
 
     await w.vm.updateOrchestrationStatus();
 
-    expect(alertSpy).toHaveBeenCalledWith("图片生成服务拒绝请求");
+    expect(w.vm.orchestrationError).toBe("图片生成服务拒绝请求");
     expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
     expect(w.vm.pollTimer).toBeNull();
-    alertSpy.mockRestore();
+    w.unmount();
+  });
+
+  it("检查点推进返回失败结果时显示具体错误", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineAdvanceToNextCheckpoint.mockResolvedValueOnce({
+      code: 0,
+      data: { success: false, error: "图片服务商未配置 API Key" },
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.orchestrationRunId = "run-advance-error";
+
+    await w.vm.advanceOrchestration();
+
+    expect(w.vm.orchestrationError).toBe("图片服务商未配置 API Key");
+    expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
     w.unmount();
   });
 
@@ -568,15 +584,11 @@ describe("CreateView - S2V orchestration", () => {
       subtitleStyleName: "style2",
       bgmPath: "C:/media/bgm.mp3",
       bgmVolume: 7,
-      seconds: 12,
       perImageDuration: 4,
-      generateBase: false,
-      generateMerged: true,
       splitLanguage: "auto",
       splitMode: "precise",
       splitMaxSentenceLength: 120,
       splitTargetSeconds: 4,
-      promptPlatform: "douyin",
       promptStyle: "anime",
       creativeLevel: 8,
       numCandidates: 2,
@@ -601,21 +613,22 @@ describe("CreateView - S2V orchestration", () => {
         mode: "text",
         prompt: "唐朝长安的夜景",
         size: "1080x1920",
-        seconds: 12,
         contentType: "history",
         split: expect.objectContaining({ language: "auto", mode: "precise", maxSentenceLength: 120, targetSeconds: 4 }),
-        optimize: expect.objectContaining({ platform: "douyin", style: "anime", creativeLevel: 8, numCandidates: 2, autoDetectStyle: false }),
+        optimize: expect.objectContaining({ platform: "generic", style: "anime", creativeLevel: 8, numCandidates: 2, autoDetectStyle: false }),
         image: expect.objectContaining({ provider: "local-diffusion", style: "watercolor", effect: "pan-left" }),
         voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8, pitch: -1, emotion: "warm" }),
         subtitle: expect.objectContaining({ enabled: false, font: "Noto Sans SC", size: "size4", style: "style2" }),
         bgm: { enabled: true, path: "C:/media/bgm.mp3", volume: 7 },
-        versions: { generateBase: false, generateMerged: true },
         perImageDuration: 4,
         transition: "slide-right",
         output: { fps: 24, format: "webm" },
         publish: expect.objectContaining({ enabled: true, platforms: ["bilibili"], title: "长安夜景", tags: ["历史", "夜景"] }),
       }),
     }));
+    const request = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
+    expect(request).not.toHaveProperty("seconds");
+    expect(request).not.toHaveProperty("versions");
     expect(w.vm.outputConfig).toEqual({ resolution: "3840x2160", fps: 60, format: "mp4" });
     w.unmount();
   });

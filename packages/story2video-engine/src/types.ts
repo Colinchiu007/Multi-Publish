@@ -96,7 +96,6 @@ export interface VideoTemplate {
   transitionEffect: TransitionEffect;
   perImageDuration: number;
   size: string;
-  seconds: number;
   subtitleStyle?: SubtitleStyleConfig;
   bgm?: TemplateBgmConfig;
 }

@@ -132,6 +132,7 @@ function registerHandlers(ipcMain, deps) {
       const snapshot = typeof pipelineEngine.getRunSnapshot === 'function'
         ? pipelineEngine.getRunSnapshot(runId)
         : pipelineEngine.getRunContext(runId)
+      if (!snapshot) return { code: EC.NOT_FOUND, message: '未找到指定的流水线运行' }
       return { code: 0, data: snapshot }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))

@@ -1,0 +1,13 @@
+{
+  "id": "story2video-parameter-scope-e2e",
+  "title": "清理 Story2Video 无关参数并验证真实视频生成流程",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "desktop-story2video",
+  "currentPhase": "implementation",
+  "nextAction": "修复已启动 PromptBridge 的附加时序，并在已登录 Electron 窗口重跑真实 Provider E2E",
+  "createdAt": "2026-08-01T12:00:00Z",
+  "branch": "codex/story2video-scope-e2e",
+  "externalValidation": "authenticated_provider_e2e_in_progress"
+}

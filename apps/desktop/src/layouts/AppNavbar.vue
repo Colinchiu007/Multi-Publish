@@ -72,5 +72,4 @@ const { authViewVisible, registerListeners: registerAuthListeners, closeLogin } 
 onMounted(() => {
   registerAuthListeners()
 })
-
 </script>

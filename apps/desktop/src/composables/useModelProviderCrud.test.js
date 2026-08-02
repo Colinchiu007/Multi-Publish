@@ -145,6 +145,19 @@ describe('useModelProviderCrud', function () {
       expect(function () { structuredClone(calledData) }).not.toThrow()
     })
 
+    it('编辑保存时 API Key 留空不得上送空值', async function () {
+      crud.isEditing.value = true
+      crud.form.value = {
+        id: 'minimax-image', name: 'MiniMax Image', category: 'image', base_url: '',
+        api_key: '', models: ['image-01'], modelsText: 'image-01', config: {},
+      }
+
+      await crud.submitForm()
+
+      const calledData = modelProviderUpdate.mock.calls[0][1]
+      expect(calledData).not.toHaveProperty('api_key')
+    })
+
     it('form.config 为 reactive proxy 时也能安全传递', async function () {
       // 模拟 Vue ref 包装后的 config 是 proxy
       crud.form.value = {

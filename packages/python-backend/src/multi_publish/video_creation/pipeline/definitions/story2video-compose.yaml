@@ -27,7 +27,6 @@ runtime_defaults:
     mode: text
     prompt: ""
     size: "720x1280"
-    seconds: 8
     contentType: general
     split:
       language: zh
@@ -76,9 +75,6 @@ runtime_defaults:
       enabled: false
       path: ""
       volume: 5
-    versions:
-      generateBase: true
-      generateMerged: true
     perImageDuration: 6
     transition: fade
     templateId: ""
@@ -293,9 +289,6 @@ stages:
       fps: 30
       format: mp4
       defaultSceneDuration: 6
-      generateBase: true
-      generateMerged: true
-      seconds: 8
     runtime_options:
       transition: "none|fade|slide-left|slide-right|slide-up|slide-down"
       imageEffect: "none|zoom-in|zoom-out|pan-left|pan-right|pan-up|pan-down|zoom-pan|rotate|blur-in"
@@ -309,9 +302,6 @@ stages:
       resolution: "<width>x<height>"
       fps: "1..120"
       format: "mp4|webm"
-      generateBase: boolean
-      generateMerged: boolean
-      seconds: "1..60"
       defaultSceneDuration: "1..60 秒，仅用于无音频或无法探测音频时的场景回退"
       limits: "output<=600s; narration total<=900s; multi-audio segment<=180s"
     checkpoint_required: true

@@ -104,6 +104,24 @@ describe.skipIf(!Database)('sqlite-wrapper', () => {
     expect(result.changes).toBe(1)
   })
 
+  it('run 写入会标记 dirty 并在重启后保留数据', () => {
+    if (!db._db) return
+    db.exec('CREATE TABLE IF NOT EXISTS t6 (id INTEGER PRIMARY KEY, val TEXT)')
+    expect(db.persist()).toBe(true)
+    expect(db._dirty).toBe(false)
+
+    db.prepare('INSERT INTO t6 (val) VALUES (?)').run('survives-restart')
+    expect(db._dirty).toBe(true)
+    expect(db.persist()).toBe(true)
+    db.close()
+    db = null
+
+    const reopened = new Database(dbPath)
+    expect(reopened._db).toBeTruthy()
+    expect(reopened.prepare('SELECT val FROM t6').get()).toEqual({ val: 'survives-restart' })
+    reopened.close()
+  })
+
   it('close 自动调用 persist 持久化', () => {
     if (!db._db) return
     db.exec('CREATE TABLE IF NOT EXISTS t5 (id INTEGER PRIMARY KEY, val TEXT)')
