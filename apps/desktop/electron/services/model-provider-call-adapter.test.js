@@ -384,11 +384,11 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
     })
 
     it('无 api_key 的 provider 调用时返回错误', async () => {
-      manager.createProvider({
-        id: 'no-key', name: 'No Key', category: 'llm',
-        models: ['gpt-4o'],
+      mockTables.model_providers.push({
+        id: 'no-key', name: 'No Key', category: 'llm', base_url: '',
+        api_key: '', api_key_enc: null, models: JSON.stringify(['gpt-4o']),
+        enabled: 0, is_default: 0, is_preset: 0, config: '{}',
       })
-
       manager.registerAdapter('no-key', (creds) => ({
         id: 'no-key',
         capabilities: () => ['chatCompletion'],

@@ -1,0 +1,12 @@
+{
+  "id": "fix-model-provider-quality-gate",
+  "title": "修正模型服务商无 API Key 测试契约以恢复质量门禁",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "desktop-test",
+  "currentPhase": "completed",
+  "nextAction": "已归档；PR 更新后由 GitHub CI 复验",
+  "createdAt": "2026-08-02T00:00:00Z",
+  "branch": "codex/fix-history-records-loading"
+}
