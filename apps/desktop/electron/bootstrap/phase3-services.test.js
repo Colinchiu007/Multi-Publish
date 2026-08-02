@@ -42,7 +42,7 @@ function makeMockDeps(overrides) {
     setOwnerSubjectProvider: vi.fn(),
   }
   const mockStore = {
-    init: vi.fn(),
+    init: vi.fn(() => true),
     close: vi.fn(),
     setOwnerSubjectProvider: vi.fn(),
     setSetting: vi.fn(),
@@ -77,8 +77,10 @@ function makeMockDeps(overrides) {
   }
   const mockCloudPublisher = vi.fn()
   mockCloudPublisher.prototype.registerIpcHandlers = vi.fn()
+  const mockModelProviderManager = { init: vi.fn() }
   const mockGetMainWin = vi.fn(() => null)
   const mockLoadIdentityRuntimeEnv = vi.fn(({ env }) => env)
+  const mockWaitForStoreReady = vi.fn(() => Promise.resolve())
 
   return Object.assign({
     container: mockContainer,
@@ -91,8 +93,10 @@ function makeMockDeps(overrides) {
     analyticsService: mockAnalyticsService,
     pythonBridge: mockPythonBridge,
     CloudPublisher: mockCloudPublisher,
+    modelProviderManager: mockModelProviderManager,
     getMainWin: mockGetMainWin,
     loadIdentityRuntimeEnv: mockLoadIdentityRuntimeEnv,
+    waitForStoreReady: mockWaitForStoreReady,
   }, overrides)
 }
 
@@ -114,6 +118,38 @@ describe('phase3-services.startServices', () => {
     const deps = makeMockDeps()
     await startServices(deps)
     expect(deps.store.init).toHaveBeenCalled()
+  })
+
+
+  it('等待 SQLite WASM 就绪并在 Store 成功后初始化模型服务商', async () => {
+    let releaseSqlite
+    const sqliteReady = new Promise((resolve) => { releaseSqlite = resolve })
+    const deps = makeMockDeps({ waitForStoreReady: vi.fn(() => sqliteReady) })
+    const initializationOrder = []
+    deps.store.init.mockImplementation(() => {
+      initializationOrder.push('store')
+      return true
+    })
+    deps.modelProviderManager.init.mockImplementation(() => initializationOrder.push('providers'))
+
+    const starting = startServices(deps)
+    await Promise.resolve()
+    expect(deps.store.init).not.toHaveBeenCalled()
+    expect(deps.modelProviderManager.init).not.toHaveBeenCalled()
+
+    releaseSqlite()
+    await starting
+
+    expect(initializationOrder).toEqual(['store', 'providers'])
+  })
+
+  it('Store 初始化失败时阻止后续服务与模型服务商启动', async () => {
+    const deps = makeMockDeps()
+    deps.store.init.mockReturnValue(false)
+
+    await expect(startServices(deps)).rejects.toThrow('Local data store failed to initialize')
+    expect(deps.modelProviderManager.init).not.toHaveBeenCalled()
+    expect(deps.callbackServer.start).not.toHaveBeenCalled()
   })
 
   it('taskQueue.setStateSaver 被调用', async () => {
@@ -145,7 +181,7 @@ describe('phase3-services.startServices', () => {
   it('savedState 存在时 taskQueue.deserialize 被调用', async () => {
     const deps = makeMockDeps({
       store: {
-        init: vi.fn(),
+        init: vi.fn(() => true),
         setSetting: vi.fn(),
         getSetting: vi.fn(() => '{"tasks":[]}'),
         addCallbackLog: vi.fn(),

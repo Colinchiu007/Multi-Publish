@@ -308,6 +308,11 @@ class ModelProviderManager {
     for (const p of PRESET_PROVIDERS) {
       stmt.run(p.id, p.name, p.category, p.base_url || '', JSON.stringify(p.models || []))
     }
+    // 将历史内置种子从已废弃的 image-01-live 组合收敛为固定模型；
+    // 用户自定义模型列表不匹配旧种子值，因此不会被覆盖。
+    db.prepare(
+      "UPDATE model_providers SET models = ?, updated_at = datetime('now') WHERE id = 'minimax-image' AND models = ?"
+    ).run(JSON.stringify(['image-01']), JSON.stringify(['image-01', 'image-01-live']))
   }
 
   _migrateApiKeyEncryption () {
@@ -511,7 +516,7 @@ class ModelProviderManager {
     }
     const providerWithKey = this.getProviderWithKey(providerId)
     if (!providerWithKey || (!hasUsableApiKey(providerWithKey.api_key) && !canUseWithoutApiKey(providerWithKey))) {
-      return { code: -1, message: 'Please configure API Key before setting as default' }
+      return { code: -1, message: '请先在“模型设置”中配置 API Key，再设为默认' }
     }
     try {
       const db = this._store.db

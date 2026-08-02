@@ -44,11 +44,15 @@ describe('ModelProviderManager local no-key adapters', () => {
       .resolves.toMatchObject({ code: -1, message: expect.stringMatching(/API Key/i) })
     expect(manager._getOrCreateAdapter).not.toHaveBeenCalled()
   })
-  it('returns an enabled loopback Piper provider as the default without an API key', () => {
+  it.each([
+    ['piper', 'tts'],
+    ['local-diffusion', 'image'],
+    ['comfyui', 'image'],
+  ])('returns an enabled loopback %s provider as the default without an API key', (id, category) => {
     const provider = {
-      id: 'piper',
-      name: 'Piper',
-      category: 'tts',
+      id,
+      name: id,
+      category,
       base_url: 'http://127.0.0.1:5000',
       api_key_enc: null,
       api_key: '',
@@ -65,8 +69,8 @@ describe('ModelProviderManager local no-key adapters', () => {
     })
     manager._ready = true
 
-    expect(manager.getDefault('tts')).toMatchObject({
-      id: 'piper',
+    expect(manager.getDefault(category)).toMatchObject({
+      id,
       is_configured: true,
       api_key_masked: '',
     })

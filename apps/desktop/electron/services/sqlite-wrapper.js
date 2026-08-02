@@ -16,36 +16,37 @@ const log = require('./logger')
 let SQL = null
 let _initError = null
 
-// 预初始化 sql.js
-try {
-  const initSqlJs = require('sql.js')
-  if (typeof initSqlJs === 'function') {
-    // initSqlJs() 返回 Promise<SQL Module>
-    initSqlJs().then(m => { SQL = m }).catch(e => { _initError = e.message })
+// 预初始化 sql.js；readyPromise 供测试等待 WASM 加载完成后再操作数据库。
+const readyPromise = (() => {
+  try {
+    const initSqlJs = require('sql.js')
+    if (typeof initSqlJs === 'function') {
+      return initSqlJs().then(m => { SQL = m }).catch(e => { _initError = e.message })
+    }
+  } catch (e) {
+    _initError = `sql.js not installed: ${e.message}`
   }
-} catch (e) {
-  _initError = `sql.js not installed: ${e.message}`
-}
+  return Promise.resolve()
+})()
 
 class Statement {
-  constructor(database, sql) {
-    this._database = database
+  constructor(db, sql, parent) {
+    this._db = db
+    this._parent = parent
     this._sql = sql
   }
 
   run(...params) {
     // 修复 P3：原 catch 静默吞掉所有错误且 changes 恒为 0
-    const db = this._database?._db
-    if (!db) return { changes: 0 }
+    if (!this._db) return { changes: 0 }
     let stmt
     try {
-      stmt = db.prepare(this._sql)
+      stmt = this._db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
       stmt.step()
-      const changes = db.getRowsModified()
-      if (!/^(?:SELECT|PRAGMA|EXPLAIN)\b/i.test(this._sql.trim())) {
-        this._database._dirty = true
-      }
+      const changes = this._db.getRowsModified()
+      // 写入必须标记 dirty，否则 auto-persist 永远不会落盘
+      if (this._parent && changes > 0) this._parent._dirty = true
       return { changes }
     } catch (e) {
       // 表不存在等启动期错误降级为 changes:0，其余错误记录日志
@@ -59,11 +60,10 @@ class Statement {
   }
 
   get(...params) {
-    const db = this._database?._db
-    if (!db) return undefined
+    if (!this._db) return undefined
     let stmt
     try {
-      stmt = db.prepare(this._sql)
+      stmt = this._db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
       if (stmt.step()) {
         return stmt.getAsObject()
@@ -80,11 +80,10 @@ class Statement {
 
   all(...params) {
     const rows = []
-    const db = this._database?._db
-    if (!db) return rows
+    if (!this._db) return rows
     let stmt
     try {
-      stmt = db.prepare(this._sql)
+      stmt = this._db.prepare(this._sql)
       if (params.length > 0) stmt.bind(params)
       while (stmt.step()) {
         rows.push(stmt.getAsObject())
@@ -143,7 +142,8 @@ class Database {
   }
 
   prepare(sql) {
-    return new Statement(this, sql)
+    if (!this._db) return new Statement(null, sql, this)
+    return new Statement(this._db, sql, this)
   }
 
   exec(sql) {
@@ -217,3 +217,4 @@ class Database {
 }
 
 module.exports = Database
+module.exports.ready = readyPromise

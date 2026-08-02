@@ -48,6 +48,24 @@ afterEach(() => {
 
 const TEST_TEXT = '人工智能正在改变世界。从自动驾驶到智能助手，AI 技术已经深入我们生活的方方面面。未来十年，AI 将带来更多惊喜。';
 
+function createControlledDefaultLlm() {
+  const calls = [];
+  return {
+    calls,
+    _modelProviderManager: {
+      getDefault: (type) => type === 'llm'
+        ? { id: 'e2e-llm', models: ['e2e-model'] }
+        : null,
+    },
+    generateWithDefault: async (type, params) => {
+      calls.push({ type, params });
+      return {
+        content: 'E2E visual prompt: ' + params.messages[1].content,
+        model: 'e2e-model',
+      };
+    },
+  };
+}
 async function buildRealContext() {
   const controlledTempRoot = path.join(os.tmpdir(), 'story2video');
   fs.mkdirSync(controlledTempRoot, { recursive: true });
@@ -70,15 +88,7 @@ async function buildRealContext() {
     log: noopLog,
   });
   serviceBus._assetGenerator = assetGenerator;
-  const aiGenerator = {
-    _modelProviderManager: {
-      getDefault: () => ({ id: 'e2e-llm', models: ['e2e-model'] }),
-    },
-    generateWithDefault: async (_type, params) => ({
-      content: 'E2E visual prompt: ' + params.messages[1].content,
-      model: 'e2e-model',
-    }),
-  };
+  const aiGenerator = createControlledDefaultLlm();
   const pipelineEngine = new PipelineEngine({ serviceBus, aiGenerator, log: noopLog });
   const registration = registerStory2VideoStages(pipelineEngine);
   if (!registration.success) throw new Error(registration.error);
@@ -93,7 +103,7 @@ function assertWithinRunRoot(runRoot, filePath) {
 }
 
 test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码视频', { timeout: 180000 }, async () => {
-  const { pipelineEngine, runRoot } = await buildRealContext();
+  const { pipelineEngine, aiGenerator, runRoot } = await buildRealContext();
   let result = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: TEST_TEXT,
     autoAdvance: true,
@@ -146,6 +156,12 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
   }), 'default LLM should return a non-empty optimized prompt for every scene');
   assert.ok(context.optimize.every(item => item.providerId === 'e2e-llm' && item.model === 'e2e-model'),
     'every optimized prompt should retain the selected default model identity');
+  assert.strictEqual(aiGenerator.calls.length, splitScenes.length,
+    'controlled default LLM should receive one optimization call per scene');
+  assert.ok(aiGenerator.calls.every(call => call.type === 'llm'),
+    'optimization should use the configured default LLM interface');
+  assert.ok(aiGenerator.calls.every(call => call.params.messages[1].content.includes('Scene source:')),
+    'each optimization request should include the scene prompt seed');
 
   const assets = context.generate_assets;
   assert.ok(assets.scenes.length > 0, 'asset stage should create paired scenes');

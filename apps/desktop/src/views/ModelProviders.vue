@@ -141,7 +141,6 @@
               <div v-if="testResults[p.id]" class="card-test-result" :class="testResults[p.id].success ? 'success' : 'fail'">
                 <div class="test-result-line">
                   {{ testResults[p.id].success ? '✅' : '❌' }}
-                  <span class="test-code">码 {{ testResults[p.id].code }}</span>
                   {{ testResults[p.id].message }}
                 </div>
                 <div v-if="testResults[p.id].detail" class="test-detail">{{ testResults[p.id].detail }}</div>
@@ -253,7 +252,6 @@
             <div v-if="testResults[p.id]" class="card-test-result" :class="testResults[p.id].success ? 'success' : 'fail'">
               <div class="test-result-line">
                 {{ testResults[p.id].success ? '✅' : '❌' }}
-                <span class="test-code">码 {{ testResults[p.id].code }}</span>
                 {{ testResults[p.id].message }}
               </div>
               <div v-if="testResults[p.id].detail" class="test-detail">{{ testResults[p.id].detail }}</div>

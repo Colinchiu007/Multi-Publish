@@ -13,6 +13,7 @@
  */
 const log = require('../services/logger')
 const { loadIdentityRuntimeEnv: loadDefaultIdentityRuntimeEnv } = require('../services/identity/identity-runtime-config')
+const sqliteWrapper = require('../services/sqlite-wrapper')
 
 /**
  * @param {unknown} value
@@ -48,6 +49,7 @@ async function runCleanups(cleanups) {
  * @param {object} deps.container - DI 容器（获取 publishIntervalGuard）
  * @param {object} deps.usageTracker - 使用量统计服务
  * @param {object} deps.store - Store 实例
+ * @param {{init?: () => unknown}} deps.modelProviderManager - 模型服务商管理器
  * @param {object} deps.taskQueue - 任务队列
  * @param {object} deps.callbackServer - 回调服务器
  * @param {object} deps.scheduler - 调度器
@@ -58,9 +60,11 @@ async function runCleanups(cleanups) {
  * @param {Function} deps.getMainWin - 获取主窗口函数
  * @param {Function} [deps.createIdentityService] - 用户身份服务工厂
  * @param {Function} [deps.loadIdentityRuntimeEnv] - 身份公开运行时配置加载器
+ * @param {() => Promise<void>} [deps.waitForStoreReady] - SQLite WASM 就绪等待器（测试注入）
  */
 async function startServices({ container, usageTracker, store, taskQueue, callbackServer, scheduler,
-  keywordMonitor, analyticsService, pythonBridge, CloudPublisher, getMainWin, createIdentityService, loadIdentityRuntimeEnv }) {
+  keywordMonitor, analyticsService, pythonBridge, CloudPublisher, modelProviderManager, getMainWin,
+  createIdentityService, loadIdentityRuntimeEnv, waitForStoreReady }) {
   /** @type {Array<() => unknown | Promise<unknown>>} */
   const cleanups = []
   let rollbackPromise = null
@@ -72,8 +76,22 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
   try {
     usageTracker.trackSession()
 
+    const sqliteReady = waitForStoreReady
+      ? waitForStoreReady()
+      : sqliteWrapper.ready
+    if (!sqliteReady || typeof sqliteReady.then !== 'function') {
+      throw new Error('SQLite WASM readiness is unavailable')
+    }
+    await sqliteReady
+
     cleanups.push(() => { if (store.close) store.close() })
-    store.init()
+    const storeInitialized = await store.init()
+    if (storeInitialized === false) {
+      throw new Error('Local data store failed to initialize')
+    }
+    if (modelProviderManager && typeof modelProviderManager.init === 'function') {
+      modelProviderManager.init()
+    }
     const _publishIntervalGuard = container.get('publishIntervalGuard')
 
     cleanups.push(() => { if (taskQueue.setStateSaver) taskQueue.setStateSaver(null) })

@@ -154,7 +154,7 @@ function runWhenReady(context, deps) {
   const createWindow = deps.createWindow
   const {
     container, store, taskQueue, callbackServer, scheduler,
-    keywordMonitor, analyticsService, usageTracker, CloudPublisher, commentManager,
+    keywordMonitor, analyticsService, usageTracker, CloudPublisher, commentManager, modelProviderManager,
     pythonBridge, splitterBridge, promptBridge,
   } = context
 
@@ -167,7 +167,8 @@ function runWhenReady(context, deps) {
 
       servicesResult = await startServices({
         container, store, taskQueue, callbackServer, scheduler,
-        keywordMonitor, analyticsService, usageTracker, pythonBridge, CloudPublisher, commentManager, getMainWin,
+        keywordMonitor, analyticsService, usageTracker, pythonBridge, CloudPublisher, commentManager,
+        modelProviderManager, getMainWin,
       })
       context.keywordPersistTimer = servicesResult.keywordPersistTimer
       context.loginStatusMonitor = servicesResult.loginStatusMonitor

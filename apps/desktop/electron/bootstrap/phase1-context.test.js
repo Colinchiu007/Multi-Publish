@@ -131,12 +131,12 @@ describe('phase1-context.extractContext', () => {
     expect(log.warn).toHaveBeenCalledWith('App', 'Failed to load platform config: load failed')
   })
 
-  it('在 Story2Video 使用默认模型前初始化 ModelProviderManager', () => {
+  it('只构造 ModelProviderManager，等待 Phase 3 的 Store 初始化后再启动', () => {
     modelProviderManagerInit.mockClear()
     const container = makeMockContainer()
     const ctx = extractContext(container)
 
-    expect(ctx.modelProviderManager.init).toHaveBeenCalledTimes(1)
+    expect(ctx.modelProviderManager.init).not.toHaveBeenCalled()
   })
 
   it('aiGenerator.setModelProviderManager 被调用（方法存在时）', () => {
