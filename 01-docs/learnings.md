@@ -5504,3 +5504,51 @@ getAvailablePresets (category) {
 ### R88：开发窗口 renderer 来源合同
 
 任何需要以开发 Electron 窗口作为验收证据的任务，必须同时记录：(1) Electron 可执行文件和工作目录属于目标 worktree；(2) Vite 以 `127.0.0.1`、显式端口和 `--strictPort` 启动；(3) Electron 子进程获得同一 `DEV_SERVER_PORT`；(4) CDP 页面或窗口 URL 精确指向该端口。只验证进程 PID、页面标题、截图或 `did-finish-load` 均不足以证明运行的是当前代码。
+---
+
+## Story2Video 历史记录永久加载复盘（2026-08-02）
+
+### 问题
+
+- **现象**：在“视频创作”点击“历史记录”后，页面持续显示“加载中…”，没有错误提示或重试路径。
+- **预期**：历史读取成功时显示记录；任一来源失败或超时时结束加载、保留另一来源的成功记录，并给出明确的重试入口。
+- **复现**：当前用户的 `story2video_projects_v1` 中存在遗留项目，且 `videoPath` 指向项目受控目录外的不可及时响应路径；在 Electron 中进入 `/create` 后点击“历史记录”。
+
+### 5 Whys 与根因
+
+1. 为什么加载状态永远不结束？`CreateView.loadHistory()` 的 `Promise.allSettled()` 要等待两个 IPC 都结算，任一个悬挂时 `finally` 永远不执行。
+2. 为什么 `story2video:list-projects` 会悬挂？主进程在 IPC handler 内同步扫描每个历史项目的 `videoPath`。
+3. 为什么同步扫描会卡住？旧记录允许路径落在受控项目目录外；Windows 的 UNC、断开的网络盘或可移动介质可能让同步文件状态检查阻塞。
+4. 为什么外部路径会被扫描？`listProjects()` 直接对持久化数据执行 `fs.existsSync(project.videoPath)`，没有先做纯词法的受控目录边界判断。
+5. 为什么用户没有可见故障？渲染端没有对历史 IPC 设置截止时间；已有的 `allSettled` 只处理 reject，不能处理永不结算的 Promise。
+
+**第一性根因**：持久化历史中的非受控外部路径被主进程同步 I/O 信任，同时历史聚合 UI 缺少有界结算和部分成功的可见错误态。
+
+### 漏测分类与逃逸链
+
+- **PRD 缺口：是**。历史记录只定义了成功/空态，未定义“一个来源长期无响应、另一个来源成功”的验收行为。
+- **代码缺陷：是**。主进程未建立“恢复项只能探测受控目录内普通文件”的边界；UI 未为 IPC 悬挂设置 deadline。
+- **测试缺口：是**。组件测试只覆盖快速 success/reject；服务测试未覆盖遗留目录外路径；`CreateHistory` 的第二入口也没有超时状态测试。
+- **流程缺口：是**。评审只检查异常抛出和 IPC 权限，未检查主进程同步 I/O 是否信任持久化外部路径，也未检查加载状态的可终止性。
+
+### 修复与 RED→GREEN 证据
+
+1. `Story2VideoProjectService.listProjects()` 先用 `path.relative()` 做不触发 I/O 的词法受控目录检查，再逐段 `lstatSync` 检查项目目录和目标文件的每一级路径；目录外、非法 ID、任意 junction/符号链接、非普通文件或异常路径一律标为不可恢复。
+2. `CreateView` 的两条历史 IPC 均增加 5 秒 deadline；无论成功、失败或超时都会关闭加载状态。部分成功时保留已返回的记录并展示错误和“重试”。
+3. `CreateHistory` 的渲染记录和流水线记录也使用相同的 5 秒 deadline，补齐该模式的第二 UI 入口。
+4. RED：`CreateView` 的“一个 IPC 永不结算、另一个返回已完成记录”测试先失败；`CreateHistory` 的悬挂 `pipelineHistory()` 测试先失败。
+5. RED：项目目录内 junction 指向目录外视频、以及两次并发加载时旧响应晚到的测试都先失败，证明原实现既会越过受控根，也会用旧响应覆盖新状态。
+6. GREEN：CreateHistory.test.js、CreateView.test.js 和 story2video-project-service.test.js 共 **93/93** 通过；浏览器 GUI E2E **270/270** 通过；Vue 构建通过。
+
+### R89：历史与多来源 IPC 可终止性合同
+
+1. 任意用户可见的历史/列表加载不得无限等待 IPC。每个请求必须有有界 deadline，并在超时、reject、异常响应和成功时统一结束 loading。
+2. 聚合多个来源时，任一来源失败不得覆盖另一来源的成功数据；错误横幅必须与已获取的数据同时可见，并提供重试。
+3. 主进程不得对持久化记录中的外部或未经验证的路径执行同步文件状态查询。先做不触发文件系统访问的词法受控根校验；随后必须逐段拒绝 junction/符号链接，只有受控目录内的普通文件才允许继续探测。
+4. 修改 `pipelineHistory`、`story2video:list-projects` 或任一历史页时，至少运行：一个悬挂 Promise 状态覆盖测试、一个部分成功渲染测试、一个旧响应竞态测试、一个目录外或 junction 遗留路径服务测试，以及 GUI E2E 的“创作流水线/创作历史”路由。
+
+### 7 阶段回流映射
+
+- **Stage 2（PRD）**：需要补充“历史多来源部分失败和超时”的可验收状态。
+- **Stage 5（TDD）**：已补两个 fake-timer RED→GREEN 回归和目录边界回归。
+- **Stage 6（评审）**：需要检查用户可见 loading 是否有终止条件、部分成功是否可见、以及持久化路径是否触发主进程同步 I/O。

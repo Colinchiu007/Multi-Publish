@@ -178,6 +178,41 @@ describe('CreateHistory', () => {
     expect(w.vm.pipelines).toEqual([])
   })
 
+  it('流水线历史 IPC 超时时停止加载并显示重试错误', async () => {
+    pipelineHistoryMock.mockImplementation(() => new Promise(() => {}))
+    vi.useFakeTimers()
+    try {
+      const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })
+      w.vm.tab = 'pipelines'
+      void w.vm.loadPipelines()
+
+      await vi.advanceTimersByTimeAsync(8000)
+      await nextTick()
+
+      expect(w.vm.pipelineLoading).toBe(false)
+      expect(w.find('.pipeline-history-error').text()).toContain('加载超时')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('并发流水线历史请求只保留最新一次响应', async () => {
+    let resolveOldRun;
+    pipelineHistoryMock
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOldRun = resolve }))
+      .mockResolvedValueOnce({ code: 0, data: [{ pipelineName: 'new-pipeline', status: 'completed' }] })
+    const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })
+
+    const first = w.vm.loadPipelines()
+    await Promise.resolve()
+    const second = w.vm.loadPipelines()
+    await second
+    resolveOldRun({ code: 0, data: [{ pipelineName: 'old-pipeline', status: 'completed' }] })
+    await first
+    await nextTick()
+
+    expect(w.vm.pipelines.map(item => item.pipelineName)).toEqual(['new-pipeline'])
+    expect(w.vm.pipelineLoading).toBe(false)
+  })
   // ─── 加载状态 ───
   it('初始化时 renderLoading 为 true', () => {
     const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })

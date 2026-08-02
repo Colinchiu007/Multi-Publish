@@ -554,6 +554,36 @@ describe('Story2VideoProjectService', () => {
     })
   })
 
+  it('历史列表不会探测受控项目目录外的视频路径', () => {
+    const externalVideoPath = writeFile(path.join(root, 'external', 'legacy.mp4'))
+    store.getUserSetting.mockReturnValue([{ projectId: 'project-outside', videoPath: externalVideoPath, status: 'completed' }])
+    const lstatSpy = vi.spyOn(fs, 'lstatSync')
+    try {
+      const [project] = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') }).listProjects()
+      expect(project.recoverable).toBe(false)
+      expect(lstatSpy).not.toHaveBeenCalledWith(externalVideoPath)
+    } finally {
+      lstatSpy.mockRestore()
+    }
+  })
+  it('历史列表不会穿过受控项目目录内的链接探测外部视频', () => {
+    const externalVideoPath = writeFile(path.join(root, 'external', 'legacy.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    const projectDir = service._projectDir('project-junction')
+    fs.mkdirSync(projectDir, { recursive: true })
+    const linkedDir = path.join(projectDir, 'linked')
+    fs.symlinkSync(path.dirname(externalVideoPath), linkedDir, process.platform === 'win32' ? 'junction' : 'dir')
+    const linkedVideoPath = path.join(linkedDir, path.basename(externalVideoPath))
+    store.getUserSetting.mockReturnValue([{ projectId: 'project-junction', videoPath: linkedVideoPath, status: 'completed' }])
+    const lstatSpy = vi.spyOn(fs, 'lstatSync')
+    try {
+      const [project] = service.listProjects()
+      expect(project.recoverable).toBe(false)
+      expect(lstatSpy).not.toHaveBeenCalledWith(linkedVideoPath)
+    } finally {
+      lstatSpy.mockRestore()
+    }
+  })
   it('身份服务存在但无法解析用户时拒绝读取历史', () => {
     store._resolveOwnerSubject.mockReturnValue(null)
     const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })

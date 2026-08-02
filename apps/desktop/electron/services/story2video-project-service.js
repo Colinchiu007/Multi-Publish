@@ -241,10 +241,36 @@ class Story2VideoProjectService {
     return cleaned
   }
 
+  _isRecoverableProjectVideo (project) {
+    if (!project || typeof project.videoPath !== 'string') return false
+    try {
+      const projectDir = this._projectDir(this._assertId(project.projectId))
+      const videoPath = path.resolve(project.videoPath)
+      const relativePath = path.relative(projectDir, videoPath)
+      if (!relativePath || relativePath === '..' || relativePath.startsWith('..' + path.sep) || path.isAbsolute(relativePath)) return false
+
+      const projectDirStat = fs.lstatSync(projectDir)
+      if (!projectDirStat.isDirectory() || projectDirStat.isSymbolicLink()) return false
+
+      let currentPath = projectDir
+      const pathSegments = relativePath.split(path.sep).filter(Boolean)
+      for (let index = 0; index < pathSegments.length; index++) {
+        currentPath = path.join(currentPath, pathSegments[index])
+        const stat = fs.lstatSync(currentPath)
+        if (stat.isSymbolicLink()) return false
+        if (index === pathSegments.length - 1) return stat.isFile()
+        if (!stat.isDirectory()) return false
+      }
+      return false
+    } catch (_) {
+      return false
+    }
+  }
+
   listProjects () {
     return this._readProjects().map(project => ({
       ...project,
-      recoverable: typeof project.videoPath === 'string' && fs.existsSync(project.videoPath),
+      recoverable: this._isRecoverableProjectVideo(project),
     }))
   }
 

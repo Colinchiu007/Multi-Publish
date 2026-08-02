@@ -410,7 +410,7 @@
     modelProviderCreate: makeHandler('modelProviderCreate', async (data) => {
       const id = 'custom_' + Date.now();
       const now = new Date().toISOString();
-      const created = Object.assign({ id, is_preset: false, is_default: false, configured: true, created_at: now, updated_at: now }, data);
+      const created = Object.assign({ id, is_preset: false, is_default: false, is_configured: true, created_at: now, updated_at: now }, data);
       state.providers.push(created);
       return ok(created);
     }),
