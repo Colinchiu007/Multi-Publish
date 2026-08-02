@@ -5552,3 +5552,9 @@ getAvailablePresets (category) {
 - **Stage 2（PRD）**：需要补充“历史多来源部分失败和超时”的可验收状态。
 - **Stage 5（TDD）**：已补两个 fake-timer RED→GREEN 回归和目录边界回归。
 - **Stage 6（评审）**：需要检查用户可见 loading 是否有终止条件、部分成功是否可见、以及持久化路径是否触发主进程同步 I/O。
+
+---
+
+## R90：Story2Video Provider 图片 URL 的 Node lookup 兼容合同（2026-08-02）
+
+当 Story2Video 对 provider 返回的 HTTPS 图片 URL 使用自定义 `lookup` 固定已经校验的 DNS 地址时，必须同时支持 Node 的两种 callback 契约：默认模式回调 `(null, address, family)`；若 `options.all === true`，回调 `(null, [{ address, family }])`。两种模式都只能返回同一个已校验公网地址，禁止为了兼容而回退到系统 DNS、跟随重定向或放宽私网/大小/协议限制。修改 `asset-generator.js`、Electron/Node 版本或 HTTPS 下载器时，至少运行 `asset-generator-provider.test.js` 中的单地址、`all=true`、DNS 重绑定、私网与超时用例，并在真实 provider 验收中确认图片资产标记为 `source: model-provider`、`degraded: false`。

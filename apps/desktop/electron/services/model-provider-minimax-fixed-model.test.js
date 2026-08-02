@@ -161,3 +161,29 @@ describe('setDefault API Key 提示', () => {
     expect(Number(row.is_default)).toBe(1)
   })
 })
+
+describe('已配置模型的默认回退', () => {
+  it('未显式设为默认时，仍解析唯一已启用且已配置的模型', async () => {
+    const SQL = await initSqlJs()
+    const database = new SQL.Database()
+    try {
+      const { store } = await createStore(database)
+      const manager = newManager(store)
+      const update = manager.updateProvider('minimax-image', {
+        api_key: 'mm-image-fallback-key',
+        enabled: true,
+      })
+      expect(update.code).toBe(0)
+
+      const provider = manager.getDefault('image')
+
+      expect(provider).toMatchObject({
+        id: 'minimax-image',
+        is_default: false,
+        is_configured: true,
+      })
+    } finally {
+      database.close()
+    }
+  })
+})

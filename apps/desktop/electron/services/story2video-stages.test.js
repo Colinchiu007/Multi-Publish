@@ -135,7 +135,10 @@ describe('story2video 资源索引契约', () => {
     const missing = await noDefault({
       stage: { options: {} }, params: {}, context: { split: [{ text: '场景' }] }, serviceBus: {},
     })
-    expect(missing).toMatchObject({ success: false, error: expect.stringMatching(/default.*LLM|默认.*模型/i) })
+    expect(missing).toEqual({
+      success: false,
+      error: '未找到需要的相关模型，请在设置中添加模型',
+    })
 
     const empty = makePipeline(null, {
       _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },

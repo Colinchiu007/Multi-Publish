@@ -303,7 +303,12 @@ function createVerifiedLookup (expectedHostname, verifiedAddress) {
       callback(new Error('provider image URL requested an unexpected host'))
       return
     }
-    callback(null, verifiedAddress.address, verifiedAddress.family)
+    const address = { address: verifiedAddress.address, family: verifiedAddress.family }
+    if (options?.all === true) {
+      callback(null, [address])
+      return
+    }
+    callback(null, address.address, address.family)
   }
 }
 

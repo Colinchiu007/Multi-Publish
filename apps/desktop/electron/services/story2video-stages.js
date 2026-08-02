@@ -203,7 +203,7 @@ function registerStory2VideoStages(pipelineEngine) {
 
       const defaultLlm = getDefaultLlmConfig(aiGenerator);
       if (!defaultLlm) {
-        return { success: false, error: 'Story2Video 未找到已配置的默认 LLM，请在模型设置中启用并设为默认' };
+        return { success: false, error: '未找到需要的相关模型，请在设置中添加模型' };
       }
 
       const scenes = getOptimizationScenes(context || {});

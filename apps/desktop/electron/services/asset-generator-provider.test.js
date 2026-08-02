@@ -617,3 +617,55 @@ describe('AssetGenerator provider integration', () => {
     }
   })
 })
+
+describe('AssetGenerator DNS lookup compatibility', () => {
+  it('returns a pinned address array when Node requests lookup with all=true', async () => {
+    const resolveHost = vi.fn(async () => [{ address: '8.8.4.4', family: 4 }])
+    const httpsRequest = vi.fn((url, options, onResponse) => {
+      const request = new EventEmitter()
+      request.setTimeout = vi.fn()
+      request.end = vi.fn()
+      request.destroy = vi.fn((error) => {
+        if (error) queueMicrotask(() => request.emit('error', error))
+      })
+      queueMicrotask(() => {
+        options.lookup('auto-family.example.test', { family: 0, all: true }, (error, addresses) => {
+          if (error) return request.emit('error', error)
+          if (!Array.isArray(addresses) || addresses.length !== 1) {
+            return request.emit('error', new Error('custom lookup must return addresses when all=true'))
+          }
+          const response = new EventEmitter()
+          response.statusCode = 200
+          response.headers = {
+            'content-type': 'image/png',
+            'content-length': String(PNG_BYTES.length),
+          }
+          response.resume = vi.fn()
+          onResponse(response)
+          response.emit('data', PNG_BYTES)
+          response.emit('end')
+        })
+      })
+      return request
+    })
+    const aiGenerator = {
+      generate: vi.fn(async () => ({ urls: ['https://auto-family.example.test/generated.png'] })),
+      getProviderConfig: vi.fn(() => ({ baseUrl: 'https://api.example.test' })),
+    }
+    const { generator, outputDir } = createGenerator(aiGenerator, { httpsRequest, resolveHost })
+
+    try {
+      const result = await generator.generateImage('Node 22 自动地址选择必须保留固定 DNS 地址', {
+        image_provider: 'remote-provider',
+        runId: 'lookup-all-true',
+      })
+
+      expect(result).toMatchObject({
+        code: 0,
+        data: { source: 'model-provider', degraded: false },
+      })
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true })
+    }
+  })
+})
