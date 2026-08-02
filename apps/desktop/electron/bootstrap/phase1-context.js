@@ -171,6 +171,8 @@ function extractContext(container) {
   const { ModelProviderManager } = require('../services/model-provider-manager')
   const { ProviderRouter } = require('../services/adapters/_base/router')
   const modelProviderManager = new ModelProviderManager(store)
+  // Story2Video 的默认模型调用不能依赖用户先打开设置页触发 IPC 初始化。
+  modelProviderManager.init()
   // 创建 ProviderRouter（不注入 logHandler，避免与 callAdapter 内部日志双写）
   // callAdapter 内部已通过 _writeLog 统一记录到 model_provider_logs 表
   // router 的 logHandler 功能保留为可选扩展（测试中可单独验证）

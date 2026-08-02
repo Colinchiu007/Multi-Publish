@@ -97,13 +97,15 @@ describe('crypto — P2 API Key 加密', () => {
       expect(crypto.decrypt('')).toBe('')
     })
 
-    it('decrypt 接受 Buffer 或 string', () => {
+    it('decrypt 接受 Buffer、string 或 sql.js 返回的 Uint8Array', () => {
       const mock = createMockSafeStorage()
       crypto.setSafeStorage(mock)
       const encrypted = crypto.encrypt('sk-test-key')
       expect(crypto.decrypt(encrypted)).toBe('sk-test-key')
       const base64 = encrypted.toString('base64')
       expect(crypto.decrypt(base64)).toBe('sk-test-key')
+      const sqlJsBlob = new Uint8Array(encrypted.buffer, encrypted.byteOffset, encrypted.byteLength)
+      expect(crypto.decrypt(sqlJsBlob)).toBe('sk-test-key')
     })
 
     it('safeStorage 不可用时 decrypt 抛错（拒绝降级明文）', () => {
@@ -265,20 +267,13 @@ describe('crypto — P2 API Key 加密', () => {
   })
 
   describe('P2 补跑：decrypt 非 Buffer 类型', () => {
-    it('decrypt 传入 Uint8Array', () => {
+    it('decrypt 正确处理带 byte offset 的 Uint8Array', () => {
       const mock = createMockSafeStorage()
       crypto.setSafeStorage(mock)
       const encrypted = crypto.encrypt('sk-test-key')
-      // Buffer 是 Uint8Array 子类，反过来不一定
-      const uint8 = new Uint8Array(encrypted)
-      // 当前 _toBuffer 检查 Buffer.isBuffer，Uint8Array 会被当 string 处理
-      // 测试期望：要么正常解密，要么返回空
-      try {
-        const result = crypto.decrypt(uint8)
-        expect(typeof result).toBe('string')
-      } catch (e) {
-        expect(e).toBeInstanceOf(Error)
-      }
+      const padded = Buffer.concat([Buffer.from([0]), encrypted, Buffer.from([0])])
+      const uint8 = new Uint8Array(padded.buffer, padded.byteOffset + 1, encrypted.byteLength)
+      expect(crypto.decrypt(uint8)).toBe('sk-test-key')
     })
 
     it('decrypt 传入无效 base64 字符串不崩溃', () => {

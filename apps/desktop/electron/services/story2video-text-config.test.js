@@ -35,11 +35,8 @@ describe('Story2Video text 参数合同', () => {
         max_words: 50,
       }),
       optimize: expect.objectContaining({
-        platform: 'generic',
         style: 'realistic',
         creative_level: 5,
-        num_candidates: 1,
-        auto_detect_style: true,
       }),
       generate_assets: expect.objectContaining({
         imageStyle: 'cinematic',
@@ -68,43 +65,39 @@ describe('Story2Video text 参数合同', () => {
     expect(result).not.toHaveProperty('generateMerged')
     expect(result.story2videoTextConfig).not.toHaveProperty('seconds')
     expect(result.story2videoTextConfig).not.toHaveProperty('versions')
-    expect(result.stageOptions.optimize).not.toHaveProperty('max_length')
-    expect(result.stageOptions.optimize).not.toHaveProperty('context')
+    expect(result.stageOptions.optimize).not.toHaveProperty('platform')
+    expect(result.stageOptions.optimize).not.toHaveProperty('num_candidates')
+    expect(result.stageOptions.optimize).not.toHaveProperty('auto_detect_style')
   })
 
-  it('将图片风格与提示词风格隔离，并把兼容值映射为 prompt-engine 合法值', () => {
+  it('将图片风格与提示词风格隔离，并把兼容值映射为 Story2Video 合法值', () => {
     const result = normalizeStory2VideoTextParams({
       text: '未来城市',
       imageStyle: 'cinematic',
-      promptPlatform: 'douyin',
       promptStyle: '3d-render',
     })
 
     expect(result.imageStyle).toBe('cinematic')
     expect(result.promptStyle).toBe('3d_render')
     expect(result.stageOptions.optimize).toMatchObject({
-      platform: 'generic',
       style: '3d_render',
     })
   })
 
-  it('保留 prompt-engine 对象上下文，并将空 maxLength 视为未设置', () => {
-    const context = {
-      synopsis: '未来城市中的交通故事',
-      setting: '雨夜街道',
-      character: { name: '林夏' },
-      character_list: [{ name: '林夏' }, { name: '周舟' }],
-    }
+  it('忽略旧 PromptBridge 专属参数，不把它们伪装为当前 LLM 的可用选项', () => {
     const result = normalizeStory2VideoTextParams({
       text: '未来城市',
       story2videoTextConfig: {
-        optimize: { context, maxLength: '' },
+        optimize: { platform: 'douyin', maxLength: 300, numCandidates: 3, autoDetectStyle: false, context: { synopsis: '旧路径' } },
       },
     })
 
-    expect(result.story2videoTextConfig.optimize.context).toEqual(context)
-    expect(result.stageOptions.optimize.context).toEqual(context)
-    expect(result.stageOptions.optimize).not.toHaveProperty('max_length')
+    expect(result.story2videoTextConfig.optimize).toEqual({
+      style: 'realistic', creativeLevel: 5, negativePrompt: '',
+    })
+    expect(result.stageOptions.optimize).toEqual({
+      style: 'realistic', creative_level: 5, negative_prompt: '',
+    })
   })
 
   it('将完整兼容配置映射到对应阶段，并转换 BGM 兼容音量单位', () => {
@@ -119,7 +112,7 @@ describe('Story2Video text 参数合同', () => {
         size: '1920x1080',
         seconds: 12,
         split: { language: 'auto', mode: 'precise', maxSentenceLength: 120, targetSeconds: 4, speechRate: 1.2, minWords: 4, maxWords: 30 },
-        optimize: { platform: 'douyin', style: 'anime', creativeLevel: 8, numCandidates: 2, autoDetectStyle: false },
+        optimize: { style: 'anime', creativeLevel: 8, negativePrompt: '水印、文字' },
         image: { provider: 'dall-e', model: 'gpt-image-1', style: 'anime', effect: 'pan-left' },
         voice: { provider: 'doubao-tts', model: 'seed-tts-1', id: 'voice-1', speed: 1.3, volume: 0.8, pitch: 2, emotion: 'warm' },
         subtitle: { enabled: true, font: 'Noto Sans SC', size: 'size4', style: 'style2', color: '#ffffff' },
@@ -149,7 +142,7 @@ describe('Story2Video text 参数合同', () => {
       tags: ['旅行'],
     })
     expect(result.stageOptions.split).toMatchObject({ mode: 'precise', max_sentence_length: 120, target_duration: 4 })
-    expect(result.stageOptions.optimize).toMatchObject({ style: 'anime', creative_level: 8, num_candidates: 2, auto_detect_style: false })
+    expect(result.stageOptions.optimize).toEqual({ style: 'anime', creative_level: 8, negative_prompt: '水印、文字' })
     expect(result.stageOptions.compose).toMatchObject({
       transition: 'slide-left',
       imageEffect: 'pan-left',
@@ -162,13 +155,13 @@ describe('Story2Video text 参数合同', () => {
     })
   })
 
-  it('兼容忽略旧时长、版本和提示词平台字段', () => {
+  it('兼容忽略旧时长、版本和 PromptBridge 专属字段', () => {
     const result = normalizeStory2VideoTextParams({
       text: '兼容旧配置',
       story2videoTextConfig: { seconds: 12, versions: { generateBase: false, generateMerged: false }, optimize: { platform: 'unknown' } },
     })
 
-    expect(result.stageOptions.optimize.platform).toBe('generic')
+    expect(result.stageOptions.optimize).not.toHaveProperty('platform')
     expect(result).not.toHaveProperty('seconds')
     expect(result.story2videoTextConfig).not.toHaveProperty('versions')
   })
@@ -206,12 +199,9 @@ describe('Story2Video text 参数合同', () => {
     [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: 'free-form' } } }, 'image.aspectRatio'],
     [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: '7:11' } } }, 'image.aspectRatio'],
     [{ text: '测试', story2videoTextConfig: { bgm: { volume: 11 } } }, 'bgm.volume'],
-    [{ text: '测试', story2videoTextConfig: { optimize: { style: 'unknown' } } }, '不支持 prompt-engine 值'],
+    [{ text: '测试', story2videoTextConfig: { optimize: { style: 'unknown' } } }, '不支持的视觉提示词风格'],
     [{ text: '测试', story2videoTextConfig: { optimize: { creativeLevel: 0 } } }, '1-10'],
-    [{ text: '测试', story2videoTextConfig: { optimize: { numCandidates: 6 } } }, '1-5'],
-    [{ text: '测试', story2videoTextConfig: { optimize: { maxLength: 49 } } }, '50-2000'],
     [{ text: '测试', story2videoTextConfig: { optimize: { negativePrompt: 'x'.repeat(501) } } }, '超过 500 字符'],
-    [{ text: '测试', story2videoTextConfig: { optimize: { context: { accessToken: 'secret' } } } }, '敏感凭据'],
   ])('拒绝非法配置且给出明确错误 %#', (input, expected) => {
     expect(() => normalizeStory2VideoTextParams(input)).toThrow(expected)
   })

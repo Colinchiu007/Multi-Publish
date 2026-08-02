@@ -5439,3 +5439,68 @@ getAvailablePresets (category) {
 1. **新增服务商成功合同**：任何可保存的远程服务商必须在保存前同时满足 ID、名称、类别和可用凭据；成功提示后必须能从同一筛选视图回读该项。修改 CRUD、IPC 或筛选状态时，至少保留“空凭据拒绝 + 成功创建后回读”的成对回归。
 2. **固定模型单一来源**：若服务商产品约定固定模型，seeds、持久化规范化、UI 表单、adapter `listModels()` 与请求体必须由同一个规范化规则约束；不得仅在 UI 隐藏字段而让存量记录或调用参数覆盖真实请求。
 3. **配置状态单一来源**：UI 不得从 `api_key_enc`、掩码或字段存在性自行推断已配置；主进程必须返回可调用状态，且该状态同时考虑启用开关、可解密凭据和合法免 Key 条件。
+---
+
+## sql.js 加密 BLOB 回读为 Uint8Array 导致新增模型不显示（2026-08-02）
+
+### 第一性原因
+
+- 新增远程模型的 API Key 经过 Electron `safeStorage.encryptString()` 后以 BLOB 写入 `model_providers.api_key_enc`。
+- 桌面端的 `sqlite-wrapper` 基于 sql.js；`statement.getAsObject()` 对该 BLOB 返回 `Uint8Array`，而不是 Node `Buffer`。
+- `crypto._toBuffer()` 只将 `Buffer` 视为二进制，其他对象会先 `String()` 再按 Base64 解码。`Uint8Array` 因此变成逗号分隔的数字文本并被破坏；`decrypt()` 按既有 fail-closed 语义返回空字符串。
+- `_safeRow()` 继而给出 `is_configured: false`，默认“已配置”视图将刚保存的模型筛掉，形成“保存成功但列表没有新增”的假象。
+
+### 测试逃逸链
+
+1. 单元测试虽有 `Uint8Array` 用例，但只断言返回值类型，允许解密失败后的空字符串通过；没有锁定 sql.js 数据库驱动回读的原始字节语义。
+2. 模型服务商 CRUD 测试 mock 了加密层，真实 `sqlite-wrapper -> crypto.decrypt()` 的二进制类型合同被绕过。
+3. 既有真实 Electron 验证主要检查页面可打开、预设可见与空 Key 拦截，没有完成“新远程模型保存后默认已配置视图立即回读”的完整流程。
+4. 审查未把“SQLite BLOB 驱动返回类型”视为跨实现的运行时数据契约。
+
+### 修复与回归保护
+
+- `crypto._toBuffer()` 现接受所有 `ArrayBuffer` view（包括 `Uint8Array`）和独立 `ArrayBuffer`，并使用原始 buffer、offset 与 byte length 重建 Node `Buffer`，不再经过字符串/Base64 路径。
+- `crypto.test.js` 先以 sql.js 形态的 `Uint8Array` 得到 RED，再验证修复后的解密回读 GREEN；Buffer/Base64 兼容合同继续保留。
+- 用真实 Electron 隔离 profile 新增两个自定义图片模型并返回默认“已配置”视图；保存后对话框关闭且模型卡片立即可见。
+- 同步修正过时测试：远程服务商缺少 API Key 必须被拒绝，不能把旧的空凭据创建语义继续固化为通过。
+
+### 预防措施（R87）
+
+1. 使用 sql.js、better-sqlite3 或任何可替换存储驱动保存二进制凭据时，测试必须覆盖原始 `Buffer`、驱动回读的 typed array 与序列化 Base64 三种载体，且字节值保持等价。
+2. 加密凭据的 UI 状态、可用性检查与实际调用必须基于同一次可解密回读，不能只以 BLOB 非空或保存成功推断“已配置”。
+3. 任何模型服务商新增/编辑修复至少保留一次真实 Electron 冒烟：保存 → 列表重载 → 默认筛选视图中出现目标服务商。
+---
+
+## 开发窗口误连旧 Vite 服务导致模型列表修复看似回归（2026-08-02）
+
+### 问题与复现
+
+- **现象**：新增模型保存后，用户返回模型服务商列表仍看不到新增项，并怀疑应用回到了旧版本。
+- **预期**：桌面窗口必须加载当前 worktree 的 renderer；远程服务商在填写有效 API Key 后保存，默认“已配置”视图应立即显示新卡片，且旧分类筛选不得遮挡。
+- **复现**：在 `C:/tmp/Multi-Publish-story2video-scope-e2e` 直接执行 `electron .` 且未传 `DEV_SERVER_PORT` 时，Electron 自动访问 `http://127.0.0.1:5174/`；该端口运行的是另一份旧 Vite 服务。改为 `DEV_SERVER_PORT=5178` 后，CDP 页面 URL 为 `http://127.0.0.1:5178/#/`，模型列表实现恢复为当前工作树版本。
+
+### 5 Whys 与第一性原因
+
+1. 为什么用户看到“修复又失效” → 可见窗口加载的 renderer 不是当前 worktree 的 Vite 实例。
+2. 为什么加载了错误 renderer → 裸启动 `electron .` 未传目标 `DEV_SERVER_PORT`。
+3. 为什么未传端口仍能打开应用 → Electron 开发配置会回退到默认端口 `5174`，而该端口恰有旧 Vite 服务可响应。
+4. 为什么此前验证没有拦住 → 只确认 Electron 进程存活/窗口存在，没有把 CDP 或窗口 URL 与当前 worktree 的 Vite 端口绑定核验。
+5. **根因**：开发启动证据缺少“窗口 renderer 来源 = 当前 worktree Vite 实例”的身份合同；旧端口服务可用时，进程存活和页面可见会产生错误的通过结论。
+
+### 逃逸链
+
+1. **单元测试**：`useModelProviderCrud` 已覆盖保存后清除旧分类、重载并显示新记录，但无法识别 Electron 是否加载了另一份前端资产。
+2. **主进程/IPC 集成**：远程无 API Key 被实时 IPC 正确拒绝；有效临时 Key 的保存、列表回读和 `is_configured` 也正确，仍不能证明 renderer 来源。
+3. **真实桌面验证**：此前以窗口启动或本地页面显示代替了 URL/source 验证，旧 Vite 服务因而逃逸。
+4. **流程**：重启命令没有强制使用 `npm run dev` 或显式 `DEV_SERVER_PORT`，也没有保存端口来源证据。
+
+### 回归保护与验证
+
+- 保留现有 `useModelProviderCrud` 状态回归：跨类别创建成功后强制 `filterCategory = 'all'` 并重新拉取列表。
+- 保留加密 BLOB 回读回归：`Buffer`、`Uint8Array`、`ArrayBuffer` 三种载体均须在列表中恢复 `is_configured`。
+- 本次在正确来源窗口执行真实 renderer + IPC 验收：先把页面状态置为 `TTS` 分类，再由页面加载的 `submitForm()` 新增临时 LLM；结果为列表回读 `enabled: true`、`is_configured: true`，前端筛选自动恢复 `all`、新增卡片已渲染、两个对话框均关闭；临时记录随后删除并重新加载列表。
+- 启动门禁新增到 `.quality-gates.md`：开发模式重启必须使用 `npm run dev` 或显式传递目标 `DEV_SERVER_PORT`，并核验 CDP/窗口 URL 指向当前 worktree 的 Vite 端口。
+
+### R88：开发窗口 renderer 来源合同
+
+任何需要以开发 Electron 窗口作为验收证据的任务，必须同时记录：(1) Electron 可执行文件和工作目录属于目标 worktree；(2) Vite 以 `127.0.0.1`、显式端口和 `--strictPort` 启动；(3) Electron 子进程获得同一 `DEV_SERVER_PORT`；(4) CDP 页面或窗口 URL 精确指向该端口。只验证进程 PID、页面标题、截图或 `did-finish-load` 均不足以证明运行的是当前代码。

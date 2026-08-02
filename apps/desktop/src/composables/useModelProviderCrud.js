@@ -52,7 +52,7 @@ function canUseWithoutApiKey (provider) {
 }
 
 function isProviderConfigured (provider) {
-  return Boolean(provider && (provider.is_configured || provider.api_key_masked || provider.api_key))
+  return Boolean(provider && provider.is_configured === true)
 }
 
 function createDefaultForm () {
@@ -282,6 +282,7 @@ export function useModelProviderCrud () {
 
       if (res.code === 0) {
         ElMessage.success(isEditing.value ? '更新成功' : '添加成功')
+        filterCategory.value = 'all'
         showFormDialog.value = false
         showAddDialog.value = false
         await loadProviders()
@@ -290,6 +291,7 @@ export function useModelProviderCrud () {
         const updateRes = await modelProviderUpdate(data.id, data)
         if (updateRes.code === 0) {
           ElMessage.success('已更新已有服务商配置')
+          filterCategory.value = 'all'
           showFormDialog.value = false
           showAddDialog.value = false
           await loadProviders()
@@ -445,5 +447,4 @@ export function useModelProviderCrud () {
     testProvider,
   }
 }
-
 

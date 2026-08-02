@@ -1,5 +1,6 @@
 // E2E 集成测试 - 验证 PipelineEngine orchestrator 模式端到端执行 story2video-compose 流水线
-// 前置条件：smart-sentence-splitter 已在 8002 启动，prompt-engine 已在 8013 启动
+// 前置条件：smart-sentence-splitter 已在 8002 启动。
+// Story2Video 优化阶段使用受控的默认 LLM 夹具，不能回退到 prompt-engine。
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -37,23 +38,36 @@ async function buildContainer() {
     },
     log: { info: () => {}, warn: () => {}, error: () => {} },
   });
+  serviceBus.optimizePromptsBatch = async () => {
+    throw new Error('Story2Video must not call PromptBridge optimizePromptsBatch');
+  };
 
   const stageExecutor = new StageExecutor({
     serviceBus,
     container: {},
     log: { info: () => {}, warn: () => {}, error: () => {} },
   });
+  const aiGenerator = {
+    _modelProviderManager: {
+      getDefault: () => ({ id: 'e2e-llm', models: ['e2e-model'] }),
+    },
+    generateWithDefault: async (_type, params) => ({
+      content: 'E2E visual prompt: ' + params.messages[1].content,
+      model: 'e2e-model',
+    }),
+  };
 
   const pipelineEngine = new PipelineEngine({
     serviceBus,
     stageExecutor,
     container: {},
+    aiGenerator,
     log: { info: () => {}, warn: () => {}, error: () => {} },
   });
 
   registerStory2VideoStages(pipelineEngine);
 
-  return { pipelineEngine, serviceBus };
+  return { pipelineEngine, serviceBus, aiGenerator };
 }
 
 test('PipelineEngine orchestrator - story2video-compose 流水线已注册为第 14 条', { timeout: 10000 }, () => {
@@ -93,8 +107,8 @@ test('PipelineEngine orchestrator - stage 1 (split) 执行成功并写入 contex
   console.log('  stage 1 (split) 完成，场景数:', ctx.split.scenes?.length);
 });
 
-test('PipelineEngine orchestrator - domain_enrich 后执行 optimize', { timeout: 60000 }, async () => {
-  const { pipelineEngine } = await buildContainer();
+test('PipelineEngine orchestrator - domain_enrich 后由默认 LLM 执行 optimize', { timeout: 60000 }, async () => {
+  const { pipelineEngine, serviceBus, aiGenerator } = await buildContainer();
   const res = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: '美丽的日落。海边的椰子树。',
     autoAdvance: false,
@@ -108,6 +122,8 @@ test('PipelineEngine orchestrator - domain_enrich 后执行 optimize', { timeout
   assert.ok(ctx.split, 'context 应包含 split 结果');
   assert.ok(ctx.domain_enrich, 'context 应包含 domain_enrich 结果');
   assert.ok(ctx.optimize, 'context 应包含 optimize 结果');
+  assert.equal(ctx.optimize[0].providerId, 'e2e-llm');
+  assert.ok(aiGenerator._modelProviderManager.getDefault);
   console.log('  domain_enrich + optimize 完成');
 });
 

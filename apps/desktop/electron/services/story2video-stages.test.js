@@ -25,11 +25,12 @@ function makeStageExecutor() {
   }
 }
 
-function makePipeline(assetGenerator) {
+function makePipeline(assetGenerator, aiGenerator) {
   const stageExecutor = makeStageExecutor()
   const pipeline = {
     stageExecutor,
     _assetGenerator: assetGenerator,
+    aiGenerator,
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     registerStageExecutor(type, fn) {
       stageExecutor.register(type, fn)
@@ -39,6 +40,7 @@ function makePipeline(assetGenerator) {
   registerStory2VideoStages(pipeline)
   const assetsExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
   assetsExecutor.domainExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
+  assetsExecutor.optimizeExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
   return assetsExecutor
 }
 
@@ -78,6 +80,90 @@ describe('story2video 资源索引契约', () => {
     expect(result.output.scenes).toEqual([{ text: '普通内容。' }])
   })
 
+  it('提示词优化只调用当前默认 LLM，逐场景保序且不回退 PromptBridge', async () => {
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })),
+      },
+      generateWithDefault: vi.fn(async (_type, params) => ({
+        content: params.messages[1].content.includes('唐代')
+          ? '唐代长安城，电影感广角镜头'
+          : '未来城市夜景，电影感航拍镜头',
+        model: 'gpt-4.1-mini',
+      })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const serviceBus = { optimizePromptsBatch: vi.fn() }
+
+    const result = await fn({
+      stage: { options: { style: 'cinematic', creative_level: 8 } },
+      params: {},
+      context: {
+        domain_enrich: {
+          scenes: [
+            { text: '唐朝长安城的灯火。', imagePromptSeed: '唐代长安城夜景，无文字' },
+            { text: '未来城市的车流。' },
+          ],
+        },
+      },
+      serviceBus,
+    })
+
+    expect(result).toEqual({
+      success: true,
+      output: [
+        { optimized_prompt: '唐代长安城，电影感广角镜头', providerId: 'openai', model: 'gpt-4.1-mini' },
+        { optimized_prompt: '未来城市夜景，电影感航拍镜头', providerId: 'openai', model: 'gpt-4.1-mini' },
+      ],
+    })
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(2)
+    expect(aiGenerator.generateWithDefault).toHaveBeenNthCalledWith(
+      1,
+      'llm',
+      expect.objectContaining({
+        messages: expect.arrayContaining([expect.objectContaining({ role: 'system' })]),
+      }),
+    )
+    expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
+  })
+
+  it('默认 LLM 缺失、空响应或中途失败时优化阶段 fail closed', async () => {
+    const noDefault = makePipeline(null, {
+      _modelProviderManager: { getDefault: vi.fn(() => null) },
+      generateWithDefault: vi.fn(),
+    }).optimizeExecutor
+    const missing = await noDefault({
+      stage: { options: {} }, params: {}, context: { split: [{ text: '场景' }] }, serviceBus: {},
+    })
+    expect(missing).toMatchObject({ success: false, error: expect.stringMatching(/default.*LLM|默认.*模型/i) })
+
+    const empty = makePipeline(null, {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
+      generateWithDefault: vi.fn(async () => ({ content: '   ' })),
+    }).optimizeExecutor
+    const blank = await empty({
+      stage: { options: {} }, params: {}, context: { split: [{ text: '场景' }] }, serviceBus: {},
+    })
+    expect(blank).toMatchObject({ success: false, error: expect.stringMatching(/empty|为空/i) })
+
+    const serviceBus = { optimizePromptsBatch: vi.fn() }
+    const midFailure = makePipeline(null, {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
+      generateWithDefault: vi.fn()
+        .mockResolvedValueOnce({ content: '第一幕优化结果' })
+        .mockRejectedValueOnce(new Error('provider timeout')),
+    }).optimizeExecutor
+    const failed = await midFailure({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '第一幕' }, { text: '第二幕' }] },
+      serviceBus,
+    })
+    expect(failed).toMatchObject({ success: false, error: expect.stringMatching(/scene 1.*provider timeout/i) })
+    expect(failed).not.toHaveProperty('output')
+    expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
+  })
+
   it('任一 scene 的图片或音频失败时默认阻断，不能生成错位清单', async () => {
     const fn = makePipeline({
       generateImage: vi.fn(async (_prompt, { index }) => index === 1
@@ -101,6 +187,7 @@ describe('story2video 资源索引契约', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toMatch(/scene.*失败|asset.*failed/i)
+    expect(result.error).toContain('Image #2: image failed')
   })
 
   it('显式允许部分资源时只保留同 index 的成对 scene', async () => {

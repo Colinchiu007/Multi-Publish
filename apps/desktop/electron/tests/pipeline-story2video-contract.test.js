@@ -23,9 +23,18 @@ function createEngine() {
     composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: 'video.mp4' } })),
     callPythonSkill: vi.fn(),
   }
+  const aiGenerator = {
+    _modelProviderManager: {
+      getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })),
+    },
+    generateWithDefault: vi.fn(async (_type, params) => ({
+      content: 'optimized: ' + params.messages[1].content,
+      model: 'gpt-4.1-mini',
+    })),
+  }
   const stageExecutor = new StageExecutor({ serviceBus, log })
-  const engine = new PipelineEngine({ serviceBus, stageExecutor, log })
-  return { engine, serviceBus }
+  const engine = new PipelineEngine({ serviceBus, stageExecutor, aiGenerator, log })
+  return { engine, serviceBus, aiGenerator }
 }
 
 describe('story2video 编排契约', () => {
@@ -44,8 +53,9 @@ describe('story2video 编排契约', () => {
     expect(stages.generate_assets.options).toMatchObject({
       inputMode: 'text',
       aspectRatio: '9:16',
-      voiceId: 'zh_female_qingxinnvsheng_uranus_bigtts',
+      voiceId: 'default',
     })
+    expect(stages.optimize.type).toBe('story2video_optimize')
     expect(stages.compose.options).toMatchObject({
       resolution: '720x1280',
       subtitleEnabled: false,
@@ -55,14 +65,11 @@ describe('story2video 编排契约', () => {
     expect(stages.publish.options).toMatchObject({ publishEnabled: false, platforms: [] })
   })
 
-  it('历史内容将 contentType 传入领域增强，并把富化提示词交给批量优化', async () => {
-    const { engine, serviceBus } = createEngine()
+  it('历史内容将 contentType 传入领域增强，并把富化提示词交给当前默认 LLM', async () => {
+    const { engine, serviceBus, aiGenerator } = createEngine()
     registerStory2VideoStages(engine)
     serviceBus.splitText.mockResolvedValueOnce({
       scenes: [{ text: '唐朝长安城的灯火照亮宫殿。' }],
-    })
-    serviceBus.optimizePromptsBatch.mockResolvedValueOnce({
-      results: [{ optimized_prompt: '唐代长安城的电影感画面' }],
     })
 
     const started = await engine.startOrchestrated('story2video-compose', {
@@ -83,14 +90,16 @@ describe('story2video 编排契约', () => {
         imagePromptSeed: expect.stringContaining('唐代'),
       })],
     })
-    expect(serviceBus.optimizePromptsBatch).toHaveBeenCalledWith(
-      [expect.stringContaining('唐代')],
-      expect.objectContaining({ style: 'realistic' }),
-    )
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledWith('llm', expect.objectContaining({
+      messages: expect.arrayContaining([
+        expect.objectContaining({ role: 'user', content: expect.stringContaining('唐代') }),
+      ]),
+    }))
+    expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
   })
 
-  it('真实 text 默认参数传给 prompt-engine 时不包含无效的空可选字段', async () => {
-    const { engine, serviceBus } = createEngine()
+  it('真实 text 默认参数传给默认 LLM，且不调用旧 PromptBridge', async () => {
+    const { engine, serviceBus, aiGenerator } = createEngine()
     registerStory2VideoStages(engine)
     const started = await engine.startOrchestrated('story2video-compose', {
       text: '城市夜景。未来交通。',
@@ -102,16 +111,10 @@ describe('story2video 编排契约', () => {
     const optimized = await engine.executeStage(started.runId)
 
     expect(optimized.success).toBe(true)
-    const options = serviceBus.optimizePromptsBatch.mock.calls.at(-1)[1]
-    expect(options).toMatchObject({
-      platform: 'generic',
-      style: 'realistic',
-      creative_level: 5,
-      num_candidates: 1,
-      auto_detect_style: true,
-    })
-    expect(options).not.toHaveProperty('max_length')
-    expect(options).not.toHaveProperty('context')
+    const request = aiGenerator.generateWithDefault.mock.calls.at(-1)[1]
+    expect(request).toMatchObject({ max_tokens: 500, temperature: 0.5 })
+    expect(request.messages[1].content).toContain('Visual style: realistic')
+    expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
   })
 
   it('启动时保留 initialContext，并让运行快照同时提供 context 与 status', async () => {
@@ -285,8 +288,8 @@ describe('story2video 编排契约', () => {
     expect(engine._runs.size).toBe(0)
   })
 
-  it('Story2Video 使用版本化 text 配置执行分句和优化，普通编排流水线保持旧合同', async () => {
-    const { engine, serviceBus } = createEngine()
+  it('Story2Video 使用版本化 text 配置执行分句和默认 LLM 优化，普通编排流水线保持旧合同', async () => {
+    const { engine, serviceBus, aiGenerator } = createEngine()
     registerStory2VideoStages(engine)
     const started = await engine.startOrchestrated('story2video-compose', {
       text: '海上日出',
@@ -312,10 +315,11 @@ describe('story2video 编排契约', () => {
       }),
     }))
     expect(serviceBus.splitText.mock.calls[0][1]).not.toHaveProperty('max_sentence_length')
-    expect(serviceBus.optimizePromptsBatch).toHaveBeenCalledWith(
-      ['第一幕。', '第二幕。'],
-      expect.objectContaining({ style: 'anime', creative_level: 8, num_candidates: 2 }),
-    )
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(2)
+    const optimizeRequest = aiGenerator.generateWithDefault.mock.calls.at(-1)[1]
+    expect(optimizeRequest).toMatchObject({ max_tokens: 500, temperature: 0.6799999999999999 })
+    expect(optimizeRequest.messages[1].content).toContain('Visual style: anime')
+    expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
 
     engine.registerPipeline({
       name: 'contract-unchanged',

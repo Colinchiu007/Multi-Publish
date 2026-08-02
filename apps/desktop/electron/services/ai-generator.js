@@ -88,6 +88,47 @@ class AIGenerator {
     return this._generateViaPythonBridge(type, providerId, params, onProgress);
   }
 
+  /**
+   * 使用当前类别的已配置默认 provider 生成。
+   *
+   * 仅允许 Adapter 直调，避免默认模型在未注册 Adapter 时退回到 Python bridge。
+   */
+  async generateWithDefault(type, params, onProgress) {
+    const manager = this._modelProviderManager;
+    if (!manager || !manager._ready) {
+      throw new Error('Model provider manager not available');
+    }
+
+    const provider = typeof manager.getDefault === 'function'
+      ? manager.getDefault(type)
+      : null;
+    if (!provider || typeof provider.id !== 'string' || !provider.id.trim() ||
+      provider.enabled !== true || provider.is_configured !== true) {
+      throw new Error('No configured default provider available for type: ' + type);
+    }
+
+    const configuredModel = Array.isArray(provider.models)
+      ? provider.models.find(model => typeof model === 'string' && model.trim())
+      : null;
+    const model = configuredModel && configuredModel.trim();
+    if (!model) {
+      throw new Error('No configured model available for default provider: ' + provider.id);
+    }
+
+    const providerId = provider.id.trim();
+    if (!this._hasAdapter(providerId)) {
+      throw new Error('No adapter registered for default provider: ' + providerId);
+    }
+
+    const generationParams = params && typeof params === 'object'
+      ? { ...params, model }
+      : { model };
+    const result = await this.generate(type, providerId, generationParams, onProgress);
+    if (type === 'llm' && (!result || typeof result.content !== 'string' || !result.content.trim())) {
+      throw new Error('Default provider returned empty content');
+    }
+    return result;
+  }
   /** P3.5: 检查 provider 是否注册了 Adapter */
   _hasAdapter(providerId) {
     const mgr = this._modelProviderManager;

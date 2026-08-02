@@ -33,6 +33,9 @@ function createMockManager(providers = []) {
       const p = providers.find(p => p.id === id)
       return p ? { ...p, api_key: p.api_key || 'sk-test' } : null
     }),
+    getDefault: vi.fn((category) => providers.find(p =>
+      p.category === category && p.enabled !== false && p.is_default === true && p.is_configured !== false
+    ) || null),
     testConnection: vi.fn(async (id) => ({ code: 0, data: { success: true } })),
     updateProvider: vi.fn(),
     callAdapter: vi.fn(async (providerId, method, params) => {
@@ -64,6 +67,7 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
     manager = createMockManager([
       { id: 'openai', name: 'OpenAI', category: 'llm', api_key: 'sk-test', enabled: true },
       { id: 'anthropic', name: 'Anthropic', category: 'llm', api_key: 'sk-anthropic', enabled: true },
+      { id: 'sensenova-llm', name: 'SenseNova', category: 'llm', api_key: 'sk-sensenova', enabled: true, is_default: true, is_configured: true, models: ['deepseek-v4-flash'] },
     ])
     router = createMockRouter(manager.listProviders('llm'))
     ai = new AIGenerator()
@@ -108,6 +112,89 @@ describe('AIGenerator — P3.5 router + callAdapter 集成', () => {
     })
   })
 
+  describe('generateWithDefault — 默认模型直调', () => {
+    it('选择已配置默认 LLM 的首个有效模型并经 Adapter 调用', async () => {
+      const params = { messages: [{ role: 'user', content: '优化这个视频描述' }] }
+      manager.getDefault.mockReturnValue({
+        id: 'sensenova-llm',
+        category: 'llm',
+        enabled: true,
+        is_configured: true,
+        models: ['', '   ', ' deepseek-v4-flash '],
+      })
+      manager._adapterFactories.set('sensenova-llm', () => ({}))
+
+      const result = await ai.generateWithDefault('llm', params)
+
+      expect(result.content).toBe('adapter response from sensenova-llm')
+      expect(manager.getDefault).toHaveBeenCalledWith('llm')
+      expect(manager.callAdapter).toHaveBeenCalledWith('sensenova-llm', 'chatCompletion', {
+        ...params,
+        model: 'deepseek-v4-flash',
+      })
+      expect(params).not.toHaveProperty('model')
+    })
+
+    it('默认 provider 不存在时拒绝，不调用任何生成后端', async () => {
+      manager.getDefault.mockReturnValue(null)
+
+      await expect(ai.generateWithDefault('llm', { messages: [] }))
+        .rejects.toThrow(/default provider.*available/i)
+      expect(manager.callAdapter).not.toHaveBeenCalled()
+    })
+
+    it('默认 provider 未配置或没有有效模型时拒绝', async () => {
+      manager.getDefault.mockReturnValue({
+        id: 'sensenova-llm',
+        category: 'llm',
+        enabled: true,
+        is_configured: false,
+        models: ['deepseek-v4-flash'],
+      })
+
+      await expect(ai.generateWithDefault('llm', { messages: [] }))
+        .rejects.toThrow(/configured default provider/i)
+
+      manager.getDefault.mockReturnValue({
+        id: 'sensenova-llm',
+        category: 'llm',
+        enabled: true,
+        is_configured: true,
+        models: ['', '   '],
+      })
+
+      await expect(ai.generateWithDefault('llm', { messages: [] }))
+        .rejects.toThrow(/configured model/i)
+      expect(manager.callAdapter).not.toHaveBeenCalled()
+    })
+
+    it('默认 provider 没有 Adapter 或返回空 LLM 内容时拒绝', async () => {
+      manager.getDefault.mockReturnValue({
+        id: 'sensenova-llm',
+        category: 'llm',
+        enabled: true,
+        is_configured: true,
+        models: ['deepseek-v4-flash'],
+      })
+
+      await expect(ai.generateWithDefault('llm', { messages: [] }))
+        .rejects.toThrow(/adapter.*default provider/i)
+
+      manager._adapterFactories.set('sensenova-llm', () => ({}))
+      manager.callAdapter.mockResolvedValue({ code: 0, data: { content: '   ' } })
+
+      await expect(ai.generateWithDefault('llm', { messages: [] }))
+        .rejects.toThrow(/empty content/i)
+    })
+
+    it('manager 未就绪时拒绝，不查询默认 provider', async () => {
+      manager._ready = false
+
+      await expect(ai.generateWithDefault('llm', { messages: [] }))
+        .rejects.toThrow(/manager.*not available/i)
+      expect(manager.getDefault).not.toHaveBeenCalled()
+    })
+  })
   describe('generateWithFailover — 故障转移', () => {
     it('通过 router.executeWithFailover 调用', async () => {
       ai.setRouter(router)

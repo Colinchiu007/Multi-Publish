@@ -354,18 +354,44 @@ describe('ModelProviderManager — P2 加密集成', () => {
       expect(Buffer.isBuffer(row.api_key_enc)).toBe(true)
     })
 
-    it('createProvider 无 api_key 时不加密', () => {
+    it('sql.js Uint8Array BLOB 回读后，列表仍将新增远程服务商标记为已配置', () => {
+      const result = manager.createProvider({
+        id: 'sqljs-list-provider',
+        name: 'SQL.js List Provider',
+        category: 'llm',
+        api_key: 'sk-sqljs-list-key-12345',
+        models: ['test-model'],
+      })
+
+      expect(result.code).toBe(0)
+      const stored = mockTables.model_providers.find(row => row.id === 'sqljs-list-provider')
+      stored.api_key_enc = new Uint8Array(
+        stored.api_key_enc.buffer,
+        stored.api_key_enc.byteOffset,
+        stored.api_key_enc.byteLength
+      )
+
+      const listed = manager.listProviders('llm')
+      expect(listed).toEqual([
+        expect.objectContaining({
+          id: 'sqljs-list-provider',
+          enabled: true,
+          is_configured: true,
+          api_key_masked: 'sk-s****2345',
+        }),
+      ])
+    })
+
+    it('createProvider 拒绝无 API Key 的远程服务商', () => {
       const result = manager.createProvider({
         id: 'no-key-provider',
         name: 'No Key Provider',
         category: 'llm',
         models: ['gpt-4o'],
       })
-      expect(result.code).toBe(0)
-
-      const row = mockTables.model_providers.find(r => r.id === 'no-key-provider')
-      expect(row.api_key).toBe('')
-      expect(row.api_key_enc).toBeNull()
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/API Key.*required/i)
+      expect(mockTables.model_providers.find(r => r.id === 'no-key-provider')).toBeUndefined()
     })
 
     it('safeStorage 不可用时 createProvider 返回错误', () => {
@@ -397,12 +423,10 @@ describe('ModelProviderManager — P2 加密集成', () => {
       expect(provider.api_key).toBe('sk-test-key-12345')
     })
 
-    it('getProviderWithKey 无 api_key_enc 返回空', () => {
-      manager.createProvider({
-        id: 'no-key-provider',
-        name: 'No Key Provider',
-        category: 'llm',
-        models: ['gpt-4o'],
+    it('getProviderWithKey 对无 api_key_enc 的已存在记录返回空 Key', () => {
+      mockTables.model_providers.push({
+        id: 'no-key-provider', name: 'No Key Provider', category: 'llm', base_url: '',
+        api_key: '', api_key_enc: null, models: '[]', enabled: 0, is_default: 0, is_preset: 0, config: '{}',
       })
 
       const provider = manager.getProviderWithKey('no-key-provider')
@@ -425,16 +449,15 @@ describe('ModelProviderManager — P2 加密集成', () => {
       expect(provider.api_key).toBeUndefined()
     })
 
-    it('getProvider 无 api_key 时 api_key_masked 为空字符串（未配置）', () => {
-      manager.createProvider({
-        id: 'no-key-provider',
-        name: 'No Key Provider',
-        category: 'llm',
-        models: ['gpt-4o'],
+    it('getProvider 对无 API Key 的已有记录返回空遮罩', () => {
+      mockTables.model_providers.push({
+        id: 'no-key-provider', name: 'No Key Provider', category: 'llm', base_url: '',
+        api_key: '', api_key_enc: null, models: '[]', enabled: 0, is_default: 0, is_preset: 0, config: '{}',
       })
 
       const provider = manager.getProvider('no-key-provider')
       expect(provider.api_key_masked).toBe('')
+      expect(provider.is_configured).toBe(false)
     })
   })
 

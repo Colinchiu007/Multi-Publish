@@ -163,16 +163,13 @@ const PIPELINES = [
       },
       {
         name: 'optimize',
-        type: 'optimize_batch', // 内置 STAGE_TYPES.OPTIMIZE_BATCH
-        description: '批量提示词优化',
+        type: 'story2video_optimize', // 自定义类型：当前默认 LLM 逐场景优化
+        description: '基于当前默认 LLM 的逐场景提示词优化',
         checkpointRequired: true,
         options: {
-          platform: 'generic',
-          style: 'realistic', // 必须是 prompt-engine StyleType 枚举值
+          style: 'realistic',
           creative_level: 5,
           negative_prompt: '',
-          num_candidates: 1,
-          auto_detect_style: true,
         },
         inputFrom: 'domain_enrich', // 从 context.domain_enrich 取
       },
@@ -187,7 +184,7 @@ const PIPELINES = [
           imageProvider: null,
           imageModel: null,
           aspectRatio: '9:16',
-          voiceId: 'zh_female_qingxinnvsheng_uranus_bigtts',
+          voiceId: 'default',
           voiceProvider: null,
           voiceModel: null,
           voiceSpeed: 1,
@@ -263,6 +260,7 @@ class PipelineEngine {
    * @param {object} [deps.serviceBus] - ServiceBus 实例
    * @param {object} [deps.container] - DI 容器
    * @param {object} [deps.stageExecutor] - 自定义 StageExecutor 实例（不传则自动构造）
+   * @param {object} [deps.aiGenerator] - 当前默认模型调用器
    * @param {object} [deps.log] - 日志模块
    */
   constructor(deps) {
@@ -275,6 +273,7 @@ class PipelineEngine {
     this.serviceBus = deps.serviceBus || null;
     this.container = deps.container || null;
     this.log = deps.log || require('./logger');
+    this.aiGenerator = deps.aiGenerator || null;
     this.story2videoProjectService = deps.story2videoProjectService || null;
 
     // 自动构造 StageExecutor（仅在 serviceBus 可用时）
@@ -1043,9 +1042,8 @@ function resolveRuntimeStageOptions(stageName, params) {
     set('language', input.language);
   } else if (stageName === 'optimize') {
     set('style', input.promptStyle || input.imageStyle || input.style);
-    set('platform', input.promptPlatform || input.platform);
     set('creative_level', input.creativeLevel);
-    set('num_candidates', input.numCandidates);
+    set('negative_prompt', input.negativePrompt);
   } else if (stageName === 'generate_assets') {
     set('concurrency', input.concurrency);
     set('imageStyle', input.imageStyle);

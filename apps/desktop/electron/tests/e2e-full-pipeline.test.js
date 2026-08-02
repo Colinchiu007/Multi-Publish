@@ -5,14 +5,13 @@
  * 测试范围：
  *   1. split (Python 8002) → 真实分句
  *   2. domain_enrich → 真实领域增强执行器
- *   3. optimize (Python 8013) → 真实提示词优化
+ *   3. optimize (当前默认 LLM 受控夹具) → 默认模型调用合同
  *   4. generate_assets (Node.js AssetGenerator) → 真实媒体文件（默认允许显式降级资产）
  *   5. compose (ffmpeg) → 真实可解码视频文件
  *   6. publish → 未启用时明确 skipped
  *
  * 前置条件：
  *   - smart-sentence-splitter 运行在 8002
- *   - prompt-engine 运行在 8013
  *   - ffmpeg 可用
  */
 const { test, afterEach } = require('node:test');
@@ -28,7 +27,6 @@ const { registerStory2VideoStages } = require('../services/story2video-stages');
 const { AssetGenerator } = require('../services/asset-generator');
 const { Story2VideoComposeEngine, findFfmpeg } = require('../services/story2video-compose-engine');
 const SplitterBridge = require('../services/splitter-bridge');
-const PromptBridge = require('../services/prompt-bridge');
 
 const _diagnostics = [];
 const noopLog = {
@@ -57,28 +55,35 @@ async function buildRealContext() {
   _tmpRoots.push(runRoot);
 
   const splitterBridge = new SplitterBridge({ port: 8002, log: noopLog });
-  const promptBridge = new PromptBridge({ port: 8013, log: noopLog });
 
   const splitterOk = await splitterBridge.attach();
-  const promptOk = await promptBridge.attach();
-  if (!splitterOk || !promptOk) {
-    throw new Error('Bridges not available (splitter=' + splitterOk + ', prompt=' + promptOk + ')');
+  if (!splitterOk) {
+    throw new Error('Splitter bridge not available');
   }
 
   const assetGenerator = new AssetGenerator({ outputDir: path.join(runRoot, 'assets'), log: noopLog });
   const composeEngine = new Story2VideoComposeEngine({ outputDir: path.join(runRoot, 'output'), log: noopLog });
 
   const serviceBus = new ServiceBus({
-    splitterBridge, promptBridge,
+    splitterBridge,
     story2videoEngine: composeEngine,
     log: noopLog,
   });
   serviceBus._assetGenerator = assetGenerator;
-  const pipelineEngine = new PipelineEngine({ serviceBus, log: noopLog });
+  const aiGenerator = {
+    _modelProviderManager: {
+      getDefault: () => ({ id: 'e2e-llm', models: ['e2e-model'] }),
+    },
+    generateWithDefault: async (_type, params) => ({
+      content: 'E2E visual prompt: ' + params.messages[1].content,
+      model: 'e2e-model',
+    }),
+  };
+  const pipelineEngine = new PipelineEngine({ serviceBus, aiGenerator, log: noopLog });
   const registration = registerStory2VideoStages(pipelineEngine);
   if (!registration.success) throw new Error(registration.error);
 
-  return { serviceBus, splitterBridge, promptBridge, assetGenerator, composeEngine, pipelineEngine, runRoot };
+  return { serviceBus, splitterBridge, aiGenerator, assetGenerator, composeEngine, pipelineEngine, runRoot };
 }
 
 function assertWithinRunRoot(runRoot, filePath) {
@@ -94,7 +99,6 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
     autoAdvance: true,
     checkpointPolicy: 'guided',
     imageStyle: 'cinematic',
-    promptPlatform: 'douyin',
     resolution: '320x180',
     aspectRatio: '16:9',
     defaultSceneDuration: 1,
@@ -131,15 +135,17 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
 
   const splitScenes = context.split.scenes || context.split.sentences;
   assert.ok(Array.isArray(splitScenes) && splitScenes.length > 0, 'split service should return scenes');
-  assert.ok(Array.isArray(context.optimize), 'prompt-engine should return a batch result array');
+  assert.ok(Array.isArray(context.optimize), 'default LLM should return an optimized prompt array');
   assert.strictEqual(context.optimize.length, splitScenes.length,
-    'prompt-engine result count should match split scenes');
+    'default LLM result count should match split scenes');
   assert.ok(context.optimize.every(item => {
     const prompt = typeof item === 'string'
       ? item
       : item?.prompt || item?.optimized_prompt || item?.optimized;
     return typeof prompt === 'string' && prompt.trim().length > 0;
-  }), 'prompt-engine should return a non-empty optimized prompt for every scene');
+  }), 'default LLM should return a non-empty optimized prompt for every scene');
+  assert.ok(context.optimize.every(item => item.providerId === 'e2e-llm' && item.model === 'e2e-model'),
+    'every optimized prompt should retain the selected default model identity');
 
   const assets = context.generate_assets;
   assert.ok(assets.scenes.length > 0, 'asset stage should create paired scenes');

@@ -60,6 +60,10 @@ function isAvailable() {
  */
 function _toBuffer(encrypted) {
   if (Buffer.isBuffer(encrypted)) return encrypted
+  if (ArrayBuffer.isView(encrypted)) {
+    return Buffer.from(encrypted.buffer, encrypted.byteOffset, encrypted.byteLength)
+  }
+  if (encrypted instanceof ArrayBuffer) return Buffer.from(encrypted)
   if (typeof encrypted === 'string') {
     // 尝试 base64 解码
     return Buffer.from(encrypted, 'base64')

@@ -73,6 +73,7 @@ function createContainer(options) {
       serviceBus: c.get("serviceBus"),
       container: c,
       log: c.get("logger"),
+      aiGenerator: c.get("aiGenerator"),
       story2videoProjectService: c.get("story2videoProjectService"),
     });
     // 注册 story2video-compose 流水线的自定义阶段执行器

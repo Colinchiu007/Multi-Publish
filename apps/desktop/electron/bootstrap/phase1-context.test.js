@@ -25,7 +25,12 @@ __registerMock('../services/offline-manager', { startMonitoring: vi.fn(), setTas
 __registerMock('../services/publish-monitor', {})
 __registerMock('../services/system-tray', { registerIpcHandlers: vi.fn() })
 __registerMock('../services/hotkeys', {})
-__registerMock('../services/model-provider-manager', { ModelProviderManager: class { constructor() {} } })
+const modelProviderManagerInit = vi.fn()
+__registerMock('../services/model-provider-manager', {
+  ModelProviderManager: class {
+    constructor() { this.init = modelProviderManagerInit }
+  },
+})
 
 // Mock platform-config / sensitive-filter（外部包）
 __registerMock('@multi-publish/shared-utils/src/platform-config', class PlatformConfig { constructor() {} })
@@ -124,6 +129,14 @@ describe('phase1-context.extractContext', () => {
     const ctx = extractContext(container)
     expect(ctx._platformConfig).toBeNull()
     expect(log.warn).toHaveBeenCalledWith('App', 'Failed to load platform config: load failed')
+  })
+
+  it('在 Story2Video 使用默认模型前初始化 ModelProviderManager', () => {
+    modelProviderManagerInit.mockClear()
+    const container = makeMockContainer()
+    const ctx = extractContext(container)
+
+    expect(ctx.modelProviderManager.init).toHaveBeenCalledTimes(1)
   })
 
   it('aiGenerator.setModelProviderManager 被调用（方法存在时）', () => {

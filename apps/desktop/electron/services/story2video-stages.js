@@ -3,11 +3,13 @@
  * story2video-stages - Story2Video-compose 流水线的自定义阶段执行器
  *
  * 注册与 story2video-compose 流水线配套的自定义 STAGE_TYPES：
+ *   - story2video_optimize: 使用当前默认 LLM 逐场景优化视觉提示词
  *   - story2video_generate_assets: 并行生成图片 + TTS 音频
  *
  * 设计意图：
- *   split / optimize / compose / publish 阶段使用 StageExecutor 内置类型，
- *   只有 generate_assets 需要并行编排（图片+TTS 同时生成），故注册为自定义执行器。
+ *   split / compose / publish 阶段使用 StageExecutor 内置类型。
+ *   optimize 直接调用模型设置中的默认 LLM，避免错误复用其他流水线的 PromptBridge 配置；
+ *   generate_assets 需要并行编排（图片+TTS 同时生成）。
  *
  * 注册方式：
  *   在 bootstrap.js 或 container.setup.js 中调用 registerStory2VideoStages(pipelineEngine)
@@ -29,6 +31,7 @@ const {
  */
 const STORY2VIDEO_STAGE_TYPES = {
   DOMAIN_ENRICH: 'story2video_domain_enrich',
+  OPTIMIZE: 'story2video_optimize',
   GENERATE_ASSETS: 'story2video_generate_assets',
 };
 
@@ -85,6 +88,70 @@ function normalizeAssetResult(result, pathKeys) {
   return { path: assetPath, duration: data.duration, meta: data };
 }
 
+function summarizeAssetFailures(label, results) {
+  return results.map((item) => {
+    const index = Number.isInteger(item?.index) ? item.index + 1 : '?';
+    const message = typeof item?.error === 'string' && item.error.trim()
+      ? item.error.trim().replace(/\s+/g, ' ').slice(0, 500)
+      : label + ' generation failed';
+    return label + ' #' + index + ': ' + message;
+  });
+}
+
+function getOptimizationScenes(context) {
+  const source = context.domain_enrich || context.split || context.sentences;
+  if (Array.isArray(source)) return source;
+  if (source && Array.isArray(source.scenes)) return source.scenes;
+  if (source && Array.isArray(source.sentences)) return source.sentences;
+  return null;
+}
+
+function getScenePromptSeed(scene) {
+  if (typeof scene === 'string') return scene.trim();
+  if (!scene || typeof scene !== 'object') return '';
+  const candidate = scene.imagePromptSeed || scene.prompt || scene.text || scene.content;
+  return typeof candidate === 'string' ? candidate.trim() : '';
+}
+
+function getDefaultLlmConfig(aiGenerator) {
+  const manager = aiGenerator && aiGenerator._modelProviderManager;
+  const provider = manager && typeof manager.getDefault === 'function'
+    ? manager.getDefault('llm')
+    : null;
+  if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null;
+  const model = Array.isArray(provider.models)
+    ? provider.models.find(item => typeof item === 'string' && item.trim())
+    : null;
+  return model ? { providerId: provider.id.trim(), model: model.trim() } : null;
+}
+
+function buildOptimizationRequest(promptSeed, options = {}) {
+  const style = typeof options.style === 'string' && options.style.trim()
+    ? options.style.trim()
+    : 'cinematic';
+  const negativePrompt = typeof options.negative_prompt === 'string' && options.negative_prompt.trim()
+    ? '\nAvoid: ' + options.negative_prompt.trim()
+    : '';
+  const creativeLevel = Number(options.creative_level);
+  const normalizedCreativeLevel = Number.isFinite(creativeLevel)
+    ? Math.min(10, Math.max(1, creativeLevel))
+    : 5;
+  return {
+    temperature: 0.2 + normalizedCreativeLevel * 0.06,
+    max_tokens: 500,
+    messages: [
+      {
+        role: 'system',
+        content: 'You turn a Story2Video scene into one concise, production-ready visual image prompt. Preserve the subject, action, era, and composition cues. Return only the final image prompt with no explanation, labels, or markdown.',
+      },
+      {
+        role: 'user',
+        content: 'Scene source:\n' + promptSeed + '\n\nVisual style: ' + style + negativePrompt,
+      },
+    ],
+  };
+}
+
 /**
  * 注册 Story2Video-compose 流水线的自定义阶段执行器
  * @param {object} pipelineEngine - PipelineEngine 实例（需已注入 serviceBus）
@@ -119,6 +186,68 @@ function registerStory2VideoStages(pipelineEngine) {
     },
   );
   registered.push(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH);
+
+  // ----------------------------------------------------------
+  // OPTIMIZE - 当前默认 LLM 逐场景优化视觉提示词
+  // ----------------------------------------------------------
+  pipelineEngine.registerStageExecutor(
+    STORY2VIDEO_STAGE_TYPES.OPTIMIZE,
+    async ({ stage, context }) => {
+      const aiGenerator = pipelineEngine.aiGenerator ||
+        (pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
+          ? pipelineEngine.container.get('aiGenerator')
+          : null);
+      if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
+        return { success: false, error: 'Story2Video 默认 LLM 不可用，请先完成模型设置' };
+      }
+
+      const defaultLlm = getDefaultLlmConfig(aiGenerator);
+      if (!defaultLlm) {
+        return { success: false, error: 'Story2Video 未找到已配置的默认 LLM，请在模型设置中启用并设为默认' };
+      }
+
+      const scenes = getOptimizationScenes(context || {});
+      if (!Array.isArray(scenes) || scenes.length === 0) {
+        return { success: false, error: 'Story2Video optimize 需要非空场景数组' };
+      }
+      if (scenes.length > MAX_SCENES) {
+        return { success: false, error: 'Story2Video optimize scene count exceeds the allowed limit: ' + MAX_SCENES };
+      }
+
+      const output = [];
+      for (let index = 0; index < scenes.length; index++) {
+        const promptSeed = getScenePromptSeed(scenes[index]);
+        if (!promptSeed) {
+          return { success: false, error: 'Story2Video optimize scene ' + index + ' is missing a prompt seed' };
+        }
+        try {
+          const result = await aiGenerator.generateWithDefault(
+            'llm',
+            buildOptimizationRequest(promptSeed, stage.options || {}),
+          );
+          const optimizedPrompt = result && typeof result.content === 'string' ? result.content.trim() : '';
+          if (!optimizedPrompt) {
+            return { success: false, error: 'Story2Video optimize scene ' + index + ' returned an empty prompt' };
+          }
+          output.push({
+            optimized_prompt: optimizedPrompt,
+            providerId: defaultLlm.providerId,
+            model: typeof result.model === 'string' && result.model.trim()
+              ? result.model.trim()
+              : defaultLlm.model,
+          });
+        } catch (error) {
+          return {
+            success: false,
+            error: 'Story2Video optimize scene ' + index + ' failed: ' + (error && error.message ? error.message : String(error)),
+          };
+        }
+      }
+
+      return { success: true, output };
+    },
+  );
+  registered.push(STORY2VIDEO_STAGE_TYPES.OPTIMIZE);
 
   // ----------------------------------------------------------
   // GENERATE_ASSETS - 并行图片 + TTS 生成
@@ -392,10 +521,15 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 默认要求每个 scene 都有成对资源；部分成片必须显式 opt-in。
       if (pairedScenes.length === 0 || (!allowPartialAssets && pairedScenes.length < maxScenes)) {
+        const failureDetails = [
+          ...summarizeAssetFailures('Image', failedImages),
+          ...summarizeAssetFailures('TTS', failedTts),
+        ];
         return {
           success: false,
           error: 'Asset scene generation failed: ' + pairedScenes.length + '/' + maxScenes +
-                 ' scenes have both image and audio',
+                 ' scenes have both image and audio' +
+                 (failureDetails.length > 0 ? '. ' + failureDetails.join('; ') : ''),
         };
       }
 

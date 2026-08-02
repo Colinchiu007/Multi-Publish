@@ -243,7 +243,7 @@ describe('useModelProviderCrud', function () {
       })
       modelProviderList.mockResolvedValueOnce({
         code: 0,
-        data: [{ id: 'custom-image', name: 'Custom Image', category: 'image', is_preset: false, api_key_masked: 'sk-***' }],
+        data: [{ id: 'custom-image', name: 'Custom Image', category: 'image', is_preset: false, is_configured: true, api_key_masked: 'sk-***' }],
       })
       crud.form.value = {
         id: 'custom-image', name: 'Custom Image', category: 'image', base_url: 'https://api.example.com/v1',
@@ -256,6 +256,30 @@ describe('useModelProviderCrud', function () {
       expect(crud.filteredProviders.value.map(p => p.id)).toContain('custom-image')
     })
 
+    it('新增后清除旧分类筛选，确保新服务商在返回列表中可见', async function () {
+      modelProviderCreate.mockResolvedValueOnce({
+        code: 0,
+        data: { id: 'custom-llm', name: 'Custom LLM', category: 'llm' },
+      })
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'existing-tts', name: 'Existing TTS', category: 'tts', is_preset: true, is_configured: true },
+          { id: 'custom-llm', name: 'Custom LLM', category: 'llm', is_preset: false, is_configured: true },
+        ],
+      })
+      crud.viewMode.value = 'configured'
+      crud.filterCategory.value = 'tts'
+      crud.form.value = {
+        id: 'custom-llm', name: 'Custom LLM', category: 'llm', base_url: 'https://api.example.com/v1',
+        api_key: 'sk-test', models: ['custom-llm-v1'], modelsText: 'custom-llm-v1', config: {},
+      }
+
+      await crud.submitForm()
+
+      expect(crud.filterCategory.value).toBe('all')
+      expect(crud.filteredProviders.value.map(p => p.id)).toContain('custom-llm')
+    })
     it('filteredProviders 按类别过滤', async function () {
       modelProviderList.mockResolvedValueOnce({
         code: 0,
@@ -414,13 +438,22 @@ describe('useModelProviderCrud', function () {
       expect(crud.viewMode.value).toBe('configured')
     })
 
-    it('configuredProviders 只返回有 API Key 的', async function () {
+    it('配置状态只信任主进程的 is_configured，不能由掩码或遗留 api_key 推断', function () {
+      crud.providers.value = [
+        { id: 'disabled-with-key', name: 'Disabled', category: 'llm', enabled: false, is_configured: false, api_key_masked: 'sk-***' },
+        { id: 'configured', name: 'Configured', category: 'llm', enabled: true, is_configured: true, api_key_masked: 'sk-***' },
+      ]
+
+      expect(crud.configuredProviders.value.map(p => p.id)).toEqual(['configured'])
+    })
+
+    it('configuredProviders 只返回主进程标记为已配置的服务商', async function () {
       modelProviderList.mockResolvedValueOnce({
         code: 0,
         data: [
-          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1', is_configured: true },
           { id: 'b', name: 'B', category: 'llm', is_preset: 1, api_key: '' },
-          { id: 'c', name: 'C', category: 'tts', is_preset: 0, api_key: 'sk-3' },
+          { id: 'c', name: 'C', category: 'tts', is_preset: 0, api_key: 'sk-3', is_configured: true },
         ],
       })
       await crud.loadProviders()
@@ -444,7 +477,7 @@ describe('useModelProviderCrud', function () {
       modelProviderList.mockResolvedValueOnce({
         code: 0,
         data: [
-          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1', is_configured: true },
           { id: 'b', name: 'B', category: 'llm', is_preset: 1, api_key: '' },
           { id: 'c', name: 'C', category: 'tts', is_preset: 0, api_key: '' },
         ],
@@ -458,8 +491,8 @@ describe('useModelProviderCrud', function () {
       modelProviderList.mockResolvedValueOnce({
         code: 0,
         data: [
-          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
-          { id: 'custom', name: 'Custom', category: 'llm', is_preset: 0, api_key: 'sk-c' },
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1', is_configured: true },
+          { id: 'custom', name: 'Custom', category: 'llm', is_preset: 0, api_key: 'sk-c', is_configured: true },
         ],
       })
       await crud.loadProviders()
@@ -471,7 +504,7 @@ describe('useModelProviderCrud', function () {
       modelProviderList.mockResolvedValueOnce({
         code: 0,
         data: [
-          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1', is_configured: true },
           { id: 'b', name: 'B', category: 'llm', is_preset: 1, api_key: '' },
         ],
       })
@@ -487,8 +520,8 @@ describe('useModelProviderCrud', function () {
       modelProviderList.mockResolvedValueOnce({
         code: 0,
         data: [
-          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
-          { id: 'b', name: 'B', category: 'tts', is_preset: 1, api_key: 'sk-2' },
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1', is_configured: true },
+          { id: 'b', name: 'B', category: 'tts', is_preset: 1, api_key: 'sk-2', is_configured: true },
           { id: 'c', name: 'C', category: 'tts', is_preset: 1, api_key: '' },
         ],
       })
@@ -500,7 +533,7 @@ describe('useModelProviderCrud', function () {
       modelProviderList.mockResolvedValueOnce({
         code: 0,
         data: [
-          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key_masked: 'sk-***' },
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, is_configured: true, api_key_masked: 'sk-***' },
           { id: 'b', name: 'B', category: 'tts', is_preset: 1, api_key_masked: '' },
         ],
       })
@@ -515,8 +548,8 @@ describe('useModelProviderCrud', function () {
       modelProviderList.mockResolvedValueOnce({
         code: 0,
         data: [
-          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1' },
-          { id: 'b', name: 'B', category: 'llm', is_preset: 0, api_key: 'sk-2' },
+          { id: 'a', name: 'A', category: 'llm', is_preset: 1, api_key: 'sk-1', is_configured: true },
+          { id: 'b', name: 'B', category: 'llm', is_preset: 0, api_key: 'sk-2', is_configured: true },
           { id: 'c', name: 'C', category: 'tts', is_preset: 1, api_key: '' },
         ],
       })

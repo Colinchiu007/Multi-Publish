@@ -26,14 +26,9 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     subtitleTiming: 'proportional',
   }),
   optimize: Object.freeze({
-    platform: 'generic',
     style: 'realistic',
     creativeLevel: 5,
-    maxLength: null,
     negativePrompt: '',
-    numCandidates: 1,
-    autoDetectStyle: true,
-    context: '',
   }),
   image: Object.freeze({
     provider: '',
@@ -45,7 +40,7 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
   voice: Object.freeze({
     provider: '',
     model: '',
-    id: 'zh_female_qingxinnvsheng_uranus_bigtts',
+    id: 'default',
     speed: 1,
     volume: 1,
     pitch: 0,
@@ -93,12 +88,12 @@ const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
 const OUTPUT_FORMATS = new Set(['mp4', 'webm'])
 const CONTENT_TYPES = new Set(['general', 'history'])
 const CHECKPOINT_POLICIES = new Set(['guided', 'manual_all', 'auto_noncreative'])
-const PROMPT_ENGINE_STYLES = new Set([
+const STORY2VIDEO_PROMPT_STYLES = new Set([
   'realistic', 'cartoon', 'anime', 'oil_painting', 'watercolor', 'pixel',
   'cyberpunk', 'fantasy', 'photography', '3d_render', 'minimalist', 'abstract',
   'portrait', 'landscape',
 ])
-const PROMPT_STYLE_ALIASES = Object.freeze({
+const STORY2VIDEO_PROMPT_STYLE_ALIASES = Object.freeze({
   cinematic: 'photography',
   '3d-render': '3d_render',
 })
@@ -157,10 +152,10 @@ function enumValue(value, fallback, field, allowed) {
   return candidate
 }
 
-function promptEngineValue(value, fallback, field, allowed, aliases) {
+function promptStyleValue(value, fallback, field, allowed, aliases) {
   const candidate = idValue(value, fallback, field)
   const normalized = aliases[candidate] || candidate
-  if (!allowed.has(normalized)) throw new Error(`Story2Video ${field} 不支持 prompt-engine 值: ${candidate}`)
+  if (!allowed.has(normalized)) throw new Error(`Story2Video ${field} 不支持的视觉提示词风格: ${candidate}`)
   return normalized
 }
 
@@ -196,38 +191,6 @@ function assertNoSensitiveContext(value, field, seen = new WeakSet(), depth = 0)
     }
     assertNoSensitiveContext(value[key], `${field}.${key}`, seen, depth + 1)
   }
-}
-
-function promptContextValue(value) {
-  if (value === undefined || value === null || value === '') return ''
-  if (typeof value === 'string') return textValue(value, '', 'optimize.context', 4000)
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Story2Video optimize.context 必须是字符串或对象')
-  }
-
-  assertNoSensitiveContext(value, 'optimize.context')
-  let serialized
-  try {
-    serialized = JSON.stringify(value)
-  } catch (_) {
-    throw new Error('Story2Video optimize.context 必须是可序列化的 JSON 对象')
-  }
-  if (!serialized || serialized.length > 4000) {
-    throw new Error('Story2Video optimize.context 超过 4000 字符')
-  }
-  const normalized = JSON.parse(serialized)
-  if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) {
-    throw new Error('Story2Video optimize.context 必须是 JSON 对象')
-  }
-  return normalized
-}
-
-function promptContextOption(value) {
-  if (typeof value === 'string') {
-    const synopsis = value.trim()
-    return synopsis ? { synopsis } : null
-  }
-  return Object.keys(value).length > 0 ? value : null
 }
 
 function normalizeSize(value) {
@@ -329,19 +292,12 @@ function normalizeStory2VideoTextParams(params = {}) {
   }
 
   const optimize = {
-    platform: 'generic',
-    style: promptEngineValue(
+    style: promptStyleValue(
       firstDefined(own(optimizeInput, 'style'), params.promptStyle, params.style),
-      'realistic', 'optimize.style', PROMPT_ENGINE_STYLES, PROMPT_STYLE_ALIASES,
+      'realistic', 'optimize.style', STORY2VIDEO_PROMPT_STYLES, STORY2VIDEO_PROMPT_STYLE_ALIASES,
     ),
     creativeLevel: numberValue(firstDefined(own(optimizeInput, 'creativeLevel'), params.creativeLevel), 5, 'optimize.creativeLevel', 1, 10),
-    maxLength: own(optimizeInput, 'maxLength') === null || own(optimizeInput, 'maxLength') === undefined || own(optimizeInput, 'maxLength') === ''
-      ? null
-      : numberValue(own(optimizeInput, 'maxLength'), 300, 'optimize.maxLength', 50, 2000, true),
     negativePrompt: textValue(own(optimizeInput, 'negativePrompt'), '', 'optimize.negativePrompt', 500),
-    numCandidates: numberValue(firstDefined(own(optimizeInput, 'numCandidates'), params.numCandidates), 1, 'optimize.numCandidates', 1, 5, true),
-    autoDetectStyle: booleanValue(own(optimizeInput, 'autoDetectStyle'), true),
-    context: promptContextValue(own(optimizeInput, 'context')),
   }
 
   const image = {
@@ -433,7 +389,6 @@ function normalizeStory2VideoTextParams(params = {}) {
   }
 
   const normalizedBgmVolume = bgm.volume / 10
-  const optimizeContext = promptContextOption(optimize.context)
   const subtitleStyle = {
     font: subtitle.font,
     size: subtitleSize.compose,
@@ -458,14 +413,9 @@ function normalizeStory2VideoTextParams(params = {}) {
     },
     domain_enrich: { contentType },
     optimize: {
-      platform: optimize.platform,
       style: optimize.style,
       creative_level: optimize.creativeLevel,
       negative_prompt: optimize.negativePrompt,
-      num_candidates: optimize.numCandidates,
-      auto_detect_style: optimize.autoDetectStyle,
-      ...(optimize.maxLength === null ? {} : { max_length: optimize.maxLength }),
-      ...(optimizeContext ? { context: optimizeContext } : {}),
     },
     generate_assets: {
       concurrency,
@@ -527,7 +477,6 @@ function normalizeStory2VideoTextParams(params = {}) {
     language: split.language,
     promptStyle: optimize.style,
     creativeLevel: optimize.creativeLevel,
-    numCandidates: optimize.numCandidates,
     imageStyle: image.style,
     imageProvider: image.provider || null,
     imageModel: image.model || null,

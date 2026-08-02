@@ -317,14 +317,6 @@
               <label>创意强度: {{ s2vConfig.creativeLevel }}</label>
               <input type="range" v-model.number="s2vConfig.creativeLevel" min="0" max="10" step="1" class="form-range" />
             </div>
-            <div class="config-item">
-              <label>候选数</label>
-              <input type="number" v-model.number="s2vConfig.numCandidates" min="1" max="10" class="form-input" />
-            </div>
-            <div class="config-item">
-              <label>自动识别风格</label>
-              <input type="checkbox" v-model="s2vConfig.autoDetectStyle" />
-            </div>
             <div class="config-item config-span-2">
               <label>负向提示词</label>
               <textarea v-model.trim="s2vConfig.negativePrompt" rows="2" maxlength="2000" class="form-textarea"></textarea>
@@ -687,7 +679,7 @@ export default {
       s2vConfig: {
         contentType: 'general', imageStyle: 'cinematic', aspectRatio: '9:16',
         imageProvider: '', imageModel: '',
-        voiceId: 'zh_female_qingxinnvsheng_uranus_bigtts', voiceProvider: '', voiceModel: '',
+        voiceId: 'default', voiceProvider: '', voiceModel: '',
         voiceSpeed: 1, voicePitch: 0, voiceEmotion: 'default', voiceVolume: 1,
         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
         perImageDuration: 6,
@@ -695,8 +687,7 @@ export default {
         splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
-        promptStyle: 'realistic', creativeLevel: 5, promptMaxLength: null,
-        negativePrompt: '', numCandidates: 1, autoDetectStyle: true, promptContext: '',
+        promptStyle: 'realistic', creativeLevel: 5, negativePrompt: '',
         transition: 'fade', subtitleEnabled: false,
         subtitleFont: '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
         subtitleSize: 'size3', subtitleStyleName: 'style1',
@@ -861,14 +852,9 @@ export default {
             subtitleTiming: config.splitSubtitleTiming,
           },
           optimize: {
-            platform: 'generic',
             style: config.promptStyle,
             creativeLevel: config.creativeLevel,
-            maxLength: config.promptMaxLength,
             negativePrompt: config.negativePrompt,
-            numCandidates: config.numCandidates,
-            autoDetectStyle: config.autoDetectStyle,
-            context: config.promptContext,
           },
           image: {
             provider: config.imageProvider || '',
