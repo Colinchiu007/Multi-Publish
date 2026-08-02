@@ -453,8 +453,8 @@ describe("CreateView - S2V orchestration", () => {
   });
 
   it.each([
-    [{ code: 1, message: "轮询 IPC 失败" }, "轮询 IPC 失败"],
-    [{ code: 0, data: null }, "编排状态未返回"],
+    [{ code: 1, message: "轮询 IPC 失败" }, "story2video.operation_failed"],
+    [{ code: 0, data: null }, "story2video.run_status_unavailable"],
   ])("编排轮询遇到无效响应时向用户显示错误并停止轮询", async (response, expectedMessage) => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineGetRunContext.mockResolvedValueOnce(response);
@@ -467,7 +467,9 @@ describe("CreateView - S2V orchestration", () => {
 
     await w.vm.updateOrchestrationStatus();
 
-    expect(w.vm.orchestrationError).toContain(expectedMessage);
+    expect(w.vm.orchestrationError).toBe("");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe(expectedMessage);
+    expect(w.find(".orchestration-error").exists()).toBe(false);
     expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
     expect(w.vm.pollTimer).toBeNull();
     w.unmount();
@@ -491,7 +493,8 @@ describe("CreateView - S2V orchestration", () => {
 
     await w.vm.updateOrchestrationStatus();
 
-    expect(w.vm.orchestrationError).toBe("图片生成服务拒绝请求");
+    expect(w.vm.orchestrationError).toBe("");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.operation_failed");
     expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
     expect(w.vm.pollTimer).toBeNull();
     w.unmount();
@@ -511,7 +514,8 @@ describe("CreateView - S2V orchestration", () => {
 
     await w.vm.advanceOrchestration();
 
-    expect(w.vm.orchestrationError).toBe("图片服务商未配置 API Key");
+    expect(w.vm.orchestrationError).toBe("");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.model_configuration_required");
     expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
     w.unmount();
   });
@@ -529,10 +533,11 @@ describe("CreateView - S2V orchestration", () => {
     });
 
     expect(handled).toBe(true);
-    expect(w.vm.orchestrationError).toBe("编排已完成，但未返回可预览的视频文件");
+    expect(w.vm.orchestrationError).toBe("");
     expect(w.vm.story2videoErrorDialog).toEqual({
       visible: true,
-      message: "编排已完成，但未返回可预览的视频文件",
+      messageKey: "story2video.preview_missing",
+      messageParams: {},
     });
     expect(alertSpy).not.toHaveBeenCalled();
 
@@ -558,7 +563,8 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(w.vm.story2videoErrorDialog).toEqual({
       visible: true,
-      message: "未找到需要的相关模型，请在设置中添加模型",
+      messageKey: "story2video.model_configuration_required",
+      messageParams: {},
     });
     expect(alertSpy).not.toHaveBeenCalled();
 
@@ -568,6 +574,26 @@ describe("CreateView - S2V orchestration", () => {
     alertSpy.mockRestore();
     w.unmount();
   });
+  it("Story2Video 在调用 IPC 前拒绝超过 6000 个 Unicode 字符的文案", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "😀".repeat(6001);
+
+    await w.vm.startPipeline();
+
+    expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
+    expect(w.vm.story2videoErrorDialog).toMatchObject({
+      visible: true,
+      messageKey: "story2video.text_too_long",
+      messageParams: { max: 6000, maxFormatted: "6,000" },
+    });
+    w.unmount();
+  });
+
   it("startPipeline dispatches to orchestrated for story2video-compose", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-123" } });
@@ -766,7 +792,8 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.handleS2VBgmFile({ target: { files: [{ name: "bgm.mp3", size: 5 }] } });
 
     expect(w.vm.s2vConfig.bgmPath).toBe("");
-    expect(alertSpy).toHaveBeenCalledWith("无法读取背景音乐文件路径，请重新选择文件");
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.media_invalid");
     alertSpy.mockRestore();
     w.unmount();
   });
@@ -848,7 +875,8 @@ describe("CreateView - S2V orchestration", () => {
     expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
     expect(w.vm.story2videoErrorDialog).toEqual({
       visible: true,
-      message: "Story2Video 标准流水线只支持文案输入",
+      messageKey: "story2video.text_input_only",
+      messageParams: {},
     });
     expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
@@ -932,7 +960,11 @@ describe("CreateView - UI interactions", () => {
       await nextTick();
 
       expect(w.vm.historyLoading).toBe(false);
-      expect(w.find(".history-error").text()).toContain("历史记录加载超时");
+      expect(w.find(".history-error").exists()).toBe(false);
+      expect(w.vm.story2videoErrorDialog).toMatchObject({
+        visible: true,
+        messageKey: "story2video.history_load_failed",
+      });
       expect(w.find(".history-status.completed").exists()).toBe(true);
       expect(w.text()).toContain("已完成流水线");
     } finally {
@@ -1059,7 +1091,58 @@ describe("CreateView - UI interactions", () => {
     w.vm.s2vConfig.imageEffect = "none";
     w.vm.applyS2VTemplate();
     expect(w.vm.s2vConfig.imageEffect).toBe("pan-up");
-    w.vm.deleteSelectedS2VTemplate();
+    const confirmSpy = vi.spyOn(window, "confirm");
+    w.vm.requestTemplateDeletion();
+    expect(w.vm.story2videoTemplateDeleteDialog).toEqual({ visible: true, templateId: selectedId });
+    w.vm.closeTemplateDeletionDialog();
+    expect(w.vm.s2vTemplateLibrary.some(template => template.id === selectedId)).toBe(true);
+
+    w.vm.requestTemplateDeletion();
+    w.vm.confirmTemplateDeletion();
+    expect(confirmSpy).not.toHaveBeenCalled();
     expect(w.vm.s2vTemplateLibrary.some(template => template.id === selectedId)).toBe(false);
+    confirmSpy.mockRestore();
   });
+  it("历史记录加载失败时只显示应用内弹窗，不显示页面错误条", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValueOnce({ code: 1, message: "internal path C:/private" });
+    mocks.pipelineHistory.mockResolvedValueOnce({ code: 0, data: [] });
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.find(".history-error").exists()).toBe(false);
+    expect(w.vm.story2videoErrorDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.history_load_failed",
+      messageParams: {},
+    });
+  });
+
+  it("删除 Story2Video 项目须经应用内确认，取消不会调用删除接口", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoDeleteProject.mockResolvedValue({ code: 0 });
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    w.vm.history = [{ projectId: "project-delete" }];
+
+    w.vm.requestProjectDeletion({ projectId: "project-delete" });
+    expect(w.vm.story2videoProjectDeleteDialog).toEqual({ visible: true, projectId: "project-delete" });
+    w.vm.closeProjectDeletionDialog();
+    expect(mocks.story2videoDeleteProject).not.toHaveBeenCalled();
+
+    w.vm.requestProjectDeletion({ projectId: "project-delete" });
+    await w.vm.confirmProjectDeletion();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(mocks.story2videoDeleteProject).toHaveBeenCalledWith("project-delete");
+    expect(w.vm.history).toEqual([]);
+    confirmSpy.mockRestore();
+  });
+
 });

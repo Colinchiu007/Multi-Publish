@@ -21,7 +21,6 @@ const {
   buildScaleFilter,
   parseResolution,
 } = require('./story2video-compose-engine')
-const { MAX_SCENES } = require('./story2video-paths')
 
 function writeFixture (root, name, content = 'media') {
   const filePath = path.join(root, name)
@@ -489,23 +488,32 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     }
   })
 
-  it('拒绝超出场景上限和像素上限的合成请求', async () => {
+  it('61 个场景可合成，仍保留分辨率像素上限', async () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-limits-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })
+    engine._probeMediaDuration = vi.fn(async () => 1)
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
 
     try {
-      const tooMany = await engine.compose({
-        scenes: Array.from({ length: MAX_SCENES + 1 }, () => ({
-          imagePath: 'image.png',
-          audioPath: 'audio.mp3',
+      const result = await engine.compose({
+        scenes: Array.from({ length: 61 }, (_, index) => ({
+          index,
+          imagePath: image,
+          audioPath: audio,
+          text: '第 ' + (index + 1) + ' 个场景',
         })),
-      })
-      expect(tooMany).toMatchObject({ code: -1 })
-      expect(tooMany.message).toMatch(/scene|场景|limit/i)
+      }, { transition: 'none', validateOutput: false })
+      expect(result.code).toBe(0)
+      expect(result.data.segmentCount).toBe(61)
+      expect(engine._createSegment).toHaveBeenCalledTimes(61)
 
       const invalidResolution = await engine.compose({
         scenes: [{ imagePath: 'image.png', audioPath: 'audio.mp3' }],

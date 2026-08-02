@@ -8,7 +8,6 @@ const {
   normalizeAssetConcurrency,
 } = require('./story2video-stages')
 const {
-  MAX_SCENES,
   cleanupRunInputDir,
   importUserSelectedMedia,
 } = require('./story2video-paths')
@@ -429,13 +428,35 @@ describe('story2video 资源索引契约', () => {
     })
   })
 
-  it('超过最大场景数时在生成资源前失败', async () => {
+  it('61 个场景逐个调用默认 LLM 优化，不因场景数被拒绝', async () => {
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })),
+      },
+      generateWithDefault: vi.fn(async () => ({ content: '安全的画面提示词', model: 'gpt-4.1-mini' })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const scenes = Array.from({ length: 61 }, (_, index) => ({ text: '第 ' + (index + 1) + ' 个场景' }))
+
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: scenes },
+      serviceBus: {},
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.output).toHaveLength(61)
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(61)
+  })
+
+  it('61 个场景继续进入资源生成，不因场景数被拒绝', async () => {
     const assetGenerator = {
-      generateImage: vi.fn(),
-      generateTTS: vi.fn(),
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: `audio-${index}.mp3`, duration: 1 } })),
     }
     const fn = makePipeline(assetGenerator)
-    const scenes = Array.from({ length: MAX_SCENES + 1 }, (_, index) => ({ text: String(index) }))
+    const scenes = Array.from({ length: 61 }, (_, index) => ({ text: String(index) }))
 
     const result = await fn({
       stage: { options: {} },
@@ -444,9 +465,9 @@ describe('story2video 资源索引契约', () => {
       serviceBus: {},
     })
 
-    expect(result.success).toBe(false)
-    expect(result.error).toMatch(/scene|场景|limit/i)
-    expect(assetGenerator.generateImage).not.toHaveBeenCalled()
-    expect(assetGenerator.generateTTS).not.toHaveBeenCalled()
+    expect(result.success).toBe(true)
+    expect(result.error).toBeUndefined()
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(scenes.length)
+    expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(scenes.length)
   })
 })
