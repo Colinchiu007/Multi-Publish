@@ -1,0 +1,12 @@
+{
+  "id": "merge-all-worktrees-20260802",
+  "title": "合并所有工作树的有效分支到主分支并推送 GitHub",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "release-integration",
+  "currentPhase": "completed",
+  "nextAction": "已完成净化整合、验证、main 合并与推送准备",
+  "createdAt": "2026-08-02T00:00:00+08:00",
+  "branch": "codex/story2video-scope-e2e"
+}
