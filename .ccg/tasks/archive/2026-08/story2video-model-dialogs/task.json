@@ -1,0 +1,12 @@
+{
+  "id": "story2video-model-dialogs",
+  "title": "将 Story2Video 缺失模型提示改为统一弹窗",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "completed",
+  "nextAction": "已完成：功能已提交，CCG 审计记录已归档",
+  "createdAt": "2026-08-02T10:30:00Z",
+  "branch": "codex/story2video-model-dialogs"
+}
