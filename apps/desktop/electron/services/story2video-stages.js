@@ -20,7 +20,6 @@
 const { STAGE_TYPES } = require('./stage-executor');
 const { enrichHistoryScenes, passthroughScenes } = require('./story2video-domain');
 const {
-  MAX_SCENES,
   getAllowedMediaRoots,
   resolveReadableMediaFile,
   writeDataImage,
@@ -210,9 +209,6 @@ function registerStory2VideoStages(pipelineEngine) {
       if (!Array.isArray(scenes) || scenes.length === 0) {
         return { success: false, error: 'Story2Video optimize 需要非空场景数组' };
       }
-      if (scenes.length > MAX_SCENES) {
-        return { success: false, error: 'Story2Video optimize scene count exceeds the allowed limit: ' + MAX_SCENES };
-      }
 
       const output = [];
       for (let index = 0; index < scenes.length; index++) {
@@ -291,13 +287,6 @@ function registerStory2VideoStages(pipelineEngine) {
         return {
           success: false,
           error: 'generate_assets 需要 context.split (分句结果数组)',
-        };
-      }
-      const requestedScenes = Math.max(optimizedPrompts.length, sentences.length);
-      if (requestedScenes > MAX_SCENES) {
-        return {
-          success: false,
-          error: 'generate_assets scene count exceeds the allowed limit: ' + MAX_SCENES,
         };
       }
 

@@ -63,8 +63,6 @@
         </div>
 
         <!-- 编排模式中间结果预览 -->
-        <div v-if="orchestrationError" class="orchestration-error" role="alert">⚠️ {{ orchestrationError }}</div>
-
         <div v-if="orchestrationContext" class="orchestration-context">
           <h4>中间结果</h4>
           <div v-for="(value, key) in orchestrationContext" :key="key" class="context-item">
@@ -84,7 +82,8 @@
           </div>
 
           <div v-if="inputMode === 'text'" class="input-area">
-            <textarea v-model="pipelineText" placeholder="输入视频文案、主题描述或脚本..." rows="8" class="form-textarea"></textarea>
+            <textarea v-model="pipelineText" placeholder="输入视频文案、主题描述或脚本..." rows="8" class="form-textarea" @input="enforceStory2VideoTextLimit"></textarea>
+            <p v-if="isOrchestratedPipeline(selectedPipeline.name)" class="story2video-text-count">{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符</p>
           </div>
           <div v-if="inputMode === 'images' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
             <div class="upload-zone" @click="$refs.pipelineFileInput?.click()" @dragover.prevent @drop.prevent="handlePipelineDrop">
@@ -348,7 +347,7 @@
                   v-if="selectedS2VTemplate?.category === 'custom'"
                   type="button"
                   class="btn-secondary danger"
-                  @click="deleteSelectedS2VTemplate(true)"
+                  @click="requestTemplateDeletion"
                 >删除模板</button>
               </div>
             </div>
@@ -571,7 +570,6 @@
     <div v-if="view === 'history'">
       <div v-if="historyLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else>
-        <div v-if="historyError" class="result-banner error history-error"><p>{{ historyError }}</p><button class="btn-secondary" @click="loadHistory">重试</button></div>
         <div v-if="history.length === 0" class="empty-state"><p>暂无创作记录</p></div>
         <div v-else>
           <div class="history-toolbar">
@@ -591,7 +589,7 @@
               <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
               <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
               <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click="openHistory(h)">打开</button>
-              <button v-if="h.projectId" class="history-delete" @click="deleteHistory(h)">删除</button>
+              <button v-if="h.projectId" class="history-delete" @click="requestProjectDeletion(h)">删除</button>
             </div>
           </div>
         </div>
@@ -600,13 +598,39 @@
 
     <UiModal
       :visible="story2videoErrorDialog.visible"
-      title="Story2Video 提示"
+      :title="story2videoErrorDialogUiText.dialogTitle"
       size="sm"
       @close="closeStory2VideoErrorDialog"
     >
-      <p class="story2video-error-dialog-message">{{ story2videoErrorDialog.message }}</p>
+      <p class="story2video-error-dialog-message">{{ story2videoErrorDialogMessage }}</p>
       <template #footer>
-        <UiButton @click="closeStory2VideoErrorDialog">知道了</UiButton>
+        <UiButton @click="closeStory2VideoErrorDialog">{{ story2videoErrorDialogUiText.acknowledge }}</UiButton>
+      </template>
+    </UiModal>
+
+    <UiModal
+      :visible="story2videoProjectDeleteDialog.visible"
+      :title="story2videoErrorDialogUiText.dialogTitle"
+      size="sm"
+      @close="closeProjectDeletionDialog"
+    >
+      <p class="story2video-error-dialog-message">{{ story2videoProjectDeleteDialogMessage }}</p>
+      <template #footer>
+        <UiButton variant="secondary" @click="closeProjectDeletionDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
+        <UiButton variant="danger" @click="confirmProjectDeletion">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
+      </template>
+    </UiModal>
+
+    <UiModal
+      :visible="story2videoTemplateDeleteDialog.visible"
+      :title="story2videoErrorDialogUiText.dialogTitle"
+      size="sm"
+      @close="closeTemplateDeletionDialog"
+    >
+      <p class="story2video-error-dialog-message">{{ story2videoTemplateDeleteDialogMessage }}</p>
+      <template #footer>
+        <UiButton variant="secondary" @click="closeTemplateDeletionDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
+        <UiButton variant="danger" @click="confirmTemplateDeletion">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
       </template>
     </UiModal>
   </div>
@@ -633,17 +657,16 @@ import {
   story2videoDeleteProject
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
+import {
+  MAX_STORY2VIDEO_TEXT_CHARACTERS,
+  STORY2VIDEO_NOTIFICATION_KEYS,
+  countStory2VideoTextCharacters,
+  formatStory2VideoNotification,
+  getStory2VideoNotificationUiText,
+  resolveStory2VideoNotification,
+} from '@/story2video/story2video-notifications'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
-const STORY2VIDEO_MODEL_CONFIGURATION_MESSAGE = '未找到需要的相关模型，请在设置中添加模型'
-const STORY2VIDEO_MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用|API\s*Key\s*not\s*configured|尚未配置\s*API\s*Key)/i
-
-function normalizeStory2VideoErrorMessage (message) {
-  const normalized = String(message || '').trim()
-  return STORY2VIDEO_MODEL_CONFIGURATION_PATTERN.test(normalized)
-    ? STORY2VIDEO_MODEL_CONFIGURATION_MESSAGE
-    : (normalized || '编排执行失败')
-}
 
 function settleHistoryRequest (request) {
   let timeoutId
@@ -732,11 +755,14 @@ export default {
         autoAdvance: true, platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '',
-      story2videoErrorDialog: { visible: false, message: '' },
+      story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {} },
+      story2videoProjectDeleteDialog: { visible: false, projectId: null },
+      story2videoTemplateDeleteDialog: { visible: false, templateId: null },
+      MAX_STORY2VIDEO_TEXT_CHARACTERS,
       s2vImageProviders: [], s2vVoiceProviders: [],
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       // 历史
-      history: [], historyLoading: false, historyError: '', historyFilter: 'all', historyRequestId: 0,
+      history: [], historyLoading: false, historyFilter: 'all', historyRequestId: 0,
       // 清理
       cleanups: [],
       quickModes: [
@@ -794,6 +820,21 @@ export default {
         return !this.isOrchestratedPipeline(this.selectedPipeline.name) && !!this.pipelineVideo
       }
       return true
+    },
+    story2videoTextCharacterCount() {
+      return countStory2VideoTextCharacters(this.pipelineText)
+    },
+    story2videoErrorDialogMessage() {
+      return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
+    },
+    story2videoErrorDialogUiText() {
+      return getStory2VideoNotificationUiText()
+    },
+    story2videoProjectDeleteDialogMessage() {
+      return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM }).message
+    },
+    story2videoTemplateDeleteDialogMessage() {
+      return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM }).message
     },
     canQuickRender() {
       if (this.quickRendering) return false
@@ -856,7 +897,16 @@ export default {
     async startOrchestratedPipeline() {
       try {
         if (this.inputMode !== 'text') {
-          this.setOrchestrationError('Story2Video 标准流水线只支持文案输入')
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY })
+          return
+        }
+        const text = this.pipelineText.trim()
+        if (!text) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_REQUIRED })
+          return
+        }
+        if (countStory2VideoTextCharacters(text) > MAX_STORY2VIDEO_TEXT_CHARACTERS) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG, messageParams: { max: MAX_STORY2VIDEO_TEXT_CHARACTERS } })
           return
         }
         this.orchestrationError = ''
@@ -866,7 +916,6 @@ export default {
           .split(',')
           .map(tag => tag.trim())
           .filter(Boolean)
-        const text = this.pipelineText.trim()
         const story2videoTextConfig = {
           version: 1,
           mode: 'text',
@@ -952,9 +1001,9 @@ export default {
           if (this.orchestrationRunId && !this.pollTimer) {
             this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
           }
-        } else { this.setOrchestrationError(res?.message || outcome?.error || '编排启动失败') }
-      } catch (e) {
-        this.setOrchestrationError('编排启动失败: ' + (e?.message || String(e)))
+        } else { this.setOrchestrationError({ errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
+      } catch (_) {
+        this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
     },
     cloneForIpc(value) {
@@ -1026,24 +1075,55 @@ export default {
       this.s2vConfig.templateId = id
       this.s2vCustomTemplateName = ''
     },
-    deleteSelectedS2VTemplate(confirmDeletion = false) {
-      const template = this.selectedS2VTemplate
+    deleteSelectedS2VTemplate(templateId = this.selectedS2VTemplate?.id) {
+      const template = this.s2vTemplateLibrary.find(item => item.id === templateId)
       if (!template || template.category !== 'custom') return
-      if (confirmDeletion && !window.confirm('确定删除这个自定义模板吗？')) return
       deleteCustomTemplate(template.id, window.localStorage)
-      this.s2vConfig.templateId = ''
+      if (this.s2vConfig.templateId === template.id) this.s2vConfig.templateId = ''
       this.refreshS2VTemplates()
     },
-    showStory2VideoErrorDialog(message) {
-      this.story2videoErrorDialog.message = normalizeStory2VideoErrorMessage(message)
-      this.story2videoErrorDialog.visible = true
+    requestTemplateDeletion() {
+      const template = this.selectedS2VTemplate
+      if (!template || template.category !== 'custom') return
+      this.story2videoTemplateDeleteDialog = { visible: true, templateId: template.id }
+    },
+    closeTemplateDeletionDialog() {
+      this.story2videoTemplateDeleteDialog = { visible: false, templateId: null }
+    },
+    confirmTemplateDeletion() {
+      const templateId = this.story2videoTemplateDeleteDialog.templateId
+      this.closeTemplateDeletionDialog()
+      if (templateId) this.deleteSelectedS2VTemplate(templateId)
+    },
+    enforceStory2VideoTextLimit() {
+      if (!this.selectedPipeline || !this.isOrchestratedPipeline(this.selectedPipeline.name)) return
+      const characters = Array.from(this.pipelineText)
+      if (characters.length <= MAX_STORY2VIDEO_TEXT_CHARACTERS) return
+      this.pipelineText = characters.slice(0, MAX_STORY2VIDEO_TEXT_CHARACTERS).join('')
+      this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG, messageParams: { max: MAX_STORY2VIDEO_TEXT_CHARACTERS } })
+    },
+    showStory2VideoErrorDialog(notification = {}) {
+      const resolved = resolveStory2VideoNotification(notification)
+      this.story2videoErrorDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params }
     },
     closeStory2VideoErrorDialog() {
       this.story2videoErrorDialog.visible = false
     },
-    setOrchestrationError(message) {
-      this.orchestrationError = normalizeStory2VideoErrorMessage(message)
-      this.showStory2VideoErrorDialog(this.orchestrationError)
+    requestProjectDeletion(item) {
+      if (!item?.projectId) return
+      this.story2videoProjectDeleteDialog = { visible: true, projectId: item.projectId }
+    },
+    closeProjectDeletionDialog() {
+      this.story2videoProjectDeleteDialog = { visible: false, projectId: null }
+    },
+    async confirmProjectDeletion() {
+      const projectId = this.story2videoProjectDeleteDialog.projectId
+      this.closeProjectDeletionDialog()
+      if (projectId) await this.deleteHistory({ projectId })
+    },
+    setOrchestrationError(notification) {
+      this.orchestrationError = ''
+      this.showStory2VideoErrorDialog(notification)
       this.stopPipelinePolling()
       this.needsCheckpoint = false
       if (this.pipelineRunStatus?.status !== 'completed') {
@@ -1055,11 +1135,11 @@ export default {
       try {
         const statusResult = await pipelineGetRunContext(this.orchestrationRunId)
         if (statusResult?.code !== 0) {
-          this.setOrchestrationError(statusResult?.message || '无法获取 Story2Video 编排状态')
+          this.setOrchestrationError({ error: statusResult?.message })
           return
         }
         if (!statusResult.data) {
-          this.setOrchestrationError('编排状态未返回，请在历史记录中查看详情')
+          this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE })
           return
         }
         this.orchestrationContext = statusResult.data.context || null
@@ -1073,8 +1153,8 @@ export default {
             error: statusResult.data.error || statusResult.data.status.error,
           })
         }
-      } catch (error) {
-        this.setOrchestrationError('获取 Story2Video 编排状态失败: ' + (error?.message || String(error)))
+      } catch (_error) {
+        this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE })
       }
     },
     async advanceOrchestration() {
@@ -1083,7 +1163,7 @@ export default {
       if (res?.code === 0 && res.data?.success !== false) {
         if (!this.applyOrchestrationOutcome(res.data || {})) await this.updateOrchestrationStatus()
       }
-      else { this.setOrchestrationError(res?.message || res?.data?.error || '推进失败') }
+      else { this.setOrchestrationError({ error: res?.message || res?.data?.error }) }
     },
     extractOrchestrationVideoPath(context) {
       const publish = context?.publish?.data || context?.publish
@@ -1097,7 +1177,7 @@ export default {
         this.needsCheckpoint = true
       }
       if (outcome?.success === false) {
-        this.setOrchestrationError(outcome.error || '编排执行失败')
+        this.setOrchestrationError({ errorCode: outcome.errorCode, errorParams: outcome.errorParams, error: outcome.error })
         return true
       }
       if (!outcome?.completed) return false
@@ -1109,7 +1189,7 @@ export default {
       this.needsCheckpoint = false
       this.orchestrationRunId = null
       if (!videoPath) {
-        this.setOrchestrationError('编排已完成，但未返回可预览的视频文件')
+        this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
         return true
       }
       if (this.orchestrationResultPath === videoPath) return true
@@ -1147,7 +1227,6 @@ export default {
     async loadHistory() {
       const requestId = ++this.historyRequestId
       this.historyLoading = true
-      this.historyError = ''
       try {
         const [projectsResult, pipelineResult] = await Promise.allSettled([
           settleHistoryRequest(() => story2videoListProjects()),
@@ -1169,13 +1248,12 @@ export default {
           : []
         this.history = [...projects, ...runs]
         if (!hasProjects || !hasRuns) {
-          const timedOut = [projectsResult, pipelineResult].some(result => result.status === 'rejected' && result.reason?.code === 'HISTORY_LOAD_TIMEOUT')
-          this.historyError = timedOut ? '历史记录加载超时，请重试' : '部分历史记录加载失败，请重试'
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED })
         }
       } catch (_) {
         if (requestId !== this.historyRequestId) return
         this.history = []
-        this.historyError = '历史记录加载失败，请重试'
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED })
       } finally {
         if (requestId === this.historyRequestId) this.historyLoading = false
       }
@@ -1185,10 +1263,10 @@ export default {
       this.$router.push({ path: '/create/result', query: { project: item.projectId } })
     },
     async deleteHistory(item) {
-      if (!item?.projectId || !window.confirm('确定删除这个 Story2Video 项目及其本地产物吗？')) return
+      if (!item?.projectId) return
       const result = await story2videoDeleteProject(item.projectId)
       if (result?.code === 0) this.history = this.history.filter(entry => entry.projectId !== item.projectId)
-      else alert(result?.message || '项目删除失败')
+      else this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED })
     },
 
     // 文件处理
@@ -1217,11 +1295,11 @@ export default {
       }
       const rule = rules[kind]
       if (!rule || !rule.extensions.includes(extension)) {
-        alert((rule?.label || '文件') + '格式不支持')
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
         return false
       }
       if (Number(file?.size) > rule.maxBytes) {
-        alert(rule.label + '超过 ' + Math.round(rule.maxBytes / 1024 / 1024) + 'MB 上限')
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
         return false
       }
       return true
@@ -1251,7 +1329,7 @@ export default {
         }
       }
       if (resolved.length !== files.length) {
-        alert('部分音频文件无法读取路径，未加入流水线')
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
       }
       this.pipelineAudio = resolved
     },
@@ -1278,7 +1356,7 @@ export default {
       const filePath = typeof resolver === 'function' ? await resolver(file) : ''
       if (!filePath) {
         this.pipelineVideo = null
-        alert('无法读取视频文件路径，请重新选择文件')
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
         return
       }
       this.pipelineVideo = { name: file.name || filePath, path: filePath }
@@ -1289,7 +1367,7 @@ export default {
       const imported = await this.importStory2VideoMedia(file, 'bgm')
       if (!imported?.path) {
         this.s2vConfig.bgmPath = ''
-        alert('无法读取背景音乐文件路径，请重新选择文件')
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
         return
       }
       this.s2vConfig.bgmPath = imported.path
@@ -1396,7 +1474,7 @@ export default {
 .detail { opacity: 0.7; }
 .btn-install { padding: 4px 12px; border: 1px solid var(--warning); border-radius: 4px; background: transparent; color: var(--warning); cursor: pointer; font-size: 12px; margin-left: auto; }
 .install-log { padding: 8px 12px; background: var(--bg); border-radius: 4px; font-size: 11px; font-family: monospace; max-height: 100px; overflow-y: auto; margin-bottom: 16px; white-space: pre-wrap; }
-.orchestration-error { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--danger, #dc2626); border-radius: 8px; background: #fef2f2; color: #991b1b; white-space: pre-wrap; }
+.story2video-text-count { margin: 8px 0 0; color: var(--text-muted); font-size: 12px; text-align: right; }
 
 /* 视图切换 */
 .view-tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }

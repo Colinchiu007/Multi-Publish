@@ -98,6 +98,8 @@ const STORY2VIDEO_PROMPT_STYLE_ALIASES = Object.freeze({
   '3d-render': '3d_render',
 })
 const ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4'])
+const MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 6000
+const STORY2VIDEO_TEXT_TOO_LONG_ERROR_CODE = 'story2video.text_too_long'
 const SENSITIVE_CONTEXT_KEYS = new Set([
   'api_key', 'access_token', 'refresh_token', 'auth_token', 'bearer_token', 'token',
   'secret', 'secret_key', 'client_secret', 'app_secret', 'password', 'authorization',
@@ -118,6 +120,18 @@ function own(source, key) {
 
 function firstDefined(...values) {
   return values.find(value => value !== undefined && value !== null)
+}
+
+function countStory2VideoTextCharacters(value) {
+  return Array.from(String(value || '')).length
+}
+
+function story2VideoTextTooLongError() {
+  /** @type {Error & { code?: string, params?: { max: number } }} */
+  const error = new Error('Story2Video 文案最多 ' + MAX_STORY2VIDEO_TEXT_UNICODE_CHARS + ' 个 Unicode 字符')
+  error.code = STORY2VIDEO_TEXT_TOO_LONG_ERROR_CODE
+  error.params = { max: MAX_STORY2VIDEO_TEXT_UNICODE_CHARS }
+  return error
 }
 
 function textValue(value, fallback, field, maxLength = 20000) {
@@ -253,7 +267,14 @@ function normalizeStory2VideoTextParams(params = {}) {
   }
 
   const suppliedPrompt = own(suppliedConfig, 'prompt')
-  const text = textValue(firstDefined(params.text, suppliedPrompt), '', 'text').trim()
+  const suppliedText = firstDefined(params.text, suppliedPrompt)
+  if (countStory2VideoTextCharacters(String(suppliedText || '').trim()) > MAX_STORY2VIDEO_TEXT_UNICODE_CHARS) {
+    throw story2VideoTextTooLongError()
+  }
+  if (suppliedPrompt !== undefined && suppliedPrompt !== null && countStory2VideoTextCharacters(String(suppliedPrompt).trim()) > MAX_STORY2VIDEO_TEXT_UNICODE_CHARS) {
+    throw story2VideoTextTooLongError()
+  }
+  const text = textValue(suppliedText, '', 'text').trim()
   if (!text) throw new Error('Story2Video 文案不能为空')
   const prompt = suppliedPrompt === undefined || suppliedPrompt === null || String(suppliedPrompt).trim() === ''
     ? text
@@ -520,5 +541,7 @@ module.exports = {
   DEFAULT_STORY2VIDEO_TEXT_CONFIG,
   STORY2VIDEO_PIPELINE,
   STORY2VIDEO_TEXT_CONFIG_VERSION,
+  MAX_STORY2VIDEO_TEXT_UNICODE_CHARS,
+  countStory2VideoTextCharacters,
   normalizeStory2VideoTextParams,
 }

@@ -578,7 +578,7 @@ class PipelineEngine {
    * 启动编排模式流水线
    * @param {string} pipelineName
    * @param {object} [params] - { autoAdvance?: boolean, ...流水线特定参数 }
-   * @returns {Promise<{success: boolean, runId?: string, error?: string, results?: any[], context?: object, paused?: boolean}>}
+   * @returns {Promise<{success: boolean, runId?: string, error?: string, errorCode?: string|null, errorParams?: { max?: number }|null, results?: any[], context?: object, paused?: boolean}>}
    */
   async startOrchestrated(pipelineName, params) {
     if (!this.stageExecutor) {
@@ -602,6 +602,8 @@ class PipelineEngine {
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),
+          errorCode: error?.code || null,
+          errorParams: error?.params || null,
         };
       }
     }

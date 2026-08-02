@@ -2,6 +2,8 @@
 const {
   DEFAULT_STORY2VIDEO_TEXT_CONFIG,
   normalizeStory2VideoTextParams,
+  MAX_STORY2VIDEO_TEXT_UNICODE_CHARS,
+  countStory2VideoTextCharacters,
 } = require('./story2video-text-config')
 
 describe('Story2Video text 参数合同', () => {
@@ -187,6 +189,29 @@ describe('Story2Video text 参数合同', () => {
   })
 
   it.each([
+    ['中文', '中'.repeat(6000)],
+    ['英文', 'a'.repeat(6000)],
+    ['emoji', '😀'.repeat(6000)],
+  ])('接受恰好 6000 个 Unicode code point 的%s文案', (_language, text) => {
+    expect(Array.from(text)).toHaveLength(6000)
+
+    const result = normalizeStory2VideoTextParams({ text })
+
+    expect(result.text).toBe(text)
+    expect(result.story2videoTextConfig.prompt).toBe(text)
+  })
+
+  it.each([
+    ['中文', '中'.repeat(6001)],
+    ['英文', 'a'.repeat(6001)],
+    ['emoji', '😀'.repeat(6001)],
+  ])('拒绝 6001 个 Unicode code point 的%s文案', (_language, text) => {
+    expect(Array.from(text)).toHaveLength(6001)
+
+    expect(() => normalizeStory2VideoTextParams({ text })).toThrow(/6000.*Unicode/i)
+  })
+
+  it.each([
     [{ inputMode: 'images', images: ['data:image/png;base64,aQ=='] }, '只支持 text'],
     [{ text: '测试', images: {} }, 'images 必须是数组'],
     [{ text: '测试', audio: 'voice.mp3' }, 'audio 必须是数组'],
@@ -241,5 +266,14 @@ describe('Story2Video text 参数合同', () => {
     { context: { provider: { clientSecret: 'secret' } } },
   ])('拒绝运行上下文中的敏感凭据 %#', (contextInput) => {
     expect(() => normalizeStory2VideoTextParams({ text: '测试', ...contextInput })).toThrow('敏感凭据')
+  })
+  it('将 Story2Video 文案限制为 6000 个 Unicode 字符，版本化 prompt 直传同样受限', () => {
+    expect(MAX_STORY2VIDEO_TEXT_UNICODE_CHARS).toBe(6000)
+    expect(countStory2VideoTextCharacters('😀'.repeat(6000))).toBe(6000)
+    expect(normalizeStory2VideoTextParams({ text: '中'.repeat(6000) }).text).toHaveLength(6000)
+    expect(() => normalizeStory2VideoTextParams({ text: 'a'.repeat(6001) })).toThrow('最多 6000')
+    expect(() => normalizeStory2VideoTextParams({
+      story2videoTextConfig: { version: 1, mode: 'text', prompt: '😀'.repeat(6001) },
+    })).toThrow('最多 6000')
   })
 })

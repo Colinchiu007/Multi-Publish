@@ -21,7 +21,6 @@ const { promisify } = require('util')
 const {
   MAX_INPUT_FILE_BYTES,
   MAX_INPUT_TOTAL_BYTES,
-  MAX_SCENES,
   getAllowedMediaRoots,
   isPathWithin,
   resolveReadableMediaFile,
@@ -312,7 +311,6 @@ class Story2VideoComposeEngine {
     this.allowedMediaRoots = Array.isArray(opts.allowedMediaRoots) && opts.allowedMediaRoots.length > 0
       ? opts.allowedMediaRoots.map(root => path.resolve(root))
       : getAllowedMediaRoots([this.outputDir, process.cwd()])
-    this.maxScenes = Math.floor(positiveLimit(opts.maxScenes, MAX_SCENES))
     this.maxInputFileBytes = positiveLimit(opts.maxInputFileBytes, MAX_INPUT_FILE_BYTES)
     this.maxInputTotalBytes = positiveLimit(opts.maxInputTotalBytes, MAX_INPUT_TOTAL_BYTES)
     this.maxDurationSeconds = positiveLimit(opts.maxDurationSeconds, DEFAULT_MAX_DURATION_SECONDS)
@@ -336,9 +334,6 @@ class Story2VideoComposeEngine {
     let scenes = normalizeComposeScenes(assetManifest)
     if (scenes.length === 0) {
       return { code: -1, message: 'Invalid assetManifest: missing scenes or image/audio pairs' }
-    }
-    if (scenes.length > this.maxScenes) {
-      return { code: -1, message: 'Scene count exceeds the allowed limit: ' + this.maxScenes }
     }
 
     const resolutionError = validateResolution(options?.resolution, this.maxOutputPixels)

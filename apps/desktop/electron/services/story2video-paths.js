@@ -8,7 +8,6 @@ const { fileURLToPath } = require('url')
 
 const MAX_INPUT_FILE_BYTES = 100 * 1024 * 1024
 const MAX_INPUT_TOTAL_BYTES = 512 * 1024 * 1024
-const MAX_SCENES = 60
 const MAX_IMAGE_FILE_BYTES = 10 * 1024 * 1024
 const MAX_AUDIO_FILE_BYTES = 50 * 1024 * 1024
 const MAX_BGM_FILE_BYTES = 15 * 1024 * 1024
@@ -241,7 +240,6 @@ function cleanupRunInputDir (runId, options = {}) {
 module.exports = {
   MAX_INPUT_FILE_BYTES,
   MAX_INPUT_TOTAL_BYTES,
-  MAX_SCENES,
   MAX_IMAGE_FILE_BYTES,
   MAX_AUDIO_FILE_BYTES,
   MAX_BGM_FILE_BYTES,

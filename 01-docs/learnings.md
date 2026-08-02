@@ -5558,3 +5558,10 @@ getAvailablePresets (category) {
 ## R90：Story2Video Provider 图片 URL 的 Node lookup 兼容合同（2026-08-02）
 
 当 Story2Video 对 provider 返回的 HTTPS 图片 URL 使用自定义 `lookup` 固定已经校验的 DNS 地址时，必须同时支持 Node 的两种 callback 契约：默认模式回调 `(null, address, family)`；若 `options.all === true`，回调 `(null, [{ address, family }])`。两种模式都只能返回同一个已校验公网地址，禁止为了兼容而回退到系统 DNS、跟随重定向或放宽私网/大小/协议限制。修改 `asset-generator.js`、Electron/Node 版本或 HTTPS 下载器时，至少运行 `asset-generator-provider.test.js` 中的单地址、`all=true`、DNS 重绑定、私网与超时用例，并在真实 provider 验收中确认图片资产标记为 `source: model-provider`、`degraded: false`。
+
+## Story2Video 重复错误提示与字符边界复盘（2026-08-02）
+
+- **根因**：CreateView 同时保存页面红条字符串和弹窗字符串，且直接透传 IPC/服务端错误；场景数限制被错误地当作文案输入上限。
+- **修复**：删除场景数量拒绝，统一在 renderer 与主进程使用 6,000 个 Unicode code point 文案边界；新增独立中英通知目录，视图只保存消息键与参数，并用应用内模态框显示友好文本。
+- **回归保护**：覆盖超限文案在 IPC 前拦截、主进程直接调用拒绝、模型未配置映射、未知技术错误不回显、CreateView 无重复红条、ResultView 无原始错误 banner。
+- **预防措施**：新增用户可见错误时，必须先定义稳定消息键和双语文案；Vue 测试同时断言弹窗可见与旧页面错误容器不存在。

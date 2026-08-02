@@ -288,6 +288,22 @@ describe('story2video 编排契约', () => {
     expect(engine._runs.size).toBe(0)
   })
 
+  it('主进程直调在创建运行前拒绝 6001 个 Unicode code point 文案', async () => {
+    const { engine } = createEngine()
+    const text = '😀'.repeat(6001)
+
+    expect(Array.from(text)).toHaveLength(6001)
+
+    const started = await engine.startOrchestrated('story2video-compose', {
+      text,
+      autoAdvance: false,
+    })
+
+    expect(started).toMatchObject({ success: false })
+    expect(started.error).toMatch(/6000.*Unicode/i)
+    expect(engine._runs.size).toBe(0)
+  })
+
   it('Story2Video 使用版本化 text 配置执行分句和默认 LLM 优化，普通编排流水线保持旧合同', async () => {
     const { engine, serviceBus, aiGenerator } = createEngine()
     registerStory2VideoStages(engine)
