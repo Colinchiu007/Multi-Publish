@@ -570,27 +570,30 @@
     <!-- ==================== 历史记录视图 ==================== -->
     <div v-if="view === 'history'">
       <div v-if="historyLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
-      <div v-else-if="history.length === 0" class="empty-state"><p>暂无创作记录</p></div>
       <div v-else>
-        <div class="history-toolbar">
-          <label for="history-status-filter">状态</label>
-          <select id="history-status-filter" v-model="historyFilter" class="form-select history-filter">
-            <option value="all">全部</option>
-            <option value="completed">已完成</option>
-            <option value="failed">失败</option>
-            <option value="cancelled">已取消</option>
-            <option value="running">进行中</option>
-          </select>
-        </div>
-        <div v-if="filteredHistory.length === 0" class="empty-state compact"><p>没有符合条件的记录</p></div>
-        <div v-else class="history-list">
-        <div v-for="(h, i) in filteredHistory" :key="h.projectId || h.id || i" class="history-item">
-          <span class="history-name">{{ h.title || humanName(h.pipeline || h.name) }}</span>
-          <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
-          <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
-          <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click="openHistory(h)">打开</button>
-          <button v-if="h.projectId" class="history-delete" @click="deleteHistory(h)">删除</button>
-        </div>
+        <div v-if="historyError" class="result-banner error history-error"><p>{{ historyError }}</p><button class="btn-secondary" @click="loadHistory">重试</button></div>
+        <div v-if="history.length === 0" class="empty-state"><p>暂无创作记录</p></div>
+        <div v-else>
+          <div class="history-toolbar">
+            <label for="history-status-filter">状态</label>
+            <select id="history-status-filter" v-model="historyFilter" class="form-select history-filter">
+              <option value="all">全部</option>
+              <option value="completed">已完成</option>
+              <option value="failed">失败</option>
+              <option value="cancelled">已取消</option>
+              <option value="running">进行中</option>
+            </select>
+          </div>
+          <div v-if="filteredHistory.length === 0" class="empty-state compact"><p>没有符合条件的记录</p></div>
+          <div v-else class="history-list">
+            <div v-for="(h, i) in filteredHistory" :key="h.projectId || h.id || i" class="history-item">
+              <span class="history-name">{{ h.title || humanName(h.pipeline || h.name) }}</span>
+              <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
+              <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
+              <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click="openHistory(h)">打开</button>
+              <button v-if="h.projectId" class="history-delete" @click="deleteHistory(h)">删除</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -617,6 +620,16 @@ import {
   story2videoDeleteProject
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
+
+const HISTORY_LOAD_TIMEOUT_MS = 5000
+
+function settleHistoryRequest (request) {
+  let timeoutId
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(Object.assign(new Error('历史记录加载超时'), { code: 'HISTORY_LOAD_TIMEOUT' })), HISTORY_LOAD_TIMEOUT_MS)
+  })
+  return Promise.race([Promise.resolve().then(request), timeout]).finally(() => clearTimeout(timeoutId))
+}
 
 const STYLES = [
   { value: 'clean-professional', label: '简洁专业', desc: '干净排版，适合商业内容' },
@@ -700,7 +713,7 @@ export default {
       s2vImageProviders: [], s2vVoiceProviders: [],
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       // 历史
-      history: [], historyLoading: false, historyFilter: 'all',
+      history: [], historyLoading: false, historyError: '', historyFilter: 'all', historyRequestId: 0,
       // 清理
       cleanups: [],
       quickModes: [
@@ -1099,24 +1112,40 @@ export default {
     },
     async advancePipeline() { await pipelineAdvance(); await this.updatePipelineStatus() },
     async loadHistory() {
+      const requestId = ++this.historyRequestId
       this.historyLoading = true
+      this.historyError = ''
       try {
         const [projectsResult, pipelineResult] = await Promise.allSettled([
-          story2videoListProjects(),
-          pipelineHistory(),
+          settleHistoryRequest(() => story2videoListProjects()),
+          settleHistoryRequest(() => pipelineHistory()),
         ])
-        const projects = projectsResult.status === 'fulfilled' && projectsResult.value?.code === 0
-          ? (projectsResult.value.data || []).map(project => ({ ...project, historyType: 'story2video-project' }))
+        if (requestId !== this.historyRequestId) return
+        const hasProjects = projectsResult.status === 'fulfilled'
+          && projectsResult.value?.code === 0
+          && Array.isArray(projectsResult.value.data)
+        const hasRuns = pipelineResult.status === 'fulfilled'
+          && pipelineResult.value?.code === 0
+          && Array.isArray(pipelineResult.value.data)
+        const projects = hasProjects
+          ? projectsResult.value.data.map(project => ({ ...project, historyType: 'story2video-project' }))
           : []
         const projectIds = new Set(projects.map(project => project.projectId))
-        const runs = pipelineResult.status === 'fulfilled' && pipelineResult.value?.code === 0
-          ? (pipelineResult.value.data || []).filter(run => !projectIds.has(run.id))
+        const runs = hasRuns
+          ? pipelineResult.value.data.filter(run => !projectIds.has(run.id))
           : []
         this.history = [...projects, ...runs]
+        if (!hasProjects || !hasRuns) {
+          const timedOut = [projectsResult, pipelineResult].some(result => result.status === 'rejected' && result.reason?.code === 'HISTORY_LOAD_TIMEOUT')
+          this.historyError = timedOut ? '历史记录加载超时，请重试' : '部分历史记录加载失败，请重试'
+        }
       } catch (_) {
+        if (requestId !== this.historyRequestId) return
         this.history = []
+        this.historyError = '历史记录加载失败，请重试'
+      } finally {
+        if (requestId === this.historyRequestId) this.historyLoading = false
       }
-      finally { this.historyLoading = false }
     },
     openHistory(item) {
       if (!item?.projectId) return

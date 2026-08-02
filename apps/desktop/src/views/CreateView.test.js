@@ -858,6 +858,57 @@ describe("CreateView - UI interactions", () => {
     expect(w.vm.view).toBe("history");
   });
 
+  it("历史记录请求超时时停止加载、显示错误并保留已完成来源", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockImplementation(() => new Promise(() => {}));
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [{
+      id: "completed-run", pipelineName: "Story2Video", status: "completed", title: "已完成流水线",
+    }] });
+    vi.useFakeTimers();
+    try {
+      const w = mount(CreateView, {
+        global: { plugins: [router], components: { UiButton, UiSelect } }
+      });
+      w.vm.view = "history";
+      void w.vm.loadHistory();
+
+      await vi.advanceTimersByTimeAsync(8000);
+      await nextTick();
+
+      expect(w.vm.historyLoading).toBe(false);
+      expect(w.find(".history-error").text()).toContain("历史记录加载超时");
+      expect(w.find(".history-status.completed").exists()).toBe(true);
+      expect(w.text()).toContain("已完成流水线");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("并发历史请求只保留最新一次响应", async () => {
+    const mocks = await import("@/api/publisher");
+    let resolveOldProjects;
+    let resolveOldRuns;
+    mocks.story2videoListProjects
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOldProjects = resolve; }))
+      .mockResolvedValueOnce({ code: 0, data: [{ projectId: "new-project", title: "新记录", status: "completed" }] });
+    mocks.pipelineHistory
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOldRuns = resolve; }))
+      .mockResolvedValueOnce({ code: 0, data: [] });
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+
+    const first = w.vm.loadHistory();
+    await Promise.resolve();
+    const second = w.vm.loadHistory();
+    await second;
+    resolveOldProjects({ code: 0, data: [{ projectId: "old-project", title: "旧记录", status: "completed" }] });
+    resolveOldRuns({ code: 0, data: [] });
+    await first;
+    await nextTick();
+
+    expect(w.vm.history.map(item => item.projectId)).toEqual(["new-project"]);
+    expect(w.vm.historyLoading).toBe(false);
+  });
   it("clicks btn-start triggers startPipeline", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "测试阻止启动" });

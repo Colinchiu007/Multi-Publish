@@ -13,23 +13,26 @@
     <!-- 渲染记录 -->
     <div v-if="tab === 'renders'">
       <div v-if="renderLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
-      <div v-else-if="renders.length === 0" class="empty-state">
-        <p>暂无渲染记录</p>
-        <UiButton @click="$router.push('/create')">去创作</UiButton>
-      </div>
-      <div v-else class="render-list">
-        <div v-for="(r, i) in renders" :key="i" class="render-card" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
-          <div class="render-info">
-            <span class="render-icon">🎬</span>
-            <div class="render-meta">
-              <span class="render-name">{{ r.composition || r.name || '视频 ' + (i + 1) }}</span>
-              <span class="render-time">{{ formatTime(r.completedAt || r.createdAt) }}</span>
+      <div v-else>
+        <div v-if="renderError" class="history-error"><p>{{ renderError }}</p><UiButton size="sm" @click="loadRenders">重试</UiButton></div>
+        <div v-if="renders.length === 0" class="empty-state">
+          <p>暂无渲染记录</p>
+          <UiButton @click="$router.push('/create')">去创作</UiButton>
+        </div>
+        <div v-else class="render-list">
+          <div v-for="(r, i) in renders" :key="i" class="render-card" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
+            <div class="render-info">
+              <span class="render-icon">🎬</span>
+              <div class="render-meta">
+                <span class="render-name">{{ r.composition || r.name || '视频 ' + (i + 1) }}</span>
+                <span class="render-time">{{ formatTime(r.completedAt || r.createdAt) }}</span>
+              </div>
             </div>
-          </div>
-          <div class="render-status" :class="r.status || 'completed'">{{ statusLabel(r.status) }}</div>
-          <div class="render-actions">
-            <UiButton size="sm" @click.stop="$router.push('/publish')">发布</UiButton>
-            <UiButton size="sm" variant="ghost" @click.stop="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">预览</UiButton>
+            <div class="render-status" :class="r.status || 'completed'">{{ statusLabel(r.status) }}</div>
+            <div class="render-actions">
+              <UiButton size="sm" @click.stop="$router.push('/publish')">发布</UiButton>
+              <UiButton size="sm" variant="ghost" @click.stop="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">预览</UiButton>
+            </div>
           </div>
         </div>
       </div>
@@ -38,25 +41,28 @@
     <!-- 流水线记录 -->
     <div v-if="tab === 'pipelines'">
       <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
-      <div v-else-if="pipelines.length === 0" class="empty-state">
-        <p>暂无流水线运行记录</p>
-        <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
-      </div>
-      <div v-else class="pipeline-list">
-        <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card">
-          <div class="pipeline-info">
-            <span class="pipeline-status-dot" :class="p.status"></span>
-            <div class="pipeline-meta">
-              <span class="pipeline-name">{{ humanName(p.pipelineName || p.name) }}</span>
-              <span class="pipeline-time">{{ formatTime(p.completedAt || p.startedAt) }}</span>
+      <div v-else>
+        <div v-if="pipelineError" class="history-error pipeline-history-error"><p>{{ pipelineError }}</p><UiButton size="sm" @click="loadPipelines">重试</UiButton></div>
+        <div v-if="pipelines.length === 0" class="empty-state">
+          <p>暂无流水线运行记录</p>
+          <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
+        </div>
+        <div v-else class="pipeline-list">
+          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card">
+            <div class="pipeline-info">
+              <span class="pipeline-status-dot" :class="p.status"></span>
+              <div class="pipeline-meta">
+                <span class="pipeline-name">{{ humanName(p.pipelineName || p.name) }}</span>
+                <span class="pipeline-time">{{ formatTime(p.completedAt || p.startedAt) }}</span>
+              </div>
             </div>
+            <div class="pipeline-stages">
+              <span v-for="(s, si) in (p.stages || [])" :key="si" class="stage-tag" :class="stageClass(s)">
+                {{ shortName(s.name || s) }}
+              </span>
+            </div>
+            <span class="pipeline-status" :class="p.status">{{ statusLabel(p.status) }}</span>
           </div>
-          <div class="pipeline-stages">
-            <span v-for="(s, si) in (p.stages || [])" :key="si" class="stage-tag" :class="stageClass(s)">
-              {{ shortName(s.name || s) }}
-            </span>
-          </div>
-          <span class="pipeline-status" :class="p.status">{{ statusLabel(p.status) }}</span>
         </div>
       </div>
     </div>
@@ -66,6 +72,16 @@
 <script>
 import { pipelineHistory } from '@/api/publisher'
 import UiButton from '../components/UiButton.vue'
+
+const HISTORY_LOAD_TIMEOUT_MS = 5000
+
+function settleHistoryRequest (request) {
+  let timeoutId
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(Object.assign(new Error('历史记录加载超时'), { code: 'HISTORY_LOAD_TIMEOUT' })), HISTORY_LOAD_TIMEOUT_MS)
+  })
+  return Promise.race([Promise.resolve().then(request), timeout]).finally(() => clearTimeout(timeoutId))
+}
 export default {
   
   components: { UiButton },
@@ -74,8 +90,12 @@ export default {
       tab: 'renders',
       renders: [],
       renderLoading: true,
+      renderError: '',
+      renderRequestId: 0,
       pipelines: [],
       pipelineLoading: false,
+      pipelineError: '',
+      pipelineRequestId: 0,
     }
   },
   async mounted() {
@@ -83,24 +103,38 @@ export default {
   },
   methods: {
     async loadRenders() {
+      const requestId = ++this.renderRequestId
       this.renderLoading = true
+      this.renderError = ''
       try {
-        // Try to load from store/publish history
-        const { storeListPublishHistory } = await import('@/api/publisher')
-        const res = await storeListPublishHistory({ limit: 50, type: 'render' })
-        this.renders = res?.data?.records || []
-      } catch (e) { /* silent fallback */ }
-      this.renderLoading = false
+        const res = await settleHistoryRequest(async () => {
+          const { storeListPublishHistory } = await import('@/api/publisher')
+          return storeListPublishHistory({ limit: 50, type: 'render' })
+        })
+        if (requestId !== this.renderRequestId) return
+        if (res?.code === 0) this.renders = res?.data?.records || []
+        else this.renderError = res?.message || '渲染记录加载失败，请重试'
+      } catch (e) {
+        if (requestId !== this.renderRequestId) return
+        this.renderError = e?.code === 'HISTORY_LOAD_TIMEOUT' ? '渲染记录加载超时，请重试' : '渲染记录加载失败，请重试'
+      } finally {
+        if (requestId === this.renderRequestId) this.renderLoading = false
+      }
     },
     async loadPipelines() {
+      const requestId = ++this.pipelineRequestId
       this.pipelineLoading = true
+      this.pipelineError = ''
       try {
-        const r = await pipelineHistory()
-        if (r?.code === 0) this.pipelines = r.data || []
+        const r = await settleHistoryRequest(() => pipelineHistory())
+        if (requestId !== this.pipelineRequestId) return
+        if (r?.code === 0 && Array.isArray(r.data)) this.pipelines = r.data
+        else this.pipelineError = r?.message || '流水线记录加载失败，请重试'
       } catch (e) {
-        console.error(e)
+        if (requestId !== this.pipelineRequestId) return
+        this.pipelineError = e?.code === 'HISTORY_LOAD_TIMEOUT' ? '流水线记录加载超时，请重试' : '流水线记录加载失败，请重试'
       } finally {
-        this.pipelineLoading = false
+        if (requestId === this.pipelineRequestId) this.pipelineLoading = false
       }
     },
     statusLabel(s) {
@@ -136,6 +170,7 @@ export default {
 .tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #666; border-bottom: 2px solid transparent; }
 .tab.active { color: var(--primary, #7c5cbf); border-bottom-color: var(--primary, #7c5cbf); font-weight: 600; }
 .loading-state, .empty-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: #666; justify-content: center; flex-direction: column; }
+.history-error { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; color: #991b1b; background: #fee2e2; border-radius: 8px; }
 .render-list, .pipeline-list { display: flex; flex-direction: column; gap: 8px; }
 .render-card, .pipeline-card { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fff; cursor: pointer; transition: all 0.15s; }
 .render-card:hover, .pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }

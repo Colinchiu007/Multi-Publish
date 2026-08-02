@@ -1,0 +1,12 @@
+{
+  "id": "fix-history-records-loading",
+  "title": "修复视频创作历史记录持续加载并收敛分支工作树",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "已完成修复、验证、审查与归档；待 GitHub PR/CI 交付",
+  "createdAt": "2026-08-02T00:00:00Z",
+  "branch": "codex/fix-history-records-loading"
+}
