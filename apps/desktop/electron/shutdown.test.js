@@ -31,6 +31,7 @@ function buildMockContext(overrides) {
     rpaViewManager: { cleanup: vi.fn() },
     keywordMonitor: { stopAll: vi.fn() },
     callbackServer: { stop: vi.fn() },
+    story2videoMediaServer: { stop: vi.fn() },
     store: { close: vi.fn() },
     usageTracker: { save: vi.fn() },
     taskQueue: { shutdown: vi.fn(), removeAllListeners: vi.fn() },
@@ -231,6 +232,12 @@ describe('shutdown — registerShutdownHandlers', () => {
     registerShutdownHandlers(context)
     await __electronMock.app._handlers['window-all-closed']()
     expect(context.callbackServer.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('触发回调关闭 Story2Video 本机媒体服务', async () => {
+    registerShutdownHandlers(context)
+    await __electronMock.app._handlers['window-all-closed']()
+    expect(context.story2videoMediaServer.stop).toHaveBeenCalledTimes(1)
   })
 
   it('触发回调调用 store.close', async () => {

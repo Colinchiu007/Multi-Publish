@@ -601,3 +601,14 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     }
   })
 })
+
+describe('Story2Video 六档字幕字号', () => {
+  it.each([
+    ['size1', 16], ['size2', 20], ['size3', 24],
+    ['size4', 28], ['size5', 32], ['size6', 40],
+  ])('将 %s 传递为独立的 FFmpeg fontsize=%i', (size, fontSize) => {
+    const filter = buildSubtitleFilter('字幕可见性验证', { size })
+
+    expect(filter).toContain(':fontsize=' + fontSize + ':')
+  })
+})

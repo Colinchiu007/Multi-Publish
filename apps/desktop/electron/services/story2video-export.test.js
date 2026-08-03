@@ -4,7 +4,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { createZipFromFiles } = require('./story2video-export')
+const { createZipFromFiles, createShareFileUrl } = require('./story2video-export')
 
 describe('Story2Video ZIP 导出', () => {
   let root
@@ -78,5 +78,29 @@ describe('Story2Video ZIP 导出', () => {
       .rejects.toThrow(/总大小|上限/)
     expect(fs.existsSync(destination)).toBe(false)
     expect(fs.readdirSync(root).some(name => name.includes('.tmp-'))).toBe(false)
+  })
+
+  it('在保留受控根校验后委托媒体服务生成不透明分享 URL', () => {
+    const video = path.join(root, 'share.mp4')
+    const mediaServer = { createUrl: vi.fn().mockReturnValue('http://127.0.0.1:34821/media/aaaaaaaaaaaaaaaa') }
+    fs.writeFileSync(video, 'video')
+
+    const url = createShareFileUrl(video, { allowedRoots: [root], mediaServer })
+
+    expect(url).toBe('http://127.0.0.1:34821/media/aaaaaaaaaaaaaaaa')
+    expect(mediaServer.createUrl).toHaveBeenCalledWith(fs.realpathSync.native(video))
+  })
+
+  it('拒绝越出允许根的分享路径，且不调用媒体服务', () => {
+    const outside = path.join(os.tmpdir(), 's2v-share-outside-' + Date.now() + '.mp4')
+    const mediaServer = { createUrl: vi.fn() }
+    fs.writeFileSync(outside, 'outside')
+    try {
+      expect(() => createShareFileUrl(outside, { allowedRoots: [root], mediaServer }))
+        .toThrow(/不允许|不可读/)
+      expect(mediaServer.createUrl).not.toHaveBeenCalled()
+    } finally {
+      fs.rmSync(outside, { force: true })
+    }
   })
 })

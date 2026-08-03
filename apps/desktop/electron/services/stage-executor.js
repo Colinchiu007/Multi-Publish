@@ -460,6 +460,7 @@ class StageExecutor {
               title: stage.options?.title || params.title || '',
               content: stage.options?.content || params.content || '',
               tags: stage.options?.tags || [],
+              cover_url: stage.options?.coverUrl || params.coverUrl || '',
             },
           };
           const r = await publisher.publish(task);

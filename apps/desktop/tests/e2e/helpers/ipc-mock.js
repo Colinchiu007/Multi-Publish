@@ -481,11 +481,17 @@
     // 流水线
     pipelines: pipelinesObj,
     pipelineList: makeHandler('pipelineList', async () => ok([
+      { name: 'story2video-compose', description: '从文案自动生成配音、画面与成片', category: 'video', stageCount: 6, stages: ['分句', '内容增强', '提示词优化', '素材生成', '视频合成', '发布'], steps: ['分句', '内容增强', '提示词优化', '素材生成', '视频合成', '发布'] },
       { name: '热点流水线', description: '采集热点并生成发布内容', category: 'content', stages: ['采集', 'AI写作', '优化', '发布'], steps: ['采集', 'AI写作', '优化', '发布'] },
       { name: '长文流水线', description: '从选题到发布的长文流程', category: 'article', stages: ['选题', '写作', '校对', '发布'], steps: ['选题', '写作', '校对', '发布'] }
     ])),
     pipelineGet: makeHandler('pipelineGet', async () => ok(null)),
     pipelineStart: makeHandler('pipelineStart', async () => ok({ started: true })),
+    pipelineStartOrchestrated: makeHandler('pipelineStartOrchestrated', async () => ok({ runId: 'e2e-story2video-run', status: 'running' })),
+    pipelineGetRunContext: makeHandler('pipelineGetRunContext', async () => ok({
+      context: { story2videoProject: { projectId: 'e2e-story2video-project' } },
+      status: { status: 'running', progress: 10 },
+    })),
     pipelinePause: makeHandler('pipelinePause', async () => ok(true)),
     pipelineResume: makeHandler('pipelineResume', async () => ok(true)),
     pipelineCancel: makeHandler('pipelineCancel', async () => ok(true)),

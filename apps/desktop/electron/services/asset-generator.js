@@ -53,13 +53,14 @@ function resolveImageSize (ratio) {
     '9:16': { width: 720, height: 1280 },
     '1:1': { width: 1024, height: 1024 },
     '4:3': { width: 1024, height: 768 },
+    '3:4': { width: 768, height: 1024 },
   }
   return sizes[ratio] || sizes['16:9']
 }
 
 function buildEdgeTtsScript () {
   // 用 asyncio.run 直接执行协程，避免 Python 禁止在分号后声明 async def。
-  return 'import sys, asyncio, edge_tts; asyncio.run(edge_tts.Communicate(sys.argv[1], sys.argv[2]).save(sys.argv[3]))'
+  return 'import sys, asyncio, edge_tts; asyncio.run(edge_tts.Communicate(sys.argv[1], sys.argv[2], rate=sys.argv[4], pitch=sys.argv[5]).save(sys.argv[3]))'
 }
 
 function escapeDrawtextText (text) {
@@ -721,6 +722,7 @@ class AssetGenerator {
         voice: voiceId,
         voice_id: voiceId,
         voiceId,
+        voiceName: voiceId,
         model: opts?.voice_model || opts?.voiceModel,
         format: requestedFormat,
         response_format: requestedFormat,
@@ -823,7 +825,11 @@ class AssetGenerator {
       let proc
       try {
         // 参数通过数组传递，shell 元字符不会被解释。
-        proc = spawn(command, [...commandArgs, '-c', buildEdgeTtsScript(), cleanText, voice, audioPath], {
+        const speed = Math.max(0.5, Math.min(2, Number(opts?.rate) || 1))
+        const pitch = Math.max(-12, Math.min(12, Number(opts?.pitch) || 0))
+        const rate = (Math.round((speed - 1) * 100) >= 0 ? '+' : '') + Math.round((speed - 1) * 100) + '%'
+        const pitchValue = (Math.round(pitch) >= 0 ? '+' : '') + Math.round(pitch) + 'Hz'
+        proc = spawn(command, [...commandArgs, '-c', buildEdgeTtsScript(), cleanText, voice, audioPath, rate, pitchValue], {
           stdio: 'ignore', shell: false, timeout: 15000,
         })
       } catch (error) {

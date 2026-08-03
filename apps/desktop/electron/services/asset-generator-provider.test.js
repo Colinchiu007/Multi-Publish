@@ -6,7 +6,7 @@ const os = require('os')
 const path = require('path')
 const { EventEmitter } = require('events')
 
-const { AssetGenerator, isPrivateAddress } = require('./asset-generator')
+const { AssetGenerator, buildEdgeTtsScript, isPrivateAddress } = require('./asset-generator')
 
 const PNG_BYTES = Buffer.from(
   '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489',
@@ -109,6 +109,36 @@ describe('AssetGenerator provider integration', () => {
     }
   })
 
+  it('maps the 3:4 Story2Video output profile to a portrait provider image size', async () => {
+    const aiGenerator = {
+      generate: vi.fn(async () => ({ images: [{ b64_json: PNG_BYTES.toString('base64') }] })),
+    }
+    const { generator, outputDir } = createGenerator(aiGenerator)
+
+    try {
+      const result = await generator.generateImage('3:4 竖版画面', {
+        image_provider: 'local-diffusion',
+        aspect_ratio: '3:4',
+        runId: 'provider-3-4-image',
+      })
+
+      expect(result.code).toBe(0)
+      expect(aiGenerator.generate).toHaveBeenCalledWith(
+        'image',
+        'local-diffusion',
+        expect.objectContaining({ aspect_ratio: '3:4', width: 768, height: 1024 }),
+      )
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true })
+    }
+  })
+
+  it('builds an Edge TTS command that consumes the requested rate and pitch', () => {
+    const script = buildEdgeTtsScript()
+
+    expect(script).toContain('rate=sys.argv[4]')
+    expect(script).toContain('pitch=sys.argv[5]')
+  })
   it('fails closed for ComfyUI because the Story2Video path has no workflow and polling contract', async () => {
     const aiGenerator = { generate: vi.fn() }
     const { generator, outputDir } = createGenerator(aiGenerator)
@@ -566,6 +596,7 @@ describe('AssetGenerator provider integration', () => {
           voice: 'voice-123',
           voice_id: 'voice-123',
           voiceId: 'voice-123',
+          voiceName: 'voice-123',
           outputFormat: 'mp3_44100_128',
         }),
       )

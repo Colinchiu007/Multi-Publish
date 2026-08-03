@@ -148,7 +148,7 @@ describe('Story2Video text 参数合同', () => {
     expect(result.stageOptions.compose).toMatchObject({
       transition: 'slide-left',
       imageEffect: 'pan-left',
-      subtitleStyle: { font: 'Noto Sans SC', size: 'xl', style: 'style2', color: '#ffffff' },
+      subtitleStyle: { font: 'Noto Sans SC', size: 'size4', style: 'style2', color: '#ffffff' },
       bgmVolume: 0.7,
       voiceVolume: 0.8,
       resolution: '1920x1080',
@@ -212,6 +212,33 @@ describe('Story2Video text 参数合同', () => {
   })
 
   it.each([
+    ['720x1280', '9:16'],
+    ['1920x1080', '16:9'],
+    ['3840x2160', '16:9'],
+    ['1080x1920', '9:16'],
+    ['1080x1440', '3:4'],
+  ])('从输出分辨率推导图片宽高比：%s', (size, expectedAspectRatio) => {
+    const result = normalizeStory2VideoTextParams({
+      text: '输出比例由最终成片决定。',
+      story2videoTextConfig: { size },
+    })
+
+    expect(result.story2videoTextConfig.image.aspectRatio).toBe(expectedAspectRatio)
+    expect(result.stageOptions.generate_assets.aspectRatio).toBe(expectedAspectRatio)
+  })
+
+  it.each([
+    ['size1', 'size1'], ['size2', 'size2'], ['size3', 'size3'],
+    ['size4', 'size4'], ['size5', 'size5'], ['size6', 'size6'],
+  ])('保留字幕字号 %s 的独立合成语义', (size, composeSize) => {
+    const result = normalizeStory2VideoTextParams({
+      text: '字幕字号测试。',
+      story2videoTextConfig: { subtitle: { size } },
+    })
+
+    expect(result.stageOptions.compose.subtitleStyle.size).toBe(composeSize)
+  })
+  it.each([
     [{ inputMode: 'images', images: ['data:image/png;base64,aQ=='] }, '只支持 text'],
     [{ text: '测试', images: {} }, 'images 必须是数组'],
     [{ text: '测试', audio: 'voice.mp3' }, 'audio 必须是数组'],
@@ -223,6 +250,7 @@ describe('Story2Video text 参数合同', () => {
     [{ text: '测试', checkpointPolicy: 'unsafe' }, 'checkpointPolicy'],
     [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: 'free-form' } } }, 'image.aspectRatio'],
     [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: '7:11' } } }, 'image.aspectRatio'],
+    [{ text: '测试', story2videoTextConfig: { size: '1920x1080', image: { aspectRatio: '9:16' } } }, '必须与输出分辨率匹配'],
     [{ text: '测试', story2videoTextConfig: { bgm: { volume: 11 } } }, 'bgm.volume'],
     [{ text: '测试', story2videoTextConfig: { optimize: { style: 'unknown' } } }, '不支持的视觉提示词风格'],
     [{ text: '测试', story2videoTextConfig: { optimize: { creativeLevel: 0 } } }, '1-10'],

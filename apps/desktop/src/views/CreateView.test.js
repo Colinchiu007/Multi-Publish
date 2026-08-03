@@ -385,12 +385,10 @@ describe("CreateView - S2V orchestration", () => {
     await nextTick();
     expect(w.vm.s2vConfig).toHaveProperty("imageStyle");
     expect(w.vm.s2vConfig).toHaveProperty("imageProvider");
-    expect(w.vm.s2vConfig).toHaveProperty("aspectRatio");
     expect(w.vm.s2vConfig).toHaveProperty("voiceId");
     expect(w.vm.s2vConfig).toHaveProperty("voiceProvider");
     expect(w.vm.s2vConfig).toHaveProperty("voiceSpeed");
     expect(w.vm.s2vConfig).toHaveProperty("voicePitch");
-    expect(w.vm.s2vConfig).toHaveProperty("voiceEmotion");
     expect(w.vm.s2vConfig).toHaveProperty("voiceVolume");
     expect(w.vm.s2vConfig).toHaveProperty("concurrency");
   });
@@ -425,6 +423,37 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.text()).not.toContain("预算模式");
     expect(w.text()).not.toContain("预算上限");
     expect(w.text()).toContain("检查点策略");
+    w.unmount();
+  });
+
+  it("Story2Video 隐藏无效的比例、情绪、字体和离线占位图选项", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+
+    expect(w.text()).not.toContain("宽高比");
+    expect(w.text()).not.toContain("情绪");
+    expect(w.text()).not.toContain("字幕字体");
+    expect(w.text()).not.toContain("离线占位图");
+    expect(w.find("#s2v-voice-options").exists()).toBe(false);
+    const creativeControl = w.findAll(".config-item").find(item => item.find("label").text().startsWith("创意强度"));
+    expect(creativeControl.find('input[type="range"]').attributes("min")).toBe("1");
+    w.unmount();
+  });
+
+  it("Story2Video 负向提示词输入与运行配置保持 500 字符上限一致", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+
+    const negativePrompt = w.findAll(".config-item").find(item => item.find("label").text() === "负向提示词");
+    expect(negativePrompt.find("textarea").attributes("maxlength")).toBe("500");
     w.unmount();
   });
 
@@ -611,6 +640,26 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
+  it("后端返回乱序列表时仍将 Story2Video 显示在首位", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({
+      code: 0,
+      data: [
+        { name: "cinematic", description: "电影", category: "generated" },
+        { name: "story2video-compose", description: "Story2Video", category: "generated" },
+        { name: "animated-explainer", description: "动画", category: "generated" },
+      ],
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router], components: { UiButton, UiSelect } }
+    });
+    await w.vm.loadPipelines();
+
+    expect(w.vm.pipelines.map(pipeline => pipeline.name)).toEqual([
+      "story2video-compose", "cinematic", "animated-explainer",
+    ]);
+    w.unmount();
+  });
   it("流水线卡片优先显示后端 stageCount", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router], components: { UiButton, UiSelect } }
@@ -652,13 +701,9 @@ describe("CreateView - S2V orchestration", () => {
       voiceProvider: "piper",
       voiceId: "custom-voice-id",
       voiceSpeed: 1.2,
-      voicePitch: -1,
-      voiceEmotion: "warm",
-      voiceVolume: 0.8,
+      voicePitch: -1,      voiceVolume: 0.8,
       transition: "slide-right",
-      subtitleEnabled: false,
-      subtitleFont: "Noto Sans SC",
-      subtitleSize: "size4",
+      subtitleEnabled: false,      subtitleSize: "size4",
       subtitleStyleName: "style2",
       bgmPath: "C:/media/bgm.mp3",
       bgmVolume: 7,
@@ -692,9 +737,9 @@ describe("CreateView - S2V orchestration", () => {
         contentType: "history",
         split: expect.objectContaining({ language: "auto", mode: "precise", maxSentenceLength: 120, targetSeconds: 4 }),
         optimize: expect.objectContaining({ style: "anime", creativeLevel: 8 }),
-        image: expect.objectContaining({ provider: "local-diffusion", style: "watercolor", effect: "pan-left" }),
-        voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8, pitch: -1, emotion: "warm" }),
-        subtitle: expect.objectContaining({ enabled: false, font: "Noto Sans SC", size: "size4", style: "style2" }),
+        image: expect.objectContaining({ provider: "local-diffusion", style: "watercolor", effect: "pan-left", aspectRatio: "9:16" }),
+        voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8, pitch: -1 }),
+        subtitle: expect.objectContaining({ enabled: false, size: "size4", style: "style2" }),
         bgm: { enabled: true, path: "C:/media/bgm.mp3", volume: 7 },
         perImageDuration: 4,
         transition: "slide-right",

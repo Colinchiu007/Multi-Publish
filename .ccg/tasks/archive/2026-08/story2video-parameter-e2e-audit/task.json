@@ -1,0 +1,12 @@
+{
+  "id": "story2video-parameter-e2e-audit",
+  "title": "Story2Video 流水线排序、参数端到端审计与修复",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "desktop-story2video",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交已验证的 Story2Video 变更",
+  "createdAt": "2026-08-02T18:51:39.8487548Z",
+  "branch": "codex/story2video-parameter-e2e-fix-d"
+}
