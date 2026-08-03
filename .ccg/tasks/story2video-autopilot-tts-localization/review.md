@@ -48,3 +48,32 @@
 ## 结论
 
 本地审查无未关闭 Critical；外部双模型审查因环境不可用而保持 `UNAVAILABLE`，交付时必须如实披露。变更可进入提交/PR 阶段，但 CI 仍是最终合并门禁。
+## GUI CI 失败的 QM-5 反思（2026-08-03）
+
+### 第一性原因
+
+PR #352 的 `gui-test` 仍把旧产品合同写死在 `route-functional-suite.js`：用内部英文名 `Story2Video` 识别流水线，并点击已删除的“启动编排”按钮；当前产品合同已改为稳定流水线 ID `story2video-compose`、中文“图片轮播”/英文“Image Carousel”和“启动流水线”。
+
+### 测试逃逸链
+
+1. 组件测试覆盖了本地化标题和启动逻辑，但没有执行真实 Browser GUI runner。
+2. Vue 构建与像素视觉回归只验证渲染/布局，不验证 E2E helper 的用户可见文案合同。
+3. 推送前只跑了受影响 Vitest，未把 `route-functional-suite.js` 的浏览器路径作为发布前聚焦门禁。
+4. 代码审查关注自动化流程和 IPC 行为，没有逐项反查旧选择器、旧按钮文案和排序断言。
+5. 因此错误直到远端 `gui-test` 才暴露，CI 269/270 检查未能完成。
+
+### 系统性漏洞
+
+GUI helper 缺少“稳定 ID + 用户可见文案 + 首卡排序”三件套合同测试；本地化改名时没有静态扫描旧文案，也没有在推送前运行 route functional suite。
+
+### 修复与回归保护
+
+- `PipelineBrowser.vue` 与实际 `/create` 卡片都暴露 `data-pipeline-id`，组件测试锁定该稳定选择器。
+- E2E 改为按 `data-pipeline-id="story2video-compose"` 定位，按中英文用户可见名称断言，并点击“启动流水线”；同时锁定图片轮播必须为首张卡片。
+- `PipelineBrowser.test.js`、`CreateView.test.js` 增加稳定选择器回归；单独 create 路由和受影响 Vitest 均通过。
+
+### 预防措施
+
+1. 本地化 UI 的 E2E 只能依赖稳定 `data-*`/状态 class，并同时断言用户可见文案；禁止用内部枚举文本冒充 UI 合同。
+2. 流水线排序有产品语义时，helper 必须同时断言首项 ID，不能只断言目标卡片存在。
+3. 任何修改 Vue 文案、按钮或流水线展示时，合并前必须运行受影响 Vitest、`npm run build:vue` 和 route functional GUI 合同；远端 `gui-test` 未通过不得合并。

@@ -5565,3 +5565,33 @@ getAvailablePresets (category) {
 - **修复**：删除场景数量拒绝，统一在 renderer 与主进程使用 6,000 个 Unicode code point 文案边界；新增独立中英通知目录，视图只保存消息键与参数，并用应用内模态框显示友好文本。
 - **回归保护**：覆盖超限文案在 IPC 前拦截、主进程直接调用拒绝、模型未配置映射、未知技术错误不回显、CreateView 无重复红条、ResultView 无原始错误 banner。
 - **预防措施**：新增用户可见错误时，必须先定义稳定消息键和双语文案；Vue 测试同时断言弹窗可见与旧页面错误容器不存在。
+
+## Story2Video 图片轮播本地化后 GUI 旧合同逃逸复盘（2026-08-03）
+
+### 第一性原因
+
+PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧合同：以内部英文名 `Story2Video` 查找流水线并点击“启动编排”。产品已将 `story2video-compose` 本地化为“图片轮播”/`Image Carousel`，启动按钮统一为“启动流水线”，因此真实 GUI 在文案和动作定位上失败。
+
+### 测试逃逸链
+
+1. `PipelineBrowser.test.js`、`CreateView.test.js` 验证了组件渲染和启动 IPC，但没有执行真实 Browser GUI runner。
+2. Vue build 和像素视觉回归只覆盖编译、布局和截图，不覆盖 helper 的用户可见文案合同。
+3. 推送前聚焦测试只跑 Vitest，未把 `route-functional-suite.js` 的真实浏览器路径纳入提交前快速门禁。
+4. 审查没有逐项比对旧流水线名称、旧按钮文案和“优先显示”排序语义。
+5. 结果是旧合同直到远端 `gui-test` 才暴露，269/270 检查无法完成。
+
+### 系统性漏洞
+
+本地化 UI 的 E2E 缺少统一的稳定 ID、用户可见文案和排序断言合同；组件变更与 GUI helper 之间没有静态旧文案扫描或提交前联动测试。
+
+### 修复与回归保护
+
+- 在 `PipelineBrowser.vue` 和 `/create` 实际流水线卡片输出 `data-pipeline-id`，测试按受控 ID 精确定位。
+- E2E 同时断言首卡为 `story2video-compose`、卡片显示中文或英文本地化名称，并点击“启动流水线”；内部 IPC 名称 `pipelineStartOrchestrated` 保持不变。
+- 新增稳定选择器组件断言；`PipelineBrowser.test.js` 与 `CreateView.test.js` 聚焦回归 68/68 通过。
+
+### 预防措施
+
+1. 本地化 E2E 禁止依赖内部枚举文本，必须使用稳定 `data-*`/状态 class 加用户可见文案。
+2. “优先显示”类产品语义必须锁定首项 ID，不能只断言目标卡片存在。
+3. 修改 Vue 文案、按钮或流水线排序时，提交前必须运行受影响 Vitest、`npm run build:vue` 和 route functional GUI 合同；远端 `gui-test` 未通过不得合并。

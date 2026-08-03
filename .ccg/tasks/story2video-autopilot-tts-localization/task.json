@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "desktop-pipeline",
   "currentPhase": "review",
-  "nextAction": "完成双模型审查、提交并等待 CI",
+  "nextAction": "提交 follow-up 并等待 CI",
   "createdAt": "2026-08-03T00:00:00Z",
   "branch": "codex/story2video-autopilot-tts-localization"
 }

@@ -29,7 +29,7 @@
         <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载流水线列表...</span></div>
         <div v-else-if="pipelineError" class="error-state">⚠️ {{ pipelineError }}</div>
         <div v-else class="pipeline-grid">
-          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :class="p.category" @click="selectPipeline(p)">
+          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :data-pipeline-id="p.name" :class="p.category" @click="selectPipeline(p)">
             <div class="card-header">
               <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
               <span class="stability-dot" :class="getStability(p.name)" :title="getStability(p.name)"></span>

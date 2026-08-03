@@ -674,6 +674,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.pipelines.map(pipeline => pipeline.name)).toEqual([
       "story2video-compose", "cinematic", "animated-explainer",
     ]);
+    expect(w.find('[data-pipeline-id="story2video-compose"]').exists()).toBe(true);
     w.unmount();
   });
   it("流水线卡片优先显示后端 stageCount", async () => {

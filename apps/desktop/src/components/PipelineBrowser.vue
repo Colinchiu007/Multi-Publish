@@ -18,6 +18,7 @@
         v-for="p in pipelines"
         :key="p.name"
         class="pipeline-card"
+        :data-pipeline-id="p.name"
         :class="[p.stability || 'experimental']"
         @click="$emit('select', p)"
       >

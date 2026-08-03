@@ -47,6 +47,7 @@ describe("PipelineBrowser", () => {
     const wrapper = mountBrowser();
     await new Promise((r) => setTimeout(r, 50));
     expect(wrapper.findAll(".pipeline-card").length).toBe(2);
+    expect(wrapper.find('[data-pipeline-id="animated-explainer"]').exists()).toBe(true);
     expect(wrapper.text()).toContain("AI 讲解视频");
     expect(wrapper.text()).toContain("口播视频");
     expect(wrapper.text()).not.toContain("animated-explainer");
