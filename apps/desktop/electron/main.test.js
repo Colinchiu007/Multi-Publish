@@ -166,6 +166,7 @@ describe('main.js — QM-3 启动测试', () => {
     expect(args[1]).toEqual({ createWindow: mockCreateWindow })
   })
 
+
   it('app.on 注册 activate 事件', () => {
     expect(__electronMock.app.on).toHaveBeenCalledWith('activate', expect.any(Function))
     expect(__electronMock.app._handlers['activate']).toBeDefined()

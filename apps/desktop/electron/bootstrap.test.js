@@ -98,6 +98,7 @@ const mockIdentityServiceFactory = {
   createIdentityService: vi.fn(async () => null),
   enabled: vi.fn(() => false),
 }
+const mockStory2VideoMediaServer = { start: vi.fn(), stop: vi.fn(), createUrl: vi.fn() }
 
 // container.get 返回的 mock 服务映射
 const services = {
@@ -137,6 +138,7 @@ __registerMock('./services/python-bridge', mockPythonBridge)
 __registerMock('./publishers/account-manager', mockAccountManager)
 // 固定身份工厂结果，避免 bootstrap 测试依赖工作树的公开身份配置。
 __registerMock('./services/identity/identity-service-factory', mockIdentityServiceFactory)
+__registerMock('./services/story2video-media-server', { getStory2VideoMediaServer: vi.fn(() => mockStory2VideoMediaServer) })
 __registerMock('./services/scheduler', mockScheduler)
 __registerMock('./services/publish-history', mockHistory)
 __registerMock('./services/auto-updater', mockAutoUpdater)
@@ -435,6 +437,14 @@ describe('bootstrap — runWhenReady', () => {
     expect(result).toBe(mainWindow)
     expect(createWindow).toHaveBeenCalledTimes(1)
     expect(context.container.register).toHaveBeenCalledWith('mainWindow', mainWindow, { forceValue: true })
+  })
+
+  it('runWhenReady 启动 Story2Video 本机媒体服务并写回 context', async () => {
+    const context = createAppContext()
+    await runWhenReady(context, { createWindow: vi.fn() })
+
+    expect(mockStory2VideoMediaServer.start).toHaveBeenCalledTimes(1)
+    expect(context.story2videoMediaServer).toBe(mockStory2VideoMediaServer)
   })
 
   it('异步创建窗口完成后才注册真实窗口实例', async () => {

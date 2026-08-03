@@ -195,7 +195,10 @@ function buildSubtitleFilter (textOrTimeline, style) {
     : (textOrTimeline ? [{ text: textOrTimeline }] : [])
   if (entries.length === 0) return ''
   const config = typeof style === 'string' ? { style } : (style || {})
-  const sizeMap = { sm: 18, md: 24, lg: 32, xl: 40 }
+  const sizeMap = {
+    size1: 16, size2: 20, size3: 24, size4: 28, size5: 32, size6: 40,
+    sm: 18, md: 24, lg: 32, xl: 40,
+  }
   const fontSize = Math.round(clampNumber(config.fontSize || sizeMap[config.size], 12, 96, 24))
   const color = /^#[0-9a-f]{3,8}$/i.test(String(config.color || ''))
     ? String(config.color)

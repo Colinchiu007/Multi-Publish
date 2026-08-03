@@ -291,13 +291,13 @@ async function exerciseModelProviders(r) {
 async function exerciseCreate(r) {
   record(r, '渲染引擎状态就绪', await bodyHas(r, '渲染引擎就绪').catch(() => false) || !(await bodyHas(r, '依赖未安装')));
   const pipelineCard = r.page.locator('.pipeline-card').first();
-  record(r, '创作流水线列表渲染', await pipelineCard.count() > 0);
+  record(r, 'Story2Video 流水线优先显示', await pipelineCard.count() > 0 && await pipelineCard.first().innerText().then(text => /story2video/i.test(text)));
   if (await pipelineCard.count()) {
     await pipelineCard.click();
-    await fillByPlaceholder(r, '视频文案', 'E2E 视频创作文案');
-    const started = await clickText(r, '启动流水线');
-    record(r, '启动创作流水线可执行', started);
-    if (started) await expectIpc(r, 'pipelineStart', '启动流水线调用 IPC');
+    await fillByPlaceholder(r, '输入视频文案', 'E2E 视频创作文案');
+    const started = await clickText(r, '启动编排');
+    record(r, '启动 Story2Video 编排可执行', started);
+    if (started) await expectIpc(r, 'pipelineStartOrchestrated', '启动编排调用 IPC');
   }
   await r.goto('/create');
   record(r, '快速渲染标签可切换', await clickText(r, '快速渲染'));
