@@ -1,0 +1,884 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
+import * as nodeFs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { PassThrough } from "node:stream";
+
+const catalogMocks = vi.hoisted(() => ({
+  getVoiceCapability: vi.fn(),
+}));
+
+vi.mock("./tts-voice-catalog", () => ({
+  CAPABILITY_TYPES: { USER_CLONE: "user_clone" },
+  getVoiceCapability: catalogMocks.getVoiceCapability,
+}));
+
+import { TtsVoiceCloneService, cloneRegistrySettingKey } from "./tts-voice-clone-service";
+
+const PROVIDER_ID = "elevenlabs";
+const MODEL = "eleven_multilingual_v2";
+const SENDER_KEY = "webcontents:1";
+const PREFERENCE_KEY = `tts-voice-preference:v1:${PROVIDER_ID}:${MODEL}`;
+
+function createOwnerStore(initialOwner = "user-a") {
+  let activeOwner = initialOwner;
+  const valuesByOwner = new Map();
+
+  function getValues(owner) {
+    if (!valuesByOwner.has(owner)) valuesByOwner.set(owner, new Map());
+    return valuesByOwner.get(owner);
+  }
+
+  return {
+    getOwnerSubject: vi.fn(() => activeOwner),
+    getUserSetting: vi.fn((key, defaultValue, owner) => {
+      const values = getValues(owner);
+      return values.has(key) ? values.get(key) : defaultValue;
+    }),
+    setUserSetting: vi.fn((key, value, owner) => {
+      getValues(owner).set(key, value);
+    }),
+    getValue: (owner, key) => getValues(owner).get(key),
+    setActiveOwner: (owner) => {
+      activeOwner = owner;
+    },
+  };
+}
+
+function createManager() {
+  return {
+    getProvider: vi.fn(() => ({
+      id: PROVIDER_ID,
+      category: "tts",
+      models: [MODEL],
+    })),
+    callAdapter: vi.fn(async (_providerId, method) => {
+      if (method === "cloneVoice")
+        return { code: 0, data: { voiceId: "voice-clone-a", name: "Adapter name" } };
+      return { code: 0, data: null };
+    }),
+  };
+}
+
+function ownerHash(owner) {
+  return createHash("sha256").update(owner, "utf8").digest("hex");
+}
+
+function cloneInput(selectionId, name = "Voice", consent = true) {
+  return {
+    providerId: PROVIDER_ID,
+    model: MODEL,
+    name,
+    selectionId,
+    consent,
+  };
+}
+
+function createFfprobeChild(stdout, onInput) {
+  const child = new EventEmitter();
+  const inputChunks = [];
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = vi.fn();
+  child.stdin.on("data", (chunk) => inputChunks.push(Buffer.from(chunk)));
+  child.stdin.on("end", () => {
+    onInput(Buffer.concat(inputChunks));
+    child.stdout.end(stdout);
+    child.stderr.end();
+    child.emit("close", 0, null);
+  });
+  return child;
+}
+
+describe("TtsVoiceCloneService", () => {
+  let sandboxPath;
+  let userDataPath;
+  let store;
+  let manager;
+  let service;
+
+  function createService(overrides = {}) {
+    return new TtsVoiceCloneService({
+      store,
+      modelProviderManager: manager,
+      userDataPath,
+      randomUUID: () => "clone-stage-a",
+      createSelectionToken: () => "selection-a",
+      probeDuration: vi.fn(async () => 3.25),
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+      ...overrides,
+    });
+  }
+
+  function cloneSampleDirectory(owner, storageId) {
+    return path.join(
+      userDataPath,
+      "voice-clone-samples",
+      ownerHash(owner),
+      storageId,
+    );
+  }
+
+  async function chooseSamples(targetService, samplePaths, senderKey = SENDER_KEY) {
+    return targetService.createSampleSelection(
+      { providerId: PROVIDER_ID, model: MODEL },
+      samplePaths,
+      senderKey,
+    );
+  }
+
+  async function cloneFromPaths(
+    targetService,
+    samplePaths,
+    name = "Voice",
+    senderKey = SENDER_KEY,
+  ) {
+    const selection = await chooseSamples(targetService, samplePaths, senderKey);
+    if (selection.code !== 0) return selection;
+    return targetService.addCloneFromSelection(
+      cloneInput(selection.data.selectionId, name),
+      senderKey,
+    );
+  }
+
+  beforeEach(async () => {
+    sandboxPath = await nodeFs.promises.mkdtemp(path.join(os.tmpdir(), "tts-voice-clone-"));
+    userDataPath = path.join(sandboxPath, "user-data");
+    store = createOwnerStore();
+    manager = createManager();
+    catalogMocks.getVoiceCapability.mockReset();
+    catalogMocks.getVoiceCapability.mockImplementation((providerId, model) => ({
+      providerId,
+      model,
+      type: "user_clone",
+      canListVoices: true,
+      defaultVoiceId: null,
+      clone: {
+        enabled: true,
+        entry: "adapter",
+        implementation: "adapter",
+        messageKey: "tts.voice.clone.available",
+      },
+      reason: null,
+    }));
+    service = createService();
+  });
+
+  afterEach(async () => {
+    if (sandboxPath) await nodeFs.promises.rm(sandboxPath, { recursive: true, force: true });
+  });
+
+  it("只为显式启用 USER_CLONE 的 provider/model 开放克隆入口，并使用 ElevenLabs 本地五样本上限", async () => {
+    catalogMocks.getVoiceCapability.mockReturnValueOnce({
+      providerId: PROVIDER_ID,
+      model: MODEL,
+      type: "user_clone",
+      canListVoices: true,
+      defaultVoiceId: null,
+      clone: {
+        enabled: false,
+        entry: "none",
+        implementation: "not_implemented",
+        messageKey: "tts.voice.clone.notImplemented",
+      },
+      reason: null,
+    });
+    expect(service.getRequirements({ providerId: PROVIDER_ID, model: MODEL })).toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_UNSUPPORTED",
+    });
+
+    const requirements = service.getRequirements({ providerId: PROVIDER_ID, model: MODEL });
+    expect(requirements).toMatchObject({
+      code: 0,
+      data: { maxSampleCount: 5, sampleLimitScope: "local_safety" },
+    });
+    expect(
+      service.getRequirements({ providerId: PROVIDER_ID, model: "eleven_turbo_v2_5" }),
+    ).toMatchObject({ code: 0, data: { maxSampleCount: 5, sampleLimitScope: "local_safety" } });
+    const samplePaths = await Promise.all(
+      Array.from({ length: 5 }, async (_value, index) => {
+        const samplePath = path.join(sandboxPath, `voice-${index}.wav`);
+        await nodeFs.promises.writeFile(samplePath, `audio-${index}`);
+        return samplePath;
+      }),
+    );
+    await expect(chooseSamples(service, samplePaths)).resolves.toMatchObject({
+      code: 0,
+      data: {
+        samples: expect.arrayContaining([expect.objectContaining({ name: "sample-05.wav" })]),
+      },
+    });
+    const sixthSamplePath = path.join(sandboxPath, "voice-5.wav");
+    await nodeFs.promises.writeFile(sixthSamplePath, "audio-5");
+    await expect(chooseSamples(service, [...samplePaths, sixthSamplePath])).resolves.toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_INVALID_ARGUMENTS",
+    });
+  });
+
+  it("仅把 native 选择的样本保存在短期 owner/sender/provider/model 绑定令牌中", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+
+    const selection = await chooseSamples(service, [samplePath]);
+    const senderHijacked = await service.addCloneFromSelection(
+      cloneInput(selection.data.selectionId),
+      "webcontents:2",
+    );
+    const modelHijacked = await service.addCloneFromSelection(
+      { ...cloneInput(selection.data.selectionId), model: "other-model" },
+      SENDER_KEY,
+    );
+    store.setActiveOwner("user-b");
+    const ownerHijacked = await service.addCloneFromSelection(
+      cloneInput(selection.data.selectionId),
+      SENDER_KEY,
+    );
+    store.setActiveOwner("user-a");
+    const accepted = await service.addCloneFromSelection(
+      cloneInput(selection.data.selectionId),
+      SENDER_KEY,
+    );
+    const replayed = await service.addCloneFromSelection(
+      cloneInput(selection.data.selectionId),
+      SENDER_KEY,
+    );
+
+    expect(selection).toMatchObject({
+      code: 0,
+      data: { selectionId: "selection-a", samples: [{ name: "sample-01.wav" }] },
+    });
+    expect(JSON.stringify(selection)).not.toContain(samplePath);
+    expect(JSON.stringify(selection)).not.toContain("bytes");
+    expect(senderHijacked).toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_SELECTION_UNAVAILABLE",
+    });
+    expect(modelHijacked).toMatchObject({ code: -1, message: "VOICE_CLONE_SELECTION_UNAVAILABLE" });
+    expect(ownerHijacked).toMatchObject({ code: -1, message: "VOICE_CLONE_SELECTION_UNAVAILABLE" });
+    expect(accepted).toMatchObject({ code: 0, data: { selectedVoiceId: "voice-clone-a" } });
+    expect(replayed).toMatchObject({ code: -1, message: "VOICE_CLONE_SELECTION_UNAVAILABLE" });
+    expect(manager.callAdapter).toHaveBeenCalledTimes(1);
+  });
+
+  it("仅接受显式 consent === true 的克隆请求，拒绝不会消耗已选样本", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    const selection = await chooseSamples(service, [samplePath]);
+    const requestWithoutConsent = {
+      providerId: PROVIDER_ID,
+      model: MODEL,
+      name: "Voice",
+      selectionId: selection.data.selectionId,
+    };
+
+    await expect(
+      service.addCloneFromSelection(requestWithoutConsent, SENDER_KEY),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_INVALID_ARGUMENTS" });
+    await expect(
+      service.addCloneFromSelection(
+        cloneInput(selection.data.selectionId, "Voice", false),
+        SENDER_KEY,
+      ),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_INVALID_ARGUMENTS" });
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+
+    await expect(
+      service.addCloneFromSelection(cloneInput(selection.data.selectionId), SENDER_KEY),
+    ).resolves.toMatchObject({ code: 0, data: { selectedVoiceId: "voice-clone-a" } });
+  });
+
+  it("远端成功后持久化 owner-scoped 样本，且 IPC/registry 不泄露来源路径或字节", async () => {
+    const samplePath = path.join(sandboxPath, "speaker.wav");
+    const sampleBytes = Buffer.from("RIFF-test-audio");
+    await nodeFs.promises.writeFile(samplePath, sampleBytes);
+
+    const result = await cloneFromPaths(service, [samplePath], "我的音色");
+
+    const registry = store.getValue("user-a", cloneRegistrySettingKey(PROVIDER_ID, MODEL));
+    const clone = registry.voices[0];
+    const persistedDirectory = cloneSampleDirectory("user-a", "clone-stage-a");
+    const relativeDir = `voice-clone-samples/${ownerHash("user-a")}/clone-stage-a`;
+    expect(result).toMatchObject({ code: 0, data: { selectedVoiceId: "voice-clone-a" } });
+    const [providerId, method, adapterRequest] = manager.callAdapter.mock.calls[0];
+    expect([providerId, method]).toEqual([PROVIDER_ID, "cloneVoice"]);
+    expect(Object.keys(adapterRequest).sort()).toEqual(["name", "samples"]);
+    expect(adapterRequest.samples).toHaveLength(1);
+    const forwardedSample = adapterRequest.samples[0];
+    expect(Object.keys(forwardedSample).sort()).toEqual(["blob", "contentType", "fileName"]);
+    expect(forwardedSample).toMatchObject({ fileName: "sample-01.wav", contentType: "audio/wav" });
+    expect(forwardedSample.blob).toBeInstanceOf(Blob);
+    expect(Buffer.from(await forwardedSample.blob.arrayBuffer())).toEqual(sampleBytes);
+    expect(clone).toEqual({
+      id: "voice-clone-a",
+      name: "Adapter name",
+      source: "user_clone",
+      createdAt: expect.any(Number),
+      deletionState: "active",
+      sampleStorage: {
+        relativeDir,
+        sampleCount: 1,
+      },
+    });
+    expect(JSON.stringify(registry)).not.toContain(samplePath);
+    expect(JSON.stringify(registry)).not.toContain("RIFF-test-audio");
+    expect(JSON.stringify(registry)).not.toContain("bytes");
+    await expect(
+      nodeFs.promises.readFile(path.join(persistedDirectory, "sample-01.wav")),
+    ).resolves.toEqual(sampleBytes);
+
+    const listed = await service.listClones({ providerId: PROVIDER_ID, model: MODEL });
+    expect(listed).toMatchObject({
+      code: 0,
+      data: {
+        voices: [
+          {
+            id: "voice-clone-a",
+            name: "Adapter name",
+            source: "user_clone",
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain(samplePath);
+    expect(JSON.stringify(result)).not.toContain("RIFF-test-audio");
+    expect(JSON.stringify(listed)).not.toContain(samplePath);
+    expect(JSON.stringify(listed)).not.toContain("RIFF-test-audio");
+    expect(JSON.stringify(listed)).not.toContain("sampleStorage");
+  });
+
+  it("owner-scoped registry 让 A 的创建/列出/删除对 B 完全不可见", async () => {
+    const samplePath = path.join(sandboxPath, "owner-isolation.wav");
+    await nodeFs.promises.writeFile(samplePath, "owner-isolation-audio");
+    manager.callAdapter
+      .mockResolvedValueOnce({ code: 0, data: { voiceId: "voice-owner-a", name: "Owner A" } });
+
+    const ownerAResult = await cloneFromPaths(service, [samplePath], "Owner A");
+    expect(ownerAResult).toMatchObject({ code: 0, data: { selectedVoiceId: "voice-owner-a" } });
+    await expect(service.listClones({ providerId: PROVIDER_ID, model: MODEL })).resolves.toMatchObject({
+      code: 0,
+      data: { voices: [{ id: "voice-owner-a", name: "Owner A" }] },
+    });
+
+    store.setActiveOwner("user-b");
+    const ownerBService = createService({ randomUUID: () => "clone-stage-b" });
+    await expect(ownerBService.listClones({ providerId: PROVIDER_ID, model: MODEL })).resolves.toMatchObject({
+      code: 0,
+      data: { voices: [] },
+    });
+    await expect(
+      ownerBService.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-owner-a" }),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_NOT_FOUND" });
+
+    store.setActiveOwner("user-a");
+    await expect(
+      service.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-owner-a" }),
+    ).resolves.toMatchObject({ code: 0, data: { voiceId: "voice-owner-a" } });
+    store.setActiveOwner("user-b");
+    await expect(ownerBService.listClones({ providerId: PROVIDER_ID, model: MODEL })).resolves.toMatchObject({
+      code: 0,
+      data: { voices: [] },
+    });
+    expect(manager.callAdapter).toHaveBeenLastCalledWith(PROVIDER_ID, "deleteVoice", "voice-owner-a");
+  });
+
+  it("registry 与公开返回值不包含音频 Buffer、base64、绝对路径或原始音频内容", async () => {
+    const samplePath = path.join(sandboxPath, "metadata-boundary.wav");
+    const sampleBytes = Buffer.from("RIFF-metadata-boundary-audio");
+    const sampleBase64 = sampleBytes.toString("base64");
+    await nodeFs.promises.writeFile(samplePath, sampleBytes);
+    const result = await cloneFromPaths(service, [samplePath], "Metadata safe");
+    const listed = await service.listClones({ providerId: PROVIDER_ID, model: MODEL });
+    const registry = store.getValue("user-a", cloneRegistrySettingKey(PROVIDER_ID, MODEL));
+    const serialized = JSON.stringify({ result, listed, registry });
+
+    expect(serialized).not.toContain(samplePath);
+    expect(serialized).not.toContain(sampleBytes.toString("utf8"));
+    expect(serialized).not.toContain(sampleBase64);
+    expect(serialized).not.toContain("Buffer");
+    expect(serialized).not.toContain("/voice-clone-samples/");
+    expect(serialized).not.toContain("\\voice-clone-samples\\");
+    expect(registry.voices[0]).toEqual(expect.objectContaining({
+      id: "voice-clone-a",
+      name: "Adapter name",
+      source: "user_clone",
+    }));
+    expect(listed.data.voices[0]).not.toHaveProperty("sampleStorage");
+  });
+  it("持久化失败时补偿 deleteVoice 并清理部分受控样本目录", async () => {
+    const samplePath = path.join(sandboxPath, "speaker.wav");
+    await nodeFs.promises.writeFile(samplePath, "RIFF-in-memory-audio");
+    const canonicalUserDataPath = path.resolve(userDataPath);
+    const persistenceFailingFs = {
+      ...nodeFs,
+      promises: {
+        ...nodeFs.promises,
+        writeFile: vi.fn(async (targetPath, ...args) => {
+          const canonicalTargetPath = path.resolve(targetPath);
+          if (
+            canonicalTargetPath === canonicalUserDataPath ||
+            canonicalTargetPath.startsWith(`${canonicalUserDataPath}${path.sep}`)
+          ) {
+            throw new Error("sample persistence failed");
+          }
+          return nodeFs.promises.writeFile(targetPath, ...args);
+        }),
+      },
+    };
+    const persistenceFailingService = createService({ fs: persistenceFailingFs });
+
+    const result = await cloneFromPaths(persistenceFailingService, [samplePath]);
+
+    expect(result).toMatchObject({ code: -1, message: "VOICE_CLONE_STORAGE_UNAVAILABLE" });
+    expect(manager.callAdapter.mock.calls.map(([, method]) => method)).toEqual([
+      "cloneVoice",
+      "deleteVoice",
+    ]);
+    expect(store.getValue("user-a", cloneRegistrySettingKey(PROVIDER_ID, MODEL))).toBeUndefined();
+    await expect(
+      nodeFs.promises.stat(cloneSampleDirectory("user-a", "clone-stage-a")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("缺少可用 userData 根目录时 fail closed，不创建远端音色", async () => {
+    const samplePath = path.join(sandboxPath, "speaker.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    const unavailableStorageService = createService({ userDataPath: "" });
+
+    await expect(cloneFromPaths(unavailableStorageService, [samplePath])).resolves.toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_STORAGE_UNAVAILABLE",
+    });
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+  });
+  it("在 adapter await 期间固定 owner 快照，避免音色写入切换后的用户", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    const selection = await chooseSamples(service, [samplePath]);
+    let resolveClone;
+    manager.callAdapter.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveClone = resolve;
+        }),
+    );
+
+    const pending = service.addCloneFromSelection(
+      cloneInput(selection.data.selectionId, "Owner A voice"),
+      SENDER_KEY,
+    );
+    await vi.waitFor(() => expect(manager.callAdapter).toHaveBeenCalledTimes(1));
+    store.setActiveOwner("user-b");
+    resolveClone({ code: 0, data: { voiceId: "voice-owner-a", name: "Owner A voice" } });
+
+    await expect(pending).resolves.toMatchObject({
+      code: 0,
+      data: { selectedVoiceId: "voice-owner-a" },
+    });
+    const ownerArguments = [
+      ...store.getUserSetting.mock.calls.map(([, , owner]) => owner),
+      ...store.setUserSetting.mock.calls.map(([, , owner]) => owner),
+    ];
+    expect(ownerArguments.every((owner) => owner === "user-a")).toBe(true);
+    expect(
+      store.getValue("user-a", cloneRegistrySettingKey(PROVIDER_ID, MODEL)).voices,
+    ).toHaveLength(1);
+    expect(store.getValue("user-b", cloneRegistrySettingKey(PROVIDER_ID, MODEL))).toBeUndefined();
+  });
+
+  it("拒绝符号链接、目录和非音频扩展，不调用 provider 或写入设置", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    const directoryPath = path.join(sandboxPath, "directory.wav");
+    const textPath = path.join(sandboxPath, "voice.txt");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    await nodeFs.promises.mkdir(directoryPath);
+    await nodeFs.promises.writeFile(textPath, "not audio");
+
+    const symbolicFileSystem = {
+      ...nodeFs,
+      promises: {
+        ...nodeFs.promises,
+        lstat: vi.fn(async (targetPath) => {
+          if (path.resolve(targetPath) === samplePath) return { isSymbolicLink: () => true };
+          return nodeFs.promises.lstat(targetPath);
+        }),
+      },
+    };
+    const symbolicService = createService({ fs: symbolicFileSystem });
+
+    await expect(chooseSamples(symbolicService, [samplePath])).resolves.toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_SAMPLE_INVALID",
+    });
+    await expect(chooseSamples(service, [directoryPath])).resolves.toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_SAMPLE_INVALID",
+    });
+    await expect(chooseSamples(service, [textPath])).resolves.toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED",
+    });
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+    expect(store.setUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("ffprobe 缺失、超时或空输出时 fail closed，不伪造时长", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    const unavailableProbeService = createService({ ffprobePath: "", probeDuration: undefined });
+
+    await expect(chooseSamples(unavailableProbeService, [samplePath])).resolves.toMatchObject({
+      code: -1,
+      message: "VOICE_CLONE_SAMPLE_DURATION_INVALID",
+    });
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+    expect(store.setUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("用已读取的同一内存 Buffer 探测并转交样本，避免文件替换导致验证与上传不一致", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    const validatedBytes = Buffer.from("RIFF-validated-audio");
+    const replacementBytes = Buffer.from("RIFF-replaced--audio");
+    await nodeFs.promises.writeFile(samplePath, validatedBytes);
+    const probeDuration = vi.fn(async (probeBuffer) => {
+      await nodeFs.promises.writeFile(samplePath, replacementBytes);
+      return 3.25;
+    });
+    const bufferBoundService = createService({ probeDuration });
+
+    const result = await cloneFromPaths(bufferBoundService, [samplePath]);
+
+    expect(result).toMatchObject({ code: 0, data: { selectedVoiceId: "voice-clone-a" } });
+    expect(probeDuration).toHaveBeenCalledTimes(1);
+    const [probeBuffer] = probeDuration.mock.calls[0];
+    expect(Buffer.isBuffer(probeBuffer)).toBe(true);
+    expect(probeBuffer).toEqual(validatedBytes);
+    const [, , adapterRequest] = manager.callAdapter.mock.calls[0];
+    expect(Buffer.from(await adapterRequest.samples[0].blob.arrayBuffer())).toEqual(probeBuffer);
+    await expect(nodeFs.promises.readFile(samplePath)).resolves.toEqual(replacementBytes);
+  });
+
+  it("ffprobe 无音频流时 fail closed，并只从内存管道接收已读取的样本字节", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    const sampleBytes = Buffer.from("RIFF-buffer-bound-audio");
+    const probeInputs = [];
+    await nodeFs.promises.writeFile(samplePath, sampleBytes);
+    const child = createFfprobeChild(
+      JSON.stringify({
+        format: { duration: "3.25", format_name: "wav" },
+        streams: [{ codec_type: "video" }],
+      }),
+      (input) => probeInputs.push(input),
+    );
+    const spawnFfprobe = vi.fn(() => child);
+    const defaultProbeService = createService({
+      ffprobePath: "ffprobe-test",
+      probeDuration: undefined,
+      spawn: spawnFfprobe,
+    });
+
+    const result = await chooseSamples(defaultProbeService, [samplePath]);
+
+    expect(result).toMatchObject({ code: -1, message: "VOICE_CLONE_SAMPLE_DURATION_INVALID" });
+    expect(probeInputs).toEqual([sampleBytes]);
+    expect(spawnFfprobe).toHaveBeenCalledWith("ffprobe-test", expect.arrayContaining(["pipe:0"]), {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    expect(spawnFfprobe.mock.calls[0][1]).not.toContain(samplePath);
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+    expect(store.setUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("远端克隆成功但 registry 写入失败时调用 deleteVoice 补偿并清理已落盘样本", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    store.setUserSetting.mockImplementationOnce(() => {
+      throw new Error("store unavailable");
+    });
+
+    const result = await cloneFromPaths(service, [samplePath]);
+
+    expect(result).toMatchObject({ code: -1, message: "VOICE_CLONE_STORE_UNAVAILABLE" });
+    expect(manager.callAdapter).toHaveBeenNthCalledWith(
+      1,
+      PROVIDER_ID,
+      "cloneVoice",
+      expect.any(Object),
+    );
+    expect(manager.callAdapter).toHaveBeenNthCalledWith(
+      2,
+      PROVIDER_ID,
+      "deleteVoice",
+      "voice-clone-a",
+    );
+    expect(store.getValue("user-a", cloneRegistrySettingKey(PROVIDER_ID, MODEL))).toBeUndefined();
+
+    await expect(
+      nodeFs.promises.stat(cloneSampleDirectory("user-a", "clone-stage-a")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("删除在 pending 和 remote_deleted 检查点之间可恢复，并仅删除当前 owner 的远端音色", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    manager.callAdapter
+      .mockResolvedValueOnce({ code: 0, data: { voiceId: "voice-a", name: "Voice A" } })
+      .mockResolvedValueOnce({ code: 0, data: { voiceId: "voice-b", name: "Voice B" } });
+    await cloneFromPaths(service, [samplePath], "A");
+
+    store.setActiveOwner("user-b");
+    const userBService = createService({ randomUUID: () => "clone-stage-b" });
+    await cloneFromPaths(userBService, [samplePath], "B");
+
+    store.setActiveOwner("user-a");
+    manager.callAdapter.mockClear();
+    manager.callAdapter.mockResolvedValueOnce({ code: -1, message: "provider unavailable" });
+    const firstDelete = await service.deleteClone({
+      providerId: PROVIDER_ID,
+      model: MODEL,
+      voiceId: "voice-a",
+    });
+    const key = cloneRegistrySettingKey(PROVIDER_ID, MODEL);
+    expect(firstDelete).toMatchObject({ code: -1, message: "VOICE_CLONE_PROVIDER_UNAVAILABLE" });
+    expect(store.getValue("user-a", key).voices[0]).toMatchObject({ deletionState: "pending" });
+    await expect(
+      nodeFs.promises.stat(cloneSampleDirectory("user-a", "clone-stage-a")),
+    ).resolves.toMatchObject({ isDirectory: expect.any(Function) });
+
+    manager.callAdapter.mockResolvedValueOnce({ code: 0, data: null });
+    await expect(
+      service.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-a" }),
+    ).resolves.toMatchObject({ code: 0, data: { voiceId: "voice-a" } });
+    expect(manager.callAdapter).toHaveBeenLastCalledWith(PROVIDER_ID, "deleteVoice", "voice-a");
+    expect(store.getValue("user-a", key).voices).toHaveLength(0);
+    expect(store.getValue("user-b", key).voices).toHaveLength(1);
+    await expect(
+      nodeFs.promises.stat(cloneSampleDirectory("user-a", "clone-stage-a")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      nodeFs.promises.stat(cloneSampleDirectory("user-b", "clone-stage-b")),
+    ).resolves.toMatchObject({ isDirectory: expect.any(Function) });
+
+    const userBRegistry = store.getValue("user-b", key);
+    userBRegistry.voices[0].deletionState = "remote_deleted";
+    store.setUserSetting(key, userBRegistry, "user-b");
+    store.setActiveOwner("user-b");
+    manager.callAdapter.mockClear();
+    await expect(
+      userBService.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-b" }),
+    ).resolves.toMatchObject({ code: 0, data: { voiceId: "voice-b" } });
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+    expect(store.getValue("user-b", key).voices).toHaveLength(0);
+    await expect(
+      nodeFs.promises.stat(cloneSampleDirectory("user-b", "clone-stage-b")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("删除当前选中的克隆会清除持久化偏好", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    await cloneFromPaths(service, [samplePath]);
+    store.setUserSetting(PREFERENCE_KEY, {
+      providerId: PROVIDER_ID,
+      model: MODEL,
+      voiceId: "voice-clone-a",
+      selectedAt: Date.now(),
+    }, "user-a");
+
+    await expect(service.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-clone-a" }))
+      .resolves.toMatchObject({ code: 0 });
+    expect(store.getValue("user-a", PREFERENCE_KEY)).toBeNull();
+  });
+
+  it("删除未选中的克隆会保留持久化偏好", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    manager.callAdapter
+      .mockResolvedValueOnce({ code: 0, data: { voiceId: "voice-a", name: "Voice A" } })
+      .mockResolvedValueOnce({ code: 0, data: { voiceId: "voice-b", name: "Voice B" } });
+    let storageIndex = 0;
+    const multiCloneService = createService({
+      randomUUID: () => "clone-stage-" + (++storageIndex),
+    });
+    await cloneFromPaths(multiCloneService, [samplePath], "A");
+    await cloneFromPaths(multiCloneService, [samplePath], "B");
+    const preference = {
+      providerId: PROVIDER_ID,
+      model: MODEL,
+      voiceId: "voice-a",
+      selectedAt: Date.now(),
+    };
+    store.setUserSetting(PREFERENCE_KEY, preference, "user-a");
+
+    await expect(multiCloneService.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-b" }))
+      .resolves.toMatchObject({ code: 0 });
+    expect(store.getValue("user-a", PREFERENCE_KEY)).toEqual(preference);
+  });
+
+  it("偏好存储清理失败时不会错误报告删除成功", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    await cloneFromPaths(service, [samplePath]);
+    store.setUserSetting(PREFERENCE_KEY, {
+      providerId: PROVIDER_ID,
+      model: MODEL,
+      voiceId: "voice-clone-a",
+      selectedAt: Date.now(),
+    }, "user-a");
+    store.setUserSetting.mockImplementation((key, value, owner) => {
+      if (key === PREFERENCE_KEY) throw new Error("preference store unavailable");
+      store.getValue(owner, key);
+    });
+
+    await expect(service.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-clone-a" }))
+      .resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_STORE_UNAVAILABLE" });
+  });
+
+  it("remote_deleted 阶段的样本清理失败可重试，且不会重复删除远端音色", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    await cloneFromPaths(service, [samplePath], "Recoverable");
+    const key = cloneRegistrySettingKey(PROVIDER_ID, MODEL);
+    const persistedDirectory = cloneSampleDirectory("user-a", "clone-stage-a");
+    const cleanupFailingFs = {
+      ...nodeFs,
+      promises: {
+        ...nodeFs.promises,
+        rm: vi.fn(async (targetPath, ...args) => {
+          if (path.resolve(targetPath) === path.resolve(persistedDirectory))
+            throw new Error("sample cleanup failed");
+          return nodeFs.promises.rm(targetPath, ...args);
+        }),
+      },
+    };
+    const cleanupFailingService = createService({ fs: cleanupFailingFs });
+
+    manager.callAdapter.mockClear();
+    manager.callAdapter.mockResolvedValueOnce({ code: 0, data: null });
+    await expect(
+      cleanupFailingService.deleteClone({
+        providerId: PROVIDER_ID,
+        model: MODEL,
+        voiceId: "voice-clone-a",
+      }),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_STORAGE_UNAVAILABLE" });
+    expect(manager.callAdapter).toHaveBeenCalledWith(PROVIDER_ID, "deleteVoice", "voice-clone-a");
+    expect(store.getValue("user-a", key).voices[0]).toMatchObject({
+      deletionState: "remote_deleted",
+    });
+    await expect(nodeFs.promises.stat(persistedDirectory)).resolves.toMatchObject({
+      isDirectory: expect.any(Function),
+    });
+
+    manager.callAdapter.mockClear();
+    await expect(
+      service.deleteClone({
+        providerId: PROVIDER_ID,
+        model: MODEL,
+        voiceId: "voice-clone-a",
+      }),
+    ).resolves.toMatchObject({ code: 0, data: { voiceId: "voice-clone-a" } });
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+    expect(store.getValue("user-a", key).voices).toHaveLength(0);
+    await expect(nodeFs.promises.stat(persistedDirectory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("拒绝引用其他 owner 存储目录的 registry metadata", async () => {
+    const key = cloneRegistrySettingKey(PROVIDER_ID, MODEL);
+    store.setUserSetting(
+      key,
+      {
+        version: 2,
+        providerId: PROVIDER_ID,
+        model: MODEL,
+        voices: [
+          {
+            id: "voice-clone-a",
+            name: "Voice",
+            source: "user_clone",
+            createdAt: Date.now(),
+            deletionState: "active",
+            sampleStorage: {
+              relativeDir: `voice-clone-samples/${ownerHash("user-b")}/clone-stage-b`,
+              sampleCount: 1,
+            },
+          },
+        ],
+      },
+      "user-a",
+    );
+
+    await expect(
+      service.listClones({ providerId: PROVIDER_ID, model: MODEL }),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_REGISTRY_INVALID" });
+  });
+
+  it("串行化同一 owner/provider/model 的 add/delete，避免 add 期间把有效克隆误判为未找到", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    const selection = await chooseSamples(service, [samplePath]);
+    let resolveClone;
+    manager.callAdapter.mockImplementation(async (_providerId, method) => {
+      if (method === "cloneVoice")
+        return new Promise((resolve) => {
+          resolveClone = resolve;
+        });
+      return { code: 0, data: null };
+    });
+
+    const addPromise = service.addCloneFromSelection(
+      cloneInput(selection.data.selectionId),
+      SENDER_KEY,
+    );
+    await vi.waitFor(() => expect(manager.callAdapter).toHaveBeenCalledTimes(1));
+    const deletePromise = service.deleteClone({
+      providerId: PROVIDER_ID,
+      model: MODEL,
+      voiceId: "voice-concurrent",
+    });
+    let deleteSettled = false;
+    deletePromise.finally(() => {
+      deleteSettled = true;
+    });
+    await Promise.resolve();
+    expect(deleteSettled).toBe(false);
+
+    resolveClone({ code: 0, data: { voiceId: "voice-concurrent", name: "Concurrent" } });
+    await expect(addPromise).resolves.toMatchObject({
+      code: 0,
+      data: { selectedVoiceId: "voice-concurrent" },
+    });
+    await expect(deletePromise).resolves.toMatchObject({
+      code: 0,
+      data: { voiceId: "voice-concurrent" },
+    });
+    expect(manager.callAdapter.mock.calls.map(([, method]) => method)).toEqual([
+      "cloneVoice",
+      "deleteVoice",
+    ]);
+    expect(
+      store.getValue("user-a", cloneRegistrySettingKey(PROVIDER_ID, MODEL)).voices,
+    ).toHaveLength(0);
+  });
+
+  it("过期选择令牌不能用于克隆", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    let now = 100;
+    const expiringService = createService({ now: () => now, selectionTtlMs: 10 });
+    const selection = await chooseSamples(expiringService, [samplePath]);
+    now = 110;
+
+    await expect(
+      expiringService.addCloneFromSelection(cloneInput(selection.data.selectionId), SENDER_KEY),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_SELECTION_UNAVAILABLE" });
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+  });
+});

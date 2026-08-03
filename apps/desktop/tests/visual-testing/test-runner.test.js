@@ -20,9 +20,10 @@ function createRunner(tempDir) {
   ]) {
     fs.mkdirSync(directory, { recursive: true })
   }
-  runner.page = {
-    goto: vi.fn().mockResolvedValue(undefined),
-    waitForSelector: vi.fn().mockResolvedValue(undefined),
+    runner.page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn().mockReturnValue('http://127.0.0.1:5174/#/accounts'),
+      waitForSelector: vi.fn().mockResolvedValue(undefined),
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
     evaluate: vi.fn().mockResolvedValue(500),
     screenshot: vi.fn().mockImplementation(async ({ path: outputPath }) => {
@@ -156,6 +157,46 @@ describe('视觉视图门禁', () => {
         expect.any(Object),
       )
       expect(runner.page.waitForFunction.mock.calls[0][1]).toBe('#/model-providers')
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('每次导航前清空 cookie、localStorage 和 sessionStorage', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-state-reset-'))
+    const runner = createRunner(tempDir)
+    const clearCookies = vi.fn().mockResolvedValue(undefined)
+    runner.context = { clearCookies }
+    const evaluate = vi.fn().mockResolvedValue(undefined)
+    runner.page.evaluate = evaluate
+
+    try {
+      await runner._navigateToRoute('/accounts', '.page-title')
+      expect(clearCookies).toHaveBeenCalledOnce()
+      expect(evaluate).toHaveBeenCalled()
+      const resetScript = evaluate.mock.calls[0][0].toString()
+      expect(resetScript).toContain('localStorage.clear')
+      expect(resetScript).toContain('sessionStorage.clear')
+      expect(runner.page.goto.mock.invocationCallOrder[0])
+        .toBeGreaterThan(clearCookies.mock.invocationCallOrder[0])
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('首次导航停留在 about:blank 时不访问受限存储', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-blank-state-reset-'))
+    const runner = createRunner(tempDir)
+    runner.page.url.mockReturnValue('about:blank')
+    const clearCookies = vi.fn().mockResolvedValue(undefined)
+    runner.context = { clearCookies }
+
+    try {
+      await runner._navigateToRoute('/accounts', '.page-title')
+      expect(clearCookies).toHaveBeenCalledOnce()
+      expect(runner.page.goto).toHaveBeenCalled()
+      expect(runner.page.evaluate.mock.invocationCallOrder[0])
+        .toBeGreaterThan(runner.page.goto.mock.invocationCallOrder[0])
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }

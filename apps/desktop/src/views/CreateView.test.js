@@ -31,6 +31,17 @@ vi.mock("@/api/publisher", () => ({
   story2videoDeleteProject: vi.fn(),
 }));
 
+vi.mock("@/api/tts-voice-catalog", () => ({
+  getTtsVoiceCatalog: vi.fn().mockResolvedValue({
+    code: 0,
+    data: { providerId: "", model: "", selectedVoiceId: null, voices: [] },
+  }),
+  selectTtsVoice: vi.fn().mockResolvedValue({
+    code: 0,
+    data: { providerId: "", model: "", selectedVoiceId: null, voices: [] },
+  }),
+}));
+
 import UiButton from "@/components/UiButton.vue";
 import UiSelect from "@/components/UiSelect.vue";
 
@@ -40,6 +51,7 @@ const router = createRouter({
 });
 
 import CreateView from "./CreateView.vue";
+import i18n from "@/i18n";
 
 describe("CreateView", () => {
   beforeEach(() => {
@@ -51,7 +63,7 @@ describe("CreateView", () => {
 
   it("renders page header", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(w.text()).toContain("视频创作");
@@ -59,7 +71,7 @@ describe("CreateView", () => {
 
   it("shows three view tabs", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     const tabs = w.findAll(".view-tab");
@@ -68,7 +80,7 @@ describe("CreateView", () => {
 
   it("switches to quick view shows mode tabs", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -79,7 +91,7 @@ describe("CreateView", () => {
 
   it("switches quick mode to gallery shows upload", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -92,7 +104,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is false with empty quickText", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -102,7 +114,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is true with non-empty quickText", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -113,7 +125,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is false when quickRendering", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -124,7 +136,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is false when gallery mode with no images", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -134,7 +146,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is true when gallery has images", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -146,7 +158,7 @@ describe("CreateView", () => {
   it("gets renderStatus on mount", async () => {
     const mocks = await import("@/api/publisher");
     mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(mocks.renderGetStatus).toHaveBeenCalled();
@@ -155,7 +167,7 @@ describe("CreateView", () => {
   it("loads pipelines on mount", async () => {
     const mocks = await import("@/api/publisher");
     mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(mocks.pipelineList).toHaveBeenCalled();
@@ -165,7 +177,7 @@ describe("CreateView", () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValueOnce({});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
 
@@ -177,7 +189,7 @@ describe("CreateView", () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockRejectedValueOnce(new Error("IPC 不可用"));
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
 
@@ -197,7 +209,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValue({ code: 0, data: { outputPath: "/tmp/test.mp4" } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -214,7 +226,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValue({ code: 1, message: "render failed" });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -228,7 +240,7 @@ describe("CreateView - quick render", () => {
   it("cancelQuickRender calls renderCancel", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.quickRendering = true;
@@ -239,7 +251,7 @@ describe("CreateView - quick render", () => {
 
   it("aiWrite generates content", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -254,7 +266,7 @@ describe("CreateView - quick render", () => {
     const push = vi.fn();
     router.push = push;
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.quickResult = { outputPath: "/tmp/video.mp4" };
@@ -266,7 +278,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockRejectedValueOnce(new Error("渲染 IPC 缺失"));
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.quickText = "测试文案";
@@ -282,7 +294,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValueOnce({});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.quickText = "测试文案";
@@ -297,7 +309,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValueOnce({ code: 0, data: { taskId: "r1" } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.quickMode = "gallery";
@@ -327,7 +339,7 @@ describe("CreateView - callbacks", () => {
     const mocks = await import("@/api/publisher");
     mocks.onRenderComplete.mockImplementation(cb => { cb({ outputPath: "/tmp/test.mp4" }); return vi.fn(); });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(w.vm.quickResult).toEqual({ outputPath: "/tmp/test.mp4" });
@@ -337,7 +349,7 @@ describe("CreateView - callbacks", () => {
     const mocks = await import("@/api/publisher");
     mocks.onRenderError.mockImplementation(cb => { cb({ message: "render failed" }); return vi.fn(); });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(w.vm.quickError).toBe("render failed");
@@ -347,7 +359,7 @@ describe("CreateView - callbacks", () => {
     const mocks = await import("@/api/publisher");
     mocks.onRenderInstallProgress.mockImplementation(cb => { cb({ text: "installing..." }); return vi.fn(); });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(w.vm.installLog).toContain("installing");
@@ -363,7 +375,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("isOrchestratedPipeline returns true for story2video-compose", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(w.vm.isOrchestratedPipeline("story2video-compose")).toBe(true);
@@ -371,7 +383,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("isOrchestratedPipeline returns false for other pipelines", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(w.vm.isOrchestratedPipeline("cinematic")).toBe(false);
@@ -380,7 +392,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("has s2vConfig with required fields", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(w.vm.s2vConfig).toHaveProperty("imageStyle");
@@ -391,11 +403,12 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.s2vConfig).toHaveProperty("voicePitch");
     expect(w.vm.s2vConfig).toHaveProperty("voiceVolume");
     expect(w.vm.s2vConfig).toHaveProperty("concurrency");
+    expect(w.vm.s2vConfig.splitLanguage).toBe("auto");
   });
 
   it("does not expose unconfigured static image providers in the Story2Video selector", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -409,9 +422,9 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
-  it("Story2Video 隐藏通用视觉、LLM、温度和预算配置，但保留检查点策略", async () => {
+  it("Story2Video 隐藏通用视觉、LLM、预算和手动检查点控制", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -422,13 +435,13 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.text()).not.toContain("温度:");
     expect(w.text()).not.toContain("预算模式");
     expect(w.text()).not.toContain("预算上限");
-    expect(w.text()).toContain("检查点策略");
+    expect(w.text()).not.toContain("检查点策略");
     w.unmount();
   });
 
   it("Story2Video 隐藏无效的比例、情绪、字体和离线占位图选项", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -439,14 +452,17 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.text()).not.toContain("字幕字体");
     expect(w.text()).not.toContain("离线占位图");
     expect(w.find("#s2v-voice-options").exists()).toBe(false);
-    const creativeControl = w.findAll(".config-item").find(item => item.find("label").text().startsWith("创意强度"));
-    expect(creativeControl.find('input[type="range"]').attributes("min")).toBe("1");
+    expect(w.text()).not.toContain("音调:");
+    expect(w.text()).not.toContain("并发数");
+    expect(w.text()).not.toContain("创意强度:");
+    expect(w.text()).not.toContain("自动推进");
+    expect(w.text()).not.toContain("仅创建运行");
     w.unmount();
   });
 
   it("Story2Video 负向提示词输入与运行配置保持 500 字符上限一致", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -467,7 +483,7 @@ describe("CreateView - S2V orchestration", () => {
     });
     window.electronAPI = { modelProviderList: listImageProviders };
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -488,7 +504,7 @@ describe("CreateView - S2V orchestration", () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineGetRunContext.mockResolvedValueOnce(response);
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.orchestrationRunId = "run-poll-error";
@@ -514,7 +530,7 @@ describe("CreateView - S2V orchestration", () => {
       },
     });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.orchestrationRunId = "run-terminal-error";
@@ -536,7 +552,7 @@ describe("CreateView - S2V orchestration", () => {
       data: { success: false, error: "图片服务商未配置 API Key" },
     });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.orchestrationRunId = "run-advance-error";
@@ -552,7 +568,7 @@ describe("CreateView - S2V orchestration", () => {
   it("完成但缺少可预览视频时使用应用内弹窗", async () => {
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
 
@@ -581,7 +597,7 @@ describe("CreateView - S2V orchestration", () => {
     });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
@@ -606,7 +622,7 @@ describe("CreateView - S2V orchestration", () => {
   it("Story2Video 在调用 IPC 前拒绝超过 6000 个 Unicode 字符的文案", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -628,7 +644,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-123" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {} } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
@@ -651,7 +667,7 @@ describe("CreateView - S2V orchestration", () => {
       ],
     });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await w.vm.loadPipelines();
 
@@ -662,7 +678,7 @@ describe("CreateView - S2V orchestration", () => {
   });
   it("流水线卡片优先显示后端 stageCount", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.pipelineLoading = false;
@@ -683,13 +699,13 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-contract" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     w.vm.pipelineText = "唐朝长安的夜景";
     w.vm.selectedStyle = "cinematic-dark";
-    w.vm.checkpointPolicy = "manual_all";
+    w.vm.checkpointPolicy = "none";
     w.vm.outputConfig = { resolution: "3840x2160", fps: 60, format: "mp4" };
     w.vm.s2vOutputConfig = { resolution: "1080x1920", fps: 24, format: "webm" };
     w.vm.s2vConfig = {
@@ -727,7 +743,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("story2video-compose", expect.objectContaining({
       text: "唐朝长安的夜景",
       inputMode: "text",
-      checkpointPolicy: "manual_all",
+      checkpointPolicy: "none",
       autoAdvance: true,
       story2videoTextConfig: expect.objectContaining({
         version: 1,
@@ -759,7 +775,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-images" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {} } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -780,7 +796,7 @@ describe("CreateView - S2V orchestration", () => {
   it("普通流水线仍保留图片、音频和视频输入", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "cinematic", stages: [] };
@@ -795,7 +811,7 @@ describe("CreateView - S2V orchestration", () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoTranscribe.mockResolvedValue({ code: 0, data: { text: "识别后的第一段" } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "podcast-repurpose", stages: [] };
@@ -814,7 +830,7 @@ describe("CreateView - S2V orchestration", () => {
     const importer = vi.fn().mockResolvedValue({ code: 0, data: { path: "C:/controlled/bgm.mp3" } });
     mocks.story2videoImportMedia.mockImplementation(importer);
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
 
@@ -830,7 +846,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.story2videoImportMedia.mockResolvedValue({ code: -1 });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
 
@@ -848,7 +864,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStart.mockResolvedValue({ code: 0, data: {} });
     mocks.pipelineStatus.mockResolvedValue({ code: 0, data: { status: "running", stages: [] } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "cinematic", description: "test", stages: [], category: "cinematic" };
@@ -863,7 +879,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "暂不启动" });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "cinematic", stages: [] };
@@ -888,7 +904,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "暂不启动" });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "cinematic", stages: [] };
@@ -908,7 +924,7 @@ describe("CreateView - S2V orchestration", () => {
     const mocks = await import("@/api/publisher");
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -941,7 +957,7 @@ describe("CreateView - S2V orchestration", () => {
     });
     const pushSpy = vi.spyOn(router, "push");
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -959,7 +975,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("llmConfig only has temperature (no provider/model)", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(w.vm.llmConfig).toHaveProperty("temperature");
@@ -972,7 +988,7 @@ describe("CreateView - S2V orchestration", () => {
 describe("CreateView - UI interactions", () => {
   it("clicks view-tab switches view (pipelines/quick/history)", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     const tabs = w.findAll(".view-tab");
@@ -996,7 +1012,7 @@ describe("CreateView - UI interactions", () => {
     vi.useFakeTimers();
     try {
       const w = mount(CreateView, {
-        global: { plugins: [router], components: { UiButton, UiSelect } }
+        global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
       });
       w.vm.view = "history";
       void w.vm.loadHistory();
@@ -1027,7 +1043,7 @@ describe("CreateView - UI interactions", () => {
       .mockImplementationOnce(() => new Promise(resolve => { resolveOldRuns = resolve; }))
       .mockResolvedValueOnce({ code: 0, data: [] });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
 
     const first = w.vm.loadHistory();
@@ -1047,7 +1063,7 @@ describe("CreateView - UI interactions", () => {
     mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "测试阻止启动" });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { id: "p1", name: "normal-pipeline" };
@@ -1076,7 +1092,7 @@ describe("CreateView - UI interactions", () => {
     }] });
     const pushSpy = vi.spyOn(router, "push");
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
 
     w.vm.view = "history";
@@ -1102,7 +1118,7 @@ describe("CreateView - UI interactions", () => {
       { id: "run-cancelled", pipeline: "story2video-compose", status: "cancelled", title: "已取消" },
     ] });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
 
     w.vm.view = "history";
@@ -1116,7 +1132,7 @@ describe("CreateView - UI interactions", () => {
 
   it("可把当前参数保存为自定义模板、重新应用并删除", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.s2vConfig.imageEffect = "pan-up";
@@ -1153,7 +1169,7 @@ describe("CreateView - UI interactions", () => {
     mocks.story2videoListProjects.mockResolvedValueOnce({ code: 1, message: "internal path C:/private" });
     mocks.pipelineHistory.mockResolvedValueOnce({ code: 0, data: [] });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
 
     w.vm.view = "history";
@@ -1173,7 +1189,7 @@ describe("CreateView - UI interactions", () => {
     mocks.story2videoDeleteProject.mockResolvedValue({ code: 0 });
     const confirmSpy = vi.spyOn(window, "confirm");
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     w.vm.history = [{ projectId: "project-delete" }];
 

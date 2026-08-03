@@ -1,0 +1,12 @@
+{
+  "id": "story2video-autopilot-tts-localization",
+  "title": "收敛现有改动并升级图片轮播自动流水线、TTS音色与多语言体验",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "desktop-pipeline",
+  "currentPhase": "review",
+  "nextAction": "完成双模型审查、提交并等待 CI",
+  "createdAt": "2026-08-03T00:00:00Z",
+  "branch": "codex/story2video-autopilot-tts-localization"
+}

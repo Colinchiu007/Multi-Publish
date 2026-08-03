@@ -6,6 +6,7 @@ import { QuillEditor } from '@vueup/vue-quill'
 import '@vueup/vue-quill/dist/vue-quill.snow.css'
 import './styles/cohere-design-system.css'
 import App from './App.vue'
+import i18n from './i18n'
 import router from './router'
 
 const app = createApp(App)
@@ -32,6 +33,7 @@ window.addEventListener('unhandledrejection', (e) => {
 
 app.use(createPinia())
 app.use(router)
+app.use(i18n)
 app.use(ElementPlus)
 app.component('QuillEditor', QuillEditor)
 app.mount('#app')

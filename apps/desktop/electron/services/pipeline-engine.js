@@ -132,7 +132,7 @@ const PIPELINES = [
         description: '文案分句',
         checkpointRequired: false,
         options: {
-          language: 'zh',
+          language: 'auto',
           mode: 'balanced',
           max_sentence_length: 200,
           target_duration: 6,
@@ -702,6 +702,18 @@ class PipelineEngine {
       return { success: false, error: 'Run is not in orchestrator mode' };
     }
     if (run.status === 'paused') {
+      const checkpoint = run.checkpoint || {};
+      if (checkpoint.type === 'needs_user_input' || checkpoint.reason === 'content_policy') {
+        return {
+          success: false,
+          runId,
+          paused: true,
+          needsUserInput: true,
+          checkpoint,
+          error: 'Checkpoint requires user input before the pipeline can continue',
+          errorCode: 'PIPELINE_USER_INPUT_REQUIRED',
+        };
+      }
       // 检查点阶段已经执行完毕，确认操作应先完成该阶段，再执行后续阶段。
       const advanced = this._advanceRun(run);
       if (!advanced.success) return advanced;

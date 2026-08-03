@@ -1,0 +1,1304 @@
+// @ts-check
+"use strict";
+
+const crypto = require("node:crypto");
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const { CAPABILITY_TYPES, getVoiceCapability } = require("./tts-voice-catalog");
+const { findFfprobe } = require("./media-tool-paths");
+
+const CLONE_REGISTRY_VERSION = 2;
+const MAX_IDENTIFIER_LENGTH = 128;
+const MAX_VOICE_ID_LENGTH = 256;
+const MAX_VOICE_NAME_LENGTH = 128;
+const MAX_SAMPLE_COUNT = 10;
+const MAX_SAMPLE_BYTES = 10 * 1024 * 1024;
+const MAX_TOTAL_SAMPLE_BYTES = 25 * 1024 * 1024;
+const MAX_SAMPLE_DURATION_SECONDS = 15 * 60;
+const MAX_TOTAL_DURATION_SECONDS = 30 * 60;
+const DEFAULT_SAMPLE_SELECTION_TTL_MS = 5 * 60 * 1000;
+const MAX_ACTIVE_SAMPLE_SELECTIONS = 8;
+const MAX_ACTIVE_SAMPLE_SELECTION_BYTES = MAX_TOTAL_SAMPLE_BYTES * 2;
+const FFPROBE_TIMEOUT_MS = 15 * 1000;
+const MAX_FFPROBE_OUTPUT_BYTES = 128 * 1024;
+const CLONE_SAMPLE_STORAGE_DIRECTORY = "voice-clone-samples";
+const LOCAL_CLONE_SAMPLE_LIMITS = Object.freeze({
+  elevenlabs: Object.freeze({
+    eleven_multilingual_v2: Object.freeze({ maxSampleCount: 5 }),
+    eleven_turbo_v2_5: Object.freeze({ maxSampleCount: 5 }),
+    eleven_monolingual_v1: Object.freeze({ maxSampleCount: 5 }),
+  }),
+});
+const DELETE_STATES = Object.freeze({
+  ACTIVE: "active",
+  PENDING: "pending",
+  REMOTE_DELETED: "remote_deleted",
+});
+const ALLOWED_AUDIO_EXTENSIONS = Object.freeze({
+  ".aac": "audio/aac",
+  ".flac": "audio/flac",
+  ".m4a": "audio/mp4",
+  ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".wav": "audio/wav",
+  ".webm": "audio/webm",
+});
+
+const cloneRegistryLocks = new Map();
+
+class VoiceCloneError extends Error {
+  constructor(code) {
+    super(code);
+    this.code = code;
+  }
+}
+
+function success(data) {
+  return { code: 0, data };
+}
+
+function failure(message, data) {
+  return data === undefined ? { code: -1, message } : { code: -1, message, data };
+}
+
+function safeIdentifier(value, maxLength = MAX_IDENTIFIER_LENGTH) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maxLength || !/^[a-zA-Z0-9._-]+$/.test(normalized))
+    return null;
+  return normalized;
+}
+
+function hasControlCharacter(value) {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint <= 0x1f || codePoint === 0x7f;
+  });
+}
+
+function safeDisplayName(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > MAX_VOICE_NAME_LENGTH || hasControlCharacter(normalized))
+    return null;
+  return normalized;
+}
+
+function cloneRegistrySettingKey(providerId, model) {
+  return `tts-voice-clones:v2:${providerId}:${model}`;
+}
+
+function clonePreferenceSettingKey(providerId, model) {
+  return `tts-voice-preference:v1:${providerId}:${model}`;
+}
+
+function hashOwnerSubject(ownerSubject) {
+  return crypto.createHash("sha256").update(ownerSubject, "utf8").digest("hex");
+}
+
+function isPathWithin(parentPath, candidatePath) {
+  const relativePath = path.relative(parentPath, candidatePath);
+  return Boolean(
+    relativePath &&
+      relativePath !== ".." &&
+      !relativePath.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relativePath),
+  );
+}
+
+function cloneSampleStorageRelativeDir(owner, storageId) {
+  return `${CLONE_SAMPLE_STORAGE_DIRECTORY}/${owner.hash}/${storageId}`;
+}
+
+function isSafeCloneSampleStorage(value, owner) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const allowed = new Set(["relativeDir", "sampleCount"]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) return false;
+  if (
+    !owner ||
+    typeof owner.hash !== "string" ||
+    !/^[a-f0-9]{64}$/.test(owner.hash) ||
+    typeof value.relativeDir !== "string" ||
+    !Number.isSafeInteger(value.sampleCount) ||
+    value.sampleCount <= 0 ||
+    value.sampleCount > MAX_SAMPLE_COUNT
+  ) {
+    return false;
+  }
+  const segments = value.relativeDir.split("/");
+  return (
+    segments.length === 3 &&
+    segments[0] === CLONE_SAMPLE_STORAGE_DIRECTORY &&
+    segments[1] === owner.hash &&
+    safeIdentifier(segments[2], 128) !== null
+  );
+}
+
+function getLocalCloneSampleLimits(providerId, model) {
+  const providerLimits = LOCAL_CLONE_SAMPLE_LIMITS[providerId];
+  const modelLimits = providerLimits && providerLimits[model];
+  return {
+    maxSampleCount: modelLimits ? modelLimits.maxSampleCount : MAX_SAMPLE_COUNT,
+    maxSampleBytes: MAX_SAMPLE_BYTES,
+    maxTotalBytes: MAX_TOTAL_SAMPLE_BYTES,
+    maxSampleDurationSeconds: MAX_SAMPLE_DURATION_SECONDS,
+    maxTotalDurationSeconds: MAX_TOTAL_DURATION_SECONDS,
+  };
+}
+
+function copyCapability(capability) {
+  return {
+    providerId: capability.providerId,
+    model: capability.model,
+    type: capability.type,
+    canListVoices: capability.canListVoices === true,
+    defaultVoiceId: capability.defaultVoiceId || null,
+    clone:
+      capability.clone && typeof capability.clone === "object"
+        ? {
+            enabled: capability.clone.enabled === true,
+            entry: capability.clone.entry || null,
+            implementation: capability.clone.implementation || null,
+            messageKey: capability.clone.messageKey || null,
+          }
+        : null,
+    reason: capability.reason || null,
+  };
+}
+
+function normalizeAdapterVoice(value, fallbackName) {
+  if (typeof value === "string") {
+    const id = safeIdentifier(value, MAX_VOICE_ID_LENGTH);
+    return id ? { id, name: fallbackName } : null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = safeIdentifier(value.voiceId || value.voice_id || value.id, MAX_VOICE_ID_LENGTH);
+  if (!id) return null;
+  return {
+    id,
+    name: safeDisplayName(value.name || value.displayName || value.display_name) || fallbackName,
+  };
+}
+
+function isSafeCloneVoice(value, providerId, model, owner) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const allowed = new Set([
+    "id",
+    "name",
+    "source",
+    "createdAt",
+    "deletionState",
+    "sampleStorage",
+  ]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) return false;
+  const id = safeIdentifier(value.id, MAX_VOICE_ID_LENGTH);
+  const name = safeDisplayName(value.name);
+  const deletionState =
+    value.deletionState === undefined ? DELETE_STATES.ACTIVE : value.deletionState;
+  return Boolean(
+    id &&
+    name &&
+    value.source === CAPABILITY_TYPES.USER_CLONE &&
+    Number.isFinite(value.createdAt) &&
+    Object.values(DELETE_STATES).includes(deletionState) &&
+    (value.sampleStorage === undefined || isSafeCloneSampleStorage(value.sampleStorage, owner)) &&
+    providerId.length > 0 &&
+    model.length > 0,
+  );
+}
+
+function isSafeCloneRegistry(value, providerId, model, owner) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const allowed = new Set(["version", "providerId", "model", "voices"]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) return false;
+  if (
+    value.version !== CLONE_REGISTRY_VERSION ||
+    value.providerId !== providerId ||
+    value.model !== model
+  )
+    return false;
+  if (
+    !Array.isArray(value.voices) ||
+    !value.voices.every((voice) => isSafeCloneVoice(voice, providerId, model, owner))
+  )
+    return false;
+  return new Set(value.voices.map((voice) => voice.id)).size === value.voices.length;
+}
+
+function publicVoice(voice) {
+  return {
+    id: voice.id,
+    name: voice.name,
+    source: voice.source,
+    createdAt: voice.createdAt,
+  };
+}
+
+class TtsVoiceCloneService {
+  constructor(deps = {}) {
+    this._store = deps.store || null;
+    this._modelProviderManager = deps.modelProviderManager || null;
+    this._fs = deps.fs || fs;
+    this._app = deps.app || null;
+    this._userDataPath = typeof deps.userDataPath === "string" ? deps.userDataPath : null;
+    this._getUserDataPath =
+      typeof deps.getUserDataPath === "function" ? deps.getUserDataPath : null;
+    this._createSampleStorageId =
+      typeof deps.createSampleStorageId === "function"
+        ? deps.createSampleStorageId
+        : typeof deps.randomUUID === "function"
+          ? deps.randomUUID
+          : crypto.randomUUID;
+    this._now = typeof deps.now === "function" ? deps.now : () => Date.now();
+    this._getVoiceCapability =
+      typeof deps.getVoiceCapability === "function" ? deps.getVoiceCapability : getVoiceCapability;
+    this._createSelectionToken =
+      typeof deps.createSelectionToken === "function"
+        ? deps.createSelectionToken
+        : crypto.randomUUID;
+    this._selectionTtlMs =
+      Number.isFinite(deps.selectionTtlMs) && deps.selectionTtlMs > 0
+        ? deps.selectionTtlMs
+        : DEFAULT_SAMPLE_SELECTION_TTL_MS;
+    this._ffprobePath = typeof deps.ffprobePath === "string" ? deps.ffprobePath : findFfprobe();
+    this._spawn = typeof deps.spawn === "function" ? deps.spawn : spawn;
+    this._probeDuration =
+      typeof deps.probeDuration === "function"
+        ? deps.probeDuration
+        : (buffer) => this._probeMediaDuration(buffer);
+    this._setTimeout = typeof deps.setTimeout === "function" ? deps.setTimeout : setTimeout;
+    this._clearTimeout = typeof deps.clearTimeout === "function" ? deps.clearTimeout : clearTimeout;
+    this._sampleSelections = new Map();
+    this._selectionExpiryTimers = new Map();
+  }
+
+  getRequirements(input) {
+    const request = this._normalizeRequest(input);
+    if (!request) return failure("VOICE_CLONE_INVALID_ARGUMENTS");
+    const capability = this._getCloneCapability(request);
+    if (!capability) return this._unsupportedResponse(request);
+    const sampleLimits = getLocalCloneSampleLimits(request.providerId, request.model);
+    return success({
+      providerId: request.providerId,
+      model: request.model,
+      capability: copyCapability(capability),
+      sampleLimitScope: "local_safety",
+      ...sampleLimits,
+      durationProbe: "ffprobe",
+      allowedExtensions: Object.keys(ALLOWED_AUDIO_EXTENSIONS),
+    });
+  }
+
+  async listClones(input) {
+    const request = this._normalizeRequest(input);
+    if (!request) return failure("VOICE_CLONE_INVALID_ARGUMENTS");
+    const owner = this._captureOwner();
+    if (!owner) return failure("VOICE_OWNER_UNAVAILABLE");
+    const capability = this._getCloneCapability(request);
+    if (!capability) return this._unsupportedResponse(request);
+    if (!this._hasUserSettings()) return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+
+    const registryResult = this._readRegistry(request, owner);
+    if (registryResult.error) return registryResult.error;
+    return success({
+      providerId: request.providerId,
+      model: request.model,
+      voices: registryResult.registry.voices.map(publicVoice),
+    });
+  }
+
+  async createSampleSelection(input, paths, senderKey) {
+    const request = this._normalizeRequest(input);
+    if (!request || !this._isSafeSenderKey(senderKey)) {
+      return failure("VOICE_CLONE_INVALID_ARGUMENTS");
+    }
+    const owner = this._captureOwner();
+    if (!owner) return failure("VOICE_OWNER_UNAVAILABLE");
+    const capability = this._getCloneCapability(request);
+    if (!capability) return this._unsupportedResponse(request);
+    const sampleLimits = getLocalCloneSampleLimits(request.providerId, request.model);
+    if (!this._areSafeSelectionPaths(paths, sampleLimits.maxSampleCount)) {
+      return failure("VOICE_CLONE_INVALID_ARGUMENTS");
+    }
+
+    let samples;
+    try {
+      samples = await this._prepareSamples(paths, sampleLimits);
+    } catch (error) {
+      return failure(
+        error instanceof VoiceCloneError ? error.code : "VOICE_CLONE_STORAGE_UNAVAILABLE",
+      );
+    }
+
+    this._purgeExpiredSelections();
+    const selectionBytes = samples.reduce((total, sample) => total + sample.bytes, 0);
+    if (
+      this._sampleSelections.size >= MAX_ACTIVE_SAMPLE_SELECTIONS ||
+      this._activeSelectionBytes() + selectionBytes > MAX_ACTIVE_SAMPLE_SELECTION_BYTES
+    ) {
+      return failure("VOICE_CLONE_SELECTION_UNAVAILABLE");
+    }
+    const selectionId = safeIdentifier(this._createSelectionToken(), 128);
+    if (!selectionId || this._sampleSelections.has(selectionId))
+      return failure("VOICE_CLONE_SELECTION_UNAVAILABLE");
+    const expiresAt = this._now() + this._selectionTtlMs;
+    const selection = {
+      providerId: request.providerId,
+      model: request.model,
+      owner,
+      senderKey,
+      samples,
+      bytes: selectionBytes,
+      expiresAt,
+    };
+    this._sampleSelections.set(selectionId, selection);
+    if (!this._scheduleSelectionExpiry(selectionId, selection)) {
+      this._discardSelection(selectionId);
+      return failure("VOICE_CLONE_SELECTION_UNAVAILABLE");
+    }
+    return success({
+      selectionId,
+      expiresAt,
+      samples: samples.map((sample, index) => this._selectedSampleSummary(sample, index)),
+    });
+  }
+
+  async addCloneFromSelection(input, senderKey) {
+    const request = this._normalizeSelectionAddRequest(input);
+    if (!request || !this._isSafeSenderKey(senderKey))
+      return failure("VOICE_CLONE_INVALID_ARGUMENTS");
+    const owner = this._captureOwner();
+    if (!owner) return failure("VOICE_OWNER_UNAVAILABLE");
+    this._purgeExpiredSelections();
+    const selection = this._sampleSelections.get(request.selectionId);
+    if (
+      !selection ||
+      selection.senderKey !== senderKey ||
+      selection.owner.subject !== owner.subject ||
+      selection.providerId !== request.providerId ||
+      selection.model !== request.model
+    ) {
+      return failure("VOICE_CLONE_SELECTION_UNAVAILABLE");
+    }
+    this._discardSelection(request.selectionId);
+    return this._addClone(
+      {
+        providerId: request.providerId,
+        model: request.model,
+        name: request.name,
+        samples: selection.samples,
+      },
+      owner,
+    );
+  }
+
+  async _addClone(request, owner) {
+    return this._withRegistryLock(request, owner, () => this._addCloneLocked(request, owner));
+  }
+
+  async _addCloneLocked(request, owner) {
+    const capability = this._getCloneCapability(request);
+    if (!capability) return this._unsupportedResponse(request);
+    if (!this._hasUserSettings()) return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+    if (!this._hasMatchingProvider(request.providerId, request.model))
+      return failure("VOICE_CLONE_MODEL_MISMATCH");
+    const sampleLimits = getLocalCloneSampleLimits(request.providerId, request.model);
+    const sampleStorage = this._createSampleStorageDescriptor(owner, request.samples.length);
+    if (!sampleStorage || !this._resolveUserDataPath())
+      return failure("VOICE_CLONE_STORAGE_UNAVAILABLE");
+
+    let adapterSamples;
+    try {
+      adapterSamples = this._buildAdapterCloneSamples(request.samples, sampleLimits);
+    } catch (error) {
+      return failure(error instanceof VoiceCloneError ? error.code : "VOICE_CLONE_SAMPLE_INVALID");
+    }
+
+    let adapterResult;
+    try {
+      adapterResult = await this._modelProviderManager.callAdapter(
+        request.providerId,
+        "cloneVoice",
+        {
+          name: request.name,
+          samples: adapterSamples,
+        },
+      );
+    } catch (_) {
+      return failure("VOICE_CLONE_PROVIDER_UNAVAILABLE");
+    }
+
+    const adapterVoice =
+      adapterResult && adapterResult.code === 0
+        ? normalizeAdapterVoice(adapterResult.data, request.name)
+        : null;
+    if (!adapterVoice) return failure("VOICE_CLONE_PROVIDER_UNAVAILABLE");
+
+    const registryResult = this._readRegistry(request, owner);
+    if (registryResult.error) {
+      return await this._withRemoteCloneCompensation(
+        request.providerId,
+        adapterVoice.id,
+        registryResult.error,
+      );
+    }
+    if (registryResult.registry.voices.some((voice) => voice.id === adapterVoice.id)) {
+      return await this._withRemoteCloneCompensation(
+        request.providerId,
+        adapterVoice.id,
+        failure("VOICE_CLONE_DUPLICATE_ID"),
+      );
+    }
+
+    let persistedSampleStorage;
+    try {
+      persistedSampleStorage = await this._persistCloneSamples(
+        owner,
+        sampleStorage,
+        request.samples,
+        sampleLimits,
+      );
+    } catch (_) {
+      return await this._withRemoteCloneCompensation(
+        request.providerId,
+        adapterVoice.id,
+        failure("VOICE_CLONE_STORAGE_UNAVAILABLE"),
+        () => this._cleanupCloneSampleStorage(owner, sampleStorage),
+      );
+    }
+
+    const clone = {
+      id: adapterVoice.id,
+      name: adapterVoice.name,
+      source: CAPABILITY_TYPES.USER_CLONE,
+      createdAt: this._now(),
+      deletionState: DELETE_STATES.ACTIVE,
+      sampleStorage: persistedSampleStorage,
+    };
+    const nextRegistry = {
+      ...registryResult.registry,
+      voices: [...registryResult.registry.voices, clone],
+    };
+    if (!this._writeRegistry(registryResult.key, nextRegistry, owner.subject)) {
+      return await this._withRemoteCloneCompensation(
+        request.providerId,
+        adapterVoice.id,
+        failure("VOICE_CLONE_STORE_UNAVAILABLE"),
+        () => this._cleanupCloneSampleStorage(owner, persistedSampleStorage),
+      );
+    }
+
+    return success({
+      providerId: request.providerId,
+      model: request.model,
+      selectedVoiceId: clone.id,
+      voice: publicVoice(clone),
+    });
+  }
+  async deleteClone(input) {
+    const request = this._normalizeDeleteRequest(input);
+    if (!request) return failure("VOICE_CLONE_INVALID_ARGUMENTS");
+    const owner = this._captureOwner();
+    if (!owner) return failure("VOICE_OWNER_UNAVAILABLE");
+    return this._withRegistryLock(request, owner, () => this._deleteCloneLocked(request, owner));
+  }
+
+  async _deleteCloneLocked(request, owner) {
+    const capability = this._getCloneCapability(request);
+    if (!capability) return this._unsupportedResponse(request);
+    if (!this._hasUserSettings()) return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+    if (!this._hasMatchingProvider(request.providerId, request.model))
+      return failure("VOICE_CLONE_MODEL_MISMATCH");
+
+    const registryResult = this._readRegistry(request, owner);
+    if (registryResult.error) return registryResult.error;
+    const clone = registryResult.registry.voices.find((voice) => voice.id === request.voiceId);
+    if (!clone) return failure("VOICE_CLONE_NOT_FOUND");
+
+    let workingClone = clone;
+    let workingRegistry = registryResult.registry;
+    const deletionState = clone.deletionState || DELETE_STATES.ACTIVE;
+    if (deletionState !== DELETE_STATES.REMOTE_DELETED) {
+      if (deletionState !== DELETE_STATES.PENDING) {
+        workingClone = { ...clone, deletionState: DELETE_STATES.PENDING };
+        workingRegistry = this._replaceClone(workingRegistry, workingClone);
+        if (!this._writeRegistry(registryResult.key, workingRegistry, owner.subject))
+          return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+      }
+      let adapterResult;
+      try {
+        adapterResult = await this._modelProviderManager.callAdapter(
+          request.providerId,
+          "deleteVoice",
+          workingClone.id,
+        );
+      } catch (_) {
+        return failure("VOICE_CLONE_PROVIDER_UNAVAILABLE");
+      }
+      if (!this._isDeleteSuccess(adapterResult)) return failure("VOICE_CLONE_PROVIDER_UNAVAILABLE");
+      workingClone = { ...workingClone, deletionState: DELETE_STATES.REMOTE_DELETED };
+      workingRegistry = this._replaceClone(workingRegistry, workingClone);
+      if (!this._writeRegistry(registryResult.key, workingRegistry, owner.subject))
+        return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+    }
+
+    if (!(await this._cleanupCloneSampleStorage(owner, workingClone.sampleStorage)))
+      return failure("VOICE_CLONE_STORAGE_UNAVAILABLE");
+
+    const nextRegistry = {
+      ...workingRegistry,
+      voices: workingRegistry.voices.filter((voice) => voice.id !== workingClone.id),
+    };
+    if (!this._writeRegistry(registryResult.key, nextRegistry, owner.subject))
+      return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+    if (!(await this._clearDeletedClonePreference(request, workingClone, owner)))
+      return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+    return success({ providerId: request.providerId, model: request.model, voiceId: clone.id });
+  }
+
+  async _clearDeletedClonePreference(request, deletedClone, owner) {
+    const key = clonePreferenceSettingKey(request.providerId, request.model);
+    let preference;
+    try {
+      preference = this._store.getUserSetting(key, null, owner.subject);
+    } catch (_) {
+      return false;
+    }
+    if (!preference || typeof preference !== "object" || preference.voiceId !== deletedClone.id)
+      return true;
+    try {
+      this._store.setUserSetting(key, null, owner.subject);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+  _normalizeRequest(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+    const providerId = safeIdentifier(input.providerId);
+    const model = safeIdentifier(input.model);
+    return providerId && model ? { providerId, model } : null;
+  }
+
+  _normalizeDeleteRequest(input) {
+    const request = this._normalizeRequest(input);
+    const voiceId = input && safeIdentifier(input.voiceId, MAX_VOICE_ID_LENGTH);
+    return request && voiceId ? { ...request, voiceId } : null;
+  }
+
+  _normalizeSelectionAddRequest(input) {
+    const request = this._normalizeRequest(input);
+    if (!request || !safeDisplayName(input.name) || input.consent !== true) return null;
+    const selectionId = safeIdentifier(input.selectionId, 128);
+    return selectionId ? { ...request, name: input.name.trim(), selectionId } : null;
+  }
+
+  _areSafeSelectionPaths(paths, maxSampleCount) {
+    return (
+      Array.isArray(paths) &&
+      paths.length > 0 &&
+      Number.isSafeInteger(maxSampleCount) &&
+      maxSampleCount > 0 &&
+      paths.length <= maxSampleCount &&
+      paths.every(
+        (value) =>
+          typeof value === "string" &&
+          value.length > 0 &&
+          value.length <= 4096 &&
+          path.isAbsolute(value),
+      )
+    );
+  }
+
+  _isSafeSenderKey(value) {
+    return (
+      typeof value === "string" &&
+      value.length > 0 &&
+      value.length <= 512 &&
+      !hasControlCharacter(value)
+    );
+  }
+
+  _scheduleSelectionExpiry(selectionId, selection) {
+    let timer;
+    try {
+      timer = this._setTimeout(() => {
+        if (this._sampleSelections.get(selectionId) === selection)
+          this._discardSelection(selectionId);
+      }, this._selectionTtlMs);
+    } catch (_) {
+      return false;
+    }
+    if (timer && typeof timer.unref === "function") timer.unref();
+    this._selectionExpiryTimers.set(selectionId, timer);
+    return true;
+  }
+
+  _discardSelection(selectionId) {
+    const timer = this._selectionExpiryTimers.get(selectionId);
+    this._selectionExpiryTimers.delete(selectionId);
+    if (timer !== undefined) {
+      try {
+        this._clearTimeout(timer);
+      } catch (_) {
+        void 0;
+      }
+    }
+    this._sampleSelections.delete(selectionId);
+  }
+
+  _purgeExpiredSelections() {
+    const now = this._now();
+    for (const [selectionId, selection] of this._sampleSelections) {
+      if (!selection || selection.expiresAt <= now) this._discardSelection(selectionId);
+    }
+  }
+
+  _activeSelectionBytes() {
+    let total = 0;
+    for (const selection of this._sampleSelections.values()) {
+      total += Number.isSafeInteger(selection && selection.bytes) ? selection.bytes : 0;
+    }
+    return total;
+  }
+
+  _selectedSampleSummary(sample, index) {
+    return {
+      name: sample.name || `sample-${String(index + 1).padStart(2, "0")}`,
+      contentType: sample.contentType,
+      durationSeconds: sample.durationSeconds,
+    };
+  }
+
+  _captureOwner() {
+    if (!this._store || typeof this._store.getOwnerSubject !== "function") return null;
+    try {
+      const subject = this._store.getOwnerSubject();
+      if (typeof subject !== "string" || !subject) return null;
+      return { subject, hash: hashOwnerSubject(subject) };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _hasUserSettings() {
+    return (
+      Boolean(this._store) &&
+      typeof this._store.getUserSetting === "function" &&
+      typeof this._store.setUserSetting === "function"
+    );
+  }
+
+  _hasMatchingProvider(providerId, model) {
+    if (!this._modelProviderManager || typeof this._modelProviderManager.callAdapter !== "function")
+      return false;
+    if (typeof this._modelProviderManager.getProvider !== "function") return true;
+    try {
+      const provider = this._modelProviderManager.getProvider(providerId);
+      if (!provider || (provider.category && provider.category !== "tts")) return false;
+      return (
+        !Array.isArray(provider.models) ||
+        provider.models.length === 0 ||
+        provider.models.includes(model)
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  _getCloneCapability(request) {
+    const capability = this._getVoiceCapability(request.providerId, request.model);
+    if (
+      !capability ||
+      capability.type !== CAPABILITY_TYPES.USER_CLONE ||
+      !capability.clone ||
+      capability.clone.enabled !== true
+    )
+      return null;
+    return capability;
+  }
+
+  _unsupportedResponse(request) {
+    let capability;
+    try {
+      capability = this._getVoiceCapability(request.providerId, request.model);
+    } catch (_) {
+      return failure("VOICE_CLONE_UNSUPPORTED");
+    }
+    return failure(
+      "VOICE_CLONE_UNSUPPORTED",
+      capability ? { capability: copyCapability(capability) } : undefined,
+    );
+  }
+
+  _readRegistry(request, owner) {
+    const key = cloneRegistrySettingKey(request.providerId, request.model);
+    let value;
+    try {
+      value = this._store.getUserSetting(key, null, owner.subject);
+    } catch (_) {
+      return { error: failure("VOICE_CLONE_STORE_UNAVAILABLE") };
+    }
+    if (value === null || value === undefined) {
+      return {
+        key,
+        registry: {
+          version: CLONE_REGISTRY_VERSION,
+          providerId: request.providerId,
+          model: request.model,
+          voices: [],
+        },
+      };
+    }
+    if (!isSafeCloneRegistry(value, request.providerId, request.model, owner)) {
+      return { error: failure("VOICE_CLONE_REGISTRY_INVALID") };
+    }
+    return { key, registry: value };
+  }
+
+  _replaceClone(registry, replacement) {
+    return {
+      ...registry,
+      voices: registry.voices.map((voice) => (voice.id === replacement.id ? replacement : voice)),
+    };
+  }
+
+  _writeRegistry(key, registry, ownerSubject) {
+    try {
+      this._store.setUserSetting(key, registry, ownerSubject);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  _resolveUserDataPath() {
+    let userDataPath = this._userDataPath;
+    if (userDataPath === null && this._getUserDataPath) {
+      try {
+        userDataPath = this._getUserDataPath();
+      } catch (_) {
+        return null;
+      }
+    }
+    if (userDataPath === null && this._app && typeof this._app.getPath === "function") {
+      try {
+        userDataPath = this._app.getPath("userData");
+      } catch (_) {
+        return null;
+      }
+    }
+    if (userDataPath === null) {
+      try {
+        const { app } = require("electron");
+        userDataPath = app && typeof app.getPath === "function" ? app.getPath("userData") : null;
+      } catch (_) {
+        return null;
+      }
+    }
+    if (
+      typeof userDataPath !== "string" ||
+      !userDataPath ||
+      userDataPath.length > 4096 ||
+      hasControlCharacter(userDataPath) ||
+      !path.isAbsolute(userDataPath)
+    ) {
+      return null;
+    }
+    try {
+      const resolvedUserDataPath = path.resolve(userDataPath);
+      return resolvedUserDataPath === path.parse(resolvedUserDataPath).root
+        ? null
+        : resolvedUserDataPath;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _createSampleStorageDescriptor(owner, sampleCount) {
+    let storageId;
+    try {
+      storageId = safeIdentifier(this._createSampleStorageId(), 128);
+    } catch (_) {
+      return null;
+    }
+    if (!storageId) return null;
+    const sampleStorage = {
+      relativeDir: cloneSampleStorageRelativeDir(owner, storageId),
+      sampleCount,
+    };
+    return isSafeCloneSampleStorage(sampleStorage, owner) ? sampleStorage : null;
+  }
+
+  async _readSafeDirectory(directoryPath, parentDirectory) {
+    let directoryStat;
+    try {
+      directoryStat = await this._fs.promises.lstat(directoryPath);
+    } catch (error) {
+      if (error && error.code === "ENOENT") return null;
+      throw error;
+    }
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory())
+      throw new VoiceCloneError("VOICE_CLONE_STORAGE_UNAVAILABLE");
+
+    const canonicalDirectory = await this._fs.promises.realpath(directoryPath);
+    if (
+      !path.isAbsolute(canonicalDirectory) ||
+      (parentDirectory && !isPathWithin(parentDirectory, canonicalDirectory))
+    ) {
+      throw new VoiceCloneError("VOICE_CLONE_STORAGE_UNAVAILABLE");
+    }
+
+    const canonicalStat = await this._fs.promises.lstat(canonicalDirectory);
+    if (canonicalStat.isSymbolicLink() || !canonicalStat.isDirectory())
+      throw new VoiceCloneError("VOICE_CLONE_STORAGE_UNAVAILABLE");
+    return canonicalDirectory;
+  }
+
+  async _getOrCreateUserDataDirectory() {
+    const userDataPath = this._resolveUserDataPath();
+    if (!userDataPath) return null;
+    try {
+      await this._fs.promises.mkdir(userDataPath, { recursive: true, mode: 0o700 });
+      return await this._readSafeDirectory(userDataPath);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async _createSafeChildDirectory(parentDirectory, childName, allowExisting) {
+    if (!safeIdentifier(childName, 128)) return null;
+    const childPath = path.resolve(parentDirectory, childName);
+    if (!isPathWithin(parentDirectory, childPath)) return null;
+    try {
+      await this._fs.promises.mkdir(childPath, { mode: 0o700 });
+    } catch (error) {
+      if (!allowExisting || !error || error.code !== "EEXIST") return null;
+    }
+    try {
+      return await this._readSafeDirectory(childPath, parentDirectory);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async _getOrCreateSampleOwnerDirectory(owner) {
+    const userDataDirectory = await this._getOrCreateUserDataDirectory();
+    if (!userDataDirectory) return null;
+    const sampleRootDirectory = await this._createSafeChildDirectory(
+      userDataDirectory,
+      CLONE_SAMPLE_STORAGE_DIRECTORY,
+      true,
+    );
+    if (!sampleRootDirectory) return null;
+    return this._createSafeChildDirectory(sampleRootDirectory, owner.hash, true);
+  }
+
+  async _persistCloneSamples(owner, sampleStorage, samples, sampleLimits) {
+    if (
+      !isSafeCloneSampleStorage(sampleStorage, owner) ||
+      !Array.isArray(samples) ||
+      samples.length !== sampleStorage.sampleCount
+    ) {
+      throw new VoiceCloneError("VOICE_CLONE_STORAGE_UNAVAILABLE");
+    }
+    const storageId = sampleStorage.relativeDir.split("/")[2];
+    const ownerDirectory = await this._getOrCreateSampleOwnerDirectory(owner);
+    if (!ownerDirectory) throw new VoiceCloneError("VOICE_CLONE_STORAGE_UNAVAILABLE");
+    const sampleDirectory = await this._createSafeChildDirectory(ownerDirectory, storageId, false);
+    if (!sampleDirectory) throw new VoiceCloneError("VOICE_CLONE_STORAGE_UNAVAILABLE");
+
+    for (const sample of samples) {
+      this._assertPreparedSample(sample, sampleLimits);
+      const samplePath = path.resolve(sampleDirectory, sample.name);
+      if (!isPathWithin(sampleDirectory, samplePath))
+        throw new VoiceCloneError("VOICE_CLONE_STORAGE_UNAVAILABLE");
+      await this._fs.promises.writeFile(samplePath, sample.buffer, {
+        flag: "wx",
+        mode: 0o600,
+      });
+      const persistedStat = await this._fs.promises.lstat(samplePath);
+      if (
+        persistedStat.isSymbolicLink() ||
+        !persistedStat.isFile() ||
+        persistedStat.size !== sample.bytes
+      ) {
+        throw new VoiceCloneError("VOICE_CLONE_STORAGE_UNAVAILABLE");
+      }
+      const canonicalSamplePath = await this._fs.promises.realpath(samplePath);
+      if (!isPathWithin(sampleDirectory, canonicalSamplePath))
+        throw new VoiceCloneError("VOICE_CLONE_STORAGE_UNAVAILABLE");
+    }
+    return sampleStorage;
+  }
+
+  async _cleanupCloneSampleStorage(owner, sampleStorage) {
+    if (sampleStorage === undefined) return true;
+    if (!isSafeCloneSampleStorage(sampleStorage, owner)) return false;
+
+    const userDataPath = this._resolveUserDataPath();
+    if (!userDataPath) return false;
+    try {
+      const userDataDirectory = await this._readSafeDirectory(userDataPath);
+      if (!userDataDirectory) return true;
+      const sampleRootPath = path.resolve(userDataDirectory, CLONE_SAMPLE_STORAGE_DIRECTORY);
+      if (!isPathWithin(userDataDirectory, sampleRootPath)) return false;
+      const sampleRootDirectory = await this._readSafeDirectory(sampleRootPath, userDataDirectory);
+      if (!sampleRootDirectory) return true;
+      const ownerDirectoryPath = path.resolve(sampleRootDirectory, owner.hash);
+      if (!isPathWithin(sampleRootDirectory, ownerDirectoryPath)) return false;
+      const ownerDirectory = await this._readSafeDirectory(ownerDirectoryPath, sampleRootDirectory);
+      if (!ownerDirectory) return true;
+      const storageId = sampleStorage.relativeDir.split("/")[2];
+      const sampleDirectoryPath = path.resolve(ownerDirectory, storageId);
+      if (!isPathWithin(ownerDirectory, sampleDirectoryPath)) return false;
+      const sampleDirectory = await this._readSafeDirectory(sampleDirectoryPath, ownerDirectory);
+      if (!sampleDirectory) return true;
+      await this._fs.promises.rm(sampleDirectory, { recursive: true, force: false });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async _withRegistryLock(request, owner, work) {
+    const lockKey = `${owner.subject}\u0000${request.providerId}\u0000${request.model}`;
+    const previous = cloneRegistryLocks.get(lockKey) || Promise.resolve();
+    /** @type {() => void} */
+    let release = () => {};
+    const gate = new Promise((resolve) => {
+      release = () => resolve();
+    });
+    const tail = previous.then(() => gate);
+    cloneRegistryLocks.set(lockKey, tail);
+    await previous;
+    try {
+      return await work();
+    } finally {
+      release();
+      if (cloneRegistryLocks.get(lockKey) === tail) cloneRegistryLocks.delete(lockKey);
+    }
+  }
+  _isDeleteSuccess(result) {
+    return (
+      Boolean(result && result.code === 0) ||
+      Boolean(result && result.data && result.data.notFound === true) ||
+      Boolean(
+        result &&
+        (result.message === "VOICE_NOT_FOUND" || result.message === "VOICE_CLONE_NOT_FOUND"),
+      )
+    );
+  }
+
+  async _withRemoteCloneCompensation(providerId, voiceId, result, cleanup) {
+    /** @type {boolean} */
+    let remoteDeleted;
+    try {
+      const compensation = await this._modelProviderManager.callAdapter(
+        providerId,
+        "deleteVoice",
+        voiceId,
+      );
+      remoteDeleted = this._isDeleteSuccess(compensation);
+    } catch (_) {
+      remoteDeleted = false;
+    }
+    let samplesCleaned = true;
+    if (typeof cleanup === "function") {
+      try {
+        samplesCleaned = (await cleanup()) === true;
+      } catch (_) {
+        samplesCleaned = false;
+      }
+    }
+    return remoteDeleted && samplesCleaned ? result : failure("VOICE_CLONE_ROLLBACK_REQUIRED");
+  }
+
+  async _prepareSamples(paths, sampleLimits) {
+    if (!Array.isArray(paths) || paths.length === 0 || paths.length > sampleLimits.maxSampleCount)
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+    const samples = [];
+    const seenPaths = new Set();
+    let totalBytes = 0;
+    let totalDurationSeconds = 0;
+    for (const [index, sourcePath] of paths.entries()) {
+      const sample = await this._prepareOneSample(sourcePath, index, seenPaths, sampleLimits);
+      totalBytes += sample.bytes;
+      totalDurationSeconds += sample.durationSeconds;
+      if (totalBytes > sampleLimits.maxTotalBytes)
+        throw new VoiceCloneError("VOICE_CLONE_TOTAL_SIZE_EXCEEDED");
+      if (totalDurationSeconds > sampleLimits.maxTotalDurationSeconds)
+        throw new VoiceCloneError("VOICE_CLONE_TOTAL_DURATION_EXCEEDED");
+      samples.push(sample);
+    }
+    return samples;
+  }
+
+  _buildAdapterCloneSamples(samples, sampleLimits) {
+    if (
+      !Array.isArray(samples) ||
+      samples.length === 0 ||
+      samples.length > sampleLimits.maxSampleCount
+    )
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+
+    let totalBytes = 0;
+    let totalDurationSeconds = 0;
+    return samples.map((sample) => {
+      this._assertPreparedSample(sample, sampleLimits);
+      totalBytes += sample.bytes;
+      totalDurationSeconds += sample.durationSeconds;
+      if (totalBytes > sampleLimits.maxTotalBytes)
+        throw new VoiceCloneError("VOICE_CLONE_TOTAL_SIZE_EXCEEDED");
+      if (totalDurationSeconds > sampleLimits.maxTotalDurationSeconds)
+        throw new VoiceCloneError("VOICE_CLONE_TOTAL_DURATION_EXCEEDED");
+      return {
+        blob: new Blob([sample.buffer], { type: sample.contentType }),
+        fileName: sample.name,
+        contentType: sample.contentType,
+      };
+    });
+  }
+
+  _assertPreparedSample(sample, sampleLimits) {
+    if (
+      !sample ||
+      !Buffer.isBuffer(sample.buffer) ||
+      !safeIdentifier(sample.name, 128) ||
+      !Object.values(ALLOWED_AUDIO_EXTENSIONS).includes(sample.contentType) ||
+      !Number.isSafeInteger(sample.bytes) ||
+      sample.bytes !== sample.buffer.length ||
+      sample.bytes <= 0 ||
+      sample.bytes > sampleLimits.maxSampleBytes ||
+      typeof sample.sha256 !== "string" ||
+      !/^[a-f0-9]{64}$/.test(sample.sha256) ||
+      !Number.isFinite(sample.durationSeconds) ||
+      sample.durationSeconds <= 0 ||
+      sample.durationSeconds > sampleLimits.maxSampleDurationSeconds
+    ) {
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+    }
+    const calculatedHash = crypto.createHash("sha256").update(sample.buffer).digest("hex");
+    if (calculatedHash !== sample.sha256) throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+    const extension = path.extname(sample.name).toLowerCase();
+    if (
+      !ALLOWED_AUDIO_EXTENSIONS[extension] ||
+      ALLOWED_AUDIO_EXTENSIONS[extension] !== sample.contentType
+    ) {
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+    }
+  }
+  async _prepareOneSample(sourcePath, index, seenPaths, sampleLimits) {
+    const sourceStat = await this._fs.promises.lstat(sourcePath).catch(() => null);
+    if (!sourceStat || sourceStat.isSymbolicLink() || !sourceStat.isFile())
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+    const canonicalSourcePath = await this._fs.promises.realpath(sourcePath).catch(() => null);
+    if (
+      !canonicalSourcePath ||
+      !path.isAbsolute(canonicalSourcePath) ||
+      seenPaths.has(canonicalSourcePath)
+    ) {
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+    }
+    seenPaths.add(canonicalSourcePath);
+    const extension = path.extname(canonicalSourcePath).toLowerCase();
+    const contentType = ALLOWED_AUDIO_EXTENSIONS[extension];
+    if (!contentType) throw new VoiceCloneError("VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED");
+    const canonicalStat = await this._fs.promises.lstat(canonicalSourcePath).catch(() => null);
+    if (
+      !canonicalStat ||
+      canonicalStat.isSymbolicLink() ||
+      !canonicalStat.isFile() ||
+      canonicalStat.size <= 0
+    ) {
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+    }
+    if (canonicalStat.size > sampleLimits.maxSampleBytes)
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_TOO_LARGE");
+
+    let buffer;
+    try {
+      buffer = await this._fs.promises.readFile(canonicalSourcePath);
+    } catch (_) {
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+    }
+    if (
+      !Buffer.isBuffer(buffer) ||
+      buffer.length === 0 ||
+      buffer.length > sampleLimits.maxSampleBytes ||
+      buffer.length !== canonicalStat.size
+    ) {
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
+    }
+    let durationSeconds;
+    try {
+      durationSeconds = Number(await this._probeDuration(buffer));
+    } catch (_) {
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_DURATION_INVALID");
+    }
+    if (
+      !Number.isFinite(durationSeconds) ||
+      durationSeconds <= 0 ||
+      durationSeconds > sampleLimits.maxSampleDurationSeconds
+    ) {
+      throw new VoiceCloneError("VOICE_CLONE_SAMPLE_DURATION_INVALID");
+    }
+    return {
+      buffer,
+      name: "sample-" + String(index + 1).padStart(2, "0") + extension,
+      contentType,
+      sha256: crypto.createHash("sha256").update(buffer).digest("hex"),
+      bytes: buffer.length,
+      durationSeconds,
+    };
+  }
+
+  async _probeMediaDuration(buffer) {
+    if (
+      !this._ffprobePath ||
+      !Buffer.isBuffer(buffer) ||
+      buffer.length === 0 ||
+      buffer.length > MAX_SAMPLE_BYTES
+    ) {
+      return null;
+    }
+    try {
+      const stdout = await this._runFfprobe(buffer);
+      const probe = JSON.parse(stdout);
+      const format = probe && probe.format;
+      const durationSeconds = format ? Number.parseFloat(format.duration) : Number.NaN;
+      const hasAudioStream =
+        Array.isArray(probe && probe.streams) &&
+        probe.streams.some((stream) => stream && stream.codec_type === "audio");
+      return format &&
+        typeof format.format_name === "string" &&
+        format.format_name.trim() &&
+        hasAudioStream &&
+        Number.isFinite(durationSeconds) &&
+        durationSeconds > 0
+        ? durationSeconds
+        : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _runFfprobe(buffer) {
+    return new Promise((resolve, reject) => {
+      let child;
+      try {
+        child = this._spawn(
+          this._ffprobePath,
+          [
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "pipe",
+            "-show_entries",
+            "format=duration,format_name:stream=codec_type",
+            "-of",
+            "json",
+            "pipe:0",
+          ],
+          { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
+        );
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      if (
+        !child ||
+        !child.stdin ||
+        typeof child.stdin.end !== "function" ||
+        !child.stdout ||
+        typeof child.stdout.on !== "function" ||
+        !child.stderr ||
+        typeof child.stderr.on !== "function" ||
+        typeof child.once !== "function"
+      ) {
+        try {
+          if (child && typeof child.kill === "function") child.kill();
+        } catch (_) {
+          void 0;
+        }
+        reject(new Error("ffprobe process is unavailable"));
+        return;
+      }
+
+      let completed = false;
+      let timeout;
+      let outputBytes = 0;
+      const stdoutChunks = [];
+      const terminate = () => {
+        try {
+          if (typeof child.kill === "function") child.kill();
+        } catch (_) {
+          void 0;
+        }
+      };
+      const settle = (handler, value) => {
+        if (completed) return;
+        completed = true;
+        try {
+          this._clearTimeout(timeout);
+        } catch (_) {
+          void 0;
+        }
+        handler(value);
+      };
+      const fail = (error) => {
+        terminate();
+        settle(reject, error);
+      };
+      const consumeOutput = (chunk, keep) => {
+        const output = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
+        outputBytes += output.length;
+        if (outputBytes > MAX_FFPROBE_OUTPUT_BYTES) {
+          fail(new Error("ffprobe output exceeded limit"));
+          return;
+        }
+        if (keep) stdoutChunks.push(output);
+      };
+
+      try {
+        timeout = this._setTimeout(() => fail(new Error("ffprobe timed out")), FFPROBE_TIMEOUT_MS);
+      } catch (error) {
+        terminate();
+        reject(error);
+        return;
+      }
+      if (timeout && typeof timeout.unref === "function") timeout.unref();
+
+      child.stdout.on("data", (chunk) => consumeOutput(chunk, true));
+      child.stderr.on("data", (chunk) => consumeOutput(chunk, false));
+      child.once("error", fail);
+      child.stdin.once("error", fail);
+      child.once("close", (code, signal) => {
+        if (code !== 0 || signal) {
+          settle(reject, new Error("ffprobe failed"));
+          return;
+        }
+        settle(resolve, Buffer.concat(stdoutChunks).toString("utf8"));
+      });
+      try {
+        child.stdin.end(buffer);
+      } catch (error) {
+        fail(error);
+      }
+    });
+  }
+}
+
+module.exports = {
+  ALLOWED_AUDIO_EXTENSIONS,
+  CLONE_REGISTRY_VERSION,
+  MAX_SAMPLE_BYTES,
+  MAX_SAMPLE_COUNT,
+  MAX_TOTAL_SAMPLE_BYTES,
+  TtsVoiceCloneService,
+  cloneRegistrySettingKey,
+  hashOwnerSubject,
+};

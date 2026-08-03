@@ -23,6 +23,8 @@ const { createContactSheetApi } = require('./contact-sheet')
 const { createApprovalGateApi } = require('./approval-gate')
 const { createReplayApi } = require('./replay')
 const { createIdentityApi } = require('./identity')
+const { createTtsVoiceCatalogApi } = require('./tts-voice-catalog')
+const { createTtsVoiceCloneApi } = require('./tts-voice-clone')
 const {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -61,6 +63,8 @@ const fullApi = {
   ...createApprovalGateApi(ipcRenderer),
   ...createReplayApi(ipcRenderer),
   ...createIdentityApi(ipcRenderer),
+  ...createTtsVoiceCatalogApi(ipcRenderer),
+  ...createTtsVoiceCloneApi(ipcRenderer),
 }
 
 const exposedApi = createDynamicAccessApi(fullApi, getAccessLevel)

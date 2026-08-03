@@ -12,7 +12,7 @@
  * - 响应为二进制音频流（非 JSON），需用 resp.arrayBuffer() 读取
  * - 声音列表为静态预定义（OpenAI 无 /voices 端点）
  * - voice 默认 'alloy'，response_format 默认 'mp3'
- * - 支持 model: tts-1 / tts-1-hd
+ * - 支持 model: tts-1 / tts-1-hd / gpt-4o-mini-tts
  *
  * 设计决策：
  * - 继承 OpenAIAdapter 复用 _request/_headers/_url/validateConfig/testConnection
@@ -24,8 +24,23 @@
 const { OpenAIAdapter } = require('./openai')
 const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
 
-// OpenAI TTS 静态预定义声音列表
-const TTS_VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'coral', 'sage']
+// OpenAI TTS 内置音色按模型的官方静态目录。
+// 旧模型不可展示 gpt-4o-mini-tts 独有音色，避免 renderer 选择不可调用的 voice。
+const LEGACY_TTS_VOICES = Object.freeze([
+  'alloy', 'ash', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer',
+])
+const GPT_4O_MINI_TTS_VOICES = Object.freeze([
+  'alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova',
+  'onyx', 'sage', 'shimmer', 'verse', 'marin', 'cedar',
+])
+const TTS_VOICES_BY_MODEL = Object.freeze({
+  'tts-1': LEGACY_TTS_VOICES,
+  'tts-1-hd': LEGACY_TTS_VOICES,
+  'gpt-4o-mini-tts': GPT_4O_MINI_TTS_VOICES,
+  'gpt-4o-mini-tts-2025-12-15': GPT_4O_MINI_TTS_VOICES,
+})
+// 保留旧导出和 listVoices() 无参数调用的兼容行为。
+const TTS_VOICES = TTS_VOICES_BY_MODEL['tts-1']
 
 class OpenAITtsAdapter extends OpenAIAdapter {
   /**
@@ -62,11 +77,21 @@ class OpenAITtsAdapter extends OpenAIAdapter {
    * 返回 OpenAI TTS 静态预定义声音列表
    * OpenAI 无 /voices 端点，使用静态列表避免不必要的 HTTP 请求
    * 返回副本，防止调用方修改污染内部列表
-   * @returns {Promise<string[]>}
-   */
-  async listVoices() {
-    return [...TTS_VOICES]
+   * @param {{model?: string}} [params]
+  * @returns {Promise<string[]>}
+  */
+  async listVoices(params) {
+    let model = 'tts-1'
+    if (params !== undefined && params !== null) {
+      if (!params || typeof params !== 'object' || Array.isArray(params)) return []
+      if (params.model !== undefined) {
+        if (typeof params.model !== 'string') return []
+        model = params.model
+      }
+    }
+    const voices = model ? TTS_VOICES_BY_MODEL[model] : null
+    return voices ? [...voices] : []
   }
 }
 
-module.exports = { OpenAITtsAdapter, TTS_VOICES }
+module.exports = { OpenAITtsAdapter, TTS_VOICES, TTS_VOICES_BY_MODEL }

@@ -660,6 +660,43 @@ var require_identity = __commonJS({
   }
 });
 
+// electron/preload/tts-voice-catalog.js
+var require_tts_voice_catalog = __commonJS({
+  "electron/preload/tts-voice-catalog.js"(exports2, module2) {
+    "use strict";
+    function createTtsVoiceCatalogApi2(ipcRenderer2) {
+      return {
+        ttsVoice: {
+          catalog: (input) => ipcRenderer2.invoke("tts-voice:catalog", input),
+          capability: (input) => ipcRenderer2.invoke("tts-voice:capability", input),
+          select: (input) => ipcRenderer2.invoke("tts-voice:select", input),
+          clearPreference: (input) => ipcRenderer2.invoke("tts-voice:clear-preference", input)
+        }
+      };
+    }
+    module2.exports = { createTtsVoiceCatalogApi: createTtsVoiceCatalogApi2 };
+  }
+});
+
+// electron/preload/tts-voice-clone.js
+var require_tts_voice_clone = __commonJS({
+  "electron/preload/tts-voice-clone.js"(exports2, module2) {
+    "use strict";
+    function createTtsVoiceCloneApi2(ipcRenderer2) {
+      return {
+        ttsVoiceClone: {
+          requirements: (input) => ipcRenderer2.invoke("tts-voice-clone:requirements", input),
+          chooseSamples: (input) => ipcRenderer2.invoke("tts-voice-clone:choose-samples", input),
+          list: (input) => ipcRenderer2.invoke("tts-voice-clone:list", input),
+          add: (input) => ipcRenderer2.invoke("tts-voice-clone:add", input),
+          deleteClone: (input) => ipcRenderer2.invoke("tts-voice-clone:delete", input)
+        }
+      };
+    }
+    module2.exports = { createTtsVoiceCloneApi: createTtsVoiceCloneApi2 };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -849,6 +886,8 @@ var { createContactSheetApi } = require_contact_sheet();
 var { createApprovalGateApi } = require_approval_gate();
 var { createReplayApi } = require_replay();
 var { createIdentityApi } = require_identity();
+var { createTtsVoiceCatalogApi } = require_tts_voice_catalog();
+var { createTtsVoiceCloneApi } = require_tts_voice_clone();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -879,7 +918,9 @@ var fullApi = {
   ...createContactSheetApi(ipcRenderer),
   ...createApprovalGateApi(ipcRenderer),
   ...createReplayApi(ipcRenderer),
-  ...createIdentityApi(ipcRenderer)
+  ...createIdentityApi(ipcRenderer),
+  ...createTtsVoiceCatalogApi(ipcRenderer),
+  ...createTtsVoiceCloneApi(ipcRenderer)
 };
 var exposedApi = createDynamicAccessApi(fullApi, getAccessLevel);
 exposedApi.getAccessLevel = getAccessLevel;

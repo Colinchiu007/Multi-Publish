@@ -28,7 +28,7 @@ describe('Story2Video text 参数合同', () => {
     expect(result.video).toBeNull()
     expect(result.stageOptions).toEqual(expect.objectContaining({
       split: expect.objectContaining({
-        language: 'zh',
+        language: 'auto',
         mode: 'balanced',
         max_sentence_length: 200,
         target_duration: 6,
@@ -62,6 +62,7 @@ describe('Story2Video text 参数合同', () => {
       size: '720x1280',
     }))
     expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.mode).toBe('text')
+    expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.language).toBe('auto')
     expect(result).not.toHaveProperty('seconds')
     expect(result).not.toHaveProperty('generateBase')
     expect(result).not.toHaveProperty('generateMerged')
@@ -70,6 +71,34 @@ describe('Story2Video text 参数合同', () => {
     expect(result.stageOptions.optimize).not.toHaveProperty('platform')
     expect(result.stageOptions.optimize).not.toHaveProperty('num_candidates')
     expect(result.stageOptions.optimize).not.toHaveProperty('auto_detect_style')
+  })
+
+  it('接受全自动编排策略，同时保留历史分句语言快照', () => {
+    const automatic = normalizeStory2VideoTextParams({
+      text: '自动编排使用语言识别。',
+      autoAdvance: true,
+      checkpointPolicy: 'none',
+    })
+    const historical = normalizeStory2VideoTextParams({
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '保留历史语言。',
+        split: { language: 'zh' },
+      },
+    })
+
+    expect(automatic).toMatchObject({
+      autoAdvance: true,
+      checkpointPolicy: 'none',
+      language: 'auto',
+      stageOptions: { split: { language: 'auto' } },
+    })
+    expect(historical).toMatchObject({
+      language: 'zh',
+      story2videoTextConfig: { split: { language: 'zh' } },
+      stageOptions: { split: { language: 'zh' } },
+    })
   })
 
   it('将图片风格与提示词风格隔离，并把兼容值映射为 Story2Video 合法值', () => {

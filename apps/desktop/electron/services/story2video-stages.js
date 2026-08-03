@@ -24,6 +24,10 @@ const {
   resolveReadableMediaFile,
   writeDataImage,
 } = require('./story2video-paths');
+const {
+  MAX_IMAGE_GENERATION_ATTEMPTS,
+  runContentPolicyImageRetry,
+} = require('./story2video-image-retry');
 
 /**
  * Story2Video-compose 专用的阶段类型
@@ -95,6 +99,56 @@ function summarizeAssetFailures(label, results) {
       : label + ' generation failed';
     return label + ' #' + index + ': ' + message;
   });
+}
+
+function getContentPolicyCheckpoint(result, fallbackSceneIndex) {
+  const checkpoint = result?.checkpoint || result?.data?.checkpoint;
+  if (!checkpoint || checkpoint.reason !== 'content_policy' || checkpoint.type !== 'needs_user_input') return null;
+
+  const sceneIndex = fallbackSceneIndex;
+  const sceneNumber = sceneIndex + 1;
+  const attempts = Number.isInteger(checkpoint.attempts) && checkpoint.attempts > 0
+    ? checkpoint.attempts
+    : null;
+  const recommendation = typeof checkpoint.recommendation === 'string' && checkpoint.recommendation.trim()
+    ? checkpoint.recommendation.trim().replace(/\s+/g, ' ').slice(0, 500)
+    : '请改写该场景为更抽象、非露骨的视觉描述后重试。';
+
+  return {
+    type: 'needs_user_input',
+    status: 'needs_user_input',
+    reason: 'content_policy',
+    needsUserInput: true,
+    sceneIndex,
+    sceneNumber,
+    attempts,
+    recommendation,
+  };
+}
+
+function buildContentPolicyCheckpointMeta(failedImages) {
+  const scenes = failedImages
+    .filter(item => item?.needsUserInput === true && item?.checkpoint?.reason === 'content_policy')
+    .map(item => ({
+      sceneIndex: item.checkpoint.sceneIndex,
+      sceneNumber: item.checkpoint.sceneNumber,
+      attempts: item.checkpoint.attempts,
+      recommendation: item.checkpoint.recommendation,
+    }));
+  if (scenes.length === 0) return null;
+
+  const first = scenes[0];
+  return {
+    type: 'needs_user_input',
+    status: 'needs_user_input',
+    reason: 'content_policy',
+    needsUserInput: true,
+    sceneIndex: first.sceneIndex,
+    sceneNumber: first.sceneNumber,
+    attempts: first.attempts,
+    recommendation: first.recommendation,
+    scenes,
+  };
 }
 
 function getOptimizationScenes(context) {
@@ -326,19 +380,66 @@ function registerStory2VideoStages(pipelineEngine) {
               }
               return { index, success: true, path: suppliedPath, meta: { supplied: true } };
             }
-            const result = assetGenerator
-              ? await assetGenerator.generateImage(promptText, {
-                  style: imageStyle,
-                  image_provider: imageProvider,
-                  image_model: imageModel,
-                  index,
-                   aspect_ratio: aspectRatio,
-                   runId,
-                })
-              : await serviceBus.callPythonSkill('generate_image', {
-                   prompt: promptText, style: imageStyle, image_provider: imageProvider, image_model: imageModel, index,
-                   aspect_ratio: aspectRatio, runId,
-                });
+            let result;
+            if (assetGenerator) {
+              result = await assetGenerator.generateImage(promptText, {
+                style: imageStyle,
+                image_provider: imageProvider,
+                image_model: imageModel,
+                index,
+                aspect_ratio: aspectRatio,
+                runId,
+              });
+            } else {
+              const retryResult = await runContentPolicyImageRetry({
+                prompt: promptText,
+                sceneIndex: index,
+                maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+                generate: async ({ prompt: attemptPrompt }) => {
+                  const attemptResult = await serviceBus.callPythonSkill('generate_image', {
+                    prompt: attemptPrompt,
+                    style: imageStyle,
+                    image_provider: imageProvider,
+                    image_model: imageModel,
+                    index,
+                    aspect_ratio: aspectRatio,
+                    runId,
+                  });
+                  const providerError = attemptResult?.error || attemptResult?.data?.error;
+                  if (providerError && typeof providerError === 'object') throw providerError;
+                  if (attemptResult?.success === false || Number(attemptResult?.code) < 0) {
+                    const error = new Error(
+                      attemptResult?.message ||
+                      (typeof providerError === 'string' ? providerError : 'Image generation failed')
+                    );
+                    if (attemptResult && typeof attemptResult === 'object') Object.assign(error, attemptResult);
+                    throw error;
+                  }
+                  return attemptResult;
+                },
+              });
+              if (retryResult.status === 'success') {
+                result = retryResult.result;
+              } else if (retryResult.status === 'needs_user_input') {
+                result = {
+                  code: -1,
+                  message: 'Image generation requires user input after content-policy review',
+                  needsUserInput: true,
+                  checkpoint: retryResult.checkpoint,
+                  data: {
+                    needsUserInput: true,
+                    checkpoint: retryResult.checkpoint,
+                    generationAttempts: retryResult.attempts,
+                  },
+                };
+              } else {
+                result = {
+                  code: -1,
+                  message: retryResult.error?.message || 'Image generation failed',
+                  data: { generationAttempts: retryResult.attempts },
+                };
+              }
+            }
             const normalized = normalizeAssetResult(result, ['path', 'url', 'image_path']);
             if (normalized) {
               return {
@@ -348,10 +449,16 @@ function registerStory2VideoStages(pipelineEngine) {
                 meta: normalized.meta,
               };
             }
+            const contentPolicyCheckpoint = getContentPolicyCheckpoint(result, index);
             return {
               index,
               success: false,
               error: (result && result.message) || 'Image generation failed',
+              needsUserInput: Boolean(contentPolicyCheckpoint),
+              checkpoint: contentPolicyCheckpoint,
+              generationAttempts: Array.isArray(result?.data?.generationAttempts)
+                ? result.data.generationAttempts
+                : [],
             };
           } catch (e) {
             return { index, success: false, error: e.message };
@@ -384,6 +491,7 @@ function registerStory2VideoStages(pipelineEngine) {
               ? await assetGenerator.generateTTS(text, {
                   voice_id: voiceId,
                   voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
+                  voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
@@ -394,6 +502,7 @@ function registerStory2VideoStages(pipelineEngine) {
                   text,
                   voice_id: voiceId,
                   voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
+                  voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
@@ -485,7 +594,13 @@ function registerStory2VideoStages(pipelineEngine) {
           imageMeta: imageResults[i]?.meta || null,
         })),
         failures: {
-          images: failedImages.map(item => ({ index: item.index, error: item.error || 'Image generation failed' })),
+          images: failedImages.map(item => ({
+            index: item.index,
+            error: item.error || 'Image generation failed',
+            needsUserInput: item.needsUserInput === true,
+            checkpoint: item.checkpoint || null,
+            generationAttempts: Array.isArray(item.generationAttempts) ? item.generationAttempts : [],
+          })),
           audio: failedTts.map(item => ({ index: item.index, error: item.error || 'TTS generation failed' })),
         },
         segmentation: {
@@ -507,6 +622,17 @@ function registerStory2VideoStages(pipelineEngine) {
         },
         generatedAt: new Date().toISOString(),
       };
+
+      // 内容政策耗尽时必须停在可操作的人工处理点，不能因为允许部分资源而继续输出成片。
+      const contentPolicyCheckpointMeta = buildContentPolicyCheckpointMeta(failedImages);
+      if (contentPolicyCheckpointMeta) {
+        return {
+          success: true,
+          output: assetManifest,
+          checkpoint: 'needs_user_input',
+          checkpointMeta: contentPolicyCheckpointMeta,
+        };
+      }
 
       // 默认要求每个 scene 都有成对资源；部分成片必须显式 opt-in。
       if (pairedScenes.length === 0 || (!allowPartialAssets && pairedScenes.length < maxScenes)) {
