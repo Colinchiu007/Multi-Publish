@@ -21,5 +21,12 @@
 - [x] 当前分支为 `codex/yixiaoer-full-parity-20260804`，未直接修改 `main`。
 - [x] 账号/发布稳定性补丁已通过完整本地回归。
 - [x] PRD、开发报告和质量门禁已补充本轮证据与外部验收边界。
-- [ ] 修复 `f52e37d` 后的新提交提交、推送并等待 GitHub PR 必需检查通过。
-- [ ] 仅在远端检查通过后同步 `origin/main` 并实际合并。
+- [x] 修复 `f52e37d` 后以 `2d4cf9c` 提交并推送，GitHub PR #355 必需检查全部通过。
+- [x] 在检查通过后同步 `origin/main`，并以合并提交 `f629765` 实际合并到 `main`、推送远端。
+
+## 远端交付证据
+
+- PR：`#355`，状态 `MERGED`。
+- 合并提交：`f629765e214a97b0d114eec1e4e4a6a1f4e778ff`。
+- `gui-test`、`electron-tests`、`visual-test`、Windows/Ubuntu build、两个 `Quality Gate`、`agent-judge`、文档同步和单测/Lint 均为 `pass`。
+- 外部模型审查仍不可用（Antigravity 缺少 `agy`，Claude wrapper 返回 1）；本地审查和 CI 门禁结果不冒充独立模型审查。

@@ -30,6 +30,7 @@
 - 根因是 `selectors.json` 使用 `.platform-filter-panel button`，该范围同时包含嵌套的分组筛选按钮；不是账号页面平台数据或渲染缺失。
 - 修复为 `button[data-testid^="platform-filter-"]`，只匹配稳定的平台筛选 testid。
 - 修复后本地真实 Electron GUI v9 复跑通过：`60/60`，控制台错误 `0`，页面错误 `0`。
+- 修复提交 `2d4cf9c` 的 PR #355 远端检查全部通过，并已用合并提交 `f629765` 实际合并到 `main`。
 
 ## 审查边界
 
