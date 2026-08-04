@@ -138,7 +138,7 @@
                       "accountNameButton":  ".account-name-button",
                       "statLabel":  ".stat-label",
                       "statCard":  ".cohere-stat-card",
-                      "platformFilterButton":  ".platform-filter-panel button",
+                      "platformFilterButton":  "button[data-testid^=\"platform-filter-\"]",
                       "publishButton":  "button:has-text(\u0027一键发布\u0027)",
                       "filterChips":  "[role='tab']",
                       "accountModal":  ".ui-modal",

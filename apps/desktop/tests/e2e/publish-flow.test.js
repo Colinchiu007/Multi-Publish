@@ -30,28 +30,31 @@ describe.skipIf(!E2E_ENABLED)("E2E: Publish Flow", () => {
   it("should show platform selection page", async () => {
     if (!E2E_ENABLED) return
     const page = this.page
-    await page.waitForSelector("[data-testid=platform-list]")
-    const platforms = await page.$$eval("[data-testid=platform-item]", els => els.length)
+    await page.waitForSelector("[data-testid=publish-target-selector]")
+    const platforms = await page.$$eval("[data-testid^=platform-]", els => els.length)
     expect(platforms).toBeGreaterThanOrEqual(5)
   })
 
   it("should select multiple platforms", async () => {
     if (!E2E_ENABLED) return
     const page = this.page
-    await page.waitForSelector("[data-testid=platform-list]")
-    const checkboxes = await page.$$("[data-testid=platform-checkbox]")
-    await checkboxes[0].check()
-    await checkboxes[1].check()
-    const selected = await page.$$eval("[data-testid=platform-checkbox]:checked", els => els.length)
+    await page.waitForSelector("[data-testid=publish-target-selector]")
+    const checkboxes = page.locator('[data-testid^="platform-"]:not(:disabled)')
+    await checkboxes.nth(0).check()
+    await checkboxes.nth(1).check()
+    const selected = await page.locator('[data-testid^="platform-"]:checked').count()
     expect(selected).toBeGreaterThanOrEqual(2)
   })
 
   it("should fill content and submit", async () => {
     if (!E2E_ENABLED) return
     const page = this.page
-    await page.fill("[data-testid=content-title]", "E2E Test Article")
-    await page.fill("[data-testid=content-body]", "This is an automated E2E test.")
-    await page.click("[data-testid=publish-btn]")
+    await page.fill("[data-testid=publish-title] input", "E2E Test Article")
+    const markdownSwitch = page.locator('[data-testid=publish-editor] button:has-text("Markdown")')
+    if (await markdownSwitch.count()) await markdownSwitch.click()
+    const body = page.locator('[data-testid=publish-editor] textarea.md-editor, [data-testid=publish-editor] .ql-editor').first()
+    await body.fill("This is an automated E2E test.")
+    await page.click("[data-testid=publish-submit]")
     await page.waitForSelector("[data-testid=publish-progress]", { timeout: 30000 })
     const progressVisible = await page.isVisible("[data-testid=publish-progress]")
     expect(progressVisible).toBe(true)
@@ -60,10 +63,10 @@ describe.skipIf(!E2E_ENABLED)("E2E: Publish Flow", () => {
   it("should show publish history after submission", async () => {
     if (!E2E_ENABLED) return
     const page = this.page
-    await page.waitForSelector("[data-testid=nav-history]", { timeout: 5000 })
-    await page.click("[data-testid=nav-history]")
-    await page.waitForSelector("[data-testid=history-list]")
-    const historyItems = await page.$$eval("[data-testid=history-item]", els => els.length)
+    await page.waitForSelector("[data-testid=yixiaoer-tab-publish-history]", { timeout: 5000 })
+    await page.click("[data-testid=yixiaoer-tab-publish-history]")
+    await page.waitForSelector(".publish-history-page")
+    const historyItems = await page.locator(".history-item").count()
     expect(historyItems).toBeGreaterThanOrEqual(0)
   })
 })

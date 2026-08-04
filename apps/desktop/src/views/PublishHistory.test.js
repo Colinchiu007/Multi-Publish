@@ -198,6 +198,42 @@ describe('PublishHistory', () => {
     expect(wrapper.text()).toContain('120')
   })
 
+  it('详情弹窗显示蚁小二记录统计和发布配置字段', async () => {
+    historyGetMock.mockResolvedValue({
+      code: 0,
+      data: {
+        description: '详情正文',
+        contentType: 'video',
+        publishMode: 'scheduled',
+        accountCount: 2,
+        taskCount: 3,
+        failedCount: 1,
+        views: 120,
+        comments: 4,
+        likes: 8,
+        favorites: 2,
+        shares: 3,
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="detail-record-1"]').trigger('click')
+    await flushHistory()
+
+    const detail = wrapper.get('.record-detail-modal').text()
+    expect(detail).toContain('内容类型')
+    expect(detail).toContain('视频')
+    expect(detail).toContain('发布模式')
+    expect(detail).toContain('定时发布')
+    expect(detail).toContain('账号数')
+    expect(detail).toContain('2')
+    expect(detail).toContain('任务数')
+    expect(detail).toContain('3')
+    expect(detail).toContain('失败')
+    expect(detail).toContain('播放')
+    expect(detail).toContain('120')
+    expect(detail).toContain('详情正文')
+  })
   it('搜索和状态筛选只保留匹配记录', async () => {
     historyListMock.mockResolvedValue({
       code: 0,
@@ -287,7 +323,7 @@ describe('PublishHistory', () => {
     expect(wrapper.get('[data-testid="view-grid"]').attributes('aria-pressed')).toBe('true')
   })
 
-  it('空记录时提供新建发布入口', async () => {
+  it('空记录时提供新建发布入口并打开发布类型选择', async () => {
     historyListMock.mockResolvedValue({ code: 0, data: { total: 0, records: [] } })
     const wrapper = mountView()
     await nextTick()
@@ -295,7 +331,9 @@ describe('PublishHistory', () => {
 
     expect(wrapper.text()).toContain('暂无发布记录')
     await wrapper.get('[data-testid="new-publish"]').trigger('click')
-    expect(pushMock).toHaveBeenCalledWith('/publish')
+    expect(wrapper.get('[data-testid="publish-type-dialog"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="publish-type-dialog-title"]').text()).toBe('选择发布类型')
+    expect(wrapper.findAll('[data-testid^="publish-type-card-"]')).toHaveLength(4)
   })
 
   it('加载失败时显示错误并允许重试', async () => {
@@ -327,11 +365,13 @@ describe('PublishHistory', () => {
     expect(pushMock).toHaveBeenCalledWith('/publish?draft=draft-1')
   })
 
-  it('新建发布按钮始终进入编辑器', async () => {
+  it('新建发布先选择类型，再带类型进入编辑器', async () => {
     const wrapper = mountView()
     await nextTick()
     await wrapper.get('[data-testid="new-publish"]').trigger('click')
-    expect(pushMock).toHaveBeenCalledWith('/publish')
+    await wrapper.get('[data-testid="publish-type-card-video"]').trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/publish?type=video')
+    expect(wrapper.find('[data-testid="publish-type-dialog"]').exists()).toBe(false)
   })
 
   it('批量管理支持选择、全选和取消选择', async () => {

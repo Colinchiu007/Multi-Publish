@@ -5,7 +5,7 @@
 - 目标应用安装目录：D:\Program Files\yixiaoer\；本轮确认版本为 4.13.19。
 - 用户更正后的逆向工程目录：D:\Data\projects\_逆向工程_蚁小二4.0\。该目录包含 packages/renderer/dist、packages/preload/dist、packages/main/dist/index.cjs、RPA分析报告.md 与 可复用代码分析.md。
 - 本仓库既有资料：01-docs/yixiaoer-reverse/analysis、prd、test-cases。
-- 本工作树：C:\tmp\Multi-Publish-yixiaoer-account-publish-parity\；分支 codex/yixiaoer-account-publish-parity-20260803。
+- 本工作树：C:\tmp\Multi-Publish-yixiaoer-full-parity-20260804\；分支 codex/yixiaoer-full-parity-20260804。
 
 逆向目录和安装包用于确认技术结构、页面资源、Cookie/BrowserView、发布队列和通用上传/取消/重试模式；不把反编译代码中的未调用函数当成已观察 UI 行为。
 
@@ -13,10 +13,10 @@
 
 | 模块 | 当前入口 | 已对齐的可观测行为 | 当前代码合同 | 外部边界 |
 |---|---|---|---|---|
-| 账号管理 | /accounts | 搜索、状态筛选、平台筛选、卡片/列表、收藏、默认账号、代理、批量启用/禁用/删除、登录状态条 | useAccountStore 负责账号/选择/本地分组，AccountManagementCard 负责卡片操作，AccountLoginDialog 与 Electron auth 事件负责授权 | 真实第三方登录、验证码和平台 Cookie 仍依赖目标环境 |
-| 分组管理 | /accounts?tab=groups 或账号页按钮 | 创建、删除、成员勾选、重命名、平台过滤 | AccountGroupManager 发出 create/delete/rename/set-platform/toggle-account 事件；Store 以显式 accountIds 持久化 | 当前为设备级 localStorage，不等同于团队云共享 |
-| 收藏分组 | /accounts?tab=favorites | 复用账号列表的收藏筛选 | filter=favorite，账号列表仍走同一状态/平台/选择合同 | 未观察到蚁小二服务端收藏同步 API |
-| 分享链接 | /accounts?tab=share | 导航入口和诚实能力边界提示 | 当前不伪造团队数据，明确提示尚未接入团队分享服务 | 团队成员、权限、分享链接生命周期需真实后端契约后实现 |
+| 账号管理 | /accounts | 搜索、状态筛选、平台筛选、卡片/列表、收藏、默认账号、代理、批量启用/禁用/删除、登录状态条；卡片命令与真实截图一致为“设置 / 重新登录（仅失效） / 删除” | useAccountStore 负责账号/选择/本地分组，AccountManagementCard 负责字段与命令，AccountLoginDialog 与 Electron auth 事件负责授权；失效账号重新登录复用 auth:open-login | 真实第三方登录、验证码和平台 Cookie 仍依赖目标环境 |
+| 分组管理 | /accounts?tab=groups 或账号页按钮 | 创建、删除、成员勾选、重命名、平台过滤；主列表侧栏增加分组搜索、全部分组、仅看共享和空态 | AccountGroupManager 发出 create/delete/rename/set-platform/toggle-account 事件；Store 以显式 accountIds 持久化，列表用 groupFilter 过滤 | 当前为设备级 localStorage；共享分组只有后端返回 shared/is_shared 字段时才显示 |
+| 收藏分组 | /accounts?tab=favorites | 复用账号列表的收藏筛选；无收藏时显示“暂无收藏账号”专用空态 | filter=favorite，账号列表仍走同一状态/平台/选择合同 | 未观察到蚁小二服务端收藏同步 API |
+| 分享链接 | /accounts?tab=share | 导航入口、未接入服务状态、禁用的“创建分享链接”按钮 | 当前不伪造团队数据，明确提示尚未接入团队分享服务并阻止不可验证写入 | 团队成员、权限、分享链接生命周期需真实后端契约后实现 |
 | 新建发布 | /publish | 独立主入口、单篇/批量、平台/账号绑定、媒体、封面、标签、话题、@、定时、草稿、进度、重试 | publish-contract.js 统一归一化/校验；usePublishFlow 与 useBatchPublish 共享目标和媒体字段 | 平台上传、签名、配额和真实发布结果需真实账号与网络 |
 | 发布记录 | /publish/history | 搜索、平台/时间/状态筛选、网格/列表、详情、失败重试、CSV | historyList/historyGet/retryTask 走现有 IPC/API 适配 | 删除、平台侧审核和统计字段取决于后端 |
 | 草稿箱 | /publish?tab=drafts | 从模块导航直接打开并加载草稿列表，也可从发布页打开 | usePublishDrafts 对媒体/封面/标签/话题/@ 做纯 JSON 脱壳后 IPC 传输 | 跨设备同步和素材库联动未证明 |
@@ -29,6 +29,13 @@
 4. 批量发布不再以平台字符串作为无账号回退；目标必须绑定结构化账号并通过同一校验。
 5. 视频平台判断从静态小集合扩展为平台内容分类和稳定 fallback；历史页与发布页共享视频语义。
 
+## 2026-08-04 续作补齐
+
+1. `AccountManagementCard` 按真实蚁小二账号截图收敛底部命令：活动账号仅显示“设置、删除”，失效账号追加“重新登录”；原有“设默认、打开主页、验证”仍保留为页面级兼容方法，但不再污染蚁小二卡片主界面。
+2. 重新登录流程复用 `useAccountActions.openLogin('browser', platform)`，由 `pendingAuthAction` 区分“添加账号成功”和“账号重新登录成功”；取消、IPC 业务失败、异常均关闭登录视图并显示原始错误。
+3. 账号卡片增加粉丝数、负责人、运营人、代理字段的多后端字段归一化；缺失字段分别显示“暂无数据”或“未设置”，不生成假团队数据。
+4. 分享链接状态改为可验证的未接入服务空态，创建按钮显式禁用；分组侧栏增加搜索、共享筛选、分组成员计数和无分组空态。
+
 ## 设计与代码分离审计
 
 已确认仍有以下非阻断遗漏，不能声称“整个项目已完全分离”：
@@ -40,15 +47,18 @@
 
 ## 验证矩阵
 
-- 定向 Vitest：账号分组、账号 Store、账号页面、模块导航、发布页、发布历史、发布合同、批量发布、草稿共 9 files / 249 tests；后续批量可见 ID 与非法元数据回归已补充。
+- 定向 Vitest：账号卡片和账号页面 2 files / 76 tests 通过；模块导航、发布页、发布历史、发布合同、批量发布、草稿等既有回归均纳入全量套件。
+- 全量 Vitest：344 files / 6016 passed / 2 failed（与本任务无改动的媒体工具和 Story2Video 资源环境合同失败）；失败详情为 `asset-generator.test.js` 的 spawn 参数断言和缺失 `ffmpeg-ffprobe-static/ffmpeg.exe`，不能写成全量通过。
+- Vue 构建：`npm run build:vue` 通过，Vite 仅保留既有动态导入和大 chunk 警告。
+- 视觉捕获：账号、发布、批量发布在 desktop/mobile/audit 三视口共 9/9 通过；真实蚁小二像素审计 3/3 通过，账号误差 2.5240%、发布 5.3809%、批量发布 5.8431%，无阻断、无未验证参考图。
 - 必测 UI 合同：query 页签 active 状态、分组重命名/平台过滤、分享边界提示、草稿 query 自动打开、结构化媒体 metadata。
-- 构建门禁：本轮未修改 Electron runtime main/preload 源码，但更新了 Electron 视觉合同测试；仍按 QM-1 执行了 Windows builder、ASAR require 和真实窗口启动检查。打包时缺少 `.playwright-browsers` 目录，启动 stderr 仅出现既有 Logto `invalid_grant` 外部认证错误，不能当作线上登录通过。
+- 构建门禁：本续作未修改 Electron runtime main/preload 源码；`npm run build:vue` 会重生成 preload bundle，已确认生成内容与 HEAD 一致并恢复为干净状态。Windows builder、ASAR require 和真实窗口启动检查仍需在交付前重新执行。
 - 视觉门禁：账号、发布、发布记录和草稿 query 必须在目标 worktree Vite 端口下执行像素回归；截图不得包含账号 Cookie、二维码或个人信息。
 
 ## 本地代码审查边界
 
 - 外部 Antigravity 因 `agy command not found` 未运行，Claude wrapper 以退出码 1 结束；本轮没有伪造“双模型已通过”，审查结论来自本地静态检查、定向 lint 和测试。
-- 全局 lint 仍有既有 Electron 文件的 15 个错误和 84 个警告；本轮变更文件定向 lint 为 0 错误、2 个既有警告（`Accounts.vue` 未使用的 `addAccountForPlatform` 与 CSS 文件无匹配配置）。
+- 外部 Antigravity 因 `agy command not found` 未运行，Claude wrapper 以退出码 1 结束；本轮没有伪造“双模型已通过”，审查结论来自本地静态检查、定向 lint 和测试。全量审查前仍需重新尝试两路 wrapper 并保留失败证据。
 - 设计与代码分离、团队分享、手机号/密码登录、真实第三方发布和线上审核仍列为后续/外部边界。
 
 ## 不可客观证明的 100% 一致

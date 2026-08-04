@@ -3,10 +3,14 @@
     <OfflineIndicator />
 
     <template v-if="isYixiaoerWorkspace">
-      <YixiaoerModuleNav />
-      <main class="yixiaoer-workspace cohere-main" data-testid="yixiaoer-workspace">
-        <router-view />
-      </main>
+      <div class="yixiaoer-shell" data-testid="yixiaoer-shell">
+        <div class="yixiaoer-shell-main">
+          <YixiaoerModuleNav />
+          <main class="yixiaoer-workspace cohere-main" data-testid="yixiaoer-workspace">
+            <router-view />
+          </main>
+        </div>
+      </div>
     </template>
 
     <template v-else>
@@ -84,4 +88,7 @@ onBeforeUnmount(() => {
 body { margin: 0; padding: 0; }
 html, body { height: 100%; }
 #app { height: 100%; }
+.yixiaoer-shell { height: 100%; display: flex; min-width: 0; overflow: hidden; background: #f7f7fb; }
+.yixiaoer-shell-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.yixiaoer-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
 </style>

@@ -41,7 +41,7 @@ const viewTests = [
       { name: '新建发布入口', selector: '.yixiaoer-workspace [data-testid="new-publish"]' },
     ],
   ),
-  routeView('accounts-list', '/accounts', '.yixiaoer-workspace .page-title:has-text("账号管理")'),
+  routeView('accounts-list', '/accounts', '.yixiaoer-workspace .accounts-page'),
   routeView('dashboard', '/dashboard', '.cohere-main .page-title:has-text("数据看板")'),
   routeView('collection', '/collection', '.cohere-main .page-title:has-text("内容采集")'),
   routeView('monitor-dashboard', '/monitor', '.cohere-main .page-title:has-text("分屏监控")'),

@@ -1,0 +1,70 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+
+const routeState = vi.hoisted(() => ({ path: '/accounts' }))
+const push = vi.hoisted(() => vi.fn())
+
+vi.mock('vue-router', () => ({
+  useRoute: () => routeState,
+  useRouter: () => ({ push }),
+}))
+
+import YixiaoerSidebar from './YixiaoerSidebar.vue'
+
+let wrapper
+
+afterEach(() => {
+  wrapper?.unmount()
+  wrapper = null
+  push.mockReset()
+})
+
+function mountSidebar (path = '/accounts') {
+  routeState.path = path
+  wrapper = mount(YixiaoerSidebar, {
+    global: {
+      stubs: {
+        RouterLink: {
+          props: { to: { type: [String, Object], default: '' } },
+          computed: {
+            href () {
+              return typeof this.to === 'string' ? this.to : this.to.path
+            },
+          },
+          template: '<a :href="href" v-bind="$attrs"><slot /></a>',
+        },
+      },
+    },
+  })
+  return wrapper
+}
+
+describe('YixiaoerSidebar', () => {
+  it('renders the account route active with the observed primary navigation labels', () => {
+    const sidebar = mountSidebar('/accounts')
+
+    expect(sidebar.text()).toContain('邱里奥谈认知')
+    expect(sidebar.text()).toContain('主页')
+    expect(sidebar.text()).toContain('发布')
+    expect(sidebar.text()).toContain('账号')
+    expect(sidebar.text()).toContain('私信评论')
+    expect(sidebar.get('[data-testid="yixiaoer-primary-accounts"]').classes()).toContain('active')
+  })
+
+  it('opens the more menu and exposes secondary navigation', async () => {
+    const sidebar = mountSidebar('/accounts')
+
+    await sidebar.get('[data-testid="yixiaoer-primary-more"]').trigger('click')
+
+    expect(sidebar.get('[role="menu"]').text()).toContain('素材库')
+    expect(sidebar.get('[data-testid="yixiaoer-primary-more"]').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('routes the add button to the publish editor', async () => {
+    const sidebar = mountSidebar('/accounts')
+
+    await sidebar.get('[data-testid="yixiaoer-sidebar"]').find('button[aria-label="新建发布"]').trigger('click')
+
+    expect(push).toHaveBeenCalledWith('/publish')
+  })
+})

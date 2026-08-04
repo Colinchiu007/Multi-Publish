@@ -55,7 +55,6 @@ const accountTabs = [
 ]
 
 const publishTabs = [
-  { key: 'publish', label: '新建发布', to: '/publish' },
   { key: 'publish-history', label: '发布记录', to: '/publish/history' },
   { key: 'drafts', label: '草稿箱', to: { path: '/publish', query: { tab: 'drafts' } } },
 ]
@@ -69,7 +68,6 @@ function isTabActive (tab) {
     return route.path === '/accounts' && route.query?.tab === tab.key
   }
 
-  if (tab.key === 'publish') return route.path === '/publish' && route.query?.tab !== 'drafts'
   if (tab.key === 'publish-history') return route.path === '/publish/history'
   return route.path === '/publish' && route.query?.tab === 'drafts'
 }

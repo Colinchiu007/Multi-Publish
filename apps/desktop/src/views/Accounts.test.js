@@ -25,6 +25,7 @@ vi.mock("@/stores/platforms", () => ({
 }));
 
 const _testAccounts = vi.hoisted(() => ([]));
+const _groups = vi.hoisted(() => ([]));
 const _favoriteIds = vi.hoisted(() => new Set());
 const _selectedIds = vi.hoisted(() => new Set());
 const _accountFilters = vi.hoisted(() => ({ searchQuery: "", filterStatus: "all", filterPlatform: "" }));
@@ -90,7 +91,7 @@ vi.mock("@/stores/accounts", () => ({
     selectedIds: _selectedIds,
     isAllSelected: false,
     favoriteIds: _favoriteIds,
-    groups: [],
+    groups: _groups,
     get accountsBeforePlatformFilter() {
       const query = _accountFilters.searchQuery.toLowerCase();
       const labels = { wechat_mp: "微信", zhihu: "知乎", douyin: "抖音" };
@@ -208,6 +209,7 @@ describe("AccountsView", () => {
     _spies.setDefault.mockResolvedValue({ code: 0 });
     _spies.renameAccount.mockResolvedValue({ code: 0 });
     _testAccounts.length = 0;
+    _groups.length = 0;
     _accountFilters.searchQuery = "";
     _accountFilters.filterStatus = "all";
     _accountFilters.filterPlatform = "";
@@ -238,6 +240,37 @@ describe("AccountsView", () => {
     _routeState.query = { tab: 'share' }
     const w = await mountView()
     expect(w.get('[data-testid="account-share-panel"]').text()).toContain('尚未接入团队分享服务')
+    expect(w.get('[data-testid="account-share-state"]').text()).toContain('未接入服务')
+    expect(w.get('[data-testid="account-share-create"]').attributes('disabled')).toBeDefined()
+  })
+
+  it("分组筛选只显示当前分组账号，并在无分组时保持空态", async () => {
+    _testAccounts.push(
+      { id: "group-a", platform: "zhihu", status: "active", account_name: "分组账号" },
+      { id: "group-b", platform: "douyin", status: "active", account_name: "未分组账号" },
+    )
+    _groups.push({ id: "grp-1", name: "知乎组", accountIds: ["group-a"] })
+    const w = await mountView()
+
+    expect(w.get('[data-testid="group-filter-grp-1"]').text()).toContain('知乎组')
+    await w.get('[data-testid="group-filter-grp-1"]').trigger('click')
+    await nextTick()
+    expect(w.findAll('.account-card')).toHaveLength(1)
+    expect(w.text()).toContain('分组账号')
+    expect(w.text()).not.toContain('未分组账号')
+
+    w.vm.groupFilter = ''
+    w.vm.groupSearchInput = '不存在'
+    await nextTick()
+    expect(w.get('[data-testid="account-group-empty"]').text()).toContain('暂无分组')
+  })
+
+  it("收藏页签没有收藏账号时显示专用空态", async () => {
+    _testAccounts.push({ id: "normal-1", platform: "zhihu", status: "active", account_name: "普通账号" })
+    _routeState.query = { tab: 'favorites' }
+    const w = await mountView()
+
+    expect(w.get('.empty-state h2').text()).toBe('暂无收藏账号')
   })
 
   it("重命名分组委托给 Store", async () => {
@@ -256,6 +289,35 @@ describe("AccountsView", () => {
     expect(w.text()).toContain("添加账号");
   });
 
+  it("工具栏提供蚁小二式平台搜索、批量操作和添加账号入口", async () => {
+    _testAccounts.push(
+      { id: "zh-1", platform: "zhihu", status: "active", account_name: "知乎账号" },
+      { id: "dy-1", platform: "douyin", status: "active", account_name: "抖音账号" },
+    );
+    const w = await mountView();
+
+    expect(w.get('[aria-label="搜索平台"]').exists()).toBe(true);
+    expect(w.get('[data-testid="account-batch"]').text()).toContain("批量操作");
+    expect(w.get('[data-testid="account-add"]').text()).toContain("添加账号");
+
+    await w.get('[aria-label="搜索平台"]').setValue("知乎");
+    expect(w.find('[data-testid="platform-filter-zhihu"]').exists()).toBe(true);
+    expect(w.find('[data-testid="platform-filter-douyin"]').exists()).toBe(false);
+  });
+
+  it("批量操作按钮控制全选工具栏和卡片选择框显示", async () => {
+    _testAccounts.push({ id: "batch-1", platform: "zhihu", status: "active", account_name: "批量账号" });
+    const w = await mountView();
+
+    expect(w.find('.batch-toolbar').exists()).toBe(false);
+    expect(w.find('[data-testid="select-batch-1"]').exists()).toBe(false);
+
+    await w.get('[data-testid="account-batch"]').trigger('click');
+    await nextTick();
+
+    expect(w.find('.batch-toolbar').exists()).toBe(true);
+    expect(w.find('[data-testid="select-batch-1"]').exists()).toBe(true);
+  });
   it("shows filters", async () => {
     const w = await mountView();
     expect(w.text()).toContain("全部");
@@ -285,6 +347,39 @@ describe("AccountsView", () => {
     expect(w.text()).toContain("知乎账号");
   });
 
+  it("负责人和发布人筛选从真实账号字段派生并参与过滤", async () => {
+    _testAccounts.push(
+      { id: "owner-a", platform: "zhihu", status: "active", account_name: "甲账号", owner: "团队甲", publisher: "编辑甲" },
+      { id: "owner-b", platform: "douyin", status: "active", account_name: "乙账号", owner: "团队乙", publisher: "编辑乙" },
+    );
+    const w = await mountView();
+
+    const ownerSelect = w.get('[aria-label="负责人"]');
+    const publisherSelect = w.get('[aria-label="选择发布人"]');
+    expect(ownerSelect.attributes("disabled")).toBeUndefined();
+    expect(ownerSelect.text()).toContain("团队甲");
+    expect(publisherSelect.text()).toContain("编辑乙");
+
+    await ownerSelect.setValue("团队甲");
+    await nextTick();
+    expect(w.findAll(".account-card")).toHaveLength(1);
+    expect(w.text()).toContain("甲账号");
+    expect(w.text()).not.toContain("乙账号");
+
+    await ownerSelect.setValue("");
+    await publisherSelect.setValue("编辑乙");
+    await nextTick();
+    expect(w.findAll(".account-card")).toHaveLength(1);
+    expect(w.text()).toContain("乙账号");
+  });
+
+  it("负责人和发布人没有后端字段时保持诚实禁用态", async () => {
+    const w = await mountView();
+    expect(w.get('[aria-label="负责人"]').attributes("disabled")).toBeDefined();
+    expect(w.get('[aria-label="负责人"]').text()).toContain("暂无数据");
+    expect(w.get('[aria-label="选择发布人"]').attributes("disabled")).toBeDefined();
+    expect(w.get('[aria-label="选择发布人"]').text()).toContain("暂无数据");
+  });
   it("筛选按钮提供 tab 语义、选中状态和方向键切换", async () => {
     const w = await mountView();
     const tabs = w.findAll('[role="tab"]');
@@ -446,6 +541,31 @@ describe("AccountsView", () => {
     await w.vm.addAccount();
     const { ElMessage } = await import("element-plus");
     expect(ElMessage.error).toHaveBeenCalledWith("network error");
+  });
+
+  it("失效账号重新登录复用网页登录 IPC 且不重新打开添加账号弹窗", async () => {
+    const { authOpenLogin } = await import("@/api/publisher");
+    const w = await mountView();
+    const account = { id: "expired-1", platform: "zhihu", account_name: "失效账号", status: "inactive" };
+
+    await w.vm.reloginAccount(account);
+
+    expect(authOpenLogin).toHaveBeenCalledWith("zhihu");
+    expect(w.vm.showAddDialog).toBe(false);
+    expect(w.vm.pendingAuthAction).toBe("relogin");
+  });
+
+  it("重新登录 IPC 失败时关闭登录视图并保留原始错误", async () => {
+    const { authOpenLogin } = await import("@/api/publisher");
+    authOpenLogin.mockResolvedValueOnce({ code: 1, message: "重新登录失败" });
+    const w = await mountView();
+
+    await w.vm.reloginAccount({ id: "expired-1", platform: "zhihu", status: "inactive" });
+
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.error).toHaveBeenCalledWith("重新登录失败");
+    expect(w.vm.authViewVisible).toBe(false);
+    expect(w.vm.pendingAuthAction).toBeNull();
   });
 
   it("addAccountForPlatform sets newPlatform and shows dialog", async () => {
@@ -811,6 +931,22 @@ describe("AccountsView", () => {
     expect(_spies.load).toHaveBeenCalledTimes(1);
   });
 
+  it("重新登录完成事件使用重新登录成功提示", async () => {
+    const w = await mountView();
+    _spies.load.mockClear();
+    await w.vm.reloginAccount({ id: "expired-1", platform: "zhihu", status: "inactive" });
+    _spies.load.mockClear();
+
+    _eventCallbacks.authCompleted({ platform: "zhihu", accountId: "expired-1" });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.success).toHaveBeenCalledWith("账号重新登录成功");
+    expect(_spies.load).toHaveBeenCalledTimes(1);
+    expect(w.vm.pendingAuthAction).toBeNull();
+  });
+
   it("卸载时释放全部 Electron 登录事件订阅", async () => {
     const w = await mountView();
 
@@ -939,6 +1075,9 @@ describe("AccountsView", () => {
 
     store.searchQuery = "微信";
     store.selectAll();
+    await nextTick();
+
+    await w.get('[data-testid="account-batch"]').trigger('click');
     await nextTick();
 
     expect(store.filteredAccounts.map(account => account.id)).toEqual(["wx-1"]);

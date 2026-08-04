@@ -1,5 +1,5 @@
 <template>
-  <section class="target-selector" aria-label="发布目标">
+  <section class="target-selector" data-testid="publish-target-selector" aria-label="发布目标">
     <input v-model="search" class="target-selector__search" type="search" aria-label="搜索发布平台或账号" placeholder="搜索平台或账号" />
     <div class="target-selector__list" role="list" aria-label="可选发布平台">
       <div v-if="filteredGroups.length === 0" class="target-selector__empty">没有匹配的平台</div>

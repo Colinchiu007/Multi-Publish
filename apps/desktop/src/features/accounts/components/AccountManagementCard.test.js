@@ -16,6 +16,7 @@ function mountCard (props = {}) {
       account,
       platformLabel: '知乎',
       platformIcon: '知',
+      batchMode: true,
       ...props,
     },
   })
@@ -34,20 +35,62 @@ describe('AccountManagementCard', () => {
     expect(wrapper.emitted('toggle-favorite')).toEqual([['account-1']])
   })
 
-  it('所有账号命令上抛原始账号对象', async () => {
+  it('活动账号展示验证、设置和删除命令', async () => {
     const wrapper = mountCard()
 
-    await wrapper.get('[data-testid="set-default-account-1"]').trigger('click')
-    await wrapper.get('[data-testid="open-account-1"]').trigger('click')
-    await wrapper.get('[data-testid="check-account-1"]').trigger('click')
+    await wrapper.get('[data-testid="verify-account-1"]').trigger('click')
+    await wrapper.get('[data-testid="proxy-account-1"]').trigger('click')
     await wrapper.get('[data-testid="delete-account-1"]').trigger('click')
 
-    expect(wrapper.emitted('set-default')).toEqual([[account]])
-    expect(wrapper.emitted('open')).toEqual([[account]])
-    expect(wrapper.emitted('check')).toEqual([[account]])
+    expect(wrapper.emitted('check-login')).toEqual([[account]])
+    expect(wrapper.emitted('configure-proxy')).toEqual([[account]])
     expect(wrapper.emitted('remove')).toEqual([[account]])
+    expect(wrapper.find('[data-testid="relogin-account-1"]').exists()).toBe(false)
   })
 
+  it('非批量模式隐藏账号选择框', () => {
+    const wrapper = mountCard({ batchMode: false })
+
+    expect(wrapper.find('[data-testid="select-account-1"]').exists()).toBe(false)
+  })
+
+  it('失效账号展示重新登录并上抛原始账号对象', async () => {
+    const expiredAccount = { ...account, status: 'inactive' }
+    const wrapper = mountCard({ account: expiredAccount })
+
+    expect(wrapper.text()).toContain('已失效')
+    await wrapper.get('[data-testid="relogin-account-1"]').trigger('click')
+
+    expect(wrapper.emitted('relogin')).toEqual([[expiredAccount]])
+  })
+
+  it('按蚁小二卡片语义展示粉丝数、负责人、运营人和代理字段', () => {
+    const wrapper = mountCard({
+      account: {
+        ...account,
+        followers: 2048,
+        owner: '团队甲',
+        publisher: '秋叔',
+        proxy: '127.0.0.1:7890',
+      },
+    })
+
+    expect(wrapper.get('[data-testid="account-followers-account-1"]').text()).toContain('粉丝：2048')
+    expect(wrapper.get('[data-testid="account-owner-account-1"]').text()).toContain('负责人')
+    expect(wrapper.get('[data-testid="account-owner-account-1"]').text()).toContain('团队甲')
+    expect(wrapper.get('[data-testid="account-publisher-account-1"]').text()).toContain('运营人')
+    expect(wrapper.get('[data-testid="account-publisher-account-1"]').text()).toContain('秋叔')
+    expect(wrapper.get('[data-testid="account-proxy-account-1"]').text()).toContain('127.0.0.1:7890')
+  })
+
+  it('缺少蚁小二归属字段时显示未设置而不是伪造数据', () => {
+    const wrapper = mountCard()
+
+    expect(wrapper.get('[data-testid="account-followers-account-1"]').text()).toContain('粉丝：暂无数据')
+    expect(wrapper.get('[data-testid="account-owner-account-1"]').text()).toContain('未设置')
+    expect(wrapper.get('[data-testid="account-publisher-account-1"]').text()).toContain('未设置')
+    expect(wrapper.get('[data-testid="account-proxy-account-1"]').text()).toContain('未设置')
+  })
   it('只在名称非空且发生变化时上抛重命名', async () => {
     const wrapper = mountCard()
     await wrapper.get('.account-name-button').trigger('click')
