@@ -1,10 +1,14 @@
 import { createI18n } from 'vue-i18n'
-import zh from './locales/zh'
-import en from './locales/en'
+import zh from '../locales/zh'
+import en from '../locales/en'
+
+const storedLocale = typeof localStorage === 'undefined' ? null : localStorage.getItem('locale')
+const locale = storedLocale === 'en' ? 'en' : 'zh'
 
 const i18n = createI18n({
   legacy: false,
-  locale: localStorage.getItem('locale') || 'zh',
+  globalInjection: true,
+  locale,
   fallbackLocale: 'en',
   messages: { zh, en },
 })

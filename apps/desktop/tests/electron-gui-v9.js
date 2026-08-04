@@ -291,6 +291,17 @@ async function testSidebar(win) {
   await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.accounts);
   await injectAccounts(win);
   await wait(1000);
+  const yixiaoerNav = await win.evaluate(() => !!document.querySelector('[data-testid="yixiaoer-module-nav"]'));
+  if (yixiaoerNav) {
+    const tabs = await win.evaluate(() => Array.from(document.querySelectorAll('[data-testid^="yixiaoer-tab-"]')).map(tab => ({
+      active: tab.classList.contains('active'),
+      label: tab.textContent.trim(),
+    })));
+    assert('蚁小二模块导航存在', tabs.length >= 3);
+    assert('账号模块标签激活', tabs.some(tab => tab.active && tab.label === '账号管理'));
+    await win.screenshot({ path: path.join(SS, 'v9-14-sidebar.png') });
+    return;
+  }
   const sidebarExists = await win.evaluate((sel) => !!document.querySelector(sel.sidebar), SEL);
   assert('侧边栏存在', sidebarExists);
   const platforms = await win.evaluate((sel) => {
@@ -319,6 +330,17 @@ async function testSidebar(win) {
 
 async function testTopNav(win) {
   console.log("\n╔══ 顶部导航 ══╗");
+  const yixiaoerNav = await win.evaluate(() => !!document.querySelector('[data-testid="yixiaoer-module-nav"]'));
+  if (yixiaoerNav) {
+    const navState = await win.evaluate(() => ({
+      navItems: document.querySelectorAll('[data-testid^="yixiaoer-tab-"]').length,
+      activeAccountTab: !!document.querySelector('[data-testid="yixiaoer-tab-accounts"].active'),
+    }));
+    assert('蚁小二顶部模块导航存在', navState.navItems >= 3);
+    assert('蚁小二账号标签高亮', navState.activeAccountTab);
+    await win.screenshot({ path: path.join(SS, 'v9-15-topnav.png') });
+    return;
+  }
   const navExists = await win.evaluate((sel) => !!document.querySelector(sel.topNav), SEL);
   assert('顶部导航栏存在', navExists);
   const navItems = await win.evaluate((sel) => {

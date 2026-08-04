@@ -1,4 +1,4 @@
-﻿# OpenMontage 视频集成 — 架构设计方案
+# OpenMontage 视频集成 — 架构设计方案
 
 > **版本**: v2.4
 > **日期**: 2026-07-25
@@ -79,7 +79,7 @@ TextCard, TerminalScene, AnimeScene, HeroTitle, CaptionOverlay, StatCard, StatRe
 | `apps/desktop/electron/ipc-handlers/render.js` | ✅ 已扩展 | 新增 composition 管理 IPC | ✅ |
 | preload source + bundle + main.js 接线 | ✅ 已接线 | Story2Video API 已进入生产 bundle；sandbox=true/false 均实际调用 IPC 验证 | ✅ |
 | CreateView.vue | ✅ 已收敛 | Story2Video 仅文案标准模式；普通流水线保留各自输入，输出状态彼此隔离 | ✅ |
-| PipelineView.vue | 已移除 | S2V 管线浏览、配置和检查点已统一到 CreateView.vue | ✅ |
+| PipelineView.vue | 已移除 | S2V 管线浏览、配置和运行态已统一到 CreateView.vue；图片轮播固定无人工 checkpoint | ✅ |
 | CreateHistory.vue / ResultView.vue | ✅ 已实现 | 本地项目筛选/恢复与分段编辑、重试、裁剪、重新合成 | ✅ |
 | PipelineBrowser.vue | ✅ 已修复 | IPC 调用已对接 publisher API | ✅ |
 
@@ -115,7 +115,7 @@ CreateView.vue
 旧项目的后生成编辑能力已经由本地项目服务覆盖：分段编辑、排序、删除、旁白替换、
 图片/视频重试和重新合成均走真实媒体文件。逐段手动 STT、完整旁白、流式 ZIP、真实裁剪
 和重启后的完成项目恢复也已接通。`image/remix/gallery/audio/batch` 是明确排除的创作模式，
-不属于待实现缺口；外部缺口是音色克隆、旧 orchestrator 会员配额以及云端分享/跨设备历史。
+不属于待实现缺口；音色目录、用户克隆和个人槽位是否可用仍必须由每个 provider/model 的官方能力、adapter、真实凭据和测试证据确认，不能由本文视为已交付；旧 orchestrator 会员配额以及云端分享/跨设备历史仍是独立外部产品边界。
 
 #### Text 参数隔离边界（v2.4）
 
@@ -148,6 +148,88 @@ OpenAI 图片请求按宽高选择横图或竖图尺寸，Imagen 将 `n` 和宽�
 宽高比。ComfyUI 当前只有提交 workflow 的 adapter，缺少 S2V 所需的 workflow 模板、异步
 轮询和输出下载合同，所以资产生成器会显式失败，不能作为可用图片来源展示。
 
+#### 图片轮播自动策略与 i18n 边界（P1）
+
+```text
+Pipeline registry stable ID (`story2video-compose`)
+  └─ renderer pipeline label registry
+       ├─ zh (default): 图片轮播
+       ├─ en: Image Carousel
+       └─ stage/category/status locale keys
+
+CreateView start
+  └─ { autoAdvance: true, checkpointPolicy: 'none' }
+       └─ PipelineEngine → StageExecutor
+            └─ run snapshot { status, currentStage, stages[] }
+                 └─ six-item stage checklist (not S2V percentage UI)
+```
+
+名称本地化只发生在 renderer 显示层，任何 IPC、项目 manifest、历史筛选和 stage execution 继续使用稳定机器 ID。
+图片轮播固定连续执行 `split → domain_enrich → optimize → generate_assets → compose → publish`；未启用发布时第六项明确为
+`skipped`。创作端不得暴露 guided/manual checkpoint、继续或推进选择；否则 UI 即便移除了“继续”按钮，后端仍会在
+`checkpointRequired` 阶段暂停。通用 pipeline 的 checkpoint 能力不因本产品策略删除。
+
+图片轮播运行反馈以六项条目清单表达 `pending/running/completed/skipped/failed/needs_user_input` 与可读摘要，**不显示 S2V
+百分比进度**。自动策略不改变取消、真实失败或 `needs_user_input` 的状态机，也不让 publish 在未显式启用时执行。
+`needs_user_input` 不是可推进的 checkpoint：内容政策耗尽后，用户必须取消旧 run、修改文案并启动新 run，不能恢复原 run。
+
+#### TTS 音色目录、个人音色与隐私边界（P1/P2）
+
+```text
+CreateView (provider/model/voice selection)
+  └─ trusted voice-catalog IPC
+       └─ TtsVoiceService
+            ├─ current-user SQLite settings cache + owner-scoped preference
+            ├─ ModelProviderManager.callAdapter(provider, 'listVoices')
+            └─ provider/model capability registry
+                 ├─ builtin / local_model
+                 ├─ provider_personal_slot
+                 ├─ user_clone
+                 └─ unsupported
+```
+
+音色目录与默认选择均使用当前用户作用域的 SQLite settings，默认的匹配键为
+`user + providerId + modelId + voiceId`。优先调用具备能力且已认证的 adapter `listVoices`，把规范化内置目录、能力版本和刷新时间
+写入缓存；有效缓存不重复请求，显式刷新或失效时才同步。目录状态仅可为 `ready`、`cached`、`refreshing`、`stale`、
+`unavailable` 或 `unsupported`。刷新失败只能使用仍匹配 provider/model/capability 的最后一次成功缓存或静态内置目录，并明确
+显示来源；没有合法回退时必须禁用选择，不能伪造音色。
+
+缓存和运行参数只可保存非敏感音色元数据、版本、状态和用户偏好。API Key、Bearer token、原始 provider 错误体、原始 prompt、
+音频字节和 renderer 文件路径不得进入 settings、运行参数或项目 manifest；项目仍保存自身版本化 `Story2VideoTextConfig` 快照，
+全局偏好仅初始化新建项目。
+
+- **ElevenLabs 用户克隆**：只在 provider/model 的 capability 数据和专用 adapter 上传、创建、轮询、删除合同均验证后允许新增、
+  删除和设为默认。用户明确授权后，样本先在可信主进程完成路径、格式、大小、时长与 `Buffer` 完整性校验；仅当远端 `cloneVoice`
+  返回成功，才将该受验证 `Buffer` 写入 owner-scoped 私有
+  `userData/voice-clone-samples/<owner-hash>/<storage-id>`。SQLite registry 除最小 clone 元数据外只能记录
+  `sampleStorage.relativeDir` 与 `sampleCount`：相对目录必须受 owner hash 和 storage ID 约束，不能保存源路径、源文件名、绝对路径、
+  data URL 或音频字节。删除状态机为 `active → pending → remote_deleted → 本地样本清理 → 删除 registry`；本地清理失败必须留下
+  `remote_deleted` 供重试，重试不应重复远端删除。格式、大小、时长、模型和端点均由版本化的 provider capability 数据驱动，不写死为
+  跨供应商限制。
+- **Doubao provider personal slot**：当前 provider 配置与 adapter 的已注册/已验证 TTS 调用合同不证明个人槽位已经同步到本地，
+  也不允许本地创建、复制或伪造槽位。UI 提示用户先在供应商官方控制台创建/管理音色，再刷新目录；只有官方 API 证据和已验证的
+  `listVoices` adapter 存在时才允许选择返回项，否则显示 `unsupported`/`unavailable` 和控制台说明。
+
+#### 图片内容政策拒绝恢复（P1）
+
+```text
+AssetGenerator.generateImage(scene prompt)
+  ├─ success → normal asset manifest
+  ├─ explicit CONTENT_POLICY → safe prompt rewrite → retry (max 5 total attempts)
+  ├─ exhausted → needs_user_input + safe summary → cancel old run → edit copy → start new run
+  └─ auth/rate-limit/network/config/unknown error → immediate failure
+```
+
+只允许结构化内容政策代码或对应 provider 明确的安全字段启动重写；不得按任意 400/403、普通关键字或网络错误猜测为内容拒绝。
+每个场景独立计数；仅保存场景序号、尝试序号、提示词版本哈希、provider/model 和非敏感安全摘要，绝不保存原始 prompt。
+耗尽时禁止 `ffmpeg-placeholder` 或 `allowPartialAssets` 掩盖失败。该状态不是既有 checkpoint 协议的“可继续”分支，不能通过
+`advance` 或 `resume` 处理。
+
+#### 运营配置与交付状态边界（P1）
+
+独立运营后台位于 `D:\Data\projects\ops-center`。截至 2026-08-03，未确认 Multi-Publish 已有可用的运行时配置分发、鉴权或
+回滚合同；本任务不接入 OpsCenter，不得把本地受控默认值、文档合同或测试计划写成已联通/已交付。未来接入需在独立任务中定义
+版本、授权、分发、回滚和端到端验证。
 #### 媒体信任边界
 
 ```text
@@ -245,7 +327,7 @@ Python tools (已存在)
     ├── 视频生成 → 输出文件路径
     ├── 音频生成 → 输出文件路径
     ├── 分析/增强 → 结构化数据
-    └── 管线编排 → 检查点 + 进度
+    └── 管线编排 → 状态 + 进度（图片轮播为六阶段清单、无人工 checkpoint）
 
 Vue 发布页 (发布已渲染视频 → 复用现有发布器)
 ```
@@ -363,9 +445,9 @@ class VideoEngine {
 |------|------|------|
 | services/pipeline-engine.js | ✅ 已完成 | 内置管线与 story2video-compose 编排 |
 | ipc-handlers/pipeline.js | ✅ 已完成 | pipeline:list/start/pause/resume/cancel/status |
-| Vue 创作页面 (CreateView.vue) | ✅ 已完成 | 选择流水线/模板预设 → 编排检查点 → 合成/预览 |
+| Vue 创作页面 (CreateView.vue) | ✅ 已完成 | 选择流水线/模板预设 → 图片轮播固定全自动（通用流水线可保留检查点） → 合成/预览 |
 | Vue Provider 配置页 (Providers.vue) | ✅ 已有 | AI Provider 配置管理 |
-| Vue 管线执行页 (CreateView.vue) | ✅ 已完成 | 管线状态/检查点/进度与 S2V 参数 |
+| Vue 管线执行页 (CreateView.vue) | ✅ 已完成 | 管线状态、阶段清单与 S2V 参数（图片轮播无人工 checkpoint） |
 
 #### 接口
 
@@ -387,7 +469,7 @@ class PipelineEngine {
 
 | 路由 | 页面 | 功能 |
 |------|------|------|
-| `/create` | 视频创作 | 选择流水线/模板预设 + 编排检查点 + 合成/预览 |
+| `/create` | 视频创作 | 选择流水线/模板预设 + 图片轮播固定全自动（通用流水线可保留检查点） + 合成/预览 |
 | `/create/provider` | Provider 配置 | API Key / 模型选择 / 测试连接 |
 | `/create/pipeline` | 已移除 | 管线执行已统一到 CreateView（历史路由） |
 | `/create/history` | 创作历史 | 用户隔离的本地项目列表、状态筛选、恢复/删除；不代表云端历史 |
@@ -396,6 +478,7 @@ class PipelineEngine {
 
 - [x] `story2video-compose` 六阶段可通过合同测试和真实 ffmpeg 测试。
 - [x] 检查点、运行上下文和自动推进有 IPC 合同测试。
+- [ ] 本任务新增的图片轮播无人工 checkpoint、阶段清单、内容政策取消后重启、音色目录/克隆隐私和 Doubao 槽位边界，必须以实际测试、Electron 验证和 provider 证据确认；本文不提前声明成功。
 - [x] 合成结果经过非空和 ffmpeg 解码校验。
 - [x] 本地媒体导入、时长上限、结果导航和流式 ZIP 有真实文件合同测试。
 - [x] 本地项目在重启后可恢复，最多 100 项；分段编辑/重试/重合成和媒体清理有真实文件测试。
@@ -492,3 +575,11 @@ class PipelineEngine {
 
 
 
+
+#### 运营与音色跨仓库边界（补充）
+
+`story2video-compose` 内部 ID 不变，i18n 外显为“图片轮播”/“Image Carousel”。音色目录、偏好和克隆删除失效按 provider/model 作用域执行；清除偏好回到安全默认或 Provider 默认。
+
+`D:\Data\projects\ops-center` 当前没有已确认租户/音色目录同步 API，且其仓库规则禁止本任务写入；本文只记录未来合同需要定义的租户边界、版本、鉴权、失效、回滚与审计，不声称已联通，也不虚构 endpoint 字段。Doubao 仍无桌面高权限 secret 或伪造个人列表。item 11 内容为空、最近 20 轮不可重建，标记 TBD/审计限制；UE item 15 仅待用户确认。
+
+- **边界澄清**：音色克隆样本的上传、保存、删除、设默认由桌面端前台、可信主进程、owner-scoped userData 与 SQLite 最小元数据闭环完成，不能迁移到 OpsCenter。OpsCenter 仅提供音调/并发数/创意强度等运营默认值及未来后台高权限凭据/目录同步；不保存或管理用户音频样本。

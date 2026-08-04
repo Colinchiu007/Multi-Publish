@@ -40,7 +40,7 @@ Multi-Publish 现有系统（发布侧）
     │
     └── ✅ 视频创作模块（本 PRD）
          │
-         ├── CreateView.vue（流水线选择、编排检查点、历史入口）
+         ├── CreateView.vue（流水线选择、图片轮播全自动编排〔通用 checkpoint 保留〕、历史入口）
          ├── story2video-compose（split → domain_enrich → optimize → generate_assets → compose → publish）
          ├── Electron ffmpeg 合成（字幕、动效、转场、BGM、水印、分辨率/FPS）
          └── PublisherRouter（显式开启且有平台时发布）
@@ -149,7 +149,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 |------|---------|---------|
 | **新手创作者** | 输入文字→选主题→一键生成 | "像做 PPT 一样做视频" |
 | **进阶创作者** | 选择模式、调整参数、叠加字幕和背景音乐 | "像剪映一样灵活" |
-| **专业创作者** | 自定义场景/时长/叠层、选择模板预设、手动推进检查点 | "像 AE 一样精确" |
+| **专业创作者** | 自定义场景/时长/叠层、选择模板预设和结果编辑；图片轮播仍固定自动执行 | "像 AE 一样精确" |
 
 ---
 
@@ -172,7 +172,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 | 模式/能力 | 当前状态 | 当前合同 |
 |-------------|----------|----------|
-| `text` 文案成片 | 标准模式 | 分句 → 领域增强（可选）→ prompt-engine → 图片/TTS → ffmpeg |
+| `text` 文案成片（外显“图片轮播 / Image Carousel”） | 标准模式 | 分句 → 领域增强（可选）→ prompt-engine → 图片/TTS → ffmpeg |
 | `image/remix/gallery/audio/batch` | 排除 | 不属于 `story2video-compose`；普通视频流水线和结果页编辑能力不因此删除 |
 | 单图/单段重试 | 已实现 | 项目结果页可重生目标图片并重新渲染单段视频，也可仅重渲染视频；失败会回滚旧媒体并清理本次临时产物 |
 | 本地结果交付 | 已实现 | 安全本地播放、下载、复制路径、打开目录、流式 ZIP |
@@ -180,7 +180,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 本地历史恢复 | 已实现 | 项目按用户隔离存储并限制为最近 100 项；可筛选、打开和删除，重启后仍可恢复完成项目 |
 | 成片裁剪 | 已实现 | 结果页选择起止时间、预览区间并调用真实 ffmpeg 裁剪；输出必须是可读媒体文件 |
 | 云端历史/分享链接 | 未实现 | 本地 file URL、复制路径和打开目录不是可对外访问的分享链接；失败运行也不支持云端断点续作 |
-| 音色克隆/外部 Provider | 部分实现 | 常规 provider 的配置、凭据映射和 adapter 调用已接入；音色克隆未实现，真实服务仍需要凭据、网络和配额验收，不能以本地静音降级冒充 |
+| 音色克隆/外部 Provider | 部分实现 | 常规 provider 的配置、凭据映射和 adapter 调用已接入；音色目录/偏好与克隆能力须按 provider/model 单独实现和验收，不能以本地静音降级冒充 |
 | 会员/视频配额 | 外部产品边界 | 旧项目依赖独立 orchestrator 的 membership/quota；当前仅有通用 entitlement 基础，S2V 未按旧套餐扣减视频配额 |
 
 ### 3.1.2 Text 参数合同
@@ -188,10 +188,10 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 参数组 | 兼容字段与默认值 | 六阶段映射 |
 |--------|------------------|------------|
 | 基础 | `mode=text`、`prompt` 必填、`size=720x1280`、`seconds=8` | 创建运行前校验；`size` 映射专属输出，`seconds` 保留为兼容目标时长 |
-| 分句 | `language=zh`、`mode=balanced`、`maxSentenceLength=200`、`targetSeconds=6`、`speechRate=1`、`minWords=10`、`maxWords=50` | `split` stage options；发送 8002 前映射到 `SplitRequest.config.sentence_tokenizer/scene`，不得作为会被忽略的顶层扩展字段 |
-| 提示词 | `platform=generic`、`style=realistic`、`creativeLevel=5`（1-10）、`maxLength=null`（启用时 50-2000）、`negativePrompt<=500`、`numCandidates=1`（1-5）、`autoDetectStyle=true`、`context=''` | `optimize` stage options，字段转换为 prompt-engine snake_case；空 `maxLength/context` 不发送，文本上下文转换为 `{ synopsis }`，对象上下文按 JSON 字典透传；图片风格不参与提示词风格回退 |
+| 分句 | `language=auto`、`mode=balanced`、`maxSentenceLength=200`、`targetSeconds=6`、`speechRate=1`、`minWords=10`、`maxWords=50` | `split` stage options；发送 8002 前映射到 `SplitRequest.config.sentence_tokenizer/scene`，不得作为会被忽略的顶层扩展字段 |
+| 提示词 | `platform=generic`、`style=realistic`、`creativeLevel=5`（1-10，运营受控默认）、`maxLength=null`（启用时 50-2000）、`negativePrompt<=500`、`numCandidates=1`（1-5）、`autoDetectStyle=true`、`context=''` | `optimize` stage options，字段转换为 prompt-engine snake_case；空 `maxLength/context` 不发送，文本上下文转换为 `{ synopsis }`，对象上下文按 JSON 字典透传；图片风格不参与提示词风格回退 |
 | 图片 | `style=cinematic`、`effect=zoom-in`、Provider/模型可选 | `generate_assets` 与 `compose` |
-| 旁白 | 豆包兼容音色 ID、`speed=1`、`volume=1`、`pitch=0`、`emotion=default` | `generate_assets` 与 `compose`；凭据仍由加密 Provider 管理器持有 |
+| 旁白 | provider/model 绑定的 `voiceId`、`speed=1`、`volume=1`、`pitch=0`（运营受控默认）、`emotion=default` | `generate_assets` 与 `compose`；凭据仍由加密 Provider 管理器持有 |
 | 字幕 | `enabled=false`、Noto Sans SC 字体栈、`size=size3`、`style=style1` | `compose`，兼容字号映射后交给 ffmpeg |
 | BGM | `enabled=false`、`volume=5`（兼容范围 0-10） | 启用且有受控路径时转换为 ffmpeg `0-1` 音量 |
 | 版本/效果 | `generateBase=true`、`generateMerged=true`、`perImageDuration=6`、`transition=fade` | 至少选择一个版本；无旁白场景时使用 `perImageDuration` |
@@ -199,6 +199,83 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 所有运行参数必须是纯 JSON；归一化器只接受白名单字段并在创建 run 之前拒绝非法值。API Key、Access Token 和 Provider Secret 不得写入运行参数、项目历史或结果清单。
 
+### 3.1.5 图片轮播全自动与多语言显示（P1）
+
+以下是本轮任务的产品与验收合同，**不是**外部供应商能力、打包验证或 PR 已成功交付的声明；相应状态必须以实际
+provider 验收、测试和发布证据为准。
+
+`story2video-compose` 是历史、IPC、项目清单和编排使用的稳定机器 ID，**不得改名**。它的产品外显名称必须从 locale
+资源读取：默认中文为“图片轮播”，英文为“Image Carousel”。所有已注册流水线的名称、描述、类别、阶段和状态都必须使用同一套
+locale key；未知内部 ID 只能安全回退为原始 ID，不能以 slug 标题化伪造英文。
+
+| 需求 | 合同 | 验收 |
+|------|------|------|
+| 默认语言 | 默认 `zh`，缺失 key 回退 `en`；切换语言后卡片、详情、历史和阶段清单同步更新 | 中英文渲染测试覆盖所有 pipeline registry ID 与六个 Story2Video 阶段 |
+| 启动动作 | 创作者确认文案与参数后，按钮统一显示“启动流水线”；Story2Video 固定提交 `autoAdvance=true` 与 `checkpointPolicy='none'` | 从 `split` 连续执行到 `completed`、`failed` 或 `needs_user_input`，不得在 optimize/generate_assets/compose/publish 因默认 checkpoint 暂停 |
+| 运行反馈 | 图片轮播只使用“文案拆分、内容增强、画面提示词优化、生成图片与旁白、合成轮播视频、发布（可选）”的条目式阶段清单；显示当前项、完成、跳过、失败或需要处理，**不显示 S2V 百分比进度** | pipeline snapshot 顶层的 `stages` 能准确映射 `completed/running/pending/skipped/failed/needs_user_input`，错误保留可读摘要和取消入口 |
+| 无人工检查点 | 图片轮播不暴露 guided/manual checkpoint、继续或推进操作；其他流水线的通用编排能力不因此删除 | 禁止只隐藏按钮却仍让后端因 `checkpointRequired` 暂停 |
+| 内容政策耗尽 | `needs_user_input` 是不可在原 run 上继续的用户输入状态，不是人工 checkpoint；用户修改文案后必须取消旧运行并新建运行 | 无 resume/advance 路径、无占位图、无 `allowPartialAssets` 静默成功 |
+| 受控默认 | 分句语言默认“自动识别”；音调、并发数和创意强度从图片轮播表单隐藏，只由版本化、可审计、可回滚的受控默认值决定 | 表单不发送用户随意填写的上述工程参数；无有效远程配置时使用本地已测试安全默认值 |
+
+“图片风格”和“提示词风格”不得合并：前者用于图片供应商的最终视觉审美，后者用于提示词优化器的文本表达、组织和指令策略。
+两项必须同时保留并有简短差异说明；不得因枚举名称相似而把其中一项作为另一项的回退值。
+
+### 3.1.6 TTS 音色目录、个人音色与偏好（P1/P2）
+
+创作端不再让用户任意输入“音色 ID”。用户先选择已启用的 TTS provider 与模型，再从与该组合匹配的音色目录选择。
+目录、能力快照和选择偏好都必须存到**当前用户作用域**的本地 SQLite settings；新建运行恢复“用户 + provider + model”的
+合法默认选择，历史项目只读取自己的版本化运行快照，**不得**被上次全局偏好覆盖。
+
+#### 目录、状态、刷新和回退合同
+
+| 数据/状态 | 约束 |
+|------|------|
+| `providerId` / `modelId` / `voiceId` | 三元组唯一；均须与已启用 provider、模型及能力版本匹配 |
+| 内置目录与 adapter 目录 | 优先调用具备能力且已认证的 `ModelProviderManager.callAdapter(providerId, 'listVoices')`；静态内置音色也须规范化入库并带 catalog/version 来源 |
+| SQLite 缓存 | 保存非敏感元数据、catalog/capability 版本和 `syncedAt`；有效缓存不重复请求 provider，显式刷新或失效才重新同步 |
+| `catalogStatus` | 仅可为 `ready`、`cached`、`refreshing`、`stale`、`unavailable` 或 `unsupported`，并向用户说明当前来源与限制 |
+| 刷新失败回退 | 仅可使用仍与 provider/model/capability 匹配的最后一次成功缓存或静态内置目录，并明确为 `stale`/`cached`；没有合法回退时禁用选择并显示错误，禁止伪造列表或接受任意 ID |
+| 默认选择 | 每位用户、每个 provider/model 最多一个默认；音色删除、失效或模型不匹配时清除，选择 provider 默认项或要求用户重新选择 |
+| 持久化禁止项 | 不得保存 API Key、Bearer token、原始 provider 错误体、原始 prompt、音频字节、renderer 文件路径或 data URL |
+
+#### Provider 能力分层与个人音色
+
+| 能力类型 | 用户体验 | 约束 |
+|------|------|------|
+| 内置/可列举音色 | provider/model 选择后显示缓存目录；支持时可显式刷新 | 只调用该 adapter 已实现、已认证且经能力注册的 `listVoices`；失败遵循目录回退合同 |
+| ElevenLabs 用户克隆 | 仅在 capability 数据和专用 adapter 合同均验证后显示“新增克隆音色”；用户可新增、删除、设为默认 | 只有用户明确授权且远端 `cloneVoice` 成功后，可信主进程才把验证后的样本 `Buffer` 写入 owner-scoped 私有 `userData/voice-clone-samples`；SQLite registry 只保存受限相对目录和 `sampleCount` 等最小元数据，不保存源路径、文件名或音频字节。格式、大小、时长、模型、端点和删除语义由该 provider/model 的版本化 capability 数据驱动，不能统一猜测 |
+| Doubao provider personal slot | UI 明确提示用户先到供应商官方控制台创建/管理音色，再点“刷新音色目录”；只有存在官方 API 证据和已验证的 `listVoices` adapter 时才显示并允许选择返回项 | 当前配置和 adapter 的已注册/已验证 TTS 调用合同**不证明**个人槽位已同步到本地；本任务不创建、本地复制或伪造槽位。证据或 adapter 缺失时显示 `unsupported`/`unavailable`，不显示假列表 |
+| 不支持克隆 | 仅可选择内置/本地模型音色，并说明不支持个人音色复制 | 不出现上传入口，不把用户文件伪装为音色 |
+
+新增、删除、默认切换和目录选择都必须以当前用户、provider/model 能力和活动运行引用为边界。克隆样本受控持久化仅发生在
+`consent=true`、远端 `cloneVoice` 成功和可信主进程完成样本校验之后：目录必须是
+`userData/voice-clone-samples/<owner-hash>/<storage-id>`，registry 的 `sampleStorage` 只允许
+`relativeDir` 与 `sampleCount`，不得加入源路径、源文件名、绝对路径、data URL 或样本字节。删除按
+`active → pending → remote_deleted → 本地清理 → 移除 registry` 推进；本地清理失败时保留 `remote_deleted` 供重试，且重试只做本地清理，
+不得重复删除远端音色。删除仍需记录最小化的审计结果并处理活动运行引用；clone 元数据与选择持久化不构成在授权范围外保存样本的授权。
+
+### 3.1.7 图片内容拒绝恢复（P1）
+
+图片 provider 的内容政策拒绝不应使整批任务无解释失败，也不得以占位图伪装为真实生成。系统**仅**对可识别的内容拒绝执行受控恢复：
+结构化 `CONTENT_POLICY` 代码，或与该 provider 明确安全/政策字段对应的严格允许信号。认证、限流、网络、超时、非法配置、空响应和未知
+4xx/5xx 一律不进入内容重写循环。
+
+1. 每个场景独立进行，最多 **5 次总图片生成尝试**（首次加最多 4 次安全化重写）；并发场景之间不得共享计数或 prompt。
+2. 重写器仅消除可能的暴力、性化、仇恨、违法、有害或可识别个人细节，不扩大主题，并保留安全的主题、时代、动作和构图；内容信号不明确或重写失败时立即停止自动尝试。
+3. 每次尝试只持久化场景序号、尝试序号、结果类别、provider/model、提示词版本哈希和非敏感安全审计摘要；UI 与持久化记录都不得展示原始 prompt、密钥或完整 provider 错误体。
+4. 第 5 次仍被明确拒绝时，阶段状态为 `needs_user_input`，显示“可能存在内容风险，请修改文案后重新启动”的友好建议。用户必须取消旧 run，以修改后的文案创建新 run；不得 `resume`/`advance` 原 run，不得生成 ffmpeg 占位图，`allowPartialAssets` 也不得把它静默视为成功。
+
+### 3.1.8 创作端简化、运营配置与需求来源边界（P1）
+
+创作端默认只暴露用户有意义的选择。音调、并发数和创意强度从默认表单隐藏，执行时使用版本化、受控默认值；分句语言默认“自动识别”。
+这些值允许由未来运营配置覆盖，但来源必须可审计、可回滚，并在无法取得有效运营配置时 fail closed 到本地经过测试的安全默认值。
+
+独立运营后台位于 `D:\Data\projects\ops-center`。截至 2026-08-03，未确认 Multi-Publish 与该项目之间已存在可用的
+运行时配置分发 API、鉴权或回滚合同；本任务**不接入** OpsCenter，产品、验证和 PR 状态均不得表述为已联通或已交付。
+后续必须在独立 OpsCenter 任务中定义版本、授权、分发、回滚和端到端验收后才能接入。
+
+本任务的近期对话审计只记录到 **1 条**包含实质需求的用户消息及 **2 条**图像附件标记；不存在可如实归档为 20 条的用户需求。
+用户清单中的第 11 项为空，保持 `TBD`；没有明确文本前，不据此新增功能、数据收集或外部调用。
 ### 3.1.3 双层分句与字幕同步合同
 
 | 层级 | 权威实现 | 输出与降级合同 |
@@ -343,7 +420,7 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 
 > 下列 Phase 1-5 是早期 Remotion/Python 路线的规划记录，已完成的部分不再作为当前待办。
 > `image/remix/gallery/audio/batch` 已明确排除，不再作为 Story2Video 待迁移能力。
-> 当前外部产品缺口只包括音色克隆、旧 orchestrator 会员配额，以及云历史/云分享。已接入的 Provider 仍需在真实
+> 历史基线中的外部产品缺口包括音色克隆、旧 orchestrator 会员配额，以及云历史/云分享。音色目录、克隆和个人槽位的本轮合同不构成已交付声明；已接入的 Provider 仍需在真实
 > 凭据、网络和配额齐全的目标环境完成外部验收。
 > 分段编辑、单段重试、完整旁白、本地项目历史、流式 ZIP 和真实裁剪已经接通；
 > 本地路径操作不等同于云端分享链接。
@@ -404,7 +481,7 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 - [x] 本地播放、复制路径、打开目录和 ZIP 源文件只接受受控 Story2Video 临时区或项目目录；外部保存目录只能由主进程原生保存对话框明确授权。
 - [x] 历史内容在 `contentType=history` 时经过领域增强，富化提示词再进入批量 prompt-engine 优化；完成项目保留 `contentType` 选项。
 - [x] 已选择图片 Provider 时，`dall-e`/Imagen 参数合同有回归测试；ComfyUI 因缺完整输出协议在 S2V 主链 fail-closed。
-- [x] 开发环境真实 `PipelineEngine` 已调用 8002/8013，依次完成六阶段并通过 ffmpeg 解码；默认图片/旁白为明确标记的占位图/静音降级，发布按配置跳过。
+- [x] 开发环境真实 `PipelineEngine` 已调用 8002/8013，依次完成六阶段并通过 ffmpeg 解码；测试/开发 fixture 的明确标记替代物不构成生产成功证据，尤其不得把明确 Content Policy 耗尽、认证、限流或网络失败改写为占位图/静音成功；发布按配置跳过。
 - [ ] 目标安装环境的 8002/8013 sidecar、真实图片/TTS Provider 和真实多平台发布仍需单独验收。
 - [ ] 音色克隆、旧会员配额、云分享和跨设备历史仍需外部能力或产品设计；被排除的五种旧模式不计入缺口。
 
@@ -434,3 +511,14 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 | Remotion API 变更 | 渲染崩溃 | 低 | 锁定版本号 |
 | OpenMontage Python 工具依赖复杂 | 环境配置困难 | 中 | 自动化懒加载 + 错误引导 |
 | AI 服务 API 变更/停服 | 特定功能不可用 | 中 | 多提供商备选 + 降级提示 |
+
+## 图片轮播合同补充（2026-08-04）
+
+- 稳定内部流水线 ID 保持 `story2video-compose`；仅通过 i18n 显示中文“图片轮播”和英文“Image Carousel”。
+- 提交后固定全自动连续执行六阶段，并以阶段清单反馈状态；每个场景的图片内容政策拒绝最多重试 5 次，耗尽进入 `needs_user_input`，不得用占位图伪装成功。
+- 分句语言默认 `auto`；音调、并发数、创意强度采用运营可审计的受控默认值。图片风格与提示词风格是两个独立语义字段，不得合并。
+- OpsCenter（`D:\Data\projects\ops-center`）当前没有已确认租户/音色同步 API，本任务不接入也不写入；未来跨仓库合同须另行定义租户边界、版本、鉴权、失效、回滚和审计，不能臆造 endpoint/字段。
+- Doubao 不在桌面端放置高权限 secret；后端 connector 交付前不显示伪造个人音色列表。
+- 用户清单 item 11 内容为空且最近 20 轮记录不可重建，属于 TBD/审计限制；UE item 15 仅为待用户确认的提案，不代表已实施。
+
+- **用户音色样本归属**：上传、保存、删除、设默认及 owner-scoped userData/SQLite 元数据均属于桌面端前台用户功能；不得移交或写入 OpsCenter。OpsCenter 仅承载音调、并发数、创意强度等运营受控默认值，以及未来后台高权限凭据/目录同步，绝不保存或管理用户音频样本。

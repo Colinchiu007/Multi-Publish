@@ -11,7 +11,7 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
   size: '720x1280',
   contentType: 'general',
   split: Object.freeze({
-    language: 'zh',
+    language: 'auto',
     mode: 'balanced',
     maxSentenceLength: 200,
     targetSeconds: 6,
@@ -87,7 +87,7 @@ const LANGUAGES = new Set(['auto', 'zh', 'en'])
 const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
 const OUTPUT_FORMATS = new Set(['mp4', 'webm'])
 const CONTENT_TYPES = new Set(['general', 'history'])
-const CHECKPOINT_POLICIES = new Set(['guided', 'manual_all', 'auto_noncreative'])
+const CHECKPOINT_POLICIES = new Set(['guided', 'manual_all', 'auto_noncreative', 'none'])
 const STORY2VIDEO_PROMPT_STYLES = new Set([
   'realistic', 'cartoon', 'anime', 'oil_painting', 'watercolor', 'pixel',
   'cyberpunk', 'fantasy', 'photography', '3d_render', 'minimalist', 'abstract',
@@ -298,7 +298,7 @@ function normalizeStory2VideoTextParams(params = {}) {
   const publishInput = objectValue(suppliedConfig.publish)
 
   const split = {
-    language: enumValue(firstDefined(own(splitInput, 'language'), params.language), 'zh', 'split.language', LANGUAGES),
+    language: enumValue(firstDefined(own(splitInput, 'language'), params.language), DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.language, 'split.language', LANGUAGES),
     mode: enumValue(firstDefined(own(splitInput, 'mode'), params.splitMode), 'balanced', 'split.mode', SPLIT_MODES),
     maxSentenceLength: numberValue(own(splitInput, 'maxSentenceLength'), 200, 'split.maxSentenceLength', 20, 1000, true),
     targetSeconds: numberValue(own(splitInput, 'targetSeconds'), 6, 'split.targetSeconds', 1, 60),

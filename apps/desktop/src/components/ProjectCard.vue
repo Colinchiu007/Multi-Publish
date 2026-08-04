@@ -8,7 +8,7 @@
       <div class="project-card-name">{{ project.name || '未命名项目' }}</div>
       <div class="project-card-meta">
         <span class="status-badge" :class="'badge-' + statusClass">{{ statusLabel }}</span>
-        <span v-if="project.pipelineType" class="pipeline-tag">{{ project.pipelineType }}</span>
+        <span v-if="project.pipelineType" class="pipeline-tag">{{ pipelineName }}</span>
       </div>
       <div class="project-card-footer">
         <span class="footer-time">{{ formatTime(project.updatedAt || project.createdAt) }}</span>
@@ -21,7 +21,9 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import { getPipelineName } from '@/i18n/pipeline-labels'
 
 const props = defineProps({
   project: { type: Object, required: true },
@@ -29,6 +31,7 @@ const props = defineProps({
 const emit = defineEmits(['delete'])
 
 const router = useRouter()
+const { t } = useI18n()
 
 const statusMap = {
   draft: { label: '草稿', class: 'draft' },
@@ -55,6 +58,8 @@ const costLabel = computed(() => {
   const map = { low: '低成本', medium: '中成本', high: '高成本' }
   return map[c] || c
 })
+
+const pipelineName = computed(() => getPipelineName(t, props.project.pipelineType))
 
 function formatTime(iso) {
   if (!iso) return ''

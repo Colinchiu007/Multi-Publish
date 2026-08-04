@@ -175,6 +175,7 @@ class VisualTestRunner {
   async _navigateToRoute(route, readySelector, expectedRoute = route, destinationUrl = null) {
     const normalizedBase = this.url.replace(/\/$/, '');
     const expectedHash = '#' + expectedRoute;
+    await this._resetBrowserState();
     await this.page.goto(destinationUrl || `${normalizedBase}/#${route}`, {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
@@ -184,6 +185,20 @@ class VisualTestRunner {
       await this.page.evaluate(async () => {
         if (document.fonts && document.fonts.ready) await document.fonts.ready;
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+    }
+  }
+
+  async _resetBrowserState() {
+    if (this.context && typeof this.context.clearCookies === 'function') {
+      await this.context.clearCookies();
+    }
+    if (this.page && typeof this.page.evaluate === 'function') {
+      const pageUrl = typeof this.page.url === 'function' ? this.page.url() : null;
+      if (pageUrl === 'about:blank') return;
+      await this.page.evaluate(() => {
+        window.localStorage.clear();
+        window.sessionStorage.clear();
       });
     }
   }

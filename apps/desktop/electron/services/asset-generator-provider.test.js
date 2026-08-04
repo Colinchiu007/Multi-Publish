@@ -7,6 +7,7 @@ const path = require('path')
 const { EventEmitter } = require('events')
 
 const { AssetGenerator, buildEdgeTtsScript, isPrivateAddress } = require('./asset-generator')
+const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
 
 const PNG_BYTES = Buffer.from(
   '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489',
@@ -695,6 +696,104 @@ describe('AssetGenerator DNS lookup compatibility', () => {
         code: 0,
         data: { source: 'model-provider', degraded: false },
       })
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('AssetGenerator content-policy image retry', () => {
+  it('retries a strict content-policy rejection with a scene-safe rewrite and records only safe attempt metadata', async () => {
+    const rawPrompt = '不应出现在审计元数据中的原始场景描述'
+    const aiGenerator = {
+      generate: vi.fn()
+        .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation'))
+        .mockResolvedValueOnce({ images: [{ b64_json: PNG_BYTES.toString('base64') }] }),
+    }
+    const { generator, outputDir } = createGenerator(aiGenerator)
+
+    try {
+      const result = await generator.generateImage(rawPrompt, {
+        image_provider: 'local-diffusion',
+        index: 1,
+        runId: 'content-policy-rewrite',
+      })
+
+      expect(result).toMatchObject({
+        code: 0,
+        data: {
+          source: 'model-provider',
+          degraded: false,
+          generationAttempts: [
+            expect.objectContaining({ attempt: 1, outcome: 'content_policy_rejected', sceneNumber: 2 }),
+            expect.objectContaining({ attempt: 2, outcome: 'success', sceneNumber: 2 }),
+          ],
+        },
+      })
+      expect(aiGenerator.generate).toHaveBeenCalledTimes(2)
+      expect(aiGenerator.generate.mock.calls[1][2].prompt).toContain(rawPrompt)
+      expect(JSON.stringify(result.data.generationAttempts)).not.toContain(rawPrompt)
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not retry a provider rate-limit failure or replace it with a placeholder', async () => {
+    const aiGenerator = {
+      generate: vi.fn(async () => {
+        throw new ProviderError(ERROR_CODES.RATE_LIMITED, 'rate limited')
+      }),
+    }
+    const { generator, outputDir } = createGenerator(aiGenerator)
+
+    try {
+      const result = await generator.generateImage('普通场景', {
+        image_provider: 'local-diffusion',
+        index: 0,
+        runId: 'rate-limit-no-retry',
+      })
+
+      expect(result.code).toBeLessThan(0)
+      expect(result).not.toHaveProperty('needsUserInput', true)
+      expect(aiGenerator.generate).toHaveBeenCalledTimes(1)
+      expect(result.data.generationAttempts).toEqual([
+        expect.objectContaining({ attempt: 1, outcome: 'failed', category: 'rate' }),
+      ])
+      expect(fs.readdirSync(path.join(outputDir, 'rate-limit-no-retry'))).toEqual([])
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true })
+    }
+  })
+
+  it('returns needsUserInput after five content-policy rejections without generating a placeholder image', async () => {
+    const aiGenerator = {
+      generate: vi.fn(async () => {
+        throw new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation')
+      }),
+    }
+    const { generator, outputDir } = createGenerator(aiGenerator)
+
+    try {
+      const result = await generator.generateImage('需要用户改写的场景', {
+        image_provider: 'local-diffusion',
+        index: 2,
+        runId: 'content-policy-exhausted',
+      })
+
+      expect(aiGenerator.generate).toHaveBeenCalledTimes(5)
+      expect(result).toMatchObject({
+        code: -1,
+        needsUserInput: true,
+        checkpoint: {
+          type: 'needs_user_input',
+          reason: 'content_policy',
+          sceneIndex: 2,
+          sceneNumber: 3,
+          attempts: 5,
+        },
+      })
+      expect(result.data.generationAttempts).toHaveLength(5)
+      expect(fs.readdirSync(path.join(outputDir, 'content-policy-exhausted'))).toEqual([])
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true })
     }

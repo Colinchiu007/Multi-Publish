@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from 'vitest'
 
 __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
-const { BaseAdapter, NotImplementedError, ADAPTER_VERSION } = require('./_base/base')
+const { BaseAdapter, NotImplementedError, ADAPTER_VERSION, KNOWN_METHODS } = require('./_base/base')
 
 describe('BaseAdapter — P3.0 接口契约', () => {
   describe('ADAPTER_VERSION', () => {
@@ -75,6 +75,8 @@ describe('BaseAdapter — P3.0 接口契约', () => {
       const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
       expect(adapter.supports('chatCompletion')).toBe(false)
       expect(adapter.supports('synthesize')).toBe(false)
+      expect(adapter.supports('cloneVoice')).toBe(false)
+      expect(adapter.supports('deleteVoice')).toBe(false)
       expect(adapter.supports('generateImage')).toBe(false)
     })
 
@@ -82,10 +84,14 @@ describe('BaseAdapter — P3.0 接口契约', () => {
       class TestAdapter extends BaseAdapter {
         chatCompletion() { return 'ok' }
         transcribe() { return 'ok' }
+        cloneVoice() { return 'ok' }
+        deleteVoice() { return 'ok' }
       }
       const adapter = new TestAdapter({ id: 'test', apiKey: 'sk-test' })
       expect(adapter.supports('chatCompletion')).toBe(true)
       expect(adapter.supports('transcribe')).toBe(true)
+      expect(adapter.supports('cloneVoice')).toBe(true)
+      expect(adapter.supports('deleteVoice')).toBe(true)
       expect(adapter.supports('synthesize')).toBe(false)
     })
   })
@@ -118,10 +124,12 @@ describe('BaseAdapter — P3.0 接口契约', () => {
       expect(() => adapter.embeddings()).toThrow(NotImplementedError)
     })
 
-    it('TTS 方法（synthesize/listVoices）默认抛 NotImplementedError', () => {
+    it('TTS 方法（synthesize/listVoices/cloneVoice/deleteVoice）默认抛 NotImplementedError', () => {
       const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
       expect(() => adapter.synthesize()).toThrow(NotImplementedError)
       expect(() => adapter.listVoices()).toThrow(NotImplementedError)
+      expect(() => adapter.cloneVoice()).toThrow(NotImplementedError)
+      expect(() => adapter.deleteVoice()).toThrow(NotImplementedError)
     })
 
     it('语音识别方法 transcribe 默认抛 NotImplementedError', () => {
@@ -144,6 +152,12 @@ describe('BaseAdapter — P3.0 接口契约', () => {
 
   // ─── P3.0 质量节拍补跑：边界场景 ───
   describe('P3.0 补跑：supports() 边界', () => {
+    it('KNOWN_METHODS 注册克隆音色方法且没有重复项', () => {
+      expect(KNOWN_METHODS).toContain('cloneVoice')
+      expect(KNOWN_METHODS).toContain('deleteVoice')
+      expect(new Set(KNOWN_METHODS).size).toBe(KNOWN_METHODS.length)
+    })
+
     it('supports 传入非 KNOWN_METHODS 方法返回 false', () => {
       const adapter = new BaseAdapter({ id: 'test', apiKey: 'sk-test' })
       expect(adapter.supports('unknownMethod')).toBe(false)

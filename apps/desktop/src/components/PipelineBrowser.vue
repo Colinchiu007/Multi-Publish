@@ -18,15 +18,16 @@
         v-for="p in pipelines"
         :key="p.name"
         class="pipeline-card"
+        :data-pipeline-id="p.name"
         :class="[p.stability || 'experimental']"
         @click="$emit('select', p)"
       >
         <div class="card-header">
-          <span class="badge" :class="p.category">{{ p.category }}</span>
+          <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
           <span class="stability-dot" :class="p.stability || 'experimental'" :title="'稳定性: ' + (p.stability || 'experimental')"></span>
         </div>
-        <h3 class="card-title">{{ humanName(p.name) }}</h3>
-        <p class="card-desc">{{ p.description ? p.description.substring(0, 120) + (p.description.length > 120 ? "..." : "") : "暂无描述" }}</p>
+        <h3 class="card-title">{{ pipelineName(p.name) }}</h3>
+        <p class="card-desc">{{ pipelineDescription(p.name, p.description) }}</p>
         <div class="card-footer">
           <span class="version">v{{ p.version || "?" }}</span>
         </div>
@@ -36,6 +37,12 @@
 </template>
 
 <script>
+import {
+  getPipelineCategory,
+  getPipelineDescription,
+  getPipelineName,
+} from '@/i18n/pipeline-labels'
+
 export default {
   name: "PipelineBrowser",
   emits: ["select"],
@@ -64,11 +71,21 @@ export default {
     }
   },
   methods: {
-    humanName(name) {
-      if (!name) return "";
-      return name
-        .replace(/-/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase());
+    translate(key) {
+      return typeof this.$t === 'function' ? this.$t(key) : key
+    },
+    pipelineName(name) {
+      return getPipelineName((key) => this.translate(key), name)
+    },
+    pipelineCategory(category) {
+      return getPipelineCategory((key) => this.translate(key), category)
+    },
+    pipelineDescription(name, fallback) {
+      const description = getPipelineDescription((key) => this.translate(key), name)
+      const value = description && description !== name ? description : (fallback || '')
+      return value
+        ? value.substring(0, 120) + (value.length > 120 ? '...' : '')
+        : this.translate('pipelines.descriptions.unavailable')
     },
   },
 };

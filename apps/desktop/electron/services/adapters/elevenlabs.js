@@ -32,6 +32,79 @@ const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider
 const DEFAULT_BASE_URL = 'https://api.elevenlabs.io'
 const DEFAULT_TIMEOUT = 60000
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128'
+const MAX_CLONE_NAME_LENGTH = 128
+const MAX_SAMPLE_FILE_NAME_LENGTH = 255
+const MAX_SAMPLE_COUNT = 5
+const MAX_SAMPLE_BYTES = 10 * 1024 * 1024
+const MAX_TOTAL_SAMPLE_BYTES = 25 * 1024 * 1024
+const SAFE_AUDIO_CONTENT_TYPES = new Set([
+  'audio/aac',
+  'audio/flac',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/wav',
+  'audio/webm',
+])
+
+function isPlainRecord (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function hasOnlyAllowedKeys (value, allowedKeys) {
+  return Object.keys(value).every(key => allowedKeys.has(key))
+}
+
+function safeCloneName (value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (!normalized || normalized.length > MAX_CLONE_NAME_LENGTH || /[\u0000-\u001f\u007f]/.test(normalized)) return null
+  return normalized
+}
+
+function safeFileName (value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (!normalized || normalized.length > MAX_SAMPLE_FILE_NAME_LENGTH || /[\\/:\u0000-\u001f\u007f]/.test(normalized)) return null
+  if (normalized === '.' || normalized === '..') return null
+  return normalized
+}
+
+function safeVoiceId (value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (!normalized || normalized.length > 256 || !/^[A-Za-z0-9_-]+$/.test(normalized)) return null
+  return normalized
+}
+
+function normalizeCloneSample (value) {
+  if (!isPlainRecord(value) || !hasOnlyAllowedKeys(value, new Set(['blob', 'fileName', 'contentType']))) return null
+  if (typeof Blob !== 'function' || !(value.blob instanceof Blob) || value.blob.size === 0 || value.blob.size > MAX_SAMPLE_BYTES) return null
+  const fileName = safeFileName(value.fileName)
+  if (!fileName || !SAFE_AUDIO_CONTENT_TYPES.has(value.contentType)) return null
+  if (value.blob.type && value.blob.type !== value.contentType) return null
+  return { blob: value.blob, fileName, contentType: value.contentType }
+}
+
+function normalizeCloneRequest (value) {
+  if (!isPlainRecord(value) || !hasOnlyAllowedKeys(value, new Set(['name', 'samples']))) return null
+  const name = safeCloneName(value.name)
+  if (!name || !Array.isArray(value.samples) || value.samples.length === 0 || value.samples.length > MAX_SAMPLE_COUNT) return null
+
+  let totalBytes = 0
+  const samples = []
+  for (const sample of value.samples) {
+    const normalized = normalizeCloneSample(sample)
+    if (!normalized) return null
+    totalBytes += normalized.blob.size
+    if (totalBytes > MAX_TOTAL_SAMPLE_BYTES) return null
+    samples.push(normalized)
+  }
+
+  return { name, samples }
+}
 
 class ElevenLabsAdapter extends BaseAdapter {
   /**
@@ -86,7 +159,8 @@ class ElevenLabsAdapter extends BaseAdapter {
    */
   async _request(path, opts = {}, queryParams = {}) {
     const url = this._url(path, queryParams)
-    const headers = { ...this._headers(), ...(opts.headers || {}) }
+    const headers = Object.fromEntries(Object.entries({ ...this._headers(), ...(opts.headers || {}) })
+      .filter(([, value]) => value !== undefined && value !== null))
 
     try {
       const response = await fetch(url, {
@@ -209,6 +283,86 @@ class ElevenLabsAdapter extends BaseAdapter {
     } catch (e) {
       return { success: false, error: e }
     }
+  }
+
+  /**
+   * 返回支持的能力，规避基础注册表中重复的 deleteVoice 项。
+   */
+  capabilities() {
+    return [...new Set(super.capabilities())]
+  }
+
+  /**
+   * POST /v1/voices/add — 使用受信 Blob 克隆声音
+   *
+   * @param {object} params
+   * @param {string} params.name - 克隆声音的名称
+   * @param {Array<{blob: Blob, fileName: string, contentType: string}>} params.samples - 主进程转换后的音频样本
+   * @returns {Promise<{id: string, name: string}>}
+   */
+  async cloneVoice(params) {
+    const request = normalizeCloneRequest(params)
+    if (!request) {
+      throw new ProviderError(
+        ERROR_CODES.INVALID_CONFIG,
+        'cloneVoice requires { name, samples: [{ blob: Blob, fileName, contentType }] }',
+        { providerId: this.id }
+      )
+    }
+
+    const form = new FormData()
+    form.append('name', request.name)
+    for (const sample of request.samples) {
+      const file = new Blob([sample.blob], { type: sample.contentType })
+      form.append('files', file, sample.fileName)
+    }
+
+    const response = await this._request('/v1/voices/add', {
+      method: 'POST',
+      headers: { 'Content-Type': undefined },
+      body: form,
+    })
+
+    let body
+    try {
+      body = await response.json()
+    } catch (_) {
+      throw new ProviderError(
+        ERROR_CODES.PROVIDER_ERROR,
+        'ElevenLabs returned an invalid clone voice response',
+        { providerId: this.id }
+      )
+    }
+
+    const responseBody = isPlainRecord(body) ? body : null
+    const id = responseBody ? safeVoiceId(responseBody.voice_id) : null
+    const providerName = responseBody ? safeCloneName(responseBody.name) : null
+    if (!id) {
+      throw new ProviderError(
+        ERROR_CODES.PROVIDER_ERROR,
+        'ElevenLabs returned an invalid clone voice response',
+        { providerId: this.id }
+      )
+    }
+
+    return { id, name: providerName || request.name }
+  }
+
+  /**
+   * DELETE /v1/voices/{voice_id} — 删除克隆声音
+   *
+   * @param {string} voiceId
+   * @returns {Promise<void>}
+   */
+  async deleteVoice(voiceId) {
+    const id = safeVoiceId(voiceId)
+    if (!id) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'voiceId is required and must be a safe voice identifier', {
+        providerId: this.id,
+      })
+    }
+
+    await this._request(`/v1/voices/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 }
 
