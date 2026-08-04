@@ -40,7 +40,9 @@
 
 ## 验证结论
 
-- 受影响测试：22 个文件、367 个用例通过。
+- 受影响测试集：22 个文件、367 个用例通过；桌面完整 workspace：354 个测试文件、6065 个用例通过。
+- 复现命令均从 `apps/desktop` 执行并以退出码 0 结束：`npx vitest run --config vitest.config.js src/views/ProjectLibrary.test.js electron/services/asset-generator.test.js electron/services/tts-voice-clone-service.test.js`；`npm test`。
+- 根目录 CI 等价命令 `npm run test --workspaces --if-present` 以退出码 0 结束；包含桌面、AI tester、API、Remotion、RPA、shared-utils 和 Story2Video workspace。
 - preload sandbox true/false、Vue build、像素视觉 17/17、目标文件 ESLint、Windows QM-1 均通过。
 - 最终打包窗口可见，`window.electronAPI` 存在，TTS capability 在 public license 下正确拒绝且不崩溃。
 - ASAR 解包后真实 require `@multi-publish/rpa-engine` 成功；媒体资源和 `resources/playwright-browsers/chromium-1228` 均存在。
@@ -48,6 +50,41 @@
 ## 结论
 
 本地审查无未关闭 Critical；外部双模型审查因环境不可用而保持 `UNAVAILABLE`，交付时必须如实披露。变更可进入提交/PR 阶段，但 CI 仍是最终合并门禁。
+
+## Quality Gate 失败的 QM-5 反思（2026-08-03）
+
+### 第一性原因
+
+远端 Gate 4 暴露了三类测试合同问题：
+
+1. `ProjectCard.vue` 已依赖 `useI18n()`，但 `ProjectLibrary.test.js` 的挂载 helper 没有安装 i18n 插件。
+2. `asset-generator.test.js` 把 Edge TTS 参数数组的最后一项误当成输出路径；当前实现按 `script、文本、音色、输出路径、rate、pitch` 顺序传参。
+3. TTS 克隆两项失败只在 workspace 全量 runner 中出现，单文件串行和三次重复均通过；业务实现的补偿删除、`remote_deleted` 重试状态和 owner 隔离未复现回归。
+
+### 测试逃逸链
+
+1. 旧的 ProjectLibrary 测试未随组件新增依赖更新，单组件测试因自身安装了 i18n 而未暴露问题。
+2. AssetGenerator 安全测试只验证了输出路径语义，却使用了脆弱的“最后一个参数”索引；新增速率/音调参数后没有同步更新断言。
+3. PR 前只运行了受影响的新测试，没有用与 CI 相同的 workspace runner 复跑完整桌面测试；因此全量 runner 的 TTS 时序/模块状态敏感性未提前暴露。
+
+### 系统性漏洞
+
+- Vue 测试缺少统一的 `mount` 插件合同，导致组件依赖变更需要逐文件人工同步。
+- CLI/子进程安全测试按参数位置断言，未按稳定业务语义断言。
+- 全量 workspace 测试与单文件测试的证据没有在发布前形成双层矩阵。
+
+### 修复与回归保护
+
+- `ProjectLibrary.test.js` 使用统一 `mountProjectLibrary()` 安装真实 `@/i18n` 实例，10/10 通过且无 unhandled error。
+- `asset-generator.test.js` 按 `tts_0000.mp3` 输出路径模式查找参数，再验证安全 run id、无路径穿越和文件名合同。
+- TTS clone test 在桌面配置下串行重复三次，22/22 用例每次通过；业务补偿逻辑保持 fail-closed，不用放宽断言掩盖失败。
+- 三个受影响测试文件合计 40/40 通过；随后仍需完成完整 desktop workspace 和远端 Quality Gate 复跑。
+
+### 预防措施
+
+1. 新增 Vue composable/plugin 依赖时，测试 helper 必须集中提供真实插件并补导出完整性断言。
+2. 子进程/IPC 测试按命名参数或业务路径匹配，禁止依赖“最后一项参数”等位置性假设。
+3. PR 合入前同时运行受影响测试、完整 `apps/desktop` workspace 测试和远端必需门禁；任一 Quality Gate 失败都必须记录根因、逃逸链和回归保护。
 ## GUI CI 失败的 QM-5 反思（2026-08-03）
 
 ### 第一性原因
