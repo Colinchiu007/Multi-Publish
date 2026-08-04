@@ -9,7 +9,7 @@ const { VisualTestRunner } = require('../test-runner');
 
 const pixelTests = [
   { name: 'home-baseline', route: '/', waitFor: '.cohere-main .page-title:has-text("社媒管家")' },
-  { name: 'accounts-list', route: '/accounts', waitFor: '.yixiaoer-workspace .page-title:has-text("账号管理")' },
+  { name: 'accounts-list', route: '/accounts', waitFor: '.yixiaoer-workspace .accounts-page' },
   // 发布目标由 IPC 异步加载；等待平台选项，避免在空列表状态截图。
   { name: 'publish-form', route: '/publish', waitFor: '.yixiaoer-workspace .target-selector [data-testid^="platform-"]' },
   { name: 'publish-history', route: '/publish/history', waitFor: '.yixiaoer-workspace .publish-history-page h1:has-text("发布记录")' },

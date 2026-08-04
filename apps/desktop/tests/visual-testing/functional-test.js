@@ -21,7 +21,7 @@ function hashUrl(route) {
 
 const ROUTE_READY_SELECTORS = {
   '/': '.cohere-main .page-title:has-text("社媒管家")',
-  '/accounts': '.yixiaoer-workspace .page-title:has-text("账号管理")',
+  '/accounts': '.yixiaoer-workspace .accounts-page',
   '/publish': '.yixiaoer-workspace .page-title:has-text("一键发布")',
   '/collection': '.cohere-main .page-title:has-text("内容采集")',
   '/monitor': '.cohere-main .page-title:has-text("分屏监控")',
