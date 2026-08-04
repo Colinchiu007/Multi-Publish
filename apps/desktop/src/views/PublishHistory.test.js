@@ -7,9 +7,13 @@ import path from 'node:path'
 const historyListMock = vi.fn()
 const draftListMock = vi.fn()
 const pushMock = vi.fn()
+const historyGetMock = vi.fn()
+const retryTaskMock = vi.fn()
 
 vi.mock('@/api/publisher', () => ({
   historyList: (...args) => historyListMock(...args),
+  historyGet: (...args) => historyGetMock(...args),
+  retryTask: (...args) => retryTaskMock(...args),
   draftList: (...args) => draftListMock(...args),
 }))
 
@@ -57,6 +61,8 @@ describe('PublishHistory', () => {
         }],
       },
     })
+    historyGetMock.mockReset().mockResolvedValue({ code: 0, data: {} })
+    retryTaskMock.mockReset().mockResolvedValue({ code: 0 })
     draftListMock.mockReset().mockResolvedValue({
       code: 0,
       data: [{ id: 'draft-1', title: '待完成草稿', created_at: '2026-07-23T08:00:00.000Z' }],
@@ -138,6 +144,41 @@ describe('PublishHistory', () => {
     expect(historyListMock).toHaveBeenNthCalledWith(2, { limit: 50, offset: 1 })
     expect(wrapper.findAll('.record-card')).toHaveLength(2)
     expect(wrapper.text()).toContain('第二页')
+  })
+
+
+  it('平台和时间筛选与蚁小二工具栏一致', async () => {
+    historyListMock.mockResolvedValue({ code: 0, data: { records: [
+      { id: 'today', title: '今天记录', platform: 'zhihu', status: 'success', timestamp: new Date().toISOString() },
+      { id: 'old', title: '旧记录', platform: 'weibo', status: 'success', timestamp: '2020-01-01T00:00:00.000Z' },
+    ] } })
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+    await wrapper.get('[data-testid="platform-filter"]').setValue('zhihu')
+    expect(wrapper.findAll('.record-card')).toHaveLength(1)
+    await wrapper.get('[data-testid="platform-filter"]').setValue('')
+    await wrapper.get('[data-testid="date-filter"]').setValue('today')
+    expect(wrapper.findAll('.record-card')).toHaveLength(1)
+    expect(wrapper.text()).toContain('今天记录')
+  })
+
+  it('记录详情弹窗读取历史详情，失败记录支持重试', async () => {
+    historyGetMock.mockResolvedValue({ code: 0, data: { description: '详情正文' } })
+    retryTaskMock.mockResolvedValue({ code: 0 })
+    historyListMock.mockResolvedValue({ code: 0, data: { records: [{ id: 'failed-1', taskId: 'task-1', title: '失败任务', platform: 'zhihu', status: 'failed' }] } })
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+    await wrapper.get('[data-testid="detail-failed-1"]').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(historyGetMock).toHaveBeenCalledWith('failed-1')
+    expect(wrapper.get('.record-detail-modal').text()).toContain('详情正文')
+    await wrapper.get('[data-testid="close-record-detail"]').trigger('click')
+    await wrapper.get('[data-testid="retry-failed-1"]').trigger('click')
+    await nextTick()
+    expect(retryTaskMock).toHaveBeenCalledWith('task-1')
   })
 
   it('列表展示发布人、内容属性和完整统计字段', async () => {

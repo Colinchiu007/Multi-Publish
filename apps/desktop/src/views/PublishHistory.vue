@@ -110,6 +110,16 @@
               <option value="immediate">立即发布</option>
               <option value="scheduled">定时发布</option>
             </select>
+            <select v-model="platformFilter" data-testid="platform-filter" aria-label="平台筛选">
+              <option value="">全部平台</option>
+              <option v-for="platform in platformOptions" :key="platform" :value="platform">{{ platformName(platform) }}</option>
+            </select>
+            <select v-model="dateFilter" data-testid="date-filter" aria-label="时间筛选">
+              <option value="">全部时间</option>
+              <option value="today">今天</option>
+              <option value="7d">最近 7 天</option>
+              <option value="30d">最近 30 天</option>
+            </select>
           </div>
         </template>
         <div v-else class="selection-toolbar">
@@ -171,6 +181,10 @@
           <div class="record-main">
             <div class="record-title-row">
               <h2>{{ recordTitle(record) }}</h2>
+              <div class="record-actions">
+                <button type="button" class="record-action" :data-testid="`detail-${record.id}`" @click="openRecord(record)">详情</button>
+                <button v-if="normalizedStatusGroup(record) === 'failed'" type="button" class="record-action retry" :data-testid="`retry-${record.id}`" @click="retryRecord(record)">重试</button>
+              </div>
             </div>
             <div class="record-meta">
               <span><User />{{ publisherName(record) }}</span>
@@ -236,6 +250,23 @@
         </article>
       </div>
     </section>
+    <div v-if="selectedRecord" class="record-detail-backdrop" role="presentation" @click.self="closeRecordDetail">
+      <section class="record-detail-modal" role="dialog" aria-modal="true" aria-labelledby="record-detail-title">
+        <header class="record-detail-header">
+          <div><span class="record-detail-eyebrow">发布详情</span><h2 id="record-detail-title">{{ recordTitle(selectedRecord) }}</h2></div>
+          <button type="button" class="record-detail-close" data-testid="close-record-detail" aria-label="关闭详情" @click="closeRecordDetail">×</button>
+        </header>
+        <div v-if="detailLoading" class="record-detail-state">正在加载详情...</div>
+        <div v-else-if="detailError" class="record-detail-state state-error">{{ detailError }}</div>
+        <dl v-else class="record-detail-grid">
+          <div><dt>发布人</dt><dd>{{ publisherName(selectedRecord) }}</dd></div>
+          <div><dt>平台</dt><dd>{{ platformName(selectedRecord.platform) }}</dd></div>
+          <div><dt>状态</dt><dd>{{ statusLabel(selectedRecord) }}</dd></div>
+          <div><dt>发布时间</dt><dd>{{ formatTime(selectedRecord.timestamp || selectedRecord.createdAt || selectedRecord.publishedAt) }}</dd></div>
+          <div class="record-detail-content"><dt>内容摘要</dt><dd>{{ selectedRecord.content || selectedRecord.description || '暂无内容摘要' }}</dd></div>
+        </dl>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -243,7 +274,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { CirclePlus, Clock, Close, Delete, Download, Grid, List, Operation, Search, User } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import { draftList, historyList } from '@/api/publisher'
+import { draftList, historyGet, historyList, retryTask } from '@/api/publisher'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 
 const router = useRouter()
@@ -265,13 +296,20 @@ const contentTypeFilter = ref('')
 const statusFilter = ref('')
 const publishModeFilter = ref('')
 const viewMode = ref('list')
+const platformFilter = ref('')
+const dateFilter = ref('')
+const selectedRecord = ref(null)
+const detailLoading = ref(false)
+const detailError = ref('')
+const actionMessage = ref('')
 const PAGE_SIZE = 50
 let pendingFilterLoad = null
 const loadedPageSignatures = new Set()
 
 const publisherOptions = computed(() => [...new Set(records.value.map(publisherName))].sort((a, b) => a.localeCompare(b, 'zh-CN')))
+const platformOptions = computed(() => [...new Set(records.value.map(record => String(record?.platform || '')).filter(Boolean))].sort())
 const hasActiveFilters = computed(() => Boolean(
-  searchQuery.value || publisherFilter.value || contentTypeFilter.value || statusFilter.value || publishModeFilter.value,
+  searchQuery.value || publisherFilter.value || contentTypeFilter.value || statusFilter.value || publishModeFilter.value || platformFilter.value || dateFilter.value,
 ))
 const filteredRecords = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -287,6 +325,8 @@ const filteredRecords = computed(() => {
     if (contentTypeFilter.value && contentTypeValue(record) !== contentTypeFilter.value) return false
     if (statusFilter.value && normalizedStatusGroup(record) !== statusFilter.value) return false
     if (publishModeFilter.value && publishModeValue(record) !== publishModeFilter.value) return false
+    if (platformFilter.value && String(record?.platform || '') !== platformFilter.value) return false
+    if (dateFilter.value && !matchesDateFilter(record, dateFilter.value)) return false
     return true
   })
 })
@@ -397,7 +437,7 @@ async function loadRemainingRecordsForFilters () {
 }
 
 watch(
-  [searchQuery, publisherFilter, contentTypeFilter, statusFilter, publishModeFilter],
+  [searchQuery, publisherFilter, contentTypeFilter, statusFilter, publishModeFilter, platformFilter, dateFilter],
   () => {
     if (hasActiveFilters.value) void loadRemainingRecordsForFilters()
   },
@@ -463,6 +503,8 @@ function clearFilters () {
   contentTypeFilter.value = ''
   statusFilter.value = ''
   publishModeFilter.value = ''
+  platformFilter.value = ''
+  dateFilter.value = ''
 }
 
 function platformName (platform) {
@@ -471,6 +513,50 @@ function platformName (platform) {
 
 function platformIcon (platform) {
   return PLATFORM_ICONS[platform] || '•'
+}
+
+function matchesDateFilter (record, filter) {
+  const value = new Date(record?.timestamp || record?.createdAt || record?.publishedAt).getTime()
+  if (!Number.isFinite(value)) return false
+  const now = Date.now()
+  const day = 24 * 60 * 60 * 1000
+  if (filter === 'today') return new Date(value).toDateString() === new Date(now).toDateString()
+  if (filter === '7d') return value >= now - 7 * day
+  if (filter === '30d') return value >= now - 30 * day
+  return true
+}
+
+async function openRecord (record) {
+  selectedRecord.value = record
+  detailLoading.value = true
+  detailError.value = ''
+  try {
+    const result = await historyGet(record.id)
+    if (result?.code === 0 && result.data) selectedRecord.value = { ...record, ...result.data }
+    else if (result?.message) detailError.value = result.message
+  } catch {
+    detailError.value = '详情加载失败，请稍后重试'
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function closeRecordDetail () {
+  selectedRecord.value = null
+  detailError.value = ''
+}
+
+async function retryRecord (record) {
+  const taskId = record?.taskId || record?.id
+  if (!taskId) return
+  actionMessage.value = ''
+  try {
+    const result = await retryTask(taskId)
+    actionMessage.value = result?.code === 0 ? '已重新提交失败任务' : (result?.message || '重试失败')
+    if (result?.code === 0) await loadRecords()
+  } catch {
+    actionMessage.value = '重试失败，请稍后再试'
+  }
 }
 
 function recordTitle (record) {
@@ -864,4 +950,24 @@ onMounted(loadRecords)
   .record-preview { width: 68px; height: 60px; flex-basis: 68px; }
   .record-meta { gap: 6px 10px; }
 }
+</style>
+
+<style scoped>
+.record-actions { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.record-action { min-height: 26px; padding: 2px 8px; border: 1px solid #e5e7ef; border-radius: 5px; background: #fff; color: #68708b; font-size: 11px; cursor: pointer; }
+.record-action:hover { border-color: #5048e5; color: #5048e5; }
+.record-action.retry { color: #c43d4d; }
+.record-detail-backdrop { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 24px; background: rgba(25, 28, 48, .32); }
+.record-detail-modal { width: min(640px, 100%); max-height: min(720px, 90vh); overflow: auto; border-radius: 14px; background: #fff; box-shadow: 0 18px 60px rgba(23, 30, 65, .24); }
+.record-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border-bottom: 1px solid #edf0f7; }
+.record-detail-eyebrow { color: #8b92a7; font-size: 12px; }
+.record-detail-header h2 { margin: 4px 0 0; color: #20243e; font-size: 18px; }
+.record-detail-close { width: 30px; height: 30px; border: 0; border-radius: 50%; background: #f4f5fa; color: #68708b; font-size: 22px; cursor: pointer; }
+.record-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0; padding: 24px; }
+.record-detail-grid > div { min-width: 0; border-radius: 8px; padding: 12px; background: #f8f9fc; }
+.record-detail-grid dt { color: #8b92a7; font-size: 11px; }
+.record-detail-grid dd { margin: 5px 0 0; color: #252a45; font-size: 13px; }
+.record-detail-content { grid-column: 1 / -1; }
+.record-detail-state { padding: 44px 24px; color: #68708b; text-align: center; }
+@media (max-width: 640px) { .record-detail-grid { grid-template-columns: 1fr; } .record-detail-content { grid-column: auto; } .record-title-row { align-items: flex-start; flex-direction: column; } }
 </style>

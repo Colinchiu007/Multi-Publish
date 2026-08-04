@@ -189,6 +189,27 @@ export const useAccountStore = defineStore('accounts', () => {
     groups.value = groups.value.filter(g => g.id !== groupId)
     saveGroups()
   }
+  function renameGroup(groupId, name) {
+    const normalizedName = String(name || '').trim()
+    const group = groups.value.find(item => item.id === groupId)
+    if (!group || !normalizedName) return false
+    if (groups.value.some(item => item.id !== groupId && item.name === normalizedName)) return false
+    group.name = normalizedName
+    saveGroups()
+    return true
+  }
+  function setGroupPlatform(groupId, platformFilter) {
+    const group = groups.value.find(item => item.id === groupId)
+    if (!group) return false
+    const normalizedPlatform = platformFilter || null
+    const validIds = new Set(accounts.value
+      .filter(account => !normalizedPlatform || account.platform === normalizedPlatform)
+      .map(account => account.id))
+    group.platformFilter = normalizedPlatform
+    group.accountIds = (group.accountIds || []).filter(accountId => validIds.has(accountId))
+    saveGroups()
+    return true
+  }
   function getGroupAccounts(groupId) {
     const group = groups.value.find(g => g.id === groupId)
     if (!group) return []
@@ -296,8 +317,10 @@ export const useAccountStore = defineStore('accounts', () => {
     await load()
     return { success, failed }
   }
-  async function batchSetStatus(status) {
-    const ids = Array.from(selectedIds.value)
+  async function batchSetStatus(status, accountIds) {
+    const ids = Array.isArray(accountIds)
+      ? Array.from(new Set(accountIds)).filter(id => selectedIds.value.has(id))
+      : Array.from(selectedIds.value)
     let success = 0, failed = 0
     for (const id of ids) {
       try {
@@ -330,7 +353,7 @@ export const useAccountStore = defineStore('accounts', () => {
     accounts, groups, favoriteIds, loading, error, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
     byPlatform, accountsBeforePlatformFilter, filteredAccounts, groupedByPlatform,
     load, loadGroups, loadFavorites, getDefault, setDefault, renameAccount,
-    createGroup, deleteGroup, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,
+    createGroup, deleteGroup, renameGroup, setGroupPlatform, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,
     isFavorite, toggleFavorite,
     toggleSelect, selectAll, clearSelection, batchDelete, batchSetStatus,
   }

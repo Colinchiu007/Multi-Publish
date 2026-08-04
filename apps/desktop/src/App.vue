@@ -1,16 +1,26 @@
 <template>
-  <div>
+  <div class="app-root">
     <OfflineIndicator />
-    <AppNavbar @open-settings="showSettingsDialog = true" />
 
-    <!-- 主体 -->
-    <div class="cohere-app-body">
-      <AppSidebar />
-      <!-- 主内容 -->
-      <main class="cohere-main">
+    <template v-if="isYixiaoerWorkspace">
+      <YixiaoerModuleNav />
+      <main class="yixiaoer-workspace" data-testid="yixiaoer-workspace">
         <router-view />
       </main>
-    </div>
+    </template>
+
+    <template v-else>
+      <AppNavbar @open-settings="showSettingsDialog = true" />
+
+      <!-- 主体 -->
+      <div class="cohere-app-body">
+        <AppSidebar />
+        <!-- 主内容 -->
+        <main class="cohere-main">
+          <router-view />
+        </main>
+      </div>
+    </template>
 
     <!-- 更新通知（弹窗 + Toast） -->
     <UpdateNotification />
@@ -23,17 +33,19 @@
 <script setup>
 import AppNavbar from '@/layouts/AppNavbar.vue'
 import AppSidebar from '@/layouts/AppSidebar.vue'
+import YixiaoerModuleNav from '@/layouts/YixiaoerModuleNav.vue'
 import OfflineIndicator from '@/components/OfflineIndicator.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useLicenseStore } from '@/stores/license'
 import { useIdentityStore } from '@/stores/identity'
 // eslint-disable-next-line no-unused-vars
 import TrialBanner from '@/components/TrialBanner.vue'
 
 const router = useRouter()
+const route = useRoute()
 const licenseStore = useLicenseStore()
 const identityStore = useIdentityStore()
 // eslint-disable-next-line no-unused-vars
@@ -41,6 +53,12 @@ const dismissBanner = ref(false)
 
 const showSettingsDialog = ref(false)
 let unsubscribeNavigate = null
+
+const isYixiaoerWorkspace = computed(() => [
+  '/accounts',
+  '/publish',
+  '/publish/history',
+].includes(route.path))
 
 onMounted(() => {
   licenseStore.load()

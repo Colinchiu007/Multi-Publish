@@ -1,9 +1,8 @@
 <template>
   <div class="accounts-page">
-    <header class="cohere-page-header accounts-header">
+    <header class="accounts-header">
       <div>
         <div class="page-title">账号管理</div>
-        <div class="page-subtitle">统一管理各平台账号、登录状态和发布分组</div>
       </div>
       <div class="page-actions">
         <button class="page-button secondary" type="button" @click="refresh"><Refresh />刷新</button>
@@ -20,13 +19,21 @@
         <input
           v-model="searchInput"
           type="search"
-          placeholder="搜索账号或平台"
+          placeholder="搜索账号名称"
           aria-label="搜索账号或平台"
           @input="onSearchInput"
         >
         <button v-if="searchInput" class="clear-search" type="button" title="清空搜索" aria-label="清空搜索" @click="clearSearch"><Close /></button>
       </div>
 
+      <div class="account-toolbar-selects" aria-label="账号高级筛选">
+        <select aria-label="负责人" disabled><option>负责人</option></select>
+        <select aria-label="选择发布人" disabled><option>选择发布人</option></select>
+      </div>
+      <div class="account-view-toggle" role="group" aria-label="账号视图">
+        <button type="button" data-testid="account-view-grid" :aria-pressed="accountViewMode === 'grid'" @click="accountViewMode = 'grid'">▦</button>
+        <button type="button" data-testid="account-view-list" :aria-pressed="accountViewMode === 'list'" @click="accountViewMode = 'list'">☷</button>
+      </div>
       <div class="filter-tabs" role="tablist" aria-label="账号状态">
         <button
           v-for="(item, index) in filterOptions"
@@ -54,6 +61,8 @@
       </label>
       <template v-if="selectedCount > 0">
         <span class="selected-count">已选 {{ selectedCount }} 个</span>
+        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchStatus('active')">{{ batchStatusBusy ? '处理中...' : '批量启用' }}</button>
+        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchStatus('inactive')">{{ batchStatusBusy ? '处理中...' : '批量禁用' }}</button>
         <button class="batch-delete" type="button" @click="handleBatchDelete"><Delete />批量删除</button>
         <button class="batch-cancel" type="button" @click="clearSelection">取消选择</button>
       </template>
@@ -77,7 +86,11 @@
       role="tabpanel"
       :aria-labelledby="`account-status-tab-${filter}`"
     >
-      <div class="account-workspace">
+      <section v-if="accountTab === 'share'" class="module-placeholder" data-testid="account-share-panel">
+        <h2>分享链接</h2>
+        <p>当前工作区尚未接入团队分享服务；账号数据仍按当前设备和登录身份隔离。</p>
+      </section>
+      <div v-if="accountTab !== 'share'" class="account-workspace">
         <aside class="platform-filter-panel" aria-label="平台筛选">
           <div class="platform-filter-heading">平台</div>
           <button
@@ -112,7 +125,7 @@
             <UserFilled />
             <h2>{{ totalAccounts === 0 ? '暂无账号' : '没有匹配的账号' }}</h2>
           </div>
-          <div v-else class="account-card-grid">
+          <div v-else class="account-card-grid" :class="{ 'account-list-view': accountViewMode === 'list' }">
             <AccountManagementCard
               v-for="account in visibleAccounts"
               :key="account.id"
@@ -161,11 +174,14 @@
       :visible="showGroupManager"
       :groups="accountStore.groups || []"
       :accounts="accountStore.accounts"
+      :platforms="allPlatforms"
       :platform-label="platformLabel"
       @create="createNewGroup"
       @delete="deleteGroup"
+      @rename="renameGroup"
+      @set-platform="setGroupPlatform"
       @toggle-account="toggleAccountInGroup"
-      @close="showGroupManager = false"
+      @close="closeGroupManager"
     />
 
     <AccountAuthorizationGuide
@@ -191,6 +207,7 @@ import { useAccountActions } from '@/composables/useAccountActions'
 import { useAccountEvents } from '@/composables/useAccountEvents'
 import { useAccountStore } from '@/stores/accounts'
 import { usePlatformStore } from '@/stores/platforms'
+import { useRoute, useRouter } from 'vue-router'
 
 const filterOptions = [
   { value: 'all', label: '全部' },
@@ -202,6 +219,8 @@ const emptyIds = new Set()
 
 const platformStore = usePlatformStore()
 const accountStore = useAccountStore()
+const route = useRoute()
+const router = useRouter()
 const accountActions = useAccountActions()
 const loading = ref(false)
 const showAddDialog = ref(false)
@@ -214,6 +233,8 @@ const completingLogin = ref(false)
 const showAuthorizationGuide = ref(false)
 const newPlatform = ref('')
 const selectedLoginMode = ref('browser')
+const accountViewMode = ref('grid')
+const batchStatusBusy = ref(false)
 const filter = ref('all')
 const platformFilter = ref(accountStore.filterPlatform || '')
 const searchInput = ref('')
@@ -250,6 +271,7 @@ const authViewVisible = computed({
   set: value => { loginVisible.value = Boolean(value) },
 })
 const authPlatformName = computed(() => loginPlatform.value ? platformLabel(loginPlatform.value) : '账号登录')
+const accountTab = computed(() => String(route.query?.tab || 'accounts'))
 const loginStateText = computed(() => {
   if (loginMode.value !== 'qrcode') return '网页登录窗口已打开'
   return {
@@ -287,6 +309,13 @@ function waitForAuthorizationGuide () {
 watch(filter, value => {
   accountStore.filterStatus = value
 }, { flush: 'sync', immediate: true })
+
+watch(accountTab, value => {
+  if (value === 'groups') showGroupManager.value = true
+  else if (showGroupManager.value) showGroupManager.value = false
+  if (value === 'favorites') filter.value = 'favorite'
+  else if (filter.value === 'favorite') filter.value = 'all'
+}, { immediate: true })
 
 watch(() => accountStore.filterPlatform, value => {
   platformFilter.value = value || ''
@@ -392,9 +421,21 @@ function toggleFavorite (id) {
   accountStore.toggleFavorite(id)
 }
 
-function createNewGroup (name) {
-  accountStore.createGroup(name.trim(), '')
+function createNewGroup (name, platformFilter = '') {
+  accountStore.createGroup(name.trim(), platformFilter)
   ElMessage.success('分组创建成功')
+}
+
+function renameGroup (groupId, name) {
+  if (!accountStore.renameGroup(groupId, name)) {
+    ElMessage.error('分组名称不能为空且不能重复')
+    return
+  }
+  ElMessage.success('分组已重命名')
+}
+
+function setGroupPlatform (groupId, platformFilter) {
+  accountStore.setGroupPlatform(groupId, platformFilter)
 }
 
 async function deleteGroup (groupId) {
@@ -407,6 +448,11 @@ async function deleteGroup (groupId) {
 
 function toggleAccountInGroup (groupId, accountId) {
   accountStore.toggleAccountInGroup(groupId, accountId)
+}
+
+function closeGroupManager () {
+  showGroupManager.value = false
+  if (accountTab.value === 'groups') router.replace({ path: '/accounts', query: {} })
 }
 
 async function refresh () {
@@ -602,6 +648,23 @@ async function handleBatchDelete () {
   }
 }
 
+async function handleBatchStatus (status) {
+  const ids = [...selectedVisibleIds.value]
+  if (ids.length === 0 || batchStatusBusy.value) return
+  batchStatusBusy.value = true
+  try {
+    const result = await accountStore.batchSetStatus(status, ids)
+    const { success = 0, failed = 0 } = result || {}
+    if (failed === 0) ElMessage.success(`${status === 'active' ? '已启用' : '已禁用'} ${success} 个账号`)
+    else if (success > 0) ElMessage.warning(`${status === 'active' ? '已启用' : '已禁用'} ${success} 个账号，${failed} 个失败`)
+    else ElMessage.error(`批量${status === 'active' ? '启用' : '禁用'}失败`)
+  } catch (error) {
+    ElMessage.error(error?.message || `批量${status === 'active' ? '启用' : '禁用'}失败`)
+  } finally {
+    batchStatusBusy.value = false
+  }
+}
+
 onMounted(() => {
   accountStore.loadGroups()
   startAccountEvents()
@@ -617,7 +680,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.accounts-page { min-height: 100%; background: var(--surface, #f6f6f8); color: var(--text-primary, #28282f); }
+.accounts-page { min-height: 100%; background: #f4f6fd; color: var(--text-primary, #28282f); }
+.accounts-header { min-height: 72px; box-sizing: border-box; padding: 18px 24px 12px; background: #fff; border-bottom: 1px solid #edf0f7; }
+.accounts-header .page-title { color: #1f2340; font-size: 20px; font-weight: 700; }
+.accounts-header .page-actions { margin-top: 0; }
 .accounts-header { gap: 16px; }
 .page-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .page-button {
@@ -682,6 +748,8 @@ onUnmounted(() => {
 .selected-count { color: #5048e5; font-size: 13px; font-weight: 600; }
 .batch-toolbar button { min-height: 28px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; font-size: 12px; cursor: pointer; }
 .batch-toolbar svg { width: 14px; height: 14px; }
+.batch-status { border: 1px solid #c9c5ff !important; color: #5048e5; background: #fff !important; }
+.batch-status:disabled { opacity: .55; cursor: not-allowed; }
 .batch-delete { color: #c43d4d; }
 .batch-cancel { color: #5f6069; }
 .login-state { position: fixed; top: 56px; left: 280px; right: 0; z-index: 9700; height: 44px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 7px 24px; border-bottom: 1px solid #dcd9ff; background: #f3f2ff; color: #3d378f; }
@@ -694,6 +762,9 @@ onUnmounted(() => {
 .login-state-actions .complete-login { min-height: 28px; padding: 4px 9px; border: 1px solid #5048e5; border-radius: 5px; background: #5048e5; color: #fff; }
 .login-state-actions button:disabled { opacity: 0.58; cursor: not-allowed; }
 .accounts-content { min-height: 520px; padding: 0; }
+.module-placeholder { min-height: 320px; display: grid; place-items: center; align-content: center; gap: 8px; padding: 32px; background: #f6f7fb; color: #707080; text-align: center; }
+.module-placeholder h2 { margin: 0; color: #25252b; font-size: 18px; }
+.module-placeholder p { max-width: 480px; margin: 0; font-size: 13px; line-height: 1.6; }
 .account-workspace { min-height: 520px; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
 .platform-filter-panel {
   display: flex;
@@ -772,4 +843,24 @@ onUnmounted(() => {
 @media (max-width: 1360px) {
   .login-state { left: 0; }
 }
+</style>
+
+<style scoped>
+.account-controls { grid-template-columns: minmax(220px, 1fr) auto auto auto minmax(120px, auto); }
+.account-card-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
+.account-toolbar-selects { display: flex; align-items: center; gap: 12px; }
+.account-toolbar-selects select { min-width: 132px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 12px; background: #f8f9fc; color: #9aa0b2; font-size: 13px; }
+.account-view-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid #e8ebf2; border-radius: 8px; background: #f8f9fc; }
+.account-view-toggle button { width: 32px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: #8b92a7; font-size: 18px; cursor: pointer; }
+.account-view-toggle button[aria-pressed="true"] { background: #fff; color: #5048e5; box-shadow: 0 1px 3px rgba(44, 48, 77, .12); }
+.account-card-grid.account-list-view { display: flex; flex-direction: column; gap: 12px; }
+.account-list-view :deep(.account-card) { min-height: 0; flex-direction: row; align-items: center; }
+.account-list-view :deep(.account-card-header) { flex: 0 0 170px; }
+.account-list-view :deep(.account-profile) { flex: 1; flex-direction: row; gap: 14px; padding: 10px 18px; text-align: left; }
+.account-list-view :deep(.account-identity) { margin-top: 0; }
+.account-list-view :deep(.account-name-button) { justify-content: flex-start; text-align: left; }
+.account-list-view :deep(.account-details) { justify-content: flex-start; }
+.account-list-view :deep(.account-actions) { flex: 0 0 300px; border-top: 0; border-left: 1px solid var(--border-light, #efeff2); }
+@media (max-width: 1100px) { .account-toolbar-selects { display: none; } }
+@media (max-width: 720px) { .account-view-toggle { display: none; } }
 </style>

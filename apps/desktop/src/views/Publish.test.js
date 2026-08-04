@@ -85,7 +85,8 @@ function findButtonByText(wrapper, text) {
 }
 
 describe("PublishView", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await router.push('/')
     vi.clearAllMocks();
     setActivePinia(createPinia());
     window.electronAPI = {
@@ -106,6 +107,13 @@ describe("PublishView", () => {
     };
     mockAccountLoad.mockClear();
   });
+
+  it("草稿箱 query 页签自动打开草稿列表", async () => {
+    await router.push('/?tab=drafts')
+    const w = await createWrapper()
+    expect(w.vm.showDraftList).toBe(true)
+    expect(window.electronAPI.draftList).toHaveBeenCalled()
+  })
 
   it("renders page title and mode toggle", async () => {
     const w = await createWrapper();
@@ -196,6 +204,48 @@ describe("PublishView", () => {
     }));
   });
 
+  it("发布时传递图片、封面、标签、话题和 @好友字段", async () => {
+    const w = await createWrapper();
+    w.vm.article.title = "带媒体的内容";
+    w.vm.article.content = "正文";
+    w.vm.article.images = ["D:/image-1.png"];
+    w.vm.article.image_files = [{ path: "D:/image-1.png", name: "image-1.png", type: "image/png" }];
+    w.vm.article.cover_path = "D:/cover.png";
+    w.vm.article.cover_file = { path: "D:/cover.png", name: "cover.png", type: "image/png" };
+    w.vm.article.tags = ["AI", "效率"];
+    w.vm.article.topics = "效率工具, 内容创作";
+    w.vm.article.mentions = "@邱里奥谈认知";
+
+    await w.vm.handlePublish();
+
+    expect(window.electronAPI.publishBatch).toHaveBeenCalledWith(
+      [{ platform: "wechat_mp", accountId: "acc1" }],
+      expect.objectContaining({
+        images: ["D:/image-1.png"],
+        image_files: [{ path: "D:/image-1.png", name: "image-1.png", type: "image/png" }],
+        cover_path: "D:/cover.png",
+        cover_file: { path: "D:/cover.png", name: "cover.png", type: "image/png" },
+        tags: ["AI", "效率"],
+        topics: ["效率工具", "内容创作"],
+        mentions: [{ name: "邱里奥谈认知", text: "@邱里奥谈认知" }],
+      }),
+    );
+  });
+
+  it("批量发布没有绑定账号时 fail closed", async () => {
+    const w = await createWrapper();
+    w.vm.batchMode = true;
+    await nextTick();
+    w.vm.articles[0].title = "无账号批量内容";
+    w.vm.articles[0].content = "正文";
+    w.vm.articles[0].platforms = ["wechat_mp"];
+
+    await w.vm.handleBatchPublish();
+
+    expect(window.electronAPI.batchCreate).not.toHaveBeenCalled();
+    expect(ElMessage.warning).toHaveBeenCalledWith("请为微信公众号选择至少一个账号");
+  });
+
   it("copies URL via clipboard API", async () => {
     const clip = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText: clip }, writable: true, configurable: true });
@@ -267,6 +317,7 @@ describe("PublishView", () => {
     w.vm.articles[0].title = "批量标题";
     w.vm.articles[0].content = "批量正文";
     w.vm.articles[0].platforms = ["wechat_mp"];
+    w.vm.articles[0].accounts = { wechat_mp: ["acc1"] };
 
     const publishPromise = w.vm.handleBatchPublish();
     await nextTick();
