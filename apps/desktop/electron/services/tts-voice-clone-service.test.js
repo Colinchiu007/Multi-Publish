@@ -66,6 +66,19 @@ function ownerHash(owner) {
   return createHash("sha256").update(owner, "utf8").digest("hex");
 }
 
+function canonicalPath(targetPath) {
+  const resolvedPath = path.resolve(targetPath);
+  let existingPath = resolvedPath;
+  const missingSegments = [];
+  while (!nodeFs.existsSync(existingPath)) {
+    const parentPath = path.dirname(existingPath);
+    if (parentPath === existingPath) return resolvedPath;
+    missingSegments.unshift(path.basename(existingPath));
+    existingPath = parentPath;
+  }
+  return path.join(nodeFs.realpathSync.native(existingPath), ...missingSegments);
+}
+
 function cloneInput(selectionId, name = "Voice", consent = true) {
   return {
     providerId: PROVIDER_ID,
@@ -412,13 +425,14 @@ describe("TtsVoiceCloneService", () => {
   it("持久化失败时补偿 deleteVoice 并清理部分受控样本目录", async () => {
     const samplePath = path.join(sandboxPath, "speaker.wav");
     await nodeFs.promises.writeFile(samplePath, "RIFF-in-memory-audio");
-    const canonicalUserDataPath = path.resolve(userDataPath);
+    await nodeFs.promises.mkdir(userDataPath, { recursive: true });
+    const canonicalUserDataPath = canonicalPath(userDataPath);
     const persistenceFailingFs = {
       ...nodeFs,
       promises: {
         ...nodeFs.promises,
         writeFile: vi.fn(async (targetPath, ...args) => {
-          const canonicalTargetPath = path.resolve(targetPath);
+          const canonicalTargetPath = canonicalPath(targetPath);
           if (
             canonicalTargetPath === canonicalUserDataPath ||
             canonicalTargetPath.startsWith(`${canonicalUserDataPath}${path.sep}`)
@@ -750,7 +764,7 @@ describe("TtsVoiceCloneService", () => {
       promises: {
         ...nodeFs.promises,
         rm: vi.fn(async (targetPath, ...args) => {
-          if (path.resolve(targetPath) === path.resolve(persistedDirectory))
+          if (canonicalPath(targetPath) === canonicalPath(persistedDirectory))
             throw new Error("sample cleanup failed");
           return nodeFs.promises.rm(targetPath, ...args);
         }),

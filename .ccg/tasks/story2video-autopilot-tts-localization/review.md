@@ -114,3 +114,33 @@ GUI helper 缺少“稳定 ID + 用户可见文案 + 首卡排序”三件套合
 1. 本地化 UI 的 E2E 只能依赖稳定 `data-*`/状态 class，并同时断言用户可见文案；禁止用内部枚举文本冒充 UI 合同。
 2. 流水线排序有产品语义时，helper 必须同时断言首项 ID，不能只断言目标卡片存在。
 3. 任何修改 Vue 文案、按钮或流水线展示时，合并前必须运行受影响 Vitest、`npm run build:vue` 和 route functional GUI 合同；远端 `gui-test` 未通过不得合并。
+
+## Quality Gate 失败的 QM-5 反思（2026-08-04）
+
+### 第一性原因
+
+PR #352 的 Windows Quality Gate 在 workspace 全量运行时，两个 TTS clone 测试使用 `path.resolve()` 对比原始路径；生产实现按安全合同通过 `fs.realpath()` 返回 canonical 路径。在 GitHub Windows runner 的 `C:\Users\RUNNER~1\` 临时目录中，长路径与 8.3 短路径表示不同，导致两个故障注入 mock 没有命中，测试实际走成成功路径。
+
+### 测试逃逸链
+
+1. 本地工作树位于 `C:\tmp\`，没有触发 runner 的用户目录短路径差异。
+2. 单文件串行和三次重复回归均通过，但没有覆盖 Windows runner 的 canonical/8.3 路径身份。
+3. workspace 全量 runner 才在“持久化失败”与“remote_deleted 清理失败”两个测试中暴露 mock 放行，远端 Quality Gate 因此失败。
+
+### 系统性漏洞
+
+- Windows 文件系统测试把字符串路径相等误当作文件身份相等。
+- 受控目录安全实现已 canonicalize，但测试替身没有复用同一 canonical 身份合同。
+- 本地与 CI 临时目录形态缺少长路径、短路径和符号链接边界矩阵。
+
+### 修复与回归保护
+
+- 在 `tts-voice-clone-service.test.js` 增加 `canonicalPath()`：先找到存在的祖先目录，再用 `realpathSync.native()` canonicalize，并拼接尚不存在的尾段。
+- 持久化失败 mock 预创建 userData 根目录后按 canonical 根判断写入目标；清理失败 mock 同时 canonicalize 实际目标与期望目录。
+- 受影响 TTS clone 测试按 `--maxWorkers=1 --fileParallelism=false` 串行重复 3 次，22/22 每次通过。
+
+### 预防措施
+
+1. Windows 路径合同测试必须对实际值与期望值同时执行 `fs.realpathSync.native()`，不得用原始 `path.resolve()` 断言身份。
+2. 文件系统故障注入 mock 必须复用生产路径边界算法，覆盖目标不存在但祖先存在的写入场景。
+3. 远端 Quality Gate 失败后，除单文件回归外必须记录一次与 CI 相同的 workspace runner 结果，避免把环境特有失败误判为业务成功。
