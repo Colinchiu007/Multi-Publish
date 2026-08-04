@@ -6,7 +6,7 @@
       <div class="yixiaoer-shell" data-testid="yixiaoer-shell">
         <div class="yixiaoer-shell-main">
           <YixiaoerModuleNav />
-          <main class="yixiaoer-workspace" data-testid="yixiaoer-workspace">
+          <main class="yixiaoer-workspace cohere-main" data-testid="yixiaoer-workspace">
             <router-view />
           </main>
         </div>
