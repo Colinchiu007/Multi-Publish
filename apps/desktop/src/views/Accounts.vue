@@ -179,6 +179,7 @@
               @toggle-favorite="toggleFavorite"
               @rename="renameAccount"
               @configure-proxy="openProxyDialog"
+              @check-login="checkLogin"
               @relogin="reloginAccount"
               @remove="removeAccount"
             />

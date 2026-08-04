@@ -35,12 +35,14 @@ describe('AccountManagementCard', () => {
     expect(wrapper.emitted('toggle-favorite')).toEqual([['account-1']])
   })
 
-  it('活动账号只展示设置和删除命令', async () => {
+  it('活动账号展示验证、设置和删除命令', async () => {
     const wrapper = mountCard()
 
+    await wrapper.get('[data-testid="verify-account-1"]').trigger('click')
     await wrapper.get('[data-testid="proxy-account-1"]').trigger('click')
     await wrapper.get('[data-testid="delete-account-1"]').trigger('click')
 
+    expect(wrapper.emitted('check-login')).toEqual([[account]])
     expect(wrapper.emitted('configure-proxy')).toEqual([[account]])
     expect(wrapper.emitted('remove')).toEqual([[account]])
     expect(wrapper.find('[data-testid="relogin-account-1"]').exists()).toBe(false)

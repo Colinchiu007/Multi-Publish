@@ -80,6 +80,15 @@
         <Setting />设置
       </button>
       <button
+        v-if="isActive(account)"
+        :data-testid="`verify-${account.id}`"
+        data-e2e-scan="manual"
+        type="button"
+        @click="$emit('check-login', account)"
+      >
+        <CircleCheck />验证
+      </button>
+      <button
         v-if="!isActive(account)"
         :data-testid="`relogin-${account.id}`"
         data-e2e-scan="manual"
@@ -97,7 +106,7 @@
 
 <script setup>
 import { nextTick, ref } from 'vue'
-import { Delete, EditPen, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
+import { CircleCheck, Delete, EditPen, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
   account: { type: Object, required: true },
@@ -114,6 +123,7 @@ const emit = defineEmits([
   'set-default',
   'rename',
   'configure-proxy',
+  'check-login',
   'relogin',
   'remove',
 ])
