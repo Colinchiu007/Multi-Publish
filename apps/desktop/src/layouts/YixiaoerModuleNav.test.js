@@ -79,13 +79,24 @@ describe('YixiaoerModuleNav', () => {
     expect(wrapper.get('[data-testid="yixiaoer-tab-publish-history"]').classes()).not.toContain('active')
   })
 
-  it('keeps tool placeholders inert', async () => {
+  it('opens an honest local panel for each module tool', async () => {
     const nav = mountNav('/accounts')
-    const tools = nav.findAll('.yixiaoer-tool-button')
+    const tools = [
+      ['preview', '移动端预览', '当前页面将在移动端预览中展示。'],
+      ['support', '客服支持', '当前工作区尚未接入在线客服服务。'],
+      ['guide', '使用指南', '账号管理与发布流程'],
+      ['notifications', '通知', '暂无新通知'],
+    ]
 
-    expect(tools).toHaveLength(4)
-    for (const tool of tools) await tool.trigger('click')
-    expect(nav.emitted('openSettings')).toBeUndefined()
-    expect(nav.emitted('navigate')).toBeUndefined()
+    expect(nav.findAll('.yixiaoer-tool-button')).toHaveLength(4)
+    for (const [key, title, body] of tools) {
+      await nav.get(`[data-testid="yixiaoer-tool-${key}"]`).trigger('click')
+      const panel = nav.get('[data-testid="yixiaoer-tool-panel"]')
+      expect(panel.attributes('data-tool')).toBe(key)
+      expect(panel.text()).toContain(title)
+      expect(panel.text()).toContain(body)
+      await nav.get('[data-testid="yixiaoer-tool-close"]').trigger('click')
+      expect(nav.find('[data-testid="yixiaoer-tool-panel"]').exists()).toBe(false)
+    }
   })
 })

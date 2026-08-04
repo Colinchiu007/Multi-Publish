@@ -8,11 +8,13 @@ const historyListMock = vi.fn()
 const draftListMock = vi.fn()
 const pushMock = vi.fn()
 const historyGetMock = vi.fn()
+const historyDeleteMock = vi.fn()
 const retryTaskMock = vi.fn()
 
 vi.mock('@/api/publisher', () => ({
   historyList: (...args) => historyListMock(...args),
   historyGet: (...args) => historyGetMock(...args),
+  historyDelete: (...args) => historyDeleteMock(...args),
   retryTask: (...args) => retryTaskMock(...args),
   draftList: (...args) => draftListMock(...args),
 }))
@@ -62,6 +64,7 @@ describe('PublishHistory', () => {
       },
     })
     historyGetMock.mockReset().mockResolvedValue({ code: 0, data: {} })
+    historyDeleteMock.mockReset().mockResolvedValue({ code: 0, data: { deleted: 1 } })
     retryTaskMock.mockReset().mockResolvedValue({ code: 0 })
     draftListMock.mockReset().mockResolvedValue({
       code: 0,
@@ -394,6 +397,24 @@ describe('PublishHistory', () => {
     const cancelSelection = wrapper.findAll('button').find(button => button.text() === '取消选择')
     await cancelSelection.trigger('click')
     expect(wrapper.find('.record-selector').exists()).toBe(false)
+  })
+
+  it('批量管理支持删除选中的发布记录并刷新列表', async () => {
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    await wrapper.get('[data-testid="start-selection"]').trigger('click')
+    await wrapper.get('.record-selector input').setValue(true)
+    const deleteButton = wrapper.findAll('.selection-toolbar .toolbar-button').find(button => button.text().includes('删除'))
+
+    expect(deleteButton).toBeDefined()
+    expect(deleteButton.attributes('disabled')).toBeUndefined()
+    await deleteButton.trigger('click')
+
+    expect(historyDeleteMock).toHaveBeenCalledWith(['record-1'])
+    expect(historyListMock).toHaveBeenLastCalledWith({ limit: 50, offset: 0 })
+    expect(wrapper.text()).toContain('已选择 0 项')
   })
 
   it('移动端记录主体使用可收缩布局，批量复选框不会撑出卡片', () => {

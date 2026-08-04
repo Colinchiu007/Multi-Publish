@@ -1035,13 +1035,13 @@ Task Queue → 各平台发布器 → 发布完成
 |------|------|:----:|
 | QM-1 | Electron 主进程代码本地打包验证 | ⏳ 沙箱环境无法执行 |
 | QM-2 | Code review 必检项（require 路径/注释语法/模块导出/glob 覆盖） | ✅ |
-| QM-3 | 测试策略（单元 + 打包 + 启动） | ✅ 1791 passed |
+| QM-3 | 测试策略（单元 + 打包 + 启动） | ✅ 本轮串行全量 357 files / 6120 tests passed |
 
 ### 17.3 测试基线
 
 | 包 | 测试数 | 状态 |
 |----|--------|:----:|
-| apps/desktop | 1791 passed / 10 skipped / 0 failed | ✅ |
+| apps/desktop | 历史基线 1791 passed / 10 skipped；本轮串行全量 357 files / 6120 tests passed | ✅ |
 | ai-writer-api | 10 passed / 0 failed | ✅ |
 
 ---
@@ -1078,6 +1078,16 @@ Task Queue → 各平台发布器 → 发布完成
 | 收藏空态 | 收藏页签无结果时显示“暂无收藏账号”，不把“没有匹配的账号”误作收藏服务成功 | 本地已实现 |
 | 分享链接 | 未接入团队分享服务时显示“未接入服务”，创建按钮禁用，不伪造链接或成员数据 | 本地已实现，后端能力待外部合同 |
 
+### 18.2.2 2026-08-04 parity gap closure
+
+| 能力 | 本轮实现与合同 | 状态 |
+|------|----------------|------|
+| 模块工具按钮 | 顶部“移动端预览、客服支持、使用指南、通知”均有独立 testid、可关闭本地面板和明确状态；未从逆向 bundle 推断未经证实的外链或 IPC | 本地已实现，真实蚁小二点击目标仍待运行时验收 |
+| 草稿箱二级页签 | `/publish?tab=drafts` 首屏进入独立草稿工作区，显示加载/空态/列表，支持返回发布、继续编辑和删除；`/publish?draft=...` 保留编辑器恢复流程 | 本地已实现 |
+| 发布进度回归合同 | 进度卡固定 `publish-progress` testid，供功能 E2E 和视觉回归使用；不以通用卡片数量代替状态断言 | 本地已实现 |
+| 发布记录删除 | 选择发布记录后可批量删除；renderer API、preload、`history:delete` IPC 和 JSONL service 均按 owner 隔离，删除后刷新并保留结果提示 | 本地已实现，真实多用户共享存储待外部验收 |
+| 设计与代码分层 | 本轮新增导航面板、草稿页和反馈状态使用模块级 class/token；未对既有发布表单做无证据的大规模 CSS 重排，遗留 inline style 记录为后续拆分项 | 本轮新增代码已分层，遗留项已记录 |
+
 ### 18.3 设计与代码分层
 
 ```text
@@ -1093,7 +1103,7 @@ Vue 展示组件
 
 ### 18.4 验证口径
 
-最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、94 项视觉回归、真实蚁小二像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用 8 秒启动。2026-08-04 GUI E2E 收口补充已完成：桌面 Vitest 357 files / 6107 tests 全部通过；18 路由 functional 通过（发布 12/12、账号 14/14），6 条集成流 44/44，通过 Vite 构建和像素视觉 17/17。发布页和账号页的稳定 testid、15 秒 feature-ready 等待、IPC 增量断言、离线缓存/错误路径回归和旧 E2E 选择器合同已同步。真实第三方平台授权、实际上传/发布、团队分享和跨设备同步仍属于外部验收，不以 mock 结果替代。实际命令和结果记录在 `.quality-gates.md`、`01-docs/yixiaoer-reverse/analysis/04-account-publish-parity-2026-08.md` 以及 `.ccg/tasks/yixiaoer-gui-e2e-closure/requirements.md`。
+最终交付必须同时通过桌面单元测试、覆盖率、故障注入、Monkey、功能 E2E、视觉回归、真实蚁小二像素门禁、preload sandbox 双模式、Windows 打包、ASAR/require 链和应用启动。2026-08-04 parity gap closure 新增的定向门禁覆盖导航工具面板、草稿独立页、发布进度 testid、发布记录删除 API/IPC/service owner 隔离；定向 Vitest 648/648 通过。全量、功能 E2E、视觉、打包和真实蚁小二操作必须以本轮实际命令结果为准，不得沿用旧报告数字。真实第三方平台授权、实际上传/发布、团队分享和跨设备同步仍属于外部验收，不以 mock 结果替代。实际命令和结果记录在 `.quality-gates.md`、`01-docs/yixiaoer-reverse/analysis/04-account-publish-parity-2026-08.md` 以及本任务 `.ccg/tasks/yixiaoer-parity-gap-closure/`。
 
 ## 十九、文档体系 (Documentation Index)
 
@@ -1140,6 +1150,7 @@ Vue 展示组件
 | v2.3.42 | 2026-07-09 | 恢复 mojibake 乱码（从 bba83b0 干净版本）+ 合并 §2.3/§3.3/§4.4 增量 + 新增 §17 安全审计 / §18 文档体系 + 版本号更新 |
 | v2.3.53 | 2026-07-20 | 账号管理与内容发布按蚁小二交互对齐；完成前端分层、多账号发布、草稿、排期、差异化内容、二维码登录、取消/重试及安全边界 |
 | v2.3.54 | 2026-08-04 | 续作收敛账号卡片动作、失效账号重新登录、粉丝/归属字段、分组筛选、收藏空态和分享服务边界；补充真实蚁小二像素审计证据 |
+| v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 |
 
 
 

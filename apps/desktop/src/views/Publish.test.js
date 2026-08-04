@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import { setActivePinia, createPinia } from "pinia";
@@ -111,8 +111,57 @@ describe("PublishView", () => {
   it("草稿箱 query 页签自动打开草稿列表", async () => {
     await router.push('/?tab=drafts')
     const w = await createWrapper()
+    await nextTick()
+    await nextTick()
+    await w.vm.loadDrafts()
+    await nextTick()
     expect(w.vm.showDraftList).toBe(true)
     expect(window.electronAPI.draftList).toHaveBeenCalled()
+    expect(w.get('[data-testid="publish-drafts-page"]').exists()).toBe(true)
+    expect(w.get('[data-testid="publish-drafts-empty"]').text()).toContain('暂无草稿')
+    expect(w.find('[data-testid="publish-title"]').exists()).toBe(false)
+  })
+
+  it("草稿箱返回发布时切回发布编辑器页签", async () => {
+    await router.push('/?tab=drafts&type=video')
+    const w = await createWrapper()
+
+    await w.vm.goToPublish()
+    await nextTick()
+
+    expect(router.currentRoute.value.query).toEqual({ tab: 'publish', type: 'video' })
+  })
+
+  it("继续编辑草稿时切回发布编辑器并保留草稿参数", async () => {
+    await router.push('/?tab=drafts&type=article')
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [{
+        id: 'draft-1',
+        title: '已保存标题',
+        content: '已保存正文',
+        platforms: ['wechat_mp'],
+        accounts: { wechat_mp: ['acc1'] },
+      }],
+    })
+    const w = await createWrapper()
+
+    await w.vm.editDraft({ id: 'draft-1' })
+    await nextTick()
+    await flushPromises()
+
+    expect(router.currentRoute.value.query).toEqual({ tab: 'publish', type: 'article', draft: 'draft-1' })
+    expect(w.vm.article.title).toBe('已保存标题')
+    expect(w.vm.article.content).toBe('已保存正文')
+    expect(w.vm.selectedPlatforms).toEqual(['wechat_mp'])
+  })
+
+  it('发布进度面板提供稳定回归选择器', async () => {
+    const w = await createWrapper()
+    w.vm.progress = [{ type: 'success', time: '10:00:00', text: '已提交' }]
+    await nextTick()
+
+    expect(w.get('[data-testid="publish-progress"]').text()).toContain('已提交')
   })
 
   it("renders page title and mode toggle", async () => {

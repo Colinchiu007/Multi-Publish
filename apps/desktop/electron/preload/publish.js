@@ -13,7 +13,7 @@
  *   - 流水线（对象）：pipelines.list / pipelines.get
  *   - 内容情报：intelligenceSuggestTags / intelligenceGetOptimalTime
  *   - 队列：getQueueStatus / getQueueHistory / cancelTask / retryTask
- *   - 历史：historyList / historyGet
+ *   - 历史：historyList / historyGet / historyDelete
  *   - 仪表盘：dashboardStats
  *   - 定时发布：schedulerCreate / schedulerList / schedulerCancel
  *   - 进度监听：onProgress
@@ -93,6 +93,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     // 发布历史 API
     historyList: (opts) => ipcRenderer.invoke('history:list', opts),
     historyGet: (id) => ipcRenderer.invoke('history:get', id),
+    historyDelete: (ids) => ipcRenderer.invoke('history:delete', { ids: Array.isArray(ids) ? ids : [ids] }),
 
     // 发布统计 API
     dashboardStats: () => ipcRenderer.invoke('dashboard:stats'),

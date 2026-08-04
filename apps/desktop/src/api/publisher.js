@@ -40,6 +40,11 @@ export async function historyList (opts) {
 
 export async function historyGet(id) { return invokeWithFallback("historyGet", {  code: -1, message: 'electronAPI not available'  }, id) }
 
+export async function historyDelete (ids) {
+  const normalizedIds = Array.isArray(ids) ? ids : [ids]
+  return invokeWithFallback("historyDelete", { code: -1, message: 'electronAPI not available' }, normalizedIds)
+}
+
 // ─── 发布统计 API ──────────────────────────
 export async function dashboardStats () {
   return invokeWithFallback("dashboardStats", { code: 0, data: { total: 0, success: 0, failed: 0, byPlatform: {}, daily: [] } })

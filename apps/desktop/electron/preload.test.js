@@ -52,7 +52,7 @@ const PUBLISH_METHODS = [
   'intelligenceSearch', 'intelligenceSearchTitles', 'intelligenceFetchTrending',
   'intelligenceFindReferences', 'intelligenceGetBenchmark',
   'getQueueStatus', 'getQueueHistory', 'cancelTask',
-  'historyList', 'historyGet',
+  'historyList', 'historyGet', 'historyDelete',
   'dashboardStats',
   'schedulerCreate', 'schedulerList', 'schedulerCancel',
   'onProgress',
@@ -182,10 +182,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 79 个键（78 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 80 个键（79 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(79)
+    expect(Object.keys(r).length).toBe(80)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -200,12 +200,12 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(133)
   })
 
-  it('合并后 api 总键数应为 259', () => {
-    expect(Object.keys(api).length).toBe(259)
+  it('合并后 api 总键数应为 260', () => {
+    expect(Object.keys(api).length).toBe(260)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    expect(PUBLISH_METHODS.length).toBe(74)
+    expect(PUBLISH_METHODS.length).toBe(75)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',
@@ -310,6 +310,7 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
   const INVOKE_CASES = [
     ['publishWechat', 'publish:wechat', [{ id: 1 }]],
     ['listAccounts', 'accounts:list', []],
+    ['historyDelete', 'history:delete', [['record-1']]],
     ['getVersion', 'app:get-version', []],
     ['accountAdd', 'account:add', ['wechat']],
     ['storeGetSetting', 'store:get-setting', ['theme']],

@@ -130,8 +130,15 @@
           <button class="toolbar-button" type="button" :disabled="filteredRecords.length === 0" @click="toggleSelectAll">
             {{ allSelected ? '取消全选' : '全选' }}
           </button>
-          <button class="toolbar-button danger" type="button" disabled title="发布记录暂不支持删除">
-            <Delete />删除
+          <button
+            class="toolbar-button danger"
+            type="button"
+            data-testid="delete-selected-history"
+            :disabled="selectedIds.length === 0 || deletingSelected"
+            :title="selectedIds.length === 0 ? '请选择要删除的发布记录' : '删除选中的发布记录'"
+            @click="deleteSelectedRecords"
+          >
+            <Delete />{{ deletingSelected ? '删除中...' : '删除' }}
           </button>
           <button class="toolbar-button" type="button" @click="cancelSelection"><Close />取消选择</button>
           <div class="view-toggle" role="group" aria-label="记录视图">
@@ -146,6 +153,7 @@
       <div class="panel-toolbar">
         <span class="record-count">共 {{ filteredRecords.length }} 条记录</span>
         <span v-if="hasActiveFilters" class="filter-result">已从 {{ records.length }} 条任务中筛选</span>
+        <span v-if="actionMessage" class="action-message" role="status">{{ actionMessage }}</span>
       </div>
 
       <div v-if="loading" class="state-panel" role="status">正在加载发布记录...</div>
@@ -289,7 +297,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { CirclePlus, Clock, Close, Delete, Download, Grid, List, Operation, Search, User } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import { draftList, historyGet, historyList, retryTask } from '@/api/publisher'
+import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
 
@@ -318,6 +326,7 @@ const selectedRecord = ref(null)
 const detailLoading = ref(false)
 const detailError = ref('')
 const actionMessage = ref('')
+const deletingSelected = ref(false)
 const showPublishTypeDialog = ref(false)
 const PAGE_SIZE = 50
 let pendingFilterLoad = null
@@ -586,6 +595,28 @@ async function retryRecord (record) {
   }
 }
 
+async function deleteSelectedRecords () {
+  const ids = [...selectedIds.value]
+  if (ids.length === 0 || deletingSelected.value) return
+
+  deletingSelected.value = true
+  actionMessage.value = ''
+  try {
+    const result = await historyDelete(ids)
+    if (!result || result.code !== 0) {
+      actionMessage.value = result?.message || '删除发布记录失败'
+      return
+    }
+    selectedIds.value = []
+    await loadRecords()
+    actionMessage.value = `已删除 ${result.data?.deleted || ids.length} 条发布记录`
+  } catch {
+    actionMessage.value = '删除发布记录失败，请稍后重试'
+  } finally {
+    deletingSelected.value = false
+  }
+}
+
 function recordTitle (record) {
   return record?.title || record?.name || '未命名发布任务'
 }
@@ -739,6 +770,7 @@ onMounted(loadRecords)
 
 .history-header h1 { margin: 0; color: var(--text-primary, #25252b); font-size: 20px; line-height: 28px; }
 .history-header > span { color: var(--text-muted, #707080); font-size: 12px; }
+.action-message { margin-left: auto; color: var(--text-muted, #707080); font-size: 12px; }
 
 .history-tabs {
   gap: 24px;
