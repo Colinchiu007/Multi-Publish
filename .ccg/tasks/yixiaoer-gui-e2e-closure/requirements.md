@@ -24,6 +24,13 @@
 - `npm run build:vue`：exit 0；像素视觉门禁：17/17 passed。
 - 桌面完整 Vitest：357 files / 6107 tests passed。
 
+## PR #355 GUI 门禁复盘
+
+- 新 SHA `f52e37d` 的 GitHub `gui-test` 首次仍失败：账号页基线将 8 个按钮计为平台筛选。
+- 根因是 `selectors.json` 使用 `.platform-filter-panel button`，该范围同时包含嵌套的分组筛选按钮；不是账号页面平台数据或渲染缺失。
+- 修复为 `button[data-testid^="platform-filter-"]`，只匹配稳定的平台筛选 testid。
+- 修复后本地真实 Electron GUI v9 复跑通过：`60/60`，控制台错误 `0`，页面错误 `0`。
+
 ## 审查边界
 
 - Antigravity wrapper：`agy command not found in PATH`。
