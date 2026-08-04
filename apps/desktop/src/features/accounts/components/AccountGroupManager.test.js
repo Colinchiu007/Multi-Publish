@@ -19,6 +19,7 @@ describe('AccountGroupManager', () => {
           { id: 'a1', name: '主账号', platform: 'wechat_mp' },
           { id: 'a2', name: '备用账号', platform: 'wechat_mp' },
         ],
+        platforms: [{ id: 'wechat_mp', label: '微信' }],
       },
       global,
     })
@@ -30,5 +31,26 @@ describe('AccountGroupManager', () => {
     expect(wrapper.emitted('create')?.[0]).toEqual(['视频组'])
     expect(wrapper.emitted('toggle-account')?.[0]).toEqual(['g1', 'a2'])
     expect(wrapper.text()).toContain('1 / 2 个账号')
+  })
+
+  it('重命名分组并更新平台筛选', async () => {
+    const wrapper = mount(AccountGroupManager, {
+      props: {
+        visible: true,
+        groups: [{ id: 'g1', name: '运营组', accountIds: ['a1'] }],
+        accounts: [{ id: 'a1', name: '主账号', platform: 'wechat_mp' }],
+        platforms: [{ id: 'wechat_mp', label: '微信' }],
+      },
+      global,
+    })
+
+    await wrapper.get('.rename-group-button').trigger('click')
+    await wrapper.get('[data-testid="rename-group-g1"]').setValue('内容组')
+    await wrapper.get('[data-testid="save-group-name"]').trigger('click')
+    await wrapper.get('[data-testid="group-g1-platform"]').setValue('wechat_mp')
+    await wrapper.get('[data-testid="group-g1-platform"]').trigger('change')
+
+    expect(wrapper.emitted('rename')?.[0]).toEqual(['g1', '内容组'])
+    expect(wrapper.emitted('set-platform')?.[0]).toEqual(['g1', 'wechat_mp'])
   })
 })

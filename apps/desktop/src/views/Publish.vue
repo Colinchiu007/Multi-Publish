@@ -41,6 +41,20 @@
               <label class="cohere-form-label">正文</label>
               <UiInput type="textarea" v-model="a.content" placeholder="请输入正文" :rows="5" />
             </div>
+            <div class="cohere-form-item batch-metadata-grid">
+              <div>
+                <label class="cohere-form-label">标签</label>
+                <UiInput v-model="a.tagsText" placeholder="多个标签用逗号分隔" />
+              </div>
+              <div>
+                <label class="cohere-form-label">话题</label>
+                <UiInput v-model="a.topicsText" placeholder="多个话题用逗号分隔" />
+              </div>
+              <div>
+                <label class="cohere-form-label">@好友</label>
+                <UiInput v-model="a.mentionsText" placeholder="输入昵称或 @昵称" />
+              </div>
+            </div>
             <div class="cohere-form-item">
               <label class="cohere-form-label">发布目标</label>
               <div class="batch-platform-targets">
@@ -155,6 +169,22 @@
                 <UiInput v-model="article.author" placeholder="作者名称（选填）" style="max-width:300px" />
               </div>
               <div class="cohere-form-item">
+                <label class="cohere-form-label">图片素材</label>
+                <el-upload
+                  v-model:file-list="imageFileList"
+                  class="publish-media-upload"
+                  :auto-upload="false"
+                  :limit="9"
+                  multiple
+                  accept="image/*"
+                  :on-change="handleImageFileChange"
+                  :on-remove="handleImageFileRemove"
+                >
+                  <button type="button" class="media-upload-trigger">选择图片</button>
+                  <template #tip><div class="el-upload__tip">支持 JPG/PNG/WebP，最多 9 张；图片会随发布任务传给平台适配器</div></template>
+                </el-upload>
+              </div>
+              <div class="cohere-form-item">
                 <label class="cohere-form-label">正文</label>
                 <ArticleEditor v-model="article.content" />
               </div>
@@ -167,8 +197,34 @@
                 </el-upload>
               </div>
               <div class="cohere-form-item">
-                <label class="cohere-form-label">封面图 URL</label>
+                <label class="cohere-form-label">封面图</label>
+                <el-upload
+                  v-model:file-list="coverFileList"
+                  class="publish-media-upload"
+                  :auto-upload="false"
+                  :limit="1"
+                  accept="image/*"
+                  :on-change="handleCoverFileChange"
+                  :on-remove="handleCoverFileRemove"
+                >
+                  <button type="button" class="media-upload-trigger">选择封面</button>
+                  <template #tip><div class="el-upload__tip">可选择本地封面，也可以填写图片链接</div></template>
+                </el-upload>
                 <UiInput v-model="article.cover_url" placeholder="封面图片链接（选填）" />
+              </div>
+              <div class="cohere-form-item publish-metadata-grid">
+                <div>
+                  <label class="cohere-form-label" for="publish-tags">标签</label>
+                  <UiInput id="publish-tags" v-model="tagsText" placeholder="多个标签用逗号分隔" />
+                </div>
+                <div>
+                  <label class="cohere-form-label" for="publish-topics">话题</label>
+                  <UiInput id="publish-topics" v-model="topicsText" placeholder="多个话题用逗号分隔" />
+                </div>
+                <div>
+                  <label class="cohere-form-label" for="publish-mentions">@好友</label>
+                  <UiInput id="publish-mentions" v-model="mentionsText" placeholder="输入昵称或 @昵称" />
+                </div>
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">定时发布</label>
@@ -296,7 +352,7 @@
 <script setup>
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
@@ -316,12 +372,19 @@ import { usePlatformSelection } from '@/composables/usePlatformSelection'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
 import { usePublishDrafts } from '@/composables/usePublishDrafts'
-import { getPlatformContentLimit } from '@/features/publish/publish-contract'
+import {
+  getPlatformContentLimit,
+  normalizePublishFile,
+  normalizePublishFiles,
+  normalizePublishMentions,
+  normalizePublishStringList,
+} from '@/features/publish/publish-contract'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
 import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatformCatalog'
 
 const route = useRoute()
+const publishTab = computed(() => String(route.query?.tab || 'publish'))
 
 const showDiffPanel = ref(false)
 const diffEdits = reactive({})
@@ -343,7 +406,75 @@ async function loadAccounts () {
 }
 
 // ── 非批量模式（本地 UI 状态） ────────────
-const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '', publishTime: '' })
+const article = reactive({
+  title: '',
+  content: '',
+  author: '',
+  cover_url: '',
+  cover_path: '',
+  cover_file: null,
+  video_path: '',
+  images: [],
+  image_files: [],
+  tags: [],
+  topics: [],
+  mentions: [],
+  publishTime: '',
+})
+const imageFileList = ref([])
+const coverFileList = ref([])
+const tagsText = computed({
+  get: () => normalizePublishStringList(article.tags).join(', '),
+  set: value => { article.tags = normalizePublishStringList(value) },
+})
+const topicsText = computed({
+  get: () => normalizePublishStringList(article.topics).join(', '),
+  set: value => { article.topics = normalizePublishStringList(value) },
+})
+const mentionsText = computed({
+  get: () => normalizePublishMentions(article.mentions).map(item => item.text).join(', '),
+  set: value => { article.mentions = normalizePublishMentions(value) },
+})
+
+function normalizeUploadFile (file) {
+  const raw = file?.raw || file
+  return normalizePublishFile({
+    path: raw?.path || raw?.filePath || file?.path || raw?.name || file?.name,
+    name: raw?.name || file?.name,
+    type: raw?.type || file?.type,
+    size: raw?.size || file?.size,
+    lastModified: raw?.lastModified || file?.lastModified,
+  })
+}
+
+function updateImageFiles (fileList) {
+  const files = normalizePublishFiles(fileList).filter(file => file.path)
+  article.image_files = files
+  article.images = files.map(file => file.path)
+  imageFileList.value = files
+}
+
+function handleImageFileChange (file, fileList) {
+  updateImageFiles(Array.isArray(fileList) ? fileList : [file])
+}
+
+function handleImageFileRemove (_file, fileList) {
+  updateImageFiles(Array.isArray(fileList) ? fileList : [])
+}
+
+function handleCoverFileChange (file) {
+  const descriptor = normalizeUploadFile(file)
+  article.cover_file = descriptor
+  article.cover_path = descriptor?.path || ''
+  coverFileList.value = descriptor ? [descriptor] : []
+}
+
+function handleCoverFileRemove () {
+  article.cover_file = null
+  article.cover_path = ''
+  coverFileList.value = []
+}
+
 const showTagPanel = ref(true)
 const showTitlePanel = ref(false)
 const showAiWriter = ref(false)
@@ -363,7 +494,7 @@ const {
   toggleAccount,
   isAccountSelected,
   isAccountAvailable,
-} = usePlatformSelection(accountStore)
+} = usePlatformSelection(accountStore, platformStore)
 
 const selectedOverridePlatforms = computed(() => {
   return platforms.value
@@ -434,8 +565,21 @@ const {
   isBatchAccountSelected,
 } = useBatchPublish({ article, licenseStore, isAccountAvailable })
 
+watch(publishTab, async value => {
+  if (value === 'drafts') {
+    showDraftList.value = true
+    await loadDrafts()
+  } else if (showDraftList.value) {
+    showDraftList.value = false
+  }
+})
+
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
+  if (publishTab.value === 'drafts') {
+    showDraftList.value = true
+    await loadDrafts()
+  }
   await loadAccounts()  // 加载多账号列表
   // 初始化默认选中账号
   for (const pid of selectedPlatforms.value) {
@@ -479,6 +623,15 @@ defineExpose({
   showTemplatePicker,
   showAiWriter,
   showUpgradeModal,
+  imageFileList,
+  coverFileList,
+  tagsText,
+  topicsText,
+  mentionsText,
+  handleImageFileChange,
+  handleImageFileRemove,
+  handleCoverFileChange,
+  handleCoverFileRemove,
   templateTargetIdx,
   addArticle,
   removeArticle,
@@ -532,6 +685,8 @@ defineExpose({
   flex-wrap: wrap;
   gap: 8px 16px;
 }
+.batch-metadata-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.batch-metadata-grid > div { min-width: 0; }
 .batch-account-targets {
   flex: 1 0 100%;
   display: flex;
@@ -546,6 +701,15 @@ defineExpose({
 .batch-account-option { display: inline-flex; align-items: center; gap: 5px; color: var(--text-primary, #202124); font-size: 12px; cursor: pointer; }
 .batch-account-option input { accent-color: var(--coral, #f56c6c); }
 .batch-retry-icon { width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px; }
+.publish-media-upload { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.media-upload-trigger { min-height: 32px; padding: 5px 12px; border: 1px solid #d9dce8; border-radius: 6px; background: #fff; color: #4d5574; font-size: 12px; cursor: pointer; }
+.media-upload-trigger:hover { border-color: #5048e5; color: #5048e5; }
+.publish-metadata-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.publish-metadata-grid > div { min-width: 0; }
+
+@media (max-width: 720px) {
+  .publish-metadata-grid { grid-template-columns: 1fr; }
+}
 
 /* 草稿箱列表 */
 .draft-list {
@@ -586,5 +750,8 @@ defineExpose({
   .cohere-content {
     flex-direction: column;
   }
+}
+@media (max-width: 720px) {
+  .batch-metadata-grid { grid-template-columns: 1fr; }
 }
 </style>

@@ -73,6 +73,168 @@ export function buildPublishTargets (platforms, selectedAccounts) {
 }
 
 /**
+ * 将标签/话题等用户输入统一为纯字符串数组。
+ * 兼容旧草稿中的逗号分隔字符串和 { name } 对象，不把原始响应式对象
+ * 传入 Electron IPC。
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+export function normalizePublishStringList (value) {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[\n,，、]/)
+      : []
+  return [...new Set(values.map(item => {
+    if (typeof item === 'string') return item.trim()
+    if (item && typeof item === 'object' && typeof item.name === 'string') return item.name.trim()
+    return ''
+  }).filter(Boolean))]
+}
+
+function normalizeFileReference (value) {
+  if (typeof value === 'string') return value.trim()
+  if (!value || typeof value !== 'object') return ''
+  const candidates = [value.path, value.filePath, value.file_path, value.url, value.src, value.name]
+  return candidates.find(candidate => typeof candidate === 'string' && candidate.trim())?.trim() || ''
+}
+
+/**
+ * 将本地文件或 URL 转为可结构化克隆的描述对象。
+ * @param {unknown} value
+ * @returns {{ path: string, name: string, type?: string, size?: number, lastModified?: number } | null}
+ */
+export function normalizePublishFile (value) {
+  const path = normalizeFileReference(value)
+  if (!path) return null
+  const source = value && typeof value === 'object' ? value : {}
+  const file = {
+    path,
+    name: typeof source.name === 'string' && source.name.trim() ? source.name.trim() : path,
+  }
+  if (typeof source.type === 'string' && source.type.trim()) file.type = source.type.trim()
+  if (Number.isFinite(source.size) && source.size >= 0) file.size = source.size
+  if (Number.isFinite(source.lastModified) && source.lastModified >= 0) file.lastModified = source.lastModified
+  return file
+}
+
+/**
+ * 将图片/文件输入统一为文件描述数组。
+ * @param {unknown} value
+ * @returns {{ path: string, name: string, type?: string, size?: number, lastModified?: number }[]}
+ */
+export function normalizePublishFiles (value) {
+  const values = Array.isArray(value) ? value : value ? [value] : []
+  const files = values.map(normalizePublishFile).filter(Boolean)
+  const seen = new Set()
+  return files.filter(file => {
+    if (seen.has(file.path)) return false
+    seen.add(file.path)
+    return true
+  })
+}
+
+/**
+ * 将 @ 提及统一为后端已使用的 { name, text } 结构。
+ * @param {unknown} value
+ * @returns {{ name: string, text: string }[]}
+ */
+export function normalizePublishMentions (value) {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[\n,，、]/)
+      : []
+  const mentions = []
+  const seen = new Set()
+  for (const item of values) {
+    const source = typeof item === 'string' ? { name: item } : item
+    if (!source || typeof source !== 'object') continue
+    const rawName = typeof source.name === 'string'
+      ? source.name
+      : typeof source.username === 'string'
+        ? source.username
+        : typeof source.handle === 'string'
+          ? source.handle
+          : ''
+    const name = rawName.trim().replace(/^@+/, '')
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    mentions.push({ name, text: `@${name}` })
+  }
+  return mentions
+}
+
+/**
+ * 校验图文扩展字段的形状。所有字段均为可选，避免把尚未被后端声明的
+ * 能力变成新的必填 API；但一旦传入，必须是可结构化克隆的纯值。
+ * @param {Record<string, unknown>} article
+ * @returns {{ valid: boolean, field?: string, message?: string }}
+ */
+export function validatePublishMetadata (article = {}) {
+  if (!article || typeof article !== 'object' || Array.isArray(article)) {
+    return { valid: false, field: 'article', message: '发布内容格式无效' }
+  }
+
+  const listFields = [
+    ['tags', normalizePublishStringList],
+    ['topics', normalizePublishStringList],
+    ['mentions', normalizePublishMentions],
+  ]
+  for (const [field, normalize] of listFields) {
+    if (article[field] === undefined || article[field] === null || typeof article[field] === 'string' || Array.isArray(article[field])) {
+      const values = Array.isArray(article[field])
+        ? article[field]
+        : typeof article[field] === 'string'
+          ? article[field].split(/[\n,，、]/)
+          : []
+      const validValues = values.every(value => {
+        if (typeof value === 'string') return true
+        if (!value || typeof value !== 'object') return false
+        if (field === 'mentions') {
+          return ['name', 'username', 'handle'].some(key => typeof value[key] === 'string')
+        }
+        return typeof value.name === 'string'
+      })
+      if (!validValues) return { valid: false, field, message: `${field} 字段格式无效` }
+      const normalized = normalize(article[field])
+      if (normalized.some(item => typeof item !== 'string' && (!item || typeof item !== 'object'))) {
+        return { valid: false, field, message: `${field} 字段格式无效` }
+      }
+      continue
+    }
+    return { valid: false, field, message: `${field} 字段格式无效` }
+  }
+
+  const fileFields = [
+    ['images', normalizePublishFiles],
+    ['image_files', normalizePublishFiles],
+  ]
+  for (const [field, normalize] of fileFields) {
+    if (article[field] === undefined || article[field] === null) continue
+    if (!Array.isArray(article[field]) && typeof article[field] !== 'string' && typeof article[field] !== 'object') {
+      return { valid: false, field, message: `${field} 字段格式无效` }
+    }
+    const values = Array.isArray(article[field]) ? article[field] : [article[field]]
+    if (values.some(value => {
+      if (typeof value === 'string') return !value.trim()
+      return !value || typeof value !== 'object' || normalize(value).length === 0
+    })) {
+      return { valid: false, field, message: `${field} 文件引用无效` }
+    }
+  }
+
+  for (const field of ['cover_file', 'cover_path']) {
+    if (article[field] === undefined || article[field] === null || article[field] === '') continue
+    if (!normalizeFileReference(article[field])) {
+      return { valid: false, field, message: '封面文件引用无效' }
+    }
+  }
+
+  return { valid: true }
+}
+
+/**
  * 返回平台展示名称，避免页面各自维护一份中文映射。
  * @param {unknown} platformId
  * @returns {string}

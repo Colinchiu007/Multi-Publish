@@ -322,6 +322,27 @@ describe("useAccountStore", () => {
       expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual([group]);
     });
 
+    it("renameGroup 更新名称并拒绝重复名称", () => {
+      const store = useAccountStore();
+      store.groups = [{ id: "keep", name: "常用" }, { id: "rename", name: "旧名称" }];
+
+      expect(store.renameGroup("rename", "新名称")).toBe(true);
+      expect(store.groups[1].name).toBe("新名称");
+      expect(store.renameGroup("rename", "常用")).toBe(false);
+      expect(store.renameGroup("rename", "  ")).toBe(false);
+      expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual(store.groups);
+    });
+
+    it("setGroupPlatform 更新平台并移除不匹配成员", () => {
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+      store.groups = [{ id: "group", name: "混合", platformFilter: null, accountIds: ["wx-1", "zh-1"] }];
+
+      expect(store.setGroupPlatform("group", "wechat_mp")).toBe(true);
+      expect(store.groups[0]).toMatchObject({ platformFilter: "wechat_mp", accountIds: ["wx-1"] });
+      expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual(store.groups);
+    });
+
     it("deleteGroup 删除目标分组并持久化", () => {
       const store = useAccountStore();
       store.groups = [{ id: "keep" }, { id: "delete" }];
@@ -586,6 +607,16 @@ describe("useAccountStore", () => {
       await expect(store.batchSetStatus("active")).resolves.toEqual({ success: 0, failed: 0 });
       expect(accountUpdate).not.toHaveBeenCalled();
       expect(listAccounts).toHaveBeenCalledTimes(1);
+    });
+
+    it("batchSetStatus 传入范围时只更新显式 ID", async () => {
+      accountUpdate.mockResolvedValue({ code: 0 });
+      const store = useAccountStore();
+      store.selectedIds = new Set(["a", "b", "c"]);
+
+      await expect(store.batchSetStatus("active", ["a", "c"])).resolves.toEqual({ success: 2, failed: 0 });
+
+      expect(accountUpdate.mock.calls.map(call => call[0])).toEqual(["a", "c"]);
     });
   });
 

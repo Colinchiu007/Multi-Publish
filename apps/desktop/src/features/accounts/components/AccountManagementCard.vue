@@ -85,6 +85,9 @@
       <button :data-testid="`check-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('check', account)">
         <Refresh />验证
       </button>
+      <button :data-testid="`proxy-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('configure-proxy', account)">
+        <Setting />设置
+      </button>
       <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('remove', account)">
         <Delete />删除
       </button>
@@ -94,7 +97,7 @@
 
 <script setup>
 import { nextTick, ref } from 'vue'
-import { CircleCheck, Delete, EditPen, Link, Refresh, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
+import { CircleCheck, Delete, EditPen, Link, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
   account: { type: Object, required: true },
@@ -111,6 +114,7 @@ const emit = defineEmits([
   'rename',
   'open',
   'check',
+  'configure-proxy',
   'remove',
 ])
 
