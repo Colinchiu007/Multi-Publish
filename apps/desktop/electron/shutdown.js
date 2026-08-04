@@ -34,7 +34,7 @@ async function performShutdown(context) {
     systemTray, scheduler, publishImpactTracker,
     authViewManager, qrCodeLogin, oauthManager,
     batchManager, taskQueue, commentManager,
-    renderEngine, usageTracker,
+    renderEngine, usageTracker, story2videoMediaServer,
   } = context
 
   await runCleanup('Error unregistering hotkeys:', () => {
@@ -94,6 +94,9 @@ async function performShutdown(context) {
   })
   await runCleanup('Error stopping callback server:', () => {
     if (callbackServer && callbackServer.stop) return callbackServer.stop()
+  })
+  await runCleanup('Error stopping Story2Video media server:', () => {
+    if (story2videoMediaServer && story2videoMediaServer.stop) return story2videoMediaServer.stop()
   })
   await runCleanup('Error destroying tray:', () => {
     if (systemTray && systemTray.destroy) return systemTray.destroy()

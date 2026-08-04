@@ -46,6 +46,8 @@ describe('index.html Content Security Policy', () => {
     expect(directives.get('font-src')).toEqual(["'self'", 'data:'])
     expect(directives.get('img-src')).toContain('blob:')
     expect(directives.get('media-src')).toContain('blob:')
+    expect(directives.get('media-src')).toContain('http://127.0.0.1:*')
+    expect(directives.get('media-src')).not.toContain('http:')
   })
 
   it('不在生产入口中加载第三方字体', () => {

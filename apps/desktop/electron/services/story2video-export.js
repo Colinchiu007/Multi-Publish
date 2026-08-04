@@ -4,12 +4,12 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { pathToFileURL } = require('url')
 const {
   getAllowedMediaRoots,
   isPathWithin,
   resolveReadableFile,
 } = require('./story2video-paths')
+const { getStory2VideoMediaServer } = require('./story2video-media-server')
 
 const MAX_EXPORT_FILES = 64
 const MAX_EXPORT_BYTES = 512 * 1024 * 1024
@@ -206,7 +206,11 @@ function createShareFileUrl (filePath, options = {}) {
     maxBytes: options.maxBytes || MAX_EXPORT_BYTES,
   })
   if (!resolved) throw new Error('视频文件路径不允许或文件不可读')
-  return pathToFileURL(resolved).href
+  const mediaServer = options.mediaServer || getStory2VideoMediaServer()
+  if (!mediaServer || typeof mediaServer.createUrl !== 'function') {
+    throw new Error('Story2Video 媒体服务不可用')
+  }
+  return mediaServer.createUrl(resolved)
 }
 
 module.exports = {

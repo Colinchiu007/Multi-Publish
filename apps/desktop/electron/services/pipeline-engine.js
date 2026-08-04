@@ -17,7 +17,6 @@
  *   - 现有 13 条流水线无 stage.type 字段，回退为 MANUAL_CHECKPOINT
  */
 
-const path = require('path');
 const { StageExecutor, STAGE_TYPES } = require('./stage-executor');
 const { cleanupRunInputDir, cleanupImportedMediaPaths } = require('./story2video-paths');
 const {
@@ -341,7 +340,11 @@ class PipelineEngine {
 
   /** 列出所有可用流水线（内置 + 动态注册） */
   listPipelines() {
-    const builtIn = PIPELINES.map((p) => ({
+    const prioritizedBuiltIn = [
+      ...PIPELINES.filter((pipeline) => pipeline.name === STORY2VIDEO_PIPELINE),
+      ...PIPELINES.filter((pipeline) => pipeline.name !== STORY2VIDEO_PIPELINE),
+    ]
+    const builtIn = prioritizedBuiltIn.map((p) => ({
       name: p.name,
       description: p.description,
       category: p.category,
@@ -826,9 +829,7 @@ class PipelineEngine {
         }
       } catch (persistError) {
         run.status = 'failed';
-        run.error = 'Story2Video 项目保存失败: ' + persistError.message;
-        status = 'failed';
-        this.log.error('PipelineEngine', run.error);
+        run.error = 'Story2Video 项目保存失败: ' + persistError.message;        this.log.error('PipelineEngine', run.error);
       }
     }
     this._history.push({

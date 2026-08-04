@@ -106,7 +106,7 @@ const SENSITIVE_CONTEXT_KEYS = new Set([
   'credential', 'credentials', 'private_key',
 ])
 const SUBTITLE_SIZE_MAP = Object.freeze({
-  size1: 'sm', size2: 'sm', size3: 'md', size4: 'xl', size5: 'xl', size6: 'xl',
+  size1: 'size1', size2: 'size2', size3: 'size3', size4: 'size4', size5: 'size5', size6: 'size6',
   sm: 'sm', md: 'md', lg: 'lg', xl: 'xl',
 })
 
@@ -222,16 +222,21 @@ function normalizeSize(value) {
 function deriveAspectRatio(size) {
   const [width, height] = size.split('x').map(Number)
   if (width === height) return '1:1'
-  if (width * 16 === height * 9) return '16:9'
-  if (width * 9 === height * 16) return '9:16'
-  if (width * 4 === height * 3) return '4:3'
-  if (width * 3 === height * 4) return '3:4'
+  if (width * 9 === height * 16) return '16:9'
+  if (width * 16 === height * 9) return '9:16'
+  if (width * 3 === height * 4) return '4:3'
+  if (width * 4 === height * 3) return '3:4'
   return `${width}:${height}`
 }
 
 function normalizeAspectRatio(value, size) {
-  const ratio = textValue(value, deriveAspectRatio(size), 'image.aspectRatio', 32).trim()
-  return enumValue(ratio, deriveAspectRatio(size), 'image.aspectRatio', ASPECT_RATIOS)
+  const derivedRatio = deriveAspectRatio(size)
+  const ratio = textValue(value, derivedRatio, 'image.aspectRatio', 32).trim()
+  const normalizedRatio = enumValue(ratio, derivedRatio, 'image.aspectRatio', ASPECT_RATIOS)
+  if (normalizedRatio !== derivedRatio) {
+    throw new Error('Story2Video image.aspectRatio 必须与输出分辨率匹配')
+  }
+  return derivedRatio
 }
 
 function normalizeSubtitleSize(value) {

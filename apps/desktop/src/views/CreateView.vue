@@ -224,22 +224,8 @@
               </select>
             </div>
             <div class="config-item">
-              <label>宽高比</label>
-              <select v-model="s2vConfig.aspectRatio" class="form-select">
-                <option value="16:9">16:9 横屏</option>
-                <option value="9:16">9:16 竖屏</option>
-                <option value="1:1">1:1 正方</option>
-                <option value="4:3">4:3 传统</option>
-              </select>
-            </div>
-            <div class="config-item">
               <label>语音 / 音色 ID</label>
-              <input v-model.trim="s2vConfig.voiceId" list="s2v-voice-options" class="form-input" placeholder="默认女声或供应商音色 ID" />
-              <datalist id="s2v-voice-options">
-                <option value="default">默认女声</option>
-                <option value="male">男声</option>
-                <option value="female-soft">柔和女声</option>
-              </datalist>
+              <input v-model.trim="s2vConfig.voiceId" class="form-input" placeholder="可选；留空使用服务商默认音色" />
             </div>
             <div class="config-item">
               <label>语音生成器</label>
@@ -256,17 +242,6 @@
               <input type="range" v-model.number="s2vConfig.voicePitch" min="-12" max="12" step="1" class="form-range" />
             </div>
             <div class="config-item">
-              <label>情绪</label>
-              <select v-model="s2vConfig.voiceEmotion" class="form-select">
-                <option value="default">默认</option>
-                <option value="neutral">自然</option>
-                <option value="warm">温暖</option>
-                <option value="energetic">活力</option>
-                <option value="calm">平静</option>
-                <option value="serious">严肃</option>
-              </select>
-            </div>
-            <div class="config-item">
               <label>旁白音量: {{ Number(s2vConfig.voiceVolume).toFixed(2) }}</label>
               <input type="range" v-model.number="s2vConfig.voiceVolume" min="0" max="2" step="0.05" class="form-range" />
             </div>
@@ -275,7 +250,7 @@
               <input type="number" v-model.number="s2vConfig.concurrency" min="1" max="8" class="form-input" />
             </div>
             <div class="config-item">
-              <label>单画面时长（秒）</label>
+              <label>无旁白场景时长（秒）</label>
               <input type="number" v-model.number="s2vConfig.perImageDuration" min="1" max="60" step="0.5" class="form-input" />
             </div>
             <div class="config-item">
@@ -314,11 +289,11 @@
             </div>
             <div class="config-item">
               <label>创意强度: {{ s2vConfig.creativeLevel }}</label>
-              <input type="range" v-model.number="s2vConfig.creativeLevel" min="0" max="10" step="1" class="form-range" />
+              <input type="range" v-model.number="s2vConfig.creativeLevel" min="1" max="10" step="1" class="form-range" />
             </div>
             <div class="config-item config-span-2">
               <label>负向提示词</label>
-              <textarea v-model.trim="s2vConfig.negativePrompt" rows="2" maxlength="2000" class="form-textarea"></textarea>
+              <textarea v-model.trim="s2vConfig.negativePrompt" rows="2" maxlength="500" class="form-textarea"></textarea>
             </div>
             <div class="config-item">
               <label>模板分类</label>
@@ -387,10 +362,6 @@
                 <option value="size5">特大</option>
                 <option value="size6">超大</option>
               </select>
-            </div>
-            <div class="config-item">
-              <label>字幕字体</label>
-              <input v-model.trim="s2vConfig.subtitleFont" class="form-input" maxlength="240" />
             </div>
             <div class="config-item">
               <label>字幕样式</label>
@@ -667,6 +638,25 @@ import {
 } from '@/story2video/story2video-notifications'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
+const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
+  '720x1280': '9:16',
+  '1920x1080': '16:9',
+  '3840x2160': '16:9',
+  '1080x1920': '9:16',
+  '1080x1440': '3:4',
+})
+
+function prioritizeStory2VideoPipeline(pipelines) {
+  const values = Array.isArray(pipelines) ? pipelines : []
+  return [
+    ...values.filter(pipeline => pipeline?.name === 'story2video-compose'),
+    ...values.filter(pipeline => pipeline?.name !== 'story2video-compose'),
+  ]
+}
+
+function getStory2VideoOutputAspectRatio(resolution) {
+  return STORY2VIDEO_OUTPUT_ASPECT_RATIOS[resolution] || '9:16'
+}
 
 function settleHistoryRequest (request) {
   let timeoutId
@@ -735,10 +725,10 @@ export default {
       renderStatus: null, installing: false, installLog: '',
       // S2V 编排模式（story2video-compose）
       s2vConfig: {
-        contentType: 'general', imageStyle: 'cinematic', aspectRatio: '9:16',
+        contentType: 'general', imageStyle: 'cinematic',
         imageProvider: '', imageModel: '',
-        voiceId: 'default', voiceProvider: '', voiceModel: '',
-        voiceSpeed: 1, voicePitch: 0, voiceEmotion: 'default', voiceVolume: 1,
+        voiceId: '', voiceProvider: '', voiceModel: '',
+        voiceSpeed: 1, voicePitch: 0, voiceVolume: 1,
         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
         perImageDuration: 6,
         splitLanguage: 'zh', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
@@ -747,7 +737,6 @@ export default {
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
         promptStyle: 'realistic', creativeLevel: 5, negativePrompt: '',
         transition: 'fade', subtitleEnabled: false,
-        subtitleFont: '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
         subtitleSize: 'size3', subtitleStyleName: 'style1',
         subtitleStyle: { size: 'md', style: 'style1', color: 'white' },
         bgmPath: '', bgmVolume: 5, watermark: false, watermarkText: '',
@@ -792,7 +781,7 @@ export default {
     activeOutputConfig() {
       return this.isOrchestratedPipeline(this.selectedPipeline?.name) ? this.s2vOutputConfig : this.outputConfig
     },
-    s2vImageProviderOptions() { return [{ id: '', name: '离线占位图' }, ...this.s2vImageProviders] },
+    s2vImageProviderOptions() { return this.s2vImageProviders },
     s2vVoiceProviderOptions() { return [{ id: '', name: '自动 Edge TTS' }, ...this.s2vVoiceProviders] },
     s2vPlatforms() { return S2V_PLATFORMS },
     profileOptions() {
@@ -858,7 +847,7 @@ export default {
       this.pipelineLoading = true; this.pipelineError = null
       try {
         const res = await pipelineList()
-        if (res?.code === 0) this.pipelines = res.data || []
+        if (res?.code === 0) this.pipelines = prioritizeStory2VideoPipeline(res.data)
         else this.pipelineError = res?.message || '加载失败'
       } catch (e) { this.pipelineError = e.message }
       finally { this.pipelineLoading = false }
@@ -947,7 +936,7 @@ export default {
             model: config.imageModel || '',
             style: config.imageStyle,
             effect: config.imageEffect,
-            aspectRatio: config.aspectRatio,
+            aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
           },
           voice: {
             provider: config.voiceProvider || '',
@@ -956,11 +945,9 @@ export default {
             speed: config.voiceSpeed,
             volume: config.voiceVolume,
             pitch: config.voicePitch,
-            emotion: config.voiceEmotion || 'default',
           },
           subtitle: {
             enabled: config.subtitleEnabled,
-            font: config.subtitleFont,
             size: config.subtitleSize,
             style: config.subtitleStyleName,
             color: config.subtitleStyle?.color || 'white',
@@ -1016,7 +1003,6 @@ export default {
       this.s2vConfig.transition = template.transitionEffect
       this.s2vConfig.perImageDuration = Number(template.perImageDuration) || 6
       this.s2vConfig.subtitleEnabled = template.subtitleStyle?.enabled !== false
-      this.s2vConfig.subtitleFont = template.subtitleStyle?.font || this.s2vConfig.subtitleFont
       this.s2vConfig.subtitleSize = template.subtitleStyle?.size || 'size3'
       this.s2vConfig.subtitleStyleName = template.subtitleStyle?.style || this.s2vConfig.subtitleStyleName
       this.s2vConfig.subtitleStyle = {
@@ -1061,7 +1047,6 @@ export default {
         size: this.s2vOutputConfig.resolution,
         subtitleStyle: {
           enabled: this.s2vConfig.subtitleEnabled !== false,
-          font: this.s2vConfig.subtitleFont || 'sans-serif',
           size: this.s2vConfig.subtitleSize || 'size3',
           style: this.s2vConfig.subtitleStyleName || 'style1',
           color: this.s2vConfig.subtitleStyle.color || 'white',

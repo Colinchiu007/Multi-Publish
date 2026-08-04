@@ -21,6 +21,17 @@ describe('PipelineEngine 状态机模式', () => {
     ]))
   })
 
+  it('将 Story2Video 稳定排在内置流水线首位，同时保持其他流水线顺序', () => {
+    const list = engine.listPipelines()
+
+    expect(list[0].name).toBe('story2video-compose')
+    expect(list.slice(1).map(item => item.name)).toEqual([
+      'animated-explainer', 'talking-head', 'cinematic', 'animation',
+      'avatar-spokesperson', 'character-animation', 'clip-factory',
+      'documentary-montage', 'hybrid', 'localization-dub', 'podcast-repurpose',
+      'screen-demo', 'framework-smoke',
+    ])
+  })
   it('列表同时提供 stageCount，供桌面卡片显示阶段数', () => {
     const pipeline = engine.listPipelines().find(item => item.name === 'story2video-compose')
     expect(pipeline.stageCount).toBe(6)

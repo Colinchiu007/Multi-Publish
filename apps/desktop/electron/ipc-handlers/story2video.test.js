@@ -37,6 +37,7 @@ function createDeps() {
     dialog: { showSaveDialog: vi.fn() },
     shell: { showItemInFolder: vi.fn() },
     clipboard: { writeText: vi.fn() },
+    story2videoMediaServer: { createUrl: vi.fn(() => 'http://127.0.0.1:34821/media/aaaaaaaaaaaaaaaa') },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   }
 }
@@ -120,7 +121,9 @@ describe('Story2Video 交付 IPC', () => {
     const shown = await ipcMain.get('story2video:show-in-folder')(TRUSTED_EVENT, video)
 
     expect(share.code).toBe(0)
-    expect(share.data.url).toMatch(/^file:/)
+    expect(share.data.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/media\/[A-Za-z0-9_-]{16,}$/)
+    expect(share.data.url).not.toContain(fs.realpathSync.native(video))
+    expect(share.data.url).not.toMatch(/^file:/)
     expect(deps.clipboard.writeText).toHaveBeenCalledWith(fs.realpathSync.native(video))
     expect(deps.shell.showItemInFolder).toHaveBeenCalledWith(fs.realpathSync.native(video))
     expect(copied.data.path).toBe(fs.realpathSync.native(video))

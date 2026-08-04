@@ -70,11 +70,12 @@ async function buildContainer({ aiGenerator = createControlledDefaultLlm() } = {
   return { pipelineEngine, serviceBus, aiGenerator };
 }
 
-test('PipelineEngine orchestrator - story2video-compose 流水线已注册为第 14 条', { timeout: 10000 }, () => {
+test('PipelineEngine orchestrator - story2video-compose 流水线稳定排在首位', { timeout: 10000 }, () => {
   const pe = new PipelineEngine({ log: { info: () => {}, warn: () => {}, error: () => {} } });
   const list = pe.listPipelines();
   const s2v = list.find(p => p.name === 'story2video-compose');
   assert.ok(s2v, 'story2video-compose 应存在于流水线列表');
+  assert.equal(list[0].name, 'story2video-compose', 'Story2Video 应优先显示');
   assert.equal(s2v.category, 'generated');
   assert.equal(list.length, 14, '总流水线数应为 14');
 });
