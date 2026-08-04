@@ -1,6 +1,7 @@
 <template>
   <article
     class="account-row account-card"
+    :data-testid="`account-card-${account.id}`"
     :class="{ 'is-selected': selected, 'is-default': account.is_default }"
     :aria-label="`${platformLabel}账号：${accountName(account)}`"
   >
@@ -37,7 +38,12 @@
         <img v-if="account.avatar || account.avatar_url" :src="account.avatar || account.avatar_url" alt="">
         <UserFilled v-else />
       </div>
-      <span v-if="!isActive(account)" class="login-badge offline">已失效</span>
+      <span
+        :class="['login-badge', statusClass(account)]"
+        :data-testid="`account-status-${account.id}`"
+        role="status"
+        :aria-label="`账号登录状态：${statusLabel(account)}`"
+      >{{ statusLabel(account) }}</span>
       <div class="account-identity">
         <button
           v-if="!editing"
@@ -63,6 +69,7 @@
           <span v-if="account.is_default" class="default-label">默认账号</span>
           <span v-if="account.created_at">添加于 {{ formatDate(account.created_at) }}</span>
           <span v-else>账号信息已同步</span>
+          <span :data-testid="`account-check-${account.id}`">{{ loginCheckLabel(account) }}</span>
         </div>
         <div class="account-followers" :data-testid="`account-followers-${account.id}`">
           粉丝：{{ followersLabel(account) }}
@@ -182,8 +189,45 @@ function proxyLabel (account) {
   return value || '未设置'
 }
 
+function accountStatusKind (account) {
+  const status = String(account?.status || '').trim().toLowerCase()
+  if (status === 'active' || status === 'online') return 'online'
+  if (status === 'inactive' || status === 'offline' || status === 'expired') return 'offline'
+  if (status === 'error' || status === 'failed' || status === 'failure') return 'error'
+  return 'unknown'
+}
+
 function isActive (account) {
-  return account.status === 'active' || account.status === 'online'
+  return accountStatusKind(account) === 'online'
+}
+
+function statusLabel (account) {
+  const kind = accountStatusKind(account)
+  if (kind === 'online') return '已登录'
+  if (kind === 'offline') return '已过期'
+  if (kind === 'error') return '异常'
+  return '暂无检查记录'
+}
+
+function statusClass (account) {
+  return accountStatusKind(account)
+}
+
+const LAST_CHECK_KEYS = ['last_login_check_at', 'lastLoginCheckAt', 'login_checked_at', 'loginCheckedAt', 'last_checked_at', 'lastCheckedAt', 'checked_at', 'checkedAt']
+const CHECK_REASON_KEYS = ['login_check_error', 'loginCheckError', 'last_login_error', 'lastLoginError', 'status_reason', 'statusReason']
+
+function loginCheckLabel (account) {
+  for (const key of LAST_CHECK_KEYS) {
+    const value = account?.[key]
+    if (value === null || value === undefined || value === '') continue
+    const date = new Date(value)
+    if (!Number.isNaN(date.getTime())) return `最近检查 ${date.toLocaleString('zh-CN')}`
+  }
+  for (const key of CHECK_REASON_KEYS) {
+    const value = valueLabel(account?.[key])
+    if (value) return `异常：${value}`
+  }
+  return '暂无检查记录'
 }
 
 function formatDate (value) {
@@ -321,6 +365,8 @@ function formatDate (value) {
 
 .login-badge.online { background: #e7f7ef; color: #18794e; }
 .login-badge.offline { background: #f2f2f4; color: #777985; }
+.login-badge.error { background: #fff1f0; color: #b42318; }
+.login-badge.unknown { background: #f7f7f8; color: #777985; }
 
 .account-identity {
   width: 100%;

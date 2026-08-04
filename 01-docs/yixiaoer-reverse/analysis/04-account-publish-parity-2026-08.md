@@ -43,6 +43,10 @@
 3. 账号卡片增加粉丝数、负责人、运营人、代理字段的多后端字段归一化；缺失字段分别显示“暂无数据”或“未设置”，不生成假团队数据。
 4. 分享链接状态改为可验证的未接入服务空态，创建按钮显式禁用；分组侧栏增加搜索、共享筛选、分组成员计数和无分组空态。
 
+5. 账号列表排序合同已落地：默认 `sortBy=name`、`sortOrder=asc`，可选 `name`、`platform`、`created_at`、`last_used_at`、`followers`、`status`。搜索、状态/收藏筛选先缩小集合，Store 再排序；页面的平台筛选、分组、负责人/发布人筛选沿用该顺序，不重新打乱账号。文本按 `zh-CN` 小写归一化；日期按时间戳归一化；粉丝数字兼容数字、逗号、`万`、`w`、`k`；缺失或非法日期/数字统一为 `-Infinity`（升序置前、降序置后）；相同值用筛选结果中的原始索引作为 tie-break，保证顺序稳定。
+
+6. 账号状态徽章和检查记录使用可解释映射：`active|online` → `online`/“已登录”；`inactive|offline|expired` → `offline`/“已过期”；`error|failed|failure` → `error`/“异常”；其他或缺失 → `unknown`/“暂无检查记录”。最近检查优先读取 `last_login_check_at`、`lastLoginCheckAt`、`login_checked_at`、`loginCheckedAt`、`last_checked_at`、`lastCheckedAt`、`checked_at`、`checkedAt`；日期无法解析时回退到 `login_check_error`、`loginCheckError`、`last_login_error`、`lastLoginError`、`status_reason`、`statusReason`，再无数据才显示“暂无检查记录”。未知状态不伪装成已过期或已登录；只有已登录状态显示“验证”，其他状态保留重新登录入口。
+
 ## 设计与代码分离审计
 
 已确认仍有以下非阻断遗漏，不能声称“整个项目已完全分离”：
@@ -61,6 +65,7 @@
 - 必测 UI 合同：query 页签 active 状态、分组重命名/平台过滤、分享边界提示、草稿 query 自动打开、结构化媒体 metadata。
 - 构建门禁：本续作修改了 Electron preload/IPC/service 源码；已重新执行 preload 构建、Windows 目录打包、ASAR require 链和真实窗口启动检查。最终目录为 `D:\\tmp\\Multi-Publish-yixiaoer-parity-gap-20260804-dist-electron-final\\win-unpacked`，隔离加载输出 `RPA_ENGINE_REQUIRE_OK`，可见窗口标题为“社媒管家”、句柄 `790144`。
 - 视觉门禁：账号、发布、发布记录和草稿 query 必须在目标 worktree Vite 端口下执行像素回归；截图不得包含账号 Cookie、二维码或个人信息。
+- 本轮续作验证：账号 Store、Accounts 视图、AccountManagementCard 共 3 个测试文件、151 个测试通过；`npm run build:vue` 通过。测试使用隔离工作树的临时依赖 junction，未将该依赖目录纳入提交；构建仅证明 renderer/Vue 模板可编译，不替代真实第三方登录、Cookie 恢复或安装包验收。
 
 ## 本地代码审查边界
 

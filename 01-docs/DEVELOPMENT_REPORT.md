@@ -309,6 +309,26 @@ python -m uvicorn web.server:app --host 0.0.0.0 --port 8082
 | Vite renderer/preload build | `npm run build:vue` exit 0 |
 | 像素视觉门禁 | 17/17 passed |
 
+### 2026-08-04 续作：账号排序与状态可见性合同
+
+#### 本轮变更
+
+- 账号 Store 增加名称、平台、添加时间、最后使用、粉丝数、登录状态六类排序字段，支持升序/降序；文本、日期、粉丝数统一归一化，缺失/非法值和相同值均有确定性处理。
+- Accounts 视图增加 `account-sort` 字段选择器和 `account-sort-order` 方向按钮，排序发生在搜索/状态筛选后，平台、分组、负责人/发布人筛选沿用稳定结果。
+- AccountManagementCard 为每个账号提供稳定卡片/状态/检查记录 testid、`role=status` 和可访问标签；状态分为已登录、已过期、异常、暂无检查记录，检查时间优先于错误原因。
+- 对未知第三方状态保持 fail-closed 语义：不生成 Cookie、团队归属、检查结果或线上授权结论；未接入的团队分享仍显示禁用状态。
+
+#### 续作验证证据
+
+| 门禁 | 结果 |
+|------|------|
+| 账号 Store / Accounts / AccountManagementCard 定向 Vitest | 3 files / 151 tests passed |
+| renderer/Vue 模板构建 | `npm run build:vue` exit 0；仅有既有动态导入和大 chunk warning |
+| diff / 空白检查 | `git diff --check` passed |
+| 外部双模型审查 | 未声称通过；需保留 wrapper 不可用证据并完成本地静态审查 |
+
+该证据使用续作工作树的临时依赖 junction 运行，依赖目录未纳入提交；它证明本地 renderer/test 合同，不替代真实蚁小二账号授权、Cookie 恢复、第三方发布或安装包验收。
+
 ### 交付边界
 
 上述结果证明本地 mock/fixture、渲染合同、IPC 调用和视觉基线一致；不等同于真实第三方账号授权、真实平台上传/发布、团队分享服务、跨设备同步或生产 Electron 安装包验收。Antigravity 与 Claude 外部审查本轮均不可用，原因分别记录为 `agy command not found in PATH` 与 Claude wrapper exit code 1。

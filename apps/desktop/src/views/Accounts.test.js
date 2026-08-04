@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount } from "@vue/test-utils";
-import { nextTick } from "vue";
+import { nextTick, ref } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 import fs from "fs";
 
@@ -29,6 +29,7 @@ const _groups = vi.hoisted(() => ([]));
 const _favoriteIds = vi.hoisted(() => new Set());
 const _selectedIds = vi.hoisted(() => new Set());
 const _accountFilters = vi.hoisted(() => ({ searchQuery: "", filterStatus: "all", filterPlatform: "" }));
+const _accountSort = vi.hoisted(() => ({ sortBy: null, sortOrder: null }));
 const _eventCallbacks = vi.hoisted(() => ({
   authOpened: null,
   authCompleted: null,
@@ -88,6 +89,10 @@ vi.mock("@/stores/accounts", () => ({
     set filterStatus(value) { _accountFilters.filterStatus = value; },
     get filterPlatform() { return _accountFilters.filterPlatform; },
     set filterPlatform(value) { _accountFilters.filterPlatform = value; },
+    get sortBy() { return _accountSort.sortBy?.value ?? "name"; },
+    set sortBy(value) { _accountSort.sortBy.value = value; },
+    get sortOrder() { return _accountSort.sortOrder?.value ?? "asc"; },
+    set sortOrder(value) { _accountSort.sortOrder.value = value; },
     selectedIds: _selectedIds,
     isAllSelected: false,
     favoriteIds: _favoriteIds,
@@ -95,7 +100,7 @@ vi.mock("@/stores/accounts", () => ({
     get accountsBeforePlatformFilter() {
       const query = _accountFilters.searchQuery.toLowerCase();
       const labels = { wechat_mp: "微信", zhihu: "知乎", douyin: "抖音" };
-      return _testAccounts.filter(account => {
+      const filtered = _testAccounts.filter(account => {
         const active = account.status === "active" || account.status === "online";
         if (_accountFilters.filterStatus === "active" && !active) return false;
         if (_accountFilters.filterStatus === "inactive" && active) return false;
@@ -105,6 +110,24 @@ vi.mock("@/stores/accounts", () => ({
           || (account.platform || "").toLowerCase().includes(query)
           || (labels[account.platform] || "").toLowerCase().includes(query);
       });
+      const direction = (_accountSort.sortOrder?.value ?? "asc") === "desc" ? -1 : 1;
+      const field = _accountSort.sortBy?.value || "name";
+      const activeValue = (account) => account.status === "active" || account.status === "online" ? 1 : 0;
+      const value = (account) => {
+        if (field === "name") return String(account.account_name || account.name || "").toLocaleLowerCase("zh-CN");
+        if (field === "platform") return String(labels[account.platform] || account.platform || "").toLocaleLowerCase("zh-CN");
+        if (field === "status") return activeValue(account);
+        if (field === "created_at" || field === "last_used_at") {
+          const parsed = account[field] ? Date.parse(account[field]) : Number.NEGATIVE_INFINITY;
+          return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+        }
+        if (field === "followers") return Number(String(account.followers ?? account.follower_count ?? account.followers_count ?? "").replace(/,/g, "")) || Number.NEGATIVE_INFINITY;
+        return account[field] ?? "";
+      };
+      return filtered
+        .map((account, index) => ({ account, index, value: value(account) }))
+        .sort((left, right) => left.value < right.value ? -1 * direction : left.value > right.value ? 1 * direction : left.index - right.index)
+        .map(({ account }) => account);
     },
     get groupedByPlatform() {
       const filtered = this.accountsBeforePlatformFilter.filter(account => (
@@ -213,6 +236,8 @@ describe("AccountsView", () => {
     _accountFilters.searchQuery = "";
     _accountFilters.filterStatus = "all";
     _accountFilters.filterPlatform = "";
+    _accountSort.sortBy = ref("name");
+    _accountSort.sortOrder = ref("asc");
     _routeState.path = '/accounts';
     _routeState.query = {};
     _favoriteIds.clear();
@@ -373,6 +398,33 @@ describe("AccountsView", () => {
     expect(w.text()).toContain("乙账号");
   });
 
+  it("排序控件提供字段选项并将方向写回 store", async () => {
+    _testAccounts.push(
+      { id: "sort-z", platform: "zhihu", status: "active", account_name: "乙账号" },
+      { id: "sort-a", platform: "wechat_mp", status: "inactive", account_name: "甲账号" },
+    );
+    const w = await mountView();
+    const sortSelect = w.get('[data-testid="account-sort"]');
+    const sortOrder = w.get('[data-testid="account-sort-order"]');
+
+    expect(sortSelect.attributes("aria-label")).toBe("账号排序字段");
+    expect(sortSelect.text()).toContain("名称");
+    expect(sortSelect.text()).toContain("平台");
+    expect(sortSelect.text()).toContain("最后使用");
+    expect(sortOrder.attributes("aria-label")).toBe("排序升序");
+
+    await sortSelect.setValue("platform");
+    await sortOrder.trigger("click");
+    await nextTick();
+
+    expect(w.vm.accountStore.sortBy).toBe("platform");
+    expect(w.vm.accountStore.sortOrder).toBe("desc");
+    expect(sortOrder.attributes("aria-label")).toBe("排序降序");
+    expect(w.findAll('[data-testid^="account-card-"]').map(card => card.attributes("data-testid"))).toEqual([
+      "account-card-sort-z",
+      "account-card-sort-a",
+    ]);
+  });
   it("负责人和发布人没有后端字段时保持诚实禁用态", async () => {
     const w = await mountView();
     expect(w.get('[aria-label="负责人"]').attributes("disabled")).toBeDefined();

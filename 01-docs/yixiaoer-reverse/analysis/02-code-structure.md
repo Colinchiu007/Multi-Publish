@@ -114,7 +114,7 @@ packages/
 
 | 功能 | 蚁小二实现 | Multi-Publish 实现 | 复用方式 |
 |------|-----------|-------------------|---------|
-| 账号列表 | React 列表组件 | 需完善 | 参考蚁小二 UI |
+| 账号列表 | React 列表组件 | `useAccountStore` + `Accounts.vue` + `AccountManagementCard.vue`：筛选、稳定排序、状态徽章和检查记录已落地 | 复用 Store/卡片合同，未验证的第三方状态保持外部边界 |
 | 添加账号 | Modal + 扫码 | api-platform-adapter.js | 扩展适配器 |
 | 账号分组 | DnD 拖拽 | 需开发 | 参考蚁小二 DnD |
 | 状态检测 | socket.io 推送 | account-state-restorer.js | 增强检测逻辑 |

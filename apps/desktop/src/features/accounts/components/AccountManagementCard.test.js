@@ -35,6 +35,17 @@ describe('AccountManagementCard', () => {
     expect(wrapper.emitted('toggle-favorite')).toEqual([['account-1']])
   })
 
+  it('活动账号显示已登录状态徽章和稳定选择器', () => {
+    const wrapper = mountCard()
+    const status = wrapper.get('[data-testid="account-status-account-1"]')
+
+    expect(wrapper.get('[data-testid="account-card-account-1"]').exists()).toBe(true)
+    expect(status.text()).toBe('已登录')
+    expect(status.attributes('role')).toBe('status')
+    expect(status.attributes('aria-label')).toBe('账号登录状态：已登录')
+    expect(status.classes()).toContain('online')
+  })
+
   it('活动账号展示验证、设置和删除命令', async () => {
     const wrapper = mountCard()
 
@@ -58,10 +69,49 @@ describe('AccountManagementCard', () => {
     const expiredAccount = { ...account, status: 'inactive' }
     const wrapper = mountCard({ account: expiredAccount })
 
-    expect(wrapper.text()).toContain('已失效')
+    expect(wrapper.text()).toContain('已过期')
     await wrapper.get('[data-testid="relogin-account-1"]').trigger('click')
 
     expect(wrapper.emitted('relogin')).toEqual([[expiredAccount]])
+  })
+
+  it('未知状态保持诚实提示并继续提供重新登录动作', async () => {
+    const unknownAccount = { ...account, status: 'unknown' }
+    const wrapper = mountCard({ account: unknownAccount })
+    const status = wrapper.get('[data-testid="account-status-account-1"]')
+
+    expect(status.text()).toBe('暂无检查记录')
+    expect(status.classes()).toContain('unknown')
+    expect(wrapper.find('[data-testid="verify-account-1"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="relogin-account-1"]').trigger('click')
+    expect(wrapper.emitted('relogin')).toEqual([[unknownAccount]])
+  })
+
+  it('异常状态显示异常徽章并在非法检查时间后回退失败原因', () => {
+    const failedAccount = {
+      ...account,
+      status: 'error',
+      checked_at: 'not-a-date',
+      status_reason: 'Cookie 已过期',
+    }
+    const wrapper = mountCard({ account: failedAccount })
+    const status = wrapper.get('[data-testid="account-status-account-1"]')
+
+    expect(status.text()).toBe('异常')
+    expect(status.classes()).toContain('error')
+    expect(wrapper.get('[data-testid="account-check-account-1"]').text()).toBe('异常：Cookie 已过期')
+  })
+
+  it('有检查时间或失败原因时展示真实字段', () => {
+    const wrapper = mountCard({
+      account: {
+        ...account,
+        checked_at: '2026-08-04T08:00:00.000Z',
+        login_check_error: 'Cookie 已过期',
+      },
+    })
+
+    expect(wrapper.get('[data-testid="account-check-account-1"]').text()).toContain('最近检查')
   })
 
   it('按蚁小二卡片语义展示粉丝数、负责人、运营人和代理字段', () => {
