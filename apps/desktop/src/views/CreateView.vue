@@ -29,13 +29,13 @@
         <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载流水线列表...</span></div>
         <div v-else-if="pipelineError" class="error-state">⚠️ {{ pipelineError }}</div>
         <div v-else class="pipeline-grid">
-          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :class="p.category" @click="selectPipeline(p)">
+          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :data-pipeline-id="p.name" :class="p.category" @click="selectPipeline(p)">
             <div class="card-header">
-              <span class="badge" :class="p.category">{{ categoryLabel(p.category) }}</span>
+              <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
               <span class="stability-dot" :class="getStability(p.name)" :title="getStability(p.name)"></span>
             </div>
-            <h3 class="card-title">{{ humanName(p.name) }}</h3>
-            <p class="card-desc">{{ p.description }}</p>
+            <h3 class="card-title">{{ pipelineName(p.name) }}</h3>
+            <p class="card-desc">{{ pipelineDescription(p.name) }}</p>
             <div class="card-meta">
               <span class="stage-count">{{ p.stageCount ?? p.stages?.length ?? 0 }} 阶段</span>
               <span class="cost-label" :class="p.estimatedCost">{{ costLabel(p.estimatedCost) }}</span>
@@ -49,16 +49,16 @@
         <button class="back-btn" @click="selectedPipeline = null">← 返回流水线列表</button>
 
         <div class="detail-header">
-          <h2>{{ humanName(selectedPipeline.name) }}</h2>
-          <p class="detail-desc">{{ selectedPipeline.description }}</p>
+          <h2>{{ pipelineName(selectedPipeline.name) }}</h2>
+          <p class="detail-desc">{{ pipelineDescription(selectedPipeline.name) }}</p>
         </div>
 
         <!-- 阶段进度 -->
         <div v-if="pipelineRunStatus && pipelineRunStatus.stages" class="stages-timeline">
           <div v-for="(stage, i) in pipelineRunStatus.stages" :key="i" class="stage-item" :class="stageStateClass(stage, i)">
             <span class="stage-icon">{{ stageStateIcon(stage, i) }}</span>
-            <span class="stage-name">{{ humanName(stage.name) }}</span>
-            <span class="stage-status">{{ stageStatusLabel(stage) }}</span>
+            <span class="stage-name">{{ pipelineStage(stage.name) }}</span>
+            <span class="stage-status">{{ stageStatusLabel(stage, i) }}</span>
           </div>
         </div>
 
@@ -182,23 +182,9 @@
           </div>
         </div>
 
-        <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="config-section">
-          <h3>执行控制</h3>
-          <div class="config-grid">
-            <div class="config-item">
-              <label>检查点策略</label>
-              <select v-model="checkpointPolicy" class="form-select">
-                <option value="guided">引导式（推荐）</option>
-                <option value="manual_all">全部手动确认</option>
-                <option value="auto_noncreative">自动跳过非创意阶段</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
         <!-- S2V 编排专属配置（仅 story2video-compose 显示） -->
         <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="config-section">
-          <h3>Story2Video 配置</h3>
+          <h3>{{ story2videoConfigurationTitle }}</h3>
           <div class="config-grid">
             <div class="config-item">
               <label>内容类型</label>
@@ -216,6 +202,7 @@
                 <option value="watercolor">水彩</option>
                 <option value="minimalist">极简</option>
               </select>
+              <span class="config-hint">{{ story2videoImageStyleHint }}</span>
             </div>
             <div class="config-item">
               <label>图片生成器</label>
@@ -224,30 +211,95 @@
               </select>
             </div>
             <div class="config-item">
-              <label>语音 / 音色 ID</label>
-              <input v-model.trim="s2vConfig.voiceId" class="form-input" placeholder="可选；留空使用服务商默认音色" />
-            </div>
-            <div class="config-item">
               <label>语音生成器</label>
-              <select v-model="s2vConfig.voiceProvider" class="form-select">
+              <select v-model="s2vConfig.voiceProvider" class="form-select" @change="handleS2VVoiceProviderChange">
                 <option v-for="provider in s2vVoiceProviderOptions" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
               </select>
+            </div>
+            <div v-if="s2vConfig.voiceProvider" class="config-item">
+              <label>语音模型</label>
+              <select
+                v-if="s2vVoiceModelOptions.length > 0"
+                v-model="s2vConfig.voiceModel"
+                class="form-select"
+                @change="handleS2VVoiceModelChange"
+              >
+                <option disabled value="">选择模型</option>
+                <option v-for="model in s2vVoiceModelOptions" :key="model" :value="model">{{ model }}</option>
+              </select>
+              <span v-else class="config-hint">当前服务商没有可用的语音模型。</span>
+            </div>
+            <div v-if="s2vConfig.voiceProvider && s2vConfig.voiceModel" class="config-item">
+              <label>音色</label>
+              <select
+                id="s2v-voice-catalog"
+                v-model="s2vConfig.voiceId"
+                class="form-select"
+                :disabled="s2vVoiceCatalogLoading || s2vVoiceOptions.length === 0"
+                @change="handleS2VVoiceSelection"
+              >
+                <option value="">使用服务商默认音色</option>
+                <option v-for="voice in s2vVoiceOptions" :key="voice.id" :value="voice.id">{{ voice.name }}</option>
+              </select>
+              <span v-if="s2vVoiceCatalogLoading" class="config-hint">正在加载音色目录…</span>
+              <span v-else-if="s2vVoiceCatalogError" class="inline-error">{{ s2vVoiceCatalogError }}</span>
+              <span v-else-if="s2vVoiceOptions.length === 0" class="config-hint">当前模型没有可用音色。</span>
+            </div>
+            <div v-if="s2vVoiceCapability?.type === 'provider_personal_slot'" class="config-item config-span-2 voice-slot-hint">
+              <label>个人音色</label>
+              <p class="config-hint">此页仅显示已配置或静态可用的音色，不会持续同步服务商控制台。请前往服务商控制台创建和管理个人音色。</p>
+            </div>
+            <div
+              v-if="s2vVoiceCapability?.type === 'user_clone' && s2vVoiceCapability?.clone?.enabled === true"
+              class="config-item config-span-2 voice-clone-panel"
+            >
+              <label>克隆音色</label>
+              <p v-if="s2vVoiceCloneRequirements" class="config-hint">
+                支持格式：{{ s2vVoiceCloneRequirements.allowedExtensions?.join('、') || '音频' }}；最多 {{ s2vVoiceCloneRequirements.maxSampleCount }} 个文件；单文件 {{ formatS2VVoiceCloneBytes(s2vVoiceCloneRequirements.maxSampleBytes) }}，合计 {{ formatS2VVoiceCloneBytes(s2vVoiceCloneRequirements.maxTotalBytes) }}；单条 {{ formatS2VVoiceCloneDuration(s2vVoiceCloneRequirements.maxSampleDurationSeconds) }}，合计 {{ formatS2VVoiceCloneDuration(s2vVoiceCloneRequirements.maxTotalDurationSeconds) }}。
+              </p>
+              <p v-if="s2vVoiceCloneRequirements" class="config-hint">以上为桌面端本地安全阈值，不是未经验证的服务商硬性限制。</p>
+              <div class="voice-clone-actions">
+                <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="chooseS2VVoiceCloneSamples">
+                  {{ s2vVoiceCloneSelection ? '重新选择样本' : '选择本地音频样本' }}
+                </button>
+                <span v-if="s2vVoiceCloneSelection" class="config-hint">已选择 {{ s2vVoiceCloneSelection.sampleCount }} 个样本</span>
+              </div>
+              <label class="checkbox-label voice-clone-consent">
+                <input v-model="s2vVoiceCloneConsent" type="checkbox" />
+                <span>我确认已取得样本上传、使用和克隆的权利，并已作出明确同意。</span>
+              </label>
+              <p class="config-hint">创建成功后，已授权样本会保存到当前用户的本机私有目录，用于管理此克隆音色；删除克隆音色会同时清理这些样本，页面不会接收原始文件路径或音频内容。</p>
+              <div class="voice-clone-actions">
+                <input v-model.trim="s2vVoiceCloneName" class="form-input" maxlength="128" placeholder="克隆音色名称" />
+                <button
+                  type="button"
+                  class="btn-secondary"
+                  :disabled="!canAddS2VVoiceClone"
+                  @click="addS2VVoiceClone"
+                >{{ s2vVoiceCloneLoading ? '处理中…' : '添加克隆音色' }}</button>
+              </div>
+              <p v-if="s2vVoiceCloneError" class="inline-error">{{ s2vVoiceCloneError }}</p>
+              <div v-if="s2vVoiceClones.length > 0" class="voice-clone-list">
+                <div v-for="voice in s2vVoiceClones" :key="voice.id" class="voice-clone-row">
+                  <span>{{ voice.name }}</span>
+                  <div class="voice-clone-actions">
+                    <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="selectS2VVoice(voice.id)">设为默认</button>
+                    <button type="button" class="btn-secondary danger" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else-if="s2vVoiceCapability?.type === 'user_clone'" class="config-item config-span-2 voice-slot-hint">
+              <label>克隆音色</label>
+              <p class="config-hint">当前服务商尚未接入可用的音色克隆能力。</p>
             </div>
             <div class="config-item">
               <label>语速: {{ Number(s2vConfig.voiceSpeed).toFixed(1) }}x</label>
               <input type="range" v-model.number="s2vConfig.voiceSpeed" min="0.5" max="2" step="0.1" class="form-range" />
             </div>
             <div class="config-item">
-              <label>音调: {{ Number(s2vConfig.voicePitch) > 0 ? '+' : '' }}{{ Number(s2vConfig.voicePitch) }}</label>
-              <input type="range" v-model.number="s2vConfig.voicePitch" min="-12" max="12" step="1" class="form-range" />
-            </div>
-            <div class="config-item">
               <label>旁白音量: {{ Number(s2vConfig.voiceVolume).toFixed(2) }}</label>
               <input type="range" v-model.number="s2vConfig.voiceVolume" min="0" max="2" step="0.05" class="form-range" />
-            </div>
-            <div class="config-item">
-              <label>并发数</label>
-              <input type="number" v-model.number="s2vConfig.concurrency" min="1" max="8" class="form-input" />
             </div>
             <div class="config-item">
               <label>无旁白场景时长（秒）</label>
@@ -286,10 +338,7 @@
                 <option value="watercolor">水彩</option>
                 <option value="minimalist">极简</option>
               </select>
-            </div>
-            <div class="config-item">
-              <label>创意强度: {{ s2vConfig.creativeLevel }}</label>
-              <input type="range" v-model.number="s2vConfig.creativeLevel" min="1" max="10" step="1" class="form-range" />
+              <span class="config-hint">{{ story2videoPromptStyleHint }}</span>
             </div>
             <div class="config-item config-span-2">
               <label>负向提示词</label>
@@ -394,13 +443,6 @@
               <label>水印文字</label>
               <input v-model.trim="s2vConfig.watermarkText" class="form-input" placeholder="可选" />
             </div>
-            <div class="config-item">
-              <label>自动推进</label>
-              <select v-model="s2vConfig.autoAdvance" class="form-select">
-                <option :value="true">启动后自动执行</option>
-                <option :value="false">仅创建运行（高级调试）</option>
-              </select>
-            </div>
           </div>
         </div>
 
@@ -471,12 +513,14 @@
         <div class="action-bar">
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
             <UiButton class="btn-start" @click="startPipeline" :disabled="!canStartPipeline">
-              {{ isOrchestratedPipeline(selectedPipeline.name) ? '🚀 启动编排' : '🚀 启动流水线' }}
+              启动流水线
             </UiButton>
           </div>
           <div v-else class="running-controls">
             <template v-if="orchestrationRunId">
-              <UiButton v-if="needsCheckpoint" @click="advanceOrchestration">✅ 推进到下一检查点</UiButton>
+              <p v-if="pipelineRunStatus?.checkpoint?.reason === 'content_policy'" class="orchestration-attention">
+                {{ pipelineRunStatus.checkpoint.recommendation || '图片内容需要处理；取消后修改文案并重新启动流水线。' }}
+              </p>
             </template>
             <template v-else>
               <UiButton v-if="pipelineRunStatus.status === 'paused'" @click="resumePipeline">▶ 继续</UiButton>
@@ -485,7 +529,7 @@
             </template>
             <UiButton variant="danger" @click="cancelPipeline">✕ 取消</UiButton>
           </div>
-          <div v-if="pipelineRunStatus && pipelineRunStatus.progress !== undefined" class="progress-inline">
+          <div v-if="!isOrchestratedPipeline(selectedPipeline?.name) && pipelineRunStatus && pipelineRunStatus.progress !== undefined" class="progress-inline">
             <div class="progress-bar"><div class="progress-fill" :style="{ width: pipelineRunStatus.progress + '%' }"></div></div>
             <span class="progress-text">{{ pipelineRunStatus.progress }}%</span>
           </div>
@@ -556,7 +600,7 @@
           <div v-if="filteredHistory.length === 0" class="empty-state compact"><p>没有符合条件的记录</p></div>
           <div v-else class="history-list">
             <div v-for="(h, i) in filteredHistory" :key="h.projectId || h.id || i" class="history-item">
-              <span class="history-name">{{ h.title || humanName(h.pipeline || h.name) }}</span>
+              <span class="history-name">{{ h.title || pipelineName(h.pipeline || h.name) }}</span>
               <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
               <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
               <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click="openHistory(h)">打开</button>
@@ -628,6 +672,26 @@ import {
   story2videoDeleteProject
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
+import {
+  getTtsVoiceCatalog,
+  getTtsVoiceCapability,
+  selectTtsVoice,
+  clearTtsVoicePreference,
+} from '@/api/tts-voice-catalog'
+import {
+  addTtsVoiceClone,
+  chooseTtsVoiceCloneSamples,
+  deleteTtsVoiceClone,
+  getTtsVoiceCloneRequirements,
+  listTtsVoiceClones,
+} from '@/api/tts-voice-clone'
+import {
+  getPipelineCategory,
+  getPipelineDescription,
+  getPipelineName,
+  getPipelineStage,
+  getPipelineStatus,
+} from '@/i18n/pipeline-labels'
 import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
@@ -731,7 +795,7 @@ export default {
         voiceSpeed: 1, voicePitch: 0, voiceVolume: 1,
         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
         perImageDuration: 6,
-        splitLanguage: 'zh', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
+        splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
         splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
@@ -749,6 +813,10 @@ export default {
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
       s2vImageProviders: [], s2vVoiceProviders: [],
+      s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCapability: null,
+      s2vVoiceProviderRequestId: 0, s2vVoiceRequestId: 0, s2vVoiceSelectionRequestId: 0, s2vVoiceCloneRequestId: 0, s2vPersistedVoiceId: '',
+      s2vVoiceCloneRequirements: null, s2vVoiceClones: [],
+      s2vVoiceCloneSelection: null, s2vVoiceCloneName: '', s2vVoiceCloneConsent: false, s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       // 历史
       history: [], historyLoading: false, historyFilter: 'all', historyRequestId: 0,
@@ -783,6 +851,47 @@ export default {
     },
     s2vImageProviderOptions() { return this.s2vImageProviders },
     s2vVoiceProviderOptions() { return [{ id: '', name: '自动 Edge TTS' }, ...this.s2vVoiceProviders] },
+    s2vVoiceModelOptions() {
+      const provider = this.s2vVoiceProviders.find(item => item?.id === this.s2vConfig.voiceProvider)
+      const models = Array.isArray(provider?.models) ? provider.models : []
+      return models.filter(model => typeof model === 'string' && model)
+    },
+    s2vVoiceOptions() {
+      const voices = [
+        ...(Array.isArray(this.s2vVoiceCatalog) ? this.s2vVoiceCatalog : []),
+        ...(Array.isArray(this.s2vVoiceClones) ? this.s2vVoiceClones : []),
+      ]
+      return [...new Map(voices.map(voice => [voice.id, voice])).values()]
+    },
+    story2videoConfigurationTitle() {
+      return this.translateWithLocaleFallback(
+        'create.story2video.configurationTitle',
+        '图片轮播配置',
+        'Image Carousel Configuration'
+      )
+    },
+    canAddS2VVoiceClone() {
+      return Boolean(
+        this.s2vVoiceCloneSelection?.selectionId
+          && String(this.s2vVoiceCloneName || '').trim()
+          && this.s2vVoiceCloneConsent === true
+          && this.s2vVoiceCloneLoading !== true
+      )
+    },
+    story2videoImageStyleHint() {
+      return this.translateWithLocaleFallback(
+        'create.story2video.imageStyleHint',
+        '控制每张生成图片的视觉外观。',
+        'Controls the visual appearance of generated images.'
+      )
+    },
+    story2videoPromptStyleHint() {
+      return this.translateWithLocaleFallback(
+        'create.story2video.promptStyleHint',
+        '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
+        'Controls how image prompts are written and organized; it does not replace image style.'
+      )
+    },
     s2vPlatforms() { return S2V_PLATFORMS },
     profileOptions() {
       return [
@@ -833,6 +942,16 @@ export default {
     },
   },
   methods: {
+    translateWithLocaleFallback(key, zhFallback, enFallback) {
+      const translated = typeof this.$t === 'function' ? this.$t(key) : key
+      if (typeof translated === 'string' && translated !== key) return translated
+      return this.$i18n?.locale === 'en' ? enFallback : zhFallback
+    },
+    pipelineName(id) { return getPipelineName((key) => this.$t?.(key), id) },
+    pipelineDescription(id) { return getPipelineDescription((key) => this.$t?.(key), id) },
+    pipelineCategory(id) { return getPipelineCategory((key) => this.$t?.(key), id) },
+    pipelineStage(id) { return getPipelineStage((key) => this.$t?.(key), id) },
+    pipelineStatus(id) { return getPipelineStatus((key) => this.$t?.(key), id) },
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
     categoryLabel(cat) { return CATEGORY_LABELS[cat] || cat },
     costLabel(cost) { return COST_LABELS[cost] || cost },
@@ -975,8 +1094,8 @@ export default {
         const params = {
           text,
           inputMode: 'text',
-          checkpointPolicy: this.checkpointPolicy,
-          autoAdvance: config.autoAdvance !== false,
+          checkpointPolicy: 'none',
+          autoAdvance: true,
           story2videoTextConfig,
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
@@ -1019,18 +1138,330 @@ export default {
     refreshS2VTemplates() {
       this.s2vTemplateLibrary = getAllTemplates('all', window.localStorage)
     },
+    getS2VVoiceContext() {
+      const providerId = typeof this.s2vConfig.voiceProvider === 'string' ? this.s2vConfig.voiceProvider.trim() : ''
+      const model = typeof this.s2vConfig.voiceModel === 'string' ? this.s2vConfig.voiceModel.trim() : ''
+      return providerId && model ? { providerId, model } : null
+    },
+    getS2VVoiceProvider(providerId = this.s2vConfig.voiceProvider) {
+      return this.s2vVoiceProviders.find(provider => provider?.id === providerId) || null
+    },
+    getS2VDefaultVoiceModel(providerId = this.s2vConfig.voiceProvider) {
+      const provider = this.getS2VVoiceProvider(providerId)
+      const models = Array.isArray(provider?.models)
+        ? provider.models.filter(model => typeof model === 'string' && model)
+        : []
+      const configuredDefault = typeof provider?.defaultModel === 'string' ? provider.defaultModel : ''
+      return models.includes(configuredDefault) ? configuredDefault : (models[0] || '')
+    },
+    isCurrentS2VVoiceRequest(requestId, context) {
+      return requestId === this.s2vVoiceRequestId
+        && this.s2vConfig.voiceProvider === context.providerId
+        && this.s2vConfig.voiceModel === context.model
+    },
+    isCurrentS2VVoiceCloneRequest(requestId, context) {
+      return requestId === this.s2vVoiceCloneRequestId
+        && this.s2vConfig.voiceProvider === context.providerId
+        && this.s2vConfig.voiceModel === context.model
+    },
+    isCurrentS2VVoiceSelectionRequest(requestId, context, voiceId) {
+      return requestId === this.s2vVoiceSelectionRequestId
+        && this.s2vConfig.voiceProvider === context.providerId
+        && this.s2vConfig.voiceModel === context.model
+        && this.s2vConfig.voiceId === voiceId
+    },
+    toS2VVoiceOption(voice) {
+      const id = typeof voice?.id === 'string' ? voice.id.trim() : ''
+      const name = typeof voice?.name === 'string' ? voice.name.trim() : ''
+      return id && name ? { id, name } : null
+    },
+    toS2VVoiceCloneRequirements(requirements) {
+      if (!requirements || typeof requirements !== 'object' || Array.isArray(requirements)) return null
+      const toFiniteNumber = (value) => Number.isFinite(value) && value >= 0 ? value : null
+      return {
+        allowedExtensions: Array.isArray(requirements.allowedExtensions)
+          ? requirements.allowedExtensions.filter(extension => typeof extension === 'string' && extension)
+          : [],
+        maxSampleCount: toFiniteNumber(requirements.maxSampleCount),
+        maxSampleBytes: toFiniteNumber(requirements.maxSampleBytes),
+        maxTotalBytes: toFiniteNumber(requirements.maxTotalBytes),
+        maxSampleDurationSeconds: toFiniteNumber(requirements.maxSampleDurationSeconds),
+        maxTotalDurationSeconds: toFiniteNumber(requirements.maxTotalDurationSeconds),
+      }
+    },
+    resetS2VVoiceData() {
+      this.s2vVoiceCatalog = []
+      this.s2vVoiceCatalogLoading = false
+      this.s2vVoiceCatalogError = ''
+      this.s2vVoiceCapability = null
+      this.s2vPersistedVoiceId = ''
+      this.s2vVoiceCloneRequirements = null
+      this.s2vVoiceClones = []
+      this.s2vVoiceCloneSelection = null
+      this.s2vVoiceCloneName = ''
+      this.s2vVoiceCloneConsent = false
+      this.s2vVoiceCloneLoading = false
+      this.s2vVoiceCloneError = ''
+    },
+    async loadS2VVoiceData(options = {}) {
+      const context = this.getS2VVoiceContext()
+      const requestId = ++this.s2vVoiceRequestId
+      this.s2vVoiceSelectionRequestId += 1
+      this.s2vVoiceCloneRequestId += 1
+      this.resetS2VVoiceData()
+      if (!context) return
+
+      this.s2vVoiceCatalogLoading = true
+      const catalogInput = this.cloneForIpc({ ...context, refresh: options.refresh === true })
+      const capabilityInput = this.cloneForIpc(context)
+      const [catalogResult, capabilityResult] = await Promise.allSettled([
+        getTtsVoiceCatalog(catalogInput),
+        getTtsVoiceCapability(capabilityInput),
+      ])
+      if (!this.isCurrentS2VVoiceRequest(requestId, context)) return
+
+      const catalogResponse = catalogResult.status === 'fulfilled' ? catalogResult.value : null
+      const capabilityResponse = capabilityResult.status === 'fulfilled' ? capabilityResult.value : null
+      const catalogData = catalogResponse?.code === 0 && catalogResponse.data && typeof catalogResponse.data === 'object'
+        ? catalogResponse.data
+        : null
+      const capabilityData = capabilityResponse?.code === 0 && capabilityResponse.data && typeof capabilityResponse.data === 'object'
+        ? capabilityResponse.data
+        : null
+      this.s2vVoiceCatalog = Array.isArray(catalogData?.voices)
+        ? catalogData.voices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean)
+        : []
+      this.s2vVoiceCapability = capabilityData
+        ? {
+            type: capabilityData.type,
+            clone: { enabled: capabilityData.clone?.enabled === true },
+          }
+        : null
+      this.s2vVoiceCatalogLoading = false
+      if (!catalogData) {
+        this.s2vVoiceCatalogError = catalogResponse?.message || '无法加载当前模型的音色目录。'
+      }
+
+      const cloneEnabled = this.s2vVoiceCapability?.type === 'user_clone'
+        && this.s2vVoiceCapability?.clone?.enabled === true
+      if (cloneEnabled) {
+        const cloneRequestId = ++this.s2vVoiceCloneRequestId
+        this.s2vVoiceCloneLoading = true
+        const [requirementsResult, clonesResult] = await Promise.allSettled([
+          getTtsVoiceCloneRequirements(this.cloneForIpc(context)),
+          listTtsVoiceClones(this.cloneForIpc(context)),
+        ])
+        if (!this.isCurrentS2VVoiceRequest(requestId, context)
+          || !this.isCurrentS2VVoiceCloneRequest(cloneRequestId, context)) return
+
+        const requirementsResponse = requirementsResult.status === 'fulfilled' ? requirementsResult.value : null
+        const clonesResponse = clonesResult.status === 'fulfilled' ? clonesResult.value : null
+        this.s2vVoiceCloneRequirements = requirementsResponse?.code === 0
+          ? this.toS2VVoiceCloneRequirements(requirementsResponse.data)
+          : null
+        this.s2vVoiceClones = clonesResponse?.code === 0 && Array.isArray(clonesResponse.data?.voices)
+          ? clonesResponse.data.voices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean)
+          : []
+        this.s2vVoiceCloneError = requirementsResponse?.code === 0 && clonesResponse?.code === 0
+          ? ''
+          : (requirementsResponse?.message || clonesResponse?.message || '无法加载克隆音色信息。')
+        this.s2vVoiceCloneLoading = false
+      }
+
+      if (!this.isCurrentS2VVoiceRequest(requestId, context)) return
+      const selectedVoiceId = typeof catalogData?.selectedVoiceId === 'string' ? catalogData.selectedVoiceId : ''
+      const configuredVoiceId = typeof this.s2vConfig.voiceId === 'string' ? this.s2vConfig.voiceId : ''
+      const availableVoiceIds = new Set(this.s2vVoiceOptions.map(voice => voice.id))
+      if (selectedVoiceId && availableVoiceIds.has(selectedVoiceId)) {
+        this.s2vConfig.voiceId = selectedVoiceId
+        this.s2vPersistedVoiceId = selectedVoiceId
+      } else if (configuredVoiceId && availableVoiceIds.has(configuredVoiceId)) {
+        this.s2vPersistedVoiceId = configuredVoiceId
+      } else {
+        this.s2vConfig.voiceId = ''
+      }
+    },
     async loadS2VProviders() {
+      const providerRequestId = ++this.s2vVoiceProviderRequestId
       const [imageResult, voiceResult] = await Promise.allSettled([
         modelProviderList('image'),
         modelProviderList('tts'),
       ])
+      if (providerRequestId !== this.s2vVoiceProviderRequestId) return
+
       const enabledProviders = (result) => result.status === 'fulfilled' && result.value?.code === 0 && Array.isArray(result.value.data)
         ? result.value.data.filter(provider => provider?.enabled === true && provider.id && provider.name)
         : []
       this.s2vImageProviders = enabledProviders(imageResult)
       this.s2vVoiceProviders = enabledProviders(voiceResult)
       if (!this.s2vConfig.imageProvider && this.s2vImageProviders[0]) this.s2vConfig.imageProvider = this.s2vImageProviders[0].id
-      if (!this.s2vConfig.voiceProvider && this.s2vVoiceProviders[0]) this.s2vConfig.voiceProvider = this.s2vVoiceProviders[0].id
+
+      const configuredProvider = this.getS2VVoiceProvider()
+      const nextProviderId = configuredProvider?.id || this.s2vVoiceProviders[0]?.id || ''
+      const nextModel = nextProviderId
+        ? (this.s2vVoiceModelOptions.includes(this.s2vConfig.voiceModel)
+          ? this.s2vConfig.voiceModel
+          : this.getS2VDefaultVoiceModel(nextProviderId))
+        : ''
+      const contextChanged = nextProviderId !== this.s2vConfig.voiceProvider || nextModel !== this.s2vConfig.voiceModel
+      this.s2vConfig.voiceProvider = nextProviderId
+      this.s2vConfig.voiceModel = nextModel
+      if (contextChanged) this.s2vConfig.voiceId = ''
+      await this.loadS2VVoiceData()
+    },
+    async handleS2VVoiceProviderChange() {
+      const nextProviderId = this.getS2VVoiceProvider()?.id || ''
+      this.s2vConfig.voiceProvider = nextProviderId
+      this.s2vConfig.voiceModel = nextProviderId ? this.getS2VDefaultVoiceModel(nextProviderId) : ''
+      this.s2vConfig.voiceId = ''
+      await this.loadS2VVoiceData()
+    },
+    async handleS2VVoiceModelChange() {
+      const nextModel = this.s2vVoiceModelOptions.includes(this.s2vConfig.voiceModel)
+        ? this.s2vConfig.voiceModel
+        : this.getS2VDefaultVoiceModel()
+      this.s2vConfig.voiceModel = nextModel
+      this.s2vConfig.voiceId = ''
+      await this.loadS2VVoiceData()
+    },
+    async handleS2VVoiceSelection() {
+      await this.selectS2VVoice(this.s2vConfig.voiceId)
+    },
+    async selectS2VVoice(voiceId = this.s2vConfig.voiceId) {
+      const context = this.getS2VVoiceContext()
+      const normalizedVoiceId = typeof voiceId === 'string' ? voiceId.trim() : ''
+      if (!context) return false
+      if (!normalizedVoiceId) {
+        const requestId = ++this.s2vVoiceSelectionRequestId
+        const result = await clearTtsVoicePreference(this.cloneForIpc(context))
+        if (!this.isCurrentS2VVoiceSelectionRequest(requestId, context, this.s2vConfig.voiceId)) return false
+        if (result?.code !== 0) {
+          this.s2vVoiceCatalogError = result?.message || '音色默认值恢复失败。'
+          return false
+        }
+        const selectedVoiceId = typeof result.data?.selectedVoiceId === 'string' ? result.data.selectedVoiceId : ''
+        this.s2vConfig.voiceId = selectedVoiceId
+        this.s2vPersistedVoiceId = selectedVoiceId
+        this.s2vVoiceCatalogError = ''
+        return true
+      }
+      if (!this.s2vVoiceOptions.some(voice => voice.id === normalizedVoiceId)) {
+        this.s2vVoiceCatalogError = '所选音色不在当前目录中。'
+        return false
+      }
+
+      const requestId = ++this.s2vVoiceSelectionRequestId
+      const result = await selectTtsVoice(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId }))
+      if (!this.isCurrentS2VVoiceSelectionRequest(requestId, context, normalizedVoiceId)) return false
+      if (result?.code !== 0) {
+        this.s2vVoiceCatalogError = result?.message || '音色选择保存失败。'
+        return false
+      }
+      this.s2vPersistedVoiceId = typeof result.data?.selectedVoiceId === 'string'
+        ? result.data.selectedVoiceId
+        : normalizedVoiceId
+      this.s2vVoiceCatalogError = ''
+      return true
+    },
+    async chooseS2VVoiceCloneSamples() {
+      const context = this.getS2VVoiceContext()
+      const cloneEnabled = this.s2vVoiceCapability?.type === 'user_clone'
+        && this.s2vVoiceCapability?.clone?.enabled === true
+      if (!context || !cloneEnabled) return
+
+      const requestId = ++this.s2vVoiceCloneRequestId
+      this.s2vVoiceCloneLoading = true
+      this.s2vVoiceCloneError = ''
+      try {
+        const result = await chooseTtsVoiceCloneSamples(this.cloneForIpc(context))
+        if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
+        const selectionId = typeof result?.data?.selectionId === 'string' ? result.data.selectionId : ''
+        const sampleCount = Array.isArray(result?.data?.samples) ? result.data.samples.length : 0
+        if (result?.code === 0 && selectionId && sampleCount > 0) {
+          this.s2vVoiceCloneSelection = { selectionId, sampleCount }
+          this.s2vVoiceCloneConsent = false
+          return
+        }
+        this.s2vVoiceCloneSelection = null
+        if (result?.code !== 0) this.s2vVoiceCloneError = result?.message || '无法选择本地音频样本。'
+      } finally {
+        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
+      }
+    },
+    async addS2VVoiceClone() {
+      const context = this.getS2VVoiceContext()
+      const selectionId = this.s2vVoiceCloneSelection?.selectionId
+      const name = String(this.s2vVoiceCloneName || '').trim()
+      if (!context || !selectionId || !name || this.s2vVoiceCloneConsent !== true || this.s2vVoiceCloneLoading) return
+
+      const requestId = ++this.s2vVoiceCloneRequestId
+      this.s2vVoiceCloneLoading = true
+      this.s2vVoiceCloneError = ''
+      try {
+        const result = await addTtsVoiceClone(this.cloneForIpc({
+          ...context,
+          name,
+          selectionId,
+          consent: true,
+        }))
+        if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
+        const voice = result?.code === 0 ? this.toS2VVoiceOption(result.data?.voice) : null
+        if (!voice) {
+          this.s2vVoiceCloneError = result?.message || '无法添加克隆音色。'
+          return
+        }
+        this.s2vVoiceClones = [
+          ...this.s2vVoiceClones.filter(item => item.id !== voice.id),
+          voice,
+        ]
+        this.s2vVoiceCloneSelection = null
+        this.s2vVoiceCloneName = ''
+        this.s2vVoiceCloneConsent = false
+        this.s2vConfig.voiceId = voice.id
+        await this.selectS2VVoice(voice.id)
+      } finally {
+        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
+      }
+    },
+    async deleteS2VVoiceClone(voiceId) {
+      const context = this.getS2VVoiceContext()
+      const normalizedVoiceId = typeof voiceId === 'string' ? voiceId.trim() : ''
+      if (!context || !normalizedVoiceId || this.s2vVoiceCloneLoading) return
+
+      const requestId = ++this.s2vVoiceCloneRequestId
+      this.s2vVoiceCloneLoading = true
+      this.s2vVoiceCloneError = ''
+      try {
+        const result = await deleteTtsVoiceClone(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId }))
+        if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
+        if (result?.code !== 0) {
+          this.s2vVoiceCloneError = result?.message || '无法删除克隆音色。'
+          return
+        }
+        this.s2vVoiceClones = this.s2vVoiceClones.filter(voice => voice.id !== normalizedVoiceId)
+        this.s2vVoiceCatalog = this.s2vVoiceCatalog.filter(voice => voice.id !== normalizedVoiceId)
+        if (this.s2vConfig.voiceId === normalizedVoiceId) {
+          const fallbackVoiceId = this.s2vVoiceOptions[0]?.id || ''
+          this.s2vConfig.voiceId = fallbackVoiceId
+          this.s2vPersistedVoiceId = ''
+          if (fallbackVoiceId) await this.selectS2VVoice(fallbackVoiceId)
+        }
+      } finally {
+        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
+      }
+    },
+    formatS2VVoiceCloneBytes(value) {
+      if (!Number.isFinite(value) || value < 0) return '—'
+      if (value < 1024) return `${value} B`
+      if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`
+      return `${(value / (1024 * 1024)).toFixed(value % (1024 * 1024) === 0 ? 0 : 1)} MB`
+    },
+    formatS2VVoiceCloneDuration(value) {
+      if (!Number.isFinite(value) || value < 0) return '—'
+      const seconds = Math.floor(value)
+      const minutes = Math.floor(seconds / 60)
+      const remainingSeconds = seconds % 60
+      return minutes > 0 ? `${minutes} 分${remainingSeconds ? ` ${remainingSeconds} 秒` : ''}` : `${seconds} 秒`
     },
     saveCurrentS2VTemplate() {
       const name = String(this.s2vCustomTemplateName || '').trim()
@@ -1128,8 +1559,14 @@ export default {
           return
         }
         this.orchestrationContext = statusResult.data.context || null
-        this.pipelineRunStatus = statusResult.data.status || null
-        this.needsCheckpoint = statusResult.data.status?.status === 'paused'
+        const snapshotStatus = statusResult.data.status || {}
+        this.pipelineRunStatus = {
+          ...snapshotStatus,
+          currentStage: statusResult.data.currentStage ?? snapshotStatus.currentStage,
+          stages: Array.isArray(statusResult.data.stages) ? statusResult.data.stages : snapshotStatus.stages,
+          checkpoint: statusResult.data.checkpoint || snapshotStatus.checkpoint || null,
+        }
+        this.needsCheckpoint = false
         if (['completed', 'failed', 'cancelled'].includes(statusResult.data.status?.status)) {
           this.applyOrchestrationOutcome({
             success: statusResult.data.status.status === 'completed',
@@ -1159,7 +1596,7 @@ export default {
       if (outcome?.context) this.orchestrationContext = outcome.context
       if (outcome?.paused) {
         this.pipelineRunStatus = { status: 'paused', progress: this.pipelineRunStatus?.progress || 0 }
-        this.needsCheckpoint = true
+        this.needsCheckpoint = false
       }
       if (outcome?.success === false) {
         this.setOrchestrationError({ errorCode: outcome.errorCode, errorParams: outcome.errorParams, error: outcome.error })
@@ -1413,6 +1850,9 @@ export default {
     stageStateClass(stage, i) {
       if (!this.pipelineRunStatus) return ''
       const idx = this.pipelineRunStatus.currentStage || 0
+      if (stage.status === 'failed') return 'failed'
+      if (stage.status === 'needs_user_input') return 'needs-user-input'
+      if (stage.status === 'cancelled') return 'cancelled'
       if (i < idx || stage.status === 'completed') return 'done'
       if (i === idx && stage.status === 'running') return 'active'
       if (stage.status === 'waiting_approval') return 'waiting'
@@ -1421,14 +1861,16 @@ export default {
     stageStateIcon(stage, i) {
       if (!this.pipelineRunStatus) return '⭕'
       const idx = this.pipelineRunStatus.currentStage || 0
+      if (stage.status === 'failed') return '❌'
+      if (stage.status === 'needs_user_input') return '⚠️'
+      if (stage.status === 'cancelled') return '⏹️'
       if (i < idx || stage.status === 'completed') return '✅'
       if (i === idx && stage.status === 'running') return ''
       if (stage.status === 'waiting_approval') return '⚠️'
       return '⭕'
     },
     stageStatusLabel(stage) {
-      const labels = { pending: '等待', running: '执行中', completed: '已完成', paused: '已暂停', waiting_approval: '待确认', cancelled: '已取消' }
-      return labels[stage.status] || stage.status || '等待'
+      return this.pipelineStatus(stage?.status || 'pending')
     },
   },
   async mounted() {
@@ -1510,10 +1952,14 @@ export default {
 .stage-item.done { color: #666; }
 .stage-item.active { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
 .stage-item.waiting { background: #fef3c7; color: #92400e; }
+.stage-item.failed { background: #fef2f2; color: #b91c1c; }
+.stage-item.needs-user-input { background: #fff7ed; color: #c2410c; }
+.stage-item.cancelled { color: #6b7280; }
 .stage-item.pending { color: #999; }
 .stage-icon { width: 24px; text-align: center; }
 .stage-name { flex: 1; }
 .stage-status { font-size: 12px; }
+.orchestration-attention { margin: 0; color: #c2410c; font-size: 13px; }
 
 /* 输入区域 */
 .input-section { margin-bottom: 24px; }
@@ -1558,6 +2004,15 @@ export default {
 .config-item label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
 .form-select, .form-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; box-sizing: border-box; }
 .form-range { width: 100%; }
+.voice-slot-hint p { margin: 0; }
+.voice-clone-panel { display: grid; gap: 8px; }
+.voice-clone-panel > label { margin-bottom: 0; }
+.voice-clone-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.voice-clone-actions .form-input { flex: 1 1 180px; }
+.voice-clone-actions .btn-secondary { margin-top: 0; }
+.voice-clone-consent { align-items: flex-start; margin: 2px 0; white-space: normal; }
+.voice-clone-list { display: grid; gap: 8px; }
+.voice-clone-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
 
 /* 操作栏 */
 .action-bar { display: flex; align-items: center; gap: 12px; padding: 16px 0; border-top: 1px solid var(--border); }

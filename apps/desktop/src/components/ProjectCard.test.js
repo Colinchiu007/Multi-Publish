@@ -7,19 +7,28 @@ vi.mock("vue-router", () => ({
 }));
 
 import ProjectCard from "./ProjectCard.vue";
+import i18n from "@/i18n";
+
+const mountCard = (options = {}) => mount(ProjectCard, {
+  global: { plugins: [i18n] },
+  ...options,
+});
 
 describe("ProjectCard", () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    i18n.global.locale.value = "zh";
+  });
 
   it("renders project name", () => {
-    const w = mount(ProjectCard, {
+    const w = mountCard({
       props: { project: { id: "p1", name: "My Project", status: "draft" } },
     });
     expect(w.text()).toContain("My Project");
   });
 
   it("renders default name when name missing", () => {
-    const w = mount(ProjectCard, {
+    const w = mountCard({
       props: { project: { id: "p1", status: "draft" } },
     });
     expect(w.text()).toContain("未命名项目");
@@ -35,7 +44,7 @@ describe("ProjectCard", () => {
       { status: "cancelled", label: "已取消" },
     ];
     for (const { status, label } of statuses) {
-      const w = mount(ProjectCard, {
+      const w = mountCard({
         props: { project: { id: "p1", name: "P", status } },
       });
       expect(w.find(".status-badge").text()).toBe(label);
@@ -43,29 +52,32 @@ describe("ProjectCard", () => {
     }
   });
 
-  it("renders pipeline tag when present", () => {
-    const w = mount(ProjectCard, {
+  it("renders pipeline tag when present", async () => {
+    const w = mountCard({
       props: { project: { id: "p1", name: "P", status: "draft", pipelineType: "animated-explainer" } },
     });
-    expect(w.find(".pipeline-tag").text()).toBe("animated-explainer");
+    expect(w.find(".pipeline-tag").text()).toBe("AI 讲解视频");
+    i18n.global.locale.value = "en";
+    await w.vm.$nextTick();
+    expect(w.find(".pipeline-tag").text()).toBe("AI Explainer");
   });
 
   it("does not render pipeline tag when absent", () => {
-    const w = mount(ProjectCard, {
+    const w = mountCard({
       props: { project: { id: "p1", name: "P", status: "draft" } },
     });
     expect(w.find(".pipeline-tag").exists()).toBe(false);
   });
 
   it("renders cost label when estimatedCost present", () => {
-    const w = mount(ProjectCard, {
+    const w = mountCard({
       props: { project: { id: "p1", name: "P", status: "draft", estimatedCost: "high" } },
     });
     expect(w.find(".footer-cost").text()).toBe("高成本");
   });
 
   it("navigates to board on click", async () => {
-    const w = mount(ProjectCard, {
+    const w = mountCard({
       props: { project: { id: "p1", name: "P", status: "draft" } },
     });
     await w.trigger("click");
@@ -73,7 +85,7 @@ describe("ProjectCard", () => {
   });
 
   it("emits delete when delete button clicked (stops propagation)", async () => {
-    const w = mount(ProjectCard, {
+    const w = mountCard({
       props: { project: { id: "p1", name: "P", status: "draft" } },
     });
     await w.find(".delete-btn").trigger("click");
@@ -84,7 +96,7 @@ describe("ProjectCard", () => {
   });
 
   it("renders thumbnail image when present", () => {
-    const w = mount(ProjectCard, {
+    const w = mountCard({
       props: { project: { id: "p1", name: "P", status: "draft", thumbnail: "/img/t.png" } },
     });
     expect(w.find("img").exists()).toBe(true);
@@ -92,7 +104,7 @@ describe("ProjectCard", () => {
   });
 
   it("renders placeholder when no thumbnail", () => {
-    const w = mount(ProjectCard, {
+    const w = mountCard({
       props: { project: { id: "p1", name: "P", status: "draft" } },
     });
     expect(w.find("img").exists()).toBe(false);
@@ -100,7 +112,7 @@ describe("ProjectCard", () => {
   });
 
   it("applies status class to card root", () => {
-    const w = mount(ProjectCard, {
+    const w = mountCard({
       props: { project: { id: "p1", name: "P", status: "running" } },
     });
     expect(w.find(".project-card").classes()).toContain("status-running");

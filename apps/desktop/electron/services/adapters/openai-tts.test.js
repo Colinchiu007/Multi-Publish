@@ -19,7 +19,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 __registerMock('../logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
-const { OpenAITtsAdapter, TTS_VOICES } = require('./openai-tts')
+const { OpenAITtsAdapter, TTS_VOICES, TTS_VOICES_BY_MODEL } = require('./openai-tts')
 const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
 const { ADAPTER_VERSION } = require('./_base/base')
 
@@ -259,25 +259,47 @@ describe('OpenAITtsAdapter — OpenAI TTS Adapter', () => {
   })
 
   describe('listVoices', () => {
-    it('返回静态声音列表（无 HTTP 请求）', async () => {
+    it('按模型返回 OpenAI 官方内置音色（无 HTTP 请求）', async () => {
       const fetchMock = createFetchMock([])
       global.fetch = fetchMock
 
       const adapter = new OpenAITtsAdapter({ id: 'openai-tts', apiKey: 'sk-test' })
-      const voices = await adapter.listVoices()
+      const legacyVoices = ['alloy', 'ash', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer']
+      const gpt4oMiniTtsVoices = [
+        'alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova',
+        'onyx', 'sage', 'shimmer', 'verse', 'marin', 'cedar',
+      ]
 
-      expect(voices).toEqual(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'coral', 'sage'])
-      expect(voices).toEqual(TTS_VOICES)
+      expect(await adapter.listVoices()).toEqual(legacyVoices)
+      expect(await adapter.listVoices({})).toEqual(legacyVoices)
+      expect(await adapter.listVoices(null)).toEqual(legacyVoices)
+      expect(await adapter.listVoices({ model: 'tts-1' })).toEqual(legacyVoices)
+      expect(await adapter.listVoices({ model: 'tts-1-hd' })).toEqual(legacyVoices)
+      expect(await adapter.listVoices({ model: 'gpt-4o-mini-tts' })).toEqual(gpt4oMiniTtsVoices)
+      expect(await adapter.listVoices({ model: 'gpt-4o-mini-tts-2025-12-15' })).toEqual(gpt4oMiniTtsVoices)
+      expect(TTS_VOICES).toEqual(legacyVoices)
+      expect(TTS_VOICES_BY_MODEL['gpt-4o-mini-tts']).toEqual(gpt4oMiniTtsVoices)
       // 无 HTTP 请求
       expect(fetchMock.calls).toHaveLength(0)
     })
 
-    it('返回副本，修改不影响内部列表', async () => {
+    it('对未知模型 fail closed，不回退或暴露其他模型的音色', async () => {
       const adapter = new OpenAITtsAdapter({ id: 'openai-tts', apiKey: 'sk-test' })
-      const voices1 = await adapter.listVoices()
-      voices1.push('custom')
-      const voices2 = await adapter.listVoices()
-      expect(voices2).not.toContain('custom')
+
+      const voices = await adapter.listVoices({ model: 'unknown-model' })
+
+      expect(voices).toEqual([])
+    })
+
+    it('返回副本，修改一个模型的结果不影响任何内置目录', async () => {
+      const adapter = new OpenAITtsAdapter({ id: 'openai-tts', apiKey: 'sk-test' })
+      const legacyVoices = await adapter.listVoices({ model: 'tts-1' })
+      const gpt4oMiniTtsVoices = await adapter.listVoices({ model: 'gpt-4o-mini-tts' })
+      legacyVoices.push('custom-legacy')
+      gpt4oMiniTtsVoices.push('custom-gpt')
+
+      expect(await adapter.listVoices({ model: 'tts-1-hd' })).not.toContain('custom-legacy')
+      expect(await adapter.listVoices({ model: 'gpt-4o-mini-tts' })).not.toContain('custom-gpt')
     })
   })
 

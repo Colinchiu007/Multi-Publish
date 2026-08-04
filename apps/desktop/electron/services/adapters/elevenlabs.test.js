@@ -107,10 +107,12 @@ describe('ElevenLabsAdapter — P3.7 第一个 TTS Adapter', () => {
   })
 
   describe('能力协商', () => {
-    it('支持 TTS 方法（synthesize/listVoices）', () => {
+    it('支持 TTS 方法（synthesize/listVoices/cloneVoice/deleteVoice）', () => {
       const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
       expect(adapter.supports('synthesize')).toBe(true)
       expect(adapter.supports('listVoices')).toBe(true)
+      expect(adapter.supports('cloneVoice')).toBe(true)
+      expect(adapter.supports('deleteVoice')).toBe(true)
     })
 
     it('支持 listModels 和 testConnection', () => {
@@ -137,6 +139,10 @@ describe('ElevenLabsAdapter — P3.7 第一个 TTS Adapter', () => {
       const caps = adapter.capabilities()
       expect(caps).toContain('synthesize')
       expect(caps).toContain('listVoices')
+      expect(caps).toContain('cloneVoice')
+      expect(caps.filter((capability) => capability === 'cloneVoice')).toHaveLength(1)
+      expect(caps).toContain('deleteVoice')
+      expect(caps.filter((capability) => capability === 'deleteVoice')).toHaveLength(1)
       expect(caps).toContain('listModels')
       expect(caps).toContain('testConnection')
       expect(caps).not.toContain('chatCompletion')
@@ -295,6 +301,164 @@ describe('ElevenLabsAdapter — P3.7 第一个 TTS Adapter', () => {
 
       // outputFormat 作为 query parameter
       expect(fetchMock.calls[0].url).toContain('output_format=pcm_24000')
+    })
+  })
+
+  describe('cloneVoice', () => {
+    it('POST /v1/voices/add 仅上传主进程转换的 Blob 并返回最小元数据', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({
+          voice_id: 'voice-clone-1',
+          name: '克隆音色',
+          api_key: 'must-not-leak',
+          labels: { source: 'must-not-leak' },
+          sample_path: 'must-not-leak.wav',
+        }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      const result = await adapter.cloneVoice({
+        name: '克隆音色',
+        samples: [{
+          blob: new Blob(['voice sample'], { type: 'audio/wav' }),
+          fileName: 'speaker.wav',
+          contentType: 'audio/wav',
+        }],
+      })
+
+      expect(result).toEqual({ id: 'voice-clone-1', name: '克隆音色' })
+      expect(fetchMock.calls).toHaveLength(1)
+      expect(fetchMock.calls[0].url).toContain('/v1/voices/add')
+      expect(fetchMock.calls[0].opts.method).toBe('POST')
+      expect(fetchMock.calls[0].opts.headers['xi-api-key']).toBe('el-test')
+      expect(Object.keys(fetchMock.calls[0].opts.headers).map((key) => key.toLowerCase()))
+        .not.toContain('content-type')
+
+      const body = fetchMock.calls[0].opts.body
+      expect(body.get('name')).toBe('克隆音色')
+      const files = body.getAll('files')
+      expect(files).toHaveLength(1)
+      expect(files[0].name).toBe('speaker.wav')
+      expect(files[0].type).toBe('audio/wav')
+    })
+
+    it('拒绝 renderer 字节、base64、路径、危险文件名及过多样本，且不发起请求', async () => {
+      const fetchMock = vi.fn()
+      global.fetch = fetchMock
+      const validSample = {
+        blob: new Blob(['voice sample'], { type: 'audio/wav' }),
+        fileName: 'speaker.wav',
+        contentType: 'audio/wav',
+      }
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      const invalidRequests = [
+        { name: '', samples: [validSample] },
+        { name: '克隆音色', samples: [] },
+        { name: '克隆音色', samples: [{ path: 'C:\\renderer-sample.wav' }] },
+        { name: '克隆音色', samples: [{ blob: Buffer.from('renderer-bytes'), fileName: 'speaker.wav' }] },
+        { name: '克隆音色', samples: [{ ...validSample, fileName: '../escape.wav' }] },
+        { name: '克隆音色', samples: [{ ...validSample, bytes: Buffer.from('renderer-bytes') }] },
+        { name: '克隆音色', base64: 'renderer-base64', samples: [validSample] },
+        {
+          name: '克隆音色',
+          samples: Array.from({ length: 6 }, () => validSample),
+        },
+      ]
+
+      for (const request of invalidRequests) {
+        await expect(adapter.cloneVoice(request)).rejects.toMatchObject({
+          code: ERROR_CODES.INVALID_CONFIG,
+        })
+      }
+
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('HTTP 错误沿用 ProviderError 映射', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ detail: { message: 'Invalid API key' } }, 401),
+      ])
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-bad' })
+
+      await expect(adapter.cloneVoice({
+        name: '克隆音色',
+        samples: [{
+          blob: new Blob(['voice sample'], { type: 'audio/wav' }),
+          fileName: 'speaker.wav',
+          contentType: 'audio/wav',
+        }],
+      })).rejects.toMatchObject({
+        code: ERROR_CODES.AUTH_FAILED,
+      })
+    })
+
+    it('成功响应缺少 voice_id 时 fail closed', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ name: '克隆音色', api_key: 'must-not-leak' }),
+      ])
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+
+      await expect(adapter.cloneVoice({
+        name: '克隆音色',
+        samples: [{
+          blob: new Blob(['voice sample'], { type: 'audio/wav' }),
+          fileName: 'speaker.wav',
+          contentType: 'audio/wav',
+        }],
+      })).rejects.toMatchObject({
+        code: ERROR_CODES.PROVIDER_ERROR,
+      })
+    })
+
+    it('接受仅含 voice_id 和验证状态的成功响应，并使用请求名称', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({
+          voice_id: 'voice-clone-verification',
+          requires_verification: true,
+        }),
+      ])
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+
+      await expect(adapter.cloneVoice({
+        name: '克隆音色',
+        samples: [{
+          blob: new Blob(['voice sample'], { type: 'audio/wav' }),
+          fileName: 'speaker.wav',
+          contentType: 'audio/wav',
+        }],
+      })).resolves.toEqual({
+        id: 'voice-clone-verification',
+        name: '克隆音色',
+      })
+    })
+  })
+
+  describe('deleteVoice', () => {
+    it('DELETE /v1/voices/{voice_id}', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({}, 204),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+      await expect(adapter.deleteVoice('voice-clone-1')).resolves.toBeUndefined()
+
+      expect(fetchMock.calls).toHaveLength(1)
+      expect(fetchMock.calls[0].url).toContain('/v1/voices/voice-clone-1')
+      expect(fetchMock.calls[0].opts.method).toBe('DELETE')
+      expect(fetchMock.calls[0].opts.headers['xi-api-key']).toBe('el-test')
+    })
+
+    it('拒绝危险 voiceId 且不发起请求', async () => {
+      const fetchMock = vi.fn()
+      global.fetch = fetchMock
+      const adapter = new ElevenLabsAdapter({ id: 'elevenlabs', apiKey: 'el-test' })
+
+      await expect(adapter.deleteVoice('../voice')).rejects.toMatchObject({
+        code: ERROR_CODES.INVALID_CONFIG,
+      })
+      expect(fetchMock).not.toHaveBeenCalled()
     })
   })
 

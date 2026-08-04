@@ -192,6 +192,39 @@ describe('story2video 资源索引契约', () => {
     expect(result.error).toContain('Image #2: image failed')
   })
 
+  it('将选定的 TTS 服务商、模型和音色完整透传至资产生成器', async () => {
+    const generateTTS = vi.fn(async (_text, { index }) => ({
+      code: 0,
+      data: { path: `audio-${index}.mp3`, duration: 2 },
+    }))
+    const fn = makePipeline({
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
+      generateTTS,
+    })
+
+    const result = await fn({
+      stage: { options: { concurrency: 1 } },
+      params: {
+        voiceId: 'voice-selected',
+        voiceProvider: 'elevenlabs',
+        voiceModel: 'eleven_multilingual_v2',
+        voiceSpeed: 1.1,
+        voicePitch: 2,
+      },
+      context: { split: [{ text: '旁白内容' }], optimize: ['画面提示词'] },
+      serviceBus: {},
+    })
+
+    expect(result.success).toBe(true)
+    expect(generateTTS).toHaveBeenCalledWith('旁白内容', expect.objectContaining({
+      voice_id: 'voice-selected',
+      voice_provider: 'elevenlabs',
+      voice_model: 'eleven_multilingual_v2',
+      rate: 1.1,
+      pitch: 2,
+    }))
+  })
+
   it('显式允许部分资源时只保留同 index 的成对 scene', async () => {
     const fn = makePipeline({
       generateImage: vi.fn(async (_prompt, { index }) => index === 1
@@ -469,5 +502,93 @@ describe('story2video 资源索引契约', () => {
     expect(result.error).toBeUndefined()
     expect(assetGenerator.generateImage).toHaveBeenCalledTimes(scenes.length)
     expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(scenes.length)
+  })
+})
+
+describe('story2video 内容策略人工处理', () => {
+  it('applies the same five-attempt content-policy contract to the Python image fallback', async () => {
+    const fn = makePipeline(null)
+    const serviceBus = {
+      callPythonSkill: vi.fn(async (skill) => {
+        if (skill === 'generate_image') {
+          return {
+            code: -1,
+            error: { code: 'CONTENT_POLICY', message: 'content policy rejected' },
+          }
+        }
+        return { code: 0, data: { path: 'audio-0.mp3', duration: 2 } }
+      }),
+    }
+
+    const result = await fn({
+      stage: { options: { concurrency: 1 } },
+      params: {},
+      context: { split: [{ text: '一' }], optimize: ['prompt'] },
+      serviceBus,
+    })
+
+    expect(serviceBus.callPythonSkill.mock.calls.filter(([skill]) => skill === 'generate_image')).toHaveLength(5)
+    expect(result).toMatchObject({
+      success: true,
+      checkpoint: 'needs_user_input',
+      checkpointMeta: { reason: 'content_policy', attempts: 5, sceneIndex: 0 },
+    })
+  })
+
+  it('turns exhausted image policy retries into a needs_user_input checkpoint even when partial assets are allowed', async () => {
+    const checkpoint = {
+      type: 'needs_user_input',
+      status: 'needs_user_input',
+      reason: 'content_policy',
+      needsUserInput: true,
+      sceneIndex: 1,
+      sceneNumber: 2,
+      attempts: 5,
+      recommendation: '请改写场景。',
+    }
+    const fn = makePipeline({
+      generateImage: vi.fn(async (_prompt, { index }) => index === 1
+        ? {
+            code: -1,
+            message: 'Image generation requires user input after content-policy review',
+            needsUserInput: true,
+            checkpoint,
+            data: { needsUserInput: true, checkpoint, generationAttempts: [{ attempt: 5, outcome: 'content_policy_rejected' }] },
+          }
+        : { code: 0, data: { path: `image-${index}.png` } }),
+      generateTTS: vi.fn(async (_text, { index }) => ({
+        code: 0,
+        data: { path: `audio-${index}.mp3`, duration: 2 },
+      })),
+    })
+
+    const result = await fn({
+      stage: { options: { concurrency: 2 } },
+      params: { allowPartialAssets: true },
+      context: {
+        split: [{ text: '一' }, { text: '二' }],
+        optimize: ['p1', 'p2'],
+      },
+      serviceBus: {},
+    })
+
+    expect(result).toMatchObject({
+      success: true,
+      checkpoint: 'needs_user_input',
+      checkpointMeta: {
+        type: 'needs_user_input',
+        status: 'needs_user_input',
+        reason: 'content_policy',
+        sceneIndex: 1,
+        sceneNumber: 2,
+        attempts: 5,
+      },
+    })
+    expect(result.output.scenes).toEqual([
+      expect.objectContaining({ index: 0, imagePath: 'image-0.png', audioPath: 'audio-0.mp3' }),
+    ])
+    expect(result.output.failures.images).toEqual([
+      expect.objectContaining({ index: 1, needsUserInput: true, checkpoint }),
+    ])
   })
 })

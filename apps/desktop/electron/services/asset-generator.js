@@ -22,6 +22,7 @@ const https = require('https')
 const { promisify } = require('util')
 const { spawn } = require('child_process')
 const { findFfmpeg } = require('./media-tool-paths')
+const { runContentPolicyImageRetry } = require('./story2video-image-retry')
 
 const execFileAsync = promisify(execFile)
 const MAX_PROVIDER_IMAGE_BYTES = 25 * 1024 * 1024
@@ -483,20 +484,71 @@ class AssetGenerator {
       return { code: -1, message: 'Image provider "' + provider + '" is not available' }
     }
 
+    let generationAttempts = []
     try {
-      const result = await this.aiGenerator.generate('image', provider, {
-        prompt: String(prompt || '').slice(0, 4000),
-        n: 1,
-        batch_size: 1,
-        sampleCount: 1,
-        response_format: 'b64_json',
-        width: opts.width,
-        height: opts.height,
-        aspect_ratio: opts.aspect_ratio,
-        aspectRatio: opts.aspect_ratio,
-        style: opts.style,
-        model: opts.image_model || opts.imageModel,
+      const retryResult = await runContentPolicyImageRetry({
+        prompt,
+        sceneIndex: opts?.index,
+        generate: async ({ prompt: attemptPrompt }) => {
+          const result = await this.aiGenerator.generate('image', provider, {
+            prompt: attemptPrompt,
+            n: 1,
+            batch_size: 1,
+            sampleCount: 1,
+            response_format: 'b64_json',
+            width: opts.width,
+            height: opts.height,
+            aspect_ratio: opts.aspect_ratio,
+            aspectRatio: opts.aspect_ratio,
+            style: opts.style,
+            model: opts.image_model || opts.imageModel,
+          })
+          const providerError = result?.error || result?.data?.error
+          if (providerError && typeof providerError === 'object') throw providerError
+          if (result?.success === false || Number(result?.code) < 0) {
+            throw new Error(result?.message || (typeof providerError === 'string' ? providerError : 'provider rejected image generation'))
+          }
+          return result
+        },
       })
+      generationAttempts = retryResult.attempts
+
+      if (retryResult.status === 'needs_user_input') {
+        const checkpoint = retryResult.checkpoint
+        this.log.warn('AssetGenerator', 'Image provider ' + provider + ' requires user input after content-policy retries')
+        return {
+          code: -1,
+          message: 'Image generation requires user input after content-policy review',
+          needsUserInput: true,
+          checkpoint,
+          data: {
+            provider,
+            source: 'model-provider',
+            degraded: false,
+            needsUserInput: true,
+            needs_user_input: true,
+            checkpoint,
+            generationAttempts,
+          },
+        }
+      }
+
+      if (retryResult.status === 'failed') {
+        const message = retryResult.error?.message || String(retryResult.error || 'provider image generation failed')
+        this.log.warn('AssetGenerator', 'Image provider ' + provider + ' failed: ' + message)
+        return {
+          code: -1,
+          message: 'Image provider "' + provider + '" failed: ' + message,
+          data: {
+            provider,
+            source: 'model-provider',
+            degraded: false,
+            generationAttempts,
+          },
+        }
+      }
+
+      const result = retryResult.result
       let buffer = extractProviderImageBuffer(result)
       if (!buffer) {
         const imageUrl = extractProviderImageUrl(result)
@@ -519,12 +571,22 @@ class AssetGenerator {
           model: result?.model || result?.data?.model || null,
           source: 'model-provider',
           degraded: false,
+          generationAttempts,
         },
       }
     } catch (error) {
       const message = error?.message || String(error)
       this.log.warn('AssetGenerator', 'Image provider ' + provider + ' failed: ' + message)
-      return { code: -1, message: 'Image provider "' + provider + '" failed: ' + message }
+      return {
+        code: -1,
+        message: 'Image provider "' + provider + '" failed: ' + message,
+        data: {
+          provider,
+          source: 'model-provider',
+          degraded: false,
+          generationAttempts,
+        },
+      }
     }
   }
 
