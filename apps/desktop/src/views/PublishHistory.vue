@@ -83,7 +83,7 @@
               <button class="secondary-action" type="button" data-testid="export-history" :disabled="filteredRecords.length === 0" @click="exportHistory">
                 <Download />导出
               </button>
-              <button class="primary-action" type="button" data-testid="new-publish" @click="goToEditor">
+              <button class="primary-action" type="button" data-testid="new-publish" @click="goToEditor()">
                 <CirclePlus />新建发布
               </button>
             </div>
@@ -139,7 +139,7 @@
             <button class="icon-action" type="button" title="列表视图" aria-label="列表视图" :aria-pressed="viewMode === 'list'" data-testid="view-list" @click="viewMode = 'list'"><List /></button>
           </div>
           <button class="secondary-action" type="button" data-testid="export-history" :disabled="filteredRecords.length === 0" @click="exportHistory"><Download />导出</button>
-          <button class="primary-action" type="button" data-testid="new-publish" @click="goToEditor"><CirclePlus />新建发布</button>
+          <button class="primary-action" type="button" data-testid="new-publish" @click="goToEditor()"><CirclePlus />新建发布</button>
         </div>
       </div>
 
@@ -250,7 +250,12 @@
         </article>
       </div>
     </section>
-    <div v-if="selectedRecord" class="record-detail-backdrop" role="presentation" @click.self="closeRecordDetail">
+    <PublishTypeDialog
+      :visible="showPublishTypeDialog"
+      :platforms="publishTypePlatforms"
+      @close="showPublishTypeDialog = false"
+      @select="goToEditor"
+    />    <div v-if="selectedRecord" class="record-detail-backdrop" role="presentation" @click.self="closeRecordDetail">
       <section class="record-detail-modal" role="dialog" aria-modal="true" aria-labelledby="record-detail-title">
         <header class="record-detail-header">
           <div><span class="record-detail-eyebrow">发布详情</span><h2 id="record-detail-title">{{ recordTitle(selectedRecord) }}</h2></div>
@@ -262,7 +267,17 @@
           <div><dt>发布人</dt><dd>{{ publisherName(selectedRecord) }}</dd></div>
           <div><dt>平台</dt><dd>{{ platformName(selectedRecord.platform) }}</dd></div>
           <div><dt>状态</dt><dd>{{ statusLabel(selectedRecord) }}</dd></div>
+          <div><dt>内容类型</dt><dd>{{ contentTypeLabel(selectedRecord) }}</dd></div>
+          <div><dt>发布模式</dt><dd>{{ publishModeLabel(selectedRecord) }}</dd></div>
           <div><dt>发布时间</dt><dd>{{ formatTime(selectedRecord.timestamp || selectedRecord.createdAt || selectedRecord.publishedAt) }}</dd></div>
+          <div><dt>账号数</dt><dd>{{ metricValue(selectedRecord.accountCount, 1) }}</dd></div>
+          <div><dt>任务数</dt><dd>{{ metricValue(selectedRecord.taskCount, 1) }}</dd></div>
+          <div><dt>失败</dt><dd>{{ failedCount(selectedRecord) }}</dd></div>
+          <div><dt>播放</dt><dd>{{ metricValue(selectedRecord.views) }}</dd></div>
+          <div><dt>评论</dt><dd>{{ metricValue(selectedRecord.comments) }}</dd></div>
+          <div><dt>点赞</dt><dd>{{ metricValue(selectedRecord.likes) }}</dd></div>
+          <div><dt>收藏</dt><dd>{{ metricValue(selectedRecord.favorites) }}</dd></div>
+          <div><dt>分享</dt><dd>{{ metricValue(selectedRecord.shares) }}</dd></div>
           <div class="record-detail-content"><dt>内容摘要</dt><dd>{{ selectedRecord.content || selectedRecord.description || '暂无内容摘要' }}</dd></div>
         </dl>
       </section>
@@ -276,6 +291,7 @@ import { CirclePlus, Clock, Close, Delete, Download, Grid, List, Operation, Sear
 import { useRouter } from 'vue-router'
 import { draftList, historyGet, historyList, retryTask } from '@/api/publisher'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
+import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
 
 const router = useRouter()
 const activeTab = ref('records')
@@ -302,12 +318,18 @@ const selectedRecord = ref(null)
 const detailLoading = ref(false)
 const detailError = ref('')
 const actionMessage = ref('')
+const showPublishTypeDialog = ref(false)
 const PAGE_SIZE = 50
 let pendingFilterLoad = null
 const loadedPageSignatures = new Set()
 
 const publisherOptions = computed(() => [...new Set(records.value.map(publisherName))].sort((a, b) => a.localeCompare(b, 'zh-CN')))
 const platformOptions = computed(() => [...new Set(records.value.map(record => String(record?.platform || '')).filter(Boolean))].sort())
+const publishTypePlatforms = computed(() => Object.entries(PLATFORM_NAMES).map(([id, label]) => ({
+  id,
+  label,
+  icon: PLATFORM_ICONS[id] || '•',
+})))
 const hasActiveFilters = computed(() => Boolean(
   searchQuery.value || publisherFilter.value || contentTypeFilter.value || statusFilter.value || publishModeFilter.value || platformFilter.value || dateFilter.value,
 ))
@@ -474,8 +496,13 @@ function onTabKeydown (event, index) {
   })
 }
 
-function goToEditor () {
-  router.push('/publish')
+function goToEditor (type) {
+  if (!type) {
+    showPublishTypeDialog.value = true
+    return
+  }
+  showPublishTypeDialog.value = false
+  router.push('/publish?type=' + encodeURIComponent(type))
 }
 
 function editDraft (id) {

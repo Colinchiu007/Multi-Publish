@@ -3,7 +3,7 @@
     <div class="cohere-page-header">
       <div style="display:flex;align-items:center;gap:var(--space-md);width:100%">
         <div style="flex:1">
-          <div class="page-title">一键发布</div>
+          <div class="page-title">一键发布<span v-if="hasExplicitPublishType" class="publish-type-context"> · {{ publishTypeLabel }}</span></div>
           <div class="page-subtitle">{{ batchMode ? '批量编辑多篇文章，各平台独立发布' : '编辑内容并发布到多个平台' }}</div>
         </div>
         <label class="cohere-toggle" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)">
@@ -385,6 +385,17 @@ import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatform
 
 const route = useRoute()
 const publishTab = computed(() => String(route.query?.tab || 'publish'))
+const publishType = computed(() => {
+  const value = String(route.query?.type || '').toLowerCase()
+  return ['video', 'image', 'article', 'wechat'].includes(value) ? value : 'article'
+})
+const hasExplicitPublishType = computed(() => ['video', 'image', 'article', 'wechat'].includes(String(route.query?.type || '').toLowerCase()))
+const publishTypeLabel = computed(() => ({
+  video: '视频发布',
+  image: '图文发布',
+  article: '文章发布',
+  wechat: '公众号',
+}[publishType.value]))
 
 const showDiffPanel = ref(false)
 const diffEdits = reactive({})
@@ -513,6 +524,8 @@ const {
   removeDraft,
 } = usePublishDrafts({
   article,
+  publishType,
+  publishTypeLabel,
   selectedPlatforms,
   selectedAccounts,
   platformOverrides: diffEdits,
@@ -662,6 +675,7 @@ defineExpose({
 </script>
 
 <style scoped>
+.publish-type-context { color: var(--coral, #f56c6c); font-size: 14px; font-weight: 600; }
 .publish-section-toggle {
   width: 100%;
   min-height: 36px;

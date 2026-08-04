@@ -121,6 +121,14 @@ describe("PublishView", () => {
     expect(w.text()).toContain("批量模式");
   });
 
+  it("选择发布类型后的路由参数会保留在编辑器上下文", async () => {
+    await router.push('/?type=video')
+    const w = await createWrapper()
+
+    expect(w.vm.publishType).toBe('video')
+    expect(w.vm.publishTypeLabel).toBe('视频发布')
+    expect(w.text()).toContain('视频发布')
+  })
   it("handlePublish warns when title empty", async () => {
     const w = await createWrapper();
     await w.vm.handlePublish();
