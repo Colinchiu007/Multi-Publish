@@ -5,7 +5,7 @@
 - 目标应用安装目录：D:\Program Files\yixiaoer\；本轮确认版本为 4.13.19。
 - 用户更正后的逆向工程目录：D:\Data\projects\_逆向工程_蚁小二4.0\。该目录包含 packages/renderer/dist、packages/preload/dist、packages/main/dist/index.cjs、RPA分析报告.md 与 可复用代码分析.md。
 - 本仓库既有资料：01-docs/yixiaoer-reverse/analysis、prd、test-cases。
-- 本工作树：C:\tmp\Multi-Publish-yixiaoer-full-parity-20260804\；分支 codex/yixiaoer-full-parity-20260804。
+- 本工作树：C:\tmp\Multi-Publish-yixiaoer-parity-gap-20260804\；分支 codex/yixiaoer-parity-gap-20260804。
 
 逆向目录和安装包用于确认技术结构、页面资源、Cookie/BrowserView、发布队列和通用上传/取消/重试模式；不把反编译代码中的未调用函数当成已观察 UI 行为。
 
@@ -18,8 +18,8 @@
 | 收藏分组 | /accounts?tab=favorites | 复用账号列表的收藏筛选；无收藏时显示“暂无收藏账号”专用空态 | filter=favorite，账号列表仍走同一状态/平台/选择合同 | 未观察到蚁小二服务端收藏同步 API |
 | 分享链接 | /accounts?tab=share | 导航入口、未接入服务状态、禁用的“创建分享链接”按钮 | 当前不伪造团队数据，明确提示尚未接入团队分享服务并阻止不可验证写入 | 团队成员、权限、分享链接生命周期需真实后端契约后实现 |
 | 新建发布 | /publish | 独立主入口、单篇/批量、平台/账号绑定、媒体、封面、标签、话题、@、定时、草稿、进度、重试 | publish-contract.js 统一归一化/校验；usePublishFlow 与 useBatchPublish 共享目标和媒体字段 | 平台上传、签名、配额和真实发布结果需真实账号与网络 |
-| 发布记录 | /publish/history | 搜索、平台/时间/状态筛选、网格/列表、详情、失败重试、CSV | historyList/historyGet/retryTask 走现有 IPC/API 适配 | 删除、平台侧审核和统计字段取决于后端 |
-| 草稿箱 | /publish?tab=drafts | 从模块导航直接打开并加载草稿列表，也可从发布页打开 | usePublishDrafts 对媒体/封面/标签/话题/@ 做纯 JSON 脱壳后 IPC 传输 | 跨设备同步和素材库联动未证明 |
+| 发布记录 | /publish/history | 搜索、平台/时间/状态筛选、网格/列表、详情、失败重试、CSV、批量删除 | historyList/historyGet/historyDelete/retryTask 走现有 IPC/API 适配；删除链路带 owner 隔离和 JSONL 原子重写 | 平台侧审核和统计字段取决于后端 |
+| 草稿箱 | /publish?tab=drafts | 从模块导航直接打开独立草稿工作区，加载/空态/继续编辑/删除，也可从发布页打开 | usePublishDrafts 对媒体/封面/标签/话题/@ 做纯 JSON 脱壳后 IPC 传输；编辑入口使用 draft query 恢复 | 跨设备同步和素材库联动未证明 |
 
 ## 已完成的结构收敛
 
@@ -28,6 +28,13 @@
 3. 账号模块 query 页签能驱动分组弹窗、收藏筛选和分享能力边界；分组关闭时会回到 /accounts。
 4. 批量发布不再以平台字符串作为无账号回退；目标必须绑定结构化账号并通过同一校验。
 5. 视频平台判断从静态小集合扩展为平台内容分类和稳定 fallback；历史页与发布页共享视频语义。
+
+## 2026-08-04 parity gap closure
+
+1. `YixiaoerModuleNav` 的四个工具按钮不再是静态 placeholder；每个按钮打开可关闭的本地面板，移动预览、客服和通知均明确未接入或暂无状态，使用指南提供本地流程说明。逆向 bundle 没有可证实的专用 URL/IPC，因此没有硬编码未经验证的外链。
+2. `Publish.vue` 的 `tab=drafts` 进入独立草稿工作区，隐藏发布编辑器，提供加载、空态、继续编辑、删除和返回发布；既有 `draft` query 编辑恢复流程保持不变。
+3. 发布记录批量删除沿 renderer API → preload → `history:delete` → JSONL service 链路实现，handler 使用可信身份 owner，service 只删除当前 owner 的指定记录并以临时文件 + 有界 Windows rename 重试替换原文件。
+4. 新增稳定回归选择器：`yixiaoer-tool-*`、`publish-drafts-*`、`publish-progress`、`delete-selected-history`；功能测试不再依赖卡片数量或 inert 按钮。
 
 ## 2026-08-04 续作补齐
 
@@ -40,25 +47,24 @@
 
 已确认仍有以下非阻断遗漏，不能声称“整个项目已完全分离”：
 
-- apps/desktop/src/styles/cohere-design-system.css 已提供全局 token，但账号、发布、历史仍有 scoped CSS 与大量 inline style；本轮只保证新工作区不再挂载旧壳层，不做大范围视觉重构。
+- apps/desktop/src/styles/cohere-design-system.css 已提供全局 token，但账号、发布、历史仍有 scoped CSS 与既有 inline style；本轮新增工具面板、草稿页和反馈状态全部使用模块级 class/token，不做无证据的大范围视觉重构。
 - 平台名称/图标仍存在 store、shared-utils、publish-contract 三个读取入口；应在后续以 platform store adapter 作为唯一 view-model。
-- 发布草稿在 Publish.vue 与 PublishHistory.vue 仍各有一层展示；字段合同已统一，但组件抽取尚未完成。
+- 发布草稿在 Publish.vue 与 PublishHistory.vue 仍各有一层展示；字段合同已统一，跨入口抽取尚未完成。
 - 负责人/发布人筛选目前保留为 disabled 占位，因为未发现可验证的 owner/team API；不得用前端假数据冒充蚁小二团队能力。
 
 ## 验证矩阵
 
-- 定向 Vitest：账号卡片和账号页面 2 files / 76 tests 通过；模块导航、发布页、发布历史、发布合同、批量发布、草稿等既有回归均纳入全量套件。
-- 全量 Vitest：344 files / 6016 passed / 2 failed（与本任务无改动的媒体工具和 Story2Video 资源环境合同失败）；失败详情为 `asset-generator.test.js` 的 spawn 参数断言和缺失 `ffmpeg-ffprobe-static/ffmpeg.exe`，不能写成全量通过。
+- 定向 Vitest：本轮受影响的 7 files / 648 tests 通过；模块导航、发布页、发布历史、发布合同、批量发布、草稿、preload、IPC 和 JSONL service 均有回归覆盖。
+- 全量串行 Vitest：357 files / 6120 tests passed；日志为 `D:\\tmp\\Multi-Publish-yixiaoer-parity-gap-20260804-vitest-full-serial.log`。输出仅包含既有 warning，未出现失败测试。
 - Vue 构建：`npm run build:vue` 通过，Vite 仅保留既有动态导入和大 chunk 警告。
 - 视觉捕获：账号、发布、批量发布在 desktop/mobile/audit 三视口共 9/9 通过；真实蚁小二像素审计 3/3 通过，账号误差 2.5240%、发布 5.3809%、批量发布 5.8431%，无阻断、无未验证参考图。
 - 必测 UI 合同：query 页签 active 状态、分组重命名/平台过滤、分享边界提示、草稿 query 自动打开、结构化媒体 metadata。
-- 构建门禁：本续作未修改 Electron runtime main/preload 源码；`npm run build:vue` 会重生成 preload bundle，已确认生成内容与 HEAD 一致并恢复为干净状态。Windows builder、ASAR require 和真实窗口启动检查仍需在交付前重新执行。
+- 构建门禁：本续作修改了 Electron preload/IPC/service 源码；已重新执行 preload 构建、Windows 目录打包、ASAR require 链和真实窗口启动检查。最终目录为 `D:\\tmp\\Multi-Publish-yixiaoer-parity-gap-20260804-dist-electron-final\\win-unpacked`，隔离加载输出 `RPA_ENGINE_REQUIRE_OK`，可见窗口标题为“社媒管家”、句柄 `790144`。
 - 视觉门禁：账号、发布、发布记录和草稿 query 必须在目标 worktree Vite 端口下执行像素回归；截图不得包含账号 Cookie、二维码或个人信息。
 
 ## 本地代码审查边界
 
-- 外部 Antigravity 因 `agy command not found` 未运行，Claude wrapper 以退出码 1 结束；本轮没有伪造“双模型已通过”，审查结论来自本地静态检查、定向 lint 和测试。
-- 外部 Antigravity 因 `agy command not found` 未运行，Claude wrapper 以退出码 1 结束；本轮没有伪造“双模型已通过”，审查结论来自本地静态检查、定向 lint 和测试。全量审查前仍需重新尝试两路 wrapper 并保留失败证据。
+- 外部 Antigravity 因 `agy command not found` 未运行，Claude wrapper 以退出码 1 结束；本轮没有伪造“双模型已通过”，审查结论来自本地静态检查、定向 lint 和测试。交付前需保留两路 wrapper 的失败证据并完成本地双视角审查。
 - 设计与代码分离、团队分享、手机号/密码登录、真实第三方发布和线上审核仍列为后续/外部边界。
 
 ## 不可客观证明的 100% 一致

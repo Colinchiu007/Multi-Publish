@@ -76,6 +76,7 @@ var require_publish = __commonJS({
         // 发布历史 API
         historyList: (opts) => ipcRenderer2.invoke("history:list", opts),
         historyGet: (id) => ipcRenderer2.invoke("history:get", id),
+        historyDelete: (ids) => ipcRenderer2.invoke("history:delete", { ids: Array.isArray(ids) ? ids : [ids] }),
         // 发布统计 API
         dashboardStats: () => ipcRenderer2.invoke("dashboard:stats"),
         // 定时发布 API

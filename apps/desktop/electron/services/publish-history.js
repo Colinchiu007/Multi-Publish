@@ -9,6 +9,24 @@ const log = require('./logger')
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 
 const MAX_RECORDS = 500
+const TRANSIENT_WINDOWS_RENAME_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const ATOMIC_RENAME_RETRY_DELAYS_MS = [20, 40, 80, 160, 320, 640]
+const ATOMIC_RENAME_WAIT_BUFFER = new Int32Array(new SharedArrayBuffer(4))
+
+function atomicRenameSync (sourcePath, targetPath) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.renameSync(sourcePath, targetPath)
+      return
+    } catch (error) {
+      const delayMs = ATOMIC_RENAME_RETRY_DELAYS_MS[attempt]
+      const isTransientWindowsLock = process.platform === 'win32' &&
+        TRANSIENT_WINDOWS_RENAME_ERRORS.has(error?.code)
+      if (!isTransientWindowsLock || delayMs === undefined) throw error
+      Atomics.wait(ATOMIC_RENAME_WAIT_BUFFER, 0, 0, delayMs)
+    }
+  }
+}
 
 function normalizeOwnerSubject (ownerSubject) {
   if (typeof ownerSubject !== 'string' || !ownerSubject.trim()) {
@@ -104,6 +122,53 @@ function getRecord (id, ownerSubject) {
 }
 
 /**
+ * 删除指定用户的发布历史记录。
+ * @param {string|string[]} ids
+ * @param {string|undefined} ownerSubject
+ * @returns {{ deleted: number }}
+ */
+function deleteRecords (ids, ownerSubject) {
+  const owner = resolveOwnerSubject(ownerSubject)
+  if (owner === null) return { deleted: 0 }
+
+  const targetIds = new Set((Array.isArray(ids) ? ids : [ids])
+    .filter(id => typeof id === 'string')
+    .map(id => id.trim())
+    .filter(Boolean))
+  if (targetIds.size === 0) return { deleted: 0 }
+
+  const filePath = getHistoryPath()
+  if (!fs.existsSync(filePath)) return { deleted: 0 }
+
+  const lines = fs.readFileSync(filePath, 'utf-8').split(/\r?\n/)
+  let deleted = 0
+  const kept = []
+  for (const line of lines) {
+    if (!line.trim()) continue
+    let record = null
+    try { record = JSON.parse(line) } catch { /* 保留无法解析的历史行 */ }
+    if (record && targetIds.has(String(record.id || '')) && matchesOwner(record, owner)) {
+      deleted += 1
+      continue
+    }
+    kept.push(line)
+  }
+
+  if (deleted === 0) return { deleted: 0 }
+
+  const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`
+  try {
+    fs.writeFileSync(tmpPath, kept.length ? `${kept.join('\n')}\n` : '', 'utf-8')
+    atomicRenameSync(tmpPath, filePath)
+  } finally {
+    if (fs.existsSync(tmpPath)) {
+      try { fs.unlinkSync(tmpPath) } catch (_) { /* 保留主错误 */ }
+    }
+  }
+  return { deleted }
+}
+
+/**
  * 获取发布统计
  * @returns {object} { total, success, failed, perPlatform, daily }
  */
@@ -150,4 +215,4 @@ function getStats (ownerSubject) {
   }
 }
 
-module.exports = { addRecord, listRecords, getRecord, getStats }
+module.exports = { addRecord, listRecords, getRecord, deleteRecords, getStats }

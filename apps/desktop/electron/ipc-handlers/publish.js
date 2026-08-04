@@ -4,7 +4,7 @@
  * publish:wechat → 微信发布
  * publish:batch → 批量发布
  * queue:status / queue:history / queue:cancel / queue:retry → 任务队列
- * history:list / history:get → 发布历史
+ * history:list / history:get / history:delete → 发布历史
  * dashboard:stats → 发布统计
  */
 
@@ -142,6 +142,31 @@ function registerHandlers(ipcMain, deps) {
       const record = history.getRecord(id, owner)
       if (!record) return { code: EC.NOT_FOUND, message: '记录不存在' }
       return { code: 0, data: record }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  ipcMain.handle('history:delete', withSenderCheck(async (event, payload) => {
+    try {
+      const owner = getOwnerSubject()
+      if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+
+      const ids = Array.isArray(payload) ? payload : payload && payload.ids
+      if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100) {
+        return { code: EC.VALIDATION_ERROR, message: '记录 ID 列表无效' }
+      }
+      const normalizedIds = ids
+        .filter(id => typeof id === 'string')
+        .map(id => id.trim())
+        .filter(Boolean)
+      if (normalizedIds.length !== ids.length) {
+        return { code: EC.VALIDATION_ERROR, message: '记录 ID 格式无效' }
+      }
+
+      const result = history.deleteRecords(normalizedIds, owner)
+      if (!result || result.deleted === 0) {
+        return { code: EC.NOT_FOUND, data: { deleted: 0 }, message: '记录不存在' }
+      }
+      return { code: 0, data: result, message: '发布记录已删除' }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 

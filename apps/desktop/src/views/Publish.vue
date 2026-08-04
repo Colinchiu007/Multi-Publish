@@ -1,5 +1,37 @@
 <template>
   <div>
+    <template v-if="publishTab === 'drafts'">
+      <section class="publish-drafts-page" data-testid="publish-drafts-page" aria-labelledby="publish-drafts-title">
+        <header class="publish-drafts-header">
+          <div>
+            <div id="publish-drafts-title" class="page-title">草稿箱</div>
+            <div class="page-subtitle">查看、编辑或删除已保存的内容草稿</div>
+          </div>
+          <UiButton data-testid="publish-drafts-back" variant="secondary" @click="goToPublish">返回发布</UiButton>
+        </header>
+
+        <div v-if="loadingDrafts" class="publish-drafts-state" data-testid="publish-drafts-loading" role="status">正在加载草稿...</div>
+        <div v-else-if="drafts.length === 0" class="publish-drafts-state" data-testid="publish-drafts-empty">
+          <strong>暂无草稿</strong>
+          <span>保存草稿后，可以从这里继续编辑。</span>
+        </div>
+        <div v-else class="publish-drafts-list">
+          <article v-for="draft in drafts" :key="draft.id" class="publish-draft-card">
+            <div class="publish-draft-info">
+              <strong>{{ draft.title || '无标题' }}</strong>
+              <span>{{ draft.updatedAt || draft.updated_at ? new Date(draft.updatedAt || draft.updated_at).toLocaleString('zh-CN') : '更新时间未知' }}</span>
+              <span v-if="draft.platforms?.length" class="cohere-tag cohere-tag-info">{{ draft.platforms.length }} 个平台</span>
+            </div>
+            <div class="publish-draft-actions">
+              <UiButton :data-testid="`edit-draft-${draft.id}`" variant="ghost" size="sm" @click="editDraft(draft)">继续编辑</UiButton>
+              <UiButton :data-testid="`delete-draft-${draft.id}`" variant="ghost" size="sm" @click="removeDraft(draft.id)">删除</UiButton>
+            </div>
+          </article>
+        </div>
+      </section>
+    </template>
+
+    <template v-else>
     <div class="cohere-page-header">
       <div style="display:flex;align-items:center;gap:var(--space-md);width:100%">
         <div style="flex:1">
@@ -290,7 +322,7 @@
               </UiButton>
             </div>
           </div>
-          <div v-if="progress.length > 0" class="cohere-card" style="margin-top:16px;cursor:default">
+          <div v-if="progress.length > 0" class="cohere-card" data-testid="publish-progress" style="margin-top:16px;cursor:default">
             <ul class="cohere-timeline">
               <li v-for="item in progress" :key="item.time + item.text" class="cohere-timeline-item" :class="item.type">
                 <span class="tl-time">{{ item.time }}</span>
@@ -347,6 +379,7 @@
         </div>
       </div>
     </template>
+    </template>
   </div>
 </template>
 
@@ -354,7 +387,7 @@
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { Refresh, UploadFilled } from '@element-plus/icons-vue'
@@ -385,6 +418,7 @@ import PublishTargetSelector from '@/features/publish/components/PublishTargetSe
 import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatformCatalog'
 
 const route = useRoute()
+const router = useRouter()
 const publishTab = computed(() => String(route.query?.tab || 'publish'))
 const publishType = computed(() => {
   const value = String(route.query?.type || '').toLowerCase()
@@ -588,6 +622,27 @@ watch(publishTab, async value => {
   }
 })
 
+watch(() => route.query.draft, async (draftId, previousDraftId) => {
+  if (!draftId || draftId === previousDraftId) return
+  await loadDrafts()
+  await loadDraft(String(draftId))
+})
+
+function publishEditorQuery (extra = {}) {
+  const query = { tab: 'publish', ...extra }
+  if (route.query?.type) query.type = String(route.query.type)
+  return query
+}
+
+function goToPublish () {
+  return router.replace({ path: '/publish', query: publishEditorQuery() })
+}
+
+function editDraft (draft) {
+  if (!draft?.id) return
+  return router.replace({ path: '/publish', query: publishEditorQuery({ draft: String(draft.id) }) })
+}
+
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
   if (publishTab.value === 'drafts') {
@@ -677,6 +732,47 @@ defineExpose({
 
 <style scoped>
 .publish-type-context { color: var(--coral, #f56c6c); font-size: 14px; font-weight: 600; }
+.publish-drafts-page {
+  min-height: 100%;
+  padding: 24px;
+  background: var(--canvas, #f7f7fb);
+}
+.publish-drafts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.publish-drafts-state {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--border-light, #e8e8ec);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  color: var(--muted, #73777d);
+  text-align: center;
+}
+.publish-drafts-state strong { color: var(--text-primary, #25252b); font-size: 16px; }
+.publish-drafts-list { display: flex; flex-direction: column; gap: 10px; }
+.publish-draft-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-light, #e8e8ec);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+.publish-draft-info { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.publish-draft-info strong { overflow: hidden; color: var(--text-primary, #25252b); text-overflow: ellipsis; white-space: nowrap; }
+.publish-draft-info span { color: var(--muted, #73777d); font-size: 12px; }
+.publish-draft-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .publish-section-toggle {
   width: 100%;
   min-height: 36px;
@@ -767,6 +863,11 @@ defineExpose({
   }
 }
 @media (max-width: 720px) {
+  .publish-drafts-page { padding: 16px 12px 24px; }
+  .publish-drafts-header,
+  .publish-draft-card { align-items: flex-start; flex-direction: column; }
+  .publish-draft-info { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .publish-draft-actions { width: 100%; }
   .batch-metadata-grid { grid-template-columns: 1fr; }
 }
 </style>

@@ -67,6 +67,7 @@ function createMockDeps(overrides = {}) {
     history: {
       listRecords: vi.fn(() => ({ total: 0, records: [] })),
       getRecord: vi.fn(() => null),
+      deleteRecords: vi.fn(() => ({ deleted: 0 })),
       getStats: vi.fn(() => ({})),
     },
     BrowserWindow: { getAllWindows: vi.fn(() => []) },
@@ -126,6 +127,7 @@ describe('publish IPC 写操作 sender 校验', () => {
     ['queue:history', undefined],
     ['history:list', {}],
     ['history:get', 'history-1'],
+    ['history:delete', ['history-1']],
     ['dashboard:stats', undefined],
   ])('%s 拒绝外部网页读取私有发布数据', async (channel, arg) => {
     const deps = createMockDeps()
@@ -294,6 +296,37 @@ describe('publish IPC 历史归属隔离', () => {
     expect(history.listRecords).not.toHaveBeenCalled()
     expect(history.getRecord).not.toHaveBeenCalled()
     expect(history.getStats).not.toHaveBeenCalled()
+  })
+
+  it('批量删除历史记录使用可信 owner，忽略伪造 owner', async () => {
+    const history = createMockDeps().history
+    history.deleteRecords.mockReturnValue({ deleted: 1 })
+    const identityService = { getState: vi.fn(() => ({ status: 'authenticated', user: { sub: 'user-a' } })) }
+    const deps = createMockDeps({ history, identityService })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('history:delete')(TRUSTED_EVENT, {
+      ids: ['record-1'],
+      owner_subject: 'forged-user',
+    })
+
+    expect(result).toMatchObject({ code: 0, data: { deleted: 1 } })
+    expect(history.deleteRecords).toHaveBeenCalledWith(['record-1'], 'user-a')
+  })
+
+  it('未认证时拒绝删除历史记录', async () => {
+    const history = createMockDeps().history
+    const deps = createMockDeps({
+      history,
+      identityService: { getState: vi.fn(() => ({ status: 'signed_out', user: null })) },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    await expect(ipcMain._get('history:delete')(TRUSTED_EVENT, ['record-1']))
+      .resolves.toMatchObject({ code: -3 })
+    expect(history.deleteRecords).not.toHaveBeenCalled()
   })
 })
 
