@@ -7,7 +7,7 @@
           <div class="page-subtitle">{{ batchMode ? '批量编辑多篇文章，各平台独立发布' : '编辑内容并发布到多个平台' }}</div>
         </div>
         <label class="cohere-toggle" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)">
-          <input type="checkbox" v-model="batchMode" style="accent-color:var(--coral)" @change="checkBatchAccess" />
+          <input data-testid="publish-batch-mode" type="checkbox" v-model="batchMode" style="accent-color:var(--coral)" @change="checkBatchAccess" />
           <span>批量模式</span>
         </label>
       </div>
@@ -94,7 +94,7 @@
         <div style="display:flex;gap:var(--space-sm)">
           <UiButton variant="secondary" @click="addArticle">＋ 添加文章</UiButton>
           <div style="flex:1"></div>
-          <UiButton @click="handleBatchPublish" :disabled="batchPublishing || articles.length === 0">
+          <UiButton data-testid="publish-batch-submit" @click="handleBatchPublish" :disabled="batchPublishing || articles.length === 0">
             {{ batchPublishing ? '发布中...' : `🚀 批量发布 (${totalPlatformTasks} 个任务)` }}
           </UiButton>
         </div>
@@ -151,7 +151,7 @@
                     {{ showAiWriter ? '✕ 关闭' : '🤖 AI' }}
                   </button>
                 </div>
-                <UiInput v-model="article.title" placeholder="请输入文章标题" />
+                <UiInput data-testid="publish-title" v-model="article.title" placeholder="请输入文章标题" />
               </div>
               <div v-if="showTemplatePicker && templateTargetIdx < 0" style="margin-bottom:var(--space-md)">
                 <TemplatePicker @close="showTemplatePicker = false" @apply="applyTemplate" />
@@ -186,7 +186,7 @@
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">正文</label>
-                <ArticleEditor v-model="article.content" />
+                <ArticleEditor data-testid="publish-editor" v-model="article.content" />
               </div>
               <div class="cohere-form-item" v-if="hasVideoPlatforms">
                 <label class="cohere-form-label">视频文件</label>
@@ -266,6 +266,7 @@
             <div class="cohere-form" style="gap:var(--space-md)">
               <div class="cohere-form-label">发布目标</div>
               <PublishTargetSelector
+                data-testid="publish-target-selector"
                 :groups="groupedPlatforms"
                 :selected-platforms="selectedPlatforms"
                 :selected-accounts="selectedAccounts"
@@ -276,7 +277,7 @@
               <div class="cohere-divider"></div>
               <UiButton variant="secondary" style="width:100%;justify-content:center;margin-bottom:8px" @click="saveDraft" :disabled="publishing">💾 保存草稿</UiButton>
               <UiButton variant="ghost" size="sm" style="width:100%;justify-content:center;margin-bottom:8px" @click="showDraftList = true; loadDrafts()">📋 草稿箱</UiButton>
-              <UiButton style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
+              <UiButton data-testid="publish-submit" style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
                 {{ publishing ? '发布中...' : '🚀 一键发布' }}
               </UiButton>
               <UiButton

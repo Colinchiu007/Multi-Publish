@@ -286,3 +286,29 @@ python -m uvicorn web.server:app --host 0.0.0.0 --port 8082
 - 真实 Logto 租户登录、刷新轮换、退出、账号切换和 Webhook 投递。
 - 真实 PostgreSQL 迁移、并发 lazy upsert、事务回滚和额度压力测试。
 - 身份 E2E 当前使用浏览器注入 mock bridge，不能替代真实 Electron + Logto 验收。
+
+---
+
+## 2026-08-04：蚁小二账号/发布 GUI E2E 收口
+
+### 本轮变更
+
+- 发布页标题、正文编辑器、发布目标、批量模式、提交按钮和进度区域补充稳定 `data-testid`；账号页添加账号和活动账号“验证”入口使用稳定选择器。
+- `FunctionalRunner` 的首次挂载和重置路由就绪预算统一提升到 15 秒，覆盖 CI 首次 Vite 编译、Vue 异步挂载和平台/账号 fixture 加载。
+- 发布集成流改用 feature-ready 条件、稳定选择器和 IPC 调用增量（baseline → increment）断言；离线缓存、恢复在线、空表单校验和 IPC 失败路径均等待真实 UI/IPC 结果后再判定。
+- 修复路由结果页 query hash 等待、末尾斜杠 URL、页面链接扫描的非法 `Locator.filter({ visible })` 用法；同步迁移旧账号/发布 E2E 的过时 testid 合同。
+
+### 验证证据
+
+| 门禁 | 结果 |
+|------|------|
+| 账号/发布组件定向 Vitest | 3 files / 28 tests passed |
+| 桌面完整 Vitest | 357 files / 6107 tests passed |
+| 路由 functional E2E | 18/18 routes passed；发布 12/12、账号 14/14 |
+| 跨页面集成流 | Flow 1–6 共 44/44 checks passed |
+| Vite renderer/preload build | `npm run build:vue` exit 0 |
+| 像素视觉门禁 | 17/17 passed |
+
+### 交付边界
+
+上述结果证明本地 mock/fixture、渲染合同、IPC 调用和视觉基线一致；不等同于真实第三方账号授权、真实平台上传/发布、团队分享服务、跨设备同步或生产 Electron 安装包验收。Antigravity 与 Claude 外部审查本轮均不可用，原因分别记录为 `agy command not found in PATH` 与 Claude wrapper exit code 1。
