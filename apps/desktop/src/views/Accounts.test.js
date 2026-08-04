@@ -48,6 +48,13 @@ const _eventUnsubscribers = vi.hoisted(() => ({
   qrClosed: vi.fn(),
   statusChanged: vi.fn(),
 }));
+const _routeState = vi.hoisted(() => ({ path: '/accounts', query: {} }))
+
+vi.mock('vue-router', () => ({
+  useRoute: () => _routeState,
+  useRouter: () => ({ replace: vi.fn() }),
+}))
+
 const _spies = vi.hoisted(() => ({
   load: vi.fn(),
   loadGroups: vi.fn(),
@@ -55,8 +62,10 @@ const _spies = vi.hoisted(() => ({
   selectAll: vi.fn(),
   clearSelection: vi.fn(),
   batchDelete: vi.fn().mockResolvedValue({ success: 0, failed: 0 }),
+  batchSetStatus: vi.fn().mockResolvedValue({ success: 0, failed: 0 }),
   createGroup: vi.fn(),
   deleteGroup: vi.fn(),
+  renameGroup: vi.fn().mockReturnValue(true),
   getGroupAccounts: vi.fn().mockReturnValue([]),
   getDefault: vi.fn(),
   setDefault: vi.fn().mockResolvedValue({ code: 0 }),
@@ -115,8 +124,10 @@ vi.mock("@/stores/accounts", () => ({
     selectAll: _spies.selectAll,
     clearSelection: _spies.clearSelection,
     batchDelete: _spies.batchDelete,
+    batchSetStatus: _spies.batchSetStatus,
     createGroup: _spies.createGroup,
     deleteGroup: _spies.deleteGroup,
+    renameGroup: _spies.renameGroup,
     getGroupAccounts: _spies.getGroupAccounts,
     getDefault: _spies.getDefault,
     setDefault: _spies.setDefault,
@@ -193,12 +204,15 @@ describe("AccountsView", () => {
     const { ElMessageBox } = await import("element-plus");
     ElMessageBox.confirm.mockResolvedValue(undefined);
     _spies.batchDelete.mockResolvedValue({ success: 0, failed: 0 });
+    _spies.batchSetStatus.mockResolvedValue({ success: 0, failed: 0 });
     _spies.setDefault.mockResolvedValue({ code: 0 });
     _spies.renameAccount.mockResolvedValue({ code: 0 });
     _testAccounts.length = 0;
     _accountFilters.searchQuery = "";
     _accountFilters.filterStatus = "all";
     _accountFilters.filterPlatform = "";
+    _routeState.path = '/accounts';
+    _routeState.query = {};
     _favoriteIds.clear();
     _selectedIds.clear();
     Object.keys(_eventCallbacks).forEach(key => { _eventCallbacks[key] = null; });
@@ -211,6 +225,26 @@ describe("AccountsView", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
+
+  it("分组页签打开分组管理并支持返回主列表", async () => {
+    _routeState.query = { tab: 'groups' }
+    const w = await mountView()
+    expect(w.vm.showGroupManager).toBe(true)
+    await w.vm.closeGroupManager()
+    expect(w.vm.showGroupManager).toBe(false)
+  })
+
+  it("分享页签显示诚实的能力边界而不是伪造团队数据", async () => {
+    _routeState.query = { tab: 'share' }
+    const w = await mountView()
+    expect(w.get('[data-testid="account-share-panel"]').text()).toContain('尚未接入团队分享服务')
+  })
+
+  it("重命名分组委托给 Store", async () => {
+    const w = await mountView()
+    w.vm.renameGroup('g1', '新分组')
+    expect(_spies.renameGroup).toHaveBeenCalledWith('g1', '新分组')
+  })
 
   it("renders page title", async () => {
     const w = await mountView();
@@ -855,6 +889,23 @@ describe("AccountsView", () => {
     expect(ElMessage.error).toHaveBeenCalledWith("2 个账号删除失败");
     expect(ElMessage.success).not.toHaveBeenCalled();
     expect(_spies.load).not.toHaveBeenCalled();
+  });
+
+  it("批量启用和禁用使用当前可见选中账号", async () => {
+    _spies.batchSetStatus.mockResolvedValueOnce({ success: 2, failed: 0 });
+    _testAccounts.push(
+      { id: "a1", platform: "zhihu", status: "inactive" },
+      { id: "a2", platform: "zhihu", status: "inactive" },
+    );
+    _selectedIds.add("a1");
+    _selectedIds.add("a2");
+    const w = await mountView();
+
+    await w.vm.handleBatchStatus("active");
+
+    expect(_spies.batchSetStatus).toHaveBeenCalledWith("active", ["a1", "a2"]);
+    const { ElMessage } = await import("element-plus");
+    expect(ElMessage.success).toHaveBeenCalledWith("已启用 2 个账号");
   });
 
   it("使用真实 Pinia Store 的筛选全选状态", async () => {

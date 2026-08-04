@@ -61,6 +61,11 @@
   /* 布局 */
   --nav-height: 56px;
   --sidebar-width: 240px;
+
+  --yixiaoer-nav-height: 70px;
+  --yixiaoer-nav-border: #e8eaf2;
+  --yixiaoer-muted: #8b8e9a;
+  --yixiaoer-primary: var(--primary);
 }
 
 /* --- 基础重置 --- */

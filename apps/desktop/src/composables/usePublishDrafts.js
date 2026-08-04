@@ -8,7 +8,14 @@ const ARTICLE_FIELDS = [
   'content',
   'author',
   'cover_url',
+  'cover_path',
+  'cover_file',
   'video_path',
+  'images',
+  'image_files',
+  'tags',
+  'topics',
+  'mentions',
   'publishTime',
 ]
 
@@ -50,7 +57,7 @@ export function usePublishDrafts ({
       accounts: toPlainJson(selectedAccounts.value || {}),
       platformOverrides: toPlainJson(platformOverrides || {}),
     }
-    for (const field of ARTICLE_FIELDS) snapshot[field] = article[field] || ''
+    for (const field of ARTICLE_FIELDS) snapshot[field] = toPlainJson(article[field] || '')
     return snapshot
   }
 

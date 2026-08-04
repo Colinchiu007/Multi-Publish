@@ -3,7 +3,11 @@ import {
   buildPublishTargets,
   getPlatformContentLimit,
   normalizeAccountIds,
+  normalizePublishFiles,
+  normalizePublishMentions,
+  normalizePublishStringList,
   validatePlatformContent,
+  validatePublishMetadata,
   validatePublishTargets,
   validateScheduleEntries,
 } from './publish-contract'
@@ -13,6 +17,32 @@ describe('publish contract', () => {
     expect(normalizeAccountIds('acc-1')).toEqual(['acc-1'])
     expect(normalizeAccountIds(['acc-1', 'acc-1', '', null, 'acc-2'])).toEqual(['acc-1', 'acc-2'])
     expect(normalizeAccountIds(null)).toEqual([])
+  })
+
+  it('归一化标签、话题、文件和 @好友为可结构化克隆值', () => {
+    expect(normalizePublishStringList('AI, 效率，AI')).toEqual(['AI', '效率'])
+    expect(normalizePublishFiles([
+      { path: 'D:/a.png', name: 'a.png', type: 'image/png' },
+      { path: 'D:/a.png', name: 'duplicate.png' },
+    ])).toEqual([{ path: 'D:/a.png', name: 'a.png', type: 'image/png' }])
+    expect(normalizePublishMentions('@张三, 张三, @李四')).toEqual([
+      { name: '张三', text: '@张三' },
+      { name: '李四', text: '@李四' },
+    ])
+  })
+
+  it('元数据合同接受可选字段并拒绝不可克隆类型', () => {
+    expect(validatePublishMetadata({
+      tags: ['AI'],
+      topics: '效率工具',
+      mentions: '@张三',
+      images: [{ path: 'D:/a.png', name: 'a.png' }],
+      cover_file: { path: 'D:/cover.png', name: 'cover.png' },
+    })).toEqual({ valid: true })
+    expect(validatePublishMetadata({ tags: 42 })).toMatchObject({ valid: false, field: 'tags' })
+    expect(validatePublishMetadata({ tags: [{ invalid: true }] })).toMatchObject({ valid: false, field: 'tags' })
+    expect(validatePublishMetadata({ images: [{ invalid: true }] })).toMatchObject({ valid: false, field: 'images' })
+    expect(validatePublishMetadata({ cover_file: { invalid: true } })).toMatchObject({ valid: false, field: 'cover_file' })
   })
 
   it('为同一平台展开多个独立发布目标', () => {

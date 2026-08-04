@@ -246,3 +246,24 @@ npm run test:all:visual
 px electron-builder --win --x64 exit 0
 - 启动后 8 秒不崩溃
 - asar 文件清单包含所有必要模块
+
+---
+
+## 6. 2026-08 高保真回归补充
+
+| 编号 | 场景 | 断言 | 层级 |
+|---|---|---|---|
+| ACCT-UI-21 | /accounts?tab=groups | 分组管理弹窗自动打开，关闭后回到 /accounts | Component/Route |
+| ACCT-UI-22 | 分组重命名 | 空名称和重复名称 fail closed；合法名称写入 Store/localStorage | Unit/Component |
+| ACCT-UI-23 | 分组平台过滤 | 过滤变更同步更新 platformFilter，并移除不匹配成员 | Component |
+| ACCT-UI-24 | /accounts?tab=share | 显示“未接入团队分享服务”，不得渲染伪造成员或链接 | Route |
+| ACCT-UI-25 | 批量启用/禁用 | 只把当前可见且已选中的账号 ID 交给 Store，隐藏筛选项不被误更新 | Unit/Component |
+| PUB-UI-21 | /publish | 模块导航“新建发布” active，编辑器可见 | Route/Visual |
+| PUB-UI-22 | /publish?tab=drafts | 草稿列表自动打开并调用 draftList | Route/IPC |
+| PUB-CONTRACT-21 | 图文元数据 | images/image_files/cover/tags/topics/mentions 归一化且保持纯 JSON | Unit |
+| PUB-CONTRACT-22 | 批量目标缺失账号 | 不调用 batchCreate，返回可见错误提示 | Unit/Component |
+| PUB-CONTRACT-23 | 非法元数据 | 非法标签/话题/@好友/图片对象在 IPC 前被拒绝，不静默丢弃 | Unit |
+| HIST-UI-21 | 发布记录详情 | historyGet 成功/失败均有明确状态，失败记录显示重试入口 | Component/IPC |
+| VIS-UI-21 | 账号/发布主路径 | 目标 worktree 截图无旧 AppNavbar/AppSidebar，导航和状态区稳定 | Pixel/E2E |
+
+真实平台登录、Cookie、签名上传和审核结果单独标记为 PENDING_EXTERNAL；本地 Vitest 不得把 mock 成功当作线上 parity。

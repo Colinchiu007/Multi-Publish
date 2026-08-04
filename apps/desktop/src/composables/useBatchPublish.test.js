@@ -590,7 +590,14 @@ describe('useBatchPublish — composable setup', () => {
       precheck: true,
       author: '',
       cover_url: '',
+      cover_path: '',
+      cover_file: null,
       video_path: '',
+      images: [],
+      image_files: [],
+      tags: [],
+      topics: [],
+      mentions: [],
     }])
     expect(window.electronAPI.batchSchedule).toHaveBeenCalledWith('batch1')
     expect(window.electronAPI.batchExecute).not.toHaveBeenCalled()

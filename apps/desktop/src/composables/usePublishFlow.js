@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * usePublishFlow.js — 单篇发布流程 composable（从 Publish.vue 拆分）
  *
@@ -31,7 +31,12 @@ import {
 } from '@/api/publisher'
 import {
   buildPublishTargets,
+  normalizePublishFile,
+  normalizePublishFiles,
+  normalizePublishMentions,
+  normalizePublishStringList,
   validatePlatformContent,
+  validatePublishMetadata,
   validatePublishTargets,
   validateScheduleEntries,
 } from '@/features/publish/publish-contract'
@@ -168,7 +173,16 @@ export function usePublishFlow(options) {
 
   function buildArticleData () {
     const md = isMarkdownContent(article.content)
-    return {
+    const imageFiles = normalizePublishFiles([
+      ...normalizePublishFiles(article.image_files),
+      ...normalizePublishFiles(article.images),
+    ])
+    const coverFile = normalizePublishFile(article.cover_file || article.cover_path || article.cover_url)
+    const coverPath = coverFile?.path || String(article.cover_path || article.cover_url || '').trim()
+    const tags = normalizePublishStringList(article.tags)
+    const topics = normalizePublishStringList(article.topics)
+    const mentions = normalizePublishMentions(article.mentions)
+    const data = {
       title: article.title,
       content: article.content,
       contentFormat: md ? 'markdown' : 'html',
@@ -178,6 +192,16 @@ export function usePublishFlow(options) {
       precheck: precheckEnabled.value,
       platformOverrides: normalizePlatformOverrides(diffEdits),
     }
+    if (imageFiles.length > 0) {
+      data.images = imageFiles.map(file => file.path)
+      data.image_files = imageFiles
+    }
+    if (coverPath) data.cover_path = coverPath
+    if (coverFile) data.cover_file = coverFile
+    if (tags.length > 0) data.tags = tags
+    if (topics.length > 0) data.topics = topics
+    if (mentions.length > 0) data.mentions = mentions
+    return data
   }
 
   async function scheduleTargets (targets, data) {
@@ -242,6 +266,11 @@ export function usePublishFlow(options) {
     const targetCheck = validatePublishTargets(targets)
     if (!targetCheck.valid) {
       ElMessage.warning(targetCheck.message)
+      return
+    }
+    const metadataCheck = validatePublishMetadata(article)
+    if (!metadataCheck.valid) {
+      ElMessage.warning(metadataCheck.message)
       return
     }
     const contentCheck = validatePlatformContent({

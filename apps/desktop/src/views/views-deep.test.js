@@ -4,8 +4,10 @@ import { nextTick } from "vue";
 import { ElMessage } from "element-plus";
 
 const pushSpy = vi.fn();
+const routeState = { path: '/accounts', query: {} };
 vi.mock("vue-router", () => ({
-  useRouter: () => ({ push: pushSpy })
+  useRouter: () => ({ push: pushSpy, replace: vi.fn() }),
+  useRoute: () => routeState,
 }));
 
 vi.mock("@/stores/platforms", () => ({
@@ -99,6 +101,7 @@ vi.mock("@element-plus/icons-vue", () => {
     Plus: Icon,
     Refresh: Icon,
     Search: Icon,
+    Setting: Icon,
     Star: Icon,
     StarFilled: Icon,
     UploadFilled: Icon,
