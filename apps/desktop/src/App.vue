@@ -4,7 +4,7 @@
 
     <template v-if="isYixiaoerWorkspace">
       <YixiaoerModuleNav />
-      <main class="yixiaoer-workspace" data-testid="yixiaoer-workspace">
+      <main class="yixiaoer-workspace cohere-main" data-testid="yixiaoer-workspace">
         <router-view />
       </main>
     </template>
