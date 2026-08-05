@@ -1141,6 +1141,25 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
+  it("自动流水线使用各自真实阶段名（非 s2v 回退）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.pipelines = [{ name: "documentary-montage", available: true }];
+    w.vm.selectPipeline({ name: "documentary-montage", available: true });
+    await nextTick();
+    expect(w.vm.orchestrationStages.map(s => s.name)).toEqual([
+      "research", "ingest", "edit", "narrate", "render",
+    ]);
+    w.vm.selectPipeline({ name: "animated-explainer", available: true });
+    await nextTick();
+    expect(w.vm.orchestrationStages.map(s => s.name)).toEqual([
+      "research", "proposal", "script", "scenes", "assets", "editing", "compose", "publish",
+    ]);
+    w.unmount();
+  });
+
   it("s2v 高级区拆分为分句与时长、模板与输出两个子组", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }

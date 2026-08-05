@@ -845,6 +845,14 @@ const STORY2VIDEO_STAGE_NAMES = Object.freeze([
   'publish',
 ])
 
+// 自动流水线的真实阶段名（列表接口不返回 stages，按流水线名映射，避免回退到 s2v 阶段名）
+const AUTO_PIPELINE_STAGES = Object.freeze({
+  'story2video-compose': STORY2VIDEO_STAGE_NAMES,
+  'animated-explainer': ['research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish'],
+  'framework-smoke': ['verify', 'report'],
+  'documentary-montage': ['research', 'ingest', 'edit', 'narrate', 'render'],
+})
+
 const S2V_PLATFORMS = [
   { value: 'douyin', label: '抖音' },
   { value: 'xiaohongshu', label: '小红书' },
@@ -1144,7 +1152,8 @@ export default {
     },
     getDefaultPipelineStages(name) {
       const pipeline = (this.pipelines || []).find(item => item.name === name)
-      return (pipeline?.stages || STORY2VIDEO_STAGE_NAMES).map(stageName => ({ name: stageName, status: 'pending' }))
+      const stages = pipeline?.stages || AUTO_PIPELINE_STAGES[name] || STORY2VIDEO_STAGE_NAMES
+      return stages.map(stageName => ({ name: stageName, status: 'pending' }))
     },
     getDefaultStory2VideoStages() {
       return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
