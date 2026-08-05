@@ -6,7 +6,8 @@
         <Search class="search-icon" />
         <input v-model="platformSearchInput" type="search" placeholder="搜索平台" aria-label="搜索平台">
         <button v-if="platformSearchInput" class="clear-search" type="button" title="清空平台搜索" aria-label="清空平台搜索" @click="platformSearchInput = ''"><Close /></button>
-      </div>      <div class="search-box">
+      </div>
+      <div class="search-box">
         <Search class="search-icon" />
         <input
           v-model="searchInput"
@@ -27,6 +28,21 @@
           <option value="">{{ publisherOptions.length ? '选择发布人' : '选择发布人（暂无数据）' }}</option>
           <option v-for="publisher in publisherOptions" :key="publisher" :value="publisher">{{ publisher }}</option>
         </select>
+      </div>
+      <div class="account-sort-controls" role="group" aria-label="账号排序">
+        <select v-model="accountStore.sortBy" data-testid="account-sort" aria-label="账号排序字段">
+          <option v-for="option in sortOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+        </select>
+        <button
+          type="button"
+          data-testid="account-sort-order"
+          :aria-label="`排序${sortOrderLabel}`"
+          :title="`排序${sortOrderLabel}`"
+          @click="toggleSortOrder"
+        >
+          <span aria-hidden="true">{{ accountStore.sortOrder === 'desc' ? '↓' : '↑' }}</span>
+          <span class="sr-only">{{ sortOrderLabel }}</span>
+        </button>
       </div>
       <div class="account-view-toggle" role="group" aria-label="账号视图">
         <button type="button" data-testid="account-view-grid" :aria-pressed="accountViewMode === 'grid'" @click="accountViewMode = 'grid'">▦</button>
@@ -255,6 +271,14 @@ const filterOptions = [
   { value: 'inactive', label: '未登录' },
   { value: 'favorite', label: '收藏' },
 ]
+const sortOptions = [
+  { value: 'name', label: '名称' },
+  { value: 'platform', label: '平台' },
+  { value: 'created_at', label: '添加时间' },
+  { value: 'last_used_at', label: '最后使用' },
+  { value: 'followers', label: '粉丝数' },
+  { value: 'status', label: '登录状态' },
+]
 const emptyIds = new Set()
 
 const platformStore = usePlatformStore()
@@ -338,6 +362,7 @@ const loginStateText = computed(() => {
 const allPlatforms = computed(() => platformStore.platforms.map(item => ({ id: item.id, label: item.label })))
 const totalAccounts = computed(() => accountStore.accounts.length)
 const qrAvailable = computed(() => platformStore.supportsQrCode(newPlatform.value))
+const sortOrderLabel = computed(() => accountStore.sortOrder === 'desc' ? '降序' : '升序')
 
 function shouldShowAuthorizationGuide () {
   try { return localStorage.getItem('account-authorization-guide-seen') !== '1' } catch (_) { return true }
@@ -376,6 +401,10 @@ watch(() => accountStore.filterPlatform, value => {
 watch(platformFilter, value => {
   if ((accountStore.filterPlatform || '') !== value) accountStore.filterPlatform = value
 }, { flush: 'sync' })
+
+function toggleSortOrder () {
+  accountStore.sortOrder = accountStore.sortOrder === 'desc' ? 'asc' : 'desc'
+}
 
 function platformLabel (id) {
   return platformStore.getLabel(id) || id
@@ -1011,11 +1040,16 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
-.account-controls { grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto auto auto auto minmax(100px, auto); }
+.account-controls { grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto auto auto auto auto minmax(100px, auto); }
 .account-card-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
 .platform-search-box { min-width: 0; }
 .account-command-bar { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.account-command-bar .page-button { white-space: nowrap; }.account-toolbar-selects { display: flex; align-items: center; gap: 12px; }
+.account-command-bar .page-button { white-space: nowrap; }
+.account-toolbar-selects { display: flex; align-items: center; gap: 12px; }
+.account-sort-controls { display: inline-flex; align-items: center; gap: 4px; }
+.account-sort-controls select { min-width: 116px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 10px; background: #f8f9fc; color: #5f6475; font-size: 13px; }
+.account-sort-controls button { width: 36px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; background: #f8f9fc; color: #5048e5; font-size: 18px; line-height: 1; cursor: pointer; }
+.account-sort-controls button:focus-visible { outline: 2px solid #5048e5; outline-offset: 2px; }
 .account-toolbar-selects select { min-width: 132px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 12px; background: #f8f9fc; color: #9aa0b2; font-size: 13px; }
 .account-view-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid #e8ebf2; border-radius: 8px; background: #f8f9fc; }
 .account-view-toggle button { width: 32px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: #8b92a7; font-size: 18px; cursor: pointer; }
