@@ -68,3 +68,20 @@
 - `minimax-image generateImage success` ×3（1+2 张图片，latency 15s 级）
 - `minimax-tts synthesize success` ×3
 - 即：Agnes LLM → MiniMax Image → MiniMax TTS → FFmpeg 合成，全部真实成功。
+
+## animated-explainer（AI 讲解视频）— ✅ 真实生成 PASS（2026-08-06 04:06）
+
+- 输入主题：「人工智能的起源与三次浪潮」（纯文本）
+- 流程：视频创作 → AI 讲解视频 → 输入主题 → 启动流水线 → 8 阶段自动完成（内容调研→方案提议→脚本撰写→分镜规划→素材准备→剪辑→视频合成→发布）
+- 真实 provider 调用（model_provider_logs）：agnes-llm chatCompletion（4 次规划链）+ minimax-image generateImage ×10（约 17s/张）+ minimax-tts synthesize
+- 产物：`story2video-projects/<user>/run_1785960181270_25q0/`：10 张真实 JPG（130-340KB）+ narration + 分段视频 + `video.mp4`
+- ffprobe：`h264 1920x1080 30fps + aac`，duration=98.97s，size=7.77MB；project.json `pipeline=animated-explainer status=completed`，6+ 分段
+- 中间修复（已提交）：scenes JSON 解析容错 + 行级兜底；默认图片/TTS provider 自动解析（避免本地降级）；项目持久化泛化
+- 页面零错误；UI 创作历史可打开该完成项目
+
+## 已跑通流水线汇总（真实生成）
+| 流水线 | 状态 | 产物 |
+|---|---|---|
+| story2video-compose | ✅ | 8.6s / 10.9s 竖屏视频 |
+| animated-explainer | ✅ | 98.97s 横屏 1080p 讲解视频 |
+| 其余 12 条 | ❌ 无引擎/缺模型 | 见 ENGINE-FEASIBILITY.md |
