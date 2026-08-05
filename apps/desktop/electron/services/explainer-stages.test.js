@@ -168,15 +168,29 @@ describe('scenes 阶段与 JSON 解析', () => {
     expect(result.output[0]).toMatchObject({ prompt: '海边日出，暖色调', text: '清晨，太阳从海平面升起。', duration: 6 })
   })
 
-  it('scenes 阶段解析失败时报可行动错误', async () => {
+  it('scenes 阶段解析失败时用行级兜底继续（长文案）', async () => {
     const { get } = makePipeline(makeAi('抱歉，我无法生成。'))
     const result = await get(EXPLAINER_STAGE_TYPES.SCENES)({
       stage: {},
       params: {},
-      context: { script: '旁白文案。' },
+      context: { script: '第一段旁白。\n\n第二段旁白。' },
+    })
+    expect(result.success).toBe(true)
+    expect(result.output.length).toBeGreaterThanOrEqual(1)
+    expect(result.output[0]).toMatchObject({ text: '第一段旁白。' })
+    expect(result.output[0].prompt).toContain('第一段旁白')
+  })
+
+  it('scenes 阶段 JSON 与兜底都失败时报可行动错误（含原始片段）', async () => {
+    const { get } = makePipeline(makeAi('抱歉，我无法生成。'))
+    const result = await get(EXPLAINER_STAGE_TYPES.SCENES)({
+      stage: {},
+      params: {},
+      context: { script: 'x' },
     })
     expect(result.success).toBe(false)
-    expect(result.error).toContain('解析出有效场景数组')
+    expect(result.error).toContain('无法解析场景')
+    expect(result.error).toContain('抱歉，我无法生成')
   })
 })
 
@@ -197,6 +211,32 @@ describe('generate_assets 适配与 editing', () => {
       context: expect.objectContaining({
         optimize: [{ optimized_prompt: 'p1', prompt: 'p1' }],
         split: scenes,
+      }),
+    }))
+  })
+
+  it('generate_assets 未指定 provider 时解析默认图片/TTS provider', async () => {
+    const ai = makeAi('x')
+    ai._modelProviderManager.getDefault = vi.fn((type) => {
+      if (type === 'image') return { id: 'minimax-image', models: ['image-01'] }
+      if (type === 'tts') return { id: 'minimax-tts', models: ['speech-2.8-turbo'] }
+      return { id: 'agnes-llm', models: ['agnes-2.0-flash'] }
+    })
+    const inner = vi.fn(async () => ({ success: true, output: { scenes: [] } }))
+    const { get } = makePipeline(ai, inner)
+    const result = await get(EXPLAINER_STAGE_TYPES.GENERATE_ASSETS)({
+      runId: 'r', stage: { options: {} }, params: {},
+      context: { scenes: [{ prompt: 'p1', text: 't1', duration: 6 }] },
+    })
+    expect(result.success).toBe(true)
+    expect(inner).toHaveBeenCalledWith(expect.objectContaining({
+      stage: expect.objectContaining({
+        options: expect.objectContaining({
+          imageProvider: 'minimax-image',
+          imageModel: 'image-01',
+          voiceProvider: 'minimax-tts',
+          voiceModel: 'speech-2.8-turbo',
+        }),
       }),
     }))
   })

@@ -602,4 +602,55 @@ describe('Story2VideoProjectService', () => {
     expect(service.listProjects()).toEqual([])
     expect(fs.existsSync(path.join(service._ownerDir(), 'project-delete'))).toBe(false)
   })
+
+  it('animated-explainer 完成运行同样持久化项目（复用 compose 产物与 assets.scenes）', () => {
+    const source = path.join(root, 'explainer-source')
+    const image = writeFile(path.join(source, 'image.png'))
+    const audio = writeFile(path.join(source, 'audio.mp3'))
+    const segmentVideo = writeFile(path.join(source, 'segment.mp4'))
+    const narration = writeFile(path.join(source, 'narration.m4a'))
+    const output = writeFile(path.join(source, 'output.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_explainer_1',
+      pipeline: 'animated-explainer',
+      status: 'completed',
+      createdAt: '2026-08-06T00:00:00.000Z',
+      endedAt: '2026-08-06T00:01:00.000Z',
+      params: { text: '人工智能的起源' },
+      context: {
+        assets: {
+          scenes: [{
+            index: 0,
+            text: '人工智能的起源',
+            prompt: '关于起源的画面',
+            imagePath: image,
+            audioPath: audio,
+            duration: 6,
+          }],
+        },
+        compose: {
+          videoPath: output,
+          audioPath: narration,
+          segments: [{
+            index: 0,
+            text: '人工智能的起源',
+            prompt: '关于起源的画面',
+            imagePath: image,
+            audioPath: audio,
+            videoPath: segmentVideo,
+            duration: 6,
+          }],
+        },
+      },
+    })
+
+    expect(project.projectId).toBe('run_explainer_1')
+    expect(project.pipeline).toBe('animated-explainer')
+    expect(fs.existsSync(project.videoPath)).toBe(true)
+    expect(fs.existsSync(project.audioPath)).toBe(true)
+    expect(project.segments).toHaveLength(1)
+    expect(fs.existsSync(project.segments[0].videoPath)).toBe(true)
+  })
 })

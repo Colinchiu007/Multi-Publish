@@ -47,6 +47,18 @@ function getDefaultLlmConfig (aiGenerator) {
   return model ? { providerId: provider.id.trim(), model: model.trim() } : null
 }
 
+function getDefaultProviderConfig (aiGenerator, type) {
+  const manager = aiGenerator && aiGenerator._modelProviderManager
+  const provider = manager && typeof manager.getDefault === 'function'
+    ? manager.getDefault(type)
+    : null
+  if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
+  const model = Array.isArray(provider.models)
+    ? provider.models.find(item => typeof item === 'string' && item.trim())
+    : null
+  return model ? { providerId: provider.id.trim(), model: model.trim() } : null
+}
+
 async function callDefaultLlm (aiGenerator, systemPrompt, userContent, maxTokens) {
   if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
     throw new Error('默认 LLM 不可用，请先完成模型设置')
@@ -98,20 +110,64 @@ function buildScenesPrompt (script, options = {}) {
   }
 }
 
-/** 从 LLM 输出中提取 JSON 数组（容忍 markdown 围栏与前后说明文字）。 */
+/** 从 LLM 输出中提取 JSON 数组（容忍 markdown 围栏、说明文字与对象包装）。 */
 function parseScenesJson (text) {
   const source = String(text || '').trim()
   if (!source) return null
+
+  // 1) 直接解析整段（可能是裸数组或含数组字段的对象）
+  try {
+    const parsed = JSON.parse(source)
+    if (Array.isArray(parsed)) return parsed
+    if (parsed && typeof parsed === 'object') {
+      const firstArray = Object.values(parsed).find(Array.isArray)
+      if (firstArray) return firstArray
+    }
+  } catch {
+    // fallthrough
+  }
+
+  // 2) 提取第一个 [...] 数组块
   const start = source.indexOf('[')
   const end = source.lastIndexOf(']')
-  if (start === -1 || end <= start) return null
-  const candidate = source.slice(start, end + 1)
-  try {
-    const parsed = JSON.parse(candidate)
-    return Array.isArray(parsed) ? parsed : null
-  } catch {
-    return null
+  if (start !== -1 && end > start) {
+    const candidate = source.slice(start, end + 1)
+    try {
+      const parsed = JSON.parse(candidate)
+      if (Array.isArray(parsed)) return parsed
+    } catch {
+      // fallthrough
+    }
   }
+
+  // 3) 提取数组属性值（例如 {"scenes": [...]} 带前后说明文字）
+  const propertyMatch = source.match(/["']?scenes["']?\s*:\s*(\[[\s\S]*\])/i)
+  if (propertyMatch) {
+    try {
+      const parsed = JSON.parse(propertyMatch[1])
+      if (Array.isArray(parsed)) return parsed
+    } catch {
+      // fallthrough
+    }
+  }
+
+  return null
+}
+
+/** 行级兜底：把旁白文案按段落/行拆成场景（JSON 解析失败时保证流水线可继续）。 */
+function fallbackScenes (script, options = {}) {
+  const duration = Number(options.duration)
+  const sceneDuration = Number.isFinite(duration) && duration >= 1 ? duration : DEFAULT_SCENE_DURATION
+  const blocks = String(script || '')
+    .split(/\n\s*\n|\r?\n/)
+    .map(block => block.trim())
+    .filter(block => block.length >= MIN_SCENE_TEXT_LENGTH)
+  if (blocks.length === 0) return null
+  return blocks.slice(0, MAX_SCENES).map(text => ({
+    text,
+    prompt: '以纪实风格呈现「' + text.slice(0, 40) + '」的解说画面，构图清晰，光线自然。',
+    duration: sceneDuration,
+  }))
 }
 
 function normalizeScenes (raw, fallbackScript) {
@@ -241,12 +297,15 @@ function registerExplainerStages (pipelineEngine) {
       const { system, user } = buildScenesPrompt(script, stage.options || {})
       try {
         const raw = await callDefaultLlm(aiGenerator, system, user)
-        const parsed = parseScenesJson(raw)
-        const scenes = normalizeScenes(parsed, script)
+        let scenes = normalizeScenes(parseScenesJson(raw), script)
         if (!scenes) {
+          scenes = fallbackScenes(script, stage.options || {})
+        }
+        if (!scenes) {
+          const snippet = raw.length > 120 ? raw.slice(0, 120) + '…' : raw
           return {
             success: false,
-            error: 'scenes 阶段无法从 LLM 输出解析出有效场景数组，请重试或修改主题后重新启动',
+            error: 'scenes 阶段无法解析场景：' + snippet,
           }
         }
         return { success: true, output: scenes }
@@ -279,9 +338,19 @@ function registerExplainerStages (pipelineEngine) {
         optimize: optimizedPrompts,
         split: scenes,
       }
+      // 未显式指定图片/TTS provider 时，自动解析模型设置中的默认 provider，
+      // 避免资源生成落到本地占位/降级路径。
+      const aiGenerator = getAiGenerator(pipelineEngine)
+      const defaultImage = getDefaultProviderConfig(aiGenerator, 'image')
+      const defaultVoice = getDefaultProviderConfig(aiGenerator, 'tts')
+      const innerOptions = { ...(stage.options || {}) }
+      if (!innerOptions.imageProvider && defaultImage) innerOptions.imageProvider = defaultImage.providerId
+      if (!innerOptions.imageModel && defaultImage) innerOptions.imageModel = defaultImage.model
+      if (!innerOptions.voiceProvider && defaultVoice) innerOptions.voiceProvider = defaultVoice.providerId
+      if (!innerOptions.voiceModel && defaultVoice) innerOptions.voiceModel = defaultVoice.model
       const inner = await pipelineEngine.stageExecutor.execute({
         runId,
-        stage: { name: 'assets', type: 'story2video_generate_assets', options: stage.options || {} },
+        stage: { name: 'assets', type: 'story2video_generate_assets', options: innerOptions },
         params,
         context: adaptedContext,
       })
@@ -320,5 +389,6 @@ module.exports = {
   buildScenesPrompt,
   parseScenesJson,
   normalizeScenes,
+  fallbackScenes,
   registerExplainerStages,
 }

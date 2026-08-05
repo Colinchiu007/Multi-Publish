@@ -904,7 +904,7 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
-    if (run.pipeline === 'story2video-compose' && status === 'completed' && this.story2videoProjectService) {
+    if (['story2video-compose', 'animated-explainer'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);
         if (project) {
