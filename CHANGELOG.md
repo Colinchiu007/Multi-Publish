@@ -1,3 +1,10 @@
+## [未发布] talking-head 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- talking-head（口播视频）从 state_machine 占位升级为真实编排：视频 + 文案 → 分句 → SRT 字幕 → FFmpeg 烧录渲染，全程本地（用户提供文案时无需语音识别；无文案则 fail closed 提示配置识别模型）。
+- 新增 `talkinghead-stages.js` 注册 4 个自定义阶段；`saveRun`/`_finalizeRun` 支持 talking-head；前端视频区新增口播文案输入。
+- 真实 E2E：640x360 测试视频 + 3 段文案 → 字幕烧录 → `video.mp4`（12s）→ 项目持久化（3 segments，completed）。
+
 ## [未发布] framework-smoke 真实编排引擎 (2026-08-06)
 
 ### 视频创作

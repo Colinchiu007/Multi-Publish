@@ -132,6 +132,13 @@
               <p v-else>✅ {{ pipelineVideo.name }}</p>
             </div>
             <input ref="pipelineVideoInput" type="file" accept="video/*" style="display:none" @change="handlePipelineVideo" />
+            <textarea
+              v-if="isMediaAutoPipeline(selectedPipeline.name)"
+              v-model="pipelineText"
+              placeholder="口播文案（口播视频流水线必填，逐行或分段）..."
+              rows="6"
+              class="form-textarea media-script-input"
+            ></textarea>
           </div>
         </div>
 
@@ -1089,7 +1096,7 @@ export default {
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
     isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke'].includes(name) },
-    isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic'].includes(name) },
+    isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic', 'talking-head'].includes(name) },
     getDefaultPipelineStages(name) {
       const pipeline = (this.pipelines || []).find(item => item.name === name)
       return (pipeline?.stages || STORY2VIDEO_STAGE_NAMES).map(stageName => ({ name: stageName, status: 'pending' }))
@@ -1157,6 +1164,7 @@ export default {
         }
         const params = {
           video: videoPath,
+          text: this.pipelineText.trim(),
           inputMode: 'video',
           checkpointPolicy: 'none',
           autoAdvance: true,

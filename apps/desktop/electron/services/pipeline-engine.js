@@ -112,6 +112,37 @@ const PIPELINES = [
     category: 'talking_head',
     stages: ['upload', 'transcribe', 'captions', 'render'],
     estimatedCost: 'low',
+    // 真实编排：视频+文案 → 分句 → SRT 字幕 → FFmpeg 烧录（talkinghead-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'upload',
+        type: 'talkinghead_upload',
+        description: '视频与文案校验',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'transcribe',
+        type: 'talkinghead_transcribe',
+        description: '文案分句',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'captions',
+        type: 'talkinghead_captions',
+        description: '生成字幕',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'render',
+        type: 'talkinghead_render',
+        description: '字幕烧录渲染',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'cinematic',
@@ -983,7 +1014,7 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
-    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
+    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);
         if (project) {
