@@ -102,3 +102,21 @@
 | animated-explainer | ✅ | 98.97s 横屏 1080p 讲解视频 |
 | clip-factory | ✅ | 12s 切片高亮（3 片段合并） |
 | 其余 11 条 | ❌ 无引擎/缺模型 | 见 ENGINE-FEASIBILITY.md |
+
+## cinematic（电影感短片）— ✅ 真实生成 PASS（2026-08-06 05:46）
+
+- 输入：640x360 测试视频（12s）
+- 流程：视频创作 → 电影感短片 → 视频素材上传 → 启动流水线 → 4 阶段（导入素材→调色→视频合成→渲染）自动完成
+- 处理：FFmpeg eq 调色（对比度/亮度/饱和度）→ 淡入淡出 + 1920x1080 缩放/加黑边 → 渲染
+- 产物：`story2video-projects/<user>/run_1785966369023_4oho/video.mp4`
+- ffprobe：`h264 1920x1080`，duration=12.0s，size=45632；project.json `pipeline=cinematic status=completed segments=1`
+- 关键修复：resolveComposeOutput 精确匹配含 videoPath 的输出（cinematic 的 stage 名 compose 与 saveRun 上下文键冲突导致未持久化）；FFmpeg pad 用冒号语法避免 x 语法解析失败
+
+## 已跑通流水线汇总（真实生成）
+| 流水线 | 状态 | 产物 |
+|---|---|---|
+| story2video-compose | ✅ | 8.6s / 10.9s 竖屏视频 |
+| animated-explainer | ✅ | 98.97s 横屏 1080p 讲解视频 |
+| clip-factory | ✅ | 12s 切片高亮（3 片段合并） |
+| cinematic | ✅ | 12s 1080p 电影感短片 |
+| 其余 10 条 | ❌ 无引擎/缺模型 | 见 ENGINE-FEASIBILITY.md |

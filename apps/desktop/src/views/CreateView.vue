@@ -1089,7 +1089,7 @@ export default {
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
     isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer'].includes(name) },
-    isMediaAutoPipeline(name) { return ['clip-factory'].includes(name) },
+    isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic'].includes(name) },
     getDefaultPipelineStages(name) {
       const pipeline = (this.pipelines || []).find(item => item.name === name)
       return (pipeline?.stages || STORY2VIDEO_STAGE_NAMES).map(stageName => ({ name: stageName, status: 'pending' }))
@@ -1774,8 +1774,10 @@ export default {
       const publish = context?.publish?.data || context?.publish
       const compose = context?.compose?.data || context?.compose
       const clipExport = context?.export?.data || context?.export
+      const cinematicRender = context?.render?.data || context?.render
       return publish?.videoPath || publish?.path || compose?.videoPath || compose?.path ||
-        clipExport?.videoPath || clipExport?.path || null
+        clipExport?.videoPath || clipExport?.path ||
+        cinematicRender?.videoPath || cinematicRender?.path || null
     },
     applyOrchestrationOutcome(outcome) {
       if (Array.isArray(outcome?.stages)) this.orchestrationStages = outcome.stages

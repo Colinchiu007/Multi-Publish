@@ -1,3 +1,10 @@
+## [未发布] cinematic 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- cinematic（电影感短片）从 state_machine 占位升级为真实编排流水线：输入视频 → FFmpeg 调色（eq）→ 淡入淡出 + 目标分辨率合成 → 渲染输出，全部本地完成。
+- 新增 `cinematic-stages.js` 注册 4 个自定义阶段执行器；`pipeline-engine` 补齐 stageDefs；`saveRun` 泛化支持 cinematic（resolveComposeOutput 精确匹配含 videoPath 的输出，规避 stage 名 compose 冲突）；前端 `isMediaAutoPipeline` 纳入 cinematic。
+- 真实 E2E：640x360 测试视频 → 调色+淡入淡出+缩放 → `video.mp4`（h264 1920x1080 12s）→ 项目持久化（completed）。
+
 ## [未发布] clip-factory 真实编排引擎 (2026-08-06)
 
 ### 视频创作

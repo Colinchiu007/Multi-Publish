@@ -53,6 +53,7 @@ const PluginRegistry = require('../services/plugin-registry');
 const { registerStory2VideoStages } = require('../services/story2video-stages');
 const { registerExplainerStages } = require('../services/explainer-stages');
 const { registerClipFactoryStages } = require('../services/clipfactory-stages');
+const { registerCinematicStages } = require('../services/cinematic-stages');
 
 function createContainer(options) {
   const container = new Container();
@@ -84,6 +85,7 @@ function createContainer(options) {
         registerStory2VideoStages(engine);
         registerExplainerStages(engine);
         registerClipFactoryStages(engine);
+        registerCinematicStages(engine);
       } catch (e) {
         c.get("logger").warn("container",
           "registerStory2VideoStages failed: " + (e instanceof Error ? e.message : String(e)));

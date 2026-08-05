@@ -119,6 +119,37 @@ const PIPELINES = [
     category: 'cinematic',
     stages: ['ingest', 'grade', 'compose', 'render'],
     estimatedCost: 'medium',
+    // 真实编排：本地 FFmpeg 调色→淡入淡出+分辨率合成→渲染（cinematic-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'ingest',
+        type: 'cinematic_ingest',
+        description: '输入视频校验与探测',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'grade',
+        type: 'cinematic_grade',
+        description: '电影感调色',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'compose',
+        type: 'cinematic_compose',
+        description: '淡入淡出与分辨率合成',
+        checkpointRequired: false,
+        options: { resolution: '1920x1080' },
+      },
+      {
+        name: 'render',
+        type: 'cinematic_render',
+        description: '渲染输出',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'animation',
@@ -935,7 +966,7 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
-    if (['story2video-compose', 'animated-explainer', 'clip-factory'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
+    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);
         if (project) {
