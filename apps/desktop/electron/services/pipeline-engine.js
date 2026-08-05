@@ -147,6 +147,37 @@ const PIPELINES = [
     category: 'screen_recording',
     stages: ['analyze', 'extract', 'caption', 'export'],
     estimatedCost: 'low',
+    // 真实编排：本地 FFmpeg 场景检测→逐段剪辑→标题→合并导出（clipfactory-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'analyze',
+        type: 'clipfactory_analyze',
+        description: '场景检测与时长分析',
+        checkpointRequired: false,
+        options: { sceneThreshold: 0.3, maxSegments: 8, minSegmentSeconds: 2, maxTotalSeconds: 60 },
+      },
+      {
+        name: 'extract',
+        type: 'clipfactory_extract',
+        description: '逐段剪辑',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'caption',
+        type: 'clipfactory_caption',
+        description: '片段标题',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'export',
+        type: 'clipfactory_export',
+        description: '合并导出',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'documentary-montage',
