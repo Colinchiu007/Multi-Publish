@@ -247,6 +247,59 @@ const PIPELINES = [
     category: 'cinematic',
     stages: ['research', 'ingest', 'edit', 'narrate', 'render'],
     estimatedCost: 'medium',
+    // 真实编排：LLM 纪录片大纲→场景规划→图片+旁白→资源校验→FFmpeg 合成（documentary-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'research',
+        type: 'documentary_research',
+        description: '纪录片风格主题研究',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'ingest',
+        type: 'documentary_ingest',
+        description: '素材画面规划（场景数组）',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'edit',
+        type: 'documentary_edit',
+        description: '生成图片与旁白素材',
+        checkpointRequired: false,
+        options: {
+          concurrency: 3,
+          imageStyle: 'documentary',
+          aspectRatio: '16:9',
+        },
+      },
+      {
+        name: 'narrate',
+        type: 'documentary_narrate',
+        description: '旁白与资源清单校验',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'render',
+        type: 'compose',
+        description: '视频合成',
+        checkpointRequired: false,
+        inputFrom: 'edit',
+        options: {
+          transition: 'fade',
+          imageEffect: 'ken-burns',
+          subtitleEnabled: false,
+          resolution: '1920x1080',
+          fps: 30,
+          format: 'mp4',
+          defaultSceneDuration: 6,
+          generateBase: true,
+          generateMerged: true,
+        },
+      },
+    ],
   },
   {
     name: 'hybrid',
@@ -1018,7 +1071,7 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
-    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
+    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head', 'documentary-montage'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);
         if (project) {
