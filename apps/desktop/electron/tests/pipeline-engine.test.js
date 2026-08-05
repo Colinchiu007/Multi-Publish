@@ -39,7 +39,7 @@ describe('PipelineEngine 状态机模式', () => {
 
   it('已实现真实引擎的流水线标记 available=true', () => {
     const list = engine.listPipelines()
-    const implemented = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke']
+    const implemented = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage']
     for (const name of implemented) {
       expect(list.find(item => item.name === name)?.available).toBe(true)
     }
@@ -47,10 +47,19 @@ describe('PipelineEngine 状态机模式', () => {
 
   it('未实现真实引擎的流水线标记 available=false', () => {
     const list = engine.listPipelines()
-    const notImplemented = ['animation', 'avatar-spokesperson', 'character-animation', 'documentary-montage', 'hybrid', 'localization-dub', 'podcast-repurpose', 'screen-demo']
+    const notImplemented = ['animation', 'avatar-spokesperson', 'character-animation', 'hybrid', 'localization-dub', 'podcast-repurpose', 'screen-demo']
     for (const name of notImplemented) {
       expect(list.find(item => item.name === name)?.available).toBe(false)
     }
+  })
+
+  it('documentary-montage 提供完整 stageDefs 链', () => {
+    const pipeline = engine.getPipeline('documentary-montage')
+    expect(pipeline.stages).toEqual(['research', 'ingest', 'edit', 'narrate', 'render'])
+    expect(pipeline.stageDefs.map(def => def.name)).toEqual(['research', 'ingest', 'edit', 'narrate', 'render'])
+    expect(pipeline.stageDefs.map(def => def.type)).toEqual([
+      'documentary_research', 'documentary_ingest', 'documentary_edit', 'documentary_narrate', 'compose',
+    ])
   })
 
   it('每条 pipeline 都包含非空名称和描述', () => {

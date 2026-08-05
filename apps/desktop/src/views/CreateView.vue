@@ -806,7 +806,7 @@ const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
 })
 
 // 已实现真实执行引擎的流水线（与 pipeline-engine 注册表 available 字段保持一致；此处为前端兜底）
-const IMPLEMENTED_PIPELINES = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke']
+const IMPLEMENTED_PIPELINES = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage']
 
 function prioritizeStory2VideoPipeline(pipelines) {
   const values = Array.isArray(pipelines) ? pipelines : []
@@ -1119,7 +1119,7 @@ export default {
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
-    isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke'].includes(name) },
+    isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke', 'documentary-montage'].includes(name) },
     isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic', 'talking-head'].includes(name) },
     pipelineAvailable(name) {
       const selected = this.selectedPipeline
@@ -1233,7 +1233,7 @@ export default {
       }
     },
     async startOrchestratedPipeline() {
-      if (this.selectedPipeline.name === 'animated-explainer') {
+      if (this.selectedPipeline.name === 'animated-explainer' || this.selectedPipeline.name === 'documentary-montage') {
         return this.startExplainerPipeline()
       }
       if (this.isMediaAutoPipeline(this.selectedPipeline.name)) {
