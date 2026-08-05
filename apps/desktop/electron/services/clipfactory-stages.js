@@ -36,13 +36,15 @@ function runTool (binary, args) {
   return new Promise((resolve, reject) => {
     execFile(binary, args, { maxBuffer: 32 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) reject(new Error(String(stderr || error.message).slice(0, 1200)))
-      else resolve(String(stdout))
+      // ffmpeg 的 metadata=print / 日志走 stderr，成功时也要一并返回供解析
+      else resolve(String(stdout) + '\n' + String(stderr))
     })
   })
 }
 
 function getRunDir (runId) {
-  return path.join(os.tmpdir(), 'multi-publish-clipfactory', String(runId || 'run'))
+  // 输出到 story2video 临时根（getAllowedMediaRoots 白名单内），保证 saveRun 可复制持久化
+  return path.join(os.tmpdir(), 'story2video', 'clipfactory', String(runId || 'run'))
 }
 
 function parseSceneTimes (output) {

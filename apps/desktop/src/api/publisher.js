@@ -321,6 +321,9 @@ export async function pipelineRegisterPipeline(def) { return invokeWithFallback(
 export async function story2videoImportMedia(file, kind) {
   return invokeWithFallback("story2videoImportMedia", { code: -1, message: 'electronAPI not available' }, file, kind)
 }
+export async function story2videoImportMediaPath(filePath, kind) {
+  return invokeWithFallback("story2videoImportMediaPath", { code: -1, message: 'electronAPI not available' }, filePath, kind)
+}
 export async function story2videoExportZip(files, destinationPath) {
   return destinationPath === undefined
     ? invokeWithFallback("story2videoExportZip", { code: -1, message: 'electronAPI not available' }, files)

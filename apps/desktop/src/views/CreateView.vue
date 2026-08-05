@@ -742,7 +742,7 @@ import {
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
   pipelineStartOrchestrated, pipelineAdvanceToNextCheckpoint, pipelineGetRunContext,
-  story2videoImportMedia, story2videoTranscribe, story2videoListProjects,
+  story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
   story2videoDeleteProject
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
@@ -1773,7 +1773,9 @@ export default {
     extractOrchestrationVideoPath(context) {
       const publish = context?.publish?.data || context?.publish
       const compose = context?.compose?.data || context?.compose
-      return publish?.videoPath || publish?.path || compose?.videoPath || compose?.path || null
+      const clipExport = context?.export?.data || context?.export
+      return publish?.videoPath || publish?.path || compose?.videoPath || compose?.path ||
+        clipExport?.videoPath || clipExport?.path || null
     },
     applyOrchestrationOutcome(outcome) {
       if (Array.isArray(outcome?.stages)) this.orchestrationStages = outcome.stages
@@ -1899,6 +1901,7 @@ export default {
         image: { extensions: ['.jpg', '.jpeg', '.png', '.webp'], maxBytes: 10 * 1024 * 1024, label: '图片' },
         audio: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 50 * 1024 * 1024, label: '旁白音频' },
         bgm: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 15 * 1024 * 1024, label: '背景音乐' },
+        video: { extensions: ['.mp4', '.mov', '.webm', '.mkv', '.avi'], maxBytes: 512 * 1024 * 1024, label: '视频素材' },
       }
       const rule = rules[kind]
       if (!rule || !rule.extensions.includes(extension)) {
@@ -1959,14 +1962,27 @@ export default {
     async handlePipelineVideo(e) {
       const file = e.target.files?.[0]
       if (!file) return
-      const resolver = window.electronAPI?.getPathForFile
-      const filePath = typeof resolver === 'function' ? await resolver(file) : ''
+      if (!this.validateStory2VideoFile(file, 'video')) {
+        this.pipelineVideo = null
+        return
+      }
+      // File 对象跨 contextBridge 后路径会丢失；先经 getPathForFile 拿到真实路径，
+      // 再走基于路径的导入（复制到应用控制目录，供后续 canonical 白名单校验）。
+      const filePath = typeof window.electronAPI?.getPathForFile === 'function'
+        ? await window.electronAPI.getPathForFile(file)
+        : ''
       if (!filePath) {
         this.pipelineVideo = null
         this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
         return
       }
-      this.pipelineVideo = { name: file.name || filePath, path: filePath }
+      const imported = await story2videoImportMediaPath(filePath, 'video')
+      if (!imported || imported.code !== 0 || !imported.data?.path) {
+        this.pipelineVideo = null
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
+        return
+      }
+      this.pipelineVideo = { name: file.name || imported.data.originalName, path: imported.data.path }
     },
     async handleS2VBgmFile(e) {
       const file = e.target.files?.[0]
