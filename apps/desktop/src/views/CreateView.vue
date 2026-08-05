@@ -78,7 +78,7 @@
             <button :class="['input-tab', { active: inputMode === 'text' }]" @click="inputMode = 'text'">文案</button>
             <button v-if="!isAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'images' }]" @click="inputMode = 'images'">图片</button>
             <button v-if="!isAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'audio' }]" @click="inputMode = 'audio'">旁白/批量音频</button>
-            <button v-if="!isAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'video' }]" @click="inputMode = 'video'">视频素材</button>
+            <button v-if="!isAutoPipeline(selectedPipeline.name) || isMediaAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'video' }]" @click="inputMode = 'video'">视频素材</button>
           </div>
 
           <div v-if="inputMode === 'text'" class="input-area">
@@ -1079,7 +1079,7 @@ export default {
       this.stopPipelinePolling()
       this.selectedPipeline = p
       this.pipelineRunStatus = null
-      this.orchestrationStages = this.isAutoPipeline(p?.name) ? this.getDefaultPipelineStages(p.name) : []
+      this.orchestrationStages = (this.isAutoPipeline(p?.name) || this.isMediaAutoPipeline(p?.name)) ? this.getDefaultPipelineStages(p.name) : []
       this.orchestrationRunId = null
       this.orchestrationContext = null
       this.orchestrationResultPath = null
@@ -1089,6 +1089,7 @@ export default {
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
     isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer'].includes(name) },
+    isMediaAutoPipeline(name) { return ['clip-factory'].includes(name) },
     getDefaultPipelineStages(name) {
       const pipeline = (this.pipelines || []).find(item => item.name === name)
       return (pipeline?.stages || STORY2VIDEO_STAGE_NAMES).map(stageName => ({ name: stageName, status: 'pending' }))
@@ -1097,7 +1098,7 @@ export default {
       return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
     },
     async startPipeline() {
-      if (this.isAutoPipeline(this.selectedPipeline.name)) {
+      if (this.isAutoPipeline(this.selectedPipeline.name) || this.isMediaAutoPipeline(this.selectedPipeline.name)) {
         return this.startOrchestratedPipeline()
       }
       const params = {
@@ -1147,9 +1148,39 @@ export default {
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
     },
+    async startMediaPipeline() {
+      try {
+        const videoPath = this.pipelineVideo?.path
+        if (!videoPath) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_REQUIRED })
+          return
+        }
+        const params = {
+          video: videoPath,
+          inputMode: 'video',
+          checkpointPolicy: 'none',
+          autoAdvance: true,
+        }
+        const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
+        const outcome = res?.data
+        if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
+          this.orchestrationRunId = outcome.runId
+          if (this.applyOrchestrationOutcome(outcome)) return
+          await this.updateOrchestrationStatus()
+          if (this.orchestrationRunId && !this.pollTimer) {
+            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          }
+        } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
+      } catch (_) {
+        this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
+      }
+    },
     async startOrchestratedPipeline() {
       if (this.selectedPipeline.name === 'animated-explainer') {
         return this.startExplainerPipeline()
+      }
+      if (this.isMediaAutoPipeline(this.selectedPipeline.name)) {
+        return this.startMediaPipeline()
       }
       try {
         if (this.inputMode !== 'text') {
@@ -1795,7 +1826,7 @@ export default {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''
-      this.orchestrationStages = this.isAutoPipeline(this.selectedPipeline?.name) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
+      this.orchestrationStages = (this.isAutoPipeline(this.selectedPipeline?.name) || this.isMediaAutoPipeline(this.selectedPipeline?.name)) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
       this.closeStory2VideoErrorDialog()
       this.stopPipelinePolling()
     },
