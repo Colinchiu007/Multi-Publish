@@ -514,7 +514,7 @@
                 </select>
               </div>
             </div>
-            <p class="s2v-controlled-defaults">音调、并发数和创意强度由受控默认值管理，不在创作端显示。</p>
+            <p class="s2v-controlled-defaults">部分高级运行参数由系统默认值管理。</p>
           </details>
         </div>
 
