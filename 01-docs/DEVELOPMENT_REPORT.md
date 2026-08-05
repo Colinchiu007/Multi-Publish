@@ -332,3 +332,28 @@ python -m uvicorn web.server:app --host 0.0.0.0 --port 8082
 ### 交付边界
 
 上述结果证明本地 mock/fixture、渲染合同、IPC 调用和视觉基线一致；不等同于真实第三方账号授权、真实平台上传/发布、团队分享服务、跨设备同步或生产 Electron 安装包验收。Antigravity 与 Claude 外部审查本轮均不可用，原因分别记录为 `agy command not found in PATH` 与 Claude wrapper exit code 1。
+
+## 2026-08-05：蚁小二 parity 续作（账号数据、代理与扫码预览）
+
+### 本轮变更
+
+- Electron 账号公开数据白名单补齐粉丝数、负责人、运营人、最近使用、最近检查和检查原因的字段别名归一化；未知字段与 Cookie/token 继续 fail closed，不进入 renderer。
+- `account:set-proxy` 等待 `AccountManager.setAccountProxy` 的异步结果，保存失败统一返回 IPC 错误；代理对话框重新打开时保留类型/端口并保持主机脱敏、认证不回显。
+- 账号页补齐二维码事件到可见二维码预览的渲染链，限制图片协议并在扫码关闭/完成后清理预览。
+
+### 验证证据
+
+| 门禁 | 结果 |
+|------|------|
+| 账号 IPC 与代理组件定向 Vitest | 2 files / 35 tests passed |
+| 账号 Store、视图、组件与发布 API 定向 Vitest | 5 files / 383 tests passed |
+| 账号事件与二维码视图定向 Vitest | 2 files / 77 tests passed |
+| 桌面完整 Vitest | 357 files / 6135 tests passed |
+| ESLint 受影响文件 | 0 errors；4 个既有 unused warning |
+| Vue renderer/preload build | `npm run build:vue` exit 0 |
+| 像素视觉门禁 | 17/17 passed（启动当前工作树 Vite 后执行） |
+| Windows 打包与 ASAR | electron-builder exit 0；`ACCOUNT_IPC_REQUIRE_OK`；8 秒启动存活且 stderr 为空 |
+
+### 交付边界
+
+本轮只证明本地代码、IPC 合同、renderer 渲染、打包入口和视觉回归；不把真实蚁小二第三方登录、平台 Cookie 恢复、团队分享、跨设备同步、线上发布审核或外部双模型审查不可用误报为完成。

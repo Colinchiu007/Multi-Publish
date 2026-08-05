@@ -684,6 +684,23 @@ describe("AccountsView", () => {
     expect(w.vm.authViewVisible).toBe(false);
   });
 
+  it("扫码事件提供可见二维码预览并拒绝不安全图片地址", async () => {
+    const w = await mountView();
+    _eventCallbacks.qrOpened({ platform: "wechat_mp" });
+    _eventCallbacks.qrDetected({ platform: "wechat_mp", image: { src: "data:image/png;base64,abc" } });
+    await nextTick();
+
+    expect(w.get('[data-testid="account-qr-preview"] img').attributes('src')).toBe('data:image/png;base64,abc');
+
+    _eventCallbacks.qrDetected({ platform: "wechat_mp", image: { src: "javascript:alert(1)" } });
+    await nextTick();
+    expect(w.find('[data-testid="account-qr-preview"]').exists()).toBe(false);
+
+    _eventCallbacks.qrDetected({ platform: "wechat_mp", image: { src: "data:image/svg+xml,<svg/>" } });
+    await nextTick();
+    expect(w.find('[data-testid="account-qr-preview"]').exists()).toBe(false);
+  });
+
   it("setDefault 通过账号 Store 更新默认账号", async () => {
     const w = await mountView();
     const acc = { id: "a1", platform: "douyin", status: "active" };

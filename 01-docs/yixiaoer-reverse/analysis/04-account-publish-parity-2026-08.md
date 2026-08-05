@@ -46,6 +46,8 @@
 5. 账号列表排序合同已落地：默认 `sortBy=name`、`sortOrder=asc`，可选 `name`、`platform`、`created_at`、`last_used_at`、`followers`、`status`。搜索、状态/收藏筛选先缩小集合，Store 再排序；页面的平台筛选、分组、负责人/发布人筛选沿用该顺序，不重新打乱账号。文本按 `zh-CN` 小写归一化；日期按时间戳归一化；粉丝数字兼容数字、逗号、`万`、`w`、`k`；缺失或非法日期/数字统一为 `-Infinity`（升序置前、降序置后）；相同值用筛选结果中的原始索引作为 tie-break，保证顺序稳定。
 
 6. 账号状态徽章和检查记录使用可解释映射：`active|online` → `online`/“已登录”；`inactive|offline|expired` → `offline`/“已过期”；`error|failed|failure` → `error`/“异常”；其他或缺失 → `unknown`/“暂无检查记录”。最近检查优先读取 `last_login_check_at`、`lastLoginCheckAt`、`login_checked_at`、`loginCheckedAt`、`last_checked_at`、`lastCheckedAt`、`checked_at`、`checkedAt`；日期无法解析时回退到 `login_check_error`、`loginCheckError`、`last_login_error`、`lastLoginError`、`status_reason`、`statusReason`，再无数据才显示“暂无检查记录”。未知状态不伪装成已过期或已登录；只有已登录状态显示“验证”，其他状态保留重新登录入口。
+7. 账号 IPC 的 `toPublicAccount` 现在对粉丝数、负责人、运营人、最近使用、最近检查和检查原因执行显式别名归一化，仅输出卡片需要的公开元数据；未知字段及 Cookie/token 等凭据不会透传到 renderer。`account:set-proxy` 等待持久化 Promise，异步保存失败会转换为可见 IPC 错误。
+8. 扫码登录事件链补齐可见二维码预览：`qrcode:detected` 的 PNG/JPEG/WebP `data:`、HTTPS、`blob:` 来源显示在账号页右上角，二维码关闭/完成时预览清除；其他协议和 SVG data URL fail closed，不把不可信地址写入图片节点。
 
 ## 设计与代码分离审计
 
@@ -55,6 +57,7 @@
 - 平台名称/图标仍存在 store、shared-utils、publish-contract 三个读取入口；应在后续以 platform store adapter 作为唯一 view-model。
 - 发布草稿在 Publish.vue 与 PublishHistory.vue 仍各有一层展示；字段合同已统一，跨入口抽取尚未完成。
 - 负责人/发布人筛选目前保留为 disabled 占位，因为未发现可验证的 owner/team API；不得用前端假数据冒充蚁小二团队能力。
+- 代理编辑保留安全边界：重新打开已配置代理时恢复类型和端口，并以脱敏主机提示引导重新输入完整地址；用户名/密码不回显，保存仍要求完整地址和成对认证字段。
 
 ## 验证矩阵
 
@@ -65,7 +68,7 @@
 - 必测 UI 合同：query 页签 active 状态、分组重命名/平台过滤、分享边界提示、草稿 query 自动打开、结构化媒体 metadata。
 - 构建门禁：本续作修改了 Electron preload/IPC/service 源码；已重新执行 preload 构建、Windows 目录打包、ASAR require 链和真实窗口启动检查。最终目录为 `D:\\tmp\\Multi-Publish-yixiaoer-parity-gap-20260804-dist-electron-final\\win-unpacked`，隔离加载输出 `RPA_ENGINE_REQUIRE_OK`，可见窗口标题为“社媒管家”、句柄 `790144`。
 - 视觉门禁：账号、发布、发布记录和草稿 query 必须在目标 worktree Vite 端口下执行像素回归；截图不得包含账号 Cookie、二维码或个人信息。
-- 本轮续作验证：账号 Store、Accounts 视图、AccountManagementCard 共 3 个测试文件、151 个测试通过；`npm run build:vue` 通过。测试使用隔离工作树的临时依赖 junction，未将该依赖目录纳入提交；构建仅证明 renderer/Vue 模板可编译，不替代真实第三方登录、Cookie 恢复或安装包验收。
+- 本轮续作验证：账号/代理 IPC 与组件定向 35/35、账号 Store/视图/组件及发布 API 383/383、账号事件与二维码视图 77/77；全量桌面 Vitest 357 files / 6135 tests passed；`npm run build:vue`、Windows electron-builder、ASAR 入口 require 和 8 秒打包启动检查通过。视觉像素 17/17 通过。上述证据均来自当前续作工作树，仍不替代真实第三方登录、Cookie 恢复或线上团队服务验收。
 
 ## 本地代码审查边界
 
