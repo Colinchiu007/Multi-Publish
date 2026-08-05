@@ -112,6 +112,37 @@ const PIPELINES = [
     category: 'talking_head',
     stages: ['upload', 'transcribe', 'captions', 'render'],
     estimatedCost: 'low',
+    // 真实编排：视频+文案 → 分句 → SRT 字幕 → FFmpeg 烧录（talkinghead-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'upload',
+        type: 'talkinghead_upload',
+        description: '视频与文案校验',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'transcribe',
+        type: 'talkinghead_transcribe',
+        description: '文案分句',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'captions',
+        type: 'talkinghead_captions',
+        description: '生成字幕',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'render',
+        type: 'talkinghead_render',
+        description: '字幕烧录渲染',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'cinematic',
@@ -119,6 +150,37 @@ const PIPELINES = [
     category: 'cinematic',
     stages: ['ingest', 'grade', 'compose', 'render'],
     estimatedCost: 'medium',
+    // 真实编排：本地 FFmpeg 调色→淡入淡出+分辨率合成→渲染（cinematic-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'ingest',
+        type: 'cinematic_ingest',
+        description: '输入视频校验与探测',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'grade',
+        type: 'cinematic_grade',
+        description: '电影感调色',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'compose',
+        type: 'cinematic_compose',
+        description: '淡入淡出与分辨率合成',
+        checkpointRequired: false,
+        options: { resolution: '1920x1080' },
+      },
+      {
+        name: 'render',
+        type: 'cinematic_render',
+        description: '渲染输出',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'animation',
@@ -147,6 +209,37 @@ const PIPELINES = [
     category: 'screen_recording',
     stages: ['analyze', 'extract', 'caption', 'export'],
     estimatedCost: 'low',
+    // 真实编排：本地 FFmpeg 场景检测→逐段剪辑→标题→合并导出（clipfactory-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'analyze',
+        type: 'clipfactory_analyze',
+        description: '场景检测与时长分析',
+        checkpointRequired: false,
+        options: { sceneThreshold: 0.3, maxSegments: 8, minSegmentSeconds: 2, maxTotalSeconds: 60 },
+      },
+      {
+        name: 'extract',
+        type: 'clipfactory_extract',
+        description: '逐段剪辑',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'caption',
+        type: 'clipfactory_caption',
+        description: '片段标题',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'export',
+        type: 'clipfactory_export',
+        description: '合并导出',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'documentary-montage',
@@ -189,6 +282,23 @@ const PIPELINES = [
     category: 'custom',
     stages: ['verify', 'report'],
     estimatedCost: 'low',
+    // 真实编排：验证工具链 → 生成冒烟测试视频与报告（smoketest-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'verify',
+        type: 'smoketest_verify',
+        description: '验证 FFmpeg/ffprobe 与流水线注册表',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'report',
+        type: 'smoketest_report',
+        description: '生成冒烟测试视频与报告',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'story2video-compose',
@@ -904,7 +1014,7 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
-    if (['story2video-compose', 'animated-explainer'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
+    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);
         if (project) {

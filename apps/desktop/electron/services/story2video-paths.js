@@ -13,10 +13,13 @@ const MAX_AUDIO_FILE_BYTES = 50 * 1024 * 1024
 const MAX_BGM_FILE_BYTES = 15 * 1024 * 1024
 const STORY2VIDEO_TEMP_DIR = path.join(os.tmpdir(), 'story2video')
 const IMPORTED_MEDIA_DIR = path.join(STORY2VIDEO_TEMP_DIR, 'selected-media')
+const MAX_VIDEO_FILE_BYTES = 512 * 1024 * 1024
+
 const MEDIA_RULES = Object.freeze({
   image: { extensions: new Set(['.jpg', '.jpeg', '.png', '.webp']), maxBytes: MAX_IMAGE_FILE_BYTES },
   audio: { extensions: new Set(['.wav', '.m4a', '.mp3']), maxBytes: MAX_AUDIO_FILE_BYTES },
   bgm: { extensions: new Set(['.wav', '.m4a', '.mp3']), maxBytes: MAX_BGM_FILE_BYTES },
+  video: { extensions: new Set(['.mp4', '.mov', '.webm', '.mkv', '.avi']), maxBytes: MAX_VIDEO_FILE_BYTES },
 })
 
 function safeRunId (value) {
@@ -162,6 +165,7 @@ function cleanupImportedMediaPaths (params, options = {}) {
   const baseDir = path.resolve(options.baseDir || IMPORTED_MEDIA_DIR)
   const candidates = []
   if (Array.isArray(params?.audio)) candidates.push(...params.audio.map(item => item && (item.path || item.filePath)))
+  if (typeof params?.video === 'string') candidates.push(params.video)
   if (typeof params?.bgmPath === 'string') candidates.push(params.bgmPath)
   let cleaned = 0
   for (const candidate of new Set(candidates.filter(Boolean))) {

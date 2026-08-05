@@ -116,6 +116,13 @@ var require_publish = __commonJS({
           if (!filePath) return Promise.resolve({ code: -1, message: "无法读取媒体文件路径" });
           return ipcRenderer2.invoke("story2video:import-media", { filePath, kind });
         },
+        // File 对象跨 contextBridge 后可能丢失路径；renderer 先经 getPathForFile
+        // 解析真实路径，再走基于路径的导入，避免 webUtils.getPathForFile 拿不到文件。
+        story2videoImportMediaPath: (filePath, kind) => {
+          const normalized = String(filePath || "").trim();
+          if (!normalized) return Promise.resolve({ code: -1, message: "无法读取媒体文件路径" });
+          return ipcRenderer2.invoke("story2video:import-media", { filePath: normalized, kind });
+        },
         story2videoExportZip: (files, destinationPath) => ipcRenderer2.invoke("story2video:export-zip", { files, destinationPath }),
         story2videoCreateShareUrl: (filePath) => ipcRenderer2.invoke("story2video:create-share-url", filePath),
         story2videoCopyPath: (filePath) => ipcRenderer2.invoke("story2video:copy-path", filePath),

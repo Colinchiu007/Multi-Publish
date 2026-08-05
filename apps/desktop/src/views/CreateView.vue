@@ -78,7 +78,7 @@
             <button :class="['input-tab', { active: inputMode === 'text' }]" @click="inputMode = 'text'">文案</button>
             <button v-if="!isAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'images' }]" @click="inputMode = 'images'">图片</button>
             <button v-if="!isAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'audio' }]" @click="inputMode = 'audio'">旁白/批量音频</button>
-            <button v-if="!isAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'video' }]" @click="inputMode = 'video'">视频素材</button>
+            <button v-if="!isAutoPipeline(selectedPipeline.name) || isMediaAutoPipeline(selectedPipeline.name)" :class="['input-tab', { active: inputMode === 'video' }]" @click="inputMode = 'video'">视频素材</button>
           </div>
 
           <div v-if="inputMode === 'text'" class="input-area">
@@ -132,6 +132,13 @@
               <p v-else>✅ {{ pipelineVideo.name }}</p>
             </div>
             <input ref="pipelineVideoInput" type="file" accept="video/*" style="display:none" @change="handlePipelineVideo" />
+            <textarea
+              v-if="isMediaAutoPipeline(selectedPipeline.name)"
+              v-model="pipelineText"
+              placeholder="口播文案（口播视频流水线必填，逐行或分段）..."
+              rows="6"
+              class="form-textarea media-script-input"
+            ></textarea>
           </div>
         </div>
 
@@ -742,7 +749,7 @@ import {
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
   pipelineStartOrchestrated, pipelineAdvanceToNextCheckpoint, pipelineGetRunContext,
-  story2videoImportMedia, story2videoTranscribe, story2videoListProjects,
+  story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
   story2videoDeleteProject
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
@@ -1079,7 +1086,7 @@ export default {
       this.stopPipelinePolling()
       this.selectedPipeline = p
       this.pipelineRunStatus = null
-      this.orchestrationStages = this.isAutoPipeline(p?.name) ? this.getDefaultPipelineStages(p.name) : []
+      this.orchestrationStages = (this.isAutoPipeline(p?.name) || this.isMediaAutoPipeline(p?.name)) ? this.getDefaultPipelineStages(p.name) : []
       this.orchestrationRunId = null
       this.orchestrationContext = null
       this.orchestrationResultPath = null
@@ -1088,7 +1095,8 @@ export default {
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
-    isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer'].includes(name) },
+    isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke'].includes(name) },
+    isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic', 'talking-head'].includes(name) },
     getDefaultPipelineStages(name) {
       const pipeline = (this.pipelines || []).find(item => item.name === name)
       return (pipeline?.stages || STORY2VIDEO_STAGE_NAMES).map(stageName => ({ name: stageName, status: 'pending' }))
@@ -1097,7 +1105,7 @@ export default {
       return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
     },
     async startPipeline() {
-      if (this.isAutoPipeline(this.selectedPipeline.name)) {
+      if (this.isAutoPipeline(this.selectedPipeline.name) || this.isMediaAutoPipeline(this.selectedPipeline.name)) {
         return this.startOrchestratedPipeline()
       }
       const params = {
@@ -1147,9 +1155,40 @@ export default {
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
     },
+    async startMediaPipeline() {
+      try {
+        const videoPath = this.pipelineVideo?.path
+        if (!videoPath) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEXT_REQUIRED })
+          return
+        }
+        const params = {
+          video: videoPath,
+          text: this.pipelineText.trim(),
+          inputMode: 'video',
+          checkpointPolicy: 'none',
+          autoAdvance: true,
+        }
+        const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
+        const outcome = res?.data
+        if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
+          this.orchestrationRunId = outcome.runId
+          if (this.applyOrchestrationOutcome(outcome)) return
+          await this.updateOrchestrationStatus()
+          if (this.orchestrationRunId && !this.pollTimer) {
+            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          }
+        } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
+      } catch (_) {
+        this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
+      }
+    },
     async startOrchestratedPipeline() {
       if (this.selectedPipeline.name === 'animated-explainer') {
         return this.startExplainerPipeline()
+      }
+      if (this.isMediaAutoPipeline(this.selectedPipeline.name)) {
+        return this.startMediaPipeline()
       }
       try {
         if (this.inputMode !== 'text') {
@@ -1742,7 +1781,13 @@ export default {
     extractOrchestrationVideoPath(context) {
       const publish = context?.publish?.data || context?.publish
       const compose = context?.compose?.data || context?.compose
-      return publish?.videoPath || publish?.path || compose?.videoPath || compose?.path || null
+      const clipExport = context?.export?.data || context?.export
+      const cinematicRender = context?.render?.data || context?.render
+      const smokeReport = context?.report?.data || context?.report
+      return publish?.videoPath || publish?.path || compose?.videoPath || compose?.path ||
+        clipExport?.videoPath || clipExport?.path ||
+        cinematicRender?.videoPath || cinematicRender?.path ||
+        smokeReport?.videoPath || smokeReport?.path || null
     },
     applyOrchestrationOutcome(outcome) {
       if (Array.isArray(outcome?.stages)) this.orchestrationStages = outcome.stages
@@ -1795,7 +1840,7 @@ export default {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''
-      this.orchestrationStages = this.isAutoPipeline(this.selectedPipeline?.name) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
+      this.orchestrationStages = (this.isAutoPipeline(this.selectedPipeline?.name) || this.isMediaAutoPipeline(this.selectedPipeline?.name)) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
       this.closeStory2VideoErrorDialog()
       this.stopPipelinePolling()
     },
@@ -1868,6 +1913,7 @@ export default {
         image: { extensions: ['.jpg', '.jpeg', '.png', '.webp'], maxBytes: 10 * 1024 * 1024, label: '图片' },
         audio: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 50 * 1024 * 1024, label: '旁白音频' },
         bgm: { extensions: ['.wav', '.m4a', '.mp3'], maxBytes: 15 * 1024 * 1024, label: '背景音乐' },
+        video: { extensions: ['.mp4', '.mov', '.webm', '.mkv', '.avi'], maxBytes: 512 * 1024 * 1024, label: '视频素材' },
       }
       const rule = rules[kind]
       if (!rule || !rule.extensions.includes(extension)) {
@@ -1928,14 +1974,27 @@ export default {
     async handlePipelineVideo(e) {
       const file = e.target.files?.[0]
       if (!file) return
-      const resolver = window.electronAPI?.getPathForFile
-      const filePath = typeof resolver === 'function' ? await resolver(file) : ''
+      if (!this.validateStory2VideoFile(file, 'video')) {
+        this.pipelineVideo = null
+        return
+      }
+      // File 对象跨 contextBridge 后路径会丢失；先经 getPathForFile 拿到真实路径，
+      // 再走基于路径的导入（复制到应用控制目录，供后续 canonical 白名单校验）。
+      const filePath = typeof window.electronAPI?.getPathForFile === 'function'
+        ? await window.electronAPI.getPathForFile(file)
+        : ''
       if (!filePath) {
         this.pipelineVideo = null
         this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
         return
       }
-      this.pipelineVideo = { name: file.name || filePath, path: filePath }
+      const imported = await story2videoImportMediaPath(filePath, 'video')
+      if (!imported || imported.code !== 0 || !imported.data?.path) {
+        this.pipelineVideo = null
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
+        return
+      }
+      this.pipelineVideo = { name: file.name || imported.data.originalName, path: imported.data.path }
     },
     async handleS2VBgmFile(e) {
       const file = e.target.files?.[0]

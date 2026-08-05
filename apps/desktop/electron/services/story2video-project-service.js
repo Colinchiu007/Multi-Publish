@@ -21,8 +21,8 @@ const {
 
 const SETTING_KEY = 'story2video_projects_v1'
 const MAX_PROJECTS = 100
-// 具备真实编排产物（compose 输出）并需要项目持久化的流水线
-const AUTO_PIPELINES = ['story2video-compose', 'animated-explainer']
+// 具备真实编排产物（compose/export/render/report 输出）并需要项目持久化的流水线
+const AUTO_PIPELINES = ['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head']
 const MAX_VIDEO_BYTES = 512 * 1024 * 1024
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,100}$/
 
@@ -91,8 +91,19 @@ function providerBaseUrl (provider) {
 }
 
 function resolveComposeOutput (context) {
-  const raw = context && (context.compose?.data || context.compose)
-  return raw && typeof raw === 'object' ? raw : null
+  if (!context) return null
+  const composeRaw = context.compose?.data || context.compose
+  if (composeRaw && typeof composeRaw === 'object' && (composeRaw.videoPath || composeRaw.path)) return composeRaw
+  // clip-factory 等流水线的导出输出位于 context.export
+  const exportRaw = context.export?.data || context.export
+  if (exportRaw && typeof exportRaw === 'object' && (exportRaw.videoPath || exportRaw.path)) return exportRaw
+  // cinematic 等流水线的最终输出位于 context.render
+  const renderRaw = context.render?.data || context.render
+  if (renderRaw && typeof renderRaw === 'object' && (renderRaw.videoPath || renderRaw.path)) return renderRaw
+  // framework-smoke 等流水线的输出位于 context.report
+  const reportRaw = context.report?.data || context.report
+  if (reportRaw && typeof reportRaw === 'object' && (reportRaw.videoPath || reportRaw.path)) return reportRaw
+  return null
 }
 
 function copyFileAtomic (source, destination) {

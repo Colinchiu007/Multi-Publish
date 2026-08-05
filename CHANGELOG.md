@@ -1,3 +1,32 @@
+## [未发布] talking-head 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- talking-head（口播视频）从 state_machine 占位升级为真实编排：视频 + 文案 → 分句 → SRT 字幕 → FFmpeg 烧录渲染，全程本地（用户提供文案时无需语音识别；无文案则 fail closed 提示配置识别模型）。
+- 新增 `talkinghead-stages.js` 注册 4 个自定义阶段；`saveRun`/`_finalizeRun` 支持 talking-head；前端视频区新增口播文案输入。
+- 真实 E2E：640x360 测试视频 + 3 段文案 → 字幕烧录 → `video.mp4`（12s）→ 项目持久化（3 segments，completed）。
+
+## [未发布] framework-smoke 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- framework-smoke（框架冒烟测试）从 state_machine 占位升级为真实编排：验证 FFmpeg/ffprobe 与流水线注册表 → 生成冒烟测试视频（testsrc）+ 环境报告。
+- 新增 `smoketest-stages.js` 注册 2 个自定义阶段；`saveRun`/`_finalizeRun`/UI 结果提取支持 context.report。
+- 真实 E2E：verify → report → `video.mp4`（h264 640x360+aac 2s）→ 项目持久化（completed）。
+
+## [未发布] cinematic 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- cinematic（电影感短片）从 state_machine 占位升级为真实编排流水线：输入视频 → FFmpeg 调色（eq）→ 淡入淡出 + 目标分辨率合成 → 渲染输出，全部本地完成。
+- 新增 `cinematic-stages.js` 注册 4 个自定义阶段执行器；`pipeline-engine` 补齐 stageDefs；`saveRun` 泛化支持 cinematic（resolveComposeOutput 精确匹配含 videoPath 的输出，规避 stage 名 compose 冲突）；前端 `isMediaAutoPipeline` 纳入 cinematic。
+- 真实 E2E：640x360 测试视频 → 调色+淡入淡出+缩放 → `video.mp4`（h264 1920x1080 12s）→ 项目持久化（completed）。
+
+## [未发布] clip-factory 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- clip-factory（视频切片工厂）从 state_machine 占位升级为真实编排流水线：本地 FFmpeg 场景检测 → 逐段剪辑 → 片段标题 → concat 合并导出，不依赖外部模型。
+- 新增 `clipfactory-stages.js` 注册 4 个自定义阶段执行器；`pipeline-engine` 补齐 stageDefs；`saveRun` 泛化支持 clip-factory 项目持久化。
+- 新增视频媒体导入链路（`story2videoImportMediaPath` + MEDIA_RULES.video + 前端视频素材导入），规避 File 跨 contextBridge 丢失路径。
+- 真实 E2E：3 色块测试视频 → 场景检测切出 3 片段 → 合并导出 `video.mp4`（h264 640x360 12s）→ 项目持久化（3 segments，completed）。
+
 ## [未发布] animated-explainer 真实编排引擎 (2026-08-06)
 
 ### 视频创作
