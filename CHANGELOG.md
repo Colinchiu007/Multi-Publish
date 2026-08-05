@@ -1,3 +1,10 @@
+## [未发布] 视频创作空白页修复 (2026-08-06)
+
+### 视频创作
+- 修复 Electron 中点击【视频创作】页面空白：vue-i18n 运行时编译字符串消息使用 `new Function`，被 Electron CSP（`script-src 'self'`，无 `unsafe-eval`）拦截抛出 `EvalError`，导致 CreateView 渲染失败白屏。
+- i18n 静态消息改为在加载时转换为 Message Function，彻底移除运行时编译；生产 CSP 保持严格不变，zh/en 翻译语义不变。
+- 新增 i18n 回归测试：模拟 CSP 禁止 `new Function` 时流水线文案仍可翻译，并断言 zh/en 全部消息叶子为函数。
+
 ## [未发布] 质量节拍任务归档 (2026-08-04)
 
 ### 维护
