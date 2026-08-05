@@ -1,3 +1,10 @@
+## [未发布] framework-smoke 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- framework-smoke（框架冒烟测试）从 state_machine 占位升级为真实编排：验证 FFmpeg/ffprobe 与流水线注册表 → 生成冒烟测试视频（testsrc）+ 环境报告。
+- 新增 `smoketest-stages.js` 注册 2 个自定义阶段；`saveRun`/`_finalizeRun`/UI 结果提取支持 context.report。
+- 真实 E2E：verify → report → `video.mp4`（h264 640x360+aac 2s）→ 项目持久化（completed）。
+
 ## [未发布] cinematic 真实编排引擎 (2026-08-06)
 
 ### 视频创作

@@ -251,6 +251,23 @@ const PIPELINES = [
     category: 'custom',
     stages: ['verify', 'report'],
     estimatedCost: 'low',
+    // 真实编排：验证工具链 → 生成冒烟测试视频与报告（smoketest-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'verify',
+        type: 'smoketest_verify',
+        description: '验证 FFmpeg/ffprobe 与流水线注册表',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'report',
+        type: 'smoketest_report',
+        description: '生成冒烟测试视频与报告',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'story2video-compose',
@@ -966,7 +983,7 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
-    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
+    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);
         if (project) {

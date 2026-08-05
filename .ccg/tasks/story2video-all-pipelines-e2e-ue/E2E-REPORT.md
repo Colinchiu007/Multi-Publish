@@ -120,3 +120,20 @@
 | clip-factory | ✅ | 12s 切片高亮（3 片段合并） |
 | cinematic | ✅ | 12s 1080p 电影感短片 |
 | 其余 10 条 | ❌ 无引擎/缺模型 | 见 ENGINE-FEASIBILITY.md |
+
+## framework-smoke（框架冒烟测试）— ✅ 真实生成 PASS（2026-08-06 05:55）
+
+- 流程：视频创作 → 框架冒烟测试 → 输入文案 → 启动流水线 → 2 阶段（验证→报告）自动完成
+- 验证：FFmpeg/ffprobe 可用 + 流水线注册表 + stageExecutor
+- 产物：`story2video-projects/<user>/run_1785966955900_t2hw/video.mp4`（testsrc 测试视频）
+- ffprobe：`h264 640x360 + aac`，duration=2.0s；project.json `pipeline=framework-smoke status=completed segments=1` + report.md
+
+## 已跑通流水线汇总（真实生成）
+| 流水线 | 状态 | 产物 |
+|---|---|---|
+| story2video-compose | ✅ | 8.6s / 10.9s 竖屏视频 |
+| animated-explainer | ✅ | 98.97s 横屏 1080p 讲解视频 |
+| clip-factory | ✅ | 12s 切片高亮（3 片段合并） |
+| cinematic | ✅ | 12s 1080p 电影感短片 |
+| framework-smoke | ✅ | 2s 冒烟测试视频 + 报告 |
+| 其余 9 条 | ❌ 无引擎/缺模型 | 见 ENGINE-FEASIBILITY.md |

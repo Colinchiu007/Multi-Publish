@@ -1088,7 +1088,7 @@ export default {
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
-    isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer'].includes(name) },
+    isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke'].includes(name) },
     isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic'].includes(name) },
     getDefaultPipelineStages(name) {
       const pipeline = (this.pipelines || []).find(item => item.name === name)
@@ -1775,9 +1775,11 @@ export default {
       const compose = context?.compose?.data || context?.compose
       const clipExport = context?.export?.data || context?.export
       const cinematicRender = context?.render?.data || context?.render
+      const smokeReport = context?.report?.data || context?.report
       return publish?.videoPath || publish?.path || compose?.videoPath || compose?.path ||
         clipExport?.videoPath || clipExport?.path ||
-        cinematicRender?.videoPath || cinematicRender?.path || null
+        cinematicRender?.videoPath || cinematicRender?.path ||
+        smokeReport?.videoPath || smokeReport?.path || null
     },
     applyOrchestrationOutcome(outcome) {
       if (Array.isArray(outcome?.stages)) this.orchestrationStages = outcome.stages
