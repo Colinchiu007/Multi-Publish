@@ -1,3 +1,11 @@
+## [未发布] clip-factory 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- clip-factory（视频切片工厂）从 state_machine 占位升级为真实编排流水线：本地 FFmpeg 场景检测 → 逐段剪辑 → 片段标题 → concat 合并导出，不依赖外部模型。
+- 新增 `clipfactory-stages.js` 注册 4 个自定义阶段执行器；`pipeline-engine` 补齐 stageDefs；`saveRun` 泛化支持 clip-factory 项目持久化。
+- 新增视频媒体导入链路（`story2videoImportMediaPath` + MEDIA_RULES.video + 前端视频素材导入），规避 File 跨 contextBridge 丢失路径。
+- 真实 E2E：3 色块测试视频 → 场景检测切出 3 片段 → 合并导出 `video.mp4`（h264 640x360 12s）→ 项目持久化（3 segments，completed）。
+
 ## [未发布] animated-explainer 真实编排引擎 (2026-08-06)
 
 ### 视频创作

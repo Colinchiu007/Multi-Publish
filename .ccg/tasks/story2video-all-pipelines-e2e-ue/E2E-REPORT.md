@@ -85,3 +85,20 @@
 | story2video-compose | ✅ | 8.6s / 10.9s 竖屏视频 |
 | animated-explainer | ✅ | 98.97s 横屏 1080p 讲解视频 |
 | 其余 12 条 | ❌ 无引擎/缺模型 | 见 ENGINE-FEASIBILITY.md |
+
+## clip-factory（视频切片工厂）— ✅ 真实生成 PASS（2026-08-06 05:16）
+
+- 输入：ffmpeg 生成的 3 色块测试视频（640x360 12s，t=4/t=8 硬切）
+- 流程：视频创作 → 视频切片工厂 → 视频素材上传 → 启动流水线 → 4 阶段（分析→片段提取→添加字幕→导出）自动完成
+- 场景检测：`select='gt(scene,0.3)',metadata=print` 解析出 t=4/t=8 两个切点 → 3 个片段
+- 产物：`story2video-projects/<user>/run_1785964594990_kzos/`：3 个 segment 视频 + `video.mp4`
+- ffprobe：`h264 640x360`，duration=12.0s，size=12312；project.json `pipeline=clip-factory status=completed segments=3`
+- 关键修复（已提交）：runTool 合并 stderr（metadata 走 stderr）；视频媒体导入路径链路；输出目录进允许媒体根；_finalizeRun 保存条件补 clip-factory；UI 结果提取兼容 context.export
+
+## 已跑通流水线汇总（真实生成）
+| 流水线 | 状态 | 产物 |
+|---|---|---|
+| story2video-compose | ✅ | 8.6s / 10.9s 竖屏视频 |
+| animated-explainer | ✅ | 98.97s 横屏 1080p 讲解视频 |
+| clip-factory | ✅ | 12s 切片高亮（3 片段合并） |
+| 其余 11 条 | ❌ 无引擎/缺模型 | 见 ENGINE-FEASIBILITY.md |
