@@ -5,8 +5,8 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "implementation",
-  "nextAction": "实现 i18n Message Function 转换并跑回归",
+  "currentPhase": "review",
+  "nextAction": "CI 通过后合并并验证",
   "createdAt": "2026-08-06T00:00:00Z",
   "branch": "codex/story2video-create-blank-fix"
 }
