@@ -58,6 +58,14 @@ export default {
       configurationTitle: 'Image Carousel Configuration',
       imageStyleHint: 'Controls the visual appearance of generated images.',
       promptStyleHint: 'Controls how image prompts are written and organized; it does not replace image style.',
+      sections: {
+        basic: 'Basics',
+        appearance: 'Appearance',
+        voice: 'Voice',
+        advanced: 'Advanced',
+        publish: 'Publish',
+      },
+      startPipeline: 'Start pipeline',
     },
   },
   pipelines: {
@@ -143,7 +151,7 @@ export default {
       verify: 'Verify',
       report: 'Report',
       split: 'Split Text',
-      domain_enrich: 'Enrich Context',
+      domain_enrich: 'Enrich Content',
       optimize: 'Optimize Prompts',
       generate_assets: 'Generate Images and Voiceover',
     },

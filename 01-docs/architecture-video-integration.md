@@ -580,6 +580,24 @@ class PipelineEngine {
 
 `story2video-compose` 内部 ID 不变，i18n 外显为“图片轮播”/“Image Carousel”。音色目录、偏好和克隆删除失效按 provider/model 作用域执行；清除偏好回到安全默认或 Provider 默认。
 
-`D:\Data\projects\ops-center` 当前没有已确认租户/音色目录同步 API，且其仓库规则禁止本任务写入；本文只记录未来合同需要定义的租户边界、版本、鉴权、失效、回滚与审计，不声称已联通，也不虚构 endpoint 字段。Doubao 仍无桌面高权限 secret 或伪造个人列表。item 11 内容为空、最近 20 轮不可重建，标记 TBD/审计限制；UE item 15 仅待用户确认。
+`D:\Data\projects\ops-center` 当前没有已确认租户/音色目录同步 API，且其仓库规则禁止本任务写入；本文只记录未来合同需要定义的租户边界、版本、鉴权、失效、回滚与审计，不声称已联通，也不虚构 endpoint 字段。Doubao 仍无桌面高权限 secret 或伪造个人列表。item 11 内容为空、最近 20 轮不可重建，标记 TBD/审计限制；UE item 15 已获确认并进入实现。
 
 - **边界澄清**：音色克隆样本的上传、保存、删除、设默认由桌面端前台、可信主进程、owner-scoped userData 与 SQLite 最小元数据闭环完成，不能迁移到 OpsCenter。OpsCenter 仅提供音调/并发数/创意强度等运营默认值及未来后台高权限凭据/目录同步；不保存或管理用户音频样本。
+
+
+#### 图片轮播 UE 分层与动态路由错误边界（2026-08-05）
+
+router/index.js
+  ├─ routeLoadError (shared shallowRef)
+  ├─ router.onError(dynamic import failure)
+  └─ setRouteLoadError(error, target)
+       ↓
+App.vue root layout
+  ├─ routeLoadError == null → router-view
+  └─ routeLoadError != null → RouteLoadError
+       ├─ retry → clear state + router.replace(current fullPath)
+       └─ refresh → window.location.reload()
+
+该状态必须位于 router 模块而非仅依赖 App onMounted 事件监听，避免初始导航在 App 挂载前失败时丢失错误。错误摘要可供用户诊断，但不直接显示完整 provider 响应；console.error 保留 renderer 诊断证据。CreateView.vue 的五折叠区和六阶段清单只属于 renderer 展示层，IPC、运行快照和 StageExecutor 仍使用稳定机器 ID 与版本化 JSON 合同。
+
+本地 build/单测通过只证明代码合同；真实 provider 音色目录、个人槽位、用户音色克隆和内容政策降级继续标为 PENDING_EXTERNAL，打包窗口与真实账号验收另行记录。

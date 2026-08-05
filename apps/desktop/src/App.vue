@@ -7,7 +7,8 @@
         <div class="yixiaoer-shell-main">
           <YixiaoerModuleNav />
           <main class="yixiaoer-workspace cohere-main" data-testid="yixiaoer-workspace">
-            <router-view />
+            <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
+            <router-view v-else />
           </main>
         </div>
       </div>
@@ -21,7 +22,8 @@
         <AppSidebar />
         <!-- 主内容 -->
         <main class="cohere-main">
-          <router-view />
+          <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
+          <router-view v-else />
         </main>
       </div>
     </template>
@@ -41,8 +43,10 @@ import YixiaoerModuleNav from '@/layouts/YixiaoerModuleNav.vue'
 import OfflineIndicator from '@/components/OfflineIndicator.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
+import RouteLoadError from '@/components/RouteLoadError.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { clearRouteLoadError, routeLoadError } from '@/router'
 import { useLicenseStore } from '@/stores/license'
 import { useIdentityStore } from '@/stores/identity'
 // eslint-disable-next-line no-unused-vars
@@ -63,6 +67,25 @@ const isYixiaoerWorkspace = computed(() => [
   '/publish',
   '/publish/history',
 ].includes(route.path))
+
+async function retryRouteLoad() {
+  const failedPath = routeLoadError.value?.path || router.currentRoute.value.fullPath
+  clearRouteLoadError()
+  try {
+    await router.replace(failedPath)
+  } catch (error) {
+    routeLoadError.value = {
+      title: '页面加载失败',
+      message: '页面资源仍未加载成功，请重试或刷新应用。',
+      details: error?.stack || error?.message || '',
+      path: failedPath,
+    }
+  }
+}
+
+function refreshRouteLoad() {
+  window.location.reload()
+}
 
 onMounted(() => {
   licenseStore.load()
