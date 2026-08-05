@@ -38,16 +38,66 @@ function registerHandlers(ipcMain, deps) {
   const publicAccountFields = [
     'id', 'platform', 'name', 'account_name', 'avatar', 'avatar_url',
     'status', 'is_active', 'is_default', 'has_cookies', 'cookie_count',
-    'has_auth_data', 'last_validated', 'created_at', 'updated_at', 'auth_method',
+    'has_auth_data', 'last_validated', 'created_at', 'updated_at', 'last_used_at', 'auth_method',
+    'followers', 'owner', 'publisher', 'last_login_check_at', 'login_check_error', 'status_reason',
   ]
+
+  const publicAccountAliases = {
+    followers: ['followers', 'follower_count', 'followers_count', 'fans', 'fans_count', 'fansCount', '粉丝数'],
+    owner: ['owner', 'owner_name', 'ownerName', 'account_owner', 'accountOwner', '负责人'],
+    publisher: ['publisher', 'publisher_name', 'publisherName', 'operator', 'operator_name', 'operatorName', '运营人', '发布人'],
+    last_login_check_at: ['last_login_check_at', 'lastLoginCheckAt', 'login_checked_at', 'loginCheckedAt', 'last_checked_at', 'lastCheckedAt', 'checked_at', 'checkedAt'],
+    login_check_error: ['login_check_error', 'loginCheckError', 'last_login_error', 'lastLoginError'],
+    status_reason: ['status_reason', 'statusReason'],
+    last_used_at: ['last_used_at', 'lastUsedAt', 'last_used', 'lastUsed'],
+  }
+  const publicErrorFields = new Set(['login_check_error', 'status_reason'])
+
+  function toPublicMetadataValue(value) {
+    if (value === null || value === undefined) return undefined
+    if (typeof value === 'string') return value.trim() || undefined
+    if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
+    if (typeof value === 'boolean') return value
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+    for (const key of ['name', 'label', 'nickname', 'value', 'count', 'text']) {
+      const nested = toPublicMetadataValue(value[key])
+      if (nested !== undefined) return nested
+    }
+    return undefined
+  }
+
+  function toPublicErrorValue(value) {
+    const normalized = toPublicMetadataValue(value)
+    if (typeof normalized !== 'string') return normalized
+    return normalized
+      .replace(/\b(cookie|token|password|secret|authorization|session(?:[_-]?id)?)\s*[:=]\s*[^\s,;]+/gi, '$1=***')
+      .replace(/\bBearer\s+[A-Za-z0-9._~-]+/gi, 'Bearer ***')
+      .slice(0, 240)
+  }
+
+  function copyPublicMetadataAliases(source) {
+    const normalized = { ...source }
+    for (const [canonicalKey, aliases] of Object.entries(publicAccountAliases)) {
+      for (const alias of aliases) {
+        const value = publicErrorFields.has(canonicalKey)
+          ? toPublicErrorValue(source[alias])
+          : toPublicMetadataValue(source[alias])
+        if (value !== undefined) {
+          normalized[canonicalKey] = value
+          break
+        }
+      }
+    }
+    return normalized
+  }
 
   function toPublicAccount(account) {
     const raw = account && typeof account === 'object' ? account : {}
     // 统一映射后再经过字段白名单，避免把原始响应透传给渲染层。
-    const source = {
+    const source = copyPublicMetadataAliases({
       ...raw,
       id: raw.id ?? raw.account_id,
-    }
+    })
     const safeAccount = {}
     for (const key of publicAccountFields) {
       if (source[key] !== undefined) safeAccount[key] = source[key]
@@ -210,7 +260,7 @@ function registerHandlers(ipcMain, deps) {
       if (!_isSafePathSegment(accountId) || !_isSafePathSegment(platform)) {
         return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId/platform 参数' }
       }
-      const status = AccountManager.setAccountProxy(accountId, platform, proxy)
+      const status = await AccountManager.setAccountProxy(accountId, platform, proxy)
       return { code: 0, data: status, message: status.configured ? '账号代理已保存' : '账号代理已清除' }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }

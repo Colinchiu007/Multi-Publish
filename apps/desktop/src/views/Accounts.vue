@@ -97,6 +97,10 @@
         <button type="button" @click="closeAuthView">关闭</button>
       </div>
     </div>
+    <aside v-if="authViewVisible && loginMode === 'qrcode' && qrImageSource" class="login-qr-preview" data-testid="account-qr-preview" aria-label="扫码登录二维码">
+      <img :src="qrImageSource" alt="扫码登录二维码">
+      <span>请使用对应平台客户端扫描二维码</span>
+    </aside>
 
     <main
       id="account-results"
@@ -337,6 +341,7 @@ const {
   loginMode,
   platform: loginPlatform,
   qrStatus,
+  qrImage,
   markOpening,
   start: startAccountEvents,
   stop: stopAccountEvents,
@@ -357,6 +362,11 @@ const loginStateText = computed(() => {
     completed: '账号保存完成',
     closed: '扫码窗口已关闭',
   }[qrStatus.value] || '扫码登录进行中'
+})
+const qrImageSource = computed(() => {
+  const image = qrImage.value
+  const source = typeof image === 'string' ? image : image?.src || image?.dataUrl || image?.url
+  return typeof source === 'string' && /^(data:image\/(?:png|jpeg|jpg|webp);|https:\/\/|blob:)/i.test(source) ? source : ''
 })
 
 const allPlatforms = computed(() => platformStore.platforms.map(item => ({ id: item.id, label: item.label })))
@@ -938,6 +948,8 @@ onUnmounted(() => {
 .login-state strong { flex: 0 0 auto; font-size: 13px; }
 .login-state span { min-width: 0; overflow: hidden; color: #6e69a0; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .login-state-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.login-qr-preview { position: fixed; top: 108px; right: 24px; z-index: 9701; width: 188px; display: grid; justify-items: center; gap: 8px; padding: 12px; border: 1px solid #dcd9ff; border-radius: 8px; background: #fff; box-shadow: 0 8px 24px rgba(46, 43, 110, 0.16); color: #6e69a0; font-size: 12px; text-align: center; }
+.login-qr-preview img { width: 164px; height: 164px; object-fit: contain; border-radius: 4px; background: #fff; }
 .login-state-actions button { border: 0; background: transparent; color: #5048e5; font-size: 12px; cursor: pointer; }
 .login-state-actions .complete-login { min-height: 28px; padding: 4px 9px; border: 1px solid #5048e5; border-radius: 5px; background: #5048e5; color: #fff; }
 .login-state-actions button:disabled { opacity: 0.58; cursor: not-allowed; }

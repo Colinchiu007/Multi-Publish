@@ -273,6 +273,76 @@ describe('account IPC 可信来源正常工作', () => {
     expect(scopedStore.getSetting).not.toHaveBeenCalled()
   })
 
+  it('accounts:list 保留账号卡片所需的公开元数据并剥离未知字段', async () => {
+    const deps = createMockDeps()
+    deps.pythonBridge.requestBackend.mockResolvedValue({
+      code: 0,
+      data: [{
+        id: 'acc-meta',
+        platform: 'wechat_mp',
+        name: '认知账号',
+        follower_count: 2048,
+        owner_name: { name: '团队甲', email: 'private@example.com' },
+        operatorName: '秋叔',
+        checkedAt: '2026-08-04T08:00:00.000Z',
+        statusReason: `token=private-token Cookie 已过期 ${'x'.repeat(300)}`,
+        lastUsedAt: '2026-08-04T09:00:00.000Z',
+        unknown_metadata: '不得透传',
+        cookies: [{ name: 'session', value: 'secret' }],
+      }],
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
+    expect(result.data[0]).toEqual(expect.objectContaining({
+      followers: 2048,
+      owner: '团队甲',
+      publisher: '秋叔',
+      last_login_check_at: '2026-08-04T08:00:00.000Z',
+      status_reason: expect.stringMatching(/^token=\*\*\* Cookie 已过期/),
+      last_used_at: '2026-08-04T09:00:00.000Z',
+    }))
+    expect(result.data[0]).not.toHaveProperty('unknown_metadata')
+    expect(result.data[0]).not.toHaveProperty('cookies')
+    expect(JSON.stringify(result)).not.toContain('private@example.com')
+    expect(JSON.stringify(result)).not.toContain('private-token')
+    expect(result.data[0].status_reason.length).toBeLessThanOrEqual(240)
+  })
+
+  it('account:set-proxy 等待异步持久化并把拒绝转换为 IPC 错误', async () => {
+    const deps = createMockDeps()
+    let resolveSave
+    deps.AccountManager.setAccountProxy.mockImplementation(() => new Promise(resolve => { resolveSave = resolve }))
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const pending = ipcMain._get('account:set-proxy')(TRUSTED_EVENT, {
+      accountId: 'acc-1',
+      platform: 'wechat_mp',
+      proxy: { host: '127.0.0.1', port: 8080, type: 'http' },
+    })
+    let settled = false
+    pending.finally(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    resolveSave({ configured: true, type: 'http', hostMasked: '127.0.*.*', port: 8080 })
+    await expect(pending).resolves.toEqual({
+      code: 0,
+      data: { configured: true, type: 'http', hostMasked: '127.0.*.*', port: 8080 },
+      message: '账号代理已保存',
+    })
+
+    deps.AccountManager.setAccountProxy.mockRejectedValueOnce(new Error('保存失败'))
+    await expect(ipcMain._get('account:set-proxy')(TRUSTED_EVENT, {
+      accountId: 'acc-1',
+      platform: 'wechat_mp',
+      proxy: null,
+    })).resolves.toEqual({ code: -1, message: '保存失败' })
+  })
+
   it('auth:open-login 可信来源缺参返回校验错误', async () => {
     const ipcMain = createMockIpcMain()
     registerHandlers(ipcMain, createMockDeps())
