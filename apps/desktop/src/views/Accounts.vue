@@ -1040,7 +1040,7 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
-.account-controls { grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto auto auto auto minmax(100px, auto); }
+.account-controls { grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto auto auto auto auto minmax(100px, auto); }
 .account-card-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
 .platform-search-box { min-width: 0; }
 .account-command-bar { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
