@@ -1,4 +1,22 @@
+import { shallowRef } from 'vue'
 import { createRouter, createWebHashHistory } from 'vue-router'
+
+export const routeLoadError = shallowRef(null)
+
+export function clearRouteLoadError() {
+  routeLoadError.value = null
+}
+
+export function setRouteLoadError(error, to) {
+  const message = error?.message || String(error)
+  routeLoadError.value = {
+    title: '页面加载失败',
+    message: '页面资源没有成功加载，请重试。',
+    details: to?.fullPath ? `${to.fullPath}: ${message}` : message,
+    path: to?.fullPath || '',
+    errorMessage: message,
+  }
+}
 
 const routes = [
   { path: '/', name: 'Home', component: () => import('@/views/Home.vue') },
@@ -30,6 +48,11 @@ const routes = [
 const router = createRouter({
   history: createWebHashHistory(),
   routes,
+})
+
+router.onError((error, to) => {
+  console.error('[Router Load Error]', error?.message || String(error), to?.fullPath || '')
+  setRouteLoadError(error, to)
 })
 
 export default router

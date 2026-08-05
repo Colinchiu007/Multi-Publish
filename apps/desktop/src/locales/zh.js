@@ -58,6 +58,14 @@ export default {
       configurationTitle: '图片轮播配置',
       imageStyleHint: '控制每张生成图片的视觉外观。',
       promptStyleHint: '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
+      sections: {
+        basic: '基础',
+        appearance: '外观',
+        voice: '声音',
+        advanced: '高级',
+        publish: '发布',
+      },
+      startPipeline: '启动流水线',
     },
   },
   pipelines: {
@@ -143,7 +151,7 @@ export default {
       verify: '验证',
       report: '报告',
       split: '文案拆分',
-      domain_enrich: '内容领域增强',
+      domain_enrich: '内容增强',
       optimize: '提示词优化',
       generate_assets: '生成图片与旁白',
     },

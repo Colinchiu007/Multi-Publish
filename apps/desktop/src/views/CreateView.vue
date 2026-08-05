@@ -54,8 +54,8 @@
         </div>
 
         <!-- 阶段进度 -->
-        <div v-if="pipelineRunStatus && pipelineRunStatus.stages" class="stages-timeline">
-          <div v-for="(stage, i) in pipelineRunStatus.stages" :key="i" class="stage-item" :class="stageStateClass(stage, i)">
+        <div v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length" class="stages-timeline" data-testid="story2video-stage-list">
+          <div v-for="(stage, i) in (pipelineRunStatus.stages || orchestrationStages)" :key="stage.id || stage.name || i" class="stage-item" :class="stageStateClass(stage, i)" :data-testid="`story2video-stage-${stage.name || i}`">
             <span class="stage-icon">{{ stageStateIcon(stage, i) }}</span>
             <span class="stage-name">{{ pipelineStage(stage.name) }}</span>
             <span class="stage-status">{{ stageStatusLabel(stage, i) }}</span>
@@ -182,272 +182,347 @@
           </div>
         </div>
 
-        <!-- S2V 编排专属配置（仅 story2video-compose 显示） -->
-        <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="config-section">
-          <h3>{{ story2videoConfigurationTitle }}</h3>
-          <div class="config-grid">
-            <div class="config-item">
-              <label>内容类型</label>
-              <select v-model="s2vConfig.contentType" class="form-select">
-                <option value="general">通用内容</option>
-                <option value="history">历史文章（自动识别时代与朝代）</option>
-              </select>
-            </div>
-            <div class="config-item">
-              <label>图片风格</label>
-              <select v-model="s2vConfig.imageStyle" class="form-select">
-                <option value="cinematic">电影感</option>
-                <option value="realistic">写实</option>
-                <option value="anime">动漫</option>
-                <option value="watercolor">水彩</option>
-                <option value="minimalist">极简</option>
-              </select>
-              <span class="config-hint">{{ story2videoImageStyleHint }}</span>
-            </div>
-            <div class="config-item">
-              <label>图片生成器</label>
-              <select v-model="s2vConfig.imageProvider" class="form-select">
-                <option v-for="provider in s2vImageProviderOptions" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
-              </select>
-            </div>
-            <div class="config-item">
-              <label>语音生成器</label>
-              <select v-model="s2vConfig.voiceProvider" class="form-select" @change="handleS2VVoiceProviderChange">
-                <option v-for="provider in s2vVoiceProviderOptions" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
-              </select>
-            </div>
-            <div v-if="s2vConfig.voiceProvider" class="config-item">
-              <label>语音模型</label>
-              <select
-                v-if="s2vVoiceModelOptions.length > 0"
-                v-model="s2vConfig.voiceModel"
-                class="form-select"
-                @change="handleS2VVoiceModelChange"
-              >
-                <option disabled value="">选择模型</option>
-                <option v-for="model in s2vVoiceModelOptions" :key="model" :value="model">{{ model }}</option>
-              </select>
-              <span v-else class="config-hint">当前服务商没有可用的语音模型。</span>
-            </div>
-            <div v-if="s2vConfig.voiceProvider && s2vConfig.voiceModel" class="config-item">
-              <label>音色</label>
-              <select
-                id="s2v-voice-catalog"
-                v-model="s2vConfig.voiceId"
-                class="form-select"
-                :disabled="s2vVoiceCatalogLoading || s2vVoiceOptions.length === 0"
-                @change="handleS2VVoiceSelection"
-              >
-                <option value="">使用服务商默认音色</option>
-                <option v-for="voice in s2vVoiceOptions" :key="voice.id" :value="voice.id">{{ voice.name }}</option>
-              </select>
-              <span v-if="s2vVoiceCatalogLoading" class="config-hint">正在加载音色目录…</span>
-              <span v-else-if="s2vVoiceCatalogError" class="inline-error">{{ s2vVoiceCatalogError }}</span>
-              <span v-else-if="s2vVoiceOptions.length === 0" class="config-hint">当前模型没有可用音色。</span>
-            </div>
-            <div v-if="s2vVoiceCapability?.type === 'provider_personal_slot'" class="config-item config-span-2 voice-slot-hint">
-              <label>个人音色</label>
-              <p class="config-hint">此页仅显示已配置或静态可用的音色，不会持续同步服务商控制台。请前往服务商控制台创建和管理个人音色。</p>
-            </div>
-            <div
-              v-if="s2vVoiceCapability?.type === 'user_clone' && s2vVoiceCapability?.clone?.enabled === true"
-              class="config-item config-span-2 voice-clone-panel"
-            >
-              <label>克隆音色</label>
-              <p v-if="s2vVoiceCloneRequirements" class="config-hint">
-                支持格式：{{ s2vVoiceCloneRequirements.allowedExtensions?.join('、') || '音频' }}；最多 {{ s2vVoiceCloneRequirements.maxSampleCount }} 个文件；单文件 {{ formatS2VVoiceCloneBytes(s2vVoiceCloneRequirements.maxSampleBytes) }}，合计 {{ formatS2VVoiceCloneBytes(s2vVoiceCloneRequirements.maxTotalBytes) }}；单条 {{ formatS2VVoiceCloneDuration(s2vVoiceCloneRequirements.maxSampleDurationSeconds) }}，合计 {{ formatS2VVoiceCloneDuration(s2vVoiceCloneRequirements.maxTotalDurationSeconds) }}。
-              </p>
-              <p v-if="s2vVoiceCloneRequirements" class="config-hint">以上为桌面端本地安全阈值，不是未经验证的服务商硬性限制。</p>
-              <div class="voice-clone-actions">
-                <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="chooseS2VVoiceCloneSamples">
-                  {{ s2vVoiceCloneSelection ? '重新选择样本' : '选择本地音频样本' }}
-                </button>
-                <span v-if="s2vVoiceCloneSelection" class="config-hint">已选择 {{ s2vVoiceCloneSelection.sampleCount }} 个样本</span>
+        <!-- Story2Video 配置：快速模式 + 五个折叠区 -->
+        <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="s2v-config-sections" data-testid="story2video-config-sections">
+          <details
+            class="s2v-config-section"
+            data-testid="s2v-section-basic"
+            :open="s2vOpenSections.basic"
+            @toggle="setS2VSectionOpen('basic', $event)"
+          >
+            <summary class="s2v-section-summary">
+              <span>{{ s2vSectionLabel('basic') }}</span>
+              <span class="s2v-summary">{{ s2vSectionSummary('basic') }}</span>
+            </summary>
+            <div class="config-grid">
+              <div class="config-item">
+                <label>内容类型</label>
+                <select v-model="s2vConfig.contentType" class="form-select">
+                  <option value="general">通用内容</option>
+                  <option value="history">历史文章（自动识别时代与朝代）</option>
+                </select>
               </div>
-              <label class="checkbox-label voice-clone-consent">
-                <input v-model="s2vVoiceCloneConsent" type="checkbox" />
-                <span>我确认已取得样本上传、使用和克隆的权利，并已作出明确同意。</span>
-              </label>
-              <p class="config-hint">创建成功后，已授权样本会保存到当前用户的本机私有目录，用于管理此克隆音色；删除克隆音色会同时清理这些样本，页面不会接收原始文件路径或音频内容。</p>
-              <div class="voice-clone-actions">
-                <input v-model.trim="s2vVoiceCloneName" class="form-input" maxlength="128" placeholder="克隆音色名称" />
-                <button
-                  type="button"
-                  class="btn-secondary"
-                  :disabled="!canAddS2VVoiceClone"
-                  @click="addS2VVoiceClone"
-                >{{ s2vVoiceCloneLoading ? '处理中…' : '添加克隆音色' }}</button>
+              <div class="config-item">
+                <label>图片生成器</label>
+                <select v-model="s2vConfig.imageProvider" class="form-select">
+                  <option v-for="provider in s2vImageProviderOptions" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
+                </select>
               </div>
-              <p v-if="s2vVoiceCloneError" class="inline-error">{{ s2vVoiceCloneError }}</p>
-              <div v-if="s2vVoiceClones.length > 0" class="voice-clone-list">
-                <div v-for="voice in s2vVoiceClones" :key="voice.id" class="voice-clone-row">
-                  <span>{{ voice.name }}</span>
-                  <div class="voice-clone-actions">
-                    <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="selectS2VVoice(voice.id)">设为默认</button>
-                    <button type="button" class="btn-secondary danger" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
+              <div class="config-item config-span-2">
+                <label>基础说明</label>
+                <p class="config-hint">确认文案和基础参数后，点击“启动流水线”即可自动完成六个阶段；不需要逐步确认。</p>
+              </div>
+            </div>
+          </details>
+
+          <details
+            class="s2v-config-section"
+            data-testid="s2v-section-appearance"
+            :open="s2vOpenSections.appearance"
+            @toggle="setS2VSectionOpen('appearance', $event)"
+          >
+            <summary class="s2v-section-summary">
+              <span>{{ s2vSectionLabel('appearance') }}</span>
+              <span class="s2v-summary">{{ s2vSectionSummary('appearance') }}</span>
+            </summary>
+            <div class="config-grid">
+              <div class="config-item">
+                <label>图片风格</label>
+                <select v-model="s2vConfig.imageStyle" class="form-select">
+                  <option value="cinematic">电影感</option>
+                  <option value="realistic">写实</option>
+                  <option value="anime">动漫</option>
+                  <option value="watercolor">水彩</option>
+                  <option value="minimalist">极简</option>
+                </select>
+                <span class="config-hint">{{ story2videoImageStyleHint }}</span>
+              </div>
+              <div class="config-item">
+                <label>提示词风格</label>
+                <select v-model="s2vConfig.promptStyle" class="form-select">
+                  <option value="realistic">写实</option>
+                  <option value="cinematic">电影感</option>
+                  <option value="anime">动漫</option>
+                  <option value="watercolor">水彩</option>
+                  <option value="minimalist">极简</option>
+                </select>
+                <span class="config-hint">{{ story2videoPromptStyleHint }}</span>
+              </div>
+              <div class="config-item">
+                <label>图片动效</label>
+                <select v-model="s2vConfig.imageEffect" class="form-select">
+                  <option value="none">无效果</option>
+                  <option value="zoom-in">慢慢放大</option>
+                  <option value="zoom-out">慢慢缩小</option>
+                  <option value="pan-left">向左平移</option>
+                  <option value="pan-right">向右平移</option>
+                  <option value="pan-up">向上平移</option>
+                  <option value="pan-down">向下平移</option>
+                  <option value="zoom-pan">放大并平移</option>
+                  <option value="rotate">缓慢旋转</option>
+                  <option value="blur-in">模糊渐入</option>
+                </select>
+              </div>
+              <div class="config-item">
+                <label>转场</label>
+                <select v-model="s2vConfig.transition" class="form-select">
+                  <option value="none">直接切换</option>
+                  <option value="fade">渐隐渐显</option>
+                  <option value="slide-left">左滑</option>
+                  <option value="slide-right">右滑</option>
+                  <option value="slide-up">上滑</option>
+                  <option value="slide-down">下滑</option>
+                </select>
+              </div>
+              <div class="config-item">
+                <label>字幕字号</label>
+                <select v-model="s2vConfig.subtitleSize" class="form-select">
+                  <option value="size1">特小</option>
+                  <option value="size2">小</option>
+                  <option value="size3">中</option>
+                  <option value="size4">大</option>
+                  <option value="size5">特大</option>
+                  <option value="size6">超大</option>
+                </select>
+              </div>
+              <div class="config-item">
+                <label>字幕样式</label>
+                <select v-model="s2vConfig.subtitleStyleName" class="form-select">
+                  <option value="style1">描边</option>
+                  <option value="style2">背景框</option>
+                  <option value="style3">粗描边</option>
+                </select>
+              </div>
+              <div class="config-item">
+                <label>字幕</label>
+                <select v-model="s2vConfig.subtitleEnabled" class="form-select">
+                  <option :value="true">启用</option>
+                  <option :value="false">关闭</option>
+                </select>
+              </div>
+              <div class="config-item">
+                <label>背景音乐</label>
+                <div class="inline-file-control">
+                  <button type="button" class="btn-secondary" @click="$refs.s2vBgmInput?.click()">选择音频</button>
+                  <span class="config-hint">{{ s2vConfig.bgmPath || '未选择（可选）' }}</span>
+                </div>
+                <input ref="s2vBgmInput" type="file" accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg" style="display:none" @change="handleS2VBgmFile" />
+              </div>
+              <div class="config-item">
+                <label>背景音乐音量: {{ s2vConfig.bgmVolume }}</label>
+                <input type="range" v-model.number="s2vConfig.bgmVolume" min="0" max="10" step="1" class="form-range" />
+              </div>
+              <div class="config-item">
+                <label>水印文字</label>
+                <input v-model.trim="s2vConfig.watermarkText" class="form-input" placeholder="可选" />
+              </div>
+            </div>
+          </details>
+
+          <details
+            class="s2v-config-section"
+            data-testid="s2v-section-voice"
+            :open="s2vOpenSections.voice"
+            @toggle="setS2VSectionOpen('voice', $event)"
+          >
+            <summary class="s2v-section-summary">
+              <span>{{ s2vSectionLabel('voice') }}</span>
+              <span class="s2v-summary">{{ s2vSectionSummary('voice') }}</span>
+            </summary>
+            <div class="config-grid">
+              <div class="config-item">
+                <label>语音生成器</label>
+                <select v-model="s2vConfig.voiceProvider" class="form-select" @change="handleS2VVoiceProviderChange">
+                  <option v-for="provider in s2vVoiceProviderOptions" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
+                </select>
+              </div>
+              <div v-if="s2vConfig.voiceProvider" class="config-item">
+                <label>语音模型</label>
+                <select
+                  v-if="s2vVoiceModelOptions.length > 0"
+                  v-model="s2vConfig.voiceModel"
+                  class="form-select"
+                  @change="handleS2VVoiceModelChange"
+                >
+                  <option disabled value="">选择模型</option>
+                  <option v-for="model in s2vVoiceModelOptions" :key="model" :value="model">{{ model }}</option>
+                </select>
+                <span v-else class="config-hint">当前服务商没有可用的语音模型。</span>
+              </div>
+              <div v-if="s2vConfig.voiceProvider && s2vConfig.voiceModel" class="config-item">
+                <label>语音 / 音色 ID</label>
+                <select
+                  id="s2v-voice-catalog"
+                  v-model="s2vConfig.voiceId"
+                  class="form-select"
+                  :disabled="s2vVoiceCatalogLoading || s2vVoiceOptions.length === 0"
+                  @change="handleS2VVoiceSelection"
+                >
+                  <option value="">使用服务商默认音色</option>
+                  <option v-for="voice in s2vVoiceOptions" :key="voice.id" :value="voice.id">{{ voice.name }}</option>
+                </select>
+                <span v-if="s2vVoiceCatalogLoading" class="config-hint">正在加载音色目录…</span>
+                <span v-else-if="s2vVoiceCatalogError" class="inline-error">{{ s2vVoiceCatalogError }}</span>
+                <span v-else-if="s2vVoiceOptions.length === 0" class="config-hint">当前模型没有可用音色。</span>
+              </div>
+              <div v-if="s2vVoiceCapability?.type === 'provider_personal_slot'" class="config-item config-span-2 voice-slot-hint">
+                <label>个人音色槽位</label>
+                <p class="config-hint">请先在服务商官方控制台创建或管理个人音色，再刷新本地目录并在上方下拉列表中选择。当前页面不会伪造或复制服务商槽位。</p>
+              </div>
+              <div
+                v-if="s2vVoiceCapability?.type === 'user_clone' && s2vVoiceCapability?.clone?.enabled === true"
+                class="config-item config-span-2 voice-clone-panel"
+              >
+                <label>音色复制 / 克隆</label>
+                <p v-if="s2vVoiceCloneRequirements" class="config-hint">
+                  支持格式：{{ s2vVoiceCloneRequirements.allowedExtensions?.join('、') || '音频' }}；最多 {{ s2vVoiceCloneRequirements.maxSampleCount }} 个文件；单文件 {{ formatS2VVoiceCloneBytes(s2vVoiceCloneRequirements.maxSampleBytes) }}，合计 {{ formatS2VVoiceCloneBytes(s2vVoiceCloneRequirements.maxTotalBytes) }}；单条 {{ formatS2VVoiceCloneDuration(s2vVoiceCloneRequirements.maxSampleDurationSeconds) }}，合计 {{ formatS2VVoiceCloneDuration(s2vVoiceCloneRequirements.maxTotalDurationSeconds) }}。
+                </p>
+                <p v-if="s2vVoiceCloneRequirements" class="config-hint">以上为当前模型能力数据驱动的本地校验提示，具体以供应商官方 API 合同为准。</p>
+                <div class="voice-clone-actions">
+                  <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="chooseS2VVoiceCloneSamples">
+                    {{ s2vVoiceCloneSelection ? '重新选择样本' : '选择本地音频样本' }}
+                  </button>
+                  <span v-if="s2vVoiceCloneSelection" class="config-hint">已选择 {{ s2vVoiceCloneSelection.sampleCount }} 个样本</span>
+                </div>
+                <label class="checkbox-label voice-clone-consent">
+                  <input v-model="s2vVoiceCloneConsent" type="checkbox" />
+                  <span>我确认已取得样本上传、使用和克隆的权利，并已作出明确同意。</span>
+                </label>
+                <p class="config-hint">已授权样本只由可信主进程写入当前用户的本机私有目录，用于管理此克隆音色；页面不会接收原始文件路径或音频内容。</p>
+                <div class="voice-clone-actions">
+                  <input v-model.trim="s2vVoiceCloneName" class="form-input" maxlength="128" placeholder="克隆音色名称" />
+                  <button type="button" class="btn-secondary" :disabled="!canAddS2VVoiceClone" @click="addS2VVoiceClone">{{ s2vVoiceCloneLoading ? '处理中…' : '添加克隆音色' }}</button>
+                </div>
+                <p v-if="s2vVoiceCloneError" class="inline-error">{{ s2vVoiceCloneError }}</p>
+                <div v-if="s2vVoiceClones.length > 0" class="voice-clone-list">
+                  <div v-for="voice in s2vVoiceClones" :key="voice.id" class="voice-clone-row">
+                    <span>{{ voice.name }}</span>
+                    <div class="voice-clone-actions">
+                      <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="selectS2VVoice(voice.id)">设为默认</button>
+                      <button type="button" class="btn-secondary danger" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-            <div v-else-if="s2vVoiceCapability?.type === 'user_clone'" class="config-item config-span-2 voice-slot-hint">
-              <label>克隆音色</label>
-              <p class="config-hint">当前服务商尚未接入可用的音色克隆能力。</p>
-            </div>
-            <div class="config-item">
-              <label>语速: {{ Number(s2vConfig.voiceSpeed).toFixed(1) }}x</label>
-              <input type="range" v-model.number="s2vConfig.voiceSpeed" min="0.5" max="2" step="0.1" class="form-range" />
-            </div>
-            <div class="config-item">
-              <label>旁白音量: {{ Number(s2vConfig.voiceVolume).toFixed(2) }}</label>
-              <input type="range" v-model.number="s2vConfig.voiceVolume" min="0" max="2" step="0.05" class="form-range" />
-            </div>
-            <div class="config-item">
-              <label>无旁白场景时长（秒）</label>
-              <input type="number" v-model.number="s2vConfig.perImageDuration" min="1" max="60" step="0.5" class="form-input" />
-            </div>
-            <div class="config-item">
-              <label>分句语言</label>
-              <select v-model="s2vConfig.splitLanguage" class="form-select">
-                <option value="zh">中文</option>
-                <option value="en">英文</option>
-                <option value="auto">自动识别</option>
-              </select>
-            </div>
-            <div class="config-item">
-              <label>分句模式</label>
-              <select v-model="s2vConfig.splitMode" class="form-select">
-                <option value="fast">快速</option>
-                <option value="balanced">均衡</option>
-                <option value="precise">精确</option>
-              </select>
-            </div>
-            <div class="config-item">
-              <label>单句最大长度</label>
-              <input type="number" v-model.number="s2vConfig.splitMaxSentenceLength" min="20" max="1000" class="form-input" />
-            </div>
-            <div class="config-item">
-              <label>分镜目标时长（秒）</label>
-              <input type="number" v-model.number="s2vConfig.splitTargetSeconds" min="1" max="60" step="0.5" class="form-input" />
-            </div>
-            <div class="config-item">
-              <label>提示词风格</label>
-              <select v-model="s2vConfig.promptStyle" class="form-select">
-                <option value="realistic">写实</option>
-                <option value="cinematic">电影感</option>
-                <option value="anime">动漫</option>
-                <option value="watercolor">水彩</option>
-                <option value="minimalist">极简</option>
-              </select>
-              <span class="config-hint">{{ story2videoPromptStyleHint }}</span>
-            </div>
-            <div class="config-item config-span-2">
-              <label>负向提示词</label>
-              <textarea v-model.trim="s2vConfig.negativePrompt" rows="2" maxlength="500" class="form-textarea"></textarea>
-            </div>
-            <div class="config-item">
-              <label>模板分类</label>
-              <select v-model="s2vTemplateCategory" class="form-select">
-                <option value="all">全部模板</option>
-                <option value="popular">热门</option>
-                <option value="business">商务</option>
-                <option value="creative">创意</option>
-                <option value="vlog">Vlog</option>
-                <option value="education">知识讲解</option>
-                <option value="custom">我的模板</option>
-              </select>
-            </div>
-            <div class="config-item">
-              <label>视频模板</label>
-              <select v-model="s2vConfig.templateId" class="form-select" @change="applyS2VTemplate">
-                <option v-for="template in s2vTemplates" :key="template.value" :value="template.value">{{ template.label }}</option>
-              </select>
-            </div>
-            <div class="config-item config-span-2">
-              <label>自定义模板</label>
-              <div class="template-editor">
-                <input v-model.trim="s2vCustomTemplateName" class="form-input" maxlength="80" placeholder="输入模板名称" />
-                <button type="button" class="btn-secondary" :disabled="!s2vCustomTemplateName" @click="saveCurrentS2VTemplate">保存当前参数</button>
-                <button
-                  v-if="selectedS2VTemplate?.category === 'custom'"
-                  type="button"
-                  class="btn-secondary danger"
-                  @click="requestTemplateDeletion"
-                >删除模板</button>
+              <div v-else-if="s2vVoiceCapability?.type === 'user_clone'" class="config-item config-span-2 voice-slot-hint">
+                <label>音色复制 / 克隆</label>
+                <p class="config-hint">当前服务商尚未接入可用的音色克隆能力。</p>
+              </div>
+              <div class="config-item">
+                <label>语速: {{ Number(s2vConfig.voiceSpeed).toFixed(1) }}x</label>
+                <input type="range" v-model.number="s2vConfig.voiceSpeed" min="0.5" max="2" step="0.1" class="form-range" />
+              </div>
+              <div class="config-item">
+                <label>旁白音量: {{ Number(s2vConfig.voiceVolume).toFixed(2) }}</label>
+                <input type="range" v-model.number="s2vConfig.voiceVolume" min="0" max="2" step="0.05" class="form-range" />
               </div>
             </div>
-            <div class="config-item">
-              <label>图片动效</label>
-              <select v-model="s2vConfig.imageEffect" class="form-select">
-                <option value="none">无效果</option>
-                <option value="zoom-in">慢慢放大</option>
-                <option value="zoom-out">慢慢缩小</option>
-                <option value="pan-left">向左平移</option>
-                <option value="pan-right">向右平移</option>
-                <option value="pan-up">向上平移</option>
-                <option value="pan-down">向下平移</option>
-                <option value="zoom-pan">放大并平移</option>
-                <option value="rotate">缓慢旋转</option>
-                <option value="blur-in">模糊渐入</option>
-              </select>
-            </div>
-            <div class="config-item">
-              <label>转场</label>
-              <select v-model="s2vConfig.transition" class="form-select">
-                <option value="none">直接切换</option>
-                <option value="fade">渐隐渐显</option>
-                <option value="slide-left">左滑</option>
-                <option value="slide-right">右滑</option>
-                <option value="slide-up">上滑</option>
-                <option value="slide-down">下滑</option>
-              </select>
-            </div>
-            <div class="config-item">
-              <label>字幕字号</label>
-              <select v-model="s2vConfig.subtitleSize" class="form-select">
-                <option value="size1">特小</option>
-                <option value="size2">小</option>
-                <option value="size3">中</option>
-                <option value="size4">大</option>
-                <option value="size5">特大</option>
-                <option value="size6">超大</option>
-              </select>
-            </div>
-            <div class="config-item">
-              <label>字幕样式</label>
-              <select v-model="s2vConfig.subtitleStyleName" class="form-select">
-                <option value="style1">描边</option>
-                <option value="style2">背景框</option>
-                <option value="style3">粗描边</option>
-              </select>
-            </div>
-            <div class="config-item">
-              <label>字幕</label>
-              <select v-model="s2vConfig.subtitleEnabled" class="form-select">
-                <option :value="true">启用</option>
-                <option :value="false">关闭</option>
-              </select>
-            </div>
-            <div class="config-item">
-              <label>背景音乐</label>
-              <div class="inline-file-control">
-                <button type="button" class="btn-secondary" @click="$refs.s2vBgmInput?.click()">选择音频</button>
-                <span class="config-hint">{{ s2vConfig.bgmPath || '未选择（可选）' }}</span>
+          </details>
+
+          <details
+            class="s2v-config-section"
+            data-testid="s2v-section-advanced"
+            :open="s2vOpenSections.advanced"
+            @toggle="setS2VSectionOpen('advanced', $event)"
+          >
+            <summary class="s2v-section-summary">
+              <span>{{ s2vSectionLabel('advanced') }}</span>
+              <span class="s2v-summary">{{ s2vSectionSummary('advanced') }}</span>
+            </summary>
+            <div class="config-grid">
+              <div class="config-item">
+                <label>分句语言</label>
+                <select v-model="s2vConfig.splitLanguage" class="form-select">
+                  <option value="auto">自动识别</option>
+                  <option value="zh">中文</option>
+                  <option value="en">英文</option>
+                </select>
               </div>
-              <input ref="s2vBgmInput" type="file" accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg" style="display:none" @change="handleS2VBgmFile" />
+              <div class="config-item">
+                <label>分句模式</label>
+                <select v-model="s2vConfig.splitMode" class="form-select">
+                  <option value="fast">快速</option>
+                  <option value="balanced">均衡</option>
+                  <option value="precise">精确</option>
+                </select>
+              </div>
+              <div class="config-item">
+                <label>单句最大长度</label>
+                <input type="number" v-model.number="s2vConfig.splitMaxSentenceLength" min="20" max="1000" class="form-input" />
+              </div>
+              <div class="config-item">
+                <label>分镜目标时长（秒）</label>
+                <input type="number" v-model.number="s2vConfig.splitTargetSeconds" min="1" max="60" step="0.5" class="form-input" />
+              </div>
+              <div class="config-item">
+                <label>无旁白场景时长（秒）</label>
+                <input type="number" v-model.number="s2vConfig.perImageDuration" min="1" max="60" step="0.5" class="form-input" />
+              </div>
+              <div class="config-item config-span-2">
+                <label>负向提示词</label>
+                <textarea v-model.trim="s2vConfig.negativePrompt" rows="2" maxlength="500" class="form-textarea"></textarea>
+              </div>
+              <div class="config-item">
+                <label>模板分类</label>
+                <select v-model="s2vTemplateCategory" class="form-select">
+                  <option value="all">全部模板</option>
+                  <option value="popular">热门</option>
+                  <option value="business">商务</option>
+                  <option value="creative">创意</option>
+                  <option value="vlog">Vlog</option>
+                  <option value="education">知识讲解</option>
+                  <option value="custom">我的模板</option>
+                </select>
+              </div>
+              <div class="config-item">
+                <label>视频模板</label>
+                <select v-model="s2vConfig.templateId" class="form-select" @change="applyS2VTemplate">
+                  <option v-for="template in s2vTemplates" :key="template.value" :value="template.value">{{ template.label }}</option>
+                </select>
+              </div>
+              <div class="config-item config-span-2">
+                <label>自定义模板</label>
+                <div class="template-editor">
+                  <input v-model.trim="s2vCustomTemplateName" class="form-input" maxlength="80" placeholder="输入模板名称" />
+                  <button type="button" class="btn-secondary" :disabled="!s2vCustomTemplateName" @click="saveCurrentS2VTemplate">保存当前参数</button>
+                  <button v-if="selectedS2VTemplate?.category === 'custom'" type="button" class="btn-secondary danger" @click="requestTemplateDeletion">删除模板</button>
+                </div>
+              </div>
+              <div class="config-item">
+                <label>输出分辨率</label>
+                <select v-model="activeOutputConfig.resolution" class="form-select">
+                  <option value="720x1280">720×1280 (Story2Video)</option>
+                  <option value="1920x1080">1920×1080 (Full HD)</option>
+                  <option value="3840x2160">3840×2160 (4K)</option>
+                  <option value="1080x1920">1080×1920 (竖屏)</option>
+                  <option value="1080x1440">1080×1440 (小红书)</option>
+                </select>
+              </div>
+              <div class="config-item">
+                <label>帧率</label>
+                <select v-model.number="activeOutputConfig.fps" class="form-select">
+                  <option :value="24">24 fps (电影)</option>
+                  <option :value="30">30 fps (标准)</option>
+                  <option :value="60">60 fps (流畅)</option>
+                </select>
+              </div>
+              <div class="config-item">
+                <label>格式</label>
+                <select v-model="activeOutputConfig.format" class="form-select">
+                  <option value="mp4">MP4 (H.264)</option>
+                  <option value="webm">WebM (VP9)</option>
+                </select>
+              </div>
             </div>
-            <div class="config-item">
-              <label>背景音乐音量: {{ s2vConfig.bgmVolume }}</label>
-              <input type="range" v-model.number="s2vConfig.bgmVolume" min="0" max="10" step="1" class="form-range" />
-            </div>
-            <div class="config-item">
-              <label>水印文字</label>
-              <input v-model.trim="s2vConfig.watermarkText" class="form-input" placeholder="可选" />
-            </div>
-          </div>
+            <p class="s2v-controlled-defaults">音调、并发数和创意强度由受控默认值管理，不在创作端显示。</p>
+          </details>
         </div>
 
-        <div v-if="isOrchestratedPipeline(selectedPipeline.name)" class="config-section">
-          <h3>发布设置（可选）</h3>
+        <details v-if="isOrchestratedPipeline(selectedPipeline.name)" class="s2v-config-section" data-testid="s2v-section-publish" :open="s2vOpenSections.publish" @toggle="setS2VSectionOpen('publish', $event)">
+          <summary class="s2v-section-summary">
+            <span>{{ s2vSectionLabel('publish') }}</span>
+            <span class="s2v-summary">{{ s2vSectionSummary('publish') }}</span>
+          </summary>
           <div class="config-grid">
             <div class="config-item config-span-2">
               <label>发布平台</label>
@@ -475,10 +550,9 @@
               <input v-model.trim="s2vConfig.coverUrl" class="form-input" maxlength="4096" />
             </div>
           </div>
-        </div>
-
+        </details>
         <!-- 输出配置 -->
-        <div class="config-section">
+        <div v-if="!isOrchestratedPipeline(selectedPipeline?.name)" class="config-section">
           <h3>输出设置</h3>
           <div class="config-grid">
             <div class="config-item">
@@ -512,8 +586,8 @@
         <!-- 执行控制 -->
         <div class="action-bar">
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
-            <UiButton class="btn-start" @click="startPipeline" :disabled="!canStartPipeline">
-              启动流水线
+            <UiButton class="btn-start" data-testid="start-story2video" @click="startPipeline" :disabled="!canStartPipeline">
+              {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
             </UiButton>
           </div>
           <div v-else class="running-controls">
@@ -738,6 +812,15 @@ const STYLES = [
   { value: 'cinematic-dark', label: '电影暗调', desc: '深色电影感渲染' },
 ]
 
+const STORY2VIDEO_STAGE_NAMES = Object.freeze([
+  'split',
+  'domain_enrich',
+  'optimize',
+  'generate_assets',
+  'compose',
+  'publish',
+])
+
 const S2V_PLATFORMS = [
   { value: 'douyin', label: '抖音' },
   { value: 'xiaohongshu', label: '小红书' },
@@ -770,7 +853,7 @@ export default {
       // 流水线
       pipelines: [], pipelineLoading: true, pipelineError: null,
       selectedPipeline: null,
-      pipelineRunStatus: null, needsCheckpoint: false, pollTimer: null,
+      pipelineRunStatus: null, needsCheckpoint: false, pollTimer: null, orchestrationStages: [],
       // 流水线输入
       inputMode: 'text', pipelineText: '', pipelineImages: [], pipelineAudio: [], pipelineVideo: null,
       // 配置
@@ -818,6 +901,7 @@ export default {
       s2vVoiceCloneRequirements: null, s2vVoiceClones: [],
       s2vVoiceCloneSelection: null, s2vVoiceCloneName: '', s2vVoiceCloneConsent: false, s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
+      s2vOpenSections: { basic: true, appearance: false, voice: false, advanced: false, publish: false },
       // 历史
       history: [], historyLoading: false, historyFilter: 'all', historyRequestId: 0,
       // 清理
@@ -953,6 +1037,26 @@ export default {
     pipelineStage(id) { return getPipelineStage((key) => this.$t?.(key), id) },
     pipelineStatus(id) { return getPipelineStatus((key) => this.$t?.(key), id) },
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
+    s2vSectionLabel(section) {
+      const key = `create.story2video.sections.${section}`
+      const fallback = { basic: '基础', appearance: '外观', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
+      const english = { basic: 'Basics', appearance: 'Appearance', voice: 'Voice', advanced: 'Advanced', publish: 'Publish' }[section] || section
+      return this.translateWithLocaleFallback(key, fallback, english)
+    },
+    s2vSectionSummary(section) {
+      const summaries = {
+        basic: `${this.s2vConfig.contentType === 'history' ? '历史内容' : '通用内容'} · ${this.s2vConfig.imageProvider || '默认图片模型'}`,
+        appearance: `${this.s2vConfig.imageStyle || '电影感'} · ${this.s2vConfig.imageEffect || '无效果'}`,
+        voice: `${this.s2vConfig.voiceProvider || '自动 Edge TTS'}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`,
+        advanced: `${this.s2vConfig.splitLanguage === 'auto' ? '自动识别' : this.s2vConfig.splitLanguage} · ${this.s2vConfig.splitMode || '均衡'}`,
+        publish: this.s2vConfig.platforms?.length ? `已选 ${this.s2vConfig.platforms.length} 个平台` : '不发布',
+      }
+      return summaries[section] || ''
+    },
+    setS2VSectionOpen(section, event) {
+      if (!Object.prototype.hasOwnProperty.call(this.s2vOpenSections, section)) return
+      this.s2vOpenSections[section] = Boolean(event?.target?.open)
+    },
     categoryLabel(cat) { return CATEGORY_LABELS[cat] || cat },
     costLabel(cost) { return COST_LABELS[cost] || cost },
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
@@ -975,6 +1079,7 @@ export default {
       this.stopPipelinePolling()
       this.selectedPipeline = p
       this.pipelineRunStatus = null
+      this.orchestrationStages = this.isOrchestratedPipeline(p?.name) ? this.getDefaultStory2VideoStages() : []
       this.orchestrationRunId = null
       this.orchestrationContext = null
       this.orchestrationResultPath = null
@@ -983,6 +1088,9 @@ export default {
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
+    getDefaultStory2VideoStages() {
+      return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
+    },
     async startPipeline() {
       if (this.isOrchestratedPipeline(this.selectedPipeline.name)) {
         return this.startOrchestratedPipeline()
@@ -1543,7 +1651,7 @@ export default {
       this.stopPipelinePolling()
       this.needsCheckpoint = false
       if (this.pipelineRunStatus?.status !== 'completed') {
-        this.pipelineRunStatus = { status: 'failed', progress: this.pipelineRunStatus?.progress || 0 }
+        this.pipelineRunStatus = { status: 'failed', progress: this.pipelineRunStatus?.progress || 0, stages: this.pipelineRunStatus?.stages || this.orchestrationStages }
       }
     },
     async updateOrchestrationStatus() {
@@ -1560,10 +1668,14 @@ export default {
         }
         this.orchestrationContext = statusResult.data.context || null
         const snapshotStatus = statusResult.data.status || {}
+        const stages = Array.isArray(statusResult.data.stages)
+          ? statusResult.data.stages
+          : (Array.isArray(snapshotStatus.stages) ? snapshotStatus.stages : (this.orchestrationStages.length ? this.orchestrationStages : this.getDefaultStory2VideoStages()))
+        this.orchestrationStages = stages
         this.pipelineRunStatus = {
           ...snapshotStatus,
           currentStage: statusResult.data.currentStage ?? snapshotStatus.currentStage,
-          stages: Array.isArray(statusResult.data.stages) ? statusResult.data.stages : snapshotStatus.stages,
+          stages,
           checkpoint: statusResult.data.checkpoint || snapshotStatus.checkpoint || null,
         }
         this.needsCheckpoint = false
@@ -1593,6 +1705,7 @@ export default {
       return publish?.videoPath || publish?.path || compose?.videoPath || compose?.path || null
     },
     applyOrchestrationOutcome(outcome) {
+      if (Array.isArray(outcome?.stages)) this.orchestrationStages = outcome.stages
       if (outcome?.context) this.orchestrationContext = outcome.context
       if (outcome?.paused) {
         this.pipelineRunStatus = { status: 'paused', progress: this.pipelineRunStatus?.progress || 0 }
@@ -1607,7 +1720,7 @@ export default {
       const videoPath = this.extractOrchestrationVideoPath(context)
       const projectId = context?.story2videoProject?.projectId || null
       this.stopPipelinePolling()
-      this.pipelineRunStatus = { status: 'completed', progress: 100 }
+      this.pipelineRunStatus = { status: 'completed', progress: 100, stages: this.orchestrationStages }
       this.needsCheckpoint = false
       this.orchestrationRunId = null
       if (!videoPath) {
@@ -1642,6 +1755,7 @@ export default {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''
+      this.orchestrationStages = this.isOrchestratedPipeline(this.selectedPipeline?.name) ? this.getDefaultStory2VideoStages() : []
       this.closeStory2VideoErrorDialog()
       this.stopPipelinePolling()
     },
@@ -1985,6 +2099,15 @@ export default {
 
 /* 风格选择 */
 .config-section { margin-bottom: 24px; }
+.s2v-config-sections { display: grid; gap: 10px; margin-bottom: 16px; }
+.s2v-config-section { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.s2v-section-summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; font-weight: 700; }
+.s2v-section-summary::-webkit-details-marker { display: none; }
+.s2v-section-summary::before { content: '›'; display: inline-block; color: var(--text-muted); font-size: 20px; line-height: 1; transform: rotate(0deg); transition: transform .15s ease; }
+.s2v-config-section[open] > .s2v-section-summary::before { transform: rotate(90deg); }
+.s2v-summary { margin-left: auto; color: var(--text-muted); font-size: 12px; font-weight: 400; text-align: right; }
+.s2v-config-section > .config-grid { padding: 0 16px 16px; }
+.s2v-controlled-defaults { margin: -4px 16px 16px; color: var(--text-muted); font-size: 12px; }
 .config-section h3 { font-size: 16px; margin: 0 0 12px; }
 .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
 .style-card { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; text-align: left; transition: all 0.2s; }
