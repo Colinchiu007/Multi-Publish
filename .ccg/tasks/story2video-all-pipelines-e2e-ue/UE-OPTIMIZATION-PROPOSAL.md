@@ -1,4 +1,6 @@
-# 流水线参数 UI/UE 优化建议方案（待确认，确认后执行）
+# 流水线参数 UI/UE 优化建议方案
+
+> 状态：用户已确认方案（“好，按你的方案来实现”），2026-08-06 已实施批次 1+2（见下方实施记录），分支 `codex/story2video-ue-availability`。
 
 ## 现状问题（本轮实测证据）
 
@@ -31,3 +33,19 @@
 
 ## 决策点（需要用户确认）
 - 13 条无引擎流水线：是「先标为开发中并禁用启动」（推荐，本次实施），还是需要逐个实现真实执行引擎（工作量巨大，建议单独立项按优先级推进）？
+
+## 实施记录（批次 1+2，2026-08-06）
+
+### 批次 1：可用性徽标 + 未实现流水线禁用启动
+- pipeline-engine.js listPipelines() 新增 vailable 字段：有 stageDefs（真实引擎）为 true，否则 false。
+- CreateView.vue 列表卡片：可用/开发中 徽标 + is-unavailable 弱化样式；详情页未实现流水线禁用【启动流水线】并显示提示「该流水线尚未实现执行引擎，暂不能生成视频」。
+- CreateView.vue canStartPipeline/startPipeline 增加可用性守卫（兜底对话框 PIPELINE_NOT_IMPLEMENTED）。
+- PipelineBrowser.vue 同步徽标与禁用样式（组件一致性）。
+- 新增通知 key STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED（zh/en）。
+- i18n：pipelines.availability.*（zh/en）。
+- 测试：pipeline-engine 20、PipelineBrowser 7、CreateView 67、notifications 8 全部通过。
+
+### 批次 2：story2video 高级区子分组
+- 高级区拆为「分句与时长」（分句语言/模式/单句长度/目标时长/无旁白时长/负向提示词）与「模板与输出」（模板分类/模板/自定义模板/分辨率/帧率/格式）两个子组。
+- i18n：create.story2video.subgroups.*（zh/en）。
+- 像素门禁：17/17 通过（列表视图无卡片渲染，徽标不影响基线）。
