@@ -66,4 +66,29 @@ describe("PipelineBrowser", () => {
     await wrapper.find(".pipeline-card").trigger("click");
     expect(wrapper.emitted("select")?.[0]?.[0]).toEqual(mockPipeline);
   });
+
+  it("shows 开发中 badge for unavailable pipelines", async () => {
+    const mockPipelines = [
+      { name: "animation", description: "动画视频", category: "animation", available: false },
+      { name: "story2video-compose", description: "图片轮播", category: "generated", available: true },
+    ];
+    pipelineList.mockResolvedValue({ code: 0, data: mockPipelines });
+    const wrapper = mountBrowser();
+    await new Promise((r) => setTimeout(r, 50));
+    const cards = wrapper.findAll(".pipeline-card");
+    expect(cards[0].find(".availability-badge.dev").exists()).toBe(true);
+    expect(cards[0].text()).toContain("开发中");
+    expect(cards[1].find(".availability-badge.ready").exists()).toBe(true);
+    expect(cards[1].text()).toContain("可用");
+  });
+
+  it("marks unavailable cards with is-unavailable class", async () => {
+    const mockPipelines = [
+      { name: "animation", description: "动画视频", category: "animation", available: false },
+    ];
+    pipelineList.mockResolvedValue({ code: 0, data: mockPipelines });
+    const wrapper = mountBrowser();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(wrapper.find(".pipeline-card.is-unavailable").exists()).toBe(true);
+  });
 });

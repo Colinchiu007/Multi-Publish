@@ -29,7 +29,7 @@
         <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载流水线列表...</span></div>
         <div v-else-if="pipelineError" class="error-state">⚠️ {{ pipelineError }}</div>
         <div v-else class="pipeline-grid">
-          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :data-pipeline-id="p.name" :class="p.category" @click="selectPipeline(p)">
+          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :data-pipeline-id="p.name" :class="[p.category, { 'is-unavailable': p.available === false }]" @click="selectPipeline(p)">
             <div class="card-header">
               <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
               <span class="stability-dot" :class="getStability(p.name)" :title="getStability(p.name)"></span>
@@ -39,6 +39,9 @@
             <div class="card-meta">
               <span class="stage-count">{{ p.stageCount ?? p.stages?.length ?? 0 }} 阶段</span>
               <span class="cost-label" :class="p.estimatedCost">{{ costLabel(p.estimatedCost) }}</span>
+              <span class="availability-badge" :class="p.available === false ? 'dev' : 'ready'" :title="availabilityHint(p.available !== false)">
+                {{ availabilityLabel(p.available !== false) }}
+              </span>
             </div>
           </div>
         </div>
@@ -436,89 +439,97 @@
               <span>{{ s2vSectionLabel('advanced') }}</span>
               <span class="s2v-summary">{{ s2vSectionSummary('advanced') }}</span>
             </summary>
-            <div class="config-grid">
-              <div class="config-item">
-                <label>分句语言</label>
-                <select v-model="s2vConfig.splitLanguage" class="form-select">
-                  <option value="auto">自动识别</option>
-                  <option value="zh">中文</option>
-                  <option value="en">英文</option>
-                </select>
-              </div>
-              <div class="config-item">
-                <label>分句模式</label>
-                <select v-model="s2vConfig.splitMode" class="form-select">
-                  <option value="fast">快速</option>
-                  <option value="balanced">均衡</option>
-                  <option value="precise">精确</option>
-                </select>
-              </div>
-              <div class="config-item">
-                <label>单句最大长度</label>
-                <input type="number" v-model.number="s2vConfig.splitMaxSentenceLength" min="20" max="1000" class="form-input" />
-              </div>
-              <div class="config-item">
-                <label>分镜目标时长（秒）</label>
-                <input type="number" v-model.number="s2vConfig.splitTargetSeconds" min="1" max="60" step="0.5" class="form-input" />
-              </div>
-              <div class="config-item">
-                <label>无旁白场景时长（秒）</label>
-                <input type="number" v-model.number="s2vConfig.perImageDuration" min="1" max="60" step="0.5" class="form-input" />
-              </div>
-              <div class="config-item config-span-2">
-                <label>负向提示词</label>
-                <textarea v-model.trim="s2vConfig.negativePrompt" rows="2" maxlength="500" class="form-textarea"></textarea>
-              </div>
-              <div class="config-item">
-                <label>模板分类</label>
-                <select v-model="s2vTemplateCategory" class="form-select">
-                  <option value="all">全部模板</option>
-                  <option value="popular">热门</option>
-                  <option value="business">商务</option>
-                  <option value="creative">创意</option>
-                  <option value="vlog">Vlog</option>
-                  <option value="education">知识讲解</option>
-                  <option value="custom">我的模板</option>
-                </select>
-              </div>
-              <div class="config-item">
-                <label>视频模板</label>
-                <select v-model="s2vConfig.templateId" class="form-select" @change="applyS2VTemplate">
-                  <option v-for="template in s2vTemplates" :key="template.value" :value="template.value">{{ template.label }}</option>
-                </select>
-              </div>
-              <div class="config-item config-span-2">
-                <label>自定义模板</label>
-                <div class="template-editor">
-                  <input v-model.trim="s2vCustomTemplateName" class="form-input" maxlength="80" placeholder="输入模板名称" />
-                  <button type="button" class="btn-secondary" :disabled="!s2vCustomTemplateName" @click="saveCurrentS2VTemplate">保存当前参数</button>
-                  <button v-if="selectedS2VTemplate?.category === 'custom'" type="button" class="btn-secondary danger" @click="requestTemplateDeletion">删除模板</button>
+            <div class="s2v-subgroup">
+              <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('splitTiming') }}</h4>
+              <div class="config-grid">
+                <div class="config-item">
+                  <label>分句语言</label>
+                  <select v-model="s2vConfig.splitLanguage" class="form-select">
+                    <option value="auto">自动识别</option>
+                    <option value="zh">中文</option>
+                    <option value="en">英文</option>
+                  </select>
+                </div>
+                <div class="config-item">
+                  <label>分句模式</label>
+                  <select v-model="s2vConfig.splitMode" class="form-select">
+                    <option value="fast">快速</option>
+                    <option value="balanced">均衡</option>
+                    <option value="precise">精确</option>
+                  </select>
+                </div>
+                <div class="config-item">
+                  <label>单句最大长度</label>
+                  <input type="number" v-model.number="s2vConfig.splitMaxSentenceLength" min="20" max="1000" class="form-input" />
+                </div>
+                <div class="config-item">
+                  <label>分镜目标时长（秒）</label>
+                  <input type="number" v-model.number="s2vConfig.splitTargetSeconds" min="1" max="60" step="0.5" class="form-input" />
+                </div>
+                <div class="config-item">
+                  <label>无旁白场景时长（秒）</label>
+                  <input type="number" v-model.number="s2vConfig.perImageDuration" min="1" max="60" step="0.5" class="form-input" />
+                </div>
+                <div class="config-item config-span-2">
+                  <label>负向提示词</label>
+                  <textarea v-model.trim="s2vConfig.negativePrompt" rows="2" maxlength="500" class="form-textarea"></textarea>
                 </div>
               </div>
-              <div class="config-item">
-                <label>输出分辨率</label>
-                <select v-model="activeOutputConfig.resolution" class="form-select">
-                  <option value="720x1280">720×1280 (Story2Video)</option>
-                  <option value="1920x1080">1920×1080 (Full HD)</option>
-                  <option value="3840x2160">3840×2160 (4K)</option>
-                  <option value="1080x1920">1080×1920 (竖屏)</option>
-                  <option value="1080x1440">1080×1440 (小红书)</option>
-                </select>
-              </div>
-              <div class="config-item">
-                <label>帧率</label>
-                <select v-model.number="activeOutputConfig.fps" class="form-select">
-                  <option :value="24">24 fps (电影)</option>
-                  <option :value="30">30 fps (标准)</option>
-                  <option :value="60">60 fps (流畅)</option>
-                </select>
-              </div>
-              <div class="config-item">
-                <label>格式</label>
-                <select v-model="activeOutputConfig.format" class="form-select">
-                  <option value="mp4">MP4 (H.264)</option>
-                  <option value="webm">WebM (VP9)</option>
-                </select>
+            </div>
+            <div class="s2v-subgroup">
+              <h4 class="s2v-subgroup-title">{{ s2vSubgroupLabel('templateOutput') }}</h4>
+              <div class="config-grid">
+                <div class="config-item">
+                  <label>模板分类</label>
+                  <select v-model="s2vTemplateCategory" class="form-select">
+                    <option value="all">全部模板</option>
+                    <option value="popular">热门</option>
+                    <option value="business">商务</option>
+                    <option value="creative">创意</option>
+                    <option value="vlog">Vlog</option>
+                    <option value="education">知识讲解</option>
+                    <option value="custom">我的模板</option>
+                  </select>
+                </div>
+                <div class="config-item">
+                  <label>视频模板</label>
+                  <select v-model="s2vConfig.templateId" class="form-select" @change="applyS2VTemplate">
+                    <option v-for="template in s2vTemplates" :key="template.value" :value="template.value">{{ template.label }}</option>
+                  </select>
+                </div>
+                <div class="config-item config-span-2">
+                  <label>自定义模板</label>
+                  <div class="template-editor">
+                    <input v-model.trim="s2vCustomTemplateName" class="form-input" maxlength="80" placeholder="输入模板名称" />
+                    <button type="button" class="btn-secondary" :disabled="!s2vCustomTemplateName" @click="saveCurrentS2VTemplate">保存当前参数</button>
+                    <button v-if="selectedS2VTemplate?.category === 'custom'" type="button" class="btn-secondary danger" @click="requestTemplateDeletion">删除模板</button>
+                  </div>
+                </div>
+                <div class="config-item">
+                  <label>输出分辨率</label>
+                  <select v-model="activeOutputConfig.resolution" class="form-select">
+                    <option value="720x1280">720×1280 (Story2Video)</option>
+                    <option value="1920x1080">1920×1080 (Full HD)</option>
+                    <option value="3840x2160">3840×2160 (4K)</option>
+                    <option value="1080x1920">1080×1920 (竖屏)</option>
+                    <option value="1080x1440">1080×1440 (小红书)</option>
+                  </select>
+                </div>
+                <div class="config-item">
+                  <label>帧率</label>
+                  <select v-model.number="activeOutputConfig.fps" class="form-select">
+                    <option :value="24">24 fps (电影)</option>
+                    <option :value="30">30 fps (标准)</option>
+                    <option :value="60">60 fps (流畅)</option>
+                  </select>
+                </div>
+                <div class="config-item">
+                  <label>格式</label>
+                  <select v-model="activeOutputConfig.format" class="form-select">
+                    <option value="mp4">MP4 (H.264)</option>
+                    <option value="webm">WebM (VP9)</option>
+                  </select>
+                </div>
               </div>
             </div>
             <p class="s2v-controlled-defaults">部分高级运行参数由系统默认值管理。</p>
@@ -596,6 +607,9 @@
             <UiButton class="btn-start" data-testid="start-story2video" @click="startPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
             </UiButton>
+            <p v-if="!pipelineAvailable(selectedPipeline?.name)" class="unavailable-hint" data-testid="pipeline-unavailable-hint">
+              {{ translateWithLocaleFallback('pipelines.availability.notImplementedHint', '该流水线尚未实现执行引擎，暂不能生成视频', 'This pipeline has no execution engine yet.') }}
+            </p>
           </div>
           <div v-else class="running-controls">
             <template v-if="orchestrationRunId">
@@ -790,6 +804,9 @@ const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
   '1080x1920': '9:16',
   '1080x1440': '3:4',
 })
+
+// 已实现真实执行引擎的流水线（与 pipeline-engine 注册表 available 字段保持一致；此处为前端兜底）
+const IMPLEMENTED_PIPELINES = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke']
 
 function prioritizeStory2VideoPipeline(pipelines) {
   const values = Array.isArray(pipelines) ? pipelines : []
@@ -999,6 +1016,7 @@ export default {
     },
     canStartPipeline() {
       if (!this.selectedPipeline) return false
+      if (!this.pipelineAvailable(this.selectedPipeline.name)) return false
       if (this.isOrchestratedPipeline(this.selectedPipeline.name)) {
         return this.inputMode === 'text' && this.pipelineText.trim().length > 0
       }
@@ -1050,6 +1068,12 @@ export default {
       const english = { basic: 'Basics', appearance: 'Appearance', voice: 'Voice', advanced: 'Advanced', publish: 'Publish' }[section] || section
       return this.translateWithLocaleFallback(key, fallback, english)
     },
+    s2vSubgroupLabel(subgroup) {
+      const key = `create.story2video.subgroups.${subgroup}`
+      const fallback = { splitTiming: '分句与时长', templateOutput: '模板与输出' }[subgroup] || subgroup
+      const english = { splitTiming: 'Split & Timing', templateOutput: 'Template & Output' }[subgroup] || subgroup
+      return this.translateWithLocaleFallback(key, fallback, english)
+    },
     s2vSectionSummary(section) {
       const summaries = {
         basic: `${this.s2vConfig.contentType === 'history' ? '历史内容' : '通用内容'} · ${this.s2vConfig.imageProvider || '默认图片模型'}`,
@@ -1097,6 +1121,27 @@ export default {
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
     isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke'].includes(name) },
     isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic', 'talking-head'].includes(name) },
+    pipelineAvailable(name) {
+      const selected = this.selectedPipeline
+      if (selected && selected.name === name && typeof selected.available === 'boolean') return selected.available
+      const pipeline = (this.pipelines || []).find(item => item.name === name)
+      if (pipeline && typeof pipeline.available === 'boolean') return pipeline.available
+      return IMPLEMENTED_PIPELINES.includes(name)
+    },
+    availabilityLabel(available) {
+      return this.translateWithLocaleFallback(
+        available ? 'pipelines.availability.ready' : 'pipelines.availability.dev',
+        available ? '可用' : '开发中',
+        available ? 'Available' : 'In Development'
+      )
+    },
+    availabilityHint(available) {
+      return this.translateWithLocaleFallback(
+        available ? 'pipelines.availability.readyHint' : 'pipelines.availability.notImplementedHint',
+        available ? '该流水线可生成视频' : '该流水线尚未实现执行引擎，暂不能生成视频',
+        available ? 'This pipeline can generate videos' : 'This pipeline has no execution engine yet.'
+      )
+    },
     getDefaultPipelineStages(name) {
       const pipeline = (this.pipelines || []).find(item => item.name === name)
       return (pipeline?.stages || STORY2VIDEO_STAGE_NAMES).map(stageName => ({ name: stageName, status: 'pending' }))
@@ -1105,6 +1150,10 @@ export default {
       return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
     },
     async startPipeline() {
+      if (!this.pipelineAvailable(this.selectedPipeline?.name)) {
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED })
+        return
+      }
       if (this.isAutoPipeline(this.selectedPipeline.name) || this.isMediaAutoPipeline(this.selectedPipeline.name)) {
         return this.startOrchestratedPipeline()
       }
@@ -2147,10 +2196,16 @@ export default {
 .stability-dot.experimental { background: #f59e0b; }
 .card-title { font-size: 16px; margin: 0 0 6px 0; }
 .card-desc { font-size: 13px; color: #666; line-height: 1.4; margin: 0 0 12px 0; }
-.card-meta { display: flex; gap: 12px; font-size: 12px; color: #999; }
+.card-meta { display: flex; gap: 12px; font-size: 12px; color: #999; align-items: center; }
 .cost-label.low { color: #10b981; }
 .cost-label.medium { color: #f59e0b; }
 .cost-label.high { color: #ef4444; }
+.availability-badge { font-size: 11px; padding: 1px 8px; border-radius: 10px; font-weight: 600; margin-left: auto; }
+.availability-badge.ready { background: #d1fae5; color: #047857; }
+.availability-badge.dev { background: #fef3c7; color: #b45309; }
+.pipeline-card.is-unavailable { opacity: 0.72; }
+.pipeline-card.is-unavailable:hover { transform: none; box-shadow: none; }
+.unavailable-hint { color: #b45309; font-size: 12px; margin-top: 8px; }
 
 /* 流水线详情 */
 .pipeline-detail { }
@@ -2206,6 +2261,9 @@ export default {
 .s2v-config-section[open] > .s2v-section-summary::before { transform: rotate(90deg); }
 .s2v-summary { margin-left: auto; color: var(--text-muted); font-size: 12px; font-weight: 400; text-align: right; }
 .s2v-config-section > .config-grid { padding: 0 16px 16px; }
+.s2v-subgroup { margin: 0 16px 12px; }
+.s2v-subgroup:first-of-type { margin-top: 2px; }
+.s2v-subgroup-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 0 8px; padding-bottom: 4px; border-bottom: 1px dashed var(--border); }
 .s2v-controlled-defaults { margin: -4px 16px 16px; color: var(--text-muted); font-size: 12px; }
 .config-section h3 { font-size: 16px; margin: 0 0 12px; }
 .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }

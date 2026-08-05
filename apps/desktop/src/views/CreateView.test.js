@@ -890,7 +890,7 @@ describe("CreateView - S2V orchestration", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "animation", description: "test", stages: [], category: "animation" };
+    w.vm.selectedPipeline = { name: "animation", description: "test", stages: [], category: "animation", available: true };
     w.vm.pipelineText = "test text";
     await w.vm.startPipeline();
     expect(mocks.pipelineStart).toHaveBeenCalled();
@@ -905,7 +905,7 @@ describe("CreateView - S2V orchestration", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "animation", stages: [] };
+    w.vm.selectedPipeline = { name: "animation", stages: [], available: true };
     w.vm.pipelineText = "创作内容";
     w.vm.inputMode = "text";
 
@@ -930,7 +930,7 @@ describe("CreateView - S2V orchestration", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "animation", stages: [] };
+    w.vm.selectedPipeline = { name: "animation", stages: [], available: true };
     w.vm.inputMode = "video";
     w.vm.pipelineVideo = { name: "source.mp4", path: "C:/media/source.mp4" };
 
@@ -1089,7 +1089,7 @@ describe("CreateView - UI interactions", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { id: "p1", name: "normal-pipeline" };
+    w.vm.selectedPipeline = { id: "p1", name: "normal-pipeline", available: true };
     w.vm.pipelineText = "通过界面发起的内容";
     await nextTick();
     const startBtn = w.find(".btn-start");
@@ -1105,6 +1105,55 @@ describe("CreateView - UI interactions", () => {
     }));
     expect(alertSpy).toHaveBeenCalledWith("测试阻止启动");
     alertSpy.mockRestore();
+  });
+
+  it("未实现引擎的流水线禁用启动按钮并显示提示", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.pipelines = [{ name: "animation", available: false, stages: [] }];
+    w.vm.selectedPipeline = { name: "animation", available: false, stages: [] };
+    w.vm.pipelineText = "内容";
+    await nextTick();
+    expect(w.vm.canStartPipeline).toBe(false);
+    const startBtn = w.find('[data-testid="start-story2video"]');
+    expect(startBtn.attributes("disabled")).toBeDefined();
+    const hint = w.find('[data-testid="pipeline-unavailable-hint"]');
+    expect(hint.exists()).toBe(true);
+    expect(hint.text()).toContain("尚未实现执行引擎");
+    w.unmount();
+  });
+
+  it("未实现引擎的流水线 startPipeline 被守卫拦截并弹出提示", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "animation", available: false, stages: [] };
+    w.vm.pipelineText = "内容";
+    mocks.pipelineStart.mockClear();
+    await w.vm.startPipeline();
+    expect(mocks.pipelineStart).not.toHaveBeenCalled();
+    expect(w.vm.story2videoErrorDialog.visible).toBe(true);
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.pipeline_not_implemented");
+    w.unmount();
+  });
+
+  it("s2v 高级区拆分为分句与时长、模板与输出两个子组", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.s2vOpenSections.advanced = true;
+    await nextTick();
+    const titles = w.findAll(".s2v-subgroup-title").map(t => t.text());
+    expect(titles).toEqual(["分句与时长", "模板与输出"]);
+    expect(w.text()).toContain("分句语言");
+    expect(w.text()).toContain("输出分辨率");
+    w.unmount();
   });
 
   it("历史记录优先展示可恢复的 Story2Video 项目并可打开", async () => {

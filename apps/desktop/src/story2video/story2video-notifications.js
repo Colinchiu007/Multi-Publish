@@ -26,6 +26,7 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   DEGRADED_ASSETS_WARNING: 'story2video.degraded_assets_warning',
   OPERATION_FAILED: 'story2video.operation_failed',
   UNKNOWN_ERROR: 'story2video.unknown_error',
+  PIPELINE_NOT_IMPLEMENTED: 'story2video.pipeline_not_implemented',
 })
 
 export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
@@ -55,6 +56,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING]: '此成片包含离线降级素材（{kinds}），请在发布前预览确认。',
     [STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED]: '当前操作未能完成，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR]: '当前操作未能完成，请稍后再试。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED]: '该流水线尚未实现执行引擎，暂不能生成视频。',
   }),
   en: Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED]: 'The required models are not available. Add them in Settings.',
@@ -82,6 +84,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING]: 'This video contains offline fallback assets ({kinds}). Preview it before publishing.',
     [STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED]: 'Story2Video could not complete the request. Please try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR]: 'Story2Video could not complete the request. Please try again.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED]: 'This pipeline has no execution engine yet, so videos cannot be generated.',
   }),
 })
 

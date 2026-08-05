@@ -527,12 +527,15 @@ class PipelineEngine {
       ...PIPELINES.filter((pipeline) => pipeline.name === STORY2VIDEO_PIPELINE),
       ...PIPELINES.filter((pipeline) => pipeline.name !== STORY2VIDEO_PIPELINE),
     ]
+    const hasRealStages = (p) => Array.isArray(p.stageDefs) && p.stageDefs.length > 0
     const builtIn = prioritizedBuiltIn.map((p) => ({
       name: p.name,
       description: p.description,
       category: p.category,
       stageCount: p.stages.length,
       estimatedCost: p.estimatedCost,
+      // 是否已实现真实执行引擎：有 stageDefs 即认为可真实运行
+      available: hasRealStages(p),
     }));
     const custom = this._customPipelines
       ? Array.from(this._customPipelines.values()).map((p) => ({
@@ -541,6 +544,7 @@ class PipelineEngine {
           category: p.category,
           stageCount: p.stages.length,
           estimatedCost: p.estimatedCost,
+          available: hasRealStages(p),
         }))
       : [];
     return builtIn.concat(custom);
