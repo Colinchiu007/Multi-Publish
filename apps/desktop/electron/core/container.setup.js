@@ -51,6 +51,7 @@ const PromptBridge = require('../services/prompt-bridge');
 const ServiceBus = require('../services/service-bus');
 const PluginRegistry = require('../services/plugin-registry');
 const { registerStory2VideoStages } = require('../services/story2video-stages');
+const { registerExplainerStages } = require('../services/explainer-stages');
 
 function createContainer(options) {
   const container = new Container();
@@ -80,6 +81,7 @@ function createContainer(options) {
     if (engine.stageExecutor) {
       try {
         registerStory2VideoStages(engine);
+        registerExplainerStages(engine);
       } catch (e) {
         c.get("logger").warn("container",
           "registerStory2VideoStages failed: " + (e instanceof Error ? e.message : String(e)));

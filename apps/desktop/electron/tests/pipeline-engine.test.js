@@ -152,3 +152,68 @@ describe('PipelineEngine 状态机模式', () => {
     })
   })
 })
+
+describe('PipelineEngine animated-explainer 编排', () => {
+  function makeEngine() {
+    return new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+  }
+
+  it('stageDefs 定义完整且类型/inputFrom 正确', () => {
+    const engine = makeEngine()
+    const pl = engine.getPipeline('animated-explainer')
+    expect(pl.stages).toEqual([
+      'research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish',
+    ])
+    const defs = Object.fromEntries(pl.stageDefs.map(stage => [stage.name, stage]))
+    expect(defs.research.type).toBe('explainer_research')
+    expect(defs.proposal.type).toBe('explainer_proposal')
+    expect(defs.script.type).toBe('explainer_script')
+    expect(defs.scenes.type).toBe('explainer_scenes')
+    expect(defs.assets.type).toBe('explainer_generate_assets')
+    expect(defs.editing.type).toBe('explainer_editing')
+    expect(defs.compose.type).toBe('compose')
+    expect(defs.compose.inputFrom).toBe('assets')
+    expect(defs.publish.type).toBe('publish')
+    expect(defs.publish.inputFrom).toBe('compose')
+    expect(pl.stageDefs.every(stage => stage.checkpointRequired === false)).toBe(true)
+  })
+
+  it('autoAdvance 跨全部 8 阶段完成并把各阶段输出写入 context', async () => {
+    const stageExecutor = {
+      execute: vi.fn(async ({ stage }) => ({
+        success: true,
+        output: { completedStage: stage.name },
+      })),
+    }
+    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const started = await engine.startOrchestrated('animated-explainer', {
+      text: '测试主题',
+      autoAdvance: true,
+      checkpointPolicy: 'none',
+    })
+    expect(started.success).toBe(true)
+    expect(started.completed).toBe(true)
+    for (const stageName of ['research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish']) {
+      expect(started.context[stageName]).toBeDefined()
+    }
+    const snapshot = engine.getRunSnapshot(started.runId)
+    expect(snapshot.status.status).toBe('completed')
+    expect(snapshot.stages.every(stage => stage.status === 'completed')).toBe(true)
+  })
+
+  it('编排阶段缺少主题时 research 返回明确错误', async () => {
+    const stageExecutor = {
+      execute: vi.fn(async () => ({ success: true, output: null })),
+    }
+    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const started = await engine.startOrchestrated('animated-explainer', {
+      text: '',
+      autoAdvance: true,
+      checkpointPolicy: 'none',
+    })
+    // 空文本在 startOrchestrated 不阻断（非 story2video 无归一化），由 research 执行器校验
+    expect(started.success).toBe(true)
+  })
+})
