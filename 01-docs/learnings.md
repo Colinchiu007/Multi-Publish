@@ -5602,3 +5602,4 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **回归保护**：通知单元测试先 RED 后 GREEN；CreateView 输入 `1` 的权限拒绝组件用例覆盖弹窗键；普通失败和模型未配置映射保持原合同。
 - **调试 profile**：开发脚本已支持 `ELECTRON_USER_DATA_DIR`；使用仓库外固定目录可复用同机 DPAPI/Cookie/Local Storage，但目录存在不能证明身份仍有效，必须检查 `identity:get-state`。远程部署使用独立 userData，交付前清理本地 profile。
 - **外部边界**：本地测试不等价于真实 Logto 会话、真实供应商 API 或远程部署验收。
+- CCG task archive metadata must be marked `completed` after closeout and archived with its Bug Reflection, test evidence, and PRD/Review Checklist records; changing only task JSON also triggers the documentation sync gate.
