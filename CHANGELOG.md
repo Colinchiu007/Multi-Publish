@@ -1,3 +1,10 @@
+## [未发布] animated-explainer 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- animated-explainer（AI 讲解视频）从 state_machine 占位升级为真实编排流水线：LLM 规划链（主题→大纲→分镜→旁白→场景）→ 图片+旁白生成（复用 story2video 资源生成与内容政策重试）→ FFmpeg 合成（复用 story2video 引擎）→ 发布（可选）。
+- 新增 `explainer-stages.js` 注册 6 个自定义阶段执行器；`pipeline-engine` 为 animated-explainer 补齐 stageDefs（8 阶段，checkpointRequired=false）。
+- 新增阶段执行器与编排契约单元测试（explainer 14 + 编排 3，全部通过）。
+
 ## [未发布] 任务归档 (2026-08-06)
 
 ### 维护

@@ -32,6 +32,79 @@ const PIPELINES = [
     category: 'generated',
     stages: ['research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish'],
     estimatedCost: 'medium',
+    // 真实编排：LLM 规划链（explainer-stages.js 注册）→ 图片+旁白 → FFmpeg 合成 → 发布（可选）
+    stageDefs: [
+      {
+        name: 'research',
+        type: 'explainer_research',
+        description: '主题研究生成大纲',
+        checkpointRequired: false,
+      },
+      {
+        name: 'proposal',
+        type: 'explainer_proposal',
+        description: '大纲转分镜方案',
+        checkpointRequired: false,
+      },
+      {
+        name: 'script',
+        type: 'explainer_script',
+        description: '分镜转旁白文案',
+        checkpointRequired: false,
+      },
+      {
+        name: 'scenes',
+        type: 'explainer_scenes',
+        description: '文案拆分为视频场景',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'assets',
+        type: 'explainer_generate_assets',
+        description: '生成图片与旁白',
+        checkpointRequired: false,
+        options: {
+          concurrency: 3,
+          imageStyle: 'cinematic',
+          imageProvider: null,
+          imageModel: null,
+          aspectRatio: '16:9',
+        },
+      },
+      {
+        name: 'editing',
+        type: 'explainer_editing',
+        description: '资源清单校验',
+        checkpointRequired: false,
+      },
+      {
+        name: 'compose',
+        type: 'compose',
+        description: '视频合成',
+        checkpointRequired: false,
+        inputFrom: 'assets',
+        options: {
+          transition: 'fade',
+          imageEffect: 'zoom-in',
+          subtitleEnabled: false,
+          resolution: '1920x1080',
+          fps: 30,
+          format: 'mp4',
+          defaultSceneDuration: 6,
+          generateBase: true,
+          generateMerged: true,
+        },
+      },
+      {
+        name: 'publish',
+        type: 'publish',
+        description: '发布（可选）',
+        checkpointRequired: false,
+        inputFrom: 'compose',
+        options: {},
+      },
+    ],
   },
   {
     name: 'talking-head',
@@ -831,7 +904,7 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
-    if (run.pipeline === 'story2video-compose' && status === 'completed' && this.story2videoProjectService) {
+    if (['story2video-compose', 'animated-explainer'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);
         if (project) {

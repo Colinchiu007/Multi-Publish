@@ -21,6 +21,8 @@ const {
 
 const SETTING_KEY = 'story2video_projects_v1'
 const MAX_PROJECTS = 100
+// 具备真实编排产物（compose 输出）并需要项目持久化的流水线
+const AUTO_PIPELINES = ['story2video-compose', 'animated-explainer']
 const MAX_VIDEO_BYTES = 512 * 1024 * 1024
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,100}$/
 
@@ -357,19 +359,22 @@ class Story2VideoProjectService {
   }
 
   saveRun (run) {
-    if (!run || run.pipeline !== 'story2video-compose') return null
+    if (!run || !AUTO_PIPELINES.includes(run.pipeline)) return null
     const compose = resolveComposeOutput(run.context)
     if (!compose || !(compose.videoPath || compose.path)) return null
     const projectId = this._assertId(String(run.id || ''))
-    const artifacts = this._persistComposeArtifacts(projectId, compose, run.context?.generate_assets?.scenes || [])
+    const scenes = run.context?.generate_assets?.scenes || run.context?.assets?.scenes || []
+    const artifacts = this._persistComposeArtifacts(projectId, compose, scenes)
     const options = this._safeOptions(run.params, projectId)
-    const story2videoTextConfig = this._persistTextConfig(run.params, projectId, options)
+    const story2videoTextConfig = run.pipeline === 'story2video-compose'
+      ? this._persistTextConfig(run.params, projectId, options)
+      : null
     const sourceText = safeText(run.params?.text || story2videoTextConfig?.config?.prompt, 100000)
     const now = new Date().toISOString()
     const project = {
       manifestVersion: 2,
       projectId,
-      pipeline: 'story2video-compose',
+      pipeline: run.pipeline,
       status: run.status || 'completed',
       title: safeText(run.params?.title || story2videoTextConfig?.config?.publish?.title || sourceText, 160),
       sourceText,
