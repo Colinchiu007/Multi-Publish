@@ -531,6 +531,12 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 
 运行反馈统一为六项阶段清单（文案拆分、内容增强、画面提示词优化、生成图片与旁白、合成轮播视频、发布），展示阶段状态与摘要，不显示 Story2Video 百分比。启动按钮统一显示“启动流水线”；英文 locale 对应 “Start pipeline”。
 
+### 身份与权益错误边界（2026-08-05）
+
+图片轮播启动调用受保护的 `pipeline:startOrchestrated` IPC。未登录、登录会话失效或当前账号没有流水线权益时，主进程返回 `AUTH_ERROR`（桌面错误码 `-3`），renderer 必须显示稳定的 `story2video.access_denied` 本地化提示，明确要求用户登录并确认账号权益；不得把该状态伪装成普通生成失败，也不得通过开发变量绕过授权。权限错误仍应停止轮询、保留阶段清单的失败状态，并允许用户登录后重新提交。
+
+本地调试可通过 `ELECTRON_USER_DATA_DIR` 复用仓库外固定 profile；profile 目录存在不等于身份状态有效，启动后必须以 `identity:get-state` 的 `authenticated`/`offline_authenticated` 结果为准。远程部署使用独立 userData，部署或交付前清理本地调试 profile，禁止将 Cookie、Local Storage、SQLite、DPAPI 凭据纳入版本库。
+
 ### 路由错误边界
 
 懒加载组件（特别是 /create）失败时，router 通过共享响应式状态记录路径、友好错误和调试摘要。应用根布局优先渲染 RouteLoadError，提供“重试”和“刷新应用”，保证初始导航失败发生在 App 挂载前也不会出现裸白屏。错误仍写入 renderer console，便于诊断；正常加载路径不改变 CreateView 行为。

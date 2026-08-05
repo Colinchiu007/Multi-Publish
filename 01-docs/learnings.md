@@ -5595,3 +5595,10 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 1. 本地化 E2E 禁止依赖内部枚举文本，必须使用稳定 `data-*`/状态 class 加用户可见文案。
 2. “优先显示”类产品语义必须锁定首项 ID，不能只断言目标卡片存在。
 3. 修改 Vue 文案、按钮或流水线排序时，提交前必须运行受影响 Vitest、`npm run build:vue` 和 route functional GUI 合同；远端 `gui-test` 未通过不得合并。
+## Story2Video 图片轮播权限提示与调试 profile 复盘（2026-08-05）
+
+- **第一性原因**：`pipeline:startOrchestrated` 的受保护 IPC 返回 `AUTH_ERROR=-3` 时，CreateView 丢弃 `res.code`，Story2Video 通知层又没有许可证/登录拒绝映射，导致用户看到泛化失败提示。
+- **修复**：CreateView 在启动、轮询和检查点推进失败路径保留 IPC code；通知目录新增 `story2video.access_denied`，识别 `-3` 与许可证/权益拒绝文本，默认中文明确提示登录并确认账号权益，英文同步提供。
+- **回归保护**：通知单元测试先 RED 后 GREEN；CreateView 输入 `1` 的权限拒绝组件用例覆盖弹窗键；普通失败和模型未配置映射保持原合同。
+- **调试 profile**：开发脚本已支持 `ELECTRON_USER_DATA_DIR`；使用仓库外固定目录可复用同机 DPAPI/Cookie/Local Storage，但目录存在不能证明身份仍有效，必须检查 `identity:get-state`。远程部署使用独立 userData，交付前清理本地 profile。
+- **外部边界**：本地测试不等价于真实 Logto 会话、真实供应商 API 或远程部署验收。

@@ -10,6 +10,7 @@ describe('Story2Video notification messages', () => {
   it('exposes stable message keys for renderer notifications', () => {
     expect(STORY2VIDEO_NOTIFICATION_KEYS).toMatchObject({
       MODEL_CONFIGURATION_REQUIRED: 'story2video.model_configuration_required',
+      ACCESS_DENIED: 'story2video.access_denied',
       ORCHESTRATION_FAILED: 'story2video.orchestration_failed',
       TEXT_INPUT_ONLY: 'story2video.text_input_only',
       UNKNOWN_ERROR: 'story2video.unknown_error',
@@ -70,6 +71,19 @@ describe('Story2Video notification messages', () => {
     expect(notification.message).not.toContain(rawError)
     expect(notification.message).not.toContain('127.0.0.1')
     expect(notification.message).not.toContain('secret')
+  })
+
+  it('maps an authenticated IPC denial to a clear sign-in/access message', () => {
+    const notification = formatStory2VideoNotification({
+      code: -3,
+      message: '当前许可证无权访问 pipeline:startOrchestrated',
+    })
+
+    expect(notification).toEqual({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED,
+      message: '当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。',
+      codePointCount: countUnicodeCodePoints('当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。'),
+    })
   })
 
   it('counts Unicode code points rather than UTF-16 code units or grapheme clusters', () => {
