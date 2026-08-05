@@ -3,6 +3,8 @@
 ## P0
 
 ### IPC Handler 完整性
+- 对受保护 IPC 的非零响应，确认 renderer 保留错误码并映射到稳定的本地化用户提示；至少覆盖未登录/无权益与普通失败两类状态。
+
 - preload 的 ipcRenderer.invoke 都有对应的 ipcMain.handle
 
 ### Preload Sandbox 兼容性
@@ -31,4 +33,3 @@
 
 ### 测试计数基线
 - 当前 696 tests，CI 跟踪变化
-

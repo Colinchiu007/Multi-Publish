@@ -1215,7 +1215,7 @@ export default {
           if (this.orchestrationRunId && !this.pollTimer) {
             this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
           }
-        } else { this.setOrchestrationError({ errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
+        } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
@@ -1659,7 +1659,7 @@ export default {
       try {
         const statusResult = await pipelineGetRunContext(this.orchestrationRunId)
         if (statusResult?.code !== 0) {
-          this.setOrchestrationError({ error: statusResult?.message })
+          this.setOrchestrationError({ code: statusResult?.code, error: statusResult?.message })
           return
         }
         if (!statusResult.data) {
@@ -1697,7 +1697,7 @@ export default {
       if (res?.code === 0 && res.data?.success !== false) {
         if (!this.applyOrchestrationOutcome(res.data || {})) await this.updateOrchestrationStatus()
       }
-      else { this.setOrchestrationError({ error: res?.message || res?.data?.error }) }
+      else { this.setOrchestrationError({ code: res?.code, error: res?.message || res?.data?.error }) }
     },
     extractOrchestrationVideoPath(context) {
       const publish = context?.publish?.data || context?.publish

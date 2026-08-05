@@ -2,6 +2,7 @@ export const MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000
 
 export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   MODEL_CONFIGURATION_REQUIRED: 'story2video.model_configuration_required',
+  ACCESS_DENIED: 'story2video.access_denied',
   ORCHESTRATION_FAILED: 'story2video.orchestration_failed',
   TEXT_INPUT_ONLY: 'story2video.text_input_only',
   TEXT_TOO_LONG: 'story2video.text_too_long',
@@ -30,6 +31,7 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
 export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
   zh: Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED]: '未找到需要的相关模型，请在设置中添加模型',
+    [STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED]: '当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。',
     [STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED]: 'Story2Video 暂时无法完成生成，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY]: 'Story2Video 目前只支持输入文案。',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG]: '文案最多可输入 {max} 个字符，请缩短后再试。',
@@ -56,6 +58,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
   }),
   en: Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED]: 'The required models are not available. Add them in Settings.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED]: 'Sign in with an account that can access the image carousel pipeline, then try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED]: 'Story2Video could not finish generation right now. Please try again shortly.',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY]: 'Story2Video currently supports text input only.',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG]: 'Your script can contain up to {maxFormatted} characters. Please shorten it and try again.',
@@ -89,6 +92,7 @@ const DEGRADED_ASSET_LABELS = Object.freeze({
   en: Object.freeze({ placeholder_image: 'placeholder images', silent_narration: 'silent narration' }),
 })
 const MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用|api\s*key\s*not\s*configured|(?:尚未配置|未配置|未设置).*api\s*key)/i
+const ACCESS_DENIED_PATTERN = /(当前许可证无权访问|当前账号没有所需权益|未授权|未登录|需要登录|access denied|not authorized|permission denied|sign[ -]?in required)/i
 const TEXT_ONLY_PATTERN = /(只支持\s*(?:text|文案)|text\s*mode|text input only)/i
 const TEXT_TOO_LONG_PATTERN = /(超过\s*6000|最多\s*6000|6000.*(?:字符|character)|text.*(?:too long|exceeds))/i
 const PREVIEW_MISSING_PATTERN = /(未返回.*可预览.*视频|preview.*(?:missing|video)|no previewable video)/i
@@ -148,6 +152,8 @@ function resolveMessageKey (notification, fallbackKey) {
   if (isKnownMessageKey(suppliedKey)) return suppliedKey
 
   const raw = String(notification?.error || notification?.message || '').trim()
+  if (Number(notification?.code) === -3 || Number(notification?.errorCode) === -3) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
+  if (ACCESS_DENIED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
   if (MODEL_CONFIGURATION_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED
   if (TEXT_ONLY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY
   if (TEXT_TOO_LONG_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG

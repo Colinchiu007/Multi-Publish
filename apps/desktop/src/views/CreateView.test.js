@@ -619,6 +619,28 @@ describe("CreateView - S2V orchestration", () => {
     alertSpy.mockRestore();
     w.unmount();
   });
+  it("Story2Video IPC 权限拒绝显示登录/权益提示，不回退为泛化失败", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({
+      code: -3,
+      message: "当前许可证无权访问 pipeline:startOrchestrated",
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
+    w.vm.pipelineText = "1";
+
+    await w.vm.startPipeline();
+
+    expect(w.vm.story2videoErrorDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.access_denied",
+      messageParams: {},
+    });
+    w.unmount();
+  });
   it("Story2Video 在调用 IPC 前拒绝超过 6000 个 Unicode 字符的文案", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
