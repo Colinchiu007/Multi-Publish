@@ -28,6 +28,7 @@ const {
   MAX_IMAGE_GENERATION_ATTEMPTS,
   runContentPolicyImageRetry,
 } = require('./story2video-image-retry');
+const { ERROR_CODES } = require('./adapters/_base/provider-error');
 
 /**
  * Story2Video-compose 专用的阶段类型
@@ -44,6 +45,84 @@ function normalizeAssetConcurrency(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 3;
   return Math.min(MAX_ASSET_CONCURRENCY, Math.max(1, Math.floor(number)));
+}
+
+const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|额度|quota/i;
+const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i;
+
+function messageOf(value) {
+  if (value && typeof value === 'object') return String(value.message || value.error || value.msg || '');
+  return String(value || '');
+}
+
+function isRateLimitErrorLike(value) {
+  if (value && typeof value === 'object') {
+    if (value.code === ERROR_CODES.RATE_LIMITED) return true;
+    if (Number(value.statusCode) === 429 || Number(value.status) === 429 || Number(value.code) === 429) return true;
+  }
+  return RATE_LIMIT_PATTERN.test(messageOf(value));
+}
+
+function isTransientErrorLike(value) {
+  if (isRateLimitErrorLike(value)) return true;
+  if (value && typeof value === 'object' && [ERROR_CODES.TIMEOUT, ERROR_CODES.NETWORK_ERROR].includes(value.code)) return true;
+  return TRANSIENT_PATTERN.test(messageOf(value));
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 对抛错型 provider 调用做有界重试：
+ * - 限流（429 / RATE_LIMITED）：更长退避（2500ms×attempt），最多 rateLimitMaxAttempts 次；
+ * - 其他瞬时错误（超时/网络）：800ms×attempt，最多 maxAttempts 次；
+ * - 非瞬时错误：立即抛出，不消耗重试次数。
+ */
+async function withTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4 } = {}) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= Math.max(maxAttempts, rateLimitMaxAttempts); attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (error) {
+      lastError = error;
+      if (!isTransientErrorLike(error)) throw error;
+      const limit = isRateLimitErrorLike(error) ? rateLimitMaxAttempts : maxAttempts;
+      if (attempt >= limit) break;
+      await sleep((isRateLimitErrorLike(error) ? 2500 : 800) * attempt);
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * 对返回结果对象（如 { code: -1, message }）或抛错的资源生成调用做有界重试。
+ * 仅在可判定为瞬时（限流/超时/网络）时重试；内容政策检查点、模型配置等失败原样返回。
+ */
+async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4 } = {}) {
+  let last = null;
+  for (let attempt = 1; attempt <= Math.max(maxAttempts, rateLimitMaxAttempts); attempt++) {
+    let outcome;
+    try {
+      outcome = await fn(attempt);
+    } catch (error) {
+      if (!isTransientErrorLike(error)) throw error;
+      last = error;
+      const limit = isRateLimitErrorLike(error) ? rateLimitMaxAttempts : maxAttempts;
+      if (attempt >= limit) return { code: -1, message: error.message || String(error) };
+      await sleep((isRateLimitErrorLike(error) ? 2500 : 800) * attempt);
+      continue;
+    }
+    const ok = outcome && (Number(outcome.code) === 0 || outcome.success === true);
+    const transient = !ok && outcome && isTransientErrorLike(outcome);
+    if (ok) return outcome;
+    if (!transient) return outcome;
+    last = outcome;
+    const limit = isRateLimitErrorLike(outcome) ? rateLimitMaxAttempts : maxAttempts;
+    if (attempt >= limit) return outcome;
+    await sleep((isRateLimitErrorLike(outcome) ? 2500 : 800) * attempt);
+  }
+  return last;
 }
 
 /** 将 renderer 传入的图片路径或 data URL 解析为主进程可读的本地文件。 */
@@ -275,25 +354,18 @@ function registerStory2VideoStages(pipelineEngine) {
           if (!promptSeed) {
             throw new Error('Story2Video optimize scene ' + index + ' is missing a prompt seed')
           }
-          // 瞬态 provider 错误有界重试，避免单场景一次失败拖垮整阶段
+          // 瞬态 provider 错误有界重试：限流用更长退避，避免长文案多场景并发触发
+          // 限流时短退避重试不足以恢复而拖垮整阶段；非瞬时错误立即失败，不消耗重试次数。
           let result
-          let lastError = null
-          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            try {
-              result = await aiGenerator.generateWithDefault(
+          try {
+            result = await withTransientRetry(
+              () => aiGenerator.generateWithDefault(
                 'llm',
                 buildOptimizationRequest(promptSeed, stage.options || {}),
-              )
-              lastError = null
-              break
-            } catch (error) {
-              lastError = error
-              if (attempt < maxAttempts) {
-                await new Promise(resolve => setTimeout(resolve, 800 * attempt))
-              }
-            }
-          }
-          if (lastError) {
+              ),
+              { maxAttempts, rateLimitMaxAttempts: Math.max(maxAttempts + 1, 4) },
+            )
+          } catch (lastError) {
             throw new Error(
               'Story2Video optimize scene ' + index + ' failed: ' + (lastError && lastError.message ? lastError.message : String(lastError)),
             )
@@ -405,21 +477,22 @@ function registerStory2VideoStages(pipelineEngine) {
             }
             let result;
             if (assetGenerator) {
-              result = await assetGenerator.generateImage(promptText, {
+              // 瞬时错误（限流/超时/网络）有界重试；内容政策检查点等失败原样返回
+              result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
                 style: imageStyle,
                 image_provider: imageProvider,
                 image_model: imageModel,
                 index,
                 aspect_ratio: aspectRatio,
                 runId,
-              });
+              }));
             } else {
               const retryResult = await runContentPolicyImageRetry({
                 prompt: promptText,
                 sceneIndex: index,
                 maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
                 generate: async ({ prompt: attemptPrompt }) => {
-                  const attemptResult = await serviceBus.callPythonSkill('generate_image', {
+                  const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {
                     prompt: attemptPrompt,
                     style: imageStyle,
                     image_provider: imageProvider,
@@ -427,7 +500,7 @@ function registerStory2VideoStages(pipelineEngine) {
                     index,
                     aspect_ratio: aspectRatio,
                     runId,
-                  });
+                  }));
                   const providerError = attemptResult?.error || attemptResult?.data?.error;
                   if (providerError && typeof providerError === 'object') throw providerError;
                   if (attemptResult?.success === false || Number(attemptResult?.code) < 0) {
@@ -510,8 +583,8 @@ function registerStory2VideoStages(pipelineEngine) {
               };
             }
             const text = typeof sentence === 'string' ? sentence : sentence.text || sentence.content;
-            const result = assetGenerator
-              ? await assetGenerator.generateTTS(text, {
+            const result = await withAssetTransientRetry(() => assetGenerator
+              ? assetGenerator.generateTTS(text, {
                   voice_id: voiceId,
                   voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
                   voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
@@ -521,7 +594,7 @@ function registerStory2VideoStages(pipelineEngine) {
                   index,
                   runId,
                 })
-              : await serviceBus.callPythonSkill('generate_tts', {
+              : serviceBus.callPythonSkill('generate_tts', {
                   text,
                   voice_id: voiceId,
                   voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
@@ -531,7 +604,7 @@ function registerStory2VideoStages(pipelineEngine) {
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
                   index,
                   runId,
-                });
+                }));
             const normalized = normalizeAssetResult(result, ['path', 'audio_path']);
             if (normalized) {
               return {

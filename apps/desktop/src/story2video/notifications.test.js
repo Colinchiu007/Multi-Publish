@@ -4,6 +4,7 @@ import {
   STORY2VIDEO_NOTIFICATION_KEYS,
   STORY2VIDEO_NOTIFICATION_MESSAGES,
   countStory2VideoTextCharacters,
+  formatStory2VideoNotification,
   resolveStory2VideoNotification,
 } from './notifications'
 
@@ -36,6 +37,30 @@ describe('Story2Video 通知模型', () => {
       key: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED,
       message: '当前操作未能完成，请稍后再试。',
     })
+  })
+
+  it('识别生成限流错误，展示带场景号的友好文案，且技术细节不泄漏', () => {
+    const resolved = resolveStory2VideoNotification({
+      error: 'Story2Video optimize failed: Story2Video optimize scene 22 failed: You\'ve reached the API rate limit for free users. (request id: 202608060521497814857554AuUFtW2)',
+    })
+    expect(resolved).toMatchObject({
+      key: STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED,
+      params: { sceneText: '（第 22 个场景）' },
+    })
+    expect(resolved.message).toContain('（第 22 个场景）')
+    expect(resolved.message).toContain('请稍等片刻后重试')
+    expect(resolved.message).not.toContain('request id')
+
+    expect(resolveStory2VideoNotification({
+      error: 'provider 429 rate limit',
+    }, { locale: 'en-US' })).toMatchObject({
+      key: STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED,
+      message: 'Generation is rate limited. Wait a moment and try again, or check your provider plan quota.',
+    })
+
+    // 对话框二次格式化路径：messageParams 中的 sceneText 需透传
+    const dialogMessage = formatStory2VideoNotification({ messageKey: resolved.key, messageParams: resolved.params })
+    expect(dialogMessage.message).toContain('（第 22 个场景）')
   })
 
   it('按 Unicode code point 计算 6000 个中文、英文和 emoji 字符', () => {

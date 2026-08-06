@@ -24,6 +24,7 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   SEGMENT_VIDEO_RETRIED: 'story2video.segment_video_retried',
   PROJECT_RECOMPOSED: 'story2video.project_recomposed',
   DEGRADED_ASSETS_WARNING: 'story2video.degraded_assets_warning',
+  RATE_LIMITED: 'story2video.rate_limited',
   OPERATION_FAILED: 'story2video.operation_failed',
   UNKNOWN_ERROR: 'story2video.unknown_error',
   PIPELINE_NOT_IMPLEMENTED: 'story2video.pipeline_not_implemented',
@@ -54,6 +55,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_VIDEO_RETRIED]: '分段视频已重新生成。',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_RECOMPOSED]: '项目已重新合成。',
     [STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING]: '此成片包含离线降级素材（{kinds}），请在发布前预览确认。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED]: '生成受频率或额度限制{sceneText}，请稍等片刻后重试；若持续出现，请检查对应模型账号的套餐额度。',
     [STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED]: '当前操作未能完成，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR]: '当前操作未能完成，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED]: '该流水线尚未实现执行引擎，暂不能生成视频。',
@@ -82,6 +84,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_VIDEO_RETRIED]: 'The segment video was generated again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_RECOMPOSED]: 'Your project was recomposed.',
     [STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING]: 'This video contains offline fallback assets ({kinds}). Preview it before publishing.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED]: 'Generation is rate limited{sceneText}. Wait a moment and try again, or check your provider plan quota.',
     [STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED]: 'Could not complete the request. Please try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR]: 'Could not complete the request. Please try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED]: 'This pipeline has no execution engine yet, so videos cannot be generated.',
@@ -96,6 +99,7 @@ const DEGRADED_ASSET_LABELS = Object.freeze({
 })
 const MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用|api\s*key\s*not\s*configured|(?:尚未配置|未配置|未设置).*api\s*key)/i
 const ACCESS_DENIED_PATTERN = /(当前许可证无权访问|当前账号没有所需权益|未授权|未登录|需要登录|access denied|not authorized|permission denied|sign[ -]?in required)/i
+const RATE_LIMITED_PATTERN = /(rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|额度|quota)/i
 const TEXT_ONLY_PATTERN = /(只支持\s*(?:text|文案)|text\s*mode|text input only)/i
 const TEXT_TOO_LONG_PATTERN = /(超过\s*6000|最多\s*6000|6000.*(?:字符|character)|text.*(?:too long|exceeds))/i
 const PREVIEW_MISSING_PATTERN = /(未返回.*可预览.*视频|preview.*(?:missing|video)|no previewable video)/i
@@ -122,7 +126,12 @@ export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale(
     : { dialogTitle: (safeName || '图片轮播') + ' 提示', acknowledge: '知道了', cancel: '取消', confirmDelete: '删除' }
 }
 
-function normalizeParams (value, locale, messageKey) {
+function extractSceneNumber (rawError) {
+  const match = String(rawError || '').match(/scene\s+(\d+)/i)
+  return match ? Number(match[1]) : null
+}
+
+function normalizeParams (value, locale, messageKey, rawError) {
   const supplied = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   const params = {}
 
@@ -138,6 +147,17 @@ function normalizeParams (value, locale, messageKey) {
       .map(kind => labels[kind] || '')
       .filter(Boolean)
       .join(separator)
+  }
+
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED) {
+    const scene = extractSceneNumber(rawError)
+    if (scene !== null) {
+      params.sceneText = locale === 'en' ? ' (scene ' + scene + ')' : '（第 ' + scene + ' 个场景）'
+    } else if (typeof supplied.sceneText === 'string') {
+      params.sceneText = supplied.sceneText
+    } else {
+      params.sceneText = ''
+    }
   }
 
   return params
@@ -158,6 +178,7 @@ function resolveMessageKey (notification, fallbackKey) {
   const raw = String(notification?.error || notification?.message || '').trim()
   if (Number(notification?.code) === -3 || Number(notification?.errorCode) === -3) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
   if (ACCESS_DENIED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
+  if (notification?.errorCode === 'RATE_LIMITED' || Number(notification?.code) === 429 || RATE_LIMITED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED
   if (MODEL_CONFIGURATION_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED
   if (TEXT_ONLY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY
   if (TEXT_TOO_LONG_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG
@@ -173,7 +194,8 @@ function messageFor (key, params, locale) {
 export function formatStory2VideoNotification (notification = {}, locale = getStory2VideoLocale()) {
   const normalizedLocale = normalizeStory2VideoLocale(locale)
   const messageKey = resolveMessageKey(notification, STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR)
-  const params = normalizeParams(notification?.messageParams || notification?.errorParams, normalizedLocale, messageKey)
+  const rawError = String(notification?.error || notification?.message || '')
+  const params = normalizeParams(notification?.messageParams || notification?.errorParams, normalizedLocale, messageKey, rawError)
   const message = messageFor(messageKey, params, normalizedLocale)
   return { messageKey, message, codePointCount: countUnicodeCodePoints(message) }
 }
@@ -181,6 +203,7 @@ export function formatStory2VideoNotification (notification = {}, locale = getSt
 export function resolveStory2VideoNotification (notification = {}, options = {}) {
   const normalizedLocale = normalizeStory2VideoLocale(options.locale || getStory2VideoLocale())
   const key = resolveMessageKey(notification, STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED)
-  const params = normalizeParams(notification?.messageParams || notification?.errorParams, normalizedLocale, key)
+  const rawError = String(notification?.error || notification?.message || '')
+  const params = normalizeParams(notification?.messageParams || notification?.errorParams, normalizedLocale, key, rawError)
   return { key, params, message: messageFor(key, params, normalizedLocale) }
 }
