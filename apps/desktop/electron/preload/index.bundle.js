@@ -516,7 +516,11 @@ var require_system = __commonJS({
         modelProviderPresets: (category) => ipcRenderer2.invoke("model-provider:presets", category),
         modelProviderIsConfigured: (category) => ipcRenderer2.invoke("model-provider:is-configured", category),
         modelProviderLogs: (filter) => ipcRenderer2.invoke("model-provider:logs", filter),
-        modelProviderCleanLogs: (days) => ipcRenderer2.invoke("model-provider:clean-logs", days)
+        modelProviderCleanLogs: (days) => ipcRenderer2.invoke("model-provider:clean-logs", days),
+        // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
+        logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
+        logsClear: () => ipcRenderer2.invoke("logs:clear"),
+        logError: (message) => ipcRenderer2.invoke("logs:error", { message })
       };
     }
     module2.exports = { createSystemApi: createSystemApi2 };
@@ -800,6 +804,9 @@ var require_access_control = __commonJS({
       "modelProviderIsConfigured",
       "modelProviderLogs",
       "modelProviderCleanLogs",
+      "logsGetInfo",
+      "logsClear",
+      "logError",
       "renderGetStatus",
       "renderInstallDeps",
       "onRenderInstallProgress",

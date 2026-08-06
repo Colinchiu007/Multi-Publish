@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 
 // mock 依赖的服务模块（shutdown.js 直接 require 的非 electron 模块）
-const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
+const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), flush: vi.fn(() => Promise.resolve()) }
 __registerMock('./services/logger', mockLogger)
 
 // 通过 require 加载被测模块（在 mock 注册后）

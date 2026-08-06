@@ -1316,3 +1316,64 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **问题**：Windows 静态 ffmpeg 的 drawtext 默认字体无 CJK 字形，中文/日文/韩文等烧录成豆腐块（用户确认）。
 - **修复**：drawtext（字幕+水印）显式注入 fontfile——按优先级解析系统 CJK 字体（msyh.ttc → simhei.ttf → simsun.ttc → msjh.ttc）；字体路径统一为正斜杠并用单反斜杠转义冒号（C\\:/Windows/Fonts/msyh.ttc）。
 - **回归**：buildSubtitleFilter 断言含 msyh fontfile；实测字幕区像素密度 2496（豆腐块）→ 3979（正常字形）。非 Windows 由 fontconfig 处理，不注入 fontfile。
+
+## 应用日志 log 合同（2026-08-06）
+
+### 需求概述
+为便于 AI 开发工具排查 bug 原因、用户自查问题或向官方反馈，桌面应用新增本地日志功能：控制台与文件双写、按日期滚动、敏感信息脱敏、单文件 500MB 自动清理、设置页手动清理与查看。
+
+### 1. 日志记录范围（行为清单）
+- **进程生命周期**：应用启动/主窗口创建、退出清理完成；未捕获异常（uncaughtException）、未处理拒绝（unhandledRejection）、渲染进程全局错误（Vue errorHandler / window error / unhandledrejection 经 logs:error 上报）。
+- **流水线与任务**：流水线启动/完成/失败/取消、各阶段推进与耗时、断点恢复、任务队列操作。
+- **敏感操作**：登录/登出/账号切换（不含凭据）、发布动作、许可证激活/变更、模型服务商配置变更（API Key 只记录掩码）。
+- **Provider 调用**：模型供应商调用结果与错误码（不含完整 API Key、Bearer Token）。
+- **服务生命周期**：Bridge 启动/停止、回调服务器、媒体服务器、自动更新检查结果等关键服务事件。
+- **错误与异常**：所有 log.error / log.warn 路径，附错误码与上下文。
+
+### 2. 日志格式与敏感信息脱敏
+- **文件行格式**：<ISO8601 时间> [级别] <模块> <消息> [JSON meta]，每行一条；级别 DEBUG/INFO/WARN/ERROR。
+- **控制台**：保持原有 [时间] [级别] 模块 消息 [meta] 输出，行为不变。
+- **脱敏规则（落盘前统一 redact）**：
+  - Authorization: <token> / Bearer <token> → Bearer ***；
+  - apiKey / api_key / authorization 字段值 → ***；
+  - sk- 前缀密钥保留前 7 位（sk-xxxx***）其余掩码。
+- **meta 规则**：第三参为对象时 JSON 序列化（超过 8000 字符截断加 …）；为 Error 时记录 stack/message；为字符串时按原文拼接（兼容既有 log.level('模块', '消息') 调用约定，不产生多余引号）。
+
+### 3. 保存规则与路径
+- **滚动规则**：按日期单文件 app-YYYY-MM-DD.log；同日追加同文件，跨日自动新建。
+- **路径**：userData/logs/（app.getPath('userData')/logs）。userData 位于用户目录（非程序安装目录），满足未来安装包在 Program Files 等只读目录部署时仍可写入；开发/测试环境可用 setLogOptions({dir}) 注入隔离目录。
+- **大小规则**：默认单文件上限 500MB（maxFileBytes，可注入覆盖用于测试）。每追加约 64KB 核对一次真实文件大小，超限自动删除该日期文件并从头重建；启动首次写入时也会核对历史超限文件并重建。
+- **写入方式**：异步队列，不阻塞主进程；磁盘写失败静默回退控制台，不影响主流程。
+- **退出保证**：应用退出清理阶段调用 log.flush() 排空写入队列后再退出。
+
+### 4. 设置页交互（设置-通用设置）
+- **入口**：设置对话框「通用设置」Tab（原为禁用占位，本次启用）。
+- **显示项**：
+  - 标题「应用日志」、副标题「查看与管理本地日志文件，便于排查问题或反馈给官方」；
+  - 日志目录完整路径；
+  - 日志文件数、日志总大小、单文件上限（500 MB）；
+  - 文件列表：文件名 + 单文件大小（按文件名排序）；
+  - 空态「暂无日志文件」。
+- **操作项**：
+  - 【刷新】重新读取日志信息；
+  - 【清理日志】调用 logs:clear 删除全部 app-*.log；清理中按钮禁用防重复提交；清理后自动刷新列表。
+- **提示文字（固定展示）**：「Log 文件达到 500M 时，系统会自动清理。」（i18n：zh/en）。
+- **多语言**：上述文案走 locale（settings.logs.*），默认中文、英文可用。
+
+### 5. IPC 与数据合同
+- logs:info → { code: 0, data: { dir, totalBytes, fileCount, maxFileBytes, files: [{ name, size }] } }；失败 { code: -1, message }。
+- logs:clear → { code: 0, data: { removed } }（removed=删除文件数）；成功后记录 log.info('Logs', '用户手动清理日志文件', { removed })。
+- logs:error → 入参 { message }，主进程以 ERROR 级写入模块 Renderer；无 message 时使用默认文案「未知渲染进程错误」；返回 { code: 0, data: true }。
+- 三个通道均加入 PUBLIC_CHANNELS 与 preload PUBLIC_METHODS（logsGetInfo / logsClear / logError），登录与否均可访问；renderer 统一经 src/api/publisher.js 封装，无 electronAPI 时 fallback 返回错误码。
+
+### 6. 数据校验与容错
+- setLogOptions({ maxBytes })：非有限数或小于等于 0 不生效，保留原值。
+- 目录创建失败/不可写：仅控制台输出，不抛错。
+- 单文件统计失败：跳过该文件，不中断列表。
+- 清理只匹配 app-*.log，不删除其他文件。
+- 手动清理与 500MB 自动清理后 currentLogPath 置空，下一次写入重建文件。
+
+### 7. 验收标准
+- 单元测试：electron/services/logger.test.js（日期滚动/脱敏/超限自动删/启动核对/clearLogs/getLogsInfo/非法 maxBytes）、electron/ipc-handlers/logs.test.js（三通道）、electron/preload.test.js（方法数与存在性）、shutdown.test.js（flush）。
+- 打包后：启动应用并在 userData/logs/ 看到当日 app-*.log；设置页可查看/刷新/清理；500MB 上限行为可用小上限注入验证。
+- 外部边界：真实 provider 调用日志内容为灰度验证项，不纳入自动验收。

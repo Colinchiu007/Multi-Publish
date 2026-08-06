@@ -266,6 +266,11 @@ function createSystemApi(ipcRenderer) {
     modelProviderIsConfigured: (category) => ipcRenderer.invoke('model-provider:is-configured', category),
     modelProviderLogs: (filter) => ipcRenderer.invoke('model-provider:logs', filter),
     modelProviderCleanLogs: (days) => ipcRenderer.invoke('model-provider:clean-logs', days),
+
+    // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
+    logsGetInfo: () => ipcRenderer.invoke('logs:info'),
+    logsClear: () => ipcRenderer.invoke('logs:clear'),
+    logError: (message) => ipcRenderer.invoke('logs:error', { message }),
   }
 }
 

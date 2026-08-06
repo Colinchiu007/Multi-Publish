@@ -1,3 +1,19 @@
+## [未发布] 应用日志 log 功能 (2026-08-06)
+
+### 主进程（日志服务）
+- logger 重写为控制台 + 文件双写：按日期滚动写入 `userData/logs/app-YYYY-MM-DD.log`，行格式 `[ISO时间] [级别] 模块 消息 [JSON meta]`；异步队列不阻塞主进程。
+- 敏感信息脱敏：Authorization/Bearer、apiKey、sk- 前缀密钥落盘前统一掩码；meta 仅对象 JSON 化，Error 记录堆栈，字符串按原文拼接。
+- 大小规则：默认单文件 500MB，每追加 64KB 核对真实大小，超限自动删除并重建；启动首写核对历史超限文件。新增 setLogOptions / flush / clearLogs / getLogsInfo。
+- 退出清理：shutdown 流程排空日志写入队列后再退出；启动记录主窗口创建日志。
+- 新增 IPC：logs:info / logs:clear / logs:error（渲染进程错误上报），均入 public 白名单。
+
+### 渲染进程（设置-通用设置）
+- 启用「通用设置」Tab，新增「应用日志」面板：日志目录、文件数、总大小、单文件上限、文件列表、刷新与清理按钮、自动清理提示文字（i18n zh/en）。
+- preload 新增 logsGetInfo / logsClear / logError；renderer 经 src/api/publisher.js 封装。
+
+### 文档与测试
+- PRD 新增「应用日志 log 合同」章节；新增 logger.test.js / logs.test.js，更新 preload/main/shutdown 测试。
+- 真实 provider 日志内容属灰度验证项，不纳入自动验收。
 ## [未发布] E2E 待办/待验证清单 (2026-08-06)
 
 ### 文档

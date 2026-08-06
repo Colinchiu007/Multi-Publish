@@ -6,6 +6,7 @@ export default {
     edit: 'Edit',
     add: 'Add',
     confirm: 'Confirm',
+    refresh: 'Refresh',
     loading: 'Loading...',
     success: 'Success',
     error: 'Error',
@@ -52,6 +53,17 @@ export default {
     sound: 'Sound',
     darkMode: 'Dark Mode',
     lightMode: 'Light Mode',
+    logs: {
+      title: 'Application Logs',
+      subtitle: 'View and manage local log files to troubleshoot or report issues',
+      dirLabel: 'Log Directory',
+      fileCount: 'Log Files',
+      totalSize: 'Total Size',
+      maxSize: 'Per-File Limit',
+      clearBtn: 'Clear Logs',
+      autoClearHint: 'Log files are automatically cleaned when they reach 500M.',
+      empty: 'No log files yet',
+    },
   },
   create: {
     story2video: {
