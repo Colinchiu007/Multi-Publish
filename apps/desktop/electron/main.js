@@ -70,6 +70,7 @@ if (!hasSingleInstanceLock) {
 
   async function createAndRegisterWindow() {
     const mainWindow = await createWindow(context)
+    log.info('App', 'Main window created')
     if (!isUsableWindow(mainWindow)) {
       throw new Error('Window creation did not return a usable window')
     }

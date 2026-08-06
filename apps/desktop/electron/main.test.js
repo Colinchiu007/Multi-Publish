@@ -43,7 +43,7 @@ __registerMock('./bootstrap', {
 })
 __registerMock('./window', { createWindow: mockCreateWindow })
 __registerMock('./shutdown', { registerShutdownHandlers: mockRegisterShutdownHandlers })
-__registerMock('./services/logger', { error: mockLogError })
+__registerMock('./services/logger', { error: mockLogError, info: vi.fn() })
 
 // ─── 加载 main.js（应在 mock 注册后） ──────────────────
 // main.js 顶层会执行 createAppContext() + registerShutdownHandlers() + runWhenReady()

@@ -127,6 +127,7 @@ const SYSTEM_METHODS = [
   'modelProviderDelete', 'modelProviderSetDefault', 'modelProviderGetDefault',
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
   'modelProviderLogs', 'modelProviderCleanLogs',
+  'logsGetInfo', 'logsClear', 'logError',
 ]
 
 const IDENTITY_METHODS = [
@@ -194,14 +195,14 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(42)
   })
 
-  it('system 模块应导出 133 个方法', () => {
+  it('system 模块应导出 136 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(133)
+    expect(Object.keys(r).length).toBe(136)
   })
 
   it('合并后 api 总键数应为 262', () => {
-    expect(Object.keys(api).length).toBe(262)
+    expect(Object.keys(api).length).toBe(265)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -219,7 +220,7 @@ describe('preload 子模块方法数', () => {
   })
 
   it('SYSTEM_METHODS 常量长度应为 133', () => {
-    expect(SYSTEM_METHODS.length).toBe(133)
+    expect(SYSTEM_METHODS.length).toBe(136)
   })
 
   it('IDENTITY_METHODS 常量长度应为 5', () => {

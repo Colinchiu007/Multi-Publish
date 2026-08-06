@@ -52,6 +52,17 @@ export default {
     sound: '声音',
     darkMode: '深色模式',
     lightMode: '浅色模式',
+    logs: {
+      title: '应用日志',
+      subtitle: '查看与管理本地日志文件，便于排查问题或反馈给官方',
+      dirLabel: '日志目录',
+      fileCount: '日志文件数',
+      totalSize: '日志总大小',
+      maxSize: '单文件上限',
+      clearBtn: '清理日志',
+      autoClearHint: 'Log 文件达到 500M 时，系统会自动清理。',
+      empty: '暂无日志文件',
+    },
   },
   create: {
     story2video: {

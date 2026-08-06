@@ -107,6 +107,8 @@ async function performShutdown(context) {
   await runCleanup('Error closing store:', () => {
     if (store && store.close) return store.close()
   })
+  // 日志落盘：等待异步文件写入队列排空后再退出
+  await runCleanup('Error flushing logs:', () => log.flush())
 }
 
 function registerShutdownHandlers(context, options = {}) {

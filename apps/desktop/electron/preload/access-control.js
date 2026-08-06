@@ -38,6 +38,7 @@ const PUBLIC_METHODS = [
   'modelProviderDelete', 'modelProviderSetDefault', 'modelProviderGetDefault',
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
   'modelProviderLogs', 'modelProviderCleanLogs',
+  'logsGetInfo', 'logsClear', 'logError',
   'renderGetStatus', 'renderInstallDeps', 'onRenderInstallProgress',
   'pipelineList', 'pipelineGet',
   'identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'onIdentityStateChanged',

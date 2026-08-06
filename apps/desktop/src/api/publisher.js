@@ -366,6 +366,11 @@ export async function story2videoTranscribe(filePath) {
 export async function story2videoCapabilities() {
   return invokeWithFallback("story2videoCapabilities", { code: -1, message: 'electronAPI not available' })
 }
+export async function logsGetInfo() {
+  return invokeWithFallback("logsGetInfo", { code: -1, data: { dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] } })
+}
+export async function logsClear() { return invokeWithFallback("logsClear", { code: -1 }) }
+
 export async function videoProcess(type, params) {
   return invokeWithFallback("videoProcess", { code: -1, message: 'electronAPI not available' }, type, params)
 }

@@ -1,4 +1,21 @@
-## 本轮质量节拍复盘 v2.3.41 (2026-07-08)
+## 应用日志 log 功能复盘 (2026-08-06)
+
+### ✅ 做得好的
+1. 兼容既有调用约定 — logger API 以 `log.level('模块', '消息', meta?)` 三参语义落地，老调用（`log.error('App', 'msg')`）文件行不产生多余 JSON 引号，全库 60+ 调用点零改动。
+2. 脱敏优先 — Bearer/apiKey/sk- 落盘前统一掩码，日志可用于回传排查而不泄露凭据。
+3. 测试隔离 — 日志测试全部走 `os.tmpdir()` 独立目录，避免污染真实 userData；main/shutdown 测试补齐 logger mock 方法。
+
+### ⚠️ 需要注意的
+1. logger 是模块级单例 — 测试间共享 `logsDir`/`currentLogPath`/`maxFileBytes` 状态，用例必须显式 `setLogOptions` + 清理，否则顺序耦合。
+2. 「启动核对超限文件」语义是删后重建 — 文件仍存在但内容重置，断言应检查大小而非存在性。
+3. apply_patch 在当前环境被策略拦截 — 改用 PowerShell/Node 脚本做精确文本替换，替换后必须 `Select-String`/`git diff` 复核。
+
+### 🧠 经验沉淀
+- 日志 meta 参数只对「对象」做 JSON 化；字符串按原文拼接，避免把既有「第二参消息」误当成 meta 引号化。
+- 渲染进程全局错误（Vue errorHandler / window error / unhandledrejection）通过 `logs:error` 上报主进程 ERROR 级，是 AI 排查前端白屏的第一入口。
+- 500MB 自动清理的检查点按写入字节计数（64KB），避免频繁 stat；上限可注入便于测试小值覆盖。
+
+---## 本轮质量节拍复盘 v2.3.41 (2026-07-08)
 
 ### ✅ 做得好的
 1. DI 容器重构 — 28 处 inline new 替换，main.js import 减少 50%
