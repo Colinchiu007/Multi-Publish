@@ -13,7 +13,7 @@ const MINIMAX_SYSTEM_VOICES = Object.freeze([
   { id: 'male-qn-qingse-jingpin', name: '青涩青年音色-beta', language: '中文' },
   { id: 'male-qn-jingying-jingpin', name: '精英青年音色-beta', language: '中文' },
   { id: 'male-qn-badao-jingpin', name: '霸道青年音色-beta', language: '中文' },
-  { id: 'male-qn-daxuesheng-jingpin', name: '青年大学生���色-beta', language: '中文' },
+  { id: 'male-qn-daxuesheng-jingpin', name: '青年大学生音色-beta', language: '中文' },
   { id: 'female-shaonv-jingpin', name: '少女音色-beta', language: '中文' },
   { id: 'female-yujie-jingpin', name: '御姐音色-beta', language: '中文' },
   { id: 'female-chengshu-jingpin', name: '成熟女性音色-beta', language: '中文' },
