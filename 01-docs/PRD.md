@@ -716,6 +716,15 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
 - **Doubao 个人槽位**：当前配置与 TTS adapter 的已注册/已验证调用合同不证明已经把用户个人槽位同步到本地，也不允许本地创建或伪造槽位。
   UI 必须提示用户先在供应商官方控制台创建/管理音色，再点击“刷新音色目录”并仅在有官方 API 证据及已验证的
   `listVoices` adapter 后选择；证据缺失时显示 `unsupported`/`unavailable`，不显示假列表。
+- **音色克隆区域交互合同**：
+  - 入口按钮文案固定为「选择本地音频文件」（已选样本后为「重新选择音频文件」）；上传要求提示由主进程返回的
+    `getRequirements` 数据驱动渲染（格式 mp3/m4a/wav、时长 10s–5min、大小 ≤20MB），提示必须显示真实数值，不得把
+    函数/方法引用渲染为文本（回归：模板中调用 `s2vVoiceCloneHint()`）。
+  - 克隆链路全部错误码必须映射为友好本地化文案：`VOICE_CLONE_SAMPLE_INVALID / SAMPLE_DURATION_INVALID /
+    SAMPLE_EXTENSION_UNSUPPORTED / SAMPLE_TOO_LARGE / TOTAL_SIZE_EXCEEDED / TOTAL_DURATION_EXCEEDED /
+    PROVIDER_UNAVAILABLE / UNAVAILABLE / UNSUPPORTED / DIALOG_UNAVAILABLE / DUPLICATE_ID / MODEL_MISMATCH /
+    NOT_FOUND / REGISTRY_INVALID / ROLLBACK_REQUIRED / SELECTION_UNAVAILABLE / STORE_UNAVAILABLE /
+    STORAGE_UNAVAILABLE / INVALID_ARGUMENTS`；未知错误回退通用文案，**不得**显示“无法加载音色列表”这类误导性提示。
 
 #### 7.1.5 图片内容政策恢复与审计边界
 

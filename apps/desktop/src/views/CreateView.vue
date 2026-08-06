@@ -400,13 +400,13 @@
                   <span class="voice-clone-toggle-icon">{{ s2vCloneOpen ? '收起' : '展开' }}</span>
                 </button>
                 <template v-if="s2vCloneOpen">
-                <p v-if="s2vVoiceCloneRequirements && s2vVoiceCloneHint" class="config-hint">
-                  {{ s2vVoiceCloneHint }}
+                <p v-if="s2vVoiceCloneRequirements && s2vVoiceCloneHint()" class="config-hint">
+                  {{ s2vVoiceCloneHint() }}
                 </p>
                 <p v-if="s2vVoiceCloneRequirements" class="config-hint">以上为当前模型能力数据驱动的本地校验提示，具体以供应商官方 API 合同为准。</p>
                 <div class="voice-clone-actions">
                   <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="chooseS2VVoiceCloneSamples">
-                    {{ s2vVoiceCloneSelection ? '重新选择样本' : '选择本地音频样本' }}
+                    {{ s2vVoiceCloneSelection ? '重新选择音频文件' : '选择本地音频文件' }}
                   </button>
                   <span v-if="s2vVoiceCloneSelection" class="config-hint">已选择 {{ s2vVoiceCloneSelection.sampleCount }} 个样本</span>
                 </div>
@@ -1608,10 +1608,21 @@ export default {
         VOICE_OWNER_UNAVAILABLE: ['登录状态不可用，请重新登录后重试。', 'Sign-in state is unavailable. Sign in again and retry.'],
         VOICE_NOT_IN_CATALOG: ['所选音色不在当前音色列表中，请重新选择。', 'The selected voice is not in the current voice list. Select another voice.'],
         VOICE_CLONE_SAMPLE_INVALID: ['上传的音频文件不符合要求，请按提示调整格式、时长或大小后重试。', 'The uploaded audio does not meet the requirements. Adjust format, duration, or size and retry.'],
+        VOICE_CLONE_SAMPLE_DURATION_INVALID: ['上传的音频文件时长不符合要求，请按提示调整时长后重试。', 'The uploaded audio duration does not meet the requirements. Adjust the duration and retry.'],
+        VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED: ['上传的音频文件格式不符合要求，请使用 mp3、m4a 或 wav 格式。', 'The uploaded audio format is not supported. Use mp3, m4a, or wav.'],
+        VOICE_CLONE_SAMPLE_TOO_LARGE: ['上传的音频文件大小超出限制，请压缩或更换文件后重试。', 'The uploaded audio is too large. Compress it or use another file.'],
         VOICE_CLONE_TOTAL_SIZE_EXCEEDED: ['上传的音频总大小超出限制，请减少文件后重试。', 'The total audio size exceeds the limit. Remove files and retry.'],
         VOICE_CLONE_TOTAL_DURATION_EXCEEDED: ['上传的音频总时长超出限制，请减少文件后重试。', 'The total audio duration exceeds the limit. Remove files and retry.'],
         VOICE_CLONE_PROVIDER_UNAVAILABLE: ['音色克隆服务暂时不可用，请稍后重试。', 'Voice cloning is temporarily unavailable. Please try again later.'],
+        VOICE_CLONE_UNAVAILABLE: ['音色克隆服务暂时不可用，请稍后重试。', 'Voice cloning is temporarily unavailable. Please try again later.'],
+        VOICE_CLONE_UNSUPPORTED: ['当前语音模型暂不支持音色克隆，已使用默认音色。', 'This voice model does not support voice cloning yet. Using the default voice.'],
+        VOICE_CLONE_DIALOG_UNAVAILABLE: ['无法打开本地音频文件选择窗口，请重试。', 'Could not open the audio file picker. Please try again.'],
         VOICE_CLONE_DUPLICATE_ID: ['该克隆音色已存在，请更换名称后重试。', 'A cloned voice with this name already exists. Use another name.'],
+        VOICE_CLONE_MODEL_MISMATCH: ['所选语音模型与克隆配置不一致，请检查模型设置。', 'The selected voice model does not match the clone configuration. Check the model settings.'],
+        VOICE_CLONE_NOT_FOUND: ['未找到该克隆音色，请重新选择。', 'The cloned voice was not found. Select it again.'],
+        VOICE_CLONE_REGISTRY_INVALID: ['克隆音色本地记录异常，请重新选择音频文件后重试。', 'The local clone voice record is invalid. Select the audio file again and retry.'],
+        VOICE_CLONE_ROLLBACK_REQUIRED: ['克隆音色保存未完成，请重新选择音频文件后重试。', 'The clone voice save did not finish. Select the audio file again and retry.'],
+        VOICE_CLONE_SELECTION_UNAVAILABLE: ['音频样本暂存不可用，请重新选择音频文件。', 'Audio sample staging is unavailable. Select the audio file again.'],
         VOICE_CLONE_STORE_UNAVAILABLE: ['克隆音色本地存储不可用，请检查磁盘空间后重试。', 'Clone voice storage is unavailable. Check disk space and retry.'],
         VOICE_CLONE_STORAGE_UNAVAILABLE: ['克隆音色本地存储不可用，请检查磁盘空间后重试。', 'Clone voice storage is unavailable. Check disk space and retry.'],
         VOICE_CLONE_INVALID_ARGUMENTS: ['克隆音色参数不合法，请重新选择音频文件。', 'Invalid clone voice parameters. Select the audio file again.'],

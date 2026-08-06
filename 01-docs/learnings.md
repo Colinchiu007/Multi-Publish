@@ -5647,3 +5647,10 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **交互细节**：保存提示仅在防抖落盘后出现，避免输入过程闪烁；恢复提示在 provider 校验与语音目录重拉之后显示；折叠恢复只接受已知组名数组，非法值回退默认。
 - **测试**：CreateView 用例覆盖折叠状态保存/恢复与提示文案，72 项通过；`vite build` 模板编译通过。
 - **经验**：UE 改动优先用 CSS + `<details>`/`<template v-if>` 包裹而非重排表单 DOM，回归风险低；sticky 元素需显式 `background` 防内容透叠。
+
+## 音色克隆区域「函数文本 + 误导性报错」Bug 复盘（2026-08-06）
+
+- **第一性原因**：① `s2vVoiceCloneHint` 是 methods 里的函数，模板却用 `{{ s2vVoiceCloneHint }}` 无括号插值，Vue 直接渲染出 `function () { [native code] }`；② 克隆链路错误码 `VOICE_CLONE_SAMPLE_DURATION_INVALID / SAMPLE_EXTENSION_UNSUPPORTED / SAMPLE_TOO_LARGE / SELECTION_UNAVAILABLE / UNAVAILABLE / DIALOG_UNAVAILABLE / MODEL_MISMATCH / REGISTRY_INVALID / ROLLBACK_REQUIRED / UNSUPPORTED / NOT_FOUND` 等未进 `friendlyVoiceCatalogError` 映射，落入「无法加载音色列表，已使用默认音色」的误导性兜底。
+- **修复**：模板改 `{{ s2vVoiceCloneHint() }}`；补全 19 个克隆错误码映射（中英文友好文案）；按钮改「选择本地音频文件」。
+- **回归保护**：CreateView 单测覆盖提示文案、错误映射与「不渲染函数文本」断言（73 项通过）；Playwright 探针（C:\tmp\clone-probe.js）验证面板文本。
+- **预防**：模板插值只用于值/计算属性，方法必须 `()` 调用；provider 错误码清单要全局核对渲染端映射表（service 共 19 个 VOICE_CLONE_* 码）。
