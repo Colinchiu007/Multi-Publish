@@ -386,7 +386,13 @@ function registerStory2VideoStages(pipelineEngine) {
           }
           // 逐场景写入部分结果，失败时可断点续传（context 与 run.context 同引用）
           partialResume[index] = entry
-          if (context && typeof context === 'object') context.optimize_resume = partialResume
+          if (context && typeof context === 'object') {
+            context.optimize_resume = partialResume
+            context.optimize_progress = {
+              done: partialResume.filter(Boolean).length,
+              total: scenes.length,
+            }
+          }
           return entry
         })
       } catch (error) {
@@ -480,6 +486,22 @@ function registerStory2VideoStages(pipelineEngine) {
         }
       }
 
+      // 实时进度（供前端阶段清单展示「图片 x/y · 旁白 x/y」）
+      let imagesDone = 0;
+      let ttsDone = 0;
+      const writeAssetsProgress = () => {
+        if (context && typeof context === 'object') {
+          context.assets_progress = {
+            imagesDone,
+            imagesTotal: optimizedPrompts.length,
+            ttsDone,
+            ttsTotal: sentences.length,
+          };
+        }
+      };
+      const markImageDone = () => { imagesDone += 1; writeAssetsProgress(); };
+      const markTtsDone = () => { ttsDone += 1; writeAssetsProgress(); };
+
       // 并行生成图片（分批控制并发）
       // 使用 AssetGenerator（ffmpeg 占位图）替代 serviceBus.callPythonSkill
       const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator;
@@ -490,6 +512,7 @@ function registerStory2VideoStages(pipelineEngine) {
           try {
             const resumed = resumeCompleted.get(index);
             if (resumed) {
+              markImageDone();
               return { index, success: true, path: resumed.imagePath, meta: { resumed: true } };
             }
             const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
@@ -498,6 +521,7 @@ function registerStory2VideoStages(pipelineEngine) {
               if (!suppliedPath) {
                 return { index, success: false, error: 'Supplied image is missing, unreadable, or too large' };
               }
+              markImageDone();
               return { index, success: true, path: suppliedPath, meta: { supplied: true } };
             }
             let result;
@@ -563,6 +587,7 @@ function registerStory2VideoStages(pipelineEngine) {
             }
             const normalized = normalizeAssetResult(result, ['path', 'url', 'image_path']);
             if (normalized) {
+              markImageDone();
               return {
                 index,
                 success: true,
@@ -595,6 +620,7 @@ function registerStory2VideoStages(pipelineEngine) {
           try {
             const resumed = resumeCompleted.get(index);
             if (resumed) {
+              markTtsDone();
               return { index, success: true, path: resumed.audioPath, duration: resumed.duration || null, meta: { resumed: true } };
             }
             const suppliedAudio = inputAudio[index]
@@ -603,6 +629,7 @@ function registerStory2VideoStages(pipelineEngine) {
               if (!suppliedPath) {
                 return { index, success: false, error: 'Supplied audio is missing or unreadable' };
               }
+              markTtsDone();
               return {
                 index,
                 success: true,
@@ -636,6 +663,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 }));
             const normalized = normalizeAssetResult(result, ['path', 'audio_path']);
             if (normalized) {
+              markTtsDone();
               return {
                 index,
                 success: true,

@@ -20,6 +20,7 @@ vi.mock("@/api/publisher", () => ({
 const router = createRouter({ history: createWebHistory(), routes: [
   { path: "/", component: { template: "<div>root</div>" } },
   { path: "/create", name: "create", component: { template: "<div>create</div>" } },
+  { path: "/create/result", name: "create-result", component: { template: "<div>result</div>" } },
   { path: "/publish", name: "publish", component: { template: "<div>publish</div>" } },
 ] });
 
@@ -41,6 +42,18 @@ describe("ResultView", () => {
   it("renders page title", async () => {
     const w = await createView();
     expect(w.text()).toContain("\u89c6\u9891\u9884\u89c8");
+  });
+
+  it("从路由 query 展示完成汇总（时长 + 文件大小）", async () => {
+    await router.push({ path: "/create/result", query: { path: "C:/tmp/x.mp4", durationMs: "125000", sizeBytes: "3145728" } });
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton } } });
+    w.vm.loading = false;
+    w.vm.videoPath = "C:/tmp/x.mp4";
+    w.vm.videoSrc = "file:///C:/tmp/x.mp4";
+    await nextTick();
+    expect(w.vm.completionSummary).toBe("\u5b8c\u6210\u65f6\u95f4\u5171 2 \u5206 5 \u79d2 \u00b7 \u6587\u4ef6\u5927\u5c0f 3.0 M");
+    expect(w.find('[data-testid="completion-summary"]').exists()).toBe(true);
+    w.unmount();
   });
 
   it("provides a back-to-pipeline-list button that navigates to /create", async () => {

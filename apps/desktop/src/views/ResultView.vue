@@ -32,6 +32,7 @@
       ></video>
 
       <div class="video-info">
+        <p v-if="completionSummary" class="completion-summary" data-testid="completion-summary">{{ completionSummary }}</p>
         <p>格式: {{ formatLabel }}</p>
         <p class="path-text">位置: {{ videoPath }}</p>
       </div>
@@ -259,6 +260,20 @@ export default {
     else this.loading = false
   },
   computed: {
+    completionSummary() {
+      const query = this.$route?.query || {}
+      const parts = []
+      if (Number.isFinite(Number(query.durationMs)) && Number(query.durationMs) > 0) {
+        const total = Math.floor(Number(query.durationMs) / 1000)
+        const minutes = Math.floor(total / 60)
+        const seconds = total % 60
+        parts.push('完成时间共 ' + (minutes > 0 ? minutes + ' 分 ' + seconds + ' 秒' : seconds + ' 秒'))
+      }
+      if (Number.isFinite(Number(query.sizeBytes)) && Number(query.sizeBytes) > 0) {
+        parts.push('文件大小 ' + (Number(query.sizeBytes) / 1048576).toFixed(1) + ' M')
+      }
+      return parts.join(' · ')
+    },
     formatLabel() {
       const extension = String(this.videoPath || '').split('.').pop()
       return extension ? extension.toUpperCase() : '视频'
@@ -702,6 +717,7 @@ export default {
 .loading-state, .empty-state { text-align: center; padding: 60px 0; color: #888; }
 .video-player { width: 100%; max-height: 68vh; border-radius: 8px; background: #000; }
 .video-info { margin: 12px 0; font-size: 13px; color: var(--text-muted); }
+.completion-summary { color: #166534; font-weight: 600; margin-bottom: 4px; }
 .video-info p { margin: 4px 0; }
 .path-text { overflow-wrap: anywhere; }
 .actions, .section-actions, .segment-actions { display: flex; flex-wrap: wrap; gap: 8px; }

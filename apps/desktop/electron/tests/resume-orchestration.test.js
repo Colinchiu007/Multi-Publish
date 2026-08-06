@@ -119,4 +119,40 @@ describe('编排流水线断点恢复', () => {
     expect(resume.success).toBe(false)
     expect(resume.errorCode).toBe('RUN_SNAPSHOT_NOT_FOUND')
   })
+
+  it('getRunSnapshot 为已完成运行附带成片文件大小（完成汇总）', async () => {
+    const fs = require('fs')
+    const os = require('os')
+    const path = require('path')
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-run-size-'))
+    const videoPath = path.join(tempDir, 'out.mp4')
+    fs.writeFileSync(videoPath, Buffer.alloc(2048))
+    try {
+      const sizeEngine = new PipelineEngine({
+        serviceBus: {},
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      })
+      sizeEngine.registerPipeline({
+        name: 'size-test',
+        description: '大小测试',
+        stages: ['compose'],
+        stageDefs: [{ name: 'compose', type: 't_compose' }],
+      })
+      sizeEngine.registerStageExecutor('t_compose', async () => ({ success: true, output: { videoPath, path: videoPath } }))
+      const started = await sizeEngine.startOrchestrated('size-test', { initialContext: {}, autoAdvance: true })
+      expect(started.success).toBe(true)
+      // 条件等待完成
+      let snapshot = null
+      const deadline = Date.now() + 5000
+      while (Date.now() < deadline) {
+        snapshot = sizeEngine.getRunSnapshot(started.runId)
+        if (snapshot && snapshot.status?.status === 'completed') break
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      expect(snapshot?.status?.status).toBe('completed')
+      expect(snapshot?.outputSizeBytes).toBe(2048)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
 })

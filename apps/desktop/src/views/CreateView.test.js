@@ -207,6 +207,41 @@ describe("CreateView", () => {
     }
   });
 
+  it("阶段清单展示场景数/优化进度/资源进度详情", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    const now = new Date().toISOString();
+    w.vm.pipelineRunStatus = {
+      status: "running",
+      currentStage: 2,
+      progress: 50,
+      stages: [
+        { name: "split", status: "completed", startedAt: now },
+        { name: "optimize", status: "completed", startedAt: now },
+        { name: "generate_assets", status: "running", startedAt: now },
+        { name: "compose", status: "pending" },
+      ],
+    };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "optimize", "generate_assets", "compose"] };
+    w.vm.orchestrationContext = {
+      split: { scenes: [{}, {}] },
+      optimize_progress: { done: 2, total: 2 },
+      assets_progress: { imagesDone: 0, imagesTotal: 2, ttsDone: 1, ttsTotal: 2 },
+    };
+    w.vm.story2videoRunMeta = { createdAt: new Date(Date.now() - 65000).toISOString(), endedAt: null };
+    await nextTick();
+    expect(w.text()).toContain("拆分为了 2 个场景");
+    expect(w.text()).toContain("共 2 个场景，已完成 2 个");
+    expect(w.text()).toContain("图片 0/2");
+    expect(w.text()).toContain("旁白 1/2");
+    expect(w.text()).toContain("已用时");
+    expect(w.find('[data-testid="story2video-stage-detail-generate_assets"]').text()).toContain("图片 0/2");
+    w.unmount();
+  });
+
   it("pipelineList 返回异常格式时展示默认加载错误", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValueOnce({});

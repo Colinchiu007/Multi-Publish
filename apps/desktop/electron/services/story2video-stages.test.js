@@ -735,13 +735,14 @@ describe('story2video 限流/瞬时错误有界重试', () => {
       generateWithDefault: vi.fn(async () => ({ content: '新结果', model: 'MiniMax-Text-01' })),
     }
     const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const context = {
+      split: [{ text: '一' }, { text: '二' }],
+      optimize_resume: [{ optimized_prompt: '旧结果0', providerId: 'minimax', model: 'MiniMax-Text-01' }],
+    }
     const result = await fn({
       stage: { options: {} },
       params: {},
-      context: {
-        split: [{ text: '一' }, { text: '二' }],
-        optimize_resume: [{ optimized_prompt: '旧结果0', providerId: 'minimax', model: 'MiniMax-Text-01' }],
-      },
+      context,
       serviceBus: {},
     })
     expect(result).toMatchObject({ success: true })
@@ -750,6 +751,8 @@ describe('story2video 限流/瞬时错误有界重试', () => {
       expect.objectContaining({ optimized_prompt: '新结果' }),
     ])
     expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+    // 实时进度：共 2 个场景，已完成 2 个
+    expect(context.optimize_progress).toEqual({ done: 2, total: 2 })
   })
 
   it('资源生成断点续传：已完成场景跳过图片/TTS provider 调用', async () => {
@@ -758,18 +761,19 @@ describe('story2video 限流/瞬时错误有界重试', () => {
       generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: `audio-${index}.mp3`, duration: 2 } })),
     }
     const fn = makePipeline(assetGenerator)
+    const context = {
+      split: [{ text: '一' }, { text: '二' }],
+      optimize: ['p0', 'p1'],
+      generate_assets: {
+        resume: {
+          completed: [{ index: 0, imagePath: 'C:/tmp/resume-image-0.png', audioPath: 'C:/tmp/resume-audio-0.mp3', duration: 3 }],
+        },
+      },
+    }
     const result = await fn({
       stage: { options: { concurrency: 2 } },
       params: {},
-      context: {
-        split: [{ text: '一' }, { text: '二' }],
-        optimize: ['p0', 'p1'],
-        generate_assets: {
-          resume: {
-            completed: [{ index: 0, imagePath: 'C:/tmp/resume-image-0.png', audioPath: 'C:/tmp/resume-audio-0.mp3', duration: 3 }],
-          },
-        },
-      },
+      context,
       serviceBus: {},
     })
     expect(result).toMatchObject({ success: true })
@@ -778,6 +782,10 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
     expect(assetGenerator.generateImage).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ index: 1 }))
     expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(1)
+    // 实时进度：图片 2/2 · 旁白 2/2（含续传场景）
+    expect(context.assets_progress).toEqual({
+      imagesDone: 2, imagesTotal: 2, ttsDone: 2, ttsTotal: 2,
+    })
   })
 
   it('资源生成失败时记录已完成场景供断点续传', async () => {

@@ -5619,4 +5619,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **统一网关**：`ApiUsageGovernor` 挂在 `AIGenerator.generate()` 唯一出口，覆盖 llm/TTS/image/video/audio 全部 provider 调用；每 provider 并发信号量 + 滑动窗口 RPM + 429 冷却 + 分级重试 + 可选 token 额度窗口（5h/周）。额度错误（402/QUOTA_EXCEEDED/余额·配额文案）不重试、立即给出明确原因；限流 429 冷却退避重试并自适应下调 RPM 预算。
 - **断点恢复**：编排流水线失败时由 `RunStateStore` 原子写 `userData/run-state/<runId>.json`；`pipeline:resumeOrchestration` 从内存 history 或磁盘快照重建运行并从失败阶段继续；`optimize_resume` / `generate_assets.resume.completed` 实现场景级续传，不重复消耗额度；内容政策失败禁止原样恢复。
 - **踩坑**：内存 history 条目字段是 `id`、磁盘快照是 `runId`，恢复逻辑必须两者兼容；fake timers 下 reject 型断言要先把 `expect(promise).rejects` 挂上再推进时间，否则被判定为 unhandled rejection；RPM 下限 `max(2,…)` 使 rpm=1 的测试失真，测试需用 rpm=2 + 三个请求验证排队。
-- **CI 教训**：`electron-tests`（self-hosted linux runner）会因卡死的旧运行阻塞整个队列，需 `gh run cancel` 卡死运行并取消过期 head 的排队任务；Gate 4 的 `credential-store` 锁测试（10s 上限）在并行 runner 下偶发超时，与业务改动无关。
+- **CI 教训**：`electron-tests`（self-hosted linux runner）会因卡死的旧运行阻塞整个队列，需 `gh run cancel` 卡死运行并取消过期 head 的排队任务；Gate 4 的 `credential-store` 锁测试（10s 上限）在并行 runner 下偶发超时，与业务改动无关；electron-tests 的 checkout 阶段偶发 github.com 连接超时，属于基础设施波动，重跑即可。
+
+## 流水线进度细化与信息视觉化实现复盘（2026-08-06）
+
+- **实时进度来源**：优化阶段每场景完成后写 `context.optimize_progress = { done, total }`；资源生成阶段图片/TTS 各自完成即写 `context.assets_progress`（含断点续传复用场景计数）。context 与 run.context 同引用，3s 轮询即可读到实时值，无需新增 IPC。
+- **阶段耗时**：主进程 `_advanceRun` 已为每阶段写 `startedAt`，渲染层加 1s 本地时钟（`stageClockTick`）刷新 running 阶段耗时，不依赖轮询频率。
+- **完成汇总**：快照 `endedAt-createdAt` + `outputSizeBytes`（主进程对成片 stat，仅 completed 且成片存在时返回）；CreateView 完成后把 `durationMs/sizeBytes` 放进路由 query 透传给 ResultView 展示；项目持久化也写入 `outputSizeBytes`。
+- **踩坑**：fastctx replace 的 replacement 中 `$` 需转义为 `$`（模板字符串中的插值会被误判为捕获组）；阶段详情只在 completed/running 阶段显示（pending 不显示进度），组件测试需把目标阶段设为 running 才能断言；ResultView 测试需显式置 `loading=false` 才能渲染视频区。

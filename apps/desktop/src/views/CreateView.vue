@@ -58,10 +58,21 @@
 
         <!-- 阶段进度 -->
         <div v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length" class="stages-timeline" data-testid="story2video-stage-list">
+          <div class="orchestration-progress" data-testid="story2video-orchestration-progress">
+            <div class="progress-bar"><div class="progress-fill" :style="{ width: orchestrationProgressPercent + '%' }"></div></div>
+            <span class="progress-text">{{ orchestrationProgressPercent }}%</span>
+            <span v-if="orchestrationElapsedMs !== null" class="elapsed-text">{{ translateWithLocaleFallback('story2video.elapsed', '已用时 ' + formatDuration(orchestrationElapsedMs), 'Elapsed ' + formatDuration(orchestrationElapsedMs)) }}</span>
+          </div>
+          <div v-if="orchestrationSummary" class="orchestration-summary" data-testid="story2video-orchestration-summary">{{ orchestrationSummary }}</div>
           <div v-for="(stage, i) in (pipelineRunStatus.stages || orchestrationStages)" :key="stage.id || stage.name || i" class="stage-item" :class="stageStateClass(stage, i)" :data-testid="`story2video-stage-${stage.name || i}`">
             <span class="stage-icon">{{ stageStateIcon(stage, i) }}</span>
-            <span class="stage-name">{{ pipelineStage(stage.name) }}</span>
-            <span class="stage-status">{{ stageStatusLabel(stage, i) }}</span>
+            <span class="stage-main">
+              <span class="stage-name">{{ pipelineStage(stage.name) }}</span>
+              <span v-if="stageDetailText(stage, i)" class="stage-meta" :data-testid="`story2video-stage-detail-${stage.name || i}`">{{ stageDetailText(stage, i) }}</span>
+            </span>
+            <span class="stage-status">
+              {{ stageStatusLabel(stage, i) }}<span v-if="stageTimeText(stage)" class="stage-time"> · {{ stageTimeText(stage) }}</span>
+            </span>
           </div>
         </div>
 
@@ -924,6 +935,8 @@ export default {
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '',
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {} },
       story2videoResuming: false,
+      story2videoRunMeta: null,
+      stageClockTick: 0,
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
@@ -1048,6 +1061,35 @@ export default {
       // 内容政策失败需要人工修改文案，不允许原样恢复
       if (/内容政策|content\s*policy|needs_user_input|可能需要修改文案/i.test(raw)) return false
       return true
+    },
+    orchestrationProgressPercent() {
+      const stages = this.pipelineRunStatus?.stages || this.orchestrationStages
+      if (!Array.isArray(stages) || stages.length === 0) return 0
+      const done = stages.filter(s => s.status === 'completed' || s.status === 'skipped').length
+      return Math.round((done / stages.length) * 100)
+    },
+    orchestrationElapsedMs() {
+      const meta = this.story2videoRunMeta
+      if (!meta || !meta.createdAt) return null
+      const start = Date.parse(meta.createdAt)
+      if (!Number.isFinite(start)) return null
+      const end = meta.endedAt ? Date.parse(meta.endedAt) : Date.now()
+      return Math.max(0, end - start)
+    },
+    orchestrationSummary() {
+      const meta = this.story2videoRunMeta
+      if (!meta || !meta.endedAt || !meta.createdAt) return ''
+      const start = Date.parse(meta.createdAt)
+      const end = Date.parse(meta.endedAt)
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return ''
+      const durationText = this.formatDuration(end - start)
+      const durationLabel = this.translateWithLocaleFallback('story2video.summaryDuration', '完成时间共 ' + durationText, 'Finished in ' + durationText)
+      if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) {
+        const mb = (Number(meta.outputSizeBytes) / (1024 * 1024)).toFixed(1)
+        const sizeLabel = this.translateWithLocaleFallback('story2video.summaryFileSize', '文件大小 ' + mb + ' M', 'Size ' + mb + ' MB')
+        return durationLabel + ' · ' + sizeLabel
+      }
+      return durationLabel
     },
     story2videoErrorDialogUiText() {
       return getStory2VideoNotificationUiText(getStory2VideoLocale(), this.pipelineName(this.selectedPipeline?.name))
@@ -1887,6 +1929,11 @@ export default {
           return
         }
         this.orchestrationContext = statusResult.data.context || null
+        this.story2videoRunMeta = {
+          createdAt: statusResult.data.createdAt || null,
+          endedAt: statusResult.data.endedAt || null,
+          outputSizeBytes: statusResult.data.outputSizeBytes || null,
+        }
         const snapshotStatus = statusResult.data.status || {}
         const stages = Array.isArray(statusResult.data.stages)
           ? statusResult.data.stages
@@ -1955,10 +2002,16 @@ export default {
       }
       if (this.orchestrationResultPath === videoPath) return true
       this.orchestrationResultPath = videoPath
-      this.$router.push({
-        path: '/create/result',
-        query: projectId ? { project: projectId, path: videoPath } : { path: videoPath },
-      })
+      const meta = this.story2videoRunMeta || {}
+      const query = { path: videoPath }
+      if (projectId) query.project = projectId
+      if (meta.createdAt && meta.endedAt) {
+        const start = Date.parse(meta.createdAt)
+        const end = Date.parse(meta.endedAt)
+        if (Number.isFinite(start) && Number.isFinite(end) && end >= start) query.durationMs = end - start
+      }
+      if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) query.sizeBytes = Number(meta.outputSizeBytes)
+      this.$router.push({ path: '/create/result', query })
       return true
     },
     stopPipelinePolling() {
@@ -2250,9 +2303,57 @@ export default {
     stageStatusLabel(stage) {
       return this.pipelineStatus(stage?.status || 'pending')
     },
+    // 阶段详情：拆分场景数 / 优化 x/y / 图片·旁白 x/y
+    stageDetailText(stage, i) {
+      if (!stage || (stage.status !== 'completed' && stage.status !== 'running')) return ''
+      const ctx = this.orchestrationContext || {}
+      if (stage.name === 'split') {
+        const scenes = Array.isArray(ctx.split) ? ctx.split : (ctx.split?.scenes || null)
+        if (Array.isArray(scenes) && scenes.length > 0) {
+          return this.translateWithLocaleFallback('story2video.splitSceneCount', '拆分为了 ' + scenes.length + ' 个场景', 'Split into ' + scenes.length + ' scenes')
+        }
+      }
+      if (stage.name === 'optimize') {
+        const p = ctx.optimize_progress
+        if (p && Number.isInteger(p.total) && Number.isInteger(p.done)) {
+          return this.translateWithLocaleFallback('story2video.optimizeProgress', '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个', p.done + '/' + p.total + ' scenes optimized')
+        }
+      }
+      if (stage.name === 'generate_assets') {
+        const p = ctx.assets_progress
+        if (p && Number.isInteger(p.imagesTotal) && Number.isInteger(p.ttsTotal)) {
+          return this.translateWithLocaleFallback('story2video.assetsProgress', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal)
+        }
+      }
+      return ''
+    },
+    // 阶段耗时（mm 分 ss 秒）
+    stageTimeText(stage) {
+      if (!stage || !stage.startedAt) return ''
+      if (stage.status !== 'running' && stage.status !== 'completed' && stage.status !== 'failed') return ''
+      const start = Date.parse(stage.startedAt)
+      if (!Number.isFinite(start)) return ''
+      const end = stage.completedAt ? Date.parse(stage.completedAt) : Date.now()
+      if (!Number.isFinite(end)) return ''
+      return this.formatDuration(Math.max(0, end - start))
+    },
+    formatDuration(ms) {
+      const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000))
+      const minutes = Math.floor(totalSeconds / 60)
+      const seconds = totalSeconds % 60
+      if (minutes > 0) {
+        return this.translateWithLocaleFallback('story2video.durationMinSec', minutes + ' 分 ' + seconds + ' 秒', minutes + 'm ' + seconds + 's')
+      }
+      return this.translateWithLocaleFallback('story2video.durationSec', seconds + ' 秒', seconds + 's')
+    },
+    startStageClock() {
+      if (this._stageClockTimer) return
+      this._stageClockTimer = setInterval(() => { this.stageClockTick += 1 }, 1000)
+    },
   },
   async mounted() {
     this.refreshS2VTemplates()
+    this.startStageClock()
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
     this.resumeRunningOrchestration()
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
@@ -2264,6 +2365,7 @@ export default {
   beforeUnmount() {
     this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
     if (this.pollTimer) clearInterval(this.pollTimer)
+    if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
   },
 }
 </script>
@@ -2346,8 +2448,15 @@ export default {
 .stage-item.cancelled { color: #6b7280; }
 .stage-item.pending { color: #999; }
 .stage-icon { width: 24px; text-align: center; }
-.stage-name { flex: 1; }
-.stage-status { font-size: 12px; }
+.stage-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.stage-name { }
+.stage-meta { font-size: 12px; color: var(--text-muted, #888); }
+.stage-status { font-size: 12px; white-space: nowrap; }
+.stage-time { color: var(--text-muted, #888); }
+.orchestration-progress { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.orchestration-progress .progress-bar { flex: 1; width: auto; }
+.elapsed-text { font-size: 12px; color: var(--text-muted, #888); white-space: nowrap; }
+.orchestration-summary { margin-bottom: 10px; padding: 8px 12px; background: #f0fdf4; color: #166534; border-radius: 6px; font-size: 13px; font-weight: 600; }
 .orchestration-attention { margin: 0; color: #c2410c; font-size: 13px; }
 
 /* 输入区域 */

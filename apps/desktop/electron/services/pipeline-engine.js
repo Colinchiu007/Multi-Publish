@@ -1156,7 +1156,27 @@ class PipelineEngine {
       endedAt: run.endedAt || null,
       error: run.error || null,
       projectId: run.projectId || null,
+      outputSizeBytes: this._runOutputSizeBytes(run) || null,
     };
+  }
+
+  /** 已完成运行的成片文件大小（供「完成汇总」展示），非完成/无成片时返回 null。 */
+  _runOutputSizeBytes(run) {
+    if (!run || run.status !== 'completed') return null
+    const context = run.context || {}
+    const composeRaw = context.compose?.data || context.compose
+    const exportRaw = context.export?.data || context.export
+    const reportRaw = context.report?.data || context.report
+    const videoPath = (composeRaw && (composeRaw.videoPath || composeRaw.path)) ||
+      (exportRaw && (exportRaw.videoPath || exportRaw.path)) ||
+      (reportRaw && (reportRaw.videoPath || reportRaw.path))
+    if (typeof videoPath !== 'string' || !videoPath) return null
+    try {
+      const stat = require('fs').statSync(videoPath)
+      return Number.isFinite(stat.size) ? stat.size : null
+    } catch {
+      return null
+    }
   }
 
   /**
