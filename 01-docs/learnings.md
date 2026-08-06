@@ -1,6 +1,29 @@
 
 ---
 
+## 音色目录/克隆双 Bug 复盘 (2026-08-07)
+
+### Bug 1：选择 MiniMax 部分系统音色报 VOICE_CATALOG_INVALID_ARGUMENTS（沉稳高管/搞笑大爷）
+- **根因**：MiniMax 系统音色 id 形如 `Chinese (Mandarin)_Reliable_Executive`（含空格与括号）；`tts-voice-catalog.js` 的 `safeString` 只拒绝控制字符（目录能收录），但 `tts-voice-service.js` 的 `selectVoice` 用 `safeIdentifier`（`/^[a-zA-Z0-9._-]+$/`）校验 voiceId → 空格/括号被拒 → 返回 INVALID_ARGUMENTS。两处校验口径不一致。
+- **逃逸链**：单测只覆盖 ASCII voiceId（alloy/novia 等）；e2e 只选默认音色 `male-qn-qingse`，从未选过含空格括号的 MiniMax 系统音色。
+- **系统性漏洞**：voiceId 的"安全校验"在不同层用了不同函数（catalog 宽松/selectVoice 严格），且严格层没考虑真实 provider 的 id 字符集。
+- **修复**：新增 `safeVoiceId`（允许空格/括号/中文等；仅拒控制字符、路径分隔符、遍历序列），selectVoice 使用；providerId/model 仍走严格校验。
+- **回归保护**：`tts-voice-service.test.js` 新增「接受 Chinese (Mandarin)_Reliable_Executive 并保存偏好」「拒绝 ..\..\evil」。
+
+### Bug 2：符合时长要求的 wav 报"上传的音频文件时长不符合要求"
+- **根因**：`_probeMediaDuration` 用 `ffprobe ... pipe:0`（stdin 流式）探测时长；对带 `LIST` chunk 的 PCM wav（用户文件实测 27.12s、4.6MB、含 LIST chunk），ffprobe 流式输出 `format` 无 `duration`（文件模式正常）→ 返回 null → 误判 `VOICE_CLONE_SAMPLE_DURATION_INVALID`。
+- **逃逸链**：测试用 `probeDuration` dep 注入 mock（固定 3.25s），从未用真实 ffprobe + 真实 wav 走 pipe 路径；e2e 用的克隆音频可能恰好是 mp3/m4a（pipe 可解析）。
+- **系统性漏洞**：时长探测只依赖单一 pipe 通道，无"文件模式"兜底；对 ffprobe 流式解析失败的格式（部分 wav）直接误报。
+- **修复**：`_probeMediaDuration` 先 pipe 探测；**有音频流但 duration 缺失**时回退写临时文件（`os.tmpdir()/voice-clone-probe-*.wav`，mode 0600，finally 删除）用文件模式探测；明确无音频流仍 fail closed（不回退）。
+- **回归保护**：`tts-voice-clone-service.test.js` 新增「pipe 无 duration 回退临时文件成功且清理」「pipe 有 duration 不回退」「双失败返回 null」；保留原「无音频流 fail closed 且不落盘」断言。
+- **端到端验证**：修复后 `_probeMediaDuration` 对 `D:\系统下载文件夹\克隆用音频4-30秒内-起伏大.wav` 返回 27.12s（修复前 null）。
+
+### 🧠 经验沉淀
+- 跨层校验必须单一来源：同一字段（voiceId）在目录归一化与选择校验用同一套白名单语义，且要覆盖真实 provider 的 id 字符集。
+- ffprobe 探测时长不可只依赖 pipe 通道：文件模式是可靠兜底；"无音频流"是硬失败信号，不得触发兜底掩盖。
+- 供应商真实数据的边界（含空格括号的 id、带 LIST chunk 的 wav）必须进单测 fixture，否则只靠 e2e 短样本测不到。
+---
+
 ## 技术债务 W1/W2/W3 闭环复盘 (2026-08-06)
 
 ### ✅ 做得好的

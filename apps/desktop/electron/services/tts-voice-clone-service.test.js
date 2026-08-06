@@ -896,3 +896,76 @@ describe("TtsVoiceCloneService", () => {
     expect(manager.callAdapter).not.toHaveBeenCalled();
   });
 });
+
+
+describe("_probeMediaDuration — pipe 拿不到 duration 时回退临时文件（回归 wav 误报时长不符）", () => {
+  const pipeNoDuration = JSON.stringify({
+    programs: [],
+    streams: [{ codec_type: "audio" }],
+    format: { format_name: "wav" },
+  });
+  const fileWithDuration = JSON.stringify({
+    programs: [],
+    streams: [{ codec_type: "audio" }],
+    format: { format_name: "wav", duration: "27.120907" },
+  });
+
+  function makeService() {
+    // probeDuration 不注入 → 走默认 this._probeMediaDuration
+    return new TtsVoiceCloneService({
+      store: createOwnerStore(),
+      modelProviderManager: createManager(),
+      userDataPath: path.join(os.tmpdir(), "clone-probe-test-" + Math.random().toString(36).slice(2)),
+      randomUUID: () => "clone-stage-a",
+      createSelectionToken: () => "selection-a",
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+    });
+  }
+
+  it("pipe 无 duration 时回退临时文件探测并返回正确时长，临时文件已清理", async () => {
+    const service = makeService();
+    const probeSpy = vi.spyOn(service, "_runFfprobe").mockResolvedValue(pipeNoDuration);
+    const fileSpy = vi.spyOn(service, "_runFfprobeFile").mockImplementation(async (filePath) => {
+      expect(nodeFs.existsSync(filePath)).toBe(true);
+      return fileWithDuration;
+    });
+
+    const result = await service._probeMediaDuration(Buffer.from("fake-wav-bytes"));
+
+    expect(result).toBe(27.120907);
+    expect(probeSpy).toHaveBeenCalledTimes(1);
+    expect(fileSpy).toHaveBeenCalledTimes(1);
+    const tempPath = fileSpy.mock.calls[0][0];
+    expect(tempPath).toMatch(/voice-clone-probe-/);
+    expect(nodeFs.existsSync(tempPath)).toBe(false); // finally 已清理
+  });
+
+  it("pipe 直接拿到 duration 时不回退临时文件", async () => {
+    const service = makeService();
+    const pipeOk = JSON.stringify({
+      programs: [],
+      streams: [{ codec_type: "audio" }],
+      format: { format_name: "mp3", duration: "12.5" },
+    });
+    const probeSpy = vi.spyOn(service, "_runFfprobe").mockResolvedValue(pipeOk);
+    const fileSpy = vi.spyOn(service, "_runFfprobeFile").mockResolvedValue(fileWithDuration);
+
+    const result = await service._probeMediaDuration(Buffer.from("fake-mp3-bytes"));
+
+    expect(result).toBe(12.5);
+    expect(probeSpy).toHaveBeenCalledTimes(1);
+    expect(fileSpy).not.toHaveBeenCalled();
+  });
+
+  it("pipe 与临时文件都失败时返回 null（不抛错）", async () => {
+    const service = makeService();
+    const probeSpy = vi.spyOn(service, "_runFfprobe").mockRejectedValue(new Error("pipe boom"));
+    const fileSpy = vi.spyOn(service, "_runFfprobeFile").mockResolvedValue("{not-json");
+
+    const result = await service._probeMediaDuration(Buffer.from("garbage"));
+
+    expect(result).toBeNull();
+    expect(probeSpy).toHaveBeenCalledTimes(1);
+    expect(fileSpy).toHaveBeenCalledTimes(1);
+  });
+})

@@ -1,4 +1,10 @@
-## [未发布] 技术债务 W1/W2/W3 闭环 (2026-08-06)
+## [未发布] 音色目录/克隆双 Bug 修复 (2026-08-07)
+
+### 图片轮播（视频创作）
+- **Bug 1 音色选择**：MiniMax 系统音色 id 含空格/括号（如 `Chinese (Mandarin)_Reliable_Executive`），selectVoice 的 voiceId 校验过严导致选「沉稳高管/搞笑大爷」报 `VOICE_CATALOG_INVALID_ARGUMENTS`。修复：新增 `safeVoiceId`（允许非控制字符，仅拒路径分隔符/遍历序列），providerId/model 仍严格校验。
+- **Bug 2 克隆时长误报**：ffprobe 从 stdin 探测部分 wav（带 LIST chunk）拿不到 duration → 误报「音频文件时长不符合要求」。修复：`_probeMediaDuration` pipe 优先，**有音频流但 duration 缺失**时回退临时文件文件模式探测（tmpdir 随机名/0600/finally 清理）；明确无音频流仍 fail closed。
+- 回归测试 5 例：voiceId 空格括号选择/路径拒绝；pipe 回退/不回退/双失败/null。端到端验证用户 wav（27.12s）通过。
+- PRD「音色目录/克隆校验修复合同」、learnings 双 Bug 复盘同步更新。## [未发布] 技术债务 W1/W2/W3 闭环 (2026-08-06)
 
 ### 主进程
 - **W1 run-state owner 隔离**：RunStateStore 快照改写入 `userData/run-state/owners/{sha256(subject)}/<runId>.json`；新增 `setOwnerProvider`，phase3-services 用 `ownerSubjectProvider` 接线并随身份切换更新；legacy 平铺快照首次读取自动迁移；remove 双路径清理；未登录回退平铺存储。

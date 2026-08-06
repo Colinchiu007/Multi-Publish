@@ -1401,3 +1401,26 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **修复**：新增 `governor-provider-limits.js`，为 52 个已知 provider 提供 `{ rpm, maxConcurrent, cooldownMs, retry429 }` 预算（保守估计，非官方保证；本地类 provider 给高预算）；`ApiUsageGovernor` 支持 `setProviderLimits(providerId, limits)` 与构造函数 `providerLimits` 注入，container 启动时注入 `PROVIDER_LIMITS`。
 - **优先级**：精确 key 覆盖 > provider 级 > 类别默认 > 全局默认；429 自适应（rateFactor 0.75）仍兜底真实限流。
 - **验收**：governor 单测覆盖「provider 级 rpm 生效」「未配置 provider 回退类别默认」「构造函数注入」。
+
+## 音色目录/克隆校验修复合同（2026-08-07）
+
+### Bug 1：MiniMax 系统音色选择（VOICE_CATALOG_INVALID_ARGUMENTS）
+- **背景**：选择「沉稳高管」「搞笑大爷」等 MiniMax 系统音色报 `VOICE_CATALOG_INVALID_ARGUMENTS`。根因：MiniMax 官方 system voice id 含空格与括号（如 `Chinese (Mandarin)_Reliable_Executive`），而 `selectVoice` 的 voiceId 校验只允许 `/^[a-zA-Z0-9._-]+$/`。
+- **数据校验合同（voiceId）**：
+  - 允许字符集：任意非控制字符文本（含空格、括号、中文等），长度 ≤256；
+  - 拒绝：控制字符（U+0000-U+001F、U+007F）、路径分隔符（`/`、`\`）、遍历序列（`..`）；
+  - providerId / model 仍使用严格 ASCII 白名单（`/^[a-zA-Z0-9._-]+$/`）不变；
+  - voiceId 只用于偏好持久化与传给 adapter 合成参数（MiniMax `voice_setting.voice_id`），不进入文件路径。
+- **交互逻辑**：目录可展示并选择全部 MiniMax 系统音色（327 个，含空格括号 id）；选择后保存偏好并在下次进入时作为默认。
+- **回归保护**：`tts-voice-service.test.js` 覆盖「含空格括号 id 选择成功」「路径分隔符/遍历序列拒绝」。
+
+### Bug 2：音色克隆样本时长误报（VOICE_CLONE_SAMPLE_DURATION_INVALID）
+- **背景**：符合要求（mp3/m4a/wav、10s-5min、≤20MB）的 wav 上传后仍报「上传的音频文件时长不符合要求」。根因：`ffprobe` 从 stdin（pipe:0）流式探测部分 PCM wav（如带 `LIST` chunk 的 RIFF）拿不到 `format.duration`（文件模式正常）。
+- **流程与功能逻辑（时长探测）**：
+  1. 首选 pipe 探测（mp3/m4a 等流式可解析路径）；
+  2. **有音频流但 duration 缺失/无效** → 回退写临时文件（`os.tmpdir()/voice-clone-probe-<random>.wav`，`mode 0o600`）用文件模式探测，`finally` 删除临时文件；
+  3. **明确无音频流** → fail closed（`VOICE_CLONE_SAMPLE_DURATION_INVALID`），不回退；
+  4. pipe 与文件模式都失败 → 返回无效（不伪造时长）。
+- **数据约束**：临时文件仅存在于 `os.tmpdir()`、随机名、600 权限、探测后必删；样本时长校验阈值不变（10s-5min，MiniMax）。
+- **提示文字**：不变（「上传的音频文件时长不符合要求，请按提示调整时长后重试」）；真实原因（探测失败）不再误报为时长不符，而是正常完成校验。
+- **回归保护**：`tts-voice-clone-service.test.js` 覆盖「pipe 无 duration 回退文件探测」「pipe 成功不回退」「双失败返回 null」「无音频流 fail closed 且不落盘」；端到端验证用户 wav（27.12s）通过。

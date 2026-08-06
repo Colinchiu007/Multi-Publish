@@ -263,3 +263,40 @@ describe('TtsVoiceService', () => {
     expect(manager.callAdapter).not.toHaveBeenCalled()
   })
 })
+
+
+describe('selectVoice — MiniMax 系统音色 id（含空格/括号）', () => {
+  it('接受 Chinese (Mandarin)_Reliable_Executive 并保存偏好（回归 VOICE_CATALOG_INVALID_ARGUMENTS）', async () => {
+    const now = 1_700_000_000_000
+    const store = createUserStore()
+    const manager = {
+      getProvider: vi.fn(() => ({ id: 'minimax-tts', category: 'tts', models: ['speech-2.8-turbo'] })),
+      callAdapter: vi.fn(async () => ({ code: 0, data: [
+        { id: 'male-qn-qingse', name: '青年男声' },
+        { id: 'Chinese (Mandarin)_Reliable_Executive', name: '沉稳高管' },
+        { id: 'Chinese (Mandarin)_Humorous_Elder', name: '搞笑大爷' },
+      ] })),
+    }
+    const service = new TtsVoiceService({ store, modelProviderManager: manager, now: () => now, cacheTtlMs: 60_000 })
+
+    const catalog = await service.getCatalog({ providerId: 'minimax-tts', model: 'speech-2.8-turbo' })
+    expect(catalog.code).toBe(0)
+    expect(catalog.data.voices.map((v) => v.id)).toContain('Chinese (Mandarin)_Reliable_Executive')
+
+    const selected = await service.selectVoice({ providerId: 'minimax-tts', model: 'speech-2.8-turbo', voiceId: 'Chinese (Mandarin)_Reliable_Executive' })
+    expect(selected.code).toBe(0)
+    expect(selected.data.selectedVoiceId).toBe('Chinese (Mandarin)_Reliable_Executive')
+    expect(store.setUserSetting).toHaveBeenCalledWith(
+      'tts-voice-preference:v1:minimax-tts:speech-2.8-turbo',
+      expect.objectContaining({ voiceId: 'Chinese (Mandarin)_Reliable_Executive' }),
+      'user-a',
+    )
+  })
+
+  it('拒绝含路径分隔符/遍历序列的 voiceId', async () => {
+    const now = 1_700_000_000_000
+    const service = new TtsVoiceService({ store: createUserStore(), modelProviderManager: createManager(), now: () => now, cacheTtlMs: 60_000 })
+    const result = await service.selectVoice({ providerId: 'openai-tts', model: 'tts-1', voiceId: '..\..\evil' })
+    expect(result).toMatchObject({ code: -1, message: 'VOICE_CATALOG_INVALID_ARGUMENTS' })
+  })
+})

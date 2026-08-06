@@ -4,6 +4,7 @@
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const { CAPABILITY_TYPES, getVoiceCapability } = require("./tts-voice-catalog");
@@ -1193,25 +1194,163 @@ class TtsVoiceCloneService {
     ) {
       return null;
     }
+    let parsed = null;
     try {
-      const stdout = await this._runFfprobe(buffer);
+      parsed = this._parseProbe(await this._runFfprobe(buffer));
+    } catch (_) {
+      // pipe 失败 → 落入临时文件回退
+    }
+    // 明确无音频流 → fail closed，不回退（避免把非音频当样本）
+    if (parsed && parsed.hasAudioStream === false) return null;
+    if (parsed && parsed.duration !== null) return parsed.duration;
+    // 有音频流但 ffprobe 从 pipe:0 拿不到 duration（部分 wav，如带 LIST chunk 的
+    // RIFF）→ 写临时文件用文件模式探测，文件模式可完整解析 duration。
+    return this._probeMediaDurationViaTempFile(buffer);
+  }
+
+  /** 解析 ffprobe JSON，返回 { duration, hasAudioStream, formatName }。 */
+  _parseProbe(stdout) {
+    try {
       const probe = JSON.parse(stdout);
       const format = probe && probe.format;
       const durationSeconds = format ? Number.parseFloat(format.duration) : Number.NaN;
       const hasAudioStream =
         Array.isArray(probe && probe.streams) &&
         probe.streams.some((stream) => stream && stream.codec_type === "audio");
-      return format &&
-        typeof format.format_name === "string" &&
-        format.format_name.trim() &&
-        hasAudioStream &&
-        Number.isFinite(durationSeconds) &&
-        durationSeconds > 0
-        ? durationSeconds
-        : null;
+      const formatName =
+        format && typeof format.format_name === "string" && format.format_name.trim()
+          ? format.format_name
+          : "";
+      const duration =
+        formatName && hasAudioStream && Number.isFinite(durationSeconds) && durationSeconds > 0
+          ? durationSeconds
+          : null;
+      return { duration, hasAudioStream, formatName };
     } catch (_) {
       return null;
     }
+  }
+
+  /** 临时文件回退探测：避免 ffprobe 流式（pipe）对部分 wav 无法解析 duration。 */
+  async _probeMediaDurationViaTempFile(buffer) {
+    const tempPath = path.join(
+      os.tmpdir(),
+      "voice-clone-probe-" + crypto.randomBytes(6).toString("hex") + ".wav"
+    );
+    try {
+      await this._fs.promises.writeFile(tempPath, buffer, { mode: 0o600 });
+    } catch (_) {
+      return null;
+    }
+    try {
+      const stdout = await this._runFfprobeFile(tempPath);
+      const parsed = this._parseProbe(stdout);
+      return parsed ? parsed.duration : null;
+    } catch (_) {
+      return null;
+    } finally {
+      try {
+        await this._fs.promises.unlink(tempPath);
+      } catch (_) {
+        void 0;
+      }
+    }
+  }
+
+  /** 文件路径版 ffprobe（安全骨架与 _runFfprobe 一致：超时/输出上限/进程清理）。 */
+  _runFfprobeFile(filePath) {
+    return new Promise((resolve, reject) => {
+      let child;
+      try {
+        child = this._spawn(
+          this._ffprobePath,
+          [
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration,format_name:stream=codec_type",
+            "-of",
+            "json",
+            filePath,
+          ],
+          { stdio: ["ignore", "pipe", "pipe"], windowsHide: true }
+        );
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      if (
+        !child ||
+        !child.stdout ||
+        typeof child.stdout.on !== "function" ||
+        !child.stderr ||
+        typeof child.stderr.on !== "function" ||
+        typeof child.once !== "function"
+      ) {
+        try {
+          if (child && typeof child.kill === "function") child.kill();
+        } catch (_) {
+          void 0;
+        }
+        reject(new Error("ffprobe process is unavailable"));
+        return;
+      }
+
+      let completed = false;
+      let timeout;
+      let outputBytes = 0;
+      const stdoutChunks = [];
+      const terminate = () => {
+        try {
+          if (typeof child.kill === "function") child.kill();
+        } catch (_) {
+          void 0;
+        }
+      };
+      const settle = (handler, value) => {
+        if (completed) return;
+        completed = true;
+        try {
+          this._clearTimeout(timeout);
+        } catch (_) {
+          void 0;
+        }
+        handler(value);
+      };
+      const fail = (error) => {
+        terminate();
+        settle(reject, error);
+      };
+      const consumeOutput = (chunk, keep) => {
+        const output = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
+        outputBytes += output.length;
+        if (outputBytes > MAX_FFPROBE_OUTPUT_BYTES) {
+          fail(new Error("ffprobe output exceeded limit"));
+          return;
+        }
+        if (keep) stdoutChunks.push(output);
+      };
+
+      try {
+        timeout = this._setTimeout(() => fail(new Error("ffprobe timed out")), FFPROBE_TIMEOUT_MS);
+      } catch (error) {
+        terminate();
+        reject(error);
+        return;
+      }
+      if (timeout && typeof timeout.unref === "function") timeout.unref();
+
+      child.stdout.on("data", (chunk) => consumeOutput(chunk, true));
+      child.stderr.on("data", (chunk) => consumeOutput(chunk, false));
+      child.once("error", fail);
+      child.once("close", (code, signal) => {
+        if (code !== 0 || signal) {
+          settle(reject, new Error("ffprobe failed"));
+          return;
+        }
+        settle(resolve, Buffer.concat(stdoutChunks).toString("utf8"));
+      });
+    });
   }
 
   _runFfprobe(buffer) {
