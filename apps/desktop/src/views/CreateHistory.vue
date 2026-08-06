@@ -48,12 +48,12 @@
           <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
         </div>
         <div v-else class="pipeline-list">
-          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card">
+          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" @click="openPipeline(p)">
             <div class="pipeline-info">
               <span class="pipeline-status-dot" :class="p.status"></span>
               <div class="pipeline-meta">
                 <span class="pipeline-name">{{ humanName(p.pipelineName || p.name) }}</span>
-                <span class="pipeline-time">{{ formatTime(p.completedAt || p.startedAt) }}</span>
+                <span class="pipeline-time">{{ formatTime(p.completedAt || p.startedAt || p.createdAt) }}</span>
               </div>
             </div>
             <div class="pipeline-stages">
@@ -62,6 +62,7 @@
               </span>
             </div>
             <span class="pipeline-status" :class="p.status">{{ statusLabel(p.status) }}</span>
+            <span v-if="p.status === 'running'" class="pipeline-running-hint">返回创作页查看进度</span>
           </div>
         </div>
       </div>
@@ -96,6 +97,7 @@ export default {
       pipelineLoading: false,
       pipelineError: '',
       pipelineRequestId: 0,
+      pipelinePollTimer: null,
     }
   },
   async mounted() {
@@ -134,7 +136,35 @@ export default {
         if (requestId !== this.pipelineRequestId) return
         this.pipelineError = e?.code === 'HISTORY_LOAD_TIMEOUT' ? '流水线记录加载超时，请重试' : '流水线记录加载失败，请重试'
       } finally {
-        if (requestId === this.pipelineRequestId) this.pipelineLoading = false
+        if (requestId === this.pipelineRequestId) {
+          this.pipelineLoading = false
+          this.schedulePipelineRefresh()
+        }
+      }
+    },
+    schedulePipelineRefresh() {
+      if (this.pipelinePollTimer) { clearInterval(this.pipelinePollTimer); this.pipelinePollTimer = null }
+      const hasRunning = (this.pipelines || []).some((p) => p && p.status === 'running')
+      if (!hasRunning) return
+      // 存在后台运行中的流水线：每 5s 轮询刷新进度状态（同流水线页面一致）
+      this.pipelinePollTimer = setInterval(() => { this.loadPipelines() }, 5000)
+    },
+    openPipeline(p) {
+      if (!p) return
+      if (p.status === 'running') {
+        // 运行中：跳回创作页，CreateView 会自动恢复查看该流水线进度
+        this.$router.push('/create')
+        return
+      }
+      if (p.status === 'completed') {
+        const context = p.context || {}
+        const composeRaw = context.compose?.data || context.compose
+        const exportRaw = context.export?.data || context.export
+        const reportRaw = context.report?.data || context.report
+        const videoPath = (composeRaw && (composeRaw.videoPath || composeRaw.path)) ||
+          (exportRaw && (exportRaw.videoPath || exportRaw.path)) ||
+          (reportRaw && (reportRaw.videoPath || reportRaw.path))
+        this.$router.push('/create/result?path=' + encodeURIComponent(videoPath || ''))
       }
     },
     statusLabel(s) {
@@ -157,6 +187,9 @@ export default {
       if (!iso) return ''
       try { return new Date(iso).toLocaleString('zh-CN') } catch (e) { return iso }
     },
+  },
+  beforeUnmount() {
+    if (this.pipelinePollTimer) { clearInterval(this.pipelinePollTimer); this.pipelinePollTimer = null }
   },
 }
 </script>
@@ -192,6 +225,7 @@ export default {
 .pipeline-status-dot.completed { background: #22c55e; }
 .pipeline-status-dot.failed { background: #ef4444; }
 .pipeline-status-dot.cancelled { background: #9ca3af; }
+.pipeline-running-hint { font-size: 11px; color: #1d4ed8; background: #dbeafe; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: var(--primary, #7c5cbf); border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>

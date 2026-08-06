@@ -1,4 +1,11 @@
-## [未发布] 音色目录/克隆双 Bug 修复 (2026-08-07)
+## [未发布] 视频创作后台运行与并发限制 (2026-08-07)
+
+### 视频创作
+- **后台运行固化**：background:true 主进程后台推进 + CreateView mounted 自动恢复查看运行中 run（已有能力，补合同文档）。
+- **历史记录显示运行中任务**：`pipeline:history` 现在返回运行中 run（去重 `_<name>` 索引）+ 终态历史；创作历史-流水线记录支持运行中卡片（阶段标签/时间/「返回创作页查看进度」提示），存在 running 时每 5s 轮询刷新、结束即停；点击运行中卡片跳 /create 恢复查看，点击已完成卡片跳成片预览。
+- **并发限制**：PipelineEngine 默认最多 2 条运行中编排流水线（`maxConcurrentRuns` 可注入）；`startOrchestrated` 与 `resumeOrchestration` 统一门禁，超限返回 `PIPELINE_CONCURRENCY_LIMIT` + 友好中文提示；前端新增对应通知文案（zh/en，errorCode + 正则双映射）。
+- 测试：引擎 4 例（getHistory 含运行中/默认上限 2/注入 1 与释放/恢复超限）+ CreateHistory 2 例（轮询与停止/跳转）+ notifications 2 例；vite build 通过。
+- PRD「视频创作后台运行与并发合同」、learnings 复盘、CHANGELOG 同步更新。## [未发布] 音色目录/克隆双 Bug 修复 (2026-08-07)
 
 ### 图片轮播（视频创作）
 - **Bug 1 音色选择**：MiniMax 系统音色 id 含空格/括号（如 `Chinese (Mandarin)_Reliable_Executive`），selectVoice 的 voiceId 校验过严导致选「沉稳高管/搞笑大爷」报 `VOICE_CATALOG_INVALID_ARGUMENTS`。修复：新增 `safeVoiceId`（允许非控制字符，仅拒路径分隔符/遍历序列），providerId/model 仍严格校验。

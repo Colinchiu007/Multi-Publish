@@ -10,12 +10,13 @@ function makeStore() {
   }
 }
 
-function makeEngine(store, governor) {
+function makeEngine(store, governor, maxConcurrentRuns) {
   const engine = new PipelineEngine({
     serviceBus: {},
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     runStateStore: store,
     governor: governor || null,
+    maxConcurrentRuns,
   })
   engine.registerPipeline({
     name: 'resume-test',
@@ -202,5 +203,91 @@ describe('W2：run 结束统一回收 governor 过期 waiter', () => {
     const started = await engine.startOrchestrated('sweep-cancel', { initialContext: {}, autoAdvance: false })
     engine.cancel()
     expect(governor.sweepAll).toHaveBeenCalled()
+  })
+})
+
+
+describe('后台运行：历史含运行中 + 并发上限', () => {
+  function registerConc(engine) {
+    engine.registerPipeline({
+      name: 'conc-test',
+      description: '并发测试',
+      stages: ['a', 'b'],
+      stageDefs: [
+        { name: 'a', type: 'conc_a' },
+        { name: 'b', type: 'conc_b' },
+      ],
+    })
+    engine.registerStageExecutor('conc_a', async () => ({ success: true, output: {} }))
+  }
+
+  it('getHistory 包含运行中的编排 run，且无 _name 索引重复', async () => {
+    const engine = makeEngine(makeStore())
+    registerConc(engine)
+    const started = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    expect(started.success).toBe(true)
+
+    const history = engine.getHistory()
+    const matching = history.filter((h) => h.id === started.runId)
+    expect(matching.length).toBe(1)
+    expect(matching[0].status).toBe('running')
+    expect(matching[0].orchestrationMode).toBe('orchestrator')
+  })
+
+  it('超过并发上限（默认 2）时拒绝第 3 条并返回 PIPELINE_CONCURRENCY_LIMIT', async () => {
+    const engine = makeEngine(makeStore())
+    registerConc(engine)
+    const r1 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    const r2 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    expect(r1.success).toBe(true)
+    expect(r2.success).toBe(true)
+
+    const r3 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    expect(r3.success).toBe(false)
+    expect(r3.errorCode).toBe('PIPELINE_CONCURRENCY_LIMIT')
+    expect(r3.error).toContain('最多同时运行 2 条')
+    expect(r3.errorParams).toEqual({ count: 2, max: 2 })
+  })
+
+  it('注入 maxConcurrentRuns=1 时第 2 条即被拒绝，取消后释放槽位可再次启动', async () => {
+    const engine = makeEngine(makeStore(), null, 1)
+    registerConc(engine)
+    const r1 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    expect(r1.success).toBe(true)
+
+    const r2 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    expect(r2.success).toBe(false)
+    expect(r2.errorCode).toBe('PIPELINE_CONCURRENCY_LIMIT')
+
+    engine.cancel()
+    const r3 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    expect(r3.success).toBe(true)
+  })
+
+  it('resumeOrchestration 也占用并发槽位，超限时拒绝恢复', async () => {
+    const store = makeStore()
+    store.load = vi.fn(() => ({
+      id: 'failed-run-1',
+      runId: 'failed-run-1',
+      pipeline: 'conc-test',
+      status: 'failed',
+      error: 'boom: network timeout',
+      currentStage: 0,
+      stages: [
+        { name: 'a', status: 'failed' },
+        { name: 'b', status: 'pending' },
+      ],
+      context: {},
+      params: {},
+      orchestrationMode: 'orchestrator',
+    }))
+    const engine = makeEngine(store, null, 1)
+    registerConc(engine)
+    const r1 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+    expect(r1.success).toBe(true)
+
+    const resume = await engine.resumeOrchestration('failed-run-1')
+    expect(resume.success).toBe(false)
+    expect(resume.errorCode).toBe('PIPELINE_CONCURRENCY_LIMIT')
   })
 })

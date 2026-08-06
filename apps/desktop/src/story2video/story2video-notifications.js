@@ -29,6 +29,7 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   OPERATION_FAILED: 'story2video.operation_failed',
   UNKNOWN_ERROR: 'story2video.unknown_error',
   PIPELINE_NOT_IMPLEMENTED: 'story2video.pipeline_not_implemented',
+  PIPELINE_CONCURRENCY_LIMIT: 'story2video.pipeline_concurrency_limit',
 })
 
 export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
@@ -61,6 +62,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED]: '当前操作未能完成，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR]: '当前操作未能完成，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED]: '该流水线尚未实现执行引擎，暂不能生成视频。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT]: '当前已有 {count} 条流水线正在后台运行，最多同时运行 {max} 条，请等待其中一条完成后再启动。',
   }),
   en: Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED]: 'The required models are not available. Add them in Settings.',
@@ -91,6 +93,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED]: 'Could not complete the request. Please try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR]: 'Could not complete the request. Please try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED]: 'This pipeline has no execution engine yet, so videos cannot be generated.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT]: '{count} pipelines are already running in the background. Up to {max} can run at once. Wait for one to finish before starting another.',
   }),
 })
 
@@ -107,6 +110,7 @@ const QUOTA_EXCEEDED_PATTERN = /((?:insufficient|exhausted|exceeded|out\s+of).{0
 const TEXT_ONLY_PATTERN = /(只支持\s*(?:text|文案)|text\s*mode|text input only)/i
 const TEXT_TOO_LONG_PATTERN = /(超过\s*6000|最多\s*6000|6000.*(?:字符|character)|text.*(?:too long|exceeds))/i
 const PREVIEW_MISSING_PATTERN = /(未返回.*可预览.*视频|preview.*(?:missing|video)|no previewable video)/i
+const PIPELINE_CONCURRENCY_PATTERN = /(流水线正在(?:后台)?运行|最多同时运行|同时运行.*条|concurrency limit)/i
 
 export function countUnicodeCodePoints (value) {
   return Array.from(String(value ?? '')).length
@@ -169,6 +173,11 @@ function normalizeParams (value, locale, messageKey, rawError) {
       .join(separator)
   }
 
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT) {
+    if (Number.isFinite(Number(supplied.count))) params.count = Number(supplied.count)
+    if (Number.isFinite(Number(supplied.max))) params.max = Number(supplied.max)
+  }
+
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED) {
     const scene = extractSceneNumber(rawError)
     if (scene !== null) {
@@ -200,6 +209,7 @@ function resolveMessageKey (notification, fallbackKey) {
   if (ACCESS_DENIED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
   if (notification?.errorCode === 'RATE_LIMITED' || Number(notification?.code) === 429 || RATE_LIMITED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED
   if (notification?.errorCode === 'QUOTA_EXCEEDED' || Number(notification?.code) === 402 || QUOTA_EXCEEDED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED
+  if (notification?.errorCode === 'PIPELINE_CONCURRENCY_LIMIT' || PIPELINE_CONCURRENCY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT
   if (MODEL_CONFIGURATION_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED
   if (TEXT_ONLY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY
   if (TEXT_TOO_LONG_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG

@@ -1424,3 +1424,38 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **数据约束**：临时文件仅存在于 `os.tmpdir()`、随机名、600 权限、探测后必删；样本时长校验阈值不变（10s-5min，MiniMax）。
 - **提示文字**：不变（「上传的音频文件时长不符合要求，请按提示调整时长后重试」）；真实原因（探测失败）不再误报为时长不符，而是正常完成校验。
 - **回归保护**：`tts-voice-clone-service.test.js` 覆盖「pipe 无 duration 回退文件探测」「pipe 成功不回退」「双失败返回 null」「无音频流 fail closed 且不落盘」；端到端验证用户 wav（27.12s）通过。
+
+## 视频创作后台运行与并发合同（2026-08-07）
+
+### 需求概述
+流水线启动后应在后台持续运行：用户返回流水线列表或切换模块不影响执行；历史记录可查看运行中未完成的任务及其实时流程状态；同一应用支持多个流水线并行，但设上限防止资源过载。
+
+### 1. 后台运行（已具备，本次固化合同）
+- **启动即后台**：`pipeline:startOrchestrated` 传 `autoAdvance: true, background: true` 时，主进程后台推进整条流水线并立即返回 `runId`；renderer 每 3s 轮询 `pipeline:getRunContext` 刷新阶段状态。
+- **页面无关性**：运行绑定在主进程 `PipelineEngine._runs`（runId 驱动），不依赖任何页面/组件生命周期。CreateView `beforeUnmount` 仅清理轮询 timer 与时钟，**不取消 run**。
+- **返回恢复查看**：CreateView `mounted` 调用 `resumeRunningOrchestration()`——遍历候选流水线名，用 `pipeline:status` 找到 `status=running && orchestrationMode=orchestrator` 的运行并自动恢复阶段清单查看（含轮询）。renderer 重载/切页返回均适用。
+- **断点恢复**：失败 run 落 `RunStateStore` 快照，`pipeline:resumeOrchestration` 从失败阶段继续（并发槽位占用，见下）。
+
+### 2. 历史记录显示运行中任务
+- **数据源**：`pipeline:history`（`PipelineEngine.getHistory()`）现在返回「运行中 run（在前）+ 终态历史」；`_runs` 中 `<runId>` 与 `_<pipelineName>` 指向同一对象，返回前去重。
+- **显示项（创作历史-流水线记录）**：
+  - 运行中卡片：状态圆点（running 蓝）、流水线名（i18n 名称）、时间（`completedAt || startedAt || createdAt`，运行中显示创建时间）、阶段标签（completed/running/pending 色块）、状态文案「运行中」、提示「返回创作页查看进度」。
+  - **轮询刷新**：列表存在 `status=running` 任务时每 5s 自动刷新（阶段状态实时更新）；全部结束后自动停止轮询；`beforeUnmount` 清理 timer。
+- **交互逻辑**：
+  - 点击运行中卡片 → 跳转 `/create`（CreateView 自动恢复查看该 run 进度）。
+  - 点击已完成卡片 → 跳转 `/create/result?path=<成片路径>` 预览。
+  - 失败/取消卡片：保持仅展示状态，不跳转。
+- **数据校验**：`pipeline:history` 失败返回 `{ code: -1, message, data: [] }`；前端 5s 加载超时提示「流水线记录加载超时，请重试」。
+
+### 3. 并发限制
+- **上限**：默认 **2 条**同时运行中的编排流水线（`PipelineEngine.maxConcurrentRuns`，`deps.maxConcurrentRuns` 可注入覆盖）。依据：每条流水线的资源生成阶段并发调用模型 API（受 api-usage-governor 限流），compose 阶段跑 ffmpeg 合成（CPU/内存密集，27 场景曾触发 x264 OOM）；2 条为低配机器可接受的保守上限。
+- **统计口径**：`_countActiveRuns()` 统计 `_runs` 中 `orchestrationMode=orchestrator && status=running` 的独立 run（去重 `_<name>` 索引）。
+- **启动/恢复统一门禁**：`startOrchestrated`（创建 run 前）与 `resumeOrchestration`（恢复前）都调用 `_assertConcurrencyBudget()`；达到上限返回：
+  - `{ success: false, errorCode: 'PIPELINE_CONCURRENCY_LIMIT', error: '当前已有 N 条流水线正在后台运行，最多同时运行 M 条，请等待其中一条完成后再启动。', errorParams: { count: N, max: M } }`
+- **槽位释放**：run 进入终态（completed/failed/cancelled）即从 `_runs` 移除，槽位释放。
+- **提示文字（前端）**：`story2video-notifications.js` 新增 `PIPELINE_CONCURRENCY_LIMIT`（zh/en），通过 `errorCode` 显式映射 + 中文错误文本正则兜底解析；弹窗展示友好文案，不展示技术细节。
+
+### 4. 验收标准
+- 引擎单测：`getHistory` 含运行中且无重复；默认上限 2 拒绝第 3 条；注入 1 时第 2 条拒绝、取消后释放；`resumeOrchestration` 超限拒绝。
+- 前端单测：CreateHistory 运行中任务显示 + 5s 轮询 + 结束后停止 + 点击跳 `/create`；notifications 并发文案解析（zh/en/errorCode/正则）。
+- 交互验收（人工）：启动图片轮播 → 返回列表/切模块 → 历史-流水线记录可见运行中任务且阶段实时刷新 → 点击卡片回创作页恢复查看 → 再启动另一条流水线至 2 条并行 → 第 3 条弹并发提示。
