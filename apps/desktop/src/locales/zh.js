@@ -65,6 +65,10 @@ export default {
         advanced: '高级',
         publish: '发布',
       },
+      subgroups: {
+        splitTiming: '分句与时长',
+        templateOutput: '模板与输出',
+      },
       startPipeline: '启动流水线',
     },
   },
@@ -165,6 +169,12 @@ export default {
       paused: '已暂停',
       waiting_approval: '等待确认',
       cancelled: '已取消',
+    },
+    availability: {
+      ready: '可用',
+      dev: '开发中',
+      readyHint: '该流水线可生成视频',
+      notImplementedHint: '该流水线尚未实现执行引擎，暂不能生成视频',
     },
   },
 }

@@ -65,6 +65,10 @@ export default {
         advanced: 'Advanced',
         publish: 'Publish',
       },
+      subgroups: {
+        splitTiming: 'Split & Timing',
+        templateOutput: 'Template & Output',
+      },
       startPipeline: 'Start pipeline',
     },
   },
@@ -165,6 +169,12 @@ export default {
       paused: 'Paused',
       waiting_approval: 'Waiting for Approval',
       cancelled: 'Cancelled',
+    },
+    availability: {
+      ready: 'Available',
+      dev: 'In Development',
+      readyHint: 'This pipeline can generate videos',
+      notImplementedHint: 'This pipeline has no execution engine yet.',
     },
   },
 }
