@@ -51,7 +51,7 @@
 - [x] CHANGELOG 追加 PR #368/#369/#370/#371 批次条目
 - [x] QM-1 打包验证（electron-builder --win --dir）
 - [x] 集中代码审查并记录结论
-- [ ] （待）W1/W2/W3 优化项排入后续迭代
+- [x] W1/W2/W3 优化项已闭环（PR #374：run-state owner 隔离 / governor 排队超时回收 / RPM provider 配置化）
 
 ## 五、遗留
 - W1（run-state owner 隔离）、W2（governor 排队回收）、W3（RPM 配置化）记为技术债务，后续迭代优先闭环。

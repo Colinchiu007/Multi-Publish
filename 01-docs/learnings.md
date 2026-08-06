@@ -1,3 +1,26 @@
+
+---
+
+## 技术债务 W1/W2/W3 闭环复盘 (2026-08-06)
+
+### ✅ 做得好的
+1. 复用既有 owner 模式 — run-state 采用与 credential-store/settings-store/story2video-project-service 一致的 `owners/{sha256(subject)}` 目录，并复用 phase3-services 的 `ownerSubjectProvider` 接线，模式零发明。
+2. W2 双层回收 — `_sweepExpired`（每次 run() 入口）+ `sweepAll()`（run 结束统一出口），既不依赖释放也不悬挂；sweepAll 只回收已过期 waiter，对并发其他 run 无副作用。
+3. W3 保守估计 + 自适应兜底 — provider 预算表明确标注非官方保证，429 自适应 rateFactor 仍兜底真实限流，避免过度承诺。
+4. 兼容迁移 — legacy 平铺快照首次读取自动迁移到 owner 目录，remove 双路径清理，未登录回退平铺，旧数据零丢失。
+
+### ⚠️ 需要注意的
+1. W1 的 owner 来自「当前登录用户」：断点恢复按当前用户解析目录，跨账号 resume 会正确失败（隔离生效），但同一 run 换账号无法恢复是预期行为，需在 PRD 注明。
+2. W3 的 provider 预算表是静态常量：真实限额变更需更新表，未来可考虑从运营后台下发；当前 429 自适应已吸收误差。
+3. CRLF 陷阱：Windows 下多个源文件为 CRLF，Node 脚本替换必须先 `replace(/\r\n/g,'\n')` 再替换、写回时还原，否则 NEEDLE 匹配失败。
+
+### 🧠 经验沉淀
+- owner 隔离统一模板：`sha256(subject)` 子目录 + `setOwnerProvider` 注入 + legacy 迁移 + 双路径清理，可作为后续所有按用户落盘文件的默认模式。
+- 排队系统的超时回收应「入口 sweep + 出口统一 sweep」双层，而不是只依赖释放事件。
+- 限流预算应分层（key/provider/类别默认），数值标注来源与兜底机制，避免把估计值当保证。
+
+---
+
 ## 应用日志 log 功能复盘 (2026-08-06)
 
 ### ✅ 做得好的

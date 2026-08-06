@@ -199,6 +199,11 @@ async function startServices({ container, usageTracker, store, taskQueue, callba
       try { return container.get(name) } catch (_) { return null }
     }
     const commentManager = getOptionalService('commentManager')
+    const runStateStore = getOptionalService('runStateStore')
+    if (runStateStore && typeof runStateStore.setOwnerProvider === 'function') {
+      runStateStore.setOwnerProvider(ownerSubjectProvider)
+      cleanups.push(() => runStateStore.setOwnerProvider(null))
+    }
     const batchManager = getOptionalService('batchManager')
     let offlineManager = null
     try { offlineManager = require('../services/offline-manager') } catch (_) { /* 离线服务可选 */ }

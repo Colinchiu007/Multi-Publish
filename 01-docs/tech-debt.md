@@ -94,3 +94,7 @@
 
 2026-07-16 | 缺 HTML 模板视频生成能力 | 🟢 低 | ✅ 已修复 | Remotion 复杂动画不适合快速生成带文字/图片的短视频封面。修复：Path 3 迁移 Pixelle-Video `frame_html.py`（411行）+ `frame_processor.py`（249行）+ 3 种尺寸 HTML 模板（1080x1080/1080x1920/1920x1080），Jinja2 风格 DSL + HTML 消毒 + Playwright 截图
 
+
+2026-08-06 | W1 run-state 快照未按 owner 隔离 | 🟠 高 | ✅ 已修复 | RunStateStore 快照改为 `userData/run-state/owners/{sha256(subject)}/<runId>.json`，owner provider 注入（phase3-services 接线），legacy 平铺快照读取自动迁移；跨账号 runId 不再可互读。PR #374
+2026-08-06 | W2 governor 排队超时回收依赖下次释放 | 🟡 中 | ✅ 已修复 | 新增 `_sweepExpired`（每次 run() 入口回收）+ `sweepAll()`（PipelineEngine._finalizeRun 统一调用），过期 waiter 不再悬挂到任务链结束。PR #374
+2026-08-06 | W3 governor 默认 RPM 为保守估计 | 🟡 中 | ✅ 已修复 | 新增 governor-provider-limits.js（52 provider 预算），governor 支持 setProviderLimits/构造注入，container 启动注入；优先级 key > provider > 类别默认。PR #374
