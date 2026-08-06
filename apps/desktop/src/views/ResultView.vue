@@ -1,6 +1,9 @@
 <template>
   <div class="result-page">
     <div class="page-header">
+      <button class="back-to-list" data-testid="back-to-pipeline-list" @click="$router.push('/create')">
+        ← 返回流水线列表
+      </button>
       <div>
         <h1>视频预览</h1>
         <p v-if="projectId" class="page-subtitle">项目 {{ projectId }}</p>
@@ -676,8 +679,10 @@ export default {
 
 <style scoped>
 .result-page { padding: 24px; max-width: 1040px; margin: 0 auto; }
-.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .page-header h1 { font-size: 24px; font-weight: 700; margin: 0; }
+.back-to-list { align-self: flex-start; border: none; background: none; color: var(--primary); font-size: 14px; cursor: pointer; padding: 4px 8px; border-radius: 6px; margin-right: auto; }
+.back-to-list:hover { background: var(--border-light); }
 .page-subtitle { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
 .status-badge { padding: 5px 8px; border-radius: 4px; background: var(--warning-bg); color: var(--warning); font-size: 12px; }
 .loading-state, .empty-state { text-align: center; padding: 60px 0; color: #888; }

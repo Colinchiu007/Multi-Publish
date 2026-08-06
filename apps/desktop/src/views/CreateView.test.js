@@ -822,7 +822,7 @@ describe("CreateView - S2V orchestration", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "animation", stages: [] };
+    w.vm.selectedPipeline = { name: "screen-demo", stages: [] };
     await nextTick();
     const inputTabs = w.findAll(".input-tab").map(tab => tab.text());
     expect(inputTabs).toEqual(expect.arrayContaining(["文案", "图片", "旁白/批量音频", "视频素材"]));
@@ -890,7 +890,7 @@ describe("CreateView - S2V orchestration", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "animation", description: "test", stages: [], category: "animation", available: true };
+    w.vm.selectedPipeline = { name: "custom-pipeline", description: "test", stages: [], category: "custom", available: true };
     w.vm.pipelineText = "test text";
     await w.vm.startPipeline();
     expect(mocks.pipelineStart).toHaveBeenCalled();
@@ -905,13 +905,13 @@ describe("CreateView - S2V orchestration", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "animation", stages: [], available: true };
+    w.vm.selectedPipeline = { name: "custom-pipeline", stages: [], available: true };
     w.vm.pipelineText = "创作内容";
     w.vm.inputMode = "text";
 
     await w.vm.startPipeline();
 
-    expect(mocks.pipelineStart).toHaveBeenCalledWith("animation", expect.objectContaining({
+    expect(mocks.pipelineStart).toHaveBeenCalledWith("custom-pipeline", expect.objectContaining({
       text: "创作内容",
       inputMode: "text",
       images: [],
@@ -930,13 +930,13 @@ describe("CreateView - S2V orchestration", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "animation", stages: [], available: true };
+    w.vm.selectedPipeline = { name: "custom-pipeline", stages: [], available: true };
     w.vm.inputMode = "video";
     w.vm.pipelineVideo = { name: "source.mp4", path: "C:/media/source.mp4" };
 
     await w.vm.startPipeline();
 
-    expect(mocks.pipelineStart).toHaveBeenCalledWith("animation", expect.objectContaining({
+    expect(mocks.pipelineStart).toHaveBeenCalledWith("custom-pipeline", expect.objectContaining({
       video: "C:/media/source.mp4",
     }));
     alertSpy.mockRestore();

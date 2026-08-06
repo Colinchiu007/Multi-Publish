@@ -182,6 +182,10 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
   it('支持旧项目的图片动效、字幕样式、水印和分辨率约束', () => {
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).toContain('zoompan')
     expect(buildImageEffectFilter('pan-left', 1280, 720, 30)).toContain('pan')
+    // 回归：zoompan 必须使用 d=总帧数（时长×帧率），d=1 + -loop 1 静态图不会产生动画
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).toContain(':d=90:')
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 180)).toContain(':d=180:')
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).not.toContain(':d=1:')
     expect(buildSubtitleFilter('字幕', { size: 'lg', style: 'style2' })).toContain('box=1')
     expect(buildWatermarkFilter({
       watermark: { enabled: true, text: '品牌', position: 'top-left', opacity: 0.5 },
