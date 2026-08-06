@@ -151,4 +151,88 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     expect(classifyProviderFailure({ message: 'content policy rejected' })).toBe('content_policy')
     expect(classifyProviderFailure({ message: 'invalid api key' })).toBe('other')
   })
+
+  // ─── W2：排队超时回收 ─────────────────────────────────
+  it('W2：过期排队 waiter 在无后续释放时被 sweepAll 回收', async () => {
+    vi.useFakeTimers()
+    const g = new ApiUsageGovernor({ maxPaceWaitMs: 10000 })
+    g.setLimits('p:llm:m', { maxConcurrent: 1, rpm: 1000, cooldownMs: 1000, retry429: 3 })
+    let release
+    const gate = new Promise((r) => { release = r })
+    const p1 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => { await gate; return 'a' })
+    await vi.advanceTimersByTimeAsync(0)
+    const p2 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => 'b')
+    const p2Rejected = expect(p2).rejects.toMatchObject({ code: 'RATE_LIMITED' })
+    // 推进超过排队截止时间（MAX_QUEUE_WAIT_MS=30s），期间无任何释放
+    await vi.advanceTimersByTimeAsync(31000)
+    g.sweepAll()
+    await p2Rejected
+    release()
+    await p1
+    expect(g.getStatus('p:llm:m').queued).toBe(0)
+  })
+
+  it('W2：新请求到达时回收过期 waiter（不依赖后续释放）', async () => {
+    vi.useFakeTimers()
+    const g = new ApiUsageGovernor({ maxPaceWaitMs: 10000 })
+    g.setLimits('p:llm:m', { maxConcurrent: 1, rpm: 1000, cooldownMs: 1000, retry429: 3 })
+    let release
+    const gate = new Promise((r) => { release = r })
+    const p1 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => { await gate; return 'a' })
+    await vi.advanceTimersByTimeAsync(0)
+    const p2 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => 'b')
+    const p2Rejected = expect(p2).rejects.toMatchObject({ code: 'RATE_LIMITED' })
+    await vi.advanceTimersByTimeAsync(31000)
+    // p1 仍占用并发；p3 到达时 run() 开头 sweep 先回收过期的 p2
+    const p3 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => 'c')
+    await p2Rejected
+    await vi.advanceTimersByTimeAsync(0)
+    release()
+    await vi.advanceTimersByTimeAsync(100)
+    await p1
+    await p3
+    expect(g.getStatus('p:llm:m').queued).toBe(0)
+  })
+
+  // ─── W3：按 provider 配置化 RPM ────────────────────────
+  it('W3：provider 级 rpm 生效（rpm=1000 两次调用错峰极小）', async () => {
+    vi.useFakeTimers()
+    const g = new ApiUsageGovernor({})
+    g.setProviderLimits('p', { rpm: 1000, maxConcurrent: 4, cooldownMs: 1000, retry429: 3 })
+    const calls = []
+    const p1 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => { calls.push(1); return 'a' })
+    const p2 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => { calls.push(2); return 'b' })
+    await vi.advanceTimersByTimeAsync(100)
+    await p1
+    await p2
+    expect(calls).toEqual([1, 2])
+  })
+
+  it('W3：未配置 provider 回退类别默认（llm rpm=30 → 间隔 2s）', async () => {
+    vi.useFakeTimers()
+    const g = new ApiUsageGovernor({})
+    const calls = []
+    const p1 = g.run({ type: 'llm', providerId: 'unknown-provider', model: 'm' }, async () => { calls.push(1); return 'a' })
+    const p2 = g.run({ type: 'llm', providerId: 'unknown-provider', model: 'm' }, async () => { calls.push(2); return 'b' })
+    await vi.advanceTimersByTimeAsync(0)
+    await p1
+    expect(calls).toEqual([1])
+    await vi.advanceTimersByTimeAsync(2100)
+    await p2
+    expect(calls).toEqual([1, 2])
+  })
+
+  it('W3：构造函数 providerLimits 直接注入生效', async () => {
+    vi.useFakeTimers()
+    const g = new ApiUsageGovernor({
+      providerLimits: { openai: { rpm: 1000, maxConcurrent: 4, cooldownMs: 1000, retry429: 3 } },
+    })
+    const calls = []
+    const p1 = g.run({ type: 'llm', providerId: 'openai', model: 'm' }, async () => { calls.push(1); return 'a' })
+    const p2 = g.run({ type: 'llm', providerId: 'openai', model: 'm' }, async () => { calls.push(2); return 'b' })
+    await vi.advanceTimersByTimeAsync(100)
+    await p1
+    await p2
+    expect(calls).toEqual([1, 2])
+  })
 })

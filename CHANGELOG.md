@@ -1,3 +1,14 @@
+## [未发布] 技术债务 W1/W2/W3 闭环 (2026-08-06)
+
+### 主进程
+- **W1 run-state owner 隔离**：RunStateStore 快照改写入 `userData/run-state/owners/{sha256(subject)}/<runId>.json`；新增 `setOwnerProvider`，phase3-services 用 `ownerSubjectProvider` 接线并随身份切换更新；legacy 平铺快照首次读取自动迁移；remove 双路径清理；未登录回退平铺存储。
+- **W2 governor 排队超时回收**：新增 `_sweepExpired`（每次 run() 入口回收该 key 过期 waiter）+ `sweepAll()`（PipelineEngine._finalizeRun 统一调用），过期排队请求不再依赖后续释放、不再悬挂到任务链结束。
+- **W3 governor RPM provider 配置化**：新增 governor-provider-limits.js（52 个已知 provider 预算，含本地类高预算）；governor 支持 `setProviderLimits` 与构造函数 `providerLimits` 注入，container 启动注入；优先级 精确key > provider > 类别默认 > 全局默认，429 自适应仍兜底。
+
+### 测试与文档
+- 新增 run-state-store.test.js（7 用例：owner 保存/跨账号隔离/legacy 迁移/双路径 remove/provider 校验与回退）；governor 新增 5 用例（W2 回收×2、W3 provider 生效/回退/注入）；resume-orchestration 新增 2 用例（失败/取消触发 sweepAll）。
+- PRD「技术债务 W1/W2/W3 闭环」、learnings 复盘、CHANGELOG、tech-debt 与 QUALITY-RHYTHM-BACKFILL 同步更新。
+
 ## [未发布] 应用日志 log 功能 (2026-08-06)
 
 ### 主进程（日志服务）

@@ -51,12 +51,18 @@ class ApiUsageGovernor {
   constructor(options = {}) {
     this._enabled = options.enabled !== false
     this._log = options.log || { warn() {}, info() {} }
-    this._limits = new Map() // key -> limits（覆盖默认）
+    this._limits = new Map() // key -> limits（精确 key 覆盖）
+    this._providerLimits = new Map() // providerId -> limits（W3：按 provider 配置化）
     this._tokenWindows = new Map() // key -> [{ windowMs, limit, field }]
     this._state = new Map() // key -> { active, waiters, nextSlotAt, cooldownUntil, rateFactor, tokenWindows }
     this._maxPaceWaitMs = Number.isFinite(Number(options.maxPaceWaitMs)) && Number(options.maxPaceWaitMs) > 0
       ? Number(options.maxPaceWaitMs)
       : MAX_PACE_WAIT_MS
+    if (options.providerLimits && typeof options.providerLimits === 'object') {
+      for (const [providerId, limits] of Object.entries(options.providerLimits)) {
+        if (limits && typeof limits === 'object') this._providerLimits.set(providerId, { ...limits })
+      }
+    }
   }
 
   setEnabled(enabled) {
@@ -68,13 +74,22 @@ class ApiUsageGovernor {
     this._limits.set(key, { ...base, ...limits })
   }
 
+  /** W3：按 providerId 设置限流预算（如 openai / minimax-tts / flux），
+   *  优先级低于精确 key 覆盖，高于类别默认值。 */
+  setProviderLimits(providerId, limits) {
+    const base = this._providerLimits.get(providerId) || {}
+    this._providerLimits.set(providerId, { ...base, ...limits })
+  }
+
   setTokenWindows(key, windows) {
     if (!Array.isArray(windows)) return
     this._tokenWindows.set(key, windows.map((w) => ({ ...w })))
   }
 
-  _limitsFor(key, type) {
-    return this._limits.get(key) || DEFAULT_LIMITS[type] || DEFAULT_LIMITS.default
+  _limitsFor(key, type, providerId) {
+    if (this._limits.has(key)) return this._limits.get(key)
+    if (providerId && this._providerLimits.has(providerId)) return this._providerLimits.get(providerId)
+    return DEFAULT_LIMITS[type] || DEFAULT_LIMITS.default
   }
 
   _stateFor(key) {
@@ -113,9 +128,11 @@ class ApiUsageGovernor {
     const providerId = String(meta?.providerId || 'default')
     const model = typeof meta?.model === 'string' && meta.model.trim() ? ':' + meta.model.trim() : ''
     const key = providerId + ':' + type + model
-    const limits = this._limitsFor(key, type)
+    const limits = this._limitsFor(key, type, providerId)
     const st = this._stateFor(key)
 
+    // W2：每次请求先回收该 key 已过截止时间的排队 waiter（不依赖后续释放）
+    this._sweepExpired(key, st)
     await this._acquireSlot(key, st, limits)
     try {
       await this._pace(key, st, limits)
@@ -128,18 +145,36 @@ class ApiUsageGovernor {
   }
 
   _pump(key, st) {
+    this._sweepExpired(key, st)
     while (st.waiters.length > 0) {
       const waiter = st.waiters[0]
-      if (waiter.deadline <= Date.now()) {
-        st.waiters.shift()
-        waiter.reject(new ProviderError(ERROR_CODES.RATE_LIMITED, '排队等待超时，请稍后重试。', { providerId: key }))
-        continue
-      }
-      if (st.active < (this._limitsFor(key, '').maxConcurrent || 1)) {
+      if (st.active < (this._limitsFor(key, '', '').maxConcurrent || 1)) {
         st.waiters.shift()
         waiter.resolve()
       }
       break
+    }
+  }
+
+  /** W2：回收 key 下所有已过截止时间的排队 waiter（即使没有后续释放也会被清理） */
+  _sweepExpired(key, st) {
+    const now = Date.now()
+    let index = 0
+    while (index < st.waiters.length) {
+      const waiter = st.waiters[index]
+      if (waiter.deadline <= now) {
+        st.waiters.splice(index, 1)
+        waiter.reject(new ProviderError(ERROR_CODES.RATE_LIMITED, '排队等待超时，请稍后重试。', { providerId: key }))
+        continue
+      }
+      index += 1
+    }
+  }
+
+  /** W2：统一回收所有 key 的过期 waiter（流水线 run 结束时调用，防止残留排队悬挂） */
+  sweepAll() {
+    for (const [key, st] of this._state) {
+      this._sweepExpired(key, st)
     }
   }
 

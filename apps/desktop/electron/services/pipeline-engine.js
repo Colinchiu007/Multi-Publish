@@ -570,6 +570,7 @@ class PipelineEngine {
     this.aiGenerator = deps.aiGenerator || null;
     this.story2videoProjectService = deps.story2videoProjectService || null;
     this.runStateStore = deps.runStateStore || null;
+    this.governor = deps.governor || null;
 
     // 自动构造 StageExecutor（仅在 serviceBus 可用时）
     if (deps.stageExecutor) {
@@ -1283,6 +1284,13 @@ class PipelineEngine {
         cleanupImportedMediaPaths(run.params);
       } catch (cleanupError) {
         this.log.warn('PipelineEngine', 'Story2Video input cleanup failed: ' + cleanupError.message);
+      }
+    }
+    // W2 技术债务闭环：run 结束（完成/失败/取消）时统一回收 governor 中已过期的排队 waiter，
+    // 避免因该 key 无后续释放导致排队请求悬挂到任务链结束。
+    if (this.governor && typeof this.governor.sweepAll === 'function') {
+      try { this.governor.sweepAll(); } catch (sweepError) {
+        this.log.warn('PipelineEngine', 'governor sweepAll failed: ' + (sweepError && sweepError.message ? sweepError.message : String(sweepError)));
       }
     }
   }

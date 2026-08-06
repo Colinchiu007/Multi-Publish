@@ -10,11 +10,12 @@ function makeStore() {
   }
 }
 
-function makeEngine(store) {
+function makeEngine(store, governor) {
   const engine = new PipelineEngine({
     serviceBus: {},
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     runStateStore: store,
+    governor: governor || null,
   })
   engine.registerPipeline({
     name: 'resume-test',
@@ -154,5 +155,52 @@ describe('编排流水线断点恢复', () => {
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }
+  })
+})
+
+
+describe('W2：run 结束统一回收 governor 过期 waiter', () => {
+  let store
+  let governor
+
+  beforeEach(() => {
+    store = makeStore()
+    governor = { sweepAll: vi.fn() }
+  })
+
+  it('失败落快照时调用 governor.sweepAll', async () => {
+    const engine = makeEngine(store, governor)
+    engine.registerPipeline({
+      name: 'sweep-test',
+      description: '回收测试',
+      stages: ['a', 'b'],
+      stageDefs: [
+        { name: 'a', type: 's_a' },
+        { name: 'b', type: 's_b' },
+      ],
+    })
+    engine.registerStageExecutor('s_a', async () => ({ success: true, output: {} }))
+    engine.registerStageExecutor('s_b', async () => ({ success: false, error: 'rate limited' }))
+
+    const started = await engine.startOrchestrated('sweep-test', { initialContext: {}, autoAdvance: false })
+    const runId = started.runId
+    await engine.executeStage(runId)
+    await engine.executeStage(runId)
+    expect(governor.sweepAll).toHaveBeenCalled()
+  })
+
+  it('取消时也调用 governor.sweepAll', async () => {
+    const engine = makeEngine(store, governor)
+    engine.registerPipeline({
+      name: 'sweep-cancel',
+      description: '回收测试-取消',
+      stages: ['a'],
+      stageDefs: [{ name: 'a', type: 'sc_a' }],
+    })
+    engine.registerStageExecutor('sc_a', async () => ({ success: false, error: 'need user input' }))
+
+    const started = await engine.startOrchestrated('sweep-cancel', { initialContext: {}, autoAdvance: false })
+    engine.cancel()
+    expect(governor.sweepAll).toHaveBeenCalled()
   })
 })

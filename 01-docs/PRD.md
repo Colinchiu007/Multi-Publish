@@ -1377,3 +1377,27 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - 单元测试：electron/services/logger.test.js（日期滚动/脱敏/超限自动删/启动核对/clearLogs/getLogsInfo/非法 maxBytes）、electron/ipc-handlers/logs.test.js（三通道）、electron/preload.test.js（方法数与存在性）、shutdown.test.js（flush）。
 - 打包后：启动应用并在 userData/logs/ 看到当日 app-*.log；设置页可查看/刷新/清理；500MB 上限行为可用小上限注入验证。
 - 外部边界：真实 provider 调用日志内容为灰度验证项，不纳入自动验收。
+## 技术债务 W1/W2/W3 闭环（2026-08-06）
+
+来源：`01-docs/QUALITY-RHYTHM-BACKFILL-2026-08-06.md` 集中代码审查的三项 WARNING/INFO，本次全部闭环。
+
+### W1：run-state 快照 owner 隔离
+- **问题**：`RunStateStore` 快照按 runId 平铺落盘（`userData/run-state/<runId>.json`），同机多账号场景下泄露 runId 即可读取他人恢复上下文。
+- **修复**：已登录时快照写入 `userData/run-state/owners/{sha256(subject)}/<runId>.json`；owner 由 `setOwnerProvider(provider)` 注入（与 store/offline-manager 一致），在 `phase3-services.js` 使用同一 `ownerSubjectProvider` 接线并随身份切换更新。
+- **兼容**：未登录/身份不可用时回退 legacy 平铺路径；`load` 优先读 owner 目录，命中 legacy 平铺快照时自动迁移（copyFileSync + 清理旧文件）；`remove` 同时清理两处路径。
+- **数据约束**：ownerHash 为 `sha256(subject)` 完整 hex；快照额外记录 `owner`（subject）便于追溯；快照仍不含密钥。
+- **验收**：`run-state-store.test.js` 覆盖 owner 保存/读取、跨账号隔离（A 读不到 B）、legacy 迁移、双路径 remove、provider 校验与抛错回退。
+
+### W2：governor 排队超时统一回收
+- **问题**：`_acquireSlot` 中已过截止时间的 waiter 仅在 `_pump`（下次释放）时被拒绝；若某 key 无后续释放，过期 waiter 会悬挂到任务链结束。
+- **修复**：
+  - 新增 `_sweepExpired(key, st)`：按绝对截止时间回收该 key 全部过期 waiter（不仅队首）；`_pump` 复用该方法。
+  - 每次 `run()` 入口先 sweep 该 key（新请求到达即回收，不依赖释放）。
+  - 新增 `sweepAll()`：统一回收所有 key 的过期 waiter；`PipelineEngine._finalizeRun`（完成/失败/取消统一出口）调用 `governor.sweepAll()`（governor 经 container 注入 pipelineEngine）。
+- **验收**：governor 单测覆盖「无释放时 sweepAll 回收」「新请求到达回收过期 waiter」；resume-orchestration 测试覆盖「失败/取消时调用 sweepAll」。
+
+### W3：governor 默认 RPM 按 provider 配置化
+- **问题**：`DEFAULT_LIMITS` 按类别（llm/tts/image/video/audio）固定，真实供应商限额差异大。
+- **修复**：新增 `governor-provider-limits.js`，为 52 个已知 provider 提供 `{ rpm, maxConcurrent, cooldownMs, retry429 }` 预算（保守估计，非官方保证；本地类 provider 给高预算）；`ApiUsageGovernor` 支持 `setProviderLimits(providerId, limits)` 与构造函数 `providerLimits` 注入，container 启动时注入 `PROVIDER_LIMITS`。
+- **优先级**：精确 key 覆盖 > provider 级 > 类别默认 > 全局默认；429 自适应（rateFactor 0.75）仍兜底真实限流。
+- **验收**：governor 单测覆盖「provider 级 rpm 生效」「未配置 provider 回退类别默认」「构造函数注入」。
