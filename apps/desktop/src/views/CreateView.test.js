@@ -301,6 +301,36 @@ describe("CreateView", () => {
     w.unmount();
   });
 
+  it("音色克隆：渲染上传要求提示并映射全部克隆错误码", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.s2vVoiceCloneRequirements = {
+      allowedExtensions: [".mp3", ".m4a", ".wav"],
+      maxSampleCount: 1,
+      maxSampleBytes: 20971520,
+      minSampleDurationSeconds: 10,
+      maxSampleDurationSeconds: 300,
+    };
+    const hint = w.vm.s2vVoiceCloneHint();
+    expect(hint).toContain("mp3、m4a、wav");
+    expect(hint).toContain("10 秒");
+    expect(hint).toContain("5 分钟");
+    expect(hint).toContain("20 MB");
+    // 未映射到函数文本（回归：method 需调用而非直接插值）
+    expect(String(hint)).not.toContain("function");
+
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SAMPLE_DURATION_INVALID")).toContain("时长不符合要求");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED")).toContain("mp3、m4a 或 wav");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SAMPLE_TOO_LARGE")).toContain("大小超出限制");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SELECTION_UNAVAILABLE")).toContain("音频样本暂存不可用");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_UNAVAILABLE")).toContain("音色克隆服务暂时不可用");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_DIALOG_UNAVAILABLE")).toContain("文件选择窗口");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_MODEL_MISMATCH")).toContain("模型设置");
+    // 未知错误仍走兜底，不回退到函数文本
+    expect(w.vm.friendlyVoiceCatalogError("SOME_UNKNOWN_X")).toContain("无法加载音色列表");
+    w.unmount();
+  });
+
   it("pipelineList 返回异常格式时展示默认加载错误", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValueOnce({});
