@@ -173,6 +173,40 @@ describe("CreateView", () => {
     expect(mocks.pipelineList).toHaveBeenCalled();
   });
 
+  it("挂载时重新接上主进程仍在运行的编排流水线（HMR/重启后不丢失运行态）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStatus.mockImplementation((name) => {
+      if (name === "story2video-compose") {
+        return Promise.resolve({ code: 0, data: { status: "running", orchestrationMode: "orchestrator", id: "run_resume_1", stages: [] } });
+      }
+      return Promise.resolve({ code: 0, data: { status: "idle" } });
+    });
+    mocks.pipelineGetRunContext.mockResolvedValue({
+      code: 0,
+      data: { status: { status: "running" }, currentStage: 2, stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }], context: {} },
+    });
+    mocks.pipelineList.mockResolvedValue({
+      code: 0,
+      data: [{ name: "story2video-compose", available: true, stages: ["split", "domain_enrich", "optimize", "generate_assets", "compose", "publish"] }],
+    });
+    try {
+      const w = mount(CreateView, {
+        global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      await nextTick();
+      expect(w.vm.selectedPipeline?.name).toBe("story2video-compose");
+      expect(w.vm.orchestrationRunId).toBe("run_resume_1");
+      expect(w.vm.pipelineRunStatus?.status).toBe("running");
+      w.unmount();
+    } finally {
+      // 恢复 mock 实现，避免泄漏到后续用例（beforeEach 的 clearAllMocks 不重置实现）
+      mocks.pipelineStatus.mockRestore();
+      mocks.pipelineGetRunContext.mockRestore();
+      mocks.pipelineList.mockRestore();
+    }
+  });
+
   it("pipelineList 返回异常格式时展示默认加载错误", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValueOnce({});

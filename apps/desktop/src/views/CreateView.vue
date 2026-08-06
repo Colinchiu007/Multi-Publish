@@ -2164,6 +2164,30 @@ export default {
       this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' }
     },
 
+    // renderer 重载（HMR/重启/切页返回）后，重新接上主进程仍在运行的编排流水线，
+    // 避免 UI 丢失运行态（用户看到回到列表但流水线实际仍在后台执行）。
+    async resumeRunningOrchestration() {
+      const candidates = ['story2video-compose', 'animated-explainer', 'documentary-montage', 'clip-factory', 'cinematic', 'talking-head', 'framework-smoke', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
+      for (const name of candidates) {
+        try {
+          const res = await pipelineStatus(name)
+          const data = res?.data
+          if (data && data.status === 'running' && data.orchestrationMode === 'orchestrator' && data.id) {
+            const pipeline = (this.pipelines || []).find(item => item.name === name)
+            this.selectedPipeline = pipeline || { name, available: true }
+            this.orchestrationRunId = data.id
+            this.orchestrationStages = this.getDefaultPipelineStages(name)
+            this.inputMode = 'text'
+            await this.updateOrchestrationStatus()
+            if (this.orchestrationRunId && !this.pollTimer) {
+              this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+            }
+            return
+          }
+        } catch (_) { /* 单条状态查询失败不影响其余 */ }
+      }
+    },
+
     // 阶段显示
     stageStateClass(stage, i) {
       if (!this.pipelineRunStatus) return ''
@@ -2194,6 +2218,7 @@ export default {
   async mounted() {
     this.refreshS2VTemplates()
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
+    this.resumeRunningOrchestration()
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
