@@ -188,6 +188,13 @@ const PIPELINES = [
     category: 'animation',
     stages: ['concept', 'storyboard', 'animate', 'render'],
     estimatedCost: 'high',
+    // 真实编排：LLM 概念→分镜→视频生成 provider（未配置时 fail closed 引导设置）→FFmpeg 合成（videogen-stages.js 注册）
+    stageDefs: [
+      { name: 'concept', type: 'videogen_concept', description: '创意概念与角色设定', checkpointRequired: false, options: { kind: 'animation' } },
+      { name: 'storyboard', type: 'videogen_storyboard', description: '分镜场景规划', checkpointRequired: false, options: { kind: 'animation' } },
+      { name: 'animate', type: 'videogen_generate', description: '视频生成', checkpointRequired: false, options: {} },
+      { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
+    ],
   },
   {
     name: 'avatar-spokesperson',
@@ -195,6 +202,13 @@ const PIPELINES = [
     category: 'talking_head',
     stages: ['avatar_select', 'script', 'generate', 'render'],
     estimatedCost: 'high',
+    // 真实编排：数字人选择+LLM 口播文案→视频生成 provider→FFmpeg 合成（videogen-stages.js 注册）
+    stageDefs: [
+      { name: 'avatar_select', type: 'videogen_avatar', description: '数字人选择与口播文案', checkpointRequired: false, options: {} },
+      { name: 'script', type: 'videogen_script', description: '口播文案', checkpointRequired: false, options: {} },
+      { name: 'generate', type: 'videogen_generate', description: '数字人视频生成', checkpointRequired: false, options: {} },
+      { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
+    ],
   },
   {
     name: 'character-animation',
@@ -202,6 +216,13 @@ const PIPELINES = [
     category: 'animation',
     stages: ['character_design', 'rigging', 'animate', 'render'],
     estimatedCost: 'high',
+    // 真实编排：LLM 角色设计→概念校验→视频生成 provider→FFmpeg 合成（videogen-stages.js 注册）
+    stageDefs: [
+      { name: 'character_design', type: 'videogen_concept', description: '角色设计', checkpointRequired: false, options: { kind: 'character-animation' } },
+      { name: 'rigging', type: 'videogen_storyboard', description: '角色动作分镜', checkpointRequired: false, options: { kind: 'character-animation' } },
+      { name: 'animate', type: 'videogen_generate', description: '角色动画生成', checkpointRequired: false, options: {} },
+      { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
+    ],
   },
   {
     name: 'clip-factory',
@@ -247,6 +268,59 @@ const PIPELINES = [
     category: 'cinematic',
     stages: ['research', 'ingest', 'edit', 'narrate', 'render'],
     estimatedCost: 'medium',
+    // 真实编排：LLM 纪录片大纲→场景规划→图片+旁白→资源校验→FFmpeg 合成（documentary-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'research',
+        type: 'documentary_research',
+        description: '纪录片风格主题研究',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'ingest',
+        type: 'documentary_ingest',
+        description: '素材画面规划（场景数组）',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'edit',
+        type: 'documentary_edit',
+        description: '生成图片与旁白素材',
+        checkpointRequired: false,
+        options: {
+          concurrency: 3,
+          imageStyle: 'documentary',
+          aspectRatio: '16:9',
+        },
+      },
+      {
+        name: 'narrate',
+        type: 'documentary_narrate',
+        description: '旁白与资源清单校验',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'render',
+        type: 'compose',
+        description: '视频合成',
+        checkpointRequired: false,
+        inputFrom: 'edit',
+        options: {
+          transition: 'fade',
+          imageEffect: 'ken-burns',
+          subtitleEnabled: false,
+          resolution: '1920x1080',
+          fps: 30,
+          format: 'mp4',
+          defaultSceneDuration: 6,
+          generateBase: true,
+          generateMerged: true,
+        },
+      },
+    ],
   },
   {
     name: 'hybrid',
@@ -254,6 +328,13 @@ const PIPELINES = [
     category: 'hybrid',
     stages: ['plan', 'generate', 'merge', 'render'],
     estimatedCost: 'high',
+    // 真实编排：LLM 方案→视频生成 provider→FFmpeg 拼接（videogen-stages.js 注册）
+    stageDefs: [
+      { name: 'plan', type: 'videogen_script', description: '混合方案与解说文案', checkpointRequired: false, options: {} },
+      { name: 'generate', type: 'videogen_storyboard', description: '生成场景规划', checkpointRequired: false, options: { kind: 'hybrid' } },
+      { name: 'merge', type: 'videogen_generate', description: '视频生成', checkpointRequired: false, options: {} },
+      { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
+    ],
   },
   {
     name: 'localization-dub',
@@ -261,6 +342,37 @@ const PIPELINES = [
     category: 'hybrid',
     stages: ['transcribe', 'translate', 'tts', 'sync'],
     estimatedCost: 'medium',
+    // 真实编排：源视频+文案→分句时间段→LLM 翻译→TTS 配音→FFmpeg 替换音轨（localization-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'transcribe',
+        type: 'localization_transcribe',
+        description: '源视频与文案校验、时长探测',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'translate',
+        type: 'localization_translate',
+        description: '台词翻译为目标语言',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'tts',
+        type: 'localization_tts',
+        description: '逐段生成配音',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'sync',
+        type: 'localization_sync',
+        description: '拼接配音并替换原音轨',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'podcast-repurpose',
@@ -824,6 +936,15 @@ class PipelineEngine {
     run.stageResults = [];
 
     if (params.autoAdvance) {
+      if (params.background === true) {
+        // 后台自动推进：立即返回 runId，renderer 通过 getRunSnapshot 轮询阶段进度。
+        // 若同步等待整个流水线完成，IPC 会阻塞数十秒到数分钟，前端启动后无任何交互反馈。
+        const promise = this._autoAdvanceRun(runId);
+        promise.catch((err) => {
+          this.log.warn('PipelineEngine', 'background autoAdvance failed: ' + (err && err.message ? err.message : String(err)));
+        });
+        return { success: true, runId };
+      }
       return await this._autoAdvanceRun(runId);
     }
 
@@ -1018,7 +1139,7 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
-    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
+    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);
         if (project) {

@@ -17,6 +17,7 @@ describe('Story2Video fast-mode UI contract', () => {
   it('keeps controlled defaults hidden and starts the autonomous run', () => {
     expect(source).toContain("checkpointPolicy: 'none'")
     expect(source).toContain('autoAdvance: true')
+    expect(source).toContain('background: true')
     expect(source).toContain('data-testid="start-story2video"')
     expect(source).toContain('<option value="auto">自动识别</option>')
     expect(source).toContain("create.story2video.startPipeline")

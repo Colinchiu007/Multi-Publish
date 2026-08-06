@@ -39,7 +39,7 @@ describe('PipelineEngine 状态机模式', () => {
 
   it('已实现真实引擎的流水线标记 available=true', () => {
     const list = engine.listPipelines()
-    const implemented = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke']
+    const implemented = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
     for (const name of implemented) {
       expect(list.find(item => item.name === name)?.available).toBe(true)
     }
@@ -47,10 +47,27 @@ describe('PipelineEngine 状态机模式', () => {
 
   it('未实现真实引擎的流水线标记 available=false', () => {
     const list = engine.listPipelines()
-    const notImplemented = ['animation', 'avatar-spokesperson', 'character-animation', 'documentary-montage', 'hybrid', 'localization-dub', 'podcast-repurpose', 'screen-demo']
+    const notImplemented = ['podcast-repurpose', 'screen-demo']
     for (const name of notImplemented) {
       expect(list.find(item => item.name === name)?.available).toBe(false)
     }
+  })
+
+  it('localization-dub 提供完整 stageDefs 链', () => {
+    const pipeline = engine.getPipeline('localization-dub')
+    expect(pipeline.stages).toEqual(['transcribe', 'translate', 'tts', 'sync'])
+    expect(pipeline.stageDefs.map(def => def.type)).toEqual([
+      'localization_transcribe', 'localization_translate', 'localization_tts', 'localization_sync',
+    ])
+  })
+
+  it('documentary-montage 提供完整 stageDefs 链', () => {
+    const pipeline = engine.getPipeline('documentary-montage')
+    expect(pipeline.stages).toEqual(['research', 'ingest', 'edit', 'narrate', 'render'])
+    expect(pipeline.stageDefs.map(def => def.name)).toEqual(['research', 'ingest', 'edit', 'narrate', 'render'])
+    expect(pipeline.stageDefs.map(def => def.type)).toEqual([
+      'documentary_research', 'documentary_ingest', 'documentary_edit', 'documentary_narrate', 'compose',
+    ])
   })
 
   it('每条 pipeline 都包含非空名称和描述', () => {
@@ -215,6 +232,36 @@ describe('PipelineEngine animated-explainer 编排', () => {
       expect(started.context[stageName]).toBeDefined()
     }
     const snapshot = engine.getRunSnapshot(started.runId)
+    expect(snapshot.status.status).toBe('completed')
+    expect(snapshot.stages.every(stage => stage.status === 'completed')).toBe(true)
+  })
+
+  it('background 模式立即返回 runId，后台自动推进到完成', async () => {
+    const stageExecutor = {
+      execute: vi.fn(async ({ stage }) => ({
+        success: true,
+        output: { completedStage: stage.name },
+      })),
+    }
+    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const started = await engine.startOrchestrated('animated-explainer', {
+      text: '测试主题',
+      autoAdvance: true,
+      background: true,
+      checkpointPolicy: 'none',
+    })
+    expect(started.success).toBe(true)
+    expect(started.runId).toBeTypeOf('string')
+    expect(started.completed).toBeUndefined()
+    expect(started.context).toBeUndefined()
+    // 后台推进：轮询快照直到完成
+    const deadline = Date.now() + 2000
+    let snapshot = engine.getRunSnapshot(started.runId)
+    while (Date.now() < deadline && snapshot && snapshot.status.status !== 'completed') {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      snapshot = engine.getRunSnapshot(started.runId)
+    }
+    expect(snapshot).not.toBeNull()
     expect(snapshot.status.status).toBe('completed')
     expect(snapshot.stages.every(stage => stage.status === 'completed')).toBe(true)
   })

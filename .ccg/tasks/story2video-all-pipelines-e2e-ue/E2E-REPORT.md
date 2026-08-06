@@ -157,3 +157,16 @@
 | framework-smoke | ✅ | 2s 冒烟测试视频 + 报告 |
 | talking-head | ✅ | 12s 字幕烧录口播视频 |
 | 其余 8 条 | ❌ 无引擎/缺模型 | 见 ENGINE-FEASIBILITY.md |
+
+## documentary-montage（纪录蒙太奇）— ✅ 真实生成 PASS（2026-08-06 07:00）
+
+- 代码：PR #365 分支 + UE 优化 + documentary-montage 真实引擎（branch codex/story2video-documentary-montage）
+- 输入主题：「中国高铁的发展历程，从引进到自主创新的故事」
+- 驱动：Playwright Electron（dev 模式 Vite 5174，登录 profile C:\tmp\Multi-Publish-debug-profile）
+- 流程：视频创作 → 纪录蒙太奇卡片（徽标=可用）→ 输入主题 → 启动流水线 → research(LLM agnes) → ingest(LLM 场景数组 12 段) → edit(12 图片 minimax-image + 12 TTS minimax-tts) → narrate 校验 → render(FFmpeg 合成)
+- 产物（story2video-projects/<user>/run_1785970039014_aiie/）：
+  - project.json：pipeline=documentary-montage，status=completed
+  - 12 段 segment_*_image.jpg（真实生成）+ segment_*_audio.mp3（真实 TTS）+ segment_*_video.mp4
+  - narration.m4a（946KB）+ video.mp4（3.7MB，最终合成）
+- UI：启动按钮可用、流水线卡片显示「可用」徽标
+- 备注：第二次 E2E 运行因 Vite 手动进程与 dev.js 端口冲突被中断，不影响本次 PASS 证据

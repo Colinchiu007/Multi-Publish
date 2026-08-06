@@ -43,6 +43,16 @@ describe("ResultView", () => {
     expect(w.text()).toContain("\u89c6\u9891\u9884\u89c8");
   });
 
+  it("provides a back-to-pipeline-list button that navigates to /create", async () => {
+    const w = await createView();
+    const back = w.find('[data-testid="back-to-pipeline-list"]');
+    expect(back.exists()).toBe(true);
+    expect(back.text()).toContain("返回流水线列表");
+    await back.trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(router.currentRoute.value.path).toBe("/create");
+  });
+
   it("shows empty state when no video path", async () => {
     const w = await createView();
     expect(w.text()).toContain("\u6ca1\u6709\u53ef\u9884\u89c8\u7684\u89c6\u9891");

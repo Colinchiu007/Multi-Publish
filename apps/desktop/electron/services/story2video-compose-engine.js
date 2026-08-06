@@ -155,13 +155,17 @@ function normalizeComposeScenes (assetManifest) {
   })
 }
 
-function buildImageEffectFilter (effect, width, height, fps) {
+function buildImageEffectFilter (effect, width, height, fps, durationFrames) {
   const safeWidth = Math.max(160, Math.round(Number(width) || 1280))
   const safeHeight = Math.max(160, Math.round(Number(height) || 720))
   const safeFps = Math.max(1, Math.min(120, Math.round(Number(fps) || 30)))
+  // 关键修复：zoompan 需要 d=输出总帧数（=时长×帧率）才能产生连续动画。
+  // 此前 d=1 且输入为 -loop 1 静态图时，每一输入帧只产出一帧，zoom 状态不累积，
+  // 导致「慢慢放大」等动效在成片中完全不可见。
+  const totalFrames = Math.max(safeFps, Math.round(Number(durationFrames) || safeFps * 3))
   const zoompan = (zoom, x, y) =>
-    "zoompan=z='" + zoom + "':x='" + x + "':y='" + y + "':d=1:s=" +
-    safeWidth + 'x' + safeHeight + ':fps=' + safeFps
+    "zoompan=z='" + zoom + "':x='" + x + "':y='" + y + "':d=" + totalFrames +
+    ':s=' + safeWidth + 'x' + safeHeight + ':fps=' + safeFps
 
   switch (effect) {
     case 'zoom-in':
@@ -169,15 +173,15 @@ function buildImageEffectFilter (effect, width, height, fps) {
     case 'zoom-out':
       return zoompan('if(eq(on,1),1.25,max(zoom-0.0015,1))', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
     case 'pan-left':
-      return zoompan('1.12', '(iw-iw/zoom)*on/120', 'ih/2-(ih/zoom/2)')
+      return zoompan('1.12', '(iw-iw/zoom)*on/' + totalFrames, 'ih/2-(ih/zoom/2)')
     case 'pan-right':
-      return zoompan('1.12', '(iw-iw/zoom)*(1-on/120)', 'ih/2-(ih/zoom/2)')
+      return zoompan('1.12', '(iw-iw/zoom)*(1-on/' + totalFrames + ')', 'ih/2-(ih/zoom/2)')
     case 'pan-up':
-      return zoompan('1.12', 'iw/2-(iw/zoom/2)', '(ih-ih/zoom)*on/120')
+      return zoompan('1.12', 'iw/2-(iw/zoom/2)', '(ih-ih/zoom)*on/' + totalFrames)
     case 'pan-down':
-      return zoompan('1.12', 'iw/2-(iw/zoom/2)', '(ih-ih/zoom)*(1-on/120)')
+      return zoompan('1.12', 'iw/2-(iw/zoom/2)', '(ih-ih/zoom)*(1-on/' + totalFrames + ')')
     case 'zoom-pan':
-      return zoompan('min(zoom+0.001,1.15)', '(iw-iw/zoom)*on/180', 'ih/2-(ih/zoom/2)')
+      return zoompan('min(zoom+0.001,1.15)', '(iw-iw/zoom)*on/' + totalFrames, 'ih/2-(ih/zoom/2)')
     case 'rotate':
       return "rotate='0.02*sin(2*PI*t/4)':fillcolor=black@0"
     case 'blur-in':
@@ -796,12 +800,24 @@ class Story2VideoComposeEngine {
   async _createSegment (imagePath, audioPath, outputPath, opts) {
     const args = ['-y']
 
-    // 输入：图片（循环）+ 音频
-    args.push('-loop', '1', '-i', imagePath, '-i', audioPath)
+    // 动效帧数 = 时长 × 帧率；zoompan 需要 d=总帧数 才能产生连续动画
+    const segmentFps = clampNumber(opts.fps, 1, 120, 30)
+    const segmentDuration = Number(opts.duration) > 0
+      ? Number(opts.duration)
+      : clampNumber(opts.defaultSceneDuration, 1, 60, 6)
+    const totalFrames = Math.max(1, Math.round(segmentDuration * segmentFps))
+    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, totalFrames)
+
+    // 输入：有动效时用单帧图片输入（zoompan 自行生成 d 帧，-loop 1 会破坏帧计数）；
+    // 无动效时保持图片循环（配合 fade/shortest 生成静态片段）。
+    if (imageEffect) {
+      args.push('-i', imagePath, '-i', audioPath)
+    } else {
+      args.push('-loop', '1', '-i', imagePath, '-i', audioPath)
+    }
 
     // 字幕滤镜
     const filters = [buildScaleFilter(opts.width, opts.height)]
-    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps)
     if (imageEffect) filters.push(imageEffect)
     const subtitleFilter = buildSubtitleFilter(
       Array.isArray(opts.subtitleTimeline) && opts.subtitleTimeline.length > 0

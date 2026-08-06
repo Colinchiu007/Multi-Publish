@@ -806,7 +806,7 @@ const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
 })
 
 // 已实现真实执行引擎的流水线（与 pipeline-engine 注册表 available 字段保持一致；此处为前端兜底）
-const IMPLEMENTED_PIPELINES = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke']
+const IMPLEMENTED_PIPELINES = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
 
 function prioritizeStory2VideoPipeline(pipelines) {
   const values = Array.isArray(pipelines) ? pipelines : []
@@ -844,6 +844,19 @@ const STORY2VIDEO_STAGE_NAMES = Object.freeze([
   'compose',
   'publish',
 ])
+
+// 自动流水线的真实阶段名（列表接口不返回 stages，按流水线名映射，避免回退到 s2v 阶段名）
+const AUTO_PIPELINE_STAGES = Object.freeze({
+  'story2video-compose': STORY2VIDEO_STAGE_NAMES,
+  'animated-explainer': ['research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish'],
+  'framework-smoke': ['verify', 'report'],
+  'documentary-montage': ['research', 'ingest', 'edit', 'narrate', 'render'],
+  'localization-dub': ['transcribe', 'translate', 'tts', 'sync'],
+  'animation': ['concept', 'storyboard', 'animate', 'render'],
+  'avatar-spokesperson': ['avatar_select', 'script', 'generate', 'render'],
+  'character-animation': ['character_design', 'rigging', 'animate', 'render'],
+  'hybrid': ['plan', 'generate', 'merge', 'render'],
+})
 
 const S2V_PLATFORMS = [
   { value: 'douyin', label: '抖音' },
@@ -1119,8 +1132,8 @@ export default {
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
-    isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke'].includes(name) },
-    isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic', 'talking-head'].includes(name) },
+    isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke', 'documentary-montage', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'].includes(name) },
+    isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic', 'talking-head', 'localization-dub'].includes(name) },
     pipelineAvailable(name) {
       const selected = this.selectedPipeline
       if (selected && selected.name === name && typeof selected.available === 'boolean') return selected.available
@@ -1144,7 +1157,8 @@ export default {
     },
     getDefaultPipelineStages(name) {
       const pipeline = (this.pipelines || []).find(item => item.name === name)
-      return (pipeline?.stages || STORY2VIDEO_STAGE_NAMES).map(stageName => ({ name: stageName, status: 'pending' }))
+      const stages = pipeline?.stages || AUTO_PIPELINE_STAGES[name] || STORY2VIDEO_STAGE_NAMES
+      return stages.map(stageName => ({ name: stageName, status: 'pending' }))
     },
     getDefaultStory2VideoStages() {
       return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
@@ -1185,6 +1199,7 @@ export default {
           inputMode: 'text',
           checkpointPolicy: 'none',
           autoAdvance: true,
+          background: true,
           style: this.selectedStyle,
           resolution: output.resolution,
           fps: output.fps,
@@ -1217,6 +1232,7 @@ export default {
           inputMode: 'video',
           checkpointPolicy: 'none',
           autoAdvance: true,
+          background: true,
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
@@ -1233,7 +1249,7 @@ export default {
       }
     },
     async startOrchestratedPipeline() {
-      if (this.selectedPipeline.name === 'animated-explainer') {
+      if (this.selectedPipeline.name !== 'story2video-compose' && this.isAutoPipeline(this.selectedPipeline.name)) {
         return this.startExplainerPipeline()
       }
       if (this.isMediaAutoPipeline(this.selectedPipeline.name)) {
@@ -1332,6 +1348,7 @@ export default {
           inputMode: 'text',
           checkpointPolicy: 'none',
           autoAdvance: true,
+          background: true,
           story2videoTextConfig,
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
@@ -2215,8 +2232,12 @@ export default {
 .detail-desc { color: #666; font-size: 14px; margin: 0; }
 
 /* 阶段时间线 */
-.stages-timeline { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; padding: 16px; background: var(--bg); border-radius: 8px; }
-.stage-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; font-size: 14px; }
+.stages-timeline { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; padding: 16px; background: var(--bg); border-radius: 8px; max-width: 100%; overflow-wrap: anywhere; }
+.stage-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; font-size: 14px; min-width: 0; max-width: 100%; }
+.orchestration-context { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; padding: 12px 16px; background: var(--bg); border-radius: 8px; margin-bottom: 16px; }
+.context-item { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; max-width: 100%; min-width: 0; }
+.context-key { flex: 0 0 auto; font-weight: 600; color: var(--text-muted); font-size: 12px; }
+.context-value { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; word-break: break-word; color: var(--text-muted); font-size: 12px; }
 .stage-item.done { color: #666; }
 .stage-item.active { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
 .stage-item.waiting { background: #fef3c7; color: #92400e; }
