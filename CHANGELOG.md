@@ -1,3 +1,43 @@
+## [未发布] E2E 待办/待验证清单 (2026-08-06)
+
+### 文档
+- 新增 `01-docs/E2E-PENDING.md`：记录因条件不足无法验证或待重测的项（4 条 videogen 流水线待配置视频生成模型、2 条无引擎流水线、以及 TTS 克隆/个人音色槽位/敏感词降级等真实供应商验收项），下次配置好后重测并勾销。
+
+## [未发布] 图片轮播参数表单 UE 优化 (2026-08-06)
+
+### 视频创作（UI/UE）
+- 参数表单 6 组折叠（基础/画面/声音/高级/模板与输出/发布）+ 实时摘要；折叠状态随 `story2video.lastOptions.v1.ui.expandedGroups` 跨会话保存/恢复。
+- 新增保存/恢复轻提示（「选项已保存 ✓ / 已恢复上次的选项设置」，1.6s 淡出）；操作栏 sticky 固定（启动/取消/恢复默认选项始终可见）；音色克隆面板内层折叠。
+- 方案文档 `01-docs/STORY2VIDEO-UE-OPTIMIZATION-PROPOSAL.md`；PRD 7.1.11 参数表单 UE 合同。
+
+## [未发布] 全流水线 E2E 真实测试与修复 (2026-08-06)
+
+### 视频创作（E2E + 修复）
+- 12 条已实现流水线真实 E2E（Playwright Electron + 登录 profile + 真实 LLM/TTS/生图）：8 条跑通（story2video-compose/animated-explainer/documentary-montage/framework-smoke/talking-head/cinematic/clip-factory/localization-dub），4 条按预期缺视频生成模型（animation/avatar-spokesperson/character-animation/hybrid）。报告 `01-docs/STORY2VIDEO-E2E-REPORT.md`。
+- API 限流排队改为按时间槽调度（`api-usage-governor`），修复长文案多场景 TTS 排队超预算失败；videogen storyboard/generate 输入改为候选键解析（`resolveVideogenConcept/Scenes`），修复 character-animation/hybrid 缺 context。
+
+## [未发布] 图片轮播选项持久化 (2026-08-06)
+
+### 视频创作
+- 图片轮播选项（`s2vConfig` + `s2vOutputConfig`）自动保存/恢复：复用主进程 owner-scoped settings（`story2video.lastOptions.v1`），1s 防抖 + 启动即存 + 离开页面 flush；已禁用 provider 不回填；新增「恢复默认选项」。PRD 7.1.10。
+
+## [未发布] 流水线进度细化与信息视觉化 (2026-08-06)
+
+### 视频创作
+- 阶段清单新增：拆分场景数、提示词优化「共 N 个场景，已完成 M 个」、资源生成「图片 x/y · 旁白 x/y」实时进度；每阶段耗时；整体进度条 + 已用时；完成汇总「完成时间共 X 分 Y 秒 · 文件大小 Z M」（预览页展示）。PRD 7.1.9。
+
+## [未发布] API 并发控制/排队/重试 + 断点恢复 (2026-08-06)
+
+### 视频创作
+- 新增 `ApiUsageGovernor` 挂在 provider 唯一出口：每 provider 并发信号量、滑动窗口 RPM、429 冷却 + 时间槽排队、分级重试（限流长退避/超时短退避/额度不重试）、可选 5h/周 token 额度窗口。
+- 断点恢复：失败快照持久化（`RunStateStore`）+ `pipeline:resumeOrchestration` + 场景级续传（`optimize_resume` / `generate_assets.resume.completed`）；失败弹窗「从断点继续」。PRD 7.1.8。
+
+## [未发布] MiniMax TTS 音色目录与长文案限流修复 (2026-08-06)
+
+### 视频创作
+- MiniMax TTS 默认模型 speech-2.8-turbo；官方 327 个系统音色目录 + 音色克隆（上传→克隆→选择）；错误友好化与多语言（「图片轮播 提示」、`story2video.rate_limited`/`quota_exceeded` 含场景号）。
+- 长文案多场景限流：optimize/资源生成瞬时错误有界重试 + 限流友好提示；中文字幕 drawtext 显式 CJK fontfile（修复豆腐块）；挂载时恢复主进程仍在运行的编排流水线（HMR/重挂载不丢运行态）。PRD 7.1.4/7.1.5/7.1.7。
+
 ## [未发布] talking-head 真实编排引擎 (2026-08-06)
 
 ### 视频创作
