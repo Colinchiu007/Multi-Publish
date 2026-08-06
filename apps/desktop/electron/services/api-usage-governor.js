@@ -19,7 +19,7 @@ const { ProviderError, ERROR_CODES, classifyProviderFailure } = require('./adapt
 
 const WINDOW_MS = 60 * 1000
 const MAX_QUEUE_WAIT_MS = 30 * 1000
-const MAX_PACE_WAIT_MS = 30 * 1000
+const MAX_PACE_WAIT_MS = 180 * 1000
 const MAX_COOLDOWN_WAIT_MS = 45 * 1000
 const TRANSIENT_RETRIES = 2
 const RATE_ADAPT_FACTOR = 0.75
@@ -53,7 +53,10 @@ class ApiUsageGovernor {
     this._log = options.log || { warn() {}, info() {} }
     this._limits = new Map() // key -> limits（覆盖默认）
     this._tokenWindows = new Map() // key -> [{ windowMs, limit, field }]
-    this._state = new Map() // key -> { active, waiters, window[], cooldownUntil, rateFactor, tokenWindows }
+    this._state = new Map() // key -> { active, waiters, nextSlotAt, cooldownUntil, rateFactor, tokenWindows }
+    this._maxPaceWaitMs = Number.isFinite(Number(options.maxPaceWaitMs)) && Number(options.maxPaceWaitMs) > 0
+      ? Number(options.maxPaceWaitMs)
+      : MAX_PACE_WAIT_MS
   }
 
   setEnabled(enabled) {
@@ -77,13 +80,13 @@ class ApiUsageGovernor {
   _stateFor(key) {
     let st = this._state.get(key)
     if (!st) {
-      st = { active: 0, waiters: [], window: [], cooldownUntil: 0, rateFactor: 1, tokenWindows: null }
+      st = { active: 0, waiters: [], nextSlotAt: 0, cooldownUntil: 0, rateFactor: 1, tokenWindows: null }
       this._state.set(key, st)
     }
     return st
   }
 
-  /** 诊断：当前 key 的并发/冷却/预算状态（不含密钥） */
+  /** 诊断：当前 key 的并发/排队/冷却/预算状态（不含密钥） */
   getStatus(key) {
     const st = this._state.get(key)
     if (!st) return { key, active: 0, queued: 0, inCooldown: false, rateFactor: 1 }
@@ -94,7 +97,7 @@ class ApiUsageGovernor {
       inCooldown: st.cooldownUntil > Date.now(),
       cooldownRemainingMs: Math.max(0, st.cooldownUntil - Date.now()),
       rateFactor: st.rateFactor,
-      recentWindowCount: st.window.length,
+      nextSlotAt: st.nextSlotAt || 0,
     }
   }
 
@@ -155,21 +158,27 @@ class ApiUsageGovernor {
     return Math.max(2, Math.round(limits.rpm * st.rateFactor))
   }
 
+  /**
+   * 按时间槽排队：每个请求预约下一个可用时间槽（每 60s 最多 rpm 个槽）。
+   * 排队等待有界（默认 3 分钟）；超预算给出明确限流提示，由上层重试/断点恢复处理。
+   * 长文案多场景（如 14+ 场景 TTS）时请求自动错峰，而不是在突发后直接失败。
+   */
   async _pace(key, st, limits) {
     const now = Date.now()
-    st.window = st.window.filter((ts) => now - ts < WINDOW_MS)
     const rpm = this._effectiveRpm(st, limits)
-    if (st.window.length < rpm) {
-      st.window.push(now)
-      return
+    const intervalMs = WINDOW_MS / rpm
+    // 同步预约时间槽：并发请求各自拿到不同槽位（先到先得），避免读到同一槽
+    const base = Math.max(now, st.nextSlotAt || now)
+    st.nextSlotAt = base + intervalMs
+    const waitMs = base - now
+    if (waitMs > this._maxPaceWaitMs) {
+      throw new ProviderError(
+        ERROR_CODES.RATE_LIMITED,
+        '当前请求频率已达上限，请稍后再试。',
+        { providerId: key, cooldownMs: waitMs },
+      )
     }
-    const waitMs = st.window[0] + WINDOW_MS - now
-    if (waitMs > MAX_PACE_WAIT_MS) {
-      throw new ProviderError(ERROR_CODES.RATE_LIMITED, '当前请求频率已达上限，请稍后再试。', { providerId: key })
-    }
-    await sleep(waitMs)
-    st.window = st.window.filter((ts) => Date.now() - ts < WINDOW_MS)
-    st.window.push(Date.now())
+    if (waitMs > 0) await sleep(waitMs)
   }
 
   async _waitCooldown(key, st, limits) {

@@ -148,6 +148,39 @@ function getRunDir (runId) {
   return path.join(os.tmpdir(), 'story2video', 'videogen', String(runId || 'run'))
 }
 
+/**
+ * 从 context 中按候选键取第一个非空值。
+ * 不同 videogen 流水线把前序阶段输出写入各自的阶段名
+ * （animation→concept/storyboard；character-animation→character_design/rigging；
+ *  hybrid→plan/generate；avatar→avatar_select/script），统一解析避免读取固定键。
+ */
+function firstContextValue (context, keys) {
+  if (!context || typeof context !== 'object') return undefined
+  for (const key of keys) {
+    const value = context[key]
+    if (value !== undefined && value !== null) return value
+  }
+  return undefined
+}
+
+function resolveVideogenConcept (context) {
+  const value = firstContextValue(context, ['concept', 'character_design', 'plan', 'avatar_select', 'script'])
+  if (typeof value === 'string') return value.trim()
+  if (value && typeof value === 'object') {
+    const extracted = value.concept || value.script || value.topic
+    if (typeof extracted === 'string') return extracted.trim()
+    // 概念可能是对象（如 { visual_style, hook }），storyboard 提示词构建兼容对象
+    if (extracted && typeof extracted === 'object') return extracted
+    return ''
+  }
+  return ''
+}
+
+function resolveVideogenScenes (context) {
+  const value = firstContextValue(context, ['storyboard', 'rigging', 'generate', 'scenes', 'plan'])
+  return Array.isArray(value) ? value : null
+}
+
 async function downloadToFile (url, dest) {
   const http = require('http')
   const https = require('https')
@@ -248,8 +281,8 @@ function registerVideoGenStages (pipelineEngine) {
     async ({ stage, context }) => {
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
-      const concept = context.concept?.concept || context.script || ''
-      if (!concept) return { success: false, error: '该流水线 storyboard 需要 context.concept 或 context.script' }
+      const concept = resolveVideogenConcept(context)
+      if (!concept) return { success: false, error: '该流水线 storyboard 需要前序概念或文案（context.concept/character_design/plan/script）' }
       const { system, user } = buildStoryboardPrompt(concept, stage.kind || 'animation')
       try {
         const raw = await callDefaultLlm(aiGenerator, system, user)
@@ -275,9 +308,7 @@ function registerVideoGenStages (pipelineEngine) {
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.GENERATE,
     async ({ runId, stage, params, context }) => {
-      const scenes = Array.isArray(context.storyboard)
-        ? context.storyboard
-        : (Array.isArray(context.generate) ? context.generate : [])
+      const scenes = resolveVideogenScenes(context) || []
       const prompts = scenes.length > 0 ? scenes.map(s => s.prompt) : [params.text || '']
       if (!prompts[0]) return { success: false, error: '该流水线 generate 需要场景提示词或主题' }
       const aiGenerator = getAiGenerator(pipelineEngine)

@@ -5634,3 +5634,9 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **保存/恢复**：s2vConfig + s2vOutputConfig 快照；1s 防抖 watch 自动保存 + 启动流水线立即保存 + beforeUnmount flush；进入页面 provider 加载完成后恢复（`restoreS2VLastOptions`），类型守卫合并，已禁用 provider 的 voice/image 不回填，恢复后重拉语音目录校正音色。
 - **重置**：`resetS2VLastOptions` 用组件初始 data() 工厂函数取初始默认，重置后清空已存快照；启动按钮旁新增「恢复默认选项」链接。
 - **踩坑**：vitest `beforeEach` 只 `clearAllMocks` 不清实现，restore 用例的 `storeGetSetting.mockResolvedValue` 会泄漏到下个用例导致恢复竞态，用例间需 `mockReset()` 或显式 `mockResolvedValue(null)`；mounted 里异步 restore 与用例手动操作可能交错。
+
+## 视频创作全流水线 E2E 真实测试复盘（2026-08-06）
+
+- **结果**：12 条已实现流水线全部真实跑通或按预期缺模型——8 条 ✅（story2video-compose/animated-explainer/documentary-montage/framework-smoke/talking-head/cinematic/clip-factory/localization-dub），4 条 ⏭ 缺视频生成模型（animation/avatar-spokesperson/character-animation/hybrid，`VIDEO_MODEL_NOT_CONFIGURED`）。完整矩阵见 `01-docs/STORY2VIDEO-E2E-REPORT.md`。
+- **E2E 发现并修复**：① governor 限流排队不足——原 `_pace` 窗口等待超 30s 直接抛错，14 场景 TTS 第 11 段起失败；改为按时间槽调度（并发同步预约槽位，上限 180s），documentary 修复。② videogen storyboard/generate 读取固定 `context.concept/storyboard`，与 character-animation（character_design/rigging）、hybrid（plan/generate）实际阶段名不符；新增 `resolveVideogenConcept/resolveVideogenScenes` 候选键解析。
+- **驱动要点**：E2E 用 Playwright Electron + 直连 IPC（与 UI 同款参数，含真实 provider）；媒体流水线的输入视频必须落在允许媒体根目录（`os.tmpdir()/story2video`）否则被拒；videogen 流水线需要 `params.text` 主题；`pipelineStartOrchestrated` 不带 `autoAdvance:true` 时运行停在首阶段（曾误判 framework-smoke 卡死）。

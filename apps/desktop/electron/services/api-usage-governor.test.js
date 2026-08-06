@@ -23,27 +23,43 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     release()
     await vi.advanceTimersByTimeAsync(0)
     await p1
-    await vi.advanceTimersByTimeAsync(0)
+    // p2 需要推进其预约的时间槽（rpm=1000 → 间隔 0.06ms）
+    await vi.advanceTimersByTimeAsync(100)
     await p2
     expect(calls).toEqual([1, 2])
   })
 
-  it('RPM 限流：超预算时排队等待窗口释放，等待超过预算则给出明确限流提示', async () => {
+  it('RPM 限流：超预算请求按时间槽排队错峰，不直接失败', async () => {
     vi.useFakeTimers()
     const g = new ApiUsageGovernor({})
     g.setLimits('p:llm:m', { maxConcurrent: 4, rpm: 2, cooldownMs: 1000, retry429: 3 })
     const calls = []
     const p1 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => { calls.push(1); return 'a' })
     const p2 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => { calls.push(2); return 'b' })
-    // 第 3 个请求超出 RPM 预算，且窗口释放需等待约 60s > 30s 排队预算 → 明确限流错误
     const p3 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => { calls.push(3); return 'c' })
-    const a3 = expect(p3).rejects.toMatchObject({ code: 'RATE_LIMITED' })
     await vi.advanceTimersByTimeAsync(0)
     await p1
+    expect(calls).toEqual([1])
+    await vi.advanceTimersByTimeAsync(30000)
     await p2
     expect(calls).toEqual([1, 2])
-    await a3
-    expect(g.getStatus('p:llm:m').recentWindowCount).toBe(2)
+    await vi.advanceTimersByTimeAsync(30000)
+    await p3
+    expect(calls).toEqual([1, 2, 3])
+    expect(g.getStatus('p:llm:m').nextSlotAt).toBeGreaterThan(0)
+  })
+
+  it('RPM 排队超过等待预算时给出明确限流提示（有界不无限等）', async () => {
+    // 无 sleep 路径（等待 60s 远超 10ms 预算 → 立即抛错），真实定时器即可，确定性
+    const g = new ApiUsageGovernor({ maxPaceWaitMs: 10 })
+    g.setLimits('p:llm:m', { maxConcurrent: 8, rpm: 1, cooldownMs: 1000, retry429: 3 })
+    const calls = []
+    const p1 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => { calls.push(1); return 'a' })
+    // rpm=1 → 时间槽间隔 60s > 10ms 等待预算 → 明确限流提示
+    const p2 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => { calls.push(2); return 'b' })
+    await p1
+    await expect(p2).rejects.toMatchObject({ code: 'RATE_LIMITED' })
+    expect(calls).toEqual([1])
   })
 
   it('429 触发冷却与退避重试后成功', async () => {
@@ -120,7 +136,8 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     await a1
     const p2 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ usage: { total_tokens: 600 } }))
     const a2 = expect(p2).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
-    await vi.advanceTimersByTimeAsync(0)
+    // p2 需先推进其时间槽（rpm=100 → 间隔 600ms）
+    await vi.advanceTimersByTimeAsync(1000)
     await a2
   })
 
