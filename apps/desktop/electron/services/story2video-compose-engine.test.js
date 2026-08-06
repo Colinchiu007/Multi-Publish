@@ -189,9 +189,15 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 180)).toContain(':d=180:')
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).not.toContain(':d=1:')
     expect(buildSubtitleFilter('字幕', { size: 'lg', style: 'style2' })).toContain('box=1')
-    // 回归：中文 drawtext 必须显式指定 CJK fontfile，否则 Windows 静态 ffmpeg 渲染成豆腐块
+    // 回归：中文 drawtext 必须显式指定 CJK fontfile，否则 Windows 静态 ffmpeg 渲染成豆腐块。
+    // 跨平台契约：能解析到 CJK 字体则必须注入 fontfile；否则（Linux 无 Windows 字体）不注入但仍合法。
+    const resolvedFont = resolveCjkFont()
     const subtitleFilter = buildSubtitleFilter('中文字幕测试', { size: 'md' })
-    expect(subtitleFilter).toContain("fontfile='C\\:/Windows/Fonts/msyh.ttc'")
+    if (resolvedFont) {
+      expect(subtitleFilter).toContain("fontfile='" + escapeFontFilePath(resolvedFont) + "'")
+    } else {
+      expect(subtitleFilter).not.toContain('fontfile=')
+    }
     expect(escapeFontFilePath('C:\\Windows\\Fonts\\msyh.ttc')).toBe('C\\:/Windows/Fonts/msyh.ttc')
     if (process.platform === 'win32') {
       expect(resolveCjkFont()).toBeTruthy()
