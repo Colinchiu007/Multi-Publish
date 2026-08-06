@@ -5640,3 +5640,10 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **结果**：12 条已实现流水线全部真实跑通或按预期缺模型——8 条 ✅（story2video-compose/animated-explainer/documentary-montage/framework-smoke/talking-head/cinematic/clip-factory/localization-dub），4 条 ⏭ 缺视频生成模型（animation/avatar-spokesperson/character-animation/hybrid，`VIDEO_MODEL_NOT_CONFIGURED`）。完整矩阵见 `01-docs/STORY2VIDEO-E2E-REPORT.md`。
 - **E2E 发现并修复**：① governor 限流排队不足——原 `_pace` 窗口等待超 30s 直接抛错，14 场景 TTS 第 11 段起失败；改为按时间槽调度（并发同步预约槽位，上限 180s），documentary 修复。② videogen storyboard/generate 读取固定 `context.concept/storyboard`，与 character-animation（character_design/rigging）、hybrid（plan/generate）实际阶段名不符；新增 `resolveVideogenConcept/resolveVideogenScenes` 候选键解析。
 - **驱动要点**：E2E 用 Playwright Electron + 直连 IPC（与 UI 同款参数，含真实 provider）；媒体流水线的输入视频必须落在允许媒体根目录（`os.tmpdir()/story2video`）否则被拒；videogen 流水线需要 `params.text` 主题；`pipelineStartOrchestrated` 不带 `autoAdvance:true` 时运行停在首阶段（曾误判 framework-smoke 卡死）。
+
+## 图片轮播参数表单 UE 优化实施复盘（2026-08-06）
+
+- **已具备**：6 组 `<details>` 折叠（基础/画面/声音/高级/发布）与 `s2vSectionSummary` 摘要在上轮已落地；本轮补齐：折叠状态持久化（`lastOptions.ui.expandedGroups`）、保存/恢复轻提示（`s2vOptionsToast`，1.6s 淡出）、操作栏 sticky（bottom）、音色克隆面板内层折叠（`s2vCloneOpen`）。
+- **交互细节**：保存提示仅在防抖落盘后出现，避免输入过程闪烁；恢复提示在 provider 校验与语音目录重拉之后显示；折叠恢复只接受已知组名数组，非法值回退默认。
+- **测试**：CreateView 用例覆盖折叠状态保存/恢复与提示文案，72 项通过；`vite build` 模板编译通过。
+- **经验**：UE 改动优先用 CSS + `<details>`/`<template v-if>` 包裹而非重排表单 DOM，回归风险低；sticky 元素需显式 `background` 防内容透叠。

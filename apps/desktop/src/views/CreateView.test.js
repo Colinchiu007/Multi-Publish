@@ -244,7 +244,7 @@ describe("CreateView", () => {
     w.unmount();
   });
 
-  it("恢复上次保存的图片轮播选项（跳过已禁用 provider）", async () => {
+  it("恢复上次保存的图片轮播选项（跳过已禁用 provider，恢复折叠状态并提示）", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
     mocks.storeGetSetting.mockResolvedValue({
@@ -253,6 +253,7 @@ describe("CreateView", () => {
         version: 1,
         s2vConfig: { imageStyle: "anime", voiceSpeed: 1.5, voiceProvider: "disabled-provider", splitLanguage: "en" },
         s2vOutputConfig: { resolution: "1920x1080", fps: 60 },
+        ui: { expandedGroups: ["appearance", "voice"] },
       },
     });
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
@@ -267,6 +268,11 @@ describe("CreateView", () => {
     expect(w.vm.s2vConfig.splitLanguage).toBe("en");
     expect(w.vm.s2vConfig.voiceProvider).not.toBe("disabled-provider");
     expect(w.vm.s2vOutputConfig.fps).toBe(60);
+    // 恢复表单折叠状态
+    expect(w.vm.s2vOpenSections.appearance).toBe(true);
+    expect(w.vm.s2vOpenSections.voice).toBe(true);
+    // 恢复轻提示
+    expect(w.vm.s2vOptionsToast).toContain("已恢复");
     // 恢复 mock 实现，避免泄漏到后续用例（beforeEach 的 clearAllMocks 不重置实现）
     mocks.storeGetSetting.mockReset();
     w.unmount();
@@ -285,6 +291,10 @@ describe("CreateView", () => {
       version: 1,
       s2vConfig: expect.objectContaining({ imageStyle: "cyberpunk" }),
     }));
+    // 折叠状态随快照保存，保存后显示轻提示
+    const savedCall = mocks.storeSetSetting.mock.calls.find(([key]) => key === "story2video.lastOptions.v1");
+    expect(savedCall[1].ui.expandedGroups).toEqual(expect.arrayContaining(["basic"]));
+    expect(w.vm.s2vOptionsToast).toContain("已保存");
     await w.vm.resetS2VLastOptions();
     expect(w.vm.s2vConfig.imageStyle).toBe("cinematic");
     expect(mocks.storeSetSetting).toHaveBeenCalledWith("story2video.lastOptions.v1", null);

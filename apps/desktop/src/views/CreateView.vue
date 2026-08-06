@@ -395,7 +395,11 @@
                 v-if="s2vVoiceCapability?.type === 'user_clone' && s2vVoiceCapability?.clone?.enabled === true"
                 class="config-item config-span-2 voice-clone-panel"
               >
-                <label>音色复制 / 克隆</label>
+                <button type="button" class="voice-clone-toggle" :aria-expanded="s2vCloneOpen" data-testid="s2v-voice-clone-toggle" @click="s2vCloneOpen = !s2vCloneOpen">
+                  <span>音色复制 / 克隆</span>
+                  <span class="voice-clone-toggle-icon">{{ s2vCloneOpen ? '收起' : '展开' }}</span>
+                </button>
+                <template v-if="s2vCloneOpen">
                 <p v-if="s2vVoiceCloneRequirements && s2vVoiceCloneHint" class="config-hint">
                   {{ s2vVoiceCloneHint }}
                 </p>
@@ -425,6 +429,7 @@
                     </div>
                   </div>
                 </div>
+                </template>
               </div>
               <div v-else-if="s2vVoiceCapability?.type === 'user_clone'" class="config-item config-span-2 voice-slot-hint">
                 <label>音色复制 / 克隆</label>
@@ -605,6 +610,7 @@
 
         <!-- 执行控制 -->
         <div class="action-bar">
+          <span v-if="s2vOptionsToast" class="s2v-options-toast" data-testid="s2v-options-toast">{{ s2vOptionsToast }}</span>
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
             <UiButton class="btn-start" data-testid="start-story2video" @click="startPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
@@ -942,6 +948,9 @@ export default {
       story2videoRunMeta: null,
       stageClockTick: 0,
       s2vRestoring: false,
+      s2vOptionsToast: '',
+      s2vCloneOpen: false,
+      s2vOptionsToastTimer: null,
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
@@ -1310,13 +1319,20 @@ export default {
         version: 1,
         s2vConfig: this.cloneForIpc(this.s2vConfig),
         s2vOutputConfig: this.cloneForIpc(this.s2vOutputConfig),
+        ui: { expandedGroups: Object.keys(this.s2vOpenSections).filter(key => this.s2vOpenSections[key] === true) },
         savedAt: new Date().toISOString(),
       }
+    },
+    showS2VOptionsToast(text) {
+      this.s2vOptionsToast = text
+      if (this.s2vOptionsToastTimer) clearTimeout(this.s2vOptionsToastTimer)
+      this.s2vOptionsToastTimer = setTimeout(() => { this.s2vOptionsToast = '' }, 1600)
     },
     async saveS2VLastOptions() {
       if (!this.isOrchestratedPipeline(this.selectedPipeline?.name) || this.s2vRestoring) return
       try {
         await storeSetSetting('story2video.lastOptions.v1', this.buildS2VLastOptions())
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsSaved', '选项已保存 ✓', 'Options saved ✓'))
       } catch (_) { /* 持久化失败不影响使用 */ }
     },
     scheduleS2VLastOptionsSave() {
@@ -1365,7 +1381,15 @@ export default {
           this.s2vConfig.imageModel = ''
         }
         this._applyS2VSnapshot(snapshot.s2vOutputConfig, this.s2vOutputConfig)
+        // 恢复表单折叠状态（类型守卫：仅接受字符串数组）
+        if (Array.isArray(snapshot.ui?.expandedGroups)) {
+          const known = new Set(Object.keys(this.s2vOpenSections))
+          for (const section of snapshot.ui.expandedGroups) {
+            if (typeof section === 'string' && known.has(section)) this.s2vOpenSections[section] = true
+          }
+        }
         await this.loadS2VVoiceData()
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsRestored', '已恢复上次的选项设置', 'Restored your last-used options'))
       } finally { this.s2vRestoring = false }
     },
     async resetS2VLastOptions() {
@@ -2616,7 +2640,11 @@ export default {
 .voice-clone-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
 
 /* 操作栏 */
-.action-bar { display: flex; align-items: center; gap: 12px; padding: 16px 0; border-top: 1px solid var(--border); }
+.action-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; }
+.s2v-options-toast { font-size: 12px; color: #166534; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 4px 10px; animation: s2v-toast-fade 1.6s ease-in-out; }
+@keyframes s2v-toast-fade { 0% { opacity: 0; } 12% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; } }
+.voice-clone-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: none; background: transparent; font-size: 14px; font-weight: 600; cursor: pointer; padding: 2px 0; }
+.voice-clone-toggle-icon { font-size: 12px; color: var(--text-muted, #888); }
 .btn-start { padding: 12px 32px; font-size: 16px; }
 .running-controls { display: flex; gap: 8px; }
 .progress-inline { display: flex; align-items: center; gap: 8px; margin-left: auto; }
