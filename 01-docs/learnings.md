@@ -1,6 +1,23 @@
 
 ---
 
+## 视频创作后台运行与并发实现复盘 (2026-08-07)
+
+### ✅ 做得好的
+1. 现状盘点先行 — 确认后台运行（background:true + resumeRunningOrchestration）已具备后才只补缺口（历史含运行中 + 并发上限），避免重复造轮子。
+2. 并发门禁统一在引擎层（startOrchestrated + resumeOrchestration 共用 `_assertConcurrencyBudget`），前端只做文案映射，职责清晰。
+3. 历史页轮询只在存在 running 时启动、结束即停，避免页面常驻定时器空转。
+
+### ⚠️ 需要注意的
+1. `_runs` 同时存 `<runId>` 与 `_<pipelineName>` 两个 key 指向同一对象：统计/返回时必须按对象去重，否则并发计数和 getHistory 会重复。
+2. 前端 `resolveMessageKey` 的 `isKnownMessageKey` 只识别 key 的 value（`story2video.*`），而 `errorCode` 是常量名（如 `PIPELINE_CONCURRENCY_LIMIT`）——新增 errorCode 映射必须显式加判断（或让 errorCode 与 value 一致）。
+3. 并发上限 2 是保守默认：真实资源压力需在低配机器实测（2 条 27 场景流水线同时 compose 的 CPU/内存）；后续可按机器配置或用户设置调优。
+
+### 🧠 经验沉淀
+- 「后台任务可见性」三要素：主进程持有运行态（runId 驱动）、历史接口含运行中、前端按需轮询——缺一不可。
+- 并发限制放在引擎入口统一拦截（启动+恢复），比前端限制更可靠（防绕过）。
+---
+
 ## 音色目录/克隆双 Bug 复盘 (2026-08-07)
 
 ### Bug 1：选择 MiniMax 部分系统音色报 VOICE_CATALOG_INVALID_ARGUMENTS（沉稳高管/搞笑大爷）

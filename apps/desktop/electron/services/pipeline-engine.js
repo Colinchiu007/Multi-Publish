@@ -571,6 +571,11 @@ class PipelineEngine {
     this.story2videoProjectService = deps.story2videoProjectService || null;
     this.runStateStore = deps.runStateStore || null;
     this.governor = deps.governor || null;
+    // 后台并行运行上限（编排模式）：同机资源有限（ffmpeg 合成 CPU 密集、API 受 governor 限流），
+    // 默认最多同时 2 条运行中的编排流水线；可通过 deps.maxConcurrentRuns 注入（测试/调优）。
+    this.maxConcurrentRuns = Number.isFinite(Number(deps.maxConcurrentRuns)) && Number(deps.maxConcurrentRuns) > 0
+      ? Number(deps.maxConcurrentRuns)
+      : 2;
 
     // 自动构造 StageExecutor（仅在 serviceBus 可用时）
     if (deps.stageExecutor) {
@@ -802,9 +807,45 @@ class PipelineEngine {
     };
   }
 
-  /** 获取历史执行记录 */
+  /**
+   * 获取历史执行记录（含运行中未完成的编排流水线，便于历史页实时查看进度）。
+   * 运行中 run 在前，终态历史在后；_runs 中 <runId> 与 _<pipelineName> 指向同一对象，需去重。
+   */
   getHistory() {
-    return [...this._history];
+    const seen = new Set();
+    const active = [];
+    for (const run of this._runs.values()) {
+      if (seen.has(run)) continue;
+      seen.add(run);
+      active.push(run);
+    }
+    return [...active, ...this._history];
+  }
+
+  /** 当前正在运行的编排流水线数量（去重 _<name> 索引）。 */
+  _countActiveRuns() {
+    const seen = new Set();
+    let count = 0;
+    for (const run of this._runs.values()) {
+      if (seen.has(run)) continue;
+      seen.add(run);
+      if (run.orchestrationMode === 'orchestrator' && run.status === 'running') count += 1;
+    }
+    return count;
+  }
+
+  /** 后台并行上限检查：超过 maxConcurrentRuns 时拒绝启动/恢复。 */
+  _assertConcurrencyBudget() {
+    const activeCount = this._countActiveRuns();
+    if (activeCount >= this.maxConcurrentRuns) {
+      return {
+        success: false,
+        error: '当前已有 ' + activeCount + ' 条流水线正在运行，最多同时运行 ' + this.maxConcurrentRuns + ' 条，请等待其中一条完成后再启动。',
+        errorCode: 'PIPELINE_CONCURRENCY_LIMIT',
+        errorParams: { count: activeCount, max: this.maxConcurrentRuns },
+      };
+    }
+    return null;
   }
 
   /** 确认检查点（继续下一阶段） */
@@ -924,6 +965,9 @@ class PipelineEngine {
       return { success: false, error: 'Invalid initialContext: ' + e.message };
     }
 
+    // 后台并行上限：超过 maxConcurrentRuns 拒绝启动（资源保护）。
+    const concurrencyBlock = this._assertConcurrencyBudget();
+    if (concurrencyBlock) return concurrencyBlock;
     // 上下文验证通过后再创建 run，避免非法输入留下孤儿运行。
     const startResult = this.start(pipelineName, params);
     if (!startResult.success) return startResult;
@@ -992,6 +1036,9 @@ class PipelineEngine {
       ? snapshot.stages
       : ((pl && Array.isArray(pl.stages)) ? pl.stages.map((name) => ({ name })) : []);
     if (stages.length === 0) return { success: false, error: '失败快照缺少阶段定义', errorCode: 'STAGE_NOT_FOUND' };
+    // 后台并行上限：恢复也算占用运行槽位。
+    const concurrencyBlock = this._assertConcurrencyBudget();
+    if (concurrencyBlock) return concurrencyBlock;
 
     // 内存 history 条目使用 id，RunStateStore 快照使用 runId
     const runIdentifier = String(snapshot.runId || snapshot.id || '')
