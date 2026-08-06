@@ -6,6 +6,7 @@ export default {
     edit: '编辑',
     add: '添加',
     confirm: '确认',
+    refresh: '刷新',
     loading: '加载中...',
     success: '成功',
     error: '错误',

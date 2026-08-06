@@ -6,6 +6,7 @@ export default {
     edit: 'Edit',
     add: 'Add',
     confirm: 'Confirm',
+    refresh: 'Refresh',
     loading: 'Loading...',
     success: 'Success',
     error: 'Error',
