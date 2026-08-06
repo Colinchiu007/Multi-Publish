@@ -33,15 +33,15 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
   zh: Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED]: '未找到需要的相关模型，请在设置中添加模型',
     [STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED]: '当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。',
-    [STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED]: 'Story2Video 暂时无法完成生成，请稍后再试。',
-    [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY]: 'Story2Video 目前只支持输入文案。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED]: '暂时无法完成生成，请稍后再试。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY]: '目前只支持输入文案。',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG]: '文案最多可输入 {max} 个字符，请缩短后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_REQUIRED]: '请先输入视频文案。',
     [STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE]: '暂时无法获取生成进度，请在历史记录中查看。',
     [STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING]: '生成已完成，但未找到可预览的视频，请在历史记录中查看。',
     [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID]: '所选文件不符合要求，请重新选择。',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED]: '项目未能删除，请稍后再试。',
-    [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM]: '确定删除这个 Story2Video 项目及其本地产物吗？此操作无法撤销。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM]: '确定删除当前项目及其本地产物吗？此操作无法撤销。',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM]: '确定删除这个自定义模板吗？此操作无法撤销。',
     [STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED]: '历史记录暂时无法加载，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.EXPORT_COMPLETED]: 'ZIP 导出完成。',
@@ -61,15 +61,15 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
   en: Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED]: 'The required models are not available. Add them in Settings.',
     [STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED]: 'Sign in with an account that can access the image carousel pipeline, then try again.',
-    [STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED]: 'Story2Video could not finish generation right now. Please try again shortly.',
-    [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY]: 'Story2Video currently supports text input only.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED]: 'Could not finish generation right now. Please try again shortly.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY]: 'Only text input is supported.',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG]: 'Your script can contain up to {maxFormatted} characters. Please shorten it and try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_REQUIRED]: 'Enter a video script before continuing.',
     [STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE]: 'The generation progress is unavailable. Check History for details.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING]: 'Generation finished, but no previewable video was found. Check History for details.',
     [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID]: 'The selected file does not meet the requirements. Please choose another file.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED]: 'The project could not be deleted. Please try again.',
-    [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM]: 'Delete this Story2Video project and its local output? This cannot be undone.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM]: 'Delete this project and its local output? This cannot be undone.',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM]: 'Delete this custom template? This cannot be undone.',
     [STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED]: 'History is unavailable right now. Please try again shortly.',
     [STORY2VIDEO_NOTIFICATION_KEYS.EXPORT_COMPLETED]: 'Your ZIP export is ready.',
@@ -82,8 +82,8 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_VIDEO_RETRIED]: 'The segment video was generated again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_RECOMPOSED]: 'Your project was recomposed.',
     [STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING]: 'This video contains offline fallback assets ({kinds}). Preview it before publishing.',
-    [STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED]: 'Story2Video could not complete the request. Please try again.',
-    [STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR]: 'Story2Video could not complete the request. Please try again.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED]: 'Could not complete the request. Please try again.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR]: 'Could not complete the request. Please try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED]: 'This pipeline has no execution engine yet, so videos cannot be generated.',
   }),
 })
@@ -115,10 +115,11 @@ export function getStory2VideoLocale () {
   return normalizeStory2VideoLocale(window.localStorage?.getItem('locale'))
 }
 
-export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale()) {
+export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale(), pipelineDisplayName = '') {
+  const safeName = String(pipelineDisplayName || '').trim()
   return normalizeStory2VideoLocale(locale) === 'en'
-    ? { dialogTitle: 'Story2Video notice', acknowledge: 'Got it', cancel: 'Cancel', confirmDelete: 'Delete' }
-    : { dialogTitle: 'Story2Video 提示', acknowledge: '知道了', cancel: '取消', confirmDelete: '删除' }
+    ? { dialogTitle: (safeName || 'Image Carousel') + ' Notice', acknowledge: 'Got it', cancel: 'Cancel', confirmDelete: 'Delete' }
+    : { dialogTitle: (safeName || '图片轮播') + ' 提示', acknowledge: '知道了', cancel: '取消', confirmDelete: '删除' }
 }
 
 function normalizeParams (value, locale, messageKey) {

@@ -267,6 +267,7 @@ function registerStory2VideoStages(pipelineEngine) {
       // 性能修复：逐场景 LLM 优化改为有界并发（默认 3），避免长文案 20+ 场景串行
       // 调用导致「提示词优化」阶段耗时数分钟。
       const concurrency = normalizeAssetConcurrency(stage.options?.concurrency ?? 3)
+      const maxAttempts = Math.max(1, Math.min(3, Number(stage.options?.maxRetries ?? 2) + 1))
       let output
       try {
         output = await _mapWithConcurrency(scenes, concurrency, async (scene, index) => {
@@ -274,15 +275,27 @@ function registerStory2VideoStages(pipelineEngine) {
           if (!promptSeed) {
             throw new Error('Story2Video optimize scene ' + index + ' is missing a prompt seed')
           }
+          // 瞬态 provider 错误有界重试，避免单场景一次失败拖垮整阶段
           let result
-          try {
-            result = await aiGenerator.generateWithDefault(
-              'llm',
-              buildOptimizationRequest(promptSeed, stage.options || {}),
-            )
-          } catch (error) {
+          let lastError = null
+          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+              result = await aiGenerator.generateWithDefault(
+                'llm',
+                buildOptimizationRequest(promptSeed, stage.options || {}),
+              )
+              lastError = null
+              break
+            } catch (error) {
+              lastError = error
+              if (attempt < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 800 * attempt))
+              }
+            }
+          }
+          if (lastError) {
             throw new Error(
-              'Story2Video optimize scene ' + index + ' failed: ' + (error && error.message ? error.message : String(error)),
+              'Story2Video optimize scene ' + index + ' failed: ' + (lastError && lastError.message ? lastError.message : String(lastError)),
             )
           }
           const optimizedPrompt = result && typeof result.content === 'string' ? result.content.trim() : ''

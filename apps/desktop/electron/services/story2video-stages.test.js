@@ -177,19 +177,34 @@ describe('story2video 资源索引契约', () => {
     expect(blank).toMatchObject({ success: false, error: expect.stringMatching(/empty|为空/i) })
 
     const serviceBus = { optimizePromptsBatch: vi.fn() }
-    const midFailure = makePipeline(null, {
+    const retryRecovers = makePipeline(null, {
       _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
       generateWithDefault: vi.fn()
-        .mockResolvedValueOnce({ content: '第一幕优化结果' })
-        .mockRejectedValueOnce(new Error('provider timeout')),
+        .mockRejectedValueOnce(new Error('provider timeout'))
+        .mockResolvedValue({ content: '优化后提示词', model: 'gpt-4.1-mini' }),
     }).optimizeExecutor
-    const failed = await midFailure({
+    const recovered = await retryRecovers({
       stage: { options: {} },
       params: {},
-      context: { split: [{ text: '第一幕' }, { text: '第二幕' }] },
+      context: { split: [{ text: '第一幕' }] },
       serviceBus,
     })
-    expect(failed).toMatchObject({ success: false, error: expect.stringMatching(/scene 1.*provider timeout/i) })
+    // 瞬态 provider 错误触发有界重试后成功
+    expect(recovered).toMatchObject({ success: true })
+    expect(retryRecovers).toBeDefined()
+    expect(recovered.output).toHaveLength(1)
+
+    const persistent = makePipeline(null, {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
+      generateWithDefault: vi.fn().mockRejectedValue(new Error('provider timeout')),
+    }).optimizeExecutor
+    const failed = await persistent({
+      stage: { options: { maxRetries: 0 } },
+      params: {},
+      context: { split: [{ text: '第一幕' }] },
+      serviceBus,
+    })
+    expect(failed).toMatchObject({ success: false, error: expect.stringMatching(/scene 0.*provider timeout/i) })
     expect(failed).not.toHaveProperty('output')
     expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
   })

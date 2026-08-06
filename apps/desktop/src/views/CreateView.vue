@@ -567,7 +567,7 @@
             <div class="config-item">
               <label>分辨率</label>
               <select v-model="activeOutputConfig.resolution" class="form-select">
-                <option value="720x1280">720×1280 (Story2Video)</option>
+                <option value="720x1280">720×1280（竖屏）</option>
                 <option value="1920x1080">1920×1080 (Full HD)</option>
                 <option value="3840x2160">3840×2160 (4K)</option>
                 <option value="1080x1920">1080×1920 (竖屏)</option>
@@ -783,6 +783,7 @@ import {
   STORY2VIDEO_NOTIFICATION_KEYS,
   countStory2VideoTextCharacters,
   formatStory2VideoNotification,
+  getStory2VideoLocale,
   getStory2VideoNotificationUiText,
   resolveStory2VideoNotification,
 } from '@/story2video/story2video-notifications'
@@ -1039,7 +1040,7 @@ export default {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
     },
     story2videoErrorDialogUiText() {
-      return getStory2VideoNotificationUiText()
+      return getStory2VideoNotificationUiText(getStory2VideoLocale(), this.pipelineName(this.selectedPipeline?.name))
     },
     story2videoProjectDeleteDialogMessage() {
       return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM }).message
@@ -1761,7 +1762,7 @@ export default {
       saveCustomTemplate({
         id,
         name,
-        description: '由 Story2Video 当前创作参数保存',
+        description: '由当前创作参数保存',
         category: 'custom',
         imageEffect: this.s2vConfig.imageEffect,
         transitionEffect: this.s2vConfig.transition,
