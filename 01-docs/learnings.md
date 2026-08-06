@@ -5627,3 +5627,10 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **阶段耗时**：主进程 `_advanceRun` 已为每阶段写 `startedAt`，渲染层加 1s 本地时钟（`stageClockTick`）刷新 running 阶段耗时，不依赖轮询频率。
 - **完成汇总**：快照 `endedAt-createdAt` + `outputSizeBytes`（主进程对成片 stat，仅 completed 且成片存在时返回）；CreateView 完成后把 `durationMs/sizeBytes` 放进路由 query 透传给 ResultView 展示；项目持久化也写入 `outputSizeBytes`。
 - **踩坑**：fastctx replace 的 replacement 中 `$` 需转义为 `$`（模板字符串中的插值会被误判为捕获组）；阶段详情只在 completed/running 阶段显示（pending 不显示进度），组件测试需把目标阶段设为 running 才能断言；ResultView 测试需显式置 `loading=false` 才能渲染视频区。
+
+## 图片轮播选项持久化实现复盘（2026-08-06）
+
+- **存储**：复用主进程 owner-scoped `store:set-setting/get-setting`（settings-store `setUserSetting/getUserSetting`，key 带 `user:<sha256(owner)>:` 前缀），键 `story2video.lastOptions.v1`；渲染层已有 `storeGetSetting/storeSetSetting` 封装，无需新增 IPC。
+- **保存/恢复**：s2vConfig + s2vOutputConfig 快照；1s 防抖 watch 自动保存 + 启动流水线立即保存 + beforeUnmount flush；进入页面 provider 加载完成后恢复（`restoreS2VLastOptions`），类型守卫合并，已禁用 provider 的 voice/image 不回填，恢复后重拉语音目录校正音色。
+- **重置**：`resetS2VLastOptions` 用组件初始 data() 工厂函数取初始默认，重置后清空已存快照；启动按钮旁新增「恢复默认选项」链接。
+- **踩坑**：vitest `beforeEach` 只 `clearAllMocks` 不清实现，restore 用例的 `storeGetSetting.mockResolvedValue` 会泄漏到下个用例导致恢复竞态，用例间需 `mockReset()` 或显式 `mockResolvedValue(null)`；mounted 里异步 restore 与用例手动操作可能交错。

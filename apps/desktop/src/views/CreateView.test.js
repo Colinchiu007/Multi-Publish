@@ -25,6 +25,8 @@ vi.mock("@/api/publisher", () => ({
   pipelineStartOrchestrated: vi.fn(),
   pipelineAdvanceToNextCheckpoint: vi.fn(),
   pipelineGetRunContext: vi.fn(),
+  storeGetSetting: vi.fn(),
+  storeSetSetting: vi.fn(),
   story2videoImportMedia: vi.fn(),
   story2videoTranscribe: vi.fn(),
   story2videoListProjects: vi.fn().mockResolvedValue({ code: 0, data: [] }),
@@ -239,6 +241,53 @@ describe("CreateView", () => {
     expect(w.text()).toContain("旁白 1/2");
     expect(w.text()).toContain("已用时");
     expect(w.find('[data-testid="story2video-stage-detail-generate_assets"]').text()).toContain("图片 0/2");
+    w.unmount();
+  });
+
+  it("恢复上次保存的图片轮播选项（跳过已禁用 provider）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({
+      code: 0,
+      data: {
+        version: 1,
+        s2vConfig: { imageStyle: "anime", voiceSpeed: 1.5, voiceProvider: "disabled-provider", splitLanguage: "en" },
+        s2vOutputConfig: { resolution: "1920x1080", fps: 60 },
+      },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vVoiceProviders = [{ id: "minimax-tts" }, { id: "edge-tts" }];
+    w.vm.s2vImageProviders = [{ id: "minimax-image" }];
+    await w.vm.restoreS2VLastOptions();
+    expect(w.vm.s2vConfig.imageStyle).toBe("anime");
+    expect(w.vm.s2vConfig.voiceSpeed).toBe(1.5);
+    expect(w.vm.s2vConfig.splitLanguage).toBe("en");
+    expect(w.vm.s2vConfig.voiceProvider).not.toBe("disabled-provider");
+    expect(w.vm.s2vOutputConfig.fps).toBe(60);
+    // 恢复 mock 实现，避免泄漏到后续用例（beforeEach 的 clearAllMocks 不重置实现）
+    mocks.storeGetSetting.mockReset();
+    w.unmount();
+  });
+
+  it("保存并重置图片轮播选项设置", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.storeGetSetting.mockResolvedValue(null);
+    mocks.storeSetSetting.mockResolvedValue({ code: 0 });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vConfig.imageStyle = "cyberpunk";
+    await w.vm.saveS2VLastOptions();
+    expect(mocks.storeSetSetting).toHaveBeenCalledWith("story2video.lastOptions.v1", expect.objectContaining({
+      version: 1,
+      s2vConfig: expect.objectContaining({ imageStyle: "cyberpunk" }),
+    }));
+    await w.vm.resetS2VLastOptions();
+    expect(w.vm.s2vConfig.imageStyle).toBe("cinematic");
+    expect(mocks.storeSetSetting).toHaveBeenCalledWith("story2video.lastOptions.v1", null);
     w.unmount();
   });
 

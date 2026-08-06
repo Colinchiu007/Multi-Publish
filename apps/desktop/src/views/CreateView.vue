@@ -609,6 +609,9 @@
             <UiButton class="btn-start" data-testid="start-story2video" @click="startPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
             </UiButton>
+            <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="reset-options-link" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
+              {{ translateWithLocaleFallback('create.story2video.resetOptions', '恢复默认选项', 'Reset to default options') }}
+            </button>
             <p v-if="!pipelineAvailable(selectedPipeline?.name)" class="unavailable-hint" data-testid="pipeline-unavailable-hint">
               {{ translateWithLocaleFallback('pipelines.availability.notImplementedHint', '该流水线尚未实现执行引擎，暂不能生成视频', 'This pipeline has no execution engine yet.') }}
             </p>
@@ -767,6 +770,7 @@ import {
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
   pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineGetRunContext,
+  storeGetSetting, storeSetSetting,
   story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
   story2videoDeleteProject
 } from '@/api/publisher'
@@ -937,6 +941,7 @@ export default {
       story2videoResuming: false,
       story2videoRunMeta: null,
       stageClockTick: 0,
+      s2vRestoring: false,
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
@@ -1107,6 +1112,11 @@ export default {
       return false
     },
   },
+  watch: {
+    // 选项变更 1s 防抖自动保存，下次进入恢复上次选项
+    s2vConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
+    s2vOutputConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
+  },
   methods: {
     translateWithLocaleFallback(key, zhFallback, enFallback) {
       const translated = typeof this.$t === 'function' ? this.$t(key) : key
@@ -1253,6 +1263,7 @@ export default {
         const outcome = res?.data
         if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId
+          this.saveS2VLastOptions()
           if (this.applyOrchestrationOutcome(outcome)) return
           await this.updateOrchestrationStatus()
           if (this.orchestrationRunId && !this.pollTimer) {
@@ -1282,6 +1293,7 @@ export default {
         const outcome = res?.data
         if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId
+          this.saveS2VLastOptions()
           if (this.applyOrchestrationOutcome(outcome)) return
           await this.updateOrchestrationStatus()
           if (this.orchestrationRunId && !this.pollTimer) {
@@ -1291,6 +1303,80 @@ export default {
       } catch (_) {
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
+    },
+    // ---- 选项设置持久化：图片轮播上次使用的选项（owner-scoped SQLite）----
+    buildS2VLastOptions() {
+      return {
+        version: 1,
+        s2vConfig: this.cloneForIpc(this.s2vConfig),
+        s2vOutputConfig: this.cloneForIpc(this.s2vOutputConfig),
+        savedAt: new Date().toISOString(),
+      }
+    },
+    async saveS2VLastOptions() {
+      if (!this.isOrchestratedPipeline(this.selectedPipeline?.name) || this.s2vRestoring) return
+      try {
+        await storeSetSetting('story2video.lastOptions.v1', this.buildS2VLastOptions())
+      } catch (_) { /* 持久化失败不影响使用 */ }
+    },
+    scheduleS2VLastOptionsSave() {
+      if (this._lastOptionsSaveTimer) clearTimeout(this._lastOptionsSaveTimer)
+      this._lastOptionsSaveTimer = setTimeout(() => { this._lastOptionsSaveTimer = null; this.saveS2VLastOptions() }, 1000)
+    },
+    flushS2VLastOptionsSave() {
+      if (this._lastOptionsSaveTimer) { clearTimeout(this._lastOptionsSaveTimer); this._lastOptionsSaveTimer = null }
+      this.saveS2VLastOptions()
+    },
+    _applyS2VSnapshot(source, target) {
+      if (!source || typeof source !== 'object' || Array.isArray(source)) return
+      for (const key of Object.keys(target)) {
+        const value = source[key]
+        if (value === undefined || value === null) continue
+        const defaultType = typeof target[key]
+        if (Array.isArray(target[key])) {
+          if (Array.isArray(value)) target[key] = JSON.parse(JSON.stringify(value))
+          continue
+        }
+        if (defaultType === 'object') {
+          if (value && typeof value === 'object' && !Array.isArray(value)) target[key] = JSON.parse(JSON.stringify(value))
+          continue
+        }
+        if (typeof value === defaultType) target[key] = value
+      }
+    },
+    async restoreS2VLastOptions() {
+      if (!this.isOrchestratedPipeline(this.selectedPipeline?.name)) return
+      let raw
+      try { raw = await storeGetSetting('story2video.lastOptions.v1') } catch { return }
+      const snapshot = raw && typeof raw === 'object' ? (raw.data ?? raw) : raw
+      if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return
+      this.s2vRestoring = true
+      try {
+        const voiceProviders = new Set((this.s2vVoiceProviders || []).map(p => p.id))
+        const imageProviders = new Set((this.s2vImageProviders || []).map(p => p.id))
+        const config = { ...(snapshot.s2vConfig || {}) }
+        // 已不启用的 provider 不回填，避免恢复到无效模型
+        if (config.voiceProvider && !voiceProviders.has(config.voiceProvider)) {
+          delete config.voiceProvider; delete config.voiceModel; delete config.voiceId
+        }
+        this._applyS2VSnapshot(config, this.s2vConfig)
+        if (this.s2vConfig.imageProvider && !imageProviders.has(this.s2vConfig.imageProvider)) {
+          this.s2vConfig.imageProvider = this.s2vImageProviders[0]?.id || ''
+          this.s2vConfig.imageModel = ''
+        }
+        this._applyS2VSnapshot(snapshot.s2vOutputConfig, this.s2vOutputConfig)
+        await this.loadS2VVoiceData()
+      } finally { this.s2vRestoring = false }
+    },
+    async resetS2VLastOptions() {
+      const defaults = (this.$options.data || (() => ({}))).call(this)
+      this.s2vRestoring = true
+      try {
+        this.s2vConfig = JSON.parse(JSON.stringify(defaults.s2vConfig || {}))
+        this.s2vOutputConfig = JSON.parse(JSON.stringify(defaults.s2vOutputConfig || {}))
+        await this.loadS2VVoiceData()
+        try { await storeSetSetting('story2video.lastOptions.v1', null) } catch { /* 清理失败可忽略 */ }
+      } finally { this.s2vRestoring = false }
     },
     async startOrchestratedPipeline() {
       if (this.selectedPipeline.name !== 'story2video-compose' && this.isAutoPipeline(this.selectedPipeline.name)) {
@@ -1399,6 +1485,7 @@ export default {
         const outcome = res?.data
         if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId
+          this.saveS2VLastOptions()
           if (this.applyOrchestrationOutcome(outcome)) return
           await this.updateOrchestrationStatus()
           if (this.orchestrationRunId && !this.pollTimer) {
@@ -2356,6 +2443,7 @@ export default {
     this.startStageClock()
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
     this.resumeRunningOrchestration()
+    this.restoreS2VLastOptions()
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
@@ -2366,6 +2454,7 @@ export default {
     this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
     if (this.pollTimer) clearInterval(this.pollTimer)
     if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
+    this.flushS2VLastOptionsSave()
   },
 }
 </script>
@@ -2457,6 +2546,8 @@ export default {
 .orchestration-progress .progress-bar { flex: 1; width: auto; }
 .elapsed-text { font-size: 12px; color: var(--text-muted, #888); white-space: nowrap; }
 .orchestration-summary { margin-bottom: 10px; padding: 8px 12px; background: #f0fdf4; color: #166534; border-radius: 6px; font-size: 13px; font-weight: 600; }
+.reset-options-link { margin-left: 12px; border: none; background: none; color: var(--text-muted, #888); font-size: 12px; cursor: pointer; text-decoration: underline; }
+.reset-options-link:hover { color: #1d4ed8; }
 .orchestration-attention { margin: 0; color: #c2410c; font-size: 13px; }
 
 /* 输入区域 */
