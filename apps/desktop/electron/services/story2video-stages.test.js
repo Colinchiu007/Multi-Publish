@@ -127,29 +127,31 @@ describe('story2video 资源索引契约', () => {
   })
 
   it('逐场景提示词优化并行执行（有界并发，避免长文案串行拖慢）', async () => {
-    const delayMs = 50
+    // 用并发计数断言（确定性），不依赖墙钟：并发执行时活跃调用数应 ≥2
+    let active = 0
+    let maxActive = 0
     const aiGenerator = {
       _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
       generateWithDefault: vi.fn(async () => {
-        await new Promise(resolve => setTimeout(resolve, delayMs))
+        active += 1
+        maxActive = Math.max(maxActive, active)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        active -= 1
         return { content: '优化结果', model: 'gpt-4.1-mini' }
       }),
     }
     const fn = makePipeline(null, aiGenerator).optimizeExecutor
     const scenes = Array.from({ length: 6 }, (_, i) => ({ text: '场景' + i, imagePromptSeed: '画面' + i }))
-    const started = Date.now()
     const result = await fn({
       stage: { options: {} },
       params: {},
       context: { domain_enrich: { scenes } },
       serviceBus: { optimizePromptsBatch: vi.fn() },
     })
-    const elapsed = Date.now() - started
     expect(result.success).toBe(true)
     expect(result.output).toHaveLength(6)
     expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(6)
-    // 串行 6×50ms≈300ms；并发 3 应显著更快
-    expect(elapsed).toBeLessThan(250)
+    expect(maxActive).toBeGreaterThanOrEqual(2)
   })
 
   it('默认 LLM 缺失、空响应或中途失败时优化阶段 fail closed', async () => {
