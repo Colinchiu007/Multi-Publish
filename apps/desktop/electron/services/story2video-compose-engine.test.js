@@ -20,6 +20,8 @@ const {
   buildWatermarkFilter,
   buildScaleFilter,
   parseResolution,
+  resolveCjkFont,
+  escapeFontFilePath,
 } = require('./story2video-compose-engine')
 
 function writeFixture (root, name, content = 'media') {
@@ -187,6 +189,13 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 180)).toContain(':d=180:')
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).not.toContain(':d=1:')
     expect(buildSubtitleFilter('字幕', { size: 'lg', style: 'style2' })).toContain('box=1')
+    // 回归：中文 drawtext 必须显式指定 CJK fontfile，否则 Windows 静态 ffmpeg 渲染成豆腐块
+    const subtitleFilter = buildSubtitleFilter('中文字幕测试', { size: 'md' })
+    expect(subtitleFilter).toContain("fontfile='C\\:/Windows/Fonts/msyh.ttc'")
+    expect(escapeFontFilePath('C:\\Windows\\Fonts\\msyh.ttc')).toBe('C\\:/Windows/Fonts/msyh.ttc')
+    if (process.platform === 'win32') {
+      expect(resolveCjkFont()).toBeTruthy()
+    }
     expect(buildWatermarkFilter({
       watermark: { enabled: true, text: '品牌', position: 'top-left', opacity: 0.5 },
     })).toContain('x=20:y=40')
