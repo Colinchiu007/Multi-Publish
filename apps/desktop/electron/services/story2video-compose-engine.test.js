@@ -631,3 +631,81 @@ describe('Story2Video 六档字幕字号', () => {
     expect(filter).toContain(':fontsize=' + fontSize + ':')
   })
 })
+
+
+describe('_concatSegments 分块合成（25+ 场景防单命令输入过多）', () => {
+  let tmp
+  let engine
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'compose-chunk-test-'))
+    engine = new Story2VideoComposeEngine({ outputDir: tmp, log: { info() {}, warn() {}, error() {} } })
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  function makeSegments (count) {
+    const segments = []
+    for (let i = 0; i < count; i++) {
+      const filePath = path.join(tmp, 'seg_' + String(i).padStart(4, '0') + '.mp4')
+      fs.writeFileSync(filePath, 'seg' + i)
+      segments.push(filePath)
+    }
+    return segments
+  }
+
+  it('27 段转场合成：分块 ≤8 输入，递归合并后输出文件存在', async () => {
+    const segments = makeSegments(27)
+    const durations = segments.map((_, i) => 6 + (i % 3))
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    const plainConcat = vi.fn(async (_segs, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+    engine._plainConcat = plainConcat
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'fade', transitionDuration: 0.4, segmentDurations: durations })
+
+    expect(fs.existsSync(output)).toBe(true)
+    // 27 段 → 4 块（8/8/8/3）+ 4 个中间文件再合并 1 次 = 5 次 xfadeMerge
+    expect(xfadeMerge.mock.calls.length).toBe(5)
+    for (const call of xfadeMerge.mock.calls) {
+      expect(call[0].length).toBeLessThanOrEqual(8)
+    }
+    // 每块调用输入数：8,8,8,3,4（最后是 4 个中间文件合并）
+    expect(xfadeMerge.mock.calls.map(c => c[0].length)).toEqual([8, 8, 8, 3, 4])
+    expect(plainConcat).not.toHaveBeenCalled()
+    // 4 个 level0 块 + 1 个 level1 合并中间文件
+    const chunks = fs.readdirSync(tmp).filter(n => n.startsWith('merge_l'))
+    expect(chunks.length).toBe(5)
+  })
+
+  it('≤8 段保持单命令合成，不产生中间块', async () => {
+    const segments = makeSegments(6)
+    const durations = [6, 6, 6, 6, 6, 6]
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'fade', transitionDuration: 0.4, segmentDurations: durations })
+
+    expect(xfadeMerge.mock.calls.length).toBe(1)
+    expect(xfadeMerge.mock.calls[0][0].length).toBe(6)
+    expect(fs.readdirSync(tmp).filter(n => n.startsWith('merge_l')).length).toBe(0)
+  })
+
+  it('时长未知时回退无损 concat（不构建转场图）', async () => {
+    const segments = makeSegments(3)
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    const plainConcat = vi.fn(async (_segs, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+    engine._plainConcat = plainConcat
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'fade' })
+
+    expect(plainConcat).toHaveBeenCalledTimes(1)
+    expect(xfadeMerge).not.toHaveBeenCalled()
+  })
+})

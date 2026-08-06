@@ -36,6 +36,9 @@ const DEFAULT_MAX_DURATION_SECONDS = 10 * 60
 const DEFAULT_MAX_AUDIO_DURATION_SECONDS = 15 * 60
 const DEFAULT_MAX_SEGMENT_DURATION_SECONDS = 3 * 60
 const DEFAULT_MAX_OUTPUT_PIXELS = 7680 * 4320
+// 单条 ffmpeg 命令最多输入的片段数。超过时按块合成再递归合并，
+// 避免 25+ 场景（27 路 xfade/acrossfade）在低内存环境触发 x264 malloc 失败。
+const MAX_XFADE_INPUTS = 8
 
 const FFMPEG = findFfmpeg()
 const FFPROBE = findFfprobe()
@@ -914,7 +917,7 @@ class Story2VideoComposeEngine {
   }
 
   /**
-   * 拼接视频片段
+   * 拼接视频片段（分段合成，避免超长流水线单命令输入过多）。
    * @private
    */
   async _concatSegments (segments, outputPath, sessionDir, options) {
@@ -923,43 +926,61 @@ class Story2VideoComposeEngine {
     if (transitionName && segments.length > 1) {
       const durations = Array.isArray(options?.segmentDurations) ? options.segmentDurations : []
       const plan = buildTransitionPlan(durations, options?.transitionDuration)
-      if (!plan.enabled) {
-        this.log.warn('Story2VideoCompose', 'Segment durations are too short or unknown; falling back to concat without transition')
-      } else {
-      const inputArgs = []
-      for (const segment of segments) inputArgs.push('-i', segment)
+      if (plan.enabled) {
+        if (segments.length > MAX_XFADE_INPUTS) {
+          await this._concatSegmentsChunked(segments, durations, outputPath, sessionDir, {
+            transitionName,
+            transitionDuration: options?.transitionDuration,
+          }, 0)
+        } else {
+          await this._xfadeMerge(segments, plan, outputPath)
+        }
+        return
+      }
+      this.log.warn('Story2VideoCompose', 'Segment durations are too short or unknown; falling back to concat without transition')
+    }
+    await this._plainConcat(segments, outputPath, sessionDir)
+  }
 
-      const filterParts = []
-      let currentVideo = '[0:v]'
-      for (let index = 1; index < segments.length; index++) {
-        const transitionStep = plan.transitions[index - 1]
-        const nextVideo = '[v' + index + ']'
-        filterParts.push(currentVideo + '[' + index + ':v]xfade=transition=' + transitionName +
-          ':duration=' + transitionStep.duration.toFixed(3) + ':offset=' + transitionStep.offset.toFixed(3) + nextVideo)
-        currentVideo = nextVideo
-      }
+  /**
+   * 单条 ffmpeg 命令：对一组片段构建 xfade/acrossfade 图并输出。
+   * @private
+   */
+  async _xfadeMerge (segments, plan, outputPath) {
+    const transitionName = plan.transitionName
+    const inputArgs = []
+    for (const segment of segments) inputArgs.push('-i', segment)
 
-      let currentAudio = '[0:a]'
-      for (let index = 1; index < segments.length; index++) {
-        const transitionStep = plan.transitions[index - 1]
-        const nextAudio = '[a' + index + ']'
-        filterParts.push(currentAudio + '[' + index + ':a]acrossfade=d=' +
-          transitionStep.duration.toFixed(3) + ':c1=tri:c2=tri' + nextAudio)
-        currentAudio = nextAudio
-      }
-      filterParts.push(currentAudio + 'anull[aout]')
-      const args = ['-y', ...inputArgs, '-filter_complex', filterParts.join(';'),
-        '-map', currentVideo, '-map', '[aout]',
-        '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]
-      const { stderr } = await execFileAsync(FFMPEG, args, { timeout: 120000, maxBuffer: 2 * 1024 * 1024 })
-      if (!hasUsableFile(outputPath)) {
-        throw new Error('ffmpeg xfade did not produce output: ' + (stderr || '').slice(-200))
-      }
-      return
-      }
+    const filterParts = []
+    let currentVideo = '[0:v]'
+    for (let index = 1; index < segments.length; index++) {
+      const transitionStep = plan.transitions[index - 1]
+      const nextVideo = '[v' + index + ']'
+      filterParts.push(currentVideo + '[' + index + ':v]xfade=transition=' + transitionName +
+        ':duration=' + transitionStep.duration.toFixed(3) + ':offset=' + transitionStep.offset.toFixed(3) + nextVideo)
+      currentVideo = nextVideo
     }
 
-    // 使用 concat demuxer
+    let currentAudio = '[0:a]'
+    for (let index = 1; index < segments.length; index++) {
+      const transitionStep = plan.transitions[index - 1]
+      const nextAudio = '[a' + index + ']'
+      filterParts.push(currentAudio + '[' + index + ':a]acrossfade=d=' +
+        transitionStep.duration.toFixed(3) + ':c1=tri:c2=tri' + nextAudio)
+      currentAudio = nextAudio
+    }
+    filterParts.push(currentAudio + 'anull[aout]')
+    const args = ['-y', ...inputArgs, '-filter_complex', filterParts.join(';'),
+      '-map', currentVideo, '-map', '[aout]',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]
+    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: 120000, maxBuffer: 2 * 1024 * 1024 })
+    if (!hasUsableFile(outputPath)) {
+      throw new Error('ffmpeg xfade did not produce output: ' + (stderr || '').slice(-200))
+    }
+  }
+
+  /** 使用 concat demuxer 无损拼接（无转场）。@private */
+  async _plainConcat (segments, outputPath, sessionDir) {
     const listFile = path.join(sessionDir, 'concat_list.txt')
     const listContent = segments.map(s => "file '" + s.replace(/\\/g, '/').replace(/'/g, "'\\''") + "'").join('\n')
     fs.writeFileSync(listFile, listContent, 'utf-8')
@@ -975,6 +996,40 @@ class Story2VideoComposeEngine {
     if (!hasUsableFile(outputPath)) {
       throw new Error('ffmpeg concat did not produce output: ' + (stderr || '').slice(-200))
     }
+  }
+
+  /**
+   * 分块合成：把超长片段列表切成 ≤ MAX_XFADE_INPUTS 的块，块内 xfade 合成中间文件，
+   * 再递归合并中间文件（块间同样带转场）。避免单条 ffmpeg 命令输入路数过多。
+   * @private
+   */
+  async _concatSegmentsChunked (segments, durations, outputPath, sessionDir, options, level) {
+    const chunkSize = MAX_XFADE_INPUTS
+    const currentLevel = Number.isInteger(level) ? level : 0
+    const intermediatePaths = []
+    const chunkDurations = []
+    for (let offset = 0; offset < segments.length; offset += chunkSize) {
+      const part = segments.slice(offset, offset + chunkSize)
+      const partDurations = Array.isArray(durations) ? durations.slice(offset, offset + chunkSize) : []
+      const plan = buildTransitionPlan(partDurations, options?.transitionDuration)
+      // 中间文件名带递归层级，避免与输入（上一层的中间文件）同名冲突
+      const intermediate = path.join(sessionDir, 'merge_l' + currentLevel + '_chunk_' + String(intermediatePaths.length).padStart(3, '0') + '.mp4')
+      if (part.length > 1 && plan.enabled) {
+        await this._xfadeMerge(part, { ...plan, transitionName: options.transitionName }, intermediate)
+        chunkDurations.push(plan.totalDuration)
+      } else {
+        // 块内无法使用转场（时长未知/过短）→ 无损拼接该块
+        await this._plainConcat(part, intermediate, sessionDir)
+        chunkDurations.push(null)
+      }
+      intermediatePaths.push(intermediate)
+    }
+
+    if (intermediatePaths.length === 1) {
+      fs.copyFileSync(intermediatePaths[0], outputPath)
+      return
+    }
+    await this._concatSegmentsChunked(intermediatePaths, chunkDurations, outputPath, sessionDir, options, currentLevel + 1)
   }
 
   /** 将所有旁白解码后顺序拼接，避免旧实现只保留第一段音频。 */
