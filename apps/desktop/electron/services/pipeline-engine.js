@@ -569,6 +569,7 @@ class PipelineEngine {
     this.log = deps.log || require('./logger');
     this.aiGenerator = deps.aiGenerator || null;
     this.story2videoProjectService = deps.story2videoProjectService || null;
+    this.runStateStore = deps.runStateStore || null;
 
     // 自动构造 StageExecutor（仅在 serviceBus 可用时）
     if (deps.stageExecutor) {
@@ -952,6 +953,92 @@ class PipelineEngine {
   }
 
   /**
+   * 从失败断点恢复编排流水线（断点续跑）。
+   * 数据源：本次会话内存 history，或 RunStateStore 持久化快照（跨应用重启仍可恢复）。
+   * 恢复后从失败阶段重新执行；前序阶段输出（context）与已完成的资源直接复用。
+   * 内容政策失败（needs_user_input）不允许恢复，必须修改文案后重新启动。
+   * @param {string} runId
+   * @returns {Promise<{success: boolean, runId?: string, error?: string, errorCode?: string}>}
+   */
+  async resumeOrchestration(runId) {
+    if (typeof runId !== 'string' || !runId.trim()) {
+      return { success: false, error: '缺少或非法 runId' };
+    }
+    const historyRun = this._history.find((item) => item.id === runId);
+    let snapshot = historyRun || null;
+    if (!snapshot && this.runStateStore) {
+      try { snapshot = await this.runStateStore.load(runId); } catch (_) { snapshot = null; }
+    }
+    if (!snapshot) return { success: false, error: '未找到可恢复的运行快照', errorCode: 'RUN_SNAPSHOT_NOT_FOUND' };
+    if (snapshot.status !== 'failed' || !snapshot.error) {
+      return { success: false, error: '只有失败状态的运行可以恢复', errorCode: 'RUN_NOT_FAILED' };
+    }
+    if ((snapshot.orchestrationMode || 'state_machine') !== 'orchestrator') {
+      return { success: false, error: '该运行不支持断点恢复', errorCode: 'RUN_NOT_ORCHESTRATOR' };
+    }
+    if (/needs_user_input|content[_\s-]?policy|CONTENT_POLICY/i.test(String(snapshot.error || ''))) {
+      return { success: false, error: '该失败需要人工处理（内容政策），请修改文案后重新启动', errorCode: 'PIPELINE_USER_INPUT_REQUIRED' };
+    }
+    const failedStageIndex = (Number.isInteger(snapshot.currentStage) && snapshot.currentStage >= 0)
+      ? snapshot.currentStage
+      : (Array.isArray(snapshot.stages) ? snapshot.stages.findIndex((s) => s.status === 'failed') : -1);
+    if (failedStageIndex < 0) {
+      return { success: false, error: '未定位到失败阶段', errorCode: 'STAGE_NOT_FOUND' };
+    }
+
+    const pl = this.getPipeline(snapshot.pipeline);
+    const stages = (Array.isArray(snapshot.stages) && snapshot.stages.length > 0)
+      ? snapshot.stages
+      : ((pl && Array.isArray(pl.stages)) ? pl.stages.map((name) => ({ name })) : []);
+    if (stages.length === 0) return { success: false, error: '失败快照缺少阶段定义', errorCode: 'STAGE_NOT_FOUND' };
+
+    // 内存 history 条目使用 id，RunStateStore 快照使用 runId
+    const runIdentifier = String(snapshot.runId || snapshot.id || '')
+    if (!runIdentifier) return { success: false, error: '失败快照缺少 runId', errorCode: 'RUN_SNAPSHOT_NOT_FOUND' }
+
+    const now = new Date().toISOString();
+    const restored = {
+      id: runIdentifier,
+      pipeline: snapshot.pipeline,
+      status: 'running',
+      currentStage: failedStageIndex,
+      stages: stages.map((s, i) => {
+        const base = { ...s };
+        delete base.error;
+        if (i < failedStageIndex) {
+          return { ...base, status: 'completed', startedAt: base.startedAt || now, completedAt: base.completedAt || now };
+        }
+        if (i === failedStageIndex) {
+          return { ...base, status: 'running', startedAt: now, completedAt: null };
+        }
+        return { ...base, status: 'pending', startedAt: null, completedAt: null };
+      }),
+      params: snapshot.params || {},
+      progress: 0,
+      checkpoint: null,
+      createdAt: snapshot.createdAt || now,
+      endedAt: null,
+      orchestrationMode: 'orchestrator',
+      context: JSON.parse(JSON.stringify(snapshot.context || {})),
+      stageResults: [],
+      resumedFrom: runId,
+      error: null,
+    };
+    this._runs.set(restored.id, restored);
+    this._runs.set('_' + restored.pipeline, restored);
+    this._currentPipeline = restored.pipeline;
+    if (this.runStateStore) {
+      try { this.runStateStore.remove(runId); } catch (_) { /* 快照清理失败不影响恢复 */ }
+    }
+
+    const promise = this._autoAdvanceRun(restored.id);
+    promise.catch((err) => {
+      this.log.warn('PipelineEngine', 'background resume autoAdvance failed: ' + (err && err.message ? err.message : String(err)));
+    });
+    return { success: true, runId: restored.id };
+  }
+
+  /**
    * 执行当前阶段（编排模式）
    * @param {string} runId
    * @returns {Promise<{success: boolean, output?: any, error?: string, checkpoint?: boolean}>}
@@ -1139,6 +1226,14 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
+    // 编排模式失败：持久化断点快照，供 pipeline:resumeOrchestration 从失败阶段继续。
+    if (status === 'failed' && run.orchestrationMode === 'orchestrator' && this.runStateStore) {
+      try {
+        this.runStateStore.saveFailed(run);
+      } catch (saveError) {
+        this.log.warn('PipelineEngine', 'run-state snapshot save failed: ' + (saveError && saveError.message ? saveError.message : String(saveError)));
+      }
+    }
     if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);

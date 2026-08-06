@@ -123,6 +123,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     pipelineFetch: (name) => ipcRenderer.invoke('pipeline:fetch', name),
     // 编排模式 API（story2video-compose）
     pipelineStartOrchestrated: (name, params) => ipcRenderer.invoke('pipeline:startOrchestrated', name, params),
+    pipelineResumeOrchestration: (runId) => ipcRenderer.invoke('pipeline:resumeOrchestration', runId),
     pipelineExecuteStage: (runId) => ipcRenderer.invoke('pipeline:executeStage', runId),
     pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer.invoke('pipeline:advanceToNextCheckpoint', runId),
     pipelineGetRunContext: (runId) => ipcRenderer.invoke('pipeline:getRunContext', runId),

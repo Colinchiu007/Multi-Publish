@@ -51,6 +51,8 @@ const PromptBridge = require('../services/prompt-bridge');
 const ServiceBus = require('../services/service-bus');
 const PluginRegistry = require('../services/plugin-registry');
 const { registerStory2VideoStages } = require('../services/story2video-stages');
+const { ApiUsageGovernor } = require('../services/api-usage-governor');
+const { RunStateStore } = require('../services/run-state-store');
 const { registerExplainerStages } = require('../services/explainer-stages');
 const { registerClipFactoryStages } = require('../services/clipfactory-stages');
 const { registerCinematicStages } = require('../services/cinematic-stages');
@@ -73,6 +75,8 @@ function createContainer(options) {
   container.register("renderEngine", function() { return new RenderEngine(); });
   container.register("compositionManager", function() { return new CompositionManager(); });
   container.register("aiGenerator", function() { return new AIGenerator(); });
+  container.register("apiUsageGovernor", function(c) { return new ApiUsageGovernor({ log: c.get("logger") }); });
+  container.register("runStateStore", function(c) { return new RunStateStore({ log: c.get("logger") }); });
   container.register("videoEngine", function() { return new VideoEngine(); });
   // PipelineEngine 注入 serviceBus + container（用于编排模式）
   // 注意：需要懒加载 serviceBus（避免循环依赖），通过工厂函数延迟到首次 get 时解析
@@ -83,6 +87,7 @@ function createContainer(options) {
       log: c.get("logger"),
       aiGenerator: c.get("aiGenerator"),
       story2videoProjectService: c.get("story2videoProjectService"),
+      runStateStore: c.get("runStateStore"),
     });
     // 注册 story2video-compose 流水线的自定义阶段执行器
     if (engine.stageExecutor) {

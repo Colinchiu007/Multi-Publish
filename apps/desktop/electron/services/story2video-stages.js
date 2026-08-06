@@ -347,9 +347,12 @@ function registerStory2VideoStages(pipelineEngine) {
       // 调用导致「提示词优化」阶段耗时数分钟。
       const concurrency = normalizeAssetConcurrency(stage.options?.concurrency ?? 3)
       const maxAttempts = Math.max(1, Math.min(3, Number(stage.options?.maxRetries ?? 2) + 1))
+      // 断点续传：上次失败时已完成的场景结果直接复用，避免重复消耗 LLM 额度。
+      const partialResume = (context && Array.isArray(context.optimize_resume)) ? context.optimize_resume : []
       let output
       try {
         output = await _mapWithConcurrency(scenes, concurrency, async (scene, index) => {
+          if (partialResume[index]) return partialResume[index]
           const promptSeed = getScenePromptSeed(scene)
           if (!promptSeed) {
             throw new Error('Story2Video optimize scene ' + index + ' is missing a prompt seed')
@@ -374,19 +377,26 @@ function registerStory2VideoStages(pipelineEngine) {
           if (!optimizedPrompt) {
             throw new Error('Story2Video optimize scene ' + index + ' returned an empty prompt')
           }
-          return {
+          const entry = {
             optimized_prompt: optimizedPrompt,
             providerId: defaultLlm.providerId,
             model: typeof result.model === 'string' && result.model.trim()
               ? result.model.trim()
               : defaultLlm.model,
           }
+          // 逐场景写入部分结果，失败时可断点续传（context 与 run.context 同引用）
+          partialResume[index] = entry
+          if (context && typeof context === 'object') context.optimize_resume = partialResume
+          return entry
         })
       } catch (error) {
         return {
           success: false,
           error: 'Story2Video optimize failed: ' + (error && error.message ? error.message : String(error)),
         }
+      }
+      if (context && typeof context === 'object' && Array.isArray(output)) {
+        delete context.optimize_resume
       }
 
       return { success: true, output };
@@ -459,6 +469,17 @@ function registerStory2VideoStages(pipelineEngine) {
         'Generating assets: ' + optimizedPrompts.length + ' images + ' +
         sentences.length + ' TTS (concurrency=' + concurrency + ')');
 
+      // 断点续传：上次失败时已完成的场景直接复用本地产物，避免重复消耗图片/TTS 额度
+      const resumeCompleted = new Map();
+      const priorResume = context && context.generate_assets && Array.isArray(context.generate_assets.resume?.completed)
+        ? context.generate_assets.resume.completed
+        : [];
+      for (const item of priorResume) {
+        if (item && Number.isInteger(item.index) && typeof item.imagePath === 'string' && typeof item.audioPath === 'string') {
+          resumeCompleted.set(item.index, item);
+        }
+      }
+
       // 并行生成图片（分批控制并发）
       // 使用 AssetGenerator（ffmpeg 占位图）替代 serviceBus.callPythonSkill
       const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator;
@@ -467,6 +488,10 @@ function registerStory2VideoStages(pipelineEngine) {
         concurrency,
         async (prompt, index) => {
           try {
+            const resumed = resumeCompleted.get(index);
+            if (resumed) {
+              return { index, success: true, path: resumed.imagePath, meta: { resumed: true } };
+            }
             const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
             if (inputMode === 'images' && inputImages[index] !== undefined) {
               const suppliedPath = resolveInputImage(inputImages[index], runId, index);
@@ -568,6 +593,10 @@ function registerStory2VideoStages(pipelineEngine) {
         concurrency,
         async (sentence, index) => {
           try {
+            const resumed = resumeCompleted.get(index);
+            if (resumed) {
+              return { index, success: true, path: resumed.audioPath, duration: resumed.duration || null, meta: { resumed: true } };
+            }
             const suppliedAudio = inputAudio[index]
             if (suppliedAudio !== undefined) {
               const suppliedPath = resolveInputAudio(suppliedAudio)
@@ -732,6 +761,20 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 默认要求每个 scene 都有成对资源；部分成片必须显式 opt-in。
       if (pairedScenes.length === 0 || (!allowPartialAssets && pairedScenes.length < maxScenes)) {
+        // 记录已完成的场景（图片+音频都有），供「从断点继续」跳过，避免重复消耗额度
+        if (context && typeof context === 'object') {
+          context.generate_assets = context.generate_assets || {};
+          context.generate_assets.resume = {
+            completed: pairedScenes.map((scene) => ({
+              index: scene.index,
+              imagePath: scene.imagePath,
+              audioPath: scene.audioPath,
+              duration: scene.duration || null,
+            })),
+            total: maxScenes,
+            savedAt: new Date().toISOString(),
+          };
+        }
         const failureDetails = [
           ...summarizeAssetFailures('Image', failedImages),
           ...summarizeAssetFailures('TTS', failedTts),
@@ -744,6 +787,9 @@ function registerStory2VideoStages(pipelineEngine) {
         };
       }
 
+      if (context && typeof context === 'object' && context.generate_assets && context.generate_assets.resume) {
+        delete context.generate_assets.resume;
+      }
       return {
         success: true,
         output: assetManifest,

@@ -704,7 +704,9 @@
       @close="closeStory2VideoErrorDialog"
     >
       <p class="story2video-error-dialog-message">{{ story2videoErrorDialogMessage }}</p>
+      <p v-if="canResumeStory2Video" class="story2video-error-dialog-hint">{{ story2videoErrorDialogUiText.resumeHint }}</p>
       <template #footer>
+        <UiButton v-if="canResumeStory2Video" variant="primary" :disabled="story2videoResuming" @click="resumeStory2Video">{{ story2videoResuming ? story2videoErrorDialogUiText.resuming : story2videoErrorDialogUiText.resume }}</UiButton>
         <UiButton @click="closeStory2VideoErrorDialog">{{ story2videoErrorDialogUiText.acknowledge }}</UiButton>
       </template>
     </UiModal>
@@ -753,7 +755,7 @@ import {
   onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress,
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
-  pipelineStartOrchestrated, pipelineAdvanceToNextCheckpoint, pipelineGetRunContext,
+  pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineGetRunContext,
   story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
   story2videoDeleteProject
 } from '@/api/publisher'
@@ -921,6 +923,7 @@ export default {
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '',
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {} },
+      story2videoResuming: false,
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
@@ -1038,6 +1041,13 @@ export default {
     },
     story2videoErrorDialogMessage() {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
+    },
+    canResumeStory2Video() {
+      if (!this.story2videoErrorDialog.visible || !this.orchestrationRunId || this.story2videoResuming) return false
+      const raw = this.story2videoErrorDialogMessage || ''
+      // 内容政策失败需要人工修改文案，不允许原样恢复
+      if (/内容政策|content\s*policy|needs_user_input|可能需要修改文案/i.test(raw)) return false
+      return true
     },
     story2videoErrorDialogUiText() {
       return getStory2VideoNotificationUiText(getStory2VideoLocale(), this.pipelineName(this.selectedPipeline?.name))
@@ -1816,6 +1826,32 @@ export default {
     },
     closeStory2VideoErrorDialog() {
       this.story2videoErrorDialog.visible = false
+    },
+    async resumeStory2Video() {
+      const runId = this.orchestrationRunId
+      if (!runId || this.story2videoResuming) return
+      this.story2videoResuming = true
+      try {
+        const res = await pipelineResumeOrchestration(runId)
+        if (res?.code === 0 && res.data?.success && res.data?.runId) {
+          this.orchestrationRunId = res.data.runId
+          this.orchestrationResultPath = null
+          this.orchestrationError = ''
+          this.closeStory2VideoErrorDialog()
+          this.pipelineRunStatus = { status: 'running', progress: 0, stages: this.orchestrationStages }
+          await this.updateOrchestrationStatus()
+          if (this.orchestrationRunId && !this.pollTimer) {
+            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          }
+        } else {
+          this.showStory2VideoErrorDialog({
+            errorCode: res?.data?.errorCode || res?.code,
+            error: res?.data?.error || res?.message || '断点恢复失败，请稍后再试。',
+          })
+        }
+      } finally {
+        this.story2videoResuming = false
+      }
     },
     requestProjectDeletion(item) {
       if (!item?.projectId) return

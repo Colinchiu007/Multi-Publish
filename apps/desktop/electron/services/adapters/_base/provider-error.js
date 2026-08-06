@@ -16,6 +16,7 @@
 const ERROR_CODES = Object.freeze({
   AUTH_FAILED: 'AUTH_FAILED',         // 401/403 认证失败
   RATE_LIMITED: 'RATE_LIMITED',       // 429 限流
+  QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',   // 402/额度不足（余额、token 套餐额度耗尽）
   TIMEOUT: 'TIMEOUT',                 // 请求超时
   NETWORK_ERROR: 'NETWORK_ERROR',     // 网络错误（DNS/连接失败）
   INVALID_CONFIG: 'INVALID_CONFIG',   // 配置无效（缺 API Key 等）
@@ -32,6 +33,7 @@ const ERROR_CODES = Object.freeze({
 const ERROR_META = {
   AUTH_FAILED:     { category: 'auth',     retryable: false },
   RATE_LIMITED:    { category: 'rate',     retryable: true },
+  QUOTA_EXCEEDED:  { category: 'quota',    retryable: false },
   TIMEOUT:         { category: 'network',  retryable: true },
   NETWORK_ERROR:   { category: 'network',  retryable: true },
   INVALID_CONFIG:  { category: 'config',   retryable: false },
@@ -123,6 +125,8 @@ function fromHttpStatus(status, message, context = {}) {
       : ERROR_CODES.NETWORK_ERROR
   } else if (statusCode === 401 || statusCode === 403) {
     code = ERROR_CODES.AUTH_FAILED
+  } else if (statusCode === 402) {
+    code = ERROR_CODES.QUOTA_EXCEEDED
   } else if (statusCode === 429) {
     code = ERROR_CODES.RATE_LIMITED
   } else if (hasStrictContentPolicySignal(errorMessage) || hasContentPolicyContextSignal(context)) {
@@ -133,4 +137,33 @@ function fromHttpStatus(status, message, context = {}) {
   return new ProviderError(code, errorMessage, { ...context, statusCode })
 }
 
-module.exports = { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal }
+const RATE_LIMIT_MESSAGE_PATTERN = /\brate[_\s-]?limit\b|too\s+many\s+requests|限流|请求频率|rate_limit/i
+const QUOTA_MESSAGE_PATTERN = /\b(?:insufficient|exhausted|exceeded|out\s+of)\b[^\n]{0,40}\b(?:quota|balance|token|credit)s?\b|(?:quota|balance|token|credit)s?[^\n]{0,40}\b(?:exceeded|insufficient|exhausted)\b|(?:余额|额度|配额|点数)[^\n]{0,20}(?:不足|不够|超过|超限|耗尽)|insufficient\s+balance|billing|payment\s+required/i
+
+/**
+ * 统一把 provider 失败归类为五类，供限流/排队/重试网关决策：
+ * - 'rate'           → 触发频率限制（429 / RATE_LIMITED），可等待冷却后重试
+ * - 'quota'          → 额度/余额/套餐配额耗尽（402 / QUOTA_EXCEEDED），不重试，需用户处理
+ * - 'transient'      → 超时/网络抖动，可短退避重试
+ * - 'content_policy' → 明确内容安全拒绝，进入改写/人工处理流程
+ * - 'other'          → 其余错误，不重试
+ */
+function classifyProviderFailure(error) {
+  if (!error || typeof error !== 'object') return 'other'
+  const message = String(error.message || error.error || error.msg || '')
+  const statusCode = Number(error.statusCode ?? error.status ?? error.context?.statusCode)
+  const code = error.code || error.context?.code
+
+  if (statusCode === 429 || code === ERROR_CODES.RATE_LIMITED) return 'rate'
+  if (statusCode === 402 || code === ERROR_CODES.QUOTA_EXCEEDED) return 'quota'
+  if (code === ERROR_CODES.TIMEOUT || code === ERROR_CODES.NETWORK_ERROR) return 'transient'
+  if (code === ERROR_CODES.CONTENT_POLICY) return 'content_policy'
+
+  if (RATE_LIMIT_MESSAGE_PATTERN.test(message)) return 'rate'
+  if (QUOTA_MESSAGE_PATTERN.test(message)) return 'quota'
+  if (/\btimed?\s*out\b|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i.test(message)) return 'transient'
+  if (hasStrictContentPolicySignal(message) || hasContentPolicyContextSignal(error.context || error)) return 'content_policy'
+  return 'other'
+}
+
+module.exports = { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal, classifyProviderFailure, RATE_LIMIT_MESSAGE_PATTERN, QUOTA_MESSAGE_PATTERN }

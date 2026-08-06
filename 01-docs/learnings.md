@@ -5613,3 +5613,10 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **回归保护**：fake timers 覆盖限流恢复/上限、非瞬时即败、TTS/图片限流重试；通知映射断言友好文案且不泄漏 request id。176 项相关测试通过。
 - **预防措施**：长文案（>10 场景）必须作为 provider 限流回归基线；所有 provider 调用统一走「限流→长退避、瞬时→短退避、非瞬时→即败」的有界重试层；错误映射必须覆盖 provider 原始限流文案并给出本地化提示。
 - **运行中退回列表/空白页真相**：非流水线逻辑 Bug——无任何「运行中自动返回列表」代码路径（`selectedPipeline` 仅卡片点击、返回按钮、resume 逻辑三处赋值）。现象 = 渲染进程重挂载/整页 reload（dev 下编辑 CreateView.vue 触发 Vite HMR 全量 reload 即复现），流水线本体在主进程继续跑。已用 `CreateView.resumeRunningOrchestration()`（挂载时探测主进程 running 的 orchestrator 并恢复选中与轮询）加固；生产环境无 HMR，此现象主要出现在 dev 调试。
+
+## API 并发控制/排队/重试 + 断点恢复实现复盘（2026-08-06）
+
+- **统一网关**：`ApiUsageGovernor` 挂在 `AIGenerator.generate()` 唯一出口，覆盖 llm/TTS/image/video/audio 全部 provider 调用；每 provider 并发信号量 + 滑动窗口 RPM + 429 冷却 + 分级重试 + 可选 token 额度窗口（5h/周）。额度错误（402/QUOTA_EXCEEDED/余额·配额文案）不重试、立即给出明确原因；限流 429 冷却退避重试并自适应下调 RPM 预算。
+- **断点恢复**：编排流水线失败时由 `RunStateStore` 原子写 `userData/run-state/<runId>.json`；`pipeline:resumeOrchestration` 从内存 history 或磁盘快照重建运行并从失败阶段继续；`optimize_resume` / `generate_assets.resume.completed` 实现场景级续传，不重复消耗额度；内容政策失败禁止原样恢复。
+- **踩坑**：内存 history 条目字段是 `id`、磁盘快照是 `runId`，恢复逻辑必须两者兼容；fake timers 下 reject 型断言要先把 `expect(promise).rejects` 挂上再推进时间，否则被判定为 unhandled rejection；RPM 下限 `max(2,…)` 使 rpm=1 的测试失真，测试需用 rpm=2 + 三个请求验证排队。
+- **CI 教训**：`electron-tests`（self-hosted linux runner）会因卡死的旧运行阻塞整个队列，需 `gh run cancel` 卡死运行并取消过期 head 的排队任务；Gate 4 的 `credential-store` 锁测试（10s 上限）在并行 runner 下偶发超时，与业务改动无关。

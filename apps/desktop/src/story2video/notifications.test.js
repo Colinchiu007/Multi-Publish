@@ -63,6 +63,25 @@ describe('Story2Video 通知模型', () => {
     expect(dialogMessage.message).toContain('（第 22 个场景）')
   })
 
+  it('识别额度耗尽错误并给出明确的本地化提示（不重试类）', () => {
+    const resolved = resolveStory2VideoNotification({
+      error: 'Insufficient balance: your token plan quota for this 5-hour window has been exhausted (scene 3)',
+    })
+    expect(resolved).toMatchObject({
+      key: STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED,
+      params: { sceneText: '（第 3 个场景）' },
+    })
+    expect(resolved.message).toContain('额度或余额已用完')
+    expect(resolved.message).toContain('第 3 个场景')
+
+    expect(resolveStory2VideoNotification({
+      error: 'Your account balance is insufficient',
+    }, { locale: 'en-US' })).toMatchObject({
+      key: STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED,
+      message: 'The model API quota or balance is exhausted. Check your provider plan, or switch models and resume from the breakpoint.',
+    })
+  })
+
   it('按 Unicode code point 计算 6000 个中文、英文和 emoji 字符', () => {
     expect(MAX_STORY2VIDEO_TEXT_CHARACTERS).toBe(6000)
     expect(countStory2VideoTextCharacters('中'.repeat(6000))).toBe(6000)

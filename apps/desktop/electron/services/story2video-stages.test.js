@@ -729,6 +729,85 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
   })
 
+  it('提示词优化断点续传：已完成场景结果直接复用，不重复调用 LLM', async () => {
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-Text-01'] })) },
+      generateWithDefault: vi.fn(async () => ({ content: '新结果', model: 'MiniMax-Text-01' })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: {
+        split: [{ text: '一' }, { text: '二' }],
+        optimize_resume: [{ optimized_prompt: '旧结果0', providerId: 'minimax', model: 'MiniMax-Text-01' }],
+      },
+      serviceBus: {},
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output).toEqual([
+      { optimized_prompt: '旧结果0', providerId: 'minimax', model: 'MiniMax-Text-01' },
+      expect.objectContaining({ optimized_prompt: '新结果' }),
+    ])
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+  })
+
+  it('资源生成断点续传：已完成场景跳过图片/TTS provider 调用', async () => {
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: `audio-${index}.mp3`, duration: 2 } })),
+    }
+    const fn = makePipeline(assetGenerator)
+    const result = await fn({
+      stage: { options: { concurrency: 2 } },
+      params: {},
+      context: {
+        split: [{ text: '一' }, { text: '二' }],
+        optimize: ['p0', 'p1'],
+        generate_assets: {
+          resume: {
+            completed: [{ index: 0, imagePath: 'C:/tmp/resume-image-0.png', audioPath: 'C:/tmp/resume-audio-0.mp3', duration: 3 }],
+          },
+        },
+      },
+      serviceBus: {},
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output.scenes).toHaveLength(2)
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: 'C:/tmp/resume-image-0.png', audioPath: 'C:/tmp/resume-audio-0.mp3' })
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
+    expect(assetGenerator.generateImage).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ index: 1 }))
+    expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(1)
+  })
+
+  it('资源生成失败时记录已完成场景供断点续传', async () => {
+    vi.useFakeTimers()
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
+      generateTTS: vi.fn(async (_text, { index }) => index === 1
+        ? { code: -1, message: 'rate limit reached' }
+        : { code: 0, data: { path: `audio-${index}.mp3`, duration: 2 } }),
+    }
+    const fn = makePipeline(assetGenerator)
+    const context = {
+      split: [{ text: '一' }, { text: '二' }],
+      optimize: ['p0', 'p1'],
+    }
+    const promise = fn({
+      stage: { options: { concurrency: 1 } },
+      params: {},
+      context,
+      serviceBus: {},
+    })
+    await vi.advanceTimersByTimeAsync(60000)
+    const result = await promise
+    expect(result).toMatchObject({ success: false })
+    expect(context.generate_assets?.resume?.completed).toEqual([
+      expect.objectContaining({ index: 0, imagePath: 'image-0.png', audioPath: 'audio-0.mp3' }),
+    ])
+    expect(context.generate_assets?.resume?.total).toBe(2)
+  })
+
   it('资源生成遇到图片限流时重试后仍失败则按原样失败（不误判为内容政策）', async () => {
     vi.useFakeTimers()
     const assetGenerator = {
