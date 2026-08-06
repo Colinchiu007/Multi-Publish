@@ -817,8 +817,18 @@ class Story2VideoComposeEngine {
     }
 
     // 字幕滤镜
-    const filters = [buildScaleFilter(opts.width, opts.height)]
-    if (imageEffect) filters.push(imageEffect)
+    // 抖动修复：zoompan 亚像素采样会造成画面跳动。先把输入上采样到 2x 工作分辨率，
+    // 在 2x 画布上执行 zoompan（s=2x 尺寸），再下采样回目标分辨率，帧间运动平滑。
+    const filters = []
+    if (imageEffect) {
+      const workWidth = clampNumber(opts.width, 160, 4096) * 2
+      const workHeight = clampNumber(opts.height, 160, 4096) * 2
+      filters.push(buildScaleFilter(workWidth, workHeight))
+      filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, totalFrames))
+      filters.push(buildScaleFilter(opts.width, opts.height))
+    } else {
+      filters.push(buildScaleFilter(opts.width, opts.height))
+    }
     const subtitleFilter = buildSubtitleFilter(
       Array.isArray(opts.subtitleTimeline) && opts.subtitleTimeline.length > 0
         ? opts.subtitleTimeline

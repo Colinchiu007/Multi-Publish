@@ -137,7 +137,8 @@ const PRESET_PROVIDERS = [
   {
     id: 'minimax-tts', name: 'MiniMax TTS', category: 'tts',
     base_url: 'https://api.minimaxi.com/v1',
-    models: ['speech-2.8-hd', 'speech-2.8-turbo', 'speech-2.6-hd', 'speech-2.6-turbo'],
+    // 需求：去掉模型 ID 输入，默认使用 speech-2.8-turbo（异步长文本 T2A Async）
+    models: ['speech-2.8-turbo'],
     is_preset: 1,
   },
 

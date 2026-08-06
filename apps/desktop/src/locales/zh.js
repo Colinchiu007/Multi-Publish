@@ -60,7 +60,7 @@ export default {
       promptStyleHint: '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
       sections: {
         basic: '基础',
-        appearance: '外观',
+        appearance: '画面',
         voice: '声音',
         advanced: '高级',
         publish: '发布',

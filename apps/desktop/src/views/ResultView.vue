@@ -153,6 +153,9 @@
 
       <div class="segment-list">
         <article v-for="(segment, index) in segments" :key="segment.id" class="segment-item">
+          <div v-if="segment.imageUrl" class="segment-thumb">
+            <img :src="segment.imageUrl" :alt="'分段 ' + (index + 1) + ' 图片'" />
+          </div>
           <div class="segment-header">
             <strong>分段 {{ index + 1 }}</strong>
             <span class="segment-status" :class="segment.status">{{ segment.status || 'completed' }}</span>
@@ -320,6 +323,16 @@ export default {
       if (!url) throw new Error(result?.message || '无法读取本地文件')
       return url
     },
+    async refreshSegmentImageUrls() {
+      await Promise.all((this.segments || []).map(async (segment) => {
+        if (!segment || !segment.imagePath) return
+        try {
+          segment.imageUrl = await this.resolveLocalUrl(segment.imagePath)
+        } catch (_) {
+          segment.imageUrl = null
+        }
+      }))
+    },
     async loadVideoPath(filePath) {
       this.loading = true
       this.videoPath = filePath || null
@@ -349,6 +362,7 @@ export default {
         this.projectId = project.projectId
         this.segments = Array.isArray(project.segments) ? project.segments.map(segment => ({ ...segment })) : []
         this.segmentsDirty = false
+        await this.refreshSegmentImageUrls()
         this.audioPath = project.audioPath || null
         this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
         this.videoPath = project.videoPath || null
@@ -710,6 +724,8 @@ export default {
 .trimmed-player { width: 100%; max-height: 360px; background: #000; border-radius: 6px; }
 .segment-list { display: grid; gap: 12px; }
 .segment-item { border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--surface); }
+.segment-thumb { margin-bottom: 12px; border-radius: 6px; overflow: hidden; background: var(--bg); max-width: 320px; }
+.segment-thumb img { display: block; width: 100%; height: auto; object-fit: cover; }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: 11px; }
 .segment-status.failed { background: #fee2e2; color: #991b1b; }

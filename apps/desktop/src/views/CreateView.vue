@@ -65,15 +65,6 @@
           </div>
         </div>
 
-        <!-- 编排模式中间结果预览 -->
-        <div v-if="orchestrationContext" class="orchestration-context">
-          <h4>中间结果</h4>
-          <div v-for="(value, key) in orchestrationContext" :key="key" class="context-item">
-            <span class="context-key">{{ humanName(String(key)) }}</span>
-            <span class="context-value">{{ typeof value === 'object' ? JSON.stringify(value).slice(0, 200) : String(value).slice(0, 200) }}</span>
-          </div>
-        </div>
-
         <!-- 输入区域 -->
         <div class="input-section">
           <h3>输入内容</h3>
@@ -326,6 +317,16 @@
                 <label>水印文字</label>
                 <input v-model.trim="s2vConfig.watermarkText" class="form-input" placeholder="可选" />
               </div>
+              <div class="config-item">
+                <label>比例与分辨率</label>
+                <select v-model="activeOutputConfig.resolution" class="form-select">
+                  <option value="720x1280">720×1280（竖屏）</option>
+                  <option value="1920x1080">1920×1080（横屏）</option>
+                  <option value="3840x2160">3840×2160（横屏）</option>
+                  <option value="1080x1920">1080×1920（竖屏）</option>
+                  <option value="1080x1440">1080×1440（竖屏）</option>
+                </select>
+              </div>
             </div>
           </details>
 
@@ -384,8 +385,8 @@
                 class="config-item config-span-2 voice-clone-panel"
               >
                 <label>音色复制 / 克隆</label>
-                <p v-if="s2vVoiceCloneRequirements" class="config-hint">
-                  支持格式：{{ s2vVoiceCloneRequirements.allowedExtensions?.join('、') || '音频' }}；最多 {{ s2vVoiceCloneRequirements.maxSampleCount }} 个文件；单文件 {{ formatS2VVoiceCloneBytes(s2vVoiceCloneRequirements.maxSampleBytes) }}，合计 {{ formatS2VVoiceCloneBytes(s2vVoiceCloneRequirements.maxTotalBytes) }}；单条 {{ formatS2VVoiceCloneDuration(s2vVoiceCloneRequirements.maxSampleDurationSeconds) }}，合计 {{ formatS2VVoiceCloneDuration(s2vVoiceCloneRequirements.maxTotalDurationSeconds) }}。
+                <p v-if="s2vVoiceCloneRequirements && s2vVoiceCloneHint" class="config-hint">
+                  {{ s2vVoiceCloneHint }}
                 </p>
                 <p v-if="s2vVoiceCloneRequirements" class="config-hint">以上为当前模型能力数据驱动的本地校验提示，具体以供应商官方 API 合同为准。</p>
                 <div class="voice-clone-actions">
@@ -504,16 +505,6 @@
                     <button type="button" class="btn-secondary" :disabled="!s2vCustomTemplateName" @click="saveCurrentS2VTemplate">保存当前参数</button>
                     <button v-if="selectedS2VTemplate?.category === 'custom'" type="button" class="btn-secondary danger" @click="requestTemplateDeletion">删除模板</button>
                   </div>
-                </div>
-                <div class="config-item">
-                  <label>输出分辨率</label>
-                  <select v-model="activeOutputConfig.resolution" class="form-select">
-                    <option value="720x1280">720×1280 (Story2Video)</option>
-                    <option value="1920x1080">1920×1080 (Full HD)</option>
-                    <option value="3840x2160">3840×2160 (4K)</option>
-                    <option value="1080x1920">1080×1920 (竖屏)</option>
-                    <option value="1080x1440">1080×1440 (小红书)</option>
-                  </select>
                 </div>
                 <div class="config-item">
                   <label>帧率</label>
@@ -920,7 +911,7 @@ export default {
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
         promptStyle: 'realistic', creativeLevel: 5, negativePrompt: '',
-        transition: 'fade', subtitleEnabled: false,
+        transition: 'fade', subtitleEnabled: true,
         subtitleSize: 'size3', subtitleStyleName: 'style1',
         subtitleStyle: { size: 'md', style: 'style1', color: 'white' },
         bgmPath: '', bgmVolume: 5, watermark: false, watermarkText: '',
@@ -1077,7 +1068,7 @@ export default {
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
     s2vSectionLabel(section) {
       const key = `create.story2video.sections.${section}`
-      const fallback = { basic: '基础', appearance: '外观', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
+      const fallback = { basic: '基础', appearance: '画面', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
       const english = { basic: 'Basics', appearance: 'Appearance', voice: 'Voice', advanced: 'Advanced', publish: 'Publish' }[section] || section
       return this.translateWithLocaleFallback(key, fallback, english)
     },
@@ -1438,9 +1429,56 @@ export default {
         maxSampleCount: toFiniteNumber(requirements.maxSampleCount),
         maxSampleBytes: toFiniteNumber(requirements.maxSampleBytes),
         maxTotalBytes: toFiniteNumber(requirements.maxTotalBytes),
+        minSampleDurationSeconds: toFiniteNumber(requirements.minSampleDurationSeconds) || 0,
         maxSampleDurationSeconds: toFiniteNumber(requirements.maxSampleDurationSeconds),
         maxTotalDurationSeconds: toFiniteNumber(requirements.maxTotalDurationSeconds),
       }
+    },
+    friendlyVoiceCatalogError(message) {
+      const raw = String(message || '')
+      const map = {
+        VOICE_CATALOG_UNSUPPORTED: ['当前语音模型暂不支持音色列表与克隆功能，已使用默认音色。', 'This voice model does not support voice lists or cloning yet. Using the default voice.'],
+        VOICE_CATALOG_UNAVAILABLE: ['暂时无法获取音色列表，已使用默认音色，请稍后重试。', 'The voice list is temporarily unavailable. Using the default voice. Please try again later.'],
+        VOICE_MODEL_MISMATCH: ['所选语音模型与配置不一致，请检查模型设置。', 'The selected voice model does not match the configuration. Check the model settings.'],
+        VOICE_PREFERENCE_STORE_UNAVAILABLE: ['音色偏好保存不可用，请检查本地存储。', 'Voice preference storage is unavailable. Check local storage.'],
+        VOICE_OWNER_UNAVAILABLE: ['登录状态不可用，请重新登录后重试。', 'Sign-in state is unavailable. Sign in again and retry.'],
+        VOICE_NOT_IN_CATALOG: ['所选音色不在当前音色列表中，请重新选择。', 'The selected voice is not in the current voice list. Select another voice.'],
+        VOICE_CLONE_SAMPLE_INVALID: ['上传的音频文件不符合要求，请按提示调整格式、时长或大小后重试。', 'The uploaded audio does not meet the requirements. Adjust format, duration, or size and retry.'],
+        VOICE_CLONE_TOTAL_SIZE_EXCEEDED: ['上传的音频总大小超出限制，请减少文件后重试。', 'The total audio size exceeds the limit. Remove files and retry.'],
+        VOICE_CLONE_TOTAL_DURATION_EXCEEDED: ['上传的音频总时长超出限制，请减少文件后重试。', 'The total audio duration exceeds the limit. Remove files and retry.'],
+        VOICE_CLONE_PROVIDER_UNAVAILABLE: ['音色克隆服务暂时不可用，请稍后重试。', 'Voice cloning is temporarily unavailable. Please try again later.'],
+        VOICE_CLONE_DUPLICATE_ID: ['该克隆音色已存在，请更换名称后重试。', 'A cloned voice with this name already exists. Use another name.'],
+        VOICE_CLONE_STORE_UNAVAILABLE: ['克隆音色本地存储不可用，请检查磁盘空间后重试。', 'Clone voice storage is unavailable. Check disk space and retry.'],
+        VOICE_CLONE_STORAGE_UNAVAILABLE: ['克隆音色本地存储不可用，请检查磁盘空间后重试。', 'Clone voice storage is unavailable. Check disk space and retry.'],
+        VOICE_CLONE_INVALID_ARGUMENTS: ['克隆音色参数不合法，请重新选择音频文件。', 'Invalid clone voice parameters. Select the audio file again.'],
+      }
+      const found = Object.entries(map).find(([key]) => raw.includes(key))
+      if (found) return this.translateWithLocaleFallback('create.story2video.voice.' + found[0], found[1][0], found[1][1])
+      // 不向用户泄露系统技术错误码
+      return this.translateWithLocaleFallback(
+        'create.story2video.voice.catalogLoadFailed',
+        '无法加载音色列表，已使用默认音色，请稍后重试。',
+        'The voice list could not be loaded. Using the default voice. Please try again later.'
+      )
+    },
+    s2vVoiceCloneHint() {
+      const r = this.s2vVoiceCloneRequirements
+      if (!r) return ''
+      const parts = []
+      if (Array.isArray(r.allowedExtensions) && r.allowedExtensions.length > 0) {
+        const extText = r.allowedExtensions.map(ext => String(ext).replace(/^\./, '')).join('、')
+        parts.push('上传的音频文件格式需为：' + extText + ' 格式')
+      }
+      if (r.minSampleDurationSeconds > 0 && r.maxSampleDurationSeconds > 0) {
+        const maxMinutes = Math.round(r.maxSampleDurationSeconds / 60)
+        parts.push('上传的音频文件的时长最少应不低于 ' + r.minSampleDurationSeconds + ' 秒，最长应不超过 ' + maxMinutes + ' 分钟')
+      } else if (r.maxSampleDurationSeconds > 0) {
+        parts.push('上传的音频文件的时长最长应不超过 ' + this.formatS2VVoiceCloneDuration(r.maxSampleDurationSeconds))
+      }
+      if (r.maxSampleBytes > 0) {
+        parts.push('上传的音频文件大小需不超过 ' + this.formatS2VVoiceCloneBytes(r.maxSampleBytes))
+      }
+      return parts.length > 0 ? parts.join('；') + '。' : ''
     },
     resetS2VVoiceData() {
       this.s2vVoiceCatalog = []
@@ -1492,7 +1530,7 @@ export default {
         : null
       this.s2vVoiceCatalogLoading = false
       if (!catalogData) {
-        this.s2vVoiceCatalogError = catalogResponse?.message || '无法加载当前模型的音色目录。'
+        this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(catalogResponse?.message)
       }
 
       const cloneEnabled = this.s2vVoiceCapability?.type === 'user_clone'
@@ -1636,7 +1674,7 @@ export default {
           return
         }
         this.s2vVoiceCloneSelection = null
-        if (result?.code !== 0) this.s2vVoiceCloneError = result?.message || '无法选择本地音频样本。'
+        if (result?.code !== 0) this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法选择本地音频样本。'
       } finally {
         if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
       }
@@ -1660,7 +1698,7 @@ export default {
         if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
         const voice = result?.code === 0 ? this.toS2VVoiceOption(result.data?.voice) : null
         if (!voice) {
-          this.s2vVoiceCloneError = result?.message || '无法添加克隆音色。'
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法添加克隆音色。'
           return
         }
         this.s2vVoiceClones = [
@@ -1688,7 +1726,7 @@ export default {
         const result = await deleteTtsVoiceClone(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId }))
         if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
         if (result?.code !== 0) {
-          this.s2vVoiceCloneError = result?.message || '无法删除克隆音色。'
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法删除克隆音色。'
           return
         }
         this.s2vVoiceClones = this.s2vVoiceClones.filter(voice => voice.id !== normalizedVoiceId)

@@ -60,7 +60,7 @@ export default {
       promptStyleHint: 'Controls how image prompts are written and organized; it does not replace image style.',
       sections: {
         basic: 'Basics',
-        appearance: 'Appearance',
+        appearance: 'Visuals',
         voice: 'Voice',
         advanced: 'Advanced',
         publish: 'Publish',
