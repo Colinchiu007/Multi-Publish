@@ -877,6 +877,15 @@ class PipelineEngine {
     run.stageResults = [];
 
     if (params.autoAdvance) {
+      if (params.background === true) {
+        // 后台自动推进：立即返回 runId，renderer 通过 getRunSnapshot 轮询阶段进度。
+        // 若同步等待整个流水线完成，IPC 会阻塞数十秒到数分钟，前端启动后无任何交互反馈。
+        const promise = this._autoAdvanceRun(runId);
+        promise.catch((err) => {
+          this.log.warn('PipelineEngine', 'background autoAdvance failed: ' + (err && err.message ? err.message : String(err)));
+        });
+        return { success: true, runId };
+      }
       return await this._autoAdvanceRun(runId);
     }
 

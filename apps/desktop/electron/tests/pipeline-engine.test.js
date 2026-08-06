@@ -228,6 +228,36 @@ describe('PipelineEngine animated-explainer 编排', () => {
     expect(snapshot.stages.every(stage => stage.status === 'completed')).toBe(true)
   })
 
+  it('background 模式立即返回 runId，后台自动推进到完成', async () => {
+    const stageExecutor = {
+      execute: vi.fn(async ({ stage }) => ({
+        success: true,
+        output: { completedStage: stage.name },
+      })),
+    }
+    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const started = await engine.startOrchestrated('animated-explainer', {
+      text: '测试主题',
+      autoAdvance: true,
+      background: true,
+      checkpointPolicy: 'none',
+    })
+    expect(started.success).toBe(true)
+    expect(started.runId).toBeTypeOf('string')
+    expect(started.completed).toBeUndefined()
+    expect(started.context).toBeUndefined()
+    // 后台推进：轮询快照直到完成
+    const deadline = Date.now() + 2000
+    let snapshot = engine.getRunSnapshot(started.runId)
+    while (Date.now() < deadline && snapshot && snapshot.status.status !== 'completed') {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      snapshot = engine.getRunSnapshot(started.runId)
+    }
+    expect(snapshot).not.toBeNull()
+    expect(snapshot.status.status).toBe('completed')
+    expect(snapshot.stages.every(stage => stage.status === 'completed')).toBe(true)
+  })
+
   it('编排阶段缺少主题时 research 返回明确错误', async () => {
     const stageExecutor = {
       execute: vi.fn(async () => ({ success: true, output: null })),

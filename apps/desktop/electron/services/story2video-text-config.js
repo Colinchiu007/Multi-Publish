@@ -490,6 +490,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     initialContext: params.initialContext,
     context: params.context,
     autoAdvance: params.autoAdvance === true,
+    background: params.background === true,
     checkpointPolicy: enumValue(params.checkpointPolicy, 'guided', 'checkpointPolicy', CHECKPOINT_POLICIES),
     mode: 'text',
     inputMode: 'text',

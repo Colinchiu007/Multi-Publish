@@ -73,10 +73,11 @@ describe('Story2Video text 参数合同', () => {
     expect(result.stageOptions.optimize).not.toHaveProperty('auto_detect_style')
   })
 
-  it('接受全自动编排策略，同时保留历史分句语言快照', () => {
+  it('接受全自动编排策略并透传 background 后台模式，同时保留历史分句语言快照', () => {
     const automatic = normalizeStory2VideoTextParams({
       text: '自动编排使用语言识别。',
       autoAdvance: true,
+      background: true,
       checkpointPolicy: 'none',
     })
     const historical = normalizeStory2VideoTextParams({
@@ -90,6 +91,7 @@ describe('Story2Video text 参数合同', () => {
 
     expect(automatic).toMatchObject({
       autoAdvance: true,
+      background: true,
       checkpointPolicy: 'none',
       language: 'auto',
       stageOptions: { split: { language: 'auto' } },

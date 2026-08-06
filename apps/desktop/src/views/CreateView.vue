@@ -1194,6 +1194,7 @@ export default {
           inputMode: 'text',
           checkpointPolicy: 'none',
           autoAdvance: true,
+          background: true,
           style: this.selectedStyle,
           resolution: output.resolution,
           fps: output.fps,
@@ -1226,6 +1227,7 @@ export default {
           inputMode: 'video',
           checkpointPolicy: 'none',
           autoAdvance: true,
+          background: true,
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
@@ -1341,6 +1343,7 @@ export default {
           inputMode: 'text',
           checkpointPolicy: 'none',
           autoAdvance: true,
+          background: true,
           story2videoTextConfig,
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
