@@ -54,6 +54,43 @@ const FFPROBE = findFfprobe()
  * @param {string} text - 原始字幕文本
  * @returns {string} 转义后的文本，可直接用于 drawtext=text='...'
  */
+// Windows 中文字体候选（按优先级）；Linux/macOS 由 fontconfig 处理 CJK
+const CJK_FONT_CANDIDATES = [
+  'C:\\\\Windows\\\\Fonts\\\\msyh.ttc',
+  'C:\\\\Windows\\\\Fonts\\\\msyh.ttf',
+  'C:\\\\Windows\\\\Fonts\\\\simhei.ttf',
+  'C:\\\\Windows\\\\Fonts\\\\simsun.ttc',
+  'C:\\\\Windows\\\\Fonts\\\\msjh.ttc',
+]
+
+let cachedCjkFont = null
+
+/** 解析一个可用的 CJK 字体路径（仅 Windows 静态 ffmpeg 需要显式 fontfile）。 */
+function resolveCjkFont () {
+  if (cachedCjkFont !== null) return cachedCjkFont
+  if (process.platform !== 'win32') {
+    cachedCjkFont = ''
+    return cachedCjkFont
+  }
+  for (const candidate of CJK_FONT_CANDIDATES) {
+    if (fs.existsSync(candidate)) {
+      cachedCjkFont = candidate
+      return cachedCjkFont
+    }
+  }
+  cachedCjkFont = ''
+  return cachedCjkFont
+}
+
+/** 把字体路径转成 drawtext fontfile 值（正斜杠 + 单反斜杠转义冒号）。 */
+function escapeFontFilePath (filePath) {
+  if (!filePath) return ''
+  // 兼容单个或连续多个反斜杠，统一归一为正斜杠
+  return String(filePath)
+    .replace(/\\+/g, '/')
+    .replace(/:/g, '\\:')
+}
+
 function escapeSubtitleText (text) {
   if (!text) return ''
   return String(text)
@@ -209,13 +246,17 @@ function buildSubtitleFilter (textOrTimeline, style) {
     : 'white'
   const borderWidth = config.style === 'style3' ? 4 : 2
   const box = config.style === 'style2' ? ':box=1:boxcolor=black@0.55:boxborderw=10' : ''
+  // 中文字幕乱码修复：Windows 静态 ffmpeg 的 drawtext 默认字体无 CJK 字形，
+  // 必须显式指定 fontfile（微软雅黑等），否则中文渲染成豆腐块/乱码。
+  const fontFile = escapeFontFilePath(resolveCjkFont())
+  const fontOption = fontFile ? ":fontfile='" + fontFile + "'" : ''
   return entries.map(item => {
     const startTime = Number(item.startTime)
     const endTime = Number(item.endTime)
     const enable = Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime
       ? ":enable='gte(t," + Math.max(0, startTime).toFixed(3) + ')*lt(t,' + endTime.toFixed(3) + ")'"
       : ''
-    return "drawtext=text='" + escapeSubtitleText(item.text) + "':fontcolor=" + color +
+    return "drawtext=text='" + escapeSubtitleText(item.text) + "'" + fontOption + ':fontcolor=' + color +
       ':fontsize=' + fontSize + ':borderw=' + borderWidth + ':bordercolor=black' +
       box + ':x=(w-text_w)/2:y=h-th-40' + enable
   }).join(',')
@@ -254,7 +295,9 @@ function buildWatermarkFilter (options) {
     center: 'x=(w-text_w)/2:y=(h+text_h)/2',
   }
   const position = positions[config.position] || positions['bottom-right']
-  return "drawtext=text='" + escapeSubtitleText(text) + "':fontcolor=" + color + '@' + opacity +
+  const fontFile = escapeFontFilePath(resolveCjkFont())
+  const fontOption = fontFile ? ":fontfile='" + fontFile + "'" : ''
+  return "drawtext=text='" + escapeSubtitleText(text) + "'" + fontOption + ':fontcolor=' + color + '@' + opacity +
     ':fontsize=' + fontSize + ':' + position
 }
 
@@ -817,8 +860,18 @@ class Story2VideoComposeEngine {
     }
 
     // 字幕滤镜
-    const filters = [buildScaleFilter(opts.width, opts.height)]
-    if (imageEffect) filters.push(imageEffect)
+    // 抖动修复：zoompan 亚像素采样会造成画面跳动。先把输入上采样到 2x 工作分辨率，
+    // 在 2x 画布上执行 zoompan（s=2x 尺寸），再下采样回目标分辨率，帧间运动平滑。
+    const filters = []
+    if (imageEffect) {
+      const workWidth = clampNumber(opts.width, 160, 4096) * 2
+      const workHeight = clampNumber(opts.height, 160, 4096) * 2
+      filters.push(buildScaleFilter(workWidth, workHeight))
+      filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, totalFrames))
+      filters.push(buildScaleFilter(opts.width, opts.height))
+    } else {
+      filters.push(buildScaleFilter(opts.width, opts.height))
+    }
     const subtitleFilter = buildSubtitleFilter(
       Array.isArray(opts.subtitleTimeline) && opts.subtitleTimeline.length > 0
         ? opts.subtitleTimeline
@@ -1000,4 +1053,6 @@ module.exports = {
   buildWatermarkFilter,
   buildScaleFilter,
   parseResolution,
+  resolveCjkFont,
+  escapeFontFilePath,
 }

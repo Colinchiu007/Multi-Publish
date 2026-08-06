@@ -40,8 +40,8 @@ describe('Story2Video notification messages', () => {
 
     expect(notification).toEqual({
       messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED,
-      message: 'Story2Video 暂时无法完成生成，请稍后再试。',
-      codePointCount: countUnicodeCodePoints('Story2Video 暂时无法完成生成，请稍后再试。'),
+      message: '暂时无法完成生成，请稍后再试。',
+      codePointCount: countUnicodeCodePoints('暂时无法完成生成，请稍后再试。'),
     })
     expect(notification.message).not.toContain('secret')
   })
@@ -54,8 +54,8 @@ describe('Story2Video notification messages', () => {
 
     expect(notification).toEqual({
       messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED,
-      message: 'Story2Video could not finish generation right now. Please try again shortly.',
-      codePointCount: countUnicodeCodePoints('Story2Video could not finish generation right now. Please try again shortly.'),
+      message: 'Could not finish generation right now. Please try again shortly.',
+      codePointCount: countUnicodeCodePoints('Could not finish generation right now. Please try again shortly.'),
     })
   })
 
@@ -65,8 +65,8 @@ describe('Story2Video notification messages', () => {
 
     expect(notification).toEqual({
       messageKey: STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR,
-      message: 'Story2Video could not complete the request. Please try again.',
-      codePointCount: countUnicodeCodePoints('Story2Video could not complete the request. Please try again.'),
+      message: 'Could not complete the request. Please try again.',
+      codePointCount: countUnicodeCodePoints('Could not complete the request. Please try again.'),
     })
     expect(notification.message).not.toContain(rawError)
     expect(notification.message).not.toContain('127.0.0.1')

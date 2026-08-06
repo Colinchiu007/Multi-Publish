@@ -25,6 +25,8 @@ vi.mock("@/api/publisher", () => ({
   pipelineStartOrchestrated: vi.fn(),
   pipelineAdvanceToNextCheckpoint: vi.fn(),
   pipelineGetRunContext: vi.fn(),
+  storeGetSetting: vi.fn(),
+  storeSetSetting: vi.fn(),
   story2videoImportMedia: vi.fn(),
   story2videoTranscribe: vi.fn(),
   story2videoListProjects: vi.fn().mockResolvedValue({ code: 0, data: [] }),
@@ -171,6 +173,122 @@ describe("CreateView", () => {
     });
     await nextTick();
     expect(mocks.pipelineList).toHaveBeenCalled();
+  });
+
+  it("挂载时重新接上主进程仍在运行的编排流水线（HMR/重启后不丢失运行态）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStatus.mockImplementation((name) => {
+      if (name === "story2video-compose") {
+        return Promise.resolve({ code: 0, data: { status: "running", orchestrationMode: "orchestrator", id: "run_resume_1", stages: [] } });
+      }
+      return Promise.resolve({ code: 0, data: { status: "idle" } });
+    });
+    mocks.pipelineGetRunContext.mockResolvedValue({
+      code: 0,
+      data: { status: { status: "running" }, currentStage: 2, stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }], context: {} },
+    });
+    mocks.pipelineList.mockResolvedValue({
+      code: 0,
+      data: [{ name: "story2video-compose", available: true, stages: ["split", "domain_enrich", "optimize", "generate_assets", "compose", "publish"] }],
+    });
+    try {
+      const w = mount(CreateView, {
+        global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      await nextTick();
+      expect(w.vm.selectedPipeline?.name).toBe("story2video-compose");
+      expect(w.vm.orchestrationRunId).toBe("run_resume_1");
+      expect(w.vm.pipelineRunStatus?.status).toBe("running");
+      w.unmount();
+    } finally {
+      // 恢复 mock 实现，避免泄漏到后续用例（beforeEach 的 clearAllMocks 不重置实现）
+      mocks.pipelineStatus.mockRestore();
+      mocks.pipelineGetRunContext.mockRestore();
+      mocks.pipelineList.mockRestore();
+    }
+  });
+
+  it("阶段清单展示场景数/优化进度/资源进度详情", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    const now = new Date().toISOString();
+    w.vm.pipelineRunStatus = {
+      status: "running",
+      currentStage: 2,
+      progress: 50,
+      stages: [
+        { name: "split", status: "completed", startedAt: now },
+        { name: "optimize", status: "completed", startedAt: now },
+        { name: "generate_assets", status: "running", startedAt: now },
+        { name: "compose", status: "pending" },
+      ],
+    };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "optimize", "generate_assets", "compose"] };
+    w.vm.orchestrationContext = {
+      split: { scenes: [{}, {}] },
+      optimize_progress: { done: 2, total: 2 },
+      assets_progress: { imagesDone: 0, imagesTotal: 2, ttsDone: 1, ttsTotal: 2 },
+    };
+    w.vm.story2videoRunMeta = { createdAt: new Date(Date.now() - 65000).toISOString(), endedAt: null };
+    await nextTick();
+    expect(w.text()).toContain("拆分为了 2 个场景");
+    expect(w.text()).toContain("共 2 个场景，已完成 2 个");
+    expect(w.text()).toContain("图片 0/2");
+    expect(w.text()).toContain("旁白 1/2");
+    expect(w.text()).toContain("已用时");
+    expect(w.find('[data-testid="story2video-stage-detail-generate_assets"]').text()).toContain("图片 0/2");
+    w.unmount();
+  });
+
+  it("恢复上次保存的图片轮播选项（跳过已禁用 provider）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({
+      code: 0,
+      data: {
+        version: 1,
+        s2vConfig: { imageStyle: "anime", voiceSpeed: 1.5, voiceProvider: "disabled-provider", splitLanguage: "en" },
+        s2vOutputConfig: { resolution: "1920x1080", fps: 60 },
+      },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vVoiceProviders = [{ id: "minimax-tts" }, { id: "edge-tts" }];
+    w.vm.s2vImageProviders = [{ id: "minimax-image" }];
+    await w.vm.restoreS2VLastOptions();
+    expect(w.vm.s2vConfig.imageStyle).toBe("anime");
+    expect(w.vm.s2vConfig.voiceSpeed).toBe(1.5);
+    expect(w.vm.s2vConfig.splitLanguage).toBe("en");
+    expect(w.vm.s2vConfig.voiceProvider).not.toBe("disabled-provider");
+    expect(w.vm.s2vOutputConfig.fps).toBe(60);
+    // 恢复 mock 实现，避免泄漏到后续用例（beforeEach 的 clearAllMocks 不重置实现）
+    mocks.storeGetSetting.mockReset();
+    w.unmount();
+  });
+
+  it("保存并重置图片轮播选项设置", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.storeGetSetting.mockResolvedValue(null);
+    mocks.storeSetSetting.mockResolvedValue({ code: 0 });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vConfig.imageStyle = "cyberpunk";
+    await w.vm.saveS2VLastOptions();
+    expect(mocks.storeSetSetting).toHaveBeenCalledWith("story2video.lastOptions.v1", expect.objectContaining({
+      version: 1,
+      s2vConfig: expect.objectContaining({ imageStyle: "cyberpunk" }),
+    }));
+    await w.vm.resetS2VLastOptions();
+    expect(w.vm.s2vConfig.imageStyle).toBe("cinematic");
+    expect(mocks.storeSetSetting).toHaveBeenCalledWith("story2video.lastOptions.v1", null);
+    w.unmount();
   });
 
   it("pipelineList 返回异常格式时展示默认加载错误", async () => {
@@ -1171,7 +1289,8 @@ describe("CreateView - UI interactions", () => {
     const titles = w.findAll(".s2v-subgroup-title").map(t => t.text());
     expect(titles).toEqual(["分句与时长", "模板与输出"]);
     expect(w.text()).toContain("分句语言");
-    expect(w.text()).toContain("输出分辨率");
+    expect(w.text()).toContain("比例与分辨率");
+    expect(w.text()).toContain("720×1280（竖屏）");
     w.unmount();
   });
 

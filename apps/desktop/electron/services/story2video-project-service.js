@@ -393,6 +393,12 @@ class Story2VideoProjectService {
       updatedAt: now,
       endedAt: run.endedAt || now,
       duration: Number.isFinite(Number(compose.duration)) ? Number(compose.duration) : null,
+      outputSizeBytes: (() => {
+        try {
+          const stat = fs.statSync(artifacts.videoPath)
+          return Number.isFinite(stat.size) ? stat.size : null
+        } catch { return null }
+      })(),
       format: compose.format || sourceExtension(artifacts.videoPath, '.mp4').slice(1),
       videoPath: artifacts.videoPath,
       audioPath: artifacts.audioPath,

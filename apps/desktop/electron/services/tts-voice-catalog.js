@@ -90,10 +90,12 @@ const PROVIDER_MODEL_CAPABILITIES = Object.freeze({
     'mimo-v2.5-tts-voiceclone': catalogCapability(CAPABILITY_TYPES.UNSUPPORTED, { clone: NOT_SUPPORTED }),
   }),
   'minimax-tts': Object.freeze({
-    'speech-2.8-hd': catalogCapability(CAPABILITY_TYPES.UNSUPPORTED, { clone: NOT_SUPPORTED }),
-    'speech-2.8-turbo': catalogCapability(CAPABILITY_TYPES.UNSUPPORTED, { clone: NOT_SUPPORTED }),
-    'speech-2.6-hd': catalogCapability(CAPABILITY_TYPES.UNSUPPORTED, { clone: NOT_SUPPORTED }),
-    'speech-2.6-turbo': catalogCapability(CAPABILITY_TYPES.UNSUPPORTED, { clone: NOT_SUPPORTED }),
+    // MiniMax 官方支持 100+ 系统音色与音色快速复刻（speech-voice-clone）；
+    // 音色列表与克隆能力由 minimax-tts adapter 按官方 API 合同实现（listVoices/cloneVoice）。
+    'speech-2.8-turbo': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
+    'speech-2.8-hd': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
+    'speech-2.6-hd': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
+    'speech-2.6-turbo': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
   }),
 })
 

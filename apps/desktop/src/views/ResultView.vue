@@ -32,6 +32,7 @@
       ></video>
 
       <div class="video-info">
+        <p v-if="completionSummary" class="completion-summary" data-testid="completion-summary">{{ completionSummary }}</p>
         <p>格式: {{ formatLabel }}</p>
         <p class="path-text">位置: {{ videoPath }}</p>
       </div>
@@ -153,6 +154,9 @@
 
       <div class="segment-list">
         <article v-for="(segment, index) in segments" :key="segment.id" class="segment-item">
+          <div v-if="segment.imageUrl" class="segment-thumb">
+            <img :src="segment.imageUrl" :alt="'分段 ' + (index + 1) + ' 图片'" />
+          </div>
           <div class="segment-header">
             <strong>分段 {{ index + 1 }}</strong>
             <span class="segment-status" :class="segment.status">{{ segment.status || 'completed' }}</span>
@@ -256,6 +260,20 @@ export default {
     else this.loading = false
   },
   computed: {
+    completionSummary() {
+      const query = this.$route?.query || {}
+      const parts = []
+      if (Number.isFinite(Number(query.durationMs)) && Number(query.durationMs) > 0) {
+        const total = Math.floor(Number(query.durationMs) / 1000)
+        const minutes = Math.floor(total / 60)
+        const seconds = total % 60
+        parts.push('完成时间共 ' + (minutes > 0 ? minutes + ' 分 ' + seconds + ' 秒' : seconds + ' 秒'))
+      }
+      if (Number.isFinite(Number(query.sizeBytes)) && Number(query.sizeBytes) > 0) {
+        parts.push('文件大小 ' + (Number(query.sizeBytes) / 1048576).toFixed(1) + ' M')
+      }
+      return parts.join(' · ')
+    },
     formatLabel() {
       const extension = String(this.videoPath || '').split('.').pop()
       return extension ? extension.toUpperCase() : '视频'
@@ -320,6 +338,16 @@ export default {
       if (!url) throw new Error(result?.message || '无法读取本地文件')
       return url
     },
+    async refreshSegmentImageUrls() {
+      await Promise.all((this.segments || []).map(async (segment) => {
+        if (!segment || !segment.imagePath) return
+        try {
+          segment.imageUrl = await this.resolveLocalUrl(segment.imagePath)
+        } catch (_) {
+          segment.imageUrl = null
+        }
+      }))
+    },
     async loadVideoPath(filePath) {
       this.loading = true
       this.videoPath = filePath || null
@@ -349,6 +377,7 @@ export default {
         this.projectId = project.projectId
         this.segments = Array.isArray(project.segments) ? project.segments.map(segment => ({ ...segment })) : []
         this.segmentsDirty = false
+        await this.refreshSegmentImageUrls()
         this.audioPath = project.audioPath || null
         this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
         this.videoPath = project.videoPath || null
@@ -688,6 +717,7 @@ export default {
 .loading-state, .empty-state { text-align: center; padding: 60px 0; color: #888; }
 .video-player { width: 100%; max-height: 68vh; border-radius: 8px; background: #000; }
 .video-info { margin: 12px 0; font-size: 13px; color: var(--text-muted); }
+.completion-summary { color: #166534; font-weight: 600; margin-bottom: 4px; }
 .video-info p { margin: 4px 0; }
 .path-text { overflow-wrap: anywhere; }
 .actions, .section-actions, .segment-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -710,6 +740,8 @@ export default {
 .trimmed-player { width: 100%; max-height: 360px; background: #000; border-radius: 6px; }
 .segment-list { display: grid; gap: 12px; }
 .segment-item { border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--surface); }
+.segment-thumb { margin-bottom: 12px; border-radius: 6px; overflow: hidden; background: var(--bg); max-width: 320px; }
+.segment-thumb img { display: block; width: 100%; height: auto; object-fit: cover; }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: 11px; }
 .segment-status.failed { background: #fee2e2; color: #991b1b; }

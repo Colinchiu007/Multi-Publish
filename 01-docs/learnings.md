@@ -5603,3 +5603,34 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **调试 profile**：开发脚本已支持 `ELECTRON_USER_DATA_DIR`；使用仓库外固定目录可复用同机 DPAPI/Cookie/Local Storage，但目录存在不能证明身份仍有效，必须检查 `identity:get-state`。远程部署使用独立 userData，交付前清理本地 profile。
 - **外部边界**：本地测试不等价于真实 Logto 会话、真实供应商 API 或远程部署验收。
 - CCG task archive metadata must be marked `completed` after closeout and archived with its Bug Reflection, test evidence, and PRD/Review Checklist records; changing only task JSON also triggers the documentation sync gate.
+
+## Story2Video 长文案多场景限流 Bug 复盘（2026-08-06）
+
+- **第一性原因**：约 1,400+ 字长文案拆分出 20+ 场景，「提示词优化」按并发 3 调用默认 LLM 时触发 MiniMax 免费额度限流（429，`You've reached the API rate limit for free users`）。逐场景重试退避只有 0.8s/1.6s，远短于限流窗口；单场景最终失败使整条流水线 failed，前端再吞成通用「当前操作未能完成」。真实复现（Playwright Electron + 登录 profile）：`optimize scene 22 failed: ... rate limit ...`，`currentStage=2`、`progress=33%`。
+- **逃逸链**：单元测试只用 5-6 场景的短文案 mock，从未覆盖 20+ 场景的 provider 真实限流；e2e 无长文案 + 真实 MiniMax 免费额度用例；错误映射测试只覆盖已知 key，未覆盖 rate-limit 原始文案。
+- **系统性漏洞**：provider 瞬时错误（限流/超时/网络）在 optimize 只有短退避重试、在图片/TTS 侧完全无重试；`runContentPolicyImageRetry` 对 429 明确不重试（正确，但缺外层瞬态重试层）；前端 `resolveMessageKey` 无限流映射，一律回退 OPERATION_FAILED。
+- **修复**：`story2video-stages.js` 新增 `withTransientRetry`/`withAssetTransientRetry`——限流 2500ms×attempt 最多 4 次，超时/网络 800ms×attempt 最多 3 次，非瞬时立即失败；限流不进入内容政策改写循环。前端新增 `story2video.rate_limited` 本地化文案并提取场景号（如「第 22 个场景」）。
+- **回归保护**：fake timers 覆盖限流恢复/上限、非瞬时即败、TTS/图片限流重试；通知映射断言友好文案且不泄漏 request id。176 项相关测试通过。
+- **预防措施**：长文案（>10 场景）必须作为 provider 限流回归基线；所有 provider 调用统一走「限流→长退避、瞬时→短退避、非瞬时→即败」的有界重试层；错误映射必须覆盖 provider 原始限流文案并给出本地化提示。
+- **运行中退回列表/空白页真相**：非流水线逻辑 Bug——无任何「运行中自动返回列表」代码路径（`selectedPipeline` 仅卡片点击、返回按钮、resume 逻辑三处赋值）。现象 = 渲染进程重挂载/整页 reload（dev 下编辑 CreateView.vue 触发 Vite HMR 全量 reload 即复现），流水线本体在主进程继续跑。已用 `CreateView.resumeRunningOrchestration()`（挂载时探测主进程 running 的 orchestrator 并恢复选中与轮询）加固；生产环境无 HMR，此现象主要出现在 dev 调试。
+
+## API 并发控制/排队/重试 + 断点恢复实现复盘（2026-08-06）
+
+- **统一网关**：`ApiUsageGovernor` 挂在 `AIGenerator.generate()` 唯一出口，覆盖 llm/TTS/image/video/audio 全部 provider 调用；每 provider 并发信号量 + 滑动窗口 RPM + 429 冷却 + 分级重试 + 可选 token 额度窗口（5h/周）。额度错误（402/QUOTA_EXCEEDED/余额·配额文案）不重试、立即给出明确原因；限流 429 冷却退避重试并自适应下调 RPM 预算。
+- **断点恢复**：编排流水线失败时由 `RunStateStore` 原子写 `userData/run-state/<runId>.json`；`pipeline:resumeOrchestration` 从内存 history 或磁盘快照重建运行并从失败阶段继续；`optimize_resume` / `generate_assets.resume.completed` 实现场景级续传，不重复消耗额度；内容政策失败禁止原样恢复。
+- **踩坑**：内存 history 条目字段是 `id`、磁盘快照是 `runId`，恢复逻辑必须两者兼容；fake timers 下 reject 型断言要先把 `expect(promise).rejects` 挂上再推进时间，否则被判定为 unhandled rejection；RPM 下限 `max(2,…)` 使 rpm=1 的测试失真，测试需用 rpm=2 + 三个请求验证排队。
+- **CI 教训**：`electron-tests`（self-hosted linux runner）会因卡死的旧运行阻塞整个队列，需 `gh run cancel` 卡死运行并取消过期 head 的排队任务；Gate 4 的 `credential-store` 锁测试（10s 上限）在并行 runner 下偶发超时，与业务改动无关；electron-tests 的 checkout 阶段偶发 github.com 连接超时，属于基础设施波动，重跑即可。
+
+## 流水线进度细化与信息视觉化实现复盘（2026-08-06）
+
+- **实时进度来源**：优化阶段每场景完成后写 `context.optimize_progress = { done, total }`；资源生成阶段图片/TTS 各自完成即写 `context.assets_progress`（含断点续传复用场景计数）。context 与 run.context 同引用，3s 轮询即可读到实时值，无需新增 IPC。
+- **阶段耗时**：主进程 `_advanceRun` 已为每阶段写 `startedAt`，渲染层加 1s 本地时钟（`stageClockTick`）刷新 running 阶段耗时，不依赖轮询频率。
+- **完成汇总**：快照 `endedAt-createdAt` + `outputSizeBytes`（主进程对成片 stat，仅 completed 且成片存在时返回）；CreateView 完成后把 `durationMs/sizeBytes` 放进路由 query 透传给 ResultView 展示；项目持久化也写入 `outputSizeBytes`。
+- **踩坑**：fastctx replace 的 replacement 中 `$` 需转义为 `$`（模板字符串中的插值会被误判为捕获组）；阶段详情只在 completed/running 阶段显示（pending 不显示进度），组件测试需把目标阶段设为 running 才能断言；ResultView 测试需显式置 `loading=false` 才能渲染视频区。
+
+## 图片轮播选项持久化实现复盘（2026-08-06）
+
+- **存储**：复用主进程 owner-scoped `store:set-setting/get-setting`（settings-store `setUserSetting/getUserSetting`，key 带 `user:<sha256(owner)>:` 前缀），键 `story2video.lastOptions.v1`；渲染层已有 `storeGetSetting/storeSetSetting` 封装，无需新增 IPC。
+- **保存/恢复**：s2vConfig + s2vOutputConfig 快照；1s 防抖 watch 自动保存 + 启动流水线立即保存 + beforeUnmount flush；进入页面 provider 加载完成后恢复（`restoreS2VLastOptions`），类型守卫合并，已禁用 provider 的 voice/image 不回填，恢复后重拉语音目录校正音色。
+- **重置**：`resetS2VLastOptions` 用组件初始 data() 工厂函数取初始默认，重置后清空已存快照；启动按钮旁新增「恢复默认选项」链接。
+- **踩坑**：vitest `beforeEach` 只 `clearAllMocks` 不清实现，restore 用例的 `storeGetSetting.mockResolvedValue` 会泄漏到下个用例导致恢复竞态，用例间需 `mockReset()` 或显式 `mockResolvedValue(null)`；mounted 里异步 restore 与用例手动操作可能交错。

@@ -58,19 +58,21 @@
 
         <!-- 阶段进度 -->
         <div v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length" class="stages-timeline" data-testid="story2video-stage-list">
+          <div class="orchestration-progress" data-testid="story2video-orchestration-progress">
+            <div class="progress-bar"><div class="progress-fill" :style="{ width: orchestrationProgressPercent + '%' }"></div></div>
+            <span class="progress-text">{{ orchestrationProgressPercent }}%</span>
+            <span v-if="orchestrationElapsedMs !== null" class="elapsed-text">{{ translateWithLocaleFallback('story2video.elapsed', '已用时 ' + formatDuration(orchestrationElapsedMs), 'Elapsed ' + formatDuration(orchestrationElapsedMs)) }}</span>
+          </div>
+          <div v-if="orchestrationSummary" class="orchestration-summary" data-testid="story2video-orchestration-summary">{{ orchestrationSummary }}</div>
           <div v-for="(stage, i) in (pipelineRunStatus.stages || orchestrationStages)" :key="stage.id || stage.name || i" class="stage-item" :class="stageStateClass(stage, i)" :data-testid="`story2video-stage-${stage.name || i}`">
             <span class="stage-icon">{{ stageStateIcon(stage, i) }}</span>
-            <span class="stage-name">{{ pipelineStage(stage.name) }}</span>
-            <span class="stage-status">{{ stageStatusLabel(stage, i) }}</span>
-          </div>
-        </div>
-
-        <!-- 编排模式中间结果预览 -->
-        <div v-if="orchestrationContext" class="orchestration-context">
-          <h4>中间结果</h4>
-          <div v-for="(value, key) in orchestrationContext" :key="key" class="context-item">
-            <span class="context-key">{{ humanName(String(key)) }}</span>
-            <span class="context-value">{{ typeof value === 'object' ? JSON.stringify(value).slice(0, 200) : String(value).slice(0, 200) }}</span>
+            <span class="stage-main">
+              <span class="stage-name">{{ pipelineStage(stage.name) }}</span>
+              <span v-if="stageDetailText(stage, i)" class="stage-meta" :data-testid="`story2video-stage-detail-${stage.name || i}`">{{ stageDetailText(stage, i) }}</span>
+            </span>
+            <span class="stage-status">
+              {{ stageStatusLabel(stage, i) }}<span v-if="stageTimeText(stage)" class="stage-time"> · {{ stageTimeText(stage) }}</span>
+            </span>
           </div>
         </div>
 
@@ -326,6 +328,16 @@
                 <label>水印文字</label>
                 <input v-model.trim="s2vConfig.watermarkText" class="form-input" placeholder="可选" />
               </div>
+              <div class="config-item">
+                <label>比例与分辨率</label>
+                <select v-model="activeOutputConfig.resolution" class="form-select">
+                  <option value="720x1280">720×1280（竖屏）</option>
+                  <option value="1920x1080">1920×1080（横屏）</option>
+                  <option value="3840x2160">3840×2160（横屏）</option>
+                  <option value="1080x1920">1080×1920（竖屏）</option>
+                  <option value="1080x1440">1080×1440（竖屏）</option>
+                </select>
+              </div>
             </div>
           </details>
 
@@ -384,8 +396,8 @@
                 class="config-item config-span-2 voice-clone-panel"
               >
                 <label>音色复制 / 克隆</label>
-                <p v-if="s2vVoiceCloneRequirements" class="config-hint">
-                  支持格式：{{ s2vVoiceCloneRequirements.allowedExtensions?.join('、') || '音频' }}；最多 {{ s2vVoiceCloneRequirements.maxSampleCount }} 个文件；单文件 {{ formatS2VVoiceCloneBytes(s2vVoiceCloneRequirements.maxSampleBytes) }}，合计 {{ formatS2VVoiceCloneBytes(s2vVoiceCloneRequirements.maxTotalBytes) }}；单条 {{ formatS2VVoiceCloneDuration(s2vVoiceCloneRequirements.maxSampleDurationSeconds) }}，合计 {{ formatS2VVoiceCloneDuration(s2vVoiceCloneRequirements.maxTotalDurationSeconds) }}。
+                <p v-if="s2vVoiceCloneRequirements && s2vVoiceCloneHint" class="config-hint">
+                  {{ s2vVoiceCloneHint }}
                 </p>
                 <p v-if="s2vVoiceCloneRequirements" class="config-hint">以上为当前模型能力数据驱动的本地校验提示，具体以供应商官方 API 合同为准。</p>
                 <div class="voice-clone-actions">
@@ -506,16 +518,6 @@
                   </div>
                 </div>
                 <div class="config-item">
-                  <label>输出分辨率</label>
-                  <select v-model="activeOutputConfig.resolution" class="form-select">
-                    <option value="720x1280">720×1280 (Story2Video)</option>
-                    <option value="1920x1080">1920×1080 (Full HD)</option>
-                    <option value="3840x2160">3840×2160 (4K)</option>
-                    <option value="1080x1920">1080×1920 (竖屏)</option>
-                    <option value="1080x1440">1080×1440 (小红书)</option>
-                  </select>
-                </div>
-                <div class="config-item">
                   <label>帧率</label>
                   <select v-model.number="activeOutputConfig.fps" class="form-select">
                     <option :value="24">24 fps (电影)</option>
@@ -576,7 +578,7 @@
             <div class="config-item">
               <label>分辨率</label>
               <select v-model="activeOutputConfig.resolution" class="form-select">
-                <option value="720x1280">720×1280 (Story2Video)</option>
+                <option value="720x1280">720×1280（竖屏）</option>
                 <option value="1920x1080">1920×1080 (Full HD)</option>
                 <option value="3840x2160">3840×2160 (4K)</option>
                 <option value="1080x1920">1080×1920 (竖屏)</option>
@@ -607,6 +609,9 @@
             <UiButton class="btn-start" data-testid="start-story2video" @click="startPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
             </UiButton>
+            <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="reset-options-link" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
+              {{ translateWithLocaleFallback('create.story2video.resetOptions', '恢复默认选项', 'Reset to default options') }}
+            </button>
             <p v-if="!pipelineAvailable(selectedPipeline?.name)" class="unavailable-hint" data-testid="pipeline-unavailable-hint">
               {{ translateWithLocaleFallback('pipelines.availability.notImplementedHint', '该流水线尚未实现执行引擎，暂不能生成视频', 'This pipeline has no execution engine yet.') }}
             </p>
@@ -713,7 +718,9 @@
       @close="closeStory2VideoErrorDialog"
     >
       <p class="story2video-error-dialog-message">{{ story2videoErrorDialogMessage }}</p>
+      <p v-if="canResumeStory2Video" class="story2video-error-dialog-hint">{{ story2videoErrorDialogUiText.resumeHint }}</p>
       <template #footer>
+        <UiButton v-if="canResumeStory2Video" variant="primary" :disabled="story2videoResuming" @click="resumeStory2Video">{{ story2videoResuming ? story2videoErrorDialogUiText.resuming : story2videoErrorDialogUiText.resume }}</UiButton>
         <UiButton @click="closeStory2VideoErrorDialog">{{ story2videoErrorDialogUiText.acknowledge }}</UiButton>
       </template>
     </UiModal>
@@ -762,7 +769,8 @@ import {
   onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress,
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
-  pipelineStartOrchestrated, pipelineAdvanceToNextCheckpoint, pipelineGetRunContext,
+  pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineGetRunContext,
+  storeGetSetting, storeSetSetting,
   story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
   story2videoDeleteProject
 } from '@/api/publisher'
@@ -792,6 +800,7 @@ import {
   STORY2VIDEO_NOTIFICATION_KEYS,
   countStory2VideoTextCharacters,
   formatStory2VideoNotification,
+  getStory2VideoLocale,
   getStory2VideoNotificationUiText,
   resolveStory2VideoNotification,
 } from '@/story2video/story2video-notifications'
@@ -920,7 +929,7 @@ export default {
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
         promptStyle: 'realistic', creativeLevel: 5, negativePrompt: '',
-        transition: 'fade', subtitleEnabled: false,
+        transition: 'fade', subtitleEnabled: true,
         subtitleSize: 'size3', subtitleStyleName: 'style1',
         subtitleStyle: { size: 'md', style: 'style1', color: 'white' },
         bgmPath: '', bgmVolume: 5, watermark: false, watermarkText: '',
@@ -929,6 +938,10 @@ export default {
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '',
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {} },
+      story2videoResuming: false,
+      story2videoRunMeta: null,
+      stageClockTick: 0,
+      s2vRestoring: false,
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
@@ -1047,8 +1060,44 @@ export default {
     story2videoErrorDialogMessage() {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
     },
+    canResumeStory2Video() {
+      if (!this.story2videoErrorDialog.visible || !this.orchestrationRunId || this.story2videoResuming) return false
+      const raw = this.story2videoErrorDialogMessage || ''
+      // 内容政策失败需要人工修改文案，不允许原样恢复
+      if (/内容政策|content\s*policy|needs_user_input|可能需要修改文案/i.test(raw)) return false
+      return true
+    },
+    orchestrationProgressPercent() {
+      const stages = this.pipelineRunStatus?.stages || this.orchestrationStages
+      if (!Array.isArray(stages) || stages.length === 0) return 0
+      const done = stages.filter(s => s.status === 'completed' || s.status === 'skipped').length
+      return Math.round((done / stages.length) * 100)
+    },
+    orchestrationElapsedMs() {
+      const meta = this.story2videoRunMeta
+      if (!meta || !meta.createdAt) return null
+      const start = Date.parse(meta.createdAt)
+      if (!Number.isFinite(start)) return null
+      const end = meta.endedAt ? Date.parse(meta.endedAt) : Date.now()
+      return Math.max(0, end - start)
+    },
+    orchestrationSummary() {
+      const meta = this.story2videoRunMeta
+      if (!meta || !meta.endedAt || !meta.createdAt) return ''
+      const start = Date.parse(meta.createdAt)
+      const end = Date.parse(meta.endedAt)
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return ''
+      const durationText = this.formatDuration(end - start)
+      const durationLabel = this.translateWithLocaleFallback('story2video.summaryDuration', '完成时间共 ' + durationText, 'Finished in ' + durationText)
+      if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) {
+        const mb = (Number(meta.outputSizeBytes) / (1024 * 1024)).toFixed(1)
+        const sizeLabel = this.translateWithLocaleFallback('story2video.summaryFileSize', '文件大小 ' + mb + ' M', 'Size ' + mb + ' MB')
+        return durationLabel + ' · ' + sizeLabel
+      }
+      return durationLabel
+    },
     story2videoErrorDialogUiText() {
-      return getStory2VideoNotificationUiText()
+      return getStory2VideoNotificationUiText(getStory2VideoLocale(), this.pipelineName(this.selectedPipeline?.name))
     },
     story2videoProjectDeleteDialogMessage() {
       return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM }).message
@@ -1062,6 +1111,11 @@ export default {
       if (this.quickMode === 'gallery') return this.quickImages.length > 0
       return false
     },
+  },
+  watch: {
+    // 选项变更 1s 防抖自动保存，下次进入恢复上次选项
+    s2vConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
+    s2vOutputConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
   },
   methods: {
     translateWithLocaleFallback(key, zhFallback, enFallback) {
@@ -1077,7 +1131,7 @@ export default {
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
     s2vSectionLabel(section) {
       const key = `create.story2video.sections.${section}`
-      const fallback = { basic: '基础', appearance: '外观', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
+      const fallback = { basic: '基础', appearance: '画面', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
       const english = { basic: 'Basics', appearance: 'Appearance', voice: 'Voice', advanced: 'Advanced', publish: 'Publish' }[section] || section
       return this.translateWithLocaleFallback(key, fallback, english)
     },
@@ -1209,6 +1263,7 @@ export default {
         const outcome = res?.data
         if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId
+          this.saveS2VLastOptions()
           if (this.applyOrchestrationOutcome(outcome)) return
           await this.updateOrchestrationStatus()
           if (this.orchestrationRunId && !this.pollTimer) {
@@ -1238,6 +1293,7 @@ export default {
         const outcome = res?.data
         if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId
+          this.saveS2VLastOptions()
           if (this.applyOrchestrationOutcome(outcome)) return
           await this.updateOrchestrationStatus()
           if (this.orchestrationRunId && !this.pollTimer) {
@@ -1247,6 +1303,80 @@ export default {
       } catch (_) {
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
+    },
+    // ---- 选项设置持久化：图片轮播上次使用的选项（owner-scoped SQLite）----
+    buildS2VLastOptions() {
+      return {
+        version: 1,
+        s2vConfig: this.cloneForIpc(this.s2vConfig),
+        s2vOutputConfig: this.cloneForIpc(this.s2vOutputConfig),
+        savedAt: new Date().toISOString(),
+      }
+    },
+    async saveS2VLastOptions() {
+      if (!this.isOrchestratedPipeline(this.selectedPipeline?.name) || this.s2vRestoring) return
+      try {
+        await storeSetSetting('story2video.lastOptions.v1', this.buildS2VLastOptions())
+      } catch (_) { /* 持久化失败不影响使用 */ }
+    },
+    scheduleS2VLastOptionsSave() {
+      if (this._lastOptionsSaveTimer) clearTimeout(this._lastOptionsSaveTimer)
+      this._lastOptionsSaveTimer = setTimeout(() => { this._lastOptionsSaveTimer = null; this.saveS2VLastOptions() }, 1000)
+    },
+    flushS2VLastOptionsSave() {
+      if (this._lastOptionsSaveTimer) { clearTimeout(this._lastOptionsSaveTimer); this._lastOptionsSaveTimer = null }
+      this.saveS2VLastOptions()
+    },
+    _applyS2VSnapshot(source, target) {
+      if (!source || typeof source !== 'object' || Array.isArray(source)) return
+      for (const key of Object.keys(target)) {
+        const value = source[key]
+        if (value === undefined || value === null) continue
+        const defaultType = typeof target[key]
+        if (Array.isArray(target[key])) {
+          if (Array.isArray(value)) target[key] = JSON.parse(JSON.stringify(value))
+          continue
+        }
+        if (defaultType === 'object') {
+          if (value && typeof value === 'object' && !Array.isArray(value)) target[key] = JSON.parse(JSON.stringify(value))
+          continue
+        }
+        if (typeof value === defaultType) target[key] = value
+      }
+    },
+    async restoreS2VLastOptions() {
+      if (!this.isOrchestratedPipeline(this.selectedPipeline?.name)) return
+      let raw
+      try { raw = await storeGetSetting('story2video.lastOptions.v1') } catch { return }
+      const snapshot = raw && typeof raw === 'object' ? (raw.data ?? raw) : raw
+      if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return
+      this.s2vRestoring = true
+      try {
+        const voiceProviders = new Set((this.s2vVoiceProviders || []).map(p => p.id))
+        const imageProviders = new Set((this.s2vImageProviders || []).map(p => p.id))
+        const config = { ...(snapshot.s2vConfig || {}) }
+        // 已不启用的 provider 不回填，避免恢复到无效模型
+        if (config.voiceProvider && !voiceProviders.has(config.voiceProvider)) {
+          delete config.voiceProvider; delete config.voiceModel; delete config.voiceId
+        }
+        this._applyS2VSnapshot(config, this.s2vConfig)
+        if (this.s2vConfig.imageProvider && !imageProviders.has(this.s2vConfig.imageProvider)) {
+          this.s2vConfig.imageProvider = this.s2vImageProviders[0]?.id || ''
+          this.s2vConfig.imageModel = ''
+        }
+        this._applyS2VSnapshot(snapshot.s2vOutputConfig, this.s2vOutputConfig)
+        await this.loadS2VVoiceData()
+      } finally { this.s2vRestoring = false }
+    },
+    async resetS2VLastOptions() {
+      const defaults = (this.$options.data || (() => ({}))).call(this)
+      this.s2vRestoring = true
+      try {
+        this.s2vConfig = JSON.parse(JSON.stringify(defaults.s2vConfig || {}))
+        this.s2vOutputConfig = JSON.parse(JSON.stringify(defaults.s2vOutputConfig || {}))
+        await this.loadS2VVoiceData()
+        try { await storeSetSetting('story2video.lastOptions.v1', null) } catch { /* 清理失败可忽略 */ }
+      } finally { this.s2vRestoring = false }
     },
     async startOrchestratedPipeline() {
       if (this.selectedPipeline.name !== 'story2video-compose' && this.isAutoPipeline(this.selectedPipeline.name)) {
@@ -1355,6 +1485,7 @@ export default {
         const outcome = res?.data
         if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId
+          this.saveS2VLastOptions()
           if (this.applyOrchestrationOutcome(outcome)) return
           await this.updateOrchestrationStatus()
           if (this.orchestrationRunId && !this.pollTimer) {
@@ -1438,9 +1569,56 @@ export default {
         maxSampleCount: toFiniteNumber(requirements.maxSampleCount),
         maxSampleBytes: toFiniteNumber(requirements.maxSampleBytes),
         maxTotalBytes: toFiniteNumber(requirements.maxTotalBytes),
+        minSampleDurationSeconds: toFiniteNumber(requirements.minSampleDurationSeconds) || 0,
         maxSampleDurationSeconds: toFiniteNumber(requirements.maxSampleDurationSeconds),
         maxTotalDurationSeconds: toFiniteNumber(requirements.maxTotalDurationSeconds),
       }
+    },
+    friendlyVoiceCatalogError(message) {
+      const raw = String(message || '')
+      const map = {
+        VOICE_CATALOG_UNSUPPORTED: ['当前语音模型暂不支持音色列表与克隆功能，已使用默认音色。', 'This voice model does not support voice lists or cloning yet. Using the default voice.'],
+        VOICE_CATALOG_UNAVAILABLE: ['暂时无法获取音色列表，已使用默认音色，请稍后重试。', 'The voice list is temporarily unavailable. Using the default voice. Please try again later.'],
+        VOICE_MODEL_MISMATCH: ['所选语音模型与配置不一致，请检查模型设置。', 'The selected voice model does not match the configuration. Check the model settings.'],
+        VOICE_PREFERENCE_STORE_UNAVAILABLE: ['音色偏好保存不可用，请检查本地存储。', 'Voice preference storage is unavailable. Check local storage.'],
+        VOICE_OWNER_UNAVAILABLE: ['登录状态不可用，请重新登录后重试。', 'Sign-in state is unavailable. Sign in again and retry.'],
+        VOICE_NOT_IN_CATALOG: ['所选音色不在当前音色列表中，请重新选择。', 'The selected voice is not in the current voice list. Select another voice.'],
+        VOICE_CLONE_SAMPLE_INVALID: ['上传的音频文件不符合要求，请按提示调整格式、时长或大小后重试。', 'The uploaded audio does not meet the requirements. Adjust format, duration, or size and retry.'],
+        VOICE_CLONE_TOTAL_SIZE_EXCEEDED: ['上传的音频总大小超出限制，请减少文件后重试。', 'The total audio size exceeds the limit. Remove files and retry.'],
+        VOICE_CLONE_TOTAL_DURATION_EXCEEDED: ['上传的音频总时长超出限制，请减少文件后重试。', 'The total audio duration exceeds the limit. Remove files and retry.'],
+        VOICE_CLONE_PROVIDER_UNAVAILABLE: ['音色克隆服务暂时不可用，请稍后重试。', 'Voice cloning is temporarily unavailable. Please try again later.'],
+        VOICE_CLONE_DUPLICATE_ID: ['该克隆音色已存在，请更换名称后重试。', 'A cloned voice with this name already exists. Use another name.'],
+        VOICE_CLONE_STORE_UNAVAILABLE: ['克隆音色本地存储不可用，请检查磁盘空间后重试。', 'Clone voice storage is unavailable. Check disk space and retry.'],
+        VOICE_CLONE_STORAGE_UNAVAILABLE: ['克隆音色本地存储不可用，请检查磁盘空间后重试。', 'Clone voice storage is unavailable. Check disk space and retry.'],
+        VOICE_CLONE_INVALID_ARGUMENTS: ['克隆音色参数不合法，请重新选择音频文件。', 'Invalid clone voice parameters. Select the audio file again.'],
+      }
+      const found = Object.entries(map).find(([key]) => raw.includes(key))
+      if (found) return this.translateWithLocaleFallback('create.story2video.voice.' + found[0], found[1][0], found[1][1])
+      // 不向用户泄露系统技术错误码
+      return this.translateWithLocaleFallback(
+        'create.story2video.voice.catalogLoadFailed',
+        '无法加载音色列表，已使用默认音色，请稍后重试。',
+        'The voice list could not be loaded. Using the default voice. Please try again later.'
+      )
+    },
+    s2vVoiceCloneHint() {
+      const r = this.s2vVoiceCloneRequirements
+      if (!r) return ''
+      const parts = []
+      if (Array.isArray(r.allowedExtensions) && r.allowedExtensions.length > 0) {
+        const extText = r.allowedExtensions.map(ext => String(ext).replace(/^\./, '')).join('、')
+        parts.push('上传的音频文件格式需为：' + extText + ' 格式')
+      }
+      if (r.minSampleDurationSeconds > 0 && r.maxSampleDurationSeconds > 0) {
+        const maxMinutes = Math.round(r.maxSampleDurationSeconds / 60)
+        parts.push('上传的音频文件的时长最少应不低于 ' + r.minSampleDurationSeconds + ' 秒，最长应不超过 ' + maxMinutes + ' 分钟')
+      } else if (r.maxSampleDurationSeconds > 0) {
+        parts.push('上传的音频文件的时长最长应不超过 ' + this.formatS2VVoiceCloneDuration(r.maxSampleDurationSeconds))
+      }
+      if (r.maxSampleBytes > 0) {
+        parts.push('上传的音频文件大小需不超过 ' + this.formatS2VVoiceCloneBytes(r.maxSampleBytes))
+      }
+      return parts.length > 0 ? parts.join('；') + '。' : ''
     },
     resetS2VVoiceData() {
       this.s2vVoiceCatalog = []
@@ -1492,7 +1670,7 @@ export default {
         : null
       this.s2vVoiceCatalogLoading = false
       if (!catalogData) {
-        this.s2vVoiceCatalogError = catalogResponse?.message || '无法加载当前模型的音色目录。'
+        this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(catalogResponse?.message)
       }
 
       const cloneEnabled = this.s2vVoiceCapability?.type === 'user_clone'
@@ -1636,7 +1814,7 @@ export default {
           return
         }
         this.s2vVoiceCloneSelection = null
-        if (result?.code !== 0) this.s2vVoiceCloneError = result?.message || '无法选择本地音频样本。'
+        if (result?.code !== 0) this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法选择本地音频样本。'
       } finally {
         if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
       }
@@ -1660,7 +1838,7 @@ export default {
         if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
         const voice = result?.code === 0 ? this.toS2VVoiceOption(result.data?.voice) : null
         if (!voice) {
-          this.s2vVoiceCloneError = result?.message || '无法添加克隆音色。'
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法添加克隆音色。'
           return
         }
         this.s2vVoiceClones = [
@@ -1688,7 +1866,7 @@ export default {
         const result = await deleteTtsVoiceClone(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId }))
         if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
         if (result?.code !== 0) {
-          this.s2vVoiceCloneError = result?.message || '无法删除克隆音色。'
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法删除克隆音色。'
           return
         }
         this.s2vVoiceClones = this.s2vVoiceClones.filter(voice => voice.id !== normalizedVoiceId)
@@ -1723,7 +1901,7 @@ export default {
       saveCustomTemplate({
         id,
         name,
-        description: '由 Story2Video 当前创作参数保存',
+        description: '由当前创作参数保存',
         category: 'custom',
         imageEffect: this.s2vConfig.imageEffect,
         transitionEffect: this.s2vConfig.transition,
@@ -1778,6 +1956,32 @@ export default {
     closeStory2VideoErrorDialog() {
       this.story2videoErrorDialog.visible = false
     },
+    async resumeStory2Video() {
+      const runId = this.orchestrationRunId
+      if (!runId || this.story2videoResuming) return
+      this.story2videoResuming = true
+      try {
+        const res = await pipelineResumeOrchestration(runId)
+        if (res?.code === 0 && res.data?.success && res.data?.runId) {
+          this.orchestrationRunId = res.data.runId
+          this.orchestrationResultPath = null
+          this.orchestrationError = ''
+          this.closeStory2VideoErrorDialog()
+          this.pipelineRunStatus = { status: 'running', progress: 0, stages: this.orchestrationStages }
+          await this.updateOrchestrationStatus()
+          if (this.orchestrationRunId && !this.pollTimer) {
+            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          }
+        } else {
+          this.showStory2VideoErrorDialog({
+            errorCode: res?.data?.errorCode || res?.code,
+            error: res?.data?.error || res?.message || '断点恢复失败，请稍后再试。',
+          })
+        }
+      } finally {
+        this.story2videoResuming = false
+      }
+    },
     requestProjectDeletion(item) {
       if (!item?.projectId) return
       this.story2videoProjectDeleteDialog = { visible: true, projectId: item.projectId }
@@ -1812,6 +2016,11 @@ export default {
           return
         }
         this.orchestrationContext = statusResult.data.context || null
+        this.story2videoRunMeta = {
+          createdAt: statusResult.data.createdAt || null,
+          endedAt: statusResult.data.endedAt || null,
+          outputSizeBytes: statusResult.data.outputSizeBytes || null,
+        }
         const snapshotStatus = statusResult.data.status || {}
         const stages = Array.isArray(statusResult.data.stages)
           ? statusResult.data.stages
@@ -1880,10 +2089,16 @@ export default {
       }
       if (this.orchestrationResultPath === videoPath) return true
       this.orchestrationResultPath = videoPath
-      this.$router.push({
-        path: '/create/result',
-        query: projectId ? { project: projectId, path: videoPath } : { path: videoPath },
-      })
+      const meta = this.story2videoRunMeta || {}
+      const query = { path: videoPath }
+      if (projectId) query.project = projectId
+      if (meta.createdAt && meta.endedAt) {
+        const start = Date.parse(meta.createdAt)
+        const end = Date.parse(meta.endedAt)
+        if (Number.isFinite(start) && Number.isFinite(end) && end >= start) query.durationMs = end - start
+      }
+      if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) query.sizeBytes = Number(meta.outputSizeBytes)
+      this.$router.push({ path: '/create/result', query })
       return true
     },
     stopPipelinePolling() {
@@ -2125,6 +2340,30 @@ export default {
       this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' }
     },
 
+    // renderer 重载（HMR/重启/切页返回）后，重新接上主进程仍在运行的编排流水线，
+    // 避免 UI 丢失运行态（用户看到回到列表但流水线实际仍在后台执行）。
+    async resumeRunningOrchestration() {
+      const candidates = ['story2video-compose', 'animated-explainer', 'documentary-montage', 'clip-factory', 'cinematic', 'talking-head', 'framework-smoke', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
+      for (const name of candidates) {
+        try {
+          const res = await pipelineStatus(name)
+          const data = res?.data
+          if (data && data.status === 'running' && data.orchestrationMode === 'orchestrator' && data.id) {
+            const pipeline = (this.pipelines || []).find(item => item.name === name)
+            this.selectedPipeline = pipeline || { name, available: true }
+            this.orchestrationRunId = data.id
+            this.orchestrationStages = this.getDefaultPipelineStages(name)
+            this.inputMode = 'text'
+            await this.updateOrchestrationStatus()
+            if (this.orchestrationRunId && !this.pollTimer) {
+              this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+            }
+            return
+          }
+        } catch (_) { /* 单条状态查询失败不影响其余 */ }
+      }
+    },
+
     // 阶段显示
     stageStateClass(stage, i) {
       if (!this.pipelineRunStatus) return ''
@@ -2151,10 +2390,60 @@ export default {
     stageStatusLabel(stage) {
       return this.pipelineStatus(stage?.status || 'pending')
     },
+    // 阶段详情：拆分场景数 / 优化 x/y / 图片·旁白 x/y
+    stageDetailText(stage, i) {
+      if (!stage || (stage.status !== 'completed' && stage.status !== 'running')) return ''
+      const ctx = this.orchestrationContext || {}
+      if (stage.name === 'split') {
+        const scenes = Array.isArray(ctx.split) ? ctx.split : (ctx.split?.scenes || null)
+        if (Array.isArray(scenes) && scenes.length > 0) {
+          return this.translateWithLocaleFallback('story2video.splitSceneCount', '拆分为了 ' + scenes.length + ' 个场景', 'Split into ' + scenes.length + ' scenes')
+        }
+      }
+      if (stage.name === 'optimize') {
+        const p = ctx.optimize_progress
+        if (p && Number.isInteger(p.total) && Number.isInteger(p.done)) {
+          return this.translateWithLocaleFallback('story2video.optimizeProgress', '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个', p.done + '/' + p.total + ' scenes optimized')
+        }
+      }
+      if (stage.name === 'generate_assets') {
+        const p = ctx.assets_progress
+        if (p && Number.isInteger(p.imagesTotal) && Number.isInteger(p.ttsTotal)) {
+          return this.translateWithLocaleFallback('story2video.assetsProgress', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal)
+        }
+      }
+      return ''
+    },
+    // 阶段耗时（mm 分 ss 秒）
+    stageTimeText(stage) {
+      if (!stage || !stage.startedAt) return ''
+      if (stage.status !== 'running' && stage.status !== 'completed' && stage.status !== 'failed') return ''
+      const start = Date.parse(stage.startedAt)
+      if (!Number.isFinite(start)) return ''
+      const end = stage.completedAt ? Date.parse(stage.completedAt) : Date.now()
+      if (!Number.isFinite(end)) return ''
+      return this.formatDuration(Math.max(0, end - start))
+    },
+    formatDuration(ms) {
+      const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000))
+      const minutes = Math.floor(totalSeconds / 60)
+      const seconds = totalSeconds % 60
+      if (minutes > 0) {
+        return this.translateWithLocaleFallback('story2video.durationMinSec', minutes + ' 分 ' + seconds + ' 秒', minutes + 'm ' + seconds + 's')
+      }
+      return this.translateWithLocaleFallback('story2video.durationSec', seconds + ' 秒', seconds + 's')
+    },
+    startStageClock() {
+      if (this._stageClockTimer) return
+      this._stageClockTimer = setInterval(() => { this.stageClockTick += 1 }, 1000)
+    },
   },
   async mounted() {
     this.refreshS2VTemplates()
+    this.startStageClock()
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
+    this.resumeRunningOrchestration()
+    this.restoreS2VLastOptions()
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
@@ -2164,6 +2453,8 @@ export default {
   beforeUnmount() {
     this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
     if (this.pollTimer) clearInterval(this.pollTimer)
+    if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
+    this.flushS2VLastOptionsSave()
   },
 }
 </script>
@@ -2246,8 +2537,17 @@ export default {
 .stage-item.cancelled { color: #6b7280; }
 .stage-item.pending { color: #999; }
 .stage-icon { width: 24px; text-align: center; }
-.stage-name { flex: 1; }
-.stage-status { font-size: 12px; }
+.stage-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.stage-name { }
+.stage-meta { font-size: 12px; color: var(--text-muted, #888); }
+.stage-status { font-size: 12px; white-space: nowrap; }
+.stage-time { color: var(--text-muted, #888); }
+.orchestration-progress { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.orchestration-progress .progress-bar { flex: 1; width: auto; }
+.elapsed-text { font-size: 12px; color: var(--text-muted, #888); white-space: nowrap; }
+.orchestration-summary { margin-bottom: 10px; padding: 8px 12px; background: #f0fdf4; color: #166534; border-radius: 6px; font-size: 13px; font-weight: 600; }
+.reset-options-link { margin-left: 12px; border: none; background: none; color: var(--text-muted, #888); font-size: 12px; cursor: pointer; text-decoration: underline; }
+.reset-options-link:hover { color: #1d4ed8; }
 .orchestration-attention { margin: 0; color: #c2410c; font-size: 13px; }
 
 /* 输入区域 */

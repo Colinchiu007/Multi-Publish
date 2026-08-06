@@ -25,11 +25,17 @@ class AIGenerator {
   constructor() {
     this._modelProviderManager = null;
     this._router = null;
+    this._governor = null;
   }
 
   /** 设置 model-provider-manager 引用（延迟注入，避免循环依赖） */
   setModelProviderManager(mpm) {
     this._modelProviderManager = mpm;
+  }
+
+  /** 设置 API 并发/限流/排队/重试网关（可选注入，避免循环依赖） */
+  setGovernor(governor) {
+    this._governor = governor || null;
   }
 
   /** P3.5: 设置 ProviderRouter 引用（可选，启用故障转移） */
@@ -74,18 +80,28 @@ class AIGenerator {
       throw new Error('Model provider manager not available');
     }
 
-    // P3.5: 故障转移路径（useFailover=true 且 providerId 为 null）
-    if (params && params.useFailover && this._router && !providerId) {
-      return this._generateWithFailover(type, params, onProgress);
-    }
+    const dispatch = () => {
+      // P3.5: 故障转移路径（useFailover=true 且 providerId 为 null）
+      if (params && params.useFailover && this._router && !providerId) {
+        return this._generateWithFailover(type, params, onProgress);
+      }
+      // P3.5: Adapter 直调路径（有 Adapter 工厂注册）
+      if (providerId && this._hasAdapter(providerId)) {
+        return this._generateViaAdapter(type, providerId, params, onProgress);
+      }
+      // Fallback: python-bridge 路径
+      return this._generateViaPythonBridge(type, providerId, params, onProgress);
+    };
 
-    // P3.5: Adapter 直调路径（有 Adapter 工厂注册）
-    if (providerId && this._hasAdapter(providerId)) {
-      return this._generateViaAdapter(type, providerId, params, onProgress);
+    // API 并发/限流/排队/重试网关：覆盖 llm/tts/image/video/audio 全部 provider 调用。
+    if (this._governor && providerId) {
+      const model = (params && typeof params === 'object' &&
+        (params.model || params.voice_model || params.image_model || params.video_model))
+        ? String(params.model || params.voice_model || params.image_model || params.video_model)
+        : '';
+      return this._governor.run({ type, providerId, model }, dispatch);
     }
-
-    // Fallback: python-bridge 路径
-    return this._generateViaPythonBridge(type, providerId, params, onProgress);
+    return dispatch();
   }
 
   /**

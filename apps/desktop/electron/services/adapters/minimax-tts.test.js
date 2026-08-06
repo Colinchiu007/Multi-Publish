@@ -322,4 +322,55 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       expect(result.error.code).toBe(ERROR_CODES.INVALID_CONFIG)
     })
   })
+
+  describe('listVoices', () => {
+    it('返回官方系统音色列表（含中文常用音色）', async () => {
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const voices = await adapter.listVoices()
+      expect(Array.isArray(voices)).toBe(true)
+      expect(voices.length).toBeGreaterThan(100)
+      const ids = voices.map(v => v.id)
+      expect(ids).toContain('male-qn-qingse')
+      expect(ids).toContain('female-shaonv')
+      expect(ids).toContain('wumei_yujie')
+      expect(ids).toContain('English_Gentle-voiced_man')
+      expect(voices[0]).toHaveProperty('id')
+      expect(voices[0]).toHaveProperty('name')
+      // 回归：官方文档提取不得含编码替换符（U+FFFD 乱码）
+      const corrupted = voices.filter(v => String(v.name).includes('\uFFFD') || /[�]/.test(String(v.name)))
+      expect(corrupted).toEqual([])
+      expect(voices.find(v => v.id === 'male-qn-daxuesheng-jingpin')?.name).toBe('青年大学生音色-beta')
+    })
+
+    it('不发起 HTTP 请求（静态权威列表）', async () => {
+      const fetchMock = createFetchMock([])
+      global.fetch = fetchMock
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      await adapter.listVoices()
+      expect(fetchMock.calls).toHaveLength(0)
+    })
+  })
+
+  describe('cloneVoice', () => {
+    it('上传样本并调用复刻接口返回 voice_id', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ file: { file_id: 12345 } }),
+        createFetchResponse({ voice_id: 'MiniMaxCloneTest' }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mpeg' })
+      const result = await adapter.cloneVoice({ name: '克隆音色测试', samples: [{ blob, fileName: 'clone.mp3', contentType: 'audio/mpeg' }] })
+      expect(result.id).toBe('MiniMaxCloneTest')
+      expect(result.name).toBe('克隆音色测试')
+      expect(fetchMock.calls).toHaveLength(2)
+      expect(String(fetchMock.calls[0].url)).toContain('/v1/files/upload')
+      expect(String(fetchMock.calls[1].url)).toContain('/v1/voice_clone')
+    })
+
+    it('缺少样本时抛出配置错误', async () => {
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      await expect(adapter.cloneVoice({ name: 'x', samples: [] })).rejects.toThrow()
+    })
+  })
 })

@@ -730,6 +730,79 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
 鉴权或回滚合同；本任务不接入 OpsCenter，不能把本地受控默认值、本文需求或测试计划描述为已联通、已发布或已交付。
 后续必须在独立任务中定义配置版本、授权、分发、回滚和端到端验收。本文图片轮播需求是目标合同，不代替真实 provider、
 Electron 打包、工作树、PR 或发布状态证据。
+
+#### 7.1.7 生成限流与瞬时错误重试合同
+
+实测根因（2026-08-06 复现）：约 1,400+ 字的长文案经拆分会产生 20+ 场景；「画面提示词优化」按并发 3 批量调用默认 LLM，
+会触发 MiniMax 免费额度限流（429 / "You've reached the API rate limit for free users"），单场景失败导致整条流水线失败，
+前端此前只显示通用文案「当前操作未能完成，请稍后再试。」。
+
+| 合同 | 要求 |
+|------|------|
+| 错误分类 | 限流（`RATE_LIMITED` / HTTP 429 / 文案含 rate limit、限流、额度）；瞬时（超时、网络断开、`TIMEOUT`、`NETWORK_ERROR`）；其余一律非瞬时。 |
+| 重试边界 | 限流使用更长退避（2500ms×attempt，最多 4 次，总等待约 15s）；超时/网络使用 800ms×attempt，最多 3 次；非瞬时错误不重试、立即失败。适用于「提示词优化」逐场景调用与「生成图片与旁白」的图片/TTS 调用。 |
+| 与内容政策解耦 | 限流/瞬时错误只做带退避的原样重试，**绝不**进入 7.1.5 的提示词安全化改写循环；`CONTENT_POLICY` 拒绝仍按 5 次改写后 `needs_user_input` 处理。 |
+| 结果形状 | 图片/TTS 的瞬时失败以 `{ code: -1, message }` 返回时同样参与重试；重试耗尽后按原样失败，不得降级为占位图或静音（除非显式 opt-in）。 |
+| 用户提示 | 限流失败必须映射为稳定的 `story2video.rate_limited` 本地化消息（默认中文），提示「生成受频率或额度限制，请稍等片刻后重试；若持续出现，请检查对应模型账号的套餐额度」，并从错误文本提取场景号（如「第 22 个场景」）展示；不得再显示通用「当前操作未能完成」。 |
+| 数据约束 | 重试总时长有界（限流 ≈15s、瞬时 ≈4.8s），不允许无限重试或长阻塞；错误文案只展示场景号与友好原因，不展示 provider 原始错误体/request id。 |
+
+#### 7.1.8 API 并发控制、排队与断点恢复合同
+
+多数模型 API 有每分钟调用频率限制；coding plan / token plan 用户还有每 5 小时与每周的 token 额度。
+主进程新增统一网关 `ApiUsageGovernor`，挂在 provider 调用唯一出口 `AIGenerator.generate()`（覆盖
+文字推理 llm / TTS / 生图 image / 生视频 video / audio），所有流水线与功能共享同一套限流策略。
+
+| 合同 | 要求 |
+|------|------|
+| 并发控制 | 每 provider（type:provider[:model]）独立并发信号量：llm/tts/image/audio 默认 2，video 默认 1；超并发请求进入有界队列（默认最多等待 30s），不得无界堆积。 |
+| 频率限制 | 每 provider 滑动窗口 RPM（默认 llm 30、tts/image 10、video 4）；超预算时排队等待窗口释放，等待超过 30s 返回明确限流提示。收到 429 后按 0.75 系数下调该 provider 的 RPM 预算，成功后缓慢恢复。 |
+| 排队机制 | 排队顺序 FIFO；超时出队时返回 `RATE_LIMITED` 友好错误，不静默丢弃。 |
+| 重试分级 | 限流（429 / `RATE_LIMITED`）：冷却（默认 30s，支持 `Retry-After`）+ 退避，最多 `retry429` 次（默认 3）；超时/网络（`TIMEOUT`/`NETWORK_ERROR`）：500ms×attempt 最多 2 次；额度耗尽（402 / `QUOTA_EXCEEDED` / 余额·配额·token 文案）：**不重试**，立即给出明确原因；其余错误不重试。 |
+| token 额度窗口 | 可通过 `setTokenWindows` 为 provider 配置 5 小时/每周 token 上限，按响应的 `usage.total_tokens`（或 `prompt/completion`）累计；超限返回 `QUOTA_EXCEEDED`，文案标明窗口（“每 5 小时/每周”）与上限，不无限等待。 |
+| 冷却交互 | 冷却期内新请求等待（≤45s）；等待不足则直接给出“约 N 秒后重试”的友好提示。 |
+| 用户提示 | `429/频率限制` → `story2video.rate_limited`（“生成受频率或额度限制（第 N 个场景）…”）；额度耗尽 → `story2video.quota_exceeded`（“模型 API 的额度或余额已用完…请检查套餐额度，或更换模型后从断点继续”）。所有提示多语言，默认中文；不展示 provider 原始错误体/request id。 |
+
+**断点恢复合同（从失败阶段继续）**
+
+| 合同 | 要求 |
+|------|------|
+| 快照持久化 | 编排流水线失败时，把 `{ runId, pipeline, currentStage, stages, context, params, error }` 原子写入 `userData/run-state/<runId>.json`；只存纯 JSON 结构化上下文，不含密钥；成功后（或恢复成功后）清理快照。 |
+| 恢复入口 | 失败弹窗提供「从断点继续」按钮（内容政策失败除外）；主进程 `pipeline:resumeOrchestration` 从内存 history 或磁盘快照重建运行，`currentStage` 回到失败阶段，前序阶段输出与已完成资源直接复用，随后后台自动推进。 |
+| 场景级续传 | 提示词优化与资源生成阶段把部分结果写入 context（`optimize_resume` / `generate_assets.resume.completed`）；恢复时跳过已完成场景，不重复消耗 LLM/图片/TTS 额度。 |
+| 失败类型规避 | 限流失败：恢复时由网关冷却自动等待后再继续；额度失败：恢复前用户需先确认/补充额度（提示文案引导），系统不自动重试；内容政策失败：不允许原样恢复，必须修改文案后重新启动；未知/瞬态失败：直接恢复。 |
+| 交互 | 恢复期间按钮显示「正在恢复…」；恢复成功即重新显示阶段清单并恢复 3s 轮询；恢复失败以明确原因重新弹窗。 |
+
+#### 7.1.9 流水线进度细化与信息视觉化合同
+
+流水线运行期必须提供持续、细化的进度反馈，避免长耗时阶段让用户焦虑或误判卡死。
+
+| 展示项 | 内容 | 数据来源与约束 |
+|--------|------|----------------|
+| 文案拆分 | 完成后显示「拆分为了 N 个场景」 | `context.split`（数组或 `{scenes:[...]}`）长度；仅 completed/running 阶段显示 |
+| 提示词优化 | 运行中实时显示「共 N 个场景，已完成 M 个」 | `context.optimize_progress = { done, total }`，每场景完成后主进程实时写入；`done`/`total` 必须为非负整数且 `done ≤ total`，非法值不展示 |
+| 生成图片与旁白 | 运行中实时显示「图片 a/b · 旁白 c/d」 | `context.assets_progress = { imagesDone, imagesTotal, ttsDone, ttsTotal }`，图片与 TTS 各自完成即写入；含断点续传复用场景；非法值不展示 |
+| 阶段耗时 | 每阶段显示「X 分 Y 秒」（running/completed/failed） | 主进程每阶段 `startedAt`/`completedAt`（推进时写入）；渲染层 1s 时钟刷新 running 阶段，不依赖轮询 |
+| 整体进度 | 阶段清单顶部细进度条 + 百分比 + 「已用时 X 分 Y 秒」 | 完成阶段数/总阶段数；已用时可从 `story2videoRunMeta.createdAt` 计算，运行中本地时钟实时刷新 |
+| 完成汇总 | 「完成时间共 X 分 Y 秒 · 文件大小 Z M」 | 快照 `endedAt - createdAt` + `outputSizeBytes`（主进程对成片 `statSync`，仅 completed 且存在成片时返回；stat 失败显示 null 不展示）；预览页通过路由 `durationMs`/`sizeBytes` 透传；项目持久化新增 `outputSizeBytes` 供历史展示 |
+
+- **数据校验**：进度与汇总均为展示增强，任何字段缺失/非法不得阻断流水线；`outputSizeBytes` 只读 stat，不改变文件。
+- **本地化**：全部展示文案使用 locale 资源，默认中文，英文同步（`story2video.elapsed/summaryDuration/summaryFileSize/splitSceneCount/optimizeProgress/assetsProgress/durationMinSec/durationSec`）。
+- **交互**：纯信息展示，不新增操作入口；「已用时」与 running 阶段耗时每秒刷新，完成/失败后停止。
+
+#### 7.1.10 图片轮播选项持久化合同（上次使用的选项）
+
+| 合同 | 要求 |
+|------|------|
+| 存储 | 主进程 owner-scoped SQLite（`store:set-setting` / `store:get-setting`），键 `story2video.lastOptions.v1`；按当前登录用户隔离，切换账号不串档。 |
+| 保存范围 | `s2vConfig`（图片风格/提示词风格/动效/字幕/分句/语音/音色/发布等全部选项）与 `s2vOutputConfig`（比例与分辨率/帧率/格式）；**不保存** `pipelineText` 文案内容（隐私边界，文案不属选项）。 |
+| 保存时机 | ① 选项变更后 1s 防抖自动保存；② 点击「启动流水线」成功时立即保存；③ 离开页面前 flush 未落盘变更。 |
+| 恢复时机 | 进入【图片轮播】且 provider 加载完成后自动恢复；恢复为浅层合并 + 类型守卫：仅接受与默认值类型一致的键，数组/对象深拷贝防引用共享。 |
+| provider 失效处理 | 已不启用（未配置/已删除）的 voice/image provider 及其 model/voiceId **不回填**；语音目录在恢复后重新拉取以校正音色选择。 |
+| 重置 | 「恢复默认选项」按钮将选项重置为初始默认并清除已存快照；语音/音色随后按用户默认恢复。 |
+| 版本 | 快照携带 `version:1` 与 `savedAt`，为未来迁移预留；非法/损坏快照静默忽略，回退默认值，不阻塞页面。 |
+| 失败降级 | 读写失败不影响页面功能（catch 静默）；不显示技术错误。 |
+
+**补充优化（需求方确认后可选）**：恢复时可同时恢复上次「输入方式」Tab（文案/图片/视频）；后续可扩展为每条流水线各自维护选项快照（当前仅图片轮播）；多账号场景下可为快照增加「账号 + 流水线」双维度键。
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
@@ -1201,3 +1274,23 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **返回流水线列表**：视频预览页（ResultView）头部新增显式【← 返回流水线列表】按钮（data-testid=back-to-pipeline-list），点击回到 /create 流水线列表；原「重新创作」按钮保留。
 - **图片动效修复**：buildImageEffectFilter 的 zoompan 必须使用 d=输出总帧数（时长×帧率）。此前 d=1 且输入为 -loop 1 静态图时 zoom 状态不累积，「慢慢放大/平移/缩放」等动效在成片中不可见；修复后 _createSegment 在有动效时改用单帧图片输入（zoompan 自行生成 d 帧），实测早/晚帧差异 0.05 → 28（动效清晰可见）。
 - **页面宽度回归**：启动流水线后渲染的「中间结果」面板包含 200 字符 JSON 长字符串（路径/提示词），无换行约束会把页面从 609px 撑宽到 977px。新增 .orchestration-context/.context-value 的 overflow-wrap:anywhere + word-break:break-word + min-width:0 约束，实测启动后页面宽度保持 696px 不再变宽。
+## MiniMax TTS 音色目录与克隆 + 语音/画面/抖动修复（2026-08-06）
+- **MiniMax TTS 默认模型**：speech-2.8-turbo（异步长文本 T2A Async）；模型设置隐藏模型 ID 输入（单模型收敛，含存量数据迁移）。
+- **音色目录**：音色列表来自 MiniMax 官方系统音色清单（system-voice-id，327 个），adapter listVoices 返回；语音/音色 ID 下拉可选并可持久化用户选择。
+- **音色克隆**：按官方 API（上传 POST /v1/files/upload purpose=voice_clone → 复刻 POST /v1/voice_clone）实现；前端上传提示与校验：格式 mp3/m4a/wav、时长 10 秒-5 分钟、大小 ≤20MB（数据驱动展示与本地校验）。
+- **错误友好化**：VOICE_CATALOG_UNSUPPORTED 等 VOICE_*/VOICE_CLONE_* 技术错误码不再直出，映射为多语言友好提示；全项目排查同类泄露。
+- **UI 调整**：外观→画面；字幕默认启用；高级区「输出分辨率」改「比例与分辨率」移入画面区，选项括号只标注横屏/竖屏；移除「中间结果」原始 JSON 调试面板。
+- **动效抖动修复**：zoompan 先 2x 上采样再执行、后下采样，消除亚像素抖动（帧间差异 stddev 0.89→0.11）。
+- **分段编辑**：结果页分段编辑显示每段对应图片预览。
+## 提示词优化阶段性能（2026-08-06）
+- **根因**：story2video_optimize 逐场景串行调用默认 LLM，N 个场景耗时 ≈ N × 单次推理延迟（用户长文案 6 场景约 2.7 分钟）。
+- **修复**：改为 _mapWithConcurrency 有界并发（默认 3）并行优化；保留逐场景错误定位。实测 6 场景：优化阶段 162s → 54s。
+- **剩余耗时边界**：每场景 LLM 推理约 20-30s（provider 自身延迟，max_tokens 500 请求很小）；剩余时长属模型推理固有成本，非应用阻塞。
+## 提示词优化失败健壮性与多语言（2026-08-06）
+- **optimize 重试**：逐场景 LLM 调用对瞬态 provider 错误做有界重试（maxRetries 默认 2，退避 0.8s×次数）；持久失败才 fail closed 并定位场景。
+- **多语言**：错误/确认对话框标题使用当前流水线本地化名（中文「图片轮播 提示」/英文「Image Carousel Notice」），不再硬编码 Story2Video；消息体不嵌入英文专名。
+- **英文名**：图片轮播流水线英文名统一为 Image Carousel（pipelines.names locales），Story2Video 仅作为内部稳定 ID 保留。
+## 中文字幕渲染合同（2026-08-06 Bug 修复）
+- **问题**：Windows 静态 ffmpeg 的 drawtext 默认字体无 CJK 字形，中文/日文/韩文等烧录成豆腐块（用户确认）。
+- **修复**：drawtext（字幕+水印）显式注入 fontfile——按优先级解析系统 CJK 字体（msyh.ttc → simhei.ttf → simsun.ttc → msjh.ttc）；字体路径统一为正斜杠并用单反斜杠转义冒号（C\\:/Windows/Fonts/msyh.ttc）。
+- **回归**：buildSubtitleFilter 断言含 msyh fontfile；实测字幕区像素密度 2496（豆腐块）→ 3979（正常字形）。非 Windows 由 fontconfig 处理，不注入 fontfile。

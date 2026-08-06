@@ -182,6 +182,9 @@ function extractContext(container) {
   if (aiGenerator && aiGenerator.setRouter) {
     aiGenerator.setRouter(providerRouter)
   }
+  if (aiGenerator && aiGenerator.setGovernor) {
+    aiGenerator.setGovernor(container.get('apiUsageGovernor'))
+  }
   const story2videoProjectService = container.get('story2videoProjectService')
   story2videoProjectService.modelProviderManager = modelProviderManager
 

@@ -30,6 +30,14 @@ const LOCAL_CLONE_SAMPLE_LIMITS = Object.freeze({
     eleven_turbo_v2_5: Object.freeze({ maxSampleCount: 5 }),
     eleven_monolingual_v1: Object.freeze({ maxSampleCount: 5 }),
   }),
+  // MiniMax 官方音色快速复刻要求（speech-voice-clone）：
+  // 单文件、mp3/m4a/wav、时长 10s-5min、大小 ≤20MB
+  'minimax-tts': Object.freeze({
+    'speech-2.8-turbo': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 20 * 1024 * 1024, minSampleDurationSeconds: 10, maxSampleDurationSeconds: 300, allowedExtensions: ['.mp3', '.m4a', '.wav'] }),
+    'speech-2.8-hd': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 20 * 1024 * 1024, minSampleDurationSeconds: 10, maxSampleDurationSeconds: 300, allowedExtensions: ['.mp3', '.m4a', '.wav'] }),
+    'speech-2.6-hd': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 20 * 1024 * 1024, minSampleDurationSeconds: 10, maxSampleDurationSeconds: 300, allowedExtensions: ['.mp3', '.m4a', '.wav'] }),
+    'speech-2.6-turbo': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 20 * 1024 * 1024, minSampleDurationSeconds: 10, maxSampleDurationSeconds: 300, allowedExtensions: ['.mp3', '.m4a', '.wav'] }),
+  }),
 });
 const DELETE_STATES = Object.freeze({
   ACTIVE: "active",
@@ -140,12 +148,25 @@ function isSafeCloneSampleStorage(value, owner) {
 function getLocalCloneSampleLimits(providerId, model) {
   const providerLimits = LOCAL_CLONE_SAMPLE_LIMITS[providerId];
   const modelLimits = providerLimits && providerLimits[model];
+  const maxTotalBytes = modelLimits && Number.isFinite(modelLimits.maxSampleBytes)
+    ? Math.min(MAX_TOTAL_SAMPLE_BYTES, Math.max(MAX_TOTAL_SAMPLE_BYTES, modelLimits.maxSampleBytes * modelLimits.maxSampleCount))
+    : MAX_TOTAL_SAMPLE_BYTES;
   return {
     maxSampleCount: modelLimits ? modelLimits.maxSampleCount : MAX_SAMPLE_COUNT,
-    maxSampleBytes: MAX_SAMPLE_BYTES,
-    maxTotalBytes: MAX_TOTAL_SAMPLE_BYTES,
-    maxSampleDurationSeconds: MAX_SAMPLE_DURATION_SECONDS,
+    maxSampleBytes: modelLimits && Number.isFinite(modelLimits.maxSampleBytes)
+      ? modelLimits.maxSampleBytes
+      : MAX_SAMPLE_BYTES,
+    minSampleDurationSeconds: modelLimits && Number.isFinite(modelLimits.minSampleDurationSeconds)
+      ? modelLimits.minSampleDurationSeconds
+      : 0,
+    maxSampleDurationSeconds: modelLimits && Number.isFinite(modelLimits.maxSampleDurationSeconds)
+      ? modelLimits.maxSampleDurationSeconds
+      : MAX_SAMPLE_DURATION_SECONDS,
+    maxTotalBytes,
     maxTotalDurationSeconds: MAX_TOTAL_DURATION_SECONDS,
+    allowedExtensions: modelLimits && Array.isArray(modelLimits.allowedExtensions)
+      ? [...modelLimits.allowedExtensions]
+      : Object.keys(ALLOWED_AUDIO_EXTENSIONS),
   };
 }
 
@@ -288,7 +309,7 @@ class TtsVoiceCloneService {
       sampleLimitScope: "local_safety",
       ...sampleLimits,
       durationProbe: "ffprobe",
-      allowedExtensions: Object.keys(ALLOWED_AUDIO_EXTENSIONS),
+      allowedExtensions: sampleLimits.allowedExtensions,
     });
   }
 
@@ -1064,6 +1085,12 @@ class TtsVoiceCloneService {
   }
 
   _assertPreparedSample(sample, sampleLimits) {
+    const allowedExtensions = Array.isArray(sampleLimits.allowedExtensions)
+      ? sampleLimits.allowedExtensions
+      : Object.keys(ALLOWED_AUDIO_EXTENSIONS);
+    const minDuration = Number.isFinite(sampleLimits.minSampleDurationSeconds)
+      ? sampleLimits.minSampleDurationSeconds
+      : 0;
     if (
       !sample ||
       !Buffer.isBuffer(sample.buffer) ||
@@ -1076,7 +1103,7 @@ class TtsVoiceCloneService {
       typeof sample.sha256 !== "string" ||
       !/^[a-f0-9]{64}$/.test(sample.sha256) ||
       !Number.isFinite(sample.durationSeconds) ||
-      sample.durationSeconds <= 0 ||
+      sample.durationSeconds < minDuration ||
       sample.durationSeconds > sampleLimits.maxSampleDurationSeconds
     ) {
       throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
@@ -1086,7 +1113,8 @@ class TtsVoiceCloneService {
     const extension = path.extname(sample.name).toLowerCase();
     if (
       !ALLOWED_AUDIO_EXTENSIONS[extension] ||
-      ALLOWED_AUDIO_EXTENSIONS[extension] !== sample.contentType
+      ALLOWED_AUDIO_EXTENSIONS[extension] !== sample.contentType ||
+      !allowedExtensions.includes(extension)
     ) {
       throw new VoiceCloneError("VOICE_CLONE_SAMPLE_INVALID");
     }

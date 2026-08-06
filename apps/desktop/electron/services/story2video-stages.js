@@ -28,6 +28,7 @@ const {
   MAX_IMAGE_GENERATION_ATTEMPTS,
   runContentPolicyImageRetry,
 } = require('./story2video-image-retry');
+const { ERROR_CODES } = require('./adapters/_base/provider-error');
 
 /**
  * Story2Video-compose 专用的阶段类型
@@ -44,6 +45,84 @@ function normalizeAssetConcurrency(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 3;
   return Math.min(MAX_ASSET_CONCURRENCY, Math.max(1, Math.floor(number)));
+}
+
+const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|额度|quota/i;
+const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i;
+
+function messageOf(value) {
+  if (value && typeof value === 'object') return String(value.message || value.error || value.msg || '');
+  return String(value || '');
+}
+
+function isRateLimitErrorLike(value) {
+  if (value && typeof value === 'object') {
+    if (value.code === ERROR_CODES.RATE_LIMITED) return true;
+    if (Number(value.statusCode) === 429 || Number(value.status) === 429 || Number(value.code) === 429) return true;
+  }
+  return RATE_LIMIT_PATTERN.test(messageOf(value));
+}
+
+function isTransientErrorLike(value) {
+  if (isRateLimitErrorLike(value)) return true;
+  if (value && typeof value === 'object' && [ERROR_CODES.TIMEOUT, ERROR_CODES.NETWORK_ERROR].includes(value.code)) return true;
+  return TRANSIENT_PATTERN.test(messageOf(value));
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 对抛错型 provider 调用做有界重试：
+ * - 限流（429 / RATE_LIMITED）：更长退避（2500ms×attempt），最多 rateLimitMaxAttempts 次；
+ * - 其他瞬时错误（超时/网络）：800ms×attempt，最多 maxAttempts 次；
+ * - 非瞬时错误：立即抛出，不消耗重试次数。
+ */
+async function withTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4 } = {}) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= Math.max(maxAttempts, rateLimitMaxAttempts); attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (error) {
+      lastError = error;
+      if (!isTransientErrorLike(error)) throw error;
+      const limit = isRateLimitErrorLike(error) ? rateLimitMaxAttempts : maxAttempts;
+      if (attempt >= limit) break;
+      await sleep((isRateLimitErrorLike(error) ? 2500 : 800) * attempt);
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * 对返回结果对象（如 { code: -1, message }）或抛错的资源生成调用做有界重试。
+ * 仅在可判定为瞬时（限流/超时/网络）时重试；内容政策检查点、模型配置等失败原样返回。
+ */
+async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4 } = {}) {
+  let last = null;
+  for (let attempt = 1; attempt <= Math.max(maxAttempts, rateLimitMaxAttempts); attempt++) {
+    let outcome;
+    try {
+      outcome = await fn(attempt);
+    } catch (error) {
+      if (!isTransientErrorLike(error)) throw error;
+      last = error;
+      const limit = isRateLimitErrorLike(error) ? rateLimitMaxAttempts : maxAttempts;
+      if (attempt >= limit) return { code: -1, message: error.message || String(error) };
+      await sleep((isRateLimitErrorLike(error) ? 2500 : 800) * attempt);
+      continue;
+    }
+    const ok = outcome && (Number(outcome.code) === 0 || outcome.success === true);
+    const transient = !ok && outcome && isTransientErrorLike(outcome);
+    if (ok) return outcome;
+    if (!transient) return outcome;
+    last = outcome;
+    const limit = isRateLimitErrorLike(outcome) ? rateLimitMaxAttempts : maxAttempts;
+    if (attempt >= limit) return outcome;
+    await sleep((isRateLimitErrorLike(outcome) ? 2500 : 800) * attempt);
+  }
+  return last;
 }
 
 /** 将 renderer 传入的图片路径或 data URL 解析为主进程可读的本地文件。 */
@@ -264,34 +343,66 @@ function registerStory2VideoStages(pipelineEngine) {
         return { success: false, error: 'Story2Video optimize 需要非空场景数组' };
       }
 
-      const output = [];
-      for (let index = 0; index < scenes.length; index++) {
-        const promptSeed = getScenePromptSeed(scenes[index]);
-        if (!promptSeed) {
-          return { success: false, error: 'Story2Video optimize scene ' + index + ' is missing a prompt seed' };
-        }
-        try {
-          const result = await aiGenerator.generateWithDefault(
-            'llm',
-            buildOptimizationRequest(promptSeed, stage.options || {}),
-          );
-          const optimizedPrompt = result && typeof result.content === 'string' ? result.content.trim() : '';
-          if (!optimizedPrompt) {
-            return { success: false, error: 'Story2Video optimize scene ' + index + ' returned an empty prompt' };
+      // 性能修复：逐场景 LLM 优化改为有界并发（默认 3），避免长文案 20+ 场景串行
+      // 调用导致「提示词优化」阶段耗时数分钟。
+      const concurrency = normalizeAssetConcurrency(stage.options?.concurrency ?? 3)
+      const maxAttempts = Math.max(1, Math.min(3, Number(stage.options?.maxRetries ?? 2) + 1))
+      // 断点续传：上次失败时已完成的场景结果直接复用，避免重复消耗 LLM 额度。
+      const partialResume = (context && Array.isArray(context.optimize_resume)) ? context.optimize_resume : []
+      let output
+      try {
+        output = await _mapWithConcurrency(scenes, concurrency, async (scene, index) => {
+          if (partialResume[index]) return partialResume[index]
+          const promptSeed = getScenePromptSeed(scene)
+          if (!promptSeed) {
+            throw new Error('Story2Video optimize scene ' + index + ' is missing a prompt seed')
           }
-          output.push({
+          // 瞬态 provider 错误有界重试：限流用更长退避，避免长文案多场景并发触发
+          // 限流时短退避重试不足以恢复而拖垮整阶段；非瞬时错误立即失败，不消耗重试次数。
+          let result
+          try {
+            result = await withTransientRetry(
+              () => aiGenerator.generateWithDefault(
+                'llm',
+                buildOptimizationRequest(promptSeed, stage.options || {}),
+              ),
+              { maxAttempts, rateLimitMaxAttempts: Math.max(maxAttempts + 1, 4) },
+            )
+          } catch (lastError) {
+            throw new Error(
+              'Story2Video optimize scene ' + index + ' failed: ' + (lastError && lastError.message ? lastError.message : String(lastError)),
+            )
+          }
+          const optimizedPrompt = result && typeof result.content === 'string' ? result.content.trim() : ''
+          if (!optimizedPrompt) {
+            throw new Error('Story2Video optimize scene ' + index + ' returned an empty prompt')
+          }
+          const entry = {
             optimized_prompt: optimizedPrompt,
             providerId: defaultLlm.providerId,
             model: typeof result.model === 'string' && result.model.trim()
               ? result.model.trim()
               : defaultLlm.model,
-          });
-        } catch (error) {
-          return {
-            success: false,
-            error: 'Story2Video optimize scene ' + index + ' failed: ' + (error && error.message ? error.message : String(error)),
-          };
+          }
+          // 逐场景写入部分结果，失败时可断点续传（context 与 run.context 同引用）
+          partialResume[index] = entry
+          if (context && typeof context === 'object') {
+            context.optimize_resume = partialResume
+            context.optimize_progress = {
+              done: partialResume.filter(Boolean).length,
+              total: scenes.length,
+            }
+          }
+          return entry
+        })
+      } catch (error) {
+        return {
+          success: false,
+          error: 'Story2Video optimize failed: ' + (error && error.message ? error.message : String(error)),
         }
+      }
+      if (context && typeof context === 'object' && Array.isArray(output)) {
+        delete context.optimize_resume
       }
 
       return { success: true, output };
@@ -364,6 +475,33 @@ function registerStory2VideoStages(pipelineEngine) {
         'Generating assets: ' + optimizedPrompts.length + ' images + ' +
         sentences.length + ' TTS (concurrency=' + concurrency + ')');
 
+      // 断点续传：上次失败时已完成的场景直接复用本地产物，避免重复消耗图片/TTS 额度
+      const resumeCompleted = new Map();
+      const priorResume = context && context.generate_assets && Array.isArray(context.generate_assets.resume?.completed)
+        ? context.generate_assets.resume.completed
+        : [];
+      for (const item of priorResume) {
+        if (item && Number.isInteger(item.index) && typeof item.imagePath === 'string' && typeof item.audioPath === 'string') {
+          resumeCompleted.set(item.index, item);
+        }
+      }
+
+      // 实时进度（供前端阶段清单展示「图片 x/y · 旁白 x/y」）
+      let imagesDone = 0;
+      let ttsDone = 0;
+      const writeAssetsProgress = () => {
+        if (context && typeof context === 'object') {
+          context.assets_progress = {
+            imagesDone,
+            imagesTotal: optimizedPrompts.length,
+            ttsDone,
+            ttsTotal: sentences.length,
+          };
+        }
+      };
+      const markImageDone = () => { imagesDone += 1; writeAssetsProgress(); };
+      const markTtsDone = () => { ttsDone += 1; writeAssetsProgress(); };
+
       // 并行生成图片（分批控制并发）
       // 使用 AssetGenerator（ffmpeg 占位图）替代 serviceBus.callPythonSkill
       const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator;
@@ -372,31 +510,38 @@ function registerStory2VideoStages(pipelineEngine) {
         concurrency,
         async (prompt, index) => {
           try {
+            const resumed = resumeCompleted.get(index);
+            if (resumed) {
+              markImageDone();
+              return { index, success: true, path: resumed.imagePath, meta: { resumed: true } };
+            }
             const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
             if (inputMode === 'images' && inputImages[index] !== undefined) {
               const suppliedPath = resolveInputImage(inputImages[index], runId, index);
               if (!suppliedPath) {
                 return { index, success: false, error: 'Supplied image is missing, unreadable, or too large' };
               }
+              markImageDone();
               return { index, success: true, path: suppliedPath, meta: { supplied: true } };
             }
             let result;
             if (assetGenerator) {
-              result = await assetGenerator.generateImage(promptText, {
+              // 瞬时错误（限流/超时/网络）有界重试；内容政策检查点等失败原样返回
+              result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
                 style: imageStyle,
                 image_provider: imageProvider,
                 image_model: imageModel,
                 index,
                 aspect_ratio: aspectRatio,
                 runId,
-              });
+              }));
             } else {
               const retryResult = await runContentPolicyImageRetry({
                 prompt: promptText,
                 sceneIndex: index,
                 maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
                 generate: async ({ prompt: attemptPrompt }) => {
-                  const attemptResult = await serviceBus.callPythonSkill('generate_image', {
+                  const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {
                     prompt: attemptPrompt,
                     style: imageStyle,
                     image_provider: imageProvider,
@@ -404,7 +549,7 @@ function registerStory2VideoStages(pipelineEngine) {
                     index,
                     aspect_ratio: aspectRatio,
                     runId,
-                  });
+                  }));
                   const providerError = attemptResult?.error || attemptResult?.data?.error;
                   if (providerError && typeof providerError === 'object') throw providerError;
                   if (attemptResult?.success === false || Number(attemptResult?.code) < 0) {
@@ -442,6 +587,7 @@ function registerStory2VideoStages(pipelineEngine) {
             }
             const normalized = normalizeAssetResult(result, ['path', 'url', 'image_path']);
             if (normalized) {
+              markImageDone();
               return {
                 index,
                 success: true,
@@ -472,12 +618,18 @@ function registerStory2VideoStages(pipelineEngine) {
         concurrency,
         async (sentence, index) => {
           try {
+            const resumed = resumeCompleted.get(index);
+            if (resumed) {
+              markTtsDone();
+              return { index, success: true, path: resumed.audioPath, duration: resumed.duration || null, meta: { resumed: true } };
+            }
             const suppliedAudio = inputAudio[index]
             if (suppliedAudio !== undefined) {
               const suppliedPath = resolveInputAudio(suppliedAudio)
               if (!suppliedPath) {
                 return { index, success: false, error: 'Supplied audio is missing or unreadable' };
               }
+              markTtsDone();
               return {
                 index,
                 success: true,
@@ -487,8 +639,8 @@ function registerStory2VideoStages(pipelineEngine) {
               };
             }
             const text = typeof sentence === 'string' ? sentence : sentence.text || sentence.content;
-            const result = assetGenerator
-              ? await assetGenerator.generateTTS(text, {
+            const result = await withAssetTransientRetry(() => assetGenerator
+              ? assetGenerator.generateTTS(text, {
                   voice_id: voiceId,
                   voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
                   voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
@@ -498,7 +650,7 @@ function registerStory2VideoStages(pipelineEngine) {
                   index,
                   runId,
                 })
-              : await serviceBus.callPythonSkill('generate_tts', {
+              : serviceBus.callPythonSkill('generate_tts', {
                   text,
                   voice_id: voiceId,
                   voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
@@ -508,9 +660,10 @@ function registerStory2VideoStages(pipelineEngine) {
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
                   index,
                   runId,
-                });
+                }));
             const normalized = normalizeAssetResult(result, ['path', 'audio_path']);
             if (normalized) {
+              markTtsDone();
               return {
                 index,
                 success: true,
@@ -636,6 +789,20 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 默认要求每个 scene 都有成对资源；部分成片必须显式 opt-in。
       if (pairedScenes.length === 0 || (!allowPartialAssets && pairedScenes.length < maxScenes)) {
+        // 记录已完成的场景（图片+音频都有），供「从断点继续」跳过，避免重复消耗额度
+        if (context && typeof context === 'object') {
+          context.generate_assets = context.generate_assets || {};
+          context.generate_assets.resume = {
+            completed: pairedScenes.map((scene) => ({
+              index: scene.index,
+              imagePath: scene.imagePath,
+              audioPath: scene.audioPath,
+              duration: scene.duration || null,
+            })),
+            total: maxScenes,
+            savedAt: new Date().toISOString(),
+          };
+        }
         const failureDetails = [
           ...summarizeAssetFailures('Image', failedImages),
           ...summarizeAssetFailures('TTS', failedTts),
@@ -648,6 +815,9 @@ function registerStory2VideoStages(pipelineEngine) {
         };
       }
 
+      if (context && typeof context === 'object' && context.generate_assets && context.generate_assets.resume) {
+        delete context.generate_assets.resume;
+      }
       return {
         success: true,
         output: assetManifest,

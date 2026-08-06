@@ -104,6 +104,17 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
+  ipcMain.handle('pipeline:resumeOrchestration', withSenderCheck(async (_event, runId) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
+    try {
+      const result = await pipelineEngine.resumeOrchestration(runId)
+      return { code: 0, data: result }
+    } catch (err) {
+      log.error('[pipeline] resumeOrchestration error:', err)
+      return { code: EC.REQUEST_ERROR, message: err.message }
+    }
+  }))
+
   ipcMain.handle('pipeline:executeStage', withSenderCheck(async (_event, runId) => {
     if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
     try {

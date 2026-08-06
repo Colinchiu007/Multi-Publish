@@ -310,6 +310,7 @@ export async function pipelineHistory() { return invokeWithFallback("pipelineHis
 
 // ═══ Pipeline 编排模式 API（story2video-compose 等新流水线使用） ═══
 export async function pipelineStartOrchestrated(name, params) { return invokeWithFallback("pipelineStartOrchestrated", { code: -1, message: 'electronAPI not available' }, name, params) }
+export async function pipelineResumeOrchestration(runId) { return invokeWithFallback("pipelineResumeOrchestration", { code: -1, message: 'electronAPI not available' }, runId) }
 export async function pipelineExecuteStage(runId) { return invokeWithFallback("pipelineExecuteStage", { code: -1 }, runId) }
 export async function pipelineAdvanceToNextCheckpoint(runId) { return invokeWithFallback("pipelineAdvanceToNextCheckpoint", { code: -1 }, runId) }
 export async function pipelineGetRunContext(runId) { return invokeWithFallback("pipelineGetRunContext", null, runId) }

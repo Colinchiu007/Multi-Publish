@@ -102,6 +102,7 @@ var require_publish = __commonJS({
         pipelineFetch: (name) => ipcRenderer2.invoke("pipeline:fetch", name),
         // 编排模式 API（story2video-compose）
         pipelineStartOrchestrated: (name, params) => ipcRenderer2.invoke("pipeline:startOrchestrated", name, params),
+        pipelineResumeOrchestration: (runId) => ipcRenderer2.invoke("pipeline:resumeOrchestration", runId),
         pipelineExecuteStage: (runId) => ipcRenderer2.invoke("pipeline:executeStage", runId),
         pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer2.invoke("pipeline:advanceToNextCheckpoint", runId),
         pipelineGetRunContext: (runId) => ipcRenderer2.invoke("pipeline:getRunContext", runId),
