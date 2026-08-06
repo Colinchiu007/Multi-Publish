@@ -46,3 +46,15 @@
 1. story2video-compose：UI 驱动真实生成（登录 profile + 已配置 MiniMax 图片/TTS + LLM），断言六阶段全部成功、输出视频存在且 ffprobe 可解码、时长>0。
 2. 其余 13 条：UI 驱动点击启动，记录"启动→停留首阶段"的真实行为，作为无引擎缺口的 UI 证据；写入 UI/UE 优化需求（未实现流水线应显式标识并禁用启动）。
 3. 外部验收边界：真实 provider 生成依赖账号配额/网络；失败时记录真实错误码与原因，不伪造通过。
+
+## 状态更新（2026-08-06 09:00）
+
+| 流水线 | 引擎 | 状态 |
+|---|---|---|
+| story2video-compose | ✅ | PR #362/#363 合并，E2E PASS |
+| animated-explainer | ✅ | PR #364 合并，E2E PASS |
+| clip-factory / cinematic / framework-smoke / talking-head | ✅ | PR #365 合并（18d264d），E2E PASS |
+| UE 优化（徽标/禁用/子分组） | — | PR #366 合并（0957e48） |
+| documentary-montage | ✅ | PR #367（CI 中），E2E PASS（run_1785970039014_aiie） |
+| localization-dub / podcast-repurpose / screen-demo | ❌ | 可行未实现（建议单独立项） |
+| animation / avatar-spokesperson / character-animation / hybrid | ❌ | 缺视频生成/数字人模型 |
