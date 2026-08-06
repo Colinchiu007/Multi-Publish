@@ -20,6 +20,24 @@ function safeIdentifier (value, maxLength = MAX_IDENTIFIER_LENGTH) {
   return normalized
 }
 
+/**
+ * voiceId 校验（比 providerId/model 宽松）：
+ * 允许 MiniMax 系统音色 id（如 'Chinese (Mandarin)_Reliable_Executive'，含空格/括号）
+ * 以及常规 ASCII id；仅拒绝控制字符、路径分隔符与遍历序列。
+ * voiceId 只用于偏好持久化与传给 adapter 合成，不进入文件路径。
+ */
+function safeVoiceId (value, maxLength = MAX_VOICE_ID_LENGTH) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (!normalized || normalized.length > maxLength) return null
+  if (Array.from(normalized).some((character) => {
+    const code = character.charCodeAt(0)
+    return code <= 0x1f || code === 0x7f
+  })) return null
+  if (normalized.includes('/') || normalized.includes('\\') || normalized.includes('..')) return null
+  return normalized
+}
+
 function success (data) {
   return { code: 0, data }
 }
@@ -239,7 +257,7 @@ class TtsVoiceService {
     if (input.refresh !== undefined && typeof input.refresh !== 'boolean') return null
     const request = { providerId, model, refresh: input.refresh === true }
     if (options.requireVoiceId) {
-      const voiceId = safeIdentifier(input.voiceId, MAX_VOICE_ID_LENGTH)
+      const voiceId = safeVoiceId(input.voiceId, MAX_VOICE_ID_LENGTH)
       if (!voiceId) return null
       request.voiceId = voiceId
     }
