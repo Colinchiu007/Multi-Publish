@@ -57,6 +57,8 @@ const { registerCinematicStages } = require('../services/cinematic-stages');
 const { registerSmokeTestStages } = require('../services/smoketest-stages');
 const { registerTalkingHeadStages } = require('../services/talkinghead-stages');
 const { registerDocumentaryStages } = require('../services/documentary-stages');
+const { registerLocalizationStages } = require('../services/localization-stages');
+const { registerVideoGenStages } = require('../services/videogen-stages');
 
 function createContainer(options) {
   const container = new Container();
@@ -92,6 +94,8 @@ function createContainer(options) {
         registerSmokeTestStages(engine);
         registerTalkingHeadStages(engine);
         registerDocumentaryStages(engine);
+        registerLocalizationStages(engine);
+        registerVideoGenStages(engine);
       } catch (e) {
         c.get("logger").warn("container",
           "registerStory2VideoStages failed: " + (e instanceof Error ? e.message : String(e)));

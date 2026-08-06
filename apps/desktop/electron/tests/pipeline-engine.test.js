@@ -39,7 +39,7 @@ describe('PipelineEngine 状态机模式', () => {
 
   it('已实现真实引擎的流水线标记 available=true', () => {
     const list = engine.listPipelines()
-    const implemented = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage']
+    const implemented = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
     for (const name of implemented) {
       expect(list.find(item => item.name === name)?.available).toBe(true)
     }
@@ -47,10 +47,18 @@ describe('PipelineEngine 状态机模式', () => {
 
   it('未实现真实引擎的流水线标记 available=false', () => {
     const list = engine.listPipelines()
-    const notImplemented = ['animation', 'avatar-spokesperson', 'character-animation', 'hybrid', 'localization-dub', 'podcast-repurpose', 'screen-demo']
+    const notImplemented = ['podcast-repurpose', 'screen-demo']
     for (const name of notImplemented) {
       expect(list.find(item => item.name === name)?.available).toBe(false)
     }
+  })
+
+  it('localization-dub 提供完整 stageDefs 链', () => {
+    const pipeline = engine.getPipeline('localization-dub')
+    expect(pipeline.stages).toEqual(['transcribe', 'translate', 'tts', 'sync'])
+    expect(pipeline.stageDefs.map(def => def.type)).toEqual([
+      'localization_transcribe', 'localization_translate', 'localization_tts', 'localization_sync',
+    ])
   })
 
   it('documentary-montage 提供完整 stageDefs 链', () => {
