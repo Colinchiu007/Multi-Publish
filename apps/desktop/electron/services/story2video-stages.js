@@ -264,33 +264,43 @@ function registerStory2VideoStages(pipelineEngine) {
         return { success: false, error: 'Story2Video optimize 需要非空场景数组' };
       }
 
-      const output = [];
-      for (let index = 0; index < scenes.length; index++) {
-        const promptSeed = getScenePromptSeed(scenes[index]);
-        if (!promptSeed) {
-          return { success: false, error: 'Story2Video optimize scene ' + index + ' is missing a prompt seed' };
-        }
-        try {
-          const result = await aiGenerator.generateWithDefault(
-            'llm',
-            buildOptimizationRequest(promptSeed, stage.options || {}),
-          );
-          const optimizedPrompt = result && typeof result.content === 'string' ? result.content.trim() : '';
-          if (!optimizedPrompt) {
-            return { success: false, error: 'Story2Video optimize scene ' + index + ' returned an empty prompt' };
+      // 性能修复：逐场景 LLM 优化改为有界并发（默认 3），避免长文案 20+ 场景串行
+      // 调用导致「提示词优化」阶段耗时数分钟。
+      const concurrency = normalizeAssetConcurrency(stage.options?.concurrency ?? 3)
+      let output
+      try {
+        output = await _mapWithConcurrency(scenes, concurrency, async (scene, index) => {
+          const promptSeed = getScenePromptSeed(scene)
+          if (!promptSeed) {
+            throw new Error('Story2Video optimize scene ' + index + ' is missing a prompt seed')
           }
-          output.push({
+          let result
+          try {
+            result = await aiGenerator.generateWithDefault(
+              'llm',
+              buildOptimizationRequest(promptSeed, stage.options || {}),
+            )
+          } catch (error) {
+            throw new Error(
+              'Story2Video optimize scene ' + index + ' failed: ' + (error && error.message ? error.message : String(error)),
+            )
+          }
+          const optimizedPrompt = result && typeof result.content === 'string' ? result.content.trim() : ''
+          if (!optimizedPrompt) {
+            throw new Error('Story2Video optimize scene ' + index + ' returned an empty prompt')
+          }
+          return {
             optimized_prompt: optimizedPrompt,
             providerId: defaultLlm.providerId,
             model: typeof result.model === 'string' && result.model.trim()
               ? result.model.trim()
               : defaultLlm.model,
-          });
-        } catch (error) {
-          return {
-            success: false,
-            error: 'Story2Video optimize scene ' + index + ' failed: ' + (error && error.message ? error.message : String(error)),
-          };
+          }
+        })
+      } catch (error) {
+        return {
+          success: false,
+          error: 'Story2Video optimize failed: ' + (error && error.message ? error.message : String(error)),
         }
       }
 
