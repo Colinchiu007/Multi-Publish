@@ -306,7 +306,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     maxSentenceLength: numberValue(own(splitInput, 'maxSentenceLength'), 200, 'split.maxSentenceLength', 20, 1000, true),
     targetSeconds: numberValue(own(splitInput, 'targetSeconds'), 6, 'split.targetSeconds', 1, 60),
     baseWordsPerSecond: numberValue(own(splitInput, 'baseWordsPerSecond'), 3.3, 'split.baseWordsPerSecond', 0.5, 10),
-    speechRate: numberValue(own(splitInput, 'speechRate'), 1, 'split.speechRate', 0.5, 2),
+    // speechRate 单一来源（三层模型 P1，Batch 2）：由 voice.speed 派生，不再校验/接受独立值
     minWords: numberValue(own(splitInput, 'minWords'), 10, 'split.minWords', 1, 200, true),
     maxWords: numberValue(own(splitInput, 'maxWords'), 50, 'split.maxWords', 1, 500, true),
     enforceSentenceBoundary: booleanValue(own(splitInput, 'enforceSentenceBoundary'), true),
@@ -319,22 +319,8 @@ function normalizeStory2VideoTextParams(params = {}) {
   if (split.subtitleMinChars > split.subtitleMaxChars) {
     throw new Error('Story2Video split.subtitleMinChars 不能大于 subtitleMaxChars')
   }
-  // 分镜字数主控（三层模型①）：显式 targetCharsPerScene 优先；缺省时由 targetSeconds
-  // （× baseWordsPerSecond × speechRate）换算并夹在 [max(minWords,1), min(maxWords,200)]
-  // （与 1..200 契约一致，防止 maxWords 配到 500 时突破契约）。旧配置自动兼容。
-  const computedTargetChars = Math.round(split.targetSeconds * split.baseWordsPerSecond * split.speechRate)
-  const explicitChars = own(splitInput, 'targetCharsPerScene') !== undefined
-    ? numberValue(own(splitInput, 'targetCharsPerScene'), DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.targetCharsPerScene, 'split.targetCharsPerScene', 1, 200, true)
-    : null
-  if (explicitChars !== null && (explicitChars < split.minWords || explicitChars > split.maxWords)) {
-    throw new Error('Story2Video split.targetCharsPerScene 必须在 [minWords=' + split.minWords + ', maxWords=' + split.maxWords + '] 范围内')
-  }
-  split.targetCharsPerScene = explicitChars !== null
-    ? explicitChars
-    : Math.min(Math.min(split.maxWords, 200), Math.max(Math.max(split.minWords, 1), computedTargetChars))
-  // 统一以最终 targetCharsPerScene 反推 target_duration（= chars ÷ (bps × speechRate)，取整 1..60）：
-  // 使主控经现有 8002 通道在 Batch 1 生效，且首次运行与保存重载一致（幂等，双模型审查 W1）。
-  split.targetSeconds = Math.min(60, Math.max(1, Math.round(split.targetCharsPerScene / (split.baseWordsPerSecond * split.speechRate))))
+  // 分镜字数主控（三层模型①）与 speechRate 单一来源在 voice 构建后计算（见下），
+  // 使切分估算使用实际 TTS 语速。
 
   const optimize = {
     style: promptStyleValue(
@@ -362,6 +348,26 @@ function normalizeStory2VideoTextParams(params = {}) {
     pitch: numberValue(firstDefined(own(voiceInput, 'pitch'), params.voicePitch), 0, 'voice.pitch', -12, 12),
     emotion: idValue(firstDefined(own(voiceInput, 'emotion'), params.voiceEmotion), 'default', 'voice.emotion'),
   }
+
+  // speechRate 单一来源（三层模型 P1，Batch 2）：切分估算与实际 TTS 语速一致，
+  // 消除“切分按 1x、播报按 1.5x”脱节；voice.speed 已按 0.5..2 校验。
+  split.speechRate = voice.speed
+  // 分镜字数主控（三层模型①）：显式 targetCharsPerScene 优先；缺省时由 targetSeconds
+  // （× baseWordsPerSecond × speechRate）换算并夹在 [max(minWords,1), min(maxWords,200)]
+  // （与 1..200 契约一致，防止 maxWords 配到 500 时突破契约）。旧配置自动兼容。
+  const computedTargetChars = Math.round(split.targetSeconds * split.baseWordsPerSecond * split.speechRate)
+  const explicitChars = own(splitInput, 'targetCharsPerScene') !== undefined
+    ? numberValue(own(splitInput, 'targetCharsPerScene'), DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.targetCharsPerScene, 'split.targetCharsPerScene', 1, 200, true)
+    : null
+  if (explicitChars !== null && (explicitChars < split.minWords || explicitChars > split.maxWords)) {
+    throw new Error('Story2Video split.targetCharsPerScene 必须在 [minWords=' + split.minWords + ', maxWords=' + split.maxWords + '] 范围内')
+  }
+  split.targetCharsPerScene = explicitChars !== null
+    ? explicitChars
+    : Math.min(Math.min(split.maxWords, 200), Math.max(Math.max(split.minWords, 1), computedTargetChars))
+  // 统一以最终 targetCharsPerScene 反推 target_duration（= chars ÷ (bps × speechRate)，取整 1..60）：
+  // 使主控经现有 8002 通道生效，且首次运行与保存重载一致（幂等）。
+  split.targetSeconds = Math.min(60, Math.max(1, Math.round(split.targetCharsPerScene / (split.baseWordsPerSecond * split.speechRate))))
 
   const subtitleSize = normalizeSubtitleSize(firstDefined(own(subtitleInput, 'size'), params.subtitleStyle?.size))
   const subtitle = {
@@ -457,6 +463,8 @@ function normalizeStory2VideoTextParams(params = {}) {
       speech_rate: split.speechRate,
       min_words: split.minWords,
       max_words: split.maxWords,
+      // 仅供本地 fallback 切分直接消费；8002 经 _buildStorySplitterOptions 白名单不会收到该键。
+      target_chars_per_scene: split.targetCharsPerScene,
       enforce_sentence_boundary: split.enforceSentenceBoundary,
       overflow_to_next: split.overflowToNext,
       subtitle_min_chars: split.subtitleMinChars,

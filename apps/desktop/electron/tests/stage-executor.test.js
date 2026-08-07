@@ -97,6 +97,7 @@ it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块'
         target_duration: 4,
         base_words_per_second: 2.8,
         speech_rate: 1.2,
+        target_chars_per_scene: 20,
         min_words: 12,
         max_words: 40,
         enforce_sentence_boundary: false,
@@ -147,6 +148,9 @@ it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块'
   expect(sentOptions).not.toHaveProperty('require_scene_output');
   expect(sentOptions).not.toHaveProperty('target_duration');
   expect(sentOptions).not.toHaveProperty('subtitle_min_chars');
+  // 分镜字数主控只走本地 fallback（snake_case 键），8002 请求不得包含（双模型审查 W2）
+  expect(sentOptions).not.toHaveProperty('target_chars_per_scene');
+  expect(sentOptions.config.scene).not.toHaveProperty('target_chars_per_scene');
 });
 
 it('Story2Video SPLIT 仅在 8002 不可用时降级到本地双层分句', async function () {

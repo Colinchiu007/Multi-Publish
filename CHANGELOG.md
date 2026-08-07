@@ -5,6 +5,8 @@
   `sceneDurationMode`（`follow-audio`|`min-duration`，默认 follow-audio）、`minSceneDuration`（默认 6，1..60）。
   均为兼容扩展（旧配置缺省时按既有 `targetSeconds×baseWordsPerSecond×speechRate` 换算并夹到契约范围；
   显式 `targetCharsPerScene` 时反推 `target_duration` 经 8002 通道生效）。
+- **`split.speechRate` 单一来源**：切分估算语速改由 `voice.speed` 驱动（消除"切分按 1x、播报按 1.5x"脱节）；
+  旧配置显式 `split.speechRate` 不再生效（被 `voice.speed` 覆盖），发布前请知悉。
 
 ### 视频创作
 - 图片动效（放大/缩小/平移/缩放平移）进度改为按**场景有效时长**归一化：音频探测成功用真实音频时长，探测失败回退上报时长/默认 6 秒；短场景不再"动效没做完就被切走"，长场景不再"动效提前定格"（与 zoompan `d=总帧数` 修复合并生效）。

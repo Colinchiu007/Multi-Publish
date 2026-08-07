@@ -3,6 +3,7 @@ const {
   buildSubtitleTimeline,
   createLocalSplitResult,
   normalizeServiceSplitResult,
+  splitScenesLocally,
   splitSubtitleBlocks,
 } = require('./story2video-segmentation')
 
@@ -86,6 +87,42 @@ describe('Story2Video 双层分句合同', () => {
     expect(result.scenes.map(scene => scene.text).join('')).toBe(
       '第一句话用于建立场景。第二句话继续补充信息。第三句话切换到新的画面。',
     )
+  })
+})
+
+describe('Story2Video 本地切分 — 分镜字数主控', () => {
+  it('显式 targetCharsPerScene 优先于 targetDuration 换算，并保持原文拼接', () => {
+    const text = '第一句话。第二句话。第三句话。第四句话。第五句话。第六句话。第七句话。第八句话。'
+    // 40 字：20 字/场景 → 2 场景；targetDuration=60 → 198 字/场景 → 1 场景
+    const by20 = splitScenesLocally(text, { targetCharsPerScene: 20, targetDuration: 60 })
+    const byDuration = splitScenesLocally(text, { targetDuration: 60 })
+    expect(by20.scenes.length).toBe(2)
+    expect(byDuration.scenes.length).toBe(1)
+    expect(by20.scenes.join('')).toBe('第一句话。第二句话。第三句话。第四句话。第五句话。第六句话。第七句话。第八句话。')
+  })
+
+  it('targetCharsPerScene 缺省时回退 targetDuration×bps×speechRate 旧公式', () => {
+    const text = '第一句话。第二句话。第三句话。第四句话。第五句话。第六句话。'
+    // 30 字：targetDuration=6 × 3.3 = 19.8 → 20 字/场景 → 2 场景
+    const result = splitScenesLocally(text, { targetDuration: 6 })
+    expect(result.scenes.length).toBe(2)
+  })
+
+  it('snake_case 端到端：本地降级从 stage.options 直读 target_chars_per_scene', () => {
+    const text = '第一句话。第二句话。第三句话。第四句话。'
+    // 模拟 text-config stageOptions.split 真实结构（snake_case；8002 请求不含该键）
+    const result = createLocalSplitResult(text, {
+      target_duration: 60,
+      target_chars_per_scene: 10,
+      min_words: 1,
+      max_words: 50,
+      subtitle_min_chars: 8,
+      subtitle_max_chars: 15,
+    }, new Error('connect ECONNREFUSED 127.0.0.1:8002'))
+    // 20 字 ÷ 10 字/场景 = 2 场景（target_duration=60 的 198 字换算被主控覆盖）
+    expect(result.scenes.length).toBe(2)
+    expect(result.scenes.map(s => s.text).join('')).toBe(text)
+    expect(result.degraded).toBe(true)
   })
 })
 

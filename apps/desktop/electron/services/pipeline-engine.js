@@ -496,6 +496,7 @@ const PIPELINES = [
           target_duration: 6,
           base_words_per_second: 3.3,
           speech_rate: 1,
+          target_chars_per_scene: 20,
           min_words: 10,
           max_words: 50,
           enforce_sentence_boundary: true,

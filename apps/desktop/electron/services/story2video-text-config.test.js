@@ -263,10 +263,12 @@ describe('Story2Video text 参数合同', () => {
     })
     expect(clampedLow.story2videoTextConfig.split.targetCharsPerScene).toBe(10)
     expect(clampedLow.stageOptions.split.target_duration).toBe(3)
-    // maxWords 配到 500 且 60s×3.3×2=396 时也不能突破 1..200 契约（双模型审查 W1）
+    // maxWords 配到 500 且 voiceSpeed=2（speechRate 单一来源）时 60s×3.3×2=396，
+    // 也不能突破 1..200 契约（双模型审查 W1）
     const capped = normalizeStory2VideoTextParams({
       text: '契约上限',
-      story2videoTextConfig: { split: { targetSeconds: 60, speechRate: 2, maxWords: 500 } },
+      voiceSpeed: 2,
+      story2videoTextConfig: { split: { targetSeconds: 60, maxWords: 500 } },
     })
     expect(capped.story2videoTextConfig.split.targetCharsPerScene).toBe(200)
     expect(capped.stageOptions.split.target_duration).toBe(30)
@@ -281,6 +283,21 @@ describe('Story2Video text 参数合同', () => {
       text: '越界字数',
       story2videoTextConfig: { split: { targetCharsPerScene: 5, minWords: 10, maxWords: 50 } },
     })).toThrow(/targetCharsPerScene/)
+  })
+
+  it('speechRate 单一来源：split.speechRate 由 voice.speed 驱动，target_chars_per_scene 透传给本地切分', () => {
+    const result = normalizeStory2VideoTextParams({
+      text: '语速一致',
+      voiceSpeed: 1.5,
+      story2videoTextConfig: { split: { targetSeconds: 6, speechRate: 1.2 } },
+    })
+    expect(result.story2videoTextConfig.voice.speed).toBe(1.5)
+    // 显式 split.speechRate=1.2 被 voice.speed=1.5 覆盖（单一来源）
+    expect(result.story2videoTextConfig.split.speechRate).toBe(1.5)
+    expect(result.stageOptions.split.speech_rate).toBe(1.5)
+    // 6s × 3.3 × 1.5 = 29.7 → 30
+    expect(result.story2videoTextConfig.split.targetCharsPerScene).toBe(30)
+    expect(result.stageOptions.split.target_chars_per_scene).toBe(30)
   })
 
   it('场景时长模式：默认 follow-audio/6，min-duration 可配，越界与非法枚举拒绝', () => {
