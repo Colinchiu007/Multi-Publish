@@ -89,7 +89,9 @@ describe('podcast-repurpose 阶段执行器', () => {
         const { get } = makePipeline()
         const result = await get(PODCAST_STAGE_TYPES.ANALYZE)({ params: { audio: wav, transcript: '第一句。\n第二句。' } })
         expect(result.success).toBe(true)
-        expect(result.output.audioPath).toBe(wav)
+        // CI（Windows 8.3 短路径）下 resolveReadableMediaFile 返回 canonical 路径，
+        // 必须对期望值与实际值同时做 realpathSync.native 比较
+        expect(fs.realpathSync.native(result.output.audioPath)).toBe(fs.realpathSync.native(wav))
         expect(result.output.duration).toBeGreaterThan(0)
         expect(result.output.segments).toHaveLength(2)
         expect(result.output.segments[0].start).toBe(0)
