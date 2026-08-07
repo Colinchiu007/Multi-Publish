@@ -1532,7 +1532,7 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
-  it("refreshRunningHistory 运行结束的项从运行中区移除", async () => {
+  it("refreshRunningHistory 运行结束的项触发完整加载，终态保留在历史中不消失", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
@@ -1544,10 +1544,15 @@ describe("CreateView - UI interactions", () => {
     await nextTick();
     expect(w.vm.history.some(i => i.id === "run-fin")).toBe(true);
 
-    // 运行结束（pipelineHistory 不再返回运行中项）
-    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
+    // 运行结束：终态（failed）出现在 pipelineHistory，刷新后应触发完整加载并显示终态，而不是消失
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-fin", pipeline: "story2video-compose", status: "failed", createdAt: "2026-08-07T00:00:00.000Z", error: "boom", stages: [] },
+    ] });
     await w.vm.refreshRunningHistory();
     await nextTick();
-    expect(w.vm.history.some(i => i.id === "run-fin")).toBe(false);
+    expect(mocks.pipelineHistory.mock.calls.length).toBeGreaterThan(1); // 触发了完整加载
+    const finished = w.vm.history.find(i => i.id === "run-fin");
+    expect(finished).toBeTruthy();
+    expect(finished.status).toBe("failed");
     w.unmount();
   });
