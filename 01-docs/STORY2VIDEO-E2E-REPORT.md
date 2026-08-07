@@ -97,3 +97,5 @@
 ### 证据
 - `C:\tmp\e2e-confirm-report.json`（第二轮 3 场景）；成片文件见上表；应用日志 `C:\tmp\Multi-Publish-debug-profile\logs\app-2026-08-07.log`。
 - 并发上限固定开关（`STORY2VIDEO_MAX_CONCURRENT_RUNS=2` → 第 3 条拒绝）仍在 `E2E-PENDING.md` 待办 E。
+
+- **并发上限固定开关验证（2026-08-07，`STORY2VIDEO_MAX_CONCURRENT_RUNS=2`）**：A/B 两条流水线并行成功；第 3 条被拒（`PIPELINE_CONCURRENCY_LIMIT`，友好文案「当前已有 2 条流水线正在运行，最多同时运行 2 条，请等待其中一条完成后再启动。」）；历史仅 2 条运行中；切 `#/dashboard` 后仍在 `optimize` 后台运行。脚本 `C:\tmp\e2e-concurrency.js`（env 注入固定上限），报告 `C:\tmp\e2e-concurrency-report.json`（limitVerified=true）。
