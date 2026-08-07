@@ -57,3 +57,23 @@
 ### 附带发现：25+ 场景 compose 渲染资源限制（新待办 D）
 - 27 段 720x1280 合成时，单条 ffmpeg 构建 27 路 xfade/acrossfade 图，x264 报 `malloc of size 1586256 failed`（环境内存不足）→ compose 失败。与 W2/W3 无关（资源生成阶段全部成功）；已记入 `E2E-PENDING.md` 待办 D（分块合成/限制输入路数）。
 - 证据文件：`C:\tmp\e2e-w2w3-report.json`、`C:\tmp\e2e-w2w3-provider-logs.json`；应用日志 `C:\tmp\Multi-Publish-debug-profile\logs\app-2026-08-06.log`（14:49-15:01 窗口）。
+
+---
+
+## 后台并发专项验证（2026-08-07，main e081a43）
+
+> 目的：验证「后台运行 + 历史显示运行中 + 并发上限」在真实 provider 下的行为；脚本 `C:\tmp\e2e-concurrency.js`（Playwright Electron + debug profile，真实 minimax-tts / minimax-image / agnes-llm / sensenova-llm）。
+
+### 验证结果
+1. **2 条流水线并行启动**：`pipelineStartOrchestrated` ×2 均 `success:true`，两条 run 同时运行。
+2. **历史记录显示运行中**：`pipeline:history` 返回 3 条 running（含阶段状态字段），运行中任务可被前端轮询展示。
+3. **切模块后台继续**：renderer 导航到 `#/dashboard` 后，run A 仍在 `generate_assets` 阶段推进（`status=running, currentStage=3`），未随页面切换停止。
+4. **第 3 条未触发拒绝（预期内）**：本机为高配，`computeDefaultMaxConcurrentRuns` 自适应=4，3 条并发在设计范围内；「超限拒绝 + `PIPELINE_CONCURRENCY_LIMIT` 友好提示」由引擎单测覆盖（注入上限 1/2），真实应用内触发需低配环境或设 `STORY2VIDEO_MAX_CONCURRENT_RUNS` 固定开关。
+
+### 真实链路暴露并已修复（PR #384）
+1. **MiniMax Image 空结果**：run A 在 `generate_assets` 第 2 个场景失败——`Image provider "minimax-image" failed: provider did not return a supported image binary`（HTTP 200 但 `image_urls` 为空，静默拒绝/瞬时故障绕过重试循环）。修复：adapter 空结果显式抛错（内容安全信号→`CONTENT_POLICY`，否则 `PROVIDER_ERROR`）；asset-generator 在内容政策重试循环内校验，前 2 次同提示词、第 3 次起安全改写、第 5 次仍空 → `needs_user_input(reason=empty_result)`。见 PRD 7.1.5「空响应重试合同」。
+2. **compose 转场 `transition=undefined`**：run B 在 compose 失败——ffmpeg `xfade=transition=undefined` → `const_values array too small for transition` / `Not yet implemented`。修复：`buildTransitionPlan` 所有返回路径携带 `transitionName`（默认 fade），`_xfadeMerge` 不再拼出 `undefined`。见 PRD「真实链路修复合同」。
+
+### 证据
+- `C:\tmp\e2e-concurrency-report.json`（A/B 终态 failed 时的阶段快照）；应用日志 `C:\tmp\Multi-Publish-debug-profile\logs\app-2026-08-07.log`。
+- 两处修复的重测（到成片）与并发固定上限开关验证见 `E2E-PENDING.md` 待办 E。
