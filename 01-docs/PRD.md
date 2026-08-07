@@ -720,6 +720,7 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
   - 入口按钮文案固定为「选择本地音频文件」（已选样本后为「重新选择音频文件」）；上传要求提示由主进程返回的
     `getRequirements` 数据驱动渲染（格式 mp3/m4a/wav、时长 10s–5min、大小 ≤20MB），提示必须显示真实数值，不得把
     函数/方法引用渲染为文本（回归：模板中调用 `s2vVoiceCloneHint()`）。
+  - **授权勾选已移除（2026-08-07 需求调整）**：不再要求用户勾选「我确认已取得样本上传、使用和克隆的权利，并已作出明确同意。」；选择样本 + 填写克隆音色名称即可添加。IPC/服务层 `consent` 内部契约保持不变（renderer 恒传 `true`，fail-closed 防御不变），仅移除前端勾选 UI 与关联状态/校验；添加按钮可用条件 = 已选样本 + 名称非空 + 非加载中。
   - 克隆链路全部错误码必须映射为友好本地化文案：`VOICE_CLONE_SAMPLE_INVALID / SAMPLE_DURATION_INVALID /
     SAMPLE_EXTENSION_UNSUPPORTED / SAMPLE_TOO_LARGE / TOTAL_SIZE_EXCEEDED / TOTAL_DURATION_EXCEEDED /
     PROVIDER_UNAVAILABLE / UNAVAILABLE / UNSUPPORTED / DIALOG_UNAVAILABLE / DUPLICATE_ID / MODEL_MISMATCH /
@@ -822,7 +823,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 折叠持久化 | 折叠状态随 `story2video.lastOptions.v1.ui.expandedGroups` 保存/恢复（字符串数组 + 已知组校验，非法值忽略回退默认）。 |
 | 轻提示 | 选项自动保存（防抖 1s）后显示「选项已保存 ✓」（1.6s 淡出）；进入页面恢复上次选项后显示「已恢复上次的选项设置」。 |
 | 执行控制 | 操作栏（启动流水线/取消/恢复默认选项）sticky 固定在表单底部可视区；运行期进度与阶段清单保持可见。 |
-| 声音克隆 | 音色克隆面板内层折叠（默认收起，展开显示上传区、格式/时长/大小要求与授权勾选）。 |
+| 声音克隆 | 音色克隆面板内层折叠（默认收起，展开显示上传区、格式/时长/大小要求）；样本上传不再要求页面授权勾选（2026-08-07 调整）。 |
 | 本地化 | 组名、摘要、提示全部走 locale，默认中文，英文同步。 |
 | 校验边界 | 纯展示层改动：不改动 `s2vConfig` 数据结构与 IPC 契约；折叠状态类型/键校验失败仅回退默认，不阻塞。 |
 ### 7.2 上传图片快速渲染（独立路径）

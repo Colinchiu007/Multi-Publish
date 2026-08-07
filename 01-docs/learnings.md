@@ -5,7 +5,16 @@
 
 - **MINOR-4**：日志写队列必须加超时兜底——appendFile 回调极端异常可能永不触发，链式 Promise 会把后续所有日志卡死；兜底用 `setTimeout + unref + clearTimeout`（单次 resolve），测试以「mock appendFile 不回调」复现挂起。
 - **MINOR-5**：渲染进程 catch 里的 `console.error` 只进 DevTools，用户/官方/AI 无法从 app-*.log 排查；统一走 `reportError`（electronAPI.logError 优先）即可让 renderer 异常进入主进程文件日志。Vue errorHandler 已接入，其余全局处理器与组件 catch 补齐。
-- **MINOR-6**：并发上限从固定 2 改为按机器资源自适应（1-4，封顶 4），但保留 deps 注入覆盖与 PRD 合同说明；默认值变化必须同步引擎测试（原「默认 2」用例改为显式注入 2）。
+- **MINOR-6**：并发上限从固定 2 改为按机器资源自适应（1-4，封顶 4），但保留 deps 注入覆盖与 PRD 合同说明；默认值变化必须同步引擎测试（原「默认 2」用例改为显式注入 2），并发契约测试须显式注入上限以消除 CI runner 资源差异（自托管 runner 可能只有 1 核）。
+
+## 音色克隆授权勾选移除复盘 (2026-08-07)
+
+### 需求调整
+- 用户发现「我确认已取得样本上传、使用和克隆的权利，并已作出明确同意。」勾选无论是否勾选均可添加成功，要求移除该行。
+- 处理：移除前端勾选 UI 与 `s2vVoiceCloneConsent` 状态/校验（数据、computed、reset、handler 守卫全部清理），IPC/服务层 `consent: true` 契约保持为内部不变式（renderer 恒传 true，fail-closed 防御不变），避免扩大 API 契约改动面。
+
+### 教训
+- 面向用户的"授权/同意"类勾选项若与实际权限判定无关，会形成误导性 UI：要么真正参与校验（勾选才可提交），要么删除。本次按用户决定删除；后续新增类似项必须先确认其是否参与真实校验。
 
 ## Code Review MAJOR 1-3 修复复盘 (2026-08-07)
 
