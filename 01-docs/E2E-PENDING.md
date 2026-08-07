@@ -34,7 +34,8 @@
 - **已实测（`C:\tmp\e2e-concurrency.js`，真实 minimax-tts/minimax-image/agnes-llm/sensenova-llm）**：
   1. ✅ 2 条流水线并行启动成功；`pipeline:history` 返回运行中任务（含阶段状态）；切到其他模块后仍在 `generate_assets` 后台继续运行。
   2. ⚠️ 第 3 条未被拒绝：本机高配，自适应并发上限=4，3 条并发在设计范围内；「超限拒绝 + 友好提示」仅由引擎单测覆盖（注入上限 1/2），真实应用内触发需低配环境或设固定上限开关。
-- **待重测**：
-  1. 重跑真实链路至成片，确认 PR #384 两处修复生效：① MiniMax Image 空结果（静默 200-empty）进入重试并在 5 次后 `needs_user_input`；② compose 转场不再出现 `xfade=transition=undefined`（成片带 fade 转场）。
-  2. 并发上限固定开关：`STORY2VIDEO_MAX_CONCURRENT_RUNS=2` 启动 → 第 3 条流水线被拒并弹出友好并发提示。
-- **重测命令**：`node C:\tmp\e2e-concurrency.js`（需先停已运行的应用实例，避免 profile 单实例锁冲突；报告 `C:\tmp\e2e-concurrency-report.json`）。
+- **PR #384 修复已确认（2026-08-07，`C:\tmp\e2e-confirm.js`）**：
+  - ✅ ② compose 转场：3 场景轮多段 xfade 路径成功（成片 `s2v_1786089323107_1_output.mp4`，33.2s/2.3MB），`xfade=transition=undefined` 不再出现。
+  - ✅ ① MiniMax Image：3 场景 generate_assets 全部完成（3 图+3 TTS 均返回可用结果）；「静默 200-empty」为间歇性未复现，重试/降级由单测覆盖（adapter 显式抛错 + 5 次后 `needs_user_input`）。
+- **待验证**：并发上限固定开关——`STORY2VIDEO_MAX_CONCURRENT_RUNS=2` 启动 → 第 3 条流水线被拒并弹出友好并发提示。
+- **重测命令**：`node C:\tmp\e2e-concurrency.js` / `node C:\tmp\e2e-confirm.js`（需先停已运行的应用实例，避免 profile 单实例锁冲突；报告 `C:\tmp\e2e-*-report.json`）。
