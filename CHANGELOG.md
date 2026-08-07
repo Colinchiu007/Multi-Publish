@@ -1,4 +1,7 @@
-## [未发布] 克隆音色「服务不可用」修复 (2026-08-07)
+## [未发布] 克隆时长探测测试环境修复 (2026-08-07)
+
+### 测试
+- `_probeMediaDuration` 回归测试显式注入 `ffprobePath`，消除 CI（Linux self-hosted，无捆绑 ffprobe）环境依赖导致的 early-return 失败。## [未发布] 克隆音色「服务不可用」修复 (2026-08-07)
 
 ### 图片轮播（音色克隆）
 - **根因**：MiniMax `cloneVoice` 上传/复刻路径带 `/v1` 前缀，而 base_url 已含 `/v1`（`https://api.minimaxi.com/v1`）→ 双重 `/v1` → 404 → 异常被吞 → 提示「音色克隆服务暂时不可用」。

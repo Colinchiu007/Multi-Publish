@@ -912,10 +912,12 @@ describe("_probeMediaDuration — pipe 拿不到 duration 时回退临时文件�
 
   function makeService() {
     // probeDuration 不注入 → 走默认 this._probeMediaDuration
+    // ffprobePath 必须显式注入：CI（Linux self-hosted）无捆绑 ffprobe，避免环境依赖导致 early-return
     return new TtsVoiceCloneService({
       store: createOwnerStore(),
       modelProviderManager: createManager(),
       userDataPath: path.join(os.tmpdir(), "clone-probe-test-" + Math.random().toString(36).slice(2)),
+      ffprobePath: "ffprobe-test",
       randomUUID: () => "clone-stage-a",
       createSelectionToken: () => "selection-a",
       getVoiceCapability: catalogMocks.getVoiceCapability,
