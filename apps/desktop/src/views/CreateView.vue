@@ -410,10 +410,6 @@
                   </button>
                   <span v-if="s2vVoiceCloneSelection" class="config-hint">已选择 {{ s2vVoiceCloneSelection.sampleCount }} 个样本</span>
                 </div>
-                <label class="checkbox-label voice-clone-consent">
-                  <input v-model="s2vVoiceCloneConsent" type="checkbox" />
-                  <span>我确认已取得样本上传、使用和克隆的权利，并已作出明确同意。</span>
-                </label>
                 <p class="config-hint">已授权样本只由可信主进程写入当前用户的本机私有目录，用于管理此克隆音色；页面不会接收原始文件路径或音频内容。</p>
                 <div class="voice-clone-actions">
                   <input v-model.trim="s2vVoiceCloneName" class="form-input" maxlength="128" placeholder="克隆音色名称" />
@@ -958,7 +954,7 @@ export default {
       s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCapability: null,
       s2vVoiceProviderRequestId: 0, s2vVoiceRequestId: 0, s2vVoiceSelectionRequestId: 0, s2vVoiceCloneRequestId: 0, s2vPersistedVoiceId: '',
       s2vVoiceCloneRequirements: null, s2vVoiceClones: [],
-      s2vVoiceCloneSelection: null, s2vVoiceCloneName: '', s2vVoiceCloneConsent: false, s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
+      s2vVoiceCloneSelection: null, s2vVoiceCloneName: '', s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       s2vOpenSections: { basic: true, appearance: false, voice: false, advanced: false, publish: false },
       // 历史
@@ -1017,7 +1013,6 @@ export default {
       return Boolean(
         this.s2vVoiceCloneSelection?.selectionId
           && String(this.s2vVoiceCloneName || '').trim()
-          && this.s2vVoiceCloneConsent === true
           && this.s2vVoiceCloneLoading !== true
       )
     },
@@ -1665,7 +1660,6 @@ export default {
       this.s2vVoiceClones = []
       this.s2vVoiceCloneSelection = null
       this.s2vVoiceCloneName = ''
-      this.s2vVoiceCloneConsent = false
       this.s2vVoiceCloneLoading = false
       this.s2vVoiceCloneError = ''
     },
@@ -1845,7 +1839,6 @@ export default {
         const sampleCount = Array.isArray(result?.data?.samples) ? result.data.samples.length : 0
         if (result?.code === 0 && selectionId && sampleCount > 0) {
           this.s2vVoiceCloneSelection = { selectionId, sampleCount }
-          this.s2vVoiceCloneConsent = false
           return
         }
         this.s2vVoiceCloneSelection = null
@@ -1858,7 +1851,7 @@ export default {
       const context = this.getS2VVoiceContext()
       const selectionId = this.s2vVoiceCloneSelection?.selectionId
       const name = String(this.s2vVoiceCloneName || '').trim()
-      if (!context || !selectionId || !name || this.s2vVoiceCloneConsent !== true || this.s2vVoiceCloneLoading) return
+      if (!context || !selectionId || !name || this.s2vVoiceCloneLoading) return
 
       const requestId = ++this.s2vVoiceCloneRequestId
       this.s2vVoiceCloneLoading = true
@@ -1882,7 +1875,6 @@ export default {
         ]
         this.s2vVoiceCloneSelection = null
         this.s2vVoiceCloneName = ''
-        this.s2vVoiceCloneConsent = false
         this.s2vConfig.voiceId = voice.id
         await this.selectS2VVoice(voice.id)
       } finally {
@@ -2646,7 +2638,6 @@ export default {
 .voice-clone-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .voice-clone-actions .form-input { flex: 1 1 180px; }
 .voice-clone-actions .btn-secondary { margin-top: 0; }
-.voice-clone-consent { align-items: flex-start; margin: 2px 0; white-space: normal; }
 .voice-clone-list { display: grid; gap: 8px; }
 .voice-clone-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
 
