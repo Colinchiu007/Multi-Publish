@@ -276,10 +276,6 @@
               <input type="number" v-model.number="s2vConfig.concurrency" min="1" max="8" class="form-input" />
             </div>
             <div class="config-item">
-              <label>单画面时长（秒）</label>
-              <input type="number" v-model.number="s2vConfig.perImageDuration" min="1" max="60" step="0.5" class="form-input" />
-            </div>
-            <div class="config-item">
               <label>分句语言</label>
               <select v-model="s2vConfig.splitLanguage" class="form-select">
                 <option value="zh">中文</option>
@@ -695,7 +691,6 @@ export default {
         voiceId: 'default', voiceProvider: '', voiceModel: '',
         voiceSpeed: 1, voicePitch: 0, voiceEmotion: 'default', voiceVolume: 1,
         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
-        perImageDuration: 6,
         splitLanguage: 'zh', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
         splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
@@ -893,7 +888,6 @@ export default {
             color: config.subtitleStyle?.color || 'white',
           },
           bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
-          perImageDuration: config.perImageDuration,
           transition: config.transition,
           templateId: config.templateId || '',
           concurrency: config.concurrency,
@@ -941,7 +935,6 @@ export default {
       if (!template) return
       this.s2vConfig.imageEffect = template.imageEffect
       this.s2vConfig.transition = template.transitionEffect
-      this.s2vConfig.perImageDuration = Number(template.perImageDuration) || 6
       this.s2vConfig.subtitleEnabled = template.subtitleStyle?.enabled !== false
       this.s2vConfig.subtitleFont = template.subtitleStyle?.font || this.s2vConfig.subtitleFont
       this.s2vConfig.subtitleSize = template.subtitleStyle?.size || 'size3'
@@ -984,7 +977,6 @@ export default {
         category: 'custom',
         imageEffect: this.s2vConfig.imageEffect,
         transitionEffect: this.s2vConfig.transition,
-        perImageDuration: Number(this.s2vConfig.perImageDuration) || 6,
         size: this.s2vOutputConfig.resolution,
         subtitleStyle: {
           enabled: this.s2vConfig.subtitleEnabled !== false,

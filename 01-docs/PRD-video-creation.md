@@ -194,7 +194,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 旁白 | 豆包兼容音色 ID、`speed=1`、`volume=1`、`pitch=0`、`emotion=default` | `generate_assets` 与 `compose`；凭据仍由加密 Provider 管理器持有 |
 | 字幕 | `enabled=false`、Noto Sans SC 字体栈、`size=size3`、`style=style1` | `compose`，兼容字号映射后交给 ffmpeg |
 | BGM | `enabled=false`、`volume=5`（兼容范围 0-10） | 启用且有受控路径时转换为 ffmpeg `0-1` 音量 |
-| 版本/效果 | `generateBase=true`、`generateMerged=true`、`perImageDuration=6`、`transition=fade` | 至少选择一个版本；无旁白场景时使用 `perImageDuration` |
+| 版本/效果 | `generateBase=true`、`generateMerged=true`、`transition=fade` | 至少选择一个版本；场景时长跟随旁白音频，音频时长不可探测时回退默认 6 秒 |
 | 输出/发布 | 独立分辨率、FPS、格式；平台、标题、描述、标签、封面可选 | `compose` 与 `publish`，未启用发布时明确 `skipped` |
 
 所有运行参数必须是纯 JSON；归一化器只接受白名单字段并在创建 run 之前拒绝非法值。API Key、Access Token 和 Provider Secret 不得写入运行参数、项目历史或结果清单。

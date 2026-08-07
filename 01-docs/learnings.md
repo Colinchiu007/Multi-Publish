@@ -4309,8 +4309,9 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
   `story2videoTextConfig.config.prompt`，但持久化前的 normalizer 仍强制读取顶层 `params.text`；
   renderer 总会重复发送两份文案，因此正常创建流程掩盖了项目恢复路径的失败。
 - `image.aspectRatio` 只校验 `W:H` 字符格式，没有校验下游 Provider 支持集合，`7:11` 等值能进入资产阶段。
-- normalizer、UI 和 YAML 已统一 `perImageDuration` 为 1..60 秒、默认 6 秒，compose engine 的防御性
-  直调仍保留旧的 0.1 秒下限和 3 秒默认值。
+- 无旁白/纯图片轮播模式已下线：`perImageDuration`（单画面时长/无旁白场景时长）已从 renderer、
+  normalizer、模板库与 YAML 中彻底移除；`defaultSceneDuration` 保留为 compose 固定默认 6 秒，
+  仅作“音频时长不可探测”时的回退与动效归一化兜底（compose engine 直调下限 1 秒、默认 6 秒）。
 
 ### 测试逃逸链与系统性漏洞
 1. 项目持久化测试始终同时传 `text` 与版本化 `prompt`，没有构造只剩项目配置的恢复形状。

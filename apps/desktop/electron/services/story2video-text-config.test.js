@@ -63,8 +63,10 @@ describe('Story2Video text 参数合同', () => {
     expect(result).not.toHaveProperty('seconds')
     expect(result).not.toHaveProperty('generateBase')
     expect(result).not.toHaveProperty('generateMerged')
+    expect(result).not.toHaveProperty('perImageDuration')
     expect(result.story2videoTextConfig).not.toHaveProperty('seconds')
     expect(result.story2videoTextConfig).not.toHaveProperty('versions')
+    expect(result.story2videoTextConfig).not.toHaveProperty('perImageDuration')
     expect(result.stageOptions.optimize).not.toHaveProperty('platform')
     expect(result.stageOptions.optimize).not.toHaveProperty('num_candidates')
     expect(result.stageOptions.optimize).not.toHaveProperty('auto_detect_style')
@@ -118,7 +120,6 @@ describe('Story2Video text 参数合同', () => {
         subtitle: { enabled: true, font: 'Noto Sans SC', size: 'size4', style: 'style2', color: '#ffffff' },
         bgm: { enabled: true, path: 'C:/tmp/story2video/selected-media/bgm.mp3', volume: 7 },
         versions: { generateBase: false, generateMerged: true },
-        perImageDuration: 4,
         transition: 'slide-left',
         output: { fps: 24, format: 'webm' },
         publish: { enabled: true, platforms: ['douyin'], title: '日出', content: '海上日出', tags: ['旅行'] },
@@ -155,15 +156,20 @@ describe('Story2Video text 参数合同', () => {
     })
   })
 
-  it('兼容忽略旧时长、版本和 PromptBridge 专属字段', () => {
+  it('兼容忽略旧时长、版本、perImageDuration 和 PromptBridge 专属字段', () => {
     const result = normalizeStory2VideoTextParams({
       text: '兼容旧配置',
-      story2videoTextConfig: { seconds: 12, versions: { generateBase: false, generateMerged: false }, optimize: { platform: 'unknown' } },
+      story2videoTextConfig: { seconds: 12, versions: { generateBase: false, generateMerged: false }, perImageDuration: 4, optimize: { platform: 'unknown' } },
     })
 
     expect(result.stageOptions.optimize).not.toHaveProperty('platform')
     expect(result).not.toHaveProperty('seconds')
     expect(result.story2videoTextConfig).not.toHaveProperty('versions')
+    expect(result).not.toHaveProperty('perImageDuration')
+    expect(result.story2videoTextConfig).not.toHaveProperty('perImageDuration')
+    // 旧 perImageDuration 不再暴露，defaultSceneDuration 保持固定默认 6 作为 compose 回退。
+    expect(result.defaultSceneDuration).toBe(6)
+    expect(result.stageOptions.compose.defaultSceneDuration).toBe(6)
   })
 
   it('仅提供版本化配置时使用 prompt 恢复 text 合同', () => {
@@ -184,6 +190,23 @@ describe('Story2Video text 参数合同', () => {
         prompt: '从项目配置恢复的文案',
       },
     })
+  })
+
+  it('defaultSceneDuration 支持扁平/嵌套别名与越界拒绝，不再是 perImageDuration 用户项', () => {
+    const alias = normalizeStory2VideoTextParams({ text: '别名', defaultSceneDuration: 8 })
+    expect(alias.defaultSceneDuration).toBe(8)
+    expect(alias.stageOptions.compose.defaultSceneDuration).toBe(8)
+    expect(alias.story2videoTextConfig).not.toHaveProperty('defaultSceneDuration')
+
+    const nested = normalizeStory2VideoTextParams({
+      text: '嵌套',
+      story2videoTextConfig: { defaultSceneDuration: 5 },
+    })
+    expect(nested.defaultSceneDuration).toBe(5)
+    expect(nested.stageOptions.compose.defaultSceneDuration).toBe(5)
+
+    expect(() => normalizeStory2VideoTextParams({ text: '越界', defaultSceneDuration: 0 })).toThrow(/defaultSceneDuration/)
+    expect(() => normalizeStory2VideoTextParams({ text: '越界', defaultSceneDuration: 61 })).toThrow(/defaultSceneDuration/)
   })
 
   it.each([

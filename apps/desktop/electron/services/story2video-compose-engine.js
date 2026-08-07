@@ -156,29 +156,35 @@ function normalizeComposeScenes (assetManifest) {
   })
 }
 
-function buildImageEffectFilter (effect, width, height, fps) {
+function buildImageEffectFilter (effect, width, height, fps, duration) {
   const safeWidth = Math.max(160, Math.round(Number(width) || 1280))
   const safeHeight = Math.max(160, Math.round(Number(height) || 720))
   const safeFps = Math.max(1, Math.min(120, Math.round(Number(fps) || 30)))
+  // 有效时长已知时把动效进度归一化到场景时长（T=round(duration*fps)），
+  // 时长未知（探测失败/旧项目）时保持固定帧增量公式，向后兼容。
+  const totalFrames = Number.isFinite(duration) && duration > 0
+    ? Math.max(2, Math.round(duration * safeFps))
+    : null
+  const progress = totalFrames ? 'min(1,on/' + totalFrames + ')' : null
   const zoompan = (zoom, x, y) =>
     "zoompan=z='" + zoom + "':x='" + x + "':y='" + y + "':d=1:s=" +
     safeWidth + 'x' + safeHeight + ':fps=' + safeFps
 
   switch (effect) {
     case 'zoom-in':
-      return zoompan('min(zoom+0.0015,1.25)', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
+      return zoompan(progress ? '1+0.25*' + progress : 'min(zoom+0.0015,1.25)', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
     case 'zoom-out':
-      return zoompan('if(eq(on,1),1.25,max(zoom-0.0015,1))', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
+      return zoompan(progress ? 'if(eq(on,1),1.25,1.25-0.25*' + progress + ')' : 'if(eq(on,1),1.25,max(zoom-0.0015,1))', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
     case 'pan-left':
-      return zoompan('1.12', '(iw-iw/zoom)*on/120', 'ih/2-(ih/zoom/2)')
+      return zoompan('1.12', progress ? '(iw-iw/zoom)*' + progress : '(iw-iw/zoom)*on/120', 'ih/2-(ih/zoom/2)')
     case 'pan-right':
-      return zoompan('1.12', '(iw-iw/zoom)*(1-on/120)', 'ih/2-(ih/zoom/2)')
+      return zoompan('1.12', progress ? '(iw-iw/zoom)*(1-' + progress + ')' : '(iw-iw/zoom)*(1-on/120)', 'ih/2-(ih/zoom/2)')
     case 'pan-up':
-      return zoompan('1.12', 'iw/2-(iw/zoom/2)', '(ih-ih/zoom)*on/120')
+      return zoompan('1.12', 'iw/2-(iw/zoom/2)', progress ? '(ih-ih/zoom)*' + progress : '(ih-ih/zoom)*on/120')
     case 'pan-down':
-      return zoompan('1.12', 'iw/2-(iw/zoom/2)', '(ih-ih/zoom)*(1-on/120)')
+      return zoompan('1.12', 'iw/2-(iw/zoom/2)', progress ? '(ih-ih/zoom)*(1-' + progress + ')' : '(ih-ih/zoom)*(1-on/120)')
     case 'zoom-pan':
-      return zoompan('min(zoom+0.001,1.15)', '(iw-iw/zoom)*on/180', 'ih/2-(ih/zoom/2)')
+      return zoompan(progress ? '1+0.15*' + progress : 'min(zoom+0.001,1.15)', progress ? '(iw-iw/zoom)*' + progress : '(iw-iw/zoom)*on/180', 'ih/2-(ih/zoom/2)')
     case 'rotate':
       return "rotate='0.02*sin(2*PI*t/4)':fillcolor=black@0"
     case 'blur-in':
@@ -449,10 +455,13 @@ class Story2VideoComposeEngine {
       const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
       const subtitleDuration = audioDuration || duration || defaultSceneDuration
       const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
+      // 动效归一化使用“有效时长”：真实音频时长优先，探测失败时回退上报时长/defaultSceneDuration。
+      const effectDuration = audioDuration || duration || defaultSceneDuration
 
       try {
         await this._createSegment(scene.imagePath, scene.audioPath, segPath, {
           duration,
+          effectDuration,
           subtitleText: subtitleEnabled ? scene.text : '',
           subtitleTimeline: subtitleEnabled ? subtitleTimeline : [],
           transition,
@@ -653,9 +662,11 @@ class Story2VideoComposeEngine {
     const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
     const subtitleDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
     const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
+    const effectDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
     try {
       await this._createSegment(imagePath, audioPath, destinationPath, {
         duration,
+        effectDuration,
         subtitleText: options.subtitleEnabled === false ? '' : (scene.text || ''),
         subtitleTimeline: options.subtitleEnabled === false ? [] : subtitleTimeline,
         transition: options.transition || 'none',
@@ -803,7 +814,7 @@ class Story2VideoComposeEngine {
 
     // 字幕滤镜
     const filters = [buildScaleFilter(opts.width, opts.height)]
-    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps)
+    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, opts.effectDuration)
     if (imageEffect) filters.push(imageEffect)
     const subtitleFilter = buildSubtitleFilter(
       Array.isArray(opts.subtitleTimeline) && opts.subtitleTimeline.length > 0

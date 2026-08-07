@@ -54,7 +54,6 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     color: 'white',
   }),
   bgm: Object.freeze({ enabled: false, path: '', volume: 5 }),
-  perImageDuration: 6,
   transition: 'fade',
   templateId: '',
   concurrency: 3,
@@ -335,10 +334,11 @@ function normalizeStory2VideoTextParams(params = {}) {
     volume: numberValue(firstDefined(own(bgmInput, 'volume'), hasNestedBgm ? undefined : legacyBgmVolume), 5, 'bgm.volume', 0, 10),
   }
 
-  const perImageDuration = numberValue(
-    firstDefined(own(suppliedConfig, 'perImageDuration'), params.defaultSceneDuration),
+  // defaultSceneDuration 仅作为 compose 无可用音频时长时的回退与动效归一化兜底，不再暴露为可配置项。
+  const defaultSceneDuration = numberValue(
+    firstDefined(params.defaultSceneDuration, own(suppliedConfig, 'defaultSceneDuration')),
     6,
-    'perImageDuration',
+    'defaultSceneDuration',
     1,
     60,
   )
@@ -379,7 +379,6 @@ function normalizeStory2VideoTextParams(params = {}) {
     voice,
     subtitle,
     bgm,
-    perImageDuration,
     transition,
     templateId,
     concurrency,
@@ -448,7 +447,7 @@ function normalizeStory2VideoTextParams(params = {}) {
       resolution: size,
       fps: output.fps,
       format: output.format,
-      defaultSceneDuration: perImageDuration,
+      defaultSceneDuration,
     },
     publish: {
       publishEnabled: publish.enabled || publish.platforms.length > 0,
@@ -490,8 +489,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     voiceVolume: voice.volume,
     concurrency,
     templateId: templateId || null,
-    defaultSceneDuration: perImageDuration,
-    perImageDuration,
+    defaultSceneDuration,
     imageEffect: image.effect,
     transition,
     subtitleEnabled: subtitle.enabled,

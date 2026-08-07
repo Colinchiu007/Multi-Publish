@@ -92,4 +92,14 @@ describe('template-library 模板库', () => {
     expect(loadCustomTemplates(storage).map(template => template.id)).toEqual(['custom-valid']);
     expect(() => saveCustomTemplate({ ...BUILT_IN_TEMPLATES[0], id: 'tpl-quick' }, storage)).toThrow(/自定义模板/);
   });
+
+  it('旧存储中带 perImageDuration 字段的模板仍能加载（兼容忽略已移除字段）', () => {
+    const storage = memoryStorage();
+    storage.setItem('video_templates_custom', JSON.stringify([
+      { ...BUILT_IN_TEMPLATES[0], id: 'custom-legacy-1', name: '旧模板', category: 'custom', perImageDuration: 4 },
+    ]));
+    const loaded = loadCustomTemplates(storage);
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].id).toBe('custom-legacy-1');
+  });
 });
