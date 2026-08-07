@@ -349,6 +349,13 @@ function registerStory2VideoStages(pipelineEngine) {
       const maxAttempts = Math.max(1, Math.min(3, Number(stage.options?.maxRetries ?? 2) + 1))
       // 断点续传：上次失败时已完成的场景结果直接复用，避免重复消耗 LLM 额度。
       const partialResume = (context && Array.isArray(context.optimize_resume)) ? context.optimize_resume : []
+      // 进度前置写入：一开始就显示「共 N 个场景，已完成 0 个」，避免整个阶段期间无数量信息
+      if (context && typeof context === 'object') {
+        context.optimize_progress = {
+          done: partialResume.filter(Boolean).length,
+          total: scenes.length,
+        }
+      }
       let output
       try {
         output = await _mapWithConcurrency(scenes, concurrency, async (scene, index) => {

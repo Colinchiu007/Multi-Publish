@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-07 (模型服务异常检测 + 有界超时 + 执行日志)
+
+### 新能力
+- **模型服务异常检测（provider-anomaly）**：新增 `providerAnomalyBus`，检测慢响应（llm/tts/audio 30s、image 60s、video 120s）、超时、网络错误，按 provider 去重保留最近 5 条内存快照；`pipeline:getRunContext` 存在异常时附带 `providerWarnings`，前端流水线详情页显示非阻塞友好横幅（含 provider 与秒数、建议到【模型设置】切换/检查），轮询实时更新、运行结束清空。
+- **有界调用超时**：`callAdapter` 兜底超时（视频 10 分钟、其余 2 分钟，`params.timeoutMs` 优先），超时抛 `ProviderError(TIMEOUT)` 归入瞬时错误冷却重试，避免 agnes-llm 等 provider 单次挂起 2-3 分钟无限阻塞流水线。
+- **流水线执行日志**：pipeline-engine 每阶段开始/结束记录 INFO 日志（runId/pipeline/stage/序号/耗时/成功），运行终态（completed/failed/cancelled）记录 INFO/WARN（总耗时 + 截断错误摘要 ≤500 字符），配合 model_provider_logs 定位「模型自身问题」。
+- **提示词优化进度前置**：阶段一开始即写入 `context.optimize_progress={done,total}`（断点续传从已完成数起步），前端执行期间即可显示「共 N 个场景，已完成 M 个」。
+
+### 修复
+- 提示词优化长文案卡死表象（实测 agnes-llm 单请求 122s/180s/153s → 阶段累计 476s）：已切换默认 LLM 至 sensenova-llm（deepseek-v4-flash）验证 optimize 2-3s 完成，并用有界超时 + 异常提示兜底。
+
+### 测试
+- 新增 `provider-anomaly.test.js`（阈值/判断/上报/快照/事件）；callAdapter 异常检测 4 用例（正常/超时/网络/慢响应）；`pipeline:getRunContext` 下发 2 用例；CreateView 横幅 3 用例；optimize 进度前置与断点续传 2 用例。
+
+### 文档
+- PRD 新增「7.1.12 模型服务异常检测、有界超时与执行日志合同」。
+
 ## [Unreleased] - 2026-07-15 (Phase 2 质量节拍补跑 — 模型供应商 Adapter)
 
 ### 质量节拍日常循环 6 步补跑（P3.6-P3.8 回顾性补跑）

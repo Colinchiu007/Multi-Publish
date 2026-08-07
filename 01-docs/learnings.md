@@ -1,6 +1,13 @@
 
 ---
 
+## 提示词优化「卡死」实为模型慢 + 模型服务异常检测机制复盘 (2026-08-07)
+
+- **根因不是代码，是模型**：文案「11」提示词优化 2 分钟以上。查 `model_provider_logs`：`agnes-llm` chatCompletion fetch failed 122087ms → fetch failed 180636ms → 成功 153382ms（累计 ≈455s ≈ 阶段耗时 476381ms）。切换默认 LLM 为 `sensenova-llm`（deepseek-v4-flash）后同样文案 optimize 约 2-3 秒完成。教训：阶段耗时异常先查 provider 日志看「单次调用耗时」分布，再下结论。
+- **机制沉淀**：新增 `providerAnomalyBus`（慢响应/超时/网络错误 → 内存快照 ≤5 条 → `pipeline:getRunContext` 下发 → 前端非阻塞横幅提示「建议到模型设置切换模型」），并给 `callAdapter` 加有界超时（视频 10min/其余 2min，`params.timeoutMs` 优先）。用户能区分「模型自身问题」与「程序 bug」，不必靠猜。
+- **执行日志**：pipeline-engine 每阶段开始/结束 INFO（含 duration_ms），运行终态 INFO/WARN（错误摘要截断 ≤500 字符）。配合 provider 日志，AI/官方可复现「哪次调用慢、慢多久」。
+- **进度前置**：optimize 阶段一开始即写 `context.optimize_progress={done,total}`（断点续传从已完成数起步），避免阶段执行期间前端无数量信息。
+
 ## Code Review MINOR 4-6 修复复盘 (2026-08-07)
 
 - **MINOR-4**：日志写队列必须加超时兜底——appendFile 回调极端异常可能永不触发，链式 Promise 会把后续所有日志卡死；兜底用 `setTimeout + unref + clearTimeout`（单次 resolve），测试以「mock appendFile 不回调」复现挂起。

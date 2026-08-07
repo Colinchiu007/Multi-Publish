@@ -1556,3 +1556,40 @@ describe("CreateView - UI interactions", () => {
     expect(finished.status).toBe("failed");
     w.unmount();
   });
+
+  it("providerWarningText 为空时隐藏横幅", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    expect(w.vm.providerWarningText).toBe("");
+    expect(w.find(".provider-warning-banner").exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("providerWarningText 汇总异常 provider 并给出友好建议", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    // 横幅位于流水线详情视图内，先选中一条流水线
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.providerWarnings = [
+      { providerId: "agnes-llm", category: "llm", latencyMs: 90000, kind: "slow" },
+      { providerId: "openai", category: "llm", latencyMs: 31000, kind: "timeout" },
+    ];
+    await nextTick();
+    const text = w.vm.providerWarningText;
+    expect(text).toContain("agnes-llm");
+    expect(text).toContain("90 秒");
+    expect(text).toContain("openai");
+    expect(text).toContain("31 秒");
+    expect(text).toContain("模型设置");
+    expect(w.find(".provider-warning-banner").exists()).toBe(true);
+    w.unmount();
+  });
+
+  it("providerWarningText 忽略异常数据（非数组/空数组）", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.providerWarnings = "not-an-array";
+    await nextTick();
+    expect(w.vm.providerWarningText).toBe("");
+    w.unmount();
+  });
