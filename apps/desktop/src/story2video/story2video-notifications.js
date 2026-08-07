@@ -10,6 +10,9 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   RUN_STATUS_UNAVAILABLE: 'story2video.run_status_unavailable',
   PREVIEW_MISSING: 'story2video.preview_missing',
   MEDIA_INVALID: 'story2video.media_invalid',
+  MEDIA_FORMAT_INVALID: 'story2video.media_format_invalid',
+  MEDIA_SIZE_EXCEEDED: 'story2video.media_size_exceeded',
+  MEDIA_UNREADABLE: 'story2video.media_unreadable',
   PROJECT_DELETE_FAILED: 'story2video.project_delete_failed',
   PROJECT_DELETE_CONFIRM: 'story2video.project_delete_confirm',
   TEMPLATE_DELETE_CONFIRM: 'story2video.template_delete_confirm',
@@ -43,6 +46,9 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE]: '暂时无法获取生成进度，请在历史记录中查看。',
     [STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING]: '生成已完成，但未找到可预览的视频，请在历史记录中查看。',
     [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID]: '所选文件不符合要求，请重新选择。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID]: '不支持 {extension} 格式。{kindLabel}仅支持：{extensions}。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_SIZE_EXCEEDED]: '{kindLabel}文件大小超出限制：最大 {maxMb}MB，当前文件约 {actualMb}MB，请压缩后重试。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE]: '无法读取所选{kindLabel}文件，请确认文件未被占用或已损坏后重试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED]: '项目未能删除，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM]: '确定删除当前项目及其本地产物吗？此操作无法撤销。',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM]: '确定删除这个自定义模板吗？此操作无法撤销。',
@@ -74,6 +80,9 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE]: 'The generation progress is unavailable. Check History for details.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING]: 'Generation finished, but no previewable video was found. Check History for details.',
     [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID]: 'The selected file does not meet the requirements. Please choose another file.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID]: 'The {extension} format is not supported. {kindLabel} supports only: {extensions}.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_SIZE_EXCEEDED]: '{kindLabel} exceeds the size limit: up to {maxMb} MB, this file is about {actualMb} MB. Compress it and try again.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE]: 'Could not read the selected {kindLabel} file. Make sure it is not locked or corrupted, then try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED]: 'The project could not be deleted. Please try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM]: 'Delete this project and its local output? This cannot be undone.',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM]: 'Delete this custom template? This cannot be undone.',
@@ -128,10 +137,13 @@ export function getStory2VideoLocale () {
 }
 
 export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale(), pipelineDisplayName = '') {
+  // 弹窗标题统一为「提示」/「Notice」：去掉流水线名前缀（如「图片轮播 提示」→「提示」），
+  // 具体内容在消息正文中体现，避免标题重复流水线名词（2026-08-08 UX 规范）。
   const safeName = String(pipelineDisplayName || '').trim()
+  void safeName
   return normalizeStory2VideoLocale(locale) === 'en'
     ? {
-        dialogTitle: (safeName || 'Image Carousel') + ' Notice',
+        dialogTitle: 'Notice',
         acknowledge: 'Got it',
         cancel: 'Cancel',
         confirmDelete: 'Delete',
@@ -140,7 +152,7 @@ export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale(
         resumeHint: 'The pipeline can continue from the failed stage. Temporary service or network issues will be retried automatically after a short wait.',
       }
     : {
-        dialogTitle: (safeName || '图片轮播') + ' 提示',
+        dialogTitle: '提示',
         acknowledge: '知道了',
         cancel: '取消',
         confirmDelete: '删除',
@@ -162,6 +174,22 @@ function normalizeParams (value, locale, messageKey, rawError) {
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG && Number.isFinite(Number(supplied.max))) {
     params.max = Number(supplied.max)
     params.maxFormatted = new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'zh-CN').format(params.max)
+  }
+
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID) {
+    params.extension = String(supplied.extension || '').trim() || '该'
+    params.kindLabel = String(supplied.kindLabel || '').trim() || ''
+    params.extensions = Array.isArray(supplied.extensions) ? supplied.extensions.join(' / ') : String(supplied.extensions || '')
+  }
+
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_SIZE_EXCEEDED) {
+    params.kindLabel = String(supplied.kindLabel || '').trim() || ''
+    if (Number.isFinite(Number(supplied.maxMb))) params.maxMb = Math.round(Number(supplied.maxMb))
+    if (Number.isFinite(Number(supplied.actualMb))) params.actualMb = Math.max(1, Math.round(Number(supplied.actualMb)))
+  }
+
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE) {
+    params.kindLabel = String(supplied.kindLabel || '').trim() || ''
   }
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING && Array.isArray(supplied.assetKinds)) {

@@ -1040,6 +1040,82 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
+
+  it("BGM 格式不支持时细分提示具体格式与允许列表", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+
+    await w.vm.handleS2VBgmFile({ target: { files: [{ name: "bgm.flac", size: 100 }] } });
+
+    expect(w.vm.s2vConfig.bgmPath).toBe("");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.media_format_invalid");
+    expect(w.vm.story2videoErrorDialog.messageParams.extension).toBe(".FLAC");
+    expect(w.vm.story2videoErrorDialog.messageParams.kindLabel).toBe("背景音乐");
+    w.unmount();
+  });
+
+  it("BGM 大小超限时细分提示最大与当前大小", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+
+    // 16MB > 15MB（bgm 上限）
+    await w.vm.handleS2VBgmFile({ target: { files: [{ name: "big.mp3", size: 16 * 1024 * 1024 }] } });
+
+    expect(w.vm.s2vConfig.bgmPath).toBe("");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.media_size_exceeded");
+    expect(w.vm.story2videoErrorDialog.messageParams.maxMb).toBe(15);
+    expect(w.vm.story2videoErrorDialog.messageParams.actualMb).toBe(16);
+    w.unmount();
+  });
+
+  it("主进程拒绝导入时把具体原因透传为细分提示", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoImportMedia.mockResolvedValue({ code: -1, message: "不支持的媒体格式" });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+
+    await w.vm.handleS2VBgmFile({ target: { files: [{ name: "bgm.mp3", size: 5 }] } });
+
+    expect(w.vm.s2vConfig.bgmPath).toBe("");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.media_format_invalid");
+    w.unmount();
+  });
+
+  it("主进程报告文件不可读时细分提示", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoImportMedia.mockResolvedValue({ code: -1, message: "媒体文件不存在或不可读" });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+
+    await w.vm.handleS2VBgmFile({ target: { files: [{ name: "bgm.mp3", size: 5 }] } });
+
+    expect(w.vm.s2vConfig.bgmPath).toBe("");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.media_unreadable");
+    w.unmount();
+  });
+
+  it("媒体文件要求提示文字按类别渲染", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+
+    expect(w.vm.mediaRequirementsBgmText).toContain("15MB");
+    expect(w.vm.mediaRequirementsAudioText).toContain("50MB");
+    expect(w.vm.mediaRequirementsImageText).toContain("10MB");
+    expect(w.vm.mediaRequirementsVideoText).toContain("512MB");
+    w.unmount();
+  });
   it("startPipeline uses normal pipelineStart for non-orchestrated", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStart.mockResolvedValue({ code: 0, data: {} });
@@ -1592,4 +1668,31 @@ describe("CreateView - UI interactions", () => {
     await nextTick();
     expect(w.vm.providerWarningText).toBe("");
     w.unmount();
+
+  });
+  it("选项自动保存后 toast 短暂显示并自动消失，不影响操作栏", async () => {
+    vi.useFakeTimers();
+    const mocks = await import("@/api/publisher");
+    mocks.storeSetSetting.mockResolvedValue({ code: 0 });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+
+    // 修改一个选项 → 触发 1s 防抖保存
+    w.vm.s2vConfig.bgmVolume = 6;
+    await vi.advanceTimersByTimeAsync(1100);
+    await nextTick();
+    expect(w.find('[data-testid="s2v-options-toast"]').exists()).toBe(true);
+    expect(w.vm.s2vOptionsToast).toContain("已保存");
+
+    // 1.6s 后自动消失
+    await vi.advanceTimersByTimeAsync(1700);
+    await nextTick();
+    expect(w.vm.s2vOptionsToast).toBe("");
+    expect(w.find('[data-testid="s2v-options-toast"]').exists()).toBe(false);
+    w.unmount();
+    vi.useRealTimers();
   });
