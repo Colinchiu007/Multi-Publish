@@ -10,7 +10,11 @@ const {
   PODCAST_STAGE_TYPES,
   buildPodcastSegments,
 } = require('./podcast-repurpose-stages')
-const { findFfmpeg } = require('./media-tool-paths')
+const { findFfmpeg, findFfprobe } = require('./media-tool-paths')
+
+// CI Linux 自托管 runner 无捆绑 ffmpeg/ffprobe（见 media-tool 门禁）：真实工具用例在工具缺失时跳过
+const ffmpegAvailable = Boolean(findFfmpeg())
+const ffprobeAvailable = Boolean(findFfprobe())
 
 const execFileAsync = promisify(execFile)
 
@@ -83,7 +87,7 @@ describe('podcast-repurpose 阶段执行器', () => {
       expect(result.success).toBe(false)
     })
 
-    it('真实 wav + 文案 → 时长与时间段', async () => {
+    it.skipIf(!ffprobeAvailable)('真实 wav + 文案 → 时长与时间段', async () => {
       const wav = await makeWav(2)
       try {
         const { get } = makePipeline()
@@ -101,7 +105,7 @@ describe('podcast-repurpose 阶段执行器', () => {
       }
     })
 
-    it('无文案且无语音识别服务时失败', async () => {
+    it.skipIf(!ffprobeAvailable)('无文案且无语音识别服务时失败', async () => {
       const wav = await makeWav(1)
       try {
         const { get } = makePipeline()
@@ -147,7 +151,7 @@ describe('podcast-repurpose 阶段执行器', () => {
   })
 
   describe('assemble 阶段', () => {
-    it('真实音频切分并组装场景', async () => {
+    it.skipIf(!ffmpegAvailable)('真实音频切分并组装场景', async () => {
       const wav = await makeWav(2)
       try {
         const { get } = makePipeline()
@@ -183,3 +187,4 @@ describe('podcast-repurpose 阶段执行器', () => {
     })
   })
 })
+
