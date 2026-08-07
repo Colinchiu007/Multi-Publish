@@ -1,5 +1,6 @@
 import { shallowRef } from 'vue'
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { reportError } from '../utils/report-error'
 
 export const routeLoadError = shallowRef(null)
 
@@ -51,7 +52,7 @@ const router = createRouter({
 })
 
 router.onError((error, to) => {
-  console.error('[Router Load Error]', error?.message || String(error), to?.fullPath || '')
+  reportError('[Router Load Error] ' + (error?.message || String(error)) + ' ' + (to?.fullPath || ''))
   setRouteLoadError(error, to)
 })
 

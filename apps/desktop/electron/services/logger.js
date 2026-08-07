@@ -25,6 +25,7 @@ let maxLogFileBytes = 500 * 1024 * 1024 // 默认单文件 500MB
 let currentLogPath = null
 let bytesSinceCheck = 0
 const CHECK_INTERVAL_BYTES = 64 * 1024 // 每追加约 64KB 做一次真实 size 核对（低成本）
+let writeTimeoutMs = 5000 // 单条文件写等待上限：极端异常下 appendFile 回调不触发时，超时释放写队列，避免后续日志永久挂起
 let writeQueue = Promise.resolve()
 
 function defaultLogsDir() {
@@ -97,11 +98,21 @@ function safeMeta(meta) {
 
 function enqueueFileWrite(line) {
   writeQueue = writeQueue.then(() => new Promise((resolve) => {
+    let settled = false
+    const settle = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve()
+    }
+    // 兜底：appendFile 回调极端异常下可能永不触发，超时后仍释放队列（不阻塞后续日志）
+    const timer = setTimeout(settle, writeTimeoutMs)
+    if (timer && typeof timer.unref === 'function') timer.unref()
     try {
       const filePath = ensureLogPath()
       fs.appendFile(filePath, line + '\n', 'utf8', (writeError) => {
         // 写失败静默回退（磁盘满等场景不阻塞主流程）
-        resolve()
+        settle()
       })
       bytesSinceCheck += Buffer.byteLength(line)
       if (bytesSinceCheck >= CHECK_INTERVAL_BYTES) {
@@ -115,7 +126,7 @@ function enqueueFileWrite(line) {
         } catch { /* 核对失败忽略 */ }
       }
     } catch {
-      resolve()
+      settle()
     }
   }))
 }
@@ -150,6 +161,8 @@ const logger = {
     if (typeof options.dir === 'string' && options.dir.trim()) logsDir = options.dir
     const numeric = Number(options.maxBytes)
     if (Number.isFinite(numeric) && numeric > 0) maxLogFileBytes = numeric
+    const timeout = Number(options.writeTimeoutMs)
+    if (Number.isFinite(timeout) && timeout > 0) writeTimeoutMs = timeout
     currentLogPath = null
     bytesSinceCheck = 0
   },

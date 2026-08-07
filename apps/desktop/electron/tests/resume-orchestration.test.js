@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { PipelineEngine } = require('../services/pipeline-engine')
+const { PipelineEngine, computeDefaultMaxConcurrentRuns } = require('../services/pipeline-engine')
 
 function makeStore() {
   return {
@@ -235,8 +235,8 @@ describe('后台运行：历史含运行中 + 并发上限', () => {
     expect(matching[0].orchestrationMode).toBe('orchestrator')
   })
 
-  it('超过并发上限（默认 2）时拒绝第 3 条并返回 PIPELINE_CONCURRENCY_LIMIT', async () => {
-    const engine = makeEngine(makeStore())
+  it('超过并发上限（注入 2）时拒绝第 3 条并返回 PIPELINE_CONCURRENCY_LIMIT', async () => {
+    const engine = makeEngine(makeStore(), undefined, 2)
     registerConc(engine)
     const r1 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
     const r2 = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
@@ -314,5 +314,28 @@ describe('MAJOR-1：_history 内存历史上限', () => {
     }
     const history = engine.getHistory()
     expect(history.length).toBe(3)
+  })
+})
+
+describe('MINOR-6：computeDefaultMaxConcurrentRuns 机器资源自适应', () => {
+  it('低配（1 核或可用内存 <2GB）→ 1', () => {
+    expect(computeDefaultMaxConcurrentRuns({ cpus: 1, freeMemGB: 8 })).toBe(1)
+    expect(computeDefaultMaxConcurrentRuns({ cpus: 4, freeMemGB: 1.5 })).toBe(1)
+  })
+
+  it('常规（2 核且内存充足）→ 2', () => {
+    expect(computeDefaultMaxConcurrentRuns({ cpus: 2, freeMemGB: 4 })).toBe(2)
+    expect(computeDefaultMaxConcurrentRuns({ cpus: 4, freeMemGB: 3 })).toBe(2)
+  })
+
+  it('中高配（≥4 核且 ≥4GB）→ 3；高配（≥8 核且 ≥8GB）→ 4，且封顶 4', () => {
+    expect(computeDefaultMaxConcurrentRuns({ cpus: 4, freeMemGB: 4 })).toBe(3)
+    expect(computeDefaultMaxConcurrentRuns({ cpus: 8, freeMemGB: 8 })).toBe(4)
+    expect(computeDefaultMaxConcurrentRuns({ cpus: 32, freeMemGB: 64 })).toBe(4)
+  })
+
+  it('注入 maxConcurrentRuns 仍覆盖自适应默认值', async () => {
+    const engine = makeEngine(makeStore(), undefined, 1)
+    expect(engine.maxConcurrentRuns).toBe(1)
   })
 })

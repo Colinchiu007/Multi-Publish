@@ -17,12 +17,35 @@
  *   - 现有 13 条流水线无 stage.type 字段，回退为 MANUAL_CHECKPOINT
  */
 
+const os = require('os');
 const { StageExecutor, STAGE_TYPES } = require('./stage-executor');
 const { cleanupRunInputDir, cleanupImportedMediaPaths } = require('./story2video-paths');
 const {
   STORY2VIDEO_PIPELINE,
   normalizeStory2VideoTextParams,
 } = require('./story2video-text-config');
+
+/**
+ * 依据机器资源计算默认后台并发上限（低配保守、高配放宽）：
+ * - 可用并行度 ≥8 且可用内存 ≥8GB → 4
+ * - 可用并行度 ≥4 且可用内存 ≥4GB → 3
+ * - 可用并行度 <2 或可用内存 <2GB → 1
+ * - 其余 → 2
+ * 最终封顶 [1, 4]。env 可注入（测试用）：{ cpus, freeMemGB }。
+ * 说明：compose 阶段 ffmpeg 合成 CPU/内存密集（27 场景曾触发 x264 OOM），
+ * API 阶段受 api-usage-governor 限流，因此高配也不超过 4 条。
+ */
+function computeDefaultMaxConcurrentRuns(env = {}) {
+  const cpus = Number.isFinite(Number(env.cpus)) ? Number(env.cpus)
+    : (typeof os.availableParallelism === 'function' ? os.availableParallelism() : (os.cpus ? os.cpus().length : 1))
+  const freeMemGB = Number.isFinite(Number(env.freeMemGB)) ? Number(env.freeMemGB)
+    : (os.freemem ? os.freemem() / (1024 ** 3) : 2)
+  let limit = 2
+  if (cpus >= 8 && freeMemGB >= 8) limit = 4
+  else if (cpus >= 4 && freeMemGB >= 4) limit = 3
+  else if (cpus < 2 || freeMemGB < 2) limit = 1
+  return Math.max(1, Math.min(4, limit))
+}
 
 // --- 流水线元数据（与 Python pipeline_defs 同步） ---
 const PIPELINES = [
@@ -572,10 +595,11 @@ class PipelineEngine {
     this.runStateStore = deps.runStateStore || null;
     this.governor = deps.governor || null;
     // 后台并行运行上限（编排模式）：同机资源有限（ffmpeg 合成 CPU 密集、API 受 governor 限流），
-    // 默认最多同时 2 条运行中的编排流水线；可通过 deps.maxConcurrentRuns 注入（测试/调优）。
+    // 默认按机器资源自适应（computeDefaultMaxConcurrentRuns，1-4 条，低配保守、高配放宽）；
+    // 可通过 deps.maxConcurrentRuns 注入覆盖（测试/调优）。
     this.maxConcurrentRuns = Number.isFinite(Number(deps.maxConcurrentRuns)) && Number(deps.maxConcurrentRuns) > 0
       ? Number(deps.maxConcurrentRuns)
-      : 2;
+      : computeDefaultMaxConcurrentRuns();
     // 内存历史上限：_history 保留最近 N 条 run 快照，防止长期运行内存无限增长。
     // 断点恢复跨重启依赖 RunStateStore 持久快照，不受内存历史裁剪影响。
     this.maxHistoryEntries = Number.isFinite(Number(deps.maxHistoryEntries)) && Number(deps.maxHistoryEntries) > 0
@@ -1592,4 +1616,4 @@ function resolveRuntimeStageOptions(stageName, params) {
   return result;
 }
 
-module.exports = { PipelineEngine, STAGE_TYPES };
+module.exports = { PipelineEngine, STAGE_TYPES, computeDefaultMaxConcurrentRuns };

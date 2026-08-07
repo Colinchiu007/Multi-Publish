@@ -57,6 +57,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue"
 import { useTemplateStore } from "@/stores/templates"
+import { reportError } from "@/utils/report-error"
 
 const emit = defineEmits(["close", "apply"])
 
@@ -105,7 +106,7 @@ onMounted(async () => {
   try {
     await store.load()
   } catch (e) {
-    console.error(e)
+    reportError('加载模板库失败', e)
   } finally {
     loading.value = false
   }

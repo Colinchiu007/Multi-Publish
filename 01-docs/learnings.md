@@ -1,6 +1,12 @@
 
 ---
 
+## Code Review MINOR 4-6 修复复盘 (2026-08-07)
+
+- **MINOR-4**：日志写队列必须加超时兜底——appendFile 回调极端异常可能永不触发，链式 Promise 会把后续所有日志卡死；兜底用 `setTimeout + unref + clearTimeout`（单次 resolve），测试以「mock appendFile 不回调」复现挂起。
+- **MINOR-5**：渲染进程 catch 里的 `console.error` 只进 DevTools，用户/官方/AI 无法从 app-*.log 排查；统一走 `reportError`（electronAPI.logError 优先）即可让 renderer 异常进入主进程文件日志。Vue errorHandler 已接入，其余全局处理器与组件 catch 补齐。
+- **MINOR-6**：并发上限从固定 2 改为按机器资源自适应（1-4，封顶 4），但保留 deps 注入覆盖与 PRD 合同说明；默认值变化必须同步引擎测试（原「默认 2」用例改为显式注入 2），并发契约测试须显式注入上限以消除 CI runner 资源差异（自托管 runner 可能只有 1 核）。
+
 ## 音色克隆授权勾选移除复盘 (2026-08-07)
 
 ### 需求调整

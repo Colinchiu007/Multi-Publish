@@ -6,7 +6,7 @@
  * 启动核对历史超限文件、clearLogs / getLogsInfo。
  * 全部使用 os.tmpdir() 下独立临时目录，避免污染真实 userData。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -134,5 +134,25 @@ describe('logger 服务', () => {
     const before = logger.getLogsInfo().maxFileBytes
     logger.setLogOptions({ maxBytes: -5 })
     expect(logger.getLogsInfo().maxFileBytes).toBe(before)
+  })
+
+  it('appendFile 回调永不触发时写队列超时兜底，不永久挂起且后续写入正常', async () => {
+    logger.setLogOptions({ dir, maxBytes: 500 * 1024 * 1024, writeTimeoutMs: 30 })
+    const spy = vi.spyOn(fs, 'appendFile').mockImplementation((p, data, enc, cb) => {
+      // 故意不调用 cb：模拟极端异常下回调永不触发
+    })
+    try {
+      logger.info('Test', 'stuck write')
+      // flush 必须在超时兜底后 resolve，而不是永久 pending
+      await expect(logger.flush()).resolves.toBeUndefined()
+    } finally {
+      spy.mockRestore()
+    }
+
+    // 队列释放后，后续写入恢复正常
+    logger.info('Test', 'after recover')
+    await logger.flush()
+    const content = fs.readFileSync(path.join(dir, listLogFiles(dir)[0]), 'utf8')
+    expect(content).toContain('after recover')
   })
 })

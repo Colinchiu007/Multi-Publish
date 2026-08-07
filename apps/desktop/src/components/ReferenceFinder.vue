@@ -91,6 +91,7 @@
 import UiModal from "../components/UiModal.vue";
 import { ref, watch } from 'vue'
 import { intelligenceFindReferences } from '@/api/publisher'
+import { reportError } from '@/utils/report-error'
 
 const props = defineProps({
   visible: { type: Boolean, required: true },
@@ -135,7 +136,7 @@ async function doSearch () {
     const data = res?.code === 0 ? res.data : null
     results.value = (data && data.references) || []
   } catch (e) {
-    console.error('Reference search failed:', e)
+    reportError('参考内容查找失败', e)
     results.value = []
   } finally {
     searching.value = false
