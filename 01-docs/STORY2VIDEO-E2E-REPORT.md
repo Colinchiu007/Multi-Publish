@@ -77,3 +77,23 @@
 ### 证据
 - `C:\tmp\e2e-concurrency-report.json`（A/B 终态 failed 时的阶段快照）；应用日志 `C:\tmp\Multi-Publish-debug-profile\logs\app-2026-08-07.log`。
 - 两处修复的重测（到成片）与并发固定上限开关验证见 `E2E-PENDING.md` 待办 E。
+
+---
+
+## 真实链路修复确认（2026-08-07，main cd1869f 后）
+
+> 目的：确认 PR #384 两处修复在真实 provider 链路生效（到成片）。脚本 `C:\tmp\e2e-confirm.js`（Playwright Electron + debug profile，真实 minimax-tts / minimax-image / agnes-llm / sensenova-llm）。
+
+### 结果
+| 运行 | 场景数 | 结果 | 耗时 | 成片 | 说明 |
+|------|--------|------|------|------|------|
+| run_1786088972864_ogjj | 1 | ✅ completed | 48s | `s2v_1786089012983_1_output.mp4`（11.9s / 902KB） | 短文案，单段拷贝路径 |
+| run_1786089061973_irsp | **3** | ✅ completed | 4m40s | `s2v_1786089323107_1_output.mp4`（33.2s / 2.3MB，720x1280 h264+aac） | **多段 xfade 转场路径**，此前 `transition=undefined` 场景现在成功 |
+
+- 两轮全部 6 阶段 completed（split → domain_enrich → optimize → generate_assets → compose → publish）。
+- 3 场景轮的 generate_assets 完成 3 图 + 3 TTS（minimax-image 均返回可用图片，未再触发空结果）；compose 多段 xfade 成功（fade 转场），`xfade=transition=undefined` 不再出现。
+- 图片「空结果」的具体触发（静默 200-empty）为间歇性，本轮未复现；其重试/降级行为由单测覆盖（adapter 显式抛错 + 5 次后 `needs_user_input`）。
+
+### 证据
+- `C:\tmp\e2e-confirm-report.json`（第二轮 3 场景）；成片文件见上表；应用日志 `C:\tmp\Multi-Publish-debug-profile\logs\app-2026-08-07.log`。
+- 并发上限固定开关（`STORY2VIDEO_MAX_CONCURRENT_RUNS=2` → 第 3 条拒绝）仍在 `E2E-PENDING.md` 待办 E。
