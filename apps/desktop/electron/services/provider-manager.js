@@ -109,7 +109,8 @@ class ProviderManager {
 
   // ─── IPC Handler 注册 ──────────────────────────
 
-  registerIpcHandlers () {
+  registerIpcHandlers (injectedIpcMain) {
+    const ipcMain = injectedIpcMain || require("electron").ipcMain;
     ipcMain.handle('provider:list', async () => {
       try {
         return await this.listProviders()

@@ -271,7 +271,8 @@ class WebviewManager {
   /**
    * 注册 IPC handlers（供 main.js 调用）
    */
-  registerIpcHandlers () {
+  registerIpcHandlers (injectedIpcMain) {
+    const ipcMain = injectedIpcMain || require("electron").ipcMain;
     ipcMain.handle('webview:set-layout', withSenderCheck((_, count) => {
       try {
         this.setLayout(count)

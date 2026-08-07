@@ -576,6 +576,11 @@ class PipelineEngine {
     this.maxConcurrentRuns = Number.isFinite(Number(deps.maxConcurrentRuns)) && Number(deps.maxConcurrentRuns) > 0
       ? Number(deps.maxConcurrentRuns)
       : 2;
+    // 内存历史上限：_history 保留最近 N 条 run 快照，防止长期运行内存无限增长。
+    // 断点恢复跨重启依赖 RunStateStore 持久快照，不受内存历史裁剪影响。
+    this.maxHistoryEntries = Number.isFinite(Number(deps.maxHistoryEntries)) && Number(deps.maxHistoryEntries) > 0
+      ? Number(deps.maxHistoryEntries)
+      : 50;
 
     // 自动构造 StageExecutor（仅在 serviceBus 可用时）
     if (deps.stageExecutor) {
@@ -1320,6 +1325,10 @@ class PipelineEngine {
       stages: Array.isArray(run.stages) ? run.stages.map(stage => ({ ...stage })) : [],
       context: run.context || {},
     });
+    // 裁剪最旧快照，控制内存占用（RunStateStore 是跨重启恢复的权威源）
+    if (this._history.length > this.maxHistoryEntries) {
+      this._history.splice(0, this._history.length - this.maxHistoryEntries);
+    }
     this._runs.delete(run.id);
     if (this._runs.get('_' + run.pipeline) === run) {
       this._runs.delete('_' + run.pipeline);
