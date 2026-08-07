@@ -214,6 +214,10 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     for (const bad of [0, -1, Number.NaN, null, undefined, 'x']) {
       expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, bad)).toContain('min(zoom+0.0015,1.25)')
     }
+    // 极端有限值：duration*fps 溢出为 Infinity 时回退 legacy，不得出现 on/Infinity
+    const overflow = buildImageEffectFilter('zoom-in', 1280, 720, 30, 1e308)
+    expect(overflow).toContain('min(zoom+0.0015,1.25)')
+    expect(overflow).not.toContain('Infinity')
   })
 
   it('极短时长使用最小帧数下限，fps 极值按场景时长换算', () => {
@@ -553,6 +557,16 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       )
       expect(result2.code).toBe(0)
       expect(engine._createSegment.mock.calls[1][3]).toMatchObject({ effectDuration: 4.2 })
+
+      // 极端有限 duration 收敛到 0.1..3600，effectDuration 保持有限值（W1 回归）
+      engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
+      const result3 = await engine.renderSegment(
+        { imagePath: image, audioPath: audio, text: '极端值', duration: 1e308 },
+        { defaultSceneDuration: 6, resolution: '320x180', fps: 24, subtitleEnabled: false, transition: 'none' },
+        path.join(root, 'out3.mp4'),
+      )
+      expect(result3.code).toBe(0)
+      expect(engine._createSegment.mock.calls[2][3]).toMatchObject({ duration: 3600, effectDuration: 3600 })
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }

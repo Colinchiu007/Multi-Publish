@@ -161,9 +161,10 @@ function buildImageEffectFilter (effect, width, height, fps, duration) {
   const safeHeight = Math.max(160, Math.round(Number(height) || 720))
   const safeFps = Math.max(1, Math.min(120, Math.round(Number(fps) || 30)))
   // 有效时长已知时把动效进度归一化到场景时长（T=round(duration*fps)），
-  // 时长未知（探测失败/旧项目）时保持固定帧增量公式，向后兼容。
-  const totalFrames = Number.isFinite(duration) && duration > 0
-    ? Math.max(2, Math.round(duration * safeFps))
+  // 时长未知（探测失败/旧项目）或 duration*fps 溢出为 Infinity 时保持固定帧增量公式。
+  const rawFrames = Number.isFinite(duration) && duration > 0 ? duration * safeFps : null
+  const totalFrames = rawFrames !== null && Number.isFinite(rawFrames)
+    ? Math.max(2, Math.round(rawFrames))
     : null
   const progress = totalFrames ? 'min(1,on/' + totalFrames + ')' : null
   const zoompan = (zoom, x, y) =>
@@ -657,7 +658,11 @@ class Story2VideoComposeEngine {
     if (!imagePath || !audioPath) return { code: -1, message: 'Segment media path is not allowed or unreadable' }
     fs.mkdirSync(path.dirname(destinationPath), { recursive: true })
     const audioDuration = await this._probeMediaDuration(audioPath)
-    const reportedDuration = Number(scene.duration) || null
+    // 与 _composeScene 对齐：上报 duration 收敛到 0.1..3600，避免极端有限值经
+    // duration*fps 溢出为 Infinity 使动效归一化静默退化。
+    const reportedDuration = scene.duration === null || scene.duration === undefined
+      ? null
+      : clampNumber(scene.duration, 0.1, 3600, null)
     const duration = reportedDuration && audioDuration ? audioDuration : reportedDuration
     const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
     const subtitleDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
