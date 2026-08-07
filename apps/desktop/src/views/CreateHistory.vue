@@ -12,6 +12,9 @@
 
     <!-- 渲染记录 -->
     <div v-if="tab === 'renders'">
+      <div v-if="runningPipelineCount > 0" class="running-banner" role="button" tabindex="0" @click="showRunningPipelines" @keydown.enter="showRunningPipelines">
+        ⏳ 有 {{ runningPipelineCount }} 条流水线正在后台运行，点击查看运行状态
+      </div>
       <div v-if="renderLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else>
         <div v-if="renderError" class="history-error"><p>{{ renderError }}</p><UiButton size="sm" @click="loadRenders">重试</UiButton></div>
@@ -102,8 +105,23 @@ export default {
   },
   async mounted() {
     await this.loadRenders()
+    // 同时加载流水线记录：存在运行中流水线时默认展示流水线记录，
+    // 避免用户进入历史页后以为运行中任务未出现在历史中（默认 tab 是渲染记录）。
+    await this.loadPipelines()
+    if (this.runningPipelineCount > 0 && this.tab === 'renders') {
+      this.tab = 'pipelines'
+    }
+  },
+  computed: {
+    runningPipelineCount() {
+      return (this.pipelines || []).filter((p) => p && p.status === 'running').length
+    },
   },
   methods: {
+    showRunningPipelines() {
+      this.tab = 'pipelines'
+      this.loadPipelines()
+    },
     async loadRenders() {
       const requestId = ++this.renderRequestId
       this.renderLoading = true
@@ -204,6 +222,8 @@ export default {
 .tab.active { color: var(--primary, #7c5cbf); border-bottom-color: var(--primary, #7c5cbf); font-weight: 600; }
 .loading-state, .empty-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: #666; justify-content: center; flex-direction: column; }
 .history-error { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; color: #991b1b; background: #fee2e2; border-radius: 8px; }
+.running-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: #1d4ed8; background: #dbeafe; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.running-banner:hover { background: #bfdbfe; }
 .render-list, .pipeline-list { display: flex; flex-direction: column; gap: 8px; }
 .render-card, .pipeline-card { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fff; cursor: pointer; transition: all 0.15s; }
 .render-card:hover, .pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
