@@ -594,12 +594,13 @@ class PipelineEngine {
     this.story2videoProjectService = deps.story2videoProjectService || null;
     this.runStateStore = deps.runStateStore || null;
     this.governor = deps.governor || null;
-    // 后台并行运行上限（编排模式）：同机资源有限（ffmpeg 合成 CPU 密集、API 受 governor 限流），
-    // 默认按机器资源自适应（computeDefaultMaxConcurrentRuns，1-4 条，低配保守、高配放宽）；
-    // 可通过 deps.maxConcurrentRuns 注入覆盖（测试/调优）。
+    // 后台并行运行上限（编排模式）：同机资源有限（ffmpeg 合成 CPU 密集、API 受 governor 限流）。
+    // 优先级：deps.maxConcurrentRuns 显式注入（测试/调优）> STORY2VIDEO_MAX_CONCURRENT_RUNS 环境变量开关
+    // （如设 2 即固定 2 条，1-8 合法，非法/空回退自适应）> 机器资源自适应（computeDefaultMaxConcurrentRuns，1-4 条）。
+    const envLimit = Number(process.env.STORY2VIDEO_MAX_CONCURRENT_RUNS)
     this.maxConcurrentRuns = Number.isFinite(Number(deps.maxConcurrentRuns)) && Number(deps.maxConcurrentRuns) > 0
       ? Number(deps.maxConcurrentRuns)
-      : computeDefaultMaxConcurrentRuns();
+      : (Number.isFinite(envLimit) && envLimit > 0 ? Math.min(8, Math.floor(envLimit)) : computeDefaultMaxConcurrentRuns());
     // 内存历史上限：_history 保留最近 N 条 run 快照，防止长期运行内存无限增长。
     // 断点恢复跨重启依赖 RunStateStore 持久快照，不受内存历史裁剪影响。
     this.maxHistoryEntries = Number.isFinite(Number(deps.maxHistoryEntries)) && Number(deps.maxHistoryEntries) > 0

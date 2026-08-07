@@ -269,6 +269,35 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
         expect(e.code).toBe(ERROR_CODES.NETWORK_ERROR)
       }
     })
+
+    it('HTTP 200 但 image_urls 为空 → ProviderError(PROVIDER_ERROR)，不再静默返回空数组', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ data: { image_urls: [] } }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.message).toMatch(/no image|empty image_urls/i)
+      }
+    })
+
+    it('空 image_urls 且 status_msg 含内容策略信号 → ProviderError(CONTENT_POLICY)', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_msg: 'content_policy_violation' }, data: { image_urls: [] } }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.CONTENT_POLICY)
+      }
+    })
   })
 
   describe('listModels', () => {

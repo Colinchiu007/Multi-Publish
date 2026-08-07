@@ -135,6 +135,20 @@ function createContentPolicyCheckpoint (sceneIndex, attempts) {
   }
 }
 
+function createEmptyResultCheckpoint (sceneIndex, attempts) {
+  const sceneNumber = sceneIndex + 1
+  return {
+    type: 'needs_user_input',
+    status: 'needs_user_input',
+    reason: 'empty_result',
+    needsUserInput: true,
+    sceneIndex,
+    sceneNumber,
+    attempts,
+    recommendation: '第 ' + sceneNumber + ' 个场景的图片生成多次未返回结果（可能是内容安全策略或服务波动）。请修改该场景文案后重试，或稍后再试。',
+  }
+}
+
 /**
  * 仅针对明确的内容政策拒绝重写并重试图片生成。
  * 返回的 attempts 只包含非敏感审计元数据，绝不包含原始或重写后的 prompt。
@@ -161,6 +175,31 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
       attempts.push(createAttemptAudit(attempt, normalizedSceneIndex, promptStrategy, 'success'))
       return { status: 'success', result, attempts }
     } catch (error) {
+      // 空结果：供应商返回 200 但无图片（静默内容策略拒绝或瞬时故障）。
+      // 前几次用同提示词重试（瞬时），随后切内容安全改写；到达上限后转 needs_user_input 交用户处理。
+      if (error?.emptyResult === true) {
+        attempts.push(createAttemptAudit(
+          attempt,
+          normalizedSceneIndex,
+          promptStrategy,
+          'empty_result',
+          'empty_result',
+        ))
+        // 第 3 次调用起使用内容安全改写（本次失败后设置，下次 generate 生效）
+        if (attempt >= 2 && attempt < attemptLimit) {
+          currentPrompt = buildContentPolicySafePrompt(originalPrompt, { sceneIndex: normalizedSceneIndex })
+          promptStrategy = 'content_policy_safe_rewrite'
+        }
+        if (attempt === attemptLimit) {
+          return {
+            status: 'needs_user_input',
+            attempts,
+            checkpoint: createEmptyResultCheckpoint(normalizedSceneIndex, attempt),
+          }
+        }
+        continue
+      }
+
       if (!isContentPolicyRejection(error)) {
         attempts.push(createAttemptAudit(
           attempt,
@@ -199,6 +238,7 @@ module.exports = {
   MAX_IMAGE_GENERATION_ATTEMPTS,
   buildContentPolicySafePrompt,
   createContentPolicyCheckpoint,
+  createEmptyResultCheckpoint,
   isContentPolicyRejection,
   runContentPolicyImageRetry,
 }

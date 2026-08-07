@@ -729,10 +729,17 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
 
 #### 7.1.5 图片内容政策恢复与审计边界
 
-只允许结构化 `CONTENT_POLICY` 或 provider 明确的安全拒绝信号进入重写循环；认证、限流、网络、超时、配置、空响应和
+只允许结构化 `CONTENT_POLICY` 或 provider 明确的安全拒绝信号进入重写循环；认证、限流、网络、超时、配置和
 未知 4xx/5xx 必须原样失败，**不得**改写重试。每个场景最多 5 次总图片尝试，重写仅安全化可疑描述而不扩大主题。审计只保存
 场景序号、尝试次数、provider/model、提示词版本哈希和非敏感安全摘要，严禁保存原始 prompt、密钥或完整 provider 错误体。
 第 5 次拒绝后显示友好的“可能存在内容风险，请修改文案后重新启动”说明，并遵循 7.1.3 的取消旧 run 与新建 run 合同。
+
+**空响应重试合同（2026-08-07 修订）**：部分供应商（如 MiniMax Image）在内容安全拒绝或瞬时故障时返回 HTTP 200 但无图片
+（`image_urls` 为空）。此类「空结果」此前在重试循环外才被发现，一次性报「did not return a supported image binary」导致整段失败。
+现修订为：adapter 对空 `image_urls` 必须显式抛 `ProviderError`（状态信息含内容安全信号 → `CONTENT_POLICY`，否则 `PROVIDER_ERROR`），
+asset-generator 在重试循环**内**校验图片结果（无 buffer 且无 URL 即视为空结果）：前 2 次同提示词重试（瞬时故障），第 3 次起切内容安全改写，
+第 5 次仍空 → `needs_user_input`（`reason=empty_result`），提示「图片生成多次未返回结果（可能是内容安全策略或服务波动），请修改文案后重试或稍后再试」。
+空结果重试与 7.1.7 的限流/瞬时重试解耦，不进入 governor 层之外的额外限流退避。
 
 #### 7.1.6 运营配置与交付边界
 
@@ -1449,7 +1456,7 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **数据校验**：`pipeline:history` 失败返回 `{ code: -1, message, data: [] }`；前端 5s 加载超时提示「流水线记录加载超时，请重试」。
 
 ### 3. 并发限制
-- **上限**：默认按机器资源自适应（`computeDefaultMaxConcurrentRuns`，取值 1–4：可用并行度 ≥8 且可用内存 ≥8GB → 4；≥4 且 ≥4GB → 3；<2 核或 <2GB → 1；其余 → 2），`deps.maxConcurrentRuns` 注入可覆盖（测试/调优）。依据：每条流水线的资源生成阶段并发调用模型 API（受 api-usage-governor 限流），compose 阶段跑 ffmpeg 合成（CPU/内存密集，27 场景曾触发 x264 OOM）；自适应保证低配机器 1 条兜底、高配放宽，且封顶 4 不放任资源占用。
+- **上限**：默认按机器资源自适应（`computeDefaultMaxConcurrentRuns`，取值 1–4：可用并行度 ≥8 且可用内存 ≥8GB → 4；≥4 且 ≥4GB → 3；<2 核或 <2GB → 1；其余 → 2）。**固定上限开关（2026-08-07）**：环境变量 `STORY2VIDEO_MAX_CONCURRENT_RUNS`（正整数 1–8，非法/空回退自适应）可强制固定上限（如设 `2` 即固定 2 条），`deps.maxConcurrentRuns` 注入仍最优先（测试/调优）。依据：每条流水线的资源生成阶段并发调用模型 API（受 api-usage-governor 限流），compose 阶段跑 ffmpeg 合成（CPU/内存密集，27 场景曾触发 x264 OOM）；自适应保证低配机器 1 条兜底、高配放宽，封顶 4 不放任资源占用。
 - **统计口径**：`_countActiveRuns()` 统计 `_runs` 中 `orchestrationMode=orchestrator && status=running` 的独立 run（去重 `_<name>` 索引）。
 - **启动/恢复统一门禁**：`startOrchestrated`（创建 run 前）与 `resumeOrchestration`（恢复前）都调用 `_assertConcurrencyBudget()`；达到上限返回：
   - `{ success: false, errorCode: 'PIPELINE_CONCURRENCY_LIMIT', error: '当前已有 N 条流水线正在后台运行，最多同时运行 M 条，请等待其中一条完成后再启动。', errorParams: { count: N, max: M } }`
@@ -1460,3 +1467,18 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - 引擎单测：`getHistory` 含运行中且无重复；上限 2 拒绝第 3 条；注入 1 时第 2 条拒绝、取消后释放；`resumeOrchestration` 超限拒绝；`computeDefaultMaxConcurrentRuns` 覆盖 1/2/3/4 资源档位与注入覆盖。
 - 前端单测：CreateHistory 运行中任务显示 + 5s 轮询 + 结束后停止 + 点击跳 `/create`；notifications 并发文案解析（zh/en/errorCode/正则）。
 - 交互验收（人工）：启动图片轮播 → 返回列表/切模块 → 历史-流水线记录可见运行中任务且阶段实时刷新 → 点击卡片回创作页恢复查看 → 再启动另一条流水线至 2 条并行 → 第 3 条弹并发提示。
+- 交互验收（人工）：启动图片轮播 → 返回列表/切模块 → 历史-流水线记录可见运行中任务且阶段实时刷新 → 点击卡片回创作页恢复查看 → 再启动另一条流水线至 2 条并行 → 第 3 条弹并发提示。
+
+## 真实链路修复合同（2026-08-07，E2E 暴露）
+
+### 1. MiniMax Image 空结果降级
+见 7.1.5「空响应重试合同」修订：HTTP 200 但无 `image_urls` → adapter 显式抛错（内容安全信号→`CONTENT_POLICY`，否则 `PROVIDER_ERROR`）；asset-generator 在内容政策重试循环内校验，前 2 次同提示词重试、第 3 次起安全改写、第 5 次仍空 → `needs_user_input(reason=empty_result)` 友好提示。防止「1/2 场景已生成、第 2 个场景空结果导致整条流水线失败」。
+
+### 2. compose 转场滤镜 transition=undefined
+- **根因**：`buildTransitionPlan` 返回的计划对象不含 `transitionName` 字段，而 `_xfadeMerge` 从 `plan.transitionName` 构造 `xfade=transition=<name>` 滤镜 → 得到 `xfade=transition=undefined`，ffmpeg 报 `const_values array too small for transition` / `Not yet implemented`，compose 阶段失败。
+- **修复**：`buildTransitionPlan(segmentDurations, requestedDuration, transitionName)` 在所有返回路径携带 `transitionName`（默认 `fade`）；`_concatSegments`（≤8 段直连）与 `_concatSegmentsChunked`（分块）均传递该值；`_xfadeMerge` 使用 `plan.transitionName` 构造滤镜。
+- **数据约束**：`transition` 取值必须命中 `TRANSITION_NAMES`（fade/slide-left/right/up/down），非法值按 `none` 走无损拼接，不进入 xfade；转场时长仍按相邻片段真实时长收敛（不直接用用户配置值）。
+- **回归保护**：compose-engine 测试断言 `buildTransitionPlan` 携带 `transitionName`、直连/分块路径传给 `_xfadeMerge` 的计划均含 `transitionName='fade'`。
+
+### 3. 并发上限固定开关
+见「视频创作后台运行与并发合同 §3」修订：环境变量 `STORY2VIDEO_MAX_CONCURRENT_RUNS`（1–8，非法回退自适应）可固定上限（如 `2`）；优先级 deps 注入 > 环境变量 > 机器资源自适应。回归：resume-orchestration 覆盖设 2/非法回退/deps 优先/封顶 8。

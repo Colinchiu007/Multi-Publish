@@ -318,7 +318,7 @@ function hasUsableFile (filePath) {
  * 根据实际片段时长生成安全的转场计划。
  * xfade 的 duration 必须小于相邻两个输入的时长，不能直接使用用户配置值。
  */
-function buildTransitionPlan (segmentDurations, requestedDuration) {
+function buildTransitionPlan (segmentDurations, requestedDuration, transitionName) {
   const durations = Array.isArray(segmentDurations)
     ? segmentDurations.map(value => {
         const number = Number(value)
@@ -326,8 +326,11 @@ function buildTransitionPlan (segmentDurations, requestedDuration) {
       })
     : []
   const total = durations.reduce((sum, value) => sum + (value || 0), 0)
+  // transitionName 必须随计划返回：_xfadeMerge 从 plan.transitionName 构造
+  // xfade=transition=<name>，缺失会生成 transition=undefined 导致 ffmpeg 报错。
+  const resolvedTransitionName = typeof transitionName === 'string' && transitionName.trim() ? transitionName : 'fade'
   if (durations.length < 2 || durations.some(value => value === null)) {
-    return { enabled: false, durations, transitions: [], totalDuration: total }
+    return { enabled: false, durations, transitions: [], totalDuration: total, transitionName: resolvedTransitionName }
   }
 
   const requested = clampNumber(requestedDuration, 0.1, 1.5, 0.4)
@@ -339,13 +342,13 @@ function buildTransitionPlan (segmentDurations, requestedDuration) {
     // 留出 20% 的余量，避免 duration 等于输入边界导致 ffmpeg 拒绝滤镜。
     const duration = Math.min(requested, previous * 0.8, current * 0.8)
     if (!Number.isFinite(duration) || duration < 0.01 || elapsed <= duration) {
-      return { enabled: false, durations, transitions: [], totalDuration: total }
+      return { enabled: false, durations, transitions: [], totalDuration: total, transitionName: resolvedTransitionName }
     }
     transitions.push({ duration, offset: elapsed - duration })
     elapsed += current - duration
     previous = current
   }
-  return { enabled: true, durations, transitions, totalDuration: elapsed }
+  return { enabled: true, durations, transitions, totalDuration: elapsed, transitionName: resolvedTransitionName }
 }
 
 class Story2VideoComposeEngine {
@@ -925,7 +928,7 @@ class Story2VideoComposeEngine {
     const transitionName = TRANSITION_NAMES[transition]
     if (transitionName && segments.length > 1) {
       const durations = Array.isArray(options?.segmentDurations) ? options.segmentDurations : []
-      const plan = buildTransitionPlan(durations, options?.transitionDuration)
+      const plan = buildTransitionPlan(durations, options?.transitionDuration, transitionName)
       if (plan.enabled) {
         if (segments.length > MAX_XFADE_INPUTS) {
           await this._concatSegmentsChunked(segments, durations, outputPath, sessionDir, {

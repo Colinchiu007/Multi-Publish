@@ -23,6 +23,7 @@ const { promisify } = require('util')
 const { spawn } = require('child_process')
 const { findFfmpeg } = require('./media-tool-paths')
 const { runContentPolicyImageRetry } = require('./story2video-image-retry')
+const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
 
 const execFileAsync = promisify(execFile)
 const MAX_PROVIDER_IMAGE_BYTES = 25 * 1024 * 1024
@@ -507,6 +508,18 @@ class AssetGenerator {
           if (providerError && typeof providerError === 'object') throw providerError
           if (result?.success === false || Number(result?.code) < 0) {
             throw new Error(result?.message || (typeof providerError === 'string' ? providerError : 'provider rejected image generation'))
+          }
+          // 供应商返回 200 但无可用图片（静默内容策略拒绝或瞬时故障）：
+          // 必须在重试循环内校验，交给重试机制（同提示词重试 + 内容安全改写兜底），
+          // 而不是等循环外提取失败一次性报「did not return a supported image binary」。
+          if (!extractProviderImageBuffer(result) && !extractProviderImageUrl(result)) {
+            const emptyError = new ProviderError(
+              ERROR_CODES.PROVIDER_ERROR,
+              'provider returned no image result (empty response)',
+              { providerId: provider },
+            )
+            emptyError.emptyResult = true
+            throw emptyError
           }
           return result
         },
