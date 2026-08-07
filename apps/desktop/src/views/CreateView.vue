@@ -2245,6 +2245,7 @@ export default {
         if (!r || r.code !== 0 || !Array.isArray(r.data)) return
         const runningById = new Map(r.data.filter(item => item && item.status === 'running').map(item => [item.id, item]))
         const list = this.history || []
+        let finishedTransition = false
         for (let i = list.length - 1; i >= 0; i--) {
           const item = list[i]
           if (!item || item.status !== 'running') continue
@@ -2255,9 +2256,15 @@ export default {
             item.updatedAt = fresh.updatedAt || item.updatedAt
             runningById.delete(item.id)
           } else {
-            // 已进入终态：从运行中区移除（下次完整加载时按终态展示）
+            // 运行已结束（完成/失败/取消）：触发一次完整加载，
+            // 让该任务以终态（已完成/失败/已取消）继续留在历史中，而不是直接消失。
+            finishedTransition = true
             list.splice(i, 1)
           }
+        }
+        if (finishedTransition) {
+          await this.loadHistory()
+          return
         }
         if (runningById.size > 0) {
           list.unshift(...runningById.values())
