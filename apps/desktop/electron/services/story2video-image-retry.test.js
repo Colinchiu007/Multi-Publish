@@ -107,6 +107,57 @@ describe('Story2Video image content-policy retry', () => {
     ])
   })
 
+  it('empty-result（空图片响应）先同提示词重试，第 3 次起切内容安全改写，5 次后交用户处理', async () => {
+    const emptyError = () => {
+      const e = new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'provider returned no image result (empty response)')
+      e.emptyResult = true
+      return e
+    }
+    const generate = vi.fn(async () => { throw emptyError() })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: '普通场景描述',
+      sceneIndex: 0,
+      generate,
+    })
+
+    expect(generate).toHaveBeenCalledTimes(5)
+    expect(result.status).toBe('needs_user_input')
+    expect(result.checkpoint).toMatchObject({ type: 'needs_user_input', reason: 'empty_result', sceneIndex: 0, sceneNumber: 1, attempts: 5 })
+    expect(result.checkpoint.recommendation).toMatch(/未返回结果|内容安全策略|服务波动/)
+    // 前 2 次保持原提示词；第 3 次起使用内容安全改写
+    expect(generate.mock.calls[0][0].promptStrategy).toBe('original')
+    expect(generate.mock.calls[1][0].promptStrategy).toBe('original')
+    expect(generate.mock.calls[2][0].promptStrategy).toBe('content_policy_safe_rewrite')
+    expect(result.attempts[0]).toMatchObject({ attempt: 1, outcome: 'empty_result' })
+  })
+
+  it('empty-result 后接成功：同提示词重试成功即返回', async () => {
+    const emptyError = () => {
+      const e = new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'provider returned no image result (empty response)')
+      e.emptyResult = true
+      return e
+    }
+    const generate = vi.fn()
+      .mockRejectedValueOnce(emptyError())
+      .mockResolvedValueOnce({ image: 'accepted' })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: '场景文案',
+      sceneIndex: 1,
+      generate,
+    })
+
+    expect(result.status).toBe('success')
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(generate.mock.calls[0][0].prompt).toBe('场景文案')
+    expect(generate.mock.calls[1][0].prompt).toBe('场景文案')
+    expect(result.attempts).toEqual([
+      expect.objectContaining({ attempt: 1, outcome: 'empty_result' }),
+      expect.objectContaining({ attempt: 2, outcome: 'success' }),
+    ])
+  })
+
   it('keeps concurrent scene retry state isolated', async () => {
     const first = vi.fn()
       .mockRejectedValueOnce(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'content_policy_violation'))

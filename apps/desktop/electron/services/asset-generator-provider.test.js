@@ -64,6 +64,29 @@ describe('AssetGenerator provider integration', () => {
     }
   })
 
+  it('provider 返回空结果（如 { urls: [] }）时进入重试，5 次后返回 needs_user_input 友好提示', async () => {
+    const aiGenerator = {
+      generate: vi.fn(async () => ({ urls: [], format: 'url' })),
+    }
+    const { generator, outputDir } = createGenerator(aiGenerator)
+
+    try {
+      const result = await generator.generateImage('测试场景描述', {
+        image_provider: 'minimax-image',
+        index: 0,
+        runId: 'provider-empty',
+      })
+
+      expect(aiGenerator.generate).toHaveBeenCalledTimes(5)
+      expect(result.code).toBe(-1)
+      expect(result.needsUserInput).toBe(true)
+      expect(result.checkpoint).toMatchObject({ reason: 'empty_result', sceneIndex: 0, sceneNumber: 1, attempts: 5 })
+      expect(result.checkpoint.recommendation).toMatch(/未返回结果|内容安全策略|服务波动/)
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true })
+    }
+  })
+
   it('uses a configured image provider even when the offline ffmpeg fallback is unavailable', async () => {
     const aiGenerator = {
       generate: vi.fn(async () => ({ images: [{ b64_json: PNG_BYTES.toString('base64') }] })),

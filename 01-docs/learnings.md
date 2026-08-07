@@ -7,6 +7,12 @@
 - **MINOR-5**：渲染进程 catch 里的 `console.error` 只进 DevTools，用户/官方/AI 无法从 app-*.log 排查；统一走 `reportError`（electronAPI.logError 优先）即可让 renderer 异常进入主进程文件日志。Vue errorHandler 已接入，其余全局处理器与组件 catch 补齐。
 - **MINOR-6**：并发上限从固定 2 改为按机器资源自适应（1-4，封顶 4），但保留 deps 注入覆盖与 PRD 合同说明；默认值变化必须同步引擎测试（原「默认 2」用例改为显式注入 2），并发契约测试须显式注入上限以消除 CI runner 资源差异（自托管 runner 可能只有 1 核）。
 
+## 真实链路 E2E 暴露问题复盘 (2026-08-07)
+
+- **图片空结果**：供应商 200 但无图片（静默内容策略/瞬时故障）曾绕过重试循环、在循环外一次性失败。修复：adapter 显式抛错 + 在重试循环内校验（前 2 次同提示词、第 3 次起安全改写、5 次后 needs_user_input）。教训：重试机制必须包裹「结果校验」，不能只包裹「调用是否抛错」。
+- **compose `transition=undefined`**：`buildTransitionPlan` 返回对象缺 `transitionName`，`_xfadeMerge` 拼接出 `xfade=transition=undefined`。单测 mock 了 `_xfadeMerge` 所以漏检；真实 ffmpeg 调用暴露。教训：测试 mock 真实命令构造点会漏掉「传给 mock 的数据本身错误」这类 bug，至少断言传给 mock 的参数完整。
+- **并发开关**：自适应默认在某些机器=4，如需固定 2 用 `STORY2VIDEO_MAX_CONCURRENT_RUNS=2`；deps 注入仍最优先。环境变量开关要带合法域（1-8）与回退，避免误配拉爆资源。
+
 ## 音色克隆授权勾选移除复盘 (2026-08-07)
 
 ### 需求调整

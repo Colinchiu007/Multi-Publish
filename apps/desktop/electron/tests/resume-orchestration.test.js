@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
 
 const { PipelineEngine, computeDefaultMaxConcurrentRuns } = require('../services/pipeline-engine')
 
@@ -337,5 +337,39 @@ describe('MINOR-6：computeDefaultMaxConcurrentRuns 机器资源自适应', () =
   it('注入 maxConcurrentRuns 仍覆盖自适应默认值', async () => {
     const engine = makeEngine(makeStore(), undefined, 1)
     expect(engine.maxConcurrentRuns).toBe(1)
+  })
+})
+
+describe('并发上限环境变量开关（STORY2VIDEO_MAX_CONCURRENT_RUNS）', () => {
+  const KEY = 'STORY2VIDEO_MAX_CONCURRENT_RUNS'
+  const original = process.env[KEY]
+
+  afterEach(() => {
+    if (original === undefined) delete process.env[KEY]
+    else process.env[KEY] = original
+  })
+
+  it('设 2 → 无 deps 注入时固定为 2（固定并发上限开关）', () => {
+    process.env[KEY] = '2'
+    const engine = makeEngine(makeStore())
+    expect(engine.maxConcurrentRuns).toBe(2)
+  })
+
+  it('非法/非正数回退机器资源自适应', () => {
+    process.env[KEY] = 'abc'
+    const engine = makeEngine(makeStore())
+    expect(engine.maxConcurrentRuns).toBe(computeDefaultMaxConcurrentRuns())
+  })
+
+  it('deps.maxConcurrentRuns 注入优先于环境变量', () => {
+    process.env[KEY] = '2'
+    const engine = makeEngine(makeStore(), undefined, 1)
+    expect(engine.maxConcurrentRuns).toBe(1)
+  })
+
+  it('环境变量封顶 8，防止误配拉爆资源', () => {
+    process.env[KEY] = '99'
+    const engine = makeEngine(makeStore())
+    expect(engine.maxConcurrentRuns).toBe(8)
   })
 })

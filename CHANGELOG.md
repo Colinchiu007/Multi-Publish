@@ -1,3 +1,11 @@
+## [未发布] 真实链路修复：图片空结果重试 / compose 转场 / 并发上限开关 (2026-08-07)
+
+### 图片轮播（真实 E2E 暴露）
+- **MiniMax Image 空结果不再静默失败**：HTTP 200 但 `image_urls` 为空时 adapter 显式抛 `ProviderError`（状态含内容安全信号→`CONTENT_POLICY`，否则 `PROVIDER_ERROR`）；asset-generator 在内容政策重试循环内校验图片结果，前 2 次同提示词重试、第 3 次起内容安全改写、第 5 次仍空 → `needs_user_input(reason=empty_result)` 友好提示（原：整段「did not return a supported image binary」失败）。
+- **compose 转场 `transition=undefined`**：`buildTransitionPlan` 未携带 `transitionName` 导致 `_xfadeMerge` 构造 `xfade=transition=undefined`（ffmpeg 报错）。修复：计划对象所有返回路径携带 `transitionName`（默认 fade），直连/分块路径均传递；回归测试断言直连与 27 段分块的 plan 均含 `transitionName='fade'`。
+- **并发上限固定开关**：环境变量 `STORY2VIDEO_MAX_CONCURRENT_RUNS`（1–8，非法回退自适应）可固定上限（如 `2`）；优先级 deps 注入 > 环境变量 > 机器资源自适应。回归：resume-orchestration 覆盖设 2/非法回退/deps 优先/封顶 8。
+- PRD「空响应重试合同」「真实链路修复合同」「并发上限固定开关」同步更新。
+
 ## [未发布] Code Review MINOR 4-6 修复 (2026-08-07)
 
 ### 应用日志

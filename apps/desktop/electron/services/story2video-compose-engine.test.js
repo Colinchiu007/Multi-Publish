@@ -123,9 +123,13 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(plan.enabled).toBe(true)
     expect(plan.transitions[0].duration).toBeLessThan(0.2)
     expect(plan.transitions[0].offset).toBeGreaterThan(0)
+    // transitionName 随计划返回：_xfadeMerge 依赖 plan.transitionName 构造 xfade 滤镜
+    expect(plan.transitionName).toBe('fade')
+    expect(buildTransitionPlan([0.2, 0.35], 1.2, 'slideleft').transitionName).toBe('slideleft')
 
     const fallback = buildTransitionPlan([0.01, 0.4], 0.4)
     expect(fallback.enabled).toBe(false)
+    expect(fallback.transitionName).toBe('fade')
   })
 
   it('优先使用 scenes 的原始 index，部分资源不会错配字幕', () => {
@@ -672,6 +676,8 @@ describe('_concatSegments 分块合成（25+ 场景防单命令输入过多）',
     expect(xfadeMerge.mock.calls.length).toBe(5)
     for (const call of xfadeMerge.mock.calls) {
       expect(call[0].length).toBeLessThanOrEqual(8)
+      // 每个块计划都携带 transitionName，避免 xfade=transition=undefined
+      expect(call[1].transitionName).toBe('fade')
     }
     // 每块调用输入数：8,8,8,3,4（最后是 4 个中间文件合并）
     expect(xfadeMerge.mock.calls.map(c => c[0].length)).toEqual([8, 8, 8, 3, 4])
@@ -693,6 +699,19 @@ describe('_concatSegments 分块合成（25+ 场景防单命令输入过多）',
     expect(xfadeMerge.mock.calls.length).toBe(1)
     expect(xfadeMerge.mock.calls[0][0].length).toBe(6)
     expect(fs.readdirSync(tmp).filter(n => n.startsWith('merge_l')).length).toBe(0)
+  })
+
+  it('直接合并路径（≤8 段）的计划携带 transitionName=fade，不生成 transition=undefined', async () => {
+    const segments = makeSegments(6)
+    const durations = [6, 6, 6, 6, 6, 6]
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'fade', transitionDuration: 0.4, segmentDurations: durations })
+
+    expect(xfadeMerge).toHaveBeenCalledTimes(1)
+    expect(xfadeMerge.mock.calls[0][1]).toMatchObject({ enabled: true, transitionName: 'fade' })
   })
 
   it('时长未知时回退无损 concat（不构建转场图）', async () => {
