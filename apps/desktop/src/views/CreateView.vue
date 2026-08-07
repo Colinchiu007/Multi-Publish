@@ -701,12 +701,16 @@
           </div>
           <div v-if="filteredHistory.length === 0" class="empty-state compact"><p>没有符合条件的记录</p></div>
           <div v-else class="history-list">
-            <div v-for="(h, i) in filteredHistory" :key="h.projectId || h.id || i" class="history-item">
+            <div v-for="(h, i) in filteredHistory" :key="h.projectId || h.id || i" class="history-item" :class="{ 'is-running': h.status === 'running' }" @click="openHistory(h)">
               <span class="history-name">{{ h.title || pipelineName(h.pipeline || h.name) }}</span>
               <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
+              <span v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-stages">
+                <span v-for="(s, si) in h.stages" :key="si" class="history-stage-tag" :class="historyStageClass(s)">{{ historyStageLabel(s) }}</span>
+              </span>
               <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
-              <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click="openHistory(h)">打开</button>
-              <button v-if="h.projectId" class="history-delete" @click="requestProjectDeletion(h)">删除</button>
+              <span v-if="h.status === 'running'" class="history-running-hint">返回流水线创作查看进度</span>
+              <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click.stop="openHistory(h)">打开</button>
+              <button v-if="h.projectId" class="history-delete" @click.stop="requestProjectDeletion(h)">删除</button>
             </div>
           </div>
         </div>
@@ -958,7 +962,7 @@ export default {
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       s2vOpenSections: { basic: true, appearance: false, voice: false, advanced: false, publish: false },
       // 历史
-      history: [], historyLoading: false, historyFilter: 'all', historyRequestId: 0,
+      history: [], historyLoading: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
       // 清理
       cleanups: [],
       quickModes: [
@@ -2175,7 +2179,14 @@ export default {
         const runs = hasRuns
           ? pipelineResult.value.data.filter(run => !projectIds.has(run.id))
           : []
-        this.history = [...projects, ...runs]
+        // 运行中流水线置顶（需求：历史记录可查看运行中未完成任务及其实时流程状态），
+        // 其次是已完成项目，最后是终态流水线。
+        this.history = [
+          ...runs.filter(run => run.status === 'running'),
+          ...projects,
+          ...runs.filter(run => run.status !== 'running'),
+        ]
+        this.scheduleHistoryRefresh()
         if (!hasProjects || !hasRuns) {
           this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED })
         }
@@ -2188,8 +2199,31 @@ export default {
       }
     },
     openHistory(item) {
+      if (!item) return
+      // 运行中：切回流水线创作视图并自动恢复查看该 run 的实时进度
+      if (item.status === 'running') {
+        this.view = 'pipelines'
+        this.resumeRunningOrchestration()
+        return
+      }
       if (!item?.projectId) return
       this.$router.push({ path: '/create/result', query: { project: item.projectId } })
+    },
+    historyStageClass(stage) {
+      if (!stage || typeof stage !== 'object') return ''
+      return stage.status || ''
+    },
+    historyStageLabel(stage) {
+      if (!stage) return ''
+      return typeof stage === 'object' ? (stage.name || stage.stage || '') : String(stage)
+    },
+    scheduleHistoryRefresh() {
+      if (this.historyPollTimer) { clearInterval(this.historyPollTimer); this.historyPollTimer = null }
+      const hasRunning = (this.history || []).some(item => item && item.status === 'running')
+      if (!hasRunning) return
+      this.historyPollTimer = setInterval(() => {
+        if (this.view === 'history') this.loadHistory()
+      }, 5000)
     },
     async deleteHistory(item) {
       if (!item?.projectId) return
@@ -2481,6 +2515,7 @@ export default {
     this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
     if (this.pollTimer) clearInterval(this.pollTimer)
     if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
+    if (this.historyPollTimer) { clearInterval(this.historyPollTimer); this.historyPollTimer = null }
     this.flushS2VLastOptionsSave()
   },
 }
@@ -2681,6 +2716,15 @@ export default {
 .history-status.completed { background: #d1fae5; color: #065f46; }
 .history-status.failed { background: #fee2e2; color: #991b1b; }
 .history-status.cancelled { background: #f3f4f6; color: #6b7280; }
+.history-status.running { background: #dbeafe; color: #1d4ed8; }
+.history-item.is-running { cursor: pointer; border-color: #93c5fd; }
+.history-item.is-running:hover { border-color: var(--primary); }
+.history-stages { display: flex; gap: 4px; flex-wrap: wrap; max-width: 320px; }
+.history-stage-tag { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: #f3f4f6; color: #6b7280; white-space: nowrap; }
+.history-stage-tag.completed { background: #d1fae5; color: #065f46; }
+.history-stage-tag.running { background: #dbeafe; color: #1d4ed8; }
+.history-stage-tag.failed { background: #fee2e2; color: #991b1b; }
+.history-running-hint { font-size: 11px; color: #1d4ed8; background: #dbeafe; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
 .history-time { color: #999; font-size: 12px; }
 .history-open, .history-delete { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); padding: 5px 9px; cursor: pointer; font-size: 12px; }
 .history-open:hover { border-color: var(--primary); color: var(--primary); }
