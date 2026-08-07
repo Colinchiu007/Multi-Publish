@@ -169,12 +169,17 @@ describe('CloudPublisher', () => {
     test('registers 4 IPC handlers on ipcMain', () => {
       const electron = require('electron')
       const pub = createPublisher()
-      pub.registerIpcHandlers()
+      pub.registerIpcHandlers(electron.ipcMain)
       expect(electron.ipcMain.handle).toHaveBeenCalledTimes(4)
       expect(electron.ipcMain.handle).toHaveBeenCalledWith('cloud-publisher:submit', expect.any(Function))
       expect(electron.ipcMain.handle).toHaveBeenCalledWith('cloud-publisher:list-tasks', expect.any(Function))
       expect(electron.ipcMain.handle).toHaveBeenCalledWith('cloud-publisher:get-task', expect.any(Function))
       expect(electron.ipcMain.handle).toHaveBeenCalledWith('cloud-publisher:platforms', expect.any(Function))
+    })
+
+    test('未注入 ipcMain 时抛错（MAJOR-3 fail closed，禁止绕过 access control）', () => {
+      const pub = createPublisher()
+      expect(() => pub.registerIpcHandlers()).toThrow(/requires an injected ipcMain/)
     })
   })
 })
