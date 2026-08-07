@@ -1457,3 +1457,50 @@ describe("CreateView - UI interactions", () => {
   });
 
 });
+  it("历史记录含运行中流水线时置顶并显示阶段进度色块", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{ projectId: "p1", title: "已完成项目", status: "completed" }] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-live", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z",
+        stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }, { name: "compose", status: "pending" }] },
+    ] });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    // 运行中流水线排在已完成项目之前
+    expect(w.vm.history[0].id).toBe("run-live");
+    expect(w.vm.history[0].status).toBe("running");
+    const runningItem = w.find(".history-item.is-running");
+    expect(runningItem.exists()).toBe(true);
+    expect(runningItem.text()).toContain("进行中");
+    expect(runningItem.text()).toContain("返回流水线创作查看进度");
+    // 阶段进度色块（completed/running/pending）
+    const stageTags = runningItem.findAll(".history-stage-tag");
+    expect(stageTags.length).toBe(3);
+    expect(stageTags[0].classes()).toContain("completed");
+    expect(stageTags[1].classes()).toContain("running");
+    expect(stageTags[2].classes()).toContain("pending");
+    // 存在运行中任务时启动 5s 历史轮询
+    expect(w.vm.historyPollTimer).not.toBeNull();
+    w.unmount();
+  });
+
+  it("点击运行中历史项切回流水线创作并尝试恢复查看", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-live-2", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z", stages: [] },
+    ] });
+    mocks.pipelineStatus.mockResolvedValue({ code: 0, data: { id: "run-live-2", status: "running", orchestrationMode: "orchestrator" } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+    await w.find(".history-item.is-running").trigger("click");
+    await nextTick();
+    expect(w.vm.view).toBe("pipelines");
+    expect(mocks.pipelineStatus).toHaveBeenCalled();
+    w.unmount();
+  });
