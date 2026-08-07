@@ -37,5 +37,5 @@
 - **PR #384 修复已确认（2026-08-07，`C:\tmp\e2e-confirm.js`）**：
   - ✅ ② compose 转场：3 场景轮多段 xfade 路径成功（成片 `s2v_1786089323107_1_output.mp4`，33.2s/2.3MB），`xfade=transition=undefined` 不再出现。
   - ✅ ① MiniMax Image：3 场景 generate_assets 全部完成（3 图+3 TTS 均返回可用结果）；「静默 200-empty」为间歇性未复现，重试/降级由单测覆盖（adapter 显式抛错 + 5 次后 `needs_user_input`）。
-- **待验证**：并发上限固定开关——`STORY2VIDEO_MAX_CONCURRENT_RUNS=2` 启动 → 第 3 条流水线被拒并弹出友好并发提示。
+- **✅ 并发上限固定开关已验证（2026-08-07，`STORY2VIDEO_MAX_CONCURRENT_RUNS=2`）**：A/B 并行启动成功；第 3 条被拒，返回 `PIPELINE_CONCURRENCY_LIMIT` + 友好文案「当前已有 2 条流水线正在运行，最多同时运行 2 条，请等待其中一条完成后再启动。」；历史仅含 2 条运行中；切模块后仍在后台运行（`C:\tmp\e2e-concurrency-report.json`，limitVerified=true）。至此待办 E 全部闭环。
 - **重测命令**：`node C:\tmp\e2e-concurrency.js` / `node C:\tmp\e2e-confirm.js`（需先停已运行的应用实例，避免 profile 单实例锁冲突；报告 `C:\tmp\e2e-*-report.json`）。
