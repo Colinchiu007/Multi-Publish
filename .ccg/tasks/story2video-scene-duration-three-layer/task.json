@@ -5,9 +5,10 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "electron+python+frontend",
-  "currentPhase": "batch1-done",
+  "currentPhase": "batch2-done",
   "nextAction": "Batch 2 切分层（字数主控接线 + speechRate 单一来源）",
   "createdAt": "2026-08-08T00:00:00Z",
   "branch": "codex/smart-sentence-splitter"
 }
+
 
