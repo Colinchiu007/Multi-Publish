@@ -1512,3 +1512,13 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 ### 4. 验收
 - 引擎单测 11 例：注册/分句/analyze（缺音频、不可读、真实 wav+文案、无文案失败）/visualize（配图、缺 segments）/assemble（真实切分、缺 context）。
 - E2E（待办 B）：真实音频（可先提供文案）→ 4 阶段 → 成片 mp4；语音识别转写路径需配置 whisper 供应商后验收。
+
+## 字幕样式与位置合同（2026-08-07 修订）
+
+| 合同 | 要求 |
+|------|------|
+| 字体 | 中文必须显式指定 CJK fontfile（Windows 静态 ffmpeg 默认字体无中文字形），否则渲染成豆腐块/乱码；Linux 无 Windows 字体时不注入但仍合法。 |
+| 字号 | `subtitleStyle.size`（size1-6 / sm-xl）映射 16-40px，`fontSize` 优先；范围 12-96。 |
+| 样式 | `style2` 加黑底 `box`（0.55 透明度 + 10px 边框）；`style3` 描边加粗（borderw=4）。 |
+| **位置（2026-08-07 修订）** | 字幕底边默认位于画面 **80% 高度**（即**距底部 20%**，`bottomMarginRatio=0.2`，范围 0.05-0.5，可经 `subtitleStyle.bottomMarginRatio` 覆盖）；y 表达式 `y=h*(1-bottomMarginRatio)-th`。原固定 `h-th-40`（约 3%）废弃。 |
+| 水平 | 恒居中 `x=(w-text_w)/2`。 |

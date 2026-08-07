@@ -249,6 +249,9 @@ function buildSubtitleFilter (textOrTimeline, style) {
     : 'white'
   const borderWidth = config.style === 'style3' ? 4 : 2
   const box = config.style === 'style2' ? ':box=1:boxcolor=black@0.55:boxborderw=10' : ''
+  // 字幕垂直位置：距视频底部比例（0.2 = 字幕底边位于画面 80% 高度处，即距底部 20%）。
+  // 可经 subtitleStyle.bottomMarginRatio 覆盖（0.05-0.5），默认 0.2（避免贴底）。
+  const bottomRatio = clampNumber(config.bottomMarginRatio, 0.05, 0.5, 0.2)
   // 中文字幕乱码修复：Windows 静态 ffmpeg 的 drawtext 默认字体无 CJK 字形，
   // 必须显式指定 fontfile（微软雅黑等），否则中文渲染成豆腐块/乱码。
   const fontFile = escapeFontFilePath(resolveCjkFont())
@@ -261,7 +264,7 @@ function buildSubtitleFilter (textOrTimeline, style) {
       : ''
     return "drawtext=text='" + escapeSubtitleText(item.text) + "'" + fontOption + ':fontcolor=' + color +
       ':fontsize=' + fontSize + ':borderw=' + borderWidth + ':bordercolor=black' +
-      box + ':x=(w-text_w)/2:y=h-th-40' + enable
+      box + ':x=(w-text_w)/2:y=h*' + (1 - bottomRatio).toFixed(3) + '-th' + enable
   }).join(',')
 }
 
