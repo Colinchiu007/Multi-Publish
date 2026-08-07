@@ -1,3 +1,17 @@
+## 图片轮播历史记录体验 + TTS 空响应重试修复（2026-08-07）
+
+### 1. 历史记录运行中流水线布局与刷新
+- **布局错乱**：原运行中项把阶段标签内联在单行 flex 里导致换行错乱。改为卡片式：主信息行 + 独立「阶段进度条」（每阶段一个分段，done 绿 / active 蓝高亮 / pending 灰 / failed 红，与流水线页阶段语义一致），不再内联挤占。
+- **闪烁**：原 5s 刷新整表重建 history 数组导致页面闪动。改为 `refreshRunningHistory()` 原地更新运行中项的 stages/currentStage（保持对象身份），不重建列表、不重刷项目记录；运行结束的项从运行中区移除。
+- 进入历史页仍即时显示「加载中」，数据到达后渲染（初次 1-2s 属正常加载）。
+
+### 2. TTS 空音频响应按瞬时错误重试（E2E 实测失败根因）
+- **根因**：MiniMax TTS 偶发返回 200 但无 audio（`Missing audio data in response`，日志 11:56/12:05 复现），此前 `classifyProviderFailure` 归为 `other` 不重试 → generate_assets 失败 → 弹「当前操作未能完成」。
+- **修复**：`classifyProviderFailure` 新增空响应/缺失数据模式（`missing ... data in response` / `returned no ... result` / `empty response` / `empty image_urls`）→ 归为 `transient`，governor 短退避重试（TRANSIENT_RETRIES=2）；同类问题覆盖 minimax-tts / mimo-tts / 生图空结果。
+
+### 3. 提示文案友好化
+- resumeHint 中文：原「瞬时错误（限流/超时）会自动冷却后重试」→「遇到暂时的服务繁忙或网络波动时，会自动等待片刻后重试。」
+- 英文同步：「Transient failures will be retried with cooldown automatically.」→「Temporary service or network issues will be retried automatically after a short wait.」
 ## [未发布] CreateView 历史记录运行中流水线置顶 + 阶段进度 (2026-08-07)
 
 ### 视频创作（历史记录）
@@ -2880,6 +2894,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
+
+
 
 
 

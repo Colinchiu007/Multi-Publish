@@ -137,7 +137,7 @@ export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale(
         confirmDelete: 'Delete',
         resume: 'Resume from breakpoint',
         resuming: 'Resuming…',
-        resumeHint: 'The pipeline can continue from the failed stage. Transient failures will be retried with cooldown automatically.',
+        resumeHint: 'The pipeline can continue from the failed stage. Temporary service or network issues will be retried automatically after a short wait.',
       }
     : {
         dialogTitle: (safeName || '图片轮播') + ' 提示',
@@ -146,7 +146,7 @@ export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale(
         confirmDelete: '删除',
         resume: '从断点继续',
         resuming: '正在恢复…',
-        resumeHint: '可从上一步失败的阶段继续生成；瞬时错误（限流/超时）会自动冷却后重试。',
+        resumeHint: '可从上一步失败的阶段继续生成；遇到暂时的服务繁忙或网络波动时，会自动等待片刻后重试。',
       }
 }
 

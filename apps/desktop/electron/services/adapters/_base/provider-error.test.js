@@ -48,3 +48,20 @@ describe('ProviderError content-policy classification', () => {
     })
   })
 })
+describe('classifyProviderFailure — 空响应/缺失数据按瞬时错误处理', () => {
+  const { classifyProviderFailure } = require('./provider-error')
+
+  it('TTS 缺失音频（Missing audio data in response）→ transient，可短退避重试', () => {
+    const error = new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'Missing audio data in response', { providerId: 'minimax-tts' })
+    expect(classifyProviderFailure(error)).toBe('transient')
+  })
+
+  it('生图空结果（returned no image result）→ transient', () => {
+    const error = new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'provider returned no image result (empty response)')
+    expect(classifyProviderFailure(error)).toBe('transient')
+  })
+
+  it('普通 500/未知错误仍为 other，不重试', () => {
+    expect(classifyProviderFailure(new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'Internal error'))).toBe('other')
+  })
+})
