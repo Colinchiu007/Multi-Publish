@@ -480,7 +480,8 @@ it('COMPOSE 阶段把用户选择的合成参数按白名单覆盖流水线默�
     stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets', options: { transition: 'fade' } },
     params: {
       transition: 'slide-left', imageEffect: 'pan-up', subtitleEnabled: false,
-      defaultSceneDuration: 5, resolution: '1080x1920', fps: 25, voiceVolume: 0.8,
+      defaultSceneDuration: 5, sceneDurationMode: 'min-duration', minSceneDuration: 8,
+      resolution: '1080x1920', fps: 25, voiceVolume: 0.8,
       untrustedOption: 'must-not-pass',
     },
     context: { assets: { scenes: [] } },
@@ -488,7 +489,8 @@ it('COMPOSE 阶段把用户选择的合成参数按白名单覆盖流水线默�
 
   expect(bus.composeVideo).toHaveBeenCalledWith({ scenes: [] }, expect.objectContaining({
     transition: 'slide-left', imageEffect: 'pan-up', subtitleEnabled: false,
-    defaultSceneDuration: 5, resolution: '1080x1920', fps: 25, voiceVolume: 0.8,
+    defaultSceneDuration: 5, sceneDurationMode: 'min-duration', minSceneDuration: 8,
+    resolution: '1080x1920', fps: 25, voiceVolume: 0.8,
   }));
   expect(bus.composeVideo.mock.calls[0][1]).not.toHaveProperty('untrustedOption');
 });

@@ -63,6 +63,8 @@ describe('story2video 编排契约', () => {
       subtitleEnabled: false,
       bgmVolume: 0.5,
       defaultSceneDuration: 6,
+      sceneDurationMode: 'follow-audio',
+      minSceneDuration: 6,
     })
     expect(stages.publish.options).toMatchObject({ publishEnabled: false, platforms: [] })
   })

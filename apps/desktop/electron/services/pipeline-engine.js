@@ -586,6 +586,8 @@ const PIPELINES = [
           fps: 30,
           format: 'mp4',
           defaultSceneDuration: 6,
+          sceneDurationMode: 'follow-audio',
+          minSceneDuration: 6,
           generateBase: true,
           generateMerged: true,
           seconds: 8,
@@ -1646,6 +1648,8 @@ function resolveRuntimeStageOptions(stageName, params) {
     set('resolution', input.resolution || input.output?.resolution);
     set('fps', input.fps || input.output?.fps);
     set('format', input.format || input.output?.format);
+    set('sceneDurationMode', input.sceneDurationMode);
+    set('minSceneDuration', input.minSceneDuration);
   } else if (stageName === 'publish') {
     set('platforms', input.platforms);
     set('title', input.title || input.output?.title);

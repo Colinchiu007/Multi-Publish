@@ -1,6 +1,6 @@
 # PLAN — Story2Video 场景时长三层模型落地（P0+P1，2026-08-08）
 
-> 状态：规划期草案（Phase 1），待产品确认 D1-D3 后按 TDD 分批次实施。
+> 状态：规划期（Phase 1），D1-D3 已确认（2026-08-08 采用推荐默认：双视图+默认时长、N=6、开关默认关），Batch 1（参数层）已实施并推送；按 TDD 分批次推进。
 > 依据：`01-docs/PRD-video-creation.md §3.1.9 场景时长与图片动效设计合同（三层模型）`。
 
 ## 0. 目标
@@ -96,6 +96,10 @@
 - **Batch 3（P0-节奏层）**：compose min-duration 补齐 + 字幕/动效/转场统一 + 真实 ffmpeg 测试。
 - **Batch 4（P0-UI）**：CreateView 双视图 + 最短场景时长开关/N 输入 + 测试 + Vue build + 视觉回归。
 - **Batch 5（P1）**：voice-aware 估算表 + 自适应校准（真实 TTS 样本回填）+ 运营后台实时预估（分镜数/时长区间/成本）——独立排期评估。
+
+> **批次边界说明**：Batch 1 仅完成 `sceneDurationMode/minSceneDuration` 的参数契约与全链路透传，
+> compose 引擎消费（静音补齐）在 **Batch 3**；Batch 1 默认 `follow-audio` 无任何成片行为变化，
+> min-duration 显式设置时在 Batch 3 前为透传 no-op（有 YAML runtime_options 文档标注）。
 
 ## 7. 风险
 

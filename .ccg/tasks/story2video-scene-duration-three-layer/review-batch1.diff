@@ -1,0 +1,193 @@
+diff --git a/apps/desktop/electron/services/pipeline-engine.js b/apps/desktop/electron/services/pipeline-engine.js
+index 3ef7db4a..ed2dbcf0 100644
+--- a/apps/desktop/electron/services/pipeline-engine.js
++++ b/apps/desktop/electron/services/pipeline-engine.js
+@@ -586,6 +586,8 @@ const PIPELINES = [
+           fps: 30,
+           format: 'mp4',
+           defaultSceneDuration: 6,
++          sceneDurationMode: 'follow-audio',
++          minSceneDuration: 6,
+           generateBase: true,
+           generateMerged: true,
+           seconds: 8,
+@@ -1646,6 +1648,8 @@ function resolveRuntimeStageOptions(stageName, params) {
+     set('resolution', input.resolution || input.output?.resolution);
+     set('fps', input.fps || input.output?.fps);
+     set('format', input.format || input.output?.format);
++    set('sceneDurationMode', input.sceneDurationMode);
++    set('minSceneDuration', input.minSceneDuration);
+   } else if (stageName === 'publish') {
+     set('platforms', input.platforms);
+     set('title', input.title || input.output?.title);
+diff --git a/apps/desktop/electron/services/stage-executor.js b/apps/desktop/electron/services/stage-executor.js
+index 476cdc37..ab45f811 100644
+--- a/apps/desktop/electron/services/stage-executor.js
++++ b/apps/desktop/electron/services/stage-executor.js
+@@ -347,7 +347,7 @@ class StageExecutor {
+       const composeOptionKeys = [
+         'transition', 'transitionDuration', 'imageEffect', 'subtitleEnabled', 'subtitleStyle',
+         'watermark', 'watermarkText', 'watermarkConfig', 'resolution', 'fps', 'format',
+-        'bgmPath', 'bgmVolume', 'voiceVolume', 'defaultSceneDuration',
++        'bgmPath', 'bgmVolume', 'voiceVolume', 'defaultSceneDuration', 'sceneDurationMode', 'minSceneDuration',
+       ];
+       const composeOptions = { ...(stage.options || {}) };
+       for (const key of composeOptionKeys) {
+diff --git a/apps/desktop/electron/services/story2video-project-service.js b/apps/desktop/electron/services/story2video-project-service.js
+index 73f4cd5c..f665c5ed 100644
+--- a/apps/desktop/electron/services/story2video-project-service.js
++++ b/apps/desktop/electron/services/story2video-project-service.js
+@@ -438,7 +438,7 @@ class Story2VideoProjectService {
+       'watermark', 'watermarkText', 'watermarkConfig', 'resolution', 'fps', 'format',
+       'bgmVolume', 'contentType', 'imageStyle', 'imageProvider', 'imageModel', 'aspectRatio',
+       'voiceId', 'voiceProvider', 'voiceModel', 'voiceSpeed', 'voicePitch', 'voiceEmotion', 'voiceVolume', 'templateId',
+-      'defaultSceneDuration',
++      'defaultSceneDuration', 'sceneDurationMode', 'minSceneDuration',
+     ]
+     const result = {}
+     for (const key of keys) {
+diff --git a/apps/desktop/electron/services/story2video-text-config.js b/apps/desktop/electron/services/story2video-text-config.js
+index 54ea85e7..5ff3d6b5 100644
+--- a/apps/desktop/electron/services/story2video-text-config.js
++++ b/apps/desktop/electron/services/story2video-text-config.js
+@@ -15,6 +15,7 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
+     mode: 'balanced',
+     maxSentenceLength: 200,
+     targetSeconds: 6,
++    targetCharsPerScene: 20,
+     baseWordsPerSecond: 3.3,
+     speechRate: 1,
+     minWords: 10,
+@@ -55,6 +56,8 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
+   }),
+   bgm: Object.freeze({ enabled: false, path: '', volume: 5 }),
+   transition: 'fade',
++  sceneDurationMode: 'follow-audio',
++  minSceneDuration: 6,
+   templateId: '',
+   concurrency: 3,
+   watermark: Object.freeze({
+@@ -81,6 +84,7 @@ const IMAGE_EFFECTS = new Set([
+   'zoom-pan', 'rotate', 'blur-in',
+ ])
+ const TRANSITIONS = new Set(['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down'])
++const SCENE_DURATION_MODES = new Set(['follow-audio', 'min-duration'])
+ const SPLIT_MODES = new Set(['fast', 'balanced', 'precise'])
+ const LANGUAGES = new Set(['auto', 'zh', 'en'])
+ const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
+@@ -315,6 +319,21 @@ function normalizeStory2VideoTextParams(params = {}) {
+   if (split.subtitleMinChars > split.subtitleMaxChars) {
+     throw new Error('Story2Video split.subtitleMinChars 不能大于 subtitleMaxChars')
+   }
++  // 分镜字数主控（三层模型①）：显式 targetCharsPerScene 优先；缺省时由 targetSeconds
++  // （× baseWordsPerSecond × speechRate）换算并夹在 [max(minWords,1), min(maxWords,200)]
++  // （与 1..200 契约一致，防止 maxWords 配到 500 时突破契约）。旧配置自动兼容。
++  const computedTargetChars = Math.round(split.targetSeconds * split.baseWordsPerSecond * split.speechRate)
++  const explicitChars = own(splitInput, 'targetCharsPerScene') !== undefined
++    ? numberValue(own(splitInput, 'targetCharsPerScene'), 20, 'split.targetCharsPerScene', 1, 200, true)
++    : null
++  split.targetCharsPerScene = explicitChars !== null
++    ? explicitChars
++    : Math.min(Math.min(split.maxWords, 200), Math.max(Math.max(split.minWords, 1), computedTargetChars))
++  // 显式主控时反推 target_duration（= targetCharsPerScene ÷ (bps × speechRate)，取整 1..60），
++  // 使主控参数经现有 8002 通道在 Batch 1 即生效，避免被静默忽略（双模型审查 W2）。
++  if (explicitChars !== null) {
++    split.targetSeconds = Math.min(60, Math.max(1, Math.round(split.targetCharsPerScene / (split.baseWordsPerSecond * split.speechRate))))
++  }
+ 
+   const optimize = {
+     style: promptStyleValue(
+@@ -371,6 +390,9 @@ function normalizeStory2VideoTextParams(params = {}) {
+     60,
+   )
+   const transition = enumValue(firstDefined(own(suppliedConfig, 'transition'), params.transition), 'fade', 'transition', TRANSITIONS)
++  // 场景时长模式（三层模型③）：follow-audio 跟随旁白（默认）；min-duration 以静音补齐到 minSceneDuration。
++  const sceneDurationMode = enumValue(firstDefined(own(suppliedConfig, 'sceneDurationMode'), params.sceneDurationMode), 'follow-audio', 'sceneDurationMode', SCENE_DURATION_MODES)
++  const minSceneDuration = numberValue(firstDefined(own(suppliedConfig, 'minSceneDuration'), params.minSceneDuration), 6, 'minSceneDuration', 1, 60)
+   const contentType = enumValue(firstDefined(own(suppliedConfig, 'contentType'), params.contentType), 'general', 'contentType', CONTENT_TYPES)
+   const templateId = idValue(firstDefined(own(suppliedConfig, 'templateId'), params.templateId), '', 'templateId')
+   const concurrency = numberValue(firstDefined(own(suppliedConfig, 'concurrency'), params.concurrency), 3, 'concurrency', 1, 8, true)
+@@ -408,6 +430,8 @@ function normalizeStory2VideoTextParams(params = {}) {
+     subtitle,
+     bgm,
+     transition,
++    sceneDurationMode,
++    minSceneDuration,
+     templateId,
+     concurrency,
+     watermark,
+@@ -462,6 +486,8 @@ function normalizeStory2VideoTextParams(params = {}) {
+     },
+     compose: {
+       transition,
++      sceneDurationMode,
++      minSceneDuration,
+       imageEffect: image.effect,
+       subtitleEnabled: subtitle.enabled,
+       subtitleStyle,
+@@ -519,6 +545,8 @@ function normalizeStory2VideoTextParams(params = {}) {
+     concurrency,
+     templateId: templateId || null,
+     defaultSceneDuration,
++    sceneDurationMode,
++    minSceneDuration,
+     imageEffect: image.effect,
+     transition,
+     subtitleEnabled: subtitle.enabled,
+diff --git a/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml b/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml
+index 160e8aad..d26a4e25 100644
+--- a/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml
++++ b/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml
+@@ -33,6 +33,7 @@ runtime_defaults:
+       mode: balanced
+       maxSentenceLength: 200
+       targetSeconds: 6
++      targetCharsPerScene: 20
+       baseWordsPerSecond: 3.3
+       speechRate: 1
+       minWords: 10
+@@ -76,6 +77,8 @@ runtime_defaults:
+       path: ""
+       volume: 5
+     transition: fade
++    sceneDurationMode: follow-audio
++    minSceneDuration: 6
+     templateId: ""
+     concurrency: 3
+     watermark:
+@@ -288,6 +291,8 @@ stages:
+       fps: 30
+       format: mp4
+       defaultSceneDuration: 6
++      sceneDurationMode: follow-audio
++      minSceneDuration: 6
+     runtime_options:
+       transition: "none|fade|slide-left|slide-right|slide-up|slide-down"
+       imageEffect: "none|zoom-in|zoom-out|pan-left|pan-right|pan-up|pan-down|zoom-pan|rotate|blur-in"
+@@ -302,6 +307,8 @@ stages:
+       fps: "1..120"
+       format: "mp4|webm"
+       defaultSceneDuration: "1..60 秒，仅用于无音频或无法探测音频时的场景回退"
++      sceneDurationMode: "follow-audio|min-duration；min-duration 时每场景以静音补齐到 minSceneDuration"
++      minSceneDuration: "1..60 秒，最短场景时长（min-duration 模式），默认 6"
+       limits: "output<=600s; narration total<=900s; multi-audio segment<=180s"
+     checkpoint_required: true
+     human_approval_default: false
+diff --git a/packages/python-backend/tests/test_pipeline_loader.py b/packages/python-backend/tests/test_pipeline_loader.py
+index cea9cf5c..bb1be249 100644
+--- a/packages/python-backend/tests/test_pipeline_loader.py
++++ b/packages/python-backend/tests/test_pipeline_loader.py
+@@ -50,6 +50,13 @@ class TestPipelineLoader:
+         assert manifest["runtime_defaults"]["story2videoTextConfig"]["size"] == "720x1280"
+         assert manifest["runtime_defaults"]["story2videoTextConfig"]["bgm"]["volume"] == 5
+         assert manifest["runtime_defaults"]["story2videoTextConfig"]["concurrency"] == 3
++        # 三层模型字段（Batch 1）：分镜字数主控 + 场景时长模式，renderer/normalizer/YAML 一致性门禁
++        assert manifest["runtime_defaults"]["story2videoTextConfig"]["split"]["targetCharsPerScene"] == 20
++        assert manifest["runtime_defaults"]["story2videoTextConfig"]["sceneDurationMode"] == "follow-audio"
++        assert manifest["runtime_defaults"]["story2videoTextConfig"]["minSceneDuration"] == 6
++        compose_stage = next(stage for stage in manifest["stages"] if stage["name"] == "compose")
++        assert compose_stage["options"]["sceneDurationMode"] == "follow-audio"
++        assert compose_stage["options"]["minSceneDuration"] == 6
+         optimize = next(stage for stage in manifest["stages"] if stage["name"] == "optimize")
+         assert optimize["options"] == {
+             "platform": "generic",

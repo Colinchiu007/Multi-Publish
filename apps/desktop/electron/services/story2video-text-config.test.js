@@ -49,6 +49,8 @@ describe('Story2Video text 参数合同', () => {
       compose: expect.objectContaining({
         resolution: '720x1280',
         defaultSceneDuration: 6,
+        sceneDurationMode: 'follow-audio',
+        minSceneDuration: 6,
         imageEffect: 'zoom-in',
         subtitleEnabled: false,
         bgmVolume: 0.5,
@@ -60,6 +62,9 @@ describe('Story2Video text 参数合同', () => {
       mode: 'text',
       prompt: '长安城的灯火。',
       size: '720x1280',
+      split: expect.objectContaining({ targetCharsPerScene: 20 }),
+      sceneDurationMode: 'follow-audio',
+      minSceneDuration: 6,
     }))
     expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.mode).toBe('text')
     expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.language).toBe('auto')
@@ -223,6 +228,79 @@ describe('Story2Video text 参数合同', () => {
         prompt: '从项目配置恢复的文案',
       },
     })
+  })
+
+  it('分镜字数主控：targetCharsPerScene 优先，缺省时由 targetSeconds 换算并夹在 [minWords,maxWords]', () => {
+    // 缺省 targetCharsPerScene：targetSeconds=4 → round(4×3.3×1)=13
+    const fromSeconds = normalizeStory2VideoTextParams({
+      text: '字数换算',
+      story2videoTextConfig: { split: { targetSeconds: 4 } },
+    })
+    expect(fromSeconds.story2videoTextConfig.split.targetCharsPerScene).toBe(13)
+    expect(fromSeconds.story2videoTextConfig.split.targetSeconds).toBe(4)
+    expect(fromSeconds.stageOptions.split.target_duration).toBe(4)
+
+    // 显式主控优先于 targetSeconds，并经 8002 通道生效：反推 target_duration = round(25/3.3)=8
+    const explicit = normalizeStory2VideoTextParams({
+      text: '字数主控',
+      story2videoTextConfig: { split: { targetSeconds: 10, targetCharsPerScene: 25 } },
+    })
+    expect(explicit.story2videoTextConfig.split.targetCharsPerScene).toBe(25)
+    expect(explicit.story2videoTextConfig.split.targetSeconds).toBe(8)
+    expect(explicit.stageOptions.split.target_duration).toBe(8)
+
+    // 换算结果夹在 [max(minWords,1), min(maxWords,200)]，并统一反推 target_duration
+    const clampedHigh = normalizeStory2VideoTextParams({
+      text: '夹上限',
+      story2videoTextConfig: { split: { targetSeconds: 60 } },
+    })
+    expect(clampedHigh.story2videoTextConfig.split.targetCharsPerScene).toBe(50)
+    expect(clampedHigh.story2videoTextConfig.split.targetSeconds).toBe(15)
+    expect(clampedHigh.stageOptions.split.target_duration).toBe(15)
+    const clampedLow = normalizeStory2VideoTextParams({
+      text: '夹下限',
+      story2videoTextConfig: { split: { targetSeconds: 1, minWords: 10, maxWords: 50 } },
+    })
+    expect(clampedLow.story2videoTextConfig.split.targetCharsPerScene).toBe(10)
+    expect(clampedLow.stageOptions.split.target_duration).toBe(3)
+    // maxWords 配到 500 且 60s×3.3×2=396 时也不能突破 1..200 契约（双模型审查 W1）
+    const capped = normalizeStory2VideoTextParams({
+      text: '契约上限',
+      story2videoTextConfig: { split: { targetSeconds: 60, speechRate: 2, maxWords: 500 } },
+    })
+    expect(capped.story2videoTextConfig.split.targetCharsPerScene).toBe(200)
+    expect(capped.stageOptions.split.target_duration).toBe(30)
+
+    // 保存→重载幂等：以归一化结果再次归一化，chars 与 target_duration 不变（双模型审查 W1）
+    const reloaded = normalizeStory2VideoTextParams({ story2videoTextConfig: clampedHigh.story2videoTextConfig })
+    expect(reloaded.story2videoTextConfig.split.targetCharsPerScene).toBe(clampedHigh.story2videoTextConfig.split.targetCharsPerScene)
+    expect(reloaded.stageOptions.split.target_duration).toBe(clampedHigh.stageOptions.split.target_duration)
+
+    // 显式字数越出 [minWords, maxWords] fail-closed（双模型审查 W2）
+    expect(() => normalizeStory2VideoTextParams({
+      text: '越界字数',
+      story2videoTextConfig: { split: { targetCharsPerScene: 5, minWords: 10, maxWords: 50 } },
+    })).toThrow(/targetCharsPerScene/)
+  })
+
+  it('场景时长模式：默认 follow-audio/6，min-duration 可配，越界与非法枚举拒绝', () => {
+    const nested = normalizeStory2VideoTextParams({
+      text: '时长模式',
+      story2videoTextConfig: { sceneDurationMode: 'min-duration', minSceneDuration: 8 },
+    })
+    expect(nested.stageOptions.compose).toMatchObject({ sceneDurationMode: 'min-duration', minSceneDuration: 8 })
+    expect(nested.story2videoTextConfig).toMatchObject({ sceneDurationMode: 'min-duration', minSceneDuration: 8 })
+
+    expect(() => normalizeStory2VideoTextParams({ text: '非法枚举', story2videoTextConfig: { sceneDurationMode: 'fixed' } }))
+      .toThrow(/sceneDurationMode/)
+    expect(() => normalizeStory2VideoTextParams({ text: '越界0', story2videoTextConfig: { minSceneDuration: 0 } }))
+      .toThrow(/minSceneDuration/)
+    expect(() => normalizeStory2VideoTextParams({ text: '越界61', story2videoTextConfig: { minSceneDuration: 61 } }))
+      .toThrow(/minSceneDuration/)
+    expect(() => normalizeStory2VideoTextParams({ text: '字数越界0', story2videoTextConfig: { split: { targetCharsPerScene: 0 } } }))
+      .toThrow(/targetCharsPerScene/)
+    expect(() => normalizeStory2VideoTextParams({ text: '字数越界201', story2videoTextConfig: { split: { targetCharsPerScene: 201 } } }))
+      .toThrow(/targetCharsPerScene/)
   })
 
   it('defaultSceneDuration 支持扁平/嵌套别名与越界拒绝，不再是 perImageDuration 用户项', () => {

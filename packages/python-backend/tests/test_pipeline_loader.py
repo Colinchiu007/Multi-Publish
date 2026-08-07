@@ -50,6 +50,13 @@ class TestPipelineLoader:
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["size"] == "720x1280"
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["bgm"]["volume"] == 5
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["concurrency"] == 3
+        # 三层模型字段（Batch 1）：分镜字数主控 + 场景时长模式，renderer/normalizer/YAML 一致性门禁
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["split"]["targetCharsPerScene"] == 20
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["sceneDurationMode"] == "follow-audio"
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["minSceneDuration"] == 6
+        compose_stage = next(stage for stage in manifest["stages"] if stage["name"] == "compose")
+        assert compose_stage["options"]["sceneDurationMode"] == "follow-audio"
+        assert compose_stage["options"]["minSceneDuration"] == 6
         optimize = next(stage for stage in manifest["stages"] if stage["name"] == "optimize")
         assert optimize["options"] == {
             "platform": "generic",

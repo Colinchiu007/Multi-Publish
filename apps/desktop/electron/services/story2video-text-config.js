@@ -15,6 +15,7 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     mode: 'balanced',
     maxSentenceLength: 200,
     targetSeconds: 6,
+    targetCharsPerScene: 20,
     baseWordsPerSecond: 3.3,
     speechRate: 1,
     minWords: 10,
@@ -55,6 +56,8 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
   }),
   bgm: Object.freeze({ enabled: false, path: '', volume: 5 }),
   transition: 'fade',
+  sceneDurationMode: 'follow-audio',
+  minSceneDuration: 6,
   templateId: '',
   concurrency: 3,
   watermark: Object.freeze({
@@ -81,6 +84,7 @@ const IMAGE_EFFECTS = new Set([
   'zoom-pan', 'rotate', 'blur-in',
 ])
 const TRANSITIONS = new Set(['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down'])
+const SCENE_DURATION_MODES = new Set(['follow-audio', 'min-duration'])
 const SPLIT_MODES = new Set(['fast', 'balanced', 'precise'])
 const LANGUAGES = new Set(['auto', 'zh', 'en'])
 const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
@@ -315,6 +319,22 @@ function normalizeStory2VideoTextParams(params = {}) {
   if (split.subtitleMinChars > split.subtitleMaxChars) {
     throw new Error('Story2Video split.subtitleMinChars 不能大于 subtitleMaxChars')
   }
+  // 分镜字数主控（三层模型①）：显式 targetCharsPerScene 优先；缺省时由 targetSeconds
+  // （× baseWordsPerSecond × speechRate）换算并夹在 [max(minWords,1), min(maxWords,200)]
+  // （与 1..200 契约一致，防止 maxWords 配到 500 时突破契约）。旧配置自动兼容。
+  const computedTargetChars = Math.round(split.targetSeconds * split.baseWordsPerSecond * split.speechRate)
+  const explicitChars = own(splitInput, 'targetCharsPerScene') !== undefined
+    ? numberValue(own(splitInput, 'targetCharsPerScene'), DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.targetCharsPerScene, 'split.targetCharsPerScene', 1, 200, true)
+    : null
+  if (explicitChars !== null && (explicitChars < split.minWords || explicitChars > split.maxWords)) {
+    throw new Error('Story2Video split.targetCharsPerScene 必须在 [minWords=' + split.minWords + ', maxWords=' + split.maxWords + '] 范围内')
+  }
+  split.targetCharsPerScene = explicitChars !== null
+    ? explicitChars
+    : Math.min(Math.min(split.maxWords, 200), Math.max(Math.max(split.minWords, 1), computedTargetChars))
+  // 统一以最终 targetCharsPerScene 反推 target_duration（= chars ÷ (bps × speechRate)，取整 1..60）：
+  // 使主控经现有 8002 通道在 Batch 1 生效，且首次运行与保存重载一致（幂等，双模型审查 W1）。
+  split.targetSeconds = Math.min(60, Math.max(1, Math.round(split.targetCharsPerScene / (split.baseWordsPerSecond * split.speechRate))))
 
   const optimize = {
     style: promptStyleValue(
@@ -371,6 +391,9 @@ function normalizeStory2VideoTextParams(params = {}) {
     60,
   )
   const transition = enumValue(firstDefined(own(suppliedConfig, 'transition'), params.transition), 'fade', 'transition', TRANSITIONS)
+  // 场景时长模式（三层模型③）：follow-audio 跟随旁白（默认）；min-duration 以静音补齐到 minSceneDuration。
+  const sceneDurationMode = enumValue(firstDefined(own(suppliedConfig, 'sceneDurationMode'), params.sceneDurationMode), 'follow-audio', 'sceneDurationMode', SCENE_DURATION_MODES)
+  const minSceneDuration = numberValue(firstDefined(own(suppliedConfig, 'minSceneDuration'), params.minSceneDuration), 6, 'minSceneDuration', 1, 60)
   const contentType = enumValue(firstDefined(own(suppliedConfig, 'contentType'), params.contentType), 'general', 'contentType', CONTENT_TYPES)
   const templateId = idValue(firstDefined(own(suppliedConfig, 'templateId'), params.templateId), '', 'templateId')
   const concurrency = numberValue(firstDefined(own(suppliedConfig, 'concurrency'), params.concurrency), 3, 'concurrency', 1, 8, true)
@@ -408,6 +431,8 @@ function normalizeStory2VideoTextParams(params = {}) {
     subtitle,
     bgm,
     transition,
+    sceneDurationMode,
+    minSceneDuration,
     templateId,
     concurrency,
     watermark,
@@ -462,6 +487,8 @@ function normalizeStory2VideoTextParams(params = {}) {
     },
     compose: {
       transition,
+      sceneDurationMode,
+      minSceneDuration,
       imageEffect: image.effect,
       subtitleEnabled: subtitle.enabled,
       subtitleStyle,
@@ -519,6 +546,8 @@ function normalizeStory2VideoTextParams(params = {}) {
     concurrency,
     templateId: templateId || null,
     defaultSceneDuration,
+    sceneDurationMode,
+    minSceneDuration,
     imageEffect: image.effect,
     transition,
     subtitleEnabled: subtitle.enabled,
