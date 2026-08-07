@@ -1,0 +1,12 @@
+{
+  "id": "story2video-ue-blank-fix",
+  "title": "实现 Story2Video 快速模式 UE 优化并修复视频创作空白页",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "提交、推送、创建 PR，等待 CI 后合并",
+  "createdAt": "2026-08-05T14:30:00+08:00",
+  "branch": "codex/story2video-ue-fix"
+}

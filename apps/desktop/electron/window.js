@@ -35,50 +35,19 @@ const IPC_REGISTRAR_NAMES = [
   'publishImpactTracker',
 ]
 
-function registerWithAccessControl(context, register) {
-  const transactionalHandle = ipcMain.handle
-  const controlledHandle = createAccessControlledIpcMain(
+function registerIpcRegistrar(context, name) {
+  // 显式构造 access-controlled ipcMain 并注入服务（与 phase5-ipc 中心注册一致），
+  // 不再临时替换全局 ipcMain.handle，避免注册机制双轨与全局状态污染。
+  const controlledIpcMain = createAccessControlledIpcMain(
     ipcMain,
     context.licenseManager,
     process.env,
     app,
     context.identityService,
-  ).handle
-  ipcMain.handle = controlledHandle
-
-  const restore = () => {
-    if (ipcMain.handle === controlledHandle) ipcMain.handle = transactionalHandle
-  }
-
-  try {
-    const result = register()
-    if (!isThenable(result)) {
-      restore()
-      return result
-    }
-    return Promise.resolve(result).then(
-      (value) => {
-        restore()
-        return value
-      },
-      (error) => {
-        restore()
-        throw error
-      },
-    )
-  } catch (error) {
-    restore()
-    throw error
-  }
-}
-
-function registerIpcRegistrar(context, name) {
+  )
   return runIpcRegistrationTransaction(
     ipcMain,
-    () => registerWithAccessControl(
-      context,
-      () => context[name].registerIpcHandlers(),
-    ),
+    () => context[name].registerIpcHandlers(controlledIpcMain),
   )
 }
 

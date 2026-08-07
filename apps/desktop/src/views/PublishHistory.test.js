@@ -7,9 +7,15 @@ import path from 'node:path'
 const historyListMock = vi.fn()
 const draftListMock = vi.fn()
 const pushMock = vi.fn()
+const historyGetMock = vi.fn()
+const historyDeleteMock = vi.fn()
+const retryTaskMock = vi.fn()
 
 vi.mock('@/api/publisher', () => ({
   historyList: (...args) => historyListMock(...args),
+  historyGet: (...args) => historyGetMock(...args),
+  historyDelete: (...args) => historyDeleteMock(...args),
+  retryTask: (...args) => retryTaskMock(...args),
   draftList: (...args) => draftListMock(...args),
 }))
 
@@ -57,6 +63,9 @@ describe('PublishHistory', () => {
         }],
       },
     })
+    historyGetMock.mockReset().mockResolvedValue({ code: 0, data: {} })
+    historyDeleteMock.mockReset().mockResolvedValue({ code: 0, data: { deleted: 1 } })
+    retryTaskMock.mockReset().mockResolvedValue({ code: 0 })
     draftListMock.mockReset().mockResolvedValue({
       code: 0,
       data: [{ id: 'draft-1', title: '待完成草稿', created_at: '2026-07-23T08:00:00.000Z' }],
@@ -140,6 +149,41 @@ describe('PublishHistory', () => {
     expect(wrapper.text()).toContain('第二页')
   })
 
+
+  it('平台和时间筛选与蚁小二工具栏一致', async () => {
+    historyListMock.mockResolvedValue({ code: 0, data: { records: [
+      { id: 'today', title: '今天记录', platform: 'zhihu', status: 'success', timestamp: new Date().toISOString() },
+      { id: 'old', title: '旧记录', platform: 'weibo', status: 'success', timestamp: '2020-01-01T00:00:00.000Z' },
+    ] } })
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+    await wrapper.get('[data-testid="platform-filter"]').setValue('zhihu')
+    expect(wrapper.findAll('.record-card')).toHaveLength(1)
+    await wrapper.get('[data-testid="platform-filter"]').setValue('')
+    await wrapper.get('[data-testid="date-filter"]').setValue('today')
+    expect(wrapper.findAll('.record-card')).toHaveLength(1)
+    expect(wrapper.text()).toContain('今天记录')
+  })
+
+  it('记录详情弹窗读取历史详情，失败记录支持重试', async () => {
+    historyGetMock.mockResolvedValue({ code: 0, data: { description: '详情正文' } })
+    retryTaskMock.mockResolvedValue({ code: 0 })
+    historyListMock.mockResolvedValue({ code: 0, data: { records: [{ id: 'failed-1', taskId: 'task-1', title: '失败任务', platform: 'zhihu', status: 'failed' }] } })
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+    await wrapper.get('[data-testid="detail-failed-1"]').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(historyGetMock).toHaveBeenCalledWith('failed-1')
+    expect(wrapper.get('.record-detail-modal').text()).toContain('详情正文')
+    await wrapper.get('[data-testid="close-record-detail"]').trigger('click')
+    await wrapper.get('[data-testid="retry-failed-1"]').trigger('click')
+    await nextTick()
+    expect(retryTaskMock).toHaveBeenCalledWith('task-1')
+  })
+
   it('列表展示发布人、内容属性和完整统计字段', async () => {
     const wrapper = mountView()
     await nextTick()
@@ -157,6 +201,42 @@ describe('PublishHistory', () => {
     expect(wrapper.text()).toContain('120')
   })
 
+  it('详情弹窗显示蚁小二记录统计和发布配置字段', async () => {
+    historyGetMock.mockResolvedValue({
+      code: 0,
+      data: {
+        description: '详情正文',
+        contentType: 'video',
+        publishMode: 'scheduled',
+        accountCount: 2,
+        taskCount: 3,
+        failedCount: 1,
+        views: 120,
+        comments: 4,
+        likes: 8,
+        favorites: 2,
+        shares: 3,
+      },
+    })
+    const wrapper = mountView()
+    await flushHistory()
+    await wrapper.get('[data-testid="detail-record-1"]').trigger('click')
+    await flushHistory()
+
+    const detail = wrapper.get('.record-detail-modal').text()
+    expect(detail).toContain('内容类型')
+    expect(detail).toContain('视频')
+    expect(detail).toContain('发布模式')
+    expect(detail).toContain('定时发布')
+    expect(detail).toContain('账号数')
+    expect(detail).toContain('2')
+    expect(detail).toContain('任务数')
+    expect(detail).toContain('3')
+    expect(detail).toContain('失败')
+    expect(detail).toContain('播放')
+    expect(detail).toContain('120')
+    expect(detail).toContain('详情正文')
+  })
   it('搜索和状态筛选只保留匹配记录', async () => {
     historyListMock.mockResolvedValue({
       code: 0,
@@ -246,7 +326,7 @@ describe('PublishHistory', () => {
     expect(wrapper.get('[data-testid="view-grid"]').attributes('aria-pressed')).toBe('true')
   })
 
-  it('空记录时提供新建发布入口', async () => {
+  it('空记录时提供新建发布入口并打开发布类型选择', async () => {
     historyListMock.mockResolvedValue({ code: 0, data: { total: 0, records: [] } })
     const wrapper = mountView()
     await nextTick()
@@ -254,7 +334,9 @@ describe('PublishHistory', () => {
 
     expect(wrapper.text()).toContain('暂无发布记录')
     await wrapper.get('[data-testid="new-publish"]').trigger('click')
-    expect(pushMock).toHaveBeenCalledWith('/publish')
+    expect(wrapper.get('[data-testid="publish-type-dialog"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="publish-type-dialog-title"]').text()).toBe('选择发布类型')
+    expect(wrapper.findAll('[data-testid^="publish-type-card-"]')).toHaveLength(4)
   })
 
   it('加载失败时显示错误并允许重试', async () => {
@@ -286,11 +368,13 @@ describe('PublishHistory', () => {
     expect(pushMock).toHaveBeenCalledWith('/publish?draft=draft-1')
   })
 
-  it('新建发布按钮始终进入编辑器', async () => {
+  it('新建发布先选择类型，再带类型进入编辑器', async () => {
     const wrapper = mountView()
     await nextTick()
     await wrapper.get('[data-testid="new-publish"]').trigger('click')
-    expect(pushMock).toHaveBeenCalledWith('/publish')
+    await wrapper.get('[data-testid="publish-type-card-video"]').trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/publish?type=video')
+    expect(wrapper.find('[data-testid="publish-type-dialog"]').exists()).toBe(false)
   })
 
   it('批量管理支持选择、全选和取消选择', async () => {
@@ -313,6 +397,24 @@ describe('PublishHistory', () => {
     const cancelSelection = wrapper.findAll('button').find(button => button.text() === '取消选择')
     await cancelSelection.trigger('click')
     expect(wrapper.find('.record-selector').exists()).toBe(false)
+  })
+
+  it('批量管理支持删除选中的发布记录并刷新列表', async () => {
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    await wrapper.get('[data-testid="start-selection"]').trigger('click')
+    await wrapper.get('.record-selector input').setValue(true)
+    const deleteButton = wrapper.findAll('.selection-toolbar .toolbar-button').find(button => button.text().includes('删除'))
+
+    expect(deleteButton).toBeDefined()
+    expect(deleteButton.attributes('disabled')).toBeUndefined()
+    await deleteButton.trigger('click')
+
+    expect(historyDeleteMock).toHaveBeenCalledWith(['record-1'])
+    expect(historyListMock).toHaveBeenLastCalledWith({ limit: 50, offset: 0 })
+    expect(wrapper.text()).toContain('已选择 0 项')
   })
 
   it('移动端记录主体使用可收缩布局，批量复选框不会撑出卡片', () => {

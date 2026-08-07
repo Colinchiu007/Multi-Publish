@@ -1,0 +1,13 @@
+{
+  "id": "story2video-create-blank-csp-fix",
+  "title": "修复视频创作空白页（vue-i18n 运行时编译被 Electron CSP 拦截）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已随 PR #362 合并到 main (9870f7f)",
+  "createdAt": "2026-08-06T00:00:00Z",
+  "completedAt": "2026-08-06T00:00:00Z",
+  "branch": "codex/story2video-create-blank-fix"
+}

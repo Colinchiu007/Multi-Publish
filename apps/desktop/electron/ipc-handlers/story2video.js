@@ -18,7 +18,9 @@ const {
 
 function safeZipName (value) {
   const base = path.basename(typeof value === 'string' && value.trim() ? value.trim() : 'story2video-export.zip')
-  const sanitized = base.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120)
+  const sanitized = Array.from(base, (character) => (
+    character < ' ' || '<>:"/\\|?*'.includes(character) ? '_' : character
+  )).join('').slice(0, 120)
   return sanitized.toLowerCase().endsWith('.zip') ? sanitized : sanitized + '.zip'
 }
 
@@ -40,6 +42,7 @@ function registerHandlers (ipcMain, deps = {}) {
   const dialog = deps.dialog || electron.dialog
   const shell = deps.shell || electron.shell
   const clipboard = deps.clipboard || electron.clipboard
+  const mediaServer = deps.story2videoMediaServer || null
   const projectService = deps.story2videoProjectService || null
   const projectRoots = projectService && typeof projectService.projectsDir === 'string'
     ? [projectService.projectsDir]
@@ -182,7 +185,7 @@ function registerHandlers (ipcMain, deps = {}) {
       const allowedRoots = allowedMediaRoots()
       const resolved = validateFilePath(filePath, projectRoots)
       if (!resolved) return { code: EC.VALIDATION_ERROR, message: '视频文件路径无效或不允许访问' }
-      return { code: 0, data: { url: createShareFileUrl(resolved, { allowedRoots }), path: resolved } }
+      return { code: 0, data: { url: createShareFileUrl(resolved, { allowedRoots, mediaServer }), path: resolved } }
     } catch (error) {
       return { code: EC.REQUEST_ERROR, message: error.message }
     }

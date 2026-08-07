@@ -17,12 +17,13 @@ describe("publish-history", () => {
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
-  it("exports all 4 functions", () => {
+  it("exports history deletion alongside the read APIs", () => {
     const ph = require("../services/publish-history");
     expect(typeof ph.addRecord).toBe("function");
     expect(typeof ph.listRecords).toBe("function");
     expect(typeof ph.getRecord).toBe("function");
     expect(typeof ph.getStats).toBe("function");
+    expect(typeof ph.deleteRecords).toBe("function");
   });
 
   it("addRecord returns object with id, timestamp, and merged fields", () => {
@@ -118,6 +119,30 @@ describe("publish-history", () => {
     expect(ph.getRecord(recordB.id, "user-a")).toBeNull();
     expect(ph.getStats("user-b")).toMatchObject({ total: 1, perPlatform: { douyin: { total: 1 } } });
     expect(ph.listRecords({}, null)).toEqual({ total: 0, records: [] });
+  });
+
+  it("按 owner_subject 批量删除且保留其他用户记录", () => {
+    vi.resetModules();
+    process.env.PH_TEST_DATA_DIR = testDir;
+    const ph = require("../services/publish-history");
+    const recordA = ph.addRecord({ platform: "wechat_mp", title: "用户 A" }, "user-a");
+    const recordB = ph.addRecord({ platform: "douyin", title: "用户 B" }, "user-b");
+
+    expect(ph.deleteRecords([recordA.id], "user-a")).toEqual({ deleted: 1 });
+    expect(ph.getRecord(recordA.id, "user-a")).toBeNull();
+    expect(ph.getRecord(recordB.id, "user-b")).toEqual(expect.objectContaining({ id: recordB.id }));
+    expect(ph.deleteRecords([recordB.id], "user-a")).toEqual({ deleted: 0 });
+  });
+
+  it("删除空列表或不存在记录时不改写历史", () => {
+    vi.resetModules();
+    process.env.PH_TEST_DATA_DIR = testDir;
+    const ph = require("../services/publish-history");
+    const record = ph.addRecord({ platform: "wechat_mp", title: "保留" }, "user-a");
+
+    expect(ph.deleteRecords([], "user-a")).toEqual({ deleted: 0 });
+    expect(ph.deleteRecords(["missing"], "user-a")).toEqual({ deleted: 0 });
+    expect(ph.getRecord(record.id, "user-a")).toEqual(expect.objectContaining({ id: record.id }));
   });
 
   it("未启用身份服务时兼容显式 legacy 历史记录", () => {

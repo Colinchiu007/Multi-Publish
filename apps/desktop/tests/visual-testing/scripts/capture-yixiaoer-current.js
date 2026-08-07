@@ -41,17 +41,17 @@ const CAPTURE_SCENARIOS = Object.freeze([
   Object.freeze({
     name: 'accounts',
     route: '/accounts',
-    readySelector: '.cohere-main .page-title:has-text("账号管理")',
+    readySelector: '.yixiaoer-workspace .accounts-page',
   }),
   Object.freeze({
     name: 'publish',
     route: '/publish/history',
-    readySelector: '.cohere-main .publish-history-page h1:has-text("发布记录")',
+    readySelector: '.yixiaoer-workspace .publish-history-page h1:has-text("发布记录")',
   }),
   Object.freeze({
     name: 'batch-publish',
     route: '/publish/history',
-    readySelector: '.cohere-main .publish-history-page h1:has-text("发布记录")',
+    readySelector: '.yixiaoer-workspace .publish-history-page h1:has-text("发布记录")',
     actionSelector: '[data-testid="start-selection"]',
     actionReadySelector: '.record-selector input',
   }),
@@ -99,7 +99,7 @@ function inspectLayoutInPage () {
       return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0
     })
 
-  for (const element of visibleElements('.cohere-main, .publish-history-page, .history-panel, .record-card')) {
+  for (const element of visibleElements('.yixiaoer-workspace, .publish-history-page, .history-panel, .record-card')) {
     const rect = element.getBoundingClientRect()
     if (rect.left < -1 || rect.right > window.innerWidth + 1) {
       issues.push(`${element.className} 超出视口：left=${rect.left.toFixed(1)}，right=${rect.right.toFixed(1)}`)
@@ -124,8 +124,8 @@ function inspectLayoutInPage () {
     }
   }
 
-  const nav = document.querySelector('.cohere-topnav')
-  const main = document.querySelector('.cohere-main')
+  const nav = document.querySelector('.yixiaoer-module-nav')
+  const main = document.querySelector('.yixiaoer-workspace')
   if (nav && main) {
     const navRect = nav.getBoundingClientRect()
     const mainRect = main.getBoundingClientRect()

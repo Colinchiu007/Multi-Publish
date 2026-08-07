@@ -138,6 +138,7 @@
 import { ref, computed, onMounted } from "vue"
 import { useLicenseStore } from "@/stores/license"
 import { paymentCreateOrder, paymentSimulate, paymentCancel } from "@/api/publisher"
+import { reportError } from "@/utils/report-error"
 
 const emit = defineEmits(["close"])
 
@@ -228,7 +229,7 @@ async function doActivate() {
       activateError.value = "激活码无效或已被使用"
     }
   } catch (e) {
-    console.error(e)
+    reportError('激活许可证失败', e)
   } finally {
     activating.value = false
   }
@@ -244,7 +245,7 @@ async function doTrial() {
       activateError.value = "试用激活失败"
     }
   } catch (e) {
-    console.error(e)
+    reportError('激活试用失败', e)
   } finally {
     trialLoading.value = false
   }

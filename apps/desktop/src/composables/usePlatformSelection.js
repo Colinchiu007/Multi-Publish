@@ -13,20 +13,49 @@
 import { ref, computed, watch } from 'vue'
 import { normalizeAccountIds } from '@/features/publish/publish-contract'
 
-const VIDEO_PLATFORMS = ['douyin', 'tencent_video', 'kuaishou']
+const VIDEO_PLATFORMS = new Set(['douyin', 'tencent_video', 'kuaishou', 'bilibili', 'tiktok', 'youtube'])
+const VIDEO_CONTENT_CATEGORIES = new Set(['VIDEO', 'MIXED'])
+
+/**
+ * 依据平台目录的内容分类判断是否需要视频媒体输入。
+ * VIDEO 平台只支持视频，MIXED 平台同时支持图文和视频；目录未加载时
+ * 回退到已知平台集合，兼容旧版调用方。
+ * @param {string} platformId
+ * @param {object} platformCatalog
+ * @returns {boolean}
+ */
+export function isVideoContentPlatform(platformId, platformCatalog) {
+  const getter = platformCatalog && platformCatalog.getContentCategory
+  if (typeof getter === 'function') {
+    const category = getter(platformId)
+    if (typeof category === 'string' && category.trim()) {
+      return VIDEO_CONTENT_CATEGORIES.has(category.trim().toUpperCase())
+    }
+  }
+  const contentCategories = platformCatalog && platformCatalog.contentCategories
+  const categoryMap = contentCategories && contentCategories.value
+    ? contentCategories.value
+    : contentCategories
+  const category = categoryMap && categoryMap[platformId]
+  if (typeof category === 'string' && category.trim()) {
+    return VIDEO_CONTENT_CATEGORIES.has(category.trim().toUpperCase())
+  }
+  return VIDEO_PLATFORMS.has(platformId)
+}
 
 /**
  * 平台选择 composable
  * @param {object} accountStore - 账号 store（需有 byPlatform / getDefault）
+ * @param {object} [platformCatalog] - 平台 store/catalog（可提供 getContentCategory）
  * @returns {object} 响应式状态 + 方法
  */
-export function usePlatformSelection(accountStore) {
+export function usePlatformSelection(accountStore, platformCatalog = null) {
   const selectedPlatforms = ref(['wechat_mp'])
   const selectedAccounts = ref({}) // { platformId: accountId[] }
 
   const hasVideoPlatforms = computed(function () {
     return selectedPlatforms.value.some(function (p) {
-      return VIDEO_PLATFORMS.indexOf(p) !== -1
+      return isVideoContentPlatform(p, platformCatalog)
     })
   })
 
@@ -119,6 +148,7 @@ export function usePlatformSelection(accountStore) {
     selectedPlatforms,
     selectedAccounts,
     hasVideoPlatforms,
+    isVideoPlatform: (platformId) => isVideoContentPlatform(platformId, platformCatalog),
     togglePlatform,
     getAccounts,
     getDefaultAccount,

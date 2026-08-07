@@ -17,6 +17,7 @@ const { registerAllIpcHandlers } = require('./bootstrap/phase5-ipc')
 const { startBridges } = require('./bootstrap/phase2-bridges')
 const { extractContext } = require('./bootstrap/phase1-context')
 const { startServices } = require('./bootstrap/phase3-services')
+const { getStory2VideoMediaServer } = require('./services/story2video-media-server')
 
 // ─── Helper ────────────────────────────────────────────────
 // Bug-5: 优先从 DI 容器获取缓存的窗口引用，fallback 到 getAllWindows
@@ -103,6 +104,14 @@ function createAppContext() {
 }
 
 async function rollbackStartup(context, servicesResult, stopBridges) {
+  if (context.story2videoMediaServer && typeof context.story2videoMediaServer.stop === 'function') {
+    try {
+      await context.story2videoMediaServer.stop()
+    } catch (e) {
+      log.warn('App', 'Story2Video media server rollback failed: ' + errorMessage(e))
+    }
+  }
+
   if (servicesResult && typeof servicesResult.rollback === 'function') {
     try {
       await servicesResult.rollback()
@@ -162,6 +171,12 @@ function runWhenReady(context, deps) {
     let stopBridges = null
     let servicesResult = null
     try {
+      context.story2videoMediaServer = deps.story2videoMediaServer || getStory2VideoMediaServer()
+      try {
+        await context.story2videoMediaServer.start()
+      } catch (error) {
+        log.warn('App', 'Story2Video media server unavailable: ' + errorMessage(error))
+      }
       stopBridges = await startBridges({ app, pythonBridge, splitterBridge, promptBridge })
       context.stopBridges = stopBridges
 

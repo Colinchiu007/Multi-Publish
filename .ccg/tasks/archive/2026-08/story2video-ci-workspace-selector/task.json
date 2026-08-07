@@ -1,0 +1,12 @@
+{
+  "id": "story2video-ci-workspace-selector",
+  "title": "Restore GUI selector contract after Yixiaoer workspace merge",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "Archived after PR #352 merge",
+  "createdAt": "2026-08-04T03:20:00+08:00",
+  "branch": "codex/story2video-autopilot-tts-localization"
+}

@@ -2,6 +2,8 @@
 const {
   DEFAULT_STORY2VIDEO_TEXT_CONFIG,
   normalizeStory2VideoTextParams,
+  MAX_STORY2VIDEO_TEXT_UNICODE_CHARS,
+  countStory2VideoTextCharacters,
 } = require('./story2video-text-config')
 
 describe('Story2Video text 参数合同', () => {
@@ -26,7 +28,7 @@ describe('Story2Video text 参数合同', () => {
     expect(result.video).toBeNull()
     expect(result.stageOptions).toEqual(expect.objectContaining({
       split: expect.objectContaining({
-        language: 'zh',
+        language: 'auto',
         mode: 'balanced',
         max_sentence_length: 200,
         target_duration: 6,
@@ -60,6 +62,7 @@ describe('Story2Video text 参数合同', () => {
       size: '720x1280',
     }))
     expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.mode).toBe('text')
+    expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.language).toBe('auto')
     expect(result).not.toHaveProperty('seconds')
     expect(result).not.toHaveProperty('generateBase')
     expect(result).not.toHaveProperty('generateMerged')
@@ -70,6 +73,36 @@ describe('Story2Video text 参数合同', () => {
     expect(result.stageOptions.optimize).not.toHaveProperty('platform')
     expect(result.stageOptions.optimize).not.toHaveProperty('num_candidates')
     expect(result.stageOptions.optimize).not.toHaveProperty('auto_detect_style')
+  })
+
+  it('接受全自动编排策略并透传 background 后台模式，同时保留历史分句语言快照', () => {
+    const automatic = normalizeStory2VideoTextParams({
+      text: '自动编排使用语言识别。',
+      autoAdvance: true,
+      background: true,
+      checkpointPolicy: 'none',
+    })
+    const historical = normalizeStory2VideoTextParams({
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '保留历史语言。',
+        split: { language: 'zh' },
+      },
+    })
+
+    expect(automatic).toMatchObject({
+      autoAdvance: true,
+      background: true,
+      checkpointPolicy: 'none',
+      language: 'auto',
+      stageOptions: { split: { language: 'auto' } },
+    })
+    expect(historical).toMatchObject({
+      language: 'zh',
+      story2videoTextConfig: { split: { language: 'zh' } },
+      stageOptions: { split: { language: 'zh' } },
+    })
   })
 
   it('将图片风格与提示词风格隔离，并把兼容值映射为 Story2Video 合法值', () => {
@@ -147,7 +180,7 @@ describe('Story2Video text 参数合同', () => {
     expect(result.stageOptions.compose).toMatchObject({
       transition: 'slide-left',
       imageEffect: 'pan-left',
-      subtitleStyle: { font: 'Noto Sans SC', size: 'xl', style: 'style2', color: '#ffffff' },
+      subtitleStyle: { font: 'Noto Sans SC', size: 'size4', style: 'style2', color: '#ffffff' },
       bgmVolume: 0.7,
       voiceVolume: 0.8,
       resolution: '1920x1080',
@@ -210,6 +243,56 @@ describe('Story2Video text 参数合同', () => {
   })
 
   it.each([
+    ['中文', '中'.repeat(6000)],
+    ['英文', 'a'.repeat(6000)],
+    ['emoji', '😀'.repeat(6000)],
+  ])('接受恰好 6000 个 Unicode code point 的%s文案', (_language, text) => {
+    expect(Array.from(text)).toHaveLength(6000)
+
+    const result = normalizeStory2VideoTextParams({ text })
+
+    expect(result.text).toBe(text)
+    expect(result.story2videoTextConfig.prompt).toBe(text)
+  })
+
+  it.each([
+    ['中文', '中'.repeat(6001)],
+    ['英文', 'a'.repeat(6001)],
+    ['emoji', '😀'.repeat(6001)],
+  ])('拒绝 6001 个 Unicode code point 的%s文案', (_language, text) => {
+    expect(Array.from(text)).toHaveLength(6001)
+
+    expect(() => normalizeStory2VideoTextParams({ text })).toThrow(/6000.*Unicode/i)
+  })
+
+  it.each([
+    ['720x1280', '9:16'],
+    ['1920x1080', '16:9'],
+    ['3840x2160', '16:9'],
+    ['1080x1920', '9:16'],
+    ['1080x1440', '3:4'],
+  ])('从输出分辨率推导图片宽高比：%s', (size, expectedAspectRatio) => {
+    const result = normalizeStory2VideoTextParams({
+      text: '输出比例由最终成片决定。',
+      story2videoTextConfig: { size },
+    })
+
+    expect(result.story2videoTextConfig.image.aspectRatio).toBe(expectedAspectRatio)
+    expect(result.stageOptions.generate_assets.aspectRatio).toBe(expectedAspectRatio)
+  })
+
+  it.each([
+    ['size1', 'size1'], ['size2', 'size2'], ['size3', 'size3'],
+    ['size4', 'size4'], ['size5', 'size5'], ['size6', 'size6'],
+  ])('保留字幕字号 %s 的独立合成语义', (size, composeSize) => {
+    const result = normalizeStory2VideoTextParams({
+      text: '字幕字号测试。',
+      story2videoTextConfig: { subtitle: { size } },
+    })
+
+    expect(result.stageOptions.compose.subtitleStyle.size).toBe(composeSize)
+  })
+  it.each([
     [{ inputMode: 'images', images: ['data:image/png;base64,aQ=='] }, '只支持 text'],
     [{ text: '测试', images: {} }, 'images 必须是数组'],
     [{ text: '测试', audio: 'voice.mp3' }, 'audio 必须是数组'],
@@ -221,6 +304,7 @@ describe('Story2Video text 参数合同', () => {
     [{ text: '测试', checkpointPolicy: 'unsafe' }, 'checkpointPolicy'],
     [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: 'free-form' } } }, 'image.aspectRatio'],
     [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: '7:11' } } }, 'image.aspectRatio'],
+    [{ text: '测试', story2videoTextConfig: { size: '1920x1080', image: { aspectRatio: '9:16' } } }, '必须与输出分辨率匹配'],
     [{ text: '测试', story2videoTextConfig: { bgm: { volume: 11 } } }, 'bgm.volume'],
     [{ text: '测试', story2videoTextConfig: { optimize: { style: 'unknown' } } }, '不支持的视觉提示词风格'],
     [{ text: '测试', story2videoTextConfig: { optimize: { creativeLevel: 0 } } }, '1-10'],
@@ -264,5 +348,14 @@ describe('Story2Video text 参数合同', () => {
     { context: { provider: { clientSecret: 'secret' } } },
   ])('拒绝运行上下文中的敏感凭据 %#', (contextInput) => {
     expect(() => normalizeStory2VideoTextParams({ text: '测试', ...contextInput })).toThrow('敏感凭据')
+  })
+  it('将 Story2Video 文案限制为 6000 个 Unicode 字符，版本化 prompt 直传同样受限', () => {
+    expect(MAX_STORY2VIDEO_TEXT_UNICODE_CHARS).toBe(6000)
+    expect(countStory2VideoTextCharacters('😀'.repeat(6000))).toBe(6000)
+    expect(normalizeStory2VideoTextParams({ text: '中'.repeat(6000) }).text).toHaveLength(6000)
+    expect(() => normalizeStory2VideoTextParams({ text: 'a'.repeat(6001) })).toThrow('最多 6000')
+    expect(() => normalizeStory2VideoTextParams({
+      story2videoTextConfig: { version: 1, mode: 'text', prompt: '😀'.repeat(6001) },
+    })).toThrow('最多 6000')
   })
 })

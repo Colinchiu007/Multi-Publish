@@ -348,8 +348,8 @@ describe('window — createWindow', () => {
     let isPro = false
     const businessHandler = vi.fn(async () => ({ code: 0, data: 'saved' }))
     context.licenseManager = { isPro: vi.fn(() => isPro) }
-    context.providerManager.registerIpcHandlers.mockImplementation(() => {
-      __electronMock.ipcMain.handle('provider:restricted-smoke', businessHandler)
+    context.providerManager.registerIpcHandlers.mockImplementation((injected) => {
+      ;(injected || __electronMock.ipcMain).handle('provider:restricted-smoke', businessHandler)
     })
     __electronMock.app.isPackaged = true
 
@@ -380,8 +380,8 @@ describe('window — createWindow', () => {
     const businessHandler = vi.fn(async () => ({ code: 0, data: 'saved' }))
     context.licenseManager = { isPro: vi.fn(() => true) }
     context.identityService = { getState: vi.fn(() => ({ status: identityStatus })) }
-    context.providerManager.registerIpcHandlers.mockImplementation(() => {
-      __electronMock.ipcMain.handle('provider:identity-smoke', businessHandler)
+    context.providerManager.registerIpcHandlers.mockImplementation((injected) => {
+      ;(injected || __electronMock.ipcMain).handle('provider:identity-smoke', businessHandler)
     })
     __electronMock.app.isPackaged = true
 

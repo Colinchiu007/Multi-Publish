@@ -14,7 +14,7 @@ const exportedNames = [
   // 队列
   "getQueueStatus", "getQueueHistory", "cancelTask", "retryTask",
   // 发布历史
-  "historyList", "historyGet",
+  "historyList", "historyGet", "historyDelete",
   // 统计
   "dashboardStats",
   // 定时发布
@@ -111,6 +111,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   retryTask: { args: ["task-1"], fallback: { code: -1 }, returns: "object" },
   historyList: { args: [{ page: 1 }], fallback: { code: 0, data: { total: 0, records: [] } }, returns: "object" },
   historyGet: { args: ["id-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  historyDelete: { args: [["id-1"]], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   dashboardStats: { args: [], fallback: { code: 0, data: { total: 0, success: 0, failed: 0, byPlatform: {}, daily: [] } }, returns: "object" },
   schedulerCreate: { args: [{ time: "2026-01-01" }], fallback: { code: -1 }, returns: "object" },
   schedulerList: { args: [], fallback: { code: 0, data: [] }, returns: "object" },

@@ -17,13 +17,35 @@
  *   - 现有 13 条流水线无 stage.type 字段，回退为 MANUAL_CHECKPOINT
  */
 
-const path = require('path');
+const os = require('os');
 const { StageExecutor, STAGE_TYPES } = require('./stage-executor');
 const { cleanupRunInputDir, cleanupImportedMediaPaths } = require('./story2video-paths');
 const {
   STORY2VIDEO_PIPELINE,
   normalizeStory2VideoTextParams,
 } = require('./story2video-text-config');
+
+/**
+ * 依据机器资源计算默认后台并发上限（低配保守、高配放宽）：
+ * - 可用并行度 ≥8 且可用内存 ≥8GB → 4
+ * - 可用并行度 ≥4 且可用内存 ≥4GB → 3
+ * - 可用并行度 <2 或可用内存 <2GB → 1
+ * - 其余 → 2
+ * 最终封顶 [1, 4]。env 可注入（测试用）：{ cpus, freeMemGB }。
+ * 说明：compose 阶段 ffmpeg 合成 CPU/内存密集（27 场景曾触发 x264 OOM），
+ * API 阶段受 api-usage-governor 限流，因此高配也不超过 4 条。
+ */
+function computeDefaultMaxConcurrentRuns(env = {}) {
+  const cpus = Number.isFinite(Number(env.cpus)) ? Number(env.cpus)
+    : (typeof os.availableParallelism === 'function' ? os.availableParallelism() : (os.cpus ? os.cpus().length : 1))
+  const freeMemGB = Number.isFinite(Number(env.freeMemGB)) ? Number(env.freeMemGB)
+    : (os.freemem ? os.freemem() / (1024 ** 3) : 2)
+  let limit = 2
+  if (cpus >= 8 && freeMemGB >= 8) limit = 4
+  else if (cpus >= 4 && freeMemGB >= 4) limit = 3
+  else if (cpus < 2 || freeMemGB < 2) limit = 1
+  return Math.max(1, Math.min(4, limit))
+}
 
 // --- 流水线元数据（与 Python pipeline_defs 同步） ---
 const PIPELINES = [
@@ -33,6 +55,79 @@ const PIPELINES = [
     category: 'generated',
     stages: ['research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish'],
     estimatedCost: 'medium',
+    // 真实编排：LLM 规划链（explainer-stages.js 注册）→ 图片+旁白 → FFmpeg 合成 → 发布（可选）
+    stageDefs: [
+      {
+        name: 'research',
+        type: 'explainer_research',
+        description: '主题研究生成大纲',
+        checkpointRequired: false,
+      },
+      {
+        name: 'proposal',
+        type: 'explainer_proposal',
+        description: '大纲转分镜方案',
+        checkpointRequired: false,
+      },
+      {
+        name: 'script',
+        type: 'explainer_script',
+        description: '分镜转旁白文案',
+        checkpointRequired: false,
+      },
+      {
+        name: 'scenes',
+        type: 'explainer_scenes',
+        description: '文案拆分为视频场景',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'assets',
+        type: 'explainer_generate_assets',
+        description: '生成图片与旁白',
+        checkpointRequired: false,
+        options: {
+          concurrency: 3,
+          imageStyle: 'cinematic',
+          imageProvider: null,
+          imageModel: null,
+          aspectRatio: '16:9',
+        },
+      },
+      {
+        name: 'editing',
+        type: 'explainer_editing',
+        description: '资源清单校验',
+        checkpointRequired: false,
+      },
+      {
+        name: 'compose',
+        type: 'compose',
+        description: '视频合成',
+        checkpointRequired: false,
+        inputFrom: 'assets',
+        options: {
+          transition: 'fade',
+          imageEffect: 'zoom-in',
+          subtitleEnabled: false,
+          resolution: '1920x1080',
+          fps: 30,
+          format: 'mp4',
+          defaultSceneDuration: 6,
+          generateBase: true,
+          generateMerged: true,
+        },
+      },
+      {
+        name: 'publish',
+        type: 'publish',
+        description: '发布（可选）',
+        checkpointRequired: false,
+        inputFrom: 'compose',
+        options: {},
+      },
+    ],
   },
   {
     name: 'talking-head',
@@ -40,6 +135,37 @@ const PIPELINES = [
     category: 'talking_head',
     stages: ['upload', 'transcribe', 'captions', 'render'],
     estimatedCost: 'low',
+    // 真实编排：视频+文案 → 分句 → SRT 字幕 → FFmpeg 烧录（talkinghead-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'upload',
+        type: 'talkinghead_upload',
+        description: '视频与文案校验',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'transcribe',
+        type: 'talkinghead_transcribe',
+        description: '文案分句',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'captions',
+        type: 'talkinghead_captions',
+        description: '生成字幕',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'render',
+        type: 'talkinghead_render',
+        description: '字幕烧录渲染',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'cinematic',
@@ -47,6 +173,37 @@ const PIPELINES = [
     category: 'cinematic',
     stages: ['ingest', 'grade', 'compose', 'render'],
     estimatedCost: 'medium',
+    // 真实编排：本地 FFmpeg 调色→淡入淡出+分辨率合成→渲染（cinematic-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'ingest',
+        type: 'cinematic_ingest',
+        description: '输入视频校验与探测',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'grade',
+        type: 'cinematic_grade',
+        description: '电影感调色',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'compose',
+        type: 'cinematic_compose',
+        description: '淡入淡出与分辨率合成',
+        checkpointRequired: false,
+        options: { resolution: '1920x1080' },
+      },
+      {
+        name: 'render',
+        type: 'cinematic_render',
+        description: '渲染输出',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'animation',
@@ -54,6 +211,13 @@ const PIPELINES = [
     category: 'animation',
     stages: ['concept', 'storyboard', 'animate', 'render'],
     estimatedCost: 'high',
+    // 真实编排：LLM 概念→分镜→视频生成 provider（未配置时 fail closed 引导设置）→FFmpeg 合成（videogen-stages.js 注册）
+    stageDefs: [
+      { name: 'concept', type: 'videogen_concept', description: '创意概念与角色设定', checkpointRequired: false, options: { kind: 'animation' } },
+      { name: 'storyboard', type: 'videogen_storyboard', description: '分镜场景规划', checkpointRequired: false, options: { kind: 'animation' } },
+      { name: 'animate', type: 'videogen_generate', description: '视频生成', checkpointRequired: false, options: {} },
+      { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
+    ],
   },
   {
     name: 'avatar-spokesperson',
@@ -61,6 +225,13 @@ const PIPELINES = [
     category: 'talking_head',
     stages: ['avatar_select', 'script', 'generate', 'render'],
     estimatedCost: 'high',
+    // 真实编排：数字人选择+LLM 口播文案→视频生成 provider→FFmpeg 合成（videogen-stages.js 注册）
+    stageDefs: [
+      { name: 'avatar_select', type: 'videogen_avatar', description: '数字人选择与口播文案', checkpointRequired: false, options: {} },
+      { name: 'script', type: 'videogen_script', description: '口播文案', checkpointRequired: false, options: {} },
+      { name: 'generate', type: 'videogen_generate', description: '数字人视频生成', checkpointRequired: false, options: {} },
+      { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
+    ],
   },
   {
     name: 'character-animation',
@@ -68,6 +239,13 @@ const PIPELINES = [
     category: 'animation',
     stages: ['character_design', 'rigging', 'animate', 'render'],
     estimatedCost: 'high',
+    // 真实编排：LLM 角色设计→概念校验→视频生成 provider→FFmpeg 合成（videogen-stages.js 注册）
+    stageDefs: [
+      { name: 'character_design', type: 'videogen_concept', description: '角色设计', checkpointRequired: false, options: { kind: 'character-animation' } },
+      { name: 'rigging', type: 'videogen_storyboard', description: '角色动作分镜', checkpointRequired: false, options: { kind: 'character-animation' } },
+      { name: 'animate', type: 'videogen_generate', description: '角色动画生成', checkpointRequired: false, options: {} },
+      { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
+    ],
   },
   {
     name: 'clip-factory',
@@ -75,6 +253,37 @@ const PIPELINES = [
     category: 'screen_recording',
     stages: ['analyze', 'extract', 'caption', 'export'],
     estimatedCost: 'low',
+    // 真实编排：本地 FFmpeg 场景检测→逐段剪辑→标题→合并导出（clipfactory-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'analyze',
+        type: 'clipfactory_analyze',
+        description: '场景检测与时长分析',
+        checkpointRequired: false,
+        options: { sceneThreshold: 0.3, maxSegments: 8, minSegmentSeconds: 2, maxTotalSeconds: 60 },
+      },
+      {
+        name: 'extract',
+        type: 'clipfactory_extract',
+        description: '逐段剪辑',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'caption',
+        type: 'clipfactory_caption',
+        description: '片段标题',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'export',
+        type: 'clipfactory_export',
+        description: '合并导出',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'documentary-montage',
@@ -82,6 +291,59 @@ const PIPELINES = [
     category: 'cinematic',
     stages: ['research', 'ingest', 'edit', 'narrate', 'render'],
     estimatedCost: 'medium',
+    // 真实编排：LLM 纪录片大纲→场景规划→图片+旁白→资源校验→FFmpeg 合成（documentary-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'research',
+        type: 'documentary_research',
+        description: '纪录片风格主题研究',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'ingest',
+        type: 'documentary_ingest',
+        description: '素材画面规划（场景数组）',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'edit',
+        type: 'documentary_edit',
+        description: '生成图片与旁白素材',
+        checkpointRequired: false,
+        options: {
+          concurrency: 3,
+          imageStyle: 'documentary',
+          aspectRatio: '16:9',
+        },
+      },
+      {
+        name: 'narrate',
+        type: 'documentary_narrate',
+        description: '旁白与资源清单校验',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'render',
+        type: 'compose',
+        description: '视频合成',
+        checkpointRequired: false,
+        inputFrom: 'edit',
+        options: {
+          transition: 'fade',
+          imageEffect: 'ken-burns',
+          subtitleEnabled: false,
+          resolution: '1920x1080',
+          fps: 30,
+          format: 'mp4',
+          defaultSceneDuration: 6,
+          generateBase: true,
+          generateMerged: true,
+        },
+      },
+    ],
   },
   {
     name: 'hybrid',
@@ -89,6 +351,13 @@ const PIPELINES = [
     category: 'hybrid',
     stages: ['plan', 'generate', 'merge', 'render'],
     estimatedCost: 'high',
+    // 真实编排：LLM 方案→视频生成 provider→FFmpeg 拼接（videogen-stages.js 注册）
+    stageDefs: [
+      { name: 'plan', type: 'videogen_script', description: '混合方案与解说文案', checkpointRequired: false, options: {} },
+      { name: 'generate', type: 'videogen_storyboard', description: '生成场景规划', checkpointRequired: false, options: { kind: 'hybrid' } },
+      { name: 'merge', type: 'videogen_generate', description: '视频生成', checkpointRequired: false, options: {} },
+      { name: 'render', type: 'videogen_merge', description: '拼接合成与产物校验', checkpointRequired: false, options: {} },
+    ],
   },
   {
     name: 'localization-dub',
@@ -96,6 +365,37 @@ const PIPELINES = [
     category: 'hybrid',
     stages: ['transcribe', 'translate', 'tts', 'sync'],
     estimatedCost: 'medium',
+    // 真实编排：源视频+文案→分句时间段→LLM 翻译→TTS 配音→FFmpeg 替换音轨（localization-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'transcribe',
+        type: 'localization_transcribe',
+        description: '源视频与文案校验、时长探测',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'translate',
+        type: 'localization_translate',
+        description: '台词翻译为目标语言',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'tts',
+        type: 'localization_tts',
+        description: '逐段生成配音',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'sync',
+        type: 'localization_sync',
+        description: '拼接配音并替换原音轨',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'podcast-repurpose',
@@ -103,6 +403,46 @@ const PIPELINES = [
     category: 'hybrid',
     stages: ['analyze', 'visualize', 'assemble', 'render'],
     estimatedCost: 'low',
+    stageDefs: [
+      {
+        name: 'analyze',
+        type: 'podcast_analyze',
+        description: '音频时长探测 + 文案分句成时间段',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'visualize',
+        type: 'podcast_visualize',
+        description: '每段文案生成配图',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'assemble',
+        type: 'podcast_assemble',
+        description: '切分音频片段并组装场景',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'render',
+        type: 'compose',
+        description: '视频合成（图片 + 音频片段 + 转场）',
+        checkpointRequired: false,
+        inputFrom: 'assemble',
+        options: {
+          transition: 'fade',
+          imageEffect: 'none',
+          subtitleEnabled: false,
+          resolution: '720x1280',
+          fps: 30,
+          format: 'mp4',
+          defaultSceneDuration: 6,
+          voiceVolume: 1,
+        },
+      },
+    ],
   },
   {
     name: 'screen-demo',
@@ -117,6 +457,23 @@ const PIPELINES = [
     category: 'custom',
     stages: ['verify', 'report'],
     estimatedCost: 'low',
+    // 真实编排：验证工具链 → 生成冒烟测试视频与报告（smoketest-stages.js 注册）
+    stageDefs: [
+      {
+        name: 'verify',
+        type: 'smoketest_verify',
+        description: '验证 FFmpeg/ffprobe 与流水线注册表',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'report',
+        type: 'smoketest_report',
+        description: '生成冒烟测试视频与报告',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
   },
   {
     name: 'story2video-compose',
@@ -133,7 +490,7 @@ const PIPELINES = [
         description: '文案分句',
         checkpointRequired: false,
         options: {
-          language: 'zh',
+          language: 'auto',
           mode: 'balanced',
           max_sentence_length: 200,
           target_duration: 6,
@@ -275,6 +632,20 @@ class PipelineEngine {
     this.log = deps.log || require('./logger');
     this.aiGenerator = deps.aiGenerator || null;
     this.story2videoProjectService = deps.story2videoProjectService || null;
+    this.runStateStore = deps.runStateStore || null;
+    this.governor = deps.governor || null;
+    // 后台并行运行上限（编排模式）：同机资源有限（ffmpeg 合成 CPU 密集、API 受 governor 限流）。
+    // 优先级：deps.maxConcurrentRuns 显式注入（测试/调优）> STORY2VIDEO_MAX_CONCURRENT_RUNS 环境变量开关
+    // （如设 2 即固定 2 条，1-8 合法，非法/空回退自适应）> 机器资源自适应（computeDefaultMaxConcurrentRuns，1-4 条）。
+    const envLimit = Number(process.env.STORY2VIDEO_MAX_CONCURRENT_RUNS)
+    this.maxConcurrentRuns = Number.isFinite(Number(deps.maxConcurrentRuns)) && Number(deps.maxConcurrentRuns) > 0
+      ? Number(deps.maxConcurrentRuns)
+      : (Number.isFinite(envLimit) && envLimit > 0 ? Math.min(8, Math.floor(envLimit)) : computeDefaultMaxConcurrentRuns());
+    // 内存历史上限：_history 保留最近 N 条 run 快照，防止长期运行内存无限增长。
+    // 断点恢复跨重启依赖 RunStateStore 持久快照，不受内存历史裁剪影响。
+    this.maxHistoryEntries = Number.isFinite(Number(deps.maxHistoryEntries)) && Number(deps.maxHistoryEntries) > 0
+      ? Number(deps.maxHistoryEntries)
+      : 50;
 
     // 自动构造 StageExecutor（仅在 serviceBus 可用时）
     if (deps.stageExecutor) {
@@ -341,12 +712,19 @@ class PipelineEngine {
 
   /** 列出所有可用流水线（内置 + 动态注册） */
   listPipelines() {
-    const builtIn = PIPELINES.map((p) => ({
+    const prioritizedBuiltIn = [
+      ...PIPELINES.filter((pipeline) => pipeline.name === STORY2VIDEO_PIPELINE),
+      ...PIPELINES.filter((pipeline) => pipeline.name !== STORY2VIDEO_PIPELINE),
+    ]
+    const hasRealStages = (p) => Array.isArray(p.stageDefs) && p.stageDefs.length > 0
+    const builtIn = prioritizedBuiltIn.map((p) => ({
       name: p.name,
       description: p.description,
       category: p.category,
       stageCount: p.stages.length,
       estimatedCost: p.estimatedCost,
+      // 是否已实现真实执行引擎：有 stageDefs 即认为可真实运行
+      available: hasRealStages(p),
     }));
     const custom = this._customPipelines
       ? Array.from(this._customPipelines.values()).map((p) => ({
@@ -355,6 +733,7 @@ class PipelineEngine {
           category: p.category,
           stageCount: p.stages.length,
           estimatedCost: p.estimatedCost,
+          available: hasRealStages(p),
         }))
       : [];
     return builtIn.concat(custom);
@@ -498,9 +877,45 @@ class PipelineEngine {
     };
   }
 
-  /** 获取历史执行记录 */
+  /**
+   * 获取历史执行记录（含运行中未完成的编排流水线，便于历史页实时查看进度）。
+   * 运行中 run 在前，终态历史在后；_runs 中 <runId> 与 _<pipelineName> 指向同一对象，需去重。
+   */
   getHistory() {
-    return [...this._history];
+    const seen = new Set();
+    const active = [];
+    for (const run of this._runs.values()) {
+      if (seen.has(run)) continue;
+      seen.add(run);
+      active.push(run);
+    }
+    return [...active, ...this._history];
+  }
+
+  /** 当前正在运行的编排流水线数量（去重 _<name> 索引）。 */
+  _countActiveRuns() {
+    const seen = new Set();
+    let count = 0;
+    for (const run of this._runs.values()) {
+      if (seen.has(run)) continue;
+      seen.add(run);
+      if (run.orchestrationMode === 'orchestrator' && run.status === 'running') count += 1;
+    }
+    return count;
+  }
+
+  /** 后台并行上限检查：超过 maxConcurrentRuns 时拒绝启动/恢复。 */
+  _assertConcurrencyBudget() {
+    const activeCount = this._countActiveRuns();
+    if (activeCount >= this.maxConcurrentRuns) {
+      return {
+        success: false,
+        error: '当前已有 ' + activeCount + ' 条流水线正在运行，最多同时运行 ' + this.maxConcurrentRuns + ' 条，请等待其中一条完成后再启动。',
+        errorCode: 'PIPELINE_CONCURRENCY_LIMIT',
+        errorParams: { count: activeCount, max: this.maxConcurrentRuns },
+      };
+    }
+    return null;
   }
 
   /** 确认检查点（继续下一阶段） */
@@ -578,7 +993,7 @@ class PipelineEngine {
    * 启动编排模式流水线
    * @param {string} pipelineName
    * @param {object} [params] - { autoAdvance?: boolean, ...流水线特定参数 }
-   * @returns {Promise<{success: boolean, runId?: string, error?: string, results?: any[], context?: object, paused?: boolean}>}
+   * @returns {Promise<{success: boolean, runId?: string, error?: string, errorCode?: string|null, errorParams?: { max?: number }|null, results?: any[], context?: object, paused?: boolean}>}
    */
   async startOrchestrated(pipelineName, params) {
     if (!this.stageExecutor) {
@@ -602,6 +1017,8 @@ class PipelineEngine {
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),
+          errorCode: error?.code || null,
+          errorParams: error?.params || null,
         };
       }
     }
@@ -618,6 +1035,9 @@ class PipelineEngine {
       return { success: false, error: 'Invalid initialContext: ' + e.message };
     }
 
+    // 后台并行上限：超过 maxConcurrentRuns 拒绝启动（资源保护）。
+    const concurrencyBlock = this._assertConcurrencyBudget();
+    if (concurrencyBlock) return concurrencyBlock;
     // 上下文验证通过后再创建 run，避免非法输入留下孤儿运行。
     const startResult = this.start(pipelineName, params);
     if (!startResult.success) return startResult;
@@ -632,10 +1052,108 @@ class PipelineEngine {
     run.stageResults = [];
 
     if (params.autoAdvance) {
+      if (params.background === true) {
+        // 后台自动推进：立即返回 runId，renderer 通过 getRunSnapshot 轮询阶段进度。
+        // 若同步等待整个流水线完成，IPC 会阻塞数十秒到数分钟，前端启动后无任何交互反馈。
+        const promise = this._autoAdvanceRun(runId);
+        promise.catch((err) => {
+          this.log.warn('PipelineEngine', 'background autoAdvance failed: ' + (err && err.message ? err.message : String(err)));
+        });
+        return { success: true, runId };
+      }
       return await this._autoAdvanceRun(runId);
     }
 
     return { success: true, runId };
+  }
+
+  /**
+   * 从失败断点恢复编排流水线（断点续跑）。
+   * 数据源：本次会话内存 history，或 RunStateStore 持久化快照（跨应用重启仍可恢复）。
+   * 恢复后从失败阶段重新执行；前序阶段输出（context）与已完成的资源直接复用。
+   * 内容政策失败（needs_user_input）不允许恢复，必须修改文案后重新启动。
+   * @param {string} runId
+   * @returns {Promise<{success: boolean, runId?: string, error?: string, errorCode?: string}>}
+   */
+  async resumeOrchestration(runId) {
+    if (typeof runId !== 'string' || !runId.trim()) {
+      return { success: false, error: '缺少或非法 runId' };
+    }
+    const historyRun = this._history.find((item) => item.id === runId);
+    let snapshot = historyRun || null;
+    if (!snapshot && this.runStateStore) {
+      try { snapshot = await this.runStateStore.load(runId); } catch (_) { snapshot = null; }
+    }
+    if (!snapshot) return { success: false, error: '未找到可恢复的运行快照', errorCode: 'RUN_SNAPSHOT_NOT_FOUND' };
+    if (snapshot.status !== 'failed' || !snapshot.error) {
+      return { success: false, error: '只有失败状态的运行可以恢复', errorCode: 'RUN_NOT_FAILED' };
+    }
+    if ((snapshot.orchestrationMode || 'state_machine') !== 'orchestrator') {
+      return { success: false, error: '该运行不支持断点恢复', errorCode: 'RUN_NOT_ORCHESTRATOR' };
+    }
+    if (/needs_user_input|content[_\s-]?policy|CONTENT_POLICY/i.test(String(snapshot.error || ''))) {
+      return { success: false, error: '该失败需要人工处理（内容政策），请修改文案后重新启动', errorCode: 'PIPELINE_USER_INPUT_REQUIRED' };
+    }
+    const failedStageIndex = (Number.isInteger(snapshot.currentStage) && snapshot.currentStage >= 0)
+      ? snapshot.currentStage
+      : (Array.isArray(snapshot.stages) ? snapshot.stages.findIndex((s) => s.status === 'failed') : -1);
+    if (failedStageIndex < 0) {
+      return { success: false, error: '未定位到失败阶段', errorCode: 'STAGE_NOT_FOUND' };
+    }
+
+    const pl = this.getPipeline(snapshot.pipeline);
+    const stages = (Array.isArray(snapshot.stages) && snapshot.stages.length > 0)
+      ? snapshot.stages
+      : ((pl && Array.isArray(pl.stages)) ? pl.stages.map((name) => ({ name })) : []);
+    if (stages.length === 0) return { success: false, error: '失败快照缺少阶段定义', errorCode: 'STAGE_NOT_FOUND' };
+    // 后台并行上限：恢复也算占用运行槽位。
+    const concurrencyBlock = this._assertConcurrencyBudget();
+    if (concurrencyBlock) return concurrencyBlock;
+
+    // 内存 history 条目使用 id，RunStateStore 快照使用 runId
+    const runIdentifier = String(snapshot.runId || snapshot.id || '')
+    if (!runIdentifier) return { success: false, error: '失败快照缺少 runId', errorCode: 'RUN_SNAPSHOT_NOT_FOUND' }
+
+    const now = new Date().toISOString();
+    const restored = {
+      id: runIdentifier,
+      pipeline: snapshot.pipeline,
+      status: 'running',
+      currentStage: failedStageIndex,
+      stages: stages.map((s, i) => {
+        const base = { ...s };
+        delete base.error;
+        if (i < failedStageIndex) {
+          return { ...base, status: 'completed', startedAt: base.startedAt || now, completedAt: base.completedAt || now };
+        }
+        if (i === failedStageIndex) {
+          return { ...base, status: 'running', startedAt: now, completedAt: null };
+        }
+        return { ...base, status: 'pending', startedAt: null, completedAt: null };
+      }),
+      params: snapshot.params || {},
+      progress: 0,
+      checkpoint: null,
+      createdAt: snapshot.createdAt || now,
+      endedAt: null,
+      orchestrationMode: 'orchestrator',
+      context: JSON.parse(JSON.stringify(snapshot.context || {})),
+      stageResults: [],
+      resumedFrom: runId,
+      error: null,
+    };
+    this._runs.set(restored.id, restored);
+    this._runs.set('_' + restored.pipeline, restored);
+    this._currentPipeline = restored.pipeline;
+    if (this.runStateStore) {
+      try { this.runStateStore.remove(runId); } catch (_) { /* 快照清理失败不影响恢复 */ }
+    }
+
+    const promise = this._autoAdvanceRun(restored.id);
+    promise.catch((err) => {
+      this.log.warn('PipelineEngine', 'background resume autoAdvance failed: ' + (err && err.message ? err.message : String(err)));
+    });
+    return { success: true, runId: restored.id };
   }
 
   /**
@@ -697,6 +1215,18 @@ class PipelineEngine {
       return { success: false, error: 'Run is not in orchestrator mode' };
     }
     if (run.status === 'paused') {
+      const checkpoint = run.checkpoint || {};
+      if (checkpoint.type === 'needs_user_input' || checkpoint.reason === 'content_policy') {
+        return {
+          success: false,
+          runId,
+          paused: true,
+          needsUserInput: true,
+          checkpoint,
+          error: 'Checkpoint requires user input before the pipeline can continue',
+          errorCode: 'PIPELINE_USER_INPUT_REQUIRED',
+        };
+      }
       // 检查点阶段已经执行完毕，确认操作应先完成该阶段，再执行后续阶段。
       const advanced = this._advanceRun(run);
       if (!advanced.success) return advanced;
@@ -744,7 +1274,27 @@ class PipelineEngine {
       endedAt: run.endedAt || null,
       error: run.error || null,
       projectId: run.projectId || null,
+      outputSizeBytes: this._runOutputSizeBytes(run) || null,
     };
+  }
+
+  /** 已完成运行的成片文件大小（供「完成汇总」展示），非完成/无成片时返回 null。 */
+  _runOutputSizeBytes(run) {
+    if (!run || run.status !== 'completed') return null
+    const context = run.context || {}
+    const composeRaw = context.compose?.data || context.compose
+    const exportRaw = context.export?.data || context.export
+    const reportRaw = context.report?.data || context.report
+    const videoPath = (composeRaw && (composeRaw.videoPath || composeRaw.path)) ||
+      (exportRaw && (exportRaw.videoPath || exportRaw.path)) ||
+      (reportRaw && (reportRaw.videoPath || reportRaw.path))
+    if (typeof videoPath !== 'string' || !videoPath) return null
+    try {
+      const stat = require('fs').statSync(videoPath)
+      return Number.isFinite(stat.size) ? stat.size : null
+    } catch {
+      return null
+    }
   }
 
   /**
@@ -814,7 +1364,15 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
-    if (run.pipeline === 'story2video-compose' && status === 'completed' && this.story2videoProjectService) {
+    // 编排模式失败：持久化断点快照，供 pipeline:resumeOrchestration 从失败阶段继续。
+    if (status === 'failed' && run.orchestrationMode === 'orchestrator' && this.runStateStore) {
+      try {
+        this.runStateStore.saveFailed(run);
+      } catch (saveError) {
+        this.log.warn('PipelineEngine', 'run-state snapshot save failed: ' + (saveError && saveError.message ? saveError.message : String(saveError)));
+      }
+    }
+    if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);
         if (project) {
@@ -824,9 +1382,7 @@ class PipelineEngine {
         }
       } catch (persistError) {
         run.status = 'failed';
-        run.error = 'Story2Video 项目保存失败: ' + persistError.message;
-        status = 'failed';
-        this.log.error('PipelineEngine', run.error);
+        run.error = 'Story2Video 项目保存失败: ' + persistError.message;        this.log.error('PipelineEngine', run.error);
       }
     }
     this._history.push({
@@ -834,6 +1390,10 @@ class PipelineEngine {
       stages: Array.isArray(run.stages) ? run.stages.map(stage => ({ ...stage })) : [],
       context: run.context || {},
     });
+    // 裁剪最旧快照，控制内存占用（RunStateStore 是跨重启恢复的权威源）
+    if (this._history.length > this.maxHistoryEntries) {
+      this._history.splice(0, this._history.length - this.maxHistoryEntries);
+    }
     this._runs.delete(run.id);
     if (this._runs.get('_' + run.pipeline) === run) {
       this._runs.delete('_' + run.pipeline);
@@ -845,6 +1405,13 @@ class PipelineEngine {
         cleanupImportedMediaPaths(run.params);
       } catch (cleanupError) {
         this.log.warn('PipelineEngine', 'Story2Video input cleanup failed: ' + cleanupError.message);
+      }
+    }
+    // W2 技术债务闭环：run 结束（完成/失败/取消）时统一回收 governor 中已过期的排队 waiter，
+    // 避免因该 key 无后续释放导致排队请求悬挂到任务链结束。
+    if (this.governor && typeof this.governor.sweepAll === 'function') {
+      try { this.governor.sweepAll(); } catch (sweepError) {
+        this.log.warn('PipelineEngine', 'governor sweepAll failed: ' + (sweepError && sweepError.message ? sweepError.message : String(sweepError)));
       }
     }
   }
@@ -1090,4 +1657,4 @@ function resolveRuntimeStageOptions(stageName, params) {
   return result;
 }
 
-module.exports = { PipelineEngine, STAGE_TYPES };
+module.exports = { PipelineEngine, STAGE_TYPES, computeDefaultMaxConcurrentRuns };

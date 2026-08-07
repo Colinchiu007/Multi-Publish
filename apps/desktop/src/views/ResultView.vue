@@ -1,6 +1,9 @@
 <template>
   <div class="result-page">
     <div class="page-header">
+      <button class="back-to-list" data-testid="back-to-pipeline-list" @click="$router.push('/create')">
+        ← 返回流水线列表
+      </button>
       <div>
         <h1>视频预览</h1>
         <p v-if="projectId" class="page-subtitle">项目 {{ projectId }}</p>
@@ -29,6 +32,7 @@
       ></video>
 
       <div class="video-info">
+        <p v-if="completionSummary" class="completion-summary" data-testid="completion-summary">{{ completionSummary }}</p>
         <p>格式: {{ formatLabel }}</p>
         <p class="path-text">位置: {{ videoPath }}</p>
       </div>
@@ -41,10 +45,6 @@
         <UiButton variant="secondary" @click="$router.push('/publish')">去发布</UiButton>
         <UiButton variant="ghost" @click="$router.push('/create')">重新创作</UiButton>
       </div>
-      <p v-if="exportMessage" class="result-message">{{ exportMessage }}</p>
-      <p v-if="hasDegradedAssets" class="asset-warning" role="status">
-        此成片包含离线降级素材（{{ degradedAssetKinds.join('、') }}），请在发布前预览确认。
-      </p>
     </div>
 
     <section v-if="videoPath" class="project-section trim-section">
@@ -154,6 +154,9 @@
 
       <div class="segment-list">
         <article v-for="(segment, index) in segments" :key="segment.id" class="segment-item">
+          <div v-if="segment.imageUrl" class="segment-thumb">
+            <img :src="segment.imageUrl" :alt="'分段 ' + (index + 1) + ' 图片'" />
+          </div>
           <div class="segment-header">
             <strong>分段 {{ index + 1 }}</strong>
             <span class="segment-status" :class="segment.status">{{ segment.status || 'completed' }}</span>
@@ -193,14 +196,20 @@
       </div>
     </section>
 
-    <div v-if="error" class="error-banner">
-      <p>{{ error }}</p>
-    </div>
   </div>
+
+  <UiModal :visible="story2videoNotificationDialog.visible" :title="story2videoNotificationDialogUiText.dialogTitle" size="sm" @close="closeStory2VideoNotificationDialog">
+    <p class="story2video-error-dialog-message">{{ story2videoNotificationDialogMessage }}</p>
+    <template #footer>
+      <UiButton @click="closeStory2VideoNotificationDialog">{{ story2videoNotificationDialogUiText.acknowledge }}</UiButton>
+    </template>
+  </UiModal>
 </template>
 
 <script>
 import UiButton from '../components/UiButton.vue'
+import UiModal from '../components/UiModal.vue'
+import { STORY2VIDEO_NOTIFICATION_KEYS, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
 import {
   story2videoExportZip,
   story2videoCreateShareUrl,
@@ -217,14 +226,12 @@ import {
 
 export default {
   name: 'ResultView',
-  components: { UiButton },
+  components: { UiButton, UiModal },
   data() {
     return {
       videoPath: null,
       loading: true,
-      error: null,
       videoSrc: null,
-      exportMessage: null,
       projectId: null,
       project: null,
       audioPath: null,
@@ -241,6 +248,8 @@ export default {
       trimPreviewing: false,
       trimmedPath: null,
       trimmedSrc: null,
+      story2videoNotificationDialog: { visible: false, messageKey: '', messageParams: {} },
+      degradedAssetsWarningProjectId: null,
     }
   },
   async mounted() {
@@ -251,6 +260,20 @@ export default {
     else this.loading = false
   },
   computed: {
+    completionSummary() {
+      const query = this.$route?.query || {}
+      const parts = []
+      if (Number.isFinite(Number(query.durationMs)) && Number(query.durationMs) > 0) {
+        const total = Math.floor(Number(query.durationMs) / 1000)
+        const minutes = Math.floor(total / 60)
+        const seconds = total % 60
+        parts.push('完成时间共 ' + (minutes > 0 ? minutes + ' 分 ' + seconds + ' 秒' : seconds + ' 秒'))
+      }
+      if (Number.isFinite(Number(query.sizeBytes)) && Number(query.sizeBytes) > 0) {
+        parts.push('文件大小 ' + (Number(query.sizeBytes) / 1048576).toFixed(1) + ' M')
+      }
+      return parts.join(' · ')
+    },
     formatLabel() {
       const extension = String(this.videoPath || '').split('.').pop()
       return extension ? extension.toUpperCase() : '视频'
@@ -271,16 +294,43 @@ export default {
     degradedAssetKinds() {
       const kinds = new Set()
       for (const segment of this.segments) {
-        if (segment?.imageMeta?.degraded === true) kinds.add('占位图片')
-        if (segment?.audioMeta?.degraded === true) kinds.add('静音旁白')
+        if (segment?.imageMeta?.degraded === true) kinds.add('placeholder_image')
+        if (segment?.audioMeta?.degraded === true) kinds.add('silent_narration')
       }
       return [...kinds]
     },
     hasDegradedAssets() {
       return this.degradedAssetKinds.length > 0
     },
+    story2videoNotificationDialogMessage() {
+      return formatStory2VideoNotification({
+        messageKey: this.story2videoNotificationDialog.messageKey,
+        messageParams: this.story2videoNotificationDialog.messageParams,
+      }).message
+    },
+    story2videoNotificationDialogUiText() {
+      return getStory2VideoNotificationUiText()
+    },
   },
   methods: {
+    showStory2VideoNotification(notification = {}) {
+      const resolved = resolveStory2VideoNotification(notification)
+      this.story2videoNotificationDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params }
+    },
+    closeStory2VideoNotificationDialog() {
+      this.story2videoNotificationDialog.visible = false
+    },
+    showStory2VideoOperationFailure() {
+      this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED })
+    },
+    maybeShowDegradedAssetsWarning() {
+      if (!this.projectId || !this.hasDegradedAssets || this.degradedAssetsWarningProjectId === this.projectId) return
+      this.degradedAssetsWarningProjectId = this.projectId
+      this.showStory2VideoNotification({
+        messageKey: STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING,
+        messageParams: { assetKinds: this.degradedAssetKinds },
+      })
+    },
     async resolveLocalUrl(filePath) {
       if (!filePath) return null
       const result = await story2videoCreateShareUrl(filePath)
@@ -288,27 +338,37 @@ export default {
       if (!url) throw new Error(result?.message || '无法读取本地文件')
       return url
     },
+    async refreshSegmentImageUrls() {
+      await Promise.all((this.segments || []).map(async (segment) => {
+        if (!segment || !segment.imagePath) return
+        try {
+          segment.imageUrl = await this.resolveLocalUrl(segment.imagePath)
+        } catch (_) {
+          segment.imageUrl = null
+        }
+      }))
+    },
     async loadVideoPath(filePath) {
       this.loading = true
-      this.error = null
       this.videoPath = filePath || null
       if (!this.videoPath) {
         this.videoSrc = null
         this.loading = false
-        return
+        return false
       }
       try {
         this.videoSrc = await this.resolveLocalUrl(this.videoPath)
-      } catch (error) {
+        return true
+      } catch (_error) {
         this.videoSrc = null
-        this.error = error?.message || '无法读取视频文件'
+        this.showStory2VideoOperationFailure()
+        return false
       } finally {
         this.loading = false
       }
     },
     async loadProject(projectId) {
       this.loading = true
-      this.error = null
       try {
         const result = await story2videoGetProject(projectId)
         if (result?.code !== 0 || !result.data) throw new Error(result?.message || '项目加载失败')
@@ -317,20 +377,22 @@ export default {
         this.projectId = project.projectId
         this.segments = Array.isArray(project.segments) ? project.segments.map(segment => ({ ...segment })) : []
         this.segmentsDirty = false
+        await this.refreshSegmentImageUrls()
         this.audioPath = project.audioPath || null
         this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
         this.videoPath = project.videoPath || null
         this.videoSrc = this.videoPath ? await this.resolveLocalUrl(this.videoPath) : null
-      } catch (error) {
+        this.maybeShowDegradedAssetsWarning()
+      } catch (_error) {
         this.project = null
         this.projectId = null
-        this.error = error?.message || '项目加载失败'
+        this.showStory2VideoOperationFailure()
       } finally {
         this.loading = false
       }
     },
     handleError() {
-      this.error = '视频无法播放，文件可能已被移动'
+      this.showStory2VideoOperationFailure()
     },
     handleVideoMetadata(event) {
       const duration = Number(event?.target?.duration)
@@ -382,9 +444,9 @@ export default {
       try {
         const playback = player.play()
         if (playback && typeof playback.then === 'function') await playback
-      } catch (error) {
+      } catch (_error) {
         this.trimPreviewing = false
-        this.error = error?.message || '无法预览裁剪区间'
+        this.showStory2VideoOperationFailure()
       }
     },
     handleTrimPreviewProgress(event) {
@@ -415,8 +477,8 @@ export default {
     async downloadArtifact(filePath, name) {
       try {
         this.triggerDownload(await this.resolveLocalUrl(filePath), name)
-      } catch (error) {
-        this.error = error?.message || '文件下载失败'
+      } catch (_error) {
+        this.showStory2VideoOperationFailure()
       }
     },
     async downloadNarration() {
@@ -449,31 +511,42 @@ export default {
     async exportZip() {
       const files = this.exportFiles()
       if (!files.length) return
-      this.exportMessage = null
-      const result = await story2videoExportZip(files)
-      if (result?.code === 0) {
-        this.exportMessage = result.data?.cancelled ? '已取消导出' : 'ZIP 导出完成'
-      } else {
-        this.error = result?.message || 'ZIP 导出失败'
+      try {
+        const result = await story2videoExportZip(files)
+        if (result?.code !== 0) throw new Error('ZIP 导出失败')
+        this.showStory2VideoNotification({
+          messageKey: result.data?.cancelled
+            ? STORY2VIDEO_NOTIFICATION_KEYS.EXPORT_CANCELLED
+            : STORY2VIDEO_NOTIFICATION_KEYS.EXPORT_COMPLETED,
+        })
+      } catch (_error) {
+        this.showStory2VideoOperationFailure()
       }
     },
     async copyLocalPath() {
       if (!this.videoPath) return
-      const result = await story2videoCopyPath(this.videoPath)
-      if (result?.code === 0) this.exportMessage = '路径已复制'
-      else this.error = result?.message || '复制路径失败'
+      try {
+        const result = await story2videoCopyPath(this.videoPath)
+        if (result?.code !== 0) throw new Error('复制路径失败')
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PATH_COPIED })
+      } catch (_error) {
+        this.showStory2VideoOperationFailure()
+      }
     },
     async showInFolder() {
       if (!this.videoPath) return
-      const result = await story2videoShowInFolder(this.videoPath)
-      if (result?.code !== 0) this.error = result?.message || '无法打开文件夹'
+      try {
+        const result = await story2videoShowInFolder(this.videoPath)
+        if (result?.code !== 0) throw new Error('打开文件夹失败')
+      } catch (_error) {
+        this.showStory2VideoOperationFailure()
+      }
     },
     async trimVideo() {
       if (!this.canTrim || this.trimming) return
       this.trimPreviewing = false
       if (this.$refs.videoPlayer && typeof this.$refs.videoPlayer.pause === 'function') this.$refs.videoPlayer.pause()
       this.trimming = true
-      this.error = null
       try {
         const result = await videoProcess('trim', {
           input_path: this.videoPath,
@@ -487,11 +560,11 @@ export default {
         }
         this.trimmedPath = output
         this.trimmedSrc = await this.resolveLocalUrl(output)
-        this.exportMessage = '裁剪片段已生成'
-      } catch (error) {
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TRIM_COMPLETED })
+      } catch (_error) {
         this.trimmedPath = null
         this.trimmedSrc = null
-        this.error = error?.message || '视频裁剪失败'
+        this.showStory2VideoOperationFailure()
       } finally {
         this.trimming = false
       }
@@ -502,8 +575,12 @@ export default {
     },
     async showTrimmedInFolder() {
       if (!this.trimmedPath) return
-      const result = await story2videoShowInFolder(this.trimmedPath)
-      if (result?.code !== 0) this.error = result?.message || '无法打开裁剪片段所在文件夹'
+      try {
+        const result = await story2videoShowInFolder(this.trimmedPath)
+        if (result?.code !== 0) throw new Error('打开裁剪片段所在文件夹失败')
+      } catch (_error) {
+        this.showStory2VideoOperationFailure()
+      }
     },
     moveSegment(index, offset) {
       const target = index + offset
@@ -522,7 +599,6 @@ export default {
     async saveSegments() {
       if (!this.projectId || !this.segments.length) return false
       this.saving = true
-      this.error = null
       try {
         const updates = this.segments.map(segment => ({
           id: segment.id,
@@ -536,10 +612,10 @@ export default {
         }
         this.project = result.data || this.project
         this.segmentsDirty = false
-        this.exportMessage = '分段已保存'
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SEGMENTS_SAVED })
         return true
-      } catch (error) {
-        this.error = error?.message || '分段保存失败'
+      } catch (_error) {
+        this.showStory2VideoOperationFailure()
         return false
       } finally {
         this.saving = false
@@ -553,7 +629,6 @@ export default {
       const file = input?.files?.[0]
       if (!file || !this.projectId || this.isSegmentBusy(segmentId)) return
       this.segmentBusy = { ...this.segmentBusy, [segmentId]: 'audio' }
-      this.error = null
       try {
         const imported = await story2videoImportMedia(file, 'audio')
         const filePath = imported?.code === 0 ? imported.data?.path : null
@@ -565,9 +640,9 @@ export default {
           ? result.data.segments.map(segment => ({ ...segment }))
           : this.segments
         this.segmentsDirty = true
-        this.exportMessage = '旁白已替换，请重新合成项目'
-      } catch (error) {
-        this.error = error?.message || '旁白替换失败'
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_AUDIO_REPLACED })
+      } catch (_error) {
+        this.showStory2VideoOperationFailure()
       } finally {
         if (input) input.value = ''
         const next = { ...this.segmentBusy }
@@ -578,7 +653,6 @@ export default {
     async retrySegment(segmentId, mode) {
       if (!this.projectId || this.isSegmentBusy(segmentId)) return
       this.segmentBusy = { ...this.segmentBusy, [segmentId]: mode }
-      this.error = null
       try {
         const result = await story2videoRetrySegment(this.projectId, segmentId, mode)
         if (result?.code !== 0) throw new Error(result?.message || '分段重试失败')
@@ -587,9 +661,13 @@ export default {
         }
         this.project = result.data || this.project
         this.segmentsDirty = true
-        this.exportMessage = mode === 'image' ? '图片已重新生成' : '分段视频已重新生成'
-      } catch (error) {
-        this.error = error?.message || '分段重试失败'
+        this.showStory2VideoNotification({
+          messageKey: mode === 'image'
+            ? STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_IMAGE_RETRIED
+            : STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_VIDEO_RETRIED,
+        })
+      } catch (_error) {
+        this.showStory2VideoOperationFailure()
       } finally {
         const next = { ...this.segmentBusy }
         delete next[segmentId]
@@ -600,7 +678,6 @@ export default {
       if (!this.projectId || this.recomposing) return
       if (this.segmentsDirty && !(await this.saveSegments())) return
       this.recomposing = true
-      this.error = null
       try {
         const result = await story2videoRecomposeProject(this.projectId)
         if (result?.code !== 0 || !result.data) throw new Error(result?.message || '重新合成失败')
@@ -610,12 +687,17 @@ export default {
         }
         this.audioPath = result.data.audioPath || this.audioPath
         this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
-        await this.loadVideoPath(result.data.videoPath)
+        if (!result.data.videoPath) {
+          this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
+          return
+        }
+        const videoLoaded = await this.loadVideoPath(result.data.videoPath)
+        if (!videoLoaded) return
         this.projectId = result.data.projectId || this.projectId
         this.segmentsDirty = false
-        this.exportMessage = '项目已重新合成'
-      } catch (error) {
-        this.error = error?.message || '重新合成失败'
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_RECOMPOSED })
+      } catch (_error) {
+        this.showStory2VideoOperationFailure()
       } finally {
         this.recomposing = false
       }
@@ -626,19 +708,20 @@ export default {
 
 <style scoped>
 .result-page { padding: 24px; max-width: 1040px; margin: 0 auto; }
-.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .page-header h1 { font-size: 24px; font-weight: 700; margin: 0; }
+.back-to-list { align-self: flex-start; border: none; background: none; color: var(--primary); font-size: 14px; cursor: pointer; padding: 4px 8px; border-radius: 6px; margin-right: auto; }
+.back-to-list:hover { background: var(--border-light); }
 .page-subtitle { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
 .status-badge { padding: 5px 8px; border-radius: 4px; background: var(--warning-bg); color: var(--warning); font-size: 12px; }
 .loading-state, .empty-state { text-align: center; padding: 60px 0; color: #888; }
 .video-player { width: 100%; max-height: 68vh; border-radius: 8px; background: #000; }
 .video-info { margin: 12px 0; font-size: 13px; color: var(--text-muted); }
+.completion-summary { color: #166534; font-weight: 600; margin-bottom: 4px; }
 .video-info p { margin: 4px 0; }
 .path-text { overflow-wrap: anywhere; }
 .actions, .section-actions, .segment-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .actions { margin-top: 16px; }
-.result-message { margin-top: 12px; color: var(--text-muted); font-size: 13px; }
-.asset-warning { margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid #b7791f; background: #fff8e6; color: #6b4f16; font-size: 13px; line-height: 1.5; }
 .project-section { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .section-heading h2 { margin: 0; font-size: 18px; }
@@ -657,6 +740,8 @@ export default {
 .trimmed-player { width: 100%; max-height: 360px; background: #000; border-radius: 6px; }
 .segment-list { display: grid; gap: 12px; }
 .segment-item { border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--surface); }
+.segment-thumb { margin-bottom: 12px; border-radius: 6px; overflow: hidden; background: var(--bg); max-width: 320px; }
+.segment-thumb img { display: block; width: 100%; height: auto; object-fit: cover; }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: 11px; }
 .segment-status.failed { background: #fee2e2; color: #991b1b; }
@@ -671,8 +756,7 @@ export default {
 .segment-file-action:hover { border-color: var(--primary); color: var(--primary); }
 .segment-file-action.disabled { opacity: 0.45; cursor: not-allowed; }
 .segment-file-action input { display: none; }
-.error-banner { margin-top: 16px; padding: 12px; background: #f8d7da; color: #721c24; border-radius: 8px; }
-.error-banner p { margin: 0; }
+
 @media (max-width: 720px) {
   .result-page { padding: 16px; }
   .section-heading, .segment-header { align-items: flex-start; flex-direction: column; }

@@ -1,13 +1,45 @@
 <template>
   <div>
+    <template v-if="publishTab === 'drafts'">
+      <section class="publish-drafts-page" data-testid="publish-drafts-page" aria-labelledby="publish-drafts-title">
+        <header class="publish-drafts-header">
+          <div>
+            <div id="publish-drafts-title" class="page-title">草稿箱</div>
+            <div class="page-subtitle">查看、编辑或删除已保存的内容草稿</div>
+          </div>
+          <UiButton data-testid="publish-drafts-back" variant="secondary" @click="goToPublish">返回发布</UiButton>
+        </header>
+
+        <div v-if="loadingDrafts" class="publish-drafts-state" data-testid="publish-drafts-loading" role="status">正在加载草稿...</div>
+        <div v-else-if="drafts.length === 0" class="publish-drafts-state" data-testid="publish-drafts-empty">
+          <strong>暂无草稿</strong>
+          <span>保存草稿后，可以从这里继续编辑。</span>
+        </div>
+        <div v-else class="publish-drafts-list">
+          <article v-for="draft in drafts" :key="draft.id" class="publish-draft-card">
+            <div class="publish-draft-info">
+              <strong>{{ draft.title || '无标题' }}</strong>
+              <span>{{ draft.updatedAt || draft.updated_at ? new Date(draft.updatedAt || draft.updated_at).toLocaleString('zh-CN') : '更新时间未知' }}</span>
+              <span v-if="draft.platforms?.length" class="cohere-tag cohere-tag-info">{{ draft.platforms.length }} 个平台</span>
+            </div>
+            <div class="publish-draft-actions">
+              <UiButton :data-testid="`edit-draft-${draft.id}`" variant="ghost" size="sm" @click="editDraft(draft)">继续编辑</UiButton>
+              <UiButton :data-testid="`delete-draft-${draft.id}`" variant="ghost" size="sm" @click="removeDraft(draft.id)">删除</UiButton>
+            </div>
+          </article>
+        </div>
+      </section>
+    </template>
+
+    <template v-else>
     <div class="cohere-page-header">
       <div style="display:flex;align-items:center;gap:var(--space-md);width:100%">
         <div style="flex:1">
-          <div class="page-title">一键发布</div>
+          <div class="page-title">一键发布<span v-if="hasExplicitPublishType" class="publish-type-context"> · {{ publishTypeLabel }}</span></div>
           <div class="page-subtitle">{{ batchMode ? '批量编辑多篇文章，各平台独立发布' : '编辑内容并发布到多个平台' }}</div>
         </div>
         <label class="cohere-toggle" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)">
-          <input type="checkbox" v-model="batchMode" style="accent-color:var(--coral)" @change="checkBatchAccess" />
+          <input data-testid="publish-batch-mode" type="checkbox" v-model="batchMode" style="accent-color:var(--coral)" @change="checkBatchAccess" />
           <span>批量模式</span>
         </label>
       </div>
@@ -40,6 +72,20 @@
             <div class="cohere-form-item">
               <label class="cohere-form-label">正文</label>
               <UiInput type="textarea" v-model="a.content" placeholder="请输入正文" :rows="5" />
+            </div>
+            <div class="cohere-form-item batch-metadata-grid">
+              <div>
+                <label class="cohere-form-label">标签</label>
+                <UiInput v-model="a.tagsText" placeholder="多个标签用逗号分隔" />
+              </div>
+              <div>
+                <label class="cohere-form-label">话题</label>
+                <UiInput v-model="a.topicsText" placeholder="多个话题用逗号分隔" />
+              </div>
+              <div>
+                <label class="cohere-form-label">@好友</label>
+                <UiInput v-model="a.mentionsText" placeholder="输入昵称或 @昵称" />
+              </div>
             </div>
             <div class="cohere-form-item">
               <label class="cohere-form-label">发布目标</label>
@@ -80,7 +126,7 @@
         <div style="display:flex;gap:var(--space-sm)">
           <UiButton variant="secondary" @click="addArticle">＋ 添加文章</UiButton>
           <div style="flex:1"></div>
-          <UiButton @click="handleBatchPublish" :disabled="batchPublishing || articles.length === 0">
+          <UiButton data-testid="publish-batch-submit" @click="handleBatchPublish" :disabled="batchPublishing || articles.length === 0">
             {{ batchPublishing ? '发布中...' : `🚀 批量发布 (${totalPlatformTasks} 个任务)` }}
           </UiButton>
         </div>
@@ -137,7 +183,7 @@
                     {{ showAiWriter ? '✕ 关闭' : '🤖 AI' }}
                   </button>
                 </div>
-                <UiInput v-model="article.title" placeholder="请输入文章标题" />
+                <UiInput data-testid="publish-title" v-model="article.title" placeholder="请输入文章标题" />
               </div>
               <div v-if="showTemplatePicker && templateTargetIdx < 0" style="margin-bottom:var(--space-md)">
                 <TemplatePicker @close="showTemplatePicker = false" @apply="applyTemplate" />
@@ -155,8 +201,24 @@
                 <UiInput v-model="article.author" placeholder="作者名称（选填）" style="max-width:300px" />
               </div>
               <div class="cohere-form-item">
+                <label class="cohere-form-label">图片素材</label>
+                <el-upload
+                  v-model:file-list="imageFileList"
+                  class="publish-media-upload"
+                  :auto-upload="false"
+                  :limit="9"
+                  multiple
+                  accept="image/*"
+                  :on-change="handleImageFileChange"
+                  :on-remove="handleImageFileRemove"
+                >
+                  <button type="button" class="media-upload-trigger">选择图片</button>
+                  <template #tip><div class="el-upload__tip">支持 JPG/PNG/WebP，最多 9 张；图片会随发布任务传给平台适配器</div></template>
+                </el-upload>
+              </div>
+              <div class="cohere-form-item">
                 <label class="cohere-form-label">正文</label>
-                <ArticleEditor v-model="article.content" />
+                <ArticleEditor data-testid="publish-editor" v-model="article.content" />
               </div>
               <div class="cohere-form-item" v-if="hasVideoPlatforms">
                 <label class="cohere-form-label">视频文件</label>
@@ -167,8 +229,34 @@
                 </el-upload>
               </div>
               <div class="cohere-form-item">
-                <label class="cohere-form-label">封面图 URL</label>
+                <label class="cohere-form-label">封面图</label>
+                <el-upload
+                  v-model:file-list="coverFileList"
+                  class="publish-media-upload"
+                  :auto-upload="false"
+                  :limit="1"
+                  accept="image/*"
+                  :on-change="handleCoverFileChange"
+                  :on-remove="handleCoverFileRemove"
+                >
+                  <button type="button" class="media-upload-trigger">选择封面</button>
+                  <template #tip><div class="el-upload__tip">可选择本地封面，也可以填写图片链接</div></template>
+                </el-upload>
                 <UiInput v-model="article.cover_url" placeholder="封面图片链接（选填）" />
+              </div>
+              <div class="cohere-form-item publish-metadata-grid">
+                <div>
+                  <label class="cohere-form-label" for="publish-tags">标签</label>
+                  <UiInput id="publish-tags" v-model="tagsText" placeholder="多个标签用逗号分隔" />
+                </div>
+                <div>
+                  <label class="cohere-form-label" for="publish-topics">话题</label>
+                  <UiInput id="publish-topics" v-model="topicsText" placeholder="多个话题用逗号分隔" />
+                </div>
+                <div>
+                  <label class="cohere-form-label" for="publish-mentions">@好友</label>
+                  <UiInput id="publish-mentions" v-model="mentionsText" placeholder="输入昵称或 @昵称" />
+                </div>
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">定时发布</label>
@@ -210,6 +298,7 @@
             <div class="cohere-form" style="gap:var(--space-md)">
               <div class="cohere-form-label">发布目标</div>
               <PublishTargetSelector
+                data-testid="publish-target-selector"
                 :groups="groupedPlatforms"
                 :selected-platforms="selectedPlatforms"
                 :selected-accounts="selectedAccounts"
@@ -220,7 +309,7 @@
               <div class="cohere-divider"></div>
               <UiButton variant="secondary" style="width:100%;justify-content:center;margin-bottom:8px" @click="saveDraft" :disabled="publishing">💾 保存草稿</UiButton>
               <UiButton variant="ghost" size="sm" style="width:100%;justify-content:center;margin-bottom:8px" @click="showDraftList = true; loadDrafts()">📋 草稿箱</UiButton>
-              <UiButton style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
+              <UiButton data-testid="publish-submit" style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
                 {{ publishing ? '发布中...' : '🚀 一键发布' }}
               </UiButton>
               <UiButton
@@ -233,7 +322,7 @@
               </UiButton>
             </div>
           </div>
-          <div v-if="progress.length > 0" class="cohere-card" style="margin-top:16px;cursor:default">
+          <div v-if="progress.length > 0" class="cohere-card" data-testid="publish-progress" style="margin-top:16px;cursor:default">
             <ul class="cohere-timeline">
               <li v-for="item in progress" :key="item.time + item.text" class="cohere-timeline-item" :class="item.type">
                 <span class="tl-time">{{ item.time }}</span>
@@ -290,14 +379,15 @@
         </div>
       </div>
     </template>
+    </template>
   </div>
 </template>
 
 <script setup>
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
-import { ref, reactive, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { Refresh, UploadFilled } from '@element-plus/icons-vue'
@@ -316,12 +406,31 @@ import { usePlatformSelection } from '@/composables/usePlatformSelection'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
 import { usePublishDrafts } from '@/composables/usePublishDrafts'
-import { getPlatformContentLimit } from '@/features/publish/publish-contract'
+import {
+  getPlatformContentLimit,
+  normalizePublishFile,
+  normalizePublishFiles,
+  normalizePublishMentions,
+  normalizePublishStringList,
+} from '@/features/publish/publish-contract'
 import PlatformOverridePanel from '@/features/publish/components/PlatformOverridePanel.vue'
 import PublishTargetSelector from '@/features/publish/components/PublishTargetSelector.vue'
 import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatformCatalog'
 
 const route = useRoute()
+const router = useRouter()
+const publishTab = computed(() => String(route.query?.tab || 'publish'))
+const publishType = computed(() => {
+  const value = String(route.query?.type || '').toLowerCase()
+  return ['video', 'image', 'article', 'wechat'].includes(value) ? value : 'article'
+})
+const hasExplicitPublishType = computed(() => ['video', 'image', 'article', 'wechat'].includes(String(route.query?.type || '').toLowerCase()))
+const publishTypeLabel = computed(() => ({
+  video: '视频发布',
+  image: '图文发布',
+  article: '文章发布',
+  wechat: '公众号',
+}[publishType.value]))
 
 const showDiffPanel = ref(false)
 const diffEdits = reactive({})
@@ -343,7 +452,75 @@ async function loadAccounts () {
 }
 
 // ── 非批量模式（本地 UI 状态） ────────────
-const article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '', publishTime: '' })
+const article = reactive({
+  title: '',
+  content: '',
+  author: '',
+  cover_url: '',
+  cover_path: '',
+  cover_file: null,
+  video_path: '',
+  images: [],
+  image_files: [],
+  tags: [],
+  topics: [],
+  mentions: [],
+  publishTime: '',
+})
+const imageFileList = ref([])
+const coverFileList = ref([])
+const tagsText = computed({
+  get: () => normalizePublishStringList(article.tags).join(', '),
+  set: value => { article.tags = normalizePublishStringList(value) },
+})
+const topicsText = computed({
+  get: () => normalizePublishStringList(article.topics).join(', '),
+  set: value => { article.topics = normalizePublishStringList(value) },
+})
+const mentionsText = computed({
+  get: () => normalizePublishMentions(article.mentions).map(item => item.text).join(', '),
+  set: value => { article.mentions = normalizePublishMentions(value) },
+})
+
+function normalizeUploadFile (file) {
+  const raw = file?.raw || file
+  return normalizePublishFile({
+    path: raw?.path || raw?.filePath || file?.path || raw?.name || file?.name,
+    name: raw?.name || file?.name,
+    type: raw?.type || file?.type,
+    size: raw?.size || file?.size,
+    lastModified: raw?.lastModified || file?.lastModified,
+  })
+}
+
+function updateImageFiles (fileList) {
+  const files = normalizePublishFiles(fileList).filter(file => file.path)
+  article.image_files = files
+  article.images = files.map(file => file.path)
+  imageFileList.value = files
+}
+
+function handleImageFileChange (file, fileList) {
+  updateImageFiles(Array.isArray(fileList) ? fileList : [file])
+}
+
+function handleImageFileRemove (_file, fileList) {
+  updateImageFiles(Array.isArray(fileList) ? fileList : [])
+}
+
+function handleCoverFileChange (file) {
+  const descriptor = normalizeUploadFile(file)
+  article.cover_file = descriptor
+  article.cover_path = descriptor?.path || ''
+  coverFileList.value = descriptor ? [descriptor] : []
+}
+
+function handleCoverFileRemove () {
+  article.cover_file = null
+  article.cover_path = ''
+  coverFileList.value = []
+}
+
 const showTagPanel = ref(true)
 const showTitlePanel = ref(false)
 const showAiWriter = ref(false)
@@ -363,7 +540,7 @@ const {
   toggleAccount,
   isAccountSelected,
   isAccountAvailable,
-} = usePlatformSelection(accountStore)
+} = usePlatformSelection(accountStore, platformStore)
 
 const selectedOverridePlatforms = computed(() => {
   return platforms.value
@@ -382,6 +559,8 @@ const {
   removeDraft,
 } = usePublishDrafts({
   article,
+  publishType,
+  publishTypeLabel,
   selectedPlatforms,
   selectedAccounts,
   platformOverrides: diffEdits,
@@ -434,8 +613,42 @@ const {
   isBatchAccountSelected,
 } = useBatchPublish({ article, licenseStore, isAccountAvailable })
 
+watch(publishTab, async value => {
+  if (value === 'drafts') {
+    showDraftList.value = true
+    await loadDrafts()
+  } else if (showDraftList.value) {
+    showDraftList.value = false
+  }
+})
+
+watch(() => route.query.draft, async (draftId, previousDraftId) => {
+  if (!draftId || draftId === previousDraftId) return
+  await loadDrafts()
+  await loadDraft(String(draftId))
+})
+
+function publishEditorQuery (extra = {}) {
+  const query = { tab: 'publish', ...extra }
+  if (route.query?.type) query.type = String(route.query.type)
+  return query
+}
+
+function goToPublish () {
+  return router.replace({ path: '/publish', query: publishEditorQuery() })
+}
+
+function editDraft (draft) {
+  if (!draft?.id) return
+  return router.replace({ path: '/publish', query: publishEditorQuery({ draft: String(draft.id) }) })
+}
+
 // 草稿导入 — 从 Collection 页跳转时加载
 onMounted(async () => {
+  if (publishTab.value === 'drafts') {
+    showDraftList.value = true
+    await loadDrafts()
+  }
   await loadAccounts()  // 加载多账号列表
   // 初始化默认选中账号
   for (const pid of selectedPlatforms.value) {
@@ -479,6 +692,15 @@ defineExpose({
   showTemplatePicker,
   showAiWriter,
   showUpgradeModal,
+  imageFileList,
+  coverFileList,
+  tagsText,
+  topicsText,
+  mentionsText,
+  handleImageFileChange,
+  handleImageFileRemove,
+  handleCoverFileChange,
+  handleCoverFileRemove,
   templateTargetIdx,
   addArticle,
   removeArticle,
@@ -509,6 +731,48 @@ defineExpose({
 </script>
 
 <style scoped>
+.publish-type-context { color: var(--coral, #f56c6c); font-size: 14px; font-weight: 600; }
+.publish-drafts-page {
+  min-height: 100%;
+  padding: 24px;
+  background: var(--canvas, #f7f7fb);
+}
+.publish-drafts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.publish-drafts-state {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--border-light, #e8e8ec);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  color: var(--muted, #73777d);
+  text-align: center;
+}
+.publish-drafts-state strong { color: var(--text-primary, #25252b); font-size: 16px; }
+.publish-drafts-list { display: flex; flex-direction: column; gap: 10px; }
+.publish-draft-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-light, #e8e8ec);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+.publish-draft-info { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.publish-draft-info strong { overflow: hidden; color: var(--text-primary, #25252b); text-overflow: ellipsis; white-space: nowrap; }
+.publish-draft-info span { color: var(--muted, #73777d); font-size: 12px; }
+.publish-draft-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .publish-section-toggle {
   width: 100%;
   min-height: 36px;
@@ -532,6 +796,8 @@ defineExpose({
   flex-wrap: wrap;
   gap: 8px 16px;
 }
+.batch-metadata-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.batch-metadata-grid > div { min-width: 0; }
 .batch-account-targets {
   flex: 1 0 100%;
   display: flex;
@@ -546,6 +812,15 @@ defineExpose({
 .batch-account-option { display: inline-flex; align-items: center; gap: 5px; color: var(--text-primary, #202124); font-size: 12px; cursor: pointer; }
 .batch-account-option input { accent-color: var(--coral, #f56c6c); }
 .batch-retry-icon { width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px; }
+.publish-media-upload { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.media-upload-trigger { min-height: 32px; padding: 5px 12px; border: 1px solid #d9dce8; border-radius: 6px; background: #fff; color: #4d5574; font-size: 12px; cursor: pointer; }
+.media-upload-trigger:hover { border-color: #5048e5; color: #5048e5; }
+.publish-metadata-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.publish-metadata-grid > div { min-width: 0; }
+
+@media (max-width: 720px) {
+  .publish-metadata-grid { grid-template-columns: 1fr; }
+}
 
 /* 草稿箱列表 */
 .draft-list {
@@ -586,5 +861,13 @@ defineExpose({
   .cohere-content {
     flex-direction: column;
   }
+}
+@media (max-width: 720px) {
+  .publish-drafts-page { padding: 16px 12px 24px; }
+  .publish-drafts-header,
+  .publish-draft-card { align-items: flex-start; flex-direction: column; }
+  .publish-draft-info { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .publish-draft-actions { width: 100%; }
+  .batch-metadata-grid { grid-template-columns: 1fr; }
 }
 </style>

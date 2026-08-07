@@ -26,20 +26,22 @@
 
 const { BaseAdapter } = require('./_base/base')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
+const { MINIMAX_SYSTEM_VOICES } = require('./minimax-tts-voices')
 
 const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
 const DEFAULT_TIMEOUT = 60000
-const DEFAULT_MODEL = 'speech-2.8-hd'
+// 需求：MiniMax TTS 默认使用 speech-2.8-turbo（异步长文本语音合成 T2A Async 模型）
+const DEFAULT_MODEL = 'speech-2.8-turbo'
 const DEFAULT_VOICE = 'male-qn-qingse'
 const DEFAULT_SPEED = 1.0
 const DEFAULT_PITCH = 0
 const DEFAULT_OUTPUT_FORMAT = 'mp3'
 const DEFAULT_SAMPLE_RATE = 32000
 
-// 静态预定义 MiniMax TTS 模型列表
+// 静态预定义 MiniMax TTS 模型列表（speech-2.8-turbo 为首选默认）
 const MINIMAX_TTS_MODELS = [
+  { id: 'speech-2.8-turbo',  name: 'Speech 2.8 Turbo',  description: '异步长文本语音合成（T2A Async），极致生成速度' },
   { id: 'speech-2.8-hd',     name: 'Speech 2.8 HD',     description: '高质量语音合成 v2.8' },
-  { id: 'speech-2.8-turbo',  name: 'Speech 2.8 Turbo',  description: '快速语音合成 v2.8' },
   { id: 'speech-2.6-hd',     name: 'Speech 2.6 HD',     description: '高质量语音合成 v2.6' },
   { id: 'speech-2.6-turbo',  name: 'Speech 2.6 Turbo',  description: '快速语音合成 v2.6' },
 ]
@@ -184,6 +186,70 @@ class MinimaxTtsAdapter extends BaseAdapter {
     return MINIMAX_TTS_MODELS.map(m => ({ ...m }))
   }
 
+  /**
+   * 列出可用音色（系统音色 + 用户已复刻音色）。
+   * 官方文档：https://platform.minimaxi.com/docs/faq/system-voice-id.md
+   * @returns {Promise<{id: string, name: string}[]>}
+   */
+  async listVoices() {
+    return MINIMAX_SYSTEM_VOICES.map(voice => ({ id: voice.id, name: voice.name }))
+  }
+
+  /**
+   * 上传复刻音频 → 创建音色复刻任务。
+   * 官方文档：https://platform.minimaxi.com/docs/guides/speech-voice-clone.md
+   * 上传：POST /v1/files/upload（purpose=voice_clone）→ file_id
+   * 复刻：POST /v1/voice_clone（file_id + voice_id）
+   * 要求：mp3/m4a/wav、时长 10s-5min、大小 ≤20MB（由 tts-voice-clone-service 前置校验）
+   * @param {{name?: string, samples?: Array<{blob?: Blob, fileName?: string, contentType?: string}>}} params
+   * @returns {Promise<{id: string, name: string}>}
+   */
+  async cloneVoice(params = {}) {
+    const sample = Array.isArray(params.samples) ? params.samples[0] : null
+    if (!sample || !sample.blob) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'MiniMax 音色复刻需要一个待克隆音频样本')
+    }
+    const form = new FormData()
+    form.append('purpose', 'voice_clone')
+    form.append('file', sample.blob, sample.fileName || 'clone_input.mp3')
+
+    let uploadResp
+    try {
+      uploadResp = await fetch(this._url('/files/upload'), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + this.credentials.apiKey },
+        body: form,
+      })
+    } catch (e) {
+      throw new ProviderError(ERROR_CODES.NETWORK_ERROR, '上传复刻音频失败: ' + (e.message || String(e)), { providerId: this.id })
+    }
+    if (!uploadResp.ok) {
+      const body = await uploadResp.text().catch(() => '')
+      throw fromHttpStatus(uploadResp.status, body.slice(0, 300), { providerId: this.id })
+    }
+    const uploadJson = await uploadResp.json()
+    const fileId = uploadJson?.file?.file_id
+    if (!fileId) {
+      throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '上传复刻音频未返回 file_id', { providerId: this.id })
+    }
+
+    // 自定义 voice_id：仅保留字母数字下划线，保证 MiniMax 接受
+    const requestedName = String(params.name || 'clone_voice').trim()
+    const safeId = requestedName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 32)
+    const voiceId = safeId || 'clone_voice'
+
+    const cloneResp = await this._request('/voice_clone', {
+      method: 'POST',
+      body: JSON.stringify({ file_id: fileId, voice_id: voiceId }),
+    })
+    const cloneJson = await cloneResp.json()
+    const finalId = cloneJson?.voice_id || cloneJson?.data?.voice_id || voiceId
+    if (!finalId) {
+      throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '音色复刻未返回 voice_id', { providerId: this.id })
+    }
+    return { id: String(finalId), name: requestedName }
+  }
+
   /** 测试连接 — 验证 apiKey 存在 */
   async testConnection() {
     const validation = this.validateConfig()
@@ -197,4 +263,4 @@ class MinimaxTtsAdapter extends BaseAdapter {
   }
 }
 
-module.exports = { MinimaxTtsAdapter, MINIMAX_TTS_MODELS }
+module.exports = { MinimaxTtsAdapter, MINIMAX_TTS_MODELS, MINIMAX_SYSTEM_VOICES }

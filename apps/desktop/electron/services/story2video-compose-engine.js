@@ -21,7 +21,6 @@ const { promisify } = require('util')
 const {
   MAX_INPUT_FILE_BYTES,
   MAX_INPUT_TOTAL_BYTES,
-  MAX_SCENES,
   getAllowedMediaRoots,
   isPathWithin,
   resolveReadableMediaFile,
@@ -37,6 +36,9 @@ const DEFAULT_MAX_DURATION_SECONDS = 10 * 60
 const DEFAULT_MAX_AUDIO_DURATION_SECONDS = 15 * 60
 const DEFAULT_MAX_SEGMENT_DURATION_SECONDS = 3 * 60
 const DEFAULT_MAX_OUTPUT_PIXELS = 7680 * 4320
+// 单条 ffmpeg 命令最多输入的片段数。超过时按块合成再递归合并，
+// 避免 25+ 场景（27 路 xfade/acrossfade）在低内存环境触发 x264 malloc 失败。
+const MAX_XFADE_INPUTS = 8
 
 const FFMPEG = findFfmpeg()
 const FFPROBE = findFfprobe()
@@ -55,6 +57,43 @@ const FFPROBE = findFfprobe()
  * @param {string} text - 原始字幕文本
  * @returns {string} 转义后的文本，可直接用于 drawtext=text='...'
  */
+// Windows 中文字体候选（按优先级）；Linux/macOS 由 fontconfig 处理 CJK
+const CJK_FONT_CANDIDATES = [
+  'C:\\\\Windows\\\\Fonts\\\\msyh.ttc',
+  'C:\\\\Windows\\\\Fonts\\\\msyh.ttf',
+  'C:\\\\Windows\\\\Fonts\\\\simhei.ttf',
+  'C:\\\\Windows\\\\Fonts\\\\simsun.ttc',
+  'C:\\\\Windows\\\\Fonts\\\\msjh.ttc',
+]
+
+let cachedCjkFont = null
+
+/** 解析一个可用的 CJK 字体路径（仅 Windows 静态 ffmpeg 需要显式 fontfile）。 */
+function resolveCjkFont () {
+  if (cachedCjkFont !== null) return cachedCjkFont
+  if (process.platform !== 'win32') {
+    cachedCjkFont = ''
+    return cachedCjkFont
+  }
+  for (const candidate of CJK_FONT_CANDIDATES) {
+    if (fs.existsSync(candidate)) {
+      cachedCjkFont = candidate
+      return cachedCjkFont
+    }
+  }
+  cachedCjkFont = ''
+  return cachedCjkFont
+}
+
+/** 把字体路径转成 drawtext fontfile 值（正斜杠 + 单反斜杠转义冒号）。 */
+function escapeFontFilePath (filePath) {
+  if (!filePath) return ''
+  // 兼容单个或连续多个反斜杠，统一归一为正斜杠
+  return String(filePath)
+    .replace(/\\+/g, '/')
+    .replace(/:/g, '\\:')
+}
+
 function escapeSubtitleText (text) {
   if (!text) return ''
   return String(text)
@@ -160,16 +199,19 @@ function buildImageEffectFilter (effect, width, height, fps, duration) {
   const safeWidth = Math.max(160, Math.round(Number(width) || 1280))
   const safeHeight = Math.max(160, Math.round(Number(height) || 720))
   const safeFps = Math.max(1, Math.min(120, Math.round(Number(fps) || 30)))
-  // 有效时长已知时把动效进度归一化到场景时长（T=round(duration*fps)），
-  // 时长未知（探测失败/旧项目）或 duration*fps 溢出为 Infinity 时保持固定帧增量公式。
+  // 有效时长已知时把动效进度归一化到场景时长（T=round(duration*fps)）；
+  // 时长未知（探测失败/旧项目）或 duration*fps 溢出为 Infinity 时回退固定帧增量公式。
   const rawFrames = Number.isFinite(duration) && duration > 0 ? duration * safeFps : null
-  const totalFrames = rawFrames !== null && Number.isFinite(rawFrames)
+  const knownFrames = rawFrames !== null && Number.isFinite(rawFrames)
+  const totalFrames = knownFrames
     ? Math.max(2, Math.round(rawFrames))
-    : null
-  const progress = totalFrames ? 'min(1,on/' + totalFrames + ')' : null
+    : Math.max(safeFps, Math.round(safeFps * 3))
+  const progress = knownFrames ? 'min(1,on/' + totalFrames + ')' : null
+  // 关键修复（origin/main）：zoompan 需要 d=输出总帧数（=时长×帧率）才能产生连续动画；
+  // d=1 且输入为单帧静态图时 zoom 状态不累积，动效完全不可见。
   const zoompan = (zoom, x, y) =>
-    "zoompan=z='" + zoom + "':x='" + x + "':y='" + y + "':d=1:s=" +
-    safeWidth + 'x' + safeHeight + ':fps=' + safeFps
+    "zoompan=z='" + zoom + "':x='" + x + "':y='" + y + "':d=" + totalFrames +
+    ':s=' + safeWidth + 'x' + safeHeight + ':fps=' + safeFps
 
   switch (effect) {
     case 'zoom-in':
@@ -177,6 +219,7 @@ function buildImageEffectFilter (effect, width, height, fps, duration) {
     case 'zoom-out':
       return zoompan(progress ? 'if(eq(on,1),1.25,1.25-0.25*' + progress + ')' : 'if(eq(on,1),1.25,max(zoom-0.0015,1))', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
     case 'pan-left':
+      // 归一化进度（min(1,on/T)）与 origin/main 的 on/totalFrames 等价；未知时长时回退 legacy 固定帧增量。
       return zoompan('1.12', progress ? '(iw-iw/zoom)*' + progress : '(iw-iw/zoom)*on/120', 'ih/2-(ih/zoom/2)')
     case 'pan-right':
       return zoompan('1.12', progress ? '(iw-iw/zoom)*(1-' + progress + ')' : '(iw-iw/zoom)*(1-on/120)', 'ih/2-(ih/zoom/2)')
@@ -203,22 +246,32 @@ function buildSubtitleFilter (textOrTimeline, style) {
     : (textOrTimeline ? [{ text: textOrTimeline }] : [])
   if (entries.length === 0) return ''
   const config = typeof style === 'string' ? { style } : (style || {})
-  const sizeMap = { sm: 18, md: 24, lg: 32, xl: 40 }
+  const sizeMap = {
+    size1: 16, size2: 20, size3: 24, size4: 28, size5: 32, size6: 40,
+    sm: 18, md: 24, lg: 32, xl: 40,
+  }
   const fontSize = Math.round(clampNumber(config.fontSize || sizeMap[config.size], 12, 96, 24))
   const color = /^#[0-9a-f]{3,8}$/i.test(String(config.color || ''))
     ? String(config.color)
     : 'white'
   const borderWidth = config.style === 'style3' ? 4 : 2
   const box = config.style === 'style2' ? ':box=1:boxcolor=black@0.55:boxborderw=10' : ''
+  // 字幕垂直位置：距视频底部比例（0.2 = 字幕底边位于画面 80% 高度处，即距底部 20%）。
+  // 可经 subtitleStyle.bottomMarginRatio 覆盖（0.05-0.5），默认 0.2（避免贴底）。
+  const bottomRatio = clampNumber(config.bottomMarginRatio, 0.05, 0.5, 0.2)
+  // 中文字幕乱码修复：Windows 静态 ffmpeg 的 drawtext 默认字体无 CJK 字形，
+  // 必须显式指定 fontfile（微软雅黑等），否则中文渲染成豆腐块/乱码。
+  const fontFile = escapeFontFilePath(resolveCjkFont())
+  const fontOption = fontFile ? ":fontfile='" + fontFile + "'" : ''
   return entries.map(item => {
     const startTime = Number(item.startTime)
     const endTime = Number(item.endTime)
     const enable = Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime
       ? ":enable='gte(t," + Math.max(0, startTime).toFixed(3) + ')*lt(t,' + endTime.toFixed(3) + ")'"
       : ''
-    return "drawtext=text='" + escapeSubtitleText(item.text) + "':fontcolor=" + color +
+    return "drawtext=text='" + escapeSubtitleText(item.text) + "'" + fontOption + ':fontcolor=' + color +
       ':fontsize=' + fontSize + ':borderw=' + borderWidth + ':bordercolor=black' +
-      box + ':x=(w-text_w)/2:y=h-th-40' + enable
+      box + ':x=(w-text_w)/2:y=h*' + (1 - bottomRatio).toFixed(3) + '-th' + enable
   }).join(',')
 }
 
@@ -255,7 +308,9 @@ function buildWatermarkFilter (options) {
     center: 'x=(w-text_w)/2:y=(h+text_h)/2',
   }
   const position = positions[config.position] || positions['bottom-right']
-  return "drawtext=text='" + escapeSubtitleText(text) + "':fontcolor=" + color + '@' + opacity +
+  const fontFile = escapeFontFilePath(resolveCjkFont())
+  const fontOption = fontFile ? ":fontfile='" + fontFile + "'" : ''
+  return "drawtext=text='" + escapeSubtitleText(text) + "'" + fontOption + ':fontcolor=' + color + '@' + opacity +
     ':fontsize=' + fontSize + ':' + position
 }
 
@@ -273,7 +328,7 @@ function hasUsableFile (filePath) {
  * 根据实际片段时长生成安全的转场计划。
  * xfade 的 duration 必须小于相邻两个输入的时长，不能直接使用用户配置值。
  */
-function buildTransitionPlan (segmentDurations, requestedDuration) {
+function buildTransitionPlan (segmentDurations, requestedDuration, transitionName) {
   const durations = Array.isArray(segmentDurations)
     ? segmentDurations.map(value => {
         const number = Number(value)
@@ -281,8 +336,11 @@ function buildTransitionPlan (segmentDurations, requestedDuration) {
       })
     : []
   const total = durations.reduce((sum, value) => sum + (value || 0), 0)
+  // transitionName 必须随计划返回：_xfadeMerge 从 plan.transitionName 构造
+  // xfade=transition=<name>，缺失会生成 transition=undefined 导致 ffmpeg 报错。
+  const resolvedTransitionName = typeof transitionName === 'string' && transitionName.trim() ? transitionName : 'fade'
   if (durations.length < 2 || durations.some(value => value === null)) {
-    return { enabled: false, durations, transitions: [], totalDuration: total }
+    return { enabled: false, durations, transitions: [], totalDuration: total, transitionName: resolvedTransitionName }
   }
 
   const requested = clampNumber(requestedDuration, 0.1, 1.5, 0.4)
@@ -294,13 +352,13 @@ function buildTransitionPlan (segmentDurations, requestedDuration) {
     // 留出 20% 的余量，避免 duration 等于输入边界导致 ffmpeg 拒绝滤镜。
     const duration = Math.min(requested, previous * 0.8, current * 0.8)
     if (!Number.isFinite(duration) || duration < 0.01 || elapsed <= duration) {
-      return { enabled: false, durations, transitions: [], totalDuration: total }
+      return { enabled: false, durations, transitions: [], totalDuration: total, transitionName: resolvedTransitionName }
     }
     transitions.push({ duration, offset: elapsed - duration })
     elapsed += current - duration
     previous = current
   }
-  return { enabled: true, durations, transitions, totalDuration: elapsed }
+  return { enabled: true, durations, transitions, totalDuration: elapsed, transitionName: resolvedTransitionName }
 }
 
 class Story2VideoComposeEngine {
@@ -319,7 +377,6 @@ class Story2VideoComposeEngine {
     this.allowedMediaRoots = Array.isArray(opts.allowedMediaRoots) && opts.allowedMediaRoots.length > 0
       ? opts.allowedMediaRoots.map(root => path.resolve(root))
       : getAllowedMediaRoots([this.outputDir, process.cwd()])
-    this.maxScenes = Math.floor(positiveLimit(opts.maxScenes, MAX_SCENES))
     this.maxInputFileBytes = positiveLimit(opts.maxInputFileBytes, MAX_INPUT_FILE_BYTES)
     this.maxInputTotalBytes = positiveLimit(opts.maxInputTotalBytes, MAX_INPUT_TOTAL_BYTES)
     this.maxDurationSeconds = positiveLimit(opts.maxDurationSeconds, DEFAULT_MAX_DURATION_SECONDS)
@@ -343,9 +400,6 @@ class Story2VideoComposeEngine {
     let scenes = normalizeComposeScenes(assetManifest)
     if (scenes.length === 0) {
       return { code: -1, message: 'Invalid assetManifest: missing scenes or image/audio pairs' }
-    }
-    if (scenes.length > this.maxScenes) {
-      return { code: -1, message: 'Scene count exceeds the allowed limit: ' + this.maxScenes }
     }
 
     const resolutionError = validateResolution(options?.resolution, this.maxOutputPixels)
@@ -814,13 +868,31 @@ class Story2VideoComposeEngine {
   async _createSegment (imagePath, audioPath, outputPath, opts) {
     const args = ['-y']
 
-    // 输入：图片（循环）+ 音频
-    args.push('-loop', '1', '-i', imagePath, '-i', audioPath)
+    // 动效归一化以“有效时长”（audioDuration||reportedDuration||defaultSceneDuration）为基线，
+    // 帧数由 buildImageEffectFilter 内部按 duration*fps 计算（含溢出守卫与 d=总帧数 修复）。
+    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, opts.effectDuration)
+
+    // 输入：有动效时用单帧图片输入（zoompan 自行生成 d 帧，-loop 1 会破坏帧计数）；
+    // 无动效时保持图片循环（配合 fade/shortest 生成静态片段）。
+    if (imageEffect) {
+      args.push('-i', imagePath, '-i', audioPath)
+    } else {
+      args.push('-loop', '1', '-i', imagePath, '-i', audioPath)
+    }
 
     // 字幕滤镜
-    const filters = [buildScaleFilter(opts.width, opts.height)]
-    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, opts.effectDuration)
-    if (imageEffect) filters.push(imageEffect)
+    // 抖动修复（origin/main）：zoompan 亚像素采样会造成画面跳动。先把输入上采样到 2x 工作分辨率，
+    // 在 2x 画布上执行 zoompan（s=2x 尺寸），再下采样回目标分辨率，帧间运动平滑。
+    const filters = []
+    if (imageEffect) {
+      const workWidth = clampNumber(opts.width, 160, 4096) * 2
+      const workHeight = clampNumber(opts.height, 160, 4096) * 2
+      filters.push(buildScaleFilter(workWidth, workHeight))
+      filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, opts.effectDuration))
+      filters.push(buildScaleFilter(opts.width, opts.height))
+    } else {
+      filters.push(buildScaleFilter(opts.width, opts.height))
+    }
     const subtitleFilter = buildSubtitleFilter(
       Array.isArray(opts.subtitleTimeline) && opts.subtitleTimeline.length > 0
         ? opts.subtitleTimeline
@@ -863,7 +935,7 @@ class Story2VideoComposeEngine {
   }
 
   /**
-   * 拼接视频片段
+   * 拼接视频片段（分段合成，避免超长流水线单命令输入过多）。
    * @private
    */
   async _concatSegments (segments, outputPath, sessionDir, options) {
@@ -871,44 +943,62 @@ class Story2VideoComposeEngine {
     const transitionName = TRANSITION_NAMES[transition]
     if (transitionName && segments.length > 1) {
       const durations = Array.isArray(options?.segmentDurations) ? options.segmentDurations : []
-      const plan = buildTransitionPlan(durations, options?.transitionDuration)
-      if (!plan.enabled) {
-        this.log.warn('Story2VideoCompose', 'Segment durations are too short or unknown; falling back to concat without transition')
-      } else {
-      const inputArgs = []
-      for (const segment of segments) inputArgs.push('-i', segment)
+      const plan = buildTransitionPlan(durations, options?.transitionDuration, transitionName)
+      if (plan.enabled) {
+        if (segments.length > MAX_XFADE_INPUTS) {
+          await this._concatSegmentsChunked(segments, durations, outputPath, sessionDir, {
+            transitionName,
+            transitionDuration: options?.transitionDuration,
+          }, 0)
+        } else {
+          await this._xfadeMerge(segments, plan, outputPath)
+        }
+        return
+      }
+      this.log.warn('Story2VideoCompose', 'Segment durations are too short or unknown; falling back to concat without transition')
+    }
+    await this._plainConcat(segments, outputPath, sessionDir)
+  }
 
-      const filterParts = []
-      let currentVideo = '[0:v]'
-      for (let index = 1; index < segments.length; index++) {
-        const transitionStep = plan.transitions[index - 1]
-        const nextVideo = '[v' + index + ']'
-        filterParts.push(currentVideo + '[' + index + ':v]xfade=transition=' + transitionName +
-          ':duration=' + transitionStep.duration.toFixed(3) + ':offset=' + transitionStep.offset.toFixed(3) + nextVideo)
-        currentVideo = nextVideo
-      }
+  /**
+   * 单条 ffmpeg 命令：对一组片段构建 xfade/acrossfade 图并输出。
+   * @private
+   */
+  async _xfadeMerge (segments, plan, outputPath) {
+    const transitionName = plan.transitionName
+    const inputArgs = []
+    for (const segment of segments) inputArgs.push('-i', segment)
 
-      let currentAudio = '[0:a]'
-      for (let index = 1; index < segments.length; index++) {
-        const transitionStep = plan.transitions[index - 1]
-        const nextAudio = '[a' + index + ']'
-        filterParts.push(currentAudio + '[' + index + ':a]acrossfade=d=' +
-          transitionStep.duration.toFixed(3) + ':c1=tri:c2=tri' + nextAudio)
-        currentAudio = nextAudio
-      }
-      filterParts.push(currentAudio + 'anull[aout]')
-      const args = ['-y', ...inputArgs, '-filter_complex', filterParts.join(';'),
-        '-map', currentVideo, '-map', '[aout]',
-        '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]
-      const { stderr } = await execFileAsync(FFMPEG, args, { timeout: 120000, maxBuffer: 2 * 1024 * 1024 })
-      if (!hasUsableFile(outputPath)) {
-        throw new Error('ffmpeg xfade did not produce output: ' + (stderr || '').slice(-200))
-      }
-      return
-      }
+    const filterParts = []
+    let currentVideo = '[0:v]'
+    for (let index = 1; index < segments.length; index++) {
+      const transitionStep = plan.transitions[index - 1]
+      const nextVideo = '[v' + index + ']'
+      filterParts.push(currentVideo + '[' + index + ':v]xfade=transition=' + transitionName +
+        ':duration=' + transitionStep.duration.toFixed(3) + ':offset=' + transitionStep.offset.toFixed(3) + nextVideo)
+      currentVideo = nextVideo
     }
 
-    // 使用 concat demuxer
+    let currentAudio = '[0:a]'
+    for (let index = 1; index < segments.length; index++) {
+      const transitionStep = plan.transitions[index - 1]
+      const nextAudio = '[a' + index + ']'
+      filterParts.push(currentAudio + '[' + index + ':a]acrossfade=d=' +
+        transitionStep.duration.toFixed(3) + ':c1=tri:c2=tri' + nextAudio)
+      currentAudio = nextAudio
+    }
+    filterParts.push(currentAudio + 'anull[aout]')
+    const args = ['-y', ...inputArgs, '-filter_complex', filterParts.join(';'),
+      '-map', currentVideo, '-map', '[aout]',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]
+    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: 120000, maxBuffer: 2 * 1024 * 1024 })
+    if (!hasUsableFile(outputPath)) {
+      throw new Error('ffmpeg xfade did not produce output: ' + (stderr || '').slice(-200))
+    }
+  }
+
+  /** 使用 concat demuxer 无损拼接（无转场）。@private */
+  async _plainConcat (segments, outputPath, sessionDir) {
     const listFile = path.join(sessionDir, 'concat_list.txt')
     const listContent = segments.map(s => "file '" + s.replace(/\\/g, '/').replace(/'/g, "'\\''") + "'").join('\n')
     fs.writeFileSync(listFile, listContent, 'utf-8')
@@ -924,6 +1014,40 @@ class Story2VideoComposeEngine {
     if (!hasUsableFile(outputPath)) {
       throw new Error('ffmpeg concat did not produce output: ' + (stderr || '').slice(-200))
     }
+  }
+
+  /**
+   * 分块合成：把超长片段列表切成 ≤ MAX_XFADE_INPUTS 的块，块内 xfade 合成中间文件，
+   * 再递归合并中间文件（块间同样带转场）。避免单条 ffmpeg 命令输入路数过多。
+   * @private
+   */
+  async _concatSegmentsChunked (segments, durations, outputPath, sessionDir, options, level) {
+    const chunkSize = MAX_XFADE_INPUTS
+    const currentLevel = Number.isInteger(level) ? level : 0
+    const intermediatePaths = []
+    const chunkDurations = []
+    for (let offset = 0; offset < segments.length; offset += chunkSize) {
+      const part = segments.slice(offset, offset + chunkSize)
+      const partDurations = Array.isArray(durations) ? durations.slice(offset, offset + chunkSize) : []
+      const plan = buildTransitionPlan(partDurations, options?.transitionDuration)
+      // 中间文件名带递归层级，避免与输入（上一层的中间文件）同名冲突
+      const intermediate = path.join(sessionDir, 'merge_l' + currentLevel + '_chunk_' + String(intermediatePaths.length).padStart(3, '0') + '.mp4')
+      if (part.length > 1 && plan.enabled) {
+        await this._xfadeMerge(part, { ...plan, transitionName: options.transitionName }, intermediate)
+        chunkDurations.push(plan.totalDuration)
+      } else {
+        // 块内无法使用转场（时长未知/过短）→ 无损拼接该块
+        await this._plainConcat(part, intermediate, sessionDir)
+        chunkDurations.push(null)
+      }
+      intermediatePaths.push(intermediate)
+    }
+
+    if (intermediatePaths.length === 1) {
+      fs.copyFileSync(intermediatePaths[0], outputPath)
+      return
+    }
+    await this._concatSegmentsChunked(intermediatePaths, chunkDurations, outputPath, sessionDir, options, currentLevel + 1)
   }
 
   /** 将所有旁白解码后顺序拼接，避免旧实现只保留第一段音频。 */
@@ -1002,4 +1126,6 @@ module.exports = {
   buildWatermarkFilter,
   buildScaleFilter,
   parseResolution,
+  resolveCjkFont,
+  escapeFontFilePath,
 }

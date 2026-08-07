@@ -24,7 +24,15 @@ import {
   onBatchProgress,
   onProgress,
 } from '@/api/publisher'
-import { buildPublishTargets, validateScheduleEntries } from '@/features/publish/publish-contract'
+import {
+  buildPublishTargets,
+  normalizePublishFiles,
+  normalizePublishMentions,
+  normalizePublishStringList,
+  validatePublishMetadata,
+  validatePublishTargets,
+  validateScheduleEntries,
+} from '@/features/publish/publish-contract'
 
 let _keyCounter = 1
 
@@ -121,7 +129,8 @@ export function useBatchPublish(options) {
       articleItem.accounts || articleItem.selectedAccounts || {},
     )
     const hasExplicitAccount = normalized.some(target => target.accountId)
-    // 保持旧批量 IPC 的字符串形态；只有实际选择账号时才发送对象目标。
+    // 新版发布路径始终发送结构化账号目标；旧调用未接入账号目录时保留兼容格式。
+    if (isAccountAvailable) return normalized
     return hasExplicitAccount ? normalized : (articleItem.platforms || []).slice()
   }
 
@@ -170,7 +179,17 @@ export function useBatchPublish(options) {
       accounts: {},
       author: '',
       cover_url: '',
+      cover_path: '',
+      cover_file: null,
       video_path: '',
+      images: [],
+      image_files: [],
+      tags: [],
+      topics: [],
+      mentions: [],
+      tagsText: '',
+      topicsText: '',
+      mentionsText: '',
       publishTime: '',
     })
   }
@@ -191,7 +210,17 @@ export function useBatchPublish(options) {
       accounts: JSON.parse(JSON.stringify(orig.accounts || orig.selectedAccounts || {})),
       author: orig.author || '',
       cover_url: orig.cover_url || '',
+      cover_path: orig.cover_path || '',
+      cover_file: orig.cover_file || null,
       video_path: orig.video_path || '',
+      images: orig.images ? orig.images.slice() : [],
+      image_files: orig.image_files ? JSON.parse(JSON.stringify(orig.image_files)) : [],
+      tags: orig.tags ? orig.tags.slice() : [],
+      topics: orig.topics ? orig.topics.slice() : [],
+      mentions: orig.mentions ? JSON.parse(JSON.stringify(orig.mentions)) : [],
+      tagsText: orig.tagsText || '',
+      topicsText: orig.topicsText || '',
+      mentionsText: orig.mentionsText || '',
       publishTime: '',
       _key: freshKey(),
     })
@@ -262,6 +291,25 @@ export function useBatchPublish(options) {
           ElMessage.warning('"' + a.title.slice(0, 20) + '" 未选择发布平台')
           return
         }
+        if (isAccountAvailable) {
+          const targetCheck = validatePublishTargets(buildPublishTargets(a.platforms, a.accounts || a.selectedAccounts || {}))
+          if (!targetCheck.valid) {
+            ElMessage.warning(targetCheck.message)
+            return
+          }
+        }
+        const metadataCheck = validatePublishMetadata({
+          ...a,
+          tags: a.tagsText || a.tags,
+          topics: a.topicsText || a.topics,
+          mentions: a.mentionsText || a.mentions,
+          images: a.images || a.image_files,
+          image_files: a.image_files || a.images,
+        })
+        if (!metadataCheck.valid) {
+          ElMessage.warning(`「${a.title.slice(0, 20)}」${metadataCheck.message}`)
+          return
+        }
         if (
           isAccountAvailable &&
           buildPublishTargets(a.platforms, a.accounts || a.selectedAccounts || {})
@@ -323,7 +371,14 @@ export function useBatchPublish(options) {
             precheck: precheckEnabled.value,
             author: a.author || '',
             cover_url: a.cover_url || '',
+            cover_path: a.cover_path || '',
+            cover_file: a.cover_file || null,
             video_path: a.video_path || '',
+            images: normalizePublishFiles(a.image_files || a.images).map(file => file.path),
+            image_files: normalizePublishFiles(a.image_files || a.images),
+            tags: normalizePublishStringList(a.tagsText || a.tags),
+            topics: normalizePublishStringList(a.topicsText || a.topics),
+            mentions: normalizePublishMentions(a.mentionsText || a.mentions),
           }
         }),
       }))

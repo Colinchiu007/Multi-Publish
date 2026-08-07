@@ -2,6 +2,7 @@ const { FunctionalRunner } = require('./functional-runner');
 
 const SUITE_OPTIONS = { initPro: true };
 const CONDITION_TIMEOUT = 5000;
+const FEATURE_READY_TIMEOUT = 15000;
 
 function record(r, name, passed, details) {
   r.checks.push({ kind: 'functional', name, passed: Boolean(passed), details: details || null });
@@ -80,9 +81,28 @@ async function fillByPlaceholder(r, placeholder, value) {
   return true;
 }
 
+async function waitForPublishReady(r, timeout = FEATURE_READY_TIMEOUT) {
+  return waitForPageCondition(r, (selectors) => selectors.every((selector) => {
+    const element = document.querySelector(selector);
+    return element && element.getClientRects().length > 0;
+  }), [
+    '[data-testid="publish-title"] input',
+    '[data-testid="publish-editor"]',
+    '[data-testid="publish-target-selector"]',
+    '[data-testid="publish-submit"]',
+  ], timeout);
+}
+
+async function fillPublishTitle(r, value) {
+  const locator = r.page.locator('[data-testid="publish-title"] input').first();
+  if (!(await waitForVisible(locator, FEATURE_READY_TIMEOUT))) return false;
+  await locator.fill(value);
+  return true;
+}
+
 async function fillPublishBody(page, value) {
   const editor = page.locator(
-    '.cohere-main .ql-editor[contenteditable="true"], .cohere-main textarea.md-editor',
+    '[data-testid="publish-editor"] .ql-editor[contenteditable="true"], [data-testid="publish-editor"] textarea.md-editor, .cohere-main .ql-editor[contenteditable="true"], .cohere-main textarea.md-editor',
   ).first();
   if (!(await waitForVisible(editor))) return false;
   await editor.fill(value);
@@ -144,17 +164,18 @@ async function exerciseFirstRun(r) {
 
 async function exercisePublish(r) {
   // initPro 已在 FunctionalRunner 构造时通过 addInitScript 注入，页面首次加载即为 Pro
-  record(r, '标题字段可填写', await fillByPlaceholder(r, '文章标题', 'E2E 发布标题'));
+  await waitForPublishReady(r);
+  record(r, '标题字段可填写', await fillPublishTitle(r, 'E2E 发布标题'));
   record(r, '正文字段可填写', await fillPublishBody(r.page, 'E2E 发布正文内容'));
   const platform = r.page.locator('.cohere-main [data-testid="platform-weibo"]').first();
-  if (await waitForVisible(platform, 3000)) await platform.click();
-  const batch = r.page.locator('.cohere-main label:has-text("批量模式") input[type="checkbox"]').first();
+  if (await waitForVisible(platform, FEATURE_READY_TIMEOUT)) await platform.click();
+  const batch = r.page.locator('[data-testid="publish-batch-mode"]').first();
   if (await batch.count()) {
     await batch.click();
     record(r, '批量模式显示添加文章', await bodyHas(r, '添加文章'));
     await batch.click();
   }
-  const publishClicked = await clickText(r, '一键发布');
+  const publishClicked = await clickText(r, '一键发布', { selector: '[data-testid="publish-submit"]', timeout: FEATURE_READY_TIMEOUT });
   record(r, '一键发布按钮可点击', publishClicked);
 }
 
@@ -170,10 +191,10 @@ async function exerciseAccounts(r) {
   const filters = r.page.locator('.filter-tabs button[role="tab"]');
   for (let i = 0; i < await filters.count(); i++) await filters.nth(i).click();
   record(r, '账号状态筛选均可点击', await filters.count() >= 3);
-  const add = await clickText(r, '添加账号');
+  const add = await clickText(r, '添加账号', { selector: '[data-testid="account-add"]', timeout: FEATURE_READY_TIMEOUT });
   if (add) {
     const modal = r.page.locator('.ui-modal, .el-dialog').first();
-    const modalShown = await waitForVisible(modal);
+    const modalShown = await waitForVisible(modal, FEATURE_READY_TIMEOUT);
     record(r, '添加账号打开弹窗', modalShown);
     // 关闭弹窗
     const closeButton = r.page.locator('.ui-modal-close').first();
@@ -187,9 +208,9 @@ async function exerciseAccounts(r) {
   const allFilter = r.page.locator('.filter-tabs button[role="tab"]:has-text("全部")').first();
   if (await allFilter.count() > 0) await allFilter.click();
   // 寻找 “验证” 按钮（不依赖具体位置）
-  const verifyBtn = r.page.locator('.account-row button:has-text("验证")').first();
+  const verifyBtn = r.page.locator('.account-row [data-testid^="verify-"]').first();
   let verify = false;
-  if (await waitForVisible(verifyBtn)) {
+  if (await waitForVisible(verifyBtn, FEATURE_READY_TIMEOUT)) {
     await verifyBtn.click({ timeout: 3000 });
     verify = true;
   }
@@ -290,14 +311,15 @@ async function exerciseModelProviders(r) {
 
 async function exerciseCreate(r) {
   record(r, '渲染引擎状态就绪', await bodyHas(r, '渲染引擎就绪').catch(() => false) || !(await bodyHas(r, '依赖未安装')));
-  const pipelineCard = r.page.locator('.pipeline-card').first();
-  record(r, '创作流水线列表渲染', await pipelineCard.count() > 0);
+  const pipelineCard = r.page.locator('.pipeline-card[data-pipeline-id="story2video-compose"]').first();
+  const firstPipelineId = await r.page.locator('.pipeline-card').first().getAttribute('data-pipeline-id').catch(() => null);
+  record(r, '图片轮播流水线优先显示', firstPipelineId === 'story2video-compose' && await pipelineCard.first().innerText().then(text => /图片轮播|image carousel/i.test(text)));
   if (await pipelineCard.count()) {
     await pipelineCard.click();
-    await fillByPlaceholder(r, '视频文案', 'E2E 视频创作文案');
+    await fillByPlaceholder(r, '输入视频文案', 'E2E 视频创作文案');
     const started = await clickText(r, '启动流水线');
-    record(r, '启动创作流水线可执行', started);
-    if (started) await expectIpc(r, 'pipelineStart', '启动流水线调用 IPC');
+    record(r, '启动图片轮播流水线可执行', started);
+    if (started) await expectIpc(r, 'pipelineStartOrchestrated', '启动流水线调用 IPC');
   }
   await r.goto('/create');
   record(r, '快速渲染标签可切换', await clickText(r, '快速渲染'));
@@ -307,7 +329,10 @@ async function exerciseCreate(r) {
 async function exerciseResult(r) {
   record(r, '无路径时提供去创作操作', await bodyHas(r, '去创作') || await bodyHas(r, '重新创作'));
   // Hash 模式下使用 hash 内的 query：/#/create/result?path=...
-  await r.page.goto(r.url + '/#/create/result?path=' + encodeURIComponent('C:/mock/e2e.mp4'), { waitUntil: 'domcontentloaded' });
+  const resultPath = '/create/result?path=' + encodeURIComponent('C:/mock/e2e.mp4');
+  const resultUrl = r.url.replace(/\/$/, '') + '/#' + resultPath;
+  await r.page.goto(resultUrl, { waitUntil: 'domcontentloaded' });
+  await r.waitForAppReady(resultPath);
   record(r, '结果路径渲染视频或错误状态', await waitForVisible(r.page.locator('.video-player, .empty-state, .video-section')));
   const publish = await clickText(r, '去发布');
   if (publish) record(r, '结果页可跳转发布', (await r.currentRoute()).startsWith('/publish'));
@@ -547,7 +572,10 @@ async function auditInitialControls(r, definition) {
   let linksClicked = 0;
   for (let i = 0; i < links.length; i++) {
     await resetDefinitionRoute(r, definition);
-    const link = r.page.locator('.cohere-main a').filter({ visible: true }).nth(i);
+    const descriptor = links[i];
+    const link = descriptor.href
+      ? r.page.locator(`.cohere-main a:visible[href=${JSON.stringify(descriptor.href)}]`).first()
+      : r.page.locator('.cohere-main a:visible').filter({ hasText: descriptor.text }).first();
     try {
       if (await link.count()) { await link.click({ noWaitAfter: true, timeout: 2000 }); linksClicked++; }
     } catch (_) { /* external/browser-only links are still enumerated */ }

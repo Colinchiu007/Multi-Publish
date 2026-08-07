@@ -26,8 +26,8 @@ const fs = require('fs');
 const path = require('path');
 const { buildInitScript } = require('./fixture-loader');
 
-const DEFAULT_APP_READY_TIMEOUT = 5000;
-const RESET_APP_READY_TIMEOUT = 10000;
+const DEFAULT_APP_READY_TIMEOUT = 15000;
+const RESET_APP_READY_TIMEOUT = 15000;
 
 class FunctionalRunner {
   constructor(options = {}) {

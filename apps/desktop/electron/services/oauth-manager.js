@@ -377,7 +377,8 @@ class OAuthManager {
   /**
    * 注册 IPC handlers
    */
-  registerIpcHandlers () {
+  registerIpcHandlers (injectedIpcMain) {
+    const ipcMain = injectedIpcMain || require("electron").ipcMain;
     ipcMain.handle('oauth:start', withSenderCheck(async (event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { platform, credentials } = arg

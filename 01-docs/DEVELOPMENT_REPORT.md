@@ -286,3 +286,74 @@ python -m uvicorn web.server:app --host 0.0.0.0 --port 8082
 - 真实 Logto 租户登录、刷新轮换、退出、账号切换和 Webhook 投递。
 - 真实 PostgreSQL 迁移、并发 lazy upsert、事务回滚和额度压力测试。
 - 身份 E2E 当前使用浏览器注入 mock bridge，不能替代真实 Electron + Logto 验收。
+
+---
+
+## 2026-08-04：蚁小二账号/发布 GUI E2E 收口
+
+### 本轮变更
+
+- 发布页标题、正文编辑器、发布目标、批量模式、提交按钮和进度区域补充稳定 `data-testid`；账号页添加账号和活动账号“验证”入口使用稳定选择器。
+- `FunctionalRunner` 的首次挂载和重置路由就绪预算统一提升到 15 秒，覆盖 CI 首次 Vite 编译、Vue 异步挂载和平台/账号 fixture 加载。
+- 发布集成流改用 feature-ready 条件、稳定选择器和 IPC 调用增量（baseline → increment）断言；离线缓存、恢复在线、空表单校验和 IPC 失败路径均等待真实 UI/IPC 结果后再判定。
+- 修复路由结果页 query hash 等待、末尾斜杠 URL、页面链接扫描的非法 `Locator.filter({ visible })` 用法；同步迁移旧账号/发布 E2E 的过时 testid 合同。
+
+### 验证证据
+
+| 门禁 | 结果 |
+|------|------|
+| 账号/发布组件定向 Vitest | 3 files / 28 tests passed |
+| 桌面完整 Vitest | 357 files / 6107 tests passed |
+| 路由 functional E2E | 18/18 routes passed；发布 12/12、账号 14/14 |
+| 跨页面集成流 | Flow 1–6 共 44/44 checks passed |
+| Vite renderer/preload build | `npm run build:vue` exit 0 |
+| 像素视觉门禁 | 17/17 passed |
+
+### 2026-08-04 续作：账号排序与状态可见性合同
+
+#### 本轮变更
+
+- 账号 Store 增加名称、平台、添加时间、最后使用、粉丝数、登录状态六类排序字段，支持升序/降序；文本、日期、粉丝数统一归一化，缺失/非法值和相同值均有确定性处理。
+- Accounts 视图增加 `account-sort` 字段选择器和 `account-sort-order` 方向按钮，排序发生在搜索/状态筛选后，平台、分组、负责人/发布人筛选沿用稳定结果。
+- AccountManagementCard 为每个账号提供稳定卡片/状态/检查记录 testid、`role=status` 和可访问标签；状态分为已登录、已过期、异常、暂无检查记录，检查时间优先于错误原因。
+- 对未知第三方状态保持 fail-closed 语义：不生成 Cookie、团队归属、检查结果或线上授权结论；未接入的团队分享仍显示禁用状态。
+
+#### 续作验证证据
+
+| 门禁 | 结果 |
+|------|------|
+| 账号 Store / Accounts / AccountManagementCard 定向 Vitest | 3 files / 151 tests passed |
+| renderer/Vue 模板构建 | `npm run build:vue` exit 0；仅有既有动态导入和大 chunk warning |
+| diff / 空白检查 | `git diff --check` passed |
+| 外部双模型审查 | 未声称通过；需保留 wrapper 不可用证据并完成本地静态审查 |
+
+该证据使用续作工作树的临时依赖 junction 运行，依赖目录未纳入提交；它证明本地 renderer/test 合同，不替代真实蚁小二账号授权、Cookie 恢复、第三方发布或安装包验收。
+
+### 交付边界
+
+上述结果证明本地 mock/fixture、渲染合同、IPC 调用和视觉基线一致；不等同于真实第三方账号授权、真实平台上传/发布、团队分享服务、跨设备同步或生产 Electron 安装包验收。Antigravity 与 Claude 外部审查本轮均不可用，原因分别记录为 `agy command not found in PATH` 与 Claude wrapper exit code 1。
+
+## 2026-08-05：蚁小二 parity 续作（账号数据、代理与扫码预览）
+
+### 本轮变更
+
+- Electron 账号公开数据白名单补齐粉丝数、负责人、运营人、最近使用、最近检查和检查原因的字段别名归一化；未知字段与 Cookie/token 继续 fail closed，不进入 renderer。
+- `account:set-proxy` 等待 `AccountManager.setAccountProxy` 的异步结果，保存失败统一返回 IPC 错误；代理对话框重新打开时保留类型/端口并保持主机脱敏、认证不回显。
+- 账号页补齐二维码事件到可见二维码预览的渲染链，限制图片协议并在扫码关闭/完成后清理预览。
+
+### 验证证据
+
+| 门禁 | 结果 |
+|------|------|
+| 账号 IPC 与代理组件定向 Vitest | 2 files / 35 tests passed |
+| 账号 Store、视图、组件与发布 API 定向 Vitest | 5 files / 383 tests passed |
+| 账号事件与二维码视图定向 Vitest | 2 files / 77 tests passed |
+| 桌面完整 Vitest | 357 files / 6135 tests passed |
+| ESLint 受影响文件 | 0 errors；4 个既有 unused warning |
+| Vue renderer/preload build | `npm run build:vue` exit 0 |
+| 像素视觉门禁 | 17/17 passed（启动当前工作树 Vite 后执行） |
+| Windows 打包与 ASAR | electron-builder exit 0；`ACCOUNT_IPC_REQUIRE_OK`；8 秒启动存活且 stderr 为空 |
+
+### 交付边界
+
+本轮只证明本地代码、IPC 合同、renderer 渲染、打包入口和视觉回归；不把真实蚁小二第三方登录、平台 Cookie 恢复、团队分享、跨设备同步、线上发布审核或外部双模型审查不可用误报为完成。

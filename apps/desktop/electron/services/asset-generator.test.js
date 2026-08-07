@@ -114,7 +114,10 @@ describe('AssetGenerator P0-1: command injection prevention', () => {
     await gen.generateTTS('hello', { index: '../escape', runId: '../run/id' })
     const ttsSpawn = findPythonSpawn()
     expect(ttsSpawn).toBeDefined()
-    const audioPath = ttsSpawn.args[ttsSpawn.args.length - 1]
+    const audioPath = ttsSpawn.args.find(
+      (arg) => typeof arg === 'string' && /[\\/]tts_0000\.mp3$/.test(arg),
+    )
+    expect(audioPath).toBeDefined()
     expect(audioPath).toContain('run_id')
     expect(audioPath).not.toContain('..')
     expect(audioPath).toMatch(/tts_0000\.mp3$/)

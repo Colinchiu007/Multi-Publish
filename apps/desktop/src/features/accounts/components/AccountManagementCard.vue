@@ -1,11 +1,12 @@
 <template>
   <article
     class="account-row account-card"
+    :data-testid="`account-card-${account.id}`"
     :class="{ 'is-selected': selected, 'is-default': account.is_default }"
     :aria-label="`${platformLabel}账号：${accountName(account)}`"
   >
     <header class="account-card-header">
-      <label class="select-account" :title="`选择 ${accountName(account)}`">
+      <label v-if="batchMode" class="select-account" :title="`选择 ${accountName(account)}`">
         <input
           :data-testid="`select-${account.id}`"
           type="checkbox"
@@ -37,9 +38,12 @@
         <img v-if="account.avatar || account.avatar_url" :src="account.avatar || account.avatar_url" alt="">
         <UserFilled v-else />
       </div>
-      <span class="login-badge" :class="isActive(account) ? 'online' : 'offline'">
-        {{ isActive(account) ? '登录有效' : '登录失效' }}
-      </span>
+      <span
+        :class="['login-badge', statusClass(account)]"
+        :data-testid="`account-status-${account.id}`"
+        role="status"
+        :aria-label="`账号登录状态：${statusLabel(account)}`"
+      >{{ statusLabel(account) }}</span>
       <div class="account-identity">
         <button
           v-if="!editing"
@@ -65,25 +69,40 @@
           <span v-if="account.is_default" class="default-label">默认账号</span>
           <span v-if="account.created_at">添加于 {{ formatDate(account.created_at) }}</span>
           <span v-else>账号信息已同步</span>
+          <span :data-testid="`account-check-${account.id}`">{{ loginCheckLabel(account) }}</span>
+        </div>
+        <div class="account-followers" :data-testid="`account-followers-${account.id}`">
+          粉丝：{{ followersLabel(account) }}
+        </div>
+        <div class="account-assignees" aria-label="账号归属信息">
+          <div :data-testid="`account-owner-${account.id}`"><span>负责人</span><strong>{{ assigneeLabel(account, OWNER_KEYS) }}</strong></div>
+          <div :data-testid="`account-publisher-${account.id}`"><span>运营人</span><strong>{{ assigneeLabel(account, PUBLISHER_KEYS) }}</strong></div>
+          <div :data-testid="`account-proxy-${account.id}`"><span>代理</span><strong>{{ proxyLabel(account) }}</strong></div>
         </div>
       </div>
     </div>
 
     <footer class="account-actions">
+      <button :data-testid="`proxy-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('configure-proxy', account)">
+        <Setting />设置
+      </button>
       <button
-        v-if="!account.is_default"
-        :data-testid="`set-default-${account.id}`"
+        v-if="isActive(account)"
+        :data-testid="`verify-${account.id}`"
         data-e2e-scan="manual"
         type="button"
-        @click="$emit('set-default', account)"
+        @click="$emit('check-login', account)"
       >
-        <CircleCheck />设默认
+        <CircleCheck />验证
       </button>
-      <button :data-testid="`open-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('open', account)">
-        <Link />打开主页
-      </button>
-      <button :data-testid="`check-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('check', account)">
-        <Refresh />验证
+      <button
+        v-if="!isActive(account)"
+        :data-testid="`relogin-${account.id}`"
+        data-e2e-scan="manual"
+        type="button"
+        @click="$emit('relogin', account)"
+      >
+        <Refresh />重新登录
       </button>
       <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('remove', account)">
         <Delete />删除
@@ -94,7 +113,7 @@
 
 <script setup>
 import { nextTick, ref } from 'vue'
-import { CircleCheck, Delete, EditPen, Link, Refresh, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
+import { CircleCheck, Delete, EditPen, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
   account: { type: Object, required: true },
@@ -102,6 +121,7 @@ const props = defineProps({
   platformIcon: { type: String, default: '' },
   selected: { type: Boolean, default: false },
   favorite: { type: Boolean, default: false },
+  batchMode: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
@@ -109,8 +129,9 @@ const emit = defineEmits([
   'toggle-favorite',
   'set-default',
   'rename',
-  'open',
-  'check',
+  'configure-proxy',
+  'check-login',
+  'relogin',
   'remove',
 ])
 
@@ -132,12 +153,81 @@ function finishEditing (event) {
   emit('rename', props.account, name)
 }
 
+const OWNER_KEYS = ['owner', 'owner_name', 'ownerName', 'account_owner', 'accountOwner', '负责人']
+const PUBLISHER_KEYS = ['publisher', 'publisher_name', 'publisherName', 'operator', 'operator_name', 'operatorName', '运营人', '发布人']
+const FOLLOWER_KEYS = ['followers', 'follower_count', 'followers_count', 'fans', 'fans_count', 'fansCount', '粉丝数']
+
 function accountName (account) {
   return account.account_name || account.name || '未命名账号'
 }
 
+function valueLabel (value) {
+  if (value && typeof value === 'object') return value.name || value.label || value.nickname || value.value || ''
+  return String(value ?? '').trim()
+}
+
+function firstValue (account, keys) {
+  for (const key of keys) {
+    const value = valueLabel(account?.[key])
+    if (value) return value
+  }
+  return ''
+}
+
+function followersLabel (account) {
+  const value = firstValue(account, FOLLOWER_KEYS)
+  return value || '暂无数据'
+}
+
+function assigneeLabel (account, keys) {
+  return firstValue(account, keys) || '未设置'
+}
+
+function proxyLabel (account) {
+  const proxy = account?.proxy || account?.proxy_url || account?.proxyUrl
+  const value = valueLabel(proxy)
+  return value || '未设置'
+}
+
+function accountStatusKind (account) {
+  const status = String(account?.status || '').trim().toLowerCase()
+  if (status === 'active' || status === 'online') return 'online'
+  if (status === 'inactive' || status === 'offline' || status === 'expired') return 'offline'
+  if (status === 'error' || status === 'failed' || status === 'failure') return 'error'
+  return 'unknown'
+}
+
 function isActive (account) {
-  return account.status === 'active' || account.status === 'online'
+  return accountStatusKind(account) === 'online'
+}
+
+function statusLabel (account) {
+  const kind = accountStatusKind(account)
+  if (kind === 'online') return '已登录'
+  if (kind === 'offline') return '已过期'
+  if (kind === 'error') return '异常'
+  return '暂无检查记录'
+}
+
+function statusClass (account) {
+  return accountStatusKind(account)
+}
+
+const LAST_CHECK_KEYS = ['last_login_check_at', 'lastLoginCheckAt', 'login_checked_at', 'loginCheckedAt', 'last_checked_at', 'lastCheckedAt', 'checked_at', 'checkedAt']
+const CHECK_REASON_KEYS = ['login_check_error', 'loginCheckError', 'last_login_error', 'lastLoginError', 'status_reason', 'statusReason']
+
+function loginCheckLabel (account) {
+  for (const key of LAST_CHECK_KEYS) {
+    const value = account?.[key]
+    if (value === null || value === undefined || value === '') continue
+    const date = new Date(value)
+    if (!Number.isNaN(date.getTime())) return `最近检查 ${date.toLocaleString('zh-CN')}`
+  }
+  for (const key of CHECK_REASON_KEYS) {
+    const value = valueLabel(account?.[key])
+    if (value) return `异常：${value}`
+  }
+  return '暂无检查记录'
 }
 
 function formatDate (value) {
@@ -275,6 +365,8 @@ function formatDate (value) {
 
 .login-badge.online { background: #e7f7ef; color: #18794e; }
 .login-badge.offline { background: #f2f2f4; color: #777985; }
+.login-badge.error { background: #fff1f0; color: #b42318; }
+.login-badge.unknown { background: #f7f7f8; color: #777985; }
 
 .account-identity {
   width: 100%;
@@ -322,6 +414,46 @@ function formatDate (value) {
   margin-top: 4px;
   color: var(--text-muted, #85858f);
   font-size: 11px;
+}
+
+.account-followers {
+  margin-top: 2px;
+  color: var(--text-muted, #85858f);
+  font-size: 11px;
+}
+
+.account-assignees {
+  width: min(100%, 220px);
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  text-align: left;
+}
+
+.account-assignees > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted, #85858f);
+  font-size: 11px;
+}
+
+.account-assignees > div > span {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #f5f5f7;
+  text-align: center;
+}
+
+.account-assignees strong {
+  overflow: hidden;
+  color: #686a73;
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .default-label {

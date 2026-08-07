@@ -25,10 +25,23 @@ vi.mock("@/api/publisher", () => ({
   pipelineStartOrchestrated: vi.fn(),
   pipelineAdvanceToNextCheckpoint: vi.fn(),
   pipelineGetRunContext: vi.fn(),
+  storeGetSetting: vi.fn(),
+  storeSetSetting: vi.fn(),
   story2videoImportMedia: vi.fn(),
   story2videoTranscribe: vi.fn(),
   story2videoListProjects: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   story2videoDeleteProject: vi.fn(),
+}));
+
+vi.mock("@/api/tts-voice-catalog", () => ({
+  getTtsVoiceCatalog: vi.fn().mockResolvedValue({
+    code: 0,
+    data: { providerId: "", model: "", selectedVoiceId: null, voices: [] },
+  }),
+  selectTtsVoice: vi.fn().mockResolvedValue({
+    code: 0,
+    data: { providerId: "", model: "", selectedVoiceId: null, voices: [] },
+  }),
 }));
 
 import UiButton from "@/components/UiButton.vue";
@@ -40,6 +53,7 @@ const router = createRouter({
 });
 
 import CreateView from "./CreateView.vue";
+import i18n from "@/i18n";
 
 describe("CreateView", () => {
   beforeEach(() => {
@@ -51,7 +65,7 @@ describe("CreateView", () => {
 
   it("renders page header", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(w.text()).toContain("视频创作");
@@ -59,7 +73,7 @@ describe("CreateView", () => {
 
   it("shows three view tabs", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     const tabs = w.findAll(".view-tab");
@@ -68,7 +82,7 @@ describe("CreateView", () => {
 
   it("switches to quick view shows mode tabs", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -79,7 +93,7 @@ describe("CreateView", () => {
 
   it("switches quick mode to gallery shows upload", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -92,7 +106,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is false with empty quickText", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -102,7 +116,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is true with non-empty quickText", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -113,7 +127,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is false when quickRendering", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -124,7 +138,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is false when gallery mode with no images", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -134,7 +148,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is true when gallery has images", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -146,7 +160,7 @@ describe("CreateView", () => {
   it("gets renderStatus on mount", async () => {
     const mocks = await import("@/api/publisher");
     mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(mocks.renderGetStatus).toHaveBeenCalled();
@@ -155,17 +169,173 @@ describe("CreateView", () => {
   it("loads pipelines on mount", async () => {
     const mocks = await import("@/api/publisher");
     mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(mocks.pipelineList).toHaveBeenCalled();
+  });
+
+  it("挂载时重新接上主进程仍在运行的编排流水线（HMR/重启后不丢失运行态）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStatus.mockImplementation((name) => {
+      if (name === "story2video-compose") {
+        return Promise.resolve({ code: 0, data: { status: "running", orchestrationMode: "orchestrator", id: "run_resume_1", stages: [] } });
+      }
+      return Promise.resolve({ code: 0, data: { status: "idle" } });
+    });
+    mocks.pipelineGetRunContext.mockResolvedValue({
+      code: 0,
+      data: { status: { status: "running" }, currentStage: 2, stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }], context: {} },
+    });
+    mocks.pipelineList.mockResolvedValue({
+      code: 0,
+      data: [{ name: "story2video-compose", available: true, stages: ["split", "domain_enrich", "optimize", "generate_assets", "compose", "publish"] }],
+    });
+    try {
+      const w = mount(CreateView, {
+        global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      await nextTick();
+      expect(w.vm.selectedPipeline?.name).toBe("story2video-compose");
+      expect(w.vm.orchestrationRunId).toBe("run_resume_1");
+      expect(w.vm.pipelineRunStatus?.status).toBe("running");
+      w.unmount();
+    } finally {
+      // 恢复 mock 实现，避免泄漏到后续用例（beforeEach 的 clearAllMocks 不重置实现）
+      mocks.pipelineStatus.mockRestore();
+      mocks.pipelineGetRunContext.mockRestore();
+      mocks.pipelineList.mockRestore();
+    }
+  });
+
+  it("阶段清单展示场景数/优化进度/资源进度详情", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    const now = new Date().toISOString();
+    w.vm.pipelineRunStatus = {
+      status: "running",
+      currentStage: 2,
+      progress: 50,
+      stages: [
+        { name: "split", status: "completed", startedAt: now },
+        { name: "optimize", status: "completed", startedAt: now },
+        { name: "generate_assets", status: "running", startedAt: now },
+        { name: "compose", status: "pending" },
+      ],
+    };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "optimize", "generate_assets", "compose"] };
+    w.vm.orchestrationContext = {
+      split: { scenes: [{}, {}] },
+      optimize_progress: { done: 2, total: 2 },
+      assets_progress: { imagesDone: 0, imagesTotal: 2, ttsDone: 1, ttsTotal: 2 },
+    };
+    w.vm.story2videoRunMeta = { createdAt: new Date(Date.now() - 65000).toISOString(), endedAt: null };
+    await nextTick();
+    expect(w.text()).toContain("拆分为了 2 个场景");
+    expect(w.text()).toContain("共 2 个场景，已完成 2 个");
+    expect(w.text()).toContain("图片 0/2");
+    expect(w.text()).toContain("旁白 1/2");
+    expect(w.text()).toContain("已用时");
+    expect(w.find('[data-testid="story2video-stage-detail-generate_assets"]').text()).toContain("图片 0/2");
+    w.unmount();
+  });
+
+  it("恢复上次保存的图片轮播选项（跳过已禁用 provider，恢复折叠状态并提示）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({
+      code: 0,
+      data: {
+        version: 1,
+        s2vConfig: { imageStyle: "anime", voiceSpeed: 1.5, voiceProvider: "disabled-provider", splitLanguage: "en" },
+        s2vOutputConfig: { resolution: "1920x1080", fps: 60 },
+        ui: { expandedGroups: ["appearance", "voice"] },
+      },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vVoiceProviders = [{ id: "minimax-tts" }, { id: "edge-tts" }];
+    w.vm.s2vImageProviders = [{ id: "minimax-image" }];
+    await w.vm.restoreS2VLastOptions();
+    expect(w.vm.s2vConfig.imageStyle).toBe("anime");
+    expect(w.vm.s2vConfig.voiceSpeed).toBe(1.5);
+    expect(w.vm.s2vConfig.splitLanguage).toBe("en");
+    expect(w.vm.s2vConfig.voiceProvider).not.toBe("disabled-provider");
+    expect(w.vm.s2vOutputConfig.fps).toBe(60);
+    // 恢复表单折叠状态
+    expect(w.vm.s2vOpenSections.appearance).toBe(true);
+    expect(w.vm.s2vOpenSections.voice).toBe(true);
+    // 恢复轻提示
+    expect(w.vm.s2vOptionsToast).toContain("已恢复");
+    // 恢复 mock 实现，避免泄漏到后续用例（beforeEach 的 clearAllMocks 不重置实现）
+    mocks.storeGetSetting.mockReset();
+    w.unmount();
+  });
+
+  it("保存并重置图片轮播选项设置", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.storeGetSetting.mockResolvedValue(null);
+    mocks.storeSetSetting.mockResolvedValue({ code: 0 });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vConfig.imageStyle = "cyberpunk";
+    await w.vm.saveS2VLastOptions();
+    expect(mocks.storeSetSetting).toHaveBeenCalledWith("story2video.lastOptions.v1", expect.objectContaining({
+      version: 1,
+      s2vConfig: expect.objectContaining({ imageStyle: "cyberpunk" }),
+    }));
+    // 折叠状态随快照保存，保存后显示轻提示
+    const savedCall = mocks.storeSetSetting.mock.calls.find(([key]) => key === "story2video.lastOptions.v1");
+    expect(savedCall[1].ui.expandedGroups).toEqual(expect.arrayContaining(["basic"]));
+    expect(w.vm.s2vOptionsToast).toContain("已保存");
+    await w.vm.resetS2VLastOptions();
+    expect(w.vm.s2vConfig.imageStyle).toBe("cinematic");
+    expect(mocks.storeSetSetting).toHaveBeenCalledWith("story2video.lastOptions.v1", null);
+    w.unmount();
+  });
+
+  it("音色克隆：渲染上传要求提示并映射全部克隆错误码", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.s2vVoiceCloneRequirements = {
+      allowedExtensions: [".mp3", ".m4a", ".wav"],
+      maxSampleCount: 1,
+      maxSampleBytes: 20971520,
+      minSampleDurationSeconds: 10,
+      maxSampleDurationSeconds: 300,
+    };
+    const hint = w.vm.s2vVoiceCloneHint();
+    expect(hint).toContain("mp3、m4a、wav");
+    expect(hint).toContain("10 秒");
+    expect(hint).toContain("5 分钟");
+    expect(hint).toContain("20 MB");
+    // 未映射到函数文本（回归：method 需调用而非直接插值）
+    expect(String(hint)).not.toContain("function");
+
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SAMPLE_DURATION_INVALID")).toContain("时长不符合要求");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SAMPLE_EXTENSION_UNSUPPORTED")).toContain("mp3、m4a 或 wav");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SAMPLE_TOO_LARGE")).toContain("大小超出限制");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_SELECTION_UNAVAILABLE")).toContain("音频样本暂存不可用");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_UNAVAILABLE")).toContain("音色克隆服务暂时不可用");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_DIALOG_UNAVAILABLE")).toContain("文件选择窗口");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_MODEL_MISMATCH")).toContain("模型设置");
+    // 未知错误仍走兜底，不回退到函数文本
+    expect(w.vm.friendlyVoiceCatalogError("SOME_UNKNOWN_X")).toContain("无法加载音色列表");
+    w.unmount();
   });
 
   it("pipelineList 返回异常格式时展示默认加载错误", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValueOnce({});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
 
@@ -177,7 +347,7 @@ describe("CreateView", () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockRejectedValueOnce(new Error("IPC 不可用"));
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
 
@@ -197,7 +367,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValue({ code: 0, data: { outputPath: "/tmp/test.mp4" } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -214,7 +384,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValue({ code: 1, message: "render failed" });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -228,7 +398,7 @@ describe("CreateView - quick render", () => {
   it("cancelQuickRender calls renderCancel", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.quickRendering = true;
@@ -239,7 +409,7 @@ describe("CreateView - quick render", () => {
 
   it("aiWrite generates content", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -254,7 +424,7 @@ describe("CreateView - quick render", () => {
     const push = vi.fn();
     router.push = push;
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.quickResult = { outputPath: "/tmp/video.mp4" };
@@ -266,7 +436,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockRejectedValueOnce(new Error("渲染 IPC 缺失"));
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.quickText = "测试文案";
@@ -282,7 +452,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValueOnce({});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.quickText = "测试文案";
@@ -297,7 +467,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValueOnce({ code: 0, data: { taskId: "r1" } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.quickMode = "gallery";
@@ -327,7 +497,7 @@ describe("CreateView - callbacks", () => {
     const mocks = await import("@/api/publisher");
     mocks.onRenderComplete.mockImplementation(cb => { cb({ outputPath: "/tmp/test.mp4" }); return vi.fn(); });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(w.vm.quickResult).toEqual({ outputPath: "/tmp/test.mp4" });
@@ -337,7 +507,7 @@ describe("CreateView - callbacks", () => {
     const mocks = await import("@/api/publisher");
     mocks.onRenderError.mockImplementation(cb => { cb({ message: "render failed" }); return vi.fn(); });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(w.vm.quickError).toBe("render failed");
@@ -347,7 +517,7 @@ describe("CreateView - callbacks", () => {
     const mocks = await import("@/api/publisher");
     mocks.onRenderInstallProgress.mockImplementation(cb => { cb({ text: "installing..." }); return vi.fn(); });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(w.vm.installLog).toContain("installing");
@@ -363,7 +533,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("isOrchestratedPipeline returns true for story2video-compose", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(w.vm.isOrchestratedPipeline("story2video-compose")).toBe(true);
@@ -371,7 +541,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("isOrchestratedPipeline returns false for other pipelines", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(w.vm.isOrchestratedPipeline("cinematic")).toBe(false);
@@ -380,24 +550,23 @@ describe("CreateView - S2V orchestration", () => {
 
   it("has s2vConfig with required fields", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(w.vm.s2vConfig).toHaveProperty("imageStyle");
     expect(w.vm.s2vConfig).toHaveProperty("imageProvider");
-    expect(w.vm.s2vConfig).toHaveProperty("aspectRatio");
     expect(w.vm.s2vConfig).toHaveProperty("voiceId");
     expect(w.vm.s2vConfig).toHaveProperty("voiceProvider");
     expect(w.vm.s2vConfig).toHaveProperty("voiceSpeed");
     expect(w.vm.s2vConfig).toHaveProperty("voicePitch");
-    expect(w.vm.s2vConfig).toHaveProperty("voiceEmotion");
     expect(w.vm.s2vConfig).toHaveProperty("voiceVolume");
     expect(w.vm.s2vConfig).toHaveProperty("concurrency");
+    expect(w.vm.s2vConfig.splitLanguage).toBe("auto");
   });
 
   it("does not expose unconfigured static image providers in the Story2Video selector", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -411,9 +580,9 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
-  it("Story2Video 隐藏通用视觉、LLM、温度和预算配置，但保留检查点策略", async () => {
+  it("Story2Video 隐藏通用视觉、LLM、预算和手动检查点控制", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -424,7 +593,41 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.text()).not.toContain("温度:");
     expect(w.text()).not.toContain("预算模式");
     expect(w.text()).not.toContain("预算上限");
-    expect(w.text()).toContain("检查点策略");
+    expect(w.text()).not.toContain("检查点策略");
+    w.unmount();
+  });
+
+  it("Story2Video 隐藏无效的比例、情绪、字体和离线占位图选项", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+
+    expect(w.text()).not.toContain("宽高比");
+    expect(w.text()).not.toContain("情绪");
+    expect(w.text()).not.toContain("字幕字体");
+    expect(w.text()).not.toContain("离线占位图");
+    expect(w.find("#s2v-voice-options").exists()).toBe(false);
+    expect(w.text()).not.toContain("音调:");
+    expect(w.text()).not.toContain("并发数");
+    expect(w.text()).not.toContain("创意强度:");
+    expect(w.text()).not.toContain("自动推进");
+    expect(w.text()).not.toContain("仅创建运行");
+    w.unmount();
+  });
+
+  it("Story2Video 负向提示词输入与运行配置保持 500 字符上限一致", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+
+    const negativePrompt = w.findAll(".config-item").find(item => item.find("label").text() === "负向提示词");
+    expect(negativePrompt.find("textarea").attributes("maxlength")).toBe("500");
     w.unmount();
   });
 
@@ -438,7 +641,7 @@ describe("CreateView - S2V orchestration", () => {
     });
     window.electronAPI = { modelProviderList: listImageProviders };
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -453,13 +656,13 @@ describe("CreateView - S2V orchestration", () => {
   });
 
   it.each([
-    [{ code: 1, message: "轮询 IPC 失败" }, "轮询 IPC 失败"],
-    [{ code: 0, data: null }, "编排状态未返回"],
+    [{ code: 1, message: "轮询 IPC 失败" }, "story2video.operation_failed"],
+    [{ code: 0, data: null }, "story2video.run_status_unavailable"],
   ])("编排轮询遇到无效响应时向用户显示错误并停止轮询", async (response, expectedMessage) => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineGetRunContext.mockResolvedValueOnce(response);
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.orchestrationRunId = "run-poll-error";
@@ -467,7 +670,9 @@ describe("CreateView - S2V orchestration", () => {
 
     await w.vm.updateOrchestrationStatus();
 
-    expect(w.vm.orchestrationError).toContain(expectedMessage);
+    expect(w.vm.orchestrationError).toBe("");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe(expectedMessage);
+    expect(w.find(".orchestration-error").exists()).toBe(false);
     expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
     expect(w.vm.pollTimer).toBeNull();
     w.unmount();
@@ -483,7 +688,7 @@ describe("CreateView - S2V orchestration", () => {
       },
     });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.orchestrationRunId = "run-terminal-error";
@@ -491,7 +696,8 @@ describe("CreateView - S2V orchestration", () => {
 
     await w.vm.updateOrchestrationStatus();
 
-    expect(w.vm.orchestrationError).toBe("图片生成服务拒绝请求");
+    expect(w.vm.orchestrationError).toBe("");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.operation_failed");
     expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
     expect(w.vm.pollTimer).toBeNull();
     w.unmount();
@@ -504,15 +710,112 @@ describe("CreateView - S2V orchestration", () => {
       data: { success: false, error: "图片服务商未配置 API Key" },
     });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.orchestrationRunId = "run-advance-error";
 
     await w.vm.advanceOrchestration();
 
-    expect(w.vm.orchestrationError).toBe("图片服务商未配置 API Key");
+    expect(w.vm.orchestrationError).toBe("");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.model_configuration_required");
     expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
+    w.unmount();
+  });
+
+  it("完成但缺少可预览视频时使用应用内弹窗", async () => {
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+
+    const handled = w.vm.applyOrchestrationOutcome({
+      completed: true,
+      context: { story2videoProject: { projectId: "project-no-preview" } },
+    });
+
+    expect(handled).toBe(true);
+    expect(w.vm.orchestrationError).toBe("");
+    expect(w.vm.story2videoErrorDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.preview_missing",
+      messageParams: {},
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    alertSpy.mockRestore();
+    w.unmount();
+  });
+  it("Story2Video 模型配置错误使用应用内弹窗，不调用原生 alert", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({
+      code: -1,
+      message: "Story2Video 默认 LLM 不可用，请先完成模型设置",
+    });
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
+    w.vm.pipelineText = "测试文案";
+
+    await w.vm.startPipeline();
+    await nextTick();
+
+    expect(w.vm.story2videoErrorDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.model_configuration_required",
+      messageParams: {},
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    w.vm.closeStory2VideoErrorDialog();
+    await nextTick();
+    expect(w.vm.story2videoErrorDialog.visible).toBe(false);
+    alertSpy.mockRestore();
+    w.unmount();
+  });
+  it("Story2Video IPC 权限拒绝显示登录/权益提示，不回退为泛化失败", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({
+      code: -3,
+      message: "当前许可证无权访问 pipeline:startOrchestrated",
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
+    w.vm.pipelineText = "1";
+
+    await w.vm.startPipeline();
+
+    expect(w.vm.story2videoErrorDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.access_denied",
+      messageParams: {},
+    });
+    w.unmount();
+  });
+  it("Story2Video 在调用 IPC 前拒绝超过 6000 个 Unicode 字符的文案", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "😀".repeat(6001);
+
+    await w.vm.startPipeline();
+
+    expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
+    expect(w.vm.story2videoErrorDialog).toMatchObject({
+      visible: true,
+      messageKey: "story2video.text_too_long",
+      messageParams: { max: 6000, maxFormatted: "6,000" },
+    });
     w.unmount();
   });
 
@@ -521,7 +824,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-123" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {} } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
@@ -533,9 +836,30 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
+  it("后端返回乱序列表时仍将 Story2Video 显示在首位", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({
+      code: 0,
+      data: [
+        { name: "cinematic", description: "电影", category: "generated" },
+        { name: "story2video-compose", description: "Story2Video", category: "generated" },
+        { name: "animated-explainer", description: "动画", category: "generated" },
+      ],
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await w.vm.loadPipelines();
+
+    expect(w.vm.pipelines.map(pipeline => pipeline.name)).toEqual([
+      "story2video-compose", "cinematic", "animated-explainer",
+    ]);
+    expect(w.find('[data-pipeline-id="story2video-compose"]').exists()).toBe(true);
+    w.unmount();
+  });
   it("流水线卡片优先显示后端 stageCount", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.pipelineLoading = false;
@@ -556,13 +880,13 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-contract" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     w.vm.pipelineText = "唐朝长安的夜景";
     w.vm.selectedStyle = "cinematic-dark";
-    w.vm.checkpointPolicy = "manual_all";
+    w.vm.checkpointPolicy = "none";
     w.vm.outputConfig = { resolution: "3840x2160", fps: 60, format: "mp4" };
     w.vm.s2vOutputConfig = { resolution: "1080x1920", fps: 24, format: "webm" };
     w.vm.s2vConfig = {
@@ -574,13 +898,9 @@ describe("CreateView - S2V orchestration", () => {
       voiceProvider: "piper",
       voiceId: "custom-voice-id",
       voiceSpeed: 1.2,
-      voicePitch: -1,
-      voiceEmotion: "warm",
-      voiceVolume: 0.8,
+      voicePitch: -1,      voiceVolume: 0.8,
       transition: "slide-right",
-      subtitleEnabled: false,
-      subtitleFont: "Noto Sans SC",
-      subtitleSize: "size4",
+      subtitleEnabled: false,      subtitleSize: "size4",
       subtitleStyleName: "style2",
       bgmPath: "C:/media/bgm.mp3",
       bgmVolume: 7,
@@ -603,7 +923,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("story2video-compose", expect.objectContaining({
       text: "唐朝长安的夜景",
       inputMode: "text",
-      checkpointPolicy: "manual_all",
+      checkpointPolicy: "none",
       autoAdvance: true,
       story2videoTextConfig: expect.objectContaining({
         version: 1,
@@ -613,9 +933,9 @@ describe("CreateView - S2V orchestration", () => {
         contentType: "history",
         split: expect.objectContaining({ language: "auto", mode: "precise", maxSentenceLength: 120, targetSeconds: 4 }),
         optimize: expect.objectContaining({ style: "anime", creativeLevel: 8 }),
-        image: expect.objectContaining({ provider: "local-diffusion", style: "watercolor", effect: "pan-left" }),
-        voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8, pitch: -1, emotion: "warm" }),
-        subtitle: expect.objectContaining({ enabled: false, font: "Noto Sans SC", size: "size4", style: "style2" }),
+        image: expect.objectContaining({ provider: "local-diffusion", style: "watercolor", effect: "pan-left", aspectRatio: "9:16" }),
+        voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8, pitch: -1 }),
+        subtitle: expect.objectContaining({ enabled: false, size: "size4", style: "style2" }),
         bgm: { enabled: true, path: "C:/media/bgm.mp3", volume: 7 },
         transition: "slide-right",
         output: { fps: 24, format: "webm" },
@@ -635,7 +955,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-images" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {} } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -656,10 +976,10 @@ describe("CreateView - S2V orchestration", () => {
   it("普通流水线仍保留图片、音频和视频输入", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "cinematic", stages: [] };
+    w.vm.selectedPipeline = { name: "screen-demo", stages: [] };
     await nextTick();
     const inputTabs = w.findAll(".input-tab").map(tab => tab.text());
     expect(inputTabs).toEqual(expect.arrayContaining(["文案", "图片", "旁白/批量音频", "视频素材"]));
@@ -671,7 +991,7 @@ describe("CreateView - S2V orchestration", () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoTranscribe.mockResolvedValue({ code: 0, data: { text: "识别后的第一段" } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "podcast-repurpose", stages: [] };
@@ -690,7 +1010,7 @@ describe("CreateView - S2V orchestration", () => {
     const importer = vi.fn().mockResolvedValue({ code: 0, data: { path: "C:/controlled/bgm.mp3" } });
     mocks.story2videoImportMedia.mockImplementation(importer);
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
 
@@ -706,14 +1026,15 @@ describe("CreateView - S2V orchestration", () => {
     mocks.story2videoImportMedia.mockResolvedValue({ code: -1 });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
 
     await w.vm.handleS2VBgmFile({ target: { files: [{ name: "bgm.mp3", size: 5 }] } });
 
     expect(w.vm.s2vConfig.bgmPath).toBe("");
-    expect(alertSpy).toHaveBeenCalledWith("无法读取背景音乐文件路径，请重新选择文件");
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.media_invalid");
     alertSpy.mockRestore();
     w.unmount();
   });
@@ -723,10 +1044,10 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStart.mockResolvedValue({ code: 0, data: {} });
     mocks.pipelineStatus.mockResolvedValue({ code: 0, data: { status: "running", stages: [] } });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "cinematic", description: "test", stages: [], category: "cinematic" };
+    w.vm.selectedPipeline = { name: "custom-pipeline", description: "test", stages: [], category: "custom", available: true };
     w.vm.pipelineText = "test text";
     await w.vm.startPipeline();
     expect(mocks.pipelineStart).toHaveBeenCalled();
@@ -738,16 +1059,16 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "暂不启动" });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "cinematic", stages: [] };
+    w.vm.selectedPipeline = { name: "custom-pipeline", stages: [], available: true };
     w.vm.pipelineText = "创作内容";
     w.vm.inputMode = "text";
 
     await w.vm.startPipeline();
 
-    expect(mocks.pipelineStart).toHaveBeenCalledWith("cinematic", expect.objectContaining({
+    expect(mocks.pipelineStart).toHaveBeenCalledWith("custom-pipeline", expect.objectContaining({
       text: "创作内容",
       inputMode: "text",
       images: [],
@@ -763,16 +1084,16 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "暂不启动" });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { name: "cinematic", stages: [] };
+    w.vm.selectedPipeline = { name: "custom-pipeline", stages: [], available: true };
     w.vm.inputMode = "video";
     w.vm.pipelineVideo = { name: "source.mp4", path: "C:/media/source.mp4" };
 
     await w.vm.startPipeline();
 
-    expect(mocks.pipelineStart).toHaveBeenCalledWith("cinematic", expect.objectContaining({
+    expect(mocks.pipelineStart).toHaveBeenCalledWith("custom-pipeline", expect.objectContaining({
       video: "C:/media/source.mp4",
     }));
     alertSpy.mockRestore();
@@ -783,7 +1104,7 @@ describe("CreateView - S2V orchestration", () => {
     const mocks = await import("@/api/publisher");
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -793,7 +1114,12 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.startPipeline();
 
     expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalledWith(expect.stringMatching(/Story2Video.*只支持文案输入/));
+    expect(w.vm.story2videoErrorDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.text_input_only",
+      messageParams: {},
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
     w.unmount();
   });
@@ -811,7 +1137,7 @@ describe("CreateView - S2V orchestration", () => {
     });
     const pushSpy = vi.spyOn(router, "push");
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -829,7 +1155,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("llmConfig only has temperature (no provider/model)", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     expect(w.vm.llmConfig).toHaveProperty("temperature");
@@ -842,7 +1168,7 @@ describe("CreateView - S2V orchestration", () => {
 describe("CreateView - UI interactions", () => {
   it("clicks view-tab switches view (pipelines/quick/history)", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     const tabs = w.findAll(".view-tab");
@@ -866,7 +1192,7 @@ describe("CreateView - UI interactions", () => {
     vi.useFakeTimers();
     try {
       const w = mount(CreateView, {
-        global: { plugins: [router], components: { UiButton, UiSelect } }
+        global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
       });
       w.vm.view = "history";
       void w.vm.loadHistory();
@@ -875,7 +1201,11 @@ describe("CreateView - UI interactions", () => {
       await nextTick();
 
       expect(w.vm.historyLoading).toBe(false);
-      expect(w.find(".history-error").text()).toContain("历史记录加载超时");
+      expect(w.find(".history-error").exists()).toBe(false);
+      expect(w.vm.story2videoErrorDialog).toMatchObject({
+        visible: true,
+        messageKey: "story2video.history_load_failed",
+      });
       expect(w.find(".history-status.completed").exists()).toBe(true);
       expect(w.text()).toContain("已完成流水线");
     } finally {
@@ -893,7 +1223,7 @@ describe("CreateView - UI interactions", () => {
       .mockImplementationOnce(() => new Promise(resolve => { resolveOldRuns = resolve; }))
       .mockResolvedValueOnce({ code: 0, data: [] });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
 
     const first = w.vm.loadHistory();
@@ -913,10 +1243,10 @@ describe("CreateView - UI interactions", () => {
     mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "测试阻止启动" });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
-    w.vm.selectedPipeline = { id: "p1", name: "normal-pipeline" };
+    w.vm.selectedPipeline = { id: "p1", name: "normal-pipeline", available: true };
     w.vm.pipelineText = "通过界面发起的内容";
     await nextTick();
     const startBtn = w.find(".btn-start");
@@ -934,6 +1264,75 @@ describe("CreateView - UI interactions", () => {
     alertSpy.mockRestore();
   });
 
+  it("未实现引擎的流水线禁用启动按钮并显示提示", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.pipelines = [{ name: "animation", available: false, stages: [] }];
+    w.vm.selectedPipeline = { name: "animation", available: false, stages: [] };
+    w.vm.pipelineText = "内容";
+    await nextTick();
+    expect(w.vm.canStartPipeline).toBe(false);
+    const startBtn = w.find('[data-testid="start-story2video"]');
+    expect(startBtn.attributes("disabled")).toBeDefined();
+    const hint = w.find('[data-testid="pipeline-unavailable-hint"]');
+    expect(hint.exists()).toBe(true);
+    expect(hint.text()).toContain("尚未实现执行引擎");
+    w.unmount();
+  });
+
+  it("未实现引擎的流水线 startPipeline 被守卫拦截并弹出提示", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "animation", available: false, stages: [] };
+    w.vm.pipelineText = "内容";
+    mocks.pipelineStart.mockClear();
+    await w.vm.startPipeline();
+    expect(mocks.pipelineStart).not.toHaveBeenCalled();
+    expect(w.vm.story2videoErrorDialog.visible).toBe(true);
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.pipeline_not_implemented");
+    w.unmount();
+  });
+
+  it("自动流水线使用各自真实阶段名（非 s2v 回退）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.pipelines = [{ name: "documentary-montage", available: true }];
+    w.vm.selectPipeline({ name: "documentary-montage", available: true });
+    await nextTick();
+    expect(w.vm.orchestrationStages.map(s => s.name)).toEqual([
+      "research", "ingest", "edit", "narrate", "render",
+    ]);
+    w.vm.selectPipeline({ name: "animated-explainer", available: true });
+    await nextTick();
+    expect(w.vm.orchestrationStages.map(s => s.name)).toEqual([
+      "research", "proposal", "script", "scenes", "assets", "editing", "compose", "publish",
+    ]);
+    w.unmount();
+  });
+
+  it("s2v 高级区拆分为分句与时长、模板与输出两个子组", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.s2vOpenSections.advanced = true;
+    await nextTick();
+    const titles = w.findAll(".s2v-subgroup-title").map(t => t.text());
+    expect(titles).toEqual(["分句与时长", "模板与输出"]);
+    expect(w.text()).toContain("分句语言");
+    expect(w.text()).toContain("比例与分辨率");
+    expect(w.text()).toContain("720×1280（竖屏）");
+    w.unmount();
+  });
+
   it("历史记录优先展示可恢复的 Story2Video 项目并可打开", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{
@@ -942,7 +1341,7 @@ describe("CreateView - UI interactions", () => {
     }] });
     const pushSpy = vi.spyOn(router, "push");
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
 
     w.vm.view = "history";
@@ -968,7 +1367,7 @@ describe("CreateView - UI interactions", () => {
       { id: "run-cancelled", pipeline: "story2video-compose", status: "cancelled", title: "已取消" },
     ] });
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
 
     w.vm.view = "history";
@@ -982,7 +1381,7 @@ describe("CreateView - UI interactions", () => {
 
   it("可把当前参数保存为自定义模板、重新应用并删除", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
     });
     await nextTick();
     w.vm.s2vConfig.imageEffect = "pan-up";
@@ -1002,7 +1401,157 @@ describe("CreateView - UI interactions", () => {
     w.vm.s2vConfig.imageEffect = "none";
     w.vm.applyS2VTemplate();
     expect(w.vm.s2vConfig.imageEffect).toBe("pan-up");
-    w.vm.deleteSelectedS2VTemplate();
+    const confirmSpy = vi.spyOn(window, "confirm");
+    w.vm.requestTemplateDeletion();
+    expect(w.vm.story2videoTemplateDeleteDialog).toEqual({ visible: true, templateId: selectedId });
+    w.vm.closeTemplateDeletionDialog();
+    expect(w.vm.s2vTemplateLibrary.some(template => template.id === selectedId)).toBe(true);
+
+    w.vm.requestTemplateDeletion();
+    w.vm.confirmTemplateDeletion();
+    expect(confirmSpy).not.toHaveBeenCalled();
     expect(w.vm.s2vTemplateLibrary.some(template => template.id === selectedId)).toBe(false);
+    confirmSpy.mockRestore();
   });
+  it("历史记录加载失败时只显示应用内弹窗，不显示页面错误条", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValueOnce({ code: 1, message: "internal path C:/private" });
+    mocks.pipelineHistory.mockResolvedValueOnce({ code: 0, data: [] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.find(".history-error").exists()).toBe(false);
+    expect(w.vm.story2videoErrorDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.history_load_failed",
+      messageParams: {},
+    });
+  });
+
+  it("删除 Story2Video 项目须经应用内确认，取消不会调用删除接口", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoDeleteProject.mockResolvedValue({ code: 0 });
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    w.vm.history = [{ projectId: "project-delete" }];
+
+    w.vm.requestProjectDeletion({ projectId: "project-delete" });
+    expect(w.vm.story2videoProjectDeleteDialog).toEqual({ visible: true, projectId: "project-delete" });
+    w.vm.closeProjectDeletionDialog();
+    expect(mocks.story2videoDeleteProject).not.toHaveBeenCalled();
+
+    w.vm.requestProjectDeletion({ projectId: "project-delete" });
+    await w.vm.confirmProjectDeletion();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(mocks.story2videoDeleteProject).toHaveBeenCalledWith("project-delete");
+    expect(w.vm.history).toEqual([]);
+    confirmSpy.mockRestore();
+  });
+
 });
+  it("历史记录含运行中流水线时置顶并显示阶段进度色块", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{ projectId: "p1", title: "已完成项目", status: "completed" }] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-live", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z",
+        stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }, { name: "compose", status: "pending" }] },
+    ] });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    // 运行中流水线排在已完成项目之前
+    expect(w.vm.history[0].id).toBe("run-live");
+    expect(w.vm.history[0].status).toBe("running");
+    const runningItem = w.find(".history-item.is-running");
+    expect(runningItem.exists()).toBe(true);
+    expect(runningItem.text()).toContain("进行中");
+    expect(runningItem.text()).toContain("返回流水线创作查看进度");
+    // 阶段进度条（done/active/pending）
+    const stageSegs = runningItem.findAll(".history-progress-seg");
+    expect(stageSegs.length).toBe(3);
+    expect(stageSegs[0].classes()).toContain("done");
+    expect(stageSegs[1].classes()).toContain("active");
+    expect(stageSegs[2].classes()).toContain("pending");
+    // 存在运行中任务时启动 5s 历史轮询
+    expect(w.vm.historyPollTimer).not.toBeNull();
+    w.unmount();
+  });
+
+  it("点击运行中历史项切回流水线创作并尝试恢复查看", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-live-2", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z", stages: [] },
+    ] });
+    mocks.pipelineStatus.mockResolvedValue({ code: 0, data: { id: "run-live-2", status: "running", orchestrationMode: "orchestrator" } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+    await w.find(".history-item.is-running").trigger("click");
+    await nextTick();
+    expect(w.vm.view).toBe("pipelines");
+    expect(mocks.pipelineStatus).toHaveBeenCalled();
+    w.unmount();
+  });
+
+  it("refreshRunningHistory 原地更新运行中阶段状态，不重建整个列表", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{ projectId: "p1", title: "已完成项目", status: "completed" }] });
+    const running = { id: "run-live-3", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z",
+      stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }, { name: "compose", status: "pending" }] };
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [running] });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+    const before = w.vm.history;
+    expect(before.find(i => i.id === "run-live-3").stages[1].status).toBe("running");
+
+    // 刷新：阶段推进 → 原地更新（数组身份不变，避免整表重渲染闪烁）
+    const updated = { ...running, stages: [
+      { name: "split", status: "completed" }, { name: "optimize", status: "completed" }, { name: "compose", status: "running" } ] };
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [updated] });
+    await w.vm.refreshRunningHistory();
+    await nextTick();
+    expect(w.vm.history).toBe(before);
+    const item = w.vm.history.find(i => i.id === "run-live-3");
+    expect(item.stages[1].status).toBe("completed");
+    expect(item.stages[2].status).toBe("running");
+    expect(w.vm.history.some(i => i.projectId === "p1")).toBe(true);
+    w.unmount();
+  });
+
+  it("refreshRunningHistory 运行结束的项触发完整加载，终态保留在历史中不消失", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-fin", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z", stages: [] },
+    ] });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+    expect(w.vm.history.some(i => i.id === "run-fin")).toBe(true);
+
+    // 运行结束：终态（failed）出现在 pipelineHistory，刷新后应触发完整加载并显示终态，而不是消失
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-fin", pipeline: "story2video-compose", status: "failed", createdAt: "2026-08-07T00:00:00.000Z", error: "boom", stages: [] },
+    ] });
+    await w.vm.refreshRunningHistory();
+    await nextTick();
+    expect(mocks.pipelineHistory.mock.calls.length).toBeGreaterThan(1); // 触发了完整加载
+    const finished = w.vm.history.find(i => i.id === "run-fin");
+    expect(finished).toBeTruthy();
+    expect(finished.status).toBe("failed");
+    w.unmount();
+  });

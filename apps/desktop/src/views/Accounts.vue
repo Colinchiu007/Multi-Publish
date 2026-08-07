@@ -1,32 +1,57 @@
 <template>
   <div class="accounts-page">
-    <header class="cohere-page-header accounts-header">
-      <div>
-        <div class="page-title">账号管理</div>
-        <div class="page-subtitle">统一管理各平台账号、登录状态和发布分组</div>
-      </div>
-      <div class="page-actions">
-        <button class="page-button secondary" type="button" @click="refresh"><Refresh />刷新</button>
-        <button class="page-button secondary" type="button" @click="showGroupManager = true"><FolderOpened />分组管理</button>
-        <button class="page-button primary" type="button" @click="showAddDialog = true"><Plus />添加账号</button>
-        <button v-if="authViewVisible && loginMode === 'browser'" class="page-button primary" type="button" :disabled="completingLogin" @click="completeAuthView"><CircleCheck />{{ completingLogin ? '正在保存' : '我已完成登录' }}</button>
-        <button v-if="authViewVisible" class="page-button danger" type="button" @click="closeAuthView"><Close />关闭登录</button>
-      </div>
-    </header>
-
+    <h1 class="sr-only">账号管理</h1>
     <section class="account-controls" aria-label="账号筛选">
+      <div class="search-box platform-search-box">
+        <Search class="search-icon" />
+        <input v-model="platformSearchInput" type="search" placeholder="搜索平台" aria-label="搜索平台">
+        <button v-if="platformSearchInput" class="clear-search" type="button" title="清空平台搜索" aria-label="清空平台搜索" @click="platformSearchInput = ''"><Close /></button>
+      </div>
       <div class="search-box">
         <Search class="search-icon" />
         <input
           v-model="searchInput"
           type="search"
-          placeholder="搜索账号或平台"
+          placeholder="搜索账号名称"
           aria-label="搜索账号或平台"
           @input="onSearchInput"
         >
         <button v-if="searchInput" class="clear-search" type="button" title="清空搜索" aria-label="清空搜索" @click="clearSearch"><Close /></button>
       </div>
 
+      <div class="account-toolbar-selects" aria-label="账号高级筛选">
+        <select v-model="ownerFilter" aria-label="负责人" :disabled="ownerOptions.length === 0">
+          <option value="">{{ ownerOptions.length ? '负责人' : '负责人（暂无数据）' }}</option>
+          <option v-for="owner in ownerOptions" :key="owner" :value="owner">{{ owner }}</option>
+        </select>
+        <select v-model="publisherFilter" aria-label="选择发布人" :disabled="publisherOptions.length === 0">
+          <option value="">{{ publisherOptions.length ? '选择发布人' : '选择发布人（暂无数据）' }}</option>
+          <option v-for="publisher in publisherOptions" :key="publisher" :value="publisher">{{ publisher }}</option>
+        </select>
+      </div>
+      <div class="account-sort-controls" role="group" aria-label="账号排序">
+        <select v-model="accountStore.sortBy" data-testid="account-sort" aria-label="账号排序字段">
+          <option v-for="option in sortOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+        </select>
+        <button
+          type="button"
+          data-testid="account-sort-order"
+          :aria-label="`排序${sortOrderLabel}`"
+          :title="`排序${sortOrderLabel}`"
+          @click="toggleSortOrder"
+        >
+          <span aria-hidden="true">{{ accountStore.sortOrder === 'desc' ? '↓' : '↑' }}</span>
+          <span class="sr-only">{{ sortOrderLabel }}</span>
+        </button>
+      </div>
+      <div class="account-view-toggle" role="group" aria-label="账号视图">
+        <button type="button" data-testid="account-view-grid" :aria-pressed="accountViewMode === 'grid'" @click="accountViewMode = 'grid'">▦</button>
+        <button type="button" data-testid="account-view-list" :aria-pressed="accountViewMode === 'list'" @click="accountViewMode = 'list'">☷</button>
+      </div>
+      <div class="account-command-bar" aria-label="账号操作">
+        <button class="page-button secondary" type="button" data-testid="account-batch" @click="accountBatchMode = !accountBatchMode">批量操作</button>
+        <button class="page-button primary" type="button" data-testid="account-add" @click="showAddDialog = true"><Plus />添加账号</button>
+      </div>
       <div class="filter-tabs" role="tablist" aria-label="账号状态">
         <button
           v-for="(item, index) in filterOptions"
@@ -47,13 +72,15 @@
       <span class="account-count">{{ visiblePlatformCount }} 个平台，{{ visibleAccountCount }} 个账号</span>
     </section>
 
-    <div v-if="totalAccounts > 0" class="batch-toolbar">
+    <div v-if="totalAccounts > 0 && accountBatchMode" class="batch-toolbar">
       <label>
         <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll">
         <span>全选当前结果</span>
       </label>
       <template v-if="selectedCount > 0">
         <span class="selected-count">已选 {{ selectedCount }} 个</span>
+        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchStatus('active')">{{ batchStatusBusy ? '处理中...' : '批量启用' }}</button>
+        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchStatus('inactive')">{{ batchStatusBusy ? '处理中...' : '批量禁用' }}</button>
         <button class="batch-delete" type="button" @click="handleBatchDelete"><Delete />批量删除</button>
         <button class="batch-cancel" type="button" @click="clearSelection">取消选择</button>
       </template>
@@ -70,6 +97,10 @@
         <button type="button" @click="closeAuthView">关闭</button>
       </div>
     </div>
+    <aside v-if="authViewVisible && loginMode === 'qrcode' && qrImageSource" class="login-qr-preview" data-testid="account-qr-preview" aria-label="扫码登录二维码">
+      <img :src="qrImageSource" alt="扫码登录二维码">
+      <span>请使用对应平台客户端扫描二维码</span>
+    </aside>
 
     <main
       id="account-results"
@@ -77,7 +108,14 @@
       role="tabpanel"
       :aria-labelledby="`account-status-tab-${filter}`"
     >
-      <div class="account-workspace">
+      <section v-if="accountTab === 'share'" class="module-placeholder" data-testid="account-share-panel">
+        <div class="module-placeholder-icon" aria-hidden="true">🔗</div>
+        <h2>分享链接</h2>
+        <p>当前工作区尚未接入团队分享服务；账号数据仍按当前设备和登录身份隔离。</p>
+        <span class="module-placeholder-state" data-testid="account-share-state" role="status">未接入服务</span>
+        <button class="page-button secondary" data-testid="account-share-create" type="button" disabled>创建分享链接</button>
+      </section>
+      <div v-if="accountTab !== 'share'" class="account-workspace">
         <aside class="platform-filter-panel" aria-label="平台筛选">
           <div class="platform-filter-heading">平台</div>
           <button
@@ -92,7 +130,7 @@
             <strong>{{ filteredAccountCount }}</strong>
           </button>
           <button
-            v-for="item in platformOptions"
+            v-for="item in visiblePlatformOptions"
             :key="item.id"
             type="button"
             :class="{ active: platformFilter === item.id }"
@@ -104,15 +142,50 @@
             <span>{{ platformLabel(item.id) }}</span>
             <strong>{{ item.count }}</strong>
           </button>
+          <section class="group-filter-section" data-testid="account-group-filter" aria-label="分组筛选">
+            <div class="group-filter-heading">
+              <span>分组</span>
+              <label title="仅显示团队共享分组">
+                <input v-model="sharedOnly" type="checkbox" data-testid="group-shared-only">
+                <span>仅看共享</span>
+              </label>
+            </div>
+            <div class="search-box group-search-box">
+              <Search class="search-icon" />
+              <input v-model="groupSearchInput" type="search" placeholder="搜索分组" aria-label="搜索分组">
+            </div>
+            <button
+              type="button"
+              :class="{ active: !groupFilter }"
+              data-testid="group-filter-all"
+              @click="setGroupFilter('')"
+            >
+              <FolderOpened class="group-filter-icon" />
+              <span>全部分组</span>
+            </button>
+            <button
+              v-for="group in visibleGroups"
+              :key="group.id"
+              type="button"
+              :class="{ active: groupFilter === group.id }"
+              :data-testid="`group-filter-${group.id}`"
+              @click="setGroupFilter(group.id)"
+            >
+              <FolderOpened class="group-filter-icon" />
+              <span>{{ group.name }}</span>
+              <strong>{{ group.accountIds?.length || 0 }}</strong>
+            </button>
+            <div v-if="visibleGroups.length === 0" class="group-empty" data-testid="account-group-empty">暂无分组</div>
+          </section>
         </aside>
 
         <section class="account-results-panel" aria-label="账号列表">
           <div v-if="loading" class="loading-state">正在加载账号...</div>
           <div v-else-if="visibleAccounts.length === 0" class="empty-state">
             <UserFilled />
-            <h2>{{ totalAccounts === 0 ? '暂无账号' : '没有匹配的账号' }}</h2>
+            <h2>{{ emptyStateTitle }}</h2>
           </div>
-          <div v-else class="account-card-grid">
+          <div v-else class="account-card-grid" :class="{ 'account-list-view': accountViewMode === 'list' }">
             <AccountManagementCard
               v-for="account in visibleAccounts"
               :key="account.id"
@@ -121,13 +194,13 @@
               :platform-icon="platformIcon(account.platform)"
               :selected="accountStore.selectedIds.has(account.id)"
               :favorite="(accountStore.favoriteIds || emptyIds).has(account.id)"
+              :batch-mode="accountBatchMode"
               @toggle-select="toggleSelect"
               @toggle-favorite="toggleFavorite"
-              @set-default="setDefault"
               @rename="renameAccount"
-              @open="openPlatform"
-              @check="checkLogin"
               @configure-proxy="openProxyDialog"
+              @check-login="checkLogin"
+              @relogin="reloginAccount"
               @remove="removeAccount"
             />
           </div>
@@ -161,11 +234,14 @@
       :visible="showGroupManager"
       :groups="accountStore.groups || []"
       :accounts="accountStore.accounts"
+      :platforms="allPlatforms"
       :platform-label="platformLabel"
       @create="createNewGroup"
       @delete="deleteGroup"
+      @rename="renameGroup"
+      @set-platform="setGroupPlatform"
       @toggle-account="toggleAccountInGroup"
-      @close="showGroupManager = false"
+      @close="closeGroupManager"
     />
 
     <AccountAuthorizationGuide
@@ -180,7 +256,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Cellphone, CircleCheck, Close, Delete, FolderOpened, Monitor, Plus, Refresh, Search, UserFilled } from '@element-plus/icons-vue'
+import { Cellphone, Close, Delete, FolderOpened, Monitor, Plus, Search, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AccountGroupManager from '@/features/accounts/components/AccountGroupManager.vue'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
@@ -191,6 +267,7 @@ import { useAccountActions } from '@/composables/useAccountActions'
 import { useAccountEvents } from '@/composables/useAccountEvents'
 import { useAccountStore } from '@/stores/accounts'
 import { usePlatformStore } from '@/stores/platforms'
+import { useRoute, useRouter } from 'vue-router'
 
 const filterOptions = [
   { value: 'all', label: '全部' },
@@ -198,10 +275,20 @@ const filterOptions = [
   { value: 'inactive', label: '未登录' },
   { value: 'favorite', label: '收藏' },
 ]
+const sortOptions = [
+  { value: 'name', label: '名称' },
+  { value: 'platform', label: '平台' },
+  { value: 'created_at', label: '添加时间' },
+  { value: 'last_used_at', label: '最后使用' },
+  { value: 'followers', label: '粉丝数' },
+  { value: 'status', label: '登录状态' },
+]
 const emptyIds = new Set()
 
 const platformStore = usePlatformStore()
 const accountStore = useAccountStore()
+const route = useRoute()
+const router = useRouter()
 const accountActions = useAccountActions()
 const loading = ref(false)
 const showAddDialog = ref(false)
@@ -214,9 +301,19 @@ const completingLogin = ref(false)
 const showAuthorizationGuide = ref(false)
 const newPlatform = ref('')
 const selectedLoginMode = ref('browser')
+const accountViewMode = ref('grid')
+const batchStatusBusy = ref(false)
 const filter = ref('all')
 const platformFilter = ref(accountStore.filterPlatform || '')
+const groupFilter = ref('')
+const groupSearchInput = ref('')
+const sharedOnly = ref(false)
 const searchInput = ref('')
+const platformSearchInput = ref('')
+const accountBatchMode = ref(false)
+const pendingAuthAction = ref(null)
+const ownerFilter = ref('')
+const publisherFilter = ref('')
 let searchTimer = null
 let resolveAuthorizationGuide = null
 
@@ -224,7 +321,11 @@ platformStore.load()
 
 const accountEvents = useAccountEvents({
   onCompleted: async (_data, mode) => {
-    ElMessage.success(mode === 'qrcode' ? '扫码登录成功' : '账号添加成功')
+    const message = pendingAuthAction.value === 'relogin'
+      ? '账号重新登录成功'
+      : mode === 'qrcode' ? '扫码登录成功' : '账号添加成功'
+    pendingAuthAction.value = null
+    ElMessage.success(message)
     await refresh()
   },
   onStatusChanged: async data => {
@@ -240,6 +341,7 @@ const {
   loginMode,
   platform: loginPlatform,
   qrStatus,
+  qrImage,
   markOpening,
   start: startAccountEvents,
   stop: stopAccountEvents,
@@ -250,6 +352,7 @@ const authViewVisible = computed({
   set: value => { loginVisible.value = Boolean(value) },
 })
 const authPlatformName = computed(() => loginPlatform.value ? platformLabel(loginPlatform.value) : '账号登录')
+const accountTab = computed(() => String(route.query?.tab || 'accounts'))
 const loginStateText = computed(() => {
   if (loginMode.value !== 'qrcode') return '网页登录窗口已打开'
   return {
@@ -260,10 +363,16 @@ const loginStateText = computed(() => {
     closed: '扫码窗口已关闭',
   }[qrStatus.value] || '扫码登录进行中'
 })
+const qrImageSource = computed(() => {
+  const image = qrImage.value
+  const source = typeof image === 'string' ? image : image?.src || image?.dataUrl || image?.url
+  return typeof source === 'string' && /^(data:image\/(?:png|jpeg|jpg|webp);|https:\/\/|blob:)/i.test(source) ? source : ''
+})
 
 const allPlatforms = computed(() => platformStore.platforms.map(item => ({ id: item.id, label: item.label })))
 const totalAccounts = computed(() => accountStore.accounts.length)
 const qrAvailable = computed(() => platformStore.supportsQrCode(newPlatform.value))
+const sortOrderLabel = computed(() => accountStore.sortOrder === 'desc' ? '降序' : '升序')
 
 function shouldShowAuthorizationGuide () {
   try { return localStorage.getItem('account-authorization-guide-seen') !== '1' } catch (_) { return true }
@@ -288,6 +397,13 @@ watch(filter, value => {
   accountStore.filterStatus = value
 }, { flush: 'sync', immediate: true })
 
+watch(accountTab, value => {
+  if (value === 'groups') showGroupManager.value = true
+  else if (showGroupManager.value) showGroupManager.value = false
+  if (value === 'favorites') filter.value = 'favorite'
+  else if (filter.value === 'favorite') filter.value = 'all'
+}, { immediate: true })
+
 watch(() => accountStore.filterPlatform, value => {
   platformFilter.value = value || ''
 }, { flush: 'sync', immediate: true })
@@ -295,6 +411,10 @@ watch(() => accountStore.filterPlatform, value => {
 watch(platformFilter, value => {
   if ((accountStore.filterPlatform || '') !== value) accountStore.filterPlatform = value
 }, { flush: 'sync' })
+
+function toggleSortOrder () {
+  accountStore.sortOrder = accountStore.sortOrder === 'desc' ? 'asc' : 'desc'
+}
 
 function platformLabel (id) {
   return platformStore.getLabel(id) || id
@@ -306,23 +426,65 @@ function platformIcon (id) {
   return (platformLabel(id) || '?').slice(0, 1)
 }
 
-const groupedPlatforms = computed(() => {
-  void filter.value
-  return accountStore.groupedByPlatform
-})
+const OWNER_FIELD_KEYS = ['owner', 'owner_name', 'ownerName', 'account_owner', 'accountOwner', '负责人']
+const PUBLISHER_FIELD_KEYS = ['publisher', 'publisher_name', 'publisherName', 'operator', 'operator_name', 'operatorName', 'publishers', '发布人']
 
+function normalizeAssigneeValues (value) {
+  if (Array.isArray(value)) return value.flatMap(normalizeAssigneeValues)
+  if (value && typeof value === 'object') return normalizeAssigneeValues(value.name || value.label || value.nickname || value.value)
+  const normalized = String(value || '').trim()
+  return normalized ? [normalized] : []
+}
+
+function accountAssigneeValues (account, keys) {
+  return keys.flatMap(key => normalizeAssigneeValues(account?.[key]))
+}
+
+function assigneeOptions (keys) {
+  const values = new Set()
+  for (const account of accountStore.accounts || []) {
+    for (const value of accountAssigneeValues(account, keys)) values.add(value)
+  }
+  return [...values].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+}
+
+function matchesAssignee (account, keys, expected) {
+  return !expected || accountAssigneeValues(account, keys).includes(expected)
+}
+
+const ownerOptions = computed(() => assigneeOptions(OWNER_FIELD_KEYS))
+const publisherOptions = computed(() => assigneeOptions(PUBLISHER_FIELD_KEYS))
 const accountsBeforePlatformFilter = computed(() => {
   void filter.value
-  return accountStore.accountsBeforePlatformFilter
+  const source = accountStore.accountsBeforePlatformFilter
     || accountStore.filteredAccounts
     || accountStore.accounts
     || []
+  const selectedGroup = groupFilter.value
+    ? (accountStore.groups || []).find(group => group.id === groupFilter.value)
+    : null
+  return source.filter(account => (
+    (!selectedGroup || (selectedGroup.accountIds || []).includes(account.id))
+    && matchesAssignee(account, OWNER_FIELD_KEYS, ownerFilter.value)
+    && matchesAssignee(account, PUBLISHER_FIELD_KEYS, publisherFilter.value)
+  ))
 })
 const visibleAccounts = computed(() => {
-  const accounts = groupedPlatforms.value.flatMap(group => group.accounts)
+  const accounts = accountsBeforePlatformFilter.value
   return platformFilter.value
     ? accounts.filter(account => account.platform === platformFilter.value)
     : accounts
+})
+const groupedPlatforms = computed(() => {
+  const groups = new Map()
+  for (const account of visibleAccounts.value) {
+    if (!groups.has(account.platform)) groups.set(account.platform, { platform: account.platform, accounts: [], activeCount: 0, inactiveCount: 0 })
+    const group = groups.get(account.platform)
+    group.accounts.push(account)
+    if (account.status === 'active' || account.status === 'online') group.activeCount += 1
+    else group.inactiveCount += 1
+  }
+  return [...groups.values()].sort((a, b) => b.activeCount - a.activeCount || b.accounts.length - a.accounts.length)
 })
 const filteredAccountCount = computed(() => accountsBeforePlatformFilter.value.length)
 const visibleAccountCount = computed(() => visibleAccounts.value.length)
@@ -335,6 +497,28 @@ const platformOptions = computed(() => {
   return [...counts.entries()].map(([id, count]) => ({ id, count }))
 })
 
+const visiblePlatformOptions = computed(() => {
+  const query = platformSearchInput.value.trim().toLowerCase()
+  if (!query) return platformOptions.value
+  return platformOptions.value.filter(item => (
+    item.id.toLowerCase().includes(query)
+    || platformLabel(item.id).toLowerCase().includes(query)
+  ))
+})
+const visibleGroups = computed(() => {
+  const query = groupSearchInput.value.trim().toLowerCase()
+  return (accountStore.groups || []).filter(group => {
+    if (sharedOnly.value && group.shared !== true && group.is_shared !== true) return false
+    if (!query) return true
+    return String(group.name || '').toLowerCase().includes(query)
+  })
+})
+const emptyStateTitle = computed(() => {
+  if (totalAccounts.value === 0) return '暂无账号'
+  if (filter.value === 'favorite') return '暂无收藏账号'
+  if (groupFilter.value) return '分组内暂无账号'
+  return '没有匹配的账号'
+})
 const visibleAccountIds = computed(() => visibleAccounts.value.map(account => account.id))
 const selectedVisibleIds = computed(() => visibleAccountIds.value.filter(id => accountStore.selectedIds.has(id)))
 const selectedCount = computed(() => selectedVisibleIds.value.length)
@@ -346,6 +530,10 @@ function setFilter (value) {
 
 function setPlatformFilter (value) {
   platformFilter.value = value
+}
+
+function setGroupFilter (value) {
+  groupFilter.value = value
 }
 
 function onFilterKeydown (event, index) {
@@ -392,9 +580,21 @@ function toggleFavorite (id) {
   accountStore.toggleFavorite(id)
 }
 
-function createNewGroup (name) {
-  accountStore.createGroup(name.trim(), '')
+function createNewGroup (name, platformFilter = '') {
+  accountStore.createGroup(name.trim(), platformFilter)
   ElMessage.success('分组创建成功')
+}
+
+function renameGroup (groupId, name) {
+  if (!accountStore.renameGroup(groupId, name)) {
+    ElMessage.error('分组名称不能为空且不能重复')
+    return
+  }
+  ElMessage.success('分组已重命名')
+}
+
+function setGroupPlatform (groupId, platformFilter) {
+  accountStore.setGroupPlatform(groupId, platformFilter)
 }
 
 async function deleteGroup (groupId) {
@@ -407,6 +607,11 @@ async function deleteGroup (groupId) {
 
 function toggleAccountInGroup (groupId, accountId) {
   accountStore.toggleAccountInGroup(groupId, accountId)
+}
+
+function closeGroupManager () {
+  showGroupManager.value = false
+  if (accountTab.value === 'groups') router.replace({ path: '/accounts', query: {} })
 }
 
 async function refresh () {
@@ -428,22 +633,51 @@ async function addAccount () {
   const mode = selectedLoginMode.value
   adding.value = true
   showAddDialog.value = false
+  pendingAuthAction.value = 'add'
   if (mode === 'browser') await waitForAuthorizationGuide()
   markOpening(mode, platform)
   try {
     const result = await accountActions.openLogin(mode, platform)
     if (result?.cancelled) {
       loginVisible.value = false
+      pendingAuthAction.value = null
     } else if (result?.code !== 0) {
       loginVisible.value = false
+      pendingAuthAction.value = null
       ElMessage.error(result?.message || '添加失败')
     }
     if (result?.code === 0) newPlatform.value = ''
   } catch (error) {
     loginVisible.value = false
+    pendingAuthAction.value = null
     ElMessage.error(error?.message || '添加账号失败')
   } finally {
     adding.value = false
+  }
+}
+
+async function reloginAccount (account) {
+  if (!account?.platform) {
+    ElMessage.error('账号信息不完整，无法重新登录')
+    return
+  }
+  pendingAuthAction.value = 'relogin'
+  markOpening('browser', account.platform)
+  try {
+    const result = await accountActions.openLogin('browser', account.platform)
+    if (result?.cancelled) {
+      loginVisible.value = false
+      pendingAuthAction.value = null
+      ElMessage.info('已取消重新登录')
+    } else if (result?.code !== 0) {
+      loginVisible.value = false
+      pendingAuthAction.value = null
+      ElMessage.error(result?.message || '重新登录失败')
+    }
+  } catch (error) {
+    loginVisible.value = false
+    pendingAuthAction.value = null
+    ElMessage.error(error?.message || '重新登录失败')
   }
 }
 
@@ -471,6 +705,7 @@ async function closeAuthView () {
     await accountActions.closeLogin(loginMode.value)
   } finally {
     loginVisible.value = false
+    pendingAuthAction.value = null
   }
 }
 
@@ -602,6 +837,23 @@ async function handleBatchDelete () {
   }
 }
 
+async function handleBatchStatus (status) {
+  const ids = [...selectedVisibleIds.value]
+  if (ids.length === 0 || batchStatusBusy.value) return
+  batchStatusBusy.value = true
+  try {
+    const result = await accountStore.batchSetStatus(status, ids)
+    const { success = 0, failed = 0 } = result || {}
+    if (failed === 0) ElMessage.success(`${status === 'active' ? '已启用' : '已禁用'} ${success} 个账号`)
+    else if (success > 0) ElMessage.warning(`${status === 'active' ? '已启用' : '已禁用'} ${success} 个账号，${failed} 个失败`)
+    else ElMessage.error(`批量${status === 'active' ? '启用' : '禁用'}失败`)
+  } catch (error) {
+    ElMessage.error(error?.message || `批量${status === 'active' ? '启用' : '禁用'}失败`)
+  } finally {
+    batchStatusBusy.value = false
+  }
+}
+
 onMounted(() => {
   accountStore.loadGroups()
   startAccountEvents()
@@ -617,7 +869,11 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.accounts-page { min-height: 100%; background: var(--surface, #f6f6f8); color: var(--text-primary, #28282f); }
+.accounts-page { min-height: 100%; background: #f4f6fd; color: var(--text-primary, #28282f); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.accounts-header { min-height: 72px; box-sizing: border-box; padding: 18px 24px 12px; background: #fff; border-bottom: 1px solid #edf0f7; }
+.accounts-header .page-title { color: #1f2340; font-size: 20px; font-weight: 700; }
+.accounts-header .page-actions { margin-top: 0; }
 .accounts-header { gap: 16px; }
 .page-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .page-button {
@@ -682,6 +938,8 @@ onUnmounted(() => {
 .selected-count { color: #5048e5; font-size: 13px; font-weight: 600; }
 .batch-toolbar button { min-height: 28px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; font-size: 12px; cursor: pointer; }
 .batch-toolbar svg { width: 14px; height: 14px; }
+.batch-status { border: 1px solid #c9c5ff !important; color: #5048e5; background: #fff !important; }
+.batch-status:disabled { opacity: .55; cursor: not-allowed; }
 .batch-delete { color: #c43d4d; }
 .batch-cancel { color: #5f6069; }
 .login-state { position: fixed; top: 56px; left: 280px; right: 0; z-index: 9700; height: 44px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 7px 24px; border-bottom: 1px solid #dcd9ff; background: #f3f2ff; color: #3d378f; }
@@ -690,10 +948,18 @@ onUnmounted(() => {
 .login-state strong { flex: 0 0 auto; font-size: 13px; }
 .login-state span { min-width: 0; overflow: hidden; color: #6e69a0; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .login-state-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.login-qr-preview { position: fixed; top: 108px; right: 24px; z-index: 9701; width: 188px; display: grid; justify-items: center; gap: 8px; padding: 12px; border: 1px solid #dcd9ff; border-radius: 8px; background: #fff; box-shadow: 0 8px 24px rgba(46, 43, 110, 0.16); color: #6e69a0; font-size: 12px; text-align: center; }
+.login-qr-preview img { width: 164px; height: 164px; object-fit: contain; border-radius: 4px; background: #fff; }
 .login-state-actions button { border: 0; background: transparent; color: #5048e5; font-size: 12px; cursor: pointer; }
 .login-state-actions .complete-login { min-height: 28px; padding: 4px 9px; border: 1px solid #5048e5; border-radius: 5px; background: #5048e5; color: #fff; }
 .login-state-actions button:disabled { opacity: 0.58; cursor: not-allowed; }
 .accounts-content { min-height: 520px; padding: 0; }
+.module-placeholder { min-height: 320px; display: grid; place-items: center; align-content: center; gap: 8px; padding: 32px; background: #f6f7fb; color: #707080; text-align: center; }
+.module-placeholder h2 { margin: 0; color: #25252b; font-size: 18px; }
+.module-placeholder p { max-width: 480px; margin: 0; font-size: 13px; line-height: 1.6; }
+.module-placeholder-icon { font-size: 30px; opacity: .72; }
+.module-placeholder-state { border-radius: 999px; padding: 3px 9px; background: #ececf1; color: #777985; font-size: 11px; }
+.module-placeholder .page-button { margin-top: 4px; }
 .account-workspace { min-height: 520px; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
 .platform-filter-panel {
   display: flex;
@@ -727,6 +993,17 @@ onUnmounted(() => {
 .platform-filter-panel button strong { color: #9697a0; font-size: 11px; font-weight: 500; }
 .platform-filter-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; background: #f3f3f6; font-size: 12px; }
 .platform-filter-panel button.active .platform-filter-icon { background: #fff; }
+.group-filter-section { display: flex; flex-direction: column; gap: 4px; margin-top: 18px; padding-top: 14px; border-top: 1px solid #eff0f4; }
+.group-filter-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 5px; color: #85858f; font-size: 12px; }
+.group-filter-heading label { display: inline-flex; align-items: center; gap: 5px; color: #999ba6; font-size: 11px; cursor: pointer; }
+.group-filter-heading input { width: 14px; height: 14px; accent-color: #5048e5; }
+.group-search-box { padding: 0 0 2px; }
+.group-search-box input { height: 32px; padding: 5px 28px; border-color: #e9eaf0; background: #fafbfe; font-size: 12px; }
+.group-search-box .search-icon { left: 9px; width: 14px; height: 14px; }
+.group-filter-section button { min-height: 36px; grid-template-columns: 24px minmax(0, 1fr) auto; padding: 5px 9px; font-size: 12px; }
+.group-filter-icon { width: 17px; height: 17px; color: #8e91a5; }
+.group-filter-section button.active .group-filter-icon { color: #5048e5; }
+.group-empty { padding: 12px 8px 4px; color: #9b9ca6; font-size: 12px; text-align: center; }
 .account-results-panel { min-width: 0; padding: 24px 32px 32px; background: #f6f7fb; }
 .account-card-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 370px)); align-items: start; gap: 24px; }
 .loading-state, .empty-state { min-height: 260px; display: flex; align-items: center; justify-content: center; color: #85858f; font-size: 13px; }
@@ -772,4 +1049,31 @@ onUnmounted(() => {
 @media (max-width: 1360px) {
   .login-state { left: 0; }
 }
+</style>
+
+<style scoped>
+.account-controls { grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto auto auto auto auto minmax(100px, auto); }
+.account-card-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
+.platform-search-box { min-width: 0; }
+.account-command-bar { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.account-command-bar .page-button { white-space: nowrap; }
+.account-toolbar-selects { display: flex; align-items: center; gap: 12px; }
+.account-sort-controls { display: inline-flex; align-items: center; gap: 4px; }
+.account-sort-controls select { min-width: 116px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 10px; background: #f8f9fc; color: #5f6475; font-size: 13px; }
+.account-sort-controls button { width: 36px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; background: #f8f9fc; color: #5048e5; font-size: 18px; line-height: 1; cursor: pointer; }
+.account-sort-controls button:focus-visible { outline: 2px solid #5048e5; outline-offset: 2px; }
+.account-toolbar-selects select { min-width: 132px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 12px; background: #f8f9fc; color: #9aa0b2; font-size: 13px; }
+.account-view-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid #e8ebf2; border-radius: 8px; background: #f8f9fc; }
+.account-view-toggle button { width: 32px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: #8b92a7; font-size: 18px; cursor: pointer; }
+.account-view-toggle button[aria-pressed="true"] { background: #fff; color: #5048e5; box-shadow: 0 1px 3px rgba(44, 48, 77, .12); }
+.account-card-grid.account-list-view { display: flex; flex-direction: column; gap: 12px; }
+.account-list-view :deep(.account-card) { min-height: 0; flex-direction: row; align-items: center; }
+.account-list-view :deep(.account-card-header) { flex: 0 0 170px; }
+.account-list-view :deep(.account-profile) { flex: 1; flex-direction: row; gap: 14px; padding: 10px 18px; text-align: left; }
+.account-list-view :deep(.account-identity) { margin-top: 0; }
+.account-list-view :deep(.account-name-button) { justify-content: flex-start; text-align: left; }
+.account-list-view :deep(.account-details) { justify-content: flex-start; }
+.account-list-view :deep(.account-actions) { flex: 0 0 300px; border-top: 0; border-left: 1px solid var(--border-light, #efeff2); }
+@media (max-width: 1100px) { .account-toolbar-selects { display: none; } }
+@media (max-width: 720px) { .account-view-toggle { display: none; } }
 </style>

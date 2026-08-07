@@ -40,6 +40,11 @@ export async function historyList (opts) {
 
 export async function historyGet(id) { return invokeWithFallback("historyGet", {  code: -1, message: 'electronAPI not available'  }, id) }
 
+export async function historyDelete (ids) {
+  const normalizedIds = Array.isArray(ids) ? ids : [ids]
+  return invokeWithFallback("historyDelete", { code: -1, message: 'electronAPI not available' }, normalizedIds)
+}
+
 // ─── 发布统计 API ──────────────────────────
 export async function dashboardStats () {
   return invokeWithFallback("dashboardStats", { code: 0, data: { total: 0, success: 0, failed: 0, byPlatform: {}, daily: [] } })
@@ -305,6 +310,7 @@ export async function pipelineHistory() { return invokeWithFallback("pipelineHis
 
 // ═══ Pipeline 编排模式 API（story2video-compose 等新流水线使用） ═══
 export async function pipelineStartOrchestrated(name, params) { return invokeWithFallback("pipelineStartOrchestrated", { code: -1, message: 'electronAPI not available' }, name, params) }
+export async function pipelineResumeOrchestration(runId) { return invokeWithFallback("pipelineResumeOrchestration", { code: -1, message: 'electronAPI not available' }, runId) }
 export async function pipelineExecuteStage(runId) { return invokeWithFallback("pipelineExecuteStage", { code: -1 }, runId) }
 export async function pipelineAdvanceToNextCheckpoint(runId) { return invokeWithFallback("pipelineAdvanceToNextCheckpoint", { code: -1 }, runId) }
 export async function pipelineGetRunContext(runId) { return invokeWithFallback("pipelineGetRunContext", null, runId) }
@@ -315,6 +321,9 @@ export async function pipelineRegisterPipeline(def) { return invokeWithFallback(
 // ─── Story2Video 本地交付 API ──────────────────────
 export async function story2videoImportMedia(file, kind) {
   return invokeWithFallback("story2videoImportMedia", { code: -1, message: 'electronAPI not available' }, file, kind)
+}
+export async function story2videoImportMediaPath(filePath, kind) {
+  return invokeWithFallback("story2videoImportMediaPath", { code: -1, message: 'electronAPI not available' }, filePath, kind)
 }
 export async function story2videoExportZip(files, destinationPath) {
   return destinationPath === undefined
@@ -357,6 +366,11 @@ export async function story2videoTranscribe(filePath) {
 export async function story2videoCapabilities() {
   return invokeWithFallback("story2videoCapabilities", { code: -1, message: 'electronAPI not available' })
 }
+export async function logsGetInfo() {
+  return invokeWithFallback("logsGetInfo", { code: -1, data: { dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] } })
+}
+export async function logsClear() { return invokeWithFallback("logsClear", { code: -1 }) }
+
 export async function videoProcess(type, params) {
   return invokeWithFallback("videoProcess", { code: -1, message: 'electronAPI not available' }, type, params)
 }

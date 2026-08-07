@@ -263,7 +263,8 @@ class ContentIntelligence {
 
   // ── IPC Handlers ─────────────────────────────────────────────────
 
-  registerIpcHandlers () {
+  registerIpcHandlers (injectedIpcMain) {
+    const ipcMain = injectedIpcMain || require("electron").ipcMain;
     // R52 修复：所有 handler 统一为 { code, data, message } 格式
     // Search for topic intelligence (方案 A)
     ipcMain.handle('intelligence:search', async (event, arg) => {

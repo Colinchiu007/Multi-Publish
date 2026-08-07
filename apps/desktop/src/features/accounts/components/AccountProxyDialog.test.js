@@ -43,6 +43,19 @@ describe('AccountProxyDialog', () => {
     }])
   })
 
+  it('重新打开已配置代理时保留类型和端口，但不回显主机与认证凭据', () => {
+    const wrapper = mount(AccountProxyDialog, {
+      props: { visible: true, account },
+      ...mountOptions,
+    })
+
+    expect(wrapper.get('[data-testid="proxy-port"] input').element.value).toBe('8080')
+    expect(wrapper.get('[data-testid="proxy-host"] input').element.value).toBe('')
+    expect(wrapper.get('[data-testid="proxy-username"] input').element.value).toBe('')
+    expect(wrapper.get('[data-testid="proxy-password"] input').element.value).toBe('')
+    expect(wrapper.get('[data-testid="proxy-host"] input').attributes('placeholder')).toContain('10.0.*.*')
+  })
+
   it('为已绑定账号提供清除代理命令', async () => {
     const wrapper = mount(AccountProxyDialog, {
       props: { visible: true, account },

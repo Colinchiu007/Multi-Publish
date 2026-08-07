@@ -13,7 +13,7 @@
         v-model="host"
         data-testid="proxy-host"
         label="代理地址"
-        placeholder="例如 127.0.0.1 或 proxy.example.com"
+        :placeholder="hostPlaceholder"
       />
       <UiInput
         v-model="port"
@@ -87,10 +87,15 @@ const proxyDescription = computed(() => {
   return `${String(proxy.type || 'http').toUpperCase()} ${proxy.hostMasked || ''}${proxy.port ? `:${proxy.port}` : ''}`
 })
 
+const hostPlaceholder = computed(() => {
+  const maskedHost = props.account?.proxy?.hostMasked
+  return maskedHost ? `当前 ${maskedHost}，请输入完整地址以替换` : '例如 127.0.0.1 或 proxy.example.com'
+})
+
 function resetForm () {
   type.value = props.account?.proxy?.type || 'http'
   host.value = ''
-  port.value = ''
+  port.value = props.account?.proxy?.port ? String(props.account.proxy.port) : ''
   username.value = ''
   password.value = ''
   validationError.value = ''

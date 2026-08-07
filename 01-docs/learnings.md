@@ -1,4 +1,167 @@
-## 本轮质量节拍复盘 v2.3.41 (2026-07-08)
+
+---
+
+## Code Review MINOR 4-6 修复复盘 (2026-08-07)
+
+- **MINOR-4**：日志写队列必须加超时兜底——appendFile 回调极端异常可能永不触发，链式 Promise 会把后续所有日志卡死；兜底用 `setTimeout + unref + clearTimeout`（单次 resolve），测试以「mock appendFile 不回调」复现挂起。
+- **MINOR-5**：渲染进程 catch 里的 `console.error` 只进 DevTools，用户/官方/AI 无法从 app-*.log 排查；统一走 `reportError`（electronAPI.logError 优先）即可让 renderer 异常进入主进程文件日志。Vue errorHandler 已接入，其余全局处理器与组件 catch 补齐。
+- **MINOR-6**：并发上限从固定 2 改为按机器资源自适应（1-4，封顶 4），但保留 deps 注入覆盖与 PRD 合同说明；默认值变化必须同步引擎测试（原「默认 2」用例改为显式注入 2），并发契约测试须显式注入上限以消除 CI runner 资源差异（自托管 runner 可能只有 1 核）。
+
+## 真实链路 E2E 暴露问题复盘 (2026-08-07)
+
+- **图片空结果**：供应商 200 但无图片（静默内容策略/瞬时故障）曾绕过重试循环、在循环外一次性失败。修复：adapter 显式抛错 + 在重试循环内校验（前 2 次同提示词、第 3 次起安全改写、5 次后 needs_user_input）。教训：重试机制必须包裹「结果校验」，不能只包裹「调用是否抛错」。
+- **compose `transition=undefined`**：`buildTransitionPlan` 返回对象缺 `transitionName`，`_xfadeMerge` 拼接出 `xfade=transition=undefined`。单测 mock 了 `_xfadeMerge` 所以漏检；真实 ffmpeg 调用暴露。教训：测试 mock 真实命令构造点会漏掉「传给 mock 的数据本身错误」这类 bug，至少断言传给 mock 的参数完整。
+- **并发开关**：自适应默认在某些机器=4，如需固定 2 用 `STORY2VIDEO_MAX_CONCURRENT_RUNS=2`；deps 注入仍最优先。环境变量开关要带合法域（1-8）与回退，避免误配拉爆资源。
+
+## 创作历史运行中任务可发现性复盘 (2026-08-07)
+
+- 用户反馈「运行中流水线没出现在历史记录」。复现（Playwright + 真实 provider）：IPC `pipeline:history` 确实返回运行中 run，点「流水线记录」tab 也正常显示运行中卡片——功能正常，问题在**可发现性**：历史页默认 tab 是「渲染记录」。
+- 教训：功能正确 ≠ 用户能发现。多 tab 页面中，时间敏感的实时状态（运行中任务）应在进入页面时主动呈现，或提供醒目的入口横幅。
+- 修复：进入历史页同时加载流水线记录，有运行中任务自动切「流水线记录」；渲染记录 tab 加运行中横幅入口。回归 2 例。
+
+## CreateView 历史记录运行中流水线排查复盘 (2026-08-07)
+
+- 用户反馈【视频创作】-【历史记录】没有多 tab、看不到运行中流水线。**排查教训**：应用存在两个「历史」入口——`/create/history`（独立「创作历史」页，带 渲染/流水线 双 tab）与 `CreateView` 内部【历史记录】视图（单列表+状态筛选）。此前把运行中展示只做在独立页，用户实际用的是 CreateView 内部视图，导致误判。
+- 复现：CreateView 历史视图其实已合并 `pipelineHistory()`（含运行中 run），但运行中项排在列表**末尾**（projects 在前、runs 在后）且**无阶段进度**。
+- 修复：运行中置顶 + 阶段色块 + 5s 刷新 + 点击切回流水线创作恢复查看。
+- 教训：多入口页面先确认用户实际入口；「功能有数据」不等于「用户可见可用」，列表内排序/信息密度也要符合需求（运行中任务应突出且带流程状态）。
+
+## 历史记录闪烁/TTS 空响应失败复盘 (2026-08-07)
+
+- **闪烁**：5s 轮询整表重建 history 数组导致列表闪动。修复：原地更新运行中项（保持对象身份），只改 stages/currentStage；项目/终态记录不重刷。教训：轮询刷新要「差量更新」，不要整体替换数组。
+- **布局错乱**：阶段标签内联在 flex 行里换行错乱。修复：卡片式（主信息行 + 独立阶段进度条）。教训：列表项内多段信息不要硬塞单行，按层级拆分。
+- **TTS 空音频失败**：MiniMax TTS 偶发 200 无 audio（`Missing audio data in response`）此前归为 `other` 不重试 → 整线失败。修复：`classifyProviderFailure` 把空响应/缺失数据模式归为 `transient`（governor 短退避重试）。教训：provider「返回了但内容为空」也是典型瞬时错误，必须进重试分类；错误分类是重试网关的单一事实来源。
+- **文案**：「瞬时错误（限流/超时）会自动冷却后重试」用户不理解，改为「遇到暂时的服务繁忙或网络波动时，会自动等待片刻后重试」。
+
+## Podcast 转视频引擎实现复盘 (2026-08-07)
+
+- 无引擎流水线的实现骨架：复用 StageExecutor 自定义类型（registerStageExecutor）+ 内置 `compose` 阶段（`inputFrom` 指向 assemble 输出）+ 容器注册；analyze 复用 ffprobe/transcribeFile，visualize 复用 AssetGenerator.generateImage，assemble 用 ffmpeg 切段。
+- **关键校验**：音频输入必须走 `resolveReadableMediaFile(kind='audio')`（受控媒体根目录），否则测试里 os.tmpdir() 根目录的 wav 会被拒——测试 fixture 必须落在受控根目录内。
+- `available` 由 stageDefs 存在性自动判定；实现引擎后需同步更新「无引擎清单」断言（E2E-PENDING 待办 B 与 pipeline-engine.test）。
+- 语音识别转写（transcribeFile）依赖已配置的语音识别供应商；未配置时不伪造转写，fail closed 提示提供文案。
+## 音色克隆授权勾选移除复盘 (2026-08-07)
+
+### 需求调整
+- 用户发现「我确认已取得样本上传、使用和克隆的权利，并已作出明确同意。」勾选无论是否勾选均可添加成功，要求移除该行。
+- 处理：移除前端勾选 UI 与 `s2vVoiceCloneConsent` 状态/校验（数据、computed、reset、handler 守卫全部清理），IPC/服务层 `consent: true` 契约保持为内部不变式（renderer 恒传 true，fail-closed 防御不变），避免扩大 API 契约改动面。
+
+### 教训
+- 面向用户的"授权/同意"类勾选项若与实际权限判定无关，会形成误导性 UI：要么真正参与校验（勾选才可提交），要么删除。本次按用户决定删除；后续新增类似项必须先确认其是否参与真实校验。
+
+## Code Review MAJOR 1-3 修复复盘 (2026-08-07)
+
+### ✅ 做得好的
+1. 审查结论落地为修复 PR，MAJOR 全部闭环（_history 上限 / IPC 注册统一 / cloud-publisher fail closed）。
+2. window.js 统一注册：删除「临时替换全局 ipcMain.handle」的 hack，改为显式注入 controlledIpcMain，与 phase5-ipc 中心注册同构。
+
+### ⚠️ 需要注意的
+1. 服务 `registerIpcHandlers` 默认全局兜底仅用于测试兼容；生产必须由 window.js/phase5 注入 controlled，新增服务不得裸调全局。
+2. 测试 mock 若忽略注入参数会绕过 access control 断言——window.test.js 已改为注册到注入的 controlledIpcMain。
+---
+
+## 克隆音色「服务不可用」Bug 复盘 (2026-08-07)
+
+### 根因
+MiniMax TTS adapter 的 `cloneVoice` 上传/复刻路径写成 `/v1/files/upload`、`/v1/voice_clone`，而 `DEFAULT_BASE_URL` 与 preset 默认均为 `https://api.minimaxi.com/v1`（**已含 /v1**）。`_url(path)` = baseUrl + path → 实际请求 `https://api.minimaxi.com/v1/v1/files/upload`（双重 /v1）→ 404 → `fromHttpStatus` 抛 ProviderError → `tts-voice-clone-service._addCloneLocked` 的 `catch (_)` 吞掉异常 → 返回 `VOICE_CLONE_PROVIDER_UNAVAILABLE` → 前端提示「音色克隆服务暂时不可用，请稍后重试」。
+
+### 逃逸链
+- 单元测试 `toContain('/v1/files/upload')` 断言过弱：双 /v1 的 URL 也包含 `/v1/files/upload` 子串，测不出来。
+- 服务层 `catch (_)` 吞错：真实 404 不落日志，无法从「服务不可用」提示反查根因。
+- e2e 未覆盖真实克隆上传（待办 C：真实供应商验收项）。
+
+### 系统性漏洞
+1. MiniMax adapter 的 base_url 约定（含 /v1）+ 路径前缀约定（合成 `/t2a_v2` 不含 /v1）未固化：cloneVoice 误带 /v1 即坏。
+2. 服务层吞掉 provider 异常，用户提示与真实原因脱节。
+
+### 修复 + 回归保护
+- `minimax-tts.js`：cloneVoice 路径改为 `/files/upload`、`/voice_clone`（base_url 已含 /v1）。
+- 测试：精确 URL 断言（`toBe('https://api.minimaxi.com/v1/files/upload')`）+ 新增「base_url 含 /v1 真实 preset 配置不产生 /v1/v1」回归用例。
+- `tts-voice-clone-service.js`：`_addCloneLocked` 的 `catch (_)` 改为记录 `warn('cloneVoice adapter failed: <detail>')`（构造注入 `this._log`，默认真实 logger），真实失败不再被吞。
+
+### 预防
+- adapter URL 断言统一用精确 `toBe` 而非 `toContain`，防双重前缀类回归。
+- 服务层所有 catch 吞错点应至少 `log.warn`（已修 cloneVoice 入口，其余吞错点为刻意降级路径）。
+- 真实供应商克隆上传验收（待办 C）配置好后补 e2e 证据。
+---
+
+## 视频创作后台运行与并发实现复盘 (2026-08-07)
+
+### ✅ 做得好的
+1. 现状盘点先行 — 确认后台运行（background:true + resumeRunningOrchestration）已具备后才只补缺口（历史含运行中 + 并发上限），避免重复造轮子。
+2. 并发门禁统一在引擎层（startOrchestrated + resumeOrchestration 共用 `_assertConcurrencyBudget`），前端只做文案映射，职责清晰。
+3. 历史页轮询只在存在 running 时启动、结束即停，避免页面常驻定时器空转。
+
+### ⚠️ 需要注意的
+1. `_runs` 同时存 `<runId>` 与 `_<pipelineName>` 两个 key 指向同一对象：统计/返回时必须按对象去重，否则并发计数和 getHistory 会重复。
+2. 前端 `resolveMessageKey` 的 `isKnownMessageKey` 只识别 key 的 value（`story2video.*`），而 `errorCode` 是常量名（如 `PIPELINE_CONCURRENCY_LIMIT`）——新增 errorCode 映射必须显式加判断（或让 errorCode 与 value 一致）。
+3. 并发上限 2 是保守默认：真实资源压力需在低配机器实测（2 条 27 场景流水线同时 compose 的 CPU/内存）；后续可按机器配置或用户设置调优。
+
+### 🧠 经验沉淀
+- 「后台任务可见性」三要素：主进程持有运行态（runId 驱动）、历史接口含运行中、前端按需轮询——缺一不可。
+- 并发限制放在引擎入口统一拦截（启动+恢复），比前端限制更可靠（防绕过）。
+---
+
+## 音色目录/克隆双 Bug 复盘 (2026-08-07)
+
+### Bug 1：选择 MiniMax 部分系统音色报 VOICE_CATALOG_INVALID_ARGUMENTS（沉稳高管/搞笑大爷）
+- **根因**：MiniMax 系统音色 id 形如 `Chinese (Mandarin)_Reliable_Executive`（含空格与括号）；`tts-voice-catalog.js` 的 `safeString` 只拒绝控制字符（目录能收录），但 `tts-voice-service.js` 的 `selectVoice` 用 `safeIdentifier`（`/^[a-zA-Z0-9._-]+$/`）校验 voiceId → 空格/括号被拒 → 返回 INVALID_ARGUMENTS。两处校验口径不一致。
+- **逃逸链**：单测只覆盖 ASCII voiceId（alloy/novia 等）；e2e 只选默认音色 `male-qn-qingse`，从未选过含空格括号的 MiniMax 系统音色。
+- **系统性漏洞**：voiceId 的"安全校验"在不同层用了不同函数（catalog 宽松/selectVoice 严格），且严格层没考虑真实 provider 的 id 字符集。
+- **修复**：新增 `safeVoiceId`（允许空格/括号/中文等；仅拒控制字符、路径分隔符、遍历序列），selectVoice 使用；providerId/model 仍走严格校验。
+- **回归保护**：`tts-voice-service.test.js` 新增「接受 Chinese (Mandarin)_Reliable_Executive 并保存偏好」「拒绝 ..\..\evil」。
+
+### Bug 2：符合时长要求的 wav 报"上传的音频文件时长不符合要求"
+- **根因**：`_probeMediaDuration` 用 `ffprobe ... pipe:0`（stdin 流式）探测时长；对带 `LIST` chunk 的 PCM wav（用户文件实测 27.12s、4.6MB、含 LIST chunk），ffprobe 流式输出 `format` 无 `duration`（文件模式正常）→ 返回 null → 误判 `VOICE_CLONE_SAMPLE_DURATION_INVALID`。
+- **逃逸链**：测试用 `probeDuration` dep 注入 mock（固定 3.25s），从未用真实 ffprobe + 真实 wav 走 pipe 路径；e2e 用的克隆音频可能恰好是 mp3/m4a（pipe 可解析）。
+- **系统性漏洞**：时长探测只依赖单一 pipe 通道，无"文件模式"兜底；对 ffprobe 流式解析失败的格式（部分 wav）直接误报。
+- **修复**：`_probeMediaDuration` 先 pipe 探测；**有音频流但 duration 缺失**时回退写临时文件（`os.tmpdir()/voice-clone-probe-*.wav`，mode 0600，finally 删除）用文件模式探测；明确无音频流仍 fail closed（不回退）。
+- **回归保护**：`tts-voice-clone-service.test.js` 新增「pipe 无 duration 回退临时文件成功且清理」「pipe 有 duration 不回退」「双失败返回 null」；保留原「无音频流 fail closed 且不落盘」断言。
+- **端到端验证**：修复后 `_probeMediaDuration` 对 `D:\系统下载文件夹\克隆用音频4-30秒内-起伏大.wav` 返回 27.12s（修复前 null）。
+
+### 🧠 经验沉淀
+- 跨层校验必须单一来源：同一字段（voiceId）在目录归一化与选择校验用同一套白名单语义，且要覆盖真实 provider 的 id 字符集。
+- ffprobe 探测时长不可只依赖 pipe 通道：文件模式是可靠兜底；"无音频流"是硬失败信号，不得触发兜底掩盖。
+- 供应商真实数据的边界（含空格括号的 id、带 LIST chunk 的 wav）必须进单测 fixture，否则只靠 e2e 短样本测不到。
+---
+
+## 技术债务 W1/W2/W3 闭环复盘 (2026-08-06)
+
+### ✅ 做得好的
+1. 复用既有 owner 模式 — run-state 采用与 credential-store/settings-store/story2video-project-service 一致的 `owners/{sha256(subject)}` 目录，并复用 phase3-services 的 `ownerSubjectProvider` 接线，模式零发明。
+2. W2 双层回收 — `_sweepExpired`（每次 run() 入口）+ `sweepAll()`（run 结束统一出口），既不依赖释放也不悬挂；sweepAll 只回收已过期 waiter，对并发其他 run 无副作用。
+3. W3 保守估计 + 自适应兜底 — provider 预算表明确标注非官方保证，429 自适应 rateFactor 仍兜底真实限流，避免过度承诺。
+4. 兼容迁移 — legacy 平铺快照首次读取自动迁移到 owner 目录，remove 双路径清理，未登录回退平铺，旧数据零丢失。
+
+### ⚠️ 需要注意的
+1. W1 的 owner 来自「当前登录用户」：断点恢复按当前用户解析目录，跨账号 resume 会正确失败（隔离生效），但同一 run 换账号无法恢复是预期行为，需在 PRD 注明。
+2. W3 的 provider 预算表是静态常量：真实限额变更需更新表，未来可考虑从运营后台下发；当前 429 自适应已吸收误差。
+3. CRLF 陷阱：Windows 下多个源文件为 CRLF，Node 脚本替换必须先 `replace(/\r\n/g,'\n')` 再替换、写回时还原，否则 NEEDLE 匹配失败。
+
+### 🧠 经验沉淀
+- owner 隔离统一模板：`sha256(subject)` 子目录 + `setOwnerProvider` 注入 + legacy 迁移 + 双路径清理，可作为后续所有按用户落盘文件的默认模式。
+- 排队系统的超时回收应「入口 sweep + 出口统一 sweep」双层，而不是只依赖释放事件。
+- 限流预算应分层（key/provider/类别默认），数值标注来源与兜底机制，避免把估计值当保证。
+
+---
+
+## 应用日志 log 功能复盘 (2026-08-06)
+
+### ✅ 做得好的
+1. 兼容既有调用约定 — logger API 以 `log.level('模块', '消息', meta?)` 三参语义落地，老调用（`log.error('App', 'msg')`）文件行不产生多余 JSON 引号，全库 60+ 调用点零改动。
+2. 脱敏优先 — Bearer/apiKey/sk- 落盘前统一掩码，日志可用于回传排查而不泄露凭据。
+3. 测试隔离 — 日志测试全部走 `os.tmpdir()` 独立目录，避免污染真实 userData；main/shutdown 测试补齐 logger mock 方法。
+
+### ⚠️ 需要注意的
+1. logger 是模块级单例 — 测试间共享 `logsDir`/`currentLogPath`/`maxFileBytes` 状态，用例必须显式 `setLogOptions` + 清理，否则顺序耦合。
+2. 「启动核对超限文件」语义是删后重建 — 文件仍存在但内容重置，断言应检查大小而非存在性。
+3. apply_patch 在当前环境被策略拦截 — 改用 PowerShell/Node 脚本做精确文本替换，替换后必须 `Select-String`/`git diff` 复核。
+
+### 🧠 经验沉淀
+- 日志 meta 参数只对「对象」做 JSON 化；字符串按原文拼接，避免把既有「第二参消息」误当成 meta 引号化。
+- 渲染进程全局错误（Vue errorHandler / window error / unhandledrejection）通过 `logs:error` 上报主进程 ERROR 级，是 AI 排查前端白屏的第一入口。
+- 500MB 自动清理的检查点按写入字节计数（64KB），避免频繁 stat；上限可注入便于测试小值覆盖。
+
+---## 本轮质量节拍复盘 v2.3.41 (2026-07-08)
 
 ### ✅ 做得好的
 1. DI 容器重构 — 28 处 inline new 替换，main.js import 减少 50%
@@ -5557,6 +5720,108 @@ getAvailablePresets (category) {
 - **Stage 2（PRD）**：需要补充“历史多来源部分失败和超时”的可验收状态。
 - **Stage 5（TDD）**：已补两个 fake-timer RED→GREEN 回归和目录边界回归。
 - **Stage 6（评审）**：需要检查用户可见 loading 是否有终止条件、部分成功是否可见、以及持久化路径是否触发主进程同步 I/O。
+
+---
+
+## R90：Story2Video Provider 图片 URL 的 Node lookup 兼容合同（2026-08-02）
+
+当 Story2Video 对 provider 返回的 HTTPS 图片 URL 使用自定义 `lookup` 固定已经校验的 DNS 地址时，必须同时支持 Node 的两种 callback 契约：默认模式回调 `(null, address, family)`；若 `options.all === true`，回调 `(null, [{ address, family }])`。两种模式都只能返回同一个已校验公网地址，禁止为了兼容而回退到系统 DNS、跟随重定向或放宽私网/大小/协议限制。修改 `asset-generator.js`、Electron/Node 版本或 HTTPS 下载器时，至少运行 `asset-generator-provider.test.js` 中的单地址、`all=true`、DNS 重绑定、私网与超时用例，并在真实 provider 验收中确认图片资产标记为 `source: model-provider`、`degraded: false`。
+
+## Story2Video 重复错误提示与字符边界复盘（2026-08-02）
+
+- **根因**：CreateView 同时保存页面红条字符串和弹窗字符串，且直接透传 IPC/服务端错误；场景数限制被错误地当作文案输入上限。
+- **修复**：删除场景数量拒绝，统一在 renderer 与主进程使用 6,000 个 Unicode code point 文案边界；新增独立中英通知目录，视图只保存消息键与参数，并用应用内模态框显示友好文本。
+- **回归保护**：覆盖超限文案在 IPC 前拦截、主进程直接调用拒绝、模型未配置映射、未知技术错误不回显、CreateView 无重复红条、ResultView 无原始错误 banner。
+- **预防措施**：新增用户可见错误时，必须先定义稳定消息键和双语文案；Vue 测试同时断言弹窗可见与旧页面错误容器不存在。
+
+## Story2Video 图片轮播本地化后 GUI 旧合同逃逸复盘（2026-08-03）
+
+### 第一性原因
+
+PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧合同：以内部英文名 `Story2Video` 查找流水线并点击“启动编排”。产品已将 `story2video-compose` 本地化为“图片轮播”/`Image Carousel`，启动按钮统一为“启动流水线”，因此真实 GUI 在文案和动作定位上失败。
+
+### 测试逃逸链
+
+1. `PipelineBrowser.test.js`、`CreateView.test.js` 验证了组件渲染和启动 IPC，但没有执行真实 Browser GUI runner。
+2. Vue build 和像素视觉回归只覆盖编译、布局和截图，不覆盖 helper 的用户可见文案合同。
+3. 推送前聚焦测试只跑 Vitest，未把 `route-functional-suite.js` 的真实浏览器路径纳入提交前快速门禁。
+4. 审查没有逐项比对旧流水线名称、旧按钮文案和“优先显示”排序语义。
+5. 结果是旧合同直到远端 `gui-test` 才暴露，269/270 检查无法完成。
+
+### 系统性漏洞
+
+本地化 UI 的 E2E 缺少统一的稳定 ID、用户可见文案和排序断言合同；组件变更与 GUI helper 之间没有静态旧文案扫描或提交前联动测试。
+
+### 修复与回归保护
+
+- 在 `PipelineBrowser.vue` 和 `/create` 实际流水线卡片输出 `data-pipeline-id`，测试按受控 ID 精确定位。
+- E2E 同时断言首卡为 `story2video-compose`、卡片显示中文或英文本地化名称，并点击“启动流水线”；内部 IPC 名称 `pipelineStartOrchestrated` 保持不变。
+- 新增稳定选择器组件断言；`PipelineBrowser.test.js` 与 `CreateView.test.js` 聚焦回归 68/68 通过。
+
+### 预防措施
+
+1. 本地化 E2E 禁止依赖内部枚举文本，必须使用稳定 `data-*`/状态 class 加用户可见文案。
+2. “优先显示”类产品语义必须锁定首项 ID，不能只断言目标卡片存在。
+3. 修改 Vue 文案、按钮或流水线排序时，提交前必须运行受影响 Vitest、`npm run build:vue` 和 route functional GUI 合同；远端 `gui-test` 未通过不得合并。
+## Story2Video 图片轮播权限提示与调试 profile 复盘（2026-08-05）
+
+- **第一性原因**：`pipeline:startOrchestrated` 的受保护 IPC 返回 `AUTH_ERROR=-3` 时，CreateView 丢弃 `res.code`，Story2Video 通知层又没有许可证/登录拒绝映射，导致用户看到泛化失败提示。
+- **修复**：CreateView 在启动、轮询和检查点推进失败路径保留 IPC code；通知目录新增 `story2video.access_denied`，识别 `-3` 与许可证/权益拒绝文本，默认中文明确提示登录并确认账号权益，英文同步提供。
+- **回归保护**：通知单元测试先 RED 后 GREEN；CreateView 输入 `1` 的权限拒绝组件用例覆盖弹窗键；普通失败和模型未配置映射保持原合同。
+- **调试 profile**：开发脚本已支持 `ELECTRON_USER_DATA_DIR`；使用仓库外固定目录可复用同机 DPAPI/Cookie/Local Storage，但目录存在不能证明身份仍有效，必须检查 `identity:get-state`。远程部署使用独立 userData，交付前清理本地 profile。
+- **外部边界**：本地测试不等价于真实 Logto 会话、真实供应商 API 或远程部署验收。
+- CCG task archive metadata must be marked `completed` after closeout and archived with its Bug Reflection, test evidence, and PRD/Review Checklist records; changing only task JSON also triggers the documentation sync gate.
+
+## Story2Video 长文案多场景限流 Bug 复盘（2026-08-06）
+
+- **第一性原因**：约 1,400+ 字长文案拆分出 20+ 场景，「提示词优化」按并发 3 调用默认 LLM 时触发 MiniMax 免费额度限流（429，`You've reached the API rate limit for free users`）。逐场景重试退避只有 0.8s/1.6s，远短于限流窗口；单场景最终失败使整条流水线 failed，前端再吞成通用「当前操作未能完成」。真实复现（Playwright Electron + 登录 profile）：`optimize scene 22 failed: ... rate limit ...`，`currentStage=2`、`progress=33%`。
+- **逃逸链**：单元测试只用 5-6 场景的短文案 mock，从未覆盖 20+ 场景的 provider 真实限流；e2e 无长文案 + 真实 MiniMax 免费额度用例；错误映射测试只覆盖已知 key，未覆盖 rate-limit 原始文案。
+- **系统性漏洞**：provider 瞬时错误（限流/超时/网络）在 optimize 只有短退避重试、在图片/TTS 侧完全无重试；`runContentPolicyImageRetry` 对 429 明确不重试（正确，但缺外层瞬态重试层）；前端 `resolveMessageKey` 无限流映射，一律回退 OPERATION_FAILED。
+- **修复**：`story2video-stages.js` 新增 `withTransientRetry`/`withAssetTransientRetry`——限流 2500ms×attempt 最多 4 次，超时/网络 800ms×attempt 最多 3 次，非瞬时立即失败；限流不进入内容政策改写循环。前端新增 `story2video.rate_limited` 本地化文案并提取场景号（如「第 22 个场景」）。
+- **回归保护**：fake timers 覆盖限流恢复/上限、非瞬时即败、TTS/图片限流重试；通知映射断言友好文案且不泄漏 request id。176 项相关测试通过。
+- **预防措施**：长文案（>10 场景）必须作为 provider 限流回归基线；所有 provider 调用统一走「限流→长退避、瞬时→短退避、非瞬时→即败」的有界重试层；错误映射必须覆盖 provider 原始限流文案并给出本地化提示。
+- **运行中退回列表/空白页真相**：非流水线逻辑 Bug——无任何「运行中自动返回列表」代码路径（`selectedPipeline` 仅卡片点击、返回按钮、resume 逻辑三处赋值）。现象 = 渲染进程重挂载/整页 reload（dev 下编辑 CreateView.vue 触发 Vite HMR 全量 reload 即复现），流水线本体在主进程继续跑。已用 `CreateView.resumeRunningOrchestration()`（挂载时探测主进程 running 的 orchestrator 并恢复选中与轮询）加固；生产环境无 HMR，此现象主要出现在 dev 调试。
+
+## API 并发控制/排队/重试 + 断点恢复实现复盘（2026-08-06）
+
+- **统一网关**：`ApiUsageGovernor` 挂在 `AIGenerator.generate()` 唯一出口，覆盖 llm/TTS/image/video/audio 全部 provider 调用；每 provider 并发信号量 + 滑动窗口 RPM + 429 冷却 + 分级重试 + 可选 token 额度窗口（5h/周）。额度错误（402/QUOTA_EXCEEDED/余额·配额文案）不重试、立即给出明确原因；限流 429 冷却退避重试并自适应下调 RPM 预算。
+- **断点恢复**：编排流水线失败时由 `RunStateStore` 原子写 `userData/run-state/<runId>.json`；`pipeline:resumeOrchestration` 从内存 history 或磁盘快照重建运行并从失败阶段继续；`optimize_resume` / `generate_assets.resume.completed` 实现场景级续传，不重复消耗额度；内容政策失败禁止原样恢复。
+- **踩坑**：内存 history 条目字段是 `id`、磁盘快照是 `runId`，恢复逻辑必须两者兼容；fake timers 下 reject 型断言要先把 `expect(promise).rejects` 挂上再推进时间，否则被判定为 unhandled rejection；RPM 下限 `max(2,…)` 使 rpm=1 的测试失真，测试需用 rpm=2 + 三个请求验证排队。
+- **CI 教训**：`electron-tests`（self-hosted linux runner）会因卡死的旧运行阻塞整个队列，需 `gh run cancel` 卡死运行并取消过期 head 的排队任务；Gate 4 的 `credential-store` 锁测试（10s 上限）在并行 runner 下偶发超时，与业务改动无关；electron-tests 的 checkout 阶段偶发 github.com 连接超时，属于基础设施波动，重跑即可。
+
+## 流水线进度细化与信息视觉化实现复盘（2026-08-06）
+
+- **实时进度来源**：优化阶段每场景完成后写 `context.optimize_progress = { done, total }`；资源生成阶段图片/TTS 各自完成即写 `context.assets_progress`（含断点续传复用场景计数）。context 与 run.context 同引用，3s 轮询即可读到实时值，无需新增 IPC。
+- **阶段耗时**：主进程 `_advanceRun` 已为每阶段写 `startedAt`，渲染层加 1s 本地时钟（`stageClockTick`）刷新 running 阶段耗时，不依赖轮询频率。
+- **完成汇总**：快照 `endedAt-createdAt` + `outputSizeBytes`（主进程对成片 stat，仅 completed 且成片存在时返回）；CreateView 完成后把 `durationMs/sizeBytes` 放进路由 query 透传给 ResultView 展示；项目持久化也写入 `outputSizeBytes`。
+- **踩坑**：fastctx replace 的 replacement 中 `$` 需转义为 `$`（模板字符串中的插值会被误判为捕获组）；阶段详情只在 completed/running 阶段显示（pending 不显示进度），组件测试需把目标阶段设为 running 才能断言；ResultView 测试需显式置 `loading=false` 才能渲染视频区。
+
+## 图片轮播选项持久化实现复盘（2026-08-06）
+
+- **存储**：复用主进程 owner-scoped `store:set-setting/get-setting`（settings-store `setUserSetting/getUserSetting`，key 带 `user:<sha256(owner)>:` 前缀），键 `story2video.lastOptions.v1`；渲染层已有 `storeGetSetting/storeSetSetting` 封装，无需新增 IPC。
+- **保存/恢复**：s2vConfig + s2vOutputConfig 快照；1s 防抖 watch 自动保存 + 启动流水线立即保存 + beforeUnmount flush；进入页面 provider 加载完成后恢复（`restoreS2VLastOptions`），类型守卫合并，已禁用 provider 的 voice/image 不回填，恢复后重拉语音目录校正音色。
+- **重置**：`resetS2VLastOptions` 用组件初始 data() 工厂函数取初始默认，重置后清空已存快照；启动按钮旁新增「恢复默认选项」链接。
+- **踩坑**：vitest `beforeEach` 只 `clearAllMocks` 不清实现，restore 用例的 `storeGetSetting.mockResolvedValue` 会泄漏到下个用例导致恢复竞态，用例间需 `mockReset()` 或显式 `mockResolvedValue(null)`；mounted 里异步 restore 与用例手动操作可能交错。
+
+## 视频创作全流水线 E2E 真实测试复盘（2026-08-06）
+
+- **结果**：12 条已实现流水线全部真实跑通或按预期缺模型——8 条 ✅（story2video-compose/animated-explainer/documentary-montage/framework-smoke/talking-head/cinematic/clip-factory/localization-dub），4 条 ⏭ 缺视频生成模型（animation/avatar-spokesperson/character-animation/hybrid，`VIDEO_MODEL_NOT_CONFIGURED`）。完整矩阵见 `01-docs/STORY2VIDEO-E2E-REPORT.md`。
+- **E2E 发现并修复**：① governor 限流排队不足——原 `_pace` 窗口等待超 30s 直接抛错，14 场景 TTS 第 11 段起失败；改为按时间槽调度（并发同步预约槽位，上限 180s），documentary 修复。② videogen storyboard/generate 读取固定 `context.concept/storyboard`，与 character-animation（character_design/rigging）、hybrid（plan/generate）实际阶段名不符；新增 `resolveVideogenConcept/resolveVideogenScenes` 候选键解析。
+- **驱动要点**：E2E 用 Playwright Electron + 直连 IPC（与 UI 同款参数，含真实 provider）；媒体流水线的输入视频必须落在允许媒体根目录（`os.tmpdir()/story2video`）否则被拒；videogen 流水线需要 `params.text` 主题；`pipelineStartOrchestrated` 不带 `autoAdvance:true` 时运行停在首阶段（曾误判 framework-smoke 卡死）。
+
+## 图片轮播参数表单 UE 优化实施复盘（2026-08-06）
+
+- **已具备**：6 组 `<details>` 折叠（基础/画面/声音/高级/发布）与 `s2vSectionSummary` 摘要在上轮已落地；本轮补齐：折叠状态持久化（`lastOptions.ui.expandedGroups`）、保存/恢复轻提示（`s2vOptionsToast`，1.6s 淡出）、操作栏 sticky（bottom）、音色克隆面板内层折叠（`s2vCloneOpen`）。
+- **交互细节**：保存提示仅在防抖落盘后出现，避免输入过程闪烁；恢复提示在 provider 校验与语音目录重拉之后显示；折叠恢复只接受已知组名数组，非法值回退默认。
+- **测试**：CreateView 用例覆盖折叠状态保存/恢复与提示文案，72 项通过；`vite build` 模板编译通过。
+- **经验**：UE 改动优先用 CSS + `<details>`/`<template v-if>` 包裹而非重排表单 DOM，回归风险低；sticky 元素需显式 `background` 防内容透叠。
+
+## 音色克隆区域「函数文本 + 误导性报错」Bug 复盘（2026-08-06）
+
+- **第一性原因**：① `s2vVoiceCloneHint` 是 methods 里的函数，模板却用 `{{ s2vVoiceCloneHint }}` 无括号插值，Vue 直接渲染出 `function () { [native code] }`；② 克隆链路错误码 `VOICE_CLONE_SAMPLE_DURATION_INVALID / SAMPLE_EXTENSION_UNSUPPORTED / SAMPLE_TOO_LARGE / SELECTION_UNAVAILABLE / UNAVAILABLE / DIALOG_UNAVAILABLE / MODEL_MISMATCH / REGISTRY_INVALID / ROLLBACK_REQUIRED / UNSUPPORTED / NOT_FOUND` 等未进 `friendlyVoiceCatalogError` 映射，落入「无法加载音色列表，已使用默认音色」的误导性兜底。
+- **修复**：模板改 `{{ s2vVoiceCloneHint() }}`；补全 19 个克隆错误码映射（中英文友好文案）；按钮改「选择本地音频文件」。
+- **回归保护**：CreateView 单测覆盖提示文案、错误映射与「不渲染函数文本」断言（73 项通过）；Playwright 探针（C:\tmp\clone-probe.js）验证面板文本。
+- **预防**：模板插值只用于值/计算属性，方法必须 `()` 调用；provider 错误码清单要全局核对渲染端映射表（service 共 19 个 VOICE_CLONE_* 码）。
 
 ---
 

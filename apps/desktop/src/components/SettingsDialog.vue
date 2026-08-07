@@ -22,6 +22,7 @@
       <!-- 右侧内容区 -->
       <div class="settings-panel">
         <ModelProviders v-if="activeTab === 'model'" />
+        <LogsSettings v-else-if="activeTab === 'general'" />
         <div v-else class="placeholder-panel">
           <div class="placeholder-icon">🚧</div>
           <p>该功能正在开发中，敬请期待</p>
@@ -35,6 +36,7 @@
 import { ref } from 'vue'
 import UiModal from './UiModal.vue'
 import ModelProviders from '@/views/ModelProviders.vue'
+import LogsSettings from './LogsSettings.vue'
 
 defineProps({
   visible: { type: Boolean, default: false },
@@ -44,7 +46,7 @@ defineEmits(['close'])
 const activeTab = ref('model')
 const tabs = [
   { key: 'model', label: '模型设置', disabled: false },
-  { key: 'general', label: '通用设置', disabled: true },
+  { key: 'general', label: '通用设置', disabled: false },
   { key: 'publish', label: '发布设置', disabled: true },
   { key: 'account', label: '账号设置', disabled: true },
 ]

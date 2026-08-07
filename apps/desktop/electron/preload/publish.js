@@ -13,7 +13,7 @@
  *   - 流水线（对象）：pipelines.list / pipelines.get
  *   - 内容情报：intelligenceSuggestTags / intelligenceGetOptimalTime
  *   - 队列：getQueueStatus / getQueueHistory / cancelTask / retryTask
- *   - 历史：historyList / historyGet
+ *   - 历史：historyList / historyGet / historyDelete
  *   - 仪表盘：dashboardStats
  *   - 定时发布：schedulerCreate / schedulerList / schedulerCancel
  *   - 进度监听：onProgress
@@ -93,6 +93,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     // 发布历史 API
     historyList: (opts) => ipcRenderer.invoke('history:list', opts),
     historyGet: (id) => ipcRenderer.invoke('history:get', id),
+    historyDelete: (ids) => ipcRenderer.invoke('history:delete', { ids: Array.isArray(ids) ? ids : [ids] }),
 
     // 发布统计 API
     dashboardStats: () => ipcRenderer.invoke('dashboard:stats'),
@@ -122,6 +123,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     pipelineFetch: (name) => ipcRenderer.invoke('pipeline:fetch', name),
     // 编排模式 API（story2video-compose）
     pipelineStartOrchestrated: (name, params) => ipcRenderer.invoke('pipeline:startOrchestrated', name, params),
+    pipelineResumeOrchestration: (runId) => ipcRenderer.invoke('pipeline:resumeOrchestration', runId),
     pipelineExecuteStage: (runId) => ipcRenderer.invoke('pipeline:executeStage', runId),
     pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer.invoke('pipeline:advanceToNextCheckpoint', runId),
     pipelineGetRunContext: (runId) => ipcRenderer.invoke('pipeline:getRunContext', runId),
@@ -136,6 +138,13 @@ function createPublishApi(ipcRenderer, options = {}) {
       }
       if (!filePath) return Promise.resolve({ code: -1, message: '无法读取媒体文件路径' })
       return ipcRenderer.invoke('story2video:import-media', { filePath, kind })
+    },
+    // File 对象跨 contextBridge 后可能丢失路径；renderer 先经 getPathForFile
+    // 解析真实路径，再走基于路径的导入，避免 webUtils.getPathForFile 拿不到文件。
+    story2videoImportMediaPath: (filePath, kind) => {
+      const normalized = String(filePath || '').trim()
+      if (!normalized) return Promise.resolve({ code: -1, message: '无法读取媒体文件路径' })
+      return ipcRenderer.invoke('story2video:import-media', { filePath: normalized, kind })
     },
     story2videoExportZip: (files, destinationPath) => ipcRenderer.invoke('story2video:export-zip', { files, destinationPath }),
     story2videoCreateShareUrl: (filePath) => ipcRenderer.invoke('story2video:create-share-url', filePath),

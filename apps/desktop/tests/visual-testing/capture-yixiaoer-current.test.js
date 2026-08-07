@@ -23,6 +23,13 @@ describe('蚁小二当前界面截图合同', () => {
     ])
   })
 
+  it('截图就绪选择器锁定当前蚁小二工作区壳层', () => {
+    const accounts = CAPTURE_SCENARIOS.find(item => item.name === 'accounts')
+    const publish = CAPTURE_SCENARIOS.find(item => item.name === 'publish')
+    expect(accounts.readySelector).toContain('.yixiaoer-workspace')
+    expect(publish.readySelector).toContain('.yixiaoer-workspace')
+    expect(publish.readySelector).toContain('发布记录')
+  })
   it('桌面截图沿用 manifest 文件名，移动端使用独立后缀', () => {
     expect(screenshotName('accounts', VIEWPORTS[0])).toBe('accounts.png')
     expect(screenshotName('accounts', VIEWPORTS[1])).toBe('accounts-mobile.png')

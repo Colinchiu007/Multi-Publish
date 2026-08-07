@@ -227,3 +227,92 @@ describe('CreateHistory', () => {
     expect(w.vm.renderLoading).toBe(false)
   })
 })
+
+  // ─── 后台运行中任务：显示 + 轮询刷新 ───
+  it('流水线记录含运行中任务时显示状态并轮询刷新，结束后停止轮询', async () => {
+    vi.useFakeTimers()
+    const runningData = { code: 0, data: [{
+      id: 'run-live-1',
+      name: 'story2video-compose',
+      pipelineName: 'story2video-compose',
+      status: 'running',
+      createdAt: '2026-08-07T00:00:00.000Z',
+      stages: [{ name: 'split', status: 'completed' }, { name: 'optimize', status: 'running' }],
+    }] }
+    pipelineHistoryMock.mockResolvedValue(runningData)
+    const w = mount(CreateHistory, { global: { stubs: { UiButton: true }, mocks: { $router: { push: pushSpy } } } })
+    await nextTick()
+    await w.findAll('.tab')[1].trigger('click')
+    await vi.advanceTimersByTimeAsync(0)
+    await nextTick()
+
+    expect(w.vm.pipelines.length).toBe(1)
+    expect(w.text()).toContain('运行中')
+    expect(w.text()).toContain('返回创作页查看进度')
+    expect(w.vm.pipelinePollTimer).not.toBeNull()
+
+    // 轮询触发再次加载
+    const callsAfterLoad = pipelineHistoryMock.mock.calls.length
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(pipelineHistoryMock.mock.calls.length).toBeGreaterThan(callsAfterLoad)
+
+    // 任务结束后停止轮询
+    pipelineHistoryMock.mockResolvedValue({ code: 0, data: [] })
+    await vi.advanceTimersByTimeAsync(5000)
+    await nextTick()
+    expect(w.vm.pipelinePollTimer).toBeNull()
+
+    w.unmount()
+    vi.useRealTimers()
+  })
+
+  it('点击运行中卡片跳回创作页', async () => {
+    pipelineHistoryMock.mockResolvedValue({ code: 0, data: [{
+      id: 'run-live-2', name: 'story2video-compose', pipelineName: 'story2video-compose', status: 'running', stages: [],
+    }] })
+    const w = mount(CreateHistory, { global: { stubs: { UiButton: true }, mocks: { $router: { push: pushSpy } } } })
+    await nextTick()
+    await w.findAll('.tab')[1].trigger('click')
+    await new Promise(r => setTimeout(r, 0))
+    await nextTick()
+    await w.findAll('.pipeline-card')[0].trigger('click')
+    expect(pushSpy).toHaveBeenCalledWith('/create')
+    w.unmount()
+  })
+
+  it('存在运行中流水线时进入页面自动切到流水线记录并显示运行中卡片', async () => {
+    pipelineHistoryMock.mockResolvedValue({ code: 0, data: [{
+      id: 'run-auto-1', name: 'story2video-compose', pipelineName: 'story2video-compose', status: 'running',
+      createdAt: '2026-08-07T00:00:00.000Z',
+      stages: [{ name: 'split', status: 'completed' }, { name: 'optimize', status: 'running' }],
+    }] })
+    const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })
+    await nextTick()
+    await new Promise(r => setTimeout(r, 0))
+    await nextTick()
+    // 自动切到流水线记录，运行中卡片直接可见
+    expect(w.vm.tab).toBe('pipelines')
+    expect(w.vm.runningPipelineCount).toBe(1)
+    expect(w.text()).toContain('运行中')
+    expect(w.text()).toContain('返回创作页查看进度')
+    w.unmount()
+  })
+
+  it('渲染记录 tab 在存在运行中流水线时显示提示横幅，点击横幅切到流水线记录', async () => {
+    pipelineHistoryMock.mockResolvedValue({ code: 0, data: [{
+      id: 'run-banner-1', name: 'story2video-compose', pipelineName: 'story2video-compose', status: 'running',
+      createdAt: '2026-08-07T00:00:00.000Z', stages: [],
+    }] })
+    const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })
+    await nextTick()
+    await new Promise(r => setTimeout(r, 0))
+    await nextTick()
+    // 切回渲染记录 tab：应显示运行中横幅
+    await w.findAll('.tab')[0].trigger('click')
+    await nextTick()
+    expect(w.text()).toContain('条流水线正在后台运行')
+    await w.find('.running-banner').trigger('click')
+    await nextTick()
+    expect(w.vm.tab).toBe('pipelines')
+    w.unmount()
+  })

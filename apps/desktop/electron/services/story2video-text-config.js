@@ -11,7 +11,7 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
   size: '720x1280',
   contentType: 'general',
   split: Object.freeze({
-    language: 'zh',
+    language: 'auto',
     mode: 'balanced',
     maxSentenceLength: 200,
     targetSeconds: 6,
@@ -86,7 +86,7 @@ const LANGUAGES = new Set(['auto', 'zh', 'en'])
 const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
 const OUTPUT_FORMATS = new Set(['mp4', 'webm'])
 const CONTENT_TYPES = new Set(['general', 'history'])
-const CHECKPOINT_POLICIES = new Set(['guided', 'manual_all', 'auto_noncreative'])
+const CHECKPOINT_POLICIES = new Set(['guided', 'manual_all', 'auto_noncreative', 'none'])
 const STORY2VIDEO_PROMPT_STYLES = new Set([
   'realistic', 'cartoon', 'anime', 'oil_painting', 'watercolor', 'pixel',
   'cyberpunk', 'fantasy', 'photography', '3d_render', 'minimalist', 'abstract',
@@ -97,13 +97,15 @@ const STORY2VIDEO_PROMPT_STYLE_ALIASES = Object.freeze({
   '3d-render': '3d_render',
 })
 const ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4'])
+const MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 6000
+const STORY2VIDEO_TEXT_TOO_LONG_ERROR_CODE = 'story2video.text_too_long'
 const SENSITIVE_CONTEXT_KEYS = new Set([
   'api_key', 'access_token', 'refresh_token', 'auth_token', 'bearer_token', 'token',
   'secret', 'secret_key', 'client_secret', 'app_secret', 'password', 'authorization',
   'credential', 'credentials', 'private_key',
 ])
 const SUBTITLE_SIZE_MAP = Object.freeze({
-  size1: 'sm', size2: 'sm', size3: 'md', size4: 'xl', size5: 'xl', size6: 'xl',
+  size1: 'size1', size2: 'size2', size3: 'size3', size4: 'size4', size5: 'size5', size6: 'size6',
   sm: 'sm', md: 'md', lg: 'lg', xl: 'xl',
 })
 
@@ -117,6 +119,18 @@ function own(source, key) {
 
 function firstDefined(...values) {
   return values.find(value => value !== undefined && value !== null)
+}
+
+function countStory2VideoTextCharacters(value) {
+  return Array.from(String(value || '')).length
+}
+
+function story2VideoTextTooLongError() {
+  /** @type {Error & { code?: string, params?: { max: number } }} */
+  const error = new Error('Story2Video 文案最多 ' + MAX_STORY2VIDEO_TEXT_UNICODE_CHARS + ' 个 Unicode 字符')
+  error.code = STORY2VIDEO_TEXT_TOO_LONG_ERROR_CODE
+  error.params = { max: MAX_STORY2VIDEO_TEXT_UNICODE_CHARS }
+  return error
 }
 
 function textValue(value, fallback, field, maxLength = 20000) {
@@ -207,16 +221,21 @@ function normalizeSize(value) {
 function deriveAspectRatio(size) {
   const [width, height] = size.split('x').map(Number)
   if (width === height) return '1:1'
-  if (width * 16 === height * 9) return '16:9'
-  if (width * 9 === height * 16) return '9:16'
-  if (width * 4 === height * 3) return '4:3'
-  if (width * 3 === height * 4) return '3:4'
+  if (width * 9 === height * 16) return '16:9'
+  if (width * 16 === height * 9) return '9:16'
+  if (width * 3 === height * 4) return '4:3'
+  if (width * 4 === height * 3) return '3:4'
   return `${width}:${height}`
 }
 
 function normalizeAspectRatio(value, size) {
-  const ratio = textValue(value, deriveAspectRatio(size), 'image.aspectRatio', 32).trim()
-  return enumValue(ratio, deriveAspectRatio(size), 'image.aspectRatio', ASPECT_RATIOS)
+  const derivedRatio = deriveAspectRatio(size)
+  const ratio = textValue(value, derivedRatio, 'image.aspectRatio', 32).trim()
+  const normalizedRatio = enumValue(ratio, derivedRatio, 'image.aspectRatio', ASPECT_RATIOS)
+  if (normalizedRatio !== derivedRatio) {
+    throw new Error('Story2Video image.aspectRatio 必须与输出分辨率匹配')
+  }
+  return derivedRatio
 }
 
 function normalizeSubtitleSize(value) {
@@ -252,7 +271,14 @@ function normalizeStory2VideoTextParams(params = {}) {
   }
 
   const suppliedPrompt = own(suppliedConfig, 'prompt')
-  const text = textValue(firstDefined(params.text, suppliedPrompt), '', 'text').trim()
+  const suppliedText = firstDefined(params.text, suppliedPrompt)
+  if (countStory2VideoTextCharacters(String(suppliedText || '').trim()) > MAX_STORY2VIDEO_TEXT_UNICODE_CHARS) {
+    throw story2VideoTextTooLongError()
+  }
+  if (suppliedPrompt !== undefined && suppliedPrompt !== null && countStory2VideoTextCharacters(String(suppliedPrompt).trim()) > MAX_STORY2VIDEO_TEXT_UNICODE_CHARS) {
+    throw story2VideoTextTooLongError()
+  }
+  const text = textValue(suppliedText, '', 'text').trim()
   if (!text) throw new Error('Story2Video 文案不能为空')
   const prompt = suppliedPrompt === undefined || suppliedPrompt === null || String(suppliedPrompt).trim() === ''
     ? text
@@ -271,7 +297,7 @@ function normalizeStory2VideoTextParams(params = {}) {
   const publishInput = objectValue(suppliedConfig.publish)
 
   const split = {
-    language: enumValue(firstDefined(own(splitInput, 'language'), params.language), 'zh', 'split.language', LANGUAGES),
+    language: enumValue(firstDefined(own(splitInput, 'language'), params.language), DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.language, 'split.language', LANGUAGES),
     mode: enumValue(firstDefined(own(splitInput, 'mode'), params.splitMode), 'balanced', 'split.mode', SPLIT_MODES),
     maxSentenceLength: numberValue(own(splitInput, 'maxSentenceLength'), 200, 'split.maxSentenceLength', 20, 1000, true),
     targetSeconds: numberValue(own(splitInput, 'targetSeconds'), 6, 'split.targetSeconds', 1, 60),
@@ -465,6 +491,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     initialContext: params.initialContext,
     context: params.context,
     autoAdvance: params.autoAdvance === true,
+    background: params.background === true,
     checkpointPolicy: enumValue(params.checkpointPolicy, 'guided', 'checkpointPolicy', CHECKPOINT_POLICIES),
     mode: 'text',
     inputMode: 'text',
@@ -520,5 +547,7 @@ module.exports = {
   DEFAULT_STORY2VIDEO_TEXT_CONFIG,
   STORY2VIDEO_PIPELINE,
   STORY2VIDEO_TEXT_CONFIG_VERSION,
+  MAX_STORY2VIDEO_TEXT_UNICODE_CHARS,
+  countStory2VideoTextCharacters,
   normalizeStory2VideoTextParams,
 }

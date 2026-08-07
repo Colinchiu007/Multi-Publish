@@ -89,7 +89,7 @@ describe('视觉测试条件等待合同', () => {
     expect(page.goto).toHaveBeenCalledOnce();
     expect(page.waitForFunction).toHaveBeenCalledOnce();
     expect(page.waitForSelector).toHaveBeenCalledWith(
-      '.cohere-main .page-title:has-text("账号管理")',
+      '.yixiaoer-workspace .accounts-page',
       { state: 'visible', timeout: 10000 },
     );
   });

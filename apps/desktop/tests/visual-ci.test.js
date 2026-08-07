@@ -379,3 +379,10 @@ describe('visual-ci 像素门禁', () => {
     }
   })
 })
+
+describe('视觉门禁路由选择器', () => {
+  it('账号页使用稳定的页面容器而不是隐藏标题选择器', () => {
+    const accountsTest = pixelTests.find((test) => test.name === 'accounts-list')
+    expect(accountsTest?.waitFor).toBe('.yixiaoer-workspace .accounts-page')
+  })
+})

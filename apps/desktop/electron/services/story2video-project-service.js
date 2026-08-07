@@ -21,6 +21,8 @@ const {
 
 const SETTING_KEY = 'story2video_projects_v1'
 const MAX_PROJECTS = 100
+// 具备真实编排产物（compose/export/render/report 输出）并需要项目持久化的流水线
+const AUTO_PIPELINES = ['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
 const MAX_VIDEO_BYTES = 512 * 1024 * 1024
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,100}$/
 
@@ -89,8 +91,19 @@ function providerBaseUrl (provider) {
 }
 
 function resolveComposeOutput (context) {
-  const raw = context && (context.compose?.data || context.compose)
-  return raw && typeof raw === 'object' ? raw : null
+  if (!context) return null
+  const composeRaw = context.compose?.data || context.compose
+  if (composeRaw && typeof composeRaw === 'object' && (composeRaw.videoPath || composeRaw.path)) return composeRaw
+  // clip-factory 等流水线的导出输出位于 context.export
+  const exportRaw = context.export?.data || context.export
+  if (exportRaw && typeof exportRaw === 'object' && (exportRaw.videoPath || exportRaw.path)) return exportRaw
+  // cinematic 等流水线的最终输出位于 context.render
+  const renderRaw = context.render?.data || context.render
+  if (renderRaw && typeof renderRaw === 'object' && (renderRaw.videoPath || renderRaw.path)) return renderRaw
+  // framework-smoke 等流水线的输出位于 context.report
+  const reportRaw = context.report?.data || context.report
+  if (reportRaw && typeof reportRaw === 'object' && (reportRaw.videoPath || reportRaw.path)) return reportRaw
+  return null
 }
 
 function copyFileAtomic (source, destination) {
@@ -357,19 +370,22 @@ class Story2VideoProjectService {
   }
 
   saveRun (run) {
-    if (!run || run.pipeline !== 'story2video-compose') return null
+    if (!run || !AUTO_PIPELINES.includes(run.pipeline)) return null
     const compose = resolveComposeOutput(run.context)
     if (!compose || !(compose.videoPath || compose.path)) return null
     const projectId = this._assertId(String(run.id || ''))
-    const artifacts = this._persistComposeArtifacts(projectId, compose, run.context?.generate_assets?.scenes || [])
+    const scenes = run.context?.generate_assets?.scenes || run.context?.assets?.scenes || []
+    const artifacts = this._persistComposeArtifacts(projectId, compose, scenes)
     const options = this._safeOptions(run.params, projectId)
-    const story2videoTextConfig = this._persistTextConfig(run.params, projectId, options)
+    const story2videoTextConfig = run.pipeline === 'story2video-compose'
+      ? this._persistTextConfig(run.params, projectId, options)
+      : null
     const sourceText = safeText(run.params?.text || story2videoTextConfig?.config?.prompt, 100000)
     const now = new Date().toISOString()
     const project = {
       manifestVersion: 2,
       projectId,
-      pipeline: 'story2video-compose',
+      pipeline: run.pipeline,
       status: run.status || 'completed',
       title: safeText(run.params?.title || story2videoTextConfig?.config?.publish?.title || sourceText, 160),
       sourceText,
@@ -377,6 +393,12 @@ class Story2VideoProjectService {
       updatedAt: now,
       endedAt: run.endedAt || now,
       duration: Number.isFinite(Number(compose.duration)) ? Number(compose.duration) : null,
+      outputSizeBytes: (() => {
+        try {
+          const stat = fs.statSync(artifacts.videoPath)
+          return Number.isFinite(stat.size) ? stat.size : null
+        } catch { return null }
+      })(),
       format: compose.format || sourceExtension(artifacts.videoPath, '.mp4').slice(1),
       videoPath: artifacts.videoPath,
       audioPath: artifacts.audioPath,

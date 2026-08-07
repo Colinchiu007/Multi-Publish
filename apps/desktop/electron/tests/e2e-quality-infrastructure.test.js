@@ -291,7 +291,7 @@ describe('路由通用扫描', () => {
       { waitUntil: 'domcontentloaded', timeout: 20000 },
     )
     expect(runner.page.reload).not.toHaveBeenCalled()
-    expect(runner.waitForAppReady).toHaveBeenCalledWith('/create', 10000)
+    expect(runner.waitForAppReady).toHaveBeenCalledWith('/create', 15000)
   })
 
   it('重置路由允许特定用例收紧或放宽就绪超时', async () => {

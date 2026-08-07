@@ -16,6 +16,7 @@ const { FunctionalRunner } = require('./functional-runner');
 
 const SUITE_OPTIONS = { initPro: true };
 const CONDITION_TIMEOUT = 5000;
+const FEATURE_READY_TIMEOUT = 15000;
 
 function record(r, name, passed, details) {
   r.checks.push({ kind: 'integration', name, passed: Boolean(passed), details: details || null });
@@ -107,6 +108,55 @@ async function fillByPlaceholder(r, placeholder, value) {
   return true;
 }
 
+async function waitForPublishReady(r, timeout = FEATURE_READY_TIMEOUT) {
+  const selectors = [
+    '[data-testid="publish-title"] input',
+    '[data-testid="publish-editor"]',
+    '[data-testid="publish-target-selector"]',
+    '[data-testid="publish-submit"]',
+  ];
+  return waitForPageCondition(r, (expectedSelectors) => expectedSelectors.every((selector) => {
+    const element = document.querySelector(selector);
+    return element && element.getClientRects().length > 0;
+  }), selectors, timeout);
+}
+
+async function fillPublishTitle(r, value) {
+  const locator = r.page.locator('[data-testid="publish-title"] input').first();
+  if (!(await waitForVisible(locator, FEATURE_READY_TIMEOUT))) return false;
+  await locator.fill(value);
+  return true;
+}
+
+async function fillPublishContent(r, value) {
+  const markdown = r.page.locator('[data-testid="publish-editor"] textarea.md-editor').first();
+  const richText = r.page.locator('[data-testid="publish-editor"] .ql-editor[contenteditable="true"]').first();
+  const mdSwitch = r.page.locator('[data-testid="publish-editor"] button:has-text("Markdown")').first();
+  if (await waitForVisible(mdSwitch, FEATURE_READY_TIMEOUT)) await mdSwitch.click({ force: true });
+  if (await waitForVisible(markdown, FEATURE_READY_TIMEOUT)) {
+    await markdown.fill(value);
+    return true;
+  }
+  if (await waitForVisible(richText, FEATURE_READY_TIMEOUT)) {
+    await richText.fill(value);
+    return true;
+  }
+  return false;
+}
+
+async function ipcCounts(r, methods) {
+  const names = Array.isArray(methods) ? methods : [methods];
+  const counts = await Promise.all(names.map(async (method) => [method, await r.getIpcCalls(method)]));
+  return Object.fromEntries(counts);
+}
+
+async function waitForIpcIncrement(r, methods, baseline, timeout = FEATURE_READY_TIMEOUT) {
+  const names = Array.isArray(methods) ? methods : [methods];
+  return waitForPageCondition(r, (expected) => expected.names.some((method) => (
+    (window.__ipcCallsByMethod?.[method] || 0) > (expected.baseline[method] || 0)
+  )), { names, baseline }, timeout);
+}
+
 /**
  * Flow 1: 创建 → 发布 → 看板
  * 1. /create 生成一篇文章
@@ -136,37 +186,22 @@ async function flowCreateToDashboard(r) {
 
   // Step 3: 跳到 /publish
   await r.goto('/publish');
-  await waitForVisible(r.page.locator('.cohere-main input[placeholder*="文章标题"]').first());
-  record(r, 'Flow1.3 跳转到发布页', (await r.currentRoute()).startsWith('/publish'));
+  const publishReady = await waitForPublishReady(r);
+  record(r, 'Flow1.3 跳转到发布页', publishReady && (await r.currentRoute()).startsWith('/publish'));
 
   // Step 4: 选择平台、填内容
-  await fillByPlaceholder(r, '文章标题', 'E2E 集成发布标题');
+  const titleFilled = await fillPublishTitle(r, 'E2E 集成发布标题');
+  const contentFilled = await fillPublishContent(r, 'E2E 集成发布正文内容 — 测试 sample content for publishBatch IPC trigger');
 
-  // Step 4b: ArticleEditor 默认是 rich(Quill) 模式，先切到 markdown 然后填 <textarea>
-  const mdSwitch = r.page.locator('.cohere-main .article-editor button:has-text("Markdown")').first();
-  if (await waitForVisible(mdSwitch, 1000)) {
-    await mdSwitch.click({ force: true });
-  }
-  const mdArea = r.page.locator('.cohere-main .article-editor textarea.md-editor').first();
-  if (await waitForVisible(mdArea, 1000)) {
-    await mdArea.fill('E2E 集成发布正文内容 — 测试 sample content for publishBatch IPC trigger');
-  } else {
-    // rich 模式：往 .ql-editor 里写文本
-    const ql = r.page.locator('.cohere-main .article-editor .ql-editor').first();
-    if (await waitForVisible(ql, 1000)) {
-      await ql.fill('E2E 集成发布正文内容 — 测试 sample content for publishBatch IPC trigger');
-    }
-  }
-
-  const titleValue = await r.page.locator('.cohere-main input[placeholder*="文章标题"]').first().inputValue().catch(() => '');
+  const titleValue = await r.page.locator('[data-testid="publish-title"] input').first().inputValue().catch(() => '');
   let contentLen = 0;
-  const mdText = await r.page.locator('.cohere-main .article-editor textarea.md-editor').first().inputValue().catch(() => '');
+  const mdText = await r.page.locator('[data-testid="publish-editor"] textarea.md-editor').first().inputValue().catch(() => '');
   if (mdText.length > 0) contentLen = mdText.length;
   else {
-    const qlText = await r.page.locator('.cohere-main .article-editor .ql-editor').first().innerText().catch(() => '');
+    const qlText = await r.page.locator('[data-testid="publish-editor"] .ql-editor').first().innerText().catch(() => '');
     contentLen = (qlText || '').length;
   }
-  record(r, 'Flow1.4 发布表单填写完成', titleValue === 'E2E 集成发布标题' && contentLen > 0, { title: titleValue, contentLen });
+  record(r, 'Flow1.4 发布表单填写完成', titleFilled && contentFilled && titleValue === 'E2E 集成发布标题' && contentLen > 0, { title: titleValue, contentLen });
 
   // Step 5: 验证发布目标 + 按钮是否启用（enabled 意味着 selectedPlatforms.length > 0）
   const publishBtnState = await r.page.evaluate(() => {
@@ -192,21 +227,22 @@ async function flowCreateToDashboard(r) {
   record(r, 'Flow1.5 发布目标存在+有平台可发', (publishBtnState.found && !publishBtnState.disabled) || platformAreaHint.hint, { ...publishBtnState, hintText: platformAreaHint.textSnippet });
 
   // Step 6: 模拟发布
-  const publishClicked = await clickText(r, '一键发布');
+  const publishBaseline = await ipcCounts(r, ['publishBatch', 'publishWechat']);
+  const publishClicked = await clickText(r, '一键发布', { selector: '[data-testid="publish-submit"]', timeout: FEATURE_READY_TIMEOUT });
   record(r, 'Flow1.6 一键发布按钮可执行', publishClicked);
-  if (publishClicked) await waitForIpcCall(r, ['publishBatch', 'publishWechat']);
+  const publishIpcObserved = publishClicked && await waitForIpcIncrement(r, ['publishBatch', 'publishWechat'], publishBaseline);
   const batchCalls = await r.getIpcCalls('publishBatch');
   const wechatCalls = await r.getIpcCalls('publishWechat');
-  record(r, 'Flow1.7 publishBatch IPC 被调用', batchCalls + wechatCalls > 0, { publishBatch: batchCalls, publishWechat: wechatCalls });
+  record(r, 'Flow1.7 publishBatch IPC 被调用', Boolean(publishIpcObserved), { publishBatch: batchCalls, publishWechat: wechatCalls });
 
   // Step 7: 跳到 /dashboard
   await r.goto('/dashboard');
-  await waitForIpcCall(r, 'dashboardStats');
+  const dashboardIpcObserved = await waitForIpcCall(r, 'dashboardStats', FEATURE_READY_TIMEOUT);
   record(r, 'Flow1.8 跳转到看板', (await r.currentRoute()).startsWith('/dashboard'));
 
   // Step 8: 验证 dashboardStats IPC 被调用（说明已加载发布数据）
   const dashboardCalls = await r.getIpcCalls('dashboardStats');
-  record(r, 'Flow1.9 看板统计已加载', dashboardCalls > 0, { count: dashboardCalls });
+  record(r, 'Flow1.9 看板统计已加载', dashboardIpcObserved && dashboardCalls > 0, { count: dashboardCalls });
   record(r, 'Flow1.10 看板渲染数据卡片', await r.page.locator('.cohere-main .cohere-card').count() >= 2);
 }
 
@@ -223,14 +259,14 @@ async function flowAccountToPublish(r) {
 
   // Step 1: /accounts 添加账号
   await r.goto('/accounts');
-  await waitForVisible(r.page.locator('.account-row').first());
+  await waitForVisible(r.page.locator('.account-row, .account-card-grid > *').first(), FEATURE_READY_TIMEOUT);
   const initialAccounts = await r.page.locator('.account-row').count();
   record(r, 'Flow2.1 账号列表初始渲染', initialAccounts > 0, { count: initialAccounts });
 
-  const addClicked = await clickText(r, '添加账号');
+  const addClicked = await clickText(r, '添加账号', { selector: '[data-testid="account-add"]', timeout: FEATURE_READY_TIMEOUT });
   if (addClicked) {
     const modal = r.page.locator('.ui-modal, .el-dialog').first();
-    record(r, 'Flow2.2 添加账号弹窗打开', await waitForVisible(modal));
+    record(r, 'Flow2.2 添加账号弹窗打开', await waitForVisible(modal, FEATURE_READY_TIMEOUT));
     // 关闭弹窗
     const closeButton = r.page.locator('.ui-modal-close').first();
     if (await waitForVisible(closeButton, 1000)) await closeButton.click({ force: true });
@@ -242,7 +278,7 @@ async function flowAccountToPublish(r) {
 
   // Step 2: 跳回首页
   await r.goto('/');
-  await waitForVisible(r.page.locator('.platform-item, .cohere-platform-item').first());
+  await waitForVisible(r.page.locator('.platform-item, .cohere-platform-item').first(), FEATURE_READY_TIMEOUT);
   record(r, 'Flow2.4 跳回首页', (await r.currentRoute()) === '/' || (await r.currentRoute()) === '');
 
   // Step 3: 验证侧栏出现平台列表
@@ -251,11 +287,11 @@ async function flowAccountToPublish(r) {
 
   // Step 4: 跳到 /publish
   await r.goto('/publish');
-  await waitForVisible(r.page.locator('.cohere-main input[type="checkbox"]').first());
+  const publishReady = await waitForPublishReady(r);
 
   // Step 5: 验证平台可勾选
-  const platformCheckboxes = await r.page.locator('.cohere-main input[type="checkbox"]').count();
-  record(r, 'Flow2.6 发布页平台选项可勾选', platformCheckboxes > 0, { count: platformCheckboxes });
+  const platformCheckboxes = await r.page.locator('[data-testid="publish-target-selector"] input[data-testid^="platform-"]').count();
+  record(r, 'Flow2.6 发布页平台选项可勾选', publishReady && platformCheckboxes > 0, { count: platformCheckboxes });
 }
 
 /**
@@ -289,6 +325,7 @@ async function flowProviderToAI(r) {
 
   // Step 3: 跳到 /publish 并打开 AI 写作面板
   await r.goto('/publish');
+  await waitForPublishReady(r);
   const aiPanelOpened = await clickText(r, 'AI', { selector: '[data-testid="open-ai-writer"]' });
 
   // Step 4: 面板初始化必须真实查询模型服务商配置
@@ -362,13 +399,13 @@ async function flowSettingCascade(r) {
   await r.page.evaluate(() => window.__setOffline(true));
   await r.goto('/');
   await r.goto('/publish');
-  await fillByPlaceholder(r, '文章标题', 'E2E 离线缓存标题');
-  const mdSwitch = r.page.locator('.cohere-main .article-editor button:has-text("Markdown")').first();
-  if (await waitForVisible(mdSwitch, 1000)) await mdSwitch.click({ force: true });
-  const mdArea = r.page.locator('.cohere-main .article-editor textarea.md-editor').first();
-  if (await waitForVisible(mdArea, 1000)) await mdArea.fill('E2E 离线缓存正文');
-  const offlinePublishClicked = await clickText(r, '一键发布');
-  if (offlinePublishClicked) await waitForIpcCall(r, 'offlineAddToCache');
+  const offlineReady = await waitForPublishReady(r);
+  await r.page.waitForFunction(() => window.__mockState?.offline === true, { timeout: FEATURE_READY_TIMEOUT }).catch(() => {});
+  const offlineTitleFilled = await fillPublishTitle(r, 'E2E 离线缓存标题');
+  const offlineContentFilled = await fillPublishContent(r, 'E2E 离线缓存正文');
+  const offlineBaseline = await ipcCounts(r, 'offlineAddToCache');
+  const offlinePublishClicked = await clickText(r, '一键发布', { selector: '[data-testid="publish-submit"]', timeout: FEATURE_READY_TIMEOUT });
+  const offlineIpcObserved = offlinePublishClicked && await waitForIpcIncrement(r, 'offlineAddToCache', offlineBaseline);
   const offlineStatus = await r.page.evaluate(() => window.electronAPI.offlineStatus());
   const offlineCalls = await r.getIpcCalls('offlineStatus');
   const offlineCacheCalls = await r.getIpcCalls('offlineAddToCache');
@@ -378,20 +415,24 @@ async function flowSettingCascade(r) {
       && offlineStatus.data
       && offlineStatus.data.offline === true
       && offlineCalls > 0
+      && offlineReady
+      && offlineTitleFilled
+      && offlineContentFilled
       && offlinePublishClicked
-      && offlineCacheCalls > 0
+      && offlineIpcObserved
   ), { offlineCalls, offlineCacheCalls, response: offlineStatus, offlinePublishClicked });
 
   // Step 3: 恢复在线并重新挂载发布页
   await r.page.evaluate(() => window.__setOffline(false));
   await r.goto('/');
   await r.goto('/publish');
-  await waitForPageCondition(r, (shouldBeDisabled) => {
+  await waitForPublishReady(r);
+  const onlineButtonReady = await waitForPageCondition(r, (shouldBeDisabled) => {
     const target = Array.from(document.querySelectorAll('button, uibutton, [role=button]')).find((button) => /一键发布/.test(button.innerText));
     if (!target) return false;
     const disabled = target.disabled || target.getAttribute('disabled') !== null || target.classList.contains('is-disabled');
     return disabled === shouldBeDisabled;
-  }, false);
+  }, false, FEATURE_READY_TIMEOUT);
   const onlineStatus = await r.page.evaluate(() => window.electronAPI.offlineStatus());
   const enabledOnline = await r.page.evaluate(() => {
     const buttons = Array.from(document.querySelectorAll('button, uibutton, [role=button]'));
@@ -405,6 +446,7 @@ async function flowSettingCascade(r) {
       && onlineStatus.code === 0
       && onlineStatus.data
       && onlineStatus.data.offline === false
+      && onlineButtonReady
       && enabledOnline
   ), { response: onlineStatus, enabledOnline });
 
@@ -427,13 +469,14 @@ async function flowErrorPaths(r) {
 
   // Step 1: 模拟 IPC 失败
   await r.goto('/publish');
+  await waitForPublishReady(r);
   await r.failNextIpc('publishBatch', '模拟网络错误：发布队列不可达');
   // 不填字段点发布，触发校验提示（不需 IPC）
   const publishClicked = await clickText(r, '一键发布');
-  await waitForPageCondition(r, () => {
+  const validationReady = await waitForPageCondition(r, () => {
     const messages = document.querySelectorAll('.el-message, .el-notification, .el-message-box');
     return messages.length > 0 || /请输入|不能为空|必填|错误/.test(document.body.innerText);
-  });
+  }, undefined, FEATURE_READY_TIMEOUT);
   // 验证校验提示可能出现在 Message 或 alert
   const validationShown = await r.page.evaluate(() => {
     // Element Plus 的 Message 会插入 .el-message / .el-notification
@@ -441,44 +484,40 @@ async function flowErrorPaths(r) {
     if (msgs.length > 0) return true;
     return /请输入|不能为空|必填|错误/.test(document.body.innerText);
   });
-  record(r, 'Flow6.1 表单校验提示出现（空提交触发）', validationShown, { clicked: publishClicked });
+  record(r, 'Flow6.1 表单校验提示出现（空提交触发）', validationReady && validationShown, { clicked: publishClicked });
 
   // Step 2: 验证 IPC 失败路径
-  await fillByPlaceholder(r, '文章标题', 'ErrorTest Title');
-  // 切换到 markdown 模式
-  const mdSwitch = r.page.locator('.cohere-main .article-editor button:has-text("Markdown")').first();
-  if (await waitForVisible(mdSwitch, 1000)) {
-    await mdSwitch.click({ force: true });
-  }
-  const mdArea = r.page.locator('.cohere-main .article-editor textarea.md-editor').first();
-  if (await waitForVisible(mdArea, 1000)) {
-    await mdArea.fill('ErrorTest content for IPC failure path');
-  }
+  await fillPublishTitle(r, 'ErrorTest Title');
+  await fillPublishContent(r, 'ErrorTest content for IPC failure path');
   // 下一次 publishBatch 调用会失败（因为前面 failNextIpc 是 LIFO/单次）
-  const publishClicked2 = await clickText(r, '一键发布');
+  const publishBaseline2 = await ipcCounts(r, 'publishBatch');
+  const publishClicked2 = await clickText(r, '一键发布', { selector: '[data-testid="publish-submit"]', timeout: FEATURE_READY_TIMEOUT });
+  let errorWaitReady = false;
   if (publishClicked2) {
-    await waitForPageCondition(r, () => {
+    errorWaitReady = await waitForPageCondition(r, () => {
       const errorElement = document.querySelector('.cohere-card-danger, .error-banner, .el-message--error, [class*="danger"], [class*="error"]');
       return /失败|错误|error|failed/i.test(document.body.innerText) && Boolean(errorElement);
-    });
+    }, undefined, FEATURE_READY_TIMEOUT);
   }
+  const publishBatchObserved = publishClicked2 && await waitForIpcIncrement(r, 'publishBatch', publishBaseline2, FEATURE_READY_TIMEOUT);
   const errorUIVisible = await r.page.evaluate(() => {
     const errorElement = document.querySelector('.cohere-card-danger, .error-banner, .el-message--error, [class*="danger"], [class*="error"]');
     return /失败|错误|error|failed/i.test(document.body.innerText) && Boolean(errorElement);
   });
-  record(r, 'Flow6.2 IPC 失败后错误提示可达', errorUIVisible, {
-    errorUIVisible,
+  record(r, 'Flow6.2 IPC 失败后错误提示可达', Boolean(errorWaitReady && publishBatchObserved && errorUIVisible), {
+    errorUIVisible: errorWaitReady && errorUIVisible,
+    publishBatchObserved,
     publishBatchCalls: await r.getIpcCalls('publishBatch'),
   });
 
   // Step 3: 验证必填字段缺失时按钮可用性
   await r.goto('/create');
-  await waitForPageCondition(r, () => /流水线|启动|创作/.test(document.body.innerText || ''));
+  const createReady = await waitForPageCondition(r, () => /流水线|启动|创作/.test(document.body.innerText || ''), undefined, FEATURE_READY_TIMEOUT);
   const requiredBlank = await r.page.evaluate(() => {
     const text = document.body.innerText || '';
     return /流水线|启动|创作/.test(text);
   });
-  record(r, 'Flow6.3 创作页必填提示可达', requiredBlank, { note: '已加载流水线界面' });
+  record(r, 'Flow6.3 创作页必填提示可达', createReady && requiredBlank, { note: '已加载流水线界面' });
 }
 
 const flows = {

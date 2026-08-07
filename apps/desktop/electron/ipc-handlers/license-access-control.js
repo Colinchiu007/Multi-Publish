@@ -26,6 +26,7 @@ const PUBLIC_CHANNELS = new Set([
   'model-provider:update', 'model-provider:delete', 'model-provider:set-default',
   'model-provider:get-default', 'model-provider:test', 'model-provider:presets',
   'model-provider:is-configured', 'model-provider:logs', 'model-provider:clean-logs',
+  'logs:info', 'logs:clear', 'logs:error',
   'render:status', 'render:install-deps',
   'pipeline:list', 'pipeline:get',
   'usage:stats', 'usage:daily', 'usage:track',

@@ -16,10 +16,12 @@
 const ERROR_CODES = Object.freeze({
   AUTH_FAILED: 'AUTH_FAILED',         // 401/403 认证失败
   RATE_LIMITED: 'RATE_LIMITED',       // 429 限流
+  QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',   // 402/额度不足（余额、token 套餐额度耗尽）
   TIMEOUT: 'TIMEOUT',                 // 请求超时
   NETWORK_ERROR: 'NETWORK_ERROR',     // 网络错误（DNS/连接失败）
   INVALID_CONFIG: 'INVALID_CONFIG',   // 配置无效（缺 API Key 等）
   PROVIDER_ERROR: 'PROVIDER_ERROR',   // 供应商内部错误（500）
+  CONTENT_POLICY: 'CONTENT_POLICY', // 可明确识别的内容安全拒绝
   NOT_IMPLEMENTED: 'NOT_IMPLEMENTED', // 方法未实现
 })
 
@@ -31,11 +33,13 @@ const ERROR_CODES = Object.freeze({
 const ERROR_META = {
   AUTH_FAILED:     { category: 'auth',     retryable: false },
   RATE_LIMITED:    { category: 'rate',     retryable: true },
+  QUOTA_EXCEEDED:  { category: 'quota',    retryable: false },
   TIMEOUT:         { category: 'network',  retryable: true },
   NETWORK_ERROR:   { category: 'network',  retryable: true },
   INVALID_CONFIG:  { category: 'config',   retryable: false },
-  PROVIDER_ERROR:  { category: 'provider', retryable: true },
-  NOT_IMPLEMENTED: { category: 'system',   retryable: false },
+  PROVIDER_ERROR:  { category: 'provider',       retryable: true },
+  CONTENT_POLICY:  { category: 'content_policy', retryable: false },
+  NOT_IMPLEMENTED: { category: 'system',         retryable: false },
 }
 
 /**
@@ -63,6 +67,43 @@ class ProviderError extends Error {
 }
 
 /**
+ * 只识别供应商稳定的内容安全标识；普通说明或裸 400/403 都不能触发内容策略重试。
+ */
+function hasStrictContentPolicySignal(value) {
+  const signal = String(value || '').trim()
+  if (!signal) return false
+  const normalized = signal.toLowerCase().replace(/[\s-]+/g, '_')
+  if ([
+    'content_policy',
+    'content_policy_violation',
+    'content_filter',
+    'safety_filter',
+    'safety_violation',
+    'moderation_blocked',
+    'moderation_flagged',
+    'moderation_rejected',
+  ].includes(normalized)) return true
+
+  return /\b(?:blocked|rejected|filtered)\b[^\n]{0,120}\bcontent(?:[_\s-]+)policy\b/i.test(signal) ||
+    /\bcontent(?:[_\s-]+)policy\b[^\n]{0,120}\b(?:blocked|rejected|filtered)\b/i.test(signal) ||
+    /\brejected as a result of (?:our )?safety system\b/i.test(signal)
+}
+
+function hasContentPolicyContextSignal(context) {
+  if (!context || typeof context !== 'object') return false
+  if (context.contentPolicy === true || context.content_policy === true) return true
+  return [
+    context.providerCode,
+    context.provider_code,
+    context.errorCode,
+    context.error_code,
+    context.type,
+    context.error?.code,
+    context.error?.type,
+  ].some(hasStrictContentPolicySignal)
+}
+
+/**
  * fromHttpStatus — HTTP 状态码映射到 ProviderError
  *
  * @param {number} status - HTTP 状态码
@@ -71,22 +112,61 @@ class ProviderError extends Error {
  * @returns {ProviderError}
  */
 function fromHttpStatus(status, message, context = {}) {
+  const statusCode = Number(status)
+  const errorMessage = typeof message === 'string' ? message : String(message || '')
   let code
-  if (status === 0) {
+  // Authentication, rate-limit and transport failures must never be retried as
+  // content-policy rejections just because a provider reuses an unsafe-looking
+  // message or nested code in its error payload.
+  if (statusCode === 0) {
     // ETIMEDOUT / ECONNREFUSED 等 Node.js 网络错误
-    code = (message.includes('ETIMEDOUT') || message.includes('timeout'))
+    code = (errorMessage.includes('ETIMEDOUT') || errorMessage.includes('timeout'))
       ? ERROR_CODES.TIMEOUT
       : ERROR_CODES.NETWORK_ERROR
-  } else if (status === 401 || status === 403) {
+  } else if (statusCode === 401 || statusCode === 403) {
     code = ERROR_CODES.AUTH_FAILED
-  } else if (status === 429) {
+  } else if (statusCode === 402) {
+    code = ERROR_CODES.QUOTA_EXCEEDED
+  } else if (statusCode === 429) {
     code = ERROR_CODES.RATE_LIMITED
-  } else if (status >= 500) {
-    code = ERROR_CODES.PROVIDER_ERROR
+  } else if (hasStrictContentPolicySignal(errorMessage) || hasContentPolicyContextSignal(context)) {
+    code = ERROR_CODES.CONTENT_POLICY
   } else {
     code = ERROR_CODES.PROVIDER_ERROR
   }
-  return new ProviderError(code, message, { ...context, statusCode: status })
+  return new ProviderError(code, errorMessage, { ...context, statusCode })
 }
 
-module.exports = { ProviderError, ERROR_CODES, fromHttpStatus }
+const RATE_LIMIT_MESSAGE_PATTERN = /\brate[_\s-]?limit\b|too\s+many\s+requests|限流|请求频率|rate_limit/i
+const QUOTA_MESSAGE_PATTERN = /\b(?:insufficient|exhausted|exceeded|out\s+of)\b[^\n]{0,40}\b(?:quota|balance|token|credit)s?\b|(?:quota|balance|token|credit)s?[^\n]{0,40}\b(?:exceeded|insufficient|exhausted)\b|(?:余额|额度|配额|点数)[^\n]{0,20}(?:不足|不够|超过|超限|耗尽)|insufficient\s+balance|billing|payment\s+required/i
+
+/**
+ * 统一把 provider 失败归类为五类，供限流/排队/重试网关决策：
+ * - 'rate'           → 触发频率限制（429 / RATE_LIMITED），可等待冷却后重试
+ * - 'quota'          → 额度/余额/套餐配额耗尽（402 / QUOTA_EXCEEDED），不重试，需用户处理
+ * - 'transient'      → 超时/网络抖动，可短退避重试
+ * - 'content_policy' → 明确内容安全拒绝，进入改写/人工处理流程
+ * - 'other'          → 其余错误，不重试
+ */
+function classifyProviderFailure(error) {
+  if (!error || typeof error !== 'object') return 'other'
+  const message = String(error.message || error.error || error.msg || '')
+  const statusCode = Number(error.statusCode ?? error.status ?? error.context?.statusCode)
+  const code = error.code || error.context?.code
+
+  if (statusCode === 429 || code === ERROR_CODES.RATE_LIMITED) return 'rate'
+  if (statusCode === 402 || code === ERROR_CODES.QUOTA_EXCEEDED) return 'quota'
+  if (code === ERROR_CODES.TIMEOUT || code === ERROR_CODES.NETWORK_ERROR) return 'transient'
+  if (code === ERROR_CODES.CONTENT_POLICY) return 'content_policy'
+
+  if (RATE_LIMIT_MESSAGE_PATTERN.test(message)) return 'rate'
+  if (QUOTA_MESSAGE_PATTERN.test(message)) return 'quota'
+  if (/\btimed?\s*out\b|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i.test(message)) return 'transient'
+  // 空响应/缺失数据：供应商 200 但未返回可用内容（如 MiniMax TTS 缺 audio、生图空 image_urls），
+  // 多为瞬时服务抖动，按 transient 短退避重试（E2E：11:56/12:05 TTS Missing audio data 曾致整线失败）。
+  if (/missing\s+(?:audio\s+)?data\s+in\s+response|did\s+not\s+return\s+(?:a\s+)?supported|returned\s+no\s+(?:image|audio)\s+(?:result|data)|empty\s+response|empty\s+image_urls/i.test(message)) return 'transient'
+  if (hasStrictContentPolicySignal(message) || hasContentPolicyContextSignal(error.context || error)) return 'content_policy'
+  return 'other'
+}
+
+module.exports = { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal, classifyProviderFailure, RATE_LIMIT_MESSAGE_PATTERN, QUOTA_MESSAGE_PATTERN }

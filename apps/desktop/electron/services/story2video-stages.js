@@ -20,11 +20,15 @@
 const { STAGE_TYPES } = require('./stage-executor');
 const { enrichHistoryScenes, passthroughScenes } = require('./story2video-domain');
 const {
-  MAX_SCENES,
   getAllowedMediaRoots,
   resolveReadableMediaFile,
   writeDataImage,
 } = require('./story2video-paths');
+const {
+  MAX_IMAGE_GENERATION_ATTEMPTS,
+  runContentPolicyImageRetry,
+} = require('./story2video-image-retry');
+const { ERROR_CODES } = require('./adapters/_base/provider-error');
 
 /**
  * Story2Video-compose 专用的阶段类型
@@ -41,6 +45,84 @@ function normalizeAssetConcurrency(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 3;
   return Math.min(MAX_ASSET_CONCURRENCY, Math.max(1, Math.floor(number)));
+}
+
+const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|额度|quota/i;
+const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i;
+
+function messageOf(value) {
+  if (value && typeof value === 'object') return String(value.message || value.error || value.msg || '');
+  return String(value || '');
+}
+
+function isRateLimitErrorLike(value) {
+  if (value && typeof value === 'object') {
+    if (value.code === ERROR_CODES.RATE_LIMITED) return true;
+    if (Number(value.statusCode) === 429 || Number(value.status) === 429 || Number(value.code) === 429) return true;
+  }
+  return RATE_LIMIT_PATTERN.test(messageOf(value));
+}
+
+function isTransientErrorLike(value) {
+  if (isRateLimitErrorLike(value)) return true;
+  if (value && typeof value === 'object' && [ERROR_CODES.TIMEOUT, ERROR_CODES.NETWORK_ERROR].includes(value.code)) return true;
+  return TRANSIENT_PATTERN.test(messageOf(value));
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 对抛错型 provider 调用做有界重试：
+ * - 限流（429 / RATE_LIMITED）：更长退避（2500ms×attempt），最多 rateLimitMaxAttempts 次；
+ * - 其他瞬时错误（超时/网络）：800ms×attempt，最多 maxAttempts 次；
+ * - 非瞬时错误：立即抛出，不消耗重试次数。
+ */
+async function withTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4 } = {}) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= Math.max(maxAttempts, rateLimitMaxAttempts); attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (error) {
+      lastError = error;
+      if (!isTransientErrorLike(error)) throw error;
+      const limit = isRateLimitErrorLike(error) ? rateLimitMaxAttempts : maxAttempts;
+      if (attempt >= limit) break;
+      await sleep((isRateLimitErrorLike(error) ? 2500 : 800) * attempt);
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * 对返回结果对象（如 { code: -1, message }）或抛错的资源生成调用做有界重试。
+ * 仅在可判定为瞬时（限流/超时/网络）时重试；内容政策检查点、模型配置等失败原样返回。
+ */
+async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4 } = {}) {
+  let last = null;
+  for (let attempt = 1; attempt <= Math.max(maxAttempts, rateLimitMaxAttempts); attempt++) {
+    let outcome;
+    try {
+      outcome = await fn(attempt);
+    } catch (error) {
+      if (!isTransientErrorLike(error)) throw error;
+      last = error;
+      const limit = isRateLimitErrorLike(error) ? rateLimitMaxAttempts : maxAttempts;
+      if (attempt >= limit) return { code: -1, message: error.message || String(error) };
+      await sleep((isRateLimitErrorLike(error) ? 2500 : 800) * attempt);
+      continue;
+    }
+    const ok = outcome && (Number(outcome.code) === 0 || outcome.success === true);
+    const transient = !ok && outcome && isTransientErrorLike(outcome);
+    if (ok) return outcome;
+    if (!transient) return outcome;
+    last = outcome;
+    const limit = isRateLimitErrorLike(outcome) ? rateLimitMaxAttempts : maxAttempts;
+    if (attempt >= limit) return outcome;
+    await sleep((isRateLimitErrorLike(outcome) ? 2500 : 800) * attempt);
+  }
+  return last;
 }
 
 /** 将 renderer 传入的图片路径或 data URL 解析为主进程可读的本地文件。 */
@@ -96,6 +178,56 @@ function summarizeAssetFailures(label, results) {
       : label + ' generation failed';
     return label + ' #' + index + ': ' + message;
   });
+}
+
+function getContentPolicyCheckpoint(result, fallbackSceneIndex) {
+  const checkpoint = result?.checkpoint || result?.data?.checkpoint;
+  if (!checkpoint || checkpoint.reason !== 'content_policy' || checkpoint.type !== 'needs_user_input') return null;
+
+  const sceneIndex = fallbackSceneIndex;
+  const sceneNumber = sceneIndex + 1;
+  const attempts = Number.isInteger(checkpoint.attempts) && checkpoint.attempts > 0
+    ? checkpoint.attempts
+    : null;
+  const recommendation = typeof checkpoint.recommendation === 'string' && checkpoint.recommendation.trim()
+    ? checkpoint.recommendation.trim().replace(/\s+/g, ' ').slice(0, 500)
+    : '请改写该场景为更抽象、非露骨的视觉描述后重试。';
+
+  return {
+    type: 'needs_user_input',
+    status: 'needs_user_input',
+    reason: 'content_policy',
+    needsUserInput: true,
+    sceneIndex,
+    sceneNumber,
+    attempts,
+    recommendation,
+  };
+}
+
+function buildContentPolicyCheckpointMeta(failedImages) {
+  const scenes = failedImages
+    .filter(item => item?.needsUserInput === true && item?.checkpoint?.reason === 'content_policy')
+    .map(item => ({
+      sceneIndex: item.checkpoint.sceneIndex,
+      sceneNumber: item.checkpoint.sceneNumber,
+      attempts: item.checkpoint.attempts,
+      recommendation: item.checkpoint.recommendation,
+    }));
+  if (scenes.length === 0) return null;
+
+  const first = scenes[0];
+  return {
+    type: 'needs_user_input',
+    status: 'needs_user_input',
+    reason: 'content_policy',
+    needsUserInput: true,
+    sceneIndex: first.sceneIndex,
+    sceneNumber: first.sceneNumber,
+    attempts: first.attempts,
+    recommendation: first.recommendation,
+    scenes,
+  };
 }
 
 function getOptimizationScenes(context) {
@@ -203,45 +335,74 @@ function registerStory2VideoStages(pipelineEngine) {
 
       const defaultLlm = getDefaultLlmConfig(aiGenerator);
       if (!defaultLlm) {
-        return { success: false, error: 'Story2Video 未找到已配置的默认 LLM，请在模型设置中启用并设为默认' };
+        return { success: false, error: '未找到需要的相关模型，请在设置中添加模型' };
       }
 
       const scenes = getOptimizationScenes(context || {});
       if (!Array.isArray(scenes) || scenes.length === 0) {
         return { success: false, error: 'Story2Video optimize 需要非空场景数组' };
       }
-      if (scenes.length > MAX_SCENES) {
-        return { success: false, error: 'Story2Video optimize scene count exceeds the allowed limit: ' + MAX_SCENES };
-      }
 
-      const output = [];
-      for (let index = 0; index < scenes.length; index++) {
-        const promptSeed = getScenePromptSeed(scenes[index]);
-        if (!promptSeed) {
-          return { success: false, error: 'Story2Video optimize scene ' + index + ' is missing a prompt seed' };
-        }
-        try {
-          const result = await aiGenerator.generateWithDefault(
-            'llm',
-            buildOptimizationRequest(promptSeed, stage.options || {}),
-          );
-          const optimizedPrompt = result && typeof result.content === 'string' ? result.content.trim() : '';
-          if (!optimizedPrompt) {
-            return { success: false, error: 'Story2Video optimize scene ' + index + ' returned an empty prompt' };
+      // 性能修复：逐场景 LLM 优化改为有界并发（默认 3），避免长文案 20+ 场景串行
+      // 调用导致「提示词优化」阶段耗时数分钟。
+      const concurrency = normalizeAssetConcurrency(stage.options?.concurrency ?? 3)
+      const maxAttempts = Math.max(1, Math.min(3, Number(stage.options?.maxRetries ?? 2) + 1))
+      // 断点续传：上次失败时已完成的场景结果直接复用，避免重复消耗 LLM 额度。
+      const partialResume = (context && Array.isArray(context.optimize_resume)) ? context.optimize_resume : []
+      let output
+      try {
+        output = await _mapWithConcurrency(scenes, concurrency, async (scene, index) => {
+          if (partialResume[index]) return partialResume[index]
+          const promptSeed = getScenePromptSeed(scene)
+          if (!promptSeed) {
+            throw new Error('Story2Video optimize scene ' + index + ' is missing a prompt seed')
           }
-          output.push({
+          // 瞬态 provider 错误有界重试：限流用更长退避，避免长文案多场景并发触发
+          // 限流时短退避重试不足以恢复而拖垮整阶段；非瞬时错误立即失败，不消耗重试次数。
+          let result
+          try {
+            result = await withTransientRetry(
+              () => aiGenerator.generateWithDefault(
+                'llm',
+                buildOptimizationRequest(promptSeed, stage.options || {}),
+              ),
+              { maxAttempts, rateLimitMaxAttempts: Math.max(maxAttempts + 1, 4) },
+            )
+          } catch (lastError) {
+            throw new Error(
+              'Story2Video optimize scene ' + index + ' failed: ' + (lastError && lastError.message ? lastError.message : String(lastError)),
+            )
+          }
+          const optimizedPrompt = result && typeof result.content === 'string' ? result.content.trim() : ''
+          if (!optimizedPrompt) {
+            throw new Error('Story2Video optimize scene ' + index + ' returned an empty prompt')
+          }
+          const entry = {
             optimized_prompt: optimizedPrompt,
             providerId: defaultLlm.providerId,
             model: typeof result.model === 'string' && result.model.trim()
               ? result.model.trim()
               : defaultLlm.model,
-          });
-        } catch (error) {
-          return {
-            success: false,
-            error: 'Story2Video optimize scene ' + index + ' failed: ' + (error && error.message ? error.message : String(error)),
-          };
+          }
+          // 逐场景写入部分结果，失败时可断点续传（context 与 run.context 同引用）
+          partialResume[index] = entry
+          if (context && typeof context === 'object') {
+            context.optimize_resume = partialResume
+            context.optimize_progress = {
+              done: partialResume.filter(Boolean).length,
+              total: scenes.length,
+            }
+          }
+          return entry
+        })
+      } catch (error) {
+        return {
+          success: false,
+          error: 'Story2Video optimize failed: ' + (error && error.message ? error.message : String(error)),
         }
+      }
+      if (context && typeof context === 'object' && Array.isArray(output)) {
+        delete context.optimize_resume
       }
 
       return { success: true, output };
@@ -293,13 +454,6 @@ function registerStory2VideoStages(pipelineEngine) {
           error: 'generate_assets 需要 context.split (分句结果数组)',
         };
       }
-      const requestedScenes = Math.max(optimizedPrompts.length, sentences.length);
-      if (requestedScenes > MAX_SCENES) {
-        return {
-          success: false,
-          error: 'generate_assets scene count exceeds the allowed limit: ' + MAX_SCENES,
-        };
-      }
 
       const firstDefined = (...values) => values.find(v => v !== undefined && v !== null);
       const concurrency = normalizeAssetConcurrency(firstDefined(params.concurrency, stage.options?.concurrency, 3));
@@ -321,6 +475,33 @@ function registerStory2VideoStages(pipelineEngine) {
         'Generating assets: ' + optimizedPrompts.length + ' images + ' +
         sentences.length + ' TTS (concurrency=' + concurrency + ')');
 
+      // 断点续传：上次失败时已完成的场景直接复用本地产物，避免重复消耗图片/TTS 额度
+      const resumeCompleted = new Map();
+      const priorResume = context && context.generate_assets && Array.isArray(context.generate_assets.resume?.completed)
+        ? context.generate_assets.resume.completed
+        : [];
+      for (const item of priorResume) {
+        if (item && Number.isInteger(item.index) && typeof item.imagePath === 'string' && typeof item.audioPath === 'string') {
+          resumeCompleted.set(item.index, item);
+        }
+      }
+
+      // 实时进度（供前端阶段清单展示「图片 x/y · 旁白 x/y」）
+      let imagesDone = 0;
+      let ttsDone = 0;
+      const writeAssetsProgress = () => {
+        if (context && typeof context === 'object') {
+          context.assets_progress = {
+            imagesDone,
+            imagesTotal: optimizedPrompts.length,
+            ttsDone,
+            ttsTotal: sentences.length,
+          };
+        }
+      };
+      const markImageDone = () => { imagesDone += 1; writeAssetsProgress(); };
+      const markTtsDone = () => { ttsDone += 1; writeAssetsProgress(); };
+
       // 并行生成图片（分批控制并发）
       // 使用 AssetGenerator（ffmpeg 占位图）替代 serviceBus.callPythonSkill
       const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator;
@@ -329,29 +510,84 @@ function registerStory2VideoStages(pipelineEngine) {
         concurrency,
         async (prompt, index) => {
           try {
+            const resumed = resumeCompleted.get(index);
+            if (resumed) {
+              markImageDone();
+              return { index, success: true, path: resumed.imagePath, meta: { resumed: true } };
+            }
             const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
             if (inputMode === 'images' && inputImages[index] !== undefined) {
               const suppliedPath = resolveInputImage(inputImages[index], runId, index);
               if (!suppliedPath) {
                 return { index, success: false, error: 'Supplied image is missing, unreadable, or too large' };
               }
+              markImageDone();
               return { index, success: true, path: suppliedPath, meta: { supplied: true } };
             }
-            const result = assetGenerator
-              ? await assetGenerator.generateImage(promptText, {
-                  style: imageStyle,
-                  image_provider: imageProvider,
-                  image_model: imageModel,
-                  index,
-                   aspect_ratio: aspectRatio,
-                   runId,
-                })
-              : await serviceBus.callPythonSkill('generate_image', {
-                   prompt: promptText, style: imageStyle, image_provider: imageProvider, image_model: imageModel, index,
-                   aspect_ratio: aspectRatio, runId,
-                });
+            let result;
+            if (assetGenerator) {
+              // 瞬时错误（限流/超时/网络）有界重试；内容政策检查点等失败原样返回
+              result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
+                style: imageStyle,
+                image_provider: imageProvider,
+                image_model: imageModel,
+                index,
+                aspect_ratio: aspectRatio,
+                runId,
+              }));
+            } else {
+              const retryResult = await runContentPolicyImageRetry({
+                prompt: promptText,
+                sceneIndex: index,
+                maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+                generate: async ({ prompt: attemptPrompt }) => {
+                  const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {
+                    prompt: attemptPrompt,
+                    style: imageStyle,
+                    image_provider: imageProvider,
+                    image_model: imageModel,
+                    index,
+                    aspect_ratio: aspectRatio,
+                    runId,
+                  }));
+                  const providerError = attemptResult?.error || attemptResult?.data?.error;
+                  if (providerError && typeof providerError === 'object') throw providerError;
+                  if (attemptResult?.success === false || Number(attemptResult?.code) < 0) {
+                    const error = new Error(
+                      attemptResult?.message ||
+                      (typeof providerError === 'string' ? providerError : 'Image generation failed')
+                    );
+                    if (attemptResult && typeof attemptResult === 'object') Object.assign(error, attemptResult);
+                    throw error;
+                  }
+                  return attemptResult;
+                },
+              });
+              if (retryResult.status === 'success') {
+                result = retryResult.result;
+              } else if (retryResult.status === 'needs_user_input') {
+                result = {
+                  code: -1,
+                  message: 'Image generation requires user input after content-policy review',
+                  needsUserInput: true,
+                  checkpoint: retryResult.checkpoint,
+                  data: {
+                    needsUserInput: true,
+                    checkpoint: retryResult.checkpoint,
+                    generationAttempts: retryResult.attempts,
+                  },
+                };
+              } else {
+                result = {
+                  code: -1,
+                  message: retryResult.error?.message || 'Image generation failed',
+                  data: { generationAttempts: retryResult.attempts },
+                };
+              }
+            }
             const normalized = normalizeAssetResult(result, ['path', 'url', 'image_path']);
             if (normalized) {
+              markImageDone();
               return {
                 index,
                 success: true,
@@ -359,10 +595,16 @@ function registerStory2VideoStages(pipelineEngine) {
                 meta: normalized.meta,
               };
             }
+            const contentPolicyCheckpoint = getContentPolicyCheckpoint(result, index);
             return {
               index,
               success: false,
               error: (result && result.message) || 'Image generation failed',
+              needsUserInput: Boolean(contentPolicyCheckpoint),
+              checkpoint: contentPolicyCheckpoint,
+              generationAttempts: Array.isArray(result?.data?.generationAttempts)
+                ? result.data.generationAttempts
+                : [],
             };
           } catch (e) {
             return { index, success: false, error: e.message };
@@ -376,12 +618,18 @@ function registerStory2VideoStages(pipelineEngine) {
         concurrency,
         async (sentence, index) => {
           try {
+            const resumed = resumeCompleted.get(index);
+            if (resumed) {
+              markTtsDone();
+              return { index, success: true, path: resumed.audioPath, duration: resumed.duration || null, meta: { resumed: true } };
+            }
             const suppliedAudio = inputAudio[index]
             if (suppliedAudio !== undefined) {
               const suppliedPath = resolveInputAudio(suppliedAudio)
               if (!suppliedPath) {
                 return { index, success: false, error: 'Supplied audio is missing or unreadable' };
               }
+              markTtsDone();
               return {
                 index,
                 success: true,
@@ -391,28 +639,31 @@ function registerStory2VideoStages(pipelineEngine) {
               };
             }
             const text = typeof sentence === 'string' ? sentence : sentence.text || sentence.content;
-            const result = assetGenerator
-              ? await assetGenerator.generateTTS(text, {
+            const result = await withAssetTransientRetry(() => assetGenerator
+              ? assetGenerator.generateTTS(text, {
                   voice_id: voiceId,
                   voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
+                  voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
                   index,
                   runId,
                 })
-              : await serviceBus.callPythonSkill('generate_tts', {
+              : serviceBus.callPythonSkill('generate_tts', {
                   text,
                   voice_id: voiceId,
                   voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
+                  voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
                   index,
                   runId,
-                });
+                }));
             const normalized = normalizeAssetResult(result, ['path', 'audio_path']);
             if (normalized) {
+              markTtsDone();
               return {
                 index,
                 success: true,
@@ -496,7 +747,13 @@ function registerStory2VideoStages(pipelineEngine) {
           imageMeta: imageResults[i]?.meta || null,
         })),
         failures: {
-          images: failedImages.map(item => ({ index: item.index, error: item.error || 'Image generation failed' })),
+          images: failedImages.map(item => ({
+            index: item.index,
+            error: item.error || 'Image generation failed',
+            needsUserInput: item.needsUserInput === true,
+            checkpoint: item.checkpoint || null,
+            generationAttempts: Array.isArray(item.generationAttempts) ? item.generationAttempts : [],
+          })),
           audio: failedTts.map(item => ({ index: item.index, error: item.error || 'TTS generation failed' })),
         },
         segmentation: {
@@ -519,8 +776,33 @@ function registerStory2VideoStages(pipelineEngine) {
         generatedAt: new Date().toISOString(),
       };
 
+      // 内容政策耗尽时必须停在可操作的人工处理点，不能因为允许部分资源而继续输出成片。
+      const contentPolicyCheckpointMeta = buildContentPolicyCheckpointMeta(failedImages);
+      if (contentPolicyCheckpointMeta) {
+        return {
+          success: true,
+          output: assetManifest,
+          checkpoint: 'needs_user_input',
+          checkpointMeta: contentPolicyCheckpointMeta,
+        };
+      }
+
       // 默认要求每个 scene 都有成对资源；部分成片必须显式 opt-in。
       if (pairedScenes.length === 0 || (!allowPartialAssets && pairedScenes.length < maxScenes)) {
+        // 记录已完成的场景（图片+音频都有），供「从断点继续」跳过，避免重复消耗额度
+        if (context && typeof context === 'object') {
+          context.generate_assets = context.generate_assets || {};
+          context.generate_assets.resume = {
+            completed: pairedScenes.map((scene) => ({
+              index: scene.index,
+              imagePath: scene.imagePath,
+              audioPath: scene.audioPath,
+              duration: scene.duration || null,
+            })),
+            total: maxScenes,
+            savedAt: new Date().toISOString(),
+          };
+        }
         const failureDetails = [
           ...summarizeAssetFailures('Image', failedImages),
           ...summarizeAssetFailures('TTS', failedTts),
@@ -533,6 +815,9 @@ function registerStory2VideoStages(pipelineEngine) {
         };
       }
 
+      if (context && typeof context === 'object' && context.generate_assets && context.generate_assets.resume) {
+        delete context.generate_assets.resume;
+      }
       return {
         success: true,
         output: assetManifest,

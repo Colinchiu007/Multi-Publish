@@ -33,7 +33,9 @@ function createEngine() {
     })),
   }
   const stageExecutor = new StageExecutor({ serviceBus, log })
-  const engine = new PipelineEngine({ serviceBus, stageExecutor, aiGenerator, log })
+  // 显式注入并发上限：自适应默认依赖机器资源（CI runner 可能只有 1 核 → 默认 1），
+  // 本文件契约测试涉及同流水线并发运行，必须环境无关。
+  const engine = new PipelineEngine({ serviceBus, stageExecutor, aiGenerator, log, maxConcurrentRuns: 2 })
   return { engine, serviceBus, aiGenerator }
 }
 
@@ -44,7 +46,7 @@ describe('story2video 编排契约', () => {
     const stages = Object.fromEntries(pipeline.stageDefs.map(stage => [stage.name, stage]))
 
     expect(stages.split.options).toMatchObject({
-      language: 'zh',
+      language: 'auto',
       mode: 'balanced',
       target_duration: 6,
       fallback_to_local: true,
@@ -63,6 +65,35 @@ describe('story2video 编排契约', () => {
       defaultSceneDuration: 6,
     })
     expect(stages.publish.options).toMatchObject({ publishEnabled: false, platforms: [] })
+  })
+
+  it('全自动 Story2Video 接受 none 策略并跨全部阶段完成', async () => {
+    const stageExecutor = {
+      execute: vi.fn(async ({ stage }) => ({
+        success: true,
+        output: { completedStage: stage.name },
+      })),
+    }
+    const engine = new PipelineEngine({ stageExecutor, log })
+
+    const started = await engine.startOrchestrated('story2video-compose', {
+      text: '自动生成图文轮播视频。',
+      autoAdvance: true,
+      checkpointPolicy: 'none',
+    })
+
+    expect(started).toMatchObject({ success: true, completed: true })
+    expect(started.paused).toBeUndefined()
+    expect(stageExecutor.execute.mock.calls.map(([request]) => request.stage.name)).toEqual([
+      'split', 'domain_enrich', 'optimize', 'generate_assets', 'compose', 'publish',
+    ])
+    expect(engine.getRunSnapshot(started.runId)).toMatchObject({
+      status: { status: 'completed' },
+      checkpoint: null,
+    })
+    expect(engine._history.find(run => run.id === started.runId)).toMatchObject({
+      params: { autoAdvance: true, checkpointPolicy: 'none' },
+    })
   })
 
   it('历史内容将 contentType 传入领域增强，并把富化提示词交给当前默认 LLM', async () => {
@@ -205,6 +236,52 @@ describe('story2video 编排契约', () => {
     expect(resumed.completed).toBe(true)
   })
 
+  it('内容政策 needs_user_input 检查点不能被继续操作绕过到 compose', async () => {
+    const stageExecutor = {
+      execute: vi.fn(async ({ stage }) => ({
+        success: true,
+        output: { stage: stage.name },
+        checkpoint: 'needs_user_input',
+        checkpointMeta: {
+          type: 'needs_user_input',
+          reason: 'content_policy',
+          needsUserInput: true,
+        },
+      })),
+    }
+    const engine = new PipelineEngine({ stageExecutor, log })
+    engine.registerPipeline({
+      name: 'content-policy-stop',
+      description: 'contract',
+      stages: ['generate_assets', 'compose'],
+      stageDefs: [
+        { name: 'generate_assets', type: 'generate_assets' },
+        { name: 'compose', type: 'compose' },
+      ],
+    })
+
+    const started = await engine.startOrchestrated('content-policy-stop', {
+      text: '测试',
+      autoAdvance: true,
+      checkpointPolicy: 'none',
+    })
+    const resumed = await engine.advanceToNextCheckpoint(started.runId)
+
+    expect(started).toMatchObject({ success: true, paused: true })
+    expect(resumed).toMatchObject({
+      success: false,
+      paused: true,
+      needsUserInput: true,
+      errorCode: 'PIPELINE_USER_INPUT_REQUIRED',
+      checkpoint: { reason: 'content_policy' },
+    })
+    expect(stageExecutor.execute).toHaveBeenCalledTimes(1)
+    expect(engine.getRunSnapshot(started.runId)).toMatchObject({
+      status: { status: 'paused', currentStage: 0 },
+      checkpoint: { reason: 'content_policy' },
+    })
+  })
+
   it('图片输入在没有文案时由 split 阶段生成场景', async () => {
     const { engine, serviceBus } = createEngine()
     engine.registerPipeline({
@@ -285,6 +362,22 @@ describe('story2video 编排契约', () => {
 
     expect(started).toMatchObject({ success: false })
     expect(started.error).toContain('只支持 text')
+    expect(engine._runs.size).toBe(0)
+  })
+
+  it('主进程直调在创建运行前拒绝 6001 个 Unicode code point 文案', async () => {
+    const { engine } = createEngine()
+    const text = '😀'.repeat(6001)
+
+    expect(Array.from(text)).toHaveLength(6001)
+
+    const started = await engine.startOrchestrated('story2video-compose', {
+      text,
+      autoAdvance: false,
+    })
+
+    expect(started).toMatchObject({ success: false })
+    expect(started.error).toMatch(/6000.*Unicode/i)
     expect(engine._runs.size).toBe(0)
   })
 

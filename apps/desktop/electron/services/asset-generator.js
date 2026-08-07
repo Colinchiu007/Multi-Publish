@@ -22,6 +22,8 @@ const https = require('https')
 const { promisify } = require('util')
 const { spawn } = require('child_process')
 const { findFfmpeg } = require('./media-tool-paths')
+const { runContentPolicyImageRetry } = require('./story2video-image-retry')
+const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
 
 const execFileAsync = promisify(execFile)
 const MAX_PROVIDER_IMAGE_BYTES = 25 * 1024 * 1024
@@ -53,13 +55,14 @@ function resolveImageSize (ratio) {
     '9:16': { width: 720, height: 1280 },
     '1:1': { width: 1024, height: 1024 },
     '4:3': { width: 1024, height: 768 },
+    '3:4': { width: 768, height: 1024 },
   }
   return sizes[ratio] || sizes['16:9']
 }
 
 function buildEdgeTtsScript () {
   // 用 asyncio.run 直接执行协程，避免 Python 禁止在分号后声明 async def。
-  return 'import sys, asyncio, edge_tts; asyncio.run(edge_tts.Communicate(sys.argv[1], sys.argv[2]).save(sys.argv[3]))'
+  return 'import sys, asyncio, edge_tts; asyncio.run(edge_tts.Communicate(sys.argv[1], sys.argv[2], rate=sys.argv[4], pitch=sys.argv[5]).save(sys.argv[3]))'
 }
 
 function escapeDrawtextText (text) {
@@ -303,7 +306,12 @@ function createVerifiedLookup (expectedHostname, verifiedAddress) {
       callback(new Error('provider image URL requested an unexpected host'))
       return
     }
-    callback(null, verifiedAddress.address, verifiedAddress.family)
+    const address = { address: verifiedAddress.address, family: verifiedAddress.family }
+    if (options?.all === true) {
+      callback(null, [address])
+      return
+    }
+    callback(null, address.address, address.family)
   }
 }
 
@@ -477,20 +485,83 @@ class AssetGenerator {
       return { code: -1, message: 'Image provider "' + provider + '" is not available' }
     }
 
+    let generationAttempts = []
     try {
-      const result = await this.aiGenerator.generate('image', provider, {
-        prompt: String(prompt || '').slice(0, 4000),
-        n: 1,
-        batch_size: 1,
-        sampleCount: 1,
-        response_format: 'b64_json',
-        width: opts.width,
-        height: opts.height,
-        aspect_ratio: opts.aspect_ratio,
-        aspectRatio: opts.aspect_ratio,
-        style: opts.style,
-        model: opts.image_model || opts.imageModel,
+      const retryResult = await runContentPolicyImageRetry({
+        prompt,
+        sceneIndex: opts?.index,
+        generate: async ({ prompt: attemptPrompt }) => {
+          const result = await this.aiGenerator.generate('image', provider, {
+            prompt: attemptPrompt,
+            n: 1,
+            batch_size: 1,
+            sampleCount: 1,
+            response_format: 'b64_json',
+            width: opts.width,
+            height: opts.height,
+            aspect_ratio: opts.aspect_ratio,
+            aspectRatio: opts.aspect_ratio,
+            style: opts.style,
+            model: opts.image_model || opts.imageModel,
+          })
+          const providerError = result?.error || result?.data?.error
+          if (providerError && typeof providerError === 'object') throw providerError
+          if (result?.success === false || Number(result?.code) < 0) {
+            throw new Error(result?.message || (typeof providerError === 'string' ? providerError : 'provider rejected image generation'))
+          }
+          // 供应商返回 200 但无可用图片（静默内容策略拒绝或瞬时故障）：
+          // 必须在重试循环内校验，交给重试机制（同提示词重试 + 内容安全改写兜底），
+          // 而不是等循环外提取失败一次性报「did not return a supported image binary」。
+          if (!extractProviderImageBuffer(result) && !extractProviderImageUrl(result)) {
+            const emptyError = new ProviderError(
+              ERROR_CODES.PROVIDER_ERROR,
+              'provider returned no image result (empty response)',
+              { providerId: provider },
+            )
+            emptyError.emptyResult = true
+            throw emptyError
+          }
+          return result
+        },
       })
+      generationAttempts = retryResult.attempts
+
+      if (retryResult.status === 'needs_user_input') {
+        const checkpoint = retryResult.checkpoint
+        this.log.warn('AssetGenerator', 'Image provider ' + provider + ' requires user input after content-policy retries')
+        return {
+          code: -1,
+          message: 'Image generation requires user input after content-policy review',
+          needsUserInput: true,
+          checkpoint,
+          data: {
+            provider,
+            source: 'model-provider',
+            degraded: false,
+            needsUserInput: true,
+            needs_user_input: true,
+            checkpoint,
+            generationAttempts,
+          },
+        }
+      }
+
+      if (retryResult.status === 'failed') {
+        const message = retryResult.error?.message || String(retryResult.error || 'provider image generation failed')
+        this.log.warn('AssetGenerator', 'Image provider ' + provider + ' failed: ' + message)
+        return {
+          code: -1,
+          message: 'Image provider "' + provider + '" failed: ' + message,
+          data: {
+            provider,
+            source: 'model-provider',
+            degraded: false,
+            generationAttempts,
+          },
+        }
+      }
+
+      const result = retryResult.result
       let buffer = extractProviderImageBuffer(result)
       if (!buffer) {
         const imageUrl = extractProviderImageUrl(result)
@@ -513,12 +584,22 @@ class AssetGenerator {
           model: result?.model || result?.data?.model || null,
           source: 'model-provider',
           degraded: false,
+          generationAttempts,
         },
       }
     } catch (error) {
       const message = error?.message || String(error)
       this.log.warn('AssetGenerator', 'Image provider ' + provider + ' failed: ' + message)
-      return { code: -1, message: 'Image provider "' + provider + '" failed: ' + message }
+      return {
+        code: -1,
+        message: 'Image provider "' + provider + '" failed: ' + message,
+        data: {
+          provider,
+          source: 'model-provider',
+          degraded: false,
+          generationAttempts,
+        },
+      }
     }
   }
 
@@ -716,6 +797,7 @@ class AssetGenerator {
         voice: voiceId,
         voice_id: voiceId,
         voiceId,
+        voiceName: voiceId,
         model: opts?.voice_model || opts?.voiceModel,
         format: requestedFormat,
         response_format: requestedFormat,
@@ -818,7 +900,11 @@ class AssetGenerator {
       let proc
       try {
         // 参数通过数组传递，shell 元字符不会被解释。
-        proc = spawn(command, [...commandArgs, '-c', buildEdgeTtsScript(), cleanText, voice, audioPath], {
+        const speed = Math.max(0.5, Math.min(2, Number(opts?.rate) || 1))
+        const pitch = Math.max(-12, Math.min(12, Number(opts?.pitch) || 0))
+        const rate = (Math.round((speed - 1) * 100) >= 0 ? '+' : '') + Math.round((speed - 1) * 100) + '%'
+        const pitchValue = (Math.round(pitch) >= 0 ? '+' : '') + Math.round(pitch) + 'Hz'
+        proc = spawn(command, [...commandArgs, '-c', buildEdgeTtsScript(), cleanText, voice, audioPath, rate, pitchValue], {
           stdio: 'ignore', shell: false, timeout: 15000,
         })
       } catch (error) {

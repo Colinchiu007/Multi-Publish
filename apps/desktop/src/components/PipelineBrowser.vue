@@ -18,17 +18,21 @@
         v-for="p in pipelines"
         :key="p.name"
         class="pipeline-card"
-        :class="[p.stability || 'experimental']"
+        :data-pipeline-id="p.name"
+        :class="[p.stability || 'experimental', { 'is-unavailable': p.available === false }]"
         @click="$emit('select', p)"
       >
         <div class="card-header">
-          <span class="badge" :class="p.category">{{ p.category }}</span>
+          <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
           <span class="stability-dot" :class="p.stability || 'experimental'" :title="'稳定性: ' + (p.stability || 'experimental')"></span>
         </div>
-        <h3 class="card-title">{{ humanName(p.name) }}</h3>
-        <p class="card-desc">{{ p.description ? p.description.substring(0, 120) + (p.description.length > 120 ? "..." : "") : "暂无描述" }}</p>
+        <h3 class="card-title">{{ pipelineName(p.name) }}</h3>
+        <p class="card-desc">{{ pipelineDescription(p.name, p.description) }}</p>
         <div class="card-footer">
           <span class="version">v{{ p.version || "?" }}</span>
+          <span class="availability-badge" :class="p.available === false ? 'dev' : 'ready'" :title="availabilityHint(p.available !== false)">
+            {{ availabilityLabel(p.available !== false) }}
+          </span>
         </div>
       </div>
     </div>
@@ -36,6 +40,12 @@
 </template>
 
 <script>
+import {
+  getPipelineCategory,
+  getPipelineDescription,
+  getPipelineName,
+} from '@/i18n/pipeline-labels'
+
 export default {
   name: "PipelineBrowser",
   emits: ["select"],
@@ -64,11 +74,27 @@ export default {
     }
   },
   methods: {
-    humanName(name) {
-      if (!name) return "";
-      return name
-        .replace(/-/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase());
+    translate(key) {
+      return typeof this.$t === 'function' ? this.$t(key) : key
+    },
+    pipelineName(name) {
+      return getPipelineName((key) => this.translate(key), name)
+    },
+    pipelineCategory(category) {
+      return getPipelineCategory((key) => this.translate(key), category)
+    },
+    pipelineDescription(name, fallback) {
+      const description = getPipelineDescription((key) => this.translate(key), name)
+      const value = description && description !== name ? description : (fallback || '')
+      return value
+        ? value.substring(0, 120) + (value.length > 120 ? '...' : '')
+        : this.translate('pipelines.descriptions.unavailable')
+    },
+    availabilityLabel(available) {
+      return this.translate(available ? 'pipelines.availability.ready' : 'pipelines.availability.dev')
+    },
+    availabilityHint(available) {
+      return this.translate(available ? 'pipelines.availability.readyHint' : 'pipelines.availability.notImplementedHint')
     },
   },
 };
@@ -97,8 +123,13 @@ export default {
 .badge.hybrid { background: #d1fae5; color: #047857; }
 .card-title { font-size: 1.05rem; margin: 0 0 6px 0; }
 .card-desc { font-size: 0.82rem; color: #666; line-height: 1.4; margin: 0 0 12px 0; }
-.card-footer { display: flex; justify-content: flex-end; }
+.card-footer { display: flex; justify-content: space-between; align-items: center; }
 .version { font-size: 0.75rem; color: #999; }
+.availability-badge { font-size: 11px; padding: 1px 8px; border-radius: 10px; font-weight: 600; }
+.availability-badge.ready { background: #d1fae5; color: #047857; }
+.availability-badge.dev { background: #fef3c7; color: #b45309; }
+.pipeline-card.is-unavailable { opacity: 0.72; }
+.pipeline-card.is-unavailable:hover { transform: none; box-shadow: none; }
 .stability-dot {
   width: 8px; height: 8px; border-radius: 50%; display: inline-block;
 }

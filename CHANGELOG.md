@@ -1,12 +1,254 @@
 ## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
 
 ### 视频创作
-- 图片动效（放大/缩小/平移/缩放平移）进度改为按**场景有效时长**归一化：音频探测成功用真实音频时长，探测失败回退上报时长/默认 6 秒；短场景不再"动效没做完就被切走"，长场景不再"动效提前定格"。
+- 图片动效（放大/缩小/平移/缩放平移）进度改为按**场景有效时长**归一化：音频探测成功用真实音频时长，探测失败回退上报时长/默认 6 秒；短场景不再"动效没做完就被切走"，长场景不再"动效提前定格"（与 zoompan `d=总帧数` 修复合并生效）。
 - 移除「单画面时长/无旁白场景时长」选项及 `perImageDuration` 配置合同：无旁白/纯图片轮播模式不再属于 `story2video-compose`；`defaultSceneDuration` 保留为默认 6 秒（UI 不暴露，仍可被运行参数覆盖），仅作音频时长不可探测时的回退与动效归一化兜底（回退路径为 best-effort，不强制截断旁白）。旧项目历史配置中的 `perImageDuration` 会被兼容忽略。
 
 ---
 
+## 历史记录运行结束任务不消失 + 前端重建生效（2026-08-07）
+
+### 1. 历史记录
+- **问题**：运行中流水线结束后（失败/完成），`refreshRunningHistory` 把该运行项从列表移除且不保留终态；断点继续后同一阶段再次失败又被移除 → 任务从历史「消失」。
+- **修复**：刷新检测到运行中项已结束（不在 `pipelineHistory` 运行集中）时，触发一次完整 `loadHistory()`，让任务以**终态（已完成/失败/已取消）**继续显示在历史中；仅在仍有运行中项时保持原地差量更新。
+
+### 2. 前端构建
+- 此前 #393（文案/布局/闪烁修复）只更新了源码未重建 dist，导致运行中的应用仍显示旧文案（「瞬时错误（限流/超时）…」）。本次重建前端并重启，使 #393/#394 全部修复生效。
+- 回归：CreateView 测试更新（运行结束触发完整加载 + 终态保留），77 用例全绿。
+
+## 图片轮播字幕位置调整（2026-08-07）
+
+### 视频创作（合成）
+- **需求**：成片字幕太靠下（原固定 `y=h-th-40`，距底部约 40px ≈ 3%），调整为**距底部 20%**。
+- **实现**：`buildSubtitleFilter` 新增 `bottomMarginRatio`（默认 0.2，范围 0.05-0.5，可经 `subtitleStyle.bottomMarginRatio` 覆盖）；y 表达式改为 `y=h*(1-bottomMarginRatio)-th`（默认 `h*0.800-th`，即字幕底边位于画面 80% 高度处）。
+- 回归：compose-engine 新增字幕位置用例（默认 0.2 / 覆盖 0.1 / clamp 0.5 与 0.05），57 用例全绿。
+- PRD「字幕样式合同」同步更新。
+
+## 图片轮播历史记录体验 + TTS 空响应重试修复（2026-08-07）
+
+### 1. 历史记录运行中流水线布局与刷新
+- **布局错乱**：原运行中项把阶段标签内联在单行 flex 里导致换行错乱。改为卡片式：主信息行 + 独立「阶段进度条」（每阶段一个分段，done 绿 / active 蓝高亮 / pending 灰 / failed 红，与流水线页阶段语义一致），不再内联挤占。
+- **闪烁**：原 5s 刷新整表重建 history 数组导致页面闪动。改为 `refreshRunningHistory()` 原地更新运行中项的 stages/currentStage（保持对象身份），不重建列表、不重刷项目记录；运行结束的项从运行中区移除。
+- 进入历史页仍即时显示「加载中」，数据到达后渲染（初次 1-2s 属正常加载）。
+
+### 2. TTS 空音频响应按瞬时错误重试（E2E 实测失败根因）
+- **根因**：MiniMax TTS 偶发返回 200 但无 audio（`Missing audio data in response`，日志 11:56/12:05 复现），此前 `classifyProviderFailure` 归为 `other` 不重试 → generate_assets 失败 → 弹「当前操作未能完成」。
+- **修复**：`classifyProviderFailure` 新增空响应/缺失数据模式（`missing ... data in response` / `returned no ... result` / `empty response` / `empty image_urls`）→ 归为 `transient`，governor 短退避重试（TRANSIENT_RETRIES=2）；同类问题覆盖 minimax-tts / mimo-tts / 生图空结果。
+
+### 3. 提示文案友好化
+- resumeHint 中文：原「瞬时错误（限流/超时）会自动冷却后重试」→「遇到暂时的服务繁忙或网络波动时，会自动等待片刻后重试。」
+- 英文同步：「Transient failures will be retried with cooldown automatically.」→「Temporary service or network issues will be retried automatically after a short wait.」
+
+## [未发布] Podcast 转视频流水线引擎实现 (2026-08-07)
+
+### 视频创作（流水线引擎）
+- 新增 `podcast-repurpose`（播客转视频：音频 → 可视化视频）真实引擎，`available=true`：analyze（ffprobe 时长 + 文案分句，可选语音识别转写）→ visualize（每段生成配图）→ assemble（ffmpeg 切分音频片段 + 组装场景）→ render（内置 compose 合成，fade 转场）。
+- 音频路径受控校验（resolveReadableMediaFile kind=audio）；无文案且无语音识别供应商 → fail closed 明确提示。
+- 测试：podcast-repurpose-stages 11 例（真实 wav + ffmpeg 切分）；pipeline-engine available/stageDefs 断言更新（无引擎清单仅剩 screen-demo）。
+- PRD「Podcast 转视频流水线引擎合同」、E2E-PENDING 待办 B 更新。
+## [未发布] CreateView 历史记录运行中流水线置顶 + 阶段进度 (2026-08-07)
+
+### 视频创作（历史记录）
+- 用户反馈【视频创作】-【历史记录】看不到运行中流水线。复现确认：CreateView 内部历史视图（非 `/create/history`）中运行中 run 其实有显示，但排在列表末尾、且无阶段进度信息。
+- **修复**：运行中流水线**置顶**（运行中 > 已完成项目 > 终态 run）；运行中项显示**阶段进度色块**（completed/running/pending/failed）与「返回流水线创作查看进度」提示；存在运行中任务时每 5s 自动刷新；点击运行中项切回流水线创作并自动恢复查看。
+- 回归：CreateView 测试 +2 例（运行中置顶+阶段色块 / 点击切回并恢复），75 用例全绿。
+
+## [未发布] 创作历史运行中流水线可发现性优化 (2026-08-07)
+
+### 视频创作（创作历史）
+- 用户反馈「启动运行中的流水线后进入历史记录看不到」。定位：运行中流水线在「流水线记录」tab，历史页默认 tab 是「渲染记录」，需手动点击才发现。
+- **优化**：进入创作历史页时同时加载流水线记录；存在运行中任务时自动切到「流水线记录」tab 直接展示；「渲染记录」tab 顶部显示运行中横幅（「有 N 条流水线正在后台运行，点击查看运行状态」），点击切换到流水线记录。
+- 回归：CreateHistory 测试新增 2 例（自动切 tab + 横幅点击）；22 用例全绿。
+
+## [未发布] 真实链路修复：图片空结果重试 / compose 转场 / 并发上限开关 (2026-08-07)
+
+### 图片轮播（真实 E2E 暴露）
+- **MiniMax Image 空结果不再静默失败**：HTTP 200 但 `image_urls` 为空时 adapter 显式抛 `ProviderError`（状态含内容安全信号→`CONTENT_POLICY`，否则 `PROVIDER_ERROR`）；asset-generator 在内容政策重试循环内校验图片结果，前 2 次同提示词重试、第 3 次起内容安全改写、第 5 次仍空 → `needs_user_input(reason=empty_result)` 友好提示（原：整段「did not return a supported image binary」失败）。
+- **compose 转场 `transition=undefined`**：`buildTransitionPlan` 未携带 `transitionName` 导致 `_xfadeMerge` 构造 `xfade=transition=undefined`（ffmpeg 报错）。修复：计划对象所有返回路径携带 `transitionName`（默认 fade），直连/分块路径均传递；回归测试断言直连与 27 段分块的 plan 均含 `transitionName='fade'`。
+- **并发上限固定开关**：环境变量 `STORY2VIDEO_MAX_CONCURRENT_RUNS`（1–8，非法回退自适应）可固定上限（如 `2`）；优先级 deps 注入 > 环境变量 > 机器资源自适应。回归：resume-orchestration 覆盖设 2/非法回退/deps 优先/封顶 8。
+- PRD「空响应重试合同」「真实链路修复合同」「并发上限固定开关」同步更新。
+
+## [未发布] Code Review MINOR 4-6 修复 (2026-08-07)
+
+### 应用日志
+- **MINOR-4 写队列超时兜底**：`logger.enqueueFileWrite` 增加单条写入等待上限（默认 5s，`setLogOptions({ writeTimeoutMs })` 可注入）；`appendFile` 回调极端异常永不触发时，队列超时释放，后续日志不再永久挂起；`timer.unref()` 不阻塞进程退出。回归：mock `fs.appendFile` 不回调 → flush 仍 resolve + 后续写入正常。
+
+### 渲染进程错误上报
+- **MINOR-5 组件 catch 统一上报主进程日志**：新增 `src/utils/report-error.js`（优先 `window.electronAPI.logError` → 主进程 app-*.log，无 electronAPI 回退 console.error，错误文本截断 2000 字符）；CloudPublish/Home/Intelligence/TemplatePicker/UpgradeModal/ReferenceFinder 的 catch `console.error` 与 router.onError、window error/unhandledrejection 全局处理器全部接入。新增 report-error 单测 3 例。
+
+### 视频创作并发
+- **MINOR-6 并发上限机器资源自适应**：`computeDefaultMaxConcurrentRuns`（可用并行度/可用内存 → 1-4 条，封顶 4），`deps.maxConcurrentRuns` 注入仍可覆盖；PRD 并发合同与测试同步更新（默认档位断言 + 注入覆盖用例）。
+- 契约测试显式注入并发上限，消除 CI 自托管 runner 资源差异导致的并发用例失败。
+
+## [未发布] 音色克隆移除授权勾选 (2026-08-07)
+
+### 图片轮播（音色克隆）
+- **需求调整**：移除「我确认已取得样本上传、使用和克隆的权利，并已作出明确同意。」勾选项（该勾选未参与真实权限判定）。现在选择样本 + 填写克隆音色名称即可添加。
+- **改动**：仅前端 `CreateView.vue` 移除勾选 UI 与 `s2vVoiceCloneConsent` 状态/校验（按钮可用条件 = 已选样本 + 名称非空 + 非加载中）；IPC/服务层 `consent` 契约保持不变（renderer 恒传 `true`，fail-closed 防御不变）。
+- PRD「音色克隆区域交互合同」同步更新。
+
+## [未发布] Code Review MAJOR 1-3 修复 (2026-08-07)
+
+### 主进程（代码审查修复）
+- **MAJOR-1 `_history` 内存上限**：PipelineEngine 默认保留最近 50 条 run 快照（`maxHistoryEntries` 可注入），超限裁剪最旧；断点恢复跨重启仍走 RunStateStore 持久快照。
+- **MAJOR-2 IPC 注册统一**：window.js 不再临时替换全局 `ipcMain.handle`，改为显式构造 `createAccessControlledIpcMain` 注入 10 个服务（batchManager/webviewManager/oauthManager 等）；各服务 `registerIpcHandlers(injectedIpcMain)` 支持注入（默认全局兼容测试）。
+- **MAJOR-3 cloud-publisher 回退 fail closed**：`registerIpcHandlers` 未注入 ipcMain 时抛错，禁止绕过 access-controlled 通道。
+- 审查记录沉淀：`01-docs/code-review-2026-08-07.md`；回归 window(46) + resume(12，含 history 上限用例) + 各服务测试通过。## [未发布] 克隆时长探测测试环境修复 (2026-08-07)
+
+### 测试
+- `_probeMediaDuration` 回归测试显式注入 `ffprobePath`，消除 CI（Linux self-hosted，无捆绑 ffprobe）环境依赖导致的 early-return 失败。## [未发布] 克隆音色「服务不可用」修复 (2026-08-07)
+
+### 图片轮播（音色克隆）
+- **根因**：MiniMax `cloneVoice` 上传/复刻路径带 `/v1` 前缀，而 base_url 已含 `/v1`（`https://api.minimaxi.com/v1`）→ 双重 `/v1` → 404 → 异常被吞 → 提示「音色克隆服务暂时不可用」。
+- **修复**：cloneVoice 路径改为 `/files/upload`、`/voice_clone`；`_addCloneLocked` 的 `catch (_)` 补 `warn` 日志（注入 `this._log`），真实失败不再被吞。
+- **回归**：测试改为精确 URL 断言 + 新增「base_url 含 /v1 不产生 /v1/v1」用例；相关 59 用例通过。## [未发布] 视频创作后台运行与并发限制 (2026-08-07)
+
+### 视频创作
+- **后台运行固化**：background:true 主进程后台推进 + CreateView mounted 自动恢复查看运行中 run（已有能力，补合同文档）。
+- **历史记录显示运行中任务**：`pipeline:history` 现在返回运行中 run（去重 `_<name>` 索引）+ 终态历史；创作历史-流水线记录支持运行中卡片（阶段标签/时间/「返回创作页查看进度」提示），存在 running 时每 5s 轮询刷新、结束即停；点击运行中卡片跳 /create 恢复查看，点击已完成卡片跳成片预览。
+- **并发限制**：PipelineEngine 默认最多 2 条运行中编排流水线（`maxConcurrentRuns` 可注入）；`startOrchestrated` 与 `resumeOrchestration` 统一门禁，超限返回 `PIPELINE_CONCURRENCY_LIMIT` + 友好中文提示；前端新增对应通知文案（zh/en，errorCode + 正则双映射）。
+- 测试：引擎 4 例（getHistory 含运行中/默认上限 2/注入 1 与释放/恢复超限）+ CreateHistory 2 例（轮询与停止/跳转）+ notifications 2 例；vite build 通过。
+- PRD「视频创作后台运行与并发合同」、learnings 复盘、CHANGELOG 同步更新。## [未发布] 音色目录/克隆双 Bug 修复 (2026-08-07)
+
+### 图片轮播（视频创作）
+- **Bug 1 音色选择**：MiniMax 系统音色 id 含空格/括号（如 `Chinese (Mandarin)_Reliable_Executive`），selectVoice 的 voiceId 校验过严导致选「沉稳高管/搞笑大爷」报 `VOICE_CATALOG_INVALID_ARGUMENTS`。修复：新增 `safeVoiceId`（允许非控制字符，仅拒路径分隔符/遍历序列），providerId/model 仍严格校验。
+- **Bug 2 克隆时长误报**：ffprobe 从 stdin 探测部分 wav（带 LIST chunk）拿不到 duration → 误报「音频文件时长不符合要求」。修复：`_probeMediaDuration` pipe 优先，**有音频流但 duration 缺失**时回退临时文件文件模式探测（tmpdir 随机名/0600/finally 清理）；明确无音频流仍 fail closed。
+- 回归测试 5 例：voiceId 空格括号选择/路径拒绝；pipe 回退/不回退/双失败/null。端到端验证用户 wav（27.12s）通过。
+- PRD「音色目录/克隆校验修复合同」、learnings 双 Bug 复盘同步更新。## [未发布] 技术债务 W1/W2/W3 闭环 (2026-08-06)
+
+### 主进程
+- **W1 run-state owner 隔离**：RunStateStore 快照改写入 `userData/run-state/owners/{sha256(subject)}/<runId>.json`；新增 `setOwnerProvider`，phase3-services 用 `ownerSubjectProvider` 接线并随身份切换更新；legacy 平铺快照首次读取自动迁移；remove 双路径清理；未登录回退平铺存储。
+- **W2 governor 排队超时回收**：新增 `_sweepExpired`（每次 run() 入口回收该 key 过期 waiter）+ `sweepAll()`（PipelineEngine._finalizeRun 统一调用），过期排队请求不再依赖后续释放、不再悬挂到任务链结束。
+- **W3 governor RPM provider 配置化**：新增 governor-provider-limits.js（52 个已知 provider 预算，含本地类高预算）；governor 支持 `setProviderLimits` 与构造函数 `providerLimits` 注入，container 启动注入；优先级 精确key > provider > 类别默认 > 全局默认，429 自适应仍兜底。
+
+### 测试与文档
+- 新增 run-state-store.test.js（7 用例：owner 保存/跨账号隔离/legacy 迁移/双路径 remove/provider 校验与回退）；governor 新增 5 用例（W2 回收×2、W3 provider 生效/回退/注入）；resume-orchestration 新增 2 用例（失败/取消触发 sweepAll）。
+- PRD「技术债务 W1/W2/W3 闭环」、learnings 复盘、CHANGELOG、tech-debt 与 QUALITY-RHYTHM-BACKFILL 同步更新。
+
+## [未发布] 应用日志 log 功能 (2026-08-06)
+
+### 主进程（日志服务）
+- logger 重写为控制台 + 文件双写：按日期滚动写入 `userData/logs/app-YYYY-MM-DD.log`，行格式 `[ISO时间] [级别] 模块 消息 [JSON meta]`；异步队列不阻塞主进程。
+- 敏感信息脱敏：Authorization/Bearer、apiKey、sk- 前缀密钥落盘前统一掩码；meta 仅对象 JSON 化，Error 记录堆栈，字符串按原文拼接。
+- 大小规则：默认单文件 500MB，每追加 64KB 核对真实大小，超限自动删除并重建；启动首写核对历史超限文件。新增 setLogOptions / flush / clearLogs / getLogsInfo。
+- 退出清理：shutdown 流程排空日志写入队列后再退出；启动记录主窗口创建日志。
+- 新增 IPC：logs:info / logs:clear / logs:error（渲染进程错误上报），均入 public 白名单。
+
+### 渲染进程（设置-通用设置）
+- 启用「通用设置」Tab，新增「应用日志」面板：日志目录、文件数、总大小、单文件上限、文件列表、刷新与清理按钮、自动清理提示文字（i18n zh/en）。
+- preload 新增 logsGetInfo / logsClear / logError；renderer 经 src/api/publisher.js 封装。
+
+### 文档与测试
+- PRD 新增「应用日志 log 合同」章节；新增 logger.test.js / logs.test.js，更新 preload/main/shutdown 测试。
+- 真实 provider 日志内容属灰度验证项，不纳入自动验收。
+## [未发布] E2E 待办/待验证清单 (2026-08-06)
+
+### 文档
+- 新增 `01-docs/E2E-PENDING.md`：记录因条件不足无法验证或待重测的项（4 条 videogen 流水线待配置视频生成模型、2 条无引擎流水线、以及 TTS 克隆/个人音色槽位/敏感词降级等真实供应商验收项），下次配置好后重测并勾销。
+
+## [未发布] 图片轮播参数表单 UE 优化 (2026-08-06)
+
+### 视频创作（UI/UE）
+- 参数表单 6 组折叠（基础/画面/声音/高级/模板与输出/发布）+ 实时摘要；折叠状态随 `story2video.lastOptions.v1.ui.expandedGroups` 跨会话保存/恢复。
+- 新增保存/恢复轻提示（「选项已保存 ✓ / 已恢复上次的选项设置」，1.6s 淡出）；操作栏 sticky 固定（启动/取消/恢复默认选项始终可见）；音色克隆面板内层折叠。
+- 方案文档 `01-docs/STORY2VIDEO-UE-OPTIMIZATION-PROPOSAL.md`；PRD 7.1.11 参数表单 UE 合同。
+
+## [未发布] 全流水线 E2E 真实测试与修复 (2026-08-06)
+
+### 视频创作（E2E + 修复）
+- 12 条已实现流水线真实 E2E（Playwright Electron + 登录 profile + 真实 LLM/TTS/生图）：8 条跑通（story2video-compose/animated-explainer/documentary-montage/framework-smoke/talking-head/cinematic/clip-factory/localization-dub），4 条按预期缺视频生成模型（animation/avatar-spokesperson/character-animation/hybrid）。报告 `01-docs/STORY2VIDEO-E2E-REPORT.md`。
+- API 限流排队改为按时间槽调度（`api-usage-governor`），修复长文案多场景 TTS 排队超预算失败；videogen storyboard/generate 输入改为候选键解析（`resolveVideogenConcept/Scenes`），修复 character-animation/hybrid 缺 context。
+
+## [未发布] 图片轮播选项持久化 (2026-08-06)
+
+### 视频创作
+- 图片轮播选项（`s2vConfig` + `s2vOutputConfig`）自动保存/恢复：复用主进程 owner-scoped settings（`story2video.lastOptions.v1`），1s 防抖 + 启动即存 + 离开页面 flush；已禁用 provider 不回填；新增「恢复默认选项」。PRD 7.1.10。
+
+## [未发布] 流水线进度细化与信息视觉化 (2026-08-06)
+
+### 视频创作
+- 阶段清单新增：拆分场景数、提示词优化「共 N 个场景，已完成 M 个」、资源生成「图片 x/y · 旁白 x/y」实时进度；每阶段耗时；整体进度条 + 已用时；完成汇总「完成时间共 X 分 Y 秒 · 文件大小 Z M」（预览页展示）。PRD 7.1.9。
+
+## [未发布] API 并发控制/排队/重试 + 断点恢复 (2026-08-06)
+
+### 视频创作
+- 新增 `ApiUsageGovernor` 挂在 provider 唯一出口：每 provider 并发信号量、滑动窗口 RPM、429 冷却 + 时间槽排队、分级重试（限流长退避/超时短退避/额度不重试）、可选 5h/周 token 额度窗口。
+- 断点恢复：失败快照持久化（`RunStateStore`）+ `pipeline:resumeOrchestration` + 场景级续传（`optimize_resume` / `generate_assets.resume.completed`）；失败弹窗「从断点继续」。PRD 7.1.8。
+
+## [未发布] MiniMax TTS 音色目录与长文案限流修复 (2026-08-06)
+
+### 视频创作
+- MiniMax TTS 默认模型 speech-2.8-turbo；官方 327 个系统音色目录 + 音色克隆（上传→克隆→选择）；错误友好化与多语言（「图片轮播 提示」、`story2video.rate_limited`/`quota_exceeded` 含场景号）。
+- 长文案多场景限流：optimize/资源生成瞬时错误有界重试 + 限流友好提示；中文字幕 drawtext 显式 CJK fontfile（修复豆腐块）；挂载时恢复主进程仍在运行的编排流水线（HMR/重挂载不丢运行态）。PRD 7.1.4/7.1.5/7.1.7。
+
+## [未发布] talking-head 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- talking-head（口播视频）从 state_machine 占位升级为真实编排：视频 + 文案 → 分句 → SRT 字幕 → FFmpeg 烧录渲染，全程本地（用户提供文案时无需语音识别；无文案则 fail closed 提示配置识别模型）。
+- 新增 `talkinghead-stages.js` 注册 4 个自定义阶段；`saveRun`/`_finalizeRun` 支持 talking-head；前端视频区新增口播文案输入。
+- 真实 E2E：640x360 测试视频 + 3 段文案 → 字幕烧录 → `video.mp4`（12s）→ 项目持久化（3 segments，completed）。
+
+## [未发布] framework-smoke 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- framework-smoke（框架冒烟测试）从 state_machine 占位升级为真实编排：验证 FFmpeg/ffprobe 与流水线注册表 → 生成冒烟测试视频（testsrc）+ 环境报告。
+- 新增 `smoketest-stages.js` 注册 2 个自定义阶段；`saveRun`/`_finalizeRun`/UI 结果提取支持 context.report。
+- 真实 E2E：verify → report → `video.mp4`（h264 640x360+aac 2s）→ 项目持久化（completed）。
+
+## [未发布] cinematic 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- cinematic（电影感短片）从 state_machine 占位升级为真实编排流水线：输入视频 → FFmpeg 调色（eq）→ 淡入淡出 + 目标分辨率合成 → 渲染输出，全部本地完成。
+- 新增 `cinematic-stages.js` 注册 4 个自定义阶段执行器；`pipeline-engine` 补齐 stageDefs；`saveRun` 泛化支持 cinematic（resolveComposeOutput 精确匹配含 videoPath 的输出，规避 stage 名 compose 冲突）；前端 `isMediaAutoPipeline` 纳入 cinematic。
+- 真实 E2E：640x360 测试视频 → 调色+淡入淡出+缩放 → `video.mp4`（h264 1920x1080 12s）→ 项目持久化（completed）。
+
+## [未发布] clip-factory 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- clip-factory（视频切片工厂）从 state_machine 占位升级为真实编排流水线：本地 FFmpeg 场景检测 → 逐段剪辑 → 片段标题 → concat 合并导出，不依赖外部模型。
+- 新增 `clipfactory-stages.js` 注册 4 个自定义阶段执行器；`pipeline-engine` 补齐 stageDefs；`saveRun` 泛化支持 clip-factory 项目持久化。
+- 新增视频媒体导入链路（`story2videoImportMediaPath` + MEDIA_RULES.video + 前端视频素材导入），规避 File 跨 contextBridge 丢失路径。
+- 真实 E2E：3 色块测试视频 → 场景检测切出 3 片段 → 合并导出 `video.mp4`（h264 640x360 12s）→ 项目持久化（3 segments，completed）。
+
+## [未发布] animated-explainer 真实编排引擎 (2026-08-06)
+
+### 视频创作
+- animated-explainer（AI 讲解视频）从 state_machine 占位升级为真实编排流水线：LLM 规划链（主题→大纲→分镜→旁白→场景）→ 图片+旁白生成（复用 story2video 资源生成与内容政策重试）→ FFmpeg 合成（复用 story2video 引擎）→ 发布（可选）。
+- 新增 `explainer-stages.js` 注册 6 个自定义阶段执行器；`pipeline-engine` 为 animated-explainer 补齐 stageDefs（8 阶段，checkpointRequired=false）。
+- 新增阶段执行器与编排契约单元测试（explainer 14 + 编排 3，全部通过）。
+
+## [未发布] 任务归档 (2026-08-06)
+
+### 维护
+- 归档 Story2Video 视频创作空白页修复任务（CSP eval 拦截根因与 Message Function 方案已随 PR #362 合并）。
+
+## [未发布] 视频创作空白页修复 (2026-08-06)
+
+### 视频创作
+- 修复 Electron 中点击【视频创作】页面空白：vue-i18n 运行时编译字符串消息使用 `new Function`，被 Electron CSP（`script-src 'self'`，无 `unsafe-eval`）拦截抛出 `EvalError`，导致 CreateView 渲染失败白屏。
+- i18n 静态消息改为在加载时转换为 Message Function，彻底移除运行时编译；生产 CSP 保持严格不变，zh/en 翻译语义不变。
+- 新增 i18n 回归测试：模拟 CSP 禁止 `new Function` 时流水线文案仍可翻译，并断言 zh/en 全部消息叶子为函数。
+
+## [未发布] 质量节拍任务归档 (2026-08-04)
+
+### 维护
+- 归档 Story2Video GUI 工作区选择器回归任务；产品代码已随 PR #352 合并到主线。
+
 ## [未发布] Story2Video 参数边界与运行错误反馈 (2026-08-01)
+
+## [未发布] 蚁小二账号与发布续作收敛 (2026-08-04)
+
+### 账号管理
+- 账号卡片动作按真实蚁小二截图收敛为“设置、删除”，失效账号额外显示“重新登录”，并复用网页登录 IPC 完成重新授权流程。
+- 增加粉丝数、负责人、运营人、代理字段的后端字段归一化；缺失数据使用明确空值文案，不生成团队假数据。
+- 增加分组搜索、全部分组、仅看共享、成员计数和分组空态；收藏页签无结果显示“暂无收藏账号”。
+- 分享链接页显示未接入服务状态并禁用创建按钮，保留团队分享/跨设备能力的外部依赖边界。
+
+### 质量
+- 账号卡片与账号页面定向回归 `78/78` 通过；Vue 构建通过。
+- 账号、发布、批量发布 desktop/mobile/audit 截图 `9/9` 通过；真实蚁小二参考像素审计 `3/3` 通过。
+- 像素视觉门禁账号页就绪选择器改用稳定的 .accounts-page，并刷新预期账号页基线；CI 同口径像素测试 17/17 通过。
+- 全量 Vitest 为 `6016 passed / 2 failed`；两项失败来自本任务未修改的媒体工具资源环境与既有 spawn 参数断言，详见对标分析报告。
 
 ### 视频创作
 - `story2video-compose` 仅保留六阶段执行链实际消费的参数；移除通用视觉风格、LLM 温度/预算、目标总时长、基础/整合版本开关和无效的平台提示词下拉。
@@ -2686,6 +2928,14 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
+
+
+
+
+
+
+
 
 
 

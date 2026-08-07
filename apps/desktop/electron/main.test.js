@@ -43,7 +43,7 @@ __registerMock('./bootstrap', {
 })
 __registerMock('./window', { createWindow: mockCreateWindow })
 __registerMock('./shutdown', { registerShutdownHandlers: mockRegisterShutdownHandlers })
-__registerMock('./services/logger', { error: mockLogError })
+__registerMock('./services/logger', { error: mockLogError, info: vi.fn() })
 
 // ─── 加载 main.js（应在 mock 注册后） ──────────────────
 // main.js 顶层会执行 createAppContext() + registerShutdownHandlers() + runWhenReady()
@@ -165,6 +165,7 @@ describe('main.js — QM-3 启动测试', () => {
     expect(args[0]).toBe(mockContext)
     expect(args[1]).toEqual({ createWindow: mockCreateWindow })
   })
+
 
   it('app.on 注册 activate 事件', () => {
     expect(__electronMock.app.on).toHaveBeenCalledWith('activate', expect.any(Function))

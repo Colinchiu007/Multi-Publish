@@ -34,7 +34,7 @@ async function performShutdown(context) {
     systemTray, scheduler, publishImpactTracker,
     authViewManager, qrCodeLogin, oauthManager,
     batchManager, taskQueue, commentManager,
-    renderEngine, usageTracker,
+    renderEngine, usageTracker, story2videoMediaServer,
   } = context
 
   await runCleanup('Error unregistering hotkeys:', () => {
@@ -95,6 +95,9 @@ async function performShutdown(context) {
   await runCleanup('Error stopping callback server:', () => {
     if (callbackServer && callbackServer.stop) return callbackServer.stop()
   })
+  await runCleanup('Error stopping Story2Video media server:', () => {
+    if (story2videoMediaServer && story2videoMediaServer.stop) return story2videoMediaServer.stop()
+  })
   await runCleanup('Error destroying tray:', () => {
     if (systemTray && systemTray.destroy) return systemTray.destroy()
   })
@@ -104,6 +107,8 @@ async function performShutdown(context) {
   await runCleanup('Error closing store:', () => {
     if (store && store.close) return store.close()
   })
+  // 日志落盘：等待异步文件写入队列排空后再退出
+  await runCleanup('Error flushing logs:', () => log.flush())
 }
 
 function registerShutdownHandlers(context, options = {}) {

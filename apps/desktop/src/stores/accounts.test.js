@@ -210,6 +210,17 @@ describe("useAccountStore", () => {
       expect(store.filteredAccounts.map(account => account.id)).toEqual(["name", "account-name", "empty"]);
     });
 
+    it("名称排序与卡片显示统一优先使用 account_name", () => {
+      const store = useAccountStore()
+      store.accounts = [
+        { id: "canonical-alpha", account_name: "Alpha", name: "Zulu" },
+        { id: "canonical-zulu", account_name: "Zulu", name: "Alpha" },
+      ]
+      store.sortBy = "name"
+
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["canonical-alpha", "canonical-zulu"])
+    })
+
     it("按创建时间升序和降序排序，缺失时间按 epoch 处理", () => {
       const store = useAccountStore();
       store.accounts = accountsFixture;
@@ -248,6 +259,79 @@ describe("useAccountStore", () => {
       store.sortBy = "priority";
       expect(store.filteredAccounts.map(account => account.id)).toEqual(["empty", "dated"]);
     });
+
+    it("平台排序使用平台中文标签并支持升降序", () => {
+      const platformStore = usePlatformStore()
+      platformStore.names = { douyin: "抖音", wechat_mp: "微信公众号", zhihu: "知乎" }
+      const store = useAccountStore()
+      store.accounts = [
+        { id: "zhihu", platform: "zhihu", name: "同名" },
+        { id: "wechat", platform: "wechat_mp", name: "同名" },
+        { id: "douyin", platform: "douyin", name: "同名" },
+      ]
+      store.sortBy = "platform"
+
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["wechat", "douyin", "zhihu"])
+      store.sortOrder = "desc"
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["zhihu", "douyin", "wechat"])
+    })
+
+    it("粉丝数排序归一化数字、逗号、万和 k，并保持相等值稳定", () => {
+      const store = useAccountStore()
+      store.accounts = [
+        { id: "missing", followers: "unknown" },
+        { id: "two-k", followers: "2k" },
+        { id: "ten-thousand", followers: "1万" },
+        { id: "comma", followers: "10,000" },
+      ]
+      store.sortBy = "followers"
+
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["missing", "two-k", "ten-thousand", "comma"])
+      store.sortOrder = "desc"
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["ten-thousand", "comma", "two-k", "missing"])
+    })
+
+    it("最后使用排序将非法日期视为最小值", () => {
+      const store = useAccountStore()
+      store.accounts = [
+        { id: "invalid", last_used_at: "not-a-date" },
+        { id: "old", last_used_at: "2026-01-01T00:00:00Z" },
+        { id: "new", last_used_at: "2026-08-01T00:00:00Z" },
+      ]
+      store.sortBy = "last_used_at"
+
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["invalid", "old", "new"])
+      store.sortOrder = "desc"
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["new", "old", "invalid"])
+    })
+
+    it("登录状态排序将活跃账号置于有效分组并保持同值原始顺序", () => {
+      const store = useAccountStore()
+      store.accounts = [
+        { id: "offline", status: "offline" },
+        { id: "online", status: "online" },
+        { id: "error", status: "error" },
+        { id: "active", status: "active" },
+      ]
+      store.sortBy = "status"
+
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["offline", "error", "online", "active"])
+      store.sortOrder = "desc"
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["online", "active", "offline", "error"])
+    })
+
+    it("筛选后排序仍以筛选结果的原始顺序作为稳定 tie-break", () => {
+      const store = useAccountStore()
+      store.accounts = [
+        { id: "inactive-first", status: "inactive", name: "同名" },
+        { id: "active-first", status: "active", name: "同名" },
+        { id: "active-second", status: "online", name: "同名" },
+      ]
+      store.filterStatus = "active"
+      store.sortBy = "name"
+
+      expect(store.filteredAccounts.map(account => account.id)).toEqual(["active-first", "active-second"])
+    })
 
     it("平台分组统计活跃和非活跃账号，并按活跃数及总数排序", () => {
       const store = useAccountStore();
@@ -320,6 +404,27 @@ describe("useAccountStore", () => {
       expect(group).toEqual({ id: expect.stringMatching(/^grp_123_/), name: "常用账号", platformFilter: null, accountIds: [] });
       expect(store.groups).toEqual([group]);
       expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual([group]);
+    });
+
+    it("renameGroup 更新名称并拒绝重复名称", () => {
+      const store = useAccountStore();
+      store.groups = [{ id: "keep", name: "常用" }, { id: "rename", name: "旧名称" }];
+
+      expect(store.renameGroup("rename", "新名称")).toBe(true);
+      expect(store.groups[1].name).toBe("新名称");
+      expect(store.renameGroup("rename", "常用")).toBe(false);
+      expect(store.renameGroup("rename", "  ")).toBe(false);
+      expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual(store.groups);
+    });
+
+    it("setGroupPlatform 更新平台并移除不匹配成员", () => {
+      const store = useAccountStore();
+      store.accounts = accountsFixture;
+      store.groups = [{ id: "group", name: "混合", platformFilter: null, accountIds: ["wx-1", "zh-1"] }];
+
+      expect(store.setGroupPlatform("group", "wechat_mp")).toBe(true);
+      expect(store.groups[0]).toMatchObject({ platformFilter: "wechat_mp", accountIds: ["wx-1"] });
+      expect(JSON.parse(localStorage.getItem("mp_account_groups"))).toEqual(store.groups);
     });
 
     it("deleteGroup 删除目标分组并持久化", () => {
@@ -586,6 +691,16 @@ describe("useAccountStore", () => {
       await expect(store.batchSetStatus("active")).resolves.toEqual({ success: 0, failed: 0 });
       expect(accountUpdate).not.toHaveBeenCalled();
       expect(listAccounts).toHaveBeenCalledTimes(1);
+    });
+
+    it("batchSetStatus 传入范围时只更新显式 ID", async () => {
+      accountUpdate.mockResolvedValue({ code: 0 });
+      const store = useAccountStore();
+      store.selectedIds = new Set(["a", "b", "c"]);
+
+      await expect(store.batchSetStatus("active", ["a", "c"])).resolves.toEqual({ success: 2, failed: 0 });
+
+      expect(accountUpdate.mock.calls.map(call => call[0])).toEqual(["a", "c"]);
     });
   });
 

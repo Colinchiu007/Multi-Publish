@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { setActivePinia, createPinia } from "pinia";
 import { nextTick } from "vue";
+import i18n from "@/i18n";
 
 const pushSpy = vi.fn();
 vi.mock("vue-router", () => ({
@@ -9,6 +10,10 @@ vi.mock("vue-router", () => ({
 }));
 
 import ProjectLibrary from "./ProjectLibrary.vue";
+
+function mountProjectLibrary() {
+  return mount(ProjectLibrary, { global: { plugins: [i18n] } });
+}
 
 describe("ProjectLibrary", () => {
   beforeEach(() => {
@@ -22,7 +27,7 @@ describe("ProjectLibrary", () => {
     window.electronAPI = {
       project: { list: vi.fn().mockReturnValue(new Promise(() => {})) },
     };
-    const w = mount(ProjectLibrary);
+    const w = mountProjectLibrary();
     await nextTick();
     expect(w.find(".skeleton-grid").exists()).toBe(true);
     expect(w.findAll(".skeleton-card").length).toBe(6);
@@ -32,7 +37,7 @@ describe("ProjectLibrary", () => {
     window.electronAPI = {
       project: { list: vi.fn().mockResolvedValue({ code: 0, data: [] }) },
     };
-    const w = mount(ProjectLibrary);
+    const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
     expect(w.find(".empty-state").exists()).toBe(true);
@@ -43,7 +48,7 @@ describe("ProjectLibrary", () => {
     window.electronAPI = {
       project: { list: vi.fn().mockRejectedValue(new Error("network down")) },
     };
-    const w = mount(ProjectLibrary);
+    const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
     expect(w.find(".error-state").exists()).toBe(true);
@@ -54,7 +59,7 @@ describe("ProjectLibrary", () => {
     window.electronAPI = {
       project: { list: vi.fn().mockRejectedValue(new Error("fail")) },
     };
-    const w = mount(ProjectLibrary);
+    const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
     expect(w.text()).toContain("重试");
@@ -69,7 +74,7 @@ describe("ProjectLibrary", () => {
     window.electronAPI = {
       project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }) },
     };
-    const w = mount(ProjectLibrary);
+    const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
     expect(w.find(".project-grid").exists()).toBe(true);
@@ -87,7 +92,7 @@ describe("ProjectLibrary", () => {
       project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }) },
       project_del: vi.fn(),
     };
-    const w = mount(ProjectLibrary);
+    const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
     // Click delete button on the card
@@ -103,7 +108,7 @@ describe("ProjectLibrary", () => {
     window.electronAPI = {
       project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }) },
     };
-    const w = mount(ProjectLibrary);
+    const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
     await w.find(".delete-btn").trigger("click");
@@ -123,7 +128,7 @@ describe("ProjectLibrary", () => {
     window.electronAPI = {
       project: { list: vi.fn().mockResolvedValue({ code: 0, data: mockProjects }), del: delFn },
     };
-    const w = mount(ProjectLibrary);
+    const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
     await w.find(".delete-btn").trigger("click");
@@ -147,7 +152,7 @@ describe("ProjectLibrary", () => {
         }),
       },
     };
-    const w = mount(ProjectLibrary);
+    const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
     expect(w.find(".error-state").exists()).toBe(true);
@@ -165,7 +170,7 @@ describe("ProjectLibrary", () => {
     window.electronAPI = {
       project: { list: vi.fn().mockResolvedValue({ code: 0, data: [] }) },
     };
-    const w = mount(ProjectLibrary);
+    const w = mountProjectLibrary();
     expect(w.text()).toContain("项目库");
   });
 });

@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 
 // mock 依赖的服务模块（shutdown.js 直接 require 的非 electron 模块）
-const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
+const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), flush: vi.fn(() => Promise.resolve()) }
 __registerMock('./services/logger', mockLogger)
 
 // 通过 require 加载被测模块（在 mock 注册后）
@@ -31,6 +31,7 @@ function buildMockContext(overrides) {
     rpaViewManager: { cleanup: vi.fn() },
     keywordMonitor: { stopAll: vi.fn() },
     callbackServer: { stop: vi.fn() },
+    story2videoMediaServer: { stop: vi.fn() },
     store: { close: vi.fn() },
     usageTracker: { save: vi.fn() },
     taskQueue: { shutdown: vi.fn(), removeAllListeners: vi.fn() },
@@ -231,6 +232,12 @@ describe('shutdown — registerShutdownHandlers', () => {
     registerShutdownHandlers(context)
     await __electronMock.app._handlers['window-all-closed']()
     expect(context.callbackServer.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('触发回调关闭 Story2Video 本机媒体服务', async () => {
+    registerShutdownHandlers(context)
+    await __electronMock.app._handlers['window-all-closed']()
+    expect(context.story2videoMediaServer.stop).toHaveBeenCalledTimes(1)
   })
 
   it('触发回调调用 store.close', async () => {

@@ -153,8 +153,8 @@ class PublishImpactTracker {
   /**
    * Register IPC handlers for rendering impact data in Dashboard.
    */
-  registerIpcHandlers () {
-    const { ipcMain } = require('electron')
+  registerIpcHandlers (injectedIpcMain) {
+    const ipcMain = injectedIpcMain || require("electron").ipcMain
 
     ipcMain.handle('impact:get-active', () => {
       try {

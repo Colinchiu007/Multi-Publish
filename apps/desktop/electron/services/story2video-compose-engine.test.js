@@ -20,8 +20,9 @@ const {
   buildWatermarkFilter,
   buildScaleFilter,
   parseResolution,
+  resolveCjkFont,
+  escapeFontFilePath,
 } = require('./story2video-compose-engine')
-const { MAX_SCENES } = require('./story2video-paths')
 
 function writeFixture (root, name, content = 'media') {
   const filePath = path.join(root, name)
@@ -122,9 +123,13 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(plan.enabled).toBe(true)
     expect(plan.transitions[0].duration).toBeLessThan(0.2)
     expect(plan.transitions[0].offset).toBeGreaterThan(0)
+    // transitionName 随计划返回：_xfadeMerge 依赖 plan.transitionName 构造 xfade 滤镜
+    expect(plan.transitionName).toBe('fade')
+    expect(buildTransitionPlan([0.2, 0.35], 1.2, 'slideleft').transitionName).toBe('slideleft')
 
     const fallback = buildTransitionPlan([0.01, 0.4], 0.4)
     expect(fallback.enabled).toBe(false)
+    expect(fallback.transitionName).toBe('fade')
   })
 
   it('优先使用 scenes 的原始 index，部分资源不会错配字幕', () => {
@@ -183,7 +188,25 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
   it('支持旧项目的图片动效、字幕样式、水印和分辨率约束', () => {
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).toContain('zoompan')
     expect(buildImageEffectFilter('pan-left', 1280, 720, 30)).toContain('pan')
+    // 回归：zoompan 必须使用 d=总帧数（时长×帧率），d=1 + -loop 1 静态图不会产生动画。
+    // 第 5 参为“有效时长（秒）”，总帧数在函数内按 duration*fps 计算。
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).toContain(':d=90:')
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 6)).toContain(':d=180:')
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).not.toContain(':d=1:')
     expect(buildSubtitleFilter('字幕', { size: 'lg', style: 'style2' })).toContain('box=1')
+    // 回归：中文 drawtext 必须显式指定 CJK fontfile，否则 Windows 静态 ffmpeg 渲染成豆腐块。
+    // 跨平台契约：能解析到 CJK 字体则必须注入 fontfile；否则（Linux 无 Windows 字体）不注入但仍合法。
+    const resolvedFont = resolveCjkFont()
+    const subtitleFilter = buildSubtitleFilter('中文字幕测试', { size: 'md' })
+    if (resolvedFont) {
+      expect(subtitleFilter).toContain("fontfile='" + escapeFontFilePath(resolvedFont) + "'")
+    } else {
+      expect(subtitleFilter).not.toContain('fontfile=')
+    }
+    expect(escapeFontFilePath('C:\\Windows\\Fonts\\msyh.ttc')).toBe('C\\:/Windows/Fonts/msyh.ttc')
+    if (process.platform === 'win32') {
+      expect(resolveCjkFont()).toBeTruthy()
+    }
     expect(buildWatermarkFilter({
       watermark: { enabled: true, text: '品牌', position: 'top-left', opacity: 0.5 },
     })).toContain('x=20:y=40')
@@ -238,6 +261,15 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(filter).toContain("enable='gte(t,0.000)*lt(t,1.250)'")
     expect(filter).toContain("enable='gte(t,1.250)*lt(t,2.500)'")
     expect(filter).not.toContain('between(t,')
+  })
+
+  it('字幕默认位于距底部 20% 处，且可经 bottomMarginRatio 覆盖（0.05-0.5）', () => {
+    expect(buildSubtitleFilter('字幕', { size: 'lg' })).toContain(':y=h*0.800-th')
+    expect(buildSubtitleFilter('字幕', { size: 'lg' })).not.toContain('y=h-th-40')
+    expect(buildSubtitleFilter('字幕', { size: 'lg', bottomMarginRatio: 0.1 })).toContain(':y=h*0.900-th')
+    // clamp：超出 0.05-0.5 范围时回退到边界
+    expect(buildSubtitleFilter('字幕', { size: 'lg', bottomMarginRatio: 0.6 })).toContain(':y=h*0.500-th')
+    expect(buildSubtitleFilter('字幕', { size: 'lg', bottomMarginRatio: 0.01 })).toContain(':y=h*0.950-th')
   })
 
   it('compose 以 scenes 为权威并把效果/BGM参数传给合成阶段', async () => {
@@ -572,23 +604,32 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     }
   })
 
-  it('拒绝超出场景上限和像素上限的合成请求', async () => {
+  it('61 个场景可合成，仍保留分辨率像素上限', async () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-limits-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })
+    engine._probeMediaDuration = vi.fn(async () => 1)
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
 
     try {
-      const tooMany = await engine.compose({
-        scenes: Array.from({ length: MAX_SCENES + 1 }, () => ({
-          imagePath: 'image.png',
-          audioPath: 'audio.mp3',
+      const result = await engine.compose({
+        scenes: Array.from({ length: 61 }, (_, index) => ({
+          index,
+          imagePath: image,
+          audioPath: audio,
+          text: '第 ' + (index + 1) + ' 个场景',
         })),
-      })
-      expect(tooMany).toMatchObject({ code: -1 })
-      expect(tooMany.message).toMatch(/scene|场景|limit/i)
+      }, { transition: 'none', validateOutput: false })
+      expect(result.code).toBe(0)
+      expect(result.data.segmentCount).toBe(61)
+      expect(engine._createSegment).toHaveBeenCalledTimes(61)
 
       const invalidResolution = await engine.compose({
         scenes: [{ imagePath: 'image.png', audioPath: 'audio.mp3' }],
@@ -674,5 +715,109 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('Story2Video 六档字幕字号', () => {
+  it.each([
+    ['size1', 16], ['size2', 20], ['size3', 24],
+    ['size4', 28], ['size5', 32], ['size6', 40],
+  ])('将 %s 传递为独立的 FFmpeg fontsize=%i', (size, fontSize) => {
+    const filter = buildSubtitleFilter('字幕可见性验证', { size })
+
+    expect(filter).toContain(':fontsize=' + fontSize + ':')
+  })
+})
+
+
+describe('_concatSegments 分块合成（25+ 场景防单命令输入过多）', () => {
+  let tmp
+  let engine
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'compose-chunk-test-'))
+    engine = new Story2VideoComposeEngine({ outputDir: tmp, log: { info() {}, warn() {}, error() {} } })
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  function makeSegments (count) {
+    const segments = []
+    for (let i = 0; i < count; i++) {
+      const filePath = path.join(tmp, 'seg_' + String(i).padStart(4, '0') + '.mp4')
+      fs.writeFileSync(filePath, 'seg' + i)
+      segments.push(filePath)
+    }
+    return segments
+  }
+
+  it('27 段转场合成：分块 ≤8 输入，递归合并后输出文件存在', async () => {
+    const segments = makeSegments(27)
+    const durations = segments.map((_, i) => 6 + (i % 3))
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    const plainConcat = vi.fn(async (_segs, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+    engine._plainConcat = plainConcat
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'fade', transitionDuration: 0.4, segmentDurations: durations })
+
+    expect(fs.existsSync(output)).toBe(true)
+    // 27 段 → 4 块（8/8/8/3）+ 4 个中间文件再合并 1 次 = 5 次 xfadeMerge
+    expect(xfadeMerge.mock.calls.length).toBe(5)
+    for (const call of xfadeMerge.mock.calls) {
+      expect(call[0].length).toBeLessThanOrEqual(8)
+      // 每个块计划都携带 transitionName，避免 xfade=transition=undefined
+      expect(call[1].transitionName).toBe('fade')
+    }
+    // 每块调用输入数：8,8,8,3,4（最后是 4 个中间文件合并）
+    expect(xfadeMerge.mock.calls.map(c => c[0].length)).toEqual([8, 8, 8, 3, 4])
+    expect(plainConcat).not.toHaveBeenCalled()
+    // 4 个 level0 块 + 1 个 level1 合并中间文件
+    const chunks = fs.readdirSync(tmp).filter(n => n.startsWith('merge_l'))
+    expect(chunks.length).toBe(5)
+  })
+
+  it('≤8 段保持单命令合成，不产生中间块', async () => {
+    const segments = makeSegments(6)
+    const durations = [6, 6, 6, 6, 6, 6]
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'fade', transitionDuration: 0.4, segmentDurations: durations })
+
+    expect(xfadeMerge.mock.calls.length).toBe(1)
+    expect(xfadeMerge.mock.calls[0][0].length).toBe(6)
+    expect(fs.readdirSync(tmp).filter(n => n.startsWith('merge_l')).length).toBe(0)
+  })
+
+  it('直接合并路径（≤8 段）的计划携带 transitionName=fade，不生成 transition=undefined', async () => {
+    const segments = makeSegments(6)
+    const durations = [6, 6, 6, 6, 6, 6]
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'fade', transitionDuration: 0.4, segmentDurations: durations })
+
+    expect(xfadeMerge).toHaveBeenCalledTimes(1)
+    expect(xfadeMerge.mock.calls[0][1]).toMatchObject({ enabled: true, transitionName: 'fade' })
+  })
+
+  it('时长未知时回退无损 concat（不构建转场图）', async () => {
+    const segments = makeSegments(3)
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    const plainConcat = vi.fn(async (_segs, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+    engine._plainConcat = plainConcat
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'fade' })
+
+    expect(plainConcat).toHaveBeenCalledTimes(1)
+    expect(xfadeMerge).not.toHaveBeenCalled()
   })
 })

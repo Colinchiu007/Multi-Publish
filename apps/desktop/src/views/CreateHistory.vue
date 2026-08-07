@@ -12,6 +12,9 @@
 
     <!-- 渲染记录 -->
     <div v-if="tab === 'renders'">
+      <div v-if="runningPipelineCount > 0" class="running-banner" role="button" tabindex="0" @click="showRunningPipelines" @keydown.enter="showRunningPipelines">
+        ⏳ 有 {{ runningPipelineCount }} 条流水线正在后台运行，点击查看运行状态
+      </div>
       <div v-if="renderLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else>
         <div v-if="renderError" class="history-error"><p>{{ renderError }}</p><UiButton size="sm" @click="loadRenders">重试</UiButton></div>
@@ -48,12 +51,12 @@
           <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
         </div>
         <div v-else class="pipeline-list">
-          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card">
+          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" @click="openPipeline(p)">
             <div class="pipeline-info">
               <span class="pipeline-status-dot" :class="p.status"></span>
               <div class="pipeline-meta">
                 <span class="pipeline-name">{{ humanName(p.pipelineName || p.name) }}</span>
-                <span class="pipeline-time">{{ formatTime(p.completedAt || p.startedAt) }}</span>
+                <span class="pipeline-time">{{ formatTime(p.completedAt || p.startedAt || p.createdAt) }}</span>
               </div>
             </div>
             <div class="pipeline-stages">
@@ -62,6 +65,7 @@
               </span>
             </div>
             <span class="pipeline-status" :class="p.status">{{ statusLabel(p.status) }}</span>
+            <span v-if="p.status === 'running'" class="pipeline-running-hint">返回创作页查看进度</span>
           </div>
         </div>
       </div>
@@ -96,12 +100,28 @@ export default {
       pipelineLoading: false,
       pipelineError: '',
       pipelineRequestId: 0,
+      pipelinePollTimer: null,
     }
   },
   async mounted() {
     await this.loadRenders()
+    // 同时加载流水线记录：存在运行中流水线时默认展示流水线记录，
+    // 避免用户进入历史页后以为运行中任务未出现在历史中（默认 tab 是渲染记录）。
+    await this.loadPipelines()
+    if (this.runningPipelineCount > 0 && this.tab === 'renders') {
+      this.tab = 'pipelines'
+    }
+  },
+  computed: {
+    runningPipelineCount() {
+      return (this.pipelines || []).filter((p) => p && p.status === 'running').length
+    },
   },
   methods: {
+    showRunningPipelines() {
+      this.tab = 'pipelines'
+      this.loadPipelines()
+    },
     async loadRenders() {
       const requestId = ++this.renderRequestId
       this.renderLoading = true
@@ -134,7 +154,35 @@ export default {
         if (requestId !== this.pipelineRequestId) return
         this.pipelineError = e?.code === 'HISTORY_LOAD_TIMEOUT' ? '流水线记录加载超时，请重试' : '流水线记录加载失败，请重试'
       } finally {
-        if (requestId === this.pipelineRequestId) this.pipelineLoading = false
+        if (requestId === this.pipelineRequestId) {
+          this.pipelineLoading = false
+          this.schedulePipelineRefresh()
+        }
+      }
+    },
+    schedulePipelineRefresh() {
+      if (this.pipelinePollTimer) { clearInterval(this.pipelinePollTimer); this.pipelinePollTimer = null }
+      const hasRunning = (this.pipelines || []).some((p) => p && p.status === 'running')
+      if (!hasRunning) return
+      // 存在后台运行中的流水线：每 5s 轮询刷新进度状态（同流水线页面一致）
+      this.pipelinePollTimer = setInterval(() => { this.loadPipelines() }, 5000)
+    },
+    openPipeline(p) {
+      if (!p) return
+      if (p.status === 'running') {
+        // 运行中：跳回创作页，CreateView 会自动恢复查看该流水线进度
+        this.$router.push('/create')
+        return
+      }
+      if (p.status === 'completed') {
+        const context = p.context || {}
+        const composeRaw = context.compose?.data || context.compose
+        const exportRaw = context.export?.data || context.export
+        const reportRaw = context.report?.data || context.report
+        const videoPath = (composeRaw && (composeRaw.videoPath || composeRaw.path)) ||
+          (exportRaw && (exportRaw.videoPath || exportRaw.path)) ||
+          (reportRaw && (reportRaw.videoPath || reportRaw.path))
+        this.$router.push('/create/result?path=' + encodeURIComponent(videoPath || ''))
       }
     },
     statusLabel(s) {
@@ -158,6 +206,9 @@ export default {
       try { return new Date(iso).toLocaleString('zh-CN') } catch (e) { return iso }
     },
   },
+  beforeUnmount() {
+    if (this.pipelinePollTimer) { clearInterval(this.pipelinePollTimer); this.pipelinePollTimer = null }
+  },
 }
 </script>
 
@@ -171,6 +222,8 @@ export default {
 .tab.active { color: var(--primary, #7c5cbf); border-bottom-color: var(--primary, #7c5cbf); font-weight: 600; }
 .loading-state, .empty-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: #666; justify-content: center; flex-direction: column; }
 .history-error { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; color: #991b1b; background: #fee2e2; border-radius: 8px; }
+.running-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: #1d4ed8; background: #dbeafe; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.running-banner:hover { background: #bfdbfe; }
 .render-list, .pipeline-list { display: flex; flex-direction: column; gap: 8px; }
 .render-card, .pipeline-card { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fff; cursor: pointer; transition: all 0.15s; }
 .render-card:hover, .pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
@@ -192,6 +245,7 @@ export default {
 .pipeline-status-dot.completed { background: #22c55e; }
 .pipeline-status-dot.failed { background: #ef4444; }
 .pipeline-status-dot.cancelled { background: #9ca3af; }
+.pipeline-running-hint { font-size: 11px; color: #1d4ed8; background: #dbeafe; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: var(--primary, #7c5cbf); border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>

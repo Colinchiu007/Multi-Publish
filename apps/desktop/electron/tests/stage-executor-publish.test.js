@@ -255,6 +255,42 @@ it('PUBLISH: 单平台发布成功', async function () {
   }
 });
 
+it('PUBLISH: 将封面 URL 传递给发布器任务', async function () {
+  const log = makeMockLogger();
+  const videoPath = makeTempVideo();
+  const publisher = { publish: vi.fn(async () => ({ success: true, url: 'https://xhs.example.com/post/cover' })) };
+  const router = { createPublisher: vi.fn(() => publisher) };
+  try {
+    const exec = new StageExecutor({
+      serviceBus: makeMockServiceBus(),
+      container: makeMockContainer({ publisherRouter: router }),
+      log,
+    });
+    const result = await exec.execute({
+      runId: 'r-cover',
+      stage: {
+        name: 'publish',
+        type: STAGE_TYPES.PUBLISH,
+        inputFrom: 'compose',
+        options: { title: '封面回归', content: '内容', tags: ['回归'], coverUrl: 'https://cdn.example.com/cover.jpg' },
+      },
+      params: { platforms: ['xiaohongshu'] },
+      context: { compose: { videoPath } },
+    });
+    eq(result.success, true);
+    expect(publisher.publish).toHaveBeenCalledWith(expect.objectContaining({
+      article: expect.objectContaining({
+        title: '封面回归',
+        content: '内容',
+        tags: ['回归'],
+        cover_url: 'https://cdn.example.com/cover.jpg',
+      }),
+    }));
+  } finally {
+    cleanupTempVideo(videoPath);
+  }
+});
+
 it('PUBLISH: 单平台发布失败时整体失败', async function () {
   const log = makeMockLogger();
   const videoPath = makeTempVideo();

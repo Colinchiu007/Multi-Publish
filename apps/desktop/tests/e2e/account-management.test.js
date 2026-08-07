@@ -31,8 +31,8 @@ describe.skipIf(!E2E_ENABLED)("E2E: Account Management", () => {
     if (!E2E_ENABLED) return
     const page = this.page
     await page.click("[data-testid=nav-accounts]")
-    await page.waitForSelector("[data-testid=account-list]")
-    const visible = await page.isVisible("[data-testid=account-list]")
+    await page.waitForSelector(".account-results-panel")
+    const visible = await page.isVisible(".account-results-panel")
     expect(visible).toBe(true)
   })
 
@@ -40,34 +40,35 @@ describe.skipIf(!E2E_ENABLED)("E2E: Account Management", () => {
     if (!E2E_ENABLED) return
     const page = this.page
     await page.click("[data-testid=nav-accounts]")
-    await page.waitForSelector("[data-testid=add-account-btn]")
-    await page.click("[data-testid=add-account-btn]")
-    await page.waitForSelector("[data-testid=add-account-dialog]")
-    const dialogVisible = await page.isVisible("[data-testid=add-account-dialog]")
+    await page.waitForSelector("[data-testid=account-add]")
+    await page.click("[data-testid=account-add]")
+    await page.waitForSelector(".ui-modal")
+    const dialogVisible = await page.isVisible(".ui-modal")
     expect(dialogVisible).toBe(true)
   })
 
   it("should select platform in add dialog", async () => {
     if (!E2E_ENABLED) return
     const page = this.page
-    await page.click("[data-testid=add-account-btn]")
-    await page.waitForSelector("[data-testid=add-account-dialog]")
-    // 选择平台下拉
-    await page.selectOption("[data-testid=platform-select]", "weixin")
-    const selectedValue = await page.$eval("[data-testid=platform-select]", el => el.value)
-    expect(selectedValue).toBe("weixin")
+    await page.click("[data-testid=account-add]")
+    await page.waitForSelector(".ui-modal")
+    const platformSelect = page.locator(".ui-modal .ui-select")
+    const firstPlatform = await platformSelect.locator("option:not([disabled])").first().getAttribute("value")
+    await platformSelect.selectOption(firstPlatform)
+    const selectedValue = await platformSelect.inputValue()
+    expect(selectedValue).toBe(firstPlatform)
   })
 
   it("should close add dialog on cancel", async () => {
     if (!E2E_ENABLED) return
     const page = this.page
     await page.click("[data-testid=nav-accounts]")
-    await page.waitForSelector("[data-testid=add-account-btn]")
-    await page.click("[data-testid=add-account-btn]")
-    await page.waitForSelector("[data-testid=add-account-dialog]")
-    await page.click("[data-testid=dialog-cancel]")
+    await page.waitForSelector("[data-testid=account-add]")
+    await page.click("[data-testid=account-add]")
+    await page.waitForSelector(".ui-modal")
+    await page.locator(".ui-modal-footer button:has-text(取消)").click()
     // 对话框关闭后应回到账号列表
-    const dialogGone = await page.isVisible("[data-testid=add-account-dialog]")
+    const dialogGone = await page.locator(".ui-modal").isVisible().catch(() => false)
     expect(dialogGone).toBe(false)
   })
 })

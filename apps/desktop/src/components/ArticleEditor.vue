@@ -1,5 +1,5 @@
 <template>
-  <div class="article-editor">
+  <div class="article-editor" data-testid="publish-editor">
     <!-- Mode toggle -->
     <div class="editor-mode-bar">
       <button

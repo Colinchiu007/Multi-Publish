@@ -290,6 +290,7 @@ class ModelProviderManager {
     try {
       this._seedPresets()
       this._migrateApiKeyEncryption()
+      this._collapseMiniMaxTtsModel()
       this._registerBuiltinAdapters()
       this._ready = true
       log.info('ModelProviderManager', 'Initialized with ' + PRESET_PROVIDERS.length + ' preset providers')
@@ -313,6 +314,21 @@ class ModelProviderManager {
     db.prepare(
       "UPDATE model_providers SET models = ?, updated_at = datetime('now') WHERE id = 'minimax-image' AND models = ?"
     ).run(JSON.stringify(['image-01']), JSON.stringify(['image-01', 'image-01-live']))
+  }
+
+  /** 将 MiniMax TTS 模型列表收敛为 speech-2.8-turbo（需求：默认模型、去掉模型 ID 输入） */
+  _collapseMiniMaxTtsModel () {
+    if (!this._store || !this._store.db) return
+    try {
+      const result = this._store.db.prepare(
+        "UPDATE model_providers SET models = ?, updated_at = datetime('now') WHERE id = 'minimax-tts' AND models != ?"
+      ).run(JSON.stringify(['speech-2.8-turbo']), JSON.stringify(['speech-2.8-turbo']))
+      if (result && result.changes > 0) {
+        log.info('ModelProviderManager', 'Collapsed minimax-tts models to speech-2.8-turbo')
+      }
+    } catch (e) {
+      log.warn('ModelProviderManager', 'collapse minimax-tts model failed: ' + e.message)
+    }
   }
 
   _migrateApiKeyEncryption () {

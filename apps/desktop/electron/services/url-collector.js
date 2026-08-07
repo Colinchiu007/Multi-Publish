@@ -142,7 +142,8 @@ class UrlCollector {
   /**
    * 注册 IPC 处理器
    */
-  registerIpcHandlers () {
+  registerIpcHandlers (injectedIpcMain) {
+    const ipcMain = injectedIpcMain || require("electron").ipcMain;
     ipcMain.handle('url-collect:fetch', async (event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { url } = arg

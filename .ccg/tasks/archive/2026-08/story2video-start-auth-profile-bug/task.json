@@ -1,0 +1,19 @@
+{
+  "id": "story2video-start-auth-profile-bug",
+  "title": "修复图片轮播启动权限提示并固定调试 profile",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "desktop-story2video",
+  "currentPhase": "completed",
+  "nextAction": "archived",
+  "createdAt": "2026-08-05T00:00:00Z",
+  "branch": "codex/story2video-ue-fix",
+  "externalValidation": "real Logto identity and provider acceptance remain environment-dependent",
+  "validation": {
+    "targetedVitest": "72 passed",
+    "vueBuild": "passed",
+    "visibleElectron": "passed with nonzero MainWindowHandle",
+    "accessDeniedFlow": "passed through real Electron IPC code=-3"
+  }
+}

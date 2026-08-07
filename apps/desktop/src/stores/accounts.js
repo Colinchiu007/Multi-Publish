@@ -61,24 +61,54 @@ export const useAccountStore = defineStore('accounts', () => {
     return map
   })
 
+  function normalizeText (value) {
+    return String(value ?? '').trim().toLocaleLowerCase('zh-CN')
+  }
+
+  function normalizeDate (value) {
+    if (value === null || value === undefined || value === '') return Number.NEGATIVE_INFINITY
+    const timestamp = new Date(value).getTime()
+    return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY
+  }
+
+  function normalizeNumber (value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY
+    const text = String(value ?? '').trim().replace(/,/g, '')
+    if (!text) return Number.NEGATIVE_INFINITY
+    const match = text.match(/^(-?\d+(?:\.\d+)?)\s*(万|w|k)?$/i)
+    if (!match) return Number.NEGATIVE_INFINITY
+    const base = Number(match[1])
+    if (!Number.isFinite(base)) return Number.NEGATIVE_INFINITY
+    const suffix = String(match[2] || '').toLowerCase()
+    return base * (suffix === '万' ? 10000 : suffix === 'w' ? 10000 : suffix === 'k' ? 1000 : 1)
+  }
+
+  function normalizeStatus (value) {
+    return value === 'active' || value === 'online' ? 1 : 0
+  }
+
+  function sortValue (account, field) {
+    if (field === 'name') return normalizeText(account.account_name || account.name)
+    if (field === 'platform') return normalizeText(platformStore.getLabel(account.platform) || account.platform)
+    if (field === 'created_at' || field === 'last_used_at') return normalizeDate(account[field])
+    if (field === 'followers') return normalizeNumber(account.followers ?? account.follower_count ?? account.followers_count ?? account.fans ?? account.fans_count ?? account.fansCount ?? account['粉丝数'])
+    if (field === 'status') return normalizeStatus(account.status)
+    const raw = account[field]
+    const numeric = normalizeNumber(raw)
+    return numeric !== Number.NEGATIVE_INFINITY ? numeric : normalizeText(raw)
+  }
+
   function sortAccounts (result) {
-    result.sort((a, b) => {
-      let valA, valB
-      if (sortBy.value === 'name') {
-        valA = (a.name || a.account_name || '').toLowerCase()
-        valB = (b.name || b.account_name || '').toLowerCase()
-      } else if (sortBy.value === 'created_at') {
-        valA = new Date(a.created_at || 0).getTime()
-        valB = new Date(b.created_at || 0).getTime()
-      } else {
-        valA = a[sortBy.value] || ''
-        valB = b[sortBy.value] || ''
-      }
-      if (valA < valB) return sortOrder.value === 'asc' ? -1 : 1
-      if (valA > valB) return sortOrder.value === 'asc' ? 1 : -1
-      return 0
-    })
+    const field = sortBy.value || 'name'
+    const direction = sortOrder.value === 'desc' ? -1 : 1
     return result
+      .map((account, index) => ({ account, index, value: sortValue(account, field) }))
+      .sort((left, right) => {
+        if (left.value < right.value) return -1 * direction
+        if (left.value > right.value) return 1 * direction
+        return left.index - right.index
+      })
+      .map(({ account }) => account)
   }
 
   const accountsBeforePlatformFilter = computed(() => {
@@ -189,6 +219,27 @@ export const useAccountStore = defineStore('accounts', () => {
     groups.value = groups.value.filter(g => g.id !== groupId)
     saveGroups()
   }
+  function renameGroup(groupId, name) {
+    const normalizedName = String(name || '').trim()
+    const group = groups.value.find(item => item.id === groupId)
+    if (!group || !normalizedName) return false
+    if (groups.value.some(item => item.id !== groupId && item.name === normalizedName)) return false
+    group.name = normalizedName
+    saveGroups()
+    return true
+  }
+  function setGroupPlatform(groupId, platformFilter) {
+    const group = groups.value.find(item => item.id === groupId)
+    if (!group) return false
+    const normalizedPlatform = platformFilter || null
+    const validIds = new Set(accounts.value
+      .filter(account => !normalizedPlatform || account.platform === normalizedPlatform)
+      .map(account => account.id))
+    group.platformFilter = normalizedPlatform
+    group.accountIds = (group.accountIds || []).filter(accountId => validIds.has(accountId))
+    saveGroups()
+    return true
+  }
   function getGroupAccounts(groupId) {
     const group = groups.value.find(g => g.id === groupId)
     if (!group) return []
@@ -296,8 +347,10 @@ export const useAccountStore = defineStore('accounts', () => {
     await load()
     return { success, failed }
   }
-  async function batchSetStatus(status) {
-    const ids = Array.from(selectedIds.value)
+  async function batchSetStatus(status, accountIds) {
+    const ids = Array.isArray(accountIds)
+      ? Array.from(new Set(accountIds)).filter(id => selectedIds.value.has(id))
+      : Array.from(selectedIds.value)
     let success = 0, failed = 0
     for (const id of ids) {
       try {
@@ -330,7 +383,7 @@ export const useAccountStore = defineStore('accounts', () => {
     accounts, groups, favoriteIds, loading, error, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
     byPlatform, accountsBeforePlatformFilter, filteredAccounts, groupedByPlatform,
     load, loadGroups, loadFavorites, getDefault, setDefault, renameAccount,
-    createGroup, deleteGroup, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,
+    createGroup, deleteGroup, renameGroup, setGroupPlatform, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,
     isFavorite, toggleFavorite,
     toggleSelect, selectAll, clearSelection, batchDelete, batchSetStatus,
   }

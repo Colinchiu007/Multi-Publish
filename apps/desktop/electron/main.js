@@ -31,7 +31,6 @@ const { createAppContext, runWhenReady } = require('./bootstrap')
 const { createWindow } = require('./window')
 const { registerShutdownHandlers } = require('./shutdown')
 const log = require('./services/logger')
-
 const PROCESS_ERROR_HANDLER_MARKER = Symbol.for('@multi-publish/desktop/process-error-handler')
 
 /**
@@ -71,6 +70,7 @@ if (!hasSingleInstanceLock) {
 
   async function createAndRegisterWindow() {
     const mainWindow = await createWindow(context)
+    log.info('App', 'Main window created')
     if (!isUsableWindow(mainWindow)) {
       throw new Error('Window creation did not return a usable window')
     }

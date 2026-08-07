@@ -76,6 +76,7 @@ var require_publish = __commonJS({
         // 发布历史 API
         historyList: (opts) => ipcRenderer2.invoke("history:list", opts),
         historyGet: (id) => ipcRenderer2.invoke("history:get", id),
+        historyDelete: (ids) => ipcRenderer2.invoke("history:delete", { ids: Array.isArray(ids) ? ids : [ids] }),
         // 发布统计 API
         dashboardStats: () => ipcRenderer2.invoke("dashboard:stats"),
         // 定时发布 API
@@ -101,6 +102,7 @@ var require_publish = __commonJS({
         pipelineFetch: (name) => ipcRenderer2.invoke("pipeline:fetch", name),
         // 编排模式 API（story2video-compose）
         pipelineStartOrchestrated: (name, params) => ipcRenderer2.invoke("pipeline:startOrchestrated", name, params),
+        pipelineResumeOrchestration: (runId) => ipcRenderer2.invoke("pipeline:resumeOrchestration", runId),
         pipelineExecuteStage: (runId) => ipcRenderer2.invoke("pipeline:executeStage", runId),
         pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer2.invoke("pipeline:advanceToNextCheckpoint", runId),
         pipelineGetRunContext: (runId) => ipcRenderer2.invoke("pipeline:getRunContext", runId),
@@ -114,6 +116,13 @@ var require_publish = __commonJS({
           }
           if (!filePath) return Promise.resolve({ code: -1, message: "无法读取媒体文件路径" });
           return ipcRenderer2.invoke("story2video:import-media", { filePath, kind });
+        },
+        // File 对象跨 contextBridge 后可能丢失路径；renderer 先经 getPathForFile
+        // 解析真实路径，再走基于路径的导入，避免 webUtils.getPathForFile 拿不到文件。
+        story2videoImportMediaPath: (filePath, kind) => {
+          const normalized = String(filePath || "").trim();
+          if (!normalized) return Promise.resolve({ code: -1, message: "无法读取媒体文件路径" });
+          return ipcRenderer2.invoke("story2video:import-media", { filePath: normalized, kind });
         },
         story2videoExportZip: (files, destinationPath) => ipcRenderer2.invoke("story2video:export-zip", { files, destinationPath }),
         story2videoCreateShareUrl: (filePath) => ipcRenderer2.invoke("story2video:create-share-url", filePath),
@@ -507,7 +516,11 @@ var require_system = __commonJS({
         modelProviderPresets: (category) => ipcRenderer2.invoke("model-provider:presets", category),
         modelProviderIsConfigured: (category) => ipcRenderer2.invoke("model-provider:is-configured", category),
         modelProviderLogs: (filter) => ipcRenderer2.invoke("model-provider:logs", filter),
-        modelProviderCleanLogs: (days) => ipcRenderer2.invoke("model-provider:clean-logs", days)
+        modelProviderCleanLogs: (days) => ipcRenderer2.invoke("model-provider:clean-logs", days),
+        // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
+        logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
+        logsClear: () => ipcRenderer2.invoke("logs:clear"),
+        logError: (message) => ipcRenderer2.invoke("logs:error", { message })
       };
     }
     module2.exports = { createSystemApi: createSystemApi2 };
@@ -660,6 +673,43 @@ var require_identity = __commonJS({
   }
 });
 
+// electron/preload/tts-voice-catalog.js
+var require_tts_voice_catalog = __commonJS({
+  "electron/preload/tts-voice-catalog.js"(exports2, module2) {
+    "use strict";
+    function createTtsVoiceCatalogApi2(ipcRenderer2) {
+      return {
+        ttsVoice: {
+          catalog: (input) => ipcRenderer2.invoke("tts-voice:catalog", input),
+          capability: (input) => ipcRenderer2.invoke("tts-voice:capability", input),
+          select: (input) => ipcRenderer2.invoke("tts-voice:select", input),
+          clearPreference: (input) => ipcRenderer2.invoke("tts-voice:clear-preference", input)
+        }
+      };
+    }
+    module2.exports = { createTtsVoiceCatalogApi: createTtsVoiceCatalogApi2 };
+  }
+});
+
+// electron/preload/tts-voice-clone.js
+var require_tts_voice_clone = __commonJS({
+  "electron/preload/tts-voice-clone.js"(exports2, module2) {
+    "use strict";
+    function createTtsVoiceCloneApi2(ipcRenderer2) {
+      return {
+        ttsVoiceClone: {
+          requirements: (input) => ipcRenderer2.invoke("tts-voice-clone:requirements", input),
+          chooseSamples: (input) => ipcRenderer2.invoke("tts-voice-clone:choose-samples", input),
+          list: (input) => ipcRenderer2.invoke("tts-voice-clone:list", input),
+          add: (input) => ipcRenderer2.invoke("tts-voice-clone:add", input),
+          deleteClone: (input) => ipcRenderer2.invoke("tts-voice-clone:delete", input)
+        }
+      };
+    }
+    module2.exports = { createTtsVoiceCloneApi: createTtsVoiceCloneApi2 };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -754,6 +804,9 @@ var require_access_control = __commonJS({
       "modelProviderIsConfigured",
       "modelProviderLogs",
       "modelProviderCleanLogs",
+      "logsGetInfo",
+      "logsClear",
+      "logError",
       "renderGetStatus",
       "renderInstallDeps",
       "onRenderInstallProgress",
@@ -849,6 +902,8 @@ var { createContactSheetApi } = require_contact_sheet();
 var { createApprovalGateApi } = require_approval_gate();
 var { createReplayApi } = require_replay();
 var { createIdentityApi } = require_identity();
+var { createTtsVoiceCatalogApi } = require_tts_voice_catalog();
+var { createTtsVoiceCloneApi } = require_tts_voice_clone();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -879,7 +934,9 @@ var fullApi = {
   ...createContactSheetApi(ipcRenderer),
   ...createApprovalGateApi(ipcRenderer),
   ...createReplayApi(ipcRenderer),
-  ...createIdentityApi(ipcRenderer)
+  ...createIdentityApi(ipcRenderer),
+  ...createTtsVoiceCatalogApi(ipcRenderer),
+  ...createTtsVoiceCloneApi(ipcRenderer)
 };
 var exposedApi = createDynamicAccessApi(fullApi, getAccessLevel);
 exposedApi.getAccessLevel = getAccessLevel;

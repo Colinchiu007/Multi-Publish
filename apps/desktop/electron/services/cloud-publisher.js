@@ -143,7 +143,11 @@ class CloudPublisher {
    * 注册 IPC handlers
    */
   registerIpcHandlers (injectedIpcMain) {
-    const ipcMain = injectedIpcMain || require("electron").ipcMain
+    // MAJOR-3：必须注入 access-controlled ipcMain，禁止回退全局 ipcMain（绕过权限层）
+    if (!injectedIpcMain) {
+      throw new Error("cloud-publisher registerIpcHandlers requires an injected ipcMain");
+    }
+    const ipcMain = injectedIpcMain
     ipcMain.handle('cloud-publisher:submit', withSenderCheck(async (_event, params) => {
       try {
         const result = await this.submitTask(params)

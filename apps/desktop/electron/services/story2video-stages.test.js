@@ -8,7 +8,6 @@ const {
   normalizeAssetConcurrency,
 } = require('./story2video-stages')
 const {
-  MAX_SCENES,
   cleanupRunInputDir,
   importUserSelectedMedia,
 } = require('./story2video-paths')
@@ -127,6 +126,34 @@ describe('story2video 资源索引契约', () => {
     expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
   })
 
+  it('逐场景提示词优化并行执行（有界并发，避免长文案串行拖慢）', async () => {
+    // 用并发计数断言（确定性），不依赖墙钟：并发执行时活跃调用数应 ≥2
+    let active = 0
+    let maxActive = 0
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
+      generateWithDefault: vi.fn(async () => {
+        active += 1
+        maxActive = Math.max(maxActive, active)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        active -= 1
+        return { content: '优化结果', model: 'gpt-4.1-mini' }
+      }),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const scenes = Array.from({ length: 6 }, (_, i) => ({ text: '场景' + i, imagePromptSeed: '画面' + i }))
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { domain_enrich: { scenes } },
+      serviceBus: { optimizePromptsBatch: vi.fn() },
+    })
+    expect(result.success).toBe(true)
+    expect(result.output).toHaveLength(6)
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(6)
+    expect(maxActive).toBeGreaterThanOrEqual(2)
+  })
+
   it('默认 LLM 缺失、空响应或中途失败时优化阶段 fail closed', async () => {
     const noDefault = makePipeline(null, {
       _modelProviderManager: { getDefault: vi.fn(() => null) },
@@ -135,7 +162,10 @@ describe('story2video 资源索引契约', () => {
     const missing = await noDefault({
       stage: { options: {} }, params: {}, context: { split: [{ text: '场景' }] }, serviceBus: {},
     })
-    expect(missing).toMatchObject({ success: false, error: expect.stringMatching(/default.*LLM|默认.*模型/i) })
+    expect(missing).toEqual({
+      success: false,
+      error: '未找到需要的相关模型，请在设置中添加模型',
+    })
 
     const empty = makePipeline(null, {
       _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
@@ -147,19 +177,34 @@ describe('story2video 资源索引契约', () => {
     expect(blank).toMatchObject({ success: false, error: expect.stringMatching(/empty|为空/i) })
 
     const serviceBus = { optimizePromptsBatch: vi.fn() }
-    const midFailure = makePipeline(null, {
+    const retryRecovers = makePipeline(null, {
       _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
       generateWithDefault: vi.fn()
-        .mockResolvedValueOnce({ content: '第一幕优化结果' })
-        .mockRejectedValueOnce(new Error('provider timeout')),
+        .mockRejectedValueOnce(new Error('provider timeout'))
+        .mockResolvedValue({ content: '优化后提示词', model: 'gpt-4.1-mini' }),
     }).optimizeExecutor
-    const failed = await midFailure({
+    const recovered = await retryRecovers({
       stage: { options: {} },
       params: {},
-      context: { split: [{ text: '第一幕' }, { text: '第二幕' }] },
+      context: { split: [{ text: '第一幕' }] },
       serviceBus,
     })
-    expect(failed).toMatchObject({ success: false, error: expect.stringMatching(/scene 1.*provider timeout/i) })
+    // 瞬态 provider 错误触发有界重试后成功
+    expect(recovered).toMatchObject({ success: true })
+    expect(retryRecovers).toBeDefined()
+    expect(recovered.output).toHaveLength(1)
+
+    const persistent = makePipeline(null, {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
+      generateWithDefault: vi.fn().mockRejectedValue(new Error('provider timeout')),
+    }).optimizeExecutor
+    const failed = await persistent({
+      stage: { options: { maxRetries: 0 } },
+      params: {},
+      context: { split: [{ text: '第一幕' }] },
+      serviceBus,
+    })
+    expect(failed).toMatchObject({ success: false, error: expect.stringMatching(/scene 0.*provider timeout/i) })
     expect(failed).not.toHaveProperty('output')
     expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
   })
@@ -188,6 +233,39 @@ describe('story2video 资源索引契约', () => {
     expect(result.success).toBe(false)
     expect(result.error).toMatch(/scene.*失败|asset.*failed/i)
     expect(result.error).toContain('Image #2: image failed')
+  })
+
+  it('将选定的 TTS 服务商、模型和音色完整透传至资产生成器', async () => {
+    const generateTTS = vi.fn(async (_text, { index }) => ({
+      code: 0,
+      data: { path: `audio-${index}.mp3`, duration: 2 },
+    }))
+    const fn = makePipeline({
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
+      generateTTS,
+    })
+
+    const result = await fn({
+      stage: { options: { concurrency: 1 } },
+      params: {
+        voiceId: 'voice-selected',
+        voiceProvider: 'elevenlabs',
+        voiceModel: 'eleven_multilingual_v2',
+        voiceSpeed: 1.1,
+        voicePitch: 2,
+      },
+      context: { split: [{ text: '旁白内容' }], optimize: ['画面提示词'] },
+      serviceBus: {},
+    })
+
+    expect(result.success).toBe(true)
+    expect(generateTTS).toHaveBeenCalledWith('旁白内容', expect.objectContaining({
+      voice_id: 'voice-selected',
+      voice_provider: 'elevenlabs',
+      voice_model: 'eleven_multilingual_v2',
+      rate: 1.1,
+      pitch: 2,
+    }))
   })
 
   it('显式允许部分资源时只保留同 index 的成对 scene', async () => {
@@ -426,13 +504,35 @@ describe('story2video 资源索引契约', () => {
     })
   })
 
-  it('超过最大场景数时在生成资源前失败', async () => {
+  it('61 个场景逐个调用默认 LLM 优化，不因场景数被拒绝', async () => {
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })),
+      },
+      generateWithDefault: vi.fn(async () => ({ content: '安全的画面提示词', model: 'gpt-4.1-mini' })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const scenes = Array.from({ length: 61 }, (_, index) => ({ text: '第 ' + (index + 1) + ' 个场景' }))
+
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: scenes },
+      serviceBus: {},
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.output).toHaveLength(61)
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(61)
+  })
+
+  it('61 个场景继续进入资源生成，不因场景数被拒绝', async () => {
     const assetGenerator = {
-      generateImage: vi.fn(),
-      generateTTS: vi.fn(),
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: `audio-${index}.mp3`, duration: 1 } })),
     }
     const fn = makePipeline(assetGenerator)
-    const scenes = Array.from({ length: MAX_SCENES + 1 }, (_, index) => ({ text: String(index) }))
+    const scenes = Array.from({ length: 61 }, (_, index) => ({ text: String(index) }))
 
     const result = await fn({
       stage: { options: {} },
@@ -441,9 +541,298 @@ describe('story2video 资源索引契约', () => {
       serviceBus: {},
     })
 
-    expect(result.success).toBe(false)
-    expect(result.error).toMatch(/scene|场景|limit/i)
-    expect(assetGenerator.generateImage).not.toHaveBeenCalled()
-    expect(assetGenerator.generateTTS).not.toHaveBeenCalled()
+    expect(result.success).toBe(true)
+    expect(result.error).toBeUndefined()
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(scenes.length)
+    expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(scenes.length)
+  })
+})
+
+describe('story2video 内容策略人工处理', () => {
+  it('applies the same five-attempt content-policy contract to the Python image fallback', async () => {
+    const fn = makePipeline(null)
+    const serviceBus = {
+      callPythonSkill: vi.fn(async (skill) => {
+        if (skill === 'generate_image') {
+          return {
+            code: -1,
+            error: { code: 'CONTENT_POLICY', message: 'content policy rejected' },
+          }
+        }
+        return { code: 0, data: { path: 'audio-0.mp3', duration: 2 } }
+      }),
+    }
+
+    const result = await fn({
+      stage: { options: { concurrency: 1 } },
+      params: {},
+      context: { split: [{ text: '一' }], optimize: ['prompt'] },
+      serviceBus,
+    })
+
+    expect(serviceBus.callPythonSkill.mock.calls.filter(([skill]) => skill === 'generate_image')).toHaveLength(5)
+    expect(result).toMatchObject({
+      success: true,
+      checkpoint: 'needs_user_input',
+      checkpointMeta: { reason: 'content_policy', attempts: 5, sceneIndex: 0 },
+    })
+  })
+
+  it('turns exhausted image policy retries into a needs_user_input checkpoint even when partial assets are allowed', async () => {
+    const checkpoint = {
+      type: 'needs_user_input',
+      status: 'needs_user_input',
+      reason: 'content_policy',
+      needsUserInput: true,
+      sceneIndex: 1,
+      sceneNumber: 2,
+      attempts: 5,
+      recommendation: '请改写场景。',
+    }
+    const fn = makePipeline({
+      generateImage: vi.fn(async (_prompt, { index }) => index === 1
+        ? {
+            code: -1,
+            message: 'Image generation requires user input after content-policy review',
+            needsUserInput: true,
+            checkpoint,
+            data: { needsUserInput: true, checkpoint, generationAttempts: [{ attempt: 5, outcome: 'content_policy_rejected' }] },
+          }
+        : { code: 0, data: { path: `image-${index}.png` } }),
+      generateTTS: vi.fn(async (_text, { index }) => ({
+        code: 0,
+        data: { path: `audio-${index}.mp3`, duration: 2 },
+      })),
+    })
+
+    const result = await fn({
+      stage: { options: { concurrency: 2 } },
+      params: { allowPartialAssets: true },
+      context: {
+        split: [{ text: '一' }, { text: '二' }],
+        optimize: ['p1', 'p2'],
+      },
+      serviceBus: {},
+    })
+
+    expect(result).toMatchObject({
+      success: true,
+      checkpoint: 'needs_user_input',
+      checkpointMeta: {
+        type: 'needs_user_input',
+        status: 'needs_user_input',
+        reason: 'content_policy',
+        sceneIndex: 1,
+        sceneNumber: 2,
+        attempts: 5,
+      },
+    })
+    expect(result.output.scenes).toEqual([
+      expect.objectContaining({ index: 0, imagePath: 'image-0.png', audioPath: 'audio-0.mp3' }),
+    ])
+    expect(result.output.failures.images).toEqual([
+      expect.objectContaining({ index: 1, needsUserInput: true, checkpoint }),
+    ])
+  })
+})
+
+describe('story2video 限流/瞬时错误有界重试', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('提示词优化遇到限流时用更长退避重试并恢复', async () => {
+    vi.useFakeTimers()
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-Text-01'] })) },
+      generateWithDefault: vi.fn()
+        .mockRejectedValueOnce(new Error("You've reached the API rate limit for free users."))
+        .mockRejectedValueOnce(new Error('rate limit'))
+        .mockResolvedValue({ content: '优化后提示词', model: 'MiniMax-Text-01' }),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const promise = fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '第一幕' }] },
+      serviceBus: {},
+    })
+    await vi.advanceTimersByTimeAsync(30000)
+    const result = await promise
+    expect(result).toMatchObject({ success: true })
+    expect(result.output).toHaveLength(1)
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(3)
+  })
+
+  it('限流持续存在时按限流次数上限失败并保留场景与原因', async () => {
+    vi.useFakeTimers()
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-Text-01'] })) },
+      generateWithDefault: vi.fn().mockRejectedValue(new Error('You have reached the API rate limit for free users.')),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const promise = fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '第一幕' }] },
+      serviceBus: {},
+    })
+    await vi.advanceTimersByTimeAsync(60000)
+    const result = await promise
+    expect(result).toMatchObject({
+      success: false,
+      error: expect.stringMatching(/scene 0.*rate limit/i),
+    })
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(4)
+  })
+
+  it('非瞬时 provider 错误不重试，立即失败', async () => {
+    vi.useFakeTimers()
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-Text-01'] })) },
+      generateWithDefault: vi.fn().mockRejectedValue(new Error('invalid api key')),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const promise = fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '第一幕' }] },
+      serviceBus: {},
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+    const result = await promise
+    expect(result).toMatchObject({ success: false, error: expect.stringMatching(/invalid api key/) })
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+  })
+
+  it('资源生成遇到 TTS 限流时重试并恢复，不拖垮整阶段', async () => {
+    vi.useFakeTimers()
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
+      generateTTS: vi.fn()
+        .mockResolvedValueOnce({ code: -1, message: 'TTS provider "minimax-tts" failed: rate limit reached' })
+        .mockResolvedValueOnce({ code: -1, message: 'TTS provider "minimax-tts" failed: rate limit reached' })
+        .mockResolvedValue({ code: 0, data: { path: 'audio-0.mp3', duration: 2 } }),
+    }
+    const fn = makePipeline(assetGenerator)
+    const promise = fn({
+      stage: { options: { concurrency: 1 } },
+      params: {},
+      context: { split: [{ text: '一' }], optimize: ['prompt'] },
+      serviceBus: {},
+    })
+    await vi.advanceTimersByTimeAsync(30000)
+    const result = await promise
+    expect(result).toMatchObject({ success: true })
+    expect(result.output.scenes).toHaveLength(1)
+    expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(3)
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
+  })
+
+  it('提示词优化断点续传：已完成场景结果直接复用，不重复调用 LLM', async () => {
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-Text-01'] })) },
+      generateWithDefault: vi.fn(async () => ({ content: '新结果', model: 'MiniMax-Text-01' })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const context = {
+      split: [{ text: '一' }, { text: '二' }],
+      optimize_resume: [{ optimized_prompt: '旧结果0', providerId: 'minimax', model: 'MiniMax-Text-01' }],
+    }
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context,
+      serviceBus: {},
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output).toEqual([
+      { optimized_prompt: '旧结果0', providerId: 'minimax', model: 'MiniMax-Text-01' },
+      expect.objectContaining({ optimized_prompt: '新结果' }),
+    ])
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+    // 实时进度：共 2 个场景，已完成 2 个
+    expect(context.optimize_progress).toEqual({ done: 2, total: 2 })
+  })
+
+  it('资源生成断点续传：已完成场景跳过图片/TTS provider 调用', async () => {
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: `audio-${index}.mp3`, duration: 2 } })),
+    }
+    const fn = makePipeline(assetGenerator)
+    const context = {
+      split: [{ text: '一' }, { text: '二' }],
+      optimize: ['p0', 'p1'],
+      generate_assets: {
+        resume: {
+          completed: [{ index: 0, imagePath: 'C:/tmp/resume-image-0.png', audioPath: 'C:/tmp/resume-audio-0.mp3', duration: 3 }],
+        },
+      },
+    }
+    const result = await fn({
+      stage: { options: { concurrency: 2 } },
+      params: {},
+      context,
+      serviceBus: {},
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output.scenes).toHaveLength(2)
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: 'C:/tmp/resume-image-0.png', audioPath: 'C:/tmp/resume-audio-0.mp3' })
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
+    expect(assetGenerator.generateImage).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ index: 1 }))
+    expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(1)
+    // 实时进度：图片 2/2 · 旁白 2/2（含续传场景）
+    expect(context.assets_progress).toEqual({
+      imagesDone: 2, imagesTotal: 2, ttsDone: 2, ttsTotal: 2,
+    })
+  })
+
+  it('资源生成失败时记录已完成场景供断点续传', async () => {
+    vi.useFakeTimers()
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
+      generateTTS: vi.fn(async (_text, { index }) => index === 1
+        ? { code: -1, message: 'rate limit reached' }
+        : { code: 0, data: { path: `audio-${index}.mp3`, duration: 2 } }),
+    }
+    const fn = makePipeline(assetGenerator)
+    const context = {
+      split: [{ text: '一' }, { text: '二' }],
+      optimize: ['p0', 'p1'],
+    }
+    const promise = fn({
+      stage: { options: { concurrency: 1 } },
+      params: {},
+      context,
+      serviceBus: {},
+    })
+    await vi.advanceTimersByTimeAsync(60000)
+    const result = await promise
+    expect(result).toMatchObject({ success: false })
+    expect(context.generate_assets?.resume?.completed).toEqual([
+      expect.objectContaining({ index: 0, imagePath: 'image-0.png', audioPath: 'audio-0.mp3' }),
+    ])
+    expect(context.generate_assets?.resume?.total).toBe(2)
+  })
+
+  it('资源生成遇到图片限流时重试后仍失败则按原样失败（不误判为内容政策）', async () => {
+    vi.useFakeTimers()
+    const assetGenerator = {
+      generateImage: vi.fn().mockResolvedValue({ code: -1, message: 'Image provider "minimax-image" failed: rate limit reached' }),
+      generateTTS: vi.fn(async () => ({ code: 0, data: { path: 'audio-0.mp3', duration: 2 } })),
+    }
+    const fn = makePipeline(assetGenerator)
+    const promise = fn({
+      stage: { options: { concurrency: 1 } },
+      params: {},
+      context: { split: [{ text: '一' }], optimize: ['prompt'] },
+      serviceBus: {},
+    })
+    await vi.advanceTimersByTimeAsync(60000)
+    const result = await promise
+    expect(result).toMatchObject({ success: false, error: expect.stringMatching(/rate limit/i) })
+    expect(result.error).not.toContain('content_policy')
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(4)
   })
 })

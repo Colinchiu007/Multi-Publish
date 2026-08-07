@@ -52,7 +52,7 @@ const PUBLISH_METHODS = [
   'intelligenceSearch', 'intelligenceSearchTitles', 'intelligenceFetchTrending',
   'intelligenceFindReferences', 'intelligenceGetBenchmark',
   'getQueueStatus', 'getQueueHistory', 'cancelTask',
-  'historyList', 'historyGet',
+  'historyList', 'historyGet', 'historyDelete',
   'dashboardStats',
   'schedulerCreate', 'schedulerList', 'schedulerCancel',
   'onProgress',
@@ -127,6 +127,7 @@ const SYSTEM_METHODS = [
   'modelProviderDelete', 'modelProviderSetDefault', 'modelProviderGetDefault',
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
   'modelProviderLogs', 'modelProviderCleanLogs',
+  'logsGetInfo', 'logsClear', 'logError',
 ]
 
 const IDENTITY_METHODS = [
@@ -182,10 +183,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 79 个键（78 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 82 个键（81 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(79)
+    expect(Object.keys(r).length).toBe(82)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -194,18 +195,18 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(42)
   })
 
-  it('system 模块应导出 133 个方法', () => {
+  it('system 模块应导出 136 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(133)
+    expect(Object.keys(r).length).toBe(136)
   })
 
-  it('合并后 api 总键数应为 259', () => {
-    expect(Object.keys(api).length).toBe(259)
+  it('合并后 api 总键数应为 262', () => {
+    expect(Object.keys(api).length).toBe(265)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    expect(PUBLISH_METHODS.length).toBe(74)
+    expect(PUBLISH_METHODS.length).toBe(75)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',
@@ -219,7 +220,7 @@ describe('preload 子模块方法数', () => {
   })
 
   it('SYSTEM_METHODS 常量长度应为 133', () => {
-    expect(SYSTEM_METHODS.length).toBe(133)
+    expect(SYSTEM_METHODS.length).toBe(136)
   })
 
   it('IDENTITY_METHODS 常量长度应为 5', () => {
@@ -310,6 +311,7 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
   const INVOKE_CASES = [
     ['publishWechat', 'publish:wechat', [{ id: 1 }]],
     ['listAccounts', 'accounts:list', []],
+    ['historyDelete', 'history:delete', [['record-1']]],
     ['getVersion', 'app:get-version', []],
     ['accountAdd', 'account:add', ['wechat']],
     ['storeGetSetting', 'store:get-setting', ['theme']],

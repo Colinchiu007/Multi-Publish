@@ -21,8 +21,8 @@ function hashUrl(route) {
 
 const ROUTE_READY_SELECTORS = {
   '/': '.cohere-main .page-title:has-text("社媒管家")',
-  '/accounts': '.cohere-main .page-title:has-text("账号管理")',
-  '/publish': '.cohere-main .page-title:has-text("一键发布")',
+  '/accounts': '.yixiaoer-workspace .accounts-page',
+  '/publish': '.yixiaoer-workspace .page-title:has-text("一键发布")',
   '/collection': '.cohere-main .page-title:has-text("内容采集")',
   '/monitor': '.cohere-main .page-title:has-text("分屏监控")',
   '/comments': '.cohere-main .page-title:has-text("评论管理")',
@@ -82,8 +82,11 @@ const functionalTests = [
     name: 'nav-highlight',
     description: '导航高亮跟随路由',
     async run(runner) {
-      await navigateToReady(runner.page, '/accounts', '.nav-item.active:has-text("账号管理")');
-      const activeCount = await runner.page.$$eval('.nav-item.active, a.router-link-exact-active', els => els.length);
+      await navigateToReady(runner.page, '/accounts', '[data-testid="yixiaoer-tab-accounts"].active');
+      const activeCount = await runner.page.$$eval(
+        '[data-testid^="yixiaoer-tab-"].active, [data-testid^="yixiaoer-tab-"][aria-current="page"]',
+        els => els.length,
+      );
       return { passed: activeCount > 0, errors: activeCount === 0 ? ['导航项无 active 高亮'] : [] };
     }
   },
@@ -132,10 +135,11 @@ const functionalTests = [
     name: 'accounts-filter',
     description: '账号列表筛选',
     async run(runner) {
-      await navigateToReady(runner.page, '/accounts', '.cohere-filter-chip');
-      await waitForCount(runner.page, '.cohere-filter-chip', 3);
-      const filterChips = await runner.page.$$eval('button', btns =>
-        btns.filter(b => ['全部', '已登录', '未登录'].includes(b.textContent.trim())).length
+      await navigateToReady(runner.page, '/accounts', '.filter-tabs[role="tablist"]');
+      await waitForCount(runner.page, '.filter-tabs[role="tablist"] button[role="tab"]', 3);
+      const filterChips = await runner.page.$$eval(
+        '.filter-tabs[role="tablist"] button[role="tab"]',
+        btns => btns.filter(b => ['全部', '已登录', '未登录'].includes(b.textContent.trim())).length,
       );
       return { passed: filterChips >= 3, errors: filterChips < 3 ? [`筛选按钮不足: ${filterChips}`] : [] };
     }
@@ -377,6 +381,8 @@ const functionalTests = [
       if (pipelineCards.length > 0) {
         await pipelineCards[0].click();
         await runner.page.waitForSelector('.pipeline-detail', { state: 'visible', timeout: 10000 });
+        const textInput = await runner.page.$('textarea[placeholder*="视频文案"]');
+        if (textInput) await textInput.fill('视觉回归测试文案');
       } else {
         const fallbackBtn = await runner.page.evaluate(() => { const els = document.querySelectorAll('*'); for (const el of els) { if (el.textContent.includes('启动流水线') && el.children.length <= 2) return { tag: el.tagName, isBtn: el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' }; } return null; });
         if (fallbackBtn && !fallbackBtn.isBtn) return { passed: false, errors: ['流水线数据为空, 启动流水线降级为非button元素(tag=' + fallbackBtn.tag + ')'] };

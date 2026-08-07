@@ -26,7 +26,7 @@
  */
 
 const { BaseAdapter } = require('./_base/base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
+const { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
 const DEFAULT_TIMEOUT = 120000
@@ -178,6 +178,25 @@ class MinimaxImageAdapter extends BaseAdapter {
 
     // MiniMax 响应中 data.image_urls 为 URL 数组
     const imageUrls = data?.data?.image_urls || data?.image_urls || []
+
+    // 静默空结果：HTTP 200 但无图片 URL（常见于内容安全策略拒绝或瞬时故障），
+    // 必须显式抛错，禁止返回空数组让上层误判为「已生成」。
+    if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
+      const statusMsg = data?.base_resp?.status_msg
+        || data?.base_resp?.status_message
+        || data?.message
+        || ''
+      const code = statusMsg && hasStrictContentPolicySignal(statusMsg)
+        ? ERROR_CODES.CONTENT_POLICY
+        : ERROR_CODES.PROVIDER_ERROR
+      throw new ProviderError(
+        code,
+        statusMsg
+          ? 'image_generation returned no image: ' + statusMsg
+          : 'image_generation returned no image (empty image_urls)',
+        { providerId: this.id },
+      )
+    }
 
     return {
       urls: imageUrls,

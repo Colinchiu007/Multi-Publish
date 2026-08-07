@@ -114,6 +114,7 @@
 import { cloudPublishSubmit, cloudPublishListTasks, cloudPublishGetTask, cloudPublishPlatforms } from '../api/cloud-publisher'
 import UiInput from '../components/UiInput.vue'
 import UiButton from '../components/UiButton.vue'
+import { reportError } from '../utils/report-error'
 
 export default {
   name: 'CloudPublish',
@@ -168,7 +169,7 @@ export default {
           this.orchestratorOnline = false
         }
       } catch (e) {
-        console.error(e)
+        reportError('刷新发布任务列表失败', e)
       } finally {
         this.loadingTasks = false
       }
@@ -230,7 +231,7 @@ export default {
           await this.refreshTasks()
         }
       } catch (e) {
-        console.error(e)
+        reportError('提交发布任务失败', e)
       } finally {
         this.submitting = false
       }

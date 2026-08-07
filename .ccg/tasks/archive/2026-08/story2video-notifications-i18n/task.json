@@ -1,0 +1,12 @@
+{
+  "id": "story2video-notifications-i18n",
+  "title": "修复 Story2Video 重复提示、场景上限与中英提示体系",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交已验证变更",
+  "createdAt": "2026-08-02T14:10:00Z",
+  "branch": "codex/story2video-notifications-i18n-fix"
+}

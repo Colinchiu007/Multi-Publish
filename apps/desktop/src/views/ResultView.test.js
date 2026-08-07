@@ -20,6 +20,7 @@ vi.mock("@/api/publisher", () => ({
 const router = createRouter({ history: createWebHistory(), routes: [
   { path: "/", component: { template: "<div>root</div>" } },
   { path: "/create", name: "create", component: { template: "<div>create</div>" } },
+  { path: "/create/result", name: "create-result", component: { template: "<div>result</div>" } },
   { path: "/publish", name: "publish", component: { template: "<div>publish</div>" } },
 ] });
 
@@ -43,6 +44,28 @@ describe("ResultView", () => {
     expect(w.text()).toContain("\u89c6\u9891\u9884\u89c8");
   });
 
+  it("从路由 query 展示完成汇总（时长 + 文件大小）", async () => {
+    await router.push({ path: "/create/result", query: { path: "C:/tmp/x.mp4", durationMs: "125000", sizeBytes: "3145728" } });
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton } } });
+    w.vm.loading = false;
+    w.vm.videoPath = "C:/tmp/x.mp4";
+    w.vm.videoSrc = "file:///C:/tmp/x.mp4";
+    await nextTick();
+    expect(w.vm.completionSummary).toBe("\u5b8c\u6210\u65f6\u95f4\u5171 2 \u5206 5 \u79d2 \u00b7 \u6587\u4ef6\u5927\u5c0f 3.0 M");
+    expect(w.find('[data-testid="completion-summary"]').exists()).toBe(true);
+    w.unmount();
+  });
+
+  it("provides a back-to-pipeline-list button that navigates to /create", async () => {
+    const w = await createView();
+    const back = w.find('[data-testid="back-to-pipeline-list"]');
+    expect(back.exists()).toBe(true);
+    expect(back.text()).toContain("返回流水线列表");
+    await back.trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(router.currentRoute.value.path).toBe("/create");
+  });
+
   it("shows empty state when no video path", async () => {
     const w = await createView();
     expect(w.text()).toContain("\u6ca1\u6709\u53ef\u9884\u89c8\u7684\u89c6\u9891");
@@ -58,10 +81,14 @@ describe("ResultView", () => {
     expect(w.vm.loading).toBe(false);
   });
 
-  it("handleError sets error message", async () => {
+  it("handleError shows a localized modal", async () => {
     const w = await createView();
     w.vm.handleError();
-    expect(w.vm.error).toBeTruthy();
+    expect(w.vm.story2videoNotificationDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.operation_failed",
+      messageParams: {},
+    });
   });
 
   it("download creates download link and clicks it", async () => {
@@ -88,11 +115,12 @@ describe("ResultView", () => {
     expect(() => w.vm.download()).not.toThrow();
   });
 
-  it("shows error banner when error is set", async () => {
+  it("does not render a page-level error banner", async () => {
     const w = await createView();
-    w.vm.error = "Video not found";
+    w.vm.handleError();
     await nextTick();
-    expect(w.text()).toContain("Video not found");
+    expect(w.find(".error-banner").exists()).toBe(false);
+    expect(w.find(".result-message").exists()).toBe(false);
   });
 
   it("shows download and navigate buttons when video loaded", async () => {
@@ -132,6 +160,11 @@ describe("ResultView", () => {
     ]);
     expect(api.story2videoCopyPath).toHaveBeenCalledWith("C:/videos/test.mp4");
     expect(api.story2videoShowInFolder).toHaveBeenCalledWith("C:/videos/test.mp4");
+    expect(w.vm.story2videoNotificationDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.path_copied",
+      messageParams: {},
+    });
   });
 
   it("持久化项目导出 ZIP 时包含成片、完整旁白和所有分段产物", async () => {
@@ -313,17 +346,75 @@ describe("ResultView", () => {
     expect(w.vm.projectId).toBe("project-route");
   });
 
-  it("项目含离线降级素材时明确提示，避免把占位图或静音当作真实 AI 产物", async () => {
+  it("重新合成后无法加载预览时不显示成功提示", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoRecomposeProject.mockResolvedValue({ code: 0, data: {
+      projectId: "project-1", videoPath: "C:/project/recomposed.mp4", segments: [],
+    } });
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 1, message: "private provider error" });
     const w = await createView();
+    w.vm.projectId = "project-1";
+
+    await w.vm.recomposeProject();
+
+    expect(w.vm.story2videoNotificationDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.operation_failed",
+      messageParams: {},
+    });
+    expect(w.vm.story2videoNotificationDialog.messageKey).not.toBe("story2video.project_recomposed");
+  });
+
+  it("重新合成缺少视频路径时显示预览缺失提示", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoRecomposeProject.mockResolvedValue({ code: 0, data: {
+      projectId: "project-1", segments: [],
+    } });
+    const w = await createView();
+    w.vm.projectId = "project-1";
+
+    await w.vm.recomposeProject();
+
+    expect(w.vm.story2videoNotificationDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.preview_missing",
+      messageParams: {},
+    });
+  });
+
+  it("桥接调用拒绝时也显示本地化操作失败提示", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoExportZip.mockRejectedValue(new Error("C:/private/path"));
+    const w = await createView();
+    w.vm.videoPath = "C:/videos/test.mp4";
+
+    await w.vm.exportZip();
+
+    expect(w.vm.story2videoNotificationDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.operation_failed",
+      messageParams: {},
+    });
+  });
+
+  it("项目含离线降级素材时使用本地化弹窗，而不是页面警告条", async () => {
+    const w = await createView();
+    w.vm.projectId = "project-degraded";
     w.vm.videoPath = "C:/project/video.mp4";
     w.vm.segments = [{
       id: "segment-0",
       imageMeta: { source: "ffmpeg-placeholder", degraded: true },
       audioMeta: { source: "edge-tts", degraded: false },
     }];
+    w.vm.maybeShowDegradedAssetsWarning();
     await nextTick();
 
-    expect(w.find(".asset-warning").text()).toMatch(/离线降级素材/);
+    expect(w.find(".asset-warning").exists()).toBe(false);
+    expect(w.vm.story2videoNotificationDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.degraded_assets_warning",
+      messageParams: { kinds: "占位图片" },
+    });
     w.unmount();
   });
 });
