@@ -12,6 +12,14 @@
 ### 3. 提示文案友好化
 - resumeHint 中文：原「瞬时错误（限流/超时）会自动冷却后重试」→「遇到暂时的服务繁忙或网络波动时，会自动等待片刻后重试。」
 - 英文同步：「Transient failures will be retried with cooldown automatically.」→「Temporary service or network issues will be retried automatically after a short wait.」
+
+## [未发布] Podcast 转视频流水线引擎实现 (2026-08-07)
+
+### 视频创作（流水线引擎）
+- 新增 `podcast-repurpose`（播客转视频：音频 → 可视化视频）真实引擎，`available=true`：analyze（ffprobe 时长 + 文案分句，可选语音识别转写）→ visualize（每段生成配图）→ assemble（ffmpeg 切分音频片段 + 组装场景）→ render（内置 compose 合成，fade 转场）。
+- 音频路径受控校验（resolveReadableMediaFile kind=audio）；无文案且无语音识别供应商 → fail closed 明确提示。
+- 测试：podcast-repurpose-stages 11 例（真实 wav + ffmpeg 切分）；pipeline-engine available/stageDefs 断言更新（无引擎清单仅剩 screen-demo）。
+- PRD「Podcast 转视频流水线引擎合同」、E2E-PENDING 待办 B 更新。
 ## [未发布] CreateView 历史记录运行中流水线置顶 + 阶段进度 (2026-08-07)
 
 ### 视频创作（历史记录）
@@ -2894,6 +2902,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

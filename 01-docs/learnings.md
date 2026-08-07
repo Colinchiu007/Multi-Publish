@@ -32,6 +32,13 @@
 - **布局错乱**：阶段标签内联在 flex 行里换行错乱。修复：卡片式（主信息行 + 独立阶段进度条）。教训：列表项内多段信息不要硬塞单行，按层级拆分。
 - **TTS 空音频失败**：MiniMax TTS 偶发 200 无 audio（`Missing audio data in response`）此前归为 `other` 不重试 → 整线失败。修复：`classifyProviderFailure` 把空响应/缺失数据模式归为 `transient`（governor 短退避重试）。教训：provider「返回了但内容为空」也是典型瞬时错误，必须进重试分类；错误分类是重试网关的单一事实来源。
 - **文案**：「瞬时错误（限流/超时）会自动冷却后重试」用户不理解，改为「遇到暂时的服务繁忙或网络波动时，会自动等待片刻后重试」。
+
+## Podcast 转视频引擎实现复盘 (2026-08-07)
+
+- 无引擎流水线的实现骨架：复用 StageExecutor 自定义类型（registerStageExecutor）+ 内置 `compose` 阶段（`inputFrom` 指向 assemble 输出）+ 容器注册；analyze 复用 ffprobe/transcribeFile，visualize 复用 AssetGenerator.generateImage，assemble 用 ffmpeg 切段。
+- **关键校验**：音频输入必须走 `resolveReadableMediaFile(kind='audio')`（受控媒体根目录），否则测试里 os.tmpdir() 根目录的 wav 会被拒——测试 fixture 必须落在受控根目录内。
+- `available` 由 stageDefs 存在性自动判定；实现引擎后需同步更新「无引擎清单」断言（E2E-PENDING 待办 B 与 pipeline-engine.test）。
+- 语音识别转写（transcribeFile）依赖已配置的语音识别供应商；未配置时不伪造转写，fail closed 提示提供文案。
 ## 音色克隆授权勾选移除复盘 (2026-08-07)
 
 ### 需求调整
@@ -5810,4 +5817,5 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **修复**：模板改 `{{ s2vVoiceCloneHint() }}`；补全 19 个克隆错误码映射（中英文友好文案）；按钮改「选择本地音频文件」。
 - **回归保护**：CreateView 单测覆盖提示文案、错误映射与「不渲染函数文本」断言（73 项通过）；Playwright 探针（C:\tmp\clone-probe.js）验证面板文本。
 - **预防**：模板插值只用于值/计算属性，方法必须 `()` 调用；provider 错误码清单要全局核对渲染端映射表（service 共 19 个 VOICE_CLONE_* 码）。
+
 

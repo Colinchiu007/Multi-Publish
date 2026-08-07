@@ -1489,3 +1489,26 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 
 ### 3. 并发上限固定开关
 见「视频创作后台运行与并发合同 §3」修订：环境变量 `STORY2VIDEO_MAX_CONCURRENT_RUNS`（1–8，非法回退自适应）可固定上限（如 `2`）；优先级 deps 注入 > 环境变量 > 机器资源自适应。回归：resume-orchestration 覆盖设 2/非法回退/deps 优先/封顶 8。
+
+## Podcast 转视频流水线引擎合同（2026-08-07）
+
+### 1. 流水线
+- 名称：`podcast-repurpose`（播客转视频，音频 → 可视化视频），category=hybrid，`available=true`（2026-08-07 实现引擎）。
+- 阶段：`analyze` → `visualize` → `assemble` → `render`。
+
+### 2. 阶段合同
+| 阶段 | 类型 | 输入 | 输出 | 说明 |
+|------|------|------|------|------|
+| analyze | `podcast_analyze` | `params.audio`/`params.audioPath`（受控媒体根目录，wav/m4a/mp3）；`params.transcript` 可选 | `{ audioPath, duration, transcript, segments:[{index,text,start,end}] }` | ffprobe 探测时长；文案优先 `params.transcript`（按行分句、均分时长，最多 30 段），否则走 `story2videoProjectService.transcribeFile`（需已配置语音识别供应商）；两者皆无 → fail closed「需要文案或语音识别服务」 |
+| visualize | `podcast_visualize` | `context.analyze` | `{ ...analyze, images:[{index,success,path,error?}] }` | 每段文案经 AssetGenerator.generateImage 生成配图；图片 provider 优先级 params.imageProvider > stage.options.imageProvider > 默认 image provider；aspect 默认 16:9 |
+| assemble | `podcast_assemble` | `context.visualize` | `{ scenes:[{index,text,imagePath,audioPath,duration}] }` | ffmpeg 按 start/end 切分音频为 m4a 片段（`os.tmpdir()/story2video/podcast/<runId>/seg_XXXX.m4a`）；单段切分失败跳过；全部失败 → fail closed |
+| render | `compose`（内置） | `context.assemble`（`inputFrom: 'assemble'`） | 成片 mp4 | Story2Video 合成引擎；transition=fade、subtitleEnabled=false、720x1280、fps 30 |
+
+### 3. 数据与安全约束
+- 音频路径必须经 `resolveReadableMediaFile(kind='audio')` 校验（受控媒体根目录 + 扩展名 + 大小）；运行目录 runId 走 `safeRunId` 语义（`story2video/podcast/<runId>`）。
+- 切分产物为运行隔离临时文件；流水线结束由 compose 引擎的 session 清理机制覆盖（`_cleanupSession`）。
+- 无真实语音识别供应商时，analyze 不伪造转写，明确提示提供文案。
+
+### 4. 验收
+- 引擎单测 11 例：注册/分句/analyze（缺音频、不可读、真实 wav+文案、无文案失败）/visualize（配图、缺 segments）/assemble（真实切分、缺 context）。
+- E2E（待办 B）：真实音频（可先提供文案）→ 4 阶段 → 成片 mp4；语音识别转写路径需配置 whisper 供应商后验收。
