@@ -295,6 +295,10 @@ class TtsVoiceCloneService {
     this._clearTimeout = typeof deps.clearTimeout === "function" ? deps.clearTimeout : clearTimeout;
     this._sampleSelections = new Map();
     this._selectionExpiryTimers = new Map();
+    this._log =
+      typeof deps.log === "object" && deps.log && typeof deps.log.warn === "function"
+        ? deps.log
+        : require("./logger");
   }
 
   getRequirements(input) {
@@ -449,7 +453,10 @@ class TtsVoiceCloneService {
           samples: adapterSamples,
         },
       );
-    } catch (_) {
+    } catch (error) {
+      // 记录真实失败原因（ProviderError code / 消息），避免「服务不可用」吞掉可排查细节
+      const detail = error && (error.message || error.code) ? (error.message || error.code) : String(error);
+      this._log.warn("TtsVoiceClone", "cloneVoice adapter failed: " + detail);
       return failure("VOICE_CLONE_PROVIDER_UNAVAILABLE");
     }
 

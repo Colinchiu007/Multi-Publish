@@ -364,8 +364,27 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       expect(result.id).toBe('MiniMaxCloneTest')
       expect(result.name).toBe('克隆音色测试')
       expect(fetchMock.calls).toHaveLength(2)
-      expect(String(fetchMock.calls[0].url)).toContain('/v1/files/upload')
-      expect(String(fetchMock.calls[1].url)).toContain('/v1/voice_clone')
+      // 精确 URL：base_url 默认含 /v1（https://api.minimaxi.com/v1），路径不得重复 /v1
+      expect(String(fetchMock.calls[0].url)).toBe('https://api.minimaxi.com/v1/files/upload')
+      expect(String(fetchMock.calls[1].url)).toBe('https://api.minimaxi.com/v1/voice_clone')
+    })
+
+    it('base_url 含 /v1（真实 preset 配置）时不产生双重 /v1（回归「音色克隆服务不可用」）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ file: { file_id: 12345 } }),
+        createFetchResponse({ voice_id: 'MiniMaxClonePreset' }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test', baseUrl: 'https://api.minimaxi.com/v1' })
+      const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mpeg' })
+      const result = await adapter.cloneVoice({ name: '克隆音色', samples: [{ blob, fileName: 'clone.mp3', contentType: 'audio/mpeg' }] })
+      expect(result.id).toBe('MiniMaxClonePreset')
+      const urls = fetchMock.calls.map((c) => String(c.url))
+      expect(urls).toEqual([
+        'https://api.minimaxi.com/v1/files/upload',
+        'https://api.minimaxi.com/v1/voice_clone',
+      ])
+      expect(urls.every((u) => !u.includes('/v1/v1'))).toBe(true)
     })
 
     it('缺少样本时抛出配置错误', async () => {

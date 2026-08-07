@@ -1,6 +1,31 @@
 
 ---
 
+## 克隆音色「服务不可用」Bug 复盘 (2026-08-07)
+
+### 根因
+MiniMax TTS adapter 的 `cloneVoice` 上传/复刻路径写成 `/v1/files/upload`、`/v1/voice_clone`，而 `DEFAULT_BASE_URL` 与 preset 默认均为 `https://api.minimaxi.com/v1`（**已含 /v1**）。`_url(path)` = baseUrl + path → 实际请求 `https://api.minimaxi.com/v1/v1/files/upload`（双重 /v1）→ 404 → `fromHttpStatus` 抛 ProviderError → `tts-voice-clone-service._addCloneLocked` 的 `catch (_)` 吞掉异常 → 返回 `VOICE_CLONE_PROVIDER_UNAVAILABLE` → 前端提示「音色克隆服务暂时不可用，请稍后重试」。
+
+### 逃逸链
+- 单元测试 `toContain('/v1/files/upload')` 断言过弱：双 /v1 的 URL 也包含 `/v1/files/upload` 子串，测不出来。
+- 服务层 `catch (_)` 吞错：真实 404 不落日志，无法从「服务不可用」提示反查根因。
+- e2e 未覆盖真实克隆上传（待办 C：真实供应商验收项）。
+
+### 系统性漏洞
+1. MiniMax adapter 的 base_url 约定（含 /v1）+ 路径前缀约定（合成 `/t2a_v2` 不含 /v1）未固化：cloneVoice 误带 /v1 即坏。
+2. 服务层吞掉 provider 异常，用户提示与真实原因脱节。
+
+### 修复 + 回归保护
+- `minimax-tts.js`：cloneVoice 路径改为 `/files/upload`、`/voice_clone`（base_url 已含 /v1）。
+- 测试：精确 URL 断言（`toBe('https://api.minimaxi.com/v1/files/upload')`）+ 新增「base_url 含 /v1 真实 preset 配置不产生 /v1/v1」回归用例。
+- `tts-voice-clone-service.js`：`_addCloneLocked` 的 `catch (_)` 改为记录 `warn('cloneVoice adapter failed: <detail>')`（构造注入 `this._log`，默认真实 logger），真实失败不再被吞。
+
+### 预防
+- adapter URL 断言统一用精确 `toBe` 而非 `toContain`，防双重前缀类回归。
+- 服务层所有 catch 吞错点应至少 `log.warn`（已修 cloneVoice 入口，其余吞错点为刻意降级路径）。
+- 真实供应商克隆上传验收（待办 C）配置好后补 e2e 证据。
+---
+
 ## 视频创作后台运行与并发实现复盘 (2026-08-07)
 
 ### ✅ 做得好的
