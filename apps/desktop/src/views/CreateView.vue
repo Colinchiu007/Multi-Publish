@@ -702,15 +702,17 @@
           <div v-if="filteredHistory.length === 0" class="empty-state compact"><p>没有符合条件的记录</p></div>
           <div v-else class="history-list">
             <div v-for="(h, i) in filteredHistory" :key="h.projectId || h.id || i" class="history-item" :class="{ 'is-running': h.status === 'running' }" @click="openHistory(h)">
-              <span class="history-name">{{ h.title || pipelineName(h.pipeline || h.name) }}</span>
-              <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
-              <span v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-stages">
-                <span v-for="(s, si) in h.stages" :key="si" class="history-stage-tag" :class="historyStageClass(s)">{{ historyStageLabel(s) }}</span>
-              </span>
-              <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
-              <span v-if="h.status === 'running'" class="history-running-hint">返回流水线创作查看进度</span>
-              <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click.stop="openHistory(h)">打开</button>
-              <button v-if="h.projectId" class="history-delete" @click.stop="requestProjectDeletion(h)">删除</button>
+              <div class="history-item-main">
+                <span class="history-name">{{ h.title || pipelineName(h.pipeline || h.name) }}</span>
+                <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
+                <span v-if="h.status === 'running'" class="history-running-hint">返回流水线创作查看进度</span>
+                <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
+                <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click.stop="openHistory(h)">打开</button>
+                <button v-if="h.projectId" class="history-delete" @click.stop="requestProjectDeletion(h)">删除</button>
+              </div>
+              <div v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
+                <span v-for="(s, si) in h.stages" :key="si" class="history-progress-seg" :class="historyStageState(s)" :title="historyStageTitle(s)">{{ historyStageLabel(s) }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -2209,21 +2211,62 @@ export default {
       if (!item?.projectId) return
       this.$router.push({ path: '/create/result', query: { project: item.projectId } })
     },
-    historyStageClass(stage) {
+    historyStageState(stage) {
       if (!stage || typeof stage !== 'object') return ''
-      return stage.status || ''
+      const status = stage.status || ''
+      if (status === 'completed') return 'done'
+      if (status === 'running') return 'active'
+      if (status === 'failed' || status === 'needs_user_input' || status === 'cancelled') return 'failed'
+      return 'pending'
     },
     historyStageLabel(stage) {
       if (!stage) return ''
       return typeof stage === 'object' ? (stage.name || stage.stage || '') : String(stage)
+    },
+    historyStageTitle(stage) {
+      const name = this.historyStageLabel(stage)
+      const status = stage && typeof stage === 'object' ? (stage.status || '') : ''
+      return name + (status ? ' · ' + status : '')
     },
     scheduleHistoryRefresh() {
       if (this.historyPollTimer) { clearInterval(this.historyPollTimer); this.historyPollTimer = null }
       const hasRunning = (this.history || []).some(item => item && item.status === 'running')
       if (!hasRunning) return
       this.historyPollTimer = setInterval(() => {
-        if (this.view === 'history') this.loadHistory()
+        if (this.view === 'history') this.refreshRunningHistory()
       }, 5000)
+    },
+    // 原地刷新运行中流水线的阶段状态（保持列表对象身份稳定），避免整表重渲染导致闪烁
+    async refreshRunningHistory() {
+      if (this.view !== 'history' || this._historyRefreshing) return
+      this._historyRefreshing = true
+      try {
+        const r = await settleHistoryRequest(() => pipelineHistory())
+        if (!r || r.code !== 0 || !Array.isArray(r.data)) return
+        const runningById = new Map(r.data.filter(item => item && item.status === 'running').map(item => [item.id, item]))
+        const list = this.history || []
+        for (let i = list.length - 1; i >= 0; i--) {
+          const item = list[i]
+          if (!item || item.status !== 'running') continue
+          const fresh = runningById.get(item.id)
+          if (fresh) {
+            item.stages = fresh.stages || item.stages
+            item.currentStage = fresh.currentStage
+            item.updatedAt = fresh.updatedAt || item.updatedAt
+            runningById.delete(item.id)
+          } else {
+            // 已进入终态：从运行中区移除（下次完整加载时按终态展示）
+            list.splice(i, 1)
+          }
+        }
+        if (runningById.size > 0) {
+          list.unshift(...runningById.values())
+        }
+      } catch (_) {
+        // 刷新失败保留现有状态，下一轮重试
+      } finally {
+        this._historyRefreshing = false
+      }
     },
     async deleteHistory(item) {
       if (!item?.projectId) return
@@ -2710,21 +2753,22 @@ export default {
 .history-toolbar label { color: var(--text-muted); font-size: 13px; font-weight: 600; }
 .history-filter { width: min(220px, 100%); }
 .history-list { display: flex; flex-direction: column; gap: 8px; }
-.history-item { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
-.history-name { flex: 1; }
-.history-status { font-size: 12px; padding: 2px 8px; border-radius: 4px; }
+.history-item { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
+.history-item-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.history-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-status { font-size: 12px; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; }
 .history-status.completed { background: #d1fae5; color: #065f46; }
 .history-status.failed { background: #fee2e2; color: #991b1b; }
 .history-status.cancelled { background: #f3f4f6; color: #6b7280; }
 .history-status.running { background: #dbeafe; color: #1d4ed8; }
 .history-item.is-running { cursor: pointer; border-color: #93c5fd; }
 .history-item.is-running:hover { border-color: var(--primary); }
-.history-stages { display: flex; gap: 4px; flex-wrap: wrap; max-width: 320px; }
-.history-stage-tag { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: #f3f4f6; color: #6b7280; white-space: nowrap; }
-.history-stage-tag.completed { background: #d1fae5; color: #065f46; }
-.history-stage-tag.running { background: #dbeafe; color: #1d4ed8; }
-.history-stage-tag.failed { background: #fee2e2; color: #991b1b; }
-.history-running-hint { font-size: 11px; color: #1d4ed8; background: #dbeafe; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+.history-progress { display: flex; gap: 4px; flex-wrap: wrap; align-items: stretch; }
+.history-progress-seg { flex: 1 1 0; min-width: 72px; max-width: 150px; font-size: 11px; padding: 4px 8px; border-radius: 4px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #f3f4f6; color: #6b7280; }
+.history-progress-seg.done { background: #d1fae5; color: #065f46; }
+.history-progress-seg.active { background: #2563eb; color: #fff; font-weight: 600; box-shadow: 0 0 0 2px #bfdbfe; }
+.history-progress-seg.failed { background: #fee2e2; color: #991b1b; }
+.history-running-hint { font-size: 11px; color: #1d4ed8; background: #dbeafe; padding: 2px 8px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
 .history-time { color: #999; font-size: 12px; }
 .history-open, .history-delete { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); padding: 5px 9px; cursor: pointer; font-size: 12px; }
 .history-open:hover { border-color: var(--primary); color: var(--primary); }

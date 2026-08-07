@@ -162,6 +162,9 @@ function classifyProviderFailure(error) {
   if (RATE_LIMIT_MESSAGE_PATTERN.test(message)) return 'rate'
   if (QUOTA_MESSAGE_PATTERN.test(message)) return 'quota'
   if (/\btimed?\s*out\b|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i.test(message)) return 'transient'
+  // 空响应/缺失数据：供应商 200 但未返回可用内容（如 MiniMax TTS 缺 audio、生图空 image_urls），
+  // 多为瞬时服务抖动，按 transient 短退避重试（E2E：11:56/12:05 TTS Missing audio data 曾致整线失败）。
+  if (/missing\s+(?:audio\s+)?data\s+in\s+response|did\s+not\s+return\s+(?:a\s+)?supported|returned\s+no\s+(?:image|audio)\s+(?:result|data)|empty\s+response|empty\s+image_urls/i.test(message)) return 'transient'
   if (hasStrictContentPolicySignal(message) || hasContentPolicyContextSignal(error.context || error)) return 'content_policy'
   return 'other'
 }

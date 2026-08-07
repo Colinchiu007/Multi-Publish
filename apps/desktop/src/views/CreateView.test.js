@@ -1476,12 +1476,12 @@ describe("CreateView - UI interactions", () => {
     expect(runningItem.exists()).toBe(true);
     expect(runningItem.text()).toContain("进行中");
     expect(runningItem.text()).toContain("返回流水线创作查看进度");
-    // 阶段进度色块（completed/running/pending）
-    const stageTags = runningItem.findAll(".history-stage-tag");
-    expect(stageTags.length).toBe(3);
-    expect(stageTags[0].classes()).toContain("completed");
-    expect(stageTags[1].classes()).toContain("running");
-    expect(stageTags[2].classes()).toContain("pending");
+    // 阶段进度条（done/active/pending）
+    const stageSegs = runningItem.findAll(".history-progress-seg");
+    expect(stageSegs.length).toBe(3);
+    expect(stageSegs[0].classes()).toContain("done");
+    expect(stageSegs[1].classes()).toContain("active");
+    expect(stageSegs[2].classes()).toContain("pending");
     // 存在运行中任务时启动 5s 历史轮询
     expect(w.vm.historyPollTimer).not.toBeNull();
     w.unmount();
@@ -1502,5 +1502,52 @@ describe("CreateView - UI interactions", () => {
     await nextTick();
     expect(w.vm.view).toBe("pipelines");
     expect(mocks.pipelineStatus).toHaveBeenCalled();
+    w.unmount();
+  });
+
+  it("refreshRunningHistory 原地更新运行中阶段状态，不重建整个列表", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{ projectId: "p1", title: "已完成项目", status: "completed" }] });
+    const running = { id: "run-live-3", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z",
+      stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }, { name: "compose", status: "pending" }] };
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [running] });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+    const before = w.vm.history;
+    expect(before.find(i => i.id === "run-live-3").stages[1].status).toBe("running");
+
+    // 刷新：阶段推进 → 原地更新（数组身份不变，避免整表重渲染闪烁）
+    const updated = { ...running, stages: [
+      { name: "split", status: "completed" }, { name: "optimize", status: "completed" }, { name: "compose", status: "running" } ] };
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [updated] });
+    await w.vm.refreshRunningHistory();
+    await nextTick();
+    expect(w.vm.history).toBe(before);
+    const item = w.vm.history.find(i => i.id === "run-live-3");
+    expect(item.stages[1].status).toBe("completed");
+    expect(item.stages[2].status).toBe("running");
+    expect(w.vm.history.some(i => i.projectId === "p1")).toBe(true);
+    w.unmount();
+  });
+
+  it("refreshRunningHistory 运行结束的项从运行中区移除", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-fin", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z", stages: [] },
+    ] });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+    expect(w.vm.history.some(i => i.id === "run-fin")).toBe(true);
+
+    // 运行结束（pipelineHistory 不再返回运行中项）
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
+    await w.vm.refreshRunningHistory();
+    await nextTick();
+    expect(w.vm.history.some(i => i.id === "run-fin")).toBe(false);
     w.unmount();
   });
