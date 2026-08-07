@@ -439,7 +439,8 @@ class BatchManager {
   /**
    * 注册 IPC handlers
    */
-  registerIpcHandlers () {
+  registerIpcHandlers (injectedIpcMain) {
+    const ipcMain = injectedIpcMain || require("electron").ipcMain;
     ipcMain.handle('batch:create', withSenderCheck((_, batch) => {
       try {
         const id = this.createBatch(batch)

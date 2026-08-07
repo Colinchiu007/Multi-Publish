@@ -277,7 +277,8 @@ class CommentManager {
     return result
   }
 
-  registerIpcHandlers () {
+  registerIpcHandlers (injectedIpcMain) {
+    const ipcMain = injectedIpcMain || require("electron").ipcMain;
     ipcMain.handle('comment:list', withSenderCheck(async (_event, arg) => {
       if (!arg || typeof arg !== 'object') return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
       const { platform, accountId, maxDays } = arg

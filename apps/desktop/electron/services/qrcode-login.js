@@ -507,7 +507,8 @@ class QrCodeLogin {
   /**
    * 注册 IPC handlers
    */
-  registerIpcHandlers () {
+  registerIpcHandlers (injectedIpcMain) {
+    const ipcMain = injectedIpcMain || require("electron").ipcMain;
     ipcMain.handle('auth:open-qrcode-login', withSenderCheck(async (event, platform) => {
       try {
         const result = await this.openLogin(platform)

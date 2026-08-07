@@ -10,13 +10,14 @@ function makeStore() {
   }
 }
 
-function makeEngine(store, governor, maxConcurrentRuns) {
+function makeEngine(store, governor, maxConcurrentRuns, maxHistoryEntries) {
   const engine = new PipelineEngine({
     serviceBus: {},
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     runStateStore: store,
     governor: governor || null,
     maxConcurrentRuns,
+    maxHistoryEntries,
   })
   engine.registerPipeline({
     name: 'resume-test',
@@ -289,5 +290,29 @@ describe('后台运行：历史含运行中 + 并发上限', () => {
     const resume = await engine.resumeOrchestration('failed-run-1')
     expect(resume.success).toBe(false)
     expect(resume.errorCode).toBe('PIPELINE_CONCURRENCY_LIMIT')
+  })
+})
+
+
+describe('MAJOR-1：_history 内存历史上限', () => {
+  it('超过 maxHistoryEntries 时裁剪最旧快照，运行中 run 不受影响', async () => {
+    const engine = makeEngine(makeStore(), null, undefined, 3) // maxHistoryEntries=3
+    engine.registerPipeline({
+      name: 'conc-test',
+      description: '并发测试',
+      stages: ['a', 'b'],
+      stageDefs: [
+        { name: 'a', type: 'conc_a' },
+        { name: 'b', type: 'conc_b' },
+      ],
+    })
+    engine.registerStageExecutor('conc_a', async () => ({ success: true, output: {} }))
+    for (let i = 0; i < 6; i += 1) {
+      const started = await engine.startOrchestrated('conc-test', { initialContext: {}, autoAdvance: false })
+      expect(started.success).toBe(true)
+      engine.cancel()
+    }
+    const history = engine.getHistory()
+    expect(history.length).toBe(3)
   })
 })

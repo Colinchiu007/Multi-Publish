@@ -1,6 +1,17 @@
 
 ---
 
+## Code Review MAJOR 1-3 修复复盘 (2026-08-07)
+
+### ✅ 做得好的
+1. 审查结论落地为修复 PR，MAJOR 全部闭环（_history 上限 / IPC 注册统一 / cloud-publisher fail closed）。
+2. window.js 统一注册：删除「临时替换全局 ipcMain.handle」的 hack，改为显式注入 controlledIpcMain，与 phase5-ipc 中心注册同构。
+
+### ⚠️ 需要注意的
+1. 服务 `registerIpcHandlers` 默认全局兜底仅用于测试兼容；生产必须由 window.js/phase5 注入 controlled，新增服务不得裸调全局。
+2. 测试 mock 若忽略注入参数会绕过 access control 断言——window.test.js 已改为注册到注入的 controlledIpcMain。
+---
+
 ## 克隆音色「服务不可用」Bug 复盘 (2026-08-07)
 
 ### 根因

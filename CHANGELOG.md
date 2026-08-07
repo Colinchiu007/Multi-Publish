@@ -1,4 +1,10 @@
-## [未发布] 克隆时长探测测试环境修复 (2026-08-07)
+## [未发布] Code Review MAJOR 1-3 修复 (2026-08-07)
+
+### 主进程（代码审查修复）
+- **MAJOR-1 `_history` 内存上限**：PipelineEngine 默认保留最近 50 条 run 快照（`maxHistoryEntries` 可注入），超限裁剪最旧；断点恢复跨重启仍走 RunStateStore 持久快照。
+- **MAJOR-2 IPC 注册统一**：window.js 不再临时替换全局 `ipcMain.handle`，改为显式构造 `createAccessControlledIpcMain` 注入 10 个服务（batchManager/webviewManager/oauthManager 等）；各服务 `registerIpcHandlers(injectedIpcMain)` 支持注入（默认全局兼容测试）。
+- **MAJOR-3 cloud-publisher 回退 fail closed**：`registerIpcHandlers` 未注入 ipcMain 时抛错，禁止绕过 access-controlled 通道。
+- 审查记录沉淀：`01-docs/code-review-2026-08-07.md`；回归 window(46) + resume(12，含 history 上限用例) + 各服务测试通过。## [未发布] 克隆时长探测测试环境修复 (2026-08-07)
 
 ### 测试
 - `_probeMediaDuration` 回归测试显式注入 `ffprobePath`，消除 CI（Linux self-hosted，无捆绑 ffprobe）环境依赖导致的 early-return 失败。## [未发布] 克隆音色「服务不可用」修复 (2026-08-07)
