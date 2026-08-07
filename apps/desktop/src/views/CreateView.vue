@@ -76,6 +76,11 @@
           </div>
         </div>
 
+        <!-- 模型服务异常提示（非阻塞） -->
+        <div v-if="providerWarningText" class="provider-warning-banner" role="alert">
+          ⚠️ {{ providerWarningText }}
+        </div>
+
         <!-- 输入区域 -->
         <div class="input-section">
           <h3>输入内容</h3>
@@ -944,7 +949,7 @@ export default {
         watermarkConfig: { enabled: false, position: 'bottom-right', fontSize: 24, opacity: 0.6, color: 'white' },
         autoAdvance: true, platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
-      orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '',
+      orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {} },
       story2videoResuming: false,
       story2videoRunMeta: null,
@@ -1014,6 +1019,15 @@ export default {
         '图片轮播配置',
         'Image Carousel Configuration'
       )
+    },
+    providerWarningText() {
+      const warnings = Array.isArray(this.providerWarnings) ? this.providerWarnings : []
+      if (warnings.length === 0) return ''
+      const names = warnings.map((w) => {
+        const secs = Number.isFinite(Number(w.latencyMs)) ? Math.round(Number(w.latencyMs) / 1000) : 0
+        return w.providerId + (secs > 0 ? '（' + secs + ' 秒）' : '')
+      }).join('、')
+      return '检测到模型服务响应异常：' + names + '。流水线已自动重试；若反复出现，建议到【模型设置】切换模型或检查该服务商。'
     },
     canAddS2VVoiceClone() {
       return Boolean(
@@ -2049,6 +2063,9 @@ export default {
           return
         }
         this.orchestrationContext = statusResult.data.context || null
+        this.providerWarnings = Array.isArray(statusResult.data.providerWarnings)
+          ? statusResult.data.providerWarnings
+          : []
         this.story2videoRunMeta = {
           createdAt: statusResult.data.createdAt || null,
           endedAt: statusResult.data.endedAt || null,
@@ -2153,7 +2170,7 @@ export default {
     async cancelPipeline() {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
-      this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''
+      this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
       this.orchestrationStages = (this.isAutoPipeline(this.selectedPipeline?.name) || this.isMediaAutoPipeline(this.selectedPipeline?.name)) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
       this.closeStory2VideoErrorDialog()
       this.stopPipelinePolling()
@@ -2636,6 +2653,7 @@ export default {
 
 /* 阶段时间线 */
 .stages-timeline { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; padding: 16px; background: var(--bg); border-radius: 8px; max-width: 100%; overflow-wrap: anywhere; }
+.provider-warning-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; font-size: 13px; line-height: 1.5; }
 .stage-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; font-size: 14px; min-width: 0; max-width: 100%; }
 .orchestration-context { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; padding: 12px 16px; background: var(--bg); border-radius: 8px; margin-bottom: 16px; }
 .context-item { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; max-width: 100%; min-width: 0; }

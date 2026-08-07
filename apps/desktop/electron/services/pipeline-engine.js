@@ -1364,6 +1364,15 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
+    // 执行日志：运行终态（完成/失败/取消）+ 总耗时 + 错误摘要（截断，不含敏感原文）
+    const finalizeDurationMs = run.startedAt ? Date.now() - new Date(run.startedAt).getTime() : null;
+    const finalizeDurationText = Number.isFinite(finalizeDurationMs) ? 'duration_ms=' + finalizeDurationMs : 'duration_ms=null';
+    const finalizeErrorText = error ? ' error=' + String(error).slice(0, 500) : '';
+    if (status === 'failed' || status === 'cancelled') {
+      this.log.warn('PipelineEngine', '[run] finalize run=' + run.id + ' pipeline=' + run.pipeline + ' status=' + status + ' ' + finalizeDurationText + finalizeErrorText);
+    } else {
+      this.log.info('PipelineEngine', '[run] finalize run=' + run.id + ' pipeline=' + run.pipeline + ' status=' + status + ' ' + finalizeDurationText);
+    }
     // 编排模式失败：持久化断点快照，供 pipeline:resumeOrchestration 从失败阶段继续。
     if (status === 'failed' && run.orchestrationMode === 'orchestrator' && this.runStateStore) {
       try {
@@ -1455,6 +1464,9 @@ class PipelineEngine {
       },
     };
 
+    const stageStartMs = Date.now();
+    const stageIndex = run.currentStage;
+    this.log.info('PipelineEngine', '[exec] stage start run=' + runId + ' pipeline=' + run.pipeline + ' stage=' + stage.name + ' (' + (stageIndex + 1) + '/' + run.stages.length + ')');
     const result = await this.stageExecutor.execute({
       runId,
       stage: fullStage,
@@ -1462,6 +1474,7 @@ class PipelineEngine {
       context: run.context || {},
     });
     if (run.cancelled || this._runs.get(runId) !== run) {
+      this.log.warn('PipelineEngine', '[exec] stage cancelled run=' + runId + ' stage=' + stage.name);
       return { success: false, cancelled: true, error: 'Run cancelled' };
     }
 
@@ -1481,6 +1494,7 @@ class PipelineEngine {
       };
     }
 
+    this.log.info('PipelineEngine', '[exec] stage end run=' + runId + ' pipeline=' + run.pipeline + ' stage=' + stage.name + ' success=' + normalizedResult.success + ' duration_ms=' + (Date.now() - stageStartMs) + (normalizedResult.error ? ' error=' + String(normalizedResult.error).slice(0, 500) : ''));
     run.stageResults.push({
       stage: stage.name,
       success: normalizedResult.success,

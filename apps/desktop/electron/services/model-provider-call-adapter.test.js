@@ -1089,3 +1089,97 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
     })
   })
 })
+
+describe('callAdapter — 模型服务异常检测（provider-anomaly）', () => {
+  let anomalyMod
+  beforeEach(() => {
+    // 注意：不能删除 provider-anomaly 的 require 缓存 —— manager 已持有该单例，
+    // 重新 require 会得到另一个实例导致断言永远为空。
+    anomalyMod = require('./provider-anomaly')
+    anomalyMod.providerAnomalyBus.clear()
+  })
+
+  it('正常快速调用不产生异常快照', async () => {
+    manager.createProvider({
+      id: 'openai', name: 'OpenAI', category: 'llm',
+      api_key: 'sk-test-12345', models: ['gpt-4o'],
+    })
+    manager.registerAdapter('openai', (creds) => ({
+      id: 'openai',
+      credentials: creds,
+      supports: () => true,
+      chatCompletion: vi.fn(async () => ({ content: 'Hello!' })),
+    }))
+    const result = await manager.callAdapter('openai', 'chatCompletion', { model: 'gpt-4o' })
+    expect(result.code).toBe(0)
+    expect(anomalyMod.providerAnomalyBus.snapshot()).toEqual([])
+  })
+
+  it('请求超时返回 TIMEOUT 错误并记为 timeout 异常', async () => {
+    manager.createProvider({
+      id: 'openai', name: 'OpenAI', category: 'llm',
+      api_key: 'sk-test', models: ['gpt-4o'],
+    })
+    manager.registerAdapter('openai', (creds) => ({
+      id: 'openai',
+      credentials: creds,
+      supports: () => true,
+      chatCompletion: () => new Promise(() => {}), // 永不 resolve → 有界超时兜底
+    }))
+    const result = await manager.callAdapter('openai', 'chatCompletion', {
+      model: 'gpt-4o',
+      timeoutMs: 150,
+    })
+    expect(result.code).toBe(-1)
+    expect(result.error).toBeInstanceOf(require('./adapters/_base/provider-error').ProviderError)
+    expect(result.error.code).toBe('TIMEOUT')
+    const snap = anomalyMod.providerAnomalyBus.snapshot()
+    expect(snap.some((e) => e.providerId === 'openai' && e.kind === 'timeout')).toBe(true)
+  })
+
+  it('网络错误透传并记为 network 异常', async () => {
+    manager.createProvider({
+      id: 'openai', name: 'OpenAI', category: 'llm',
+      api_key: 'sk-test', models: ['gpt-4o'],
+    })
+    const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
+    manager.registerAdapter('openai', (creds) => ({
+      id: 'openai',
+      credentials: creds,
+      supports: () => true,
+      chatCompletion: async () => {
+        throw new ProviderError(ERROR_CODES.NETWORK_ERROR, 'fetch failed', { providerId: 'openai' })
+      },
+    }))
+    const result = await manager.callAdapter('openai', 'chatCompletion', { model: 'gpt-4o' })
+    expect(result.code).toBe(-1)
+    expect(result.error.code).toBe('NETWORK_ERROR')
+    const snap = anomalyMod.providerAnomalyBus.snapshot()
+    expect(snap.some((e) => e.providerId === 'openai' && e.kind === 'network')).toBe(true)
+  })
+
+  it('慢响应（超过类别阈值）成功调用也记为 slow 异常', async () => {
+    manager.createProvider({
+      id: 'openai', name: 'OpenAI', category: 'llm',
+      api_key: 'sk-test', models: ['gpt-4o'],
+    })
+    manager.registerAdapter('openai', (creds) => ({
+      id: 'openai',
+      credentials: creds,
+      supports: () => true,
+      chatCompletion: vi.fn(async () => ({ content: 'slow but ok' })),
+    }))
+    const nowSpy = vi.spyOn(Date, 'now')
+    // startTime=1000，结束时=31000 → latency=30000ms ≥ llm 阈值 30s
+    nowSpy.mockReturnValueOnce(1000).mockReturnValue(31000)
+    try {
+      const result = await manager.callAdapter('openai', 'chatCompletion', { model: 'gpt-4o' })
+      expect(result.code).toBe(0)
+      expect(result.data.content).toBe('slow but ok')
+    } finally {
+      nowSpy.mockRestore()
+    }
+    const snap = anomalyMod.providerAnomalyBus.snapshot()
+    expect(snap.some((e) => e.providerId === 'openai' && e.kind === 'slow' && e.latencyMs === 30000)).toBe(true)
+  })
+})
