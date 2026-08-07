@@ -215,7 +215,7 @@ class MinimaxTtsAdapter extends BaseAdapter {
 
     let uploadResp
     try {
-      uploadResp = await fetch(this._url('/v1/files/upload'), {
+      uploadResp = await fetch(this._url('/files/upload'), {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + this.credentials.apiKey },
         body: form,
@@ -238,7 +238,7 @@ class MinimaxTtsAdapter extends BaseAdapter {
     const safeId = requestedName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 32)
     const voiceId = safeId || 'clone_voice'
 
-    const cloneResp = await this._request('/v1/voice_clone', {
+    const cloneResp = await this._request('/voice_clone', {
       method: 'POST',
       body: JSON.stringify({ file_id: fileId, voice_id: voiceId }),
     })

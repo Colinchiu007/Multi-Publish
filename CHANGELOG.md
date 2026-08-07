@@ -1,4 +1,9 @@
-## [未发布] 视频创作后台运行与并发限制 (2026-08-07)
+## [未发布] 克隆音色「服务不可用」修复 (2026-08-07)
+
+### 图片轮播（音色克隆）
+- **根因**：MiniMax `cloneVoice` 上传/复刻路径带 `/v1` 前缀，而 base_url 已含 `/v1`（`https://api.minimaxi.com/v1`）→ 双重 `/v1` → 404 → 异常被吞 → 提示「音色克隆服务暂时不可用」。
+- **修复**：cloneVoice 路径改为 `/files/upload`、`/voice_clone`；`_addCloneLocked` 的 `catch (_)` 补 `warn` 日志（注入 `this._log`），真实失败不再被吞。
+- **回归**：测试改为精确 URL 断言 + 新增「base_url 含 /v1 不产生 /v1/v1」用例；相关 59 用例通过。## [未发布] 视频创作后台运行与并发限制 (2026-08-07)
 
 ### 视频创作
 - **后台运行固化**：background:true 主进程后台推进 + CreateView mounted 自动恢复查看运行中 run（已有能力，补合同文档）。
