@@ -13,6 +13,12 @@
 - **compose `transition=undefined`**：`buildTransitionPlan` 返回对象缺 `transitionName`，`_xfadeMerge` 拼接出 `xfade=transition=undefined`。单测 mock 了 `_xfadeMerge` 所以漏检；真实 ffmpeg 调用暴露。教训：测试 mock 真实命令构造点会漏掉「传给 mock 的数据本身错误」这类 bug，至少断言传给 mock 的参数完整。
 - **并发开关**：自适应默认在某些机器=4，如需固定 2 用 `STORY2VIDEO_MAX_CONCURRENT_RUNS=2`；deps 注入仍最优先。环境变量开关要带合法域（1-8）与回退，避免误配拉爆资源。
 
+## 创作历史运行中任务可发现性复盘 (2026-08-07)
+
+- 用户反馈「运行中流水线没出现在历史记录」。复现（Playwright + 真实 provider）：IPC `pipeline:history` 确实返回运行中 run，点「流水线记录」tab 也正常显示运行中卡片——功能正常，问题在**可发现性**：历史页默认 tab 是「渲染记录」。
+- 教训：功能正确 ≠ 用户能发现。多 tab 页面中，时间敏感的实时状态（运行中任务）应在进入页面时主动呈现，或提供醒目的入口横幅。
+- 修复：进入历史页同时加载流水线记录，有运行中任务自动切「流水线记录」；渲染记录 tab 加运行中横幅入口。回归 2 例。
+
 ## 音色克隆授权勾选移除复盘 (2026-08-07)
 
 ### 需求调整

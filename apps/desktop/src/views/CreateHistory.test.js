@@ -279,3 +279,40 @@ describe('CreateHistory', () => {
     expect(pushSpy).toHaveBeenCalledWith('/create')
     w.unmount()
   })
+
+  it('存在运行中流水线时进入页面自动切到流水线记录并显示运行中卡片', async () => {
+    pipelineHistoryMock.mockResolvedValue({ code: 0, data: [{
+      id: 'run-auto-1', name: 'story2video-compose', pipelineName: 'story2video-compose', status: 'running',
+      createdAt: '2026-08-07T00:00:00.000Z',
+      stages: [{ name: 'split', status: 'completed' }, { name: 'optimize', status: 'running' }],
+    }] })
+    const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })
+    await nextTick()
+    await new Promise(r => setTimeout(r, 0))
+    await nextTick()
+    // 自动切到流水线记录，运行中卡片直接可见
+    expect(w.vm.tab).toBe('pipelines')
+    expect(w.vm.runningPipelineCount).toBe(1)
+    expect(w.text()).toContain('运行中')
+    expect(w.text()).toContain('返回创作页查看进度')
+    w.unmount()
+  })
+
+  it('渲染记录 tab 在存在运行中流水线时显示提示横幅，点击横幅切到流水线记录', async () => {
+    pipelineHistoryMock.mockResolvedValue({ code: 0, data: [{
+      id: 'run-banner-1', name: 'story2video-compose', pipelineName: 'story2video-compose', status: 'running',
+      createdAt: '2026-08-07T00:00:00.000Z', stages: [],
+    }] })
+    const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })
+    await nextTick()
+    await new Promise(r => setTimeout(r, 0))
+    await nextTick()
+    // 切回渲染记录 tab：应显示运行中横幅
+    await w.findAll('.tab')[0].trigger('click')
+    await nextTick()
+    expect(w.text()).toContain('条流水线正在后台运行')
+    await w.find('.running-banner').trigger('click')
+    await nextTick()
+    expect(w.vm.tab).toBe('pipelines')
+    w.unmount()
+  })

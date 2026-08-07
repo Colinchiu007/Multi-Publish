@@ -1449,6 +1449,7 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **显示项（创作历史-流水线记录）**：
   - 运行中卡片：状态圆点（running 蓝）、流水线名（i18n 名称）、时间（`completedAt || startedAt || createdAt`，运行中显示创建时间）、阶段标签（completed/running/pending 色块）、状态文案「运行中」、提示「返回创作页查看进度」。
   - **轮询刷新**：列表存在 `status=running` 任务时每 5s 自动刷新（阶段状态实时更新）；全部结束后自动停止轮询；`beforeUnmount` 清理 timer。
+- **可发现性（2026-08-07 修订）**：进入创作历史页时同时加载流水线记录；存在运行中任务时自动切到「流水线记录」tab 直接展示运行中卡片；「渲染记录」tab 顶部显示横幅「有 N 条流水线正在后台运行，点击查看运行状态」（点击切到流水线记录）。避免用户进入历史页默认看渲染记录而误以为运行中任务未出现。
 - **交互逻辑**：
   - 点击运行中卡片 → 跳转 `/create`（CreateView 自动恢复查看该 run 进度）。
   - 点击已完成卡片 → 跳转 `/create/result?path=<成片路径>` 预览。
