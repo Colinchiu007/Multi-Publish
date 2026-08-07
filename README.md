@@ -113,6 +113,14 @@ npm run build:dir
 npm test
 ```
 
+### 环境变量
+
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| `STORY2VIDEO_MAX_CONCURRENT_RUNS` | 视频创作后台流水线并发上限固定开关（正整数 1–8，非法/空则回退机器资源自适应 1–4，如设 `2` 即固定最多 2 条并行） | `STORY2VIDEO_MAX_CONCURRENT_RUNS=2 npm run dev` |
+
+> 并发上限完整合同见 `01-docs/PRD.md`「视频创作后台运行与并发合同」。
+
 ### 项目结构
 
 ```
