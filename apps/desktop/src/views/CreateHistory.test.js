@@ -115,7 +115,7 @@ describe('CreateHistory', () => {
     const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })
     expect(w.vm.statusLabel('completed')).toBe('已完成')
     expect(w.vm.statusLabel('running')).toBe('运行中')
-    expect(w.vm.statusLabel('failed')).toBe('失败')
+    expect(w.vm.statusLabel('failed')).toBe('生成失败')
     expect(w.vm.statusLabel('cancelled')).toBe('已取消')
     expect(w.vm.statusLabel('paused')).toBe('已暂停')
     expect(w.vm.statusLabel(null)).toBe('已完成')

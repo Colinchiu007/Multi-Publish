@@ -703,7 +703,7 @@
             <select id="history-status-filter" v-model="historyFilter" class="form-select history-filter">
               <option value="all">全部</option>
               <option value="completed">已完成</option>
-              <option value="failed">失败</option>
+              <option value="failed">生成失败</option>
               <option value="cancelled">已取消</option>
               <option value="running">进行中</option>
             </select>
@@ -1216,7 +1216,7 @@ export default {
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
     historyStatusLabel(status) {
-      return { completed: '已完成', failed: '失败', cancelled: '已取消', running: '进行中', pending: '等待中' }[status] || status || '未知'
+      return { completed: '已完成', failed: '生成失败', cancelled: '已取消', running: '进行中', pending: '等待中' }[status] || status || '未知'
     },
 
     // 流水线操作

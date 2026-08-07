@@ -186,7 +186,7 @@ export default {
       }
     },
     statusLabel(s) {
-      const labels = { completed: '已完成', running: '运行中', failed: '失败', cancelled: '已取消', paused: '已暂停' }
+      const labels = { completed: '已完成', running: '运行中', failed: '生成失败', cancelled: '已取消', paused: '已暂停' }
       return labels[s] || s || '已完成'
     },
     stageClass(s) {

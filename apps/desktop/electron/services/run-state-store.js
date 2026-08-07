@@ -94,6 +94,7 @@ class RunStateStore {
       params: run.params && typeof run.params === 'object' ? run.params : {},
       error: run.error || null,
       orchestrationMode: run.orchestrationMode || 'orchestrator',
+      createdAt: run.createdAt || null,
       endedAt: run.endedAt || new Date().toISOString(),
     }
     const owner = this._currentOwner()
@@ -140,6 +141,30 @@ class RunStateStore {
     } catch {
       return null
     }
+  }
+
+  /**
+   * 列出已持久化的失败快照（owner 目录 + legacy 平铺目录，按 runId 去重），
+   * 供历史记录展示：应用重启后失败任务仍可见。只返回可解析的
+   * orchestration-run-state 快照，损坏/未知文件静默跳过。
+   */
+  listFailed() {
+    const seen = new Set()
+    const result = []
+    const dirs = new Set([this._dir, this._ownerDir()].filter(Boolean))
+    for (const dir of dirs) {
+      let entries
+      try { entries = fs.readdirSync(dir) } catch { continue }
+      for (const entry of entries) {
+        if (!entry.endsWith('.json')) continue
+        const snapshot = this._readSnapshot(path.join(dir, entry))
+        if (!snapshot || typeof snapshot.runId !== 'string' || !snapshot.runId) continue
+        if (seen.has(snapshot.runId)) continue
+        seen.add(snapshot.runId)
+        result.push(snapshot)
+      }
+    }
+    return result
   }
 
   remove(runId) {
