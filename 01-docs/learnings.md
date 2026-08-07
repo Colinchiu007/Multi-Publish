@@ -4310,8 +4310,12 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
   renderer 总会重复发送两份文案，因此正常创建流程掩盖了项目恢复路径的失败。
 - `image.aspectRatio` 只校验 `W:H` 字符格式，没有校验下游 Provider 支持集合，`7:11` 等值能进入资产阶段。
 - 无旁白/纯图片轮播模式已下线：`perImageDuration`（单画面时长/无旁白场景时长）已从 renderer、
-  normalizer、模板库与 YAML 中彻底移除；`defaultSceneDuration` 保留为 compose 固定默认 6 秒，
-  仅作“音频时长不可探测”时的回退与动效归一化兜底（compose engine 直调下限 1 秒、默认 6 秒）。
+  normalizer、模板库与 YAML 中彻底移除；`defaultSceneDuration` 保留为 compose 默认 6 秒
+  （可被 `params.defaultSceneDuration` / 配置内 `defaultSceneDuration` 运行参数覆盖，仅 UI 不暴露），
+  仅作“音频时长不可探测”时的回退与动效归一化兜底。归一化回退路径为 best-effort：探测失败时
+  动效按 6 秒归一化而片段仍以 `-shortest` 跟随真实音频，不强制 `-t` 对齐（避免截断旁白）。
+  `_createSegment` 直调的 `clampNumber(opts.duration, 0.1, 3600, 3)` 中 0.1 秒下限可达；
+  3 秒默认值因前置 `Number(duration) > 0` 守卫实际不可达（死默认）。
 
 ### 测试逃逸链与系统性漏洞
 1. 项目持久化测试始终同时传 `text` 与版本化 `prompt`，没有构造只剩项目配置的恢复形状。

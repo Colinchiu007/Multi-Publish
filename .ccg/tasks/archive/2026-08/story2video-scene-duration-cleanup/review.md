@@ -28,3 +28,18 @@
 ## 已知边界
 - compose 音频探测失败且无上报时长时，动效归一化用 defaultSceneDuration(6)，但 -shortest 实际片段可能 ≠6s（非回归，learnings 已记录）。
 - 旧自定义模板 localStorage 中残留 perImageDuration 字段无害（isVideoTemplate 不做键剥离，无读取方）。
+
+---
+
+## 双模型审查补齐（2026-08-07，wrapper 修复 + 网关启动后）
+
+### codex reviewer（review-codex-final.log）：RECOMMENDATION: PASS
+- Critical 无。perImageDuration 生产代码六层清零（仅剩 3 处有意兼容测试）；归一化数学经真实 ffmpeg 实证（6s@30fps=180 帧）；UTF-8 修复在 cp936 真实复现旧错误。
+- W1（已修复，commit 0f6f5a4）：renderSegment 的 scene.duration 未 clamp → 极端有限值使 totalFrames=Infinity；已对齐 _composeScene clamp 0.1..3600 并加 buildImageEffectFilter 溢出守卫 + 回归断言。
+
+### claude reviewer（review-claude-final.log）：approve
+- Critical 无。
+- W1：音频探测失败回退路径下动效按 6s 归一化而片段以 -shortest 跟随真实音频（best-effort，learnings 已注明；不强制 -t 对齐以免截断旁白）。
+- W2（产品决策项）：旧项目 perImageDuration 被静默忽略、节奏变化无信号；建议一次性迁移或恢复提示——留给用户决策。
+- W3（可选）：归一化公式缺真实 ffmpeg 帧级测试（fps 极值/极短时长）——列为后续可选增强。
+- I1/I2/I3 文档与注释已处理（learnings/CHANGELOG 措辞、text-config 优先级注释、_createSegment 死默认注记）；I4/I5 无实际影响。

@@ -335,6 +335,8 @@ function normalizeStory2VideoTextParams(params = {}) {
   }
 
   // defaultSceneDuration 仅作为 compose 无可用音频时长时的回退与动效归一化兜底，不再暴露为可配置项。
+  // 优先级：顶层运行参数 params.defaultSceneDuration > story2videoTextConfig 内嵌字段
+  // （新保存的 story2videoTextConfig 已不含该字段，项目恢复走 _safeOptions 顶层通道）。
   const defaultSceneDuration = numberValue(
     firstDefined(params.defaultSceneDuration, own(suppliedConfig, 'defaultSceneDuration')),
     6,
