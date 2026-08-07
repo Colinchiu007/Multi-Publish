@@ -8,6 +8,7 @@
 
 ### 测试
 - 新增 7 例：RunStateStore `listFailed`（legacy/owner/去重/损坏跳过/createdAt）、PipelineEngine `getHistory` 合并持久化失败快照（重启场景 + 同会话去重）、CreateHistory 状态文案。
+- CI 稳定性：credential-store 真实 Windows 文件锁用例超时提升到 60s（CI 全量负载下 powershell 子进程启动延迟可致 30s 偶发超时，非回归）。
 
 ### 文档
 - PRD 后台运行流水线章节「失败任务持久展示」合同。
