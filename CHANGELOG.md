@@ -1,3 +1,11 @@
+## [未发布] Podcast 转视频流水线引擎实现 (2026-08-07)
+
+### 视频创作（流水线引擎）
+- 新增 `podcast-repurpose`（播客转视频：音频 → 可视化视频）真实引擎，`available=true`：analyze（ffprobe 时长 + 文案分句，可选语音识别转写）→ visualize（每段生成配图）→ assemble（ffmpeg 切分音频片段 + 组装场景）→ render（内置 compose 合成，fade 转场）。
+- 音频路径受控校验（resolveReadableMediaFile kind=audio）；无文案且无语音识别供应商 → fail closed 明确提示。
+- 测试：podcast-repurpose-stages 11 例（真实 wav + ffmpeg 切分）；pipeline-engine available/stageDefs 断言更新（无引擎清单仅剩 screen-demo）。
+- PRD「Podcast 转视频流水线引擎合同」、E2E-PENDING 待办 B 更新。
+
 ## [未发布] CreateView 历史记录运行中流水线置顶 + 阶段进度 (2026-08-07)
 
 ### 视频创作（历史记录）

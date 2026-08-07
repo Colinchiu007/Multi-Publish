@@ -9,9 +9,9 @@
 - **当前状态**：引擎可正常推进至 animate/merge 阶段并 fail closed（`VIDEO_MODEL_NOT_CONFIGURED`，给出配置引导）；配置模型后应产出真实视频并回归本清单。
 - **重测命令**：`E2E_FILTER=animation,avatar-spokesperson,character-animation,hybrid node C:\tmp\e2e-pipelines.js`
 
-## 待办 B：实现引擎后重测（2 条无引擎流水线）
-- `podcast-repurpose`（音频 → 可视化视频）、`screen-demo`（录屏 → 自动标注）
-- **当前状态**：`available=false`，UI 标记开发中、启动禁用；不属于“缺模型”，属于“未实现引擎”独立工作流。实现后纳入 E2E。
+## 待办 B：实现引擎后重测（无引擎流水线）
+- ✅ **`podcast-repurpose`（音频 → 可视化视频）已实现引擎（2026-08-07）**：analyze（ffprobe 时长 + 文案分句/语音识别转写）→ visualize（每段生成配图）→ assemble（ffmpeg 切分音频片段 + 组装场景）→ render（内置 compose 合成，fade 转场）。`available=true`。待重测：真实音频 → 成片 E2E（含无文案时语音识别转写路径）。
+- ⏳ `screen-demo`（录屏 → 自动标注）：`available=false`，UI 标记开发中、启动禁用；录屏采集与自动标注为独立工作流，按下一优先级实现。
 
 ## 待验证 C：真实供应商/账号验收（需真实账号、API、素材）
 1. **TTS 音色克隆上传**（MiniMax voice_clone）：真实上传 → 克隆 → 下拉选择 → 用克隆音色生成成片；含 7 天未调用被清理的边界提示。

@@ -26,6 +26,13 @@
 - 修复：运行中置顶 + 阶段色块 + 5s 刷新 + 点击切回流水线创作恢复查看。
 - 教训：多入口页面先确认用户实际入口；「功能有数据」不等于「用户可见可用」，列表内排序/信息密度也要符合需求（运行中任务应突出且带流程状态）。
 
+## Podcast 转视频引擎实现复盘 (2026-08-07)
+
+- 无引擎流水线的实现骨架：复用 StageExecutor 自定义类型（registerStageExecutor）+ 内置 `compose` 阶段（`inputFrom` 指向 assemble 输出）+ 容器注册；analyze 复用 ffprobe/transcribeFile，visualize 复用 AssetGenerator.generateImage，assemble 用 ffmpeg 切段。
+- **关键校验**：音频输入必须走 `resolveReadableMediaFile(kind='audio')`（受控媒体根目录），否则测试里 os.tmpdir() 根目录的 wav 会被拒——测试 fixture 必须落在受控根目录内。
+- `available` 由 stageDefs 存在性自动判定；实现引擎后需同步更新「无引擎清单」断言（E2E-PENDING 待办 B 与 pipeline-engine.test）。
+- 语音识别转写（transcribeFile）依赖已配置的语音识别供应商；未配置时不伪造转写，fail closed 提示提供文案。
+
 ## 音色克隆授权勾选移除复盘 (2026-08-07)
 
 ### 需求调整
