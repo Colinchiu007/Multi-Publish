@@ -227,6 +227,15 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(filter).not.toContain('between(t,')
   })
 
+  it('字幕默认位于距底部 20% 处，且可经 bottomMarginRatio 覆盖（0.05-0.5）', () => {
+    expect(buildSubtitleFilter('字幕', { size: 'lg' })).toContain(':y=h*0.800-th')
+    expect(buildSubtitleFilter('字幕', { size: 'lg' })).not.toContain('y=h-th-40')
+    expect(buildSubtitleFilter('字幕', { size: 'lg', bottomMarginRatio: 0.1 })).toContain(':y=h*0.900-th')
+    // clamp：超出 0.05-0.5 范围时回退到边界
+    expect(buildSubtitleFilter('字幕', { size: 'lg', bottomMarginRatio: 0.6 })).toContain(':y=h*0.500-th')
+    expect(buildSubtitleFilter('字幕', { size: 'lg', bottomMarginRatio: 0.01 })).toContain(':y=h*0.950-th')
+  })
+
   it('compose 以 scenes 为权威并把效果/BGM参数传给合成阶段', async () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-contract-'))
