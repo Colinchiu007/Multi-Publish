@@ -669,6 +669,7 @@ pending → publishing → { success | failed | partial | denied | cancelled }
 | 降级 | 只允许连接拒绝、超时、连接重置或服务未运行等不可用错误降级；业务错误和缺少 `scenes` 的非法响应必须失败 |
 | 字幕层 | 本地 TypeScript 在每个场景内部独立二次分页，目标每页 8-15 字，字幕不得跨场景，拼接后必须保持场景原文 |
 | 时间轴 | ffprobe 的逐场景真实音频时长是权威值；字幕区间连续、互不重叠，首屏从 0 开始，末屏精确结束 |
+| 场景时长与动效 | 场景成片时长跟随 ffprobe 真实旁白音频（`-shortest`），不强制截断旁白；`defaultSceneDuration`（内部默认 6 秒，UI 不暴露）仅作音频时长不可探测时的回退。图片动效按“有效时长 = audioDuration || reportedDuration || defaultSceneDuration”归一化（zoompan `d=总帧数` + 进度 `min(1, on/T)`），短场景不切走、长场景不定格 |
 | 来源追踪 | 持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks`、`subtitleTimeline` |
 
 Story2Video 的句长、时长、语速、场景字数、句界和单句溢出参数必须映射到 8002 `SplitRequest.config.sentence_tokenizer/scene`，字幕参数只在本地消费。
