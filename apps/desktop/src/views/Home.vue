@@ -70,6 +70,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { reportError } from '../utils/report-error'
 
 const router = useRouter()
 const version = ref('')
@@ -111,7 +112,7 @@ onMounted(async () => {
       }
     }
   } catch (e) {
-    console.error(e)
+    reportError('加载首页统计数据失败', e)
   } finally {
     loaded.value = true
   }

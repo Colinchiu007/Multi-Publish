@@ -1,3 +1,14 @@
+## [未发布] Code Review MINOR 4-6 修复 (2026-08-07)
+
+### 应用日志
+- **MINOR-4 写队列超时兜底**：`logger.enqueueFileWrite` 增加单条写入等待上限（默认 5s，`setLogOptions({ writeTimeoutMs })` 可注入）；`appendFile` 回调极端异常永不触发时，队列超时释放，后续日志不再永久挂起；`timer.unref()` 不阻塞进程退出。回归：mock `fs.appendFile` 不回调 → flush 仍 resolve + 后续写入正常。
+
+### 渲染进程错误上报
+- **MINOR-5 组件 catch 统一上报主进程日志**：新增 `src/utils/report-error.js`（优先 `window.electronAPI.logError` → 主进程 app-*.log，无 electronAPI 回退 console.error，错误文本截断 2000 字符）；CloudPublish/Home/Intelligence/TemplatePicker/UpgradeModal/ReferenceFinder 的 catch `console.error` 与 router.onError、window error/unhandledrejection 全局处理器全部接入。新增 report-error 单测 3 例。
+
+### 视频创作并发
+- **MINOR-6 并发上限机器资源自适应**：`computeDefaultMaxConcurrentRuns`（可用并行度/可用内存 → 1-4 条，封顶 4），`deps.maxConcurrentRuns` 注入仍可覆盖；PRD 并发合同与测试同步更新（默认档位断言 + 注入覆盖用例）。
+
 ## [未发布] Code Review MAJOR 1-3 修复 (2026-08-07)
 
 ### 主进程（代码审查修复）

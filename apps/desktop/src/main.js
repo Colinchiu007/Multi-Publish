@@ -8,6 +8,7 @@ import './styles/cohere-design-system.css'
 import App from './App.vue'
 import i18n from './i18n'
 import router from './router'
+import { reportError } from './utils/report-error'
 
 const app = createApp(App)
 
@@ -24,11 +25,11 @@ app.config.errorHandler = (err, instance, info) => {
 }
 window.addEventListener('error', (e) => {
   if (e.message && !e.message.includes('[Vue Error]')) {
-    console.error('[Global Error]', e.message)
+    reportError('[Global Error]', e.message)
   }
 })
 window.addEventListener('unhandledrejection', (e) => {
-  console.error('[Unhandled Rejection]', e.reason?.message || e.reason)
+  reportError('[Unhandled Rejection]', e.reason?.message || e.reason)
 })
 
 app.use(createPinia())

@@ -145,6 +145,7 @@ import { ElMessage } from 'element-plus'
 import TrendingPanel from '@/components/TrendingPanel.vue'
 import ReferenceFinder from '@/components/ReferenceFinder.vue'
 import { intelligenceSearch, intelligenceSearchTitles } from '@/api/publisher'
+import { reportError } from '@/utils/report-error'
 
 const query = ref('')
 const searching = ref(false)
@@ -199,7 +200,7 @@ async function doSearch () {
     })
     titleAnalysis.value = titleRes?.code === 0 ? (titleRes.data?.titleAnalysis || null) : null
   } catch (e) {
-    console.error('Intelligence search failed:', e)
+    reportError('Intelligence 搜索失败', e)
   } finally {
     searching.value = false
   }
