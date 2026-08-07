@@ -68,6 +68,23 @@ class TestPipelineLoader:
         assert split_stage["options"]["fallback_to_local"] is True
         assert split_stage["options"]["require_scene_output"] is True
 
+    def test_load_utf8_chinese_content_regression(self, tmp_path):
+        # 回归：Windows cp936 默认编码下，open() 无显式 encoding 会把 UTF-8 中文
+        # 按 GBK 解码抛 UnicodeDecodeError；loader 必须显式以 UTF-8 读取。
+        (tmp_path / "utf8-cn.yaml").write_text(
+            'name: "utf8-cn"\n'
+            'version: "1.0"\n'
+            "description: 含中文描述的清单，验证 UTF-8 解码回归\n"
+            "stages:\n"
+            "  - name: 分析阶段\n"
+            "    description: 中文阶段描述\n",
+            encoding="utf-8",
+        )
+        manifest = load_pipeline("utf8-cn", defs_dir=tmp_path)
+        assert manifest["name"] == "utf8-cn"
+        assert manifest["description"].startswith("含中文")
+        assert manifest["stages"][0]["name"] == "分析阶段"
+
     def test_get_stage_order_default(self):
         stages = get_stage_order(SAMPLE_MANIFEST)
         assert stages == ["analysis", "generation", "review"]
