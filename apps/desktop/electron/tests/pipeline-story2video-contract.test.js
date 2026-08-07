@@ -33,7 +33,9 @@ function createEngine() {
     })),
   }
   const stageExecutor = new StageExecutor({ serviceBus, log })
-  const engine = new PipelineEngine({ serviceBus, stageExecutor, aiGenerator, log })
+  // 显式注入并发上限：自适应默认依赖机器资源（CI runner 可能只有 1 核 → 默认 1），
+  // 本文件契约测试涉及同流水线并发运行，必须环境无关。
+  const engine = new PipelineEngine({ serviceBus, stageExecutor, aiGenerator, log, maxConcurrentRuns: 2 })
   return { engine, serviceBus, aiGenerator }
 }
 
