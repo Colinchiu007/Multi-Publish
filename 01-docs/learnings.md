@@ -5553,3 +5553,30 @@ getAvailablePresets (category) {
 - **Stage 2（PRD）**：需要补充“历史多来源部分失败和超时”的可验收状态。
 - **Stage 5（TDD）**：已补两个 fake-timer RED→GREEN 回归和目录边界回归。
 - **Stage 6（评审）**：需要检查用户可见 loading 是否有终止条件、部分成功是否可见、以及持久化路径是否触发主进程同步 I/O。
+
+---
+
+## codeagent-wrapper claude 后端空 --setting-sources 参数 bug（2026-08-07）
+
+### 第一性原因
+- `codeagent-wrapper.exe`（Go 二进制，`main.buildClaudeArgs` 硬编码）构造 claude 命令时总带 `--setting-sources`，且未配置 setting sources 时值为空：
+  `claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -`
+  claude CLI 把下一个 token（`--output-format`）当作 `--setting-sources` 的取值，报
+  `Error processing --setting-sources: Invalid setting source: --output-format` 后 exit 1。
+
+### 逃逸链
+- wrapper 无配置/env 开关控制该参数（二进制 strings 确认）；`--help` 无 setting-sources 选项；`~/.claude/.ccg/config.toml` 无对应字段。
+- 本机无 wrapper 源码（仅有 `backups/codeagent-wrapper-*/` 的 truncated exe），无法改二进制重编。
+
+### 修复 + 回归保护
+- 方案：PATH 前置净化 shim `C:\Users\邱领\.claude\shims\claude.cmd` → `claude-sanitize.py`，仅剥离“空值/空字符串值的 `--setting-sources`”，其余参数原样透传真实 `claude.exe`。
+- shim 用 `%USERPROFILE%` 展开中文路径（batch 文件保持 ASCII，避免 GBK/代码页损坏）；Python 侧把 `--setting-sources ""`（wrapper 实际传空字符串）也视为无值。
+- 验证：`CLAUDE_SHIM_DRYRUN=1` 探针证明 wrapper 实际调用 shim 且净化命令正确（`-p --dangerously-skip-permissions --output-format stream-json --verbose -`）；claude 越过参数解析进入运行。
+
+### 遗留阻塞（非 wrapper）
+- claude 运行期仍 exit 1：`~/.claude/settings.json` 的 `ANTHROPIC_BASE_URL=http://127.0.0.1:15721`（本地代理网关，`PROXY_MANAGED` 认证，模型映射 deepseek-v4-flash）当前未运行 → `API Error: Unable to connect to API (ConnectionRefused)`。
+- 次要：`CLAUDE_PLUGIN_ROOT/hooks/*` bash 钩子被 PowerShell 执行报 ParserError（非致命）。
+
+### 预防措施
+- 双模型审查的 claude 腿：先确保 127.0.0.1:15721 网关运行，再以 `PATH="/c/Users/邱领/.claude/shims:$PATH"` 调用 `codeagent-wrapper --backend claude`。
+- 若网关长期不可用，claude 腿可退化为直接 `claude -p --dangerously-skip-permissions --output-format stream-json -`（跳过 wrapper 的坏参数）。
