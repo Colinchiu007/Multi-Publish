@@ -101,3 +101,5 @@
 - **并发上限固定开关验证（2026-08-07，`STORY2VIDEO_MAX_CONCURRENT_RUNS=2`）**：A/B 两条流水线并行成功；第 3 条被拒（`PIPELINE_CONCURRENCY_LIMIT`，友好文案「当前已有 2 条流水线正在运行，最多同时运行 2 条，请等待其中一条完成后再启动。」）；历史仅 2 条运行中；切 `#/dashboard` 后仍在 `optimize` 后台运行。脚本 `C:\tmp\e2e-concurrency.js`（env 注入固定上限），报告 `C:\tmp\e2e-concurrency-report.json`（limitVerified=true）。
 
 - **创作历史自动展示运行中卡片（2026-08-07，PR #388 修复确认，main 7813fb4）**：启动运行中流水线（`run_1786095645560_t4z4`，optimize 阶段）→ 进入 `#/create/history`（不点 tab）→ 页面自动切到「流水线记录」tab 并显示运行中卡片（"运行中 / 返回创作页查看进度"）；切回「渲染记录」tab 显示横幅「⏳ 有 1 条流水线正在后台运行，点击查看运行状态」。脚本 `C:\tmp\e2e-history-auto-show.js`，报告 `C:\tmp\e2e-history-auto-show-report.json`（verified=true）。
+
+- **CreateView 历史记录运行中置顶 + 阶段进度（2026-08-07，PR #390 修复确认，main 8d2c6c6）**：【视频创作】-【历史记录】（CreateView 内部视图）启动运行中流水线后，历史列表**首项**显示运行中卡片（「图片轮播 进行中」），含 6 个阶段色块（split/domain_enrich 已完成、optimize 运行中、generate_assets/compose/publish pending）与「返回流水线创作查看进度」提示。脚本 `C:\tmp\e2e-createview-history.js`，报告 `C:\tmp\e2e-createview-history-report.json`（verified390=true）。
