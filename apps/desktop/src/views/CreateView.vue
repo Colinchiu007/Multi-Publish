@@ -746,6 +746,7 @@
                 <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
                 <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click.stop="openHistory(h)">打开</button>
                 <button v-if="h.projectId" class="history-delete" @click.stop="requestProjectDeletion(h)">删除</button>
+                <button v-if="h.status === 'failed' && historyItemResumable(h)" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '从断点继续' }}</button>
               </div>
               <div v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
                 <span v-for="(s, si) in h.stages" :key="si" class="history-progress-seg" :class="historyStageState(s)" :title="historyStageTitle(s)">{{ historyStageLabel(s) }}</span>
@@ -2349,8 +2350,54 @@ export default {
         this.resumeRunningOrchestration()
         return
       }
+      // 失败且可断点恢复：从历史直接续跑，避免失败任务在历史中不可操作
+      if (item.status === 'failed' && this.historyItemResumable(item)) {
+        this.resumeHistoryItem(item)
+        return
+      }
       if (!item?.projectId) return
       this.$router.push({ path: '/create/result', query: { project: item.projectId } })
+    },
+    historyItemResumable(item) {
+      if (!item || item.status !== 'failed' || !(item.id || item.runId)) return false
+      // 内容政策/需要用户输入类失败必须修改文案后重新启动，不允许原样恢复
+      if (/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))) return false
+      return true
+    },
+    async resumeHistoryItem(item) {
+      const runId = item && (item.id || item.runId)
+      if (!runId || this.story2videoResuming) return
+      this.story2videoResuming = true
+      try {
+        const res = await pipelineResumeOrchestration(runId)
+        if (res?.code === 0 && res.data?.success && res.data?.runId) {
+          const pipelineName = item.pipeline || item.name
+          this.orchestrationRunId = res.data.runId
+          this.orchestrationResultPath = null
+          this.orchestrationError = ''
+          this.pipelineRunStatus = {
+            status: 'running',
+            progress: 0,
+            stages: Array.isArray(item.stages) && item.stages.length > 0 ? item.stages : this.getDefaultPipelineStages(pipelineName),
+          }
+          this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
+          this.view = 'pipelines'
+          await this.updateOrchestrationStatus()
+          if (this.orchestrationRunId && !this.pollTimer) {
+            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          }
+          await this.loadHistory()
+        } else {
+          this.showStory2VideoErrorDialog({
+            errorCode: res?.data?.errorCode || res?.code,
+            error: res?.data?.error || res?.message || '断点恢复失败，请稍后再试。',
+          })
+        }
+      } catch (_) {
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED })
+      } finally {
+        this.story2videoResuming = false
+      }
     },
     historyStageState(stage) {
       if (!stage || typeof stage !== 'object') return ''
@@ -2966,9 +3013,11 @@ export default {
 .history-progress-seg.failed { background: #fee2e2; color: #991b1b; }
 .history-running-hint { font-size: 11px; color: #1d4ed8; background: #dbeafe; padding: 2px 8px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
 .history-time { color: #999; font-size: 12px; }
-.history-open, .history-delete { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); padding: 5px 9px; cursor: pointer; font-size: 12px; }
+.history-open, .history-delete, .history-resume { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); padding: 5px 9px; cursor: pointer; font-size: 12px; }
 .history-open:hover { border-color: var(--primary); color: var(--primary); }
 .history-delete:hover { border-color: var(--error); color: var(--error); }
+.history-resume:hover { border-color: var(--primary); color: var(--primary); }
+.history-resume:disabled { opacity: 0.6; cursor: not-allowed; }
 .empty-state.compact { padding: 28px 0; }
 .template-editor { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 8px; align-items: start; }
 .template-editor .btn-secondary { margin-top: 0; min-height: 38px; }

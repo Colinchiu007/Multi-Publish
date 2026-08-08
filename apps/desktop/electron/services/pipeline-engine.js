@@ -1407,8 +1407,10 @@ class PipelineEngine {
     } else {
       this.log.info('PipelineEngine', '[run] finalize run=' + run.id + ' pipeline=' + run.pipeline + ' status=' + status + ' ' + finalizeDurationText);
     }
-    // 编排模式失败：持久化断点快照，供 pipeline:resumeOrchestration 从失败阶段继续。
-    if (status === 'failed' && run.orchestrationMode === 'orchestrator' && this.runStateStore) {
+    // 编排模式终态（失败/取消）：持久化断点快照。失败供 pipeline:resumeOrchestration 从断点继续；
+    // 取消也落盘，避免「断点续跑后任务从历史记录消失」——恢复时会删除旧快照，若续跑后再次取消，
+    // 必须保留新的终态快照，否则应用重启后该任务在历史中丢失。
+    if ((status === 'failed' || status === 'cancelled') && run.orchestrationMode === 'orchestrator' && this.runStateStore) {
       try {
         this.runStateStore.saveFailed(run);
       } catch (saveError) {
@@ -1428,11 +1430,15 @@ class PipelineEngine {
         run.error = 'Story2Video 项目保存失败: ' + persistError.message;        this.log.error('PipelineEngine', run.error);
       }
     }
-    this._history.push({
+    const historyEntry = {
       ...run,
       stages: Array.isArray(run.stages) ? run.stages.map(stage => ({ ...stage })) : [],
       context: run.context || {},
-    });
+    };
+    // 同 runId 只保留最新一条终态记录：断点续跑复用同一 id，避免新旧终态重复展示。
+    const existingIndex = this._history.findIndex(item => item && item.id === run.id);
+    if (existingIndex >= 0) this._history[existingIndex] = historyEntry;
+    else this._history.push(historyEntry);
     // 裁剪最旧快照，控制内存占用（RunStateStore 是跨重启恢复的权威源）
     if (this._history.length > this.maxHistoryEntries) {
       this._history.splice(0, this._history.length - this.maxHistoryEntries);

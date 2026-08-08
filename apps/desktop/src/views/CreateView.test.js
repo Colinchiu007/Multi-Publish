@@ -23,6 +23,7 @@ vi.mock("@/api/publisher", () => ({
   pipelineAdvance: vi.fn(),
   pipelineHistory: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   pipelineStartOrchestrated: vi.fn(),
+  pipelineResumeOrchestration: vi.fn(),
   pipelineAdvanceToNextCheckpoint: vi.fn(),
   pipelineGetRunContext: vi.fn(),
   storeGetSetting: vi.fn(),
@@ -1591,6 +1592,56 @@ describe("CreateView - UI interactions", () => {
 
     expect(w.vm.filteredHistory.map(item => item.id)).toEqual(["run-failed"]);
     expect(w.findAll(".history-name").map(item => item.text())).toEqual(["失败任务"]);
+  });
+
+  it("失败历史任务显示「从断点继续」并可一键恢复", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-failed-r1", pipeline: "story2video-compose", status: "failed", title: "失败任务", error: "provider 429 限流", stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "failed" }] },
+    ] });
+    mocks.pipelineResumeOrchestration.mockResolvedValue({ code: 0, data: { success: true, runId: "run-failed-r1" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { runId: "run-failed-r1", pipeline: "story2video-compose", status: { status: "running" }, stages: [] } });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    w.vm.pipelines = [{ name: "story2video-compose", available: true, stages: [] }];
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+    w.vm.historyFilter = "failed";
+    await nextTick();
+
+    const resumeBtn = w.find(".history-resume");
+    expect(resumeBtn.exists()).toBe(true);
+    expect(resumeBtn.text()).toContain("从断点继续");
+
+    await resumeBtn.trigger("click");
+    await nextTick();
+    expect(mocks.pipelineResumeOrchestration).toHaveBeenCalledWith("run-failed-r1");
+    expect(w.vm.view).toBe("pipelines");
+    expect(w.vm.orchestrationRunId).toBe("run-failed-r1");
+    expect(w.vm.pipelineRunStatus.status).toBe("running");
+    w.unmount();
+  });
+
+  it("内容政策类失败历史任务不显示「从断点继续」", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-policy", pipeline: "story2video-compose", status: "failed", title: "违规任务", error: "content policy: 图片生成需要修改文案" },
+    ] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+    w.vm.historyFilter = "failed";
+    await nextTick();
+
+    expect(w.find(".history-resume").exists()).toBe(false);
+    w.unmount();
   });
 
   it("可把当前参数保存为自定义模板、重新应用并删除", async () => {

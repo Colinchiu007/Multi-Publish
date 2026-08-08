@@ -45,6 +45,10 @@ describe('index.html Content Security Policy', () => {
     expect(directives.get('style-src')).toEqual(["'self'", "'unsafe-inline'"])
     expect(directives.get('font-src')).toEqual(["'self'", 'data:'])
     expect(directives.get('img-src')).toContain('blob:')
+    // 分段编辑/预览图片来自本机媒体服务（http://127.0.0.1:*），必须与 media-src 同样放行，
+    // 否则 <img> 被 CSP 拦截而 <video>（media-src 已放行）正常，表现为「图片不显示」。
+    expect(directives.get('img-src')).toContain('http://127.0.0.1:*')
+    expect(directives.get('img-src')).toContain('http://localhost:*')
     expect(directives.get('media-src')).toContain('blob:')
     expect(directives.get('media-src')).toContain('http://127.0.0.1:*')
     expect(directives.get('media-src')).not.toContain('http:')
