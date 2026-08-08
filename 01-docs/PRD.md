@@ -892,7 +892,10 @@ Electron 打包、工作树、PR 或发布状态证据。
 
 | 合同 | 要求 |
 |------|------|
-| 异步模型路由 | `speech-2.8-turbo` / `speech-2.8-hd` 为异步 T2A 模型，`synthesize` 必须走异步流程；`speech-2.6-*` / `speech-02-*` 继续走同步 `/t2a_v2`。 |
+| 异步模型路由 | `speech-2.8-turbo` / `speech-2.8-hd` / `speech-02-hd` / `speech-02-turbo` 为异步 T2A 模型（官方「异步语音合成」支持模型表），`synthesize` 走异步流程；`speech-2.6-*` 走同步 `/t2a_v2`。 |
+| 官方音色 | 系统音色（在 `MINIMAX_SYSTEM_VOICES` 列表内）使用用户配置的模型（默认 `speech-2.8-turbo`）走 `/t2a_async_v2`。 |
+| 克隆音色模型 | 克隆（复刻）音色（voice_id 不在系统音色列表）必须使用 `speech-02-hd` 模型走 `/t2a_async_v2`——官方模型表中 `speech-02-hd` 是唯一标注「复刻相似度」的模型；用 `speech-2.8-turbo` 等会报「invalid params, voice id wrong」。 |
+| 克隆创建 | 快速复刻接口 `/v1/voice_clone` 请求体必须携带 `model: 'speech-2.8-hd'`（官方文档示例）；请求体为 `{ file_id, voice_id, model }`。 |
 | 异步流程 | ① POST `/t2a_async_v2`（body：`model/text/language_boost=auto/voice_setting{voice_id,speed,vol,pitch}/audio_setting{format,audio_sample_rate,bitrate,channel}`）→ `data.task_id`；② 轮询 GET `/query/t2a_async_query_v2?task_id=...` 直至返回 `data.file_id`（或直接 `data.audio` hex）；③ GET `/files/retrieve_content?file_id=...` 下载音频二进制。 |
 | 轮询边界 | 默认 90s 超时、1s 间隔（可注入 `asyncPollTimeoutMs`）；查询响应带 `error`/`status=failed`/`base_resp.status_code≠0` 立即失败；超时抛 `ProviderError(TIMEOUT)`（归入瞬时错误自动重试）。 |
 | 进度前置 | 「生成图片与旁白」阶段开始即写入 `context.assets_progress={imagesDone:0,imagesTotal:N,ttsDone:0,ttsTotal:M}`，前端立即显示「图片 0/N · 旁白 0/M」，首个资源完成后实时递增；非法值不展示。 |

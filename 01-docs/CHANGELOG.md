@@ -79,10 +79,16 @@
 
 ### 修复
 - **MiniMax TTS 生成失败（生成图片与旁白阶段）**：默认模型 `speech-2.8-turbo` 是异步 T2A（T2A Async），但 adapter 调用同步端点 `/t2a_v2`，异步模型返回 200 且无 `data.audio` → 抛「Missing audio data in response」→ 瞬时重试耗尽 → 整段失败。已实现完整异步流程：`/t2a_async_v2` 创建任务 → 轮询 `/query/t2a_async_query_v2` → `/files/retrieve_content` 下载音频（90s 轮询上限、1s 间隔、可注入）。
+- **克隆音色与官方音色分开路由（MiniMax 官方文档确认）**：
+  - 克隆创建 `/v1/voice_clone` 请求体补充 `model: speech-2.8-hd`（此前缺 model 字段）。
+  - 克隆音色合成（voice_id 不在系统音色列表）强制使用 `speech-02-hd` 模型走 `/t2a_async_v2`（官方模型表唯一标注「复刻相似度」的模型），不再用配置的 speech-2.8-turbo（会导致「invalid params, voice id wrong」）。
+  - 官方音色继续使用用户配置模型（speech-2.8-turbo）。
+  - `speech-02-*` 模型纳入异步路由。
+- **音色无效错误细分**：adapter 把「voice id wrong」类错误归类 `INVALID_CONFIG`（非瞬时、不重试、快速失败）；renderer 新增 `VOICE_INVALID` 消息（提示所选音色无效/已失效 + 建议重新选择或使用默认音色），不再弹笼统「当前操作未能完成」。
 - **进度数字很久才显示**：「生成图片与旁白」阶段开始即写入 `assets_progress={0/N, 0/M}`，前端立即显示「图片 0/N · 旁白 0/M」，不再等首个资源完成（图片生成 16-30s）。
 
 ### 测试
-- 新增 6 例：异步 T2A 完整链路（创建/查询/下载）、查询内联音频、task_id 缺失、查询失败、轮询超时、进度前置写入。
+- 新增 9 例：异步 T2A 完整链路（创建/查询/下载）、查询内联音频、task_id 缺失、查询失败、轮询超时、进度前置写入、克隆音色自动切 speech-02-hd、官方音色用配置模型、cloneVoice 携带 model、音色无效 INVALID_CONFIG 分类。
 
 ### 文档
 - PRD 新增「7.1.15 MiniMax 异步 T2A 与资源进度前置合同」。

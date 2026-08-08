@@ -13,6 +13,7 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   MEDIA_FORMAT_INVALID: 'story2video.media_format_invalid',
   MEDIA_SIZE_EXCEEDED: 'story2video.media_size_exceeded',
   MEDIA_UNREADABLE: 'story2video.media_unreadable',
+  VOICE_INVALID: 'story2video.voice_invalid',
   PROJECT_DELETE_FAILED: 'story2video.project_delete_failed',
   PROJECT_DELETE_CONFIRM: 'story2video.project_delete_confirm',
   TEMPLATE_DELETE_CONFIRM: 'story2video.template_delete_confirm',
@@ -50,6 +51,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID]: '不支持 {extension} 格式。{kindLabel}仅支持：{extensions}。',
     [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_SIZE_EXCEEDED]: '{kindLabel}文件大小超出限制：最大 {maxMb}MB，当前文件约 {actualMb}MB，请压缩后重试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE]: '无法读取所选{kindLabel}文件，请确认文件未被占用或已损坏后重试。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID]: '所选音色无效或已失效{reason}，请在「语音 / 音色 ID」中重新选择有效音色，或使用服务商默认音色。',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED]: '项目未能删除，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM]: '确定删除当前项目及其本地产物吗？此操作无法撤销。',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM]: '确定删除这个自定义模板吗？此操作无法撤销。',
@@ -85,6 +87,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID]: 'The {extension} format is not supported. {kindLabel} supports only: {extensions}.',
     [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_SIZE_EXCEEDED]: '{kindLabel} exceeds the size limit: up to {maxMb} MB, this file is about {actualMb} MB. Compress it and try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE]: 'Could not read the selected {kindLabel} file. Make sure it is not locked or corrupted, then try again.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID]: 'The selected voice is invalid or no longer available{reason}. Choose another voice in Voice / Voice ID, or use the provider default.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED]: 'The project could not be deleted. Please try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM]: 'Delete this project and its local output? This cannot be undone.',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM]: 'Delete this custom template? This cannot be undone.',
@@ -122,6 +125,7 @@ const QUOTA_EXCEEDED_PATTERN = /((?:insufficient|exhausted|exceeded|out\s+of).{0
 const TEXT_ONLY_PATTERN = /(只支持\s*(?:text|文案)|text\s*mode|text input only)/i
 const TEXT_TOO_LONG_PATTERN = /(超过\s*6000|最多\s*6000|6000.*(?:字符|character)|text.*(?:too long|exceeds))/i
 const PREVIEW_MISSING_PATTERN = /(未返回.*可预览.*视频|preview.*(?:missing|video)|no previewable video)/i
+const VOICE_INVALID_PATTERN = /(voice id wrong|invalid params.*voice|voice_id.*(?:invalid|wrong|not found|not exist|unsupported)|voice.*(?:not found|does not exist|invalid|unavailable)|音色.*(?:无效|不存在|失效|错误))/i
 const PIPELINE_CONCURRENCY_PATTERN = /(流水线正在(?:后台)?运行|最多同时运行|同时运行.*条|concurrency limit)/i
 
 export function countUnicodeCodePoints (value) {
@@ -195,6 +199,11 @@ function normalizeParams (value, locale, messageKey, rawError) {
     params.kindLabel = String(supplied.kindLabel || '').trim() || ''
   }
 
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID) {
+    const rawReason = String(supplied.reason || rawError || '').trim()
+    params.reason = rawReason ? '（' + rawReason.slice(0, 160) + '）' : ''
+  }
+
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING && Array.isArray(supplied.assetKinds)) {
     const labels = DEGRADED_ASSET_LABELS[locale]
     const separator = locale === 'en' ? ', ' : '、'
@@ -245,6 +254,7 @@ function resolveMessageKey (notification, fallbackKey) {
   if (TEXT_ONLY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY
   if (TEXT_TOO_LONG_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG
   if (PREVIEW_MISSING_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING
+  if (VOICE_INVALID_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID
   return fallbackKey
 }
 
