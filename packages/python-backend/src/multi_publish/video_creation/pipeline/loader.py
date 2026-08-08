@@ -17,7 +17,9 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "pipelines" /
 
 
 def _load_manifest_schema() -> dict:
-    with open(SCHEMA_PATH) as f:
+    # 清单与 schema 均以 UTF-8 存储（含中文文案）；显式指定编码避免 Windows cp936
+    # 默认编码把 UTF-8 字节按 GBK 解码导致 UnicodeDecodeError。
+    with open(SCHEMA_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -36,7 +38,8 @@ def load_pipeline(name: str, defs_dir: Path | None = None) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"Pipeline manifest not found: {path}")
 
-    with open(path) as f:
+    # UTF-8 显式解码：manifest 含中文注释/描述，Windows cp936 默认编码会按 GBK 解码失败。
+    with open(path, encoding="utf-8") as f:
         manifest = yaml.safe_load(f)
 
     schema = _load_manifest_schema()

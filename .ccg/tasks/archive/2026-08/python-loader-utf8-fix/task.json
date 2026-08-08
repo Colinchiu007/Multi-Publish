@@ -1,0 +1,12 @@
+{
+  "id": "python-loader-utf8-fix",
+  "title": "修复 pipeline loader 在 Windows cp936 下读取 UTF-8 中文 yaml 失败",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "python-backend",
+  "currentPhase": "implementation",
+  "nextAction": "测试并提交",
+  "createdAt": "2026-08-07T00:00:00Z",
+  "branch": "codex/smart-sentence-splitter"
+}

@@ -438,7 +438,7 @@ class Story2VideoProjectService {
       'watermark', 'watermarkText', 'watermarkConfig', 'resolution', 'fps', 'format',
       'bgmVolume', 'contentType', 'imageStyle', 'imageProvider', 'imageModel', 'aspectRatio',
       'voiceId', 'voiceProvider', 'voiceModel', 'voiceSpeed', 'voicePitch', 'voiceEmotion', 'voiceVolume', 'templateId',
-      'defaultSceneDuration',
+      'defaultSceneDuration', 'sceneDurationMode', 'minSceneDuration',
     ]
     const result = {}
     for (const key of keys) {

@@ -195,33 +195,40 @@ function normalizeComposeScenes (assetManifest) {
   })
 }
 
-function buildImageEffectFilter (effect, width, height, fps, durationFrames) {
+function buildImageEffectFilter (effect, width, height, fps, duration) {
   const safeWidth = Math.max(160, Math.round(Number(width) || 1280))
   const safeHeight = Math.max(160, Math.round(Number(height) || 720))
   const safeFps = Math.max(1, Math.min(120, Math.round(Number(fps) || 30)))
-  // 关键修复：zoompan 需要 d=输出总帧数（=时长×帧率）才能产生连续动画。
-  // 此前 d=1 且输入为 -loop 1 静态图时，每一输入帧只产出一帧，zoom 状态不累积，
-  // 导致「慢慢放大」等动效在成片中完全不可见。
-  const totalFrames = Math.max(safeFps, Math.round(Number(durationFrames) || safeFps * 3))
+  // 有效时长已知时把动效进度归一化到场景时长（T=round(duration*fps)）；
+  // 时长未知（探测失败/旧项目）或 duration*fps 溢出为 Infinity 时回退固定帧增量公式。
+  const rawFrames = Number.isFinite(duration) && duration > 0 ? duration * safeFps : null
+  const knownFrames = rawFrames !== null && Number.isFinite(rawFrames)
+  const totalFrames = knownFrames
+    ? Math.max(2, Math.round(rawFrames))
+    : Math.max(safeFps, Math.round(safeFps * 3))
+  const progress = knownFrames ? 'min(1,on/' + totalFrames + ')' : null
+  // 关键修复（origin/main）：zoompan 需要 d=输出总帧数（=时长×帧率）才能产生连续动画；
+  // d=1 且输入为单帧静态图时 zoom 状态不累积，动效完全不可见。
   const zoompan = (zoom, x, y) =>
     "zoompan=z='" + zoom + "':x='" + x + "':y='" + y + "':d=" + totalFrames +
     ':s=' + safeWidth + 'x' + safeHeight + ':fps=' + safeFps
 
   switch (effect) {
     case 'zoom-in':
-      return zoompan('min(zoom+0.0015,1.25)', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
+      return zoompan(progress ? '1+0.25*' + progress : 'min(zoom+0.0015,1.25)', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
     case 'zoom-out':
-      return zoompan('if(eq(on,1),1.25,max(zoom-0.0015,1))', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
+      return zoompan(progress ? 'if(eq(on,1),1.25,1.25-0.25*' + progress + ')' : 'if(eq(on,1),1.25,max(zoom-0.0015,1))', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
     case 'pan-left':
-      return zoompan('1.12', '(iw-iw/zoom)*on/' + totalFrames, 'ih/2-(ih/zoom/2)')
+      // 归一化进度（min(1,on/T)）与 origin/main 的 on/totalFrames 等价；未知时长时回退 legacy 固定帧增量。
+      return zoompan('1.12', progress ? '(iw-iw/zoom)*' + progress : '(iw-iw/zoom)*on/120', 'ih/2-(ih/zoom/2)')
     case 'pan-right':
-      return zoompan('1.12', '(iw-iw/zoom)*(1-on/' + totalFrames + ')', 'ih/2-(ih/zoom/2)')
+      return zoompan('1.12', progress ? '(iw-iw/zoom)*(1-' + progress + ')' : '(iw-iw/zoom)*(1-on/120)', 'ih/2-(ih/zoom/2)')
     case 'pan-up':
-      return zoompan('1.12', 'iw/2-(iw/zoom/2)', '(ih-ih/zoom)*on/' + totalFrames)
+      return zoompan('1.12', 'iw/2-(iw/zoom/2)', progress ? '(ih-ih/zoom)*' + progress : '(ih-ih/zoom)*on/120')
     case 'pan-down':
-      return zoompan('1.12', 'iw/2-(iw/zoom/2)', '(ih-ih/zoom)*(1-on/' + totalFrames + ')')
+      return zoompan('1.12', 'iw/2-(iw/zoom/2)', progress ? '(ih-ih/zoom)*(1-' + progress + ')' : '(ih-ih/zoom)*(1-on/120)')
     case 'zoom-pan':
-      return zoompan('min(zoom+0.001,1.15)', '(iw-iw/zoom)*on/' + totalFrames, 'ih/2-(ih/zoom/2)')
+      return zoompan(progress ? '1+0.15*' + progress : 'min(zoom+0.001,1.15)', progress ? '(iw-iw/zoom)*' + progress : '(iw-iw/zoom)*on/180', 'ih/2-(ih/zoom/2)')
     case 'rotate':
       return "rotate='0.02*sin(2*PI*t/4)':fillcolor=black@0"
     case 'blur-in':
@@ -503,10 +510,13 @@ class Story2VideoComposeEngine {
       const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
       const subtitleDuration = audioDuration || duration || defaultSceneDuration
       const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
+      // 动效归一化使用“有效时长”：真实音频时长优先，探测失败时回退上报时长/defaultSceneDuration。
+      const effectDuration = audioDuration || duration || defaultSceneDuration
 
       try {
         await this._createSegment(scene.imagePath, scene.audioPath, segPath, {
           duration,
+          effectDuration,
           subtitleText: subtitleEnabled ? scene.text : '',
           subtitleTimeline: subtitleEnabled ? subtitleTimeline : [],
           transition,
@@ -702,14 +712,20 @@ class Story2VideoComposeEngine {
     if (!imagePath || !audioPath) return { code: -1, message: 'Segment media path is not allowed or unreadable' }
     fs.mkdirSync(path.dirname(destinationPath), { recursive: true })
     const audioDuration = await this._probeMediaDuration(audioPath)
-    const reportedDuration = Number(scene.duration) || null
+    // 与 _composeScene 对齐：上报 duration 收敛到 0.1..3600，避免极端有限值经
+    // duration*fps 溢出为 Infinity 使动效归一化静默退化。
+    const reportedDuration = scene.duration === null || scene.duration === undefined
+      ? null
+      : clampNumber(scene.duration, 0.1, 3600, null)
     const duration = reportedDuration && audioDuration ? audioDuration : reportedDuration
     const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
     const subtitleDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
     const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
+    const effectDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
     try {
       await this._createSegment(imagePath, audioPath, destinationPath, {
         duration,
+        effectDuration,
         subtitleText: options.subtitleEnabled === false ? '' : (scene.text || ''),
         subtitleTimeline: options.subtitleEnabled === false ? [] : subtitleTimeline,
         transition: options.transition || 'none',
@@ -852,13 +868,9 @@ class Story2VideoComposeEngine {
   async _createSegment (imagePath, audioPath, outputPath, opts) {
     const args = ['-y']
 
-    // 动效帧数 = 时长 × 帧率；zoompan 需要 d=总帧数 才能产生连续动画
-    const segmentFps = clampNumber(opts.fps, 1, 120, 30)
-    const segmentDuration = Number(opts.duration) > 0
-      ? Number(opts.duration)
-      : clampNumber(opts.defaultSceneDuration, 1, 60, 6)
-    const totalFrames = Math.max(1, Math.round(segmentDuration * segmentFps))
-    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, totalFrames)
+    // 动效归一化以“有效时长”（audioDuration||reportedDuration||defaultSceneDuration）为基线，
+    // 帧数由 buildImageEffectFilter 内部按 duration*fps 计算（含溢出守卫与 d=总帧数 修复）。
+    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, opts.effectDuration)
 
     // 输入：有动效时用单帧图片输入（zoompan 自行生成 d 帧，-loop 1 会破坏帧计数）；
     // 无动效时保持图片循环（配合 fade/shortest 生成静态片段）。
@@ -869,14 +881,14 @@ class Story2VideoComposeEngine {
     }
 
     // 字幕滤镜
-    // 抖动修复：zoompan 亚像素采样会造成画面跳动。先把输入上采样到 2x 工作分辨率，
+    // 抖动修复（origin/main）：zoompan 亚像素采样会造成画面跳动。先把输入上采样到 2x 工作分辨率，
     // 在 2x 画布上执行 zoompan（s=2x 尺寸），再下采样回目标分辨率，帧间运动平滑。
     const filters = []
     if (imageEffect) {
       const workWidth = clampNumber(opts.width, 160, 4096) * 2
       const workHeight = clampNumber(opts.height, 160, 4096) * 2
       filters.push(buildScaleFilter(workWidth, workHeight))
-      filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, totalFrames))
+      filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, opts.effectDuration))
       filters.push(buildScaleFilter(opts.width, opts.height))
     } else {
       filters.push(buildScaleFilter(opts.width, opts.height))

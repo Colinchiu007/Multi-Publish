@@ -904,7 +904,6 @@ describe("CreateView - S2V orchestration", () => {
       subtitleStyleName: "style2",
       bgmPath: "C:/media/bgm.mp3",
       bgmVolume: 7,
-      perImageDuration: 4,
       splitLanguage: "auto",
       splitMode: "precise",
       splitMaxSentenceLength: 120,
@@ -938,7 +937,6 @@ describe("CreateView - S2V orchestration", () => {
         voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8, pitch: -1 }),
         subtitle: expect.objectContaining({ enabled: false, size: "size4", style: "style2" }),
         bgm: { enabled: true, path: "C:/media/bgm.mp3", volume: 7 },
-        perImageDuration: 4,
         transition: "slide-right",
         output: { fps: 24, format: "webm" },
         publish: expect.objectContaining({ enabled: true, platforms: ["bilibili"], title: "长安夜景", tags: ["历史", "夜景"] }),
@@ -947,6 +945,7 @@ describe("CreateView - S2V orchestration", () => {
     const request = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
     expect(request).not.toHaveProperty("seconds");
     expect(request).not.toHaveProperty("versions");
+    expect(request).not.toHaveProperty("perImageDuration");
     expect(w.vm.outputConfig).toEqual({ resolution: "3840x2160", fps: 60, format: "mp4" });
     w.unmount();
   });

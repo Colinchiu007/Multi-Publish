@@ -188,9 +188,10 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
   it('支持旧项目的图片动效、字幕样式、水印和分辨率约束', () => {
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).toContain('zoompan')
     expect(buildImageEffectFilter('pan-left', 1280, 720, 30)).toContain('pan')
-    // 回归：zoompan 必须使用 d=总帧数（时长×帧率），d=1 + -loop 1 静态图不会产生动画
+    // 回归：zoompan 必须使用 d=总帧数（时长×帧率），d=1 + -loop 1 静态图不会产生动画。
+    // 第 5 参为“有效时长（秒）”，总帧数在函数内按 duration*fps 计算。
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).toContain(':d=90:')
-    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 180)).toContain(':d=180:')
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 6)).toContain(':d=180:')
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).not.toContain(':d=1:')
     expect(buildSubtitleFilter('字幕', { size: 'lg', style: 'style2' })).toContain('box=1')
     // 回归：中文 drawtext 必须显式指定 CJK fontfile，否则 Windows 静态 ffmpeg 渲染成豆腐块。
@@ -213,6 +214,41 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(parseResolution('../bad')).toEqual({ width: 1280, height: 720 })
     expect(buildScaleFilter(1920, 1080)).toContain('scale=1920:1080')
     expect(buildScaleFilter(1920, 1080)).toContain('pad=1920:1080')
+  })
+
+  it('有效时长已知时把动效进度归一化到场景时长', () => {
+    // 6s @30fps → T=180：动效在场景结束帧恰好完成，不再受固定帧增量速度限制
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 6)).toContain('1+0.25*min(1,on/180)')
+    expect(buildImageEffectFilter('zoom-out', 1280, 720, 30, 6)).toContain('if(eq(on,1),1.25,1.25-0.25*min(1,on/180))')
+    expect(buildImageEffectFilter('pan-left', 1280, 720, 30, 6)).toContain('(iw-iw/zoom)*min(1,on/180)')
+    expect(buildImageEffectFilter('pan-right', 1280, 720, 30, 6)).toContain('(iw-iw/zoom)*(1-min(1,on/180))')
+    expect(buildImageEffectFilter('pan-up', 1280, 720, 30, 6)).toContain('(ih-ih/zoom)*min(1,on/180)')
+    expect(buildImageEffectFilter('pan-down', 1280, 720, 30, 6)).toContain('(ih-ih/zoom)*(1-min(1,on/180))')
+    expect(buildImageEffectFilter('zoom-pan', 1280, 720, 30, 6)).toContain('1+0.15*min(1,on/180)')
+    // 非 30fps：fps=24、4s → T=96
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 24, 4)).toContain('min(1,on/96)')
+  })
+
+  it('时长未知或无效时保持固定帧增量公式，向后兼容', () => {
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).toContain('min(zoom+0.0015,1.25)')
+    expect(buildImageEffectFilter('zoom-out', 1280, 720, 30)).toContain('max(zoom-0.0015,1)')
+    expect(buildImageEffectFilter('pan-left', 1280, 720, 30)).toContain('on/120')
+    expect(buildImageEffectFilter('zoom-pan', 1280, 720, 30)).toContain('on/180')
+    for (const bad of [0, -1, Number.NaN, null, undefined, 'x']) {
+      expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, bad)).toContain('min(zoom+0.0015,1.25)')
+    }
+    // 极端有限值：duration*fps 溢出为 Infinity 时回退 legacy，不得出现 on/Infinity
+    const overflow = buildImageEffectFilter('zoom-in', 1280, 720, 30, 1e308)
+    expect(overflow).toContain('min(zoom+0.0015,1.25)')
+    expect(overflow).not.toContain('Infinity')
+  })
+
+  it('极短时长使用最小帧数下限，fps 极值按场景时长换算', () => {
+    // 0.05s @30fps → round(1.5)=2，下限 Math.max(2) 防止 on/0、on/1
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 0.05)).toContain('min(1,on/2)')
+    // fps 极值：1fps×6s=6、120fps×6s=720
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 1, 6)).toContain('min(1,on/6)')
+    expect(buildImageEffectFilter('zoom-in', 1280, 720, 120, 6)).toContain('min(1,on/720)')
   })
 
   it('为每个字幕页生成首尾不重叠的 FFmpeg 半开时间区间', () => {
@@ -515,6 +551,54 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(result.code).toBe(0)
       expect(result.data.duration).toBe(expectedDuration)
       expect(result.data.segments[0].duration).toBe(expectedDuration)
+      // 音频探测失败时动效归一化同样回退到 defaultSceneDuration
+      expect(engine._createSegment.mock.calls[0][3]).toMatchObject({ effectDuration: expectedDuration })
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('renderSegment 把有效时长传给动效归一化，音频优先、探测失败回退默认', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-render-segment-effect-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
+    engine._createSegment = vi.fn(async () => fs.writeFileSync(path.join(root, 'out.mp4'), 'seg'))
+    try {
+      // 音频探测失败 + 无上报时长 → effectDuration 回退 defaultSceneDuration=6
+      const out = path.join(root, 'out.mp4')
+      const result = await engine.renderSegment(
+        { imagePath: image, audioPath: audio, text: '测试', duration: null },
+        { defaultSceneDuration: 6, resolution: '320x180', fps: 24, subtitleEnabled: false, transition: 'none' },
+        out,
+      )
+      expect(result.code).toBe(0)
+      expect(engine._createSegment.mock.calls[0][3]).toMatchObject({ effectDuration: 6 })
+
+      // 音频优先：ffprobe 4.2s 覆盖上报 1s
+      engine._probeMediaDuration = vi.fn().mockResolvedValue(4.2)
+      const result2 = await engine.renderSegment(
+        { imagePath: image, audioPath: audio, text: '测试', duration: 1 },
+        { defaultSceneDuration: 6, resolution: '320x180', fps: 24, subtitleEnabled: false, transition: 'none' },
+        path.join(root, 'out2.mp4'),
+      )
+      expect(result2.code).toBe(0)
+      expect(engine._createSegment.mock.calls[1][3]).toMatchObject({ effectDuration: 4.2 })
+
+      // 极端有限 duration 收敛到 0.1..3600，effectDuration 保持有限值（W1 回归）
+      engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
+      const result3 = await engine.renderSegment(
+        { imagePath: image, audioPath: audio, text: '极端值', duration: 1e308 },
+        { defaultSceneDuration: 6, resolution: '320x180', fps: 24, subtitleEnabled: false, transition: 'none' },
+        path.join(root, 'out3.mp4'),
+      )
+      expect(result3.code).toBe(0)
+      expect(engine._createSegment.mock.calls[2][3]).toMatchObject({ duration: 3600, effectDuration: 3600 })
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }

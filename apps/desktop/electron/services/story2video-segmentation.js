@@ -70,6 +70,11 @@ function normalizeOptions (options = {}) {
       firstDefined(options.targetDuration, options.target_duration),
       DEFAULT_OPTIONS.targetDuration,
     ),
+    // 分镜字数主控（三层模型①，Batch 2）：提供时直接使用（校验 1..1000），
+    // 缺省（0）回退 targetDuration 换算；不能用 integerInRange 的 0 fallback（会被钳到 1）。
+    targetCharsPerScene: firstDefined(options.targetCharsPerScene, options.target_chars_per_scene) !== undefined
+      ? integerInRange(firstDefined(options.targetCharsPerScene, options.target_chars_per_scene), 1, 200, 0)
+      : 0,
     baseWordsPerSecond: finiteNumber(
       firstDefined(options.baseWordsPerSecond, options.base_words_per_second),
       DEFAULT_OPTIONS.baseWordsPerSecond,
@@ -219,7 +224,11 @@ function splitScenesLocally (text, options = {}) {
     Math.max(0.1, config.speechRate),
   )
   const upper = Math.max(config.minWords, config.maxWords)
-  const targetChars = Math.min(upper, Math.max(config.minWords, calculatedTarget))
+  // 分镜字数主控优先：提供 targetCharsPerScene 时直接使用（仍夹 [minWords, maxWords] 防御），
+  // 缺省回退 targetDuration × bps × speechRate 旧公式。
+  const targetChars = config.targetCharsPerScene > 0
+    ? Math.min(upper, Math.max(config.minWords, config.targetCharsPerScene))
+    : Math.min(upper, Math.max(config.minWords, calculatedTarget))
   const sceneTexts = []
   let currentParts = []
   let currentLength = 0

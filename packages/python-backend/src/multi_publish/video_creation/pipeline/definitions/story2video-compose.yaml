@@ -33,6 +33,7 @@ runtime_defaults:
       mode: balanced
       maxSentenceLength: 200
       targetSeconds: 6
+      targetCharsPerScene: 20
       baseWordsPerSecond: 3.3
       speechRate: 1
       minWords: 10
@@ -75,8 +76,9 @@ runtime_defaults:
       enabled: false
       path: ""
       volume: 5
-    perImageDuration: 6
     transition: fade
+    sceneDurationMode: follow-audio
+    minSceneDuration: 6
     templateId: ""
     concurrency: 3
     watermark:
@@ -155,6 +157,7 @@ stages:
       target_duration: 6
       base_words_per_second: 3.3
       speech_rate: 1
+      target_chars_per_scene: 20
       min_words: 10
       max_words: 50
       enforce_sentence_boundary: true
@@ -164,6 +167,10 @@ stages:
       subtitle_timing: proportional
       fallback_to_local: true
       require_scene_output: true
+    runtime_options:
+      target_duration: "1..60 秒（反推：targetCharsPerScene ÷ (base_words_per_second × speech_rate)）"
+      target_chars_per_scene: "1..200 整数，分镜字数主控（仅本地 fallback 消费；8002 只收 target_duration 通道）"
+      speech_rate: "0.5..2，单一来源 = voice.speed"
     checkpoint_required: false
     human_approval_default: false
     review_focus:
@@ -289,6 +296,8 @@ stages:
       fps: 30
       format: mp4
       defaultSceneDuration: 6
+      sceneDurationMode: follow-audio
+      minSceneDuration: 6
     runtime_options:
       transition: "none|fade|slide-left|slide-right|slide-up|slide-down"
       imageEffect: "none|zoom-in|zoom-out|pan-left|pan-right|pan-up|pan-down|zoom-pan|rotate|blur-in"
@@ -303,6 +312,8 @@ stages:
       fps: "1..120"
       format: "mp4|webm"
       defaultSceneDuration: "1..60 秒，仅用于无音频或无法探测音频时的场景回退"
+      sceneDurationMode: "follow-audio|min-duration；min-duration 时每场景以静音补齐到 minSceneDuration"
+      minSceneDuration: "1..60 秒，最短场景时长（min-duration 模式），默认 6"
       limits: "output<=600s; narration total<=900s; multi-audio segment<=180s"
     checkpoint_required: true
     human_approval_default: false

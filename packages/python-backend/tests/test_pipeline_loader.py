@@ -50,6 +50,13 @@ class TestPipelineLoader:
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["size"] == "720x1280"
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["bgm"]["volume"] == 5
         assert manifest["runtime_defaults"]["story2videoTextConfig"]["concurrency"] == 3
+        # 三层模型字段（Batch 1）：分镜字数主控 + 场景时长模式，renderer/normalizer/YAML 一致性门禁
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["split"]["targetCharsPerScene"] == 20
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["sceneDurationMode"] == "follow-audio"
+        assert manifest["runtime_defaults"]["story2videoTextConfig"]["minSceneDuration"] == 6
+        compose_stage = next(stage for stage in manifest["stages"] if stage["name"] == "compose")
+        assert compose_stage["options"]["sceneDurationMode"] == "follow-audio"
+        assert compose_stage["options"]["minSceneDuration"] == 6
         optimize = next(stage for stage in manifest["stages"] if stage["name"] == "optimize")
         assert optimize["options"] == {
             "platform": "generic",
@@ -67,6 +74,23 @@ class TestPipelineLoader:
         assert split_stage["options"]["subtitle_timing"] == "proportional"
         assert split_stage["options"]["fallback_to_local"] is True
         assert split_stage["options"]["require_scene_output"] is True
+
+    def test_load_utf8_chinese_content_regression(self, tmp_path):
+        # 回归：Windows cp936 默认编码下，open() 无显式 encoding 会把 UTF-8 中文
+        # 按 GBK 解码抛 UnicodeDecodeError；loader 必须显式以 UTF-8 读取。
+        (tmp_path / "utf8-cn.yaml").write_text(
+            'name: "utf8-cn"\n'
+            'version: "1.0"\n'
+            "description: 含中文描述的清单，验证 UTF-8 解码回归\n"
+            "stages:\n"
+            "  - name: 分析阶段\n"
+            "    description: 中文阶段描述\n",
+            encoding="utf-8",
+        )
+        manifest = load_pipeline("utf8-cn", defs_dir=tmp_path)
+        assert manifest["name"] == "utf8-cn"
+        assert manifest["description"].startswith("含中文")
+        assert manifest["stages"][0]["name"] == "分析阶段"
 
     def test_get_stage_order_default(self):
         stages = get_stage_order(SAMPLE_MANIFEST)

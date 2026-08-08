@@ -1,0 +1,193 @@
+diff --git a/apps/desktop/electron/services/pipeline-engine.js b/apps/desktop/electron/services/pipeline-engine.js
+index ed2dbcf0..ecc42bea 100644
+--- a/apps/desktop/electron/services/pipeline-engine.js
++++ b/apps/desktop/electron/services/pipeline-engine.js
+@@ -496,6 +496,7 @@ const PIPELINES = [
+           target_duration: 6,
+           base_words_per_second: 3.3,
+           speech_rate: 1,
++          target_chars_per_scene: 20,
+           min_words: 10,
+           max_words: 50,
+           enforce_sentence_boundary: true,
+diff --git a/apps/desktop/electron/services/story2video-segmentation.js b/apps/desktop/electron/services/story2video-segmentation.js
+index 03936987..5bd0f758 100644
+--- a/apps/desktop/electron/services/story2video-segmentation.js
++++ b/apps/desktop/electron/services/story2video-segmentation.js
+@@ -70,6 +70,11 @@ function normalizeOptions (options = {}) {
+       firstDefined(options.targetDuration, options.target_duration),
+       DEFAULT_OPTIONS.targetDuration,
+     ),
++    // 分镜字数主控（三层模型①，Batch 2）：提供时直接使用（校验 1..1000），
++    // 缺省（0）回退 targetDuration 换算；不能用 integerInRange 的 0 fallback（会被钳到 1）。
++    targetCharsPerScene: firstDefined(options.targetCharsPerScene, options.target_chars_per_scene) !== undefined
++      ? integerInRange(firstDefined(options.targetCharsPerScene, options.target_chars_per_scene), 1, 1000, 0)
++      : 0,
+     baseWordsPerSecond: finiteNumber(
+       firstDefined(options.baseWordsPerSecond, options.base_words_per_second),
+       DEFAULT_OPTIONS.baseWordsPerSecond,
+@@ -219,7 +224,11 @@ function splitScenesLocally (text, options = {}) {
+     Math.max(0.1, config.speechRate),
+   )
+   const upper = Math.max(config.minWords, config.maxWords)
+-  const targetChars = Math.min(upper, Math.max(config.minWords, calculatedTarget))
++  // 分镜字数主控优先：提供 targetCharsPerScene 时直接使用（仍夹 [minWords, maxWords] 防御），
++  // 缺省回退 targetDuration × bps × speechRate 旧公式。
++  const targetChars = config.targetCharsPerScene > 0
++    ? Math.min(upper, Math.max(config.minWords, config.targetCharsPerScene))
++    : Math.min(upper, Math.max(config.minWords, calculatedTarget))
+   const sceneTexts = []
+   let currentParts = []
+   let currentLength = 0
+diff --git a/apps/desktop/electron/services/story2video-text-config.js b/apps/desktop/electron/services/story2video-text-config.js
+index bda6979e..58cc79f2 100644
+--- a/apps/desktop/electron/services/story2video-text-config.js
++++ b/apps/desktop/electron/services/story2video-text-config.js
+@@ -306,7 +306,7 @@ function normalizeStory2VideoTextParams(params = {}) {
+     maxSentenceLength: numberValue(own(splitInput, 'maxSentenceLength'), 200, 'split.maxSentenceLength', 20, 1000, true),
+     targetSeconds: numberValue(own(splitInput, 'targetSeconds'), 6, 'split.targetSeconds', 1, 60),
+     baseWordsPerSecond: numberValue(own(splitInput, 'baseWordsPerSecond'), 3.3, 'split.baseWordsPerSecond', 0.5, 10),
+-    speechRate: numberValue(own(splitInput, 'speechRate'), 1, 'split.speechRate', 0.5, 2),
++    // speechRate 单一来源（三层模型 P1，Batch 2）：由 voice.speed 派生，不再校验/接受独立值
+     minWords: numberValue(own(splitInput, 'minWords'), 10, 'split.minWords', 1, 200, true),
+     maxWords: numberValue(own(splitInput, 'maxWords'), 50, 'split.maxWords', 1, 500, true),
+     enforceSentenceBoundary: booleanValue(own(splitInput, 'enforceSentenceBoundary'), true),
+@@ -319,22 +319,8 @@ function normalizeStory2VideoTextParams(params = {}) {
+   if (split.subtitleMinChars > split.subtitleMaxChars) {
+     throw new Error('Story2Video split.subtitleMinChars 不能大于 subtitleMaxChars')
+   }
+-  // 分镜字数主控（三层模型①）：显式 targetCharsPerScene 优先；缺省时由 targetSeconds
+-  // （× baseWordsPerSecond × speechRate）换算并夹在 [max(minWords,1), min(maxWords,200)]
+-  // （与 1..200 契约一致，防止 maxWords 配到 500 时突破契约）。旧配置自动兼容。
+-  const computedTargetChars = Math.round(split.targetSeconds * split.baseWordsPerSecond * split.speechRate)
+-  const explicitChars = own(splitInput, 'targetCharsPerScene') !== undefined
+-    ? numberValue(own(splitInput, 'targetCharsPerScene'), DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.targetCharsPerScene, 'split.targetCharsPerScene', 1, 200, true)
+-    : null
+-  if (explicitChars !== null && (explicitChars < split.minWords || explicitChars > split.maxWords)) {
+-    throw new Error('Story2Video split.targetCharsPerScene 必须在 [minWords=' + split.minWords + ', maxWords=' + split.maxWords + '] 范围内')
+-  }
+-  split.targetCharsPerScene = explicitChars !== null
+-    ? explicitChars
+-    : Math.min(Math.min(split.maxWords, 200), Math.max(Math.max(split.minWords, 1), computedTargetChars))
+-  // 统一以最终 targetCharsPerScene 反推 target_duration（= chars ÷ (bps × speechRate)，取整 1..60）：
+-  // 使主控经现有 8002 通道在 Batch 1 生效，且首次运行与保存重载一致（幂等，双模型审查 W1）。
+-  split.targetSeconds = Math.min(60, Math.max(1, Math.round(split.targetCharsPerScene / (split.baseWordsPerSecond * split.speechRate))))
++  // 分镜字数主控（三层模型①）与 speechRate 单一来源在 voice 构建后计算（见下），
++  // 使切分估算使用实际 TTS 语速。
+ 
+   const optimize = {
+     style: promptStyleValue(
+@@ -363,6 +349,26 @@ function normalizeStory2VideoTextParams(params = {}) {
+     emotion: idValue(firstDefined(own(voiceInput, 'emotion'), params.voiceEmotion), 'default', 'voice.emotion'),
+   }
+ 
++  // speechRate 单一来源（三层模型 P1，Batch 2）：切分估算与实际 TTS 语速一致，
++  // 消除“切分按 1x、播报按 1.5x”脱节；voice.speed 已按 0.5..2 校验。
++  split.speechRate = voice.speed
++  // 分镜字数主控（三层模型①）：显式 targetCharsPerScene 优先；缺省时由 targetSeconds
++  // （× baseWordsPerSecond × speechRate）换算并夹在 [max(minWords,1), min(maxWords,200)]
++  // （与 1..200 契约一致，防止 maxWords 配到 500 时突破契约）。旧配置自动兼容。
++  const computedTargetChars = Math.round(split.targetSeconds * split.baseWordsPerSecond * split.speechRate)
++  const explicitChars = own(splitInput, 'targetCharsPerScene') !== undefined
++    ? numberValue(own(splitInput, 'targetCharsPerScene'), DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.targetCharsPerScene, 'split.targetCharsPerScene', 1, 200, true)
++    : null
++  if (explicitChars !== null && (explicitChars < split.minWords || explicitChars > split.maxWords)) {
++    throw new Error('Story2Video split.targetCharsPerScene 必须在 [minWords=' + split.minWords + ', maxWords=' + split.maxWords + '] 范围内')
++  }
++  split.targetCharsPerScene = explicitChars !== null
++    ? explicitChars
++    : Math.min(Math.min(split.maxWords, 200), Math.max(Math.max(split.minWords, 1), computedTargetChars))
++  // 统一以最终 targetCharsPerScene 反推 target_duration（= chars ÷ (bps × speechRate)，取整 1..60）：
++  // 使主控经现有 8002 通道生效，且首次运行与保存重载一致（幂等）。
++  split.targetSeconds = Math.min(60, Math.max(1, Math.round(split.targetCharsPerScene / (split.baseWordsPerSecond * split.speechRate))))
++
+   const subtitleSize = normalizeSubtitleSize(firstDefined(own(subtitleInput, 'size'), params.subtitleStyle?.size))
+   const subtitle = {
+     enabled: booleanValue(firstDefined(own(subtitleInput, 'enabled'), params.subtitleEnabled), false),
+@@ -457,6 +463,8 @@ function normalizeStory2VideoTextParams(params = {}) {
+       speech_rate: split.speechRate,
+       min_words: split.minWords,
+       max_words: split.maxWords,
++      // 仅供本地 fallback 切分直接消费；8002 经 _buildStorySplitterOptions 白名单不会收到该键。
++      target_chars_per_scene: split.targetCharsPerScene,
+       enforce_sentence_boundary: split.enforceSentenceBoundary,
+       overflow_to_next: split.overflowToNext,
+       subtitle_min_chars: split.subtitleMinChars,
+diff --git a/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml b/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml
+index d26a4e25..0cf22095 100644
+--- a/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml
++++ b/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml
+@@ -157,6 +157,7 @@ stages:
+       target_duration: 6
+       base_words_per_second: 3.3
+       speech_rate: 1
++      target_chars_per_scene: 20
+       min_words: 10
+       max_words: 50
+       enforce_sentence_boundary: true
+@@ -166,6 +167,10 @@ stages:
+       subtitle_timing: proportional
+       fallback_to_local: true
+       require_scene_output: true
++    runtime_options:
++      target_duration: "1..60 秒（反推：targetCharsPerScene ÷ (base_words_per_second × speech_rate)）"
++      target_chars_per_scene: "1..200 整数，分镜字数主控（仅本地 fallback 消费；8002 只收 target_duration 通道）"
++      speech_rate: "0.5..2，单一来源 = voice.speed"
+     checkpoint_required: false
+     human_approval_default: false
+     review_focus:
+diff --git a/packages/story2video-engine/src/text-segmentation.ts b/packages/story2video-engine/src/text-segmentation.ts
+index ec45c83b..c975365a 100644
+--- a/packages/story2video-engine/src/text-segmentation.ts
++++ b/packages/story2video-engine/src/text-segmentation.ts
+@@ -28,6 +28,8 @@ export interface SentenceTokenizerConfig {
+ /** 场景级分割配置 */
+ export interface SceneSegmentationConfig {
+   targetSeconds: number;
++  /** 分镜字数主控（三层模型①）：提供时直接作为目标字数，缺省回退 targetSeconds×bps×speechRate */
++  targetCharsPerScene?: number;
+   baseWordsPerSecond: number;
+   speechRate: number;
+   minWordsPerSegment: number;
+@@ -267,11 +269,14 @@ export class SceneSegmenter {
+     this.sentenceTokenizer = sentenceTokenizer || new SentenceTokenizer();
+   }
+ 
+-  /** 计算目标字数 */
++  /** 计算目标字数（分镜字数主控优先，缺省回退 时长×字速×语速 换算） */
+   calculateTargetWords(): number {
+-    const targetWords = Math.round(
++    const derived = Math.round(
+       this.config.targetSeconds * this.config.baseWordsPerSecond * this.config.speechRate,
+     );
++    const targetWords = this.config.targetCharsPerScene && this.config.targetCharsPerScene > 0
++      ? this.config.targetCharsPerScene
++      : derived;
+     return Math.max(
+       this.config.minWordsPerSegment,
+       Math.min(targetWords, this.config.maxWordsPerSegment),
+diff --git a/packages/story2video-engine/tests/story2video-engine.test.ts b/packages/story2video-engine/tests/story2video-engine.test.ts
+index 24d5904b..c2ece4ed 100644
+--- a/packages/story2video-engine/tests/story2video-engine.test.ts
++++ b/packages/story2video-engine/tests/story2video-engine.test.ts
+@@ -104,6 +104,20 @@ describe('SceneSegmenter', () => {
+     expect(segmenter.segment('')).toEqual([]);
+   });
+ 
++  it('calculateTargetWords 优先使用 targetCharsPerScene（分镜字数主控）', () => {
++    const segmenter = new SceneSegmenter({
++      minWordsPerSegment: 5,
++      maxWordsPerSegment: 30,
++      targetSeconds: 6.0,
++      baseWordsPerSecond: 3.3,
++      speechRate: 1.0,
++      targetCharsPerScene: 25,
++      enforceSentenceBoundary: true,
++      allowSingleSentenceOverflow: true,
++    });
++    expect(segmenter.calculateTargetWords()).toBe(25);
++  });
++
+   it('calculateTargetWords 在 min/max 范围内', () => {
+     const segmenter = new SceneSegmenter({
+       minWordsPerSegment: 5,
