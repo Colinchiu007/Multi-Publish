@@ -1,11 +1,46 @@
 # PROJECT-003 多平台一键发布 — 开发报告
 
-**最后更新**: 2026-07-30
+**最后更新**: 2026-08-08
 **当前版本**: 2.3.53
-**当前状态**: Story2Video Text 标准模式对齐与剩余工作树祖先关系整合已完成本地门禁
+**当前状态**: 图片轮播稳定性与体验系列修复（PR #397-400、#402）已合入 main
 
 > 本文件顶部保留 2026-06-03 的历史基线；当前 Logto 用户系统交付以文末
 > “2026-07-20：Logto 用户系统交付补充”为准。
+
+---
+
+## 2026-08-08：图片轮播稳定性与体验系列修复
+
+### 交付范围（PR #397-400、#402，另有 PR #396 为并行会话）
+
+| PR | 内容 | 关键文件 |
+|----|------|----------|
+| #397 | 模型服务异常检测（ProviderAnomalyBus）+ `callAdapter` 有界超时 + pipeline-engine 执行日志 + 优化进度前置 | `services/provider-anomaly.js`（新）、`model-provider-manager.js`、`pipeline-engine.js`、`story2video-stages.js`、`CreateView.vue` |
+| #398 | 弹窗标题统一「提示」/「Notice」+ 选项保存 toast 悬浮布局 + 媒体校验细分与文件要求提示 | `story2video-notifications.js`、`CreateView.vue`、`locales/*` |
+| #399 | 失败任务持久展示历史（`RunStateStore.listFailed()` + `getHistory()` 合并），状态「生成失败」 | `run-state-store.js`、`pipeline-engine.js`、`CreateView/CreateHistory.vue` |
+| #400 | 分段图片显示（媒体服务 Content-Type 补图片类型）+ 下载改走主进程 `story2video:save-as` | `story2video-media-server.js`、`ipc-handlers/story2video.js`、`ResultView.vue`、preload bundle |
+| #402 | MiniMax 异步 T2A（`speech-2.8-*` 走 t2a_async_v2→查询→下载）+ 资源进度前置 | `adapters/minimax-tts.js`、`story2video-stages.js` |
+| #396 | 图片动效归一化到场景时长、移除单图轮播选项、UTF-8 manifest（并行会话） | 见 PLAN-STORY2VIDEO-SCENE-DURATION-2026-08-08.md |
+
+### 关键根因与修复
+
+- **MiniMax 生成失败**：默认模型 `speech-2.8-turbo` 是异步 T2A，但 adapter 调同步端点 `/t2a_v2`（200 但无 `data.audio`）→ 实现完整异步流程。
+- **分段图片不显示**：媒体服务 `CONTENT_TYPES` 缺图片类型，`nosniff` 下 `<img>` 拒绝渲染 `application/octet-stream`。
+- **下载无反应**：`<a download>` 对跨源本地 HTTP 媒体 URL 无效 → 主进程 `dialog.showSaveDialog + copyFileSync`。
+- **失败任务历史消失**：`getHistory()` 只读内存，持久化失败快照未合并 → 新增 `listFailed()` 并按 runId 去重。
+- **进度数字晚显示**：optimize/assets 进度前置写入（0/N），不等首个资源完成。
+- **弹窗标题/toast/提示**：标题去流水线名；toast 改 overlay；媒体校验细分具体原因。
+
+### 验证与流程
+
+- 本轮新增测试约 31 例（provider-anomaly 11、callAdapter 异常检测 4、getRunContext 2、CreateView 横幅 3、optimize 进度 2、listFailed 5、getHistory 重启/去重 2、状态文案 1、媒体 Content-Type 2、save-as 2、preload/API 若干、ResultView 下载 3、MiniMax 异步 5、进度前置 1）；相关文件测试全过。
+- CI 稳定性：credential-store 真实 Windows 文件锁用例超时提升到 60s（CI 全量负载偶发超时，非回归）。
+- PR #397-400、#402 均通过 Doc Sync、单元测试/Lint、Windows/Linux build、Electron tests、GUI/Visual tests 与两组 Quality Gate 后合入 main（`8b0ba223`）。
+- 文档同步：PRD.md 7.1.12-7.1.15、CHANGELOG、learnings 各 PR 已随附；本报告为汇总。
+
+### 待真实验收
+
+MiniMax 异步 T2A 成片、分段图片/下载交互、失败任务历史展示、provider 异常横幅——需真实 provider 账号/API 跑 E2E（见 `E2E-PENDING.md`）。
 
 ---
 
