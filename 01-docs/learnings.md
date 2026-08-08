@@ -1,6 +1,17 @@
 
 ---
 
+## Windows CI 8.3 短路径断言失败复盘 (2026-08-08)
+
+- **表象**：本地全绿的测试在 GitHub Actions Windows runner 失败——`toHaveBeenCalledWith([audio], ...)` 收到的路径是
+  `C:\Users\RUNNER~1\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\runneradmin\...`（长名）。
+- **根因**：`os.tmpdir()` 在 CI 返回 8.3 短路径（`RUNNER~1`），业务代码 `resolveReadableMediaFile` 经
+  `fs.realpathSync.native()` 归一化为长路径（`runneradmin`）——同一文件两种字符串。任何「测试直接比较本地路径字符串」的断言在 CI 都会炸。
+- **教训**：按 AGENTS.md「Windows 路径身份断言」合同，比较生产代码返回的 canonical 路径时，期望值与实际值**必须同时**过
+  `fs.realpathSync.native()` 后再比较；本地 `os.tmpdir()` 无 8.3 缩写所以这类 bug 本地测不出来，必须用 CI 实跑发现。
+- **排查手法**：Quality Gate 步骤级只看到「全部测试绿但 exit 1」，先看 `npm error workspace ...` 定位失败包，再下载
+  Actions run 日志 zip（`gh api repos/.../actions/runs/<id>/logs`）grep `FAIL`/`AssertionError` 拿到断言原文。
+
 ## 场景时长 min-duration 静音补齐双模型审查复盘 (2026-08-08)
 
 - **C1（最高风险）：探测失败 ≠ 可补齐。** JS 隐式转换下 `Math.max(null, minSceneDuration) === minSceneDuration`、`minSceneDuration > null === true`，朴素实现会把「探测失败、长度未知」的旁白硬截断到 N 秒。补齐必须显式守卫 `audioDuration !== null && audioDuration > 0 && effectiveDuration > audioDuration`；探测失败一律走 follow-audio `-shortest` 路径（不启用补齐 `-t`、不 `apad`；探测失败且场景带上报 duration 时沿用既有 `-t reported` 上限语义）。这是「回退默认值」与「以默认值作为硬约束」的经典混淆，任何时长/阈值逻辑都要区分「布局回退值」与「强制裁剪值」。

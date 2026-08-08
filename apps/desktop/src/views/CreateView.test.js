@@ -251,7 +251,7 @@ describe("CreateView", () => {
       code: 0,
       data: {
         version: 1,
-        s2vConfig: { imageStyle: "anime", voiceSpeed: 1.5, voiceProvider: "disabled-provider", splitLanguage: "en" },
+        s2vConfig: { imageStyle: "anime", voiceSpeed: 1.5, voiceProvider: "disabled-provider", splitLanguage: "en", splitTargetSeconds: 8 },
         s2vOutputConfig: { resolution: "1920x1080", fps: 60 },
         ui: { expandedGroups: ["appearance", "voice"] },
       },
@@ -268,6 +268,13 @@ describe("CreateView", () => {
     expect(w.vm.s2vConfig.splitLanguage).toBe("en");
     expect(w.vm.s2vConfig.voiceProvider).not.toBe("disabled-provider");
     expect(w.vm.s2vOutputConfig.fps).toBe(60);
+    // 旧快照缺新字段 → 恢复后保留默认值（字数主控 20 / follow-audio / N=6 / 时长视图）
+    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(20);
+    expect(w.vm.s2vConfig.sceneDurationMode).toBe("follow-audio");
+    expect(w.vm.s2vConfig.minSceneDuration).toBe(6);
+    expect(w.vm.s2vConfig.splitViewMode).toBe("seconds");
+    // 旧快照带回陈旧 splitTargetSeconds=8 → restore 按主控字数 20 + 恢复后的 voice.speed 1.5 自愈为 round(20/(3.3×1.5))=4
+    expect(w.vm.s2vConfig.splitTargetSeconds).toBe(4);
     // 恢复表单折叠状态
     expect(w.vm.s2vOpenSections.appearance).toBe(true);
     expect(w.vm.s2vOpenSections.voice).toBe(true);
@@ -950,6 +957,37 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
+  it("S2V 编排提交字数主控与最短场景时长参数（默认 + 显式开启）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-duration-contract" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
+    const mountS2V = () => {
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+      w.vm.pipelineText = "分镜时长契约";
+      return w;
+    };
+
+    // 默认：字数主控 20 + follow-audio + minSceneDuration 6
+    const w1 = mountS2V();
+    await w1.vm.startPipeline();
+    const defaultConfig = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
+    expect(defaultConfig.split.targetCharsPerScene).toBe(20);
+    expect(defaultConfig.sceneDurationMode).toBe("follow-audio");
+    expect(defaultConfig.minSceneDuration).toBe(6);
+    w1.unmount();
+
+    // 显式：字数 30 + min-duration + N=8
+    const w2 = mountS2V();
+    w2.vm.s2vConfig = { ...w2.vm.s2vConfig, splitTargetCharsPerScene: 30, sceneDurationMode: "min-duration", minSceneDuration: 8 };
+    await w2.vm.startPipeline();
+    const explicitConfig = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
+    expect(explicitConfig.split.targetCharsPerScene).toBe(30);
+    expect(explicitConfig.sceneDurationMode).toBe("min-duration");
+    expect(explicitConfig.minSceneDuration).toBe(8);
+    w2.unmount();
+  });
+
   it("Story2Video 只显示文字输入并拒绝旧图片模式", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-images" } });
@@ -1257,6 +1295,106 @@ describe("CreateView - UI interactions", () => {
     await tabs[2].trigger("click");
     await nextTick();
     expect(w.vm.view).toBe("history");
+  });
+
+  it("分镜粒度双视图：目标时长输入反推字数主控，切换视图保持一致", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+
+    // 默认时长视图：输入 8 秒（非默认值）→ 反推字数 round(8 × 3.3 × 1.0) = 26，且同步旧 targetSeconds
+    const secondsInput = w.find('[data-testid="s2v-split-target-seconds"]');
+    expect(secondsInput.exists()).toBe(true);
+    await secondsInput.setValue(8);
+    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(26);
+    expect(w.vm.s2vConfig.splitTargetSeconds).toBe(8);
+
+    // 切换到字数视图：显示 26；编辑 30 → 主控 30，时长估算 round(30/3.3)=9
+    await w.find('[data-testid="s2v-split-view-chars"]').trigger("click");
+    await nextTick();
+    const charsInput = w.find('[data-testid="s2v-split-target-chars"]');
+    expect(charsInput.exists()).toBe(true);
+    expect(Number(charsInput.element.value)).toBe(26);
+    await charsInput.setValue(30);
+    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(30);
+    expect(w.vm.s2vConfig.splitTargetSeconds).toBe(9);
+
+    // 切回时长视图：显示估算整数秒 30/3.3 ≈ 9（与提交口径一致）
+    await w.find('[data-testid="s2v-split-view-seconds"]').trigger("click");
+    await nextTick();
+    expect(Number(w.find('[data-testid="s2v-split-target-seconds"]').element.value)).toBe(9);
+    w.unmount();
+  });
+
+  it("分镜粒度换算边界：clamp 到 [minWords,maxWords]、无效输入 no-op、语速驱动估算、N 输入自愈", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+
+    // 时长视图输入 60 秒 → 字数被夹到 maxWords=50
+    await w.find('[data-testid="s2v-split-target-seconds"]').setValue(60);
+    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(50);
+
+    // 切到字数视图输入 5 → 夹到 minWords=10
+    await w.find('[data-testid="s2v-split-view-chars"]').trigger("click");
+    await nextTick();
+    await w.find('[data-testid="s2v-split-target-chars"]').setValue(5);
+    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(10);
+
+    // 无效输入 no-op（保持现值）
+    const before = w.vm.s2vConfig.splitTargetCharsPerScene;
+    await w.find('[data-testid="s2v-split-target-chars"]').setValue(0);
+    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(before);
+
+    // 语速 0.5 → 估算时长随动：20 字 / (3.3×0.5) ≈ 12 秒（整数口径）
+    w.vm.s2vConfig.splitTargetCharsPerScene = 20;
+    w.vm.s2vConfig.voiceSpeed = 0.5;
+    await nextTick();
+    expect(w.vm.s2vSplitEstimatedSeconds).toBe(12);
+
+    // N 输入越界自愈：100 → 60，0 → no-op
+    await w.find('[data-testid="s2v-min-duration-toggle"]').setValue(true);
+    await nextTick();
+    await w.find('[data-testid="s2v-min-duration-input"]').setValue(100);
+    expect(w.vm.s2vConfig.minSceneDuration).toBe(60);
+    await w.find('[data-testid="s2v-min-duration-input"]').setValue(0);
+    expect(w.vm.s2vConfig.minSceneDuration).toBe(60);
+    w.unmount();
+  });
+
+  it("最短场景时长开关默认关闭，开启后 N 输入生效并随配置提交", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-min-duration-ui" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "最短场景时长";
+    await nextTick();
+
+    const toggle = w.find('[data-testid="s2v-min-duration-toggle"]');
+    expect(toggle.exists()).toBe(true);
+    expect(toggle.element.checked).toBe(false);
+    expect(w.find('[data-testid="s2v-min-duration-input"]').exists()).toBe(false);
+    expect(w.vm.s2vConfig.sceneDurationMode).toBe("follow-audio");
+
+    // 开启 → N 输入出现并设置 8
+    await toggle.setValue(true);
+    await nextTick();
+    expect(w.vm.s2vConfig.sceneDurationMode).toBe("min-duration");
+    const durationInput = w.find('[data-testid="s2v-min-duration-input"]');
+    expect(durationInput.exists()).toBe(true);
+    await durationInput.setValue(8);
+    expect(w.vm.s2vConfig.minSceneDuration).toBe(8);
+
+    // 提交配置携带 min-duration 与 N
+    await w.vm.startPipeline();
+    const request = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
+    expect(request.sceneDurationMode).toBe("min-duration");
+    expect(request.minSceneDuration).toBe(8);
+    w.unmount();
   });
 
   it("历史记录请求超时时停止加载、显示错误并保留已完成来源", async () => {

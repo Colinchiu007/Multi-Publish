@@ -485,8 +485,40 @@
                   <input type="number" v-model.number="s2vConfig.splitMaxSentenceLength" min="20" max="1000" class="form-input" />
                 </div>
                 <div class="config-item">
-                  <label>分镜目标时长（秒）</label>
-                  <input type="number" v-model.number="s2vConfig.splitTargetSeconds" min="1" max="60" step="0.5" class="form-input" />
+                  <label>分镜粒度</label>
+                  <div class="s2v-split-view-toggle" role="group" aria-label="分镜粒度视图">
+                    <button type="button" class="s2v-view-btn" :class="{ active: s2vConfig.splitViewMode === 'seconds' }" :aria-pressed="s2vConfig.splitViewMode === 'seconds'" data-testid="s2v-split-view-seconds" @click="s2vConfig.splitViewMode = 'seconds'">目标时长</button>
+                    <button type="button" class="s2v-view-btn" :class="{ active: s2vConfig.splitViewMode === 'chars' }" :aria-pressed="s2vConfig.splitViewMode === 'chars'" data-testid="s2v-split-view-chars" @click="s2vConfig.splitViewMode = 'chars'">目标字数</button>
+                  </div>
+                  <input
+                    v-if="s2vConfig.splitViewMode === 'chars'"
+                    type="number"
+                    v-model.number="s2vSplitCharsView"
+                    min="10" max="50" step="1" class="form-input"
+                    data-testid="s2v-split-target-chars"
+                  />
+                  <input
+                    v-else
+                    type="number"
+                    v-model.number="s2vSplitSecondsView"
+                    min="1" :max="s2vSplitMaxSeconds" step="0.5" class="form-input"
+                    data-testid="s2v-split-target-seconds"
+                  />
+                  <span class="s2v-field-hint">
+                    <template v-if="s2vConfig.splitViewMode === 'chars'">约 {{ s2vSplitEstimatedSeconds }} 秒/分镜（按 {{ s2vSplitCharsPerSecond.toFixed(1) }} 字/秒估算）</template>
+                    <template v-else>≈ {{ s2vConfig.splitTargetCharsPerScene }} 字/分镜（估算，实际以旁白音频为准）</template>
+                  </span>
+                </div>
+                <div class="config-item config-span-2">
+                  <label class="s2v-checkbox-label">
+                    <input type="checkbox" v-model="s2vSceneDurationEnabled" data-testid="s2v-min-duration-toggle" />
+                    启用最短场景时长
+                  </label>
+                  <span class="s2v-field-hint">开启后短旁白场景以静音补齐到「最短场景时长」，节奏更统一（默认关闭，跟随旁白）</span>
+                </div>
+                <div v-if="s2vSceneDurationEnabled" class="config-item">
+                  <label>最短场景时长（秒）</label>
+                  <input type="number" v-model.number="s2vMinSceneDurationView" min="1" max="60" step="1" class="form-input" data-testid="s2v-min-duration-input" />
                 </div>
                 <div class="config-item config-span-2">
                   <label>负向提示词</label>
@@ -937,8 +969,10 @@ export default {
         voiceSpeed: 1, voicePitch: 0, voiceVolume: 1,
         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
         splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
+        splitTargetCharsPerScene: 20, splitViewMode: 'seconds',
         splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
+        sceneDurationMode: 'follow-audio', minSceneDuration: 6,
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
         promptStyle: 'realistic', creativeLevel: 5, negativePrompt: '',
         transition: 'fade', subtitleEnabled: true,
@@ -1048,6 +1082,53 @@ export default {
         '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
         'Controls how image prompts are written and organized; it does not replace image style.'
       )
+    },
+    // ---- 分镜粒度双视图（三层模型①）：底层统一 targetCharsPerScene 主控 ----
+    s2vSplitCharsPerSecond() {
+      const base = Number(this.s2vConfig.splitBaseWordsPerSecond)
+      const speed = Number(this.s2vConfig.voiceSpeed)
+      return (Number.isFinite(base) && base > 0 ? base : 3.3) * (Number.isFinite(speed) && speed > 0 ? speed : 1)
+    },
+    // 字数 → 估算时长（时长视图显示；speechRate 单一来源 = voice.speed）。
+    // 与 normalizer 幂等反推一致取整数秒，避免显示/提交口径不一致（claude review W2）。
+    s2vSplitEstimatedSeconds() {
+      const chars = Number(this.s2vConfig.splitTargetCharsPerScene)
+      const cps = this.s2vSplitCharsPerSecond
+      if (!Number.isFinite(chars) || chars <= 0 || cps <= 0) return 6
+      return Math.max(1, Math.min(60, Math.round(chars / cps)))
+    },
+    // 时长视图可达上限：受每分镜字数上限（maxWords）约束，输入范围 = 可达范围（claude review W1）
+    s2vSplitMaxSeconds() {
+      const maxWords = Math.min(200, Number(this.s2vConfig.splitMaxWords) || 50)
+      return Math.max(1, Math.min(60, Math.round(maxWords / this.s2vSplitCharsPerSecond)))
+    },
+    // 时长视图输入：编辑估算时长 → 反推并 clamp 主控字数
+    s2vSplitSecondsView: {
+      get() { return this.s2vSplitEstimatedSeconds },
+      set(value) {
+        const seconds = Number(value)
+        if (!Number.isFinite(seconds) || seconds <= 0) return
+        this.applyS2VTargetChars(Math.round(seconds * this.s2vSplitCharsPerSecond))
+      },
+    },
+    // 字数视图输入：直接主控，clamp 到 [minWords, maxWords] ∩ [1,200]
+    s2vSplitCharsView: {
+      get() { return this.s2vConfig.splitTargetCharsPerScene },
+      set(value) { this.applyS2VTargetChars(Number(value)) },
+    },
+    // 最短场景时长开关（三层模型③）：默认 follow-audio（关闭）
+    s2vSceneDurationEnabled: {
+      get() { return this.s2vConfig.sceneDurationMode === 'min-duration' },
+      set(enabled) { this.s2vConfig.sceneDurationMode = enabled ? 'min-duration' : 'follow-audio' },
+    },
+    // 最短场景时长 N 输入：UI 侧 clamp 到 1..60（normalizer fail-closed 兜底，此处自愈避免通用报错）
+    s2vMinSceneDurationView: {
+      get() { return this.s2vConfig.minSceneDuration },
+      set(value) {
+        const n = Number(value)
+        if (!Number.isFinite(n) || n <= 0) return
+        this.s2vConfig.minSceneDuration = Math.min(60, Math.max(1, Math.round(n)))
+      },
     },
     mediaRequirementsImageText() {
       return this.translateWithLocaleFallback(
@@ -1418,6 +1499,11 @@ export default {
           delete config.voiceProvider; delete config.voiceModel; delete config.voiceId
         }
         this._applyS2VSnapshot(config, this.s2vConfig)
+        // 旧快照缺新字段/带回陈旧 splitTargetSeconds → 按主控字数自愈（claude review M2/M6），
+        // 避免「恢复→保存」循环污染与显示/提交口径不一致
+        if (Number.isFinite(Number(this.s2vConfig.splitTargetCharsPerScene))) {
+          this.applyS2VTargetChars(this.s2vConfig.splitTargetCharsPerScene)
+        }
         if (this.s2vConfig.imageProvider && !imageProviders.has(this.s2vConfig.imageProvider)) {
           this.s2vConfig.imageProvider = this.s2vImageProviders[0]?.id || ''
           this.s2vConfig.imageModel = ''
@@ -1483,6 +1569,7 @@ export default {
             mode: config.splitMode,
             maxSentenceLength: config.splitMaxSentenceLength,
             targetSeconds: config.splitTargetSeconds,
+            targetCharsPerScene: config.splitTargetCharsPerScene,
             baseWordsPerSecond: config.splitBaseWordsPerSecond,
             speechRate: config.splitSpeechRate,
             minWords: config.splitMinWords,
@@ -1521,6 +1608,8 @@ export default {
           },
           bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
           transition: config.transition,
+          sceneDurationMode: config.sceneDurationMode,
+          minSceneDuration: config.minSceneDuration,
           templateId: config.templateId || '',
           concurrency: config.concurrency,
           watermark: {
@@ -1563,6 +1652,17 @@ export default {
     },
     cloneForIpc(value) {
       try { return JSON.parse(JSON.stringify(value)) } catch { return {} }
+    },
+    // 分镜字数主控：clamp 到 [minWords, maxWords] ∩ [1,200]，并同步旧 targetSeconds（估算，与 normalizer 幂等反推一致）
+    applyS2VTargetChars(rawChars) {
+      const chars = Number(rawChars)
+      if (!Number.isFinite(chars) || chars <= 0) return
+      const min = Math.max(1, Number(this.s2vConfig.splitMinWords) || 10)
+      const max = Math.min(200, Number(this.s2vConfig.splitMaxWords) || 50)
+      const clamped = Math.min(max, Math.max(min, Math.round(chars)))
+      this.s2vConfig.splitTargetCharsPerScene = clamped
+      const cps = this.s2vSplitCharsPerSecond
+      this.s2vConfig.splitTargetSeconds = cps > 0 ? Math.min(60, Math.max(1, Math.round(clamped / cps))) : 6
     },
     applyS2VTemplate() {
       const template = getTemplateById(this.s2vConfig.templateId, window.localStorage)
@@ -2775,6 +2875,14 @@ export default {
 .s2v-config-section[open] > .s2v-section-summary::before { transform: rotate(90deg); }
 .s2v-summary { margin-left: auto; color: var(--text-muted); font-size: 12px; font-weight: 400; text-align: right; }
 .s2v-config-section > .config-grid { padding: 0 16px 16px; }
+.s2v-split-view-toggle { display: inline-flex; gap: 6px; margin-bottom: 6px; }
+.s2v-view-btn {
+  padding: 4px 12px; font-size: 12px; border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--text-muted); cursor: pointer; transition: all .15s ease;
+}
+.s2v-view-btn.active { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
+.s2v-field-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+.s2v-checkbox-label { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
 .s2v-subgroup { margin: 0 16px 12px; }
 .s2v-subgroup:first-of-type { margin-top: 2px; }
 .s2v-subgroup-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 0 8px; padding-bottom: 4px; border-bottom: 1px dashed var(--border); }

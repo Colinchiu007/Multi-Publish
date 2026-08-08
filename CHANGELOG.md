@@ -1,5 +1,19 @@
 ## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
 
+### 场景时长模式 Batch 4：CreateView 分镜粒度双视图 + 最短场景时长开关（2026-08-08）
+- 「分镜目标时长（秒）」误导性独立旋钮下线，改为**分镜粒度双视图**（默认时长视图）：目标时长视图编辑时由程序按
+  `baseWordsPerSecond(3.3) × voice.speed` 反推 `targetCharsPerScene` 并标注「估算，实际以旁白音频为准」；
+  目标字数视图直接主控；换算 clamp 到 `[minWords, maxWords] ∩ [1,200]` 并同步旧 `targetSeconds`（与 normalizer 幂等反推一致）。
+- 新增「启用最短场景时长」开关（默认关闭 = `follow-audio`，行为与现状一致）+ N 输入（默认 6，1..60）；
+  开启后提交 `sceneDurationMode='min-duration'` + `minSceneDuration=N`。
+- 提交的 `story2videoTextConfig` 新增 `split.targetCharsPerScene` 与顶层 `sceneDurationMode/minSceneDuration`（normalizer Batch 1 契约已支持）。
+- 换算自愈：时长↔字数 clamp 到 `[minWords,maxWords]∩[1,200]`，N 输入 clamp 到 1..60，无效输入 no-op；
+  旧 lastOptions 快照缺新字段时恢复默认值（20 / follow-audio / 6 / 时长视图）；旧快照的 `splitTargetSeconds`
+  会被新主控重算覆盖（误导性时长旋钮下线的预期行为）。
+- 回归：CreateView 新增 4 用例（字数主控+最短时长参数默认/显式契约、双视图换算一致、clamp 边界/N 自愈、
+  开关默认关+开启提交 + 旧快照恢复默认值），90 用例全绿；`vite build` 通过、eslint 0 error；
+  像素视觉回归 17/17（本地，含 /create 视图）。
+
 ### 场景时长模式 Batch 3：compose 节奏层（min-duration 静音补齐，2026-08-08）
 - `sceneDurationMode='min-duration'` 时按 `max(ffprobe 真实音频时长, minSceneDuration)` 补齐场景：`-t` + 音频 `apad` + 去 `-shortest`，片段/成片时长精确到目标值；`follow-audio`（默认）保持 `-shortest` 跟随旁白不变。
 - **探测失败守卫（C1）**：仅当真实探测到音频且补齐目标严格大于音频时长时才启用补齐；探测失败一律走 follow-audio 路径，绝不启用补齐 `-t/apad` 硬截断未知长度旁白（探测失败且场景带上报 duration 时沿用既有 `-t reported` 上限语义，非本次引入）。
