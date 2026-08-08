@@ -849,6 +849,12 @@ import {
   getStory2VideoNotificationUiText,
   resolveStory2VideoNotification,
 } from '@/story2video/story2video-notifications'
+import {
+  estimateCharsPerSecond,
+  estimateCharsPerScene,
+  estimateDurationSeconds,
+  getLanguageBaseWordsPerSecond,
+} from '@/story2video/voice-estimate'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
@@ -970,6 +976,8 @@ export default {
         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
         splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
         splitTargetCharsPerScene: 20, splitViewMode: 'seconds',
+        // splitBaseWordsPerSecond 自 Batch 5a 起为兼容遗留字段：估算与提交已由语言感知表驱动（voice-estimate.js），
+        // 仅旧快照恢复兼容保留，不再参与计算（Batch 5b 可清理）。
         splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
         sceneDurationMode: 'follow-audio', minSceneDuration: 6,
@@ -1084,31 +1092,34 @@ export default {
       )
     },
     // ---- 分镜粒度双视图（三层模型①）：底层统一 targetCharsPerScene 主控 ----
+    // 语言感知估算（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3 × voice.speed（speechRate 单一来源）
     s2vSplitCharsPerSecond() {
-      const base = Number(this.s2vConfig.splitBaseWordsPerSecond)
-      const speed = Number(this.s2vConfig.voiceSpeed)
-      return (Number.isFinite(base) && base > 0 ? base : 3.3) * (Number.isFinite(speed) && speed > 0 ? speed : 1)
+      return estimateCharsPerSecond(this.s2vConfig.splitLanguage, this.s2vConfig.voiceSpeed)
     },
-    // 字数 → 估算时长（时长视图显示；speechRate 单一来源 = voice.speed）。
-    // 与 normalizer 幂等反推一致取整数秒，避免显示/提交口径不一致（claude review W2）。
+    // 字数 → 估算时长（时长视图显示；与 normalizer 幂等反推一致取整数秒）
     s2vSplitEstimatedSeconds() {
       const chars = Number(this.s2vConfig.splitTargetCharsPerScene)
-      const cps = this.s2vSplitCharsPerSecond
-      if (!Number.isFinite(chars) || chars <= 0 || cps <= 0) return 6
-      return Math.max(1, Math.min(60, Math.round(chars / cps)))
+      if (!Number.isFinite(chars) || chars <= 0) return 6
+      return estimateDurationSeconds(chars, this.s2vConfig.splitLanguage, this.s2vConfig.voiceSpeed)
     },
     // 时长视图可达上限：受每分镜字数上限（maxWords）约束，输入范围 = 可达范围（claude review W1）
     s2vSplitMaxSeconds() {
       const maxWords = Math.min(200, Number(this.s2vConfig.splitMaxWords) || 50)
       return Math.max(1, Math.min(60, Math.round(maxWords / this.s2vSplitCharsPerSecond)))
     },
-    // 时长视图输入：编辑估算时长 → 反推并 clamp 主控字数
+    // 时长视图输入：编辑估算时长 → 语言感知反推并 clamp 主控字数
     s2vSplitSecondsView: {
       get() { return this.s2vSplitEstimatedSeconds },
       set(value) {
         const seconds = Number(value)
         if (!Number.isFinite(seconds) || seconds <= 0) return
-        this.applyS2VTargetChars(Math.round(seconds * this.s2vSplitCharsPerSecond))
+        this.applyS2VTargetChars(estimateCharsPerScene(
+          seconds,
+          this.s2vConfig.splitLanguage,
+          this.s2vConfig.voiceSpeed,
+          this.s2vConfig.splitMinWords,
+          this.s2vConfig.splitMaxWords,
+        ))
       },
     },
     // 字数视图输入：直接主控，clamp 到 [minWords, maxWords] ∩ [1,200]
@@ -1570,7 +1581,8 @@ export default {
             maxSentenceLength: config.splitMaxSentenceLength,
             targetSeconds: config.splitTargetSeconds,
             targetCharsPerScene: config.splitTargetCharsPerScene,
-            baseWordsPerSecond: config.splitBaseWordsPerSecond,
+            // 语言感知基准语速（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3，与 UI 估算同源
+            baseWordsPerSecond: getLanguageBaseWordsPerSecond(config.splitLanguage),
             speechRate: config.splitSpeechRate,
             minWords: config.splitMinWords,
             maxWords: config.splitMaxWords,

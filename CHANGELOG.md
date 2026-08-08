@@ -1,5 +1,19 @@
 ## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
 
+### 场景时长模式 Batch 5a：语言感知估算 + TTS 时长样本采集（2026-08-08）
+- **语言感知基准语速表**：`zh≈4.5 字/s`、`en≈2.8 词/s`、其余（含 auto）回退 3.3——
+  UI 双视图估算、提交的 `split.baseWordsPerSecond`、normalizer 缺省值三者同源
+  （renderer/主进程双副本 + 合同测试锁定一致）；时长↔字数换算按 `语言基准 × voice.speed`，clamp/整数口径不变。
+- **TTS 时长样本采集**：compose 每场景记录真实旁白音频时长 `audioDuration`（与补齐后视频片段 `duration` 分离），
+  流水线 compose 成功后 best-effort 写入本地 `story2video.ttsSamples.v1`（FIFO ≤500，
+  字段 language/provider/model/voiceId/speed/chars/durationSeconds/recordedAt，不存原文；探测失败片段跳过；
+  采集异常静默不阻断流水线）——为 Batch 5b 自适应校准提供数据源。
+- 回归：新增 voice-estimate / tts-samples / renderer↔主进程一致性合同测试（含 normalizer 三腿等价）；
+  扩展 text-config（语言感知缺省值）、compose-engine（audioDuration 字段）、stage-executor（采集钩子 + 静默容错）、
+  CreateView（语言感知换算）——受影响 7 套件 275 用例全绿；`vite build` 通过、eslint 0 error、像素视觉回归 17/17、QM-1 打包通过。
+- ⚠️ 已知边界（排期进 Batch 5b）：en 表值按「2.8 词/s」设计但实现按字符计，英文估算系统性偏小约 5×，
+  5b 自适应校准必须处理 chars/words 比值（样本已存 chars + language）或改 en 为字/s 口径。
+
 ### 场景时长模式 Batch 4：CreateView 分镜粒度双视图 + 最短场景时长开关（2026-08-08）
 - 「分镜目标时长（秒）」误导性独立旋钮下线，改为**分镜粒度双视图**（默认时长视图）：目标时长视图编辑时由程序按
   `baseWordsPerSecond(3.3) × voice.speed` 反推 `targetCharsPerScene` 并标注「估算，实际以旁白音频为准」；

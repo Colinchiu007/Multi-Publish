@@ -273,8 +273,8 @@ describe("CreateView", () => {
     expect(w.vm.s2vConfig.sceneDurationMode).toBe("follow-audio");
     expect(w.vm.s2vConfig.minSceneDuration).toBe(6);
     expect(w.vm.s2vConfig.splitViewMode).toBe("seconds");
-    // 旧快照带回陈旧 splitTargetSeconds=8 → restore 按主控字数 20 + 恢复后的 voice.speed 1.5 自愈为 round(20/(3.3×1.5))=4
-    expect(w.vm.s2vConfig.splitTargetSeconds).toBe(4);
+    // 旧快照带回陈旧 splitTargetSeconds=8 → restore 按主控字数 20 + 恢复后的语言 en(2.8) × voice.speed 1.5 自愈为 round(20/4.2)=5
+    expect(w.vm.s2vConfig.splitTargetSeconds).toBe(5);
     // 恢复表单折叠状态
     expect(w.vm.s2vOpenSections.appearance).toBe(true);
     expect(w.vm.s2vOpenSections.voice).toBe(true);
@@ -1324,6 +1324,32 @@ describe("CreateView - UI interactions", () => {
     await w.find('[data-testid="s2v-split-view-seconds"]').trigger("click");
     await nextTick();
     expect(Number(w.find('[data-testid="s2v-split-target-seconds"]').element.value)).toBe(9);
+    w.unmount();
+  });
+
+  it("语言感知估算（Batch 5a）：zh/en 基准语速参与时长↔字数换算，auto 回退 3.3", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+
+    // zh：8 秒 → round(8 × 4.5) = 36 字；36/4.5 = 8 秒回显
+    w.vm.s2vConfig.splitLanguage = "zh";
+    await w.find('[data-testid="s2v-split-target-seconds"]').setValue(8);
+    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(36);
+    expect(w.vm.s2vConfig.splitTargetSeconds).toBe(8);
+    expect(w.vm.s2vSplitEstimatedSeconds).toBe(8);
+
+    // en：8 秒 → round(8 × 2.8) = 22 字
+    w.vm.s2vConfig.splitLanguage = "en";
+    await w.find('[data-testid="s2v-split-target-seconds"]').setValue(8);
+    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(22);
+    expect(w.vm.s2vConfig.splitTargetSeconds).toBe(8);
+
+    // auto：8 秒 → round(8 × 3.3) = 26 字（默认行为不变）
+    w.vm.s2vConfig.splitLanguage = "auto";
+    await w.find('[data-testid="s2v-split-target-seconds"]').setValue(8);
+    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(26);
     w.unmount();
   });
 

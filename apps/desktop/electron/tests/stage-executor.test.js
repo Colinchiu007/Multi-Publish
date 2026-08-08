@@ -476,6 +476,72 @@ it('COMPOSE 阶段处理 code === 0 成功', async function () {
   eq(result.output.videoPath, '/tmp/out.mp4');
 });
 
+it('COMPOSE 成功后采集 TTS 时长样本（Batch 5a，best-effort）', async function () {
+  const saved = new Map();
+  const store = {
+    getSetting: (key) => saved.get(key),
+    setSetting: (key, value) => saved.set(key, value),
+  };
+  const bus = makeMockServiceBus({
+    composeVideo: async () => ({
+      code: 0,
+      data: {
+        videoPath: '/tmp/out.mp4',
+        segments: [
+          { text: '长安城的灯火。', audioDuration: 4.2, duration: 4.2 },
+          { text: '第二段旁白', audioDuration: 3.1, duration: 3.1 },
+          { text: '探测失败段', audioDuration: null, duration: 6 },
+        ],
+      },
+    }),
+  });
+  const exec = new StageExecutor({
+    serviceBus: bus,
+    container: { get: (name) => (name === 'store' ? store : null) },
+    log: { info() {}, warn() {}, error() {} },
+  });
+  const result = await exec.execute({
+    runId: 'compose-collect',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets' },
+    params: {
+      story2videoTextConfig: {
+        split: { language: 'zh' },
+        voice: { provider: 'edge-tts', model: 'm', id: 'v', speed: 1 },
+      },
+    },
+    context: { assets: { scenes: [] } },
+  });
+  eq(result.success, true);
+  const samples = saved.get('story2video.ttsSamples.v1');
+  eq(Array.isArray(samples), true);
+  eq(samples.length, 2); // 探测失败的片段被跳过
+  eq(samples[0].language, 'zh');
+  eq(samples[0].chars, 7);
+  eq(samples[0].durationSeconds, 4.2);
+  eq(samples[1].chars, 5);
+});
+
+it('COMPOSE 采集在 store 缺失/异常时静默（不阻断成功返回）', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: async () => ({
+      code: 0,
+      data: { videoPath: '/tmp/out.mp4', segments: [{ text: 'x', audioDuration: 1 }] },
+    }),
+  });
+  const exec = new StageExecutor({
+    serviceBus: bus,
+    container: { get: () => { throw new Error('no store') } },
+    log: { info() {}, warn() {}, error() {} },
+  });
+  const result = await exec.execute({
+    runId: 'compose-collect-fail',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets' },
+    params: {},
+    context: { assets: {} },
+  });
+  eq(result.success, true);
+});
+
 it('COMPOSE 阶段把用户选择的合成参数按白名单覆盖流水线默认值', async function () {
   const bus = makeMockServiceBus();
   const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });

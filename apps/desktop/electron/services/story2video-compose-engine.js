@@ -565,6 +565,9 @@ class Story2VideoComposeEngine {
         segmentRecords.push({
           ...scene,
           duration: segmentDuration,
+          // 真实 TTS 音频时长（探测失败为 null）：供 5b TTS 时长样本校准采集，
+          // min-duration 补齐场景的 duration 为视频片段时长，与旁白实际时长分离。
+          audioDuration,
           subtitleBlocks,
           subtitleTimeline: buildSubtitleTimeline(subtitleBlocks, segmentDuration),
           videoPath: segPath,
@@ -780,6 +783,7 @@ class Story2VideoComposeEngine {
         data: {
           videoPath: destinationPath,
           duration: finalDuration,
+          audioDuration,
           subtitleBlocks,
           subtitleTimeline: buildSubtitleTimeline(subtitleBlocks, finalDuration),
         },
