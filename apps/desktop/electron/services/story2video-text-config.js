@@ -15,6 +15,7 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     mode: 'balanced',
     maxSentenceLength: 200,
     targetSeconds: 6,
+    targetCharsPerScene: 20,
     baseWordsPerSecond: 3.3,
     speechRate: 1,
     minWords: 10,
@@ -54,8 +55,9 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     color: 'white',
   }),
   bgm: Object.freeze({ enabled: false, path: '', volume: 5 }),
-  perImageDuration: 6,
   transition: 'fade',
+  sceneDurationMode: 'follow-audio',
+  minSceneDuration: 6,
   templateId: '',
   concurrency: 3,
   watermark: Object.freeze({
@@ -82,6 +84,7 @@ const IMAGE_EFFECTS = new Set([
   'zoom-pan', 'rotate', 'blur-in',
 ])
 const TRANSITIONS = new Set(['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down'])
+const SCENE_DURATION_MODES = new Set(['follow-audio', 'min-duration'])
 const SPLIT_MODES = new Set(['fast', 'balanced', 'precise'])
 const LANGUAGES = new Set(['auto', 'zh', 'en'])
 const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
@@ -303,7 +306,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     maxSentenceLength: numberValue(own(splitInput, 'maxSentenceLength'), 200, 'split.maxSentenceLength', 20, 1000, true),
     targetSeconds: numberValue(own(splitInput, 'targetSeconds'), 6, 'split.targetSeconds', 1, 60),
     baseWordsPerSecond: numberValue(own(splitInput, 'baseWordsPerSecond'), 3.3, 'split.baseWordsPerSecond', 0.5, 10),
-    speechRate: numberValue(own(splitInput, 'speechRate'), 1, 'split.speechRate', 0.5, 2),
+    // speechRate 单一来源（三层模型 P1，Batch 2）：由 voice.speed 派生，不再校验/接受独立值
     minWords: numberValue(own(splitInput, 'minWords'), 10, 'split.minWords', 1, 200, true),
     maxWords: numberValue(own(splitInput, 'maxWords'), 50, 'split.maxWords', 1, 500, true),
     enforceSentenceBoundary: booleanValue(own(splitInput, 'enforceSentenceBoundary'), true),
@@ -316,6 +319,8 @@ function normalizeStory2VideoTextParams(params = {}) {
   if (split.subtitleMinChars > split.subtitleMaxChars) {
     throw new Error('Story2Video split.subtitleMinChars 不能大于 subtitleMaxChars')
   }
+  // 分镜字数主控（三层模型①）与 speechRate 单一来源在 voice 构建后计算（见下），
+  // 使切分估算使用实际 TTS 语速。
 
   const optimize = {
     style: promptStyleValue(
@@ -344,6 +349,26 @@ function normalizeStory2VideoTextParams(params = {}) {
     emotion: idValue(firstDefined(own(voiceInput, 'emotion'), params.voiceEmotion), 'default', 'voice.emotion'),
   }
 
+  // speechRate 单一来源（三层模型 P1，Batch 2）：切分估算与实际 TTS 语速一致，
+  // 消除“切分按 1x、播报按 1.5x”脱节；voice.speed 已按 0.5..2 校验。
+  split.speechRate = voice.speed
+  // 分镜字数主控（三层模型①）：显式 targetCharsPerScene 优先；缺省时由 targetSeconds
+  // （× baseWordsPerSecond × speechRate）换算并夹在 [max(minWords,1), min(maxWords,200)]
+  // （与 1..200 契约一致，防止 maxWords 配到 500 时突破契约）。旧配置自动兼容。
+  const computedTargetChars = Math.round(split.targetSeconds * split.baseWordsPerSecond * split.speechRate)
+  const explicitChars = own(splitInput, 'targetCharsPerScene') !== undefined
+    ? numberValue(own(splitInput, 'targetCharsPerScene'), DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.targetCharsPerScene, 'split.targetCharsPerScene', 1, 200, true)
+    : null
+  if (explicitChars !== null && (explicitChars < split.minWords || explicitChars > split.maxWords)) {
+    throw new Error('Story2Video split.targetCharsPerScene 必须在 [minWords=' + split.minWords + ', maxWords=' + split.maxWords + '] 范围内')
+  }
+  split.targetCharsPerScene = explicitChars !== null
+    ? explicitChars
+    : Math.min(Math.min(split.maxWords, 200), Math.max(Math.max(split.minWords, 1), computedTargetChars))
+  // 统一以最终 targetCharsPerScene 反推 target_duration（= chars ÷ (bps × speechRate)，取整 1..60）：
+  // 使主控经现有 8002 通道生效，且首次运行与保存重载一致（幂等）。
+  split.targetSeconds = Math.min(60, Math.max(1, Math.round(split.targetCharsPerScene / (split.baseWordsPerSecond * split.speechRate))))
+
   const subtitleSize = normalizeSubtitleSize(firstDefined(own(subtitleInput, 'size'), params.subtitleStyle?.size))
   const subtitle = {
     enabled: booleanValue(firstDefined(own(subtitleInput, 'enabled'), params.subtitleEnabled), false),
@@ -361,14 +386,20 @@ function normalizeStory2VideoTextParams(params = {}) {
     volume: numberValue(firstDefined(own(bgmInput, 'volume'), hasNestedBgm ? undefined : legacyBgmVolume), 5, 'bgm.volume', 0, 10),
   }
 
-  const perImageDuration = numberValue(
-    firstDefined(own(suppliedConfig, 'perImageDuration'), params.defaultSceneDuration),
+  // defaultSceneDuration 仅作为 compose 无可用音频时长时的回退与动效归一化兜底，不再暴露为可配置项。
+  // 优先级：顶层运行参数 params.defaultSceneDuration > story2videoTextConfig 内嵌字段
+  // （新保存的 story2videoTextConfig 已不含该字段，项目恢复走 _safeOptions 顶层通道）。
+  const defaultSceneDuration = numberValue(
+    firstDefined(params.defaultSceneDuration, own(suppliedConfig, 'defaultSceneDuration')),
     6,
-    'perImageDuration',
+    'defaultSceneDuration',
     1,
     60,
   )
   const transition = enumValue(firstDefined(own(suppliedConfig, 'transition'), params.transition), 'fade', 'transition', TRANSITIONS)
+  // 场景时长模式（三层模型③）：follow-audio 跟随旁白（默认）；min-duration 以静音补齐到 minSceneDuration。
+  const sceneDurationMode = enumValue(firstDefined(own(suppliedConfig, 'sceneDurationMode'), params.sceneDurationMode), 'follow-audio', 'sceneDurationMode', SCENE_DURATION_MODES)
+  const minSceneDuration = numberValue(firstDefined(own(suppliedConfig, 'minSceneDuration'), params.minSceneDuration), 6, 'minSceneDuration', 1, 60)
   const contentType = enumValue(firstDefined(own(suppliedConfig, 'contentType'), params.contentType), 'general', 'contentType', CONTENT_TYPES)
   const templateId = idValue(firstDefined(own(suppliedConfig, 'templateId'), params.templateId), '', 'templateId')
   const concurrency = numberValue(firstDefined(own(suppliedConfig, 'concurrency'), params.concurrency), 3, 'concurrency', 1, 8, true)
@@ -405,8 +436,9 @@ function normalizeStory2VideoTextParams(params = {}) {
     voice,
     subtitle,
     bgm,
-    perImageDuration,
     transition,
+    sceneDurationMode,
+    minSceneDuration,
     templateId,
     concurrency,
     watermark,
@@ -431,6 +463,8 @@ function normalizeStory2VideoTextParams(params = {}) {
       speech_rate: split.speechRate,
       min_words: split.minWords,
       max_words: split.maxWords,
+      // 仅供本地 fallback 切分直接消费；8002 经 _buildStorySplitterOptions 白名单不会收到该键。
+      target_chars_per_scene: split.targetCharsPerScene,
       enforce_sentence_boundary: split.enforceSentenceBoundary,
       overflow_to_next: split.overflowToNext,
       subtitle_min_chars: split.subtitleMinChars,
@@ -461,6 +495,8 @@ function normalizeStory2VideoTextParams(params = {}) {
     },
     compose: {
       transition,
+      sceneDurationMode,
+      minSceneDuration,
       imageEffect: image.effect,
       subtitleEnabled: subtitle.enabled,
       subtitleStyle,
@@ -474,7 +510,7 @@ function normalizeStory2VideoTextParams(params = {}) {
       resolution: size,
       fps: output.fps,
       format: output.format,
-      defaultSceneDuration: perImageDuration,
+      defaultSceneDuration,
     },
     publish: {
       publishEnabled: publish.enabled || publish.platforms.length > 0,
@@ -517,8 +553,9 @@ function normalizeStory2VideoTextParams(params = {}) {
     voiceVolume: voice.volume,
     concurrency,
     templateId: templateId || null,
-    defaultSceneDuration: perImageDuration,
-    perImageDuration,
+    defaultSceneDuration,
+    sceneDurationMode,
+    minSceneDuration,
     imageEffect: image.effect,
     transition,
     subtitleEnabled: subtitle.enabled,

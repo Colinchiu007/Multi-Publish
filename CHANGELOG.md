@@ -1,3 +1,19 @@
+## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
+
+### 配置合同（v1 扩展，版本号不变）
+- `story2videoTextConfig` 新增可选字段：`split.targetCharsPerScene`（默认 20，1..200 整数，分镜字数主控）、
+  `sceneDurationMode`（`follow-audio`|`min-duration`，默认 follow-audio）、`minSceneDuration`（默认 6，1..60）。
+  均为兼容扩展（旧配置缺省时按既有 `targetSeconds×baseWordsPerSecond×speechRate` 换算并夹到契约范围；
+  显式 `targetCharsPerScene` 时反推 `target_duration` 经 8002 通道生效）。
+- **`split.speechRate` 单一来源**：切分估算语速改由 `voice.speed` 驱动（消除"切分按 1x、播报按 1.5x"脱节）；
+  旧配置显式 `split.speechRate` 不再生效（被 `voice.speed` 覆盖），发布前请知悉。
+
+### 视频创作
+- 图片动效（放大/缩小/平移/缩放平移）进度改为按**场景有效时长**归一化：音频探测成功用真实音频时长，探测失败回退上报时长/默认 6 秒；短场景不再"动效没做完就被切走"，长场景不再"动效提前定格"（与 zoompan `d=总帧数` 修复合并生效）。
+- 移除「单画面时长/无旁白场景时长」选项及 `perImageDuration` 配置合同：无旁白/纯图片轮播模式不再属于 `story2video-compose`；`defaultSceneDuration` 保留为默认 6 秒（UI 不暴露，仍可被运行参数覆盖），仅作音频时长不可探测时的回退与动效归一化兜底（回退路径为 best-effort，不强制截断旁白）。旧项目历史配置中的 `perImageDuration` 会被兼容忽略。
+
+---
+
 ## 历史记录运行结束任务不消失 + 前端重建生效（2026-08-07）
 
 ### 1. 历史记录

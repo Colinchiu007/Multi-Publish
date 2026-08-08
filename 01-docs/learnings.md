@@ -4493,8 +4493,13 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁�
   `story2videoTextConfig.config.prompt`，但持久化前的 normalizer 仍强制读取顶层 `params.text`；
   renderer 总会重复发送两份文案，因此正常创建流程掩盖了项目恢复路径的失败。
 - `image.aspectRatio` 只校验 `W:H` 字符格式，没有校验下游 Provider 支持集合，`7:11` 等值能进入资产阶段。
-- normalizer、UI 和 YAML 已统一 `perImageDuration` 为 1..60 秒、默认 6 秒，compose engine 的防御性
-  直调仍保留旧的 0.1 秒下限和 3 秒默认值。
+- 无旁白/纯图片轮播模式已下线：`perImageDuration`（单画面时长/无旁白场景时长）已从 renderer、
+  normalizer、模板库与 YAML 中彻底移除；`defaultSceneDuration` 保留为 compose 默认 6 秒
+  （可被 `params.defaultSceneDuration` / 配置内 `defaultSceneDuration` 运行参数覆盖，仅 UI 不暴露），
+  仅作“音频时长不可探测”时的回退与动效归一化兜底。归一化回退路径为 best-effort：探测失败时
+  动效按 6 秒归一化而片段仍以 `-shortest` 跟随真实音频，不强制 `-t` 对齐（避免截断旁白）。
+  `_createSegment` 直调的 `clampNumber(opts.duration, 0.1, 3600, 3)` 中 0.1 秒下限可达；
+  3 秒默认值因前置 `Number(duration) > 0` 守卫实际不可达（死默认）。
 
 ### 测试逃逸链与系统性漏洞
 1. 项目持久化测试始终同时传 `text` 与版本化 `prompt`，没有构造只剩项目配置的恢复形状。
@@ -5839,4 +5844,29 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **回归保护**：CreateView 单测覆盖提示文案、错误映射与「不渲染函数文本」断言（73 项通过）；Playwright 探针（C:\tmp\clone-probe.js）验证面板文本。
 - **预防**：模板插值只用于值/计算属性，方法必须 `()` 调用；provider 错误码清单要全局核对渲染端映射表（service 共 19 个 VOICE_CLONE_* 码）。
 
+---
 
+## codeagent-wrapper claude 后端空 --setting-sources 参数 bug（2026-08-07）
+
+### 第一性原因
+- `codeagent-wrapper.exe`（Go 二进制，`main.buildClaudeArgs` 硬编码）构造 claude 命令时总带 `--setting-sources`，且未配置 setting sources 时值为空：
+  `claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -`
+  claude CLI 把下一个 token（`--output-format`）当作 `--setting-sources` 的取值，报
+  `Error processing --setting-sources: Invalid setting source: --output-format` 后 exit 1。
+
+### 逃逸链
+- wrapper 无配置/env 开关控制该参数（二进制 strings 确认）；`--help` 无 setting-sources 选项；`~/.claude/.ccg/config.toml` 无对应字段。
+- 本机无 wrapper 源码（仅有 `backups/codeagent-wrapper-*/` 的 truncated exe），无法改二进制重编。
+
+### 修复 + 回归保护
+- 方案：PATH 前置净化 shim `C:\Users\邱领\.claude\shims\claude.cmd` → `claude-sanitize.py`，仅剥离“空值/空字符串值的 `--setting-sources`”，其余参数原样透传真实 `claude.exe`。
+- shim 用 `%USERPROFILE%` 展开中文路径（batch 文件保持 ASCII，避免 GBK/代码页损坏）；Python 侧把 `--setting-sources ""`（wrapper 实际传空字符串）也视为无值。
+- 验证：`CLAUDE_SHIM_DRYRUN=1` 探针证明 wrapper 实际调用 shim 且净化命令正确（`-p --dangerously-skip-permissions --output-format stream-json --verbose -`）；claude 越过参数解析进入运行。
+
+### 遗留阻塞（非 wrapper）
+- claude 运行期仍 exit 1：`~/.claude/settings.json` 的 `ANTHROPIC_BASE_URL=http://127.0.0.1:15721`（本地代理网关，`PROXY_MANAGED` 认证，模型映射 deepseek-v4-flash）当前未运行 → `API Error: Unable to connect to API (ConnectionRefused)`。
+- 次要：`CLAUDE_PLUGIN_ROOT/hooks/*` bash 钩子被 PowerShell 执行报 ParserError（非致命）。
+
+### 预防措施
+- 双模型审查的 claude 腿：先确保 127.0.0.1:15721 网关运行，再以 `PATH="/c/Users/邱领/.claude/shims:$PATH"` 调用 `codeagent-wrapper --backend claude`。
+- 若网关长期不可用，claude 腿可退化为直接 `claude -p --dangerously-skip-permissions --output-format stream-json -`（跳过 wrapper 的坏参数）。

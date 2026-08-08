@@ -97,6 +97,7 @@ it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块'
         target_duration: 4,
         base_words_per_second: 2.8,
         speech_rate: 1.2,
+        target_chars_per_scene: 20,
         min_words: 12,
         max_words: 40,
         enforce_sentence_boundary: false,
@@ -147,6 +148,9 @@ it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块'
   expect(sentOptions).not.toHaveProperty('require_scene_output');
   expect(sentOptions).not.toHaveProperty('target_duration');
   expect(sentOptions).not.toHaveProperty('subtitle_min_chars');
+  // 分镜字数主控只走本地 fallback（snake_case 键），8002 请求不得包含（双模型审查 W2）
+  expect(sentOptions).not.toHaveProperty('target_chars_per_scene');
+  expect(sentOptions.config.scene).not.toHaveProperty('target_chars_per_scene');
 });
 
 it('Story2Video SPLIT 仅在 8002 不可用时降级到本地双层分句', async function () {
@@ -480,7 +484,8 @@ it('COMPOSE 阶段把用户选择的合成参数按白名单覆盖流水线默�
     stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets', options: { transition: 'fade' } },
     params: {
       transition: 'slide-left', imageEffect: 'pan-up', subtitleEnabled: false,
-      defaultSceneDuration: 5, resolution: '1080x1920', fps: 25, voiceVolume: 0.8,
+      defaultSceneDuration: 5, sceneDurationMode: 'min-duration', minSceneDuration: 8,
+      resolution: '1080x1920', fps: 25, voiceVolume: 0.8,
       untrustedOption: 'must-not-pass',
     },
     context: { assets: { scenes: [] } },
@@ -488,7 +493,8 @@ it('COMPOSE 阶段把用户选择的合成参数按白名单覆盖流水线默�
 
   expect(bus.composeVideo).toHaveBeenCalledWith({ scenes: [] }, expect.objectContaining({
     transition: 'slide-left', imageEffect: 'pan-up', subtitleEnabled: false,
-    defaultSceneDuration: 5, resolution: '1080x1920', fps: 25, voiceVolume: 0.8,
+    defaultSceneDuration: 5, sceneDurationMode: 'min-duration', minSceneDuration: 8,
+    resolution: '1080x1920', fps: 25, voiceVolume: 0.8,
   }));
   expect(bus.composeVideo.mock.calls[0][1]).not.toHaveProperty('untrustedOption');
 });

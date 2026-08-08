@@ -488,10 +488,6 @@
                   <label>分镜目标时长（秒）</label>
                   <input type="number" v-model.number="s2vConfig.splitTargetSeconds" min="1" max="60" step="0.5" class="form-input" />
                 </div>
-                <div class="config-item">
-                  <label>无旁白场景时长（秒）</label>
-                  <input type="number" v-model.number="s2vConfig.perImageDuration" min="1" max="60" step="0.5" class="form-input" />
-                </div>
                 <div class="config-item config-span-2">
                   <label>负向提示词</label>
                   <textarea v-model.trim="s2vConfig.negativePrompt" rows="2" maxlength="500" class="form-textarea"></textarea>
@@ -940,7 +936,6 @@ export default {
         voiceId: '', voiceProvider: '', voiceModel: '',
         voiceSpeed: 1, voicePitch: 0, voiceVolume: 1,
         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
-        perImageDuration: 6,
         splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
         splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
@@ -1525,7 +1520,6 @@ export default {
             color: config.subtitleStyle?.color || 'white',
           },
           bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
-          perImageDuration: config.perImageDuration,
           transition: config.transition,
           templateId: config.templateId || '',
           concurrency: config.concurrency,
@@ -1575,7 +1569,6 @@ export default {
       if (!template) return
       this.s2vConfig.imageEffect = template.imageEffect
       this.s2vConfig.transition = template.transitionEffect
-      this.s2vConfig.perImageDuration = Number(template.perImageDuration) || 6
       this.s2vConfig.subtitleEnabled = template.subtitleStyle?.enabled !== false
       this.s2vConfig.subtitleSize = template.subtitleStyle?.size || 'size3'
       this.s2vConfig.subtitleStyleName = template.subtitleStyle?.style || this.s2vConfig.subtitleStyleName
@@ -1984,7 +1977,6 @@ export default {
         category: 'custom',
         imageEffect: this.s2vConfig.imageEffect,
         transitionEffect: this.s2vConfig.transition,
-        perImageDuration: Number(this.s2vConfig.perImageDuration) || 6,
         size: this.s2vOutputConfig.resolution,
         subtitleStyle: {
           enabled: this.s2vConfig.subtitleEnabled !== false,

@@ -28,6 +28,8 @@ export interface SentenceTokenizerConfig {
 /** 场景级分割配置 */
 export interface SceneSegmentationConfig {
   targetSeconds: number;
+  /** 分镜字数主控（三层模型①）：提供时直接作为目标字数，缺省回退 targetSeconds×bps×speechRate */
+  targetCharsPerScene?: number;
   baseWordsPerSecond: number;
   speechRate: number;
   minWordsPerSegment: number;
@@ -267,11 +269,14 @@ export class SceneSegmenter {
     this.sentenceTokenizer = sentenceTokenizer || new SentenceTokenizer();
   }
 
-  /** 计算目标字数 */
+  /** 计算目标字数（分镜字数主控优先，缺省回退 时长×字速×语速 换算） */
   calculateTargetWords(): number {
-    const targetWords = Math.round(
+    const derived = Math.round(
       this.config.targetSeconds * this.config.baseWordsPerSecond * this.config.speechRate,
     );
+    const targetWords = this.config.targetCharsPerScene && this.config.targetCharsPerScene > 0
+      ? Math.floor(this.config.targetCharsPerScene)
+      : derived;
     return Math.max(
       this.config.minWordsPerSegment,
       Math.min(targetWords, this.config.maxWordsPerSegment),

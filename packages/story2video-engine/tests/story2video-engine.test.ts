@@ -104,6 +104,58 @@ describe('SceneSegmenter', () => {
     expect(segmenter.segment('')).toEqual([]);
   });
 
+  it('calculateTargetWords 优先使用 targetCharsPerScene（分镜字数主控）', () => {
+    const segmenter = new SceneSegmenter({
+      minWordsPerSegment: 5,
+      maxWordsPerSegment: 30,
+      targetSeconds: 6.0,
+      baseWordsPerSecond: 3.3,
+      speechRate: 1.0,
+      targetCharsPerScene: 25,
+      enforceSentenceBoundary: true,
+      allowSingleSentenceOverflow: true,
+    });
+    expect(segmenter.calculateTargetWords()).toBe(25);
+  });
+
+  it('calculateTargetWords 对 targetCharsPerScene 整数化并夹到 [min,max]；缺省回退换算', () => {
+    const clamped = new SceneSegmenter({
+      minWordsPerSegment: 5,
+      maxWordsPerSegment: 30,
+      targetSeconds: 6.0,
+      baseWordsPerSecond: 3.3,
+      speechRate: 1.0,
+      targetCharsPerScene: 60, // 超出 maxWordsPerSegment=30 → 夹到 30
+      enforceSentenceBoundary: true,
+      allowSingleSentenceOverflow: true,
+    });
+    expect(clamped.calculateTargetWords()).toBe(30);
+
+    const floated = new SceneSegmenter({
+      minWordsPerSegment: 5,
+      maxWordsPerSegment: 30,
+      targetSeconds: 6.0,
+      baseWordsPerSecond: 3.3,
+      speechRate: 1.0,
+      targetCharsPerScene: 25.6, // 整数化
+      enforceSentenceBoundary: true,
+      allowSingleSentenceOverflow: true,
+    });
+    expect(floated.calculateTargetWords()).toBe(25);
+
+    // 缺省 targetCharsPerScene → 回退 targetSeconds×bps×speechRate = 19.8 → 20
+    const fallback = new SceneSegmenter({
+      minWordsPerSegment: 5,
+      maxWordsPerSegment: 30,
+      targetSeconds: 6.0,
+      baseWordsPerSecond: 3.3,
+      speechRate: 1.0,
+      enforceSentenceBoundary: true,
+      allowSingleSentenceOverflow: true,
+    });
+    expect(fallback.calculateTargetWords()).toBe(20);
+  });
+
   it('calculateTargetWords 在 min/max 范围内', () => {
     const segmenter = new SceneSegmenter({
       minWordsPerSegment: 5,
