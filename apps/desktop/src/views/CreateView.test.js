@@ -1281,6 +1281,13 @@ describe("CreateView - S2V orchestration", () => {
 
 // ── 交互测试：通过 UI 点击触发，而非 vm 直调 ──────────────────
 describe("CreateView - UI interactions", () => {
+  beforeEach(async () => {
+    // W3（codex 5b）：隔离 storeGetSetting 的 mockResolvedValue 实现泄漏到后续用例
+    const mocks = await import("@/api/publisher");
+    mocks.storeGetSetting.mockReset();
+    mocks.storeGetSetting.mockResolvedValue(null);
+  });
+
   it("clicks view-tab switches view (pipelines/quick/history)", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
@@ -1325,6 +1332,116 @@ describe("CreateView - UI interactions", () => {
     await w.find('[data-testid="s2v-split-view-seconds"]').trigger("click");
     await nextTick();
     expect(Number(w.find('[data-testid="s2v-split-target-seconds"]').element.value)).toBe(9);
+    w.unmount();
+  });
+
+  it("运营后台实时预估（Batch 5b）：静态估算显示分镜数/时长区间/成本", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.storeGetSetting.mockResolvedValue({ code: 0, data: null }); // 无样本 → 静态
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "一二三四五六七八九十"; // 10 字，默认每分镜 20 字 → 1 个分镜
+    await nextTick();
+    await new Promise((r) => setTimeout(r, 20));
+
+    const row = w.find('[data-testid="s2v-estimate-row"]');
+    expect(row.exists()).toBe(true);
+    expect(row.text()).toContain("1 个分镜");
+    // 静态：20 字 / (3.3×1.0) ≈ 6 秒，区间 5~7；成本 = 0.10 + 6×0.05 = 0.40
+    expect(row.text()).toContain("5~7 秒");
+    expect(row.text()).toContain("¥0.40");
+    expect(row.text()).toContain("静态估算");
+    w.unmount();
+  });
+
+  it("运营后台实时预估（Batch 5b）：本地 TTS 样本校准生效并标注", async () => {
+    const mocks = await import("@/api/publisher");
+    const nowIso = new Date().toISOString();
+    const samples = Array.from({ length: 5 }, () => ({
+      language: "zh", provider: "edge-tts", voiceId: "v1", speed: 1,
+      chars: 9, durationSeconds: 1, recordedAt: nowIso, // 实际 9 字/s → 校准系数 2.0
+    }));
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({ code: 0, data: samples });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.s2vConfig = { ...w.vm.s2vConfig, splitLanguage: "zh", voiceProvider: "edge-tts", voiceId: "v1" };
+    w.vm.pipelineText = "一二三四五六七八九十";
+    // 显式触发样本加载（不依赖 mounted 异步链，聚焦校准→预估链路）
+    await w.vm.loadS2VTtsSamples();
+    await nextTick();
+    expect(w.vm.s2vTtsSamples.length).toBe(5);
+
+    const row = w.find('[data-testid="s2v-estimate-row"]');
+    expect(row.exists()).toBe(true);
+    // 校准后：20 字 / (4.5×2.0) ≈ 2 秒，区间 1~3；成本 = 0.10 + 2×0.05 = 0.20
+    expect(row.text()).toContain("1~3 秒");
+    expect(row.text()).toContain("¥0.20");
+    expect(row.text()).toContain("按本地 TTS 样本校准");
+    w.unmount();
+  });
+
+  it("运营后台实时预估（Batch 5b）：storeGetSetting 直接返回数组（生产解包形态）同样生效", async () => {
+    const mocks = await import("@/api/publisher");
+    const nowIso = new Date().toISOString();
+    const samples = Array.from({ length: 4 }, () => ({
+      language: "zh", provider: "edge-tts", voiceId: "v1", speed: 1,
+      chars: 9, durationSeconds: 1, recordedAt: nowIso,
+    }));
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue(samples); // 直接数组（生产 wrapper 解包后的形态）
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.s2vConfig = { ...w.vm.s2vConfig, splitLanguage: "zh", voiceProvider: "edge-tts", voiceId: "v1" };
+    w.vm.pipelineText = "一二三四五六七八九十";
+    await w.vm.loadS2VTtsSamples();
+    await nextTick();
+    expect(w.vm.s2vTtsSamples.length).toBe(4);
+    const row = w.find('[data-testid="s2v-estimate-row"]');
+    expect(row.exists()).toBe(true);
+    expect(row.text()).toContain("按本地 TTS 样本校准");
+    w.unmount();
+  });
+
+  it("运营后台实时预估（Batch 5b）：样本不足 3 条时回退静态标注（W3 语义）", async () => {
+    const mocks = await import("@/api/publisher");
+    const nowIso = new Date().toISOString();
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({ code: 0, data: [
+      { language: "zh", provider: "edge-tts", voiceId: "v1", speed: 1, chars: 9, durationSeconds: 1, recordedAt: nowIso },
+    ] }); // 仅 1 条 → 不足 CALIBRATION_MIN_SAMPLES=3
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.s2vConfig = { ...w.vm.s2vConfig, splitLanguage: "zh", voiceProvider: "edge-tts", voiceId: "v1" };
+    w.vm.pipelineText = "一二三四五六七八九十";
+    await w.vm.loadS2VTtsSamples();
+    await nextTick();
+    const row = w.find('[data-testid="s2v-estimate-row"]');
+    expect(row.exists()).toBe(true);
+    expect(row.text()).toContain("静态估算"); // 未达阈值 → 不标“已校准”
+    w.unmount();
+  });
+
+  it("运营后台实时预估（Batch 5b）：非 story2video-compose 流水线不显示预估行", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "animated-explainer", stages: [] };
+    w.vm.pipelineText = "一二三四五六七八九十";
+    await nextTick();
+    expect(w.find('[data-testid="s2v-estimate-row"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("运营后台实时预估（Batch 5b）：空文案不显示预估行", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await nextTick();
+    expect(w.find('[data-testid="s2v-estimate-row"]').exists()).toBe(false);
     w.unmount();
   });
 

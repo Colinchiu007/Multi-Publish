@@ -1,6 +1,15 @@
 
 ---
 
+## 提交清单遗漏实现文件 + mock 绕过解包复盘 (2026-08-08)
+
+- **漏文件**：Batch 5a 首提交只 stage 了测试文件（stage-executor.test.js），漏了实现（services/stage-executor.js +11 行）。
+  本地因工作树残留实现而全绿，CI 干净检出即 Gate 4 暴露「采集器从未被调用」。教训：**提交前用 `git status --short`
+  核对「实现文件与测试文件成对」**；本地全绿 ≠ 提交完整——工作树可能含未 stage 的实现。质量门禁的价值正在于此。
+- **mock 绕过解包**：`@/api/publisher` 被整模块 `vi.mock` 后，测试里 `storeGetSetting.mockResolvedValue({ code, data })`
+  返回的是原始对象，而生产 wrapper 会解包 `result.data`——消费者若按「已解包数组」处理会拿到空。教训：对 store API
+  的读取方法做防御性形态兼容（`raw.data ?? raw`），与 restoreS2VLastOptions 既有模式一致；测试 mock 直接返回数组更贴近生产形态。
+
 ## TDZ 第二形态：对象字面量自引用复盘 (2026-08-08)
 
 - Batch 3 已记录「提前使用的常量要顶部声明」；Batch 5a 又踩了**同一类 TDZ 的新形态**：
