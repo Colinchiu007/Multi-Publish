@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (多模态 LLM 能力 + 删除交互 + 测试脱敏 + 运营后台预设模型设置)
+
+### 新增
+- **MiniMax 多模态补全文字推理（llm）能力**：预设 `minimax-multimodal` 能力升级为 `['llm','tts','image','video']`，`capability_models.llm='MiniMax-M2.7'`（官方文档 OpenAI 兼容 `POST /v1/chat/completions`）。
+- **新增 `minimax-llm` Adapter**：`chatCompletion` / `streamChat` / `listModels` / `testConnection`，注册进 `ModelProviderManager._registerBuiltinAdapters`；`MinimaxMultimodalAdapter` 组合委托扩展为 LLM/TTS/Image/Video 四个适配器。
+- **能力→调用方法映射**：`ai-generator.TYPE_TO_METHOD` + `capability_models[type]` 保证多模态模型按能力走与单类型模型完全相同的调用方法。
+- **`_syncPresetCapabilities` 升级为 diff-merge**：存量预设行合并新增能力（保留用户已有配置），旧数据库升级后自动获得 `llm` 能力。
+- **运营后台（ops-center）新增「预设模型设置」模块**：`model_presets` 表 + `/api/v1/model-presets` CRUD + 前端「预设模型」页；含 `default_model` 默认模型设置（已知默认模型预填）、`is_visible` 显示开关、`doc_links`/`capability_doc_links` 文档链接（≤10 条，http(s) 校验）、多模态能力手工配置。
+
+### 修改
+- **多模态表单隐藏 Base URL**：新增/编辑对话框对 `multimodal` 类别不展示 Base URL 输入（预设地址系统写死，多能力端点由各适配器各自持有）。
+- **「禁用」按钮改为「删除」**：预设服务商删除 = 软删除（列表隐藏 + 清除 Key + 禁用，可在「添加服务商」重新添加）；自定义服务商物理删除；统一二次确认。
+- **测试连接提示脱敏**：成功仅显示「✅ 连接成功」，不再回显 `{"success":true}` 等原始技术响应体；全项目筛查 `JSON.stringify(res.data)` 类泄漏。
+
+### 测试
+- 新增 minimax-llm 适配器单测（请求体/响应解析/错误映射/SSE/能力协商）、多模态 diff-merge 升级、ai-generator llm 能力模型选择、预设软删除（R85 目录保持）等用例；ops-center 后端新增 6 个模型预设 API 测试（38 全绿），前端构建通过。
+
+### 文档
+- PRD 5.3 / 7.1 删除规则 / 7.4.1（多模态 llm 能力）/ 7.4.2（运营后台预设模型设置）/ 7.4.3（测试脱敏）+ CHANGELOG + E2E 待办。
+
 ## [Unreleased] - 2026-08-08 (MiniMax 异步 T2A 查询响应层级修复)
 
 ### 修复

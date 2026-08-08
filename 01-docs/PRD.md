@@ -561,7 +561,7 @@ class BaseRpaPublisher {
 | 语音识别 | 字幕生成、语音转文字 | OpenAI Whisper / Google STT / 豆包语音识别 / 百度语音识别 / 本地 Whisper |
 | 图片生成 | 封面图、配图、AI 图像 | Flux / DALL-E / Recraft / Imagen / Grok Image / Pixabay / Pexels / 本地扩散 / ComfyUI |
 | 视频模型 | AI 视频生成 | 混元 / CogVideo / Grok Video / HeyGen / Kling / Runway / Veo / Wan / MiniMax / LTX / Seedance / Higgsfield |
-| 多模态模型 | 一个 API Key 覆盖 TTS/生图/视频等多个能力 | MiniMax（能力：TTS语音 / 生图 / 生成视频） |
+| 多模态模型 | 一个 API Key 覆盖文字推理/TTS/生图/视频等多个能力 | MiniMax（能力：文字推理 / TTS语音 / 生图 / 生成视频） |
 
 每个类别可添加多个服务商，并选择一个设为默认。
 
@@ -950,8 +950,13 @@ Electron 打包、工作树、PR 或发布状态证据。
     │   └─ 设置新默认时自动取消同类别旧的默认
     │
     ├─ 删除规则
-    │   ├─ 预设服务商：不允许删除，只能禁用
-    │   └─ 自定义服务商：允许删除，二次确认
+    │   ├─ 预设服务商：删除 = 软删除（从列表隐藏 + 清除 API Key + 禁用），
+    │   │   可在「添加服务商 → 预设目录」中重新添加并恢复配置
+    │   └─ 自定义服务商：物理删除，二次确认
+    │
+    ├─ 测试连接
+    │   ├─ 成功：仅显示「✅ 连接成功」，不展示技术性响应体（如 {"success":true}）
+    │   └─ 失败：显示友好错误原因，必要时附可读 detail（原始技术对象不外泄）
     │
     └─ 服务商用于：
         ├─ 推理模型 → AI 写稿、标题生成、内容智能、视频创作 LLM 选择
@@ -970,15 +975,43 @@ Electron 打包、工作树、PR 或发布状态证据。
 |------|------|
 | 类别与标签 | 后端 `CATEGORIES.MULTIMODAL='multimodal'`、`CATEGORY_LABELS.multimodal='多模态模型'`；前端「模型服务商设置」类别筛选/新增类别卡片/服务商卡片标签同步新增（图标 🌐）。页面副标题更新为「七类 AI 服务商」。 |
 | 预设能力声明 | `model-provider-seeds` 中多模态预设必须携带 `capabilities: string[]`（取值于 `llm/tts/speech_recognition/image/video`）与 `capability_models: { [cap]: modelId }`；能力数必须 ≥ `MULTIMODAL_MIN_CAPABILITIES(2)`；每个声明能力必须给出对应默认模型。预设能力持久化：种子写入行 `config.capabilities` / `config.capability_models`；`_syncPresetCapabilities()` 对存量预设行回填（不覆盖已存在的能力配置）。 |
-| 预设（MiniMax） | 新增预设 `minimax-multimodal`（名称「MiniMax」，`base_url=https://api.minimaxi.com/v1`），声明能力 `['tts','image','video']`（≥2），能力默认模型 `{ tts:'speech-2.8-turbo', image:'image-01', video:'MiniMax-Hailuo-2.3' }`；仅需填一个 API Key。 |
-| 多模态适配器 | 新增 `MinimaxMultimodalAdapter`（`adapters/minimax-multimodal.js`）：组合既有 MiniMax TTS / Image / Video 三个适配器并按方法委托（synthesize/listVoices/cloneVoice → TTS，generateImage → Image，generateVideo/getVideoStatus → Video）；`capabilities()` 自动覆盖 `synthesize/listVoices/cloneVoice/generateImage/generateVideo/getVideoStatus`，不含 `chatCompletion/transcribe`。 |
+| 预设（MiniMax） | 新增预设 `minimax-multimodal`（名称「MiniMax」，`base_url=https://api.minimaxi.com/v1`），声明能力 `['llm','tts','image','video']`（≥2），能力默认模型 `{ llm:'MiniMax-M2.7', tts:'speech-2.8-turbo', image:'image-01', video:'MiniMax-Hailuo-2.3' }`；仅需填一个 API Key。 |
+| 多模态适配器 | 新增 `MinimaxMultimodalAdapter`（`adapters/minimax-multimodal.js`）：组合既有 MiniMax LLM / TTS / Image / Video 四个适配器并按方法委托（chatCompletion/streamChat → LLM，synthesize/listVoices/cloneVoice → TTS，generateImage → Image，generateVideo/getVideoStatus → Video）；`capabilities()` 覆盖 `chatCompletion/streamChat/synthesize/listVoices/cloneVoice/generateImage/generateVideo/getVideoStatus`，不含 `transcribe`。 |
+| 能力→调用方法映射 | `ai-generator.TYPE_TO_METHOD` 为能力到 Adapter 方法的一对一映射（`llm→chatCompletion`、`tts→synthesize`、`image→generateImage`、`video→generateVideo`、`speech_recognition→transcribe`）；多模态 provider 按能力选择 `capability_models[type]` 后走与单类型模型完全相同的调用方法（MiniMax 文字推理走 OpenAI 兼容 `POST /v1/chat/completions`，与单类型 MiniMax LLM 一致；TTS 走 t2a_async_v2 异步；生图走 images_generation；视频走 video_generation）。 |
+| 能力同步升级 | `_syncPresetCapabilities()` 升级为 diff-merge：存量预设行只合并新增能力（保留用户已有能力与模型选择，不整体覆盖），保证旧版本数据库升级后也能拿到新增的 `llm` 能力。 |
 | 优先开关 | 主进程 `ModelProviderManager.getMultimodalPreference()`（默认 true，`settings` 表 user 级 key `prefer_multimodal`）/ `setMultimodalPreference(value)`；前端「模型服务商设置」页头部复选框「优先使用多模态模型进行所有的AI操作」（默认勾选，保存即持久化）。 |
 | 能力路由 | `getDefault(category)`：开启偏好 且 多模态 provider（category=multimodal）已配置（enabled=1 + 可用 Key）且 `config.capabilities` 包含该能力 → 直接返回该多模态 provider；否则回退类别内默认。未开启 / 未配置 / 未声明能力 → 原逻辑不变。 |
 | 能力模型选择 | `ai-generator.generateWithDefault(type)`：模型优先取 `provider.capability_models[type]`，否则回退 `provider.models[0]`（多模态 provider 按能力选对模型，避免 TTS/生图/视频混用同一模型）。 |
 | 流水线空 provider 兜底 | story2video `generate_assets`：未显式指定 image/voice provider（assetGenerator 路径）时，按能力调用 `getDefault('image'/'tts')` 解析（开启偏好即用多模态模型），legacy python 路径保持空 provider 原行为。显式下拉选择的服务商优先，不受开关影响。 |
 | 数据校验 | `createProvider/updateProvider` 类别校验覆盖 `multimodal`；自定义多模态服务商通过 `config.capabilities` / `config.capability_models` 声明（同样 ≥2 项校验由预设层保证，自定义仅提示）。 |
-| 交互与显示 | 服务商卡片与预设卡片展示能力 chips（文字推理/TTS语音/语音识别/生图/生成视频，多语言标签）；新增/编辑对话框对 `multimodal` 类别只展示 API Key（隐藏模型列表输入），显示「能力与模型由系统预设」提示。 |
-| 验收标准 | ① 模型设置新增「多模态模型」类别，预设 MiniMax 显示 3 项能力 chips；② 只填 API Key 保存成功；③ 勾选开关后 `getDefault('tts'/'image'/'video')` 返回多模态 provider，取消勾选后返回类别 provider；④ MiniMax 多模态走 TTS/Image/Video 各自端点（TTS 走 t2a_async_v2 异步）；⑤ 流水线在未显式指定 provider 时优先使用多模态模型。 |
+| 交互与显示 | 服务商卡片与预设卡片展示能力 chips（文字推理/TTS语音/语音识别/生图/生成视频，多语言标签）；新增/编辑对话框对 `multimodal` 类别只展示 API Key 与预设能力提示（**隐藏 Base URL 输入**，预设 Base URL 由系统写死），同时隐藏模型列表输入（单模型收敛 / 预设模型由能力映射决定）。 |
+| 验收标准 | ① 模型设置新增「多模态模型」类别，预设 MiniMax 显示 4 项能力 chips（文字推理/TTS语音/生图/生成视频）；② 多模态表单只填 API Key（无 Base URL 输入）保存成功；③ 勾选开关后 `getDefault('llm'/'tts'/'image'/'video')` 返回多模态 provider，取消勾选后返回类别 provider；④ MiniMax 多模态 LLM 走 OpenAI 兼容 chat/completions、TTS 走 t2a_async_v2 异步、生图/视频走各自端点；⑤ 流水线在未显式指定 provider 时优先使用多模态模型；⑥ 真实 provider 账号配置后可跑通 LLM/TTS/生图/视频全链路 E2E。 |
+
+### 7.4.2 运营后台：预设模型 / 多模态能力设置（2026-08-08 新增）
+
+**需求**：独立运营后台（`D:\Data\projects\ops-center`）新增「预设模型设置」模块，运营人员可维护前端【模型设置】的预设服务商目录。
+
+| 合同 | 要求 |
+|------|------|
+| 数据模型 | `model_presets` 表：`id/name/category/base_url/models/default_model/is_multimodal/capabilities/capability_models/doc_links/capability_doc_links/is_visible/created_at/updated_at`。 |
+| 默认模型设置 | 每个预设可填写「默认模型 Model ID」（`default_model`），运营可修改；系统已知默认模型预填（如 MiniMax 多模态 `MiniMax-M2.7`、MiniMax TTS `speech-2.8-turbo`、MiniMax Image `image-01`、MiniMax Video `MiniMax-Hailuo-2.3`、OpenAI `gpt-4o`、Flux `flux-pro` 等）。 |
+| 显示开关 | `is_visible` 控制该预设是否在前端【模型设置】显示（关闭即隐藏，`include_hidden=false` 过滤）。 |
+| 文档链接 | 每个模型 `doc_links` 最多 10 条，且必须为 http(s) URL（后端校验，超限/非 URL 返回 400）。 |
+| 多模态能力配置 | `is_multimodal=1` 的预设可配置 `capabilities`（能力数组）、`capability_models`（每能力默认模型，缺省会校验 400）、`capability_doc_links`（每能力文档链接，每能力最多 10 条）。 |
+| 种子目录 | 后端 `ensure_catalog_seeded()` 初始化内置目录（与 Multi-Publish `model-provider-seeds` 对齐），含 MiniMax 各能力官方文档链接。 |
+| API | `GET/POST /api/v1/model-presets`、`GET/PUT/DELETE /api/v1/model-presets/{id}`，写操作需 admin JWT。 |
+| 前端 | 「预设模型」菜单页：类别筛选、前端显示开关、默认模型列、文档链接编辑（≤10）、多模态能力编辑（能力多选 + 每能力默认模型 + 每能力文档链接 ≤10）、新增/删除。 |
+| 验收标准 | ① 运营后台可新增/编辑/删除预设；② 默认模型字段预填已知值且可修改；③ doc_links 超 10 条或非 URL 被拒绝；④ 多模态能力缺省模型被拒绝；⑤ `is_visible=false` 后前端不再展示。 |
+
+### 7.4.3 测试连接提示脱敏（2026-08-08）
+
+**需求**：模型供应商列表页测试按钮返回「连接成功 {"success":true}」等原始技术信息，需整体脱敏为友好自然语言。
+
+| 合同 | 要求 |
+|------|------|
+| 成功 | 仅显示「✅ 连接成功」，`detail` 不展示（不再 `JSON.stringify(res.data)` 回显技术响应体）。 |
+| 失败 | 显示友好错误 `message`；仅当存在可读 `detail` 时展示，原始技术对象/堆栈不外泄。 |
+| 全项目筛查 | 全局检索 `JSON.stringify(res.data)`、`{"success":true}` 等模式，确保无其它入口回显原始技术信息。 |
 
 ---
 

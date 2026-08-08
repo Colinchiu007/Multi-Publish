@@ -101,6 +101,22 @@ describe('多模态模型类别与 MiniMax 预设', () => {
     }
   })
 
+  it('存量行 diff-merge：旧能力配置升级时合并新增 llm 能力', async () => {
+    const { db, store } = await createStore(database)
+    const manager = newManager(store)
+    // 模拟升级前的存量行（无 llm）
+    db.prepare("UPDATE model_providers SET config = ?, updated_at = datetime('now') WHERE id = 'minimax-multimodal'")
+      .run(JSON.stringify({
+        capabilities: ['tts', 'image', 'video'],
+        capability_models: { tts: 'speech-2.8-turbo', image: 'image-01', video: 'MiniMax-Hailuo-2.3' },
+      }))
+    manager._syncPresetCapabilities()
+    const row = db.prepare("SELECT config FROM model_providers WHERE id = 'minimax-multimodal'").get()
+    const config = JSON.parse(row.config)
+    expect([...config.capabilities].sort()).toEqual(['image', 'llm', 'tts', 'video'])
+    expect(config.capability_models.llm).toBe('MiniMax-M2.7')
+  })
+
   it('种子持久化：预设行 config 包含 capabilities 与 capability_models', async () => {
     const { db, store } = await createStore(database)
     const manager = newManager(store)
@@ -110,7 +126,7 @@ describe('多模态模型类别与 MiniMax 预设', () => {
     expect(config.capabilities).toContain('tts')
     expect(config.capability_models.image).toBe('image-01')
     const listed = manager.listProviders('multimodal')[0]
-    expect(listed.capabilities).toEqual(['tts', 'image', 'video'])
+    expect([...listed.capabilities].sort()).toEqual(['image', 'llm', 'tts', 'video'])
     expect(listed.capability_models.video).toBe('MiniMax-Hailuo-2.3')
   })
 })
@@ -139,16 +155,17 @@ describe('getDefault 多模态路由', () => {
     expect(tts.id).toBe('elevenlabs')
   })
 
-  it('开启偏好且多模态声明能力时，tts/image/video 返回多模态模型', () => {
+  it('开启偏好且多模态声明能力时，llm/tts/image/video 返回多模态模型', () => {
     store.setUserSetting('prefer_multimodal', true)
+    expect(manager.getDefault('llm').id).toBe('minimax-multimodal')
     expect(manager.getDefault('tts').id).toBe('minimax-multimodal')
     expect(manager.getDefault('image').id).toBe('minimax-multimodal')
     expect(manager.getDefault('video').id).toBe('minimax-multimodal')
   })
 
-  it('多模态未声明能力（llm）时回退类别 provider', () => {
+  it('多模态未声明能力（speech_recognition）时回退类别 provider', () => {
     store.setUserSetting('prefer_multimodal', true)
-    expect(manager.getDefault('llm')).toBeNull()
+    expect(manager.getDefault('speech_recognition')).toBeNull()
   })
 
   it('多模态未配置时回退类别 provider', async () => {
@@ -179,10 +196,11 @@ describe('多模态偏好开关', () => {
 })
 
 describe('MinimaxMultimodalAdapter', () => {
-  it('能力包含 tts/image/video 方法与基础方法', () => {
+  it('能力包含 llm/tts/image/video 方法与基础方法', () => {
     const { MinimaxMultimodalAdapter } = require('./adapters/minimax-multimodal')
     const adapter = new MinimaxMultimodalAdapter({ apiKey: 'k', baseUrl: 'https://api.minimaxi.com/v1' })
     const caps = adapter.capabilities()
+    expect(caps).toContain('chatCompletion')
     expect(caps).toContain('synthesize')
     expect(caps).toContain('listVoices')
     expect(caps).toContain('generateImage')
@@ -190,7 +208,7 @@ describe('MinimaxMultimodalAdapter', () => {
     expect(caps).toContain('getVideoStatus')
     expect(caps).toContain('testConnection')
     expect(adapter.validateConfig().valid).toBe(true)
-    expect(adapter.supports('chatCompletion')).toBe(false)
+    expect(adapter.supports('chatCompletion')).toBe(true)
   })
 
   it('缺少 API Key 时校验失败', () => {
@@ -206,16 +224,19 @@ describe('MinimaxMultimodalAdapter', () => {
     const imageSpy = vi.spyOn(adapter._image, 'generateImage').mockResolvedValue({})
     const videoSpy = vi.spyOn(adapter._video, 'generateVideo').mockResolvedValue({})
     const voiceSpy = vi.spyOn(adapter._tts, 'listVoices').mockResolvedValue([])
+    const llmSpy = vi.spyOn(adapter._llm, 'chatCompletion').mockResolvedValue({ content: 'ok' })
 
     await adapter.synthesize({ text: 'hi' })
     await adapter.generateImage({ prompt: 'x' })
     await adapter.generateVideo({ prompt: 'y' })
     await adapter.listVoices()
+    await adapter.chatCompletion({ model: 'MiniMax-M2.7', messages: [{ role: 'user', content: 'hi' }] })
 
     expect(ttsSpy).toHaveBeenCalledWith({ text: 'hi' })
     expect(imageSpy).toHaveBeenCalledWith({ prompt: 'x' })
     expect(videoSpy).toHaveBeenCalledWith({ prompt: 'y' })
     expect(voiceSpy).toHaveBeenCalledTimes(1)
+    expect(llmSpy).toHaveBeenCalledWith({ model: 'MiniMax-M2.7', messages: [{ role: 'user', content: 'hi' }] })
   })
 })
 
@@ -238,6 +259,27 @@ describe('ai-generator 多模态能力模型选择', () => {
     ai.setModelProviderManager(manager)
     await ai.generateWithDefault('tts', { text: 'hi' })
     expect(callAdapter).toHaveBeenCalledWith('minimax-multimodal', 'synthesize', expect.objectContaining({ model: 'speech-2.8-turbo' }))
+  })
+
+  it('generateWithDefault(llm) 使用多模态 capability_models.llm 并走 chatCompletion', async () => {
+    const { AIGenerator } = require('./ai-generator')
+    const callAdapter = vi.fn(async () => ({ code: 0, data: { content: 'ok' } }))
+    const manager = {
+      _ready: true,
+      getDefault: () => ({
+        id: 'minimax-multimodal', enabled: true, is_configured: true,
+        models: ['speech-2.8-turbo', 'image-01', 'MiniMax-Hailuo-2.3', 'MiniMax-M2.7'],
+        capability_models: { llm: 'MiniMax-M2.7', tts: 'speech-2.8-turbo', image: 'image-01', video: 'MiniMax-Hailuo-2.3' },
+      }),
+      getProviderWithKey: (id) => ({ id, api_key: 'k' }),
+      callAdapter,
+      _adapterFactories: new Map([['minimax-multimodal', () => ({})]]),
+    }
+    const ai = new AIGenerator()
+    ai.setModelProviderManager(manager)
+    const result = await ai.generateWithDefault('llm', { messages: [{ role: 'user', content: 'hi' }] })
+    expect(callAdapter).toHaveBeenCalledWith('minimax-multimodal', 'chatCompletion', expect.objectContaining({ model: 'MiniMax-M2.7' }))
+    expect(result.content).toBe('ok')
   })
 
   it('普通 provider（无 capability_models）回退首个模型', async () => {

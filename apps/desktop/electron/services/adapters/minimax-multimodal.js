@@ -8,7 +8,7 @@
  *   - image：image-01
  *   - video：MiniMax-Hailuo-* / T2V-01 / I2V-01
  *
- * 实现策略：内部组合三个既有 MiniMax 适配器并按能力方法委托，避免复制端点/轮询逻辑。
+ * 实现策略：内部组合四个既有 MiniMax 适配器并按能力方法委托，避免复制端点/轮询逻辑。
  * 能力声明（capabilities）与能力默认模型（capability_models）由 model-provider-seeds
  * 中的预设 `minimax-multimodal` 声明，流水线通过 ModelProviderManager.getDefault 按能力路由。
  */
@@ -17,10 +17,12 @@ const { BaseAdapter } = require('./_base/base')
 const { MinimaxTtsAdapter } = require('./minimax-tts')
 const { MinimaxImageAdapter } = require('./minimax-image')
 const { MiniMaxAdapter } = require('./minimax')
+const { MinimaxLlmAdapter } = require('./minimax-llm')
 
 const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
 
 const MULTIMODAL_MODELS = [
+  { id: 'MiniMax-M2.7', name: 'MiniMax-M2.7', description: '文字推理（LLM，OpenAI 兼容 chat/completions）' },
   { id: 'speech-2.8-turbo', name: 'Speech 2.8 Turbo', description: 'TTS：异步长文本语音合成（T2A Async）' },
   { id: 'image-01', name: 'Image 01', description: '生图' },
   { id: 'MiniMax-Hailuo-2.3', name: 'Hailuo 2.3', description: '视频生成（768P/1080P）' },
@@ -33,6 +35,7 @@ class MinimaxMultimodalAdapter extends BaseAdapter {
     this._tts = new MinimaxTtsAdapter(credentials, options)
     this._image = new MinimaxImageAdapter(credentials, options)
     this._video = new MiniMaxAdapter(credentials, options)
+    this._llm = new MinimaxLlmAdapter(credentials, options)
   }
 
   validateConfig() {
@@ -48,6 +51,15 @@ class MinimaxMultimodalAdapter extends BaseAdapter {
 
   async listModels() {
     return MULTIMODAL_MODELS.map((model) => ({ ...model }))
+  }
+
+  // ─── 文字推理（LLM）──────────────────────────
+  chatCompletion(params) {
+    return this._llm.chatCompletion(params)
+  }
+
+  streamChat(params, onChunk) {
+    return this._llm.streamChat(params, onChunk)
   }
 
   // ─── TTS ────────────────────────────────────
@@ -79,3 +91,4 @@ class MinimaxMultimodalAdapter extends BaseAdapter {
 }
 
 module.exports = { MinimaxMultimodalAdapter }
+

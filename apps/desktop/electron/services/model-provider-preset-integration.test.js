@@ -140,4 +140,31 @@ describe('model-provider preset catalog integration', function () {
     const test = await ipcMain.call('model-provider:test', 'minimax-image')
     expect(test.code).toBe(0)
   })
+
+  it('预设服务商删除 = 软删除（隐藏 + 清 Key），预设目录仍可重新添加（R85）', async function () {
+    // 先配置 minimax-image，再删除
+    await ipcMain.call('model-provider:update', 'minimax-image', { api_key: 'mm-image-test-key', enabled: true })
+    const del = await ipcMain.call('model-provider:delete', 'minimax-image')
+    expect(del.code).toBe(0)
+
+    // 列表不再出现
+    const list = await ipcMain.call('model-provider:list', 'image')
+    expect(list.data.find(p => p.id === 'minimax-image')).toBeUndefined()
+
+    // 行仍存在但隐藏 + 禁用 + 清 Key
+    const row = new SqlJsAdapter(database).prepare("SELECT enabled, api_key, api_key_enc, config FROM model_providers WHERE id = 'minimax-image'").get()
+    expect(row).toBeDefined()
+    expect(Number(row.enabled)).toBe(0)
+    expect(JSON.parse(row.config).preset_hidden).toBe(true)
+
+    // 预设目录仍返回全部（R85：目录不因删除而变空）
+    const presets = await ipcMain.call('model-provider:presets', 'image')
+    expect(presets.data.map(p => p.id)).toEqual(expect.arrayContaining(['minimax-image']))
+
+    // 重新添加：create 报 already exists → update 清除隐藏标记并恢复
+    const update = await ipcMain.call('model-provider:update', 'minimax-image', { api_key: 'mm-image-test-key-2', enabled: true, config: {} })
+    expect(update.code).toBe(0)
+    const relisted = await ipcMain.call('model-provider:list', 'image')
+    expect(relisted.data.find(p => p.id === 'minimax-image')).toBeDefined()
+  })
 })

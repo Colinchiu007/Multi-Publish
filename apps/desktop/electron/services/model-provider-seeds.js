@@ -369,10 +369,11 @@ const PRESET_PROVIDERS = [
   {
     id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal',
     base_url: 'https://api.minimaxi.com/v1',
-    models: ['speech-2.8-turbo', 'image-01', 'MiniMax-Hailuo-2.3'],
+    models: ['speech-2.8-turbo', 'image-01', 'MiniMax-Hailuo-2.3', 'MiniMax-M2.7'],
     is_preset: 1,
-    capabilities: ['tts', 'image', 'video'],
+    capabilities: ['llm', 'tts', 'image', 'video'],
     capability_models: {
+      llm: 'MiniMax-M2.7',
       tts: 'speech-2.8-turbo',
       image: 'image-01',
       video: 'MiniMax-Hailuo-2.3',
