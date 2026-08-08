@@ -394,7 +394,9 @@
                   @change="handleS2VVoiceSelection"
                 >
                   <option value="">使用服务商默认音色</option>
-                  <option v-for="voice in s2vVoiceOptions" :key="voice.id" :value="voice.id">{{ voice.name }}</option>
+                  <option v-for="voice in s2vVoiceOptions" :key="voice.id" :value="voice.id" :disabled="voice.invalid">
+                    {{ voice.invalid ? voice.name + '（已失效，请重新克隆）' : voice.name }}
+                  </option>
                 </select>
                 <span v-if="s2vVoiceCatalogLoading" class="config-hint">正在加载音色目录…</span>
                 <span v-else-if="s2vVoiceCatalogError" class="inline-error">{{ s2vVoiceCatalogError }}</span>
@@ -431,9 +433,9 @@
                 <p v-if="s2vVoiceCloneError" class="inline-error">{{ s2vVoiceCloneError }}</p>
                 <div v-if="s2vVoiceClones.length > 0" class="voice-clone-list">
                   <div v-for="voice in s2vVoiceClones" :key="voice.id" class="voice-clone-row">
-                    <span>{{ voice.name }}</span>
+                    <span>{{ voice.name }}<span v-if="voice.invalid" class="voice-clone-invalid-badge">已失效，请重新克隆</span></span>
                     <div class="voice-clone-actions">
-                      <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="selectS2VVoice(voice.id)">设为默认</button>
+                      <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading || voice.invalid" @click="selectS2VVoice(voice.id)">设为默认</button>
                       <button type="button" class="btn-secondary danger" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
                     </div>
                   </div>
@@ -1793,7 +1795,8 @@ export default {
     toS2VVoiceOption(voice) {
       const id = typeof voice?.id === 'string' ? voice.id.trim() : ''
       const name = typeof voice?.name === 'string' ? voice.name.trim() : ''
-      return id && name ? { id, name } : null
+      if (!id || !name) return null
+      return { id, name, invalid: voice.invalid === true }
     },
     toS2VVoiceCloneRequirements(requirements) {
       if (!requirements || typeof requirements !== 'object' || Array.isArray(requirements)) return null
@@ -1905,9 +1908,11 @@ export default {
       const capabilityData = capabilityResponse?.code === 0 && capabilityResponse.data && typeof capabilityResponse.data === 'object'
         ? capabilityResponse.data
         : null
-      this.s2vVoiceCatalog = Array.isArray(catalogData?.voices)
-        ? catalogData.voices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean)
-        : []
+      this.s2vVoiceCatalog = [
+        ...(Array.isArray(catalogData?.voices) ? catalogData.voices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean) : []),
+        // 失效克隆音色（如旧版生成的非法 voice_id）：仅展示提示，不可选择
+        ...(Array.isArray(catalogData?.invalidVoices) ? catalogData.invalidVoices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean) : []),
+      ]
       this.s2vVoiceCapability = capabilityData
         ? {
             type: capabilityData.type,
@@ -3035,6 +3040,8 @@ export default {
 .voice-clone-actions .btn-secondary { margin-top: 0; }
 .voice-clone-list { display: grid; gap: 8px; }
 .voice-clone-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.voice-clone-invalid-badge { margin-left: 6px; font-size: 11px; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+[data-theme="dark"] .voice-clone-invalid-badge { color: #fbbf24; background: #3a2a10; border-color: #5b4a1e; }
 
 /* 操作栏 */
 .action-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; }

@@ -971,3 +971,106 @@ describe("_probeMediaDuration — pipe 拿不到 duration 时回退临时文件�
     expect(fileSpy).toHaveBeenCalledTimes(1);
   });
 })
+
+describe("listClones — MiniMax 克隆音色 voice_id 合规性", () => {
+  let mmStore;
+  let mmSandbox;
+  let mmUserData;
+
+  beforeEach(() => {
+    mmStore = createOwnerStore("user-mm");
+    mmSandbox = nodeFs.mkdtempSync(path.join(os.tmpdir(), "mm-clone-voice-test-"));
+    mmUserData = path.join(mmSandbox, "userData");
+    catalogMocks.getVoiceCapability.mockReset();
+    catalogMocks.getVoiceCapability.mockImplementation((providerId, model) => ({
+      providerId,
+      model,
+      type: "user_clone",
+      canListVoices: true,
+      defaultVoiceId: null,
+      clone: {
+        enabled: true,
+        entry: "adapter",
+        implementation: "adapter",
+        messageKey: "tts.voice.clone.available",
+      },
+      reason: null,
+    }));
+  });
+  afterEach(() => {
+    nodeFs.rmSync(mmSandbox, { recursive: true, force: true });
+  });
+
+  function createMinimaxService(adapterVoiceId) {
+    const minimaxManager = {
+      getProvider: vi.fn(() => ({ id: "minimax-tts", category: "tts", models: ["speech-2.8-turbo"] })),
+      callAdapter: vi.fn(async () => ({ code: 0, data: { voiceId: adapterVoiceId, name: "克隆音色" } })),
+    };
+    const minimaxService = new TtsVoiceCloneService({
+      store: mmStore,
+      modelProviderManager: minimaxManager,
+      userDataPath: mmUserData,
+      randomUUID: () => "clone-stage-mm",
+      createSelectionToken: () => "selection-mm",
+      probeDuration: vi.fn(async () => 12.5),
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+    });
+    return { minimaxManager, minimaxService };
+  }
+
+  it("旧版非法 voice_id（如 01）在 listClones 中被标记 invalid", async () => {
+    const samplePath = path.join(mmSandbox, "mm-invalid.wav");
+    await nodeFs.promises.writeFile(samplePath, Buffer.from("RIFF-mm-invalid-audio"));
+    // 模拟旧版 adapter 生成非法 voice_id 并已持久化到 registry
+    const { minimaxManager, minimaxService } = createMinimaxService("01");
+    const selection = await minimaxService.createSampleSelection(
+      { providerId: "minimax-tts", model: "speech-2.8-turbo" },
+      [samplePath],
+      SENDER_KEY,
+    );
+    expect(selection.code).toBe(0);
+    const added = await minimaxService.addCloneFromSelection(
+      {
+        providerId: "minimax-tts",
+        model: "speech-2.8-turbo",
+        name: "克隆音色",
+        selectionId: selection.data.selectionId,
+        consent: true,
+      },
+      SENDER_KEY,
+    );
+    expect(added).toMatchObject({ code: 0 });
+
+    const listed = await minimaxService.listClones({ providerId: "minimax-tts", model: "speech-2.8-turbo" });
+    expect(listed.code).toBe(0);
+    expect(listed.data.voices).toContainEqual(expect.objectContaining({ id: "01", invalid: true }));
+  });
+
+  it("合法 voice_id 的克隆不被标记 invalid", async () => {
+    const samplePath = path.join(mmSandbox, "mm-valid.wav");
+    await nodeFs.promises.writeFile(samplePath, Buffer.from("RIFF-mm-valid-audio"));
+    const { minimaxManager, minimaxService } = createMinimaxService("MiniMaxVoice_abc123");
+    const selection = await minimaxService.createSampleSelection(
+      { providerId: "minimax-tts", model: "speech-2.8-turbo" },
+      [samplePath],
+      SENDER_KEY,
+    );
+    const added = await minimaxService.addCloneFromSelection(
+      {
+        providerId: "minimax-tts",
+        model: "speech-2.8-turbo",
+        name: "克隆音色",
+        selectionId: selection.data.selectionId,
+        consent: true,
+      },
+      SENDER_KEY,
+    );
+    expect(added).toMatchObject({ code: 0 });
+
+    const listed = await minimaxService.listClones({ providerId: "minimax-tts", model: "speech-2.8-turbo" });
+    expect(listed.code).toBe(0);
+    const voice = listed.data.voices.find((item) => item.id === "MiniMaxVoice_abc123");
+    expect(voice).toBeDefined();
+    expect(voice.invalid).not.toBe(true);
+  });
+})
