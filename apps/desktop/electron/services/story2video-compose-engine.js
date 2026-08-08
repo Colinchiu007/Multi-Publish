@@ -195,16 +195,18 @@ function normalizeComposeScenes (assetManifest) {
   })
 }
 
-function buildImageEffectFilter (effect, width, height, fps, duration) {
+function buildImageEffectFilter (effect, width, height, fps, duration, rounding = 'round') {
   const safeWidth = Math.max(160, Math.round(Number(width) || 1280))
   const safeHeight = Math.max(160, Math.round(Number(height) || 720))
   const safeFps = Math.max(1, Math.min(120, Math.round(Number(fps) || 30)))
   // 有效时长已知时把动效进度归一化到场景时长（T=round(duration*fps)）；
   // 时长未知（探测失败/旧项目）或 duration*fps 溢出为 Infinity 时回退固定帧增量公式。
+  // rounding='ceil'：min-duration 静音补齐段用 -t 锁定目标时长且去掉 -shortest，
+  // 视频轨是 binding 流，d=帧数必须向上取整，避免视频轨比目标时长短 ≤1 帧造成尾部无帧（W4）。
   const rawFrames = Number.isFinite(duration) && duration > 0 ? duration * safeFps : null
   const knownFrames = rawFrames !== null && Number.isFinite(rawFrames)
   const totalFrames = knownFrames
-    ? Math.max(2, Math.round(rawFrames))
+    ? Math.max(2, rounding === 'ceil' ? Math.ceil(rawFrames) : Math.round(rawFrames))
     : Math.max(safeFps, Math.round(safeFps * 3))
   const progress = knownFrames ? 'min(1,on/' + totalFrames + ')' : null
   // 关键修复（origin/main）：zoompan 需要 d=输出总帧数（=时长×帧率）才能产生连续动画；
@@ -446,6 +448,12 @@ class Story2VideoComposeEngine {
       if (!accountInput(bgmPath)) return { code: -1, message: 'Input media exceeds the total size limit' }
     }
 
+    // 场景时长模式（三层模型③）：follow-audio 跟随旁白（默认）；min-duration 以静音补齐到 minSceneDuration
+    const sceneDurationMode = options?.sceneDurationMode === 'min-duration' ? 'min-duration' : 'follow-audio'
+    const minSceneDuration = clampNumber(options?.minSceneDuration, 1, 60, 6)
+    // 提前声明：预检（effectiveRequestedDuration）与场景循环共用同一默认值，避免 TDZ
+    const defaultSceneDuration = clampNumber(options?.defaultSceneDuration, 1, 60, 6)
+
     const probedAudioDurations = []
     let totalAudioDuration = 0
     for (let index = 0; index < scenes.length; index++) {
@@ -463,9 +471,14 @@ class Story2VideoComposeEngine {
     if (totalAudioDuration > this.maxDurationSeconds) {
       return { code: -1, message: '成片总时长不能超过 10 分钟' }
     }
-    const effectiveRequestedDuration = scenes.reduce((total, scene, index) => (
-      total + (probedAudioDurations[index] || Number(scene.duration) || 0)
-    ), 0)
+    const effectiveRequestedDuration = scenes.reduce((total, scene, index) => {
+      // min-duration 模式预检与场景循环共用同一 base 公式（probed || duration || defaultSceneDuration），
+      // 并计入静音补齐；follow-audio 分支保持原公式（probed || duration || 0）逐字节不变（W3）。
+      const base = sceneDurationMode === 'min-duration'
+        ? (probedAudioDurations[index] || Number(scene.duration) || defaultSceneDuration)
+        : (probedAudioDurations[index] || Number(scene.duration) || 0)
+      return total + (sceneDurationMode === 'min-duration' ? Math.max(base, minSceneDuration) : base)
+    }, 0)
     if (effectiveRequestedDuration > this.maxDurationSeconds) {
       return { code: -1, message: 'Requested video duration exceeds the allowed limit' }
     }
@@ -484,7 +497,6 @@ class Story2VideoComposeEngine {
     const subtitleEnabled = options?.subtitleEnabled !== false
     const resolution = parseResolution(options?.resolution)
     const fps = clampNumber(options?.fps, 1, 120, 30)
-    const defaultSceneDuration = clampNumber(options?.defaultSceneDuration, 1, 60, 6)
     const voiceVolume = clampNumber(options?.voiceVolume, 0, 2, 1)
     const outputFormat = options?.format === 'webm' ? 'webm' : 'mp4'
 
@@ -508,15 +520,26 @@ class Story2VideoComposeEngine {
       // ffprobe 成功时以真实音频时长为准，避免旁白被截断；缺少上报值时由 -shortest 跟随音频。
       const duration = reportedDuration && audioDuration ? audioDuration : reportedDuration
       const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
-      const subtitleDuration = audioDuration || duration || defaultSceneDuration
-      const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
-      // 动效归一化使用“有效时长”：真实音频时长优先，探测失败时回退上报时长/defaultSceneDuration。
-      const effectDuration = audioDuration || duration || defaultSceneDuration
+      // 动效归一化、静音补齐与字幕时间轴统一使用“有效时长”：真实音频时长优先，探测失败时回退上报时长/defaultSceneDuration；
+      // min-duration 模式下取 max(音频实际时长, minSceneDuration)。
+      const baseDuration = audioDuration || duration || defaultSceneDuration
+      const effectDuration = sceneDurationMode === 'min-duration'
+        ? Math.max(baseDuration, minSceneDuration)
+        : baseDuration
+      const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, effectDuration)
+      // C1：仅当真实探测到音频（audioDuration 非空）且补齐目标严格大于音频时长时启用静音补齐；
+      // 探测失败一律走 follow-audio -shortest 路径，绝不 -t/apad 硬截断未知长度旁白。
+      const padTo = sceneDurationMode === 'min-duration' && audioDuration !== null && audioDuration > 0 &&
+        effectDuration > audioDuration
+        ? clampNumber(effectDuration, 0.1, 3600, null)
+        : null
 
       try {
         await this._createSegment(scene.imagePath, scene.audioPath, segPath, {
           duration,
           effectDuration,
+          sceneDurationMode,
+          padTo,
           subtitleText: subtitleEnabled ? scene.text : '',
           subtitleTimeline: subtitleEnabled ? subtitleTimeline : [],
           transition,
@@ -719,13 +742,25 @@ class Story2VideoComposeEngine {
       : clampNumber(scene.duration, 0.1, 3600, null)
     const duration = reportedDuration && audioDuration ? audioDuration : reportedDuration
     const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
-    const subtitleDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
-    const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
-    const effectDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
+    // min-duration 补齐与动效归一化统一 effectiveDuration（与 compose() 对齐），字幕时间轴同样按补齐后时长生成
+    const sceneDurationMode = options.sceneDurationMode === 'min-duration' ? 'min-duration' : 'follow-audio'
+    const minSceneDuration = clampNumber(options.minSceneDuration, 1, 60, 6)
+    const baseEffective = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
+    const effectDuration = sceneDurationMode === 'min-duration'
+      ? Math.max(baseEffective, minSceneDuration)
+      : baseEffective
+    const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, effectDuration)
+    // C1：与 compose() 同守卫——仅真实探测到音频且补齐目标严格大于音频时长时才启用静音补齐
+    const padTo = sceneDurationMode === 'min-duration' && audioDuration !== null && audioDuration > 0 &&
+      effectDuration > audioDuration
+      ? clampNumber(effectDuration, 0.1, 3600, null)
+      : null
     try {
       await this._createSegment(imagePath, audioPath, destinationPath, {
         duration,
         effectDuration,
+        sceneDurationMode,
+        padTo,
         subtitleText: options.subtitleEnabled === false ? '' : (scene.text || ''),
         subtitleTimeline: options.subtitleEnabled === false ? [] : subtitleTimeline,
         transition: options.transition || 'none',
@@ -868,9 +903,17 @@ class Story2VideoComposeEngine {
   async _createSegment (imagePath, audioPath, outputPath, opts) {
     const args = ['-y']
 
+    // min-duration 静音补齐：目标时长由调用方在“真实探测到音频且补齐目标严格大于音频时长”时计算并传入 padTo。
+    // 补齐时以 -t 锁定目标时长 + 音频 apad 静音 + 去掉 -shortest；否则保持 -shortest 跟随旁白。
+    // 探测失败时调用方传 padTo=null，这里一律走 follow-audio 路径，绝不 -t/apad 硬截断未知长度旁白（C1）。
+    const padTo = Number.isFinite(Number(opts.padTo)) && Number(opts.padTo) > 0
+      ? clampNumber(opts.padTo, 0.1, 3600, null)
+      : null
     // 动效归一化以“有效时长”（audioDuration||reportedDuration||defaultSceneDuration）为基线，
     // 帧数由 buildImageEffectFilter 内部按 duration*fps 计算（含溢出守卫与 d=总帧数 修复）。
-    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, opts.effectDuration)
+    // 补齐段视频轨是 binding 流（去 -shortest），帧数向上取整避免尾部缺帧（W4）。
+    const frameRounding = padTo ? 'ceil' : 'round'
+    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, opts.effectDuration, frameRounding)
 
     // 输入：有动效时用单帧图片输入（zoompan 自行生成 d 帧，-loop 1 会破坏帧计数）；
     // 无动效时保持图片循环（配合 fade/shortest 生成静态片段）。
@@ -888,7 +931,7 @@ class Story2VideoComposeEngine {
       const workWidth = clampNumber(opts.width, 160, 4096) * 2
       const workHeight = clampNumber(opts.height, 160, 4096) * 2
       filters.push(buildScaleFilter(workWidth, workHeight))
-      filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, opts.effectDuration))
+      filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, opts.effectDuration, frameRounding))
       filters.push(buildScaleFilter(opts.width, opts.height))
     } else {
       filters.push(buildScaleFilter(opts.width, opts.height))
@@ -913,17 +956,27 @@ class Story2VideoComposeEngine {
     }
 
     // 时长
-    if (opts.duration && Number(opts.duration) > 0) {
+    if (padTo) {
+      args.push('-t', String(padTo))
+    } else if (opts.duration && Number(opts.duration) > 0) {
       args.push('-t', String(clampNumber(opts.duration, 0.1, 3600, 3)))
     }
 
     const voiceVolume = clampNumber(opts.voiceVolume, 0, 2, 1)
-    if (voiceVolume !== 1) args.push('-af', 'volume=' + voiceVolume.toFixed(3))
+    if (padTo) {
+      args.push('-af', (voiceVolume !== 1 ? 'volume=' + voiceVolume.toFixed(3) + ',' : '') + 'apad')
+    } else if (voiceVolume !== 1) {
+      args.push('-af', 'volume=' + voiceVolume.toFixed(3))
+    }
 
     // 编码
     args.push('-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p')
     args.push('-c:a', 'aac', '-b:a', '128k')
-    args.push('-shortest', '-r', String(clampNumber(opts.fps, 1, 120, 30)))
+    if (padTo) {
+      args.push('-r', String(clampNumber(opts.fps, 1, 120, 30)))
+    } else {
+      args.push('-shortest', '-r', String(clampNumber(opts.fps, 1, 120, 30)))
+    }
 
     // 输出
     args.push(outputPath)

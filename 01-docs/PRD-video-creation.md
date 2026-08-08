@@ -378,6 +378,23 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
   `effectiveDuration = max(音频实际时长, N)` 计算，保证观感一致。
 - 已排除：**纯固定时长**（每个场景固定 N 秒）——会导致截断旁白，违反“不承诺强制截断旁白”合同。
 
+**③ 节奏下限（compose）已实现（Batch 3，2026-08-08）**：
+
+- 静音补齐启用条件（严格）：`sceneDurationMode === 'min-duration'` 且**真实探测到音频**（`audioDuration !== null && > 0`）
+  且 `effectDuration = max(音频实际时长, N) > 音频实际时长` 时，才对该场景 `-t effectDuration` + 音频链 `apad` 静音 + 去掉 `-shortest`。
+- **探测失败（audioDuration=null）一律走 follow-audio `-shortest` 路径**：不新增、不使用补齐 `-t`/`apad`，不保证节奏下限
+  （best-effort；否则会把未知长度旁白硬截断到 N 秒，违反“不承诺强制截断旁白”合同——双模型审查 C1 要求）。
+  注意：探测失败且场景携带上报 `duration` 时，沿用既有「`-t reportedDuration` + `-shortest`」上限语义（Batch 3 未改动），
+  即补齐 `-t` 绝不会启用，但上报元数据超短时仍可能按上报值裁剪（旧语义，非本次引入）。
+- 补齐语义统一：字幕时间轴末页停留到 `effectDuration`、动效归一化按 `effectDuration`、成片时长预检
+  （`effectiveRequestedDuration`，上限 600s）计入补齐值，三者与场景循环共用同一 base 公式
+  （`probed || reportedDuration || defaultSceneDuration`）；`renderSegment`（结果页单段重试）与 compose 同守卫。
+- 补齐段动效帧数 `d = Math.ceil(effectDuration × fps)`（视频轨为 binding 流，向上取整避免尾部缺帧）；
+  follow-audio 保持 `Math.round` 与历史一致。
+- 旁白导出（完整 narration 音频）始终按原始音频拼接、**不补齐**；`data.duration`（成片）≥ `data.audioPath` 时长为正常现象。
+- 行为副作用（预期）：min-duration 使片段变长 → 原本因“片段过短”被禁用的 xfade 转场会被启用；
+  补齐静音吸收 acrossfade/amix 的过渡衰减，BGM 不再吞旁白尾音（利好，见 learnings）。
+
 **进一步优化方向（候选，需逐项评估）**：
 - voice-aware 估算表 + 真实 TTS 样本回填的**自适应校准**（“字数→实际时长”系数随音色滚动修正）；
 - `voice.speed` 与 `split.speechRate` **单一来源联动**（切分估算与实际 TTS 语速一致，避免脱节）；
