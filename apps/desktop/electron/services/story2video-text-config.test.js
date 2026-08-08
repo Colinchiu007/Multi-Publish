@@ -285,6 +285,43 @@ describe('Story2Video text 参数合同', () => {
     })).toThrow(/targetCharsPerScene/)
   })
 
+  it('语言感知基准语速（Batch 5a）：缺省 baseWordsPerSecond 按 split.language 选择，显式值优先', () => {
+    // zh：缺省 bps → 4.5；targetSeconds=4 → round(4×4.5×1)=18
+    const zh = normalizeStory2VideoTextParams({
+      text: '中文分镜',
+      story2videoTextConfig: { split: { language: 'zh', targetSeconds: 4 } },
+    })
+    expect(zh.story2videoTextConfig.split.baseWordsPerSecond).toBe(4.5)
+    expect(zh.story2videoTextConfig.split.targetCharsPerScene).toBe(18)
+    expect(zh.story2videoTextConfig.split.targetSeconds).toBe(4)
+    expect(zh.stageOptions.split.base_words_per_second).toBe(4.5)
+    expect(zh.stageOptions.split.target_duration).toBe(4)
+
+    // en：缺省 bps → 2.8；targetSeconds=6 → round(6×2.8×1)=17
+    const en = normalizeStory2VideoTextParams({
+      text: 'English scenes',
+      story2videoTextConfig: { split: { language: 'en', targetSeconds: 6 } },
+    })
+    expect(en.story2videoTextConfig.split.baseWordsPerSecond).toBe(2.8)
+    expect(en.story2videoTextConfig.split.targetCharsPerScene).toBe(17)
+
+    // auto/未知：回退 3.3（默认行为不变）
+    const auto = normalizeStory2VideoTextParams({
+      text: '自动识别分镜',
+      story2videoTextConfig: { split: { language: 'auto', targetSeconds: 6 } },
+    })
+    expect(auto.story2videoTextConfig.split.baseWordsPerSecond).toBe(3.3)
+    expect(auto.story2videoTextConfig.split.targetCharsPerScene).toBe(20)
+
+    // 显式 baseWordsPerSecond 优先于语言表（renderer 已按语言下发，这里验证不被语言表覆盖）
+    const explicit = normalizeStory2VideoTextParams({
+      text: '显式语速',
+      story2videoTextConfig: { split: { language: 'zh', targetSeconds: 4, baseWordsPerSecond: 3.3 } },
+    })
+    expect(explicit.story2videoTextConfig.split.baseWordsPerSecond).toBe(3.3)
+    expect(explicit.story2videoTextConfig.split.targetCharsPerScene).toBe(13)
+  })
+
   it('speechRate 单一来源：split.speechRate 由 voice.speed 驱动，target_chars_per_scene 透传给本地切分', () => {
     const result = normalizeStory2VideoTextParams({
       text: '语速一致',

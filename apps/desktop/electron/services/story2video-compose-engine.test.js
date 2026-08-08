@@ -544,6 +544,8 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       // 片段与成片时长 = 补齐后 6s
       expect(result.data.duration).toBe(6)
       expect(result.data.segments[0].duration).toBe(6)
+      // 真实 TTS 音频时长（3s）与视频片段时长（6s 补齐）分离，供样本校准采集（Batch 5a）
+      expect(result.data.segments[0].audioDuration).toBe(3)
       // 完整旁白导出仍用原始音频，不补齐。
       // CI 下 os.tmpdir 可能返回 8.3 短路径（RUNNER~1），引擎经 realpathSync.native 归一化为长路径，
       // 按 AGENTS.md「Windows 路径身份断言」合同：两边 realpath 后比较，不做原始字符串比较。

@@ -1,6 +1,8 @@
 // @ts-check
 'use strict'
 
+const { getLanguageBaseWordsPerSecond } = require('./story2video-voice-estimate')
+
 const STORY2VIDEO_TEXT_CONFIG_VERSION = 1
 const STORY2VIDEO_PIPELINE = 'story2video-compose'
 
@@ -300,12 +302,21 @@ function normalizeStory2VideoTextParams(params = {}) {
   const outputInput = objectValue(suppliedConfig.output)
   const publishInput = objectValue(suppliedConfig.publish)
 
+  // 先归一化语言（后续 split 对象内引用，避免 TDZ）
+  const splitLanguage = enumValue(
+    firstDefined(own(splitInput, 'language'), params.language),
+    DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.language,
+    'split.language',
+    LANGUAGES,
+  )
   const split = {
-    language: enumValue(firstDefined(own(splitInput, 'language'), params.language), DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.language, 'split.language', LANGUAGES),
+    language: splitLanguage,
     mode: enumValue(firstDefined(own(splitInput, 'mode'), params.splitMode), 'balanced', 'split.mode', SPLIT_MODES),
     maxSentenceLength: numberValue(own(splitInput, 'maxSentenceLength'), 200, 'split.maxSentenceLength', 20, 1000, true),
     targetSeconds: numberValue(own(splitInput, 'targetSeconds'), 6, 'split.targetSeconds', 1, 60),
-    baseWordsPerSecond: numberValue(own(splitInput, 'baseWordsPerSecond'), 3.3, 'split.baseWordsPerSecond', 0.5, 10),
+    // 语言感知基准语速（三层模型①，Batch 5a）：显式 baseWordsPerSecond 优先（renderer 已按语言下发），
+    // 缺省时按语言选择（zh 4.5 / en 2.8 / 其余 3.3），旧配置自动兼容。
+    baseWordsPerSecond: numberValue(own(splitInput, 'baseWordsPerSecond'), getLanguageBaseWordsPerSecond(splitLanguage), 'split.baseWordsPerSecond', 0.5, 10),
     // speechRate 单一来源（三层模型 P1，Batch 2）：由 voice.speed 派生，不再校验/接受独立值
     minWords: numberValue(own(splitInput, 'minWords'), 10, 'split.minWords', 1, 200, true),
     maxWords: numberValue(own(splitInput, 'maxWords'), 50, 'split.maxWords', 1, 500, true),

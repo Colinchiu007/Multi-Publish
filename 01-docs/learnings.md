@@ -1,6 +1,15 @@
 
 ---
 
+## TDZ 第二形态：对象字面量自引用复盘 (2026-08-08)
+
+- Batch 3 已记录「提前使用的常量要顶部声明」；Batch 5a 又踩了**同一类 TDZ 的新形态**：
+  在 `const split = { baseWordsPerSecond: getLanguageBaseWordsPerSecond(split.language) }` 对象字面量里引用
+  `split.language`——`split` 自身尚未初始化，触发 `Cannot access 'split' before initialization`。
+- 教训：**对象字面量内部不能引用自身**（不是只有声明顺序问题）；需要先提取依赖值为局部变量
+  （`const splitLanguage = ...` 再在字面量中引用）。凡是在构造对象时要用到「同对象其他字段的归一化结果」，
+  先把该字段归一化提到前面。Text-config 这类集中归一化函数最容易犯，测试必须在改完立刻全量跑（当时 37 个用例同时挂）。
+
 ## Windows CI 8.3 短路径断言失败复盘 (2026-08-08)
 
 - **表象**：本地全绿的测试在 GitHub Actions Windows runner 失败——`toHaveBeenCalledWith([audio], ...)` 收到的路径是

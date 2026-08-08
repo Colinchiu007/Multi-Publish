@@ -380,7 +380,16 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 - **保留并新增**「最短场景时长」作为节奏下限；补齐静音时，字幕时间轴、动效归一化、转场统一按
   `effectiveDuration = max(音频实际时长, N)` 计算，保证观感一致（Batch 3 已落地 compose 消费）。
 - 已排除：**纯固定时长**（每个场景固定 N 秒）——会导致截断旁白，违反“不承诺强制截断旁白”合同。
-- 待后续（Batch 5，P1）：voice-aware 估算表（语言基准 × 语速倍率 × 音色系数）+ 真实 TTS 样本自适应校准。
+- **已实现（Batch 5a）**：语言感知基准语速表（zh 4.5 字/s、en 2.8 词/s、其余含 auto 回退 3.3）——
+  UI 估算与提交、normalizer 缺省值同源（renderer/主进程双副本 + 合同测试锁定一致）；
+  时长↔字数换算按 `语言基准 × voice.speed` 进行（speechRate 单一来源延续）。
+- **已实现（Batch 5a）**：TTS 时长样本采集点——compose 每场景记录真实旁白音频时长（`audioDuration`，
+  与补齐后的视频片段 `duration` 分离），流水线 compose 成功后 best-effort 写入本地
+  `story2video.ttsSamples.v1`（FIFO ≤500，样本含 language/provider/voiceId/speed/chars/durationSeconds，不存原文），
+  为 5b 自适应校准提供数据源。
+- 待后续（Batch 5b，P1）：音色系数表 + 真实 TTS 样本自适应校准（滚动修正）+ 运营后台实时预估（分镜数/时长区间/成本）。
+  ⚠️ **en 单位口径（claude review W1，5b 必做）**：表值 en 按「2.8 词/s」设计，但实现链（targetCharsPerScene/本地切分/样本 chars）均按字符计——
+  英文估算系统性偏小约 5×。5b 自适应校准必须显式处理 chars/words 比值（样本已存 chars + language），或届时把 en 表值改为字/s 口径。
 
 **③ 节奏下限（compose）已实现（Batch 3，2026-08-08）**：
 
