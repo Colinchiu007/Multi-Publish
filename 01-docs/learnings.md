@@ -46,6 +46,21 @@
 - **修复**：按模型路由——`speech-2.8-*` 走异步流程（`/t2a_async_v2` 创建 → 轮询 `/query/t2a_async_query_v2` → `/files/retrieve_content` 下载），`speech-2.6-*`/`speech-02-*` 保持同步；资源进度阶段开始即前置写入。
 - **教训**：provider 模型有「同步/异步 API」之分时，adapter 必须按模型选择正确端点，不能假设所有模型共用同一请求/响应形态；「返回 200 但缺关键字段」应先怀疑模型与端点不匹配，而不是瞬时抖动。排查顺序：先看 provider 日志的耗时分布（快速失败=请求/响应契约问题，慢失败=网络/服务问题）。
 
+## MiniMax 克隆音色 voice_id 非法致旁白 0/1 复盘 (2026-08-08, PR #413)
+
+- **表象**：图片 1/1、旁白 0/1；provider 日志 `invalid params, voice id wrong`（~260ms 快速失败，重试耗尽整段失败）。用户选中的克隆音色 `voice_id="01"`。
+- **根因**：MiniMax 官方「音色快速复刻」对自定义 voice_id 有硬约束（长度 `[8,256]`、**首字符必须英文字母**、仅 `[A-Za-z0-9_-]`、末位不可 `-/_`、不可与已有 id 重复）。旧版 `cloneVoice` 用 `name.replace(/[^a-zA-Z0-9_]/g,'').slice(0,32)` 生成 id——名称「01」得到 `voice_id="01"`，长度不足且数字开头 → 平台拒绝复刻/合成。
+- **修复**：`buildMiniMaxCloneVoiceId`（`MiniMax` 前缀保证首字母 + 清洗名称 + 随机后缀，长度 [8,256]、末位非 -/_）；`cloneVoice` 用它并对平台回显 id 校验；`isValidMiniMaxCloneVoiceId` 供服务层校验；存量非法克隆在 `listClones` 标记 `invalid`，音色 catalog 移出可选项并放入 `invalidVoices`，偏好指向失效克隆时自动回退默认音色；前端下拉/克隆面板显示「已失效，请重新克隆」。
+- **教训**：provider 对「自定义标识符」的格式约束必须从官方 API 文档逐条落实（长度/首字符/字符集/末位），不能只做宽松清洗；存量数据若按旧规则写入过非法值，必须提供「标记失效 + 偏好回退」的自愈路径，否则用户会持续命中 provider 报错。
+
+## MiniMax 异步 T2A 查询响应层级致 90s 超时复盘 (2026-08-08, PR #414)
+
+- **表象**：voice_id 修复后，旁白仍 0/1；provider 日志变为 `MiniMax 异步语音合成查询超时`（~90s 慢失败，重复重试）。图片正常。
+- **根因**：官方查询接口把 `status`/`file_id`/`task_id` 放在响应**顶层**（`{ task_id, status, file_id, base_resp }`），而实现轮询只读 `queryData.data.*`（`data.file_id`/`data.status` 永远 undefined）→ 任务永远显示 pending，直到 90s 轮询上限触发 TIMEOUT。
+- **修复**：`_synthesizeAsync` 轮询解析改为**顶层与 `data.*` 双层兼容**；`status=success` + `file_id` 才下载，`processing` 继续轮询，`failed`/`expired` 立即失败；请求参数本身（voice_setting/audio_setting/language_boost）与官方一致。
+- **真实验证**：修复后 `minimax-tts synthesize success（约 13s）`，图片 1/1 · 旁白 1/1，成片 20s 生成。
+- **教训**：读第三方 API 文档的响应示例时，必须确认关键字段（status/file_id/data/error）在**哪一层**；「任务一直 pending」先核对响应结构与实现的取字段路径是否一致，再怀疑任务本身慢。provider 日志的耗时分布是判断「契约问题（快失败）vs 服务问题（慢失败）」的第一信号。
+
 ## 视频预览分段图片不显示 + 下载按钮无反应复盘 (2026-08-08)
 
 - **图片不显示根因**：本机媒体服务 `CONTENT_TYPES` 只有音视频类型，图片响应为 `application/octet-stream`，而响应头带 `X-Content-Type-Options: nosniff` —— Chromium 对 nosniff + 非图片 Content-Type 拒绝渲染 `<img>`。视频能播是因为 mp4 类型在映射里。修复：补齐 `.png/.jpg/.jpeg/.webp/.gif` 的 image/* 类型。教训：任何「本地文件转 HTTP 响应」的服务，Content-Type 映射必须覆盖全部业务文件类型；nosniff 会把类型错误从「能显示但怪」放大成「完全无法显示」。
