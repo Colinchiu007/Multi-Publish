@@ -24,6 +24,7 @@ const {
   isSplitterUnavailableError,
   normalizeServiceSplitResult,
 } = require('./story2video-segmentation');
+const { collectStory2VideoTtsSamples } = require('./story2video-tts-samples');
 
 function _firstDefined(...values) {
   return values.find(value => value !== undefined && value !== null);
@@ -356,6 +357,16 @@ class StageExecutor {
       const result = await self.serviceBus.composeVideo(assets, composeOptions);
       // code === 0 或 code === undefined（直接返回数据的桥接）都算成功
       if (result && (result.code === 0 || result.code === undefined)) {
+        // 5a：TTS 时长样本采集（best-effort，采集失败不影响流水线；为 5b 自适应校准铺路）
+        try {
+          collectStory2VideoTtsSamples({
+            store: (self.container && typeof self.container.get === 'function') ? self.container.get('store') : null,
+            segments: Array.isArray(result?.data?.segments) ? result.data.segments : [],
+            config: (params && typeof params === 'object' && !Array.isArray(params) && params.story2videoTextConfig)
+              ? params.story2videoTextConfig
+              : null,
+          })
+        } catch (_) { /* 采集为纯增强，异常静默 */ }
         return { success: true, output: result.data || result };
       }
       // 引擎不可用时返回失败（不再用占位成功）
