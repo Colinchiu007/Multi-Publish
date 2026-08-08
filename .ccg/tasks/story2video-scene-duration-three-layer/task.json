@@ -5,10 +5,10 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "electron+python+frontend",
-  "currentPhase": "batch5a-review",
-  "nextAction": "Batch 5a 双模型审查 + 打包 + PR/merge；Batch 5b 音色系数表 + 自适应校准（含 en chars/words 单位口径，claude review W1）+ 运营后台预估",
+  "currentPhase": "batch5b-review",
+  "nextAction": "Batch 5b 双模型审查 + PR/merge；收尾（learnings 沉淀、孤儿 worktree 清理）",
   "createdAt": "2026-08-08T00:00:00Z",
-  "branch": "codex/story2video-batch5a"
+  "branch": "codex/story2video-batch5b"
 }
 
 

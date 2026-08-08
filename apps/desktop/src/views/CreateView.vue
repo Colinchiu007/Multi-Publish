@@ -94,6 +94,10 @@
           <div v-if="inputMode === 'text'" class="input-area">
             <textarea v-model="pipelineText" placeholder="输入视频文案、主题描述或脚本..." rows="8" class="form-textarea" @input="enforceStory2VideoTextLimit"></textarea>
             <p v-if="isOrchestratedPipeline(selectedPipeline.name)" class="story2video-text-count">{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符</p>
+            <p v-if="s2vEstimateSummary" class="story2video-estimate" data-testid="s2v-estimate-row">
+              预估 {{ s2vEstimateSummary.sceneCount }} 个分镜 · 旁白约 {{ s2vEstimateSummary.durationMin }}~{{ s2vEstimateSummary.durationMax }} 秒 · 成本约 ¥{{ s2vEstimateSummary.totalCost.toFixed(2) }}
+              <span class="s2v-estimate-note">{{ s2vEstimateSummary.calibrated ? '（按本地 TTS 样本校准）' : '（静态估算，样本积累后自动校准）' }}</span>
+            </p>
           </div>
           <div v-if="inputMode === 'images' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
             <div class="upload-zone" @click="$refs.pipelineFileInput?.click()" @dragover.prevent @drop.prevent="handlePipelineDrop">
@@ -851,11 +855,20 @@ import {
   resolveStory2VideoNotification,
 } from '@/story2video/story2video-notifications'
 import {
+  countSceneChars,
   estimateCharsPerSecond,
   estimateCharsPerScene,
   estimateDurationSeconds,
   getLanguageBaseWordsPerSecond,
 } from '@/story2video/voice-estimate'
+import {
+  buildCalibrationFactors,
+  estimateDurationRange,
+  estimateDurationSecondsCalibrated,
+  estimateSceneCount,
+  estimateCost,
+  getCalibrationFactor,
+} from '@/story2video/tts-calibration'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
@@ -969,6 +982,7 @@ export default {
       // Remotion 状态
       renderStatus: null, installing: false, installLog: '',
       // S2V 编排模式（story2video-compose）
+      s2vTtsSamples: [],
       s2vConfig: {
         contentType: 'general', imageStyle: 'cinematic',
         imageProvider: '', imageModel: '',
@@ -1200,6 +1214,40 @@ export default {
     },
     story2videoTextCharacterCount() {
       return countStory2VideoTextCharacters(this.pipelineText)
+    },
+    // ---- 运营后台实时预估（Batch 5b）：分镜数 / 时长区间 / 成本 ----
+    s2vEstimateFactors() {
+      return buildCalibrationFactors(this.s2vTtsSamples)
+    },
+    s2vEstimateSummary() {
+      if (!this.selectedPipeline || !this.isOrchestratedPipeline(this.selectedPipeline.name)) return null
+      const text = String(this.pipelineText || '').trim()
+      if (!text) return null
+      // 与样本 chars / 切分器 normalizeText 同口径：折叠空白后计数（codex review W2），
+      // 避免英文多行/双空格文案的分镜数系统性偏大。
+      const totalChars = countSceneChars(text)
+      const target = Number(this.s2vConfig.splitTargetCharsPerScene) > 0 ? Number(this.s2vConfig.splitTargetCharsPerScene) : 20
+      const sceneCount = estimateSceneCount(totalChars, target)
+      const factors = this.s2vEstimateFactors
+      const ctx = {
+        language: this.s2vConfig.splitLanguage,
+        speed: this.s2vConfig.voiceSpeed,
+        provider: this.s2vConfig.voiceProvider,
+        voiceId: this.s2vConfig.voiceId,
+      }
+      const perScenePoint = estimateDurationSecondsCalibrated(target, factors, ctx)
+      const [perMin, perMax] = estimateDurationRange(target, factors, ctx)
+      const durationMin = sceneCount * perMin
+      const durationMax = sceneCount * perMax
+      const cost = estimateCost({ sceneCount, totalDurationSeconds: sceneCount * perScenePoint })
+      return {
+        sceneCount,
+        durationMin,
+        durationMax,
+        totalCost: cost.totalCost,
+        // W3（claude 5b）：仅当当前配置实际命中语言级或更特异校准维度时才标注“已校准”
+        calibrated: getCalibrationFactor(factors, ctx) > 1,
+      }
     },
     story2videoErrorDialogMessage() {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
@@ -1531,6 +1579,17 @@ export default {
         await this.loadS2VVoiceData()
         this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsRestored', '已恢复上次的选项设置', 'Restored your last-used options'))
       } finally { this.s2vRestoring = false }
+    },
+    async loadS2VTtsSamples() {
+      // Batch 5b：读取本地 TTS 时长样本用于自适应校准（best-effort，失败回退静态估算）。
+      // 兼容 { code, data } 与直接数组两种返回形态（storeGetSetting 解包后为数组；测试/直连为原始对象）。
+      try {
+        const raw = await storeGetSetting('story2video.ttsSamples.v1')
+        const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw.data ?? raw) : raw
+        this.s2vTtsSamples = Array.isArray(value) ? value : []
+      } catch (_) {
+        this.s2vTtsSamples = []
+      }
     },
     async resetS2VLastOptions() {
       const defaults = (this.$options.data || (() => ({}))).call(this)
@@ -2794,6 +2853,7 @@ export default {
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
     this.resumeRunningOrchestration()
     this.restoreS2VLastOptions()
+    this.loadS2VTtsSamples()
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
@@ -2910,6 +2970,8 @@ export default {
 .input-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
 .input-area { }
 .form-textarea { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; line-height: 1.6; resize: vertical; box-sizing: border-box; }
+.story2video-estimate { margin-top: 8px; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.s2v-estimate-note { opacity: .75; }
 
 /* 上传区域 */
 .upload-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; min-height: 100px; display: flex; align-items: center; justify-content: center; }

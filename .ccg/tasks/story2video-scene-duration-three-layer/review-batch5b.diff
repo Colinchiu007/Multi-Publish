@@ -1,0 +1,600 @@
+diff --git a/.ccg/tasks/story2video-scene-duration-three-layer/task.json b/.ccg/tasks/story2video-scene-duration-three-layer/task.json
+index 757ecd32..764fd456 100644
+--- a/.ccg/tasks/story2video-scene-duration-three-layer/task.json
++++ b/.ccg/tasks/story2video-scene-duration-three-layer/task.json
+@@ -5,10 +5,10 @@
+   "complexity": "M",
+   "risk": "medium",
+   "domain": "electron+python+frontend",
+-  "currentPhase": "batch5a-review",
+-  "nextAction": "Batch 5a 双模型审查 + 打包 + PR/merge；Batch 5b 音色系数表 + 自适应校准（含 en chars/words 单位口径，claude review W1）+ 运营后台预估",
++  "currentPhase": "batch5b-review",
++  "nextAction": "Batch 5b 双模型审查 + PR/merge；收尾（learnings 沉淀、孤儿 worktree 清理）",
+   "createdAt": "2026-08-08T00:00:00Z",
+-  "branch": "codex/story2video-batch5a"
++  "branch": "codex/story2video-batch5b"
+ }
+ 
+ 
+diff --git a/01-docs/PLAN-STORY2VIDEO-SCENE-DURATION-2026-08-08.md b/01-docs/PLAN-STORY2VIDEO-SCENE-DURATION-2026-08-08.md
+index 058558cf..a7105b2a 100644
+--- a/01-docs/PLAN-STORY2VIDEO-SCENE-DURATION-2026-08-08.md
++++ b/01-docs/PLAN-STORY2VIDEO-SCENE-DURATION-2026-08-08.md
+@@ -1,6 +1,6 @@
+ # PLAN — Story2Video 场景时长三层模型落地（P0+P1，2026-08-08）
+ 
+-> 状态：Batch 1-4（参数/切分/节奏/UI 层）已合并；**Batch 5a（语言感知估算 + TTS 时长样本采集）实施中**；Batch 5b（音色系数 + 自适应校准 + 运营后台预估）待排期。
++> 状态：Batch 1-4 与 5a（语言感知估算 + 样本采集）已合并；**Batch 5b（自适应校准 + 创建页实时预估）实施中**。
+ > 依据：`01-docs/PRD-video-creation.md §3.1.9 场景时长与图片动效设计合同（三层模型）`。
+ 
+ ## 0. 目标
+diff --git a/01-docs/PRD-video-creation.md b/01-docs/PRD-video-creation.md
+index d56b87b9..3f8deace 100644
+--- a/01-docs/PRD-video-creation.md
++++ b/01-docs/PRD-video-creation.md
+@@ -387,9 +387,14 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
+   与补齐后的视频片段 `duration` 分离），流水线 compose 成功后 best-effort 写入本地
+   `story2video.ttsSamples.v1`（FIFO ≤500，样本含 language/provider/voiceId/speed/chars/durationSeconds，不存原文），
+   为 5b 自适应校准提供数据源。
+-- 待后续（Batch 5b，P1）：音色系数表 + 真实 TTS 样本自适应校准（滚动修正）+ 运营后台实时预估（分镜数/时长区间/成本）。
+-  ⚠️ **en 单位口径（claude review W1，5b 必做）**：表值 en 按「2.8 词/s」设计，但实现链（targetCharsPerScene/本地切分/样本 chars）均按字符计——
+-  英文估算系统性偏小约 5×。5b 自适应校准必须显式处理 chars/words 比值（样本已存 chars + language），或届时把 en 表值改为字/s 口径。
++- **已实现（Batch 5b）**：自适应校准——按「语言 / 语言+provider / 语言+provider+voiceId」维度对 5a 样本滚动求
++  实际字/s ÷ 静态基准的中位数系数（≥3 样本启用，冷启动回退静态表）；**en 单位口径（claude 5a W1）由校准自然吸收**：
++  校准比基于字符口径，en 样本充足后系数 ≈ 4~5，估算自动纠偏为字/s 语义。
++- **已实现（Batch 5b）**：创建页实时预估行——文案输入下方展示「预估分镜数 · 旁白时长区间（±15%）· 成本约 ¥X」
++  （图片单价 0.1 元/张、TTS 0.05 元/秒为本地默认常量，标注估算仅供参考；无样本时静态估算并提示「样本积累后自动校准」）。
++- ⚠️ 校准消费方说明：自适应校准当前仅驱动**创建页预估显示**；实际切分仍以用户配置的 targetCharsPerScene 为准（不改变成片行为）。
++- ⚠️ 已知限制（显示层）：样本按 `split.language` 配置值归档——默认 `auto` 用户的 zh/en 样本会混入 auto 桶（3.3 基准）；
++  「en 系数 ≈4~5」仅在显式选择 en 语言时成立；预估行时长与成本随校准自动修正，冷启动/跨语言切换以静态估算为准并提示。
+ 
+ **③ 节奏下限（compose）已实现（Batch 3，2026-08-08）**：
+ 
+diff --git a/01-docs/learnings.md b/01-docs/learnings.md
+index ad25bd50..ccedcdbb 100644
+--- a/01-docs/learnings.md
++++ b/01-docs/learnings.md
+@@ -1,6 +1,15 @@
+ 
+ ---
+ 
++## 提交清单遗漏实现文件 + mock 绕过解包复盘 (2026-08-08)
++
++- **漏文件**：Batch 5a 首提交只 stage 了测试文件（stage-executor.test.js），漏了实现（services/stage-executor.js +11 行）。
++  本地因工作树残留实现而全绿，CI 干净检出即 Gate 4 暴露「采集器从未被调用」。教训：**提交前用 `git status --short`
++  核对「实现文件与测试文件成对」**；本地全绿 ≠ 提交完整——工作树可能含未 stage 的实现。质量门禁的价值正在于此。
++- **mock 绕过解包**：`@/api/publisher` 被整模块 `vi.mock` 后，测试里 `storeGetSetting.mockResolvedValue({ code, data })`
++  返回的是原始对象，而生产 wrapper 会解包 `result.data`——消费者若按「已解包数组」处理会拿到空。教训：对 store API
++  的读取方法做防御性形态兼容（`raw.data ?? raw`），与 restoreS2VLastOptions 既有模式一致；测试 mock 直接返回数组更贴近生产形态。
++
+ ## TDZ 第二形态：对象字面量自引用复盘 (2026-08-08)
+ 
+ - Batch 3 已记录「提前使用的常量要顶部声明」；Batch 5a 又踩了**同一类 TDZ 的新形态**：
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 75ddf2e5..89355d3b 100755
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,15 @@
+ ## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
+ 
++### 场景时长模式 Batch 5b：自适应校准 + 创建页实时预估（2026-08-08）
++- **自适应校准（tts-calibration）**：按「语言 / 语言+provider / 语言+provider+voiceId」维度对 5a 样本求
++  实际字/s ÷ 静态基准的**中位数系数**（每维度 ≥3 样本启用，90 天内样本，冷启动回退静态语言表）；
++  **en 单位口径（claude 5a W1）由校准自然吸收**（校准基于字符口径，en 系数 ≈4~5 自动纠偏）。
++- **创建页实时预估行**：文案输入下方展示「预估 N 个分镜 · 旁白约 X~Y 秒 · 成本约 ¥Z」——
++  时长点估沿用整数秒口径、区间 ±15%，成本 = 分镜数×图片单价 + 预估总时长×TTS 每秒单价
++  （默认单价 0.1 元/张、0.05 元/秒，本地常量可后续后台化）；无样本时静态估算并提示「样本积累后自动校准」。
++- 回归：新增 tts-calibration 6 用例（系数/特异性/有效语速/时长/分镜数/成本）+ CreateView 3 用例（静态/校准/空文案），
++  受影响 8 套件 286 用例全绿；`vite build` 通过、eslint 0 error。
++
+ ### 场景时长模式 Batch 5a：语言感知估算 + TTS 时长样本采集（2026-08-08）
+ - **语言感知基准语速表**：`zh≈4.5 字/s`、`en≈2.8 词/s`、其余（含 auto）回退 3.3——
+   UI 双视图估算、提交的 `split.baseWordsPerSecond`、normalizer 缺省值三者同源
+diff --git a/apps/desktop/src/story2video/tts-calibration.js b/apps/desktop/src/story2video/tts-calibration.js
+new file mode 100644
+index 00000000..fc3ea8d9
+--- /dev/null
++++ b/apps/desktop/src/story2video/tts-calibration.js
+@@ -0,0 +1,131 @@
++/**
++ * Story2Video 自适应校准 + 运营后台实时预估（Batch 5b）— renderer 侧纯函数模块。
++ * - 数据源：5a 采集的 TTS 时长样本（story2video.ttsSamples.v1，经 storeGetSetting 读取）。
++ * - 校准：按「语言 / 语言+provider / 语言+provider+voiceId」维度滚动修正有效语速；
++ *   冷启动（样本不足）回退静态语言基准（voice-estimate），系数 = 1。
++ * - en 单位口径（claude 5a W1）：样本按字符计，校准比 = 实际字/s ÷ 静态基准字/s，
++ *   天然吸收「2.8 词/s vs 字符」错配（en 样本充足后系数 ≈ 4~5，估算自动纠偏）。
++ * - 成本：默认单价常量（估算仅供参考，可后续后台化）。
++ */
++
++import {
++  estimateCharsPerSecond,
++  normalizeSpeechSpeed,
++  MIN_TARGET_SECONDS,
++  MAX_TARGET_SECONDS,
++} from './voice-estimate'
++
++export const CALIBRATION_MIN_SAMPLES = 3
++export const ESTIMATE_DEVIATION_PCT = 0.15
++// 默认单价（人民币，估算用；后续可后台化）
++export const DEFAULT_IMAGE_UNIT_PRICE = 0.1
++export const DEFAULT_TTS_PER_SECOND_PRICE = 0.05
++
++function dimensionKey(language, provider, voiceId) {
++  const parts = [String(language || 'auto').toLowerCase()]
++  if (provider) parts.push(provider)
++  if (voiceId) parts.push(voiceId)
++  return parts.join(':')
++}
++
++/**
++ * 从样本构建校准系数表：
++ * { lang: factor, 'lang:provider': factor, 'lang:provider:voiceId': factor }
++ * 每维度取满足阈值样本的实际字/s ÷ 静态基准字/s 的比值中位数（稳健，抗单条异常）。
++ * 不设跨语言 global 桶：en（词/s 口径 ≈5×）与 zh（≈2×）混池会互相反噬（codex review W1）。
++ */
++export function buildCalibrationFactors(samples, now = Date.now()) {
++  const buckets = new Map() // key -> number[]
++  const fresh = Array.isArray(samples) ? samples : []
++  const nowMs = typeof now === 'number' ? now : Date.now()
++  for (const s of fresh) {
++    if (!s || typeof s !== 'object') continue
++    const durationSeconds = Number(s.durationSeconds)
++    const chars = Number(s.chars)
++    const language = String(s.language || 'auto').toLowerCase()
++    const speed = normalizeSpeechSpeed(s.speed)
++    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || !Number.isFinite(chars) || chars <= 0) continue
++    // 只采 90 天内样本（排除过期与时钟回拨产生的未来样本），避免陈旧/异常数据干扰
++    const recorded = typeof s.recordedAt === 'string' ? new Date(s.recordedAt).getTime() : NaN
++    if (Number.isFinite(recorded) && (recorded > nowMs || nowMs - recorded > 90 * 24 * 3600 * 1000)) continue
++    const expected = estimateCharsPerSecond(language, speed)
++    if (expected <= 0) continue
++    const ratio = (chars / durationSeconds) / expected
++    if (!Number.isFinite(ratio) || ratio <= 0 || ratio > 20) continue
++    for (const key of [dimensionKey(language), dimensionKey(language, s.provider), dimensionKey(language, s.provider, s.voiceId)]) {
++      if (!buckets.has(key)) buckets.set(key, [])
++      buckets.get(key).push(ratio)
++    }
++  }
++  const median = (arr) => {
++    if (arr.length === 0) return null
++    const sorted = [...arr].sort((a, b) => a - b)
++    const mid = Math.floor(sorted.length / 2)
++    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
++  }
++  const factors = {}
++  for (const [key, ratios] of buckets) {
++    if (ratios.length >= CALIBRATION_MIN_SAMPLES) {
++      factors[key] = median(ratios)
++    }
++  }
++  return factors
++}
++
++/** 按特异性取系数：language:provider:voiceId > language:provider > language > 1（不跨语言混池）。 */
++export function getCalibrationFactor(factors, { language, provider, voiceId }) {
++  if (!factors || typeof factors !== 'object') return 1
++  const candidates = [
++    dimensionKey(language, provider, voiceId),
++    dimensionKey(language, provider),
++    dimensionKey(language),
++  ]
++  for (const key of candidates) {
++    const factor = Number(factors[key])
++    if (Number.isFinite(factor) && factor > 0) return factor
++  }
++  return 1
++}
++
++/** 校准后的有效语速（字/s）= 静态基准 × 校准系数。 */
++export function getEffectiveCharsPerSecond(factors, ctx) {
++  const base = estimateCharsPerSecond(ctx.language, ctx.speed)
++  return base * getCalibrationFactor(factors, ctx)
++}
++
++/** 校准后的时长估算（整数秒，clamp 1..60），沿用 normalizer 口径。 */
++export function estimateDurationSecondsCalibrated(chars, factors, ctx) {
++  const cps = getEffectiveCharsPerSecond(factors, ctx)
++  const value = Number(chars)
++  if (!Number.isFinite(value) || value <= 0 || cps <= 0) return MIN_TARGET_SECONDS
++  return Math.min(MAX_TARGET_SECONDS, Math.max(MIN_TARGET_SECONDS, Math.round(value / cps)))
++}
++
++/** 时长区间估算：[min, max] = 点估 ± DEVIATION_PCT（min ≥1）。 */
++export function estimateDurationRange(chars, factors, ctx) {
++  const point = estimateDurationSecondsCalibrated(chars, factors, ctx)
++  const delta = Math.max(1, Math.round(point * ESTIMATE_DEVIATION_PCT))
++  return [Math.max(MIN_TARGET_SECONDS, point - delta), Math.min(MAX_TARGET_SECONDS, point + delta)]
++}
++
++/** 预估分镜数：总字数 ÷ 每分镜目标字数，向上取整，至少 1。 */
++export function estimateSceneCount(totalChars, targetCharsPerScene) {
++  const chars = Number(totalChars)
++  const target = Number(targetCharsPerScene)
++  if (!Number.isFinite(chars) || chars <= 0) return 0
++  if (!Number.isFinite(target) || target <= 0) return 1
++  return Math.max(1, Math.ceil(chars / target))
++}
++
++/** 成本估算：图片 = 分镜数 × 单价；TTS = 预估总时长 × 每秒单价。 */
++export function estimateCost({ sceneCount, totalDurationSeconds, imageUnitPrice = DEFAULT_IMAGE_UNIT_PRICE, ttsPerSecondPrice = DEFAULT_TTS_PER_SECOND_PRICE }) {
++  const images = Number(sceneCount) || 0
++  const seconds = Number(totalDurationSeconds) || 0
++  const imageCost = images * (Number(imageUnitPrice) >= 0 ? Number(imageUnitPrice) : DEFAULT_IMAGE_UNIT_PRICE)
++  const ttsCost = seconds * (Number(ttsPerSecondPrice) >= 0 ? Number(ttsPerSecondPrice) : DEFAULT_TTS_PER_SECOND_PRICE)
++  return {
++    imageCost: Math.round(imageCost * 100) / 100,
++    ttsCost: Math.round(ttsCost * 100) / 100,
++    totalCost: Math.round((imageCost + ttsCost) * 100) / 100,
++  }
++}
+diff --git a/apps/desktop/src/story2video/tts-calibration.test.js b/apps/desktop/src/story2video/tts-calibration.test.js
+new file mode 100644
+index 00000000..9baccf74
+--- /dev/null
++++ b/apps/desktop/src/story2video/tts-calibration.test.js
+@@ -0,0 +1,110 @@
++// @vitest-environment node
++import {
++  CALIBRATION_MIN_SAMPLES,
++  buildCalibrationFactors,
++  getCalibrationFactor,
++  getEffectiveCharsPerSecond,
++  estimateDurationSecondsCalibrated,
++  estimateDurationRange,
++  estimateSceneCount,
++  estimateCost,
++  DEFAULT_IMAGE_UNIT_PRICE,
++  DEFAULT_TTS_PER_SECOND_PRICE,
++} from './tts-calibration'
++import { estimateCharsPerSecond } from './voice-estimate'
++
++const now = Date.parse('2026-08-08T00:00:00Z')
++
++// zh 样本：4.5 字/s 基准，实际 9 字/s → ratio 2.0
++const zhSamples = Array.from({ length: 5 }, (_, i) => ({
++  language: 'zh', provider: 'edge-tts', voiceId: 'v1', speed: 1,
++  chars: 9, durationSeconds: 1, recordedAt: new Date(now).toISOString(),
++}))
++// en 样本：2.8 基准（词/s 口径按字符实现），实际 14 字/s → ratio ≈ 5.0（吸收 chars/words 错配）
++const enSamples = Array.from({ length: 5 }, (_, i) => ({
++  language: 'en', provider: 'edge-tts', voiceId: 'v2', speed: 1,
++  chars: 14, durationSeconds: 1, recordedAt: new Date(now).toISOString(),
++}))
++
++describe('tts-calibration 自适应校准 + 实时预估（Batch 5b）', () => {
++  it('buildCalibrationFactors：各维度系数 = 实际字/s ÷ 静态基准（中位数），阈值内才启用，不设跨语言 global', () => {
++    const factors = buildCalibrationFactors([...zhSamples, ...enSamples], now)
++    expect(factors.global).toBeUndefined() // W1：跨语言混池已移除
++    expect(factors.zh).toBeCloseTo(2, 5)
++    expect(factors['zh:edge-tts']).toBeCloseTo(2, 5)
++    expect(factors['zh:edge-tts:v1']).toBeCloseTo(2, 5)
++    expect(factors.en).toBeCloseTo(5, 5)
++    expect(factors['en:edge-tts:v2']).toBeCloseTo(5, 5)
++    // 样本不足 → 不产出维度
++    const sparse = buildCalibrationFactors(zhSamples.slice(0, CALIBRATION_MIN_SAMPLES - 1), now)
++    expect(sparse.zh).toBeUndefined()
++  })
++
++  it('buildCalibrationFactors：ratio 越界（>20/≤0）与样本过期（>90 天/未来）被过滤', () => {
++    const nowMs = now
++    const day = 24 * 3600 * 1000
++    const bad = [
++      { language: 'zh', speed: 1, chars: 100, durationSeconds: 1, recordedAt: new Date(nowMs).toISOString() }, // ratio 100/4.5≈22 >20
++      { language: 'zh', speed: 1, chars: 0, durationSeconds: 1, recordedAt: new Date(nowMs).toISOString() }, // chars 0
++      { language: 'zh', speed: 1, chars: 10, durationSeconds: -1, recordedAt: new Date(nowMs).toISOString() }, // duration ≤0
++      { language: 'zh', speed: 1, chars: 10, durationSeconds: 1, recordedAt: new Date(nowMs - 91 * day).toISOString() }, // 过期
++      { language: 'zh', speed: 1, chars: 10, durationSeconds: 1, recordedAt: new Date(nowMs + day).toISOString() }, // 未来（时钟回拨）
++    ]
++    const factors = buildCalibrationFactors([...zhSamples, ...bad], now)
++    // 合法 zh 样本仅 5 条，全部应进入 zh 桶；5 条坏样本不影响 2.0
++    expect(factors.zh).toBeCloseTo(2, 5)
++    const onlyBad = buildCalibrationFactors(bad, now)
++    expect(Object.keys(onlyBad)).toEqual([])
++  })
++
++  it('getCalibrationFactor：按特异性 language:provider:voiceId > language:provider > language > 1（不跨语言混池）', () => {
++    const factors = buildCalibrationFactors([...zhSamples, ...enSamples], now)
++    expect(getCalibrationFactor(factors, { language: 'zh', provider: 'edge-tts', voiceId: 'v1' })).toBeCloseTo(2, 5)
++    expect(getCalibrationFactor(factors, { language: 'zh', provider: 'edge-tts', voiceId: 'other' })).toBeCloseTo(2, 5)
++    expect(getCalibrationFactor(factors, { language: 'zh', provider: 'other', voiceId: 'x' })).toBeCloseTo(2, 5)
++    // 查询语言无样本（ja/auto）→ 1（静态），绝不落入 zh/en 系数（W1 反噬防护）
++    expect(getCalibrationFactor(factors, { language: 'ja', provider: 'x', voiceId: 'y' })).toBe(1)
++    expect(getCalibrationFactor(factors, { language: 'auto', provider: '', voiceId: '' })).toBe(1)
++    expect(getCalibrationFactor({}, { language: 'zh', provider: 'x', voiceId: 'y' })).toBe(1)
++    expect(getCalibrationFactor(null, { language: 'zh' })).toBe(1)
++  })
++
++  it('getEffectiveCharsPerSecond：校准系数作用于静态基准（en 冷启动 vs 校准后）', () => {
++    const factors = buildCalibrationFactors([...zhSamples, ...enSamples], now)
++    // en 校准后 ≈ 2.8 × 5 = 14 字/s（吸收词/字错配，claude 5a W1）
++    expect(getEffectiveCharsPerSecond(factors, { language: 'en', speed: 1, provider: 'edge-tts', voiceId: 'v2' })).toBeCloseTo(14, 5)
++    // 冷启动（无样本）→ 静态基准
++    expect(getEffectiveCharsPerSecond({}, { language: 'zh', speed: 1 })).toBeCloseTo(estimateCharsPerSecond('zh', 1), 5)
++  })
++
++  it('estimateDurationSecondsCalibrated / Range：校准后整数秒与精确区间，clamp 1..60', () => {
++    const factors = buildCalibrationFactors([...zhSamples, ...enSamples], now)
++    // 18 字 / (4.5×2.0) = 2s；delta = max(1, round(2×0.15)) = 1 → [1,3]
++    expect(estimateDurationSecondsCalibrated(18, factors, { language: 'zh', speed: 1, provider: 'edge-tts', voiceId: 'v1' })).toBe(2)
++    expect(estimateDurationRange(18, factors, { language: 'zh', speed: 1, provider: 'edge-tts', voiceId: 'v1' })).toEqual([1, 3])
++    // clamp 上下界
++    expect(estimateDurationSecondsCalibrated(100000, factors, { language: 'zh', speed: 1, provider: 'edge-tts', voiceId: 'v1' })).toBe(60)
++    expect(estimateDurationSecondsCalibrated(1, factors, { language: 'zh', speed: 1, provider: 'edge-tts', voiceId: 'v1' })).toBe(1)
++    // recordedAt 缺失视为新鲜样本（合理默认）——只按 ratio 过滤
++    const noDate = Array.from({ length: 3 }, () => ({ language: 'zh', provider: 'p', voiceId: 'v', speed: 1, chars: 9, durationSeconds: 1 }))
++    expect(buildCalibrationFactors(noDate, now).zh).toBeCloseTo(2, 5)
++  })
++
++  it('estimateSceneCount：总字数 ÷ 每分镜字数向上取整，至少 1', () => {
++    expect(estimateSceneCount(0, 20)).toBe(0)
++    expect(estimateSceneCount(10, 20)).toBe(1)
++    expect(estimateSceneCount(20, 20)).toBe(1)
++    expect(estimateSceneCount(21, 20)).toBe(2)
++    expect(estimateSceneCount(100, 20)).toBe(5)
++    expect(estimateSceneCount(100, 0)).toBe(1)
++  })
++
++  it('estimateCost：图片 + TTS 成本，默认单价可覆盖', () => {
++    const cost = estimateCost({ sceneCount: 5, totalDurationSeconds: 30 })
++    expect(cost.imageCost).toBe(5 * DEFAULT_IMAGE_UNIT_PRICE)
++    expect(cost.ttsCost).toBe(30 * DEFAULT_TTS_PER_SECOND_PRICE)
++    expect(cost.totalCost).toBeCloseTo(5 * DEFAULT_IMAGE_UNIT_PRICE + 30 * DEFAULT_TTS_PER_SECOND_PRICE, 2)
++    const custom = estimateCost({ sceneCount: 2, totalDurationSeconds: 10, imageUnitPrice: 1, ttsPerSecondPrice: 0.2 })
++    expect(custom.totalCost).toBe(4)
++  })
++})
+diff --git a/apps/desktop/src/views/CreateView.test.js b/apps/desktop/src/views/CreateView.test.js
+index f67d5ef2..680b3fba 100644
+--- a/apps/desktop/src/views/CreateView.test.js
++++ b/apps/desktop/src/views/CreateView.test.js
+@@ -1281,6 +1281,13 @@ describe("CreateView - S2V orchestration", () => {
+ 
+ // ── 交互测试：通过 UI 点击触发，而非 vm 直调 ──────────────────
+ describe("CreateView - UI interactions", () => {
++  beforeEach(async () => {
++    // W3（codex 5b）：隔离 storeGetSetting 的 mockResolvedValue 实现泄漏到后续用例
++    const mocks = await import("@/api/publisher");
++    mocks.storeGetSetting.mockReset();
++    mocks.storeGetSetting.mockResolvedValue(null);
++  });
++
+   it("clicks view-tab switches view (pipelines/quick/history)", async () => {
+     const w = mount(CreateView, {
+       global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+@@ -1328,6 +1335,116 @@ describe("CreateView - UI interactions", () => {
+     w.unmount();
+   });
+ 
++  it("运营后台实时预估（Batch 5b）：静态估算显示分镜数/时长区间/成本", async () => {
++    const mocks = await import("@/api/publisher");
++    mocks.storeGetSetting.mockResolvedValue({ code: 0, data: null }); // 无样本 → 静态
++    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
++    await nextTick();
++    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
++    w.vm.pipelineText = "一二三四五六七八九十"; // 10 字，默认每分镜 20 字 → 1 个分镜
++    await nextTick();
++    await new Promise((r) => setTimeout(r, 20));
++
++    const row = w.find('[data-testid="s2v-estimate-row"]');
++    expect(row.exists()).toBe(true);
++    expect(row.text()).toContain("1 个分镜");
++    // 静态：20 字 / (3.3×1.0) ≈ 6 秒，区间 5~7；成本 = 0.10 + 6×0.05 = 0.40
++    expect(row.text()).toContain("5~7 秒");
++    expect(row.text()).toContain("¥0.40");
++    expect(row.text()).toContain("静态估算");
++    w.unmount();
++  });
++
++  it("运营后台实时预估（Batch 5b）：本地 TTS 样本校准生效并标注", async () => {
++    const mocks = await import("@/api/publisher");
++    const nowIso = new Date().toISOString();
++    const samples = Array.from({ length: 5 }, () => ({
++      language: "zh", provider: "edge-tts", voiceId: "v1", speed: 1,
++      chars: 9, durationSeconds: 1, recordedAt: nowIso, // 实际 9 字/s → 校准系数 2.0
++    }));
++    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
++    mocks.storeGetSetting.mockResolvedValue({ code: 0, data: samples });
++    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
++    await nextTick();
++    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
++    w.vm.s2vConfig = { ...w.vm.s2vConfig, splitLanguage: "zh", voiceProvider: "edge-tts", voiceId: "v1" };
++    w.vm.pipelineText = "一二三四五六七八九十";
++    // 显式触发样本加载（不依赖 mounted 异步链，聚焦校准→预估链路）
++    await w.vm.loadS2VTtsSamples();
++    await nextTick();
++    expect(w.vm.s2vTtsSamples.length).toBe(5);
++
++    const row = w.find('[data-testid="s2v-estimate-row"]');
++    expect(row.exists()).toBe(true);
++    // 校准后：20 字 / (4.5×2.0) ≈ 2 秒，区间 1~3；成本 = 0.10 + 2×0.05 = 0.20
++    expect(row.text()).toContain("1~3 秒");
++    expect(row.text()).toContain("¥0.20");
++    expect(row.text()).toContain("按本地 TTS 样本校准");
++    w.unmount();
++  });
++
++  it("运营后台实时预估（Batch 5b）：storeGetSetting 直接返回数组（生产解包形态）同样生效", async () => {
++    const mocks = await import("@/api/publisher");
++    const nowIso = new Date().toISOString();
++    const samples = Array.from({ length: 4 }, () => ({
++      language: "zh", provider: "edge-tts", voiceId: "v1", speed: 1,
++      chars: 9, durationSeconds: 1, recordedAt: nowIso,
++    }));
++    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
++    mocks.storeGetSetting.mockResolvedValue(samples); // 直接数组（生产 wrapper 解包后的形态）
++    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
++    await nextTick();
++    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
++    w.vm.s2vConfig = { ...w.vm.s2vConfig, splitLanguage: "zh", voiceProvider: "edge-tts", voiceId: "v1" };
++    w.vm.pipelineText = "一二三四五六七八九十";
++    await w.vm.loadS2VTtsSamples();
++    await nextTick();
++    expect(w.vm.s2vTtsSamples.length).toBe(4);
++    const row = w.find('[data-testid="s2v-estimate-row"]');
++    expect(row.exists()).toBe(true);
++    expect(row.text()).toContain("按本地 TTS 样本校准");
++    w.unmount();
++  });
++
++  it("运营后台实时预估（Batch 5b）：样本不足 3 条时回退静态标注（W3 语义）", async () => {
++    const mocks = await import("@/api/publisher");
++    const nowIso = new Date().toISOString();
++    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
++    mocks.storeGetSetting.mockResolvedValue({ code: 0, data: [
++      { language: "zh", provider: "edge-tts", voiceId: "v1", speed: 1, chars: 9, durationSeconds: 1, recordedAt: nowIso },
++    ] }); // 仅 1 条 → 不足 CALIBRATION_MIN_SAMPLES=3
++    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
++    await nextTick();
++    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
++    w.vm.s2vConfig = { ...w.vm.s2vConfig, splitLanguage: "zh", voiceProvider: "edge-tts", voiceId: "v1" };
++    w.vm.pipelineText = "一二三四五六七八九十";
++    await w.vm.loadS2VTtsSamples();
++    await nextTick();
++    const row = w.find('[data-testid="s2v-estimate-row"]');
++    expect(row.exists()).toBe(true);
++    expect(row.text()).toContain("静态估算"); // 未达阈值 → 不标“已校准”
++    w.unmount();
++  });
++
++  it("运营后台实时预估（Batch 5b）：非 story2video-compose 流水线不显示预估行", async () => {
++    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
++    await nextTick();
++    w.vm.selectedPipeline = { name: "animated-explainer", stages: [] };
++    w.vm.pipelineText = "一二三四五六七八九十";
++    await nextTick();
++    expect(w.find('[data-testid="s2v-estimate-row"]').exists()).toBe(false);
++    w.unmount();
++  });
++
++  it("运营后台实时预估（Batch 5b）：空文案不显示预估行", async () => {
++    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
++    await nextTick();
++    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
++    await nextTick();
++    expect(w.find('[data-testid="s2v-estimate-row"]').exists()).toBe(false);
++    w.unmount();
++  });
++
+   it("语言感知估算（Batch 5a）：zh/en 基准语速参与时长↔字数换算，auto 回退 3.3", async () => {
+     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+     await nextTick();
+diff --git a/apps/desktop/src/views/CreateView.vue b/apps/desktop/src/views/CreateView.vue
+index 27a076ff..f9fee6cf 100644
+--- a/apps/desktop/src/views/CreateView.vue
++++ b/apps/desktop/src/views/CreateView.vue
+@@ -94,6 +94,10 @@
+           <div v-if="inputMode === 'text'" class="input-area">
+             <textarea v-model="pipelineText" placeholder="输入视频文案、主题描述或脚本..." rows="8" class="form-textarea" @input="enforceStory2VideoTextLimit"></textarea>
+             <p v-if="isOrchestratedPipeline(selectedPipeline.name)" class="story2video-text-count">{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符</p>
++            <p v-if="s2vEstimateSummary" class="story2video-estimate" data-testid="s2v-estimate-row">
++              预估 {{ s2vEstimateSummary.sceneCount }} 个分镜 · 旁白约 {{ s2vEstimateSummary.durationMin }}~{{ s2vEstimateSummary.durationMax }} 秒 · 成本约 ¥{{ s2vEstimateSummary.totalCost.toFixed(2) }}
++              <span class="s2v-estimate-note">{{ s2vEstimateSummary.calibrated ? '（按本地 TTS 样本校准）' : '（静态估算，样本积累后自动校准）' }}</span>
++            </p>
+           </div>
+           <div v-if="inputMode === 'images' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
+             <div class="upload-zone" @click="$refs.pipelineFileInput?.click()" @dragover.prevent @drop.prevent="handlePipelineDrop">
+@@ -851,11 +855,20 @@ import {
+   resolveStory2VideoNotification,
+ } from '@/story2video/story2video-notifications'
+ import {
++  countSceneChars,
+   estimateCharsPerSecond,
+   estimateCharsPerScene,
+   estimateDurationSeconds,
+   getLanguageBaseWordsPerSecond,
+ } from '@/story2video/voice-estimate'
++import {
++  buildCalibrationFactors,
++  estimateDurationRange,
++  estimateDurationSecondsCalibrated,
++  estimateSceneCount,
++  estimateCost,
++  getCalibrationFactor,
++} from '@/story2video/tts-calibration'
+ 
+ const HISTORY_LOAD_TIMEOUT_MS = 5000
+ const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
+@@ -969,6 +982,7 @@ export default {
+       // Remotion 状态
+       renderStatus: null, installing: false, installLog: '',
+       // S2V 编排模式（story2video-compose）
++      s2vTtsSamples: [],
+       s2vConfig: {
+         contentType: 'general', imageStyle: 'cinematic',
+         imageProvider: '', imageModel: '',
+@@ -1201,6 +1215,40 @@ export default {
+     story2videoTextCharacterCount() {
+       return countStory2VideoTextCharacters(this.pipelineText)
+     },
++    // ---- 运营后台实时预估（Batch 5b）：分镜数 / 时长区间 / 成本 ----
++    s2vEstimateFactors() {
++      return buildCalibrationFactors(this.s2vTtsSamples)
++    },
++    s2vEstimateSummary() {
++      if (!this.selectedPipeline || !this.isOrchestratedPipeline(this.selectedPipeline.name)) return null
++      const text = String(this.pipelineText || '').trim()
++      if (!text) return null
++      // 与样本 chars / 切分器 normalizeText 同口径：折叠空白后计数（codex review W2），
++      // 避免英文多行/双空格文案的分镜数系统性偏大。
++      const totalChars = countSceneChars(text)
++      const target = Number(this.s2vConfig.splitTargetCharsPerScene) > 0 ? Number(this.s2vConfig.splitTargetCharsPerScene) : 20
++      const sceneCount = estimateSceneCount(totalChars, target)
++      const factors = this.s2vEstimateFactors
++      const ctx = {
++        language: this.s2vConfig.splitLanguage,
++        speed: this.s2vConfig.voiceSpeed,
++        provider: this.s2vConfig.voiceProvider,
++        voiceId: this.s2vConfig.voiceId,
++      }
++      const perScenePoint = estimateDurationSecondsCalibrated(target, factors, ctx)
++      const [perMin, perMax] = estimateDurationRange(target, factors, ctx)
++      const durationMin = sceneCount * perMin
++      const durationMax = sceneCount * perMax
++      const cost = estimateCost({ sceneCount, totalDurationSeconds: sceneCount * perScenePoint })
++      return {
++        sceneCount,
++        durationMin,
++        durationMax,
++        totalCost: cost.totalCost,
++        // W3（claude 5b）：仅当当前配置实际命中语言级或更特异校准维度时才标注“已校准”
++        calibrated: getCalibrationFactor(factors, ctx) > 1,
++      }
++    },
+     story2videoErrorDialogMessage() {
+       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
+     },
+@@ -1532,6 +1580,17 @@ export default {
+         this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsRestored', '已恢复上次的选项设置', 'Restored your last-used options'))
+       } finally { this.s2vRestoring = false }
+     },
++    async loadS2VTtsSamples() {
++      // Batch 5b：读取本地 TTS 时长样本用于自适应校准（best-effort，失败回退静态估算）。
++      // 兼容 { code, data } 与直接数组两种返回形态（storeGetSetting 解包后为数组；测试/直连为原始对象）。
++      try {
++        const raw = await storeGetSetting('story2video.ttsSamples.v1')
++        const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw.data ?? raw) : raw
++        this.s2vTtsSamples = Array.isArray(value) ? value : []
++      } catch (_) {
++        this.s2vTtsSamples = []
++      }
++    },
+     async resetS2VLastOptions() {
+       const defaults = (this.$options.data || (() => ({}))).call(this)
+       this.s2vRestoring = true
+@@ -2794,6 +2853,7 @@ export default {
+     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
+     this.resumeRunningOrchestration()
+     this.restoreS2VLastOptions()
++    this.loadS2VTtsSamples()
+         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
+     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
+     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
+@@ -2910,6 +2970,8 @@ export default {
+ .input-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+ .input-area { }
+ .form-textarea { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; line-height: 1.6; resize: vertical; box-sizing: border-box; }
++.story2video-estimate { margin-top: 8px; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
++.s2v-estimate-note { opacity: .75; }
+ 
+ /* 上传区域 */
+ .upload-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; min-height: 100px; display: flex; align-items: center; justify-content: center; }
