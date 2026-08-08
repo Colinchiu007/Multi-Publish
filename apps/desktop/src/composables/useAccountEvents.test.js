@@ -106,4 +106,32 @@ describe('useAccountEvents', () => {
     expect(events.loginMode.value).toBeNull()
     expect(events.qrStatus.value).toBe('idle')
   })
+
+  it('重新打开扫码会清空上一会话的二维码，避免闪现旧码', () => {
+    const events = useAccountEvents()
+    events.start()
+
+    subscriptions.qrOpened({ platform: 'wechat_mp' })
+    subscriptions.qrDetected({ platform: 'wechat_mp', image: { src: 'data:image/png;base64,abc' } })
+    expect(events.qrImage.value).toEqual({ src: 'data:image/png;base64,abc' })
+
+    subscriptions.qrOpened({ platform: 'zhihu' })
+    expect(events.qrImage.value).toBeNull()
+    expect(events.qrStatus.value).toBe('waiting')
+  })
+
+  it('扫码关闭会清空二维码并标记 closed 状态', () => {
+    const events = useAccountEvents()
+    events.start()
+
+    subscriptions.qrOpened({ platform: 'wechat_mp' })
+    subscriptions.qrDetected({ platform: 'wechat_mp', image: { src: 'https://example.com/qr.png' } })
+    expect(events.qrImage.value).not.toBeNull()
+
+    subscriptions.qrClosed()
+    expect(events.qrImage.value).toBeNull()
+    expect(events.qrStatus.value).toBe('closed')
+    expect(events.loginVisible.value).toBe(false)
+    expect(events.loginMode.value).toBeNull()
+  })
 })

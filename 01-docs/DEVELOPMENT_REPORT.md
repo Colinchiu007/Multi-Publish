@@ -392,3 +392,30 @@ python -m uvicorn web.server:app --host 0.0.0.0 --port 8082
 ### 交付边界
 
 本轮只证明本地代码、IPC 合同、renderer 渲染、打包入口和视觉回归；不把真实蚁小二第三方登录、平台 Cookie 恢复、团队分享、跨设备同步、线上发布审核或外部双模型审查不可用误报为完成。
+
+## 2026-08-08：CCG 双模型审查修复（账号脱敏/代理/二维码）
+
+### 变更内容
+
+- `toPublicErrorValue` 脱敏正则覆盖下划线/驼峰/中文/组合键（`access_token`、`refreshToken`、`api_key`、`密码`、`令牌`、`user_token`、`client_secret`、`loginPassword`、裸 `session` 等），数组错误字段逐项递归脱敏，`authorization: Bearer <token>` 与逗号分隔 Bearer 值一次性吞掉，避免残留泄漏；`Bearer ***` 保留。
+- `publicAccountAliases.publisher` 增加 `publishers`、`publisher_list` 复数别名；`toPublicMetadataValue` 支持数组元素归一化，renderer 的复数分支不再死代码。
+- `account:set-proxy` 返回判断改为 `status?.configured`；`toPublicAccount` 对字符串代理端口做数值归一化（1..65535 校验）。
+- 二维码预览 img 增加 `referrerpolicy="no-referrer"`；`useAccountEvents` 的 reopen/completed/closed/stop 清空 `qrImage` 已核验并补测试。
+- 新增双路径契约测试：`accounts:list`（后端）与 `account:list`（本地）对同一 raw account 输出完全一致且字段脱敏。
+
+### 验证证据
+
+| 门禁 | 结果 |
+|------|------|
+| account IPC 定向 Vitest | 1 file / 35 tests passed |
+| useAccountEvents 定向 Vitest | 1 file / 6 tests passed |
+| Accounts 视图 + 代理对话框定向 Vitest | 2 files / 76 tests passed |
+| 桌面完整 Vitest | 377 files / 6417 tests passed（清理 C: 盘后全绿；此前 1 个 `story2video-paths` ENOSPC 为磁盘空间不足，非代码问题） |
+| ESLint 受影响文件 | 0 errors；4 个既有 unused warning |
+| Vue renderer build | `vite build` exit 0；仅既有 chunk-size warning |
+| 像素视觉回归 | 17/17 passed |
+| Windows electron-builder | exit 0；ASAR 包含 account IPC/preload/Accounts chunks；解包 `ACCOUNT_IPC_REQUIRE_OK`；8 秒启动存活且 stderr 为空 |
+
+### 交付边界
+
+本轮证据覆盖本地 IPC 合同、renderer 事件与 Vue 模板；仍不替代真实第三方登录、Cookie 恢复、平台发布审核、团队分享或跨设备同步验证。

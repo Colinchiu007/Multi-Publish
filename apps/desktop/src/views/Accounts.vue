@@ -98,7 +98,7 @@
       </div>
     </div>
     <aside v-if="authViewVisible && loginMode === 'qrcode' && qrImageSource" class="login-qr-preview" data-testid="account-qr-preview" aria-label="扫码登录二维码">
-      <img :src="qrImageSource" alt="扫码登录二维码">
+      <img :src="qrImageSource" alt="扫码登录二维码" referrerpolicy="no-referrer">
       <span>请使用对应平台客户端扫描二维码</span>
     </aside>
 
