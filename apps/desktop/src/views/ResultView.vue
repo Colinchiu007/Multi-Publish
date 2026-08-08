@@ -186,8 +186,8 @@
                 @change="replaceSegmentAudio(segment.id, $event)"
               />
             </label>
-            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'image')">重试图片</UiButton>
-            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'video')">重试视频</UiButton>
+            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'image')">{{ isSegmentBusy(segment.id) === 'image' ? '重试中...' : '重试图片' }}</UiButton>
+            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'video')">{{ isSegmentBusy(segment.id) === 'video' ? '重试中...' : '重试视频' }}</UiButton>
             <UiButton v-if="segment.imagePath" size="sm" variant="ghost" @click="downloadArtifact(segment.imagePath, segmentName(index, 'image', segment.imagePath))">下载图片</UiButton>
             <UiButton v-if="segment.audioPath" size="sm" variant="ghost" @click="downloadArtifact(segment.audioPath, segmentName(index, 'audio', segment.audioPath))">下载音频</UiButton>
             <UiButton v-if="segment.videoPath" size="sm" variant="ghost" @click="downloadArtifact(segment.videoPath, segmentName(index, 'video', segment.videoPath))">下载视频</UiButton>
@@ -664,12 +664,16 @@ export default {
         }
         this.project = result.data || this.project
         this.segmentsDirty = true
+        // 重试图片/视频会生成新文件，必须重新解析本地媒体 URL，否则分段图片仍显示旧图或空白。
+        await this.refreshSegmentImageUrls()
         this.showStory2VideoNotification({
           messageKey: mode === 'image'
             ? STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_IMAGE_RETRIED
             : STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_VIDEO_RETRIED,
         })
       } catch (_error) {
+        // 重试失败也刷新一次：服务端可能部分更新了分段（新图片已落盘但结果未完全返回）
+        await this.refreshSegmentImageUrls().catch(() => {})
         this.showStory2VideoOperationFailure()
       } finally {
         const next = { ...this.segmentBusy }

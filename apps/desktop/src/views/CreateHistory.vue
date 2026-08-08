@@ -12,8 +12,19 @@
 
     <!-- 渲染记录 -->
     <div v-if="tab === 'renders'">
-      <div v-if="runningPipelineCount > 0" class="running-banner" role="button" tabindex="0" @click="showRunningPipelines" @keydown.enter="showRunningPipelines">
-        ⏳ 有 {{ runningPipelineCount }} 条流水线正在后台运行，点击查看运行状态
+      <div
+        v-if="runningPipelineCount > 0 || failedOrCancelledPipelineCount > 0"
+        class="running-banner"
+        role="button"
+        tabindex="0"
+        @click="showRunningPipelines"
+        @keydown.enter="showRunningPipelines"
+      >
+        <span>
+          有 {{ runningPipelineCount + failedOrCancelledPipelineCount }} 条流水线记录（
+          {{ runningPipelineCount > 0 ? runningPipelineCount + ' 条运行中、' : '' }}{{ failedOrCancelledPipelineCount }} 条失败或已取消
+          ），点击查看「流水线记录」
+        </span>
       </div>
       <div v-if="renderLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else>
@@ -59,13 +70,17 @@
                 <span class="pipeline-time">{{ formatTime(p.completedAt || p.startedAt || p.createdAt) }}</span>
               </div>
             </div>
+            <div v-if="p.status === 'running'" class="pipeline-progress">
+              <div class="progress-bar"><div class="progress-fill" :style="{ width: pipelineProgress(p) + '%' }"></div></div>
+              <span class="progress-text">{{ pipelineProgress(p) }}%</span>
+            </div>
             <div class="pipeline-stages">
-              <span v-for="(s, si) in (p.stages || [])" :key="si" class="stage-tag" :class="stageClass(s)">
-                {{ shortName(s.name || s) }}
+              <span v-for="(s, si) in (p.stages || [])" :key="si" class="stage-tag" :class="stageClass(s)" :title="stageTitle(s)">
+                {{ stageLabel(s) }}
               </span>
             </div>
             <span class="pipeline-status" :class="p.status">{{ statusLabel(p.status) }}</span>
-            <span v-if="p.status === 'running'" class="pipeline-running-hint">返回创作页查看进度</span>
+            <span v-if="p.status === 'running'" class="pipeline-running-hint">与流水线页面实时同步</span>
           </div>
         </div>
       </div>
@@ -105,16 +120,19 @@ export default {
   },
   async mounted() {
     await this.loadRenders()
-    // 同时加载流水线记录：存在运行中流水线时默认展示流水线记录，
-    // 避免用户进入历史页后以为运行中任务未出现在历史中（默认 tab 是渲染记录）。
+    // 同时加载流水线记录：存在运行中/失败/已取消流水线时默认展示流水线记录，
+    // 避免用户进入历史页后以为失败/取消任务「消失」（默认 tab 是渲染记录，只含成功渲染项目）。
     await this.loadPipelines()
-    if (this.runningPipelineCount > 0 && this.tab === 'renders') {
+    if ((this.runningPipelineCount > 0 || this.failedOrCancelledPipelineCount > 0) && this.tab === 'renders') {
       this.tab = 'pipelines'
     }
   },
   computed: {
     runningPipelineCount() {
       return (this.pipelines || []).filter((p) => p && p.status === 'running').length
+    },
+    failedOrCancelledPipelineCount() {
+      return (this.pipelines || []).filter((p) => p && (p.status === 'failed' || p.status === 'cancelled')).length
     },
   },
   methods: {
@@ -169,8 +187,8 @@ export default {
     },
     openPipeline(p) {
       if (!p) return
-      if (p.status === 'running') {
-        // 运行中：跳回创作页，CreateView 会自动恢复查看该流水线进度
+      if (p.status === 'running' || p.status === 'failed' || p.status === 'cancelled') {
+        // 运行中/失败/已取消：跳回创作页，CreateView 恢复查看该流水线进度/支持断点继续
         this.$router.push('/create')
         return
       }
@@ -192,6 +210,26 @@ export default {
     stageClass(s) {
       if (s && typeof s === 'object') return s.status || ''
       return ''
+    },
+    stageLabel(s) {
+      const name = this.shortName(typeof s === 'string' ? s : (s?.name || s?.stage || ''))
+      if (!s || typeof s !== 'object') return name
+      const marks = { completed: '✓', running: '⟳', failed: '✕', cancelled: '—', pending: '' }
+      return (marks[s.status] ? marks[s.status] + ' ' : '') + name
+    },
+    stageTitle(s) {
+      if (!s || typeof s !== 'object') return ''
+      const statusText = { completed: '已完成', running: '进行中', failed: '失败', cancelled: '已取消', pending: '等待中' }[s.status] || s.status || ''
+      const progress = typeof s.progress === 'number' ? '（' + s.progress + '%）' : ''
+      return statusText + progress
+    },
+    pipelineProgress(p) {
+      if (!p) return 0
+      if (typeof p.progress === 'number' && Number.isFinite(p.progress)) return Math.max(0, Math.min(100, Math.round(p.progress)))
+      const stages = Array.isArray(p.stages) ? p.stages : []
+      if (stages.length === 0) return 0
+      const done = stages.filter((s) => s && typeof s === 'object' && (s.status === 'completed' || s.status === 'failed' || s.status === 'cancelled')).length
+      return Math.round((done / stages.length) * 100)
     },
     shortName(name) {
       if (!name) return ''

@@ -146,6 +146,49 @@ describe('story2video 资源索引契约', () => {
     expect(result.output[0].optimized_prompt).not.toContain('think')
   })
 
+  it('LLM 返回拒绝文本（missing description）时回退原文，不把拒绝内容当提示词', async () => {
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-M2.7'] })) },
+      generateWithDefault: vi.fn(async () => ({
+        content: 'I cannot generate the image prompt because the visual description of the scene is missing from your request. Please provide the details of Scene 11 (subject, action, setting, etc.) so I can convert it into a production-ready prompt.',
+        model: 'MiniMax-M2.7',
+      })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '一个有内容的场景描述。' }] },
+      serviceBus: {},
+    })
+    expect(result).toMatchObject({ success: true })
+    // 拒绝文本被拦截：有实质内容时回退原文
+    expect(result.output[0].optimized_prompt).toBe('一个有内容的场景描述。')
+    expect(result.output[0].skipped_optimize).toBe(true)
+    expect(result.output[0].optimize_note).toBe('llm_rejected_use_original')
+    expect(result.output[0].optimized_prompt).not.toContain('cannot generate')
+  })
+
+  it('纯数字文案（如 11）守卫优先于 LLM 拒绝路径：不调用 LLM、直接用原文', async () => {
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-M2.7'] })) },
+      generateWithDefault: vi.fn(async () => ({
+        content: 'I cannot generate the image prompt because the visual description of the scene is missing from your request.',
+        model: 'MiniMax-M2.7',
+      })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '11' }] },
+      serviceBus: {},
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toEqual({ optimized_prompt: '11', providerId: null, model: null, skipped_optimize: true })
+    // 守卫优先：未调用 LLM，避免产生拒绝文本
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
+  })
   it('纯数字文案（如 12）跳过 LLM 优化，用原文兜底，不编造场景', async () => {
     const aiGenerator = {
       _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-M2.7'] })) },
@@ -955,4 +998,5 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     expect(assetGenerator.generateImage).toHaveBeenCalledTimes(4)
   })
 })
+
 

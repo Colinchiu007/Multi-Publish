@@ -253,6 +253,25 @@ describe("ResultView", () => {
     expect(api.story2videoRecomposeProject).toHaveBeenCalledWith("project-1");
   });
 
+  it("重试图片成功后重新解析新图片 URL（防止显示旧图/空白）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoRetrySegment.mockResolvedValue({
+      code: 0,
+      data: { projectId: "project-1", segments: [{ id: "segment-1", imagePath: "C:/project/segment-1-new.png" }] },
+    });
+    api.story2videoCreateShareUrl.mockImplementation(async filePath => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{ id: "segment-1", imagePath: "C:/project/segment-1-old.png" }];
+
+    await w.vm.retrySegment("segment-1", "image");
+
+    expect(api.story2videoRetrySegment).toHaveBeenCalledWith("project-1", "segment-1", "image");
+    // 重试返回的新 imagePath 必须被解析为新的 media URL（回归：旧实现未刷新导致图片不显示）
+    expect(w.vm.segments[0].imagePath).toBe("C:/project/segment-1-new.png");
+    expect(w.vm.segments[0].imageUrl).toContain("segment-1-new.png");
+  });
+
   it("可导入新旁白并原子替换指定分段音频", async () => {
     const api = await import("@/api/publisher");
     api.story2videoImportMedia.mockResolvedValue({ code: 0, data: { path: "C:/controlled/replacement.mp3" } });

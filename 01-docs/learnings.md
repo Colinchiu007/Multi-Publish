@@ -5955,3 +5955,13 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **修复**：`minimax-llm.js` 新增 `stripThinkingBlocks`（成对/未闭合 `<think>` 剥离）并在 chatCompletion/streamChat 应用；OPTIMIZE 对 LLM 输出二次净化（不依赖具体 adapter）；`hasMeaningfulText` 守卫——去掉空白/标点后为空或全为数字的文案跳过 LLM 优化、用原文兜底（单字中文仍视为有效）。
 - **教训**：任何「把 LLM content 当最终产物」的消费点都要做产出净化（思考模型会泄露推理过程），不能假设 system prompt 约束有效；「输入过短/无语义」必须显式分流，否则模型会用先验编造填补空白，且编造内容毫无可解释性。
 - **逃逸分析**：minimax-llm 单测只覆盖干净响应；OPTIMIZE 单测只覆盖正常 content；缺少「content 含思考块」「输入为纯数字」两类用例。修复后各补 3 例。
+
+## 失败/取消任务「从历史消失」+ 分段重试无反馈 + LLM 拒绝文本复盘 (2026-08-09)
+
+- **表象 1**：流水线失败弹窗点「知道了」后进历史记录看不到任务；点「从断点继续」就能看到。取消的流水线在历史记录中也看不到。
+- **根因 1**：历史页默认 tab 是「渲染记录」（`storeListPublishHistory(type:render)`，只含成功保存项目的渲染），失败/取消任务只在「流水线记录」tab（`pipeline:history` → getHistory 内存 `_history` + `runStateStore.listFailed` 持久化）。无运行中任务时不自动切 tab → 用户看默认 tab 以为任务消失。
+- **表象 2**：分段编辑点「重试图片」无反馈，过一会提示成功但图片没显示。
+- **根因 2**：`retrySegment` 成功后更新了 segments（新 imagePath）但**没有调用 `refreshSegmentImageUrls()`**——`<img :src>` 仍用旧的 imageUrl/空值；按钮无 loading 反馈（仅 disabled）。
+- **表象 3**：文案「11」优化后出现 "I cannot generate the image prompt because the visual description of the scene is missing..."。
+- **根因 3**：LLM 对缺失描述场景返回拒绝文本，旧代码把拒绝文本当提示词（纯数字守卫在新版本已拦截；旧版本未拦截）。
+- **教训**：①「任务存在但 UI 入口默认不可见」和「任务不存在」是两类问题，排查先确认数据在哪个数据源（pipeline history vs 渲染记录）；② 前端更新实体后必须同步刷新其派生展示（图片 URL）；③ LLM 的输出除思考块外还可能是拒绝文本，凡「把 content 当产物」都要做内容合法性校验（守卫 + 拒绝检测 + 原文兜底）。

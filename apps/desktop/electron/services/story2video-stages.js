@@ -274,6 +274,19 @@ function sanitizeOptimizedPrompt(content) {
   return out.trim();
 }
 
+/**
+ * 识别 LLM 的「拒绝/无法生成」回复。场景描述缺失时模型可能返回
+ * "I cannot generate the image prompt because the visual description is missing..."，
+ * 这类内容不能作为图片提示词，应回退原文或按失败处理。
+ * @param {string} text
+ * @returns {boolean}
+ */
+function looksLikeRejection(text) {
+  if (typeof text !== 'string' || !text) return false;
+  return /cannot generate|can'?t generate|unable to (generate|create)|missing from your request|please provide|please describe|i cannot|i can'?t|无法生成|缺少.*(描述|内容)|请提供.*(描述|内容)/i
+    .test(text);
+}
+
 function getDefaultLlmConfig(aiGenerator) {
   const manager = aiGenerator && aiGenerator._modelProviderManager;
   const provider = manager && typeof manager.getDefault === 'function'
@@ -433,6 +446,29 @@ function registerStory2VideoStages(pipelineEngine) {
           const optimizedPrompt = sanitizeOptimizedPrompt(result && typeof result.content === 'string' ? result.content : '')
           if (!optimizedPrompt) {
             throw new Error('Story2Video optimize scene ' + index + ' returned an empty prompt')
+          }
+          // LLM 拒绝/无法生成：场景描述缺失时模型可能返回 "I cannot generate..."，
+          // 这类内容不能作为提示词——有实质内容时回退原文，否则按失败处理。
+          if (looksLikeRejection(optimizedPrompt)) {
+            if (!hasMeaningfulText(promptSeed)) {
+              throw new Error('Story2Video optimize scene ' + index + ' returned a rejection instead of a prompt')
+            }
+            const rejectionEntry = {
+              optimized_prompt: promptSeed,
+              providerId: null,
+              model: null,
+              skipped_optimize: true,
+              optimize_note: 'llm_rejected_use_original',
+            };
+            partialResume[index] = rejectionEntry;
+            if (context && typeof context === 'object') {
+              context.optimize_resume = partialResume;
+              context.optimize_progress = {
+                done: partialResume.filter(Boolean).length,
+                total: scenes.length,
+              };
+            }
+            return rejectionEntry;
           }
           const entry = {
             optimized_prompt: optimizedPrompt,

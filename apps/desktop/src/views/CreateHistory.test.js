@@ -248,7 +248,7 @@ describe('CreateHistory', () => {
 
     expect(w.vm.pipelines.length).toBe(1)
     expect(w.text()).toContain('运行中')
-    expect(w.text()).toContain('返回创作页查看进度')
+    expect(w.text()).toContain('与流水线页面实时同步')
     expect(w.vm.pipelinePollTimer).not.toBeNull()
 
     // 轮询触发再次加载
@@ -294,7 +294,7 @@ describe('CreateHistory', () => {
     expect(w.vm.tab).toBe('pipelines')
     expect(w.vm.runningPipelineCount).toBe(1)
     expect(w.text()).toContain('运行中')
-    expect(w.text()).toContain('返回创作页查看进度')
+    expect(w.text()).toContain('与流水线页面实时同步')
     w.unmount()
   })
 
@@ -310,9 +310,10 @@ describe('CreateHistory', () => {
     // 切回渲染记录 tab：应显示运行中横幅
     await w.findAll('.tab')[0].trigger('click')
     await nextTick()
-    expect(w.text()).toContain('条流水线正在后台运行')
+    expect(w.text()).toContain('条流水线记录')
     await w.find('.running-banner').trigger('click')
     await nextTick()
     expect(w.vm.tab).toBe('pipelines')
     w.unmount()
   })
+
