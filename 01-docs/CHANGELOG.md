@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (MiniMax 异步 T2A 查询响应层级修复)
+
+### 修复
+- **旁白 0/1 第二层根因（真实 provider 复测）**：voice_id 修复后错误从 `voice id wrong` 变为「异步语音合成查询超时（90s）」。根因：官方查询接口把 `status`/`file_id`/`task_id` 放在响应**顶层**（`{ task_id, status, file_id, base_resp }`），实现只读 `data.*`（`queryData.data`）导致任务永远显示 pending 直到超时。
+- **双层兼容解析**：`_synthesizeAsync` 轮询同时读顶层与 `data.*`；`status=success`+`file_id` 才下载，`processing` 继续轮询，`failed`/`expired` 立即失败。
+- **真实链路验证**：修复后 `minimax-tts synthesize success（约 13s）`，图片 1/1 · 旁白 1/1，成片 20 秒生成（视频预览可见旁白与分段音频）。
+
+### 测试
+- 新增 2 例：官方顶层 `status/file_id` 响应正常完成并下载、顶层 `status=processing` 继续轮询后完成。
+
+### 文档
+- PRD 7.1.15「查询响应层级」修订 + CHANGELOG。
+
 ## [Unreleased] - 2026-08-08 (克隆音色 voice_id 合规 + 失效回退默认音色)
 
 ### 修复
