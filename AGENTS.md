@@ -14,6 +14,12 @@
 - **错误处理**：所有关键路径必须有错误处理
 - **质量节拍强制卡点**：提交前必须完成 `.quality-gates.md` 自检清单，违反不允许提交
 
+### 机制硬化补充（2026-08-08，与 openspec/specs/openspec-integration/spec.md 同步）
+
+- **远程同步**：任务标记 completed 前必须核对关联 PR 已合并或记录 remoteStatus，禁止基于滞后状态做重复工作。
+- **子代理降级**：派发探子前探测子代理可用性；出现 403/超时等后端不可用错误时立即降级为主代理直接执行，不盲等。
+- **OpenSpec 引导**：OpenSpec 已启用——M+/中高风险任务须经 `/opsx:propose` 建 change，机制契约见 `openspec/specs/openspec-integration/spec.md`。
+
 ## 强制流程规则（MUST）
 
 > **所有涉及代码修改的任务，无论规模大小，都必须强制触发质量节拍。**
