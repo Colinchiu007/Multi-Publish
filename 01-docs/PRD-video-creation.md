@@ -123,6 +123,24 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 ---
 
+### 1.6 近期迭代修订记录（2026-08-07 / 08）
+
+> 本节汇总最近多轮针对【视频创作】-【图片轮播】的稳定性、体验与交付修复。
+> 详细合同见 `01-docs/PRD.md` 7.1.12-7.1.15 与历史/后台运行章节；本模块 PRD 与总 PRD 以总 PRD 为准。
+
+| 日期 | 范围 | 核心内容 | 主文档 |
+|------|------|----------|--------|
+| 2026-08-07 | 模型服务异常检测 | ProviderAnomalyBus（慢响应 llm/tts/audio 30s、image 60s、video 120s；超时/网络错误）→ `pipeline:getRunContext` 下发 `providerWarnings` → 前端非阻塞横幅；`callAdapter` 有界超时（视频 10min/其余 2min）；pipeline-engine 阶段/运行执行日志；提示词优化进度前置 `optimize_progress`。PR #397 | PRD 7.1.12 |
+| 2026-08-08 | 提示与反馈规范 | 弹窗标题统一「提示」/「Notice」（去掉「{流水线名} 提示」）；选项保存 toast 改操作栏上方绝对定位（不挤占启动按钮）；媒体校验细分（格式/大小/不可读）+ 文件要求常驻提示（i18n）。PR #398 | PRD 7.1.13 |
+| 2026-08-08 | 失败任务历史 | `RunStateStore.listFailed()` + `getHistory()` 合并持久化失败快照（重启后仍显示）；失败状态文案「生成失败」。PR #399 | PRD 历史章节 |
+| 2026-08-08 | 视频预览修复 | 媒体服务 Content-Type 补齐图片类型（分段图片显示）；下载统一走主进程 `story2video:save-as`（系统保存对话框）。PR #400 | PRD 7.1.14 |
+| 2026-08-08 | MiniMax 异步 T2A | `speech-2.8-*` 异步模型改走 `/t2a_async_v2` → 轮询 → 下载（修复生成图片与旁白阶段整段失败）；资源进度前置 `assets_progress={0/N,0/M}`。PR #402 | PRD 7.1.15 |
+| 2026-08-08 | 场景时长归一（其他会话） | 图片动效归一化到场景时长、移除单图轮播选项、UTF-8 manifest。PR #396 | PLAN-STORY2VIDEO-SCENE-DURATION-2026-08-08.md |
+
+**待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：MiniMax 异步 T2A 成片、分段图片/下载交互、失败任务历史展示、provider 异常横幅。
+
+---
+
 ## 二、用户旅程
 
 ### 2.1 核心流程
