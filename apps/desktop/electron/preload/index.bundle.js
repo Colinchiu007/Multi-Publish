@@ -128,6 +128,7 @@ var require_publish = __commonJS({
         story2videoCreateShareUrl: (filePath) => ipcRenderer2.invoke("story2video:create-share-url", filePath),
         story2videoCopyPath: (filePath) => ipcRenderer2.invoke("story2video:copy-path", filePath),
         story2videoShowInFolder: (filePath) => ipcRenderer2.invoke("story2video:show-in-folder", filePath),
+        story2videoSaveAs: (filePath, suggestedName) => ipcRenderer2.invoke("story2video:save-as", { filePath, suggestedName }),
         story2videoListProjects: () => ipcRenderer2.invoke("story2video:list-projects"),
         story2videoGetProject: (projectId) => ipcRenderer2.invoke("story2video:get-project", projectId),
         story2videoDeleteProject: (projectId) => ipcRenderer2.invoke("story2video:delete-project", projectId),

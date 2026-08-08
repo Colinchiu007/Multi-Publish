@@ -1,6 +1,11 @@
 
 ---
 
+## 视频预览分段图片不显示 + 下载按钮无反应复盘 (2026-08-08)
+
+- **图片不显示根因**：本机媒体服务 `CONTENT_TYPES` 只有音视频类型，图片响应为 `application/octet-stream`，而响应头带 `X-Content-Type-Options: nosniff` —— Chromium 对 nosniff + 非图片 Content-Type 拒绝渲染 `<img>`。视频能播是因为 mp4 类型在映射里。修复：补齐 `.png/.jpg/.jpeg/.webp/.gif` 的 image/* 类型。教训：任何「本地文件转 HTTP 响应」的服务，Content-Type 映射必须覆盖全部业务文件类型；nosniff 会把类型错误从「能显示但怪」放大成「完全无法显示」。
+- **下载无反应根因**：`<a download>` 的 `download` 属性只对同源 URL 生效；媒体 URL 是 `http://127.0.0.1:<port>/media/<token>`（跨源），点击被忽略、静默失败。修复：下载统一走主进程 `dialog.showSaveDialog` + `fs.copyFileSync`（新 IPC `story2video:save-as`）。教训：Electron 里「下载文件」必须走主进程保存对话框或 `will-download` 会话处理，renderer 的 `<a download>` 对跨源/自定义协议 URL 不可靠。
+
 ## 失败任务历史持久展示复盘 (2026-08-08)
 
 - **根因**：`PipelineEngine.getHistory()` 只返回内存 `_runs` + `_history`；失败任务的持久化快照在 `RunStateStore.saveFailed`（run-state 目录）里，但从未被历史接口读取。应用重启后内存清空，失败任务从历史消失，用户无法追溯失败记录。

@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (视频预览：分段图片显示 + 文件下载修复)
+
+### 修复
+- **分段编辑图片显示**：媒体服务 Content-Type 映射缺失图片类型（png/jpg/jpeg/webp/gif），带 `nosniff` 时 `<img>` 拒绝渲染 `application/octet-stream`；已补齐 image/* 类型。
+- **下载按钮无反应**：`<a download>` 对跨源/本地 HTTP 媒体 URL 无效（静默失败）。新增主进程 `story2video:save-as`（系统保存对话框 + 受控路径校验 + 文件复制），下载视频/裁剪片段/旁白/分段图片/音频/视频统一改走该通道；成功提示「文件已保存。」，取消不提示。
+
+### 测试
+- 新增 8 例：媒体服务图片 Content-Type（png/jpg/jpeg/webp）、save-as 保存/取消/外部路径拒绝、preload 新 API（计数 + IPC 映射 + 列表）、renderer API fallback、ResultView 下载改走 save-as（含取消分支）。
+
+### 文档
+- PRD 新增「7.1.14 视频预览：分段图片与文件下载合同」。
+
 ## [Unreleased] - 2026-08-08 (失败任务历史持久展示 + 状态「生成失败」)
 
 ### 新能力与修复
