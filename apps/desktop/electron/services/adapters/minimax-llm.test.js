@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const { MinimaxLlmAdapter, MINIMAX_LLM_MODELS, DEFAULT_MODEL } = require('./minimax-llm')
+const { MinimaxLlmAdapter, MINIMAX_LLM_MODELS, DEFAULT_MODEL, stripThinkingBlocks } = require('./minimax-llm')
 const { ProviderError, ERROR_CODES } = require('./_base/provider-error')
 
 function jsonResponse (body, ok = true, status = 200) {
@@ -57,6 +57,55 @@ describe('MinimaxLlmAdapter', () => {
     expect(caps).toContain('testConnection')
     expect(adapter.supports('chatCompletion')).toBe(true)
     expect(adapter.supports('synthesize')).toBe(false)
+  })
+
+  it('stripThinkingBlocks 剥离 <think> 思考块（成对/未闭合/无思考）', () => {
+    expect(stripThinkingBlocks('<think>思考内容</think>最终答案')).toBe('最终答案')
+    expect(stripThinkingBlocks('A<think>思考</think>B')).toBe('AB')
+    expect(stripThinkingBlocks('<think>没有闭合的思考')).toBe('')
+    expect(stripThinkingBlocks('正常内容')).toBe('正常内容')
+    expect(stripThinkingBlocks('')).toBe('')
+  })
+
+  it('chatCompletion 剥离 content 中的 <think> 思考块', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse({
+      id: 'resp-think',
+      model: 'MiniMax-M2.7',
+      choices: [{
+        message: { content: '<think>用户让我把场景 12 变成图片提示词</think>\n\nA real final prompt' },
+        finish_reason: 'stop',
+      }],
+    }))
+    const result = await adapter.chatCompletion({ messages: [{ role: 'user', content: '12' }] })
+    expect(result.content).toBe('A real final prompt')
+    expect(result.content).not.toContain('think')
+  })
+
+  it('chatCompletion 纯思考无答案时返回空 content（不把思考当答案）', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse({
+      choices: [{ message: { content: '<think>只有思考</think>' }, finish_reason: 'stop' }],
+    }))
+    const result = await adapter.chatCompletion({ messages: [] })
+    expect(result.content).toBe('')
+  })
+
+  it('streamChat 抑制跨 chunk 的 think 块', async () => {
+    const chunks = [
+      'data: {"choices":[{"delta":{"content":"最终"}}]}',
+      'data: {"choices":[{"delta":{"content":"<think>思考开"}}]}',
+      'data: {"choices":[{"delta":{"content":"始了"}}]}',
+      'data: {"choices":[{"delta":{"content":"</think>答案"}}]}',
+      'data: [DONE]',
+    ].join('\n')
+    const reader = {
+      read: vi.fn()
+        .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode(chunks + '\n') })
+        .mockResolvedValueOnce({ done: true, value: undefined }),
+    }
+    fetchSpy.mockResolvedValue({ ok: true, status: 200, body: { getReader: () => reader } })
+    const received = []
+    await adapter.streamChat({ messages: [] }, (c) => received.push(c))
+    expect(received.join('')).toBe('最终答案')
   })
 
   it('chatCompletion 使用默认模型并解析响应', async () => {
@@ -115,3 +164,4 @@ describe('MinimaxLlmAdapter', () => {
     expect(result.success).toBe(false)
   })
 })
+
