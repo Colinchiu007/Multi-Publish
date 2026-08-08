@@ -150,6 +150,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     story2videoCreateShareUrl: (filePath) => ipcRenderer.invoke('story2video:create-share-url', filePath),
     story2videoCopyPath: (filePath) => ipcRenderer.invoke('story2video:copy-path', filePath),
     story2videoShowInFolder: (filePath) => ipcRenderer.invoke('story2video:show-in-folder', filePath),
+    story2videoSaveAs: (filePath, suggestedName) => ipcRenderer.invoke('story2video:save-as', { filePath, suggestedName }),
     story2videoListProjects: () => ipcRenderer.invoke('story2video:list-projects'),
     story2videoGetProject: (projectId) => ipcRenderer.invoke('story2video:get-project', projectId),
     story2videoDeleteProject: (projectId) => ipcRenderer.invoke('story2video:delete-project', projectId),

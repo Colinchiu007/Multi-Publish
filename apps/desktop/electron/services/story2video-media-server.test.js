@@ -40,6 +40,28 @@ describe('Story2Video 本机媒体流服务', () => {
     expect(await response.text()).toBe('2345')
   })
 
+  it('图片文件返回正确的 image/* Content-Type（分段编辑区图片可显示）', async () => {
+    await server.start()
+    const imagePath = path.join(root, 'segment.png')
+    fs.writeFileSync(imagePath, 'fake-png-bytes')
+    const url = server.createUrl(imagePath)
+    const response = await fetch(url)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/png')
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+
+  it('jpg/jpeg/webp 均映射为 image/* Content-Type', async () => {
+    await server.start()
+    for (const [name, expected] of [['a.jpg', 'image/jpeg'], ['b.jpeg', 'image/jpeg'], ['c.webp', 'image/webp']]) {
+      const filePath = path.join(root, name)
+      fs.writeFileSync(filePath, 'fake')
+      const response = await fetch(server.createUrl(filePath))
+      expect(response.headers.get('content-type')).toBe(expected)
+    }
+  })
+
   it('拒绝未知、过期和含额外参数的令牌请求', async () => {
     let now = 100
     await server.stop()

@@ -130,6 +130,50 @@ describe('Story2Video 交付 IPC', () => {
     expect(shown.data.path).toBe(fs.realpathSync.native(video))
   })
 
+  it('save-as 通过系统保存对话框把受控文件复制到用户选择的位置', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    registerHandlers(ipcMain, deps)
+    const video = path.join(root, 'video.mp4')
+    fs.writeFileSync(video, 'video-content')
+    const destination = path.join(root, 'saved-video.mp4')
+    deps.dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: destination })
+
+    const result = await ipcMain.get('story2video:save-as')(TRUSTED_EVENT, {
+      filePath: video,
+      suggestedName: '我的视频.mp4',
+    })
+
+    expect(result).toMatchObject({ code: 0, data: { path: destination } })
+    expect(fs.readFileSync(destination, 'utf8')).toBe('video-content')
+    // 测试环境无真实 WebContents 时走无窗口的 showSaveDialog(options)
+    expect(deps.dialog.showSaveDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultPath: '我的视频.mp4', title: '保存文件' }),
+    )
+  })
+
+  it('save-as 取消选择时返回 cancelled，不写入文件；外部路径被拒绝', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    registerHandlers(ipcMain, deps)
+    const video = path.join(root, 'video.mp4')
+    fs.writeFileSync(video, 'video-content')
+    deps.dialog.showSaveDialog.mockResolvedValue({ canceled: true, filePath: '' })
+
+    const cancelled = await ipcMain.get('story2video:save-as')(TRUSTED_EVENT, { filePath: video })
+    expect(cancelled).toMatchObject({ code: 0, data: { cancelled: true } })
+
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-save-as-outside-'))
+    try {
+      const external = path.join(outside, 'x.mp4')
+      fs.writeFileSync(external, 'x')
+      const rejected = await ipcMain.get('story2video:save-as')(TRUSTED_EVENT, { filePath: external })
+      expect(rejected.code).not.toBe(0)
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
   it('只通过可信 preload 导入用户选择的外部旁白，并返回受控临时路径', async () => {
     const ipcMain = createIpcMain()
     registerHandlers(ipcMain, createDeps())

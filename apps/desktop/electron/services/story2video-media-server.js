@@ -22,6 +22,13 @@ const CONTENT_TYPES = Object.freeze({
   '.opus': 'audio/ogg; codecs=opus',
   '.wav': 'audio/wav',
   '.webm': 'video/webm',
+  // 图片类型缺失会导致响应带 X-Content-Type-Options: nosniff 时
+  // <img> 拒绝渲染 octet-stream 内容（分段编辑区图片显示不出来的根因）
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
 })
 
 function positiveInteger (value, fallback) {
