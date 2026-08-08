@@ -544,8 +544,15 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       // 片段与成片时长 = 补齐后 6s
       expect(result.data.duration).toBe(6)
       expect(result.data.segments[0].duration).toBe(6)
-      // 完整旁白导出仍用原始音频，不补齐
-      expect(engine._concatNarrationAudio).toHaveBeenCalledWith([audio], expect.any(String), expect.any(String), 1)
+      // 完整旁白导出仍用原始音频，不补齐。
+      // CI 下 os.tmpdir 可能返回 8.3 短路径（RUNNER~1），引擎经 realpathSync.native 归一化为长路径，
+      // 按 AGENTS.md「Windows 路径身份断言」合同：两边 realpath 后比较，不做原始字符串比较。
+      const narrationCall = engine._concatNarrationAudio.mock.calls[0]
+      expect(narrationCall[0].length).toBe(1)
+      expect(fs.realpathSync.native(narrationCall[0][0])).toBe(fs.realpathSync.native(audio))
+      expect(narrationCall[1]).toEqual(expect.any(String))
+      expect(narrationCall[2]).toEqual(expect.any(String))
+      expect(narrationCall[3]).toBe(1)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
