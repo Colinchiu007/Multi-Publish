@@ -1492,6 +1492,11 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
   - **展示（2026-08-07 二次修订，修复布局错乱）**：运行中项为**卡片式**——主信息行（名称/状态「进行中」/「返回流水线创作查看进度」提示/时间）+ 独立「阶段进度条」（每阶段一个分段，done 绿 / active 蓝高亮 / pending 灰 / failed 红，语义同流水线页阶段清单），不再内联标签挤占单行。
   - **刷新（2026-08-07 二次修订，修复闪烁；三次修订，修复运行结束任务消失）**：存在运行中任务时每 5s 执行 `refreshRunningHistory()` **原地更新**运行中项的 stages/currentStage（保持列表对象身份），不重建整表、不重刷项目记录；**运行中项结束后（不在 `pipelineHistory` 运行集中）触发一次完整 `loadHistory()`，以终态（已完成/失败/已取消）保留显示，不直接消失**。
   - 点击运行中项切回流水线创作视图并自动恢复查看该 run。
+  - **失败任务持久展示（2026-08-08 修订）**：流水线执行失败的任务也必须显示在历史记录中，状态文案为「生成失败」。
+    - **数据源**：失败时 `RunStateStore.saveFailed(run)` 持久化快照（新增 `createdAt` 字段）；`PipelineEngine.getHistory()` 在内存 `_runs`/`_history` 之外，合并 `runStateStore.listFailed()` 的持久化失败快照（按 runId 与内存条目去重）。
+    - **重启保持**：应用重启后内存历史清空，但失败快照仍从 run-state 目录读取，失败任务继续显示在历史记录中（状态「生成失败」、时间取 `completedAt/updatedAt/createdAt`）。
+    - **状态文案**：`failed` 状态在【历史记录】显示为「生成失败」（CreateView 内部历史视图 `historyStatusLabel` 与 `/create/history` 独立页 `statusLabel` 同步；状态筛选项「失败」改为「生成失败」）。
+    - **交互**：失败卡片保持仅展示状态不跳转（与既有失败/取消卡片一致）。
 - **交互逻辑**：
   - 点击运行中卡片 → 跳转 `/create`（CreateView 自动恢复查看该 run 进度）。
   - 点击已完成卡片 → 跳转 `/create/result?path=<成片路径>` 预览。

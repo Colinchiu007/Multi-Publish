@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (失败任务历史持久展示 + 状态「生成失败」)
+
+### 新能力与修复
+- **失败任务持久展示**：流水线执行失败的任务现在持久显示在【历史记录】中（状态「生成失败」）。应用重启后仍可见——`RunStateStore.saveFailed` 持久化失败快照（补充 `createdAt`），`PipelineEngine.getHistory()` 合并 `runStateStore.listFailed()` 的持久化失败快照（按 runId 与内存 `_runs`/`_history` 去重）。
+- **状态文案**：`failed` 状态在历史记录显示「生成失败」（CreateView 内部历史视图 + `/create/history` 独立页），状态筛选下拉项同步改为「生成失败」。
+
+### 测试
+- 新增 7 例：RunStateStore `listFailed`（legacy/owner/去重/损坏跳过/createdAt）、PipelineEngine `getHistory` 合并持久化失败快照（重启场景 + 同会话去重）、CreateHistory 状态文案。
+- CI 稳定性：credential-store 真实 Windows 文件锁用例超时提升到 60s（CI 全量负载下 powershell 子进程启动延迟可致 30s 偶发超时，非回归）。
+
+### 文档
+- PRD 后台运行流水线章节「失败任务持久展示」合同。
+
 ## [Unreleased] - 2026-08-08 (弹窗标题 / 操作反馈 / 提示信息细化)
 
 ### 新能力与修复

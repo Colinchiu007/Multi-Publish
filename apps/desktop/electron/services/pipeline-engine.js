@@ -883,13 +883,44 @@ class PipelineEngine {
    */
   getHistory() {
     const seen = new Set();
+    const seenIds = new Set();
     const active = [];
     for (const run of this._runs.values()) {
       if (seen.has(run)) continue;
       seen.add(run);
+      if (run.id) seenIds.add(run.id);
       active.push(run);
     }
-    return [...active, ...this._history];
+    for (const item of this._history) {
+      if (item && item.id) seenIds.add(item.id);
+    }
+    // 合并持久化失败快照（runStateStore）：应用重启后，失败任务仍显示在历史记录中。
+    // 与内存 run/_history 按 runId 去重，避免同一条任务重复展示。
+    const persisted = [];
+    if (this.runStateStore && typeof this.runStateStore.listFailed === 'function') {
+      try {
+        for (const snapshot of this.runStateStore.listFailed()) {
+          const id = snapshot.runId
+          if (!id || seenIds.has(id)) continue
+          seenIds.add(id)
+          persisted.push({
+            id,
+            pipeline: snapshot.pipeline,
+            status: snapshot.status || 'failed',
+            currentStage: Number.isInteger(snapshot.currentStage) ? snapshot.currentStage : 0,
+            stages: Array.isArray(snapshot.stages) ? snapshot.stages.map((s) => ({ ...s })) : [],
+            context: snapshot.context && typeof snapshot.context === 'object' ? snapshot.context : {},
+            params: snapshot.params && typeof snapshot.params === 'object' ? snapshot.params : {},
+            error: snapshot.error || null,
+            orchestrationMode: snapshot.orchestrationMode || 'orchestrator',
+            createdAt: snapshot.createdAt || snapshot.endedAt || null,
+            updatedAt: snapshot.endedAt || snapshot.createdAt || null,
+            completedAt: snapshot.endedAt || null,
+          })
+        }
+      } catch (_) { /* 失败快照读取失败不影响历史展示 */ }
+    }
+    return [...active, ...this._history, ...persisted];
   }
 
   /** 当前正在运行的编排流水线数量（去重 _<name> 索引）。 */

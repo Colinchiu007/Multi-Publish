@@ -68,6 +68,12 @@ describe('RunStateStore owner 隔离', () => {
     expect(loaded).not.toBeNull()
     expect(loaded.runId).toBe('run-1')
     expect(loaded.owner).toBe('user-a')
+
+    // 持久化快照含 createdAt，供历史记录展示创建时间
+    const run = makeRun('run-1')
+    run.createdAt = '2026-08-08T00:00:00.000Z'
+    expect(store.saveFailed(run)).toBe(true)
+    expect(store.load('run-1').createdAt).toBe('2026-08-08T00:00:00.000Z')
     expect(loaded.error).toBe('network timeout')
   })
 
@@ -127,5 +133,64 @@ describe('RunStateStore owner 隔离', () => {
     store.setOwnerProvider(() => { throw new Error('boom') })
     expect(store.saveFailed(makeRun('run-safe'))).toBe(true)
     expect(fs.existsSync(path.join(dir, 'run-safe.json'))).toBe(true)
+  })
+})
+
+describe('RunStateStore listFailed（历史记录展示失败任务）', () => {
+  let dir
+  let currentOwner
+
+  beforeEach(() => {
+    dir = tempDir('list')
+    currentOwner = null
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  function makeStore () {
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+    if (currentOwner) store.setOwnerProvider(() => currentOwner)
+    return store
+  }
+
+  it('未登录（legacy 平铺）保存的快照可被列出', () => {
+    const store = makeStore()
+    store.saveFailed(makeRun('run-a'))
+    store.saveFailed(makeRun('run-b'))
+
+    const failed = store.listFailed()
+    expect(failed.map((s) => s.runId).sort()).toEqual(['run-a', 'run-b'])
+    expect(failed[0]).toMatchObject({ kind: 'orchestration-run-state', status: 'failed' })
+  })
+
+  it('已登录（owner 目录）保存的快照可被列出', () => {
+    currentOwner = 'user-a'
+    const store = makeStore()
+    store.saveFailed(makeRun('run-owner'))
+
+    const failed = store.listFailed()
+    expect(failed.map((s) => s.runId)).toEqual(['run-owner'])
+  })
+
+  it('owner 与 legacy 同 runId 只返回一条（去重）', () => {
+    const store = makeStore()
+    store.saveFailed(makeRun('run-dup'))
+    // 手动在 legacy 平铺目录写入同 id 快照，模拟迁移残留
+    fs.writeFileSync(path.join(dir, 'run-dup.json'), JSON.stringify({ ...makeRun('run-dup'), kind: 'orchestration-run-state', runId: 'run-dup' }), 'utf8')
+
+    const failed = store.listFailed()
+    expect(failed.filter((s) => s.runId === 'run-dup')).toHaveLength(1)
+  })
+
+  it('损坏或非快照文件被静默跳过', () => {
+    const store = makeStore()
+    store.saveFailed(makeRun('run-ok'))
+    fs.writeFileSync(path.join(dir, 'corrupt.json'), '{not-json', 'utf8')
+    fs.writeFileSync(path.join(dir, 'readme.txt'), 'ignore', 'utf8')
+
+    const failed = store.listFailed()
+    expect(failed.map((s) => s.runId)).toEqual(['run-ok'])
   })
 })

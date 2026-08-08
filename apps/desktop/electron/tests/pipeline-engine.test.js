@@ -146,6 +146,47 @@ describe('PipelineEngine 状态机模式', () => {
     }))
   })
 
+  it('getHistory 合并持久化失败快照：应用重启后失败任务仍显示在历史记录', () => {
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    const { RunStateStore } = require('../services/run-state-store')
+    const dir = path.join(os.tmpdir(), 'pipeline-engine-history-test-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+
+    const engineA = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    engineA.runStateStore.saveFailed({
+      id: 'run-failed-persisted',
+      pipeline: 'story2video-compose',
+      status: 'failed',
+      currentStage: 3,
+      stages: [{ name: 'split', status: 'completed' }, { name: 'optimize', status: 'failed' }],
+      context: {},
+      params: {},
+      error: 'provider timeout',
+      orchestrationMode: 'orchestrator',
+      createdAt: '2026-08-08T01:00:00.000Z',
+      endedAt: '2026-08-08T01:05:00.000Z',
+    })
+
+    // 模拟应用重启：新引擎（内存 _history 为空）复用同一 store
+    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const history = engineB.getHistory()
+    expect(history).toContainEqual(expect.objectContaining({
+      id: 'run-failed-persisted',
+      pipeline: 'story2video-compose',
+      status: 'failed',
+    }))
+
+    // 同会话去重：失败 run 同时在内存 _history 时只出现一次
+    const engineC = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    engineC._history.push({ id: 'run-failed-persisted', pipeline: 'story2video-compose', status: 'failed', stages: [], context: {}, createdAt: '2026-08-08T01:00:00.000Z' })
+    const ids = engineC.getHistory().map((item) => item.id)
+    expect(ids.filter((id) => id === 'run-failed-persisted')).toHaveLength(1)
+
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
   it('确认检查点后运行快照不保留已消费的检查点', () => {
     const run = {
       id: 'run-checkpoint',
