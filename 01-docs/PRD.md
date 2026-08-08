@@ -915,6 +915,18 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 提示文字 | 无需新增错误码：失效克隆通过禁用项与徽标提示；用户需删除旧克隆后重新上传音频克隆（新 id 自动合规）。 |
 | 验收标准 | ① 旧注册表 `voice_id="01"` 的克隆在音色下拉中显示「已失效」且不可选，默认音色被自动选中；② 重新克隆（合法 id）后可正常选择并合成；③ 真实流水线「生成图片与旁白」旁白 `x/1` 不再因 voice id 报错（provider 日志无 `voice id wrong`）。 |
 
+#### 7.1.17 提示词优化输出净化与无实质内容守卫（2026-08-09）
+
+**背景**：真实链路「图片轮播」文案输入「12」，提示词优化阶段输出的图片提示词为 `<think>……</think>\n\nA man in his late thirties stands at a crossroads……`——带推理能力的 LLM（MiniMax-M3/M2.7 等）在 OpenAI 兼容接口下把思考过程以 `<think>` 块放进 `content`，系统原样当提示词；同时纯数字文案被模型凭空编造出与原文无关的场景。
+
+| 合同 | 要求 |
+|------|------|
+| 思考块剥离（Adapter 层） | `minimax-llm.js` 必须对 `chatCompletion` 的 `content` 应用 `stripThinkingBlocks`（剥离成对 `<think>...</think>` 与未闭合 `<think>` 至结尾）；`streamChat` 用状态机抑制跨 chunk 思考块；纯思考无答案时返回空 content。工具导出供测试。 |
+| 输出净化（阶段层） | `story2video-stages OPTIMIZE` 对 LLM 返回内容二次净化（`sanitizeOptimizedPrompt`），不依赖具体 adapter；净化后为空 → 视为失败（原 empty prompt 错误）。 |
+| 无实质内容守卫 | `hasMeaningfulText(text)`：去掉空白/标点/符号后为空、或全部为数字（如「12」）→ 跳过 LLM 优化，`optimized_prompt` 用原文，标记 `skipped_optimize: true`，`providerId/model` 为 null；单字中文（如「一」「猫」）仍正常优化。后续「生成图片与旁白」读取 `optimized_prompt` 不受影响。 |
+| 回归测试 | ① `stripThinkingBlocks` 成对/未闭合/纯思考/无思考；② chatCompletion/streamChat 思考块剥离；③ OPTIMIZE 对含 think 的 content 净化；④ 纯数字文案跳过优化用原文（+6 用例）。 |
+| 验收标准 | ① 文案「12」运行流水线，优化阶段不出现 `<think>` 内容、不编造人物场景，图片用原文「12」生成；② 正常文案优化结果不含思考块；③ 真实 provider（如 MiniMax-M2.7/M3）验证成图提示词纯净。 |
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```

@@ -5947,3 +5947,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ### 预防措施
 - 双模型审查的 claude 腿：先确保 127.0.0.1:15721 网关运行，再以 `PATH="/c/Users/邱领/.claude/shims:$PATH"` 调用 `codeagent-wrapper --backend claude`。
 - 若网关长期不可用，claude 腿可退化为直接 `claude -p --dangerously-skip-permissions --output-format stream-json -`（跳过 wrapper 的坏参数）。
+
+## 提示词优化思考块泄露 + 无实质内容文案编造复盘 (2026-08-09)
+
+- **表象**：【图片轮播】文案输入「12」，提示词优化阶段产出的图片提示词竟是「<think>……</think>\n\nA man in his late thirties stands at a crossroads……」——思考过程 + 凭空编造的人物场景。
+- **根因**：① 带推理能力的 LLM（MiniMax-M3/M2.7）在 OpenAI 兼容接口下把思考过程以 `<think>...</think>` 形式放进 `content`，`chatCompletion` 原样返回、`story2video-stages OPTIMIZE` 原样当提示词；② 纯数字/无实质内容文案没有守卫，系统把「12」当正常场景交给 LLM，模型在「只输出最终提示词」约束下硬编造场景。
+- **修复**：`minimax-llm.js` 新增 `stripThinkingBlocks`（成对/未闭合 `<think>` 剥离）并在 chatCompletion/streamChat 应用；OPTIMIZE 对 LLM 输出二次净化（不依赖具体 adapter）；`hasMeaningfulText` 守卫——去掉空白/标点后为空或全为数字的文案跳过 LLM 优化、用原文兜底（单字中文仍视为有效）。
+- **教训**：任何「把 LLM content 当最终产物」的消费点都要做产出净化（思考模型会泄露推理过程），不能假设 system prompt 约束有效；「输入过短/无语义」必须显式分流，否则模型会用先验编造填补空白，且编造内容毫无可解释性。
+- **逃逸分析**：minimax-llm 单测只覆盖干净响应；OPTIMIZE 单测只覆盖正常 content；缺少「content 含思考块」「输入为纯数字」两类用例。修复后各补 3 例。

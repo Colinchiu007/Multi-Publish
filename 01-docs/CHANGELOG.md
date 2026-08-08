@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-09 (提示词优化思考块泄露修复 + 无实质内容守卫)
+
+### 修复
+- **图片提示词优化思考块泄露**：带推理能力的 LLM（如 MiniMax-M3/M2.7）在 OpenAI 兼容接口下可能把 `<think>...</think>` 思考过程放进 `content`，`OPTIMIZE` 阶段原样用作图片提示词导致成图语义错误。
+  - `minimax-llm.js` 新增 `stripThinkingBlocks`（成对/未闭合思考块剥离），`chatCompletion` 应用净化，`streamChat` 用状态机抑制跨 chunk 思考块。
+  - `story2video-stages.js` OPTIMIZE 对 LLM 返回内容二次净化（双保险，不依赖具体 adapter）。
+- **无实质内容文案守卫**：纯数字/纯符号文案（如「12」）跳过 LLM 优化，直接用原文兜底（`skipped_optimize: true`），避免模型凭空编造与原文无关的场景；单字中文（如「一」）仍正常优化。
+- 新增回归测试：`stripThinkingBlocks` 成对/未闭合/纯思考、chatCompletion/streamChat 思考块剥离、OPTIMIZE 净化、纯数字跳过优化（共 +6 用例）。
+
+### 文档
+- learnings.md「提示词优化思考块泄露 + 无实质内容编造复盘」；PRD 补充提示词优化净化合同。
+
 ## [Unreleased] - 2026-08-08 (多模态 LLM 能力 + 删除交互 + 测试脱敏 + 运营后台预设模型设置)
 
 ### 新增

@@ -126,6 +126,48 @@ describe('story2video 资源索引契约', () => {
     expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
   })
 
+  it('LLM 返回含 <think> 思考块的 content 时，净化后作为提示词（不带思考内容）', async () => {
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-M2.7'] })) },
+      generateWithDefault: vi.fn(async () => ({
+        content: '<think>用户让我把场景 12 变成图片提示词</think>\n\nA real final prompt',
+        model: 'MiniMax-M2.7',
+      })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '唐朝长安城的灯火。' }] },
+      serviceBus: {},
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0].optimized_prompt).toBe('A real final prompt')
+    expect(result.output[0].optimized_prompt).not.toContain('think')
+  })
+
+  it('纯数字文案（如 12）跳过 LLM 优化，用原文兜底，不编造场景', async () => {
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-M2.7'] })) },
+      generateWithDefault: vi.fn(async () => ({ content: '编造的场景', model: 'MiniMax-M2.7' })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const context = { split: [{ text: '12' }, { text: '一个有内容的场景描述。' }] }
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context,
+      serviceBus: {},
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output).toHaveLength(2)
+    // 纯数字场景：跳过优化，用原文，标记 skipped_optimize
+    expect(result.output[0]).toEqual({ optimized_prompt: '12', providerId: null, model: null, skipped_optimize: true })
+    // 有内容场景：正常调用 LLM
+    expect(result.output[1]).toMatchObject({ optimized_prompt: '编造的场景' })
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+    expect(context.optimize_progress).toEqual({ done: 2, total: 2 })
+  })
   it('逐场景提示词优化并行执行（有界并发，避免长文案串行拖慢）', async () => {
     // 用并发计数断言（确定性），不依赖墙钟：并发执行时活跃调用数应 ≥2
     let active = 0
@@ -913,3 +955,4 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     expect(assetGenerator.generateImage).toHaveBeenCalledTimes(4)
   })
 })
+

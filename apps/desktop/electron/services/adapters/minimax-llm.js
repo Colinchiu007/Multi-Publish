@@ -20,6 +20,23 @@ const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
 const DEFAULT_TIMEOUT = 120000
 const DEFAULT_MODEL = 'MiniMax-M2.7'
 
+/**
+ * 剥离模型思考块。MiniMax-M3/M2.7 等带推理能力的模型在 OpenAI 兼容接口下
+ * 可能把思考过程以 <think>...</think>（或未闭合 <think>）形式直接放进 content，
+ * 若原样使用会把思考内容当成最终答案（如把 <think> 当图片提示词）。
+ * @param {string|null} content
+ * @returns {string} 剥离思考块后的内容（可能为空，表示只有思考没有答案）
+ */
+function stripThinkingBlocks (content) {
+  if (typeof content !== 'string' || !content) return ''
+  let out = content
+  // 成对思考块（含换行）
+  out = out.replace(/<think>[\s\S]*?<\/think>/gi, '')
+  // 未闭合的开标签 → 后续全部视为思考内容，删除
+  out = out.replace(/<think>[\s\S]*$/gi, '')
+  return out.trim()
+}
+
 const MINIMAX_LLM_MODELS = [
   { id: 'MiniMax-M3', name: 'MiniMax-M3', description: '最新 M 系列语言模型，1M 上下文，Agent 推理/工具调用/代码' },
   { id: 'MiniMax-M2.7', name: 'MiniMax-M2.7', description: '自我迭代模型，204K 上下文（约 60 TPS）' },
@@ -109,12 +126,14 @@ class MinimaxLlmAdapter extends BaseAdapter {
     })
     const data = await resp.json()
 
+    const rawContent = data.choices && data.choices[0] && data.choices[0].message
+      ? data.choices[0].message.content
+      : ''
     return {
       id: data.id,
       model: data.model || body.model,
-      content: data.choices && data.choices[0] && data.choices[0].message
-        ? data.choices[0].message.content
-        : '',
+      // 剥离思考块：<think>...</think> 是推理过程，不是最终答案
+      content: stripThinkingBlocks(typeof rawContent === 'string' ? rawContent : ''),
       finish_reason: data.choices && data.choices[0] ? data.choices[0].finish_reason : null,
       usage: data.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
     }
@@ -152,6 +171,28 @@ class MinimaxLlmAdapter extends BaseAdapter {
 
     const decoder = new TextDecoder()
     let buffer = ''
+    let inThink = false
+    const emit = (text) => {
+      if (!text) return
+      let pending = text
+      while (pending.length > 0) {
+        if (!inThink) {
+          const openIdx = pending.search(/<think>/i)
+          if (openIdx === -1) {
+            onChunk(pending)
+            return
+          }
+          if (openIdx > 0) onChunk(pending.slice(0, openIdx))
+          pending = pending.slice(openIdx + 7) // 跳过 <think>
+          inThink = true
+        } else {
+          const closeIdx = pending.search(/<\/think>/i)
+          if (closeIdx === -1) return // 仍在思考块内，丢弃该段
+          pending = pending.slice(closeIdx + 8) // 跳过 </think>
+          inThink = false
+        }
+      }
+    }
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
@@ -167,7 +208,7 @@ class MinimaxLlmAdapter extends BaseAdapter {
           const chunk = JSON.parse(data)
           const content = chunk.choices && chunk.choices[0] && chunk.choices[0].delta
             ? chunk.choices[0].delta.content : ''
-          if (content) onChunk(content)
+          if (content) emit(String(content))
         } catch (_) { /* 忽略解析失败的 chunk */ }
       }
     }
@@ -202,4 +243,4 @@ class MinimaxLlmAdapter extends BaseAdapter {
   }
 }
 
-module.exports = { MinimaxLlmAdapter, MINIMAX_LLM_MODELS, DEFAULT_MODEL }
+module.exports = { MinimaxLlmAdapter, MINIMAX_LLM_MODELS, DEFAULT_MODEL, stripThinkingBlocks }

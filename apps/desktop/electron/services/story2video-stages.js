@@ -245,6 +245,35 @@ function getScenePromptSeed(scene) {
   return typeof candidate === 'string' ? candidate.trim() : '';
 }
 
+/**
+ * 判断文案是否有实质内容。去掉空白/标点/符号后为空、或全部是数字（如「12」）
+ * 的文案没有可描绘的语义，交给 LLM 优化只会被编造出与原文无关的场景。
+ * 单字中文（如「一」「猫」）仍视为有内容。
+ * @param {string} text
+ * @returns {boolean}
+ */
+function hasMeaningfulText(text) {
+  const cleaned = String(text || '')
+    .replace(/[\s\p{P}\p{S}]/gu, '');
+  if (!cleaned) return false;
+  if (/^\d+$/.test(cleaned)) return false;
+  return true;
+}
+
+/**
+ * 净化 LLM 返回的优化提示词：剥离 <think>...</think> 思考块（带推理能力的模型
+ * 可能把思考过程直接放进 content），避免思考内容被当作图片提示词。
+ * @param {string|null} content
+ * @returns {string}
+ */
+function sanitizeOptimizedPrompt(content) {
+  if (typeof content !== 'string') return '';
+  let out = content.trim();
+  out = out.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  out = out.replace(/<think>[\s\S]*$/gi, '');
+  return out.trim();
+}
+
 function getDefaultLlmConfig(aiGenerator) {
   const manager = aiGenerator && aiGenerator._modelProviderManager;
   const provider = manager && typeof manager.getDefault === 'function'
@@ -364,6 +393,25 @@ function registerStory2VideoStages(pipelineEngine) {
           if (!promptSeed) {
             throw new Error('Story2Video optimize scene ' + index + ' is missing a prompt seed')
           }
+          // 无实质内容的文案（纯数字/纯符号/过短）：跳过 LLM 优化，直接用原文，
+          // 避免模型凭空编造与原文无关的场景（如输入「12」被编造成人物画面）。
+          if (!hasMeaningfulText(promptSeed)) {
+            const skippedEntry = {
+              optimized_prompt: promptSeed,
+              providerId: null,
+              model: null,
+              skipped_optimize: true,
+            };
+            partialResume[index] = skippedEntry;
+            if (context && typeof context === 'object') {
+              context.optimize_resume = partialResume;
+              context.optimize_progress = {
+                done: partialResume.filter(Boolean).length,
+                total: scenes.length,
+              };
+            }
+            return skippedEntry;
+          }
           // 瞬态 provider 错误有界重试：限流用更长退避，避免长文案多场景并发触发
           // 限流时短退避重试不足以恢复而拖垮整阶段；非瞬时错误立即失败，不消耗重试次数。
           let result
@@ -380,7 +428,9 @@ function registerStory2VideoStages(pipelineEngine) {
               'Story2Video optimize scene ' + index + ' failed: ' + (lastError && lastError.message ? lastError.message : String(lastError)),
             )
           }
-          const optimizedPrompt = result && typeof result.content === 'string' ? result.content.trim() : ''
+          // 剥离思考块后才是最终提示词：带推理能力的模型（如 MiniMax-M3/M2.7）
+          // 可能把 <think> 思考过程放进 content，不能原样用作图片提示词。
+          const optimizedPrompt = sanitizeOptimizedPrompt(result && typeof result.content === 'string' ? result.content : '')
           if (!optimizedPrompt) {
             throw new Error('Story2Video optimize scene ' + index + ' returned an empty prompt')
           }
