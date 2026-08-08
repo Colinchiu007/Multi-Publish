@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (多模态模型类别 + 能力路由 + MiniMax 多模态预设)
+
+### 新能力与修复
+- **多模态模型类别**：模型设置新增「多模态模型」类别（第 7 类，副标题同步）；新增预设 `minimax-multimodal`（MiniMax，仅需一个 API Key），声明能力 `['tts','image','video']`（≥2 项）与能力默认模型 `{ tts:'speech-2.8-turbo', image:'image-01', video:'MiniMax-Hailuo-2.3' }`，能力持久化到 provider `config`（含存量预设回填）。
+- **多模态优先开关**：「优先使用多模态模型进行所有的AI操作」全局开关（默认勾选，user 级 `prefer_multimodal` 持久化）。
+- **能力路由**：`ModelProviderManager.getDefault(category)` 开启偏好且多模态已配置并声明能力时返回多模态模型；`ai-generator.generateWithDefault` 按 `capability_models[type]` 选择模型；story2video 资源阶段未显式指定 provider 时按能力路由（显式下拉选择优先）。
+- **多模态适配器**：`MinimaxMultimodalAdapter` 组合并委托 MiniMax TTS/Image/Video 三个既有适配器（TTS 走 t2a_async_v2 异步端点）。
+
+### 测试
+- 新增 12 例：multimodal 类别/标签与预设能力声明（≥2 + 能力默认模型齐全）、种子 config 持久化、getDefault 路由（关闭/开启/未配置/未声明能力 四分支）、偏好开关往返、多模态适配器能力与委托、ai-generator 能力模型选择（含普通 provider 回退）。
+
+### 文档
+- PRD 7.4.1「多模态模型类别」合同（类别/预设/能力声明/路由/开关/交互/验收）+ 5.3 类别表更新。
+
 ## [Unreleased] - 2026-08-08 (失败历史断点继续 + 终态快照唯一性 + 分段图片 CSP)
 
 ### 新能力与修复

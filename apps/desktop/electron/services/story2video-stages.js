@@ -469,6 +469,22 @@ function registerStory2VideoStages(pipelineEngine) {
       const imageModel = firstDefined(params.imageModel, stage.options?.imageModel);
       const aspectRatio = firstDefined(params.aspectRatio, stage.options?.aspectRatio, '16:9');
       const voiceId = firstDefined(params.voiceId, stage.options?.voiceId, 'default');
+      const voiceProvider = firstDefined(params.voiceProvider, stage.options?.voiceProvider);
+      // 多模态优先：未显式指定 provider 时，按能力让 ModelProviderManager.getDefault 解析
+      // （开启「优先多模态」且多模态模型声明支持该能力时返回多模态模型）。仅 assetGenerator
+      // 路径生效，legacy python 路径保持原有空 provider 行为。
+      const resolveCapabilityProvider = (type) => {
+        const container = pipelineEngine && pipelineEngine.container
+        const manager = container && typeof container.get === 'function'
+          ? container.get('modelProviderManager')
+          : null
+        if (!manager || typeof manager.getDefault !== 'function') return ''
+        const provider = manager.getDefault(type)
+        return provider && typeof provider.id === 'string' ? provider.id.trim() : ''
+      }
+      const hasAssetGenerator = Boolean((pipelineEngine && pipelineEngine._assetGenerator) || (serviceBus && serviceBus._assetGenerator))
+      const resolvedImageProvider = imageProvider || (hasAssetGenerator ? resolveCapabilityProvider('image') : '')
+      const resolvedVoiceProvider = voiceProvider || (hasAssetGenerator ? resolveCapabilityProvider('tts') : '')
       const inputMode = firstDefined(params.inputMode, stage.options?.inputMode, 'text');
       const inputImages = Array.isArray(params.images)
         ? params.images
@@ -539,7 +555,7 @@ function registerStory2VideoStages(pipelineEngine) {
               // 瞬时错误（限流/超时/网络）有界重试；内容政策检查点等失败原样返回
               result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
                 style: imageStyle,
-                image_provider: imageProvider,
+                image_provider: resolvedImageProvider,
                 image_model: imageModel,
                 index,
                 aspect_ratio: aspectRatio,
@@ -652,7 +668,7 @@ function registerStory2VideoStages(pipelineEngine) {
             const result = await withAssetTransientRetry(() => assetGenerator
               ? assetGenerator.generateTTS(text, {
                   voice_id: voiceId,
-                  voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
+                  voice_provider: resolvedVoiceProvider,
                   voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),

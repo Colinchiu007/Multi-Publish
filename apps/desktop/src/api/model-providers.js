@@ -2,7 +2,7 @@
  * Model Provider API 封装 — 调用 Electron IPC
  *
  * 桥接 Vue 组件 ↔ Electron 主进程 model-provider-manager.js
- * 5 类模型：llm / tts / speech_recognition / image / video
+ * 7 类模型：llm / tts / speech_recognition / image / video / audio / multimodal
  */
 
 function getApi () {

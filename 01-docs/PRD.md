@@ -552,7 +552,7 @@ class BaseRpaPublisher {
 通过内嵌浏览器（WebContentsView）登录各发布平台，支持扫码登录（微信生态），Cookie 自动 AES-256-GCM 加密保存。
 
 ### 5.3 模型服务商配置（必选）
-在「模型服务商设置」页配置 AI 模型的 API Key。支持 5 类模型：
+在「模型服务商设置」页配置 AI 模型的 API Key。支持 7 类模型：
 
 | 类别 | 用途 | 预设服务商 |
 |------|------|----------|
@@ -561,6 +561,7 @@ class BaseRpaPublisher {
 | 语音识别 | 字幕生成、语音转文字 | OpenAI Whisper / Google STT / 豆包语音识别 / 百度语音识别 / 本地 Whisper |
 | 图片生成 | 封面图、配图、AI 图像 | Flux / DALL-E / Recraft / Imagen / Grok Image / Pixabay / Pexels / 本地扩散 / ComfyUI |
 | 视频模型 | AI 视频生成 | 混元 / CogVideo / Grok Video / HeyGen / Kling / Runway / Veo / Wan / MiniMax / LTX / Seedance / Higgsfield |
+| 多模态模型 | 一个 API Key 覆盖 TTS/生图/视频等多个能力 | MiniMax（能力：TTS语音 / 生图 / 生成视频） |
 
 每个类别可添加多个服务商，并选择一个设为默认。
 
@@ -943,8 +944,27 @@ Electron 打包、工作树、PR 或发布状态证据。
         ├─ TTS 语音 → 视频配音、语音合成
         ├─ 语音识别 → 字幕生成、语音转文字
         ├─ 图片生成 → AI 图片生成（封面、配图）
-        └─ 视频模型 → AI 视频生成（Hunyuan/Kling/Runway 等）
+        ├─ 视频模型 → AI 视频生成（Hunyuan/Kling/Runway 等）
+        └─ 多模态模型 → 一个 API Key 覆盖多个能力（见 7.4.1）
 ```
+
+### 7.4.1 多模态模型类别（2026-08-08 新增）
+
+**需求**：模型设置新增「多模态模型」类别；预设模型必须声明支持多模态（文字推理 / TTS语音 / 语音识别 / 视觉识别 / 生图 / 生成视频 中**至少 2 项**能力）；前端只需填写**一个 API Key**，并提供「优先使用多模态模型进行所有的AI操作」开关（**默认勾选**）；流水线按能力调用模型时，若多模态模型声明支持该能力则优先使用它。
+
+| 合同 | 要求 |
+|------|------|
+| 类别与标签 | 后端 `CATEGORIES.MULTIMODAL='multimodal'`、`CATEGORY_LABELS.multimodal='多模态模型'`；前端「模型服务商设置」类别筛选/新增类别卡片/服务商卡片标签同步新增（图标 🌐）。页面副标题更新为「七类 AI 服务商」。 |
+| 预设能力声明 | `model-provider-seeds` 中多模态预设必须携带 `capabilities: string[]`（取值于 `llm/tts/speech_recognition/image/video`）与 `capability_models: { [cap]: modelId }`；能力数必须 ≥ `MULTIMODAL_MIN_CAPABILITIES(2)`；每个声明能力必须给出对应默认模型。预设能力持久化：种子写入行 `config.capabilities` / `config.capability_models`；`_syncPresetCapabilities()` 对存量预设行回填（不覆盖已存在的能力配置）。 |
+| 预设（MiniMax） | 新增预设 `minimax-multimodal`（名称「MiniMax」，`base_url=https://api.minimaxi.com/v1`），声明能力 `['tts','image','video']`（≥2），能力默认模型 `{ tts:'speech-2.8-turbo', image:'image-01', video:'MiniMax-Hailuo-2.3' }`；仅需填一个 API Key。 |
+| 多模态适配器 | 新增 `MinimaxMultimodalAdapter`（`adapters/minimax-multimodal.js`）：组合既有 MiniMax TTS / Image / Video 三个适配器并按方法委托（synthesize/listVoices/cloneVoice → TTS，generateImage → Image，generateVideo/getVideoStatus → Video）；`capabilities()` 自动覆盖 `synthesize/listVoices/cloneVoice/generateImage/generateVideo/getVideoStatus`，不含 `chatCompletion/transcribe`。 |
+| 优先开关 | 主进程 `ModelProviderManager.getMultimodalPreference()`（默认 true，`settings` 表 user 级 key `prefer_multimodal`）/ `setMultimodalPreference(value)`；前端「模型服务商设置」页头部复选框「优先使用多模态模型进行所有的AI操作」（默认勾选，保存即持久化）。 |
+| 能力路由 | `getDefault(category)`：开启偏好 且 多模态 provider（category=multimodal）已配置（enabled=1 + 可用 Key）且 `config.capabilities` 包含该能力 → 直接返回该多模态 provider；否则回退类别内默认。未开启 / 未配置 / 未声明能力 → 原逻辑不变。 |
+| 能力模型选择 | `ai-generator.generateWithDefault(type)`：模型优先取 `provider.capability_models[type]`，否则回退 `provider.models[0]`（多模态 provider 按能力选对模型，避免 TTS/生图/视频混用同一模型）。 |
+| 流水线空 provider 兜底 | story2video `generate_assets`：未显式指定 image/voice provider（assetGenerator 路径）时，按能力调用 `getDefault('image'/'tts')` 解析（开启偏好即用多模态模型），legacy python 路径保持空 provider 原行为。显式下拉选择的服务商优先，不受开关影响。 |
+| 数据校验 | `createProvider/updateProvider` 类别校验覆盖 `multimodal`；自定义多模态服务商通过 `config.capabilities` / `config.capability_models` 声明（同样 ≥2 项校验由预设层保证，自定义仅提示）。 |
+| 交互与显示 | 服务商卡片与预设卡片展示能力 chips（文字推理/TTS语音/语音识别/生图/生成视频，多语言标签）；新增/编辑对话框对 `multimodal` 类别只展示 API Key（隐藏模型列表输入），显示「能力与模型由系统预设」提示。 |
+| 验收标准 | ① 模型设置新增「多模态模型」类别，预设 MiniMax 显示 3 项能力 chips；② 只填 API Key 保存成功；③ 勾选开关后 `getDefault('tts'/'image'/'video')` 返回多模态 provider，取消勾选后返回类别 provider；④ MiniMax 多模态走 TTS/Image/Video 各自端点（TTS 走 t2a_async_v2 异步）；⑤ 流水线在未显式指定 provider 时优先使用多模态模型。 |
 
 ---
 

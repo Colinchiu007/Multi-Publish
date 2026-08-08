@@ -53,6 +53,14 @@ vi.mock('@/api/model-providers', function () {
   }
 })
 
+// ─── Mock publisher（多模态优先开关读写）───────────────────────
+vi.mock('@/api/publisher', function () {
+  return {
+    storeGetSetting: vi.fn(function () { return Promise.resolve({ code: -1, message: 'electronAPI not available', data: null }) }),
+    storeSetSetting: vi.fn(function () { return Promise.resolve({ code: 0 }) }),
+  }
+})
+
 // ─── Mock Element Plus ─────────────────────────────────────
 vi.mock('element-plus', function () {
   return {
@@ -564,10 +572,10 @@ describe('useModelProviderCrud', function () {
       // 此列表从 ModelProviders.vue 的 script setup 解构中提取
       const expectedExports = [
         // 常量
-        'CATEGORY_OPTIONS', 'CATEGORY_LABELS',
+        'CATEGORY_OPTIONS', 'CATEGORY_LABELS', 'MULTIMODAL_CAPABILITY_LABELS',
         // 数据状态
         'providers', 'loading', 'submitting', 'filterCategory', 'viewMode',
-        'testResults', 'testingId', 'safeStorageAvailable',
+        'testResults', 'testingId', 'safeStorageAvailable', 'preferMultimodal',
         // 表单状态
         'showFormDialog', 'isEditing', 'form',
         // 删除状态
@@ -580,7 +588,8 @@ describe('useModelProviderCrud', function () {
         'filteredProviders', 'configuredCount', 'presetCount',
         'categoryCounts', 'configuredCategoryCounts', 'activeCategoryCounts',
         // 方法
-        'loadProviders', 'openAdd', 'nextAddStep', 'loadAvailablePresets',
+        'loadProviders', 'loadMultimodalPreference', 'saveMultimodalPreference',
+        'openAdd', 'nextAddStep', 'loadAvailablePresets',
         'selectPreset', 'selectCustom', 'openEdit',
         'submitForm', 'confirmDelete', 'doDelete',
         'toggleEnabled', 'setDefault', 'testProvider',
@@ -614,6 +623,41 @@ describe('useModelProviderCrud', function () {
 
     it('configuredCategoryCounts 初始为 { all: 0 }', function () {
       expect(crud.configuredCategoryCounts.value).toEqual({ all: 0 })
+    })
+
+    // ─── 多模态模型类别与优先开关 ────────────────────────────
+    it('CATEGORY_OPTIONS 包含多模态模型类别与中文标签', function () {
+      const option = crud.CATEGORY_OPTIONS.find(opt => opt.value === 'multimodal')
+      expect(option).toBeDefined()
+      expect(option.label).toBe('多模态模型')
+      expect(crud.CATEGORY_LABELS.multimodal).toBe('多模态模型')
+      expect(crud.MULTIMODAL_CAPABILITY_LABELS.tts).toBe('TTS语音')
+    })
+
+    it('preferMultimodal 默认开启（true）', function () {
+      expect(crud.preferMultimodal.value).toBe(true)
+    })
+
+    it('loadMultimodalPreference 读取已保存开关（false 生效）', async function () {
+      const publisher = await import('@/api/publisher')
+      publisher.storeGetSetting.mockResolvedValueOnce({ code: 0, data: false })
+      await crud.loadMultimodalPreference()
+      expect(publisher.storeGetSetting).toHaveBeenCalledWith('prefer_multimodal')
+      expect(crud.preferMultimodal.value).toBe(false)
+    })
+
+    it('loadMultimodalPreference 无保存值时默认开启', async function () {
+      const publisher = await import('@/api/publisher')
+      publisher.storeGetSetting.mockResolvedValueOnce({ code: 0, data: null })
+      await crud.loadMultimodalPreference()
+      expect(crud.preferMultimodal.value).toBe(true)
+    })
+
+    it('saveMultimodalPreference 持久化开关', async function () {
+      const publisher = await import('@/api/publisher')
+      await crud.saveMultimodalPreference(false)
+      expect(publisher.storeSetSetting).toHaveBeenCalledWith('prefer_multimodal', false)
+      expect(crud.preferMultimodal.value).toBe(false)
     })
   })
   })
