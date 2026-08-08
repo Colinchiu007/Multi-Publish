@@ -432,6 +432,36 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       expect(body.voice_setting.vol).toBe(10)
     })
 
+    it('官方查询响应（status/file_id 在顶层）时正常完成并下载', async () => {
+      // 官方 query 接口返回 { task_id, status, file_id, base_resp }（顶层，不在 data 内）
+      const createResp = createFetchResponse({ task_id: 12345 })
+      const queryResp = createFetchResponse({ task_id: 12345, status: 'success', file_id: 67890, base_resp: { status_code: 0, status_msg: 'SUCCESS' } })
+      const downloadResp = createBinaryResponse(Buffer.from(ASYNC_AUDIO_HEX, 'hex'))
+      const fetchMock = createFetchMock([createResp, queryResp, downloadResp])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo' })
+      expect(result.audio.toString('utf8')).toBe('hello-async')
+      expect(fetchMock.calls[1].url).toContain('/query/t2a_async_query_v2?task_id=12345')
+      expect(fetchMock.calls[2].url).toContain('/files/retrieve_content?file_id=67890')
+    })
+
+    it('官方查询响应顶层 status=processing 时继续轮询（不误判完成/失败）', async () => {
+      const createResp = createFetchResponse({ task_id: 12346 })
+      const queryResp1 = createFetchResponse({ task_id: 12346, status: 'processing', base_resp: { status_code: 0 } })
+      const queryResp2 = createFetchResponse({ task_id: 12346, status: 'success', file_id: 67891, base_resp: { status_code: 0 } })
+      const downloadResp = createBinaryResponse(Buffer.from(ASYNC_AUDIO_HEX, 'hex'))
+      const fetchMock = createFetchMock([createResp, queryResp1, queryResp2, downloadResp])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo' })
+      expect(result.audio.toString('utf8')).toBe('hello-async')
+      // 创建 + 2 次查询 + 下载
+      expect(fetchMock.calls.length).toBe(4)
+    })
+
     it('查询响应直接携带 data.audio（hex）时直接返回，不下载', async () => {
       const createResp = createFetchResponse({ data: { task_id: 'task-2' } })
       const queryResp = createFetchResponse({ data: { audio: ASYNC_AUDIO_HEX, status: 'success' } })
@@ -488,6 +518,57 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       // 至少发生过创建 + 一次查询
       expect(calls.some((u) => u.includes('/t2a_async_v2'))).toBe(true)
       expect(calls.some((u) => u.includes('/query/t2a_async_query_v2'))).toBe(true)
+    })
+  })
+
+  // ─── 克隆音色 voice_id 合规性（官方约束：长度[8,256]、首字母、仅[A-Za-z0-9_-]、末位非 -/_）───
+  describe('克隆音色 voice_id 合规性', () => {
+    const { buildMiniMaxCloneVoiceId, isValidMiniMaxCloneVoiceId } = require('./minimax-tts')
+
+    it('buildMiniMaxCloneVoiceId 生成的 id 始终满足官方约束', () => {
+      for (const name of ['01', '我的音色', '沉稳高管', 'abc', 'a-b_c', '', '超长名称'.repeat(50)]) {
+        const id = buildMiniMaxCloneVoiceId(name)
+        expect(isValidMiniMaxCloneVoiceId(id)).toBe(true)
+        expect(id).toMatch(/^[a-zA-Z]/)
+        expect(id.length).toBeGreaterThanOrEqual(8)
+        expect(id.length).toBeLessThanOrEqual(256)
+      }
+    })
+
+    it('生成 id 带随机后缀，多次生成不重复', () => {
+      const seen = new Set(Array.from({ length: 50 }, () => buildMiniMaxCloneVoiceId('克隆音色')))
+      expect(seen.size).toBe(50)
+    })
+
+    it('isValidMiniMaxCloneVoiceId 拒绝非法 id（短/数字开头/非法字符/末位 -_）', () => {
+      expect(isValidMiniMaxCloneVoiceId('01')).toBe(false)          // 长度不足且数字开头
+      expect(isValidMiniMaxCloneVoiceId('12345678')).toBe(false)    // 数字开头
+      expect(isValidMiniMaxCloneVoiceId('MiniMax name')).toBe(false) // 空格
+      expect(isValidMiniMaxCloneVoiceId('MiniMax001_')).toBe(false)  // 末位 _
+      expect(isValidMiniMaxCloneVoiceId('MiniMax001-')).toBe(false)  // 末位 -
+      expect(isValidMiniMaxCloneVoiceId(null)).toBe(false)
+      expect(isValidMiniMaxCloneVoiceId('MiniMax001')).toBe(true)
+    })
+
+    it('cloneVoice 复刻请求携带合规 voice_id，且返回 id 合规', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ file: { file_id: 12345 } }),
+        createFetchResponse({ voice_id: 'MiniMaxMyVoice_abc123' }),
+      ])
+      global.fetch = fetchMock
+      try {
+        const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+        const blob = new Blob(['audio-bytes'], { type: 'audio/mpeg' })
+        const result = await adapter.cloneVoice({ name: '我的音色01', samples: [{ blob, fileName: 'a.mp3' }] })
+        expect(result.id).toBe('MiniMaxMyVoice_abc123')
+        expect(isValidMiniMaxCloneVoiceId(result.id)).toBe(true)
+        const cloneCall = fetchMock.calls.find((c) => String(c.url).includes('/voice_clone'))
+        const body = JSON.parse(cloneCall.opts.body)
+        expect(isValidMiniMaxCloneVoiceId(body.voice_id)).toBe(true)
+        expect(body.voice_id).toMatch(/^MiniMax/)
+      } finally {
+        global.fetch = originalFetch
+      }
     })
   })
 })

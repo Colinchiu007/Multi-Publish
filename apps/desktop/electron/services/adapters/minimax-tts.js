@@ -57,6 +57,42 @@ const MINIMAX_TTS_MODELS = [
   { id: 'speech-2.6-turbo',  name: 'Speech 2.6 Turbo',  description: '快速语音合成 v2.6' },
 ]
 
+/**
+ * 校验 MiniMax 克隆音色自定义 voice_id 是否符合官方约束：
+ * 长度 [8,256]、首字符必须为英文字母、仅允许数字/字母/-/_、末位字符不可为 -/_。
+ * （官方文档：api-reference/voice-cloning-clone）
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isValidMiniMaxCloneVoiceId (value) {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (value.length < 8 || value.length > 256) return false
+  if (!/^[a-zA-Z]/.test(value)) return false
+  if (!/^[a-zA-Z0-9_-]+$/.test(value)) return false
+  if (/[-_]$/.test(value)) return false
+  return true
+}
+
+/**
+ * 生成符合官方约束的克隆音色 voice_id：
+ * - 以 "MiniMax" 前缀保证首字符为英文字母
+ * - 名称清洗后仅保留 [A-Za-z0-9_-]，末位非 -/_
+ * - 追加短随机后缀避免与平台已有 id 重复，长度落在 [8,256]
+ * @param {string} [name]
+ * @returns {string}
+ */
+function buildMiniMaxCloneVoiceId (name) {
+  let base = String(name || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .replace(/[-_]+$/g, '')
+    .replace(/^[^a-zA-Z]+/, '')
+  if (!base) base = 'CloneVoice'
+  const suffix = Math.random().toString(36).replace(/[^a-z0-9]/g, '').slice(0, 6)
+  let id = 'MiniMax' + base.slice(0, 240) + '_' + suffix
+  while (id.length < 8) id += '0'
+  return id.slice(0, 256)
+}
+
 class MinimaxTtsAdapter extends BaseAdapter {
   /**
    * @param {object} credentials
@@ -243,18 +279,26 @@ class MinimaxTtsAdapter extends BaseAdapter {
     for (;;) {
       const queryResp = await this._request('/query/t2a_async_query_v2?task_id=' + encodeURIComponent(taskId))
       const queryData = await queryResp.json()
-      const data = queryData?.data || {}
-      const baseResp = queryData?.base_resp || {}
+      // 官方查询接口把 status/file_id/task_id 放在响应顶层（{ task_id, status, file_id, base_resp }），
+      // 历史实现曾只读 data.*（queryData.data）导致任务永远显示 pending 直到超时。
+      // 这里顶层与 data.* 双层兼容解析。
+      const nested = queryData?.data && typeof queryData.data === 'object' ? queryData.data : {}
+      const data = queryData && typeof queryData === 'object' ? queryData : {}
+      const baseResp = data?.base_resp || nested?.base_resp || {}
       const statusCode = baseResp.status_code
+      const taskStatus = String(data?.status || nested?.status || '').toLowerCase()
 
-      // 完成：查询响应直接带音频，或返回 file_id 后下载
-      const inlineAudio = typeof data.audio === 'string' && data.audio.length > 0 ? data.audio : null
+      // 完成：查询响应直接带音频（hex），或返回 file_id 后下载
+      const inlineAudio = (typeof data.audio === 'string' && data.audio.length > 0) ? data.audio
+        : ((typeof nested.audio === 'string' && nested.audio.length > 0) ? nested.audio : null)
       if (inlineAudio) {
         const audio = Buffer.from(inlineAudio, 'hex')
         if (audio.length > 0) return { audio, format: outputFormat }
       }
-      if (typeof data.file_id === 'string' && data.file_id.trim()) {
-        const audioResp = await this._request('/files/retrieve_content?file_id=' + encodeURIComponent(data.file_id.trim()))
+      const rawFileId = data?.file_id ?? nested?.file_id ?? null
+      const fileId = rawFileId !== null && rawFileId !== undefined ? String(rawFileId).trim() : ''
+      if (fileId && taskStatus !== 'processing') {
+        const audioResp = await this._request('/files/retrieve_content?file_id=' + encodeURIComponent(fileId))
         const audioBuffer = Buffer.from(await audioResp.arrayBuffer())
         if (!audioBuffer || audioBuffer.length === 0) {
           throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'MiniMax 异步语音合成返回空音频', { providerId: this.id })
@@ -263,14 +307,14 @@ class MinimaxTtsAdapter extends BaseAdapter {
       }
 
       // 明确失败
-      const errorValue = data?.error
+      const errorValue = data?.error || nested?.error
       const hasError = errorValue && (typeof errorValue === 'string'
         ? String(errorValue).trim()
         : (errorValue.message || errorValue.code))
-      if (hasError || String(data?.status || '').toLowerCase() === 'failed') {
+      if (hasError || taskStatus === 'failed' || taskStatus === 'expired') {
         const message = typeof errorValue === 'string'
           ? errorValue
-          : (errorValue && errorValue.message) || String(data?.status || '') || 'MiniMax 异步语音合成失败'
+          : (errorValue && errorValue.message) || String(data?.status || nested?.status || '') || 'MiniMax 异步语音合成失败'
         throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, message, { providerId: this.id })
       }
       if (statusCode !== undefined && Number(statusCode) !== 0) {
@@ -307,6 +351,8 @@ class MinimaxTtsAdapter extends BaseAdapter {
    * 上传：POST /v1/files/upload（purpose=voice_clone）→ file_id
    * 复刻：POST /v1/voice_clone（file_id + voice_id）
    * 要求：mp3/m4a/wav、时长 10s-5min、大小 ≤20MB（由 tts-voice-clone-service 前置校验）
+   * 自定义 voice_id 约束（官方 API 文档）：长度 [8,256]、首字符必须为英文字母、
+   * 允许数字/字母/-/_、末位字符不可为 -/_、不可与已有 id 重复。
    * @param {{name?: string, samples?: Array<{blob?: Blob, fileName?: string, contentType?: string}>}} params
    * @returns {Promise<{id: string, name: string}>}
    */
@@ -339,10 +385,9 @@ class MinimaxTtsAdapter extends BaseAdapter {
       throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '上传复刻音频未返回 file_id', { providerId: this.id })
     }
 
-    // 自定义 voice_id：仅保留字母数字下划线，保证 MiniMax 接受
+    // 生成符合官方约束的克隆音色 voice_id（长度 [8,256]、首字母、仅 [A-Za-z0-9_-]、末位非 -_）
     const requestedName = String(params.name || 'clone_voice').trim()
-    const safeId = requestedName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 32)
-    const voiceId = safeId || 'clone_voice'
+    const voiceId = buildMiniMaxCloneVoiceId(requestedName)
 
     const cloneResp = await this._request('/voice_clone', {
       method: 'POST',
@@ -353,7 +398,9 @@ class MinimaxTtsAdapter extends BaseAdapter {
     if (!finalId) {
       throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '音色复刻未返回 voice_id', { providerId: this.id })
     }
-    return { id: String(finalId), name: requestedName }
+    // 平台回显的 voice_id 若不合规（旧服务端/异常），回退到本次生成的合规 id
+    const validatedId = isValidMiniMaxCloneVoiceId(finalId) ? String(finalId) : voiceId
+    return { id: validatedId, name: requestedName }
   }
 
   /** 测试连接 — 验证 apiKey 存在 */
@@ -369,4 +416,10 @@ class MinimaxTtsAdapter extends BaseAdapter {
   }
 }
 
-module.exports = { MinimaxTtsAdapter, MINIMAX_TTS_MODELS, MINIMAX_SYSTEM_VOICES }
+module.exports = {
+  MinimaxTtsAdapter,
+  MINIMAX_TTS_MODELS,
+  MINIMAX_SYSTEM_VOICES,
+  buildMiniMaxCloneVoiceId,
+  isValidMiniMaxCloneVoiceId,
+}

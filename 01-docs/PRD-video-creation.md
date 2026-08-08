@@ -135,9 +135,11 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-08 | 失败任务历史 | `RunStateStore.listFailed()` + `getHistory()` 合并持久化失败快照（重启后仍显示）；失败状态文案「生成失败」。PR #399 | PRD 历史章节 |
 | 2026-08-08 | 视频预览修复 | 媒体服务 Content-Type 补齐图片类型（分段图片显示）；下载统一走主进程 `story2video:save-as`（系统保存对话框）。PR #400 | PRD 7.1.14 |
 | 2026-08-08 | MiniMax 异步 T2A | `speech-2.8-*` 异步模型改走 `/t2a_async_v2` → 轮询 → 下载（修复生成图片与旁白阶段整段失败）；资源进度前置 `assets_progress={0/N,0/M}`。PR #402 | PRD 7.1.15 |
+| 2026-08-08 | 克隆音色 voice_id 合规 | `cloneVoice` 用 `buildMiniMaxCloneVoiceId` 生成合规 id（长度[8,256]/首字母英文字母）；存量非法克隆标记失效并自动回退默认音色（旁白 0/1 第一层根因）。PR #413 | PRD 7.1.16 |
+| 2026-08-08 | 异步 T2A 查询层级 | 官方查询响应 `status/file_id` 在顶层、实现只读 `data.*` 致 90s 超时；轮询改为顶层与 data 双层兼容（旁白 0/1 第二层根因，真实验证 synthesize 13s 成片 20s）。PR #414 | PRD 7.1.15 |
 | 2026-08-08 | 场景时长归一（其他会话） | 图片动效归一化到场景时长、移除单图轮播选项、UTF-8 manifest。PR #396 | PLAN-STORY2VIDEO-SCENE-DURATION-2026-08-08.md |
 
-**待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：MiniMax 异步 T2A 成片、分段图片/下载交互、失败任务历史展示、provider 异常横幅。
+**待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
 ---
 

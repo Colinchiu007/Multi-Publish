@@ -897,6 +897,20 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 轮询边界 | 默认 90s 超时、1s 间隔（可注入 `asyncPollTimeoutMs`）；查询响应带 `error`/`status=failed`/`base_resp.status_code≠0` 立即失败；超时抛 `ProviderError(TIMEOUT)`（归入瞬时错误自动重试）。 |
 | 进度前置 | 「生成图片与旁白」阶段开始即写入 `context.assets_progress={imagesDone:0,imagesTotal:N,ttsDone:0,ttsTotal:M}`，前端立即显示「图片 0/N · 旁白 0/M」，首个资源完成后实时递增；非法值不展示。 |
 | 数据校验 | `task_id`/`file_id` 缺失抛 `ProviderError(PROVIDER_ERROR)`；下载结果为空 Buffer 抛 PROVIDER_ERROR；同步路径行为不变。 |
+| 查询响应层级（2026-08-08 二次修订） | 官方查询接口把 `status`/`file_id`/`task_id` 放在响应**顶层**（`{ task_id, status, file_id, base_resp }`），历史实现只读 `data.*` 导致任务永远显示 pending 直至 90s 超时（旁白 0/1 的第二层根因）。轮询解析必须**顶层与 `data.*` 双层兼容**：`status` 取 `data?.status ?? nested?.status`，`file_id` 同理；`status=success` + `file_id` 才下载，`processing` 继续轮询，`failed`/`expired` 立即失败。真实验证：修复后 `synthesize success（约 13s）`，成片正常生成。 |
+
+#### 7.1.16 克隆音色 voice_id 合规与失效回退合同（2026-08-08）
+
+**背景**：真实链路排查「旁白 0/1」——图片正常、仅 TTS 合成失败，provider 日志为 `invalid params, voice id wrong`。根因：用户选中的克隆音色 `voice_id="01"` 不符合 MiniMax 官方「音色快速复刻」对自定义 voice_id 的约束（长度 `[8,256]`、**首字符必须为英文字母**、仅允许数字/字母/`-`/`_`、末位不可为 `-`/`_`、不可与已有 id 重复），旧版 `cloneVoice` 用 `name.replace(/[^a-zA-Z0-9_]/g,'').slice(0,32)` 生成 id（如 "01"）导致复刻/合成被平台拒绝。官方文档：`/api-reference/voice-cloning-clone`、`/guides/speech-voice-clone`、`/faq/system-voice-id`。
+
+| 合同 | 要求 |
+|------|------|
+| voice_id 生成 | `MinimaxTtsAdapter.cloneVoice` 必须用 `buildMiniMaxCloneVoiceId(name)` 生成合规 id：`MiniMax` 前缀（保证首字母）+ 清洗后的名称 + 随机后缀，长度落在 `[8,256]`、末位非 `-/_`；平台回显 id 不合规时回退本次生成值。 |
+| 合法性校验 | 新增 `isValidMiniMaxCloneVoiceId(id)`（长度/首字母/字符集/末位）；由 `tts-voice-clone-service.isProviderCloneVoiceIdValid` 对 `minimax-tts` / `minimax` / `minimax-multimodal` 应用（其他 provider 恒合法）。 |
+| 存量数据自愈 | `listClones` 对非法克隆 id 标记 `invalid: true`；`tts-voice-service._buildCatalogResponse` 将非法克隆**移出可选项**、放入响应 `invalidVoices` 供前端展示；用户偏好若指向失效克隆（如 "01"）→ `isSafePreference` 不命中 → **自动回退默认音色**（旁白合成恢复正常）。 |
+| 前端展示 | 音色下拉对失效克隆显示「{名称}（已失效，请重新克隆）」且禁用；克隆面板列表显示「已失效，请重新克隆」徽标、「设为默认」按钮禁用（删除仍可用，便于清理旧记录）。 |
+| 提示文字 | 无需新增错误码：失效克隆通过禁用项与徽标提示；用户需删除旧克隆后重新上传音频克隆（新 id 自动合规）。 |
+| 验收标准 | ① 旧注册表 `voice_id="01"` 的克隆在音色下拉中显示「已失效」且不可选，默认音色被自动选中；② 重新克隆（合法 id）后可正常选择并合成；③ 真实流水线「生成图片与旁白」旁白 `x/1` 不再因 voice id 报错（provider 日志无 `voice id wrong`）。 |
 
 ### 7.2 上传图片快速渲染（独立路径）
 
@@ -1392,6 +1406,7 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **MiniMax TTS 默认模型**：speech-2.8-turbo（异步长文本 T2A Async）；模型设置隐藏模型 ID 输入（单模型收敛，含存量数据迁移）。
 - **音色目录**：音色列表来自 MiniMax 官方系统音色清单（system-voice-id，327 个），adapter listVoices 返回；语音/音色 ID 下拉可选并可持久化用户选择。
 - **音色克隆**：按官方 API（上传 POST /v1/files/upload purpose=voice_clone → 复刻 POST /v1/voice_clone）实现；前端上传提示与校验：格式 mp3/m4a/wav、时长 10 秒-5 分钟、大小 ≤20MB（数据驱动展示与本地校验）。
+  - **voice_id 合规（2026-08-08 修复）**：复刻接口自定义 voice_id 必须满足长度 `[8,256]`、首字符为英文字母、仅 `[A-Za-z0-9_-]`、末位非 `-/_`；`cloneVoice` 用 `buildMiniMaxCloneVoiceId` 生成合规 id，存量非法克隆标记失效并让偏好回退默认音色（见 7.1.16）。
 - **错误友好化**：VOICE_CATALOG_UNSUPPORTED 等 VOICE_*/VOICE_CLONE_* 技术错误码不再直出，映射为多语言友好提示；全项目排查同类泄露。
 - **UI 调整**：外观→画面；字幕默认启用；高级区「输出分辨率」改「比例与分辨率」移入画面区，选项括号只标注横屏/竖屏；移除「中间结果」原始 JSON 调试面板。
 - **动效抖动修复**：zoompan 先 2x 上采样再执行、后下采样，消除亚像素抖动（帧间差异 stddev 0.89→0.11）。

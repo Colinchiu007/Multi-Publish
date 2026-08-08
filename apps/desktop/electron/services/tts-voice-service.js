@@ -299,12 +299,20 @@ class TtsVoiceService {
 
   async _buildCatalogResponse (catalog, capability, cache, ownerSubject) {
     const voices = catalog.voices.map(copyVoice)
+    const invalidVoices = []
     if (this._cloneService && typeof this._cloneService.listClones === 'function') {
       try {
         const clones = await this._cloneService.listClones({ providerId: catalog.providerId, model: catalog.model })
         if (clones?.code === 0 && Array.isArray(clones.data?.voices)) {
           for (const clone of clones.data.voices) {
-            if (clone?.source === CAPABILITY_TYPES.USER_CLONE && typeof clone.id === 'string' && typeof clone.name === 'string' && !voices.some((voice) => voice.id === clone.id)) voices.push({ id: clone.id, name: clone.name, source: CAPABILITY_TYPES.USER_CLONE })
+            if (clone?.source !== CAPABILITY_TYPES.USER_CLONE || typeof clone.id !== 'string' || typeof clone.name !== 'string') continue
+            // 克隆音色 voice_id 不合法（如旧版生成的 "01"）：不进入可选项，偏好自动回退默认音色，
+            // 避免合成被平台拒绝（MiniMax "invalid params, voice id wrong"）；以 invalidVoices 供前端提示。
+            if (clone.invalid === true) {
+              invalidVoices.push({ id: clone.id, name: clone.name, source: CAPABILITY_TYPES.USER_CLONE, invalid: true })
+              continue
+            }
+            if (!voices.some((voice) => voice.id === clone.id)) voices.push({ id: clone.id, name: clone.name, source: CAPABILITY_TYPES.USER_CLONE })
           }
         }
       } catch (_) { void 0 }
@@ -340,6 +348,7 @@ class TtsVoiceService {
       providerId: catalog.providerId,
       model: catalog.model,
       voices,
+      invalidVoices,
       selectedVoiceId,
       refreshedAt: catalog.refreshedAt,
       expiresAt: catalog.expiresAt,

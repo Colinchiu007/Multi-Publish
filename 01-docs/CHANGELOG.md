@@ -1,5 +1,32 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (MiniMax 异步 T2A 查询响应层级修复)
+
+### 修复
+- **旁白 0/1 第二层根因（真实 provider 复测）**：voice_id 修复后错误从 `voice id wrong` 变为「异步语音合成查询超时（90s）」。根因：官方查询接口把 `status`/`file_id`/`task_id` 放在响应**顶层**（`{ task_id, status, file_id, base_resp }`），实现只读 `data.*`（`queryData.data`）导致任务永远显示 pending 直到超时。
+- **双层兼容解析**：`_synthesizeAsync` 轮询同时读顶层与 `data.*`；`status=success`+`file_id` 才下载，`processing` 继续轮询，`failed`/`expired` 立即失败。
+- **真实链路验证**：修复后 `minimax-tts synthesize success（约 13s）`，图片 1/1 · 旁白 1/1，成片 20 秒生成（视频预览可见旁白与分段音频）。
+
+### 测试
+- 新增 2 例：官方顶层 `status/file_id` 响应正常完成并下载、顶层 `status=processing` 继续轮询后完成。
+
+### 文档
+- PRD 7.1.15「查询响应层级」修订 + CHANGELOG。
+
+## [Unreleased] - 2026-08-08 (克隆音色 voice_id 合规 + 失效回退默认音色)
+
+### 修复
+- **旁白 0/1 根因（真实 provider 排查）**：图片正常、仅 TTS 合成失败，provider 日志 `invalid params, voice id wrong`。根因：克隆音色 `voice_id="01"` 不符合 MiniMax 官方约束（长度 [8,256]、首字符必须英文字母），旧版 `cloneVoice` 用名称清洗生成非法 id，导致复刻/合成被平台拒绝。
+- **voice_id 合规生成**：`cloneVoice` 改用 `buildMiniMaxCloneVoiceId`（MiniMax 前缀 + 清洗名称 + 随机后缀，长度 [8,256]、末位非 -/_）；新增 `isValidMiniMaxCloneVoiceId`。
+- **存量自愈**：`listClones` 标记非法克隆 `invalid`；音色 catalog 将失效克隆移出可选项并放入 `invalidVoices`；偏好指向失效克隆时自动回退默认音色（旁白合成恢复）。
+- **前端提示**：音色下拉与克隆面板显示「已失效，请重新克隆」（禁用选择，可删除），无需新增错误码。
+
+### 测试
+- 新增 8 例：buildMiniMaxCloneVoiceId 合规与随机性、isValidMiniMaxCloneVoiceId 边界、cloneVoice 复刻请求携带合规 voice_id、clone-service 非法/合法克隆标记、catalog invalidVoices 合并与偏好回退、CreateView 失效展示。
+
+### 文档
+- PRD 7.1.16「克隆音色 voice_id 合规与失效回退合同」+ 7.4 音色克隆 voice_id 合规说明。
+
 ## [Unreleased] - 2026-08-08 (多模态模型类别 + 能力路由 + MiniMax 多模态预设)
 
 ### 新能力与修复

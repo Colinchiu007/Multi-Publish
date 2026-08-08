@@ -300,3 +300,34 @@ describe('selectVoice — MiniMax 系统音色 id（含空格/括号）', () => 
     expect(result).toMatchObject({ code: -1, message: 'VOICE_CATALOG_INVALID_ARGUMENTS' })
   })
 })
+
+describe('getCatalog — 失效克隆音色（voice_id 不合规）', () => {
+  it('非法克隆不进入可选项并回退默认音色；以 invalidVoices 返回供前端提示', async () => {
+    const now = 1_700_000_000_000
+    const store = createUserStore()
+    const manager = {
+      getProvider: vi.fn(() => ({ id: 'minimax-tts', category: 'tts', models: ['speech-2.8-turbo'] })),
+      callAdapter: vi.fn(async () => ({ code: 0, data: [{ id: 'male-qn-qingse', name: '青涩青年音色' }] })),
+    }
+    const cloneService = {
+      listClones: vi.fn(async () => ({
+        code: 0,
+        data: {
+          voices: [
+            { id: '01', name: '01', source: 'user_clone', invalid: true },
+            { id: 'MiniMaxVoice_abc123', name: '合法克隆', source: 'user_clone' },
+          ],
+        },
+      })),
+    }
+    const service = new TtsVoiceService({ store, modelProviderManager: manager, now: () => now, cacheTtlMs: 60_000 })
+    service._cloneService = cloneService
+
+    const catalog = await service.getCatalog({ providerId: 'minimax-tts', model: 'speech-2.8-turbo' })
+    expect(catalog.code).toBe(0)
+    expect(catalog.data.voices.map((v) => v.id)).not.toContain('01')
+    expect(catalog.data.voices.map((v) => v.id)).toContain('MiniMaxVoice_abc123')
+    expect(catalog.data.invalidVoices.map((v) => v.id)).toEqual(['01'])
+    expect(catalog.data.selectedVoiceId).toBe('male-qn-qingse')
+  })
+})
