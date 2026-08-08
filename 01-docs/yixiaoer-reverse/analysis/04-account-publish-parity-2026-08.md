@@ -83,3 +83,4 @@
 - 平台上传签名、分片 CDN、审核、配额、失败重试的线上返回。
 - 蚁小二团队/分享链接服务端的成员权限和跨设备同步。
 - 真实安装包窗口截图与当前 worktree 的像素 100% 等价；反编译 bundle 可确认资源和调用形状，但不等同于完整原始源码。
+9. 2026-08-08 CCG 双模型审查修复：`toPublicErrorValue` 脱敏覆盖 `access_token`/`refreshToken`/`api_key`/`密码`/`令牌` 等下划线/驼峰/中文键并吞掉逗号值；`publisher` 别名增加 `publishers`/`publisher_list` 且数组归一化；`account:set-proxy` 判空、代理字符串端口归一化、二维码 img `referrerpolicy="no-referrer"`；双 IPC 路径契约测试证明 `accounts:list` 与 `account:list` 输出一致。
