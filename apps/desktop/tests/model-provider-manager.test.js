@@ -355,10 +355,21 @@ describe("ModelProviderManager", function () {
   describe("deleteProvider", function () {
     beforeEach(function () { manager.init() })
 
-    it("预设服务商不允许删除", function () {
+    it("预设服务商删除 = 软删除（成功且从列表隐藏）", function () {
+      // 先配置预设使其出现在已配置列表
+      manager.updateProvider("openai", { api_key: "sk-preset", enabled: true })
       const res = manager.deleteProvider("openai")
-      expect(res.code).toBe(-1)
-      expect(res.message).toContain("Preset")
+      expect(res.code).toBe(0)
+      expect(res.message).toContain("已删除")
+      // 从列表隐藏
+      const list = manager.listProviders("llm")
+      expect(list.find(p => p.id === "openai")).toBeUndefined()
+      // 行仍在（隐藏标记），可重新添加
+      const row = manager.getProvider("openai")
+      expect(row.hidden).toBe(true)
+      expect(row.enabled).toBe(false)
+      // 预设目录仍返回全部（R85）
+      expect(manager.getAvailablePresets("llm").some(p => p.id === "openai")).toBe(true)
     })
 
     it("应成功删除自定义服务商", function () {
