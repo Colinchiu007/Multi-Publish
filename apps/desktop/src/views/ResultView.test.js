@@ -8,6 +8,7 @@ vi.mock("@/api/publisher", () => ({
   story2videoCreateShareUrl: vi.fn(),
   story2videoCopyPath: vi.fn(),
   story2videoShowInFolder: vi.fn(),
+  story2videoSaveAs: vi.fn(),
   story2videoGetProject: vi.fn(),
   story2videoImportMedia: vi.fn(),
   story2videoUpdateSegments: vi.fn(),
@@ -91,21 +92,33 @@ describe("ResultView", () => {
     });
   });
 
-  it("download creates download link and clicks it", async () => {
+  it("download 通过主进程保存对话框保存文件，不再用 <a download> 触发", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoSaveAs.mockResolvedValue({ code: 0, data: { path: "C:/saved/test.mp4" } });
     const w = await createView();
     w.vm.videoPath = "/videos/test.mp4";
-    w.vm.videoSrc = "file:///videos/test.mp4";
 
     const createElementSpy = vi.spyOn(document, "createElement");
-    const clickSpy = vi.fn();
-    createElementSpy.mockReturnValue({ href: "", download: "", click: clickSpy });
+    await w.vm.download();
 
-    w.vm.download();
-    // Verify download() triggered createElement("a")
-    const aCalls = createElementSpy.mock.calls.filter(c => c[0] === "a");
-    expect(aCalls.length).toBeGreaterThanOrEqual(1);
-    expect(clickSpy).toHaveBeenCalled();
+    expect(mocks.story2videoSaveAs).toHaveBeenCalledWith("/videos/test.mp4", expect.stringMatching(/^video_\d+\.mp4$/));
+    // 不再创建 <a> 下载链接（跨源/本地 HTTP 媒体 URL 下载会静默失败）
+    expect(createElementSpy.mock.calls.filter(c => c[0] === "a")).toHaveLength(0);
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.save_completed");
     createElementSpy.mockRestore();
+    w.unmount();
+  });
+
+  it("download 保存被取消时不提示成功，也不抛错", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoSaveAs.mockResolvedValue({ code: 0, data: { cancelled: true } });
+    const w = await createView();
+    w.vm.videoPath = "/videos/test.mp4";
+
+    await w.vm.download();
+    expect(mocks.story2videoSaveAs).toHaveBeenCalledTimes(1);
+    expect(w.vm.story2videoNotificationDialog.visible).toBe(false);
+    w.unmount();
   });
 
   it("download does nothing without videoPath", async () => {

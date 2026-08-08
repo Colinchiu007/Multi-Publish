@@ -872,6 +872,31 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 本地化 | 全部新增/调整文案提供中英文，默认中文；未知技术错误仍回退友好通用说明（PRD 7.1 反馈呈现合同）。 |
 | 提示信息梳理 | 本轮整体梳理提示/错误信息：媒体校验类已细化（见上）；限流/额度/内容政策/权限/模型配置类已有专属文案与分类（`resolveMessageKey`）；其余瞬时失败保留「请稍后再试」类通用文案作为兜底，不暴露技术细节。 |
 
+#### 7.1.14 视频预览：分段图片与文件下载合同（2026-08-08）
+
+**背景**：① 视频预览页【分段编辑】区域的每段图片显示不出来；② 点击【下载视频】等下载按钮无反应、无保存对话框。
+
+| 合同 | 要求 |
+|------|------|
+| 分段图片显示 | 本机媒体服务 `Story2VideoMediaServer` 的 Content-Type 映射必须包含图片类型（`.png→image/png`、`.jpg/.jpeg→image/jpeg`、`.webp→image/webp`、`.gif→image/gif`）；响应带 `X-Content-Type-Options: nosniff`，若返回 `application/octet-stream`，Chromium 会拒绝渲染 `<img>`（分段图片显示不出来的根因）。视频/音频类型保持不变（mp4/webm/mp3/m4a/wav 等）。 |
+| 下载交互 | 所有「下载」入口（下载视频、下载裁剪片段、下载旁白、分段下载图片/音频/视频）统一走主进程 `story2video:save-as`：弹系统保存对话框（`dialog.showSaveDialog`，默认文件名 + 类型过滤器）→ 校验文件在受控媒体根内且可读 → `fs.copyFileSync` 复制到用户选择位置 → 成功提示「文件已保存。」，取消不提示。 |
+| 禁止方案 | renderer 的 `<a download>` 对跨源/本地 HTTP 媒体 URL（`http://127.0.0.1:<port>/media/<token>`）无效——`download` 属性对跨源 URL 被忽略，点击会静默失败；不得用该方法下载媒体文件。 |
+| 数据校验 | `save-as` 参数为 `{ filePath, suggestedName }`；`filePath` 必须通过 `resolveReadableFile` 白名单校验（受控媒体根 + canonical 路径 + 非符号链接 + 文件非空）；`suggestedName` 只取 `basename` 并截断 120 字符，防路径注入。 |
+| 反馈 | 保存成功显示「文件已保存。」（`SAVE_COMPLETED`，i18n 中英文）；保存对话框取消返回 `cancelled` 不提示；失败弹「当前操作未能完成，请稍后再试。」（`OPERATION_FAILED`）。 |
+| 新 IPC | `story2video:save-as`（preload `story2videoSaveAs`，renderer API `story2videoSaveAs(filePath, suggestedName)`）。 |
+
+#### 7.1.15 MiniMax 异步 T2A 与资源进度前置合同（2026-08-08）
+
+**背景**：图片轮播默认 TTS 模型为 `speech-2.8-turbo`（T2A Async 异步模型），但 adapter 一直调用同步端点 `/t2a_v2`——异步模型在同步端点返回 200 但不含 `data.audio`，抛「Missing audio data in response」并被当作瞬时错误反复重试后整段失败（弹「当前操作未能完成，请稍后再试。」）。同时「生成图片与旁白」的进度数字在首个资源完成前不显示（图片生成需 16-30s）。
+
+| 合同 | 要求 |
+|------|------|
+| 异步模型路由 | `speech-2.8-turbo` / `speech-2.8-hd` 为异步 T2A 模型，`synthesize` 必须走异步流程；`speech-2.6-*` / `speech-02-*` 继续走同步 `/t2a_v2`。 |
+| 异步流程 | ① POST `/t2a_async_v2`（body：`model/text/language_boost=auto/voice_setting{voice_id,speed,vol,pitch}/audio_setting{format,audio_sample_rate,bitrate,channel}`）→ `data.task_id`；② 轮询 GET `/query/t2a_async_query_v2?task_id=...` 直至返回 `data.file_id`（或直接 `data.audio` hex）；③ GET `/files/retrieve_content?file_id=...` 下载音频二进制。 |
+| 轮询边界 | 默认 90s 超时、1s 间隔（可注入 `asyncPollTimeoutMs`）；查询响应带 `error`/`status=failed`/`base_resp.status_code≠0` 立即失败；超时抛 `ProviderError(TIMEOUT)`（归入瞬时错误自动重试）。 |
+| 进度前置 | 「生成图片与旁白」阶段开始即写入 `context.assets_progress={imagesDone:0,imagesTotal:N,ttsDone:0,ttsTotal:M}`，前端立即显示「图片 0/N · 旁白 0/M」，首个资源完成后实时递增；非法值不展示。 |
+| 数据校验 | `task_id`/`file_id` 缺失抛 `ProviderError(PROVIDER_ERROR)`；下载结果为空 Buffer 抛 PROVIDER_ERROR；同步路径行为不变。 |
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```

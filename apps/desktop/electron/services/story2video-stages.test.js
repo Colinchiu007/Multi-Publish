@@ -845,6 +845,26 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     })
   })
 
+  it('资源生成进度前置写入：阶段开始即显示「图片 0/N · 旁白 0/M」', async () => {
+    let releaseImage
+    const imageGate = new Promise((resolve) => { releaseImage = resolve })
+    const assetGenerator = {
+      generateImage: vi.fn(() => imageGate.then(() => ({ code: 0, data: { path: 'image-0.png' } }))),
+      generateTTS: vi.fn(async () => ({ code: 0, data: { path: 'audio-0.mp3', duration: 2 } })),
+    }
+    const fn = makePipeline(assetGenerator)
+    const context = { split: [{ text: '一' }], optimize: ['p0'] }
+    const pending = fn({ stage: { options: {} }, params: {}, context, serviceBus: {} })
+    // 首个资源完成前（图片生成可能耗时 16-30s），进度已前置写入
+    expect(context.assets_progress).toEqual({
+      imagesDone: 0, imagesTotal: 1, ttsDone: 0, ttsTotal: 1,
+    })
+    releaseImage()
+    const result = await pending
+    expect(result.success).toBe(true)
+    expect(context.assets_progress.imagesDone).toBe(1)
+  })
+
   it('资源生成失败时记录已完成场景供断点续传', async () => {
     vi.useFakeTimers()
     const assetGenerator = {

@@ -1,6 +1,7 @@
 // @ts-check
 'use strict'
 
+const fs = require('fs')
 const path = require('path')
 const { withSenderCheck } = require('./helpers')
 const { ERROR: EC } = require('../core/error-codes')
@@ -209,6 +210,51 @@ function registerHandlers (ipcMain, deps = {}) {
     }
     shell.showItemInFolder(resolved)
     return { code: 0, data: { path: resolved } }
+  }))
+
+  // 保存文件到用户选择的位置（弹系统保存对话框 + 复制文件）。
+  // 修复：renderer 的 <a download> 对跨源/本地 HTTP 媒体 URL 无效（下载按钮无反应），
+  // 下载必须走主进程 showSaveDialog + copyFileSync。
+  ipcMain.handle('story2video:save-as', withSenderCheck(async (event, request) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+      typeof request.filePath !== 'string' || !request.filePath.trim()) {
+      return { code: EC.VALIDATION_ERROR, message: '保存参数无效' }
+    }
+    const resolved = validateFilePath(request.filePath, projectRoots)
+    if (!resolved) return { code: EC.VALIDATION_ERROR, message: '文件路径无效或不允许访问' }
+    let stat
+    try {
+      stat = fs.statSync(resolved)
+    } catch {
+      return { code: EC.VALIDATION_ERROR, message: '文件不存在或不可读' }
+    }
+    if (!stat.isFile() || stat.size <= 0) return { code: EC.VALIDATION_ERROR, message: '文件不存在或不可读' }
+
+    const suggested = typeof request.suggestedName === 'string' && request.suggestedName.trim()
+      ? path.basename(request.suggestedName).slice(0, 120)
+      : path.basename(resolved)
+    if (!dialog || typeof dialog.showSaveDialog !== 'function') {
+      return { code: EC.REQUEST_ERROR, message: '系统保存对话框不可用' }
+    }
+    const extension = path.extname(resolved).replace(/^\./, '').toLowerCase()
+    const options = {
+      title: '保存文件',
+      defaultPath: suggested,
+      filters: extension ? [{ name: extension.toUpperCase() + ' 文件', extensions: [extension] }] : [],
+    }
+    const win = BrowserWindow && typeof BrowserWindow.fromWebContents === 'function'
+      ? BrowserWindow.fromWebContents(event.sender)
+      : null
+    const selection = win
+      ? await dialog.showSaveDialog(win, options)
+      : await dialog.showSaveDialog(options)
+    if (selection.canceled || !selection.filePath) return { code: 0, data: { cancelled: true } }
+    try {
+      fs.copyFileSync(resolved, selection.filePath)
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: '文件保存失败：' + (error && error.message ? error.message : String(error)) }
+    }
+    return { code: 0, data: { path: selection.filePath } }
   }))
 }
 

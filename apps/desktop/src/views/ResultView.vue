@@ -215,6 +215,7 @@ import {
   story2videoCreateShareUrl,
   story2videoCopyPath,
   story2videoShowInFolder,
+  story2videoSaveAs,
   story2videoGetProject,
   story2videoImportMedia,
   story2videoUpdateSegments,
@@ -463,23 +464,25 @@ export default {
       const remainder = (seconds % 60).toFixed(1).padStart(4, '0')
       return String(minutes).padStart(2, '0') + ':' + remainder
     },
-    triggerDownload(url, name) {
-      if (!url) return
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = name
-      anchor.click()
-    },
-    download() {
-      if (!this.videoPath) return
-      this.triggerDownload(this.videoSrc, 'video_' + Date.now() + '.' + this.formatLabel.toLowerCase())
-    },
-    async downloadArtifact(filePath, name) {
+    // 下载统一走主进程保存对话框：renderer 的 <a download> 对跨源/本地 HTTP
+    // 媒体 URL 无效（会静默失败），必须用 dialog.showSaveDialog + 文件复制。
+    async saveFileAs(filePath, suggestedName) {
       try {
-        this.triggerDownload(await this.resolveLocalUrl(filePath), name)
+        const result = await story2videoSaveAs(filePath, suggestedName)
+        if (result?.code !== 0) throw new Error(result?.message || '保存失败')
+        if (result.data?.cancelled) return
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SAVE_COMPLETED })
       } catch (_error) {
         this.showStory2VideoOperationFailure()
       }
+    },
+    async download() {
+      if (!this.videoPath) return
+      await this.saveFileAs(this.videoPath, 'video_' + Date.now() + '.' + this.formatLabel.toLowerCase())
+    },
+    async downloadArtifact(filePath, name) {
+      if (!filePath) return
+      await this.saveFileAs(filePath, name)
     },
     async downloadNarration() {
       if (!this.audioPath) return
@@ -569,9 +572,9 @@ export default {
         this.trimming = false
       }
     },
-    downloadTrimmed() {
+    async downloadTrimmed() {
       if (!this.trimmedPath) return
-      this.triggerDownload(this.trimmedSrc, this.fileName(this.trimmedPath, 'video-clip.mp4'))
+      await this.saveFileAs(this.trimmedPath, this.fileName(this.trimmedPath, 'video-clip.mp4'))
     },
     async showTrimmedInFolder() {
       if (!this.trimmedPath) return

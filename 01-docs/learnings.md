@@ -10,6 +10,18 @@
 - **测试 fixture 必须真实可解码**：无 `-shortest` 时 `-loop 1` 读取坏 PNG 会无限刷解码错误撑爆 stderr maxBuffer；真实 ffmpeg 用例的图片/音频必须用 ffmpeg lavfi 生成真文件。
 - **行为利好**：补齐静音吸收 acrossfade/amix 的过渡衰减，BGM 不再吞旁白尾音；min-duration 使片段变长后会启用原本因「片段过短」被禁用的 xfade 转场（预期节奏行为，PRD 已记录）。
 
+## MiniMax 异步 T2A 误用同步端点致整段失败复盘 (2026-08-08)
+
+- **表象**：单场景文案「11」，生成图片与旁白阶段弹「当前操作未能完成」；日志里 `minimax-tts synthesize error "Missing audio data in response"`（100-300ms 快速失败，多次重试仍失败）。
+- **根因**：adapter 默认模型 `speech-2.8-turbo` 是 T2A **Async** 模型，但 `synthesize()` 调同步端点 `/t2a_v2`——异步模型在同步端点返回 200 但不含 `data.audio`（返回的是异步任务标识），adapter 抛「Missing audio data」→ 被归类为瞬时错误反复重试 → 重试耗尽 → 整段失败。图片生成正常（16-30s），所以进度数字「很久才显示」。
+- **修复**：按模型路由——`speech-2.8-*` 走异步流程（`/t2a_async_v2` 创建 → 轮询 `/query/t2a_async_query_v2` → `/files/retrieve_content` 下载），`speech-2.6-*`/`speech-02-*` 保持同步；资源进度阶段开始即前置写入。
+- **教训**：provider 模型有「同步/异步 API」之分时，adapter 必须按模型选择正确端点，不能假设所有模型共用同一请求/响应形态；「返回 200 但缺关键字段」应先怀疑模型与端点不匹配，而不是瞬时抖动。排查顺序：先看 provider 日志的耗时分布（快速失败=请求/响应契约问题，慢失败=网络/服务问题）。
+
+## 视频预览分段图片不显示 + 下载按钮无反应复盘 (2026-08-08)
+
+- **图片不显示根因**：本机媒体服务 `CONTENT_TYPES` 只有音视频类型，图片响应为 `application/octet-stream`，而响应头带 `X-Content-Type-Options: nosniff` —— Chromium 对 nosniff + 非图片 Content-Type 拒绝渲染 `<img>`。视频能播是因为 mp4 类型在映射里。修复：补齐 `.png/.jpg/.jpeg/.webp/.gif` 的 image/* 类型。教训：任何「本地文件转 HTTP 响应」的服务，Content-Type 映射必须覆盖全部业务文件类型；nosniff 会把类型错误从「能显示但怪」放大成「完全无法显示」。
+- **下载无反应根因**：`<a download>` 的 `download` 属性只对同源 URL 生效；媒体 URL 是 `http://127.0.0.1:<port>/media/<token>`（跨源），点击被忽略、静默失败。修复：下载统一走主进程 `dialog.showSaveDialog` + `fs.copyFileSync`（新 IPC `story2video:save-as`）。教训：Electron 里「下载文件」必须走主进程保存对话框或 `will-download` 会话处理，renderer 的 `<a download>` 对跨源/自定义协议 URL 不可靠。
+
 ## 失败任务历史持久展示复盘 (2026-08-08)
 
 - **根因**：`PipelineEngine.getHistory()` 只返回内存 `_runs` + `_history`；失败任务的持久化快照在 `RunStateStore.saveFailed`（run-state 目录）里，但从未被历史接口读取。应用重启后内存清空，失败任务从历史消失，用户无法追溯失败记录。

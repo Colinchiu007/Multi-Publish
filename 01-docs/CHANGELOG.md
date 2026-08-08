@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (MiniMax 异步 T2A + 资源进度前置)
+
+### 修复
+- **MiniMax TTS 生成失败（生成图片与旁白阶段）**：默认模型 `speech-2.8-turbo` 是异步 T2A（T2A Async），但 adapter 调用同步端点 `/t2a_v2`，异步模型返回 200 且无 `data.audio` → 抛「Missing audio data in response」→ 瞬时重试耗尽 → 整段失败。已实现完整异步流程：`/t2a_async_v2` 创建任务 → 轮询 `/query/t2a_async_query_v2` → `/files/retrieve_content` 下载音频（90s 轮询上限、1s 间隔、可注入）。
+- **进度数字很久才显示**：「生成图片与旁白」阶段开始即写入 `assets_progress={0/N, 0/M}`，前端立即显示「图片 0/N · 旁白 0/M」，不再等首个资源完成（图片生成 16-30s）。
+
+### 测试
+- 新增 6 例：异步 T2A 完整链路（创建/查询/下载）、查询内联音频、task_id 缺失、查询失败、轮询超时、进度前置写入。
+
+### 文档
+- PRD 新增「7.1.15 MiniMax 异步 T2A 与资源进度前置合同」。
+
+## [Unreleased] - 2026-08-08 (视频预览：分段图片显示 + 文件下载修复)
+
+### 修复
+- **分段编辑图片显示**：媒体服务 Content-Type 映射缺失图片类型（png/jpg/jpeg/webp/gif），带 `nosniff` 时 `<img>` 拒绝渲染 `application/octet-stream`；已补齐 image/* 类型。
+- **下载按钮无反应**：`<a download>` 对跨源/本地 HTTP 媒体 URL 无效（静默失败）。新增主进程 `story2video:save-as`（系统保存对话框 + 受控路径校验 + 文件复制），下载视频/裁剪片段/旁白/分段图片/音频/视频统一改走该通道；成功提示「文件已保存。」，取消不提示。
+
+### 测试
+- 新增 8 例：媒体服务图片 Content-Type（png/jpg/jpeg/webp）、save-as 保存/取消/外部路径拒绝、preload 新 API（计数 + IPC 映射 + 列表）、renderer API fallback、ResultView 下载改走 save-as（含取消分支）。
+
+### 文档
+- PRD 新增「7.1.14 视频预览：分段图片与文件下载合同」。
+
 ## [Unreleased] - 2026-08-08 (失败任务历史持久展示 + 状态「生成失败」)
 
 ### 新能力与修复

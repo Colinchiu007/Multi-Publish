@@ -64,7 +64,7 @@ const exportedNames = [
   // 草稿箱（蚁小二复用）
   "draftSave", "draftList", "draftDelete",
   "story2videoImportMedia", "story2videoExportZip", "story2videoCreateShareUrl",
-  "story2videoCopyPath", "story2videoShowInFolder", "story2videoListProjects",
+  "story2videoCopyPath", "story2videoShowInFolder", "story2videoSaveAs", "story2videoListProjects",
   "story2videoGetProject", "story2videoDeleteProject", "story2videoUpdateSegments",
   "story2videoReplaceSegmentAudio",
   "story2videoRetrySegment", "story2videoRecomposeProject", "story2videoTranscribe",
@@ -182,6 +182,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   story2videoCreateShareUrl: { args: ["C:/video.mp4"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   story2videoCopyPath: { args: ["C:/video.mp4"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   story2videoShowInFolder: { args: ["C:/video.mp4"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoSaveAs: { args: ["C:/video.mp4", "out.mp4"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   story2videoListProjects: { args: [], fallback: { code: -1, message: "electronAPI not available", data: [] }, returns: "object" },
   story2videoGetProject: { args: ["project-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   story2videoDeleteProject: { args: ["project-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },

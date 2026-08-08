@@ -35,8 +35,19 @@ const DEFAULT_MODEL = 'speech-2.8-turbo'
 const DEFAULT_VOICE = 'male-qn-qingse'
 const DEFAULT_SPEED = 1.0
 const DEFAULT_PITCH = 0
+const DEFAULT_VOL = 10
+const DEFAULT_BITRATE = 128000
+const DEFAULT_CHANNEL = 2
 const DEFAULT_OUTPUT_FORMAT = 'mp3'
 const DEFAULT_SAMPLE_RATE = 32000
+// 异步 T2A：创建任务 → 轮询查询 → 下载音频。2.8 系列为 T2A Async 模型，
+// 同步端点 /t2a_v2 对异步模型不返回 data.audio（200 但缺音频 → “Missing audio data”）。
+const DEFAULT_ASYNC_POLL_TIMEOUT_MS = 90 * 1000
+const DEFAULT_ASYNC_POLL_INTERVAL_MS = 1000
+
+function isAsyncT2aModel (model) {
+  return /^speech-2\.8-(turbo|hd)$/i.test(String(model || ''))
+}
 
 // 静态预定义 MiniMax TTS 模型列表（speech-2.8-turbo 为首选默认）
 const MINIMAX_TTS_MODELS = [
@@ -142,6 +153,12 @@ class MinimaxTtsAdapter extends BaseAdapter {
     const pitch = params.pitch !== undefined ? params.pitch : DEFAULT_PITCH
     const outputFormat = params.outputFormat || DEFAULT_OUTPUT_FORMAT
 
+    // 异步 T2A 模型（speech-2.8-*）必须走 t2a_async_v2 创建任务 → 查询 → 下载，
+    // 同步端点 /t2a_v2 对异步模型返回 200 但不含 data.audio。
+    if (isAsyncT2aModel(model)) {
+      return this._synthesizeAsync({ text: params.text, model, voice, speed, pitch, outputFormat })
+    }
+
     const body = {
       model,
       text: params.text,
@@ -181,6 +198,95 @@ class MinimaxTtsAdapter extends BaseAdapter {
     }
   }
 
+  /**
+   * 异步 T2A 语音合成（T2A Async）：
+   * 1. POST /t2a_async_v2 创建任务，返回 data.task_id
+   * 2. 轮询 GET /query/t2a_async_query_v2?task_id=... 直至返回 data.file_id（或直接返回 data.audio）
+   * 3. GET /files/retrieve_content?file_id=... 下载音频二进制
+   * 官方文档：https://platform.minimaxi.com/docs/guides/speech-t2a-async
+   */
+  async _synthesizeAsync ({ text, model, voice, speed, pitch, outputFormat }) {
+    const createBody = {
+      model,
+      text,
+      language_boost: 'auto',
+      voice_setting: {
+        voice_id: voice,
+        speed,
+        vol: DEFAULT_VOL,
+        pitch,
+      },
+      audio_setting: {
+        format: outputFormat,
+        audio_sample_rate: DEFAULT_SAMPLE_RATE,
+        bitrate: DEFAULT_BITRATE,
+        channel: DEFAULT_CHANNEL,
+      },
+    }
+    const createResp = await this._request('/t2a_async_v2', {
+      method: 'POST',
+      body: JSON.stringify(createBody),
+    })
+    const createData = await createResp.json()
+    const taskId = createData?.data?.task_id || createData?.task_id
+    if (!taskId) {
+      const message = createData?.base_resp?.status_msg
+        || createData?.message
+        || 'MiniMax 异步语音合成未返回 task_id'
+      throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, message, { providerId: this.id })
+    }
+
+    const pollTimeoutMs = Number.isFinite(Number(this.options.asyncPollTimeoutMs))
+      ? Number(this.options.asyncPollTimeoutMs)
+      : DEFAULT_ASYNC_POLL_TIMEOUT_MS
+    const deadline = Date.now() + pollTimeoutMs
+    for (;;) {
+      const queryResp = await this._request('/query/t2a_async_query_v2?task_id=' + encodeURIComponent(taskId))
+      const queryData = await queryResp.json()
+      const data = queryData?.data || {}
+      const baseResp = queryData?.base_resp || {}
+      const statusCode = baseResp.status_code
+
+      // 完成：查询响应直接带音频，或返回 file_id 后下载
+      const inlineAudio = typeof data.audio === 'string' && data.audio.length > 0 ? data.audio : null
+      if (inlineAudio) {
+        const audio = Buffer.from(inlineAudio, 'hex')
+        if (audio.length > 0) return { audio, format: outputFormat }
+      }
+      if (typeof data.file_id === 'string' && data.file_id.trim()) {
+        const audioResp = await this._request('/files/retrieve_content?file_id=' + encodeURIComponent(data.file_id.trim()))
+        const audioBuffer = Buffer.from(await audioResp.arrayBuffer())
+        if (!audioBuffer || audioBuffer.length === 0) {
+          throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'MiniMax 异步语音合成返回空音频', { providerId: this.id })
+        }
+        return { audio: audioBuffer, format: outputFormat }
+      }
+
+      // 明确失败
+      const errorValue = data?.error
+      const hasError = errorValue && (typeof errorValue === 'string'
+        ? String(errorValue).trim()
+        : (errorValue.message || errorValue.code))
+      if (hasError || String(data?.status || '').toLowerCase() === 'failed') {
+        const message = typeof errorValue === 'string'
+          ? errorValue
+          : (errorValue && errorValue.message) || String(data?.status || '') || 'MiniMax 异步语音合成失败'
+        throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, message, { providerId: this.id })
+      }
+      if (statusCode !== undefined && Number(statusCode) !== 0) {
+        throw new ProviderError(
+          ERROR_CODES.PROVIDER_ERROR,
+          String(baseResp.status_msg || ('MiniMax 异步语音合成失败（status_code=' + statusCode + '）')),
+          { providerId: this.id },
+        )
+      }
+
+      if (Date.now() >= deadline) {
+        throw new ProviderError(ERROR_CODES.TIMEOUT, 'MiniMax 异步语音合成查询超时', { providerId: this.id })
+      }
+      await new Promise((resolve) => setTimeout(resolve, DEFAULT_ASYNC_POLL_INTERVAL_MS))
+    }
+  }
   /** 返回静态预定义 MiniMax TTS 模型列表（副本） */
   async listModels() {
     return MINIMAX_TTS_MODELS.map(m => ({ ...m }))

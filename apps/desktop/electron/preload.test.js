@@ -61,7 +61,7 @@ const PUBLISH_METHODS = [
   'pipelineStartOrchestrated', 'pipelineExecuteStage',
   'pipelineAdvanceToNextCheckpoint', 'pipelineGetRunContext',
   'story2videoImportMedia', 'story2videoExportZip', 'story2videoCreateShareUrl',
-  'story2videoCopyPath', 'story2videoShowInFolder', 'story2videoListProjects',
+  'story2videoCopyPath', 'story2videoShowInFolder', 'story2videoSaveAs', 'story2videoListProjects',
   'story2videoGetProject', 'story2videoDeleteProject', 'story2videoUpdateSegments',
   'story2videoReplaceSegmentAudio',
   'story2videoRetrySegment', 'story2videoRecomposeProject', 'story2videoTranscribe',
@@ -183,10 +183,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 82 个键（81 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 83 个键（82 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(82)
+    expect(Object.keys(r).length).toBe(83)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -201,12 +201,12 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(136)
   })
 
-  it('合并后 api 总键数应为 262', () => {
-    expect(Object.keys(api).length).toBe(265)
+  it('合并后 api 总键数应为 266', () => {
+    expect(Object.keys(api).length).toBe(266)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    expect(PUBLISH_METHODS.length).toBe(75)
+    expect(PUBLISH_METHODS.length).toBe(76)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',
@@ -330,6 +330,7 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
     ['story2videoCreateShareUrl', 'story2video:create-share-url', ['C:/video.mp4']],
     ['story2videoCopyPath', 'story2video:copy-path', ['C:/video.mp4']],
     ['story2videoShowInFolder', 'story2video:show-in-folder', ['C:/video.mp4']],
+    ['story2videoSaveAs', 'story2video:save-as', ['C:/video.mp4', 'out.mp4']],
     ['story2videoDeleteProject', 'story2video:delete-project', ['project-1']],
     ['story2videoReplaceSegmentAudio', 'story2video:replace-segment-audio', ['project-1', 'segment-0', 'C:/voice.mp3']],
   ]

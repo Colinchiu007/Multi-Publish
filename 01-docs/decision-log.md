@@ -1,9 +1,52 @@
-﻿# Decision Log (决策日志)
+# Decision Log (决策日志)
 
 > 记录项目开发过程中的关键决策、理由和替代方案。
 > 按质量节拍 Phase 3.6 要求维护。
 
 ---
+
+## 2026-08-08
+
+### D-101: MiniMax TTS 按模型路由同步/异步端点
+- **类型**: Provider 适配
+- **决策**: `speech-2.8-turbo/-hd` 为异步 T2A 模型，`synthesize` 走 `/t2a_async_v2` 创建任务 → 轮询 `/query/t2a_async_query_v2`（90s 上限/1s 间隔，可注入）→ `/files/retrieve_content` 下载；`speech-2.6-*`/`speech-02-*` 保持同步 `/t2a_v2`。
+- **理由**: 异步模型在同步端点返回 200 但无 `data.audio`，被误判瞬时错误反复重试后整段失败（PR #402 根因）。
+- **替代方案**: 全部模型走异步流（增加短文本延迟）；保持全部走同步（2.8 系列必然失败）。
+- **影响**: 中 — 修复默认 TTS 生成失败；轮询上限需小于 callAdapter 2min 兜底。
+
+### D-102: Electron 媒体文件下载统一走主进程保存对话框
+- **类型**: 交互/安全
+- **决策**: 新增 IPC `story2video:save-as`（`dialog.showSaveDialog` + 受控媒体根白名单校验 + `fs.copyFileSync`），renderer 所有下载按钮改走该通道。
+- **理由**: `<a download>` 对跨源本地 HTTP 媒体 URL（`http://127.0.0.1:<port>/media/<token>`）无效，点击静默失败（PR #400）。
+- **替代方案**: `session.on('will-download')` 拦截（复杂度高）；`file://` 直链（越权风险）。
+- **影响**: 中 — 修复下载无反应；保存路径由用户选择，不放开任意磁盘读。
+
+### D-103: 本机媒体服务 Content-Type 必须覆盖全部业务文件类型
+- **类型**: 基础设施
+- **决策**: `Story2VideoMediaServer.CONTENT_TYPES` 补齐 `.png/.jpg/.jpeg/.webp/.gif` 的 image/* 类型。
+- **理由**: 响应带 `X-Content-Type-Options: nosniff` 时，Chromium 拒绝渲染 `application/octet-stream` 的 `<img>`（分段图片不显示，PR #400）。
+- **替代方案**: 去掉 nosniff（降低安全）；前端用 blob URL（额外复制）。
+- **影响**: 低 — 修复图片显示，不改安全头。
+
+### D-104: 失败任务历史必须合并持久化快照
+- **类型**: 数据/交互
+- **决策**: `PipelineEngine.getHistory()` 合并 `runStateStore.listFailed()`（按 runId 与内存 `_runs`/`_history` 去重）；`saveFailed` 补充 `createdAt`。
+- **理由**: 失败快照已持久化但历史接口从不读取，应用重启后失败任务从历史消失（PR #399）。
+- **替代方案**: 历史全部落库（迁移成本高）；只保留内存（重启丢失，未满足需求）。
+- **影响**: 中 — 重启后失败任务仍显示，状态文案「生成失败」。
+
+### D-105: provider 异常检测用内存快照 + 非阻塞前端横幅
+- **类型**: 可观测性/交互
+- **决策**: 新增 `ProviderAnomalyBus`（慢响应/超时/网络错误，内存快照 ≤5 条，重启清空）；`pipeline:getRunContext` 附带 `providerWarnings`，前端非阻塞横幅提示。
+- **理由**: 慢模型（如 agnes-llm 单请求 2-3 分钟）无法与程序 bug 区分；横幅帮助用户去模型设置切换/检查（PR #397）。
+- **替代方案**: 落库持久化（状态膨胀）；仅日志（用户不可见）。
+- **影响**: 低 — 纯提示不阻塞流水线。
+
+### D-106: 弹窗标题规范与瞬时反馈用 overlay
+- **类型**: UX
+- **决策**: 提示类弹窗标题统一「提示」/「Notice」（去掉「{流水线名} 提示」）；选项保存 toast 改操作栏上方绝对定位悬浮，不参与 flex 布局。
+- **理由**: 标题重复流水线名属冗余信息；toast 作为 flex 子项会挤占【启动流水线】按钮（PR #398）。
+- **影响**: 低 — 纯展示层。
 
 ## 2026-07-06
 
