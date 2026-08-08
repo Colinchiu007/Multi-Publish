@@ -168,12 +168,7 @@
                   @click="!p.is_default && setDefault(p)"
                   :disabled="p.is_default || !(isProviderConfigured(p))"
                 >★</button>
-                <button class="cohere-icon-btn"
-                  :aria-label="p.enabled ? '禁用' : '启用'"
-                  :title="p.enabled ? '禁用' : '启用'"
-                  @click="toggleEnabled(p)"
-                >{{ p.enabled ? '⏸' : '▶' }}</button>
-                <button v-if="!p.is_preset" class="cohere-icon-btn cohere-icon-btn-danger"
+                <button class="cohere-icon-btn cohere-icon-btn-danger"
                   aria-label="删除" title="删除" @click="confirmDelete(p)"
                 >✕</button>
               </div>
@@ -279,12 +274,7 @@
                 @click="!p.is_default && setDefault(p)"
                 :disabled="p.is_default || !(isProviderConfigured(p))"
               >★</button>
-              <button class="cohere-icon-btn"
-                :aria-label="p.enabled ? '禁用' : '启用'"
-                :title="p.enabled ? '禁用' : '启用'"
-                @click="toggleEnabled(p)"
-              >{{ p.enabled ? '⏸' : '▶' }}</button>
-              <button v-if="!p.is_preset" class="cohere-icon-btn cohere-icon-btn-danger"
+              <button class="cohere-icon-btn cohere-icon-btn-danger"
                 aria-label="删除" title="删除" @click="confirmDelete(p)"
               >✕</button>
             </div>
@@ -350,8 +340,10 @@
           <input class="input" v-model="form.id" placeholder="如 openai, anthropic" :disabled="!!addPresetId" />
           <label class="input-label">显示名称</label>
           <input class="input" v-model="form.name" placeholder="如 OpenAI" />
-          <label class="input-label">Base URL</label>
-          <input class="input" v-model="form.base_url" placeholder="https://api.example.com/v1" />
+          <template v-if="form.category !== 'multimodal'">
+            <label class="input-label">Base URL</label>
+            <input class="input" v-model="form.base_url" placeholder="https://api.example.com/v1" />
+          </template>
           <template v-if="form.id === 'doubao-tts' || form.id === 'doubao-stt'">
             <label class="input-label">豆包 App ID</label>
             <input class="input" v-model.trim="form.config.appId" placeholder="火山引擎 App ID" />
@@ -388,8 +380,10 @@
       <div class="form-fields">
         <label class="input-label">显示名称</label>
         <input class="input" v-model="form.name" />
-        <label class="input-label">Base URL</label>
-        <input class="input" v-model="form.base_url" />
+        <template v-if="form.category !== 'multimodal'">
+          <label class="input-label">Base URL</label>
+          <input class="input" v-model="form.base_url" />
+        </template>
         <template v-if="form.id === 'doubao-tts' || form.id === 'doubao-stt'">
           <label class="input-label">豆包 App ID</label>
           <input class="input" v-model.trim="form.config.appId" placeholder="火山引擎 App ID" />
@@ -417,7 +411,10 @@
     <!-- 删除确认对话框 -->
     <el-dialog v-model="showDeleteDialog" title="确认删除" class="responsive-dialog-sm">
       <p>确定要删除服务商 <strong>{{ deleteTarget?.name }}</strong> 吗？</p>
-      <p style="font-size:13px;color:var(--muted)">此操作不可恢复，关联的 API Key 也会一并移除。</p>
+      <p style="font-size:13px;color:var(--muted)">
+        此操作不可恢复，关联的 API Key 也会一并移除。
+        <template v-if="deleteTarget?.is_preset">预设服务商删除后将从列表隐藏，可在「添加服务商」中重新添加。</template>
+      </p>
       <template #footer>
         <div class="dialog-footer">
           <button class="cohere-btn-secondary" @click="showDeleteDialog = false">取消</button>
