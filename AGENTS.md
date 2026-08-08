@@ -10,7 +10,7 @@
 - **TDD**：测试先于代码，提交前全部测试通过
 - **Code Review**：每 2-3 个功能 review 一次
 - **git 提交**：所有变更必须 commit，不允许未跟踪代码
-- **分支隔离**：任何开发和代码变更必须在 git 分支上进行，禁止直接在 main 主分支上修改。完成后合并回 main。
+- **分支隔离（分层）**：运行时代码变更（apps/、packages/ 及关联配置/CI）必须在 git 分支上进行，禁止直接在 main 主分支上修改，经 PR 审查与 CI 后合并回 main；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本）允许在 main 直接小步提交，但须保持可回滚且不得与并发会话的脏文件冲突。分层边界以 openspec/specs/openspec-integration/spec.md「分层分支策略」Requirement 为准。
 - **错误处理**：所有关键路径必须有错误处理
 - **质量节拍强制卡点**：提交前必须完成 `.quality-gates.md` 自检清单，违反不允许提交
 
