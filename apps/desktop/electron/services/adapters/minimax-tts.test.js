@@ -432,6 +432,36 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       expect(body.voice_setting.vol).toBe(10)
     })
 
+    it('官方查询响应（status/file_id 在顶层）时正常完成并下载', async () => {
+      // 官方 query 接口返回 { task_id, status, file_id, base_resp }（顶层，不在 data 内）
+      const createResp = createFetchResponse({ task_id: 12345 })
+      const queryResp = createFetchResponse({ task_id: 12345, status: 'success', file_id: 67890, base_resp: { status_code: 0, status_msg: 'SUCCESS' } })
+      const downloadResp = createBinaryResponse(Buffer.from(ASYNC_AUDIO_HEX, 'hex'))
+      const fetchMock = createFetchMock([createResp, queryResp, downloadResp])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo' })
+      expect(result.audio.toString('utf8')).toBe('hello-async')
+      expect(fetchMock.calls[1].url).toContain('/query/t2a_async_query_v2?task_id=12345')
+      expect(fetchMock.calls[2].url).toContain('/files/retrieve_content?file_id=67890')
+    })
+
+    it('官方查询响应顶层 status=processing 时继续轮询（不误判完成/失败）', async () => {
+      const createResp = createFetchResponse({ task_id: 12346 })
+      const queryResp1 = createFetchResponse({ task_id: 12346, status: 'processing', base_resp: { status_code: 0 } })
+      const queryResp2 = createFetchResponse({ task_id: 12346, status: 'success', file_id: 67891, base_resp: { status_code: 0 } })
+      const downloadResp = createBinaryResponse(Buffer.from(ASYNC_AUDIO_HEX, 'hex'))
+      const fetchMock = createFetchMock([createResp, queryResp1, queryResp2, downloadResp])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo' })
+      expect(result.audio.toString('utf8')).toBe('hello-async')
+      // 创建 + 2 次查询 + 下载
+      expect(fetchMock.calls.length).toBe(4)
+    })
+
     it('查询响应直接携带 data.audio（hex）时直接返回，不下载', async () => {
       const createResp = createFetchResponse({ data: { task_id: 'task-2' } })
       const queryResp = createFetchResponse({ data: { audio: ASYNC_AUDIO_HEX, status: 'success' } })

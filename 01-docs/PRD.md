@@ -897,6 +897,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 轮询边界 | 默认 90s 超时、1s 间隔（可注入 `asyncPollTimeoutMs`）；查询响应带 `error`/`status=failed`/`base_resp.status_code≠0` 立即失败；超时抛 `ProviderError(TIMEOUT)`（归入瞬时错误自动重试）。 |
 | 进度前置 | 「生成图片与旁白」阶段开始即写入 `context.assets_progress={imagesDone:0,imagesTotal:N,ttsDone:0,ttsTotal:M}`，前端立即显示「图片 0/N · 旁白 0/M」，首个资源完成后实时递增；非法值不展示。 |
 | 数据校验 | `task_id`/`file_id` 缺失抛 `ProviderError(PROVIDER_ERROR)`；下载结果为空 Buffer 抛 PROVIDER_ERROR；同步路径行为不变。 |
+| 查询响应层级（2026-08-08 二次修订） | 官方查询接口把 `status`/`file_id`/`task_id` 放在响应**顶层**（`{ task_id, status, file_id, base_resp }`），历史实现只读 `data.*` 导致任务永远显示 pending 直至 90s 超时（旁白 0/1 的第二层根因）。轮询解析必须**顶层与 `data.*` 双层兼容**：`status` 取 `data?.status ?? nested?.status`，`file_id` 同理；`status=success` + `file_id` 才下载，`processing` 继续轮询，`failed`/`expired` 立即失败。真实验证：修复后 `synthesize success（约 13s）`，成片正常生成。 |
 
 #### 7.1.16 克隆音色 voice_id 合规与失效回退合同（2026-08-08）
 

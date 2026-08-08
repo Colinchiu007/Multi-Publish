@@ -279,18 +279,26 @@ class MinimaxTtsAdapter extends BaseAdapter {
     for (;;) {
       const queryResp = await this._request('/query/t2a_async_query_v2?task_id=' + encodeURIComponent(taskId))
       const queryData = await queryResp.json()
-      const data = queryData?.data || {}
-      const baseResp = queryData?.base_resp || {}
+      // 官方查询接口把 status/file_id/task_id 放在响应顶层（{ task_id, status, file_id, base_resp }），
+      // 历史实现曾只读 data.*（queryData.data）导致任务永远显示 pending 直到超时。
+      // 这里顶层与 data.* 双层兼容解析。
+      const nested = queryData?.data && typeof queryData.data === 'object' ? queryData.data : {}
+      const data = queryData && typeof queryData === 'object' ? queryData : {}
+      const baseResp = data?.base_resp || nested?.base_resp || {}
       const statusCode = baseResp.status_code
+      const taskStatus = String(data?.status || nested?.status || '').toLowerCase()
 
-      // 完成：查询响应直接带音频，或返回 file_id 后下载
-      const inlineAudio = typeof data.audio === 'string' && data.audio.length > 0 ? data.audio : null
+      // 完成：查询响应直接带音频（hex），或返回 file_id 后下载
+      const inlineAudio = (typeof data.audio === 'string' && data.audio.length > 0) ? data.audio
+        : ((typeof nested.audio === 'string' && nested.audio.length > 0) ? nested.audio : null)
       if (inlineAudio) {
         const audio = Buffer.from(inlineAudio, 'hex')
         if (audio.length > 0) return { audio, format: outputFormat }
       }
-      if (typeof data.file_id === 'string' && data.file_id.trim()) {
-        const audioResp = await this._request('/files/retrieve_content?file_id=' + encodeURIComponent(data.file_id.trim()))
+      const rawFileId = data?.file_id ?? nested?.file_id ?? null
+      const fileId = rawFileId !== null && rawFileId !== undefined ? String(rawFileId).trim() : ''
+      if (fileId && taskStatus !== 'processing') {
+        const audioResp = await this._request('/files/retrieve_content?file_id=' + encodeURIComponent(fileId))
         const audioBuffer = Buffer.from(await audioResp.arrayBuffer())
         if (!audioBuffer || audioBuffer.length === 0) {
           throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'MiniMax 异步语音合成返回空音频', { providerId: this.id })
@@ -299,14 +307,14 @@ class MinimaxTtsAdapter extends BaseAdapter {
       }
 
       // 明确失败
-      const errorValue = data?.error
+      const errorValue = data?.error || nested?.error
       const hasError = errorValue && (typeof errorValue === 'string'
         ? String(errorValue).trim()
         : (errorValue.message || errorValue.code))
-      if (hasError || String(data?.status || '').toLowerCase() === 'failed') {
+      if (hasError || taskStatus === 'failed' || taskStatus === 'expired') {
         const message = typeof errorValue === 'string'
           ? errorValue
-          : (errorValue && errorValue.message) || String(data?.status || '') || 'MiniMax 异步语音合成失败'
+          : (errorValue && errorValue.message) || String(data?.status || nested?.status || '') || 'MiniMax 异步语音合成失败'
         throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, message, { providerId: this.id })
       }
       if (statusCode !== undefined && Number(statusCode) !== 0) {
