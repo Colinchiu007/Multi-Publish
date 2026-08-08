@@ -278,6 +278,7 @@ class ModelProviderManager {
       'opencode-go': require('./adapters/opencode-go').OpenCodeGoAdapter,
       'agnes-llm': require('./adapters/agnes-llm').AgnesLlmAdapter,
       'sensenova-llm': require('./adapters/sensenova-llm').SenseNovaLlmAdapter,
+      'minimax-llm': require('./adapters/minimax-llm').MinimaxLlmAdapter,
       // ─── TTS 语音合成 (7) ──────────────────────────
       elevenlabs: require('./adapters/elevenlabs').ElevenLabsAdapter,
       'openai-tts': require('./adapters/openai-tts').OpenAITtsAdapter,
@@ -388,13 +389,35 @@ class ModelProviderManager {
         const row = db.prepare('SELECT config FROM model_providers WHERE id = ?').get(p.id)
         if (!row) continue
         const config = safeJsonParse(row.config, {}) || {}
-        const hasCapabilities = Array.isArray(config.capabilities) && config.capabilities.length > 0
-        const hasCapabilityModels = config.capability_models && typeof config.capability_models === 'object'
-        if (hasCapabilities && hasCapabilityModels) continue
-        if (!hasCapabilities && capabilities.length > 0) config.capabilities = capabilities
-        if (!hasCapabilityModels && capabilityModels) config.capability_models = capabilityModels
-        db.prepare("UPDATE model_providers SET config = ?, updated_at = datetime('now') WHERE id = ?")
-          .run(JSON.stringify(config), p.id)
+        const existingCaps = Array.isArray(config.capabilities) ? config.capabilities : []
+        const existingModels = config.capability_models && typeof config.capability_models === 'object'
+          ? config.capability_models
+          : null
+        // 合并升级：存量行只回填预设新增的能力（diff-merge），
+        // 保留用户已有配置，避免覆盖历史能力/模型选择。
+        let changed = false
+        if (capabilities.length > 0) {
+          const merged = Array.from(new Set([...existingCaps, ...capabilities]))
+          if (merged.length !== existingCaps.length || merged.some((c, i) => c !== existingCaps[i])) {
+            config.capabilities = merged
+            changed = true
+          }
+        }
+        if (capabilityModels) {
+          const mergedModels = { ...(existingModels || {}) }
+          for (const [cap, model] of Object.entries(capabilityModels)) {
+            if (!mergedModels[cap]) {
+              mergedModels[cap] = model
+              changed = true
+            }
+          }
+          if (Object.keys(mergedModels).length > 0) config.capability_models = mergedModels
+        }
+        if (changed) {
+          db.prepare("UPDATE model_providers SET config = ?, updated_at = datetime('now') WHERE id = ?")
+            .run(JSON.stringify(config), p.id)
+          this._invalidateAdapterCache(p.id)
+        }
       } catch (e) {
         log.warn('ModelProviderManager', 'sync preset capabilities failed for ' + p.id + ': ' + e.message)
       }
@@ -444,7 +467,8 @@ class ModelProviderManager {
     } else {
       rows = db.prepare('SELECT * FROM model_providers ORDER BY category, is_default DESC, is_preset DESC, name ASC').all()
     }
-    return rows.map(r => this._safeRow(r))
+    // 过滤用户已删除（软删隐藏）的预设服务商
+    return rows.map(r => this._safeRow(r)).filter(p => !p.hidden)
   }
 
   getProvider (id) {
@@ -587,11 +611,21 @@ class ModelProviderManager {
     if (!provider) {
       return { code: -1, message: 'Provider "' + id + '" not found' }
     }
-    if (provider.is_preset) {
-      return { code: -1, message: 'Preset providers cannot be deleted, disable instead' }
-    }
     try {
       const db = this._store.db
+      if (provider.is_preset) {
+        // 预设服务商：软删除（隐藏 + 清除 Key + 禁用）。行保留以便从
+        // 「添加服务商 → 预设目录」重新添加；listProviders 会过滤隐藏项。
+        const row = db.prepare('SELECT * FROM model_providers WHERE id = ?').get(id)
+        const config = safeJsonParse(row ? row.config : '{}', {}) || {}
+        config.preset_hidden = true
+        db.prepare(
+          'UPDATE model_providers SET enabled = ?, api_key = ?, api_key_enc = NULL, is_default = ?, config = ?, updated_at = datetime(\'now\') WHERE id = ?'
+        ).run(0, '', 0, JSON.stringify(config), id)
+        this._invalidateAdapterCache(id)
+        log.info('ModelProviderManager', 'Provider (preset) soft-deleted: ' + id)
+        return { code: 0, message: '已删除（预设服务商已隐藏，可在“添加服务商”中重新添加）' }
+      }
       if (provider.is_default) {
         db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ?').run(provider.category)
       }
@@ -599,7 +633,7 @@ class ModelProviderManager {
       // P3.2: 删除后清除 Adapter 缓存
       this._invalidateAdapterCache(id)
       log.info('ModelProviderManager', 'Provider deleted: ' + id)
-      return { code: 0, message: 'Deleted' }
+      return { code: 0, message: '已删除' }
     } catch (e) {
       log.error('ModelProviderManager', 'Delete failed: ' + e.message)
       return { code: -1, message: 'Delete failed: ' + e.message }
@@ -743,6 +777,7 @@ class ModelProviderManager {
       config,
       capabilities: Array.isArray(config.capabilities) ? [...config.capabilities] : [],
       capability_models: config.capability_models && typeof config.capability_models === 'object' ? { ...config.capability_models } : null,
+      hidden: config.preset_hidden === true,
       is_configured: !!row.enabled && (hasUsableApiKey(apiKey) || canUseWithoutApiKey(row)),
       api_key_masked: apiKeyMasked,
       created_at: row.created_at,

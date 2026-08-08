@@ -350,10 +350,6 @@ export function useModelProviderCrud () {
 
   // ─── 删除 ─────────────────────────────────────
   function confirmDelete (provider) {
-    if (provider.is_preset) {
-      ElMessage.warning('预设服务商不支持删除，如需移除请禁用该服务商')
-      return
-    }
     deleteTarget.value = provider
     showDeleteDialog.value = true
   }
@@ -415,11 +411,13 @@ export function useModelProviderCrud () {
     delete testResults.value[id]
     try {
       const res = await modelProviderTest(id)
+      // 成功只显示友好提示，不暴露技术性响应体（如 {"success":true}）；
+      // 失败时仅在存在可读 detail 时展示，避免原始技术错误对象外泄。
       testResults.value[id] = {
         success: res.code === 0,
         code: res.code,
         message: res.message || (res.code === 0 ? '连接成功' : '连接失败'),
-        detail: res.detail || (res.data ? JSON.stringify(res.data) : null),
+        detail: res.code !== 0 && res.detail ? String(res.detail) : null,
       }
     } catch (e) {
       testResults.value[id] = {
