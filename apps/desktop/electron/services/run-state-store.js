@@ -79,7 +79,7 @@ class RunStateStore {
     return path.join(this._dir, safeId(runId) + '.json')
   }
 
-  /** 保存失败快照（仅编排模式失败时调用；上下文为纯 JSON 数据） */
+  /** 保存编排模式终态快照（失败/取消时调用，状态原样落盘；上下文为纯 JSON 数据） */
   saveFailed(run) {
     if (!run || typeof run.id !== 'string' || !run.id) return false
     const snapshot = {

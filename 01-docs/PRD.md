@@ -1376,6 +1376,7 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **UI 调整**：外观→画面；字幕默认启用；高级区「输出分辨率」改「比例与分辨率」移入画面区，选项括号只标注横屏/竖屏；移除「中间结果」原始 JSON 调试面板。
 - **动效抖动修复**：zoompan 先 2x 上采样再执行、后下采样，消除亚像素抖动（帧间差异 stddev 0.89→0.11）。
 - **分段编辑**：结果页分段编辑显示每段对应图片预览。
+  - **CSP 图片放行（2026-08-08 修复）**：分段图片与成片预览均来自本机媒体服务（`http://127.0.0.1:<port>/media/...`）。此前 CSP 仅 `media-src` 放行本机来源而 `img-src` 未放行，导致 `<video>`（媒体）正常、`<img>`（分段图片）被拦截不显示。修复：`apps/desktop/src/index.html` CSP `img-src` 增加 `http://127.0.0.1:* http://localhost:*`（与 `connect-src`/`media-src` 对齐），`index.test.js` 断言同步。
 ## 提示词优化阶段性能（2026-08-06）
 - **根因**：story2video_optimize 逐场景串行调用默认 LLM，N 个场景耗时 ≈ N × 单次推理延迟（用户长文案 6 场景约 2.7 分钟）。
 - **修复**：改为 _mapWithConcurrency 有界并发（默认 3）并行优化；保留逐场景错误定位。实测 6 场景：优化阶段 162s → 54s。
@@ -1522,7 +1523,9 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
     - **数据源**：失败时 `RunStateStore.saveFailed(run)` 持久化快照（新增 `createdAt` 字段）；`PipelineEngine.getHistory()` 在内存 `_runs`/`_history` 之外，合并 `runStateStore.listFailed()` 的持久化失败快照（按 runId 与内存条目去重）。
     - **重启保持**：应用重启后内存历史清空，但失败快照仍从 run-state 目录读取，失败任务继续显示在历史记录中（状态「生成失败」、时间取 `completedAt/updatedAt/createdAt`）。
     - **状态文案**：`failed` 状态在【历史记录】显示为「生成失败」（CreateView 内部历史视图 `historyStatusLabel` 与 `/create/history` 独立页 `statusLabel` 同步；状态筛选项「失败」改为「生成失败」）。
-    - **交互**：失败卡片保持仅展示状态不跳转（与既有失败/取消卡片一致）。
+    - **交互（2026-08-08 二次修订，新增断点继续）**：失败且可恢复（非内容政策类）的卡片显示「从断点继续」按钮，点击调用 `pipeline:resumeOrchestration` 从失败阶段续跑，自动切回流水线创作视图并展示实时进度；续跑后该任务以「进行中」状态继续留在历史记录（不再消失）。内容政策类失败（需修改文案）不显示该按钮，保持仅展示状态。点击失败卡片本体同样触发续跑（与运行中卡片点击行为一致）。
+    - **终态记录唯一性（2026-08-08 二次修订）**：断点续跑复用同一 runId，`PipelineEngine._finalizeRun` 写入 `_history` 时按 runId 去重（同 id 只保留最新一条终态，避免新旧终态重复展示）。
+    - **终态快照扩展（2026-08-08 二次修订）**：编排模式取消（cancelled）与失败（failed）一样调用 `RunStateStore.saveFailed` 持久化终态快照——续跑时会删除旧失败快照，若续跑后再次取消必须保留新终态，否则应用重启后该任务在历史中丢失；取消快照状态为 `cancelled`，不可恢复（`resumeOrchestration` 仅允许 `failed`）。
 - **交互逻辑**：
   - 点击运行中卡片 → 跳转 `/create`（CreateView 自动恢复查看该 run 进度）。
   - 点击已完成卡片 → 跳转 `/create/result?path=<成片路径>` 预览。

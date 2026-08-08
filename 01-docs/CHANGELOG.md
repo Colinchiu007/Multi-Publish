@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (失败历史断点继续 + 终态快照唯一性 + 分段图片 CSP)
+
+### 新能力与修复
+- **失败历史可断点继续**：历史记录中失败且可恢复（非内容政策）的任务卡片新增「从断点继续」按钮，点击调用 `pipeline:resumeOrchestration` 续跑并切回流水线视图；续跑后任务以「进行中」继续留在历史，不再消失；内容政策类失败不显示该按钮。
+- **终态记录唯一性**：`_finalizeRun` 写入内存历史时按 runId 去重（断点续跑复用同 id，只保留最新一条终态），避免新旧终态重复展示。
+- **取消终态持久化**：编排模式取消（cancelled）与失败一样调用 `RunStateStore.saveFailed` 落盘终态快照，避免「续跑→再次取消→重启后任务丢失」。
+- **分段图片 CSP 放行**：`img-src` 增加 `http://127.0.0.1:* http://localhost:*`（与 `media-src`/`connect-src` 对齐），修复分段编辑图片被 CSP 拦截不显示而视频正常的问题。
+
+### 测试
+- 新增 4 例：CreateView 失败历史「从断点继续」展示与续跑（含内容政策不显示）、PipelineEngine `_history` 同 runId 去重、取消终态快照重启后仍在历史；`index.test.js` 断言 `img-src` 放行本机来源。
+
+### 文档
+- PRD 历史记录章节补充「断点继续交互 / 终态唯一性 / 取消终态持久化」与 CSP 图片放行合同。
+
 ## [Unreleased] - 2026-08-08 (MiniMax 异步 T2A + 资源进度前置)
 
 ### 修复
