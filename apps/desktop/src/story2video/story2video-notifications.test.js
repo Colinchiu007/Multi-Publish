@@ -4,6 +4,7 @@ import {
   STORY2VIDEO_NOTIFICATION_KEYS,
   countUnicodeCodePoints,
   formatStory2VideoNotification,
+  getStory2VideoNotificationUiText,
 } from './story2video-notifications'
 
 describe('Story2Video notification messages', () => {
@@ -84,6 +85,38 @@ describe('Story2Video notification messages', () => {
       message: '当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。',
       codePointCount: countUnicodeCodePoints('当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。'),
     })
+  })
+
+  it('弹窗标题统一为「提示」/「Notice」，不携带流水线名词前缀', () => {
+    // UX 规范（2026-08-08）：{流水线名} 提示 → 提示；无论是否传入流水线名
+    expect(getStory2VideoNotificationUiText('zh', '图片轮播').dialogTitle).toBe('提示')
+    expect(getStory2VideoNotificationUiText('zh', 'Story2Video').dialogTitle).toBe('提示')
+    expect(getStory2VideoNotificationUiText('zh', '').dialogTitle).toBe('提示')
+    expect(getStory2VideoNotificationUiText('en', 'Image Carousel').dialogTitle).toBe('Notice')
+    expect(getStory2VideoNotificationUiText('en', '').dialogTitle).toBe('Notice')
+  })
+
+  it('媒体文件细分提示：格式不支持/大小超限/不可读，参数可插值', () => {
+    const zhFormat = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID,
+      messageParams: { extension: '.MP3', kindLabel: '背景音乐', extensions: ['.wav', '.m4a', '.mp3'] },
+    })
+    expect(zhFormat.message).toContain('.MP3')
+    expect(zhFormat.message).toContain('背景音乐')
+    expect(zhFormat.message).toContain('.wav / .m4a / .mp3')
+
+    const zhSize = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_SIZE_EXCEEDED,
+      messageParams: { kindLabel: '背景音乐', maxMb: 15, actualMb: 20 },
+    })
+    expect(zhSize.message).toContain('15MB')
+    expect(zhSize.message).toContain('20MB')
+
+    const enUnreadable = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE,
+      messageParams: { kindLabel: 'background music' },
+    }, 'en')
+    expect(enUnreadable.message).toContain('background music')
   })
 
   it('counts Unicode code points rather than UTF-16 code units or grapheme clusters', () => {

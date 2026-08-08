@@ -82,6 +82,10 @@ export default {
         templateOutput: '模板与输出',
       },
       startPipeline: '启动流水线',
+      mediaRequirementsImage: '支持 jpg / jpeg / png / webp 格式，单个文件最大 10MB。',
+      mediaRequirementsAudio: '支持 wav / m4a / mp3 格式，单个文件最大 50MB。',
+      mediaRequirementsBgm: '支持 wav / m4a / mp3 格式，单个文件最大 15MB。',
+      mediaRequirementsVideo: '支持 mp4 / mov / webm / mkv / avi 格式，单个文件最大 512MB。',
     },
   },
   pipelines: {

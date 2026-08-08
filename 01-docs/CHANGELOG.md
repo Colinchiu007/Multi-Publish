@@ -1,5 +1,50 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (失败任务历史持久展示 + 状态「生成失败」)
+
+### 新能力与修复
+- **失败任务持久展示**：流水线执行失败的任务现在持久显示在【历史记录】中（状态「生成失败」）。应用重启后仍可见——`RunStateStore.saveFailed` 持久化失败快照（补充 `createdAt`），`PipelineEngine.getHistory()` 合并 `runStateStore.listFailed()` 的持久化失败快照（按 runId 与内存 `_runs`/`_history` 去重）。
+- **状态文案**：`failed` 状态在历史记录显示「生成失败」（CreateView 内部历史视图 + `/create/history` 独立页），状态筛选下拉项同步改为「生成失败」。
+
+### 测试
+- 新增 7 例：RunStateStore `listFailed`（legacy/owner/去重/损坏跳过/createdAt）、PipelineEngine `getHistory` 合并持久化失败快照（重启场景 + 同会话去重）、CreateHistory 状态文案。
+- CI 稳定性：credential-store 真实 Windows 文件锁用例超时提升到 60s（CI 全量负载下 powershell 子进程启动延迟可致 30s 偶发超时，非回归）。
+
+### 文档
+- PRD 后台运行流水线章节「失败任务持久展示」合同。
+
+## [Unreleased] - 2026-08-08 (弹窗标题 / 操作反馈 / 提示信息细化)
+
+### 新能力与修复
+- **弹窗标题规范**：提示类弹窗标题统一为「提示」/「Notice」，去掉「{流水线名} 提示」前缀（CreateView 错误/删除确认/模板删除确认 + ResultView 通知对话框）。
+- **选项保存 toast 布局**：「选项已保存 ✓」「已恢复上次的选项设置」改为操作栏上方绝对定位悬浮提示，不再挤占【启动流水线】按钮位置（原 toast 作为 flex 子项把按钮推到右侧）。
+- **媒体文件校验细分**：格式不支持/大小超限/文件不可读分别给出具体提示（含具体格式、允许列表、最大与当前大小）；主进程导入失败原因透传映射；批量旁白逐文件失败不再重复弹笼统提示。
+- **文件要求提示**：图片/旁白音频/背景音乐/视频素材选择控件附近常驻显示格式与大小要求（i18n 中英文）。
+- **提示信息梳理**：媒体校验类全面细化；限流/额度/权限/模型配置类保持专属文案；瞬时失败保留友好通用兜底，不暴露技术细节。
+
+### 测试
+- 新增 8 例：弹窗标题 3、媒体细分消息插值 1、CreateView 媒体细分 5（格式/大小/主进程透传/不可读/要求提示）、toast 显示与消失 1（含操作栏不受影响）。
+
+### 文档
+- PRD 新增「7.1.13 弹窗标题、操作反馈与提示信息规范」。
+
+## [Unreleased] - 2026-08-07 (模型服务异常检测 + 有界超时 + 执行日志)
+
+### 新能力
+- **模型服务异常检测（provider-anomaly）**：新增 `providerAnomalyBus`，检测慢响应（llm/tts/audio 30s、image 60s、video 120s）、超时、网络错误，按 provider 去重保留最近 5 条内存快照；`pipeline:getRunContext` 存在异常时附带 `providerWarnings`，前端流水线详情页显示非阻塞友好横幅（含 provider 与秒数、建议到【模型设置】切换/检查），轮询实时更新、运行结束清空。
+- **有界调用超时**：`callAdapter` 兜底超时（视频 10 分钟、其余 2 分钟，`params.timeoutMs` 优先），超时抛 `ProviderError(TIMEOUT)` 归入瞬时错误冷却重试，避免 agnes-llm 等 provider 单次挂起 2-3 分钟无限阻塞流水线。
+- **流水线执行日志**：pipeline-engine 每阶段开始/结束记录 INFO 日志（runId/pipeline/stage/序号/耗时/成功），运行终态（completed/failed/cancelled）记录 INFO/WARN（总耗时 + 截断错误摘要 ≤500 字符），配合 model_provider_logs 定位「模型自身问题」。
+- **提示词优化进度前置**：阶段一开始即写入 `context.optimize_progress={done,total}`（断点续传从已完成数起步），前端执行期间即可显示「共 N 个场景，已完成 M 个」。
+
+### 修复
+- 提示词优化长文案卡死表象（实测 agnes-llm 单请求 122s/180s/153s → 阶段累计 476s）：已切换默认 LLM 至 sensenova-llm（deepseek-v4-flash）验证 optimize 2-3s 完成，并用有界超时 + 异常提示兜底。
+
+### 测试
+- 新增 `provider-anomaly.test.js`（阈值/判断/上报/快照/事件）；callAdapter 异常检测 4 用例（正常/超时/网络/慢响应）；`pipeline:getRunContext` 下发 2 用例；CreateView 横幅 3 用例；optimize 进度前置与断点续传 2 用例。
+
+### 文档
+- PRD 新增「7.1.12 模型服务异常检测、有界超时与执行日志合同」。
+
 ## [Unreleased] - 2026-07-15 (Phase 2 质量节拍补跑 — 模型供应商 Adapter)
 
 ### 质量节拍日常循环 6 步补跑（P3.6-P3.8 回顾性补跑）

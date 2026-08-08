@@ -82,6 +82,10 @@ export default {
         templateOutput: 'Template & Output',
       },
       startPipeline: 'Start pipeline',
+      mediaRequirementsImage: 'Supports jpg / jpeg / png / webp. Max 10MB per file.',
+      mediaRequirementsAudio: 'Supports wav / m4a / mp3. Max 50MB per file.',
+      mediaRequirementsBgm: 'Supports wav / m4a / mp3. Max 15MB per file.',
+      mediaRequirementsVideo: 'Supports mp4 / mov / webm / mkv / avi. Max 512MB per file.',
     },
   },
   pipelines: {

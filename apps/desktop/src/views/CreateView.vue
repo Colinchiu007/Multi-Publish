@@ -76,6 +76,11 @@
           </div>
         </div>
 
+        <!-- 模型服务异常提示（非阻塞） -->
+        <div v-if="providerWarningText" class="provider-warning-banner" role="alert">
+          ⚠️ {{ providerWarningText }}
+        </div>
+
         <!-- 输入区域 -->
         <div class="input-section">
           <h3>输入内容</h3>
@@ -101,6 +106,7 @@
               </div>
             </div>
             <input ref="pipelineFileInput" type="file" accept="image/jpeg,image/png,image/webp" multiple style="display:none" @change="handlePipelineFiles" />
+            <p class="config-hint">{{ mediaRequirementsImageText }}</p>
           </div>
           <div v-if="inputMode === 'audio' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
             <div class="upload-zone" @click="$refs.pipelineAudioInput?.click()">
@@ -130,6 +136,7 @@
               </div>
             </div>
             <input ref="pipelineAudioInput" type="file" accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg" multiple style="display:none" @change="handlePipelineAudio" />
+            <p class="config-hint">{{ mediaRequirementsAudioText }}</p>
           </div>
           <div v-if="inputMode === 'video' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
             <div class="upload-zone" @click="$refs.pipelineVideoInput?.click()">
@@ -137,6 +144,7 @@
               <p v-else>✅ {{ pipelineVideo.name }}</p>
             </div>
             <input ref="pipelineVideoInput" type="file" accept="video/*" style="display:none" @change="handlePipelineVideo" />
+            <p class="config-hint">{{ mediaRequirementsVideoText }}</p>
             <textarea
               v-if="isMediaAutoPipeline(selectedPipeline.name)"
               v-model="pipelineText"
@@ -319,6 +327,7 @@
                   <span class="config-hint">{{ s2vConfig.bgmPath || '未选择（可选）' }}</span>
                 </div>
                 <input ref="s2vBgmInput" type="file" accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg" style="display:none" @change="handleS2VBgmFile" />
+                <p class="config-hint">{{ mediaRequirementsBgmText }}</p>
               </div>
               <div class="config-item">
                 <label>背景音乐音量: {{ s2vConfig.bgmVolume }}</label>
@@ -690,7 +699,7 @@
             <select id="history-status-filter" v-model="historyFilter" class="form-select history-filter">
               <option value="all">全部</option>
               <option value="completed">已完成</option>
-              <option value="failed">失败</option>
+              <option value="failed">生成失败</option>
               <option value="cancelled">已取消</option>
               <option value="running">进行中</option>
             </select>
@@ -939,7 +948,7 @@ export default {
         watermarkConfig: { enabled: false, position: 'bottom-right', fontSize: 24, opacity: 0.6, color: 'white' },
         autoAdvance: true, platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
-      orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '',
+      orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {} },
       story2videoResuming: false,
       story2videoRunMeta: null,
@@ -1010,6 +1019,15 @@ export default {
         'Image Carousel Configuration'
       )
     },
+    providerWarningText() {
+      const warnings = Array.isArray(this.providerWarnings) ? this.providerWarnings : []
+      if (warnings.length === 0) return ''
+      const names = warnings.map((w) => {
+        const secs = Number.isFinite(Number(w.latencyMs)) ? Math.round(Number(w.latencyMs) / 1000) : 0
+        return w.providerId + (secs > 0 ? '（' + secs + ' 秒）' : '')
+      }).join('、')
+      return '检测到模型服务响应异常：' + names + '。流水线已自动重试；若反复出现，建议到【模型设置】切换模型或检查该服务商。'
+    },
     canAddS2VVoiceClone() {
       return Boolean(
         this.s2vVoiceCloneSelection?.selectionId
@@ -1029,6 +1047,34 @@ export default {
         'create.story2video.promptStyleHint',
         '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
         'Controls how image prompts are written and organized; it does not replace image style.'
+      )
+    },
+    mediaRequirementsImageText() {
+      return this.translateWithLocaleFallback(
+        'create.story2video.mediaRequirementsImage',
+        '支持 jpg / jpeg / png / webp 格式，单个文件最大 10MB。',
+        'Supports jpg / jpeg / png / webp. Max 10MB per file.'
+      )
+    },
+    mediaRequirementsAudioText() {
+      return this.translateWithLocaleFallback(
+        'create.story2video.mediaRequirementsAudio',
+        '支持 wav / m4a / mp3 格式，单个文件最大 50MB。',
+        'Supports wav / m4a / mp3. Max 50MB per file.'
+      )
+    },
+    mediaRequirementsBgmText() {
+      return this.translateWithLocaleFallback(
+        'create.story2video.mediaRequirementsBgm',
+        '支持 wav / m4a / mp3 格式，单个文件最大 15MB。',
+        'Supports wav / m4a / mp3. Max 15MB per file.'
+      )
+    },
+    mediaRequirementsVideoText() {
+      return this.translateWithLocaleFallback(
+        'create.story2video.mediaRequirementsVideo',
+        '支持 mp4 / mov / webm / mkv / avi 格式，单个文件最大 512MB。',
+        'Supports mp4 / mov / webm / mkv / avi. Max 512MB per file.'
       )
     },
     s2vPlatforms() { return S2V_PLATFORMS },
@@ -1165,7 +1211,7 @@ export default {
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
     historyStatusLabel(status) {
-      return { completed: '已完成', failed: '失败', cancelled: '已取消', running: '进行中', pending: '等待中' }[status] || status || '未知'
+      return { completed: '已完成', failed: '生成失败', cancelled: '已取消', running: '进行中', pending: '等待中' }[status] || status || '未知'
     },
 
     // 流水线操作
@@ -2041,6 +2087,9 @@ export default {
           return
         }
         this.orchestrationContext = statusResult.data.context || null
+        this.providerWarnings = Array.isArray(statusResult.data.providerWarnings)
+          ? statusResult.data.providerWarnings
+          : []
         this.story2videoRunMeta = {
           createdAt: statusResult.data.createdAt || null,
           endedAt: statusResult.data.endedAt || null,
@@ -2145,7 +2194,7 @@ export default {
     async cancelPipeline() {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
-      this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''
+      this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
       this.orchestrationStages = (this.isAutoPipeline(this.selectedPipeline?.name) || this.isMediaAutoPipeline(this.selectedPipeline?.name)) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
       this.closeStory2VideoErrorDialog()
       this.stopPipelinePolling()
@@ -2301,21 +2350,61 @@ export default {
       }
       const rule = rules[kind]
       if (!rule || !rule.extensions.includes(extension)) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
+        // 细分提示：明确指出不支持的具体格式与允许的格式列表
+        this.showStory2VideoErrorDialog({
+          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID,
+          messageParams: {
+            extension: extension ? extension.toUpperCase() : '该',
+            kindLabel: rule?.label || '',
+            extensions: rule?.extensions || [],
+          },
+        })
         return false
       }
       if (Number(file?.size) > rule.maxBytes) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
+        // 细分提示：明确指出大小上限与实际大小
+        this.showStory2VideoErrorDialog({
+          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_SIZE_EXCEEDED,
+          messageParams: {
+            kindLabel: rule.label,
+            maxMb: rule.maxBytes / (1024 * 1024),
+            actualMb: Math.max(1, Number(file?.size) / (1024 * 1024)),
+          },
+        })
         return false
       }
       return true
+    },
+    resolveMediaImportFailure(result) {
+      // 主进程返回的具体失败原因 → 映射为可读的细分提示；无法识别时回退通用 MEDIA_INVALID
+      const message = String(result?.message || result?.error || '').trim()
+      if (/不支持的媒体格式|格式不支持|extension|format/i.test(message)) {
+        return {
+          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID,
+          messageParams: { extension: '', kindLabel: '', extensions: '' },
+        }
+      }
+      if (/超过大小上限|大小超限|超出.*大小|size|太大/i.test(message)) {
+        return {
+          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_SIZE_EXCEEDED,
+          messageParams: { kindLabel: '', maxMb: '', actualMb: '' },
+        }
+      }
+      if (/不存在|不可读|无法读取|被占用|corrupt|locked/i.test(message)) {
+        return { messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '' } }
+      }
+      return { messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID }
     },
     async importStory2VideoMedia(file, kind) {
       if (!file || !this.validateStory2VideoFile(file, kind)) return null
       try {
         const result = await story2videoImportMedia(file, kind)
-        return result?.code === 0 && result.data?.path ? result.data : null
+        if (result?.code === 0 && result.data?.path) return result.data
+        // 主进程拒绝时把具体原因透传为细分提示，而不是笼统的「所选文件不符合要求」
+        this.showStory2VideoErrorDialog(this.resolveMediaImportFailure(result))
+        return null
       } catch (_) {
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '' } })
         return null
       }
     },
@@ -2334,9 +2423,8 @@ export default {
           })
         }
       }
-      if (resolved.length !== files.length) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
-      }
+      // 失败的单个文件已在 importStory2VideoMedia 内展示细分原因（格式/大小/不可读），
+      // 这里不再重复弹笼统的 MEDIA_INVALID，避免同一次操作弹出两个对话框。
       this.pipelineAudio = resolved
     },
     async transcribePipelineAudio(index) {
@@ -2369,13 +2457,13 @@ export default {
         : ''
       if (!filePath) {
         this.pipelineVideo = null
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '视频素材' } })
         return
       }
       const imported = await story2videoImportMediaPath(filePath, 'video')
       if (!imported || imported.code !== 0 || !imported.data?.path) {
         this.pipelineVideo = null
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
+        this.showStory2VideoErrorDialog(this.resolveMediaImportFailure(imported))
         return
       }
       this.pipelineVideo = { name: file.name || imported.data.originalName, path: imported.data.path }
@@ -2385,8 +2473,8 @@ export default {
       if (!file) return
       const imported = await this.importStory2VideoMedia(file, 'bgm')
       if (!imported?.path) {
+        // 失败原因（格式/大小/不可读）已在 importStory2VideoMedia 内细分提示，这里仅清空选择
         this.s2vConfig.bgmPath = ''
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID })
         return
       }
       this.s2vConfig.bgmPath = imported.path
@@ -2628,6 +2716,7 @@ export default {
 
 /* 阶段时间线 */
 .stages-timeline { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; padding: 16px; background: var(--bg); border-radius: 8px; max-width: 100%; overflow-wrap: anywhere; }
+.provider-warning-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; font-size: 13px; line-height: 1.5; }
 .stage-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; font-size: 14px; min-width: 0; max-width: 100%; }
 .orchestration-context { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; padding: 12px 16px; background: var(--bg); border-radius: 8px; margin-bottom: 16px; }
 .context-item { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; max-width: 100%; min-width: 0; }
@@ -2720,7 +2809,7 @@ export default {
 
 /* 操作栏 */
 .action-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; }
-.s2v-options-toast { font-size: 12px; color: #166534; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 4px 10px; animation: s2v-toast-fade 1.6s ease-in-out; }
+.s2v-options-toast { position: absolute; right: 16px; bottom: calc(100% + 10px); font-size: 12px; color: #166534; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 4px 10px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out; }
 @keyframes s2v-toast-fade { 0% { opacity: 0; } 12% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; } }
 .voice-clone-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: none; background: transparent; font-size: 14px; font-weight: 600; cursor: pointer; padding: 2px 0; }
 .voice-clone-toggle-icon { font-size: 12px; color: var(--text-muted, #888); }

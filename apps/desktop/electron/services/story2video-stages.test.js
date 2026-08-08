@@ -154,6 +154,63 @@ describe('story2video 资源索引契约', () => {
     expect(maxActive).toBeGreaterThanOrEqual(2)
   })
 
+  it('优化进度前置写入：阶段开始即显示「共 N 个场景，已完成 X 个」', async () => {
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
+      generateWithDefault: vi.fn(async () => ({ content: '优化后', model: 'gpt-4.1-mini' })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const context = {
+      domain_enrich: {
+        scenes: [
+          { text: '场景0', imagePromptSeed: '画面0' },
+          { text: '场景1', imagePromptSeed: '画面1' },
+          { text: '场景2', imagePromptSeed: '画面2' },
+        ],
+      },
+    }
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context,
+      serviceBus: { optimizePromptsBatch: vi.fn() },
+    })
+    expect(result.success).toBe(true)
+    // 前置写入：前端在阶段执行期间即可显示数量信息，而不是等阶段结束后才出现
+    expect(context.optimize_progress).toEqual({ done: 3, total: 3 })
+  })
+
+  it('断点续传时优化进度从已完成场景数开始，成功后清理续传缓存', async () => {
+    const resumeEntry = { optimized_prompt: '已有优化', providerId: 'openai', model: 'gpt-4.1-mini' }
+    const aiGenerator = {
+      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
+      generateWithDefault: vi.fn(async () => ({ content: '新优化', model: 'gpt-4.1-mini' })),
+    }
+    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const context = {
+      domain_enrich: {
+        scenes: [
+          { text: '场景0', imagePromptSeed: '画面0' },
+          { text: '场景1', imagePromptSeed: '画面1' },
+        ],
+      },
+      optimize_resume: [resumeEntry],
+    }
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context,
+      serviceBus: { optimizePromptsBatch: vi.fn() },
+    })
+    expect(result.success).toBe(true)
+    // 只优化未完成的场景，已完成的直接复用
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+    expect(result.output).toHaveLength(2)
+    expect(result.output[0]).toEqual(resumeEntry)
+    expect(context.optimize_progress).toEqual({ done: 2, total: 2 })
+    expect(context.optimize_resume).toBeUndefined()
+  })
+
   it('默认 LLM 缺失、空响应或中途失败时优化阶段 fail closed', async () => {
     const noDefault = makePipeline(null, {
       _modelProviderManager: { getDefault: vi.fn(() => null) },

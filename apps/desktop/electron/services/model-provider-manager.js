@@ -9,6 +9,28 @@
 const log = require('./logger')
 const { PRESET_PROVIDERS, CATEGORY_LABELS, CATEGORIES } = require('./model-provider-seeds')
 const crypto = require('./crypto')
+const { providerAnomalyBus } = require('./provider-anomaly')
+
+/**
+ * 有界超时包装：provider 请求在 timeoutMs 内未完成即抛 ProviderError(TIMEOUT)。
+ * 底层 fetch 若无 AbortSignal 会继续在后台挂起，但调用链在此处收敛，
+ * 超时被归为瞬时错误（governor/阶段重试）而不会无限阻塞整个流水线。
+ */
+function withCallTimeout (promise, timeoutMs, providerId, method) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
+      reject(new ProviderError(ERROR_CODES.TIMEOUT,
+        'provider request timed out after ' + timeoutMs + 'ms (' + providerId + '.' + method + ')',
+        { providerId }))
+    }, timeoutMs)
+    if (timer && typeof timer.unref === 'function') timer.unref()
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      (error) => { clearTimeout(timer); reject(error) },
+    )
+  })
+}
 
 // 这些适配器只允许在回环地址且无凭据时直连，避免把无 API Key 的配置变成远程请求通道。
 const LOCAL_NO_KEY_PROVIDER_IDS = new Set(['piper', 'local-diffusion', 'comfyui'])
@@ -111,19 +133,44 @@ class ModelProviderManager {
     }
 
     // 调用 + 统一日志记录（所有路径覆盖，不依赖 router logHandler）
+    // 有界超时：部分 provider（如 agnes-llm）请求可挂起 2-3 分钟甚至更久（fetch 级无超时），
+    // 必须在 callAdapter 兜底加超时（视频类放宽），超时抛 TIMEOUT → 归为瞬时错误自动重试。
+    const timeoutMs = Number.isFinite(Number(params && params.timeoutMs)) && Number(params.timeoutMs) > 0
+      ? Number(params.timeoutMs)
+      : (provider.category === 'video' ? 10 * 60 * 1000 : 2 * 60 * 1000)
     const startTime = Date.now()
     try {
-      const result = await adapter[method](params)
+      const result = await withCallTimeout(adapter[method](params), timeoutMs, providerId, method)
       const latency_ms = Date.now() - startTime
       this._writeLog(provider, method, 'success', latency_ms, null)
+      // 慢响应检测：超过类别阈值 → 记为模型服务异常（供前端提示 + 日志定位）
+      if (providerAnomalyBus.isSlow(provider.category, latency_ms)) {
+        providerAnomalyBus.report({
+          providerId,
+          category: provider.category,
+          model: params && typeof params.model === 'string' ? params.model : null,
+          latencyMs: latency_ms,
+          kind: 'slow',
+        })
+      }
       return { code: 0, data: result }
     } catch (e) {
       const latency_ms = Date.now() - startTime
       const errorMsg = e.message || String(e)
       this._writeLog(provider, method, 'error', latency_ms, errorMsg)
       // ProviderError 透传
-      const { ProviderError } = require('./adapters/_base/provider-error')
+      const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
       if (e instanceof ProviderError) {
+        // 超时/网络错误也记为模型服务异常（配合有界超时兜底，便于前端提示与日志定位）
+        if (e.code === ERROR_CODES.TIMEOUT || e.code === ERROR_CODES.NETWORK_ERROR) {
+          providerAnomalyBus.report({
+            providerId,
+            category: provider.category,
+            model: params && typeof params.model === 'string' ? params.model : null,
+            latencyMs: latency_ms,
+            kind: e.code === ERROR_CODES.TIMEOUT ? 'timeout' : 'network',
+          })
+        }
         return { code: -1, error: e, message: e.message }
       }
       // 普通 Error 包装

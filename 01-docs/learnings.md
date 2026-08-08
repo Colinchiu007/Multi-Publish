@@ -1,6 +1,27 @@
 
 ---
 
+## 失败任务历史持久展示复盘 (2026-08-08)
+
+- **根因**：`PipelineEngine.getHistory()` 只返回内存 `_runs` + `_history`；失败任务的持久化快照在 `RunStateStore.saveFailed`（run-state 目录）里，但从未被历史接口读取。应用重启后内存清空，失败任务从历史消失，用户无法追溯失败记录。
+- **修复**：`RunStateStore.listFailed()` 枚举 owner 目录 + legacy 平铺目录的 `.json` 快照（按 runId 去重、损坏文件跳过）；`getHistory()` 合并持久化失败快照并转成历史条目结构（id/pipeline/status/stages/createdAt/endedAt 等）。`saveFailed` 补充保存 `createdAt`，否则重启后只能显示失败时间无法显示创建时间。
+- **文案**：失败状态历史显示「生成失败」而非「失败」——用户语义是「视频生成失败」。
+- 教训：任何「持久化了但没被读」的状态都是半成品；给状态接口补「合并持久化快照」时，必须与内存条目按业务主键（runId）去重，否则同会话会出现重复卡片。
+
+## 弹窗标题 / toast 布局 / 媒体校验提示细化复盘 (2026-08-08)
+
+- **弹窗标题**：「{流水线名} 提示」是重复信息——标题只应表达「这是提示」，具体内容在正文。统一改为「提示」/「Notice」。盘点其它标题类型：功能类（添加服务商/添加账号/设置等）、确认类（确认删除）、状态类（审批门、发现新版本）、系统类（启动失败），各有语义，不强制统一。
+- **toast 挤占按钮**：操作栏是 flex 容器，toast 作为子项出现时会推动后续按钮。任何「瞬时反馈」都不应参与主布局，改为绝对定位悬浮（`position:absolute` + `bottom:calc(100%+10px)`）即可不改变布局。教训：操作栏内新增瞬时元素必须用 overlay，不能用 inline。
+- **笼统校验提示**：「所选文件不符合要求」无法指导用户修正。失败提示必须指出具体不满足项（格式白名单、大小上限、实际大小、是否可读），并把主进程的具体错误消息透传映射，而不是吞掉换通用文案。规则提示应在操作点附近常驻（如「支持 wav/m4a/mp3，最大 15MB」）。
+- 文件校验规则前端（`validateStory2VideoFile`）与主进程（`importUserSelectedMedia`）必须一致，且提示里的限制值来自同一份规则表，避免文案与实现漂移。
+
+## 提示词优化「卡死」实为模型慢 + 模型服务异常检测机制复盘 (2026-08-07)
+
+- **根因不是代码，是模型**：文案「11」提示词优化 2 分钟以上。查 `model_provider_logs`：`agnes-llm` chatCompletion fetch failed 122087ms → fetch failed 180636ms → 成功 153382ms（累计 ≈455s ≈ 阶段耗时 476381ms）。切换默认 LLM 为 `sensenova-llm`（deepseek-v4-flash）后同样文案 optimize 约 2-3 秒完成。教训：阶段耗时异常先查 provider 日志看「单次调用耗时」分布，再下结论。
+- **机制沉淀**：新增 `providerAnomalyBus`（慢响应/超时/网络错误 → 内存快照 ≤5 条 → `pipeline:getRunContext` 下发 → 前端非阻塞横幅提示「建议到模型设置切换模型」），并给 `callAdapter` 加有界超时（视频 10min/其余 2min，`params.timeoutMs` 优先）。用户能区分「模型自身问题」与「程序 bug」，不必靠猜。
+- **执行日志**：pipeline-engine 每阶段开始/结束 INFO（含 duration_ms），运行终态 INFO/WARN（错误摘要截断 ≤500 字符）。配合 provider 日志，AI/官方可复现「哪次调用慢、慢多久」。
+- **进度前置**：optimize 阶段一开始即写 `context.optimize_progress={done,total}`（断点续传从已完成数起步），避免阶段执行期间前端无数量信息。
+
 ## Code Review MINOR 4-6 修复复盘 (2026-08-07)
 
 - **MINOR-4**：日志写队列必须加超时兜底——appendFile 回调极端异常可能永不触发，链式 Promise 会把后续所有日志卡死；兜底用 `setTimeout + unref + clearTimeout`（单次 resolve），测试以「mock appendFile 不回调」复现挂起。

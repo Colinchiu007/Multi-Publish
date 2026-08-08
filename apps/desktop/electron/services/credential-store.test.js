@@ -183,7 +183,8 @@ describe('credential-store', () => {
     expect(fs.readFileSync(path.join(credDir, '.masterkey'), 'utf8')).toMatch(/^safeStorage:v1:/)
   })
 
-  it.skipIf(process.platform !== 'win32')('Windows 主密钥短暂锁释放后仍能完成格式迁移', async () => {
+  // 显式超时 30s：真实 Windows 文件锁 + 有界重试在 CI 全量单进程负载下可能超过全局 10s 上限（偶发超时）
+  it.skipIf(process.platform !== 'win32')('Windows 主密钥短暂锁释放后仍能完成格式迁移', { timeout: 60000 }, async () => {
     const userDataDir = createTempDir()
     const credDir = path.join(userDataDir, 'credentials')
     const keyFile = path.join(credDir, '.masterkey')
@@ -202,7 +203,7 @@ describe('credential-store', () => {
     }
   })
 
-  it.skipIf(process.platform !== 'win32')('Windows 主密钥备份短暂锁释放后仍能完成格式迁移', async () => {
+  it.skipIf(process.platform !== 'win32')('Windows 主密钥备份短暂锁释放后仍能完成格式迁移', { timeout: 60000 }, async () => {
     const userDataDir = createTempDir()
     const credDir = path.join(userDataDir, 'credentials')
     const keyFile = path.join(credDir, '.masterkey')
@@ -223,7 +224,7 @@ describe('credential-store', () => {
     }
   })
 
-  it.skipIf(process.platform !== 'win32')('Windows 凭据文件短暂锁释放后原子保存成功', async () => {
+  it.skipIf(process.platform !== 'win32')('Windows 凭据文件短暂锁释放后原子保存成功', { timeout: 60000 }, async () => {
     const userDataDir = createTempDir()
     const options = { safeStorage: createSafeStorage() }
     const accountId = 'locked-account'

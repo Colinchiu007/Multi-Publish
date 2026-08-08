@@ -886,13 +886,44 @@ class PipelineEngine {
    */
   getHistory() {
     const seen = new Set();
+    const seenIds = new Set();
     const active = [];
     for (const run of this._runs.values()) {
       if (seen.has(run)) continue;
       seen.add(run);
+      if (run.id) seenIds.add(run.id);
       active.push(run);
     }
-    return [...active, ...this._history];
+    for (const item of this._history) {
+      if (item && item.id) seenIds.add(item.id);
+    }
+    // 合并持久化失败快照（runStateStore）：应用重启后，失败任务仍显示在历史记录中。
+    // 与内存 run/_history 按 runId 去重，避免同一条任务重复展示。
+    const persisted = [];
+    if (this.runStateStore && typeof this.runStateStore.listFailed === 'function') {
+      try {
+        for (const snapshot of this.runStateStore.listFailed()) {
+          const id = snapshot.runId
+          if (!id || seenIds.has(id)) continue
+          seenIds.add(id)
+          persisted.push({
+            id,
+            pipeline: snapshot.pipeline,
+            status: snapshot.status || 'failed',
+            currentStage: Number.isInteger(snapshot.currentStage) ? snapshot.currentStage : 0,
+            stages: Array.isArray(snapshot.stages) ? snapshot.stages.map((s) => ({ ...s })) : [],
+            context: snapshot.context && typeof snapshot.context === 'object' ? snapshot.context : {},
+            params: snapshot.params && typeof snapshot.params === 'object' ? snapshot.params : {},
+            error: snapshot.error || null,
+            orchestrationMode: snapshot.orchestrationMode || 'orchestrator',
+            createdAt: snapshot.createdAt || snapshot.endedAt || null,
+            updatedAt: snapshot.endedAt || snapshot.createdAt || null,
+            completedAt: snapshot.endedAt || null,
+          })
+        }
+      } catch (_) { /* 失败快照读取失败不影响历史展示 */ }
+    }
+    return [...active, ...this._history, ...persisted];
   }
 
   /** 当前正在运行的编排流水线数量（去重 _<name> 索引）。 */
@@ -1367,6 +1398,15 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
+    // 执行日志：运行终态（完成/失败/取消）+ 总耗时 + 错误摘要（截断，不含敏感原文）
+    const finalizeDurationMs = run.startedAt ? Date.now() - new Date(run.startedAt).getTime() : null;
+    const finalizeDurationText = Number.isFinite(finalizeDurationMs) ? 'duration_ms=' + finalizeDurationMs : 'duration_ms=null';
+    const finalizeErrorText = error ? ' error=' + String(error).slice(0, 500) : '';
+    if (status === 'failed' || status === 'cancelled') {
+      this.log.warn('PipelineEngine', '[run] finalize run=' + run.id + ' pipeline=' + run.pipeline + ' status=' + status + ' ' + finalizeDurationText + finalizeErrorText);
+    } else {
+      this.log.info('PipelineEngine', '[run] finalize run=' + run.id + ' pipeline=' + run.pipeline + ' status=' + status + ' ' + finalizeDurationText);
+    }
     // 编排模式失败：持久化断点快照，供 pipeline:resumeOrchestration 从失败阶段继续。
     if (status === 'failed' && run.orchestrationMode === 'orchestrator' && this.runStateStore) {
       try {
@@ -1458,6 +1498,9 @@ class PipelineEngine {
       },
     };
 
+    const stageStartMs = Date.now();
+    const stageIndex = run.currentStage;
+    this.log.info('PipelineEngine', '[exec] stage start run=' + runId + ' pipeline=' + run.pipeline + ' stage=' + stage.name + ' (' + (stageIndex + 1) + '/' + run.stages.length + ')');
     const result = await this.stageExecutor.execute({
       runId,
       stage: fullStage,
@@ -1465,6 +1508,7 @@ class PipelineEngine {
       context: run.context || {},
     });
     if (run.cancelled || this._runs.get(runId) !== run) {
+      this.log.warn('PipelineEngine', '[exec] stage cancelled run=' + runId + ' stage=' + stage.name);
       return { success: false, cancelled: true, error: 'Run cancelled' };
     }
 
@@ -1484,6 +1528,7 @@ class PipelineEngine {
       };
     }
 
+    this.log.info('PipelineEngine', '[exec] stage end run=' + runId + ' pipeline=' + run.pipeline + ' stage=' + stage.name + ' success=' + normalizedResult.success + ' duration_ms=' + (Date.now() - stageStartMs) + (normalizedResult.error ? ' error=' + String(normalizedResult.error).slice(0, 500) : ''));
     run.stageResults.push({
       stage: stage.name,
       success: normalizedResult.success,

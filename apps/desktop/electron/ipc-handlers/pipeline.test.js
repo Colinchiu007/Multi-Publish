@@ -180,6 +180,59 @@ describe('pipeline IPC 查询 sender 校验', () => {
   })
 })
 
+describe('pipeline:getRunContext 模型服务异常快照下发', () => {
+  // handler 在调用时 require('../services/provider-anomaly')（CJS），vi.mock 不拦截 CJS require，
+  // 必须用 __registerMock 拦截 Module._load，让 handler 与测试共享同一 mock 实例。
+  let anomalyMock
+  beforeEach(() => {
+    anomalyMock = {
+      ProviderAnomalyBus: class {},
+      providerAnomalyBus: {
+        snapshot: vi.fn(() => []),
+        report: vi.fn(),
+        clear: vi.fn(),
+        isSlow: vi.fn(() => false),
+      },
+      slowThresholdMs: () => 60000,
+      MAX_SNAPSHOT: 5,
+    }
+    __registerMock('./services/provider-anomaly', anomalyMock)
+  })
+  it('存在异常时附带 providerWarnings 且不破坏原有快照', async () => {
+    anomalyMock.providerAnomalyBus.snapshot.mockReturnValue([
+      { providerId: 'agnes-llm', category: 'llm', latencyMs: 90000, kind: 'slow' },
+    ])
+
+    const deps = createMockDeps({
+      pipelineEngine: { getRunSnapshot: vi.fn().mockReturnValue({ id: 'run-1', stages: [], context: {} }) },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:getRunContext')(TRUSTED_EVENT, 'run-1')
+    expect(result.code).toBe(0)
+    expect(result.data.id).toBe('run-1')
+    expect(result.data.providerWarnings).toEqual([
+      expect.objectContaining({ providerId: 'agnes-llm', kind: 'slow' }),
+    ])
+  })
+
+  it('无异常时不附加 providerWarnings 字段（保持返回结构稳定）', async () => {
+    anomalyMock.providerAnomalyBus.snapshot.mockReturnValue([])
+
+    const deps = createMockDeps({
+      pipelineEngine: { getRunSnapshot: vi.fn().mockReturnValue({ id: 'run-1', stages: [], context: {} }) },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:getRunContext')(TRUSTED_EVENT, 'run-1')
+    expect(result.code).toBe(0)
+    expect(result.data).toEqual({ id: 'run-1', stages: [], context: {} })
+    expect(result.data.providerWarnings).toBeUndefined()
+  })
+})
+
 describe('pipeline IPC 可信来源写操作正常工作', () => {
   it('pipeline:start 可信来源正常调用 pipelineEngine.start', async () => {
     const mockResult = { runId: 'run-1' }
