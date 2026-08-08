@@ -1,0 +1,605 @@
+diff --git a/01-docs/PRD-video-creation.md b/01-docs/PRD-video-creation.md
+index 887ad586..f3e02c34 100644
+--- a/01-docs/PRD-video-creation.md
++++ b/01-docs/PRD-video-creation.md
+@@ -360,6 +360,23 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
+   `effectiveDuration = max(音频实际时长, N)` 计算，保证观感一致。
+ - 已排除：**纯固定时长**（每个场景固定 N 秒）——会导致截断旁白，违反“不承诺强制截断旁白”合同。
+ 
++**③ 节奏下限（compose）已实现（Batch 3，2026-08-08）**：
++
++- 静音补齐启用条件（严格）：`sceneDurationMode === 'min-duration'` 且**真实探测到音频**（`audioDuration !== null && > 0`）
++  且 `effectDuration = max(音频实际时长, N) > 音频实际时长` 时，才对该场景 `-t effectDuration` + 音频链 `apad` 静音 + 去掉 `-shortest`。
++- **探测失败（audioDuration=null）一律走 follow-audio `-shortest` 路径**：不新增、不使用补齐 `-t`/`apad`，不保证节奏下限
++  （best-effort；否则会把未知长度旁白硬截断到 N 秒，违反“不承诺强制截断旁白”合同——双模型审查 C1 要求）。
++  注意：探测失败且场景携带上报 `duration` 时，沿用既有「`-t reportedDuration` + `-shortest`」上限语义（Batch 3 未改动），
++  即补齐 `-t` 绝不会启用，但上报元数据超短时仍可能按上报值裁剪（旧语义，非本次引入）。
++- 补齐语义统一：字幕时间轴末页停留到 `effectDuration`、动效归一化按 `effectDuration`、成片时长预检
++  （`effectiveRequestedDuration`，上限 600s）计入补齐值，三者与场景循环共用同一 base 公式
++  （`probed || reportedDuration || defaultSceneDuration`）；`renderSegment`（结果页单段重试）与 compose 同守卫。
++- 补齐段动效帧数 `d = Math.ceil(effectDuration × fps)`（视频轨为 binding 流，向上取整避免尾部缺帧）；
++  follow-audio 保持 `Math.round` 与历史一致。
++- 旁白导出（完整 narration 音频）始终按原始音频拼接、**不补齐**；`data.duration`（成片）≥ `data.audioPath` 时长为正常现象。
++- 行为副作用（预期）：min-duration 使片段变长 → 原本因“片段过短”被禁用的 xfade 转场会被启用；
++  补齐静音吸收 acrossfade/amix 的过渡衰减，BGM 不再吞旁白尾音（利好，见 learnings）。
++
+ **进一步优化方向（候选，需逐项评估）**：
+ - voice-aware 估算表 + 真实 TTS 样本回填的**自适应校准**（“字数→实际时长”系数随音色滚动修正）；
+ - `voice.speed` 与 `split.speechRate` **单一来源联动**（切分估算与实际 TTS 语速一致，避免脱节）；
+diff --git a/01-docs/learnings.md b/01-docs/learnings.md
+index 7ff24e64..07b24d0b 100644
+--- a/01-docs/learnings.md
++++ b/01-docs/learnings.md
+@@ -1,6 +1,15 @@
+ 
+ ---
+ 
++## 场景时长 min-duration 静音补齐双模型审查复盘 (2026-08-08)
++
++- **C1（最高风险）：探测失败 ≠ 可补齐。** JS 隐式转换下 `Math.max(null, minSceneDuration) === minSceneDuration`、`minSceneDuration > null === true`，朴素实现会把「探测失败、长度未知」的旁白硬截断到 N 秒。补齐必须显式守卫 `audioDuration !== null && audioDuration > 0 && effectiveDuration > audioDuration`；探测失败一律走 follow-audio `-shortest` 路径（不启用补齐 `-t`、不 `apad`；探测失败且场景带上报 duration 时沿用既有 `-t reported` 上限语义）。这是「回退默认值」与「以默认值作为硬约束」的经典混淆，任何时长/阈值逻辑都要区分「布局回退值」与「强制裁剪值」。
++- **TDZ 连环坑**：同一函数里把 `sceneDurationMode`/`minSceneDuration` 上移后，新增的预检公式又引用了声明在后面的 `defaultSceneDuration`，触发 `Cannot access before initialization`。凡是「提前使用的常量」，与场景循环共用时必须在顶部一次性声明。
++- **apad + -t + 去 -shortest 是精确补齐的正确组合**：`apad` 输出无限静音、`-t` 是唯一输出界 → 时长精确；`apad` 与 `-shortest` 组合是 ffmpeg 已知 gotcha，去掉反而规避「Output file is empty」。
++- **补齐段的动效帧数必须向上取整**（`Math.ceil(effectDuration×fps)`）：去 `-shortest` 后视频轨是 binding 流，`Math.round` 向下取整 1 帧会让视频轨短于 `-t` 目标，尾部出现无帧/黑帧。
++- **测试 fixture 必须真实可解码**：无 `-shortest` 时 `-loop 1` 读取坏 PNG 会无限刷解码错误撑爆 stderr maxBuffer；真实 ffmpeg 用例的图片/音频必须用 ffmpeg lavfi 生成真文件。
++- **行为利好**：补齐静音吸收 acrossfade/amix 的过渡衰减，BGM 不再吞旁白尾音；min-duration 使片段变长后会启用原本因「片段过短」被禁用的 xfade 转场（预期节奏行为，PRD 已记录）。
++
+ ## 失败任务历史持久展示复盘 (2026-08-08)
+ 
+ - **根因**：`PipelineEngine.getHistory()` 只返回内存 `_runs` + `_history`；失败任务的持久化快照在 `RunStateStore.saveFailed`（run-state 目录）里，但从未被历史接口读取。应用重启后内存清空，失败任务从历史消失，用户无法追溯失败记录。
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 7f171da0..f4878874 100755
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,12 @@
+ ## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
+ 
++### 场景时长模式 Batch 3：compose 节奏层（min-duration 静音补齐，2026-08-08）
++- `sceneDurationMode='min-duration'` 时按 `max(ffprobe 真实音频时长, minSceneDuration)` 补齐场景：`-t` + 音频 `apad` + 去 `-shortest`，片段/成片时长精确到目标值；`follow-audio`（默认）保持 `-shortest` 跟随旁白不变。
++- **探测失败守卫（C1）**：仅当真实探测到音频且补齐目标严格大于音频时长时才启用补齐；探测失败一律走 follow-audio 路径，绝不启用补齐 `-t/apad` 硬截断未知长度旁白（探测失败且场景带上报 duration 时沿用既有 `-t reported` 上限语义，非本次引入）。
++- 补齐语义统一：字幕时间轴（末页停留到 effectiveDuration）、动效归一化、成片时长预检（上限 600s 含补齐值）共用同一有效时长与 base 公式；补齐段动效帧数 `Math.ceil(effectDuration×fps)` 防尾部缺帧。
++- 旁白导出（narration）不补齐；`renderSegment` 单段重试与 compose 同守卫。
++- 回归：compose-engine 新增 9 个用例（mock 补齐/长旁白不截断/探测失败守卫/补齐超限预检拒绝/边界矩阵含 audio==min 等值边界/follow-audio 参数级回归/真实 ffmpeg 双轨时长断言/真实 2 段 xfade+BGM 成片 ≈11.6s/renderSegment 补齐），60 用例全绿。
++
+ ### 配置合同（v1 扩展，版本号不变）
+ - `story2videoTextConfig` 新增可选字段：`split.targetCharsPerScene`（默认 20，1..200 整数，分镜字数主控）、
+   `sceneDurationMode`（`follow-audio`|`min-duration`，默认 follow-audio）、`minSceneDuration`（默认 6，1..60）。
+diff --git a/apps/desktop/electron/services/story2video-compose-engine.js b/apps/desktop/electron/services/story2video-compose-engine.js
+index 3c35153b..48c75c27 100644
+--- a/apps/desktop/electron/services/story2video-compose-engine.js
++++ b/apps/desktop/electron/services/story2video-compose-engine.js
+@@ -195,16 +195,18 @@ function normalizeComposeScenes (assetManifest) {
+   })
+ }
+ 
+-function buildImageEffectFilter (effect, width, height, fps, duration) {
++function buildImageEffectFilter (effect, width, height, fps, duration, rounding = 'round') {
+   const safeWidth = Math.max(160, Math.round(Number(width) || 1280))
+   const safeHeight = Math.max(160, Math.round(Number(height) || 720))
+   const safeFps = Math.max(1, Math.min(120, Math.round(Number(fps) || 30)))
+   // 有效时长已知时把动效进度归一化到场景时长（T=round(duration*fps)）；
+   // 时长未知（探测失败/旧项目）或 duration*fps 溢出为 Infinity 时回退固定帧增量公式。
++  // rounding='ceil'：min-duration 静音补齐段用 -t 锁定目标时长且去掉 -shortest，
++  // 视频轨是 binding 流，d=帧数必须向上取整，避免视频轨比目标时长短 ≤1 帧造成尾部无帧（W4）。
+   const rawFrames = Number.isFinite(duration) && duration > 0 ? duration * safeFps : null
+   const knownFrames = rawFrames !== null && Number.isFinite(rawFrames)
+   const totalFrames = knownFrames
+-    ? Math.max(2, Math.round(rawFrames))
++    ? Math.max(2, rounding === 'ceil' ? Math.ceil(rawFrames) : Math.round(rawFrames))
+     : Math.max(safeFps, Math.round(safeFps * 3))
+   const progress = knownFrames ? 'min(1,on/' + totalFrames + ')' : null
+   // 关键修复（origin/main）：zoompan 需要 d=输出总帧数（=时长×帧率）才能产生连续动画；
+@@ -446,6 +448,12 @@ class Story2VideoComposeEngine {
+       if (!accountInput(bgmPath)) return { code: -1, message: 'Input media exceeds the total size limit' }
+     }
+ 
++    // 场景时长模式（三层模型③）：follow-audio 跟随旁白（默认）；min-duration 以静音补齐到 minSceneDuration
++    const sceneDurationMode = options?.sceneDurationMode === 'min-duration' ? 'min-duration' : 'follow-audio'
++    const minSceneDuration = clampNumber(options?.minSceneDuration, 1, 60, 6)
++    // 提前声明：预检（effectiveRequestedDuration）与场景循环共用同一默认值，避免 TDZ
++    const defaultSceneDuration = clampNumber(options?.defaultSceneDuration, 1, 60, 6)
++
+     const probedAudioDurations = []
+     let totalAudioDuration = 0
+     for (let index = 0; index < scenes.length; index++) {
+@@ -463,9 +471,14 @@ class Story2VideoComposeEngine {
+     if (totalAudioDuration > this.maxDurationSeconds) {
+       return { code: -1, message: '成片总时长不能超过 10 分钟' }
+     }
+-    const effectiveRequestedDuration = scenes.reduce((total, scene, index) => (
+-      total + (probedAudioDurations[index] || Number(scene.duration) || 0)
+-    ), 0)
++    const effectiveRequestedDuration = scenes.reduce((total, scene, index) => {
++      // min-duration 模式预检与场景循环共用同一 base 公式（probed || duration || defaultSceneDuration），
++      // 并计入静音补齐；follow-audio 分支保持原公式（probed || duration || 0）逐字节不变（W3）。
++      const base = sceneDurationMode === 'min-duration'
++        ? (probedAudioDurations[index] || Number(scene.duration) || defaultSceneDuration)
++        : (probedAudioDurations[index] || Number(scene.duration) || 0)
++      return total + (sceneDurationMode === 'min-duration' ? Math.max(base, minSceneDuration) : base)
++    }, 0)
+     if (effectiveRequestedDuration > this.maxDurationSeconds) {
+       return { code: -1, message: 'Requested video duration exceeds the allowed limit' }
+     }
+@@ -484,7 +497,6 @@ class Story2VideoComposeEngine {
+     const subtitleEnabled = options?.subtitleEnabled !== false
+     const resolution = parseResolution(options?.resolution)
+     const fps = clampNumber(options?.fps, 1, 120, 30)
+-    const defaultSceneDuration = clampNumber(options?.defaultSceneDuration, 1, 60, 6)
+     const voiceVolume = clampNumber(options?.voiceVolume, 0, 2, 1)
+     const outputFormat = options?.format === 'webm' ? 'webm' : 'mp4'
+ 
+@@ -508,15 +520,26 @@ class Story2VideoComposeEngine {
+       // ffprobe 成功时以真实音频时长为准，避免旁白被截断；缺少上报值时由 -shortest 跟随音频。
+       const duration = reportedDuration && audioDuration ? audioDuration : reportedDuration
+       const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
+-      const subtitleDuration = audioDuration || duration || defaultSceneDuration
+-      const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
+-      // 动效归一化使用“有效时长”：真实音频时长优先，探测失败时回退上报时长/defaultSceneDuration。
+-      const effectDuration = audioDuration || duration || defaultSceneDuration
++      // 动效归一化、静音补齐与字幕时间轴统一使用“有效时长”：真实音频时长优先，探测失败时回退上报时长/defaultSceneDuration；
++      // min-duration 模式下取 max(音频实际时长, minSceneDuration)。
++      const baseDuration = audioDuration || duration || defaultSceneDuration
++      const effectDuration = sceneDurationMode === 'min-duration'
++        ? Math.max(baseDuration, minSceneDuration)
++        : baseDuration
++      const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, effectDuration)
++      // C1：仅当真实探测到音频（audioDuration 非空）且补齐目标严格大于音频时长时启用静音补齐；
++      // 探测失败一律走 follow-audio -shortest 路径，绝不 -t/apad 硬截断未知长度旁白。
++      const padTo = sceneDurationMode === 'min-duration' && audioDuration !== null && audioDuration > 0 &&
++        effectDuration > audioDuration
++        ? clampNumber(effectDuration, 0.1, 3600, null)
++        : null
+ 
+       try {
+         await this._createSegment(scene.imagePath, scene.audioPath, segPath, {
+           duration,
+           effectDuration,
++          sceneDurationMode,
++          padTo,
+           subtitleText: subtitleEnabled ? scene.text : '',
+           subtitleTimeline: subtitleEnabled ? subtitleTimeline : [],
+           transition,
+@@ -719,13 +742,25 @@ class Story2VideoComposeEngine {
+       : clampNumber(scene.duration, 0.1, 3600, null)
+     const duration = reportedDuration && audioDuration ? audioDuration : reportedDuration
+     const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
+-    const subtitleDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
+-    const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
+-    const effectDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
++    // min-duration 补齐与动效归一化统一 effectiveDuration（与 compose() 对齐），字幕时间轴同样按补齐后时长生成
++    const sceneDurationMode = options.sceneDurationMode === 'min-duration' ? 'min-duration' : 'follow-audio'
++    const minSceneDuration = clampNumber(options.minSceneDuration, 1, 60, 6)
++    const baseEffective = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
++    const effectDuration = sceneDurationMode === 'min-duration'
++      ? Math.max(baseEffective, minSceneDuration)
++      : baseEffective
++    const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, effectDuration)
++    // C1：与 compose() 同守卫——仅真实探测到音频且补齐目标严格大于音频时长时才启用静音补齐
++    const padTo = sceneDurationMode === 'min-duration' && audioDuration !== null && audioDuration > 0 &&
++      effectDuration > audioDuration
++      ? clampNumber(effectDuration, 0.1, 3600, null)
++      : null
+     try {
+       await this._createSegment(imagePath, audioPath, destinationPath, {
+         duration,
+         effectDuration,
++        sceneDurationMode,
++        padTo,
+         subtitleText: options.subtitleEnabled === false ? '' : (scene.text || ''),
+         subtitleTimeline: options.subtitleEnabled === false ? [] : subtitleTimeline,
+         transition: options.transition || 'none',
+@@ -868,9 +903,17 @@ class Story2VideoComposeEngine {
+   async _createSegment (imagePath, audioPath, outputPath, opts) {
+     const args = ['-y']
+ 
++    // min-duration 静音补齐：目标时长由调用方在“真实探测到音频且补齐目标严格大于音频时长”时计算并传入 padTo。
++    // 补齐时以 -t 锁定目标时长 + 音频 apad 静音 + 去掉 -shortest；否则保持 -shortest 跟随旁白。
++    // 探测失败时调用方传 padTo=null，这里一律走 follow-audio 路径，绝不 -t/apad 硬截断未知长度旁白（C1）。
++    const padTo = Number.isFinite(Number(opts.padTo)) && Number(opts.padTo) > 0
++      ? clampNumber(opts.padTo, 0.1, 3600, null)
++      : null
+     // 动效归一化以“有效时长”（audioDuration||reportedDuration||defaultSceneDuration）为基线，
+     // 帧数由 buildImageEffectFilter 内部按 duration*fps 计算（含溢出守卫与 d=总帧数 修复）。
+-    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, opts.effectDuration)
++    // 补齐段视频轨是 binding 流（去 -shortest），帧数向上取整避免尾部缺帧（W4）。
++    const frameRounding = padTo ? 'ceil' : 'round'
++    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, opts.effectDuration, frameRounding)
+ 
+     // 输入：有动效时用单帧图片输入（zoompan 自行生成 d 帧，-loop 1 会破坏帧计数）；
+     // 无动效时保持图片循环（配合 fade/shortest 生成静态片段）。
+@@ -888,7 +931,7 @@ class Story2VideoComposeEngine {
+       const workWidth = clampNumber(opts.width, 160, 4096) * 2
+       const workHeight = clampNumber(opts.height, 160, 4096) * 2
+       filters.push(buildScaleFilter(workWidth, workHeight))
+-      filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, opts.effectDuration))
++      filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, opts.effectDuration, frameRounding))
+       filters.push(buildScaleFilter(opts.width, opts.height))
+     } else {
+       filters.push(buildScaleFilter(opts.width, opts.height))
+@@ -913,17 +956,27 @@ class Story2VideoComposeEngine {
+     }
+ 
+     // 时长
+-    if (opts.duration && Number(opts.duration) > 0) {
++    if (padTo) {
++      args.push('-t', String(padTo))
++    } else if (opts.duration && Number(opts.duration) > 0) {
+       args.push('-t', String(clampNumber(opts.duration, 0.1, 3600, 3)))
+     }
+ 
+     const voiceVolume = clampNumber(opts.voiceVolume, 0, 2, 1)
+-    if (voiceVolume !== 1) args.push('-af', 'volume=' + voiceVolume.toFixed(3))
++    if (padTo) {
++      args.push('-af', (voiceVolume !== 1 ? 'volume=' + voiceVolume.toFixed(3) + ',' : '') + 'apad')
++    } else if (voiceVolume !== 1) {
++      args.push('-af', 'volume=' + voiceVolume.toFixed(3))
++    }
+ 
+     // 编码
+     args.push('-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p')
+     args.push('-c:a', 'aac', '-b:a', '128k')
+-    args.push('-shortest', '-r', String(clampNumber(opts.fps, 1, 120, 30)))
++    if (padTo) {
++      args.push('-r', String(clampNumber(opts.fps, 1, 120, 30)))
++    } else {
++      args.push('-shortest', '-r', String(clampNumber(opts.fps, 1, 120, 30)))
++    }
+ 
+     // 输出
+     args.push(outputPath)
+diff --git a/apps/desktop/electron/services/story2video-compose-engine.test.js b/apps/desktop/electron/services/story2video-compose-engine.test.js
+index d0c388e8..f2b4513d 100644
+--- a/apps/desktop/electron/services/story2video-compose-engine.test.js
++++ b/apps/desktop/electron/services/story2video-compose-engine.test.js
+@@ -471,7 +471,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
+     } finally {
+       fs.rmSync(root, { recursive: true, force: true })
+     }
+-  })
++  }, 60000)
+ 
+   it('缺少场景 duration 时不向 ffmpeg 传固定截断值，并使用探测时长', async () => {
+     if (!findFfmpeg()) return
+@@ -502,12 +502,325 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
+       }, { transition: 'none', validateOutput: false })
+       expect(result.code).toBe(0)
+       expect(segmentCalls[0].duration).toBeNull()
++      // follow-audio 参数级回归（T5）：默认模式不传 padTo、sceneDurationMode=follow-audio
++      expect(segmentCalls[0].padTo).toBeNull()
++      expect(segmentCalls[0].sceneDurationMode).toBe('follow-audio')
+       expect(result.data.duration).toBe(1.7)
+     } finally {
+       fs.rmSync(root, { recursive: true, force: true })
+     }
++  }, 60000)
++
++  it('min-duration 模式：3s 旁白补齐到 minSceneDuration=6，effectDuration/字幕/片段一致，旁白导出不补齐', async () => {
++    if (!findFfmpeg()) return
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-'))
++    const image = writeFixture(root, 'image.png')
++    const audio = writeFixture(root, 'audio.mp3')
++    const engine = new Story2VideoComposeEngine({
++      outputDir: root,
++      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
++    })
++    const segmentCalls = []
++    // 音频探测 3s → 补齐后片段探测 6s
++    engine._probeMediaDuration = vi.fn()
++      .mockResolvedValueOnce(3)
++      .mockResolvedValueOnce(6)
++    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
++      segmentCalls.push(options)
++      fs.writeFileSync(output, Buffer.from('segment'))
++    })
++    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
++    engine._validateOutput = vi.fn(async () => {})
++
++    try {
++      const result = await engine.compose({
++        scenes: [{ imagePath: image, audioPath: audio, text: '短旁白' }],
++      }, { sceneDurationMode: 'min-duration', minSceneDuration: 6, transition: 'none', validateOutput: false })
++
++      expect(result.code).toBe(0)
++      expect(segmentCalls[0]).toMatchObject({ sceneDurationMode: 'min-duration', effectDuration: 6, padTo: 6 })
++      // 字幕时间轴按补齐后的 effectiveDuration=6 生成，末页结束于 6s
++      expect(segmentCalls[0].subtitleTimeline.at(-1).endTime).toBeCloseTo(6, 1)
++      // 片段与成片时长 = 补齐后 6s
++      expect(result.data.duration).toBe(6)
++      expect(result.data.segments[0].duration).toBe(6)
++      // 完整旁白导出仍用原始音频，不补齐
++      expect(engine._concatNarrationAudio).toHaveBeenCalledWith([audio], expect.any(String), expect.any(String), 1)
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true })
++    }
++  })
++
++  it('min-duration 模式：10s 长旁白不被截断（effectDuration=max(音频, minSceneDuration)）', async () => {
++    if (!findFfmpeg()) return
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-long-'))
++    const image = writeFixture(root, 'image.png')
++    const audio = writeFixture(root, 'audio.mp3')
++    const engine = new Story2VideoComposeEngine({
++      outputDir: root,
++      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
++    })
++    const segmentCalls = []
++    engine._probeMediaDuration = vi.fn().mockResolvedValue(10)
++    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
++      segmentCalls.push(options)
++      fs.writeFileSync(output, Buffer.from('segment'))
++    })
++    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
++    engine._validateOutput = vi.fn(async () => {})
++
++    try {
++      const result = await engine.compose({
++        scenes: [{ imagePath: image, audioPath: audio, text: '长旁白' }],
++      }, { sceneDurationMode: 'min-duration', minSceneDuration: 6, transition: 'none', validateOutput: false })
++      expect(result.code).toBe(0)
++      expect(segmentCalls[0].effectDuration).toBe(10)
++      // 10s > minSceneDuration → 无需补齐，padTo=null 保持 -shortest 跟随旁白
++      expect(segmentCalls[0].padTo).toBeNull()
++      expect(result.data.duration).toBe(10)
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true })
++    }
+   })
+ 
++  it('真实 ffmpeg：min-duration 补齐段实际时长 = max(音频, minSceneDuration)，follow-audio 不补齐', async () => {
++    if (!findFfmpeg()) return
++    const { promisify } = require('util')
++    const { execFile } = require('child_process')
++    const execFileAsync = promisify(execFile)
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-real-pad-'))
++    // min-duration 无 -shortest 时靠 -t 截断，必须使用真实可解码图片（假字节会让 -loop 1 无限刷解码错误）
++    const image = path.join(root, 'image.png')
++    await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x180', '-frames:v', '1', image], { maxBuffer: 10 * 1024 * 1024 })
++    const audio = path.join(root, 'silence2s.m4a')
++    await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '2', '-c:a', 'aac', audio], { maxBuffer: 10 * 1024 * 1024 })
++    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
++    const baseOpts = {
++      width: 320, height: 180, fps: 24, imageEffect: 'none', transition: 'none',
++      subtitleText: '', subtitleStyle: undefined, watermark: false, watermarkText: '', watermarkConfig: undefined,
++      voiceVolume: 1, duration: null,
++    }
++
++    const probeStreamDurations = async (filePath) => {
++      const { stdout } = await execFileAsync(findFfprobe(), [
++        '-v', 'error', '-show_entries', 'stream=codec_type,duration', '-of', 'json', filePath,
++      ], { maxBuffer: 1024 * 1024 })
++      const parsed = JSON.parse(stdout)
++      return parsed.streams.map(s => ({ type: s.codec_type, duration: Number(s.duration) }))
++    }
++
++    try {
++      // min-duration：-t 6 + apad + 无 -shortest → 视频/音频双轨 ≈6s（±0.3，AAC 帧对齐容差）
++      const padded = path.join(root, 'padded.mp4')
++      await engine._createSegment(image, audio, padded, { ...baseOpts, effectDuration: 6, sceneDurationMode: 'min-duration', padTo: 6 })
++      const paddedDur = await engine._probeMediaDuration(padded)
++      expect(paddedDur).not.toBeNull()
++      expect(paddedDur).toBeGreaterThanOrEqual(5.7)
++      expect(paddedDur).toBeLessThanOrEqual(6.3)
++      const paddedStreams = await probeStreamDurations(padded)
++      const paddedAudio = paddedStreams.find(s => s.type === 'audio')
++      expect(paddedAudio).toBeTruthy()
++      // 音频轨也被补齐到 ≈6s，证明去掉 -shortest 后没有把静音尾部裁掉（W3/T7）
++      expect(paddedAudio.duration).toBeGreaterThanOrEqual(5.7)
++      expect(paddedAudio.duration).toBeLessThanOrEqual(6.3)
++
++      // voiceVolume≠1 + padTo：-af 链为 volume=X,apad（先缩放后补静音），真实渲染 ≈6s（W3 回归）
++      const volumePadded = path.join(root, 'volume-padded.mp4')
++      await engine._createSegment(image, audio, volumePadded, { ...baseOpts, effectDuration: 6, sceneDurationMode: 'min-duration', padTo: 6, voiceVolume: 0.5 })
++      const volumeDur = await engine._probeMediaDuration(volumePadded)
++      expect(volumeDur).not.toBeNull()
++      expect(volumeDur).toBeGreaterThanOrEqual(5.7)
++      expect(volumeDur).toBeLessThanOrEqual(6.3)
++
++      // follow-audio：-shortest 跟随 2s 音频，不补齐（padTo=null）
++      const follow = path.join(root, 'follow.mp4')
++      await engine._createSegment(image, audio, follow, { ...baseOpts, effectDuration: 6, sceneDurationMode: 'follow-audio', padTo: null })
++      const followDur = await engine._probeMediaDuration(follow)
++      expect(followDur).not.toBeNull()
++      expect(followDur).toBeLessThanOrEqual(3)
++      const followStreams = await probeStreamDurations(follow)
++      const followAudio = followStreams.find(s => s.type === 'audio')
++      expect(followAudio).toBeTruthy()
++      expect(followAudio.duration).toBeLessThanOrEqual(3)
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true })
++    }
++  }, 60000)
++
++  it('min-duration 模式：音频探测失败时不启用静音补齐（C1，不 -t/apad 硬截断未知长度旁白）', async () => {
++    if (!findFfmpeg()) return
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-probe-fail-'))
++    const image = writeFixture(root, 'image.png')
++    const audio = writeFixture(root, 'audio.mp3')
++    const engine = new Story2VideoComposeEngine({
++      outputDir: root,
++      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
++    })
++    const segmentCalls = []
++    engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
++    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
++      segmentCalls.push(options)
++      fs.writeFileSync(output, Buffer.from('segment'))
++    })
++    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
++    engine._validateOutput = vi.fn(async () => {})
++
++    try {
++      const result = await engine.compose({
++        scenes: [{ imagePath: image, audioPath: audio, text: '探测失败' }],
++      }, { sceneDurationMode: 'min-duration', minSceneDuration: 6, transition: 'none', validateOutput: false })
++
++      expect(result.code).toBe(0)
++      expect(segmentCalls[0].sceneDurationMode).toBe('min-duration')
++      // 探测失败 → padTo=null，_createSegment 走 follow-audio -shortest 路径
++      expect(segmentCalls[0].padTo).toBeNull()
++      // 有效时长仍按 defaultSceneDuration 兜底（动效/字幕归一化用）
++      expect(segmentCalls[0].effectDuration).toBe(6)
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true })
++    }
++  })
++
++  it('min-duration 模式：原始音频和 <600s 但补齐后超限时在预检拒绝，不进入渲染（W1）', async () => {
++    if (!findFfmpeg()) return
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-limit-'))
++    const image = writeFixture(root, 'image.png')
++    const audio = writeFixture(root, 'audio.mp3')
++    const engine = new Story2VideoComposeEngine({
++      outputDir: root,
++      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
++    })
++    // 11 段 × 50s = 550s < 600（通过音频和校验）；minSceneDuration=60 → 11 × max(50,60) = 660 > 600 → 预检拒绝
++    const scenes = Array.from({ length: 11 }, () => ({ imagePath: image, audioPath: audio, text: 'x' }))
++    engine._probeMediaDuration = vi.fn().mockResolvedValue(50)
++    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, Buffer.from('segment')))
++    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
++    engine._validateOutput = vi.fn(async () => {})
++
++    try {
++      const result = await engine.compose({ scenes }, {
++        sceneDurationMode: 'min-duration', minSceneDuration: 60, transition: 'none', validateOutput: false,
++      })
++      expect(result.code).toBe(-1)
++      expect(result.message).toContain('Requested video duration exceeds the allowed limit')
++      expect(engine._createSegment).not.toHaveBeenCalled()
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true })
++    }
++  })
++
++  it.each([
++    ['N<default 且可探测（audio=3,default=10,min=4 → 4s 且补齐）', 3, 10, 4, 4, true],
++    ['N<default 且探测失败（→ default=10，不补齐）', null, 10, 4, 10, false],
++    ['N>default 且可探测（audio=3,default=2,min=4 → 4s 且补齐）', 3, 2, 4, 4, true],
++    ['N>default 且探测失败（→ max(default,min)=4，不补齐）', null, 2, 4, 4, false],
++    ['等值边界：audio==min（6s 音频 min=6 → effect=6 但不补齐，严格 > 守卫）', 6, 6, 6, 6, false],
++  ])('min-duration 边界矩阵（I3）：%s', async (_label, probed, defaultSceneDuration, minSceneDuration, expectedEffect, expectedPad) => {
++    if (!findFfmpeg()) return
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-matrix-'))
++    const image = writeFixture(root, 'image.png')
++    const audio = writeFixture(root, 'audio.mp3')
++    const engine = new Story2VideoComposeEngine({
++      outputDir: root,
++      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
++    })
++    const segmentCalls = []
++    engine._probeMediaDuration = vi.fn().mockResolvedValue(probed)
++    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
++      segmentCalls.push(options)
++      fs.writeFileSync(output, Buffer.from('segment'))
++    })
++    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
++    engine._validateOutput = vi.fn(async () => {})
++
++    try {
++      const result = await engine.compose({
++        scenes: [{ imagePath: image, audioPath: audio, text: '边界' }],
++      }, {
++        sceneDurationMode: 'min-duration', minSceneDuration, defaultSceneDuration,
++        transition: 'none', validateOutput: false,
++      })
++      expect(result.code).toBe(0)
++      expect(segmentCalls[0].effectDuration).toBe(expectedEffect)
++      if (expectedPad) {
++        expect(segmentCalls[0].padTo).toBe(expectedEffect)
++      } else {
++        expect(segmentCalls[0].padTo).toBeNull()
++      }
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true })
++    }
++  })
++
++  it('真实 ffmpeg：2 个 min-duration 补齐段 xfade 转场 + BGM 混音，成片 ≈ 6+6-0.4=11.6s（W5）', async () => {
++    if (!findFfmpeg()) return
++    const { promisify } = require('util')
++    const { execFile } = require('child_process')
++    const execFileAsync = promisify(execFile)
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-real-xfade-pad-'))
++    try {
++      const image1 = path.join(root, 'image1.png')
++      const image2 = path.join(root, 'image2.png')
++      const audio1 = path.join(root, 'audio1.m4a')
++      const audio2 = path.join(root, 'audio2.m4a')
++      const bgm = path.join(root, 'bgm.m4a')
++      await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x180', '-frames:v', '1', image1], { maxBuffer: 10 * 1024 * 1024 })
++      await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'color=c=white:s=320x180', '-frames:v', '1', image2], { maxBuffer: 10 * 1024 * 1024 })
++      const genAudio = (p) => execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '2', '-c:a', 'aac', p], { maxBuffer: 10 * 1024 * 1024 })
++      await genAudio(audio1)
++      await genAudio(audio2)
++      await genAudio(bgm)
++      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
++      const result = await engine.compose({
++        scenes: [
++          { imagePath: image1, audioPath: audio1, text: '场景一' },
++          { imagePath: image2, audioPath: audio2, text: '场景二' },
++        ],
++      }, {
++        sceneDurationMode: 'min-duration', minSceneDuration: 6,
++        transition: 'fade', transitionDuration: 0.4,
++        subtitleEnabled: false, bgmPath: bgm,
++        resolution: '320x180', fps: 24,
++        validateOutput: false,
++      })
++      expect(result.code).toBe(0)
++      expect(result.data.segmentCount).toBe(2)
++      expect(result.data.bgmApplied).toBe(true)
++      expect(result.data.duration).toBeGreaterThanOrEqual(11.3)
++      expect(result.data.duration).toBeLessThanOrEqual(11.9)
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true })
++    }
++  }, 90000)
++
++  it('renderSegment：min-duration 模式 3s 音频补齐到 6s，返回补齐段', async () => {
++    if (!findFfmpeg()) return
++    const { promisify } = require('util')
++    const { execFile } = require('child_process')
++    const execFileAsync = promisify(execFile)
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-render-segment-min-duration-'))
++    const image = path.join(root, 'image.png')
++    const audio = path.join(root, 'audio.m4a')
++    try {
++      await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x180', '-frames:v', '1', image], { maxBuffer: 10 * 1024 * 1024 })
++      await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '2', '-c:a', 'aac', audio], { maxBuffer: 10 * 1024 * 1024 })
++      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
++      // 场景音频探测 2s → 渲染后片段探测 6s
++      engine._probeMediaDuration = vi.fn()
++        .mockResolvedValueOnce(2)
++        .mockResolvedValueOnce(6)
++      const result = await engine.renderSegment(
++        { imagePath: image, audioPath: audio, text: '短旁白', duration: null },
++        { sceneDurationMode: 'min-duration', minSceneDuration: 6, defaultSceneDuration: 6, resolution: '320x180', fps: 24, subtitleEnabled: false, transition: 'none' },
++        path.join(root, 'out.mp4'),
++      )
++      expect(result.code).toBe(0)
++      expect(result.data.duration).toBe(6)
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true })
++    }
++  }, 60000)
++
+   it('真实 ffprobe 遇到损坏媒体时返回 null，不伪造时长', async () => {
+     if (!findFfprobe()) return
+     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-invalid-probe-'))
+@@ -556,7 +869,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
+     } finally {
+       fs.rmSync(root, { recursive: true, force: true })
+     }
+-  })
++  }, 60000)
+ 
+   it('renderSegment 把有效时长传给动效归一化，音频优先、探测失败回退默认', async () => {
+     if (!findFfmpeg()) return
+@@ -602,7 +915,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
+     } finally {
+       fs.rmSync(root, { recursive: true, force: true })
+     }
+-  })
++  }, 60000)
+ 
+   it('61 个场景可合成，仍保留分辨率像素上限', async () => {
+     if (!findFfmpeg()) return

@@ -471,7 +471,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 60000)
 
   it('缺少场景 duration 时不向 ffmpeg 传固定截断值，并使用探测时长', async () => {
     if (!findFfmpeg()) return
@@ -502,11 +502,324 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       }, { transition: 'none', validateOutput: false })
       expect(result.code).toBe(0)
       expect(segmentCalls[0].duration).toBeNull()
+      // follow-audio 参数级回归（T5）：默认模式不传 padTo、sceneDurationMode=follow-audio
+      expect(segmentCalls[0].padTo).toBeNull()
+      expect(segmentCalls[0].sceneDurationMode).toBe('follow-audio')
       expect(result.data.duration).toBe(1.7)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
+  }, 60000)
+
+  it('min-duration 模式：3s 旁白补齐到 minSceneDuration=6，effectDuration/字幕/片段一致，旁白导出不补齐', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    const segmentCalls = []
+    // 音频探测 3s → 补齐后片段探测 6s
+    engine._probeMediaDuration = vi.fn()
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(6)
+    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
+      segmentCalls.push(options)
+      fs.writeFileSync(output, Buffer.from('segment'))
+    })
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [{ imagePath: image, audioPath: audio, text: '短旁白' }],
+      }, { sceneDurationMode: 'min-duration', minSceneDuration: 6, transition: 'none', validateOutput: false })
+
+      expect(result.code).toBe(0)
+      expect(segmentCalls[0]).toMatchObject({ sceneDurationMode: 'min-duration', effectDuration: 6, padTo: 6 })
+      // 字幕时间轴按补齐后的 effectiveDuration=6 生成，末页结束于 6s
+      expect(segmentCalls[0].subtitleTimeline.at(-1).endTime).toBeCloseTo(6, 1)
+      // 片段与成片时长 = 补齐后 6s
+      expect(result.data.duration).toBe(6)
+      expect(result.data.segments[0].duration).toBe(6)
+      // 完整旁白导出仍用原始音频，不补齐
+      expect(engine._concatNarrationAudio).toHaveBeenCalledWith([audio], expect.any(String), expect.any(String), 1)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
+
+  it('min-duration 模式：10s 长旁白不被截断（effectDuration=max(音频, minSceneDuration)）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-long-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    const segmentCalls = []
+    engine._probeMediaDuration = vi.fn().mockResolvedValue(10)
+    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
+      segmentCalls.push(options)
+      fs.writeFileSync(output, Buffer.from('segment'))
+    })
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [{ imagePath: image, audioPath: audio, text: '长旁白' }],
+      }, { sceneDurationMode: 'min-duration', minSceneDuration: 6, transition: 'none', validateOutput: false })
+      expect(result.code).toBe(0)
+      expect(segmentCalls[0].effectDuration).toBe(10)
+      // 10s > minSceneDuration → 无需补齐，padTo=null 保持 -shortest 跟随旁白
+      expect(segmentCalls[0].padTo).toBeNull()
+      expect(result.data.duration).toBe(10)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('真实 ffmpeg：min-duration 补齐段实际时长 = max(音频, minSceneDuration)，follow-audio 不补齐', async () => {
+    if (!findFfmpeg()) return
+    const { promisify } = require('util')
+    const { execFile } = require('child_process')
+    const execFileAsync = promisify(execFile)
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-real-pad-'))
+    // min-duration 无 -shortest 时靠 -t 截断，必须使用真实可解码图片（假字节会让 -loop 1 无限刷解码错误）
+    const image = path.join(root, 'image.png')
+    await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x180', '-frames:v', '1', image], { maxBuffer: 10 * 1024 * 1024 })
+    const audio = path.join(root, 'silence2s.m4a')
+    await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '2', '-c:a', 'aac', audio], { maxBuffer: 10 * 1024 * 1024 })
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const baseOpts = {
+      width: 320, height: 180, fps: 24, imageEffect: 'none', transition: 'none',
+      subtitleText: '', subtitleStyle: undefined, watermark: false, watermarkText: '', watermarkConfig: undefined,
+      voiceVolume: 1, duration: null,
+    }
+
+    const probeStreamDurations = async (filePath) => {
+      const { stdout } = await execFileAsync(findFfprobe(), [
+        '-v', 'error', '-show_entries', 'stream=codec_type,duration', '-of', 'json', filePath,
+      ], { maxBuffer: 1024 * 1024 })
+      const parsed = JSON.parse(stdout)
+      return parsed.streams.map(s => ({ type: s.codec_type, duration: Number(s.duration) }))
+    }
+
+    try {
+      // min-duration：-t 6 + apad + 无 -shortest → 视频/音频双轨 ≈6s（±0.3，AAC 帧对齐容差）
+      const padded = path.join(root, 'padded.mp4')
+      await engine._createSegment(image, audio, padded, { ...baseOpts, effectDuration: 6, sceneDurationMode: 'min-duration', padTo: 6 })
+      const paddedDur = await engine._probeMediaDuration(padded)
+      expect(paddedDur).not.toBeNull()
+      expect(paddedDur).toBeGreaterThanOrEqual(5.7)
+      expect(paddedDur).toBeLessThanOrEqual(6.3)
+      const paddedStreams = await probeStreamDurations(padded)
+      const paddedAudio = paddedStreams.find(s => s.type === 'audio')
+      expect(paddedAudio).toBeTruthy()
+      // 音频轨也被补齐到 ≈6s，证明去掉 -shortest 后没有把静音尾部裁掉（W3/T7）
+      expect(paddedAudio.duration).toBeGreaterThanOrEqual(5.7)
+      expect(paddedAudio.duration).toBeLessThanOrEqual(6.3)
+
+      // voiceVolume≠1 + padTo：-af 链为 volume=X,apad（先缩放后补静音），真实渲染 ≈6s（W3 回归）
+      const volumePadded = path.join(root, 'volume-padded.mp4')
+      await engine._createSegment(image, audio, volumePadded, { ...baseOpts, effectDuration: 6, sceneDurationMode: 'min-duration', padTo: 6, voiceVolume: 0.5 })
+      const volumeDur = await engine._probeMediaDuration(volumePadded)
+      expect(volumeDur).not.toBeNull()
+      expect(volumeDur).toBeGreaterThanOrEqual(5.7)
+      expect(volumeDur).toBeLessThanOrEqual(6.3)
+
+      // follow-audio：-shortest 跟随 2s 音频，不补齐（padTo=null）
+      const follow = path.join(root, 'follow.mp4')
+      await engine._createSegment(image, audio, follow, { ...baseOpts, effectDuration: 6, sceneDurationMode: 'follow-audio', padTo: null })
+      const followDur = await engine._probeMediaDuration(follow)
+      expect(followDur).not.toBeNull()
+      expect(followDur).toBeLessThanOrEqual(3)
+      const followStreams = await probeStreamDurations(follow)
+      const followAudio = followStreams.find(s => s.type === 'audio')
+      expect(followAudio).toBeTruthy()
+      expect(followAudio.duration).toBeLessThanOrEqual(3)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }, 60000)
+
+  it('min-duration 模式：音频探测失败时不启用静音补齐（C1，不 -t/apad 硬截断未知长度旁白）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-probe-fail-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    const segmentCalls = []
+    engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
+    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
+      segmentCalls.push(options)
+      fs.writeFileSync(output, Buffer.from('segment'))
+    })
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [{ imagePath: image, audioPath: audio, text: '探测失败' }],
+      }, { sceneDurationMode: 'min-duration', minSceneDuration: 6, transition: 'none', validateOutput: false })
+
+      expect(result.code).toBe(0)
+      expect(segmentCalls[0].sceneDurationMode).toBe('min-duration')
+      // 探测失败 → padTo=null，_createSegment 走 follow-audio -shortest 路径
+      expect(segmentCalls[0].padTo).toBeNull()
+      // 有效时长仍按 defaultSceneDuration 兜底（动效/字幕归一化用）
+      expect(segmentCalls[0].effectDuration).toBe(6)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('min-duration 模式：原始音频和 <600s 但补齐后超限时在预检拒绝，不进入渲染（W1）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-limit-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    // 11 段 × 50s = 550s < 600（通过音频和校验）；minSceneDuration=60 → 11 × max(50,60) = 660 > 600 → 预检拒绝
+    const scenes = Array.from({ length: 11 }, () => ({ imagePath: image, audioPath: audio, text: 'x' }))
+    engine._probeMediaDuration = vi.fn().mockResolvedValue(50)
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, Buffer.from('segment')))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({ scenes }, {
+        sceneDurationMode: 'min-duration', minSceneDuration: 60, transition: 'none', validateOutput: false,
+      })
+      expect(result.code).toBe(-1)
+      expect(result.message).toContain('Requested video duration exceeds the allowed limit')
+      expect(engine._createSegment).not.toHaveBeenCalled()
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['N<default 且可探测（audio=3,default=10,min=4 → 4s 且补齐）', 3, 10, 4, 4, true],
+    ['N<default 且探测失败（→ default=10，不补齐）', null, 10, 4, 10, false],
+    ['N>default 且可探测（audio=3,default=2,min=4 → 4s 且补齐）', 3, 2, 4, 4, true],
+    ['N>default 且探测失败（→ max(default,min)=4，不补齐）', null, 2, 4, 4, false],
+    ['等值边界：audio==min（6s 音频 min=6 → effect=6 但不补齐，严格 > 守卫）', 6, 6, 6, 6, false],
+  ])('min-duration 边界矩阵（I3）：%s', async (_label, probed, defaultSceneDuration, minSceneDuration, expectedEffect, expectedPad) => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-matrix-'))
+    const image = writeFixture(root, 'image.png')
+    const audio = writeFixture(root, 'audio.mp3')
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    const segmentCalls = []
+    engine._probeMediaDuration = vi.fn().mockResolvedValue(probed)
+    engine._createSegment = vi.fn(async (_image, _audio, output, options) => {
+      segmentCalls.push(options)
+      fs.writeFileSync(output, Buffer.from('segment'))
+    })
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({
+        scenes: [{ imagePath: image, audioPath: audio, text: '边界' }],
+      }, {
+        sceneDurationMode: 'min-duration', minSceneDuration, defaultSceneDuration,
+        transition: 'none', validateOutput: false,
+      })
+      expect(result.code).toBe(0)
+      expect(segmentCalls[0].effectDuration).toBe(expectedEffect)
+      if (expectedPad) {
+        expect(segmentCalls[0].padTo).toBe(expectedEffect)
+      } else {
+        expect(segmentCalls[0].padTo).toBeNull()
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('真实 ffmpeg：2 个 min-duration 补齐段 xfade 转场 + BGM 混音，成片 ≈ 6+6-0.4=11.6s（W5）', async () => {
+    if (!findFfmpeg()) return
+    const { promisify } = require('util')
+    const { execFile } = require('child_process')
+    const execFileAsync = promisify(execFile)
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-real-xfade-pad-'))
+    try {
+      const image1 = path.join(root, 'image1.png')
+      const image2 = path.join(root, 'image2.png')
+      const audio1 = path.join(root, 'audio1.m4a')
+      const audio2 = path.join(root, 'audio2.m4a')
+      const bgm = path.join(root, 'bgm.m4a')
+      await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x180', '-frames:v', '1', image1], { maxBuffer: 10 * 1024 * 1024 })
+      await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'color=c=white:s=320x180', '-frames:v', '1', image2], { maxBuffer: 10 * 1024 * 1024 })
+      const genAudio = (p) => execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '2', '-c:a', 'aac', p], { maxBuffer: 10 * 1024 * 1024 })
+      await genAudio(audio1)
+      await genAudio(audio2)
+      await genAudio(bgm)
+      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      const result = await engine.compose({
+        scenes: [
+          { imagePath: image1, audioPath: audio1, text: '场景一' },
+          { imagePath: image2, audioPath: audio2, text: '场景二' },
+        ],
+      }, {
+        sceneDurationMode: 'min-duration', minSceneDuration: 6,
+        transition: 'fade', transitionDuration: 0.4,
+        subtitleEnabled: false, bgmPath: bgm,
+        resolution: '320x180', fps: 24,
+        validateOutput: false,
+      })
+      expect(result.code).toBe(0)
+      expect(result.data.segmentCount).toBe(2)
+      expect(result.data.bgmApplied).toBe(true)
+      expect(result.data.duration).toBeGreaterThanOrEqual(11.3)
+      expect(result.data.duration).toBeLessThanOrEqual(11.9)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }, 90000)
+
+  it('renderSegment：min-duration 模式 3s 音频补齐到 6s，返回补齐段', async () => {
+    if (!findFfmpeg()) return
+    const { promisify } = require('util')
+    const { execFile } = require('child_process')
+    const execFileAsync = promisify(execFile)
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-render-segment-min-duration-'))
+    const image = path.join(root, 'image.png')
+    const audio = path.join(root, 'audio.m4a')
+    try {
+      await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x180', '-frames:v', '1', image], { maxBuffer: 10 * 1024 * 1024 })
+      await execFileAsync(findFfmpeg(), ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '2', '-c:a', 'aac', audio], { maxBuffer: 10 * 1024 * 1024 })
+      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      // 场景音频探测 2s → 渲染后片段探测 6s
+      engine._probeMediaDuration = vi.fn()
+        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(6)
+      const result = await engine.renderSegment(
+        { imagePath: image, audioPath: audio, text: '短旁白', duration: null },
+        { sceneDurationMode: 'min-duration', minSceneDuration: 6, defaultSceneDuration: 6, resolution: '320x180', fps: 24, subtitleEnabled: false, transition: 'none' },
+        path.join(root, 'out.mp4'),
+      )
+      expect(result.code).toBe(0)
+      expect(result.data.duration).toBe(6)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }, 60000)
 
   it('真实 ffprobe 遇到损坏媒体时返回 null，不伪造时长', async () => {
     if (!findFfprobe()) return
@@ -556,7 +869,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 60000)
 
   it('renderSegment 把有效时长传给动效归一化，音频优先、探测失败回退默认', async () => {
     if (!findFfmpeg()) return
@@ -602,7 +915,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 60000)
 
   it('61 个场景可合成，仍保留分辨率像素上限', async () => {
     if (!findFfmpeg()) return

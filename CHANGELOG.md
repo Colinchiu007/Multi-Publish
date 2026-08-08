@@ -1,5 +1,12 @@
 ## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
 
+### 场景时长模式 Batch 3：compose 节奏层（min-duration 静音补齐，2026-08-08）
+- `sceneDurationMode='min-duration'` 时按 `max(ffprobe 真实音频时长, minSceneDuration)` 补齐场景：`-t` + 音频 `apad` + 去 `-shortest`，片段/成片时长精确到目标值；`follow-audio`（默认）保持 `-shortest` 跟随旁白不变。
+- **探测失败守卫（C1）**：仅当真实探测到音频且补齐目标严格大于音频时长时才启用补齐；探测失败一律走 follow-audio 路径，绝不启用补齐 `-t/apad` 硬截断未知长度旁白（探测失败且场景带上报 duration 时沿用既有 `-t reported` 上限语义，非本次引入）。
+- 补齐语义统一：字幕时间轴（末页停留到 effectiveDuration）、动效归一化、成片时长预检（上限 600s 含补齐值）共用同一有效时长与 base 公式；补齐段动效帧数 `Math.ceil(effectDuration×fps)` 防尾部缺帧。
+- 旁白导出（narration）不补齐；`renderSegment` 单段重试与 compose 同守卫。
+- 回归：compose-engine 新增 9 个用例（mock 补齐/长旁白不截断/探测失败守卫/补齐超限预检拒绝/边界矩阵含 audio==min 等值边界/follow-audio 参数级回归/真实 ffmpeg 双轨时长断言/真实 2 段 xfade+BGM 成片 ≈11.6s/renderSegment 补齐），60 用例全绿。
+
 ### 配置合同（v1 扩展，版本号不变）
 - `story2videoTextConfig` 新增可选字段：`split.targetCharsPerScene`（默认 20，1..200 整数，分镜字数主控）、
   `sceneDurationMode`（`follow-audio`|`min-duration`，默认 follow-audio）、`minSceneDuration`（默认 6，1..60）。

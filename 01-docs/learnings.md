@@ -1,6 +1,15 @@
 
 ---
 
+## 场景时长 min-duration 静音补齐双模型审查复盘 (2026-08-08)
+
+- **C1（最高风险）：探测失败 ≠ 可补齐。** JS 隐式转换下 `Math.max(null, minSceneDuration) === minSceneDuration`、`minSceneDuration > null === true`，朴素实现会把「探测失败、长度未知」的旁白硬截断到 N 秒。补齐必须显式守卫 `audioDuration !== null && audioDuration > 0 && effectiveDuration > audioDuration`；探测失败一律走 follow-audio `-shortest` 路径（不启用补齐 `-t`、不 `apad`；探测失败且场景带上报 duration 时沿用既有 `-t reported` 上限语义）。这是「回退默认值」与「以默认值作为硬约束」的经典混淆，任何时长/阈值逻辑都要区分「布局回退值」与「强制裁剪值」。
+- **TDZ 连环坑**：同一函数里把 `sceneDurationMode`/`minSceneDuration` 上移后，新增的预检公式又引用了声明在后面的 `defaultSceneDuration`，触发 `Cannot access before initialization`。凡是「提前使用的常量」，与场景循环共用时必须在顶部一次性声明。
+- **apad + -t + 去 -shortest 是精确补齐的正确组合**：`apad` 输出无限静音、`-t` 是唯一输出界 → 时长精确；`apad` 与 `-shortest` 组合是 ffmpeg 已知 gotcha，去掉反而规避「Output file is empty」。
+- **补齐段的动效帧数必须向上取整**（`Math.ceil(effectDuration×fps)`）：去 `-shortest` 后视频轨是 binding 流，`Math.round` 向下取整 1 帧会让视频轨短于 `-t` 目标，尾部出现无帧/黑帧。
+- **测试 fixture 必须真实可解码**：无 `-shortest` 时 `-loop 1` 读取坏 PNG 会无限刷解码错误撑爆 stderr maxBuffer；真实 ffmpeg 用例的图片/音频必须用 ffmpeg lavfi 生成真文件。
+- **行为利好**：补齐静音吸收 acrossfade/amix 的过渡衰减，BGM 不再吞旁白尾音；min-duration 使片段变长后会启用原本因「片段过短」被禁用的 xfade 转场（预期节奏行为，PRD 已记录）。
+
 ## 失败任务历史持久展示复盘 (2026-08-08)
 
 - **根因**：`PipelineEngine.getHistory()` 只返回内存 `_runs` + `_history`；失败任务的持久化快照在 `RunStateStore.saveFailed`（run-state 目录）里，但从未被历史接口读取。应用重启后内存清空，失败任务从历史消失，用户无法追溯失败记录。
