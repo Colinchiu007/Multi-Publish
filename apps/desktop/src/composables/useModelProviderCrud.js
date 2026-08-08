@@ -17,6 +17,7 @@ import {
   modelProviderTest,
   modelProviderPresets,
 } from '@/api/model-providers'
+import { storeGetSetting, storeSetSetting } from '@/api/publisher'
 
 const CATEGORY_OPTIONS = [
   { value: 'all', label: '全部' },
@@ -26,6 +27,7 @@ const CATEGORY_OPTIONS = [
   { value: 'image', label: '图片生成' },
   { value: 'video', label: '视频模型' },
   { value: 'audio', label: '音频生成' },
+  { value: 'multimodal', label: '多模态模型' },
 ]
 
 const CATEGORY_LABELS = {
@@ -35,7 +37,20 @@ const CATEGORY_LABELS = {
   image: '图片生成',
   video: '视频模型',
   audio: '音频生成',
+  multimodal: '多模态模型',
 }
+
+/** 多模态能力的中文标签（用于前端展示预设能力） */
+const MULTIMODAL_CAPABILITY_LABELS = {
+  llm: '文字推理',
+  tts: 'TTS语音',
+  speech_recognition: '语音识别',
+  image: '生图',
+  video: '生成视频',
+}
+
+/** 偏好开关的持久化 key（与主进程 ModelProviderManager 一致） */
+const PREFER_MULTIMODAL_SETTING_KEY = 'prefer_multimodal'
 
 const LOCAL_NO_KEY_PROVIDER_IDS = new Set(['piper', 'local-diffusion', 'comfyui'])
 
@@ -89,6 +104,8 @@ export function useModelProviderCrud () {
   const filterCategory = ref('all')
   const viewMode = ref('configured') // 'configured' | 'all'
   const safeStorageAvailable = ref(true) // P0: safeStorage 不可用时显示警告
+  // 「优先使用多模态模型进行所有的AI操作」全局开关（默认开启）
+  const preferMultimodal = ref(true)
 
   // 测试结果缓存
   const testResults = ref({})
@@ -182,6 +199,27 @@ export function useModelProviderCrud () {
     }
   }
 
+  // ─── 多模态优先开关 ──────────────────────────
+  async function loadMultimodalPreference () {
+    try {
+      const res = await storeGetSetting(PREFER_MULTIMODAL_SETTING_KEY)
+      // 未配置时默认开启（true）
+      preferMultimodal.value = res?.code === 0 ? res.data !== false : true
+    } catch (_) {
+      preferMultimodal.value = true
+    }
+  }
+
+  async function saveMultimodalPreference (value) {
+    const next = value !== false
+    preferMultimodal.value = next
+    try {
+      await storeSetSetting(PREFER_MULTIMODAL_SETTING_KEY, next)
+    } catch (_) {
+      ElMessage.error('多模态优先设置保存失败')
+    }
+  }
+
   // ─── 新增流程 ─────────────────────────────────
   function openAdd () {
     addStep.value = 1
@@ -216,6 +254,7 @@ export function useModelProviderCrud () {
         api_key: '',
         models: preset.models || [],
         modelsText: (preset.models || []).join(', '),
+        capabilities: Array.isArray(preset.capabilities) ? [...preset.capabilities] : [],
         config: {},
       }
     }
@@ -399,6 +438,7 @@ export function useModelProviderCrud () {
     // 常量
     CATEGORY_OPTIONS,
     CATEGORY_LABELS,
+    MULTIMODAL_CAPABILITY_LABELS,
     // 数据状态
     providers,
     loading,
@@ -408,6 +448,7 @@ export function useModelProviderCrud () {
     testResults,
     testingId,
     safeStorageAvailable,
+    preferMultimodal,
     // 表单状态
     showFormDialog,
     isEditing,
@@ -435,6 +476,8 @@ export function useModelProviderCrud () {
     isProviderConfigured,
     // 方法
     loadProviders,
+    loadMultimodalPreference,
+    saveMultimodalPreference,
     openAdd,
     nextAddStep,
     loadAvailablePresets,
