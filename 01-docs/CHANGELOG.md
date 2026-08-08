@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (MiniMax 异步 T2A + 资源进度前置)
+
+### 修复
+- **MiniMax TTS 生成失败（生成图片与旁白阶段）**：默认模型 `speech-2.8-turbo` 是异步 T2A（T2A Async），但 adapter 调用同步端点 `/t2a_v2`，异步模型返回 200 且无 `data.audio` → 抛「Missing audio data in response」→ 瞬时重试耗尽 → 整段失败。已实现完整异步流程：`/t2a_async_v2` 创建任务 → 轮询 `/query/t2a_async_query_v2` → `/files/retrieve_content` 下载音频（90s 轮询上限、1s 间隔、可注入）。
+- **进度数字很久才显示**：「生成图片与旁白」阶段开始即写入 `assets_progress={0/N, 0/M}`，前端立即显示「图片 0/N · 旁白 0/M」，不再等首个资源完成（图片生成 16-30s）。
+
+### 测试
+- 新增 6 例：异步 T2A 完整链路（创建/查询/下载）、查询内联音频、task_id 缺失、查询失败、轮询超时、进度前置写入。
+
+### 文档
+- PRD 新增「7.1.15 MiniMax 异步 T2A 与资源进度前置合同」。
+
 ## [Unreleased] - 2026-08-08 (视频预览：分段图片显示 + 文件下载修复)
 
 ### 修复

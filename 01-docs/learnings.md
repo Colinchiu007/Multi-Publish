@@ -1,6 +1,13 @@
 
 ---
 
+## MiniMax 异步 T2A 误用同步端点致整段失败复盘 (2026-08-08)
+
+- **表象**：单场景文案「11」，生成图片与旁白阶段弹「当前操作未能完成」；日志里 `minimax-tts synthesize error "Missing audio data in response"`（100-300ms 快速失败，多次重试仍失败）。
+- **根因**：adapter 默认模型 `speech-2.8-turbo` 是 T2A **Async** 模型，但 `synthesize()` 调同步端点 `/t2a_v2`——异步模型在同步端点返回 200 但不含 `data.audio`（返回的是异步任务标识），adapter 抛「Missing audio data」→ 被归类为瞬时错误反复重试 → 重试耗尽 → 整段失败。图片生成正常（16-30s），所以进度数字「很久才显示」。
+- **修复**：按模型路由——`speech-2.8-*` 走异步流程（`/t2a_async_v2` 创建 → 轮询 `/query/t2a_async_query_v2` → `/files/retrieve_content` 下载），`speech-2.6-*`/`speech-02-*` 保持同步；资源进度阶段开始即前置写入。
+- **教训**：provider 模型有「同步/异步 API」之分时，adapter 必须按模型选择正确端点，不能假设所有模型共用同一请求/响应形态；「返回 200 但缺关键字段」应先怀疑模型与端点不匹配，而不是瞬时抖动。排查顺序：先看 provider 日志的耗时分布（快速失败=请求/响应契约问题，慢失败=网络/服务问题）。
+
 ## 视频预览分段图片不显示 + 下载按钮无反应复盘 (2026-08-08)
 
 - **图片不显示根因**：本机媒体服务 `CONTENT_TYPES` 只有音视频类型，图片响应为 `application/octet-stream`，而响应头带 `X-Content-Type-Options: nosniff` —— Chromium 对 nosniff + 非图片 Content-Type 拒绝渲染 `<img>`。视频能播是因为 mp4 类型在映射里。修复：补齐 `.png/.jpg/.jpeg/.webp/.gif` 的 image/* 类型。教训：任何「本地文件转 HTTP 响应」的服务，Content-Type 映射必须覆盖全部业务文件类型；nosniff 会把类型错误从「能显示但怪」放大成「完全无法显示」。
