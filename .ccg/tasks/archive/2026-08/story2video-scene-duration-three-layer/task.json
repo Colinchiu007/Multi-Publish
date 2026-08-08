@@ -1,0 +1,15 @@
+{
+  "id": "story2video-scene-duration-three-layer",
+  "title": "Story2Video 场景时长三层模型落地（Batch 1-4 + 5a 语言感知估算/样本采集）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "electron+python+frontend",
+  "currentPhase": "batch5b-review",
+  "nextAction": "Batch 5b 双模型审查 + PR/merge；收尾（learnings 沉淀、孤儿 worktree 清理）",
+  "createdAt": "2026-08-08T00:00:00Z",
+  "branch": "codex/story2video-batch5b"
+}
+
+
+

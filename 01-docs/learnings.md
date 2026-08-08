@@ -19,6 +19,35 @@
 - **补齐段的动效帧数必须向上取整**（`Math.ceil(effectDuration×fps)`）：去 `-shortest` 后视频轨是 binding 流，`Math.round` 向下取整 1 帧会让视频轨短于 `-t` 目标，尾部出现无帧/黑帧。
 - **测试 fixture 必须真实可解码**：无 `-shortest` 时 `-loop 1` 读取坏 PNG 会无限刷解码错误撑爆 stderr maxBuffer；真实 ffmpeg 用例的图片/音频必须用 ffmpeg lavfi 生成真文件。
 - **行为利好**：补齐静音吸收 acrossfade/amix 的过渡衰减，BGM 不再吞旁白尾音；min-duration 使片段变长后会启用原本因「片段过短」被禁用的 xfade 转场（预期节奏行为，PRD 已记录）。
+## 提交清单遗漏实现文件 + mock 绕过解包复盘 (2026-08-08)
+
+- **漏文件**：Batch 5a 首提交只 stage 了测试文件（stage-executor.test.js），漏了实现（services/stage-executor.js +11 行）。
+  本地因工作树残留实现而全绿，CI 干净检出即 Gate 4 暴露「采集器从未被调用」。教训：**提交前用 `git status --short`
+  核对「实现文件与测试文件成对」**；本地全绿 ≠ 提交完整——工作树可能含未 stage 的实现。质量门禁的价值正在于此。
+- **mock 绕过解包**：`@/api/publisher` 被整模块 `vi.mock` 后，测试里 `storeGetSetting.mockResolvedValue({ code, data })`
+  返回的是原始对象，而生产 wrapper 会解包 `result.data`——消费者若按「已解包数组」处理会拿到空。教训：对 store API
+  的读取方法做防御性形态兼容（`raw.data ?? raw`），与 restoreS2VLastOptions 既有模式一致；测试 mock 直接返回数组更贴近生产形态。
+
+## TDZ 第二形态：对象字面量自引用复盘 (2026-08-08)
+
+- Batch 3 已记录「提前使用的常量要顶部声明」；Batch 5a 又踩了**同一类 TDZ 的新形态**：
+  在 `const split = { baseWordsPerSecond: getLanguageBaseWordsPerSecond(split.language) }` 对象字面量里引用
+  `split.language`——`split` 自身尚未初始化，触发 `Cannot access 'split' before initialization`。
+- 教训：**对象字面量内部不能引用自身**（不是只有声明顺序问题）；需要先提取依赖值为局部变量
+  （`const splitLanguage = ...` 再在字面量中引用）。凡是在构造对象时要用到「同对象其他字段的归一化结果」，
+  先把该字段归一化提到前面。Text-config 这类集中归一化函数最容易犯，测试必须在改完立刻全量跑（当时 37 个用例同时挂）。
+
+## Windows CI 8.3 短路径断言失败复盘 (2026-08-08)
+
+- **表象**：本地全绿的测试在 GitHub Actions Windows runner 失败——`toHaveBeenCalledWith([audio], ...)` 收到的路径是
+  `C:\Users\RUNNER~1\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\runneradmin\...`（长名）。
+- **根因**：`os.tmpdir()` 在 CI 返回 8.3 短路径（`RUNNER~1`），业务代码 `resolveReadableMediaFile` 经
+  `fs.realpathSync.native()` 归一化为长路径（`runneradmin`）——同一文件两种字符串。任何「测试直接比较本地路径字符串」的断言在 CI 都会炸。
+- **教训**：按 AGENTS.md「Windows 路径身份断言」合同，比较生产代码返回的 canonical 路径时，期望值与实际值**必须同时**过
+  `fs.realpathSync.native()` 后再比较；本地 `os.tmpdir()` 无 8.3 缩写所以这类 bug 本地测不出来，必须用 CI 实跑发现。
+- **排查手法**：Quality Gate 步骤级只看到「全部测试绿但 exit 1」，先看 `npm error workspace ...` 定位失败包，再下载
+  Actions run 日志 zip（`gh api repos/.../actions/runs/<id>/logs`）grep `FAIL`/`AssertionError` 拿到断言原文。
+
 
 
 ## MiniMax 异步 T2A 误用同步端点致整段失败复盘 (2026-08-08)
@@ -27,6 +56,21 @@
 - **根因**：adapter 默认模型 `speech-2.8-turbo` 是 T2A **Async** 模型，但 `synthesize()` 调同步端点 `/t2a_v2`——异步模型在同步端点返回 200 但不含 `data.audio`（返回的是异步任务标识），adapter 抛「Missing audio data」→ 被归类为瞬时错误反复重试 → 重试耗尽 → 整段失败。图片生成正常（16-30s），所以进度数字「很久才显示」。
 - **修复**：按模型路由——`speech-2.8-*` 走异步流程（`/t2a_async_v2` 创建 → 轮询 `/query/t2a_async_query_v2` → `/files/retrieve_content` 下载），`speech-2.6-*`/`speech-02-*` 保持同步；资源进度阶段开始即前置写入。
 - **教训**：provider 模型有「同步/异步 API」之分时，adapter 必须按模型选择正确端点，不能假设所有模型共用同一请求/响应形态；「返回 200 但缺关键字段」应先怀疑模型与端点不匹配，而不是瞬时抖动。排查顺序：先看 provider 日志的耗时分布（快速失败=请求/响应契约问题，慢失败=网络/服务问题）。
+
+## MiniMax 克隆音色 voice_id 非法致旁白 0/1 复盘 (2026-08-08, PR #413)
+
+- **表象**：图片 1/1、旁白 0/1；provider 日志 `invalid params, voice id wrong`（~260ms 快速失败，重试耗尽整段失败）。用户选中的克隆音色 `voice_id="01"`。
+- **根因**：MiniMax 官方「音色快速复刻」对自定义 voice_id 有硬约束（长度 `[8,256]`、**首字符必须英文字母**、仅 `[A-Za-z0-9_-]`、末位不可 `-/_`、不可与已有 id 重复）。旧版 `cloneVoice` 用 `name.replace(/[^a-zA-Z0-9_]/g,'').slice(0,32)` 生成 id——名称「01」得到 `voice_id="01"`，长度不足且数字开头 → 平台拒绝复刻/合成。
+- **修复**：`buildMiniMaxCloneVoiceId`（`MiniMax` 前缀保证首字母 + 清洗名称 + 随机后缀，长度 [8,256]、末位非 -/_）；`cloneVoice` 用它并对平台回显 id 校验；`isValidMiniMaxCloneVoiceId` 供服务层校验；存量非法克隆在 `listClones` 标记 `invalid`，音色 catalog 移出可选项并放入 `invalidVoices`，偏好指向失效克隆时自动回退默认音色；前端下拉/克隆面板显示「已失效，请重新克隆」。
+- **教训**：provider 对「自定义标识符」的格式约束必须从官方 API 文档逐条落实（长度/首字符/字符集/末位），不能只做宽松清洗；存量数据若按旧规则写入过非法值，必须提供「标记失效 + 偏好回退」的自愈路径，否则用户会持续命中 provider 报错。
+
+## MiniMax 异步 T2A 查询响应层级致 90s 超时复盘 (2026-08-08, PR #414)
+
+- **表象**：voice_id 修复后，旁白仍 0/1；provider 日志变为 `MiniMax 异步语音合成查询超时`（~90s 慢失败，重复重试）。图片正常。
+- **根因**：官方查询接口把 `status`/`file_id`/`task_id` 放在响应**顶层**（`{ task_id, status, file_id, base_resp }`），而实现轮询只读 `queryData.data.*`（`data.file_id`/`data.status` 永远 undefined）→ 任务永远显示 pending，直到 90s 轮询上限触发 TIMEOUT。
+- **修复**：`_synthesizeAsync` 轮询解析改为**顶层与 `data.*` 双层兼容**；`status=success` + `file_id` 才下载，`processing` 继续轮询，`failed`/`expired` 立即失败；请求参数本身（voice_setting/audio_setting/language_boost）与官方一致。
+- **真实验证**：修复后 `minimax-tts synthesize success（约 13s）`，图片 1/1 · 旁白 1/1，成片 20s 生成。
+- **教训**：读第三方 API 文档的响应示例时，必须确认关键字段（status/file_id/data/error）在**哪一层**；「任务一直 pending」先核对响应结构与实现的取字段路径是否一致，再怀疑任务本身慢。provider 日志的耗时分布是判断「契约问题（快失败）vs 服务问题（慢失败）」的第一信号。
 
 ## 视频预览分段图片不显示 + 下载按钮无反应复盘 (2026-08-08)
 

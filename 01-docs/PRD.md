@@ -552,7 +552,7 @@ class BaseRpaPublisher {
 通过内嵌浏览器（WebContentsView）登录各发布平台，支持扫码登录（微信生态），Cookie 自动 AES-256-GCM 加密保存。
 
 ### 5.3 模型服务商配置（必选）
-在「模型服务商设置」页配置 AI 模型的 API Key。支持 5 类模型：
+在「模型服务商设置」页配置 AI 模型的 API Key。支持 7 类模型：
 
 | 类别 | 用途 | 预设服务商 |
 |------|------|----------|
@@ -561,6 +561,7 @@ class BaseRpaPublisher {
 | 语音识别 | 字幕生成、语音转文字 | OpenAI Whisper / Google STT / 豆包语音识别 / 百度语音识别 / 本地 Whisper |
 | 图片生成 | 封面图、配图、AI 图像 | Flux / DALL-E / Recraft / Imagen / Grok Image / Pixabay / Pexels / 本地扩散 / ComfyUI |
 | 视频模型 | AI 视频生成 | 混元 / CogVideo / Grok Video / HeyGen / Kling / Runway / Veo / Wan / MiniMax / LTX / Seedance / Higgsfield |
+| 多模态模型 | 一个 API Key 覆盖文字推理/TTS/生图/视频等多个能力 | MiniMax（能力：文字推理 / TTS语音 / 生图 / 生成视频） |
 
 每个类别可添加多个服务商，并选择一个设为默认。
 
@@ -899,6 +900,20 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 轮询边界 | 默认 90s 超时、1s 间隔（可注入 `asyncPollTimeoutMs`）；查询响应带 `error`/`status=failed`/`base_resp.status_code≠0` 立即失败；超时抛 `ProviderError(TIMEOUT)`（归入瞬时错误自动重试）。 |
 | 进度前置 | 「生成图片与旁白」阶段开始即写入 `context.assets_progress={imagesDone:0,imagesTotal:N,ttsDone:0,ttsTotal:M}`，前端立即显示「图片 0/N · 旁白 0/M」，首个资源完成后实时递增；非法值不展示。 |
 | 数据校验 | `task_id`/`file_id` 缺失抛 `ProviderError(PROVIDER_ERROR)`；下载结果为空 Buffer 抛 PROVIDER_ERROR；同步路径行为不变。 |
+| 查询响应层级（2026-08-08 二次修订） | 官方查询接口把 `status`/`file_id`/`task_id` 放在响应**顶层**（`{ task_id, status, file_id, base_resp }`），历史实现只读 `data.*` 导致任务永远显示 pending 直至 90s 超时（旁白 0/1 的第二层根因）。轮询解析必须**顶层与 `data.*` 双层兼容**：`status` 取 `data?.status ?? nested?.status`，`file_id` 同理；`status=success` + `file_id` 才下载，`processing` 继续轮询，`failed`/`expired` 立即失败。真实验证：修复后 `synthesize success（约 13s）`，成片正常生成。 |
+
+#### 7.1.16 克隆音色 voice_id 合规与失效回退合同（2026-08-08）
+
+**背景**：真实链路排查「旁白 0/1」——图片正常、仅 TTS 合成失败，provider 日志为 `invalid params, voice id wrong`。根因：用户选中的克隆音色 `voice_id="01"` 不符合 MiniMax 官方「音色快速复刻」对自定义 voice_id 的约束（长度 `[8,256]`、**首字符必须为英文字母**、仅允许数字/字母/`-`/`_`、末位不可为 `-`/`_`、不可与已有 id 重复），旧版 `cloneVoice` 用 `name.replace(/[^a-zA-Z0-9_]/g,'').slice(0,32)` 生成 id（如 "01"）导致复刻/合成被平台拒绝。官方文档：`/api-reference/voice-cloning-clone`、`/guides/speech-voice-clone`、`/faq/system-voice-id`。
+
+| 合同 | 要求 |
+|------|------|
+| voice_id 生成 | `MinimaxTtsAdapter.cloneVoice` 必须用 `buildMiniMaxCloneVoiceId(name)` 生成合规 id：`MiniMax` 前缀（保证首字母）+ 清洗后的名称 + 随机后缀，长度落在 `[8,256]`、末位非 `-/_`；平台回显 id 不合规时回退本次生成值。 |
+| 合法性校验 | 新增 `isValidMiniMaxCloneVoiceId(id)`（长度/首字母/字符集/末位）；由 `tts-voice-clone-service.isProviderCloneVoiceIdValid` 对 `minimax-tts` / `minimax` / `minimax-multimodal` 应用（其他 provider 恒合法）。 |
+| 存量数据自愈 | `listClones` 对非法克隆 id 标记 `invalid: true`；`tts-voice-service._buildCatalogResponse` 将非法克隆**移出可选项**、放入响应 `invalidVoices` 供前端展示；用户偏好若指向失效克隆（如 "01"）→ `isSafePreference` 不命中 → **自动回退默认音色**（旁白合成恢复正常）。 |
+| 前端展示 | 音色下拉对失效克隆显示「{名称}（已失效，请重新克隆）」且禁用；克隆面板列表显示「已失效，请重新克隆」徽标、「设为默认」按钮禁用（删除仍可用，便于清理旧记录）。 |
+| 提示文字 | 无需新增错误码：失效克隆通过禁用项与徽标提示；用户需删除旧克隆后重新上传音频克隆（新 id 自动合规）。 |
+| 验收标准 | ① 旧注册表 `voice_id="01"` 的克隆在音色下拉中显示「已失效」且不可选，默认音色被自动选中；② 重新克隆（合法 id）后可正常选择并合成；③ 真实流水线「生成图片与旁白」旁白 `x/1` 不再因 voice id 报错（provider 日志无 `voice id wrong`）。 |
 
 ### 7.2 上传图片快速渲染（独立路径）
 
@@ -938,16 +953,68 @@ Electron 打包、工作树、PR 或发布状态证据。
     │   └─ 设置新默认时自动取消同类别旧的默认
     │
     ├─ 删除规则
-    │   ├─ 预设服务商：不允许删除，只能禁用
-    │   └─ 自定义服务商：允许删除，二次确认
+    │   ├─ 预设服务商：删除 = 软删除（从列表隐藏 + 清除 API Key + 禁用），
+    │   │   可在「添加服务商 → 预设目录」中重新添加并恢复配置
+    │   └─ 自定义服务商：物理删除，二次确认
+    │
+    ├─ 测试连接
+    │   ├─ 成功：仅显示「✅ 连接成功」，不展示技术性响应体（如 {"success":true}）
+    │   └─ 失败：显示友好错误原因，必要时附可读 detail（原始技术对象不外泄）
     │
     └─ 服务商用于：
         ├─ 推理模型 → AI 写稿、标题生成、内容智能、视频创作 LLM 选择
         ├─ TTS 语音 → 视频配音、语音合成
         ├─ 语音识别 → 字幕生成、语音转文字
         ├─ 图片生成 → AI 图片生成（封面、配图）
-        └─ 视频模型 → AI 视频生成（Hunyuan/Kling/Runway 等）
+        ├─ 视频模型 → AI 视频生成（Hunyuan/Kling/Runway 等）
+        └─ 多模态模型 → 一个 API Key 覆盖多个能力（见 7.4.1）
 ```
+
+### 7.4.1 多模态模型类别（2026-08-08 新增）
+
+**需求**：模型设置新增「多模态模型」类别；预设模型必须声明支持多模态（文字推理 / TTS语音 / 语音识别 / 视觉识别 / 生图 / 生成视频 中**至少 2 项**能力）；前端只需填写**一个 API Key**，并提供「优先使用多模态模型进行所有的AI操作」开关（**默认勾选**）；流水线按能力调用模型时，若多模态模型声明支持该能力则优先使用它。
+
+| 合同 | 要求 |
+|------|------|
+| 类别与标签 | 后端 `CATEGORIES.MULTIMODAL='multimodal'`、`CATEGORY_LABELS.multimodal='多模态模型'`；前端「模型服务商设置」类别筛选/新增类别卡片/服务商卡片标签同步新增（图标 🌐）。页面副标题更新为「七类 AI 服务商」。 |
+| 预设能力声明 | `model-provider-seeds` 中多模态预设必须携带 `capabilities: string[]`（取值于 `llm/tts/speech_recognition/image/video`）与 `capability_models: { [cap]: modelId }`；能力数必须 ≥ `MULTIMODAL_MIN_CAPABILITIES(2)`；每个声明能力必须给出对应默认模型。预设能力持久化：种子写入行 `config.capabilities` / `config.capability_models`；`_syncPresetCapabilities()` 对存量预设行回填（不覆盖已存在的能力配置）。 |
+| 预设（MiniMax） | 新增预设 `minimax-multimodal`（名称「MiniMax」，`base_url=https://api.minimaxi.com/v1`），声明能力 `['llm','tts','image','video']`（≥2），能力默认模型 `{ llm:'MiniMax-M2.7', tts:'speech-2.8-turbo', image:'image-01', video:'MiniMax-Hailuo-2.3' }`；仅需填一个 API Key。 |
+| 多模态适配器 | 新增 `MinimaxMultimodalAdapter`（`adapters/minimax-multimodal.js`）：组合既有 MiniMax LLM / TTS / Image / Video 四个适配器并按方法委托（chatCompletion/streamChat → LLM，synthesize/listVoices/cloneVoice → TTS，generateImage → Image，generateVideo/getVideoStatus → Video）；`capabilities()` 覆盖 `chatCompletion/streamChat/synthesize/listVoices/cloneVoice/generateImage/generateVideo/getVideoStatus`，不含 `transcribe`。 |
+| 能力→调用方法映射 | `ai-generator.TYPE_TO_METHOD` 为能力到 Adapter 方法的一对一映射（`llm→chatCompletion`、`tts→synthesize`、`image→generateImage`、`video→generateVideo`、`speech_recognition→transcribe`）；多模态 provider 按能力选择 `capability_models[type]` 后走与单类型模型完全相同的调用方法（MiniMax 文字推理走 OpenAI 兼容 `POST /v1/chat/completions`，与单类型 MiniMax LLM 一致；TTS 走 t2a_async_v2 异步；生图走 images_generation；视频走 video_generation）。 |
+| 能力同步升级 | `_syncPresetCapabilities()` 升级为 diff-merge：存量预设行只合并新增能力（保留用户已有能力与模型选择，不整体覆盖），保证旧版本数据库升级后也能拿到新增的 `llm` 能力。 |
+| 优先开关 | 主进程 `ModelProviderManager.getMultimodalPreference()`（默认 true，`settings` 表 user 级 key `prefer_multimodal`）/ `setMultimodalPreference(value)`；前端「模型服务商设置」页头部复选框「优先使用多模态模型进行所有的AI操作」（默认勾选，保存即持久化）。 |
+| 能力路由 | `getDefault(category)`：开启偏好 且 多模态 provider（category=multimodal）已配置（enabled=1 + 可用 Key）且 `config.capabilities` 包含该能力 → 直接返回该多模态 provider；否则回退类别内默认。未开启 / 未配置 / 未声明能力 → 原逻辑不变。 |
+| 能力模型选择 | `ai-generator.generateWithDefault(type)`：模型优先取 `provider.capability_models[type]`，否则回退 `provider.models[0]`（多模态 provider 按能力选对模型，避免 TTS/生图/视频混用同一模型）。 |
+| 流水线空 provider 兜底 | story2video `generate_assets`：未显式指定 image/voice provider（assetGenerator 路径）时，按能力调用 `getDefault('image'/'tts')` 解析（开启偏好即用多模态模型），legacy python 路径保持空 provider 原行为。显式下拉选择的服务商优先，不受开关影响。 |
+| 数据校验 | `createProvider/updateProvider` 类别校验覆盖 `multimodal`；自定义多模态服务商通过 `config.capabilities` / `config.capability_models` 声明（同样 ≥2 项校验由预设层保证，自定义仅提示）。 |
+| 交互与显示 | 服务商卡片与预设卡片展示能力 chips（文字推理/TTS语音/语音识别/生图/生成视频，多语言标签）；新增/编辑对话框对 `multimodal` 类别只展示 API Key 与预设能力提示（**隐藏 Base URL 输入**，预设 Base URL 由系统写死），同时隐藏模型列表输入（单模型收敛 / 预设模型由能力映射决定）。 |
+| 验收标准 | ① 模型设置新增「多模态模型」类别，预设 MiniMax 显示 4 项能力 chips（文字推理/TTS语音/生图/生成视频）；② 多模态表单只填 API Key（无 Base URL 输入）保存成功；③ 勾选开关后 `getDefault('llm'/'tts'/'image'/'video')` 返回多模态 provider，取消勾选后返回类别 provider；④ MiniMax 多模态 LLM 走 OpenAI 兼容 chat/completions、TTS 走 t2a_async_v2 异步、生图/视频走各自端点；⑤ 流水线在未显式指定 provider 时优先使用多模态模型；⑥ 真实 provider 账号配置后可跑通 LLM/TTS/生图/视频全链路 E2E。 |
+
+### 7.4.2 运营后台：预设模型 / 多模态能力设置（2026-08-08 新增）
+
+**需求**：独立运营后台（`D:\Data\projects\ops-center`）新增「预设模型设置」模块，运营人员可维护前端【模型设置】的预设服务商目录。
+
+| 合同 | 要求 |
+|------|------|
+| 数据模型 | `model_presets` 表：`id/name/category/base_url/models/default_model/is_multimodal/capabilities/capability_models/doc_links/capability_doc_links/is_visible/created_at/updated_at`。 |
+| 默认模型设置 | 每个预设可填写「默认模型 Model ID」（`default_model`），运营可修改；系统已知默认模型预填（如 MiniMax 多模态 `MiniMax-M2.7`、MiniMax TTS `speech-2.8-turbo`、MiniMax Image `image-01`、MiniMax Video `MiniMax-Hailuo-2.3`、OpenAI `gpt-4o`、Flux `flux-pro` 等）。 |
+| 显示开关 | `is_visible` 控制该预设是否在前端【模型设置】显示（关闭即隐藏，`include_hidden=false` 过滤）。 |
+| 文档链接 | 每个模型 `doc_links` 最多 10 条，且必须为 http(s) URL（后端校验，超限/非 URL 返回 400）。 |
+| 多模态能力配置 | `is_multimodal=1` 的预设可配置 `capabilities`（能力数组）、`capability_models`（每能力默认模型，缺省会校验 400）、`capability_doc_links`（每能力文档链接，每能力最多 10 条）。 |
+| 种子目录 | 后端 `ensure_catalog_seeded()` 初始化内置目录（与 Multi-Publish `model-provider-seeds` 对齐），含 MiniMax 各能力官方文档链接。 |
+| API | `GET/POST /api/v1/model-presets`、`GET/PUT/DELETE /api/v1/model-presets/{id}`，写操作需 admin JWT。 |
+| 前端 | 「预设模型」菜单页：类别筛选、前端显示开关、默认模型列、文档链接编辑（≤10）、多模态能力编辑（能力多选 + 每能力默认模型 + 每能力文档链接 ≤10）、新增/删除。 |
+| 验收标准 | ① 运营后台可新增/编辑/删除预设；② 默认模型字段预填已知值且可修改；③ doc_links 超 10 条或非 URL 被拒绝；④ 多模态能力缺省模型被拒绝；⑤ `is_visible=false` 后前端不再展示。 |
+
+### 7.4.3 测试连接提示脱敏（2026-08-08）
+
+**需求**：模型供应商列表页测试按钮返回「连接成功 {"success":true}」等原始技术信息，需整体脱敏为友好自然语言。
+
+| 合同 | 要求 |
+|------|------|
+| 成功 | 仅显示「✅ 连接成功」，`detail` 不展示（不再 `JSON.stringify(res.data)` 回显技术响应体）。 |
+| 失败 | 显示友好错误 `message`；仅当存在可读 `detail` 时展示，原始技术对象/堆栈不外泄。 |
+| 全项目筛查 | 全局检索 `JSON.stringify(res.data)`、`{"success":true}` 等模式，确保无其它入口回显原始技术信息。 |
 
 ---
 
@@ -1375,10 +1442,12 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **MiniMax TTS 默认模型**：speech-2.8-turbo（异步长文本 T2A Async）；模型设置隐藏模型 ID 输入（单模型收敛，含存量数据迁移）。
 - **音色目录**：音色列表来自 MiniMax 官方系统音色清单（system-voice-id，327 个），adapter listVoices 返回；语音/音色 ID 下拉可选并可持久化用户选择。
 - **音色克隆**：按官方 API（上传 POST /v1/files/upload purpose=voice_clone → 复刻 POST /v1/voice_clone）实现；前端上传提示与校验：格式 mp3/m4a/wav、时长 10 秒-5 分钟、大小 ≤20MB（数据驱动展示与本地校验）。
+  - **voice_id 合规（2026-08-08 修复）**：复刻接口自定义 voice_id 必须满足长度 `[8,256]`、首字符为英文字母、仅 `[A-Za-z0-9_-]`、末位非 `-/_`；`cloneVoice` 用 `buildMiniMaxCloneVoiceId` 生成合规 id，存量非法克隆标记失效并让偏好回退默认音色（见 7.1.16）。
 - **错误友好化**：VOICE_CATALOG_UNSUPPORTED 等 VOICE_*/VOICE_CLONE_* 技术错误码不再直出，映射为多语言友好提示；全项目排查同类泄露。
 - **UI 调整**：外观→画面；字幕默认启用；高级区「输出分辨率」改「比例与分辨率」移入画面区，选项括号只标注横屏/竖屏；移除「中间结果」原始 JSON 调试面板。
 - **动效抖动修复**：zoompan 先 2x 上采样再执行、后下采样，消除亚像素抖动（帧间差异 stddev 0.89→0.11）。
 - **分段编辑**：结果页分段编辑显示每段对应图片预览。
+  - **CSP 图片放行（2026-08-08 修复）**：分段图片与成片预览均来自本机媒体服务（`http://127.0.0.1:<port>/media/...`）。此前 CSP 仅 `media-src` 放行本机来源而 `img-src` 未放行，导致 `<video>`（媒体）正常、`<img>`（分段图片）被拦截不显示。修复：`apps/desktop/src/index.html` CSP `img-src` 增加 `http://127.0.0.1:* http://localhost:*`（与 `connect-src`/`media-src` 对齐），`index.test.js` 断言同步。
 ## 提示词优化阶段性能（2026-08-06）
 - **根因**：story2video_optimize 逐场景串行调用默认 LLM，N 个场景耗时 ≈ N × 单次推理延迟（用户长文案 6 场景约 2.7 分钟）。
 - **修复**：改为 _mapWithConcurrency 有界并发（默认 3）并行优化；保留逐场景错误定位。实测 6 场景：优化阶段 162s → 54s。
@@ -1525,7 +1594,9 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
     - **数据源**：失败时 `RunStateStore.saveFailed(run)` 持久化快照（新增 `createdAt` 字段）；`PipelineEngine.getHistory()` 在内存 `_runs`/`_history` 之外，合并 `runStateStore.listFailed()` 的持久化失败快照（按 runId 与内存条目去重）。
     - **重启保持**：应用重启后内存历史清空，但失败快照仍从 run-state 目录读取，失败任务继续显示在历史记录中（状态「生成失败」、时间取 `completedAt/updatedAt/createdAt`）。
     - **状态文案**：`failed` 状态在【历史记录】显示为「生成失败」（CreateView 内部历史视图 `historyStatusLabel` 与 `/create/history` 独立页 `statusLabel` 同步；状态筛选项「失败」改为「生成失败」）。
-    - **交互**：失败卡片保持仅展示状态不跳转（与既有失败/取消卡片一致）。
+    - **交互（2026-08-08 二次修订，新增断点继续）**：失败且可恢复（非内容政策类）的卡片显示「从断点继续」按钮，点击调用 `pipeline:resumeOrchestration` 从失败阶段续跑，自动切回流水线创作视图并展示实时进度；续跑后该任务以「进行中」状态继续留在历史记录（不再消失）。内容政策类失败（需修改文案）不显示该按钮，保持仅展示状态。点击失败卡片本体同样触发续跑（与运行中卡片点击行为一致）。
+    - **终态记录唯一性（2026-08-08 二次修订）**：断点续跑复用同一 runId，`PipelineEngine._finalizeRun` 写入 `_history` 时按 runId 去重（同 id 只保留最新一条终态，避免新旧终态重复展示）。
+    - **终态快照扩展（2026-08-08 二次修订）**：编排模式取消（cancelled）与失败（failed）一样调用 `RunStateStore.saveFailed` 持久化终态快照——续跑时会删除旧失败快照，若续跑后再次取消必须保留新终态，否则应用重启后该任务在历史中丢失；取消快照状态为 `cancelled`，不可恢复（`resumeOrchestration` 仅允许 `failed`）。
 - **交互逻辑**：
   - 点击运行中卡片 → 跳转 `/create`（CreateView 自动恢复查看该 run 进度）。
   - 点击已完成卡片 → 跳转 `/create/result?path=<成片路径>` 预览。

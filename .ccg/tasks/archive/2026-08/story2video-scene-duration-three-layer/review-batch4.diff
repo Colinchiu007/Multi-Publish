@@ -1,0 +1,450 @@
+diff --git a/.ccg/tasks/story2video-scene-duration-three-layer/task.json b/.ccg/tasks/story2video-scene-duration-three-layer/task.json
+index 4e5f82ff..86d84105 100644
+--- a/.ccg/tasks/story2video-scene-duration-three-layer/task.json
++++ b/.ccg/tasks/story2video-scene-duration-three-layer/task.json
+@@ -1,14 +1,14 @@
+ {
+   "id": "story2video-scene-duration-three-layer",
+-  "title": "Story2Video 场景时长三层模型落地（Batch 1-3 参数/切分/节奏层）",
+-  "status": "in_progress",
++  "title": "Story2Video 场景时长三层模型落地（Batch 1-4 参数/切分/节奏/UI 层）",
++  "status": "completed",
+   "complexity": "M",
+   "risk": "medium",
+   "domain": "electron+python+frontend",
+-  "currentPhase": "batch3-review",
+-  "nextAction": "Batch 3 双模型审查 + QM-1 打包 + 提交/PR/merge；Batch 4 UI 双视图 + 开关",
++  "currentPhase": "completed",
++  "nextAction": "Batch 5 voice-aware 估算表 + 自适应校准（P1，独立排期评估）",
+   "createdAt": "2026-08-08T00:00:00Z",
+-  "branch": "codex/story2video-min-duration"
++  "branch": "codex/story2video-batch4-ui"
+ }
+ 
+ 
+diff --git a/01-docs/PRD-video-creation.md b/01-docs/PRD-video-creation.md
+index 1927b57a..b35e5b26 100644
+--- a/01-docs/PRD-video-creation.md
++++ b/01-docs/PRD-video-creation.md
+@@ -364,19 +364,23 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
+ **现状**：跟随旁白（动态时长，场景长短随 TTS 实际音频）。「分镜目标时长」只是“每分镜字数”的间接换算
+ 旋钮（`字数 = 秒 × baseWordsPerSecond × speechRate`），在有旁白时**不直接控制成片时长**，存在误导。
+ 
+-**建议的三层模型**：
++**三层模型（已实施，Batch 1-4，2026-08-08）**：
+ 
+ | 层 | 旋钮 | 语义 |
+ |----|------|------|
+-| ① 分镜粒度（split） | **每分镜目标字数**（直接暴露），或保留“目标时长”输入但由程序按音色/语言/语速**倒推字数**并标注“估算” | 控制旁白内容密度与分镜数量 |
++| ① 分镜粒度（split） | **每分镜目标字数**（`targetCharsPerScene` 主控，默认 20）；UI 提供「目标时长/目标字数」双视图，时长视图按 `baseWordsPerSecond × voice.speed` 反推字数并标注“估算” | 控制旁白内容密度与分镜数量 |
+ | ② 实际时长（compose） | 无旋钮：ffprobe 真实 TTS 音频为权威，不截断 | 成片真实时长 |
+-| ③ 节奏下限（compose） | **最短场景时长** `max(音频实际时长, N)` 静音补齐（可选开关，默认关闭） | 唯一真正控制“展示时长”的旋钮 |
++| ③ 节奏下限（compose） | **最短场景时长** `max(音频实际时长, N)` 静音补齐（UI 开关，默认关闭） | 唯一真正控制“展示时长”的旋钮 |
+ 
+-- **去掉**「分镜目标时长」这一误导性的假时长：要么改为字数主控，要么升级为 voice-aware 的
+-  “时长→字数”估算入口（估算表 = 语言基准语速 × 语速倍率 × 音色系数，并明示“估算，实际以旁白音频为准”）。
++- **已实现（Batch 4）**：「分镜目标时长（秒）」误导性独立旋钮下线，改为**分镜粒度双视图**——
++  时长视图编辑时由程序按 `baseWordsPerSecond(3.3) × voice.speed` 反推 `targetCharsPerScene` 并明示“估算，实际以旁白音频为准”；
++  字数视图直接主控；两者换算 clamp 到 `[minWords, maxWords] ∩ [1,200]`，与 normalizer 幂等反推一致。
++- **已实现（Batch 4）**：「启用最短场景时长」开关（默认关闭，即 `follow-audio`）+ N 输入（默认 6，1..60）；
++  开启后提交 `sceneDurationMode='min-duration'` + `minSceneDuration=N`，短旁白场景以静音补齐。
+ - **保留并新增**「最短场景时长」作为节奏下限；补齐静音时，字幕时间轴、动效归一化、转场统一按
+-  `effectiveDuration = max(音频实际时长, N)` 计算，保证观感一致。
++  `effectiveDuration = max(音频实际时长, N)` 计算，保证观感一致（Batch 3 已落地 compose 消费）。
+ - 已排除：**纯固定时长**（每个场景固定 N 秒）——会导致截断旁白，违反“不承诺强制截断旁白”合同。
++- 待后续（Batch 5，P1）：voice-aware 估算表（语言基准 × 语速倍率 × 音色系数）+ 真实 TTS 样本自适应校准。
+ 
+ **③ 节奏下限（compose）已实现（Batch 3，2026-08-08）**：
+ 
+diff --git a/01-docs/learnings.md b/01-docs/learnings.md
+index 6d4df6bd..2dc49b96 100644
+--- a/01-docs/learnings.md
++++ b/01-docs/learnings.md
+@@ -1,6 +1,17 @@
+ 
+ ---
+ 
++## Windows CI 8.3 短路径断言失败复盘 (2026-08-08)
++
++- **表象**：本地全绿的测试在 GitHub Actions Windows runner 失败——`toHaveBeenCalledWith([audio], ...)` 收到的路径是
++  `C:\Users\RUNNER~1\AppData\Local\Temp\...`（8.3 短名）而期望值是 `C:\Users\runneradmin\...`（长名）。
++- **根因**：`os.tmpdir()` 在 CI 返回 8.3 短路径（`RUNNER~1`），业务代码 `resolveReadableMediaFile` 经
++  `fs.realpathSync.native()` 归一化为长路径（`runneradmin`）——同一文件两种字符串。任何「测试直接比较本地路径字符串」的断言在 CI 都会炸。
++- **教训**：按 AGENTS.md「Windows 路径身份断言」合同，比较生产代码返回的 canonical 路径时，期望值与实际值**必须同时**过
++  `fs.realpathSync.native()` 后再比较；本地 `os.tmpdir()` 无 8.3 缩写所以这类 bug 本地测不出来，必须用 CI 实跑发现。
++- **排查手法**：Quality Gate 步骤级只看到「全部测试绿但 exit 1」，先看 `npm error workspace ...` 定位失败包，再下载
++  Actions run 日志 zip（`gh api repos/.../actions/runs/<id>/logs`）grep `FAIL`/`AssertionError` 拿到断言原文。
++
+ ## 场景时长 min-duration 静音补齐双模型审查复盘 (2026-08-08)
+ 
+ - **C1（最高风险）：探测失败 ≠ 可补齐。** JS 隐式转换下 `Math.max(null, minSceneDuration) === minSceneDuration`、`minSceneDuration > null === true`，朴素实现会把「探测失败、长度未知」的旁白硬截断到 N 秒。补齐必须显式守卫 `audioDuration !== null && audioDuration > 0 && effectiveDuration > audioDuration`；探测失败一律走 follow-audio `-shortest` 路径（不启用补齐 `-t`、不 `apad`；探测失败且场景带上报 duration 时沿用既有 `-t reported` 上限语义）。这是「回退默认值」与「以默认值作为硬约束」的经典混淆，任何时长/阈值逻辑都要区分「布局回退值」与「强制裁剪值」。
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index f4878874..578f1c6b 100755
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,19 @@
+ ## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
+ 
++### 场景时长模式 Batch 4：CreateView 分镜粒度双视图 + 最短场景时长开关（2026-08-08）
++- 「分镜目标时长（秒）」误导性独立旋钮下线，改为**分镜粒度双视图**（默认时长视图）：目标时长视图编辑时由程序按
++  `baseWordsPerSecond(3.3) × voice.speed` 反推 `targetCharsPerScene` 并标注「估算，实际以旁白音频为准」；
++  目标字数视图直接主控；换算 clamp 到 `[minWords, maxWords] ∩ [1,200]` 并同步旧 `targetSeconds`（与 normalizer 幂等反推一致）。
++- 新增「启用最短场景时长」开关（默认关闭 = `follow-audio`，行为与现状一致）+ N 输入（默认 6，1..60）；
++  开启后提交 `sceneDurationMode='min-duration'` + `minSceneDuration=N`。
++- 提交的 `story2videoTextConfig` 新增 `split.targetCharsPerScene` 与顶层 `sceneDurationMode/minSceneDuration`（normalizer Batch 1 契约已支持）。
++- 换算自愈：时长↔字数 clamp 到 `[minWords,maxWords]∩[1,200]`，N 输入 clamp 到 1..60，无效输入 no-op；
++  旧 lastOptions 快照缺新字段时恢复默认值（20 / follow-audio / 6 / 时长视图）；旧快照的 `splitTargetSeconds`
++  会被新主控重算覆盖（误导性时长旋钮下线的预期行为）。
++- 回归：CreateView 新增 4 用例（字数主控+最短时长参数默认/显式契约、双视图换算一致、clamp 边界/N 自愈、
++  开关默认关+开启提交 + 旧快照恢复默认值），90 用例全绿；`vite build` 通过、eslint 0 error；
++  像素视觉回归 17/17（本地，含 /create 视图）。
++
+ ### 场景时长模式 Batch 3：compose 节奏层（min-duration 静音补齐，2026-08-08）
+ - `sceneDurationMode='min-duration'` 时按 `max(ffprobe 真实音频时长, minSceneDuration)` 补齐场景：`-t` + 音频 `apad` + 去 `-shortest`，片段/成片时长精确到目标值；`follow-audio`（默认）保持 `-shortest` 跟随旁白不变。
+ - **探测失败守卫（C1）**：仅当真实探测到音频且补齐目标严格大于音频时长时才启用补齐；探测失败一律走 follow-audio 路径，绝不启用补齐 `-t/apad` 硬截断未知长度旁白（探测失败且场景带上报 duration 时沿用既有 `-t reported` 上限语义，非本次引入）。
+diff --git a/apps/desktop/src/views/CreateView.test.js b/apps/desktop/src/views/CreateView.test.js
+index 3aa5978b..6da33cf2 100644
+--- a/apps/desktop/src/views/CreateView.test.js
++++ b/apps/desktop/src/views/CreateView.test.js
+@@ -251,7 +251,7 @@ describe("CreateView", () => {
+       code: 0,
+       data: {
+         version: 1,
+-        s2vConfig: { imageStyle: "anime", voiceSpeed: 1.5, voiceProvider: "disabled-provider", splitLanguage: "en" },
++        s2vConfig: { imageStyle: "anime", voiceSpeed: 1.5, voiceProvider: "disabled-provider", splitLanguage: "en", splitTargetSeconds: 8 },
+         s2vOutputConfig: { resolution: "1920x1080", fps: 60 },
+         ui: { expandedGroups: ["appearance", "voice"] },
+       },
+@@ -268,6 +268,13 @@ describe("CreateView", () => {
+     expect(w.vm.s2vConfig.splitLanguage).toBe("en");
+     expect(w.vm.s2vConfig.voiceProvider).not.toBe("disabled-provider");
+     expect(w.vm.s2vOutputConfig.fps).toBe(60);
++    // 旧快照缺新字段 → 恢复后保留默认值（字数主控 20 / follow-audio / N=6 / 时长视图）
++    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(20);
++    expect(w.vm.s2vConfig.sceneDurationMode).toBe("follow-audio");
++    expect(w.vm.s2vConfig.minSceneDuration).toBe(6);
++    expect(w.vm.s2vConfig.splitViewMode).toBe("seconds");
++    // 旧快照带回陈旧 splitTargetSeconds=8 → restore 按主控字数 20 + 恢复后的 voice.speed 1.5 自愈为 round(20/(3.3×1.5))=4
++    expect(w.vm.s2vConfig.splitTargetSeconds).toBe(4);
+     // 恢复表单折叠状态
+     expect(w.vm.s2vOpenSections.appearance).toBe(true);
+     expect(w.vm.s2vOpenSections.voice).toBe(true);
+@@ -950,6 +957,37 @@ describe("CreateView - S2V orchestration", () => {
+     w.unmount();
+   });
+ 
++  it("S2V 编排提交字数主控与最短场景时长参数（默认 + 显式开启）", async () => {
++    const mocks = await import("@/api/publisher");
++    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-duration-contract" } });
++    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
++    const mountS2V = () => {
++      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
++      w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
++      w.vm.pipelineText = "分镜时长契约";
++      return w;
++    };
++
++    // 默认：字数主控 20 + follow-audio + minSceneDuration 6
++    const w1 = mountS2V();
++    await w1.vm.startPipeline();
++    const defaultConfig = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
++    expect(defaultConfig.split.targetCharsPerScene).toBe(20);
++    expect(defaultConfig.sceneDurationMode).toBe("follow-audio");
++    expect(defaultConfig.minSceneDuration).toBe(6);
++    w1.unmount();
++
++    // 显式：字数 30 + min-duration + N=8
++    const w2 = mountS2V();
++    w2.vm.s2vConfig = { ...w2.vm.s2vConfig, splitTargetCharsPerScene: 30, sceneDurationMode: "min-duration", minSceneDuration: 8 };
++    await w2.vm.startPipeline();
++    const explicitConfig = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
++    expect(explicitConfig.split.targetCharsPerScene).toBe(30);
++    expect(explicitConfig.sceneDurationMode).toBe("min-duration");
++    expect(explicitConfig.minSceneDuration).toBe(8);
++    w2.unmount();
++  });
++
+   it("Story2Video 只显示文字输入并拒绝旧图片模式", async () => {
+     const mocks = await import("@/api/publisher");
+     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-images" } });
+@@ -1259,6 +1297,106 @@ describe("CreateView - UI interactions", () => {
+     expect(w.vm.view).toBe("history");
+   });
+ 
++  it("分镜粒度双视图：目标时长输入反推字数主控，切换视图保持一致", async () => {
++    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
++    await nextTick();
++    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
++    await nextTick();
++
++    // 默认时长视图：输入 8 秒（非默认值）→ 反推字数 round(8 × 3.3 × 1.0) = 26，且同步旧 targetSeconds
++    const secondsInput = w.find('[data-testid="s2v-split-target-seconds"]');
++    expect(secondsInput.exists()).toBe(true);
++    await secondsInput.setValue(8);
++    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(26);
++    expect(w.vm.s2vConfig.splitTargetSeconds).toBe(8);
++
++    // 切换到字数视图：显示 26；编辑 30 → 主控 30，时长估算 round(30/3.3)=9
++    await w.find('[data-testid="s2v-split-view-chars"]').trigger("click");
++    await nextTick();
++    const charsInput = w.find('[data-testid="s2v-split-target-chars"]');
++    expect(charsInput.exists()).toBe(true);
++    expect(Number(charsInput.element.value)).toBe(26);
++    await charsInput.setValue(30);
++    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(30);
++    expect(w.vm.s2vConfig.splitTargetSeconds).toBe(9);
++
++    // 切回时长视图：显示估算整数秒 30/3.3 ≈ 9（与提交口径一致）
++    await w.find('[data-testid="s2v-split-view-seconds"]').trigger("click");
++    await nextTick();
++    expect(Number(w.find('[data-testid="s2v-split-target-seconds"]').element.value)).toBe(9);
++    w.unmount();
++  });
++
++  it("分镜粒度换算边界：clamp 到 [minWords,maxWords]、无效输入 no-op、语速驱动估算、N 输入自愈", async () => {
++    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
++    await nextTick();
++    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
++    await nextTick();
++
++    // 时长视图输入 60 秒 → 字数被夹到 maxWords=50
++    await w.find('[data-testid="s2v-split-target-seconds"]').setValue(60);
++    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(50);
++
++    // 切到字数视图输入 5 → 夹到 minWords=10
++    await w.find('[data-testid="s2v-split-view-chars"]').trigger("click");
++    await nextTick();
++    await w.find('[data-testid="s2v-split-target-chars"]').setValue(5);
++    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(10);
++
++    // 无效输入 no-op（保持现值）
++    const before = w.vm.s2vConfig.splitTargetCharsPerScene;
++    await w.find('[data-testid="s2v-split-target-chars"]').setValue(0);
++    expect(w.vm.s2vConfig.splitTargetCharsPerScene).toBe(before);
++
++    // 语速 0.5 → 估算时长随动：20 字 / (3.3×0.5) ≈ 12 秒（整数口径）
++    w.vm.s2vConfig.splitTargetCharsPerScene = 20;
++    w.vm.s2vConfig.voiceSpeed = 0.5;
++    await nextTick();
++    expect(w.vm.s2vSplitEstimatedSeconds).toBe(12);
++
++    // N 输入越界自愈：100 → 60，0 → no-op
++    await w.find('[data-testid="s2v-min-duration-toggle"]').setValue(true);
++    await nextTick();
++    await w.find('[data-testid="s2v-min-duration-input"]').setValue(100);
++    expect(w.vm.s2vConfig.minSceneDuration).toBe(60);
++    await w.find('[data-testid="s2v-min-duration-input"]').setValue(0);
++    expect(w.vm.s2vConfig.minSceneDuration).toBe(60);
++    w.unmount();
++  });
++
++  it("最短场景时长开关默认关闭，开启后 N 输入生效并随配置提交", async () => {
++    const mocks = await import("@/api/publisher");
++    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-min-duration-ui" } });
++    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
++    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
++    await nextTick();
++    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
++    w.vm.pipelineText = "最短场景时长";
++    await nextTick();
++
++    const toggle = w.find('[data-testid="s2v-min-duration-toggle"]');
++    expect(toggle.exists()).toBe(true);
++    expect(toggle.element.checked).toBe(false);
++    expect(w.find('[data-testid="s2v-min-duration-input"]').exists()).toBe(false);
++    expect(w.vm.s2vConfig.sceneDurationMode).toBe("follow-audio");
++
++    // 开启 → N 输入出现并设置 8
++    await toggle.setValue(true);
++    await nextTick();
++    expect(w.vm.s2vConfig.sceneDurationMode).toBe("min-duration");
++    const durationInput = w.find('[data-testid="s2v-min-duration-input"]');
++    expect(durationInput.exists()).toBe(true);
++    await durationInput.setValue(8);
++    expect(w.vm.s2vConfig.minSceneDuration).toBe(8);
++
++    // 提交配置携带 min-duration 与 N
++    await w.vm.startPipeline();
++    const request = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
++    expect(request.sceneDurationMode).toBe("min-duration");
++    expect(request.minSceneDuration).toBe(8);
++    w.unmount();
++  });
++
+   it("历史记录请求超时时停止加载、显示错误并保留已完成来源", async () => {
+     const mocks = await import("@/api/publisher");
+     mocks.story2videoListProjects.mockImplementation(() => new Promise(() => {}));
+diff --git a/apps/desktop/src/views/CreateView.vue b/apps/desktop/src/views/CreateView.vue
+index fde91539..a9240fbb 100644
+--- a/apps/desktop/src/views/CreateView.vue
++++ b/apps/desktop/src/views/CreateView.vue
+@@ -485,8 +485,40 @@
+                   <input type="number" v-model.number="s2vConfig.splitMaxSentenceLength" min="20" max="1000" class="form-input" />
+                 </div>
+                 <div class="config-item">
+-                  <label>分镜目标时长（秒）</label>
+-                  <input type="number" v-model.number="s2vConfig.splitTargetSeconds" min="1" max="60" step="0.5" class="form-input" />
++                  <label>分镜粒度</label>
++                  <div class="s2v-split-view-toggle" role="group" aria-label="分镜粒度视图">
++                    <button type="button" class="s2v-view-btn" :class="{ active: s2vConfig.splitViewMode === 'seconds' }" :aria-pressed="s2vConfig.splitViewMode === 'seconds'" data-testid="s2v-split-view-seconds" @click="s2vConfig.splitViewMode = 'seconds'">目标时长</button>
++                    <button type="button" class="s2v-view-btn" :class="{ active: s2vConfig.splitViewMode === 'chars' }" :aria-pressed="s2vConfig.splitViewMode === 'chars'" data-testid="s2v-split-view-chars" @click="s2vConfig.splitViewMode = 'chars'">目标字数</button>
++                  </div>
++                  <input
++                    v-if="s2vConfig.splitViewMode === 'chars'"
++                    type="number"
++                    v-model.number="s2vSplitCharsView"
++                    min="10" max="50" step="1" class="form-input"
++                    data-testid="s2v-split-target-chars"
++                  />
++                  <input
++                    v-else
++                    type="number"
++                    v-model.number="s2vSplitSecondsView"
++                    min="1" :max="s2vSplitMaxSeconds" step="0.5" class="form-input"
++                    data-testid="s2v-split-target-seconds"
++                  />
++                  <span class="s2v-field-hint">
++                    <template v-if="s2vConfig.splitViewMode === 'chars'">约 {{ s2vSplitEstimatedSeconds }} 秒/分镜（按 {{ s2vSplitCharsPerSecond.toFixed(1) }} 字/秒估算）</template>
++                    <template v-else>≈ {{ s2vConfig.splitTargetCharsPerScene }} 字/分镜（估算，实际以旁白音频为准）</template>
++                  </span>
++                </div>
++                <div class="config-item config-span-2">
++                  <label class="s2v-checkbox-label">
++                    <input type="checkbox" v-model="s2vSceneDurationEnabled" data-testid="s2v-min-duration-toggle" />
++                    启用最短场景时长
++                  </label>
++                  <span class="s2v-field-hint">开启后短旁白场景以静音补齐到「最短场景时长」，节奏更统一（默认关闭，跟随旁白）</span>
++                </div>
++                <div v-if="s2vSceneDurationEnabled" class="config-item">
++                  <label>最短场景时长（秒）</label>
++                  <input type="number" v-model.number="s2vMinSceneDurationView" min="1" max="60" step="1" class="form-input" data-testid="s2v-min-duration-input" />
+                 </div>
+                 <div class="config-item config-span-2">
+                   <label>负向提示词</label>
+@@ -937,8 +969,10 @@ export default {
+         voiceSpeed: 1, voicePitch: 0, voiceVolume: 1,
+         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
+         splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
++        splitTargetCharsPerScene: 20, splitViewMode: 'seconds',
+         splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
+         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
++        sceneDurationMode: 'follow-audio', minSceneDuration: 6,
+         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
+         promptStyle: 'realistic', creativeLevel: 5, negativePrompt: '',
+         transition: 'fade', subtitleEnabled: true,
+@@ -1049,6 +1083,53 @@ export default {
+         'Controls how image prompts are written and organized; it does not replace image style.'
+       )
+     },
++    // ---- 分镜粒度双视图（三层模型①）：底层统一 targetCharsPerScene 主控 ----
++    s2vSplitCharsPerSecond() {
++      const base = Number(this.s2vConfig.splitBaseWordsPerSecond)
++      const speed = Number(this.s2vConfig.voiceSpeed)
++      return (Number.isFinite(base) && base > 0 ? base : 3.3) * (Number.isFinite(speed) && speed > 0 ? speed : 1)
++    },
++    // 字数 → 估算时长（时长视图显示；speechRate 单一来源 = voice.speed）。
++    // 与 normalizer 幂等反推一致取整数秒，避免显示/提交口径不一致（claude review W2）。
++    s2vSplitEstimatedSeconds() {
++      const chars = Number(this.s2vConfig.splitTargetCharsPerScene)
++      const cps = this.s2vSplitCharsPerSecond
++      if (!Number.isFinite(chars) || chars <= 0 || cps <= 0) return 6
++      return Math.max(1, Math.min(60, Math.round(chars / cps)))
++    },
++    // 时长视图可达上限：受每分镜字数上限（maxWords）约束，输入范围 = 可达范围（claude review W1）
++    s2vSplitMaxSeconds() {
++      const maxWords = Math.min(200, Number(this.s2vConfig.splitMaxWords) || 50)
++      return Math.max(1, Math.min(60, Math.round(maxWords / this.s2vSplitCharsPerSecond)))
++    },
++    // 时长视图输入：编辑估算时长 → 反推并 clamp 主控字数
++    s2vSplitSecondsView: {
++      get() { return this.s2vSplitEstimatedSeconds },
++      set(value) {
++        const seconds = Number(value)
++        if (!Number.isFinite(seconds) || seconds <= 0) return
++        this.applyS2VTargetChars(Math.round(seconds * this.s2vSplitCharsPerSecond))
++      },
++    },
++    // 字数视图输入：直接主控，clamp 到 [minWords, maxWords] ∩ [1,200]
++    s2vSplitCharsView: {
++      get() { return this.s2vConfig.splitTargetCharsPerScene },
++      set(value) { this.applyS2VTargetChars(Number(value)) },
++    },
++    // 最短场景时长开关（三层模型③）：默认 follow-audio（关闭）
++    s2vSceneDurationEnabled: {
++      get() { return this.s2vConfig.sceneDurationMode === 'min-duration' },
++      set(enabled) { this.s2vConfig.sceneDurationMode = enabled ? 'min-duration' : 'follow-audio' },
++    },
++    // 最短场景时长 N 输入：UI 侧 clamp 到 1..60（normalizer fail-closed 兜底，此处自愈避免通用报错）
++    s2vMinSceneDurationView: {
++      get() { return this.s2vConfig.minSceneDuration },
++      set(value) {
++        const n = Number(value)
++        if (!Number.isFinite(n) || n <= 0) return
++        this.s2vConfig.minSceneDuration = Math.min(60, Math.max(1, Math.round(n)))
++      },
++    },
+     mediaRequirementsImageText() {
+       return this.translateWithLocaleFallback(
+         'create.story2video.mediaRequirementsImage',
+@@ -1418,6 +1499,11 @@ export default {
+           delete config.voiceProvider; delete config.voiceModel; delete config.voiceId
+         }
+         this._applyS2VSnapshot(config, this.s2vConfig)
++        // 旧快照缺新字段/带回陈旧 splitTargetSeconds → 按主控字数自愈（claude review M2/M6），
++        // 避免「恢复→保存」循环污染与显示/提交口径不一致
++        if (Number.isFinite(Number(this.s2vConfig.splitTargetCharsPerScene))) {
++          this.applyS2VTargetChars(this.s2vConfig.splitTargetCharsPerScene)
++        }
+         if (this.s2vConfig.imageProvider && !imageProviders.has(this.s2vConfig.imageProvider)) {
+           this.s2vConfig.imageProvider = this.s2vImageProviders[0]?.id || ''
+           this.s2vConfig.imageModel = ''
+@@ -1483,6 +1569,7 @@ export default {
+             mode: config.splitMode,
+             maxSentenceLength: config.splitMaxSentenceLength,
+             targetSeconds: config.splitTargetSeconds,
++            targetCharsPerScene: config.splitTargetCharsPerScene,
+             baseWordsPerSecond: config.splitBaseWordsPerSecond,
+             speechRate: config.splitSpeechRate,
+             minWords: config.splitMinWords,
+@@ -1521,6 +1608,8 @@ export default {
+           },
+           bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
+           transition: config.transition,
++          sceneDurationMode: config.sceneDurationMode,
++          minSceneDuration: config.minSceneDuration,
+           templateId: config.templateId || '',
+           concurrency: config.concurrency,
+           watermark: {
+@@ -1564,6 +1653,17 @@ export default {
+     cloneForIpc(value) {
+       try { return JSON.parse(JSON.stringify(value)) } catch { return {} }
+     },
++    // 分镜字数主控：clamp 到 [minWords, maxWords] ∩ [1,200]，并同步旧 targetSeconds（估算，与 normalizer 幂等反推一致）
++    applyS2VTargetChars(rawChars) {
++      const chars = Number(rawChars)
++      if (!Number.isFinite(chars) || chars <= 0) return
++      const min = Math.max(1, Number(this.s2vConfig.splitMinWords) || 10)
++      const max = Math.min(200, Number(this.s2vConfig.splitMaxWords) || 50)
++      const clamped = Math.min(max, Math.max(min, Math.round(chars)))
++      this.s2vConfig.splitTargetCharsPerScene = clamped
++      const cps = this.s2vSplitCharsPerSecond
++      this.s2vConfig.splitTargetSeconds = cps > 0 ? Math.min(60, Math.max(1, Math.round(clamped / cps))) : 6
++    },
+     applyS2VTemplate() {
+       const template = getTemplateById(this.s2vConfig.templateId, window.localStorage)
+       if (!template) return
+@@ -2775,6 +2875,14 @@ export default {
+ .s2v-config-section[open] > .s2v-section-summary::before { transform: rotate(90deg); }
+ .s2v-summary { margin-left: auto; color: var(--text-muted); font-size: 12px; font-weight: 400; text-align: right; }
+ .s2v-config-section > .config-grid { padding: 0 16px 16px; }
++.s2v-split-view-toggle { display: inline-flex; gap: 6px; margin-bottom: 6px; }
++.s2v-view-btn {
++  padding: 4px 12px; font-size: 12px; border: 1px solid var(--border); border-radius: 999px;
++  background: transparent; color: var(--text-muted); cursor: pointer; transition: all .15s ease;
++}
++.s2v-view-btn.active { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
++.s2v-field-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted); line-height: 1.4; }
++.s2v-checkbox-label { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+ .s2v-subgroup { margin: 0 16px 12px; }
+ .s2v-subgroup:first-of-type { margin-top: 2px; }
+ .s2v-subgroup-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 0 8px; padding-bottom: 4px; border-bottom: 1px dashed var(--border); }

@@ -123,10 +123,14 @@ class AIGenerator {
       throw new Error('No configured default provider available for type: ' + type);
     }
 
-    const configuredModel = Array.isArray(provider.models)
+    // 多模态 provider 按能力选择模型（capability_models[type]），普通 provider 回退首个模型。
+    const capabilityModel = provider.capability_models && typeof provider.capability_models === 'object'
+      ? provider.capability_models[type]
+      : null;
+    const fallbackModel = Array.isArray(provider.models)
       ? provider.models.find(model => typeof model === 'string' && model.trim())
       : null;
-    const model = configuredModel && configuredModel.trim();
+    const model = (typeof capabilityModel === 'string' && capabilityModel.trim()) || (fallbackModel && fallbackModel.trim());
     if (!model) {
       throw new Error('No configured model available for default provider: ' + provider.id);
     }

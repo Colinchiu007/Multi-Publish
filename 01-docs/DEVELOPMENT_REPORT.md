@@ -9,6 +9,27 @@
 
 ---
 
+## 2026-08-08（第二轮）：多模态模型类别 + MiniMax TTS 真实链路修复
+
+### 交付范围（PR #411、#413、#414）
+
+| PR | 内容 | 关键文件 |
+|----|------|----------|
+| #411 | 模型设置新增「多模态模型」类别 + MiniMax 多模态预设（一个 API Key，能力 tts/image/video）+ 能力路由（`getDefault` 多模态优先，默认开启）+ `MinimaxMultimodalAdapter` | `model-provider-seeds.js`、`model-provider-manager.js`、`adapters/minimax-multimodal.js`（新）、`ai-generator.js`、`ModelProviders.vue`、`useModelProviderCrud.js` |
+| #413 | 克隆音色 voice_id 合规（官方约束长度[8,256]/首字母英文字母）+ 存量非法克隆标记失效 + 偏好回退默认音色（旁白 0/1 第一层根因） | `adapters/minimax-tts.js`、`tts-voice-clone-service.js`、`tts-voice-service.js`、`CreateView.vue` |
+| #414 | 异步 T2A 查询响应层级双层兼容（官方 status/file_id 在顶层，实现只读 data.* 致 90s 超时；旁白 0/1 第二层根因） | `adapters/minimax-tts.js` |
+
+### 真实链路验证（profile + 真实 MiniMax）
+- 旁白 0/1 两层根因修复后：`minimax-tts synthesize success（约 13s）`，**图片 1/1 · 旁白 1/1**，成片 20s 生成；音色下拉显示失效克隆「01（已失效，请重新克隆）」并自动回退默认音色。
+- 遗留：真实克隆音色重新克隆 → 成片（待办 C-1）；sensenova-llm key 解密失败需在模型设置重新填写。
+
+### 验证与流程
+- 本轮新增测试约 19 例（multimodal 12、voice_id 合规/委托 4、异步查询层级 2、失效克隆 catalog 1）；全量 6512 tests 通过。
+- PR #411/#413/#414 均通过 Doc Sync、单元测试/Lint、Windows/Linux build、Electron tests、GUI/Visual tests 与 Quality Gate 后合入 main。
+- 文档同步：PRD 7.1.4.1/7.1.15/7.1.16、CHANGELOG、learnings、E2E-PENDING 已随附。
+
+---
+
 ## 2026-08-08：图片轮播稳定性与体验系列修复
 
 ### 交付范围（PR #397-400、#402，另有 PR #396 为并行会话）

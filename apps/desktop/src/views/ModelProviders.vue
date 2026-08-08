@@ -4,9 +4,13 @@
     <div class="cohere-page-header">
       <div>
         <div class="page-title">模型服务商设置</div>
-        <div class="page-subtitle">管理推理 / TTS语音 / 语音识别 / 图片生成 / 视频模型 / 音频生成 六类 AI 服务商</div>
+        <div class="page-subtitle">管理推理 / TTS语音 / 语音识别 / 图片生成 / 视频模型 / 音频生成 / 多模态模型 七类 AI 服务商</div>
       </div>
       <div class="page-actions">
+        <label class="multimodal-preference" title="开启后，流水线按能力调用模型时，若多模态模型声明支持该能力，将优先使用多模态模型（仅一个 API Key）。">
+          <input type="checkbox" :checked="preferMultimodal" @change="saveMultimodalPreference($event.target.checked)" />
+          <span>优先使用多模态模型进行所有的AI操作</span>
+        </label>
         <button class="cohere-btn-secondary" @click="loadProviders">⟳ 刷新</button>
         <button class="cohere-btn-primary" @click="openAdd">＋ 添加服务商</button>
       </div>
@@ -131,6 +135,12 @@
                     {{ formatModels(p.models) }}
                   </span>
                 </div>
+                <div v-if="p.capabilities && p.capabilities.length > 0" class="provider-field">
+                  <span class="field-label">能力</span>
+                  <span class="field-value capability-list">
+                    <span v-for="cap in p.capabilities" :key="cap" class="capability-chip">{{ MULTIMODAL_CAPABILITY_LABELS[cap] || cap }}</span>
+                  </span>
+                </div>
                 <div class="provider-field">
                   <span class="field-label">API Key</span>
                   <span class="field-value mono configured">
@@ -158,12 +168,7 @@
                   @click="!p.is_default && setDefault(p)"
                   :disabled="p.is_default || !(isProviderConfigured(p))"
                 >★</button>
-                <button class="cohere-icon-btn"
-                  :aria-label="p.enabled ? '禁用' : '启用'"
-                  :title="p.enabled ? '禁用' : '启用'"
-                  @click="toggleEnabled(p)"
-                >{{ p.enabled ? '⏸' : '▶' }}</button>
-                <button v-if="!p.is_preset" class="cohere-icon-btn cohere-icon-btn-danger"
+                <button class="cohere-icon-btn cohere-icon-btn-danger"
                   aria-label="删除" title="删除" @click="confirmDelete(p)"
                 >✕</button>
               </div>
@@ -269,12 +274,7 @@
                 @click="!p.is_default && setDefault(p)"
                 :disabled="p.is_default || !(isProviderConfigured(p))"
               >★</button>
-              <button class="cohere-icon-btn"
-                :aria-label="p.enabled ? '禁用' : '启用'"
-                :title="p.enabled ? '禁用' : '启用'"
-                @click="toggleEnabled(p)"
-              >{{ p.enabled ? '⏸' : '▶' }}</button>
-              <button v-if="!p.is_preset" class="cohere-icon-btn cohere-icon-btn-danger"
+              <button class="cohere-icon-btn cohere-icon-btn-danger"
                 aria-label="删除" title="删除" @click="confirmDelete(p)"
               >✕</button>
             </div>
@@ -319,6 +319,9 @@
             <div class="preset-card-name">{{ preset.name }}</div>
             <div class="preset-card-url">{{ preset.base_url || '本地' }}</div>
             <div class="preset-card-models">{{ (preset.models || []).length }} 个模型</div>
+            <div v-if="preset.capabilities && preset.capabilities.length > 0" class="preset-card-capabilities">
+              <span v-for="cap in preset.capabilities" :key="cap" class="capability-chip">{{ MULTIMODAL_CAPABILITY_LABELS[cap] || cap }}</span>
+            </div>
           </button>
         </div>
         <div v-else class="no-presets">该类别暂无可添加的预设服务商</div>
@@ -337,15 +340,20 @@
           <input class="input" v-model="form.id" placeholder="如 openai, anthropic" :disabled="!!addPresetId" />
           <label class="input-label">显示名称</label>
           <input class="input" v-model="form.name" placeholder="如 OpenAI" />
-          <label class="input-label">Base URL</label>
-          <input class="input" v-model="form.base_url" placeholder="https://api.example.com/v1" />
+          <template v-if="form.category !== 'multimodal'">
+            <label class="input-label">Base URL</label>
+            <input class="input" v-model="form.base_url" placeholder="https://api.example.com/v1" />
+          </template>
           <template v-if="form.id === 'doubao-tts' || form.id === 'doubao-stt'">
             <label class="input-label">豆包 App ID</label>
             <input class="input" v-model.trim="form.config.appId" placeholder="火山引擎 App ID" />
           </template>
           <label class="input-label">{{ form.id === 'doubao-tts' || form.id === 'doubao-stt' ? '豆包 Access Token' : 'API Key' }}</label>
           <input class="input" v-model="form.api_key" type="password" :placeholder="form.id === 'doubao-tts' || form.id === 'doubao-stt' ? 'Access Token' : 'sk-...'" />
-          <template v-if="form.models.length === 1">
+          <template v-if="form.category === 'multimodal'">
+            <div class="form-hint">多模态服务商：仅需填写 API Key，能力与模型由系统预设（支持：{{ (form.capabilities || []).map(cap => MULTIMODAL_CAPABILITY_LABELS[cap] || cap).join(' / ') || '—' }}）。</div>
+          </template>
+          <template v-else-if="form.models.length === 1">
             <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
           </template>
           <template v-else>
@@ -372,8 +380,10 @@
       <div class="form-fields">
         <label class="input-label">显示名称</label>
         <input class="input" v-model="form.name" />
-        <label class="input-label">Base URL</label>
-        <input class="input" v-model="form.base_url" />
+        <template v-if="form.category !== 'multimodal'">
+          <label class="input-label">Base URL</label>
+          <input class="input" v-model="form.base_url" />
+        </template>
         <template v-if="form.id === 'doubao-tts' || form.id === 'doubao-stt'">
           <label class="input-label">豆包 App ID</label>
           <input class="input" v-model.trim="form.config.appId" placeholder="火山引擎 App ID" />
@@ -401,7 +411,10 @@
     <!-- 删除确认对话框 -->
     <el-dialog v-model="showDeleteDialog" title="确认删除" class="responsive-dialog-sm">
       <p>确定要删除服务商 <strong>{{ deleteTarget?.name }}</strong> 吗？</p>
-      <p style="font-size:13px;color:var(--muted)">此操作不可恢复，关联的 API Key 也会一并移除。</p>
+      <p style="font-size:13px;color:var(--muted)">
+        此操作不可恢复，关联的 API Key 也会一并移除。
+        <template v-if="deleteTarget?.is_preset">预设服务商删除后将从列表隐藏，可在「添加服务商」中重新添加。</template>
+      </p>
       <template #footer>
         <div class="dialog-footer">
           <button class="cohere-btn-secondary" @click="showDeleteDialog = false">取消</button>
@@ -422,6 +435,7 @@ import { useModelProviderCrud } from '@/composables/useModelProviderCrud'
 const {
   CATEGORY_OPTIONS,
   CATEGORY_LABELS,
+  MULTIMODAL_CAPABILITY_LABELS,
   providers,
   loading,
   submitting,
@@ -430,6 +444,7 @@ const {
   testResults,
   testingId,
   safeStorageAvailable,
+  preferMultimodal,
   showFormDialog,
   isEditing,
   form,
@@ -450,6 +465,8 @@ const {
   activeCategoryCounts,
   isProviderConfigured,
   loadProviders,
+  loadMultimodalPreference,
+  saveMultimodalPreference,
   openAdd,
   nextAddStep,
   selectPreset,
@@ -464,7 +481,7 @@ const {
 } = useModelProviderCrud()
 
 function categoryIcon (cat) {
-  const icons = { llm: '🧠', tts: '🔊', speech_recognition: '🎤', image: '🖼️', video: '🎬', audio: '🎵' }
+  const icons = { llm: '🧠', tts: '🔊', speech_recognition: '🎤', image: '🖼️', video: '🎬', audio: '🎵', multimodal: '🌐' }
   return icons[cat] || '📦'
 }
 
@@ -477,6 +494,7 @@ function formatModels (models) {
 
 onMounted(() => {
   loadProviders()
+  loadMultimodalPreference()
 })
 </script>
 
@@ -494,6 +512,54 @@ onMounted(() => {
   background: #3c2a1a;
   color: #ffb74d;
   border-bottom-color: #5d4037;
+}
+
+/* 多模态优先开关 */
+.multimodal-preference {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text, #333);
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e2e2e2);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.multimodal-preference input {
+  accent-color: var(--primary, #1a73e8);
+  cursor: pointer;
+}
+
+/* 多模态能力标签 */
+.capability-chip {
+  display: inline-block;
+  background: #ede7f6;
+  color: #5e35b1;
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 11px;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+[data-theme="dark"] .capability-chip {
+  background: #311b4d;
+  color: #b39ddb;
+}
+.preset-card-capabilities {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.capability-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
 }
 
 /* Provider 卡片网格 */

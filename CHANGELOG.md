@@ -1,4 +1,48 @@
+## 维护与归档（2026-08-08）
+
+- 归档 Story2Video 场景时长三层模型 CCG 任务审计轨迹（`.ccg/tasks/story2video-scene-duration-three-layer` → `archive/2026-08/`）：
+  Batch 1-5b（参数层 targetCharsPerScene 主控 / 切分层 / compose min-duration 静音补齐 / UI 双视图+开关 /
+  语言感知估算+样本采集 / 自适应校准+创建页实时预估）全部合并完成，分析/审查文档与 diff 保留备查。
+
 ## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
+
+### 场景时长模式 Batch 5b：自适应校准 + 创建页实时预估（2026-08-08）
+- **自适应校准（tts-calibration）**：按「语言 / 语言+provider / 语言+provider+voiceId」维度对 5a 样本求
+  实际字/s ÷ 静态基准的**中位数系数**（每维度 ≥3 样本启用，90 天内样本，冷启动回退静态语言表）；
+  **en 单位口径（claude 5a W1）由校准自然吸收**（校准基于字符口径，en 系数 ≈4~5 自动纠偏）。
+- **创建页实时预估行**：文案输入下方展示「预估 N 个分镜 · 旁白约 X~Y 秒 · 成本约 ¥Z」——
+  时长点估沿用整数秒口径、区间 ±15%，成本 = 分镜数×图片单价 + 预估总时长×TTS 每秒单价
+  （默认单价 0.1 元/张、0.05 元/秒，本地常量可后续后台化）；无样本时静态估算并提示「样本积累后自动校准」。
+- 回归：新增 tts-calibration 6 用例（系数/特异性/有效语速/时长/分镜数/成本）+ CreateView 3 用例（静态/校准/空文案），
+  受影响 8 套件 286 用例全绿；`vite build` 通过、eslint 0 error。
+
+### 场景时长模式 Batch 5a：语言感知估算 + TTS 时长样本采集（2026-08-08）
+- **语言感知基准语速表**：`zh≈4.5 字/s`、`en≈2.8 词/s`、其余（含 auto）回退 3.3——
+  UI 双视图估算、提交的 `split.baseWordsPerSecond`、normalizer 缺省值三者同源
+  （renderer/主进程双副本 + 合同测试锁定一致）；时长↔字数换算按 `语言基准 × voice.speed`，clamp/整数口径不变。
+- **TTS 时长样本采集**：compose 每场景记录真实旁白音频时长 `audioDuration`（与补齐后视频片段 `duration` 分离），
+  流水线 compose 成功后 best-effort 写入本地 `story2video.ttsSamples.v1`（FIFO ≤500，
+  字段 language/provider/model/voiceId/speed/chars/durationSeconds/recordedAt，不存原文；探测失败片段跳过；
+  采集异常静默不阻断流水线）——为 Batch 5b 自适应校准提供数据源。
+- 回归：新增 voice-estimate / tts-samples / renderer↔主进程一致性合同测试（含 normalizer 三腿等价）；
+  扩展 text-config（语言感知缺省值）、compose-engine（audioDuration 字段）、stage-executor（采集钩子 + 静默容错）、
+  CreateView（语言感知换算）——受影响 7 套件 275 用例全绿；`vite build` 通过、eslint 0 error、像素视觉回归 17/17、QM-1 打包通过。
+- ⚠️ 已知边界（排期进 Batch 5b）：en 表值按「2.8 词/s」设计但实现按字符计，英文估算系统性偏小约 5×，
+  5b 自适应校准必须处理 chars/words 比值（样本已存 chars + language）或改 en 为字/s 口径。
+
+### 场景时长模式 Batch 4：CreateView 分镜粒度双视图 + 最短场景时长开关（2026-08-08）
+- 「分镜目标时长（秒）」误导性独立旋钮下线，改为**分镜粒度双视图**（默认时长视图）：目标时长视图编辑时由程序按
+  `baseWordsPerSecond(3.3) × voice.speed` 反推 `targetCharsPerScene` 并标注「估算，实际以旁白音频为准」；
+  目标字数视图直接主控；换算 clamp 到 `[minWords, maxWords] ∩ [1,200]` 并同步旧 `targetSeconds`（与 normalizer 幂等反推一致）。
+- 新增「启用最短场景时长」开关（默认关闭 = `follow-audio`，行为与现状一致）+ N 输入（默认 6，1..60）；
+  开启后提交 `sceneDurationMode='min-duration'` + `minSceneDuration=N`。
+- 提交的 `story2videoTextConfig` 新增 `split.targetCharsPerScene` 与顶层 `sceneDurationMode/minSceneDuration`（normalizer Batch 1 契约已支持）。
+- 换算自愈：时长↔字数 clamp 到 `[minWords,maxWords]∩[1,200]`，N 输入 clamp 到 1..60，无效输入 no-op；
+  旧 lastOptions 快照缺新字段时恢复默认值（20 / follow-audio / 6 / 时长视图）；旧快照的 `splitTargetSeconds`
+  会被新主控重算覆盖（误导性时长旋钮下线的预期行为）。
+- 回归：CreateView 新增 4 用例（字数主控+最短时长参数默认/显式契约、双视图换算一致、clamp 边界/N 自愈、
+  开关默认关+开启提交 + 旧快照恢复默认值），90 用例全绿；`vite build` 通过、eslint 0 error；
+  像素视觉回归 17/17（本地，含 /create 视图）。
 
 ### 场景时长模式 Batch 3：compose 节奏层（min-duration 静音补齐，2026-08-08）
 - `sceneDurationMode='min-duration'` 时按 `max(ffprobe 真实音频时长, minSceneDuration)` 补齐场景：`-t` + 音频 `apad` + 去 `-shortest`，片段/成片时长精确到目标值；`follow-audio`（默认）保持 `-shortest` 跟随旁白不变。

@@ -13,6 +13,7 @@ const CATEGORIES = {
   IMAGE: 'image',
   VIDEO: 'video',
   AUDIO: 'audio',
+  MULTIMODAL: 'multimodal',
 };
 
 const CATEGORY_LABELS = {
@@ -22,7 +23,16 @@ const CATEGORY_LABELS = {
   image: '图片生成',
   video: '视频模型',
   audio: '音频生成',
+  multimodal: '多模态模型',
 };
+
+/**
+ * 多模态能力标识（对应类别/能力域）：
+ * llm=文字推理 / tts=TTS语音 / speech_recognition=语音识别 / image=生图 / video=生成视频。
+ * 多模态预设必须声明至少 MULTIMODAL_MIN_CAPABILITIES 项能力。
+ */
+const MULTIMODAL_CAPABILITY_IDS = ['llm', 'tts', 'speech_recognition', 'image', 'video'];
+const MULTIMODAL_MIN_CAPABILITIES = 2;
 
 /**
  * 预设服务商列表
@@ -352,6 +362,29 @@ const PRESET_PROVIDERS = [
     models: ['local-library'],
     is_preset: 1,
   },
+
+  // ─── 多模态模型 ──────────────────────────────
+  // 多模态预设必须声明 capabilities（至少 MULTIMODAL_MIN_CAPABILITIES 项）与
+  // 每个能力对应的默认模型 capability_models；流水线按能力路由时使用。
+  {
+    id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal',
+    base_url: 'https://api.minimaxi.com/v1',
+    models: ['speech-2.8-turbo', 'image-01', 'MiniMax-Hailuo-2.3', 'MiniMax-M2.7'],
+    is_preset: 1,
+    capabilities: ['llm', 'tts', 'image', 'video'],
+    capability_models: {
+      llm: 'MiniMax-M2.7',
+      tts: 'speech-2.8-turbo',
+      image: 'image-01',
+      video: 'MiniMax-Hailuo-2.3',
+    },
+  },
 ];
 
-module.exports = { CATEGORIES, CATEGORY_LABELS, PRESET_PROVIDERS };
+module.exports = {
+  CATEGORIES,
+  CATEGORY_LABELS,
+  PRESET_PROVIDERS,
+  MULTIMODAL_CAPABILITY_IDS,
+  MULTIMODAL_MIN_CAPABILITIES,
+};

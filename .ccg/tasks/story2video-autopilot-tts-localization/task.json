@@ -1,0 +1,13 @@
+{
+  "id": "story2video-autopilot-tts-localization",
+  "title": "收敛现有改动并升级图片轮播自动流水线、TTS音色与多语言体验",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "desktop-pipeline",
+  "currentPhase": "analysis",
+  "nextAction": "OpenSpec change 已就绪（4/4 artifacts + valid）。继续完成双模型分析与工作树审计；实现按 tasks.md 勾选进度，完成后执行 8.3 archive 三同步",
+  "createdAt": "2026-08-03T00:00:00Z",
+  "branch": "codex/stitch-publish-visual-slice",
+  "openspecChange": "story2video-autopilot-tts-localization"
+}

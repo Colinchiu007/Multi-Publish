@@ -1,5 +1,80 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-08 (多模态 LLM 能力 + 删除交互 + 测试脱敏 + 运营后台预设模型设置)
+
+### 新增
+- **MiniMax 多模态补全文字推理（llm）能力**：预设 `minimax-multimodal` 能力升级为 `['llm','tts','image','video']`，`capability_models.llm='MiniMax-M2.7'`（官方文档 OpenAI 兼容 `POST /v1/chat/completions`）。
+- **新增 `minimax-llm` Adapter**：`chatCompletion` / `streamChat` / `listModels` / `testConnection`，注册进 `ModelProviderManager._registerBuiltinAdapters`；`MinimaxMultimodalAdapter` 组合委托扩展为 LLM/TTS/Image/Video 四个适配器。
+- **能力→调用方法映射**：`ai-generator.TYPE_TO_METHOD` + `capability_models[type]` 保证多模态模型按能力走与单类型模型完全相同的调用方法。
+- **`_syncPresetCapabilities` 升级为 diff-merge**：存量预设行合并新增能力（保留用户已有配置），旧数据库升级后自动获得 `llm` 能力。
+- **运营后台（ops-center）新增「预设模型设置」模块**：`model_presets` 表 + `/api/v1/model-presets` CRUD + 前端「预设模型」页；含 `default_model` 默认模型设置（已知默认模型预填）、`is_visible` 显示开关、`doc_links`/`capability_doc_links` 文档链接（≤10 条，http(s) 校验）、多模态能力手工配置。
+
+### 修改
+- **多模态表单隐藏 Base URL**：新增/编辑对话框对 `multimodal` 类别不展示 Base URL 输入（预设地址系统写死，多能力端点由各适配器各自持有）。
+- **「禁用」按钮改为「删除」**：预设服务商删除 = 软删除（列表隐藏 + 清除 Key + 禁用，可在「添加服务商」重新添加）；自定义服务商物理删除；统一二次确认。
+- **测试连接提示脱敏**：成功仅显示「✅ 连接成功」，不再回显 `{"success":true}` 等原始技术响应体；全项目筛查 `JSON.stringify(res.data)` 类泄漏。
+
+### 测试
+- 新增 minimax-llm 适配器单测（请求体/响应解析/错误映射/SSE/能力协商）、多模态 diff-merge 升级、ai-generator llm 能力模型选择、预设软删除（R85 目录保持）等用例；ops-center 后端新增 6 个模型预设 API 测试（38 全绿），前端构建通过。
+
+### 文档
+- PRD 5.3 / 7.1 删除规则 / 7.4.1（多模态 llm 能力）/ 7.4.2（运营后台预设模型设置）/ 7.4.3（测试脱敏）+ CHANGELOG + E2E 待办。
+
+## [Unreleased] - 2026-08-08 (MiniMax 异步 T2A 查询响应层级修复)
+
+### 修复
+- **旁白 0/1 第二层根因（真实 provider 复测）**：voice_id 修复后错误从 `voice id wrong` 变为「异步语音合成查询超时（90s）」。根因：官方查询接口把 `status`/`file_id`/`task_id` 放在响应**顶层**（`{ task_id, status, file_id, base_resp }`），实现只读 `data.*`（`queryData.data`）导致任务永远显示 pending 直到超时。
+- **双层兼容解析**：`_synthesizeAsync` 轮询同时读顶层与 `data.*`；`status=success`+`file_id` 才下载，`processing` 继续轮询，`failed`/`expired` 立即失败。
+- **真实链路验证**：修复后 `minimax-tts synthesize success（约 13s）`，图片 1/1 · 旁白 1/1，成片 20 秒生成（视频预览可见旁白与分段音频）。
+
+### 测试
+- 新增 2 例：官方顶层 `status/file_id` 响应正常完成并下载、顶层 `status=processing` 继续轮询后完成。
+
+### 文档
+- PRD 7.1.15「查询响应层级」修订 + CHANGELOG。
+
+## [Unreleased] - 2026-08-08 (克隆音色 voice_id 合规 + 失效回退默认音色)
+
+### 修复
+- **旁白 0/1 根因（真实 provider 排查）**：图片正常、仅 TTS 合成失败，provider 日志 `invalid params, voice id wrong`。根因：克隆音色 `voice_id="01"` 不符合 MiniMax 官方约束（长度 [8,256]、首字符必须英文字母），旧版 `cloneVoice` 用名称清洗生成非法 id，导致复刻/合成被平台拒绝。
+- **voice_id 合规生成**：`cloneVoice` 改用 `buildMiniMaxCloneVoiceId`（MiniMax 前缀 + 清洗名称 + 随机后缀，长度 [8,256]、末位非 -/_）；新增 `isValidMiniMaxCloneVoiceId`。
+- **存量自愈**：`listClones` 标记非法克隆 `invalid`；音色 catalog 将失效克隆移出可选项并放入 `invalidVoices`；偏好指向失效克隆时自动回退默认音色（旁白合成恢复）。
+- **前端提示**：音色下拉与克隆面板显示「已失效，请重新克隆」（禁用选择，可删除），无需新增错误码。
+
+### 测试
+- 新增 8 例：buildMiniMaxCloneVoiceId 合规与随机性、isValidMiniMaxCloneVoiceId 边界、cloneVoice 复刻请求携带合规 voice_id、clone-service 非法/合法克隆标记、catalog invalidVoices 合并与偏好回退、CreateView 失效展示。
+
+### 文档
+- PRD 7.1.16「克隆音色 voice_id 合规与失效回退合同」+ 7.4 音色克隆 voice_id 合规说明。
+
+## [Unreleased] - 2026-08-08 (多模态模型类别 + 能力路由 + MiniMax 多模态预设)
+
+### 新能力与修复
+- **多模态模型类别**：模型设置新增「多模态模型」类别（第 7 类，副标题同步）；新增预设 `minimax-multimodal`（MiniMax，仅需一个 API Key），声明能力 `['tts','image','video']`（≥2 项）与能力默认模型 `{ tts:'speech-2.8-turbo', image:'image-01', video:'MiniMax-Hailuo-2.3' }`，能力持久化到 provider `config`（含存量预设回填）。
+- **多模态优先开关**：「优先使用多模态模型进行所有的AI操作」全局开关（默认勾选，user 级 `prefer_multimodal` 持久化）。
+- **能力路由**：`ModelProviderManager.getDefault(category)` 开启偏好且多模态已配置并声明能力时返回多模态模型；`ai-generator.generateWithDefault` 按 `capability_models[type]` 选择模型；story2video 资源阶段未显式指定 provider 时按能力路由（显式下拉选择优先）。
+- **多模态适配器**：`MinimaxMultimodalAdapter` 组合并委托 MiniMax TTS/Image/Video 三个既有适配器（TTS 走 t2a_async_v2 异步端点）。
+
+### 测试
+- 新增 12 例：multimodal 类别/标签与预设能力声明（≥2 + 能力默认模型齐全）、种子 config 持久化、getDefault 路由（关闭/开启/未配置/未声明能力 四分支）、偏好开关往返、多模态适配器能力与委托、ai-generator 能力模型选择（含普通 provider 回退）。
+
+### 文档
+- PRD 7.4.1「多模态模型类别」合同（类别/预设/能力声明/路由/开关/交互/验收）+ 5.3 类别表更新。
+
+## [Unreleased] - 2026-08-08 (失败历史断点继续 + 终态快照唯一性 + 分段图片 CSP)
+
+### 新能力与修复
+- **失败历史可断点继续**：历史记录中失败且可恢复（非内容政策）的任务卡片新增「从断点继续」按钮，点击调用 `pipeline:resumeOrchestration` 续跑并切回流水线视图；续跑后任务以「进行中」继续留在历史，不再消失；内容政策类失败不显示该按钮。
+- **终态记录唯一性**：`_finalizeRun` 写入内存历史时按 runId 去重（断点续跑复用同 id，只保留最新一条终态），避免新旧终态重复展示。
+- **取消终态持久化**：编排模式取消（cancelled）与失败一样调用 `RunStateStore.saveFailed` 落盘终态快照，避免「续跑→再次取消→重启后任务丢失」。
+- **分段图片 CSP 放行**：`img-src` 增加 `http://127.0.0.1:* http://localhost:*`（与 `media-src`/`connect-src` 对齐），修复分段编辑图片被 CSP 拦截不显示而视频正常的问题。
+
+### 测试
+- 新增 4 例：CreateView 失败历史「从断点继续」展示与续跑（含内容政策不显示）、PipelineEngine `_history` 同 runId 去重、取消终态快照重启后仍在历史；`index.test.js` 断言 `img-src` 放行本机来源。
+
+### 文档
+- PRD 历史记录章节补充「断点继续交互 / 终态唯一性 / 取消终态持久化」与 CSP 图片放行合同。
+
 ## [Unreleased] - 2026-08-08 (MiniMax 异步 T2A + 资源进度前置)
 
 ### 修复

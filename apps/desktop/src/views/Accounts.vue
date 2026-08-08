@@ -1076,4 +1076,11 @@ onUnmounted(() => {
 .account-list-view :deep(.account-actions) { flex: 0 0 300px; border-top: 0; border-left: 1px solid var(--border-light, #efeff2); }
 @media (max-width: 1100px) { .account-toolbar-selects { display: none; } }
 @media (max-width: 720px) { .account-view-toggle { display: none; } }
+@media (max-width: 900px) {
+  .account-controls { grid-template-columns: 1fr; }
+  .account-toolbar-selects { flex-wrap: wrap; }
+  .account-sort-controls { flex-wrap: wrap; }
+  .account-command-bar { justify-content: flex-start; flex-wrap: wrap; }
+  .filter-tabs { max-width: 100%; overflow-x: auto; }
+}
 </style>

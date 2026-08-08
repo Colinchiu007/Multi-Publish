@@ -233,6 +233,41 @@ describe('PipelineEngine 状态机模式', () => {
       error,
     })
   })
+
+  it('断点续跑复用同 runId：_history 只保留最新一条终态', () => {
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const base = { id: 'run-same-id', pipeline: 'story2video-compose', status: 'running', stages: [], context: {}, orchestrationMode: 'orchestrator', startedAt: new Date().toISOString() }
+    engine._runs.set('run-same-id', { ...base })
+    engine._finalizeRun(engine._runs.get('run-same-id'), 'failed', 'provider timeout')
+    engine._runs.set('run-same-id', { ...base, resumedFrom: 'run-same-id' })
+    engine._finalizeRun(engine._runs.get('run-same-id'), 'cancelled', null)
+    const entries = engine.getHistory().filter(item => item.id === 'run-same-id')
+    expect(entries).toHaveLength(1)
+    expect(entries[0].status).toBe('cancelled')
+  })
+
+  it('取消的编排运行也持久化终态快照：重启后任务仍在历史记录', () => {
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    const { RunStateStore } = require('../services/run-state-store')
+    const dir = path.join(os.tmpdir(), 'pipeline-engine-cancel-test-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const run = {
+      id: 'run-cancelled-persisted', pipeline: 'story2video-compose', status: 'running', currentStage: 2,
+      stages: [{ name: 'split', status: 'completed' }, { name: 'optimize', status: 'completed' }, { name: 'generate_assets', status: 'running' }],
+      context: {}, params: {}, orchestrationMode: 'orchestrator', startedAt: new Date().toISOString(),
+    }
+    engine._runs.set(run.id, run)
+    engine._finalizeRun(run, 'cancelled', null)
+
+    // 模拟应用重启：新引擎复用同一 store
+    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const history = engineB.getHistory()
+    expect(history).toContainEqual(expect.objectContaining({ id: 'run-cancelled-persisted', status: 'cancelled' }))
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
 })
 
 describe('PipelineEngine animated-explainer 编排', () => {

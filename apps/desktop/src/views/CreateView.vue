@@ -94,6 +94,10 @@
           <div v-if="inputMode === 'text'" class="input-area">
             <textarea v-model="pipelineText" placeholder="输入视频文案、主题描述或脚本..." rows="8" class="form-textarea" @input="enforceStory2VideoTextLimit"></textarea>
             <p v-if="isOrchestratedPipeline(selectedPipeline.name)" class="story2video-text-count">{{ story2videoTextCharacterCount }}/{{ MAX_STORY2VIDEO_TEXT_CHARACTERS }} 字符</p>
+            <p v-if="s2vEstimateSummary" class="story2video-estimate" data-testid="s2v-estimate-row">
+              预估 {{ s2vEstimateSummary.sceneCount }} 个分镜 · 旁白约 {{ s2vEstimateSummary.durationMin }}~{{ s2vEstimateSummary.durationMax }} 秒 · 成本约 ¥{{ s2vEstimateSummary.totalCost.toFixed(2) }}
+              <span class="s2v-estimate-note">{{ s2vEstimateSummary.calibrated ? '（按本地 TTS 样本校准）' : '（静态估算，样本积累后自动校准）' }}</span>
+            </p>
           </div>
           <div v-if="inputMode === 'images' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
             <div class="upload-zone" @click="$refs.pipelineFileInput?.click()" @dragover.prevent @drop.prevent="handlePipelineDrop">
@@ -390,7 +394,9 @@
                   @change="handleS2VVoiceSelection"
                 >
                   <option value="">使用服务商默认音色</option>
-                  <option v-for="voice in s2vVoiceOptions" :key="voice.id" :value="voice.id">{{ voice.name }}</option>
+                  <option v-for="voice in s2vVoiceOptions" :key="voice.id" :value="voice.id" :disabled="voice.invalid">
+                    {{ voice.invalid ? voice.name + '（已失效，请重新克隆）' : voice.name }}
+                  </option>
                 </select>
                 <span v-if="s2vVoiceCatalogLoading" class="config-hint">正在加载音色目录…</span>
                 <span v-else-if="s2vVoiceCatalogError" class="inline-error">{{ s2vVoiceCatalogError }}</span>
@@ -427,9 +433,9 @@
                 <p v-if="s2vVoiceCloneError" class="inline-error">{{ s2vVoiceCloneError }}</p>
                 <div v-if="s2vVoiceClones.length > 0" class="voice-clone-list">
                   <div v-for="voice in s2vVoiceClones" :key="voice.id" class="voice-clone-row">
-                    <span>{{ voice.name }}</span>
+                    <span>{{ voice.name }}<span v-if="voice.invalid" class="voice-clone-invalid-badge">已失效，请重新克隆</span></span>
                     <div class="voice-clone-actions">
-                      <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="selectS2VVoice(voice.id)">设为默认</button>
+                      <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading || voice.invalid" @click="selectS2VVoice(voice.id)">设为默认</button>
                       <button type="button" class="btn-secondary danger" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
                     </div>
                   </div>
@@ -485,8 +491,40 @@
                   <input type="number" v-model.number="s2vConfig.splitMaxSentenceLength" min="20" max="1000" class="form-input" />
                 </div>
                 <div class="config-item">
-                  <label>分镜目标时长（秒）</label>
-                  <input type="number" v-model.number="s2vConfig.splitTargetSeconds" min="1" max="60" step="0.5" class="form-input" />
+                  <label>分镜粒度</label>
+                  <div class="s2v-split-view-toggle" role="group" aria-label="分镜粒度视图">
+                    <button type="button" class="s2v-view-btn" :class="{ active: s2vConfig.splitViewMode === 'seconds' }" :aria-pressed="s2vConfig.splitViewMode === 'seconds'" data-testid="s2v-split-view-seconds" @click="s2vConfig.splitViewMode = 'seconds'">目标时长</button>
+                    <button type="button" class="s2v-view-btn" :class="{ active: s2vConfig.splitViewMode === 'chars' }" :aria-pressed="s2vConfig.splitViewMode === 'chars'" data-testid="s2v-split-view-chars" @click="s2vConfig.splitViewMode = 'chars'">目标字数</button>
+                  </div>
+                  <input
+                    v-if="s2vConfig.splitViewMode === 'chars'"
+                    type="number"
+                    v-model.number="s2vSplitCharsView"
+                    min="10" max="50" step="1" class="form-input"
+                    data-testid="s2v-split-target-chars"
+                  />
+                  <input
+                    v-else
+                    type="number"
+                    v-model.number="s2vSplitSecondsView"
+                    min="1" :max="s2vSplitMaxSeconds" step="0.5" class="form-input"
+                    data-testid="s2v-split-target-seconds"
+                  />
+                  <span class="s2v-field-hint">
+                    <template v-if="s2vConfig.splitViewMode === 'chars'">约 {{ s2vSplitEstimatedSeconds }} 秒/分镜（按 {{ s2vSplitCharsPerSecond.toFixed(1) }} 字/秒估算）</template>
+                    <template v-else>≈ {{ s2vConfig.splitTargetCharsPerScene }} 字/分镜（估算，实际以旁白音频为准）</template>
+                  </span>
+                </div>
+                <div class="config-item config-span-2">
+                  <label class="s2v-checkbox-label">
+                    <input type="checkbox" v-model="s2vSceneDurationEnabled" data-testid="s2v-min-duration-toggle" />
+                    启用最短场景时长
+                  </label>
+                  <span class="s2v-field-hint">开启后短旁白场景以静音补齐到「最短场景时长」，节奏更统一（默认关闭，跟随旁白）</span>
+                </div>
+                <div v-if="s2vSceneDurationEnabled" class="config-item">
+                  <label>最短场景时长（秒）</label>
+                  <input type="number" v-model.number="s2vMinSceneDurationView" min="1" max="60" step="1" class="form-input" data-testid="s2v-min-duration-input" />
                 </div>
                 <div class="config-item config-span-2">
                   <label>负向提示词</label>
@@ -714,6 +752,7 @@
                 <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
                 <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click.stop="openHistory(h)">打开</button>
                 <button v-if="h.projectId" class="history-delete" @click.stop="requestProjectDeletion(h)">删除</button>
+                <button v-if="h.status === 'failed' && historyItemResumable(h)" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '从断点继续' }}</button>
               </div>
               <div v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
                 <span v-for="(s, si) in h.stages" :key="si" class="history-progress-seg" :class="historyStageState(s)" :title="historyStageTitle(s)">{{ historyStageLabel(s) }}</span>
@@ -817,6 +856,21 @@ import {
   getStory2VideoNotificationUiText,
   resolveStory2VideoNotification,
 } from '@/story2video/story2video-notifications'
+import {
+  countSceneChars,
+  estimateCharsPerSecond,
+  estimateCharsPerScene,
+  estimateDurationSeconds,
+  getLanguageBaseWordsPerSecond,
+} from '@/story2video/voice-estimate'
+import {
+  buildCalibrationFactors,
+  estimateDurationRange,
+  estimateDurationSecondsCalibrated,
+  estimateSceneCount,
+  estimateCost,
+  getCalibrationFactor,
+} from '@/story2video/tts-calibration'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
@@ -930,6 +984,7 @@ export default {
       // Remotion 状态
       renderStatus: null, installing: false, installLog: '',
       // S2V 编排模式（story2video-compose）
+      s2vTtsSamples: [],
       s2vConfig: {
         contentType: 'general', imageStyle: 'cinematic',
         imageProvider: '', imageModel: '',
@@ -937,8 +992,12 @@ export default {
         voiceSpeed: 1, voicePitch: 0, voiceVolume: 1,
         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
         splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
+        splitTargetCharsPerScene: 20, splitViewMode: 'seconds',
+        // splitBaseWordsPerSecond 自 Batch 5a 起为兼容遗留字段：估算与提交已由语言感知表驱动（voice-estimate.js），
+        // 仅旧快照恢复兼容保留，不再参与计算（Batch 5b 可清理）。
         splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
+        sceneDurationMode: 'follow-audio', minSceneDuration: 6,
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
         promptStyle: 'realistic', creativeLevel: 5, negativePrompt: '',
         transition: 'fade', subtitleEnabled: true,
@@ -1049,6 +1108,56 @@ export default {
         'Controls how image prompts are written and organized; it does not replace image style.'
       )
     },
+    // ---- 分镜粒度双视图（三层模型①）：底层统一 targetCharsPerScene 主控 ----
+    // 语言感知估算（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3 × voice.speed（speechRate 单一来源）
+    s2vSplitCharsPerSecond() {
+      return estimateCharsPerSecond(this.s2vConfig.splitLanguage, this.s2vConfig.voiceSpeed)
+    },
+    // 字数 → 估算时长（时长视图显示；与 normalizer 幂等反推一致取整数秒）
+    s2vSplitEstimatedSeconds() {
+      const chars = Number(this.s2vConfig.splitTargetCharsPerScene)
+      if (!Number.isFinite(chars) || chars <= 0) return 6
+      return estimateDurationSeconds(chars, this.s2vConfig.splitLanguage, this.s2vConfig.voiceSpeed)
+    },
+    // 时长视图可达上限：受每分镜字数上限（maxWords）约束，输入范围 = 可达范围（claude review W1）
+    s2vSplitMaxSeconds() {
+      const maxWords = Math.min(200, Number(this.s2vConfig.splitMaxWords) || 50)
+      return Math.max(1, Math.min(60, Math.round(maxWords / this.s2vSplitCharsPerSecond)))
+    },
+    // 时长视图输入：编辑估算时长 → 语言感知反推并 clamp 主控字数
+    s2vSplitSecondsView: {
+      get() { return this.s2vSplitEstimatedSeconds },
+      set(value) {
+        const seconds = Number(value)
+        if (!Number.isFinite(seconds) || seconds <= 0) return
+        this.applyS2VTargetChars(estimateCharsPerScene(
+          seconds,
+          this.s2vConfig.splitLanguage,
+          this.s2vConfig.voiceSpeed,
+          this.s2vConfig.splitMinWords,
+          this.s2vConfig.splitMaxWords,
+        ))
+      },
+    },
+    // 字数视图输入：直接主控，clamp 到 [minWords, maxWords] ∩ [1,200]
+    s2vSplitCharsView: {
+      get() { return this.s2vConfig.splitTargetCharsPerScene },
+      set(value) { this.applyS2VTargetChars(Number(value)) },
+    },
+    // 最短场景时长开关（三层模型③）：默认 follow-audio（关闭）
+    s2vSceneDurationEnabled: {
+      get() { return this.s2vConfig.sceneDurationMode === 'min-duration' },
+      set(enabled) { this.s2vConfig.sceneDurationMode = enabled ? 'min-duration' : 'follow-audio' },
+    },
+    // 最短场景时长 N 输入：UI 侧 clamp 到 1..60（normalizer fail-closed 兜底，此处自愈避免通用报错）
+    s2vMinSceneDurationView: {
+      get() { return this.s2vConfig.minSceneDuration },
+      set(value) {
+        const n = Number(value)
+        if (!Number.isFinite(n) || n <= 0) return
+        this.s2vConfig.minSceneDuration = Math.min(60, Math.max(1, Math.round(n)))
+      },
+    },
     mediaRequirementsImageText() {
       return this.translateWithLocaleFallback(
         'create.story2video.mediaRequirementsImage',
@@ -1107,6 +1216,40 @@ export default {
     },
     story2videoTextCharacterCount() {
       return countStory2VideoTextCharacters(this.pipelineText)
+    },
+    // ---- 运营后台实时预估（Batch 5b）：分镜数 / 时长区间 / 成本 ----
+    s2vEstimateFactors() {
+      return buildCalibrationFactors(this.s2vTtsSamples)
+    },
+    s2vEstimateSummary() {
+      if (!this.selectedPipeline || !this.isOrchestratedPipeline(this.selectedPipeline.name)) return null
+      const text = String(this.pipelineText || '').trim()
+      if (!text) return null
+      // 与样本 chars / 切分器 normalizeText 同口径：折叠空白后计数（codex review W2），
+      // 避免英文多行/双空格文案的分镜数系统性偏大。
+      const totalChars = countSceneChars(text)
+      const target = Number(this.s2vConfig.splitTargetCharsPerScene) > 0 ? Number(this.s2vConfig.splitTargetCharsPerScene) : 20
+      const sceneCount = estimateSceneCount(totalChars, target)
+      const factors = this.s2vEstimateFactors
+      const ctx = {
+        language: this.s2vConfig.splitLanguage,
+        speed: this.s2vConfig.voiceSpeed,
+        provider: this.s2vConfig.voiceProvider,
+        voiceId: this.s2vConfig.voiceId,
+      }
+      const perScenePoint = estimateDurationSecondsCalibrated(target, factors, ctx)
+      const [perMin, perMax] = estimateDurationRange(target, factors, ctx)
+      const durationMin = sceneCount * perMin
+      const durationMax = sceneCount * perMax
+      const cost = estimateCost({ sceneCount, totalDurationSeconds: sceneCount * perScenePoint })
+      return {
+        sceneCount,
+        durationMin,
+        durationMax,
+        totalCost: cost.totalCost,
+        // W3（claude 5b）：仅当当前配置实际命中语言级或更特异校准维度时才标注“已校准”
+        calibrated: getCalibrationFactor(factors, ctx) > 1,
+      }
     },
     story2videoErrorDialogMessage() {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
@@ -1418,6 +1561,11 @@ export default {
           delete config.voiceProvider; delete config.voiceModel; delete config.voiceId
         }
         this._applyS2VSnapshot(config, this.s2vConfig)
+        // 旧快照缺新字段/带回陈旧 splitTargetSeconds → 按主控字数自愈（claude review M2/M6），
+        // 避免「恢复→保存」循环污染与显示/提交口径不一致
+        if (Number.isFinite(Number(this.s2vConfig.splitTargetCharsPerScene))) {
+          this.applyS2VTargetChars(this.s2vConfig.splitTargetCharsPerScene)
+        }
         if (this.s2vConfig.imageProvider && !imageProviders.has(this.s2vConfig.imageProvider)) {
           this.s2vConfig.imageProvider = this.s2vImageProviders[0]?.id || ''
           this.s2vConfig.imageModel = ''
@@ -1433,6 +1581,17 @@ export default {
         await this.loadS2VVoiceData()
         this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsRestored', '已恢复上次的选项设置', 'Restored your last-used options'))
       } finally { this.s2vRestoring = false }
+    },
+    async loadS2VTtsSamples() {
+      // Batch 5b：读取本地 TTS 时长样本用于自适应校准（best-effort，失败回退静态估算）。
+      // 兼容 { code, data } 与直接数组两种返回形态（storeGetSetting 解包后为数组；测试/直连为原始对象）。
+      try {
+        const raw = await storeGetSetting('story2video.ttsSamples.v1')
+        const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw.data ?? raw) : raw
+        this.s2vTtsSamples = Array.isArray(value) ? value : []
+      } catch (_) {
+        this.s2vTtsSamples = []
+      }
     },
     async resetS2VLastOptions() {
       const defaults = (this.$options.data || (() => ({}))).call(this)
@@ -1483,7 +1642,9 @@ export default {
             mode: config.splitMode,
             maxSentenceLength: config.splitMaxSentenceLength,
             targetSeconds: config.splitTargetSeconds,
-            baseWordsPerSecond: config.splitBaseWordsPerSecond,
+            targetCharsPerScene: config.splitTargetCharsPerScene,
+            // 语言感知基准语速（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3，与 UI 估算同源
+            baseWordsPerSecond: getLanguageBaseWordsPerSecond(config.splitLanguage),
             speechRate: config.splitSpeechRate,
             minWords: config.splitMinWords,
             maxWords: config.splitMaxWords,
@@ -1521,6 +1682,8 @@ export default {
           },
           bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
           transition: config.transition,
+          sceneDurationMode: config.sceneDurationMode,
+          minSceneDuration: config.minSceneDuration,
           templateId: config.templateId || '',
           concurrency: config.concurrency,
           watermark: {
@@ -1563,6 +1726,17 @@ export default {
     },
     cloneForIpc(value) {
       try { return JSON.parse(JSON.stringify(value)) } catch { return {} }
+    },
+    // 分镜字数主控：clamp 到 [minWords, maxWords] ∩ [1,200]，并同步旧 targetSeconds（估算，与 normalizer 幂等反推一致）
+    applyS2VTargetChars(rawChars) {
+      const chars = Number(rawChars)
+      if (!Number.isFinite(chars) || chars <= 0) return
+      const min = Math.max(1, Number(this.s2vConfig.splitMinWords) || 10)
+      const max = Math.min(200, Number(this.s2vConfig.splitMaxWords) || 50)
+      const clamped = Math.min(max, Math.max(min, Math.round(chars)))
+      this.s2vConfig.splitTargetCharsPerScene = clamped
+      const cps = this.s2vSplitCharsPerSecond
+      this.s2vConfig.splitTargetSeconds = cps > 0 ? Math.min(60, Math.max(1, Math.round(clamped / cps))) : 6
     },
     applyS2VTemplate() {
       const template = getTemplateById(this.s2vConfig.templateId, window.localStorage)
@@ -1621,7 +1795,8 @@ export default {
     toS2VVoiceOption(voice) {
       const id = typeof voice?.id === 'string' ? voice.id.trim() : ''
       const name = typeof voice?.name === 'string' ? voice.name.trim() : ''
-      return id && name ? { id, name } : null
+      if (!id || !name) return null
+      return { id, name, invalid: voice.invalid === true }
     },
     toS2VVoiceCloneRequirements(requirements) {
       if (!requirements || typeof requirements !== 'object' || Array.isArray(requirements)) return null
@@ -1733,9 +1908,11 @@ export default {
       const capabilityData = capabilityResponse?.code === 0 && capabilityResponse.data && typeof capabilityResponse.data === 'object'
         ? capabilityResponse.data
         : null
-      this.s2vVoiceCatalog = Array.isArray(catalogData?.voices)
-        ? catalogData.voices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean)
-        : []
+      this.s2vVoiceCatalog = [
+        ...(Array.isArray(catalogData?.voices) ? catalogData.voices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean) : []),
+        // 失效克隆音色（如旧版生成的非法 voice_id）：仅展示提示，不可选择
+        ...(Array.isArray(catalogData?.invalidVoices) ? catalogData.invalidVoices.map(voice => this.toS2VVoiceOption(voice)).filter(Boolean) : []),
+      ]
       this.s2vVoiceCapability = capabilityData
         ? {
             type: capabilityData.type,
@@ -2249,8 +2426,54 @@ export default {
         this.resumeRunningOrchestration()
         return
       }
+      // 失败且可断点恢复：从历史直接续跑，避免失败任务在历史中不可操作
+      if (item.status === 'failed' && this.historyItemResumable(item)) {
+        this.resumeHistoryItem(item)
+        return
+      }
       if (!item?.projectId) return
       this.$router.push({ path: '/create/result', query: { project: item.projectId } })
+    },
+    historyItemResumable(item) {
+      if (!item || item.status !== 'failed' || !(item.id || item.runId)) return false
+      // 内容政策/需要用户输入类失败必须修改文案后重新启动，不允许原样恢复
+      if (/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))) return false
+      return true
+    },
+    async resumeHistoryItem(item) {
+      const runId = item && (item.id || item.runId)
+      if (!runId || this.story2videoResuming) return
+      this.story2videoResuming = true
+      try {
+        const res = await pipelineResumeOrchestration(runId)
+        if (res?.code === 0 && res.data?.success && res.data?.runId) {
+          const pipelineName = item.pipeline || item.name
+          this.orchestrationRunId = res.data.runId
+          this.orchestrationResultPath = null
+          this.orchestrationError = ''
+          this.pipelineRunStatus = {
+            status: 'running',
+            progress: 0,
+            stages: Array.isArray(item.stages) && item.stages.length > 0 ? item.stages : this.getDefaultPipelineStages(pipelineName),
+          }
+          this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
+          this.view = 'pipelines'
+          await this.updateOrchestrationStatus()
+          if (this.orchestrationRunId && !this.pollTimer) {
+            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          }
+          await this.loadHistory()
+        } else {
+          this.showStory2VideoErrorDialog({
+            errorCode: res?.data?.errorCode || res?.code,
+            error: res?.data?.error || res?.message || '断点恢复失败，请稍后再试。',
+          })
+        }
+      } catch (_) {
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED })
+      } finally {
+        this.story2videoResuming = false
+      }
     },
     historyStageState(stage) {
       if (!stage || typeof stage !== 'object') return ''
@@ -2635,6 +2858,7 @@ export default {
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
     this.resumeRunningOrchestration()
     this.restoreS2VLastOptions()
+    this.loadS2VTtsSamples()
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
@@ -2751,6 +2975,8 @@ export default {
 .input-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
 .input-area { }
 .form-textarea { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; line-height: 1.6; resize: vertical; box-sizing: border-box; }
+.story2video-estimate { margin-top: 8px; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.s2v-estimate-note { opacity: .75; }
 
 /* 上传区域 */
 .upload-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; min-height: 100px; display: flex; align-items: center; justify-content: center; }
@@ -2775,6 +3001,14 @@ export default {
 .s2v-config-section[open] > .s2v-section-summary::before { transform: rotate(90deg); }
 .s2v-summary { margin-left: auto; color: var(--text-muted); font-size: 12px; font-weight: 400; text-align: right; }
 .s2v-config-section > .config-grid { padding: 0 16px 16px; }
+.s2v-split-view-toggle { display: inline-flex; gap: 6px; margin-bottom: 6px; }
+.s2v-view-btn {
+  padding: 4px 12px; font-size: 12px; border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--text-muted); cursor: pointer; transition: all .15s ease;
+}
+.s2v-view-btn.active { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
+.s2v-field-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+.s2v-checkbox-label { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
 .s2v-subgroup { margin: 0 16px 12px; }
 .s2v-subgroup:first-of-type { margin-top: 2px; }
 .s2v-subgroup-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 0 8px; padding-bottom: 4px; border-bottom: 1px dashed var(--border); }
@@ -2806,6 +3040,8 @@ export default {
 .voice-clone-actions .btn-secondary { margin-top: 0; }
 .voice-clone-list { display: grid; gap: 8px; }
 .voice-clone-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.voice-clone-invalid-badge { margin-left: 6px; font-size: 11px; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+[data-theme="dark"] .voice-clone-invalid-badge { color: #fbbf24; background: #3a2a10; border-color: #5b4a1e; }
 
 /* 操作栏 */
 .action-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; }
@@ -2858,9 +3094,11 @@ export default {
 .history-progress-seg.failed { background: #fee2e2; color: #991b1b; }
 .history-running-hint { font-size: 11px; color: #1d4ed8; background: #dbeafe; padding: 2px 8px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
 .history-time { color: #999; font-size: 12px; }
-.history-open, .history-delete { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); padding: 5px 9px; cursor: pointer; font-size: 12px; }
+.history-open, .history-delete, .history-resume { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); padding: 5px 9px; cursor: pointer; font-size: 12px; }
 .history-open:hover { border-color: var(--primary); color: var(--primary); }
 .history-delete:hover { border-color: var(--error); color: var(--error); }
+.history-resume:hover { border-color: var(--primary); color: var(--primary); }
+.history-resume:disabled { opacity: 0.6; cursor: not-allowed; }
 .empty-state.compact { padding: 28px 0; }
 .template-editor { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 8px; align-items: start; }
 .template-editor .btn-secondary { margin-top: 0; min-height: 38px; }

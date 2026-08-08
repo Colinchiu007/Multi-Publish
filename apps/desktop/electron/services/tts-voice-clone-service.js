@@ -146,6 +146,25 @@ function isSafeCloneSampleStorage(value, owner) {
   );
 }
 
+/**
+ * 按 provider 校验克隆音色 voice_id 是否合法。
+ * MiniMax 官方对自定义克隆 voice_id 有严格约束（长度 [8,256]、首字母、仅 [A-Za-z0-9_-]、
+ * 末位非 -/_）；存量数据若以旧逻辑生成了非法 id（如 "01"），合成时会被平台拒绝
+ * （"invalid params, voice id wrong"），需要标记失效并让偏好回退默认音色。
+ * 其他 provider 无此约束，恒视为合法。
+ */
+function isProviderCloneVoiceIdValid(providerId, id) {
+  if (providerId === "minimax-tts" || providerId === "minimax" || providerId === "minimax-multimodal") {
+    try {
+      const { isValidMiniMaxCloneVoiceId } = require("./adapters/minimax-tts");
+      return isValidMiniMaxCloneVoiceId(id);
+    } catch (_) {
+      return true;
+    }
+  }
+  return true;
+}
+
 function getLocalCloneSampleLimits(providerId, model) {
   const providerLimits = LOCAL_CLONE_SAMPLE_LIMITS[providerId];
   const modelLimits = providerLimits && providerLimits[model];
@@ -332,7 +351,11 @@ class TtsVoiceCloneService {
     return success({
       providerId: request.providerId,
       model: request.model,
-      voices: registryResult.registry.voices.map(publicVoice),
+      voices: registryResult.registry.voices.map((voice) => {
+        const publicEntry = publicVoice(voice);
+        if (!isProviderCloneVoiceIdValid(request.providerId, voice.id)) publicEntry.invalid = true;
+        return publicEntry;
+      }),
     });
   }
 

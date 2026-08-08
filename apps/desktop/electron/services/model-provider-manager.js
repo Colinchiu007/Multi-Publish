@@ -7,7 +7,12 @@
  */
 
 const log = require('./logger')
-const { PRESET_PROVIDERS, CATEGORY_LABELS, CATEGORIES } = require('./model-provider-seeds')
+const {
+  PRESET_PROVIDERS,
+  CATEGORY_LABELS,
+  CATEGORIES,
+  MULTIMODAL_CAPABILITY_IDS,
+} = require('./model-provider-seeds')
 const crypto = require('./crypto')
 const { providerAnomalyBus } = require('./provider-anomaly')
 
@@ -273,6 +278,7 @@ class ModelProviderManager {
       'opencode-go': require('./adapters/opencode-go').OpenCodeGoAdapter,
       'agnes-llm': require('./adapters/agnes-llm').AgnesLlmAdapter,
       'sensenova-llm': require('./adapters/sensenova-llm').SenseNovaLlmAdapter,
+      'minimax-llm': require('./adapters/minimax-llm').MinimaxLlmAdapter,
       // ─── TTS 语音合成 (7) ──────────────────────────
       elevenlabs: require('./adapters/elevenlabs').ElevenLabsAdapter,
       'openai-tts': require('./adapters/openai-tts').OpenAITtsAdapter,
@@ -309,6 +315,7 @@ class ModelProviderManager {
       veo: require('./adapters/veo').VeoAdapter,
       wan: require('./adapters/wan').WanAdapter,
       minimax: require('./adapters/minimax').MiniMaxAdapter,
+      'minimax-multimodal': require('./adapters/minimax-multimodal').MinimaxMultimodalAdapter,
       ltx: require('./adapters/ltx').LtxAdapter,
       seedance: require('./adapters/seedance').SeedanceAdapter,
       higgsfield: require('./adapters/higgsfield').HiggsfieldAdapter,
@@ -336,6 +343,7 @@ class ModelProviderManager {
     }
     try {
       this._seedPresets()
+      this._syncPresetCapabilities()
       this._migrateApiKeyEncryption()
       this._collapseMiniMaxTtsModel()
       this._registerBuiltinAdapters()
@@ -351,16 +359,69 @@ class ModelProviderManager {
     const stmt = db.prepare(`
       INSERT OR IGNORE INTO model_providers
         (id, name, category, base_url, api_key, api_key_enc, models, enabled, is_default, is_preset, config, created_at, updated_at)
-      VALUES (?, ?, ?, ?, '', NULL, ?, 0, 0, 1, '{}', datetime('now'), datetime('now'))
+      VALUES (?, ?, ?, ?, '', NULL, ?, 0, 0, 1, ?, datetime('now'), datetime('now'))
     `)
     for (const p of PRESET_PROVIDERS) {
-      stmt.run(p.id, p.name, p.category, p.base_url || '', JSON.stringify(p.models || []))
+      const config = {}
+      if (Array.isArray(p.capabilities)) config.capabilities = p.capabilities
+      if (p.capability_models && typeof p.capability_models === 'object') config.capability_models = p.capability_models
+      stmt.run(p.id, p.name, p.category, p.base_url || '', JSON.stringify(p.models || []), JSON.stringify(config))
     }
     // 将历史内置种子从已废弃的 image-01-live 组合收敛为固定模型；
     // 用户自定义模型列表不匹配旧种子值，因此不会被覆盖。
     db.prepare(
       "UPDATE model_providers SET models = ?, updated_at = datetime('now') WHERE id = 'minimax-image' AND models = ?"
     ).run(JSON.stringify(['image-01']), JSON.stringify(['image-01', 'image-01-live']))
+  }
+
+  /**
+   * 将预设声明的多模态能力（capabilities / capability_models）回填到存量预设行 config，
+   * 使升级前的数据库也能拿到能力声明（INSERT OR IGNORE 不会更新已存在的行）。
+   */
+  _syncPresetCapabilities () {
+    const db = this._store && this._store.db
+    if (!db) return
+    for (const p of PRESET_PROVIDERS) {
+      const capabilities = Array.isArray(p.capabilities) ? p.capabilities : []
+      const capabilityModels = p.capability_models && typeof p.capability_models === 'object' ? p.capability_models : null
+      if (capabilities.length === 0 && !capabilityModels) continue
+      try {
+        const row = db.prepare('SELECT config FROM model_providers WHERE id = ?').get(p.id)
+        if (!row) continue
+        const config = safeJsonParse(row.config, {}) || {}
+        const existingCaps = Array.isArray(config.capabilities) ? config.capabilities : []
+        const existingModels = config.capability_models && typeof config.capability_models === 'object'
+          ? config.capability_models
+          : null
+        // 合并升级：存量行只回填预设新增的能力（diff-merge），
+        // 保留用户已有配置，避免覆盖历史能力/模型选择。
+        let changed = false
+        if (capabilities.length > 0) {
+          const merged = Array.from(new Set([...existingCaps, ...capabilities]))
+          if (merged.length !== existingCaps.length || merged.some((c, i) => c !== existingCaps[i])) {
+            config.capabilities = merged
+            changed = true
+          }
+        }
+        if (capabilityModels) {
+          const mergedModels = { ...(existingModels || {}) }
+          for (const [cap, model] of Object.entries(capabilityModels)) {
+            if (!mergedModels[cap]) {
+              mergedModels[cap] = model
+              changed = true
+            }
+          }
+          if (Object.keys(mergedModels).length > 0) config.capability_models = mergedModels
+        }
+        if (changed) {
+          db.prepare("UPDATE model_providers SET config = ?, updated_at = datetime('now') WHERE id = ?")
+            .run(JSON.stringify(config), p.id)
+          this._invalidateAdapterCache(p.id)
+        }
+      } catch (e) {
+        log.warn('ModelProviderManager', 'sync preset capabilities failed for ' + p.id + ': ' + e.message)
+      }
+    }
   }
 
   /** 将 MiniMax TTS 模型列表收敛为 speech-2.8-turbo（需求：默认模型、去掉模型 ID 输入） */
@@ -406,7 +467,8 @@ class ModelProviderManager {
     } else {
       rows = db.prepare('SELECT * FROM model_providers ORDER BY category, is_default DESC, is_preset DESC, name ASC').all()
     }
-    return rows.map(r => this._safeRow(r))
+    // 过滤用户已删除（软删隐藏）的预设服务商
+    return rows.map(r => this._safeRow(r)).filter(p => !p.hidden)
   }
 
   getProvider (id) {
@@ -549,11 +611,21 @@ class ModelProviderManager {
     if (!provider) {
       return { code: -1, message: 'Provider "' + id + '" not found' }
     }
-    if (provider.is_preset) {
-      return { code: -1, message: 'Preset providers cannot be deleted, disable instead' }
-    }
     try {
       const db = this._store.db
+      if (provider.is_preset) {
+        // 预设服务商：软删除（隐藏 + 清除 Key + 禁用）。行保留以便从
+        // 「添加服务商 → 预设目录」重新添加；listProviders 会过滤隐藏项。
+        const row = db.prepare('SELECT * FROM model_providers WHERE id = ?').get(id)
+        const config = safeJsonParse(row ? row.config : '{}', {}) || {}
+        config.preset_hidden = true
+        db.prepare(
+          'UPDATE model_providers SET enabled = ?, api_key = ?, api_key_enc = NULL, is_default = ?, config = ?, updated_at = datetime(\'now\') WHERE id = ?'
+        ).run(0, '', 0, JSON.stringify(config), id)
+        this._invalidateAdapterCache(id)
+        log.info('ModelProviderManager', 'Provider (preset) soft-deleted: ' + id)
+        return { code: 0, message: '已删除（预设服务商已隐藏，可在“添加服务商”中重新添加）' }
+      }
       if (provider.is_default) {
         db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ?').run(provider.category)
       }
@@ -561,7 +633,7 @@ class ModelProviderManager {
       // P3.2: 删除后清除 Adapter 缓存
       this._invalidateAdapterCache(id)
       log.info('ModelProviderManager', 'Provider deleted: ' + id)
-      return { code: 0, message: 'Deleted' }
+      return { code: 0, message: '已删除' }
     } catch (e) {
       log.error('ModelProviderManager', 'Delete failed: ' + e.message)
       return { code: -1, message: 'Delete failed: ' + e.message }
@@ -601,9 +673,55 @@ class ModelProviderManager {
 
   getDefault (category) {
     if (!this._ready) return null
+    // 多模态优先：开启「优先使用多模态模型进行所有的AI操作」且多模态模型已配置、
+    // 并声明支持该能力时，默认解析直接返回多模态模型（流水线按能力自动路由）。
+    if (category !== CATEGORIES.MULTIMODAL && this.getMultimodalPreference()) {
+      const multimodal = this._multimodalProviderFor(category)
+      if (multimodal) return multimodal
+    }
     const rows = this._store.db.prepare('SELECT * FROM model_providers WHERE category = ? AND enabled = 1 ORDER BY is_default DESC, name ASC').all(category)
     const provider = rows.find(row => hasUsableApiKey(this._getApiKey(row)) || canUseWithoutApiKey(row))
     return provider ? this._safeRow(provider) : null
+  }
+
+  /** 是否开启「优先使用多模态模型进行所有的AI操作」（默认开启）。 */
+  getMultimodalPreference () {
+    if (!this._store || typeof this._store.getUserSetting !== 'function') return false
+    try {
+      return this._store.getUserSetting('prefer_multimodal', true) !== false
+    } catch (_) {
+      return false
+    }
+  }
+
+  /** 持久化多模态优先开关。 */
+  setMultimodalPreference (value) {
+    if (!this._store || typeof this._store.setUserSetting !== 'function') return { code: -1, message: 'Store not initialized' }
+    try {
+      this._store.setUserSetting('prefer_multimodal', value === true)
+      return { code: 0, data: { preferMultimodal: value === true } }
+    } catch (e) {
+      return { code: -1, message: e.message }
+    }
+  }
+
+  /**
+   * 返回声明支持指定能力的已配置多模态模型（category=multimodal、enabled=1、有可用 Key）。
+   * @param {string} category - 能力/类别（llm/tts/speech_recognition/image/video）
+   * @returns {object|null}
+   */
+  _multimodalProviderFor (category) {
+    if (!this._ready || !MULTIMODAL_CAPABILITY_IDS.includes(category)) return null
+    const rows = this._store.db
+      .prepare('SELECT * FROM model_providers WHERE category = ? AND enabled = 1 ORDER BY is_default DESC, name ASC')
+      .all(CATEGORIES.MULTIMODAL)
+    for (const row of rows) {
+      if (!(hasUsableApiKey(this._getApiKey(row)) || canUseWithoutApiKey(row))) continue
+      const config = safeJsonParse(row.config, {}) || {}
+      if (!Array.isArray(config.capabilities) || !config.capabilities.includes(category)) continue
+      return this._safeRow(row)
+    }
+    return null
   }
 
   async testConnection (id) {
@@ -631,6 +749,8 @@ class ModelProviderManager {
     // Keep every preset selectable; saving an existing preset updates its seeded row.
     return PRESET_PROVIDERS.filter(p => p.category === category).map(p => ({
       id: p.id, name: p.name, category: p.category, base_url: p.base_url, models: normalizeProviderModels(p.id, p.models),
+      capabilities: Array.isArray(p.capabilities) ? [...p.capabilities] : [],
+      capability_models: p.capability_models && typeof p.capability_models === 'object' ? { ...p.capability_models } : null,
     }))
   }
 
@@ -644,6 +764,7 @@ class ModelProviderManager {
     if (!row) return null
     const apiKey = this._getApiKey(row)
     const apiKeyMasked = hasUsableApiKey(apiKey) ? crypto.mask(apiKey) : ''
+    const config = safeJsonParse(row.config, {}) || {}
     return {
       id: row.id,
       name: row.name,
@@ -653,7 +774,10 @@ class ModelProviderManager {
       enabled: !!row.enabled,
       is_default: !!row.is_default,
       is_preset: !!row.is_preset,
-      config: safeJsonParse(row.config, {}),
+      config,
+      capabilities: Array.isArray(config.capabilities) ? [...config.capabilities] : [],
+      capability_models: config.capability_models && typeof config.capability_models === 'object' ? { ...config.capability_models } : null,
+      hidden: config.preset_hidden === true,
       is_configured: !!row.enabled && (hasUsableApiKey(apiKey) || canUseWithoutApiKey(row)),
       api_key_masked: apiKeyMasked,
       created_at: row.created_at,
