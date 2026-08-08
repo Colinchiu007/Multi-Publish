@@ -1,3 +1,9 @@
+## 维护与归档（2026-08-08）
+
+- 归档 Story2Video 场景时长三层模型 CCG 任务审计轨迹（`.ccg/tasks/story2video-scene-duration-three-layer` → `archive/2026-08/`）：
+  Batch 1-5b（参数层 targetCharsPerScene 主控 / 切分层 / compose min-duration 静音补齐 / UI 双视图+开关 /
+  语言感知估算+样本采集 / 自适应校准+创建页实时预估）全部合并完成，分析/审查文档与 diff 保留备查。
+
 ## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
 
 ### 场景时长模式 Batch 5b：自适应校准 + 创建页实时预估（2026-08-08）
