@@ -490,4 +490,55 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       expect(calls.some((u) => u.includes('/query/t2a_async_query_v2'))).toBe(true)
     })
   })
+
+  // ─── 克隆音色 voice_id 合规性（官方约束：长度[8,256]、首字母、仅[A-Za-z0-9_-]、末位非 -/_）───
+  describe('克隆音色 voice_id 合规性', () => {
+    const { buildMiniMaxCloneVoiceId, isValidMiniMaxCloneVoiceId } = require('./minimax-tts')
+
+    it('buildMiniMaxCloneVoiceId 生成的 id 始终满足官方约束', () => {
+      for (const name of ['01', '我的音色', '沉稳高管', 'abc', 'a-b_c', '', '超长名称'.repeat(50)]) {
+        const id = buildMiniMaxCloneVoiceId(name)
+        expect(isValidMiniMaxCloneVoiceId(id)).toBe(true)
+        expect(id).toMatch(/^[a-zA-Z]/)
+        expect(id.length).toBeGreaterThanOrEqual(8)
+        expect(id.length).toBeLessThanOrEqual(256)
+      }
+    })
+
+    it('生成 id 带随机后缀，多次生成不重复', () => {
+      const seen = new Set(Array.from({ length: 50 }, () => buildMiniMaxCloneVoiceId('克隆音色')))
+      expect(seen.size).toBe(50)
+    })
+
+    it('isValidMiniMaxCloneVoiceId 拒绝非法 id（短/数字开头/非法字符/末位 -_）', () => {
+      expect(isValidMiniMaxCloneVoiceId('01')).toBe(false)          // 长度不足且数字开头
+      expect(isValidMiniMaxCloneVoiceId('12345678')).toBe(false)    // 数字开头
+      expect(isValidMiniMaxCloneVoiceId('MiniMax name')).toBe(false) // 空格
+      expect(isValidMiniMaxCloneVoiceId('MiniMax001_')).toBe(false)  // 末位 _
+      expect(isValidMiniMaxCloneVoiceId('MiniMax001-')).toBe(false)  // 末位 -
+      expect(isValidMiniMaxCloneVoiceId(null)).toBe(false)
+      expect(isValidMiniMaxCloneVoiceId('MiniMax001')).toBe(true)
+    })
+
+    it('cloneVoice 复刻请求携带合规 voice_id，且返回 id 合规', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ file: { file_id: 12345 } }),
+        createFetchResponse({ voice_id: 'MiniMaxMyVoice_abc123' }),
+      ])
+      global.fetch = fetchMock
+      try {
+        const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+        const blob = new Blob(['audio-bytes'], { type: 'audio/mpeg' })
+        const result = await adapter.cloneVoice({ name: '我的音色01', samples: [{ blob, fileName: 'a.mp3' }] })
+        expect(result.id).toBe('MiniMaxMyVoice_abc123')
+        expect(isValidMiniMaxCloneVoiceId(result.id)).toBe(true)
+        const cloneCall = fetchMock.calls.find((c) => String(c.url).includes('/voice_clone'))
+        const body = JSON.parse(cloneCall.opts.body)
+        expect(isValidMiniMaxCloneVoiceId(body.voice_id)).toBe(true)
+        expect(body.voice_id).toMatch(/^MiniMax/)
+      } finally {
+        global.fetch = originalFetch
+      }
+    })
+  })
 })

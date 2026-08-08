@@ -57,6 +57,42 @@ const MINIMAX_TTS_MODELS = [
   { id: 'speech-2.6-turbo',  name: 'Speech 2.6 Turbo',  description: '快速语音合成 v2.6' },
 ]
 
+/**
+ * 校验 MiniMax 克隆音色自定义 voice_id 是否符合官方约束：
+ * 长度 [8,256]、首字符必须为英文字母、仅允许数字/字母/-/_、末位字符不可为 -/_。
+ * （官方文档：api-reference/voice-cloning-clone）
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isValidMiniMaxCloneVoiceId (value) {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (value.length < 8 || value.length > 256) return false
+  if (!/^[a-zA-Z]/.test(value)) return false
+  if (!/^[a-zA-Z0-9_-]+$/.test(value)) return false
+  if (/[-_]$/.test(value)) return false
+  return true
+}
+
+/**
+ * 生成符合官方约束的克隆音色 voice_id：
+ * - 以 "MiniMax" 前缀保证首字符为英文字母
+ * - 名称清洗后仅保留 [A-Za-z0-9_-]，末位非 -/_
+ * - 追加短随机后缀避免与平台已有 id 重复，长度落在 [8,256]
+ * @param {string} [name]
+ * @returns {string}
+ */
+function buildMiniMaxCloneVoiceId (name) {
+  let base = String(name || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .replace(/[-_]+$/g, '')
+    .replace(/^[^a-zA-Z]+/, '')
+  if (!base) base = 'CloneVoice'
+  const suffix = Math.random().toString(36).replace(/[^a-z0-9]/g, '').slice(0, 6)
+  let id = 'MiniMax' + base.slice(0, 240) + '_' + suffix
+  while (id.length < 8) id += '0'
+  return id.slice(0, 256)
+}
+
 class MinimaxTtsAdapter extends BaseAdapter {
   /**
    * @param {object} credentials
@@ -307,6 +343,8 @@ class MinimaxTtsAdapter extends BaseAdapter {
    * 上传：POST /v1/files/upload（purpose=voice_clone）→ file_id
    * 复刻：POST /v1/voice_clone（file_id + voice_id）
    * 要求：mp3/m4a/wav、时长 10s-5min、大小 ≤20MB（由 tts-voice-clone-service 前置校验）
+   * 自定义 voice_id 约束（官方 API 文档）：长度 [8,256]、首字符必须为英文字母、
+   * 允许数字/字母/-/_、末位字符不可为 -/_、不可与已有 id 重复。
    * @param {{name?: string, samples?: Array<{blob?: Blob, fileName?: string, contentType?: string}>}} params
    * @returns {Promise<{id: string, name: string}>}
    */
@@ -339,10 +377,9 @@ class MinimaxTtsAdapter extends BaseAdapter {
       throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '上传复刻音频未返回 file_id', { providerId: this.id })
     }
 
-    // 自定义 voice_id：仅保留字母数字下划线，保证 MiniMax 接受
+    // 生成符合官方约束的克隆音色 voice_id（长度 [8,256]、首字母、仅 [A-Za-z0-9_-]、末位非 -_）
     const requestedName = String(params.name || 'clone_voice').trim()
-    const safeId = requestedName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 32)
-    const voiceId = safeId || 'clone_voice'
+    const voiceId = buildMiniMaxCloneVoiceId(requestedName)
 
     const cloneResp = await this._request('/voice_clone', {
       method: 'POST',
@@ -353,7 +390,9 @@ class MinimaxTtsAdapter extends BaseAdapter {
     if (!finalId) {
       throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '音色复刻未返回 voice_id', { providerId: this.id })
     }
-    return { id: String(finalId), name: requestedName }
+    // 平台回显的 voice_id 若不合规（旧服务端/异常），回退到本次生成的合规 id
+    const validatedId = isValidMiniMaxCloneVoiceId(finalId) ? String(finalId) : voiceId
+    return { id: validatedId, name: requestedName }
   }
 
   /** 测试连接 — 验证 apiKey 存在 */
@@ -369,4 +408,10 @@ class MinimaxTtsAdapter extends BaseAdapter {
   }
 }
 
-module.exports = { MinimaxTtsAdapter, MINIMAX_TTS_MODELS, MINIMAX_SYSTEM_VOICES }
+module.exports = {
+  MinimaxTtsAdapter,
+  MINIMAX_TTS_MODELS,
+  MINIMAX_SYSTEM_VOICES,
+  buildMiniMaxCloneVoiceId,
+  isValidMiniMaxCloneVoiceId,
+}
