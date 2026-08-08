@@ -508,6 +508,9 @@ function registerStory2VideoStages(pipelineEngine) {
       };
       const markImageDone = () => { imagesDone += 1; writeAssetsProgress(); };
       const markTtsDone = () => { ttsDone += 1; writeAssetsProgress(); };
+      // 进度前置写入：阶段一开始即显示「图片 0/N · 旁白 0/M」，
+      // 避免首个图片/TTS 完成前（如图片生成需 16-30s）前端长期无数量信息
+      writeAssetsProgress();
 
       // 并行生成图片（分批控制并发）
       // 使用 AssetGenerator（ffmpeg 占位图）替代 serviceBus.callPythonSkill

@@ -140,7 +140,7 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       global.fetch = fetchMock
 
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
-      await adapter.synthesize({ text: 'Hello' })
+      await adapter.synthesize({ text: 'Hello', model: 'speech-2.6-hd' })
 
       const headers = fetchMock.calls[0].opts.headers
       expect(headers['Authorization']).toBe('Bearer mm-test')
@@ -159,6 +159,7 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       const result = await adapter.synthesize({
         text: 'Hello world',
         voice: 'male-qn-qingse',
+        model: 'speech-2.6-hd',
       })
 
       expect(result.audio).toBeInstanceOf(Buffer)
@@ -177,7 +178,7 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       global.fetch = fetchMock
 
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
-      await adapter.synthesize({ text: '你好世界' })
+      await adapter.synthesize({ text: '你好世界', model: 'speech-2.6-hd' })
 
       const body = JSON.parse(fetchMock.calls[0].opts.body)
       expect(body.text).toBe('你好世界')
@@ -190,7 +191,7 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       global.fetch = fetchMock
 
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
-      await adapter.synthesize({ text: 'Hi', voice: 'female-shaonv' })
+      await adapter.synthesize({ text: 'Hi', voice: 'female-shaonv', model: 'speech-2.6-hd' })
 
       const body = JSON.parse(fetchMock.calls[0].opts.body)
       expect(body.voice_setting.voice_id).toBe('female-shaonv')
@@ -203,7 +204,7 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       global.fetch = fetchMock
 
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
-      await adapter.synthesize({ text: 'Hi', speed: 1.5, pitch: 5 })
+      await adapter.synthesize({ text: 'Hi', speed: 1.5, pitch: 5, model: 'speech-2.6-hd' })
 
       const body = JSON.parse(fetchMock.calls[0].opts.body)
       expect(body.voice_setting.speed).toBe(1.5)
@@ -217,7 +218,7 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       global.fetch = fetchMock
 
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
-      await adapter.synthesize({ text: 'Hi' })
+      await adapter.synthesize({ text: 'Hi', model: 'speech-2.6-hd' })
 
       const body = JSON.parse(fetchMock.calls[0].opts.body)
       expect(body.voice_setting.speed).toBe(1.0)
@@ -231,7 +232,7 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       global.fetch = fetchMock
 
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
-      await adapter.synthesize({ text: 'Hi', outputFormat: 'wav' })
+      await adapter.synthesize({ text: 'Hi', outputFormat: 'wav', model: 'speech-2.6-hd' })
 
       const body = JSON.parse(fetchMock.calls[0].opts.body)
       expect(body.audio_setting.format).toBe('wav')
@@ -252,7 +253,7 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
 
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
       try {
-        await adapter.synthesize({ text: 'Hi' })
+      await adapter.synthesize({ text: 'Hi', model: 'speech-2.6-hd' })
         expect.fail('Should throw')
       } catch (e) {
         expect(e).toBeInstanceOf(ProviderError)
@@ -266,7 +267,7 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       ])
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-bad' })
       try {
-        await adapter.synthesize({ text: 'Hi' })
+      await adapter.synthesize({ text: 'Hi', model: 'speech-2.6-hd' })
         expect.fail('Should throw')
       } catch (e) {
         expect(e).toBeInstanceOf(ProviderError)
@@ -278,7 +279,7 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       global.fetch = vi.fn(async () => { throw new Error('ECONNREFUSED') })
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
       try {
-        await adapter.synthesize({ text: 'Hi' })
+      await adapter.synthesize({ text: 'Hi', model: 'speech-2.6-hd' })
         expect.fail('Should throw')
       } catch (e) {
         expect(e.code).toBe(ERROR_CODES.NETWORK_ERROR)
@@ -390,6 +391,103 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
     it('缺少样本时抛出配置错误', async () => {
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
       await expect(adapter.cloneVoice({ name: 'x', samples: [] })).rejects.toThrow()
+    })
+  })
+
+  describe('异步 T2A（speech-2.8-* 默认模型）', () => {
+    const ASYNC_AUDIO_HEX = '68656c6c6f2d6173796e63' // "hello-async"
+
+    function createBinaryResponse(bytes) {
+      const buf = new Uint8Array(bytes).buffer
+      return {
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        async json() { return {} },
+        async text() { return '' },
+        async arrayBuffer() { return buf },
+        body: null,
+      }
+    }
+
+    it('speech-2.8-turbo 走 t2a_async_v2 → query → 下载，返回 Buffer 音频', async () => {
+      const createResp = createFetchResponse({ data: { task_id: 'task-1' } })
+      const queryResp = createFetchResponse({ data: { file_id: 'file-1', status: 'success' } })
+      const downloadResp = createBinaryResponse(Buffer.from(ASYNC_AUDIO_HEX, 'hex'))
+      const fetchMock = createFetchMock([createResp, queryResp, downloadResp])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo' })
+
+      expect(result.audio.toString('utf8')).toBe('hello-async')
+      expect(result.format).toBe('mp3')
+      // 创建任务用异步端点；下载用 files/retrieve_content
+      expect(fetchMock.calls[0].url).toContain('/t2a_async_v2')
+      expect(fetchMock.calls[2].url).toContain('/files/retrieve_content?file_id=file-1')
+      // 请求体含 language_boost 与 audio_setting 异步字段
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.language_boost).toBe('auto')
+      expect(body.audio_setting.audio_sample_rate).toBe(32000)
+      expect(body.voice_setting.vol).toBe(10)
+    })
+
+    it('查询响应直接携带 data.audio（hex）时直接返回，不下载', async () => {
+      const createResp = createFetchResponse({ data: { task_id: 'task-2' } })
+      const queryResp = createFetchResponse({ data: { audio: ASYNC_AUDIO_HEX, status: 'success' } })
+      const fetchMock = createFetchMock([createResp, queryResp])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.8-hd' })
+      expect(result.audio.toString('utf8')).toBe('hello-async')
+      // 只发生 2 次请求（创建 + 查询），未走下载
+      expect(fetchMock.calls.length).toBe(2)
+    })
+
+    it('创建任务未返回 task_id 时抛 ProviderError', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ base_resp: { status_code: 1004, status_msg: 'bad' } })])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      await expect(adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo' })).rejects.toMatchObject({
+        code: 'PROVIDER_ERROR',
+      })
+    })
+
+    it('查询返回 error/失败状态时抛 ProviderError，不再轮询', async () => {
+      const createResp = createFetchResponse({ data: { task_id: 'task-3' } })
+      const queryResp = createFetchResponse({ data: { error: { message: 'voice not supported' }, status: 'failed' } })
+      const fetchMock = createFetchMock([createResp, queryResp])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      await expect(adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo' })).rejects.toMatchObject({
+        code: 'PROVIDER_ERROR',
+        message: expect.stringContaining('voice not supported'),
+      })
+    })
+
+    it('轮询超时抛 ProviderError TIMEOUT（异步轮询上限可注入）', async () => {
+      const calls = []
+      global.fetch = vi.fn(async (url) => {
+        calls.push(String(url))
+        // 创建任务返回 task_id；查询持续返回 pending（无 file_id、无 error）
+        return String(url).includes('query')
+          ? createFetchResponse({ data: { status: 'pending' } })
+          : createFetchResponse({ data: { task_id: 'task-4' } })
+      })
+
+      const adapter = new MinimaxTtsAdapter(
+        { id: 'minimax-tts', apiKey: 'mm-test' },
+        { asyncPollTimeoutMs: 50 }
+      )
+      await expect(adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo' })).rejects.toMatchObject({
+        code: 'TIMEOUT',
+      })
+      // 至少发生过创建 + 一次查询
+      expect(calls.some((u) => u.includes('/t2a_async_v2'))).toBe(true)
+      expect(calls.some((u) => u.includes('/query/t2a_async_query_v2'))).toBe(true)
     })
   })
 })
