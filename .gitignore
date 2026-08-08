@@ -99,6 +99,7 @@ apps/desktop/tests/e2e/reports/screenshots/
 # 涓存椂鑴氭湰鍜屾埅鍥?
 scripts/*.js
 !scripts/quality-rhythm-wrapper.js
+!scripts/openspec-sync-check.js
 screenshot_script*.js
 temp_debug.txt
 coverage/
