@@ -45,7 +45,7 @@ function registerHandlers(ipcMain, deps) {
   const publicAccountAliases = {
     followers: ['followers', 'follower_count', 'followers_count', 'fans', 'fans_count', 'fansCount', '粉丝数'],
     owner: ['owner', 'owner_name', 'ownerName', 'account_owner', 'accountOwner', '负责人'],
-    publisher: ['publisher', 'publisher_name', 'publisherName', 'operator', 'operator_name', 'operatorName', '运营人', '发布人'],
+    publisher: ['publisher', 'publisher_name', 'publisherName', 'publishers', 'publisher_list', 'operator', 'operator_name', 'operatorName', '运营人', '发布人'],
     last_login_check_at: ['last_login_check_at', 'lastLoginCheckAt', 'login_checked_at', 'loginCheckedAt', 'last_checked_at', 'lastCheckedAt', 'checked_at', 'checkedAt'],
     login_check_error: ['login_check_error', 'loginCheckError', 'last_login_error', 'lastLoginError'],
     status_reason: ['status_reason', 'statusReason'],
@@ -55,10 +55,14 @@ function registerHandlers(ipcMain, deps) {
 
   function toPublicMetadataValue(value) {
     if (value === null || value === undefined) return undefined
+    if (Array.isArray(value)) {
+      const items = value.map(toPublicMetadataValue).filter(item => item !== undefined)
+      return items.length ? items : undefined
+    }
     if (typeof value === 'string') return value.trim() || undefined
     if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
     if (typeof value === 'boolean') return value
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+    if (!value || typeof value !== 'object') return undefined
     for (const key of ['name', 'label', 'nickname', 'value', 'count', 'text']) {
       const nested = toPublicMetadataValue(value[key])
       if (nested !== undefined) return nested
@@ -68,11 +72,24 @@ function registerHandlers(ipcMain, deps) {
 
   function toPublicErrorValue(value) {
     const normalized = toPublicMetadataValue(value)
+    if (Array.isArray(normalized)) return normalized.map(item => toPublicErrorValue(item))
     if (typeof normalized !== 'string') return normalized
     return normalized
-      .replace(/\b(cookie|token|password|secret|authorization|session(?:[_-]?id)?)\s*[:=]\s*[^\s,;]+/gi, '$1=***')
-      .replace(/\bBearer\s+[A-Za-z0-9._~-]+/gi, 'Bearer ***')
+      .replace(/((?:access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|access[_-]?key|app[_-]?secret|session(?:[_-]?id)?|pwd|passwd|token|cookie|password|secret|authorization|令牌|密钥|密码)\s*[:=：]\s*)(?:Bearer\s+)?[^\s,;]+(?:,[^\s,;]+)*/gi, '$1***')
+      .replace(/\bBearer\s+[A-Za-z0-9._~-]+(?:,[A-Za-z0-9._~-]+)*/gi, 'Bearer ***')
       .slice(0, 240)
+  }
+
+  function normalizePortValue(port) {
+    if (typeof port === 'number') {
+      const value = Number.isInteger(port) ? port : undefined
+      return value !== undefined && value >= 1 && value <= 65535 ? value : undefined
+    }
+    if (typeof port === 'string' && /^\d+$/.test(port)) {
+      const value = Number(port)
+      return value >= 1 && value <= 65535 ? value : undefined
+    }
+    return undefined
   }
 
   function copyPublicMetadataAliases(source) {
@@ -121,7 +138,7 @@ function registerHandlers(ipcMain, deps) {
           configured: raw.proxy.configured,
           ...(typeof raw.proxy.type === 'string' ? { type: raw.proxy.type } : {}),
           ...(typeof raw.proxy.hostMasked === 'string' ? { hostMasked: raw.proxy.hostMasked } : {}),
-          ...(Number.isInteger(raw.proxy.port) ? { port: raw.proxy.port } : {}),
+          ...(() => { const port = normalizePortValue(raw.proxy.port); return port !== undefined ? { port } : {} })(),
           ...(raw.proxy.hasAuthentication === true ? { hasAuthentication: true } : {}),
           ...(raw.proxy.invalid === true ? { invalid: true } : {}),
         }
@@ -261,7 +278,9 @@ function registerHandlers(ipcMain, deps) {
         return { code: EC.VALIDATION_ERROR, message: '缺少或非法 accountId/platform 参数' }
       }
       const status = await AccountManager.setAccountProxy(accountId, platform, proxy)
-      return { code: 0, data: status, message: status.configured ? '账号代理已保存' : '账号代理已清除' }
+      const proxyConfigured = status?.configured === true
+      if (!status || typeof status !== 'object') return { code: EC.REQUEST_ERROR, message: '代理状态无效' }
+      return { code: 0, data: status, message: proxyConfigured ? '账号代理已保存' : '账号代理已清除' }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e instanceof Error ? e.message : String(e) }
     }

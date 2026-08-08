@@ -309,6 +309,110 @@ describe('account IPC 可信来源正常工作', () => {
     expect(JSON.stringify(result)).not.toContain('private@example.com')
     expect(JSON.stringify(result)).not.toContain('private-token')
     expect(result.data[0].status_reason.length).toBeLessThanOrEqual(240)
+
+  })
+  it('accounts:list 对下划线/驼峰/中文/组合键敏感字段全部脱敏且不泄漏值', async () => {
+    const deps = createMockDeps()
+    deps.pythonBridge.requestBackend.mockResolvedValue({
+      code: 0,
+      data: [{
+        id: 'acc-redact',
+        platform: 'wechat_mp',
+        name: '公众号',
+        statusReason: 'access_token=abc refreshToken=def api_key=xyz 密码：secret session=expired user_token=comb client_secret=xyz2 loginPassword=psw token=first,second Bearer abc123 普通描述 无密钥',
+      }, {
+        id: 'acc-arr',
+        platform: 'zhihu',
+        name: '知乎',
+        login_check_error: ['access_token=arr-secret 失败', '普通消息'],
+      }],
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('accounts:list')(TRUSTED_EVENT)
+
+    const text = result.data[0].status_reason
+    expect(text).toContain('access_token=***')
+    expect(text).toContain('refreshToken=***')
+    expect(text).toContain('api_key=***')
+    expect(text).toContain('密码：***')
+    expect(text).toContain('session=***')
+    expect(text).toContain('user_token=***')
+    expect(text).toContain('client_secret=***')
+    expect(text).toContain('loginPassword=***')
+    expect(text).toContain('token=***')
+    expect(text).toContain('Bearer ***')
+    expect(text).toContain('普通描述 无密钥')
+    expect(text).not.toContain('abc')
+    expect(text).not.toContain('def')
+    expect(text).not.toContain('second')
+    expect(text).not.toContain('xyz')
+    expect(text).not.toContain('xyz2')
+    expect(text).not.toContain('comb')
+    expect(text).not.toContain('psw')
+
+    expect(result.data[1].login_check_error).toEqual(['access_token=*** 失败', '普通消息'])
+  })
+
+  it('account:list 与 accounts:list 双路径返回一致的公开字段形状', async () => {
+    const rawAccount = {
+      id: 'acc-dual',
+      platform: 'zhihu',
+      name: '知乎账号',
+      follower_count: 1024,
+      ownerName: '团队乙',
+      publishers: ['秋叔', '小明'],
+      checkedAt: '2026-08-06T08:00:00.000Z',
+      statusReason: 'accessToken=hidden-token 已过期',
+      unknown_metadata: '不得透传',
+      cookies: [{ name: 'session', value: 'secret' }],
+    }
+    const backendDeps = createMockDeps()
+    backendDeps.pythonBridge.requestBackend.mockResolvedValue({ code: 0, data: [rawAccount] })
+    const localDeps = createMockDeps()
+    localDeps.AccountManager.listAccounts.mockResolvedValue([rawAccount])
+    const backendIpc = createMockIpcMain()
+    const localIpc = createMockIpcMain()
+    registerHandlers(backendIpc, backendDeps)
+    registerHandlers(localIpc, localDeps)
+
+    const fromBackend = await backendIpc._get('accounts:list')(TRUSTED_EVENT)
+    const fromLocal = await localIpc._get('account:list')(TRUSTED_EVENT)
+
+    expect(fromBackend.code).toBe(0)
+    expect(fromLocal.code).toBe(0)
+    expect(fromBackend.data).toEqual(fromLocal.data)
+    expect(fromLocal.data[0]).toEqual(expect.objectContaining({
+      id: 'acc-dual',
+      platform: 'zhihu',
+      name: '知乎账号',
+      followers: 1024,
+      owner: '团队乙',
+      publisher: ['秋叔', '小明'],
+      last_login_check_at: '2026-08-06T08:00:00.000Z',
+      status_reason: expect.stringMatching(/^accessToken=\*\*\* 已过期/),
+    }))
+    expect(JSON.stringify(fromLocal.data)).not.toContain('hidden-token')
+    expect(JSON.stringify(fromLocal.data)).not.toContain('secret')
+    expect(fromLocal.data[0]).not.toHaveProperty('unknown_metadata')
+    expect(fromLocal.data[0]).not.toHaveProperty('cookies')
+  })
+
+  it('account:list 对字符串代理端口归一化并拒绝非法端口', async () => {
+    const deps = createMockDeps()
+    deps.AccountManager.listAccounts.mockResolvedValue([{
+      id: 'acc-proxy',
+      platform: 'wechat_mp',
+      name: '公众号',
+      proxy: { configured: true, type: 'http', hostMasked: '10.0.*.*', port: '8080' },
+    }])
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('account:list')(TRUSTED_EVENT)
+
+    expect(result.data[0].proxy.port).toBe(8080)
   })
 
   it('account:set-proxy 等待异步持久化并把拒绝转换为 IPC 错误', async () => {

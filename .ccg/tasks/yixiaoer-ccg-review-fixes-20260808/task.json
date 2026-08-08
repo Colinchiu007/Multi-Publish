@@ -1,0 +1,12 @@
+{
+  "id": "yixiaoer-ccg-review-fixes-20260808",
+  "title": "修复 CCG 双模型审查发现的账号/代理/二维码问题",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend-electron",
+  "currentPhase": "review",
+  "nextAction": "等待最终全量测试后提交推送 PR",
+  "createdAt": "2026-08-08T00:00:00Z",
+  "branch": "codex/yixiaoer-review-fixes-20260808"
+}
