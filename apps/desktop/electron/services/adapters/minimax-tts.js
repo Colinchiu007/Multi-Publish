@@ -40,13 +40,36 @@ const DEFAULT_BITRATE = 128000
 const DEFAULT_CHANNEL = 2
 const DEFAULT_OUTPUT_FORMAT = 'mp3'
 const DEFAULT_SAMPLE_RATE = 32000
-// 异步 T2A：创建任务 → 轮询查询 → 下载音频。2.8 系列为 T2A Async 模型，
-// 同步端点 /t2a_v2 对异步模型不返回 data.audio（200 但缺音频 → “Missing audio data”）。
+// 异步 T2A：创建任务 → 轮询查询 → 下载音频。2.8/02 系列为 T2A Async 模型
+// （官方「异步语音合成」支持模型表），同步端点 /t2a_v2 对异步模型不返回
+// data.audio（200 但缺音频 → “Missing audio data”）。
 const DEFAULT_ASYNC_POLL_TIMEOUT_MS = 90 * 1000
 const DEFAULT_ASYNC_POLL_INTERVAL_MS = 1000
 
+// 音色复刻（克隆）使用模型（MiniMax 官方文档 speech-voice-clone）：
+// 快速复刻接口示例 model=speech-2.8-hd；官方「异步语音合成」模型表中
+// speech-02-hd 是唯一标注「复刻相似度」的模型——克隆音色的正式语音合成
+// 必须用 speech-02-hd，不能用 speech-2.8-turbo 等（否则报 voice id wrong）。
+const VOICE_CLONE_MODEL = 'speech-2.8-hd'
+const CLONED_VOICE_SYNTHESIS_MODEL = 'speech-02-hd'
+
 function isAsyncT2aModel (model) {
-  return /^speech-2\.8-(turbo|hd)$/i.test(String(model || ''))
+  return /^speech-(2\.8|02)-(turbo|hd)$/i.test(String(model || ''))
+}
+
+function isSystemVoiceId (voiceId) {
+  return MINIMAX_SYSTEM_VOICES.some((item) => item.id === voiceId)
+}
+
+/**
+ * 音色/参数类错误归类为 INVALID_CONFIG（非瞬时、不可重试），
+ * 让流水线快速失败并透传具体原因（如「voice id wrong」），而不是反复重试后弹笼统提示。
+ */
+function voiceInvalidOrConfigError (message, providerId) {
+  const normalized = String(message || '').trim()
+  const voiceInvalid = /voice id wrong|invalid params.*voice|voice_id.*(?:invalid|wrong|not found|not exist|unsupported)|音色.*(?:无效|不存在|失效)/i.test(normalized)
+  const code = voiceInvalid ? ERROR_CODES.INVALID_CONFIG : ERROR_CODES.PROVIDER_ERROR
+  return new ProviderError(code, normalized || 'MiniMax 语音合成失败', { providerId })
 }
 
 // 静态预定义 MiniMax TTS 模型列表（speech-2.8-turbo 为首选默认）
@@ -153,10 +176,17 @@ class MinimaxTtsAdapter extends BaseAdapter {
     const pitch = params.pitch !== undefined ? params.pitch : DEFAULT_PITCH
     const outputFormat = params.outputFormat || DEFAULT_OUTPUT_FORMAT
 
-    // 异步 T2A 模型（speech-2.8-*）必须走 t2a_async_v2 创建任务 → 查询 → 下载，
+    // 官方音色 vs 克隆音色使用不同模型（MiniMax 官方文档）：
+    // - 官方音色 → 使用用户配置的模型（如 speech-2.8-turbo）
+    // - 克隆（复刻）音色 → 必须使用 speech-02-hd（官方「异步语音合成」模型表中
+    //   唯一标注「复刻相似度」的模型），否则服务商报「invalid params, voice id wrong」。
+    // 系统音色列表之外的 voice_id 视为克隆音色。
+    const effectiveModel = isSystemVoiceId(voice) ? model : CLONED_VOICE_SYNTHESIS_MODEL
+
+    // 异步 T2A 模型（speech-2.8-*/speech-02-*）必须走 t2a_async_v2 创建任务 → 查询 → 下载，
     // 同步端点 /t2a_v2 对异步模型返回 200 但不含 data.audio。
-    if (isAsyncT2aModel(model)) {
-      return this._synthesizeAsync({ text: params.text, model, voice, speed, pitch, outputFormat })
+    if (isAsyncT2aModel(effectiveModel)) {
+      return this._synthesizeAsync({ text: params.text, model: effectiveModel, voice, speed, pitch, outputFormat })
     }
 
     const body = {
@@ -233,7 +263,8 @@ class MinimaxTtsAdapter extends BaseAdapter {
       const message = createData?.base_resp?.status_msg
         || createData?.message
         || 'MiniMax 异步语音合成未返回 task_id'
-      throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, message, { providerId: this.id })
+      // 音色无效/参数错误属于配置问题：非瞬时、不重试，快速失败并透传具体原因
+      throw voiceInvalidOrConfigError(message, this.id)
     }
 
     const pollTimeoutMs = Number.isFinite(Number(this.options.asyncPollTimeoutMs))
@@ -271,13 +302,12 @@ class MinimaxTtsAdapter extends BaseAdapter {
         const message = typeof errorValue === 'string'
           ? errorValue
           : (errorValue && errorValue.message) || String(data?.status || '') || 'MiniMax 异步语音合成失败'
-        throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, message, { providerId: this.id })
+        throw voiceInvalidOrConfigError(message, this.id)
       }
       if (statusCode !== undefined && Number(statusCode) !== 0) {
-        throw new ProviderError(
-          ERROR_CODES.PROVIDER_ERROR,
+        throw voiceInvalidOrConfigError(
           String(baseResp.status_msg || ('MiniMax 异步语音合成失败（status_code=' + statusCode + '）')),
-          { providerId: this.id },
+          this.id,
         )
       }
 
@@ -344,9 +374,10 @@ class MinimaxTtsAdapter extends BaseAdapter {
     const safeId = requestedName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 32)
     const voiceId = safeId || 'clone_voice'
 
+    // 官方文档示例：快速复刻接口需传 model（speech-2.8-hd）
     const cloneResp = await this._request('/voice_clone', {
       method: 'POST',
-      body: JSON.stringify({ file_id: fileId, voice_id: voiceId }),
+      body: JSON.stringify({ file_id: fileId, voice_id: voiceId, model: VOICE_CLONE_MODEL }),
     })
     const cloneJson = await cloneResp.json()
     const finalId = cloneJson?.voice_id || cloneJson?.data?.voice_id || voiceId

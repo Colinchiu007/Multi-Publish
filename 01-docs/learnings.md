@@ -1,6 +1,13 @@
 
 ---
 
+## MiniMax 克隆音色与官方音色需分开路由复盘 (2026-08-08)
+
+- **表象**：改用异步 T2A 后，克隆音色（本地克隆 id「01」）仍报「invalid params, voice id wrong」。
+- **根因**：MiniMax 克隆音色与官方音色走不同模型/接口：① 克隆创建 `/v1/voice_clone` 需带 `model: speech-2.8-hd`（此前 adapter 缺 model 字段）；② 克隆音色的正式合成必须用 `speech-02-hd`（官方「异步语音合成」模型表中唯一标注「复刻相似度」的模型），用 speech-2.8-turbo 会被拒绝；③ 官方音色用配置模型即可。
+- **修复**：adapter 按「voice_id 是否在系统音色列表」分流——克隆音色强制 `speech-02-hd` + 异步流程；官方音色用配置模型；cloneVoice 补 `model: speech-2.8-hd`；「voice id wrong」类错误归类 INVALID_CONFIG（不重试）+ 前端 VOICE_INVALID 友好提示。
+- **教训**：provider 的「系统音色 vs 克隆音色」往往对应不同模型与不同调用方式，必须按音色类型路由，不能假设同一模型适用所有音色；验证时用真实 key 分别测官方音色与克隆音色两条链路。
+
 ## MiniMax 异步 T2A 误用同步端点致整段失败复盘 (2026-08-08)
 
 - **表象**：单场景文案「11」，生成图片与旁白阶段弹「当前操作未能完成」；日志里 `minimax-tts synthesize error "Missing audio data in response"`（100-300ms 快速失败，多次重试仍失败）。

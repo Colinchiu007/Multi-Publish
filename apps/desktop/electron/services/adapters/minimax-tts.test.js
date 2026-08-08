@@ -368,6 +368,11 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       // 精确 URL：base_url 默认含 /v1（https://api.minimaxi.com/v1），路径不得重复 /v1
       expect(String(fetchMock.calls[0].url)).toBe('https://api.minimaxi.com/v1/files/upload')
       expect(String(fetchMock.calls[1].url)).toBe('https://api.minimaxi.com/v1/voice_clone')
+      // 官方文档：快速复刻接口必须传 model=speech-2.8-hd
+      const cloneBody = JSON.parse(fetchMock.calls[1].opts.body)
+      expect(cloneBody.model).toBe('speech-2.8-hd')
+      // 请求体 voice_id 为名字净化后的 id（中文名净化后为空 → 回退 clone_voice）
+      expect(cloneBody.voice_id).toBe('clone_voice')
     })
 
     it('base_url 含 /v1（真实 preset 配置）时不产生双重 /v1（回归「音色克隆服务不可用」）', async () => {
@@ -443,6 +448,54 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       expect(result.audio.toString('utf8')).toBe('hello-async')
       // 只发生 2 次请求（创建 + 查询），未走下载
       expect(fetchMock.calls.length).toBe(2)
+    })
+
+    it('音色无效错误归类 INVALID_CONFIG（不可重试）并透传原因', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 1004, status_msg: 'invalid params, voice id wrong' } }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const error = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo' }).catch((e) => e)
+      expect(error).toBeInstanceOf(ProviderError)
+      expect(error.code).toBe('INVALID_CONFIG')
+      expect(error.retryable).toBe(false)
+      expect(error.message).toContain('voice id wrong')
+    })
+
+    it('克隆音色（非系统音色）自动改用 speech-02-hd 模型走异步合成', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: { task_id: 'task-clone' } }),
+        createFetchResponse({ data: { file_id: 'file-clone' } }),
+        createBinaryResponse(Buffer.from('68656c6c6f', 'hex')),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      // voice '01' 不在系统音色列表（本地克隆音色）→ 必须用 speech-02-hd，而不是配置的 speech-2.8-turbo
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo', voice: '01' })
+      expect(result.audio.toString('utf8')).toBe('hello')
+
+      const createBody = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(createBody.model).toBe('speech-02-hd')
+      expect(createBody.voice_setting.voice_id).toBe('01')
+    })
+
+    it('官方音色使用配置的模型（speech-2.8-turbo）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: { task_id: 'task-sys' } }),
+        createFetchResponse({ data: { file_id: 'file-sys' } }),
+        createBinaryResponse(Buffer.from('68656c6c6f', 'hex')),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo', voice: 'male-qn-qingse' })
+
+      const createBody = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(createBody.model).toBe('speech-2.8-turbo')
+      expect(createBody.voice_setting.voice_id).toBe('male-qn-qingse')
     })
 
     it('创建任务未返回 task_id 时抛 ProviderError', async () => {

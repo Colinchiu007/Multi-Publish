@@ -119,6 +119,22 @@ describe('Story2Video notification messages', () => {
     expect(enUnreadable.message).toContain('background music')
   })
 
+  it('服务商返回音色无效错误时映射为 VOICE_INVALID 友好提示（含原因与建议）', () => {
+    const notification = formatStory2VideoNotification({
+      error: 'TTS provider "minimax-tts" failed: invalid params, voice id wrong',
+    })
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID)
+    expect(notification.message).toContain('音色无效或已失效')
+    expect(notification.message).toContain('重新选择有效音色')
+    expect(notification.message).toContain('voice id wrong')
+
+    const en = formatStory2VideoNotification({
+      error: 'TTS provider "minimax-tts" failed: invalid params, voice id wrong',
+    }, 'en')
+    expect(en.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID)
+    expect(en.message).toContain('invalid or no longer available')
+  })
+
   it('counts Unicode code points rather than UTF-16 code units or grapheme clusters', () => {
     expect('A😀中'.length).toBe(4)
     expect(countUnicodeCodePoints('A😀中')).toBe(3)
