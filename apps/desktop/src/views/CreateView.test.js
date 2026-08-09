@@ -2165,3 +2165,61 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
     vi.useRealTimers();
   });
+
+describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => {
+  it("默认/1080p：前端不出现 4K 分辨率选项", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue(null); // 未配置 → 默认 1080p
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    expect(w.vm.maxOutputResolution).toBe("1080p");
+    const values = w.findAll("option").map((o) => o.attributes("value"));
+    expect(values).toContain("1920x1080");
+    expect(values).not.toContain("3840x2160");
+    expect(w.text()).not.toContain("3840×2160");
+    w.unmount();
+    mocks.storeGetSetting.mockReset();
+  });
+
+  it("运营配置 4k：前端出现 4K 分辨率选项", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({ code: 0, data: "4k" });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    expect(w.vm.maxOutputResolution).toBe("4k");
+    const values = w.findAll("option").map((o) => o.attributes("value"));
+    expect(values).toContain("3840x2160");
+    w.unmount();
+    mocks.storeGetSetting.mockReset();
+  });
+
+  it("1080p：恢复的旧快照含 4K 时归一化到 1920x1080（历史/模板不残留 4K）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    // loadMaxOutputResolution 读到快照对象 → 按 1080p 处理；restoreS2VLastOptions 恢复 4K 快照
+    mocks.storeGetSetting.mockResolvedValue({
+      code: 0,
+      data: {
+        version: 1,
+        s2vConfig: {},
+        s2vOutputConfig: { resolution: "3840x2160", fps: 30 },
+        ui: { expandedGroups: [] },
+      },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vVoiceProviders = [{ id: "minimax-tts" }, { id: "edge-tts" }];
+    w.vm.s2vImageProviders = [{ id: "minimax-image" }];
+    await w.vm.restoreS2VLastOptions();
+    expect(w.vm.maxOutputResolution).toBe("1080p");
+    expect(w.vm.s2vOutputConfig.resolution).toBe("1920x1080");
+    w.unmount();
+    mocks.storeGetSetting.mockReset();
+  });
+});

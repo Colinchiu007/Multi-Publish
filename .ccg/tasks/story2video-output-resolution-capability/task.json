@@ -1,0 +1,18 @@
+{
+  "id": "story2video-output-resolution-capability",
+  "title": "4K 输出能力开关（运营后台 videoCreation.maxOutputResolution）+ compose 中间分辨率封顶",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video-compose+frontend",
+  "currentPhase": "completed",
+  "branch": "codex/story2video-output-resolution-capability",
+  "createdAt": "2026-08-09T15:05:00Z",
+  "items": [
+    "compose 中间分辨率长边封顶 3840 且保持宽高比（4K 输出不再产生 8K/方形中间画布）",
+    "引擎 fail-closed：maxOutputResolution 默认 1080p，compose/renderSegment 拒绝 4K",
+    "容器接线：MAX_OUTPUT_RESOLUTION env 优先，其次 store 运营配置 videoCreation.maxOutputResolution",
+    "前端单点 src/story2video/output-resolution.js：选项列表/归一化；CreateView 两处 select、模板、历史恢复接入",
+    "验证：engine 82 + CreateView 108 + 容器/项目服务 27 + 单点 8 测试通过；实测默认拒绝 4K、4k 档放行"
+  ]
+}

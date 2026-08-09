@@ -39,6 +39,8 @@
 - **现象**：27 个场景（720x1280）合成时，单条 ffmpeg 命令构建 27 路 xfade/acrossfade 图，x264 报 malloc of size 1586256 failed 失败（环境内存不足）。
 - **影响**：W2/W3 排队验证不受影响（资源生成阶段全部成功）；但超长流水线的 compose 需要拆分渲染或限制单命令输入路数。
 - **修复**：compose 分块合成（单命令 ≤8 路输入，块内 xfade + 递归合并中间文件），25+ 场景不再触发单命令内存失败；真实 ffmpeg 验证 10 段分块合成产出 16.39s 视频。
+- **2026-08-09 追加（同 class 不同触发点）**：27 场景 run 在 `generate_assets` 全部成功（27 图+27 旁白）后，compose 第 13 段失败——单段「2x 工作分辨率 zoompan」（1080p 输出 → 3840x2160 画布）编码速度约 10-20fps，20.79s 片段需 40s+，被固定 30s 片段编码超时误杀。修复：`computeSegmentEncodeTimeoutMs` 按「时长×帧率」估算（最低 30s/上限 5min），编码失败时工作分辨率降档重试（2x→1.5x→1x）。真实 ffmpeg 验证 20s/1080p 段 23.5s 编码成功，单元测试覆盖超时公式与降档循环。
+- **2026-08-09 追加（4K 能力开关）**：4K（3840x2160）输出在「2x 中间分辨率」下会产生 8K 中间画布，资源/时长爆炸；且图片生成只传 aspect_ratio 并非真 4K。新增运营开关 `videoCreation.maxOutputResolution`（默认 `1080p` 禁止 4K，`4k` 开启；env `MAX_OUTPUT_RESOLUTION` 可覆盖）：compose/renderSegment fail-closed 拒绝 4K；前端两处分辨率选项、模板、历史恢复不出现/归一化 4K；中间分辨率长边封顶 3840 且保持宽高比。回归：engine 82 + CreateView 108 + 单点 8 测试通过。
 
 ## 待办 E：后台并发专项重测（2026-08-07 新增）
 - **已实测（`C:\tmp\e2e-concurrency.js`，真实 minimax-tts/minimax-image/agnes-llm/sensenova-llm）**：
