@@ -4,6 +4,15 @@
 
 ---
 
+## MiniMax Image 空图未标记 emptyResult 复盘 (2026-08-09，质量节拍 Bug 反哺)
+
+- **表象**：27 场景图片轮播任务 generate_assets 阶段 **26/27 成功**，唯独 Image #2 报 `image_generation returned no image: success` → 整线 failed（run_1786270877725_bw2m）。断点续跑（resumeOrchestration）后 17s 全部成功——确认是 provider 瞬时空图，不是提示词内容问题。
+- **根因**：`minimax-image.js` adapter 对「HTTP 200 但 `image_urls` 空、status_msg='success'」抛 `ProviderError(PROVIDER_ERROR)`，但**未设置 `emptyResult=true`**；上层 `runContentPolicyImageRetry`（asset-generator 内部）以 `error.emptyResult === true` 识别空结果进入「同提示词重试→第 3 次改写→5 次后 needs_user_input(empty_result)」合同路径，未标记则按普通 PROVIDER_ERROR 立即失败。PRD 7.1.5「空响应重试合同」要求 adapter 空 `image_urls` 显式抛错 + 重试循环内校验，但 adapter 提前 throw 使循环内 buffer/URL 校验（`extractProviderImageBuffer/Url`）永不触发。
+- **逃逸链**：① minimax-image 单测只断言 code/message，未断言 `emptyResult` 标记；② 27 场景 E2E 之前用长文案通过（无空图），未覆盖单场景空图；③ 真实 provider 偶发空图被误归为确定性失败。
+- **修复**：adapter 空图分支在 `PROVIDER_ERROR` 上设置 `error.emptyResult = true`（`CONTENT_POLICY` 分支不设，走安全改写路径）；回归=adapter 标记/不标记 2 例 + image-retry `empty_result` 分支 + 全链路 85 用例。
+- **教训**：跨层「空结果」契约要用显式标记（`emptyResult`）在抛出点声明语义，不能依赖上层事后推断；真实 provider 空图是「可恢复瞬态」而非「确定性失败」，重试预算内应走温和降级（重试/改写/needs_user_input），不得直接 fail closed 整线。
+- **真实验证**：修复后断点续跑该 run 成功（generate_assets 17s 全 27 场景通过进入 compose）。
+
 ## prompt-engine 中文过短文案未回退原文复盘 (2026-08-09，质量节拍 Bug 反哺)
 
 - **表象**：真实 Electron 链路文案输入「测试」（2 个中文字），optimize 阶段 `prompt-engine 请求被拒绝(422): 描述太简短了（2 字），建议更详细描述画面` → **整条流水线 failed**，未按 PRD 7.1.17「过短拒绝回退原文并继续」执行。
