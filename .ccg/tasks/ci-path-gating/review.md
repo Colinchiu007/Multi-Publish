@@ -23,3 +23,12 @@
 - [x] 无硬编码密钥/路径（仅 workflow 触发配置）
 - [x] 变更在请求范围内（4 个文件）
 - [x] 分支隔离：独立 worktree codex/ci-path-gating，基点 origin/main
+
+## CI 验证补充（2026-08-09）
+- 首次提交（668e5e54）：Build ✅ / Visual ✅ / quality-gate(push) ✅ 20m42s / quality-gate(PR) ✅ 24m29s；
+  Doc Sync Gate ❌ —— 根因：doc-gate paths-ignore 缺 `.ccg/**`。已修复（doc-gate 补 5 个流程目录 + 契约断言）。
+- 修复提交（b393e680）：Doc Sync Gate 正确跳过（设计生效）；Build ✅ / Visual ✅ / quality-gate(push+PR) ✅。
+- electron-ci 首次排队 40+ 分钟：self-hosted runner 被并发任务占用（外部资源瓶颈）。
+- **并发合入发现**：main 推进 16 提交，其中 #433 ci-electron-github-runner 已将 electron-ci 迁移至
+  GitHub ubuntu-latest（消除单机排队）。合并 origin/main（b19e435f）无冲突，paths-ignore 与 #433 改动共存，
+  合并后本地验证 16/16 通过。
