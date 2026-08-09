@@ -6014,3 +6014,10 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **normalizer 双源 firstDefined 的价值**：contract 层保留 `firstDefined(input, params)` + 默认兜底，使前端字段可安全移除（提交缺省即默认），无需迁移；快照恢复白名单（按当前默认键 Object.keys(target)）天然兼容旧快照多余键。
 - **双源结构 ≠ 冗余**：watermark（UI 文本 + watermarkConfig 样式）与 subtitle（UI size/style + subtitleStyle 模板对象含 color）是「UI 字段 + 模板持有」协调结构，applyS2VTemplate 会写入 subtitleStyle——不能简单合并扁平化。
 - **死提交字段线索**：split.speechRate 渲染层值恒被 normalizer 硬覆盖为 voice.speed（死提交，下轮清理）；Python YAML baseWordsPerSecond 3.3 非语言感知（绕过 JS 语言表的直接调用路径）。
+
+## 图片轮播参数治理 R2 复盘 (2026-08-09)
+
+- **R2 清理**：移除 s2vConfig.splitSpeechRate / concurrency / autoAdvance（延续 R1 死字段模式）。三类等价性依据：① normalizer 硬覆盖（story2video-text-config.js:355 split.speechRate = voice.speed，注释「不再校验/接受独立值」）；② 契约默认 firstDefined → 3（:406，范围 1-8）；③ params 字面量 true（CreateView.vue:1716），s2vConfig 字段无读取。
+- **模式固化**：死字段移除四步——① grep 全仓消费点并区分「前端读取 vs normalizer/下游读归一化值」；② 确认 normalizer 兜底（硬覆盖 / firstDefined 默认 / 参数字面量）等价；③ UE 契约用「s2vConfig 声明块精确匹配」（正则截取默认对象，按 `key:` 断言，避免误伤注释）；④ 快照白名单天然兼容旧键。
+- **候选线索**：normalizer 中「单一来源派生」字段（如 speechRate=voice.speed）一旦出现在前端提交构造即为死提交；排查思路 = 找「提交键 ∈ normalizer 硬覆盖集合」的交集。
+- **剩余候选**：Python YAML baseWordsPerSecond 非语言感知；project-service._safeOptions voicePitch 残留（回读安全）；B 类运营化（ops-center pipeline_configs）。

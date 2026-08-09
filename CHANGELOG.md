@@ -49,6 +49,13 @@
 - 文档：PRD 7.1.19 参数治理合同（系统管理参数完整矩阵 / UI-后端边界 / watermark-subtitle 双源结构 / 后续清理候选）。
 - 非目标（P1 待办）：枚举/目录/限额类参数转运营后台（ops-center pipeline_configs 基础设施另行立项）。
 
+## [未发布] 图片轮播参数治理 R2：移除 splitSpeechRate/concurrency/autoAdvance 前端死字段（2026-08-09）
+
+- 移除 `s2vConfig.splitSpeechRate` / `concurrency` / `autoAdvance`；提交构造不再显式传 `split.speechRate`（normalizer 以 `voice.speed` 派生，单一来源）与 `concurrency`（契约默认 3、范围 1-8 兜底）；params 保留字面量 `autoAdvance: true`。
+- 行为等价（延续 R1 模式）：normalizer 归一化后下游全读派生/默认值；`_applyS2VSnapshot` 白名单忽略旧快照已移除键（边界：旧快照中的非默认 concurrency 值不再恢复，回落契约默认 3——系统管理语义）。
+- 测试：CreateView（字段不存在 + 提交不携带 + params.autoAdvance 保留）、UE 契约（s2vConfig 声明块不声明三字段）。
+- 文档：PRD 7.1.19 §2/§5 更新（三字段标注 R2 已移除），CHANGELOG、learnings。
+
 ## 维护与归档（2026-08-08）
 
 - 归档 Story2Video 场景时长三层模型 CCG 任务审计轨迹（`.ccg/tasks/story2video-scene-duration-three-layer` → `archive/2026-08/`）：

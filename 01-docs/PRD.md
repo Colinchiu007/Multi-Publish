@@ -1028,15 +1028,15 @@ Electron 打包、工作树、PR 或发布状态证据。
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `voicePitch` | 0 | 归一化顶层 `voicePitch`/`voice.pitch`；TTS pitch |
-| `creativeLevel` | 5 | `optimize.creative_level` 1-10；prompt-engine 使用 |
-| `concurrency` | 3 | generate_assets 并发（成本/速度）；有界并发 normalizeAssetConcurrency |
-| `splitBaseWordsPerSecond` | 语言表 | 不暴露 UI，值由语言表派生，随提交下发 |
-| `splitSpeechRate` | 1 | **派生死提交**：normalizer 硬覆盖为 `voice.speed`，渲染层值恒被忽略（下一轮清理候选） |
+| `voicePitch` | 0 | 归一化顶层 `voicePitch`/`voice.pitch`；TTS pitch；R1 已移除前端字段 |
+| `creativeLevel` | 5 | `optimize.creative_level` 1-10；prompt-engine 使用；R1 已移除前端字段 |
+| `concurrency` | 3 | generate_assets 并发（成本/速度）；normalizer 默认 3、范围 1-8；**R2 已移除前端字段**（旧快照中的非默认 concurrency 值不再恢复，回落契约默认 3） |
+| `splitBaseWordsPerSecond` | 语言表 | 不暴露 UI，值由语言表派生，随提交下发；R1 已移除前端字段 |
+| `splitSpeechRate` | 1（恒被 voice.speed 覆盖） | normalizer 硬覆盖为 `voice.speed`（单一来源，不校验独立值）；**R2 已移除前端字段与提交** |
 | `splitMinWords/MaxWords` | 10/50 | 分镜字数 clamp 边界（内部消费） |
 | `splitSubtitleMinChars/MaxChars/Timing` | 8/15/proportional | 字幕分页内部参数 |
 | `splitEnforceSentenceBoundary` / `splitOverflowToNext` | true | 分句内部策略 |
-| `autoAdvance` / `background` / `checkpointPolicy:'none'` | true/true/none | 全自动编排固定参数（提交恒携带） |
+| `autoAdvance` / `background` / `checkpointPolicy:'none'` | true/true/none | 全自动编排固定参数（提交 params 字面量携带）；**R2 已移除 autoAdvance 前端字段** |
 | `watermarkConfig` 内部项（fontSize/opacity/color/position） | 24/0.6/white/bottom-right | 模板持有（见 4） |
 
 **3. UI-后端边界**
@@ -1054,10 +1054,10 @@ Electron 打包、工作树、PR 或发布状态证据。
 - **subtitle**：UI 选择字段 `subtitleSize`/`subtitleStyleName` + 模板对象 `subtitleStyle`（含 color，`applyS2VTemplate` 写入）。提交时合成 `subtitle = { enabled, size, style, color }`。职责：UI 选字号/样式，color 由模板持有。
 - 二者均为「UI 字段 + 样式对象」协调结构，禁止后续合并为单个扁平字段（会破坏模板应用与恢复兼容）。
 
-**5. 后续清理候选（不在本变更范围）**
-- `split.speechRate` 死提交字段（normalizer 硬覆盖为 voice.speed）→ 下轮移除。
-- Python 后端 YAML `baseWordsPerSecond:3.3` 非语言感知（仅影响绕过 JS 语言表的直接 Python 调用，既有行为）→ 与 JS 语言表对齐时处理。
-- `project-service._safeOptions` 保留 `voicePitch`（读归一化参数，回读安全）→ 治理目标下可保留并注明。
+**5. 后续清理候选（R2 已处理项 + 剩余）**
+- ✅ `split.speechRate` 死提交字段（normalizer 硬覆盖为 voice.speed）→ **R2 已移除前端字段与提交**（2026-08-09）。
+- ✅ `concurrency` / `autoAdvance` 前端字段 → **R2 已移除**（concurrency 由契约默认 3 兜底、autoAdvance 由 params 字面量提供）。
+- 剩余候选：Python 后端 YAML `baseWordsPerSecond:3.3` 非语言感知（仅影响绕过 JS 语言表的直接 Python 调用，既有行为）→ 与 JS 语言表对齐时处理；`project-service._safeOptions` 保留 `voicePitch`（读归一化参数，回读安全）→ 治理目标下可保留并注明；B 类参数运营化（枚举/目录/限额转 ops-center，需 pipeline_configs 基础设施）→ 独立立项。
 
 ### 7.2 上传图片快速渲染（独立路径）
 

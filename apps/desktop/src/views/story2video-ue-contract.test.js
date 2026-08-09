@@ -29,6 +29,10 @@ describe('Story2Video fast-mode UI contract', () => {
     expect(s2vConfigBlock).not.toContain('voicePitch:')
     expect(s2vConfigBlock).not.toContain('creativeLevel:')
     expect(s2vConfigBlock).not.toContain('splitBaseWordsPerSecond:')
+    // R2：splitSpeechRate/concurrency/autoAdvance 亦不得在 s2vConfig 默认对象声明（autoAdvance 由 params 字面量提供）
+    expect(s2vConfigBlock).not.toContain('splitSpeechRate:')
+    expect(s2vConfigBlock).not.toContain('concurrency:')
+    expect(s2vConfigBlock).not.toContain('autoAdvance:')
     expect(source).not.toContain('v-model.number="s2vConfig.voicePitch"')
     expect(source).not.toContain('v-model.number="s2vConfig.concurrency"')
     expect(source).not.toContain('v-model.number="s2vConfig.creativeLevel"')

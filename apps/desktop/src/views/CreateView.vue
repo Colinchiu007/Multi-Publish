@@ -994,12 +994,14 @@ export default {
         voiceId: '', voiceProvider: '', voiceModel: '',
         // 参数治理（7.1.19）：voicePitch 为系统管理参数（默认 0），前端不暴露不提交，由契约默认兜底。
         voiceSpeed: 1, voiceVolume: 1,
-        concurrency: 3, templateId: '', imageEffect: 'zoom-in',
+        // 参数治理 R2（7.1.19）：concurrency 为系统管理参数（契约默认 3，范围 1-8），前端不暴露不提交。
+        templateId: '', imageEffect: 'zoom-in',
         splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
         splitTargetCharsPerScene: 20, splitViewMode: 'seconds',
         // 参数治理（7.1.19）：splitBaseWordsPerSecond 自 Batch 5a 起由语言感知表驱动（voice-estimate.js），
         // 前端字段已移除（提交走 getLanguageBaseWordsPerSecond），旧快照键被白名单忽略。
-        splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
+        // 参数治理 R2：splitSpeechRate 为派生死提交（normalizer 硬覆盖为 voice.speed），前端字段已移除。
+        splitMinWords: 10, splitMaxWords: 50,
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
         sceneDurationMode: 'follow-audio', minSceneDuration: 6,
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
@@ -1010,7 +1012,8 @@ export default {
         subtitleStyle: { size: 'md', style: 'style1', color: 'white' },
         bgmPath: '', bgmVolume: 5, watermark: false, watermarkText: '',
         watermarkConfig: { enabled: false, position: 'bottom-right', fontSize: 24, opacity: 0.6, color: 'white' },
-        autoAdvance: true, platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
+        // 参数治理 R2：autoAdvance 恒 true（提交 params 字面量），前端字段已移除。
+        platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {} },
@@ -1650,7 +1653,7 @@ export default {
             targetCharsPerScene: config.splitTargetCharsPerScene,
             // 语言感知基准语速（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3，与 UI 估算同源
             baseWordsPerSecond: getLanguageBaseWordsPerSecond(config.splitLanguage),
-            speechRate: config.splitSpeechRate,
+            // 参数治理 R2：speechRate 由 normalizer 以 voice.speed 派生（单一来源），不提交。
             minWords: config.splitMinWords,
             maxWords: config.splitMaxWords,
             enforceSentenceBoundary: config.splitEnforceSentenceBoundary,
@@ -1690,7 +1693,7 @@ export default {
           sceneDurationMode: config.sceneDurationMode,
           minSceneDuration: config.minSceneDuration,
           templateId: config.templateId || '',
-          concurrency: config.concurrency,
+          // 参数治理 R2：concurrency 为系统管理参数，不提交，normalizer 默认 3 兜底。
           watermark: {
             ...config.watermarkConfig,
             enabled: Boolean(config.watermarkText),
