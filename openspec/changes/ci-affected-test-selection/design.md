@@ -26,7 +26,7 @@
 
 2. **受影响基线**：PR 事件用 `git merge-base origin/main HEAD`；分支 push 用 `origin/main`；main 合并与 dispatch 不走 affected。
 3. **缓存范围**：`cacheableOperations = ["test"]`；`inputs` 覆盖源码、测试、lockfile、project graph、命令与 nx 配置；CI 内同一 run 直接命中本地缓存，跨 run 缓存通过 actions/cache 持久化 `.nx/cache`（可选，先做 run 内 + 同 job 复用）。
-4. **接入面（最小改动，避免与并发 CI 改动冲突）**：仅 quality-gate 的 unit-tests job —— PR 事件走 `nx affected -t test`，workflow_dispatch 走 `nx run-many -t test`；electron-ci / gui-test / visual-test 保持现状（electron-ci 本就只跑 desktop 包；gui/visual 已有路径门控）。quality-gate 是当前最重的全 workspace 测试步骤，收益最大。
+4. **接入面（最小改动，避免与并发 CI 改动冲突）**：quality-gate —— unit-tests job 改为 affected/全量双模式；`on` 新增 `push`（branches: [main]，同 paths-ignore）用于主分支合并后的全量回归（spec「全量回归保留」）；feature 分支去重语义保持（#435），以 delta 修改 ci-quality-gate-parallel 的「触发去重」Requirement。electron-ci / gui-test / visual-test 保持现状。 —— PR 事件走 `nx affected -t test`，workflow_dispatch 走 `nx run-many -t test`；electron-ci / gui-test / visual-test 保持现状（electron-ci 本就只跑 desktop 包；gui/visual 已有路径门控）。quality-gate 是当前最重的全 workspace 测试步骤，收益最大。
 5. **契约测试**：新增断言 —— 根 package.json 含 nx devDependency、nx.json 的 cacheableOperations 含 test、quality-gate unit job 在 pull_request 事件使用 affected 命令且 dispatch 使用全量命令、既有 17 项契约测试保持通过。
 6. **python-backend**：npm workspace 之外（Python），不进 nx graph；其 pytest 步骤（gui-test/doc-gate）保持现状。
 

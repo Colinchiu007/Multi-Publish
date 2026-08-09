@@ -29,7 +29,7 @@
 - `affected-test-selection`: CI 受影响测试选择与任务缓存契约（哪些变更触发哪些测试、全量/affected 两种模式的边界）。
 
 ### Modified Capabilities
-- （无既有 spec 的 Requirement 被修改；ci-quality-gate-parallel / ci-electron-github-runner 的现有 Requirement 保持兼容，仅实现层接入。）
+- `ci-quality-gate-parallel`: 触发去重 Requirement 更新为「允许 main 分支 push 触发（全量回归保留），feature 分支仍仅 pull_request 触发」。
 
 ## Impact
 
