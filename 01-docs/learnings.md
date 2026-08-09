@@ -4,6 +4,21 @@
 
 ---
 
+## prompt-engine 中文过短文案未回退原文复盘 (2026-08-09，质量节拍 Bug 反哺)
+
+- **表象**：真实 Electron 链路文案输入「测试」（2 个中文字），optimize 阶段 `prompt-engine 请求被拒绝(422): 描述太简短了（2 字），建议更详细描述画面` → **整条流水线 failed**，未按 PRD 7.1.17「过短拒绝回退原文并继续」执行。
+- **根因**：`isPromptEngineTooShortRejection` 判定正则词表只含 `too short|太短|must be at least|min length|shorter than`；真实中文文案是「描述太**简短**了（N 字）」，不匹配「太短」→ 判定 false → 回退未命中。
+- **逃逸链**：① 单元测试只覆盖英文 `Too short (1 words)` 与「输入太短」；② 无真实 provider 返回文案样本驱动的回归；③ 真实 E2E 用长文案验证，未覆盖过短中文。
+- **修复**：词表扩展 `太简短|过短`（保留英文）；回归：`isPromptEngineTooShortRejection` 真实中文文案 3 例 + OPTIMIZE 中文 422 端到端回退（`skipped_optimize: true`、`prompt_engine_too_short_use_original`）。
+- **教训**：与外部服务（prompt-engine/FastAPI）的错误判定必须用**真实返回文案**做样本，不能只按文档样例写正则；「温和降级」类判定（回退原文 vs 失败）宁可多匹配（误判成本低）也不可漏匹配（漏匹配=整线失败）。
+
+## 窗口关闭行为跨平台化（macOS 前瞻） (2026-08-09)
+
+- **背景**：PR #437「关闭窗口→隐藏托盘后台运行」是 Windows/Linux UX；macOS 约定是关闭窗口不退出应用（进程留 Dock、任务后台继续、activate 重建窗口），直接沿用会残留菜单栏不可见窗口。
+- **方案**：平台决策收敛到 `apps/desktop/electron/services/window-close-policy.js`（`shouldHideToTrayOnClose`：darwin 恒 false；win32/linux 运行任务+托盘可用才隐藏）；托盘图标按平台回退（darwin 16×16 模板图标 + `setTemplateImage(true)`）；快照原子写入收敛 `atomicWriteFileSync`（POSIX rename 优先、Windows EEXIST/EPERM/EACCES/EBUSY 回退 copy+清理）。
+- **教训**：跨平台功能不要内联 `process.platform` 判断到业务逻辑里；把「平台决策」抽成纯函数策略模块（platform 可注入），未来新增平台只改一处，测试用注入平台覆盖全分支。
+- **待验收**：macOS 真机（E2E-PENDING 待办 G-6）：关窗后台、Dock 恢复、菜单栏模板图标明暗适配、断点续跑一致性。
+
 - **双模型审查修复（第二轮，2026-08-09）**：C1（Critical）context 敏感键拦截迁入契约咽喉
   （`prompt-engine-contract.js` `assertNoSensitiveContext` + prompt-bridge 纵深防御）；W1 error/detail 宽判
   （error 有值即失败，防对象/数组 error 绕回「原文当成功」）；W2 配置层与运行层一致（非法平台/风格回退默认，
@@ -6080,6 +6095,7 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **触发去重**：`on` 去掉 `push: branches-ignore: [main]`（与 pull_request 同 head 双跑），保留 pull_request + workflow_dispatch → 每 head CI 分钟约减半。
 - **契约测试耦合教训**：workflow 结构被多层契约测试锁定——.github/scripts/workflow-contract.test.js（Gate 4/7/8/9 步骤名+邻接注释正则）与 apps/desktop/tests/gui-ci-exit-contract.test.js（jobs.gate.steps、Gate 9 退出码模式）。拆分时必须同步：邻接锚点从 `# --- Gate N` 注释改为同 job 的 Upload 步骤；单 job 引用改跨 job 汇总（Object.values(jobs).flatMap）。
 - **取舍**：并行总分钟略升（6×npm ci + 各 gate ≈30min vs 25min），但墙钟减半 + 失败隔离（单 gate 失败不阻断其余）；触发去重后每 head 净降 ~40%。
+
 ## 图片轮播 3 个体验缺陷复盘：本地克隆音色删除/设为默认/背景音乐读取 (2026-08-09)
 
 - **需求**：① 删除本地克隆音色（含 7.1.16 前存量非法 id「01」）弹「音色克隆服务暂时不可用，请稍后重试」；② 克隆音色「设为默认」无反应且无默认状态显示；③ 选择背景音乐本地音频弹「无法读取所选文件，请确认文件未被占用或已损坏后重试」。
@@ -6094,11 +6110,18 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - 集成/审查层：7.1.16 只规范了 voice_id 合规与失效回退，未把「删除=本地管理」落成代码语义；「callAdapter 不抛异常返回 code:-1」的契约没有在克隆删除路径被审查拦截。
 
 ### 修复与回归保护（Bug SOP 第 4 步）
-- **Bug①**：`ModelProviderManager.supportsAdapterMethod(providerId, method)`（与 callAdapter 同源 provider/adapter 缓存、不校验 API Key、异常返回 false）；`_deleteCloneLocked` 仅当支持远端删除时执行 `deleteVoice`，否则纯本地删除。回归：4 个新用例（不支持→本地删除成功且不调 deleteVoice / 支持→先远端 / 支持但远端失败→仍 PROVIDER_UNAVAILABLE / 无能力查询→回退旧行为）。
-- **Bug②**：`selectS2VVoice` 显式选择先同步 `s2vConfig.voiceId`；克隆行「默认」徽标 + 高亮 + 「已设为默认」禁用态。回归：CreateView 2 个新用例（同步+IPC+徽标 / 无效克隆按钮禁用）。
-- **Bug③**：新增 `MEDIA_PATH_UNRESOLVED`（路径解析失败细分，zh/en）；`resolveMediaImportFailure` 透传 `kindLabel`；`importUserSelectedMedia` 复制加 Windows 占用有界重试（EBUSY/EPERM/EACCES ≤3 次、短退避、占用回传可读中文）。回归：paths 3 用例 + CreateView 2 用例。
+- **Bug①**：`ModelProviderManager.supportsAdapterMethod(providerId, method)` 三态能力查询（true=明确支持 / false=明确不支持 / null=无法判定；与 callAdapter 同源 provider/adapter 缓存、不校验 API Key、异常返回 null）；`_deleteCloneLocked` 仅当明确支持远端删除时执行 `deleteVoice`，明确不支持（`verdict === false`）走纯本地删除，null/异常/API 缺失回退尝试远端删除（避免探测失败静默遗留远端音色——Claude 复审 Critical 修复）。回归：5 个新用例（不支持→本地删除成功且不调 deleteVoice / 支持→先远端 / 支持但远端失败→仍 PROVIDER_UNAVAILABLE / null 探测失败→回退远端删除且失败保留记录 / 本地清理失败→STORAGE_UNAVAILABLE 保留记录 / 无能力查询→回退旧行为）。
+- **Bug②**：`selectS2VVoice` 显式选择先同步 `s2vConfig.voiceId`（守卫不再静默丢弃），**保存失败回滚 previousVoiceId**（Claude 复审 Warning 修复）；克隆行「默认」徽标 + 高亮 + 「已设为默认」禁用态。回归：CreateView 3 个新用例（同步+IPC+徽标 / 失败回滚 / 无效克隆按钮禁用）。
+- **Bug③**：新增 `MEDIA_PATH_UNRESOLVED`（路径解析失败细分，zh/en）；`resolveMediaImportFailure` 透传 `kindLabel`；`importUserSelectedMedia` 复制加 Windows 占用有界重试（EBUSY/EPERM/EACCES ≤3 次、短退避、占用回传可读中文）。回归：paths 3 用例 + notifications 1 用例 + CreateView 2 用例。
 
 ### 系统性漏洞与预防（Bug SOP 第 3/5 步）
-- **漏洞 1**：`callAdapter` 的「不支持」「未配置 Key」「provider 错误」全部折叠为 `code:-1`，调用方若只判 `code===0` 会丢失原因分类。预防：涉及能力分支的服务（克隆删除等）用显式能力查询 API，不靠 message 嗅探。
-- **漏洞 2**：前端「按钮 → 异步 IPC → 并发守卫」链路中，守卫条件与调用方是否先同步状态脱节会导致静默吞结果。预防：任何「显式选择型」IPC 前必须先同步本地状态（下拉/单选），守卫只用于防过时响应，不用于决定「是否应用本次结果」。
+- **漏洞 1**：`callAdapter` 的「不支持」「未配置 Key」「provider 错误」全部折叠为 `code:-1`，调用方若只判 `code===0` 会丢失原因分类。预防：涉及能力分支的服务（克隆删除等）用显式能力查询 API，不靠 message 嗅探；能力查询必须三态区分「明确不支持」与「无法判定」，探测失败应回退保守行为而非静默降级。
+- **漏洞 2**：前端「按钮 → 异步 IPC → 并发守卫」链路中，守卫条件与调用方是否先同步状态脱节会导致静默吞结果。预防：任何「显式选择型」IPC 前必须先同步本地状态（下拉/单选），守卫只用于防过时响应，不用于决定「是否应用本次结果」；乐观同步必须带失败回滚。
 - **漏洞 3**：失败提示折叠为笼统文案且无宾语。预防：`resolveMediaImportFailure` 全部分支带 `kindLabel`；路径解析失败与文件损坏分开给建议。
+
+## Phase 2：Nx affected 测试选择 + 任务缓存（2026-08-09，PR #439 → 28fe9806）
+- **选型**：Nx 20（优于 Turborepo）——project graph 含传递依赖闭包、npm workspaces 原生支持、inputs 精确缓存键、未来可开远程缓存。
+- **pitfall：nx 默认跨项目并行破坏确定性串行契约**——首次 CI 中 shared-utils 时序敏感 scheduler 测试 5000ms 超时（nx 并行跑 9 个 workspace 争用 CPU）；修复为 `--parallel=1`，与旧 `npm run test --workspaces --if-present` 串行资源画像一致。影响面：任何「用 nx 编排测试」的仓库都要显式控制并行度。
+- **pitfall：doc-gate 配置类路径缺口**——根 package.json/nx.json 变更触发 doc-sync 硬门禁失败；补入 doc-gate paths-ignore（package.json/package-lock.json/nx.json），与 `.github/**` 自动 bypass 一致。
+- **契约**：`CI_IGNORED_PATHS` + nx 引入契约 + doc-gate 路径断言（契约测试 29 项）；affected 行为由「shared-utils 改动 → 仅 shared-utils+desktop」场景守护。
+- **全量回归保留**：quality-gate 新增 push(main) 触发（MODIFIED delta 更新 ci-quality-gate-parallel 触发去重），主分支合并后全量；feature 分支仍仅 PR 触发。

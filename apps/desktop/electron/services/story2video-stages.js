@@ -272,11 +272,15 @@ function hasMeaningfulText(text) {
  * 方案B 配套（2026-08-09）：app 侧已放行 2 位+数字，但 prompt-engine 的
  * 最小长度校验仍会拒绝单词输入（如「81」→ 422 Too short），此时应回退原文
  * 并继续运行，而不是让整条流水线失败。
+ *
+ * 2026-08-09 Bug 反哺：真实链路文案为「描述太简短了（2 字），建议更详细描述画面」，
+ * 原词表只覆盖「太短」未覆盖「太简短/过短」，导致回退未命中、整条流水线失败；
+ * 词表按真实返回文案扩展（中文「太短/太简短/过短」+ 英文 Too short/min length 等）。
  * @param {string} message
  * @returns {boolean}
  */
 function isPromptEngineTooShortRejection (message) {
-  return /too short|太短|must be at least|min[_ -]?length|shorter than/i.test(String(message || ''))
+  return /too short|太短|太简短|过短|must be at least|min[_ -]?length|shorter than/i.test(String(message || ''))
 }
 
 /**

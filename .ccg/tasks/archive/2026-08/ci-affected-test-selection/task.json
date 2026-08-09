@@ -1,0 +1,14 @@
+{
+  "id": "ci-affected-test-selection",
+  "title": "Phase 2: affected 测试选择 + 任务缓存（Nx）",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "ci",
+  "openspecChange": "ci-affected-test-selection",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #439 merged 28fe9806；openspec archive 2026-08-09-ci-affected-test-selection）",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "branch": "codex/ci-affected-test-selection-plan",
+  "remoteStatus": "merged:28fe9806"
+}

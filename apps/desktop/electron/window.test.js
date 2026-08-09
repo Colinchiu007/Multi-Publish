@@ -582,6 +582,25 @@ describe('window — createWindow', () => {
     expect(hideSpy).not.toHaveBeenCalled()
   })
 
+  it('macOS：运行任务 + 托盘可用也不隐藏到托盘（窗口正常关闭，进程留在 Dock）', () => {
+    // 直接调用导出的决策函数注入 darwin；close 事件处理器在非 darwin 测试环境走默认策略
+    const windowModule = require('./window.js')
+    const shouldHide = windowModule.shouldHideToTray({
+      pipelineEngine: { hasRunningOrchestration: () => true },
+      systemTray: { isAvailable: () => true },
+    }, 'darwin')
+    expect(shouldHide).toBe(false)
+  })
+
+  it('Windows：运行任务 + 托盘可用 → 隐藏到托盘（决策函数注入 win32）', () => {
+    const windowModule = require('./window.js')
+    const shouldHide = windowModule.shouldHideToTray({
+      pipelineEngine: { hasRunningOrchestration: () => true },
+      systemTray: { isAvailable: () => true },
+    }, 'win32')
+    expect(shouldHide).toBe(true)
+  })
+
   it('调用 hotkeys.register', () => {
     createWindow(context)
     expect(context.hotkeys.register).toHaveBeenCalledTimes(1)

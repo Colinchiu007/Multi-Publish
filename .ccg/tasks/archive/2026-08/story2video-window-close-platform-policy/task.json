@@ -1,0 +1,19 @@
+{
+  "id": "story2video-window-close-platform-policy",
+  "title": "窗口关闭行为跨平台化（macOS 前瞻）：平台策略模块 + 托盘图标按平台回退 + 原子写入收敛",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "electron-window+tray+run-state",
+  "currentPhase": "completed",
+  "branch": "codex/story2video-window-close-platform-policy",
+  "createdAt": "2026-08-09T17:50:00Z",
+  "items": [
+    "新增 services/window-close-policy.js：shouldHideToTrayOnClose 平台决策（darwin 不拦截 / win32/linux 运行任务+托盘可用才隐藏）",
+    "window.js 接入策略模块并导出 shouldHideToTray（platform 可注入）",
+    "system-tray resolveTrayIcon 按平台回退：darwin 模板图标 setTemplateImage(true)，其余占位图",
+    "run-state-store atomicWriteFileSync：POSIX rename 原子优先、Windows EEXIST/EPERM/EACCES/EBUSY 回退 copy+清理",
+    "文档：PRD 7.1.21 跨平台行 + PRD-video-creation 迭代行 + E2E-PENDING 待办G-macOS",
+    "验证：window-close-policy 6 / window 51 / system-tray 28 / run-state-store 17 / shutdown 25 / pipeline-engine 32 / resume 23 + 回归 134 通过"
+  ]
+}
