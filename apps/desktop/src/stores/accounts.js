@@ -53,10 +53,14 @@ export const useAccountStore = defineStore('accounts', () => {
     }
   }
 
-  /** 幂等加载：已加载过则跳过，避免多处 onMounted 重复调用 */
+  /** 幂等加载：已加载过则跳过，避免多处 onMounted 重复调用。
+   *  缓存 in-flight Promise 防止并发竞态（多组件同时 ensureLoaded 只触发一次 load） */
+  let _loadPromise = null
   async function ensureLoaded() {
     if (loaded.value && !loading.value) return
-    await load()
+    if (_loadPromise) return _loadPromise
+    _loadPromise = load().finally(() => { _loadPromise = null })
+    return _loadPromise
   }
 
   const byPlatform = computed(() => {
