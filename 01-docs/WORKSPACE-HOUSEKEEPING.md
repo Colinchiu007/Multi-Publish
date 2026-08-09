@@ -32,6 +32,7 @@
 ## 四、磁盘告警
 
 - C 盘剩余 < 10GB 时执行一次全量清理（worktree 残留 + `C:\tmp` 临时产物）。
+- **C:\Users 缓存（2026-08-09 实测）**：`AppData\Local\npm-cache`（约 3.5GB，可 `npm cache clean --force` 但会拖慢下次 install）、`AppData\Local\electron\Cache`（约 1.2GB Chromium 缓存，可清）、`AppData\Local\fnm_multishells`（每启动一次 dev 产生一组残留，可全清）、`AppData\Local\Temp` 下历史 `multi-publish-asar-*`/`s2v-verify-*` 产物（约 1GB）；**保留**运行中应用的 `Temp\story2video`。
 - 打包产物默认落 `E:\Multi-Publish-builds`，不堆 C 盘。
 
 ## 五、启动脚本与已知环境差异
