@@ -6171,3 +6171,21 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **pitfall：契约测试要守护"核心属性"而非字符串存在**——分片后补了 --maxWorkers/--no-file-parallelism/watchdog
   断言，防有人删标志测试仍绿（审查 W2/W3）。
 - **取舍记录**：桌面恒全量（每 PR 全量覆盖桌面是核心产品保证，W5）；后续可做条件触发。
+
+## 复盘：CI 提速三阶段收尾（2026-08-09，选择接受 coverage 门禁成本）
+- **交付链（全部已合并）**：Phase 1 ci-path-gating（#430 paths-ignore + doc-gate 流程目录 + CI_IGNORED_PATHS 契约）→
+  并发 #433（electron-ci 迁 GitHub runner，消自托管排队）→ 并发 #435（quality-gate 并行拆分 + 触发去重）→
+  Phase 2 ci-affected-test-selection（#439 Nx affected + 缓存 + --parallel=1 + push main 全量回归）→
+  affected-report.js（base..head 受影响项目诊断）→ Phase 3 ci-test-sharding（#445 桌面跨 runner 分片 N=2）。
+- **实测收益（真实 CI 数据）**：文档/流程改动 0 CI（paths-ignore）；单测阶段 11.0 → ~6.4 min（分片并行）；
+  affected 使单包 PR 只跑相关包；quality-gate 总墙钟 ~11.7 min（coverage 门禁主导，选择 A 接受）。
+- **关键决策记录**：
+  - `--parallel=1`：nx 默认跨项目并行破坏时序测试确定性契约 → 显式串行。
+  - 分片跨独立 runner（机器隔离）而非进程内并行：契约与隔离双保；C1 实证排除。
+  - coverage 保持全量：QM 门禁口径不变（选择 A；后续可选 `--coverage.merge-reports` 分片）。
+  - W5：桌面恒全量（核心产品保证，非桌面 PR 的成本取舍）。
+- **复盘 learnings**：
+  - 确定性测试套件（共享 mock/时序敏感）上任何并行方案都要显式控并行度。
+  - 跨 runner 分片 ≠ 进程内并行；隔离是设计属性而非巧合。
+  - 优化要盯**关键路径**：分片后瓶颈从单测转移到 coverage（11.7 min），单 job 优化不再改变 gate 墙钟。
+  - 契约测试应断言核心属性（串行标志/watchdog/分片参数），而非"字符串存在"。
