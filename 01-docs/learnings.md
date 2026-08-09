@@ -6157,3 +6157,17 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **修复**：① 轨道 `minmax(min(200px,100%),1fr)`（窄容器可收缩）；② `.config-item/.config-span-2/.voice-clone-panel/.voice-clone-actions/.voice-clone-list/.voice-clone-row/.form-input` 加 `min-width:0`（grid/flex 子项可收缩）；③ 克隆名 `.voice-clone-row > span { overflow-wrap:anywhere }`（长不可断文本换行）。
 - **回归**：`electron/tests/voice-clone-layout-regression.test.js`——真实 chromium 行为断言（BEFORE 溢出 97px / AFTER 0）+ CSS 契约断言（规则被回退即红）。
 - **预防（系统性）**：CSS Grid `1fr` 轨道 + flex/grid 子项默认 `min-width:auto` 是「内容撑宽容器」的高频根因；凡面板/卡片动态展开长文本/长 id 的布局，统一加 `min-width:0` + `overflow-wrap:anywhere` + `minmax(min(Npx,100%),1fr)` 三件套，并以真实浏览器断言防回退。
+
+## Phase 3：桌面测试套件跨 runner 分片（2026-08-09，PR #445 → 9b144ebf）
+- **实测基线**：Gate 4 全量 11.0 min，桌面套件占 9.3 min（85%）——分片目标是桌面。
+- **方案**：quality-gate 新增 desktop-shards matrix job（N=2，`vitest run --shard=k/N`），每 shard 进程内保持
+  maxWorkers=1/no-file-parallelism/超时（确定性契约）；unit-tests 用 `--exclude=@multi-publish/desktop` 只跑非桌面；
+  coverage job 保持全量（口径不变）。
+- **实测收益**：单测阶段关键路径 11.0 → ~6.4 min（双 shard 并行 6m/6m + 非桌面 1m27s），约 -42%。
+- **C1 处置（跨 shard 串行契约）**：分片在独立 matrix runner（跨机器隔离）执行，进程内串行保留；
+  双 shard CI 独立通过 = 无跨文件顺序/状态耦合的实证。设计取舍记录于 ci-test-sharding design.md。
+- **pitfall：跨 runner 分片时不要加 Restore Nx cache**（不经 nx 的 job 恢复 .nx/cache 无意义，且与
+  nx job 争写同一缓存 key 产生噪音告警）。
+- **pitfall：契约测试要守护"核心属性"而非字符串存在**——分片后补了 --maxWorkers/--no-file-parallelism/watchdog
+  断言，防有人删标志测试仍绿（审查 W2/W3）。
+- **取舍记录**：桌面恒全量（每 PR 全量覆盖桌面是核心产品保证，W5）；后续可做条件触发。
