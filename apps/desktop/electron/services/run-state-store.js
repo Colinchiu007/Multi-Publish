@@ -35,6 +35,31 @@ function ownerHash(ownerSubject) {
   return crypto.createHash('sha256').update(ownerSubject, 'utf8').digest('hex')
 }
 
+/**
+ * 跨平台原子写入（临时文件 + 就位）：
+ * - POSIX（macOS/Linux）：`renameSync` 覆盖已存在目标是原子的，优先使用；
+ * - Windows：`renameSync` 对已存在目标抛 EEXIST/EPERM，回退 `copyFileSync` 覆盖 +
+ *   清理临时文件（与既有 credential-store 的 Windows 语义一致）。
+ * 平台差异收敛在本函数，快照写入方无需感知平台细节。
+ */
+function atomicWriteFileSync(finalPath, content) {
+  const tmp = finalPath + '.tmp'
+  fs.writeFileSync(tmp, content, 'utf8')
+  try {
+    fs.renameSync(tmp, finalPath)
+  } catch (renameError) {
+    const code = renameError && renameError.code
+    if (code === 'EEXIST' || code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') {
+      // Windows：copyFileSync 覆盖已存在文件，避免 rename 对已存在目标的 EEXIST
+      fs.copyFileSync(tmp, finalPath)
+      try { fs.rmSync(tmp, { force: true }) } catch { /* 清理失败不掩盖保存结果 */ }
+      return
+    }
+    try { fs.rmSync(tmp, { force: true }) } catch { /* 清理失败不掩盖原错误 */ }
+    throw renameError
+  }
+}
+
 class RunStateStore {
   constructor(options = {}) {
     this._dir = options.dir || defaultDir()
@@ -102,13 +127,9 @@ class RunStateStore {
     const owner = this._currentOwner()
     if (owner) snapshot.owner = owner
     const finalPath = this._file(run.id)
-    const tmp = finalPath + '.tmp'
     try {
       fs.mkdirSync(path.dirname(finalPath), { recursive: true })
-      fs.writeFileSync(tmp, JSON.stringify(snapshot, null, 2), 'utf8')
-      // Windows 上 copyFileSync 覆盖已存在文件，避免 rename 对已存在目标的 EEXIST
-      fs.copyFileSync(tmp, finalPath)
-      try { fs.rmSync(tmp, { force: true }) } catch { /* 清理失败不掩盖保存结果 */ }
+      atomicWriteFileSync(finalPath, JSON.stringify(snapshot, null, 2))
       return true
     } catch (e) {
       this._log.warn('RunStateStore', 'save failed: ' + (e && e.message ? e.message : String(e)))
