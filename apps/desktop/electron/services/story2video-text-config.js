@@ -2,6 +2,13 @@
 'use strict'
 
 const { getLanguageBaseWordsPerSecond } = require('./story2video-voice-estimate')
+const {
+  PROMPT_ENGINE_PLATFORMS,
+  PROMPT_ENGINE_STYLES,
+  normalizePromptEnginePlatform,
+  normalizePromptEngineStyle,
+  assertNoSensitiveContext,
+} = require('./prompt-engine-contract')
 
 const STORY2VIDEO_TEXT_CONFIG_VERSION = 1
 const STORY2VIDEO_PIPELINE = 'story2video-compose'
@@ -29,9 +36,14 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     subtitleTiming: 'proportional',
   }),
   optimize: Object.freeze({
+    platform: 'generic',
     style: 'realistic',
     creativeLevel: 5,
+    maxLength: 300,
+    numCandidates: 1,
+    autoDetectStyle: true,
     negativePrompt: '',
+    context: '',
   }),
   image: Object.freeze({
     provider: '',
@@ -93,23 +105,12 @@ const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
 const OUTPUT_FORMATS = new Set(['mp4', 'webm'])
 const CONTENT_TYPES = new Set(['general', 'history'])
 const CHECKPOINT_POLICIES = new Set(['guided', 'manual_all', 'auto_noncreative', 'none'])
-const STORY2VIDEO_PROMPT_STYLES = new Set([
-  'realistic', 'cartoon', 'anime', 'oil_painting', 'watercolor', 'pixel',
-  'cyberpunk', 'fantasy', 'photography', '3d_render', 'minimalist', 'abstract',
-  'portrait', 'landscape',
-])
-const STORY2VIDEO_PROMPT_STYLE_ALIASES = Object.freeze({
-  cinematic: 'photography',
-  '3d-render': '3d_render',
-})
+// 图片提示词目标平台/风格：单一来源为 prompt-engine-contract（防多处漂移）
+const STORY2VIDEO_IMAGE_PLATFORMS = PROMPT_ENGINE_PLATFORMS
+const STORY2VIDEO_PROMPT_STYLES = PROMPT_ENGINE_STYLES
 const ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4'])
 const MAX_STORY2VIDEO_TEXT_UNICODE_CHARS = 6000
 const STORY2VIDEO_TEXT_TOO_LONG_ERROR_CODE = 'story2video.text_too_long'
-const SENSITIVE_CONTEXT_KEYS = new Set([
-  'api_key', 'access_token', 'refresh_token', 'auth_token', 'bearer_token', 'token',
-  'secret', 'secret_key', 'client_secret', 'app_secret', 'password', 'authorization',
-  'credential', 'credentials', 'private_key',
-])
 const SUBTITLE_SIZE_MAP = Object.freeze({
   size1: 'size1', size2: 'size2', size3: 'size3', size4: 'size4', size5: 'size5', size6: 'size6',
   sm: 'sm', md: 'md', lg: 'lg', xl: 'xl',
@@ -171,13 +172,6 @@ function enumValue(value, fallback, field, allowed) {
   return candidate
 }
 
-function promptStyleValue(value, fallback, field, allowed, aliases) {
-  const candidate = idValue(value, fallback, field)
-  const normalized = aliases[candidate] || candidate
-  if (!allowed.has(normalized)) throw new Error(`Story2Video ${field} 不支持的视觉提示词风格: ${candidate}`)
-  return normalized
-}
-
 function stringArray(value, field, maxItems = 20) {
   if (value === undefined || value === null) return []
   if (!Array.isArray(value) || value.length > maxItems) {
@@ -190,26 +184,6 @@ function assertEmptyMediaArray(value, field) {
   if (value === undefined || value === null) return
   if (!Array.isArray(value)) throw new Error(`Story2Video ${field} 必须是数组`)
   if (value.length > 0) throw new Error('Story2Video 标准流水线只支持 text 模式')
-}
-
-function normalizedKey(value) {
-  return String(value)
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/[-\s]+/g, '_')
-    .toLowerCase()
-}
-
-function assertNoSensitiveContext(value, field, seen = new WeakSet(), depth = 0) {
-  if (!value || typeof value !== 'object') return
-  if (depth > 32) throw new Error(`Story2Video ${field} 层级过深`)
-  if (seen.has(value)) return
-  seen.add(value)
-  for (const key of Object.keys(value)) {
-    if (SENSITIVE_CONTEXT_KEYS.has(normalizedKey(key))) {
-      throw new Error(`Story2Video ${field} 不得包含敏感凭据字段: ${key}`)
-    }
-    assertNoSensitiveContext(value[key], `${field}.${key}`, seen, depth + 1)
-  }
 }
 
 function normalizeSize(value) {
@@ -333,13 +307,29 @@ function normalizeStory2VideoTextParams(params = {}) {
   // 分镜字数主控（三层模型①）与 speechRate 单一来源在 voice 构建后计算（见下），
   // 使切分估算使用实际 TTS 语速。
 
+  const optimizeContext = firstDefined(own(optimizeInput, 'context'), params.optimizeContext)
+  const normalizeOptimizeContext = (value) => {
+    if (value === undefined || value === null || value === '') return ''
+    if (typeof value === 'string') {
+      if (value.length > 20000) throw new Error('Story2Video optimize.context 超过 20000 字符')
+      return value
+    }
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      assertNoSensitiveContext(value, 'optimize.context')
+      return value
+    }
+    throw new Error('Story2Video optimize.context 必须是字符串或对象')
+  }
   const optimize = {
-    style: promptStyleValue(
-      firstDefined(own(optimizeInput, 'style'), params.promptStyle, params.style),
-      'realistic', 'optimize.style', STORY2VIDEO_PROMPT_STYLES, STORY2VIDEO_PROMPT_STYLE_ALIASES,
-    ),
+    // 平台/风格与运行层一致：契约别名归一 + 非法回退默认（generic/realistic），旧值兼容不抛错
+    platform: normalizePromptEnginePlatform(firstDefined(own(optimizeInput, 'platform'), params.promptPlatform)),
+    style: normalizePromptEngineStyle(firstDefined(own(optimizeInput, 'style'), params.promptStyle, params.style)),
     creativeLevel: numberValue(firstDefined(own(optimizeInput, 'creativeLevel'), params.creativeLevel), 5, 'optimize.creativeLevel', 1, 10),
+    maxLength: numberValue(firstDefined(own(optimizeInput, 'maxLength'), params.maxPromptLength), 300, 'optimize.maxLength', 50, 2000, true),
+    numCandidates: numberValue(firstDefined(own(optimizeInput, 'numCandidates'), params.numCandidates), 1, 'optimize.numCandidates', 1, 5, true),
+    autoDetectStyle: booleanValue(firstDefined(own(optimizeInput, 'autoDetectStyle'), params.autoDetectStyle), true),
     negativePrompt: textValue(own(optimizeInput, 'negativePrompt'), '', 'optimize.negativePrompt', 500),
+    context: normalizeOptimizeContext(optimizeContext),
   }
 
   const image = {
@@ -484,9 +474,14 @@ function normalizeStory2VideoTextParams(params = {}) {
     },
     domain_enrich: { contentType },
     optimize: {
+      platform: optimize.platform,
       style: optimize.style,
       creative_level: optimize.creativeLevel,
+      max_length: optimize.maxLength,
+      num_candidates: optimize.numCandidates,
+      auto_detect_style: optimize.autoDetectStyle,
       negative_prompt: optimize.negativePrompt,
+      context: optimize.context || undefined,
     },
     generate_assets: {
       concurrency,

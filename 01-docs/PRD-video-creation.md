@@ -220,6 +220,72 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 所有运行参数必须是纯 JSON；归一化器只接受白名单字段并在创建 run 之前拒绝非法值。API Key、Access Token 和 Provider Secret 不得写入运行参数、项目历史或结果清单。
 
+### 3.1.2.1 图片提示词统一走 prompt-engine 合同（2026-08-09 落地）
+
+> 设计（manifest / PRD）与实现长期背离：manifest 与本文档早已声明 optimize 阶段走 prompt-engine，但
+> `story2video_optimize` 实现直连默认 LLM。2026-08-09 起实现与契约对齐：**所有图片提示词优化统一经
+> prompt-engine（PromptBridge / 127.0.0.1:8013）完成风格检测 → 改写 → 输出校验**，不再直连默认 LLM。
+
+#### 1) 流程（数据流）
+
+```
+split（分句）→ domain_enrich（历史内容领域增强，可选）
+  → optimize（story2video_optimize）＝ 逐场景调用 prompt-engine POST /v1/optimize
+       ├─ 1. 无实质内容守卫：纯数字/纯符号/过短文案直接透传原文（skipped_optimize=true），不调用服务
+       ├─ 2. 请求构造：platform/style 别名归一 + 边界收敛 + auto_detect_style + context
+       ├─ 3. 有界并发（默认 3）逐场景请求，瞬态错误有界重试（限流 2500ms×attempt，其他 800ms×attempt）
+       ├─ 4. 输出校验 fail closed：error 优先 → 结构（422 detail/非法）→ 内容（空串/超长截断/拒绝文本）
+       └─ 5. 结果写回 context.optimize（含 providerId='prompt-engine'、model_used、platform、style、
+             detected_categories、candidates），断点续传 optimize_resume 与进度 optimize_progress
+  → generate_assets（图片 + TTS）→ compose（ffmpeg）→ publish（可选）
+```
+
+#### 2) 数据校验（prompt-engine 请求/响应契约）
+
+| 项 | 规则 | 边界/默认 |
+|----|------|-----------|
+| `prompt` | 必填非空 | ≤2000 字符（超长截断） |
+| `platform` | 枚举 + 别名归一 | 7 项：midjourney / stable_diffusion / dalle / tongyi / yizhang / jimeng / generic；别名 dall-e(-2/-3)→dalle、stable-diffusion(-xl)/sdxl/stability→stable_diffusion、通义万相→tongyi、文心一格→yizhang、即梦→jimeng；非法回退 generic |
+| `style` | 枚举 + 别名归一 | 14 项：realistic / cartoon / anime / oil_painting / watercolor / pixel / cyberpunk / fantasy / photography / 3d_render / minimalist / abstract / portrait / landscape；别名 cinematic→photography、3d-render→3d_render；非法回退 realistic |
+| `creative_level` | 整数 1-10 | 默认 5；越界收敛 |
+| `max_length` | 整数 50-2000 | 默认 300；越界收敛 |
+| `num_candidates` | 整数 1-5 | 默认 1 |
+| `auto_detect_style` | boolean | 默认 true；style 未指定且开启时省略 style 交由服务端检测，返回 detected_categories |
+| `negative_prompt` | 字符串 | ≤500 字符，超长截断 |
+| `context` | 字符串或对象 | 字符串→`{ synopsis }`；对象逐层检查敏感键（api_key/token/secret/password 等），命中即拒绝 |
+| 输出 `optimized_prompt` | 非空字符串 | trim 后为空 → 阶段失败；超过 max_length → 截断并告警 |
+| 输出 `error` | 优先检查 | 非空即失败（服务端配额/业务失败兜底返回原文+error，**忽略 error 会把未优化原文当成成功**） |
+| 输出 `detail` | 422 形态 | FastAPI 校验拒绝返回 `{ detail: [...] }` → 阶段失败并展示 msg |
+| 输出 `platform/style/model_used/key_source/detected_categories/candidates` | 元数据透传 | 保留到 optimize entry 供日志/后续 UI 展示 |
+
+#### 3) 功能逻辑
+
+- **统一契约**：`story2video_optimize`、通用 `OPTIMIZE`、`OPTIMIZE_BATCH` 三类图片提示词优化路径全部走 PromptBridge，共用 `prompt-engine-contract.js`（枚举/别名/请求构造/输出校验单一来源），杜绝三处漂移。
+- **fail closed（服务不可用）**：prompt-engine（8013）未运行/连接失败/超时/配额错误时 optimize 阶段失败并给出可操作错误，**不静默回退默认 LLM，不把原文当优化结果**；瞬态网络错误走有界重试，业务错误（error 非空）不重试。
+- **断点续传**：已完成场景结果按 index 写入 `optimize_resume`；重启复用已完成项，只优化未完成项；全部成功后清理。
+- **进度上报**：阶段开始即写入 `optimize_progress = { done, total }`，前端展示「共 N 个场景，已完成 X 个」。
+- **内容守卫**：纯数字/纯符号/过短文案跳过优化直接透传（避免模型编造）；prompt-engine 返回拒绝文本（cannot generate 等）且有实质内容时回退原文并标记 `optimize_note='llm_rejected_use_original'`；思考块 `<think>` 防御性剥离。
+- **依赖**：PromptBridge 启动 prompt-engine（`PROMPT_DIR` 指向安装目录），bootstrap 用 allSettled 容错启动；manifest 契约要求「prompt-engine 未运行时返回明确错误」。
+
+#### 4) 交互逻辑与显示项
+
+| 显示项 | 位置 | 行为 |
+|--------|------|------|
+| 提示词风格（提示词写法） | 外观折叠区「提示词风格」下拉 | realistic/cinematic/anime/watercolor/minimalist；只控制提示词写法与组织，不替代图片风格 |
+| 图片风格（视觉审美） | 外观折叠区「图片风格」下拉 | cinematic/realistic/anime/watercolor/minimalist；进入 generate_assets，不参与提示词风格回退 |
+| 创意程度 | 受控默认（表单隐藏） | 版本化默认 5，1-10 |
+| 负向提示词 | 高级折叠区「负向提示词」textarea | ≤500 字符，trim 后透传 negative_prompt |
+| 平台（目标平台） | 受控默认（表单隐藏） | 默认 generic；后续可按图片生成服务商派生 |
+| 阶段清单 | 运行页条目式阶段 | 「文案拆分 / 内容增强 / 画面提示词优化 / 生成图片与旁白 / 合成轮播视频 / 发布（可选）」 |
+| optimize 进度 | 运行页阶段详情 | 「共 N 个场景，已完成 X 个」 |
+| 错误提示 | 阶段失败/检查点 | 区分「prompt-engine 未运行（检查 PROMPT_DIR / 8013）」「服务返回：<error>」「请求超时」「422：<detail>」「场景 #N 优化失败：<原因>」 |
+
+#### 5) 服务依赖与验收边界
+
+- prompt-engine（`D:\\Data\\projects\\prompt-engine`，FastAPI / 8013）为图片提示词优化的**前置依赖**；本地已可 import 且 `.env` 已配置 LLM/各 provider key。
+- 真实优化质量（LLM 改写效果、风格检测准确率、配额）属于**外部验收边界**：单元/集成测试用 mock PromptBridge / 本地 HTTP stub 覆盖契约与 fail-closed 行为，不冒充真实 8013 + provider 验收通过（见 learnings 与 quality-gates 记录）。
+- `creative_level ≤ 3` 走 prompt-engine 模板直出（免 LLM key），`> 3` 需要 LLM key（未配置时服务端返回 error → fail closed）。
+
 ### 3.1.5 图片轮播全自动与多语言显示（P1）
 
 以下是本轮任务的产品与验收合同，**不是**外部供应商能力、打包验证或 PR 已成功交付的声明；相应状态必须以实际

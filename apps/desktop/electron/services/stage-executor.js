@@ -27,6 +27,10 @@ const {
 const { collectStory2VideoTtsSamples } = require('./story2video-tts-samples');
 // 注意：story2video-compose-engine 顶层执行 findFfmpeg()/findFfprobe()，且 container.setup.test.js 会 mock
 // path 模块（无 win32/posix）。因此不能在此顶层 require —— 改为在进度校验处惰性 require。
+const {
+  buildPromptEngineOptimizeRequest,
+  extractOptimizedPrompt,
+} = require('./prompt-engine-contract');
 
 function _firstDefined(...values) {
   return values.find(value => value !== undefined && value !== null);
@@ -314,19 +318,40 @@ class StageExecutor {
       return { success: false, error: resultError ? String(resultError) : 'Split failed' };
     });
 
-    // OPTIMIZE - 单个提示词优化
+    // OPTIMIZE - 单个提示词优化（图片提示词统一契约：error 优先 → 结构 → 内容）
     map.set(STAGE_TYPES.OPTIMIZE, async ({ stage, params, context }) => {
       const prompt = _resolveInput(stage, params, context);
       if (!prompt) {
         return { success: false, error: 'No prompt input for optimize stage' };
       }
-      const result = await self.serviceBus.optimizePrompt(prompt, stage.options || {});
-      // 响应格式适配：Bridge 返回 { optimized_prompt, ... } 或 { code: 0, data: ... }
-      if (result && (result.optimized_prompt !== undefined || (result.code === 0 && result.data))) {
-        const output = result.code === 0 ? (result.data || result) : result;
+      const options = stage.options || {};
+      // 图片提示词统一契约：构造请求（平台/风格别名归一、自动风格检测、边界收敛）
+      const request = buildPromptEngineOptimizeRequest(prompt, options);
+      const { prompt: enginePrompt, ...requestOptions } = request;
+      const result = await self.serviceBus.optimizePrompt(enginePrompt, requestOptions);
+      const warn = (msg) => { if (self.log && typeof self.log.warn === 'function') self.log.warn('StageExecutor', msg) }
+      // 截断上限用契约收敛后的 max_length（I-4：不因原始 stage 越界值误截断/漏截断）
+      const validated = extractOptimizedPrompt(result, { maxLength: request.max_length, warn });
+      if (validated.ok) {
+        // 保留原响应字段，但用校验后的 prompt（超长截断时以截断值为准）
+        const output = { ...result, optimized_prompt: validated.prompt, ...validated.meta };
+        if (validated.truncated) output.truncated = true;
         return { success: true, output };
       }
-      return { success: false, error: (result && result.message) || 'Optimize failed' };
+      // 兼容旧 Bridge 包装 { code: 0, data: { ... } } 成功形态
+      let wrapped = null;
+      if (result && result.code === 0 && result.data && typeof result.data === 'object') {
+        wrapped = extractOptimizedPrompt(result.data, { maxLength: request.max_length, warn });
+        if (wrapped.ok) {
+          const output = { ...result.data, optimized_prompt: wrapped.prompt, ...wrapped.meta };
+          if (wrapped.truncated) output.truncated = true;
+          return { success: true, output };
+        }
+      }
+      // W6：兼容包装路径的失败原因优先用包装内的真实 error/detail，避免「缺少字段」误导
+      const reason = (wrapped && wrapped.error) || validated.error ||
+        ((result && (result.message || result.detail)) ? String(result.message || result.detail) : 'Optimize failed');
+      return { success: false, error: reason };
     });
 
     // OPTIMIZE_BATCH - 批量提示词优化
@@ -344,7 +369,11 @@ class StageExecutor {
       if (!Array.isArray(prompts)) {
         return { success: false, error: 'No prompts array for optimize_batch stage' };
       }
-      const result = await self.serviceBus.optimizePromptsBatch(prompts, stage.options || {});
+      // 批量请求同样按统一契约构造（平台/风格别名归一、自动风格检测、边界收敛），
+      // 响应逐项做 error 优先 → 结构 → 内容 校验。
+      const requestOptions = buildPromptEngineOptimizeRequest('', stage.options || {});
+      delete requestOptions.prompt;
+      const result = await self.serviceBus.optimizePromptsBatch(prompts, requestOptions);
       // 响应格式适配：Bridge 返回数组或 { results: [...] } 或 { code: 0, data: ... }
       if (result && (Array.isArray(result) || Array.isArray(result.results) || (result.code === 0 && result.data))) {
         const output = normalizeBatchOptimizeResult(result);
@@ -662,6 +691,9 @@ function normalizeBatchOptimizeResult(result) {
 function hasValidBatchOptimizePrompt(item) {
   if (typeof item === 'string') return item.trim().length > 0;
   if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  // error 优先：/v1/optimize 失败兜底返回原文+error，忽略即静默降级
+  if (typeof item.error === 'string' && item.error.trim()) return false;
+  if (Array.isArray(item.detail)) return false;
   const prompt = item.prompt || item.optimized_prompt || item.optimized;
   return typeof prompt === 'string' && prompt.trim().length > 0;
 }

@@ -19,7 +19,13 @@ function createEngine() {
     optimizePromptsBatch: vi.fn(async () => ({
       results: [{ optimized_prompt: 'prompt-1' }, { optimized_prompt: 'prompt-2' }],
     })),
-    optimizePrompt: vi.fn(),
+    optimizePrompt: vi.fn(async (prompt, options) => ({
+      optimized_prompt: 'optimized: ' + prompt,
+      platform: (options && options.platform) || 'generic',
+      style: (options && options.style) || null,
+      model_used: 'mock-model',
+      key_source: 'config',
+    })),
     composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: 'video.mp4' } })),
     callPythonSkill: vi.fn(),
   }
@@ -98,7 +104,7 @@ describe('story2video 编排契约', () => {
     })
   })
 
-  it('历史内容将 contentType 传入领域增强，并把富化提示词交给当前默认 LLM', async () => {
+  it('历史内容将 contentType 传入领域增强，并把富化提示词交给 prompt-engine 优化', async () => {
     const { engine, serviceBus, aiGenerator } = createEngine()
     registerStory2VideoStages(engine)
     serviceBus.splitText.mockResolvedValueOnce({
@@ -123,15 +129,22 @@ describe('story2video 编排契约', () => {
         imagePromptSeed: expect.stringContaining('唐代'),
       })],
     })
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledWith('llm', expect.objectContaining({
-      messages: expect.arrayContaining([
-        expect.objectContaining({ role: 'user', content: expect.stringContaining('唐代') }),
-      ]),
-    }))
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledTimes(1)
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledWith(
+      expect.stringContaining('唐代'),
+      expect.objectContaining({
+        platform: 'generic',
+        creative_level: 5,
+        max_length: 300,
+        num_candidates: 1,
+        auto_detect_style: true,
+      }),
+    )
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
     expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
   })
 
-  it('真实 text 默认参数传给默认 LLM，且不调用旧 PromptBridge', async () => {
+  it('真实 text 默认参数统一走 prompt-engine 契约，不调用默认 LLM 或旧批量路径', async () => {
     const { engine, serviceBus, aiGenerator } = createEngine()
     registerStory2VideoStages(engine)
     const started = await engine.startOrchestrated('story2video-compose', {
@@ -144,9 +157,18 @@ describe('story2video 编排契约', () => {
     const optimized = await engine.executeStage(started.runId)
 
     expect(optimized.success).toBe(true)
-    const request = aiGenerator.generateWithDefault.mock.calls.at(-1)[1]
-    expect(request).toMatchObject({ max_tokens: 500, temperature: 0.5 })
-    expect(request.messages[1].content).toContain('Visual style: realistic')
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledTimes(2)
+    for (const [, options] of serviceBus.optimizePrompt.mock.calls) {
+      expect(options).toMatchObject({
+        platform: 'generic',
+        style: 'realistic',
+        creative_level: 5,
+        max_length: 300,
+        num_candidates: 1,
+        auto_detect_style: true,
+      })
+    }
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
     expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
   })
 
@@ -427,7 +449,7 @@ describe('story2video 编排契约', () => {
     expect(engine._runs.size).toBe(0)
   })
 
-  it('Story2Video 使用版本化 text 配置执行分句和默认 LLM 优化，普通编排流水线保持旧合同', async () => {
+  it('Story2Video 使用版本化 text 配置执行分句和 prompt-engine 优化，普通编排流水线保持旧合同', async () => {
     const { engine, serviceBus, aiGenerator } = createEngine()
     registerStory2VideoStages(engine)
     const started = await engine.startOrchestrated('story2video-compose', {
@@ -454,10 +476,19 @@ describe('story2video 编排契约', () => {
       }),
     }))
     expect(serviceBus.splitText.mock.calls[0][1]).not.toHaveProperty('max_sentence_length')
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(2)
-    const optimizeRequest = aiGenerator.generateWithDefault.mock.calls.at(-1)[1]
-    expect(optimizeRequest).toMatchObject({ max_tokens: 500, temperature: 0.6799999999999999 })
-    expect(optimizeRequest.messages[1].content).toContain('Visual style: anime')
+    // 版本化 optimize 配置映射为 prompt-engine 请求参数（候选数/创意度/风格透传）
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledTimes(2)
+    for (const [, options] of serviceBus.optimizePrompt.mock.calls) {
+      expect(options).toMatchObject({
+        platform: 'generic',
+        style: 'anime',
+        creative_level: 8,
+        max_length: 300,
+        num_candidates: 2,
+        auto_detect_style: true,
+      })
+    }
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
     expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
 
     engine.registerPipeline({
