@@ -2,8 +2,8 @@
 
 ## 1. Nx 引入与项目图核验
 
-- [ ] 1.1 根 package.json 添加 `nx` devDependency（锁定版本），根新增 `nx.json`：`targetDefaults`（test 目标沿用各 workspace 现有命令）、`cacheableOperations: ["test"]`、`inputs` 覆盖源码/测试/lockfile/nx 配置
-- [ ] 1.2 本地核验 `nx show projects` 发现全部 6 个 JS/TS workspace（ai-writer/ai-writer-api/desktop/python-backend 除外/rpa-engine/remotion-composer/shared-utils），推断失败处补显式 targets
+- [x] 1.1 根 package.json 添加 `nx` devDependency（锁定版本），根新增 `nx.json`：`targetDefaults`（test 目标沿用各 workspace 现有命令）、`cacheableOperations: ["test"]`、`inputs` 覆盖源码/测试/lockfile/nx 配置
+- [x] 1.2 本地核验 `nx show projects` 发现全部 6 个 JS/TS workspace（ai-writer/ai-writer-api/desktop/python-backend 除外/rpa-engine/remotion-composer/shared-utils），推断失败处补显式 targets
 - **测试目标**：`nx show projects` 输出包含预期 workspace 集合；桌面 vitest 串行参数不变
 
 ## 2. affected 冒烟与基线测量
@@ -14,7 +14,8 @@
 
 ## 3. CI 接入（quality-gate 单测 job）
 
-- [ ] 3.1 quality-gate.yml：unit-tests job 在 pull_request 事件用 `nx affected -t test`（基线=merge-base），workflow_dispatch 用 `nx run-many -t test`（全量）；保留 Gate 4 watchdog 与既有命令参数
+- [ ] 3.1 quality-gate.yml：`on` 新增 `push`（branches: [main]，同 paths-ignore）；unit-tests job 在 pull_request 事件用 `nx affected -t test --base=origin/main`（先 `git fetch origin main --depth=1`），workflow_dispatch / push main 用 `nx run-many -t test --all`（全量）；保留 Gate 4 watchdog
+- [ ] 3.1b 以 MODIFIED delta 更新 ci-quality-gate-parallel「触发去重」Requirement（允许 main push 全量回归，feature 分支仍仅 PR 触发）
 - [ ] 3.2 缓存持久化：actions/cache 存取 `.nx/cache`（同 job 与跨 run 复用）
 - **测试目标**：PR 事件日志含受影响包清单与缓存命中状态；dispatch 全量；Gate 4 watchdog 契约不被破坏
 
