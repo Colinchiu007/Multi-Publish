@@ -573,7 +573,11 @@ class TtsVoiceCloneService {
     let workingClone = clone;
     let workingRegistry = registryResult.registry;
     const deletionState = clone.deletionState || DELETE_STATES.ACTIVE;
-    if (deletionState !== DELETE_STATES.REMOTE_DELETED) {
+    // 远端删除仅在 adapter 支持 deleteVoice 时执行（如 ElevenLabs）；
+    // 不支持（如 MiniMax 无删除 API）时删除为纯本地管理操作：移除本地记录/样本/偏好，
+    // 不得因远端 API 缺失而把「删除」报成「音色克隆服务暂时不可用」。
+    const remoteDeleteSupported = await this._supportsRemoteDelete(request);
+    if (deletionState !== DELETE_STATES.REMOTE_DELETED && remoteDeleteSupported) {
       if (deletionState !== DELETE_STATES.PENDING) {
         workingClone = { ...clone, deletionState: DELETE_STATES.PENDING };
         workingRegistry = this._replaceClone(workingRegistry, workingClone);
@@ -609,6 +613,26 @@ class TtsVoiceCloneService {
     if (!(await this._clearDeletedClonePreference(request, workingClone, owner)))
       return failure("VOICE_CLONE_STORE_UNAVAILABLE");
     return success({ providerId: request.providerId, model: request.model, voiceId: clone.id });
+  }
+
+  /**
+   * 判断当前 provider 的 adapter 是否支持远端删除克隆音色。
+   * - 明确支持（如 ElevenLabs DELETE /v1/voices/{id}）→ 删除需先完成远端 deleteVoice；
+   * - 明确不支持（如 MiniMax 官方 clone API 无删除端点）→ 删除为纯本地管理操作；
+   * - 无法判定（探测异常 / 能力查询 API 缺失）→ 回退旧行为（尝试远端删除），
+   *   避免把「探测失败」静默降级为纯本地删除而遗留远端音色。
+   */
+  async _supportsRemoteDelete(request) {
+    if (!this._modelProviderManager || typeof this._modelProviderManager.callAdapter !== "function")
+      return true;
+    if (typeof this._modelProviderManager.supportsAdapterMethod !== "function") return true;
+    let verdict;
+    try {
+      verdict = await this._modelProviderManager.supportsAdapterMethod(request.providerId, "deleteVoice");
+    } catch (_) {
+      return true;
+    }
+    return verdict === false ? false : true;
   }
 
   async _clearDeletedClonePreference(request, deletedClone, owner) {

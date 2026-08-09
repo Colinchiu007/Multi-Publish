@@ -129,6 +129,34 @@ function resolveReadableMediaFile (candidate, options = {}) {
 }
 
 /**
+ * Windows 上文件可能被其他程序短时占用（EBUSY/EPERM/EACCES）。
+ * 复制仅在占用类错误上做有界重试（短退避），其余错误原样抛出；
+ * 持续占用回传可读中文原因，便于 renderer 映射「文件被占用」提示。
+ */
+function copyImportedMedia (source, destination) {
+  const RETRYABLE_CODES = new Set(['EBUSY', 'EPERM', 'EACCES'])
+  const MAX_COPY_ATTEMPTS = 3
+  const RETRY_DELAY_MS = 150
+  let lastError = null
+  for (let attempt = 0; attempt < MAX_COPY_ATTEMPTS; attempt++) {
+    try {
+      fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL)
+      return
+    } catch (error) {
+      lastError = error
+      if (!error || !RETRYABLE_CODES.has(error.code) || attempt === MAX_COPY_ATTEMPTS - 1) break
+      // 有意为之的同步短退避（150ms×n，最坏 450ms）：仅出现在文件被占用的罕见路径，
+      // 避免把导入链路改成 async 波及全部调用方；对瞬时占用重试收益远大于一次短阻塞。
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RETRY_DELAY_MS * (attempt + 1))
+    }
+  }
+  if (lastError && RETRYABLE_CODES.has(lastError.code)) {
+    throw new Error('媒体文件被占用，请关闭占用程序后重试')
+  }
+  throw lastError instanceof Error ? lastError : new Error('媒体文件复制失败')
+}
+
+/**
  * Electron 的 File 选择只证明用户选择过该路径，不应因此放开整块磁盘。
  * 这里把文件复制到应用控制的临时目录，后续阶段继续使用 canonical 白名单校验。
  */
@@ -156,7 +184,7 @@ function importUserSelectedMedia (candidate, kind, options = {}) {
   const token = Date.now().toString(36) + '-' + process.pid + '-' + Math.random().toString(36).slice(2, 10)
   const destination = path.join(baseDir, kind + '-' + token + extension)
   if (!isPathWithin(destination, [baseDir])) throw new Error('媒体导入路径无效')
-  fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL)
+  copyImportedMedia(source, destination)
   const stat = fs.statSync(destination)
   return { path: destination, kind, size: stat.size, originalName: path.basename(source) }
 }
@@ -254,6 +282,7 @@ module.exports = {
   isPathWithin,
   resolveReadableFile,
   resolveReadableMediaFile,
+  copyImportedMedia,
   importUserSelectedMedia,
   cleanupImportedMediaPaths,
   getRunInputDir,

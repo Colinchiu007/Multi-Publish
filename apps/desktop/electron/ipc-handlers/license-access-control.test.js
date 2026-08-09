@@ -414,4 +414,33 @@ describe('主进程许可证动态鉴权', () => {
     await expect(handlers['story2video:delete-project'](trustedEvent, 'project-1')).resolves.toMatchObject({ code: -3 })
     expect(deleteProject).not.toHaveBeenCalled()
   })
+
+  it('本地媒体导入通道 story2video:import-media 对未登录开放（设备本地操作）', async () => {
+    expect(requiredLevelForChannel('story2video:import-media')).toBe('public')
+    // 写/删除等敏感通道不扩大
+    expect(requiredLevelForChannel('story2video:delete-project')).toBe('authenticated')
+    expect(requiredLevelForChannel('story2video:export-zip')).toBe('authenticated')
+
+    const identityService = { getState: () => ({ status: 'signed_out' }) }
+    const { ipcMain, handlers } = createIpcMainHarness()
+    const controlledIpcMain = createAccessControlledIpcMain(
+      ipcMain,
+      null,
+      { NODE_ENV: 'production' },
+      { isPackaged: true },
+      identityService,
+    )
+    const importMedia = vi.fn(async () => ({ code: 0, data: { path: 'C:/controlled/bgm.mp3', kind: 'bgm' } }))
+    const deleteProject = vi.fn(async () => ({ code: 0, data: {} }))
+    controlledIpcMain.handle('story2video:import-media', importMedia)
+    controlledIpcMain.handle('story2video:delete-project', deleteProject)
+
+    // 未登录：import-media 放行（背景音乐/旁白/视频素材选择可用）
+    await expect(handlers['story2video:import-media'](trustedEvent, { filePath: 'C:/music/bgm.mp3', kind: 'bgm' }))
+      .resolves.toEqual({ code: 0, data: { path: 'C:/controlled/bgm.mp3', kind: 'bgm' } })
+    expect(importMedia).toHaveBeenCalledTimes(1)
+    // 未登录：删除通道仍被拒
+    await expect(handlers['story2video:delete-project'](trustedEvent, 'project-1')).resolves.toMatchObject({ code: -3 })
+    expect(deleteProject).not.toHaveBeenCalled()
+  })
 })
