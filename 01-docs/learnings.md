@@ -4,6 +4,15 @@
 
 ---
 
+## 图片轮播选项「保存成功但永不恢复」复盘 (2026-08-09，质量节拍 Bug 反哺)
+
+- **表象**：用户改图片轮播选项（如图片效果/分辨率）后，重启应用再进入，选项未恢复——「没有被持久化保存」。
+- **根因（git blame 溯源 commit `1c1eeb11`，2026-08-06 引入）**：`restoreS2VLastOptions()` 入口守卫 `isOrchestratedPipeline(selectedPipeline?.name)`，而组件挂载时 `selectedPipeline=null`（`loadPipelines` 只填充列表不设置选中），恢复只在 `mounted()` 调用一次 → 守卫必然 return → **保存链路正常（watch 1s 防抖 → store:set-setting 写入 SQLite）但恢复从未执行**。`selectPipeline`（用户点击卡片）不触发恢复。
+- **逃逸链**：① 单测「恢复上次选项」在调用 restore 前手动设置 `selectedPipeline`（绕过守卫），测试绿但真实挂载路径（selectedPipeline=null）不恢复；② 无「mounted/选卡 → 恢复」交互路径测试；③ 引入时验收只验证保存 toast 与直接调 restore 的单测，未做「重启后真实恢复」验收。
+- **系统性漏洞**：恢复入口依赖「组件挂载时 selectedPipeline 已就绪」这一从未成立的假设；测试用「手动设状态再调方法」模式掩盖挂载时序缺陷；「保存与恢复」双向合同只测了保存侧。
+- **修复**：`selectPipeline` 选中 story2video-compose 时主动触发恢复；生命周期内只恢复一次（`_s2vRestoredOnce`，同会话切走再切回不覆盖编辑）；mounted 保留。回归：真实交互路径恢复 + 不重复恢复 2 例。
+- **教训**：涉及「挂载后由用户操作触发」的功能，测试必须走真实触发路径（如调用 selectPipeline/点击），不能只直接调方法；「保存/恢复」类功能验收必须包含**重启后恢复**闭环，单测 + 手工都要做。
+
 ## MiniMax Image 空图未标记 emptyResult 复盘 (2026-08-09，质量节拍 Bug 反哺)
 
 - **表象**：27 场景图片轮播任务 generate_assets 阶段 **26/27 成功**，唯独 Image #2 报 `image_generation returned no image: success` → 整线 failed（run_1786270877725_bw2m）。断点续跑（resumeOrchestration）后 17s 全部成功——确认是 provider 瞬时空图，不是提示词内容问题。

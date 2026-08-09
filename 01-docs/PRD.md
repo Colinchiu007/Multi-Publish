@@ -886,7 +886,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 存储 | 主进程 owner-scoped SQLite（`store:set-setting` / `store:get-setting`），键 `story2video.lastOptions.v1`；按当前登录用户隔离，切换账号不串档。 |
 | 保存范围 | `s2vConfig`（图片风格/提示词风格/动效/字幕/分句/语音/音色/发布等全部选项）与 `s2vOutputConfig`（比例与分辨率/帧率/格式）；**不保存** `pipelineText` 文案内容（隐私边界，文案不属选项）。 |
 | 保存时机 | ① 选项变更后 1s 防抖自动保存；② 点击「启动流水线」成功时立即保存；③ 离开页面前 flush 未落盘变更。 |
-| 恢复时机 | 进入【图片轮播】且 provider 加载完成后自动恢复；恢复为浅层合并 + 类型守卫：仅接受与默认值类型一致的键，数组/对象深拷贝防引用共享。 |
+| 恢复时机 | 进入/选择【图片轮播】且 provider 加载完成后自动恢复（`mounted` 已选该流水线或 `selectPipeline` 选中 story2video-compose 时触发；**2026-08-09 Bug 反哺**：组件挂载时 `selectedPipeline` 为 null、`loadPipelines` 不设置它，restore 的编排守卫使恢复从未执行——保存成功但重启后不恢复，修复为选中流水线时主动恢复）；生命周期内**只恢复一次**（`_s2vRestoredOnce`），同会话切走再切回不覆盖当前编辑；恢复为浅层合并 + 类型守卫：仅接受与默认值类型一致的键，数组/对象深拷贝防引用共享。 |
 | provider 失效处理 | 已不启用（未配置/已删除）的 voice/image provider 及其 model/voiceId **不回填**；语音目录在恢复后重新拉取以校正音色选择。 |
 | 重置 | 「恢复默认选项」按钮将选项重置为初始默认并清除已存快照；语音/音色随后按用户默认恢复。 |
 | 版本 | 快照携带 `version:1` 与 `savedAt`，为未来迁移预留；非法/损坏快照静默忽略，回退默认值，不阻塞页面。 |
