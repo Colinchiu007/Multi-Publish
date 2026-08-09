@@ -83,6 +83,25 @@ describe('Story2Video text 参数合同', () => {
     })
   })
 
+  it('参数治理（7.1.19）：缺省 voice.pitch / optimize.creativeLevel 时以契约默认 0 / 5 兜底', () => {
+    // 前端自 7.1.19 起不提交 voicePitch/creativeLevel（系统管理参数），
+    // normalizer 必须用契约默认兜底，保证行为等价。
+    const result = normalizeStory2VideoTextParams({
+      text: '参数治理缺省兜底。',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '参数治理缺省兜底。',
+        voice: { provider: 'edge-tts', id: 'v1' },
+        optimize: { style: 'realistic' },
+      },
+    })
+    expect(result.story2videoTextConfig.voice.pitch).toBe(0)
+    expect(result.story2videoTextConfig.optimize.creativeLevel).toBe(5)
+    expect(result.stageOptions.generate_assets.voicePitch).toBe(0)
+    expect(result.stageOptions.optimize.creative_level).toBe(5)
+  })
+
   it('接受全自动编排策略并透传 background 后台模式，同时保留历史分句语言快照', () => {
     const automatic = normalizeStory2VideoTextParams({
       text: '自动编排使用语言识别。',

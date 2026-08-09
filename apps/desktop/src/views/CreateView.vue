@@ -997,17 +997,19 @@ export default {
         contentType: 'general', imageStyle: 'cinematic',
         imageProvider: '', imageModel: '',
         voiceId: '', voiceProvider: '', voiceModel: '',
-        voiceSpeed: 1, voicePitch: 0, voiceVolume: 1,
+        // 参数治理（7.1.19）：voicePitch 为系统管理参数（默认 0），前端不暴露不提交，由契约默认兜底。
+        voiceSpeed: 1, voiceVolume: 1,
         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
         splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
         splitTargetCharsPerScene: 20, splitViewMode: 'seconds',
-        // splitBaseWordsPerSecond 自 Batch 5a 起为兼容遗留字段：估算与提交已由语言感知表驱动（voice-estimate.js），
-        // 仅旧快照恢复兼容保留，不再参与计算（Batch 5b 可清理）。
-        splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
+        // 参数治理（7.1.19）：splitBaseWordsPerSecond 自 Batch 5a 起由语言感知表驱动（voice-estimate.js），
+        // 前端字段已移除（提交走 getLanguageBaseWordsPerSecond），旧快照键被白名单忽略。
+        splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
         sceneDurationMode: 'follow-audio', minSceneDuration: 6,
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
-        promptStyle: 'realistic', creativeLevel: 5, negativePrompt: '',
+        // 参数治理（7.1.19）：creativeLevel 为系统管理参数（默认 5），前端不暴露不提交，由契约默认兜底。
+        promptStyle: 'realistic', negativePrompt: '',
         transition: 'fade', subtitleEnabled: true,
         subtitleSize: 'size3', subtitleStyleName: 'style1',
         subtitleStyle: { size: 'md', style: 'style1', color: 'white' },
@@ -1667,7 +1669,7 @@ export default {
           },
           optimize: {
             style: config.promptStyle,
-            creativeLevel: config.creativeLevel,
+            // 参数治理（7.1.19）：creativeLevel 为系统管理参数，不提交，normalizer 默认 5 兜底。
             negativePrompt: config.negativePrompt,
           },
           image: {
@@ -1683,7 +1685,7 @@ export default {
             id: config.voiceId,
             speed: config.voiceSpeed,
             volume: config.voiceVolume,
-            pitch: config.voicePitch,
+            // 参数治理（7.1.19）：pitch 为系统管理参数，不提交，normalizer 默认 0 兜底。
           },
           subtitle: {
             enabled: config.subtitleEnabled,
