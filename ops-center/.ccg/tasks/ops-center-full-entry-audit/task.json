@@ -1,0 +1,12 @@
+{
+  "id": "ops-center-full-entry-audit",
+  "title": "运营后台全入口报错排查 + 整体测试 + 补 PRD/测试用例",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "analysis",
+  "nextAction": "系统测试所有入口并分类报错",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "branch": "codex/ops-center-integration"
+}

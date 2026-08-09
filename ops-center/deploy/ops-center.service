@@ -1,0 +1,20 @@
+[Unit]
+Description=OpsCenter - 运营配置中心
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/ops-center/backend
+Environment=OPS_DB_PATH=/data/ops-center/config.db
+Environment=OPS_CONFIG_OUTPUT_DIR=/data/configs
+Environment=OPS_ENCRYPTION_KEY=${OPS_ENCRYPTION_KEY}
+Environment=OPS_SECRET_KEY=${PO_SECRET_KEY}
+Environment=OPS_JWT_SECRET=${PO_SECRET_KEY}
+Environment=OPS_CORS_ORIGINS=*
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 127.0.0.1 --port 8010
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
