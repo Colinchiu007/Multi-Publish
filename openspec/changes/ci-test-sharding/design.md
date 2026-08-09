@@ -45,3 +45,18 @@
 ## Open Questions
 
 - 无阻塞项；N 值与 electron-ci 接入作为后续调优项。
+
+
+## 双模型审查处置（2026-08-09，Claude 完成）
+- C1 跨 shard 串行契约 → **排除**：分片跑在独立 matrix runner 上（跨机器隔离，无共享可变资源）；
+  每 shard 进程内保持 maxWorkers=1/no-file-parallelism/超时（与全量一致）；实证 = 本 PR CI 中
+  shard 1/2 与 2/2 各自独立通过。跨文件顺序/状态耦合若存在会在独立 shard 中失败，CI 兜底。
+- W1 死脚本 → **修复**：删除根 test:desktop:shard（CI 用直接命令，契约断言其为 undefined）。
+- W2 串行标志无断言 → **修复**：契约新增 --maxWorkers=1/--no-file-parallelism/--testTimeout=10000 断言。
+- W3 watchdog 无守护 → **修复**：契约新增 Get-TestProcessTree/WaitForExit(1800000)/taskkill 断言。
+- W4 空缓存步骤+写竞争 → **修复**：desktop-shards 移除 Restore Nx cache（不经 nx，无意义且与
+  unit-tests 争写同一 key）。
+- W5 桌面恒全量（无视 affected）→ **记录为有意取舍**：桌面是核心产品，每个 PR 全量覆盖桌面
+  （shards + coverage）是保证；效率损失（非桌面 PR 多跑桌面）后续可加条件触发。
+- W6 --exclude 依赖 nx 项目名 → **实证排除**：nx show projects 输出 @multi-publish/desktop；
+  本 PR CI 的 QG Unit Tests 仅 0.6min 证明 exclude 生效。

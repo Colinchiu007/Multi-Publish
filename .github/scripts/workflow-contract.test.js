@@ -221,6 +221,15 @@ test('桌面测试分片契约：desktop-shards 矩阵与 unit-tests 排除桌�
   const src = fs.readFileSync(qualityGatePath, 'utf8');
   assert.match(src, /--shard=\$\{\{ matrix\.shard \}\}/);
   assert.match(src, /--exclude=@multi-publish\/desktop/);
+  // 进程内串行确定性契约必须显式保留（W2）
+  assert.match(src, /--maxWorkers=1/);
+  assert.match(src, /--no-file-parallelism/);
+  assert.match(src, /--testTimeout=10000/);
+  // shard watchdog 必须有契约守护（W3）
+  assert.match(src, /function Get-TestProcessTree/);
+  assert.match(src, /WaitForExit\(1800000\)/);
+  assert.match(src, /taskkill \/PID \$testProcess\.Id \/T \/F/);
   const rootPkg = JSON.parse(fs.readFileSync(rootPackagePath, 'utf8'));
-  assert.match(rootPkg.scripts['test:desktop:shard'], /--shard/);
+  // 死脚本清理（W1）：根 package.json 不应再有 test:desktop:shard
+  assert.equal(rootPkg.scripts['test:desktop:shard'], undefined);
 });

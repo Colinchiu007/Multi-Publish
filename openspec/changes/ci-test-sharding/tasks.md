@@ -21,5 +21,5 @@
 ## 4. 门禁交付
 
 - [ ] 4.1 本 PR CI 通过（desktop-shards 两 shard + unit-tests 非桌面 + electron/build/gui/visual 既有流程），记录分片前后桌面套件时长
-- [ ] 4.2 双模型审查（antigravity + Claude；后端不可用则降级记录）
+- [x] 4.2 双模型审查（Claude 完成；C1 排除、W1/W2/W3/W4 修复、W5 记录取舍、W6 实证）（antigravity + Claude；后端不可用则降级记录）
 - [ ] 4.3 合并；归档三同步（openspec archive + CCG task 归档 + learnings）

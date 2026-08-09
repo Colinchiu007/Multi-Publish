@@ -196,13 +196,6 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Restore Nx cache
-        uses: actions/cache@v4
-        with:
-          path: .nx/cache
-          key: nx-${{ runner.os }}-test-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            nx-${{ runner.os }}-test-
 
       # --- 桌面 vitest 分片（跨 runner 并行；进程内保持串行确定性契约）---
       - name: "Desktop tests shard ${{ matrix.shard }}"
