@@ -40,6 +40,15 @@
 ### 外部验收边界
 - 真实 8013 服务的改写质量、风格检测准确率与 LLM 配额为外部验收（PENDING_EXTERNAL）；`creative_level ≤ 3` 走模板直出。
 
+## [未发布] 图片轮播参数治理：前端死字段移除与契约边界文档化（2026-08-09）
+
+### 变更
+- 移除前端 `s2vConfig.voicePitch` / `creativeLevel` / `splitBaseWordsPerSecond` 三个隐藏死字段；提交构造不再显式传 `voice.pitch` / `optimize.creativeLevel`（normalizer 契约默认 0 / 5 兜底，行为等价）；`split.baseWordsPerSecond` 保留语言表显式下发（双路径同源）。
+- 快照兼容：旧 lastOptions 快照中的已移除键被白名单忽略（新增恢复测试覆盖）；`splitTargetSeconds` 自愈逻辑不变。
+- 测试：CreateView（字段不存在 + 提交不携带 + 恢复忽略）、UE 契约（升级为字段不存在）、text-config（缺省 → 默认 0/5 兜底）。
+- 文档：PRD 7.1.19 参数治理合同（系统管理参数完整矩阵 / UI-后端边界 / watermark-subtitle 双源结构 / 后续清理候选）。
+- 非目标（P1 待办）：枚举/目录/限额类参数转运营后台（ops-center pipeline_configs 基础设施另行立项）。
+
 ## 维护与归档（2026-08-08）
 
 - 归档 Story2Video 场景时长三层模型 CCG 任务审计轨迹（`.ccg/tasks/story2video-scene-duration-three-layer` → `archive/2026-08/`）：

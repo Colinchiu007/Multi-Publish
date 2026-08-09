@@ -312,7 +312,12 @@ describe("CreateView", () => {
       code: 0,
       data: {
         version: 1,
-        s2vConfig: { imageStyle: "anime", voiceSpeed: 1.5, voiceProvider: "disabled-provider", splitLanguage: "en", splitTargetSeconds: 8 },
+        s2vConfig: {
+          imageStyle: "anime", voiceSpeed: 1.5, voiceProvider: "disabled-provider",
+          splitLanguage: "en", splitTargetSeconds: 8,
+          // 参数治理（7.1.19）：旧快照可能带已移除的系统管理参数，恢复时必须被白名单忽略
+          voicePitch: -2, creativeLevel: 7, splitBaseWordsPerSecond: 9.9,
+        },
         s2vOutputConfig: { resolution: "1920x1080", fps: 60 },
         ui: { expandedGroups: ["appearance", "voice"] },
       },
@@ -336,6 +341,10 @@ describe("CreateView", () => {
     expect(w.vm.s2vConfig.splitViewMode).toBe("seconds");
     // 旧快照带回陈旧 splitTargetSeconds=8 → restore 按主控字数 20 + 恢复后的语言 en(2.8) × voice.speed 1.5 自愈为 round(20/4.2)=5
     expect(w.vm.s2vConfig.splitTargetSeconds).toBe(5);
+    // 参数治理（7.1.19）：旧快照中的已移除系统管理参数被忽略，不污染当前配置
+    expect(w.vm.s2vConfig).not.toHaveProperty("voicePitch");
+    expect(w.vm.s2vConfig).not.toHaveProperty("creativeLevel");
+    expect(w.vm.s2vConfig).not.toHaveProperty("splitBaseWordsPerSecond");
     // 恢复表单折叠状态
     expect(w.vm.s2vOpenSections.appearance).toBe(true);
     expect(w.vm.s2vOpenSections.voice).toBe(true);
@@ -626,9 +635,12 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.s2vConfig).toHaveProperty("voiceId");
     expect(w.vm.s2vConfig).toHaveProperty("voiceProvider");
     expect(w.vm.s2vConfig).toHaveProperty("voiceSpeed");
-    expect(w.vm.s2vConfig).toHaveProperty("voicePitch");
     expect(w.vm.s2vConfig).toHaveProperty("voiceVolume");
     expect(w.vm.s2vConfig).toHaveProperty("concurrency");
+    // 参数治理（7.1.19）：voicePitch/creativeLevel/splitBaseWordsPerSecond 为系统管理参数，前端不声明
+    expect(w.vm.s2vConfig).not.toHaveProperty("voicePitch");
+    expect(w.vm.s2vConfig).not.toHaveProperty("creativeLevel");
+    expect(w.vm.s2vConfig).not.toHaveProperty("splitBaseWordsPerSecond");
     expect(w.vm.s2vConfig.splitLanguage).toBe("auto");
   });
 
@@ -966,7 +978,7 @@ describe("CreateView - S2V orchestration", () => {
       voiceProvider: "piper",
       voiceId: "custom-voice-id",
       voiceSpeed: 1.2,
-      voicePitch: -1,      voiceVolume: 0.8,
+      voiceVolume: 0.8,
       transition: "slide-right",
       subtitleEnabled: false,      subtitleSize: "size4",
       subtitleStyleName: "style2",
@@ -977,7 +989,6 @@ describe("CreateView - S2V orchestration", () => {
       splitMaxSentenceLength: 120,
       splitTargetSeconds: 4,
       promptStyle: "anime",
-      creativeLevel: 8,
       watermarkText: "测试水印",
       platforms: ["bilibili"],
       publishEnabled: true,
@@ -999,10 +1010,10 @@ describe("CreateView - S2V orchestration", () => {
         prompt: "唐朝长安的夜景",
         size: "1080x1920",
         contentType: "history",
-        split: expect.objectContaining({ language: "auto", mode: "precise", maxSentenceLength: 120, targetSeconds: 4 }),
-        optimize: expect.objectContaining({ style: "anime", creativeLevel: 8 }),
+        split: expect.objectContaining({ language: "auto", mode: "precise", maxSentenceLength: 120, targetSeconds: 4, baseWordsPerSecond: 3.3 }),
+        optimize: expect.objectContaining({ style: "anime" }),
         image: expect.objectContaining({ provider: "local-diffusion", style: "watercolor", effect: "pan-left", aspectRatio: "9:16" }),
-        voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8, pitch: -1 }),
+        voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8 }),
         subtitle: expect.objectContaining({ enabled: false, size: "size4", style: "style2" }),
         bgm: { enabled: true, path: "C:/media/bgm.mp3", volume: 7 },
         transition: "slide-right",
@@ -1012,6 +1023,11 @@ describe("CreateView - S2V orchestration", () => {
     }));
     const request = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
     expect(request).not.toHaveProperty("seconds");
+    // 参数治理（7.1.19）：提交不携带系统管理参数（creativeLevel/voice.pitch），由 normalizer 默认兜底
+    expect(request.optimize).not.toHaveProperty("creativeLevel");
+    expect(request.voice).not.toHaveProperty("pitch");
+    // split.baseWordsPerSecond 仍随提交按语言表显式下发（auto → 3.3），与 normalizer 语言表兜底同源
+    expect(request.split.baseWordsPerSecond).toBe(3.3);
     expect(request).not.toHaveProperty("versions");
     expect(request).not.toHaveProperty("perImageDuration");
     expect(w.vm.outputConfig).toEqual({ resolution: "3840x2160", fps: 60, format: "mp4" });

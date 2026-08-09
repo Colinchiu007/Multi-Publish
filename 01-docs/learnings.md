@@ -6006,3 +6006,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 3（数值校验穿透）**：`Number(update.percent)` 会接受 `null→0 / []→0 / true→1 / '39'→39`，IPC 边界必须用 `typeof === 'number'` 严格校验；「percent 取整 ≥100 仅限 done 阶段」作为不变量收进执行器校验，杜绝潜伏假成功信号（claude W1）。
 - **教训 4（antigravity 缺失降级）**：本机 `agy` CLI 未安装 → antigravity 后端不可用；按机制硬化规则降级为 Claude + 主代理独立分析/审查，并在 change 内记录恢复条件。
 - **教训 5（进度语义）**：段进度以「段」为单位非帧级实时是 v1 有意取舍（ffmpeg `-progress pipe:1` 段内实时记 PRD 后续演进）；断点续跑必须重置旧 `compose_progress`，否则残留上次冻结值（执行器开头 `context.compose_progress = undefined`）。
+
+## 图片轮播参数治理复盘 (2026-08-09)
+
+- **问题**：s2vConfig 存在「存在但不可控」的隐藏字段（voicePitch/creativeLevel/splitBaseWordsPerSecond），无 UI、恒默认，却进入契约与提交构造，制造假配置项与双源 firstDefined 分支。
+- **清理模式（可复用）**：前端死字段移除前必须全仓 grep 消费点并区分「前端读取」vs「normalizer/下游读取归一化值」。本次确认 pipeline run.params 先经 normalizeStory2VideoTextParams 归一化，下游全部读归一化值（pitch 恒 0 / creative_level 恒 5），前端是否显式提交无关 → 移除安全、行为等价。
+- **normalizer 双源 firstDefined 的价值**：contract 层保留 `firstDefined(input, params)` + 默认兜底，使前端字段可安全移除（提交缺省即默认），无需迁移；快照恢复白名单（按当前默认键 Object.keys(target)）天然兼容旧快照多余键。
+- **双源结构 ≠ 冗余**：watermark（UI 文本 + watermarkConfig 样式）与 subtitle（UI size/style + subtitleStyle 模板对象含 color）是「UI 字段 + 模板持有」协调结构，applyS2VTemplate 会写入 subtitleStyle——不能简单合并扁平化。
+- **死提交字段线索**：split.speechRate 渲染层值恒被 normalizer 硬覆盖为 voice.speed（死提交，下轮清理）；Python YAML baseWordsPerSecond 3.3 非语言感知（绕过 JS 语言表的直接调用路径）。
