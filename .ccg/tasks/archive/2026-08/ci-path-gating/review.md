@@ -38,3 +38,8 @@
 - Build & Release ✅（win+ubuntu）/ Visual Tests ✅
 - Doc Sync Gate：按设计跳过（paths-ignore 覆盖 .ccg/**）
 - 本地：YAML 全量解析 ✅ / 契约测试 16/16 ✅ / 白名单一致性 ✅
+
+## 合并与归档（2026-08-09）
+- PR #430 已合并：merge commit 558b4bc9（main HEAD），远程分支已删除。
+- main 上内容核验：build/electron-ci/quality-gate paths-ignore ✅、doc-gate 流程目录 ✅、契约测试 CI_IGNORED_PATHS ✅。
+- 本任务归档（CCG 闭环）。

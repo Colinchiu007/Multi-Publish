@@ -1,12 +1,13 @@
 {
   "id": "ci-path-gating",
   "title": "Phase 1: CI workflow 路径门控（paths-ignore）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "ci",
-  "currentPhase": "review",
-  "nextAction": "等待用户确认合并 PR #430；合并后归档",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #430 merged 558b4bc9）",
   "createdAt": "2026-08-09T00:00:00Z",
-  "branch": "codex/ci-path-gating"
+  "branch": "codex/ci-path-gating",
+  "remoteStatus": "merged:558b4bc9"
 }
