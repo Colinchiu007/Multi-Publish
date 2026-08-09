@@ -202,6 +202,9 @@ CRITICAL 必须修复才能继续。
 │   ├── remotion-composer/ # Remotion 视频合成
 │   ├── rpa-engine/        # RPA 发布引擎
 │   └── shared-utils/      # 共享工具库
+├── ops-center/            # 运营后台（FastAPI :8010 + Vue3 :5173，独立 Python/Node 依赖，登录经 platform-orchestrator /api/auth）
+│   ├── backend/           #   FastAPI（pytest 门禁：cd backend && pytest）
+│   └── frontend/          #   Vue 3 + Vite（build 门禁：npm run build；Vite 代理 /api/auth→orchestrator:8000，/api/v1→ops-center:8010）
 ├── 01-docs/               # PRD、架构、设计等文档
 ├── config/                # 配置文件（config.yaml, platforms.yaml）
 ├── scripts/               # 脚本（check-docs-sync.sh 等）
