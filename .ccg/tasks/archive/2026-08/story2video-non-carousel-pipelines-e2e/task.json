@@ -1,0 +1,12 @@
+{
+  "id": "story2video-non-carousel-pipelines-e2e",
+  "title": "整体 E2E 测试视频创作除图片轮播外的其他流水线",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "e2e-testing",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-08-09T10:00:00Z",
+  "branch": "codex/story2video-non-carousel-pipelines-e2e"
+}

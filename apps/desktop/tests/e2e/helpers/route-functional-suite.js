@@ -309,11 +309,60 @@ async function exerciseModelProviders(r) {
   await expectIpc(r, 'modelProviderList', '服务商列表调用 IPC');
 }
 
+// 除图片轮播（story2video-compose）外的其他内置流水线（与 electron/services/pipeline-engine.js 内置列表对齐）
+const CAROUSEL_PIPELINE = 'story2video-compose';
+const AUTO_PIPELINES = ['animated-explainer', 'framework-smoke', 'documentary-montage', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'];
+const MEDIA_PIPELINES = ['clip-factory', 'cinematic', 'talking-head', 'localization-dub'];
+const LEGACY_PIPELINES = ['podcast-repurpose'];
+const UNAVAILABLE_PIPELINES = ['screen-demo'];
+const PIPELINE_LABELS = {
+  'animated-explainer': 'AI 讲解视频',
+  'talking-head': '口播视频',
+  cinematic: '电影感短片',
+  animation: '动画视频',
+  'avatar-spokesperson': '数字人口播',
+  'character-animation': '角色动画',
+  'clip-factory': '视频切片工厂',
+  'documentary-montage': '纪录蒙太奇',
+  hybrid: '混合视频',
+  'localization-dub': '本地化配音',
+  'podcast-repurpose': '播客转视频',
+  'framework-smoke': '框架冒烟测试',
+  'screen-demo': '屏幕演示',
+};
+
+async function selectPipelineByName(r, name) {
+  const card = r.page.locator(`.pipeline-card[data-pipeline-id="${name}"]`).first();
+  if (!(await waitForVisible(card, FEATURE_READY_TIMEOUT))) return false;
+  await card.click();
+  return waitForVisible(r.page.locator('.pipeline-detail'), FEATURE_READY_TIMEOUT);
+}
+
+async function orchestratedStartCallsFor(r, method) {
+  return r.page.evaluate((m) => (window.__ipcCalls || [])
+    .filter((c) => c.method === m)
+    .map((c) => (c.args && c.args[0]) || null), method);
+}
+
+async function assertPipelineStarted(r, name, method) {
+  const started = await clickText(r, '启动流水线', { timeout: FEATURE_READY_TIMEOUT });
+  if (!started) return false;
+  // 单一数据源：直接等待 __ipcCalls 中出现「该 method + 该流水线名」的调用记录，
+  // 不依赖 __ipcCallsByMethod 计数与数组两套状态。
+  return waitForPageCondition(r, (expected) => (
+    (window.__ipcCalls || []).some((c) => c.method === expected.method && (c.args && c.args[0]) === expected.name)
+  ), { method, name }, CONDITION_TIMEOUT);
+}
+
 async function exerciseCreate(r) {
   record(r, '渲染引擎状态就绪', await bodyHas(r, '渲染引擎就绪').catch(() => false) || !(await bodyHas(r, '依赖未安装')));
-  const pipelineCard = r.page.locator('.pipeline-card[data-pipeline-id="story2video-compose"]').first();
+  const pipelineCard = r.page.locator(`.pipeline-card[data-pipeline-id="${CAROUSEL_PIPELINE}"]`).first();
   const firstPipelineId = await r.page.locator('.pipeline-card').first().getAttribute('data-pipeline-id').catch(() => null);
-  record(r, '图片轮播流水线优先显示', firstPipelineId === 'story2video-compose' && await pipelineCard.first().innerText().then(text => /图片轮播|image carousel/i.test(text)));
+  record(r, '图片轮播流水线优先显示', firstPipelineId === CAROUSEL_PIPELINE && await pipelineCard.first().innerText().then(text => /图片轮播|image carousel/i.test(text)));
+  const cardCount = await r.page.locator('.pipeline-card').count();
+  record(r, '全部内置流水线卡片渲染', cardCount === 14, { count: cardCount });
+
+  // 图片轮播（本次排除项）：仅保留既有启动路径回归
   if (await pipelineCard.count()) {
     await pipelineCard.click();
     await fillByPlaceholder(r, '输入视频文案', 'E2E 视频创作文案');
@@ -321,7 +370,61 @@ async function exerciseCreate(r) {
     record(r, '启动图片轮播流水线可执行', started);
     if (started) await expectIpc(r, 'pipelineStartOrchestrated', '启动流水线调用 IPC');
   }
-  await r.goto('/create');
+
+  // 除图片轮播外的其他流水线：逐条 选择 → 详情渲染 → 输入 → 启动 → IPC 携带正确流水线名
+  await r.resetToRoute('/create');
+  for (const name of AUTO_PIPELINES) {
+    const detailRendered = await selectPipelineByName(r, name) && await waitForVisible(r.page.locator('.pipeline-detail'));
+    record(r, `${name} 详情渲染`, detailRendered, { label: PIPELINE_LABELS[name] });
+    if (!detailRendered) { await r.resetToRoute('/create'); continue; }
+    record(r, `${name} 标题渲染`, await bodyHas(r, PIPELINE_LABELS[name]));
+    await fillByPlaceholder(r, '输入视频文案', 'E2E 自动化流水线文案');
+    record(r, `${name} 启动携带正确流水线名`, await assertPipelineStarted(r, name, 'pipelineStartOrchestrated'));
+    await r.resetToRoute('/create');
+  }
+
+  for (const name of MEDIA_PIPELINES) {
+    const detailRendered = await selectPipelineByName(r, name) && await waitForVisible(r.page.locator('.pipeline-detail'));
+    record(r, `${name} 详情渲染`, detailRendered, { label: PIPELINE_LABELS[name] });
+    if (!detailRendered) { await r.resetToRoute('/create'); continue; }
+    const videoTab = await clickText(r, '视频素材');
+    record(r, `${name} 视频素材标签可用`, videoTab);
+    if (!videoTab) { await r.resetToRoute('/create'); continue; }
+    const videoInput = r.page.locator('.pipeline-detail input[type="file"][accept^="video"]').first();
+    await videoInput.setInputFiles({ name: 'e2e.mp4', mimeType: 'video/mp4', buffer: Buffer.from('e2e-video') });
+    const imported = await waitForPageCondition(r, () => document.body.textContent.includes('e2e.mp4'), null, CONDITION_TIMEOUT);
+    record(r, `${name} 视频素材导入成功`, imported);
+    if (!imported) { await r.resetToRoute('/create'); continue; }
+    await fillByPlaceholder(r, '口播文案', 'E2E 口播文案');
+    record(r, `${name} 启动携带正确流水线名`, await assertPipelineStarted(r, name, 'pipelineStartOrchestrated'));
+    await r.resetToRoute('/create');
+  }
+
+  for (const name of LEGACY_PIPELINES) {
+    const detailRendered = await selectPipelineByName(r, name) && await waitForVisible(r.page.locator('.pipeline-detail'));
+    record(r, `${name} 详情渲染`, detailRendered, { label: PIPELINE_LABELS[name] });
+    if (!detailRendered) { await r.resetToRoute('/create'); continue; }
+    await fillByPlaceholder(r, '输入视频文案', 'E2E 状态机流水线文案');
+    record(r, `${name} 启动携带正确流水线名`, await assertPipelineStarted(r, name, 'pipelineStart'));
+    await r.resetToRoute('/create');
+  }
+
+  for (const name of UNAVAILABLE_PIPELINES) {
+    const detailRendered = await selectPipelineByName(r, name) && await waitForVisible(r.page.locator('.pipeline-detail'));
+    record(r, `${name} 详情渲染`, detailRendered, { label: PIPELINE_LABELS[name] });
+    if (!detailRendered) { await r.resetToRoute('/create'); continue; }
+    record(r, `${name} 不可用提示显示`, await waitForVisible(r.page.locator('[data-testid="pipeline-unavailable-hint"]')));
+    // 断言共享启动按钮存在且处于禁用态（不允许用 .catch(() => true) 把定位失败当成通过）
+    const startBtn = r.page.locator('[data-testid="start-story2video"]').first();
+    const startBtnExists = await startBtn.count() > 0;
+    const startDisabled = startBtnExists && await startBtn.isDisabled().catch(() => false);
+    record(r, `${name} 启动按钮存在且禁用`, startBtnExists && startDisabled, { exists: startBtnExists, disabled: startDisabled });
+    const orchestratedStarts = await orchestratedStartCallsFor(r, 'pipelineStartOrchestrated');
+    const legacyStarts = await orchestratedStartCallsFor(r, 'pipelineStart');
+    record(r, `${name} 未触发启动 IPC`, !orchestratedStarts.includes(name) && !legacyStarts.includes(name));
+    await r.resetToRoute('/create');
+  }
+
   record(r, '快速渲染标签可切换', await clickText(r, '快速渲染'));
   record(r, '历史记录标签可切换', await clickText(r, '历史记录'));
 }
