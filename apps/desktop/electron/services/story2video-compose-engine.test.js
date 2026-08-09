@@ -449,6 +449,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
   })
 
   it('BGM 路径不可读时降级为无 BGM 继续合成，不整条流水线失败', async () => {
+    if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-bgm-degrade-'))
     const image = path.join(root, 'image.png')
     const audio = path.join(root, 'audio.mp3')
