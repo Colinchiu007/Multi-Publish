@@ -58,12 +58,15 @@
 
         <!-- 阶段进度 -->
         <div v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length" class="stages-timeline" data-testid="story2video-stage-list">
-          <div class="orchestration-progress" data-testid="story2video-orchestration-progress">
-            <div class="progress-bar"><div class="progress-fill" :style="{ width: orchestrationProgressPercent + '%' }"></div></div>
-            <span class="progress-text">{{ orchestrationProgressPercent }}%</span>
-            <span v-if="orchestrationElapsedMs !== null" class="elapsed-text">{{ translateWithLocaleFallback('story2video.elapsed', '已用时 ' + formatDuration(orchestrationElapsedMs), 'Elapsed ' + formatDuration(orchestrationElapsedMs)) }}</span>
+          <!-- 进度头部固定：流水线运行中页面较长时，进度条/已用时/完成摘要不随滚动离开视口 -->
+          <div class="stages-timeline-sticky" data-testid="story2video-stage-sticky-header">
+            <div class="orchestration-progress" data-testid="story2video-orchestration-progress">
+              <div class="progress-bar"><div class="progress-fill" :style="{ width: orchestrationProgressPercent + '%' }"></div></div>
+              <span class="progress-text">{{ orchestrationProgressPercent }}%</span>
+              <span v-if="orchestrationElapsedMs !== null" class="elapsed-text">{{ translateWithLocaleFallback('story2video.elapsed', '已用时 ' + formatDuration(orchestrationElapsedMs), 'Elapsed ' + formatDuration(orchestrationElapsedMs)) }}</span>
+            </div>
+            <div v-if="orchestrationSummary" class="orchestration-summary" data-testid="story2video-orchestration-summary">{{ orchestrationSummary }}</div>
           </div>
-          <div v-if="orchestrationSummary" class="orchestration-summary" data-testid="story2video-orchestration-summary">{{ orchestrationSummary }}</div>
           <div v-for="(stage, i) in (pipelineRunStatus.stages || orchestrationStages)" :key="stage.id || stage.name || i" class="stage-item" :class="stageStateClass(stage, i)" :data-testid="`story2video-stage-${stage.name || i}`">
             <span class="stage-icon">{{ stageStateIcon(stage, i) }}</span>
             <span class="stage-main">
@@ -3072,6 +3075,19 @@ export default {
 
 /* 阶段时间线 */
 .stages-timeline { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; padding: 16px; background: var(--bg); border-radius: 8px; max-width: 100%; overflow-wrap: anywhere; }
+/* 进度头部 sticky：相对 .cohere-main 滚动容器贴顶，不随滚动离开视口；
+   负 margin 抵消 timeline 内边距，保证贴顶时背景完整覆盖（含左右 padding 区）；
+   底部圆角保留，顶部直角避免贴顶时露出下方滚动内容。 */
+.stages-timeline-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: -16px -16px 8px;
+  padding: 12px 16px 8px;
+  background: var(--bg);
+  border-radius: 0 0 8px 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
 .provider-warning-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; font-size: 13px; line-height: 1.5; }
 .stage-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; font-size: 14px; min-width: 0; max-width: 100%; }
 .orchestration-context { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; padding: 12px 16px; background: var(--bg); border-radius: 8px; margin-bottom: 16px; }
