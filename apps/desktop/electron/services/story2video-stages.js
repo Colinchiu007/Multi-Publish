@@ -268,6 +268,18 @@ function hasMeaningfulText(text) {
 }
 
 /**
+ * prompt-engine 校验拒绝（输入过短无法优化）判定。
+ * 方案B 配套（2026-08-09）：app 侧已放行 2 位+数字，但 prompt-engine 的
+ * 最小长度校验仍会拒绝单词输入（如「81」→ 422 Too short），此时应回退原文
+ * 并继续运行，而不是让整条流水线失败。
+ * @param {string} message
+ * @returns {boolean}
+ */
+function isPromptEngineTooShortRejection (message) {
+  return /too short|太短|must be at least|min[_ -]?length|shorter than/i.test(String(message || ''))
+}
+
+/**
  * 净化 LLM 返回的优化提示词：剥离 <think>...</think> 思考块（带推理能力的模型
  * 可能把思考过程直接放进 content），避免思考内容被当作图片提示词。
  * @param {string|null} content
@@ -412,6 +424,26 @@ function registerStory2VideoStages(pipelineEngine) {
             warn: (msg) => pipelineEngine.log.warn('Story2VideoStages', msg),
           })
           if (!validated.ok) {
+            // prompt-engine 校验拒绝（如 Too short）：输入过短无法优化 → 回退原文并继续，
+            // 不因「81」这类单词数字输入让整条流水线失败（方案B 2026-08-09 配套）。
+            if (isPromptEngineTooShortRejection(validated.error)) {
+              const tooShortEntry = {
+                optimized_prompt: promptSeed,
+                providerId: null,
+                model: null,
+                skipped_optimize: true,
+                optimize_note: 'prompt_engine_too_short_use_original',
+              };
+              partialResume[index] = tooShortEntry;
+              if (context && typeof context === 'object') {
+                context.optimize_resume = partialResume;
+                context.optimize_progress = {
+                  done: partialResume.filter(Boolean).length,
+                  total: scenes.length,
+                };
+              }
+              return tooShortEntry;
+            }
             throw new Error('Story2Video ' + validated.error)
           }
           // 剥离思考块后才是最终提示词：带推理能力的模型可能把 <think> 思考过程放进内容，
