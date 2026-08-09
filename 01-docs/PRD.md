@@ -991,9 +991,10 @@ Electron 打包、工作树、PR 或发布状态证据。
 |------|------|
 | 思考块剥离（Adapter 层） | `minimax-llm.js` 必须对 `chatCompletion` 的 `content` 应用 `stripThinkingBlocks`（剥离成对 `<think>...</think>` 与未闭合 `<think>` 至结尾）；`streamChat` 用状态机抑制跨 chunk 思考块；纯思考无答案时返回空 content。工具导出供测试。 |
 | 输出净化（阶段层） | `story2video-stages OPTIMIZE` 对 LLM 返回内容二次净化（`sanitizeOptimizedPrompt`），不依赖具体 adapter；净化后为空 → 视为失败（原 empty prompt 错误）。 |
-| 无实质内容守卫 | `hasMeaningfulText(text)`：去掉空白/标点/符号后为空、或全部为数字（如「12」）→ 跳过 LLM 优化，`optimized_prompt` 用原文，标记 `skipped_optimize: true`，`providerId/model` 为 null；单字中文（如「一」「猫」）仍正常优化。后续「生成图片与旁白」读取 `optimized_prompt` 不受影响。 |
+| 无实质内容守卫 | `hasMeaningfulText(text)`：去掉空白/标点/符号后为空、或**为单个纯数字**（如「1」）→ 跳过 LLM 优化，`optimized_prompt` 用原文，标记 `skipped_optimize: true`，`providerId/model` 为 null；**2 位及以上纯数字（如「81」「1949」，方案B 2026-08-09）与单字中文（如「一」「猫」）视为有意义，正常走 prompt-engine 优化**。后续「生成图片与旁白」读取 `optimized_prompt` 不受影响。 |
+| 过短拒绝回退（方案B 配套） | prompt-engine 最小长度校验拒绝（422 `Too short`）时**回退原文并继续运行**：`optimized_prompt` 用原文、`skipped_optimize: true`、`optimize_note: 'prompt_engine_too_short_use_original'`，不使整条流水线失败；非过短校验拒绝（如非法风格）仍按失败处理。 |
 | 回归测试 | ① `stripThinkingBlocks` 成对/未闭合/纯思考/无思考；② chatCompletion/streamChat 思考块剥离；③ OPTIMIZE 对含 think 的 content 净化；④ 纯数字文案跳过优化用原文（+6 用例）。 |
-| 验收标准 | ① 文案「12」运行流水线，优化阶段不出现 `<think>` 内容、不编造人物场景，图片用原文「12」生成；② 正常文案优化结果不含思考块；③ 真实 provider（如 MiniMax-M2.7/M3）验证成图提示词纯净。 |
+| 验收标准 | ① 文案「1」运行流水线，优化阶段不出现 `<think>` 内容、不编造人物场景，图片用原文「1」生成；② 文案「81」「1949」等 2 位及以上数字正常走 prompt-engine 优化（优化结果不含思考块）；③ 正常文案优化结果不含思考块；④ 真实 provider（如 MiniMax-M2.7/M3）验证成图提示词纯净。 |
 
 #### 7.1.18 历史记录可见性与运行状态合同（2026-08-09）
 
@@ -1058,7 +1059,63 @@ Electron 打包、工作树、PR 或发布状态证据。
 **5. 后续清理候选（R2 已处理项 + 剩余）**
 - ✅ `split.speechRate` 死提交字段（normalizer 硬覆盖为 voice.speed）→ **R2 已移除前端字段与提交**（2026-08-09）。
 - ✅ `concurrency` / `autoAdvance` 前端字段 → **R2 已移除**（concurrency 由契约默认 3 兜底、autoAdvance 由 params 字面量提供）。
-- 剩余候选：Python 后端 YAML `baseWordsPerSecond:3.3` 非语言感知（仅影响绕过 JS 语言表的直接 Python 调用，既有行为）→ 与 JS 语言表对齐时处理；`project-service._safeOptions` 保留 `voicePitch`（读归一化参数，回读安全）→ 治理目标下可保留并注明；B 类参数运营化（枚举/目录/限额转 ops-center，需 pipeline_configs 基础设施）→ 独立立项。
+- ✅ `baseWordsPerSecond` 非语言感知疑虑 → **已核实无桌面缺口**（2026-08-09）：`resolveRuntimeStageOptions`（pipeline-engine.js，函数锚）以 normalizer 的 `stageOptions.split.base_words_per_second`（zh 4.5 / en 2.8 / 其余 3.3）恒覆盖 bundled/YAML 静态默认 3.3；契约测试 `pipeline-story2video-contract.test.js`「语言感知基准语速覆盖静态默认」锁定 zh→4.5 / en→2.8 / auto→3.3（覆盖语义由 zh/en 档承担）。Python YAML 3.3 保留为仅影响绕过 JS 语言表的直接 Python 调用的既有行为说明。
+- 剩余候选：`project-service._safeOptions` 保留 `voicePitch`（读归一化参数，回读安全）→ 治理目标下可保留并注明；B 类参数运营化（枚举/目录/限额转 ops-center，需 pipeline_configs 基础设施）→ 独立立项。
+
+#### 7.1.20 输出分辨率能力开关（4K，运营后台）（2026-08-09）
+
+**背景**：4K（3840×2160）输出在「2x 中间分辨率 zoompan」下会产生 7680×4320（8K）中间画布，
+内存/编码时长爆炸（E2E-PENDING 待办 D 同类，27 场景 run 曾因 4K 中间 30s 超时失败）；
+且图片生成只传 `aspect_ratio`（provider 原生分辨率生成后放大），并非真 4K。因此 4K 作为
+**运营后台能力开关**（默认关闭）：关闭时前端所有流程不出现 4K、引擎 fail-closed 拒绝 4K。
+
+**1. 配置与下发流程**
+
+| 项 | 说明 |
+|----|------|
+| 配置键 | `videoCreation.maxOutputResolution`：`'1080p'`（默认，禁止 4K）\| `'4k'`（开启） |
+| 优先级 | 环境变量 `MAX_OUTPUT_RESOLUTION`（部署/调试覆盖）→ store 运营配置（`store:get-setting`）→ 默认 `1080p` |
+| 写入方 | 运营后台/管理员通过 `storeSetSetting('videoCreation.maxOutputResolution', '4k')` 或启动环境变量开启；前端不提供用户开关 |
+| 读取方 | 主进程容器（compose 引擎构造注入）+ renderer（CreateView mount 时 `storeGetSetting` 读取，失败回退 `1080p`） |
+| 判定语义 | 以**像素面积**为界：`1080p` 档允许 ≤ 1920×1080 面积（含 720×1280 / 1080×1920 / 1080×1440 竖屏），`4k` 档允许 ≤ 3840×2160 面积 |
+
+**2. 数据校验（引擎 fail-closed）**
+
+| 校验 | 规则 |
+|------|------|
+| 能力上限 | `validateResolutionCapability(resolution, maxKey)`：面积 > 上限 → 拒绝；`compose()` 与 `renderSegment()` 入口均校验 |
+| 未知配置值 | 一律按 `1080p`（fail-closed），不因拼写错误放行 4K |
+| 非法分辨率 | 沿用 `parseResolution`（160..7680 钳制 + 像素上限 7680×4320）后进入能力校验 |
+| 错误返回 | `{ code: -1, message: '输出分辨率 {W}x{H} 超出当前允许上限（{MAX}，MAX_OUTPUT_RESOLUTION=4k 或运营配置 videoCreation.maxOutputResolution=4k 可开启 4K）' }` |
+
+**3. 功能逻辑**
+
+| 模块 | 逻辑 |
+|------|------|
+| compose 引擎 | 构造注入 `maxOutputResolution`；`compose()` / `renderSegment()` 入口能力校验；`computeWorkResolution` 长边封顶 3840 且按比例缩放（4K 输出不再产生 8K/方形中间画布） |
+| 前端单点 | `src/story2video/output-resolution.js`：`OUTPUT_RESOLUTION_OPTIONS` 全量 5 档、`getOutputResolutionOptions(maxKey)` 过滤、`normalizeResolution(res, maxKey)` 归一化（超限/非法回退到最高允许档） |
+| CreateView | 两处分辨率 `<select>`（图片轮播「比例与分辨率」+ 普通流水线「输出设置 分辨率」）均渲染 `outputResolutionOptions`；模板应用与「上次选项」恢复经 `normalizeResolution` 归一化 |
+| 历史/模板 | 历史快照或模板含 4K 且开关关闭 → 归一化到 1920×1080，不残留 4K |
+
+**4. 交互逻辑与显示项**
+
+| 开关状态 | 显示项 | 行为 |
+|----------|--------|------|
+| `1080p`（默认） | 分辨率下拉仅 4 档（720×1280 / 1920×1080 / 1080×1920 / 1080×1440），无 3840×2160 | 模板/历史含 4K 自动归一化；提交 4K 被引擎拒绝（提示见上） |
+| `4k` | 下拉含 3840×2160（5 档） | 4K 全链路可用（compose 中间分辨率仍封顶 3840） |
+| 读取失败/未知值 | 按 `1080p` | 前端不出现 4K，引擎拒绝 4K |
+
+**5. 配套修复（同次交付）**
+
+| 项 | 说明 |
+|----|------|
+| 片段编码超时 | `computeSegmentEncodeTimeoutMs` 按「时长×帧率」估算（最低 30s / 上限 5min），替代固定 30s，避免 4K 中间 zoompan 慢速编码被误杀 |
+| 编码降档重试 | `_createSegment` 失败时工作分辨率逐级降档（2x → 1.5x → 1x），全部失败才抛错 |
+| 提示词优化回退 | prompt-engine 剥离 `<think>` 推理块，仅返回推理时回退原文（详见 7.1.17；配套 prompt-engine 提交 036dc7d / 1cf449c / 61ad3b2 / 3988d54） |
+
+**6. 验收标准**
+
+① 默认（无配置）：前端两处分辨率下拉无 4K、页面无「3840×2160 / 4K」文案；② 模板/历史含 4K 时打开归一化 1920×1080；③ 直接提交 4K（绕过前端）被引擎拒绝并返回明确提示；④ `MAX_OUTPUT_RESOLUTION=4k` 或 store 配置 `4k` 后，前端出现 4K 选项且引擎放行；⑤ compose 4K 输出中间分辨率封顶 3840（无 8K 画布）；⑥ 全部回归：engine 82 / CreateView 108 / output-resolution 8 / 容器 27 测试通过。
 
 ### 7.2 上传图片快速渲染（独立路径）
 

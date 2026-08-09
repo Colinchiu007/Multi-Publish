@@ -487,6 +487,7 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
   `T = round(effectDuration × fps)`，进度表达式 `min(1, on/T)`；效果是每个场景动效在末帧恰好完成——
   短场景不再“动效没做完被切走”，长场景不再“动效提前定格”。
 - zoompan 亚像素采样会造成画面跳动：输入先上采样到 2× 工作分辨率，在 2× 画布执行 zoompan 后再下采样回目标分辨率。
+- **工作分辨率上限（2026-08-09）**：中间分辨率长边封顶 3840 且按比例缩放（`computeWorkResolution`）——4K 输出按 2x 原本会产生 7680×4320（8K）中间画布，内存/编码时长爆炸；封顶后 4K 输出中间仍为 3840×2160，1080p 输出中间保持 3840×2160 不变。4K 输出本身受运营开关 `videoCreation.maxOutputResolution` 控制（详见 PRD.md 7.1.20）。
 
 #### 场景时长模式（三层模型，已确认 2026-08-08）
 
@@ -631,7 +632,7 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 | 预设 | 分辨率 | 适用平台 |
 |------|--------|---------|
 | `youtube-landscape` | 1920×1080 | YouTube、B站 |
-| `youtube-4k` | 3840×2160 | YouTube 4K |
+| `youtube-4k` | 3840×2160 | YouTube 4K（受运营开关 `videoCreation.maxOutputResolution=4k` 控制；关闭时该模板的分辨率归一化为 1920×1080，见 PRD.md 7.1.20） |
 | `youtube-shorts` | 1080×1920 | YouTube Shorts |
 | `tiktok` | 1080×1920 | 抖音/TikTok |
 | `instagram-reels` | 1080×1920 | Instagram Reels |

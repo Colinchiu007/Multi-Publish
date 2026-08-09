@@ -6021,6 +6021,17 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **表象 3**：文案「11」优化后出现 "I cannot generate the image prompt because the visual description of the scene is missing..."。
 - **根因 3**：LLM 对缺失描述场景返回拒绝文本，旧代码把拒绝文本当提示词（纯数字守卫在新版本已拦截；旧版本未拦截）。
 - **教训**：①「任务存在但 UI 入口默认不可见」和「任务不存在」是两类问题，排查先确认数据在哪个数据源（pipeline history vs 渲染记录）；② 前端更新实体后必须同步刷新其派生展示（图片 URL）；③ LLM 的输出除思考块外还可能是拒绝文本，凡「把 content 当产物」都要做内容合法性校验（守卫 + 拒绝检测 + 原文兜底）。
+## 图片轮播 compose 子进度条复盘 (2026-08-09, PR #420 ccda45d3)
+
+- **需求**：compose（视频合成）阶段增加子百分比进度，与 optimize（场景 x/y）、generate_assets（图片/旁白 x/y）对称。
+- **实现**：引擎 `compose(assetManifest, options, onProgress)` 新增可选回调（兼容 `options.onProgress`），按权重发射 `{phase, percent, segmentsDone, segmentsTotal, message?}`（preflight 0 → validated 3 → 逐片段 3+72k/N → concat 87 → narration 89 → bgm 92 → webm 95 → verify 98 → done 100）；**done/100 仅成功 return 前发射，7 条失败路径 percent 冻结 <100**；执行器字段级 fail-closed 校验后写 `context.compose_progress`；前端 mini bar + 「正在合成片段 k/N · p%」/「视频合成 p%」。
+- **教训 1（模块加载副作用）**：`stage-executor` 顶层 require `story2video-compose-engine` 会触发其模块级 `findFfmpeg()/findFfprobe()`，在 `container.setup.test.js`（mock 了无 `win32/posix` 的 path 模块）下崩溃。解决：**进度校验处惰性 require**；凡顶层有 findFfmpeg 等副作用的模块，被其他核心模块 require 时务必惰性化。
+- **教训 2（并发分支合并）**：交付分支基于的 origin/main 在 PR 期间被并发任务 PR #419 推进（同文件多处改动）。合并时仅 2 文件冲突（CHANGELOG 双条目并存、stage-executor 双 import 并存），自动合并其余。**合并后必须重跑受影响套件 + 惰性 require 回归（container.setup）**。
+- **教训 3（数值校验穿透）**：`Number(update.percent)` 会接受 `null→0 / []→0 / true→1 / '39'→39`，IPC 边界必须用 `typeof === 'number'` 严格校验；「percent 取整 ≥100 仅限 done 阶段」作为不变量收进执行器校验，杜绝潜伏假成功信号（claude W1）。
+- **教训 4（antigravity 缺失降级）**：本机 `agy` CLI 未安装 → antigravity 后端不可用；按机制硬化规则降级为 Claude + 主代理独立分析/审查，并在 change 内记录恢复条件。
+- **教训 5（进度语义）**：段进度以「段」为单位非帧级实时是 v1 有意取舍（ffmpeg `-progress pipe:1` 段内实时记 PRD 后续演进）；断点续跑必须重置旧 `compose_progress`，否则残留上次冻结值（执行器开头 `context.compose_progress = undefined`）。
+
+
 
 ## 图片轮播 compose 子进度条复盘 (2026-08-09, PR #420 ccda45d3)
 
@@ -6046,3 +6057,26 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **模式固化**：死字段移除四步——① grep 全仓消费点并区分「前端读取 vs normalizer/下游读归一化值」；② 确认 normalizer 兜底（硬覆盖 / firstDefined 默认 / 参数字面量）等价；③ UE 契约用「s2vConfig 声明块精确匹配」（正则截取默认对象，按 `key:` 断言，避免误伤注释）；④ 快照白名单天然兼容旧键。
 - **候选线索**：normalizer 中「单一来源派生」字段（如 speechRate=voice.speed）一旦出现在前端提交构造即为死提交；排查思路 = 找「提交键 ∈ normalizer 硬覆盖集合」的交集。
 - **剩余候选**：Python YAML baseWordsPerSecond 非语言感知；project-service._safeOptions voicePitch 残留（回读安全）；B 类运营化（ops-center pipeline_configs）。
+
+## 图片轮播参数治理 R3 复盘 (2026-08-09)
+
+- **调查方法**：候选清理项「Python YAML baseWordsPerSecond 非语言感知」经数据流追踪（renderer 提交 → normalizeStory2VideoTextParams 语言表 → resolveRuntimeStageOptions 覆盖 stageDef 静态默认 → SPLIT executor 消费）确认**无桌面缺口**——语言感知值恒胜出，静态 3.3 仅影响绕过 JS 语言表的直接 Python 调用。
+- **回归护栏价值**：对「已核实为既存正确行为」的契约补端到端测试（zh→4.5/en→2.8/auto→3.3），锁定 resolveRuntimeStageOptions 合并语义，防未来改动静默破坏；比直接改 Python YAML（跨语言、低收益、易漂移）更优。
+- **决策原则**：候选项先调查「是否有真实缺口」再决定改码；无缺口时优先补护栏 + 文档核实，而非为改而改。
+
+## electron-tests 迁移 GitHub 官方 runner 复盘 (2026-08-09)
+
+- **背景**：electron-tests 原跑在阿里云 ECS 自托管 runner（`[self-hosted, linux, x64]`），单机排队（PR 常 queued 30-40 分钟）且与生产 Logto/业务 API 抢资源。
+- **迁移决策**：gui-test.yml 早已在 GitHub ubuntu-latest 上用 xvfb-run 跑通 Electron GUI 门禁——证明 GitHub 官方 runner 可承载 Electron；自托管的前提（需 xvfb/预配置）已过时。
+- **迁移要点（一次性适配）**：① `runs-on: ubuntu-latest`；② RHEL `dnf`→Ubuntu `apt-get`（xvfb + build-essential + python3）；③ Electron ABI 原生模块必须 `npx @electron/rebuild -f -w better-sqlite3`（gui-test 既有步骤，electron-ci 原来自托管环境缺失该步骤）；④ checksum pin / npmmirror 镜像 / `SKIP_NATIVE_MEDIA_TOOL_TESTS=1` / 单 worker vitest 保留；⑤ timeout 30→45。
+- **职责边界**：本 job = Linux 平台确定性回归（与 Quality Gate windows 全 workspace 单测跨平台互补）；Electron GUI 深度门禁归 gui-test；避免三处重复跑全量。
+- **C 验证方式**：迁移 PR 自身的 CI（electron-tests on ubuntu-latest）即为验收；ECS runner 保留配置但不再必需。
+- **可复用判断法**：迁移 CI 前先问「目标 runner 是否已有同类成功先例」（gui-test 的 xvfb Electron 即先例），有则风险大降；再核对系统依赖/原生模块/网络三项适配点。
+
+## Quality Gate 并行化复盘 (2026-08-09)
+
+- **实测驱动**：取一次通过 run 的 step 耗时（GitHub API jobs.steps.started_at/completed_at）：Gate 4 单测 636s + Gate 5 coverage 588s = 82% 总时长 1498s → 并行拆分关键路径从 25min → ~12min。
+- **拆分设计**：7 个并行 job（static/unit-tests/coverage/visual/e2e/autonomous/gate-result），全部 windows-latest；npm ci 每 job 独立（job 隔离 VM）；coverage 独立 job 避免与单测争资源（保留 vitest 单 worker 串行契约）。
+- **触发去重**：`on` 去掉 `push: branches-ignore: [main]`（与 pull_request 同 head 双跑），保留 pull_request + workflow_dispatch → 每 head CI 分钟约减半。
+- **契约测试耦合教训**：workflow 结构被多层契约测试锁定——.github/scripts/workflow-contract.test.js（Gate 4/7/8/9 步骤名+邻接注释正则）与 apps/desktop/tests/gui-ci-exit-contract.test.js（jobs.gate.steps、Gate 9 退出码模式）。拆分时必须同步：邻接锚点从 `# --- Gate N` 注释改为同 job 的 Upload 步骤；单 job 引用改跨 job 汇总（Object.values(jobs).flatMap）。
+- **取舍**：并行总分钟略升（6×npm ci + 各 gate ≈30min vs 25min），但墙钟减半 + 失败隔离（单 gate 失败不阻断其余）；触发去重后每 head 净降 ~40%。

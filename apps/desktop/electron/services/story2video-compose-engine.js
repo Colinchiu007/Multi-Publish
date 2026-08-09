@@ -190,6 +190,73 @@ function buildScaleFilter (width, height) {
     'pad=' + safeWidth + ':' + safeHeight + ':(ow-iw)/2:(oh-ih)/2:color=black'
 }
 
+/**
+ * 片段编码超时（ms）：按「时长 × 帧率」估算编码工作量，最低 30s、上限 5min。
+ * 抖动修复用 2x 中间分辨率 zoompan（1080p 输出 → 3840x2160 画布），
+ * 本机编码速度约 10-20fps，20s 片段需要 40s+；固定 30s 超时会把慢速编码误杀
+ * （E2E-PENDING 待办 D 同类资源问题：27 场景 run 在第 13 段失败）。
+ * @param {number|string|undefined|null} effectDuration 片段有效时长（秒）
+ * @param {number|string|undefined|null} fps 帧率
+ * @returns {number} 超时毫秒数
+ */
+/**
+ * 输出分辨率能力上限：'1080p'（默认，禁止 4K）| '4k'（允许 3840x2160）。
+ * 以像素面积判定（1080x1920 竖屏与 1920x1080 横屏同级，均属于 1080p 档）。
+ * 由运营配置 videoCreation.maxOutputResolution 或环境变量 MAX_OUTPUT_RESOLUTION 决定。
+ */
+function resolveMaxOutputDimensions (maxKey) {
+  return maxKey === '4k'
+    ? { key: '4k', width: 3840, height: 2160 }
+    : { key: '1080p', width: 1920, height: 1080 }
+}
+
+/**
+ * 校验输出分辨率是否超出能力上限（fail-closed）。
+ * @param {string|undefined|null} resolutionValue - 如 '3840x2160'
+ * @param {string} maxKey - '1080p' | '4k'
+ * @returns {string|null} 超限时返回错误文案，否则 null
+ */
+function validateResolutionCapability (resolutionValue, maxKey) {
+  const max = resolveMaxOutputDimensions(maxKey)
+  const parsed = parseResolution(resolutionValue)
+  if (parsed && parsed.width * parsed.height > max.width * max.height) {
+    return '输出分辨率 ' + parsed.width + 'x' + parsed.height +
+      ' 超出当前允许上限（' + max.width + 'x' + max.height +
+      '，MAX_OUTPUT_RESOLUTION=4k 或运营配置 videoCreation.maxOutputResolution=4k 可开启 4K）'
+  }
+  return null
+}
+
+/**
+ * zoompan 工作分辨率 = 输出 × workScale，长边封顶 3840（按比例缩放，保持宽高比）。
+ * 抖动修复依赖 2x 上采样，但 4K 输出若按 2x 会生成 7680×4320（8K）中间画布，
+ * 内存/编码时长爆炸（E2E-PENDING 待办 D 同类）；中间分辨率一律封顶 3840。
+ * @param {number|string} width 输出宽
+ * @param {number|string} height 输出高
+ * @param {number} [workScale=2] 工作倍率
+ * @returns {{width: number, height: number}}
+ */
+function computeWorkResolution (width, height, workScale) {
+  const scale = Number.isFinite(Number(workScale)) && Number(workScale) > 0 ? Number(workScale) : 2
+  const cap = 3840
+  let w = Math.round(clampNumber(width, 160, 4096) * scale)
+  let h = Math.round(clampNumber(height, 160, 4096) * scale)
+  if (Math.max(w, h) > cap) {
+    const factor = cap / Math.max(w, h)
+    w = Math.round(w * factor)
+    h = Math.round(h * factor)
+  }
+  return { width: w, height: h }
+}
+
+function computeSegmentEncodeTimeoutMs (effectDuration, fps) {
+  const seconds = Math.max(0.1, Number(effectDuration) || 3)
+  const frameRate = clampNumber(fps, 1, 120, 30)
+  // 假设最低编码速度 10fps（4K zoompan 慢速场景），预留 20s 缓冲
+  const estimatedMs = Math.ceil((seconds * frameRate) / 10) * 1000
+  return Math.max(30000, Math.min(300000, estimatedMs + 20000))
+}
+
 function normalizeComposeScenes (assetManifest) {
   if (!assetManifest || typeof assetManifest !== 'object') return []
   const sentences = Array.isArray(assetManifest.sentences) ? assetManifest.sentences : []
@@ -421,6 +488,8 @@ class Story2VideoComposeEngine {
     this.maxAudioDurationSeconds = positiveLimit(opts.maxAudioDurationSeconds, DEFAULT_MAX_AUDIO_DURATION_SECONDS)
     this.maxSegmentDurationSeconds = positiveLimit(opts.maxSegmentDurationSeconds, DEFAULT_MAX_SEGMENT_DURATION_SECONDS)
     this.maxOutputPixels = positiveLimit(opts.maxOutputPixels, DEFAULT_MAX_OUTPUT_PIXELS)
+    // 输出分辨率能力开关：'1080p'（默认，禁止 4K）| '4k'。fail-closed——未知值一律按 1080p。
+    this.maxOutputResolution = opts.maxOutputResolution === '4k' ? '4k' : '1080p'
     this._segmentSeq = 0
   }
 
@@ -459,6 +528,9 @@ class Story2VideoComposeEngine {
 
     const resolutionError = validateResolution(options?.resolution, this.maxOutputPixels)
     if (resolutionError) return { code: -1, message: resolutionError }
+    // 运营开关 fail-closed：未开启 4K 时拒绝 4K 及以上输出分辨率
+    const capabilityError = validateResolutionCapability(options?.resolution, this.maxOutputResolution)
+    if (capabilityError) return { code: -1, message: capabilityError }
 
     const requestedBgmPath = options?.bgmPath || assetManifest.bgmPath || assetManifest.bgm?.path
     let totalInputBytes = 0
@@ -873,6 +945,9 @@ class Story2VideoComposeEngine {
     if (!scene || typeof scene !== 'object' || typeof destinationPath !== 'string' || !path.isAbsolute(destinationPath)) {
       return { code: -1, message: 'Invalid segment render request' }
     }
+    // 与 compose() 同能力守卫：未开启 4K 时拒绝 4K 分段渲染
+    const capabilityError = validateResolutionCapability(options.resolution, this.maxOutputResolution)
+    if (capabilityError) return { code: -1, message: capabilityError }
     const imagePath = resolveReadableMediaFile(scene.imagePath, {
       kind: 'image', allowedRoots: this.allowedMediaRoots, maxBytes: this.maxInputFileBytes,
     })
@@ -1045,10 +1120,34 @@ class Story2VideoComposeEngine {
   }
 
   /**
-   * 创建单个视频片段（图片 + 音频 + 可选字幕）
+   * 创建单个视频片段（图片 + 音频 + 可选字幕）。
+   * 抖动修复默认以 2x 工作分辨率执行 zoompan；编码失败（超时/资源受限）时
+   * 逐级降档重试 2x → 1.5x → 1x，全部失败才抛错，避免单段失败拖垮整条流水线。
    * @private
    */
   async _createSegment (imagePath, audioPath, outputPath, opts) {
+    const workScales = [2, 1.5, 1]
+    let lastError = null
+    for (const workScale of workScales) {
+      try {
+        await this._encodeSegmentOnce(imagePath, audioPath, outputPath, { ...opts, workScale })
+        return
+      } catch (e) {
+        lastError = e
+        this.log.warn(
+          'Story2VideoCompose',
+          'Segment encode failed at workScale=' + workScale + ': ' + e.message + '；降档重试',
+        )
+      }
+    }
+    throw lastError
+  }
+
+  /**
+   * 单次片段编码（指定工作分辨率倍率）。失败由 _createSegment 的降档循环处理。
+   * @private
+   */
+  async _encodeSegmentOnce (imagePath, audioPath, outputPath, opts) {
     const args = ['-y']
 
     // min-duration 静音补齐：目标时长由调用方在“真实探测到音频且补齐目标严格大于音频时长”时计算并传入 padTo。
@@ -1076,10 +1175,10 @@ class Story2VideoComposeEngine {
     // 在 2x 画布上执行 zoompan（s=2x 尺寸），再下采样回目标分辨率，帧间运动平滑。
     const filters = []
     if (imageEffect) {
-      const workWidth = clampNumber(opts.width, 160, 4096) * 2
-      const workHeight = clampNumber(opts.height, 160, 4096) * 2
-      filters.push(buildScaleFilter(workWidth, workHeight))
-      filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, opts.effectDuration, frameRounding))
+      // 工作分辨率封顶 3840（computeWorkResolution），避免 4K 输出产生 8K 中间画布
+      const work = computeWorkResolution(opts.width, opts.height, opts.workScale)
+      filters.push(buildScaleFilter(work.width, work.height))
+      filters.push(buildImageEffectFilter(opts.imageEffect, work.width, work.height, opts.fps, opts.effectDuration, frameRounding))
       filters.push(buildScaleFilter(opts.width, opts.height))
     } else {
       filters.push(buildScaleFilter(opts.width, opts.height))
@@ -1129,7 +1228,9 @@ class Story2VideoComposeEngine {
     // 输出
     args.push(outputPath)
 
-    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: 30000, maxBuffer: 1024 * 1024 })
+    // 编码超时按时长×帧率估算（最低 30s），避免 4K zoompan 慢速编码被固定 30s 误杀
+    const encodeTimeout = computeSegmentEncodeTimeoutMs(opts.effectDuration, opts.fps)
+    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: encodeTimeout, maxBuffer: 1024 * 1024 })
     if (!hasUsableFile(outputPath)) {
       throw new Error('ffmpeg did not produce output: ' + (stderr || '').slice(-200))
     }
@@ -1328,6 +1429,10 @@ module.exports = {
   buildSubtitleFilter,
   buildWatermarkFilter,
   buildScaleFilter,
+  computeSegmentEncodeTimeoutMs,
+  resolveMaxOutputDimensions,
+  validateResolutionCapability,
+  computeWorkResolution,
   parseResolution,
   resolveCjkFont,
   escapeFontFilePath,

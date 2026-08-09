@@ -20,6 +20,10 @@ const {
   buildSubtitleFilter,
   buildWatermarkFilter,
   buildScaleFilter,
+  computeSegmentEncodeTimeoutMs,
+  resolveMaxOutputDimensions,
+  validateResolutionCapability,
+  computeWorkResolution,
   parseResolution,
   resolveCjkFont,
   escapeFontFilePath,
@@ -1357,5 +1361,156 @@ describe('_concatSegments 分块合成（25+ 场景防单命令输入过多）',
 
     expect(plainConcat).toHaveBeenCalledTimes(1)
     expect(xfadeMerge).not.toHaveBeenCalled()
+  })
+})
+
+describe('computeSegmentEncodeTimeoutMs — 片段编码超时按时长估算', () => {
+  it('短片段（3s@30fps）不低于 30s 下限', () => {
+    expect(computeSegmentEncodeTimeoutMs(3, 30)).toBe(30000)
+  })
+
+  it('20.79s@30fps（4K zoompan 慢速场景）放宽到 ~83s，避免固定 30s 误杀', () => {
+    // ceil(20.79*30/10)*1000 + 20000 = 63000 + 20000
+    expect(computeSegmentEncodeTimeoutMs(20.79, 30)).toBe(83000)
+  })
+
+  it('超长片段封顶 5min', () => {
+    expect(computeSegmentEncodeTimeoutMs(600, 60)).toBe(300000)
+  })
+
+  it('缺省时长/帧率使用安全默认值且不低于下限', () => {
+    expect(computeSegmentEncodeTimeoutMs(null, undefined)).toBe(30000)
+    expect(computeSegmentEncodeTimeoutMs(undefined, null)).toBe(30000)
+  })
+})
+
+describe('Story2VideoComposeEngine._createSegment — 编码失败降档重试', () => {
+  function makeEngine () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-ladder-'))
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    return { engine, root }
+  }
+
+  it('2x 失败 → 1.5x 失败 → 1x 成功，最终返回且 workScale 逐级降档', async () => {
+    const { engine, root } = makeEngine()
+    const encodeOnce = vi.fn()
+      .mockRejectedValueOnce(new Error('boom at 2x'))
+      .mockRejectedValueOnce(new Error('boom at 1.5x'))
+      .mockResolvedValueOnce(undefined)
+    engine._encodeSegmentOnce = encodeOnce
+
+    await engine._createSegment('img.jpg', 'aud.mp3', path.join(root, 'seg.mp4'), {
+      width: 1920, height: 1080, fps: 30, effectDuration: 20, imageEffect: 'zoom-in',
+    })
+
+    expect(encodeOnce).toHaveBeenCalledTimes(3)
+    expect(encodeOnce.mock.calls[0][3].workScale).toBe(2)
+    expect(encodeOnce.mock.calls[1][3].workScale).toBe(1.5)
+    expect(encodeOnce.mock.calls[2][3].workScale).toBe(1)
+  })
+
+  it('全部档位失败时抛出最后一次错误', async () => {
+    const { engine, root } = makeEngine()
+    const encodeOnce = vi.fn().mockRejectedValue(new Error('still failing'))
+    engine._encodeSegmentOnce = encodeOnce
+
+    await expect(
+      engine._createSegment('img.jpg', 'aud.mp3', path.join(root, 'seg.mp4'), {
+        width: 1920, height: 1080, fps: 30, effectDuration: 5, imageEffect: 'pan-left',
+      }),
+    ).rejects.toThrow('still failing')
+    expect(encodeOnce).toHaveBeenCalledTimes(3)
+  })
+
+  it('无动效片段不降档（单次成功）', async () => {
+    const { engine, root } = makeEngine()
+    const encodeOnce = vi.fn().mockResolvedValue(undefined)
+    engine._encodeSegmentOnce = encodeOnce
+
+    await engine._createSegment('img.jpg', 'aud.mp3', path.join(root, 'seg.mp4'), {
+      width: 1920, height: 1080, fps: 30, effectDuration: 5, imageEffect: 'none',
+    })
+    expect(encodeOnce).toHaveBeenCalledTimes(1)
+    expect(encodeOnce.mock.calls[0][3].workScale).toBe(2)
+  })
+})
+
+describe('4K 能力开关（maxOutputResolution）', () => {
+  it('resolveMaxOutputDimensions：默认 1080p，4k 允许 3840x2160', () => {
+    expect(resolveMaxOutputDimensions()).toEqual({ key: '1080p', width: 1920, height: 1080 })
+    expect(resolveMaxOutputDimensions('4k')).toEqual({ key: '4k', width: 3840, height: 2160 })
+    expect(resolveMaxOutputDimensions('whatever')).toEqual({ key: '1080p', width: 1920, height: 1080 })
+  })
+
+  it('computeWorkResolution：长边封顶 3840 且保持宽高比（4K 输出不再产生 8K/方形中间画布）', () => {
+    expect(computeWorkResolution(1920, 1080, 2)).toEqual({ width: 3840, height: 2160 })
+    expect(computeWorkResolution(3840, 2160, 2)).toEqual({ width: 3840, height: 2160 })
+    expect(computeWorkResolution(3840, 2160, 1.5)).toEqual({ width: 3840, height: 2160 })
+    expect(computeWorkResolution(720, 1280, 2)).toEqual({ width: 1440, height: 2560 })
+    // 竖屏 4K 输出同样按长边封顶并保持 9:16
+    expect(computeWorkResolution(2160, 3840, 2)).toEqual({ width: 2160, height: 3840 })
+  })
+
+  it('validateResolutionCapability：1080p 档拒绝 4K，1080p 档内竖屏/横屏放行，4k 档放行 4K', () => {
+    expect(validateResolutionCapability('3840x2160', '1080p')).toMatch(/超出当前允许上限/)
+    expect(validateResolutionCapability('1920x1080', '1080p')).toBeNull()
+    expect(validateResolutionCapability('1080x1920', '1080p')).toBeNull()
+    expect(validateResolutionCapability('3840x2160', '4k')).toBeNull()
+  })
+
+  it('compose 入口 fail-closed：默认（1080p）拒绝 4K 输出', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-4k-gate-'))
+    try {
+      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      const result = await engine.compose(
+        { scenes: [{ imagePath: 'a.png', audioPath: 'a.mp3' }] },
+        { resolution: '3840x2160' },
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/超出当前允许上限|4K/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('compose 入口：4k 档放行 4K（不再被能力校验拦截）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-4k-open-'))
+    try {
+      const engine = new Story2VideoComposeEngine({
+        outputDir: root,
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        maxOutputResolution: '4k',
+      })
+      const result = await engine.compose(
+        { scenes: [{ imagePath: 'a.png', audioPath: 'a.mp3' }] },
+        { resolution: '3840x2160' },
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).not.toMatch(/超出当前允许上限/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('renderSegment：默认 1080p 拒绝 4K 分段渲染', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-4k-seg-'))
+    try {
+      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      const result = await engine.renderSegment(
+        { imagePath: 'a.png', audioPath: 'a.mp3' },
+        { resolution: '3840x2160' },
+        path.join(root, 'seg.mp4'),
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/超出当前允许上限|4K/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 })
