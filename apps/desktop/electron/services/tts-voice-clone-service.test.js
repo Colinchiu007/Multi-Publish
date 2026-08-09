@@ -1178,4 +1178,89 @@ describe("listClones — MiniMax 克隆音色 voice_id 合规性", () => {
     expect(voice).toBeDefined();
     expect(voice.invalid).not.toBe(true);
   });
+
+  it("多模态模型（minimax-multimodal）声明 tts 能力时可添加克隆音色（回归 VOICE_CLONE_MODEL_MISMATCH）", async () => {
+    const samplePath = path.join(mmSandbox, "mm-multimodal.wav");
+    await nodeFs.promises.writeFile(samplePath, Buffer.from("RIFF-mm-multimodal-audio"));
+    const multimodalManager = {
+      getProvider: vi.fn(() => ({
+        id: "minimax-multimodal",
+        category: "multimodal",
+        capabilities: ["llm", "tts", "image", "video"],
+        capability_models: { llm: "MiniMax-M2.7", tts: "speech-2.8-turbo", image: "image-01", video: "MiniMax-Hailuo-2.3" },
+        models: ["speech-2.8-turbo", "image-01", "MiniMax-Hailuo-2.3", "MiniMax-M2.7"],
+      })),
+      callAdapter: vi.fn(async () => ({ code: 0, data: { voiceId: "MiniMaxVoice_mm123", name: "克隆音色" } })),
+    };
+    const multimodalService = new TtsVoiceCloneService({
+      store: mmStore,
+      modelProviderManager: multimodalManager,
+      userDataPath: mmUserData,
+      randomUUID: () => "clone-stage-mm-multi",
+      createSelectionToken: () => "selection-mm-multi",
+      probeDuration: vi.fn(async () => 12.5),
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+    });
+
+    const selection = await multimodalService.createSampleSelection(
+      { providerId: "minimax-multimodal", model: "speech-2.8-turbo" },
+      [samplePath],
+      SENDER_KEY,
+    );
+    expect(selection.code).toBe(0);
+    const added = await multimodalService.addCloneFromSelection(
+      {
+        providerId: "minimax-multimodal",
+        model: "speech-2.8-turbo",
+        name: "克隆音色",
+        selectionId: selection.data.selectionId,
+        consent: true,
+      },
+      SENDER_KEY,
+    );
+    expect(added.code).toBe(0);
+    expect(multimodalManager.callAdapter).toHaveBeenCalledWith("minimax-multimodal", "cloneVoice", expect.any(Object));
+  });
+
+  it("未声明 tts 能力的多模态模型添加克隆被拒（VOICE_CLONE_MODEL_MISMATCH）", async () => {
+    const samplePath = path.join(mmSandbox, "mm-no-tts.wav");
+    await nodeFs.promises.writeFile(samplePath, Buffer.from("RIFF-mm-no-tts-audio"));
+    const noTtsManager = {
+      getProvider: vi.fn(() => ({
+        id: "minimax-multimodal",
+        category: "multimodal",
+        capabilities: ["image"],
+        models: ["image-01"],
+      })),
+      callAdapter: vi.fn(async () => ({ code: 0, data: { voiceId: "x", name: "x" } })),
+    };
+    const noTtsService = new TtsVoiceCloneService({
+      store: mmStore,
+      modelProviderManager: noTtsManager,
+      userDataPath: mmUserData,
+      randomUUID: () => "clone-stage-mm-notts",
+      createSelectionToken: () => "selection-mm-notts",
+      probeDuration: vi.fn(async () => 12.5),
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+    });
+
+    const selection = await noTtsService.createSampleSelection(
+      { providerId: "minimax-multimodal", model: "speech-2.8-turbo" },
+      [samplePath],
+      SENDER_KEY,
+    );
+    expect(selection.code).toBe(0);
+    const added = await noTtsService.addCloneFromSelection(
+      {
+        providerId: "minimax-multimodal",
+        model: "speech-2.8-turbo",
+        name: "克隆音色",
+        selectionId: selection.data.selectionId,
+        consent: true,
+      },
+      SENDER_KEY,
+    );
+    expect(added).toMatchObject({ code: -1, message: "VOICE_CLONE_MODEL_MISMATCH" });
+    expect(noTtsManager.callAdapter).not.toHaveBeenCalled();
+  });
 })
