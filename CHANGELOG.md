@@ -73,6 +73,12 @@
 - **B 职责精简**：工作流头注释明确 Linux 平台确定性回归边界（与 Quality Gate windows 互补，Electron GUI 深度门禁归 gui-test）。
 - **C 验证**：本 PR 自身 CI 即迁移验收；ECS runner 保留配置但不再必需（可移除）。
 
+## [未发布] CI：Quality Gate 并行拆分 + 触发去重（2026-08-09）
+
+- 并行化：quality-gate.yml 拆分为 static/unit-tests/coverage/visual/e2e/autonomous/gate-result 7 个 job（实测 Gate 4 单测 636s + Gate 5 coverage 588s 占 82% 总时长）；关键路径 25min→~12min；失败隔离（单 gate 失败不阻断其余）。
+- 触发去重：on 仅保留 pull_request + workflow_dispatch（移除 push 同 head 双跑），每 head CI 分钟约减半。
+- 契约测试同步：workflow-contract.test.js（Gate 7/8 邻接锚点改同 job Upload 步骤）、gui-ci-exit-contract.test.js（jobs.gate.steps → 跨 job 汇总）；保留 Gate 4 watchdog、退出码契约、autonomous-loop 引用。
+
 ## 维护与归档（2026-08-08）
 
 - 归档 Story2Video 场景时长三层模型 CCG 任务审计轨迹（`.ccg/tasks/story2video-scene-duration-three-layer` → `archive/2026-08/`）：

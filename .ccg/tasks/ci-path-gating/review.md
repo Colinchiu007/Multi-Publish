@@ -32,3 +32,9 @@
 - **并发合入发现**：main 推进 16 提交，其中 #433 ci-electron-github-runner 已将 electron-ci 迁移至
   GitHub ubuntu-latest（消除单机排队）。合并 origin/main（b19e435f）无冲突，paths-ignore 与 #433 改动共存，
   合并后本地验证 16/16 通过。
+
+## 最终 CI 结论（合并 main 后提交 6df3eb4b，全部 success）
+- quality-gate (push) ✅ / quality-gate (PR) ✅ / Electron CI ✅（ubuntu-latest）
+- Build & Release ✅（win+ubuntu）/ Visual Tests ✅
+- Doc Sync Gate：按设计跳过（paths-ignore 覆盖 .ccg/**）
+- 本地：YAML 全量解析 ✅ / 契约测试 16/16 ✅ / 白名单一致性 ✅

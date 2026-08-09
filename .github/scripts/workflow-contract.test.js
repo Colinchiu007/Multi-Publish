@@ -25,7 +25,8 @@ test('视觉工作流使用与基线一致的 Windows 渲染环境', () => {
 
 test('Quality Gate Gate 7 与视觉工作流使用一致的渲染参数', () => {
   const workflow = fs.readFileSync(qualityGatePath, 'utf8');
-  const gate7 = workflow.match(/- name: "Gate 7 - Visual regression"[\s\S]*?(?=\n      # --- Gate 8)/)?.[0];
+  // 2026-08-09 并行化后 Gate 7 位于 visual job，其后是同 job 的 upload 步骤（原邻接 # --- Gate 8 注释已随拆分移除）
+  const gate7 = workflow.match(/- name: "Gate 7 - Visual regression"[\s\S]*?(?=\n\s*- name: "Upload GUI quality artifacts")/)?.[0];
 
   assert.ok(gate7, 'Gate 7 workflow step must exist');
   assert.match(gate7, /TEST_URL:\s*http:\/\/127\.0\.0\.1:5174/);
@@ -35,7 +36,8 @@ test('Quality Gate Gate 7 与视觉工作流使用一致的渲染参数', () => 
 
 test('Quality Gate Gate 8 在真实浏览器扫描前执行 manual 控件合同测试', () => {
   const workflow = fs.readFileSync(qualityGatePath, 'utf8');
-  const gate8 = workflow.match(/- name: "Gate 8 - Browser E2E"[\s\S]*?(?=\n      # --- Gate 9)/)?.[0];
+  // 2026-08-09 并行化后 Gate 8 位于 e2e job，其后是同 job 的 upload 步骤（原邻接 # --- Gate 9 注释已随拆分移除）
+  const gate8 = workflow.match(/- name: "Gate 8 - Browser E2E"[\s\S]*?(?=\n\s*- name: "Upload GUI quality artifacts")/)?.[0];
 
   assert.ok(gate8, 'Gate 8 workflow step must exist');
   assert.match(gate8, /node apps\/desktop\/tests\/e2e\/helpers\/route-functional-suite\.test\.js/);
@@ -154,17 +156,27 @@ const CI_IGNORED_PATHS = [
   'openspec/**',
 ];
 
-test('CI 路径门控：三个全量 workflow 的 push/pull_request 使用同一 paths-ignore 白名单', () => {
+test('CI 路径门控：全量 workflow 的 pull_request 使用同一 paths-ignore 白名单', () => {
   const names = ['build.yml', 'electron-ci.yml', 'quality-gate.yml'];
   for (const name of names) {
     const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', name), 'utf8'));
-    for (const ev of ['push', 'pull_request']) {
-      assert.deepEqual(
-        wf.on[ev]['paths-ignore'],
-        CI_IGNORED_PATHS,
-        `${name} 的 ${ev}.paths-ignore 必须与 CI_IGNORED_PATHS 一致`,
-      );
-    }
+    assert.deepEqual(
+      wf.on.pull_request['paths-ignore'],
+      CI_IGNORED_PATHS,
+      `${name} 的 pull_request.paths-ignore 必须与 CI_IGNORED_PATHS 一致`,
+    );
+  }
+});
+
+test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', () => {
+  const names = ['build.yml', 'electron-ci.yml'];
+  for (const name of names) {
+    const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', name), 'utf8'));
+    assert.deepEqual(
+      wf.on.push['paths-ignore'],
+      CI_IGNORED_PATHS,
+      `${name} 的 push.paths-ignore 必须与 CI_IGNORED_PATHS 一致`,
+    );
   }
 });
 
