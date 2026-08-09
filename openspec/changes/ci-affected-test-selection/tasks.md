@@ -16,7 +16,8 @@
 
 - [x] 3.1 quality-gate.yml：`on` 新增 `push`（branches: [main]，同 paths-ignore）；unit-tests job 在 pull_request 事件用 `nx affected -t test --base=origin/main`（先 `git fetch origin main --depth=1`），workflow_dispatch / push main 用 `nx run-many -t test --all`（全量）；保留 Gate 4 watchdog
 - [x] 3.1b 以 MODIFIED delta 更新 ci-quality-gate-parallel「触发去重」Requirement（允许 main push 全量回归，feature 分支仍仅 PR 触发）
-- [x] 3.2 缓存持久化：actions/cache 存取 `.nx/cache`（同 job 与跨 run 复用）
+- [x] 3.2 缓存持久化
+- [x] 3.2b doc-gate paths-ignore 补 package.json/package-lock.json/nx.json（配置类自动 bypass）：actions/cache 存取 `.nx/cache`（同 job 与跨 run 复用）
 - **测试目标**：PR 事件日志含受影响包清单与缓存命中状态；dispatch 全量；Gate 4 watchdog 契约不被破坏
 
 ## 4. 契约测试与本地验证

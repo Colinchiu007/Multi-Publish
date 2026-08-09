@@ -13,8 +13,8 @@
     "check:circular": "madge --warning --circular apps/desktop/electron/main.js",
     "test:rpa-selectors": "cd packages/rpa-engine && npx vitest run tests/platform-selectors.test.js tests/platform-selectors-cross-platform.test.js",
     "test:ai-autonomous-tester": "npm test -w @multi-publish/ai-autonomous-tester",
-    "test:affected": "nx affected -t test --base=origin/main",
-    "test:all": "nx run-many -t test --all"
+    "test:affected": "nx affected -t test --base=origin/main --parallel=1",
+    "test:all": "nx run-many -t test --all --parallel=1"
   },
   "workspaces": [
     "apps/*",

@@ -183,7 +183,7 @@ test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', (
 test('Doc Gate 自动 bypass：流程类目录必须位于 paths-ignore', () => {
   const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'doc-gate.yml'), 'utf8'));
   const ignored = wf.on.pull_request['paths-ignore'];
-  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**']) {
+  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**', 'package.json', 'package-lock.json', 'nx.json']) {
     assert.ok(ignored.includes(dir), `doc-gate paths-ignore 必须包含 ${dir}`);
   }
 });
@@ -191,8 +191,8 @@ test('Doc Gate 自动 bypass：流程类目录必须位于 paths-ignore', () => 
 test('Nx affected 引入契约：nx 配置与 quality-gate 双模式', () => {
   const rootPkg = JSON.parse(fs.readFileSync(rootPackagePath, 'utf8'));
   assert.ok(rootPkg.devDependencies && rootPkg.devDependencies.nx, '根 package.json 必须声明 nx devDependency');
-  assert.match(rootPkg.scripts['test:affected'], /nx affected -t test --base=origin\/main/);
-  assert.match(rootPkg.scripts['test:all'], /nx run-many -t test --all/);
+  assert.match(rootPkg.scripts['test:affected'], /nx affected -t test --base=origin\/main --parallel=1/);
+  assert.match(rootPkg.scripts['test:all'], /nx run-many -t test --all --parallel=1/);
 
   const nxJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'nx.json'), 'utf8'));
   assert.equal(nxJson.targetDefaults.test.cache, true);
