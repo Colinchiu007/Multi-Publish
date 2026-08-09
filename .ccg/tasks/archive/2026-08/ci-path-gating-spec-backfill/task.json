@@ -1,0 +1,12 @@
+{
+  "id": "ci-path-gating-spec-backfill",
+  "title": "补齐 Phase 1 ci-path-gating 的 OpenSpec 规格化（治理闭环）",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "ci-governance",
+  "currentPhase": "completed",
+  "nextAction": "已归档（openspec archive 补齐 spec，任务全部已交付）",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "remoteStatus": "main-direct"
+}

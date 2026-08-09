@@ -6198,3 +6198,7 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
   - 跨 runner 分片 ≠ 进程内并行；隔离是设计属性而非巧合。
   - 优化要盯**关键路径**：分片后瓶颈从单测转移到 coverage（11.7 min），单 job 优化不再改变 gate 墙钟。
   - 契约测试应断言核心属性（串行标志/watchdog/分片参数），而非"字符串存在"。
+
+## 治理补全：ci-path-gating 规格化（2026-08-09）
+- Phase 1（PR #430）交付时未建 OpenSpec change；按差异审计补齐 spec（4 Requirements，全部已交付），
+  openspec/specs/ci-path-gating/spec.md 成为路径门控的规格真相源——三阶段 CI 治理闭环完成。
