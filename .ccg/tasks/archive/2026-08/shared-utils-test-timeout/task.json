@@ -1,12 +1,13 @@
 {
   "id": "shared-utils-test-timeout",
   "title": "修复 shared-utils scheduler 冷启动 flaky（testTimeout 5000→10000）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "S",
   "risk": "low",
   "domain": "test-infra",
-  "currentPhase": "implementation",
-  "nextAction": "加 vitest.config.js testTimeout + 契约断言 + PR",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #453 merged 75959b37）",
   "createdAt": "2026-08-09T00:00:00Z",
-  "branch": "codex/fix-shared-utils-test-timeout"
+  "branch": "codex/fix-shared-utils-test-timeout",
+  "remoteStatus": "merged:75959b37"
 }

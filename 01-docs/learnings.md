@@ -6202,3 +6202,14 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ## 治理补全：ci-path-gating 规格化（2026-08-09）
 - Phase 1（PR #430）交付时未建 OpenSpec change；按差异审计补齐 spec（4 Requirements，全部已交付），
   openspec/specs/ci-path-gating/spec.md 成为路径门控的规格真相源——三阶段 CI 治理闭环完成。
+
+## Flaky 复盘：shared-utils scheduler 冷启动超时（2026-08-09，PR #453 → 75959b37）
+- **根因**：scheduler.test.js「保留既有 API 并额外暴露实例工厂」为纯断言测试，超时来自
+  `require('../scheduler')` 冷启动模块图在 Windows CI 负载下 > 默认 5000ms testTimeout。
+- **逃逸链**：本地开发机冷加载快 → 单测未暴露；CI 偶发（Phase 2 并行与 affected 实测各一次）→
+  无「冷启动预算」约定 → 间歇红。
+- **系统性漏洞**：测试超时预算缺失——shared-utils 无显式 testTimeout，默认 5000ms 对冷加载类测试过紧。
+- **修复+回归**：既有 vitest.config.js 追加 `testTimeout: 10000`（对齐桌面契约）；
+  workflow-contract.test.js 新增断言防回退；doc-gate 忽略集补 `packages/*/vitest.config.js`
+  （测试基建变更无需 PRD 同步）。
+- **预防**：CI 相关测试超时预算对齐桌面 10000ms 标准；测试配置类改动走基建门控而非 PRD。
