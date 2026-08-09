@@ -79,15 +79,16 @@ class RunStateStore {
     return path.join(this._dir, safeId(runId) + '.json')
   }
 
-  /** 保存编排模式终态快照（失败/取消时调用，状态原样落盘；上下文为纯 JSON 数据） */
-  saveFailed(run) {
+  /** 保存编排模式快照（failed/cancelled/running 共用写入；状态按调用方传入落盘） */
+  _write(run, status) {
     if (!run || typeof run.id !== 'string' || !run.id) return false
+    const running = status === 'running'
     const snapshot = {
       kind: 'orchestration-run-state',
       version: 1,
       runId: run.id,
       pipeline: run.pipeline,
-      status: run.status || 'failed',
+      status: status || run.status || 'failed',
       currentStage: Number.isInteger(run.currentStage) ? run.currentStage : 0,
       stages: Array.isArray(run.stages) ? run.stages.map((s) => ({ ...s })) : [],
       context: run.context && typeof run.context === 'object' ? run.context : {},
@@ -95,7 +96,8 @@ class RunStateStore {
       error: run.error || null,
       orchestrationMode: run.orchestrationMode || 'orchestrator',
       createdAt: run.createdAt || null,
-      endedAt: run.endedAt || new Date().toISOString(),
+      // 运行中快照没有终态时间；终态快照用 run.endedAt 或当前时间
+      endedAt: running ? null : (run.endedAt || new Date().toISOString()),
     }
     const owner = this._currentOwner()
     if (owner) snapshot.owner = owner
@@ -112,6 +114,20 @@ class RunStateStore {
       this._log.warn('RunStateStore', 'save failed: ' + (e && e.message ? e.message : String(e)))
       return false
     }
+  }
+
+  /** 保存编排模式终态快照（失败/取消时调用；上下文为纯 JSON 数据） */
+  saveFailed(run) {
+    return this._write(run, run.status || 'failed')
+  }
+
+  /**
+   * 保存运行中快照（阶段级 checkpoint + 退出兜底）。
+   * 应用退出/崩溃后，该快照使任务在历史中保持「运行中」状态并可「从断点继续」，
+   * 避免运行中任务被强杀后彻底丢失（2026-08-09 方案B）。
+   */
+  saveRunning(run) {
+    return this._write(run, 'running')
   }
 
   load(runId) {
@@ -144,11 +160,10 @@ class RunStateStore {
   }
 
   /**
-   * 列出已持久化的失败快照（owner 目录 + legacy 平铺目录，按 runId 去重），
-   * 供历史记录展示：应用重启后失败任务仍可见。只返回可解析的
-   * orchestration-run-state 快照，损坏/未知文件静默跳过。
+   * 扫描所有已持久化快照（owner 目录 + legacy 平铺目录，按 runId 去重）。
+   * 只返回可解析的 orchestration-run-state 快照，损坏/未知文件静默跳过。
    */
-  listFailed() {
+  _list() {
     const seen = new Set()
     const result = []
     const dirs = new Set([this._dir, this._ownerDir()].filter(Boolean))
@@ -165,6 +180,23 @@ class RunStateStore {
       }
     }
     return result
+  }
+
+  /**
+   * 列出已持久化的失败/取消快照（owner 目录 + legacy 平铺目录，按 runId 去重），
+   * 供历史记录展示：应用重启后失败任务仍可见。
+   * 运行中快照（status==='running'）不在此列，由 listRunning 单独返回。
+   */
+  listFailed() {
+    return this._list().filter((snapshot) => snapshot.status !== 'running')
+  }
+
+  /**
+   * 列出已持久化的运行中快照（阶段级 checkpoint + 退出兜底写入）。
+   * 供历史记录展示：应用重启后运行中任务仍可见，并可「从断点继续」。
+   */
+  listRunning() {
+    return this._list().filter((snapshot) => snapshot.status === 'running')
   }
 
   remove(runId) {

@@ -901,12 +901,17 @@ class PipelineEngine {
     for (const item of this._history) {
       if (item && item.id) seenIds.add(item.id);
     }
-    // 合并持久化失败快照（runStateStore）：应用重启后，失败任务仍显示在历史记录中。
+    // 合并持久化快照（runStateStore）：应用重启后，失败/取消任务仍显示在历史记录中；
+    // 运行中断（强杀/退出兜底）的任务以 running 状态显示，可「从断点继续」。
     // 与内存 run/_history 按 runId 去重，避免同一条任务重复展示。
     const persisted = [];
-    if (this.runStateStore && typeof this.runStateStore.listFailed === 'function') {
+    if (this.runStateStore) {
+      const listers = []
+      if (typeof this.runStateStore.listFailed === 'function') listers.push(() => this.runStateStore.listFailed())
+      if (typeof this.runStateStore.listRunning === 'function') listers.push(() => this.runStateStore.listRunning())
       try {
-        for (const snapshot of this.runStateStore.listFailed()) {
+        for (const lister of listers) {
+        for (const snapshot of lister()) {
           const id = snapshot.runId
           if (!id || seenIds.has(id)) continue
           seenIds.add(id)
@@ -925,7 +930,8 @@ class PipelineEngine {
             completedAt: snapshot.endedAt || null,
           })
         }
-      } catch (_) { /* 失败快照读取失败不影响历史展示 */ }
+        }
+      } catch (_) { /* 快照读取失败不影响历史展示 */ }
     }
     return [...active, ...this._history, ...persisted];
   }
@@ -940,6 +946,54 @@ class PipelineEngine {
       if (run.orchestrationMode === 'orchestrator' && run.status === 'running') count += 1;
     }
     return count;
+  }
+
+  /** 是否存在运行中的编排流水线（去重 _<name> 索引；供窗口关闭→托盘决策）。 */
+  hasRunningOrchestration() {
+    const seen = new Set();
+    for (const run of this._runs.values()) {
+      if (seen.has(run)) continue;
+      seen.add(run);
+      if (run.orchestrationMode === 'orchestrator' && run.status === 'running') return true;
+    }
+    return false;
+  }
+
+  /**
+   * 退出兜底：把所有运行中的编排流水线落盘为 running 快照。
+   * 与阶段级 checkpoint（_saveRunningCheckpoint）互补，保证窗口关闭/退出瞬间
+   * 的进行中任务在重启后仍可见并可「从断点继续」（2026-08-09 方案B）。
+   * @returns {number} 成功落盘的任务数
+   */
+  saveRunningState() {
+    if (!this.runStateStore || typeof this.runStateStore.saveRunning !== 'function') return 0;
+    const seen = new Set();
+    let saved = 0;
+    for (const run of this._runs.values()) {
+      if (seen.has(run)) continue;
+      seen.add(run);
+      if (run.orchestrationMode !== 'orchestrator' || run.status !== 'running') continue;
+      try {
+        if (this.runStateStore.saveRunning(run)) saved += 1;
+      } catch (e) {
+        this.log.warn('PipelineEngine', 'running state save failed: ' + (e && e.message ? e.message : String(e)));
+      }
+    }
+    return saved;
+  }
+
+  /**
+   * 阶段级 checkpoint：编排流水线进入某阶段执行前，把当前进度落盘为 running 快照。
+   * 应用被强杀（taskkill /F）或异常退出时，仍能保留「该阶段未完成」的断点；
+   * 恢复时从当前阶段重新执行（阶段级原子性：快照在 execute 之前写入）。
+   */
+  _saveRunningCheckpoint(run) {
+    if (!run || run.orchestrationMode !== 'orchestrator' || !this.runStateStore) return;
+    try {
+      this.runStateStore.saveRunning(run);
+    } catch (e) {
+      this.log.warn('PipelineEngine', 'running checkpoint save failed: ' + (e && e.message ? e.message : String(e)));
+    }
   }
 
   /** 后台并行上限检查：超过 maxConcurrentRuns 时拒绝启动/恢复。 */
@@ -1089,6 +1143,9 @@ class PipelineEngine {
     run.context = serializedContext;
     run.stageResults = [];
 
+    // 阶段级 checkpoint：启动即落盘 running 快照，应用退出/强杀后任务不丢失。
+    this._saveRunningCheckpoint(run);
+
     if (params.autoAdvance) {
       if (params.background === true) {
         // 后台自动推进：立即返回 runId，renderer 通过 getRunSnapshot 轮询阶段进度。
@@ -1106,16 +1163,24 @@ class PipelineEngine {
   }
 
   /**
-   * 从失败断点恢复编排流水线（断点续跑）。
+   * 从失败/中断断点恢复编排流水线（断点续跑）。
    * 数据源：本次会话内存 history，或 RunStateStore 持久化快照（跨应用重启仍可恢复）。
-   * 恢复后从失败阶段重新执行；前序阶段输出（context）与已完成的资源直接复用。
+   * - 失败快照：从失败阶段重新执行；
+   * - 运行中快照（应用退出/强杀兜底落盘）：从中断阶段重新执行（阶段级原子性）。
+   * 前序阶段输出（context）与已完成的资源直接复用。
    * 内容政策失败（needs_user_input）不允许恢复，必须修改文案后重新启动。
    * @param {string} runId
-   * @returns {Promise<{success: boolean, runId?: string, error?: string, errorCode?: string}>}
+   * @returns {Promise<{success: boolean, runId?: string, alreadyRunning?: boolean, error?: string, errorCode?: string}>}
    */
   async resumeOrchestration(runId) {
     if (typeof runId !== 'string' || !runId.trim()) {
       return { success: false, error: '缺少或非法 runId' };
+    }
+    // 同会话幂等：内存中已是 running 的编排 run 直接返回，避免重复创建运行
+    // （renderer 重载/重复点击「继续」时，主进程仍在后台执行该任务）。
+    const activeRun = this._runs.get(runId);
+    if (activeRun && activeRun.orchestrationMode === 'orchestrator' && activeRun.status === 'running') {
+      return { success: true, runId: activeRun.id, alreadyRunning: true };
     }
     const historyRun = this._history.find((item) => item.id === runId);
     let snapshot = historyRun || null;
@@ -1123,8 +1188,13 @@ class PipelineEngine {
       try { snapshot = await this.runStateStore.load(runId); } catch (_) { snapshot = null; }
     }
     if (!snapshot) return { success: false, error: '未找到可恢复的运行快照', errorCode: 'RUN_SNAPSHOT_NOT_FOUND' };
-    if (snapshot.status !== 'failed' || !snapshot.error) {
-      return { success: false, error: '只有失败状态的运行可以恢复', errorCode: 'RUN_NOT_FAILED' };
+    if (snapshot.status === 'failed') {
+      // 失败快照必须携带 error 才可恢复（无 error 的 failed 属于异常数据）
+      if (!snapshot.error) {
+        return { success: false, error: '只有失败或中断状态的运行可以恢复', errorCode: 'RUN_NOT_FAILED' };
+      }
+    } else if (snapshot.status !== 'running') {
+      return { success: false, error: '只有失败或中断状态的运行可以恢复', errorCode: 'RUN_NOT_FAILED' };
     }
     if ((snapshot.orchestrationMode || 'state_machine') !== 'orchestrator') {
       return { success: false, error: '该运行不支持断点恢复', errorCode: 'RUN_NOT_ORCHESTRATOR' };
@@ -1421,6 +1491,15 @@ class PipelineEngine {
         this.log.warn('PipelineEngine', 'run-state snapshot save failed: ' + (saveError && saveError.message ? saveError.message : String(saveError)));
       }
     }
+    // 运行中 checkpoint 清理：完成态不留 running 快照，否则重启后已完成任务会
+    // 以「运行中」状态重新出现在历史（失败/取消已由上方 saveFailed 覆盖同文件）。
+    if (status === 'completed' && run.orchestrationMode === 'orchestrator' && this.runStateStore) {
+      try {
+        this.runStateStore.remove(run.id);
+      } catch (removeError) {
+        this.log.warn('PipelineEngine', 'completed run-state snapshot remove failed: ' + (removeError && removeError.message ? removeError.message : String(removeError)));
+      }
+    }
     if (['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'].includes(run.pipeline) && status === 'completed' && this.story2videoProjectService) {
       try {
         const project = this.story2videoProjectService.saveRun(run);
@@ -1511,6 +1590,8 @@ class PipelineEngine {
     const stageStartMs = Date.now();
     const stageIndex = run.currentStage;
     this.log.info('PipelineEngine', '[exec] stage start run=' + runId + ' pipeline=' + run.pipeline + ' stage=' + stage.name + ' (' + (stageIndex + 1) + '/' + run.stages.length + ')');
+    // 阶段级 checkpoint：执行前落盘 running 快照（阶段级原子性——中断后从当前阶段重新执行）。
+    this._saveRunningCheckpoint(run);
     const result = await this.stageExecutor.execute({
       runId,
       stage: fullStage,

@@ -543,6 +543,45 @@ describe('window — createWindow', () => {
     expect(context.systemTray.init).toHaveBeenCalledTimes(1)
   })
 
+  it('运行中有编排任务且托盘可用时关闭窗口隐藏到托盘（后台继续）', () => {
+    context.pipelineEngine = { hasRunningOrchestration: vi.fn(() => true) }
+    context.systemTray = { init: vi.fn(), isAvailable: vi.fn(() => true) }
+    createWindow(context)
+    const win = lastWindow()
+    const hideSpy = vi.spyOn(win, 'hide')
+    const event = { preventDefault: vi.fn() }
+    win._handlers['close'](event)
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(hideSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('无运行中编排任务时关闭窗口照常进行（不拦截）', () => {
+    context.pipelineEngine = { hasRunningOrchestration: vi.fn(() => false) }
+    context.systemTray = { init: vi.fn(), isAvailable: vi.fn(() => true) }
+    createWindow(context)
+    const win = lastWindow()
+    const hideSpy = vi.spyOn(win, 'hide')
+    const event = { preventDefault: vi.fn() }
+    win._handlers['close'](event)
+
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(hideSpy).not.toHaveBeenCalled()
+  })
+
+  it('托盘不可用时即使有运行任务也不拦截关闭（避免窗口关闭后进程无法恢复）', () => {
+    context.pipelineEngine = { hasRunningOrchestration: vi.fn(() => true) }
+    context.systemTray = { init: vi.fn(), isAvailable: vi.fn(() => false) }
+    createWindow(context)
+    const win = lastWindow()
+    const hideSpy = vi.spyOn(win, 'hide')
+    const event = { preventDefault: vi.fn() }
+    win._handlers['close'](event)
+
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(hideSpy).not.toHaveBeenCalled()
+  })
+
   it('调用 hotkeys.register', () => {
     createWindow(context)
     expect(context.hotkeys.register).toHaveBeenCalledTimes(1)

@@ -198,6 +198,27 @@ describe('shutdown — registerShutdownHandlers', () => {
     expect(context.hotkeys.unregister).toHaveBeenCalledTimes(1)
   })
 
+  it('退出兜底：最先保存运行中流水线状态（先于热键/调度器清理）', async () => {
+    context.pipelineEngine = { saveRunningState: vi.fn(() => 1) }
+    context.scheduler = { stopAll: vi.fn() }
+    registerShutdownHandlers(context)
+    await __electronMock.app._handlers['window-all-closed']()
+
+    expect(context.pipelineEngine.saveRunningState).toHaveBeenCalledTimes(1)
+    expect(context.pipelineEngine.saveRunningState.mock.invocationCallOrder[0])
+      .toBeLessThan(context.hotkeys.unregister.mock.invocationCallOrder[0])
+    expect(context.pipelineEngine.saveRunningState.mock.invocationCallOrder[0])
+      .toBeLessThan(context.scheduler.stopAll.mock.invocationCallOrder[0])
+  })
+
+  it('pipelineEngine 缺失时退出清理链不受影响', async () => {
+    context.pipelineEngine = null
+    registerShutdownHandlers(context)
+    await __electronMock.app._handlers['window-all-closed']()
+    expect(context.store.close).toHaveBeenCalledTimes(1)
+    expect(__electronMock.app.quit).toHaveBeenCalledTimes(1)
+  })
+
   it('触发回调调用显式 bridge 清理函数', async () => {
     registerShutdownHandlers(context)
     await __electronMock.app._handlers['window-all-closed']()

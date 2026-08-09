@@ -154,4 +154,21 @@ describe('SystemTray IPC 安全合同', () => {
 
     expect(setIntervalSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('init 成功后 isAvailable 返回 true，destroy 后返回 false', () => {
+    expect(systemTray.isAvailable()).toBe(true)
+    systemTray.destroy()
+    expect(systemTray.isAvailable()).toBe(false)
+  })
+
+  it('退出菜单走 app.quit() 完整清理链，不直接销毁窗口', () => {
+    const trayInstance = trayInstances[0]
+    const menu = trayInstance.setContextMenu.mock.calls[0][0]
+    const quitItem = menu.find(item => item && item.label === '退出')
+    expect(quitItem).toBeDefined()
+    quitItem.click()
+
+    expect(__electronMock.app.quit).toHaveBeenCalledTimes(1)
+    expect(trayInstance.destroy).not.toHaveBeenCalled()
+  })
 })

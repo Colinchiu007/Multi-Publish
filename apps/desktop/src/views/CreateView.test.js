@@ -1908,6 +1908,35 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
+  it("运行中历史任务显示「继续生成」并可一键恢复（重启后 running 快照断点续跑）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-running-r1", pipeline: "story2video-compose", status: "running", title: "进行中任务", error: null, stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }] },
+    ] });
+    mocks.pipelineResumeOrchestration.mockResolvedValue({ code: 0, data: { success: true, runId: "run-running-r1" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { runId: "run-running-r1", pipeline: "story2video-compose", status: { status: "running" }, stages: [] } });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    w.vm.pipelines = [{ name: "story2video-compose", available: true, stages: [] }];
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+    w.vm.historyFilter = "running";
+    await nextTick();
+
+    const resumeBtn = w.find(".history-resume");
+    expect(resumeBtn.exists()).toBe(true);
+    expect(resumeBtn.text()).toContain("继续生成");
+
+    await resumeBtn.trigger("click");
+    await nextTick();
+    expect(mocks.pipelineResumeOrchestration).toHaveBeenCalledWith("run-running-r1");
+    expect(w.vm.view).toBe("pipelines");
+    w.unmount();
+  });
+
   it("内容政策类失败历史任务不显示「从断点继续」", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });

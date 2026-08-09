@@ -123,6 +123,79 @@ describe('编排流水线断点恢复', () => {
     expect(resume.errorCode).toBe('RUN_SNAPSHOT_NOT_FOUND')
   })
 
+  it('从持久化 running 快照恢复：从中断阶段重建并继续执行（跨重启断点续跑）', async () => {
+    let releaseB
+    const gate = new Promise((resolve) => { releaseB = resolve })
+    engine.registerStageExecutor('t_a', async () => ({ success: true, output: { ok: 'a' } }))
+    engine.registerStageExecutor('t_b', async () => { await gate; return { success: true, output: { ok: 'b' } } })
+    engine.registerStageExecutor('t_c', async () => ({ success: true, output: { ok: 'c' } }))
+    store.load.mockReturnValue({
+      kind: 'orchestration-run-state',
+      version: 1,
+      runId: 'run_interrupted_1',
+      pipeline: 'resume-test',
+      status: 'running',
+      error: null,
+      currentStage: 1,
+      stages: [
+        { name: 'a', status: 'completed' },
+        { name: 'b', status: 'running' },
+        { name: 'c', status: 'pending' },
+      ],
+      context: { x: 2, a: { ok: 'a' } },
+      params: {},
+      orchestrationMode: 'orchestrator',
+      createdAt: new Date().toISOString(),
+      endedAt: null,
+    })
+
+    const resume = await engine.resumeOrchestration('run_interrupted_1')
+    expect(resume.success).toBe(true)
+    const snap = engine.getRunSnapshot('run_interrupted_1')
+    expect(snap.status.status).toBe('running')
+    expect(snap.currentStage).toBe(1)
+    expect(snap.stages.map((s) => [s.name, s.status])).toEqual([
+      ['a', 'completed'],
+      ['b', 'running'],
+      ['c', 'pending'],
+    ])
+    expect(snap.context).toEqual(expect.objectContaining({ x: 2, a: { ok: 'a' } }))
+    expect(store.remove).toHaveBeenCalledWith('run_interrupted_1')
+    releaseB()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  it('内存中已是 running 的编排 run：resumeOrchestration 幂等返回，不重复创建运行', async () => {
+    engine.registerStageExecutor('t_a', async () => ({ success: true, output: { ok: 'a' } }))
+    const started = await engine.startOrchestrated('resume-test', { initialContext: {}, autoAdvance: false })
+    expect(started.success).toBe(true)
+    const runId = started.runId
+
+    store.load.mockClear()
+    store.remove.mockClear()
+    const resume = await engine.resumeOrchestration(runId)
+    expect(resume).toMatchObject({ success: true, runId, alreadyRunning: true })
+    expect(store.load).not.toHaveBeenCalled()
+    expect(store.remove).not.toHaveBeenCalled()
+  })
+
+  it('failed 快照缺少 error 时拒绝恢复（异常数据防御）', async () => {
+    store.load.mockReturnValue({
+      runId: 'run-no-error',
+      pipeline: 'resume-test',
+      status: 'failed',
+      error: null,
+      currentStage: 0,
+      stages: [{ name: 'a', status: 'failed' }],
+      context: {},
+      params: {},
+      orchestrationMode: 'orchestrator',
+    })
+    const resume = await engine.resumeOrchestration('run-no-error')
+    expect(resume.success).toBe(false)
+    expect(resume.errorCode).toBe('RUN_NOT_FAILED')
+  })
+
   it('getRunSnapshot 为已完成运行附带成片文件大小（完成汇总）', async () => {
     const fs = require('fs')
     const os = require('os')

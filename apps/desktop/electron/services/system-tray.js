@@ -21,6 +21,22 @@ let tray = null
 let mainWindowRef = null
 const MAX_FLASH_TIMES = 20
 
+// dev 模式 dist/ 未构建时托盘图标缺失的兜底：内嵌 32×32 蓝色占位 PNG（base64）。
+// 保证 dev 下托盘可用（窗口关闭→托盘后台运行依赖托盘可用性）。
+const TRAY_FALLBACK_ICON_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALklEQVR4nO3OIQEAAAgDsDciIOFPDMzE/DLbfoqAgICAgICAgICAgICAgMB34AAtB6CXOGzAegAAAABJRU5ErkJggg=='
+
+/** 解析托盘图标：优先应用图标（dist/assets/icon.png），缺失时回退内嵌占位图。 */
+function resolveTrayIcon () {
+  const iconPath = path.join(__dirname, '..', '..', 'dist', 'assets', 'icon.png')
+  if (fs.existsSync(iconPath)) return iconPath
+  try {
+    return nativeImage.createFromBuffer(Buffer.from(TRAY_FALLBACK_ICON_BASE64, 'base64'))
+  } catch (e) {
+    log.warn('SystemTray', 'Fallback tray icon unavailable (' + (e && e.message ? e.message : String(e)) + '), using missing path')
+    return iconPath
+  }
+}
+
 /**
  * 初始化系统托盘
  */
@@ -29,14 +45,14 @@ function init (mainWindow) {
   if (tray) { try { tray.destroy() } catch (_) { /* ignore */ } }
   mainWindowRef = mainWindow
   
-  // 创建托盘图标（使用应用图标），dev 模式 dist/ 可能不存在，try/catch 优雅降级
-  const iconPath = path.join(__dirname, '..', '..', 'dist', 'assets', 'icon.png')
-  // 托盘为非必要功能：图标缺失（dev 模式未构建）或无系统托盘环境（headless/xvfb）时优雅降级，不阻断启动
+  // 创建托盘图标（使用应用图标；dev 模式 dist/ 缺失时回退内嵌占位图）
+  const icon = resolveTrayIcon()
+  // 托盘为非必要功能：无系统托盘环境（headless/xvfb）或图标解析失败时优雅降级，不阻断启动
   try {
-    tray = new Tray(iconPath)
+    tray = new Tray(icon)
   } catch (e) {
     tray = null
-    log.warn('SystemTray', `Tray unavailable, skipping (icon=${fs.existsSync(iconPath) ? 'present' : 'missing'}): ${e.message}`)
+    log.warn('SystemTray', 'Tray unavailable, skipping: ' + (e && e.message ? e.message : String(e)))
     return
   }
 
@@ -58,8 +74,9 @@ function init (mainWindow) {
     {
       label: '退出',
       click: () => {
-        tray.destroy()
-        if (mainWindow) mainWindow.destroy()
+        // 走 app.quit() 而非 tray.destroy + mainWindow.destroy：前者触发 before-quit
+        // 完整清理链（运行中任务落盘 + 服务清理），后者绕过 before-quit 会丢失运行态。
+        app.quit()
       },
     },
   ])
@@ -140,6 +157,14 @@ function destroy () {
 }
 
 /**
+ * 托盘是否可用（init 成功后为 true；headless/无托盘环境为 false）。
+ * 窗口关闭→托盘后台运行决策依赖该能力：托盘不可用时关闭窗口直接退出进程。
+ */
+function isAvailable () {
+  return Boolean(tray)
+}
+
+/**
  * 注册托盘相关 IPC 处理
  *
  * 安全：tray:flash / tray:set-tooltip 是同步 IPC（ipcMain.on），
@@ -173,5 +198,6 @@ module.exports = {
   flashTray,
   setTooltip,
   destroy,
+  isAvailable,
   registerIpcHandlers,
 }

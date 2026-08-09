@@ -1,0 +1,19 @@
+{
+  "id": "story2video-run-state-persist-tray",
+  "title": "图片轮播运行中任务持久化（方案B）+ 关闭窗口托盘后台运行（方案A）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "pipeline-engine+electron-window+tray+frontend",
+  "currentPhase": "completed",
+  "branch": "codex/story2video-run-state-persist-tray",
+  "createdAt": "2026-08-09T16:00:00Z",
+  "items": [
+    "B1：RunStateStore.saveRunning + listRunning/listFailed 语义拆分（running 快照 endedAt=null）",
+    "B2：pipeline-engine 阶段级 checkpoint（启动 + 每阶段执行前落盘）+ saveRunningState 退出兜底（shutdown 最先调用）+ completed 清理 running 快照",
+    "B3：resumeOrchestration 支持 running 快照断点续跑 + 内存中已运行幂等返回 alreadyRunning",
+    "A：窗口 close → 托盘隐藏（hasRunningOrchestration + systemTray.isAvailable）；dev 图标 base64 回退；托盘退出走 app.quit",
+    "前端：历史 running 卡片「继续生成」按钮 + openHistory 接 resumeOrchestration",
+    "验证：run-state-store 16 / pipeline-engine 32 / resume 23 / shutdown 25 / window 49 / system-tray 26 / CreateView 109 全部通过"
+  ]
+}
