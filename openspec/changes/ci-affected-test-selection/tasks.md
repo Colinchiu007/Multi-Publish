@@ -28,6 +28,6 @@
 
 ## 5. 门禁与交付
 
-- [ ] 5.1 本 PR CI 通过（quality-gate affected 场景实测 + electron/build/visual 既有流程），记录改造前后单测 job 时长
-- [ ] 5.2 双模型审查（antigravity + Claude；后端不可用则降级记录）
+- [x] 5.1 本 PR CI 通过（head 6b7f28fc 全绿：quality-gate affected 模式 ✅ / Electron ✅ / Build ✅ / GUI ✅ / Visual ✅ / Doc Sync 跳过）（quality-gate affected 场景实测 + electron/build/visual 既有流程），记录改造前后单测 job 时长
+- [x] 5.2 双模型审查（antigravity 后端不可用；Claude API 503 重试超时降级为主代理核验 + 契约测试证据）（antigravity + Claude；后端不可用则降级记录）
 - [ ] 5.3 合并；归档三同步（openspec archive + CCG task 归档 + learnings）
