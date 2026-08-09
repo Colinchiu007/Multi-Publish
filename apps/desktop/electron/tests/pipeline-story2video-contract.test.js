@@ -175,6 +175,50 @@ describe('story2video 编排契约', () => {
     })
   })
 
+  it('compose 阶段 onProgress 写入的 compose_progress 经 getRunContext 暴露', async () => {
+    const { engine, serviceBus } = createEngine()
+    serviceBus.composeVideo.mockImplementation(async (_assets, options) => {
+      if (typeof options.onProgress === 'function') {
+        options.onProgress({ phase: 'segments', percent: 39, segmentsDone: 3, segmentsTotal: 5 })
+        options.onProgress({ phase: 'done', percent: 100, segmentsDone: 5, segmentsTotal: 5 })
+      }
+      return { code: 0, data: { videoPath: 'video.mp4' } }
+    })
+    engine.registerPipeline({
+      name: 'contract-compose-progress',
+      description: 'contract',
+      stages: ['compose', 'publish'],
+      stageDefs: [
+        { name: 'compose', type: 'compose', inputFrom: 'assets' },
+        { name: 'publish', type: 'publish', publishEnabled: false, platforms: [] },
+      ],
+    })
+
+    const started = await engine.startOrchestrated('contract-compose-progress', {
+      autoAdvance: false,
+      initialContext: { assets: { scenes: [] } },
+    })
+    expect(started.success).toBe(true)
+    await engine.executeStage(started.runId)
+
+    // 运行中（compose 刚完成，publish 未执行）：getRunContext 直接暴露执行器写入的 compose_progress
+    expect(engine.getRunContext(started.runId).compose_progress).toEqual({
+      phase: 'done',
+      percent: 100,
+      segmentsDone: 5,
+      segmentsTotal: 5,
+    })
+
+    // 全部阶段完成后（run 移入 history）：轮询接口 getRunSnapshot 仍携带 compose_progress
+    await engine.executeStage(started.runId)
+    expect(engine.getRunSnapshot(started.runId).context.compose_progress).toEqual({
+      phase: 'done',
+      percent: 100,
+      segmentsDone: 5,
+      segmentsTotal: 5,
+    })
+  })
+
   it('运行参数覆盖阶段默认值，并把批量优化结果规范化为数组', async () => {
     const { engine, serviceBus } = createEngine()
     engine.registerPipeline({

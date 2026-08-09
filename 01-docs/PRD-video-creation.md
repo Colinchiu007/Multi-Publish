@@ -138,6 +138,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-08 | 克隆音色 voice_id 合规 | `cloneVoice` 用 `buildMiniMaxCloneVoiceId` 生成合规 id（长度[8,256]/首字母英文字母）；存量非法克隆标记失效并自动回退默认音色（旁白 0/1 第一层根因）。PR #413 | PRD 7.1.16 |
 | 2026-08-08 | 异步 T2A 查询层级 | 官方查询响应 `status/file_id` 在顶层、实现只读 `data.*` 致 90s 超时；轮询改为顶层与 data 双层兼容（旁白 0/1 第二层根因，真实验证 synthesize 13s 成片 20s）。PR #414 | PRD 7.1.15 |
 | 2026-08-08 | 场景时长归一（其他会话） | 图片动效归一化到场景时长、移除单图轮播选项、UTF-8 manifest。PR #396 | PLAN-STORY2VIDEO-SCENE-DURATION-2026-08-08.md |
+| 2026-08-09 | 视频合成子进度条 | compose 阶段子百分比进度条：引擎 `onProgress` 发射（preflight 0 → validated 3 → 逐片段 3+72·k/N → concat 87 → narration 89 → bgm 92 → webm 95 → verify 98 → done 100）；失败冻结 <100 杜绝假成功；执行器字段级 fail-closed 写入 `context.compose_progress`；前端 mini bar + 「正在合成片段 k/N · p%」/「视频合成 p%」。详见本节 3.1.10 与总 PRD 7.1.9.1 | PRD 7.1.9.1 / 3.1.10 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
@@ -420,6 +421,31 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 - `voice.speed` 与 `split.speechRate` **单一来源联动**（切分估算与实际 TTS 语速一致，避免脱节）；
 - 运营后台**实时预估**：文案总字数 → 预估分镜数 → 预估成片时长区间 + 预估成本（图片生成为主要成本）；
 - 最短场景时长与 BGM：补齐静音段有 BGM 时自然填充，无 BGM 时接受静音。
+
+### 3.1.10 视频合成子进度合同（2026-08-09）
+
+**背景**：compose 阶段此前仅显示「进行中」+ 耗时；本变更新增子百分比进度条，解决耗时占比最大的合成环节无进度可感知的问题。
+
+**数据契约**：`context.compose_progress = { phase, percent, segmentsDone, segmentsTotal, message? }`
+- 引擎 `Story2VideoComposeEngine.compose(assetManifest, options, onProgress)` 新增可选回调（兼容 `options.onProgress`，第三参优先）；发射值经 `normalizeComposeProgressUpdate` 归一化（percent 取整钳制 [0,100]、segmentsTotal ≥1 整数、segmentsDone ∈ [0,total]、phase 非空）。
+- 执行器 `StageExecutor.COMPOSE` 将 `options.onProgress` 透传，回调内字段级校验（phase 已知枚举、percent 有限且 [0,100]、计数整数且范围正确）通过后写入 `run.context.compose_progress`；非法值丢弃（fail-closed）。
+- renderer 经既有 3s 轮询 `pipelineGetRunContext` 读取（无新增 IPC 通道）。
+
+**阶段权重**：preflight 0 → validated 3 → segments（k/N）3+72·k/N（k=N 精确 75）→ concat 87 → narration 89 → bgm 92（可选）→ webm 95（可选）→ verify 98 → done 100。
+
+**进度不变式**：
+1. percent 单调不降、整数 0-100；
+2. `percent === 100` ⟺ 合成成功（`code === 0`）；全部失败路径冻结在最后有效值（<100），杜绝假成功；
+3. `segmentsTotal` 恒等于场景数（≥1）；
+4. 结构为纯原始值对象（IPC structuredClone 安全）；
+5. 与 `optimize_progress`/`assets_progress` 并存互不影响；成功后 `context.compose`（结果）与 `context.compose_progress` 同时存在，结果读取仍走 `context.compose`。
+
+**前端展示与交互**：
+- compose running 且 percent 合法时，阶段条目渲染子进度条（mini bar，`data-testid="story2video-stage-compose-progress"`，宽 100%/高 4px/`--primary` 填充，0.3s 过渡）。
+- 详情文案：`phase === 'segments'` 且 `segmentsTotal > 0` 时「正在合成片段 k/N · p%」（en：`Composing segment k/N · p%`）；其余「视频合成 p%」（en：`Composing p%`）；无 `compose_progress`（历史 run/旧数据/引擎早退）→ 不渲染（安全降级）。
+- 文案沿用 `translateWithLocaleFallback` 内联 fallback（`story2video.composeSegments` / `story2video.composeProgress`），不写入 locale 静态文件（规避 i18n 插值陷阱）。
+
+**边界与后续**：失败冻结（片段 ≤75 / 拼接 87 / 旁白 89 / BGM 92 / webm 95 / 校验 98）；N=1 快速 3→75→100；暂停/恢复后 compose 重跑并重发进度；并发 run 按 context 隔离；`renderSegment` 单段重试不写进度。后续演进（v1 不做）：ffmpeg `-progress pipe:1` 段内实时百分比、chunked 拼接段级 onStep 插值。详细合同见总 PRD 7.1.9.1。
 
 ### 3.2 参数配置（Remotion 快速路径）
 

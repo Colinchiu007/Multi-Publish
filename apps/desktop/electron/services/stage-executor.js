@@ -25,6 +25,8 @@ const {
   normalizeServiceSplitResult,
 } = require('./story2video-segmentation');
 const { collectStory2VideoTtsSamples } = require('./story2video-tts-samples');
+// 注意：story2video-compose-engine 顶层执行 findFfmpeg()/findFfprobe()，且 container.setup.test.js 会 mock
+// path 模块（无 win32/posix）。因此不能在此顶层 require —— 改为在进度校验处惰性 require。
 
 function _firstDefined(...values) {
   return values.find(value => value !== undefined && value !== null);
@@ -32,6 +34,41 @@ function _firstDefined(...values) {
 
 function _isPlainObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+/**
+ * compose 子进度字段级校验（fail-closed，IPC 边界最后防线）。
+ * 语义比引擎的 normalizeComposeProgressUpdate 更严（引擎钳制越界 percent，这里拒绝）：
+ * phase 须为 KNOWN_COMPOSE_PHASES 已知枚举；percent 为 number 且有限且 [0,100]，
+ * 且「percent 取整 ≥100 仅在 phase === 'done' 时允许」（杜绝假成功信号）；
+ * segmentsTotal 存在时为 ≥1 整数；segmentsDone 存在时为 [0, segmentsTotal] 整数；
+ * 结构为纯原始值对象。任一约束失败返回 null，调用方应丢弃该次更新。
+ * @param {object} update
+ * @returns {{phase: string, percent: number, segmentsDone?: number, segmentsTotal?: number, message?: string}|null}
+ */
+function _normalizeComposeProgressForContext(update) {
+  if (!update || typeof update !== 'object' || Array.isArray(update)) return null;
+  const phase = typeof update.phase === 'string' && update.phase.trim() ? update.phase.trim() : '';
+  // 惰性 require：避免模块加载期触发 compose 引擎顶层 findFfmpeg()/findFfprobe()（测试 mock 环境无 path.win32/posix）
+  const { KNOWN_COMPOSE_PHASES } = require('./story2video-compose-engine');
+  if (!KNOWN_COMPOSE_PHASES.includes(phase)) return null;
+  // 严格数值校验：拒绝 Number() 强转穿透（null→0 / []→0 / true→1 / '39'→39）
+  if (typeof update.percent !== 'number' || !Number.isFinite(update.percent) || update.percent < 0 || update.percent > 100) return null;
+  const roundedPercent = Math.round(update.percent);
+  // W1：percent === 100 只允许在 done 阶段出现
+  if (roundedPercent >= 100 && phase !== 'done') return null;
+  const normalized = { phase, percent: roundedPercent };
+  if (update.segmentsTotal !== undefined && update.segmentsTotal !== null) {
+    if (typeof update.segmentsTotal !== 'number' || !Number.isInteger(update.segmentsTotal) || update.segmentsTotal < 1) return null;
+    normalized.segmentsTotal = update.segmentsTotal;
+  }
+  if (update.segmentsDone !== undefined && update.segmentsDone !== null) {
+    if (typeof update.segmentsDone !== 'number' || !Number.isInteger(update.segmentsDone) || update.segmentsDone < 0) return null;
+    if (normalized.segmentsTotal !== undefined && update.segmentsDone > normalized.segmentsTotal) return null;
+    normalized.segmentsDone = update.segmentsDone;
+  }
+  if (typeof update.message === 'string' && update.message) normalized.message = update.message;
+  return normalized;
 }
 
 /** 将 Story2Video 的界面别名转换为 8002 SplitRequest.config 的真实结构。 */
@@ -354,6 +391,18 @@ class StageExecutor {
       for (const key of composeOptionKeys) {
         if (params[key] !== undefined) composeOptions[key] = params[key];
       }
+      // 子进度：重置旧值，保证「无新数据即不渲染」（断点续跑/重试不残留上次冻结进度）。
+      if (context && typeof context === 'object') {
+        context.compose_progress = undefined;
+      }
+      // 子进度：把 onProgress 透传给合成引擎，回调字段级校验后写入 context.compose_progress。
+      // fail-closed：任一字段非法则丢弃该次更新，绝不向 renderer 下发非法值。
+      composeOptions.onProgress = (update) => {
+        const normalized = _normalizeComposeProgressForContext(update);
+        if (normalized && context && typeof context === 'object') {
+          context.compose_progress = normalized;
+        }
+      };
       const result = await self.serviceBus.composeVideo(assets, composeOptions);
       // code === 0 或 code === undefined（直接返回数据的桥接）都算成功
       if (result && (result.code === 0 || result.code === undefined)) {

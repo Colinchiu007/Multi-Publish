@@ -581,6 +581,71 @@ it('COMPOSE 阶段处理 code === -1 引擎不可用', async function () {
   ok(/ffmpeg not found/.test(result.error));
 });
 
+it('COMPOSE 阶段把引擎 onProgress 写入 context.compose_progress（字段级校验通过）', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async (_assets, options) => {
+      if (typeof options.onProgress === 'function') {
+        options.onProgress({ phase: 'segments', percent: 39, segmentsDone: 3, segmentsTotal: 5 });
+        options.onProgress({ phase: 'concat', percent: 87, segmentsDone: 5, segmentsTotal: 5 });
+        options.onProgress({ phase: 'done', percent: 100, segmentsDone: 5, segmentsTotal: 5 });
+      }
+      return { code: 0, data: { videoPath: '/tmp/out.mp4' } };
+    }),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const context = { assets: { scenes: [] } };
+  const result = await exec.execute({
+    runId: 'compose-progress',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets' },
+    params: {},
+    context,
+  });
+  eq(result.success, true);
+  // onProgress 已挂在 composeOptions 透传给引擎
+  expect(bus.composeVideo.mock.calls[0][1].onProgress).toEqual(expect.any(Function));
+  // context 收到最后合法值
+  eq(context.compose_progress, { phase: 'done', percent: 100, segmentsDone: 5, segmentsTotal: 5 });
+});
+
+it('COMPOSE 丢弃非法 onProgress 值（fail-closed，不下发 renderer）', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async (_assets, options) => {
+      if (typeof options.onProgress === 'function') {
+        options.onProgress({ phase: 'segments', percent: NaN });
+        options.onProgress({ phase: 'segments', percent: 120 });
+        options.onProgress({ phase: 'segments', percent: 50, segmentsTotal: 0 });
+        options.onProgress({ phase: 'segments', percent: 50, segmentsTotal: 3, segmentsDone: 4 });
+        options.onProgress({ phase: 'unknown', percent: 50 });
+        options.onProgress({ phase: '', percent: 50 });
+        options.onProgress({ phase: 'segments', percent: 'not-a-number' });
+        // I1：Number() 强转穿透被严格数值校验拒绝
+        options.onProgress({ phase: 'segments', percent: null });
+        options.onProgress({ phase: 'segments', percent: [] });
+        options.onProgress({ phase: 'segments', percent: true });
+        options.onProgress({ phase: 'segments', percent: 50, segmentsTotal: '5' });
+        options.onProgress({ phase: 'segments', percent: 50, segmentsTotal: 5, segmentsDone: '3' });
+        // W1：percent 100 只允许 done 阶段
+        options.onProgress({ phase: 'verify', percent: 100 });
+        options.onProgress({ phase: 'segments', percent: 99.6 });
+        // 合法值仍可写入
+        options.onProgress({ phase: 'validated', percent: 3, segmentsTotal: 2 });
+      }
+      return { code: 0, data: { videoPath: '/tmp/out.mp4' } };
+    }),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const context = { assets: {} };
+  const result = await exec.execute({
+    runId: 'compose-progress-invalid',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets' },
+    params: {},
+    context,
+  });
+  eq(result.success, true);
+  // 非法更新全部被丢弃，context 只有最后合法值
+  eq(context.compose_progress, { phase: 'validated', percent: 3, segmentsTotal: 2 });
+});
+
 it('CALL_SKILL 阶段需要 skillName', async function () {
   const bus = makeMockServiceBus();
   const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });

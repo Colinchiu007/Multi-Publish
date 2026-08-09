@@ -12,6 +12,7 @@ const {
   Story2VideoComposeEngine,
   findFfmpeg,
   findFfprobe,
+  normalizeComposeProgressUpdate,
   buildTransitionPlan,
   escapeSubtitleText,
   normalizeComposeScenes,
@@ -1035,6 +1036,221 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(result.message).toMatch(/单段|3 分钟|时长/)
       expect(engine._createSegment).not.toHaveBeenCalled()
     } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('Story2VideoComposeEngine 子进度发射（compose_progress 契约）', () => {
+  function makeProgressEngine (root, overrides = {}) {
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    engine._probeMediaDuration = vi.fn(async () => 2)
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._validateOutput = vi.fn(async () => {})
+    for (const [key, value] of Object.entries(overrides || {})) {
+      if (typeof value === 'function') engine[key] = value
+      else engine[key] = vi.fn(value)
+    }
+    return engine
+  }
+
+  function makeScenes (root, count) {
+    return Array.from({ length: count }, (_v, index) => ({
+      index,
+      imagePath: writeFixture(root, 'image-' + index + '.png'),
+      audioPath: writeFixture(root, 'audio-' + index + '.mp3'),
+      duration: 1,
+      text: '第' + (index + 1) + '段',
+    }))
+  }
+
+  it('normalizeComposeProgressUpdate 字段级校验（取整/钳制/非法丢弃）', () => {
+    expect(normalizeComposeProgressUpdate({ phase: 'segments', percent: 39.4, segmentsDone: 3, segmentsTotal: 5 }))
+      .toEqual({ phase: 'segments', percent: 39, segmentsDone: 3, segmentsTotal: 5 })
+    // percent 取整并钳制 [0,100]
+    expect(normalizeComposeProgressUpdate({ phase: 'segments', percent: 120, segmentsTotal: 5 }).percent).toBe(100)
+    expect(normalizeComposeProgressUpdate({ phase: 'segments', percent: -5, segmentsTotal: 5 }).percent).toBe(0)
+    // 非法值返回 null
+    expect(normalizeComposeProgressUpdate(null)).toBeNull()
+    expect(normalizeComposeProgressUpdate({ phase: '', percent: 50 })).toBeNull()
+    expect(normalizeComposeProgressUpdate({ phase: 'segments', percent: NaN })).toBeNull()
+    expect(normalizeComposeProgressUpdate({ phase: 'segments', percent: 50, segmentsTotal: 0 })).toBeNull()
+    expect(normalizeComposeProgressUpdate({ phase: 'segments', percent: 50, segmentsTotal: 5, segmentsDone: 6 })).toBeNull()
+    expect(normalizeComposeProgressUpdate({ phase: 'segments', percent: 50, segmentsTotal: 5, segmentsDone: -1 })).toBeNull()
+  })
+
+  it('compose 成功时按阶段权重发射单调不降的子进度序列（preflight→done）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-progress-ok-'))
+    const engine = makeProgressEngine(root)
+    const progress = []
+    const onProgress = (update) => progress.push(update)
+    try {
+      const result = await engine.compose({ scenes: makeScenes(root, 2) }, { transition: 'none' }, onProgress)
+      expect(result.code).toBe(0)
+      const phases = progress.map(p => p.phase)
+      expect(phases).toEqual(['preflight', 'validated', 'segments', 'segments', 'segments', 'concat', 'narration', 'verify', 'done'])
+      // 逐片段：3 + 72·k/2 → 3 / 39 / 75
+      expect(progress.filter(p => p.phase === 'segments').map(p => p.percent)).toEqual([3, 39, 75])
+      expect(progress.filter(p => p.phase === 'segments').map(p => [p.segmentsDone, p.segmentsTotal]))
+        .toEqual([[0, 2], [1, 2], [2, 2]])
+      // 相位权重
+      expect(progress.find(p => p.phase === 'concat').percent).toBe(87)
+      expect(progress.find(p => p.phase === 'narration').percent).toBe(89)
+      expect(progress.find(p => p.phase === 'verify').percent).toBe(98)
+      expect(progress.at(-1)).toMatchObject({ phase: 'done', percent: 100, segmentsDone: 2, segmentsTotal: 2 })
+      // 单调不降
+      const percents = progress.map(p => p.percent)
+      for (let i = 1; i < percents.length; i++) expect(percents[i]).toBeGreaterThanOrEqual(percents[i - 1])
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('片段生成失败时 percent 冻结（<100）且不发射 done（兼容 options.onProgress）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-progress-fail-seg-'))
+    const engine = makeProgressEngine(root, {
+      _createSegment: vi.fn(async () => { throw new Error('segment boom') }),
+    })
+    const progress = []
+    try {
+      const result = await engine.compose(
+        { scenes: makeScenes(root, 3) },
+        { transition: 'none', onProgress: (update) => progress.push(update) },
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/Segment|failed/)
+      const percents = progress.map(p => p.percent)
+      expect(percents.at(-1)).toBeLessThan(100)
+      expect(progress.some(p => p.phase === 'done')).toBe(false)
+      // 第 1 个片段失败：最后一次发射是 pre-loop segments 0/3 → 3
+      expect(progress.at(-1)).toMatchObject({ phase: 'segments', segmentsDone: 0, segmentsTotal: 3, percent: 3 })
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('拼接失败时 compose 抛出且不发射 done（percent 冻结在 concat 87）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-progress-fail-concat-'))
+    const engine = makeProgressEngine(root, {
+      _concatSegments: vi.fn(async () => { throw new Error('concat boom') }),
+    })
+    const progress = []
+    try {
+      await expect(engine.compose({ scenes: makeScenes(root, 2) }, { transition: 'fade' }, (u) => progress.push(u)))
+        .rejects.toThrow('concat boom')
+      expect(progress.at(-1)).toMatchObject({ phase: 'concat', percent: 87 })
+      expect(progress.some(p => p.phase === 'done')).toBe(false)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('输出校验失败时 percent 冻结在 verify 98 且不发射 done', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-progress-fail-verify-'))
+    const engine = makeProgressEngine(root, {
+      _validateOutput: vi.fn(async () => { throw new Error('verify boom') }),
+    })
+    const progress = []
+    try {
+      const result = await engine.compose({ scenes: makeScenes(root, 1) }, { transition: 'none' }, (u) => progress.push(u))
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/validation failed/i)
+      expect(progress.at(-1)).toMatchObject({ phase: 'verify', percent: 98 })
+      expect(progress.some(p => p.phase === 'done')).toBe(false)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('旁白合并失败时 percent 冻结在 narration 89 且不发射 done', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-progress-fail-narration-'))
+    const engine = makeProgressEngine(root, {
+      _concatNarrationAudio: vi.fn(async () => { throw new Error('narration boom') }),
+    })
+    const progress = []
+    try {
+      const result = await engine.compose({ scenes: makeScenes(root, 2) }, { transition: 'none' }, (u) => progress.push(u))
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/Narration concat failed/i)
+      expect(progress.at(-1)).toMatchObject({ phase: 'narration', percent: 89 })
+      expect(progress.some(p => p.phase === 'done')).toBe(false)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('BGM 混音失败时 percent 冻结在 bgm 92 且不发射 done', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-progress-fail-bgm-'))
+    const engine = makeProgressEngine(root, {
+      _mixBgm: vi.fn(async () => { throw new Error('bgm boom') }),
+    })
+    const progress = []
+    try {
+      const result = await engine.compose(
+        { scenes: makeScenes(root, 2) },
+        { transition: 'none', bgmPath: writeFixture(root, 'bgm.m4a') },
+        (u) => progress.push(u),
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/BGM mix failed/i)
+      expect(progress.at(-1)).toMatchObject({ phase: 'bgm', percent: 92 })
+      expect(progress.some(p => p.phase === 'done')).toBe(false)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('WebM 转码失败时 percent 冻结在 webm 95 且不发射 done', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-progress-fail-webm-'))
+    const engine = makeProgressEngine(root, {
+      _transcodeWebm: vi.fn(async () => { throw new Error('webm boom') }),
+    })
+    const progress = []
+    try {
+      const result = await engine.compose(
+        { scenes: makeScenes(root, 1) },
+        { transition: 'none', format: 'webm' },
+        (u) => progress.push(u),
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/WebM transcode failed/i)
+      expect(progress.at(-1)).toMatchObject({ phase: 'webm', percent: 95 })
+      expect(progress.some(p => p.phase === 'done')).toBe(false)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('持久化失败时 percent 冻结在 verify 98 且不发射 done', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-progress-fail-persist-'))
+    const engine = makeProgressEngine(root)
+    const progress = []
+    const originalCopyFileSync = fs.copyFileSync
+    const copySpy = vi.spyOn(fs, 'copyFileSync').mockImplementation((src, dest) => {
+      if (String(dest).includes('_narration.m4a')) throw new Error('persist boom')
+      return originalCopyFileSync.call(fs, src, dest)
+    })
+    try {
+      const result = await engine.compose({ scenes: makeScenes(root, 1) }, { transition: 'none' }, (u) => progress.push(u))
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/Failed to persist compose artifacts/i)
+      expect(progress.at(-1)).toMatchObject({ phase: 'verify', percent: 98 })
+      expect(progress.some(p => p.phase === 'done')).toBe(false)
+    } finally {
+      copySpy.mockRestore()
       fs.rmSync(root, { recursive: true, force: true })
     }
   })
