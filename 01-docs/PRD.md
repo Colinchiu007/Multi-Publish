@@ -721,6 +721,7 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
 - **Doubao 个人槽位**：当前配置与 TTS adapter 的已注册/已验证调用合同不证明已经把用户个人槽位同步到本地，也不允许本地创建或伪造槽位。
   UI 必须提示用户先在供应商官方控制台创建/管理音色，再点击“刷新音色目录”并仅在有官方 API 证据及已验证的
   `listVoices` adapter 后选择；证据缺失时显示 `unsupported`/`unavailable`，不显示假列表。
+- **多模态模型克隆（2026-08-09，与 7.4.1.1 同合同）**：当语音生成器选择多模态模型（如 `minimax-multimodal`）时，克隆链路的 provider 能力校验与音色目录一致——`category=multimodal` 且 capabilities **包含 tts** 才放行，模型匹配同时认 `models` 与 `capability_models.tts`；未声明 tts 能力的多模态模型返回 `VOICE_CLONE_MODEL_MISMATCH`（文案「所选语音模型与克隆配置不一致，请检查模型设置」），不调用 adapter、不落样本、不写 registry。删除本地克隆音色为纯本地管理（MiniMax 无远端删除端点），与 provider 类别无关。
 - **音色克隆区域交互合同**：
   - 入口按钮文案固定为「选择本地音频文件」（已选样本后为「重新选择音频文件」）；上传要求提示由主进程返回的
     `getRequirements` 数据驱动渲染（格式 mp3/m4a/wav、时长 10s–5min、大小 ≤20MB），提示必须显示真实数值，不得把
@@ -1273,7 +1274,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | provider 能力校验 | `tts-voice-service._hasMatchingProvider` 与 `tts-voice-clone-service._hasMatchingProvider` **同合同**：`category='multimodal'` 且 capabilities **包含 tts** 才放行（音色目录与克隆链路一致）；未声明 tts 能力 → 音色目录 `VOICE_MODEL_MISMATCH` / 克隆 `VOICE_CLONE_MODEL_MISMATCH`，不调用 adapter、不读缓存、不写偏好。模型匹配同时考虑 `models` 与 `capability_models.tts`（避免只列 models 时漏判默认 TTS 模型）。 |
 | 克隆与本地管理 | 本地克隆音色（`tts-voice-clone-service`）对 `minimax-tts / minimax / minimax-multimodal` 使用同一 `isProviderCloneVoiceIdValid` 校验与本地管理合同（删除为纯本地管理，不涉及远端 API）；克隆要求/错误码映射沿用 7.1.4。 |
 | 交互与提示 | 用户删除全部单能力模型后，「图片生成器」「语音生成器」下拉仍列出「MiniMax（多模态）」；语音模型下拉仅显示 `speech-2.8-turbo` 并默认选中；音色目录正常加载 MiniMax 系统音色并支持克隆/设为默认；所有提示文案与错误码映射沿用 7.1.4，无新增误导性文案。 |
-| 验收标准 | ① 只配置 `minimax-multimodal` 时「图片生成器」「语音生成器」下拉可见「MiniMax（多模态）」；② 语音模型下拉只有 `speech-2.8-turbo` 且默认选中；③ 音色目录可加载 MiniMax 系统音色并支持克隆/设为默认；④ `listProviders('image'/'tts'/'video'/'llm')` 包含已启用多模态、不包含未启用/未声明能力/已软删行；⑤ 未声明 tts 能力的多模态 provider 音色目录请求返回 `VOICE_MODEL_MISMATCH`；⑥ 回归：`tts-voice-catalog / tts-voice-service / model-provider-multimodal / CreateView` 单测全绿，既有单能力 provider（elevenlabs / minimax-tts / openai-tts 等）行为不变。 |
+| 验收标准 | ① 只配置 `minimax-multimodal` 时「图片生成器」「语音生成器」下拉可见「MiniMax（多模态）」；② 语音模型下拉只有 `speech-2.8-turbo` 且默认选中；③ 音色目录可加载 MiniMax 系统音色（`canListVoices=true`、克隆 `enabled=true`）；④ `listProviders('image'/'tts'/'video'/'llm')` 包含已启用多模态、不包含未启用/未声明能力/已软删行；⑤ 未声明 tts 能力的多模态 provider 音色目录请求返回 `VOICE_MODEL_MISMATCH`；⑥ 多模态（`minimax-multimodal` + `speech-2.8-turbo`）下「选择本地音频 → 添加克隆音色」成功（`VOICE_CLONE_MODEL_MISMATCH` 不复现），克隆音色可列出/设为默认/删除（纯本地管理）；⑦ 未声明 tts 能力的多模态 provider 克隆请求返回 `VOICE_CLONE_MODEL_MISMATCH` 且不调用 adapter；⑧ 能力下拉不展示 `is_configured=false` 的 provider，旧配置指向失效 provider 时自动回退到已配置项；⑨ 回归：`tts-voice-catalog / tts-voice-service / tts-voice-clone-service / model-provider-multimodal / CreateView` 单测全绿，既有单能力 provider（elevenlabs / minimax-tts / openai-tts 等）行为不变。 |
 
 ### 7.4.2 运营后台：预设模型 / 多模态能力设置（2026-08-08 新增）
 
