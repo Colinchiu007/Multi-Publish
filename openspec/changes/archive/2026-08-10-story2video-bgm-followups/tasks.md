@@ -24,4 +24,4 @@
 
 - [x] 受影响 vitest 套件全绿（本地 141+ 用例，node env；jsdom 缺传递依赖为环境问题，CI 全量验证）
 - [x] 双模型审查（Claude Critical 0，W1-W3 + not_allowed 已修复；antigravity 降级记录）
-- [ ] PR + 合并回 main；openspec/CCG/learnings 三同步
+- [x] PR #464 已合并回 main（merge f5fb1c82，CI 全绿）；本归档为三同步
