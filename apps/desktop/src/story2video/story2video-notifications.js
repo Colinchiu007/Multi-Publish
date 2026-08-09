@@ -127,8 +127,9 @@ const DEGRADED_ASSET_LABELS = Object.freeze({
   zh: Object.freeze({ placeholder_image: '占位图片', silent_narration: '静音旁白' }),
   en: Object.freeze({ placeholder_image: 'placeholder images', silent_narration: 'silent narration' }),
 })
-// API Key 未配置/未设置/解密失败 → 独立提示（2026-08-09：避免被归一化成「未找到模型」误导排查）
-const MODEL_API_KEY_PATTERN = /(api\s*key\s*not\s*configured|(?:尚未配置|未配置|未设置).{0,12}api\s*key|api\s*key.{0,12}(?:not\s*configured|未配置)|decrypt failed|解密失败)/i
+// API Key 未配置/未设置/缺失/解密失败 → 独立提示（2026-08-09：避免被归一化成「未找到模型」误导排查）。
+// decrypt failed/解密失败 仅在 api-key 上下文内匹配，避免把非 key 解密错误误归类。
+const MODEL_API_KEY_PATTERN = /(api\s*key\s*not\s*configured|(?:尚未配置|未配置|未设置).{0,12}api\s*key|api\s*key.{0,12}(?:not\s*configured|未配置)|(?:missing api key|api key required|no api key|api key.{0,16}(?:missing|required|not found|未找到))|(?:api[ _-]?key.{0,20}(?:decrypt failed|解密失败)|(?:decrypt failed|解密失败).{0,20}api[ _-]?key))/i
 const MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用)/i
 const ACCESS_DENIED_PATTERN = /(当前许可证无权访问|当前账号没有所需权益|未授权|未登录|需要登录|access denied|not authorized|permission denied|sign[ -]?in required)/i
 const RATE_LIMITED_PATTERN = /(rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|too\s*many\s*requests)/i

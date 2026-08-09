@@ -210,6 +210,44 @@ function cleanupImportedMediaPaths (params, options = {}) {
   return cleaned
 }
 
+const DEFAULT_IMPORTED_MEDIA_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * selected-media 老化回收：删除超过 maxAgeMs 的普通文件（跳过符号链接与目录）。
+ * BGM 属「可复用」导入不随运行收尾删除，靠此老化回收防止无界增长；
+ * 被回收的 BGM 后续运行会经 compose 降级路径（bgmSkippedReason='unreadable'）处理，不会硬失败。
+ * @param {object} [options]
+ * @param {string} [options.baseDir] - 默认 IMPORTED_MEDIA_DIR
+ * @param {number} [options.maxAgeMs] - 默认 7 天
+ * @returns {number} 已清理文件数
+ */
+function gcImportedMedia (options = {}) {
+  const baseDir = path.resolve(options.baseDir || IMPORTED_MEDIA_DIR)
+  const maxAgeMs = Number.isFinite(Number(options.maxAgeMs)) && Number(options.maxAgeMs) > 0
+    ? Number(options.maxAgeMs)
+    : DEFAULT_IMPORTED_MEDIA_MAX_AGE_MS
+  let entries
+  try {
+    entries = fs.readdirSync(baseDir, { withFileTypes: true })
+  } catch (_) { return 0 } // 目录不存在等 → 无可回收
+  let removed = 0
+  const now = Date.now()
+  for (const entry of entries) {
+    if (!entry.isFile()) continue
+    const fullPath = path.join(baseDir, entry.name)
+    if (!isPathWithin(fullPath, [baseDir])) continue
+    try {
+      const linkStat = fs.lstatSync(fullPath)
+      if (!linkStat.isFile() || linkStat.isSymbolicLink()) continue
+      const stat = fs.statSync(fullPath)
+      if (now - stat.mtimeMs <= maxAgeMs) continue
+      fs.unlinkSync(fullPath)
+      removed++
+    } catch (_) { /* 单个文件清理失败忽略，不阻塞其余 */ }
+  }
+  return removed
+}
+
 function getRunInputDir (runId, options = {}) {
   const baseDir = path.resolve(options.baseDir || path.join(STORY2VIDEO_TEMP_DIR, 'inputs'))
   return path.join(baseDir, safeRunId(runId))
@@ -286,6 +324,8 @@ module.exports = {
   copyImportedMedia,
   importUserSelectedMedia,
   cleanupImportedMediaPaths,
+  gcImportedMedia,
+  DEFAULT_IMPORTED_MEDIA_MAX_AGE_MS,
   getRunInputDir,
   writeDataImage,
   cleanupRunInputDir,

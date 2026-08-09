@@ -83,7 +83,7 @@ describe('Story2Video 通知模型', () => {
     })
   })
 
-  it('将「API Key 未配置/解密失败」解析为独立提示，而非「未找到模型」', () => {
+  it('将「API Key 未配置/缺失/解密失败」解析为独立提示，而非「未找到模型」', () => {
     const zh = resolveStory2VideoNotification({
       error: '尚未配置 API Key，请先在“模型设置”中填写 MiniMax Image 的 API Key 后重试（API Key not configured）',
     })
@@ -91,14 +91,30 @@ describe('Story2Video 通知模型', () => {
     expect(zh.message).toContain('API Key')
     expect(zh.message).not.toContain('未找到需要的相关模型')
 
+    // api-key 上下文内的解密失败
     const decrypt = resolveStory2VideoNotification({
-      error: 'ModelProviderCrypto Decrypt failed: Error while decrypting the ciphertext provided to safeStorage.decryptString.',
+      error: 'Provider API Key decrypt failed: safeStorage could not decrypt the api_key ciphertext.',
     })
     expect(decrypt.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
 
     const en = resolveStory2VideoNotification({ error: 'API Key not configured' }, { locale: 'en-US' })
     expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
     expect(en.message).toContain('API key')
+
+    // 常见英文缺失表述
+    expect(resolveStory2VideoNotification({ error: 'Missing API key for provider openai' }).key)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
+    expect(resolveStory2VideoNotification({ error: 'api key required' }).key)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
+    expect(resolveStory2VideoNotification({ error: 'No API key found in config' }).key)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
+  })
+
+  it('无 api-key 上下文的解密失败不误归类为「API Key 未配置」', () => {
+    const resolved = resolveStory2VideoNotification({
+      error: 'Project file Decrypt failed: Error while decrypting the ciphertext provided to safeStorage.decryptString.',
+    })
+    expect(resolved.key).not.toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
   })
 
   it('真正的模型缺失仍解析为「未找到需要的相关模型」', () => {

@@ -134,6 +134,28 @@ describe('多模态模型类别与 MiniMax 预设', () => {
     expect(JSON.parse(row2.models).filter(m => m === 'MiniMax-M2.7')).toHaveLength(1)
   })
 
+  it('存量行 models 含空格/空串时清洗去重后回填', async () => {
+    const { db, store } = await createStore(database)
+    const manager = newManager(store)
+    db.prepare("UPDATE model_providers SET models = ?, updated_at = datetime('now') WHERE id = 'minimax-multimodal'")
+      .run(JSON.stringify(['speech-2.8-turbo ', '', 'image-01', ' image-01 ', 'MiniMax-Hailuo-2.3']))
+    manager._syncPresetCapabilities()
+    const row = db.prepare("SELECT models FROM model_providers WHERE id = 'minimax-multimodal'").get()
+    const models = JSON.parse(row.models)
+    expect(models).toEqual(['speech-2.8-turbo', 'image-01', 'MiniMax-Hailuo-2.3', 'MiniMax-M2.7'])
+  })
+
+  it('预设已全部存在但存量含空格/空串/重复时，清洗结果也持久化', async () => {
+    const { db, store } = await createStore(database)
+    const manager = newManager(store)
+    // 已含全部预设模型，但带空格/空串/重复（无需回填，清洗必须落库）
+    db.prepare("UPDATE model_providers SET models = ?, updated_at = datetime('now') WHERE id = 'minimax-multimodal'")
+      .run(JSON.stringify(['speech-2.8-turbo ', '', 'image-01', ' image-01 ', 'MiniMax-Hailuo-2.3', 'MiniMax-M2.7']))
+    manager._syncPresetCapabilities()
+    const row = db.prepare("SELECT models FROM model_providers WHERE id = 'minimax-multimodal'").get()
+    expect(JSON.parse(row.models)).toEqual(['speech-2.8-turbo', 'image-01', 'MiniMax-Hailuo-2.3', 'MiniMax-M2.7'])
+  })
+
   it('非 multimodal 类别行 models 不被同步改写', async () => {
     const { db, store } = await createStore(database)
     const manager = newManager(store)

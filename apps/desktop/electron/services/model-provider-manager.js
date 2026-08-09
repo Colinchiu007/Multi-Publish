@@ -424,9 +424,25 @@ class ModelProviderManager {
           const modelsRow = db.prepare('SELECT models FROM model_providers WHERE id = ?').get(p.id)
           if (modelsRow) {
             const parsedModels = safeJsonParse(modelsRow.models, [])
-            const existingModels = Array.isArray(parsedModels) ? parsedModels : []
+            const rawModels = Array.isArray(parsedModels) ? parsedModels : []
+            // 清洗存量项：trim/去空串/去重；预设下架模型后存量残留（只增不删策略）需人工迁移清理。
+            const existingModels = []
+            const seenModels = new Set()
+            for (const model of rawModels) {
+              if (typeof model !== 'string') continue
+              const clean = model.trim()
+              if (!clean || seenModels.has(clean)) continue
+              seenModels.add(clean)
+              existingModels.push(clean)
+            }
+            // 清洗本身（去空格/空串/重复）也视为变更并持久化，即使无需回填预设模型。
+            let modelsChanged = existingModels.length !== rawModels.length
+            if (!modelsChanged) {
+              for (let i = 0; i < rawModels.length; i++) {
+                if (rawModels[i] !== existingModels[i]) { modelsChanged = true; break }
+              }
+            }
             const mergedModels = [...existingModels]
-            let modelsChanged = false
             for (const model of p.models) {
               if (typeof model === 'string' && model.trim() && !mergedModels.includes(model.trim())) {
                 mergedModels.push(model.trim())

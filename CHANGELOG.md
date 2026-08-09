@@ -1,3 +1,12 @@
+## [未发布] 修复：BGM 降级原因区分 + API-Key 提示收窄 + models 清洗 + selected-media 老化回收（2026-08-10）
+
+- 修复：compose 对不可用 BGM 降级时区分原因——`bgmSkippedReason` 返回 `size_exceeded`（超 15MB）/ `format_unsupported`（扩展名不支持）/ `unreadable`（缺失/不可读/越界），对应中文警告不再把「超限」提示成「不可读」；总输入大小超限仍 fail closed。
+- 修复：API-Key 错误归一化收窄——`decrypt failed`/`解密失败` 仅在 api-key 上下文内匹配（非 key 解密错误不再误归类），补充 `Missing API key` / `api key required` / `No API key` 英文覆盖，均映射 `MODEL_API_KEY_REQUIRED`。
+- 修复：多模态预设存量行 models 回填前 trim/去空串/去重，避免空格重复追加。
+- 新增：`selected-media` 导入媒体老化回收（`gcImportedMedia`，默认 >7 天，启动时执行一次），BGM 可复用导入不再无界增长；被回收的 BGM 后续经 compose 降级路径处理不硬失败。
+- 回归：paths +2（GC 过期/保留/目录）、compose-engine +2（超限/格式 reason）、notifications +2（decrypt 收窄正反例/英文缺失 key）、model-provider-multimodal +1（脏 models 清洗）；聚焦 141 用例通过（本地 node env 验证，jsdom 缺传递依赖为环境问题，CI 全量验证）。
+- 边界：compose warnings 前端接线（providerWarnings 管道）为后续项；真实 provider 行为与第三方平台发布仍属外部验收。
+
 ## [未发布] 修复：图片轮播 BGM 清理时序导致重试失败 + API Key 提示拆分 + 多模态 models 回填（2026-08-09）
 
 - 修复：图片轮播（story2video-compose）运行收尾不再删除已导入的 BGM 文件（`cleanupImportedMediaPaths(run.params, { skipBgm: true })`）——此前运行结束（完成/失败/取消）会把 `%TEMP%\story2video\selected-media\bgm-*.mp3` 删掉，而前端配置仍引用该路径，重试/断点续跑时 compose 阶段 36ms 内报 `BGM path is not allowed or unreadable` 整线失败（真实日志 run_1786288681414_mnnj，27 场景资源全部生成成功后失败）。
