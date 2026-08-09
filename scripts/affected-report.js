@@ -10,6 +10,7 @@
  *   node scripts/affected-report.js                       # base=origin/main head=HEAD
  *   node scripts/affected-report.js --base=<ref> --head=<ref>
  *   node scripts/affected-report.js --base=<ref> --head=<ref> --json
+ *   node <ci-hardening>/scripts/affected-report.js --repo=<path> --base=<ref> --head=<ref>
  *
  * 退出码：0（信息性输出）；参数错误或 git 失败时非 0。
  */
@@ -19,7 +20,9 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const ROOT = path.resolve(__dirname, '..');
+// 仓库根定位：优先 --repo=<path>，其次当前工作目录（在目标仓库内直接运行），
+// 最后回退脚本上级目录（原地部署在仓库 scripts/ 下时）。跨项目复用建议 cd 到目标仓库或传 --repo。
+const ROOT = path.resolve(arg('repo', process.cwd()));
 
 function arg(name, def) {
   const hit = process.argv.find((a) => a.startsWith('--' + name + '='));
