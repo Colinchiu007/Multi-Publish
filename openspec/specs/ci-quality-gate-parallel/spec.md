@@ -15,11 +15,18 @@ quality-gate.yml SHALL 将 gate 拆分为并行 job：static-gates（Gate 1/2/3/
 - **THEN** 每个步骤 run 含 `$PSNativeCommandUseErrorActionPreference = $false`（跨 job 汇总可定位）
 
 ### Requirement: 触发去重
-quality-gate.yml 的 `on` SHALL 仅包含 `pull_request`（branches: [main]）与 `workflow_dispatch`，不得包含 push 触发，避免同 head 双跑。
+
+quality-gate.yml 的 `on` SHALL 仅包含 `pull_request`（branches: [main]）、`workflow_dispatch` 与 `push`（branches: [main]，带与 pull_request 一致的 paths-ignore）；SHALL NOT 包含针对 feature 分支的 push 触发，避免同 head 双跑。push main 用于主分支合并后的全量回归（见 affected-test-selection「全量回归保留」）；feature 分支仍仅由 pull_request 触发。
 
 #### Scenario: 单次触发
+
 - **WHEN** 查看 quality-gate.yml 的 on
-- **THEN** 键为 pull_request 与 workflow_dispatch，无 push
+- **THEN** 存在 pull_request 与 workflow_dispatch，push 仅限 branches: [main]（feature 分支不触发）
+
+#### Scenario: 主分支全量回归
+
+- **WHEN** 代码合并到 main（push main 事件）
+- **THEN** quality-gate 以全量模式执行所有 workspace 测试（nx run-many -t test --all），文档/流程类改动（命中 paths-ignore）跳过
 
 ### Requirement: 契约测试同步
 workflow-contract.test.js 与 gui-ci-exit-contract.test.js SHALL 以并行结构为准：Gate 7/8 步骤匹配锚定为同 job 的 Upload 步骤；gui-ci 对 Gate 7/8/9 的步骤查找 SHALL 跨 job 汇总。

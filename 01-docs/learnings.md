@@ -6080,3 +6080,9 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **触发去重**：`on` 去掉 `push: branches-ignore: [main]`（与 pull_request 同 head 双跑），保留 pull_request + workflow_dispatch → 每 head CI 分钟约减半。
 - **契约测试耦合教训**：workflow 结构被多层契约测试锁定——.github/scripts/workflow-contract.test.js（Gate 4/7/8/9 步骤名+邻接注释正则）与 apps/desktop/tests/gui-ci-exit-contract.test.js（jobs.gate.steps、Gate 9 退出码模式）。拆分时必须同步：邻接锚点从 `# --- Gate N` 注释改为同 job 的 Upload 步骤；单 job 引用改跨 job 汇总（Object.values(jobs).flatMap）。
 - **取舍**：并行总分钟略升（6×npm ci + 各 gate ≈30min vs 25min），但墙钟减半 + 失败隔离（单 gate 失败不阻断其余）；触发去重后每 head 净降 ~40%。
+## Phase 2：Nx affected 测试选择 + 任务缓存（2026-08-09，PR #439 → 28fe9806）
+- **选型**：Nx 20（优于 Turborepo）——project graph 含传递依赖闭包、npm workspaces 原生支持、inputs 精确缓存键、未来可开远程缓存。
+- **pitfall：nx 默认跨项目并行破坏确定性串行契约**——首次 CI 中 shared-utils 时序敏感 scheduler 测试 5000ms 超时（nx 并行跑 9 个 workspace 争用 CPU）；修复为 `--parallel=1`，与旧 `npm run test --workspaces --if-present` 串行资源画像一致。影响面：任何「用 nx 编排测试」的仓库都要显式控制并行度。
+- **pitfall：doc-gate 配置类路径缺口**——根 package.json/nx.json 变更触发 doc-sync 硬门禁失败；补入 doc-gate paths-ignore（package.json/package-lock.json/nx.json），与 `.github/**` 自动 bypass 一致。
+- **契约**：`CI_IGNORED_PATHS` + nx 引入契约 + doc-gate 路径断言（契约测试 29 项）；affected 行为由「shared-utils 改动 → 仅 shared-utils+desktop」场景守护。
+- **全量回归保留**：quality-gate 新增 push(main) 触发（MODIFIED delta 更新 ci-quality-gate-parallel 触发去重），主分支合并后全量；feature 分支仍仅 PR 触发。
