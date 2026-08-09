@@ -636,11 +636,13 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.s2vConfig).toHaveProperty("voiceProvider");
     expect(w.vm.s2vConfig).toHaveProperty("voiceSpeed");
     expect(w.vm.s2vConfig).toHaveProperty("voiceVolume");
-    expect(w.vm.s2vConfig).toHaveProperty("concurrency");
-    // 参数治理（7.1.19）：voicePitch/creativeLevel/splitBaseWordsPerSecond 为系统管理参数，前端不声明
+    // 参数治理（7.1.19/R2）：系统管理参数前端不声明（R1：voicePitch/creativeLevel/splitBaseWordsPerSecond；R2：splitSpeechRate/concurrency/autoAdvance）
     expect(w.vm.s2vConfig).not.toHaveProperty("voicePitch");
     expect(w.vm.s2vConfig).not.toHaveProperty("creativeLevel");
     expect(w.vm.s2vConfig).not.toHaveProperty("splitBaseWordsPerSecond");
+    expect(w.vm.s2vConfig).not.toHaveProperty("splitSpeechRate");
+    expect(w.vm.s2vConfig).not.toHaveProperty("concurrency");
+    expect(w.vm.s2vConfig).not.toHaveProperty("autoAdvance");
     expect(w.vm.s2vConfig.splitLanguage).toBe("auto");
   });
 
@@ -994,7 +996,6 @@ describe("CreateView - S2V orchestration", () => {
       publishEnabled: true,
       title: "长安夜景",
       tagsText: "历史,夜景",
-      autoAdvance: true,
     };
 
     await w.vm.startPipeline();
@@ -1026,8 +1027,13 @@ describe("CreateView - S2V orchestration", () => {
     // 参数治理（7.1.19）：提交不携带系统管理参数（creativeLevel/voice.pitch），由 normalizer 默认兜底
     expect(request.optimize).not.toHaveProperty("creativeLevel");
     expect(request.voice).not.toHaveProperty("pitch");
+    // 参数治理 R2：提交不携带 split.speechRate（normalizer 以 voice.speed 派生）与顶层 concurrency（默认 3 兜底）
+    expect(request.split).not.toHaveProperty("speechRate");
+    expect(request).not.toHaveProperty("concurrency");
     // split.baseWordsPerSecond 仍随提交按语言表显式下发（auto → 3.3），与 normalizer 语言表兜底同源
     expect(request.split.baseWordsPerSecond).toBe(3.3);
+    // params 保留字面量 autoAdvance: true（流水线自动推进）
+    expect(mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].autoAdvance).toBe(true);
     expect(request).not.toHaveProperty("versions");
     expect(request).not.toHaveProperty("perImageDuration");
     expect(w.vm.outputConfig).toEqual({ resolution: "3840x2160", fps: 60, format: "mp4" });
