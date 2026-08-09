@@ -34,7 +34,12 @@
 - C 盘剩余 < 10GB 时执行一次全量清理（worktree 残留 + `C:\tmp` 临时产物）。
 - 打包产物默认落 `E:\Multi-Publish-builds`，不堆 C 盘。
 
-## 五、常用命令
+## 五、启动脚本与已知环境差异
+
+- **启动脚本**：`scripts/launch-worktree.js`（收编自 `C:\tmp\launch-worktree-4k.js`）——以指定 worktree + 已登录 profile 启动桌面应用；参数 `--worktree/--profile/--cdp/--backend-port/--prompt-port/--splitter-port/--dev-server-port/--callback-port/--env-file`；macOS 前瞻（electron 可执行路径按平台解析）。用法：`node scripts/launch-worktree.js --env-file /d/Data/projects/prompt-engine/.env`。
+- **已知环境差异（worktree junction 双模块实例）**：worktree 的 `node_modules/@multi-publish/*` 指向主仓库 packages（junction），导致 `@multi-publish/ai-writer` 解析到主仓库副本、而 `ai-writer-flow.integration.test.js` 直连本 worktree 副本 → 本地全量测试 1 例 `instanceof AiWriter` 失败（主仓库原生路径与 CI 全绿，非代码 bug）。根治工具：`scripts/fix-worktree-node-modules.sh`（停应用 → 删 junction → 独立 `npm install` → 验证解析）；默认保留 junction 并记录差异。
+
+## 六、常用命令
 
 ```bash
 # 盘点
