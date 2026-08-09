@@ -1,0 +1,12 @@
+{
+  "id": "s2v-configured-provider-filter",
+  "title": "能力下拉只展示已配置服务商（避免失效 provider 卡流水线）",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "desktop",
+  "currentPhase": "review",
+  "nextAction": "提交/推送/PR/合并",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "branch": "codex/s2v-configured-provider-filter"
+}
