@@ -13,6 +13,15 @@
 - **修复**：`selectPipeline` 选中 story2video-compose 时主动触发恢复；生命周期内只恢复一次（`_s2vRestoredOnce`，同会话切走再切回不覆盖编辑）；mounted 保留。回归：真实交互路径恢复 + 不重复恢复 2 例。
 - **教训**：涉及「挂载后由用户操作触发」的功能，测试必须走真实触发路径（如调用 selectPipeline/点击），不能只直接调方法；「保存/恢复」类功能验收必须包含**重启后恢复**闭环，单测 + 手工都要做。
 
+## 工作区 / Worktree / 分支堆积复盘与治理 (2026-08-09)
+
+- **表象**：git worktree 堆积到 11 个、本地分支 20 个、远程分支 17 个；C:\tmp 历史残留约 19GB，C 盘仅剩 7.9GB（构建随时可能失败）。
+- **根因**：① worktree/分支回收未纳入流程——归档三同步（openspec+CCG+learnings）缺「worktree remove + 分支删除」；② C:\tmp 无治理，每会话散落 profile/日志/产物，且多会话整库拷贝（每份带 ~1.25GB node_modules 副本）；③ 打包产物堆 C 盘而非 E 盘。
+- **清理（本次）**：8 worktree + 18 本地分支 + 9 远程分支；C:\tmp 残留 ~17.6GB（含 11 个大目录整库拷贝、29 个小项、日志/tar）；E 盘旧构建 ~7.6GB。C 盘剩余恢复到 25.5GB。
+- **保留项**：已登录 debug-profile、当前交付 worktree、worktree-evidence-backup、yixiaoer-gui-e2e-ci-artifacts（截图证据）、未闭环分支（history-not-logged-in ahead 1）、E 盘构建源。
+- **预防（已落地）**：新增 `01-docs/WORKSPACE-HOUSEKEEPING.md`（四同步回收 + 目录约定 + 清理判定 + 磁盘告警）；教训：合并后必须同步回收 worktree/分支；临时产物固定目录并随任务清理；验收证据目录单独保留。
+- **边界**：删除前用 `git branch --merged` + `gh pr list --state merged` 核对；`-D`/force 仅用于确认可丢弃的 dirty（行尾噪音/构建产物）；绝不删已登录 profile 与证据。
+
 ## MiniMax Image 空图未标记 emptyResult 复盘 (2026-08-09，质量节拍 Bug 反哺)
 
 - **表象**：27 场景图片轮播任务 generate_assets 阶段 **26/27 成功**，唯独 Image #2 报 `image_generation returned no image: success` → 整线 failed（run_1786270877725_bw2m）。断点续跑（resumeOrchestration）后 17s 全部成功——确认是 provider 瞬时空图，不是提示词内容问题。
