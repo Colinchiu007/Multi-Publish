@@ -1,0 +1,13 @@
+{
+  "id": "ci-affected-test-selection",
+  "title": "Phase 2: affected 测试选择 + 任务缓存（Nx）",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "ci",
+  "openspecChange": "ci-affected-test-selection",
+  "currentPhase": "planning",
+  "nextAction": "OpenSpec 工件已就绪（proposal/specs/design/tasks），等用户 review 后 /opsx:apply",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "branch": "codex/ci-affected-test-selection-plan"
+}
