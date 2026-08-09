@@ -7,7 +7,7 @@
 
 ## 2. 职责边界文档
 
-- [x] 工作流头注释（4 点）；CHANGELOG、learnings
+- [x] 工作流头注释（4 点）；CHANGELOG、learnings；gui-ci-exit-contract 同步迁移契约（runs-on/步骤名/timeout/rebuild 顺序断言）
 - **测试目标**：无（文档核对）
 
 ## 3. 门禁与交付
