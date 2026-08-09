@@ -1,3 +1,10 @@
+## [未发布] 修复：最小化不再强制隐藏到托盘，恢复系统常规最小化（2026-08-09）
+
+- 修复：移除 `services/system-tray.js` 中无条件的 `minimize → event.preventDefault() + hide()` 拦截——窗口最小化恢复系统常规行为（任务栏最小化），不再因任何最小化事件被藏进托盘；「运行中有流水线任务且托盘可用时，关闭窗口→隐藏到托盘后台执行」的既有行为（`window-close-policy.js`）保持不变。
+- 根因：`d3cbe6a0`（蚁小二逆向工程集成）引入无条件最小化进托盘；任何 minimize 事件（用户点最小化、系统/自动化触发）都会把窗口隐藏到托盘，用户易误以为应用消失、无法操作。
+- 回归：`system-tray.test.js` 新增 2 例（init 不注册 minimize 拦截 / 双击托盘图标恢复+显示）；`system-tray` + `window` + `window-close-policy` 相关套件 87 例通过，eslint 0 error/warning。
+- 边界：桌面端单元测试覆盖；真实窗口最小化/托盘交互仍属手动验收。
+
 ## [未发布] 测试：视频创作除图片轮播外流水线整体 E2E 覆盖（2026-08-09）
 
 - 新增：桌面端前端功能 E2E 套件将「视频创作」页（CreateView）除图片轮播（story2video-compose）外的 13 条内置流水线全部纳入 UI 级端到端覆盖——自动编排 7 条（animated-explainer / framework-smoke / documentary-montage / animation / avatar-spokesperson / character-animation / hybrid）、媒体流水线 4 条（clip-factory / cinematic / talking-head / localization-dub，含视频素材导入与口播文案）、状态机流水线 podcast-repurpose；每条断言「详情渲染 → 标题渲染 → 启动携带正确流水线名（IPC method + args[0]）」。

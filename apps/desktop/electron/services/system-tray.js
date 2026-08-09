@@ -3,11 +3,11 @@
  * SystemTray — 系统托盘管理
  * 
  * 基于蚁小二逆向工程的系统托盘：
- * - 应用最小化到托盘
+ * - 最小化保持系统常规行为；运行任务时关闭窗口→隐藏到托盘后台执行
  * - 托盘菜单（设置、发布、退出）
  * - 托盘闪烁告警（发布失败时）
  * 
- * 文件位置: apps/desktop/electron/system-tray.js
+ * 文件位置: apps/desktop/electron/services/system-tray.js
  */
 // eslint-disable-next-line no-unused-vars
 const { Tray, Menu, ipcMain, nativeImage, shell, app } = require('electron')
@@ -17,8 +17,6 @@ const log = require('./logger')
 const { isTrustedSender } = require('../core/ipc-security')
 
 let tray = null
-// eslint-disable-next-line no-unused-vars
-let mainWindowRef = null
 const MAX_FLASH_TIMES = 20
 
 // dev 模式 dist/ 未构建时托盘图标缺失的兜底（内嵌 base64，按平台区分）：
@@ -58,7 +56,6 @@ function resolveTrayIcon (platform = process.platform) {
 function init (mainWindow) {
   // 防止重复 init 导致 Tray 泄漏（销毁旧 Tray 再创建新的）
   if (tray) { try { tray.destroy() } catch (_) { /* ignore */ } }
-  mainWindowRef = mainWindow
   
   // 创建托盘图标（使用应用图标；dev 模式 dist/ 缺失时回退内嵌占位图）
   const icon = resolveTrayIcon()
@@ -107,13 +104,6 @@ function init (mainWindow) {
       }
       mainWindow.show()
     }
-  })
-  
-  // 监听窗口最小化到托盘
-  mainWindow.on('minimize', (event) => {
-    event.preventDefault()
-    mainWindow.hide()
-    log.info('SystemTray', 'Window minimized to tray')
   })
   
   log.info('SystemTray', 'System tray initialized')
