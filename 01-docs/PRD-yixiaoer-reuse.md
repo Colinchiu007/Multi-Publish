@@ -243,3 +243,22 @@ Multi-Publish v2.3.53 是一个 Electron 多平台内容发布工具，已具备
 - 视觉：像素门禁 17/17、功能性视觉回归 25/25、单视图机器断言全部通过；账号/发布/发布记录基线已按新工作区人工审阅后刷新。
 - 构建：Vue/Preload 构建通过；Windows x64 Electron Builder、asar 清单、`@multi-publish/rpa-engine` require 和 8 秒启动检查均完成。
 - 真实平台登录、团队服务和线上发布结果仍属于外部依赖，不计入本地通过率。
+
+## 9. 2026-08 Round 2 布局与代码收敛增补
+
+本轮聚焦布局系统统一和代码多源收敛，不修改 main 进程 IPC 合同。
+
+### 9.1 已完成
+
+- **布局统一**：`App.vue` 挂载 `YixiaoerSidebar`，`isYixiaoerWorkspace` 从 3 条路由白名单改为排除式黑名单，覆盖全部主导航路由（`/`、`/accounts`、`/publish`、`/publish/history` 等）。
+- **首页重写**：`Home.vue` 完全重写为蚁小二风格仪表盘（问候语+快捷操作、4 列数据概览、6 宫格快捷入口、支持平台展示、近期动态）。
+- **导航动态化**：`YixiaoerSidebar` 用户名/头像从 `identityStore` 读取，许可证标签从 `licenseStore` 读取；`YixiaoerModuleNav` 新增 homeTabs、publishTabs 加入"新建发布"。
+- **代码收敛**：`accounts.js` 新增 `ensureLoaded()` 幂等加载；`PublishHistory.vue` 平台名/图标/视频判断统一到 `platformStore`；新建 `PublishDraftList.vue` 共享草稿列表组件。
+- **测试更新**：`YixiaoerSidebar.test.js`、`YixiaoerModuleNav.test.js` 同步更新。
+
+### 9.2 待后续完成
+
+- `Publish.vue` 中仍有 inline style 未迁移到 scoped CSS + token（平台覆盖面板、定时发布控件等）。
+- 弹窗组件（`AccountLoginDialog`、`AccountProxyDialog`、`AccountGroupManager`）的样式微调。
+- `publish-contract.js` 中 `PLATFORM_LABELS` 尚未完全废弃（待全量迁移后删除）。
+- 视觉像素对比测试（需蚁小二截图基线）。

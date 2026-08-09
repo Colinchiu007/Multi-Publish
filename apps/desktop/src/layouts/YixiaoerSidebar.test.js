@@ -9,6 +9,21 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push }),
 }))
 
+vi.mock('@/stores/identity', () => ({
+  useIdentityStore: () => ({
+    user: { name: '测试用户', username: 'testuser' },
+    displayName: '测试用户',
+  }),
+}))
+
+vi.mock('@/stores/license', () => ({
+  useLicenseStore: () => ({
+    isPro: false,
+    isTrial: false,
+    isFree: true,
+  }),
+}))
+
 import YixiaoerSidebar from './YixiaoerSidebar.vue'
 
 let wrapper
@@ -40,10 +55,11 @@ function mountSidebar (path = '/accounts') {
 }
 
 describe('YixiaoerSidebar', () => {
-  it('renders the account route active with the observed primary navigation labels', () => {
+  it('renders the account route active with dynamic user info from stores', () => {
     const sidebar = mountSidebar('/accounts')
 
-    expect(sidebar.text()).toContain('邱里奥谈认知')
+    expect(sidebar.text()).toContain('测试用户')
+    expect(sidebar.text()).toContain('免费版')
     expect(sidebar.text()).toContain('主页')
     expect(sidebar.text()).toContain('发布')
     expect(sidebar.text()).toContain('账号')

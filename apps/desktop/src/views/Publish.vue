@@ -448,7 +448,7 @@ const { platforms, groupedPlatforms } = usePublishPlatformCatalog(platformStore,
 
 // ── 多账号加载 ──────────────────────────
 async function loadAccounts () {
-  await accountStore.load()
+  await accountStore.ensureLoaded()
 }
 
 // ── 非批量模式（本地 UI 状态） ────────────

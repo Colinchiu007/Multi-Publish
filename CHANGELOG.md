@@ -1,3 +1,12 @@
+## [未发布] 蚁小二账号/发布模块全面对标 Round 2（2026-08-10）
+
+- 布局：`App.vue` 挂载 `YixiaoerSidebar` 到工作区壳层，`isYixiaoerWorkspace` 从 3 条路由白名单改为排除少数特殊页面的黑名单模式，所有主导航可达路由（首页/账号/发布/发布记录/草稿箱等）统一使用 `YixiaoerSidebar + YixiaoerModuleNav` 双导航布局。
+- 首页：`Home.vue` 完全重写为蚁小二风格仪表盘——问候语+快捷操作、4 列数据概览（从 IPC 读取发布统计）、6 宫格快捷入口、支持平台展示、近期动态列表。
+- 导航动态化：`YixiaoerSidebar.vue` 用户头像/名称从 `identityStore` 动态读取，许可证标签从 `licenseStore` 读取；`YixiaoerModuleNav.vue` 新增 homeTabs 支持首页路由、publishTabs 新增"新建发布" tab。
+- 代码收敛：`accounts.js` 新增 `ensureLoaded()` 幂等加载方法；`PublishHistory.vue` 平台名/图标/视频判断统一到 `platformStore`（`getLabel`/`getIcon`/`getContentCategory`）；新建 `PublishDraftList.vue` 共享草稿列表组件。
+- 测试：更新 `YixiaoerSidebar.test.js`（动态用户信息断言）、`YixiaoerModuleNav.test.js`（publish 3 tabs + home 路由测试）。
+- 边界：Vite 完整构建因预存在的 node_modules 损坏（`@ctrl/tinycolor` 解析失败）未通过，Vue SFC 编译验证全部通过；真实平台登录/发布仍属外部验收。
+
 ## [未发布] 修复：图片轮播 BGM 清理时序导致重试失败 + API Key 提示拆分 + 多模态 models 回填（2026-08-09）
 
 - 修复：图片轮播（story2video-compose）运行收尾不再删除已导入的 BGM 文件（`cleanupImportedMediaPaths(run.params, { skipBgm: true })`）——此前运行结束（完成/失败/取消）会把 `%TEMP%\story2video\selected-media\bgm-*.mp3` 删掉，而前端配置仍引用该路径，重试/断点续跑时 compose 阶段 36ms 内报 `BGM path is not allowed or unreadable` 整线失败（真实日志 run_1786288681414_mnnj，27 场景资源全部生成成功后失败）。

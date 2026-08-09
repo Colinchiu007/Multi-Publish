@@ -299,9 +299,12 @@ import { CirclePlus, Clock, Close, Delete, Download, Grid, List, Operation, Sear
 import { useRouter } from 'vue-router'
 import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
+import { usePlatformStore } from '@/stores/platforms'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
 
 const router = useRouter()
+const platformStore = usePlatformStore()
+platformStore.load()
 const activeTab = ref('records')
 const records = ref([])
 const drafts = ref([])
@@ -544,11 +547,11 @@ function clearFilters () {
 }
 
 function platformName (platform) {
-  return PLATFORM_NAMES[platform] || platform || '未指定平台'
+  return platformStore.getLabel(platform) || PLATFORM_NAMES[platform] || platform || '未指定平台'
 }
 
 function platformIcon (platform) {
-  return PLATFORM_ICONS[platform] || '•'
+  return platformStore.getIcon(platform) || PLATFORM_ICONS[platform] || '•'
 }
 
 function matchesDateFilter (record, filter) {
@@ -660,9 +663,10 @@ function contentTypeValue (record) {
   if (['video', 'short_video', 'short-video'].includes(value)) return 'video'
   if (['image', 'gallery'].includes(value)) return 'image'
   if (value) return 'article'
-  return ['douyin', 'bilibili', 'kuaishou', 'tencent_video', 'youtube', 'tiktok'].includes(record?.platform)
-    ? 'video'
-    : 'article'
+  // 使用 platformStore.getContentCategory 统一判断视频平台
+  const category = platformStore.getContentCategory(record?.platform)
+  if (category === 'VIDEO' || category === 'MIXED') return 'video'
+  return 'article'
 }
 
 function contentTypeLabel (record) {

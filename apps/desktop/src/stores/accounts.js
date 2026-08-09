@@ -14,6 +14,7 @@ export const useAccountStore = defineStore('accounts', () => {
   const favoriteIds = ref(new Set())
   const loading = ref(false)
   const error = ref(null)
+  const loaded = ref(false)
 
   const searchQuery = ref('')
   const filterStatus = ref('all')
@@ -42,6 +43,7 @@ export const useAccountStore = defineStore('accounts', () => {
       loadGroups()
       loadFavorites()
       if (shouldReconcileMetadata) reconcileAccountMetadata()
+      loaded.value = true
     } catch (e) {
       error.value = e.message
       accounts.value = []
@@ -49,6 +51,12 @@ export const useAccountStore = defineStore('accounts', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  /** 幂等加载：已加载过则跳过，避免多处 onMounted 重复调用 */
+  async function ensureLoaded() {
+    if (loaded.value && !loading.value) return
+    await load()
   }
 
   const byPlatform = computed(() => {
@@ -380,9 +388,9 @@ export const useAccountStore = defineStore('accounts', () => {
   }
 
   return {
-    accounts, groups, favoriteIds, loading, error, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
+    accounts, groups, favoriteIds, loading, error, loaded, searchQuery, filterStatus, filterPlatform, sortBy, sortOrder, selectedIds, isAllSelected,
     byPlatform, accountsBeforePlatformFilter, filteredAccounts, groupedByPlatform,
-    load, loadGroups, loadFavorites, getDefault, setDefault, renameAccount,
+    load, ensureLoaded, loadGroups, loadFavorites, getDefault, setDefault, renameAccount,
     createGroup, deleteGroup, renameGroup, setGroupPlatform, getGroupAccounts, isAccountInGroup, toggleAccountInGroup,
     isFavorite, toggleFavorite,
     toggleSelect, selectAll, clearSelection, batchDelete, batchSetStatus,
