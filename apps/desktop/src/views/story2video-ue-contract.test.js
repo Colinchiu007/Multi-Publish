@@ -22,6 +22,13 @@ describe('Story2Video fast-mode UI contract', () => {
     expect(source).toContain('<option value="auto">自动识别</option>')
     expect(source).toContain("create.story2video.startPipeline")
     expect(source).toContain("s2vSectionLabel('basic')")
+    // 参数治理（7.1.19）：系统管理参数字段不得在 s2vConfig 默认对象中声明（精确匹配声明块，
+    // 避免误伤注释中提及字段名的合法维护文本）。
+    const s2vConfigBlock = source.match(/s2vConfig:\s*\{[\s\S]*?\n\s*\},\n?\s*orchestrationRunId/)?.[0] || ''
+    expect(s2vConfigBlock).toContain('voiceSpeed')
+    expect(s2vConfigBlock).not.toContain('voicePitch:')
+    expect(s2vConfigBlock).not.toContain('creativeLevel:')
+    expect(s2vConfigBlock).not.toContain('splitBaseWordsPerSecond:')
     expect(source).not.toContain('v-model.number="s2vConfig.voicePitch"')
     expect(source).not.toContain('v-model.number="s2vConfig.concurrency"')
     expect(source).not.toContain('v-model.number="s2vConfig.creativeLevel"')

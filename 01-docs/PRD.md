@@ -1008,6 +1008,57 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 分段重试反馈 | 「重试图片/视频」点击后按钮显示「重试中...」（loading 禁用）；成功后重新解析分段图片媒体 URL（`refreshSegmentImageUrls`），保证新图立即显示；失败也尝试刷新（服务端可能部分更新）并弹出友好错误。 |
 | 验收标准 | ① 流水线失败后弹窗点「知道了」，历史页能看到该任务（状态「生成失败」）；② 点「从断点继续」后任务恢复运行并显示进度；③ 取消流水线后历史页显示「已取消」；④ 分段编辑重试图片，按钮有「重试中...」反馈且新图片立即显示；⑤ 应用重启后失败/取消任务仍在历史中。 |
 
+#### 7.1.19 参数治理与隐藏工程默认值合同（2026-08-09）
+
+**背景**：图片轮播前端 `s2vConfig` 存在「存在但不可控」的隐藏字段（无 UI、恒默认值），既增加契约表面积又制造假配置项。本变更移除 3 个死字段（voicePitch / creativeLevel / splitBaseWordsPerSecond），并把系统管理参数清单、UI-后端边界、双源结构成文。
+
+**1. 前端死字段移除（本变更）**
+
+| 字段 | 原默认 | 处置 | 兜底来源 |
+|------|--------|------|---------|
+| `voicePitch` | 0 | 前端 s2vConfig 移除，提交不再传 `voice.pitch` | normalizer 契约默认 0（`story2video-text-config.js` voice.pitch） |
+| `creativeLevel` | 5 | 前端 s2vConfig 移除，提交不再传 `optimize.creativeLevel` | normalizer 契约默认 5（`story2video-text-config.js` optimize.creativeLevel 1-10；prompt-engine-contract 为第二层兜底） |
+| `splitBaseWordsPerSecond` | 3.3 | 前端 s2vConfig 移除（提交仍按语言表显式下发） | `getLanguageBaseWordsPerSecond`（zh 4.5 / en 2.8 / 其余 3.3）；normalizer 缺省同源兜底 |
+
+- 行为等价性：pipeline `run.params` 先经 `normalizeStory2VideoTextParams` 归一化，下游（stages/resolveRuntimeStageOptions/prompt-engine-contract/project-service）读的都是归一化值（pitch 恒 0、creative_level 恒 5），与前端是否显式提交无关（双模型分析确认无遗漏消费点）。
+- 快照兼容：`_applyS2VSnapshot` 按当前默认键白名单应用，旧快照中的已移除键自动忽略；`splitTargetSeconds` 陈旧值仍按主控字数自愈。
+- 测试：CreateView（字段不存在 + 提交不携带 + 恢复忽略）、UE 契约（字段不存在）、text-config（缺省 → 默认 0/5 兜底）。
+
+**2. 系统管理参数完整清单（前端不暴露 UI；开放 UI 前须评估契约影响）**
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `voicePitch` | 0 | 归一化顶层 `voicePitch`/`voice.pitch`；TTS pitch |
+| `creativeLevel` | 5 | `optimize.creative_level` 1-10；prompt-engine 使用 |
+| `concurrency` | 3 | generate_assets 并发（成本/速度）；有界并发 normalizeAssetConcurrency |
+| `splitBaseWordsPerSecond` | 语言表 | 不暴露 UI，值由语言表派生，随提交下发 |
+| `splitSpeechRate` | 1 | **派生死提交**：normalizer 硬覆盖为 `voice.speed`，渲染层值恒被忽略（下一轮清理候选） |
+| `splitMinWords/MaxWords` | 10/50 | 分镜字数 clamp 边界（内部消费） |
+| `splitSubtitleMinChars/MaxChars/Timing` | 8/15/proportional | 字幕分页内部参数 |
+| `splitEnforceSentenceBoundary` / `splitOverflowToNext` | true | 分句内部策略 |
+| `autoAdvance` / `background` / `checkpointPolicy:'none'` | true/true/none | 全自动编排固定参数（提交恒携带） |
+| `watermarkConfig` 内部项（fontSize/opacity/color/position） | 24/0.6/white/bottom-right | 模板持有（见 4） |
+
+**3. UI-后端边界**
+
+| 参数 | 前端 | 后端边界 |
+|------|------|---------|
+| fps | 产品子集 24/30/60（`activeOutputConfig.fps` 下拉） | 技术边界 1..120（compose 引擎 clampNumber） |
+| splitMaxSentenceLength | 20-1000，默认 200 | YAML `max_sentence_length` 200 |
+| negativePrompt | ≤500 字符（maxlength） | optimize.negative_prompt 字符串 |
+| splitTargetCharsPerScene | 10-50（主控） | 1..200 整数；targetSeconds 反推 1..60 |
+
+**4. watermark / subtitle 双源结构说明（模板-提交协调，非冗余）**
+
+- **watermark**：UI 文本字段 `watermarkText`（用户输入）+ 样式对象 `watermarkConfig`（position/fontSize/opacity/color，模板/默认持有）。提交时合成 `watermark = { ...watermarkConfig, enabled: Boolean(text), text }`；引擎双源兼容（`options.watermarkText || config.text`）。职责：UI 只管文字，样式由系统/模板管理。
+- **subtitle**：UI 选择字段 `subtitleSize`/`subtitleStyleName` + 模板对象 `subtitleStyle`（含 color，`applyS2VTemplate` 写入）。提交时合成 `subtitle = { enabled, size, style, color }`。职责：UI 选字号/样式，color 由模板持有。
+- 二者均为「UI 字段 + 样式对象」协调结构，禁止后续合并为单个扁平字段（会破坏模板应用与恢复兼容）。
+
+**5. 后续清理候选（不在本变更范围）**
+- `split.speechRate` 死提交字段（normalizer 硬覆盖为 voice.speed）→ 下轮移除。
+- Python 后端 YAML `baseWordsPerSecond:3.3` 非语言感知（仅影响绕过 JS 语言表的直接 Python 调用，既有行为）→ 与 JS 语言表对齐时处理。
+- `project-service._safeOptions` 保留 `voicePitch`（读归一化参数，回读安全）→ 治理目标下可保留并注明。
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
