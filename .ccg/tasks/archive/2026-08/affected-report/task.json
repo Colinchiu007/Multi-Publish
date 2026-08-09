@@ -1,0 +1,12 @@
+{
+  "id": "affected-report",
+  "title": "affected-report 脚本：base..head 受影响测试项目诊断工具",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "ci-tooling",
+  "currentPhase": "completed",
+  "nextAction": "已归档（scripts/ 工具脚本，直提 main）",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "remoteStatus": "main-direct"
+}

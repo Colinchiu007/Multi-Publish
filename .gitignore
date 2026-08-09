@@ -100,6 +100,7 @@ apps/desktop/tests/e2e/reports/screenshots/
 scripts/*.js
 !scripts/quality-rhythm-wrapper.js
 !scripts/openspec-sync-check.js
+!scripts/affected-report.js
 screenshot_script*.js
 temp_debug.txt
 coverage/
