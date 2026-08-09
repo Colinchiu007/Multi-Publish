@@ -17,3 +17,9 @@
 - [ ] 提交 → push → PR → CI → 合并回 main
 - [ ] 应用重启验证：未登录打开历史记录不再弹错
 - [ ] OpenSpec archive + CCG 归档 + 记忆更新
+
+### 任务 6：历史记录友好错误处理（用户确认方案后追加）
+- [x] 主进程：`story2video:list-projects` 返回 `localMode`（owner 回退设备级命名空间时标记）；service 暴露 `isLocalOwner()`；handler 对缺失方法兜底 false
+- [x] 渲染端：`loadHistory` 成功时记录 `historyLocalMode` 并显示「本地模式」提示条（HISTORY_LOCAL_MODE zh/en 文案）；失败时透传 IPC message 经 `historyLoadFailureDetail` 映射为可操作建议（登录/本地存储/超时）展示在错误弹窗 detail 行
+- [x] 测试：notifications（`historyLoadFailureDetail` 四态）、CreateView（localMode 提示条 / 存储建议 / 未登录建议）、IPC（localMode 标记与兜底）、既有弹窗断言同步 detail 字段
+- 测试目标：notifications.test.js / CreateView.test.js / story2video.test.js（5 套件 163 用例绿）

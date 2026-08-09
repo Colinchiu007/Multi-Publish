@@ -153,6 +153,14 @@ class Story2VideoProjectService {
       : MAX_PROJECTS
   }
 
+  /**
+   * 当前是否为设备级本地命名空间（未登录/无身份服务）。
+   * 供 IPC 返回 localMode 标记，渲染端据此展示「本地模式」提示。
+   */
+  isLocalOwner () {
+    return this._ownerSubject() === LEGACY_OWNER_SUBJECT
+  }
+
   _ownerSubject () {
     if (!this.store) throw new Error('Story2Video 项目存储不可用')
     const owner = typeof this.store._resolveOwnerSubject === 'function'

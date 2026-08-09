@@ -18,6 +18,7 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   PROJECT_DELETE_CONFIRM: 'story2video.project_delete_confirm',
   TEMPLATE_DELETE_CONFIRM: 'story2video.template_delete_confirm',
   HISTORY_LOAD_FAILED: 'story2video.history_load_failed',
+  HISTORY_LOCAL_MODE: 'story2video.history_local_mode',
   EXPORT_COMPLETED: 'story2video.export_completed',
   EXPORT_CANCELLED: 'story2video.export_cancelled',
   SAVE_COMPLETED: 'story2video.save_completed',
@@ -56,6 +57,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM]: '确定删除当前项目及其本地产物吗？此操作无法撤销。',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM]: '确定删除这个自定义模板吗？此操作无法撤销。',
     [STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED]: '历史记录暂时无法加载，请稍后再试。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOCAL_MODE]: '当前为本地模式，仅显示本机记录。',
     [STORY2VIDEO_NOTIFICATION_KEYS.EXPORT_COMPLETED]: 'ZIP 导出完成。',
     [STORY2VIDEO_NOTIFICATION_KEYS.SAVE_COMPLETED]: '文件已保存。',
     [STORY2VIDEO_NOTIFICATION_KEYS.EXPORT_CANCELLED]: '已取消导出。',
@@ -92,6 +94,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM]: 'Delete this project and its local output? This cannot be undone.',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM]: 'Delete this custom template? This cannot be undone.',
     [STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED]: 'History is unavailable right now. Please try again shortly.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOCAL_MODE]: 'Local mode — showing records on this device only.',
     [STORY2VIDEO_NOTIFICATION_KEYS.EXPORT_COMPLETED]: 'Your ZIP export is ready.',
     [STORY2VIDEO_NOTIFICATION_KEYS.SAVE_COMPLETED]: 'The file has been saved.',
     [STORY2VIDEO_NOTIFICATION_KEYS.EXPORT_CANCELLED]: 'Export was cancelled.',
@@ -270,6 +273,35 @@ export function formatStory2VideoNotification (notification = {}, locale = getSt
   const params = normalizeParams(notification?.messageParams || notification?.errorParams, normalizedLocale, messageKey, rawError)
   const message = messageFor(messageKey, params, normalizedLocale)
   return { messageKey, message, codePointCount: countUnicodeCodePoints(message) }
+}
+
+const HISTORY_DETAIL_PATTERNS = Object.freeze({
+  zh: [
+    { pattern: /无法识别当前用户|未登录|登录已过期|login|not signed/i, detail: '当前未登录或登录已过期。请登录后重试；未登录时仅显示本机记录。' },
+    { pattern: /存储不可用|存储不可写|项目存储|store (unavailable|not)|storage (not )?(writable|ready)|storage failed/i, detail: '本地存储异常。请重启应用后重试；若持续出现请检查本地磁盘空间与权限。' },
+    { pattern: /超时|timeout|timed out/i, detail: '加载超时。请关闭后重新进入历史记录重试；若持续出现请重启应用。' },
+  ],
+  en: [
+    { pattern: /cannot identify|not signed|login|sign in|无法识别当前用户|未登录|登录已过期/i, detail: 'You are not signed in or your session expired. Sign in to retry; local records remain available offline.' },
+    { pattern: /store (unavailable|not)|storage (not )?(writable|ready)|storage failed|存储不可用|存储不可写|项目存储/i, detail: 'Local storage is having issues. Restart the app to retry; if it persists, check local disk space and permissions.' },
+    { pattern: /timeout|timed out|超时/i, detail: 'Loading timed out. Close and reopen the history list to retry; if it persists, restart the app.' },
+  ],
+})
+
+/**
+ * 历史记录加载失败时，按具体原因生成可操作建议（供错误弹窗 detail 行展示）。
+ * 无法识别的原因返回空串（不展示 detail，避免把内部错误文本直接暴露给用户）。
+ * @param {string|undefined|null} message - 主进程返回的原始错误 message（IPC result.message / reject reason）
+ * @param {string} [locale]
+ * @returns {string}
+ */
+export function historyLoadFailureDetail (message, locale = getStory2VideoLocale()) {
+  const raw = String(message || '').trim()
+  if (!raw) return ''
+  const normalizedLocale = normalizeStory2VideoLocale(locale)
+  const rules = HISTORY_DETAIL_PATTERNS[normalizedLocale] || HISTORY_DETAIL_PATTERNS.zh
+  const matched = rules.find(rule => rule.pattern.test(raw))
+  return matched ? matched.detail : ''
 }
 
 export function resolveStory2VideoNotification (notification = {}, options = {}) {

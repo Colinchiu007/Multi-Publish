@@ -56,8 +56,11 @@ function registerHandlers (ipcMain, deps = {}) {
   }
 
   ipcMain.handle('story2video:list-projects', withSenderCheck(async () => {
-    try { return { code: 0, data: requireProjectService().listProjects() } }
-    catch (error) { return { code: EC.REQUEST_ERROR, message: error.message, data: [] } }
+    try {
+      const service = requireProjectService()
+      const localMode = typeof service.isLocalOwner === 'function' ? service.isLocalOwner() : false
+      return { code: 0, data: service.listProjects(), localMode }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message, data: [] } }
   }))
 
   ipcMain.handle('story2video:get-project', withSenderCheck(async (_event, projectId) => {
