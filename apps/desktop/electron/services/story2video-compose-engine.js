@@ -190,6 +190,23 @@ function buildScaleFilter (width, height) {
     'pad=' + safeWidth + ':' + safeHeight + ':(ow-iw)/2:(oh-ih)/2:color=black'
 }
 
+/**
+ * 片段编码超时（ms）：按「时长 × 帧率」估算编码工作量，最低 30s、上限 5min。
+ * 抖动修复用 2x 中间分辨率 zoompan（1080p 输出 → 3840x2160 画布），
+ * 本机编码速度约 10-20fps，20s 片段需要 40s+；固定 30s 超时会把慢速编码误杀
+ * （E2E-PENDING 待办 D 同类资源问题：27 场景 run 在第 13 段失败）。
+ * @param {number|string|undefined|null} effectDuration 片段有效时长（秒）
+ * @param {number|string|undefined|null} fps 帧率
+ * @returns {number} 超时毫秒数
+ */
+function computeSegmentEncodeTimeoutMs (effectDuration, fps) {
+  const seconds = Math.max(0.1, Number(effectDuration) || 3)
+  const frameRate = clampNumber(fps, 1, 120, 30)
+  // 假设最低编码速度 10fps（4K zoompan 慢速场景），预留 20s 缓冲
+  const estimatedMs = Math.ceil((seconds * frameRate) / 10) * 1000
+  return Math.max(30000, Math.min(300000, estimatedMs + 20000))
+}
+
 function normalizeComposeScenes (assetManifest) {
   if (!assetManifest || typeof assetManifest !== 'object') return []
   const sentences = Array.isArray(assetManifest.sentences) ? assetManifest.sentences : []
@@ -1045,10 +1062,34 @@ class Story2VideoComposeEngine {
   }
 
   /**
-   * 创建单个视频片段（图片 + 音频 + 可选字幕）
+   * 创建单个视频片段（图片 + 音频 + 可选字幕）。
+   * 抖动修复默认以 2x 工作分辨率执行 zoompan；编码失败（超时/资源受限）时
+   * 逐级降档重试 2x → 1.5x → 1x，全部失败才抛错，避免单段失败拖垮整条流水线。
    * @private
    */
   async _createSegment (imagePath, audioPath, outputPath, opts) {
+    const workScales = [2, 1.5, 1]
+    let lastError = null
+    for (const workScale of workScales) {
+      try {
+        await this._encodeSegmentOnce(imagePath, audioPath, outputPath, { ...opts, workScale })
+        return
+      } catch (e) {
+        lastError = e
+        this.log.warn(
+          'Story2VideoCompose',
+          'Segment encode failed at workScale=' + workScale + ': ' + e.message + '；降档重试',
+        )
+      }
+    }
+    throw lastError
+  }
+
+  /**
+   * 单次片段编码（指定工作分辨率倍率）。失败由 _createSegment 的降档循环处理。
+   * @private
+   */
+  async _encodeSegmentOnce (imagePath, audioPath, outputPath, opts) {
     const args = ['-y']
 
     // min-duration 静音补齐：目标时长由调用方在“真实探测到音频且补齐目标严格大于音频时长”时计算并传入 padTo。
@@ -1076,8 +1117,9 @@ class Story2VideoComposeEngine {
     // 在 2x 画布上执行 zoompan（s=2x 尺寸），再下采样回目标分辨率，帧间运动平滑。
     const filters = []
     if (imageEffect) {
-      const workWidth = clampNumber(opts.width, 160, 4096) * 2
-      const workHeight = clampNumber(opts.height, 160, 4096) * 2
+      const workScale = opts.workScale ?? 2
+      const workWidth = Math.min(7680, Math.round(clampNumber(opts.width, 160, 4096) * workScale))
+      const workHeight = Math.min(7680, Math.round(clampNumber(opts.height, 160, 4096) * workScale))
       filters.push(buildScaleFilter(workWidth, workHeight))
       filters.push(buildImageEffectFilter(opts.imageEffect, workWidth, workHeight, opts.fps, opts.effectDuration, frameRounding))
       filters.push(buildScaleFilter(opts.width, opts.height))
@@ -1129,7 +1171,9 @@ class Story2VideoComposeEngine {
     // 输出
     args.push(outputPath)
 
-    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: 30000, maxBuffer: 1024 * 1024 })
+    // 编码超时按时长×帧率估算（最低 30s），避免 4K zoompan 慢速编码被固定 30s 误杀
+    const encodeTimeout = computeSegmentEncodeTimeoutMs(opts.effectDuration, opts.fps)
+    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: encodeTimeout, maxBuffer: 1024 * 1024 })
     if (!hasUsableFile(outputPath)) {
       throw new Error('ffmpeg did not produce output: ' + (stderr || '').slice(-200))
     }
@@ -1328,6 +1372,7 @@ module.exports = {
   buildSubtitleFilter,
   buildWatermarkFilter,
   buildScaleFilter,
+  computeSegmentEncodeTimeoutMs,
   parseResolution,
   resolveCjkFont,
   escapeFontFilePath,
